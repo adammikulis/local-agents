@@ -65,6 +65,12 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/EcoSurfacePass.gd"]
 
 const SCENT_PLANES: int = 5
+# PER-LEG SOIL BUDGET PROBE. soil_sphere3d.glsl writes DBG_SLOTS floats per cell (its own, no atomics) naming
+# every leg that moves groundwater: sent vs received for each of Darcy / spring / up-seep / infiltration, plus
+# the clamp gain and the two branches that silently drop what they gather. Always written (a handful of stores
+# next to six neighbour gathers) but read back only on demand — LAMaterialFieldSoilBudget3D under LA_SOIL_BUDGET.
+# MUST match DBG_SLOTS in soil_sphere3d.glsl.
+const SOIL_DBG_SLOTS: int = 20
 # Slots in the `active_args` buffer (see setup()). 0-2 are the uvec3 dispatch-indirect argument; 3 is the
 # compacted list length a compacted kernel uses as its loop bound; 4-5 are sparsity telemetry. 8 rather than 6
 # purely for 32-byte alignment.
@@ -169,6 +175,7 @@ func setup(field) -> void:
 	for name in SINGLE_CHANNELS:
 		_bufs[name] = _new_f(_cc)
 	_bufs["send"] = _new_f(_cc * 6)
+	_bufs["soil_dbg"] = _new_f(_cc * SOIL_DBG_SLOTS)     # per-leg groundwater budget probe (see SOIL_DBG_SLOTS)
 	# ACTIVE-CELL LIST (Keystone C, asymptotic half). `active_idx` holds the compacted cell ids a compacted
 	# pass iterates; `active_args` is BOTH the uvec3 dispatch-indirect argument (slots 0-2) and the atomic
 	# counters (3 = list length, 4/5 = sparsity telemetry) — one buffer, because a storage buffer created with
@@ -683,6 +690,26 @@ func channel_total(name: String) -> float:
 	for i in mini(arr.size(), _cc):
 		sum += arr[i]
 	return sum
+
+
+## PER-LEG SOIL BUDGET readback (LA_SOIL_BUDGET diagnostics only). Returns the probe array soil_sphere3d.glsl
+## filled this step AND the soil channel as it stands right now, read after ONE flush so both describe the SAME
+## step — which is the whole point. `_soil` on the field cannot be used for the second half: it rides the SLOW
+## readback cadence (every 4th drain) and is a frame behind, so differencing it against a current probe would
+## attribute one step's transfers to another step's total.
+##
+## The LIVE half after step()'s phase flip is exactly the buffer SoilPass wrote as SoilOut and ReactionsPass
+## then edited in place (R19 root uptake), so `soil` here is the FINAL post-everything value and
+## `soil - DBG_REG_OUT` isolates what ran after the soil kernel.
+func read_soil_budget() -> Dictionary:
+	if _rd == null or not _bufs.has("soil_dbg"):
+		return {}
+	_flush_pending()
+	return {
+		"dbg": _rd.buffer_get_data(_bufs["soil_dbg"]).to_float32_array(),
+		"soil": _rd.buffer_get_data(_live("soil")).to_float32_array(),
+		"step_index": _step_index,
+	}
 
 
 ## SAVE snapshot: read back EVERY GPU-resident channel (pair channels from their live half, single channels

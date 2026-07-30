@@ -23,11 +23,15 @@ const MAX_STEPS_PER_FRAME: int = 2
 const FIELD_CADENCE_MAX: int = 60                       # clamp for the published Sim knob (avoid absurd skips)
 
 const LakesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLakes3D.gd")
+const SoilBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd")
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
 var _cam_frame: int = -1
 var _cam_pos: Vector3 = Vector3(INF, INF, INF)
+# Per-leg groundwater budget probe (LA_SOIL_BUDGET). Owned here rather than on the field because it is a
+# STEP diagnostic: it needs a hook that fires once per GPU step, which is this loop and nowhere else.
+var _soil_budget = null
 
 # TWO CLOCKS, PUBLISHED SO THEY CAN BE COMPARED. `field_sim_s` is the simulated time the substrate ACTUALLY
 # advanced (STEP_DT per GPU step); `field_offer_s` is the simulated time the physics tick HANDED it (the sum
@@ -42,6 +46,9 @@ var _offer_s: float = 0.0
 
 func setup(field) -> void:
 	_f = field
+	if OS.has_environment("LA_SOIL_BUDGET"):
+		_soil_budget = SoilBudgetScript.new()
+		_soil_budget.setup(field)
 
 
 ## Active camera position in the field's own local space (matches the per-cell `pos` buffer's frame),
@@ -224,6 +231,8 @@ func process(delta: float) -> void:
 	LASimReport.gauge("field_post_ms", float(Time.get_ticks_usec() - t_post) / 1000.0)   # scatter + CPU post-passes
 	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
 	LASimReport.event("field_step")   # telemetry: GPU field runs/run — a slower cadence lowers this (and the avg field_ms)
+	if _soil_budget != null:
+		_soil_budget.post_step()      # LA_SOIL_BUDGET: print the per-leg groundwater ledger on its own cadence
 
 
 ## Scatter every channel the sphere driver read back into its CPU array, so actor world-space queries

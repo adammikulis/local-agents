@@ -32,7 +32,17 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 		push_error("SoilPass: null RenderingDevice")
 		return
 	var sf: RDShaderFile = load(SOIL_PATH)
-	_shader = _rd.shader_create_from_spirv(sf.get_spirv())
+	var spirv: RDShaderSPIRV = sf.get_spirv()
+	# FAIL LOUD ON A KERNEL THAT DID NOT COMPILE. Godot's own message for this is "Can't create a shader from
+	# an errored bytecode", which says nothing about WHICH kernel or WHY, and the driver's WIP-tolerant pass
+	# loader then keeps the pass in the list with a null pipeline — so the aquifer silently stops running and
+	# the sim goes on printing plausible soil numbers. Measured 2026-07-30: a one-line GLSL error (reading a
+	# `writeonly` buffer) killed this pass for a 750-step run and the only symptom was a soil total that drifted.
+	var err: String = spirv.get_stage_compile_error(RenderingDevice.SHADER_STAGE_COMPUTE)
+	if not err.is_empty():
+		push_error("SoilPass: " + SOIL_PATH.get_file() + " failed to compile — the aquifer will not run.\n" + err)
+		return
+	_shader = _rd.shader_create_from_spirv(spirv)
 	_pipe = _rd.compute_pipeline_create(_shader)
 
 	var solid_rid: RID = bufs.get("solid", RID())
@@ -44,6 +54,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var soil_pair: Array = bufs.get("soil", [RID(), RID()])
 	var temp_pair: Array = bufs.get("temp", [RID(), RID()])
 	var activity_pair: Array = bufs.get("activity", [RID(), RID()])
+	var dbg_rid: RID = bufs.get("soil_dbg", RID())
 
 	for p in 2:
 		var back: int = 1 - p
@@ -57,13 +68,14 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[6, regolith_rid],         # Regolith aquifer permeability mask
 			[7, temp_pair[back]],      # Temp = POST-thermal temp (BACK, rw) — carry geothermal heat into springs
 			[8, activity_pair[p]],     # Relevance (live half — this pass runs before ActivityPass)
+			[9, dbg_rid],              # SoilDbg — per-leg budget probe (LAMaterialSphereGPU3D.SOIL_DBG_SLOTS)
 			[15, nbr_rid],             # Neigh table
 		])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
-	if _rd == null:
-		return
+	if _rd == null or not _pipe.is_valid():
+		return                                  # no device, or the kernel failed to compile (setup push_error'd)
 	var uset: RID = _set[parity]
 	var depth: int = int(ctx.get("depth", 20))
 	var core_r: float = float(ctx.get("core_radius", 170.0))
