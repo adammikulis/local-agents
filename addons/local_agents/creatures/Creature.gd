@@ -581,7 +581,7 @@ func _physics_process(delta: float) -> void:
 	_throw_cd -= delta
 	# Night perception: nocturnal species gain range after dark, diurnal ones lose it.
 	_sense_mult = 1.0
-	if _ecology != null and _ecology.has_method("is_night") and _ecology.is_night():
+	if _ecology != null and _ecology.has_method("is_night_at") and _ecology.is_night_at(global_position):
 		_sense_mult = 1.4 if nocturnal else 0.7
 	# Ambient groundcover grazing: a herbivore on vegetated ground draws a steady subsistence feed from the shared
 	# biomass field (grass/algae) into its gut, so grassland itself feeds it and pure grazers don't starve amid
@@ -869,12 +869,13 @@ func _physics_process(delta: float) -> void:
 	LACreatureTint.update(self)
 
 
-# Off-hours: diurnal animals rest at night, nocturnal ones by day — from the one `nocturnal` flag +
-# the shared clock, no per-species sleep schedule.
+# Off-hours: diurnal animals rest at night, nocturnal ones by day — from the one `nocturnal` flag + WHERE
+# THIS ANIMAL IS STANDING relative to the sun, no per-species sleep schedule and no global clock. Two herds
+# on opposite sides of the planet are correctly on opposite schedules.
 func _rest_period() -> bool:
-	if _ecology == null or not _ecology.has_method("is_night"):
+	if _ecology == null or not _ecology.has_method("is_night_at"):
 		return false
-	return _ecology.is_night() != nocturnal
+	return _ecology.is_night_at(global_position) != nocturnal
 
 
 # Home drive: establish a nest the first time, then head to it — to SLEEP through the rest period,

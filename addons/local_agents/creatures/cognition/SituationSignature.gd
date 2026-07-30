@@ -60,7 +60,7 @@ static func compute(c) -> Dictionary:
 			at_water = 1
 	var eco = c.get("_ecology")
 	var night: int = 0
-	if eco != null and eco.has_method("is_night") and eco.is_night():
+	if eco != null and eco.has_method("is_night_at") and eco.is_night_at(c.global_position):
 		night = 1
 
 	var key: int = ((e * HYDRATION_BUCKETS + h) * 2 + at_water) * 2 + night

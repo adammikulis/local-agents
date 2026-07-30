@@ -23,7 +23,7 @@ const GROUND_SCATTER: float = 4.0
 static func should_seek_nest(c) -> bool:
 	if not c.nests:
 		return false
-	var night: bool = c._ecology != null and c._ecology.has_method("is_night") and c._ecology.is_night()
+	var night: bool = c._ecology != null and c._ecology.has_method("is_night_at") and c._ecology.is_night_at(c.global_position)
 	var resting: bool = night != bool(c.nocturnal)
 	if resting:
 		return true

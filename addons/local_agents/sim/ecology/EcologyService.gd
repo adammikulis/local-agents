@@ -38,18 +38,44 @@ var _breeding: LAEcologyBreeding = null  # reproduction/population dynamics (lan
 var _plants: LAEcologyPlants = null      # vegetation seeding (plant spread + forest succession)
 var _aquatic: LAEcologyAquatic = null    # non-repro aquatic placement (initial stock + depth-band sampler)
 
-# Shared day/night clock (0=midnight .. 0.5=noon), set by VoxelWorld each frame. Creatures
-# read is_night() so nocturnal species behave differently after dark — emergent, not scripted.
-var time_of_day: float = 0.3
+# NIGHT IS A PLACE, NOT A CLOCK. On a sphere lit by a real sun there is no global "time of day": half the
+# world is lit and half is dark at every instant, and which half you are in depends on where you stand.
+#
+# This replaced a global `time_of_day: float = 0.3` plus an `is_night()` that compared it to dusk/dawn
+# thresholds. That scalar was FROZEN AT ITS SEED VALUE FOR THE WHOLE RUN: LAVoxelSkyCycle latches
+# `_planet_mode` permanently and its `_update_day_night()` returns before `_advance_clocks(delta)` is ever
+# reached, because in planet mode day/night is supposed to come from the planet turning under a fixed sun.
+# So `is_night()` answered FALSE forever, and the damage was silent and everywhere:
+#   * diurnal animals never entered a rest period, and nocturnal ones never left one (Creature._rest_period)
+#   * the night sense multiplier (nocturnal 1.4 / diurnal 0.7) never applied to anyone
+#   * the `night` bit in the learned-policy signature was a constant, so half the signature space was
+#     unreachable and every heuristic any creature ever learned was a daytime heuristic
+#   * LACreatureLod's cost model documents "a fraction of the population is always asleep". It was not.
+#
+# The terminator was physical the whole time: LASystemOrbits computes the planet->sun vector, and the field's
+# solar kernel already lights cells with max(0, dot(cell_radial, sun_dir)). This asks the same question the
+# substrate already answers, per creature, and keeps no state that can go stale.
+var _sun_dir: Vector3 = Vector3.ZERO      # unit planet-centre -> sun; zero length = no sun known yet
+var _sun_centre: Vector3 = Vector3.ZERO   # the body the local `up` is measured from
 
 
-func set_time_of_day(t: float) -> void:
-	time_of_day = t
+## Publish the real sun geometry (the world calls this each frame). `dir` is the unit vector from the planet
+## centre toward the star, `centre` is that planet centre. A flat or sunless world simply never calls it and
+## every query below answers "day" — the right default for a world with no terminator.
+func set_sun(dir: Vector3, centre: Vector3) -> void:
+	_sun_dir = dir
+	_sun_centre = centre
 
 
-func is_night() -> bool:
-	# Sun is below the horizon between dusk (~0.78) and dawn (~0.22).
-	return time_of_day < 0.22 or time_of_day > 0.78
+## Is `pos` on the dark side? Local up is the outward radial from the planet centre, so this is exactly "is
+## the sun below my horizon". Dusk and dawn need no thresholds — the dot product crosses zero by itself.
+func is_night_at(pos: Vector3) -> bool:
+	if _sun_dir.length_squared() < 0.0001:
+		return false
+	var up: Vector3 = pos - _sun_centre
+	if up.length_squared() < 0.000001:
+		return false
+	return up.normalized().dot(_sun_dir) < 0.0
 
 # pending spawns whose surface wasn't ready yet: [{kind, pos, tries}]
 var _pending: Array = []
