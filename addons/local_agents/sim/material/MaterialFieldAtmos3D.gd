@@ -77,6 +77,12 @@ func refresh_aggregates() -> void:
 	var precip_n: int = 0
 	var total: float = 0.0
 	for i in range(cell_count):
+		# THE INCLUSION RULE (canonical statement: LAMaterialFieldLedger3D's header). `_moisture` lives in OPEN
+		# cells, so open is the whole test — every one of them, static ones included. The static flag marks the
+		# cells whose `_water` is an infinite reservoir; it says nothing about their air, which is simulated
+		# normally, so dropping them here would delete the atmosphere over the entire ocean from the ledger.
+		# `total` below is the h2o_total moisture leg, and it must agree with the other three legs about what a
+		# cell is or transfers across the boundary mint and destroy ledger mass. Do not add a `stat[i]` test.
 		if solid[i] != 0:
 			continue
 		var aw: float = moisture[i]
@@ -176,7 +182,9 @@ func precipitation() -> float:
 	return _f._precip_c
 
 
-## Total suspended atmospheric water mass (mass-conservation spot check; used by the SIM_REPORT).
+## Total suspended atmospheric water mass — the AIRBORNE leg of the conserved H₂O ledger (`h2o_total`), summed
+## over every OPEN cell per the one inclusion rule documented in LAMaterialFieldLedger3D's header. Computed in
+## refresh_aggregates' single grid pass and cached, so this is a cache read, not a scan.
 func moisture_total() -> float:
 	if _f._atmos_dirty:
 		refresh_aggregates()

@@ -20,13 +20,19 @@ extends RefCounted
 ##   Before Keystone B, R19 photosynthesis was gated GATE_SURFACE, so 100% of it ran at the top of the
 ##   atmosphere: biomass_sky 2334, biomass_ground 0.0.
 ##
-## ROOT WATER: `soil` is only ever non-zero in REGOLITH (solid) cells — soil_sphere3d.glsl writes
-## `soil_out[g] = 0.0` for every open cell. A plant's root water is therefore the soil in the permeable
-## regolith COLUMN beneath it (REGOLITH_CELLS deep; below that is impermeable bedrock), which is exactly the
-## agronomic rooting-zone available water. `root_d1..d4` break that column down by shell because the shape
-## matters: Darcy drives groundwater toward lower head, so the table sits on the bedrock floor and the top
-## shells are dry (measured d1 5.1e-9, d2 1.3e-8, d3 0.199, d4 0.543). Reading `soil` at the open cell, or at
-## the single cell directly below it, reads a structural zero — not an absence of land water.
+## ROOT WATER: `soil` is only ever non-zero in REGOLITH cells — soil_sphere3d.glsl:223-229 keys on the regolith
+## mask and writes `soil_out[g] = 0.0` for every non-regolith open cell. A plant's root water is therefore the
+## soil in the permeable regolith COLUMN beneath it (REGOLITH_CELLS deep; below that is impermeable bedrock),
+## which is exactly the agronomic rooting-zone available water. `root_d1..d4` break that column down by shell
+## because the shape matters: Darcy drives groundwater toward lower head, so the table sits on the bedrock
+## floor and the top shells are dry (measured d1 5.1e-9, d2 1.3e-8, d3 0.199, d4 0.543). Reading `soil` at the
+## open cell, or at the single cell directly below it, reads a structural zero — not an absence of land water.
+##
+## The column walk masks on `regolith`, NOT on `solid`, and that correction is load-bearing (2026-07-30). The
+## two masks diverge — `solid` is re-derived from rock_fill every step, `regolith` is seeded once — so an
+## eroded or river-carved aquifer cell reads open while still holding and still simulating its soil. Because
+## the water sits DEEP (d1/d2 ~0, d3/d4 carry it all), a walk that stopped at such a cell discarded the entire
+## water table and reported bone-dry ground: FAKE DESERTS, in the one gauge built to measure real ones.
 ## (Explicit types only, no ':=' inferred typing.)
 
 const LIT_MIN: float = 0.05                # insolation above which a cell counts as genuinely lit
@@ -58,6 +64,7 @@ func report() -> Dictionary:
 	var solid: PackedByteArray = _f._solid
 	var stat: PackedByteArray = _f._static
 	var soil: PackedFloat32Array = _f._soil
+	var regolith: PackedByteArray = _f._regolith
 	var biomass: PackedFloat32Array = _f._biomass
 	var temp: PackedFloat32Array = _f._temp
 	var co2: PackedFloat32Array = _f._co2
@@ -65,6 +72,7 @@ func report() -> Dictionary:
 	if solid.size() != cc or biomass.size() != cc:
 		return out
 	var has_soil: bool = soil.size() == cc
+	var has_reg: bool = regolith.size() == cc
 	var has_co2: bool = co2.size() == cc
 	var has_fert: bool = fert.size() == cc
 	var has_temp: bool = temp.size() == cc
@@ -114,16 +122,23 @@ func report() -> Dictionary:
 			continue                                     # not GROUND skin — no rock beneath, so no roots
 		ground_n += 1
 		bio_ground += biomass[c]
-		# Rooting-zone water: walk inward through the permeable regolith band (stop at open ground, which is
-		# what makes each ground cell's column disjoint from every other's — the same walk the kernel does).
+		# Rooting-zone water: walk inward through the permeable REGOLITH band, counting the first open aquifer
+		# cell and stopping there (which is what makes each ground cell's column disjoint from every other's).
+		# This MUST stay cell-for-cell identical to reactions_sphere3d.glsl's root_soil() — it is the gauge for
+		# that walk, and when it mirrored the kernel's old solid-mask test the two agreed with each other while
+		# both were wrong, so the telemetry confirmed the bug instead of catching it. Mask on `regolith`, not
+		# `solid`: `solid` is re-derived from rock_fill every step while `regolith` is seeded once, so an
+		# eroded or carved aquifer cell reads open yet still holds and still simulates its soil.
 		var col: float = 0.0
-		if has_soil:
+		if has_soil and has_reg:
 			for d in reg:
 				var rc: int = c - 1 - d
-				if r - 1 - d < 0 or solid[rc] == 0:
+				if r - 1 - d < 0 or regolith[rc] == 0:
 					break
 				col += soil[rc]
 				dsum[d] += soil[rc]
+				if solid[rc] == 0:
+					break
 		col_vals.append(col)
 		col_bio.append(biomass[c])
 		var light: float = maxf(0.0, _f.cell_radial(c).dot(sun))

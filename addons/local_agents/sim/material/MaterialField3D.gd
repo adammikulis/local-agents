@@ -121,11 +121,15 @@ var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ lev
 # --- Emergent DECOMPOSER loop (LAMaterialFungus3D): dead organic matter (DETRITUS) deposited by rotting
 # carcasses + wildfire ash is colonised by FUNGUS, which rots it back into CO₂ + soil fertility while drawing
 # O₂ (aerobic). Closes the carbon/nutrient loop (death→soil→plant). Seeded ~0; only exists where a source made it.
-# --- SOIL WATER / water table (LASoilPass / soil_sphere3d): water held in the top GROUND (solid) cell layer.
+# --- SOIL WATER / water table (LASoilPass / soil_sphere3d): water held in the REGOLITH band, the top few
+# groundwater-bearing shells of each column (`_regolith`, NOT simply "solid" — soil_sphere3d.glsl:223 keys on
+# the regolith mask, so a carved or eroded cell reads open yet still holds and still simulates its soil).
 # The reservoir that lets land water persist — surface water infiltrates in, the ground releases it slowly as
-# baseflow (perennial rivers) + saturation overflow. GPU-owned; read back for soil_at()/soil_total() + the
-# conserved h2o ledger (infiltrated water lives here, NOT in _water, so it must be counted). The SAME conserved
-# H₂O substance as _water/_moisture/_snow, just the subsurface phase.
+# baseflow (perennial rivers) + saturation overflow. GPU-owned; read back for `soil_total()` + the conserved
+# h2o ledger (infiltrated water lives here, NOT in _water, so it must be counted). The SAME conserved H₂O
+# substance as _water/_moisture/_snow, just the subsurface phase. (There is no per-point `soil_at()`; this
+# said there was until 2026-07-30, and no such method has ever existed anywhere in the tree. The rooting-zone
+# read that would use one is the kernel's derived SOIL_ROOT slot plus LAMaterialFieldPhotoStats3D's mirror.)
 var _soil: PackedFloat32Array = PackedFloat32Array()     # water stored in the ground per cell (0 = bone dry)
 var _detritus: PackedFloat32Array = PackedFloat32Array() # dead decomposable organic matter per cell (0 = none)
 var _fungus: PackedFloat32Array = PackedFloat32Array()   # fungal biomass density per cell (0 = none; high = mushrooms)
@@ -1022,7 +1026,10 @@ func erosion_cell_count() -> int:
 	return 0
 # --- Conserved H₂O ledger + snow/ice diagnostics — bodies live in LAMaterialFieldLedger3D. ONE water
 # substance in four phase channels (liquid `_water`, airborne `_moisture`, frozen `_snow`, subsurface
-# `_soil`); every transition is a transfer between them, so h2o_total must stay BOUNDED. ------------------
+# `_soil`); every transition is a transfer between them, so h2o_total must stay BOUNDED. All four legs obey
+# ONE inclusion rule — a cell counts where its channel physically lives (open cells for water/moisture/snow,
+# regolith cells for soil), and the static flag is a memo line, not a filter. The rule and why the four legs
+# used to disagree are documented once, in LAMaterialFieldLedger3D's header. -------------------------------
 ## Snow depth at a world point (frozen H₂O in the cell). 2.5D-style (x,z) calls have no radial point, so they
 ## return the safe default 0 (matching temp_at); a full 3D call (x,z,y) reads the real cell — three-d-always.
 func snow_depth_at(pos: Vector3) -> float:
@@ -1033,17 +1040,20 @@ func snow_cell_count() -> int:
 ## Cells whose pack is thick enough to read as glacial ICE (deep end of the SAME _snow channel, no separate buffer).
 func ice_cell_count() -> int:
 	return _ledger.ice_cell_count()
-## Total frozen H₂O over the field (one leg of the conserved h2o_total).
+## Total frozen H₂O over the field, over every open cell (one leg of the conserved h2o_total).
 func snow_total() -> float:
 	return _ledger.snow_total()
-## Total dynamic liquid water over the field (excludes the static sea reservoir; one leg of h2o_total).
+## Total liquid water over the field, over every open cell — the static sea/lake reservoir INCLUDED. Its
+## subset is `_ledger.static_water_total()`; the sea-excluded figure is `_ledger.h2o_dynamic_total()`.
 func water_total() -> float:
 	return _ledger.water_total()
-## Total water stored in the SOIL (ground cells) — the subsurface leg of the conserved h2o budget. Infiltrated
-## water lives here rather than in _water, so it must be counted or conservation would appear to leak.
+## Total water stored in the SOIL, over every REGOLITH cell — the subsurface leg of the conserved h2o budget.
+## Infiltrated water lives here rather than in _water, so it must be counted or conservation would appear to
+## leak. Masked on regolith, not solidity: carved/eroded aquifer cells read open but still hold their soil.
 func soil_total() -> float:
 	return _ledger.soil_total()
-## Conserved H₂O budget of the DYNAMIC system: liquid water + airborne moisture + frozen snow + SOIL water.
+## The planet's WHOLE conserved H₂O budget: liquid water (sea included) + airborne moisture + frozen snow +
+## soil water. A closed sum since the four legs' inclusion rule was unified — nothing sits outside it.
 func h2o_total() -> float:
 	return _ledger.h2o_total()
 ## Mean temperature over the snow-covered cells — proves snow sits on the COLD side (should read below FREEZE_TEMP).

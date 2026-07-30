@@ -11,6 +11,33 @@ extends RefCounted
 ## the mass-conservation spot check the SIM_REPORT prints. Snow and ice are the same channel read at two
 ## depths (SNOW_PRESENT = covered, ICE_DEPTH = glacial), not two buffers.
 ##
+## THE INCLUSION RULE — ONE rule, obeyed by every leg (unified 2026-07-30; before that all four disagreed).
+##
+##   A cell counts toward a channel's total if and only if THE CHANNEL PHYSICALLY LIVES THERE:
+##     `_water` · `_moisture` · `_snow`  ->  every OPEN cell (`_solid[c] == 0`), static ones INCLUDED.
+##     `_soil`                           ->  every REGOLITH cell (`_regolith[c] != 0`), NOT every solid cell.
+##                                           Bedrock under the regolith band holds no soil, and a regolith
+##                                           cell whose solidity was carved or eroded away still HOLDS and
+##                                           still SIMULATES its soil — soil_sphere3d.glsl:223 keys on
+##                                           regolith, not solidity, so the kernel keeps stepping it.
+##
+##   Nothing else narrows a leg. In particular the STATIC flag is NOT an accounting filter: it marks the
+##   sea/lake cells whose `_water` the kernels treat as an infinite reservoir, which is a claim about what
+##   is SIMULATED, not about what EXISTS. `static_water_total()` reports that subset as a memo line and
+##   `h2o_dynamic_total()` is the remainder, so nothing is lost by counting the sea in.
+##
+## WHY IT HAD TO BECOME ONE RULE. The four legs used four different predicates, so any transfer crossing a
+## boundary that one leg respected and another ignored MINTED or DESTROYED ledger mass while the GPU buffers
+## stayed perfectly conserving — the ledger's own disagreement was being read as physics. Concretely, before
+## this: `water_total` excluded static cells while `snow_total` and `moisture_total` included them, so sea
+## ice freezing moved uncounted water into counted snow (mass from nowhere) and its melt destroyed it again;
+## and `soil_total` keyed on solidity, so carved-river and eroded regolith cells dropped out of the books
+## while the kernel went on simulating them.
+##
+## Unifying makes the residual LARGER, not smaller, and that is the point: `h2o_drift_per_step` now measures
+## the true non-conserving flux of the closed system (runoff the sea absorbs, evaporation the sea does not
+## debit) instead of a mixture of that flux and the accounting's own boundary errors.
+##
 ## Every method here is a pure getter over the GPU readback: O(cells) scans polled at snapshot time, never
 ## per frame. (Explicit types only, no ':=' inferred typing.)
 
@@ -66,7 +93,8 @@ func ice_cell_count() -> int:
 	return n
 
 
-## Total frozen H₂O over the field (one leg of the conserved h2o_total).
+## Total frozen H₂O over the field (one leg of the conserved h2o_total). Inclusion rule: every OPEN cell,
+## static ones included — snow on sea ice is real snow.
 func snow_total() -> float:
 	if _f._snow.size() != _f._cell_count:
 		return 0.0
@@ -79,53 +107,73 @@ func snow_total() -> float:
 	return sum
 
 
-## Total dynamic liquid water over the field (excludes the static sea reservoir; one leg of h2o_total).
+## Total liquid water over the field — EVERY open cell, static sea/lake reservoir INCLUDED (the one inclusion
+## rule in the header). The static subset is still readable on its own as `static_water_total()`, and the old
+## sea-excluded figure as `h2o_dynamic_total()`; what is gone is a leg that had its own private idea of which
+## cells exist. Excluding the sea here while `snow_total`/`moisture_total` included it is precisely what let a
+## freeze at the shoreline create ledger mass from nothing.
+##
+## CONSUMER NOTE: LAEventTracker's "flood" detector reads `water_total` in `rate` mode — (cur-prev)/dt — so
+## the sea's near-constant contribution cancels in the delta and widening this leg does not move that bar.
+## (Measured: static water drifted 2771 -> 2693 over 800 field steps, about -0.1/step, against a 40/s bar.)
 func water_total() -> float:
 	if _f._water.size() != _f._cell_count:
 		return 0.0
 	var solid: PackedByteArray = _f._solid
-	var stat: PackedByteArray = _f._static
 	var water: PackedFloat32Array = _f._water
 	var sum: float = 0.0
 	for c in _f._cell_count:
-		if solid[c] == 0 and stat[c] == 0:          # exclude the static sea reservoir (matches the docstring) —
-			sum += water[c]                         # else the infinite-reservoir cells inflate the conserved ledger
+		if solid[c] == 0:
+			sum += water[c]
 	return sum
 
 
-## Total water stored in the SOIL (ground cells) — the subsurface leg of the conserved h2o budget. Infiltrated
-## water lives here rather than in _water, so it must be counted or conservation would appear to leak.
+## Total water stored in the SOIL — the subsurface leg of the conserved h2o budget. Infiltrated water lives
+## here rather than in `_water`, so it must be counted or conservation would appear to leak.
+##
+## Masked on REGOLITH, which is where soil physically lives, and NOT on solidity, which is where this leg used
+## to look. The two masks diverge from frame 0 and keep diverging: world-gen river carving clears `_solid` on
+## cells `_compute_regolith` already primed (LAMaterialFieldLakes3D carves AFTER it runs —
+## MaterialFieldSphereStep3D.gd:63-64), SolidDerivePass re-derives `_solid` from `rock_fill` every step while
+## `regolith` is seeded once and never updated (MaterialSphereGPU3D.gd:37), and every MineralStamp3D shrink
+## clears more. Those cells keep their soil on the GPU and keep `regolith = 1`, so soil_sphere3d.glsl goes on
+## simulating them — they had simply dropped out of the books. Measured gap before the fix: 3565.38 solid-
+## masked vs 3580.68 regolith-masked at field_step 746, 0.43%, present from the first sample.
 func soil_total() -> float:
-	if _f._soil.size() != _f._cell_count:
-		return 0.0
-	var solid: PackedByteArray = _f._solid
-	var soil: PackedFloat32Array = _f._soil
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		if solid[c] != 0:
-			sum += soil[c]
-	return sum
+	return regolith_soil_total()
 
 
-## Conserved H₂O budget of the DYNAMIC system: liquid water + airborne moisture + frozen snow + SOIL water.
-## Freeze/melt/deposition/evap/rain/infiltration are all pure transfers between these, so this stays BOUNDED
-## (a slow static-sea source + rain-to-sea sink hold it steady) — the mass-conservation spot check for SIM_REPORT.
+## The planet's WHOLE H₂O budget: liquid water (sea included) + airborne moisture + frozen snow + soil water.
+## Freeze/melt/deposition/evap/rain/infiltration are all pure transfers between these four, so this stays
+## BOUNDED — the mass-conservation spot check for SIM_REPORT.
+##
+## This is now a CLOSED sum: with the inclusion rule unified there is no fifth reservoir sitting outside it,
+## which is why `h2o_closed_total` reports the same number. It used to be the dynamic subtotal, so its series
+## continues as `h2o_dynamic_total()` below.
 func h2o_total() -> float:
 	return water_total() + _f.moisture_total() + snow_total() + soil_total()
 
 
+## The sea-excluded subtotal: the water the simulation actually moves, with the infinite static reservoir taken
+## back out. Kept because it is the number a livability/hydrology reader wants (a planet whose lakes drained
+## into an infinite ocean has not lost water, but it HAS lost its lakes) — and because it is the continuation
+## of what `h2o_total` reported before the legs were unified, so the old baselines stay comparable.
+func h2o_dynamic_total() -> float:
+	return h2o_total() - static_water_total()
+
+
 ## Liquid water held in STATIC cells — the sea, the seeded lakes and the seeded river channels.
 ##
-## This is the reservoir h2o_total does NOT count, and not counting it is why the ledger does not balance.
-## The four legs disagree about static cells: water_total excludes them (above), while moisture_total
-## (LAMaterialFieldAtmos3D) and snow_total (above) include them, and soil_total keys on solidity instead.
-## So every transfer that crosses the static boundary mints or destroys ledger mass while the GPU buffers
-## themselves stay perfectly conserving — runoff into the sea vanishes (water_sphere3d.glsl absorbs it),
-## sea evaporation appears from nowhere (atmos_evap_sphere3d.glsl adds without debiting), and sea ice
-## freezing moves uncounted water into counted snow.
+## A MEMO LINE, not a fifth reservoir: `water_total()` already counts these cells, so this is a subset of it,
+## reported separately because "how much of the ledger is the sea abstraction" is worth seeing. It is what
+## `h2o_dynamic_total()` subtracts.
 ##
-## Report this ALONGSIDE the other four and the books close: the residual across all five is the true
-## non-conserving flux, which is the number to drive to zero.
+## It was previously the reservoir the ledger did NOT count, and that omission — one leg excluding static
+## cells while two others included them — was the accounting half of the imbalance. The PHYSICAL half is
+## still here and is what the drift now measures honestly: runoff into the sea vanishes
+## (water_sphere3d.glsl absorbs it) and sea evaporation appears from nowhere (atmos_evap_sphere3d.glsl adds
+## to moisture without debiting the sea). Driving THAT residual to zero is the remaining work; it belongs to
+## the static mask itself, not to this module.
 func static_water_total() -> float:
 	if _f._water.size() != _f._cell_count or _f._static.size() != _f._cell_count:
 		return 0.0
@@ -154,14 +202,12 @@ func static_cell_count() -> int:
 	return n
 
 
-## Soil summed over the REGOLITH mask rather than the solidity mask.
+## Soil summed over the REGOLITH mask — the canonical implementation of the soil leg; `soil_total()` is this.
 ##
-## soil_total() above filters on `_solid`, but soil physically lives in `_regolith`, and the two masks
-## diverge: world-gen river carving clears `_solid` on cells `_compute_regolith` has already primed
-## (LAMaterialFieldLakes3D carves AFTER _compute_regolith runs), and every MineralStamp3D shrink clears
-## more at runtime. Those cells keep their soil on the GPU and keep `regolith = 1`, so the kernel goes on
-## simulating them — they have simply dropped out of the ledger. The gap between this and soil_total() is
-## therefore water the ACCOUNTING lost, not water the planet lost, and it is non-zero from frame 0.
+## The two names are kept deliberately and they report the SAME number by construction. That identity is the
+## verifiable form of the fix: `soil_total` vs `soil_regolith_total` in SIM_REPORT used to differ by ~0.43%
+## and now agree exactly, so anyone re-deriving the masks can read the answer straight off the report instead
+## of trusting this comment. If they ever diverge again, someone has re-introduced a second mask.
 func regolith_soil_total() -> float:
 	if _f._soil.size() != _f._cell_count or _f._regolith.size() != _f._cell_count:
 		return 0.0
@@ -174,12 +220,19 @@ func regolith_soil_total() -> float:
 	return sum
 
 
-## Everything the ledger knows, sampled once: the five reservoirs, the two soil masks, and the per-step
-## drift since the previous sample. `h2o_drift_per_step` is the honest conservation figure — a total that
-## only ever gets printed as an absolute cannot show a slow leak, which is exactly how this one hid.
-## Returns drift 0.0 on the first sample and whenever the step counter has not advanced.
+## Everything the ledger knows, sampled once: the whole budget, its sea/dynamic split, the soil cross-check,
+## and the per-step drift since the previous sample. `h2o_drift_per_step` is the honest conservation figure —
+## a total that only ever gets printed as an absolute cannot show a slow leak, which is exactly how this one
+## hid. Returns drift 0.0 on the first sample and whenever the step counter has not advanced.
+##
+## `h2o_closed_total` is now IDENTICAL to `h2o_total` and that is the headline result, not a redundancy: the
+## legs no longer disagree about which cells exist, so there is nothing left outside the sum to add back. It
+## keeps its key so its baseline series stays comparable across the change (it was the only gauge that was
+## already counting everything). Drift is measured on that closed total, so it reports the real
+## non-conserving flux rather than the old mixture of flux and boundary mis-accounting.
 func conservation_report(step_index: int) -> Dictionary:
 	var h2o: float = h2o_total()
+	var static_water: float = static_water_total()
 	var drift: float = 0.0
 	var per_step: float = 0.0
 	if not is_nan(_prev_h2o) and step_index > _prev_step:
@@ -188,8 +241,9 @@ func conservation_report(step_index: int) -> Dictionary:
 	_prev_h2o = h2o
 	_prev_step = step_index
 	return {
-		"h2o_static_water": snappedf(static_water_total(), 0.01),
-		"h2o_closed_total": snappedf(h2o + static_water_total(), 0.01),
+		"h2o_static_water": snappedf(static_water, 0.01),
+		"h2o_dynamic_total": snappedf(h2o - static_water, 0.01),
+		"h2o_closed_total": snappedf(h2o, 0.01),
 		"h2o_drift": snappedf(drift, 0.01),
 		"h2o_drift_per_step": snappedf(per_step, 0.001),
 		"soil_regolith_total": snappedf(regolith_soil_total(), 0.01),

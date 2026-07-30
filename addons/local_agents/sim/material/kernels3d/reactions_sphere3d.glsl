@@ -43,9 +43,11 @@ layout(set = 0, binding = 18, std430) restrict readonly buffer VelZ { float vel_
 // M5 solidify (cold lava -> rock_fill) and M6 melt (hot rock_fill -> lava) are own-cell conserving transfers. -----
 layout(set = 0, binding = 22, std430) restrict buffer Lava { float lava[]; };            // molten rock (mass/cell)
 layout(set = 0, binding = 23, std430) restrict buffer RockFill { float rock_fill[]; };   // fractional bedrock mass (solid iff >= 0.5)
-// --- SUBSURFACE WATER: the aquifer the roots drink from. `soil` is non-zero ONLY in REGOLITH (solid) cells —
-// soil_sphere3d.glsl writes soil_out = 0 for every open cell — so a plant's water is the soil in the permeable
-// column BENEATH it, read/debited through the SOIL_ROOT slot below, never at the reacting cell itself. ---------
+// --- SUBSURFACE WATER: the aquifer the roots drink from. `soil` is non-zero ONLY in REGOLITH cells —
+// soil_sphere3d.glsl:223-229 keys on the regolith mask and zeroes soil in every non-regolith open cell — so a
+// plant's water is the soil in the permeable column BENEATH it, read/debited through the SOIL_ROOT slot below,
+// never at the reacting cell itself. NOTE "regolith", not "solid": an eroded or carved regolith cell is open
+// AND still an aquifer, which is exactly the case the walk used to get wrong. -------------------------------
 layout(set = 0, binding = 24, std430) restrict buffer Soil { float soil[]; };
 // --- Gate inputs + scratch product target + the record table ----------------------------------------------
 layout(set = 0, binding = 10, std430) restrict readonly buffer Solid { float solid[]; };
@@ -53,6 +55,11 @@ layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]
 layout(set = 0, binding = 20, std430) restrict buffer Scratch { float scratch[]; };         // SCRATCH product target (fungus_fert)
 layout(set = 0, binding = 25, std430) restrict readonly buffer Radial { float radial[]; };  // per-cell outward unit vec, flat c*3+{0,1,2}
 layout(set = 0, binding = 26, std430) restrict readonly buffer Static { float static_cells[]; }; // 1 = infinite sea/lake reservoir
+// AQUIFER PERMEABILITY MASK (1 = groundwater-bearing regolith). The mask root_soil() walks — soil lives here,
+// not "wherever the rock is solid". Bound at 27, past the end of the slot-alias range (bindings 0..26 shadow
+// the slot enum, and 5/6/19 stay reserved for FUEL/FIRE/SOIL_ROOT), because regolith is not a reactable
+// channel. Same buffer + same declaration ActivityPass binds at activity_sphere3d.glsl:58.
+layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float regolith[]; };
 
 // Slot enum — MUST match MaterialReactions3D.gd.
 #define TEMP     0
@@ -78,7 +85,8 @@ layout(set = 0, binding = 26, std430) restrict readonly buffer Static { float st
                        // (orbit distance² × atmospheric transmission, so dust/impact-winter dim it directly).
                        // Not a stored buffer: no memory, no readback. Read-only — never a product.
 #define SOIL_ROOT 19   // DERIVED, WRITABLE: the plant-available water of the ROOTING COLUMN — the soil summed
-                       // over the permeable regolith cells directly beneath this open cell. See root_soil().
+                       // over the permeable REGOLITH cells directly beneath this open cell (the regolith mask,
+                       // not the solidity mask; they diverge). See root_soil().
 
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust (dust_loft parity)
 #define REGOLITH_CELLS 4    // rooting depth = the permeable regolith band (MUST match MaterialField3D.REGOLITH_CELLS)
@@ -145,23 +153,38 @@ float light_at(uint i) {
 	return max(0.0, dot(cell_radial, vec3(params.sun_x, params.sun_y, params.sun_z)));
 }
 
-// ROOTING-COLUMN water. `soil` lives only in regolith (solid) cells, so an open cell's plant-available water is
-// the soil summed over the permeable column beneath it: walk INWARD (slot 0) while the cell is solid, at most
+// ROOTING-COLUMN water. `soil` lives in REGOLITH cells, so an open cell's plant-available water is the soil
+// summed over the permeable column beneath it: walk INWARD (slot 0) while the cell is REGOLITH, at most
 // REGOLITH_CELLS deep (below that is impermeable bedrock, which soil_sphere3d leaves inert anyway).
 //
-// RACE-FREEDOM (this is the ONE place the engine touches a cell other than its own, so the argument matters):
-// the walk stops at the first OPEN cell, and every reacting cell is itself open, so between any two reacting
-// cells there is an open cell that terminates both walks — the columns are DISJOINT by construction. And the
-// cells written are SOLID, which the engine skips entirely (see main()), so no thread ever reads a soil cell
-// another thread is writing. Own-cell-equivalent: each open cell privately owns the column under it.
+// WALK THE REGOLITH MASK, NOT THE SOLID MASK — they diverge, and the divergence made FAKE DESERTS. `solid` is
+// re-derived from rock_fill every step (SolidDerivePass), while `regolith` is seeded once at world-gen and
+// never updated, so any cell that erosion, a MineralStamp3D shrink or world-gen river carving has opened is
+// `solid = 0` with `regolith = 1`. soil_sphere3d.glsl:223 keys on regolith, so such a cell KEEPS its soil and
+// keeps being simulated as aquifer — but a solid-masked walk broke at it and threw away every shell BELOW it
+// too. The water is deep (measured root_d1 0.00026, root_d2 0.00024, root_d3 0.137, root_d4 0.422), so a break
+// in the top two shells discards essentially the whole aquifer and the plant reads bone-dry ground sitting on
+// a full water table. Emergent desert formation is what the photosynthesis work exists to produce, so a
+// spurious desert is the one failure that looks exactly like the intended result.
+//
+// RACE-FREEDOM (this is the ONE place the engine touches a cell other than its own, so the argument matters).
+// The walk INCLUDES the first open cell it reaches and then STOPS there. Every reacting cell is itself open,
+// so for any two reacting cells A (outer) and B (inner) in one column, A's walk either halts before reaching B
+// or reaches B, counts it, and halts — either way A covers only cells strictly outward of B, and B covers only
+// cells strictly inward of itself. The columns are DISJOINT by construction, exactly as before, and this is
+// the step that keeps them so: without the stop-on-open rule the regolith walk would run straight THROUGH an
+// opened aquifer cell into a column another thread is already writing.
 float root_soil(uint i) {
 	float sum = 0.0;
 	int c = nbr[i * 6u + 0u];
 	for (int k = 0; k < REGOLITH_CELLS; k++) {
-		if (c < 0 || solid[c] == 0.0) {
+		if (c < 0 || regolith[c] == 0.0) {
 			break;
 		}
 		sum += soil[uint(c)];
+		if (solid[c] == 0.0) {
+			break;                          // an OPEN aquifer cell terminates the walk (see RACE-FREEDOM above)
+		}
 		c = nbr[uint(c) * 6u + 0u];
 	}
 	return sum;
@@ -170,6 +193,10 @@ float root_soil(uint i) {
 // Draw `amount` of water out of the rooting column, taken from each cell in proportion to what it holds (roots
 // drink where the water is). Exactly conserving: the fractions sum to `amount`, and `amount` is already capped
 // at the column total by the reactant cap, so no cell can go negative.
+//
+// The walk MUST mirror root_soil()'s cell-for-cell — same regolith test, same stop-on-open — or the fraction
+// `f` is computed over one set of cells and applied to another, which both breaks conservation and breaks the
+// disjointness that makes the write race-free.
 void root_soil_draw(uint i, float amount) {
 	if (amount <= 0.0) {
 		return;
@@ -181,10 +208,13 @@ void root_soil_draw(uint i, float amount) {
 	float f = min(amount / total, 1.0);
 	int c = nbr[i * 6u + 0u];
 	for (int k = 0; k < REGOLITH_CELLS; k++) {
-		if (c < 0 || solid[c] == 0.0) {
+		if (c < 0 || regolith[c] == 0.0) {
 			break;
 		}
 		soil[uint(c)] = max(0.0, soil[uint(c)] * (1.0 - f));
+		if (solid[c] == 0.0) {
+			break;
+		}
 		c = nbr[uint(c) * 6u + 0u];
 	}
 }
@@ -218,8 +248,10 @@ float read_ch(int slot, uint i) {
 // runs later this step in EcoSurfacePass, so this write is the freshest value by the time that kernel reads it,
 // same one-step ordering already used for FUNGUS as a read-only driver). SOIL_ROOT is the one slot whose write
 // lands outside this cell — into the private rooting column beneath it; see root_soil_draw for why that is
-// still race-free. SOIL was previously bound NOWHERE and had NO add_ch branch at all, so any write to it
-// silently vanished; SOIL_ROOT is the branch that closes that hole.
+// still race-free. (That column may now include ONE open aquifer cell, which is itself a reacting thread; its
+// own walk starts one cell further in, so the two never share a cell, and `soil` has no readable slot in
+// read_ch, so nothing else reads what either of them writes.) SOIL was previously bound NOWHERE and had NO
+// add_ch branch at all, so any write to it silently vanished; SOIL_ROOT is the branch that closes that hole.
 void add_ch(int slot, uint i, float v) {
 	if      (slot == TEMP)     { temp[i]     += v; }
 	else if (slot == WATER)    { water[i]     = max(0.0, water[i] + v); }
