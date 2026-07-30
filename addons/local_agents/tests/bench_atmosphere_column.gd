@@ -114,6 +114,11 @@ func _alloc() -> void:
 		rad[c * 3 + 1] = d.y
 		rad[c * 3 + 2] = d.z
 	_bufs["radial"] = _rd.storage_buffer_create(rad.size() * 4, rad.to_byte_array())
+	# Per-column tangent-frame table (LASphereGrid.link_tan): the direction of each lateral link in the cell's
+	# own (tan_a, tan_b) axes. Both wind kernels read it — the frame momentum is stored in is a table of its
+	# own, not the neighbour slot order.
+	var ltan: PackedByteArray = _grid.link_tan.to_byte_array()
+	_bufs["link_tan"] = _rd.storage_buffer_create(ltan.size(), ltan)
 
 
 ## Seed temperature + solid (an all-ocean planet: rock below the sea shell, open air above) and zero the
@@ -175,11 +180,12 @@ func _run(steps: int, base_wind: float) -> void:
 	var ws_set: Array = [RID(), RID()]
 	for p in 2:
 		wp_set[p] = _uset(wp_shader, [[0, air[p]], [1, air[1 - p]], [2, _bufs["temp"]], [3, _bufs["solid"]],
-				[4, _bufs["pressure"]], [5, _bufs["vel_x"]], [6, _bufs["vel_z"]], [15, _bufs["nbr"]]])
+				[4, _bufs["pressure"]], [5, _bufs["vel_x"]], [6, _bufs["vel_z"]], [15, _bufs["nbr"]],
+				[16, _bufs["link_tan"]]])
 		# AirIn for pass B is the BACK half — the one pass A just wrote at this parity.
 		ws_set[p] = _uset(ws_shader, [[0, _bufs["pressure"]], [1, _bufs["temp"]], [2, _bufs["solid"]],
 				[3, _bufs["vel_x"]], [4, _bufs["vel_y"]], [5, _bufs["vel_z"]], [6, air[1 - p]],
-				[14, _bufs["radial"]], [15, _bufs["nbr"]]])
+				[14, _bufs["radial"]], [15, _bufs["nbr"]], [16, _bufs["link_tan"]]])
 
 	var col_groups: int = int(ceil(float(_columns) / 64.0))
 	var cell_groups: int = int(ceil(float(_cc) / 64.0))
@@ -245,7 +251,6 @@ func _apply_base_wind(base: float) -> void:
 	const BODY_FORCE: float = 0.02
 	var vx: PackedFloat32Array = _rd.buffer_get_data(_bufs["vel_x"]).to_float32_array()
 	var vz: PackedFloat32Array = _rd.buffer_get_data(_bufs["vel_z"]).to_float32_array()
-	var nbr: PackedInt32Array = _grid.neighbours_kernel_order()
 	for c in _cc:
 		var radial: Vector3 = _grid.cell_radial(c)
 		var east: Vector3 = SPIN_AXIS.cross(radial)
@@ -253,16 +258,8 @@ func _apply_base_wind(base: float) -> void:
 			continue
 		var lat: float = asin(clampf(radial.dot(SPIN_AXIS), -1.0, 1.0))
 		var target: Vector3 = east.normalized() * (-base * cos(3.0 * lat))
-		var a_hi: int = nbr[c * 6 + 2]
-		var a_lo: int = nbr[c * 6 + 1]
-		var b_hi: int = nbr[c * 6 + 4]
-		var b_lo: int = nbr[c * 6 + 3]
-		if a_hi < 0 or a_lo < 0 or b_hi < 0 or b_lo < 0:
-			continue
-		var tan_a: Vector3 = (_grid.cell_world_pos(a_hi) - _grid.cell_world_pos(a_lo)).normalized()
-		var tan_b: Vector3 = (_grid.cell_world_pos(b_hi) - _grid.cell_world_pos(b_lo)).normalized()
-		vx[c] += (target.dot(tan_a) - vx[c]) * BODY_FORCE
-		vz[c] += (target.dot(tan_b) - vz[c]) * BODY_FORCE
+		vx[c] += (target.dot(_grid.tangent_a(c)) - vx[c]) * BODY_FORCE
+		vz[c] += (target.dot(_grid.tangent_b(c)) - vz[c]) * BODY_FORCE
 	_rd.buffer_update(_bufs["vel_x"], 0, vx.size() * 4, vx.to_byte_array())
 	_rd.buffer_update(_bufs["vel_z"], 0, vz.size() * 4, vz.to_byte_array())
 
@@ -314,27 +311,21 @@ func _fit_h(a: Dictionary, b: Dictionary) -> float:
 	return -(float(b["height"]) - float(a["height"])) / log(float(b["p_mean"]) / float(a["p_mean"]))
 
 
-## World-space wind at a cell, reconstructed from the local tangent basis exactly the way
-## MaterialFieldQueries3D.wind3_at does (vel_x along tangent A, vel_z along tangent B, vel_y radial).
-func _wind_world(c: int, nbr: PackedInt32Array, vx: PackedFloat32Array, vy: PackedFloat32Array,
+## World-space wind at a cell, reconstructed from the local tangent frame exactly the way
+## MaterialFieldQueries3D.wind3_at does (vel_x along tan_a, vel_z along tan_b, vel_y radial). It reads the
+## grid's own frame table — rebuilding the axes from neighbour POSITIONS, as this did before 2026-07-30, does
+## not give the frame the kernel stores momentum in (the slot pairing's orientation flips between cycles).
+func _wind_world(c: int, vx: PackedFloat32Array, vy: PackedFloat32Array,
 		vz: PackedFloat32Array) -> Vector3:
-	var radial: Vector3 = _grid.cell_radial(c)
-	var a_hi: int = nbr[c * 6 + 2]
-	var a_lo: int = nbr[c * 6 + 1]
-	var b_hi: int = nbr[c * 6 + 4]
-	var b_lo: int = nbr[c * 6 + 3]
-	if a_hi < 0 or a_lo < 0 or b_hi < 0 or b_lo < 0:
-		return Vector3.ZERO
-	var tan_a: Vector3 = (_grid.cell_world_pos(a_hi) - _grid.cell_world_pos(a_lo)).normalized()
-	var tan_b: Vector3 = (_grid.cell_world_pos(b_hi) - _grid.cell_world_pos(b_lo)).normalized()
-	return radial * vy[c] + tan_a * vx[c] + tan_b * vz[c]
+	return (_grid.cell_radial(c) * vy[c]
+			+ _grid.tangent_a(c) * vx[c]
+			+ _grid.tangent_b(c) * vz[c])
 
 
 ## Mean ZONAL (eastward) wind per latitude band x radial shell. Positive = westerly (eastward), the sign a
 ## real jet stream carries. Both hemispheres are folded onto absolute latitude AFTER projecting onto each
 ## cell's own eastward direction, so a symmetric pair of westerly jets reinforces instead of cancelling.
 func _zonal_table() -> Array:
-	var nbr: PackedInt32Array = _grid.neighbours_kernel_order()
 	var vx: PackedFloat32Array = _rd.buffer_get_data(_bufs["vel_x"]).to_float32_array()
 	var vy: PackedFloat32Array = _rd.buffer_get_data(_bufs["vel_y"]).to_float32_array()
 	var vz: PackedFloat32Array = _rd.buffer_get_data(_bufs["vel_z"]).to_float32_array()
@@ -367,7 +358,7 @@ func _zonal_table() -> Array:
 		east = east.normalized()
 		# Fold the southern hemisphere onto the north: its eastward unit already points the right way, so a
 		# westerly there projects positive too. No sign flip needed.
-		var w: Vector3 = _wind_world(c, nbr, vx, vy, vz)
+		var w: Vector3 = _wind_world(c, vx, vy, vz)
 		var b: int = bands - 1
 		for i in range(bands):
 			if lat_deg >= LAT_EDGES[i] and lat_deg < LAT_EDGES[i + 1]:
@@ -461,7 +452,6 @@ func _air_total() -> float:
 
 ## Aggregate wind magnitude over the atmosphere — the "does circulation survive" number.
 func _wind_stats() -> Dictionary:
-	var nbr: PackedInt32Array = _grid.neighbours_kernel_order()
 	var vx: PackedFloat32Array = _rd.buffer_get_data(_bufs["vel_x"]).to_float32_array()
 	var vy: PackedFloat32Array = _rd.buffer_get_data(_bufs["vel_y"]).to_float32_array()
 	var vz: PackedFloat32Array = _rd.buffer_get_data(_bufs["vel_z"]).to_float32_array()
@@ -474,7 +464,7 @@ func _wind_stats() -> Dictionary:
 		var r: int = c % DEPTH
 		if CORE_RADIUS + (float(r) + 0.5) * CELL_SIZE < SEA_RADIUS:
 			continue
-		var w: Vector3 = _wind_world(c, nbr, vx, vy, vz)
+		var w: Vector3 = _wind_world(c, vx, vy, vz)
 		var sp: float = w.length()
 		# Horizontal magnitude separately: the radial component is buoyancy, not circulation, and letting it
 		# into the average hides what the pressure field is actually doing sideways.

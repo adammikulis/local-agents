@@ -20,13 +20,22 @@ layout(set = 0, binding = 3, std430) restrict readonly buffer VelZ { float vel_z
 layout(set = 0, binding = 4, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 5, std430) restrict readonly buffer Relevance { float relevance[]; };  // Keystone C
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };  // idx*6 + slot
+layout(set = 0, binding = 16, std430) restrict readonly buffer LinkTan { float ltan[]; };  // per-column link dirs
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	float k;             // STEP_DT / cell_size (Courant factor)
 	uint step_index;     // monotonic field-step counter, for the relevance-gated update stride
-	float pad1;
+	uint depth;          // radial shells per column — turns a cell index into its column for the ltan lookup
 } params;
+
+// Speed of cell `c` toward its lateral link `l` (0..3 == neighbour slots 1..4), in that cell's tangent frame.
+// The horizontal wind is stored in a per-cell frame that is a separate table from the neighbour slots (see
+// wind_step_sphere3d), so "am I blowing that way" is a dot with the link direction, not a signed component.
+float toward_link(uint c, int l) {
+	uint b = ((c / max(params.depth, 1u)) * 4u + uint(l)) * 2u;
+	return vel_x[c] * ltan[b] + vel_z[c] * ltan[b + 1u];
+}
 
 // Transport tunables — MUST match dust_outscale3d.glsl / MaterialDust3D.gd exactly.
 const float OUT_MAX = 0.55;
@@ -75,19 +84,15 @@ void main() {
 	uint base = g * 6u;
 	float k = params.k;
 
-	int nb_w = nbr[base + 1u];   // -x
-	int nb_e = nbr[base + 2u];   // +x
-	int nb_n = nbr[base + 3u];   // -z
-	int nb_s = nbr[base + 4u];   // +z
-	int nb_u = nbr[base + 5u];   // UP (+y)
+	int nb_u = nbr[base + 5u];   // UP (outward)
 
 	// raw_out_total: horizontal + upward wind Courant fractions toward each OPEN neighbour, + the always-
 	// present downward settling flux (never blocked — deposited when the cell below is solid, in transport).
 	float t = 0.0;
-	if (nb_e >= 0 && solid[nb_e] == 0.0) { t += max(0.0, vel_x[g]) * k; }
-	if (nb_w >= 0 && solid[nb_w] == 0.0) { t += max(0.0, -vel_x[g]) * k; }
-	if (nb_s >= 0 && solid[nb_s] == 0.0) { t += max(0.0, vel_z[g]) * k; }
-	if (nb_n >= 0 && solid[nb_n] == 0.0) { t += max(0.0, -vel_z[g]) * k; }
+	for (int l = 0; l < 4; ++l) {
+		int m = nbr[base + uint(l + 1)];
+		if (m >= 0 && solid[m] == 0.0) { t += max(0.0, toward_link(g, l)) * k; }
+	}
 	if (nb_u >= 0 && solid[nb_u] == 0.0) { t += max(0.0, vel_y[g]) * k; }
 	t += fall_frac(g, k);
 

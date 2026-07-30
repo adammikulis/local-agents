@@ -277,10 +277,13 @@ func hot_cell_count(threshold: float = 60.0) -> int:
 
 # --- Storm queries (read the emergent wind field; storm actors track the vortex they seed) -----------
 
-## Radial vorticity (the SPIN of the air about the local "up") at a world point. On the cubed sphere the
-## kernel stores velocity in a per-cell TANGENT basis (vel_x along tangent-a, vel_z along tangent-b, vel_y
-## radial), so the vertical-axis curl is d(vel_z)/d(tangent_a) − d(vel_x)/d(tangent_b) across the cell's two
-## tangent neighbour-slot pairs — the same neighbour walk wind3_at uses. Sampled a couple of cells aloft
+## Radial vorticity (the SPIN of the air about the local "up") at a world point. The kernel stores velocity in
+## a per-cell TANGENT frame (vel_x along tan_a, vel_z along tan_b, vel_y radial), and adjacent cells do NOT
+## share that frame — the frame is face-local and discontinuous at the seams. A curl differences NEIGHBOUR
+## velocities, so each neighbour's pair must first be rotated into THIS cell's frame (`rotate_into_neighbour`
+## on the neighbour's reverse link) before it means anything. Then the radial curl is the sum over the four
+## lateral links of 0.5 * cross2(link direction, that neighbour's velocity), which in a face interior is
+## exactly the old d(vel_z)/d(tan_a) − d(vel_x)/d(tan_b) central difference. Sampled a couple of cells aloft
 ## (the free-stream over the seeded low). Reads the cell + its 4 tangent neighbours only — O(1), no grid sweep.
 func vorticity_at(pos: Vector3) -> float:
 	if _f._sphere == null or _f._vel_x.size() != _f._cell_count or _f._vel_z.size() != _f._cell_count:
@@ -292,16 +295,17 @@ func vorticity_at(pos: Vector3) -> float:
 	var c: int = _f.world_to_cell(aloft)
 	if c < 0 or c >= _f._cell_count:
 		return 0.0
-	var nbr: PackedInt32Array = _f._sphere.neighbours
-	var a_lo: int = nbr[c * 6 + 1]
-	var a_hi: int = nbr[c * 6 + 2]
-	var b_lo: int = nbr[c * 6 + 3]
-	var b_hi: int = nbr[c * 6 + 4]
-	var vz_hi: float = _f._vel_z[a_hi] if a_hi >= 0 else _f._vel_z[c]
-	var vz_lo: float = _f._vel_z[a_lo] if a_lo >= 0 else _f._vel_z[c]
-	var vx_hi: float = _f._vel_x[b_hi] if b_hi >= 0 else _f._vel_x[c]
-	var vx_lo: float = _f._vel_x[b_lo] if b_lo >= 0 else _f._vel_x[c]
-	return 0.5 * (vz_hi - vz_lo) - 0.5 * (vx_hi - vx_lo)
+	var grid: LASphereGrid = _f._sphere
+	var nbr: PackedInt32Array = grid.neighbours
+	var curl: float = 0.0
+	for l in 4:
+		var m: int = nbr[c * 6 + 2 + l]
+		if m < 0:
+			continue
+		var v: Vector2 = grid.rotate_into_neighbour(m, l ^ 1, Vector2(_f._vel_x[m], _f._vel_z[m]))
+		var d: Vector2 = grid.link_dir(c, l)
+		curl += 0.5 * (d.x * v.y - d.y * v.x)
+	return curl
 
 
 ## Vertical wind (updraft = outward radial velocity, vel_y) a little above a world point — the convective
@@ -319,10 +323,17 @@ func updraft_at(pos: Vector3) -> float:
 
 
 # --- Emergent WIND as a real momentum/force (read back from the GPU velocity field) ------------------
-# On the cubed sphere the kernel stores velocity in a per-cell TANGENT basis: vel_x/vel_z along the two
-# tangent slot-pairs (from the neighbour positions), vel_y along the OUTWARD RADIAL. wind3_at reconstructs a
-# true WORLD-space velocity from that basis so loose mass (creatures/debris/sediment) can be advected/flung
-# by it. Reads only the cell + its 6 neighbours' positions — O(1) per query, no grid sweep.
+# The kernel stores velocity in a per-cell TANGENT FRAME: vel_x along LASphereGrid.tan_a, vel_z along tan_b,
+# vel_y along the OUTWARD RADIAL. wind3_at reconstructs a true WORLD-space velocity from that frame so loose
+# mass (creatures/debris/sediment) can be advected/flung by it. Two table lookups — O(1), no grid sweep.
+#
+# CORRECTED 2026-07-30. This used to rebuild the axes from neighbour POSITIONS — `tan_a = pos(nbr[c*6+2]) -
+# pos(nbr[c*6+1])` — which was wrong twice over. First, `neighbours` is the INTERNAL table, ordered
+# [IN, OUT, A0, A1, B0, B1], not the kernel packing [in, -a, +a, -b, +b, out] those indices assumed, so slot 1
+# was the OUTWARD RADIAL neighbour and "tangent A" was built from a lateral minus a radial cell. Second, even
+# with the right indices the slot-pair axis is not the frame the kernel stores momentum in: the pairing is a
+# 2-factorisation chosen for reciprocity, and its orientation flips between cycles. The frame has its own
+# table now, and this reads it.
 
 ## Full LOCAL 3D wind velocity (world-space) at a world point. Vector3.ZERO outside the shell / before readback.
 func wind3_at(x: float, y: float, z: float) -> Vector3:
@@ -331,29 +342,10 @@ func wind3_at(x: float, y: float, z: float) -> Vector3:
 	var c: int = _f.world_to_cell(Vector3(x, y, z))
 	if c < 0 or c >= _f._cell_count:
 		return Vector3.ZERO
-	var radial: Vector3 = _f.cell_radial(c)
-	var pos_c: Vector3 = _f.cell_world_pos_linear(c)
-	var nbr: PackedInt32Array = _f._sphere.neighbours
-	var tan_a: Vector3 = _tangent_axis(c, pos_c, nbr[c * 6 + 2], nbr[c * 6 + 1], radial)
-	var tan_b: Vector3 = _tangent_axis(c, pos_c, nbr[c * 6 + 4], nbr[c * 6 + 3], radial)
-	return radial * _f._vel_y[c] + tan_a * _f._vel_x[c] + tan_b * _f._vel_z[c]
-
-
-# Unit tangent axis from the cell toward its +slot neighbour (falling back to −slot, then to any vector
-# orthogonal to `radial`), matching the kernel's slot-pair pressure-gradient direction.
-func _tangent_axis(c: int, pos_c: Vector3, hi: int, lo: int, radial: Vector3) -> Vector3:
-	var d: Vector3 = Vector3.ZERO
-	if hi >= 0:
-		d = _f.cell_world_pos_linear(hi) - pos_c
-	elif lo >= 0:
-		d = pos_c - _f.cell_world_pos_linear(lo)
-	# Project onto the tangent plane + normalise; degenerate → an arbitrary orthonormal tangent.
-	d = d - radial * d.dot(radial)
-	if d.length_squared() < 1.0e-8:
-		d = radial.cross(Vector3.UP)
-		if d.length_squared() < 1.0e-8:
-			d = radial.cross(Vector3.RIGHT)
-	return d.normalized()
+	var grid: LASphereGrid = _f._sphere
+	return (_f.cell_radial(c) * _f._vel_y[c]
+			+ grid.tangent_a(c) * _f._vel_x[c]
+			+ grid.tangent_b(c) * _f._vel_z[c])
 
 
 ## LOCAL horizontal wind (world XZ) at a world column — the tangential drift a storm cell rides. Sampled a
@@ -372,15 +364,11 @@ func wind() -> Vector2:
 	var sx: float = 0.0
 	var sz: float = 0.0
 	var n: int = 0
+	var grid: LASphereGrid = _f._sphere
 	var c: int = 0
 	while c < _f._cell_count:
 		if _f._solid[c] == 0:
-			var radial: Vector3 = _f.cell_radial(c)
-			var pos_c: Vector3 = _f.cell_world_pos_linear(c)
-			var nbr: PackedInt32Array = _f._sphere.neighbours
-			var tan_a: Vector3 = _tangent_axis(c, pos_c, nbr[c * 6 + 2], nbr[c * 6 + 1], radial)
-			var tan_b: Vector3 = _tangent_axis(c, pos_c, nbr[c * 6 + 4], nbr[c * 6 + 3], radial)
-			var v: Vector3 = tan_a * _f._vel_x[c] + tan_b * _f._vel_z[c]
+			var v: Vector3 = grid.tangent_a(c) * _f._vel_x[c] + grid.tangent_b(c) * _f._vel_z[c]
 			sx += v.x
 			sz += v.z
 			n += 1

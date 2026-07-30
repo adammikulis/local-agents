@@ -184,6 +184,12 @@ func setup(field) -> void:
 	_bufs["nbr"] = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	_bufs["radial"] = _make_vec3_flat(func(c: int) -> Vector3: return _grid.cell_radial(c))
 	_bufs["pos"] = _make_vec3_flat(func(c: int) -> Vector3: return _grid.cell_world_pos(c))
+	# TANGENT-FRAME table, the neighbour table's counterpart: per SURFACE cell and lateral slot (kernel slots
+	# 1..4 as l = 0..3), the unit direction toward that neighbour in the cell's own (tan_a, tan_b) components.
+	# Per-surface, not per-cell — the direction is the same in every radial layer of a column, so it is 1/depth
+	# the memory and stays cache-resident. Kernels index it as ((g / depth) * 4 + l) * 2.
+	var ltan_bytes: PackedByteArray = _grid.link_tan.to_byte_array()
+	_bufs["link_tan"] = _rd.storage_buffer_create(ltan_bytes.size(), ltan_bytes)
 
 	# Seed channels from the field's CPU state.
 	_seed("temp", field._temp)

@@ -39,6 +39,35 @@ extends RefCounted
 ## odd (an odd seam column cannot pair off internally, so its leftover cell routes a longer path) — at res 24
 ## that is 48 bent links out of 6912. `surf_nbr` keeps its literal geometric meaning (WaterSurfaceMesh and
 ## MaterialFieldLakes3D build quads and drainage from it), so only the 6-slot `neighbours` table is permuted.
+##
+## THE TANGENT BASIS IS A SEPARATE TABLE, AND IT HAS TO BE (2026-07-30)
+## -------------------------------------------------------------------
+## The four lateral slots were doing a second job they cannot do: standing in for the TANGENT FRAME the wind
+## kernel stores momentum in (`vel_x` along "the slot 1/2 axis", `vel_z` along "the slot 3/4 axis"). Coriolis
+## rotates that pair, so it needs the frame to be consistently HANDED; the gather kernels need the slots to be
+## slot-opposite RECIPROCAL. **Both cannot hold in one table, and that is topology, not a bug.** The pairing's
+## two link families form closed cycles on the sphere; where two cycles cross, the handedness sign is the
+## transverse intersection sign of two closed curves, and on a sphere every closed curve bounds, so that signed
+## count is exactly 0. Measured at res 16/24/32: every crossing pair carries BOTH signs and every pair sums to
+## zero. A 50/50 split is the FLOOR, not an accident (measured 1732 right / 1724 left at res 24). Worse than a
+## sign flip: cycle ORIENTATION is the convention momentum is stored in, so adjacent cells on different cycles
+## disagreed about which way "tangent A" points on 17.45/17.13/16.99% of links at res 16/24/32 — an INTERIOR
+## defect growing as O(res²), where the pre-repair face-local axes could only disagree across a seam (O(res)).
+##
+## So the frame gets its own table and the pairing is left alone. `tan_a`/`tan_b` are built from the FACE-LOCAL
+## geometric axes, which are right-handed on all six faces by construction (`cross(_FACE_R, _FACE_U)·_FACE_N`
+## == +1 for every f) and merely DISCONTINUOUS at the seams — and Coriolis needs the handedness, not the
+## continuity. `tan_b = radial × tan_a` makes (a, b, radial) right-handed at every cell unconditionally.
+## Two derived tables carry the discontinuity so nothing else has to:
+##   `link_tan` — per lateral slot, the unit direction TOWARD that neighbour written in THIS cell's own (a,b)
+##       components. Kernels no longer assume "slot 2 == +tangent A": they dot with this. It is what makes the
+##       upwind flux conservative to the face, because both ends of a link evaluate the SAME expression (a cell
+##       reads its neighbour's direction back at itself from `link_tan[m*4 + (l^1)]`, and slot-opposite
+##       reciprocity is exactly what guarantees that entry is the reverse of its own).
+##   `link_rot` — per lateral slot, the (cos, sin) that PARALLEL-TRANSPORTS a vector's (a,b) components out of
+##       this cell's frame and into the neighbour's. Anything that moves a VECTOR across a seam must apply it;
+##       a SCALAR is unaffected. (Vorticity is the in-tree consumer: a curl differences neighbour VELOCITIES,
+##       which are meaningless until they are expressed in one frame.)
 
 const FACES: int = 6
 # Per-cell neighbour slots (flat table = cell*6 + slot). OPPOSITE SLOT IS `d ^ 1` for all three pairs.
@@ -56,8 +85,11 @@ const S_A1: int = 1    # +a lateral
 const S_B0: int = 2    # -b lateral
 const S_B1: int = 3    # +b lateral
 
-# Cube-face bases: (normal, right=+a axis, up=+b axis). Handedness is irrelevant — the seams are stitched by
-# nearest-direction match, so any consistent per-face frame tiles the sphere correctly.
+# Cube-face bases: (normal, right=+a axis, up=+b axis). The seams are stitched by nearest-direction match, so
+# any consistent per-face frame tiles the sphere correctly — but the frame is ALSO what `tan_a`/`tan_b` are
+# seeded from, and there handedness matters: `cross(_FACE_R[f], _FACE_U[f]) · _FACE_N[f]` is +1 on all six
+# faces, which is why the per-cell tangent basis below comes out uniformly right-handed. `validate()` reports
+# it as `face_handed_min` rather than leaving it as a comment nobody re-checks.
 const _FACE_N: Array[Vector3] = [Vector3(1,0,0), Vector3(-1,0,0), Vector3(0,1,0), Vector3(0,-1,0), Vector3(0,0,1), Vector3(0,0,-1)]
 const _FACE_R: Array[Vector3] = [Vector3(0,0,-1), Vector3(0,0,1), Vector3(1,0,0), Vector3(1,0,0), Vector3(1,0,0), Vector3(-1,0,0)]
 const _FACE_U: Array[Vector3] = [Vector3(0,1,0), Vector3(0,1,0), Vector3(0,0,-1), Vector3(0,0,1), Vector3(0,1,0), Vector3(0,1,0)]
@@ -77,6 +109,14 @@ var neighbours: PackedInt32Array = PackedInt32Array()      # cell_count*6 : the 
 var _back: PackedInt32Array = PackedInt32Array()           # surf_count*4 : partner's geometric slot pointing back
 var lateral_slot: PackedInt32Array = PackedInt32Array()    # surf_count*4 : geometric slot -> lateral pair slot 0..3
 var lateral_bends: int = 0       # links whose pair had to be bent away from the geometric axis (seam repair)
+
+# TANGENT FRAME — its own table, independent of the lateral slots (see the header). Indexed by SURFACE cell:
+# every radial layer of a column shares one frame, because the frame is a direction, not a position.
+var tan_a: PackedVector3Array = PackedVector3Array()       # surf_count : unit tangent axis A (face +a, projected)
+var tan_b: PackedVector3Array = PackedVector3Array()       # surf_count : unit tangent axis B = radial x tan_a
+# surf_count*4*2, indexed (surf*4 + lateral_slot)*2 — LATERAL SLOT ORDER, i.e. kernel slots 1..4 are l = 0..3.
+var link_tan: PackedFloat32Array = PackedFloat32Array()    # unit direction toward that neighbour, in MY (a,b)
+var link_rot: PackedFloat32Array = PackedFloat32Array()    # (cos, sin) transporting MY (a,b) into the NEIGHBOUR's
 
 
 ## Local coord of surface cell (i,j) → cube point → unit sphere direction, for face `f`.
@@ -125,6 +165,10 @@ func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p
 	# 3) Turn that geometric adjacency into a SLOT-OPPOSITE-RECIPROCAL lateral pairing (see the header).
 	_build_back_slots()
 	_build_lateral_slots()
+
+	# 3b) The TANGENT FRAME. A different question from the pairing, so a different table (see the header).
+	_build_tangent_basis()
+	_build_link_frames()
 
 	# 4) Full per-cell 6-neighbour table (radial ± arithmetic + lateral via the reciprocal pairing, same layer).
 	neighbours.resize(cell_count * 6)
@@ -381,6 +425,97 @@ func _build_lateral_slots() -> void:
 				lateral_slot[s * 4 + g] = g
 
 
+# ---------------------------------------------------------------------------------------------------------
+# TANGENT FRAME + per-link direction/rotation. Built from the FACE geometry, never from the lateral slots.
+# ---------------------------------------------------------------------------------------------------------
+
+## Per-cell orthonormal tangent frame. `tan_a` is the face's +a axis projected into the cell's tangent plane —
+## on a cube face `|_FACE_R · dir|` never exceeds 1/sqrt(3), so the projection can never degenerate. `tan_b` is
+## then `radial × tan_a`, which forces `tan_a × tan_b == radial` at EVERY cell: the frame is right-handed by
+## construction, on all six faces, with no dependence on how the lateral links happened to be paired or walked.
+func _build_tangent_basis() -> void:
+	tan_a.resize(surf_count)
+	tan_b.resize(surf_count)
+	var per_face: int = res * res
+	for s in surf_count:
+		var f: int = s / per_face
+		var n: Vector3 = _dir[s]
+		var ax: Vector3 = _FACE_R[f] - n * _FACE_R[f].dot(n)
+		tan_a[s] = ax.normalized()
+		tan_b[s] = n.cross(tan_a[s])
+
+
+## Rotate `v` by the same rotation that carries the unit `n_from` onto the unit `n_to` — parallel transport
+## along the great circle joining two adjacent cells. Length-preserving, so momentum transported across a seam
+## keeps its magnitude; the only thing it changes is which plane the vector lives in.
+func _transport(v: Vector3, n_from: Vector3, n_to: Vector3) -> Vector3:
+	var axis: Vector3 = n_from.cross(n_to)
+	var alen: float = axis.length()
+	if alen < 1.0e-9:
+		return v
+	return v.rotated(axis / alen, atan2(alen, n_from.dot(n_to)))
+
+
+## For every lateral link: the direction toward the neighbour in MY frame, and the rotation into ITS frame.
+## Indexed by LATERAL SLOT (`lateral_slot`, i.e. kernel slots 1..4 as l = 0..3) so a kernel that has a slot in
+## hand can read them without a second indirection. Both are functions of the two cells' directions only, so
+## they are identical for every radial layer of a column and stored once per SURFACE cell.
+func _build_link_frames() -> void:
+	link_tan.resize(surf_count * 8)
+	link_rot.resize(surf_count * 8)
+	link_tan.fill(0.0)
+	link_rot.fill(0.0)
+	for s in surf_count:
+		var ns: Vector3 = _dir[s]
+		var a_s: Vector3 = tan_a[s]
+		var b_s: Vector3 = tan_b[s]
+		for g in 4:
+			var m: int = surf_nbr[s * 4 + g]
+			var l: int = lateral_slot[s * 4 + g]
+			if m < 0 or m >= surf_count or l < 0 or l > 3:
+				continue
+			var nm: Vector3 = _dir[m]
+			var base: int = (s * 4 + l) * 2
+			# Direction toward the neighbour, flattened into MY tangent plane.
+			var d: Vector3 = nm - ns
+			d = d - ns * d.dot(ns)
+			if d.length_squared() > 1.0e-16:
+				d = d.normalized()
+				link_tan[base + 0] = d.dot(a_s)
+				link_tan[base + 1] = d.dot(b_s)
+			# Transport my axes onto the neighbour's tangent plane and read them off in the neighbour's axes.
+			# Two right-handed frames sharing a normal differ by a rotation, so (cos, sin) is the whole map:
+			# (va, vb) in mine becomes (va*cos - vb*sin, va*sin + vb*cos) in theirs.
+			var at: Vector3 = _transport(a_s, ns, nm)
+			link_rot[base + 0] = at.dot(tan_a[m])
+			link_rot[base + 1] = at.dot(tan_b[m])
+
+
+## Cell-indexed accessors for the per-surface frame (callers hold cell indices, columns are contiguous).
+func tangent_a(c: int) -> Vector3:
+	return tan_a[c / depth]
+
+
+func tangent_b(c: int) -> Vector3:
+	return tan_b[c / depth]
+
+
+## Transport a tangent vector's (a, b) components from cell `c`'s frame into the frame of the neighbour that
+## sits in LATERAL slot `l` (0..3 == kernel slots 1..4). The inverse direction is the neighbour's own entry for
+## the reverse slot `l ^ 1`, which slot-opposite reciprocity guarantees exists.
+func rotate_into_neighbour(c: int, l: int, v: Vector2) -> Vector2:
+	var base: int = ((c / depth) * 4 + l) * 2
+	var cs: float = link_rot[base + 0]
+	var sn: float = link_rot[base + 1]
+	return Vector2(v.x * cs - v.y * sn, v.x * sn + v.y * cs)
+
+
+## Unit direction from cell `c` toward its LATERAL slot `l` neighbour, in `c`'s own (tan_a, tan_b) components.
+func link_dir(c: int, l: int) -> Vector2:
+	var base: int = ((c / depth) * 4 + l) * 2
+	return Vector2(link_tan[base + 0], link_tan[base + 1])
+
+
 func cell_of(f: int, i: int, j: int, r: int) -> int:
 	return _surf_idx(f, i, j) * depth + r
 
@@ -504,10 +639,23 @@ func validate() -> Dictionary:
 			if neighbours[m * 6 + (d2 ^ 1)] != c:
 				non_recip += 1
 	errors += non_recip
+	# TANGENT FRAME (a separate table, and a separate contract — see the header). `handed_min` is the worst
+	# `(tan_a × tan_b) · radial` over every cell: it must be +1, because Coriolis rotates that pair and a cell
+	# where it is -1 deflects backwards. `face_handed_min` is the same test on the six raw face bases, checked
+	# rather than asserted, since the per-cell frame inherits its sign from them.
+	var handed_min: float = 2.0
+	for s in surf_count:
+		handed_min = minf(handed_min, tan_a[s].cross(tan_b[s]).dot(_dir[s]))
+	var face_handed_min: float = 2.0
+	for f in FACES:
+		face_handed_min = minf(face_handed_min, _FACE_R[f].cross(_FACE_U[f]).dot(_FACE_N[f]))
+	if handed_min < 0.999:
+		errors += 1
 	return {
 		"ok": closed and symmetric and non_recip == 0 and errors == 0,
 		"closed": closed, "symmetric": symmetric, "errors": errors,
 		"reciprocal": non_recip == 0, "non_reciprocal": non_recip, "lateral_bends": lateral_bends,
 		"surf_count": surf_count, "cell_count": cell_count,
 		"min_adj_dot": min_dot, "max_adj_dot": max_dot,
+		"tangent_handed_min": handed_min, "face_handed_min": face_handed_min,
 	}

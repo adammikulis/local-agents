@@ -52,9 +52,13 @@ layout(set = 0, binding = 1, std430) restrict buffer AirOut { float air_out[]; }
 layout(set = 0, binding = 2, std430) restrict readonly buffer TempIn { float temp[]; };
 layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 4, std430) restrict writeonly buffer PressureOut { float pressure[]; };
-layout(set = 0, binding = 5, std430) restrict readonly buffer VelX { float vel_x[]; };   // tangent axis A (slots 1/2)
-layout(set = 0, binding = 6, std430) restrict readonly buffer VelZ { float vel_z[]; };   // tangent axis B (slots 3/4)
+layout(set = 0, binding = 5, std430) restrict readonly buffer VelX { float vel_x[]; };   // along the cell's tan_a
+layout(set = 0, binding = 6, std430) restrict readonly buffer VelZ { float vel_z[]; };   // along the cell's tan_b
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };     // idx*6 + slot
+// Per-column tangent-frame table (LASphereGrid.link_tan): ((cell/depth)*4 + l)*2 is the unit direction toward
+// the lateral slot l+1 neighbour, in that cell's OWN (tan_a, tan_b) axes. See wind_step_sphere3d for why the
+// frame is a separate table from the neighbour slots.
+layout(set = 0, binding = 16, std430) restrict readonly buffer LinkTan { float ltan[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint surf_count;     // number of COLUMNS = cell_count / depth (this kernel's thread count)
@@ -98,6 +102,15 @@ const float DIFFUSE_FACE = 0.01;
 // Fraction of a level's air crossing one face toward a neighbour it is moving at `toward` (>=0).
 float face_share(float toward, float cfl) {
 	return DIFFUSE_FACE + min(max(toward, 0.0) * cfl, MAX_FACE_SHARE);
+}
+
+// Component of cell `c`'s horizontal velocity pointing along its lateral link `l` (0..3 == neighbour slots
+// 1..4), read in that cell's own tangent frame. This is what makes the exchange conservative WITHOUT assuming
+// the slots are axes: cell A's outflow through a face uses toward(A, l), and the neighbour B computes its
+// inflow from A as toward(A, l) too, because B sees A in the reverse slot and (l^1)^1 == l.
+float toward(uint c, int l, uint depth) {
+	uint b = ((c / depth) * 4u + uint(l)) * 2u;
+	return vel_x[c] * ltan[b] + vel_z[c] * ltan[b + 1u];
 }
 
 // Is shell r of this column part of the free atmosphere? Caller walks inward and stops at the first false.
@@ -156,28 +169,17 @@ void main() {
 		float a = air_in[c];
 		m_col += a;
 		uint nb = c * 6u;
-		float vx = vel_x[c];
-		float vz = vel_z[c];
-		// slot 2 = +tangentA, slot 1 = -tangentA, slot 4 = +tangentB, slot 3 = -tangentB.
-		int n_a_hi = nbr[nb + 2u];
-		if (n_a_hi >= 0 && solid[n_a_hi] == 0.0) {
-			flux_out += a * face_share(vx, cfl);
-			flux_in += air_in[n_a_hi] * face_share(-vel_x[n_a_hi], cfl);
-		}
-		int n_a_lo = nbr[nb + 1u];
-		if (n_a_lo >= 0 && solid[n_a_lo] == 0.0) {
-			flux_out += a * face_share(-vx, cfl);
-			flux_in += air_in[n_a_lo] * face_share(vel_x[n_a_lo], cfl);
-		}
-		int n_b_hi = nbr[nb + 4u];
-		if (n_b_hi >= 0 && solid[n_b_hi] == 0.0) {
-			flux_out += a * face_share(vz, cfl);
-			flux_in += air_in[n_b_hi] * face_share(-vel_z[n_b_hi], cfl);
-		}
-		int n_b_lo = nbr[nb + 3u];
-		if (n_b_lo >= 0 && solid[n_b_lo] == 0.0) {
-			flux_out += a * face_share(-vz, cfl);
-			flux_in += air_in[n_b_lo] * face_share(vel_z[n_b_lo], cfl);
+		// Each of the four lateral faces: my outflow is my velocity toward that neighbour, its inflow is that
+		// neighbour's velocity back toward me (its own reverse link, l ^ 1). Both sides evaluate the same
+		// expression per face, so the exchange conserves exactly — the property the old slot-as-axis form got
+		// for free and this form keeps without needing the slot to be an axis.
+		for (int l = 0; l < 4; ++l) {
+			int m = nbr[nb + uint(l + 1)];
+			if (m < 0 || solid[m] != 0.0) {
+				continue;
+			}
+			flux_out += a * face_share(toward(c, l, depth), cfl);
+			flux_in += air_in[m] * face_share(toward(uint(m), l ^ 1, depth), cfl);
 		}
 	}
 
