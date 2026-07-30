@@ -306,36 +306,20 @@ func _can_grow_here(placed: Vector3) -> bool:
 	return true
 
 
-# Radius of the SKY-EXPOSED top shell cell (r = depth-1), where photosynthesis (MaterialReactions3D R19, gated
-# to the outermost open cell that faces space) deposits the biomass for a whole column. Cached from the sphere
-# grid; -1 until the field is wired. Biomass is read there, per column, not at the ground.
-var _shell_sample_radius: float = -1.0
-func _shell_top_radius() -> float:
-	if _shell_sample_radius > 0.0:
-		return _shell_sample_radius
-	if _material != null and _material.has_method("sphere_grid"):
-		var g: RefCounted = _material.sphere_grid()
-		if g != null:
-			_shell_sample_radius = float(g.core_radius) + (float(g.depth) - 0.5) * float(g.cell_size)
-	return _shell_sample_radius
-
-
-# Living BIOMASS above a surface point — the emergent photosynthesis product for that column (warm, sunlit,
-# CO₂-rich columns fix the most). Read at the sky-exposed top shell cell along the point's radial, since that
-# is where R19 deposits it. Forests gate on this so groves densify under the columns the chemistry made most
-# productive (sunlit continents) and stay sparse under cold/polar/night columns. 0 when no field wired yet.
+# Living BIOMASS at a surface point — the emergent photosynthesis product right there (lit, warm, CO₂-rich,
+# WATERED ground fixes the most). Forests gate on this so groves densify where the chemistry is most productive
+# and stay sparse on cold, dark or dry ground. 0 when no field is wired yet.
+#
+# This used to reach up the radial to the SHELL TOP (`_shell_top_radius`, r = depth-1, ~78 world-units above the
+# terrain) and sample there instead, because R19 photosynthesis was gated GATE_SURFACE and deposited a whole
+# column's biomass into its sky-exposed outermost cell. That was a workaround for a misplaced reaction, and it
+# forced this query to be a per-COLUMN 2.5D lookup: two points on opposite sides of a ridge, or in and out of a
+# valley, read the SAME biomass because they shared a radial. R19 now runs on the ground (GATE_NEAR_GROUND), so
+# the honest reading — the biomass at this point — is also the correct one, and it varies point to point.
 func _biomass_at(pos: Vector3) -> float:
 	if _material == null or not _material.has_method("biomass_at"):
 		return 0.0
-	var r: float = _shell_top_radius()
-	if r <= 0.0:
-		return _material.biomass_at(pos.x, pos.y, pos.z)
-	var pc: Vector3 = terrain.planet_center()
-	var dir: Vector3 = pos - pc
-	if dir.length() < 0.001:
-		return 0.0
-	var s: Vector3 = pc + dir.normalized() * r
-	return _material.biomass_at(s.x, s.y, s.z)
+	return _material.biomass_at(pos.x, pos.y, pos.z)
 
 
 # Spawning + population placement live in LAEcologyStimulus's sibling, LAEcologySpawner. These stay as

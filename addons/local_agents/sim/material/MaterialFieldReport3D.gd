@@ -10,11 +10,16 @@ extends RefCounted
 ## the O(cells) scans behind these getters never run per frame.
 ## (Explicit types only, no ':=' inferred typing.)
 
+const PhotoStatsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd")
+
 var _f = null                                            # back-reference to the owning LAMaterialField3D
+var _photo = null                                        # LAMaterialFieldPhotoStats3D — primary-production spatial stats
 
 
 func setup(field) -> void:
 	_f = field
+	_photo = PhotoStatsScript.new()
+	_photo.setup(field)
 
 
 ## Open-cell (void) temperature spread — the direct read of whether the solar terminator + heat diffusion
@@ -76,6 +81,7 @@ func report() -> Dictionary:
 		"rock_grows": (_f._stamp.grows if _f._stamp != null else 0), "rock_shrinks": (_f._stamp.shrinks if _f._stamp != null else 0),
 	}
 	r.merge(_open_temp_stats())
+	r.merge(_photo.report())
 	r.merge(q.rock_radial_profile())
 	r.merge(q.hot_spring_stats())
 	r.merge(q.lava_shell_diag())

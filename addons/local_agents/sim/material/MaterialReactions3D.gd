@@ -35,6 +35,18 @@ const WINDSPEED: int = 16             # DERIVED driver only (sqrt(vel_x²+vel_z�
 # BEDROCK (rock unification Stage B): fractional bedrock mineral mass. `solid` is DERIVED (rock_fill >= 0.5). Molten
 # LAVA and bedrock ROCK_FILL are the SAME mineral substance — M5 solidify + M6 melt are conserving own-cell transfers.
 const ROCK_FILL: int = 17
+# DERIVED slots — computed in the kernel from geometry it already has, so they cost no buffer, no upload and no
+# readback (WINDSPEED was the first of these; these two are the same idea).
+# LIGHT is REAL per-cell insolation, max(0, dot(cell_radial, sun_dir)) — the exact term
+# heat3d_solar_sphere3d.glsl uses for the terminator, with sun_dir's MAGNITUDE carrying intensity (orbit
+# distance² × atmospheric transmission). One sun drives the temperature field and the chemistry.
+const LIGHT: int = 18                 # DERIVED driver only; never a product/reactant target
+# SOIL_ROOT is the plant-available water of the ROOTING COLUMN: the `soil` channel summed over the permeable
+# regolith cells directly beneath an open cell. It has to be a column, not the cell itself, because
+# soil_sphere3d.glsl writes soil = 0 for every OPEN cell — subsurface water only ever exists in regolith rock,
+# so reading `soil` at the reacting cell reads a structural zero, not a dry world. Writable (transpiration
+# draws from it, proportionally to what each cell holds); see the kernel's root_soil/root_soil_draw.
+const SOIL_ROOT: int = 19
 
 # --- Rate models (extent x per cell) ---------------------------------------------------------------------
 const CONST_FRAC: int = 0             # x = k * driver
@@ -48,14 +60,30 @@ const RELAX_TARGET: int = 3           # x = k * (threshold - driver)  (signed; n
 # transfers — the ONLY difference is the sign of (driver − threshold). Any future "when cold/dry/low"
 # reaction (frost, dew, condensation onto a cold surface) reuses this without a new kernel.
 const DEFICIT_BELOW_THRESHOLD: int = 4  # x = max(0, threshold - driver) * k  (fires when driver is BELOW threshold)
+# OPTIMUM_BAND is the shape none of the four above can express: a rate that PEAKS in the middle and falls off in
+# BOTH directions. All four threshold models are monotone — "more is more" (EXCESS) or "less is more" (DEFICIT) —
+# so anything with a best value in the middle had no way to be written as a record. That gap is exactly why
+# TEMPERATURE ended up as a linear driver on photosynthesis: a linear driver was the only way to make warmth
+# matter, and it says a hotter cell always fixes more carbon, right through boiling.
+#   x = k * driver * max(0, 1 - ((driver2 - threshold) / param2)^2)
+# `driver` is the thing being scaled (light, a concentration, a flow); `driver2` is the variable with an
+# optimum; `threshold` is the optimum; `param2` is the half-width, i.e. the distance from the optimum at which
+# the rate reaches zero. Deliberately a general substrate capability, not a plant rule — enzyme kinetics, a
+# creature's comfort range, a melt/refreeze band and a habitability window are all this same shape.
+const OPTIMUM_BAND: int = 5
 
 # --- Gate bitflags (0 = ungated) -------------------------------------------------------------------------
 const GATE_OPEN_ABOVE: int = 1
-const GATE_SURFACE: int = 2
-const GATE_NEAR_GROUND: int = 4
-const GATE_DAYLIGHT: int = 8
+const GATE_SURFACE: int = 2           # OUTERMOST open cell (outward nbr is space/rock). On a shell that is the
+                                      # TOP OF THE ATMOSPHERE — correct for sky gas exchange, wrong for ground.
+const GATE_NEAR_GROUND: int = 4       # GROUND-HUGGING open cell (INWARD nbr is rock) — where a plant, a snowpack
+                                      # and the altitude lapse all actually are. Distinct set from GATE_SURFACE.
+const GATE_DAYLIGHT: int = 8          # insolation above DAYLIGHT_MIN (the lit hemisphere)
 const GATE_DRY: int = 16              # cell water <= WET_MAX_LOFT (dry surface) — sand only lofts when not wet
 const GATE_NOT_RAINING: int = 32      # global precipitation off — rain pins all dust down (loft parity)
+const GATE_NOT_STATIC: int = 64       # NOT an infinite static reservoir cell. The sea/lake is seeded as water=1
+                                      # `static` cells that are deliberately never simulated (MaterialField3D
+                                      # ._seed_sphere_sea), so per-cell chemistry there is meaningless.
 
 # --- Product targets -------------------------------------------------------------------------------------
 const TGT_SELF: int = 0               # add into the live/back cell channel
@@ -78,13 +106,93 @@ const FERT_PER_DECOMPOSE: float = 1.5
 # Without it the carbon loop can't start: biomass, detritus, fungus and the combustion CO₂ all begin at ~0, so
 # there is no carbon anywhere for a plant to fix (chicken-and-egg). This trace IS that ambient carbon source.
 const CO2_AMBIENT_TRACE: float = 0.05
-# Photosynthesis: CO₂ + H₂O + light → biomass + O₂. Rate scales with local CO₂ (the scarce input, and the
-# reactant cap) × surface TEMPERATURE (the daylight/insolation stand-in — the solar terminator warms the day
-# side to ~24°C and lets the night side relax to ~6°C, so warmth is a real per-cell day proxy, no light channel
-# needed). Extent is capped by the CO₂ actually present, so biomass is CO₂-limited and cannot explode.
-const PHOTO_RATE: float = 0.02           # per-step k on x = PHOTO_RATE * co2 * temp (capped by co2)
+# PHOTOSYNTHESIS: CO₂ + H₂O + light → biomass + O₂. LIGHT drives it, and light is now the real thing —
+# max(0, dot(cell_radial, sun_dir)) — not a stand-in.
+#
+# WHAT THIS REPLACED, and why it was wrong. The rate used to be x = PHOTO_RATE * co2 * TEMP, with temperature
+# standing in for daylight on the argument that "the day side is warmer". Temperature is not light. It lags the
+# terminator by the thermal time constant, it is raised by anything hot, and it is not raised at all by a bright
+# cold day. So the old law had a hot desert fixing carbon at midnight, a bright polar summer fixing almost none,
+# lava flows and wildfires growing plants, and dust dimming suppressing growth only second-hand by cooling.
+# Every one of those is gone: light is light now, and it comes from the same sun_dir the solar kernel uses, so
+# there is exactly one sun in this simulation and its magnitude (orbit distance² × atmospheric transmission)
+# dims the chemistry directly.
+#
+# WHERE IT RUNS, and why that moved. The record was gated GATE_SURFACE, which on a shell means the outermost
+# open cell of a radial line — the TOP OF THE ATMOSPHERE, ~78 world-units above the terrain. Measured on
+# 2026-07-29 (seed=777, --fast=4, 400 frames): biomass at the sky skin 2334, biomass at the ground skin 0.0.
+# All primary production was happening in the stratosphere, and two other systems had grown workarounds for it
+# (EcologyService._biomass_at sampled at the shell-top radius; fungus_fert_sphere3d deposited the column's whole
+# fertility into the sky cell). It is GATE_NEAR_GROUND now — the ground-hugging cell that has rock beneath it,
+# which is where a plant is, where its roots can reach soil, and where the moisture it transpires belongs.
+# GATE_NOT_STATIC additionally keeps it out of the infinite sea reservoir, which is an unsimulated abstraction.
+#
+# MEASURED INPUTS the constants below are set from (same run; 2156 land ground-skin cells):
+#   light      mean 0.281, p50 0.069, max 0.988, lit (>0.05) 50.7% of cells
+#   ground temp mean 12.2 °C, p10 2.9, p50 7.6, p90 24.5  (much colder than the 29.0 open-cell mean — the
+#              ground skin is where the altitude lapse bites and where the night side actually cools)
+#   ground CO₂  mean 0.0404, p10 0.0323  (RICHER than the 0.030 global mean — respiration happens at the ground,
+#              so moving the record there does not starve it of carbon)
+#   rooting-column water  mean 0.702, p10 2.6e-7, p50 0.805, p90 1.275, max 1.904;
+#              13.4% of land is bone dry (<0.01) and 39.0% is dry (<0.5)
+# PHOTO_RATE — MEASURED, and the measurement overturned the obvious guess. 0.04 reproduces the OLD per-cell
+# extent (old x ≈ 0.4·co2 ≈ 0.012/step at co2 ≈ 0.030; new x at the mean lit ground cell = 0.04·0.554·0.55 ≈
+# 0.012/step) and gave biomass_total 689. Reasoning that equilibrium biomass = fixation/RESP_RATE is linear in
+# the rate, 0.12 was tried to lift the total back toward the 3271–4306 baseline. It did the OPPOSITE:
+# biomass_total 320, and ground CO₂ fell from 0.0710 to 0.0313 with a p10 of 0.0015. Tripling the rate does not
+# triple fixation, because on the GROUND the binding constraint is not the rate, it is how fast CO₂ gets down
+# here from the sky trace. A rate that outruns delivery just strips the local carbon to zero every step, which
+# also starves the cells that would otherwise have fixed slowly, so net production FALLS. Back near 0.05, where
+# CO₂ sits comfortably above the extent and Liebig binds only at the brightest cells — which is the regime the
+# whole record is supposed to be in.
+const PHOTO_RATE: float = 0.05           # per-step k on x = PHOTO_RATE * light * band(temp)
 const PHOTO_O2_YIELD: float = 1.0        # O₂ released per unit CO₂ fixed (stoichiometric ~1:1)
 const PHOTO_BIOMASS_YIELD: float = 1.0   # biomass grown per unit CO₂ fixed
+# TEMPERATURE OPTIMUM (the OPTIMUM_BAND parameters). Photosynthesis stops frozen and stops cooked; between
+# those it peaks. band(T) = max(0, 1 - ((T - PHOTO_T_OPT)/PHOTO_T_WIDTH)^2) → zero at 0 °C and at 48 °C, peak at
+# 24 °C. Against the measured ground temperature spread that gives band ≈ 0.23 at the p10 cold tail (2.9 °C),
+# 0.53 at the median (7.6 °C), 0.76 at the mean (12.2 °C) and ~1.0 at the warm p90 (24.5 °C) — a real gradient,
+# not an on/off gate. The upper edge is what stops a lava flow or a wildfire from growing plants: those cells
+# are hundreds of °C, far outside the band, so the rate is exactly 0 with no "is it lava" test anywhere.
+const PHOTO_T_OPT: float = 24.0          # °C at which carbon fixation peaks
+const PHOTO_T_WIDTH: float = 24.0        # °C from the optimum to where it stops (so: 0 °C and 48 °C)
+# TRANSPIRATION: water cost per unit of carbon fixed, moved soil → moisture as a CONSERVING PHASE TRANSFER
+# (roots take up liquid groundwater, leaves release vapour) — the same debit-one-credit-the-other pattern R21/R22
+# freeze/melt use, so nothing leaves the H₂O ledger. It is BOTH the third Liebig reactant (the extent cannot
+# exceed rooting_column_water / PHOTO_WATER_COST) and the mechanism that makes deserts.
+# SIZED, not guessed. The failure mode to avoid is documented directly below on FERT_UPTAKE_COST: a per-step
+# SINK competes against a stock's NET ACCUMULATION RATE, not its peak. Measured land groundwater: 2156 columns
+# × 0.702 = 1514 units, draining to the sea at ~5.8 units/step (2587 seeded → 1514 over ~169 steps).
+#
+# HOW WATER ACTUALLY LIMITS HERE, which is not what a first reading of "Liebig reactant" suggests. The reactant
+# cap is a CLIP (`x ≤ stock/cost`), not a graded response, so it only bites once the local stock is nearly gone.
+# It therefore does two distinct things at two timescales: IMMEDIATELY it zeroes the cells whose rooting column
+# is already empty (the measured 13.4% of land at <0.01, and 2.6e-7 at the 10th percentile — these are deserts
+# from the first step), and SLOWLY it expands that set, because transpiration pulls on every lit cell while
+# lateral Darcy flow only refills the cells water CONVERGES into. Ground that gets no convergence loses the
+# drawdown race and joins the desert. This constant sets the speed of the second process.
+#
+# SIZE IT AGAINST THE REALISED EXTENT, NOT THE LIGHT-LIMITED ONE. The realised extent is ~0.003/step, six times
+# smaller than the light-limited ~0.02, because CO₂ and the night side hold it down — so a first sizing off the
+# light-limited rate over-costs the water by 6x. Same trap the FERT_UPTAKE_COST note below records: a per-step
+# sink competes against a RATE, and it has to be the rate that actually happens.
+#
+# MEASURED at 0.2, 0.45 and 0.0 (same seed, same everything else). 0.2 wins outright, and it wins for a reason
+# worth writing down: raising the cost does not deepen the water limitation, it SHALLOWS it. At 0.45 growth on
+# marginal ground is throttled, so those plants transpire less, so the table draws down LESS and fewer cells
+# ever cross into limitation — biomass_total 318, lit wet/dry contrast 16.3x, dry land 41.0%. At 0.2 plants on
+# marginal ground still grow, transpire more in total, and pull the table down further — biomass_total 781, lit
+# wet/dry contrast 51.8x, dry land 43.3%. The sink is self-limiting, so the cheaper cost yields both more
+# vegetation and more desert. That is not what the sizing argument above predicts; the runs said otherwise, and
+# the runs win.
+#
+# THE TRANSFER DOES NOT LEAK, and the control that proves it is this constant set to 0.0 — transfer disabled,
+# everything else identical, same seed. h2o_total 9556.61 (off) vs 9648.66 (on) = +0.96%, well inside the ±5%
+# run-to-run spread the baseline shows on its own. And the mass is accounted for on both sides:
+# soil_total 3942.75 -> 3590.86 (-351.9), moisture_total 4972.69 -> 5382.61 (+409.9). The same control also
+# isolates the water leg's ONLY behavioural effect: lit wet/dry biomass contrast 0.94 with it off (flat — dry
+# and wet ground carry the same biomass) against 51.8 with it on.
+const PHOTO_WATER_COST: float = 0.2      # soil water transpired per unit CO₂ fixed (debit SOIL_ROOT, credit MOISTURE)
 # NUTRIENT UPTAKE (closes the "fertility actually feeds plants" gap — bio-0.4-shipped left this open): FERT is
 # now a second reactant on R19, so growth is co-limited by CO₂ AND soil fertility (Liebig's-law-of-the-minimum,
 # same reactant-cap machinery that already caps CO2 — no new rate model needed).
@@ -182,10 +290,10 @@ const ROCK_MELT_RATE: float = 0.02       # per-step k on x = max(0, temp - ROCK_
 ## Author one record as a Dictionary (unspecified fields default to the ungated/no-op values). Reactant and
 ## product entries are Arrays of [slot, coeff] (products carry an optional 3rd element = target, default SELF).
 static func _rec(rate_model: int, rate_k: float, driver_slot: int, reactants: Array, products: Array,
-		gate_mask: int = 0, threshold: float = 0.0, driver2_slot: int = -1) -> Dictionary:
+		gate_mask: int = 0, threshold: float = 0.0, driver2_slot: int = -1, param2: float = 0.0) -> Dictionary:
 	return {
 		"rate_model": rate_model, "rate_k": rate_k, "threshold": threshold, "gate_mask": gate_mask,
-		"driver_slot": driver_slot, "driver2_slot": driver2_slot,
+		"driver_slot": driver_slot, "driver2_slot": driver2_slot, "param2": param2,
 		"reactants": reactants, "products": products,
 	}
 
@@ -213,16 +321,26 @@ static func records() -> Array:
 			[[CO2, CO2_PER_DECOMPOSE, TGT_SELF], [FERT, FERT_PER_DECOMPOSE, TGT_SCRATCH]],
 			0, 0.0, DETRITUS),
 
-		# R19 — PHOTOSYNTHESIS: CO₂ + FERT + light → biomass + O₂ at sky-exposed surface cells (the plant
-		# carbon-fix leg, dissolved from Plant.gd's CPU `field.photosynthesize`). BILINEAR: x = PHOTO_RATE*co2*temp
-		# (temp = the daylight proxy; the day side is warmer → fixes more). TWO reactants now cap the extent — CO₂
-		# (always has) and FERT (nutrient uptake, closes the fertility→growth loop): x is capped by
-		# min(co2, fert/FERT_UPTAKE_COST), so growth is CO₂-AND-fertility-limited (bounded, Liebig's-law style).
-		# The FERT debit is a real conserving draw on the soil-nutrient channel — plants actually consume it, not
-		# just read it. Products: O₂ + BIOMASS into the own surface cell. GATE_SURFACE = sky-exposed.
-		_rec(BILINEAR, PHOTO_RATE, CO2, [[CO2, 1.0], [FERT, FERT_UPTAKE_COST]],
-			[[O2, PHOTO_O2_YIELD, TGT_SELF], [BIOMASS, PHOTO_BIOMASS_YIELD, TGT_SELF]],
-			GATE_SURFACE, 0.0, TEMP),
+		# R19 — PHOTOSYNTHESIS: light + CO₂ + soil water + nutrient → biomass + O₂ + transpired vapour, on the
+		# GROUND. OPTIMUM_BAND: x = PHOTO_RATE * LIGHT * band(TEMP; PHOTO_T_OPT, PHOTO_T_WIDTH). LIGHT is the
+		# driver because light is what drives photosynthesis; temperature is a BAND because the reaction has an
+		# optimum, not a slope (see the constants block above for what this replaced and why).
+		#
+		# THREE Liebig reactants cap the extent — x ≤ min(co2, root_water/PHOTO_WATER_COST, fert/FERT_UPTAKE_COST)
+		# — so growth is limited by whichever input is actually scarce here, which is the whole point: carbon on a
+		# drawn-down leaf, water on a plateau, nutrient on barren rock. No branch decides which; the min does.
+		#
+		# The water leg is a CONSERVING PHASE TRANSFER, not a consumption: SOIL_ROOT is debited by
+		# PHOTO_WATER_COST·x and MOISTURE is credited by exactly the same PHOTO_WATER_COST·x. That is
+		# transpiration — roots lift liquid groundwater, leaves release it as vapour — and it is the identical
+		# debit-one-credit-the-other shape R21/R22 use for freeze/melt, so h2o_total (water+moisture+snow+soil)
+		# is untouched by it. It also couples two systems that had never met: the aquifer now feels the forest,
+		# and the forest humidifies its own air.
+		_rec(OPTIMUM_BAND, PHOTO_RATE, LIGHT,
+			[[CO2, 1.0], [SOIL_ROOT, PHOTO_WATER_COST], [FERT, FERT_UPTAKE_COST]],
+			[[O2, PHOTO_O2_YIELD, TGT_SELF], [BIOMASS, PHOTO_BIOMASS_YIELD, TGT_SELF],
+				[MOISTURE, PHOTO_WATER_COST, TGT_SELF]],
+			GATE_NEAR_GROUND | GATE_NOT_STATIC, PHOTO_T_OPT, TEMP, PHOTO_T_WIDTH),
 
 		# R20 — RESPIRATION + DECAY: biomass + O₂ → CO₂ + detritus, everywhere biomass exists (ungated).
 		# BILINEAR: x = RESP_RATE*biomass*o2; BIOMASS reactant caps the extent (can't respire more than present),
@@ -296,8 +414,10 @@ static func records() -> Array:
 
 ## Serialize the records into a std430 SSBO byte buffer. Layout per Reaction (128 bytes, 16-aligned):
 ##   0 rate_model(i) 4 rate_k(f) 8 threshold(f) 12 gate_mask(i) | 16 driver_slot(i) 20 driver2_slot(i)
-##   24 cap_slot(i) 28 cap_coeff(f) | 32 n_react(i) 36 n_prod(i) 40 pad 44 pad |
+##   24 cap_slot(i) 28 cap_coeff(f) | 32 n_react(i) 36 n_prod(i) 40 param2(f) 44 pad |
 ##   48 react_slot[4](i) | 64 react_coeff[4](f) | 80 prod_slot[4](i) | 96 prod_coeff[4](f) | 112 prod_target[4](i)
+## Offset 40 was one of two spare pads; OPTIMUM_BAND claims it as `param2` (its band half-width), so the record
+## stays exactly 128 bytes and every existing offset is untouched. One pad remains at 44 for the next model.
 static func serialize(recs: Array) -> PackedByteArray:
 	var buf: PackedByteArray = PackedByteArray()
 	buf.resize(recs.size() * RECORD_BYTES)
@@ -316,7 +436,7 @@ static func serialize(recs: Array) -> PackedByteArray:
 		buf.encode_float(base + 28, float(rec.get("cap_coeff", 0.0)))
 		buf.encode_s32(base + 32, reactants.size())
 		buf.encode_s32(base + 36, products.size())
-		buf.encode_s32(base + 40, 0)
+		buf.encode_float(base + 40, float(rec.get("param2", 0.0)))
 		buf.encode_s32(base + 44, 0)
 		for k in range(4):
 			var rs: int = int(reactants[k][0]) if k < reactants.size() else -1
