@@ -136,9 +136,19 @@ committed). When removing files:
 - For substantial or breaking work, keep `ARCHITECTURE_PLAN.md` current: record the intended change and
   note breaking API/schema changes there before merge. Keep commits scoped by domain
   (runtime/editor/tests/docs) where practical.
-- **KEEP `HANDOFF.md` CURRENT WITHOUT BEING ASKED — it is the master tracker and the next agent's only
-  map.** Update it on your own initiative at each of these points, not when someone reminds you:
-  - a phase, workstream, or fan-out lands, or a feature is verified;
+- **`HANDOFF.md` IS THE MAP OF WHAT IS LEFT. IT IS NEVER A HISTORY.** Maintainer's rule, absolute:
+  **a checked-off item is DELETED as soon as it is committed.** Do not tick it, strike it, mark it
+  `DONE`/`SHIPPED`/`MERGED`/`RESOLVED`, or keep it "for context". Git is the record of what was done. A
+  tracker that doubles as a changelog buries the next agent's actual job — measured 2026-07-30, the file
+  had reached 1053 lines of which **578 were finished session narrative**, and its "START HERE" header was
+  followed by 530 lines of history before the reader met a single actionable item. Cutting it to 435 lost
+  nothing that git does not already hold.
+  - **Durable lessons do not live there either.** A finding worth keeping goes to `CLAUDE.md` (process) or
+    `GODOT_BEST_PRACTICES.md` (Godot/runtime/engine). What stays in `HANDOFF.md` is live reference only:
+    engine limits that still bite, deferrals with the reason they were deferred, and undone work.
+- **KEEP IT CURRENT WITHOUT BEING ASKED — it is the next agent's only map.** Update it on your own
+  initiative at each of these points, not when someone reminds you:
+  - a phase, workstream, or fan-out lands, or a feature is verified — which means DELETING its entry;
   - you discover a claim already in the file is FALSE (fix it in place, mark it corrected with the date,
     and say what it said before, so nobody re-derives the same wrong conclusion);
   - before merging any branch to the dev branch, and before a session ends or pauses.
@@ -150,8 +160,8 @@ committed). When removing files:
   - **Verify before you write.** Every status claim you add or leave standing must be one you just
     checked against the code. "Shipped", "not built", "still owed" are all falsifiable in one grep, so
     do the grep. Cite `file:line` for anything a reader would otherwise have to hunt for.
-  - Keep the "Next — pick up here" list honest: delete what is done, and say what would actually decide
-    the open items (a specific measurement or run), not just that they are open.
+  - Keep the ranked "DO THIS NEXT" list honest: delete what is done, and for each open item say what
+    would actually DECIDE it (a specific measurement or run), not just that it is open.
 
 ## Validation defaults
 
