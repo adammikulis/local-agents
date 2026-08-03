@@ -65,7 +65,7 @@ func _tick_plant_seeding() -> void:
 			if p.has_method("consume"):
 				p.consume()
 			continue
-		seed_cost_total += paid
+		seed_cost_total += paid * LAPlant.BIOMASS_PER_FOOD   # booked in the FIELD's mass units, like the rest
 		var placed = _eco._place_on_surface(_eco._tangent_offset_point((p as Node3D).global_position, LASimRng.shared().randf_range(-3.5, 3.5), LASimRng.shared().randf_range(-3.5, 3.5)))
 		var child = null
 		if placed != null and _eco._can_grow_here(placed):

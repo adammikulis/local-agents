@@ -49,23 +49,40 @@ const BIOMASS_GROWTH_MAX: float = 2.0    # cap on the biomass growth boost
 # greened gets nothing. Grazing then removes that mass from the biosphere for real, and an uprooted plant
 # hands what is left back as detritus instead of deleting it.
 #
-# MEASURED CONSEQUENCE, and it is a large one — recorded here so nobody reads it as a bug: the field's whole
-# standing crop is `biomass_open_total` ~6.5 mass units over ~4800 ground cells, about 0.0013 per cell, while
-# the old private reserve started every plant at 27.6 and topped up at 8/s. The two ledgers are four to five
-# orders of magnitude apart. Feeding the reserve from real primary production therefore leaves discrete plants
-# worth almost nothing to a grazer. That is not this file being wrong; it is the first honest measurement of
-# how little the substrate actually produces, and the fix belongs to photosynthesis, not to a bigger constant.
-const FOOD_CAPACITY: float = 46.0        # ceiling on the reserve a full-grown plant may hold (mass units)
-const FOOD_UPTAKE_RATE: float = 8.0      # mass/second the plant may draw from its cell's standing biomass —
-                                         # a RATE LIMIT on uptake, not a source: it can only take what the
-                                         # field has, and takes nothing where the field has nothing.
+# ===== THE TWO LEDGERS ARE IN DIFFERENT UNITS, AND THE CONVERSION HAS TO BE PINNED ON SOMETHING ============
+#
+# The field's `biomass` is a MASS in the substrate's units (MAX_MASS = one full cell). The plant's reserve is
+# in the FOOD-ENERGY units the creature side runs on (a bite fills a gut, a gut digests to energy). They are
+# not the same quantity and there is no physical constant relating them — the creature's energy scale is a
+# game abstraction with no kilogram behind it — so the conversion is a MODEL PARAMETER and it lives here,
+# next to the model that uses it, rather than in LAPhysical.
+#
+# WHAT IT IS PINNED ON: what a plant node MEANS. A plant node stands for one plant's worth of the vegetation
+# the field is carrying, so a full-grown one's reserve is one node's share of the planet's standing crop.
+# Measured on the 600-frame baseline, seed 4242: `biomass_open_total` 6.45 mass units carried by 477 plant
+# nodes and 320 tree nodes, which is 0.0081 mass units per vegetation node. Against FOOD_CAPACITY = 46 that
+# is 1.8e-4 mass units per unit of food energy.
+#
+# THIS IS A UNIT DEFINITION, NOT A FITTED CONSTANT, and the difference matters because getting it wrong looks
+# exactly like a result. The first version of this change assumed 1:1 — CreatureDigestion.gd:26 says "biomass
+# units == energy units", which is true INSIDE a creature's gut and says nothing about the field — and the
+# conclusion was that the substrate produces four orders of magnitude too little to feed anything. Measured
+# under that assumption: plants 374 against a baseline 478, trees 254-263 against 298-320, and germination
+# stopped completely because no parent could ever afford a seed. None of that was the planet being barren; it
+# was a missing conversion between two arbitrary scales.
+const BIOMASS_PER_FOOD: float = 1.8e-4
+const FOOD_CAPACITY: float = 46.0        # ceiling on the reserve a full-grown plant may hold (food-energy units)
+const FOOD_UPTAKE_RATE: float = 8.0      # food-energy/second the plant may draw from its cell's standing
+                                         # biomass — a RATE LIMIT on uptake, not a source: it can only take
+                                         # what the field has, and takes nothing where the field has nothing.
 const FOOD_MIN_EDIBLE: float = 5.0       # below this the plant is grazed-down and not worth targeting (recovers)
 var _food: float = 0.0                   # current edible reserve — earned from the field, never granted
 
-# Running totals so the reserve held in plant nodes is VISIBLE. Mass drawn out of the `biomass` channel leaves
-# the substrate's carbon ledger (`carbon_total` sums the field's co2 + biomass + detritus only), so without
-# these a perfectly conserving draw would read as carbon destroyed. Published by LAEcologyService.
-static var food_held_total: float = 0.0      # reserve currently standing in every live plant node
+# Running totals so the reserve held in plant nodes is VISIBLE — IN THE FIELD'S OWN MASS UNITS, so they read
+# straight against `carbon_biomass`. Mass drawn out of the `biomass` channel leaves the substrate's carbon
+# ledger (`carbon_total` sums the field's co2 + biomass + detritus only), so without these a perfectly
+# conserving draw would read as carbon destroyed. Published by LAEcologyService.vegetation_report.
+static var food_held_total: float = 0.0      # mass currently standing in every live plant node's reserve
 static var food_drawn_total: float = 0.0     # cumulative mass drawn out of the field into plant tissue
 static var food_returned_total: float = 0.0  # cumulative mass handed back to the field as detritus
 
@@ -159,7 +176,7 @@ func setup(_terrain, _config: Dictionary) -> void:
 	# plant. The old line here was `_food = _food_capacity() * 0.6`, which handed 27.6 units of edible matter
 	# to every plant node the moment it existed — and germination creates hundreds of them per run.
 	_food = _food_capacity() * 0.6 if mint_food() else 0.0
-	food_held_total += _food
+	food_held_total += _food * BIOMASS_PER_FOOD
 
 	collision_layer = 2
 	collision_mask = 0
@@ -368,25 +385,27 @@ func _physics_process(delta: float) -> void:
 			_seed_ready = true
 
 
-# Draw up to `want` of standing biomass out of this plant's own cell and add it to the edible reserve. The
-# field is debited on device for exactly what it hands over, so nothing is created; where the cell is bare the
-# call returns 0 and the plant simply does not grow a reserve.
-func _uptake(want: float) -> void:
-	if want <= 0.0:
+# Draw up to `want_food` units of edible reserve out of the standing biomass in this plant's own cell. The
+# field is debited on device for exactly the mass it hands over, so nothing is created; where the cell is bare
+# the call returns 0 and the plant simply does not build a reserve. `want_food` is in FOOD-ENERGY units and
+# the field deals in MASS, so BIOMASS_PER_FOOD is applied on the way in and taken back off on the way out —
+# the plant is credited only what the planet actually gave up.
+func _uptake(want_food: float) -> void:
+	if want_food <= 0.0:
 		return
 	if mint_food():
 		# CONTROL PATH (LA_MINT_PLANT_FOOD=1): the old behaviour, food from nowhere, for the A/B.
-		_food += want
-		food_held_total += want
+		_food += want_food
+		food_held_total += want_food * BIOMASS_PER_FOOD
 		return
 	if _material == null or _material._inject == null or not _material._inject.has_method("take_biomass"):
 		return
-	var got: float = _material._inject.take_biomass(global_position, want)
-	if got <= 0.0:
+	var got_mass: float = _material._inject.take_biomass(global_position, want_food * BIOMASS_PER_FOOD)
+	if got_mass <= 0.0:
 		return
-	_food += got
-	food_held_total += got
-	food_drawn_total += got
+	_food += got_mass / BIOMASS_PER_FOOD
+	food_held_total += got_mass
+	food_drawn_total += got_mass
 
 
 # Growth-speed BOOST from the emergent field biomass at this plant's cell (0 with no field / no local biomass).
@@ -439,10 +458,11 @@ func _exit_tree() -> void:
 	# burnt out, culled by the LOD governor, freed at shutdown). Doing it in _exit_tree rather than in _uproot
 	# is deliberate: every path that removes a plant node goes through here, and only one of them was uprooting.
 	if _food > 0.0:
-		food_held_total = maxf(0.0, food_held_total - _food)
+		var mass: float = _food * BIOMASS_PER_FOOD
+		food_held_total = maxf(0.0, food_held_total - mass)
 		if _material != null and _material._inject != null and _material._inject.has_method("return_detritus"):
-			_material._inject.return_detritus(global_position, _food)
-			food_returned_total += _food
+			_material._inject.return_detritus(global_position, mass)
+			food_returned_total += mass
 		_food = 0.0
 
 
@@ -496,7 +516,7 @@ func credit_reserve(amount: float) -> void:
 	if amount <= 0.0:
 		return
 	_food += amount
-	food_held_total += amount
+	food_held_total += amount * BIOMASS_PER_FOOD
 
 
 func is_edible() -> bool:
@@ -509,7 +529,7 @@ func is_edible() -> bool:
 func feed(amount: float) -> float:
 	var take: float = clampf(amount, 0.0, _food)
 	_food -= take
-	food_held_total = maxf(0.0, food_held_total - take)
+	food_held_total = maxf(0.0, food_held_total - take * BIOMASS_PER_FOOD)
 	# A visit to a flower deposits pollen (POLLINATION): the visitor — bees dominate flower visits — carries
 	# pollen between blooms, so a fed-on flower becomes/stays seed-ready. This is the mutualism, no scripting.
 	if flower and take > 0.0:
