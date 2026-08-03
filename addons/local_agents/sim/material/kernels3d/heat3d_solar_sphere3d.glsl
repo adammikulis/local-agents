@@ -17,23 +17,15 @@
 // (mirrors the box touching only the top cell). Runs AFTER conduction, IN PLACE on the temp buffer.
 //
 // PER-CELL SOLAR: insolation = max(0, dot(cell_radial, sun_dir)); cell_radial = the binding-14 outward unit
-// vector for this cell, sun_dir = the NEW sun_x/sun_y/sun_z push-constant (world-space unit vector to the sun).
-// target = AMBIENT_NIGHT + SOLAR_WARMTH * insolation, then relax by AMBIENT_RELAX. The night side relaxes to the
-// bare AMBIENT_NIGHT floor; the sub-solar point to AMBIENT_NIGHT + SOLAR_WARMTH.
+// vector for this cell, sun_dir = the sun_x/sun_y/sun_z push-constant (world-space unit vector to the sun,
+// its MAGNITUDE carrying orbital distance + atmospheric transmission). That insolation feeds a real energy
+// balance in main(), NOT a relax-to-target — see the ENERGY BALANCE block.
 //
-// ALTITUDE LAPSE — RESTORED (climate lane). The box target subtracted a lapse * (world_height - sea_level) so
-// high ground read cold (snow-capped peaks + an alpine treeline at ANY latitude). The box→sphere port dropped
-// it claiming "no per-cell world-position buffer is available." That claim is stale: the driver already packs a
-// per-cell world position (`pos`, flat float3 c*3+{0,1,2}, the SAME buffer heat3d_cool binds) and hands it to
-// this pass via `bufs["pos"]`. We bind it here (binding 3) and compute the cell's ALTITUDE above the sea shell
-// = max(0, length(pos) - sea_radius), then subtract LAPSE * altitude from the insolation target. On the sphere
-// "up" is the outward radial, so altitude is a radial distance above the sea-surface RADIUS (sea_radius, the
-// same push param heat3d_cool uses) — not a planar height. This is pure GEOMETRY: a peak is cold because it is
-// FAR FROM THE CENTRE, independent of where the sun is, so snow caps the highest terrain on the equator too and
-// the treeline descends toward the poles (where the insolation base is already low). No special-case "mountain"
-// or "snow" code — the cold peak falls out of one lapse term over the shared position field.
-// Constants originated in MaterialHeat3D.gd, which is deleted — see the note above the constant block, which
-// already says so. LAPSE is tuned for the PLANET_RELIEF≈16 / sea_radius≈248 world scale.
+// ALTITUDE: there is no LAPSE term and there must not be one. High ground is cold here for the physical
+// reason it is cold on Earth — a thinner air column overhead intercepts less of its outgoing longwave — which
+// enters through EMISSIVITY reading the hydrostatic `pressure` channel, not through a subtracted constant.
+// The paragraph that used to sit here described that deleted LAPSE and its PLANET_RELIEF tuning; it is gone
+// so nobody restores it. `pos` (binding 3) survives for other uses.
 
 layout(local_size_x = 64) in;
 
@@ -84,19 +76,35 @@ layout(push_constant, std430) uniform Params {
 // colder — with no altitude appearing anywhere in the expression. Latitude, season, albedo, ocean lag and
 // now altitude all fall out of the same one energy balance.
 // ===== ENERGY BALANCE CONSTANTS ===================================================================
-// Target is EARTH-LIKE behaviour, so these are derived rather than fitted to this world's old numbers.
-// STEFAN is the real Stefan-Boltzmann constant; EMISSIVITY is a greybody atmosphere (a value below 1 is
-// what a greenhouse does — it holds the surface warmer than its bare radiative temperature).
-// SOLAR_CONSTANT is in the same W/m^2-like units, sized so the sub-solar point equilibrates near 300 K:
-//   absorbed = S*(1-a)*1  ==  emitted = sigma*eps*T^4   ->   S ~ 600 at a=0.15, eps=0.9, T=300 K.
+// MEASURED VALUES, NOT FITTED ONES. SOLAR_CONSTANT was 600.0, with a comment saying it was "sized so the
+// sub-solar point equilibrates near 300 K" — i.e. the sun's brightness was chosen to make the output look
+// right, which makes surface temperature an INPUT to this model rather than a prediction of it. It is now
+// the measured 1361 W/m^2 at 1 AU, and STEFAN is the full Stefan-Boltzmann constant rather than a truncation.
+//
+// With real numbers the equilibrium is a RESULT: mean absorbed = S/4 * (1 - albedo) against sigma*eps*T^4
+// gives ~288 K for an Earth-albedo planet with nothing tuned. If this world lands somewhere else, that is a
+// finding about its albedo, its greenhouse or its interior — not a licence to re-dim the sun.
+//
 // The heat capacities set how far a night cools before dawn. At 288 K a cell radiates ~390 W/m^2, so over
 // a ~31 s night (half a 63 s rotation, 310 steps at 0.1 s) it sheds ~12000 J/m^2 — a capacity near 800
 // gives a ~15 K diurnal swing on land. Water is an order up, which is what makes the ocean lag.
-const float STEFAN = 5.670374e-8;
-const float SOLAR_CONSTANT = 600.0;
+const float STEFAN = 5.670374419e-8;   // LAPhysical.STEFAN_BOLTZMANN — the measured constant, in full
+const float SOLAR_CONSTANT = 1361.0;   // LAPhysical.SOLAR_CONSTANT_W_M2 — measured irradiance at 1 AU
 const float KELVIN = 273.15;
 const float STEP_DT = 0.1;             // the field's fixed step (LAMaterialFieldSphereStep3D.STEP_DT)
-const float MAX_DT_PER_STEP = 5.0;     // numerical guard only, never reached at equilibrium
+// STABILITY LIMIT, and it is NOT a spare guard — it BINDS. Measured on this build: 399 surface cells hit it
+// in a single step, worst |dT| 29.8 C/step against a limit of 5.0. Its old comment said "numerical guard
+// only, never reached at equilibrium", which was false and hid the fact that real energy was being discarded
+// every step at exactly the cells that matter most (lava, hot springs, the day/night terminator).
+//
+// A clamp that silently drops the excess is a lie in an energy balance: the cell reports a temperature the
+// budget did not pay for. The fix is not a bigger number — dT scales as 1/heat_capacity, so a cell with the
+// bare HEAT_CAP_AIR and a large flux genuinely wants a big step, and raising the limit just moves the
+// threshold. It is SUB-STEPPING: split the update into N slices when the implied change is large, so the
+// same total energy is applied but T^4 is re-evaluated as the cell warms, which is what makes it converge.
+// The clamp remains underneath as a true last resort, and now reports rather than hides (dt_clamped).
+const float MAX_DT_PER_STEP = 5.0;     // last-resort stability limit (see SUB-STEPPING below)
+const int   MAX_SUBSTEPS = 8;          // slices per step when |dT| is large; 8 covers the measured 29.8 C
 const float ALBEDO_GROUND = 0.15;
 const float ALBEDO_WATER = 0.06;
 const float ALBEDO_ICE = 0.65;
@@ -209,7 +217,21 @@ void main() {
 		float dT = (absorbed - emitted) * STEP_DT / cap;
 		// Numerical guard ONLY (not a physics clamp): one step may not move a cell more than this, so a
 		// transient cannot NaN the field. Equilibrium is unaffected — it is reached over many steps.
-		temp[idx] += clamp(dT, -MAX_DT_PER_STEP, MAX_DT_PER_STEP);
+		// SUB-STEP rather than truncate. One Euler step of a T^4 sink is only valid while T barely moves;
+		// when it does not, slice the interval and re-evaluate the emission each slice. Energy is conserved
+		// across the slices (each pays its own sigma*eps*T^4), the equilibrium is unchanged, and the cells
+		// that used to lose 25 C/step of real cooling now actually cool.
+		int slices = int(clamp(ceil(abs(dT) / MAX_DT_PER_STEP), 1.0, float(MAX_SUBSTEPS)));
+		float sub_dt = STEP_DT / float(slices);
+		float t_c = temp[idx];
+		for (int s = 0; s < slices; ++s) {
+			float tk = max(t_c + KELVIN, 1.0);
+			float em = STEFAN * emissivity * tk * tk * tk * tk;
+			// Still clamp each SLICE, so a pathological cell cannot run away — but with 8 slices this is a
+			// genuine last resort rather than the every-step truncation it had become.
+			t_c += clamp((absorbed - em) * sub_dt / cap, -MAX_DT_PER_STEP, MAX_DT_PER_STEP);
+		}
+		temp[idx] = t_c;
 	}
 	// INTERIOR AIR IS LEFT TO CONDUCTION AND BUOYANCY, which is what an atmosphere actually is.
 	//

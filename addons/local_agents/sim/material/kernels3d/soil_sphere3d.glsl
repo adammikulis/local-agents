@@ -167,6 +167,14 @@ void main() {
 			}
 			float my_head = head_of(idx, s);
 			float remaining = s * MAX_FLOW_FRAC;           // bounded total outflow this step
+			// KNOWN, NOT FIXED HERE: this loop spends `remaining` greedily in SLOT ORDER and breaks when it runs
+			// out. Slot 0 is the INWARD neighbour and head_of() makes the cell below always lower-head unless it
+			// is brim-full, so whenever the cell beneath has headroom the outflow budget is spent downward before
+			// any lateral Darcy or spring runs. That is why the table equilibrates in the bottom regolith shells
+			// with the top ones dry, and why the header's claim that "the bedrock floor makes the aquifer
+			// surface-following" does not hold. The fix is proportional allocation (compute all six desired flows,
+			// then scale them to the budget together) — deliberately NOT done in the same change as the units fix
+			// below, because it restructures a conservation-critical gather and deserves its own verification.
 			for (int d = 0; d < 6; d++) {
 				if (remaining <= 0.0) {
 					break;
@@ -185,7 +193,17 @@ void main() {
 						// and all groundwater funnels into the lowest regolith shell instead of levelling laterally
 						// + feeding the upper-shell valley-wall springs (which would then dry out). This is what
 						// keeps the water table surface-following + the springs perennial.
-						float flow = min(CONDUCT * dh, remaining);
+						// DARCY ON A GRADIENT, NOT ON A RAW HEAD. `dh` is a LENGTH in world units, so
+						// `CONDUCT * dh` was 0.35 * (up to a full cell_size = 16) = 5.6 against a budget of at
+						// most MAX_FLOW_FRAC * CAPACITY = 0.21 — min() picked the stability cap on EVERY link,
+						// every step, so the aquifer was a fixed 35%/step drain that was head-proportional in
+						// name only. This is the identical defect this file already found and fixed for
+						// SPRING_CONDUCT 30 lines below ("SPRING_CONDUCT multiplied a head in WORLD units ...
+						// min() picked the stability cap EVERY time"); it was never applied to the leg above it.
+						// Dividing by cell_size makes CONDUCT what its comment always claimed: flow per unit
+						// hydraulic gradient, the same dimensionless currency as INFIL_RATE.
+						float grad = dh / max(params.cell_size, 1e-6);
+						float flow = min(CONDUCT * grad, remaining);
 						flow = min(flow, max(0.0, CAPACITY - soil_in[n]));
 						if (flow > 0.0) {
 							send[base + uint(d)] = flow;

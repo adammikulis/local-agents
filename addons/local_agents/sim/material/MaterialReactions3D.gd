@@ -98,14 +98,37 @@ const TGT_SCRATCH: int = 3            # add into the per-cell scratch buffer (fu
 
 const RECORD_BYTES: int = 128         # std430 size of one Reaction (see layout in serialize())
 
-# Constants copied VERBATIM from the kernels being dissolved (MaterialGas3D.gd / MaterialFungus3D.gd).
+# Constants inherited from the kernels that were dissolved (MaterialGas3D.gd / MaterialFungus3D.gd). They were
+# "copied VERBATIM", i.e. never derived — and two of them were wrong in a way no amount of tuning could fix.
 const SKY_EXCHANGE: float = 0.5
 const O2_AMBIENT: float = 1.0
 const CO2_SKY_VENT: float = 0.25
 const DECOMPOSE_RATE: float = 0.05
+
+# OXYGEN OBEYS AN IDENTITY, NOT A TUNING TARGET. Photosynthesis and aerobic oxidation are exact inverses:
+#   CO₂ + H₂O + light -> CH₂O + O₂      one O₂ RELEASED per carbon fixed
+#   CH₂O + O₂         -> CO₂ + H₂O      one O₂ CONSUMED per CO₂ produced
+# So every oxidation record in this table must satisfy  O₂ consumed == CO₂ produced.  It did not:
+# R15 decompose was 0.8 against 1.0, and R20 respiration 0.5 against 0.6 — both ~18% under-oxidised, both in
+# the same direction. Traced through one unit of carbon (fix -> respire -> decompose the litter) the loop
+# closed on carbon exactly (0.6 + 0.4 == 1.0, an unremarked and untested coincidence) while MINTING 0.18 O₂
+# per cycle, forever. Measured by the new mass ledger before the fix: carbon +6.48/step, fertility +2.24/step
+# from a first sample of exactly 0.0. Oxygen read flat only because R11's sky pin is an unbounded source that
+# absorbed the surplus — the mint was real and invisible.
+# Setting these equal closes oxygen ANALYTICALLY, for any rate, with nothing left to tune.
 const CO2_PER_DECOMPOSE: float = 1.0
-const O2_PER_DECOMPOSE: float = 0.8
-const FERT_PER_DECOMPOSE: float = 1.5
+const O2_PER_DECOMPOSE: float = 1.0      # == CO2_PER_DECOMPOSE, by the identity above (was 0.8)
+
+# FERTILITY COMES OUT OF THE LITTER, and litter has a finite nutrient content. This was 1.5 — one unit of
+# detritus produced 1.5 units of nutrient, from no source pool at all, against an uptake of 0.02: a 29:1
+# amplifier. Real mineralisation releases the nitrogen that was ALREADY in the litter, bounded by its C:N
+# ratio — about 20:1 for leaf litter, 10:1 for soil organic matter. So the yield is 1/20, and plant uptake
+# must debit at the same ratio or the books cannot close. FERT_UPTAKE_COST is set to match below.
+# This is why the old FERT_UPTAKE_COST was cut 25x "so it only binds where fert is genuinely near-zero":
+# nutrient limitation was removed rather than the nutrient SOURCE being fixed. With both at the C:N ratio,
+# Liebig limitation by nutrient becomes real again and a barren soil genuinely limits growth.
+const LITTER_C_TO_N: float = 20.0
+const FERT_PER_DECOMPOSE: float = 1.0 / LITTER_C_TO_N      # 0.05 (was 1.5)
 
 # --- Biomass / plant carbon exchange (Phase B3 §1 R19) ----------------------------------------------------
 # Trace atmospheric CO₂ the sky maintains at every exposed surface cell (the ~400ppm baseline). Photosynthesis
@@ -227,28 +250,51 @@ const PHOTO_WATER_COST: float = 0.05     # soil water transpired per unit CO₂ 
 # less respiration/detritus -> less decompose -> less fert -> even less photosynthesis), NOT the intended
 # "only barren ground throttles" behaviour. Cut ~25x to 0.02, keeping the drain clearly subordinate to the
 # natural replenishment rate so it only binds where fert is genuinely near-zero.
-const FERT_UPTAKE_COST: float = 0.02     # fertility consumed per unit of photosynthesis extent (2nd reactant)
+# SUPERSEDED, and the block above is kept because it is the evidence. That collapse was real, but it was the
+# symptom of a SOURCE that produced 1.5 nutrient per unit litter — a 29:1 amplifier — not of an uptake that
+# was too heavy. Cutting uptake 25x removed nutrient limitation instead of fixing the source, which is why
+# fertility then ran away (measured: +2.24/step, from a first sample of exactly 0.0). With
+# FERT_PER_DECOMPOSE now at the litter C:N ratio, uptake must debit at the SAME ratio or the books cannot
+# close, and the two match by construction rather than by tuning. If the collapse above returns at this
+# value, that is a real finding about primary production and must be reported, not tuned away again.
+const FERT_UPTAKE_COST: float = 1.0 / LITTER_C_TO_N   # 0.05 — the same C:N ratio the litter releases at
 # Respiration + decay: biomass + O₂ → CO₂ + detritus. Living matter slowly oxidizes everywhere it exists,
 # returning carbon to the air (CO₂) and shedding litter (detritus) that the fungus-decompose record then rots
 # into CO₂ + soil fertility. Proportional to biomass → self-limiting (as biomass rises, respiration rises to
 # match fixation), which BOUNDS the loop, and it closes the carbon cycle entirely on the GPU.
 const RESP_RATE: float = 0.01            # per-step k on x = RESP_RATE * biomass * o2
-const RESP_O2_COST: float = 0.5          # O₂ consumed per unit biomass respired (aerobic)
+# RESP_O2_COST MUST EQUAL RESP_CO2_YIELD — one O₂ consumed per CO₂ produced, the same identity R15 obeys
+# above. It was 0.5 against 0.6, minting 0.1 O₂ per unit respired. Not tunable: any pair where these differ
+# creates or destroys oxygen for free.
 const RESP_CO2_YIELD: float = 0.6        # CO₂ returned to air per unit biomass respired
-const RESP_DET_YIELD: float = 0.4        # detritus (litter) shed per unit biomass respired
+const RESP_O2_COST: float = RESP_CO2_YIELD   # aerobic: O₂ consumed == CO₂ produced (was 0.5)
+# And the carbon side: RESP_CO2_YIELD + RESP_DET_YIELD must be 1.0, or respiration creates or destroys carbon.
+# It already was, by coincidence — nothing stated it, nothing tested it, and there is no carbon_total, so
+# anyone tuning RESP_CO2_YIELD for behaviour would have broken conservation silently. Deriving the partner
+# makes the invariant structural: change the split and it still closes.
+const RESP_DET_YIELD: float = 1.0 - RESP_CO2_YIELD   # detritus (litter) shed per unit biomass respired
 
 # --- H₂O PHASE CHANGE (freeze / melt) — one conserved substance, phase from temperature (Phase 2c) --------
 # Liquid WATER, atmospheric MOISTURE and frozen SNOW are the SAME H₂O; only the PHASE differs, and the phase
 # is emergent from a cell's TEMPERATURE. Freeze/melt are pure mass-conserving TRANSFERS: debit one phase by x,
 # credit the other by x (coeff 1:1), so H₂O total = water + moisture + snow is conserved by every transition.
-# FREEZE_TEMP / MELT_TEMP MUST match snowice_sphere3d.glsl (the sat(T)-aware snowfall/deposition kernel that
-# freezes the CONDENSED atmospheric water directly — the primary snow source). Hysteresis (FREEZE_TEMP <
-# MELT_TEMP) leaves a stable band where snow neither grows nor melts → a clean, non-flickering snow line.
-# TUNED to the sim's ACTUAL open-cell temperature range (~11–21 °C: this world's static terminator never drops
-# the night/pole floor near 0 °C), so freezing happens in the coldest ~1–2 °C cap instead of NEVER. A literal
-# 0 °C freeze can never fire here — see the task temp-range note; raise these with the real climate range.
-const FREEZE_TEMP: float = 0.0          # WATER (and, in the kernel, condensed MOISTURE) at T below this freezes → SNOW
-const MELT_TEMP: float = 1.5            # SNOW at T above this melts → liquid WATER
+# WATER'S PHASE BOUNDARY. Ice and liquid water coexist at exactly ONE temperature, and it is 0 °C, so freeze
+# and melt are the SAME number. Must match snowice_sphere3d.glsl (the sat(T)-aware kernel that freezes the
+# CONDENSED atmospheric water — the primary snow source); scripts/check_physical_constants.sh gates that.
+#
+# THE COMMENT THAT WAS HERE IS DELETED, and what it SAID matters more than what it set: "TUNED to the sim's
+# ACTUAL open-cell temperature range (~11–21 °C …) so freezing happens in the coldest ~1–2 °C cap instead of
+# NEVER. A literal 0 °C freeze can never fire here … raise these with the real climate range." The planet
+# could not get cold, so a previous pass moved THE FREEZING POINT OF WATER up to meet it — 12.5 here, 12.5 in
+# snowice, 13.0 in charge_accum and activity, melt at 14.0. Every measurement taken against that was
+# meaningless, and it left the deep ocean at 10 °C, below its own freezing point, not freezing. The comment
+# OUTLIVED the value being corrected and still told the next reader to raise it again, so it goes entirely.
+#
+# The 1.5 °C freeze/melt hysteresis went with it. It existed to stop the snow line flickering — a NUMERICAL
+# concern, which does not license separating a phase boundary that is not separated in nature. If flicker
+# returns, damp FREEZE_RATE / MELT_RATE or hold a cell's state across a few steps; do not re-split these.
+const FREEZE_TEMP: float = LAPhysical.WATER_FREEZE_C   # 0.0 °C — liquid WATER (and condensed MOISTURE) → SNOW
+const MELT_TEMP: float = LAPhysical.WATER_MELT_C       # 0.0 °C — SNOW → liquid WATER. The same boundary.
 const FREEZE_RATE: float = 0.05          # per-step k on the below-threshold liquid-freeze extent
 const MELT_RATE: float = 0.05            # per-step k on the above-threshold snow-melt extent
 
