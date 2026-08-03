@@ -32,9 +32,8 @@ branches, both with a worktree beside the primary checkout:
 `sorting.py` at repo root is the maintainer's, untracked — leave it.
 
 **MEASUREMENT DISCIPLINE, learned the expensive way this session — read before comparing any two runs.**
-Runs are **not reproducible at a fixed seed**: ambient disasters draw from Godot's global RNG. Three
-2000-frame runs at `--seed=4242` drew **110 / 28 / 126 phenomena** (bolts 514 / 18 / 1025) and ended at
-`temp_mean` **62.8 / 59.4 / 78.3**. So:
+Runs are **not reproducible at a fixed seed**. Three 2000-frame runs at `--seed=4242` drew **110 / 28 /
+126 phenomena** (bolts 514 / 18 / 1025) and ended at `temp_mean` **62.8 / 59.4 / 78.3**. So:
 - **Never A/B two branches on one run each.** Doing exactly that produced a 7 °C difference that looked
   like a GPU race and was entirely the weather. Three runs per arm, minimum.
 - **Quote `phenomenon`, `phenomenon/impact`, `phenomenon/eruption` and `bolts` beside every scalar**, and
@@ -43,6 +42,24 @@ Runs are **not reproducible at a fixed seed**: ambient disasters draw from Godot
   level compared across runs.
 - `--fixed-fps 60` is still required and still goes BEFORE the `--`; it fixes the field clock
   (`field_step` was identical across all six runs of a 3×3) but not the disaster draw.
+
+**WHY it varies is still OPEN, and one attractive theory is already REFUTED — do not re-run it.**
+*(2026-08-03.)* The obvious suspect was that ambient disasters "draw from Godot's global RNG". **They do
+not.** `VoxelSettingsApplier._pick_disaster_kind`, `_random_surface_point` and the `_disaster_next` jitter
+all already go through `LASimRng`, and `VoxelDisasters.gd` contains zero bare RNG calls. The second
+suspect was that the director counted its interval down on the RENDER-frame delta in `_process` — which
+was TRUE (it did, and `--fixed-fps 60` does not fix that clock) and is the same bug `LAPlateTectonics`
+had fixed one directory over. Moving it to `_physics_process` **did not narrow the spread**: three
+600-frame runs gave phenomena 16 / 23 / 27 and bolts 12 / 46 / 76, against 22 / 19 / 25 before. That
+change is parked, unmerged, on `feature/deterministic-disasters` (kept only because a difficulty director
+*should* advance on simulated time so its cadence scales with `--fast`).
+**The live theory, untested:** `LASimRng` is a SINGLE SHARED STREAM and 51 bare global-RNG draws remain
+outside it. Any consumer whose *number* of draws per frame varies — creature cognition and think-LOD are
+framerate-sensitive, and the population itself changes — shifts the stream position for every later
+consumer, so a correctly-seeded disaster draw comes from a different point in the sequence. If that holds,
+seeding harder cannot fix it and the answer is **per-subsystem streams** (an independent `LASimRng` per
+domain: disasters, heredity, actors, weather). Cheapest probe: log `LASimRng`'s draw count per frame across
+two runs and find the first frame they diverge.
 
 ---
 
@@ -97,16 +114,20 @@ land the creatures drink from. `0.4-dev` has no radiative sink at all, so nothin
 mechanism being fixed is the one that produced them. (`surf_mean`, the temperature at trees/plants, oscillates
 10–15 °C and does NOT trend, so the runaway is in the atmospheric/interior mean, not at the creatures' feet.)
 
-**4 — The seabed vent plugs its own column, and the "spire" is a ten-column picket fence.** Screenshots, not
-scalars: the pile is ~10 separate one-cell columns with visible gaps, and the same white growths appear on
-unrelated parts of the planet, so whatever builds it is not vent-specific. `erupt_source` returns 0 once the
-column is `rock_fill ≥ 0.5` out to the outermost layer, and it stops erupting around frame 300 — so every
-height ever measured (including the one `ISLAND_FREEBOARD` was tuned against) is *how fast it plugs*, not what
-supply builds. **Fix the supply path, not the stamp or the slump:** `MaterialFieldInject3D.erupt_source`
-(`:314-315`) writes the CPU `_lava` mirror and never calls `request_channel("lava")`, while `lava` is a
-demand-gated channel — so `MaterialFieldSphereStep3D.gd:149-151` uploads a possibly-stale whole-channel mirror
-about every 2.6 field steps. Three substrate rules were already tried (a `lava_flow` downslope leg, a
-`magma_buoy` confinement gate, a third) and none moved height or shape outside spread.
+**4 — The seabed vent: SUPPLY PATH FIXED (merged `a4f8098`); the SHAPE is still unproven.** The root cause
+was worse than this entry described. `_lava` was never refreshed from the device *at all* — the channel is
+demand-gated and `erupt_source` never requested it, so the readback scatter's `size() == n` guard never
+fired and the mirror stayed a monotonic running total of every deposit ever made, which the step then wrote
+over the live GPU buffer every step. That undid **M5 solidify** (so the vent minted mineral and the column
+plugged at the speed of the upload, not the supply — every height ever measured, `ISLAND_FREEBOARD` included,
+was measuring that) and **annihilated `lava_flow`'s lateral spread** each step, which is why the pile could
+only ever grow straight up as a picket fence. It also explains the three substrate rules that "moved neither
+height nor shape": their output was overwritten before it could compound. `erupt_source` now uses the sparse
+device add. Verified: `lava_total` 297.60 → 50.80 at `field_step` 590.
+**What is still owed:** the behavioural proof, in screenshots — that a vent now builds a connected, spreading
+pile and keeps erupting past frame 300. Re-run the three parked substrate rules against the fixed path before
+concluding anything about them; a patch of the `lava_flow` downslope leg + `magma_buoy` confinement gate is
+worth recovering from the session scratchpad if anyone still wants them.
 
 **5 — Mask-exit vs displacement in the H₂O ledger.** ~1080–1755 units leave the counted mask by
 `field_step 767` (moisture dominant) while `MineralStamp3D._settle_h2o` displaces only 23–306, a 13× spread
