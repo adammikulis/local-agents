@@ -57,10 +57,43 @@ var heat_cells: int = 0            # per-cell temperature edits that reached the
 # (a herbivore's bite, a plant building tissue) with `dst_cells` of -1, and mass coming back the other way.
 # Both sides are resolved on device against the live channel, so a debit can never exceed what is there.
 var _c_ops: Array = []                 # {"src","src_cells","amounts","dst","dst_cells","ceiling"}
+var _c_index: Dictionary = {}          # op signature -> slot in _c_ops, so same-signature edits COALESCE
 var carbon_offered: float = 0.0        # carbon mass the CPU-side scan believed the source held
 var carbon_moved: float = 0.0          # carbon mass the DEVICE actually moved (debit == credit by construction)
 var carbon_returned: float = 0.0       # carbon mass handed BACK to the field from an actor's own stock
 var carbon_cells: int = 0
+
+
+## COALESCING IS NOT TIDINESS HERE, IT IS THE COST MODEL, and getting it wrong makes the frame rate collapse.
+## Every op costs a FULL device buffer read and write-back (123k floats each way), and the dominant caller is
+## per-plant uptake: several hundred plant nodes each asking their own cell for a fraction of a unit of
+## biomass, every frame. One op per plant would be several hundred full-grid round-trips per frame. Folded
+## into one op with several hundred cells it is a single round-trip, and `move_field_sparse` walks the cells
+## in order against the values it is already updating, so repeated cells stay correct.
+##
+## THE `duplicate()` CALLS ARE LOAD-BEARING, for the reason the base class's `_merge` spells out at length:
+## a caller may legitimately pass the same PackedInt32Array as both `src_cells` and `dst_cells` (the litter
+## refill does — a cell's biomass becomes its own litter), the arrays are copy-on-write, and without the
+## duplicates one `append_array` would grow a buffer the next `append_array` then grows again. Both sparse
+## primitives early-return on a size mismatch, so the whole op would be dropped silently.
+func _c_merge(key: String, src: String, src_cells: PackedInt32Array, amounts: PackedFloat32Array,
+		dst: String, dst_cells: PackedInt32Array, ceiling: float) -> void:
+	var slot: int = _c_index.get(key, -1)
+	if slot < 0:
+		_c_index[key] = _c_ops.size()
+		_c_ops.append({"src": src, "src_cells": src_cells.duplicate(), "amounts": amounts.duplicate(),
+			"dst": dst, "dst_cells": dst_cells.duplicate(), "ceiling": ceiling})
+		return
+	var op: Dictionary = _c_ops[slot]
+	var sc: PackedInt32Array = (op["src_cells"] as PackedInt32Array).duplicate()
+	var am: PackedFloat32Array = (op["amounts"] as PackedFloat32Array).duplicate()
+	var dc: PackedInt32Array = (op["dst_cells"] as PackedInt32Array).duplicate()
+	sc.append_array(src_cells)
+	am.append_array(amounts)
+	dc.append_array(dst_cells)
+	op["src_cells"] = sc
+	op["amounts"] = am
+	op["dst_cells"] = dc
 
 
 ## Queue a CONSERVING carbon move. `dst_cells[i]` of -1 means the mass leaves the field entirely (into an
@@ -72,8 +105,7 @@ func carbon_transfer(src: String, src_cells: PackedInt32Array, amounts: PackedFl
 		return
 	for a in amounts:
 		carbon_offered += a
-	_c_ops.append({"src": src, "src_cells": src_cells, "amounts": amounts,
-		"dst": dst, "dst_cells": dst_cells, "ceiling": ceiling})
+	_c_merge("ct|%s|%s|%f" % [src, dst, ceiling], src, src_cells, amounts, dst, dst_cells, ceiling)
 
 
 ## Queue mass an ACTOR is handing back to the field out of its own stock — a plant's tissue rotting down to
@@ -83,8 +115,7 @@ func carbon_transfer(src: String, src_cells: PackedInt32Array, amounts: PackedFl
 func carbon_return(channel: String, cells: PackedInt32Array, deltas: PackedFloat32Array) -> void:
 	if cells.size() == 0 or cells.size() != deltas.size():
 		return
-	_c_ops.append({"src": channel, "src_cells": cells, "amounts": deltas,
-		"dst": "", "dst_cells": PackedInt32Array(), "ceiling": INF})
+	_c_merge("cr|%s" % channel, channel, cells, deltas, "", PackedInt32Array(), INF)
 
 
 ## Queue a per-cell temperature edit. `cells[i]` gets `deltas[i]` °C, applied to the LIVE device buffer at the
@@ -125,6 +156,7 @@ func flush(gpu) -> void:
 				carbon_moved += gpu.move_field_sparse(op["src"], op["src_cells"], op["amounts"],
 					op["dst"], op["dst_cells"], float(op["ceiling"]))
 	_c_ops.clear()
+	_c_index.clear()
 	super(gpu)
 
 
