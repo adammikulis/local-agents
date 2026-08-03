@@ -73,6 +73,10 @@ var _f = null                                            # back-reference to the
 var _stranded_cells: int = 0    # set by stranded_soil_total(); reported beside it
 var _prev_h2o: float = NAN
 var _prev_step: int = -1
+# Run-level anchor: the first sample this run, so drift can be amortised over the whole horizon instead of
+# only the gap between two consecutive samples. Same shape as LAMaterialFieldMassBudget3D's `_first_*` set.
+var _first_h2o: float = NAN
+var _first_step: int = -1
 
 
 func setup(field) -> void:
@@ -275,6 +279,22 @@ func stranded_soil_total() -> float:
 ## keeps its key so its baseline series stays comparable across the change (it was the only gauge that was
 ## already counting everything). Drift is measured on that closed total, so it reports the real
 ## non-conserving flux rather than the old mixture of flux and boundary mis-accounting.
+##
+## AND A SAMPLE-TO-SAMPLE DRIFT IS NOT ENOUGH ON ITS OWN, which is why the run-level pair below exists.
+## `h2o_drift_per_step` is measured between two CONSECUTIVE samples — typically four field steps out of six
+## hundred — so it is an instantaneous reading whose sign can be set by whatever the field happened to be
+## doing at that instant (a rain burst, a crater flooding). Measured 2026-08-03 it read POSITIVE in six runs
+## out of six, between +2.06 and +7.77, and burial did not cleanly account for it: one run was drift 31.09
+## against buried 31.20, but another was drift 17.96 against buried 13.01, with `h2o_inject_minted` 0.0
+## throughout. Six-for-six positive is either a slow mint or a sampling artefact, and over a four-step window
+## THERE WAS NO INSTRUMENT IN THIS PROJECT THAT COULD TELL THE DIFFERENCE.
+##
+## That gap mattered because H₂O is the ledger this codebase holds up as its worked example of a sound one —
+## the shape every other budget was told to copy. Carbon, oxygen, fertility and biomass each got a run-level
+## counterpart when the mass budget landed (`carbon_first` / `carbon_run_drift_per_step` and siblings, in
+## LAMaterialFieldMassBudget3D); water, the oldest ledger, never did. So it takes the same shape and the same
+## names: remember the first sample of the run, amortise the change over every step since. A slow leak shows
+## up there and cannot hide in the noise of a four-step window.
 func conservation_report(step_index: int) -> Dictionary:
 	var h2o: float = h2o_total()
 	var static_water: float = static_water_total()
@@ -285,16 +305,26 @@ func conservation_report(step_index: int) -> Dictionary:
 		per_step = drift / float(step_index - _prev_step)
 	_prev_h2o = h2o
 	_prev_step = step_index
-	return {
+	if _first_step < 0:
+		_first_h2o = h2o
+		_first_step = step_index
+	var run_steps: int = step_index - _first_step
+	var out: Dictionary = {
 		"h2o_static_water": snappedf(static_water, 0.01),
 		"h2o_dynamic_total": snappedf(h2o - static_water, 0.01),
 		"h2o_closed_total": snappedf(h2o, 0.01),
 		"h2o_drift": snappedf(drift, 0.01),
 		"h2o_drift_per_step": snappedf(per_step, 0.001),
+		"h2o_first": snappedf(_first_h2o, 0.01),
+		"h2o_run_steps": run_steps,
 		"soil_stranded": snappedf(stranded_soil_total(), 0.01),
 		"soil_stranded_cells": _stranded_cells,
 		"static_cells": static_cell_count(),
 	}
+	if run_steps > 0:
+		out["h2o_run_drift"] = snappedf(h2o - _first_h2o, 0.01)
+		out["h2o_run_drift_per_step"] = snappedf((h2o - _first_h2o) / float(run_steps), 0.0001)
+	return out
 
 
 ## Mean temperature over the snow-covered cells — proves snow sits on the COLD side (should read below FREEZE_TEMP).

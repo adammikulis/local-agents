@@ -240,6 +240,26 @@ open cells, the other four do not), and split `mineral_credited` (crater, a real
 `mineral_minted` (vent, a source) — they currently land in one gauge, which pollutes the documented
 crater-vs-vent cross-check.
 
+**8b — THE H₂O LEDGER, THE ONE HELD UP AS SOUND, HAS A LARGE UNEXPLAINED EXCURSION.** It now has the
+run-level gauge every other substance already had (`h2o_first` / `h2o_run_drift` / `h2o_run_drift_per_step`,
+matching `carbon_first` and siblings). First measurements, `--planet-only`, seed 4242:
+
+| horizon | `h2o_first` | `h2o_total` | `h2o_run_drift` | per step |
+|---|---|---|---|---|
+| 795 steps | 7418.53 | 5240.83 | **−2177.70** | −2.7392 |
+| 2662 steps | 7418.53 | 6257.31 | −1161.23 | −0.4362 |
+
+So water falls **29%** early and then partly RECOVERS — an excursion, not a monotone leak, and the per-step
+figure shrinks 6× with horizon. `h2o_buried` accounts for 34–89 of it and `h2o_inject_minted` is 0.0, so most
+of the swing is unexplained. Two candidates, both cheap to separate and NEITHER yet tested: a genuine
+settling transient as seeded water redistributes into moisture (`moisture_total` 5006 against `water_total`
+797 at 2662 steps), or `h2o_first` being sampled before world-gen has finished seeding, which would make the
+excursion an instrument artefact.
+**Do that separation before concluding anything.** What is already established is narrower and still worth
+knowing: the sample-to-sample `h2o_drift_per_step` everyone has been reading is measured over a **four-step
+window out of six hundred**, it read positive 6/6 while the run-level truth was negative, and until now
+nothing in this project could tell those two apart.
+
 **9 — SMALLER, ALL MEASURED.**
 - The energy budget's global net is a lava thermometer (`energy_magma_share` 0.94 — 94% of longwave leaves
   through 386 of 8684 cells). **Read `energy_net_cool`, not `energy_net`.**
