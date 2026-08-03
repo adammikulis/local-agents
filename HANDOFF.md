@@ -23,13 +23,23 @@ development is on `0.4-dev`. Work in a worktree off it. Memories worth loading: 
 (the pivot), `dissolve-dont-patch`, `perf-first-ruthlessly`, `big-o-first-class`, `iterate-fast`,
 `verify-before-merge`, `worktree-shader-import-gotcha`, `three-d-always`.
 
-**Branch state (2026-08-03):** `0.4-dev` is the integration branch, CI green, lint green. Two live feature
-branches, both with a worktree beside the primary checkout:
-- **`feature/energy-balance`** — rebased onto `0.4-dev` (no conflicts), emissivity now varies with the
-  hydrostatic `pressure` channel. Mechanism works; the balance does not close yet. See item #1.
-- **`feature/lava-supply`** — `erupt_source` moved onto the sparse device add. See item #4.
+**Branch state (2026-08-03).** `0.4-dev` is the integration branch, lint green. Live worktrees beside the
+primary checkout, none merged:
+- **`feature/energy-balance`** — the big one. Real emissivity from the hydrostatic `pressure` channel, real
+  solar constant (1361), water freezing at 0 °C, surface balance sub-steps instead of truncating, Darcy as a
+  gradient, oxygen + fertility closed by identity, and the climate/conservation instruments merged in. It
+  also **collapses the biosphere on purpose** — see item #1.
+- **`feature/conservation-fixes`** — craters flood instead of becoming static sea; meteors excavate again.
+- **`feature/planet-only`** — `--no-fauna` / `--planet-only`, and geology no longer waits for creatures.
+- **`feature/constants-gate`** — `scripts/check_physical_constants.sh`, gating GLSL copies against `LAPhysical`.
 
 `sorting.py` at repo root is the maintainer's, untracked — leave it.
+
+**READ `CLAUDE.md` RULE ZERO FIRST.** Realism outranks everything. Every serious defect found on 2026-08-03
+was catchable by one question — *is this how the world actually works?* — and every one was caught by the
+maintainer rather than by an agent. Water froze at 12.5 °C; the core was 1300 °C (an erupting-basalt
+temperature, a quarter of a real iron core); one thermal physiology covered a whale and a desert beetle;
+volcanoes waited for rabbits.
 
 **MEASUREMENT DISCIPLINE, learned the expensive way this session — read before comparing any two runs.**
 Runs are **not reproducible at a fixed seed**. Three 2000-frame runs at `--seed=4242` drew **110 / 28 /
@@ -43,120 +53,150 @@ Runs are **not reproducible at a fixed seed**. Three 2000-frame runs at `--seed=
 - `--fixed-fps 60` is still required and still goes BEFORE the `--`; it fixes the field clock
   (`field_step` was identical across all six runs of a 3×3) but not the disaster draw.
 
-**WHY it varies is still OPEN, and one attractive theory is already REFUTED — do not re-run it.**
-*(2026-08-03.)* The obvious suspect was that ambient disasters "draw from Godot's global RNG". **They do
-not.** `VoxelSettingsApplier._pick_disaster_kind`, `_random_surface_point` and the `_disaster_next` jitter
-all already go through `LASimRng`, and `VoxelDisasters.gd` contains zero bare RNG calls. The second
-suspect was that the director counted its interval down on the RENDER-frame delta in `_process` — which
-was TRUE (it did, and `--fixed-fps 60` does not fix that clock) and is the same bug `LAPlateTectonics`
-had fixed one directory over. Moving it to `_physics_process` **did not narrow the spread**: three
-600-frame runs gave phenomena 16 / 23 / 27 and bolts 12 / 46 / 76, against 22 / 19 / 25 before. That
-change is parked, unmerged, on `feature/deterministic-disasters` (kept only because a difficulty director
-*should* advance on simulated time so its cadence scales with `--fast`).
-**The live theory, untested:** `LASimRng` is a SINGLE SHARED STREAM and 51 bare global-RNG draws remain
-outside it. Any consumer whose *number* of draws per frame varies — creature cognition and think-LOD are
-framerate-sensitive, and the population itself changes — shifts the stream position for every later
-consumer, so a correctly-seeded disaster draw comes from a different point in the sequence. If that holds,
-seeding harder cannot fix it and the answer is **per-subsystem streams** (an independent `LASimRng` per
-domain: disasters, heredity, actors, weather). Cheapest probe: log `LASimRng`'s draw count per frame across
-two runs and find the first frame they diverge.
+**WHY it varied is now KNOWN and mostly FIXED (2026-08-03).** Two theories were refuted first and must not
+be re-run: ambient disasters do NOT draw from Godot's global RNG (the director is fully routed through
+`LASimRng`, and `VoxelDisasters.gd` has zero bare draws), and moving that director off the render clock onto
+`_physics_process` — a real bug, and the same one `LAPlateTectonics` had fixed next door — did not narrow the
+spread on its own. The actual cause was found by tracing draw counts per calling function under
+`LA_RNG_TRACE=1`: `LAPlateTectonics` drew exactly 48 `_rand_unit` values in BOTH runs (it ticked
+identically) while `_fire_boundary_event` fired 1 time in one and 3 in the other — its tick count was
+deterministic, the VALUES it read were not, because creature cognition had moved the shared cursor first.
+And cognition's draw count depends on how fast the LOCAL LLM answered, since an escalation holds its slot
+until its answer arrives. **Inference latency was deciding the planet's geology.**
+Fixed by SEPARATION, not more seeding: `LASimRng.for_domain(name)` gives each domain an independent stream
+seeded by FNV-1a over the domain name mixed with the world seed. Planet-side callers (tectonics, the ambient
+director, weather) draw from `"planet"`. Measured over 3 runs at one seed: planet-stream draws 151/151/151,
+impacts 5/5/5, eruptions 3/3/3, `temp_mean` spread **12.7 °C → 0.70 °C**.
+**Residual, and it is real coupling rather than a defect:** bolts still vary (12/10/14) because actors
+physically inject into the field — a creature reaching water at a slightly different moment changes the
+charge field. `--planet-only` removes it entirely, which is the mode to use for any planet measurement.
 
 ---
 
 ## DO THIS NEXT (ranked)
 
-**1 — Finish the energy balance. It just became possible.** On `feature/energy-balance` (rebase first).
-Every prescribed temperature target is already gone and the surface does `dT = (absorbed − σεT⁴)·dt/C` with
-albedo and per-cell heat capacity. What was missing was any altitude dependence: `LAPSE` was the only height
-term in surface temperature and it died with the prescriber it belonged to, so a summit and a sea-level cell
-at the same latitude reach the same equilibrium, and snow / sea ice sit at zero.
-**Do not re-prescribe a lapse.** A real surface is colder at height because the column above it is thinner.
-**Air mass now exists as a channel**, so `EMISSIVITY` (a constant `0.9` in `heat3d_solar_sphere3d.glsl`) can
-finally vary with the overlying air mass — which gives the lapse rate, the snow line and the ice-albedo
-feedback in one change, with nothing prescribed. Floor was 4.27 °C when the branch was parked.
+**THE ONE-LINE DIAGNOSIS, from four subsystem audits on 2026-08-03: every subsystem with a conservation
+ledger conserves; every subsystem without one mints.** H₂O and mineral have ledgers and are honest. Carbon,
+oxygen, fertility, biomass and energy had none — and every one of them was creating matter or energy from
+nothing. The measurement gap is not a separate problem from the defects, it is the MECHANISM: where drift
+would have shown, the physics had to be real. Ledgers now exist (`MaterialFieldMassBudget3D`,
+`MaterialFieldEnergyBudget3D`, `MaterialFieldExtremes3D`, `MaterialFieldClimateSwing3D`) — use them, and
+build one before trusting any new subsystem.
 
-**2 — DECIDE: how much water should the planet start with?** *(Needs the maintainer.)* Now that the cycle
-conserves, the planet is dry: `biomass_total` is 933–951 where the old minting build read 1594–1605, and
-`soil_total` settles at 173–205 against a theoretical maximum of ~7994 (13323 regolith cells × `CAPACITY`
-0.6), i.e. ~2.4% saturation. Creatures hold (177–190) so the food web survives, but standing vegetation
-halved. The old figure was partly fed by water that did not exist, so **933–951 is the honest number and
-should not be reverted.** How much H₂O a planet HAS is a legitimate world-gen initial condition, not a fake —
-it currently seeds 7485.40 units (water 3483.78, soil 3997.07, moisture 4.55).
-**Measure before seeding more:** `INFIL_RATE` is deliberately set below the rainfall rate so storms produce
-runoff, which may be starving the water table rather than the planet being short of water. Raising the seed to
-paper over a recharge limit would be fitting a constant to an outcome.
+**1 — NITROGEN HAS NO SOURCE, AND THAT IS WHY THE BIOSPHERE COLLAPSED.** On `feature/energy-balance`.
+Closing the fertility identity (`FERT_PER_DECOMPOSE` 1.5 → 0.05 = the 1/20 C:N ratio of leaf litter, uptake
+matched at 0.05) drove `fert_drift_per_step` **+2.2406 → −0.0023** — the mint is gone — and `biomass_total`
+to **7.24**, `fungus_total` to **13.61**, from ~1246 and ~1126. That collapse is the RESULT, not a
+regression: the biosphere was being sustained by fertility created from nothing. R15 only recycles nitrogen
+already in the litter and `FERT_DECAY` leaks some to nowhere, so the loop can only run down.
+**Build the source: R-NFIX.** An atmospheric nitrogen channel with real fixation — biological (microbial /
+legume, gated on biomass × moisture) and abiotic (lightning, which this sim already simulates and which
+fixes real nitrogen on real planets). HANDOFF's own chemistry plan already called this "GENUINELY NEW …
+Without this the loop leaks fertility and can't sustain." It was right; the measurement is the proof.
+**Do NOT restore the mint.** That was tried once before — the same collapse is recorded in
+`MaterialReactions3D.gd` above `FERT_UPTAKE_COST`, and the response then was to cut uptake 25× until
+nutrient limitation stopped binding.
 
-**3 — The world does not sustain a population over a long run, at any speed. MEASURED 2026-08-03, and it is
-not what this entry used to say.** *(It previously cited a 1500-frame diagnostic ending near 2 creatures with
-"suffocation 111, frozen 73, old age 72, starvation 58" and called that "the map of what to fix". Re-measured
-on `0.4-dev` at `--fixed-fps 60 --fast=8 --seed=4242 --run-frames=2000`, every one of those four numbers is
-wrong: **suffocated 0, frozen 0, heatstroke 4**, and the dominant cause by a factor of three is **old age**.)*
+**2 — CARBON IS STILL MINTED, BY A PRESCRIBER.** `carbon_drift_per_step` is **+1.5664** (was +6.4811 before
+the stoichiometry fix). The remainder is R12: `_co2` is seeded to **zero** (`MaterialField3D.gd` —
+`_co2.resize()` with no `.fill()`, note the line above DOES fill `_o2`), and every carbon atom that has ever
+existed in this sim is created by one `RELAX_TARGET` record. `reactions_sphere3d.glsl` skips the entire
+reactant-cap block for that rate model, so it has no source pool and no conservation. It creates CO₂ at the
+TOP OF THE ATMOSPHERE, ~78 world units above the plants, so primary productivity is set by a diffusion
+coefficient — and `PHOTO_RATE` was measurably tuned against it ("the binding constraint is not the rate, it
+is how fast CO₂ gets down here from the sky trace"). Same for O₂, pinned to ambient at 50%/step, which is
+why the oxygen ledger reads flat rather than rising.
+**Replace with:** a finite initial atmosphere + volcanic outgassing (exists) as the source and silicate
+weathering (exists as D1, currently dead — see #5) as the sink. Then `carbon_total` becomes falsifiable.
 
-The arc, from `POP_TRACE` (creatures, every 180 frames): 239 · 234 · 183 · **71** · 32 · 15 · 8 · 3 · 2 · 1 ·
-**0**. Total land extinction by frame 1980; fish hold flat at 52 because aquatic breeding has a survival floor
-(`EcologyBreeding.gd` `GRAZE_BIOMASS_FLOOR`). Final histogram: **old age 665**, starved 199, thirst 65,
-starvation 23, heatstroke 4, eaten 1, burned 1, frozen 0, suffocated 0, drowned 0.
+**3 — THE REACTION ENGINE HAS NO CLOCK.** `ReactionsPass` uploads `dt`; `reactions_sphere3d.glsl` declares
+it; **nothing reads it** (grep finds it only in comments, and `EcoSurfacePass` says so outright). Every rate
+is per-FRAME, so no constant in the table can be compared to any measured chemical rate, and combustion
+literally runs 16× slower far from the camera because the LOD stride skips steps and persists state. Make
+every extent `x = k · dt · f(drivers)` and re-derive each k from a real timescale.
 
-Two distinct failures, in order:
-- **A thirst mass-casualty between frames 540 and 720**, where the population halves (183 → 71) and `thirst`
-  goes 0 → 50 with rabbit deaths 5 → 50 in the same window. The land is dry: `water_total` 1039 and
-  `soil_total` **91.7** at `field_step 1990`, against the ~173–205 item #2 quotes at a shallower horizon, so
-  the drying continues rather than settling.
-- **Then no replacement.** After that cliff nothing breeds; `old age` climbs 217 → 665 while every other cause
-  goes nearly flat. The survivors simply age out.
+**4 — THE CORE IS A QUARTER OF A REAL CORE, AND IT NEVER DEPLETES.** Pinned at **1300 °C** — an erupting
+basalt temperature. Earth's inner core is ~5200 °C, the core-mantle boundary ~3700. The comment admits the
+value was chosen by what the surface could survive ("was pinned to 150 °C as an interim fix when … a hot
+core baked the surface to ~110 °C"). `CORE_FLUX` on the energy branch rate-limits it but it is still an
+unbounded source, so `temp_mean` climbs monotonically with nothing to stop it.
+**Replace with:** a finite reservoir seeded at a real temperature that COOLS as it conducts outward, plus a
+small radiogenic term — which is what actually keeps a planet's interior hot for 4.5 Gyr.
 
-**And the likely upstream cause is item #1, not a carrying-capacity constant.** `temp_mean` rises
-monotonically across the whole run — 29.5 · 36.9 · 40.4 · 41.4 · 44.7 · 48.0 · 50.4 · 53.7 · 58.2 · 60.5 ·
-62.1, ending at 62.8 with no sign of levelling — while `moisture_total` climbs 1851 → 4665 as `water_total`
-and `soil_total` fall. That is a warming atmosphere raising `sat(T)`, holding water as vapour, and drying the
-land the creatures drink from. `0.4-dev` has no radiative sink at all, so nothing bounds this.
-**Do not tune breeding or thirst rates against these numbers until #1 lands** — re-measure after, because the
-mechanism being fixed is the one that produced them. (`surf_mean`, the temperature at trees/plants, oscillates
-10–15 °C and does NOT trend, so the runaway is in the atmospheric/interior mean, not at the creatures' feet.)
+**5 — THE AQUIFER CANNOT REACH THE SURFACE, SO THERE ARE NO SPRINGS.** Two defects in one loop
+(`soil_sphere3d.glsl`). The units bug is FIXED (Darcy is a gradient now, not a raw head in world units).
+**Still open: the loop spends its outflow budget greedily in SLOT ORDER, and slot 0 is the inward
+neighbour**, which `head_of()` makes lower-head unless brim-full — so whenever the cell below has headroom
+the whole budget drains downward and no lateral flow or spring runs at all. Equilibrium is a water table
+pinned ~2 cells below the surface everywhere. Fix with proportional allocation (compute all six desired
+flows, scale them to the budget together); it restructures a conservation-critical gather, so verify it
+alone. **This is what unblocks geysers, fumaroles and volcanic tidal pools** — the magma-free hot-spring
+mechanism already exists and is emergent (`soil_sphere3d.glsl` mass-weights geothermal heat onto surfacing
+groundwater); it just has no water to work with, and the ocean thermostat that used to quench it is already
+deleted on `feature/energy-balance`.
 
-**4 — The seabed vent: SUPPLY PATH FIXED (merged `a4f8098`); the SHAPE is still unproven.** The root cause
-was worse than this entry described. `_lava` was never refreshed from the device *at all* — the channel is
-demand-gated and `erupt_source` never requested it, so the readback scatter's `size() == n` guard never
-fired and the mirror stayed a monotonic running total of every deposit ever made, which the step then wrote
-over the live GPU buffer every step. That undid **M5 solidify** (so the vent minted mineral and the column
-plugged at the speed of the upload, not the supply — every height ever measured, `ISLAND_FREEBOARD` included,
-was measuring that) and **annihilated `lava_flow`'s lateral spread** each step, which is why the pile could
-only ever grow straight up as a picket fence. It also explains the three substrate rules that "moved neither
-height nor shape": their output was overwritten before it could compound. `erupt_source` now uses the sparse
-device add. Verified: `lava_total` 297.60 → 50.80 at `field_step` 590.
-**What is still owed:** the behavioural proof, in screenshots — that a vent now builds a connected, spreading
-pile and keeps erupting past frame 300. Re-run the three parked substrate rules against the fixed path before
-concluding anything about them; a patch of the `lava_flow` downslope leg + `magma_buoy` confinement gate is
-worth recovering from the session scratchpad if anyone still wants them.
+**6 — THE CREATURE LAYER'S ENERGETICS ARE FICTIONAL** (the demography is not — see below). In order:
+- **`CreatureDigestion.ambient_graze` mints food.** It reads the TEMPERATURE at the animal's feet, converts
+  it to "lushness", and ingests — with no source and nothing decremented. Its own comment: *"never depletes,
+  can't be crashed."* At the planet's coldest ground a herbivore earns ~2× its total burn rate, forever.
+  Herbivore numbers are therefore set by `pop_cap`, a JSON integer, not by food; predators sit on that. It
+  explains the death histogram (old age 665, starvation 23): **starvation is unreachable.** Make grazing
+  debit the real biomass field, rate-limited by bite mechanics and gated on standing crop (Holling type II).
+- **Nothing scales with body mass.** A fox is 19× a mouse's mass and burns identical energy. `size` drives
+  health and food value but not metabolism, lifespan, gestation or thermal tolerance. `basal_metabolism` and
+  `active_metabolism` genes exist on the DNA strand and are read by NOTHING. Kleiber (M^0.75) gives the whole
+  roster's physiology from one measured mass per species instead of eleven hand-fitted constants.
+- **One thermal physiology for every animal** — `WARM_COMFORT 28 / COOL_COMFORT 8 / LETHAL_HEAT 50 /
+  LETHAL_COLD −18` as module consts, zero thermal keys across all 28 species JSONs, no gene. Ectotherms
+  (16 of 28 species) should have Q10 scaling and CTmin/CTmax, not an endotherm's comfort band.
+- **`Plant.gd` regrows a grazed plant fully in ~6 s** at a flat rate regardless of biomass, light, soil or
+  season, and `feed()` never consumes it. **`Fish.gd` spends energy only `if not preys_on.is_empty()`** — bug,
+  shrimp, jellyfish, crab and turtle never spend energy and cannot starve, and they are the base of the
+  aquatic web.
 
-**5 — Mask-exit vs displacement in the H₂O ledger.** ~1080–1755 units leave the counted mask by
-`field_step 767` (moisture dominant) while `MineralStamp3D._settle_h2o` displaces only 23–306, a 13× spread
-across runs that is itself unexplained. Mass is not destroyed — it is sealed in cells now classified rock, and
-the budget's residual matches `h2o_buried` exactly, 3 runs of 3. Two questions: should pore water be displaced
-into neighbours or is burying it correct, and should the ledger report it as a named compartment rather than
-letting it look like a decline. `LA_H2O_BUDGET=1` is the instrument.
+**7 — GEOLOGY IS PROBABILITY ROLLS, NOT MECHANISM.** `D1 WEATHERING` is gated `GATE_SURFACE`, which this
+file defines as the TOP OF THE ATMOSPHERE — `rock_fill` there is 0, so the record is **dead** and the
+latitudinal weathering gradient it claims to produce does not exist. Its `WEATHER_TEMP = 20.0` is
+`FREEZE_TEMP = 12.5`'s sibling, set explicitly from "this world's open-cell range", and the sign is
+backwards (chemical weathering is Arrhenius and needs water; frost shattering needs freeze-thaw CYCLING, not
+monotonic cold). `D2 LITHIFICATION` turns surface sediment to bedrock in ~50 steps with no burial and no
+pressure, and can run in the same cell as D1 in the same step — a futile cycle. `PlateTectonics` rotates
+plate SEEDS and moves no crust, so the Ring of Fire sweeps across stationary continents, and
+`VENT_CHANCE_DIVERGENT = 0.12` is a second undocumented rarity roll beside the one already flagged.
 
-**6 — Delete the two surviving band-aids, once #1 lands.** Both suppress runaways whose opposing term is the
-radiative sink, so neither can come out before the energy balance closes, and **removing them IS that work's
-acceptance test.** `CLOUD_OPACITY_CAP` (+ `INSOLATION_MIN/MAX`) in `SystemOrbits.gd` caps a cloud→insolation
-feedback whose stabiliser is σεT⁴. `VOLCANO_CHANCE_CONVERGENT = 0.3` in `PlateTectonics.gd` keeps arc
-volcanoes rare because heat entering the field has nowhere to leave. To settle the second, raise it by a large
-factor (0.3 → 1.0) and compare `temp_mean` / `temp_ground_mean` at equal `field_step` over three runs per arm.
-If a runaway returns, **say so** — do not quietly restore the clamp and claim the root fix.
+**8 — `mineral_total` HAS NO DRIFT GAUGE.** It is called "the unification's proof object" and reports six
+absolutes and zero deltas, while fed by an admitted "effectively infinite" mantle. Give it the H₂O ledger's
+`*_drift_per_step` and a `LA_MINERAL_BUDGET`, unify the five legs' inclusion masks (`dust_total` masks on
+open cells, the other four do not), and split `mineral_credited` (crater, a real transfer) from
+`mineral_minted` (vent, a source) — they currently land in one gauge, which pollutes the documented
+crater-vs-vent cross-check.
 
-**7 — Residual non-determinism (low priority).** With the cognition budget moved to the sim clock, three runs
-at `--fixed-fps 60` give identical creature counts and `decision` within 2, but `escalations` (1/2/0) and
-`slow_brain_calls` (11/12/9) still vary: an escalation holds its slot until its answer *arrives*, which is
-real time whenever a model is answering. Field numbers are unaffected. A fix would resolve on a fixed frame
-budget rather than on arrival, buffering early answers — probably a determinism-mode option, since real play
-wants the answer as soon as it exists.
+**9 — SMALLER, ALL MEASURED.**
+- `fungus_peak()`, `fungus_cells()`, `detritus_peak()` are hardcoded `return 0.0` in `MaterialField3D.gd` —
+  the decomposer loop has been reporting three permanent zeros while `fungus_total` reads real values.
+- `MaterialFieldPhotoStats3D.sun_dir()` dots a WORLD-frame sun against a BODY-LOCAL radial, so `light_mean`
+  and everything derived from it are only correct at identity rotation.
+- The energy budget's global net is a lava thermometer (`energy_magma_share` 0.94 — 94% of longwave leaves
+  through 386 of 8684 cells). **Read `energy_net_cool`, not `energy_net`.**
+- Interaction radii were never scaled when the planet doubled (`PLANET_SCALE` covers world-gen geometry and
+  `cell_size` only). Craters were the visible casualty and are fixed; `SEED_HEAT_R` 12 and `VAPOR_INJECT_R`
+  14 are still sub-cell but degrade gracefully.
+- Four dead `248.0` sea-radius fallbacks survive where the live value is 500.
+- `--fixed-fps 60` fixes the field clock but NOT the disaster draw. The planet now has its own RNG stream
+  (impacts 5/5/5, eruptions 3/3/3, temp spread 12.7 °C → 0.70 °C); the residual is actor splashes perturbing
+  the charge field, which `--planet-only` removes entirely.
 
-**8 — A4: rebuild `VoxelWorld` → Anima. HELD for supervised handling.** Refactor the 730-line inline
+**10 — A4: rebuild `VoxelWorld` → Anima. HELD for supervised handling.** Refactor the inline
 `VoxelWorld._ready` to compose from `SimWorld` + the reusable nodes, and rename the game `VoxelWorld` →
 **Anima**. It rebuilds the composition root, so it needs launched-window verification.
 
----
-
+**WHAT IS SOUND — do not rebuild these.** The H₂O ledger and its inclusion rule; the inject queue's
+transfer/add split; the DEFS record engine (std430 layout verified) and every 1:1 conserving record
+(R19's water leg, R21/R22, M3–M6); the neighbour/tangent tables; `REPOSE_TAN = 0.70` (the one
+physically-sourced constant found in the whole geology scope); `MaterialFieldSoilBudget3D`; and on the
+creature side per-creature courtship and gestation, the DNA codon strand, disease with acquired immunity,
+the true-3D breathing rule, kinship, and carcass decomposition. The demography is real. The energetics
+under it are not.
 ## 0.4 — WHAT IS LEFT
 
 The substrate is genuinely most of the way there; almost every gap below is **coupling / read-out of fields
@@ -164,25 +204,28 @@ already simulated**, not new systems. Guiding: dissolve-don't-patch · emergent-
 Big-O + activity-bubble LOD · **fakery = the LOD tier** (full sim in the compute-bubble; cheap analytic
 stand-ins for distant/dormant/offscreen, re-materialize on approach).
 
-### Keystone B — moisture → vegetation → albedo. The one genuinely owed keystone.
+### Keystone B — vegetation → albedo. The light and water halves are DONE.
 
-**Photosynthesis is being driven by the temperature field standing in for the sun.** R19 is
-`_rec(OPTIMUM_BAND, PHOTO_RATE, LIGHT, [[CO2,1.0],[SOIL_ROOT,PHOTO_WATER_COST],[FERT,FERT_UPTAKE_COST]], …)`
-after the 2026-07-29 rework, but the underlying proxy issue is the thing to check first: `MaterialReactions3D.gd`
-had `temp` as the daylight proxy, and its own comment said so — *"temp = the daylight proxy; the day side is
-warmer → fixes more"*. Consequences if any of that survives: a hot desert fixes carbon at night, a bright cold
-polar summer barely fixes any, and lava and wildfires feed plants.
+*(Corrected 2026-08-03. This section claimed photosynthesis was "being driven by the temperature field
+standing in for the sun" and that a dry plateau "greens like a rainforest". Both are false now and the
+evidence is in the code: `reactions_sphere3d.glsl` binds a per-cell `Radial` buffer, `sun_dir` rides the push
+constant, `light_at()` computes `max(0, dot(cell_radial, sun_dir))`, and R19 drives on `LIGHT` with three
+Liebig reactants — CO₂, `SOIL_ROOT` water, and FERT — plus transpiration as a conserving soil→moisture
+transfer. The quoted kernel comment about needing radial+sun_dir bindings is stale. `PHOTO_WATER_COST` is a
+real water limit, so water DOES gate growth.)*
 
-It is a plumbing gap, not a design choice, and the kernel admits it: *"NEAR_GROUND / DAYLIGHT: no live record
-needs them yet (would require radial+sun_dir bindings)"* (`reactions_sphere3d.glsl:186`). Both already exist in
-the driver — `heat3d_solar_sphere3d.glsl` computes real per-cell insolation as `max(0, dot(cell_radial,
-sun_dir))`, `radial` is a bound per-cell buffer, and `sun_dir` is a pass-context value (`ThermalPass.gd:150`,
-`:285-287`). So: bind real light into the reaction engine, make R19 light-driven with CO₂/water/nutrient as
-Liebig limits and transpiration as a conserving soil→moisture transfer, and delete the temp-as-daylight proxy.
-Adding a moisture cap on top of the proxy would cement it.
+**What is actually left of this keystone is the ALBEDO leg: vegetation does not affect reflectivity.** On
+`0.4-dev` no albedo term exists in any kernel at all; `feature/energy-balance` introduces ground/water/ice
+albedo but nothing for vegetation. A forest is much darker than bare ground or sand (broadleaf ~0.15-0.18,
+conifer ~0.08-0.12, desert sand ~0.35-0.40), so vegetation cover genuinely changes the surface energy
+balance, and the ice-albedo feedback's biological counterpart — greening darkens, darkening warms, warming
+greens — cannot appear until it does. One term in the heat kernel's `albedo` mix, keyed on the biomass
+channel it already has access to.
 
-Also still owed: `grep -n moisture MaterialReactions3D.gd` returned one comment about H₂O conservation and
-nothing else, so a dry plateau greens like a rainforest.
+**Also still owed and now measurable:** whether primary production is water-limited where it should be.
+`MaterialFieldPhotoStats3D` reports the Liebig limiter mix, but see item #9 — its `sun_dir()` dots a
+world-frame sun against a body-local radial, so `light_mean` and anything derived from it are wrong except
+at identity rotation. Fix that before drawing conclusions from it.
 
 ### Keystone C — activity-bubble LOD. The asymptotic half.
 
