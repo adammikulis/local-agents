@@ -29,12 +29,26 @@ extends RefCounted
 ##   27 Regolith=regolith (SINGLE, seeded once — the aquifer mask root_soil() walks INSTEAD of `solid`, since
 ##   `solid` is re-derived from rock_fill every step and an eroded/carved regolith cell is open but still an
 ##   aquifer; same buffer SoilPass binds at its own binding 6).
-## Push { uint cell_count; uint n_records; float dt; uint raining; float sun_x, sun_y, sun_z, pad; }, 32 bytes.
+## Push { uint cell_count; uint n_records; float dt; uint raining; float sun_x, sun_y, sun_z, overburden_pa; },
+## 32 bytes.
 ## sun_dir is sourced from `ctx` exactly as ThermalPass.gd does, so the light the chemistry sees and the light
 ## the solar kernel heats with are ONE quantity — including its magnitude, which carries insolation.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reactions_sphere3d.glsl"
 const REACTIONS_SCRIPT: String = "res://addons/local_agents/sim/material/MaterialReactions3D.gd"
+
+## Pascals of lithostatic pressure per unit of (cell fill x density) in the column above a cell — what the
+## kernel's OVERBURDEN slot multiplies its mass sum by. It is g times the number of MODEL METRES one cell
+## stands for, and that depth is not a number anybody picks: the field's REGOLITH band is defined as the
+## groundwater circulation zone, so LAPhysical.GROUNDWATER_CIRCULATION_M spread over
+## LAMaterialField3D.REGOLITH_CELLS is metres-per-cell by the same derivation LAMaterialFieldGeotherm3D uses
+## for the geotherm. At the shipped 2000 m over 4 cells that is 500 m per cell, so a full cell of bedrock
+## weighs 2900 * 9.80665 * 500 = 14.2 MPa and four of them reach the lithification threshold exactly.
+## Independent of cell_size and of grid resolution, because the aquifer band is 2 km however many cells it is.
+static func overburden_pa_per_unit() -> float:
+	var cells: int = maxi(int(LAMaterialField3D.REGOLITH_CELLS), 1)
+	var metres_per_cell: float = LAPhysical.GROUNDWATER_CIRCULATION_M / float(cells)
+	return LAPhysical.STANDARD_GRAVITY_M_S2 * metres_per_cell
 
 var _rd: RenderingDevice = null
 var _shader: RID = RID()
@@ -161,7 +175,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	pc.encode_float(16, sun_dir.x)
 	pc.encode_float(20, sun_dir.y)
 	pc.encode_float(24, sun_dir.z)
-	pc.encode_float(28, 0.0)
+	pc.encode_float(28, overburden_pa_per_unit())
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, _set[parity], 0)
 	rd.compute_list_set_push_constant(cl, pc, pc.size())

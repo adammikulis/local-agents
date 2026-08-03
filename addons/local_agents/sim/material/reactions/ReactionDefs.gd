@@ -47,6 +47,28 @@ const LIGHT: int = 18                 # DERIVED driver only; never a product/rea
 # so reading `soil` at the reacting cell reads a structural zero, not a dry world. Writable (transpiration
 # draws from it, proportionally to what each cell holds); see the kernel's root_soil/root_soil_draw.
 const SOIL_ROOT: int = 19
+# OVERBURDEN is the LITHOSTATIC PRESSURE (Pa) of the SOLID column above this cell — the weight of the rock and
+# sediment burying it. DERIVED and READ-ONLY, computed in the kernel by walking radially outward and summing
+# (rock_fill * rock density + sediment * sediment density), converted to pascals by g times the model metres a
+# cell represents (ReactionsPass supplies that scalar). Only SOLID mass counts: by Terzaghi's effective-stress
+# principle the pore fluid carries its own weight and does not compact the grain framework, so the ocean above
+# a seabed does not lithify it. This is the driver lithification needs, and the substrate's `pressure` channel
+# is NOT it — that one is the weight of the AIR (wind_pressure_sphere3d), six orders of magnitude smaller and
+# an answer to a different question.
+const OVERBURDEN: int = 20
+# BEDROCK_BELOW is the bedrock of the SOLID cell directly beneath this open one — DERIVED, and WRITABLE.
+#
+# It exists because a surface process has no rock in its own cell to work on. Reactions run in OPEN cells only
+# (the engine skips solid cells so every write is own-cell and race-free) and `rock_fill` is seeded 1.0/0.0
+# from solidity, so an open cell's own ROCK_FILL is zero almost everywhere. The rock that weathering attacks is
+# the cell it stands on, and this slot is how a record reaches it.
+#
+# RACE-FREEDOM, and it is stronger than SOIL_ROOT's: the radial neighbour table is a bijection within a column
+# (nbr[c*6+0] == c-1), so each solid bed cell is the DOWN-neighbour of EXACTLY ONE open cell and no two threads
+# can ever address the same rock_fill entry. erosion_pickup_sphere3d.glsl already makes this exact cross-cell
+# move for river scour and rests on the same argument. A record using this slot should gate GATE_NEAR_GROUND,
+# which is what guarantees the cell below is rock at all.
+const BEDROCK_BELOW: int = 21
 
 # --- Rate models (extent x per cell) ---------------------------------------------------------------------
 const CONST_FRAC: int = 0             # x = k * driver
@@ -71,6 +93,26 @@ const DEFICIT_BELOW_THRESHOLD: int = 4  # x = max(0, threshold - driver) * k  (f
 # the rate reaches zero. Deliberately a general substrate capability, not a plant rule — enzyme kinetics, a
 # creature's comfort range, a melt/refreeze band and a habitability window are all this same shape.
 const OPTIMUM_BAND: int = 5
+# ARRHENIUS is the temperature law of CHEMISTRY, and it is the shape none of the five above can express: a
+# rate that rises EXPONENTIALLY with temperature at a rate set by a measured activation energy.
+#   x = k * driver * driver2 * exp(-(Ea/R) * (1/T_K - 1/T_ref_K))
+# `threshold` carries Ea/R in kelvin, `param2` carries the reference temperature T_ref in kelvin (the
+# temperature the rate constant k is quoted at), `driver` and `driver2` are the concentrations the reaction is
+# first order in (driver2_slot < 0 means "no second concentration", i.e. treat it as 1). Temperature is read
+# from the TEMP channel directly rather than through a slot, because Arrhenius is BY DEFINITION about
+# temperature and letting a record point it elsewhere would only invite a mistake.
+#
+# It was added for silicate dissolution (chemical weathering), where the alternative was another monotone
+# threshold model standing in for a real rate law — which is how the record it replaced ended up with a
+# backwards temperature sign and a fitted constant. Every reaction rate in nature has this shape; nothing
+# about it is specific to rock.
+#
+# THE AQUEOUS CEILING IS PHYSICS, NOT A CLAMP. The kernel evaluates the exponential at min(T, water's boiling
+# point) because a reaction between rock and LIQUID WATER cannot proceed where there is no liquid water. The
+# substrate agrees: atmos_evap_sphere3d flashes water to steam at LAPhysical.WATER_BOIL_C. Without it, an
+# extrapolation to a 154 C lava-adjacent cell asks for a rate 1000x the reference and the record dissolves a
+# whole bedrock cell in one step, which is an artefact of extrapolating a law past the phase it describes.
+const ARRHENIUS: int = 6
 
 # --- Gate bitflags (0 = ungated) -------------------------------------------------------------------------
 const GATE_OPEN_ABOVE: int = 1
@@ -101,11 +143,20 @@ const RECORD_BYTES: int = 128         # std430 size of one Reaction (see layout 
 
 ## Author one record as a Dictionary (unspecified fields default to the ungated/no-op values). Reactant and
 ## product entries are Arrays of [slot, coeff] (products carry an optional 3rd element = target, default SELF).
+##
+## `cap_slot` / `cap_coeff` are the AUXILIARY CAP: an extra ceiling `x <= read_ch(cap_slot) / cap_coeff` that
+## limits the extent by a channel the reaction does not consume. It is for a CAPACITY rather than a supply —
+## frost weathering uses it to say that only the POROSITY fraction of the bedrock beneath can hold pore water,
+## so only that much can freeze in a step however cold it gets, even though the rock itself is not the thing
+## being used up at that ratio. (The kernel and serialize() have always supported it; `rec()` had no parameters
+## for it, so no record could ever author one. Wired up 2026-08-03.)
 static func rec(rate_model: int, rate_k: float, driver_slot: int, reactants: Array, products: Array,
-		gate_mask: int = 0, threshold: float = 0.0, driver2_slot: int = -1, param2: float = 0.0) -> Dictionary:
+		gate_mask: int = 0, threshold: float = 0.0, driver2_slot: int = -1, param2: float = 0.0,
+		cap_slot: int = -1, cap_coeff: float = 0.0) -> Dictionary:
 	return {
 		"rate_model": rate_model, "rate_k": rate_k, "threshold": threshold, "gate_mask": gate_mask,
 		"driver_slot": driver_slot, "driver2_slot": driver2_slot, "param2": param2,
+		"cap_slot": cap_slot, "cap_coeff": cap_coeff,
 		"reactants": reactants, "products": products,
 	}
 

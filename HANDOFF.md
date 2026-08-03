@@ -157,23 +157,54 @@ boundary condition on the crust, not a term in the surface budget.
   capacities are stated in real units (rock lands at 0.248 m against a derived diurnal skin depth of 0.168 m,
   which is fine; water is wrong by one to two orders).
 
-### 3 — GEOLOGY IS PROBABILITY ROLLS, NOT MECHANISM
+### 3 — GEOLOGY: WHAT IS LEFT NOW THAT IT IS MECHANISM
 
-- **D1 WEATHERING's temperature law is backwards.** Rate ∝ `max(0, WEATHER_TEMP − T)` with `WEATHER_TEMP`
-  20.0, justified in-comment by "the sim's actual range" — the exact anti-pattern `CLAUDE.md` names, and the
-  range quoted is stale. It **runs away as the planet gets colder**: at −18 °C it takes 0.152 of the bedrock
-  per step. Frost shattering peaks where temperature *cycles across 0 °C*, not where it is coldest; chemical
-  weathering is Arrhenius and needs water. A correct record needs a **band-around-zero driver the reaction
-  engine does not have** — a new rate model, and one that will move sediment production enough to invalidate
-  any A/B running beside it. Documented with numbers at `reactions/GeoRecords.gd:23-46`.
-- **D2 LITHIFICATION is ungated** (`gate_mask = 0`), has no burial or pressure term, and the per-cell loop
-  runs all records in one dispatch — so D1 and D2 can futile-cycle in the same cell in the same step.
-- **`PlateTectonics` rotates plate SEEDS and moves no crust** (`PlateTectonics.gd:81-82` is the entire motion
-  model; the class never touches the field), so the Ring of Fire sweeps across stationary continents.
-  **Maintainer's decision: advect the crust** — keep the kinematic Voronoi plates, but move `rock_fill` and
-  `sediment` with the plate velocity so continents actually drift. Also drop the undocumented
-  `VENT_CHANCE_DIVERGENT = 0.12`, which sits beside a sibling carrying a 20-line justification.
-- **Craters excavate nothing**, so half the mineral ledger has nothing to check.
+*(Rewritten 2026-08-03. The four items that were here — D1's backwards temperature law, D2's missing burial
+term, plates that moved no crust, and the `VENT_CHANCE_DIVERGENT` roll — are done and are deleted per the
+tracker rule. Git holds what was fixed. What follows is only what is still open.)*
+
+- **CORRECTED 2026-08-03: "craters excavate nothing" was FALSE, and it was a gauge read in a run mode that
+  fires no meteor.** `--sandbox --planet-only` spawns none, so `crater_mass` is 0.0 because nothing struck —
+  and the `phenomenon/impact` events such a run reports are SHOCK-threshold crossings from earthquakes
+  (`LAEventTracker.gd:79` increments on `shock_cells`), not strikes, which is what made the zero look like a
+  broken excavation. Measured with `--auto-meteor` on the same build: one meteor gives `crater_cells` 3,
+  `crater_mass` 3.0, `crater_open_now` 3/3 and `crater_rock_now` 0.72 — the device agrees the bedrock is gone
+  — with `mineral_drift` 0.00. The path works. **Quote `crater_*` only from a run that actually fires one.**
+- **`erupt_source` offers far more than the device accepts:** `mineral_inject_offered` 493.5 against
+  `mineral_inject_moved` 19.9 on that same run. Either the finite magma chamber is doing its job (the vent
+  column has no bedrock left to melt) or the `rock_fill` mirror the chamber walk reads is stale and aiming at
+  an already-empty cell. The two are not distinguished yet. **What would decide it:** print the chamber cell's
+  live rock_fill beside the offer for a handful of eruptions.
+- **The plate acceleration is pinned at 3e5 by the SOLIDITY THRESHOLD, and that is the thing to fix if you
+  want faster drift.** `solid` is derived as `rock_fill >= 0.5`, so a margin in continuous motion carries a
+  band of partially-filled cells of which roughly half read as VOID. At `GEOLOGIC_TIME_ACCELERATION` 1e6 that
+  band opened ~2000 cells of crust, which exposed the seeded geotherm (`hotspring_cells` 1000 against 309
+  held-still) and flashed the ocean to steam (`water_total` 209 against 1358). At 3e5 the cascade does not
+  start (`rock_cells` 32303, at or above both baseline 32038 and control 31787). A TVD flux limiter was tried
+  first and made no difference (28863 either way), which is what identified the threshold rather than the
+  advection scheme. **What would decide it:** whether a fractional-solidity read (the substrate already stores
+  the fraction) can replace the binary test in the consumers that matter — SolidDerivePass, the geotherm's
+  surface walk, and `LAMineralStamp3D`.
+- **The residual cost of crust motion at 3e5, unresolved:** `water_total` 587 against a baseline 1416, and
+  `temp_mean` +2.8 °C. `mineral_total` is exactly conserved and `rock_cells` is not thinning, so this is not
+  the transport losing mass — it is a hotter, drier planet from the churn. Quantify it against
+  `LA_NO_PLATE_ADVECT=1`, which is the in-build control for exactly this.
+- **`VOLCANO_CHANCE_CONVERGENT = 0.3` is still a rarity roll** (`PlateTectonics.gd`). Its own comment names
+  the acceptance test — raise it to 1.0 and compare `temp_mean`/`temp_ground_mean` at equal `field_step` over
+  three runs per arm — and names the radiative sink as the precondition. The sink has since landed. The
+  measurement has not been run.
+- **Lithification is correct and does not fire in a short run, which is the honest result.** D2 now needs
+  `LAPhysical.LITHIFICATION_PRESSURE_PA` (56.9 MPa) of SOLID overburden, which is four cells of bedrock — the
+  same 2 km at which `GROUNDWATER_CIRCULATION_M` says porosity closes. Surface sediment therefore cannot
+  lithify, which is what ended the D1/D2 futile cycle. Nothing on this planet accumulates 2 km of burial in 80
+  simulated seconds, so the rock→sediment→rock loop closes only over geological time. **Do not "fix" this by
+  lowering the threshold** — that is the move that produced `LITH_DEPTH = 0.5`.
+- **Chemical weathering is real and nearly invisible, and that ratio is correct.** Real basaltic chemical
+  denudation is ~17 µm/yr against a cell that stands for 500 model metres of depth, so 242 accelerated years
+  lowers a surface by ~4 mm. On Earth plate motion and chemical denudation differ by about three orders of
+  magnitude and they do here too. Anything that makes weathering visible within one run has broken that ratio.
+  The one number in it that a measurement may move is `LAGeoRecords.DISSOLUTION_K`, the model's rate prefactor,
+  and it is bounded at the HOT end (a boiling spring cell) rather than the temperate one.
 
 ### 4 — THE PLANET IS WET NOW, AND EVERY CONSTANT DOWNSTREAM OF RAIN WAS FITTED WHILE IT WAS DRY
 

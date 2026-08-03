@@ -850,6 +850,13 @@ func set_wind(w: Vector2) -> void:
 	if _gpu != null and _gpu.has_method("set_prevailing"):
 		_gpu.set_prevailing(w)
 
+## The drifting PLATES, pushed in by LAPlateTectonics (which owns the kinematics) and consumed by the GPU
+## driver's PlateAdvectPass, which carries rock_fill and sediment with the velocity they imply. Pure
+## delegation, like set_wind above: the field holds no plate state and does no plate work.
+func set_plate_motion(table: PackedFloat32Array) -> void:
+	if _gpu != null and _gpu.has_method("set_plates"):
+		_gpu.set_plates(table)
+
 ## Domain-average horizontal wind (ocean swell / HUD) — a coarse mean of the read-back GPU velocity field.
 func wind() -> Vector2:
 	return _queries.wind()
@@ -879,40 +886,20 @@ func grid_half_extent() -> float:
 	return _half_extent
 
 
-# Heat + lava injection + diagnostics. Local injection (add_heat/add_vapor/add_charge) is REAL — it writes the
-# sphere GPU field buffers via the injection module; the field only forwards. add_lava (a conserving move) stays.
+# Heat + lava injection + diagnostics. Local injection (add_heat/add_vapor/add_charge/add_lava) is REAL — it
+# writes the sphere GPU field buffers via the injection module; the field only forwards.
 ## Raise the temperature at a world point (and within `radius`) — a meteor's molten spike, a fire's heat.
 func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if _inject != null:
 		_inject.add_heat(world_pos, amount, radius)
 
-## Real CONSERVING lava source (rock unification Stage B). A volcano/vent erupts by converting bedrock into molten
-## lava (`rock_fill -= a; lava += a`), so mineral_total() stays FLAT (phase move, not creation). GPU-authoritative
-## → the edited CPU arrays re-upload next step (dirty-gated); the lava then flows/cools on-GPU (M5 re-accretes it).
+## A vent erupting: bedrock beneath it melts to lava. Conserving, and the body lives in the injection module
+## because it has to be a SPARSE DEVICE transfer rather than a mirror edit — see LAMaterialFieldInject3D.add_lava.
 func add_lava(world_pos: Vector3, amount: float) -> void:
 	if amount <= 0.0 or _rock_fill.size() != _cell_count or _lava.size() != _cell_count:
 		return
-	if _gpu != null: _gpu.request_channel("lava")   # an active vent → keep the lava readback hot
-	var c: int = world_to_cell(world_pos)
-	if c < 0 or c >= _cell_count:
-		return
-	# A vent sits on OPEN ground, so the erupting lava is bedrock melted from just BENEATH it: walk radially
-	# inward (lower index = toward core within the same column) to the first bedrock cell and melt THAT to lava
-	# (it rises via magma buoyancy). Conserving: rock_fill -= a; lava += a, capped by the bedrock present.
-	var depth: int = _sphere.depth if _sphere != null else 1
-	var base: int = c - (c % depth)               # radial index 0 of this surface column (the core-side cell)
-	var cell: int = c
-	while cell >= base and _rock_fill[cell] <= 0.0:
-		cell -= 1
-	if cell < base:
-		return                                    # whole column void (no bedrock to erupt) — nothing to do
-	var a: float = minf(amount, _rock_fill[cell])
-	if a <= 0.0:
-		return
-	_rock_fill[cell] -= a
-	_lava[cell] += a
-	_lava_dirty = true
-	_rock_fill_dirty = true
+	if _inject != null:
+		_inject.add_lava(world_pos, amount)
 	if _stamp != null:
 		_stamp.arm()                              # wake the SDF stamp — the erupted lava will cool + cross 0.5
 

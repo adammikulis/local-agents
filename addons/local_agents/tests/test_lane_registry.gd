@@ -34,6 +34,13 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	# cells. Pure GDScript against the queue object: no device, no field, no world. The bug it guards made
 	# every merged mineral transfer vanish into a size check inside move_field_sparse, reporting nothing.
 	"res://addons/local_agents/tests/test_inject_queue_alias.gd",
+	# Weathering does not get faster as the planet gets colder. Pure GDScript over the LIVE records: it walks
+	# LAGeoRecords across a temperature sweep using the kernel's own rate arithmetic and asserts the SHAPE of
+	# each mechanism — chemical dissolution monotone in T with a ~2.2x Q10, frost shattering exactly zero above
+	# the real freezing point and plateauing rather than climbing into the cold. It exists because the record
+	# it replaced was a constant fitted to "the sim's actual range" with the temperature sign backwards, and
+	# nothing in the suite could have caught that.
+	"res://addons/local_agents/tests/test_weathering_rate_law.gd",
 ]
 
 const INTEGRATION_TESTS: Array[String] = []

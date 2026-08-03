@@ -105,6 +105,62 @@ func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if amount > 0.0 and _f._gpu != null:
 		_f._gpu.request_channel("fire")
 
+## A VENT ERUPTING: the bedrock just beneath it melts to lava. Conserving by construction — `rock_fill -= a;
+## lava += a` — so mineral_total stays flat and an eruption RELOCATES mineral instead of creating it.
+##
+## IT MUST BE A SPARSE DEVICE TRANSFER, AND IT USED TO BE A MIRROR EDIT, WHICH MINTED ROCK. The old body (on
+## LAMaterialField3D) wrote `_rock_fill[cell] -= a; _lava[cell] += a` on the CPU and raised `_rock_fill_dirty` /
+## `_lava_dirty`, which make MaterialFieldSphereStep3D.gd:204-209 push the WHOLE mirror back over the live GPU
+## buffer with `set_field`. Both channels are GPU-evolved, and the rock_fill mirror is a DEMAND-GATED readback,
+## so that upload rewound every on-device change either channel had accumulated since the mirror was last
+## refreshed — and credited the difference as new matter.
+##
+## The hazard was already documented in CLAUDE.md ("add_lava and the fuel seed push WHOLE mirrors back with
+## set_field, so mirror staleness decides how much GPU-evolved mass that upload rewinds") and already visible
+## as a small standing mint. What made it unmissable was plate transport: once rock_fill evolves on the GPU in
+## EVERY cell every step, the stale mirror differs from the device everywhere, and each eruption restored the
+## continents to where they had been. Measured, seed 4242 at 600 frames: `mineral_inject_minted` 1859.2 and
+## `mineral_total` 33707.6 against a 31978.0 start — 5.4 % of the planet's mineral conjured by four eruptions.
+##
+## The mirror is still read, but ONLY to LOCATE the bedrock (walk radially inward to the first cell that holds
+## rock). Staleness there can pick a slightly wrong cell; it cannot mint, because `move_field_sparse` reads the
+## LIVE bedrock and takes what is actually present — the same property that makes `resample_terrain` honest.
+## `request_channel("rock_fill")` keeps that mirror warm, which is a legitimate call here: this is a simulation
+## WRITE path reading the mirror to decide where to act, not a gauge.
+func add_lava(world_pos: Vector3, amount: float) -> void:
+	if _f == null or amount <= 0.0:
+		return
+	if _f._rock_fill.size() != _f._cell_count or _f._lava.size() != _f._cell_count:
+		return
+	if _f._gpu != null:
+		_f._gpu.request_channel("lava")          # an active vent → keep the lava readback hot
+		_f._gpu.request_channel("rock_fill")     # ...and the bedrock mirror this walk locates the vent with
+	var c: int = _f.world_to_cell(world_pos)
+	if c < 0 or c >= _f._cell_count:
+		return
+	# A vent sits on OPEN ground, so the erupting lava is bedrock melted from just BENEATH it: walk radially
+	# inward (lower index = toward the core within the same column) to the first bedrock cell and melt THAT
+	# (it then rises by magma buoyancy).
+	var depth: int = _f._sphere.depth if _f._sphere != null else 1
+	var base: int = c - (c % depth)              # radial index 0 of this surface column (the core-side cell)
+	var cell: int = c
+	while cell >= base and _f._rock_fill[cell] <= 0.0:
+		cell -= 1
+	if cell < base:
+		return                                   # whole column void (no bedrock to erupt) — nothing to do
+	if not _device_ready():
+		# NO DEVICE (the box/CPU reference oracle): nothing flushes the queue there and the mirrors ARE the
+		# substrate, so the direct edit is the correct write — the same split resample_terrain makes.
+		var a: float = minf(amount, _f._rock_fill[cell])
+		if a <= 0.0:
+			return
+		_f._rock_fill[cell] -= a
+		_f._lava[cell] += a
+		return
+	var src: PackedInt32Array = PackedInt32Array([cell])
+	queue.transfer("rock_fill", src, PackedFloat32Array([amount]), "lava", src)
+
+
 ## EVAPORATE airborne water vapor (humidity) into the air over `world_pos` (within `radius`) — a storm's LOCAL
 ## moisture source. This is a TRANSFER, not a source. It used to do `_moisture[c] += amount` for every open cell
 ## in the bubble and set a dirty flag, which (a) created that mass out of nothing — every storm minted water —
@@ -298,10 +354,28 @@ func _cells_within(world_pos: Vector3, radius: float) -> PackedInt32Array:
 ## non-bedrock cell (rock_fill < 0.5) walking OUTWARD from `world_pos`. Underwater that cell holds seeded seawater, so
 ## the erupted lava QUENCHES on the GPU next step (the marine-lava heat sink), the M5 record freezes it to rock_fill,
 ## and Stage C stamps the terrain UP a cell. Repeat and the cone climbs until it BREACHES the sea surface = a new
-## ISLAND — nothing here says "island"; it is eruption + water-quench + accretion + SDF growth composing. Unlike
-## add_lava (a CONSERVING bedrock->lava phase move that leaves the lava trapped in dry rock), this is a genuine mantle
-## SOURCE: the deep reservoir is effectively infinite, so mineral_total rises by exactly the mass injected. Returns
-## the mass actually erupted (0 if the column is solid to the grid's outer edge). All emergence is downstream on GPU.
+## ISLAND — nothing here says "island"; it is eruption + water-quench + accretion + SDF growth composing.
+##
+## ===== IT USED TO CREATE THE ROCK OUT OF NOTHING. IT NOW MELTS ROCK THAT IS ACTUALLY THERE. ================
+##
+## This docstring used to end: "this is a genuine mantle SOURCE: the deep reservoir is effectively infinite, so
+## mineral_total rises by exactly the mass injected", and the code was `queue.add("lava", ...)` — an edit with
+## no debit anywhere in the field. Stated plainly, every island this simulation has ever built was made of
+## matter that did not exist. It was not hidden: the queue counted it in `mineral_inject_minted` and the
+## mineral ledger subtracted it before reporting drift, so the books balanced by declaring the source
+## legitimate. A ledger that exempts its own leak measures nothing.
+##
+## A volcano does not import matter into the planet. Magma is rock that was ALREADY in the planet and melted,
+## and the chamber it comes from is finite — which is why real volcanoes go extinct and why calderas collapse
+## into the void their chamber left. So the supply is now drawn from the DEEPEST BEDROCK OF THE VENT'S OWN
+## COLUMN (core side, i.e. mantle rather than crust) and transferred to the erupting cell: a conserving
+## rock_fill -> lava move, exactly like add_lava, differing only in that source and destination are different
+## cells. `move_field_sparse` takes what is really there, so a column that has given up all its rock simply
+## erupts nothing and the cone stops growing — a finite magma chamber, which is the correct behaviour rather
+## than a limitation.
+##
+## Returns the mass actually erupted (0 if the column is solid to the grid's outer edge, or has no rock left).
+## All emergence is downstream on GPU.
 func erupt_source(world_pos: Vector3, amount: float) -> float:
 	if amount <= 0.0 or _f._lava.size() != _f._cell_count or _f._rock_fill.size() != _f._cell_count:
 		return 0.0
@@ -318,8 +392,16 @@ func erupt_source(world_pos: Vector3, amount: float) -> float:
 		cell += 1
 	if cell > col_top:
 		return 0.0                                    # column solid to the grid's outer edge — nowhere to erupt
-	# SPARSE DEVICE ADD, not a mirror edit — the same correction add_water_pooled already carries, for the same
-	# reason, but the consequences here were worse because nothing ever refreshed this mirror.
+	# WHERE THE MAGMA COMES FROM: the deepest bedrock still left in this column, walking OUTWARD from the
+	# core-side end. Deep rather than shallow on purpose — that is the mantle end of the column, and melting it
+	# leaves its void far below the seabed instead of undermining the cone the vent is building.
+	var chamber: int = col_base
+	while chamber <= col_top and _f._rock_fill[chamber] <= 0.0:
+		chamber += 1
+	if chamber >= cell:
+		return 0.0                                    # no bedrock below the vent left to melt — the chamber is spent
+	# SPARSE DEVICE TRANSFER, not a mirror edit — the same correction add_water_pooled already carries, for the
+	# same reason, but the consequences here were worse because nothing ever refreshed this mirror.
 	#
 	# This used to be `_f._lava[cell] += amount; _f._lava_dirty = true`, which made the step upload the WHOLE
 	# `_lava` array over the live buffer. `lava` is demand-gated (SITUATIONAL_CHANNELS) and this path never
@@ -336,8 +418,9 @@ func erupt_source(world_pos: Vector3, amount: float) -> float:
 	#     leg to lava_flow moved neither height nor shape — its output was overwritten before it could compound.
 	# The queue applies to the LIVE device buffers and is flushed AFTER the set_field block, which is the
 	# direction the driver's own note ("only moving add_lava onto move_field_sparse would") calls safe. `lava`
-	# is in the queue's MINERAL_CHANNELS, so this still books into the mineral ledger.
-	queue.add("lava", PackedInt32Array([cell]), PackedFloat32Array([amount]))
+	# is in the queue's MINERAL_CHANNELS, so this books into the mineral ledger as a MOVE, not a mint.
+	queue.transfer("rock_fill", PackedInt32Array([chamber]), PackedFloat32Array([amount]),
+		"lava", PackedInt32Array([cell]))
 	# The CPU mirror still has readers — this function's own size guard, lava_total() for SIM_REPORT, and the
 	# eruption event detector — so keep its readback hot while a vent is active, exactly as add_lava does.
 	if _f._gpu != null:

@@ -464,11 +464,13 @@ func _ready() -> void:
 	governor.name = "PopulationGovernor"
 	add_child(governor)
 	governor.setup(_ecology, _terrain, _actors_root)
-	# Plate tectonics: drifting plates whose boundaries seed volcanoes/earthquakes (Ring of Fire). Self-ticks.
+	# Plate tectonics: drifting plates that CARRY THE CRUST (the field advects rock_fill/sediment with their
+	# velocity) and whose boundaries seed volcanoes/earthquakes (Ring of Fire). Self-ticks.
 	var tectonics: LAPlateTectonics = LAPlateTectonics.new()
 	tectonics.name = "PlateTectonics"
 	add_child(tectonics)
-	tectonics.setup(_terrain, _disasters)
+	var plate_field = _ecology.material_field() if _ecology != null and _ecology.has_method("material_field") else null
+	tectonics.setup(_terrain, _disasters, plate_field)
 	_brush = SpawnBrushScript.new()
 	_brush.name = "SpawnBrush"
 	add_child(_brush)
