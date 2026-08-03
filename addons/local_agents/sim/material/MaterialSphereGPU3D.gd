@@ -297,11 +297,13 @@ func set_camera_pos(v: Vector3) -> void:
 func set_atmos_humidity(h: float) -> void:
 	_ctx["atmos_humidity"] = clampf(h, 0.0, 1.0)
 
-## The geothermal boundary flux, as degrees added to ONE innermost-shell cell this step. Published by
-## LAMaterialFieldGeotherm3D each step and consumed by heat_sphere3d.glsl at its inward boundary. A
-## scalar, not an array, which is why the temp upload above could be gated off.
-func set_core_flux_dt(v: float) -> void:
-	_ctx["core_flux_dt"] = v
+## The geothermal boundary: the TEMPERATURE of the rock ghost cell one shell below the grid's bottom face.
+## Published by LAMaterialFieldGeotherm3D each step and consumed by heat_sphere3d.glsl, which bonds to it with
+## the same finite-volume expression it uses for a real neighbour — so what each base cell draws depends on
+## that cell's own temperature. A scalar because the interior CONVECTS and is isothermal at its top; the
+## per-cell part happens in the kernel. <= 0 disarms the bond.
+func set_core_boundary_c(v: float) -> void:
+	_ctx["core_boundary_c"] = v
 
 
 ## Mark the CPU temp mirror dirty so the next begin_frame re-uploads it.

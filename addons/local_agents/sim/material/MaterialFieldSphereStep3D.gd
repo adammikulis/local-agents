@@ -22,6 +22,27 @@ const STEP_DT: float = 1.0 / 10.0
 const MAX_STEPS_PER_FRAME: int = 2
 const FIELD_CADENCE_MAX: int = 60                       # clamp for the published Sim knob (avoid absurd skips)
 
+# --- THE FIELD'S ONE CLOCK ---------------------------------------------------------------------------------
+# Seconds in a real day. The sim clock declares a day is LASimClock.DAY_LENGTH SIMULATED seconds, so one field
+# step of STEP_DT simulated seconds stands for STEP_DT * (86400 / DAY_LENGTH) REAL seconds. At the shipped
+# 200 s day: 0.1 * 432 = 43.2.
+#
+# IT IS STATIC, AND IT LIVES HERE, BECAUSE THERE WERE TWO CLOCKS IN ONE THERMAL PASS. `heat_sphere3d.glsl` and
+# LAMaterialFieldGeotherm3D advanced 43.2 REAL seconds per step over SI volumetric heat capacities, while
+# `heat3d_solar_sphere3d.glsl` — dispatched by the SAME LASphereThermalPass, inside the same step — advanced
+# STEP_DT = 0.1 over model-unit capacities: a factor of 432 between two halves of one energy budget. Neither
+# was wrong on its own, and a pair like that is never caught by a test, which is exactly the kind of defect
+# that ends up blamed on something else. There is ONE derivation now and every caller reads it — the geotherm,
+# the conduction kernel, the solar kernel, and the energy-budget instrument that mirrors the solar kernel.
+const REAL_SECONDS_PER_DAY: float = 86400.0
+
+## Real seconds ONE field step represents — derived from the sim clock, never typed. See the block above.
+static func real_seconds_per_step() -> float:
+	var day: float = float(LASimClock.DAY_LENGTH)
+	if day <= 0.0:
+		return 0.0
+	return STEP_DT * (REAL_SECONDS_PER_DAY / day)
+
 const LakesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLakes3D.gd")
 const SoilBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd")
 const H2OBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldH2OBudget3D.gd")

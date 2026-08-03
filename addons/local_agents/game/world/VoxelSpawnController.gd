@@ -138,14 +138,19 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 		if herd_dir != Vector3.ZERO:
 			_camera.orient_toward(herd_dir)
 	if _material.has_method("add_magma_source"):
-		# SEED the planet's interior heat reservoir at a real inner-core temperature. This used to read a
-		# literal 1300.0, which is LAPhysical.UPPER_MANTLE_C — an ERUPTING BASALT temperature, about a
-		# quarter of a real core's, chosen because a hotter one baked the surface. It baked the surface
-		# because the boundary was a TEMPERATURE that no amount of radiating to space could cool, held by a
-		# pair of fitted conductivities. Both are gone: the reservoir is finite and cools as it supplies
-		# (LAMaterialFieldGeotherm3D), and it reaches the world as a conductive FLUX through the unsimulated
-		# interior, which is small exactly as Earth's 0.087 W/m^2 is small against 340 W/m^2 of sunlight.
-		# So the real value can now be used, and the surface temperature is an output rather than a premise.
+		# SEED the planet's interior heat at a real inner-core temperature, and with it the crustal geotherm
+		# above it. This used to read a literal 1300.0, which is LAPhysical.UPPER_MANTLE_C — an ERUPTING
+		# BASALT temperature, about a quarter of a real core's, chosen because a hotter one baked the surface.
+		# It baked the surface because the boundary was a TEMPERATURE that no amount of radiating to space
+		# could cool, held by a pair of fitted conductivities. Both are gone: the reservoir is finite and
+		# cools as it supplies (LAMaterialFieldGeotherm3D), and it reaches the world through a conduction bond
+		# at the base of the crust, which is small exactly as Earth's 0.087 W/m^2 is small against 340 W/m^2
+		# of sunlight. So the real value can now be used, and the surface temperature is an output.
+		#
+		# This value is the CONVECTING INTERIOR's, not the crust's: the geotherm the module seeds through the
+		# rock is anchored on LAPhysical.MOHO_TEMP_C, because the base of the simulated shell is the base of a
+		# crust rather than the centre of a planet. `LA_NO_GEOTHERM=1` disarms the whole thing (the control
+		# arm for every geotherm gate).
 		_material.add_magma_source(_body.center(), LAPhysical.INNER_CORE_C, 0.6)
 	_seed_diseases()
 	_spawned_initial = true

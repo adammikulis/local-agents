@@ -1067,15 +1067,16 @@ func fertility_peak() -> float:
 # CPU oracles retired; these channels are not yet read back from the sphere GPU driver, so the emitters are
 # no-ops and the diagnostics return safe defaults until their sphere readback lands.
 func add_magma_source(world_pos: Vector3, temp: float, rate: float) -> void:
-	# Sphere geothermal core: SEED the interior reservoir's temperature (world_pos/rate unused — the
-	# reservoir is the whole unsimulated interior, not a point). From then on the temperature is a state
-	# variable that cools; nothing re-asserts it.
+	# Sphere geothermal core: SEED the interior reservoir's temperature AND the crustal geotherm above it
+	# (world_pos/rate unused — the reservoir is the whole unsimulated interior, not a point). From then on the
+	# temperature is a state variable that cools; nothing re-asserts it. The geotherm is an INITIAL CONDITION
+	# because conduction through rock takes millennia to cross this shell — see LAMaterialFieldGeotherm3D.
 	_geotherm.arm(temp)
 
 
-## Advance the geothermal reservoir one field step: recompute its conductive flux into the shell, debit it
-## by exactly that, credit radiogenic decay, and publish the flux to the GPU. The model lives in
-## LAMaterialFieldGeotherm3D.
+## Advance the geothermal reservoir one field step: recompute the conductive flux across its boundary, debit
+## it by exactly that, credit radiogenic decay, and publish the boundary temperature to the GPU. The model
+## lives in LAMaterialFieldGeotherm3D.
 func _step_geotherm() -> void:
 	_geotherm.step()
 

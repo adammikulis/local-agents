@@ -191,12 +191,14 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	var dt_over_dx2: float = 0.0
 	if cell_size > 0.0:
 		dt_over_dx2 = _real_seconds_per_step() / (cell_size * cell_size)
-	var core_dt: float = float(ctx.get("core_flux_dt", 0.0))
+	var core_boundary_c: float = float(ctx.get("core_boundary_c", 0.0))
 
 	# 0. CONDUCTION — relax temp toward its 6-neighbour mean (net-zero-flip: gather LIVE->scratch, copy back).
-	# This is the ONLY lateral/radial heat conduction in the field; it carries the pinned magma core outward to
-	# the surface (geothermal gradient) and smooths solar/buoyancy forcing. Runs through rock AND void.
-	var cond_pc: PackedByteArray = _conduct_pc(cc, core_dt, dt_over_dx2)
+	# This is the ONLY lateral/radial heat conduction in the field, and it also carries the interior's boundary
+	# bond at r = 0. It does NOT establish the geotherm: with rock's real diffusivity a front crosses one cell
+	# in ~10 days of simulated time, so the geotherm is SEEDED by LAMaterialFieldGeotherm3D and this pass
+	# maintains it. Runs through rock AND void.
+	var cond_pc: PackedByteArray = _conduct_pc(cc, core_boundary_c, dt_over_dx2)
 	rd.compute_list_bind_compute_pipeline(cl, _conduct_pipe)
 	rd.compute_list_bind_uniform_set(cl, _conduct_set[parity], 0)
 	rd.compute_list_set_push_constant(cl, cond_pc, cond_pc.size())
@@ -211,7 +213,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	# 1. SOLAR — the terminator, in-place on temp LIVE.
 	rd.compute_list_bind_compute_pipeline(cl, _solar_pipe)
 	rd.compute_list_bind_uniform_set(cl, _solar_set[parity], 0)
-	var solar_pc: PackedByteArray = _solar_pc(cc, sun_dir, sea_radius)
+	var solar_pc: PackedByteArray = _solar_pc(cc, sun_dir, sea_radius, _real_seconds_per_step())
 	rd.compute_list_set_push_constant(cl, solar_pc, solar_pc.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # solar output (temp LIVE) visible to the buoyancy gather
@@ -320,13 +322,15 @@ func _make_set(rd: RenderingDevice, shader: RID, pairs: Array) -> RID:
 	return rd.uniform_set_create(uniforms, shader, 0)
 
 
-# heat3d_solar Params: { uint cell_count; uint pad0; uint pad1; uint pad2; float sun_x; float sun_y;
-#   float sun_z; float sea_radius; } — 32 bytes. sun_dir at offset 16; sea_radius (altitude-lapse datum) at 28.
-func _solar_pc(cc: int, sun_dir: Vector3, sea_radius: float) -> PackedByteArray:
+# heat3d_solar Params: { uint cell_count; float dt_s; uint pad1; uint pad2; float sun_x; float sun_y;
+#   float sun_z; float sea_radius; } — 32 bytes. sun_dir at offset 16; sea_radius (altitude datum) at 28.
+# `dt_s` took the old pad0 slot: the solar kernel carried its own `const float STEP_DT = 0.1` — the SIMULATED
+# step — while the conduction kernel in this same pass ran on 43.2 REAL seconds. One clock now, pushed.
+func _solar_pc(cc: int, sun_dir: Vector3, sea_radius: float, dt_s: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(32)
 	pc.encode_u32(0, cc)
-	pc.encode_u32(4, 0)
+	pc.encode_float(4, dt_s)
 	pc.encode_u32(8, 0)
 	pc.encode_u32(12, 0)
 	pc.encode_float(16, sun_dir.x)
@@ -347,27 +351,25 @@ func _cool_pc(cc: int, sea_radius: float) -> PackedByteArray:
 	return pc
 
 
-# heat_sphere3d Params: { uint cell_count; float core_dt; float dt_over_dx2; uint pad2; } — 16 bytes.
-# core_dt is the geothermal boundary: the degrees LAMaterialFieldGeotherm3D's finite reservoir hands to
-# ONE innermost-shell cell this step. It enters conduction because that is what it is — the flux the
-# unsimulated interior conducts into the bottom face of the shell.
-func _conduct_pc(cc: int, core_dt: float, dt_over_dx2: float) -> PackedByteArray:
+# heat_sphere3d Params: { uint cell_count; float core_boundary_c; float dt_over_dx2; uint pad2; } — 16 bytes.
+# core_boundary_c is the geothermal boundary: the TEMPERATURE of the rock ghost cell one shell below the
+# grid's bottom face, published by LAMaterialFieldGeotherm3D. It enters conduction because that is what it is
+# — a seventh neighbour made of rock. <= 0 disarms the bond.
+func _conduct_pc(cc: int, core_boundary_c: float, dt_over_dx2: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)
 	pc.encode_u32(0, cc)
-	pc.encode_float(4, core_dt)
+	pc.encode_float(4, core_boundary_c)
 	pc.encode_float(8, dt_over_dx2)
 	pc.encode_u32(12, 0)
 	return pc
 
 
-## Real seconds one field step represents — the same derivation LAMaterialFieldGeotherm3D uses for the
-## reservoir, so conduction and the core run on ONE clock. At the shipped 200 s day: 0.1 * 432 = 43.2 s.
+## Real seconds one field step represents. EVERY kernel in this pass now runs on it — conduction, the
+## geotherm boundary AND the solar energy balance, which used to run on the SIMULATED step instead, a factor
+## of 432 apart inside one energy budget. The derivation lives with STEP_DT; this is a forwarder.
 func _real_seconds_per_step() -> float:
-	var day: float = float(LASimClock.DAY_LENGTH)
-	if day <= 0.0:
-		return 0.0
-	return LAMaterialFieldSphereStep3D.STEP_DT * (86400.0 / day)
+	return LAMaterialFieldSphereStep3D.real_seconds_per_step()
 
 
 # heat3d_buoyancy Params: { uint cell_count; uint pad0; uint pad1; uint pad2; } — 16 bytes.

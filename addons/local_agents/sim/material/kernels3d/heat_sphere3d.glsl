@@ -35,16 +35,29 @@
 // 5200 C at 340 m under a 15 C surface demands q = 2.5 * 5185 / 340 = 38 W/m^2 — 440x Earth's 0.087 W/m^2.
 // Earth gets away with a 5200 C core because L is 6371 KILOMETRES, not because rock insulates.
 //
-// So the geothermal boundary stopped being a temperature and became a FLUX. `params.core_dt` is the degrees
-// that flux adds to one innermost-shell cell this step, computed by LAMaterialFieldGeotherm3D from a FINITE
-// reservoir that cools as it supplies. It enters here, at the inward boundary (slot 0 has no neighbour only
-// at r = 0), because that is exactly what it is: the conduction the unsimulated interior delivers to the
-// bottom face of the simulated shell. There is no cell held at a constant temperature anywhere any more.
+// So the geothermal boundary stopped being a temperature and became a CONDUCTION BOND. `params.core_boundary_c`
+// is the temperature of the rock immediately below the shell's bottom face — a GHOST CELL — published by
+// LAMaterialFieldGeotherm3D from a finite reservoir that cools as it supplies. It enters at slot 0's missing
+// neighbour (slot 0 has no neighbour only at r = 0) through the SAME finite-volume expression every real
+// neighbour uses, because that is exactly what it is: a seventh neighbour made of rock. Nothing anywhere is
+// held at a constant temperature.
+//
+// WHY A GHOST CELL AND NOT THE 340 m PATH TO THE PLANET'S CENTRE. The unsimulated interior CONVECTS, and a
+// convecting body is nearly isothermal in its bulk with its whole temperature drop across a thin boundary
+// layer at the top — so its conductive resistance is one cell of rock, not its radius. Earth agrees: its
+// measured 0.087 W/m^2 is ~27x what pure conduction through 2890 km of mantle would deliver.
+//
+// AND WHY PER CELL. The previous version pushed one scalar `core_dt`, the degrees to add to every r == 0
+// cell, computed on the CPU from the shell's MEAN temperature. A global mean cannot answer a local question:
+// a base cell under a thin ocean-basin crust and one under a mountain root draw different amounts, and with
+// a bond they do, for free.
 //
 // With real alpha, conduction through rock moves heat 1 metre in ~10 days. It is negligible on every
 // timescale this simulation runs, which is correct and is the point: a planet's interior heat reaches its
-// surface by ADVECTION (magma_buoy_sphere3d, plate tectonics, eruptions), not by conduction. The old
-// kernel's job of carrying core heat to the crust was work the world does not do.
+// surface by ADVECTION (magma_buoy_sphere3d, plate tectonics, eruptions), not by conduction. That is also
+// why the geotherm is SEEDED as an initial condition rather than established at runtime — see
+// LAMaterialFieldGeotherm3D's header. The old kernel's job of carrying core heat to the crust was work the
+// world does not do.
 //
 // ===== STABILITY ==========================================================================================
 // Explicit FTCS is stable while the sum of the per-bond coefficients over <= 6 bonds stays below 0.5. The
@@ -66,10 +79,11 @@ layout(set = 0, binding = 4, std430) restrict readonly buffer Water { float wate
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	// Degrees this step's geothermal flux adds to ONE innermost-shell cell. Owned by
-	// LAMaterialFieldGeotherm3D, which computes it from a finite reservoir and debits the reservoir by
-	// exactly what it hands over here. Zero when the core is disarmed.
-	float core_dt;
+	// Temperature (deg C) of the ROCK GHOST CELL one shell below the grid's bottom face — the top of the
+	// convecting interior. Owned by LAMaterialFieldGeotherm3D, which seeds it on the crustal geotherm and
+	// debits its finite reservoir by exactly what crosses the bond. <= 0 means the interior is DISARMED, and
+	// the bond is skipped entirely rather than dragging the base of the crust toward absolute zero.
+	float core_boundary_c;
 	// dt / dx^2 in SECONDS PER SQUARE METRE — this world's step length and cell size, NOT a property of
 	// matter, so it is pushed rather than hardcoded (LASphereThermalPass derives it from the grid's own
 	// cell_size and the sim clock's day length). Multiplying a diffusivity by it gives the dimensionless
@@ -118,9 +132,11 @@ void main() {
 		int nb = nbr[idx * 6u + uint(d)];
 		if (nb < 0) {
 			// The one boundary that is not empty space: slot 0 has no inward neighbour only at r = 0, the
-			// bottom face of the shell, where the unsimulated interior delivers its conductive flux.
-			if (d == 0) {
-				delta += params.core_dt;
+			// bottom face of the shell. Bond to the interior's ghost cell with the same expression the loop
+			// uses below — it is rock, so its half of the interface conductivity is LAMBDA_ROCK.
+			if (d == 0 && params.core_boundary_c > 0.0) {
+				float lam_core = 2.0 * lam_here * LAMBDA_ROCK / max(lam_here + LAMBDA_ROCK, 1e-12);
+				delta += (lam_core * params.dt_over_dx2 / rc_here) * (params.core_boundary_c - here);
 			}
 			continue;
 		}

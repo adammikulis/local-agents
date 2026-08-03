@@ -65,6 +65,14 @@ claim is stale and was discouraging A/Bs that now work.)* Still true and still w
 - `--fixed-fps 60` is an ENGINE flag and goes BEFORE the `--`.
 - **Even `--planet-only` is not perfectly deterministic yet** — three runs drew eruptions 4/3/3. Its commit
   message claims it is "the only mode that can be fully deterministic"; that is the goal, not the state.
+- **`field_step` is 590 at `--run-frames=600 --fast=8`, confirmed again 2026-08-03** across eleven runs on
+  `feature/geotherm-real` (armed, disarmed and both discarded scale arms). Any older figure quoted without
+  its flags is from another configuration — `PlateTectonics.gd:72`'s "field_step was 746 in every one of
+  them" is a pre-`--fast=8` measurement and is not comparable.
+- **With the geotherm armed the runs are BIT-IDENTICAL at one seed** — three armed runs agreed to every
+  printed digit on every scalar. Determinism is better than this file's "not perfectly deterministic yet"
+  suggests for `--no-fauna`; the residual spread lives in the disaster draw, which armed runs happened to
+  match (5 impacts / 3 eruptions in all three).
 
 **CHECK THE SIM IS ALIVE BEFORE YOU TRUST A NUMBER (2026-08-03, cost a full round of measurements).** The
 reaction table was briefly unloadable — the record modules resolved a `class_name` through Godot's global
@@ -190,6 +198,12 @@ falling, and watch `snow_cells` for an ice-albedo runaway. If it keeps falling, 
 almost certainly the ocean thermostat in #4b — a 26 °C sea by fiat is currently the only thing holding
 the surface up, and it does not participate in the energy balance at all, so the books cannot close
 while it exists.
+**THE GEOTHERM DOES NOT FIX THIS, and it was never going to.** Measured on `feature/geotherm-real`:
+`energy_imbalance_cool` −1.353 armed against −0.838 / −0.838 / −0.868 disarmed. The interior delivers
+~9 W/m² at the base of the crust, but rock's real diffusivity (`alpha` 1.03e-6 m²/s) moves a thermal front
+0.16 m in the 590 steps a run covers, so essentially none of it reaches the surface. The interior is a
+boundary condition on the crust, not a term in the surface budget, and expecting otherwise is the same
+timescale error the geotherm module's header documents.
 
 **4b — THE OCEAN IS A THERMOSTAT, NOT A BODY OF WATER, AND IT IS STILL THERE.** *(Corrected 2026-08-03.
 Item #5 below claimed "the ocean thermostat that used to quench it is already deleted on
@@ -203,20 +217,52 @@ radiative-sink work did not reach.
 **Replace with:** the same treatment the surface got — water's real heat capacity and a real sink, so the
 sea temperature is an output. Expect it to interact strongly with #4; measure them together.
 
-**5 — THE AQUIFER CANNOT REACH THE SURFACE, SO THERE ARE NO SPRINGS.** Two defects in one loop
-(`soil_sphere3d.glsl`). The units bug is FIXED (Darcy is a gradient now, not a raw head in world units).
-**Still open: the loop spends its outflow budget greedily in SLOT ORDER, and slot 0 is the inward
-neighbour**, which `head_of()` makes lower-head unless brim-full — so whenever the cell below has headroom
-the whole budget drains downward and no lateral flow or spring runs at all. Equilibrium is a water table
-pinned ~2 cells below the surface everywhere. Fix with proportional allocation (compute all six desired
-flows, scale them to the budget together); it restructures a conservation-critical gather, so verify it
-alone. **This is what unblocks geysers, fumaroles and volcanic tidal pools** — the magma-free hot-spring
-mechanism already exists and is emergent (`soil_sphere3d.glsl` mass-weights geothermal heat onto surfacing
-groundwater); it just has no water to work with. *(Corrected 2026-08-03: this sentence used to end "and the
-ocean thermostat that used to quench it is already deleted on `feature/energy-balance`". It is not
-deleted — see #4b.)* What DID change is that there is now water to strand: with the crust no longer baked
-to 137 °C at p90, `soil_total` runs 2961 against the old 375 and `soil_stranded` 129 against 5.5, so the
-slot-order bug is now visibly holding back 24x more groundwater than it was.
+**4c — THE SEA HAS ABOUT A METRE OF THERMAL INERTIA WHERE IT SHOULD HAVE TENS.** *(New 2026-08-03, found
+while unifying the thermal pass's clock.)* `heat3d_solar_sphere3d.glsl`'s heat capacities are now stated in
+real units (J/m²/K), which makes the implied thermally-active depth checkable — capacity divided by the
+material's `LAPhysical` volumetric heat capacity. Rock lands at 0.248 m against a DERIVED diurnal skin depth
+of `sqrt(alpha*P/pi)` = 0.168 m, which is fine. **Water lands at 0.932 m against a real ocean mixed layer of
+20-100 m**, so the sea responds one to two orders of magnitude too fast, which is exactly the wrong direction
+for "coasts are mild" and for damping #4's drift. Air is 291 m, a floor rather than a claim about the column.
+Not changed in the same commit that unified the clock, because it is a real climate change.
+**What would DECIDE it:** raise `CAP_WATER` toward a mixed-layer value and read `swing_diurnal_c` and
+`energy_imbalance_cool` at equal `field_sim_s` — a real ocean should flatten the diurnal swing over water and
+slow the cold drift.
+
+**5 — THE AQUIFER'S OUTFLOW IS SPENT IN SLOT ORDER.** *(Corrected 2026-08-03. The title was "THE AQUIFER
+CANNOT REACH THE SURFACE, SO THERE ARE NO SPRINGS", and the entry said the hot-spring mechanism "just has no
+water to work with". Springs work. Measured on `feature/geotherm-real`, seed 4242, 600 frames, `--fast=8`,
+matched draw 5 impacts / 3 eruptions: `hotspring_cells` **1003** with the geotherm armed against **0-2** with
+`LA_NO_GEOTHERM=1`. What the springs had no supply of was HOT ROCK, not water — the interior was isothermal
+at 15 °C. See the new item below.)*
+One defect remains in `soil_sphere3d.glsl`: **the loop spends its outflow budget greedily in SLOT ORDER, and
+slot 0 is the inward neighbour**, which `head_of()` makes lower-head unless brim-full — so whenever the cell
+below has headroom the whole budget drains downward and lateral flow is starved. Fix with proportional
+allocation (compute all six desired flows, scale them to the budget together); it restructures a
+conservation-critical gather, so verify it alone. Measured cost with the geotherm DISARMED: `soil_total` 2983
+/ 3005 / 3007 with `soil_stranded` 124-125, against the old baked-crust 375 / 5.5 — the bug holds back 24x
+more groundwater than it used to. *(An earlier correction to this entry, still true: it once ended "the ocean
+thermostat that used to quench it is already deleted on `feature/energy-balance`". It is not deleted — #4b.)*
+
+**5b — THE GEOTHERM DRAINS THE AQUIFER IN 80 SIMULATED SECONDS.** *(New 2026-08-03, `feature/geotherm-real`.)*
+Arming the geotherm costs 92% of the groundwater at the 600-frame horizon. Three armed runs (bit-identical)
+against three disarmed, same seed, matched draw, `field_step` 590 in all six:
+
+| | armed | disarmed |
+|---|---|---|
+| `soil_total` | **241** | 2983 / 3005 / 3007 |
+| `water_total` | 1824 | 2858 / 2866 / 2875 |
+| `moisture_total` (vapour) | **4127** | 565 / 566 / 574 |
+| `h2o_total` | 6227 | 6440 / 6446 / 6441 |
+
+`h2o_total` moves 3.3%, so the water is not destroyed — it is MOVED, out of the ground and into the air. The
+path is real and is the one the springs use: hot regolith → spring discharge → an open cell above 100 °C →
+`atmos_evap_sphere3d` flashes it to steam. What is not real is the RATE: a planet does not lose its
+groundwater in eighty seconds, because rain recharges it. The disarmed arm drains too (from ~4694 seeded to
+~3000), so this amplifies #5 rather than causing it.
+**What would DECIDE it:** measure recharge against discharge on the same clock — `SOIL_BUDGET`'s
+`infil_recv` (rain in) against `spring_sent` (discharge out) at equal `field_step`, armed and disarmed. If
+recharge is an order below discharge the missing term is infiltration, not the geotherm.
 
 **6 — THE CREATURE LAYER'S ENERGETICS ARE FICTIONAL** (the demography is not — see below). In order:
 - **`CreatureDigestion.ambient_graze` mints food.** It reads the TEMPERATURE at the animal's feet, converts
@@ -379,7 +425,9 @@ highland measurably appears in a basin.
 
 ### Still owed elsewhere
 
-- **T1:** hot springs · moisture growth-gate (Keystone B's sim half).
+- **T1:** moisture growth-gate (Keystone B's sim half). *(Hot springs came off this list 2026-08-03 —
+  `hotspring_cells` 1003 against 0-2 with `LA_NO_GEOTHERM=1`, no dedicated code, the seeded geotherm plus
+  `soil_sphere3d`'s existing donor-temperature mixing. What they now cost is item #5b.)*
 - **T2:** weathering + lithification (2 DEFS records) · snow render from the real `_snow` field with an honest
   0 °C freeze · sea-ice/snow-line behaviour once #1 lands · emergent river supply (highland baseflow + snowmelt).
 - **T3:** cloud→ground shadows · re-enable sun shadows · grass/ground-cover [FAKE] · climate-typed flora

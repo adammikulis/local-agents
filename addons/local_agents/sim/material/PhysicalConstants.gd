@@ -57,6 +57,29 @@ const INNER_CORE_C: float = 5200.0
 const CORE_MANTLE_BOUNDARY_C: float = 3700.0
 const UPPER_MANTLE_C: float = 1300.0
 
+# --- UPPER CRUST: THE GEOTHERM A SURFACE SIMULATION ACTUALLY NEEDS ------------------------------------------
+# The core above is the wrong referent for the top few hundred metres of a shell. What sets ground
+# temperature, spring temperature and where a geothermal reservoir sits is the NEAR-SURFACE GRADIENT, and it
+# is a measured quantity with a wide, well-documented spread:
+#   stable continental craton  ~ 20-25 °C/km   (the global continental average)
+#   active volcanic province   ~ 50-100 °C/km  (Iceland, the Basin and Range, the Taupo Volcanic Zone)
+# This planet is not a craton. It runs 3-5 eruptions and continuous plate activity per 80 simulated seconds,
+# so 60 °C/km — a standard mid value for an active province — is the honest one to model it with. Cratonic 25
+# is the alternative and would give a planet with no hot springs outside a magma body; that is also a real
+# planet, just not this one. The choice is a claim about what kind of planet this is, and the eruption rate
+# is the evidence for it.
+const GEOTHERMAL_GRADIENT_C_PER_KM: float = 60.0
+
+# Depth to which meteoric groundwater circulates before porosity closes under lithostatic load — the base of
+# the permeable zone, and the bottom of every hot-spring and geyser system on Earth. Real range 1-3 km
+# (deeper, 2-3 km, in the volcanic fields that make boiling springs); 2 km is the conservative mid value.
+#
+# WHY THIS IS HERE AND NOT JUST A NUMBER IN THE MODULE: it is what fixes this planet's vertical scale.
+# LAMaterialFieldGeotherm3D reads it against the field's own REGOLITH band (the code's name for exactly this
+# zone) to derive the vertical exaggeration, so the gradient above lands in model metres without anybody
+# choosing a scale factor by eye — and it re-derives correctly at any grid resolution.
+const GROUNDWATER_CIRCULATION_M: float = 2000.0
+
 # --- THERMAL TRANSPORT ------------------------------------------------------------------------------------
 # Conductivity lambda (W/m/K) and volumetric heat capacity rho*c (J/m^3/K) for the three materials this
 # substrate conducts through, plus the diffusivity alpha = lambda/(rho*c) (m^2/s) they imply.
