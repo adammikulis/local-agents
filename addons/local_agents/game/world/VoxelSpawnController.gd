@@ -106,17 +106,28 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 	LASimReport.reset()
 	# Radial world: ecology places life ON the sphere (surface_point spawn), fish in the sea shell; the
 	# orbit camera frames the body; the planet centre is pinned hot for the radial geothermal gradient.
+	# LIFE MODE (--no-fauna / --planet-only): skip BUILDING the biosphere, not merely ticking it. Actors are
+	# most of the frame cost and all of the field perturbation, so a planet test should not pay for either.
+	# Rocks still populate under --no-fauna because they are terrain, not life.
+	var no_fauna: bool = LAAblate.fauna_off()
+	var no_flora: bool = LAAblate.flora_off()
+	if no_fauna or no_flora:
+		print("LIFE_MODE={mode:%s, fauna:%s, flora:%s}" % [
+			LAAblate.life_mode(), str(not no_fauna), str(not no_flora)])
 	if _is_campaign():
 		# Ground-level start: one rabbit herd and nothing else living — no plants/trees (the player grows the
 		# vegetation) and no aquatic stocking (fish are a locked spawn). The camera opens ON the herd below.
-		_ecology.spawn_initial(CAMPAIGN_INITIAL_COUNTS)
-		_ecology.populate_environment(CAMPAIGN_ROCK_COUNT, CAMPAIGN_FOREST_CLUSTERS)
+		if not no_fauna:
+			_ecology.spawn_initial(CAMPAIGN_INITIAL_COUNTS)
+		_ecology.populate_environment(CAMPAIGN_ROCK_COUNT, 0 if no_flora else CAMPAIGN_FOREST_CLUSTERS)
 	else:
-		_ecology.spawn_initial(_scaled_counts())
+		if not no_fauna:
+			_ecology.spawn_initial(_scaled_counts())
 		# Forest seed clusters scale by BOTH the actor budget and the graphics vegetation-density knob
 		# (la_vegetation_scale), so a low-foliage setting thins the groves and a high one densifies them.
-		_ecology.populate_environment(ROCK_COUNT, maxi(1, int(round(float(FOREST_CLUSTERS) * _spawn_scale * _vegetation_scale()))))
-		if _ecology.has_method("stock_initial_aquatic"):
+		var clusters: int = 0 if no_flora else maxi(1, int(round(float(FOREST_CLUSTERS) * _spawn_scale * _vegetation_scale())))
+		_ecology.populate_environment(ROCK_COUNT, clusters)
+		if not no_fauna and _ecology.has_method("stock_initial_aquatic"):
 			_ecology.stock_initial_aquatic()
 	if _camera.has_method("set_orbit_target"):
 		_camera.set_orbit_target(_body.center(), _body.radius())

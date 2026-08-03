@@ -23,6 +23,65 @@ static func off(system: String) -> bool:
 	return _set.has(system)
 
 
+# --- LIFE MODE — test the PLANET without paying for the biosphere ------------------------------------------
+#
+# The planet and the biosphere are separable concerns, and testing them together is what makes a planet run
+# slow. This is the first-class switch for that, and it is deliberately SYMMETRIC: turning life back on is the
+# ABSENCE of a flag, so nothing has to be undone later and the shipped game is unaffected.
+#
+#   FULL         (default)      planet + vegetation + animals. What the game ships.
+#   NO_FAUNA     --no-fauna     vegetation stays, animals go. Keeps the carbon cycle intact — R19
+#                               photosynthesis is what produces biomass/O₂/CO₂, so a planet with no plants is
+#                               chemically a DIFFERENT planet, not merely a faster one. Right default for
+#                               climate and hydrology work.
+#   PLANET_ONLY  --planet-only  pure geophysics: no plants, no animals. Fastest, and the only mode that can be
+#                               fully deterministic — actors inject into the field (splashes perturb the charge
+#                               channel, which is why bolt counts vary run to run), so with none present that
+#                               last source of run-to-run variance is gone.
+#
+# UNLIKE `off()` ABOVE, THIS SKIPS SPAWNING, NOT JUST PER-FRAME WORK. `LA_ABLATE=creatures` suppresses the
+# tick but still pays to build every actor — which is most of the cost, and all of the field perturbation.
+#
+# Precedence follows the project rule (explicit flag > project/env > default):
+# Engine meta, set by the CLI flag > LA_LIFE_MODE env > full.
+const LIFE_FULL: String = "full"
+const LIFE_NO_FAUNA: String = "no_fauna"
+const LIFE_PLANET_ONLY: String = "planet_only"
+
+static var _life_mode: String = ""
+
+
+## Resolved life mode for this run — LIFE_FULL / LIFE_NO_FAUNA / LIFE_PLANET_ONLY.
+static func life_mode() -> String:
+	if _life_mode != "":
+		return _life_mode
+	_life_mode = LIFE_FULL
+	if Engine.has_meta("la_life_mode"):
+		_life_mode = String(Engine.get_meta("la_life_mode"))
+	elif OS.has_environment("LA_LIFE_MODE"):
+		_life_mode = OS.get_environment("LA_LIFE_MODE").strip_edges().to_lower()
+	if _life_mode != LIFE_NO_FAUNA and _life_mode != LIFE_PLANET_ONLY:
+		_life_mode = LIFE_FULL
+	return _life_mode
+
+
+## True when ANIMALS (creatures, fish, insects) must not be spawned or simulated at all.
+static func fauna_off() -> bool:
+	return life_mode() != LIFE_FULL
+
+
+## True when VEGETATION must not be spawned either — pure geophysics. NOTE this changes the planet's
+## CHEMISTRY (no photosynthesis → no biomass/O₂ production), so a climate number measured here is NOT
+## comparable with one from a vegetated run. Always say which mode a measurement came from.
+static func flora_off() -> bool:
+	return life_mode() == LIFE_PLANET_ONLY
+
+
+## One token for SIM_REPORT / logs, so every measurement records which world it was taken in.
+static func life_mode_note() -> String:
+	return life_mode()
+
+
 ## Benchmark population-scale knob (dev tool). LA_SPAWN_SCALE multiplies BOTH the initial spawn counts and
 ## the breeding pop_caps, so a scaling sweep can vary the steady-state actor count cleanly (hold grid /
 ## resolution / effects fixed, change only N) and fit the empirical Big-O. Default 1.0 = unchanged.
