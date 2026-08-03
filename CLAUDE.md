@@ -385,8 +385,11 @@ maintainer rather than by an agent:**
 
 **Do this UNPROMPTED, on every file you open — including files you only opened to read.** Every item above
 was visible in code an agent had already read. Surfacing something is not reviewing it. If you notice a
-reality violation while doing something else, FIX IT or REPORT IT that turn; do not route around it because
-it is not your current task. Routing around it is the failure mode, and it is the most common one.
+reality violation while doing something else, **FIX IT *AND* REPORT IT that turn — not one or the other.**
+"Or" is an invitation to file a note and move on, which is the lazy route and the one taken by default.
+Reporting without fixing leaves the defect in the code; fixing without reporting hides it from the
+maintainer. Do both. Do not route around it because it is not your current task — routing around it is the
+failure mode, and it is the most common one.
 
 ## Guiding design principle — Emergent-Everything (north star)
 
