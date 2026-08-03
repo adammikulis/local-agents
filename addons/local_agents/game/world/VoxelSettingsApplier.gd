@@ -262,8 +262,19 @@ func _recompute_disaster_cadence() -> void:
 func _process(delta: float) -> void:
 	if not _bound or not _ambient_enabled or _disasters == null:
 		return
-	# Hold the clock until the world is actually alive (initial spawn done) so seeds land in a populated world.
-	if get_tree() == null or get_tree().get_nodes_in_group("creature").is_empty():
+	# GEOLOGY DOES NOT WAIT FOR RABBITS. This gate used to be
+	#     if get_tree().get_nodes_in_group("creature").is_empty(): return
+	# which tied whether a VOLCANO can erupt to whether any animal had spawned. Two things wrong with that.
+	# It is backwards as physics — a planet's tectonics do not consult its biosphere — and it silently
+	# disabled the entire ambient director the moment fauna was absent, so a `--planet-only` run would have
+	# reported disasters "enabled" and produced none.
+	#
+	# What the check actually WANTED was "is the world built yet", so that a seed does not land mid-terrain
+	# generation. That is what it now asks, via the spawn controller's own life-independent `is_spawned()`
+	# (true once terrain has meshed and the initial build ran, whatever it did or did not populate).
+	if get_tree() == null or _world == null:
+		return
+	if _world.has_method("world_ready") and not bool(_world.world_ready()):
 		return
 	_disaster_accum += delta
 	if _disaster_accum < _disaster_next:

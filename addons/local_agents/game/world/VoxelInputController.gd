@@ -175,6 +175,20 @@ func parse_cmdline() -> void:
 			_smoke = true
 			_streamer_enabled = false
 			Engine.set_meta("la_smoke", true)
+		elif arg == "--planet-only" or arg == "--no-fauna":
+			# TEST THE PLANET WITHOUT PAYING FOR THE BIOSPHERE. Same Engine-meta-to-reader pattern as --smoke:
+			# one flag, read by LAAblate.life_mode(), honoured at the SPAWN sites so nothing is even built.
+			#   --no-fauna     animals off, vegetation KEPT — the carbon cycle stays intact (R19 photosynthesis
+			#                  makes the biomass/O2/CO2), so the planet is chemically the same one, just cheaper.
+			#                  Use this for climate and hydrology work.
+			#   --planet-only  vegetation off too: pure geophysics. Fastest, and the only mode that can be fully
+			#                  deterministic, because actors inject into the field (a splash perturbs the charge
+			#                  channel, which is why bolt counts vary run to run) and here there are none.
+			# Turning life back ON is simply omitting the flag — there is nothing to undo, and the shipped game
+			# never sees either path.
+			Engine.set_meta("la_life_mode",
+				LAAblate.LIFE_PLANET_ONLY if arg == "--planet-only" else LAAblate.LIFE_NO_FAUNA)
+			_streamer_enabled = false          # nothing alive to commentate on
 		elif arg.begins_with("--quality="):
 			# Explicit graphics-quality preset for reproducible perf comparisons (potato/low/medium/high/ultra) —
 			# same Engine-meta-to-settings-applier pattern as --smoke, but a NAMED preset instead of a fixed floor,
