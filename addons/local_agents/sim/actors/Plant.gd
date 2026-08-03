@@ -31,17 +31,52 @@ const BIOMASS_GROWTH_MAX: float = 2.0    # cap on the biomass growth boost
 
 # RENEWABLE PASTURE — a plant is a living food source, not a single-use item. A herbivore takes a BITE
 # (feed(), like a scavenger biting a carcass) which draws down the plant's edible reserve; the plant
-# survives and REGROWS that reserve via photosynthesis. This dissolves overgrazing extinction: a grazed
-# patch shrinks then recovers instead of the plant node vanishing, so a herd can sustain on a pasture the
-# way real grazing does. The reserve regrows toward FOOD_CAPACITY × grown-fraction (bigger plants feed
-# more), faster where the emergent biomass field is rich (the same fertile ground that speeds growth).
-const FOOD_CAPACITY: float = 46.0        # max edible reserve of a full-grown plant (energy)
-const FOOD_REGROW: float = 8.0           # reserve regrown per second (photosynthesis; boosted by field biomass).
-                                         # Raised from 5 so a pasture sustains the broader herbivore community
-                                         # (rabbits + birds + the new insects) without the added grazers
-                                         # out-competing the flyers off the plants — carrying capacity, not more nodes.
+# survives and REGROWS that reserve. This dissolves overgrazing extinction: a grazed patch shrinks then
+# recovers instead of the plant node vanishing, so a herd can sustain on a pasture the way real grazing does.
+#
+# ===== THE RESERVE IS BIOMASS THE PLANT TOOK OUT OF THE FIELD. IT USED TO BE MADE UP. ======================
+#
+# What this replaced: `_food` started at `FOOD_CAPACITY * 0.6` = 27.6 units the instant a plant node was
+# created, and then grew by `FOOD_REGROW * (1 + growth_boost) * delta` toward the cap — up to 32 units per
+# second, per plant, across ~340 plants, out of nothing. `feed()` honestly decremented it, so the drain was
+# real and the source was not. A plant on bare rock regrew exactly as fast as one in a rich meadow, because
+# nothing was ever debited; `growth_boost` READ the field's biomass and never touched it.
+#
+# What it is now: uptake. Photosynthesis is already simulated — it is GPU chemistry (MaterialReactions3D R19)
+# fixing CO₂ into the field's `biomass` channel wherever there is light, warmth and CO₂ — and this node's
+# tissue IS that biomass. So the plant DRAWS its reserve out of the biomass standing in its own cell
+# (`LAMaterialFieldInject3D.take_biomass`, a device-resolved debit), and a plant on ground the chemistry never
+# greened gets nothing. Grazing then removes that mass from the biosphere for real, and an uprooted plant
+# hands what is left back as detritus instead of deleting it.
+#
+# MEASURED CONSEQUENCE, and it is a large one — recorded here so nobody reads it as a bug: the field's whole
+# standing crop is `biomass_open_total` ~6.5 mass units over ~4800 ground cells, about 0.0013 per cell, while
+# the old private reserve started every plant at 27.6 and topped up at 8/s. The two ledgers are four to five
+# orders of magnitude apart. Feeding the reserve from real primary production therefore leaves discrete plants
+# worth almost nothing to a grazer. That is not this file being wrong; it is the first honest measurement of
+# how little the substrate actually produces, and the fix belongs to photosynthesis, not to a bigger constant.
+const FOOD_CAPACITY: float = 46.0        # ceiling on the reserve a full-grown plant may hold (mass units)
+const FOOD_UPTAKE_RATE: float = 8.0      # mass/second the plant may draw from its cell's standing biomass —
+                                         # a RATE LIMIT on uptake, not a source: it can only take what the
+                                         # field has, and takes nothing where the field has nothing.
 const FOOD_MIN_EDIBLE: float = 5.0       # below this the plant is grazed-down and not worth targeting (recovers)
-var _food: float = FOOD_CAPACITY * 0.6   # current edible reserve (starts partway; regrows in)
+var _food: float = 0.0                   # current edible reserve — earned from the field, never granted
+
+# Running totals so the reserve held in plant nodes is VISIBLE. Mass drawn out of the `biomass` channel leaves
+# the substrate's carbon ledger (`carbon_total` sums the field's co2 + biomass + detritus only), so without
+# these a perfectly conserving draw would read as carbon destroyed. Published by LAEcologyService.
+static var food_held_total: float = 0.0      # reserve currently standing in every live plant node
+static var food_drawn_total: float = 0.0     # cumulative mass drawn out of the field into plant tissue
+static var food_returned_total: float = 0.0  # cumulative mass handed back to the field as detritus
+
+# THE CONTROL (LA_MINT_PLANT_FOOD=1). Restores the old behaviour exactly — a full 0.6 reserve at birth and
+# `FOOD_UPTAKE_RATE`/s of regrowth with no debit anywhere — so the fix can be switched OFF and the aggregates
+# compared. A conservation fix that cannot be disabled cannot be shown to be doing anything.
+static var _mint_food: int = -1
+static func mint_food() -> bool:
+	if _mint_food < 0:
+		_mint_food = 1 if OS.has_environment("LA_MINT_PLANT_FOOD") else 0
+	return _mint_food == 1
 
 var species: String = "plant"
 var color: Color = Color(0.30, 0.65, 0.22)
@@ -120,7 +155,11 @@ func setup(_terrain, _config: Dictionary) -> void:
 	nectar = float(config.get("nectar", FOOD_CAPACITY))
 	# Root strength: explicit config, else scaled from mature size (already read above) so bigger plants hold on.
 	root_strength = maxf(0.2, float(config.get("root_strength", ROOT_BASE + ROOT_PER_SCALE * max_scale)))
-	_food = _food_capacity() * 0.6           # start partway; regrows toward the (nectar-scaled) capacity
+	# A SEEDLING HOLDS NOTHING. It has to take its tissue out of the ground it is standing on, like a real
+	# plant. The old line here was `_food = _food_capacity() * 0.6`, which handed 27.6 units of edible matter
+	# to every plant node the moment it existed — and germination creates hundreds of them per run.
+	_food = _food_capacity() * 0.6 if mint_food() else 0.0
+	food_held_total += _food
 
 	collision_layer = 2
 	collision_mask = 0
@@ -302,11 +341,12 @@ func _physics_process(delta: float) -> void:
 		_sync_render()
 		if _grown_fraction() >= 1.0:
 			_render_settled = true
-	# Regrow the edible reserve (photosynthesis) toward this plant's size-scaled capacity, faster on
-	# fertile (biomass-rich) ground — the renewable-pasture recovery that makes grazing sustainable.
+	# UPTAKE, not regrowth. The plant draws its reserve out of the standing biomass photosynthesis put in this
+	# cell; the debit is resolved on device, so it can only credit itself mass the planet actually had. A plant
+	# on ground the chemistry never greened takes nothing, which is the coupling the old `+= rate * dt` lacked.
 	var cap: float = _food_capacity() * _grown_fraction()
 	if _food < cap:
-		_food = minf(cap, _food + FOOD_REGROW * (1.0 + growth_boost) * delta)
+		_uptake(minf(FOOD_UPTAKE_RATE * (1.0 + growth_boost) * delta, cap - _food))
 	# Pollen decays: a flower loses its pollinated state unless visitors (bees) keep topping it up.
 	if flower and _pollination > 0.0:
 		_pollination = maxf(0.0, _pollination - POLLINATE_DECAY * delta)
@@ -326,6 +366,27 @@ func _physics_process(delta: float) -> void:
 		_seed_timer -= delta * seed_rate
 		if _seed_timer <= 0.0:
 			_seed_ready = true
+
+
+# Draw up to `want` of standing biomass out of this plant's own cell and add it to the edible reserve. The
+# field is debited on device for exactly what it hands over, so nothing is created; where the cell is bare the
+# call returns 0 and the plant simply does not grow a reserve.
+func _uptake(want: float) -> void:
+	if want <= 0.0:
+		return
+	if mint_food():
+		# CONTROL PATH (LA_MINT_PLANT_FOOD=1): the old behaviour, food from nowhere, for the A/B.
+		_food += want
+		food_held_total += want
+		return
+	if _material == null or _material._inject == null or not _material._inject.has_method("take_biomass"):
+		return
+	var got: float = _material._inject.take_biomass(global_position, want)
+	if got <= 0.0:
+		return
+	_food += got
+	food_held_total += got
+	food_drawn_total += got
 
 
 # Growth-speed BOOST from the emergent field biomass at this plant's cell (0 with no field / no local biomass).
@@ -359,7 +420,11 @@ func _sync_render() -> void:
 
 
 # Torn out by flowing water: a splash accent where it washed away, then remove it (the renderer slot is
-# released in _exit_tree). The plant's biomass simply leaves the pasture — no corpse node.
+# released in _exit_tree). THE PLANT'S TISSUE GOES BACK INTO THE GROUND. The comment that used to sit here
+# said "the plant's biomass simply leaves the pasture — no corpse node", which was an accurate description of
+# matter being deleted: the reserve the plant was holding vanished with the node. A washed-out plant is dead
+# organic matter lying wherever the current dropped it, so it is handed to the `detritus` channel, where the
+# decomposer loop (fungus → CO₂ + fertility) picks it up like any other corpse.
 func _uproot() -> void:
 	if _material != null and _material.has_method("splash"):
 		_material.splash(global_position, 1.2)
@@ -370,6 +435,15 @@ func _exit_tree() -> void:
 	if _veg_slot >= 0 and _veg != null:
 		_veg.release(RENDER_TYPE, _veg_slot)
 		_veg_slot = -1
+	# Whatever reserve this plant still held returns to the substrate as detritus — however it died (uprooted,
+	# burnt out, culled by the LOD governor, freed at shutdown). Doing it in _exit_tree rather than in _uproot
+	# is deliberate: every path that removes a plant node goes through here, and only one of them was uprooting.
+	if _food > 0.0:
+		food_held_total = maxf(0.0, food_held_total - _food)
+		if _material != null and _material._inject != null and _material._inject.has_method("return_detritus"):
+			_material._inject.return_detritus(global_position, _food)
+			food_returned_total += _food
+		_food = 0.0
 
 
 # Deposit pollen if a pollinator (bee/butterfly) is within POLLEN_RADIUS — the emergent "a bee visited this
@@ -414,6 +488,17 @@ func consume() -> void:
 	_seed_timer = seed_period
 
 
+# Put mass INTO this plant's reserve that came out of another plant's — the seedling receiving the mass its
+# parent spent on the seed, or a parent taking its investment back when there was nowhere to germinate. This
+# is the credit half of `feed()`'s debit, and it exists so germination is a MOVE between two nodes rather
+# than a new plant appearing with a full larder. It is not a source: the only caller pays first.
+func credit_reserve(amount: float) -> void:
+	if amount <= 0.0:
+		return
+	_food += amount
+	food_held_total += amount
+
+
 func is_edible() -> bool:
 	return edible and _food >= FOOD_MIN_EDIBLE   # grazed-down plants recover before they're worth eating again
 
@@ -424,6 +509,7 @@ func is_edible() -> bool:
 func feed(amount: float) -> float:
 	var take: float = clampf(amount, 0.0, _food)
 	_food -= take
+	food_held_total = maxf(0.0, food_held_total - take)
 	# A visit to a flower deposits pollen (POLLINATION): the visitor — bees dominate flower visits — carries
 	# pollen between blooms, so a fed-on flower becomes/stays seed-ready. This is the mutualism, no scripting.
 	if flower and take > 0.0:
