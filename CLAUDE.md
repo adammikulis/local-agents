@@ -446,6 +446,36 @@ maintainer rather than by an agent:**
 6. **When reality and convenience conflict, reality wins.** If the sim must be wrong for the numbers to look
    right, fix the sim. Never bend a physical fact to a broken model — see the PHYSICAL CONSTANT rule below.
 
+### RULE ZERO POINTS AT EVERYTHING, AND AT THE ENGINE MOST OF ALL. NOTHING HAS TO NOMINATE A TARGET.
+
+**Unless something is written here as an explicit exception, Rule Zero applies to it.** It is not a checklist
+you run against the items a document happens to list. If you find yourself reasoning "nothing pointed me
+there", you have already failed it — that sentence describes waiting to be told, which is the opposite of the
+rule.
+
+**And it applies HARDEST to the engine — the substrate, the reaction table, the integrator, the conservation
+machinery — not to the constants those things carry.** A wrong constant is one lie. A wrong ENGINE is a
+PERMISSION: it licenses every record ever written against it, in the past and in the future, and no quantity
+of correctly-sourced constants redeems it. Constants are the cheapest thing to audit and the least valuable.
+
+**The case that proves it, and it is the worst defect found in this project so far: THE SUBSTRATE CREATES
+MATTER FROM NOTHING, BY CONSTRUCTION.** The DEFS reaction engine is a rate table, not a chemistry —
+`rec()` takes reactants and products as independent lists with hand-written coefficients and nothing relates
+them; `RELAX_TARGET` has no reactant at all, so only its product credit runs; and there is no load-time
+validation anywhere, only comments asserting conservation. Every carbon atom that has ever existed in this
+simulation was conjured by one record. An agent read `RELAX_TARGET`'s own definition — *"signed; no reactant;
+product = driver"* — QUOTED IT IN A PLAN, and did not stop. A reaction with no reactant is matter from
+nothing. It then planned to fix a nitrogen shortage by **adding another source**, and the maintainer caught it.
+
+**Two habits follow, and they are cheap:**
+- **Translate the euphemism before you accept the claim.** That defect was recorded here for weeks as
+  "minting", which makes creating matter sound like an accounting discrepancy — something a better ledger
+  catches. Written as "the simulation creates carbon atoms from nothing" it is unmissable. If a phrase lets
+  you think about a physics violation without picturing the physics, restate it and re-read your plan.
+- **Distrust FRAMINGS, not just facts.** Verifying that a cited file exists is easy and this repo does it
+  well. The expensive errors live in the sentence that told you what KIND of problem you have. A tracker,
+  a task description, and a prior agent's report are all claims. So is this file.
+
 **Do this UNPROMPTED, on every file you open — including files you only opened to read.** Every item above
 was visible in code an agent had already read. Surfacing something is not reviewing it. If you notice a
 reality violation while doing something else, **FIX IT *AND* REPORT IT that turn — not one or the other.**
