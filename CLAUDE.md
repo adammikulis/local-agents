@@ -32,10 +32,21 @@ requires it or is only conventionally bundled with it. Say so and do the planet 
   or what the framerate is.
 
 **The exception, and it is narrow:** touch a creature file when the PLANET needs it — a creature is perturbing
-a field measurement, or `--planet-only`/`--no-fauna` needs a seam. Fixing creature *energetics, cognition,
-lifecycle or behaviour* is out of scope regardless of how tempting it looks while you are in the file. If you
-find a Rule Zero violation in creature code, RECORD it in `HANDOFF.md` under 0.5 and move on — that is the one
-place the "fix it AND report it" rule yields to scope, because the fix would be built on sand.
+a field measurement, or `--planet-only`/`--no-fauna` needs a seam. BUILDING OUT creature features — new
+behaviours, new cognition, new lifecycle systems — is what waits for 0.5.
+
+**BUT A DEFECT YOU FIND IS FIXED, NOT FILED. THIS SCOPE RULE NEVER LICENSES "RECORD IT AND MOVE ON."**
+*(Corrected by the maintainer 2026-08-03. This paragraph used to say a Rule Zero violation in creature code
+should be RECORDED in `HANDOFF.md` and left, "the one place the fix-it-and-report-it rule yields to scope".
+That was wrong and it did real damage: it turned the scope rule into a licence to catalogue defects instead of
+repairing them, and within a day it had been used to park food being created from nothing, animals that expend
+no energy, and plants that regrow from nothing.)*
+
+If it is broken and you found it, fix it. That includes physics that is merely WRONG as well as physics that
+is non-conserving — a fox and a mouse burning identical energy, one thermal physiology across twenty-eight
+species, `basal_metabolism`/`active_metabolism` genes that nothing reads. **Do not sort defects into a
+fix-these and a note-those pile.** `HANDOFF.md` is for work that has not been started, not a place to put
+things you already have your hands on.
 
 `docs/0.5_CREATURE_FEATURES.md` and `docs/0.5_PARALLELIZATION_GUIDE.md` hold the creature plan. They are
 **parked**, and their filenames say 0.5 for a reason — they were named `0.4_*` and that alone kept pulling
