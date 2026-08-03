@@ -446,6 +446,33 @@ maintainer rather than by an agent:**
 6. **When reality and convenience conflict, reality wins.** If the sim must be wrong for the numbers to look
    right, fix the sim. Never bend a physical fact to a broken model — see the PHYSICAL CONSTANT rule below.
 
+### VIOLATING PHYSICS REQUIRES THE MAINTAINER'S EXPLICIT APPROVAL. ALWAYS. NO EXCEPTIONS.
+
+**Maintainer's standing directive.** Any decision that leaves this simulation violating physics — introducing
+a violation, extending one, or KNOWINGLY LEAVING ONE IN PLACE while you work on something else — must be run
+by the maintainer and explicitly approved before you proceed. It is not a judgement call delegated to you.
+
+This is not in tension with "fix it AND report it" above. FIXING a violation needs no permission; that is the
+job. What needs permission is any path that ends with the violation still there.
+
+**How this was learned.** The substrate creates matter from nothing, and nobody ever asked whether that was
+acceptable — it was inherited, described in a tracker as "minting", repeated in agent contracts, and treated
+as a background condition rather than a decision. The plan built on top of it was to ADD ANOTHER SOURCE. At no
+point was the maintainer asked "is it alright that this violates conservation of matter", by anyone, despite
+realism being the stated first goal of the entire project. The failure was not choosing badly. It was never
+presenting the choice.
+
+**So, in practice:**
+- When you find a physics violation, SURFACE IT AS A DECISION, not as a line in a report. Name the physical
+  law, say what the code does instead, and say what fixing it would cost. Then wait.
+- "It was already like that" is not consent. Neither is a tracker entry, a code comment, or a previous
+  agent's report. Only the maintainer's answer is consent.
+- If you are deferring a violation because you are mid-task on something else, that IS the decision that
+  needs approval. Say which violation you are leaving live and for how long.
+- A euphemism is not a disclosure. "Minting", "not conserving", "drift", "prescriber", "stand-in", "interim"
+  — if the plain-language version is "this creates matter from nothing" or "this makes heat appear", use the
+  plain-language version when you surface it.
+
 ### RULE ZERO POINTS AT EVERYTHING, AND AT THE ENGINE MOST OF ALL. NOTHING HAS TO NOMINATE A TARGET.
 
 **Unless something is written here as an explicit exception, Rule Zero applies to it.** It is not a checklist
