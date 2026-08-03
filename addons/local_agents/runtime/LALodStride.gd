@@ -2,16 +2,17 @@ class_name LALodStride
 extends RefCounted
 
 ## One canonical relevance-driven update-stride LOD, shared by every CPU/GPU subsystem that throttles its
-## own update rate by how relevant a target currently is (creature physics/animation/thinking, plant/tree
-## settle, field-force sweep, companion tick, and the field's per-cell activity gate). Relevance is always
+## own update rate by how relevant a target currently is: creature physics/animation/thinking, plant/tree
+## settle, field-force sweep, companion tick. ACTORS AND RENDERING ONLY — this must never be applied to the
+## FIELD's physics, where it makes the planet's behaviour depend on where the camera points (it was, until
+## 2026-08-03; see MaterialSphereGPU3D.gd's header note for the measurement). Relevance is always
 ## a smooth 0..1 score -- 1 = fully relevant (update every tick), 0 = irrelevant (update as rarely as the
 ## caller's max_stride allows) -- with no named distance tiers or branch cutoffs anywhere: both formulas
 ## below are continuous and asymptotic, so there is nothing to desync or re-tune per call site beyond one
 ## intuitive "how far until this stops mattering" number. Two independently-tuned knobs (a rate and a cap,
 ## as the old per-site linear ramps each had) is exactly the kind of duplicated, driftable tuning surface
-## this collapses to one. The field's GPU kernels mirror both formulas in GLSL
-## (kernels3d/activity_sphere3d.glsl) since GLSL can't call GDScript -- keep the two in sync if either
-## formula changes.
+## this collapses to one. There is no GLSL mirror of these formulas any more: the field kernels that carried
+## one were the camera-relevance LOD, and it is deleted.
 
 ## Smooth 0..1 relevance from a distance and a characteristic distance (the distance at which relevance
 ## has fallen to 0.5). No hard cutoff: exactly 1 at distance 0, asymptotically approaches 0 as distance

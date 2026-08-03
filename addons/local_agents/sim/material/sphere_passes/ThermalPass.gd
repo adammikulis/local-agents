@@ -19,9 +19,8 @@ extends RefCounted
 ##   4. lava_phase_sphere3d:      sustain (keep remaining lava molten) + shell-first edge cooling; IN-PLACE on
 ##                                temp, own-cell writes only. COMPACTED: dispatched INDIRECTLY over the
 ##                                active-cell list LavaCellListPass builds earlier in the same step, so it runs
-##                                one invocation per MOLTEN cell instead of one per grid cell (Keystone C's
-##                                asymptotic half). The relevance stride gate it used to evaluate per-thread
-##                                now lives in that list's append predicate.
+##                                one invocation per MOLTEN cell instead of one per grid cell. The list's
+##                                predicate is physical ("holds molten rock in open space"), so this is exact.
 ##   5. magma_buoy_sphere3d:      buoyant overpressure up-flow, TWO passes (0 = copy snapshot, 1 =
 ##                                gather/apply) with a barrier between; lava + private scratch + temp + solid +
 ##                                nbr(15).
@@ -155,9 +154,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_cool_set[p] = _make_set(rd, _cool_shader, [
 			[0, temp_back], [1, water_back], [2, solid], [3, pos], [4, lava_back]])
 		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid, 4 = the compacted
-		# active-cell list, 5 = its dispatch-indirect args + list length (Keystone C asymptotic half —
-		# LavaCellListPass built both earlier this step, and applied the relevance stride gate this kernel
-		# used to evaluate per-thread, which is why `activity` is no longer bound here), 15 = nbr
+		# active-cell list, 5 = its dispatch-indirect args + list length (LavaCellListPass built both earlier
+		# this step, and applied this kernel's own lava/solid early-outs when it did), 15 = nbr
 		# (shell-first edge cooling reads each cell's 6 faces to count EXPOSED faces -> a flow's rind hardens
 		# while the core stays molten and drains, leaving a lava tube).
 		_lava_phase_set[p] = _make_set(rd, _lava_phase_shader, [
@@ -211,11 +209,10 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # post-heat temp committed before the lava passes read it
 
-	# 4. LAVA PHASE — sustain + shell-first edge cooling, in-place on lava BACK + temp BACK. COMPACTED
-	# (Keystone C asymptotic half): dispatched INDIRECTLY over LavaCellListPass's active-cell list, so this is
-	# one invocation per molten cell rather than per grid cell. On a planet with no lava that is one idle
-	# workgroup instead of `groups` (~2000) of them; the relevance gate it used to evaluate per-thread was
-	# folded into the list's append predicate, so the behaviour is unchanged.
+	# 4. LAVA PHASE — sustain + shell-first edge cooling, in-place on lava BACK + temp BACK. COMPACTED:
+	# dispatched INDIRECTLY over LavaCellListPass's active-cell list, so this is one invocation per molten cell
+	# rather than per grid cell. On a planet with no lava that is one idle workgroup instead of `groups`
+	# (~1080) of them.
 	rd.compute_list_bind_compute_pipeline(cl, _lava_phase_pipe)
 	rd.compute_list_bind_uniform_set(cl, _lava_phase_set[parity], 0)
 	var phase_pc: PackedByteArray = _lava_phase_pc(cc)
@@ -337,9 +334,8 @@ func _count_pc(cc: int) -> PackedByteArray:
 	return pc
 
 
-# lava_phase Params: { uint cell_count; uint pad0; uint pad1; uint pad2; } — 16 bytes. cell_count is now only a
-# defensive bound on the cell id read out of the active list; the step_index that used to drive the per-thread
-# relevance stride moved into LavaCellListPass, which applies that gate when it builds the list.
+# lava_phase Params: { uint cell_count; uint pad0; uint pad1; uint pad2; } — 16 bytes. cell_count is only a
+# defensive bound on the cell id read out of the active list.
 func _lava_phase_pc(cc: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)

@@ -15,11 +15,11 @@ extends RefCounted
 ##
 ## Kernel binding -> bufs-key map (authoritative layout is erosion_pickup_sphere3d.glsl):
 ##   0 WaterIn=water[back] · 1 Solid=solid · 2 Static=static · 3 RockFill=rock_fill(single) ·
-##   4 SuspIn=susp[live] · 5 SuspOut=susp[back] · 6 Relevance=activity[live] · 15 Neigh=nbr
-## Relevance-gated (LALodStride mirror, see erosion_pickup_sphere3d.glsl): this pass runs BEFORE ActivityPass
-## in PASS_SCRIPTS, so it reads last step's settled relevance (activity[live]) -- a one-step lag, the same
-## accepted coupling-fidelity convention already used elsewhere in this driver.
-## Push constant: { cell_count, step_index, 0, 0 }.
+##   4 SuspIn=susp[live] · 5 SuspOut=susp[back] · 15 Neigh=nbr
+## EVERY CELL RUNS EVERY STEP. Until 2026-08-03 binding 6 was a camera-relevance score and this kernel skipped
+## its scour test on a stride derived from it, so a river eroded its bed faster when the player was watching it.
+## Deleted — see MaterialSphereGPU3D.gd's header note.
+## Push constant: { cell_count, 0, 0, 0 }.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/erosion_pickup_sphere3d.glsl"
 
@@ -51,7 +51,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var nbr_rid: RID = bufs.get("nbr", RID())
 	var water_pair: Array = bufs.get("water", [RID(), RID()])
 	var susp_pair: Array = bufs.get("susp", [RID(), RID()])
-	var activity_pair: Array = bufs.get("activity", [RID(), RID()])
 
 	for p in 2:
 		var back: int = 1 - p
@@ -63,7 +62,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[3, rock_rid],           # RockFill (SINGLE, scoured in place)
 			[4, susp_pair[p]],       # SuspIn  = live susp (carry source)
 			[5, susp_pair[back]],    # SuspOut = back susp (carry + pickup)
-			[6, activity_pair[p]],   # Relevance (live half — this pass runs before ActivityPass)
 			[15, nbr_rid],           # Neigh table
 		])
 
@@ -73,7 +71,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 		return
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, _set[parity], 0)
-	var pc: PackedByteArray = PackedInt32Array([cc, int(ctx.get("step_index", 0)), 0, 0]).to_byte_array()
+	var pc: PackedByteArray = PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
 	rd.compute_list_set_push_constant(cl, pc, pc.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 

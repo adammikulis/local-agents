@@ -28,7 +28,7 @@ extends RefCounted
 ##   26 Static=static (the GATE_NOT_STATIC test — the sea/lake reservoir is not real per-cell chemistry) ·
 ##   27 Regolith=regolith (SINGLE, seeded once — the aquifer mask root_soil() walks INSTEAD of `solid`, since
 ##   `solid` is re-derived from rock_fill every step and an eroded/carved regolith cell is open but still an
-##   aquifer; same buffer ActivityPass binds at its own binding 9).
+##   aquifer; same buffer SoilPass binds at its own binding 6).
 ## Push { uint cell_count; uint n_records; float dt; uint raining; float sun_x, sun_y, sun_z, pad; }, 32 bytes.
 ## sun_dir is sourced from `ctx` exactly as ThermalPass.gd does, so the light the chemistry sees and the light
 ## the solar kernel heats with are ONE quantity — including its magnitude, which carries insolation.

@@ -1,8 +1,13 @@
 extends RefCounted
 
-## Cubed-sphere ACTIVE-CELL COMPACTION pass (Keystone C, asymptotic half). Runs cell_list_lava_sphere3d.glsl
-## to build the compacted index list + dispatch-indirect argument that ThermalPass's lava_phase leg consumes,
-## turning that kernel from one invocation per GRID cell into one invocation per ACTIVE cell.
+## Cubed-sphere ACTIVE-CELL COMPACTION pass. Runs cell_list_lava_sphere3d.glsl to build the compacted index
+## list + dispatch-indirect argument that ThermalPass's lava_phase leg consumes, turning that kernel from one
+## invocation per GRID cell into one invocation per ACTIVE cell.
+##
+## THE SELECTION IS PHYSICAL — a cell is listed because it HOLDS MOLTEN ROCK IN OPEN SPACE. This pass used to
+## AND that with a camera-relevance stride gate, which made which lava cooled depend on where the player was
+## standing; that mechanism is deleted (see MaterialSphereGPU3D.gd's header note). What is left is the part
+## that was always right: an O(active) compaction keyed on what the matter is doing.
 ##
 ## THE SHAPE, so the next pass to be converted can copy it. Three dispatches into the caller's compute list,
 ## barrier-separated, all from ONE pipeline selected by a `pass_id` push constant:
@@ -16,9 +21,7 @@ extends RefCounted
 ##
 ## PLACEMENT (MaterialSphereGPU3D.PASS_SCRIPTS): between WaterSlumpLavaPass and ThermalPass. It needs
 ## lava[back] final (WaterSlumpLava's lava_flow leg writes it) and `solid` final (SolidDerivePass), and nothing
-## between here and lava_phase writes either, so the list cannot go stale. `relevance` is activity[LIVE] —
-## the same half, and therefore the same documented one-step lag, that lava_phase read for itself before this
-## pass existed.
+## between here and lava_phase writes either, so the list cannot go stale.
 ##
 ## WHAT MAKES THE ARGS VISIBLE TO ThermalPass: Godot's RenderingDeviceGraph, which tracks buffer
 ## dependencies and inserts barriers automatically. NOT the driver's full_barrier() call — that is
@@ -27,19 +30,17 @@ extends RefCounted
 ## credited full_barrier(), which matters because this is the comment the next pass conversion is told
 ## to copy: someone would have preserved a no-op believing it was load-bearing.
 ##
-## EXTENDING IT TO THE OTHER PASSES. The predicate is exact only because every branch it stands in for is a
-## bare `return` in the consumer (see the kernel header). The other relevance-gated kernels all WRITE on their
-## skip path — fire persists fire_out=fire_in, erosion carries susp live->back, dust_outscale writes 0.0,
-## charge_accum applies its quiet leak, soil zeroes send[] — so a compacted dispatch would leave those writes
-## undone. Converting one of them means first hoisting its skip-path write somewhere that still covers every
-## cell: either make the channel single-buffered and in-place (no carry needed at all), or give the driver a
-## per-channel ping-pong phase so an unwritten back half is simply not flipped to. Both are real changes to the
-## driver's buffer contract, not to this mechanism, which is why this slice converts the one kernel that
-## already needs neither.
+## EXTENDING IT TO ANOTHER KERNEL. Two conditions, both hard. (1) The kernel's skip path must be a bare
+## `return` — a compacted dispatch simply never runs the un-listed cells, so any kernel that WRITES on its skip
+## path would leave those writes undone. lava_phase qualifies; several other kernels do not (a ping-pong
+## channel whose back half must be carried needs that carry hoisted somewhere that still covers every cell, or
+## the channel made single-buffered and in-place, before this is legal for it). (2) The predicate must be
+## PHYSICAL and read only inputs that are already final at this point in the pass order — what the matter is
+## doing, never what the camera can see. A predicate that depends on the viewer is not an optimisation, it is
+## a change to the simulation.
 ##
 ## Kernel binding -> bufs-key map (authoritative layout is cell_list_lava_sphere3d.glsl):
-##   0 Relevance=activity[live] · 1 Lava=lava[back] · 2 Solid=solid · 3 Static=static ·
-##   4 ActiveIdx=active_idx · 5 ActiveArgs=active_args
+##   1 Lava=lava[back] · 2 Solid=solid · 4 ActiveIdx=active_idx · 5 ActiveArgs=active_args
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/cell_list_lava_sphere3d.glsl"
 
@@ -72,19 +73,15 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	_pipe = rd.compute_pipeline_create(_shader)
 
 	var solid: RID = bufs["solid"]
-	var static_ch: RID = bufs["static"]
 	var active_idx: RID = bufs["active_idx"]
 	var active_args: RID = bufs["active_args"]
 	var lava: Array = bufs["lava"]
-	var activity: Array = bufs["activity"]
 
 	for p in 2:
 		var back: int = 1 - p
 		_sets[p] = _build_set(rd, _shader, [
-			[0, activity[p]],       # Relevance — LIVE half (this pass runs before ActivityPass)
 			[1, lava[back]],        # Lava — BACK half (post lava_flow), exactly what lava_phase reads
 			[2, solid],
-			[3, static_ch],
 			[4, active_idx],
 			[5, active_args]])
 
@@ -105,24 +102,23 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 				+ "Usual cause: cell_list_lava_sphere3d.glsl was never imported — run "
 				+ "`godot --headless --path . --import` in this worktree.")
 		return
-	var step_index: int = int(ctx.get("step_index", 0))
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, _sets[parity], 0)
 
-	# 0. RESET the counters (one thread; the other 63 return immediately).
-	var pc_reset: PackedByteArray = _pc(cc, step_index, PASS_RESET)
+	# 0. RESET the counter (one thread; the other 63 return immediately).
+	var pc_reset: PackedByteArray = _pc(cc, PASS_RESET)
 	rd.compute_list_set_push_constant(cl, pc_reset, pc_reset.size())
 	rd.compute_list_dispatch(cl, 1, 1, 1)
 	rd.compute_list_add_barrier(cl)
 
 	# 1. APPEND — the one remaining full-grid dispatch.
-	var pc_append: PackedByteArray = _pc(cc, step_index, PASS_APPEND)
+	var pc_append: PackedByteArray = _pc(cc, PASS_APPEND)
 	rd.compute_list_set_push_constant(cl, pc_append, pc_append.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)
 
 	# 2. ARGS — publish groups_x = ceil(count / 64) for the consumer's indirect dispatch.
-	var pc_args: PackedByteArray = _pc(cc, step_index, PASS_ARGS)
+	var pc_args: PackedByteArray = _pc(cc, PASS_ARGS)
 	rd.compute_list_set_push_constant(cl, pc_args, pc_args.size())
 	rd.compute_list_dispatch(cl, 1, 1, 1)
 
@@ -146,13 +142,13 @@ func dispose(rd: RenderingDevice) -> void:
 
 # --- helpers ---------------------------------------------------------------------------------------------
 
-# Params { uint cell_count; uint step_index; uint pass_id; uint pad0; } — 16 bytes.
-func _pc(cc: int, step_index: int, pass_id: int) -> PackedByteArray:
+# Params { uint cell_count; uint pass_id; uint pad0; uint pad1; } — 16 bytes.
+func _pc(cc: int, pass_id: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)
 	pc.encode_u32(0, cc)
-	pc.encode_u32(4, step_index)
-	pc.encode_u32(8, pass_id)
+	pc.encode_u32(4, pass_id)
+	pc.encode_u32(8, 0)
 	pc.encode_u32(12, 0)
 	return pc
 

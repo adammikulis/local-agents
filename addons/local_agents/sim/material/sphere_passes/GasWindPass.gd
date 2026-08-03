@@ -98,7 +98,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# Per-column tangent-frame table: the direction of each lateral link in the cell's OWN (tan_a, tan_b) axes.
 	# The wind kernels store momentum in that frame, so they read directions from here, never from slot order.
 	var ltan: RID = bufs["link_tan"]
-	var activity: Array = bufs["activity"]   # PAIR — Keystone C relevance
 
 	for p in 2:
 		var back: int = 1 - p
@@ -117,9 +116,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# co2_transport: 0=CO2In(live), 1=CO2Out(back), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 15=Neigh, 16=LinkTan
 		_co2_set[p] = _uset(_co2_shader, [[0, co2[p]], [1, co2[back]], [2, solid], [3, vx], [4, vy], [5, vz],
 				[15, nbr], [16, ltan]])
-		# charge_accum: 0=Charge(single, in place), 1=TempIn(live), 2=CloudIn(live), 3=VelY, 4=Solid,
-		# 5=Relevance(live — this pass runs before ActivityPass, Keystone C)
-		_ch_set[p] = _uset(_ch_shader, [[0, charge], [1, temp[p]], [2, cloud[p]], [3, vy], [4, solid], [5, activity[p]]])
+		# charge_accum: 0=Charge(single, in place), 1=TempIn(live), 2=CloudIn(live), 3=VelY, 4=Solid.
+		# (Binding 5 was a camera-relevance score until 2026-08-03: a distant thundercloud separated charge on a
+		#  slower clock than a near one. Deleted — see MaterialSphereGPU3D.gd's header note.)
+		_ch_set[p] = _uset(_ch_shader, [[0, charge], [1, temp[p]], [2, cloud[p]], [3, vy], [4, solid]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
@@ -145,7 +145,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 			float(ctx.get("sea_radius", 0.0)), dt, step_index)
 	var pc_ws: PackedByteArray = _pc_windstep(cc, wind.x, wind.y, dt, buoy_on, spin, depth,
 			float(ctx.get("core_radius", 0.0)), float(ctx.get("cell_size", 1.0)), float(ctx.get("sea_radius", 0.0)))
-	var pc_ch: PackedByteArray = _pc_charge(cc, dt, step_index)
+	var pc_ch: PackedByteArray = _pc_charge(cc, dt)
 
 	# 1) wind_pressure (PASS A): air[live] + temp + velocity -> air[back] + pressure. ONE THREAD PER COLUMN:
 	# it walks the column O(depth) times (mass flux, hydrostatic settle, pressure integral), so total work is
@@ -278,13 +278,12 @@ func _pc_windstep(cc: int, pvx: float, pvz: float, dt: float, buoy: int, spin: V
 	pc.encode_float(44, sea_radius)
 	return pc
 
-# Params { uint cell_count; float dt; uint step_index; float pad1; } — charge_accum. step_index feeds the
-# relevance-gated update stride (Keystone C).
-func _pc_charge(cc: int, dt: float, step_index: int) -> PackedByteArray:
+# Params { uint cell_count; float dt; uint pad0; float pad1; } — charge_accum.
+func _pc_charge(cc: int, dt: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, dt)
-	pc.encode_u32(8, step_index)
+	pc.encode_u32(8, 0)
 	pc.encode_float(12, 0.0)
 	return pc
