@@ -148,3 +148,41 @@ const ALBEDO_SNOW_ICE: float = 0.65
 # --- COMBUSTION -------------------------------------------------------------------------------------------
 # Piloted ignition temperature of dry cellulosic fuel (wood, leaf litter, cured grass).
 const VEGETATION_IGNITION_C: float = 300.0
+
+# ============================================================================================================
+# SURFACE ENERGY BALANCE — added 2026-08-03 by the conservation repair of the solar/buoyancy/conduction chain.
+# Appended as one contiguous block because four lanes were editing this file the same day.
+# ============================================================================================================
+
+# --- SHORTWAVE IS NOT LONGWAVE, AND THE DIFFERENCE *IS* THE GREENHOUSE --------------------------------------
+# ATMOS_OPTICAL_DEPTH above (0.835) is the LONGWAVE greybody depth of a sea-level air column. Reusing it for
+# sunlight would be a physical error, not an approximation: an atmosphere that absorbed 57% of the incoming
+# beam and 57% of the outgoing infrared would have no greenhouse effect at all. The whole mechanism is that
+# air is nearly transparent to the visible and nearly opaque to the thermal infrared, so the two optical
+# depths are separate measured quantities.
+#
+# Earth's atmosphere absorbs 78 W/m^2 of the 341 W/m^2 arriving at the top of the atmosphere — 22.9%
+# (Trenberth, Fasullo & Kiehl 2009, "Earth's Global Energy Budget", BAMS 90:311). A Beer-Lambert vertical
+# path reproducing that absorption has tau = -ln(1 - 0.2287) = 0.2597.
+const ATMOS_SW_OPTICAL_DEPTH: float = 0.2597
+
+# Relative optical air mass at a 90 deg zenith angle. The naive slant path 1/cos(z) diverges at the horizon;
+# the real one saturates near 38 because the atmosphere is a curved shell, not a slab (Kasten & Young 1989,
+# "Revised optical air mass tables and approximation formula", Applied Optics 28:4735). It is what bounds the
+# terminator's air mass instead of an arbitrary epsilon.
+const AIR_MASS_HORIZON: float = 38.0
+
+# --- WATER: DENSITY AND THE LATENT HEAT OF VAPORISATION ------------------------------------------------------
+# Liquid water at 300 K. The latent heat is at 100 C / 1 atm. Their ratio to water's specific heat is the
+# number that makes boiling such a violent heat sink: L/c = 2.257e6 / 4184 = 539 K. Flashing a hundredth of a
+# cell's water to steam costs the same sensible heat as cooling that water by 5.4 K, which is why a boiling
+# spring pins itself at 100 C and why seawater quenches lava to pillow basalt in seconds.
+const WATER_DENSITY_KG_M3: float = 997.0
+const LATENT_HEAT_VAPORISATION_J_KG: float = 2.257e6
+
+# --- SNOW -----------------------------------------------------------------------------------------------------
+# Settled seasonal snowpack: rho 300 kg/m^3 (fresh fall 50-100, settled 200-400, firn 500+), c 2090 J/kg/K
+# (ice), lambda 0.15 W/m/K (measured range 0.05-0.5 with density; 0.15 is the settled-pack value). The
+# conductivity is why a snow blanket keeps the soil under it above freezing.
+const VOL_HEAT_CAP_SNOW_J_M3K: float = 6.27e5       # 300 * 2090
+const THERMAL_CONDUCT_SNOW_W_MK: float = 0.15

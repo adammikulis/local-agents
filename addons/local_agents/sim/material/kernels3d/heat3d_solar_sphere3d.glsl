@@ -9,12 +9,23 @@
 // radial vs a world-space sun direction, so the day side warms and the night side cools — the real terminator
 // falls straight out of the temperature field.
 //
-// SURFACE / SKY cell on the sphere: there are no columns. A cell is a SKY-EXPOSED surface cell iff it is OPEN
-// (solid == 0) and its OUTWARD-radial neighbour (nbr slot 5) is -1 (space boundary) or solid — i.e. it is the
-// OUTERMOST open cell reached walking slot 5 outward until you hit -1 or rock. That local test is exactly the
-// landing set of the "walk slot 5 outward" the box did by scanning a column from the top down, and because each
-// surface cell only touches ITSELF it is race-free. Non-surface cells are left as conduction produced them
-// (mirrors the box touching only the top cell). Runs AFTER conduction, IN PLACE on the temp buffer.
+// WHICH CELLS EXCHANGE RADIATION WITH SPACE. *(Rewritten 2026-08-03. The old rule was
+// `surface = top_of_atm || ground_hug` with `top_of_atm = (up < 0) || solid[up] != 0` and
+// `ground_hug = down >= 0 && solid[down] != 0`, and it was wrong in four separate ways at once — see the
+// COLUMN SHORTWAVE BUDGET block. Each cell still touches only ITSELF, so it is still race-free.)*
+//
+// A cell trades radiation with the sky only if the radial path outward is CLEAR, and each column's incoming
+// beam is spent exactly once. Three roles, and a cell may hold two of them at a mountain top:
+//   * TOP OF ATMOSPHERE — the outermost open cell (slot 5 is -1, real space). It absorbs the share of the beam
+//     the AIR COLUMN takes and radiates as a near-blackbody, because there is nothing overhead to intercept it.
+//   * MATERIAL SURFACE — the cell the beam actually lands on: the topmost WATER cell of an ocean/lake column,
+//     or the open cell resting on rock for dry land. It absorbs what got through the air, times (1 - albedo).
+//   * EXPOSED BEDROCK — a SOLID cell whose slot 5 is space. Bare rock facing the sky radiates; nothing else in
+//     this kernel would ever let it.
+// A cell with ROCK ABOVE IT holds none of them. That is the fix for the largest of the four errors: `up` being
+// solid used to make a cell "top of atmosphere", so 1615 roofed pockets — 32% of the set, measured on this
+// build at seed 4242 — had the sun shone on them and radiated to space THROUGH SOLID ROCK. 189 cave floors did
+// the same as "ground". Rock is opaque in both directions, so the outward walk (`sky_clear`) settles it.
 //
 // PER-CELL SOLAR: insolation = max(0, dot(cell_radial, sun_dir)); cell_radial = the binding-14 outward unit
 // vector for this cell, sun_dir = the sun_x/sun_y/sun_z push-constant (world-space unit vector to the sun,
@@ -36,6 +47,12 @@ layout(set = 0, binding = 4, std430) restrict readonly buffer Snow { float snow[
 layout(set = 0, binding = 5, std430) restrict readonly buffer Water { float water[]; };      // liquid -> ocean albedo + heat capacity
 layout(set = 0, binding = 6, std430) restrict readonly buffer RockFill { float rock_fill[]; }; // bedrock fraction -> heat capacity
 layout(set = 0, binding = 7, std430) restrict readonly buffer Pressure { float pressure[]; }; // weight of the air ABOVE this cell -> greenhouse strength
+// PRE-SOLAR TEMPERATURE SNAPSHOT — LASphereThermalPass's conduction scratch, which still holds exactly what
+// `temp` held when this kernel was dispatched (conduct gathers into it, copy pushes it back to temp, nothing
+// touches it after). The two-layer longwave exchange below needs the PARTNER cell's temperature, and `temp`
+// is written IN PLACE by this same dispatch, so reading it would be a race whose outcome depends on
+// scheduling — the same seed would stop reproducing. This is the stable read.
+layout(set = 0, binding = 8, std430) restrict readonly buffer TempPrev { float temp_prev[]; };
 layout(set = 0, binding = 14, std430) restrict readonly buffer Radial { float radial[]; };  // per-cell outward unit vec, packed flat c*3+{0,1,2}
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };         // idx*6 + slot
 
@@ -47,7 +64,11 @@ layout(push_constant, std430) uniform Params {
 	// clock: `const float STEP_DT = 0.1`, the SIMULATED step, while heat_sphere3d.glsl in the same pass ran on
 	// the real one. See the CAPACITY block below for what that cost and how it was reconciled.
 	float dt_s;
-	uint pad1;
+	// Grid cell edge in METRES (LASphereGrid.cell_size, 16.0 on the shipped 500-radius planet). It is what
+	// turns a volumetric heat capacity into the AREAL one this kernel divides by, so the solar balance and the
+	// conduction kernel dispatched beside it finally describe the same lump of matter. Pushed, not hardcoded:
+	// it is a property of this grid, and it must re-derive at another resolution.
+	float cell_size;
 	uint pad2;
 	float sun_x;        // world-space unit vector pointing TOWARD the sun (magnitude carries insolation)
 	float sun_y;
@@ -99,9 +120,9 @@ const float KELVIN = 273.15;
 // every step at exactly the cells that matter most (lava, hot springs, the day/night terminator).
 //
 // A clamp that silently drops the excess is a lie in an energy balance: the cell reports a temperature the
-// budget did not pay for. The fix is not a bigger number — dT scales as 1/heat_capacity, so a cell with the
-// bare CAP_AIR and a large flux genuinely wants a big step, and raising the limit just moves the
-// threshold. It is SUB-STEPPING: split the update into N slices when the implied change is large, so the
+// budget did not pay for. The fix is not a bigger number — dT scales as 1/heat_capacity, so a cell of bare
+// air (the smallest rho*c there is) under a large flux genuinely wants a big step, and raising the limit just
+// moves the threshold. It is SUB-STEPPING: split the update into N slices when the implied change is large, so the
 // same total energy is applied but T^4 is re-evaluated as the cell warms, which is what makes it converge.
 // The clamp remains underneath as a true last resort, and now reports rather than hides (dt_clamped).
 const float MAX_DT_PER_STEP = 5.0;     // last-resort stability limit (see SUB-STEPPING below)
@@ -110,32 +131,49 @@ const float ALBEDO_GROUND = 0.15;
 const float ALBEDO_WATER = 0.06;
 const float ALBEDO_ICE = 0.65;
 const float ICE_ALBEDO_GAIN = 40.0;    // snow mass -> reflectivity; a thin dusting already whitens a cell
-// ===== AREAL HEAT CAPACITIES, J/m^2/K =============================================================
-// The heat one square metre of surface stores per degree — a volumetric heat capacity times the depth of
-// material that actually follows the surface temperature. They set how far a night cools before dawn.
+// ===== HEAT CAPACITY — DERIVED FROM WHAT THE CELL IS MADE OF ======================================
+// *(Rewritten 2026-08-03. This block used to declare four AREAL capacities as literals —
+//  CAP_AIR 345600 / CAP_ROCK 604800 / CAP_WATER 3888000 / CAP_SNOW 1080000 — and its own comment worked out
+//  that CAP_WATER implied 0.932 m of ocean against a real mixed layer of 20-100 m and admitted it was "wrong
+//  by one to two orders of magnitude", then left it. Their whole provenance was the older unitless set
+//  800/1400/9000/2500 multiplied by 432 to absorb a clock change. Nothing about them was ever measured.)*
 //
-// THEY USED TO BE 800 / 1400 / 9000 / 2500 IN NO UNITS AT ALL, divided into a flux times STEP_DT = 0.1, the
-// SIMULATED step — while heat_sphere3d.glsl, dispatched by the SAME pass in the same step, divided by SI
-// J/m^3/K over dt = 43.2 REAL seconds. A factor of 432 between two halves of one energy budget. The numbers
-// below are the old ones times exactly that 432, so this kernel's per-step behaviour is UNCHANGED; what
-// changed is that both halves now state the same clock and the same units, and the capacities can finally
-// be checked against reality. Verified by running it: every gate metric is bit-identical across the change.
+// A cell's areal heat capacity is not a constant of anything. It is the volumetric heat capacity of the
+// matter the cell HOLDS times the cell's own depth, and both of those are already known here: LAPhysical
+// carries the rho*c of rock, air, water and snow, and `cell_size` is pushed. So it is derived per cell from
+// the SAME volume-fraction mix heat_sphere3d.glsl and heat3d_buoyancy_sphere3d.glsl use — one expression,
+// three kernels, no fourth number to drift.
 //
-// WHAT THE REALITY CHECK SAYS, since the point of stating units is to be able to do it (cap / the material's
-// LAPhysical volumetric heat capacity = the implied thermally-active depth):
-//   ROCK  604800 / 2.436e6 = 0.248 m, against a DERIVED diurnal skin depth sqrt(alpha*P/pi) =
-//         sqrt(1.026e-6 * 86400 / pi) = 0.168 m. Same order, 1.5x deep. Fine.
-//   SNOW  1080000 / 6.27e5 (rho 300, c 2090) = 1.72 m, against a seasonal pack of 0.1-2 m. Fine.
-//   AIR   345600 / 1186 = 291 m — 18 cells of air, and 3.5% of a real atmospheric column (~1e7 J/m^2/K).
-//         It is the floor every surface cell carries, not a claim about the whole atmosphere.
-//   WATER 3888000 / 4.171e6 = 0.932 m, against a real ocean MIXED LAYER of 20-100 m. This one is wrong by
-//         one to two orders of magnitude: the sea here has roughly a metre of thermal inertia where it
-//         should have tens. Not changed in the same commit that unified the clock, because it is a real
-//         climate change and wants its own measurement — recorded in HANDOFF.md.
-const float CAP_AIR = 345600.0;
-const float CAP_ROCK = 604800.0;
-const float CAP_WATER = 3888000.0;     // the ocean's thermal inertia — why coasts are mild (see above)
-const float CAP_SNOW = 1080000.0;
+// WHAT THE OLD LITERALS WERE ACTUALLY SAYING, against rho*c*dx for the very cell conduction was stepping:
+//   WATER  3888000 vs 4.171e6 * 16 = 66736000   — 17.2x too small (0.93 m of ocean, not 16 m)
+//   ROCK    604800 vs 2.436e6 * 16 = 38976000   — 64.4x too small (0.25 m of rock, not 16 m)
+//   SNOW   1080000 vs 6.27e5  * 16 = 10032000   —  9.3x too small
+//   AIR     345600 vs 1186    * 16 =    18976   — 18.2x too LARGE (291 m of air inside a 16 m cell)
+// Two kernels in one pass disagreed by up to 64x about how much heat the same cell holds.
+//
+// THE OCEAN MIXED LAYER, SAID PLAINLY. One water cell is 16 m deep, so it now carries 16 m of water's
+// thermal inertia — 6.67e7 J/m^2/K. A real wind-stirred mixed layer is 20-100 m, so this grid is at the
+// shallow end of the real range and the sea will still swing a little faster than Earth's does. The honest
+// fix for that is MORE CELLS in the mixed layer, not a bigger literal here: the number below is what the
+// simulation actually contains, and inflating it would be re-inventing the constant this block deleted.
+const float RC_AIR   = 1186.0;    // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
+const float RC_ROCK  = 2.436e6;   // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
+const float RC_WATER = 4.171e6;   // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
+const float RC_SNOW  = 6.27e5;    // LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K
+// A cell holding half water and half air is half of each, not the sum of two full cells — `solid`, `water`,
+// `rock_fill` and `snow` are all FRACTIONS OF THE CELL VOLUME (SolidDerivePass: solid iff rock_fill >= 0.5),
+// so the mix is by volume and air fills whatever is left. Identical text in heat_sphere3d.glsl (rc_of) and
+// heat3d_buoyancy_sphere3d.glsl; change one and change all three.
+float rc_of_cell(uint i) {
+	if (solid[i] != 0.0) {
+		return RC_ROCK;
+	}
+	float f_rock = clamp(rock_fill[i], 0.0, 1.0);
+	float f_water = clamp(water[i], 0.0, 1.0);
+	float f_snow = clamp(snow[i], 0.0, 1.0);
+	float f_air = max(0.0, 1.0 - f_rock - f_water - f_snow);
+	return RC_AIR * f_air + RC_ROCK * f_rock + RC_WATER * f_water + RC_SNOW * f_snow;
+}
 // ===== GREENHOUSE — emissivity from the overlying air mass ========================================
 // A grey atmosphere of optical depth tau lets a fraction 1/(1 + 0.75*tau) of the surface's blackbody flux
 // reach space (the standard two-stream result, T_s^4 = T_e^4 * (1 + 0.75*tau)). So the greybody EMISSIVITY
@@ -147,12 +185,22 @@ const float CAP_SNOW = 1080000.0;
 // world's sea-level pressure, which wind_pressure_sphere3d states outright — G_ACC 33.5 against a column
 // mass of ~2.99 puts it "at ~100, which is where the old P0 sat".
 //
+// THE FRACTION IS USED AS AN ABSORPTIVITY IN BOTH DIRECTIONS NOW, not as a multiplier on one cell's
+// emission. *(Corrected 2026-08-03. This block used to end with two consequences stated as though each cell
+// carried its own greybody emissivity: "a summit ... its emissivity rises and it equilibrates colder", and
+// "TOP OF ATMOSPHERE ... emissivity approaches 1 and they radiate as bare blackbodies". The second is what
+// made every column radiate to space twice — see the LONGWAVE block in main().)*
+//   eps_a = 1 - 1/(1 + 0.75*tau*p/P_REF) is how much of the surface's infrared the air column INTERCEPTS,
+//   and the air re-emits it, half up and half down. The surface radiates as the blackbody it is and gets the
+//   downward half back.
+//
 // TWO CONSEQUENCES WORTH NAMING, because neither is coded for anywhere:
 //   * ALTITUDE. exp(-relief/H_REF) with relief ~16 and H_REF ~50 leaves a summit under ~73% of the sea-level
-//     column, so its emissivity rises and it equilibrates colder. The lapse rate is an OUTPUT now.
-//   * TOP OF ATMOSPHERE. Those cells have almost nothing above them, so emissivity approaches 1 and they
-//     radiate as bare blackbodies — which is what the top of an atmosphere does. The vertical temperature
-//     structure comes from the same expression as the horizontal one.
+//     column, so it gets less back-radiation and equilibrates colder. The lapse rate is an OUTPUT now.
+//   * TOP OF ATMOSPHERE. The air layer's own temperature is set by what it intercepts from below against
+//     what it radiates from both faces, so it settles well under the surface — which is what the top of an
+//     atmosphere does. The vertical temperature structure comes from the same expression as the horizontal
+//     one, and one column's outgoing longwave is (1 - eps_a)*sigma*Ts^4 + eps_a*sigma*Ta^4 exactly once.
 //
 // This also replaces 0.9, which was a round number chosen for a greybody and then paired with SOLAR_CONSTANT
 // 600 "sized so the sub-solar point equilibrates near 300 K". At sea level the model below gives 0.615, so
@@ -160,32 +208,129 @@ const float CAP_SNOW = 1080000.0;
 // touching SOLAR_CONSTANT: the last time it was cut 20% the global mean moved ONE degree, because the sun is
 // not what sets this planet's temperature.
 const float P_REF = 100.0;           // sea-level column pressure in this world's units
-const float TAU_SEA = 0.835;         // grey optical depth of a sea-level air column (from Earth's 288/255)
-const float TAU_TWO_STREAM = 0.75;   // the two-stream coefficient in T_s^4 = T_e^4 (1 + 0.75 tau)
+const float TAU_SEA = 0.835;         // LAPhysical.ATMOS_OPTICAL_DEPTH — LONGWAVE depth of a sea-level column
+const float TAU_TWO_STREAM = 0.75;   // LAPhysical.TWO_STREAM_COEFF — the coefficient in T_s^4 = T_e^4 (1 + 0.75 tau)
+// ===== COLUMN SHORTWAVE BUDGET — THE BEAM IS SPENT ONCE ===========================================
+// *(Added 2026-08-03, and it is the largest energy-from-nothing term this simulation has had.)*
+//
+// WHAT WAS HAPPENING. `surface` was true for BOTH the top-of-atmosphere cell and the ground cell beneath it,
+// and both then computed `absorbed = SOLAR_CONSTANT * (1 - albedo) * insolation` from the SAME undiminished
+// insolation. The top cell did not shade the ground; neither shaded the seabed. So every lit column absorbed
+// the solar constant TWICE, and the gauge summed the two halves into one `absorbed_total`. Measured on this
+// build, seed 4242, 600 frames: energy_abs_toa 1.46e6 against energy_abs_ground 1.03e6, so 59% of the
+// planet's reported shortwave input was the duplicate.
+//
+// WHAT REPLACES IT. Beer-Lambert down the column, with the air's own mass as the optical path:
+//     trans   = exp(-TAU_SW * (p_surface / P_REF) / mu)      fraction of the beam that reaches the ground
+//     TOA     absorbs  S * mu * (1 - trans)                  the air column's share
+//     surface absorbs  S * mu *  trans * (1 - albedo)        what the ground or sea keeps
+//     (the rest, S * mu * trans * albedo, is reflected back to space and absorbed by nobody)
+// The three add to exactly S * mu, so a column can no longer absorb more than arrives. `p_surface` is the SAME
+// NUMBER on both sides — the TOA cell walks down its own column to the very cell the beam lands on and reads
+// that cell's overlying air mass — so the partition cannot drift apart at a mountain or a coast.
+//
+// TAU_SW IS NOT TAU_SEA, AND THAT IS THE WHOLE GREENHOUSE. It is tempting to reuse the 0.835 above, and it
+// would be a physical error: an atmosphere equally opaque to sunlight and to thermal infrared has no
+// greenhouse effect at all. Air is nearly transparent in the visible and nearly opaque in the infrared, so
+// the two optical depths are separate measured quantities. TAU_SW comes from Earth's own budget — 78 of
+// 341 W/m^2 absorbed in the atmosphere, tau = -ln(1 - 0.2287).
+const float TAU_SW = 0.2597;         // LAPhysical.ATMOS_SW_OPTICAL_DEPTH — SHORTWAVE depth of a sea-level column
+// The slant path is 1/cos(zenith), which diverges at the terminator. The real relative air mass saturates
+// near 38 there because the atmosphere is a curved shell rather than a slab, so THAT is what bounds it — a
+// measured limit, not an epsilon chosen to stop a division.
+const float AIR_MASS_HORIZON = 38.0; // LAPhysical.AIR_MASS_HORIZON
+// Water fraction at which a cell counts as the sea/lake SURFACE rather than as air holding some spray. Matches
+// atmos_evap_sphere3d.glsl's own `water[above] < MAX_MASS * 0.5` interface test, so the cell this kernel
+// lights is the same cell that one evaporates from.
+const float WATER_SURFACE_MIN = 0.5;
+// Hard bound on a radial column walk. The shell is `depth` cells (20 on the shipped grid); 64 is a loop
+// guard, not a physical quantity, and a walk that hits it has found a malformed neighbour table.
+const int MAX_COLUMN_WALK = 64;
+
+// Walk outward to the top of this cell's column. Returns the index of the outermost open cell — the
+// top-of-atmosphere cell this one exchanges longwave with — or -1 if ROCK blocks the way, which is what
+// makes a cave, a lava tube or the space under an overhang trade no radiation with the sky in either
+// direction. `start` is returned when it is itself the top.
+int find_column_top(uint start) {
+	int c = int(start);
+	for (int s = 0; s < MAX_COLUMN_WALK; ++s) {
+		int u = nbr[uint(c) * 6u + 5u];
+		if (u < 0) {
+			return c;                                      // reached space: c is the top
+		}
+		if (solid[u] != 0.0) {
+			return -1;                                     // rock overhead
+		}
+		c = u;
+	}
+	return -1;
+}
+
+// Walk inward from the top of the column to the cell the beam lands on, applying the SAME test `main()` uses
+// to decide a MATERIAL SURFACE: the first cell holding water is a sea/lake surface; otherwise the first cell
+// resting on rock is the ground. Returns -1 for a column that is open all the way down (no floor in the
+// shell), which absorbs only its atmospheric share. One walk per top-of-atmosphere cell, so O(cells) overall.
+int find_column_surface(uint start) {
+	int c = int(start);
+	for (int s = 0; s < MAX_COLUMN_WALK; ++s) {
+		if (solid[c] != 0.0) {
+			return -1;
+		}
+		if (water[c] >= WATER_SURFACE_MIN) {
+			return c;                                      // topmost water cell: the sea/lake surface
+		}
+		int d = nbr[uint(c) * 6u + 0u];
+		if (d < 0) {
+			return -1;                                     // open to the bottom of the shell
+		}
+		if (solid[d] != 0.0) {
+			return c;                                      // c rests on rock: the ground
+		}
+		c = d;
+	}
+	return -1;
+}
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
 	if (idx >= params.cell_count) {
 		return;
 	}
-	if (solid[idx] != 0.0) {
-		return;                                            // rock is not a sky cell
-	}
-	// TWO insolation surfaces on the shell:
-	//   * TOP-OF-ATMOSPHERE — the outermost open cell (its OUTWARD neighbour, slot 5, is space or rock). This is
-	//     the historical terminator surface: the sun bakes/freezes the exposed top of the air column and
-	//     conduction/buoyancy carry it down. Radius ≈ shell top for EVERY column, so a lapse here would be a
-	//     near-uniform giant offset that just freezes the whole atmosphere — so the lapse does NOT apply here.
-	//   * GROUND-HUGGING — an air cell resting directly ON terrain (its INWARD neighbour, slot 0, is solid rock).
-	//     This is the set snow deposits on (matches snowice_sphere3d), and its RADIUS TRACKS THE TERRAIN, so its
-	//     altitude above the sea shell varies from ~0 in the valleys to the relief height on the peaks. The lapse
-	//     applies HERE, cooling high ground below freezing → snow-capped peaks + an alpine treeline at ANY
-	//     latitude, straight out of geometry. Lowland ground stays at the full insolation target (temperate).
 	int up = nbr[idx * 6u + 5u];
 	int down = nbr[idx * 6u + 0u];
-	bool top_of_atm = (up < 0) || (solid[up] != 0.0);
-	bool ground_hug = (down >= 0) && (solid[down] != 0.0);
-	bool surface = top_of_atm || ground_hug;
+	bool solid_here = solid[idx] != 0.0;
+	bool faces_space = up < 0;
+
+	// TOP OF ATMOSPHERE: the outermost OPEN cell of the column. It stands for the whole air column in the
+	// radiative exchange — it intercepts the share of the surface's infrared the air absorbs and re-radiates
+	// it from both faces. `(up < 0)` and nothing else: a cell with rock over it is
+	// roofed, not exposed. *(Corrected 2026-08-03; the old test also accepted `solid[up] != 0`, which put 1615
+	// underground pockets in this set and shone the sun on them.)*
+	bool toa = faces_space && !solid_here;
+	// EXPOSED BEDROCK: solid rock whose slot 5 is space. Bare rock absorbs sunlight and radiates to the sky —
+	// the old `if (solid) return` gave the crust a conductive sink only, so any column capped by rock traded no
+	// radiation at all. It is the same energy balance; the cell is simply made of rock.
+	bool bedrock_top = faces_space && solid_here;
+	// MATERIAL SURFACE: the cell the beam lands on. The topmost WATER cell for a sea or lake, the open cell
+	// resting on rock for dry land — and neither if something opaque is overhead.
+	//
+	// THE SEA SURFACE USED TO BE EXCLUDED ENTIRELY. With the old pair of tests, a water cell with air above and
+	// more water below was neither top-of-atmosphere nor ground-hugging, so for any ocean column two or more
+	// cells deep the cell that absorbed the sunlight and radiated to space was THE ONE LYING ON THE SEABED,
+	// with nothing attenuating the beam on the way down. The sea surface — where an ocean actually exchanges
+	// energy with the sky — did neither. `submerged` is what retires the seabed from the job.
+	bool submerged = (up >= 0) && (solid[up] == 0.0) && (water[up] >= WATER_SURFACE_MIN);
+	bool mat_surface = false;
+	int top_c = -1;
+	if (!solid_here && !submerged) {
+		bool on_rock = (down >= 0) && (solid[down] != 0.0);
+		bool water_top = clamp(water[idx], 0.0, 1.0) >= WATER_SURFACE_MIN;
+		if (on_rock || water_top) {
+			top_c = find_column_top(idx);                  // -1 when roofed by rock
+			mat_surface = top_c >= 0;
+		}
+	}
+	bool surface = toa || bedrock_top || mat_surface;
 
 	// Per-cell insolation from this cell's outward radial vs the sun direction (the terminator).
 	uint rb = idx * 3u;
@@ -216,40 +361,110 @@ void main() {
 		float icy = clamp(snow[idx] * ICE_ALBEDO_GAIN, 0.0, 1.0);
 		float albedo = mix(mix(ALBEDO_GROUND, ALBEDO_WATER, wet), ALBEDO_ICE, icy);
 
-		// HEAT CAPACITY per cell, from channels that already exist — no new buffer. This is the thermal
-		// inertia that lets a night side coast instead of radiating to absolute zero, and it is why an
-		// ocean lags the land it sits beside.
-		float cap = CAP_AIR
-			+ CAP_ROCK  * clamp(rock_fill[idx], 0.0, 1.0)
-			+ CAP_WATER * wet
-			+ CAP_SNOW  * clamp(snow[idx], 0.0, 1.0);
+		// HEAT CAPACITY per cell: the volumetric heat capacity of what the cell holds, times the cell's own
+		// depth. Derived, not declared — see the block above for the four literals this replaced and by how
+		// much each was wrong.
+		float cap = max(rc_of_cell(idx) * params.cell_size, 1.0);
 
-		// GREENHOUSE from the air actually overhead — this is where altitude enters, and it enters as
-		// physics rather than as a subtracted lapse. On step 0 the pressure channel is still all-zero
-		// (wind_pressure seeds it AFTER Thermal's first dispatch, PASS_SCRIPTS order), so fall back to the
-		// sea-level reference for that one step rather than letting every cell radiate as a blackbody.
+		// ===== THE COLUMN'S TWO CELLS, AND THE ONE AIR MASS BETWEEN THEM ===============================
+		// `p_beam` is the overlying air mass at the cell the beam LANDS on. It sets BOTH how much sunlight
+		// survives the trip down AND how much of the surface's infrared the air intercepts on the way back
+		// up, so the top-of-atmosphere cell and the material surface must build their shares from the SAME
+		// number — which they do, because each finds the other by walking its own column. On step 0 the
+		// pressure channel is still all-zero (wind_pressure seeds it AFTER Thermal's first dispatch,
+		// PASS_SCRIPTS order), so fall back to the sea-level reference for that one step.
 		float p_col = pressure[idx];
 		if (p_col <= 0.0) {
 			p_col = P_REF;
 		}
-		float emissivity = 1.0 / (1.0 + TAU_TWO_STREAM * TAU_SEA * (p_col / P_REF));
+		int surf_c = -1;
+		float p_beam = 0.0;                 // exposed bedrock faces space with no air above it at all
+		if (mat_surface) {
+			surf_c = int(idx);
+			p_beam = p_col;
+		} else if (toa) {
+			surf_c = find_column_surface(idx);
+			p_beam = (surf_c >= 0) ? pressure[surf_c] : p_col;
+			if (p_beam <= 0.0) {
+				p_beam = P_REF;
+			}
+		}
+		// SHORTWAVE — see the COLUMN SHORTWAVE BUDGET block for why the beam is split this way and why
+		// TAU_SW is not TAU_SEA. Slant path bounded by the real horizon air mass rather than by an epsilon.
+		float mu = max(insolation, 1.0 / AIR_MASS_HORIZON);
+		float trans = exp(-TAU_SW * (p_beam / P_REF) / mu);
+		float absorbed = 0.0;
+		if (toa) {
+			absorbed += SOLAR_CONSTANT * insolation * (1.0 - trans);            // the air column's share
+		}
+		if (mat_surface || bedrock_top) {
+			absorbed += SOLAR_CONSTANT * insolation * trans * (1.0 - albedo);   // what the surface keeps
+		}
+
+		// ===== LONGWAVE — THE COLUMN SHEDS ITS HEAT ONCE ===============================================
+		// *(Rewritten 2026-08-03, and it is the mirror image of the shortwave defect: the SAME two cells were
+		//  doing it to the outgoing side.)*
+		//
+		// Each cell used to compute `emitted = STEFAN * emissivity * T^4` from its OWN pressure and lose that
+		// to space independently. But `emissivity = 1/(1 + 0.75 tau)` is not a property of the ground: it is
+		// the fraction of the SURFACE's blackbody flux that survives the whole air column, so it already
+		// contains the atmosphere's own emission. Adding the top-of-atmosphere cell's near-blackbody
+		// sigma*T^4 on top made every column shed its heat twice. Measured on the pre-fix build, seed 4242,
+		// 600 frames: energy_emit_toa 2.17e6 against energy_emit_ground 1.03e6, so 68% of the planet's
+		// reported outgoing longwave was the duplicate. It very nearly cancelled the duplicated SHORTWAVE
+		// (2.49e6 absorbed against 3.20e6 emitted, imbalance -0.287), which is why the books LOOKED nearly
+		// closed while both sides were wrong — and why fixing only one of them sends the planet cold.
+		//
+		// What replaces it is the standard two-layer grey exchange, with the air's ABSORPTIVITY
+		// eps_a = 1 - eps used in BOTH directions, which is what makes a greenhouse a greenhouse:
+		//     surface      emits sigma*Ts^4 up,       absorbs eps_a*sigma*Ta^4  <- BACK-RADIATION, new here
+		//     atmosphere   emits eps_a*sigma*Ta^4 UP AND DOWN, absorbs eps_a*sigma*Ts^4
+		//     to space     (1 - eps_a)*sigma*Ts^4 + eps_a*sigma*Ta^4            — once, and only once
+		// The greenhouse stops being a multiplier that quietly shrinks the ground's emissivity and becomes the
+		// downward flux it physically is. ALTITUDE still enters exactly where it did and still as physics: a
+		// summit sits under less air, so its eps_a is smaller, so it gets less back-radiation and equilibrates
+		// colder. Nothing prescribes a lapse.
+		//
+		// The PARTNER's temperature comes from the pre-solar SNAPSHOT (binding 8), never from `temp`, which
+		// this dispatch is writing in place — reading that would make the result depend on scheduling and the
+		// same seed would stop reproducing. Within a step the exchange is therefore explicit: each cell
+		// evolves its own T^4 across the sub-step slices while the partner's term is held at the snapshot.
+		// That is the ordinary O(dt) coupling error of an explicit scheme, bounded by MAX_DT_PER_STEP; no
+		// term is dropped or applied twice, so it is an accuracy limit and not a leak.
+		float eps_a = 1.0 - 1.0 / (1.0 + TAU_TWO_STREAM * TAU_SEA * (p_beam / P_REF));
+		float lw_in = 0.0;                                     // longwave RECEIVED, constant across slices
+		if (toa && surf_c >= 0) {
+			float ts = max(temp_prev[surf_c] + KELVIN, 1.0);
+			lw_in += eps_a * STEFAN * ts * ts * ts * ts;        // the surface flux the air intercepts
+		}
+		if (mat_surface && top_c >= 0) {
+			float ta = max(temp_prev[top_c] + KELVIN, 1.0);
+			lw_in += eps_a * STEFAN * ta * ta * ta * ta;        // the air's downward half — the greenhouse
+		}
+		// How many blackbody faces this cell radiates from: the air layer emits eps_a upward AND downward, a
+		// material surface or bare rock emits as a full blackbody upward.
+		float lw_self = 0.0;
+		if (toa) {
+			lw_self += 2.0 * eps_a;
+		}
+		if (mat_surface || bedrock_top) {
+			lw_self += 1.0;
+		}
 
 		float t_k = max(temp[idx] + KELVIN, 1.0);              // clamp keeps T^4 finite if a cell goes wild
-		float absorbed = SOLAR_CONSTANT * (1.0 - albedo) * insolation;
-		float emitted  = STEFAN * emissivity * t_k * t_k * t_k * t_k;
+		float emitted = lw_self * STEFAN * t_k * t_k * t_k * t_k - lw_in;
 		float dT = (absorbed - emitted) * params.dt_s / cap;
 		// Numerical guard ONLY (not a physics clamp): one step may not move a cell more than this, so a
 		// transient cannot NaN the field. Equilibrium is unaffected — it is reached over many steps.
 		// SUB-STEP rather than truncate. One Euler step of a T^4 sink is only valid while T barely moves;
-		// when it does not, slice the interval and re-evaluate the emission each slice. Energy is conserved
-		// across the slices (each pays its own sigma*eps*T^4), the equilibrium is unchanged, and the cells
-		// that used to lose 25 C/step of real cooling now actually cool.
+		// when it does not, slice the interval and re-evaluate the emission each slice. The equilibrium is
+		// unchanged, and the cells that used to lose 25 C/step of real cooling now actually cool.
 		int slices = int(clamp(ceil(abs(dT) / MAX_DT_PER_STEP), 1.0, float(MAX_SUBSTEPS)));
 		float sub_dt = params.dt_s / float(slices);
 		float t_c = temp[idx];
 		for (int s = 0; s < slices; ++s) {
 			float tk = max(t_c + KELVIN, 1.0);
-			float em = STEFAN * emissivity * tk * tk * tk * tk;
+			float em = lw_self * STEFAN * tk * tk * tk * tk - lw_in;
 			// Still clamp each SLICE, so a pathological cell cannot run away — but with 8 slices this is a
 			// genuine last resort rather than the every-step truncation it had become.
 			t_c += clamp((absorbed - em) * sub_dt / cap, -MAX_DT_PER_STEP, MAX_DT_PER_STEP);

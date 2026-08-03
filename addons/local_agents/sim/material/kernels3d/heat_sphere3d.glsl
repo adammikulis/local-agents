@@ -72,10 +72,14 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer TempIn { float tem
 layout(set = 0, binding = 1, std430) restrict writeonly buffer TempOut { float temp_out[]; };
 layout(set = 0, binding = 2, std430) restrict readonly buffer Neigh { int nbr[]; };
 layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float solid[]; };
-// Water fraction, so an ocean cell conducts and stores heat as WATER rather than as air. This is the ocean's
-// thermal inertia (the same term heat3d_solar_sphere3d already carries as HEAT_CAP_WATER) finally reaching
-// conduction, and it is why a coast is milder than an inland plain at the same latitude.
-layout(set = 0, binding = 4, std430) restrict readonly buffer Water { float water[]; };
+// What the cell is MADE OF, so it conducts and stores heat as that rather than as air. This is the ocean's
+// thermal inertia — the same mix heat3d_solar_sphere3d.glsl uses for its areal capacity — reaching conduction,
+// and it is why a coast is milder than an inland plain at the same latitude. *(snow + rock_fill added
+// 2026-08-03: the solar kernel counted a surface cell's regolith and snowpack in its heat capacity and this one
+// did not, so two kernels in the same pass disagreed about how much heat the same cell holds.)*
+layout(set = 0, binding = 4, std430) restrict readonly buffer Snow { float snow[]; };
+layout(set = 0, binding = 5, std430) restrict readonly buffer Water { float water[]; };
+layout(set = 0, binding = 6, std430) restrict readonly buffer RockFill { float rock_fill[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -98,25 +102,37 @@ layout(push_constant, std430) uniform Params {
 const float LAMBDA_ROCK  = 2.5;      // LAPhysical.THERMAL_CONDUCT_ROCK_W_MK
 const float LAMBDA_AIR   = 0.026;    // LAPhysical.THERMAL_CONDUCT_AIR_W_MK
 const float LAMBDA_WATER = 0.60;     // LAPhysical.THERMAL_CONDUCT_WATER_W_MK
+const float LAMBDA_SNOW  = 0.15;     // LAPhysical.THERMAL_CONDUCT_SNOW_W_MK
 const float RC_ROCK  = 2.436e6;      // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
 const float RC_AIR   = 1186.0;       // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
 const float RC_WATER = 4.171e6;      // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
+const float RC_SNOW  = 6.27e5;       // LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K
 
-// A cell's conductivity and heat capacity from what it is made of. An open cell is air with a water
-// fraction mixed in; a solid cell is rock. (Snow rides the solar kernel's capacity term, not this one —
-// it is a surface skin, and conduction through it is not what sets its temperature.)
+// A cell's conductivity and heat capacity from what it is made of, by VOLUME FRACTION — `water`, `rock_fill`
+// and `snow` are all fractions of the cell (SolidDerivePass: solid iff rock_fill >= 0.5) and air fills the
+// rest. A solid cell is rock. IDENTICAL text in heat3d_solar_sphere3d.glsl (rc_of_cell) and
+// heat3d_buoyancy_sphere3d.glsl (rc_of); change one and change all three, or the same cell will hold a
+// different amount of heat depending on which kernel is looking at it — which it did until 2026-08-03.
 float lambda_of(uint i) {
 	if (solid[i] != 0.0) {
 		return LAMBDA_ROCK;
 	}
-	return mix(LAMBDA_AIR, LAMBDA_WATER, clamp(water[i], 0.0, 1.0));
+	float f_rock = clamp(rock_fill[i], 0.0, 1.0);
+	float f_water = clamp(water[i], 0.0, 1.0);
+	float f_snow = clamp(snow[i], 0.0, 1.0);
+	float f_air = max(0.0, 1.0 - f_rock - f_water - f_snow);
+	return LAMBDA_AIR * f_air + LAMBDA_ROCK * f_rock + LAMBDA_WATER * f_water + LAMBDA_SNOW * f_snow;
 }
 
 float rc_of(uint i) {
 	if (solid[i] != 0.0) {
 		return RC_ROCK;
 	}
-	return mix(RC_AIR, RC_WATER, clamp(water[i], 0.0, 1.0));
+	float f_rock = clamp(rock_fill[i], 0.0, 1.0);
+	float f_water = clamp(water[i], 0.0, 1.0);
+	float f_snow = clamp(snow[i], 0.0, 1.0);
+	float f_air = max(0.0, 1.0 - f_rock - f_water - f_snow);
+	return RC_AIR * f_air + RC_ROCK * f_rock + RC_WATER * f_water + RC_SNOW * f_snow;
 }
 
 void main() {
