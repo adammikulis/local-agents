@@ -116,9 +116,17 @@ func refresh_aggregates() -> void:
 func _ensure_cover_baker() -> void:
 	if _cover_baker != null or _f._sphere == null:
 		return
-	var sea_r: float = 248.0
-	if _f._terrain != null and _f._terrain.has_method("sea_radius"):
-		sea_r = _f._terrain.sea_radius()
+	# Sea radius comes from the terrain service and only from it. A `248.0` default used to sit here,
+	# overwritten on every path that can reach this line: `_sphere` is non-null only after
+	# MaterialField3D.setup_sphere ran, and its two callers (VoxelWorld.gd:334, SimWorld.gd:214) both pass
+	# `_body.terrain()`, an LAVoxelTerrainService that implements sea_radius. So the fallback was dead — and
+	# wrong, by roughly 2x: the live sea shell is at 500 (VoxelWorld.PLANET_SEA_RADIUS), which is the worst
+	# combination, since a value that never runs in testing would silently halve every atmosphere band radius
+	# the one time it did. If the terrain ever does go missing, say so instead of baking a made-up planet.
+	if _f._terrain == null or not _f._terrain.has_method("sea_radius"):
+		push_error("LAMaterialFieldAtmos3D: sphere field has no terrain sea_radius — cover baker not built")
+		return
+	var sea_r: float = _f._terrain.sea_radius()
 	_cover_baker = CoverBakerScript.new()
 	_cover_baker.setup(_f._sphere, sea_r, LAMaterialField3D.FOG_MAX_TEMP, LAMaterialField3D.RAIN_MASS_THRESHOLD,
 		LAMaterialField3D.SAT_BASE, LAMaterialField3D.SAT_TEMP_GAIN, LAMaterialField3D.EVAP_TEMP_REF)

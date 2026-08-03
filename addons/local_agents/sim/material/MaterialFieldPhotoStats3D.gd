@@ -47,14 +47,30 @@ func setup(field) -> void:
 	_f = field
 
 
-## World-space unit vector toward the sun, magnitude carrying insolation — the SAME quantity the field hands
-## the solar kernel (MaterialFieldSphereStep3D.gd:114) and now the reaction engine's derived LIGHT slot, so
-## the light measured here is the light the chemistry sees. No sun node (a bare headless field) -> zero.
+## Sun direction IN THE FIELD'S OWN (body-local) FRAME, magnitude carrying insolation — byte-for-byte the
+## quantity the field hands the solar kernel (MaterialFieldSphereStep3D.gd:158) and the reaction engine's
+## derived LIGHT slot, so the light measured here is the light the chemistry sees. No sun node (a bare
+## headless field) -> zero.
+##
+## THE FRAME IS THE WHOLE POINT, and it was wrong until 2026-08-03. This returned the raw WORLD-space
+## `basis.z`, and `report()` dots it against `_f.cell_radial(c)`, which is BODY-LOCAL — MaterialField3D's
+## cell_radial returns the grid's seeded radial with no basis applied, unlike cell_world_pos which does apply
+## one. VoxelWorld spins the planet every frame (VoxelWorld.gd:600, 0.10 rad/s ≈ one turn per 63 s), so by
+## report time the body basis is at an arbitrary angle and the gauge was lighting the WRONG HEMISPHERE.
+##
+## MEASURED, by computing both frames over the SAME cells at the SAME instant across three 600-frame runs
+## (seed 4242, --fast=8): the two sun directions disagreed by up to **135°**. Yet `light_mean` moved only
+## 8.1% and `light_lit_frac` 7.0% — a rotated hemisphere is still a hemisphere, which is exactly why this
+## survived so long and why light_mean is the WRONG sentinel for a frame error. What the bug destroyed was
+## the light-vs-response CONTRAST: `biomass_dark_mean` was off by up to 99%, and `biomass_lit_dark_ratio`
+## read 1.32 / 1.41 / 1.35 in the world frame against 2.37 / 2.30 / 2.34 in the body frame. Discard any
+## light-vs-growth figure taken before 2026-08-03. dir_to_field is a pure rotation, so insolation carries
+## through untouched.
 func sun_dir() -> Vector3:
 	if _f._sun_light == null:
 		return Vector3.ZERO
 	var insol: float = float(_f._sun_light.get_meta("insolation", 1.0))
-	return _f._sun_light.global_transform.basis.z * insol
+	return _f.dir_to_field(_f._sun_light.global_transform.basis.z * insol)
 
 
 func report() -> Dictionary:
