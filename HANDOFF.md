@@ -76,12 +76,30 @@ charge field. `--planet-only` removes it entirely, which is the mode to use for 
 ## DO THIS NEXT (ranked)
 
 **THE ONE-LINE DIAGNOSIS, from four subsystem audits on 2026-08-03: every subsystem with a conservation
-ledger conserves; every subsystem without one mints.** H₂O and mineral have ledgers and are honest. Carbon,
+ledger conserves; every subsystem without one mints.** H₂O has a ledger and is honest. Carbon,
 oxygen, fertility, biomass and energy had none — and every one of them was creating matter or energy from
 nothing. The measurement gap is not a separate problem from the defects, it is the MECHANISM: where drift
 would have shown, the physics had to be real. Ledgers now exist (`MaterialFieldMassBudget3D`,
-`MaterialFieldEnergyBudget3D`, `MaterialFieldExtremes3D`, `MaterialFieldClimateSwing3D`) — use them, and
-build one before trusting any new subsystem.
+`MaterialFieldEnergyBudget3D`, `MaterialFieldExtremes3D`, `MaterialFieldClimateSwing3D`,
+`MaterialFieldMineralBudget3D`) — use them, and build one before trusting any new subsystem.
+
+*(Corrected 2026-08-03. This paragraph said "H₂O and mineral have ledgers and are honest". **Mineral had no
+ledger** — six absolutes, zero deltas — which is why it was item 8 below. Given one, mineral turns out to be
+the rule's exception in a mild way: 3 runs, `--planet-only`, 600 frames, seed 4242, 5 impacts / 3 eruptions
+each, at `mineral_run_steps` 760 it does not mint, it LEAKS `mineral_net_per_step` **-0.043 / -0.042 /
+-0.041** units per field step — about -0.10% of a ~32000-unit inventory over the run — while the vent's
+declared mantle source runs +0.285/step, so the raw total rises and hid the leak.)*
+
+**8b — THE MINERAL LEAK IS ENTIRELY `FireDustPass`, AND IT IS THE RELEVANCE GATE.** `LA_MINERAL_BUDGET=1`
+(`MaterialFieldMineralProbe3D`, per-pass, same instrument shape as `LA_H2O_BUDGET`) reports `legs_all`
+**0.0000 for eleven of the twelve passes** at every sample — solid_derive, water_slump_lava, lava_cell_list,
+thermal, gas_wind, atmosphere, soil, erosion_pickup, reactions, activity, eco_surface — and `fire_dust`
+-0.0008 → -0.0516/step as `dust` climbs 1.85 → 26.68. Mechanism to check: a stride-skipped cell copies
+`dust_out = dust_in` (`dust_transport_sphere3d.glsl:83`) and never collects flux its running neighbours
+already sent, and `dust_outscale_sphere3d.glsl:77` writes 0.0 for a gated cell, which the transport reads as
+"that neighbour sent nothing". WHAT DECIDES IT: fix the gate to be flux-symmetric, re-run the probe, and
+require `fire_dust` to read 0.0000. Compare with `LA_NO_ACTIVITY_LOD=1` first to confirm the gate is the
+cause.
 
 **1 — NITROGEN HAS NO SOURCE, AND THAT IS WHY THE BIOSPHERE COLLAPSED.** On `feature/energy-balance`.
 Closing the fertility identity (`FERT_PER_DECOMPOSE` 1.5 → 0.05 = the 1/20 C:N ratio of leaf litter, uptake
@@ -164,16 +182,22 @@ pressure, and can run in the same cell as D1 in the same step — a futile cycle
 plate SEEDS and moves no crust, so the Ring of Fire sweeps across stationary continents, and
 `VENT_CHANCE_DIVERGENT = 0.12` is a second undocumented rarity roll beside the one already flagged.
 
-**8 — `mineral_total` HAS NO DRIFT GAUGE.** It is called "the unification's proof object" and reports six
-absolutes and zero deltas, while fed by an admitted "effectively infinite" mantle. Give it the H₂O ledger's
-`*_drift_per_step` and a `LA_MINERAL_BUDGET`, unify the five legs' inclusion masks (`dust_total` masks on
-open cells, the other four do not), and split `mineral_credited` (crater, a real transfer) from
-`mineral_minted` (vent, a source) — they currently land in one gauge, which pollutes the documented
-crater-vs-vent cross-check.
+**8 — CRATERS EXCAVATE NOTHING, so half the mineral ledger has nothing to check.** Measured 2026-08-03 over
+six 600-frame `--planet-only` runs, seed 4242: five impacts every run and `crater_cells 0`, `crater_mass 0.0`,
+`mineral_inject_moved 0.0` in all six. `LAMeteor._on_impact` (`Meteor.gd:337-350`) carves the SDF and then
+routes the substrate half through `_ecology.material_field()`, so the excavation is gated on the ECOLOGY
+service — geology depending on biology, the same shape as "volcanoes waited for rabbits". Either that gate is
+failing or every drawn strike lands where `resample_terrain`'s `is_solid` probe still reads rock
+(`MaterialFieldInject3D.gd:445`). WHAT DECIDES IT: one run with `--auto-meteor` on known land; if
+`crater_cells` is still 0 the gate is the cause, if it is nonzero the ambient strikes are all landing at sea.
+Until this is settled the crater-vs-vent cross-check (`mineral_inject_moved` against `crater_mass`) has only
+one side.
 
 **9 — SMALLER, ALL MEASURED.**
 - `fungus_peak()`, `fungus_cells()`, `detritus_peak()` are hardcoded `return 0.0` in `MaterialField3D.gd` —
   the decomposer loop has been reporting three permanent zeros while `fungus_total` reads real values.
+  (`dust_at()` and `dust_cell_count()` were two more of the same family and were fixed 2026-08-03; these
+  three are what remain.)
 - `MaterialFieldPhotoStats3D.sun_dir()` dots a WORLD-frame sun against a BODY-LOCAL radial, so `light_mean`
   and everything derived from it are only correct at identity rotation.
 - The energy budget's global net is a lava thermometer (`energy_magma_share` 0.94 — 94% of longwave leaves

@@ -25,6 +25,7 @@ const FIELD_CADENCE_MAX: int = 60                       # clamp for the publishe
 const LakesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLakes3D.gd")
 const SoilBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd")
 const H2OBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldH2OBudget3D.gd")
+const MineralProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProbe3D.gd")
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
@@ -37,6 +38,10 @@ var _soil_budget = null
 # on BOTH sides of the GPU step (pre_step arms the driver's between-pass probe, post_step prints), and this loop
 # is the only place that has one.
 var _h2o_budget = null
+# Per-pass MINERAL budget probe (LA_MINERAL_BUDGET) — the same instrument for the five rock phases. It uses the
+# driver's ONE `set_step_probe` slot, so it and the H₂O probe are mutually exclusive; setup() warns and keeps
+# this one when both variables are present, rather than letting one silently take every checkpoint.
+var _mineral_probe = null
 
 # TWO CLOCKS, PUBLISHED SO THEY CAN BE COMPARED. `field_sim_s` is the simulated time the substrate ACTUALLY
 # advanced (STEP_DT per GPU step); `field_offer_s` is the simulated time the physics tick HANDED it (the sum
@@ -54,9 +59,16 @@ func setup(field) -> void:
 	if OS.has_environment("LA_SOIL_BUDGET"):
 		_soil_budget = SoilBudgetScript.new()
 		_soil_budget.setup(field)
+	if OS.has_environment("LA_MINERAL_BUDGET"):
+		_mineral_probe = MineralProbeScript.new()
+		_mineral_probe.setup(field)
 	if OS.has_environment("LA_H2O_BUDGET"):
-		_h2o_budget = H2OBudgetScript.new()
-		_h2o_budget.setup(field)
+		if _mineral_probe != null:
+			push_warning("LA_H2O_BUDGET and LA_MINERAL_BUDGET both set — they share the driver's single "
+				+ "step probe. Running the MINERAL probe only; unset it to get the H2O one.")
+		else:
+			_h2o_budget = H2OBudgetScript.new()
+			_h2o_budget.setup(field)
 
 
 ## Active camera position in the field's own local space (matches the per-cell `pos` buffer's frame),
@@ -222,11 +234,14 @@ func process(delta: float) -> void:
 			_f._inject.queue.audit_rewind(_f._gpu, "moisture", _f._moisture)
 		_f._inject.queue.flush(_f._gpu)
 	var t_step: int = Time.get_ticks_usec()
+	# At most one budget probe is ever non-null (setup() enforces it), so this stays one branch, not a nest.
+	# Untyped like every other duck-typed module handle in this file.
+	var probe = _h2o_budget if _h2o_budget != null else _mineral_probe
 	for i in steps:
-		if _h2o_budget != null:
-			_h2o_budget.pre_step()    # LA_H2O_BUDGET: arm/disarm the driver's between-pass probe for THIS step
+		if probe != null:
+			probe.pre_step()          # arm/disarm the driver's between-pass probe for THIS step
 			_f._gpu.step()
-			_h2o_budget.post_step()   # print the per-pass water budget (no-op on unsampled steps)
+			probe.post_step()         # print the per-pass budget (no-op on unsampled steps)
 		else:
 			_f._gpu.step()
 	LASimReport.gauge("field_dispatch_ms", float(Time.get_ticks_usec() - t_step) / 1000.0)

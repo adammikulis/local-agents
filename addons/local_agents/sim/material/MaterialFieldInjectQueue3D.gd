@@ -45,14 +45,29 @@ var minted: float = 0.0        # mass added with NO source at all (a flood surge
 var buried: float = 0.0        # mass discarded because a cell turned solid with nowhere to displace it to
 var displaced: float = 0.0     # mass a solidifying/melting cell handed to a neighbour instead of stranding
 
-# --- cumulative MINERAL transfer ledger (same mechanism, separate books — see MINERAL_CHANNELS) -------------
+# --- cumulative MINERAL ledger (same mechanism, separate books — see MINERAL_CHANNELS) ----------------------
+#
+# TRANSFER AND SOURCE ARE SEPARATE BOOKS, split 2026-08-03. They used to share one counter named
+# `mineral_credited`, published as `mineral_inject_credited`, whose docstring said it was the crater's excavated
+# bedrock "because rock_fill is debited through its whole-mirror upload". That description was STALE and the
+# gauge measured the opposite thing: the crater has gone through `transfer()` since
+# MaterialFieldInject3D.gd:493-494 (device-resolved, so it lands in `mineral_moved`), and the ONLY `add()` on a
+# mineral channel is the volcanic vent at MaterialFieldInject3D.gd:333 — a declared mantle SOURCE (":296 the
+# deep reservoir is effectively infinite, so mineral_total rises by exactly the mass injected"). So every unit
+# the old gauge ever reported was minted rock booked under a name that claimed it was conserved, which is
+# precisely what pollutes the crater-vs-vent cross-check. Measured on a 600-frame --planet-only run:
+# `mineral_inject_credited` 216.0 with `mineral_inject_moved` 0.0 and `crater_mass` 0.0.
 var mineral_offered: float = 0.0   # mineral mass a transfer's CPU-side scan believed its source held
-var mineral_moved: float = 0.0     # mineral mass actually transferred — device-resolved, so debit == credit
-var mineral_credited: float = 0.0  # mineral mass ADDED to a loose phase against a debit taken elsewhere (a
-                                   # crater's excavated bedrock: rock_fill is debited through its whole-mirror
-                                   # upload, so the matching credit arrives here rather than through transfer()).
-                                   # Compare it with `crater_mass`: equal means the strike moved rock, not
-                                   # destroyed it, and a gap is destroyed mass the loose phases never received.
+var mineral_moved: float = 0.0     # TRANSFER: mass actually moved between phases — device-resolved, so debit
+                                   # == credit and this can never mint. The crater's excavated bedrock (rock
+                                   # -> sediment/dust) is this. Compare it with `crater_mass`: equal means the
+                                   # strike moved rock, not destroyed it, and a gap is destroyed mass the loose
+                                   # phases never received.
+var mineral_minted: float = 0.0    # SOURCE: mass added with NO debit anywhere in the field — the vent drawing
+                                   # on the mantle reservoir outside the simulated shell. Physically honest and
+                                   # deliberately kept, but it means a perfectly conserving substrate still
+                                   # shows a RISING mineral_total, so LAMaterialFieldMineralBudget3D subtracts
+                                   # this before reporting `mineral_net_per_step`.
 
 # AUDIT (LA_INJECT_AUDIT=1): |CPU mirror total - live device total| for a channel at flush time. That gap IS
 # the mass the old set_field-from-the-mirror upload would have written away, so a nonzero reading here is a
@@ -205,7 +220,7 @@ func flush(gpu) -> void:
 			add_cells += (op["src_cells"] as PackedInt32Array).size()
 			var a: float = gpu.add_field_sparse(op["src"], op["src_cells"], op["amounts"], float(op["ceiling"]))
 			if MINERAL_CHANNELS.has(String(op["src"])):
-				mineral_credited += a
+				mineral_minted += a
 			else:
 				minted += a
 	_ops.clear()
@@ -241,12 +256,15 @@ func report() -> Dictionary:
 		"h2o_buried": snappedf(buried, 0.01),
 		"h2o_displaced": snappedf(displaced, 0.01),
 		"h2o_stale_rewind": snappedf(rewind_peak, 0.01),
-		# MINERAL leg (a crater handing its excavated bedrock to sediment/dust). `mineral_inject_moved` is the
-		# DEVICE truth for how much rock a terrain edit actually took out of the bedrock channel, against which
-		# `crater_mass` is only what the (possibly stale) CPU mirror asked for.
+		# MINERAL, in TWO books so the crater-vs-vent cross-check works (see the counters' own comments).
+		# `mineral_inject_moved` is the CRATER: the DEVICE truth for how much rock a terrain edit actually took
+		# out of the bedrock channel, against which `crater_mass` is only what the (possibly stale) CPU mirror
+		# asked for. `mineral_inject_minted` is the VENT: mantle rock entering the field with no debit, which
+		# LAMaterialFieldMineralBudget3D subtracts before judging whether the substrate conserves. The former
+		# key `mineral_inject_credited` is GONE — it reported the vent under a name that claimed conservation.
 		"mineral_inject_offered": snappedf(mineral_offered, 0.01),
 		"mineral_inject_moved": snappedf(mineral_moved, 0.01),
-		"mineral_inject_credited": snappedf(mineral_credited, 0.01),
+		"mineral_inject_minted": snappedf(mineral_minted, 0.01),
 		"inject_flushed_cells": flushed_cells,
 		"inject_add_cells": add_cells,
 	}

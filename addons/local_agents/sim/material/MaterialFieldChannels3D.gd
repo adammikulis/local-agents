@@ -107,6 +107,21 @@ func o2_avg() -> float:
 	return sum / float(n) if n > 0 else LAMaterialField3D.O2_AMBIENT
 
 
+# --- Airborne DUST (the mineral ledger's "airborne" phase) ---------------------------------------------
+
+## Airborne wind-lofted dust at a world point. `dust` is demand-gated exactly like `co2`, so the query
+## self-wakes its readback the same way — without that, a caller reads whatever the last crater left in the
+## mirror, or (far more often) the all-zero allocation. LAMaterialField3D.dust_at used to be a bare
+## `return 0.0`; this is its real body.
+func dust_at(x: float, y: float, z: float) -> float:
+	if _f._gpu != null:
+		_f._gpu.request_channel("dust")
+	if _f._sphere != null and _f._dust.size() == _f._cell_count:
+		var c: int = _f.world_to_cell(Vector3(x, y, z))
+		return _f._dust[c] if c >= 0 else 0.0
+	return 0.0
+
+
 # --- Emergent CARBON DIOXIDE (second gas channel): CO₂ level at a point + build-up diagnostics ---------
 
 func co2_at(x: float, y: float, z: float) -> float:
