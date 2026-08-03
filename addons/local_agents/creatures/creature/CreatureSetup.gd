@@ -71,19 +71,16 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.flock_separation = float(config.get("flock_separation", c.flock_separation))
 	c.flock_radius = float(config.get("flock_radius", c.sense_radius))
 	c.flock_weight = float(config.get("flock_weight", c.flock_weight))
-	c.max_energy = float(config.get("max_energy", 100.0))
-	c.energy = c.max_energy
 	# HP scales with body size: a bigger animal endures more before a blast kills it.
 	c.max_health = float(config.get("max_health", 30.0 + c.size * 120.0))
 	c.health = c.max_health
-	c.metabolism = float(config.get("metabolism", c.metabolism))
-	c.breath_capacity = float(config.get("breath_capacity", c.breath_capacity))
-	c._breath = c.breath_capacity
 	c.breathes = String(config.get("breathes", c.breathes))
-	c.max_hydration = float(config.get("max_hydration", 100.0))
-	c.hydration = c.max_hydration
-	c.thirst_rate = float(config.get("thirst_rate", c.thirst_rate))
-	c.food_value = float(config.get("food_value", c.size * 90.0))
+	# ONE MEASURED BODY MASS DRIVES THE PHYSIOLOGY. This overwrites max_energy / metabolism / thirst_rate /
+	# max_hydration / breath_capacity / food_value, which used to be twenty independently hand-fitted
+	# per-species numbers that did not agree with each other or with biology (a fox and a mouse both burned
+	# 1.7/sec at 260x the difference in mass). See LACreatureBodyMass for which constants are measured facts
+	# and which are unit conversions.
+	LACreatureBodyMass.apply(c, config)
 	c.max_age = float(config.get("max_age", maxf(c.maturity_age * 5.0, 60.0)))
 	# COHORT DESYNC: independent lifespan jitter so an age-matched cohort doesn't die of old age all at once
 	# (the old-age death spike). max_age is not a heritable gene (it tracks maturity_age*5), so this is the only
@@ -166,3 +163,8 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	# speed/max_energy baselines NOW (after config/genome expression) so age can grade them down later.
 	c.senescence = LACreatureSenescence.new()
 	c.senescence.setup(c)
+	# A BODY APPEARED. Register its mass with the field's biota ledger so matter that entered the world by
+	# spawning is counted where a reader can see it, instead of showing up later as an unexplained carbon
+	# surplus when the animal dies and rots into the soil. A BIRTH (genome passed) is excluded: the mother was
+	# already debited the newborn's whole mass, so counting it again would double it.
+	LACreatureBodyMass.note_spawn(c, genome_arg != null)

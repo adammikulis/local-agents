@@ -22,10 +22,6 @@
   "leader_loyalty": 0.0,
   "hierarchy": "family",
   "pop_cap": 12,
-  "max_energy": 65.0,
-  "metabolism": 1.5,
-  "food_value": 22.0,
-  "thirst_rate": 0.6,
   "flock_cohesion": 1.0,
   "flock_alignment": 1.2,
   "flock_separation": 0.7,
@@ -35,5 +31,9 @@
   "hearing_range": 20.0,
   "nests": true,
   "nest_habitat": "tree",
-  "max_age": 130.0
+  "max_age": 130.0,
+  "mass_kg": 0.019,
+  "thermal_strategy": "endotherm_avian",
+  "lower_critical_c": 24.0,
+  "upper_critical_c": 35.0
 }

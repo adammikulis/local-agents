@@ -18,10 +18,6 @@
   "leader_loyalty": 0.0,
   "hierarchy": "family",
   "pop_cap": 60,
-  "max_energy": 75.0,
-  "metabolism": 1.5,
-  "food_value": 30.0,
-  "thirst_rate": 0.6,
   "flock_cohesion": 0.9,
   "flock_alignment": 1.2,
   "flock_separation": 0.7,
@@ -38,5 +34,9 @@
     "vigor": 0.5,
     "maturity": 0.6,
     "display": 2.5
-  }
+  },
+  "mass_kg": 0.028,
+  "thermal_strategy": "endotherm_avian",
+  "lower_critical_c": 22.0,
+  "upper_critical_c": 35.0
 }

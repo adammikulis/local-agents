@@ -7,7 +7,6 @@ extends RefCounted
 ## cues, and the innate→action dispatch all live here. Static + dynamic access on the passed creature (no
 ## cyclic class reference). (Explicit types only, no ':=' inferred typing.)
 
-const DRINK_RATE: float = 45.0             # hydration/sec restored while drinking (mirrors LocalAgentCreature.DRINK_RATE)
 const COMPANION_FOLLOW_DIST: float = 4.0   # a "follow" companion closes to this range, then heels/holds
 
 # Rock-throwing is an OPTIONAL behaviour that depends on the game's LAThrownRock prop. It is resolved
@@ -147,14 +146,44 @@ static func _throw_rock_at(c, prey: Node3D) -> void:
 	rock.throw_at(c.global_position + Vector3(0, c.size, 0), prey, 26.0)
 
 
+## THE MEAL COMES OUT OF THE PREY'S BODY, AND THE CARCASS IS WHAT IS LEFT.
+##
+## This used to bank `prey.food_value * 0.7` into the predator's gut and THEN call `prey.die("eaten")`, which
+## minted a separate full-size carcass out of a size number. One kill produced roughly `size * 103` of meat
+## from a body that had never held any mass at all. Line one was worse still: `var gain: float = c.food_value`
+## sized the meal from the PREDATOR'S own body whenever the prey had no `food_value`, so a fox eating something
+## small ate a fox-sized meal.
+##
+## Now the bite is DRAWN from the prey (`LACreatureBodyMass.draw`, which spends gut then reserve then tissue
+## and can never return more than the animal holds), and the prey dies with the remainder still on it, which
+## `LACreatureRagdoll._become_carcass` reads as the carrion a scavenger can strip. Predator gain + carcass ==
+## the prey's live mass, by construction.
 static func _kill_and_eat(c, prey: Node3D) -> void:
-	var gain: float = c.food_value
-	if prey != null and "food_value" in prey:
-		gain = float(prey.food_value)
-	# The kill fills the GUT (biomass), not energy directly — energy now rises only as it digests (over seconds).
-	var meat: float = gain * 0.7
 	var prey_profile: Dictionary = prey.food_profile() if prey != null and prey.has_method("food_profile") else {}
+	# How much of the body one feeding bout can take: bounded by the predator's own gut room and its bite rate,
+	# not by a fraction of the prey. A fox cannot swallow a whale, and what it leaves is what scavengers get.
+	var room: float = maxf(0.0, float(c.gut_capacity) - float(c.gut))
+	var meat: float = 0.0
+	if prey != null and prey.has_method("draw_body_mass"):
+		meat = float(prey.draw_body_mass(room))
+	elif prey != null and "food_value" in prey:
+		# A prey actor with no body ledger (a node from outside the creature library): take what it declares it
+		# is worth, once, and count it as NODE intake so it is never confused with mass drawn from the field.
+		meat = minf(room, float(prey.food_value))
+		if c._material != null and c._material.has_method("note_biota_node_intake"):
+			c._material.note_biota_node_intake(meat)
+	if meat <= 0.0:
+		# Nothing left on the bone — still kill it (a predator does not un-attack), but eat nothing.
+		if prey != null and prey.has_method("die"):
+			prey.die("eaten")
+		elif prey != null and prey.has_method("queue_free"):
+			prey.queue_free()
+		return
 	LACreatureDigestion.ingest(c, meat, prey_profile)
+	# THE PREY'S BODY WATER comes with its flesh. A carnivore in the field usually does not need to drink,
+	# because meat is about 70% water — and this leg conserves exactly, since it is transferred out of the
+	# animal that was carrying it rather than credited from nothing.
+	_transfer_prey_water(c, prey, meat)
 	LAAudioDirector.emit(c.get_tree(), "chomp", c.global_position)
 	c._emit_call("forage")                     # a kill call: kin nearby learn to hunt this situation
 	_reinforce_cue_success(c)
@@ -165,6 +194,23 @@ static func _kill_and_eat(c, prey: Node3D) -> void:
 		prey.die("eaten")           # leaves a carcass (leftovers for scavengers)
 	elif prey.has_method("queue_free"):
 		prey.queue_free()
+
+
+## Move the water that came with `meat` out of the prey's body and into the predator's. Bounded by what the
+## prey was actually carrying, so this can only ever move water, never make it — a desiccated carcass gives a
+## scavenger nothing to drink, which is exactly why vultures still visit waterholes.
+static func _transfer_prey_water(c, prey, meat: float) -> void:
+	if prey == null or meat <= 0.0 or not is_instance_valid(prey):
+		return
+	if not ("hydration" in prey):
+		return
+	var want: float = minf(meat * LACreatureDigestion.FLESH_WATER_PER_MASS,
+		maxf(0.0, float(c.max_hydration) - float(c.hydration)))
+	var got: float = minf(want, maxf(0.0, float(prey.hydration)))
+	if got <= 0.0:
+		return
+	prey.hydration -= got
+	c.hydration += got
 
 
 # Scavenging is just eating meat-type food off the ground — same unified path as grazing.
@@ -211,13 +257,30 @@ static func _try_eat_food(c, pos: Vector3) -> bool:
 		return false
 	var profile: Dictionary = best.food_profile()
 	var gained: float = 0.0
+	# THE BITE IS BOUNDED BY THE MOUTH AND BY WHAT IS THERE — and it is MASS, not a multiplied value.
+	# `LAFood.state_mult` used to scale the mass taken (rot halved it, cooking multiplied it by 1.6, which
+	# created 60% more matter than the food contained). State now changes DIGESTIBILITY instead, applied where
+	# the gut extracts energy, so what leaves the food is exactly what enters the animal.
+	var bite: float = maxf(float(c.bite_rate), 0.001)
 	if best.has_method("feed"):
-		gained = float(best.call("feed", 30.0)) * LAFood.state_mult(profile)   # a bite of a carcass
+		gained = float(best.call("feed", bite))                                 # a bite of a carcass
 	else:
-		gained = LAFood.value(profile)                                          # a whole plant
-		(best as Node3D).queue_free()
+		# A whole plant: take what the mouth can hold and free the node only once it has actually been
+		# stripped. It used to credit the plant's FULL value in one frame however small the animal, so an ant
+		# swallowed a shrub whole.
+		gained = minf(bite, float(profile.get("value", 0.0)))
+		if gained >= float(profile.get("value", 0.0)) - 0.0001:
+			(best as Node3D).queue_free()
+		elif best.has_method("take_mass"):
+			best.take_mass(gained)
+		else:
+			(best as Node3D).queue_free()                                       # no partial-bite contract: all of it
 	if gained <= 0.0:
 		return false
+	# Plant + carcass NODES are not field channels, so their mass is counted separately and never merged with
+	# what was drawn from the substrate (see LAMaterialFieldBiota3D's carbon-boundary note).
+	if c._material != null and c._material.has_method("note_biota_node_intake"):
+		c._material.note_biota_node_intake(gained)
 	# The bite fills the GUT (biomass) instead of crediting energy directly — energy rises only as it digests.
 	LACreatureDigestion.ingest(c, gained, profile)
 	# TOXIC bite: a poisonous plant still fed the gut, but it also HARMS. Route the poison through the ordinary
@@ -449,8 +512,11 @@ static func execute_action(c, action: String, pos: Vector3, delta: float) -> Dic
 		"flock":
 			return {"heading": c._heading + LACreatureFlocking.steer(c, pos, not c.can_fly), "state": "flock", "speed": c.speed}
 		"drink":
+			# Routed through the ONE drinking path (LACreatureThirst.drink) so this refill debits the puddle
+			# too. It used to be a second copy of the rate constant that refilled hydration with no water cell
+			# touched anywhere — two callers, both of which forgot the debit.
 			if c._material != null and c._material.has_method("is_water_at") and c._material.is_water_at(pos):
-				c.hydration = minf(c.max_hydration, c.hydration + DRINK_RATE * delta)
+				LACreatureThirst.drink(c, pos, delta)
 				return {"heading": c._heading, "state": "drink", "speed": 0.0}
 			return execute_action(c, "seek_water", pos, delta)
 		"seek_water":

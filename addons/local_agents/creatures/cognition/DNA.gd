@@ -45,7 +45,10 @@ const SYMBOL_MAX: int = 3              # a base is 0..3 (A/C/G/T)
 # can enumerate them and so express() reproduces the SAME-named floats. (Plain Array — a PackedStringArray
 # constructor is not a constant expression.)
 const GENE_KEYS: Array = [
-	"speed", "size", "sense_radius", "eye_fov", "metabolism", "max_energy", "thirst_rate",
+	# `metabolism`, `max_energy` and `thirst_rate` are GONE from this list — they are derived from the
+	# species' measured body mass now (LACreatureBodyMass), not authored per species, so nothing sets their
+	# config keys and the loci that carried them are retired below.
+	"speed", "size", "sense_radius", "eye_fov",
 	"maturity_age", "throw_range", "cruise_height",
 	"flock_cohesion", "flock_alignment", "flock_separation", "flock_radius", "flock_weight",
 ]
@@ -65,9 +68,21 @@ const LOCI: Array = [
 	["size", "gene", 2, 0.0, 8.0],
 	["sense_radius", "gene", 2, 0.0, 80.0],
 	["eye_fov", "gene", 2, 0.0, 360.0],
-	["metabolism", "gene", 2, 0.0, 5.0],
-	["max_energy", "gene", 2, 0.0, 400.0],
-	["thirst_rate", "gene", 2, 0.0, 10.0],
+	# THREE LOCI RETIRED, and it is worth saying why rather than leaving them looking live. `metabolism`,
+	# `max_energy` and `thirst_rate` are no longer species data at all: LACreatureBodyMass derives all three
+	# from one measured `mass_kg` (Kleiber for the burn, mass for the reserve, metabolic rate for the water
+	# turnover). A legacy gene only expresses when the species config sets its key, and none of them do any
+	# more, so these three could never reach a phenotype again. They are `reserved` rather than deleted so the
+	# strand LENGTH and every following locus offset are unchanged.
+	#
+	# What supersedes them is real and wired: `basal_metabolism` scales the derived resting rate and
+	# `active_metabolism` scales the exertion cost, both read every frame. HERITABLE BODY MASS is the honest
+	# successor to `max_energy` and is NOT built here — this roster spans five milligrams to four hundred
+	# kilograms, which a linear locus cannot represent, so it needs a log-scaled locus. That is a real
+	# follow-up, not a thing quietly dropped.
+	["_retired_metabolism", "reserved", 2, 0.0, 1.0],
+	["_retired_max_energy", "reserved", 2, 0.0, 1.0],
+	["_retired_thirst_rate", "reserved", 2, 0.0, 1.0],
 	["maturity_age", "gene", 2, 0.0, 120.0],
 	["throw_range", "gene", 2, 0.0, 40.0],
 	["cruise_height", "gene", 2, 0.0, 60.0],
@@ -81,8 +96,19 @@ const LOCI: Array = [
 	["carnivory", "gene", 1, 0.0, 1.0],
 	["neophobia", "gene", 1, 0.0, 1.0],
 	["boldness", "gene", 1, 0.0, 1.0],
-	["basal_metabolism", "gene", 1, 0.0, 3.0],
-	["active_metabolism", "gene", 1, 0.0, 3.0],
+	# METABOLIC-RATE GENES, now actually READ. They sat on the strand from the day they were added and NOTHING
+	# in the codebase consumed either of them — a declared gene that nothing reads is a promise the code does
+	# not keep, exactly like a dead `@export`. `LACreatureBodyMass.apply` multiplies the Kleiber-derived basal
+	# rate by `basal_metabolism`, and `LACreatureMetabolism.tick` multiplies the exertion cost by
+	# `active_metabolism`, so a lineage can evolve toward a thrifty resting animal or a powerful working one
+	# and the two can trade off against each other independently.
+	#
+	# THE RANGE IS NOW THE REAL ONE. It was [0.0, 3.0], where 0.0 means an animal that burns nothing and never
+	# starves — not a phenotype, a bug waiting for a mutation to find it. Intraspecific basal metabolic rate in
+	# a wild vertebrate population varies by roughly ±30% around the species mean after mass is accounted for
+	# (repeatable, heritable, and much studied), so the locus spans that and no more.
+	["basal_metabolism", "gene", 1, 0.7, 1.3],
+	["active_metabolism", "gene", 1, 0.7, 1.3],
 	["scent_acuity", "gene", 1, 0.0, 1.0],
 	["taste_sensitivity", "gene", 1, 0.0, 1.0],
 	["_spacer_c", "spacer", 2, 0.0, 0.0],

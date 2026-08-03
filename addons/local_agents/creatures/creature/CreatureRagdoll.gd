@@ -15,7 +15,18 @@ extends RefCounted
 ## changes groups (leaves its species/creature groups, joins carrion/corpse) and starts decaying.
 ## Static + dependency-free of concrete types (explicit types only, no ':=').
 
-const NUTRITION_PER_SIZE: float = 40.0    # carcass biomass (and carrion food value) per unit of body size
+## A CARCASS WEIGHS WHAT THE ANIMAL WEIGHED. There is no per-size nutrition constant any more.
+##
+## What this replaces: `_become_carcass` did `c._carrion = maxf(c.size, 0.05) * NUTRITION_PER_SIZE` — it
+## conjured a carcass out of a SIZE NUMBER at the instant of death, because the living body was never a mass
+## account at all. Decomposition then fed 100% of that invented mass into `deposit_detritus`, which lands in
+## the `detritus` channel that `LAMaterialFieldMassBudget3D` counts inside `carbon_total`. So every death
+## injected carbon into a ledger the project claims is conserved, and a starved animal that had burned its
+## whole reserve left exactly as much meat as a fat one.
+##
+## Now `_carrion` is `LACreatureBodyMass.body_mass(c)` at the moment of death: structural tissue plus whatever
+## reserve and gut contents were left. An animal that starved to death is worth almost nothing to a scavenger,
+## which is both correct and a real pressure on the scavenger guild.
 const SETTLE_SPEED: float = 0.35          # below this lin+ang speed the shadow counts as resting
 const SETTLE_HOLD: float = 0.4            # seconds it must stay slow before we call it settled
 const MAX_RAGDOLL_TIME: float = 1.0       # hard cap on the tumble before we force-settle (see tick())
@@ -163,7 +174,10 @@ static func _dismiss_shadow(c) -> void:
 # join carrion+corpse so scavengers eat it, freeze its animation, and set its remaining meat value.
 static func _become_carcass(c) -> void:
 	c._dead = true
-	c._carrion = maxf(c.size, 0.05) * NUTRITION_PER_SIZE
+	# The body is the carcass. Draw the whole live mass OUT of the animal's own accounts as we do it, so the
+	# mass exists in exactly one place and a predator that already took a bite finds correspondingly less meat.
+	c._carrion = LACreatureBodyMass.draw(c, LACreatureBodyMass.body_mass(c))
+	c._carrion_initial = c._carrion           # what it weighed when it died — the denominator for rot + shrink
 	c._decay_age = 0.0
 	c.remove_from_group(c._species_group(c.species))
 	c.remove_from_group(c.GROUP_CREATURE)
@@ -194,10 +208,19 @@ static func _forget_carcass(c) -> void:
 	LASimReport.gauge("carcasses", float(_carcasses.size()))   # telemetry: live carcass count (bounded by the cap)
 
 
-# Force a capped-out carcass to vanish now: drop any lingering physics shadow and free the body node.
+# Force a capped-out carcass to vanish now: RETURN WHAT IS LEFT OF IT TO THE SOIL, drop any lingering physics
+# shadow, and free the body node.
+#
+# It used to just `queue_free()`, so hitting MAX_CARCASSES deleted a whole body — every gram of it — out of the
+# world. The cap is a performance backstop against a pathological pileup (a mass die-off in permafrost, where
+# everything mummifies instead of rotting); it is not a licence to destroy matter. Handing the remainder
+# straight to the decomposer loop is the same thing decomposition would have done, only faster.
 static func _despawn_carcass(c) -> void:
 	if not is_instance_valid(c):
 		return
+	if c._carrion > 0.0 and c._material != null and c._material.has_method("deposit_detritus"):
+		c._material.deposit_detritus(c.global_position, c._carrion)
+	c._carrion = 0.0
 	_dismiss_shadow(c)
 	c.queue_free()
 
@@ -209,8 +232,8 @@ static func _despawn_carcass(c) -> void:
 # on it (rides the wind + washes in rain for free), and any diet=scavenger creature can bite via feed().
 static func decay_tick(c, delta: float) -> void:
 	c._decay_age += delta
-	var initial: float = maxf(c.size, 0.05) * NUTRITION_PER_SIZE
-	if initial <= 0.0:
+	var initial: float = maxf(float(c._carrion_initial), 0.0001)
+	if c._carrion <= 0.0:
 		_forget_carcass(c)
 		c.queue_free()
 		return
@@ -267,7 +290,7 @@ static func _update_rot(c) -> void:
 		c._rot_overlay.metallic = 0.0
 		c._rot_overlay.albedo_color = Color(0.13, 0.32, 0.05, 0.0)
 		_apply_overlay(c._model_root if c._model_root != null else c._mesh, c._rot_overlay)
-	var initial: float = maxf(c.size, 0.05) * NUTRITION_PER_SIZE
+	var initial: float = maxf(float(c._carrion_initial), 0.0001)
 	var pt: float = clampf(1.0 - c._carrion / initial, 0.0, 1.0) if initial > 0.0 else 1.0
 	var green: Color = Color(0.13, 0.32, 0.05)
 	var black: Color = Color(0.02, 0.02, 0.02)
@@ -312,7 +335,7 @@ static func feed(c, amount: float) -> float:
 # Unified food model: a carcass is MEAT — fresh at first, then "decayed" (worth less) once decomposition has
 # converted more than 40% of the biomass.
 static func food_profile(c) -> Dictionary:
-	var initial: float = maxf(c.size, 0.05) * NUTRITION_PER_SIZE
+	var initial: float = maxf(float(c._carrion_initial), 0.0001)
 	var consumed_frac: float = clampf(1.0 - c._carrion / initial, 0.0, 1.0) if initial > 0.0 else 1.0
 	var st: String = "decayed" if consumed_frac > 0.4 else "dead"
 	return {"type": "meat", "state": st, "value": c._carrion}

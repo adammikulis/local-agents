@@ -204,11 +204,13 @@ var _atmos = null                                        # LAMaterialFieldAtmos3
 var _ledger = null                                       # LAMaterialFieldLedger3D — conserved H₂O ledger + snow/ice
 var _channels = null                                     # LAMaterialFieldChannels3D — per-cell gas/biomass/phase reads
 var _report_mod = null                                   # LAMaterialFieldReport3D — SIM_REPORT telemetry snapshot
+var _biota = null                                        # LAMaterialFieldBiota3D — the living-body <-> field matter seam
 const AtmosScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldAtmos3D.gd")
 const LedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLedger3D.gd")
 const ChannelsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldChannels3D.gd")
 const ReportScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldReport3D.gd")
 const GeothermScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldGeotherm3D.gd")
+const BiotaScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldBiota3D.gd")
 
 
 func _init() -> void:
@@ -222,6 +224,8 @@ func _init() -> void:
 	_channels.setup(self)
 	_report_mod = ReportScript.new()
 	_report_mod.setup(self)
+	_biota = BiotaScript.new()
+	_biota.setup(self)
 
 
 ## Wire the real scene sun (DirectionalLight3D); the heat module reads its energy + angle for solar input.
@@ -1173,9 +1177,9 @@ func biomass_at(x: float, y: float, z: float) -> float:
 func biomass_total() -> float:
 	return _channels.biomass_total()
 # Emergent DECOMPOSER loop (fungus_sphere3d.glsl): dead matter (detritus) → fungus → CO₂ + soil fertility.
-## Deposit dead decomposable matter at the surface cell under a world point (a rotting carcass, wildfire ash).
-func deposit_detritus(world_pos: Vector3, amount: float) -> void:
-	_channels.deposit_detritus(world_pos, amount)
+# `deposit_detritus` MOVED to the biota block at the end of this file, because the version that lived here
+# never reached the device: it wrote `_f._detritus[c] += amount`, a mirror uploaded once at seed and
+# overwritten by every readback. See LAMaterialFieldBiota3D.litter.
 # Per-cell debug readers for the phase channels (mirror biomass_at/co2_at): molten mineral, bedrock
 # fraction, and pre-lightning electrification. Pure reads for the DebugPanel field-view heatmaps.
 func lava_at(x: float, y: float, z: float) -> float:
@@ -1230,3 +1234,35 @@ func rebuild_surface() -> void:
 ## per frame.
 func report() -> Dictionary:
 	return _report_mod.report()
+
+
+# --- LIVING BODIES <-> FIELD (LAMaterialFieldBiota3D) ---------------------------------------------------
+# Thin forwarders only. Every one of these used to be a hole in the ledger: grazing read a THERMOMETER and
+# took nothing, respiration was a boolean test that consumed no oxygen, drinking emptied no puddle, and the
+# detritus return wrote a mirror the device never sees. The bodies live in the biota module.
+## Take up to `want` of the standing crop under `pos`; returns what the pasture actually had.
+func graze_biomass(pos: Vector3, want: float) -> float:
+	return _biota.graze(pos, want) if _biota != null else 0.0
+## Take up to `want` H₂O out of the world at `pos` (surface water, then the groundwater underfoot).
+func drink_water(pos: Vector3, want: float) -> float:
+	return _biota.drink(pos, want) if _biota != null else 0.0
+## Oxidise `mass` of body tissue at `pos`: debits O₂, credits CO₂ one for one, and warms the cell.
+func respire_at(pos: Vector3, mass: float) -> float:
+	return _biota.respire(pos, mass) if _biota != null else 0.0
+## Return `mass` of body tissue to the soil as litter (a carcass, a dropping, a sunken fish).
+func deposit_detritus(pos: Vector3, mass: float) -> void:
+	if _biota != null:
+		_biota.litter(pos, mass)
+## Body water leaving as vapour (breath, sweat, urine) into the air at `pos`.
+func transpire_at(pos: Vector3, mass: float) -> void:
+	if _biota != null:
+		_biota.transpire(pos, mass)
+## Accounting only: body mass taken from a NODE (a plant, a carcass) rather than from a field channel.
+func note_biota_node_intake(mass: float) -> void:
+	if _biota != null:
+		_biota.note_node_intake(mass)
+## Accounting only: a body appeared with `mass` that no field channel paid for (see the biota module's note on
+## founders versus runtime spawns — a BIRTH is not one of these, the mother is debited for it).
+func note_biota_spawn(mass: float, founder: bool) -> void:
+	if _biota != null:
+		_biota.note_spawn(mass, founder)
