@@ -311,8 +311,30 @@ func erupt_source(world_pos: Vector3, amount: float) -> float:
 		cell += 1
 	if cell > col_top:
 		return 0.0                                    # column solid to the grid's outer edge — nowhere to erupt
-	_f._lava[cell] += amount
-	_f._lava_dirty = true
+	# SPARSE DEVICE ADD, not a mirror edit — the same correction add_water_pooled already carries, for the same
+	# reason, but the consequences here were worse because nothing ever refreshed this mirror.
+	#
+	# This used to be `_f._lava[cell] += amount; _f._lava_dirty = true`, which made the step upload the WHOLE
+	# `_lava` array over the live buffer. `lava` is demand-gated (SITUATIONAL_CHANNELS) and this path never
+	# called request_channel, so the readback scatter's `size() == n` guard never fired and `_lava` was NEVER
+	# refreshed from the device: it stayed a monotonic running total of every deposit ever made, and that total
+	# was written over the GPU's live lava every single step. Two things died there.
+	#   • M5 SOLIDIFY (lava -> rock_fill, a conserving transfer) was UNDONE each step — lava it had just frozen
+	#     into bedrock was restored at full value, so the vent MINTED mineral and its column plugged at the
+	#     speed of the upload rather than the speed of the supply. Every vent height ever measured, including
+	#     the one ISLAND_FREEBOARD was tuned against, was measuring that.
+	#   • lava_flow's lateral spread was ANNIHILATED each step: every cell outside the deposit set was reset to
+	#     the mirror's value, so a pile could only grow straight up, one cell per supply tick. That is the "ten
+	#     one-cell columns with visible gaps" the screenshots show, and it also explains why adding a downslope
+	#     leg to lava_flow moved neither height nor shape — its output was overwritten before it could compound.
+	# The queue applies to the LIVE device buffers and is flushed AFTER the set_field block, which is the
+	# direction the driver's own note ("only moving add_lava onto move_field_sparse would") calls safe. `lava`
+	# is in the queue's MINERAL_CHANNELS, so this still books into the mineral ledger.
+	queue.add("lava", PackedInt32Array([cell]), PackedFloat32Array([amount]))
+	# The CPU mirror still has readers — this function's own size guard, lava_total() for SIM_REPORT, and the
+	# eruption event detector — so keep its readback hot while a vent is active, exactly as add_lava does.
+	if _f._gpu != null:
+		_f._gpu.request_channel("lava")
 	if _f._stamp != null:
 		_f._stamp.arm()                               # wake the SDF stamp — the quenched lava will cross rock_fill 0.5
 	return amount
