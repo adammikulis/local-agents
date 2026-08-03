@@ -1,7 +1,7 @@
-class_name LAMaterialFieldMassBudget3D
+class_name LAMaterialFieldElementInventory3D
 extends RefCounted
 
-## LAMaterialFieldMassBudget3D — CONSERVATION LEDGERS FOR CARBON, OXYGEN, FERTILITY AND BIOMASS, built to the
+## LAMaterialFieldElementInventory3D — CONSERVATION LEDGERS FOR CARBON, OXYGEN, FERTILITY AND BIOMASS, built to the
 ## shape LAMaterialFieldLedger3D already proved on H₂O: a total per substance, and a DRIFT PER FIELD STEP
 ## against the previous sample. The drift is the instrument. A total printed as an absolute cannot show a slow
 ## leak — that is exactly how the water leak hid — and it cannot show minting at all.
@@ -85,6 +85,9 @@ extends RefCounted
 
 ## Every channel this ledger sums, read as ONE read-only device sample (see `report()`).
 const LEGS: PackedStringArray = ["co2", "o2", "detritus", "biomass", "fert", "fungus", "fuel"]
+
+## The one declaration of what each channel is MADE OF, shared with the load-time reaction balance gate.
+const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionBalance.gd")
 
 var _f = null                                # back-reference to the owning LAMaterialField3D
 
@@ -269,6 +272,29 @@ func report(step_index: int) -> Dictionary:
 	# only the three the reaction table moves between.
 	var oxidant: float = o2_open + co2_open
 	var carbon_closed: float = carbon + fung_open + fuel_open
+	# THE ELEMENTAL INVENTORY — the part that is not circular.
+	#
+	# Every total above sums DIFFERENT SUBSTANCES AT 1 UNIT EACH and names the result after an element:
+	# `carbon` adds the co2, biomass and detritus channels; `oxidant` adds o2 and co2. That is only valid if
+	# the reaction coefficients relating those channels are themselves element-balanced — which is precisely
+	# the property this instrument exists to check. It assumed what it was measuring, so it could not detect
+	# the failure it was for. Kept because they localise a leak to one side of the loop, but they are not the
+	# conservation claim.
+	#
+	# These are. Each channel is multiplied by the ELEMENTS one unit of it actually contains, read from
+	# LAReactionBalance.composition() — the SAME declaration the load-time balance gate checks every record
+	# against. The two cannot disagree, because a disagreement would have to be a disagreement with itself.
+	var open_by_channel: Dictionary = {
+		"co2": co2_open, "o2": o2_open, "detritus": det_open, "biomass": bio_open,
+		"fert": fert_open, "fungus": fung_open, "fuel": fuel_open,
+	}
+	var elements: Dictionary = {}
+	for ch in open_by_channel:
+		var parts: Dictionary = BalanceScript.channel_elements(ch)
+		for el in parts:
+			elements[el] = float(elements.get(el, 0.0)) + float(open_by_channel[ch]) * float(parts[el])
+	for el in elements:
+		out["element_" + String(el)] = snappedf(float(elements[el]), 0.01)
 	# NITROGEN, over every pool that holds it. `fert_total` alone answers "how much nutrient can a plant take
 	# up", which is a useful number and NOT a conservation gauge: mineral N and organic N trade places all
 	# day, so a healthy soil makes `fert_total` wander for honest reasons. The conserved quantity is the sum,

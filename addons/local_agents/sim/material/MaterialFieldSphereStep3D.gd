@@ -308,7 +308,7 @@ func _apply_readback(res: Dictionary) -> void:
 	# Hydrostatic column pressure — demand-gated (LAMaterialFieldEnergyBudget3D requests it to mirror the solar
 	# kernel's greenhouse emissivity). Nothing read this channel back before 2026-08-03.
 	if res.has("pressure") and res["pressure"].size() == n: _f._pressure = res["pressure"]
-	# Decomposer loop channels — demand-gated (LAMaterialFieldMassBudget3D requests them for the carbon
+	# Decomposer loop channels — demand-gated (LAMaterialFieldElementInventory3D requests them for the carbon
 	# ledger). Also never read back before 2026-08-03, which is why detritus_peak/fungus_* reported the seed.
 	if res.has("detritus") and res["detritus"].size() == n: _f._detritus = res["detritus"]
 	if res.has("fungus") and res["fungus"].size() == n: _f._fungus = res["fungus"]

@@ -20,7 +20,7 @@ extends RefCounted
 ## What this replaces: `_become_carcass` did `c._carrion = maxf(c.size, 0.05) * NUTRITION_PER_SIZE` — it
 ## conjured a carcass out of a SIZE NUMBER at the instant of death, because the living body was never a mass
 ## account at all. Decomposition then fed 100% of that invented mass into `deposit_detritus`, which lands in
-## the `detritus` channel that `LAMaterialFieldMassBudget3D` counts inside `carbon_total`. So every death
+## the `detritus` channel that `LAMaterialFieldElementInventory3D` counts inside `carbon_total`. So every death
 ## injected carbon into a ledger the project claims is conserved, and a starved animal that had burned its
 ## whole reserve left exactly as much meat as a fat one.
 ##

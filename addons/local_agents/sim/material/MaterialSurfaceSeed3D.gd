@@ -65,7 +65,7 @@ const BASELINE_DETRITUS: float = 0.15
 # (biomass_open_total 6.65 -> 3.07). That was a collateral change to the world, not a conservation fix.
 #
 # WHAT IS STILL OWED, and it is not this module's to fix: those 216 units are carbon-bearing and
-# `MaterialFieldMassBudget3D` counts `fuel_open_total` only as a MEMO LINE beside `carbon_total`, so burning
+# `MaterialFieldElementInventory3D` counts `fuel_open_total` only as a MEMO LINE beside `carbon_total`, so burning
 # fuel still moves carbon from outside the books to inside them. The seed is now small, declared and reported
 # (`fuel_seeded`), but the accounting gap closes properly only when the budget module adds fuel to the carbon
 # sum — that file is another track's.

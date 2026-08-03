@@ -259,7 +259,7 @@ func fungus_at(x: float, y: float, z: float) -> float:
 ##
 ## SHAPE, because a peak alone is one sample used to argue about a distribution: `*_peak` cannot tell a single
 ## thick bloom from a planet-wide mat, so extent (`*_cells`) is reported beside it and
-## LAMaterialFieldMassBudget3D already carries the totals (`fungus_total`, `carbon_detritus`). Total + extent
+## LAMaterialFieldElementInventory3D already carries the totals (`fungus_total`, `carbon_detritus`). Total + extent
 ## + peak is the smallest set that separates "thin everywhere" from "one patch". `detritus_cells` is NEW —
 ## detritus had a peak and no extent, so nothing in the report said whether the food the fungus eats was
 ## spread over the planet or piled in one place, which is the whole question about a decomposer.

@@ -74,7 +74,7 @@ var _stranded_cells: int = 0    # set by stranded_soil_total(); reported beside 
 var _prev_h2o: float = NAN
 var _prev_step: int = -1
 # Run-level anchor: the first sample this run, so drift can be amortised over the whole horizon instead of
-# only the gap between two consecutive samples. Same shape as LAMaterialFieldMassBudget3D's `_first_*` set.
+# only the gap between two consecutive samples. Same shape as LAMaterialFieldElementInventory3D's `_first_*` set.
 var _first_h2o: float = NAN
 var _first_step: int = -1
 
@@ -292,7 +292,7 @@ func stranded_soil_total() -> float:
 ## That gap mattered because H₂O is the ledger this codebase holds up as its worked example of a sound one —
 ## the shape every other budget was told to copy. Carbon, oxygen, fertility and biomass each got a run-level
 ## counterpart when the mass budget landed (`carbon_first` / `carbon_run_drift_per_step` and siblings, in
-## LAMaterialFieldMassBudget3D); water, the oldest ledger, never did. So it takes the same shape and the same
+## LAMaterialFieldElementInventory3D); water, the oldest ledger, never did. So it takes the same shape and the same
 ## names: remember the first sample of the run, amortise the change over every step since. A slow leak shows
 ## up there and cannot hide in the noise of a four-step window.
 func conservation_report(step_index: int) -> Dictionary:

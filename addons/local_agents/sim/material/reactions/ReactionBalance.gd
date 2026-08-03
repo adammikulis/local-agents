@@ -16,38 +16,41 @@ extends RefCounted
 ## record is checked at load (LAMaterialReactions3D.records() refuses the whole table on a violation) and
 ## again by `scripts/check_reaction_balance.sh`, which CI runs through `scripts/agent_harness.sh lint`.
 ##
-## WHAT "BALANCE" MEANS HERE, precisely. Each channel SLOT is declared below as a quantity of one or more
-## CONSERVED SUBSTANCES. A record balances when, for every substance, the sum over its products equals the
-## sum over its reactants. The five substances, and what each one is:
+## WHAT "BALANCE" MEANS HERE, precisely. Each channel SLOT is declared below as the ELEMENTS one unit of it
+## contains. A record balances when, for every element, the sum over its products equals the sum over its
+## reactants. Five elements:
 ##
-##   carbon   — carbon atoms. CO₂ carries 1 per unit; living and dead organic matter (biomass, detritus,
-##              fungus, cured fuel) carries 1 per unit. This is what the `carbon_total` ledger sums.
-##   nitrogen — nitrogen atoms. FERT is plant-available mineral N (1 per unit). Organic matter carries N at
-##              its measured C:N ratio (LAPhysical.LITTER_C_TO_N). That single declaration is what makes
-##              "mineralisation releases the nitrogen that was ALREADY in the litter" a structural fact
-##              rather than a coincidence between two constants somebody set equal by hand.
-##   h2o      — water molecules. Liquid WATER, atmospheric MOISTURE, frozen SNOW and the rooting column's
-##              SOIL_ROOT are one substance in different phases and places.
-##   mineral  — rock mass. Bedrock ROCK_FILL, molten LAVA, loose SEDIMENT, airborne DUST and waterborne SUSP
-##              are one substance; every geological record is a phase transfer between them.
-##   oxidant  — O₂-EQUIVALENTS, i.e. oxidising capacity. This is the one that is not a plain atom count, and
-##              it is the one that closes oxygen ANALYTICALLY. Free O₂ carries 1 per unit. CO₂ carries 1 as
-##              well, because a fully oxidised carbon has one O₂-equivalent bound into it; REDUCED carbon
-##              (organic matter) carries 0. Photosynthesis (CO₂ → organic + O₂) therefore moves one oxidant
-##              unit out of CO₂'s bound form into free O₂, and respiration or decomposition (organic + O₂ →
-##              CO₂) moves it straight back. Any record where O₂ consumed differs from CO₂ produced fails
-##              this sum — which is exactly the R15 bug, caught by arithmetic instead of by a person noticing.
+##   C - carbon atoms.    N - nitrogen atoms.    H - hydrogen atoms.    O - oxygen atoms.
+##   M - mineral mass, the one lumped species: bedrock ROCK_FILL, molten LAVA, loose SEDIMENT, airborne DUST
+##       and waterborne SUSP are one substance, and every geological record is a phase transfer between them.
+##       Silicate stoichiometry is not modelled, so M is a mass rather than an atom count. Nothing converts
+##       between M and the other four, so it never needs to be.
 ##
-## WHY NOT FULL HYDROGEN/OXYGEN ATOM ACCOUNTING. Photosynthesis really is CO₂ + H₂O → CH₂O + O₂: one water
-## molecule per carbon. That leg is deliberately NOT modelled, and saying so is the point of this paragraph.
-## Real transpiration moves 200-1000 molecules of water per molecule of CO₂ fixed (the transpiration ratio),
-## so the stoichiometric water is under half a percent of what a plant actually moves, and the substrate
-## models the transpiration — R19 debits SOIL_ROOT and credits MOISTURE by the same coefficient. Folding the
-## stoichiometric leg in at coefficient 1.0 against a transpiration coefficient of 0.05 would make this
-## simulation's photosynthesis consume twenty times more water than it transpires, which is backwards by
-## three orders of magnitude. The `oxidant` bookkeeping carries the O₂ that splitting that water releases, at
-## exactly the 1:1 ratio the real reaction has, so nothing about oxygen is lost by the simplification. It is
-## a stated modelling choice with a number attached, not an unexamined gap.
+## THE COMPOSITIONS ARE THE ORDINARY MOLECULAR ONES. CO2 is C1 O2. Free O2 is O2. Liquid WATER, atmospheric
+## MOISTURE, frozen SNOW and the rooting column's SOIL_ROOT are all H2 O1 - one substance in four phases and
+## places. Living and dead organic matter (BIOMASS, DETRITUS, FUNGUS, cured FUEL) is CH2O, the carbohydrate
+## unit, plus nitrogen at the measured C:N ratio of the material (LAPhysical.LITTER_C_TO_N). FERT is
+## plant-available mineral nitrogen. Photosynthesis, respiration and decomposition then balance as the real
+## reactions do -- CO2 + H2O -> CH2O + O2, and CH2O + O2 -> CO2 + H2O -- and the identity BioRecords.gd used
+## to assert in prose, "O2 consumed == CO2 produced", falls out of the oxygen column instead of being
+## maintained by hand.
+##
+## THIS TABLE IS THE ONE DECLARATION, AND THE INVENTORY READS IT TOO. LAMaterialFieldElementInventory3D sums
+## the field's channels through this same `composition()`, which is what stops the instrument being circular.
+## Before 2026-08-03 the budget summed the CO2, biomass and detritus channels at 1 unit each and called the
+## total "carbon" - true only if the reaction coefficients relating those three are carbon-balanced, which is
+## exactly the property the gauge existed to check. It assumed what it was measuring, so it could not detect
+## the failure it was for. The records and the inventory cannot disagree now, because a disagreement would
+## have to be a disagreement with itself.
+##
+## THE STOICHIOMETRIC WATER IS MODELLED, AND IT WAS NOT BEFORE. An earlier version of this file declared an
+## `h2o` substance and an `oxidant` (O2-equivalent) pseudo-substance instead of H and O atoms, and argued
+## that photosynthesis's one-water-per-carbon leg could be left out because real transpiration moves 200-1000
+## waters per carbon fixed, making the stoichiometric leg well under a percent of a plant's throughput. That
+## argument is sound about REALITY and unsound about THIS substrate, whose transpiration coefficient is 0.05
+## rather than 400 - so the leg it dismissed as negligible is twenty times the one it kept. Leaving it out
+## also meant hydrogen and oxygen had no accounting at all. R19 now debits SOIL_ROOT by
+## (1.0 + PHOTO_WATER_COST), and R15/R20 credit the water their oxidation releases.
 ##
 ## SLOTS WITH NO SUBSTANCE. TEMP is energy, not matter. WINDSPEED, LIGHT and FIRE are derived drivers or
 ## intensities, not stocks. None may appear as a reactant or a product — a record that "produces" degrees or
@@ -86,28 +89,53 @@ static func driver_only() -> PackedInt32Array:
 	return PackedInt32Array([DefsScript.TEMP, DefsScript.WINDSPEED, DefsScript.LIGHT, DefsScript.FIRE])
 
 
-## Slot -> { substance: amount per unit of the channel }. A slot absent from BOTH this table and
-## driver_only() is an authoring error and the gate says so, rather than silently treating it as massless.
+## Slot -> { ELEMENT: atoms per unit of the channel }. A slot absent from BOTH this table and driver_only()
+## is an authoring error and the gate says so, rather than silently treating it as massless.
+##
+## THE INVENTORY READS THIS SAME FUNCTION (LAMaterialFieldElementInventory3D), which is what stops the
+## conservation gauge from assuming the property it exists to check.
 static func composition() -> Dictionary:
-	var organic: Dictionary = {"carbon": 1.0, "nitrogen": 1.0 / LAPhysical.LITTER_C_TO_N}
+	# CH2O plus the nitrogen the material actually carries, at its measured C:N ratio.
+	var organic: Dictionary = {"C": 1.0, "H": 2.0, "O": 1.0, "N": 1.0 / LAPhysical.LITTER_C_TO_N}
+	var water: Dictionary = {"H": 2.0, "O": 1.0}
+	var mineral: Dictionary = {"M": 1.0}
 	return {
-		DefsScript.WATER: {"h2o": 1.0},
-		DefsScript.MOISTURE: {"h2o": 1.0},
-		DefsScript.SNOW: {"h2o": 1.0},
-		DefsScript.SOIL_ROOT: {"h2o": 1.0},
-		DefsScript.O2: {"oxidant": 1.0},
-		DefsScript.CO2: {"carbon": 1.0, "oxidant": 1.0},
+		DefsScript.WATER: water,
+		DefsScript.MOISTURE: water,
+		DefsScript.SNOW: water,
+		DefsScript.SOIL_ROOT: water,
+		DefsScript.O2: {"O": 2.0},
+		DefsScript.CO2: {"C": 1.0, "O": 2.0},
 		DefsScript.BIOMASS: organic,
 		DefsScript.DETRITUS: organic,
 		DefsScript.FUNGUS: organic,
 		DefsScript.FUEL: organic,
-		DefsScript.FERT: {"nitrogen": 1.0},
-		DefsScript.LAVA: {"mineral": 1.0},
-		DefsScript.ROCK_FILL: {"mineral": 1.0},
-		DefsScript.SEDIMENT: {"mineral": 1.0},
-		DefsScript.DUST: {"mineral": 1.0},
-		DefsScript.SUSP: {"mineral": 1.0},
+		DefsScript.FERT: {"N": 1.0},
+		DefsScript.LAVA: mineral,
+		DefsScript.ROCK_FILL: mineral,
+		DefsScript.SEDIMENT: mineral,
+		DefsScript.DUST: mineral,
+		DefsScript.SUSP: mineral,
 	}
+
+
+## The stored channels the inventory sums, mapped to the slot whose composition they carry. SOIL_ROOT is
+## deliberately absent: it is a DERIVED VIEW of the `soil` channel (the regolith column beneath an open
+## cell), so counting both would count the same water twice.
+const INVENTORY_CHANNELS: Dictionary = {
+	"water": 1, "moisture": 2, "snow": 12, "soil": 1,
+	"o2": 3, "co2": 4,
+	"biomass": 11, "detritus": 7, "fungus": 8, "fuel": 5, "fert": 9,
+	"lava": 10, "rock_fill": 17, "sediment": 13, "dust": 14, "susp": 15,
+}
+
+
+## Elements a unit of `channel` contains. Empty for a channel that carries no matter.
+static func channel_elements(channel: String) -> Dictionary:
+	var slot: int = int(INVENTORY_CHANNELS.get(channel, -1))
+	if slot < 0:
+		return {}
+	return composition().get(slot, {})
 
 
 ## Slot number -> the constant NAME that declares it, read off LAReactionDefs so it cannot drift from the
