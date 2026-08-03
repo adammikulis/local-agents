@@ -124,10 +124,21 @@ With the pinned core gone the planet is solar-driven, and it drifts COLD over a 
 `temp_min` -9.1 / -26.0 / -33.2, `snow_cells` 97 / 184 / 299, `energy_imbalance_cool` -0.83 / -2.29 /
 -3.38. The books say why: the sub-solidus surface emits several times what it absorbs and never closes.
 It is livable at the 600-frame acceptance horizon and heading somewhere colder after it.
+
+The matched pre-change arm at 2000 frames, same seed and the SAME disaster draw (11 impacts, 6
+eruptions), is not a counter-example — it is worse, in the other direction: `temp_ground_p90` **353.4 °C**
+against 23.1, `temp_min` **+0.2 °C** (the planet could not reach freezing at all), `snow_cells` 0 against
+299, `energy_imbalance_cool` **-44.0** against -3.4, `energy_clamped_cells` 488 against 10. So the drift
+is not a regression; it is what a planet with no fictional heat source does, and the old build was not
+stable either, it was pinned.
+**Not caused by this:** `biomass_total` ends at 0.45 after 2000 frames — but the matched pre-change run
+ends at 0.82, and `fert_total` drains to 0.05/0.06 in BOTH. The vegetation collapse is the known
+pre-existing one (#6), not the new climate.
 **What would DECIDE it:** run 4000-6000 frames and see whether `temp_ground_p50` asymptotes or keeps
-falling. If it keeps falling, the missing term is almost certainly the ocean thermostat in #4b — a 26 °C
-sea by fiat is currently the only thing holding the surface up, and it does not participate in the energy
-balance at all, so the books cannot close while it exists.
+falling, and watch `snow_cells` for an ice-albedo runaway. If it keeps falling, the missing term is
+almost certainly the ocean thermostat in #4b — a 26 °C sea by fiat is currently the only thing holding
+the surface up, and it does not participate in the energy balance at all, so the books cannot close
+while it exists.
 
 **4b — THE OCEAN IS A THERMOSTAT, NOT A BODY OF WATER, AND IT IS STILL THERE.** *(Corrected 2026-08-03.
 Item #5 below claimed "the ocean thermostat that used to quench it is already deleted on
