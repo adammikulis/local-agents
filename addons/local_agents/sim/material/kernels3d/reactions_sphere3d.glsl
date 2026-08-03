@@ -88,6 +88,12 @@ layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float 
                        // over the permeable REGOLITH cells directly beneath this open cell (the regolith mask,
                        // not the solidity mask; they diverge). See root_soil().
 #define VAPOUR_DEFICIT 20  // DERIVED driver: sat(T) - moisture, SIGNED. The phase rule — see sat_mass_frac().
+#define SOIL_TOP  21   // DERIVED, WRITABLE: the soil of the FIRST regolith cell beneath this open cell — the
+                       // shallow DRYING FRONT. Roots reach the whole rooting column (SOIL_ROOT); evaporation
+                       // does not. Vapour has to diffuse out through the pores, so bare-soil evaporation
+                       // draws from the surface layer and the water below it is simply out of reach — which
+                       // is why a real profile dries top-down and why the exposed shell is the one that
+                       // thins. Using SOIL_ROOT here would have evaporated the bottom of the aquifer.
 
 // --- THE PHASE RULE ----------------------------------------------------------------------------------------
 // How much water air holds is the SATURATION VAPOUR PRESSURE at its temperature, and nothing else. Written
@@ -205,6 +211,17 @@ float light_at(uint i) {
 // cells strictly inward of itself. The columns are DISJOINT by construction, exactly as before, and this is
 // the step that keeps them so: without the stop-on-open rule the regolith walk would run straight THROUGH an
 // opened aquifer cell into a column another thread is already writing.
+// The FIRST regolith cell beneath an open cell, or -1. Race-free for writes: the inward-neighbour mapping is
+// injective, so no two reacting cells share one, and the column below it still belongs to root_soil's walk.
+int top_regolith(uint i) {
+	int c = nbr[i * 6u + 0u];
+	if (c < 0 || regolith[c] == 0.0) {
+		return -1;
+	}
+	return c;
+}
+
+
 float root_soil(uint i) {
 	float sum = 0.0;
 	int c = nbr[i * 6u + 0u];
@@ -271,6 +288,7 @@ float read_ch(int slot, uint i) {
 	if (slot == LIGHT)     return light_at(i);
 	if (slot == SOIL_ROOT) return root_soil(i);
 	if (slot == VAPOUR_DEFICIT) return sat_mass_frac(temp[i]) - moisture[i];
+	if (slot == SOIL_TOP) { int c = top_regolith(i); return (c < 0) ? 0.0 : soil[uint(c)]; }
 	return 0.0;
 }
 
@@ -300,6 +318,7 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == LAVA)     { lava[i]      = max(0.0, lava[i]     + v); }
 	else if (slot == ROCK_FILL) { rock_fill[i] = max(0.0, rock_fill[i] + v); }  // may exceed 1.0 (accreted rock); clamp only at 0
 	else if (slot == SOIL_ROOT) { root_soil_draw(i, -v); }                     // roots draw water OUT of the column (v < 0)
+	else if (slot == SOIL_TOP)  { int c = top_regolith(i); if (c >= 0) { soil[uint(c)] = max(0.0, soil[uint(c)] + v); } }
 }
 
 // Gate helpers reuse the exact neighbour tests proven in the dissolved kernels.

@@ -87,11 +87,19 @@ The planet changed a great deal on 2026-08-03; anything older than this table is
 
 | | |
 |---|---|
-| `soil_total` 3357 | `h2o_total` 7034 |
-| `sediment_total` 260 | `susp_total` 42.5 |
+| `soil_total` 3232 | `h2o_total` 5034 |
+| `sediment_total` 317 | `susp_total` 45 |
+| `moisture_total` 0.97 | `cloud_cover` 0.185 |
 | `erosion_cells` 134 | `mineral_total` 32192 |
 | `hotspring_cells` 281 | `rock_core_c` 292.8 |
-| `temp_ground_p50` 17.6 | `energy_imbalance_cool` ≈ −0.27 |
+| `temp_ground_p50` 15.7 | `energy_imbalance_cool` ≈ −0.27 |
+
+*(Water figures corrected 2026-08-03 on `feature/real-hydrology`. They read `soil_total` 3357, `h2o_total`
+7034, `moisture_total` ~2100-2400. **`h2o_total` is lower because the planet is seeded with less groundwater,
+not because water was lost.** The old aquifer seed was `SOIL_CAPACITY 0.6 x 0.5`, and 0.6 is above the
+porosity of every real granular material; capacity is now the cell's POROSITY under Athy compaction, mean
+0.141. Measured seed 5331.17, held to two decimals across 257 sampled steps with `LA_H2O_BUDGET`. The
+`moisture_total` collapse is the saturation curve going from a hand-written 0.06 to the real 1.95e-5.)*
 
 Disaster load 8–9 phenomena / 5 impacts / 3–4 eruptions; `field_step` 590; `field_sim_s` 79.8.
 
@@ -175,21 +183,37 @@ boundary condition on the crust, not a term in the surface budget.
   `VENT_CHANCE_DIVERGENT = 0.12`, which sits beside a sibling carrying a 20-line justification.
 - **Craters excavate nothing**, so half the mineral ledger has nothing to check.
 
-### 4 — THE PLANET IS WET NOW, AND EVERY CONSTANT DOWNSTREAM OF RAIN WAS FITTED WHILE IT WAS DRY
+### 4 — HYDROLOGY IS REAL NOW, AND EVERYTHING DOWNSTREAM OF RAIN WAS FITTED WHILE IT WAS NOT
 
-The aquifer gained capillary retention, so groundwater is 3474 units of H₂O that used to be in the sky:
-`moisture_total` 3742 → 2139, `cloud_cells` 4210 → 373, and with less rain `sediment_total` 967 → 282,
-`susp_total` 70 → 17. **Decide it by measuring whether erosion now carves drainage to the sea over a long
-horizon**, not by moving a constant back to where it made the old numbers look right.
+*(Rewritten 2026-08-03. The paragraph here quoted `moisture_total` 3742 → 2139 and `cloud_cells` 4210 → 373 as
+evidence about capillary retention. Those numbers were measured against a saturation curve 3080x too large and
+a rain threshold three times saturation, so none of them mean what they appear to; do not compare anything to
+them.)*
 
-- **The atmosphere holds ~30% of the planet's H₂O. Earth holds ~0.001%.** Still off by four orders. Compare
-  `moisture_total` against `water_total + soil_total`: a planet whose air outweighs its ocean is wrong however
-  the individual numbers look.
-- **`CONDUCT = 0.35` is ONE hydraulic conductivity for all regolith.** Real K spans ~12 orders of magnitude by
-  material. Same design smell as one thermal physiology per creature. Needs per-cell permeability, which the
-  binary `regolith` mask cannot carry.
-- **Soil water has no evaporative sink.** Root uptake is the only path out, ~0.03/step against a ~3400-unit
-  reservoir. Real evapotranspiration is the dominant soil-water loss.
+Evaporation is the H₂O phase rule — saturation vapour pressure at the local temperature — and it now runs as
+three records on one saturation-deficit driver over water, soil and snow, with the bespoke evaporation kernel
+and its seven fitted constants deleted. Hydraulic conductivity is Kozeny-Carman from per-cell porosity and
+grain size, spanning K = 2.4e-6 to 1.0e-1 m/s instead of one number. **Decide whether erosion carves drainage
+to the sea over a long horizon by RUNNING one**, not by moving a constant back to where it made the old
+numbers look right — and see the first bullet below for how long "long" now is.
+
+- **Rain and groundwater now run at REAL rates, and a 600-frame run is 0.4 planet-days.** That is the thing to
+  understand before reading any hydrology number. `real_seconds_per_step()` is 43.2 s, so 590 field steps is
+  about 7 hours of planet time — during which Earth gets ~1 mm of rain and its groundwater moves ~0.1 m. The
+  old build showed rivers inside a run because its sky held 3080x too much water and its regolith conducted at
+  K = 4.05 m/s, twenty-six times the coarsest natural gravel. Anything slow-emergent in hydrology now needs
+  thousands of frames, not hundreds. **Decide "do rivers run" with a 4000+ frame run, not by moving a rate.**
+- **Latent heat is NOT coupled: evaporation does not cool and condensation does not warm.** This is the one
+  thing the phase rule needs that the substrate cannot yet express — converting L_v into a temperature change
+  needs a per-cell heat capacity at the reaction engine's hands, and `add_ch(TEMP, v)` adds bare degrees. It is
+  a real negative feedback on the water cycle and on surface temperature, and it is missing. No constant was
+  added for it, deliberately: an unused `LATENT_HEAT_*` in `LAPhysical` would be a promise the code does not
+  keep. **Decide it by giving the reaction engine a heat-capacity slot, then adding `[TEMP, -L_v/(rho c)]` as
+  a product on R23/R24/R25.**
+- **The atmosphere still holds ~1.7x saturation on average**, i.e. the standing cloud-water load is high
+  (`moisture_total` 0.97 against ~0.57 of saturation summed over open cells, `cloud_cover` 0.185 against
+  Earth's ~0.67). Kessler autoconversion is the only sink aloft. **Decide it by measuring the condensate
+  against `sat` per cell, not by moving `AUTOCONVERSION_RATE_PER_S`.**
 - **4b — arming the geotherm costs the water table.** The path is real (hot regolith → spring → >100 °C →
   steam) and H₂O stays conserved, but the *rate* is not defensible because **recharge is missing**.
 - **4c — live airborne dust costs the water table a quarter of itself and nobody knows why.** A *forced* 14%
@@ -203,9 +227,7 @@ mineral at every horizon). Untested is whether it carves **drainage to the sea**
 2.445 → 2.560 in *both* arms at 80 sim-seconds, so the landscape has not responded yet. Wants
 `--run-frames=2000`+, not a constant.
 
-**Two warts found in the transport work:** `susp` sealed inside rock is frozen forever (reactions skip solid
-cells, so suspension in a cell that later crosses the solid threshold never returns — it is most of
-`susp_total`); and `mineral_total` rides a **demand-gated mirror** — `rock_fill` is in `SITUATIONAL_CHANNELS`
+**One wart found in the transport work:** `mineral_total` rides a **demand-gated mirror** — `rock_fill` is in `SITUATIONAL_CHANNELS`
 and only refreshes while something arms it, so the ledger's 99% term can be stale.
 
 ### 6 — SMALLER, ALL MEASURED

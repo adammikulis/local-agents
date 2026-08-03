@@ -60,6 +60,10 @@ const SOIL_ROOT: int = 19
 # humidity is not a fact, and it was what actually bounded this planet's sky water.
 # DERIVED driver only; never a product or reactant target.
 const VAPOUR_DEFICIT: int = 20
+# SOIL_TOP is the shallow DRYING FRONT: the soil of the first regolith cell beneath an open cell. Roots reach
+# the whole rooting column (SOIL_ROOT above); evaporation does not, because vapour has to diffuse out through
+# the pores and the water below the surface layer is simply out of reach. DERIVED, WRITABLE.
+const SOIL_TOP: int = 21
 
 # --- Rate models (extent x per cell) ---------------------------------------------------------------------
 const CONST_FRAC: int = 0             # x = k * driver

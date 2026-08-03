@@ -88,9 +88,9 @@ const SURFACE_WIND_M_S: float = 7.0              # global mean 10 m wind over oc
 # BILINEAR on (VAPOUR_DEFICIT x SOIL_ROOT), so a saturated column evaporates at the resistance limit and a
 # dry one evaporates in proportion to what it still holds — supply-limited stage-2 drying (Ritchie 1972) as
 # an emergent consequence of the reservoir, with no threshold and no separate dry-soil branch. `k` is
-# normalised so the reference state is a SATURATED rooting column.
+# normalised so the reference state is a SATURATED SURFACE SHELL (its porosity at zero burial, 0.36).
 const SOIL_SURFACE_RESISTANCE_S_M: float = 1000.0
-const SATURATED_ROOT_COLUMN: float = 1.6         # REGOLITH_CELLS (4) x LAPhysical.REGOLITH_SURFACE_POROSITY (0.40)
+const SATURATED_SURFACE_LAYER: float = 0.36      # a saturated surface shell = its porosity at zero burial
 
 
 ## Per-step evaporation extent per unit of vapour deficit — see the block above. Derived from the substrate's
@@ -105,7 +105,7 @@ static func _evap_k() -> float:
 static func records() -> Array:
 	var evap_k: float = _evap_k()
 	var r_a: float = 1.0 / (VAPOUR_TRANSFER_COEFF * SURFACE_WIND_M_S)
-	var soil_k: float = evap_k * (r_a / (r_a + SOIL_SURFACE_RESISTANCE_S_M)) / SATURATED_ROOT_COLUMN
+	var soil_k: float = evap_k * (r_a / (r_a + SOIL_SURFACE_RESISTANCE_S_M)) / SATURATED_SURFACE_LAYER
 	return [
 		# R23 — EVAPORATION (liquid water → atmospheric moisture). The phase rule at a free water surface:
 		# x = max(0, sat(T) - moisture) * evap_k, capped by the WATER present. The extent can never exceed the
@@ -119,10 +119,12 @@ static func records() -> Array:
 		# ground: wet soil in unsaturated air evaporates for exactly the reason the sea does. This is the leg
 		# that was missing entirely — root uptake was the only path out of the aquifer, measured at 0.03 per
 		# step against a 3400-unit reservoir, which is why the water table could only ever fill.
-		# BILINEAR on (deficit x rooting-column water): supply-limited, so a saturated column evaporates at the
-		# soil-resistance limit and a drying one tapers with what it still holds — no threshold anywhere.
-		rec(BILINEAR, soil_k, VAPOUR_DEFICIT, [[SOIL_ROOT, 1.0]], [[MOISTURE, 1.0, TGT_SELF]],
-			GATE_NEAR_GROUND | GATE_AIR_ABOVE, 0.0, SOIL_ROOT),
+		# BILINEAR on (deficit x surface-layer water): supply-limited, so a saturated surface evaporates at the
+		# soil-resistance limit and a drying one tapers with what it still holds — no threshold anywhere. The
+		# reservoir is SOIL_TOP, the shallow drying front, not the whole rooting column: roots lift water from
+		# metres down, evaporation only pulls what is within diffusion reach of the surface.
+		rec(BILINEAR, soil_k, VAPOUR_DEFICIT, [[SOIL_TOP, 1.0]], [[MOISTURE, 1.0, TGT_SELF]],
+			GATE_NEAR_GROUND | GATE_AIR_ABOVE, 0.0, SOIL_TOP),
 
 		# R25 — SUBLIMATION (snow → atmospheric moisture). The same rule a third time, over ice. It REPLACES
 		# snowice_sphere3d.glsl's SUBLIMATE_FRAC = 0.004, a flat per-step fraction added to stop the snowpack
