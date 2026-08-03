@@ -269,7 +269,7 @@ func _process(delta: float) -> void:
 	if _disaster_accum < _disaster_next:
 		return
 	_disaster_accum = 0.0
-	_disaster_next = _disaster_interval * (1.0 + LASimRng.shared().randf_range(-DISASTER_JITTER, DISASTER_JITTER))
+	_disaster_next = _disaster_interval * (1.0 + LASimRng.for_domain("planet").randf_range(-DISASTER_JITTER, DISASTER_JITTER))
 	_seed_ambient_disaster()
 
 
@@ -307,7 +307,7 @@ func _pick_disaster_kind(climate: float) -> String:
 	var total: float = 0.0
 	for k in weights:
 		total += float(weights[k])
-	var roll: float = LASimRng.shared().randf() * total
+	var roll: float = LASimRng.for_domain("planet").randf() * total
 	for k in weights:
 		roll -= float(weights[k])
 		if roll <= 0.0:
@@ -318,7 +318,7 @@ func _pick_disaster_kind(climate: float) -> String:
 ## A random world-space point on the planet surface (falls back to a point above the centre if unmeshed).
 ## Seeded (LASimRng) so an ambient event lands at a reproducible site for a given LA_SIM_SEED.
 func _random_surface_point() -> Vector3:
-	var dir: Vector3 = LASimRng.shared().rand_dir()
+	var dir: Vector3 = LASimRng.for_domain("planet").rand_dir()
 	if dir.length_squared() < 1.0e-4:
 		dir = Vector3.UP
 	dir = dir.normalized()
