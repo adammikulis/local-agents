@@ -32,7 +32,7 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 // Phase-change + saturation constants — MUST match MaterialReactions3D.gd (FREEZE_TEMP) + the atmos kernels (sat curve).
-const float FREEZE_TEMP = 12.5;      // below this a cold ground cell freezes its condensed moisture to snow
+const float FREEZE_TEMP = 0.0;      // LAPhysical.WATER_FREEZE_C — the phase boundary, not a tunable      // water freezes at zero, as it should — see MaterialReactions3D
 const float DEPOSIT_FRAC = 0.10;     // fraction of the condensed excess frozen out per step (gradual snowpack build)
 const float SAT_BASE = 0.06;
 const float SAT_TEMP_GAIN = 0.055;

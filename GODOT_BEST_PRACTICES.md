@@ -200,6 +200,51 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 
 ## Error Log / Preventative Patterns
 
+### 2026-08-03: an unscanned sibling worktree runs green, exits 0, and simulates NOTHING
+
+- Failure: a perf baseline was measured in `../local-agents-energy` (branch `feature/energy-balance`). The run
+  exited 0, printed `SIM_REPORT`, reported `field_step` 590 and `field_sim_s` 79.8, and looked entirely
+  healthy. It was a corpse. `MaterialReactions3D.gd`, `MaterialFieldReport3D.gd` and `MaterialField3D.gd` all
+  failed to compile with `Parse Error: Identifier "LAPhysical" not declared in the current scope`, because
+  `PhysicalConstants.gd` (`class_name LAPhysical`) had landed in that branch and **that checkout had never
+  been editor-scanned since**. The whole reaction table was gone, and `LASimReport` logged
+  `Nonexistent function 'report' in base 'Nil'` 163 times while cheerfully emitting a snapshot without it.
+- The tell that should have been checked first: the SIM_REPORT had **80 keys where a healthy one has 220**.
+  No `temp_min`, no `biomass_total`, no `active_cells` — every field aggregate silently absent. That baseline
+  ran in 47.6 s against 97.7 s for the same commit in a scanned worktree, i.e. the "faster" build was faster
+  because half the simulation was not running, and it was very nearly used to condemn a working change.
+- This is the 2026-07-08 `.glsl`/`.import` entry arriving through a third door. A `class_name` is resolved
+  per-checkout out of the editor's script cache, so it is EXACTLY as checkout-local as an import, and it
+  breaks the same way at a merge, a fresh clone, or a worktree made by hand.
+- Preventative pattern:
+  - Make worktrees with `scripts/new_worktree.sh` — it runs `--import` AND an editor scan. A worktree made
+    with a bare `git worktree add` is not ready to measure in.
+  - **`grep -ac "SCRIPT ERROR" <log>` on every run you intend to quote a number from.** Exit code 0 does not
+    mean the scripts loaded; Godot reports a compile failure and carries on.
+  - Before trusting a baseline, count the SIM_REPORT's keys against a known-good one. A missing subsystem is
+    invisible in any single number and obvious in the key count.
+
+### 2026-08-03: a `Timer` counts SCALED time, so a "0.5 s" HUD refresh polls every frame under `--fast`
+
+- Failure: `LAMaterialFieldReport3D`'s header and its `report()` docstring both said the provider is "polled
+  only at snapshot time, so the O(cells) scans never run per frame". Both were false. `LAGameHud` arms a
+  `Timer` at `REFRESH_INTERVAL` 0.5 s and calls `LASimReport.snapshot()` on timeout, and a `Timer` counts
+  down on `Engine.time_scale`-scaled time. At `--fast=8` the idle delta is around a second per rendered
+  frame, so the 0.5 s timer fires every frame and every registered provider's full-grid scans run with it.
+- Consequence: three new O(cells) instruments added on the strength of that comment took a 600-frame run from
+  ~95 s to **over 600 s without reaching frame 180**. Behind an `Engine.get_process_frames()` cadence gate
+  with a cached result, the same three cost 27.9 ms per sweep, 60 sweeps, **1.7 s of an 87 s run**.
+- Preventative pattern:
+  - A `Timer`, a `tween_interval` and any `_process` accumulator are all in SCALED seconds. If a cadence
+    exists to bound COST rather than to model the world, count frames (`Engine.get_process_frames()`) or the
+    field's own step index — never seconds, which `--fast` compresses out from under you.
+  - Any provider registered with `LASimReport.register()` must assume it is called EVERY FRAME. Put the gate
+    inside the provider, with ONE owner for the period: two gates at the same period beat against each other
+    the moment one of the two constants is edited.
+  - Have each expensive scan report its own cost (`clim_scan_ms`, `energy_scan_ms`, `mass_scan_ms`). It turns
+    "is this affordable" into a number in the same report as the result, and here it is what proved the 40 s
+    of apparent regression was NOT the instruments but the broken baseline above.
+
 ### 2026-07-30: One table cannot be both a reciprocal adjacency and a tangent basis (hairy-ball)
 
 - Failure: the cubed-sphere neighbour table's four lateral slots were used for two incompatible jobs at once —

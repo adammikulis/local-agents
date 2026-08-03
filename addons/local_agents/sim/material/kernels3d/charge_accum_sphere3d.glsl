@@ -39,8 +39,8 @@ layout(push_constant, std430) uniform Params {
 // line, COLD_SPAN 6, GAIN 8) so genuine convective cells DO reach breakdown, and the fix lives entirely in
 // DISSIPATION: (1) the driver-gated decay below, and (2) post-bolt neighbourhood depletion in MaterialCharge3D.
 // Snow/freeze is unaffected (that lives in snowice_sphere3d / MaterialReactions3D, FREEZE_TEMP=12.5).
-const float FREEZE_T = 13.0;       // top of the charging band (just above the snow line) — warm-planet calibrated
-const float COLD_SPAN = 6.0;       // °C below FREEZE_T over which `cold` fades 1 -> 0 (a few degrees of supercooling)
+const float FREEZE_T = -10.0;      // LAPhysical.CHARGE_ZONE_WARM_C — warm edge of the mixed-phase riming zone       // top of the charging band (just above the snow line) — warm-planet calibrated
+const float COLD_SPAN = 15.0;      // down to LAPhysical.CHARGE_ZONE_COLD_C (-25 C): the charging band       // °C below FREEZE_T over which `cold` fades 1 -> 0 (a few degrees of supercooling)
 const float CHARGE_GAIN = 8.0;     // charge separated per (updraft × cloud × cold) per second
 // TWO LEAKS set BOTH the firing threshold and the dissipation. While a cell is ACTIVELY electrifying (rising +
 // cloudy + in-band) it leaks at CHARGE_LEAK, so its charge equilibrates at ~= GAIN·up·cold·cloud·dt / CHARGE_LEAK.

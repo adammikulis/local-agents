@@ -137,9 +137,16 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[0, temp_live], [1, _cond_scratch], [2, nbr], [3, solid]])
 		_copy_set[p] = _make_set(rd, _copy_shader, [
 			[0, _cond_scratch], [1, temp_live]])
-		# solar: 0 = temp (LIVE, in-place), 1 = solid, 3 = pos (flat float3, altitude lapse), 14 = radial, 15 = nbr.
+		# solar: 0 = temp (LIVE, in-place), 1 = solid, 3 = pos (flat float3), 14 = radial, 15 = nbr.
+		# snow/water/rock_fill feed the albedo + heat-capacity terms in the energy balance.
+		# 7 = pressure — the overlying air mass the kernel's emissivity reads, which is what makes high ground
+		# cold WITHOUT a prescribed lapse. SINGLE buffer, so there is no parity choice to make. It is one step
+		# stale here: GasWindPass writes it and runs AFTER Thermal (see PASS_SCRIPTS), which is the
+		# coupling-fidelity lag this driver already sanctions, and a hydrostatic column varies slowly.
 		_solar_set[p] = _make_set(rd, _solar_shader, [
-			[0, temp_live], [1, solid], [3, pos], [14, radial], [15, nbr]])
+			[0, temp_live], [1, solid], [3, pos],
+			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]], [7, bufs["pressure"]],
+			[14, radial], [15, nbr]])
 		# buoyancy: 0 = TempIn (LIVE), 1 = TempOut (BACK), 2 = solid, 15 = nbr.
 		_buoy_set[p] = _make_set(rd, _buoy_shader, [
 			[0, temp_live], [1, temp_back], [2, solid], [15, nbr]])

@@ -137,7 +137,20 @@ var _slow_gate: int = 0             # cadence counter for the slow (ledger/baker
 # injection, save/snapshot, and the _at queries — rendering reads the GPU buffers directly). charge (scanned by
 # MaterialCharge on breakdown) and rock_fill (scanned by MineralStamp during volcano land-building) are kept
 # always-hot because those modules read them per active-frame; gating them would need those modules to request.
-const SITUATIONAL_CHANNELS: Array = ["lava", "fire", "dust", "shock", "activity", "co2", "fuel", "rock_fill"]
+# `pressure` joined this set 2026-08-03 and is the one entry here that is NOT a disaster channel. It is the
+# hydrostatic weight of the air above a cell, written every step by wind_pressure_sphere3d and, until now,
+# NEVER READ BACK AT ALL — so the CPU mirror `_f._pressure` sat at its all-zero seed for the life of every
+# process. That matters because heat3d_solar_sphere3d derives the greenhouse EMISSIVITY from it
+# (glsl:200-204), which is where the whole altitude structure of the surface temperature comes from, and any
+# CPU-side reading of the energy balance built on a zero pressure silently falls back to a uniform sea-level
+# column. Demand-gated like the rest: LAMaterialFieldEnergyBudget3D requests it, so a build that never asks
+# pays nothing.
+# `detritus` and `fungus` joined at the same time and for the same reason: NEITHER WAS EVER READ BACK, by any
+# set, so their CPU mirrors held the all-zero allocation for the life of every process. SIM_REPORT's
+# `detritus_peak`, `fungus_cells` and `fungus_peak` read those mirrors, so all three have been publishing the
+# seed rather than the simulation, and a carbon ledger built on them would have measured nothing at all.
+const SITUATIONAL_CHANNELS: Array = ["lava", "fire", "dust", "shock", "activity", "co2", "fuel", "rock_fill",
+	"pressure", "detritus", "fungus"]
 const CHANNEL_HOLD_DRAINS: int = 20     # stay hot ~20 drains past the last request so intermittent queries don't thrash
 var _channel_hold: Dictionary = {}      # channel name -> drain index it stays hot through
 var _drain_count: int = 0               # monotonic drain counter the holds are measured against

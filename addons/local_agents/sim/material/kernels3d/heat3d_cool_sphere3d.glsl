@@ -94,13 +94,18 @@ void main() {
 			// Molten mineral in seawater: quench HARD toward the cold sea target so it drops under the 800°C
 			// solidus this step and the M5 record freezes it to rock — the seabed volcano's island-builder.
 			temp[idx] = mix(temp[idx], wt, LAVA_QUENCH_FRAC);
-		} else {
-			// Hot land springs (above sea level, well over the SST target) shed heat slowly so boiling/evap can act.
-			float rate = WATER_COOL_RATE;
-			if (radius > params.sea_radius && temp[idx] > wt + HOT_SPRING_MARGIN) {
-				rate = WATER_COOL_RATE * HOT_SPRING_COOL_FRAC;
-			}
-			temp[idx] += rate * (wt - temp[idx]) * clamp(water[idx], 0.0, 1.0);
 		}
+		// THE OCEAN THERMOSTAT IS GONE, and with it the hot-spring gate that existed only to escape it.
+		//
+		// Every wet cell used to be dragged toward a hardcoded thermocline (SST_SURFACE 26 C at the surface
+		// decaying to WATER_TEMP_DEEP 10 C), so sea-surface temperature was 26 C by fiat at every latitude, in
+		// every season, forever — it could not respond to insolation, to an impact winter, or to a volcano.
+		// A HOT_SPRING_GATE had to be invented on top of it because that thermostat would otherwise quench a
+		// geothermal spring before the boiling kernel ever saw 100 C. Both are deleted here.
+		//
+		// Water's thermal behaviour now comes from what water actually is: a very high heat capacity in the
+		// surface energy balance (HEAT_CAP_WATER, an order above rock), plus conduction. That is what makes an
+		// ocean lag the land beside it and a coast mild, rather than a curve asserting it. The LAVA QUENCH
+		// above stays — water flashing molten rock to pillow basalt is real physics, not a stand-in.
 	}
 }

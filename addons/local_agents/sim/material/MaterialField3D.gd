@@ -1070,6 +1070,12 @@ func add_magma_source(world_pos: Vector3, temp: float, rate: float) -> void:
 ## Pin the innermost CORE_LAYERS radial shells to the geothermal temperature (cell layout: cell = surf*depth + r,
 ## so r = c % _dim_y; r < CORE_LAYERS is the core). Precomputes the static core-cell list once. Called each step
 ## before begin_frame so the upload carries it; conduction then propagates it up through the rock to the surface.
+## Maximum degrees a core cell may gain in one field step — what turns the geothermal boundary from an
+## infinite source into a large finite one. Sized so the core still recovers quickly from a lava draw
+## (1300 C in ~130 steps from cold) while no longer being able to supply unbounded energy per step.
+const CORE_FLUX: float = 10.0
+
+
 func _pin_core_heat() -> void:
 	if _core_temp <= 0.0 or not is_sphere() or _dim_y <= 0:
 		return
@@ -1077,8 +1083,26 @@ func _pin_core_heat() -> void:
 		for c in _cell_count:
 			if c % _dim_y < CORE_LAYERS:
 				_core_cells.append(c)
+	# A FINITE HEAT FLUX, not an infinite temperature clamp.
+	#
+	# This used to be `_temp[c] = _core_temp` — a hard assign, every step, forever. That is a Dirichlet
+	# boundary with no reservoir behind it: it supplies however much energy the rest of the world can carry
+	# away and never depletes, which makes a global energy budget non-closable BY CONSTRUCTION. No amount of
+	# radiating to space can cool a planet whose centre is re-set to 1300 C ten times a second.
+	#
+	# The core now WARMS toward its temperature at a bounded rate instead. Conduction still carries the
+	# geothermal gradient outward exactly as before, and a core cell that has been drained by a lava draw or
+	# a seabed vent takes real time to recover instead of snapping back between frames. The rate is what
+	# makes it finite: a step can move a core cell by at most CORE_FLUX degrees, so the core is a very large
+	# but bounded supply rather than an infinite one.
+	#
+	# Genuine radiogenic decay over geological time (a core that cools as the planet ages, so volcanism has a
+	# budget) is the honest end state and is NOT done here — this is the smallest change that stops the
+	# energy budget being unclosable, without pretending to model mantle thermodynamics.
 	for c in _core_cells:
-		_temp[c] = _core_temp
+		var gap: float = _core_temp - _temp[c]
+		if gap > 0.0:
+			_temp[c] += minf(gap, CORE_FLUX)
 func magma_cell_count() -> int:
 	return 0
 func magma_erupting() -> bool:
