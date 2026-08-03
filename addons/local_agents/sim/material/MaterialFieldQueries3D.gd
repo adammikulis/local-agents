@@ -13,8 +13,12 @@ extends RefCounted
 # Salinity banding (depth-of-sea proxy) — own copies of the field's constants so fish behave identically.
 const SALT_FULL_DEPTH: float = 22.0
 const BRACKISH_FLOOR: float = 0.35
-# A cell counts as DUSTY at the same floor the substrate's own wake rule uses (DUST_MIN in
-# activity_sphere3d.glsl:95), so `dust_cells` and the compute bubble cannot disagree about what dusty means.
+# PRESENCE FLOOR for the `dust_cells` gauge: the smallest airborne-dust density this counts as "a dusty cell"
+# rather than numerical residue. It is a property of the MEASUREMENT, not of dust — there is no physical
+# threshold at which a suspension starts existing — so it lives with the gauge that uses it and is deliberately
+# not in `material/PhysicalConstants.gd`. *(Corrected 2026-08-03: this said the value "mirrors DUST_MIN in
+# activity_sphere3d.glsl:95", which made a gauge's reporting floor look like a copy of a substrate rule bound
+# only by a comment. It is not one, and that kernel is being retired on another lane.)*
 const DUST_PRESENT: float = 0.001
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
@@ -428,39 +432,42 @@ func dust_total() -> float:
 ## Mean airborne dust across the grid — a 0..~ opacity proxy for how much debris in the air blocks the sun
 ## (a meteor volley lofts dust → this rises → insolation drops → impact winter). Cheap O(1)-amortised via dust_total.
 ##
-## THIS IS THE WHOLE IMPACT-WINTER MECHANISM (LASystemOrbits._compute_transmission:283) AND IT READ A DEAD
-## MIRROR UNTIL 2026-08-03. `dust` is a SITUATIONAL_CHANNEL: it is only read back from the GPU while something
-## has called `request_channel("dust")`, and the only caller was the crater path, which fires on a strike and
-## goes cold 20 drains later. So `_f._dust` held the all-zero allocation for essentially every frame of every
-## run, `dust_total()` returned 0.00, transmission stayed pinned at 1.0, and no volley could ever dim the sun.
-## LAMaterialFieldMineralBudget3D now requests the channel on every report sample (it is a leg of the mineral
-## ledger), which is what makes this live. Measured 2026-08-03, 3 runs each, `--planet-only --run-frames=600
-## --fast=8 --seed=4242 --fixed-fps 60`, 5 impacts / 3 eruptions per run: `dust_total` 0.00 / 0.00 / 0.00
-## before, **209.05 / 211.21 / 216.72** after, on a world that had reported exactly 0.00 for the whole
-## project's history. The dimming this restores is small on a quiet planet — mean dust ~0.0031 against
-## `DUST_OPACITY` 3.5 is ~1% opacity, and `insolation` reads 0.92/0.92/0.92 before against 0.92/0.92/0.91
-## after — but it is the difference between a mechanism that can fire and one that is wired to a constant zero.
+## THIS IS THE WHOLE IMPACT-WINTER MECHANISM (LASystemOrbits._compute_transmission) AND IT READ A DEAD MIRROR
+## UNTIL 2026-08-03. `dust` is a SITUATIONAL_CHANNEL: it is only read back from the GPU while something has
+## called `request_channel("dust")`, and the only caller was the crater path, which fires on a strike and goes
+## cold 20 drains later. So `_f._dust` held the all-zero allocation for essentially every frame of every run,
+## `dust_total()` returned 0.00, transmission stayed pinned at 1.0, and no volley could ever dim the sun.
+##
+## SO THE CONSUMER REQUESTS ITS OWN CHANNEL, HERE. *(Corrected 2026-08-03. This said
+## "LAMaterialFieldMineralBudget3D now requests the channel on every report sample … which is what makes this
+## live", and that was the defect, not the fix: it made a PHYSICAL mechanism depend on whether a DIAGNOSTIC was
+## running. Turning the ledger off — or moving it behind an env gate, as was proposed — would have silently
+## switched impact winter back off. A gauge must never be load-bearing for physics.)* `_compute_transmission`
+## polls this every 15 process frames and CHANNEL_HOLD_DRAINS is 20, so one request per poll keeps the mirror
+## permanently live on its own account.
+##
+## Measured 2026-08-03, `--planet-only --run-frames=600 --fast=8 --seed=4242 --fixed-fps 60`: `dust_total`
+## 0.00 with a dead mirror against 181-217 with a live one, and `atmos_transmission` 0.925-0.927 against
+## 0.915-0.919. The dimming is small on a quiet planet — mean dust ~0.0031 against `DUST_OPACITY` 3.5 is ~1%
+## opacity — but it is the difference between a mechanism that can fire and one wired to a constant zero.
 func avg_atmos_dust() -> float:
 	if _f._cell_count <= 0:
 		return 0.0
+	# Impact winter is a real consumer of the dust mirror, so it keeps its own channel hot. Without this the
+	# only steady requester was the mineral ledger, i.e. a diagnostic.
+	if _f._gpu != null and _f._gpu.has_method("request_channel"):
+		_f._gpu.request_channel("dust")
 	return dust_total() / float(_f._cell_count)
 
 
-## Cells carrying airborne dust above the presence floor — the SIM_REPORT `dust_cells` gauge.
-##
-## `LAMaterialField3D.dust_cell_count()` was a bare `return 0` with no comment, a permanently-false gauge of the
-## same family as `fungus_cells`/`fungus_peak`/`detritus_peak` (which are still `return 0.0` and still owed).
-## The threshold mirrors `DUST_MIN` in activity_sphere3d.glsl:95, which is the value the substrate itself uses
-## to decide a cell is dusty enough to stay awake, so the count and the compute bubble agree on what "dusty"
-## means. All cells, matching the mineral ledger's inclusion rule.
-func dust_cell_count() -> int:
-	if _f._dust.size() != _f._cell_count:
-		return 0
-	var n: int = 0
-	for c in _f._cell_count:
-		if _f._dust[c] > DUST_PRESENT:
-			n += 1
-	return n
+# `dust_cell_count()` was REMOVED here on 2026-08-03, and this note is the stated reason the "unwired code is an
+# unfinished job" rule asks for: it was SUPERSEDED, not merely unreferenced. It walked the whole grid counting
+# cells over `DUST_PRESENT`, and SIM_REPORT's `dust_cells` now comes from `dusty_cells` in
+# LAMaterialFieldMineralBudget3D, which counts them with the same threshold inside the single pass it already
+# makes over the dust channel. Wiring the old one back in would add an eleventh O(cells) walk to produce a
+# number the ledger has already produced. Reference count before removal, both forms (identifier and `res://`
+# path, across .gd/.tscn/.tres/.cfg): one caller, the `LAMaterialField3D.dust_cell_count()` forwarder, which
+# went with it, and which was itself a `return 0` stub until this line of work.
 
 
 ## Molten rock (lava) over ALL cells — the "molten" phase. Summed everywhere (not just open cells) because add_lava
@@ -511,8 +518,11 @@ func susp_total() -> float:
 ## is the unification's proof object. Every phase transfer (scour rock→susp, settle susp→sediment, slump,
 ## weather rock→sediment, lithify sediment→rock, M5/M6 lava↔rock) moves mass between two counted legs.
 ##
-## COST NOTE: five separate O(cells) walks. Kept because LAEventTracker and the save controller reach for the
-## individual getters, but SIM_REPORT does NOT come through here any more — LAMaterialFieldMineralBudget3D
+## COST NOTE: five separate O(cells) walks. Kept because one caller still reaches for an individual getter —
+## `LAEventTracker.gd:156` calls `lava_total()`. *(Corrected 2026-08-03: this said "LAEventTracker and the save
+## controller reach for the individual getters". The save controller does not, and neither does
+## `VoxelInputController`, which reads `rock_fill_total`/`mineral_total` out of the SNAPSHOT dictionary.)*
+## SIM_REPORT does NOT come through here any more — LAMaterialFieldMineralBudget3D
 ## computes all five legs plus both masks plus the drift in ONE pass, behind the report's heavy-cadence gate.
 ## Prefer that module for anything on a per-frame path.
 func mineral_total() -> float:

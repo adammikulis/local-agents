@@ -252,6 +252,34 @@ failing or every drawn strike lands where `resample_terrain`'s `is_solid` probe 
 Until this is settled the crater-vs-vent cross-check (`mineral_inject_moved` against `crater_mass`) has only
 one side.
 
+**8d — LIVE AIRBORNE DUST COSTS THE WATER TABLE A QUARTER OF ITSELF, AND NOBODY KNOWS WHY YET.** Impact
+winter used to be wired to a constant zero (`avg_atmos_dust()` read a `dust` mirror nothing ever refreshed).
+Now that its consumer requests its own channel, mean dust reads ~0.003 against `DUST_OPACITY` 3.5, atmospheric
+transmission drops 0.925 -> 0.915, and `soil_total` at 600 frames drops with it: **369-377 with a dead dust
+mirror against 267-280 with a live one**, over roughly ten runs each. The causal link is isolated in ONE
+worktree: with dust live but the dust->opacity term severed, `soil_total` reads 370.9 and 369.0; with it
+connected, 272.7 and 272.0.
+
+**WHAT DOES NOT ADD UP, AND IS THE OPEN QUESTION:** the effect is not a monotone function of the opacity.
+Forcing a CONSTANT dust opacity with the mirror dead gave `soil_total` 368.3 at 0.0, 367.0 at 0.00307 (the
+live value) and **381.5 at 0.05** — sixteen times the dimming, transmission 0.796, and the water table went UP.
+So a 1% dimming that RISES from zero drains a quarter of the groundwater while a 14% constant dimming does not
+touch it. One of those two is measuring something other than insolation. WHAT DECIDES IT: three runs per arm
+at forced opacity 0.0 / 0.003 / 0.05 (the probes above were one run each, against a 3-6 unit within-arm
+spread), plus `LA_SOIL_BUDGET=1` on a live-dust and a dead-dust run to see WHICH groundwater leg changes.
+
+**8c — `add_lava` STILL REWINDS THE GPU WITH A STALE MIRROR, AND THAT IS WHY READBACK RESIDENCY IS
+LOAD-BEARING.** `LAMaterialFieldSphereStep3D.gd:197-202` pushes the WHOLE `lava` and `rock_fill` mirrors back
+with `set_field` whenever `add_lava` ran on the CPU. Those mirrors were last filled by a readback a frame (up
+to two steps) old, so the upload writes away whatever the kernels did in between — `_audit_mirror_upload`
+(`MaterialSphereGPU3D.gd`, `LA_INJECT_AUDIT=1`) prints exactly that mass. The size of the rewind therefore
+depends on how recently the channel was READ BACK, which is decided by `request_channel`, which is why a
+diagnostic asking for a channel used to change the run (fixed 2026-08-03: ledgers use `read_channels_readonly`
+and no longer ask). The rewind itself is still there. **WHAT DECIDES IT:** move `add_lava` onto the injection
+queue's `move_field_sparse`, the way every other injector already resolves against the live buffer, then run
+with `LA_INJECT_AUDIT=1` and require the printed delta to be 0.0. It touches `MaterialField3D.gd`, which is
+extract-only, so the transfer belongs in a new module the hub delegates to.
+
 **9 — SMALLER, ALL MEASURED.**
 - The energy budget's global net is a lava thermometer (`energy_magma_share` 0.94 — 94% of longwave leaves
   through 386 of 8684 cells). **Read `energy_net_cool`, not `energy_net`.**
@@ -268,8 +296,11 @@ one side.
   46+6 units), so it is not obviously wrong — but it is unverified either way, and settling it needs a
   windowed run with fauna and something buried.
 - `--fixed-fps 60` fixes the field clock but NOT the disaster draw. The planet now has its own RNG stream
-  (impacts 5/5/5, eruptions 3/3/3, temp spread 12.7 °C → 0.70 °C); the residual is actor splashes perturbing
-  the charge field, which `--planet-only` removes entirely.
+  (impacts 5/5/5, temp spread 12.7 °C → 0.70 °C). *(Corrected 2026-08-03: this also said "eruptions 3/3/3".
+  Across 20+ `--planet-only` runs — no actors at all, so the "residual is actor splashes" explanation does
+  not apply — impacts were 5 every time but eruptions came out 3 OR 4.)* At genuinely fixed code the run-to-run
+  spread of `soil_total` is only 3-6 units on ~275, so it CAN carry an A/B — but 3 runs per arm is the floor,
+  and the tree must not be edited while the batch runs (see `CLAUDE.md`).
 
 **10 — A4: rebuild `VoxelWorld` → Anima. HELD for supervised handling.** Refactor the inline
 `VoxelWorld._ready` to compose from `SimWorld` + the reusable nodes, and rename the game `VoxelWorld` →

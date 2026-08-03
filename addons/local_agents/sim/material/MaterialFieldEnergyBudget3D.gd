@@ -136,20 +136,25 @@ func _compute() -> Dictionary:
 	var temp: PackedFloat32Array = _f._temp
 	var water: PackedFloat32Array = _f._water
 	var snow: PackedFloat32Array = _f._snow
-	var pressure: PackedFloat32Array = _f._pressure
-	var rock_fill: PackedFloat32Array = _f._rock_fill
+	# `pressure` and `rock_fill` are GPU-owned and demand-gated (MaterialSphereGPU3D.SITUATIONAL_CHANNELS), so
+	# take them from the read-only drain probe rather than asking for their mirrors to be kept hot. *(Changed
+	# 2026-08-03: this used to call `request_channel("pressure")` here. A gauge must not decide readback
+	# residency — the simulation's own write paths read those mirrors, so requesting one changes the run. See
+	# the `request_channel` docstring in LAMaterialSphereGPU3D.)* If a leg does not come back the mirror stands
+	# in, and for pressure the all-zero mirror means the kernel's own step-0 fallback (glsl:200-203) applies:
+	# p_col <= 0 -> P_REF, a uniform sea-level emissivity with no altitude structure. `energy_pressure_live`
+	# reports which of the two the numbers below were built from, so nobody reads a flat profile as a result.
+	var legs: Dictionary = {}
+	if _f._gpu != null and _f._gpu.has_method("take_probe"):
+		legs = _f._gpu.take_probe()
+		_f._gpu.request_probe(PackedStringArray(["pressure", "rock_fill"]))
+	var pressure: PackedFloat32Array = legs.get("pressure", _f._pressure)
+	var rock_fill: PackedFloat32Array = legs.get("rock_fill", _f._rock_fill)
 	if solid.size() != cc or temp.size() != cc:
 		return out
 	var has_water: bool = water.size() == cc
 	var has_snow: bool = snow.size() == cc
 	var has_rock: bool = rock_fill.size() == cc
-	# `pressure` is GPU-owned and is only read back while REQUESTED (MaterialSphereGPU3D.SITUATIONAL_CHANNELS).
-	# Ask for it here so the next recompute sees the live column mass. Until it arrives the mirror is all
-	# zeroes, and the kernel's own step-0 fallback (glsl:200-203) applies: p_col <= 0 -> P_REF. That is the
-	# honest degradation — a uniform sea-level emissivity, no altitude structure — and `energy_pressure_live`
-	# reports which of the two the numbers below were built from, so nobody reads a flat profile as a result.
-	if _f._gpu != null and _f._gpu.has_method("request_channel"):
-		_f._gpu.request_channel("pressure")
 	var has_pressure: bool = pressure.size() == cc
 	var pressure_live: int = 0
 	var sun: Vector3 = sun_field_dir()

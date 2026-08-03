@@ -44,33 +44,54 @@ extends RefCounted
 ## A large `mineral_net_per_step` is a kernel creating or destroying rock, and LA_MINERAL_BUDGET
 ## (LAMaterialFieldMineralProbe3D) names which pass does it.
 ##
-## STALENESS IS THE TRAP THIS LEDGER MUST NOT FALL INTO. Four of the five legs are demand-gated on the GPU:
-## `lava`, `dust` and `rock_fill` are SITUATIONAL_CHANNELS and `sediment`/`susp` are SLOW_CHANNELS
-## (MaterialSphereGPU3D.gd:152/172). A channel nobody requests stops being read back and its CPU mirror
-## FREEZES — and a frozen mirror reads as perfect conservation, which is the most dangerous possible failure
-## for a conservation gauge. So this module calls `request_channel` on all five every sample (the mass budget
-## does the same for its four) and publishes `mineral_live` saying which mirrors are the right size, so a leg
-## that never arrived is never mistaken for a leg that is genuinely zero.
+## STALENESS IS THE TRAP THIS LEDGER MUST NOT FALL INTO, AND THE FIRST FIX FOR IT WAS ITSELF A BUG.
+## Four of the five legs are demand-gated on the GPU: `lava`, `dust` and `rock_fill` are SITUATIONAL_CHANNELS
+## and `sediment`/`susp` are SLOW_CHANNELS (MaterialSphereGPU3D.gd). A channel nobody requests stops being read
+## back and its CPU mirror FREEZES — and a frozen mirror reads as perfect conservation, which is the most
+## dangerous possible failure for a conservation gauge.
+##
+## The first version of this module answered that by calling `request_channel` on all five every sample. **That
+## made the instrument change the run.** Residency decides what the CPU mirrors hold, and the field's own write
+## paths read those mirrors: `avg_atmos_dust()` turns `_f._dust` into the opacity that sets INSOLATION, so
+## waking `dust` switched impact winter on (`dust_total` 0.00 → 181-217, `atmos_transmission` 0.926 → 0.915,
+## measured 2026-08-03); `add_lava` pushes the whole `lava`/`rock_fill` mirrors back with `set_field`, so their
+## staleness decides how much GPU-evolved mass that upload rewinds; and `LAMineralStamp3D._scan()` reads the
+## `rock_fill` mirror to emit SDF stamps. Two of the five requests were also pure noise — `sediment` and `susp`
+## are not SITUATIONAL_CHANNELS, so `request_channel` on them did nothing at all.
+##
+## SO THIS LEDGER REQUESTS NOTHING. It samples the five legs through `LAMaterialSphereGPU3D.request_probe` /
+## `take_probe`: the driver reads them INSIDE ITS DRAIN, where the device has just been synced, into a
+## dictionary only instruments see. It touches no residency, no mirror, no cache and no cadence counter, so
+## nobody else's view of the world changes because a gauge looked. `mineral_live` still says which legs
+## arrived, so a leg that never came back is never mistaken for a phase that genuinely holds nothing.
+##
+## AND THE SAMPLE MUST BE TAKEN AT THE DRAIN, NOT ON THE SPOT. Reading the same buffers with
+## `buffer_get_data` from the report path — while a step submit is still in flight — moved `h2o_total`
+## 5062 -> 9803 and `temp_mean` 39.8 -> 44.6 C on otherwise identical runs. The full measurement is in
+## `request_probe`'s docstring; the short version is that `buffer_get_data` is not a passive read on a local
+## RenderingDevice.
 ##
 ## WHAT IT FOUND, AND IT IS NOT THE DRIFT. **`dust_total` HAD BEEN REPORTING A DEAD MIRROR.** SIM_REPORT
-## printed `dust_total 0.00` and `dust_cells 0` on every run this project has ever taken. Requesting the
-## channel here read **209.05 / 211.21 / 216.72** units over three runs — a whole phase of the "conserved"
-## mineral total that was simply not in the books, about a fifth of the sediment leg. Nothing was wrong with
-## the dust kernel; nothing was READING it. It also means LASystemOrbits._compute_transmission (:283), the
-## entire impact-winter mechanism, was dividing by a permanent zero. A conservation gauge whose input is a
-## stale mirror reports PERFECT conservation, which is the most dangerous way for one to fail, and it is why
-## `request_channel` above is not an optimisation but a correctness requirement.
+## printed `dust_total 0.00` and `dust_cells 0` on every run this project has ever taken — a whole phase of the
+## "conserved" mineral total that was simply not in the books, about a fifth of the sediment leg. Nothing was
+## wrong with the dust kernel; nothing was READING it. It also meant LASystemOrbits._compute_transmission, the
+## entire impact-winter mechanism, was dividing by a permanent zero. The fix for THAT belongs to impact winter,
+## not here: `LAMaterialFieldQueries3D.avg_atmos_dust()` now requests `dust` itself, so the mechanism works
+## whether or not any ledger is running.
 ##
 ## AND THE ANSWER TO THE QUESTION THIS MODULE EXISTS TO ASK. 3 runs, `--planet-only --run-frames=600 --fast=8
 ## --seed=4242 --fixed-fps 60`, 5 impacts / 3 eruptions / 0 bolts each, `field_step` 590 and
-## `mineral_run_steps` 760 in all three:
-##   raw   `mineral_run_drift_per_step`  +0.2420 / +0.2419 / +0.2409
-##   vent  `mineral_src_per_step`        +0.2853 / +0.2842 / +0.2842
-##   NET   `mineral_net_per_step`        **-0.0433 / -0.0423 / -0.0433**
-## **MINERAL DOES NOT MINT. IT LEAKS**, at about 0.043 units/step — 33 units over 760 steps against a ~32100
-## inventory, -0.10% per run — and the vent's mantle source is six times larger, which is exactly why a
-## rising absolute total hid it for as long as there was no drift gauge. Which pass loses it is NOT yet
-## established; `LA_MINERAL_BUDGET=1` (LAMaterialFieldMineralProbe3D) prints per-pass `legs_all` to name it.
+## `mineral_run_steps` 760 in all three (re-measured 2026-08-03 with the drain probe in place; the first
+## published set was +0.2420/+0.2419/+0.2409 raw and -0.0433/-0.0423/-0.0433 net, taken before
+## `avg_atmos_dust()` owned the dust readback, so the airborne leg arrived later in the run):
+##   raw   `mineral_run_drift_per_step`  +0.2240 / +0.2230 / +0.2240
+##   vent  `mineral_src_per_step`        +0.2860 / +0.2840 / +0.2860
+##   NET   `mineral_net_per_step`        **-0.0620 / -0.0610 / -0.0620**
+## **MINERAL DOES NOT MINT. IT LEAKS**, at about 0.06 units/step — 47 units over 760 steps against a ~32150
+## inventory, -0.15% per run — and the vent's mantle source is four to five times larger, which is exactly why
+## a rising absolute total hid it for as long as there was no drift gauge. `LA_MINERAL_BUDGET=1`
+## (LAMaterialFieldMineralProbe3D) names the pass: `fire_dust`, at -0.1033/step on the last sample of a
+## 600-frame run, with `legs_all` 0.0000 for all eleven others.
 ##
 ## COST: ONE O(cells) pass accumulating all ten accumulators at once, on the report's HEAVY cadence gate. It
 ## REPLACES eleven separate O(cells) scans that ran ungated on the per-frame report path (`mineral_total()`
@@ -96,15 +117,19 @@ var _samples: int = 0
 ## Samples to discard before latching the run-long BASELINE, and this is not a fudge — it is the fix for a
 ## measured artifact that this module's own first run produced.
 ##
-## Four of the five legs are demand-gated, so the very first `report()` REQUESTS them and then reads the CPU
-## mirrors that have not been refilled yet. On the first run of this module `dust` came back 0.00 at the first
-## sample and 221.62 at the last, so a baseline latched on sample 1 booked the whole dust channel ARRIVING as
-## +0.28 units/step of drift — an instrument measuring its own warm-up. The tell was the run-long rate
-## (+0.112/step) disagreeing in SIGN with the per-sample rate (-0.163/step). One request-to-readback round trip
-## is at most a few drains and the report's heavy gate is 8 process frames, so two skipped samples is
-## comfortably past it; `mineral_first_step` publishes where the baseline was actually taken so this is
-## checkable rather than trusted.
+## *(Corrected 2026-08-03. This used to read "four of the five legs are demand-gated, so the very first
+## `report()` REQUESTS them and then reads the CPU mirrors that have not been refilled yet" — an instrument
+## measuring its own warm-up. The mechanism has changed but the shape has not: the drain probe lands one drain
+## after it is armed, so the FIRST sample still reads mirrors rather than probe data.)* The skip also guards
+## the pre-first-step window: the report path can fire
+## before the field has stepped at all, and a baseline latched on world-gen's seeded state books the whole
+## initial settling as drift. `mineral_first_step` publishes where the baseline was actually taken, so this is
+## checkable rather than trusted — and the tell that it is set wrong is the run-long rate disagreeing in SIGN
+## with the per-sample rate (that is exactly how the original artifact was caught: +0.112 against -0.163).
 const BASELINE_SKIP_SAMPLES: int = 2
+
+## The five phases of the one substance, in the order the header names them. Read as one device sample.
+const LEGS: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust"]
 
 
 func setup(field) -> void:
@@ -123,19 +148,19 @@ func report(step_index: int) -> Dictionary:
 	var solid: PackedByteArray = _f._solid
 	if solid.size() != cc:
 		return out
-	# Demand-gated channels this ledger reads. Requesting every sample keeps them hot; a build that never
-	# takes a snapshot pays nothing. Without this the mirrors freeze and the ledger reports a stale constant.
-	if _f._gpu != null and _f._gpu.has_method("request_channel"):
-		_f._gpu.request_channel("rock_fill")
-		_f._gpu.request_channel("lava")
-		_f._gpu.request_channel("sediment")
-		_f._gpu.request_channel("susp")
-		_f._gpu.request_channel("dust")
-	var rock: PackedFloat32Array = _f._rock_fill
-	var lava: PackedFloat32Array = _f._lava
-	var sed: PackedFloat32Array = _f._sediment
-	var susp: PackedFloat32Array = _f._susp
-	var dust: PackedFloat32Array = _f._dust
+	# THE FIVE LEGS, SAMPLED READ-ONLY. Collect the probe the previous sample armed (taken at a drain, where a
+	# device read is free of side effects), then arm the next one. The CPU mirrors stand in until the first
+	# probe lands and on a build with no GPU driver (the headless CPU-oracle path), where they ARE the
+	# substrate. `mineral_live` says which of the two each leg came from being the right size.
+	var legs: Dictionary = {}
+	if _f._gpu != null and _f._gpu.has_method("take_probe"):
+		legs = _f._gpu.take_probe()
+		_f._gpu.request_probe(LEGS)
+	var rock: PackedFloat32Array = legs.get("rock_fill", _f._rock_fill)
+	var lava: PackedFloat32Array = legs.get("lava", _f._lava)
+	var sed: PackedFloat32Array = legs.get("sediment", _f._sediment)
+	var susp: PackedFloat32Array = legs.get("susp", _f._susp)
+	var dust: PackedFloat32Array = legs.get("dust", _f._dust)
 	var has_rock: bool = rock.size() == cc
 	var has_lava: bool = lava.size() == cc
 	var has_sed: bool = sed.size() == cc
@@ -200,7 +225,9 @@ func report(step_index: int) -> Dictionary:
 	# before/after of the inclusion fix is readable straight off a single run, not only across two builds.
 	out["dust_open_total"] = snappedf(dust_open, 0.01)
 	# SIM_REPORT's `dust_cells`, counted here because this pass already walks the channel. It was
-	# `LAMaterialField3D.dust_cell_count() { return 0 }` — a gauge that could only ever print zero.
+	# `LAMaterialField3D.dust_cell_count() { return 0 }` — a gauge that could only ever print zero. The
+	# stop-gap replacement (`LAMaterialFieldQueries3D.dust_cell_count()`, a real body with no caller) was
+	# deleted 2026-08-03: this line supersedes it, with the same DUST_PRESENT threshold and no extra grid walk.
 	out["dust_cells"] = dusty_cells
 	out["rock_cells"] = solid_cells
 	# PROVENANCE. A leg whose mirror never arrived reads as a flat zero, which is indistinguishable from a

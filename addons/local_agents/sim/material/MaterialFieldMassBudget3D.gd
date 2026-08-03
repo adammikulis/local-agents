@@ -60,6 +60,9 @@ extends RefCounted
 ## Costs ONE O(cells) pass accumulating every leg at once, on the report's snapshot cadence.
 ## (Explicit types only, no ':=' inferred typing.)
 
+## Every channel this ledger sums, read as ONE read-only device sample (see `report()`).
+const LEGS: PackedStringArray = ["co2", "o2", "detritus", "biomass", "fert", "fungus", "fuel"]
+
 var _f = null                                # back-reference to the owning LAMaterialField3D
 
 # Previous sample, for the drift. NAN until the first sample so the first reading reports no drift rather
@@ -99,20 +102,25 @@ func report(step_index: int) -> Dictionary:
 	var solid: PackedByteArray = _f._solid
 	if solid.size() != cc:
 		return out
-	# Demand-gated channels this ledger reads. Requesting every sample keeps them hot; a build that never
-	# takes a snapshot pays nothing. `fert` and `biomass` are on the slow readback cadence already.
-	if _f._gpu != null and _f._gpu.has_method("request_channel"):
-		_f._gpu.request_channel("co2")
-		_f._gpu.request_channel("detritus")
-		_f._gpu.request_channel("fungus")
-		_f._gpu.request_channel("fuel")
-	var co2: PackedFloat32Array = _f._co2
-	var o2: PackedFloat32Array = _f._o2
-	var det: PackedFloat32Array = _f._detritus
-	var bio: PackedFloat32Array = _f._biomass
-	var fert: PackedFloat32Array = _f._fert
-	var fung: PackedFloat32Array = _f._fungus
-	var fuel: PackedFloat32Array = _f._fuel
+	# THE LEGS, SAMPLED READ-ONLY. *(Changed 2026-08-03. This used to call `request_channel` on co2, detritus,
+	# fungus and fuel "so a build that never takes a snapshot pays nothing". That is not free either way:
+	# residency decides what the CPU MIRRORS hold, and the simulation's own write paths read those mirrors —
+	# `LAMaterialSurfaceSeed3D.post_readback()` refills fuel from `_f._fuel` and pushes the WHOLE mirror back
+	# with `set_field`, so how stale it is decides how much GPU-evolved fuel that upload rewinds. A ledger must
+	# not be able to change a fire. See the `request_channel` docstring in LAMaterialSphereGPU3D for the full
+	# list of mirror-reading write paths.)* Collect the probe the previous sample armed and arm the next; the
+	# mirrors stand in until the first one lands, and `mass_live` says which legs arrived.
+	var legs: Dictionary = {}
+	if _f._gpu != null and _f._gpu.has_method("take_probe"):
+		legs = _f._gpu.take_probe()
+		_f._gpu.request_probe(LEGS)
+	var co2: PackedFloat32Array = legs.get("co2", _f._co2)
+	var o2: PackedFloat32Array = legs.get("o2", _f._o2)
+	var det: PackedFloat32Array = legs.get("detritus", _f._detritus)
+	var bio: PackedFloat32Array = legs.get("biomass", _f._biomass)
+	var fert: PackedFloat32Array = legs.get("fert", _f._fert)
+	var fung: PackedFloat32Array = legs.get("fungus", _f._fungus)
+	var fuel: PackedFloat32Array = legs.get("fuel", _f._fuel)
 	var has_co2: bool = co2.size() == cc
 	var has_o2: bool = o2.size() == cc
 	var has_det: bool = det.size() == cc

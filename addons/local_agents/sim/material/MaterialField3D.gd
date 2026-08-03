@@ -1123,10 +1123,8 @@ func snow_line_temp() -> float:
 ## per-cell read; it self-wakes the demand-gated `dust` readback the way co2_at does.
 func dust_at(x: float, y: float, z: float) -> float:
 	return _channels.dust_at(x, y, z)
-## Cells carrying airborne dust — was likewise a bare `return 0`, so SIM_REPORT's `dust_cells` has been a
-## permanent zero. Body in LAMaterialFieldQueries3D.
-func dust_cell_count() -> int:
-	return _queries.dust_cell_count()
+# (`dust_cell_count()` removed 2026-08-03 — superseded by LAMaterialFieldMineralBudget3D's `dusty_cells`, which
+#  counts the same cells with the same threshold inside a pass it already makes. Reason in MaterialFieldQueries3D.)
 
 # MINERAL conservation ledger (rock unification) lives in LAMaterialFieldQueries3D (`_queries.*_total()` etc.);
 # report() reads it directly. ONE conserved mineral; mineral_total must stay BOUNDED (the unification's proof).
