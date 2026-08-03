@@ -161,22 +161,44 @@ func step() -> void:
 	if cell_size <= 0.0:
 		return
 
-	# Mean temperature of the shell's bottom face. The GPU applies the boundary PER CELL against each cell's
-	# own temperature (heat_sphere3d.glsl); this scalar is only the reservoir's LEDGER and the reported flux,
-	# and for a ledger the mean is the right shape. One GPU drain stale, the coupling lag the whole pipeline
-	# already sanctions.
+	# Mean temperature of the ROCK in the shell's bottom face. The GPU applies the boundary PER CELL against
+	# each cell's own temperature and its own interface conductivity (heat_sphere3d.glsl); this scalar is only
+	# the reservoir's LEDGER and the reported flux, and for a ledger a mean is the right shape.
+	#
+	# SOLID CELLS ONLY, and that is a correction. About 7% of the r == 0 face is open (voids at the base of
+	# the crust), those cells were never seeded with the geotherm, and averaging them in at ambient dragged
+	# the reported boundary temperature down ~28 C — so `core_flux_w_m2` read 9.0 where the seeded gradient
+	# says lambda * 1.875 = 4.69. Worse, this side multiplies by rock's conductivity, while the kernel
+	# correctly gives an open cell an AIR interface (harmonic mean 0.0515, 48x less). Mixing the two
+	# populations under one conductivity is a ledger that does not describe either. The rock face is what
+	# this scalar models, so it is what it averages.
+	#
+	# One GPU drain stale, the coupling lag the whole pipeline already sanctions.
 	var shell_sum: float = 0.0
+	var shell_n: int = 0
+	var has_solid: bool = _f._solid.size() == _f._cell_count
 	for c: int in _shell_cells:
+		if has_solid and _f._solid[c] == 0:
+			continue
 		shell_sum += _f._temp[c]
-	_shell_c = shell_sum / float(_shell_cells.size())
+		shell_n += 1
+	if shell_n <= 0:
+		return
+	_shell_c = shell_sum / float(shell_n)
 
 	# Fourier's law across ONE cell of rock — the boundary layer at the top of the convecting interior. At the
 	# seeded profile this is exactly lambda * the geotherm's gradient, 2.5 * 1.875 = 4.69 W/m^2. That is 54x
 	# LAPhysical.GEOTHERMAL_FLUX_W_M2 (0.087), and the factor is not slack: it is the 31.25 vertical
 	# exaggeration in the header times the ratio of a volcanic province's conductive flux to Earth's global
 	# mean (2.5 * 0.06 = 0.15 W/m^2 against 0.087). 0.15 * 31.25 / 0.087 = 54. Nothing else is in it.
-	# It is also not a CONSTANT: `_shell_c` is measured from the field every step, so lava, an impact or a
-	# plate boundary reaching the base of the crust moves it, and a cooling base draws harder.
+	#
+	# IT IS NOT A CONSTANT — it is a function of a measured field quantity, and `core_shell_c` is published
+	# beside it so anyone can recompute it by hand. Measured over three 600-frame runs: 4.578 / 4.586 / 4.578
+	# against the 4.6875 the seeded gradient predicts, the 2% being how far the base of the crust has warmed.
+	# Its RANGE within a run is 4.58 to 48.25, because the step right after seeding still reads the pre-seed
+	# CPU mirror at ambient (see report() below) and a 279 C colder boundary draws 10.5x the heat. That
+	# transient is the cleanest demonstration in the report that the coupling is real; the settled value is
+	# steady because the base of a crust is steady, which is the correct behaviour and not a stuck number.
 	_flux_w_m2 = LAPhysical.THERMAL_CONDUCT_ROCK_W_MK * (_boundary_c - _shell_c) / cell_size
 	# q * A * dt / (rho*c * V) with A = dx^2 and V = dx^3 collapses to q * dt / (rho*c * dx).
 	_flux_dt = _flux_w_m2 * real_seconds_per_step() / (LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K * cell_size)
@@ -184,7 +206,7 @@ func step() -> void:
 	# The reservoir pays for it. (The cubed-sphere's r = 0 cells are not exactly dx^2 in area — summed they
 	# come to about 8% more than 4*pi*core_radius^2 at res 32, the gnomonic area distortion — so the debit is
 	# that much conservative. It is a discretisation error of the grid, not of this model.)
-	_core_temp -= _flux_dt * float(_shell_cells.size()) / _cell_equiv
+	_core_temp -= _flux_dt * float(shell_n) / _cell_equiv
 	# ...and radioactive decay pays a little back. This is the term that keeps a real planet's interior hot
 	# for 4.5 Gyr, and at this body's size it is utterly negligible against the loss — which is exactly why
 	# asteroids are cold rock and planets are not. It is here because it is real, not because it is visible.

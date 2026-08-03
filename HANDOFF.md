@@ -69,10 +69,12 @@ claim is stale and was discouraging A/Bs that now work.)* Still true and still w
   `feature/geotherm-real` (armed, disarmed and both discarded scale arms). Any older figure quoted without
   its flags is from another configuration — `PlateTectonics.gd:72`'s "field_step was 746 in every one of
   them" is a pre-`--fast=8` measurement and is not comparable.
-- **With the geotherm armed the runs are BIT-IDENTICAL at one seed** — three armed runs agreed to every
-  printed digit on every scalar. Determinism is better than this file's "not perfectly deterministic yet"
-  suggests for `--no-fauna`; the residual spread lives in the disaster draw, which armed runs happened to
-  match (5 impacts / 3 eruptions in all three).
+- **Determinism at one seed is better than "not perfectly deterministic yet" suggests for `--no-fauna`.**
+  Two builds of `feature/geotherm-real`, three runs each, all six drawing 5 impacts / 3 eruptions: the first
+  build's three runs were **bit-identical on every printed digit**; the shipped build's three agree to about
+  **0.3%** (`hotspring_cells` 1011 / 1029 / 1026, `temp_ground_p90` 72.36 / 71.45 / 71.47). The difference is
+  that the shipped build's geotherm ledger reads the `solid` mask, which erosion drifts per run. Both are
+  tight enough to A/B on; quote the spread rather than one run.
 
 **CHECK THE SIM IS ALIVE BEFORE YOU TRUST A NUMBER (2026-08-03, cost a full round of measurements).** The
 reaction table was briefly unloadable — the record modules resolved a `class_name` through Godot's global
