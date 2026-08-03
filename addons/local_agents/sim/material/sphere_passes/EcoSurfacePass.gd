@@ -27,9 +27,12 @@ extends RefCounted
 ##                            moved to ReactionsPass; this kernel is now the cross-cell growth/spread/death half)
 ##   fungus_fert_sphere3d     0 FertCell=fungus_fert · 1 Fert=fert[back] (add in place on scent_fert output) ·
 ##                            2 Solid=solid · 15 Neigh=nbr
-##   snowice_sphere3d         0 Snow=<snow> · 1 Temp=temp[back] · 2 Moisture=moisture[back] (-=frozen condensate) ·
-##                            3 Solid=solid · 15 Neigh=nbr   (deposition-only: freezes CONDENSED moisture → snow on
-##                            cold ground, mass-conserving; freeze-liquid + melt are now records R21/R22)
+##   snowice_sphere3d         0 Snow=<snow> · 1 Temp=temp[back] (WRITTEN: +/- the latent heat) ·
+##                            2 Moisture=moisture[back] (-=frozen condensate) · 3 Solid=solid ·
+##                            4 Water=water[back] (readonly) · 5 RockFill=rock_fill (readonly) · 15 Neigh=nbr
+##                            (deposition-only: freezes CONDENSED moisture → snow on cold ground,
+##                            mass-conserving; freeze-liquid + melt are now records R21/R22. Water/RockFill
+##                            are heat-capacity terms only — see the latent-heat block in the kernel.)
 ##   shock_sphere3d           0 ShockIn=shock[live] · 1 ShockOut=shock[back] · 2 Solid=solid · 15 Neigh=nbr
 ##
 ## Push-constant layouts (see each .glsl Params):
@@ -183,11 +186,17 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# Snow DEPOSITION (snowfall): freeze the CONDENSED moisture on cold ground → snow, mass-conserving. Reads
 		# the SETTLED temp + moisture (BACK halves — Thermal/Atmosphere wrote them this step) and debits moisture
 		# in that same BACK half so the loss carries forward as next frame's live (no later pass writes moisture).
+		# LATENT HEAT (2026-08-03): both legs move H₂O between the vapour store and the solid store, so both
+		# now pay the sublimation enthalpy — deposition WARMS the cell, sublimation COOLS it. That makes Temp
+		# read-WRITE here, and adds water + rock_fill purely so the kernel can assemble the same areal heat
+		# capacity the solar kernel uses (heat3d_solar_sphere3d.glsl:222-225). Neither is written.
 		_snowice_set[p] = _build_set(_snowice_shader, [
 			[0, _snow_rid(bufs, p)], # Snow depth (SINGLE, in place)
-			[1, temp_pair[back]],    # Temp (settled, read)
+			[1, temp_pair[back]],    # Temp (settled; warmed/cooled in place by the latent heat)
 			[2, moisture_pair[back]],# Moisture (settled, debited in place — the frozen-out condensate)
 			[3, solid_rid],          # Solid
+			[4, _pair(bufs, "water")[back]],  # Water    (heat-capacity term only)
+			[5, _single(bufs, "rock_fill")],  # RockFill (heat-capacity term only)
 			[15, nbr_rid],
 		])
 

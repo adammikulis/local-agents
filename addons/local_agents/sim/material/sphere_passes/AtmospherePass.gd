@@ -11,6 +11,15 @@ extends RefCounted
 ##   RAIN gather: routes that rain down the radial column into the ground water
 ## plus one conservative TRANSPORT of moisture (diffuse / buoyant rise / wind).
 ##
+## AND THOSE TRANSFERS NOW CARRY THEIR LATENT HEAT (2026-08-03). Before that they moved mass only: water
+## evaporated without cooling anything and condensed without warming anything, so however exactly the cycle
+## conserved H₂O it was a free energy source — and evaporative cooling is the largest single heat sink on an
+## ocean planet's surface (~80 W/m² globally on Earth). EVAP now COOLS its cell by L_v and PRECIP WARMS its
+## cell by the same L_v when the water leaves the air, both over the areal heat capacity the solar kernel
+## uses, so the two legs cancel around a closed cycle. The rain GATHER stays energy-free on purpose: rain is
+## already liquid and released its enthalpy where it condensed. Both kernels therefore WRITE temp[back] in
+## place; the derivation and the enthalpy convention live in atmos_evap_sphere3d.glsl.
+##
 ## PLUGIN CONTRACT
 ##   setup(rd, bufs, cc):   load 4 shaders/pipelines, allocate the rain scratch (+ a zeroed boil scratch the
 ##                          unchanged rain gather still reads), and build 2 uniform sets per kernel (one per
@@ -20,7 +29,9 @@ extends RefCounted
 ##                          ctx["cell_size"] (default 5.0, folded with dt+wind_gain into the transport wdt).
 ##
 ## bufs channels used (PAIR → [rid_a, rid_b] ping-pong; SINGLE → rid):
-##   PAIR:  temp water moisture        SINGLE: solid static vel_x vel_z nbr
+##   PAIR:  temp water moisture        SINGLE: solid static vel_x vel_y vel_z snow rock_fill nbr link_tan
+##   (snow + rock_fill are read ONLY as heat-capacity terms for the latent-heat exchange; vel_y and link_tan
+##    were already used by the transport stage and were missing from this list.)
 ##
 ## BUFFER CHAINING (ping-pong; everything the pass touches for `moisture` ends in the `back` = [1-parity]
 ## slot so the driver's end-of-frame parity flip promotes it to live). temp/water are read from `back`
@@ -111,6 +122,9 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var vel_y: RID = bufs["vel_y"]
 	var vel_z: RID = bufs["vel_z"]
 	var nbr: RID = bufs["nbr"]
+	# Heat-capacity terms for the latent-heat exchange in the evap/precip kernels — never written by them.
+	var snow: RID = bufs["snow"]
+	var rock_fill: RID = bufs["rock_fill"]
 	# Per-column tangent-frame table — the horizontal wind is stored in each cell's own frame, so transport
 	# reads link directions from here instead of assuming a slot is an axis (see wind_step_sphere3d).
 	var ltan: RID = bufs["link_tan"]
@@ -118,11 +132,14 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	for p in 2:
 		var back: int = 1 - p
 
-		# EVAP — atmos_evap_sphere3d.glsl: 0=moisture in(live), 1=temp(back), 2=water(back, debited in
-		# place), 3=solid, 4=static, 5=moisture out(back), 15=nbr.
+		# EVAP — atmos_evap_sphere3d.glsl: 0=moisture in(live), 1=temp(back, COOLED in place by the latent
+		# heat of vaporisation), 2=water(back, debited in place), 3=solid, 4=static, 5=moisture out(back),
+		# 6=snow, 7=rock_fill, 15=nbr.
+		# snow/rock_fill are read ONLY to assemble the same areal heat capacity the solar kernel uses
+		# (heat3d_solar_sphere3d.glsl:222-225), so latent and radiative heat land in one budget.
 		_evap_set[p] = _mkset(rd, _evap_shader, [
 			[0, moisture[p]], [1, temp[back]], [2, water[back]], [3, solid],
-			[4, stat], [5, moisture[back]], [15, nbr]])
+			[4, stat], [5, moisture[back]], [6, snow], [7, rock_fill], [15, nbr]])
 
 		# TRANSPORT — atmos_transport_sphere3d.glsl: 0=q in(post-evap back), 1=solid, 2=q out(live scratch),
 		# 3=vel_x, 4=vel_z, 5=vel_y (radial-up wind), 15=nbr, 16=link_tan.
@@ -130,10 +147,12 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[0, moisture[back]], [1, solid], [2, moisture[p]], [3, vel_x], [4, vel_z], [5, vel_y],
 			[15, nbr], [16, ltan]])
 
-		# PRECIP — atmos_precip_sphere3d.glsl: 0=moisture in(live, post-transport), 1=temp(back), 2=solid,
-		# 3=moisture out(back), 4=rain scratch.
+		# PRECIP — atmos_precip_sphere3d.glsl: 0=moisture in(live, post-transport), 1=temp(back, WARMED in
+		# place by the released condensation enthalpy), 2=solid, 3=moisture out(back), 4=rain scratch,
+		# 5=water, 6=snow, 7=rock_fill (heat-capacity terms only, as in EVAP above).
 		_precip_set[p] = _mkset(rd, _precip_shader, [
-			[0, moisture[p]], [1, temp[back]], [2, solid], [3, moisture[back]], [4, _rain_buf]])
+			[0, moisture[p]], [1, temp[back]], [2, solid], [3, moisture[back]], [4, _rain_buf],
+			[5, water[back]], [6, snow], [7, rock_fill]])
 
 		# RAIN — atmos_rain_sphere3d.glsl: 0=rain scratch, 1=solid, 2=water(back, in place += rain − boil),
 		# 3=boil scratch (all zeros now), 4=STATIC (rain over the sea vanishes into the infinite reservoir, not

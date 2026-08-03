@@ -11,6 +11,23 @@
 //   box `iy==0 || solid below → self`  becomes  `slot0 == -1 || solid[slot0] → self`.
 // One invocation per cell.
 //
+// NO LATENT-HEAT TERM HERE, DELIBERATELY, AND THIS IS WHY — recorded 2026-08-03, when the other three
+// phase-change kernels got one. Falling rain is ALREADY LIQUID. Its condensation enthalpy was released
+// where the condensation happened, in atmos_precip_sphere3d, at the cell that shed it; charging it again
+// when it lands would create that heat a second time out of nothing. This kernel performs no phase change
+// at all — it moves liquid water down a column — so it has no phase enthalpy to pay, and it correctly
+// binds no `Temp`.
+//
+// WHAT IS GENUINELY MISSING IS A DIFFERENT THING, AND IT IS NOT A PHASE CHANGE: rain lands with no memory
+// of its own temperature. This substrate stores temperature as an intensive per-cell scalar and derives
+// heat capacity from channel contents, so mass arriving in a cell raises that cell's capacity while
+// leaving its temperature alone — the cell's heat content (cap * T) goes UP with no source, and goes DOWN
+// when water leaves. Cold rain therefore does not chill the ground it falls on, and the general defect is
+// that EVERY inter-cell mass transfer in this substrate creates or destroys sensible heat: the water CA,
+// this gather, groundwater flow, sediment transport, all of it. Fixing that means advecting enthalpy with
+// mass (mix temperatures on transfer) across the substrate, not adding a term here, so it is reported
+// rather than patched. Left live and named on purpose — do NOT read its absence as "checked and fine".
+//
 // NEIGHBOUR TABLE: nbr[idx*6 + d], slot 0=inward/down … 5=outward/up; -1 = boundary.
 
 layout(local_size_x = 64) in;

@@ -148,3 +148,39 @@ const ALBEDO_SNOW_ICE: float = 0.65
 # --- COMBUSTION -------------------------------------------------------------------------------------------
 # Piloted ignition temperature of dry cellulosic fuel (wood, leaf litter, cured grass).
 const VEGETATION_IGNITION_C: float = 300.0
+
+# --- LATENT HEAT OF H₂O PHASE CHANGE ------------------------------------------------------------------------
+# The enthalpy a kilogram of water absorbs or releases when it changes phase, at 1 atm. Measured properties of
+# water, exactly like its freezing point, and they are the largest heat terms in any planet's surface budget:
+# evaporation carries about 80 W/m² away from Earth's surface globally, against ~340 W/m² of absorbed
+# sunlight and ~20 W/m² of sensible heat. It is the single biggest surface heat SINK on an ocean world.
+#
+# UNTIL 2026-08-03 THIS SIMULATION HAD NONE OF IT. A repo-wide search for "latent" found three comments and
+# no code: water evaporated without cooling the surface, condensed without warming the air, froze without
+# releasing its heat of fusion and melted without absorbing it. Every phase change was free, which makes the
+# water cycle a perpetual-motion machine on energy however exactly it conserves mass.
+#
+# WHICH VAPORISATION NUMBER, AND WHY THERE ARE TWO. L_v depends on temperature, falling from 2.50e6 J/kg at
+# 0 °C to 2.26e6 J/kg at 100 °C, because the liquid and the vapour have different heat capacities. The two
+# endpoints below are each used where they belong rather than one being averaged over both:
+#   * AMBIENT (2.45e6, the value at 20 °C) for ordinary evaporation and condensation. Every evaporating
+#     surface in this simulation — sea, lake, river, wet ground — sits within a few tens of degrees of
+#     ambient, and the planet's own surface median is ~18 °C, so 20 °C is the honest single point.
+#   * BOILING (2.26e6, the value at 100 °C) for the boiling leg, which by definition runs at 100 °C.
+# Interpolating L_v(T) is the fuller model and would be right too; two measured endpoints applied to the two
+# processes that actually occur at them is the simplest thing that is not a fit.
+#
+# FUSION and SUBLIMATION are the other two legs of the same phase triangle, and the three are not
+# independent: L_s = L_v(0 °C) + L_f = 2.50e6 + 0.334e6 = 2.834e6, which is why the sublimation value below
+# is what it is rather than a separately-chosen number.
+const LATENT_HEAT_VAPORISATION_J_KG: float = 2.45e6      # liquid <-> vapour at 20 °C (ambient evaporation)
+const LATENT_HEAT_VAPORISATION_BOIL_J_KG: float = 2.26e6 # liquid <-> vapour at 100 °C (the boiling leg)
+const LATENT_HEAT_FUSION_J_KG: float = 3.34e5            # solid <-> liquid at 0 °C
+const LATENT_HEAT_SUBLIMATION_J_KG: float = 2.83e6       # solid <-> vapour at 0 °C (deposition / sublimation)
+
+# Specific heat of liquid water, already implicit in VOL_HEAT_CAP_WATER_J_M3K above (997 * 4184) but named
+# here because the latent-heat kernels need it ON ITS OWN. It is what converts an AREAL HEAT CAPACITY back
+# into an AREAL MASS: cap [J/m²/K] = mass [kg/m²] * c [J/kg/K], so mass = cap / c. That is the whole of the
+# unit derivation those kernels use to turn a channel amount into kilograms — see the derivation block in
+# atmos_evap_sphere3d.glsl, which states it once for all four H₂O channels.
+const WATER_SPECIFIC_HEAT_J_KGK: float = 4184.0
