@@ -187,10 +187,15 @@ tracker rule. Git holds what was fixed. What follows is only what is still open.
   advection scheme. **What would decide it:** whether a fractional-solidity read (the substrate already stores
   the fraction) can replace the binary test in the consumers that matter — SolidDerivePass, the geotherm's
   surface walk, and `LAMineralStamp3D`.
-- **The residual cost of crust motion at 3e5, unresolved:** `water_total` 587 against a baseline 1416, and
-  `temp_mean` +2.8 °C. `mineral_total` is exactly conserved and `rock_cells` is not thinning, so this is not
-  the transport losing mass — it is a hotter, drier planet from the churn. Quantify it against
-  `LA_NO_PLATE_ADVECT=1`, which is the in-build control for exactly this.
+- **CROSS-TRACK: crust motion and the new phase rule interact, and NOBODY HAS CHARACTERISED THE COMBINATION.**
+  Measured BEFORE the hydrology rework merged, crust motion cost `water_total` 587 against 1416 and
+  `temp_mean` +2.8 °C. Measured AFTER, on the merged tree, the sign of almost every difference FLIPS: against
+  its own `LA_NO_PLATE_ADVECT=1` control the moving-crust arm has MORE crust (`rock_cells` 31621 vs 27528),
+  is COOLER (`temp_mean` 33.2 vs 45.8), has FEWER hot springs (945 vs 1549) and a quarter the loose sediment
+  (597 vs 2096). Both arms conserve mineral exactly. **Do not carry either set of numbers forward as "the
+  cost of plate motion" — they are two different planets.** The merged control is itself far hotter and more
+  eroded than the pre-merge baseline (27528 rock cells against 32038, `temp_mean` 45.8 against 20.6), so the
+  first job is to re-establish a baseline on the merged tree, three runs, before attributing anything.
 - **`VOLCANO_CHANCE_CONVERGENT = 0.3` is still a rarity roll** (`PlateTectonics.gd`). Its own comment names
   the acceptance test — raise it to 1.0 and compare `temp_mean`/`temp_ground_mean` at equal `field_step` over
   three runs per arm — and names the radiative sink as the precondition. The sink has since landed. The
