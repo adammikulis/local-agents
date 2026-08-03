@@ -1,81 +1,104 @@
 #[compute]
 #version 450
 
-// CUBED-SPHERE heat EVAPORATIVE-COOLING pass — sphere port of heat3d_cool3d.glsl (heat3d_cool.glsl, box).
-// Runs LAST in the heat chain, IN PLACE on the temp buffer, reading the POST-FLOW water (a wet cell sheds
-// heat toward the sea target so rivers/sea act as a heat sink + firebreak). Purely per-cell independent.
+// CUBED-SPHERE heat EVAPORATIVE-COOLING pass — now the LATENT-HEAT sink, which is what evaporative cooling
+// actually is. Runs LAST in the heat chain before the lava passes, IN PLACE on the temp buffer, reading the
+// POST-FLOW water. Purely per-cell independent: no neighbour reads at all.
 //
-// DEPTH ON THE SPHERE: the box derived a thermocline target from the cell's world height wy = origin_y +
-// iy*cell_size, then depth = max(0, sea_level - wy). On the cubed sphere "up" is the OUTWARD RADIAL, so the
-// physically-correct depth is measured against the sea RADIUS, not a Y plane. This kernel therefore reads the
-// cell's world position (bound Pos buffer) and uses its RADIUS (= length(pos)) in place of wy, with the sea
-// surface given as a radius (sea_radius). The sea_water_target curve itself is byte-for-byte the box's
-// (warm skin near the surface decaying to the cold deep floor across THERMOCLINE_SCALE). This is the one
-// non-trivial change; everything else — the wet-cell gate, the knife-edge water >= 0.05 test, the relax
-// math — is IDENTICAL. The constants originated in MaterialHeat3D.gd, which no longer exists (nor does any
-// box kernel: kernels3d/ holds only *_sphere3d.glsl now), so this file is their sole home. Nothing is left
-// to keep them in sync with; edit them here.
+// ===== WHAT THIS FILE USED TO BE, AND WHY NONE OF IT IS LEFT ==============================================
+// *(Rewritten 2026-08-03. Three separate things were wrong and they had grown into each other.)*
+//
+// 1. AN EIGHT-LINE WARNING IN THE PRESENT TENSE THAT WAS FALSE. It said "SST_SURFACE / WATER_TEMP_DEEP make
+//    the ocean a THERMOSTAT ... every wet cell is dragged toward this fixed profile, so sea-surface
+//    temperature is 26 C by fiat", and "there is no radiative sink (nothing here computes T^4 emission to
+//    space; heat3d_solar relaxes toward a target instead)". Both statements had stopped being true: the
+//    thermostat was deleted and heat3d_solar_sphere3d.glsl computes a real sigma*eps*T^4 balance. The warning
+//    was left standing, and LASphereThermalPass's own kernel list repeated it ("marine cooling of wet cells
+//    toward the sea thermocline"). Both are corrected.
+//
+// 2. THREE CONSTANTS THAT NOTHING READ. WATER_COOL_RATE 0.12, HOT_SPRING_MARGIN 15.0 and
+//    HOT_SPRING_COOL_FRAC 0.06 were declared, documented at length, and referenced by no expression anywhere
+//    — the leftovers of the deleted thermostat and of the hot-spring gate that existed only to escape it.
+//    Deleted. A constant that still reads as live is worse than no constant.
+//
+// 3. THE LAVA QUENCH WAS HEAT DELETED INTO NOWHERE, AIMED AT A PRESCRIBED TEMPERATURE. `sea_water_target()`
+//    was still evaluated for EVERY wet cell, and its one consumer drove a 950 C cell to ~296 C in a single
+//    step by relaxing 70% of the way toward a hardcoded 26 C-at-the-surface / 10 C-in-the-deep thermocline
+//    curve. Nothing received that energy, no steam was produced, and the destination was an asserted number
+//    rather than anything the field computed. The physical event it stood in for is real — seawater flashes
+//    molten rock to pillow basalt — so it is now modelled by the mechanism that actually does it.
+//
+// ===== WHAT IT IS NOW: THE LATENT HEAT OF VAPORISATION ====================================================
+// Boiling water off a cell costs 2.257e6 J per kilogram, and that energy comes out of the cell's sensible
+// heat. Against water's specific heat that ratio is L/c = 539 K, so flashing one percent of a full water cell
+// to steam costs the same heat as cooling that water by 5.4 K. It is an enormous sink and this substrate was
+// not paying it at all.
+//
+// This is a UNIVERSAL rule with no lava branch in it, and the named phenomena fall out:
+//   * a submerged lava cell boils the seawater around it hard and quenches under the basalt solidus in a few
+//     steps — pillow basalt, seamounts, the island a seabed vent builds;
+//   * a geothermal spring pins itself near 100 C instead of running away, which is what a boiling spring does
+//     and what the deleted HOT_SPRING gate was faking;
+//   * any wet cell a fire or an impact heats past boiling cools itself by steaming.
+// None of those is coded for. `LAVA_QUENCH_MIN` / `LAVA_QUENCH_FRAC` are gone with the rest.
+//
+// THE ENERGY LIMIT IS THE PHYSICS, NOT A CLAMP. A cell can only boil what its heat ABOVE the boiling point
+// can pay for; once it reaches 100 C, further boiling needs heat from somewhere else and stops. So the mass
+// flashed here is the lesser of atmos_evap_sphere3d.glsl's rate and what the cell can afford, and the
+// temperature lands exactly at the boiling point when the limit binds. It can never undershoot.
+//
+// WHAT IS STILL WRONG AND IS NOT IN THIS FILE: atmos_evap_sphere3d.glsl owns the MASS side of the same phase
+// change (`water -> moisture`) and debits `water * bfrac` with no energy limit and no latent-heat charge of
+// its own. So when its rate exceeds what this kernel can pay for, the excess water vaporises for free — heat
+// appearing from nothing at the phase change. The same is true of its EVAPORATION leg, which charges no
+// latent heat at all. Both belong in that kernel and it is owned by another lane; reported, not fixed here.
 
 layout(local_size_x = 64) in;
 
 layout(set = 0, binding = 0, std430) restrict buffer Temp { float temp[]; };
 layout(set = 0, binding = 1, std430) restrict readonly buffer Water { float water[]; };
 layout(set = 0, binding = 2, std430) restrict readonly buffer Solid { float solid[]; };
-layout(set = 0, binding = 3, std430) restrict readonly buffer Pos { vec4 cell_pos[]; };   // world position per cell (xyz)
 layout(set = 0, binding = 4, std430) restrict readonly buffer Lava { float lava[]; };      // molten mineral per cell
+layout(set = 0, binding = 6, std430) restrict readonly buffer RockFill { float rock_fill[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	float sea_radius;   // world radius of the sea surface (replaces the box's planar sea_level)
+	// Grid cell edge in METRES (LASphereGrid.cell_size). Turns the volumetric heat capacity below into the
+	// areal one, and the cell's water FRACTION into a depth of water in metres — which is what the latent
+	// heat is charged per kilogram of. *(Took the `sea_radius` slot: that was the altitude datum for
+	// sea_water_target(), which is deleted.)*
+	float cell_size;
 	float pad0;
 	float pad1;
 } params;
 
-// Constants — AUTHORITATIVE HERE, no mirror to match.
-// (Corrected 2026-07-29: this line said "MUST match MaterialHeat3D.gd exactly". That file is deleted, so the
-// instruction sent readers looking for a mirror that does not exist and implied a parity contract that ended
-// when the CPU heat module did.)
-//
-// WARNING, and the reason this is not merely a stale comment: SST_SURFACE / WATER_TEMP_DEEP make the ocean a
-// THERMOSTAT, not a body of water. Every wet cell is dragged toward this fixed profile, so sea-surface
-// temperature is 26 °C by fiat at every latitude, in every season, forever — it cannot respond to insolation,
-// to an impact winter, or to a volcano. That, plus the absence of any radiative sink (nothing here computes
-// T^4 emission to space; heat3d_solar relaxes toward a target instead), is why FREEZE_TEMP had to be moved to
-// 12.5 °C in MaterialReactions3D.gd and why arc volcanoes are kept artificially rare in PlateTectonics.gd.
-// Replacing this with a real energy balance is tracked as the radiative-sink work in HANDOFF.md.
-const float WATER_COOL_RATE = 0.12;
-const float SST_SURFACE = 26.0;
-const float WATER_TEMP_DEEP = 10.0;
-const float THERMOCLINE_SCALE = 24.0;
+// Measured properties of matter. GLSL cannot read GDScript, so these are copies;
+// scripts/check_physical_constants.sh holds them equal to the authority.
+const float BOIL_TEMP = 100.0;        // LAPhysical.WATER_BOIL_C — the phase boundary, not a tunable
+const float RHO_WATER = 997.0;        // LAPhysical.WATER_DENSITY_KG_M3
+const float LATENT_VAPOR = 2.257e6;   // LAPhysical.LATENT_HEAT_VAPORISATION_J_KG
+const float RC_AIR   = 1186.0;        // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
+const float RC_ROCK  = 2.436e6;       // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
+const float RC_WATER = 4.171e6;       // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
 
-// SUBMERGED-LAVA QUENCH (seabed-volcano capstone). Molten rock (lava) meeting seawater is a VIOLENT heat sink —
-// the water flashes to steam and the lava rinds over in an instant (pillow lava). The gentle WATER_COOL_RATE that
-// suffices for a wet firebreak cannot beat lava_phase's 950°C sustain floor (it relaxes a 950°C cell only to
-// ~838°C, above the 800°C solidus, so it oscillates and NEVER freezes). So a wet cell carrying lava relaxes toward
-// the cold sea target at a MUCH stronger fraction, dropping it under the solidus in ONE step so the M5 record
-// downstream freezes it to rock_fill. This is the universal "water quenches molten rock" property — it makes EVERY
-// underwater lava flow quench fast (pillow basalt, seamounts, and the island the seabed vent builds), not a
-// volcano special case. Above water there is no such term, so subaerial flows stay hot and creep (unchanged).
-const float LAVA_QUENCH_MIN = 0.02;     // a wet cell with at least this much molten mineral quenches hard
-const float LAVA_QUENCH_FRAC = 0.7;     // fraction of the gap to the cold sea target closed per step (950->~296)
+// MODEL parameters of the boiling rate, and they MUST match atmos_evap_sphere3d.glsl, which does the matching
+// mass transfer later in the same step (PASS_SCRIPTS: Thermal runs before Atmosphere). They are how fast the
+// phase change proceeds, not where it happens — BOIL_TEMP above is the physical part.
+const float BOIL_RATE = 0.02;
+const float BOIL_MAX_FRAC = 0.5;
+const float WATER_MIN = 0.05;         // matches atmos_evap_sphere3d.glsl's own wet-cell floor
 
-// HOT-SPRING GATE. A wet cell ABOVE sea level that is far HOTTER than the marine (SST) target is not a
-// solar-warmed river or the sea surface — it is a geothermal SPRING: groundwater that surfaced through hot
-// rock (the soil pass's carry-heat). Relaxing it toward the ~26°C SST target at the full marine rate would
-// QUENCH it before the boiling/evap kernel ever sees ~100°C, so a hot land cell sheds heat MUCH slower here
-// (it still loses heat to conduction + the latent-heat sink of evaporation/boiling, which is the physical way
-// a spring cools). The sea, and ordinary-temperature land water near the target, relax at the full rate.
-const float HOT_SPRING_MARGIN = 15.0;   // °C above the marine target beyond which a LAND cell counts as a spring
-const float HOT_SPRING_COOL_FRAC = 0.06; // hot land springs relax ~16x slower than the marine rate
-
-// Sea thermal profile (formerly mirrored by MaterialHeat3D.sea_water_target(), now deleted — this is the only
-// copy): a warm skin near the surface decaying
-// with depth toward the cold deep floor (thermocline). On the sphere `wy` is the cell RADIUS and `sea` the
-// sea-surface RADIUS, so `depth = max(0, sea - radius)` is the radial depth below the surface — the exact
-// analog of the box's height-below-sea-level. The math is unchanged.
-float sea_water_target(float wy, float sea) {
-	float depth = max(0.0, sea - wy);
-	return WATER_TEMP_DEEP + (SST_SURFACE - WATER_TEMP_DEEP) * exp(-depth / THERMOCLINE_SCALE);
+// A cell's heat capacity from what it is made of, by volume fraction. Molten rock (lava) carries rock's
+// rho*c — basalt's specific heat barely moves across its melting range. Snow is not in this mix and does not
+// need to be: a cell above the boiling point of water is not holding snow.
+float rc_of(uint i) {
+	if (solid[i] != 0.0) {
+		return RC_ROCK;
+	}
+	float f_rock = clamp(rock_fill[i] + lava[i], 0.0, 1.0);
+	float f_water = clamp(water[i], 0.0, 1.0);
+	float f_air = max(0.0, 1.0 - f_rock - f_water);
+	return RC_AIR * f_air + RC_ROCK * f_rock + RC_WATER * f_water;
 }
 
 void main() {
@@ -83,29 +106,24 @@ void main() {
 	if (idx >= params.cell_count) {
 		return;
 	}
-	// The CPU oracle tests `water > 0.05` in FLOAT64 (GDScript widens the float32 cell to double). In
-	// float32 the smallest value that widens to > 0.05 is exactly 0.05f itself, so `>= 0.05` in float32 is
-	// provably identical to the oracle's float64 `> 0.05` for EVERY float32 input — this restores parity
-	// at the knife-edge cell where post-flow water lands on exactly 0.05.
-	if (solid[idx] == 0.0 && water[idx] >= 0.05) {
-		float radius = length(cell_pos[idx].xyz);
-		float wt = sea_water_target(radius, params.sea_radius);
-		if (lava[idx] > LAVA_QUENCH_MIN) {
-			// Molten mineral in seawater: quench HARD toward the cold sea target so it drops under the 800°C
-			// solidus this step and the M5 record freezes it to rock — the seabed volcano's island-builder.
-			temp[idx] = mix(temp[idx], wt, LAVA_QUENCH_FRAC);
-		}
-		// THE OCEAN THERMOSTAT IS GONE, and with it the hot-spring gate that existed only to escape it.
-		//
-		// Every wet cell used to be dragged toward a hardcoded thermocline (SST_SURFACE 26 C at the surface
-		// decaying to WATER_TEMP_DEEP 10 C), so sea-surface temperature was 26 C by fiat at every latitude, in
-		// every season, forever — it could not respond to insolation, to an impact winter, or to a volcano.
-		// A HOT_SPRING_GATE had to be invented on top of it because that thermostat would otherwise quench a
-		// geothermal spring before the boiling kernel ever saw 100 C. Both are deleted here.
-		//
-		// Water's thermal behaviour now comes from what water actually is: a very high heat capacity in the
-		// surface energy balance (HEAT_CAP_WATER, an order above rock), plus conduction. That is what makes an
-		// ocean lag the land beside it and a coast mild, rather than a curve asserting it. The LAVA QUENCH
-		// above stays — water flashing molten rock to pillow basalt is real physics, not a stand-in.
+	if (solid[idx] != 0.0) {
+		return;
 	}
+	float t = temp[idx];
+	float w = water[idx];
+	if (t <= BOIL_TEMP || w <= WATER_MIN) {
+		return;
+	}
+	// Volume fraction of the cell atmos_evap will flash to steam this step, at its rate.
+	float bfrac = clamp((t - BOIL_TEMP) * BOIL_RATE, 0.0, BOIL_MAX_FRAC);
+	float boiled = w * bfrac;
+	// Areal heat capacity (J/m^2/K) and the heat cost per unit boiled fraction (J/m^2): a fraction f of the
+	// cell is f*cell_size metres of water, which is f*cell_size*RHO_WATER kilograms per square metre.
+	float cap = max(rc_of(idx) * params.cell_size, 1.0);
+	float cost_per_frac = params.cell_size * RHO_WATER * LATENT_VAPOR;
+	// What the cell's heat above the boiling point can actually pay for. Beyond that the water stops boiling,
+	// so this is the phase boundary doing the limiting, not a guard.
+	float affordable = (t - BOIL_TEMP) * cap / cost_per_frac;
+	boiled = min(boiled, affordable);
+	temp[idx] = t - boiled * cost_per_frac / cap;
 }
