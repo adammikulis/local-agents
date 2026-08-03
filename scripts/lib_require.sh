@@ -15,7 +15,11 @@
 require_tool() {
   local tool="$1"
   if ! command -v "$tool" >/dev/null 2>&1; then
-    echo "ERROR: $(basename "${BASH_SOURCE[1]:-gate}") requires '$tool' and it is not installed." >&2
+    # Pure-bash basename. A broken PATH is one of the ways a gate loses its tools, so the message that
+    # explains it must not itself depend on an external binary — `basename` printed "command not found"
+    # and left the gate name blank in exactly that case.
+    local caller="${BASH_SOURCE[1]:-gate}"
+    echo "ERROR: ${caller##*/} requires '$tool' and it is not installed." >&2
     echo "       Refusing to report a pass on zero files. Install it (apt: ripgrep) and re-run." >&2
     exit 2
   fi
