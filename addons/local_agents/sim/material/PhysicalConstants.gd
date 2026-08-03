@@ -250,3 +250,66 @@ const BIOMASS_HEAT_OF_COMBUSTION_J_PER_KG: float = 1.7e7
 # RAISES body temperature, and with the mass/area ratio it is what makes a small body track its surroundings
 # within minutes while a large one holds its own temperature for hours.
 const ANIMAL_SPECIFIC_HEAT_J_KGK: float = 3500.0
+# --- UNIVERSAL CONSTANTS ------------------------------------------------------------------------------------
+const STANDARD_GRAVITY_M_S2: float = 9.80665        # CGPM-defined standard gravity
+const GAS_CONSTANT_J_MOL_K: float = 8.314462618     # CODATA molar gas constant R
+const SECONDS_PER_YEAR: float = 3.15576e7           # Julian year, 365.25 days
+
+# --- WATER AND ICE DENSITY: WHY ROCK SHATTERS WHEN IT FREEZES -----------------------------------------------
+# Water is one of very few substances that EXPANDS on freezing, and that expansion is the entire mechanism of
+# frost weathering. At 0 C and 1 atm liquid water is 999.84 kg/m^3 and ice Ih is 916.7, so a given mass of
+# water occupies 999.84/916.7 = 1.0907 times the volume once frozen. In a confined pore that surplus volume
+# has to come out of the surrounding rock, which is what breaks it.
+#
+# NOTE the 0 C liquid density is its own constant and is NOT WATER_DENSITY_KG_M3 above, which is the 25 C
+# value the field uses as its cell-fill denominator. Freezing happens at 0 C, so that is the temperature the
+# expansion has to be quoted at; the two differ by 0.3 % and conflating them would be a small lie in the one
+# place where the whole mechanism is a density difference.
+const WATER_DENSITY_0C_KG_M3: float = 999.84
+const ICE_DENSITY_KG_M3: float = 916.7
+const ICE_FREEZE_EXPANSION: float = 0.0907          # 999.84/916.7 - 1
+
+# Porosity of NEAR-SURFACE crustal rock: the fraction of its volume that is pore and microfracture space, and
+# therefore the fraction that can hold the water frost weathering needs. Intact crystalline basalt measures
+# 0.5-3 %; the weathered, microfractured skin of an outcrop — which is the material that actually shatters —
+# runs 5-15 %. 0.05 is the bottom of the weathered range, i.e. the conservative end for a number that sets an
+# upper bound on a rate.
+const ROCK_POROSITY_NEAR_SURFACE: float = 0.05
+
+# --- CHEMICAL WEATHERING: SILICATE DISSOLUTION --------------------------------------------------------------
+# Apparent activation energy of silicate mineral dissolution, the reaction that chemically weathers rock.
+# Laboratory and field values for plagioclase feldspar and basaltic glass cluster at 50-90 kJ/mol (White &
+# Brantley's compilations); 60 kJ/mol sits mid-range for basalt. It is what makes weathering roughly DOUBLE
+# per +10 C near room temperature — exp((Ea/R)(1/298.15 - 1/308.15)) = 2.2 — so that textbook rule of thumb is
+# a consequence of this number rather than something anyone typed in.
+const SILICATE_DISSOLUTION_EA_J_MOL: float = 60000.0
+const SILICATE_DISSOLUTION_EA_OVER_R_K: float = 7216.9    # 60000 / 8.314462618, in kelvin
+# The temperature laboratory dissolution rates are quoted at. Arrhenius needs a reference point; this is the
+# standard one, and it is a property of the measurement, not of the rock.
+const LAB_REFERENCE_TEMP_C: float = 25.0
+
+# --- LITHIFICATION: A PRESSURE, NOT A DEPTH -----------------------------------------------------------------
+# Sediment becomes rock by COMPACTION and CEMENTATION under the weight of what buries it. The stress that does
+# it is the weight of the SOLID overburden only: by Terzaghi's effective-stress principle pore fluid carries
+# its own weight and does not compact the grain framework, which is why a sediment bed under 4 km of ocean is
+# not lithified by the water above it.
+#
+# GROUNDWATER_CIRCULATION_M above is already defined as the depth "to which meteoric groundwater circulates
+# before POROSITY CLOSES UNDER LITHOSTATIC LOAD". Porosity closing IS lithification, so the same 2 km sets the
+# threshold and no second number is introduced:
+#     P = ROCK_DENSITY_KG_M3 * STANDARD_GRAVITY_M_S2 * GROUNDWATER_CIRCULATION_M
+#       = 2900 * 9.80665 * 2000 = 5.688e7 Pa (56.9 MPa)
+# which is the right order for the onset of pervasive cementation in real basins (1-3 km, 20-70 MPa).
+const LITHIFICATION_PRESSURE_PA: float = 5.688e7
+# Bulk density of unconsolidated wet sediment (sand and mud), measured range 1600-2200 kg/m^3. It is lower
+# than rock because sediment is a grain framework with water in the pores — which is exactly why a sediment
+# pile has to be thicker than a rock pile to reach the same overburden pressure.
+const SEDIMENT_DENSITY_KG_M3: float = 2000.0
+
+# --- PLATE MOTION -------------------------------------------------------------------------------------------
+# Present-day plate speeds from space geodesy (GPS/VLBI, and the NUVEL/MORVEL plate-motion models): 10-100
+# mm/yr. The fast oceanic plates (Pacific, Nazca, Cocos) run 70-100; the slow continental ones (Eurasia,
+# Africa, Antarctica) run 10-25. These are the two ends of the real distribution, and LAPlateTectonics draws
+# each plate's speed from between them instead of from a made-up angular rate.
+const PLATE_SPEED_MIN_MM_PER_YEAR: float = 10.0
+const PLATE_SPEED_MAX_MM_PER_YEAR: float = 100.0

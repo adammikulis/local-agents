@@ -114,6 +114,12 @@ var _first_src: float = 0.0
 var _first_step: int = -1
 var _samples: int = 0
 
+# BASELINE BEDROCK, latched at the same sample the run-long drift baseline is, and the reference `crust_moved`
+# measures displacement against. One extra full-grid float array (276 KB at the shipped resolution) and one
+# extra accumulator inside the walk this module already does — no second scan.
+var _rock_ref: PackedFloat32Array = PackedFloat32Array()
+var _rock_ref_step: int = -1
+
 ## Samples to discard before latching the run-long BASELINE, and this is not a fudge — it is the fix for a
 ## measured artifact that this module's own first run produced.
 ##
@@ -179,6 +185,8 @@ func report(step_index: int) -> Dictionary:
 	var dust_open: float = 0.0
 	var dusty_cells: int = 0
 	var solid_cells: int = 0
+	var crust_moved: float = 0.0
+	var has_ref: bool = _rock_ref.size() == cc
 	for c in cc:
 		var is_open: bool = solid[c] == 0
 		if not is_open:
@@ -188,6 +196,8 @@ func report(step_index: int) -> Dictionary:
 			rock_all += v0
 			if is_open:
 				rock_open += v0
+			if has_ref:
+				crust_moved += absf(v0 - _rock_ref[c])
 		if has_lava:
 			var v1: float = lava[c]
 			lava_all += v1
@@ -230,6 +240,20 @@ func report(step_index: int) -> Dictionary:
 	# deleted 2026-08-03: this line supersedes it, with the same DUST_PRESENT threshold and no extra grid walk.
 	out["dust_cells"] = dusty_cells
 	out["rock_cells"] = solid_cells
+	# HOW FAR THE CRUST HAS MOVED, which no other gauge can answer. `rock_fill_total` is flat while continents
+	# drift, because transport conserves — the mass is the same, it is somewhere else. So compare against the
+	# baseline sample cell by cell: `crust_moved` is the total absolute change in bedrock since the run's
+	# reference, HALVED, so a unit of rock that leaves one cell and arrives in another counts once rather than
+	# twice. It reads as "cells of bedrock relocated". It counts every rock_fill change, not only plate motion
+	# (erosion, lava solidifying and impacts all move bedrock too), so isolate the plate leg by A/B against
+	# LA_NO_PLATE_ADVECT=1 rather than by reading it alone. `crust_moved_ref_step` says which step the baseline
+	# was taken at, for the same reason `mineral_first_step` exists.
+	if has_ref:
+		out["crust_moved"] = snappedf(crust_moved * 0.5, 0.01)
+		out["crust_moved_ref_step"] = _rock_ref_step
+	elif has_rock and _samples >= BASELINE_SKIP_SAMPLES:
+		_rock_ref = rock.duplicate()
+		_rock_ref_step = step_index
 	# PROVENANCE. A leg whose mirror never arrived reads as a flat zero, which is indistinguishable from a
 	# phase that genuinely holds nothing — and, worse, a frozen mirror reads as perfect conservation.
 	out["mineral_live"] = {
@@ -286,4 +310,5 @@ func _blank() -> Dictionary:
 		"mineral_samples": 0, "mineral_first_step": -1,
 		"mineral_src_total": 0.0, "mineral_src_per_step": 0.0, "mineral_net_per_step": 0.0,
 		"mineral_scan_ms": 0.0, "mineral_live": {},
+		"crust_moved": 0.0, "crust_moved_ref_step": -1,
 	}

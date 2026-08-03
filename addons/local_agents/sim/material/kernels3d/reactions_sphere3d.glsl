@@ -112,10 +112,23 @@ float sat_mass_frac(float t_c) {
 	float e_sat = MAGNUS_A_PA * exp(MAGNUS_B * t / (t + MAGNUS_C_C));
 	return (e_sat / (VAPOUR_R * max(t + KELVIN_0, 1.0))) / RHO_WATER;
 }
+#define OVERBURDEN 22  // DERIVED driver: LITHOSTATIC pressure (Pa) of the SOLID column above. See overburden().
+#define BEDROCK_BELOW 23 // DERIVED, WRITABLE: the bedrock of the SOLID cell directly beneath this open one —
+                       // the rock a surface process actually attacks. Unique per thread; see bedrock_below().
 
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust (dust_loft parity)
 #define REGOLITH_CELLS 4    // rooting depth = the permeable regolith band (MUST match MaterialField3D.REGOLITH_CELLS)
 #define DAYLIGHT_MIN 0.02   // insolation above which GATE_DAYLIGHT considers a cell to be in daylight
+// OVERBURDEN_MAX_CELLS bounds the outward walk. The lithification threshold is reached at four cells of full
+// rock, so twelve covers three times it and anything deeper cannot change a record's answer. It is a loop
+// bound, not a physical claim.
+#define OVERBURDEN_MAX_CELLS 12
+const float ROCK_DENSITY = 2900.0;      // LAPhysical.ROCK_DENSITY_KG_M3 — basalt / crustal rock
+const float SEDIMENT_DENSITY = 2000.0;  // LAPhysical.SEDIMENT_DENSITY_KG_M3 — unconsolidated wet sediment
+                                        // (absolute temperature for Arrhenius comes from KELVIN_0 above —
+                                        // one name for one constant, so it cannot drift into two)
+const float BOIL_TEMP = 100.0;          // LAPhysical.WATER_BOIL_C — above it there is no liquid water, so an
+                                        // aqueous reaction rate stops rising with temperature (see ARRHENIUS)
 
 #define CONST_FRAC             0
 #define BILINEAR               1
@@ -124,6 +137,8 @@ float sat_mass_frac(float t_c) {
 #define DEFICIT_BELOW_THRESHOLD 4   // mirror of EXCESS: fires when driver is BELOW threshold (freeze at T<FREEZE_TEMP)
 #define OPTIMUM_BAND           5    // x = k * driver * max(0, 1 - ((driver2 - threshold)/param2)^2) — a rate that
                                     // PEAKS at an optimum and falls off BOTH ways. See MaterialReactions3D.gd.
+#define ARRHENIUS              6    // x = k * driver * driver2 * exp(-(Ea/R)(1/T - 1/T_ref)) — the temperature
+                                    // law of chemistry. threshold = Ea/R (K), param2 = T_ref (K). See ReactionDefs.gd.
 
 #define GATE_OPEN_ABOVE  1
 #define GATE_SURFACE     2
@@ -171,7 +186,11 @@ layout(push_constant, std430) uniform Params {
 	float sun_x;    // world-space vector TOWARD the sun; MAGNITUDE carries insolation (same value ThermalPass
 	float sun_y;    // hands heat3d_solar_sphere3d, so light and heat are driven by ONE quantity)
 	float sun_z;
-	float pad0;
+	// Pascals of lithostatic pressure per unit of (mass x density) in the column above — i.e. g times the model
+	// metres one cell represents. ReactionsPass derives it from the field's own vertical scale (the same
+	// GROUNDWATER_CIRCULATION_M / REGOLITH_CELLS the geotherm uses), so it re-derives at any grid resolution
+	// and nobody types a depth. Replaces a spare pad.
+	float overburden_pa;
 } params;
 
 // REAL per-cell insolation — the LIGHT slot. Identical to the solar kernel's term, so the terminator that
@@ -267,6 +286,52 @@ void root_soil_draw(uint i, float amount) {
 	}
 }
 
+// LITHOSTATIC PRESSURE of the column above, in pascals — the OVERBURDEN slot. Walk radially OUTWARD summing
+// the SOLID mass (bedrock at rock density, sediment at sediment density) and convert with params.overburden_pa,
+// which carries g times the model metres one cell stands for.
+//
+// ONLY SOLID MASS COUNTS. That is Terzaghi's effective-stress principle, not an omission: pore fluid carries
+// its own weight and does not compact the grain framework, so the ocean over a seabed does not lithify it.
+//
+// THE RACE HERE IS HARMLESS BY CONSTRUCTION, and that is worth stating rather than assuming. This reads
+// neighbours' `sediment` and `rock_fill` while other threads may be writing their own — but every record that
+// touches those two channels moves mass BETWEEN them in ONE cell (weathering rock->sediment, lithification
+// sediment->rock), and this sum is over rock+sediment, so their own writes leave it invariant. What can move
+// it are M4 loft (sediment->dust) and M3 settle (susp->sediment), whose per-step extents are ~1e-2 against an
+// overburden sum of order 4 — under a percent, and not a systematic direction.
+float overburden(uint i) {
+	float m = 0.0;
+	int c = nbr[i * 6u + 5u];
+	for (int k = 0; k < OVERBURDEN_MAX_CELLS; k++) {
+		if (c < 0) {
+			break;
+		}
+		m += rock_fill[uint(c)] * ROCK_DENSITY + sediment[uint(c)] * SEDIMENT_DENSITY;
+		c = nbr[uint(c) * 6u + 5u];
+	}
+	return m * params.overburden_pa;
+}
+
+// The bedrock of the cell directly BENEATH this open one — the BEDROCK_BELOW slot. Returns 0 when there is no
+// inward neighbour or it is not rock, so a record that forgets GATE_NEAR_GROUND simply gets nothing rather
+// than reaching into open air. Race-free because nbr[c*6+0] == c-1 is a bijection within a column: each bed
+// cell is the down-neighbour of exactly one open cell (the same argument erosion_pickup_sphere3d.glsl uses).
+float bedrock_below(uint i) {
+	int d = nbr[i * 6u + 0u];
+	if (d < 0 || solid[d] == 0.0) {
+		return 0.0;
+	}
+	return rock_fill[uint(d)];
+}
+
+void bedrock_below_add(uint i, float v) {
+	int d = nbr[i * 6u + 0u];
+	if (d < 0 || solid[d] == 0.0) {
+		return;
+	}
+	rock_fill[uint(d)] = max(0.0, rock_fill[uint(d)] + v);
+}
+
 // Resolve a channel slot to its per-cell value. Unbound slots read 0 (a record must not reference them).
 float read_ch(int slot, uint i) {
 	if (slot == TEMP)     return temp[i];
@@ -289,6 +354,8 @@ float read_ch(int slot, uint i) {
 	if (slot == SOIL_ROOT) return root_soil(i);
 	if (slot == VAPOUR_DEFICIT) return sat_mass_frac(temp[i]) - moisture[i];
 	if (slot == SOIL_TOP) { int c = top_regolith(i); return (c < 0) ? 0.0 : soil[uint(c)]; }
+	if (slot == OVERBURDEN) return overburden(i);
+	if (slot == BEDROCK_BELOW) return bedrock_below(i);
 	return 0.0;
 }
 
@@ -319,6 +386,7 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == ROCK_FILL) { rock_fill[i] = max(0.0, rock_fill[i] + v); }  // may exceed 1.0 (accreted rock); clamp only at 0
 	else if (slot == SOIL_ROOT) { root_soil_draw(i, -v); }                     // roots draw water OUT of the column (v < 0)
 	else if (slot == SOIL_TOP)  { int c = top_regolith(i); if (c >= 0) { soil[uint(c)] = max(0.0, soil[uint(c)] + v); } }
+	else if (slot == BEDROCK_BELOW) { bedrock_below_add(i, v); }               // weathering eats the outcrop it stands on
 }
 
 // Gate helpers reuse the exact neighbour tests proven in the dissolved kernels.
@@ -416,6 +484,19 @@ void main() {
 			float v = read_ch(rc.driver2_slot, i);
 			float t = (v - rc.threshold) / max(rc.param2, 1e-6);
 			x = rc.rate_k * drv * max(0.0, 1.0 - t * t);
+		} else if (rc.rate_model == ARRHENIUS) {
+			// The temperature law of chemistry: rate rises exponentially with T at a rate set by the measured
+			// activation energy in `threshold` (Ea/R, kelvin), referenced to `param2` (the temperature k is
+			// quoted at). First order in `driver` and, when it names a slot, in `driver2`.
+			//
+			// THE CEILING AT BOILING IS THE PHYSICS OF THE PHASE, NOT A GUARD. An aqueous reaction needs liquid
+			// water; above LAPhysical.WATER_BOIL_C there is none (atmos_evap_sphere3d flashes it to steam), so
+			// the rate stops climbing there instead of extrapolating a solution-chemistry law into a cell with
+			// no solution in it.
+			float conc2 = (rc.driver2_slot >= 0) ? read_ch(rc.driver2_slot, i) : 1.0;
+			float t_k = min(temp[i], BOIL_TEMP) + KELVIN_0;
+			float t_ref = max(rc.param2, 1.0);
+			x = rc.rate_k * drv * conc2 * exp(-rc.threshold * (1.0 / max(t_k, 1.0) - 1.0 / t_ref));
 		} else {                            // RELAX_TARGET — signed, no reactant, product = driver channel
 			x = rc.rate_k * (rc.threshold - drv);
 		}

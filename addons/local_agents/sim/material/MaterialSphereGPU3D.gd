@@ -74,6 +74,12 @@ const SINGLE_CHANNELS: PackedStringArray = [
 # (Thermal reads water/lava from "back" + consumes the lava carry-heat left in "live" temp); Atmosphere/
 # FireDust MUST follow Thermal (they read the finished temp/water from "back").
 const PASS_SCRIPTS: PackedStringArray = [
+	# PLATE TRANSPORT runs FIRST, ahead of the solidity derive. It carries rock_fill and sediment with the
+	# velocity of the plate each cell sits on, so `solid` — which SolidDerivePass recomputes from rock_fill at
+	# the top of every step — is derived from where the crust NOW is. Everything downstream (water, heat,
+	# reactions, the mineral stamp) then sees a planet whose continents have moved. Nothing runs before it, so
+	# the shared `send` scratch is free.
+	"res://addons/local_agents/sim/material/sphere_passes/PlateAdvectPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/SolidDerivePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/WaterSlumpLavaPass.gd",
 	# ACTIVE-CELL COMPACTION — builds the compacted cell list + dispatch-indirect args that ThermalPass's
@@ -108,6 +114,10 @@ const SOIL_DBG_SLOTS: int = 20
 # compacted list length a compacted kernel uses as its loop bound. 8 rather than 4 purely for 32-byte alignment.
 const ACTIVE_ARGS_SLOTS: int = 8
 const ARG_SLOT_LIST_COUNT: int = 3
+# Plate table layout, shared with plate_advect_sphere3d.glsl: per plate, seed.xyz + rate + pole.xyz + pad.
+# MAX_PLATES is only the buffer ceiling; the live count travels in ctx["n_plates"].
+const PLATE_STRIDE: int = 8
+const MAX_PLATES: int = 32
 
 static func available() -> bool:
 	var rd: RenderingDevice = RenderingServer.create_local_rendering_device()
@@ -254,6 +264,12 @@ func setup(field) -> void:
 	# the memory and stays cache-resident. Kernels index it as ((g / depth) * 4 + l) * 2.
 	var ltan_bytes: PackedByteArray = _grid.link_tan.to_byte_array()
 	_bufs["link_tan"] = _rd.storage_buffer_create(ltan_bytes.size(), ltan_bytes)
+	# PLATE TABLE — the drifting Voronoi plates PlateAdvectPass carries the crust with. PLATE_STRIDE floats per
+	# plate (seed.xyz, rate, pole.xyz, pad); allocated at a fixed ceiling and refilled by set_plates(), which is
+	# called from OUTSIDE the compute list because a buffer_update while one is open is illegal. Zero-filled, so
+	# a build with no tectonics node simply advects nothing (n_plates stays 0 and the pass is an exact no-op).
+	_bufs["plates"] = _rd.storage_buffer_create(MAX_PLATES * PLATE_STRIDE * 4,
+		_zeros(MAX_PLATES * PLATE_STRIDE))
 
 	# Seed channels from the field's CPU state.
 	_seed("temp", field._temp)
@@ -313,6 +329,7 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 	_ctx["core_radius"] = _grid.core_radius     # groundwater aquifer needs the shell geometry for cell elevation
 	_ctx["depth"] = _grid.depth
 	_ctx["sea_radius"] = _field.sphere_grid().core_radius   # placeholder; overridden by set_sea_radius
+	_ctx["max_mass"] = _field.MAX_MASS                      # a full cell of one phase — PlateAdvectPass uplifts the surplus
 	if not _ctx.has("sun_dir"):
 		_ctx["sun_dir"] = Vector3(0, 1, 0)
 
@@ -325,6 +342,25 @@ func set_spin_axis(v: Vector3) -> void:
 
 func set_sun_dir(v: Vector3) -> void:
 	_ctx["sun_dir"] = v if v.length() > 0.001 else Vector3(0, 1, 0)
+
+
+## The DRIFTING PLATES, as PLATE_STRIDE floats each (seed.xyz, rate, pole.xyz, pad). LAPlateTectonics owns the
+## kinematics — it integrates the seeds on the physics clock and classifies the boundaries — and pushes the
+## table here each frame; PlateAdvectPass then carries rock_fill and sediment with the velocity it implies, so
+## the plates that decide where a volcano goes are the SAME plates that move the ground under it.
+##
+## Uploaded here rather than inside the pass because a `buffer_update` while a compute list is open is illegal;
+## this is called from the field's step orchestration, outside the list. An empty table leaves n_plates 0, and
+## the pass then sends nothing — the crust stands still, which is what a world with no tectonics node should do.
+func set_plates(table: PackedFloat32Array) -> void:
+	if _rd == null or not _bufs.has("plates"):
+		return
+	var n: int = mini(int(table.size() / PLATE_STRIDE), MAX_PLATES)
+	_ctx["n_plates"] = n
+	if n <= 0:
+		return
+	var b: PackedByteArray = table.slice(0, n * PLATE_STRIDE).to_byte_array()
+	_rd.buffer_update(_bufs["plates"], 0, b.size(), b)
 
 ## The geothermal boundary: the TEMPERATURE of the rock ghost cell one shell below the grid's bottom face.
 ## Published by LAMaterialFieldGeotherm3D each step and consumed by heat_sphere3d.glsl, which bonds to it with
