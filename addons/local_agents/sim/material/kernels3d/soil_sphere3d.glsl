@@ -72,6 +72,12 @@ const float INFIL_RATE = 0.045;       // peak infiltration — under the rainfal
 const float DRY_CRUST = 0.12;         // bone-dry infiltration fraction (hydrophobic crust → flash flood)
 const float WET_KNEE = 0.25;          // soil fraction by which the ground has rehydrated to full infiltration
 
+// Which leg a per-slot desired flow belongs to, so the budget-sharing loop can attribute it to the right probe
+// slot after scaling. (The up-seep leg is tracked separately — it shares slot 5 with a possible spring.)
+const int LEG_NONE = 0;
+const int LEG_DARCY = 1;
+const int LEG_SPRING = 2;
+
 // ---- PER-LEG BUDGET PROBE (LAMaterialFieldSoilBudget3D reads this) ------------------------------------
 // Each cell writes ONLY its own DBG_SLOTS floats, so the probe is as race-free as the channel writes beside
 // it and needs no atomics. Summing a slot over the whole grid on the CPU gives that leg's per-step total.
@@ -146,19 +152,30 @@ void main() {
 				return;
 			}
 			float my_head = head_of(idx, s);
-			float remaining = s * MAX_FLOW_FRAC;           // bounded total outflow this step
-			// KNOWN, NOT FIXED HERE: this loop spends `remaining` greedily in SLOT ORDER and breaks when it runs
-			// out. Slot 0 is the INWARD neighbour and head_of() makes the cell below always lower-head unless it
-			// is brim-full, so whenever the cell beneath has headroom the outflow budget is spent downward before
-			// any lateral Darcy or spring runs. That is why the table equilibrates in the bottom regolith shells
-			// with the top ones dry, and why the header's claim that "the bedrock floor makes the aquifer
-			// surface-following" does not hold. The fix is proportional allocation (compute all six desired flows,
-			// then scale them to the budget together) — deliberately NOT done in the same change as the units fix
-			// below, because it restructures a conservation-critical gather and deserves its own verification.
+			// PROPORTIONAL ALLOCATION, NOT SLOT-ORDER GREED. Every direction's DESIRED flow is computed first,
+			// then the step's stability budget is shared among them by ONE scale factor, so no direction can be
+			// starved by where it happens to sit in the neighbour table.
+			//
+			// What this replaces: the loop used to spend `remaining = s * MAX_FLOW_FRAC` greedily in slot order
+			// and `break` when it ran out. Slot 0 is the INWARD neighbour, a full cell_size lower, and head_of()
+			// caps a cell's water table at exactly one cell_size — so the downward gradient is positive by
+			// construction unless the cell below is brim-full, and it is ~1.0 whenever the two hold similar
+			// water. Every other leg competes against that with a gradient of (s_me - s_them)/CAPACITY, which is
+			// near zero on a level table. The budget therefore went straight down in every cell every step, and
+			// the `break` meant lateral Darcy and the spring/exfiltration legs often never ran at all.
+			//
+			// Scaling every leg by ONE factor is the standard mass-limited redistribution for an explicit
+			// multi-direction flow solver: the uncapped physics prescribes the RATIOS between the fluxes, and
+			// uniform scaling is the only limiter that preserves them. Exactly conserving — pass 1 debits the
+			// same `send` slots it credits, and the scaled total is <= MAX_FLOW_FRAC * s < s, so a cell can
+			// never over-draw and the apply clamp still never fires. Same rule reactions_sphere3d.glsl's
+			// root_soil_draw() already uses to split a root's draw across its rooting column.
+			float want[6];
+			int leg[6];
+			float total_want = 0.0;
 			for (int d = 0; d < 6; d++) {
-				if (remaining <= 0.0) {
-					break;
-				}
+				want[d] = 0.0;
+				leg[d] = LEG_NONE;
 				int n = nbr[base + uint(d)];
 				if (n < 0) {
 					continue;
@@ -183,12 +200,11 @@ void main() {
 						// Dividing by cell_size makes CONDUCT what its comment always claimed: flow per unit
 						// hydraulic gradient, the same dimensionless currency as INFIL_RATE.
 						float grad = dh / max(params.cell_size, 1e-6);
-						float flow = min(CONDUCT * grad, remaining);
-						flow = min(flow, max(0.0, CAPACITY - soil_in[n]));
+						float flow = min(CONDUCT * grad, max(0.0, CAPACITY - soil_in[n]));
 						if (flow > 0.0) {
-							send[base + uint(d)] = flow;
-							remaining -= flow;
-							dbg[dbase + DBG_DARCY_SENT] += flow;
+							want[d] = flow;
+							leg[d] = LEG_DARCY;
+							total_want += flow;
 						}
 					}
 				} else if (solid[n] == 0.0) {
@@ -234,25 +250,11 @@ void main() {
 						// receiver-headroom cap the Darcy leg above already applies to regolith receivers — the
 						// same rule, finally applied on the side that needed it most.
 						exf = min(exf, max(0.0, MAX_MASS - water[n]));
-						exf = min(exf, remaining);
-						send[base + uint(d)] = exf;
-						remaining -= exf;
-						dbg[dbase + DBG_SPRING_SENT] += exf;
-						if (d == 0) { dbg[dbase + DBG_SPRING_DOWN] += exf; }
-						else if (d == 5) { dbg[dbase + DBG_SPRING_UP] += exf; }
-						else { dbg[dbase + DBG_SPRING_LAT] += exf; }
-						if (water[n] >= 0.5) { dbg[dbase + DBG_SPRING_WET] += exf; }
-						// How tall is the OPEN column standing above this outlet? 3+ open cells = a real water
-						// body (sea/lake); rock within 2 = a cavity or a carved channel, i.e. confined.
-						int oc = 0;
-						int walk = nbr[uint(n) * 6u + 5u];
-						for (int k = 0; k < 3; k++) {
-							if (walk < 0 || solid[walk] != 0.0) { break; }
-							oc++;
-							walk = nbr[uint(walk) * 6u + 5u];
+						if (exf > 0.0) {
+							want[d] = exf;
+							leg[d] = LEG_SPRING;
+							total_want += exf;
 						}
-						if (oc >= 3) { dbg[dbase + DBG_SPRING_FREECOL] += exf; }
-						else { dbg[dbase + DBG_SPRING_CAPPED] += exf; }
 					}
 				}
 			}
@@ -267,11 +269,11 @@ void main() {
 			// not physics. Real artesian flow is driven by a confined aquifer's recharge area standing HIGHER
 			// somewhere else — a pressure that is not a function of local water depth and that this substrate
 			// does not yet carry. Until a real pressure channel exists, this leg approximates it.
+			float seep_want = 0.0;
 			float surplus = s - CAPACITY * SEEP_THRESH;
-			if (surplus > 0.0 && remaining > 0.0) {
+			if (surplus > 0.0) {
 				int up = nbr[base + 5u];
 				if (up >= 0 && solid[up] == 0.0) {
-					float seep = min(remaining, surplus * SEEP_RATE);
 					// ...but it still cannot push water into a cell that is already full. The comment here used to
 					// argue up-seep needed no such guard, "self-limiting because it only fires on the surplus above
 					// SEEP_THRESH, which the head term prevents the seabed from ever reaching by drainage". That
@@ -279,11 +281,51 @@ void main() {
 					// fixed the seabed saturated, crossed SEEP_THRESH, and this leg took over as the dominant sink
 					// — measured seep_sent 6.03/step -> 29.50/step at field_step 50, the largest single leg in the
 					// budget. Two legs each relying on the other to stay small is not self-limiting, it is a loop.
-					seep = min(seep, max(0.0, MAX_MASS - water[up]));
-					send[base + 5u] += seep;
-					remaining -= seep;
-					dbg[dbase + DBG_SEEP_SENT] += seep;
+					// The headroom left is the outlet's, MINUS whatever the spring leg already aimed at the SAME
+					// open cell through slot 5 — two legs sharing one outlet must share its capacity, which the
+					// old pair of independent min()s did not enforce.
+					seep_want = min(surplus * SEEP_RATE, max(0.0, MAX_MASS - water[up] - want[5]));
+					total_want += seep_want;
 				}
+			}
+
+			// ---- SHARE THE BUDGET ------------------------------------------------------------------------
+			if (total_want <= 0.0) {
+				return;                                    // nothing wants to move; `send` is already zeroed
+			}
+			float scale = min(1.0, (s * MAX_FLOW_FRAC) / total_want);
+			for (int d = 0; d < 6; d++) {
+				float f = want[d] * scale;
+				if (f <= 0.0) {
+					continue;
+				}
+				send[base + uint(d)] = f;
+				if (leg[d] == LEG_DARCY) {
+					dbg[dbase + DBG_DARCY_SENT] += f;
+					continue;
+				}
+				dbg[dbase + DBG_SPRING_SENT] += f;
+				if (d == 0) { dbg[dbase + DBG_SPRING_DOWN] += f; }
+				else if (d == 5) { dbg[dbase + DBG_SPRING_UP] += f; }
+				else { dbg[dbase + DBG_SPRING_LAT] += f; }
+				int n = nbr[base + uint(d)];
+				if (water[n] >= 0.5) { dbg[dbase + DBG_SPRING_WET] += f; }
+				// How tall is the OPEN column standing above this outlet? 3+ open cells = a real water
+				// body (sea/lake); rock within 2 = a cavity or a carved channel, i.e. confined.
+				int oc = 0;
+				int walk = nbr[uint(n) * 6u + 5u];
+				for (int k = 0; k < 3; k++) {
+					if (walk < 0 || solid[walk] != 0.0) { break; }
+					oc++;
+					walk = nbr[uint(walk) * 6u + 5u];
+				}
+				if (oc >= 3) { dbg[dbase + DBG_SPRING_FREECOL] += f; }
+				else { dbg[dbase + DBG_SPRING_CAPPED] += f; }
+			}
+			float seep = seep_want * scale;
+			if (seep > 0.0) {
+				send[base + 5u] += seep;                   // += : slot 5 may already carry a scaled spring flow
+				dbg[dbase + DBG_SEEP_SENT] += seep;
 			}
 			return;
 		}

@@ -93,6 +93,8 @@ func sample() -> Dictionary:
 	var regolith: PackedByteArray = _f._regolith
 	var has_reg: bool = regolith.size() == cc
 
+	var profile: Array = _table_profile(soil, regolith, cc)
+
 	var leg: PackedFloat64Array = PackedFloat64Array()
 	leg.resize(SLOTS)
 	for c in cc:
@@ -137,6 +139,9 @@ func sample() -> Dictionary:
 		"field_step": step_index,
 		"regolith_cells": reg_cells,
 		"soil_total": snappedf(final_soil, 0.001),
+		# --- WHERE the water table stands, by depth below the ground surface (see _table_profile)
+		"table_sat": profile[0],
+		"table_cells": profile[1],
 		"soil_per_step": snappedf(drain_rate, 0.0001),
 		# --- soil-kernel legs, sender side
 		"darcy_sent": snappedf(darcy_sent, 0.0001),
@@ -170,3 +175,60 @@ func sample() -> Dictionary:
 		"kernel_residual": snappedf(kernel_delta - predicted, 0.0001),
 		"post_kernel": snappedf(post_kernel, 0.0001),
 	}
+
+
+## THE WATER TABLE'S SHAPE, not its total. `soil_total` is a scalar and a scalar cannot say whether the
+## aquifer is surface-following (the header's claim) or pooled in the bottom regolith shells with the top dry
+## (what soil_sphere3d.glsl's own comment said the slot-order greed produced). Returns
+## [saturation_by_depth, cells_by_depth], indexed by SHELLS BELOW THE GROUND SURFACE: index 0 is the outermost
+## regolith shell (the one whose lateral neighbours daylight as springs and whose roof is open air), index
+## REGOLITH_CELLS-1 the deepest, sitting on impermeable bedrock. Each entry is the MEAN SATURATION over that
+## depth's cells (soil / SOIL_CAPACITY), so the numbers are comparable across depths that hold different cell
+## counts, and a surface-following table reads roughly flat while a bottom-pinned one reads as a ramp.
+##
+## Column layout is c = surf_index * depth + r with r increasing outward (LAMaterialField3D._compute_regolith),
+## so the ground surface of a column is simply its OUTERMOST regolith cell — no neighbour table needed, and no
+## dependence on the live `solid` mask, which erosion moves out from under the once-seeded regolith band.
+func _table_profile(soil: PackedFloat32Array, regolith: PackedByteArray, cc: int) -> Array:
+	var bands: int = LAMaterialField3D.REGOLITH_CELLS
+	var sat: Array = []
+	var cells: Array = []
+	if regolith.size() != cc or soil.size() < cc or _f._sphere == null:
+		return [sat, cells]
+	var depth: int = int(_f._sphere.depth)
+	if depth <= 0:
+		return [sat, cells]
+	var sum_d: PackedFloat64Array = PackedFloat64Array()
+	var n_d: PackedInt32Array = PackedInt32Array()
+	sum_d.resize(bands)
+	n_d.resize(bands)
+	var col: int = 0
+	while col * depth < cc:
+		var base: int = col * depth
+		var surf_r: int = -1
+		var r: int = depth - 1
+		while r >= 0:
+			if regolith[base + r] != 0:
+				surf_r = r
+				break
+			r -= 1
+		if surf_r >= 0:
+			r = surf_r
+			while r >= 0:
+				if regolith[base + r] == 0:
+					break                              # the band is contiguous; the first gap ends it
+				var d: int = surf_r - r
+				if d >= bands:
+					break
+				sum_d[d] += soil[base + r]
+				n_d[d] += 1
+				r -= 1
+		col += 1
+	var cap: float = LAMaterialField3D.SOIL_CAPACITY
+	for d in bands:
+		cells.append(n_d[d])
+		if n_d[d] > 0 and cap > 0.0:
+			sat.append(snappedf(float(sum_d[d]) / (float(n_d[d]) * cap), 0.0001))
+		else:
+			sat.append(0.0)
+	return [sat, cells]
