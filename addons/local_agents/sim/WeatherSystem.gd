@@ -46,7 +46,7 @@ func _process(delta: float) -> void:
 	if _wind_timer <= 0.0:
 		# Seeded (LASimRng): the breeze feeds moisture transport -> charge -> emergent lightning, so its
 		# randomness must reproduce from LA_SIM_SEED for a deterministic run.
-		var rng: LASimRng = LASimRng.shared()
+		var rng: LASimRng = LASimRng.for_domain("planet")
 		_wind_timer = rng.randf_range(18.0, 40.0)
 		var ang: float = rng.randf() * TAU
 		var strength: float = rng.randf_range(0.5, 1.5) + rain_intensity * 2.0

@@ -61,8 +61,8 @@ func setup(terrain, disasters) -> void:
 		_seeds.append(_rand_unit())
 		_poles.append(_rand_unit())
 		# Signed crawl rate, biased away from zero so every plate actually moves.
-		var r: float = LASimRng.shared().randf_range(0.35, 1.0) * DRIFT_RATE_MAX
-		_rates.append(r if LASimRng.shared().randf() < 0.5 else -r)
+		var r: float = LASimRng.for_domain("planet").randf_range(0.35, 1.0) * DRIFT_RATE_MAX
+		_rates.append(r if LASimRng.for_domain("planet").randf() < 0.5 else -r)
 
 
 ## THE TECTONIC DRUMBEAT RUNS ON THE PHYSICS CLOCK, not the render clock, and that is what makes a seeded run
@@ -131,12 +131,12 @@ func _fire_boundary_event() -> void:
 		# accumulates with nowhere to go — see the constant's own comment for why that is a stand-in awaiting
 		# `feature/energy-balance`, and for the measurement that decides when this roll can be deleted.
 		_disasters.spawn_earthquake(point)
-		if LASimRng.shared().randf() < VOLCANO_CHANCE_CONVERGENT:
+		if LASimRng.for_domain("planet").randf() < VOLCANO_CHANCE_CONVERGENT:
 			_disasters.spawn_volcano(point)
 	elif best_kind == "transform":
 		_disasters.spawn_earthquake(point)                # the fault ruptures
 	else:
-		if LASimRng.shared().randf() < VENT_CHANCE_DIVERGENT:
+		if LASimRng.for_domain("planet").randf() < VENT_CHANCE_DIVERGENT:
 			_disasters.spawn_volcano(point)               # a rift vent
 
 
@@ -185,4 +185,4 @@ func _tangent(p: Vector3, v: Vector3) -> Vector3:
 
 
 func _rand_unit() -> Vector3:
-	return LASimRng.shared().rand_dir()
+	return LASimRng.for_domain("planet").rand_dir()
