@@ -297,11 +297,20 @@ func set_llm_service(service) -> void:
 	_llm_service = service
 
 
-# A hot event "starts a fire" only by depositing heat — vegetation there ignites on the next
-# combustion scan because its cell crossed the ignition temperature. Pure emergence, no fire code.
-func ignite_area(world_pos: Vector3, radius: float) -> void:
-	if _material != null and _material.has_method("add_heat"):
-		_material.add_heat(world_pos, 900.0, radius)   # ~3x wood's 300°C ignition temp
+# AN IGNITION SOURCE IS NOT A HEAT SOURCE. This used to be `add_heat(world_pos, 900.0, radius)` — nine
+# hundred degrees over every cell in the radius, from nothing — and its only caller is
+# `VoxelDisasters.gd:245-246`, which fires it at a meteor's impact point the same frame the meteor itself
+# deposits its own energy at that point. So it was a SECOND heat source for one event, on top of the first,
+# and the comment justifying it ("~3x wood's 300 °C ignition temp") was reasoning about a threshold, not about
+# where the energy came from.
+#
+# It is now a no-op that keeps the call site alive: the impactor's kinetic + thermal energy (Meteor.gd
+# `_impact_energy_j`) is the whole heat budget of a strike, and whether it crosses the fuel's ignition
+# temperature is for the substrate to decide. If a future caller genuinely needs to start a fire from a
+# NAMED store — a dropped torch, a magma contact — it should debit that store and call
+# `LAMaterialFieldInject3D.add_heat_energy` with the joules.
+func ignite_area(_world_pos: Vector3, _radius: float) -> void:
+	pass
 
 
 # Emergent growth CONDITION (not a hardcoded elevation): a seed only takes where the ground is warm enough

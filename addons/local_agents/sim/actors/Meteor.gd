@@ -52,10 +52,10 @@ const MAX_SURFACE_TEMP_C: float = 3000.0   # cap, so a runaway entry cannot inje
 # right there, and a planet with no air at all never lights one up. A local scale-height formula would
 # have been a second, disagreeing atmosphere living inside this actor.
 const AIR_REFERENCE_O2: float = 0.21       # the o2 level treated as full thickness, so rho is a ratio
-# On impact the remaining kinetic energy also goes into the ground. E = 1/2 m v^2, and mass goes as
-# size cubed, so this term is what lets a big fast rock melt a crater that a small slow one does not.
-const KINETIC_HEAT_GAIN: float = 0.004
-const MAX_IMPACT_TEMP_C: float = 2500.0
+# On impact the remaining kinetic energy also goes into the ground — as a real E = 1/2 m v^2 in joules, see
+# `_impact_energy_j()`. The two constants that used to live here (`KINETIC_HEAT_GAIN = 0.004` scaling v^2 into
+# degrees, and `MAX_IMPACT_TEMP_C = 2500` capping the result) are DELETED: neither was a property of anything,
+# and together they let one strike add up to 2500 °C to every one of ~150 cells with no energy behind it.
 const FX_LINGER: float = 1.8               # seconds of FX after impact before free
 
 enum State { IDLE, FALLING, IMPACTED }
@@ -268,12 +268,45 @@ func _apply_heat_visual() -> void:
 			_glow.light_energy = LAHeatGlow.energy(_surface_temp) * _size
 
 
-## What the ground receives. The skin temperature it arrived at, plus the kinetic energy it still had,
-## which is where mass finally matters: a big fast rock melts a crater a small slow one does not.
-func _impact_temp_c() -> float:
+## THE IMPACTOR'S MASS, in kilograms, from its own geometry and the density of the rock it is made of.
+##
+## The actor already carried a second, incompatible mass claim — `METEOR_MASS_SCALE = 400.0`, "mass = size³ ×
+## this", used for the orbital impulse at :335. That number is in no units at all, so the rock the orbit feels
+## and the rock the ground feels were different rocks. This one is a real mass: a sphere of basalt of the
+## body's own radius. (The orbital-impulse line is left alone here — it belongs to the gravity/orbit track —
+## but it should be reading this.)
+func _impact_mass_kg() -> float:
+	var r: float = BODY_RADIUS * _size
+	return LAPhysical.ROCK_DENSITY_KG_M3 * (4.0 / 3.0) * PI * r * r * r
+
+
+## WHAT THE GROUND ACTUALLY RECEIVES, IN JOULES: the kinetic energy the rock still had, plus the heat stored
+## in its body by entry friction. Both are properties of this rock on this trajectory, and both stop existing
+## when it stops — that is what "the impact's heat is the impactor's energy" means.
+##
+## THIS REPLACES A TEMPERATURE, AND THE DIFFERENCE IS THE WHOLE POINT. `_impact_temp_c()` returned a NUMBER OF
+## DEGREES (skin temperature plus `KINETIC_HEAT_GAIN * v² * size`, capped at 2500) which `add_heat` then added
+## to EVERY cell in a bubble of radius `r * 2.2` — roughly 150 cells at the shipped grid. So one strike raised
+## a hundred and fifty cells by up to two and a half thousand degrees each, out of nothing, and the amount did
+## not depend on how much rock there was to heat. `KINETIC_HEAT_GAIN` and `MAX_IMPACT_TEMP_C` were the two
+## constants holding that in a plausible-looking range; neither is a property of anything, and both are gone.
+##
+## WHAT THE HONEST NUMBER SAYS, stated here so nobody re-derives it as a bug: a 2.8 m basalt rock is about
+## 33,000 kg, and at this game's impact speeds (150-600 m/s) it carries 0.4-6 GJ of kinetic energy against a
+## bubble of basalt whose heat capacity is of order 1e12 J/K. The temperature rise is hundredths of a degree.
+## That is CORRECT — real impact melting needs meteoric speed, 11-72 km/s, not 600 m/s — and it means the
+## glowing crater was never a consequence of the impact, it was a typed-in temperature. If incandescent
+## craters are wanted back, the thing to change is the entry speed, which is a real physical quantity, not the
+## heat, which is an outcome.
+func _impact_energy_j() -> float:
+	var m: float = _impact_mass_kg()
 	var speed: float = _velocity.length()
-	var kinetic: float = KINETIC_HEAT_GAIN * speed * speed * _size
-	return clampf(_surface_temp + kinetic, AMBIENT_TEMP_C, MAX_IMPACT_TEMP_C)
+	var kinetic: float = 0.5 * m * speed * speed
+	# Entry friction genuinely heats the body, and that heat arrives with it. Treated as the whole mass at the
+	# skin temperature, which is an OVER-estimate (only a thin skin gets that hot and most of it radiates away
+	# on the way down) — deliberately, so this cannot be accused of hiding energy the rock really brought.
+	var thermal: float = m * LAPhysical.ROCK_SPECIFIC_HEAT_J_KGK * maxf(0.0, _surface_temp - AMBIENT_TEMP_C)
+	return kinetic + thermal
 
 
 ## Radial "up" (away from the nearest gravity body's core) at a world point — the dominant body, else the
@@ -361,13 +394,15 @@ func _on_impact() -> void:
 	# Terror shockwave: everything that hears/feels the impact panics and flees.
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(_impact_point, r * 6.0, 1.0)
-	# The strike dumps its kinetic+thermal energy into the ground as a molten HEAT spike: the crater
-	# glows incandescently (terrain shader) and cools over time, and vegetation that crosses the
-	# ignition temperature catches fire — all emergent from the temperature field, nothing scripted.
+	# The strike hands the ground the ENERGY it arrived carrying (kinetic + the heat entry friction put in the
+	# body). The substrate divides that by the heat capacity of the rock and air it landed on, so how hot the
+	# crater gets is an OUTCOME of how fast and how heavy the rock was and what it hit — not a temperature
+	# anyone typed. Vegetation that crosses the ignition temperature still catches fire from it; it just has to
+	# earn the temperature now.
 	if _ecology != null and _ecology.has_method("material_field"):
 		var field: Object = _ecology.material_field()
-		if field != null and field.has_method("add_heat"):
-			field.add_heat(_impact_point, _impact_temp_c(), r * 2.2)   # what it actually arrived carrying
+		if field != null and field._inject != null and field._inject.has_method("add_heat_energy"):
+			field._inject.add_heat_energy(_impact_point, _impact_energy_j(), r * 2.2)
 		# The impact IS a shock source + an ejecta source — both are the substrate's own primitives now (no
 		# per-actor wave/debris code). emit_shock radiates a seismic wave (tremor + panic); eject throws molten
 		# debris parcels that arc under radial gravity and re-deposit on landing (a glowing ejecta blanket).

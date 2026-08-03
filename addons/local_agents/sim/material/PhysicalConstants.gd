@@ -148,3 +148,35 @@ const ALBEDO_SNOW_ICE: float = 0.65
 # --- COMBUSTION -------------------------------------------------------------------------------------------
 # Piloted ignition temperature of dry cellulosic fuel (wood, leaf litter, cured grass).
 const VEGETATION_IGNITION_C: float = 300.0
+
+# ============================================================================================================
+# APPENDED 2026-08-03 — the energies a conserving substrate needs, so a deposit of heat can name what it came
+# out of instead of being conjured. Each is a measured property of the real process, cited the same way as
+# everything above it.
+# ============================================================================================================
+
+# --- LIGHTNING --------------------------------------------------------------------------------------------
+# Total energy dissipated by one negative cloud-to-ground flash. Measured flashes span roughly 1-5 GJ
+# (a ~5 C charge transfer across a ~100 MV potential difference, plus the return-stroke sequence); 1 GJ is
+# the conservative low end and the value usually quoted for a "typical" flash.
+#
+# THIS IS A PROPERTY OF THE DISCHARGE, NOT A TUNING KNOB FOR HOW HOT THE GROUND GETS. What the substrate does
+# with it is arithmetic: E / (heat capacity of the cells the channel spans). That is why a bolt in this model
+# now heats AIR strongly and wet ground barely, and why a bolt with no accumulated charge behind it delivers
+# nothing at all. The number this replaced was a flat `STRIKE_HEAT = 900` °C added to every cell in a radius,
+# which is heat created from nothing at a rate set by nothing.
+const LIGHTNING_FLASH_J: float = 1.0e9
+
+# --- HEAT OF COMBUSTION -----------------------------------------------------------------------------------
+# Lower heating value of dry cellulosic biomass (wood, leaf litter, cured grass): the energy released when one
+# kilogram of it burns completely. Measured at 16-19 MJ/kg across wood species; 18 MJ/kg is the standard value
+# used for dry forest fuels. This is what makes an ignition's heat the FUEL it consumes rather than a number.
+const BIOMASS_HEAT_OF_COMBUSTION_J_KG: float = 1.8e7
+
+# --- CARBON CONTENT OF DRY PLANT MATTER --------------------------------------------------------------------
+# Dry plant biomass is close to half carbon by mass — measured at 45-50% across woody and herbaceous species,
+# with 0.47 the value the IPCC uses for forest carbon accounting. The substrate's `biomass` channel and its
+# `fuel` channel are the SAME material in different states (standing vegetation, and the flammable litter it
+# becomes), so converting between them is a change of state, not a change of substance, and must move mass
+# one-for-one rather than manufacture it.
+const BIOMASS_CARBON_FRACTION: float = 0.47

@@ -11,16 +11,16 @@ extends RefCounted
 ## (This is the same split as MaterialFieldQueries3D / MaterialFieldRender3D, not a compat layer.)
 ## (Explicit types only, no ':=' inferred typing.)
 
-const QueueScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd")
+const QueueScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldHeatQueue3D.gd")
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
-## Pending sparse DEVICE edits + the H₂O injection ledger. Every CPU-side write into a GPU-resident channel
-## goes through here so it ADDS to live state instead of re-uploading a stale mirror over it, and so every
-## credit names the source it was taken from. Flushed by LAMaterialFieldSphereStep3D just before dispatch;
-## also written by LAMineralStamp3D (the water a growing rock cell has to hand off). Public on purpose — this
-## is the write-side API's own queue, not private state.
-var queue: LAMaterialFieldInjectQueue3D = QueueScript.new()
+## Pending sparse DEVICE edits + the H₂O / MINERAL / THERMAL injection ledgers. Every CPU-side write into a
+## GPU-resident channel goes through here so it ADDS to live state instead of re-uploading a stale mirror over
+## it, and so every credit names the source it was taken from. Flushed by LAMaterialFieldSphereStep3D just
+## before dispatch; also written by LAMineralStamp3D (the water a growing rock cell has to hand off). Public on
+## purpose — this is the write-side API's own queue, not private state.
+var queue: LAMaterialFieldHeatQueue3D = QueueScript.new()
 
 # EVAPORATION SOURCING (add_vapor). A storm lifts water that is THERE: the liquid in its footprint and the
 # water table under it. These bound how hard one injection may pull, so a cell is thinned rather than punched
@@ -83,26 +83,111 @@ func _device_ready() -> bool:
 # Big-O: injection touches only the O(k) cells inside `radius` gathered by a bounded neighbour-BFS from the
 # centre cell (grid.neighbours), never the whole grid — a stimulus wakes a small bubble, not a full-grid sweep.
 
-## Raise the temperature of the cell at `world_pos` (and cells within `radius`) by `amount` °C. A meteor's
-## molten spike, a fire's heat, a storm's surface warming. Edits the CPU `_temp` mirror directly, so it
-## MARKS IT DIRTY: begin_frame no longer re-uploads temp unconditionally (the geothermal core stopped
-## being a CPU-side pin and became a GPU flux boundary), and injection is now the only CPU writer left.
+## HEAT IS AN ENERGY, AND A CELL'S TEMPERATURE RISE DEPENDS ON WHAT THE CELL IS MADE OF.
+##
+## `add_heat` below is the raw DEGREES form and it names no source; `add_heat_energy` is the one every
+## injector inside this substrate now uses, because a joule has to come from somewhere and a joule warms air
+## and rock by wildly different amounts.
+##
+## THE HEAT CAPACITY OF ONE FIELD CELL, in joules per kelvin.
+##
+## A cell is a cube of side `_f._cell_size` MODEL units. The one scale claim this needs is the HORIZONTAL one,
+## and the field already makes it: MaterialFieldGeotherm3D's header takes "the model's metres literally" and
+## reads the body as a 500 m asteroid — 1 model unit = 1 m. (Only DEPTH is exaggerated there, and only for the
+## geotherm's gradient, which is a claim about the profile and not about a cell's volume.) So a 16-unit cell is
+## 16 m on a side and holds 4096 m³.
+##
+## WHAT IT IS MADE OF is the whole point of doing this at all. Rock stores about 2000x more energy per cubic
+## metre than air (LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K 2.436e6 against VOL_HEAT_CAP_AIR_J_M3K 1186), so the same
+## bolt that drives an air cell up hundreds of degrees moves a rock cell by a fraction of one, and a cell full
+## of water barely at all. None of that coupling existed before: `add_heat` added the same number of DEGREES to
+## every cell in its bubble regardless of what was in them, which is heat conjured in proportion to nothing.
+##
+## RELATIONSHIP TO heat3d_solar_sphere3d.glsl's CAP_AIR/CAP_ROCK/CAP_WATER/CAP_SNOW: those are AREAL
+## (J/m²/K), because the solar kernel applies a surface FLUX to a surface cell, and their formula is
+## `volumetric capacity x thermally-active depth`. This is the SAME formula with the depth being the cell
+## itself, which is the right form for an energy dumped INTO a volume rather than one crossing its face. It is
+## written against the formula and against LAPhysical, not against the kernel's literals, so a re-derivation
+## of those literals does not silently move this.
+func _cell_heat_capacity(cell: int) -> float:
+	var side: float = maxf(float(_f._cell_size), 0.001)
+	var volume: float = side * side * side
+	if _f._solid.size() == _f._cell_count and _f._solid[cell] != 0:
+		return LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K * volume
+	# An open cell is air plus whatever liquid is standing in it. MAX_MASS is a full cell of water, so that
+	# ratio is the water fraction and the remainder is air.
+	var wet: float = 0.0
+	if _f._water.size() == _f._cell_count and _f.MAX_MASS > 0.0:
+		wet = clampf(_f._water[cell] / _f.MAX_MASS, 0.0, 1.0)
+	return (LAPhysical.VOL_HEAT_CAP_WATER_J_M3K * wet + LAPhysical.VOL_HEAT_CAP_AIR_J_M3K * (1.0 - wet)) * volume
+
+
+## Deliver `joules` of ENERGY into the cells within `radius` of `world_pos`, drawn from whatever store the
+## caller just debited. Returns the temperature rise actually asked of the device (°C), for diagnostics.
+##
+## The energy is shared over the bubble BY HEAT CAPACITY, so the whole bubble rises by one common ΔT =
+## E / Σ C_cell. That is the difference between delivering a parcel of energy and delivering a temperature:
+## the old code gave every cell in the bubble the same ΔT, which multiplied whatever energy the caller thought
+## it was depositing by the number of cells it happened to touch.
+func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float:
+	if joules == 0.0 or _f._temp.size() != _f._cell_count:
+		return 0.0
+	var cells: PackedInt32Array = _cells_within(world_pos, radius)
+	if cells.size() == 0:
+		return 0.0
+	var total_cap: float = 0.0
+	for c in cells:
+		total_cap += _cell_heat_capacity(c)
+	if total_cap <= 0.0:
+		return 0.0
+	var delta_c: float = joules / total_cap
+	queue.note_energy(joules)
+	_apply_temp(cells, delta_c)
+	return delta_c
+
+
+## Raise every cell within `radius` of `world_pos` by `amount` °C. THE UNSOURCED FORM: it names no store the
+## degrees came out of, so it creates heat. It survives for the two callers that live outside this substrate
+## and outside this module — `LACreatureDisease`'s fever and the editor's magma brush in
+## `VoxelInputController` — and its demand is booked separately as `heat_inject_unsourced_dc` so it cannot
+## hide inside a total that also holds properly sourced injections. Everything inside the substrate (impacts,
+## lightning, landing ejecta) calls `add_heat_energy` instead.
 func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if amount == 0.0 or _f._temp.size() != _f._cell_count:
 		return
 	var cells: PackedInt32Array = _cells_within(world_pos, radius)
-	for c in cells:
-		_f._temp[c] = _f._temp[c] + amount
-	if _f._gpu != null and _f._gpu.has_method("mark_temp_dirty"):
-		_f._gpu.mark_temp_dirty()
-	# BUG FIX: `fire` is a SITUATIONAL (demand-gated) readback channel with no dedicated actor to ever request
-	# it hot (fire is fully emergent — dissolved into the substrate, no `FireActor` node) — so `fire_cells()`/
+	if cells.size() == 0:
+		return
+	queue.note_unsourced(absf(amount) * float(cells.size()))
+	_apply_temp(cells, amount)
+
+
+## Put a per-cell ΔT on the LIVE device buffer through the queue — NOT on the CPU mirror.
+##
+## The mirror write plus `mark_temp_dirty()` this replaces made `begin_frame` re-upload all ~123,000 CPU
+## temperatures over the GPU's live field, and that mirror is one readback (up to two steps) old, so every
+## injection discarded a whole step of solar absorption, radiative emission, conduction and buoyancy PLANET-WIDE
+## in order to deliver a spike in a handful of cells. Storms and lightning called it every frame. The mirror is
+## owned by the readback and needs no help from here; `temp` is in the always-read set
+## (LAMaterialSphereGPU3D:582), so it refreshes every drain.
+func _apply_temp(cells: PackedInt32Array, delta_c: float) -> void:
+	if not _device_ready():
+		# The box/CPU reference field has no device and nothing flushes the queue there, so the mirror IS the
+		# field — write it, exactly as this function always did.
+		for c in cells:
+			_f._temp[c] = _f._temp[c] + delta_c
+		return
+	var deltas: PackedFloat32Array = PackedFloat32Array()
+	deltas.resize(cells.size())
+	deltas.fill(delta_c)
+	queue.queue_temp(cells, deltas)
+	# `fire` is a SITUATIONAL (demand-gated) readback channel with no dedicated actor to ever request it hot
+	# (fire is fully emergent — dissolved into the substrate, no `FireActor` node) — so `fire_cells()`/
 	# `fire_peak` read a permanently-stale CPU array (frozen at its zero seed) even while real combustion is
-	# happening on the GPU. ANY heat injection can plausibly push a fuelled cell over the ignition threshold
-	# (a meteor, a real lightning strike via MaterialCharge3D, ignite_area, even disease fever), so this is the
-	# one choke point that should wake it — cheap (measured: gating all 4 situational channels saves ~0.5ms
-	# total, a rounding error) and self-expires (CHANNEL_HOLD_DRAINS) once nothing is igniting anymore.
-	if amount > 0.0 and _f._gpu != null:
+	# happening on the GPU. ANY heat injection can plausibly push a fuelled cell over the ignition threshold,
+	# so this is the one choke point that should wake it — cheap (measured: gating all 4 situational channels
+	# saves ~0.5ms total, a rounding error) and self-expires (CHANNEL_HOLD_DRAINS) once nothing is igniting.
+	if delta_c > 0.0 and _f._gpu != null:
 		_f._gpu.request_channel("fire")
 
 ## EVAPORATE airborne water vapor (humidity) into the air over `world_pos` (within `radius`) — a storm's LOCAL
@@ -249,14 +334,24 @@ func add_charge(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 ## fully rebuild its charge before it can strike again. This is the emergent per-storm cooldown (no timer):
 ## without it, the neighbours of a fired cell sit at breakdown and re-fire next step (the firehose). Every
 ## cell in the bubble is knocked down to `residual`; the channel is GPU-resident, so mark it dirty.
-func deplete_charge(world_pos: Vector3, radius: float, residual: float) -> void:
+##
+## RETURNS THE CHARGE IT DESTROYED, which is the point of the change. This function used to zero the storm's
+## accumulated charge and simply throw it away, while `_fire_bolt` separately conjured a flat 900 °C spike out
+## of nothing. A discharge does not annihilate energy — it converts the electrostatic store into heat, light
+## and sound in the channel. Handing the drained total back is what lets the caller make the bolt's heat BE
+## that store, so a bolt fired from a weakly charged cell is a weak bolt and a bolt with no charge behind it
+## cannot happen at all.
+func deplete_charge(world_pos: Vector3, radius: float, residual: float) -> float:
 	if _f._charge.size() != _f._cell_count:
-		return
+		return 0.0
 	var cells: PackedInt32Array = _cells_within(world_pos, radius)
+	var drained: float = 0.0
 	for c in cells:
 		if _f._charge[c] > residual:
+			drained += _f._charge[c] - residual
 			_f._charge[c] = residual
 	_f._charge_dirty = true
+	return drained
 
 
 ## Gather the linear cell indices within `radius` world-units of `world_pos` (the centre cell always included).
