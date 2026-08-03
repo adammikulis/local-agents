@@ -296,7 +296,6 @@ func step() -> void:
 	if _step_probe.is_valid():
 		_step_checkpointed()
 		return
-	var last: int = _passes.size() - 1
 	# B1 — ALL passes into ONE submit()+deferred-sync (was: compute_list_begin → dispatch → end → submit →
 	# sync PER pass = 10 blocking CPU↔GPU round-trips/step, up to 20/frame). The kernel math is cheap; those
 	# round-trips were the cost. Still only ONE submit() here — ending+reopening compute_list per pass does NOT
@@ -308,10 +307,17 @@ func step() -> void:
 	# compute list creation is not allowed" otherwise. This is a REAL, confirmed engine constraint (found
 	# 2026-07-23 chasing why gpu_dispatch_ms always read 0: the error was firing every step and silently
 	# discarding the entire capture set, since a failed capture_timestamp call doesn't abort the list — it just
-	# never got created). Godot 4.7 does NOT auto-barrier between separate list segments any more than it does
-	# between dispatches within one list, so `_rd.full_barrier()` (RenderingDevice-level, legal outside a list)
-	# between passes replaces the old in-list `compute_list_add_barrier` — same "a barrier is a GPU pipeline
-	# barrier, NOT a CPU stall; correctness > a marginal extra barrier" tradeoff the original design already made.
+	# never got created).
+	#
+	# NO EXPLICIT BARRIER BETWEEN PASSES (corrected 2026-08-03). This loop used to call `_rd.full_barrier()`
+	# between passes, under a comment asserting "Godot 4.7 does NOT auto-barrier between separate list segments".
+	# The engine disagrees, in writing: every one of those calls raised `Deprecated. Barriers are automatically
+	# inserted by RenderingDevice.` from `full_barrier (servers/rendering/rendering_device.cpp:7106)` — 29326
+	# warnings in a single 2000-frame run, one per pass per step, each carrying a formatted GDScript backtrace.
+	# RenderingDevice has tracked resource state and inserted its own barriers since the 4.3 rework, so the call
+	# bought nothing and the assertion it rested on was stale. Verified behaviourally rather than assumed: same
+	# seed, same frame count, with and without — field aggregates match (see the commit message for the table).
+	# If a genuine cross-pass hazard ever shows up, it is a driver-level bug to report, not a barrier to re-add.
 	#
 	# STILL UNRESOLVED (2026-07-23, do not re-attempt from scratch): fixing the above error stopped the crash,
 	# but get_captured_timestamps_count() still reads 0 in THIS driver specifically, even for the smallest
@@ -328,8 +334,6 @@ func step() -> void:
 		_passes[i].dispatch(_rd, cl, _phase, _ctx, _cc, _groups)
 		_rd.compute_list_end()
 		_rd.capture_timestamp(_pass_names[i])
-		if i < last:
-			_rd.full_barrier()
 	_rd.submit()                        # deferred sync — drained at the next begin_frame (GPU overlaps CPU frame work)
 	_pending = true
 	_phase = 1 - _phase
