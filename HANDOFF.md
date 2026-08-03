@@ -75,6 +75,16 @@ claim is stale and was discouraging A/Bs that now work.)* Still true and still w
 - `--fixed-fps 60` is an ENGINE flag and goes BEFORE the `--`.
 - **Even `--planet-only` is not perfectly deterministic yet** — three runs drew eruptions 4/3/3. Its commit
   message claims it is "the only mode that can be fully deterministic"; that is the goal, not the state.
+- **`field_step` is 590 at `--run-frames=600 --fast=8`, confirmed again 2026-08-03** across eleven runs on
+  `feature/geotherm-real` (armed, disarmed and both discarded scale arms). Any older figure quoted without
+  its flags is from another configuration — `PlateTectonics.gd:72`'s "field_step was 746 in every one of
+  them" is a pre-`--fast=8` measurement and is not comparable.
+- **Determinism at one seed is better than "not perfectly deterministic yet" suggests for `--no-fauna`.**
+  Two builds of `feature/geotherm-real`, three runs each, all six drawing 5 impacts / 3 eruptions: the first
+  build's three runs were **bit-identical on every printed digit**; the shipped build's three agree to about
+  **0.3%** (`hotspring_cells` 1011 / 1029 / 1026, `temp_ground_p90` 72.36 / 71.45 / 71.47). The difference is
+  that the shipped build's geotherm ledger reads the `solid` mask, which erosion drifts per run. Both are
+  tight enough to A/B on; quote the spread rather than one run.
 
 **CHECK THE SIM IS ALIVE BEFORE YOU TRUST A NUMBER (2026-08-03, cost a full round of measurements).** The
 reaction table was briefly unloadable — the record modules resolved a `class_name` through Godot's global
@@ -113,12 +123,30 @@ charge field. `--planet-only` removes it entirely, which is the mode to use for 
 ## DO THIS NEXT (ranked)
 
 **THE ONE-LINE DIAGNOSIS, from four subsystem audits on 2026-08-03: every subsystem with a conservation
-ledger conserves; every subsystem without one mints.** H₂O and mineral have ledgers and are honest. Carbon,
+ledger conserves; every subsystem without one mints.** H₂O has a ledger and is honest. Carbon,
 oxygen, fertility, biomass and energy had none — and every one of them was creating matter or energy from
 nothing. The measurement gap is not a separate problem from the defects, it is the MECHANISM: where drift
 would have shown, the physics had to be real. Ledgers now exist (`MaterialFieldMassBudget3D`,
-`MaterialFieldEnergyBudget3D`, `MaterialFieldExtremes3D`, `MaterialFieldClimateSwing3D`) — use them, and
-build one before trusting any new subsystem.
+`MaterialFieldEnergyBudget3D`, `MaterialFieldExtremes3D`, `MaterialFieldClimateSwing3D`,
+`MaterialFieldMineralBudget3D`) — use them, and build one before trusting any new subsystem.
+
+*(Corrected 2026-08-03. This paragraph said "H₂O and mineral have ledgers and are honest". **Mineral had no
+ledger** — six absolutes, zero deltas — which is why it was item 8 below. Given one, mineral turns out to be
+the rule's exception in a mild way: 3 runs, `--planet-only`, 600 frames, seed 4242, 5 impacts / 3 eruptions
+each, at `mineral_run_steps` 760 it does not mint, it LEAKS `mineral_net_per_step` **-0.043 / -0.042 /
+-0.041** units per field step — about -0.10% of a ~32000-unit inventory over the run — while the vent's
+declared mantle source runs +0.285/step, so the raw total rises and hid the leak.)*
+
+**8b — THE MINERAL LEAK IS ENTIRELY `FireDustPass`, AND IT IS THE RELEVANCE GATE.** `LA_MINERAL_BUDGET=1`
+(`MaterialFieldMineralProbe3D`, per-pass, same instrument shape as `LA_H2O_BUDGET`) reports `legs_all`
+**0.0000 for eleven of the twelve passes** at every sample — solid_derive, water_slump_lava, lava_cell_list,
+thermal, gas_wind, atmosphere, soil, erosion_pickup, reactions, activity, eco_surface — and `fire_dust`
+-0.0008 → -0.0516/step as `dust` climbs 1.85 → 26.68. Mechanism to check: a stride-skipped cell copies
+`dust_out = dust_in` (`dust_transport_sphere3d.glsl:83`) and never collects flux its running neighbours
+already sent, and `dust_outscale_sphere3d.glsl:77` writes 0.0 for a gated cell, which the transport reads as
+"that neighbour sent nothing". WHAT DECIDES IT: fix the gate to be flux-symmetric, re-run the probe, and
+require `fire_dust` to read 0.0000. Compare with `LA_NO_ACTIVITY_LOD=1` first to confirm the gate is the
+cause.
 
 **1 — NITROGEN HAS NO SOURCE, AND THAT IS WHY THE BIOSPHERE COLLAPSED.** On `feature/energy-balance`.
 Closing the fertility identity (`FERT_PER_DECOMPOSE` 1.5 → 0.05 = the 1/20 C:N ratio of leaf litter, uptake
@@ -179,21 +207,95 @@ cost. So it charged 4.5 °C of physics error and bought nothing. **Maintainer de
 the lava cell list, whose compaction is the genuinely good O(active) form — re-pointed at a physical
 predicate instead of camera relevance).
 
-**4 — THE CORE IS A QUARTER OF A REAL CORE, AND IT NEVER DEPLETES. IN FLIGHT.** Armed at **1300 °C** from a
-call-site literal (`game/world/VoxelSpawnController.gd:138`) — an erupting-basalt temperature
-(`LAPhysical.UPPER_MANTLE_C`). Earth's inner core is ~5200 °C (`INNER_CORE_C`), the core-mantle boundary
-~3700 (`CORE_MANTLE_BOUNDARY_C`). `temp_max` reads **exactly 1300.0** in every run because of it. The
-mechanism now lives in `material/MaterialFieldGeotherm3D.gd` (extracted 2026-08-03 out of the extract-only
-field hub). `CORE_FLUX = 10.0` bounds how fast a core cell re-warms — that is what made the energy budget
-closable at all — but the reservoir behind it is still infinite, and the module says so itself.
-**Replace with:** a finite reservoir seeded at a real temperature that COOLS as it conducts outward, plus a
-small radiogenic term — which is what actually keeps a planet's interior hot for 4.5 Gyr.
-**And the geotherm around it is fitted, and inverted.** `kernels3d/heat_sphere3d.glsl:39-41` sets
-`VOID_CONDUCT = 0.016` / `ROCK_CONDUCT = 0.004` with the comment *"Tuned so a 1300°C core coexists with a
-temperate (~15-30°C) surface"* — a fitted physical constant by this repo's own rule. It is also backwards:
-rock conducts heat ~100× **better** than still air (~2.5 vs ~0.026 W/m·K), not 4× worse. A planet keeps a
-hot interior and a temperate surface because geothermal flux is negligible against solar (0.087 vs
-1361 W/m², both already in `LAPhysical`) across kilometres of rock — not because rock insulates.
+**4 — THE PLANET NOW COOLS WITHOUT STOPPING, AND NOTHING SAYS WHERE IT SETTLES.** *(New 2026-08-03. The
+entry that was here — "the core is a quarter of a real core and it never depletes" — is DONE and deleted:
+the core is a finite reservoir at LAPhysical.INNER_CORE_C that cools as it supplies, reaching the world as
+a conductive flux, and heat_sphere3d.glsl carries real diffusivities. This is what that uncovered.)*
+With the pinned core gone the planet is solar-driven, and it drifts COLD over a long run. Measured,
+`--no-fauna --fast=8` seed 4242, at 600 / 1200 / 2000 frames: `temp_ground_p50` 14.15 / 13.49 / 12.03,
+`temp_min` -9.1 / -26.0 / -33.2, `snow_cells` 97 / 184 / 299, `energy_imbalance_cool` -0.83 / -2.29 /
+-3.38. The books say why: the sub-solidus surface emits several times what it absorbs and never closes.
+It is livable at the 600-frame acceptance horizon and heading somewhere colder after it.
+
+The matched pre-change arm at 2000 frames, same seed and the SAME disaster draw (11 impacts, 6
+eruptions), is not a counter-example — it is worse, in the other direction: `temp_ground_p90` **353.4 °C**
+against 23.1, `temp_min` **+0.2 °C** (the planet could not reach freezing at all), `snow_cells` 0 against
+299, `energy_imbalance_cool` **-44.0** against -3.4, `energy_clamped_cells` 488 against 10. So the drift
+is not a regression; it is what a planet with no fictional heat source does, and the old build was not
+stable either, it was pinned.
+**Not caused by this:** `biomass_total` ends at 0.45 after 2000 frames — but the matched pre-change run
+ends at 0.82, and `fert_total` drains to 0.05/0.06 in BOTH. The vegetation collapse is the known
+pre-existing one (#6), not the new climate.
+**What would DECIDE it:** run 4000-6000 frames and see whether `temp_ground_p50` asymptotes or keeps
+falling, and watch `snow_cells` for an ice-albedo runaway. If it keeps falling, the missing term is
+almost certainly the ocean thermostat in #4b — a 26 °C sea by fiat is currently the only thing holding
+the surface up, and it does not participate in the energy balance at all, so the books cannot close
+while it exists.
+**THE GEOTHERM DOES NOT FIX THIS, and it was never going to.** Measured on `feature/geotherm-real`:
+`energy_imbalance_cool` −1.353 armed against −0.838 / −0.838 / −0.868 disarmed. The interior delivers
+~9 W/m² at the base of the crust, but rock's real diffusivity (`alpha` 1.03e-6 m²/s) moves a thermal front
+0.16 m in the 590 steps a run covers, so essentially none of it reaches the surface. The interior is a
+boundary condition on the crust, not a term in the surface budget, and expecting otherwise is the same
+timescale error the geotherm module's header documents.
+
+**4b — THE OCEAN IS A THERMOSTAT, NOT A BODY OF WATER, AND IT IS STILL THERE.** *(Corrected 2026-08-03.
+Item #5 below claimed "the ocean thermostat that used to quench it is already deleted on
+`feature/energy-balance`". That is FALSE — it is live at `kernels3d/heat3d_cool_sphere3d.glsl:47-50`,
+`SST_SURFACE 26.0 / WATER_TEMP_DEEP 10.0 / THERMOCLINE_SCALE 24.0`, dragging every wet cell toward a
+fixed profile at `WATER_COOL_RATE 0.12`.)* The kernel's own header calls it out: sea-surface temperature
+is 26 °C by fiat at every latitude, in every season, forever, so it cannot respond to insolation, to an
+impact winter, or to a volcano — and a deep ocean sits at 10 °C, below its own freezing point, without
+freezing. It is now the LARGEST prescribed temperature left in the field and the last relax-to-target the
+radiative-sink work did not reach.
+**Replace with:** the same treatment the surface got — water's real heat capacity and a real sink, so the
+sea temperature is an output. Expect it to interact strongly with #4; measure them together.
+
+**4c — THE SEA HAS ABOUT A METRE OF THERMAL INERTIA WHERE IT SHOULD HAVE TENS.** *(New 2026-08-03, found
+while unifying the thermal pass's clock.)* `heat3d_solar_sphere3d.glsl`'s heat capacities are now stated in
+real units (J/m²/K), which makes the implied thermally-active depth checkable — capacity divided by the
+material's `LAPhysical` volumetric heat capacity. Rock lands at 0.248 m against a DERIVED diurnal skin depth
+of `sqrt(alpha*P/pi)` = 0.168 m, which is fine. **Water lands at 0.932 m against a real ocean mixed layer of
+20-100 m**, so the sea responds one to two orders of magnitude too fast, which is exactly the wrong direction
+for "coasts are mild" and for damping #4's drift. Air is 291 m, a floor rather than a claim about the column.
+Not changed in the same commit that unified the clock, because it is a real climate change.
+**What would DECIDE it:** raise `CAP_WATER` toward a mixed-layer value and read `swing_diurnal_c` and
+`energy_imbalance_cool` at equal `field_sim_s` — a real ocean should flatten the diurnal swing over water and
+slow the cold drift.
+
+**5 — THE AQUIFER'S OUTFLOW IS SPENT IN SLOT ORDER.** *(Corrected 2026-08-03. The title was "THE AQUIFER
+CANNOT REACH THE SURFACE, SO THERE ARE NO SPRINGS", and the entry said the hot-spring mechanism "just has no
+water to work with". Springs work. Measured on `feature/geotherm-real`, seed 4242, 600 frames, `--fast=8`,
+matched draw 5 impacts / 3 eruptions: `hotspring_cells` **1003** with the geotherm armed against **0-2** with
+`LA_NO_GEOTHERM=1`. What the springs had no supply of was HOT ROCK, not water — the interior was isothermal
+at 15 °C. See the new item below.)*
+One defect remains in `soil_sphere3d.glsl`: **the loop spends its outflow budget greedily in SLOT ORDER, and
+slot 0 is the inward neighbour**, which `head_of()` makes lower-head unless brim-full — so whenever the cell
+below has headroom the whole budget drains downward and lateral flow is starved. Fix with proportional
+allocation (compute all six desired flows, scale them to the budget together); it restructures a
+conservation-critical gather, so verify it alone. Measured cost with the geotherm DISARMED: `soil_total` 2983
+/ 3005 / 3007 with `soil_stranded` 124-125, against the old baked-crust 375 / 5.5 — the bug holds back 24x
+more groundwater than it used to. *(An earlier correction to this entry, still true: it once ended "the ocean
+thermostat that used to quench it is already deleted on `feature/energy-balance`". It is not deleted — #4b.)*
+
+**5b — THE GEOTHERM DRAINS THE AQUIFER IN 80 SIMULATED SECONDS.** *(New 2026-08-03, `feature/geotherm-real`.)*
+Arming the geotherm costs 92% of the groundwater at the 600-frame horizon. Three armed runs (bit-identical)
+against three disarmed, same seed, matched draw, `field_step` 590 in all six:
+
+| | armed | disarmed |
+|---|---|---|
+| `soil_total` | **241** | 2983 / 3005 / 3007 |
+| `water_total` | 1824 | 2858 / 2866 / 2875 |
+| `moisture_total` (vapour) | **4127** | 565 / 566 / 574 |
+| `h2o_total` | 6227 | 6440 / 6446 / 6441 |
+
+`h2o_total` moves 3.3%, so the water is not destroyed — it is MOVED, out of the ground and into the air. The
+path is real and is the one the springs use: hot regolith → spring discharge → an open cell above 100 °C →
+`atmos_evap_sphere3d` flashes it to steam. What is not real is the RATE: a planet does not lose its
+groundwater in eighty seconds, because rain recharges it. The disarmed arm drains too (from ~4694 seeded to
+~3000), so this amplifies #5 rather than causing it.
+**What would DECIDE it:** measure recharge against discharge on the same clock — `SOIL_BUDGET`'s
+`infil_recv` (rain in) against `spring_sent` (discharge out) at equal `field_step`, armed and disarmed. If
+recharge is an order below discharge the missing term is infiltration, not the geotherm.
 
 **5 — THE PLANET IS NOW WET, AND EVERY CONSTANT DOWNSTREAM OF RAIN WAS TUNED WHILE IT WAS DRY.**
 *(Corrected 2026-08-03. This item used to say the aquifer's only remaining defect was slot-order greed in
@@ -220,7 +322,8 @@ exactly 0 to a 6.7:1 wettest-to-driest gradient.
   Needs a per-cell permeability keyed to rock type, which the binary `regolith` mask cannot carry.
 - **Soil water has no evaporative sink.** Root uptake (R19) is the only path out and it measures ~0.03/step
   against a 3894-unit reservoir. Real evapotranspiration is the dominant soil-water loss. Untouched.
-- **Hot springs are now UNBLOCKED but UNDEMONSTRATED.** The magma-free mechanism ships (`soil_sphere3d.glsl`
+- **Hot springs are UNBLOCKED and now DEMONSTRATED** (2026-08-03, once the geotherm landed:
+  `hotspring_cells` 274/272 on the combined tree against 0-2 with the geotherm disarmed). The magma-free mechanism ships (`soil_sphere3d.glsl`
   mass-weights geothermal heat onto surfacing groundwater) and there is finally water surfacing for it to
   heat. `hotspring_max_c` still reads 1300.0 in every arm, which is the magma temperature — that gauge is
   measuring lava-adjacent water, not groundwater discharge. Decide it with `--hotspring-test` once the
@@ -255,12 +358,44 @@ pressure, and can run in the same cell as D1 in the same step — a futile cycle
 plate SEEDS and moves no crust, so the Ring of Fire sweeps across stationary continents, and
 `VENT_CHANCE_DIVERGENT = 0.12` is a second undocumented rarity roll beside the one already flagged.
 
-**8 — `mineral_total` HAS NO DRIFT GAUGE.** It is called "the unification's proof object" and reports six
-absolutes and zero deltas, while fed by an admitted "effectively infinite" mantle. Give it the H₂O ledger's
-`*_drift_per_step` and a `LA_MINERAL_BUDGET`, unify the five legs' inclusion masks (`dust_total` masks on
-open cells, the other four do not), and split `mineral_credited` (crater, a real transfer) from
-`mineral_minted` (vent, a source) — they currently land in one gauge, which pollutes the documented
-crater-vs-vent cross-check.
+**8 — CRATERS EXCAVATE NOTHING, so half the mineral ledger has nothing to check.** Measured 2026-08-03 over
+six 600-frame `--planet-only` runs, seed 4242: five impacts every run and `crater_cells 0`, `crater_mass 0.0`,
+`mineral_inject_moved 0.0` in all six. `LAMeteor._on_impact` (`Meteor.gd:337-350`) carves the SDF and then
+routes the substrate half through `_ecology.material_field()`, so the excavation is gated on the ECOLOGY
+service — geology depending on biology, the same shape as "volcanoes waited for rabbits". Either that gate is
+failing or every drawn strike lands where `resample_terrain`'s `is_solid` probe still reads rock
+(`MaterialFieldInject3D.gd:445`). WHAT DECIDES IT: one run with `--auto-meteor` on known land; if
+`crater_cells` is still 0 the gate is the cause, if it is nonzero the ambient strikes are all landing at sea.
+Until this is settled the crater-vs-vent cross-check (`mineral_inject_moved` against `crater_mass`) has only
+one side.
+
+**8d — LIVE AIRBORNE DUST COSTS THE WATER TABLE A QUARTER OF ITSELF, AND NOBODY KNOWS WHY YET.** Impact
+winter used to be wired to a constant zero (`avg_atmos_dust()` read a `dust` mirror nothing ever refreshed).
+Now that its consumer requests its own channel, mean dust reads ~0.003 against `DUST_OPACITY` 3.5, atmospheric
+transmission drops 0.925 -> 0.915, and `soil_total` at 600 frames drops with it: **369-377 with a dead dust
+mirror against 267-280 with a live one**, over roughly ten runs each. The causal link is isolated in ONE
+worktree: with dust live but the dust->opacity term severed, `soil_total` reads 370.9 and 369.0; with it
+connected, 272.7 and 272.0.
+
+**WHAT DOES NOT ADD UP, AND IS THE OPEN QUESTION:** the effect is not a monotone function of the opacity.
+Forcing a CONSTANT dust opacity with the mirror dead gave `soil_total` 368.3 at 0.0, 367.0 at 0.00307 (the
+live value) and **381.5 at 0.05** — sixteen times the dimming, transmission 0.796, and the water table went UP.
+So a 1% dimming that RISES from zero drains a quarter of the groundwater while a 14% constant dimming does not
+touch it. One of those two is measuring something other than insolation. WHAT DECIDES IT: three runs per arm
+at forced opacity 0.0 / 0.003 / 0.05 (the probes above were one run each, against a 3-6 unit within-arm
+spread), plus `LA_SOIL_BUDGET=1` on a live-dust and a dead-dust run to see WHICH groundwater leg changes.
+
+**8c — `add_lava` STILL REWINDS THE GPU WITH A STALE MIRROR, AND THAT IS WHY READBACK RESIDENCY IS
+LOAD-BEARING.** `LAMaterialFieldSphereStep3D.gd:197-202` pushes the WHOLE `lava` and `rock_fill` mirrors back
+with `set_field` whenever `add_lava` ran on the CPU. Those mirrors were last filled by a readback a frame (up
+to two steps) old, so the upload writes away whatever the kernels did in between — `_audit_mirror_upload`
+(`MaterialSphereGPU3D.gd`, `LA_INJECT_AUDIT=1`) prints exactly that mass. The size of the rewind therefore
+depends on how recently the channel was READ BACK, which is decided by `request_channel`, which is why a
+diagnostic asking for a channel used to change the run (fixed 2026-08-03: ledgers use `read_channels_readonly`
+and no longer ask). The rewind itself is still there. **WHAT DECIDES IT:** move `add_lava` onto the injection
+queue's `move_field_sparse`, the way every other injector already resolves against the live buffer, then run
+with `LA_INJECT_AUDIT=1` and require the printed delta to be 0.0. It touches `MaterialField3D.gd`, which is
+extract-only, so the transfer belongs in a new module the hub delegates to.
 
 **8b — THE H₂O LEDGER, THE ONE HELD UP AS SOUND, HAS A LARGE UNEXPLAINED EXCURSION.** It now has the
 run-level gauge every other substance already had (`h2o_first` / `h2o_run_drift` / `h2o_run_drift_per_step`,
@@ -298,8 +433,11 @@ nothing in this project could tell those two apart.
   46+6 units), so it is not obviously wrong — but it is unverified either way, and settling it needs a
   windowed run with fauna and something buried.
 - `--fixed-fps 60` fixes the field clock but NOT the disaster draw. The planet now has its own RNG stream
-  (impacts 5/5/5, eruptions 3/3/3, temp spread 12.7 °C → 0.70 °C); the residual is actor splashes perturbing
-  the charge field, which `--planet-only` removes entirely.
+  (impacts 5/5/5, temp spread 12.7 °C → 0.70 °C). *(Corrected 2026-08-03: this also said "eruptions 3/3/3".
+  Across 20+ `--planet-only` runs — no actors at all, so the "residual is actor splashes" explanation does
+  not apply — impacts were 5 every time but eruptions came out 3 OR 4.)* At genuinely fixed code the run-to-run
+  spread of `soil_total` is only 3-6 units on ~275, so it CAN carry an A/B — but 3 runs per arm is the floor,
+  and the tree must not be edited while the batch runs (see `CLAUDE.md`).
 
 **10 — A4: rebuild `VoxelWorld` → Anima. HELD for supervised handling.** Refactor the inline
 `VoxelWorld._ready` to compose from `SimWorld` + the reusable nodes, and rename the game `VoxelWorld` →
@@ -459,7 +597,9 @@ has not responded yet at this horizon. Decide it with a long run, not by moving 
 
 ### Still owed elsewhere
 
-- **T1:** hot springs · moisture growth-gate (Keystone B's sim half).
+- **T1:** moisture growth-gate (Keystone B's sim half). *(Hot springs came off this list 2026-08-03 —
+  `hotspring_cells` 1003 against 0-2 with `LA_NO_GEOTHERM=1`, no dedicated code, the seeded geotherm plus
+  `soil_sphere3d`'s existing donor-temperature mixing. What they now cost is item #5b.)*
 - **T2:** weathering + lithification (2 DEFS records) · snow render from the real `_snow` field with an honest
   0 °C freeze · sea-ice/snow-line behaviour once #1 lands · emergent river supply (highland baseflow + snowmelt).
 - **T3:** cloud→ground shadows · re-enable sun shadows · grass/ground-cover [FAKE] · climate-typed flora

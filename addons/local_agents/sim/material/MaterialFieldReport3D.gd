@@ -15,6 +15,7 @@ const EnergyBudgetScript: GDScript = preload("res://addons/local_agents/sim/mate
 const ExtremesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldExtremes3D.gd")
 const ClimateSwingScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd")
 const MassBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMassBudget3D.gd")
+const MineralBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralBudget3D.gd")
 
 ## Process frames between recomputes of the O(cells) instrument block. See `_heavy_block()` for why a gate is
 ## needed at all — the short version is that this provider is polled every rendered frame, not once a
@@ -27,6 +28,7 @@ var _energy = null                                       # LAMaterialFieldEnergy
 var _extremes = null                                     # LAMaterialFieldExtremes3D — min/max-ever register
 var _swing = null                                        # LAMaterialFieldClimateSwing3D — diurnal + seasonal range
 var _mass = null                                         # LAMaterialFieldMassBudget3D — carbon/oxygen/fertility ledgers
+var _mineral = null                                      # LAMaterialFieldMineralBudget3D — the five-phase rock ledger
 var _heavy_cache: Dictionary = {}                        # last computed instrument block
 var _heavy_frame: int = -1_000_000                       # process frame it was computed on
 
@@ -42,6 +44,8 @@ func setup(field) -> void:
 	_swing.setup(field)
 	_mass = MassBudgetScript.new()
 	_mass.setup(field)
+	_mineral = MineralBudgetScript.new()
+	_mineral.setup(field)
 
 
 ## SURFACE CLIMATE BY LATITUDE AND ALTITUDE — the gauge that can actually answer "can it freeze HERE".
@@ -285,17 +289,19 @@ func report() -> Dictionary:
 		"fertility_peak": _f.fertility_peak(), "magma_cells": _f.magma_cell_count(),
 		"erosion_cells": _f.erosion_cell_count(), "snow_cells": _f.snow_cell_count(), "ice_cells": _f.ice_cell_count(),
 		"sea_ice_cells": q.sea_ice_cell_count(), "sea_ice_temp": q.sea_ice_temp_avg(), "open_sea_temp": q.open_sea_temp_avg(),
-		"dust_cells": _f.dust_cell_count(), "charge_peak": _f.charge_peak(), "bolts": _f.bolts_fired(),
+		# (`dust_cells` moved into the mineral budget's single pass — it already walks the dust channel, so
+		# counting there is free, where a call here would have added an O(cells) walk to the per-frame path.)
+		"charge_peak": _f.charge_peak(), "bolts": _f.bolts_fired(),
 		"shock_cells": _f.shock_cell_count(), "o2_min": _f.o2_min_open(), "o2_avg": _f.o2_avg(),
 		"co2_peak": _f.co2_peak(), "co2_avg": _f.co2_avg(),
 		"biomass_total": _f.biomass_total(),
 		"fuel_total": q.fuel_total(), "fire_peak": q.fire_peak(), "fire_cells": q.fire_cells(),
 		"h2o_total": _f.h2o_total(), "water_total": _f.water_total(), "snow_total": _f.snow_total(), "soil_total": _f.soil_total(),
 		"snow_line_temp": _f.snow_line_temp(),
-		"mineral_total": q.mineral_total(), "rock_cells": q.rock_cells(),
-		"rock_fill_total": q.rock_fill_total(), "lava_total": q.lava_total(),
-		"sediment_total": q.sediment_total(), "dust_total": q.dust_total(),
-		"susp_total": q.susp_total(),
+		# MINERAL is NOT here. Its six absolutes plus `rock_cells` used to be computed on this line, ungated,
+		# and cost ELEVEN O(cells) walks per report call — `mineral_total()` re-walks the grid five times and
+		# the five individual getters walked it five more. LAMaterialFieldMineralBudget3D produces all of them,
+		# both masks, and the drift they never had, in ONE pass behind `_heavy_block()`'s cadence gate.
 		"enclosed_void": q.enclosed_void_cells(),
 		"enclosed_void5": q.enclosed_void_cells(5),
 		"rock_grows": (_f._stamp.grows if _f._stamp != null else 0), "rock_shrinks": (_f._stamp.shrinks if _f._stamp != null else 0),
@@ -322,6 +328,10 @@ func report() -> Dictionary:
 	# half of the carbon loop published nothing but zeros while fungus_total beside it read real values.
 	r.merge(_f.decomposer_stats())
 	r.merge(q.rock_radial_profile())
+	# The geothermal RESERVOIR, which rock_radial_profile above cannot show: rock_core_c is the innermost
+	# simulated shell, and the reservoir is the unsimulated interior underneath it. core_res_c is the state
+	# variable that falls; core_flux_w_m2 is what it delivers, to be read against LAPhysical's 0.087.
+	r.merge(_f.geotherm_report())
 	r.merge(q.hot_spring_stats())
 	r.merge(q.lava_shell_diag())
 	var heavy: Dictionary = _heavy_block()
@@ -373,5 +383,9 @@ func _heavy_block() -> Dictionary:
 	#   mass   — conservation ledgers for carbon, oxygen, fertility and biomass, on the H₂O ledger's pattern.
 	#            Every substance here that had a ledger conserved; every substance without one minted.
 	d.merge(_mass.report(_f._gpu._step_index if _f._gpu != null else 0))
+	#   mineral — the five-phase rock ledger. Publishes the same six absolutes this block replaced (so nothing
+	#            downstream lost a key) PLUS the drift, the source-corrected net rate, and both masks. It is a
+	#            NET REDUCTION in work here: one pass instead of the eleven the ungated block above ran.
+	d.merge(_mineral.report(_f._gpu._step_index if _f._gpu != null else 0))
 	_heavy_cache = d
 	return d

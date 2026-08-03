@@ -277,15 +277,24 @@ func _insolation() -> float:
 
 ## Atmospheric transmission (0..1): airborne dust + cloud block sunlight (a meteor volley → impact winter).
 func _compute_transmission() -> float:
-	var opacity: float = 0.0
-	# DUST — unbounded (impact winter can go dark).
+	var dust_op: float = 0.0
+	# DUST — unbounded (impact winter can go dark). `avg_atmos_dust()` requests the demand-gated `dust`
+	# readback itself, which is what keeps this mechanism alive without a diagnostic having to be running.
 	if _material != null and _material.has_method("avg_atmos_dust"):
-		opacity += float(_material.avg_atmos_dust())
+		dust_op = float(_material.avg_atmos_dust())
+	var cloud_op: float = 0.0
 	# CLOUD — BOUNDED contribution: dims the sun but capped so insolation never collapses (breaks the
 	# cloud→cold→more-cloud runaway; the surface settles at a temperate equilibrium clouds modulate around).
 	if _material != null and _material.has_method("avg_cloud_cover"):
-		opacity += minf(float(_material.avg_cloud_cover()) * CLOUD_OPACITY_K, CLOUD_OPACITY_CAP)
-	return 1.0 / (1.0 + DUST_OPACITY * maxf(opacity, 0.0))
+		cloud_op = minf(float(_material.avg_cloud_cover()) * CLOUD_OPACITY_K, CLOUD_OPACITY_CAP)
+	var t: float = 1.0 / (1.0 + DUST_OPACITY * maxf(dust_op + cloud_op, 0.0))
+	# IMPACT WINTER IS AN EVENT, NOT A LEVEL, so a single end-of-run scalar cannot show it. These are gauges
+	# (cur/min/max over the run) because the thing worth knowing is HOW DARK IT GOT and for how long, and
+	# `insolation` — the only number published before — is an instantaneous sample of a spiky quantity.
+	LASimReport.gauge("atmos_dust_opacity", dust_op)
+	LASimReport.gauge("atmos_cloud_opacity", cloud_op)
+	LASimReport.gauge("atmos_transmission", t)
+	return t
 
 
 # The moon drags the tide: raise/lower the sea shell (and the near-cap surface) around the base radius so the

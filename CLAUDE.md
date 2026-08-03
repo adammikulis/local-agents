@@ -259,6 +259,34 @@ committed). When removing files:
   eruptions a run happened to draw (2 vs 6), not Gaussian — so quote `phenomenon/impact` and
   `phenomenon/eruption` too. `LA_NO_AMBIENT_DISASTERS=1` is NOT enough to hold the timeline fixed: it gates
   only the ambient director, and `LAPlateTectonics` keeps firing on its own drumbeat.
+  - **NEVER EDIT THE TREE WHILE AN A/B BATCH IS RUNNING.** *(Added 2026-08-03.)* A wrapper run reads the
+    working tree at launch, so a twelve-run batch left unattended while its own worktree was being edited
+    produced `soil_total` from 287.6 to 401.1 and looked like a chaotic bimodal quantity. It is not: at
+    genuinely fixed code the spread is 3-6 units on ~275 (267.2 / 272.4 / 272.7 and 278.2 / 280.2 / 275.0,
+    three runs each). Nearly a whole false rule was written from that batch. Commit or stash first, then run.
+  - **AND `env FOO=` COUNTS AS SET.** The same batch silently ran with `LA_SOIL_BUDGET` armed because the
+    runner passed `LA_SOIL_BUDGET="${LA_SOIL_BUDGET:-}"` and the probe gates on `OS.has_environment`, which
+    is true for an empty value. Gate diagnostics on `OS.get_environment(...) != ""`, and do not let a runner
+    pass through variables the caller did not set.
+- **AN INSTRUMENT THAT CHANGES RESIDENCY IS NOT AN INSTRUMENT — a gauge may NEVER call
+  `request_channel`.** *(Added 2026-08-03.)* `LAMaterialSphereGPU3D.request_channel` looks read-only and is
+  not: it decides which GPU channels get copied back into the CPU MIRRORS, and the simulation's own write
+  paths read those mirrors. `avg_atmos_dust()` turns `_f._dust` into the opacity that sets insolation (so
+  waking `dust` switches impact winter on); `add_lava` and the fuel seed push WHOLE mirrors back with
+  `set_field`, so mirror staleness decides how much GPU-evolved mass that upload rewinds; `LAMineralStamp3D`
+  reads the `rock_fill` mirror to emit SDF stamps. Three conservation ledgers were calling it on every
+  sample. **The corollary matters more: a PHYSICAL mechanism must never depend on a diagnostic being switched
+  on.** Impact winter was live only because the mineral ledger happened to request `dust`, so gating that
+  ledger off — which was proposed — would have silently switched impact winter back off. The consumer
+  requests its own channel now (`avg_atmos_dust`), and the ledgers request nothing.
+  - **AND `buffer_get_data` IS NOT A PASSIVE READ EITHER.** The first attempt at a read-only ledger sampled
+    the device directly from the report path. On a local `RenderingDevice`, with a `step()` submit still in
+    flight, that flushes the pending work outside the driver's one-submit-per-sync discipline and the
+    simulation comes out different: `h2o_total` 5062 → 9803, `sediment_total` 1073 → 1449, `rock_shrinks`
+    816 → 1602, `temp_mean` 39.8 → 44.6 °C, same seed and frame count. Restoring every `request_channel`
+    call did not bring it back, which is what identifies the read rather than the residency. A pure
+    instrument reads at the DRAIN, right after `_rd.sync()` — `LAMaterialSphereGPU3D.request_probe` /
+    `take_probe` do exactly that, into a dictionary no simulation consumer sees.
 - **REVIEW STRUCTURE BY DEFAULT, NOT JUST VALUES — every time you surface a constant or a metric.** The
   standing question is not "is this number right?" but **"what is this a constant OF, and should it be one?"**
   and for a metric, **"is this the right SHAPE of measurement?"** Surfacing something as evidence is NOT the

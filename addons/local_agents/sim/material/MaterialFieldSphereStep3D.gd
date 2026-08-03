@@ -22,10 +22,32 @@ const STEP_DT: float = 1.0 / 10.0
 const MAX_STEPS_PER_FRAME: int = 2
 const FIELD_CADENCE_MAX: int = 60                       # clamp for the published Sim knob (avoid absurd skips)
 
+# --- THE FIELD'S ONE CLOCK ---------------------------------------------------------------------------------
+# Seconds in a real day. The sim clock declares a day is LASimClock.DAY_LENGTH SIMULATED seconds, so one field
+# step of STEP_DT simulated seconds stands for STEP_DT * (86400 / DAY_LENGTH) REAL seconds. At the shipped
+# 200 s day: 0.1 * 432 = 43.2.
+#
+# IT IS STATIC, AND IT LIVES HERE, BECAUSE THERE WERE TWO CLOCKS IN ONE THERMAL PASS. `heat_sphere3d.glsl` and
+# LAMaterialFieldGeotherm3D advanced 43.2 REAL seconds per step over SI volumetric heat capacities, while
+# `heat3d_solar_sphere3d.glsl` — dispatched by the SAME LASphereThermalPass, inside the same step — advanced
+# STEP_DT = 0.1 over model-unit capacities: a factor of 432 between two halves of one energy budget. Neither
+# was wrong on its own, and a pair like that is never caught by a test, which is exactly the kind of defect
+# that ends up blamed on something else. There is ONE derivation now and every caller reads it — the geotherm,
+# the conduction kernel, the solar kernel, and the energy-budget instrument that mirrors the solar kernel.
+const REAL_SECONDS_PER_DAY: float = 86400.0
+
+## Real seconds ONE field step represents — derived from the sim clock, never typed. See the block above.
+static func real_seconds_per_step() -> float:
+	var day: float = float(LASimClock.DAY_LENGTH)
+	if day <= 0.0:
+		return 0.0
+	return STEP_DT * (REAL_SECONDS_PER_DAY / day)
+
 const LakesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLakes3D.gd")
 const SoilBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd")
 const H2OBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldH2OBudget3D.gd")
 const MineralProfileScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd")
+const MineralProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProbe3D.gd")
 
 var _f = null                                          # back-reference to the owning LAMaterialField3D
 var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
@@ -38,7 +60,13 @@ var _soil_budget = null
 var _h2o_budget = null
 # Elevation profile of the mobile mineral phases (LA_MINERAL_PROFILE). Same reason again: it is a per-STEP
 # sample, and it answers the one question no total in SIM_REPORT can — whether sediment moves DOWNHILL.
+# It samples in post_step() rather than through the driver's probe slot, so it does NOT contend with the two
+# budget probes below and all three can be armed at once.
 var _mineral_profile = null
+# Per-pass MINERAL budget probe (LA_MINERAL_BUDGET) — the same instrument for the five rock phases. It uses the
+# driver's ONE `set_step_probe` slot, so it and the H₂O probe are mutually exclusive; setup() warns and keeps
+# this one when both variables are present, rather than letting one silently take every checkpoint.
+var _mineral_probe = null
 
 # TWO CLOCKS, PUBLISHED SO THEY CAN BE COMPARED. `field_sim_s` is the simulated time the substrate ACTUALLY
 # advanced (STEP_DT per GPU step); `field_offer_s` is the simulated time the physics tick HANDED it (the sum
@@ -56,9 +84,16 @@ func setup(field) -> void:
 	if OS.has_environment("LA_SOIL_BUDGET"):
 		_soil_budget = SoilBudgetScript.new()
 		_soil_budget.setup(field)
+	if OS.has_environment("LA_MINERAL_BUDGET"):
+		_mineral_probe = MineralProbeScript.new()
+		_mineral_probe.setup(field)
 	if OS.has_environment("LA_H2O_BUDGET"):
-		_h2o_budget = H2OBudgetScript.new()
-		_h2o_budget.setup(field)
+		if _mineral_probe != null:
+			push_warning("LA_H2O_BUDGET and LA_MINERAL_BUDGET both set — they share the driver's single "
+				+ "step probe. Running the MINERAL probe only; unset it to get the H2O one.")
+		else:
+			_h2o_budget = H2OBudgetScript.new()
+			_h2o_budget.setup(field)
 	if OS.has_environment("LA_MINERAL_PROFILE"):
 		_mineral_profile = MineralProfileScript.new()
 		_mineral_profile.setup(field)
@@ -129,7 +164,7 @@ func process(delta: float) -> void:
 	# ThermalPass' set_sun_dir kernel (max(0, dot(cell_radial, sun_dir))), not this scalar.
 	var solar: float = 0.6
 	var t_pin: int = Time.get_ticks_usec()
-	_f._pin_core_heat()              # geothermal boundary: re-pin the hot inner shells before the upload
+	_f._step_geotherm()              # finite core reservoir: cool it, and publish its flux for this step
 	LASimReport.gauge("field_pin_ms", float(Time.get_ticks_usec() - t_pin) / 1000.0)
 	var t_begin: int = Time.get_ticks_usec()
 	_f._gpu.begin_frame(_f._temp, _f._water, solar, Vector2.ZERO)   # drains prev step (sync+readback) + uploads
@@ -206,11 +241,14 @@ func process(delta: float) -> void:
 			_f._inject.queue.audit_rewind(_f._gpu, "moisture", _f._moisture)
 		_f._inject.queue.flush(_f._gpu)
 	var t_step: int = Time.get_ticks_usec()
+	# At most one budget probe is ever non-null (setup() enforces it), so this stays one branch, not a nest.
+	# Untyped like every other duck-typed module handle in this file.
+	var probe = _h2o_budget if _h2o_budget != null else _mineral_probe
 	for i in steps:
-		if _h2o_budget != null:
-			_h2o_budget.pre_step()    # LA_H2O_BUDGET: arm/disarm the driver's between-pass probe for THIS step
+		if probe != null:
+			probe.pre_step()          # arm/disarm the driver's between-pass probe for THIS step
 			_f._gpu.step()
-			_h2o_budget.post_step()   # print the per-pass water budget (no-op on unsampled steps)
+			probe.post_step()         # print the per-pass budget (no-op on unsampled steps)
 		else:
 			_f._gpu.step()
 	LASimReport.gauge("field_dispatch_ms", float(Time.get_ticks_usec() - t_step) / 1000.0)

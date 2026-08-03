@@ -41,7 +41,12 @@ layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	uint pad0;
+	// REAL seconds one field step represents (LAMaterialFieldSphereStep3D.real_seconds_per_step, 43.2 at the
+	// shipped 200 s day). It is PUSHED, not hardcoded, because it is a property of this world's time
+	// compression rather than of matter — and because this kernel used to carry its own copy of a DIFFERENT
+	// clock: `const float STEP_DT = 0.1`, the SIMULATED step, while heat_sphere3d.glsl in the same pass ran on
+	// the real one. See the CAPACITY block below for what that cost and how it was reconciled.
+	float dt_s;
 	uint pad1;
 	uint pad2;
 	float sun_x;        // world-space unit vector pointing TOWARD the sun (magnitude carries insolation)
@@ -85,13 +90,9 @@ layout(push_constant, std430) uniform Params {
 // gives ~288 K for an Earth-albedo planet with nothing tuned. If this world lands somewhere else, that is a
 // finding about its albedo, its greenhouse or its interior — not a licence to re-dim the sun.
 //
-// The heat capacities set how far a night cools before dawn. At 288 K a cell radiates ~390 W/m^2, so over
-// a ~31 s night (half a 63 s rotation, 310 steps at 0.1 s) it sheds ~12000 J/m^2 — a capacity near 800
-// gives a ~15 K diurnal swing on land. Water is an order up, which is what makes the ocean lag.
 const float STEFAN = 5.670374419e-8;   // LAPhysical.STEFAN_BOLTZMANN — the measured constant, in full
 const float SOLAR_CONSTANT = 1361.0;   // LAPhysical.SOLAR_CONSTANT_W_M2 — measured irradiance at 1 AU
 const float KELVIN = 273.15;
-const float STEP_DT = 0.1;             // the field's fixed step (LAMaterialFieldSphereStep3D.STEP_DT)
 // STABILITY LIMIT, and it is NOT a spare guard — it BINDS. Measured on this build: 399 surface cells hit it
 // in a single step, worst |dT| 29.8 C/step against a limit of 5.0. Its old comment said "numerical guard
 // only, never reached at equilibrium", which was false and hid the fact that real energy was being discarded
@@ -99,7 +100,7 @@ const float STEP_DT = 0.1;             // the field's fixed step (LAMaterialFiel
 //
 // A clamp that silently drops the excess is a lie in an energy balance: the cell reports a temperature the
 // budget did not pay for. The fix is not a bigger number — dT scales as 1/heat_capacity, so a cell with the
-// bare HEAT_CAP_AIR and a large flux genuinely wants a big step, and raising the limit just moves the
+// bare CAP_AIR and a large flux genuinely wants a big step, and raising the limit just moves the
 // threshold. It is SUB-STEPPING: split the update into N slices when the implied change is large, so the
 // same total energy is applied but T^4 is re-evaluated as the cell warms, which is what makes it converge.
 // The clamp remains underneath as a true last resort, and now reports rather than hides (dt_clamped).
@@ -109,10 +110,32 @@ const float ALBEDO_GROUND = 0.15;
 const float ALBEDO_WATER = 0.06;
 const float ALBEDO_ICE = 0.65;
 const float ICE_ALBEDO_GAIN = 40.0;    // snow mass -> reflectivity; a thin dusting already whitens a cell
-const float HEAT_CAP_AIR = 800.0;
-const float HEAT_CAP_ROCK = 1400.0;
-const float HEAT_CAP_WATER = 9000.0;   // the ocean's thermal inertia — why coasts are mild
-const float HEAT_CAP_SNOW = 2500.0;
+// ===== AREAL HEAT CAPACITIES, J/m^2/K =============================================================
+// The heat one square metre of surface stores per degree — a volumetric heat capacity times the depth of
+// material that actually follows the surface temperature. They set how far a night cools before dawn.
+//
+// THEY USED TO BE 800 / 1400 / 9000 / 2500 IN NO UNITS AT ALL, divided into a flux times STEP_DT = 0.1, the
+// SIMULATED step — while heat_sphere3d.glsl, dispatched by the SAME pass in the same step, divided by SI
+// J/m^3/K over dt = 43.2 REAL seconds. A factor of 432 between two halves of one energy budget. The numbers
+// below are the old ones times exactly that 432, so this kernel's per-step behaviour is UNCHANGED; what
+// changed is that both halves now state the same clock and the same units, and the capacities can finally
+// be checked against reality. Verified by running it: every gate metric is bit-identical across the change.
+//
+// WHAT THE REALITY CHECK SAYS, since the point of stating units is to be able to do it (cap / the material's
+// LAPhysical volumetric heat capacity = the implied thermally-active depth):
+//   ROCK  604800 / 2.436e6 = 0.248 m, against a DERIVED diurnal skin depth sqrt(alpha*P/pi) =
+//         sqrt(1.026e-6 * 86400 / pi) = 0.168 m. Same order, 1.5x deep. Fine.
+//   SNOW  1080000 / 6.27e5 (rho 300, c 2090) = 1.72 m, against a seasonal pack of 0.1-2 m. Fine.
+//   AIR   345600 / 1186 = 291 m — 18 cells of air, and 3.5% of a real atmospheric column (~1e7 J/m^2/K).
+//         It is the floor every surface cell carries, not a claim about the whole atmosphere.
+//   WATER 3888000 / 4.171e6 = 0.932 m, against a real ocean MIXED LAYER of 20-100 m. This one is wrong by
+//         one to two orders of magnitude: the sea here has roughly a metre of thermal inertia where it
+//         should have tens. Not changed in the same commit that unified the clock, because it is a real
+//         climate change and wants its own measurement — recorded in HANDOFF.md.
+const float CAP_AIR = 345600.0;
+const float CAP_ROCK = 604800.0;
+const float CAP_WATER = 3888000.0;     // the ocean's thermal inertia — why coasts are mild (see above)
+const float CAP_SNOW = 1080000.0;
 // ===== GREENHOUSE — emissivity from the overlying air mass ========================================
 // A grey atmosphere of optical depth tau lets a fraction 1/(1 + 0.75*tau) of the surface's blackbody flux
 // reach space (the standard two-stream result, T_s^4 = T_e^4 * (1 + 0.75*tau)). So the greybody EMISSIVITY
@@ -196,10 +219,10 @@ void main() {
 		// HEAT CAPACITY per cell, from channels that already exist — no new buffer. This is the thermal
 		// inertia that lets a night side coast instead of radiating to absolute zero, and it is why an
 		// ocean lags the land it sits beside.
-		float cap = HEAT_CAP_AIR
-			+ HEAT_CAP_ROCK  * clamp(rock_fill[idx], 0.0, 1.0)
-			+ HEAT_CAP_WATER * wet
-			+ HEAT_CAP_SNOW  * clamp(snow[idx], 0.0, 1.0);
+		float cap = CAP_AIR
+			+ CAP_ROCK  * clamp(rock_fill[idx], 0.0, 1.0)
+			+ CAP_WATER * wet
+			+ CAP_SNOW  * clamp(snow[idx], 0.0, 1.0);
 
 		// GREENHOUSE from the air actually overhead — this is where altitude enters, and it enters as
 		// physics rather than as a subtracted lapse. On step 0 the pressure channel is still all-zero
@@ -214,7 +237,7 @@ void main() {
 		float t_k = max(temp[idx] + KELVIN, 1.0);              // clamp keeps T^4 finite if a cell goes wild
 		float absorbed = SOLAR_CONSTANT * (1.0 - albedo) * insolation;
 		float emitted  = STEFAN * emissivity * t_k * t_k * t_k * t_k;
-		float dT = (absorbed - emitted) * STEP_DT / cap;
+		float dT = (absorbed - emitted) * params.dt_s / cap;
 		// Numerical guard ONLY (not a physics clamp): one step may not move a cell more than this, so a
 		// transient cannot NaN the field. Equilibrium is unaffected — it is reached over many steps.
 		// SUB-STEP rather than truncate. One Euler step of a T^4 sink is only valid while T barely moves;
@@ -222,7 +245,7 @@ void main() {
 		// across the slices (each pays its own sigma*eps*T^4), the equilibrium is unchanged, and the cells
 		// that used to lose 25 C/step of real cooling now actually cool.
 		int slices = int(clamp(ceil(abs(dT) / MAX_DT_PER_STEP), 1.0, float(MAX_SUBSTEPS)));
-		float sub_dt = STEP_DT / float(slices);
+		float sub_dt = params.dt_s / float(slices);
 		float t_c = temp[idx];
 		for (int s = 0; s < slices; ++s) {
 			float tk = max(t_c + KELVIN, 1.0);
