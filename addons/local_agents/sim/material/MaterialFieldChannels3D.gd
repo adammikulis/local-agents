@@ -208,3 +208,87 @@ func charge_at(x: float, y: float, z: float) -> float:
 		var c: int = _f.world_to_cell(Vector3(x, y, z))
 		return _f._charge[c] if (c >= 0 and _f._charge.size() == _f._cell_count) else 0.0
 	return 0.0
+
+
+# --- Emergent DECOMPOSER loop: detritus (dead matter) → fungus → CO₂ + soil fertility -----------------
+#
+# THESE FOUR WERE HARDCODED ZEROS. `fungus_at`, `fungus_peak`, `fungus_cells` and `detritus_peak` sat on the
+# field hub as literal `return 0.0` / `return 0` bodies, and MaterialFieldReport3D pipes three of them
+# straight into SIM_REPORT — so the decomposer half of the carbon loop has published a constant zero for the
+# life of every run while `fungus_total` beside it read real values. The stub was honest when it was written:
+# `detritus` and `fungus` were in NO readback set, so the CPU mirrors held their all-zero allocation and a
+# real body would have returned zero anyway. Both channels became demand-gated on 2026-08-03
+# (LAMaterialSphereGPU3D.SITUATIONAL_CHANNELS), so the data is there now and these read it.
+#
+# Both are demand-gated, so every reader self-wakes its channel the way co2_at does — there is no
+# producer-side event to hook a request to.
+
+## Presence thresholds, taken from the substrate's OWN rule rather than an invented epsilon. The kernel grows
+## fungus only where detritus is above DETRITUS_MIN and kills the colony back below it
+## (kernels3d/fungus_sphere3d.glsl:38-39, :72, :97), so "this cell has a colony" / "this cell has food" means
+## the same thing to the gauge as to the physics that produced it. FUNGUS_MIN is declared in that kernel and
+## never used there; this is its consumer.
+const FUNGUS_PRESENT: float = 0.02        # == fungus_sphere3d.glsl FUNGUS_MIN
+const DETRITUS_PRESENT: float = 0.05      # == fungus_sphere3d.glsl DETRITUS_MIN
+
+
+func fungus_at(x: float, y: float, z: float) -> float:
+	if _f._gpu != null:
+		_f._gpu.request_channel("fungus")
+	if _f._sphere != null:
+		var c: int = _f.world_to_cell(Vector3(x, y, z))
+		return _f._fungus[c] if (c >= 0 and _f._fungus.size() == _f._cell_count) else 0.0
+	return 0.0
+
+
+## Decomposer EXTENT and INTENSITY for both substances, in ONE O(cells) pass on the report's snapshot cadence
+## (the three separate scans the old signatures implied would have been three sweeps of the grid for four
+## numbers).
+##
+## SHAPE, because a peak alone is one sample used to argue about a distribution: `*_peak` cannot tell a single
+## thick bloom from a planet-wide mat, so extent (`*_cells`) is reported beside it and
+## LAMaterialFieldMassBudget3D already carries the totals (`fungus_total`, `carbon_detritus`). Total + extent
+## + peak is the smallest set that separates "thin everywhere" from "one patch". `detritus_cells` is NEW —
+## detritus had a peak and no extent, so nothing in the report said whether the food the fungus eats was
+## spread over the planet or piled in one place, which is the whole question about a decomposer.
+##
+## Masked on OPEN cells, the same mask the kernel and the mass budget use: fungus_sphere3d zeroes fungus in
+## rock, and detritus inside rock has been BURIED rather than made available, so counting it would report food
+## the decomposer cannot reach.
+func decomposer_stats() -> Dictionary:
+	if _f._gpu != null:
+		_f._gpu.request_channel("fungus")
+		_f._gpu.request_channel("detritus")
+	var out: Dictionary = {"fungus_peak": 0.0, "fungus_cells": 0, "detritus_peak": 0.0, "detritus_cells": 0}
+	var cc: int = _f._cell_count
+	if cc <= 0:
+		return out
+	var solid: PackedByteArray = _f._solid
+	var fung: PackedFloat32Array = _f._fungus
+	var det: PackedFloat32Array = _f._detritus
+	var has_fung: bool = fung.size() == cc
+	var has_det: bool = det.size() == cc
+	if solid.size() != cc or not (has_fung or has_det):
+		return out
+	var f_peak: float = 0.0
+	var f_n: int = 0
+	var d_peak: float = 0.0
+	var d_n: int = 0
+	for c in cc:
+		if solid[c] != 0:
+			continue
+		if has_fung:
+			var fv: float = fung[c]
+			f_peak = maxf(f_peak, fv)
+			if fv >= FUNGUS_PRESENT:
+				f_n += 1
+		if has_det:
+			var dv: float = det[c]
+			d_peak = maxf(d_peak, dv)
+			if dv >= DETRITUS_PRESENT:
+				d_n += 1
+	out["fungus_peak"] = f_peak
+	out["fungus_cells"] = f_n
+	out["detritus_peak"] = d_peak
+	out["detritus_cells"] = d_n
+	return out

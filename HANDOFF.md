@@ -231,19 +231,20 @@ open cells, the other four do not), and split `mineral_credited` (crater, a real
 crater-vs-vent cross-check.
 
 **9 — SMALLER, ALL MEASURED.**
-- **FOUR** hardcoded stubs in `MaterialField3D.gd:1164-1171`, not three — `fungus_at()` is the one this file
-  kept missing, alongside `fungus_peak()`, `fungus_cells()` and `detritus_peak()`. All pipe straight into
-  `SIM_REPORT` via `MaterialFieldReport3D.gd:68-69`, so the decomposer loop has been reporting permanent
-  zeros while `fungus_total` reads real values. The data now exists: detritus and fungus ARE read back from
-  the GPU as of 2026-08-03.
-- `MaterialFieldPhotoStats3D.sun_dir()` dots a WORLD-frame sun against a BODY-LOCAL radial, so `light_mean`
-  and everything derived from it are only correct at identity rotation.
 - The energy budget's global net is a lava thermometer (`energy_magma_share` 0.94 — 94% of longwave leaves
   through 386 of 8684 cells). **Read `energy_net_cool`, not `energy_net`.**
 - Interaction radii were never scaled when the planet doubled (`PLANET_SCALE` covers world-gen geometry and
   `cell_size` only). Craters were the visible casualty and are fixed; `SEED_HEAT_R` 12 and `VAPOR_INJECT_R`
   14 are still sub-cell but degrade gracefully.
-- Four dead `248.0` sea-radius fallbacks survive where the live value is 500.
+- ONE dead `248.0` sea-radius fallback is left, `sphere_passes/ThermalPass.gd:166`, where the live value is
+  500. *(Corrected 2026-08-03: this said "Four". The other three — `MaterialFieldAtmos3D.gd:119`,
+  `WaterParticles.gd:24`, `game/world/BiomeShaderController.gd:58` — are gone, replaced by a direct
+  `sea_radius()` read plus a `push_error` for the case the terrain is genuinely missing.)*
+- `MaterialFieldChannels3D.breathable_o2_at` walks up to **4 cells** radially outward through rock before a
+  creature counts as encased. Cells are 16 world units thick here (`8.0 * PLANET_SCALE`), so a creature 64
+  units under solid rock still breathes. Sized as a margin against terrain relief inside one cell (relief is
+  46+6 units), so it is not obviously wrong — but it is unverified either way, and settling it needs a
+  windowed run with fauna and something buried.
 - `--fixed-fps 60` fixes the field clock but NOT the disaster draw. The planet now has its own RNG stream
   (impacts 5/5/5, eruptions 3/3/3, temp spread 12.7 °C → 0.70 °C); the residual is actor splashes perturbing
   the charge field, which `--planet-only` removes entirely.
@@ -285,9 +286,17 @@ greens — cannot appear until it does. One term in the heat kernel's `albedo` m
 channel it already has access to.
 
 **Also still owed and now measurable:** whether primary production is water-limited where it should be.
-`MaterialFieldPhotoStats3D` reports the Liebig limiter mix, but see item #9 — its `sun_dir()` dots a
-world-frame sun against a body-local radial, so `light_mean` and anything derived from it are wrong except
-at identity rotation. Fix that before drawing conclusions from it.
+`MaterialFieldPhotoStats3D` reports the Liebig limiter mix, and its sun frame is now correct — but **discard
+every light-vs-growth figure taken before 2026-08-03.** *(Corrected 2026-08-03. This said "its `sun_dir()`
+dots a world-frame sun against a body-local radial, so `light_mean` and anything derived from it are wrong
+except at identity rotation. Fix that before drawing conclusions from it." The frame is fixed —
+`sun_dir()` now returns `dir_to_field(...)`, the same expression `MaterialFieldSphereStep3D.gd:158` hands the
+GPU. The second half was the wrong emphasis: measured over three 600-frame runs, the two frames disagreed by
+up to **135°**, yet `light_mean` moved only 8.1% and `light_lit_frac` 7.0%, because a rotated hemisphere is
+still a hemisphere. What the error actually destroyed was the light-vs-response CONTRAST:
+`biomass_lit_dark_ratio` read **1.35 / 1.32 / 1.41** in the world frame against **2.37 / 2.30** in the body
+frame, and `biomass_dark_mean` was off by up to 99%. `light_mean` is nearly blind to this class of bug and is
+the wrong sentinel for it.)*
 
 ### Keystone C — activity-bubble LOD. MEASURED, AND BEING DELETED. Do not rebuild it.
 

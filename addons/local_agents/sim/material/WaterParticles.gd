@@ -21,7 +21,11 @@ var _field = null
 var _camera: Node3D = null
 var _sun: DirectionalLight3D = null
 var _center: Vector3 = Vector3.ZERO
-var _sea_radius: float = 248.0
+# Unset until setup() supplies it. This read `248.0` and could never be observed: setup() assigns it as its
+# first act and every read of _sea_radius is later in that same function. It was also wrong by roughly 2x —
+# the live sea shell is at 500 (VoxelWorld.PLANET_SEA_RADIUS) — so it was a dead value that lied about the
+# planet's size to anyone reading the file for the scale of the atmosphere bands.
+var _sea_radius: float = 0.0
 var _prevailing: Vector3 = Vector3(0.15, 1.0, 0.0)
 var _pm: ShaderMaterial = null             # process material
 var _dm: ShaderMaterial = null             # draw material
