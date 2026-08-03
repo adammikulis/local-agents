@@ -41,7 +41,10 @@ const LEARN_RATE: float = 0.6
 const W_DAMAGE: float = 6.0                # aversion per unit of fractional HP lost since the last decision
 const W_FEAR: float = 0.25                 # aversion per unit rise in the panic/fear level (predator dread)
 const W_O2: float = 1.0                    # aversion for being fully out of breath in my medium (suffocating)
-const W_TEMP: float = 0.03                 # aversion per °C outside the comfort band (cold snap / heat)
+const W_TEMP: float = 1.0                  # aversion at a temperature where metabolism stops entirely (freezing
+                                           # or protein denaturation). Was 0.03 per °C outside a comfort band;
+                                           # _comfort_deviation is now a bounded 0..1 shortfall of the body's
+                                           # own reaction rate, so the weight is on the same scale as W_O2.
 const TERM_CAP: float = 1.0                # clamp on each individual aversive term so one sense can't dominate
 
 # --- drive-modulated risk tolerance (Half B) ----------------------------------------------------
@@ -346,14 +349,16 @@ func _reinforce(c, senses: Dictionary) -> void:
 	(entry as Dictionary)["risk"] = clampf(prev_risk * RISK_RETAIN + aversive, 0.0, RISK_MAX)
 
 
-# How far `t` (°C) lies outside the comfort band [COOL, WARM]; 0 inside. Reuses the metabolism band so the
-# discomfort the body actually suffers and the aversion the mind learns are the SAME threshold (no drift).
+# How much a temperature `t` (°C) hurts, expressed as how far the body's own respiration reaction falls short
+# of its best rate there: 0 at the optimum, 1 where the reaction stops entirely (cell water freezing at one end,
+# protein denaturation at the other). Reads LACreatureRespiration's band directly, so the discomfort the body
+# actually suffers and the aversion the mind learns are the SAME curve and cannot drift apart.
+#
+# This replaced a pair of comfort constants (WARM_COMFORT 28 / COOL_COMFORT 8) shared by every species, and the
+# new signal is better in a way worth stating: it is bounded and smooth, so a mind can grade a mild chill
+# against a lethal one instead of reading an unbounded linear °C overshoot with no scale on it.
 func _comfort_deviation(t: float) -> float:
-	if t > LACreatureMetabolism.WARM_COMFORT:
-		return t - LACreatureMetabolism.WARM_COMFORT
-	if t < LACreatureMetabolism.COOL_COMFORT:
-		return LACreatureMetabolism.COOL_COMFORT - t
-	return 0.0
+	return 1.0 - LACreatureRespiration.temp_band(t)
 
 
 # Drive urgency in [0,1]: how hard hunger OR thirst is pushing this creature right now (fractional deficit).

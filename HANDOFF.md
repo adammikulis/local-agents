@@ -271,14 +271,57 @@ aquifer's `k_rel`/`RESIDUAL` capillary retention.
 Everything here is 0.5 and does not begin until the planet is locked down (`CLAUDE.md` → SCOPE RULE). The
 sequenced plan lives in `docs/0.5_CREATURE_FEATURES.md` and `docs/0.5_PARALLELIZATION_GUIDE.md`.
 
-**Known Rule Zero violations in creature code, RECORDED not fixed** — fixing them now would build on sand.
-`CreatureDigestion.ambient_graze` creates food out of the temperature at the animal's feet, with no source and
-nothing decremented ("never depletes, can't be crashed"), so starvation is unreachable and herbivore numbers
-are set by a JSON `pop_cap`. **That is item 1 again, in the creature layer** — the same engine-level
-permission to conjure matter, wearing different clothes. Nothing scales with body mass: a fox and a mouse burn
-identical energy, and the `basal_metabolism`/`active_metabolism` genes are read by nothing. One thermal
-physiology covers all 28 species. `Fish.gd` spends energy only `if not preys_on.is_empty()`, so shrimp,
-jellyfish, crab and turtle cannot starve.
+**Known Rule Zero violations in creature code.** `CreatureDigestion.ambient_graze` creates food out of the
+temperature at the animal's feet, with no source and nothing decremented ("never depletes, can't be crashed"),
+so starvation is unreachable and herbivore numbers are set by a JSON `pop_cap`. **That is item 1 again, in the
+creature layer** — the same engine-level permission to conjure matter, wearing different clothes. `Fish.gd`
+spends energy only `if not preys_on.is_empty()`, so shrimp, jellyfish, crab and turtle cannot starve, and it
+still carries its own hand-rolled per-species `metabolism` scalar (`Fish.gd:89,160,549`) — the land path no
+longer has one, so the aquatic roster is the remaining copy.
+
+*(Corrected 2026-08-03.)* This paragraph also used to say **"Nothing scales with body mass: a fox and a mouse
+burn identical energy, and the `basal_metabolism`/`active_metabolism` genes are read by nothing. One thermal
+physiology covers all 28 species."** All three are now false for every land creature, and the fix was a
+dissolution rather than a patch — see `creatures/creature/CreatureRespiration.gd`:
+- A body is a site where the substrate's own R20 respiration (`biomass + O₂ → CO₂ + detritus`, `LABioRecords`)
+  runs. `LAMaterialField3D.respire_at` applies the same aerobic Liebig cap the GPU kernel applies and books the
+  O₂/CO₂/detritus, reading the stoichiometry off `LABioRecords` so it cannot drift from the table.
+- Rate is set by oxygen crossing a gas-exchange surface (∝ size²) rather than by fuel present (∝ size³), so
+  **the mass-scaling exponent is emergent, not typed in**. Measured over 3 runs: `metab_capacity_exponent`
+  0.660 / 0.666 / 0.656 against Rubner's 2/3 = 0.667, and `metab.<species>.cap_norm` (capacity ÷ mass^⅔) is
+  flat at 0.13–0.19 across a 420× mass range. **It is NOT Kleiber's 0.75, and that is stated rather than
+  fitted:** 0.75 needs the fractal space-filling delivery network of West/Brown/Enquist 1997, and this
+  substrate has no vasculature, no branching generations and no size-invariant terminal unit. Adding 0.75 as a
+  literal exponent would encode a theory's conclusion without its mechanism. That network is the single
+  highest-value thing to add here.
+- `basal_metabolism`/`active_metabolism` are gone from the strand. Their replacements are anatomy the reaction
+  actually reads: `respiratory_capacity` (exchange surface) and `thermogenesis`. Measured effect of the first,
+  3 runs, allele 0.95→1.04: normalised capacity 1.176× / 1.212× / 1.219×.
+- **`WARM_COMFORT`/`COOL_COMFORT`/`LETHAL_HEAT`/`LETHAL_COLD` and their three per-degree tax factors are
+  deleted.** Temperature acts through the same `OPTIMUM_BAND` shape R19 photosynthesis uses, with both zeros
+  taken from real matter (`LAPhysical.WATER_FREEZE_C` 0 °C and the new `PROTEIN_DENATURE_C` 45 °C). Starvation,
+  hypothermia, hyperthermia and anoxia are now ONE failure — production below maintenance — and the reported
+  cause only names which term was binding. `death/heatstroke` went 26/16/31 → 0.
+- **Endotherm vs ectotherm is one continuous heritable gene, not a flag or a branch.** `thermogenesis` is how
+  hard a body raises oxygen throughput below its own optimum; at 0 the term vanishes identically and the animal
+  IS an ectotherm. Only birds and mammals declare it in JSON; the ancestral default is 0.
+- **Founders were genetic CLONES and are not any more** (`LADNA.seed_variation`, ±8% per locus). Variance was
+  exactly zero at every locus at spawn, so nothing could be selected on until a mutation happened to arise.
+  Note the trap that cost a measurement round: seeding that variation with `mutate()` is WRONG, because one
+  point mutation moves a locus by up to 192/255 of its whole declared range — it produced a bee with a body
+  mass of 102 against a template of 0.15 and dragged the fitted exponent to 0.26.
+- **Still open, and it is a finding rather than a defect:** thermogenesis currently buys nothing measurable
+  (capacity ratio 1.019 / 0.988 / 0.929) because bodies sit at 23.3–23.8 °C against a 22.5 °C optimum — this
+  planet is warm enough that the cold drive never engages, so the gene is neutral and only comes under
+  selection on a colder world. What would decide it: a run with the solar constant cut hard, or a per-latitude
+  `body_c` breakdown at night.
+- **Two couplings the next agent must not be surprised by.** (1) Creature respiration now pays CO₂ + detritus
+  INTO the field's carbon ledger while the intake side (`ambient_graze`) still creates its food from nothing,
+  so the creature layer's carbon books close only once that is fixed; measured, the flux is inside the existing
+  noise (`carbon_drift_per_step` 4.45–4.59 against a 4.46–4.58 baseline). (2) `CreatureRagdoll._carrion` is
+  still `size * NUTRITION_PER_SIZE` — LINEAR in a LENGTH, so a whale is worth 10× a fox where volume says 53×.
+  `food_value` was fixed to body mass; `_carrion` was deliberately left because it is the field-coupled
+  quantity and changing it perturbs the carbon ledger mid-audit.
 
 ## 0.6 — THE FULL SOLAR SYSTEM
 

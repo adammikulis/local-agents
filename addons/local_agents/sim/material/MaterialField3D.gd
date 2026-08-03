@@ -1176,6 +1176,10 @@ func biomass_total() -> float:
 ## Deposit dead decomposable matter at the surface cell under a world point (a rotting carcass, wildfire ash).
 func deposit_detritus(world_pos: Vector3, amount: float) -> void:
 	_channels.deposit_detritus(world_pos, amount)
+## Oxidise `requested` units of a body's own biomass against the LOCAL air — R20's chemistry, applied inside an
+## animal. Returns what the cell's oxygen could actually support (the aerobic Liebig cap).
+func respire_at(world_pos: Vector3, requested: float) -> float:
+	return _channels.respire_at(world_pos, requested)
 # Per-cell debug readers for the phase channels (mirror biomass_at/co2_at): molten mineral, bedrock
 # fraction, and pre-lightning electrification. Pure reads for the DebugPanel field-view heatmaps.
 func lava_at(x: float, y: float, z: float) -> float:
