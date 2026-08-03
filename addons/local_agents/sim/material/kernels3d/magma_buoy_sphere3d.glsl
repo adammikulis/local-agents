@@ -5,8 +5,12 @@
 // GATHER logic and IDENTICAL constants/math; only neighbour addressing changes. The box read the cell ABOVE
 // via `+layer` (guarded by iy<dim_y-1) and the cell BELOW via `-layer` (iy>0); here both come from the
 // precomputed INDEX TABLE `nbr[idx*6 + slot]` — slot 5 = outward/UP (above), slot 0 = inward/DOWN (below);
-// -1 = boundary → no flow. Only OVERPRESSURE (mass beyond MAX_MASS) is buoyed; carry-heat rides up with
-// received lava, VERBATIM. Constants copied EXACTLY from magma_buoy3d.glsl / MaterialMagma3D.gd.
+// -1 = boundary → no flow. Only OVERPRESSURE (mass beyond MAX_MASS) is buoyed. Constants copied EXACTLY from
+// magma_buoy3d.glsl / MaterialMagma3D.gd, EXCEPT the two temperature constants, which are deleted.
+//
+// CARRY-HEAT IS NO LONGER "VERBATIM" (2026-08-03). That word used to end the line above, and what it preserved
+// was a rule that FLOORED a receiving cell at 950 C and never cooled the donor — heat appearing from nothing at
+// every buoyant magma cell, every step. It is now a mass-weighted mix; see the note at the bottom of pass 1.
 //   PASS 0 (copy):   scratch[i] = lava[i]  (stable snapshot for the gather).
 //   PASS 1 (gather): lava[i] = scratch[i] - buoy_up(scratch[i], above open) + buoy_up(scratch[below], we open).
 
@@ -31,8 +35,8 @@ const float BUOY_FRAC = 0.55;
 const float K_P = 0.6;
 const float MAX_UP_FLOW = 0.4;
 const float MIN_OP = 0.0001;
-const float MOLTEN_FLOOR = 950.0;
-const float LAVA_EMPLACE_TEMP = 1150.0;
+// MOLTEN_FLOOR = 950.0 and LAVA_EMPLACE_TEMP = 1150.0 used to live here and are gone: this kernel no longer
+// prescribes or caps a temperature, it mixes the arriving enthalpy with the destination's own.
 
 // Buoyant up-transfer a cell contributes given its lava mass — mirrors _buoy_up exactly.
 float buoy_up(float mass) {
@@ -77,14 +81,19 @@ void main() {
 	}
 	lava[g] = base_mass - out_up + in_below;
 
-	// Molten heat rides up with received lava so the climbing front stays liquid (bounded < MELT_TEMP).
+	// MOLTEN HEAT RIDES UP WITH THE RECEIVED LAVA — a real mixing rule, not a floor.
+	//
+	// WHAT THIS REPLACES: the arriving heat used to be `min(temp[below], LAVA_EMPLACE_TEMP)` raised to at least
+	// MOLTEN_FLOOR = 950 C, then written into this cell if it was cooler — so a cell receiving buoyed magma was
+	// ASSIGNED 950 C even when the magma below it was colder than that, and the donor was never cooled for what
+	// it gave away. THAT MADE HEAT APPEAR FROM NOTHING, at every buoyant magma cell, every step. The
+	// LAVA_EMPLACE_TEMP cap is gone with it: the donor's real temperature is what arrives, so there is nothing
+	// left to clamp.
+	//
+	// Now: T = (m_here*T_here + m_in*T_below) / (m_here + m_in), donor left at its own temperature. `m_here` is
+	// MAX_MASS, one cell's worth of matter, because temp[] describes the whole cell and not just its magma —
+	// see the matching note in lava_flow_sphere3d.glsl for why the cell's own lava mass is the wrong weight.
 	if (in_below > 0.0 && ib >= 0) {
-		float carried = min(temp[uint(ib)], LAVA_EMPLACE_TEMP);
-		if (carried < MOLTEN_FLOOR) {
-			carried = MOLTEN_FLOOR;
-		}
-		if (temp[g] < carried) {
-			temp[g] = carried;
-		}
+		temp[g] = (MAX_MASS * temp[g] + in_below * temp[uint(ib)]) / (MAX_MASS + in_below);
 	}
 }
