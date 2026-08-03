@@ -21,9 +21,10 @@ the summary below is by theme rather than a settled release note.
 - **Biology went deep** — literal DNA heredity, chemical-affinity learning, digestion over time,
   per-creature courtship and gestation, sexed breeding, graded senescence, gut microbiome, fish
   cognition, emergent disease and heritable constitution.
-- **Performance** — unified relevance→stride LOD across field and creatures, activity-bubble LOD, a
-  compacted active-cell list with indirect dispatch, demand-gated readbacks, animation and
-  physics-rate LOD.
+- **Performance** — a compacted active-cell list with indirect dispatch, demand-gated readbacks,
+  animation and physics-rate LOD for creatures. A camera-relevance LOD over the FIELD was tried and
+  removed: it made the planet's physics depend on where the camera pointed, and measured slower than
+  no gating at all.
 - **The addon became a real library** — the `sim/` (library) vs `game/` (shell) split, the
   `LocalAgent*` public / `LA*` internal naming rule, inspector surfaces, a Setup tab, and a
   one-node `LASimWorld` facade.

@@ -6,7 +6,8 @@
 # instead of fixing the planet someone moved the freezing point of WATER up to meet it — and because GLSL
 # cannot read GDScript, the moved value had to be copied by hand into every kernel that needed it. It
 # ended up in FIVE places at THREE different values: 12.5 in MaterialReactions3D.gd and
-# snowice_sphere3d.glsl, 13.0 in charge_accum_sphere3d.glsl and activity_sphere3d.glsl, melting at 14.0.
+# snowice_sphere3d.glsl, 13.0 in charge_accum_sphere3d.glsl and the since-deleted activity_sphere3d.glsl,
+# melting at 14.0.
 # Snow then "worked", and every measurement ever taken against those numbers was meaningless.
 #
 # The real values now live in ONE authority: addons/local_agents/sim/material/PhysicalConstants.gd

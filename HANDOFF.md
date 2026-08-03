@@ -201,8 +201,9 @@ under it are not.
 
 The substrate is genuinely most of the way there; almost every gap below is **coupling / read-out of fields
 already simulated**, not new systems. Guiding: dissolve-don't-patch · emergent-everything · perf-first ·
-Big-O + activity-bubble LOD · **fakery = the LOD tier** (full sim in the compute-bubble; cheap analytic
-stand-ins for distant/dormant/offscreen, re-materialize on approach).
+Big-O + compaction on PHYSICAL predicates (never on camera distance — see the deleted-LOD warning below) ·
+**fakery = the LOD tier** for ACTORS and RENDERING (cheap analytic stand-ins for distant/dormant/offscreen,
+re-materialize on approach), not for the field's physics.
 
 ### Keystone B — vegetation → albedo. The light and water halves are DONE.
 
@@ -227,33 +228,48 @@ channel it already has access to.
 world-frame sun against a body-local radial, so `light_mean` and anything derived from it are wrong except
 at identity rotation. Fix that before drawing conclusions from it.
 
-### Keystone C — activity-bubble LOD. The asymptotic half.
+### Camera-relevance field LOD — DELETED 2026-08-03. Do not rebuild it.
 
-Shipped in its cheap form (`kernels3d/activity_sphere3d.glsl` + `sphere_passes/ActivityPass.gd`, registered at
-`MaterialSphereGPU3D.gd:55`), computing a wake-bubble plus camera-proximity relevance with an
-`LA_NO_ACTIVITY_LOD=1` A/B knob. But gating is per-cell stride and early-out, so **every kernel still
-dispatches the full grid and cells merely bail** — that saves ALU, not dispatch or bandwidth. CLAUDE.md
-sanctions the early-out form as the floor, so this is a deliberate stopping point, not a relic.
-**Before building the O(active) indirect-dispatch version, run the `LA_NO_ACTIVITY_LOD=1` A/B that already
-exists** and find out whether the shipped gating buys measurable frame time. That measurement decides whether
-the rewrite is worth it.
+*(This section used to say the activity-bubble LOD was "shipped in its cheap form" and ask for the
+`LA_NO_ACTIVITY_LOD=1` A/B before building an O(active) version. The A/B was run and the answer was to delete
+the mechanism, so the whole entry is replaced by this warning.)*
 
-**Deferrals, with reasons, so nobody re-attempts the unsafe ones.** The old "extend the gate to the other 8
-passes" instruction was WRONG as written — several of those passes are continuous planetary forcings, not
-sparse events, and gating them on an activity bubble silently disables them almost everywhere. Deliberately
-ungated: `magma_buoy_sphere3d.glsl` (its 2-pass donor/receiver transfer loses mass under per-thread gating —
-needs wake-on-inject first), `AtmospherePass` (the ocean is a perpetual unconditional source), `ReactionsPass`
-(background biology is active almost everywhere — would need per-record gate bits), `EcoSurfacePass` (mixed
-sparsity, already cheap), `SolidDerivePass` (runs before relevance exists), and the continuous legs of
-`ThermalPass` / `GasWindPass`.
+`ActivityPass` + `activity_sphere3d.glsl` scored every cell 0..1 from a local wake bubble AND its distance to
+the camera, and seven kernels turned that score into a per-thread update stride. It **charged 4.5 C of global
+mean temperature for a NEGATIVE perf return** (matched runs, seed 4242, 600 frames, identical disaster load:
+`temp_mean` 38.65/39.11/39.20 gated vs 34.73/34.17 ungated; `field_ms` 5.210 gated vs 4.938 ungated). It also
+made the planet's physics depend on where the player was looking, which is a Rule Zero violation on its face.
+Gone; the measurement and the reasoning live in `MaterialSphereGPU3D.gd`'s header note.
+
+**Two things found while deleting it, both worth keeping.** (1) `LA_NO_ACTIVITY_LOD=1` was never a clean
+control — the `activity` channel allocates zero, so step 0 was still gated at stride 16, and that ONE step of
+798 permanently moved `soil_total` by 18% (373.8 vs 442.8) and `sediment_total` by 5% (1005.2 vs 957.3). Any
+figure quoted from that bypass is off by that much. (2) So the gate was never "behaviourally exact" as its
+comments claimed: over an INTEGRATING process (a filling aquifer) a skipped step has no restoring force and
+becomes a permanent offset.
+
+**What survives, and is the pattern to copy:** `LavaCellListPass` + `cell_list_lava_sphere3d.glsl`, a real
+O(active) compaction feeding an indirect dispatch, now keyed on the PHYSICAL predicate "this cell holds molten
+rock in open space". If another kernel should scale with its phenomenon instead of the planet, compact it the
+same way. Compact on what the matter is doing; never on where the viewer is.
+
+**Which passes could take the same treatment, and which must not.** Compaction is only legal for a kernel
+whose skip path is a bare `return` — anything that WRITES on its skip path (a ping-pong carry, a persist, a
+scratch reset) needs that write hoisted somewhere that still covers every cell first. And several passes are
+continuous planetary forcings that are active nearly everywhere, so compacting them would buy nothing:
+`AtmospherePass` (the ocean is a perpetual unconditional source), `ReactionsPass` (background biology),
+`EcoSurfacePass` (mixed sparsity, already cheap), `SolidDerivePass`, and the continuous legs of `ThermalPass`
+/ `GasWindPass`. Note also that dispatch is only ~4% of field cost here (`field_dispatch_ms` 0.18 of
+`field_ms` 5.2) while readback is ~75% — so the readback item below is the larger lever by an order of
+magnitude, and any further dispatch-side work should justify itself against that.
 
 ### Keystone A — erosion. Behavioural proof still owed.
 
 The pickup kernel ships (`kernels3d/erosion_pickup_sphere3d.glsl` via `sphere_passes/ErosionPickupPass.gd`,
 registered at `MaterialSphereGPU3D.gd:51` immediately before `ReactionsPass` so SETTLE reads freshly-scoured
 `susp` in the same step), and `susp` is a live phase in the mineral ledger. **What is owed is the behavioural
-proof** that deltas, beaches, canyons and floodplains actually form over geological time — which needs
-Keystone C's fast-forward before it can be observed.
+proof** that deltas, beaches, canyons and floodplains actually form over geological time. Use `--fast=8` to
+compress that (see CLAUDE.md's measured throughput table); nothing else blocks the observation.
 
 ### Still owed elsewhere
 
@@ -293,7 +309,7 @@ see `CLAUDE.md`'s corrected `--fast` bullet.)*
 - `field_readback_ms` (~4.4–4.7 ms) dominates `field_dispatch_ms` (~0.13–0.19 ms) by 25–30×, so dispatch-side
   savings stay invisible until readback is addressed.
 - **Still owed on readback:** GPU-side reduction kernels for the `report()` aggregates that read back a FULL
-  per-cell array just to sum it on the CPU — `hot_cell_count`, `active_cells`/`mean_relevance`, `soil_total`,
+  per-cell array just to sum it on the CPU — `hot_cell_count`, `soil_total`,
   `sediment_total`/`susp_total`, `_open_temp_stats`, `mineral_total`, `scent_cell_count`, in that order of
   callsite frequency × array size. Likely the larger remaining lever. Measure with `--bench=readback`.
 - **The neighbour table and the tangent frame are SEPARATE tables, and must stay that way.** The six lateral
@@ -526,8 +542,8 @@ moon, and momentum knock-out-of-orbit. 0.5 makes the system **literal + navigabl
   **definition of done, not an optional feature.** Success = special-case code DELETED.
 - **Emergent-everything** · **3D always** (no 2.5D holdovers) · **GPU/native-first, GPU-GLSL-only** (no CPU
   oracles) · **perf-first** (playable frame-rate is first-class) · **Big-O first-class** (better-scaling
-  structures + do-less-by-relevance/LOD + activity bubbles) · **bias to action** · **config over `if
-  species==X`**.
+  structures + O(active) compaction on physical predicates; relevance/LOD for actors and rendering, NOT for
+  the field's physics) · **bias to action** · **config over `if species==X`**.
 - **Dual-purpose:** a reusable Godot dev tool (the `LocalAgent` LLM node) AND a full game that is the
   flagship demo. Local LLMs drive creature cognition + the streamer, fully offline — headline this.
 

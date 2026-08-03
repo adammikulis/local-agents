@@ -26,7 +26,6 @@ layout(set = 0, binding = 4, std430) restrict readonly buffer SoilIn { float soi
 layout(set = 0, binding = 5, std430) restrict writeonly buffer SoilOut { float soil_out[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer Regolith { float regolith[]; }; // 1 = permeable aquifer rock
 layout(set = 0, binding = 7, std430) restrict buffer Temp { float temp[]; };                // POST-thermal temp, carry-heat in place
-layout(set = 0, binding = 8, std430) restrict readonly buffer Relevance { float relevance[]; };  // Keystone C
 layout(set = 0, binding = 9, std430) restrict buffer SoilDbg { float dbg[]; };              // per-leg budget probe
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
 
@@ -34,20 +33,10 @@ layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint pass_id;      // 0 = compute transfers → send, 1 = apply
 	uint depth;        // radial shells per column (cell = col*depth + r)
-	uint step_index;   // monotonic field-step counter, for the relevance-gated update stride
+	uint pad0;
 	float core_radius;
 	float cell_size;
 } params;
-
-// GLSL mirror of LALodStride.stride_for/should_run (runtime/LALodStride.gd) -- MUST match exactly.
-int stride_for(float rel, int max_stride, int base_stride) {
-	float r = max(rel, float(base_stride) / float(max_stride));
-	return clamp(int(round(float(base_stride) / r)), base_stride, max_stride);
-}
-bool should_run(uint tick, uint phase, int stride) {
-	return (tick + phase) % uint(stride) == 0u;
-}
-const int MAX_STRIDE = 16;
 
 // Tuning.
 const float CAPACITY = 0.60;          // groundwater a regolith cell holds when saturated (MUST match MaterialField3D)
@@ -140,22 +129,13 @@ void main() {
 		// ---- PASS 0: compute transfers into `send` (self-zero all 6 slots first) --------------------------
 		send[base + 0u] = 0.0; send[base + 1u] = 0.0; send[base + 2u] = 0.0;
 		send[base + 3u] = 0.0; send[base + 4u] = 0.0; send[base + 5u] = 0.0;
-		// Probe: zero the SENT legs before any early return, exactly as `send` is zeroed — an inert or
-		// relevance-gated cell then truthfully reports sending nothing.
+		// Probe: zero the SENT legs before any early return, exactly as `send` is zeroed — an inert cell then
+		// truthfully reports sending nothing.
 		dbg[dbase + DBG_DARCY_SENT] = 0.0; dbg[dbase + DBG_SPRING_SENT] = 0.0;
 		dbg[dbase + DBG_SEEP_SENT] = 0.0;  dbg[dbase + DBG_INFIL_SENT] = 0.0;
 		dbg[dbase + DBG_SPRING_DOWN] = 0.0; dbg[dbase + DBG_SPRING_LAT] = 0.0;
 		dbg[dbase + DBG_SPRING_UP] = 0.0;   dbg[dbase + DBG_SPRING_WET] = 0.0;
 		dbg[dbase + DBG_SPRING_CAPPED] = 0.0; dbg[dbase + DBG_SPRING_FREECOL] = 0.0;
-
-		// RELEVANCE-GATED (Keystone C): only PASS 0's transfer compute is throttled — a quiescent cell's send[]
-		// stays zeroed above (exactly what an inert cell already produces), but PASS 1 (below, unconditional)
-		// still applies whatever a neighbour sent it this step, so a same-step inflow from an active neighbour
-		// is never silently dropped.
-		int stride = stride_for(relevance[g], MAX_STRIDE, 1);
-		if (!should_run(params.step_index, g, stride)) {
-			return;
-		}
 
 		bool is_regolith = regolith[g] != 0.0;
 

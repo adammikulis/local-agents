@@ -1008,8 +1008,8 @@ func _bench_fire(frame: int) -> void:
 
 ## Print one BENCH_SNAPSHOT line of field/telemetry gauges at the current frame. Mixes TIMING gauges
 ## (fps/field_dispatch_ms/field_readback_ms/field_ms -- noisy if this machine is running other GPU work
-## concurrently; read these as directional, not precise) with COUNT/STATE gauges (active_cells,
-## mean_relevance, fire_cells, lava_total, charge_peak, bolts, co2_avg, fuel_total, rock_fill_total,
+## concurrently; read these as directional, not precise) with COUNT/STATE gauges (lava_list_cells,
+## fire_cells, lava_total, charge_peak, bolts, co2_avg, fuel_total, rock_fill_total,
 ## mineral_total, h2o_total, creatures -- deterministic given the same --bench timeline fired the same
 ## events at the same frames, so THESE are the primary signal for a before/after diff).
 func _bench_snapshot(frame: int) -> void:
@@ -1019,11 +1019,12 @@ func _bench_snapshot(frame: int) -> void:
 	var dispatch_ms: float = float(g.get("field_dispatch_ms", {}).get("cur", 0.0))
 	var readback_ms: float = float(g.get("field_readback_ms", {}).get("cur", 0.0))
 	var field_ms: float = float(g.get("field_ms", {}).get("cur", 0.0))
+	var lava_list_cells: float = float(g.get("lava_list_cells", {}).get("cur", 0.0))
 	print(("BENCH_SNAPSHOT={frame:%d, fps:%.1f, field_dispatch_ms:%.3f, field_readback_ms:%.3f, field_ms:%.3f, " +
-		"active_cells:%d, mean_relevance:%.3f, fire_cells:%d, lava_total:%.1f, charge_peak:%.3f, bolts:%d, " +
+		"lava_list_cells:%d, fire_cells:%d, lava_total:%.1f, charge_peak:%.3f, bolts:%d, " +
 		"co2_avg:%.4f, fuel_total:%.1f, rock_fill_total:%.1f, mineral_total:%.1f, h2o_total:%.1f, creatures:%d}") % [
 		frame, fps, dispatch_ms, readback_ms, field_ms,
-		int(snap.get("active_cells", 0)), float(snap.get("mean_relevance", 0.0)),
+		int(lava_list_cells),
 		int(snap.get("fire_cells", 0)), float(snap.get("lava_total", 0.0)),
 		float(snap.get("charge_peak", 0.0)), int(snap.get("bolts", 0)),
 		float(snap.get("co2_avg", 0.0)), float(snap.get("fuel_total", 0.0)),
