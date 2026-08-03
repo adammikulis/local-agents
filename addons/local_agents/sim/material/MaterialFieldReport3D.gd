@@ -11,15 +11,37 @@ extends RefCounted
 ## (Explicit types only, no ':=' inferred typing.)
 
 const PhotoStatsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd")
+const EnergyBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd")
+const ExtremesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldExtremes3D.gd")
+const ClimateSwingScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd")
+const MassBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMassBudget3D.gd")
+
+## Process frames between recomputes of the O(cells) instrument block. See `_heavy_block()` for why a gate is
+## needed at all — the short version is that this provider is polled every rendered frame, not once a
+## snapshot, and the docstrings that said otherwise were wrong.
+const HEAVY_EVERY_FRAMES: int = 8
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 var _photo = null                                        # LAMaterialFieldPhotoStats3D — primary-production spatial stats
+var _energy = null                                       # LAMaterialFieldEnergyBudget3D — absorbed/emitted/net radiation
+var _extremes = null                                     # LAMaterialFieldExtremes3D — min/max-ever register
+var _swing = null                                        # LAMaterialFieldClimateSwing3D — diurnal + seasonal range
+var _mass = null                                         # LAMaterialFieldMassBudget3D — carbon/oxygen/fertility ledgers
+var _heavy_cache: Dictionary = {}                        # last computed instrument block
+var _heavy_frame: int = -1_000_000                       # process frame it was computed on
 
 
 func setup(field) -> void:
 	_f = field
 	_photo = PhotoStatsScript.new()
 	_photo.setup(field)
+	_energy = EnergyBudgetScript.new()
+	_energy.setup(field)
+	_extremes = ExtremesScript.new()
+	_swing = ClimateSwingScript.new()
+	_swing.setup(field)
+	_mass = MassBudgetScript.new()
+	_mass.setup(field)
 
 
 ## SURFACE CLIMATE BY LATITUDE AND ALTITUDE — the gauge that can actually answer "can it freeze HERE".
@@ -47,7 +69,14 @@ func setup(field) -> void:
 const CLIMATE_BANDS: int = 6                    # 15° per band from equator to pole
 const ALT_BANDS: int = 4                        # ground / low / mid / high, by altitude above the sea shell
 const ALT_BAND_SPAN: float = 8.0                # world units per altitude band
-const CLIMATE_MAX_CELLS: int = 60000            # scan bound; snapshot-time only, never per frame
+## Scan bound. Raised from 60000 on 2026-08-03, when this function was first wired into the report: the
+## shipped grid is 6 x 24 x 24 x 20 = 69120 cells, so 60000 dropped 13% of the planet — and because cells are
+## enumerated column-major by cube face, what it dropped was a contiguous SLAB OF FACE, i.e. an entire
+## geographic region, from a gauge whose whole job is geographic structure. A cap that silently deletes one
+## sixth of the map is worse than a slower scan. The per-column hoist below made the FULL sweep cheaper than
+## the truncated one was, so nothing was traded for it. It stays as a guard against a much larger grid, and
+## the scan is column-aligned so it can only ever cut whole columns.
+const CLIMATE_MAX_CELLS: int = 200000
 const PLANET_SPIN_AXIS: Vector3 = Vector3(0.40, 0.92, 0.0)
 
 # Running extremes across the whole run — never reset by a snapshot, so the coldest instant is not lost
@@ -64,6 +93,7 @@ func surface_climate() -> Dictionary:
 	var temp: PackedFloat32Array = _f._temp
 	if solid.size() != _f._cell_count or temp.size() != _f._cell_count or _f._sphere == null:
 		return {}
+	var t_scan: int = Time.get_ticks_usec()
 	var axis: Vector3 = (_f.spin_axis() if _f.has_method("spin_axis") else PLANET_SPIN_AXIS).normalized()
 	var sea_r: float = float(_f.sea_radius()) if _f.has_method("sea_radius") else 0.0
 	var lat_sum: PackedFloat64Array = PackedFloat64Array(); lat_sum.resize(CLIMATE_BANDS)
@@ -91,47 +121,85 @@ func surface_climate() -> Dictionary:
 	var water_frozen: int = 0
 	var water_cells: int = 0
 	var water_coldest: float = 1.0e20
-	for c in mini(_f._cell_count, CLIMATE_MAX_CELLS):
-		if solid[c] != 0:
-			continue
-		var p: Vector3 = _f.cell_world_pos_linear(c) - _f._origin
-		var radius: float = p.length()
-		if radius < 0.001:
-			continue
-		var t: float = temp[c]
-		var lat: float = absf(rad_to_deg(asin(clampf(p.dot(axis) / radius, -1.0, 1.0))))
-		var alt: float = radius - sea_r
-		if t < coldest:
-			coldest = t
-			if t < _coldest_ever:
-				_coldest_ever = t
-				_coldest_ever_alt = snappedf(alt, 0.1)
-				_coldest_ever_lat = snappedf(lat, 0.1)
-		# ALTITUDE profile over every open cell — this is where an equatorial summit and the cold upper air
-		# both show up, and neither is visible in a latitude-only or ground-only scan.
-		var ab: int = clampi(int(maxf(alt, 0.0) / ALT_BAND_SPAN), 0, ALT_BANDS - 1)
-		alt_n[ab] += 1
-		if t < alt_min[ab]:
-			alt_min[ab] = t
-		# GROUND-HUGGING (inward neighbour is rock) vs ALOFT — the two distinct freezing populations.
-		var r: int = c % depth
-		var is_ground: bool = r > 0 and solid[c - 1] != 0
-		if is_ground:
-			var band: int = clampi(int(lat / (90.0 / float(CLIMATE_BANDS))), 0, CLIMATE_BANDS - 1)
-			lat_sum[band] += t
-			lat_n[band] += 1
-			if t < lat_min[band]:
-				lat_min[band] = t
-			ground_n += 1
-			if t < LAPhysical.WATER_FREEZE_C:
-				ground_frozen += 1
-			if t < ground_coldest:
-				ground_coldest = t
-				_ground_coldest_ever = minf(_ground_coldest_ever, t)
-		else:
-			air_n += 1
-			if t < LAPhysical.WATER_FREEZE_C:
-				air_frozen += 1
+	# COLUMN-MAJOR, AND THE PER-CELL TRIGONOMETRY IS HOISTED OUT (2026-08-03). This loop used to call
+	# `cell_world_pos_linear(c)` — a cross-object call, a Basis multiply and a `length()` — plus an `asin` for
+	# EVERY cell, and then the report provider turned out to be polled every rendered frame (see the cadence
+	# note on `report()`), which cost the run more than the whole rest of the field step. Two facts make all of
+	# it unnecessary: `SphereGrid.cell_world_pos` is `center + _dir[s] * (core_radius + (r+0.5)*cell_size)`, so
+	# the RADIUS depends only on `r`, and the DIRECTION only on the column; and `_origin` IS `grid.center`
+	# (MaterialField3D.setup_sphere:376), so the offset cancels exactly. Latitude is therefore a per-column
+	# quantity and altitude a per-r one. Same numbers, ~O(columns + depth) trig instead of O(cells).
+	var grid = _f._sphere
+	var core_r: float = float(grid.core_radius)
+	var cell_sz: float = float(grid.cell_size)
+	var limit: int = mini(_f._cell_count, CLIMATE_MAX_CELLS)
+	var columns: int = limit / depth
+	# Per-r radius and altitude band, computed once for the whole grid.
+	var r_alt: PackedFloat32Array = PackedFloat32Array()
+	var r_ab: PackedInt32Array = PackedInt32Array()
+	r_alt.resize(depth)
+	r_ab.resize(depth)
+	for r in depth:
+		var radius: float = core_r + (float(r) + 0.5) * cell_sz
+		var alt_r: float = radius - sea_r
+		r_alt[r] = alt_r
+		r_ab[r] = clampi(int(maxf(alt_r, 0.0) / ALT_BAND_SPAN), 0, ALT_BANDS - 1)
+	for s in columns:
+		var base: int = s * depth
+		# `cell_radial` is the BODY-LOCAL outward unit; the latitude convention here is the WORLD one, so
+		# rotate it into the world frame exactly as `cell_world_pos_linear` does. (Both give the same latitude
+		# because the body spins about this very axis, but keeping the frames explicit is what stops the next
+		# reader from dotting a body-local vector against a world axis and getting a number that is only right
+		# when the rotation happens to be identity.)
+		var wdir: Vector3 = _f._body_basis * _f.cell_radial(base)
+		var lat: float = absf(rad_to_deg(asin(clampf(wdir.dot(axis), -1.0, 1.0))))
+		var band: int = clampi(int(lat / (90.0 / float(CLIMATE_BANDS))), 0, CLIMATE_BANDS - 1)
+		for r in depth:
+			var c: int = base + r
+			if solid[c] != 0:
+				continue
+			var t: float = temp[c]
+			var alt: float = r_alt[r]
+			if t < coldest:
+				coldest = t
+				if t < _coldest_ever:
+					_coldest_ever = t
+					_coldest_ever_alt = snappedf(alt, 0.1)
+					_coldest_ever_lat = snappedf(lat, 0.1)
+			# ALTITUDE profile over every open cell — this is where an equatorial summit and the cold upper air
+			# both show up, and neither is visible in a latitude-only or ground-only scan.
+			var ab: int = r_ab[r]
+			alt_n[ab] += 1
+			if t < alt_min[ab]:
+				alt_min[ab] = t
+			# STANDING WATER that is below freezing — the population R21 (WATER -> SNOW) actually converts.
+			# These three counters were declared here and never once written, so the comment above them
+			# described a measurement that did not exist. Filled in rather than deleted: a cell can be well
+			# below zero and simply hold no water, and only this pair of numbers separates "the planet cannot
+			# get cold" from "the cold places are dry", which are opposite diagnoses.
+			if has_water and water[c] > LAMaterialField3D.MIN_MASS:
+				water_cells += 1
+				if t < LAPhysical.WATER_FREEZE_C:
+					water_frozen += 1
+				if t < water_coldest:
+					water_coldest = t
+			# GROUND-HUGGING (inward neighbour is rock) vs ALOFT — the two distinct freezing populations.
+			var is_ground: bool = r > 0 and solid[c - 1] != 0
+			if is_ground:
+				lat_sum[band] += t
+				lat_n[band] += 1
+				if t < lat_min[band]:
+					lat_min[band] = t
+				ground_n += 1
+				if t < LAPhysical.WATER_FREEZE_C:
+					ground_frozen += 1
+				if t < ground_coldest:
+					ground_coldest = t
+					_ground_coldest_ever = minf(_ground_coldest_ever, t)
+			else:
+				air_n += 1
+				if t < LAPhysical.WATER_FREEZE_C:
+					air_frozen += 1
 	var means: Array = []
 	var lmins: Array = []
 	for b in CLIMATE_BANDS:
@@ -157,6 +225,12 @@ func surface_climate() -> Dictionary:
 		"clim_ground_cells": ground_n,
 		"clim_air_frozen": air_frozen,
 		"clim_air_cells": air_n,
+		# Cells that actually HOLD liquid water, and how many of those are below freezing. A large
+		# `clim_ground_frozen` with a zero here means the cold ground is dry and no ice can form on it.
+		"clim_water_cells": water_cells,
+		"clim_water_frozen": water_frozen,
+		"clim_water_coldest": snappedf(water_coldest if water_coldest < 1.0e19 else 0.0, 0.1),
+		"clim_scan_ms": snappedf(float(Time.get_ticks_usec() - t_scan) / 1000.0, 0.01),
 	}
 
 
@@ -196,7 +270,11 @@ func _open_temp_stats() -> Dictionary:
 	return {"temp_min": mn, "temp_mean": sum / float(n), "temp_max": mx, "temp_open": n, "temp_all_max": all_mx}
 
 
-## Polled only at snapshot time, so these (cheap forwarder) reads don't run per frame.
+## CORRECTED 2026-08-03. This said "Polled only at snapshot time, so these (cheap forwarder) reads don't run
+## per frame", and both halves are false: the reads behind these forwarders are O(cells) scans, not cheap, and
+## the provider is polled EVERY RENDERED FRAME at any high `--fast` (LAGameHud's 0.5 s refresh Timer counts
+## down on the scaled clock). The O(cells) instrument block added here is gated in `_heavy_block()` for that
+## reason; the pre-existing scans above are not, and that is a live perf question this lane did not touch.
 func report() -> Dictionary:
 	var q: LAMaterialFieldQueries3D = _f._queries
 	var r: Dictionary = {
@@ -238,9 +316,60 @@ func report() -> Dictionary:
 	# cell that stopped being able to hold it.
 	if _f._inject != null:
 		r.merge(_f._inject.queue.report())
-	r.merge(_open_temp_stats())
+	var temps: Dictionary = _open_temp_stats()
+	r.merge(temps)
 	r.merge(_photo.report())
 	r.merge(q.rock_radial_profile())
 	r.merge(q.hot_spring_stats())
 	r.merge(q.lava_shell_diag())
+	var heavy: Dictionary = _heavy_block()
+	r.merge(heavy)
+	# The station network is read EVERY call, unlike the block above: it is 48 array reads, and the diurnal
+	# range it measures is precisely the thing a coarse cadence destroys.
+	_swing.sample()
+	r.merge(_swing.report())
+	# Registering a scalar is one line. Keep them here, at the one place that already holds every aggregate,
+	# so adding the next one does not need a new plumbing decision.
+	_extremes.track("open_cold", float(temps.get("temp_min", 0.0)))
+	_extremes.track("open_hot", float(temps.get("temp_max", 0.0)))
+	_extremes.track("h2o_total", float(r.get("h2o_total", 0.0)))
+	_extremes.track("energy_net", float(heavy.get("energy_net", 0.0)))
+	_extremes.track("subsolar_lat", float(r.get("swing_subsolar_lat", 0.0)))
+	r.merge(_extremes.report())
 	return r
+
+
+## THE HEAVY BLOCK — the three O(cells) instruments, behind ONE cadence gate, cached in between.
+##
+## THE GATE IS NOT AN OPTIMISATION, IT IS A CORRECTION OF A FALSE COMMENT. This file's header (and the
+## docstring on `report()` above) claimed the provider is "polled only at snapshot time, so the O(cells) scans
+## never run per frame". Measured 2026-08-03: that is FALSE at any interesting `--fast`. LAGameHud arms a
+## `Timer` at REFRESH_INTERVAL 0.5 s and a Timer counts down on the SCALED clock, so at `--fast=8` — where the
+## idle delta is around a second per rendered frame — it fires every single frame and takes a full snapshot,
+## which polls every provider. The existing scans in this function have therefore always been per-frame work;
+## adding three more without a gate took a 600-frame run from 47.6 s to over 600 s (it did not reach frame
+## 180). With the gate the same run costs a few percent, and `clim_scan_ms` / `energy_scan_ms` /
+## `mass_scan_ms` report what one sweep of each actually costs so this can be re-argued from numbers.
+##
+## Every quantity behind the gate is either an aggregate that moves slowly or a per-STEP drift, and the drifts
+## divide by the field steps actually elapsed, so a coarser sample changes their resolution and not their
+## value. The one thing that genuinely needs every sample — the weather stations' diurnal range — is
+## deliberately outside it.
+func _heavy_block() -> Dictionary:
+	var frame: int = int(Engine.get_process_frames())
+	if not _heavy_cache.is_empty() and frame - _heavy_frame < HEAVY_EVERY_FRAMES:
+		return _heavy_cache
+	_heavy_frame = frame
+	# SURFACE CLIMATE — wired in here (2026-08-03). `surface_climate()` was written in this very file and CALLED
+	# BY NOTHING: a grep for `clim_lat_mean` found the literal that builds it and no consumer anywhere, so the
+	# one gauge that can answer "can it freeze HERE" never reached a single SIM_REPORT. Per the standing rule
+	# that unwired code is a previous session's unfinished job, it is connected rather than left.
+	var d: Dictionary = surface_climate()
+	#   energy — the radiative books. There was NO energy accounting anywhere before this; a radiative sink was
+	#            added on this line of work and nothing could verify it.
+	d.merge(_energy.report())
+	#   mass   — conservation ledgers for carbon, oxygen, fertility and biomass, on the H₂O ledger's pattern.
+	#            Every substance here that had a ledger conserved; every substance without one minted.
+	d.merge(_mass.report(_f._gpu._step_index if _f._gpu != null else 0))
+	_heavy_cache = d
+	return d
