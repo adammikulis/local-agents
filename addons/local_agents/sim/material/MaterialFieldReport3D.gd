@@ -293,8 +293,7 @@ func report() -> Dictionary:
 		# counting there is free, where a call here would have added an O(cells) walk to the per-frame path.)
 		"charge_peak": _f.charge_peak(), "bolts": _f.bolts_fired(),
 		"shock_cells": _f.shock_cell_count(), "o2_min": _f.o2_min_open(), "o2_avg": _f.o2_avg(),
-		"co2_peak": _f.co2_peak(), "co2_avg": _f.co2_avg(), "fungus_cells": _f.fungus_cells(),
-		"fungus_peak": _f.fungus_peak(), "detritus_peak": _f.detritus_peak(),
+		"co2_peak": _f.co2_peak(), "co2_avg": _f.co2_avg(),
 		"biomass_total": _f.biomass_total(),
 		"fuel_total": q.fuel_total(), "fire_peak": q.fire_peak(), "fire_cells": q.fire_cells(),
 		"active_cells": q.active_cells(), "mean_relevance": q.mean_relevance(),
@@ -325,6 +324,10 @@ func report() -> Dictionary:
 	var temps: Dictionary = _open_temp_stats()
 	r.merge(temps)
 	r.merge(_photo.report())
+	# DECOMPOSER extent + intensity (fungus_peak/_cells, detritus_peak/_cells). One grid pass for all four.
+	# These used to be three separate calls into hub stubs that returned a literal zero, so the decomposer
+	# half of the carbon loop published nothing but zeros while fungus_total beside it read real values.
+	r.merge(_f.decomposer_stats())
 	r.merge(q.rock_radial_profile())
 	r.merge(q.hot_spring_stats())
 	r.merge(q.lava_shell_diag())

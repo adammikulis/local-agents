@@ -23,17 +23,27 @@ development is on `0.4-dev`. Work in a worktree off it. Memories worth loading: 
 (the pivot), `dissolve-dont-patch`, `perf-first-ruthlessly`, `big-o-first-class`, `iterate-fast`,
 `verify-before-merge`, `worktree-shader-import-gotcha`, `three-d-always`.
 
-**Branch state (2026-08-03).** `0.4-dev` is the integration branch, lint green. Live worktrees beside the
-primary checkout, none merged:
-- **`feature/energy-balance`** — the big one. Real emissivity from the hydrostatic `pressure` channel, real
-  solar constant (1361), water freezing at 0 °C, surface balance sub-steps instead of truncating, Darcy as a
-  gradient, oxygen + fertility closed by identity, and the climate/conservation instruments merged in. It
-  also **collapses the biosphere on purpose** — see item #1.
-- **`feature/conservation-fixes`** — craters flood instead of becoming static sea; meteors excavate again.
-- **`feature/planet-only`** — `--no-fauna` / `--planet-only`, and geology no longer waits for creatures.
-- **`feature/constants-gate`** — `scripts/check_physical_constants.sh`, gating GLSL copies against `LAPhysical`.
+**Branch state (2026-08-03, late).** `0.4-dev` is the integration branch, lint green, and **everything that
+was outstanding is merged**. *(This block previously listed four live worktrees as unmerged. There were
+actually SIX; `feature/climate-instruments` was a direct ancestor of `feature/energy-balance` so merging the
+latter subsumed it, and `feature/thermal-traits` was an empty branch pointing at a `0.4-dev` ancestor. Worse,
+`feature/planet-only` carried NO commits — its work existed only as four uncommitted files in the worktree,
+one `git checkout .` from being lost. All six are now merged or retired and every worktree is pruned.)*
+
+What landed, in merge order: `planet-only` (`LAAblate` + `--no-fauna`/`--planet-only`, and geology no longer
+waits for a creature to spawn), `conservation-fixes` (craters flood; meteors excavate), `energy-balance`
+(real emissivity from the hydrostatic `pressure` channel, solar constant 1361, water freezing at 0 °C from
+`LAPhysical`, Darcy as a gradient, oxygen + fertility closed by identity, and the climate/conservation
+instruments — it also **collapses the biosphere on purpose**, see item #1), `constants-gate`
+(`scripts/check_physical_constants.sh`, now running inside `agent_harness.sh lint`).
 
 `sorting.py` at repo root is the maintainer's, untracked — leave it.
+
+**A FALSE ALARM THAT MUST NOT BE RE-RAISED:** an exploration pass reported that merging these branches would
+revert `LASimRng.for_domain`, because `git diff 0.4-dev <branch> -- SimRng.gd` showed 87 deleted lines. That
+is an artefact of a TWO-dot diff, which only shows the branches were 17 commits behind. The three-dot form
+(`git diff 0.4-dev...<branch>`) is empty for all four — none of them touch the file. `for_domain` is intact
+at `creatures/sim/SimRng.gd:181`.
 
 **READ `CLAUDE.md` RULE ZERO FIRST.** Realism outranks everything. Every serious defect found on 2026-08-03
 was catchable by one question — *is this how the world actually works?* — and every one was caught by the
@@ -41,17 +51,31 @@ maintainer rather than by an agent. Water froze at 12.5 °C; the core was 1300 �
 temperature, a quarter of a real iron core); one thermal physiology covered a whale and a desert beetle;
 volcanoes waited for rabbits.
 
-**MEASUREMENT DISCIPLINE, learned the expensive way this session — read before comparing any two runs.**
-Runs are **not reproducible at a fixed seed**. Three 2000-frame runs at `--seed=4242` drew **110 / 28 /
-126 phenomena** (bolts 514 / 18 / 1025) and ended at `temp_mean` **62.8 / 59.4 / 78.3**. So:
-- **Never A/B two branches on one run each.** Doing exactly that produced a 7 °C difference that looked
-  like a GPU race and was entirely the weather. Three runs per arm, minimum.
-- **Quote `phenomenon`, `phenomenon/impact`, `phenomenon/eruption` and `bolts` beside every scalar**, and
-  compare arms at MATCHED disaster load, not row-for-row.
-- **Trust monotone trends within one run** (a pole cooling steadily over 2000 frames) far more than any
-  level compared across runs.
-- `--fixed-fps 60` is still required and still goes BEFORE the `--`; it fixes the field clock
-  (`field_step` was identical across all six runs of a 3×3) but not the disaster draw.
+**MEASUREMENT DISCIPLINE — and the platform is now GOOD, which is new.** With `--fixed-fps 60`, a fixed
+seed, and `--no-fauna`/`--planet-only`, runs now reproduce well enough to A/B on. Measured 2026-08-03 over
+six 600-frame runs at `--seed=4242`: phenomenon **8/8/8**, impact **5/5/5**, eruption **3/3/3**, `field_step`
+**590** in every run, `temp_mean` spread **0.64 °C**. *(This block used to say runs are "not reproducible at
+a fixed seed", citing 110/28/126 phenomena and a 19 °C `temp_mean` spread. That was measured BEFORE
+`LASimRng.for_domain` gave the planet its own stream and before `--planet-only` existed. Both landed; the
+claim is stale and was discouraging A/Bs that now work.)* Still true and still worth obeying:
+- **Three runs per arm, minimum**, and **quote `phenomenon`, `phenomenon/impact`, `phenomenon/eruption` and
+  `bolts` beside every scalar** — the residual spread is DISCRETE, dominated by how many disasters a run drew.
+- **Compare at equal `field_sim_s` / `field_step`, never at equal `--run-frames`.**
+- **Trust monotone trends within one run** far more than a level compared across runs.
+- `--fixed-fps 60` is an ENGINE flag and goes BEFORE the `--`.
+- **Even `--planet-only` is not perfectly deterministic yet** — three runs drew eruptions 4/3/3. Its commit
+  message claims it is "the only mode that can be fully deterministic"; that is the goal, not the state.
+
+**CHECK THE SIM IS ALIVE BEFORE YOU TRUST A NUMBER (2026-08-03, cost a full round of measurements).** The
+reaction table was briefly unloadable — the record modules resolved a `class_name` through Godot's global
+class cache, and the split was merged without an editor scan. `ReactionsPass`'s `load()` returned null and
+the sim ran with **zero reaction records**: every same-cell reaction silently off. It still printed a
+completely normal-looking `SIM_REPORT` with no error. The tells were only visible against a baseline —
+`sediment_total` exactly **0.00** against 972, `susp_total` **2300** against 72, `lava_total` **1313**
+against 37, `temp_mean` **152** against 39. Both halves are now fixed (the modules `extends` by resource
+path, so parsing no longer depends on the cache; and an empty table is a hard `push_error`, not a 0-byte
+SSBO). **The habit to keep: an aggregate that is exactly 0.00, or an order of magnitude off baseline, is a
+broken pipeline until proven otherwise — not a result.**
 
 **WHY it varied is now KNOWN and mostly FIXED (2026-08-03).** Two theories were refuted first and must not
 be re-run: ambient disasters do NOT draw from Godot's global RNG (the director is fully routed through
@@ -124,22 +148,57 @@ TOP OF THE ATMOSPHERE, ~78 world units above the plants, so primary productivity
 coefficient — and `PHOTO_RATE` was measurably tuned against it ("the binding constraint is not the rate, it
 is how fast CO₂ gets down here from the sky trace"). Same for O₂, pinned to ambient at 50%/step, which is
 why the oxygen ledger reads flat rather than rising.
-**Replace with:** a finite initial atmosphere + volcanic outgassing (exists) as the source and silicate
-weathering (exists as D1, currently dead — see #5) as the sink. Then `carbon_total` becomes falsifiable.
+**Replace with:** a finite initial atmosphere + volcanic outgassing as the source and silicate weathering
+(exists as D1, currently dead — see #7) as the sink. Then `carbon_total` becomes falsifiable.
+*(Corrected 2026-08-03: this said "volcanic outgassing (exists)". It does NOT. No lava, magma or vent path in
+the repo has a CO₂ leg — `MaterialFieldInject3D.add_lava`, `lava_phase`, `lava_flow` and `magma_buoy` contain
+no `co2` reference at all. The only non-R12 carbon source in the entire sim is combustion,
+`fire_sphere3d.glsl:137`. Outgassing has to be BUILT, not wired up.)*
+Measured on the merged branch, `--no-fauna`: `carbon_drift_per_step` **+1.94/+2.37/+2.09**, `carbon_first`
+720 against `carbon_total` ~5200 — carbon has grown 7× from its seeded value.
 
-**3 — THE REACTION ENGINE HAS NO CLOCK.** `ReactionsPass` uploads `dt`; `reactions_sphere3d.glsl` declares
-it; **nothing reads it** (grep finds it only in comments, and `EcoSurfacePass` says so outright). Every rate
-is per-FRAME, so no constant in the table can be compared to any measured chemical rate, and combustion
-literally runs 16× slower far from the camera because the LOD stride skips steps and persists state. Make
-every extent `x = k · dt · f(drivers)` and re-derive each k from a real timescale.
+**3 — THE PHYSICS RATE DEPENDED ON WHERE THE CAMERA POINTED. Being fixed by DELETING the activity LOD.**
+*(Corrected 2026-08-03. This item read "THE REACTION ENGINE HAS NO CLOCK … every rate is per-FRAME, so no
+constant in the table can be compared to any measured chemical rate." The first half is overstated and the
+second half is false. `MaterialFieldSphereStep3D.gd:14` sets `STEP_DT = 1.0/10.0` and the step loop consumes
+the accumulator in fixed 0.1 s slices, so every `k` in the DEFS table IS a per-0.1-s rate and IS convertible
+to a real timescale. `reactions_sphere3d.glsl:140` does declare a `dt` nothing reads, but under a fixed step
+that is tidiness, not a defect — and the reaction engine is not relevance-gated at all, so the "combustion
+runs 16× slower far from the camera" example was pointing at the wrong file.)*
 
-**4 — THE CORE IS A QUARTER OF A REAL CORE, AND IT NEVER DEPLETES.** Pinned at **1300 °C** — an erupting
-basalt temperature. Earth's inner core is ~5200 °C, the core-mantle boundary ~3700. The comment admits the
-value was chosen by what the surface could survive ("was pinned to 150 °C as an interim fix when … a hot
-core baked the surface to ~110 °C"). `CORE_FLUX` on the energy branch rate-limits it but it is still an
-unbounded source, so `temp_mean` climbs monotonically with nothing to stop it.
+**The real defect was in nine OTHER kernels**, which skipped time on a per-cell camera-relevance stride with
+no catch-up (`fire_sphere3d.glsl:102-106` is the pattern: `fire_out[g] = fire_in[g]; return;`). Measured
+2026-08-03, `LA_NO_ACTIVITY_LOD=1` as the control, matched disaster load, 3 runs vs 2:
+
+| | LOD on | LOD off | |
+|---|---|---|---|
+| `active_cells` | 26,966 | 69,120 | skips **61%** of per-cell work |
+| `field_ms` | 5.210 | **4.938** | **the LOD is SLOWER** |
+| `field_dispatch_ms` | 0.188 | 0.184 | no difference |
+| `temp_mean` | 38.65/39.11/39.20 | 34.73/34.17 | **4.5 °C of climate error** |
+| `sediment_total` | 976.6/986.2/968.3 | 1000.5/1008.4 | −2.7%, arms do not overlap |
+
+Skipping 61% of the work made it *slower*, because `ActivityPass` is itself a full-grid dispatch computing
+relevance for every cell — you pay a whole pass to decide what to skip, and dispatch is only 4% of field
+cost. So it charged 4.5 °C of physics error and bought nothing. **Maintainer decision: delete it** (keeping
+the lava cell list, whose compaction is the genuinely good O(active) form — re-pointed at a physical
+predicate instead of camera relevance).
+
+**4 — THE CORE IS A QUARTER OF A REAL CORE, AND IT NEVER DEPLETES. IN FLIGHT.** Armed at **1300 °C** from a
+call-site literal (`game/world/VoxelSpawnController.gd:138`) — an erupting-basalt temperature
+(`LAPhysical.UPPER_MANTLE_C`). Earth's inner core is ~5200 °C (`INNER_CORE_C`), the core-mantle boundary
+~3700 (`CORE_MANTLE_BOUNDARY_C`). `temp_max` reads **exactly 1300.0** in every run because of it. The
+mechanism now lives in `material/MaterialFieldGeotherm3D.gd` (extracted 2026-08-03 out of the extract-only
+field hub). `CORE_FLUX = 10.0` bounds how fast a core cell re-warms — that is what made the energy budget
+closable at all — but the reservoir behind it is still infinite, and the module says so itself.
 **Replace with:** a finite reservoir seeded at a real temperature that COOLS as it conducts outward, plus a
 small radiogenic term — which is what actually keeps a planet's interior hot for 4.5 Gyr.
+**And the geotherm around it is fitted, and inverted.** `kernels3d/heat_sphere3d.glsl:39-41` sets
+`VOID_CONDUCT = 0.016` / `ROCK_CONDUCT = 0.004` with the comment *"Tuned so a 1300°C core coexists with a
+temperate (~15-30°C) surface"* — a fitted physical constant by this repo's own rule. It is also backwards:
+rock conducts heat ~100× **better** than still air (~2.5 vs ~0.026 W/m·K), not 4× worse. A planet keeps a
+hot interior and a temperate surface because geothermal flux is negligible against solar (0.087 vs
+1361 W/m², both already in `LAPhysical`) across kilometres of rock — not because rock insulates.
 
 **5 — THE AQUIFER CANNOT REACH THE SURFACE, SO THERE ARE NO SPRINGS.** Two defects in one loop
 (`soil_sphere3d.glsl`). The units bug is FIXED (Darcy is a gradient now, not a raw head in world units).
@@ -194,18 +253,20 @@ Until this is settled the crater-vs-vent cross-check (`mineral_inject_moved` aga
 one side.
 
 **9 — SMALLER, ALL MEASURED.**
-- `fungus_peak()`, `fungus_cells()`, `detritus_peak()` are hardcoded `return 0.0` in `MaterialField3D.gd` —
-  the decomposer loop has been reporting three permanent zeros while `fungus_total` reads real values.
-  (`dust_at()` and `dust_cell_count()` were two more of the same family and were fixed 2026-08-03; these
-  three are what remain.)
-- `MaterialFieldPhotoStats3D.sun_dir()` dots a WORLD-frame sun against a BODY-LOCAL radial, so `light_mean`
-  and everything derived from it are only correct at identity rotation.
 - The energy budget's global net is a lava thermometer (`energy_magma_share` 0.94 — 94% of longwave leaves
   through 386 of 8684 cells). **Read `energy_net_cool`, not `energy_net`.**
 - Interaction radii were never scaled when the planet doubled (`PLANET_SCALE` covers world-gen geometry and
   `cell_size` only). Craters were the visible casualty and are fixed; `SEED_HEAT_R` 12 and `VAPOR_INJECT_R`
   14 are still sub-cell but degrade gracefully.
-- Four dead `248.0` sea-radius fallbacks survive where the live value is 500.
+- ONE dead `248.0` sea-radius fallback is left, `sphere_passes/ThermalPass.gd:166`, where the live value is
+  500. *(Corrected 2026-08-03: this said "Four". The other three — `MaterialFieldAtmos3D.gd:119`,
+  `WaterParticles.gd:24`, `game/world/BiomeShaderController.gd:58` — are gone, replaced by a direct
+  `sea_radius()` read plus a `push_error` for the case the terrain is genuinely missing.)*
+- `MaterialFieldChannels3D.breathable_o2_at` walks up to **4 cells** radially outward through rock before a
+  creature counts as encased. Cells are 16 world units thick here (`8.0 * PLANET_SCALE`), so a creature 64
+  units under solid rock still breathes. Sized as a margin against terrain relief inside one cell (relief is
+  46+6 units), so it is not obviously wrong — but it is unverified either way, and settling it needs a
+  windowed run with fauna and something buried.
 - `--fixed-fps 60` fixes the field clock but NOT the disaster draw. The planet now has its own RNG stream
   (impacts 5/5/5, eruptions 3/3/3, temp spread 12.7 °C → 0.70 °C); the residual is actor splashes perturbing
   the charge field, which `--planet-only` removes entirely.
@@ -247,20 +308,45 @@ greens — cannot appear until it does. One term in the heat kernel's `albedo` m
 channel it already has access to.
 
 **Also still owed and now measurable:** whether primary production is water-limited where it should be.
-`MaterialFieldPhotoStats3D` reports the Liebig limiter mix, but see item #9 — its `sun_dir()` dots a
-world-frame sun against a body-local radial, so `light_mean` and anything derived from it are wrong except
-at identity rotation. Fix that before drawing conclusions from it.
+`MaterialFieldPhotoStats3D` reports the Liebig limiter mix, and its sun frame is now correct — but **discard
+every light-vs-growth figure taken before 2026-08-03.** *(Corrected 2026-08-03. This said "its `sun_dir()`
+dots a world-frame sun against a body-local radial, so `light_mean` and anything derived from it are wrong
+except at identity rotation. Fix that before drawing conclusions from it." The frame is fixed —
+`sun_dir()` now returns `dir_to_field(...)`, the same expression `MaterialFieldSphereStep3D.gd:158` hands the
+GPU. The second half was the wrong emphasis: measured over three 600-frame runs, the two frames disagreed by
+up to **135°**, yet `light_mean` moved only 8.1% and `light_lit_frac` 7.0%, because a rotated hemisphere is
+still a hemisphere. What the error actually destroyed was the light-vs-response CONTRAST:
+`biomass_lit_dark_ratio` read **1.35 / 1.32 / 1.41** in the world frame against **2.37 / 2.30** in the body
+frame, and `biomass_dark_mean` was off by up to 99%. `light_mean` is nearly blind to this class of bug and is
+the wrong sentinel for it.)*
 
-### Keystone C — activity-bubble LOD. The asymptotic half.
+### Keystone C — activity-bubble LOD. MEASURED, AND BEING DELETED. Do not rebuild it.
 
-Shipped in its cheap form (`kernels3d/activity_sphere3d.glsl` + `sphere_passes/ActivityPass.gd`, registered at
-`MaterialSphereGPU3D.gd:55`), computing a wake-bubble plus camera-proximity relevance with an
-`LA_NO_ACTIVITY_LOD=1` A/B knob. But gating is per-cell stride and early-out, so **every kernel still
-dispatches the full grid and cells merely bail** — that saves ALU, not dispatch or bandwidth. CLAUDE.md
-sanctions the early-out form as the floor, so this is a deliberate stopping point, not a relic.
-**Before building the O(active) indirect-dispatch version, run the `LA_NO_ACTIVITY_LOD=1` A/B that already
-exists** and find out whether the shipped gating buys measurable frame time. That measurement decides whether
-the rewrite is worth it.
+The A/B this section asked for was run on 2026-08-03, and the answer was decisive: the camera-relevance LOD
+**costs 4.5 °C of climate error and is measurably SLOWER than not having it** (full table in item #3). It
+skipped 61% of per-cell work and moved `field_ms` from 4.938 to 5.210, because `ActivityPass` is itself a
+full-grid dispatch — you pay a whole pass to decide what to skip, and dispatch is only 4% of field cost.
+
+**Do not build the O(active) indirect-dispatch version on this evidence.** Dispatch is not where the time
+goes. The one piece worth keeping is the lava cell list, whose compaction + indirect dispatch is the good
+form; it is being re-pointed at a physical predicate (a cell carries lava) instead of camera relevance.
+
+**WHERE THE FIELD'S TIME ACTUALLY GOES** (measured, same runs, `field_ms` 5.210 total):
+
+| | ms | share |
+|---|---|---|
+| `field_readback_ms` | 4.020 | **77%** |
+| `field_pin_ms` | 0.660 | 13% |
+| `field_dispatch_ms` | 0.188 | **4%** |
+| `field_post_ms` | 0.097 | 2% |
+
+So the ranked perf work is: **(1) GPU-side reduction kernels** — `MaterialFieldQueries3D` has 18 full-array
+`for c in` loops that drag whole per-cell arrays back just to sum them on the CPU (`soil_total`,
+`mineral_total`, `sediment_total`, `_open_temp_stats`, …). **(2) The core pin's full-channel upload** —
+`field_pin_ms` exists only because `_pin_core_heat` edits `_temp` CPU-side, forcing a re-upload every step;
+moving that boundary GPU-side deletes it (folded into item #4). **(3) The CPU instruments** —
+`energy_scan_ms` is ~10.5 ms per sample at `HEAVY_EVERY_FRAMES = 8`, ~1.3 ms/frame amortised, a quarter of
+the whole field step spent on telemetry.
 
 **Deferrals, with reasons, so nobody re-attempts the unsafe ones.** The old "extend the gate to the other 8
 passes" instruction was WRONG as written — several of those passes are continuous planetary forcings, not
@@ -271,13 +357,23 @@ needs wake-on-inject first), `AtmospherePass` (the ocean is a perpetual uncondit
 sparsity, already cheap), `SolidDerivePass` (runs before relevance exists), and the continuous legs of
 `ThermalPass` / `GasWindPass`.
 
-### Keystone A — erosion. Behavioural proof still owed.
+### Keystone A — erosion. THE TRANSPORT LEG DOES NOT EXIST, so sediment cannot move.
+
+*(Corrected 2026-08-03. This said the proof "needs Keystone C's fast-forward before it can be observed."
+That is wrong, and it sent the work at a scheduling problem when the problem is structural.)*
 
 The pickup kernel ships (`kernels3d/erosion_pickup_sphere3d.glsl` via `sphere_passes/ErosionPickupPass.gd`,
-registered at `MaterialSphereGPU3D.gd:51` immediately before `ReactionsPass` so SETTLE reads freshly-scoured
-`susp` in the same step), and `susp` is a live phase in the mineral ledger. **What is owed is the behavioural
-proof** that deltas, beaches, canyons and floodplains actually form over geological time — which needs
-Keystone C's fast-forward before it can be observed.
+registered at `MaterialSphereGPU3D.gd:59` — not `:51` — immediately before `ReactionsPass` so M3 SETTLE
+reads freshly-scoured `susp` in the same step). But **the pickup credits `susp` to its OWN cell**
+(`erosion_pickup_sphere3d.glsl:130`) and the kernel's own header at `:23` states outright *"Nothing else
+touches susp."* M3 then settles it back in that same cell. `erosion_advect_sphere3d.glsl` and
+`erosion_deposit_sphere3d.glsl` **do not exist** — and `EcoSurfacePass.gd:41-42`'s claim that "only the box
+versions are present" is itself false; there are no box versions either.
+
+So erosion scours rock and drops it exactly where it was. Deltas, beaches, canyons and floodplains are not
+unproven, they are **impossible by construction**. What is owed is a TRANSPORT kernel: advect `susp` with the
+water flow and deposit where the flow slows. The proof to demand afterwards is that mineral marked in a
+highland measurably appears in a basin.
 
 ### Still owed elsewhere
 

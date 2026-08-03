@@ -55,9 +55,18 @@ func _process(delta: float) -> void:
 	if grid == null:
 		return
 	if _baker == null:
-		var sea_r: float = 248.0
-		if _terrain.has_method("sea_radius"):
-			sea_r = _terrain.sea_radius()
+		# Sea radius comes from the terrain service and only from it. A `248.0` default used to sit here and
+		# was overwritten on every path that reaches it: `setup()` already refuses to enable this controller
+		# unless `_terrain` is non-null and is a sphere terrain service, and every such service implements
+		# sea_radius. The fallback was dead — and wrong by roughly 2x, since the live sea shell is at 500
+		# (VoxelWorld.PLANET_SEA_RADIUS), so the one run that ever took it would have baked every biome band
+		# against a planet half the size.
+		if not _terrain.has_method("sea_radius"):
+			push_error("LABiomeShaderController: terrain has no sea_radius — biome bake disabled")
+			_enabled = false
+			set_process(false)
+			return
+		var sea_r: float = _terrain.sea_radius()
 		_baker = BiomeBakerScript.new()
 		_baker.setup(grid, sea_r, SAT_BASE, SAT_TEMP_GAIN, EVAP_TEMP_REF)
 	_baker.bake(snap["moisture"], snap["temp"], snap["snow"], snap["solid"], int(snap["cell_count"]))

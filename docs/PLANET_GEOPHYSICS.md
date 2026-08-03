@@ -14,8 +14,15 @@ SDF, heat field, lava, and shock, so they want a design pass with the maintainer
 - **Rock as fractional bedrock** — `rock_fill` (GPU-owned); `solid` derived from it. Terrain is one SDF that can
   be carved (`carve_sphere`) + filled (`fill_box`), and rock solidifies/melts by temperature.
 - **Shock waves** — `_shock` propagating seismic field (impacts/tremors inject it; terrain muffles it).
-- **Groundwater AQUIFER (DONE, 0.4)** — regolith permeability band + bedrock floor + Darcy flow → perennial
-  springs/rivers. `soil_sphere3d`. Realistic surface + subsurface water.
+- **Groundwater AQUIFER (PARTIAL, 0.4)** — regolith permeability band + bedrock floor + Darcy flow.
+  `soil_sphere3d`. *(Corrected 2026-08-03: this said "DONE … → perennial springs/rivers". There are no
+  springs. The outflow loop spends its budget greedily in SLOT ORDER and slot 0 is the inward/downward
+  neighbour, which `head_of()` makes lower-head unless brim-full — so whenever the cell below has headroom
+  the whole budget drains downward and no lateral flow or spring runs at all. Equilibrium is a water table
+  pinned ~2 cells below the surface everywhere. The Darcy UNITS bug is fixed; the slot-order greed is not.
+  Fix is proportional allocation: compute all six desired flows, then scale them to the budget together.
+  This is what blocks geysers, fumaroles and volcanic tidal pools — the magma-free hot-spring mechanism
+  already exists and is emergent, it just has no water to work with.)*
 - **N-body gravity + bodies** — `LAGravity`, `LAPlanetBody`, a moon, orbits (moving-frame). Test-particle pull.
 
 ## 1. Real FRACTURING (task #15) — prerequisite for everything below

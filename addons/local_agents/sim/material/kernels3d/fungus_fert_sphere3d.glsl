@@ -17,8 +17,10 @@
 // GROUND cell of that line (the first open cell with rock directly beneath it), not on the owner — see the
 // note at the write below for the measurement that forced the change. Each line writes exactly one cell that
 // it uniquely owns → race-free (distinct radial lines own distinct ground cells).
-// Runs AFTER the scent fertility blur/leach pass, in place on its output. Constants copied EXACTLY from
-// MaterialFungus3D.gd (FERT_PER_DECOMPOSE is already folded into fert_cell upstream).
+// Runs AFTER the scent fertility blur/leach pass, in place on its output. The constants below were copied
+// from MaterialFungus3D.gd, WHICH NO LONGER EXISTS (deleted with the CPU oracle — see
+// docs/0.4_PARALLELIZATION_GUIDE.md:32), so this kernel owns them now; FERT_PER_DECOMPOSE is already folded
+// into fert_cell upstream by the decompose reaction record.
 
 layout(local_size_x = 64) in;
 
