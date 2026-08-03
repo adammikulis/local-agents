@@ -1,11 +1,19 @@
 #[compute]
 #version 450
 
-// CUBED-SPHERE EROSION PICKUP — the missing SCOUR leg of the mineral cycle (Stage D). Flowing water lifts
-// bedrock off its bed into waterborne SUSPENSION; the existing M3 SETTLE record drops that susp back to loose
-// SEDIMENT where flow slackens, and the granular slump CA spreads it → deltas, floodplains, beaches. Net: this
-// ONE kernel closes rock_fill → susp → sediment → (lithify) rock_fill, so rivers carve their beds and the land
-// gains a history — with NO scripted valleys (dissolve-don't-patch: erosion emerges from water × slope).
+// CUBED-SPHERE EROSION PICKUP — the SCOUR leg of the mineral cycle (Stage D). Flowing water lifts bedrock off
+// its bed into waterborne SUSPENSION. erosion_transport_sphere3d then CARRIES that suspension downstream and
+// M3 SETTLE drops it where the flow slackens, so the pair closes rock_fill → susp → (moved) → sediment →
+// (lithify) rock_fill: rivers carve their beds and the mineral they lift comes back down somewhere ELSE. NO
+// scripted valleys and no landform code — erosion emerges from water × slope, deposition from carriage ×
+// settling.
+//
+// (Corrected 2026-08-03: this header claimed the cycle closed with pickup alone, "and the granular slump CA
+// spreads it → deltas, floodplains, beaches". It did not. Scour credited susp to the SCOURING CELL, M3
+// settled it to sediment in that same cell, and the slump CA cannot move sediment at all until it exceeds
+// REPOSE_TAN 0.70 — while lithification returns it to bedrock from 0.50. The mineral went rock → susp →
+// sediment → rock without ever leaving its own column: the bed was scoured and refilled in place, so no
+// depositional landform was reachable. The advection leg simply did not exist.)
 //
 // EMERGENT STREAM POWER (no new channel): a surface water cell's scour rate ∝ its stream power, proxied by
 // DEPTH × HEAD-GRADIENT = water[i] * Σ_lateral max(0, water[i] - water[nbr]). That head is the EXACT quantity
@@ -19,10 +27,11 @@
 // OWN-cell. As a bed cell's rock_fill scours below 0.5 the SolidDerive pass opens it (the valley incises one cell
 // deeper) and MineralStamp3D carves the SDF; where susp settles + lithifies, rock_fill crosses 0.5 → new land.
 //
-// SUSP PING-PONG CARRY: this pass runs right BEFORE ReactionsPass (which reads susp[back] for M3 SETTLE), so it
-// FULLY writes the back half: susp_out[i] = susp_in[i] (live carry) + scour. Nothing else touches susp, so this
-// carry + settle keeps the channel consistent across the phase flip (the stale back half is overwritten, never
-// accumulated).
+// SUSP PING-PONG: ErosionTransportPass runs IMMEDIATELY BEFORE this pass and fully writes susp[back] (every
+// cell, its load advected). This pass then ADDS its scour to susp[back] IN PLACE — an own-cell read-modify-
+// write on ONE buffer, which is race-free because no thread reads another thread's susp. ReactionsPass, next,
+// reads susp[back] for M3 SETTLE. So the back half is exactly "last step's load, moved" + "this step's
+// pickup", and the live→back carry is the transport pass's job, not this one's.
 
 layout(local_size_x = 64) in;
 
@@ -30,8 +39,7 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer WaterIn { float wa
 layout(set = 0, binding = 1, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 2, std430) restrict readonly buffer Static { float static_cells[]; }; // calm sea sink (no scour)
 layout(set = 0, binding = 3, std430) restrict buffer RockFill { float rock_fill[]; };            // bedrock mineral — scoured in place (cross-cell to DOWN, unique)
-layout(set = 0, binding = 4, std430) restrict readonly buffer SuspIn { float susp_in[]; };       // susp live half (carry source)
-layout(set = 0, binding = 5, std430) restrict writeonly buffer SuspOut { float susp_out[]; };    // susp back half (carry + pickup)
+layout(set = 0, binding = 4, std430) restrict buffer Susp { float susp[]; };                     // susp back half — += scour, OWN-cell only
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };             // idx*6 + slot
 
 layout(push_constant, std430) uniform Params {
@@ -55,24 +63,21 @@ void main() {
 	}
 	uint base = gidx * 6u;
 
-	// Default: pure ping-pong carry of the live susp into the back half (settle reads it next).
-	float susp_here = susp_in[gidx];
+	// susp[back] already holds this cell's advected load (ErosionTransportPass wrote it). Every early return
+	// below therefore writes NOTHING — leaving that load exactly as transport left it.
 
 	// Only OPEN, non-static (genuinely flowing) water cells scour. Rock and the held static sea are inert.
 	if (solid[gidx] != 0.0 || static_cells[gidx] != 0.0) {
-		susp_out[gidx] = susp_here;
 		return;
 	}
 	float depth = water_in[gidx];
 	if (depth <= WATER_MIN) {
-		susp_out[gidx] = susp_here;
 		return;
 	}
 
 	// The BED: the radial-DOWN neighbour must be bedrock with mineral to give.
 	int ib = nbr[base + 0u];
 	if (ib < 0 || solid[ib] == 0.0 || rock_fill[uint(ib)] <= ROCK_MIN) {
-		susp_out[gidx] = susp_here;
 		return;
 	}
 
@@ -93,8 +98,7 @@ void main() {
 		}
 	}
 	if (grad <= HEAD_MIN) {
-		susp_out[gidx] = susp_here;         // standing / calm water does not scour
-		return;
+		return;                             // standing / calm water does not scour
 	}
 
 	// STREAM POWER = depth * head-gradient. Scour is capped per step AND by the bed's available mineral.
@@ -102,10 +106,9 @@ void main() {
 	scour = min(scour, MAX_SCOUR);
 	scour = min(scour, rock_fill[uint(ib)]);
 	if (scour <= 0.0) {
-		susp_out[gidx] = susp_here;
 		return;
 	}
 
 	rock_fill[uint(ib)] = rock_fill[uint(ib)] - scour;   // debit the bed (unique target per thread)
-	susp_out[gidx] = susp_here + scour;                  // credit own-cell suspension (conserving transfer)
+	susp[gidx] = susp[gidx] + scour;                     // credit own-cell suspension (conserving transfer)
 }

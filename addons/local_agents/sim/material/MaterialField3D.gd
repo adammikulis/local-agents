@@ -1078,8 +1078,12 @@ func magma_cell_count() -> int:
 	return 0
 func magma_erupting() -> bool:
 	return false
+## Open cells currently carrying a suspended mineral load — the `erosion_cells` gauge in SIM_REPORT. Thin
+## forwarder; the count lives in LAMaterialFieldMineralProfile3D (static, so no diagnostic instance is needed).
+## (Was `return 0` — a hardcoded zero that read "no erosion anywhere" identically whether erosion was working
+## or, as it happened, structurally unable to move anything at all. Fixed 2026-08-03 with the transport leg.)
 func erosion_cell_count() -> int:
-	return 0
+	return LAMaterialFieldMineralProfile3D.suspended_cell_count(_susp, _solid)
 # --- Conserved H₂O ledger + snow/ice diagnostics — bodies live in LAMaterialFieldLedger3D. ONE water
 # substance in four phase channels (liquid `_water`, airborne `_moisture`, frozen `_snow`, subsurface
 # `_soil`); every transition is a transfer between them, so h2o_total must stay BOUNDED. All four legs obey

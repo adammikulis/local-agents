@@ -25,8 +25,9 @@ const FIELD_CADENCE_MAX: int = 60                       # clamp for the publishe
 const LakesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLakes3D.gd")
 const SoilBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd")
 const H2OBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldH2OBudget3D.gd")
+const MineralProfileScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd")
 
-var _f = null                                            # back-reference to the owning LAMaterialField3D
+var _f = null                                          # back-reference to the owning LAMaterialField3D
 var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
 # Per-leg groundwater budget probe (LA_SOIL_BUDGET). Owned here rather than on the field because it is a
 # STEP diagnostic: it needs a hook that fires once per GPU step, which is this loop and nowhere else.
@@ -35,6 +36,9 @@ var _soil_budget = null
 # on BOTH sides of the GPU step (pre_step arms the driver's between-pass probe, post_step prints), and this loop
 # is the only place that has one.
 var _h2o_budget = null
+# Elevation profile of the mobile mineral phases (LA_MINERAL_PROFILE). Same reason again: it is a per-STEP
+# sample, and it answers the one question no total in SIM_REPORT can — whether sediment moves DOWNHILL.
+var _mineral_profile = null
 
 # TWO CLOCKS, PUBLISHED SO THEY CAN BE COMPARED. `field_sim_s` is the simulated time the substrate ACTUALLY
 # advanced (STEP_DT per GPU step); `field_offer_s` is the simulated time the physics tick HANDED it (the sum
@@ -55,6 +59,9 @@ func setup(field) -> void:
 	if OS.has_environment("LA_H2O_BUDGET"):
 		_h2o_budget = H2OBudgetScript.new()
 		_h2o_budget.setup(field)
+	if OS.has_environment("LA_MINERAL_PROFILE"):
+		_mineral_profile = MineralProfileScript.new()
+		_mineral_profile.setup(field)
 
 
 ## Field substrate steps every N physics frames, N = the player's Sim knob `la_field_cadence` (published by
@@ -223,6 +230,8 @@ func process(delta: float) -> void:
 	LASimReport.event("field_step")   # telemetry: GPU field runs/run — a slower cadence lowers this (and the avg field_ms)
 	if _soil_budget != null:
 		_soil_budget.post_step()      # LA_SOIL_BUDGET: print the per-leg groundwater ledger on its own cadence
+	if _mineral_profile != null:
+		_mineral_profile.post_step()  # LA_MINERAL_PROFILE: print WHERE the loose mineral is, by elevation
 
 
 ## Scatter every channel the sphere driver read back into its CPU array, so actor world-space queries

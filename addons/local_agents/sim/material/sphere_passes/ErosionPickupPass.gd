@@ -3,19 +3,21 @@ extends RefCounted
 ## Cubed-sphere GPU pass plugin: EROSION PICKUP, the scour leg of the mineral cycle (Stage D). Wires the ONE
 ## kernel erosion_pickup_sphere3d.glsl into the SphereGPU driver via the plugin contract (setup() once,
 ## dispatch() each step). Flowing water lifts bedrock (rock_fill) off its bed into waterborne suspension (susp);
-## the existing M3 SETTLE record (ReactionsPass) drops susp back to loose sediment where flow slackens, and the
-## granular slump CA spreads it. rock_fill scoured below 0.5 opens the bed (incision) via SolidDerive + stamps
-## the SDF via MineralStamp3D; susp that settles + lithifies re-crosses 0.5 → new land (deltas/beaches).
+## ErosionTransportPass then carries that suspension downstream, and the M3 SETTLE record (ReactionsPass) drops
+## it as loose sediment where the flow slackens. rock_fill scoured below 0.5 opens the bed (incision) via
+## SolidDerive + stamps the SDF via MineralStamp3D; sediment that piles up and lithifies re-crosses 0.5 → new
+## land. Deposition is emergent: nothing here or in transport knows what a delta or a floodplain is.
 ##
-## PLACEMENT (MaterialSphereGPU3D.PASS_SCRIPTS): right BEFORE ReactionsPass, AFTER the water CA + Atmosphere have
-## settled water into the BACK half. Reads water[back] (the current water), scours rock_fill (SINGLE, in place),
-## and FULLY writes susp[back] = susp[live] (carry) + scour so ReactionsPass's M3 settle reads a consistent susp.
-## Single dispatch: the scour targets each solid bed cell's UNIQUE up-cell (radial reciprocity), so the
-## cross-cell rock_fill write is race-free with no barrier; susp is written own-cell.
+## PLACEMENT (MaterialSphereGPU3D.PASS_SCRIPTS): right BEFORE ReactionsPass and right AFTER ErosionTransportPass,
+## with the water CA + Atmosphere having already settled water into the BACK half. Reads water[back] (the current
+## water), scours rock_fill (SINGLE, in place), and ADDS the scour to susp[back] IN PLACE — transport has already
+## written every cell of that half, so this pass only ever adds, and each early return leaves the advected load
+## exactly as transport left it. Single dispatch: the scour targets each solid bed cell's UNIQUE up-cell (radial
+## reciprocity), so the cross-cell rock_fill write is race-free with no barrier; the susp add is own-cell.
 ##
 ## Kernel binding -> bufs-key map (authoritative layout is erosion_pickup_sphere3d.glsl):
 ##   0 WaterIn=water[back] · 1 Solid=solid · 2 Static=static · 3 RockFill=rock_fill(single) ·
-##   4 SuspIn=susp[live] · 5 SuspOut=susp[back] · 15 Neigh=nbr
+##   4 Susp=susp[back] (read-modify-write, own-cell) · 15 Neigh=nbr
 ## EVERY CELL RUNS EVERY STEP. Until 2026-08-03 binding 6 was a camera-relevance score and this kernel skipped
 ## its scour test on a stride derived from it, so a river eroded its bed faster when the player was watching it.
 ## Deleted — see MaterialSphereGPU3D.gd's header note.
@@ -54,14 +56,14 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 
 	for p in 2:
 		var back: int = 1 - p
-		# Read the SETTLED water (back half, matching ReactionsPass) and carry susp live(p) -> back(1-p).
+		# Read the SETTLED water (back half, matching ReactionsPass) and ADD the scour to the back susp that
+		# ErosionTransportPass has just filled with the advected load.
 		_set[p] = _build_set(_shader, [
 			[0, water_pair[back]],   # WaterIn = settled water (back)
 			[1, solid_rid],          # Solid
 			[2, static_rid],         # Static (calm sea — no scour)
 			[3, rock_rid],           # RockFill (SINGLE, scoured in place)
-			[4, susp_pair[p]],       # SuspIn  = live susp (carry source)
-			[5, susp_pair[back]],    # SuspOut = back susp (carry + pickup)
+			[4, susp_pair[back]],    # Susp = back susp (advected load; += scour, own-cell)
 			[15, nbr_rid],           # Neigh table
 		])
 

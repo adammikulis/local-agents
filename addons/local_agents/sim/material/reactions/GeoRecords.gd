@@ -12,21 +12,42 @@ extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 # it only bit at hspeed>~22, and sediment-capped extent stays bounded regardless).
 const LOFT_WIND: float = 6.0             # horizontal wind speed a dry surface must exceed to loft sand
 const LOFT_RATE: float = 0.003           # sediment lofted per step per unit wind OVER the threshold
-# SETTLE (M3, susp→sediment): turbid water drops its load when calm. CONST_FRAC.
+# SETTLE (M3, susp→sediment): turbid water drops its load. CONST_FRAC, ungated — the SAME fraction settles in
+# every open cell, still or racing, which is what a constant Stokes settling velocity looks like on a fixed
+# timestep: how fast a grain falls to the bed is a property of the GRAIN, not of the flow. What varies is how
+# far the flow carries it while it falls, and that is ErosionTransportPass's job. So "drops its load when calm"
+# was never what this record did — it drops the same fraction everywhere, and slack water keeps the sediment
+# only because slack water does not move it anywhere. (Wording corrected 2026-08-03; the rate is unchanged.)
+# NOT MODELLED: re-suspension of already-settled sediment by turbulent flow. Erosion pickup only lifts BEDROCK.
 # (Corrected 2026-07-29: this said "susp is a DEAD phase today (no erosion source on the sphere populates it),
 # so this record is a NO-OP". It is LIVE. ErosionPickupPass is registered at MaterialSphereGPU3D.gd:51,
 # immediately before ReactionsPass so this record reads the freshly-scoured susp in the same step. The same
 # false claim, that the erosion pickup kernel did not exist, sat in HANDOFF.md for weeks and sent work at a
 # problem that was already solved.)
-const SUSP_SETTLE_RATE: float = 0.05     # per-step fraction of suspended sediment that settles out when calm
+const SUSP_SETTLE_RATE: float = 0.05     # per-step fraction of suspended sediment that settles out
 
-# --- WEATHERING (Stage D, rock_fill→sediment): frost/thermal breakdown of exposed bedrock into the transportable
-# loose pool. Runs in OPEN surface cells (GATE_SURFACE), where rock_fill is the partial boundary bedrock. Colder
-# exposed rock breaks faster (freeze–thaw shattering), so it is DEFICIT_BELOW_THRESHOLD on TEMP: x = max(0,
-# WEATHER_TEMP - temp) * WEATHER_RATE, capped by the ROCK_FILL present → a conserving rock_fill→sediment transfer.
-# This gives slopes a water-INDEPENDENT talus source (weathered rock → slump → downhill) that composes with the
-# river-scour pickup. WEATHER_TEMP sits at the top of this world's open-cell range (~11–21 °C) so all exposed rock
-# weathers, fastest at the cold poles/night — the emergent latitudinal weathering gradient, no per-case code.
+# --- WEATHERING (Stage D, rock_fill→sediment): breakdown of exposed bedrock into the transportable loose pool.
+# Runs in OPEN surface cells (GATE_SURFACE), where rock_fill is the partial boundary bedrock. DEFICIT_BELOW_
+# THRESHOLD on TEMP: x = max(0, WEATHER_TEMP - temp) * WEATHER_RATE, capped by the ROCK_FILL present → a
+# conserving rock_fill→sediment transfer. This gives slopes a water-INDEPENDENT talus source (weathered rock →
+# slump → downhill) that composes with the river-scour pickup.
+#
+# THE TEMPERATURE LAW HERE IS NOT PHYSICAL AND IS FLAGGED, NOT FIXED (2026-08-03, found while landing sediment
+# transport). Two things were wrong with the justification this comment used to carry — "Colder exposed rock
+# breaks faster (freeze–thaw shattering) … WEATHER_TEMP sits at the top of this world's open-cell range
+# (~11–21 °C) so all exposed rock weathers, fastest at the cold poles/night".
+#   1. A constant justified by "the sim's actual range" is the exact tell CLAUDE.md names. The range quoted is
+#      also stale: measured this session, ground temperature runs p10 10.8 / p50 15.5 / p90 105.1 °C.
+#   2. The sign is backwards for BOTH real mechanisms. Frost shattering needs pore water to CROSS 0 °C
+#      repeatedly, so it peaks where temperature CYCLES through freezing, not where it is coldest — ground
+#      that never thaws barely weathers. Chemical weathering (hydrolysis, dissolution) roughly doubles per
+#      +10 °C and needs water, so it is fastest warm and wet. This record instead makes the rate rise without
+#      bound as temperature falls: at -18 °C it is x = 38 * 0.004 = 0.152 of the bedrock per step.
+# It is left alone here on purpose. A correct frost-shatter record needs a driver shape the reaction engine
+# does not have (a BAND around 0 °C, gated on water present), which is a change to reactions_sphere3d.glsl —
+# a shared kernel, outside the erosion-transport track, and one that would move sediment production enough to
+# invalidate both this branch's transport A/B and the mineral-ledger work running beside it. Fix it with its
+# own measurement, not as a side effect of something else.
 const WEATHER_TEMP: float = 20.0
 const WEATHER_RATE: float = 0.004        # per-step k on x = max(0, WEATHER_TEMP - temp) * k (capped by rock_fill)
 # --- LITHIFICATION (Stage D, sediment→rock_fill): deep/old sediment compacts back into bedrock. EXCESS_OVER_

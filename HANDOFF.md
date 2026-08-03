@@ -82,7 +82,10 @@ class cache, and the split was merged without an editor scan. `ReactionsPass`'s 
 the sim ran with **zero reaction records**: every same-cell reaction silently off. It still printed a
 completely normal-looking `SIM_REPORT` with no error. The tells were only visible against a baseline —
 `sediment_total` exactly **0.00** against 972, `susp_total` **2300** against 72, `lava_total` **1313**
-against 37, `temp_mean` **152** against 39. Both halves are now fixed (the modules `extends` by resource
+against 37, `temp_mean` **152** against 39. *(Those comparison values are from the dry-planet, no-transport
+era. The live band at `--planet-only --seed=4242`, 600 frames, is now `sediment_total` **268-281**,
+`susp_total` **16** without sediment transport and **44** with it, `soil_total` **~3893-3898**, `lava_total`
+**41-43**, `temp_mean` **30.8-30.9**. The habit, not the numbers, is the point.)* Both halves are now fixed (the modules `extends` by resource
 path, so parsing no longer depends on the cache; and an empty table is a hard `push_error`, not a 0-byte
 SSBO). **The habit to keep: an aggregate that is exactly 0.00, or an order of magnitude off baseline, is a
 broken pipeline until proven otherwise — not a result.**
@@ -405,23 +408,54 @@ continuous planetary forcings that are active nearly everywhere, so compacting t
 `field_ms` 5.2) while readback is ~75% — so the readback item below is the larger lever by an order of
 magnitude, and any further dispatch-side work should justify itself against that.
 
-### Keystone A — erosion. THE TRANSPORT LEG DOES NOT EXIST, so sediment cannot move.
+### Keystone A — erosion. The transport leg is BUILT. What is open is whether it carves fast enough.
 
-*(Corrected 2026-08-03. This said the proof "needs Keystone C's fast-forward before it can be observed."
-That is wrong, and it sent the work at a scheduling problem when the problem is structural.)*
+*(This section used to read "THE TRANSPORT LEG DOES NOT EXIST, so sediment cannot move", and it was right:
+pickup credited `susp` to the SCOURING CELL, M3 settled it back in that same cell, and the slump CA cannot
+move sediment below `REPOSE_TAN` 0.70 while lithification returns it to bedrock from 0.50, so mineral went
+rock -> susp -> sediment -> rock without leaving its column. Landed 2026-08-03.)*
 
-The pickup kernel ships (`kernels3d/erosion_pickup_sphere3d.glsl` via `sphere_passes/ErosionPickupPass.gd`,
-registered at `MaterialSphereGPU3D.gd:59` — not `:51` — immediately before `ReactionsPass` so M3 SETTLE
-reads freshly-scoured `susp` in the same step). But **the pickup credits `susp` to its OWN cell**
-(`erosion_pickup_sphere3d.glsl:130`) and the kernel's own header at `:23` states outright *"Nothing else
-touches susp."* M3 then settles it back in that same cell. `erosion_advect_sphere3d.glsl` and
-`erosion_deposit_sphere3d.glsl` **do not exist** — and `EcoSurfacePass.gd:41-42`'s claim that "only the box
-versions are present" is itself false; there are no box versions either.
+`kernels3d/erosion_transport_sphere3d.glsl` + `sphere_passes/ErosionTransportPass.gd`, registered immediately
+before `ErosionPickupPass` (`MaterialSphereGPU3D.gd:85-92`), which now ADDS its scour to `susp[back]` in place
+instead of owning the live->back carry. Two-pass gather on the shared `send` scratch: each cell's load leaves
+along the same links, in the same proportions, that the water CA moves its water by — down as much as the cell
+below can hold (or everything, into the static sea), laterally by the head difference halved, nothing upward.
+**No new rate constant and nothing fitted**: the fraction of the LOAD that leaves is the fraction of the WATER
+that leaves. It binds the water's LIVE half, because that is the head the CA actually flowed on; the back half
+is what is left after the flow equalised it. Deposition stays M3 SETTLE, unchanged — a constant settling
+fraction is a constant Stokes settling velocity, so how far a grain travels is (settling time) x (flow speed),
+and slack water drops its load because slack water does not carry it. Nothing tests for a river mouth.
 
-So erosion scours rock and drops it exactly where it was. Deltas, beaches, canyons and floodplains are not
-unproven, they are **impossible by construction**. What is owed is a TRANSPORT kernel: advect `susp` with the
-water flow and deposit where the flow slows. The proof to demand afterwards is that mineral marked in a
-highland measurably appears in a basin.
+**Measured, `--planet-only --run-frames=600 --fast=8 --seed=4242`, 3 runs per arm, A/B in ONE build via
+`LA_EROSION_TRANSPORT=0/1`.** The ON arm is bit-identical across its three runs and the matched control
+(`OFF_2`, same disaster draw: phenomenon 9 / impact 5 / eruption 4) differs from it only in the transport leg.
+
+| | control | transport | |
+|---|---|---|---|
+| `susp_total` | 16.37 | **44.15** | load in transit, 2.7x |
+| `erosion_cells` | 118 | **176** | cells carrying a load, +49% |
+| `rock_shrinks` | 125 | **145** | beds incising instead of refilling, +16% |
+| `sediment_total` | 277.17 | 267.62 | −3.4% |
+| `mineral_total` | 32111.71 | 32133.09 | +0.07% |
+| `field_ms` | 4.144 | 4.012 / 4.395 / 4.686 | overlapping; dispatch +0.019 ms |
+
+Structure, not totals — `LA_MINERAL_PROFILE=1` (`MaterialFieldMineralProfile3D`) bins surface columns into
+frozen terciles by bed elevation. At all three horizons the HIGH third loses loose surface mineral:
+`surf_hi` 0.58 -> 0.33 (step 133), 0.66 -> 0.43 (399), 21.01 -> 16.06 (799), and `lo_over_hi` 85.5 -> 119.1,
+65.2 -> 89.7, 0.306 -> 0.490. Mineral delivered into enclosed low ground (`deep_loose`) is up 12-23%.
+
+**What is genuinely open:** whether this rate carves drainage to the sea over a long horizon on the WET planet
+(item 5). 600 frames is 80 sim-seconds; `relief` moved 2.445 -> 2.560 in both arms, i.e. the landscape itself
+has not responded yet at this horizon. Decide it with a long run, not by moving `STREAM_K`.
+- **`susp` sealed inside rock is a real wart.** Reactions skip solid cells, so `susp` in a cell that later
+  crosses the solid threshold is frozen as suspension forever. It is most of `susp_total` (the SURFACE pool is
+  0.03-7 units against a 16-44 total). Whatever converts a cell to solid should convert its loose phases too.
+- **`mineral_total` rides a demand-gated mirror.** `rock_fill` is in `SITUATIONAL_CHANNELS` and only refreshes
+  while something has armed its readback, so the ledger's biggest term (99%) can be stale. The +0.07% above is
+  most likely that, not a source: the transport gather is exactly conservative given slot-opposite
+  reciprocity, and reciprocity is now measured — **0 of 407808 directed links non-reciprocal** at res 24 /
+  depth 20, in kernel and native slot order alike (`MaterialFieldSoilBudget3D`'s header claimed it fails at
+  the cube-face seams; corrected there).
 
 ### Still owed elsewhere
 
@@ -441,7 +475,8 @@ land dry". They are GONE as of 2026-07-30: the static mask made the sea evaporat
 water-budget question, not a reason to keep a mask that invents mass.)*
 
 **Livability risks:** volcano thermal runaway (→ the radiative sink, item #1) · erosion mass drift (→ cap by
-stream-power, verify against `mineral_total`).
+stream-power, verify against `mineral_total` — but note `mineral_total` reads a demand-gated `rock_fill`
+mirror, so fix the instrument before believing a drift measured on it; see Keystone A).
 *("Land drains dry" is REFUTED as of 2026-08-03 and its pointer to "#2, spring baseflow" is stale. It was
 capillary retention that was missing, not baseflow: `root_col_bone_frac` was 0.64 and is now 0.24 with the
 `k_rel`/`RESIDUAL` term in `soil_sphere3d.glsl`. The live risk is now the OPPOSITE one — a wet planet with
