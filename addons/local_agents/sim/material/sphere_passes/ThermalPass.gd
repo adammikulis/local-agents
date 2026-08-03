@@ -131,10 +131,13 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		var water_back: RID = water[back]
 		var lava_back: RID = lava[back]
 
-		# conduct (heat_sphere3d): 0 = TempIn (LIVE), 1 = TempOut (scratch), 2 = nbr, 3 = solid (per-bond rock vs
-		# void conductivity — the crust insulates the hot core). copy: 0 = scratch, 1 = temp LIVE.
+		# conduct (heat_sphere3d): 0 = TempIn (LIVE), 1 = TempOut (scratch), 2 = nbr, 3 = solid, 4 = water
+		# (BACK, post-flow). Per-bond INTERFACE conductivity and per-cell HEAT CAPACITY now come from the
+		# real material properties in LAPhysical, so the crust no longer "insulates" by a fitted constant
+		# and an ocean cell conducts and stores heat as water rather than as air.
+		# copy: 0 = scratch, 1 = temp LIVE.
 		_conduct_set[p] = _make_set(rd, _conduct_shader, [
-			[0, temp_live], [1, _cond_scratch], [2, nbr], [3, solid]])
+			[0, temp_live], [1, _cond_scratch], [2, nbr], [3, solid], [4, water_back]])
 		_copy_set[p] = _make_set(rd, _copy_shader, [
 			[0, _cond_scratch], [1, temp_live]])
 		# solar: 0 = temp (LIVE, in-place), 1 = solid, 3 = pos (flat float3), 14 = radial, 15 = nbr.
@@ -170,12 +173,30 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	var sun_dir: Vector3 = ctx.get("sun_dir", Vector3(0.0, 1.0, 0.0))
-	var sea_radius: float = ctx.get("sea_radius", 248.0)
+	# sea_radius is the altitude datum for the solar lapse and the radiative-cool kernel. The driver sets
+	# it every begin_frame (MaterialSphereGPU3D:265, then set_sea_radius from the terrain), so this default
+	# only ever applies if that stops happening — in which case the RIGHT answer is the grid's own sea
+	# shell, not a literal. It used to read 248.0, a value from a 250-radius planet that has not existed
+	# since PLANET_RADIUS became 500: silently half the real datum, and dead code that looked live.
+	var sea_radius: float = float(ctx.get("sea_radius", 0.0))
+	# Conduction scale: dt / dx^2 in seconds per square metre. dx is the grid's own RADIAL cell size — the
+	# cubed-sphere's lateral spacing is about twice that at the default res 24, so lateral conduction is
+	# overstated ~4x against radial. With real diffusivities every coefficient is ~1e-7, four orders inside
+	# the stability limit and negligible against advection, so the anisotropy changes nothing measurable;
+	# it would matter if conduction ever became a leading term again. dt is what
+	# one field step represents in REAL seconds, which the sim clock fixes (a day is LASimClock.DAY_LENGTH
+	# simulated seconds and 86400 real ones). A model parameter of this world, not a property of matter,
+	# which is why it is pushed and the diffusivities are not.
+	var cell_size: float = float(ctx.get("cell_size", 0.0))
+	var dt_over_dx2: float = 0.0
+	if cell_size > 0.0:
+		dt_over_dx2 = _real_seconds_per_step() / (cell_size * cell_size)
+	var core_dt: float = float(ctx.get("core_flux_dt", 0.0))
 
 	# 0. CONDUCTION — relax temp toward its 6-neighbour mean (net-zero-flip: gather LIVE->scratch, copy back).
 	# This is the ONLY lateral/radial heat conduction in the field; it carries the pinned magma core outward to
 	# the surface (geothermal gradient) and smooths solar/buoyancy forcing. Runs through rock AND void.
-	var cond_pc: PackedByteArray = _count_pc(cc)
+	var cond_pc: PackedByteArray = _conduct_pc(cc, core_dt, dt_over_dx2)
 	rd.compute_list_bind_compute_pipeline(cl, _conduct_pipe)
 	rd.compute_list_bind_uniform_set(cl, _conduct_set[parity], 0)
 	rd.compute_list_set_push_constant(cl, cond_pc, cond_pc.size())
@@ -324,6 +345,29 @@ func _cool_pc(cc: int, sea_radius: float) -> PackedByteArray:
 	pc.encode_float(8, 0.0)
 	pc.encode_float(12, 0.0)
 	return pc
+
+
+# heat_sphere3d Params: { uint cell_count; float core_dt; float dt_over_dx2; uint pad2; } — 16 bytes.
+# core_dt is the geothermal boundary: the degrees LAMaterialFieldGeotherm3D's finite reservoir hands to
+# ONE innermost-shell cell this step. It enters conduction because that is what it is — the flux the
+# unsimulated interior conducts into the bottom face of the shell.
+func _conduct_pc(cc: int, core_dt: float, dt_over_dx2: float) -> PackedByteArray:
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(16)
+	pc.encode_u32(0, cc)
+	pc.encode_float(4, core_dt)
+	pc.encode_float(8, dt_over_dx2)
+	pc.encode_u32(12, 0)
+	return pc
+
+
+## Real seconds one field step represents — the same derivation LAMaterialFieldGeotherm3D uses for the
+## reservoir, so conduction and the core run on ONE clock. At the shipped 200 s day: 0.1 * 432 = 43.2 s.
+func _real_seconds_per_step() -> float:
+	var day: float = float(LASimClock.DAY_LENGTH)
+	if day <= 0.0:
+		return 0.0
+	return LAMaterialFieldSphereStep3D.STEP_DT * (86400.0 / day)
 
 
 # heat3d_buoyancy Params: { uint cell_count; uint pad0; uint pad1; uint pad2; } — 16 bytes.

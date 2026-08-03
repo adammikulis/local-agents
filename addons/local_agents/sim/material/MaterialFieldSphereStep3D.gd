@@ -139,7 +139,7 @@ func process(delta: float) -> void:
 	# ThermalPass' set_sun_dir kernel (max(0, dot(cell_radial, sun_dir))), not this scalar.
 	var solar: float = 0.6
 	var t_pin: int = Time.get_ticks_usec()
-	_f._pin_core_heat()              # geothermal boundary: re-pin the hot inner shells before the upload
+	_f._step_geotherm()              # finite core reservoir: cool it, and publish its flux for this step
 	LASimReport.gauge("field_pin_ms", float(Time.get_ticks_usec() - t_pin) / 1000.0)
 	var t_begin: int = Time.get_ticks_usec()
 	_f._gpu.begin_frame(_f._temp, _f._water, solar, Vector2.ZERO)   # drains prev step (sync+readback) + uploads

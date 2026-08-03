@@ -138,15 +138,15 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 		if herd_dir != Vector3.ZERO:
 			_camera.orient_toward(herd_dir)
 	if _material.has_method("add_magma_source"):
-		# Geothermal core pin — a genuinely HOT magma core (deep mantle temperature) so deep melt + emergent
-		# volcanoes are dramatic. This coexists with a temperate habitable surface because the field ThermalPass
-		# now insulates: heat_sphere3d.glsl conducts through SOLID rock ~6× slower than through open air/water
-		# (per-bond ROCK_CONDUCT vs VOID_CONDUCT), so the core heat rises through the crust SLOWLY (a steep
-		# geothermal gradient near the core, gentle near the surface) while the outermost open cells shed their
-		# heat to space via the solar/radiative pass — the surface equilibrates to the ~15-30°C ambient band,
-		# well under creatures' 50°C lethal-heat limit. (Was pinned to 150°C as an interim fix when the crust
-		# conducted uniformly and a hot core baked the surface to ~110°C, killing the ecosystem.)
-		_material.add_magma_source(_body.center(), 1300.0, 0.6)
+		# SEED the planet's interior heat reservoir at a real inner-core temperature. This used to read a
+		# literal 1300.0, which is LAPhysical.UPPER_MANTLE_C — an ERUPTING BASALT temperature, about a
+		# quarter of a real core's, chosen because a hotter one baked the surface. It baked the surface
+		# because the boundary was a TEMPERATURE that no amount of radiating to space could cool, held by a
+		# pair of fitted conductivities. Both are gone: the reservoir is finite and cools as it supplies
+		# (LAMaterialFieldGeotherm3D), and it reaches the world as a conductive FLUX through the unsimulated
+		# interior, which is small exactly as Earth's 0.087 W/m^2 is small against 340 W/m^2 of sunlight.
+		# So the real value can now be used, and the surface temperature is an output rather than a premise.
+		_material.add_magma_source(_body.center(), LAPhysical.INNER_CORE_C, 0.6)
 	_seed_diseases()
 	_spawned_initial = true
 	_hud.set_status("World ready. Spawn things, click to inspect, press V for scent.")

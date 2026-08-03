@@ -115,13 +115,31 @@ is per-FRAME, so no constant in the table can be compared to any measured chemic
 literally runs 16× slower far from the camera because the LOD stride skips steps and persists state. Make
 every extent `x = k · dt · f(drivers)` and re-derive each k from a real timescale.
 
-**4 — THE CORE IS A QUARTER OF A REAL CORE, AND IT NEVER DEPLETES.** Pinned at **1300 °C** — an erupting
-basalt temperature. Earth's inner core is ~5200 °C, the core-mantle boundary ~3700. The comment admits the
-value was chosen by what the surface could survive ("was pinned to 150 °C as an interim fix when … a hot
-core baked the surface to ~110 °C"). `CORE_FLUX` on the energy branch rate-limits it but it is still an
-unbounded source, so `temp_mean` climbs monotonically with nothing to stop it.
-**Replace with:** a finite reservoir seeded at a real temperature that COOLS as it conducts outward, plus a
-small radiogenic term — which is what actually keeps a planet's interior hot for 4.5 Gyr.
+**4 — THE PLANET NOW COOLS WITHOUT STOPPING, AND NOTHING SAYS WHERE IT SETTLES.** *(New 2026-08-03. The
+entry that was here — "the core is a quarter of a real core and it never depletes" — is DONE and deleted:
+the core is a finite reservoir at LAPhysical.INNER_CORE_C that cools as it supplies, reaching the world as
+a conductive flux, and heat_sphere3d.glsl carries real diffusivities. This is what that uncovered.)*
+With the pinned core gone the planet is solar-driven, and it drifts COLD over a long run. Measured,
+`--no-fauna --fast=8` seed 4242, at 600 / 1200 / 2000 frames: `temp_ground_p50` 14.15 / 13.49 / 12.03,
+`temp_min` -9.1 / -26.0 / -33.2, `snow_cells` 97 / 184 / 299, `energy_imbalance_cool` -0.83 / -2.29 /
+-3.38. The books say why: the sub-solidus surface emits several times what it absorbs and never closes.
+It is livable at the 600-frame acceptance horizon and heading somewhere colder after it.
+**What would DECIDE it:** run 4000-6000 frames and see whether `temp_ground_p50` asymptotes or keeps
+falling. If it keeps falling, the missing term is almost certainly the ocean thermostat in #4b — a 26 °C
+sea by fiat is currently the only thing holding the surface up, and it does not participate in the energy
+balance at all, so the books cannot close while it exists.
+
+**4b — THE OCEAN IS A THERMOSTAT, NOT A BODY OF WATER, AND IT IS STILL THERE.** *(Corrected 2026-08-03.
+Item #5 below claimed "the ocean thermostat that used to quench it is already deleted on
+`feature/energy-balance`". That is FALSE — it is live at `kernels3d/heat3d_cool_sphere3d.glsl:47-50`,
+`SST_SURFACE 26.0 / WATER_TEMP_DEEP 10.0 / THERMOCLINE_SCALE 24.0`, dragging every wet cell toward a
+fixed profile at `WATER_COOL_RATE 0.12`.)* The kernel's own header calls it out: sea-surface temperature
+is 26 °C by fiat at every latitude, in every season, forever, so it cannot respond to insolation, to an
+impact winter, or to a volcano — and a deep ocean sits at 10 °C, below its own freezing point, without
+freezing. It is now the LARGEST prescribed temperature left in the field and the last relax-to-target the
+radiative-sink work did not reach.
+**Replace with:** the same treatment the surface got — water's real heat capacity and a real sink, so the
+sea temperature is an output. Expect it to interact strongly with #4; measure them together.
 
 **5 — THE AQUIFER CANNOT REACH THE SURFACE, SO THERE ARE NO SPRINGS.** Two defects in one loop
 (`soil_sphere3d.glsl`). The units bug is FIXED (Darcy is a gradient now, not a raw head in world units).
@@ -132,8 +150,11 @@ pinned ~2 cells below the surface everywhere. Fix with proportional allocation (
 flows, scale them to the budget together); it restructures a conservation-critical gather, so verify it
 alone. **This is what unblocks geysers, fumaroles and volcanic tidal pools** — the magma-free hot-spring
 mechanism already exists and is emergent (`soil_sphere3d.glsl` mass-weights geothermal heat onto surfacing
-groundwater); it just has no water to work with, and the ocean thermostat that used to quench it is already
-deleted on `feature/energy-balance`.
+groundwater); it just has no water to work with. *(Corrected 2026-08-03: this sentence used to end "and the
+ocean thermostat that used to quench it is already deleted on `feature/energy-balance`". It is not
+deleted — see #4b.)* What DID change is that there is now water to strand: with the crust no longer baked
+to 137 °C at p90, `soil_total` runs 2961 against the old 375 and `soil_stranded` 129 against 5.5, so the
+slot-order bug is now visibly holding back 24x more groundwater than it was.
 
 **6 — THE CREATURE LAYER'S ENERGETICS ARE FICTIONAL** (the demography is not — see below). In order:
 - **`CreatureDigestion.ambient_graze` mints food.** It reads the TEMPERATURE at the animal's feet, converts

@@ -53,10 +53,11 @@ var _static: PackedByteArray = PackedByteArray()
 # reach into these arrays through the field (`_f`), 3D-generalising the 2.5D MaterialHeat/Atmosphere/
 # Liquid. INITIAL_TEMP seeds a mild ground so nothing freezes before the field settles.
 const INITIAL_TEMP: float = 15.0
-# Geothermal core: the innermost radial shells are warmed each step (a boundary condition, NOT an actor
-# injection). Conduction (ThermalPass) carries that heat outward → a radial geothermal gradient emerges.
-# add_magma_source arms it. Sphere-only. The mechanism and its honest limits live in
-# LAMaterialFieldGeotherm3D; this hub only forwards.
+# Geothermal core: a FINITE reservoir of rock below the shell's innermost layer, at a temperature that
+# FALLS as it conducts heat up into the bottom face (and rises a little from radioactive decay). No cell
+# is ever held at a constant temperature. add_magma_source seeds it. Sphere-only. The model, and the
+# reason a temperature boundary could never have worked, live in LAMaterialFieldGeotherm3D; this hub
+# only forwards.
 # Ambient atmospheric oxygen every OPEN cell is seeded to (LAMaterialGas3D relaxes surface cells back toward
 # it; combustion draws it down). MUST match LAMaterialGas3D.O2_AMBIENT.
 const O2_AMBIENT: float = 1.0
@@ -1065,15 +1066,22 @@ func fertility_peak() -> float:
 # CPU oracles retired; these channels are not yet read back from the sphere GPU driver, so the emitters are
 # no-ops and the diagnostics return safe defaults until their sphere readback lands.
 func add_magma_source(world_pos: Vector3, temp: float, rate: float) -> void:
-	# Sphere geothermal core: arm the innermost-radial-shell heat source (world_pos/rate unused — the core is
-	# the whole innermost shell, not a point). Conduction spreads it outward into a geothermal gradient.
+	# Sphere geothermal core: SEED the interior reservoir's temperature (world_pos/rate unused — the
+	# reservoir is the whole unsimulated interior, not a point). From then on the temperature is a state
+	# variable that cools; nothing re-asserts it.
 	_geotherm.arm(temp)
 
 
-## Advance the geothermal boundary one field step. Called before begin_frame so the upload carries it; the
-## mechanism, and an honest note on what it does not yet model, live in LAMaterialFieldGeotherm3D.
-func _pin_core_heat() -> void:
+## Advance the geothermal reservoir one field step: recompute its conductive flux into the shell, debit it
+## by exactly that, credit radiogenic decay, and publish the flux to the GPU. The model lives in
+## LAMaterialFieldGeotherm3D.
+func _step_geotherm() -> void:
 	_geotherm.step()
+
+
+## The geothermal reservoir's telemetry, merged into the field report by LAMaterialFieldReport3D.
+func geotherm_report() -> Dictionary:
+	return _geotherm.report()
 
 
 func magma_cell_count() -> int:

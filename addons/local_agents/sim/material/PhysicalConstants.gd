@@ -57,6 +57,45 @@ const INNER_CORE_C: float = 5200.0
 const CORE_MANTLE_BOUNDARY_C: float = 3700.0
 const UPPER_MANTLE_C: float = 1300.0
 
+# --- THERMAL TRANSPORT ------------------------------------------------------------------------------------
+# Conductivity lambda (W/m/K) and volumetric heat capacity rho*c (J/m^3/K) for the three materials this
+# substrate conducts through, plus the diffusivity alpha = lambda/(rho*c) (m^2/s) they imply.
+#
+# THE TWO ORDERINGS ARE DIFFERENT, AND CONFUSING THEM IS HOW THIS KERNEL GOT FITTED. Heat flows with lambda:
+# rock conducts about 100x better than air (2.5 against 0.026). TEMPERATURE spreads with alpha, and there air
+# beats rock 21x (2.19e-5 against 1.03e-6), because air carries almost no heat per degree. A kernel that
+# evolves temperature needs alpha; heat_sphere3d.glsl's old pair of numbers was neither, it was a pair fitted
+# "so a 1300 C core coexists with a temperate surface".
+#
+# WHAT THESE NUMBERS SAY ABOUT THIS PLANET, stated once so nobody re-derives it: alpha_rock 1.03e-6 m^2/s
+# means solid rock moves heat 1 metre in about 10 days and 1 kilometre in 30,000 years. Conduction through
+# rock is NEGLIGIBLE on every timescale this simulation runs. A planet's interior heat does not reach its
+# surface by conduction and never did — it rides magma. That is why the substrate has magma_buoy_sphere3d,
+# and why replacing these with the real values makes the geothermal gradient an advective phenomenon instead
+# of a conductive one.
+#   basalt / crustal rock : lambda 2.5 (crustal rocks span 1.7-3.5), rho 2900, c 840
+#   dry air, 300 K, 1 atm : lambda 0.026, rho 1.18, c_p 1005
+#   liquid water, 300 K   : lambda 0.60,  rho 997,  c 4184
+const THERMAL_CONDUCT_ROCK_W_MK: float = 2.5
+const THERMAL_CONDUCT_AIR_W_MK: float = 0.026
+const THERMAL_CONDUCT_WATER_W_MK: float = 0.60
+const ROCK_DENSITY_KG_M3: float = 2900.0
+const ROCK_SPECIFIC_HEAT_J_KGK: float = 840.0
+const VOL_HEAT_CAP_ROCK_J_M3K: float = 2.436e6      # 2900 * 840
+const VOL_HEAT_CAP_AIR_J_M3K: float = 1186.0        # 1.18 * 1005
+const VOL_HEAT_CAP_WATER_J_M3K: float = 4.171e6     # 997 * 4184
+const THERMAL_DIFFUSIVITY_ROCK_M2_S: float = 1.026e-6    # 2.5 / 2.436e6
+const THERMAL_DIFFUSIVITY_AIR_M2_S: float = 2.192e-5     # 0.026 / 1186
+const THERMAL_DIFFUSIVITY_WATER_M2_S: float = 1.438e-7   # 0.60 / 4.171e6
+
+# --- RADIOGENIC HEATING -----------------------------------------------------------------------------------
+# Heat produced per kilogram of silicate rock by the long-lived decay chains (238U, 235U, 232Th, 40K) at
+# present-day bulk-silicate-Earth abundances. Over Earth's ~4e24 kg of mantle plus crust this is the ~20 TW
+# radiogenic half of the planet's ~47 TW surface heat flow, and it is the ONLY reason a planetary interior is
+# still hot after 4.5 Gyr — secular cooling alone would have run out. It scales with MASS while the loss
+# scales with AREA, which is the whole reason small bodies are cold rock and large ones are molten inside.
+const RADIOGENIC_W_PER_KG: float = 5.0e-12
+
 # --- ENERGY BUDGET ----------------------------------------------------------------------------------------
 # Solar irradiance at 1 AU, measured by satellite. Using the real number means the surface temperature is a
 # PREDICTION of the model rather than an input to it: S/4 x (1 - albedo) against sigma x epsilon x T^4 lands
