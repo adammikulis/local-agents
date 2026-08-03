@@ -23,9 +23,26 @@ development is on `0.4-dev`. Work in a worktree off it. Memories worth loading: 
 (the pivot), `dissolve-dont-patch`, `perf-first-ruthlessly`, `big-o-first-class`, `iterate-fast`,
 `verify-before-merge`, `worktree-shader-import-gotcha`, `three-d-always`.
 
-**Branch state:** `0.4-dev` is the integration branch, CI green. `feature/energy-balance` is the one live
-feature branch (WIP, see below) and it PREDATES the air channel — rebase it before touching it.
+**Branch state (2026-08-03):** `0.4-dev` is the integration branch, CI green, lint green. Two live feature
+branches, both with a worktree beside the primary checkout:
+- **`feature/energy-balance`** — rebased onto `0.4-dev` (no conflicts), emissivity now varies with the
+  hydrostatic `pressure` channel. Mechanism works; the balance does not close yet. See item #1.
+- **`feature/lava-supply`** — `erupt_source` moved onto the sparse device add. See item #4.
+
 `sorting.py` at repo root is the maintainer's, untracked — leave it.
+
+**MEASUREMENT DISCIPLINE, learned the expensive way this session — read before comparing any two runs.**
+Runs are **not reproducible at a fixed seed**: ambient disasters draw from Godot's global RNG. Three
+2000-frame runs at `--seed=4242` drew **110 / 28 / 126 phenomena** (bolts 514 / 18 / 1025) and ended at
+`temp_mean` **62.8 / 59.4 / 78.3**. So:
+- **Never A/B two branches on one run each.** Doing exactly that produced a 7 °C difference that looked
+  like a GPU race and was entirely the weather. Three runs per arm, minimum.
+- **Quote `phenomenon`, `phenomenon/impact`, `phenomenon/eruption` and `bolts` beside every scalar**, and
+  compare arms at MATCHED disaster load, not row-for-row.
+- **Trust monotone trends within one run** (a pole cooling steadily over 2000 frames) far more than any
+  level compared across runs.
+- `--fixed-fps 60` is still required and still goes BEFORE the `--`; it fixes the field clock
+  (`field_step` was identical across all six runs of a 3×3) but not the disaster draw.
 
 ---
 
