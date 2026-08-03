@@ -30,9 +30,6 @@ var _surf: int = 0
 var _core: float = 0.0
 var _cell: float = 0.0
 var _sea: float = 0.0
-var _sat_base: float = 0.06
-var _sat_gain: float = 0.055
-var _sat_ref: float = 22.0
 
 var _imgs: Array = []
 var _tex: Texture2DArray = null
@@ -40,16 +37,13 @@ var _cell_of: PackedInt32Array = PackedInt32Array()   # per-column near-ground c
 var _rh: PackedFloat32Array = PackedFloat32Array()    # per-column relative humidity (reused each bake)
 
 
-func setup(grid: RefCounted, sea_r: float, sat_base: float, sat_gain: float, sat_ref: float) -> void:
+func setup(grid: RefCounted, sea_r: float) -> void:
 	_res = grid.res
 	_depth = grid.depth
 	_surf = grid.surf_count
 	_core = grid.core_radius
 	_cell = grid.cell_size
 	_sea = sea_r
-	_sat_base = sat_base
-	_sat_gain = sat_gain
-	_sat_ref = sat_ref
 	_imgs = []
 	for f in range(6):
 		_imgs.append(Image.create(_res, _res, false, Image.FORMAT_RGBA8))
@@ -93,8 +87,10 @@ func bake(moisture: PackedFloat32Array, temp: PackedFloat32Array, snow: PackedFl
 			cell = base + mini(surf_r + 1, depth - 1)
 		_cell_of[s] = cell
 		var t: float = temp[cell]
-		var sat: float = _sat_base * exp(_sat_gain * (t - _sat_ref))
-		var rh: float = moisture[cell] / maxf(sat, 1.0e-4)
+		# Saturation is now the real Clausius-Clapeyron value (~2e-5 at 22 C), so the old 1e-4 floor on the
+		# denominator would have sat BELOW it at every temperature and pinned relative humidity near zero.
+		var sat: float = LAPhysical.saturation_mass_fraction(t)
+		var rh: float = moisture[cell] / maxf(sat, 1.0e-12)
 		_rh[s] = rh
 		if surf_r >= land_r_min:
 			rh_sum += rh

@@ -31,6 +31,30 @@ extends RefCounted
 const WATER_FREEZE_C: float = 0.0
 const WATER_MELT_C: float = 0.0
 const WATER_BOIL_C: float = 100.0
+# Liquid water at 25 °C. It is the denominator of every "how much of a cell is water" figure in this
+# substrate: the field stores water as a FILL FRACTION (1.0 = a cell full of liquid), so any real density
+# has to be divided by this to become a channel value. Same number the volumetric heat capacity below uses.
+const WATER_DENSITY_KG_M3: float = 997.0
+
+# --- WATER VAPOUR: THE SATURATION CURVE ---------------------------------------------------------------------
+# HOW MUCH WATER AIR CAN HOLD IS NOT A TUNING KNOB — it is the saturation vapour pressure, and it is the one
+# fact that decides how much of a planet's water is in its sky. Earth's atmosphere holds ~12,900 km³ of water
+# against ~1.34e9 km³ of ocean: one part in a hundred thousand. This simulation held THIRTY PERCENT of its
+# mobile water in the air, four orders of magnitude out, because `SAT_BASE = 0.06` — the saturation mass
+# fraction at 22 °C — was written by hand instead of computed. The real value is 1.95e-5. It was 3080x too big,
+# and every cloud, rain and snow number ever measured here was measured against it.
+#
+# The curve itself is Clausius-Clapeyron. The closed form used is the AUGUST-ROCHE-MAGNUS approximation with
+# the coefficients of Alduchov & Eskridge (1996), which is within 0.4% of the exact integration over
+# -40..+50 °C:
+#     e_sat(T) = MAGNUS_A * exp(MAGNUS_B * T / (T + MAGNUS_C))     [Pa, T in °C, over liquid water]
+# Its logarithmic slope at 20 °C is 6.2%/°C — the familiar "7% more water vapour per degree".
+const MAGNUS_A_PA: float = 610.94
+const MAGNUS_B: float = 17.625
+const MAGNUS_C_C: float = 243.04
+# Specific gas constant of water vapour = universal R (8314.46 J/kmol/K) / molar mass (18.015 kg/kmol).
+# Turns that pressure into a DENSITY through the ideal gas law: rho_v = e / (R_v * T_K).
+const VAPOUR_GAS_CONST_J_KGK: float = 461.52
 
 # --- THUNDERSTORM CHARGE SEPARATION -----------------------------------------------------------------------
 # Cloud electrification happens in the MIXED-PHASE region, where supercooled droplets, ice crystals and
@@ -149,6 +173,83 @@ const ALBEDO_SNOW_ICE: float = 0.65
 # Piloted ignition temperature of dry cellulosic fuel (wood, leaf litter, cured grass).
 const VEGETATION_IGNITION_C: float = 300.0
 
+# --- GROUNDWATER: PERMEABILITY IS GEOMETRY, NOT A MATERIAL NAME ---------------------------------------------
+# Saturated hydraulic conductivity K spans roughly TWELVE orders of magnitude across geologic materials
+# (Freeze & Cherry 1979, Table 2.2): gravel 1e-3..1 m/s, clean sand 1e-5..1e-2, silty sand 1e-7..1e-3,
+# silt 1e-9..1e-5, marine clay 1e-13..1e-9. This substrate used ONE number, `CONDUCT = 0.35`, for all of it.
+#
+# The fix is not a table of material names. K is not a property of a name; it is a property of PORE GEOMETRY,
+# and the Kozeny-Carman relation says exactly how:
+#     k   = phi^3 * d^2 / (KOZENY_CARMAN_C * (1 - phi)^2)      [intrinsic permeability, m^2]
+#     K   = k * rho_w * g / mu                                 [hydraulic conductivity, m/s]
+# with phi the porosity and d the representative grain diameter. Kozeny (1927) / Carman (1937); the constant
+# 180 is Carman's fit for packed granular beds. Substituting real regolith numbers reproduces the table above
+# with nothing fitted: phi 0.35 with d = 0.5 mm gives 1.4e-3 m/s (coarse sand), d = 4 mm gives 8.8e-2 m/s
+# (fine gravel), d = 0.05 mm gives 1.4e-5 m/s (silty sand). One relation, the whole range.
+const KOZENY_CARMAN_C: float = 180.0
+const GRAVITY_M_S2: float = 9.81
+const WATER_DYNAMIC_VISCOSITY_PA_S: float = 1.002e-3    # liquid water at 20 °C
+
+# Porosity of unconsolidated near-surface granular deposits, and how it CLOSES with burial. Freeze & Cherry
+# put sand and gravel at 0.25-0.50; 0.40 is the mid value for a loose, poorly-sorted weathering mantle. Athy
+# (1930) established that porosity decays exponentially with depth as the overburden compacts the grain pack,
+# phi(z) = phi_0 * exp(-z / z_c); Sclater & Christie (1980) fit z_c = 3.7 km for sandstone and 2.0 km for
+# shale. 2.5 km is the granular-clastic mid value, and over this planet's 2 km circulating zone it closes
+# porosity from 0.40 to 0.18 — the reason the water table is a table and not a uniform sponge.
+const REGOLITH_SURFACE_POROSITY: float = 0.40
+const COMPACTION_LENGTH_M: float = 2500.0
+
+# The grain sizes the regolith is made of, as sieve diameters (Wentworth scale). The planet does not carry a
+# lithology map, so what it varies K with is the one thing it does know and that really does sort grain size:
+# where the material SITS. Coarse sand and gravel accumulate as valley-fill alluvium where running water drops
+# its bedload; upland regolith is residual saprolite, weathered in place and fine. Alluvial valley aquifers
+# being the coarse, productive ones and upland residuum the tight one is standard hydrogeology (Freeze &
+# Cherry ch. 4), and it puts the permeable rock exactly where the springs are.
+const GRAIN_D_UPLAND_M: float = 6.0e-5      # 0.06 mm — very fine sand / coarse silt (residual saprolite)
+const GRAIN_D_LOWLAND_M: float = 4.0e-3     # 4 mm — fine gravel (valley-fill alluvium)
+
+
+## Saturation vapour density as a FRACTION OF A CELL FULL OF LIQUID WATER — the substrate's own unit.
+## This is the phase rule's whole content: it is how much water air at `t_c` can hold, and nothing else may
+## decide that. Liquid evaporates while the local air is below it and the excess above it is condensate.
+## 1.95e-5 at 22 °C, 5.99e-4 at 100 °C (where e_sat reaches 1 atm and the liquid boils — no BOIL branch needed).
+static func saturation_mass_fraction(t_c: float) -> float:
+	var t: float = maxf(t_c, -80.0)    # the Magnus fit is stated over -40..+50 and its pole is at -243.04 °C
+	var e_sat: float = MAGNUS_A_PA * exp(MAGNUS_B * t / (t + MAGNUS_C_C))
+	var rho_v: float = e_sat / (VAPOUR_GAS_CONST_J_KGK * maxf(t + KELVIN_OFFSET, 1.0))
+	return rho_v / WATER_DENSITY_KG_M3
+# --- LIVING TISSUE ----------------------------------------------------------------------------------------
+# Soft animal tissue is mostly water, and its bulk density is measured within a few percent of water's:
+# muscle ~1060, fat ~920, whole-body ~1010 kg/m³. 1000 is the honest round value and it is why an animal
+# floats or sinks only marginally. This is what turns a body's LINEAR size into a MASS, which is the only
+# reason metabolism can scale with anything at all.
+const ANIMAL_TISSUE_DENSITY_KG_M3: float = 1000.0
+
+# THE TWO TEMPERATURES THAT BOUND LIFE, and they are properties of matter, not of a species.
+#   * Below the freezing point of water, intracellular water crystallises and the cell's chemistry stops.
+#     That bound is WATER_FREEZE_C above — the SAME 0 °C, not a second constant.
+#   * Above ~45 °C the structural and enzymatic proteins of animals begin to denature irreversibly. This is
+#     the measured onset of thermal protein unfolding for mammalian proteins (heat-shock response begins
+#     ~41-43 °C; gross denaturation and thermal death follow by ~45-50 °C), and it is why the upper lethal
+#     temperature of animals is so tightly clustered whatever their habitat: a desert beetle and an arctic
+#     fox are built from proteins with the same peptide chemistry.
+# Together they bracket the temperature range in which animal metabolism can run at all. A per-species
+# "comfort band" is not needed to express this and never was: what differs between a beetle and a fox is
+# not the chemistry's limits, it is whether the animal spends energy holding its body away from ambient.
+const PROTEIN_DENATURE_C: float = 45.0
+
+# Heat released per unit of biomass aerobically oxidised. Carbohydrate has a measured heat of combustion of
+# ~17 MJ/kg (fat ~39, protein ~17); carbohydrate is the reference because the substrate's biomass is written
+# as CH₂O in the photosynthesis/respiration identity (see LABioRecords). This is why a body that respires
+# is a body that WARMS: metabolic heat is not a separate mechanism bolted onto metabolism, it is the same
+# reaction's enthalpy.
+const BIOMASS_HEAT_OF_COMBUSTION_J_PER_KG: float = 1.7e7
+
+# Specific heat of animal tissue — again mostly water, measured ~3500 J/kg/K against water's 4184 (tissue is
+# ~70% water plus solids of lower heat capacity). This sets how much a given metabolic heat output actually
+# RAISES body temperature, and with the mass/area ratio it is what makes a small body track its surroundings
+# within minutes while a large one holds its own temperature for hours.
+const ANIMAL_SPECIFIC_HEAT_J_KGK: float = 3500.0
 # --- UNIVERSAL CONSTANTS ------------------------------------------------------------------------------------
 const STANDARD_GRAVITY_M_S2: float = 9.80665        # CGPM-defined standard gravity
 const GAS_CONSTANT_J_MOL_K: float = 8.314462618     # CODATA molar gas constant R
@@ -159,7 +260,12 @@ const SECONDS_PER_YEAR: float = 3.15576e7           # Julian year, 365.25 days
 # frost weathering. At 0 C and 1 atm liquid water is 999.84 kg/m^3 and ice Ih is 916.7, so a given mass of
 # water occupies 999.84/916.7 = 1.0907 times the volume once frozen. In a confined pore that surplus volume
 # has to come out of the surrounding rock, which is what breaks it.
-const WATER_DENSITY_KG_M3: float = 999.84
+#
+# NOTE the 0 C liquid density is its own constant and is NOT WATER_DENSITY_KG_M3 above, which is the 25 C
+# value the field uses as its cell-fill denominator. Freezing happens at 0 C, so that is the temperature the
+# expansion has to be quoted at; the two differ by 0.3 % and conflating them would be a small lie in the one
+# place where the whole mechanism is a density difference.
+const WATER_DENSITY_0C_KG_M3: float = 999.84
 const ICE_DENSITY_KG_M3: float = 916.7
 const ICE_FREEZE_EXPANSION: float = 0.0907          # 999.84/916.7 - 1
 

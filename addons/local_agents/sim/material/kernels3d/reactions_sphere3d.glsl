@@ -87,8 +87,33 @@ layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float 
 #define SOIL_ROOT 19   // DERIVED, WRITABLE: the plant-available water of the ROOTING COLUMN — the soil summed
                        // over the permeable REGOLITH cells directly beneath this open cell (the regolith mask,
                        // not the solidity mask; they diverge). See root_soil().
-#define OVERBURDEN 20  // DERIVED driver: LITHOSTATIC pressure (Pa) of the SOLID column above. See overburden().
-#define BEDROCK_BELOW 21 // DERIVED, WRITABLE: the bedrock of the SOLID cell directly beneath this open one —
+#define VAPOUR_DEFICIT 20  // DERIVED driver: sat(T) - moisture, SIGNED. The phase rule — see sat_mass_frac().
+#define SOIL_TOP  21   // DERIVED, WRITABLE: the soil of the FIRST regolith cell beneath this open cell — the
+                       // shallow DRYING FRONT. Roots reach the whole rooting column (SOIL_ROOT); evaporation
+                       // does not. Vapour has to diffuse out through the pores, so bare-soil evaporation
+                       // draws from the surface layer and the water below it is simply out of reach — which
+                       // is why a real profile dries top-down and why the exposed shell is the one that
+                       // thins. Using SOIL_ROOT here would have evaporated the bottom of the aquifer.
+
+// --- THE PHASE RULE ----------------------------------------------------------------------------------------
+// How much water air holds is the SATURATION VAPOUR PRESSURE at its temperature, and nothing else. Written
+// once here, in the field's own unit (a fraction of a cell full of liquid water), it governs the sea, a
+// puddle, wet soil and a snowbank identically — the records differ only in which liquid they name.
+// August-Roche-Magnus with Alduchov & Eskridge (1996) coefficients, then the ideal gas law for vapour.
+const float MAGNUS_A_PA = 610.94;        // LAPhysical.MAGNUS_A_PA
+const float MAGNUS_B = 17.625;           // LAPhysical.MAGNUS_B
+const float MAGNUS_C_C = 243.04;         // LAPhysical.MAGNUS_C_C
+const float VAPOUR_R = 461.52;           // LAPhysical.VAPOUR_GAS_CONST_J_KGK
+const float KELVIN_0 = 273.15;           // LAPhysical.KELVIN_OFFSET
+const float RHO_WATER = 997.0;           // LAPhysical.WATER_DENSITY_KG_M3
+
+float sat_mass_frac(float t_c) {
+	float t = max(t_c, -80.0);           // the Magnus fit's pole is at -243.04 C
+	float e_sat = MAGNUS_A_PA * exp(MAGNUS_B * t / (t + MAGNUS_C_C));
+	return (e_sat / (VAPOUR_R * max(t + KELVIN_0, 1.0))) / RHO_WATER;
+}
+#define OVERBURDEN 22  // DERIVED driver: LITHOSTATIC pressure (Pa) of the SOLID column above. See overburden().
+#define BEDROCK_BELOW 23 // DERIVED, WRITABLE: the bedrock of the SOLID cell directly beneath this open one —
                        // the rock a surface process actually attacks. Unique per thread; see bedrock_below().
 
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust (dust_loft parity)
@@ -100,7 +125,8 @@ layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float 
 #define OVERBURDEN_MAX_CELLS 12
 const float ROCK_DENSITY = 2900.0;      // LAPhysical.ROCK_DENSITY_KG_M3 — basalt / crustal rock
 const float SEDIMENT_DENSITY = 2000.0;  // LAPhysical.SEDIMENT_DENSITY_KG_M3 — unconsolidated wet sediment
-const float KELVIN_OFFSET = 273.15;     // LAPhysical.KELVIN_OFFSET — Arrhenius needs absolute temperature
+                                        // (absolute temperature for Arrhenius comes from KELVIN_0 above —
+                                        // one name for one constant, so it cannot drift into two)
 const float BOIL_TEMP = 100.0;          // LAPhysical.WATER_BOIL_C — above it there is no liquid water, so an
                                         // aqueous reaction rate stops rising with temperature (see ARRHENIUS)
 
@@ -122,6 +148,10 @@ const float BOIL_TEMP = 100.0;          // LAPhysical.WATER_BOIL_C — above it 
 #define GATE_NOT_RAINING 32   // global precipitation is off (params.raining == 0) — rain pins ALL dust down
 #define GATE_NOT_STATIC  64   // cell is NOT an infinite static reservoir (the sea/lake abstraction, which carries
                               // water=1 and is deliberately not simulated) — real per-cell chemistry only
+#define GATE_AIR_ABOVE   128  // THE FREE SURFACE: the outward neighbour is air (not rock, not drowned). A
+                              // submerged cell has no air touching it and cannot evaporate. See ReactionDefs.
+
+#define DROWNED_WATER 0.5     // half a cell of standing water in the neighbour above = no free surface here
 
 #define TGT_SELF    0
 #define TGT_SCRATCH 3
@@ -200,6 +230,17 @@ float light_at(uint i) {
 // cells strictly inward of itself. The columns are DISJOINT by construction, exactly as before, and this is
 // the step that keeps them so: without the stop-on-open rule the regolith walk would run straight THROUGH an
 // opened aquifer cell into a column another thread is already writing.
+// The FIRST regolith cell beneath an open cell, or -1. Race-free for writes: the inward-neighbour mapping is
+// injective, so no two reacting cells share one, and the column below it still belongs to root_soil's walk.
+int top_regolith(uint i) {
+	int c = nbr[i * 6u + 0u];
+	if (c < 0 || regolith[c] == 0.0) {
+		return -1;
+	}
+	return c;
+}
+
+
 float root_soil(uint i) {
 	float sum = 0.0;
 	int c = nbr[i * 6u + 0u];
@@ -311,6 +352,8 @@ float read_ch(int slot, uint i) {
 	if (slot == ROCK_FILL) return rock_fill[i];
 	if (slot == LIGHT)     return light_at(i);
 	if (slot == SOIL_ROOT) return root_soil(i);
+	if (slot == VAPOUR_DEFICIT) return sat_mass_frac(temp[i]) - moisture[i];
+	if (slot == SOIL_TOP) { int c = top_regolith(i); return (c < 0) ? 0.0 : soil[uint(c)]; }
 	if (slot == OVERBURDEN) return overburden(i);
 	if (slot == BEDROCK_BELOW) return bedrock_below(i);
 	return 0.0;
@@ -342,6 +385,7 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == LAVA)     { lava[i]      = max(0.0, lava[i]     + v); }
 	else if (slot == ROCK_FILL) { rock_fill[i] = max(0.0, rock_fill[i] + v); }  // may exceed 1.0 (accreted rock); clamp only at 0
 	else if (slot == SOIL_ROOT) { root_soil_draw(i, -v); }                     // roots draw water OUT of the column (v < 0)
+	else if (slot == SOIL_TOP)  { int c = top_regolith(i); if (c >= 0) { soil[uint(c)] = max(0.0, soil[uint(c)] + v); } }
 	else if (slot == BEDROCK_BELOW) { bedrock_below_add(i, v); }               // weathering eats the outcrop it stands on
 }
 
@@ -395,6 +439,14 @@ bool gate_ok(int mask, uint i) {
 			return false;                   // the infinite sea/lake reservoir is an abstraction, not real chemistry
 		}
 	}
+	if ((mask & GATE_AIR_ABOVE) != 0) {
+		// FREE SURFACE: the outward-radial neighbour must be AIR — open rock-free and not itself drowned.
+		// At the outward boundary (slot 5 == -1) the cell faces open space, which is air enough.
+		int au = nbr[i * 6u + 5u];
+		if (au >= 0 && (solid[au] != 0.0 || water[au] >= DROWNED_WATER)) {
+			return false;
+		}
+	}
 	return true;
 }
 
@@ -442,7 +494,7 @@ void main() {
 			// the rate stops climbing there instead of extrapolating a solution-chemistry law into a cell with
 			// no solution in it.
 			float conc2 = (rc.driver2_slot >= 0) ? read_ch(rc.driver2_slot, i) : 1.0;
-			float t_k = min(temp[i], BOIL_TEMP) + KELVIN_OFFSET;
+			float t_k = min(temp[i], BOIL_TEMP) + KELVIN_0;
 			float t_ref = max(rc.param2, 1.0);
 			x = rc.rate_k * drv * conc2 * exp(-rc.threshold * (1.0 / max(t_k, 1.0) - 1.0 / t_ref));
 		} else {                            // RELAX_TARGET — signed, no reactant, product = driver channel

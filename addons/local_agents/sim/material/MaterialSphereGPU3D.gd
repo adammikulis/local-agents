@@ -65,7 +65,10 @@ const PAIR_CHANNELS: PackedStringArray = [
 const SINGLE_CHANNELS: PackedStringArray = [
 	"solid", "static", "fuel", "charge", "detritus", "biomass", "pressure",
 	"vel_x", "vel_y", "vel_z", "dust_outscale", "fungus_fert", "surf_vx", "surf_vz", "snow", "rock_fill",
-	"regolith"]     # aquifer permeability mask (1 = groundwater-bearing rock) — static; seeded once
+	"regolith",     # aquifer permeability mask (1 = groundwater-bearing rock) — static; seeded once
+	"grain"]        # representative grain diameter in METRES per regolith cell — static; seeded once. The
+	                # aquifer kernel turns it into hydraulic conductivity through Kozeny-Carman, so K varies
+	                # over four orders of magnitude across the planet instead of being one number.
 
 # Data-flow dispatch order (see the PING-PONG PHASE note above). WaterSlumpLava MUST precede Thermal
 # (Thermal reads water/lava from "back" + consumes the lava carry-heat left in "live" temp); Atmosphere/
@@ -274,7 +277,12 @@ func setup(field) -> void:
 	_seed("soil", field._soil)          # initial water table (regolith primed by _compute_regolith)
 	_seed_solid()
 	_seed_rock_fill()
-	_seed_regolith()                    # aquifer permeability mask (static)
+	_seed_regolith()                    # aquifer permeability mask + grain-size field (static)
+
+	# The reaction table's flux-derived rates (evaporation and its kin) turn a real per-square-metre flux into a
+	# per-cell extent, which needs the cell HEIGHT. This is the one place that knows the grid and runs before
+	# ReactionsPass.setup() builds the table.
+	LAReactionDefs.cell_size_m = float(_grid.cell_size)
 
 	# Load + set up the pass modules (skip any that fail to load — WIP-tolerant).
 	for path in PASS_SCRIPTS:
@@ -353,12 +361,6 @@ func set_plates(table: PackedFloat32Array) -> void:
 		return
 	var b: PackedByteArray = table.slice(0, n * PLATE_STRIDE).to_byte_array()
 	_rd.buffer_update(_bufs["plates"], 0, b.size(), b)
-
-## Global atmospheric humidity signal (cloud cover 0..1), fed to atmos_evap so the infinite static sea stops
-## pumping once the air holds its target moisture — the GLOBAL bound on the water cycle (a local per-cell brake
-## can't cap a total that transport keeps redistributing). Slowly-varying; last cached value is fine.
-func set_atmos_humidity(h: float) -> void:
-	_ctx["atmos_humidity"] = clampf(h, 0.0, 1.0)
 
 ## The geothermal boundary: the TEMPERATURE of the rock ghost cell one shell below the grid's bottom face.
 ## Published by LAMaterialFieldGeotherm3D each step and consumed by heat_sphere3d.glsl, which bonds to it with
@@ -1074,6 +1076,12 @@ func _seed_regolith() -> void:
 		f[i] = 1.0 if m[i] != 0 else 0.0
 	var b: PackedByteArray = f.to_byte_array()
 	_rd.buffer_update(_bufs["regolith"], 0, b.size(), b)
+	# Grain size rides along: same lifetime, same derivation pass (LAMaterialFieldRegolith3D.compute), and it
+	# is meaningless without the mask that says which cells are aquifer.
+	var g: PackedFloat32Array = _field._grain
+	if g.size() == _cc:
+		var gb: PackedByteArray = g.to_byte_array()
+		_rd.buffer_update(_bufs["grain"], 0, gb.size(), gb)
 
 
 func _seed_rock_fill() -> void:

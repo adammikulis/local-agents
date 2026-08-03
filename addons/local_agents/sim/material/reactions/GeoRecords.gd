@@ -80,7 +80,7 @@ const SUSP_SETTLE_RATE: float = 0.05     # per-step fraction of suspended sedime
 # bound (perfect confinement), which is the honest side to err on for a process whose real-world rate depends
 # on fracture geometry nobody is modelling.
 const FROST_ROCK_PER_ICE: float = LAPhysical.ICE_FREEZE_EXPANSION \
-	* (LAPhysical.ROCK_DENSITY_KG_M3 / LAPhysical.WATER_DENSITY_KG_M3)
+	* (LAPhysical.ROCK_DENSITY_KG_M3 / LAPhysical.WATER_DENSITY_0C_KG_M3)
 # HOW MUCH WATER CAN BE IN THE ROCK AT ALL: its POROSITY. Only pore water is confined, and only confined water
 # breaks anything — a puddle freezing on a flat slab just makes ice. The aux cap therefore limits the extent to
 # ROCK_POROSITY_NEAR_SURFACE of the bedrock mass beneath, expressed as the divisor the record's cap applies.

@@ -37,7 +37,23 @@ var _water_force: Vector3 = Vector3.ZERO     # cached water-current sweep (recom
                                              # Builds when sprinting past the aerobic threshold, clears aerobically
                                              # at rest; caps top speed + makes conserving energy a top drive so
                                              # animals aren't perpetually running. (0.4: full ATP/glycogen/O₂ chem.)
-var metabolism: float = 2.2
+# --- body state the respiration reaction runs on (LACreatureRespiration). There is no `metabolism` trait any
+# more: a body's burn rate is its gas-exchange SURFACE times the local oxygen times the temperature band, so
+# it falls out of the already-heritable `size` gene rather than a per-species constant.
+var body_temp: float = 20.0                 # °C of the BODY, not the air. Newton-cools toward ambient with a
+                                            # time constant ∝ mass/area, and is raised by the heat its own
+                                            # oxidation releases. An ectotherm tracks ambient because its
+                                            # thermogenesis gene is ~0, not because of any branch.
+var respiratory_capacity: float = 1.0       # heritable gas-exchange surface packed into the body's area
+var thermogenesis: float = 0.0              # heritable: how hard the body raises oxygen throughput when cold.
+                                            # 0 IS an ectotherm; high IS an endotherm. One continuum, no flag.
+var _resp_capacity: float = 0.0             # last tick's AEROBIC CAPACITY per second (what the body's surface and
+                                            # the local air could support, before behaviour). The allometry is a
+                                            # law about this; _resp_rate below is what was actually spent.
+var _resp_rate: float = 0.0                 # last tick's REALISED oxidation, per second — the measured metabolic
+                                            # rate. Read by SIM_REPORT to fit the mass-scaling exponent, so the
+                                            # allometry is something the run reports rather than something a
+                                            # constant asserts.
 
 # --- breathing (emergent: breathe your medium; suffocate out of it). Land animals breathe AIR — submerged
 # past the head, or in O2-depleted smoke, they can't breathe and burn through a per-animal BREATH reserve;
@@ -452,7 +468,11 @@ func die(cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	if _dying:
 		return
 	_dying = true
-	LASimReport.event("death", {"cause": cause, "species": species})
+	# The JOINT cause x species tag, not just the two marginals. Reading "83 starvations" and "12 villager
+	# deaths" off separate tallies cannot tell you whether the villagers starved, and working that out by
+	# elimination is how a real defect (large animals in false metabolic deficit while asleep) stayed hidden
+	# for a whole measurement round.
+	LASimReport.event("death", {"cause": cause, "species": species, "who": cause + ":" + species})
 	# A death cry: nearby animals hear it and startle (predators may later home in on it).
 	if _ecology != null and _ecology.has_method("broadcast_call"):
 		_ecology.broadcast_call(global_position, species, "distress", self)
@@ -607,13 +627,20 @@ func _physics_process(delta: float) -> void:
 	# Gut flora re-cultures toward the recent diet (modulates the next bite's energy yield). No death gate.
 	if gut_microbiome != null:
 		gut_microbiome.tick(self, delta)
-	# Metabolism (exertion-scaled energy burn) + thirst + ageing — see LACreatureMetabolism. Death stops us.
+	# Thirst + ageing — see LACreatureMetabolism. Death stops us.
 	if LACreatureMetabolism.tick(self, delta):
 		return
 	if terrain == null:
 		return
 
 	var pos: Vector3 = global_position
+
+	# RESPIRATION: the substrate's own R20 oxidation (biomass + O₂ → CO₂ + detritus) running inside this body.
+	# Body temperature, the energy burn, the oxygen it draws from this cell and the CO₂ it exhales into it are
+	# all one reaction — see LACreatureRespiration. Replaces the old hand-rolled per-species energy burn and
+	# the module-constant comfort band. Death stops us.
+	if LACreatureRespiration.tick(self, pos, delta):
+		return
 
 	# Continuous field-force advection: the substrate's local wind/momentum drags the body (storm
 	# gale, updraft, shock front). Sampled every frame; distinct from the discrete fling() impulse.
