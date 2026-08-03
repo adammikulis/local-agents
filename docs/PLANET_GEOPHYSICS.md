@@ -1,7 +1,10 @@
 # PLANET GEOPHYSICS — emergent deep-earth arc (design)
 
-The maintainer's mandate: **a realistic planet comes before more creature work** ("creatures can't have
-realistic behavior without realistic water"). This doc captures the emergent-geophysics arc — what's DONE, and
+The maintainer's mandate, restated and hardened 2026-08-03: **the planet must be LOCKED DOWN before any
+creature work resumes** ("creatures can't have realistic behavior without realistic water"). Creature work is
+not merely lower priority — it is premature, and doing it now wastes it, because behaviour fitted to a broken
+substrate has to be redone. `CLAUDE.md` → "SCOPE RULE" carries the measurable bar; `HANDOFF.md`'s 0.5 section
+is parked until it is met. This doc captures the emergent-geophysics arc — what's DONE, and
 the design for the big pieces (real fracturing → plate tectonics, giant impacts, Theia). All of it follows
 **dissolve-don't-patch / one substrate**: named phenomena (fault, rift, subduction, mountain, moon) have zero
 dedicated code — they're what the substrate physics does. NOTE: the maintainer has OK'd FAKING tectonics (scripted plates whose boundary KINEMATICS drive emergent volcanism/quakes/uplift) since true geodynamics is research-grade. These interlock with the terrain

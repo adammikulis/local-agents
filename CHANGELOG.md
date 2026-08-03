@@ -15,15 +15,17 @@ the summary below is by theme rather than a settled release note.
 
 - **The planet's physics became conservative.** One conserved H₂O budget across liquid, vapour,
   snow and soil water; the static sea dissolved (it had been minting water it never lost); a real
-  aquifer / water-table channel with springs as a flux; hydrostatic air mass; gravity and the star
+  aquifer / water-table channel (springs are modelled as a flux but do NOT yet run — the
+  outflow loop spends its budget greedily in slot order and drains downward first); hydrostatic air mass; gravity and the star
   as real bodies; body-local spin, with the Coriolis direction corrected and the cubed-sphere
   neighbour table made slot-opposite reciprocal.
 - **Biology went deep** — literal DNA heredity, chemical-affinity learning, digestion over time,
   per-creature courtship and gestation, sexed breeding, graded senescence, gut microbiome, fish
   cognition, emergent disease and heritable constitution.
-- **Performance** — unified relevance→stride LOD across field and creatures, activity-bubble LOD, a
-  compacted active-cell list with indirect dispatch, demand-gated readbacks, animation and
-  physics-rate LOD.
+- **Performance** — a compacted active-cell list with indirect dispatch, demand-gated readbacks,
+  animation and physics-rate LOD for creatures. A camera-relevance LOD over the FIELD was tried and
+  removed: it made the planet's physics depend on where the camera pointed, and measured slower than
+  no gating at all.
 - **The addon became a real library** — the `sim/` (library) vs `game/` (shell) split, the
   `LocalAgent*` public / `LA*` internal naming rule, inspector surfaces, a Setup tab, and a
   one-node `LASimWorld` facade.

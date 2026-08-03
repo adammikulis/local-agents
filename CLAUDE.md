@@ -6,6 +6,41 @@ canonical source for Godot-specific design, runtime, testing, validation, and ha
 rules. `AGENTS.md` simply points here. Keep process rules in this file (and Godot specifics in
 `GODOT_BEST_PRACTICES.md`) so they don't drift across docs.
 
+## SCOPE RULE — LOCK THE PLANET DOWN FIRST. CREATURE WORK IS 0.5 AND DOES NOT START YET.
+
+**Maintainer's directive, standing: 0.4 is the PLANET, and creature work is not merely lower priority — it is
+premature, and doing it now WASTES the work.** A creature cannot have realistic behaviour on a planet whose
+physics is wrong. Every hour spent tuning metabolism against a world where water froze at 12.5 °C, the core
+was 1300 °C, sediment could not move and the aquifer never reached the surface is an hour spent fitting
+behaviour to a fiction — and it all has to be redone once the substrate is honest. That has already happened
+here more than once.
+
+**So: do not open creature files, do not tune creature constants, and do not schedule creature workstreams
+until the planet is locked down.** If a task seems to require creature work, check whether it actually
+requires it or is only conventionally bundled with it. Say so and do the planet half.
+
+**"Locked down" is a measurable bar, not a feeling.** The planet is locked down when:
+- **every conserved substance has a drift gauge and every gauge reads ~0** — H₂O, mineral, carbon, oxygen,
+  fertility, nitrogen, energy. The one-line diagnosis from four audits stands: *every subsystem with a
+  conservation ledger conserves; every subsystem without one mints.* A substance with no ledger is not
+  "probably fine", it is unmeasured.
+- **no physical constant is fitted.** Every real-matter value is sourced from `material/PhysicalConstants.gd`
+  with a citation and gated by `scripts/check_physical_constants.sh`.
+- **the named emergent phenomena actually occur** — springs and rivers run, sediment travels and deposits,
+  snow and sea ice form at a real 0 °C, volcanism and weathering are mechanisms rather than probability rolls.
+- **the physics does not depend on the observer.** No rate may change because of where the camera is pointed
+  or what the framerate is.
+
+**The exception, and it is narrow:** touch a creature file when the PLANET needs it — a creature is perturbing
+a field measurement, or `--planet-only`/`--no-fauna` needs a seam. Fixing creature *energetics, cognition,
+lifecycle or behaviour* is out of scope regardless of how tempting it looks while you are in the file. If you
+find a Rule Zero violation in creature code, RECORD it in `HANDOFF.md` under 0.5 and move on — that is the one
+place the "fix it AND report it" rule yields to scope, because the fix would be built on sand.
+
+`docs/0.5_CREATURE_FEATURES.md` and `docs/0.5_PARALLELIZATION_GUIDE.md` hold the creature plan. They are
+**parked**, and their filenames say 0.5 for a reason — they were named `0.4_*` and that alone kept pulling
+work forward.
+
 ## Branch & worktree workflow (DEFAULT)
 
 - **The current development branch is `0.4-dev`** — the integration branch all feature work targets (this

@@ -159,8 +159,8 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
   - **`game/VoxelWorld.tscn` needs a window.** `scripts/run_sim_offscreen.sh --path .
     addons/local_agents/game/VoxelWorld.tscn -- --run-frames=40` takes 7-9s and exits 0. It also *boots*
     headless and exits 0 in 5.3s, but with no compute device the field never runs and `SIM_REPORT` comes
-    back empty: `active_cells` 0, `biomass_total` 0, `heat_cells` 0, temperatures flat at the seed value,
-    and no `field_*` gauges at all, where the same run windowed reports `active_cells` around 27.5k. That
+    back empty: `biomass_total` 0, `heat_cells` 0, `sediment_total` 0.00, temperatures flat at the seed
+    value, and no `field_*` gauges at all, where the same run windowed reports `sediment_total` ~980. That
     is a silent empty pass, not a loud failure, so never read a headless voxel `SIM_REPORT` as evidence
     the simulation ran.
 - **`--run-frames` and `--shoot` are a scene contract, not engine flags.** They are implemented by
@@ -210,7 +210,7 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
   been editor-scanned since**. The whole reaction table was gone, and `LASimReport` logged
   `Nonexistent function 'report' in base 'Nil'` 163 times while cheerfully emitting a snapshot without it.
 - The tell that should have been checked first: the SIM_REPORT had **80 keys where a healthy one has 220**.
-  No `temp_min`, no `biomass_total`, no `active_cells` — every field aggregate silently absent. That baseline
+  No `temp_min`, no `biomass_total`, no `sediment_total` — every field aggregate silently absent. That baseline
   ran in 47.6 s against 97.7 s for the same commit in a scanned worktree, i.e. the "faster" build was faster
   because half the simulation was not running, and it was very nearly used to condemn a working change.
 - This is the 2026-07-08 `.glsl`/`.import` entry arriving through a third door. A `class_name` is resolved
@@ -758,3 +758,40 @@ run_one "$name" "$frames" || rc=$?
   - A doc comment is a claim by a past author, at the same evidentiary level as a name. When it and the
     code disagree, the code wins, and the comment should be corrected in the same edit so the next
     reader is not misled the same way.
+
+### 2026-08-03: throttling per-cell GPU compute when the READBACK dominates the frame
+
+- Symptom: a per-cell relevance channel (`activity_sphere3d.glsl` + `ActivityPass`) let seven kernels
+  derive an update stride and early-out, skipping 61% of all per-cell work (`active_cells` 26,966 of
+  69,120). Matched 600-frame runs, seed 4242, identical disaster load, showed it made the field
+  **SLOWER**: `field_ms` 5.210 with gating vs 4.938 without, `field_dispatch_ms` 0.188 vs 0.184.
+- Root cause: the gate was placed inside kernels that still ran `compute_list_dispatch(cl, groups, 1, 1)`
+  over the whole grid. A gated thread is still scheduled and still reads its inputs before it can decide
+  to bail, so the only thing saved is arithmetic — and arithmetic was never the cost. On this driver
+  `field_readback_ms` is 4.020 of `field_ms` 5.210 (about 75%) while dispatch is about 4%. The relevance
+  pass then charged a whole EXTRA full-grid dispatch to compute what to skip, which is why the net was
+  negative. It also cost 4.5 C of global mean temperature, because skipped physics is not free physics.
+- Preventative pattern:
+  - **Measure which term dominates before optimising a term.** `field_sync_ms` / `field_readback_ms` /
+    `field_dispatch_ms` are already published by `MaterialSphereGPU3D._drain_pending`. If readback is 75%
+    of the cost, no amount of dispatch-side cleverness will show up in `field_ms`.
+  - **An early-out inside a full-grid dispatch is not "do less work", it is "do the same scheduling and
+    less arithmetic".** The only structural win is to shrink the DISPATCH: build a compacted index list
+    and `compute_list_dispatch_indirect` over it (`LavaCellListPass` is the worked example in-tree).
+  - **Compaction is legal only where the consumer's skip path is a bare `return`.** A kernel that writes
+    on its skip path (a ping-pong carry, a persist, a scratch reset) will leave those cells unwritten.
+  - **A skip predicate must be PHYSICAL.** Keying it on camera distance makes the simulation's output a
+    function of the viewport, which is a correctness bug wearing a performance costume — and here it was
+    not even fast. Compact on what the matter is doing.
+  - **"Behaviourally exact" is a claim to measure, not to assert, whenever the process INTEGRATES.** Each
+    gated kernel here carried a comment arguing its skip path wrote exactly what an inert cell would. True
+    per step, still wrong over a run: the `LA_NO_ACTIVITY_LOD=1` bypass happened to leave ONE step gated
+    (the `activity` channel allocates zero, so on step 0 every pass reading `activity[LIVE]` got relevance
+    0 and resolved stride 16), and that single step out of 798 moved `soil_total` by **18%** (373.8 vs
+    442.8) and `sediment_total` by 5%. A reservoir still filling has no restoring force, so one skipped
+    transfer is a permanent offset, not a transient.
+  - **Check that an A/B knob actually disables the whole thing.** The bypass above was this project's own
+    control arm and it was contaminated. The tell: deleting the mechanism did not reproduce the bypass's
+    numbers. Seeding the gate's input buffer to its no-op value on the OLD code reproduced them exactly,
+    which is what located the gap. When a deletion and its supposed off-switch disagree, trust neither
+    until you have found the difference.

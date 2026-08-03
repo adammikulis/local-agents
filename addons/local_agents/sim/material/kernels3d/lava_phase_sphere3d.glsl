@@ -21,18 +21,18 @@
 
 layout(local_size_x = 64) in;
 
-// COMPACTED DISPATCH (Keystone C, asymptotic half). This kernel is dispatched INDIRECTLY, with one invocation
-// per ACTIVE cell rather than one per grid cell: it reads its cell id out of `active_idx` and its loop bound
-// out of `active_args[3]`, both built the same step by cell_list_lava_sphere3d.glsl. That kernel evaluates,
-// verbatim, the three side-effect-free early-outs this one used to open with (lava < LAVA_MIN_MASS,
-// solid != 0, and the LALodStride relevance gate), which is why they are gone from below.
+// COMPACTED DISPATCH. This kernel is dispatched INDIRECTLY, with one invocation per ACTIVE cell rather than
+// one per grid cell: it reads its cell id out of `active_idx` and its loop bound out of `active_args[3]`, both
+// built the same step by cell_list_lava_sphere3d.glsl. That kernel evaluates, verbatim, the two
+// side-effect-free early-outs this one used to open with (lava < LAVA_MIN_MASS, solid != 0), which is why they
+// are gone from below. The predicate is PHYSICAL — "this cell holds molten rock in open space" — so the list
+// is the same at any camera position.
 //
 // THE WRITER SET IS UNCHANGED, which is the honest claim — not "bit-identical". The shell-first cooling
 // loop below READS neighbours (lava[nb], temp[nb], solid[nb]) while other threads write temp[g] to the
 // same buffer, so this kernel's output was never bit-reproducible and compaction changes which threads
 // are co-resident. That race is pre-existing and the distribution is unaffected because exactly the same
-// cells write exactly the same values; what compaction cannot do is introduce NEW nondeterminism. `relevance` and
-// `step_index` are consequently no longer bound here; the gate now happens once, upstream, for this kernel.
+// cells write exactly the same values; what compaction cannot do is introduce NEW nondeterminism.
 layout(set = 0, binding = 0, std430) restrict buffer Lava { float lava[]; };
 layout(set = 0, binding = 1, std430) restrict buffer Temp { float temp[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Solid { float solid[]; };
@@ -78,8 +78,8 @@ void main() {
 	if (g >= params.cell_count) {
 		return;                     // defensive: a corrupt list must not scribble outside the grid
 	}
-	// lava >= LAVA_MIN_MASS, solid == 0 and the relevance stride gate were all applied by
-	// cell_list_lava_sphere3d.glsl when it appended this cell, so a listed cell has already passed them.
+	// lava >= LAVA_MIN_MASS and solid == 0 were both applied by cell_list_lava_sphere3d.glsl when it appended
+	// this cell, so a listed cell has already passed them.
 	float d = lava[g];
 	if (temp[g] < SOLIDIFY_TEMP) {
 		// Cooled below the solidus: leave it cold (do NOT sustain) so the M5 solidify record freezes the

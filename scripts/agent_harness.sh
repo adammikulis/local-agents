@@ -12,8 +12,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GODOT="${GODOT:-godot}"
 # The headless smoke target. Deliberately the menu, not the voxel world. VoxelWorld.tscn does BOOT
 # headless and exits rc 0 (measured 2026-07-28: 5.3s), but headless has no compute device, so its
-# SIM_REPORT comes back EMPTY — active_cells 0, biomass 0, heat_cells 0, temp flat, no field_* gauges —
-# where the same run windowed reports active_cells ~27.5k. It fails silently rather than loudly, so a
+# SIM_REPORT comes back EMPTY — biomass 0, heat_cells 0, sediment_total 0.00, temp flat, no field_* gauges
+# — where the same run windowed reports sediment_total ~980. It fails silently rather than loudly, so a
 # headless voxel smoke would be a green light that measured nothing. Use run_sim_offscreen.sh for it.
 # Was pointing at scenes/simulation/WorldSimulation.tscn, deleted with the old stack.
 MAIN_SCENE="res://addons/local_agents/game/menu/MainMenu.tscn"

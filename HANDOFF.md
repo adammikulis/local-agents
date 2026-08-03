@@ -15,10 +15,20 @@ addon-UX split moved everything under `addons/local_agents/{sim,game}/`.)*
 
 ## ▶ START HERE
 
-**0.4 is THE EMERGENT PLANET** (pivot 2026-07-12; creatures moved to 0.5, the full solar system to 0.6).
+**0.4 is THE EMERGENT PLANET, AND NOTHING ELSE. LOCK THE PLANET DOWN BEFORE TOUCHING CREATURES.**
+This is the maintainer's standing directive and it outranks the ordering of everything below. Creature work
+is not lower priority, it is **premature** — behaviour tuned against a broken substrate has to be redone, and
+that has already happened here more than once. `CLAUDE.md` → "SCOPE RULE" carries the measurable bar the
+planet must clear (every conserved substance has a drift gauge reading ~0 · no fitted physical constants ·
+the named emergent phenomena actually occur · no rate depends on the camera or the framerate). If you find a
+Rule Zero violation in creature code, RECORD it under the 0.5 section and move on.
+
+(Pivot 2026-07-12; creatures moved to 0.5, the full solar system to 0.6.)
 The physical substrate is the star — geology, hydrology, volcanism, climate, all emergent from the ONE field,
 simulated start to finish: a geological bake (rough world → erosion/volcanism/climate run forward) frozen as a
-livable start state you can tend or just watch. Look = cel-shading. 0.3.1 shipped on `main` (`v0.3.1`);
+livable start state you can tend or just watch. **That bake is 0.4 work, not a stretch goal** — it is what
+makes this "the emergent planet" rather than merely a correct one, and `--geotime` does not exist yet.
+Look = cel-shading. 0.3.1 shipped on `main` (`v0.3.1`);
 development is on `0.4-dev`. Work in a worktree off it. Memories worth loading: `roadmap-0.4-life-cycle`
 (the pivot), `dissolve-dont-patch`, `perf-first-ruthlessly`, `big-o-first-class`, `iterate-fast`,
 `verify-before-merge`, `worktree-shader-import-gotcha`, `three-d-always`.
@@ -200,17 +210,36 @@ rock conducts heat ~100× **better** than still air (~2.5 vs ~0.026 W/m·K), not
 hot interior and a temperate surface because geothermal flux is negligible against solar (0.087 vs
 1361 W/m², both already in `LAPhysical`) across kilometres of rock — not because rock insulates.
 
-**5 — THE AQUIFER CANNOT REACH THE SURFACE, SO THERE ARE NO SPRINGS.** Two defects in one loop
-(`soil_sphere3d.glsl`). The units bug is FIXED (Darcy is a gradient now, not a raw head in world units).
-**Still open: the loop spends its outflow budget greedily in SLOT ORDER, and slot 0 is the inward
-neighbour**, which `head_of()` makes lower-head unless brim-full — so whenever the cell below has headroom
-the whole budget drains downward and no lateral flow or spring runs at all. Equilibrium is a water table
-pinned ~2 cells below the surface everywhere. Fix with proportional allocation (compute all six desired
-flows, scale them to the budget together); it restructures a conservation-critical gather, so verify it
-alone. **This is what unblocks geysers, fumaroles and volcanic tidal pools** — the magma-free hot-spring
-mechanism already exists and is emergent (`soil_sphere3d.glsl` mass-weights geothermal heat onto surfacing
-groundwater); it just has no water to work with, and the ocean thermostat that used to quench it is already
-deleted on `feature/energy-balance`.
+**5 — THE PLANET IS NOW WET, AND EVERY CONSTANT DOWNSTREAM OF RAIN WAS TUNED WHILE IT WAS DRY.**
+*(Corrected 2026-08-03. This item used to say the aquifer's only remaining defect was slot-order greed in
+`soil_sphere3d.glsl`. That was measured and is now fixed on `feature/aquifer-springs`, but the greed was
+only ~10% of the mechanism — the other 90% was that the kernel had **no unsaturated-conductivity term at
+all**, so regolith drained at its saturated conductivity down to zero water and nothing held the vadose
+zone. Both fixed; `k_rel`/`RESIDUAL` at `soil_sphere3d.glsl:50-75`.)* The water table is now
+surface-following — mean saturation by shell, ground surface inward, went `[.0026 .0048 .0345 .1686]` ->
+`[.3259 .3658 .5054 .7641]`, and lateral valley-wall discharge overtook downward percolation into voids
+(`spring_lat`:`spring_down` 0.21 -> 1.73). **What that leaves open is everything the dry planet's
+constants were fitted against.** Groundwater is 3474 units of H₂O that used to be in the sky:
+`moisture_total` 3742 -> 2139, `cloud_cells` 4210 -> 373, `temp_mean` 34.3 -> 30.9, and with less rain
+`sediment_total` 967 -> 282, `susp_total` 70 -> 17, `rock_shrinks` 687 -> 132. **Decide it by measuring
+whether erosion is now too weak to carve drainage to the sea over a long run**, not by moving `STREAM_K`
+back to where it made the old numbers look right. The biosphere moved the other way and is healthier:
+`root_col_bone_frac` 0.64 -> 0.24, `biomass_ground` 11.2 -> 17.6, and biomass-by-water-quartile went from
+exactly 0 to a 6.7:1 wettest-to-driest gradient.
+- **The atmosphere holds far too much water, and this is what exposed it.** The dry planet kept **73% of
+  its whole H₂O budget as vapour** (Earth: ~0.001%); it is now 30%, still off by four orders of magnitude.
+  That is the atmosphere channel's, not the aquifer's. Decide it by comparing `moisture_total` against
+  `water_total + soil_total` — a planet whose air outweighs its ocean is wrong however the numbers look.
+- **`CONDUCT = 0.35` is ONE hydraulic conductivity for all regolith.** Real K spans ~12 orders of magnitude
+  by material (clay ~1e-9 m/s, gravel ~1e-1). Same design smell as one thermal physiology per creature.
+  Needs a per-cell permeability keyed to rock type, which the binary `regolith` mask cannot carry.
+- **Soil water has no evaporative sink.** Root uptake (R19) is the only path out and it measures ~0.03/step
+  against a 3894-unit reservoir. Real evapotranspiration is the dominant soil-water loss. Untouched.
+- **Hot springs are now UNBLOCKED but UNDEMONSTRATED.** The magma-free mechanism ships (`soil_sphere3d.glsl`
+  mass-weights geothermal heat onto surfacing groundwater) and there is finally water surfacing for it to
+  heat. `hotspring_max_c` still reads 1300.0 in every arm, which is the magma temperature — that gauge is
+  measuring lava-adjacent water, not groundwater discharge. Decide it with `--hotspring-test` once the
+  geothermal-gradient work lands.
 
 **6 — THE CREATURE LAYER'S ENERGETICS ARE FICTIONAL** (the demography is not — see below). In order:
 - **`CreatureDigestion.ambient_graze` mints food.** It reads the TEMPERATURE at the animal's feet, converts
@@ -280,6 +309,26 @@ queue's `move_field_sparse`, the way every other injector already resolves again
 with `LA_INJECT_AUDIT=1` and require the printed delta to be 0.0. It touches `MaterialField3D.gd`, which is
 extract-only, so the transfer belongs in a new module the hub delegates to.
 
+**8b — THE H₂O LEDGER, THE ONE HELD UP AS SOUND, HAS A LARGE UNEXPLAINED EXCURSION.** It now has the
+run-level gauge every other substance already had (`h2o_first` / `h2o_run_drift` / `h2o_run_drift_per_step`,
+matching `carbon_first` and siblings). First measurements, `--planet-only`, seed 4242:
+
+| horizon | `h2o_first` | `h2o_total` | `h2o_run_drift` | per step |
+|---|---|---|---|---|
+| 795 steps | 7418.53 | 5240.83 | **−2177.70** | −2.7392 |
+| 2662 steps | 7418.53 | 6257.31 | −1161.23 | −0.4362 |
+
+So water falls **29%** early and then partly RECOVERS — an excursion, not a monotone leak, and the per-step
+figure shrinks 6× with horizon. `h2o_buried` accounts for 34–89 of it and `h2o_inject_minted` is 0.0, so most
+of the swing is unexplained. Two candidates, both cheap to separate and NEITHER yet tested: a genuine
+settling transient as seeded water redistributes into moisture (`moisture_total` 5006 against `water_total`
+797 at 2662 steps), or `h2o_first` being sampled before world-gen has finished seeding, which would make the
+excursion an instrument artefact.
+**Do that separation before concluding anything.** What is already established is narrower and still worth
+knowing: the sample-to-sample `h2o_drift_per_step` everyone has been reading is measured over a **four-step
+window out of six hundred**, it read positive 6/6 while the run-level truth was negative, and until now
+nothing in this project could tell those two apart.
+
 **9 — SMALLER, ALL MEASURED.**
 - The energy budget's global net is a lava thermometer (`energy_magma_share` 0.94 — 94% of longwave leaves
   through 386 of 8684 cells). **Read `energy_net_cool`, not `energy_net`.**
@@ -317,8 +366,9 @@ under it are not.
 
 The substrate is genuinely most of the way there; almost every gap below is **coupling / read-out of fields
 already simulated**, not new systems. Guiding: dissolve-don't-patch · emergent-everything · perf-first ·
-Big-O + activity-bubble LOD · **fakery = the LOD tier** (full sim in the compute-bubble; cheap analytic
-stand-ins for distant/dormant/offscreen, re-materialize on approach).
+Big-O + compaction on PHYSICAL predicates (never on camera distance — see the deleted-LOD warning below) ·
+**fakery = the LOD tier** for ACTORS and RENDERING (cheap analytic stand-ins for distant/dormant/offscreen,
+re-materialize on approach), not for the field's physics.
 
 ### Keystone B — vegetation → albedo. The light and water halves are DONE.
 
@@ -351,7 +401,7 @@ still a hemisphere. What the error actually destroyed was the light-vs-response 
 frame, and `biomass_dark_mean` was off by up to 99%. `light_mean` is nearly blind to this class of bug and is
 the wrong sentinel for it.)*
 
-### Keystone C — activity-bubble LOD. MEASURED, AND BEING DELETED. Do not rebuild it.
+### Camera-relevance field LOD — DELETED 2026-08-03. Do not rebuild it.
 
 The A/B this section asked for was run on 2026-08-03, and the answer was decisive: the camera-relevance LOD
 **costs 4.5 °C of climate error and is measurably SLOWER than not having it** (full table in item #3). It
@@ -379,14 +429,34 @@ moving that boundary GPU-side deletes it (folded into item #4). **(3) The CPU in
 `energy_scan_ms` is ~10.5 ms per sample at `HEAVY_EVERY_FRAMES = 8`, ~1.3 ms/frame amortised, a quarter of
 the whole field step spent on telemetry.
 
-**Deferrals, with reasons, so nobody re-attempts the unsafe ones.** The old "extend the gate to the other 8
-passes" instruction was WRONG as written — several of those passes are continuous planetary forcings, not
-sparse events, and gating them on an activity bubble silently disables them almost everywhere. Deliberately
-ungated: `magma_buoy_sphere3d.glsl` (its 2-pass donor/receiver transfer loses mass under per-thread gating —
-needs wake-on-inject first), `AtmospherePass` (the ocean is a perpetual unconditional source), `ReactionsPass`
-(background biology is active almost everywhere — would need per-record gate bits), `EcoSurfacePass` (mixed
-sparsity, already cheap), `SolidDerivePass` (runs before relevance exists), and the continuous legs of
-`ThermalPass` / `GasWindPass`.
+`ActivityPass` + `activity_sphere3d.glsl` scored every cell 0..1 from a local wake bubble AND its distance to
+the camera, and seven kernels turned that score into a per-thread update stride. It **charged 4.5 C of global
+mean temperature for a NEGATIVE perf return** (matched runs, seed 4242, 600 frames, identical disaster load:
+`temp_mean` 38.65/39.11/39.20 gated vs 34.73/34.17 ungated; `field_ms` 5.210 gated vs 4.938 ungated). It also
+made the planet's physics depend on where the player was looking, which is a Rule Zero violation on its face.
+Gone; the measurement and the reasoning live in `MaterialSphereGPU3D.gd`'s header note.
+
+**Two things found while deleting it, both worth keeping.** (1) `LA_NO_ACTIVITY_LOD=1` was never a clean
+control — the `activity` channel allocates zero, so step 0 was still gated at stride 16, and that ONE step of
+798 permanently moved `soil_total` by 18% (373.8 vs 442.8) and `sediment_total` by 5% (1005.2 vs 957.3). Any
+figure quoted from that bypass is off by that much. (2) So the gate was never "behaviourally exact" as its
+comments claimed: over an INTEGRATING process (a filling aquifer) a skipped step has no restoring force and
+becomes a permanent offset.
+
+**What survives, and is the pattern to copy:** `LavaCellListPass` + `cell_list_lava_sphere3d.glsl`, a real
+O(active) compaction feeding an indirect dispatch, now keyed on the PHYSICAL predicate "this cell holds molten
+rock in open space". If another kernel should scale with its phenomenon instead of the planet, compact it the
+same way. Compact on what the matter is doing; never on where the viewer is.
+
+**Which passes could take the same treatment, and which must not.** Compaction is only legal for a kernel
+whose skip path is a bare `return` — anything that WRITES on its skip path (a ping-pong carry, a persist, a
+scratch reset) needs that write hoisted somewhere that still covers every cell first. And several passes are
+continuous planetary forcings that are active nearly everywhere, so compacting them would buy nothing:
+`AtmospherePass` (the ocean is a perpetual unconditional source), `ReactionsPass` (background biology),
+`EcoSurfacePass` (mixed sparsity, already cheap), `SolidDerivePass`, and the continuous legs of `ThermalPass`
+/ `GasWindPass`. Note also that dispatch is only ~4% of field cost here (`field_dispatch_ms` 0.18 of
+`field_ms` 5.2) while readback is ~75% — so the readback item below is the larger lever by an order of
+magnitude, and any further dispatch-side work should justify itself against that.
 
 ### Keystone A — erosion. THE TRANSPORT LEG DOES NOT EXIST, so sediment cannot move.
 
@@ -423,8 +493,12 @@ land dry". They are GONE as of 2026-07-30: the static mask made the sea evaporat
 +6263 units. The conserved cycle does drain the land drier, which is item #2 above, but that is a world-gen
 water-budget question, not a reason to keep a mask that invents mass.)*
 
-**Livability risks:** volcano thermal runaway (→ the radiative sink, item #1) · land drains dry (→ #2, spring
-baseflow) · erosion mass drift (→ cap by stream-power, verify against `mineral_total`).
+**Livability risks:** volcano thermal runaway (→ the radiative sink, item #1) · erosion mass drift (→ cap by
+stream-power, verify against `mineral_total`).
+*("Land drains dry" is REFUTED as of 2026-08-03 and its pointer to "#2, spring baseflow" is stale. It was
+capillary retention that was missing, not baseflow: `root_col_bone_frac` was 0.64 and is now 0.24 with the
+`k_rel`/`RESIDUAL` term in `soil_sphere3d.glsl`. The live risk is now the OPPOSITE one — a wet planet with
+91% fewer clouds and 71% less sediment, which is item #5.)*
 *(The "high-`--fast` field desync" risk that sat here is REFUTED — there is no desync at any supported speed;
 see `CLAUDE.md`'s corrected `--fast` bullet.)*
 
@@ -444,7 +518,7 @@ see `CLAUDE.md`'s corrected `--fast` bullet.)*
 - `field_readback_ms` (~4.4–4.7 ms) dominates `field_dispatch_ms` (~0.13–0.19 ms) by 25–30×, so dispatch-side
   savings stay invisible until readback is addressed.
 - **Still owed on readback:** GPU-side reduction kernels for the `report()` aggregates that read back a FULL
-  per-cell array just to sum it on the CPU — `hot_cell_count`, `active_cells`/`mean_relevance`, `soil_total`,
+  per-cell array just to sum it on the CPU — `hot_cell_count`, `soil_total`,
   `sediment_total`/`susp_total`, `_open_temp_stats`, `mineral_total`, `scent_cell_count`, in that order of
   callsite frequency × array size. Likely the larger remaining lever. Measure with `--bench=readback`.
 - **The neighbour table and the tangent frame are SEPARATE tables, and must stay that way.** The six lateral
@@ -455,12 +529,28 @@ see `CLAUDE.md`'s corrected `--fast` bullet.)*
 
 ---
 
-## 0.5 — THE LIVING CREATURES (moved from 0.4 — their entire life cycle)
+## 0.5 — THE LIVING CREATURES — PARKED. DO NOT START THIS.
 
-Where 0.3 went broad (the game + emergent world), **0.4 goes deep on the creatures themselves — the whole arc
+**Everything below this line is 0.5 and does not begin until the planet is locked down. See `CLAUDE.md` →
+"SCOPE RULE" for the measurable bar.** Creature work is not merely lower priority, it is premature:
+behaviour tuned against a planet where water froze at 12.5 °C, the core was 1300 °C, sediment could not move
+and the aquifer never reached the surface is behaviour fitted to a fiction, and all of it has to be redone.
+*(This section said "**0.4** goes deep on the creatures themselves" under a heading that already read 0.5 —
+the contradiction is fixed, and the two companion docs were renamed from `0.4_*` to `0.5_*` on 2026-08-03
+because the filenames alone kept pulling the work forward.)*
+
+Where 0.3 went broad (the game + emergent world), **0.5 goes deep on the creatures themselves — the whole arc
 of a life**, all emergent (one substrate, reaction engine, config over `if species==X`). The creatures are the
-star (local LLMs driving the minds). **This section is the approved, sequenced plan** (idea bank:
-`docs/0.4_CREATURE_FEATURES.md`; split plan: `docs/0.4_PARALLELIZATION_GUIDE.md`).
+star (local LLMs driving the minds). **This section is the approved, sequenced plan, held for later** (idea
+bank: `docs/0.5_CREATURE_FEATURES.md`; split plan: `docs/0.5_PARALLELIZATION_GUIDE.md`).
+
+**Known Rule Zero violations in creature code, RECORDED not fixed** (per the scope rule: fixing them now
+would build on sand). `CreatureDigestion.ambient_graze` mints food out of the temperature at the animal's
+feet, with no source and nothing decremented — its own comment says *"never depletes, can't be crashed"* — so
+starvation is unreachable and herbivore numbers are set by a JSON `pop_cap`. Nothing scales with body mass: a
+fox and a mouse burn identical energy, and the `basal_metabolism`/`active_metabolism` genes on the DNA strand
+are read by nothing. One thermal physiology covers all 28 species. `Fish.gd` spends energy only
+`if not preys_on.is_empty()`, so shrimp, jellyfish, crab and turtle cannot starve.
 
 > **The memory/social substrate this release needs already exists and is reachable.**
 > `graph/BackstoryGraphService.gd` is wired to `LocalAgent`. It
@@ -677,8 +767,8 @@ moon, and momentum knock-out-of-orbit. 0.5 makes the system **literal + navigabl
   **definition of done, not an optional feature.** Success = special-case code DELETED.
 - **Emergent-everything** · **3D always** (no 2.5D holdovers) · **GPU/native-first, GPU-GLSL-only** (no CPU
   oracles) · **perf-first** (playable frame-rate is first-class) · **Big-O first-class** (better-scaling
-  structures + do-less-by-relevance/LOD + activity bubbles) · **bias to action** · **config over `if
-  species==X`**.
+  structures + O(active) compaction on physical predicates; relevance/LOD for actors and rendering, NOT for
+  the field's physics) · **bias to action** · **config over `if species==X`**.
 - **Dual-purpose:** a reusable Godot dev tool (the `LocalAgent` LLM node) AND a full game that is the
   flagship demo. Local LLMs drive creature cognition + the streamer, fully offline — headline this.
 

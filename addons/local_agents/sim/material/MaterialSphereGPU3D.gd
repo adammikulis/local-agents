@@ -20,16 +20,44 @@ extends RefCounted
 ##   → FireDust (reads temp/water back) → EcoSurface.
 ## Remaining cross-pass clashes (o2/co2/fire/fungus in-place-on-live reads, snow meltwater into live water) are
 ## one-step coupling-fidelity lags, NOT crashes, and acceptable under perf-over-parity; tighten later if needed.
+##
+## THERE IS NO CAMERA-RELEVANCE LOD IN THIS FIELD, AND THERE MUST NOT BE ONE (deleted 2026-08-03). A per-cell
+## `activity` channel (ActivityPass + activity_sphere3d.glsl) used to score every cell 0..1 from a local wake
+## bubble AND its distance to the camera, and seven kernels turned that score into a per-thread update stride
+## and early-outed on it. Two reasons it is gone, in order of weight:
+##   1. IT MADE THE PLANET'S PHYSICS DEPEND ON WHERE THE PLAYER WAS LOOKING. Erosion, groundwater, combustion,
+##      dust and charge all ran slower in cells nobody was near. Nothing in the world works that way. Measured
+##      cost: 4.5 C of global mean temperature (38.65/39.11/39.20 gated vs 34.73/34.17 ungated) and -2.7% of
+##      sediment_total, on matched runs with an identical disaster load.
+##   2. IT WAS ALSO SLOWER. Skipping 61% of all per-cell work (active_cells 26,966 of 69,120) LOST time:
+##      field_ms 5.210 gated vs 4.938 ungated, field_dispatch_ms 0.188 vs 0.184. Every kernel still dispatched
+##      the full grid, so the stride bought only ALU inside threads that had already been scheduled and had
+##      already read their inputs — while ActivityPass itself paid a whole extra full-grid dispatch to decide
+##      what to skip. Dispatch is ~4% of field cost here; the readback is ~75% (field_readback_ms 4.020 of
+##      5.210). Gating compute was optimising the wrong term.
+## A SKIPPED STEP IS NOT RECOVERABLE, WHICH IS THE POINT. The gate was documented as "behaviourally exact"
+## because a skipped cell writes what an inert cell would. Measured otherwise: the `LA_NO_ACTIVITY_LOD=1`
+## bypass left exactly ONE step gated (the `activity` buffer allocates zero, so on step 0 every pass reading
+## activity[LIVE] saw relevance 0 -> stride 16), and that single step out of 798 permanently moved the
+## groundwater budget — `soil_total` 373.8 with it vs 442.8 without, +18%, and `sediment_total` 1005.2 vs
+## 957.3. Seeding the relevance buffer to 1.0 reproduced the ungated numbers on the old code exactly, which is
+## how this was isolated. The aquifer is nowhere near equilibrium at 80 sim-seconds, so perturbing its filling
+## trajectory once changes where the water sits for the rest of the run. Do not describe a stride gate over an
+## integrating process as free.
+## The good asymptotic form survives, in LavaCellListPass: a real O(active) compaction feeding an INDIRECT
+## dispatch, now selecting cells by the PHYSICAL predicate "holds molten rock in open space" rather than by
+## camera distance. If another kernel needs to scale with its phenomenon instead of the planet, copy THAT —
+## compact on what the matter is doing, never on where the viewer is.
 
 # Ping-pong (double-buffered) channels — one _a/_b pair each.
-# `activity` is the Keystone-C wake-bubble channel (ActivityPass; see activity_sphere3d.glsl) — not a physical
-# substance, but ping-ponged like one because it is GATHER-propagated from neighbours' prior values.
 # `air` is the atmosphere's conserved mass (GasWindPass / wind_pressure_sphere3d): pressure is its weight, so
 # the vertical structure, the lapse and the thermal wind all come off this one quantity. Ping-ponged because
 # the column kernel reads its four neighbour COLUMNS' air while writing its own.
 const PAIR_CHANNELS: PackedStringArray = [
 	"temp", "water", "moisture", "lava", "sediment", "fire", "dust",
-	"o2", "co2", "shock", "fungus", "susp", "fert", "soil", "activity", "air"]
+	"o2", "co2", "shock", "fungus", "susp", "fert", "soil", "air"]
+# ^ Every entry is a physical quantity. There is no bookkeeping channel here, and there must not be one — the
+#   `activity` relevance channel that used to sit in this list is gone (see the header note).
 # scent is a 5-plane packed pair (5*cell_count); handled specially.
 # Single (non-ping-pong) float buffers. `rock_fill` is the fractional bedrock-mineral channel (rock unification
 # Stage B): `solid` is DERIVED from it each step (solid iff rock_fill >= 0.5, see SolidDerivePass). It is GPU-owned
@@ -45,10 +73,10 @@ const SINGLE_CHANNELS: PackedStringArray = [
 const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/SolidDerivePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/WaterSlumpLavaPass.gd",
-	# ACTIVE-CELL COMPACTION (Keystone C, asymptotic half) — builds the compacted cell list + dispatch-indirect
-	# args that ThermalPass's lava_phase leg consumes. MUST sit after WaterSlumpLava (which finalises lava[back])
-	# and before Thermal (which consumes the list); it reads relevance from activity[LIVE], the same half
-	# lava_phase read for itself before the list existed.
+	# ACTIVE-CELL COMPACTION — builds the compacted cell list + dispatch-indirect args that ThermalPass's
+	# lava_phase leg consumes, from the PHYSICAL predicate "this cell holds molten rock in open space". MUST sit
+	# after WaterSlumpLava (which finalises lava[back]) and before Thermal (which consumes the list); nothing in
+	# between writes lava or solid, so the list cannot go stale.
 	"res://addons/local_agents/sim/material/sphere_passes/LavaCellListPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ThermalPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/GasWindPass.gd",
@@ -58,9 +86,6 @@ const PASS_SCRIPTS: PackedStringArray = [
 	# right before Reactions so M3 SETTLE (susp→sediment) reads the freshly-scoured susp the same step.
 	"res://addons/local_agents/sim/material/sphere_passes/ErosionPickupPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd",
-	# ACTIVITY (Keystone C first slice) MUST precede FireDust: it reads this step's live fire/fuel/temp to
-	# compute the wake bubble, and FireDust reads that same-step "back" result to gate its combustion kernel.
-	"res://addons/local_agents/sim/material/sphere_passes/ActivityPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/FireDustPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/EcoSurfacePass.gd"]
 
@@ -72,12 +97,9 @@ const SCENT_PLANES: int = 5
 # MUST match DBG_SLOTS in soil_sphere3d.glsl.
 const SOIL_DBG_SLOTS: int = 20
 # Slots in the `active_args` buffer (see setup()). 0-2 are the uvec3 dispatch-indirect argument; 3 is the
-# compacted list length a compacted kernel uses as its loop bound; 4-5 are sparsity telemetry. 8 rather than 6
-# purely for 32-byte alignment.
+# compacted list length a compacted kernel uses as its loop bound. 8 rather than 4 purely for 32-byte alignment.
 const ACTIVE_ARGS_SLOTS: int = 8
 const ARG_SLOT_LIST_COUNT: int = 3
-const ARG_SLOT_RELEVANCE_GATE: int = 4
-const ARG_SLOT_STATIC_HOT: int = 5
 
 static func available() -> bool:
 	var rd: RenderingDevice = RenderingServer.create_local_rendering_device()
@@ -94,8 +116,8 @@ var _field = null
 var _grid: RefCounted = null
 var _cc: int = 0
 var _phase: int = 0                 # ping-pong phase ∈ {0,1}; flips once per step (NOT CPU parity)
-var _step_index: int = 0            # monotonic field-step counter; ActivityPass's relevance-gated kernels
-                                    # use this as the LALodStride.should_run "tick" (phase = the cell index)
+var _step_index: int = 0            # monotonic field-step counter; wind_pressure_sphere3d reads step_index == 0
+                                    # as "seed the standard atmosphere" (the air channel allocates all-zero)
 var _groups: int = 0
 var _bufs: Dictionary = {}          # key → RID (single) or [rid_a, rid_b] (pair)
 var _passes: Array = []
@@ -149,7 +171,7 @@ var _slow_gate: int = 0             # cadence counter for the slow (ledger/baker
 # set, so their CPU mirrors held the all-zero allocation for the life of every process. SIM_REPORT's
 # `detritus_peak`, `fungus_cells` and `fungus_peak` read those mirrors, so all three have been publishing the
 # seed rather than the simulation, and a carbon ledger built on them would have measured nothing at all.
-const SITUATIONAL_CHANNELS: Array = ["lava", "fire", "dust", "shock", "activity", "co2", "fuel", "rock_fill",
+const SITUATIONAL_CHANNELS: Array = ["lava", "fire", "dust", "shock", "co2", "fuel", "rock_fill",
 	"pressure", "detritus", "fungus"]
 const CHANNEL_HOLD_DRAINS: int = 20     # stay hot ~20 drains past the last request so intermittent queries don't thrash
 var _channel_hold: Dictionary = {}      # channel name -> drain index it stays hot through
@@ -200,9 +222,9 @@ func setup(field) -> void:
 		_bufs[name] = _new_f(_cc)
 	_bufs["send"] = _new_f(_cc * 6)
 	_bufs["soil_dbg"] = _new_f(_cc * SOIL_DBG_SLOTS)     # per-leg groundwater budget probe (see SOIL_DBG_SLOTS)
-	# ACTIVE-CELL LIST (Keystone C, asymptotic half). `active_idx` holds the compacted cell ids a compacted
-	# pass iterates; `active_args` is BOTH the uvec3 dispatch-indirect argument (slots 0-2) and the atomic
-	# counters (3 = list length, 4/5 = sparsity telemetry) — one buffer, because a storage buffer created with
+	# ACTIVE-CELL LIST. `active_idx` holds the compacted cell ids a compacted pass iterates; `active_args` is
+	# BOTH the uvec3 dispatch-indirect argument (slots 0-2) and the atomic list-length counter (slot 3) — one
+	# buffer, because a storage buffer created with
 	# the DISPATCH_INDIRECT usage bit is still an ordinary SSBO the kernel can atomicAdd into. Neither is a
 	# field CHANNEL: they are rebuilt from scratch every step, so they are deliberately absent from
 	# PAIR_CHANNELS/SINGLE_CHANNELS and therefore never read back, snapshotted or restored.
@@ -281,12 +303,6 @@ func set_spin_axis(v: Vector3) -> void:
 
 func set_sun_dir(v: Vector3) -> void:
 	_ctx["sun_dir"] = v if v.length() > 0.001 else Vector3(0, 1, 0)
-
-## World-space camera position, fed to ActivityPass so a cell's relevance also rises "OR near the viewer"
-## (not just locally active) — the field's half of the same relevance principle Creature.gd's distance-LOD
-## already applies. No camera (headless run) -> ActivityPass falls back to activity-only relevance.
-func set_camera_pos(v: Vector3) -> void:
-	_ctx["camera_pos"] = v
 
 ## Global atmospheric humidity signal (cloud cover 0..1), fed to atmos_evap so the infinite static sea stops
 ## pumping once the air holds its target moisture — the GLOBAL bound on the water cycle (a local per-cell brake
@@ -494,16 +510,12 @@ func _read_gpu_pass_timings() -> void:
 	LASimReport.gauge("gpu_dispatch_ms", _gpu_dispatch_ms)
 
 
-## KEYSTONE C SPARSITY TELEMETRY — the three numbers that make the O(active) claim checkable, read from the
-## just-sync()'d `active_args` counters. This is a 32-BYTE readback next to the ~4.4MB of channels
-## _read_channels already copies each drain, so it does not move field_readback_ms.
-##   field_cells         — grid size, the denominator for both ratios below.
-##   lava_list_cells     — invocations lava_phase actually dispatched this step (was: field_cells, always).
-##   relevance_gate_cells— invocations a RELEVANCE-ONLY compaction would dispatch, i.e. what one shared list
-##                         for every gated pass would buy. Measured rather than assumed, because the answer on
-##                         a live sandbox turned out to be "most of the grid", not "a sparse bubble".
-##   static_hot_cells    — held-sea cells the relevance channel scores >= 0.5 (near full rate), the number
-##                         that decides whether making the static sea dynamic is affordable.
+## SPARSITY TELEMETRY — the two numbers that make the O(active) claim checkable, read from the just-sync()'d
+## `active_args` counters. This is a 32-BYTE readback next to the ~4.4MB of channels _read_channels already
+## copies each drain, so it does not move field_readback_ms.
+##   field_cells     — grid size, the denominator.
+##   lava_list_cells — invocations lava_phase actually dispatched this step (was: field_cells, always). Zero on
+##                     a planet with no molten rock anywhere, which is the correct answer and the whole point.
 func _read_active_list_counts() -> void:
 	if not _bufs.has("active_args"):
 		return
@@ -513,8 +525,6 @@ func _read_active_list_counts() -> void:
 	var slots: PackedInt32Array = raw.to_int32_array()
 	LASimReport.gauge("field_cells", float(_cc))
 	LASimReport.gauge("lava_list_cells", float(slots[ARG_SLOT_LIST_COUNT]))
-	LASimReport.gauge("relevance_gate_cells", float(slots[ARG_SLOT_RELEVANCE_GATE]))
-	LASimReport.gauge("static_hot_cells", float(slots[ARG_SLOT_STATIC_HOT]))
 
 
 ## "ThermalPass" -> "thermal"; a short, gauge-key-safe name (strip the "Pass" suffix, snake_case the rest).
@@ -1030,5 +1040,4 @@ func _empty_result() -> Dictionary:
 		"dust": PackedFloat32Array(), "snow": PackedFloat32Array(),
 		"susp": PackedFloat32Array(), "biomass": PackedFloat32Array(),
 		"rock_fill": PackedFloat32Array(), "soil": PackedFloat32Array(),
-		"activity": PackedFloat32Array(),
 	}

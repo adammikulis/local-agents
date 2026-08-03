@@ -58,7 +58,7 @@ layout(set = 0, binding = 26, std430) restrict readonly buffer Static { float st
 // AQUIFER PERMEABILITY MASK (1 = groundwater-bearing regolith). The mask root_soil() walks — soil lives here,
 // not "wherever the rock is solid". Bound at 27, past the end of the slot-alias range (bindings 0..26 shadow
 // the slot enum, and 5/6/19 stay reserved for FUEL/FIRE/SOIL_ROOT), because regolith is not a reactable
-// channel. Same buffer + same declaration ActivityPass binds at activity_sphere3d.glsl:58.
+// channel. Same buffer soil_sphere3d.glsl binds at its own binding 6.
 layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float regolith[]; };
 
 // Slot enum — MUST match MaterialReactions3D.gd.

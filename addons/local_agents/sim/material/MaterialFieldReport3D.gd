@@ -296,7 +296,6 @@ func report() -> Dictionary:
 		"co2_peak": _f.co2_peak(), "co2_avg": _f.co2_avg(),
 		"biomass_total": _f.biomass_total(),
 		"fuel_total": q.fuel_total(), "fire_peak": q.fire_peak(), "fire_cells": q.fire_cells(),
-		"active_cells": q.active_cells(), "mean_relevance": q.mean_relevance(),
 		"h2o_total": _f.h2o_total(), "water_total": _f.water_total(), "snow_total": _f.snow_total(), "soil_total": _f.soil_total(),
 		"snow_line_temp": _f.snow_line_temp(),
 		# MINERAL is NOT here. Its six absolutes plus `rock_cells` used to be computed on this line, ungated,

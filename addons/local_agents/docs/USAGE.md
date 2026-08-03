@@ -675,8 +675,8 @@ godot --headless --path . addons/local_agents/examples/GraphExample.tscn --quit-
 
 One scene genuinely needs a window. `addons/local_agents/game/VoxelWorld.tscn` runs its field as a
 compute shader, and a headless run has no compute device, so it boots and exits 0 while reporting an
-empty field: `active_cells` 0, `biomass` 0, no field gauges, where the same run windowed reports
-about 27500 active cells. It fails silently rather than loudly, which makes a headless run of it a
+empty field: `biomass` 0, `sediment_total` 0.00, no field gauges, where the same run windowed reports
+a `sediment_total` around 980. It fails silently rather than loudly, which makes a headless run of it a
 green light that measured nothing. Use `scripts/run_sim_offscreen.sh` for that scene, and for
 anything taking a screenshot.
 
