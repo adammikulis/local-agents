@@ -32,10 +32,21 @@ requires it or is only conventionally bundled with it. Say so and do the planet 
   or what the framerate is.
 
 **The exception, and it is narrow:** touch a creature file when the PLANET needs it — a creature is perturbing
-a field measurement, or `--planet-only`/`--no-fauna` needs a seam. Fixing creature *energetics, cognition,
-lifecycle or behaviour* is out of scope regardless of how tempting it looks while you are in the file. If you
-find a Rule Zero violation in creature code, RECORD it in `HANDOFF.md` under 0.5 and move on — that is the one
-place the "fix it AND report it" rule yields to scope, because the fix would be built on sand.
+a field measurement, or `--planet-only`/`--no-fauna` needs a seam. BUILDING OUT creature features — new
+behaviours, new cognition, new lifecycle systems — is what waits for 0.5.
+
+**BUT A DEFECT YOU FIND IS FIXED, NOT FILED. THIS SCOPE RULE NEVER LICENSES "RECORD IT AND MOVE ON."**
+*(Corrected by the maintainer 2026-08-03. This paragraph used to say a Rule Zero violation in creature code
+should be RECORDED in `HANDOFF.md` and left, "the one place the fix-it-and-report-it rule yields to scope".
+That was wrong and it did real damage: it turned the scope rule into a licence to catalogue defects instead of
+repairing them, and within a day it had been used to park food being created from nothing, animals that expend
+no energy, and plants that regrow from nothing.)*
+
+If it is broken and you found it, fix it. That includes physics that is merely WRONG as well as physics that
+is non-conserving — a fox and a mouse burning identical energy, one thermal physiology across twenty-eight
+species, `basal_metabolism`/`active_metabolism` genes that nothing reads. **Do not sort defects into a
+fix-these and a note-those pile.** `HANDOFF.md` is for work that has not been started, not a place to put
+things you already have your hands on.
 
 `docs/0.5_CREATURE_FEATURES.md` and `docs/0.5_PARALLELIZATION_GUIDE.md` hold the creature plan. They are
 **parked**, and their filenames say 0.5 for a reason — they were named `0.4_*` and that alone kept pulling
@@ -446,14 +457,26 @@ maintainer rather than by an agent:**
 6. **When reality and convenience conflict, reality wins.** If the sim must be wrong for the numbers to look
    right, fix the sim. Never bend a physical fact to a broken model — see the PHYSICAL CONSTANT rule below.
 
-### VIOLATING PHYSICS REQUIRES THE MAINTAINER'S EXPLICIT APPROVAL. ALWAYS. NO EXCEPTIONS.
+### EVERY CONSERVATION VIOLATION IS ADDRESSED OR EXEMPTED. THOSE ARE THE ONLY TWO OUTCOMES.
 
-**Maintainer's standing directive.** Any decision that leaves this simulation violating physics — introducing
-a violation, extending one, or KNOWINGLY LEAVING ONE IN PLACE while you work on something else — must be run
-by the maintainer and explicitly approved before you proceed. It is not a judgement call delegated to you.
+**Maintainer's standing directive, and it is a rule about PHYSICS, not about scope.** Anything that violates
+conservation of matter or energy must be **addressed** — fixed — or **exempted**. Exemption is the
+maintainer's to grant and nobody else's. There is no third outcome.
 
-This is not in tension with "fix it AND report it" above. FIXING a violation needs no permission; that is the
-job. What needs permission is any path that ends with the violation still there.
+**"It is out of scope" IS NOT AN EXEMPTION.** Neither is "that is 0.5 work", "not this track", "a different
+subsystem owns it", "it predates me", or "it is recorded in `HANDOFF.md`". Those are scheduling statements,
+and **scope is a separate axis from physics.** A violation does not become acceptable because the file it
+lives in is scheduled for a later release. If you catch yourself routing a conservation violation into a
+backlog, you are exempting it on the maintainer's behalf, which you may not do.
+
+This does not conflict with "fix it AND report it" above. FIXING needs no permission; that is the job. What
+needs permission is any path that ends with the violation still live — including deferring it, including
+filing it, including deciding it belongs to someone else.
+
+**This wording is the maintainer's correction of a weaker version I wrote**, which said violations need
+"explicit approval before you proceed". That framing let scope back in through the side door: within one turn
+of writing it I fenced an agent's contract to a single creature-layer violation and left two more parked as
+"0.5", which is precisely the move the rule exists to forbid. Addressed or exempted. Nothing else.
 
 **How this was learned.** The substrate creates matter from nothing, and nobody ever asked whether that was
 acceptable — it was inherited, described in a tracker as "minting", repeated in agent contracts, and treated
