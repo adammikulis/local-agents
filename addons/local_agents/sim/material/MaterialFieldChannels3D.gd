@@ -187,6 +187,49 @@ func biomass_total() -> float:
 	return sum
 
 
+## RESPIRE a body at a world point: the SAME reaction R20 already runs on every cell of this planet
+## (biomass + O₂ → CO₂ + detritus, LABioRecords), applied to matter that happens to be inside an animal
+## instead of lying on the ground. It is not an analogy — aerobic oxidation of organic carbon is one
+## chemistry, and a creature is a warm, well-ventilated place for it to happen.
+##
+## WHY THIS LIVES IN THE FIELD AND NOT IN THE CREATURE. The reactant that gates the rate — oxygen — belongs
+## to the cell, not to the animal, so the LIEBIG CAP has to be applied where the oxygen is. That is exactly
+## what the GPU kernel does with R20's reactant list, and this is the CPU counterpart of the same clip:
+## `extent <= o2 / RESP_O2_COST`. A caller asks to oxidise `requested`; it gets back what the local air could
+## actually support, and it must debit its OWN reserve by that returned amount and no more.
+##
+## CONSERVATION IS STRUCTURAL, NOT TUNED. The stoichiometric coefficients are read straight off LABioRecords
+## rather than copied, so this path obeys the same two identities the table does and cannot drift from them:
+##   O₂ consumed == CO₂ produced      (aerobic; RESP_O2_COST == RESP_CO2_YIELD)
+##   CO₂ + detritus == extent         (carbon in == carbon out; RESP_DET_YIELD == 1 - RESP_CO2_YIELD)
+## Whatever the caller's units, the books close for any extent: this moves carbon, it never makes it. The
+## creature side already denominates body matter 1:1 with field detritus (CreatureRagdoll.DETRITUS_YIELD and
+## CreatureExcretion.FECES_DETRITUS_YIELD are both 1.0), so a respiring animal, a rotting carcass and a
+## dropped turd all pay into the same ledger at the same rate.
+##
+## Returns the extent actually respired (0 when the cell is rock, off-grid, or out of oxygen).
+func respire_at(world_pos: Vector3, requested: float) -> float:
+	if _f._cell_count <= 0 or requested <= 0.0:
+		return 0.0
+	var c: int = _f.world_to_cell(world_pos)
+	if c < 0 or _f._solid[c] != 0:
+		return 0.0
+	if _f._o2.size() != _f._cell_count or _f._co2.size() != _f._cell_count:
+		return 0.0
+	# The aerobic Liebig cap, identical in form to the reactant clip in reactions_sphere3d.glsl.
+	var o2_cost: float = LABioRecords.RESP_O2_COST
+	var extent: float = requested
+	if o2_cost > 0.0:
+		extent = minf(extent, maxf(_f._o2[c], 0.0) / o2_cost)
+	if extent <= 0.0:
+		return 0.0
+	_f._o2[c] = maxf(_f._o2[c] - extent * o2_cost, 0.0)
+	_f._co2[c] += extent * LABioRecords.RESP_CO2_YIELD
+	if _f._detritus.size() == _f._cell_count:
+		_f._detritus[c] += extent * LABioRecords.RESP_DET_YIELD
+	return extent
+
+
 ## Deposit dead decomposable matter at the surface cell under a world point (a rotting carcass, wildfire
 ## ash). Fungus grows on it + rots it back into the carbon/nutrient loop. Mirrors photosynthesize()'s lookup.
 func deposit_detritus(world_pos: Vector3, amount: float) -> void:

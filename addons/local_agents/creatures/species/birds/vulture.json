@@ -1,5 +1,6 @@
 {
   "species": "vulture",
+  "thermogenesis": 0.8,
   "diet": "scavenger",
   "speed": 5.5,
   "size": 0.7,
@@ -17,9 +18,6 @@
   "herd": true,
   "leader_loyalty": 0.0,
   "pop_cap": 12,
-  "max_energy": 110.0,
-  "metabolism": 1.1,
-  "food_value": 40.0,
   "thirst_rate": 0.7,
   "flock_cohesion": 0.4,
   "flock_alignment": 0.6,

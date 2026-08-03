@@ -218,3 +218,35 @@ static func saturation_mass_fraction(t_c: float) -> float:
 	var e_sat: float = MAGNUS_A_PA * exp(MAGNUS_B * t / (t + MAGNUS_C_C))
 	var rho_v: float = e_sat / (VAPOUR_GAS_CONST_J_KGK * maxf(t + KELVIN_OFFSET, 1.0))
 	return rho_v / WATER_DENSITY_KG_M3
+# --- LIVING TISSUE ----------------------------------------------------------------------------------------
+# Soft animal tissue is mostly water, and its bulk density is measured within a few percent of water's:
+# muscle ~1060, fat ~920, whole-body ~1010 kg/m³. 1000 is the honest round value and it is why an animal
+# floats or sinks only marginally. This is what turns a body's LINEAR size into a MASS, which is the only
+# reason metabolism can scale with anything at all.
+const ANIMAL_TISSUE_DENSITY_KG_M3: float = 1000.0
+
+# THE TWO TEMPERATURES THAT BOUND LIFE, and they are properties of matter, not of a species.
+#   * Below the freezing point of water, intracellular water crystallises and the cell's chemistry stops.
+#     That bound is WATER_FREEZE_C above — the SAME 0 °C, not a second constant.
+#   * Above ~45 °C the structural and enzymatic proteins of animals begin to denature irreversibly. This is
+#     the measured onset of thermal protein unfolding for mammalian proteins (heat-shock response begins
+#     ~41-43 °C; gross denaturation and thermal death follow by ~45-50 °C), and it is why the upper lethal
+#     temperature of animals is so tightly clustered whatever their habitat: a desert beetle and an arctic
+#     fox are built from proteins with the same peptide chemistry.
+# Together they bracket the temperature range in which animal metabolism can run at all. A per-species
+# "comfort band" is not needed to express this and never was: what differs between a beetle and a fox is
+# not the chemistry's limits, it is whether the animal spends energy holding its body away from ambient.
+const PROTEIN_DENATURE_C: float = 45.0
+
+# Heat released per unit of biomass aerobically oxidised. Carbohydrate has a measured heat of combustion of
+# ~17 MJ/kg (fat ~39, protein ~17); carbohydrate is the reference because the substrate's biomass is written
+# as CH₂O in the photosynthesis/respiration identity (see LABioRecords). This is why a body that respires
+# is a body that WARMS: metabolic heat is not a separate mechanism bolted onto metabolism, it is the same
+# reaction's enthalpy.
+const BIOMASS_HEAT_OF_COMBUSTION_J_PER_KG: float = 1.7e7
+
+# Specific heat of animal tissue — again mostly water, measured ~3500 J/kg/K against water's 4184 (tissue is
+# ~70% water plus solids of lower heat capacity). This sets how much a given metabolic heat output actually
+# RAISES body temperature, and with the mass/area ratio it is what makes a small body track its surroundings
+# within minutes while a large one holds its own temperature for hours.
+const ANIMAL_SPECIFIC_HEAT_J_KGK: float = 3500.0
