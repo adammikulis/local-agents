@@ -3,8 +3,10 @@
 
 // CUBED-SPHERE lava FLOW — the sphere port of lava_flow3d.glsl. IDENTICAL two-pass GATHER logic and
 // IDENTICAL viscous flow math (the water CA's finite-volume rule with a SMALLER LAVA_MAX_FLOW cap so lava
-// creeps). Molten heat rides WITH the mass: any cell that RECEIVES lava is pulled up to at least
-// MOLTEN_FLOOR (the oracle's _carry_heat) so the front does not freeze on cold rock. Lava has NO static
+// creeps). Molten heat rides WITH the mass: a cell that RECEIVES lava MIXES the arriving enthalpy with its own
+// (2026-08-03 — this used to read "is pulled up to at least MOLTEN_FLOOR (the oracle's _carry_heat)", which
+// assigned 950 C to any cell that received a trickle and never cooled the donor, MAKING HEAT APPEAR FROM
+// NOTHING on every lava front; see the mixing rule at the bottom of pass 1). Lava has NO static
 // sink (unlike water). The ONLY change vs the box kernel is neighbour addressing: instead of idx±offset +
 // `if(iy>0)` bounds tests, every cell gathers its 6 neighbours from the precomputed INDEX TABLE
 // `nbr[idx*6 + d]` (slot 0 = inward/radial-DOWN = gravity, 1-4 = LATERAL, 5 = outward/radial-UP;
@@ -37,7 +39,8 @@ const float LAVA_MAX_FLOW = 0.25;
 const float LAVA_MIN_MASS = 0.0001;
 const float LAVA_MIN_FLOW = 0.01;
 const float LAVA_LATERAL_FRACTION = 0.25;
-const float MOLTEN_FLOOR = 950.0;
+// MOLTEN_FLOOR = 950.0 used to live here. It is gone: nothing in this kernel prescribes a temperature any
+// more, so there is no floor to declare. Heat arrives by mixing with the mass that carries it.
 
 // Stable amount for the LOWER of two radially-stacked cells (identical to the water CA's _stable_below).
 float stable_below(float total_mass) {
@@ -134,20 +137,38 @@ void main() {
 	float own_out = send[base + 0u] + send[base + 1u] + send[base + 2u]
 		+ send[base + 3u] + send[base + 4u] + send[base + 5u];
 
+	// Gather the arriving mass AND the heat it carries. `inflow_heat` is the mass-weighted sum of the donors'
+	// temperatures — enthalpy riding with the matter, which is what advection actually is.
 	float inflow = 0.0;
+	float inflow_heat = 0.0;
 	int nb;
-	nb = nbr[base + 0u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 5u]; }  // below sent UP (5)
-	nb = nbr[base + 5u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 0u]; }  // above sent DOWN (0)
-	nb = nbr[base + 1u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 2u]; }  // -x sent +x (2)
-	nb = nbr[base + 2u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 1u]; }  // +x sent -x (1)
-	nb = nbr[base + 3u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 4u]; }  // -z sent +z (4)
-	nb = nbr[base + 4u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 3u]; }  // +z sent -z (3)
+	float s;
+	nb = nbr[base + 0u]; if (nb >= 0) { s = send[uint(nb) * 6u + 5u]; inflow += s; inflow_heat += s * temp[uint(nb)]; }  // below sent UP (5)
+	nb = nbr[base + 5u]; if (nb >= 0) { s = send[uint(nb) * 6u + 0u]; inflow += s; inflow_heat += s * temp[uint(nb)]; }  // above sent DOWN (0)
+	nb = nbr[base + 1u]; if (nb >= 0) { s = send[uint(nb) * 6u + 2u]; inflow += s; inflow_heat += s * temp[uint(nb)]; }  // -x sent +x (2)
+	nb = nbr[base + 2u]; if (nb >= 0) { s = send[uint(nb) * 6u + 1u]; inflow += s; inflow_heat += s * temp[uint(nb)]; }  // +x sent -x (1)
+	nb = nbr[base + 3u]; if (nb >= 0) { s = send[uint(nb) * 6u + 4u]; inflow += s; inflow_heat += s * temp[uint(nb)]; }  // -z sent +z (4)
+	nb = nbr[base + 4u]; if (nb >= 0) { s = send[uint(nb) * 6u + 3u]; inflow += s; inflow_heat += s * temp[uint(nb)]; }  // +z sent -z (3)
 
 	lava_out[gidx] = lava_in[gidx] - own_out + inflow;
 
-	// Carry molten heat: a cell that received ANY lava this step is floored to MOLTEN_FLOOR so the front
-	// stays liquid instead of freezing on cold rock (the oracle's _carry_heat, applied per destination).
-	if (inflow > 0.0 && temp[gidx] < MOLTEN_FLOOR) {
-		temp[gidx] = MOLTEN_FLOOR;
+	// CARRY MOLTEN HEAT — a real mixing rule, not a floor.
+	//
+	// WHAT THIS REPLACES: `if (inflow > 0.0 && temp[gidx] < MOLTEN_FLOOR) { temp[gidx] = MOLTEN_FLOOR; }`.
+	// Any cell that received so much as a trickle of lava was ASSIGNED 950 C outright, no matter how little
+	// arrived or how cold the donor was, and the donor was never cooled by giving it away. THAT MADE HEAT
+	// APPEAR FROM NOTHING, at every cell on every advancing lava front, every step — the same shape of defect
+	// as the ocean thermostat that was just deleted, and it is why a flow could crawl indefinitely over cold
+	// rock without ever paying for the warming.
+	//
+	// Now the arriving mass mixes with what is already here: T = (m_here*T_here + m_in*T_in) / (m_here + m_in),
+	// with the donor left at its own temperature because the lava it kept really is still at that temperature.
+	// `m_here` is MAX_MASS — one cell's worth of matter — rather than the cell's LAVA mass, because temp[] is
+	// the temperature of the whole cell (rock included), not of its lava alone. Using the lava mass would let a
+	// drop of lava landing on a cell holding none set that entire cell to magmatic temperature. A front now
+	// warms the ground it crosses in proportion to how much lava actually arrives, and cools as it spreads
+	// thin — which is what makes a flow stall on its own instead of being propped up by an assignment.
+	if (inflow > 0.0) {
+		temp[gidx] = (MAX_MASS * temp[gidx] + inflow_heat) / (MAX_MASS + inflow);
 	}
 }
