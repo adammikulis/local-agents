@@ -426,7 +426,6 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 		return
 	var rock: PackedFloat32Array = _f._rock_fill
 	var solid: PackedByteArray = _f._solid
-	var stat: PackedByteArray = _f._static
 	var src: PackedInt32Array = PackedInt32Array()
 	var to_sediment: PackedFloat32Array = PackedFloat32Array()
 	var to_dust: PackedFloat32Array = PackedFloat32Array()
@@ -442,7 +441,6 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 	var sea_r: float = 0.0
 	if _f._terrain.has_method("sea_radius"):
 		sea_r = float(_f._terrain.sea_radius())
-	var has_static: bool = stat.size() == _f._cell_count
 	for c in cells:
 		if _f._terrain.is_solid(_f.cell_world_pos_linear(c)):
 			continue                                   # still rock — the edit did not reach this cell
@@ -465,12 +463,28 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 		# would call fill_rock and put the crater back. Left alone, the pair stays consistent until the readback
 		# lands, and then the stamp sees the real solid->void crossing and clears `_solid` itself — the designed
 		# Stage C path, which also re-carves the SDF idempotently and costs a few frames of CPU-mask lag.
-		if has_static and sea_r > 0.0 \
+		# A CRATER BELOW THE WATER LINE FLOODS. IT DOES NOT BECOME "STATIC SEA".
+		#
+		# This block used to also do `stat[c] = 1`, re-creating the static mask on every impact. That mask was
+		# deleted from world-gen on 2026-07-30 because it was measured MINTING +6263 units of water: a static
+		# cell evaporates into the air (atmos_evap adds with no debit) AND absorbs inflow (water_sphere3d calls
+		# the sea below "an infinite sink" and passes the cell through unchanged), so it is a source and a sink
+		# at once, and rain falling on it vanishes. Removing it from `_seed_sphere_sea` left every
+		# `static_cells[]` branch in every kernel dead at t=0 — and this line quietly resurrected them, a few
+		# cells at a time, on every meteor.
+		#
+		# That mint is INVISIBLE to `h2o_inject_minted`, because it happens inside the kernels rather than
+		# through the injection queue. Only LA_H2O_BUDGET's per-pass `legs_all` would catch it, and the runs
+		# that measured "0.0000 for all twelve passes" were taken on worlds whose static count was still zero.
+		# So the conservation result everyone has been quoting was measured on the one condition under which
+		# this bug cannot fire.
+		#
+		# The flood itself is kept and is real: `_flood_from_sea` moves EXISTING water from live neighbours
+		# through the queue, so a new hole fills from the sea around it and the books stay closed.
+		if sea_r > 0.0 \
 				and (_f.cell_world_pos_linear(c) - _f._origin).length() < sea_r:
-			stat[c] = 1                                # this cell is under the water line — it is sea now
 			sea_cells.append(c)
 	if sea_cells.size() > 0:
-		_f._static = stat                              # re-uploaded with `solid` by _seed_solid on mark_solid_dirty
 		_flood_from_sea(sea_cells)
 		_crater_sea += sea_cells.size()
 	if src.size() == 0:
