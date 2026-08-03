@@ -71,6 +71,10 @@ func setup(terrain, disasters) -> void:
 ## depended on how long each frame happened to take. Measured before this change, three runs at the SAME
 ## `--seed=4242`: 2, 7 and 3 impacts and 2, 4 and 0 eruptions. `field_step` was 746 in every one of them, which
 ## is the tell: the field's own clock is stable across runs and only the render-driven consumers wandered.
+## (That 746 belongs to THAT run configuration and is not a constant of the sim. The current acceptance
+## configuration — `--run-frames=600 --fast=8 --no-fauna --fixed-fps 60` — gives `field_step` 590, measured
+## over eleven runs on 2026-08-03. Quote the flags beside the number, or the next reader A/Bs against the
+## wrong horizon.)
 func _physics_process(delta: float) -> void:
 	if not _enabled or _terrain == null or _disasters == null:
 		return

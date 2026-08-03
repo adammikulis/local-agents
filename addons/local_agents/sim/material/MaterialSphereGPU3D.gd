@@ -187,6 +187,9 @@ var _probe: Dictionary = {}
 # default true so the first begin_frame seeds them.
 var _solid_dirty: bool = true
 var _water_dirty: bool = true
+# Set by MaterialFieldInject3D whenever anything writes the CPU temp mirror (add_heat, meteor, lava).
+# True at construction so the seeded field reaches the GPU on the first step.
+var _temp_dirty: bool = true
 
 # Slow channels are read back only every Nth drain (their CPU consumers are coarse-cadence ledgers/bakers, not
 # every-frame world queries) — a direct cut of ~6 of 21 blocking readbacks on the other frames. Between reads the
@@ -272,7 +275,13 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 	# inter-frame CPU work) and read its channels into `_cached`. Must happen before the temp/water uploads below,
 	# which write the same live buffers the step wrote. This is the CPU↔GPU overlap that hides the field step cost.
 	_drain_pending()
-	_upload_f(_live("temp"), temp)                 # pin_core_heat edits temp on the CPU every step → must re-upload
+	# temp used to be re-uploaded UNCONDITIONALLY every step — 122,880 floats, 492 KB — for one reason: the
+	# geothermal core pin wrote _temp on the CPU every step. It does not any more. The core is a flux
+	# boundary applied inside heat_sphere3d.glsl (LAMaterialFieldGeotherm3D pushes one scalar), so the only
+	# CPU writer left is injection (add_heat / meteors / lava), which marks it dirty. Same gate as water.
+	if _temp_dirty:
+		_upload_f(_live("temp"), temp)
+		_temp_dirty = false
 	# water is only CPU-modified by injection (add_water / lakes seed), never per-step; after the readback the CPU
 	# copy already equals the GPU's evolved water, so re-uploading it every step is redundant. Gate it on a dirty
 	# flag the injectors set.
@@ -309,6 +318,20 @@ func set_sun_dir(v: Vector3) -> void:
 ## can't cap a total that transport keeps redistributing). Slowly-varying; last cached value is fine.
 func set_atmos_humidity(h: float) -> void:
 	_ctx["atmos_humidity"] = clampf(h, 0.0, 1.0)
+
+## The geothermal boundary: the TEMPERATURE of the rock ghost cell one shell below the grid's bottom face.
+## Published by LAMaterialFieldGeotherm3D each step and consumed by heat_sphere3d.glsl, which bonds to it with
+## the same finite-volume expression it uses for a real neighbour — so what each base cell draws depends on
+## that cell's own temperature. A scalar because the interior CONVECTS and is isothermal at its top; the
+## per-cell part happens in the kernel. <= 0 disarms the bond.
+func set_core_boundary_c(v: float) -> void:
+	_ctx["core_boundary_c"] = v
+
+
+## Mark the CPU temp mirror dirty so the next begin_frame re-uploads it.
+func mark_temp_dirty() -> void:
+	_temp_dirty = true
+
 
 func set_sea_radius(r: float) -> void:
 	_ctx["sea_radius"] = r
@@ -683,6 +706,8 @@ func set_field(name: String, arr) -> void:
 		return
 	if _audit_mirror and arr is PackedFloat32Array:
 		_audit_mirror_upload(name, arr)
+	if name == "temp":
+		_temp_dirty = true      # keep the gated begin_frame upload in step with a whole-mirror set
 	var b = _bufs[name]
 	if b is Array:
 		# scent is a 5-plane pair (SCENT_PLANES * cell_count); every other pair channel is one plane (cell_count).

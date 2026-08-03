@@ -205,13 +205,32 @@ func rock_radial_profile() -> Dictionary:
 	var mid: float = _shell_mean(shell_sum, shell_n, depth / 2)
 	var q75: float = _shell_mean(shell_sum, shell_n, int(round(float(depth) * 0.75)))
 	# Near-surface rock = outermost shell that still holds solid cells (walk inward from the rim).
+	#
+	# READ `rock_surf_c` AND `rock_q75_c` WITH CARE — they are NOT the rock surface. They are SHELL means at
+	# fixed radii, and the outer shells are above the terrain nearly everywhere, so the only solid cells in
+	# them are volcanic buildup: a handful of freshly-erupted, still-molten cells. Measured 2026-08-03 with a
+	# room-temperature interior (rock_core_c 15.02), the same report read rock_q75_c 596 and rock_surf_c 505 —
+	# purely lava, and read naively they say the crust is hotter at the top than at the core.
+	# `rock_skin_c` below is the right shape for the question "how hot is the ground": ONE cell per column,
+	# each column's own outermost rock, so every column counts once and no shell is empty.
 	var top: int = depth - 1
 	while top > 0 and shell_n[top] == 0:
 		top -= 1
 	var surf_rock: float = _shell_mean(shell_sum, shell_n, top)
+	var skin_sum: float = 0.0
+	var skin_n: int = 0
+	for s in range(_f._cell_count / depth):
+		var base: int = s * depth
+		for r in range(depth - 1, -1, -1):
+			if _f._solid[base + r] != 0:
+				skin_sum += _f._temp[base + r]
+				skin_n += 1
+				break
 	return {
 		"rock_core_c": core, "rock_q25_c": q25, "rock_mid_c": mid,
 		"rock_q75_c": q75, "rock_surf_c": surf_rock,
+		"rock_skin_c": (skin_sum / float(skin_n)) if skin_n > 0 else 0.0,
+		"rock_skin_cells": skin_n,
 	}
 
 
@@ -224,16 +243,25 @@ func _shell_mean(shell_sum: PackedFloat32Array, shell_n: PackedInt32Array, r: in
 ## HOT-SPRING gauge (proof the geothermal groundwater→surface heat coupling emerges). Counts OPEN, non-sea
 ## (dynamic-water, not the static ocean reservoir) surface-water cells whose temperature has been driven well
 ## above ambient by groundwater surfacing through hot rock — i.e. hot springs / fumaroles. `hotspring_cells` =
-## warm discharge (>60°C), `hotspring_boiling` = at/over boiling (>=90°C, where the evap kernel flashes steam),
-## `hotspring_max_c` = the hottest such cell. The static-sea exclusion + the 60°C floor keep the ordinary sea
-## and solar-warmed rivers out, so a non-zero count is specifically groundwater-carried geothermal heat.
-## Snapshot-time only, one O(cells) pass.
+## warm discharge (>60°C), `hotspring_boiling` = at or over the BOILING POINT OF WATER, `hotspring_max_c` = the
+## hottest such cell. The static-sea exclusion + the 60°C floor keep the ordinary sea and solar-warmed rivers
+## out, so a non-zero count is specifically groundwater-carried geothermal heat. Snapshot-time, one O(cells) pass.
+##
+## THE BOILING THRESHOLD WAS 90.0, described in this comment as "where the evap kernel flashes steam". That was
+## false — `atmos_evap_sphere3d.glsl` flashes at BOIL_TEMP 100.0, which is LAPhysical.WATER_BOIL_C — so the
+## gauge counted 10 degrees of cells as boiling that the physics did not, and justified it with a claim about a
+## kernel it did not match. Corrected 2026-08-03 to read the authority. `hotspring_boiling` counts here are not
+## comparable across that change; `hotspring_cells` (>60) is unaffected.
+##
+## The 60°C warm floor and the 30°C mild floor stay literals on purpose: they are not phase points, they are
+## the thresholds a person would call a spring "hot" or "warm" at, and there is no measured property of matter
+## behind either.
 func hot_spring_stats() -> Dictionary:
 	var count: int = _f._cell_count
 	if _f._temp.size() != count or _f._water.size() != count or _f._solid.size() != count:
 		return {"hotspring_cells": 0, "hotspring_boiling": 0, "hotspring_max_c": 0.0}
 	var warm: int = 0        # open, non-sea surface water >60°C (a hot spring)
-	var boiling: int = 0     # >=90°C (the evap kernel flashes steam)
+	var boiling: int = 0     # at/over LAPhysical.WATER_BOIL_C — the same point atmos_evap flashes steam at
 	var mild: int = 0        # >30°C with any discharge film (early/faint geothermal signal)
 	var spring_wet: int = 0  # open non-sea cells holding ANY discharge film (denominator for the warm fraction)
 	var mx: float = 0.0      # hottest open non-sea surface-water cell (the true spring peak, no threshold)
@@ -250,7 +278,7 @@ func hot_spring_stats() -> Dictionary:
 			mild += 1
 		if t > 60.0:
 			warm += 1
-		if t >= 90.0:
+		if t >= LAPhysical.WATER_BOIL_C:
 			boiling += 1
 	return {
 		"hotspring_cells": warm, "hotspring_boiling": boiling, "hotspring_max_c": snappedf(mx, 0.1),

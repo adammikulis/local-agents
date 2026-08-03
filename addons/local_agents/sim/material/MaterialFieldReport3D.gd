@@ -328,6 +328,10 @@ func report() -> Dictionary:
 	# half of the carbon loop published nothing but zeros while fungus_total beside it read real values.
 	r.merge(_f.decomposer_stats())
 	r.merge(q.rock_radial_profile())
+	# The geothermal RESERVOIR, which rock_radial_profile above cannot show: rock_core_c is the innermost
+	# simulated shell, and the reservoir is the unsimulated interior underneath it. core_res_c is the state
+	# variable that falls; core_flux_w_m2 is what it delivers, to be read against LAPhysical's 0.087.
+	r.merge(_f.geotherm_report())
 	r.merge(q.hot_spring_stats())
 	r.merge(q.lava_shell_diag())
 	var heavy: Dictionary = _heavy_block()

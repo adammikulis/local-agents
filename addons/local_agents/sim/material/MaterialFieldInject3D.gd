@@ -84,13 +84,17 @@ func _device_ready() -> bool:
 # centre cell (grid.neighbours), never the whole grid — a stimulus wakes a small bubble, not a full-grid sweep.
 
 ## Raise the temperature of the cell at `world_pos` (and cells within `radius`) by `amount` °C. A meteor's
-## molten spike, a fire's heat, a storm's surface warming. Edits `_temp` directly — re-uploaded every step.
+## molten spike, a fire's heat, a storm's surface warming. Edits the CPU `_temp` mirror directly, so it
+## MARKS IT DIRTY: begin_frame no longer re-uploads temp unconditionally (the geothermal core stopped
+## being a CPU-side pin and became a GPU flux boundary), and injection is now the only CPU writer left.
 func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if amount == 0.0 or _f._temp.size() != _f._cell_count:
 		return
 	var cells: PackedInt32Array = _cells_within(world_pos, radius)
 	for c in cells:
 		_f._temp[c] = _f._temp[c] + amount
+	if _f._gpu != null and _f._gpu.has_method("mark_temp_dirty"):
+		_f._gpu.mark_temp_dirty()
 	# BUG FIX: `fire` is a SITUATIONAL (demand-gated) readback channel with no dedicated actor to ever request
 	# it hot (fire is fully emergent — dissolved into the substrate, no `FireActor` node) — so `fire_cells()`/
 	# `fire_peak` read a permanently-stale CPU array (frozen at its zero seed) even while real combustion is

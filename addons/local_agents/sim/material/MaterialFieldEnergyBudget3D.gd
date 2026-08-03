@@ -23,12 +23,14 @@ extends RefCounted
 ##   * The CPU mirrors it reads are one GPU drain behind the kernel's own view, so a fast transient is
 ##     smoothed. That is a resolution limit, not an error, and it does not affect the running totals.
 ##
-## THE UNITS ARE THE KERNEL'S, NOT SI. `SOLAR_CONSTANT` in the kernel is 600.0, not the real 1361 W/m^2 that
-## LAPhysical.SOLAR_CONSTANT_W_M2 records, because it is sized to this world's cell scale and heat capacities
-## ("sized so the sub-solar point equilibrates near 300 K", heat3d_solar_sphere3d.glsl:90-91). So the totals
-## here are SUMS OF PER-CELL FLUX in the kernel's W/m^2-like units — call them watts and you are quoting a
-## number that is not one. The MEANS (`energy_absorbed_mean`, `energy_emitted_mean`) are the numbers that
-## compare against real physics: an Earth-like planet sits near 240 W/m^2 absorbed on the global mean.
+## THE UNITS. *(Corrected 2026-08-03. This paragraph used to say `SOLAR_CONSTANT` in the kernel is 600.0
+## rather than the measured 1361, "sized to this world's cell scale". That stopped being true when the
+## kernel was reconciled to the real value, and this file went on mirroring 600 — under-reporting absorbed
+## shortwave by 2.27x in every energy number it published.)* The irradiance and the Stefan-Boltzmann
+## constant are now the measured ones, so a per-cell flux really is in W/m^2. The TOTALS are still sums
+## over cells rather than an integral over area, so they are not watts; the MEANS
+## (`energy_absorbed_mean`, `energy_emitted_mean`) are the numbers that compare against real physics —
+## an Earth-like planet sits near 240 W/m^2 absorbed on the global mean.
 ##
 ## THE ONE THING THIS MEASURES THAT TEMPERATURE CANNOT: `energy_net` is the planet's instantaneous heating
 ## rate. Positive means it is still warming toward equilibrium, negative that it is shedding. At equilibrium
@@ -63,7 +65,7 @@ extends RefCounted
 # --- CONSTANTS FROM LAPhysical -----------------------------------------------------------------------------
 # These are properties of matter, so they live in one place and are read, never re-typed. Each is equal to the
 # kernel's own copy (the kernel must declare its own because GLSL cannot read GDScript):
-#   LAPhysical.STEFAN_BOLTZMANN 5.670374419e-8  vs  glsl:95  STEFAN         5.670374e-8   (7e-8 relative)
+#   LAPhysical.STEFAN_BOLTZMANN 5.670374419e-8  vs  glsl:91  STEFAN         5.670374419e-8  (equal)
 #   LAPhysical.KELVIN_OFFSET    273.15          vs  glsl:97  KELVIN         273.15
 #   LAPhysical.ALBEDO_BARE_GROUND 0.15          vs  glsl:100 ALBEDO_GROUND  0.15
 #   LAPhysical.ALBEDO_OCEAN       0.06          vs  glsl:101 ALBEDO_WATER   0.06
@@ -75,15 +77,25 @@ extends RefCounted
 # These are MODEL parameters of this world (cell scale, thermal inertia, step size), not properties of matter,
 # so they are NOT in LAPhysical and are transcribed here with their kernel line. If you change one in the
 # kernel, change it here in the same edit — nothing else keeps them equal.
-const K_SOLAR_CONSTANT: float = 600.0      # glsl:96  — this world's solar constant, NOT LAPhysical's 1361 W/m^2
-const K_ICE_ALBEDO_GAIN: float = 40.0      # glsl:103 — snow mass -> reflectivity; a dusting already whitens
-const K_HEAT_CAP_AIR: float = 800.0        # glsl:104
-const K_HEAT_CAP_ROCK: float = 1400.0      # glsl:105
-const K_HEAT_CAP_WATER: float = 9000.0     # glsl:106 — the ocean's thermal inertia
-const K_HEAT_CAP_SNOW: float = 2500.0      # glsl:107
-const K_P_REF: float = 100.0               # glsl:131 — sea-level column pressure in this world's units
-const K_STEP_DT: float = 0.1               # glsl:98  — LAMaterialFieldSphereStep3D.STEP_DT
-const K_MAX_DT_PER_STEP: float = 5.0       # glsl:99  — the numerical guard whose binding this file counts
+# CORRECTED 2026-08-03. This read 600.0, described as "this world's solar constant, NOT LAPhysical's 1361".
+# The kernel had already been reconciled to the measured 1361 (heat3d_solar_sphere3d.glsl:92,
+# `// LAPhysical.SOLAR_CONSTANT_W_M2`) and nobody updated the instrument, so for as long as that gap
+# existed this file under-reported absorbed shortwave by 2.27x — and with it energy_net, energy_net_cool,
+# energy_imbalance and energy_imbalance_cool, which are the numbers every climate argument is made from.
+# It is read from the authority now rather than transcribed, so it cannot drift again.
+const K_SOLAR_CONSTANT: float = LAPhysical.SOLAR_CONSTANT_W_M2   # glsl:92
+const K_ICE_ALBEDO_GAIN: float = 40.0      # glsl — snow mass -> reflectivity; a dusting already whitens
+# AREAL heat capacities, J/m^2/K. These were 800/1400/9000/2500 in no units at all, paired with a K_STEP_DT of
+# 0.1 (the SIMULATED step) while the conduction kernel next to them ran on 43.2 REAL seconds. Both halves
+# state the same clock now; the values are the old ones times exactly 432, so the instrument still mirrors the
+# kernel exactly and its output is unchanged. The kernel's own block records what depth of material each
+# implies and which one is wrong (water: ~0.93 m against a 20-100 m ocean mixed layer).
+const K_HEAT_CAP_AIR: float = 345600.0     # glsl CAP_AIR
+const K_HEAT_CAP_ROCK: float = 604800.0    # glsl CAP_ROCK
+const K_HEAT_CAP_WATER: float = 3888000.0  # glsl CAP_WATER — the ocean's thermal inertia
+const K_HEAT_CAP_SNOW: float = 1080000.0   # glsl CAP_SNOW
+const K_P_REF: float = 100.0               # glsl P_REF — sea-level column pressure in this world's units
+const K_MAX_DT_PER_STEP: float = 5.0       # glsl MAX_DT_PER_STEP — the guard whose binding this file counts
 
 var _f = null                                # back-reference to the owning LAMaterialField3D
 var _samples: int = 0                        # recomputes so far
@@ -222,8 +234,10 @@ func _compute() -> Dictionary:
 			var t_k: float = maxf(temp[c] + LAPhysical.KELVIN_OFFSET, 1.0)
 			var absorbed: float = K_SOLAR_CONSTANT * (1.0 - albedo) * insolation
 			var emitted: float = LAPhysical.STEFAN_BOLTZMANN * emissivity * t_k * t_k * t_k * t_k
-			# glsl:209-212 — the step the kernel would apply, and whether its numerical guard binds.
-			var d_t: float = (absorbed - emitted) * K_STEP_DT / cap
+			# The step the kernel would apply, and whether its numerical guard binds. The dt is the field's ONE
+			# clock, read from its owner rather than transcribed — this used to be a local K_STEP_DT of 0.1
+			# mirroring a kernel constant that disagreed with the conduction kernel dispatched beside it.
+			var d_t: float = (absorbed - emitted) * LAMaterialFieldSphereStep3D.real_seconds_per_step() / cap
 			if absf(d_t) > K_MAX_DT_PER_STEP:
 				clamped += 1
 			dt_sum += d_t
