@@ -24,7 +24,15 @@ extends RefCounted
 ## reciprocal. LASphereGrid.validate() checks the WEAKER property (adjacency is mutual — A lists B somewhere
 ## among its four) and reports symmetric/ok, but every 2-pass gather kernel in this project assumes the
 ## stronger one: pass 1 reads `send[neighbour * 6 + opposite(slot)]`, so B must list A in the OPPOSITE slot,
-## not merely somewhere. Across the cube-face seams it does not.
+## not merely somewhere.
+##
+## THE TABLE SATISFIES IT. (Corrected 2026-08-03, while landing the erosion transport gather. This line used
+## to end "Across the cube-face seams it does not." It does.) Built at the shipped res 24 / depth 20 and
+## checked exhaustively: of **407808 directed links, 0 are non-reciprocal** — in the kernel slot order the
+## gathers actually use (pairing 0<->5, 1<->2, 3<->4) and in the grid-native order (pairing d^1) alike — with
+## `lateral_bends` 48 = 2*res, exactly what LASphereGrid's header predicts for an even res. The seam repair
+## works. So a nonzero `*_lost` residual here is a defect in the KERNEL that produced it, not in the geometry
+## underneath: do not go looking at the seams first.
 ##
 ## (Explicit types only, no ':=' inferred typing.)
 

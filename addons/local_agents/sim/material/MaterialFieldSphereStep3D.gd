@@ -46,9 +46,10 @@ static func real_seconds_per_step() -> float:
 const LakesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLakes3D.gd")
 const SoilBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd")
 const H2OBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldH2OBudget3D.gd")
+const MineralProfileScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd")
 const MineralProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProbe3D.gd")
 
-var _f = null                                            # back-reference to the owning LAMaterialField3D
+var _f = null                                          # back-reference to the owning LAMaterialField3D
 var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
 # Per-leg groundwater budget probe (LA_SOIL_BUDGET). Owned here rather than on the field because it is a
 # STEP diagnostic: it needs a hook that fires once per GPU step, which is this loop and nowhere else.
@@ -57,6 +58,11 @@ var _soil_budget = null
 # on BOTH sides of the GPU step (pre_step arms the driver's between-pass probe, post_step prints), and this loop
 # is the only place that has one.
 var _h2o_budget = null
+# Elevation profile of the mobile mineral phases (LA_MINERAL_PROFILE). Same reason again: it is a per-STEP
+# sample, and it answers the one question no total in SIM_REPORT can — whether sediment moves DOWNHILL.
+# It samples in post_step() rather than through the driver's probe slot, so it does NOT contend with the two
+# budget probes below and all three can be armed at once.
+var _mineral_profile = null
 # Per-pass MINERAL budget probe (LA_MINERAL_BUDGET) — the same instrument for the five rock phases. It uses the
 # driver's ONE `set_step_probe` slot, so it and the H₂O probe are mutually exclusive; setup() warns and keeps
 # this one when both variables are present, rather than letting one silently take every checkpoint.
@@ -88,6 +94,9 @@ func setup(field) -> void:
 		else:
 			_h2o_budget = H2OBudgetScript.new()
 			_h2o_budget.setup(field)
+	if OS.has_environment("LA_MINERAL_PROFILE"):
+		_mineral_profile = MineralProfileScript.new()
+		_mineral_profile.setup(field)
 
 
 ## Field substrate steps every N physics frames, N = the player's Sim knob `la_field_cadence` (published by
@@ -259,6 +268,8 @@ func process(delta: float) -> void:
 	LASimReport.event("field_step")   # telemetry: GPU field runs/run — a slower cadence lowers this (and the avg field_ms)
 	if _soil_budget != null:
 		_soil_budget.post_step()      # LA_SOIL_BUDGET: print the per-leg groundwater ledger on its own cadence
+	if _mineral_profile != null:
+		_mineral_profile.post_step()  # LA_MINERAL_PROFILE: print WHERE the loose mineral is, by elevation
 
 
 ## Scatter every channel the sphere driver read back into its CPU array, so actor world-space queries

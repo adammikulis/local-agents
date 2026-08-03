@@ -38,13 +38,20 @@ extends RefCounted
 ##   fungus                         : {uint cell_count, pad,pad,pad, float precip, pad,pad,pad} -> 32 bytes
 ## precip comes from ctx.get("precip", 0.0). (dt is unused: every rate here is a per-step constant.)
 ##
-## SKIPPED: erosion_advect_sphere3d.glsl / erosion_deposit_sphere3d.glsl do NOT exist in kernels3d/ (only the
-## box versions erosion_advect3d.glsl / erosion_deposit3d.glsl are present), so the erosion advect+deposit
-## dispatches are omitted. Wire them here once the sphere ports land.
+## NOT HERE: erosion. (Corrected 2026-08-03. This block said "erosion_advect_sphere3d.glsl /
+## erosion_deposit_sphere3d.glsl do NOT exist in kernels3d/ (only the box versions erosion_advect3d.glsl /
+## erosion_deposit3d.glsl are present), so the erosion advect+deposit dispatches are omitted. Wire them here
+## once the sphere ports land." The parenthesis was false — there were no box versions either, and pointing at
+## a phantom file made the gap look like a port that had merely not been copied over. Sediment advection now
+## exists as erosion_transport_sphere3d.glsl and is dispatched by its OWN pass, ErosionTransportPass, which
+## must run beside ErosionPickupPass in the susp ping-pong window, not out here after Reactions. Deposition is
+## not a kernel at all: it is the M3 SETTLE reaction record acting on carried load, so there is nothing left
+## to "wire here".
 ##
 ## IMPROVISED buffer key: the snow-depth field has no documented PAIR/SINGLE key in the contract. It is a
-## per-cell depth mutated in place, so this pass resolves it as bufs["snow"] when present (a bare RID, or the
-## live half if the driver ever stores it as a PAIR), else falls back to the live half of the "susp" PAIR.
+## per-cell depth mutated in place, so this pass resolves it as bufs["snow"] — which the driver does allocate
+## (MaterialSphereGPU3D.SINGLE_CHANNELS), so the "susp" fallback below is unreachable and no snow/susp aliasing
+## can occur. Verified 2026-08-03 while landing sediment transport.
 
 const KDIR: String = "res://addons/local_agents/sim/material/kernels3d/"
 const SCENT_WIND_PATH: String = KDIR + "scent_wind_sphere3d.glsl"

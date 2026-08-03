@@ -82,8 +82,13 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/GasWindPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/SoilPass.gd",
-	# EROSION PICKUP (Stage D): scours rock_fill→susp where water flows, and CARRIES susp live→back — MUST run
-	# right before Reactions so M3 SETTLE (susp→sediment) reads the freshly-scoured susp the same step.
+	# EROSION, in three ordered steps that share one ping-pong half. TRANSPORT advects last step's suspended
+	# load (susp[live] → susp[back], a two-pass gather on the water's own flux); PICKUP then adds this step's
+	# fresh scour to susp[back] in place; Reactions' M3 SETTLE then reads that one consistent half. Transport
+	# must precede pickup — it is the pass that writes the back half whole, and a grain has to be in the water
+	# before the water can carry it. Both must precede Reactions. Transport also borrows the shared `send`
+	# scratch, so nothing between SoilPass and it may leave state there.
+	"res://addons/local_agents/sim/material/sphere_passes/ErosionTransportPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ErosionPickupPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/FireDustPass.gd",

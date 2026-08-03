@@ -123,7 +123,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[12, snow],             # SINGLE — freeze (R21) credits it, melt (R22) debits it; SAME H₂O as water/moisture (persistent, GPU-owned)
 			[13, sediment[back]],   # loose regolith — loft (M4) debits it; SAME buffer FireDust transport deposits into + reads back
 			[14, dust[p]],          # airborne dust (LIVE) — loft (M4) credits it here so FireDust transport advects it THIS step
-			[16, susp[back]],       # waterborne suspended sediment — settle (M3) debits it (dead phase today → inert)
+			[16, susp[back]],       # waterborne suspended sediment — settle (M3) debits it. LIVE: ErosionTransport
+			                        # wrote this half (advected load) and ErosionPickup added this step's scour.
+			                        # (Corrected 2026-08-03: said "dead phase today → inert". It has not been
+			                        # inert since the pickup pass landed.)
 			[17, vel_x],            # SINGLE — WINDSPEED driver leg (sqrt(vel_x²+vel_z²))
 			[18, vel_z],            # SINGLE — WINDSPEED driver leg
 			[22, lava[back]],       # molten rock (settled by Thermal into BACK) — M5 debits it, M6 credits it
