@@ -6,24 +6,29 @@ extends RefCounted
 ## against the previous sample. The drift is the instrument. A total printed as an absolute cannot show a slow
 ## leak — that is exactly how the water leak hid — and it cannot show minting at all.
 ##
-## WHY THESE FOUR AND WHY NOW. The correlation is hard to miss once someone looks: every substance in this
-## simulation that HAS a ledger conserves, and every substance without one mints. H₂O has `h2o_total`,
-## `h2o_drift_per_step` and per-pass probes, and its transfers are real transfers. Minerals have
+## WHY THESE FOUR AND WHY NOW. The correlation was hard to miss once someone looked: every substance that HAD
+## a ledger conserved, and every substance without one created matter. H₂O had `h2o_total`,
+## `h2o_drift_per_step` and per-pass probes, and its transfers were real transfers. Minerals had
 ## `mineral_total`. Carbon, oxygen and fertility had NOTHING — a grep for carbon_total / co2_total / o2_total
-## under sim/material/ returned zero — and all three mint:
-##   * CARBON has no source pool at all. `_co2` is allocated and NOT filled (MaterialField3D.gd:443-445 —
-##     the line above it fills `_o2` with O2_AMBIENT, so the omission is visible in the diff), and the
-##     planet's entire carbon inventory then arrives through ONE record, R12's RELAX_TARGET toward
-##     CO2_AMBIENT_TRACE. RELAX_TARGET carries no reactant list and reactions_sphere3d.glsl skips the
-##     reactant-cap block for it, so R12 is a tap with no tank behind it.
-##   * OXYGEN gains on every turn of the carbon cycle. Photosynthesis (R19) yields PHOTO_O2_YIELD 1.0 per unit
-##     of carbon fixed; respiration (R20) spends RESP_O2_COST 0.5 to undo it, and decomposition (R15) spends
-##     O2_PER_DECOMPOSE 0.8 against CO2_PER_DECOMPOSE 1.0. The two directions are chemical inverses and their
-##     coefficients are not equal, so each cycle leaves free oxygen behind.
-##   * FERTILITY is minted at roughly 75:1 per unit of extent: FERT_PER_DECOMPOSE 1.5 produced against
-##     FERT_UPTAKE_COST 0.02 consumed, with no source pool on either side.
-## This module does NOT fix any of that. It is the instrument that makes the drift a number instead of an
-## argument, and a drift that comes back POSITIVE is the correct result to report, not a bug in the meter.
+## under sim/material/ returned zero — and all three created matter from nothing.
+##
+## ALL THREE OF THOSE DEFECTS ARE FIXED AS OF 2026-08-03, and what they were is kept here because the
+## instrument's whole justification is that it was the thing that measured them. **Do not read the list below
+## as a description of live code.**
+##   * CARBON had no source pool at all. `_co2` was allocated and NOT filled — the line above it filled `_o2`
+##     with O2_AMBIENT, so the omission was visible in the diff — and the planet's entire carbon inventory
+##     then arrived through ONE record, R12, which used a rate model carrying no reactant list at all while
+##     reactions_sphere3d.glsl skipped the reactant-cap block for it. A tap with no tank behind it. NOW: the
+##     atmosphere is seeded finite at Earth's measured composition, R11/R12 and the rate model are deleted,
+##     and this ledger measured the result — `carbon_run_drift_per_step` +6.49 -> -0.024.
+##   * OXYGEN gained on every turn of the carbon cycle: photosynthesis yielded 1.0 O₂ per carbon fixed while
+##     respiration spent 0.5 and decomposition 0.8 against 1.0 CO₂. The two directions are chemical inverses
+##     and their coefficients were not equal, so each cycle left free oxygen behind. NOW: the identity is
+##     enforced per record by LAReactionBalance's `oxidant` sum, not by two constants set equal by hand.
+##   * FERTILITY was created at roughly 75:1 per unit of extent (1.5 produced against 0.02 consumed) with no
+##     source pool on either side. NOW: organic matter is declared to CARRY nitrogen at the measured litter
+##     C:N ratio, and release, uptake and litterfall all derive from that one declaration.
+## A drift that comes back non-zero is still the correct result to report, not a bug in the meter.
 ##
 ## THE INCLUSION RULE, and it is the same lesson the water ledger learned the hard way: every leg uses ONE
 ## mask, or the ledger's own disagreement gets read as physics. Here every leg is summed over OPEN cells
@@ -40,11 +45,11 @@ extends RefCounted
 ##   carbon_total = co2 + biomass + detritus.
 ## Those are the three slots the reaction table actually moves carbon between, and between them the
 ## stoichiometry IS closed: R19 fixes 1 CO₂ into 1 biomass, R20 turns 1 biomass into 0.6 CO₂ + 0.4 detritus
-## (0.6 + 0.4 = 1), R15 rots 1 detritus into 1 CO₂. So any drift in this sum is R12 minting or a kernel
-## outside the reaction table, and nothing else. FUEL and FUNGUS are carbon-bearing in the real world but are
-## moved by their own kernels (fire_sphere3d, fungus_sphere3d) with no stoichiometric link to this triangle,
-## so folding them in would hide R12's signature inside two unrelated budgets. They are reported BESIDE the
-## total as memo lines instead, so a reader can add them and see what happens.
+## (0.6 + 0.4 = 1), R15 rots 1 detritus into 1 CO₂. So any drift in this sum is a kernel outside the reaction
+## table. FUEL and FUNGUS are carbon-bearing in the real world but are moved by their own kernels
+## (fire_sphere3d, fungus_sphere3d) with no stoichiometric link to this triangle, so keeping them out is what
+## lets a leak be LOCALISED to one side or the other. They are reported beside the total as memo lines, and
+## summed into `carbon_closed_total` below, which is the conservation claim.
 ##
 ## OXYGEN'S CONVENTION: `o2_total` is FREE molecular O₂ only — the `o2` channel — and NOT the oxygen bound in
 ## CO₂. That is still the right thing to publish for "how much air is there to breathe", but as a
@@ -118,6 +123,8 @@ var _first_fert_step: int = -1
 var _first_biomass_step: int = -1
 var _first_oxidant_step: int = -1
 var _first_closed_step: int = -1
+var _first_nitrogen: float = NAN
+var _first_nitrogen_step: int = -1
 
 
 func setup(field) -> void:
@@ -262,8 +269,17 @@ func report(step_index: int) -> Dictionary:
 	# only the three the reaction table moves between.
 	var oxidant: float = o2_open + co2_open
 	var carbon_closed: float = carbon + fung_open + fuel_open
+	# NITROGEN, over every pool that holds it. `fert_total` alone answers "how much nutrient can a plant take
+	# up", which is a useful number and NOT a conservation gauge: mineral N and organic N trade places all
+	# day, so a healthy soil makes `fert_total` wander for honest reasons. The conserved quantity is the sum,
+	# and it is conserved for a structural reason rather than a tuned one — LAReactionBalance declares organic
+	# matter to carry nitrogen at the measured litter C:N ratio, and every record is checked against that one
+	# declaration, so the release coefficient in R15, the uptake coefficient in R19 and the litterfall
+	# coefficient in R20 cannot disagree.
+	var nitrogen: float = fert_open + (bio_open + det_open + fung_open + fuel_open) / LAPhysical.LITTER_C_TO_N
 	out["oxidant_total"] = snappedf(oxidant, 0.01)
 	out["carbon_closed_total"] = snappedf(carbon_closed, 0.01)
+	out["nitrogen_total"] = snappedf(nitrogen, 0.01)
 
 	# RUN-LONG DRIFT — the headline conservation figure. The first sample is the baseline; everything after is
 	# measured against it over the field steps actually elapsed. Each quantity takes its baseline only once
@@ -318,6 +334,14 @@ func report(step_index: int) -> Dictionary:
 		if step_index > _first_closed_step:
 			out["carbon_closed_run_drift_per_step"] = snappedf(
 				(carbon_closed - _first_closed) / float(step_index - _first_closed_step), 0.0001)
+	if has_fert and has_bio and has_det and has_fung and has_fuel:
+		if _first_nitrogen_step < 0:
+			_first_nitrogen = nitrogen
+			_first_nitrogen_step = step_index
+		out["nitrogen_first"] = snappedf(_first_nitrogen, 0.01)
+		if step_index > _first_nitrogen_step:
+			out["nitrogen_run_drift_per_step"] = snappedf(
+				(nitrogen - _first_nitrogen) / float(step_index - _first_nitrogen_step), 0.0001)
 	out["mass_run_steps"] = run_steps
 	out["mass_scan_ms"] = snappedf(float(Time.get_ticks_usec() - t0) / 1000.0, 0.01)
 	return out
@@ -339,5 +363,6 @@ func _blank() -> Dictionary:
 		"oxidant_total": 0.0, "oxidant_first": 0.0, "oxidant_run_drift_per_step": 0.0,
 		"carbon_closed_total": 0.0, "carbon_closed_first": 0.0,
 		"carbon_closed_run_drift_per_step": 0.0,
+		"nitrogen_total": 0.0, "nitrogen_first": 0.0, "nitrogen_run_drift_per_step": 0.0,
 		"mass_live": {},
 	}
