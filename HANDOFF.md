@@ -23,7 +23,9 @@ Main scene: the game boots to `addons/local_agents/game/menu/MainMenu.tscn`; the
 
 **0.4 IS THE PLANET, AND NOTHING ELSE. Creature work is 0.5 and does not start yet** — not lower priority,
 *premature*, because behaviour tuned against a broken substrate has to be redone. `CLAUDE.md` → SCOPE RULE
-carries the measurable bar. A Rule Zero violation found in creature code gets RECORDED under 0.5, not fixed.
+carries the measurable bar. **A defect you find is FIXED, wherever it lives. Nothing here licenses recording
+a broken thing instead of repairing it** — that policy was invented by an agent, never approved, and it is how
+this tracker filled up with known-and-unfixed physics.
 
 **THE ONE THING TO UNDERSTAND BEFORE YOU TOUCH THE SUBSTRATE.** This simulation creates matter from nothing.
 Not as a rounding error — by construction, because the reaction engine is a **rate table, not a chemistry**.
@@ -271,7 +273,8 @@ aquifer's `k_rel`/`RESIDUAL` capillary retention.
 Everything here is 0.5 and does not begin until the planet is locked down (`CLAUDE.md` → SCOPE RULE). The
 sequenced plan lives in `docs/0.5_CREATURE_FEATURES.md` and `docs/0.5_PARALLELIZATION_GUIDE.md`.
 
-**Known Rule Zero violations in creature code, RECORDED not fixed** — fixing them now would build on sand.
+**Creature-layer physics defects — ALL OF THESE ARE BEING FIXED NOW, not recorded.** They are listed here
+only until the work lands, and then this list goes away.
 `CreatureDigestion.ambient_graze` creates food out of the temperature at the animal's feet, with no source and
 nothing decremented ("never depletes, can't be crashed"), so starvation is unreachable and herbivore numbers
 are set by a JSON `pop_cap`. **That is item 1 again, in the creature layer** — the same engine-level
