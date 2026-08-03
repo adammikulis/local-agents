@@ -28,10 +28,8 @@ const RADIUS: float = 62.0                # footprint half-width (vapor pumping 
 # dielectric breakdown → a bolt, entirely in the field. (The storm seeds; MaterialCharge3D fires.)
 const VAPOR_PER_SEC: float = 5.0          # total vapor injected per second at full seeding (split over points)
 const VAPOR_INJECT_R: float = 14.0        # radius of each vapor blob at the ground
-const SEED_HEAT_PER_SEC: float = 10.0     # surface warming that makes the air rise → the convective updraft
-const SEED_HEAT_R: float = 16.0
-const COOL_PER_SEC: float = 14.0          # °C/s pulled out of the air aloft to force condensation
-const COOL_INJECT_R: float = 30.0
+# (SEED_HEAT_PER_SEC = 10.0, SEED_HEAT_R = 16.0, COOL_PER_SEC = 14.0 and COOL_INJECT_R = 30.0 deleted
+# 2026-08-03 — a storm has no energy source and no energy sink of its own; see `_pump_moisture` below.)
 
 # Intensity now EMERGES from the convective updraft (+Y lift) the seeding grows — not a scripted envelope.
 const STRENGTH_MAX: float = 1.0           # intensity is normalized 0..1
@@ -171,9 +169,6 @@ func _physics_process(delta: float) -> void:
 func _pump_moisture(intensity: float, delta: float) -> void:
 	if intensity <= 0.0:
 		return
-	var cloud_base: float = _center.y + 60.0
-	if _field.has_method("cloud_base_y"):
-		cloud_base = float(_field.cloud_base_y())
 	var per_point: float = VAPOR_PER_SEC * intensity * delta / 5.0
 	var offsets: Array = [
 		Vector2(0.0, 0.0), Vector2(RADIUS * 0.55, 0.0), Vector2(-RADIUS * 0.55, 0.0),
@@ -189,13 +184,21 @@ func _pump_moisture(intensity: float, delta: float) -> void:
 				gy = g.y
 		if _field.has_method("add_vapor"):
 			_field.add_vapor(Vector3(px, gy + 3.0, pz), per_point, VAPOR_INJECT_R)
-		# Warm the surface air so it becomes buoyant and RISES — this is what grows the convective updraft
-		# the cell's emergent strength then feeds on (the field's buoyancy rule lifts the warmed humid air).
-		if _field.has_method("add_heat"):
-			_field.add_heat(Vector3(px, gy + 2.0, pz), SEED_HEAT_PER_SEC * intensity * delta / 5.0, SEED_HEAT_R)
-	# Cold aloft: pull heat out of the mid-air over the cell so the rising humid air condenses hard.
-	if _field.has_method("add_cooling"):
-		_field.add_cooling(Vector3(_center.x, cloud_base, _center.z), COOL_PER_SEC * intensity * delta, COOL_INJECT_R)
+	# A STORM MOVES HEAT AROUND. IT DOES NOT MAKE ANY, AND IT DOES NOT DESTROY ANY.
+	#
+	# Two injections used to live here and both are deleted. The surface warming (SEED_HEAT_PER_SEC = 10 °C/s
+	# spread over five points, every frame of the storm's life) re-added warming the solar kernel had already
+	# delivered to the same ground. The cold aloft (COOL_PER_SEC = 14 °C/s, `add_cooling`, which is literally
+	# `add_heat(-amount)`) destroyed heat outright to force condensation. Together they were an energy pump
+	# with no engine: heat appeared at the bottom of the column and vanished at the top, every frame, and on
+	# top of that each call re-uploaded the whole stale CPU temperature mirror over the live GPU field and so
+	# discarded a step of the planet's real heat budget.
+	#
+	# The moisture seed above is KEPT and is honest — `add_vapor` is a transfer that debits the liquid water and
+	# the soil water in the storm's own footprint, and reports the shortfall when the footprint is dry. What
+	# remains is a storm that lifts real water into real air and lets the substrate's own buoyancy and lapse
+	# rate decide whether it convects. If storms stop convecting without the pump, that is a finding about the
+	# atmosphere kernels, not a reason to restore an energy source that does not exist.
 
 
 # --- Visuals: a dark churning cloud slab drifting over the cell (the rain itself is the RainLayer's) ---

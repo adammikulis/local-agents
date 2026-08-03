@@ -69,8 +69,11 @@ const BUDGET_FLOOR: int = 48
 const EJECTA_LOD_RADIUS: float = 450.0
 # Safety lifetime — a parcel that never lands (numerical edge) is culled after this many seconds.
 const MAX_LIFETIME: float = 12.0
-# Heat deposited at the landing per unit parcel mass (°C), over this radius — the glowing impact scar.
-const LAND_HEAT_PER_MASS: float = 400.0
+# THE LANDING SCAR IS THE PARCEL'S KINETIC ENERGY. This used to be `LAND_HEAT_PER_MASS = 400.0` degrees per
+# unit mass, added to every cell in LAND_HEAT_R out of nothing — a parcel that was culled the instant it was
+# launched dumped exactly as much heat as one that fell from height, because the number was proportional to
+# mass and to nothing else. A landing parcel deposits the energy it is CARRYING, 1/2 m v², which is zero for a
+# parcel at rest and large for one that came down fast. Nothing else needs to be said about "impact scars".
 const LAND_HEAT_R: float = 8.0
 
 var _f = null                                            # owning LAMaterialField3D
@@ -85,6 +88,7 @@ var _p_age: PackedFloat32Array = PackedFloat32Array()
 var _p_risen: PackedByteArray = PackedByteArray()        # 1 once the parcel has climbed above launch radius
 var _deposited: float = 0.0                              # cumulative mass deposited (diagnostic)
 var _ejected: float = 0.0                                # cumulative mass handed to eject() (diagnostic)
+var _impact_energy_j: float = 0.0                        # cumulative landing kinetic energy given to the field
 var _peak_inflight: int = 0                              # high-water mark of live parcels (plateau check)
 
 # Active camera, cached once per render frame (a single get_camera_3d() lookup shared by every parcel, not one
@@ -122,6 +126,7 @@ func report() -> Dictionary:
 		"ejecta_peak": _peak_inflight,
 		"ejecta_launched": _ejected,
 		"ejecta_deposited": _deposited,
+		"ejecta_impact_j": snappedf(_impact_energy_j, 0.01),
 	}
 
 
@@ -187,17 +192,20 @@ func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = V
 	_budget = _resolve_budget()                          # live re-read (mid-game settings re-apply)
 	var cam: Camera3D = _camera()
 	var per_mass: float = mass / float(PARCELS_PER_EJECT)
+	# The launch speed is needed by BOTH the arcing path and the immediate-deposit path below, because a parcel
+	# that is deposited without ever flying still carries the kinetic energy it was thrown with — the LOD gate
+	# skips the invisible ARC, it does not confiscate the parcel's energy.
+	var base_speed: float = clampf(sqrt(2.0 * energy / mass) * SPEED_GAIN, SPEED_MIN, SPEED_MAX)
 	# ACTIVITY-LOD at the source: an off-screen / far impact spawns NO arcing parcels — deposit its whole mass
 	# in one shot (conserved, no invisible arcs). The dominant win for a volley the player is not looking at.
 	if not _airborne_visible(cam, world_pos):
 		_ejected += mass
-		_deposit(world_pos, mass)
+		_deposit(world_pos, mass, base_speed)
 		return
 	var radial: Vector3 = world_pos - _center
 	if radial.length_squared() < 1.0e-6:
 		radial = Vector3.UP
 	radial = radial.normalized()
-	var base_speed: float = clampf(sqrt(2.0 * energy / mass) * SPEED_GAIN, SPEED_MIN, SPEED_MAX)
 	var launch_dir: Vector3 = (radial + dir_bias).normalized() if (radial + dir_bias).length_squared() > 1.0e-6 else radial
 	var launch_r: float = (world_pos - _center).length()
 	# Build a tangent basis for the spray cone.
@@ -211,7 +219,7 @@ func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = V
 		# (conserved). The live count therefore plateaus at _budget through any volley, never growing unbounded.
 		if _p_mass.size() >= _budget:
 			_ejected += per_mass
-			_deposit(world_pos, per_mass)
+			_deposit(world_pos, per_mass, base_speed)
 			continue
 		var rng: LASimRng = LASimRng.shared()
 		var ang: float = rng.randf() * TAU
@@ -242,7 +250,7 @@ func _process(delta: float) -> void:
 		# ACTIVITY-LOD FAST-SETTLE: a parcel that has drifted off-screen or far from the camera settles NOW —
 		# deposit its mass/heat (conserved) and retire it, skipping the invisible arc. Only visible parcels tick.
 		if not _airborne_visible(cam, pos):
-			_deposit(pos, _p_mass[i])
+			_deposit(pos, _p_mass[i], (_p_vel[i] as Vector3).length())
 			_remove_parcel(i)
 			i -= 1
 			continue
@@ -261,7 +269,7 @@ func _process(delta: float) -> void:
 		var descending: bool = vel.dot(r_hat) < 0.0
 		var landed: bool = (_p_risen[i] == 1 and descending and r_now <= _p_launch_r[i]) or age > MAX_LIFETIME
 		if landed:
-			_deposit(pos, _p_mass[i])
+			_deposit(pos, _p_mass[i], vel.length())
 			_remove_parcel(i)
 		else:
 			_p_pos[i] = pos
@@ -271,15 +279,30 @@ func _process(delta: float) -> void:
 	_refresh_visual()
 
 
+# One field MASS unit in kilograms. `LAMaterialField3D.MAX_MASS` is a FULL cell, and a full cell of rock is
+# its volume times basalt's density — so the substrate's mass units already have a real conversion sitting in
+# them and nobody had ever written it down. (The cell is `_cell_size` model units on a side and 1 model unit is
+# 1 m horizontally; see LAMaterialFieldInject3D._cell_heat_capacity for where that scale claim comes from.)
+func _mass_unit_kg() -> float:
+	if _f == null:
+		return 0.0
+	var side: float = maxf(float(_f._cell_size), 0.001)
+	var max_mass: float = maxf(float(_f.MAX_MASS), 0.0001)
+	return LAPhysical.ROCK_DENSITY_KG_M3 * side * side * side / max_mass
+
+
 # Deposit a landed parcel's mass + heat into the field. add_lava is a CONSERVING bedrock→lava phase move (it
 # melts a blob of the impact column's bedrock), so mineral_total stays BOUNDED — the parcel relocates/melts
-# mass rather than fabricating it. add_heat paints the glowing scar (and can ignite fuel — emergent wildfire).
-func _deposit(pos: Vector3, mass: float) -> void:
+# mass rather than fabricating it. The heat is the parcel's own KINETIC ENERGY at the moment it stops, which
+# is where a real impact's heat comes from; a parcel deposited at rest deposits no heat, and that is correct.
+func _deposit(pos: Vector3, mass: float, speed: float) -> void:
 	_deposited += mass
 	if _f.has_method("add_lava"):
 		_f.add_lava(pos, mass)
-	if _f._inject != null:
-		_f._inject.add_heat(pos, LAND_HEAT_PER_MASS * mass, LAND_HEAT_R)
+	if _f._inject != null and speed > 0.0:
+		var joules: float = 0.5 * mass * _mass_unit_kg() * speed * speed
+		_impact_energy_j += joules
+		_f._inject.add_heat_energy(pos, joules, LAND_HEAT_R)
 
 
 func _remove_parcel(i: int) -> void:

@@ -11,16 +11,16 @@ extends RefCounted
 ## (This is the same split as MaterialFieldQueries3D / MaterialFieldRender3D, not a compat layer.)
 ## (Explicit types only, no ':=' inferred typing.)
 
-const QueueScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd")
+const QueueScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldHeatQueue3D.gd")
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
-## Pending sparse DEVICE edits + the H₂O injection ledger. Every CPU-side write into a GPU-resident channel
-## goes through here so it ADDS to live state instead of re-uploading a stale mirror over it, and so every
-## credit names the source it was taken from. Flushed by LAMaterialFieldSphereStep3D just before dispatch;
-## also written by LAMineralStamp3D (the water a growing rock cell has to hand off). Public on purpose — this
-## is the write-side API's own queue, not private state.
-var queue: LAMaterialFieldInjectQueue3D = QueueScript.new()
+## Pending sparse DEVICE edits + the H₂O / MINERAL / THERMAL injection ledgers. Every CPU-side write into a
+## GPU-resident channel goes through here so it ADDS to live state instead of re-uploading a stale mirror over
+## it, and so every credit names the source it was taken from. Flushed by LAMaterialFieldSphereStep3D just
+## before dispatch; also written by LAMineralStamp3D (the water a growing rock cell has to hand off). Public on
+## purpose — this is the write-side API's own queue, not private state.
+var queue: LAMaterialFieldHeatQueue3D = QueueScript.new()
 
 # EVAPORATION SOURCING (add_vapor). A storm lifts water that is THERE: the liquid in its footprint and the
 # water table under it. These bound how hard one injection may pull, so a cell is thinned rather than punched
@@ -49,6 +49,14 @@ var _crater_mass: float = 0.0            # cumulative bedrock mass ASKED of rock
                                          # mineral ledger note. Corrected 2026-08-03.)
 var _crater_sea: int = 0                 # cumulative opened cells that were under the water line and flooded
 
+# THE MANTLE RESERVOIR — the finite store every volcanic vent draws on. Lazily sized on first eruption
+# (the sphere grid is not built when this module is constructed); -1 means "not yet sized".
+var _mantle_reserve: float = -1.0
+var _mantle_drawn: float = 0.0           # cumulative mass erupted out of it this run
+var _mantle_dry_calls: int = 0           # eruption attempts refused because the reservoir was empty
+var _flood_unsourced: int = 0            # below-sea crater cells left DRY because no live water was in reach
+                                         # (they used to be filled from nothing — see _flood_from_sea)
+
 ## Emitted every time something splashes water at a world point (meteor / tornado / fish / thrown rock /
 ## flood / plant). The water-surface renderer (LAMaterialFieldRender3D) connects here to spawn an expanding
 ## impact ripple on the fluid shader, so the same splash that flings droplets also rings the water, with
@@ -56,8 +64,45 @@ var _crater_sea: int = 0                 # cumulative opened cells that were und
 signal splashed(world_pos: Vector3, strength: float)
 
 
+## HOW MUCH ROCK THE MANTLE HOLDS, in the substrate's own mass units. Derived, not chosen: everything below
+## `SphereGrid.core_radius` is unsimulated interior, and that is exactly the body the vents draw on. Its
+## volume divided by one cell's volume, times MAX_MASS (one cell full of rock), is the mass it would be worth
+## if the simulated shell's own convention were extended inward — which is the only convention this substrate
+## has. It re-derives correctly at any planet radius and any grid resolution.
+##
+## WHAT IT MEANS IN PRACTICE, so nobody expects a volcano to run dry mid-session: at the shipped grid this is
+## roughly 40,000 mass units against a measured eruption draw of ~220 per 600-frame run, so the mantle lasts
+## on the order of a hundred and eighty such runs. The point of the bound is not to starve the volcanoes; it
+## is that the source now HAS a bottom, is debited, and reports how far down it is — so "the planet gains
+## rock forever" stops being true and becomes a measurable rate against a stated capacity. A subduction sink
+## returning crust to the mantle is what would close the loop properly, and it does not exist yet.
+func _mantle_capacity() -> float:
+	if _f == null or _f._sphere == null:
+		return 0.0
+	var core_r: float = float(_f._sphere.core_radius)
+	var side: float = maxf(float(_f._cell_size), 0.001)
+	if core_r <= 0.0:
+		return 0.0
+	return (4.0 / 3.0) * PI * core_r * core_r * core_r / (side * side * side) * _f.MAX_MASS
+
+
+## SIM_REPORT provider for the mantle: capacity, what is left, what has been drawn, and how many eruption
+## attempts were refused for want of it.
+func mantle_report() -> Dictionary:
+	var cap: float = _mantle_capacity()
+	var left: float = _mantle_reserve if _mantle_reserve >= 0.0 else cap
+	return {
+		"mantle_capacity": snappedf(cap, 0.01),
+		"mantle_reserve": snappedf(left, 0.01),
+		"mantle_drawn": snappedf(_mantle_drawn, 0.01),
+		"mantle_spent_frac": snappedf(_mantle_drawn / maxf(cap, 0.0001), 0.000001),
+		"mantle_dry_calls": _mantle_dry_calls,
+	}
+
+
 func setup(field) -> void:
 	_f = field
+	LASimReport.register(mantle_report)
 	# Terrain-destruction telemetry as a registered provider (the LASimReport.register plugin seam), so the
 	# crater proof is polled at snapshot time — when `_rock_fill` holds the freshest readback — instead of
 	# being scanned every frame.
@@ -83,26 +128,111 @@ func _device_ready() -> bool:
 # Big-O: injection touches only the O(k) cells inside `radius` gathered by a bounded neighbour-BFS from the
 # centre cell (grid.neighbours), never the whole grid — a stimulus wakes a small bubble, not a full-grid sweep.
 
-## Raise the temperature of the cell at `world_pos` (and cells within `radius`) by `amount` °C. A meteor's
-## molten spike, a fire's heat, a storm's surface warming. Edits the CPU `_temp` mirror directly, so it
-## MARKS IT DIRTY: begin_frame no longer re-uploads temp unconditionally (the geothermal core stopped
-## being a CPU-side pin and became a GPU flux boundary), and injection is now the only CPU writer left.
+## HEAT IS AN ENERGY, AND A CELL'S TEMPERATURE RISE DEPENDS ON WHAT THE CELL IS MADE OF.
+##
+## `add_heat` below is the raw DEGREES form and it names no source; `add_heat_energy` is the one every
+## injector inside this substrate now uses, because a joule has to come from somewhere and a joule warms air
+## and rock by wildly different amounts.
+##
+## THE HEAT CAPACITY OF ONE FIELD CELL, in joules per kelvin.
+##
+## A cell is a cube of side `_f._cell_size` MODEL units. The one scale claim this needs is the HORIZONTAL one,
+## and the field already makes it: MaterialFieldGeotherm3D's header takes "the model's metres literally" and
+## reads the body as a 500 m asteroid — 1 model unit = 1 m. (Only DEPTH is exaggerated there, and only for the
+## geotherm's gradient, which is a claim about the profile and not about a cell's volume.) So a 16-unit cell is
+## 16 m on a side and holds 4096 m³.
+##
+## WHAT IT IS MADE OF is the whole point of doing this at all. Rock stores about 2000x more energy per cubic
+## metre than air (LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K 2.436e6 against VOL_HEAT_CAP_AIR_J_M3K 1186), so the same
+## bolt that drives an air cell up hundreds of degrees moves a rock cell by a fraction of one, and a cell full
+## of water barely at all. None of that coupling existed before: `add_heat` added the same number of DEGREES to
+## every cell in its bubble regardless of what was in them, which is heat conjured in proportion to nothing.
+##
+## RELATIONSHIP TO heat3d_solar_sphere3d.glsl's CAP_AIR/CAP_ROCK/CAP_WATER/CAP_SNOW: those are AREAL
+## (J/m²/K), because the solar kernel applies a surface FLUX to a surface cell, and their formula is
+## `volumetric capacity x thermally-active depth`. This is the SAME formula with the depth being the cell
+## itself, which is the right form for an energy dumped INTO a volume rather than one crossing its face. It is
+## written against the formula and against LAPhysical, not against the kernel's literals, so a re-derivation
+## of those literals does not silently move this.
+func _cell_heat_capacity(cell: int) -> float:
+	var side: float = maxf(float(_f._cell_size), 0.001)
+	var volume: float = side * side * side
+	if _f._solid.size() == _f._cell_count and _f._solid[cell] != 0:
+		return LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K * volume
+	# An open cell is air plus whatever liquid is standing in it. MAX_MASS is a full cell of water, so that
+	# ratio is the water fraction and the remainder is air.
+	var wet: float = 0.0
+	if _f._water.size() == _f._cell_count and _f.MAX_MASS > 0.0:
+		wet = clampf(_f._water[cell] / _f.MAX_MASS, 0.0, 1.0)
+	return (LAPhysical.VOL_HEAT_CAP_WATER_J_M3K * wet + LAPhysical.VOL_HEAT_CAP_AIR_J_M3K * (1.0 - wet)) * volume
+
+
+## Deliver `joules` of ENERGY into the cells within `radius` of `world_pos`, drawn from whatever store the
+## caller just debited. Returns the temperature rise actually asked of the device (°C), for diagnostics.
+##
+## The energy is shared over the bubble BY HEAT CAPACITY, so the whole bubble rises by one common ΔT =
+## E / Σ C_cell. That is the difference between delivering a parcel of energy and delivering a temperature:
+## the old code gave every cell in the bubble the same ΔT, which multiplied whatever energy the caller thought
+## it was depositing by the number of cells it happened to touch.
+func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float:
+	if joules == 0.0 or _f._temp.size() != _f._cell_count:
+		return 0.0
+	var cells: PackedInt32Array = _cells_within(world_pos, radius)
+	if cells.size() == 0:
+		return 0.0
+	var total_cap: float = 0.0
+	for c in cells:
+		total_cap += _cell_heat_capacity(c)
+	if total_cap <= 0.0:
+		return 0.0
+	var delta_c: float = joules / total_cap
+	queue.note_energy(joules)
+	_apply_temp(cells, delta_c)
+	return delta_c
+
+
+## Raise every cell within `radius` of `world_pos` by `amount` °C. THE UNSOURCED FORM: it names no store the
+## degrees came out of, so it creates heat. It survives for the two callers that live outside this substrate
+## and outside this module — `LACreatureDisease`'s fever and the editor's magma brush in
+## `VoxelInputController` — and its demand is booked separately as `heat_inject_unsourced_dc` so it cannot
+## hide inside a total that also holds properly sourced injections. Everything inside the substrate (impacts,
+## lightning, landing ejecta) calls `add_heat_energy` instead.
 func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if amount == 0.0 or _f._temp.size() != _f._cell_count:
 		return
 	var cells: PackedInt32Array = _cells_within(world_pos, radius)
-	for c in cells:
-		_f._temp[c] = _f._temp[c] + amount
-	if _f._gpu != null and _f._gpu.has_method("mark_temp_dirty"):
-		_f._gpu.mark_temp_dirty()
-	# BUG FIX: `fire` is a SITUATIONAL (demand-gated) readback channel with no dedicated actor to ever request
-	# it hot (fire is fully emergent — dissolved into the substrate, no `FireActor` node) — so `fire_cells()`/
+	if cells.size() == 0:
+		return
+	queue.note_unsourced(absf(amount) * float(cells.size()))
+	_apply_temp(cells, amount)
+
+
+## Put a per-cell ΔT on the LIVE device buffer through the queue — NOT on the CPU mirror.
+##
+## The mirror write plus `mark_temp_dirty()` this replaces made `begin_frame` re-upload all ~123,000 CPU
+## temperatures over the GPU's live field, and that mirror is one readback (up to two steps) old, so every
+## injection discarded a whole step of solar absorption, radiative emission, conduction and buoyancy PLANET-WIDE
+## in order to deliver a spike in a handful of cells. Storms and lightning called it every frame. The mirror is
+## owned by the readback and needs no help from here; `temp` is in the always-read set
+## (LAMaterialSphereGPU3D:582), so it refreshes every drain.
+func _apply_temp(cells: PackedInt32Array, delta_c: float) -> void:
+	if not _device_ready():
+		# The box/CPU reference field has no device and nothing flushes the queue there, so the mirror IS the
+		# field — write it, exactly as this function always did.
+		for c in cells:
+			_f._temp[c] = _f._temp[c] + delta_c
+		return
+	var deltas: PackedFloat32Array = PackedFloat32Array()
+	deltas.resize(cells.size())
+	deltas.fill(delta_c)
+	queue.queue_temp(cells, deltas)
+	# `fire` is a SITUATIONAL (demand-gated) readback channel with no dedicated actor to ever request it hot
+	# (fire is fully emergent — dissolved into the substrate, no `FireActor` node) — so `fire_cells()`/
 	# `fire_peak` read a permanently-stale CPU array (frozen at its zero seed) even while real combustion is
-	# happening on the GPU. ANY heat injection can plausibly push a fuelled cell over the ignition threshold
-	# (a meteor, a real lightning strike via MaterialCharge3D, ignite_area, even disease fever), so this is the
-	# one choke point that should wake it — cheap (measured: gating all 4 situational channels saves ~0.5ms
-	# total, a rounding error) and self-expires (CHANNEL_HOLD_DRAINS) once nothing is igniting anymore.
-	if amount > 0.0 and _f._gpu != null:
+	# happening on the GPU. ANY heat injection can plausibly push a fuelled cell over the ignition threshold,
+	# so this is the one choke point that should wake it — cheap (measured: gating all 4 situational channels
+	# saves ~0.5ms total, a rounding error) and self-expires (CHANNEL_HOLD_DRAINS) once nothing is igniting.
+	if delta_c > 0.0 and _f._gpu != null:
 		_f._gpu.request_channel("fire")
 
 ## EVAPORATE airborne water vapor (humidity) into the air over `world_pos` (within `radius`) — a storm's LOCAL
@@ -220,6 +350,67 @@ func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	queue.transfer("soil", soil_cells, soil_take, "moisture", soil_dst)
 
 
+# --- Organic matter: the seam between the field's carbon channels and the actors ----------------------------
+#
+# Vegetation actors and the substrate's `biomass` channel are TWO REPRESENTATIONS OF ONE THING — standing
+# plant tissue — and until now neither knew about the other. A plant node regrew its edible reserve with
+# `_food += rate * dt` toward a cap, so a pasture produced food at a rate set by a constant rather than by
+# photosynthesis, and a plant on bare rock produced exactly as much as one on rich ground. These two calls are
+# what let the actor take its tissue OUT of the field and hand it BACK, so a bite of grass is mass leaving a
+# real cell and an uprooted plant is mass arriving in one.
+#
+# THE FRACTION EXISTS SO A DRAW CANNOT OUTRUN THE DEVICE. The CPU biomass mirror is refreshed on the SLOW
+# readback cadence, so it can be several steps stale; taking only a fraction of what it reports keeps the ask
+# comfortably inside what the live channel still holds, in the same spirit as add_vapor's EVAP_TAKE_FRAC. The
+# device clamps anyway (move_field_sparse takes min(ask, live)), so the fraction is not what makes this safe —
+# it is what keeps the actor's own books close to the device's.
+const ORGANIC_TAKE_FRAC: float = 0.5
+
+## Draw standing biomass out of the field at `world_pos` and hand it to the caller, who is now holding it.
+## Returns the mass the caller may credit itself — sized against the CPU mirror, debited on device.
+## `dst_cells` of -1 means the mass leaves the field: it is in an actor now, and the actor owes it back
+## (as detritus when it dies, as feces once it has been digested, as CO₂ once it has been respired).
+func take_biomass(world_pos: Vector3, want: float) -> float:
+	if want <= 0.0 or _f._biomass.size() != _f._cell_count or not _device_ready():
+		return 0.0
+	var c: int = _f.world_to_cell(world_pos)
+	if c < 0 or c >= _f._cell_count:
+		return 0.0
+	var avail: float = _f._biomass[c] * ORGANIC_TAKE_FRAC
+	if avail <= 0.0:
+		return 0.0
+	var take: float = minf(want, avail)
+	queue.carbon_transfer("biomass", PackedInt32Array([c]), PackedFloat32Array([take]),
+		"biomass", PackedInt32Array([-1]))
+	return take
+
+
+## Lay loose broken stone on the ground at `world_pos` — a thrown rock coming to rest, any future dropped
+## rubble. It goes through the queue's `add`, so it is booked as `mineral_inject_minted`: the mass really is
+## entering the field from OUTSIDE it, because a loose rock actor was never in `mineral_total` to begin with.
+## That is the honest accounting for the seam between scene-node props and the substrate, and naming it is
+## what makes the world-gen side of the same gap (a rock actor placed with no debit) measurable.
+func deposit_sediment(world_pos: Vector3, amount: float) -> void:
+	if amount <= 0.0 or _f._sediment.size() != _f._cell_count or not _device_ready():
+		return
+	var c: int = _f.world_to_cell(world_pos)
+	if c < 0 or c >= _f._cell_count:
+		return
+	queue.add("sediment", PackedInt32Array([c]), PackedFloat32Array([amount]))
+
+
+## Hand mass an actor was holding back to the field as DEAD ORGANIC MATTER at `world_pos` — an uprooted plant,
+## a shed leaf. The decomposer loop (fungus → CO₂ + fertility) picks it up from there, which is what closes
+## the circle: matter an actor took out of the biosphere re-enters it instead of disappearing with the node.
+func return_detritus(world_pos: Vector3, amount: float) -> void:
+	if amount <= 0.0 or _f._detritus.size() != _f._cell_count or not _device_ready():
+		return
+	var c: int = _f.world_to_cell(world_pos)
+	if c < 0 or c >= _f._cell_count:
+		return
+	queue.carbon_return("detritus", PackedInt32Array([c]), PackedFloat32Array([amount]))
+
+
 ## Packed arrays are copy-on-write VALUE types in GDScript — an in-place helper would scale a copy and leave
 ## the caller's array untouched — so this returns the scaled array instead of mutating an argument.
 func _scaled(arr: PackedFloat32Array, k: float) -> PackedFloat32Array:
@@ -249,14 +440,24 @@ func add_charge(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 ## fully rebuild its charge before it can strike again. This is the emergent per-storm cooldown (no timer):
 ## without it, the neighbours of a fired cell sit at breakdown and re-fire next step (the firehose). Every
 ## cell in the bubble is knocked down to `residual`; the channel is GPU-resident, so mark it dirty.
-func deplete_charge(world_pos: Vector3, radius: float, residual: float) -> void:
+##
+## RETURNS THE CHARGE IT DESTROYED, which is the point of the change. This function used to zero the storm's
+## accumulated charge and simply throw it away, while `_fire_bolt` separately conjured a flat 900 °C spike out
+## of nothing. A discharge does not annihilate energy — it converts the electrostatic store into heat, light
+## and sound in the channel. Handing the drained total back is what lets the caller make the bolt's heat BE
+## that store, so a bolt fired from a weakly charged cell is a weak bolt and a bolt with no charge behind it
+## cannot happen at all.
+func deplete_charge(world_pos: Vector3, radius: float, residual: float) -> float:
 	if _f._charge.size() != _f._cell_count:
-		return
+		return 0.0
 	var cells: PackedInt32Array = _cells_within(world_pos, radius)
+	var drained: float = 0.0
 	for c in cells:
 		if _f._charge[c] > residual:
+			drained += _f._charge[c] - residual
 			_f._charge[c] = residual
 	_f._charge_dirty = true
+	return drained
 
 
 ## Gather the linear cell indices within `radius` world-units of `world_pos` (the centre cell always included).
@@ -305,9 +506,21 @@ func _cells_within(world_pos: Vector3, radius: float) -> PackedInt32Array:
 func erupt_source(world_pos: Vector3, amount: float) -> float:
 	if amount <= 0.0 or _f._lava.size() != _f._cell_count or _f._rock_fill.size() != _f._cell_count:
 		return 0.0
-	var c: int = _f.world_to_cell(world_pos)
-	if c < 0 or c >= _f._cell_count:
+	# THE MANTLE IS FINITE. It was not before: the vent's own docstring said "the deep reservoir is effectively
+	# infinite, so mineral_total rises by exactly the mass injected", and nothing bounded it and no subduction
+	# sink returned any of it, so the planet gained rock forever. It was HONESTLY BOOKED (mineral_inject_minted,
+	# subtracted before mineral_net_per_step), which is why this is the last of the mass problems and not the
+	# first — but a declared source with no bottom is still a planet that grows without limit.
+	if _mantle_reserve < 0.0:
+		_mantle_reserve = _mantle_capacity()
+	if _mantle_reserve <= 0.0:
+		_mantle_dry_calls += 1
+		return 0.0                                    # the mantle this planet was born with is spent
+	amount = minf(amount, _mantle_reserve)
+	var cell0: int = _f.world_to_cell(world_pos)
+	if cell0 < 0 or cell0 >= _f._cell_count:
 		return 0.0
+	var c: int = cell0
 	var depth: int = _f._sphere.depth if _f._sphere != null else 1
 	var col_base: int = c - (c % depth)               # radial layer 0 (core side) of this surface column
 	var col_top: int = col_base + depth - 1           # outermost radial layer (sky side)
@@ -338,6 +551,8 @@ func erupt_source(world_pos: Vector3, amount: float) -> float:
 	# direction the driver's own note ("only moving add_lava onto move_field_sparse would") calls safe. `lava`
 	# is in the queue's MINERAL_CHANNELS, so this still books into the mineral ledger.
 	queue.add("lava", PackedInt32Array([cell]), PackedFloat32Array([amount]))
+	_mantle_reserve -= amount
+	_mantle_drawn += amount
 	# The CPU mirror still has readers — this function's own size guard, lava_total() for SIM_REPORT, and the
 	# eruption event detector — so keep its readback hot while a vent is active, exactly as add_lava does.
 	if _f._gpu != null:
@@ -357,23 +572,54 @@ func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
 	# gravity-driven flow runs it downhill — never up a hillside. No vertical XZ column. O(k) over the bubble
 	# via the neighbour-BFS.
 	#
-	# This is a SOURCELESS add (a scripted surge really does conjure its water), so it goes through the queue's
-	# `add` and lands in the reported `h2o_inject_minted` — visible rather than hidden. What it must NOT do is
-	# what it used to: edit the CPU mirror and mark the whole water channel dirty, which made begin_frame
-	# re-upload a one-to-two-step-old snapshot of the ENTIRE channel over the live GPU water, discarding a step
-	# of flow/rain/infiltration everywhere on the planet to deliver a puddle. The sparse device add touches only
-	# the bubble.
+	# IT RAINS OUT OF THE AIR OVER IT. This used to be a SOURCELESS add — it went through the queue's `add`,
+	# landed in `h2o_inject_minted`, and its own comment called it "a scripted surge really does conjure its
+	# water". Its only caller (VoxelInputController's brush, "DIFFUSE rain recharge") is asking for RAIN, and
+	# rain is not new water: it is atmospheric moisture condensing. So the surge is now a conserving transfer
+	# out of the `moisture` in the same bubble, which is exactly the reverse of the evaporation `add_vapor`
+	# performs. A recharge over dry air delivers little and reports the shortfall, rather than filling the
+	# aquifer from nowhere.
+	#
+	# What it must also NOT do, and did not before this either: edit the CPU mirror and mark the whole water
+	# channel dirty, which made begin_frame re-upload a one-to-two-step-old snapshot of the ENTIRE channel over
+	# the live GPU water, discarding a step of flow/rain/infiltration everywhere on the planet to deliver a
+	# puddle. The sparse device transfer touches only the bubble.
 	var center_r: float = (center - _f._origin).length()
 	var cells: PackedInt32Array = _cells_within(center, radius)
 	var fill_cells: PackedInt32Array = PackedInt32Array()
-	var fill_amt: PackedFloat32Array = PackedFloat32Array()
 	for c in cells:
 		if _f._solid[c] != 0:
 			continue
 		if (_f.cell_world_pos_linear(c) - _f._origin).length() <= center_r + _f._cell_size:
 			fill_cells.append(c)
-			fill_amt.append(amount)
-	queue.add("water", fill_cells, fill_amt, _f.MAX_MASS)
+	if fill_cells.size() == 0:
+		return
+	queue.note_demand(amount * float(fill_cells.size()))
+	# The moisture to condense is gathered from the WHOLE bubble, not only the cells being filled — a raincloud
+	# is wider than the puddle it makes — and spread over the fill cells in proportion to what each source
+	# held. `move_field_sparse` clamps every take to the live value, so a stale mirror can only under-deliver.
+	var src_cells: PackedInt32Array = PackedInt32Array()
+	var takes: PackedFloat32Array = PackedFloat32Array()
+	var dsts: PackedInt32Array = PackedInt32Array()
+	var have_moisture: bool = _f._moisture.size() == _f._cell_count
+	var i: int = 0
+	var offer: float = 0.0
+	if have_moisture:
+		for c in cells:
+			if _f._solid[c] != 0 or _f._moisture[c] <= 0.0:
+				continue
+			var av: float = _f._moisture[c] * EVAP_TAKE_FRAC
+			if av <= 0.0:
+				continue
+			src_cells.append(c)
+			takes.append(av)
+			dsts.append(fill_cells[i % fill_cells.size()])
+			offer += av
+			i += 1
+	var want: float = amount * float(fill_cells.size())
+	if offer > want and offer > 0.0:
+		takes = _scaled(takes, want / offer)
+	queue.transfer("moisture", src_cells, takes, "water", dsts, _f.MAX_MASS)
 
 
 ## THE OTHER HALF OF A TERRAIN EDIT — call this straight after destroying terrain (`carve_sphere`).
@@ -535,43 +781,65 @@ func _flood_from_sea(cells: PackedInt32Array) -> void:
 	var srcs: PackedInt32Array = PackedInt32Array()
 	var dsts: PackedInt32Array = PackedInt32Array()
 	var amounts: PackedFloat32Array = PackedFloat32Array()
-	var unsourced: PackedInt32Array = PackedInt32Array()
+	var unsourced: int = 0
 	for c in cells:
 		# Slot order is LASphereGrid's: 0 inward, 1 outward, 2..5 lateral. Prefer OUTWARD — the sea is above the
-		# floor we just broke, so that is where the water actually comes from.
-		var found: bool = false
-		for d in [1, 2, 3, 4, 5, 0]:
-			var nb: int = nbr[c * 6 + d]
-			if nb < 0 or nb >= _f._cell_count or solid[nb] != 0:
-				continue
-			if _f._water[nb] < _f.MAX_MASS * 0.5:
-				continue                               # not a full sea cell — nothing here to pour in
-			srcs.append(nb)
+		# floor we just broke, so that is where the water actually comes from. Search TWO rings, not one: the
+		# immediate neighbours of a deep crater's floor are mostly other fresh crater cells, which is precisely
+		# the case the old code could not source and so filled from nothing.
+		var src: int = _nearest_water(c, 2)
+		if src >= 0:
+			srcs.append(src)
 			dsts.append(c)
 			amounts.append(_f.MAX_MASS)
-			found = true
-			break
-		if not found:
-			unsourced.append(c)
+		else:
+			unsourced += 1
 	if srcs.size() > 0:
 		queue.transfer("water", srcs, amounts, "water", dsts, _f.MAX_MASS)
-	if unsourced.size() > 0:
-		# NO LIVE NEIGHBOUR TO DRAW FROM, and this cell has just been flagged `static` — it is sea now. A static
-		# cell is skipped by water_sphere3d.glsl's outflow gather AND by everything that would flow into it, so a
-		# dry static cell is a permanent hole in the ocean that nothing can ever fill: not the tide, not a river,
-		# not the next strike. That is the state a breached seabed used to be left in whenever the strike opened a
-		# pocket whose neighbours were all still rock (or were themselves fresh crater cells the CPU mirror had
-		# not caught up on yet), which is most of a deep crater's floor.
+	if unsourced > 0:
+		# NOTHING WITHIN REACH TO POUR IN, SO NOTHING POURS IN. This branch used to `queue.add` a full cell of
+		# water per unsourced cell — water from nowhere — and it justified itself like this: "the static sea is
+		# already an infinite reservoir by construction (it absorbs every river forever and its evaporation
+		# source refills it without depleting), so taking a cell's worth out of it is exactly the bargain the
+		# rest of the static-sea model makes."
 		#
-		# So the top-up is SOURCELESS, and that is the correct physics for this model rather than a shortcut: the
-		# static sea is already an infinite reservoir by construction (it absorbs every river forever and its
-		# evaporation source refills it without depleting — see the note above), so taking a cell's worth out of
-		# it is exactly the bargain the rest of the static-sea model makes. It goes through the queue's `add`, so
-		# it lands in the reported `h2o_inject_minted` and is visible rather than hidden inside the channel.
-		var fill: PackedFloat32Array = PackedFloat32Array()
-		fill.resize(unsourced.size())
-		fill.fill(_f.MAX_MASS)
-		queue.add("water", unsourced, fill, _f.MAX_MASS)
+		# THAT JUSTIFICATION IS FALSE AND HAS BEEN FOR SOME TIME. `_static` is never set to 1 anywhere in this
+		# repository — the mask was removed from `_seed_sphere_sea` on 2026-07-30 because it was measured
+		# minting +6263 units of water, and the one line that resurrected it a few cells at a time (in
+		# `resample_terrain`, just above) went with it. Every `static_cells[]` branch in every kernel is dead;
+		# SIM_REPORT confirms it with `static_cells: 0`. So the infinite reservoir this borrowed against does
+		# not exist, and the borrowing was simply water appearing.
+		#
+		# A dry pocket under the water line is now left dry and COUNTED. It is a real, visible artefact of a
+		# crater whose floor the surrounding sea cannot reach in two rings, and the honest fix for it is the
+		# water kernel's flow — not a top-up here.
+		_flood_unsourced += unsourced
+
+
+## The nearest open cell within `rings` neighbour hops that holds enough water to pour into a fresh hole.
+## Breadth-first over the sphere's own 6-neighbour table, outward-first at each level so the sea above a
+## breached floor is preferred over the rock beside it. -1 when there is none — which is a real answer about
+## the neighbourhood, not a licence to invent the water.
+func _nearest_water(from: int, rings: int) -> int:
+	var nbr: PackedInt32Array = _f._sphere.neighbours
+	var solid: PackedByteArray = _f._solid
+	var seen: Dictionary = {from: true}
+	var frontier: PackedInt32Array = PackedInt32Array([from])
+	for _ring in range(rings):
+		var next: PackedInt32Array = PackedInt32Array()
+		for c in frontier:
+			for d in [1, 2, 3, 4, 5, 0]:
+				var nb: int = nbr[c * 6 + d]
+				if nb < 0 or nb >= _f._cell_count or seen.has(nb):
+					continue
+				seen[nb] = true
+				if solid[nb] != 0:
+					continue
+				if _f._water[nb] >= _f.MAX_MASS * 0.5:
+					return nb
+				next.append(nb)
+		frontier = next
+	return -1
 
 
 ## SIM_REPORT provider: the proof that terrain destruction reached the SUBSTRATE, not just the mesh.
@@ -609,6 +877,10 @@ func crater_report() -> Dictionary:
 		"crater_below_sea": below_sea,
 		"crater_sea": _crater_sea,
 		"crater_water": snappedf(water, 0.01),
+		# Below-sea cells a strike opened that the surrounding sea could not reach within two rings, and which
+		# are therefore left DRY rather than filled from nothing. A rising number here is a real gap in the
+		# water kernel's ability to flow into a fresh hole, and it is now visible instead of being papered over.
+		"crater_dry_pockets": _flood_unsourced,
 	}
 
 
