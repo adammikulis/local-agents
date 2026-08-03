@@ -52,13 +52,33 @@ it currently seeds 7485.40 units (water 3483.78, soil 3997.07, moisture 4.55).
 runoff, which may be starving the water table rather than the planet being short of water. Raising the seed to
 paper over a recharge limit would be fitting a constant to an outcome.
 
-**3 — The world does not sustain a population over a long run, at any speed.** `--fast=2` taken to
-`field_step 3146` ends with 1 and 0 creatures, exactly as dead as `--fast=4` at that depth. At the shallow
-horizon everyone measures (`field_step ~746`) it looks healthy at 146–236, which is why this never showed up
-in a routine gate. This is the 0.4 livability / carrying-capacity gap in its honest form. Measure with a long
-run at `--fast=8` (safe, and 4.3× faster in wall-clock) and read the **death-cause histogram**, not the final
-count — an older 1500-frame diagnostic ended near 2 creatures with suffocation 111, frozen 73, old age 72,
-starvation 58, which is the map of what to fix if it still holds.
+**3 — The world does not sustain a population over a long run, at any speed. MEASURED 2026-08-03, and it is
+not what this entry used to say.** *(It previously cited a 1500-frame diagnostic ending near 2 creatures with
+"suffocation 111, frozen 73, old age 72, starvation 58" and called that "the map of what to fix". Re-measured
+on `0.4-dev` at `--fixed-fps 60 --fast=8 --seed=4242 --run-frames=2000`, every one of those four numbers is
+wrong: **suffocated 0, frozen 0, heatstroke 4**, and the dominant cause by a factor of three is **old age**.)*
+
+The arc, from `POP_TRACE` (creatures, every 180 frames): 239 · 234 · 183 · **71** · 32 · 15 · 8 · 3 · 2 · 1 ·
+**0**. Total land extinction by frame 1980; fish hold flat at 52 because aquatic breeding has a survival floor
+(`EcologyBreeding.gd` `GRAZE_BIOMASS_FLOOR`). Final histogram: **old age 665**, starved 199, thirst 65,
+starvation 23, heatstroke 4, eaten 1, burned 1, frozen 0, suffocated 0, drowned 0.
+
+Two distinct failures, in order:
+- **A thirst mass-casualty between frames 540 and 720**, where the population halves (183 → 71) and `thirst`
+  goes 0 → 50 with rabbit deaths 5 → 50 in the same window. The land is dry: `water_total` 1039 and
+  `soil_total` **91.7** at `field_step 1990`, against the ~173–205 item #2 quotes at a shallower horizon, so
+  the drying continues rather than settling.
+- **Then no replacement.** After that cliff nothing breeds; `old age` climbs 217 → 665 while every other cause
+  goes nearly flat. The survivors simply age out.
+
+**And the likely upstream cause is item #1, not a carrying-capacity constant.** `temp_mean` rises
+monotonically across the whole run — 29.5 · 36.9 · 40.4 · 41.4 · 44.7 · 48.0 · 50.4 · 53.7 · 58.2 · 60.5 ·
+62.1, ending at 62.8 with no sign of levelling — while `moisture_total` climbs 1851 → 4665 as `water_total`
+and `soil_total` fall. That is a warming atmosphere raising `sat(T)`, holding water as vapour, and drying the
+land the creatures drink from. `0.4-dev` has no radiative sink at all, so nothing bounds this.
+**Do not tune breeding or thirst rates against these numbers until #1 lands** — re-measure after, because the
+mechanism being fixed is the one that produced them. (`surf_mean`, the temperature at trees/plants, oscillates
+10–15 °C and does NOT trend, so the runaway is in the atmospheric/interior mean, not at the creatures' feet.)
 
 **4 — The seabed vent plugs its own column, and the "spire" is a ten-column picket fence.** Screenshots, not
 scalars: the pile is ~10 separate one-cell columns with visible gaps, and the same white growths appear on
@@ -337,14 +357,16 @@ already close it):
 - **Fish (Phase 2 W-FISH):** brainless config-band swim logic in `Fish.gd` → generalized cognition via a fish
   adapter. **Any `if species==X`** → genome/config (the new personality/diet genes).
 
-### Confirmed field/GPU bugs to fix in the 0.4 field pass (from the 0.3 bug-hunt — deferred as substrate-risky)
-- [ ] **Combustion O₂/CO₂ written to the wrong ping-pong half** (`sphere_passes/FireDustPass.gd:82`) — bind o2/co2
-  to the BACK half in the fire uniform set so the in-place consume/emit lands on the buffer transport wrote.
-- [ ] **Fuel channel allocated to zeros, never populated** (`MaterialField3D.gd:325`) — seed fuel from biomass on
-  surface cells + upload, so the fire kernel has something to burn (combustion currently has no fuel substrate).
-- [ ] **Organically-grown storm charge can cross breakdown but never fire a bolt** (`MaterialCharge3D.gd:63`) —
-  give grown charge the same wake safety-net as injected charge (set a wake flag when accumulated charge exceeds
-  threshold) so natural-storm lightning isn't lost to the strided-probe blind spot.
+### Field/GPU work left in the 0.4 field pass
+*(Corrected 2026-08-03. Three "confirmed bugs" sat here — combustion writing O₂/CO₂ to the wrong ping-pong half,
+the fuel channel allocated to zeros and never populated, and grown storm charge unable to fire a bolt. **All
+three were already fixed in-tree**, by commits at or before `9883fec`, i.e. before the `sim/`+`game/` split, so
+these bullets had been sending work at solved problems for weeks. What is actually there now:
+`FireDustPass.gd:85-90` binds `[6, o2[back]], [7, co2[back]]` with a comment explaining why; a whole module,
+`MaterialSurfaceSeed3D.gd`, seeds fuel on ground-surface cells and refills it from biomass every 40 steps
+(`:87-102`), uploaded at `MaterialFieldSphereStep3D.gd:203-207`; and `MaterialCharge3D.gd:39-44` closes the
+strided-probe blind spot with `FULL_SCAN_EVERY = 20`, after which `:98-99` sets `_charge_woke` from a true
+all-cell peak. Verify before re-adding any of them.)*
 - [ ] **Energy chemistry 0.4 deepening:** the 0.3 muscle-lactate/conserve-drive is the first step — deepen into full
   ATP / glycogen / O₂-gated aerobic-vs-anaerobic chemistry (ties into the nutrient cycle + DNA-driven metabolism).
 
