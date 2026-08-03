@@ -90,7 +90,7 @@ const float SOIL_WATER_MIN = 0.002;
 // MUST match lava_phase_sphere3d.glsl's LAVA_MIN_MASS exactly.
 const float LAVA_MIN_MASS = 0.0001;
 // MUST match charge_accum_sphere3d.glsl's own storm-driver predicate exactly.
-const float CHARGE_FREEZE_T = 13.0;
+const float CHARGE_FREEZE_T = -10.0;   // LAPhysical.CHARGE_ZONE_WARM_C (must match charge_accum_sphere3d)
 // No existing kernel names a dust epsilon; picked as a small fraction consistent with the other MIN constants.
 const float DUST_MIN = 0.001;
 const float DECAY = 0.34;            // ~3-cell bubble radius per wake pulse
