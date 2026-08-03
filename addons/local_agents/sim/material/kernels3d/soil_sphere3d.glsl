@@ -9,7 +9,9 @@
 // valley wall, a hillfoot) it DAYLIGHTS — exfiltrates as surface water = a SPRING. Surface water (the water CA)
 // carries the spring flow downhill to the sea = a RIVER. Rain/snowmelt INFILTRATES from the surface to recharge
 // the table (with a bone-dry hydrophobic crust so a deluge on baked ground runs off = flash flood). The bedrock
-// floor is what stops the naive "all groundwater sinks to the core" and makes the aquifer surface-following.
+// floor is what stops the naive "all groundwater sinks to the core"; CAPILLARY RETENTION (k_rel/RESIDUAL below)
+// is what makes the aquifer surface-following, by stopping gravity drainage at field capacity instead of
+// letting every shell bleed into the one beneath it.
 //
 // One 2-pass GATHER over the shared `send` scratch (each send = mass moved in a direction; the receiver adds it
 // to soil if it is regolith, to surface water if it is open — the soil<->water phase change at the boundary is
@@ -43,8 +45,34 @@ const float CAPACITY = 0.60;          // groundwater a regolith cell holds when 
 const float MAX_MASS = 1.0;           // surface water a cell holds before it is "full" (MUST match MaterialField3D
                                       // + water_sphere3d.glsl). An outlet at or above this can take no more, which
                                       // is what gives a spring its back-pressure.
-const float CONDUCT = 0.35;           // Darcy conductivity: groundwater flow per unit head difference per step
+const float CONDUCT = 0.35;           // SATURATED Darcy conductivity: flow per unit hydraulic gradient per step
 const float MAX_FLOW_FRAC = 0.35;     // cap total outflow to this fraction of a cell's soil per step (stability)
+// UNSATURATED CONDUCTIVITY — WHY A DRY CELL MUST NOT DRAIN AT THE SATURATED RATE.
+// Porous media do not conduct at K_sat when their pores are not full: K(theta) = K_sat * k_r(S_e), and k_r
+// collapses by orders of magnitude as the pores empty, because what is left clings to grain surfaces in films
+// too thin and too disconnected to carry flow. Below the RESIDUAL saturation, capillary (matric) suction holds
+// the water against gravity indefinitely — that is what FIELD CAPACITY means, and it is why a soil profile a
+// week after rain is still moist near the surface instead of having drained to the bedrock. In a real profile
+// the root zone is the WETTEST part after rain.
+//
+// THIS TERM WAS ENTIRELY ABSENT. CONDUCT was applied flat at every saturation, so every regolith cell went on
+// draining downward at full saturated conductivity all the way to zero and nothing ever held water in the
+// vadose zone. Measured on 0.4-dev @ e7f543d at field_step 799, mean saturation by shell from the ground
+// surface inward: [0.0026, 0.0048, 0.0345, 0.1686] — the root zone was the DRIEST cell in the column, by a
+// factor of 65, and the whole aquifer had bled into the bedrock floor and out to sea (soil_total 3997 -> 421).
+// Slot-order greed (fixed below) accounted for only ~11% of that; this is the mechanism.
+const float RESIDUAL = 0.30;          // fraction of CAPACITY held against gravity by capillarity. Field capacity
+                                      // over porosity for real soils: sand 0.091/0.437 = 0.21, sandy loam
+                                      // 0.207/0.453 = 0.46, loam 0.27/0.463 = 0.58 (Rawls, Brakensiek & Saxton
+                                      // 1982, USDA texture class means). Weathered regolith is coarse, so this
+                                      // sits at the sand / sandy-loam end.
+// Irmay (1954), the cubic law for granular porous media: k_r = S_e^3. (Brooks & Corey's k_r = S_e^(3+2/lambda)
+// and Mualem-van Genuchten are the same shape with a texture-dependent exponent; the cubic is the coarse-media
+// limit and is the least assuming choice for regolith.)
+float k_rel(float s) {
+	float se = clamp((s / CAPACITY - RESIDUAL) / (1.0 - RESIDUAL), 0.0, 1.0);
+	return se * se * se;
+}
 // SPRINGS emerge where the water-table HEAD rises above an open neighbour's floor — i.e. at VALLEY WALLS where
 // the regolith meets open ground laterally, NOT on flat ground (whose only open neighbour is straight up, which
 // the table can't exceed unless brim-full). This auto-concentrates discharge at valleys and self-limits: seeping
@@ -71,6 +99,12 @@ const float MIN_W = 0.002;            // surface water below this doesn't infilt
 const float INFIL_RATE = 0.045;       // peak infiltration — under the rainfall rate so storms produce runoff
 const float DRY_CRUST = 0.12;         // bone-dry infiltration fraction (hydrophobic crust → flash flood)
 const float WET_KNEE = 0.25;          // soil fraction by which the ground has rehydrated to full infiltration
+
+// Which leg a per-slot desired flow belongs to, so the budget-sharing loop can attribute it to the right probe
+// slot after scaling. (The up-seep leg is tracked separately — it shares slot 5 with a possible spring.)
+const int LEG_NONE = 0;
+const int LEG_DARCY = 1;
+const int LEG_SPRING = 2;
 
 // ---- PER-LEG BUDGET PROBE (LAMaterialFieldSoilBudget3D reads this) ------------------------------------
 // Each cell writes ONLY its own DBG_SLOTS floats, so the probe is as race-free as the channel writes beside
@@ -146,19 +180,35 @@ void main() {
 				return;
 			}
 			float my_head = head_of(idx, s);
-			float remaining = s * MAX_FLOW_FRAC;           // bounded total outflow this step
-			// KNOWN, NOT FIXED HERE: this loop spends `remaining` greedily in SLOT ORDER and breaks when it runs
-			// out. Slot 0 is the INWARD neighbour and head_of() makes the cell below always lower-head unless it
-			// is brim-full, so whenever the cell beneath has headroom the outflow budget is spent downward before
-			// any lateral Darcy or spring runs. That is why the table equilibrates in the bottom regolith shells
-			// with the top ones dry, and why the header's claim that "the bedrock floor makes the aquifer
-			// surface-following" does not hold. The fix is proportional allocation (compute all six desired flows,
-			// then scale them to the budget together) — deliberately NOT done in the same change as the units fix
-			// below, because it restructures a conservation-critical gather and deserves its own verification.
+			// The DONOR's unsaturated conductivity gates every leg that moves water THROUGH the rock — Darcy and
+			// the spring seepage face alike. Upstream weighting is the standard for unsaturated flow: the cell
+			// water is leaving is the one whose pore network has to carry it. A cell at or below field capacity
+			// has k_rel == 0 and conducts nothing, which is what stops the vadose zone bleeding dry.
+			float kr = k_rel(s);
+			// PROPORTIONAL ALLOCATION, NOT SLOT-ORDER GREED. Every direction's DESIRED flow is computed first,
+			// then the step's stability budget is shared among them by ONE scale factor, so no direction can be
+			// starved by where it happens to sit in the neighbour table.
+			//
+			// What this replaces: the loop used to spend `remaining = s * MAX_FLOW_FRAC` greedily in slot order
+			// and `break` when it ran out. Slot 0 is the INWARD neighbour, a full cell_size lower, and head_of()
+			// caps a cell's water table at exactly one cell_size — so the downward gradient is positive by
+			// construction unless the cell below is brim-full, and it is ~1.0 whenever the two hold similar
+			// water. Every other leg competes against that with a gradient of (s_me - s_them)/CAPACITY, which is
+			// near zero on a level table. The budget therefore went straight down in every cell every step, and
+			// the `break` meant lateral Darcy and the spring/exfiltration legs often never ran at all.
+			//
+			// Scaling every leg by ONE factor is the standard mass-limited redistribution for an explicit
+			// multi-direction flow solver: the uncapped physics prescribes the RATIOS between the fluxes, and
+			// uniform scaling is the only limiter that preserves them. Exactly conserving — pass 1 debits the
+			// same `send` slots it credits, and the scaled total is <= MAX_FLOW_FRAC * s < s, so a cell can
+			// never over-draw and the apply clamp still never fires. Same rule reactions_sphere3d.glsl's
+			// root_soil_draw() already uses to split a root's draw across its rooting column.
+			float want[6];
+			int leg[6];
+			float total_want = 0.0;
 			for (int d = 0; d < 6; d++) {
-				if (remaining <= 0.0) {
-					break;
-				}
+				want[d] = 0.0;
+				leg[d] = LEG_NONE;
 				int n = nbr[base + uint(d)];
 				if (n < 0) {
 					continue;
@@ -183,12 +233,11 @@ void main() {
 						// Dividing by cell_size makes CONDUCT what its comment always claimed: flow per unit
 						// hydraulic gradient, the same dimensionless currency as INFIL_RATE.
 						float grad = dh / max(params.cell_size, 1e-6);
-						float flow = min(CONDUCT * grad, remaining);
-						flow = min(flow, max(0.0, CAPACITY - soil_in[n]));
+						float flow = min(CONDUCT * kr * grad, max(0.0, CAPACITY - soil_in[n]));
 						if (flow > 0.0) {
-							send[base + uint(d)] = flow;
-							remaining -= flow;
-							dbg[dbase + DBG_DARCY_SENT] += flow;
+							want[d] = flow;
+							leg[d] = LEG_DARCY;
+							total_want += flow;
 						}
 					}
 				} else if (solid[n] == 0.0) {
@@ -224,7 +273,7 @@ void main() {
 						// (cell_size = 8*PLANET_SCALE), so 0.20 * a few metres always exceeded
 						// remaining = MAX_FLOW_FRAC*s <= 0.21 and min() picked the stability cap EVERY time.
 						// Every spring in the world ran flat out at the cap, head-proportional in name only.
-						float exf = SPRING_CONDUCT * (exf_head / params.cell_size);
+						float exf = SPRING_CONDUCT * kr * (exf_head / params.cell_size);
 						// BACK-PRESSURE. A full outlet cannot accept water, and until now nothing said so: for the
 						// INWARD neighbour the geometry makes the head positive by construction
 						//     exf_head = table + (1 - w)*cell_size >= table > 0
@@ -234,25 +283,11 @@ void main() {
 						// receiver-headroom cap the Darcy leg above already applies to regolith receivers — the
 						// same rule, finally applied on the side that needed it most.
 						exf = min(exf, max(0.0, MAX_MASS - water[n]));
-						exf = min(exf, remaining);
-						send[base + uint(d)] = exf;
-						remaining -= exf;
-						dbg[dbase + DBG_SPRING_SENT] += exf;
-						if (d == 0) { dbg[dbase + DBG_SPRING_DOWN] += exf; }
-						else if (d == 5) { dbg[dbase + DBG_SPRING_UP] += exf; }
-						else { dbg[dbase + DBG_SPRING_LAT] += exf; }
-						if (water[n] >= 0.5) { dbg[dbase + DBG_SPRING_WET] += exf; }
-						// How tall is the OPEN column standing above this outlet? 3+ open cells = a real water
-						// body (sea/lake); rock within 2 = a cavity or a carved channel, i.e. confined.
-						int oc = 0;
-						int walk = nbr[uint(n) * 6u + 5u];
-						for (int k = 0; k < 3; k++) {
-							if (walk < 0 || solid[walk] != 0.0) { break; }
-							oc++;
-							walk = nbr[uint(walk) * 6u + 5u];
+						if (exf > 0.0) {
+							want[d] = exf;
+							leg[d] = LEG_SPRING;
+							total_want += exf;
 						}
-						if (oc >= 3) { dbg[dbase + DBG_SPRING_FREECOL] += exf; }
-						else { dbg[dbase + DBG_SPRING_CAPPED] += exf; }
 					}
 				}
 			}
@@ -267,11 +302,15 @@ void main() {
 			// not physics. Real artesian flow is driven by a confined aquifer's recharge area standing HIGHER
 			// somewhere else — a pressure that is not a function of local water depth and that this substrate
 			// does not yet carry. Until a real pressure channel exists, this leg approximates it.
+			//
+			// Deliberately NOT gated by k_rel: it stands in for a pressure the substrate does not carry, not for
+			// conduction through partly-filled pores, and it only fires above SEEP_THRESH * CAPACITY where
+			// k_rel is 0.63-1.0 anyway. Gating it would be applying a correction to a placeholder.
+			float seep_want = 0.0;
 			float surplus = s - CAPACITY * SEEP_THRESH;
-			if (surplus > 0.0 && remaining > 0.0) {
+			if (surplus > 0.0) {
 				int up = nbr[base + 5u];
 				if (up >= 0 && solid[up] == 0.0) {
-					float seep = min(remaining, surplus * SEEP_RATE);
 					// ...but it still cannot push water into a cell that is already full. The comment here used to
 					// argue up-seep needed no such guard, "self-limiting because it only fires on the surplus above
 					// SEEP_THRESH, which the head term prevents the seabed from ever reaching by drainage". That
@@ -279,11 +318,51 @@ void main() {
 					// fixed the seabed saturated, crossed SEEP_THRESH, and this leg took over as the dominant sink
 					// — measured seep_sent 6.03/step -> 29.50/step at field_step 50, the largest single leg in the
 					// budget. Two legs each relying on the other to stay small is not self-limiting, it is a loop.
-					seep = min(seep, max(0.0, MAX_MASS - water[up]));
-					send[base + 5u] += seep;
-					remaining -= seep;
-					dbg[dbase + DBG_SEEP_SENT] += seep;
+					// The headroom left is the outlet's, MINUS whatever the spring leg already aimed at the SAME
+					// open cell through slot 5 — two legs sharing one outlet must share its capacity, which the
+					// old pair of independent min()s did not enforce.
+					seep_want = min(surplus * SEEP_RATE, max(0.0, MAX_MASS - water[up] - want[5]));
+					total_want += seep_want;
 				}
+			}
+
+			// ---- SHARE THE BUDGET ------------------------------------------------------------------------
+			if (total_want <= 0.0) {
+				return;                                    // nothing wants to move; `send` is already zeroed
+			}
+			float scale = min(1.0, (s * MAX_FLOW_FRAC) / total_want);
+			for (int d = 0; d < 6; d++) {
+				float f = want[d] * scale;
+				if (f <= 0.0) {
+					continue;
+				}
+				send[base + uint(d)] = f;
+				if (leg[d] == LEG_DARCY) {
+					dbg[dbase + DBG_DARCY_SENT] += f;
+					continue;
+				}
+				dbg[dbase + DBG_SPRING_SENT] += f;
+				if (d == 0) { dbg[dbase + DBG_SPRING_DOWN] += f; }
+				else if (d == 5) { dbg[dbase + DBG_SPRING_UP] += f; }
+				else { dbg[dbase + DBG_SPRING_LAT] += f; }
+				int n = nbr[base + uint(d)];
+				if (water[n] >= 0.5) { dbg[dbase + DBG_SPRING_WET] += f; }
+				// How tall is the OPEN column standing above this outlet? 3+ open cells = a real water
+				// body (sea/lake); rock within 2 = a cavity or a carved channel, i.e. confined.
+				int oc = 0;
+				int walk = nbr[uint(n) * 6u + 5u];
+				for (int k = 0; k < 3; k++) {
+					if (walk < 0 || solid[walk] != 0.0) { break; }
+					oc++;
+					walk = nbr[uint(walk) * 6u + 5u];
+				}
+				if (oc >= 3) { dbg[dbase + DBG_SPRING_FREECOL] += f; }
+				else { dbg[dbase + DBG_SPRING_CAPPED] += f; }
+			}
+			float seep = seep_want * scale;
+			if (seep > 0.0) {
+				send[base + 5u] += seep;                   // += : slot 5 may already carry a scaled spring flow
+				dbg[dbase + DBG_SEEP_SENT] += seep;
 			}
 			return;
 		}
