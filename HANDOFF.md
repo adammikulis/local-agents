@@ -192,17 +192,36 @@ rock conducts heat ~100× **better** than still air (~2.5 vs ~0.026 W/m·K), not
 hot interior and a temperate surface because geothermal flux is negligible against solar (0.087 vs
 1361 W/m², both already in `LAPhysical`) across kilometres of rock — not because rock insulates.
 
-**5 — THE AQUIFER CANNOT REACH THE SURFACE, SO THERE ARE NO SPRINGS.** Two defects in one loop
-(`soil_sphere3d.glsl`). The units bug is FIXED (Darcy is a gradient now, not a raw head in world units).
-**Still open: the loop spends its outflow budget greedily in SLOT ORDER, and slot 0 is the inward
-neighbour**, which `head_of()` makes lower-head unless brim-full — so whenever the cell below has headroom
-the whole budget drains downward and no lateral flow or spring runs at all. Equilibrium is a water table
-pinned ~2 cells below the surface everywhere. Fix with proportional allocation (compute all six desired
-flows, scale them to the budget together); it restructures a conservation-critical gather, so verify it
-alone. **This is what unblocks geysers, fumaroles and volcanic tidal pools** — the magma-free hot-spring
-mechanism already exists and is emergent (`soil_sphere3d.glsl` mass-weights geothermal heat onto surfacing
-groundwater); it just has no water to work with, and the ocean thermostat that used to quench it is already
-deleted on `feature/energy-balance`.
+**5 — THE PLANET IS NOW WET, AND EVERY CONSTANT DOWNSTREAM OF RAIN WAS TUNED WHILE IT WAS DRY.**
+*(Corrected 2026-08-03. This item used to say the aquifer's only remaining defect was slot-order greed in
+`soil_sphere3d.glsl`. That was measured and is now fixed on `feature/aquifer-springs`, but the greed was
+only ~10% of the mechanism — the other 90% was that the kernel had **no unsaturated-conductivity term at
+all**, so regolith drained at its saturated conductivity down to zero water and nothing held the vadose
+zone. Both fixed; `k_rel`/`RESIDUAL` at `soil_sphere3d.glsl:50-75`.)* The water table is now
+surface-following — mean saturation by shell, ground surface inward, went `[.0026 .0048 .0345 .1686]` ->
+`[.3259 .3658 .5054 .7641]`, and lateral valley-wall discharge overtook downward percolation into voids
+(`spring_lat`:`spring_down` 0.21 -> 1.73). **What that leaves open is everything the dry planet's
+constants were fitted against.** Groundwater is 3474 units of H₂O that used to be in the sky:
+`moisture_total` 3742 -> 2139, `cloud_cells` 4210 -> 373, `temp_mean` 34.3 -> 30.9, and with less rain
+`sediment_total` 967 -> 282, `susp_total` 70 -> 17, `rock_shrinks` 687 -> 132. **Decide it by measuring
+whether erosion is now too weak to carve drainage to the sea over a long run**, not by moving `STREAM_K`
+back to where it made the old numbers look right. The biosphere moved the other way and is healthier:
+`root_col_bone_frac` 0.64 -> 0.24, `biomass_ground` 11.2 -> 17.6, and biomass-by-water-quartile went from
+exactly 0 to a 6.7:1 wettest-to-driest gradient.
+- **The atmosphere holds far too much water, and this is what exposed it.** The dry planet kept **73% of
+  its whole H₂O budget as vapour** (Earth: ~0.001%); it is now 30%, still off by four orders of magnitude.
+  That is the atmosphere channel's, not the aquifer's. Decide it by comparing `moisture_total` against
+  `water_total + soil_total` — a planet whose air outweighs its ocean is wrong however the numbers look.
+- **`CONDUCT = 0.35` is ONE hydraulic conductivity for all regolith.** Real K spans ~12 orders of magnitude
+  by material (clay ~1e-9 m/s, gravel ~1e-1). Same design smell as one thermal physiology per creature.
+  Needs a per-cell permeability keyed to rock type, which the binary `regolith` mask cannot carry.
+- **Soil water has no evaporative sink.** Root uptake (R19) is the only path out and it measures ~0.03/step
+  against a 3894-unit reservoir. Real evapotranspiration is the dominant soil-water loss. Untouched.
+- **Hot springs are now UNBLOCKED but UNDEMONSTRATED.** The magma-free mechanism ships (`soil_sphere3d.glsl`
+  mass-weights geothermal heat onto surfacing groundwater) and there is finally water surfacing for it to
+  heat. `hotspring_max_c` still reads 1300.0 in every arm, which is the magma temperature — that gauge is
+  measuring lava-adjacent water, not groundwater discharge. Decide it with `--hotspring-test` once the
+  geothermal-gradient work lands.
 
 **6 — THE CREATURE LAYER'S ENERGETICS ARE FICTIONAL** (the demography is not — see below). In order:
 - **`CreatureDigestion.ambient_graze` mints food.** It reads the TEMPERATURE at the animal's feet, converts
@@ -421,8 +440,12 @@ land dry". They are GONE as of 2026-07-30: the static mask made the sea evaporat
 +6263 units. The conserved cycle does drain the land drier, which is item #2 above, but that is a world-gen
 water-budget question, not a reason to keep a mask that invents mass.)*
 
-**Livability risks:** volcano thermal runaway (→ the radiative sink, item #1) · land drains dry (→ #2, spring
-baseflow) · erosion mass drift (→ cap by stream-power, verify against `mineral_total`).
+**Livability risks:** volcano thermal runaway (→ the radiative sink, item #1) · erosion mass drift (→ cap by
+stream-power, verify against `mineral_total`).
+*("Land drains dry" is REFUTED as of 2026-08-03 and its pointer to "#2, spring baseflow" is stale. It was
+capillary retention that was missing, not baseflow: `root_col_bone_frac` was 0.64 and is now 0.24 with the
+`k_rel`/`RESIDUAL` term in `soil_sphere3d.glsl`. The live risk is now the OPPOSITE one — a wet planet with
+91% fewer clouds and 71% less sediment, which is item #5.)*
 *(The "high-`--fast` field desync" risk that sat here is REFUTED — there is no desync at any supported speed;
 see `CLAUDE.md`'s corrected `--fast` bullet.)*
 
