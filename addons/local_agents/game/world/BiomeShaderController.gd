@@ -14,11 +14,9 @@ const BiomeBakerScript: GDScript = preload("res://addons/local_agents/sim/materi
 
 const REBAKE_PERIOD: float = 0.4      # seconds between climate rebakes (~2.5 Hz — biomes drift slowly)
 
-# Field saturation curve constants — MUST match MaterialField3D.SAT_* so relative humidity is measured the
-# same way the field condenses cloud/rain (keeps the biome wetness axis physically consistent with weather).
-const SAT_BASE: float = 0.06
-const SAT_TEMP_GAIN: float = 0.055
-const EVAP_TEMP_REF: float = 22.0
+# The saturation curve used to be copied here as three constants "MUST match MaterialField3D.SAT_*". It is
+# now one function with one owner (LAPhysical.saturation_mass_fraction), which the baker calls directly, so
+# there is nothing left to keep in sync — the third copy of a number is where drift comes from.
 
 var _field: Object = null
 var _terrain: Object = null
@@ -68,7 +66,7 @@ func _process(delta: float) -> void:
 			return
 		var sea_r: float = _terrain.sea_radius()
 		_baker = BiomeBakerScript.new()
-		_baker.setup(grid, sea_r, SAT_BASE, SAT_TEMP_GAIN, EVAP_TEMP_REF)
+		_baker.setup(grid, sea_r)
 	_baker.bake(snap["moisture"], snap["temp"], snap["snow"], snap["solid"], int(snap["cell_count"]))
 	var tex: Texture2DArray = _baker.texture()
 	if tex == null:

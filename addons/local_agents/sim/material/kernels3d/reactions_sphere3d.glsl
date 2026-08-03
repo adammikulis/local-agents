@@ -87,6 +87,25 @@ layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float 
 #define SOIL_ROOT 19   // DERIVED, WRITABLE: the plant-available water of the ROOTING COLUMN — the soil summed
                        // over the permeable REGOLITH cells directly beneath this open cell (the regolith mask,
                        // not the solidity mask; they diverge). See root_soil().
+#define VAPOUR_DEFICIT 20  // DERIVED driver: sat(T) - moisture, SIGNED. The phase rule — see sat_mass_frac().
+
+// --- THE PHASE RULE ----------------------------------------------------------------------------------------
+// How much water air holds is the SATURATION VAPOUR PRESSURE at its temperature, and nothing else. Written
+// once here, in the field's own unit (a fraction of a cell full of liquid water), it governs the sea, a
+// puddle, wet soil and a snowbank identically — the records differ only in which liquid they name.
+// August-Roche-Magnus with Alduchov & Eskridge (1996) coefficients, then the ideal gas law for vapour.
+const float MAGNUS_A_PA = 610.94;        // LAPhysical.MAGNUS_A_PA
+const float MAGNUS_B = 17.625;           // LAPhysical.MAGNUS_B
+const float MAGNUS_C_C = 243.04;         // LAPhysical.MAGNUS_C_C
+const float VAPOUR_R = 461.52;           // LAPhysical.VAPOUR_GAS_CONST_J_KGK
+const float KELVIN_0 = 273.15;           // LAPhysical.KELVIN_OFFSET
+const float RHO_WATER = 997.0;           // LAPhysical.WATER_DENSITY_KG_M3
+
+float sat_mass_frac(float t_c) {
+	float t = max(t_c, -80.0);           // the Magnus fit's pole is at -243.04 C
+	float e_sat = MAGNUS_A_PA * exp(MAGNUS_B * t / (t + MAGNUS_C_C));
+	return (e_sat / (VAPOUR_R * max(t + KELVIN_0, 1.0))) / RHO_WATER;
+}
 
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust (dust_loft parity)
 #define REGOLITH_CELLS 4    // rooting depth = the permeable regolith band (MUST match MaterialField3D.REGOLITH_CELLS)
@@ -108,6 +127,10 @@ layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float 
 #define GATE_NOT_RAINING 32   // global precipitation is off (params.raining == 0) — rain pins ALL dust down
 #define GATE_NOT_STATIC  64   // cell is NOT an infinite static reservoir (the sea/lake abstraction, which carries
                               // water=1 and is deliberately not simulated) — real per-cell chemistry only
+#define GATE_AIR_ABOVE   128  // THE FREE SURFACE: the outward neighbour is air (not rock, not drowned). A
+                              // submerged cell has no air touching it and cannot evaporate. See ReactionDefs.
+
+#define DROWNED_WATER 0.5     // half a cell of standing water in the neighbour above = no free surface here
 
 #define TGT_SELF    0
 #define TGT_SCRATCH 3
@@ -247,6 +270,7 @@ float read_ch(int slot, uint i) {
 	if (slot == ROCK_FILL) return rock_fill[i];
 	if (slot == LIGHT)     return light_at(i);
 	if (slot == SOIL_ROOT) return root_soil(i);
+	if (slot == VAPOUR_DEFICIT) return sat_mass_frac(temp[i]) - moisture[i];
 	return 0.0;
 }
 
@@ -326,6 +350,14 @@ bool gate_ok(int mask, uint i) {
 	if ((mask & GATE_NOT_STATIC) != 0) {
 		if (static_cells[i] != 0.0) {
 			return false;                   // the infinite sea/lake reservoir is an abstraction, not real chemistry
+		}
+	}
+	if ((mask & GATE_AIR_ABOVE) != 0) {
+		// FREE SURFACE: the outward-radial neighbour must be AIR — open rock-free and not itself drowned.
+		// At the outward boundary (slot 5 == -1) the cell faces open space, which is air enough.
+		int au = nbr[i * 6u + 5u];
+		if (au >= 0 && (solid[au] != 0.0 || water[au] >= DROWNED_WATER)) {
+			return false;
 		}
 	}
 	return true;

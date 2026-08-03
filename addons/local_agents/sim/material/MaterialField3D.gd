@@ -61,25 +61,39 @@ const INITIAL_TEMP: float = 15.0
 # Ambient atmospheric oxygen every OPEN cell is seeded to (LAMaterialGas3D relaxes surface cells back toward
 # it; combustion draws it down). MUST match LAMaterialGas3D.O2_AMBIENT.
 const O2_AMBIENT: float = 1.0
-# Ambient atmospheric humidity every OPEN cell is seeded to — the starting moisture the terminator condenses
-# into cloud/fog on the cold (night) side. Evaporation from the static field sea replenishes it.
-const VAPOR_AMBIENT: float = 0.3
+# Ambient RELATIVE humidity every OPEN cell is seeded to — the starting moisture the terminator condenses into
+# cloud/fog on the cold (night) side. The seed is now this fraction of the LOCAL saturation
+# (LAPhysical.saturation_mass_fraction at the seed temperature) rather than an absolute mass: 0.80 is the
+# measured global mean near-surface relative humidity (~80% over ocean, ~70% over land). It was
+# `VAPOR_AMBIENT = 0.3` — an ABSOLUTE 0.3 of a cell full of liquid water per air cell, which is fifteen
+# thousand times saturation, so every cell in the world began as dense fog and the run spent its first
+# hundred steps raining that out.
+const AMBIENT_RELATIVE_HUMIDITY: float = 0.80
 # Frozen H₂O (snowpack/ice) — the third phase of the ONE conserved water substance (liquid `_water`, airborne
 # `_moisture`, frozen `_snow`). GPU-owned: the snowice deposition kernel + freeze/melt reaction records (R21/R22)
 # grow and thaw it; read back for queries/telemetry only. SNOW_PRESENT = depth that counts a cell snow-covered;
 # ICE_DEPTH = a thick pack that reads as glacial ice (the deep end of the same channel — no separate ice buffer).
-const SNOW_PRESENT: float = 0.01
-const ICE_DEPTH: float = 0.5
-# Saturation curve sat(T) = SAT_BASE * exp(SAT_TEMP_GAIN * (T - EVAP_TEMP_REF)) — the dewpoint the unified
-# `moisture` channel is read against. cloud/fog/vapor are DERIVED from moisture vs sat(T), never stored;
-# these MUST match the kernel constants (atmos_evap/atmos_precip _sphere3d.glsl). FOG_MAX_TEMP splits the
-# cool near-ground condensate (fog) from cloud aloft; CONDENSE_COVER_MIN is the density counted as cover.
-const SAT_BASE: float = 0.06
-const SAT_TEMP_GAIN: float = 0.055
-const EVAP_TEMP_REF: float = 22.0
+# Both are DEPTHS OF WATER EQUIVALENT as a fraction of a cell (16 m at the shipped grid). Ground reads as
+# snow-covered once about 3 cm of snow lies on it — that is where surface albedo saturates (Wiscombe & Warren
+# 1980) — which is ~3 mm water equivalent, hence 1.9e-4. It was 0.01: sixteen centimetres of water equivalent,
+# about 1.6 m of snowpack, a threshold no honest snowfall rate reaches inside a run.
+const SNOW_PRESENT: float = 1.9e-4
+const ICE_DEPTH: float = 0.5              # ~8 m water equivalent = a real glacial thickness, not a snowfall
+# The saturation curve the unified `moisture` channel is read against is LAPhysical.saturation_mass_fraction —
+# Clausius-Clapeyron, one function, one owner. It used to be three constants here (SAT_BASE 0.06 /
+# SAT_TEMP_GAIN 0.055 / EVAP_TEMP_REF 22.0) copied by hand into four kernels and two texture bakers, and the
+# base was 3080x the real saturation mass fraction, which is single-handedly why this planet kept 30% of its
+# mobile water in the sky. cloud/fog/vapor are still DERIVED from moisture vs sat(T) and never stored.
+# FOG_MAX_TEMP splits the cool near-ground condensate (fog) from cloud aloft.
 const FOG_MAX_TEMP: float = 12.0
-const CONDENSE_COVER_MIN: float = 0.05
-const RAIN_MASS_THRESHOLD: float = 0.42   # matches atmos_precip_sphere3d; aquifer springs supply land water so less rain needed
+# CONDENSE_COVER_MIN is the suspended condensate a cell must carry to READ as cloud cover. It is a real cloud
+# liquid-water content: marine stratus and fair-weather cumulus run 0.05-0.5 g/m³ (Miles, Verlinde & Clothiaux
+# 2000), and 0.05 g/m³ is the thin end at which cloud is optically visible. In the field's cell-fill unit that
+# is 5e-5 kg/m³ / 997 kg/m³ = 5.0e-8. It was 0.05, a thousand times saturation itself.
+const CONDENSE_COVER_MIN: float = 5.0e-8
+# The precipitation threshold is Kessler autoconversion, and its one owner is LAAtmospherePass.rain_threshold().
+# It used to be declared here as 0.42 under a comment saying it "matches atmos_precip_sphere3d" — where it was
+# 0.14. Three times apart, in two files, each claiming to be the other.
 # Scent channel indices — sourced from the CORE const LAScentChannels (creatures/ScentChannels.gd) so the
 # field (writer) and the creature senses/cognition (reader, in the core library) can never drift. The field
 # re-exports them as LAMaterialField3D.SCENT_* for the game-side material passes that reference them here.
@@ -204,11 +218,13 @@ var _atmos = null                                        # LAMaterialFieldAtmos3
 var _ledger = null                                       # LAMaterialFieldLedger3D — conserved H₂O ledger + snow/ice
 var _channels = null                                     # LAMaterialFieldChannels3D — per-cell gas/biomass/phase reads
 var _report_mod = null                                   # LAMaterialFieldReport3D — SIM_REPORT telemetry snapshot
+var _regolith_mod = null                                 # LAMaterialFieldRegolith3D — aquifer rock: mask, grain size, porosity
 const AtmosScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldAtmos3D.gd")
 const LedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLedger3D.gd")
 const ChannelsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldChannels3D.gd")
 const ReportScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldReport3D.gd")
 const GeothermScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldGeotherm3D.gd")
+const RegolithScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldRegolith3D.gd")
 
 
 func _init() -> void:
@@ -222,6 +238,8 @@ func _init() -> void:
 	_channels.setup(self)
 	_report_mod = ReportScript.new()
 	_report_mod.setup(self)
+	_regolith_mod = RegolithScript.new()
+	_regolith_mod.setup(self)
 
 
 ## Wire the real scene sun (DirectionalLight3D); the heat module reads its energy + angle for solar input.
@@ -423,7 +441,9 @@ func _alloc_channels() -> void:
 	_temp.fill(INITIAL_TEMP)
 	_moisture = PackedFloat32Array()
 	_moisture.resize(_cell_count)
-	_moisture.fill(VAPOR_AMBIENT)
+	# Seed the sky at a real RELATIVE humidity of the saturation at the seed temperature, not at an absolute
+	# mass — see AMBIENT_RELATIVE_HUMIDITY. Every cell starts at INITIAL_TEMP, so one evaluation covers them all.
+	_moisture.fill(AMBIENT_RELATIVE_HUMIDITY * LAPhysical.saturation_mass_fraction(INITIAL_TEMP))
 	_lava = PackedFloat32Array()
 	_lava.resize(_cell_count)
 	# Soil water reservoir (water table): starts BONE DRY (0) everywhere; rain/rivers wet it over the run.
@@ -691,42 +711,27 @@ func _seed_sphere_sea() -> void:
 ## of the naive "all groundwater sinks to the core". Computed once from the solid mask (grid columns are
 ## contiguous: cell = surf_col*depth + r, r=depth-1 outermost). Also SEEDS an initial half-full water table so
 ## springs flow from the start (a planet has an existing aquifer; it then self-maintains via rain/snow recharge).
-const REGOLITH_CELLS: int = 4
-const INITIAL_TABLE_FRAC: float = 0.5     # regolith starts half-saturated (spring level 0.85); convergence tops valleys over
-                                          # the spring gush level, so groundwater CONVERGENCE at valleys triggers springs)
-const SOIL_CAPACITY: float = 0.6          # MUST match soil_sphere3d.glsl CAPACITY
+## The band depth, the initial saturation and the whole derivation now live in LAMaterialFieldRegolith3D,
+## which also owns the grain-size field and the Athy porosity profile the aquifer's Kozeny-Carman
+## conductivity is computed from. `SOIL_CAPACITY = 0.6` is gone with it: a cell's capacity is its POROSITY,
+## which varies with burial, and a flat 0.6 was above the porosity of every real granular material.
+const REGOLITH_CELLS: int = LAMaterialFieldRegolith3D.REGOLITH_CELLS
 var _regolith: PackedByteArray = PackedByteArray()
+var _grain: PackedFloat32Array = PackedFloat32Array()    # representative grain diameter (m) per regolith cell
 
 func _compute_regolith() -> void:
-	if _sphere == null or _solid.size() != _cell_count:
-		return
-	_regolith = PackedByteArray()
-	_regolith.resize(_cell_count)                          # 0 = bedrock/void, 1 = permeable regolith
-	if _soil.size() != _cell_count:
-		_soil = PackedFloat32Array()
-		_soil.resize(_cell_count)
-	var surf_count: int = int(_sphere.surf_count)
-	var depth: int = int(_sphere.depth)
-	var seed_soil: float = SOIL_CAPACITY * INITIAL_TABLE_FRAC
-	for s in range(surf_count):
-		var base: int = s * depth
-		var surf_r: int = -1
-		for r in range(depth - 1, -1, -1):                # find the outermost solid shell (the ground surface)
-			if _solid[base + r] != 0:
-				surf_r = r
-				break
-		if surf_r < 0:
-			continue                                      # an all-open column (deep ocean over no floor) — no regolith
-		var lo: int = maxi(0, surf_r - REGOLITH_CELLS + 1)
-		for r in range(lo, surf_r + 1):
-			if _solid[base + r] != 0:
-				_regolith[base + r] = 1
-				_soil[base + r] = seed_soil               # prime the water table
+	_regolith_mod.compute()
 
 
 ## The regolith permeability mask (1 = groundwater-bearing rock). Uploaded to the GPU soil pass.
 func regolith_mask() -> PackedByteArray:
 	return _regolith
+
+
+## Per-cell representative grain diameter in metres (0 outside the regolith band). Uploaded once beside the
+## permeability mask; the aquifer kernel turns it into hydraulic conductivity through Kozeny-Carman.
+func grain_field() -> PackedFloat32Array:
+	return _grain
 
 ## Release the GPU driver's local RenderingDevice while the tree is still up — freeing every RID cleanly so
 ## the device reports 0 leaked RIDs. (The `rc=134` MoltenVK `recursive_mutex` abort at NSApplication-terminate

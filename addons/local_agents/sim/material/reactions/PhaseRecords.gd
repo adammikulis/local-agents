@@ -47,10 +47,95 @@ const SOLIDIFY_RATE: float = 0.02        # per-step k on x = max(0, SOLIDIFY_TEM
 const ROCK_MELT_TEMP: float = 1200.0     # open-cell rock hotter than this (°C, above the lava emplace temp) melts
 const ROCK_MELT_RATE: float = 0.02       # per-step k on x = max(0, temp - ROCK_MELT_TEMP) * k (capped by rock_fill)
 
+# --- H₂O EVAPORATION: ONE RULE, WHEREVER LIQUID WATER MEETS AIR --------------------------------------------
+# THERE IS NO SUCH THING AS AN "EVAPORATION SINK". There is a phase change, and it runs in whichever direction
+# the SATURATION VAPOUR PRESSURE says: liquid becomes vapour while the local air is below saturation, and the
+# part above saturation is suspended condensate. The VAPOUR_DEFICIT driver (LAReactionDefs) is that one rule —
+# `LAPhysical.saturation_mass_fraction(T) - moisture` — and the three records below are the same rule reading
+# three different reservoirs. Nothing about them is specific to "the ocean" or "soil" or "snow".
+#
+# WHAT THIS REPLACED. `atmos_evap_sphere3d.glsl` was a hand-built evaporation feature: an EVAP_RATE, an
+# EVAP_WARM_K exponential fitted "so cold land water barely evaporates", an EVAP_COND_CEIL humidity brake, a
+# separate BOIL_TEMP branch, an un-debited infinite static-sea source, and a global static_brake driven by
+# AtmospherePass.MOIST_TARGET = 0.11, "avg moisture/cell the atmosphere settles at". That last one is what
+# actually decided how much water this planet's sky held — a target humidity, which is not a fact about
+# anything — and it held the atmosphere at 30% of the planet's mobile water where Earth holds 0.001%. The
+# kernel and all of those constants are DELETED. The temperature dependence they were approximating is
+# Clausius-Clapeyron, which the driver now carries exactly; boiling needs no branch because e_sat reaches one
+# atmosphere at 100 °C and the deficit goes with it.
+#
+# THE RATE IS A REAL FLUX, NOT A KNOB. Bulk aerodynamic mass transfer over a water surface:
+#     E = rho_air * C_E * U * (q_sat - q_air)   [kg/m²/s]
+# and dividing by rho_air turns the specific-humidity difference into the vapour-density difference the
+# VAPOUR_DEFICIT driver already is, so the air density cancels and E = C_E * U * delta_rho_v. Spread over a
+# cell of height H for a step of dt seconds, the extent in the field's cell-fill unit is
+#     x = (C_E * U * dt / H) * deficit
+# — no free parameter. C_E = 1.2e-3 at neutral stability (Large & Pond 1981, 1982); U = 7 m/s is the global
+# mean 10 m ocean wind. dt is the substrate's own step (LAMaterialFieldSphereStep3D.real_seconds_per_step,
+# 43.2 s at the shipped 200 s day) and H is the grid cell (LAReactionDefs.cell_size_m). At the shipped grid
+# that is 0.0227 per step, i.e. an unsaturated cell holding open water brings its own air to saturation in
+# about 44 steps — and never past it, because the extent is the deficit itself times a number below 1.
+const VAPOUR_TRANSFER_COEFF: float = 1.2e-3      # C_E, neutral-stability bulk transfer coefficient for moisture
+const SURFACE_WIND_M_S: float = 7.0              # global mean 10 m wind over ocean
+
+# BARE-SOIL EVAPORATION is the SAME transfer seen through the ground. Soil is not a free water surface: vapour
+# has to diffuse up through the pores, and that resistance is in series with the aerodynamic one —
+#     E_soil = E_potential * r_a / (r_a + r_s),  r_a = 1 / (C_E * U) = 119 s/m
+# with the soil surface resistance r_s measured from ~10 s/m on a wet soil to >5000 s/m on a dry one (van de
+# Griend & Owe 1994; Camillo & Gurney 1986). 1000 s/m is a drying-soil mid value and gives a factor of 0.106.
+#
+# The wetness dependence is not applied as a curve on top of that: it IS the record's second driver. R24 is
+# BILINEAR on (VAPOUR_DEFICIT x SOIL_ROOT), so a saturated column evaporates at the resistance limit and a
+# dry one evaporates in proportion to what it still holds — supply-limited stage-2 drying (Ritchie 1972) as
+# an emergent consequence of the reservoir, with no threshold and no separate dry-soil branch. `k` is
+# normalised so the reference state is a SATURATED rooting column.
+const SOIL_SURFACE_RESISTANCE_S_M: float = 1000.0
+const SATURATED_ROOT_COLUMN: float = 1.6         # REGOLITH_CELLS (4) x LAPhysical.REGOLITH_SURFACE_POROSITY (0.40)
+
+
+## Per-step evaporation extent per unit of vapour deficit — see the block above. Derived from the substrate's
+## own clock and cell size, so it tracks a changed day length or grid resolution instead of going stale.
+static func _evap_k() -> float:
+	var dt: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	var h: float = maxf(cell_size_m, 0.001)
+	return VAPOUR_TRANSFER_COEFF * SURFACE_WIND_M_S * dt / h
+
 
 ## The records this domain contributes to the live table (see LAMaterialReactions3D).
 static func records() -> Array:
+	var evap_k: float = _evap_k()
+	var r_a: float = 1.0 / (VAPOUR_TRANSFER_COEFF * SURFACE_WIND_M_S)
+	var soil_k: float = evap_k * (r_a / (r_a + SOIL_SURFACE_RESISTANCE_S_M)) / SATURATED_ROOT_COLUMN
 	return [
+		# R23 — EVAPORATION (liquid water → atmospheric moisture). The phase rule at a free water surface:
+		# x = max(0, sat(T) - moisture) * evap_k, capped by the WATER present. The extent can never exceed the
+		# deficit itself, so a cell's own air is brought TO saturation and never past it — the bound is the
+		# saturation curve, not a ceiling anybody chose. One record covers the sea, a lake, a river and a
+		# puddle; it covers BOILING too, because e_sat reaches one atmosphere at 100 °C and the deficit with it.
+		rec(EXCESS_OVER_THRESHOLD, evap_k, VAPOUR_DEFICIT, [[WATER, 1.0]], [[MOISTURE, 1.0, TGT_SELF]],
+			GATE_AIR_ABOVE, 0.0),
+
+		# R24 — BARE-SOIL EVAPORATION (soil water → atmospheric moisture). THE SAME RULE, read through the
+		# ground: wet soil in unsaturated air evaporates for exactly the reason the sea does. This is the leg
+		# that was missing entirely — root uptake was the only path out of the aquifer, measured at 0.03 per
+		# step against a 3400-unit reservoir, which is why the water table could only ever fill.
+		# BILINEAR on (deficit x rooting-column water): supply-limited, so a saturated column evaporates at the
+		# soil-resistance limit and a drying one tapers with what it still holds — no threshold anywhere.
+		rec(BILINEAR, soil_k, VAPOUR_DEFICIT, [[SOIL_ROOT, 1.0]], [[MOISTURE, 1.0, TGT_SELF]],
+			GATE_NEAR_GROUND | GATE_AIR_ABOVE, 0.0, SOIL_ROOT),
+
+		# R25 — SUBLIMATION (snow → atmospheric moisture). The same rule a third time, over ice. It REPLACES
+		# snowice_sphere3d.glsl's SUBLIMATE_FRAC = 0.004, a flat per-step fraction added to stop the snowpack
+		# growing without bound: a rate that ran at the same speed in dry desert air and in saturated polar
+		# air, and that could not be switched off by humidity because it never looked at any. Now a snowpack in
+		# saturated air does not sublimate at all and one in dry air does, which is also why alpine sublimation
+		# is a large share of ablation and polar sublimation is not.
+		# (The Magnus curve is over LIQUID water; over ice e_sat is lower — 1.5% at -5 °C, 10% at -20 °C — so
+		# this slightly overstates sublimation in the coldest cells. That very difference drives the Bergeron
+		# process, and it earns its own curve the day mixed-phase cloud microphysics matters here.)
+		rec(EXCESS_OVER_THRESHOLD, evap_k, VAPOUR_DEFICIT, [[SNOW, 1.0]], [[MOISTURE, 1.0, TGT_SELF]],
+			GATE_AIR_ABOVE, 0.0),
+
 		# R21 — FREEZE (liquid → snow): standing/melt WATER at a cell colder than FREEZE_TEMP crystallizes to
 		# SNOW. DEFICIT_BELOW_THRESHOLD: x = max(0, FREEZE_TEMP - temp) * FREEZE_RATE, capped by the WATER present
 		# → a pure conserving transfer (water -= x; snow += x). The PRIMARY snowfall path (freezing the CONDENSED

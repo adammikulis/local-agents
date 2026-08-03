@@ -28,6 +28,7 @@ layout(set = 0, binding = 4, std430) restrict readonly buffer SoilIn { float soi
 layout(set = 0, binding = 5, std430) restrict writeonly buffer SoilOut { float soil_out[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer Regolith { float regolith[]; }; // 1 = permeable aquifer rock
 layout(set = 0, binding = 7, std430) restrict buffer Temp { float temp[]; };                // POST-thermal temp, carry-heat in place
+layout(set = 0, binding = 8, std430) restrict readonly buffer Grain { float grain[]; };     // representative grain diameter, metres
 layout(set = 0, binding = 9, std430) restrict buffer SoilDbg { float dbg[]; };              // per-leg budget probe
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
 
@@ -38,15 +39,70 @@ layout(push_constant, std430) uniform Params {
 	uint pad0;
 	float core_radius;
 	float cell_size;
+	float shell_m;     // REAL metres one regolith shell stands for (LAPhysical.GROUNDWATER_CIRCULATION_M /
+	                   // REGOLITH_CELLS) — the same subsurface scale LAMaterialFieldGeotherm3D derives its
+	                   // gradient from, so the aquifer and the geotherm measure depth in one set of metres.
+	float step_s;      // REAL seconds one field step stands for (LAMaterialFieldSphereStep3D)
 } params;
 
-// Tuning.
-const float CAPACITY = 0.60;          // groundwater a regolith cell holds when saturated (MUST match MaterialField3D)
+// --- PERMEABILITY IS PORE GEOMETRY, NOT A NUMBER SOMEBODY PICKED -------------------------------------------
+// `CONDUCT = 0.35` was ONE saturated hydraulic conductivity for every cell of regolith on the planet. Read as
+// a real flux — conduct = K * step_seconds / shell_metres — it means K = 4.05 m/s, which is twenty-six times
+// more permeable than the coarsest natural gravel and roughly a thousand million times a silt. Real K spans
+// twelve orders of magnitude (Freeze & Cherry 1979 Table 2.2) and it does so because PORE GEOMETRY varies.
+//
+// So K is computed, per cell, from the two things pore geometry is made of — porosity and grain size — by the
+// Kozeny-Carman relation. No material table, no type enum: one relation, two continuous fields.
+//   POROSITY closes with burial (Athy 1930): phi(z) = phi_0 * exp(-z / z_c). Over this planet's 2 km
+//   circulating zone that takes 0.40 at the ground surface to 0.20 on the bedrock floor, which is what makes
+//   the water table surface-following rather than a uniform sponge.
+//   GRAIN SIZE is the `grain` channel, seeded once from where the material sits — coarse valley-fill alluvium
+//   in the basins, fine residual saprolite on the uplands (see LAMaterialField3D._compute_grain).
+// The same porosity is the cell's storage CAPACITY, because that is what porosity means. It used to be a
+// separate constant 0.60, above the porosity of every real granular material, while the conductivity was
+// computed as if from a different rock.
+const float KOZENY_C = 180.0;              // LAPhysical.KOZENY_CARMAN_C
+const float GRAVITY = 9.81;                // LAPhysical.GRAVITY_M_S2
+const float WATER_VISCOSITY = 1.002e-3;    // LAPhysical.WATER_DYNAMIC_VISCOSITY_PA_S
+const float RHO_WATER = 997.0;             // LAPhysical.WATER_DENSITY_KG_M3
+const float SURFACE_POROSITY = 0.40;       // LAPhysical.REGOLITH_SURFACE_POROSITY
+const float COMPACTION_LEN_M = 2500.0;     // LAPhysical.COMPACTION_LENGTH_M
+const int REG_CELLS = 4;                   // MUST match MaterialField3D.REGOLITH_CELLS
+
 const float MAX_MASS = 1.0;           // surface water a cell holds before it is "full" (MUST match MaterialField3D
                                       // + water_sphere3d.glsl). An outlet at or above this can take no more, which
                                       // is what gives a spring its back-pressure.
-const float CONDUCT = 0.35;           // SATURATED Darcy conductivity: flow per unit hydraulic gradient per step
 const float MAX_FLOW_FRAC = 0.35;     // cap total outflow to this fraction of a cell's soil per step (stability)
+
+// Shells of regolith standing OUTWARD of this one: 0 at the ground surface, increasing with burial. Read-only
+// walk over the static regolith mask, so it is race-free and needs no extra channel.
+int burial_shells(int c) {
+	int d = 0;
+	int walk = nbr[uint(c) * 6u + 5u];
+	for (int k = 0; k < REG_CELLS; k++) {
+		if (walk < 0 || regolith[walk] == 0.0) {
+			break;
+		}
+		d++;
+		walk = nbr[uint(walk) * 6u + 5u];
+	}
+	return d;
+}
+
+// Athy compaction: porosity, and therefore the cell's saturated water CAPACITY, at this burial depth.
+float porosity_of(int c) {
+	float z = (float(burial_shells(c)) + 0.5) * params.shell_m;
+	return SURFACE_POROSITY * exp(-z / COMPACTION_LEN_M);
+}
+
+// Kozeny-Carman, then Darcy, then this substrate's units: the fraction of a cell that crosses a face in one
+// step at UNIT hydraulic gradient. K = phi^3 d^2 rho g / (180 (1-phi)^2 mu); conduct = K * dt / L.
+float conduct_of(int c, float phi) {
+	float d = grain[c];
+	float k_intrinsic = phi * phi * phi * d * d / (KOZENY_C * max((1.0 - phi) * (1.0 - phi), 1e-6));
+	float k_sat = k_intrinsic * RHO_WATER * GRAVITY / WATER_VISCOSITY;      // m/s
+	return k_sat * params.step_s / max(params.shell_m, 1e-6);
+}
 // UNSATURATED CONDUCTIVITY — WHY A DRY CELL MUST NOT DRAIN AT THE SATURATED RATE.
 // Porous media do not conduct at K_sat when their pores are not full: K(theta) = K_sat * k_r(S_e), and k_r
 // collapses by orders of magnitude as the pores empty, because what is left clings to grain surfaces in films
@@ -69,8 +125,8 @@ const float RESIDUAL = 0.30;          // fraction of CAPACITY held against gravi
 // Irmay (1954), the cubic law for granular porous media: k_r = S_e^3. (Brooks & Corey's k_r = S_e^(3+2/lambda)
 // and Mualem-van Genuchten are the same shape with a texture-dependent exponent; the cubic is the coarse-media
 // limit and is the least assuming choice for regolith.)
-float k_rel(float s) {
-	float se = clamp((s / CAPACITY - RESIDUAL) / (1.0 - RESIDUAL), 0.0, 1.0);
+float k_rel(float s, float cap) {
+	float se = clamp((s / max(cap, 1e-6) - RESIDUAL) / (1.0 - RESIDUAL), 0.0, 1.0);
 	return se * se * se;
 }
 // SPRINGS emerge where the water-table HEAD rises above an open neighbour's floor — i.e. at VALLEY WALLS where
@@ -80,9 +136,9 @@ float k_rel(float s) {
 // threshold, no blanket baseflow (which floods the whole surface). SPRING_CONDUCT = discharge per step at UNIT
 // HYDRAULIC GRADIENT (head difference divided by cell size), i.e. the same dimensionless currency as INFIL_RATE
 // below — NOT per unit head in world units, which is what it used to be and why every spring pinned at the cap.
-const float SPRING_CONDUCT = 0.20;    // groundwater daylighting at valley walls. Paired with the exponential
-                                      // (Clausius–Clapeyron) evap curve: exfiltrated baseflow now persists on
-                                      // cool land instead of flashing off, so springs sustain visible streams.
+// SPRING_CONDUCT is GONE. Exfiltration at a seepage face is Darcy flow through the same rock as every other
+// leg, so it takes the same computed conductivity — a separate 0.20 was a second, unrelated permeability for
+// the same cell. One rock, one K.
 // WATERLOGGED UP-SEEP: a regolith cell whose water table is near-full can hold no more groundwater, so the
 // surplus wells UP into the open cell above = a water-table lake. Groundwater (Darcy) converges into low BASINS
 // (nowhere lower to flow), saturates them, and this seep keeps them wet — PERENNIAL lakes fed by the aquifer's
@@ -143,10 +199,10 @@ const uint DBG_SLOTS = 20u;
 #define DBG_SPRING_CAPPED 18u  // exf into an outlet with rock within 2 cells outward (cavity / carved channel)
 #define DBG_SPRING_FREECOL 19u // exf into an outlet with >= 3 open cells above it (sea / lake / deep water)
 
-float head_of(int c, float s) {
+float head_of(int c, float s, float cap) {
 	int r = c % int(params.depth);
 	float elev = params.core_radius + (float(r) + 0.5) * params.cell_size;
-	float table = clamp(s / CAPACITY, 0.0, 1.0) * params.cell_size;   // water-table height inside the cell
+	float table = clamp(s / max(cap, 1e-6), 0.0, 1.0) * params.cell_size;   // water-table height inside the cell
 	return elev + table;
 }
 
@@ -179,12 +235,14 @@ void main() {
 			if (s <= 0.0) {
 				return;
 			}
-			float my_head = head_of(idx, s);
+			float my_cap = porosity_of(idx);
+			float my_conduct = conduct_of(idx, my_cap);
+			float my_head = head_of(idx, s, my_cap);
 			// The DONOR's unsaturated conductivity gates every leg that moves water THROUGH the rock — Darcy and
 			// the spring seepage face alike. Upstream weighting is the standard for unsaturated flow: the cell
 			// water is leaving is the one whose pore network has to carry it. A cell at or below field capacity
 			// has k_rel == 0 and conducts nothing, which is what stops the vadose zone bleeding dry.
-			float kr = k_rel(s);
+			float kr = k_rel(s, my_cap);
 			// PROPORTIONAL ALLOCATION, NOT SLOT-ORDER GREED. Every direction's DESIRED flow is computed first,
 			// then the step's stability budget is shared among them by ONE scale factor, so no direction can be
 			// starved by where it happens to sit in the neighbour table.
@@ -215,7 +273,8 @@ void main() {
 				}
 				if (regolith[n] != 0.0) {
 					// Darcy: flow toward lower head (elevation + table). Gravity is baked into the elevation term.
-					float nh = head_of(n, soil_in[n]);
+					float n_cap = porosity_of(n);
+					float nh = head_of(n, soil_in[n], n_cap);
 					float dh = my_head - nh;
 					if (dh > 0.0) {
 						// Cap by the RECEIVER's remaining headroom too (mirror the infiltration cap) — else a cell
@@ -233,7 +292,8 @@ void main() {
 						// Dividing by cell_size makes CONDUCT what its comment always claimed: flow per unit
 						// hydraulic gradient, the same dimensionless currency as INFIL_RATE.
 						float grad = dh / max(params.cell_size, 1e-6);
-						float flow = min(CONDUCT * kr * grad, max(0.0, CAPACITY - soil_in[n]));
+						// UPSTREAM weighting: the DONOR's rock is the one the water has to move through.
+						float flow = min(my_conduct * kr * grad, max(0.0, n_cap - soil_in[n]));
 						if (flow > 0.0) {
 							want[d] = flow;
 							leg[d] = LEG_DARCY;
@@ -273,7 +333,7 @@ void main() {
 						// (cell_size = 8*PLANET_SCALE), so 0.20 * a few metres always exceeded
 						// remaining = MAX_FLOW_FRAC*s <= 0.21 and min() picked the stability cap EVERY time.
 						// Every spring in the world ran flat out at the cap, head-proportional in name only.
-						float exf = SPRING_CONDUCT * kr * (exf_head / params.cell_size);
+						float exf = my_conduct * kr * (exf_head / params.cell_size);
 						// BACK-PRESSURE. A full outlet cannot accept water, and until now nothing said so: for the
 						// INWARD neighbour the geometry makes the head positive by construction
 						//     exf_head = table + (1 - w)*cell_size >= table > 0
@@ -307,7 +367,7 @@ void main() {
 			// conduction through partly-filled pores, and it only fires above SEEP_THRESH * CAPACITY where
 			// k_rel is 0.63-1.0 anyway. Gating it would be applying a correction to a placeholder.
 			float seep_want = 0.0;
-			float surplus = s - CAPACITY * SEEP_THRESH;
+			float surplus = s - my_cap * SEEP_THRESH;
 			if (surplus > 0.0) {
 				int up = nbr[base + 5u];
 				if (up >= 0 && solid[up] == 0.0) {
@@ -377,13 +437,14 @@ void main() {
 			if (ib < 0 || regolith[ib] == 0.0) {
 				return;                                    // no aquifer directly below to soak into
 			}
-			float wet = clamp(soil_in[ib] / CAPACITY, 0.0, 1.0);
+			float ib_cap = porosity_of(ib);
+			float wet = clamp(soil_in[ib] / max(ib_cap, 1e-6), 0.0, 1.0);
 			if (wet >= 1.0) {
 				return;                                    // saturated below → it all runs off (flash flood)
 			}
 			float wetting = mix(DRY_CRUST, 1.0, smoothstep(0.0, WET_KNEE, wet));
 			float cap_rate = INFIL_RATE * wetting * (1.0 - wet);
-			float infil = min(w, min(cap_rate, CAPACITY - soil_in[ib]));
+			float infil = min(w, min(cap_rate, ib_cap - soil_in[ib]));
 			if (infil > 0.0) {
 				send[base + 0u] = infil;
 				dbg[dbase + DBG_INFIL_SENT] = infil;

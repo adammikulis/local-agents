@@ -47,6 +47,19 @@ const LIGHT: int = 18                 # DERIVED driver only; never a product/rea
 # so reading `soil` at the reacting cell reads a structural zero, not a dry world. Writable (transpiration
 # draws from it, proportionally to what each cell holds); see the kernel's root_soil/root_soil_draw.
 const SOIL_ROOT: int = 19
+# VAPOUR_DEFICIT is the PHASE RULE, and it is the only thing in this substrate that decides how much water
+# air holds: `sat(T) - moisture`, where sat is LAPhysical.saturation_mass_fraction — the Clausius-Clapeyron
+# saturation vapour density expressed in the field's own cell-fill unit. It is SIGNED, and its sign is the
+# phase: positive means the air is unsaturated and liquid in contact with it evaporates; negative means the
+# air is supersaturated and the excess is suspended condensate (cloud), which is what precipitation removes.
+#
+# ONE driver, so ONE rule covers the sea, a puddle, wet soil and a snowbank — they differ only in which
+# reservoir the record names as its reactant. It REPLACES atmos_evap_sphere3d.glsl entirely (deleted), along
+# with EVAP_RATE, EVAP_WARM_K, EVAP_TEMP_REF, EVAP_COND_CEIL, the humidity brake, the separate BOIL_TEMP
+# branch and AtmospherePass's MOIST_TARGET = 0.11 "avg moisture/cell the atmosphere settles at" — a target
+# humidity is not a fact, and it was what actually bounded this planet's sky water.
+# DERIVED driver only; never a product or reactant target.
+const VAPOUR_DEFICIT: int = 20
 
 # --- Rate models (extent x per cell) ---------------------------------------------------------------------
 const CONST_FRAC: int = 0             # x = k * driver
@@ -88,6 +101,14 @@ const GATE_DAYLIGHT: int = 8          # insolation above DAYLIGHT_MIN (the lit h
                                       # are reaching for it to gate a rate, drive on LIGHT instead.
 const GATE_DRY: int = 16              # cell water <= WET_MAX_LOFT (dry surface) — sand only lofts when not wet
 const GATE_NOT_RAINING: int = 32      # global precipitation off — rain pins all dust down (loft parity)
+const GATE_AIR_ABOVE: int = 128       # THE FREE SURFACE — the air/liquid interface. True when the OUTWARD radial
+                                      # neighbour exists, is not rock, and is not itself drowned (water below
+                                      # half a cell). It is what makes a phase change happen at the TOP of a
+                                      # water column rather than throughout it: a submerged cell has no air in
+                                      # contact with it and cannot evaporate, however dry the sky is. Promoted
+                                      # from atmos_evap_sphere3d.glsl's `open_above` test when that kernel was
+                                      # dissolved — it was never an evaporation detail, it is where any
+                                      # liquid/gas exchange can occur, and the next such record gets it free.
 const GATE_NOT_STATIC: int = 64       # NOT an infinite static reservoir cell. The sea/lake is seeded as water=1
                                       # `static` cells that are deliberately never simulated (MaterialField3D
                                       # ._seed_sphere_sea), so per-cell chemistry there is meaningless.
@@ -97,6 +118,15 @@ const TGT_SELF: int = 0               # add into the live/back cell channel
 const TGT_SCRATCH: int = 3            # add into the per-cell scratch buffer (fungus-fert pattern)
 
 const RECORD_BYTES: int = 128         # std430 size of one Reaction (see layout in serialize())
+
+# --- THE ONE LENGTH SCALE A RECORD MAY NEED ----------------------------------------------------------------
+# A rate derived from a real physical FLUX (per square metre per second) becomes a per-cell, per-step extent
+# only once you know how tall a cell is and how long a step is. The step is already derived once for the whole
+# substrate (LAMaterialFieldSphereStep3D.real_seconds_per_step); the cell height is grid geometry, so
+# LAMaterialSphereGPU3D writes it here from `_grid.cell_size` immediately before it builds the record table.
+# The default is the shipped sphere's cell size, so a headless caller that never sets it still gets the right
+# order of magnitude rather than a divide-by-zero.
+static var cell_size_m: float = 16.0
 
 
 ## Author one record as a Dictionary (unspecified fields default to the ungated/no-op values). Reactant and

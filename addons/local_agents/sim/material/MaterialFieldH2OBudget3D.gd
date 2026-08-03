@@ -249,8 +249,6 @@ func _totals() -> Array:
 	var moisture: PackedFloat32Array = gpu.read_raw("moisture", back if _moisture_back else phase)
 	var soil: PackedFloat32Array = gpu.read_raw("soil", back if _soil_back else phase)
 	var snow: PackedFloat32Array = gpu.read_raw("snow", 0)
-	var regolith: PackedByteArray = _f._regolith
-	var has_reg: bool = regolith.size() == cc
 	var has_solid: bool = solid.size() >= cc
 
 	var solid_cells: int = 0
@@ -281,8 +279,11 @@ func _totals() -> Array:
 			s_open += sv
 		else:
 			solid_cells += 1
-		if (not has_reg) or regolith[c] != 0:
-			g_open += gv
+		# Soil is UNMASKED, exactly as LAMaterialFieldLedger3D counts it: the channel lives wherever the
+		# buffer is non-zero, and solid_derive_sphere3d.glsl now makes new aquifer cells on the device that
+		# no CPU-side mask knows about. Keeping the regolith mask here would report freshly-made pore water
+		# as `buried` at the very moment the substrate stopped burying it.
+		g_open += gv
 	var open_total: float = w_open + m_open + s_open + g_open
 	var all_total: float = w_all + m_all + s_all + g_all
 	var open_parts: Dictionary = {

@@ -156,8 +156,15 @@ func water_total() -> float:
 ## Total water stored in the SOIL — the subsurface leg of the conserved h2o budget. Infiltrated water lives
 ## here rather than in `_water`, so it must be counted or conservation would appear to leak.
 ##
-## Masked on REGOLITH, which is where soil physically lives, and NOT on solidity, which is where this leg used
-## to look. The two masks diverge from frame 0 and keep diverging: world-gen river carving clears `_solid` on
+## UNMASKED, because the channel physically lives wherever the buffer is non-zero and nothing else puts water
+## there. soil_sphere3d.glsl writes 0 into every open non-regolith cell, so an unmasked sum equals the
+## regolith-masked one for every cell world-gen created — and it also counts the cells the GPU has since MADE
+## into aquifer, which the CPU mask cannot see. solid_derive_sphere3d.glsl now turns a cell that closes over
+## standing water into water-bearing rock (the water becomes pore water and `regolith` is set ON THE DEVICE),
+## and `regolith` is uploaded once at setup and never read back, so a CPU-mask sum would drop that water out
+## of the books at exactly the moment the physics started conserving it.
+##
+## It was masked on REGOLITH, and before that on solidity. The two masks diverge from frame 0: world-gen river carving clears `_solid` on
 ## cells `_compute_regolith` already primed (LAMaterialFieldLakes3D carves AFTER it runs —
 ## MaterialFieldSphereStep3D.gd:63-64), SolidDerivePass re-derives `_solid` from `rock_fill` every step while
 ## `regolith` is seeded once and never updated (MaterialSphereGPU3D.gd:37), and every MineralStamp3D shrink
@@ -227,14 +234,12 @@ func static_cell_count() -> int:
 ## function agreeing with itself, a permanently-green check that could not fail whatever anyone broke. It has
 ## been replaced in the report by `soil_stranded`, which measures a quantity that can actually move.
 func regolith_soil_total() -> float:
-	if _f._soil.size() != _f._cell_count or _f._regolith.size() != _f._cell_count:
+	if _f._soil.size() != _f._cell_count:
 		return 0.0
-	var regolith: PackedByteArray = _f._regolith
 	var soil: PackedFloat32Array = _f._soil
 	var sum: float = 0.0
 	for c in _f._cell_count:
-		if regolith[c] != 0:
-			sum += soil[c]
+		sum += soil[c]
 	return sum
 
 

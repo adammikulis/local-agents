@@ -21,6 +21,9 @@ extends RefCounted
 ## (Explicit types only, no ':=' inferred typing.)
 
 const CoverBakerScript: GDScript = preload("res://addons/local_agents/sim/material/CoverTextureBaker.gd")
+# The precipitation threshold has ONE owner (Kessler autoconversion, derived from real air/water densities);
+# the report's precip proxy and the render cover bake must read the same number the kernel rains at.
+const AtmospherePassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd")
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 var _cover_baker = null                                  # LACoverTextureBaker — bakes the render cover texture
@@ -30,10 +33,11 @@ func setup(field) -> void:
 	_f = field
 
 
-## Saturation humidity at temperature `t` — the dewpoint moisture is read against. MUST match the kernel
-## constants in atmos_evap/atmos_precip_sphere3d.glsl.
+## Saturation humidity at temperature `t` — the dewpoint moisture is read against, and the ONE thing that
+## decides how much water this planet's air can hold. Clausius-Clapeyron, owned by LAPhysical and shared with
+## every kernel that needs it, instead of the three hand-written constants that used to be copied around.
 func _sat(t: float) -> float:
-	return LAMaterialField3D.SAT_BASE * exp(LAMaterialField3D.SAT_TEMP_GAIN * (t - LAMaterialField3D.EVAP_TEMP_REF))
+	return LAPhysical.saturation_mass_fraction(t)
 
 
 ## Suspended condensate (liquid/ice) at a linear cell = the moisture over saturation. 0 for solid/oob cells.
@@ -69,7 +73,7 @@ func refresh_aggregates() -> void:
 	var solid: PackedByteArray = _f._solid
 	var moisture: PackedFloat32Array = _f._moisture
 	var temp: PackedFloat32Array = _f._temp
-	var rain_threshold: float = LAMaterialField3D.RAIN_MASS_THRESHOLD
+	var rain_threshold: float = AtmospherePassScript.rain_threshold()
 	var cover_min: float = LAMaterialField3D.CONDENSE_COVER_MIN
 	var fog_max_temp: float = LAMaterialField3D.FOG_MAX_TEMP
 	var cloud_n: int = 0
@@ -128,8 +132,7 @@ func _ensure_cover_baker() -> void:
 		return
 	var sea_r: float = _f._terrain.sea_radius()
 	_cover_baker = CoverBakerScript.new()
-	_cover_baker.setup(_f._sphere, sea_r, LAMaterialField3D.FOG_MAX_TEMP, LAMaterialField3D.RAIN_MASS_THRESHOLD,
-		LAMaterialField3D.SAT_BASE, LAMaterialField3D.SAT_TEMP_GAIN, LAMaterialField3D.EVAP_TEMP_REF)
+	_cover_baker.setup(_f._sphere, sea_r, LAMaterialField3D.FOG_MAX_TEMP, AtmospherePassScript.rain_threshold())
 
 
 ## Read-only CLIMATE snapshot — the live per-cell moisture/temp/snow/solid readback the biome surface baker
@@ -235,4 +238,11 @@ func dewpoint_at(x: float, z: float) -> float:
 	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
 	if c < 0 or _f._solid[c] != 0 or _f._moisture[c] <= 0.0:
 		return NAN
-	return LAMaterialField3D.EVAP_TEMP_REF + log(_f._moisture[c] / LAMaterialField3D.SAT_BASE) / LAMaterialField3D.SAT_TEMP_GAIN
+	# Invert the Magnus form for the temperature at which this cell's moisture would be saturated. Going
+	# through vapour PRESSURE (rather than the density sat() returns) makes the inversion exact: the density
+	# form carries an extra 1/T that has no closed-form inverse, and the pressure error from ignoring it is
+	# under a degree over the whole habitable range.
+	var e: float = _f._moisture[c] * LAPhysical.WATER_DENSITY_KG_M3 * LAPhysical.VAPOUR_GAS_CONST_J_KGK \
+		* (_f._temp[c] + LAPhysical.KELVIN_OFFSET)
+	var ln_ratio: float = log(maxf(e / LAPhysical.MAGNUS_A_PA, 1.0e-12))
+	return LAPhysical.MAGNUS_C_C * ln_ratio / maxf(LAPhysical.MAGNUS_B - ln_ratio, 1.0e-6)
