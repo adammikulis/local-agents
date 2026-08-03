@@ -50,7 +50,8 @@ Commands:
                 Set LA_GATE_MODEL=/path/to/model.gguf to also require a real reply.
   lint          Run every structural gate: file length (soft 1300 warn / hard 1500 fail),
                 no-direct-refcounted, no ':=' typing, @tool write safety, demo catalogue,
-                public surface, library-only parse. Policy markers stay advisory.
+                public surface, library-only parse, physical constants (GLSL kernel copies
+                must equal LAPhysical). Policy markers stay advisory.
                 CI runs this exact command, so a green here is a green there.
   -h | --help   Show this help and exit 0.
 
@@ -199,6 +200,18 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_surface -ne 0 ]]; then
       echo "LINT_FAIL: check_public_surface.sh ($rc_surface)"
+      exit 1
+    fi
+    # Gate: the GLSL kernels' copies of physical constants equal LAPhysical. A compute shader cannot
+    # import a GDScript constant, so every kernel hand-copies the value — which is exactly how the
+    # freezing point of water ended up in five files at three different values (12.5 / 13.0 / 14.0).
+    # This is the import the language does not have. Exit 2 means the gate could not run.
+    set +e
+    "$SCRIPT_DIR/check_physical_constants.sh"
+    rc_physical=$?
+    set -e
+    if [[ $rc_physical -ne 0 ]]; then
+      echo "LINT_FAIL: check_physical_constants.sh ($rc_physical)"
       exit 1
     fi
     # Gate: the addon still parses with the game deleted. docs/USAGE.md promises this; nothing
