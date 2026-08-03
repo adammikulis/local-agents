@@ -43,6 +43,7 @@ layout(set = 0, binding = 3, std430) restrict readonly buffer Pos { float pos[];
 layout(set = 0, binding = 4, std430) restrict readonly buffer Snow { float snow[]; };        // frozen H2O -> ice albedo
 layout(set = 0, binding = 5, std430) restrict readonly buffer Water { float water[]; };      // liquid -> ocean albedo + heat capacity
 layout(set = 0, binding = 6, std430) restrict readonly buffer RockFill { float rock_fill[]; }; // bedrock fraction -> heat capacity
+layout(set = 0, binding = 7, std430) restrict readonly buffer Pressure { float pressure[]; }; // weight of the air ABOVE this cell -> greenhouse strength
 layout(set = 0, binding = 14, std430) restrict readonly buffer Radial { float radial[]; };  // per-cell outward unit vec, packed flat c*3+{0,1,2}
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };         // idx*6 + slot
 
@@ -67,18 +68,21 @@ layout(push_constant, std430) uniform Params {
 // dead code for three commits after the branch that used it was removed, computed every step by every cell
 // and read by nothing, with a comment block above it still explaining how it set the climate.
 //
-// WHAT THIS COSTS, STATED RATHER THAN DISCOVERED LATER: there is now NO ALTITUDE TERM ANYWHERE in the
-// surface temperature. LAPSE was the only thing making high ground cold, and the surface energy balance
-// below has no height dependence at all — a mountain top and a sea-level cell at the same latitude, albedo
-// and heat capacity reach the SAME equilibrium. So snow-capped peaks and the alpine treeline that the old
-// comment credited to "geometry" are not currently produced by anything, and that is a likelier reason for
-// snow_cells and sea_ice_cells sitting at zero than the global floor being a few degrees too warm.
+// THE ALTITUDE TERM IS BACK, AND NOTHING PRESCRIBES IT. For three commits after LAPSE was deleted there was
+// no height dependence anywhere in the surface temperature: a mountain top and a sea-level cell at the same
+// latitude, albedo and heat capacity reached the SAME equilibrium, so snow-capped peaks and the alpine
+// treeline were produced by nothing at all and snow_cells / sea_ice_cells sat at zero.
 //
-// The fix is NOT to re-prescribe a lapse. On a real planet the surface is colder at height because the air
-// column above it is thinner: less mass, less downwelling longwave, and adiabatic cooling of anything that
-// rises. Two of those need a hydrostatic pressure channel, which this substrate does not carry yet, and the
-// third needs the greybody EMISSIVITY below to vary with the overlying air mass instead of being a constant.
-// That is the same missing pressure term the jet stream is waiting on, so one piece of work buys both.
+// The fix was never to re-prescribe a lapse. A real surface is colder at height because the air column above
+// it is thinner — less mass, so less of its outgoing longwave is intercepted and returned. That is the
+// GREENHOUSE, and a greenhouse is exactly what EMISSIVITY stands for, so the height dependence belongs in
+// EMISSIVITY rather than in a subtracted constant. The hydrostatic `pressure` channel is the overlying air
+// mass, measured (wind_pressure_sphere3d WALK 5 integrates the weight of the air above every cell), and
+// binding it here is the whole change. See the GREENHOUSE block below for the model and its calibration.
+//
+// A cell that stands high sits under less air, is closer to radiating as a bare blackbody, and equilibrates
+// colder — with no altitude appearing anywhere in the expression. Latitude, season, albedo, ocean lag and
+// now altitude all fall out of the same one energy balance.
 // ===== ENERGY BALANCE CONSTANTS ===================================================================
 // Target is EARTH-LIKE behaviour, so these are derived rather than fitted to this world's old numbers.
 // STEFAN is the real Stefan-Boltzmann constant; EMISSIVITY is a greybody atmosphere (a value below 1 is
@@ -89,7 +93,6 @@ layout(push_constant, std430) uniform Params {
 // a ~31 s night (half a 63 s rotation, 310 steps at 0.1 s) it sheds ~12000 J/m^2 — a capacity near 800
 // gives a ~15 K diurnal swing on land. Water is an order up, which is what makes the ocean lag.
 const float STEFAN = 5.670374e-8;
-const float EMISSIVITY = 0.9;
 const float SOLAR_CONSTANT = 600.0;
 const float KELVIN = 273.15;
 const float STEP_DT = 0.1;             // the field's fixed step (LAMaterialFieldSphereStep3D.STEP_DT)
@@ -102,6 +105,32 @@ const float HEAT_CAP_AIR = 800.0;
 const float HEAT_CAP_ROCK = 1400.0;
 const float HEAT_CAP_WATER = 9000.0;   // the ocean's thermal inertia — why coasts are mild
 const float HEAT_CAP_SNOW = 2500.0;
+// ===== GREENHOUSE — emissivity from the overlying air mass ========================================
+// A grey atmosphere of optical depth tau lets a fraction 1/(1 + 0.75*tau) of the surface's blackbody flux
+// reach space (the standard two-stream result, T_s^4 = T_e^4 * (1 + 0.75*tau)). So the greybody EMISSIVITY
+// this kernel used to hardcode IS that fraction, and it is a function of how much air is overhead — which
+// the `pressure` channel measures directly.
+//
+// TAU_SEA is DERIVED, not fitted: Earth's surface sits at 288 K against an effective radiating temperature
+// of 255 K, so (288/255)^4 = 1.626 = 1 + 0.75*tau -> tau = 0.835 for a sea-level column. P_REF is this
+// world's sea-level pressure, which wind_pressure_sphere3d states outright — G_ACC 33.5 against a column
+// mass of ~2.99 puts it "at ~100, which is where the old P0 sat".
+//
+// TWO CONSEQUENCES WORTH NAMING, because neither is coded for anywhere:
+//   * ALTITUDE. exp(-relief/H_REF) with relief ~16 and H_REF ~50 leaves a summit under ~73% of the sea-level
+//     column, so its emissivity rises and it equilibrates colder. The lapse rate is an OUTPUT now.
+//   * TOP OF ATMOSPHERE. Those cells have almost nothing above them, so emissivity approaches 1 and they
+//     radiate as bare blackbodies — which is what the top of an atmosphere does. The vertical temperature
+//     structure comes from the same expression as the horizontal one.
+//
+// This also replaces 0.9, which was a round number chosen for a greybody and then paired with SOLAR_CONSTANT
+// 600 "sized so the sub-solar point equilibrates near 300 K". At sea level the model below gives 0.615, so
+// the pair is no longer consistent and the planet will run warmer until that is re-derived. Measure before
+// touching SOLAR_CONSTANT: the last time it was cut 20% the global mean moved ONE degree, because the sun is
+// not what sets this planet's temperature.
+const float P_REF = 100.0;           // sea-level column pressure in this world's units
+const float TAU_SEA = 0.835;         // grey optical depth of a sea-level air column (from Earth's 288/255)
+const float TAU_TWO_STREAM = 0.75;   // the two-stream coefficient in T_s^4 = T_e^4 (1 + 0.75 tau)
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
@@ -164,9 +193,19 @@ void main() {
 			+ HEAT_CAP_WATER * wet
 			+ HEAT_CAP_SNOW  * clamp(snow[idx], 0.0, 1.0);
 
+		// GREENHOUSE from the air actually overhead — this is where altitude enters, and it enters as
+		// physics rather than as a subtracted lapse. On step 0 the pressure channel is still all-zero
+		// (wind_pressure seeds it AFTER Thermal's first dispatch, PASS_SCRIPTS order), so fall back to the
+		// sea-level reference for that one step rather than letting every cell radiate as a blackbody.
+		float p_col = pressure[idx];
+		if (p_col <= 0.0) {
+			p_col = P_REF;
+		}
+		float emissivity = 1.0 / (1.0 + TAU_TWO_STREAM * TAU_SEA * (p_col / P_REF));
+
 		float t_k = max(temp[idx] + KELVIN, 1.0);              // clamp keeps T^4 finite if a cell goes wild
 		float absorbed = SOLAR_CONSTANT * (1.0 - albedo) * insolation;
-		float emitted  = STEFAN * EMISSIVITY * t_k * t_k * t_k * t_k;
+		float emitted  = STEFAN * emissivity * t_k * t_k * t_k * t_k;
 		float dT = (absorbed - emitted) * STEP_DT / cap;
 		// Numerical guard ONLY (not a physics clamp): one step may not move a cell more than this, so a
 		// transient cannot NaN the field. Equilibrium is unaffected — it is reached over many steps.
