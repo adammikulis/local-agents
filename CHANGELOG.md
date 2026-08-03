@@ -15,7 +15,8 @@ the summary below is by theme rather than a settled release note.
 
 - **The planet's physics became conservative.** One conserved H₂O budget across liquid, vapour,
   snow and soil water; the static sea dissolved (it had been minting water it never lost); a real
-  aquifer / water-table channel with springs as a flux; hydrostatic air mass; gravity and the star
+  aquifer / water-table channel (springs are modelled as a flux but do NOT yet run — the
+  outflow loop spends its budget greedily in slot order and drains downward first); hydrostatic air mass; gravity and the star
   as real bodies; body-local spin, with the Coriolis direction corrected and the cubed-sphere
   neighbour table made slot-opposite reciprocal.
 - **Biology went deep** — literal DNA heredity, chemical-affinity learning, digestion over time,

@@ -15,10 +15,20 @@ addon-UX split moved everything under `addons/local_agents/{sim,game}/`.)*
 
 ## ▶ START HERE
 
-**0.4 is THE EMERGENT PLANET** (pivot 2026-07-12; creatures moved to 0.5, the full solar system to 0.6).
+**0.4 is THE EMERGENT PLANET, AND NOTHING ELSE. LOCK THE PLANET DOWN BEFORE TOUCHING CREATURES.**
+This is the maintainer's standing directive and it outranks the ordering of everything below. Creature work
+is not lower priority, it is **premature** — behaviour tuned against a broken substrate has to be redone, and
+that has already happened here more than once. `CLAUDE.md` → "SCOPE RULE" carries the measurable bar the
+planet must clear (every conserved substance has a drift gauge reading ~0 · no fitted physical constants ·
+the named emergent phenomena actually occur · no rate depends on the camera or the framerate). If you find a
+Rule Zero violation in creature code, RECORD it under the 0.5 section and move on.
+
+(Pivot 2026-07-12; creatures moved to 0.5, the full solar system to 0.6.)
 The physical substrate is the star — geology, hydrology, volcanism, climate, all emergent from the ONE field,
 simulated start to finish: a geological bake (rough world → erosion/volcanism/climate run forward) frozen as a
-livable start state you can tend or just watch. Look = cel-shading. 0.3.1 shipped on `main` (`v0.3.1`);
+livable start state you can tend or just watch. **That bake is 0.4 work, not a stretch goal** — it is what
+makes this "the emergent planet" rather than merely a correct one, and `--geotime` does not exist yet.
+Look = cel-shading. 0.3.1 shipped on `main` (`v0.3.1`);
 development is on `0.4-dev`. Work in a worktree off it. Memories worth loading: `roadmap-0.4-life-cycle`
 (the pivot), `dissolve-dont-patch`, `perf-first-ruthlessly`, `big-o-first-class`, `iterate-fast`,
 `verify-before-merge`, `worktree-shader-import-gotcha`, `three-d-always`.
@@ -423,12 +433,28 @@ see `CLAUDE.md`'s corrected `--fast` bullet.)*
 
 ---
 
-## 0.5 — THE LIVING CREATURES (moved from 0.4 — their entire life cycle)
+## 0.5 — THE LIVING CREATURES — PARKED. DO NOT START THIS.
 
-Where 0.3 went broad (the game + emergent world), **0.4 goes deep on the creatures themselves — the whole arc
+**Everything below this line is 0.5 and does not begin until the planet is locked down. See `CLAUDE.md` →
+"SCOPE RULE" for the measurable bar.** Creature work is not merely lower priority, it is premature:
+behaviour tuned against a planet where water froze at 12.5 °C, the core was 1300 °C, sediment could not move
+and the aquifer never reached the surface is behaviour fitted to a fiction, and all of it has to be redone.
+*(This section said "**0.4** goes deep on the creatures themselves" under a heading that already read 0.5 —
+the contradiction is fixed, and the two companion docs were renamed from `0.4_*` to `0.5_*` on 2026-08-03
+because the filenames alone kept pulling the work forward.)*
+
+Where 0.3 went broad (the game + emergent world), **0.5 goes deep on the creatures themselves — the whole arc
 of a life**, all emergent (one substrate, reaction engine, config over `if species==X`). The creatures are the
-star (local LLMs driving the minds). **This section is the approved, sequenced plan** (idea bank:
-`docs/0.4_CREATURE_FEATURES.md`; split plan: `docs/0.4_PARALLELIZATION_GUIDE.md`).
+star (local LLMs driving the minds). **This section is the approved, sequenced plan, held for later** (idea
+bank: `docs/0.5_CREATURE_FEATURES.md`; split plan: `docs/0.5_PARALLELIZATION_GUIDE.md`).
+
+**Known Rule Zero violations in creature code, RECORDED not fixed** (per the scope rule: fixing them now
+would build on sand). `CreatureDigestion.ambient_graze` mints food out of the temperature at the animal's
+feet, with no source and nothing decremented — its own comment says *"never depletes, can't be crashed"* — so
+starvation is unreachable and herbivore numbers are set by a JSON `pop_cap`. Nothing scales with body mass: a
+fox and a mouse burn identical energy, and the `basal_metabolism`/`active_metabolism` genes on the DNA strand
+are read by nothing. One thermal physiology covers all 28 species. `Fish.gd` spends energy only
+`if not preys_on.is_empty()`, so shrimp, jellyfish, crab and turtle cannot starve.
 
 > **The memory/social substrate this release needs already exists and is reachable.**
 > `graph/BackstoryGraphService.gd` is wired to `LocalAgent`. It
