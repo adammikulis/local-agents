@@ -53,10 +53,10 @@ var _static: PackedByteArray = PackedByteArray()
 # reach into these arrays through the field (`_f`), 3D-generalising the 2.5D MaterialHeat/Atmosphere/
 # Liquid. INITIAL_TEMP seeds a mild ground so nothing freezes before the field settles.
 const INITIAL_TEMP: float = 15.0
-# Geothermal core: the innermost CORE_LAYERS radial shells are pinned hot each step (a boundary condition,
-# NOT an actor injection). Conduction (ThermalPass) carries that heat outward → a radial geothermal gradient
-# emerges. add_magma_source arms it (records the pin temperature). Sphere-only.
-const CORE_LAYERS: int = 2
+# Geothermal core: the innermost radial shells are warmed each step (a boundary condition, NOT an actor
+# injection). Conduction (ThermalPass) carries that heat outward → a radial geothermal gradient emerges.
+# add_magma_source arms it. Sphere-only. The mechanism and its honest limits live in
+# LAMaterialFieldGeotherm3D; this hub only forwards.
 # Ambient atmospheric oxygen every OPEN cell is seeded to (LAMaterialGas3D relaxes surface cells back toward
 # it; combustion draws it down). MUST match LAMaterialGas3D.O2_AMBIENT.
 const O2_AMBIENT: float = 1.0
@@ -176,8 +176,7 @@ const BoxStepScript: GDScript = preload("res://addons/local_agents/sim/material/
 const SurfaceSeedScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd")
 var _gpu = null                                          # LAMaterialSphereGPU3D (local RenderingDevice) or null
 var _use_gpu: bool = false
-var _core_temp: float = 0.0                              # geothermal core pin temperature (0 = disarmed)
-var _core_cells: PackedInt32Array = PackedInt32Array()  # static innermost-shell cell indices (built once)
+var _geotherm = null                                     # LAMaterialFieldGeotherm3D — the internal heat source
 # Read-only query accessors + the write-side injection facade (factored out; see those files).
 var _queries = null                                      # LAMaterialFieldQueries3D
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
@@ -208,11 +207,14 @@ const AtmosScript: GDScript = preload("res://addons/local_agents/sim/material/Ma
 const LedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLedger3D.gd")
 const ChannelsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldChannels3D.gd")
 const ReportScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldReport3D.gd")
+const GeothermScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldGeotherm3D.gd")
 
 
 func _init() -> void:
 	_atmos = AtmosScript.new()
 	_atmos.setup(self)
+	_geotherm = GeothermScript.new()
+	_geotherm.setup(self)
 	_ledger = LedgerScript.new()
 	_ledger.setup(self)
 	_channels = ChannelsScript.new()
@@ -1063,46 +1065,17 @@ func fertility_peak() -> float:
 # CPU oracles retired; these channels are not yet read back from the sphere GPU driver, so the emitters are
 # no-ops and the diagnostics return safe defaults until their sphere readback lands.
 func add_magma_source(world_pos: Vector3, temp: float, rate: float) -> void:
-	# Sphere geothermal core: arm the innermost-radial-shell heat pin (world_pos/rate unused — the core is
+	# Sphere geothermal core: arm the innermost-radial-shell heat source (world_pos/rate unused — the core is
 	# the whole innermost shell, not a point). Conduction spreads it outward into a geothermal gradient.
-	_core_temp = maxf(_core_temp, temp)
-
-## Pin the innermost CORE_LAYERS radial shells to the geothermal temperature (cell layout: cell = surf*depth + r,
-## so r = c % _dim_y; r < CORE_LAYERS is the core). Precomputes the static core-cell list once. Called each step
-## before begin_frame so the upload carries it; conduction then propagates it up through the rock to the surface.
-## Maximum degrees a core cell may gain in one field step — what turns the geothermal boundary from an
-## infinite source into a large finite one. Sized so the core still recovers quickly from a lava draw
-## (1300 C in ~130 steps from cold) while no longer being able to supply unbounded energy per step.
-const CORE_FLUX: float = 10.0
+	_geotherm.arm(temp)
 
 
+## Advance the geothermal boundary one field step. Called before begin_frame so the upload carries it; the
+## mechanism, and an honest note on what it does not yet model, live in LAMaterialFieldGeotherm3D.
 func _pin_core_heat() -> void:
-	if _core_temp <= 0.0 or not is_sphere() or _dim_y <= 0:
-		return
-	if _core_cells.is_empty():
-		for c in _cell_count:
-			if c % _dim_y < CORE_LAYERS:
-				_core_cells.append(c)
-	# A FINITE HEAT FLUX, not an infinite temperature clamp.
-	#
-	# This used to be `_temp[c] = _core_temp` — a hard assign, every step, forever. That is a Dirichlet
-	# boundary with no reservoir behind it: it supplies however much energy the rest of the world can carry
-	# away and never depletes, which makes a global energy budget non-closable BY CONSTRUCTION. No amount of
-	# radiating to space can cool a planet whose centre is re-set to 1300 C ten times a second.
-	#
-	# The core now WARMS toward its temperature at a bounded rate instead. Conduction still carries the
-	# geothermal gradient outward exactly as before, and a core cell that has been drained by a lava draw or
-	# a seabed vent takes real time to recover instead of snapping back between frames. The rate is what
-	# makes it finite: a step can move a core cell by at most CORE_FLUX degrees, so the core is a very large
-	# but bounded supply rather than an infinite one.
-	#
-	# Genuine radiogenic decay over geological time (a core that cools as the planet ages, so volcanism has a
-	# budget) is the honest end state and is NOT done here — this is the smallest change that stops the
-	# energy budget being unclosable, without pretending to model mantle thermodynamics.
-	for c in _core_cells:
-		var gap: float = _core_temp - _temp[c]
-		if gap > 0.0:
-			_temp[c] += minf(gap, CORE_FLUX)
+	_geotherm.step()
+
+
 func magma_cell_count() -> int:
 	return 0
 func magma_erupting() -> bool:
