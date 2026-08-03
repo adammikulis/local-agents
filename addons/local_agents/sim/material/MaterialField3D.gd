@@ -506,6 +506,18 @@ func cell_world_pos_linear(c: int) -> Vector3:
 	var ix: int = rem - iz * _dim_x
 	return cell_world_pos(ix, iy, iz)
 
+## The substrate's spatial RESOLUTION in world units — the edge length of one cell.
+##
+## Public because callers outside the field need it to know what the substrate can even represent. A world
+## edit smaller than this is invisible to the physics however well it renders: the field samples cell
+## CENTRES, so a carve that does not engulf one changes no cell's state. That is not hypothetical — meteor
+## craters were `IMPACT_RADIUS * size` = 10 world units against a cell size of 16, so six impacts excavated
+## zero cells while still denting the (much finer) SDF mesh, and `crater_mass` — the cross-check the mineral
+## ledger uses to prove a strike MOVED rock rather than destroying it — read 0.0 the whole time.
+func cell_size() -> float:
+	return _cell_size
+
+
 ## World position → linear cell index (cubed-sphere: nearest gnomonic face+surf+radial layer; -1 if outside
 ## the shell). Box mode: clamp each axis and combine. This is the substrate-agnostic world→cell used by queries.
 func world_to_cell(world_pos: Vector3) -> int:

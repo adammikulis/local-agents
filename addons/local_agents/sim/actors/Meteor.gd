@@ -93,9 +93,35 @@ func setup(terrain: Object, ecology: Object) -> void:
 	_ecology = ecology
 
 
-## Effective impact radius for THIS meteor (base * its random size).
+## Effective impact radius for THIS meteor (base * its random size), FLOORED AT THE SUBSTRATE'S RESOLUTION.
+##
+## A crater smaller than one field cell cannot exist in the physics. The field samples cell CENTRES, so a
+## carve that fails to engulf one flips no cell from rock to void: `resample_terrain`'s `is_solid` probe still
+## reads solid everywhere, its excavation loop `continue`s on every cell, and no bedrock is moved into the
+## loose phases. The SDF mesh is far finer than the field grid, so the crater still LOOKS carved — which is
+## why this went unnoticed.
+##
+## A SCALE CHANGE INTRODUCED IT, not this constant. When the planet went to radius 500, `PLANET_SCALE` was
+## applied to world-gen geometry including cell_size (8.0 * PLANET_SCALE = 16 world units) but NOT to
+## interaction radii, which kept their radius-250 values. IMPACT_RADIUS 10 was comfortably super-cell at the
+## old 8-unit cell and became sub-cell at 16. Measured over 600 frames with --auto-meteor: six impacts,
+## `crater_cells` 0, `crater_mass` 0.0, `crater_sea` 0 — and `crater_mass` is exactly the number the mineral
+## ledger's own documentation names as the cross-check that a strike MOVED rock rather than deleting it.
+##
+## Floored against the LIVE cell size rather than re-scaled by PLANET_SCALE on purpose: it then stays correct
+## at any future world scale and at any grid resolution, including the Low/High quality presets that change
+## `grid_res_per_face` underneath it. 1.5 cells guarantees the centre cell is engulfed even when the impact
+## point lands at a cell corner.
+const MIN_CRATER_CELLS: float = 1.5
+
 func _radius() -> float:
-	return IMPACT_RADIUS * _size
+	var want: float = IMPACT_RADIUS * _size
+	var cell: float = 0.0
+	if _ecology != null and _ecology.has_method("material_field"):
+		var field: Object = _ecology.material_field()
+		if field != null and field.has_method("cell_size"):
+			cell = float(field.cell_size())
+	return maxf(want, cell * MIN_CRATER_CELLS)
 
 
 ## Launch toward `target`. If `from_pos` is finite it fires FROM THAT POINT (the camera / screen
