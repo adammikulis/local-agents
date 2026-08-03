@@ -61,6 +61,20 @@ void main() {
 		return;
 	}
 	if (solid[g] != 0.0) {
+		// ROCK GREW OVER AIRBORNE DUST: BURY IT, DO NOT DELETE IT. This used to be a bare `dust_out[g] = 0.0`,
+		// which was an unaccounted MINERAL SINK — `solid` is re-derived from rock_fill every step, so any cell
+		// that crossed the threshold with dust in the air simply had that mass annihilated, and no ledger
+		// could see it. In the world, dust caught by growing rock settles into it; it does not cease to exist.
+		// Handing it to `sed` (the loose phase, already `+=`-edited by the deposit leg below) makes it a
+		// CONSERVING transfer between two counted legs of mineral_total. Costs one add on a branch that was
+		// already taken. `dust_in` is the LIVE half and `sed` the BACK half, so the mass moves exactly once:
+		// the parity flip promotes this cell's zeroed dust next step.
+		//
+		// THIS IS NOT A HYPOTHETICAL LEAK. `dust_total` had been printing 0.00 in every SIM_REPORT because its
+		// CPU mirror was never read back (see LAMaterialFieldQueries3D.avg_atmos_dust), and the first run that
+		// requested the channel measured 221.62 units of airborne dust on a --planet-only world. Every cell
+		// that crossed rock_fill 0.5 was deleting its share of that, unseen.
+		sed[g] += dust_in[g];
 		dust_out[g] = 0.0;
 		return;
 	}

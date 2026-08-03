@@ -110,12 +110,30 @@ charge field. `--planet-only` removes it entirely, which is the mode to use for 
 ## DO THIS NEXT (ranked)
 
 **THE ONE-LINE DIAGNOSIS, from four subsystem audits on 2026-08-03: every subsystem with a conservation
-ledger conserves; every subsystem without one mints.** H₂O and mineral have ledgers and are honest. Carbon,
+ledger conserves; every subsystem without one mints.** H₂O has a ledger and is honest. Carbon,
 oxygen, fertility, biomass and energy had none — and every one of them was creating matter or energy from
 nothing. The measurement gap is not a separate problem from the defects, it is the MECHANISM: where drift
 would have shown, the physics had to be real. Ledgers now exist (`MaterialFieldMassBudget3D`,
-`MaterialFieldEnergyBudget3D`, `MaterialFieldExtremes3D`, `MaterialFieldClimateSwing3D`) — use them, and
-build one before trusting any new subsystem.
+`MaterialFieldEnergyBudget3D`, `MaterialFieldExtremes3D`, `MaterialFieldClimateSwing3D`,
+`MaterialFieldMineralBudget3D`) — use them, and build one before trusting any new subsystem.
+
+*(Corrected 2026-08-03. This paragraph said "H₂O and mineral have ledgers and are honest". **Mineral had no
+ledger** — six absolutes, zero deltas — which is why it was item 8 below. Given one, mineral turns out to be
+the rule's exception in a mild way: 3 runs, `--planet-only`, 600 frames, seed 4242, 5 impacts / 3 eruptions
+each, at `mineral_run_steps` 760 it does not mint, it LEAKS `mineral_net_per_step` **-0.043 / -0.042 /
+-0.041** units per field step — about -0.10% of a ~32000-unit inventory over the run — while the vent's
+declared mantle source runs +0.285/step, so the raw total rises and hid the leak.)*
+
+**8b — THE MINERAL LEAK IS ENTIRELY `FireDustPass`, AND IT IS THE RELEVANCE GATE.** `LA_MINERAL_BUDGET=1`
+(`MaterialFieldMineralProbe3D`, per-pass, same instrument shape as `LA_H2O_BUDGET`) reports `legs_all`
+**0.0000 for eleven of the twelve passes** at every sample — solid_derive, water_slump_lava, lava_cell_list,
+thermal, gas_wind, atmosphere, soil, erosion_pickup, reactions, activity, eco_surface — and `fire_dust`
+-0.0008 → -0.0516/step as `dust` climbs 1.85 → 26.68. Mechanism to check: a stride-skipped cell copies
+`dust_out = dust_in` (`dust_transport_sphere3d.glsl:83`) and never collects flux its running neighbours
+already sent, and `dust_outscale_sphere3d.glsl:77` writes 0.0 for a gated cell, which the transport reads as
+"that neighbour sent nothing". WHAT DECIDES IT: fix the gate to be flux-symmetric, re-run the probe, and
+require `fire_dust` to read 0.0000. Compare with `LA_NO_ACTIVITY_LOD=1` first to confirm the gate is the
+cause.
 
 **1 — NITROGEN HAS NO SOURCE, AND THAT IS WHY THE BIOSPHERE COLLAPSED.** On `feature/energy-balance`.
 Closing the fertility identity (`FERT_PER_DECOMPOSE` 1.5 → 0.05 = the 1/20 C:N ratio of leaf litter, uptake
@@ -252,12 +270,44 @@ pressure, and can run in the same cell as D1 in the same step — a futile cycle
 plate SEEDS and moves no crust, so the Ring of Fire sweeps across stationary continents, and
 `VENT_CHANCE_DIVERGENT = 0.12` is a second undocumented rarity roll beside the one already flagged.
 
-**8 — `mineral_total` HAS NO DRIFT GAUGE.** It is called "the unification's proof object" and reports six
-absolutes and zero deltas, while fed by an admitted "effectively infinite" mantle. Give it the H₂O ledger's
-`*_drift_per_step` and a `LA_MINERAL_BUDGET`, unify the five legs' inclusion masks (`dust_total` masks on
-open cells, the other four do not), and split `mineral_credited` (crater, a real transfer) from
-`mineral_minted` (vent, a source) — they currently land in one gauge, which pollutes the documented
-crater-vs-vent cross-check.
+**8 — CRATERS EXCAVATE NOTHING, so half the mineral ledger has nothing to check.** Measured 2026-08-03 over
+six 600-frame `--planet-only` runs, seed 4242: five impacts every run and `crater_cells 0`, `crater_mass 0.0`,
+`mineral_inject_moved 0.0` in all six. `LAMeteor._on_impact` (`Meteor.gd:337-350`) carves the SDF and then
+routes the substrate half through `_ecology.material_field()`, so the excavation is gated on the ECOLOGY
+service — geology depending on biology, the same shape as "volcanoes waited for rabbits". Either that gate is
+failing or every drawn strike lands where `resample_terrain`'s `is_solid` probe still reads rock
+(`MaterialFieldInject3D.gd:445`). WHAT DECIDES IT: one run with `--auto-meteor` on known land; if
+`crater_cells` is still 0 the gate is the cause, if it is nonzero the ambient strikes are all landing at sea.
+Until this is settled the crater-vs-vent cross-check (`mineral_inject_moved` against `crater_mass`) has only
+one side.
+
+**8d — LIVE AIRBORNE DUST COSTS THE WATER TABLE A QUARTER OF ITSELF, AND NOBODY KNOWS WHY YET.** Impact
+winter used to be wired to a constant zero (`avg_atmos_dust()` read a `dust` mirror nothing ever refreshed).
+Now that its consumer requests its own channel, mean dust reads ~0.003 against `DUST_OPACITY` 3.5, atmospheric
+transmission drops 0.925 -> 0.915, and `soil_total` at 600 frames drops with it: **369-377 with a dead dust
+mirror against 267-280 with a live one**, over roughly ten runs each. The causal link is isolated in ONE
+worktree: with dust live but the dust->opacity term severed, `soil_total` reads 370.9 and 369.0; with it
+connected, 272.7 and 272.0.
+
+**WHAT DOES NOT ADD UP, AND IS THE OPEN QUESTION:** the effect is not a monotone function of the opacity.
+Forcing a CONSTANT dust opacity with the mirror dead gave `soil_total` 368.3 at 0.0, 367.0 at 0.00307 (the
+live value) and **381.5 at 0.05** — sixteen times the dimming, transmission 0.796, and the water table went UP.
+So a 1% dimming that RISES from zero drains a quarter of the groundwater while a 14% constant dimming does not
+touch it. One of those two is measuring something other than insolation. WHAT DECIDES IT: three runs per arm
+at forced opacity 0.0 / 0.003 / 0.05 (the probes above were one run each, against a 3-6 unit within-arm
+spread), plus `LA_SOIL_BUDGET=1` on a live-dust and a dead-dust run to see WHICH groundwater leg changes.
+
+**8c — `add_lava` STILL REWINDS THE GPU WITH A STALE MIRROR, AND THAT IS WHY READBACK RESIDENCY IS
+LOAD-BEARING.** `LAMaterialFieldSphereStep3D.gd:197-202` pushes the WHOLE `lava` and `rock_fill` mirrors back
+with `set_field` whenever `add_lava` ran on the CPU. Those mirrors were last filled by a readback a frame (up
+to two steps) old, so the upload writes away whatever the kernels did in between — `_audit_mirror_upload`
+(`MaterialSphereGPU3D.gd`, `LA_INJECT_AUDIT=1`) prints exactly that mass. The size of the rewind therefore
+depends on how recently the channel was READ BACK, which is decided by `request_channel`, which is why a
+diagnostic asking for a channel used to change the run (fixed 2026-08-03: ledgers use `read_channels_readonly`
+and no longer ask). The rewind itself is still there. **WHAT DECIDES IT:** move `add_lava` onto the injection
+queue's `move_field_sparse`, the way every other injector already resolves against the live buffer, then run
+with `LA_INJECT_AUDIT=1` and require the printed delta to be 0.0. It touches `MaterialField3D.gd`, which is
+extract-only, so the transfer belongs in a new module the hub delegates to.
 
 **8b — THE H₂O LEDGER, THE ONE HELD UP AS SOUND, HAS A LARGE UNEXPLAINED EXCURSION.** It now has the
 run-level gauge every other substance already had (`h2o_first` / `h2o_run_drift` / `h2o_run_drift_per_step`,
@@ -295,8 +345,11 @@ nothing in this project could tell those two apart.
   46+6 units), so it is not obviously wrong — but it is unverified either way, and settling it needs a
   windowed run with fauna and something buried.
 - `--fixed-fps 60` fixes the field clock but NOT the disaster draw. The planet now has its own RNG stream
-  (impacts 5/5/5, eruptions 3/3/3, temp spread 12.7 °C → 0.70 °C); the residual is actor splashes perturbing
-  the charge field, which `--planet-only` removes entirely.
+  (impacts 5/5/5, temp spread 12.7 °C → 0.70 °C). *(Corrected 2026-08-03: this also said "eruptions 3/3/3".
+  Across 20+ `--planet-only` runs — no actors at all, so the "residual is actor splashes" explanation does
+  not apply — impacts were 5 every time but eruptions came out 3 OR 4.)* At genuinely fixed code the run-to-run
+  spread of `soil_total` is only 3-6 units on ~275, so it CAN carry an A/B — but 3 runs per arm is the floor,
+  and the tree must not be edited while the batch runs (see `CLAUDE.md`).
 
 **10 — A4: rebuild `VoxelWorld` → Anima. HELD for supervised handling.** Refactor the inline
 `VoxelWorld._ready` to compose from `SimWorld` + the reusable nodes, and rename the game `VoxelWorld` →

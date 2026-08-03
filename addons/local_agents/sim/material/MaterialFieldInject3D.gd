@@ -42,8 +42,11 @@ const CRATER_WATCH_MAX: int = 256
 var _crater_watch: PackedInt32Array = PackedInt32Array()
 var _crater_seen: Dictionary = {}        # cell -> true, so overlapping craters do not watch a cell twice
 var _crater_opened: int = 0              # cumulative cells this run whose derived solidity went rock -> void
-var _crater_mass: float = 0.0            # cumulative bedrock mass DEBITED out of rock_fill; the matching credit
-                                         # the device accepted is mineral_inject_credited, and the two must agree
+var _crater_mass: float = 0.0            # cumulative bedrock mass ASKED of rock_fill; the matching credit the
+                                         # device actually accepted is `mineral_inject_moved`, and the two must
+                                         # agree. (It used to say `mineral_inject_credited`, which was the VENT's
+                                         # counter and could never have matched — see MaterialFieldInjectQueue3D's
+                                         # mineral ledger note. Corrected 2026-08-03.)
 var _crater_sea: int = 0                 # cumulative opened cells that were under the water line and flooded
 
 ## Emitted every time something splashes water at a world point (meteor / tornado / fish / thrown rock /

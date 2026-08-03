@@ -176,6 +176,12 @@ const SITUATIONAL_CHANNELS: Array = ["lava", "fire", "dust", "shock", "co2", "fu
 const CHANNEL_HOLD_DRAINS: int = 20     # stay hot ~20 drains past the last request so intermittent queries don't thrash
 var _channel_hold: Dictionary = {}      # channel name -> drain index it stays hot through
 var _drain_count: int = 0               # monotonic drain counter the holds are measured against
+# READ-ONLY INSTRUMENT PROBE (see request_probe/take_probe). `_probe_want` is armed by a ledger and consumed at
+# the next drain, where the device has just been synced and a buffer read is free of side effects; `_probe`
+# holds the resulting arrays. Deliberately separate from `_cached` and `_channel_hold` so sampling it cannot
+# change which mirrors the SIMULATION sees.
+var _probe_want: PackedStringArray = PackedStringArray()
+var _probe: Dictionary = {}
 # begin_frame upload gates: the solid/static masks and CPU water copy are re-uploaded only when actually edited
 # (SDF stamp / water injection), not every step — the per-step re-upload was pure CPU↔GPU transfer waste. Both
 # default true so the first begin_frame seeds them.
@@ -459,6 +465,16 @@ func _drain_pending() -> void:
 	if read_slow:
 		_slow_gate = 0
 	_cached = _read_channels(read_slow)
+	# Read-only instrument sample, taken HERE because the device was just synced (see request_probe). It is
+	# written to its own dictionary, never to `_cached`, so no simulation consumer's view changes.
+	if not _probe_want.is_empty():
+		_probe = {}
+		for pname in _probe_want:
+			if not _bufs.has(pname):
+				continue
+			var pb = _bufs[pname]
+			_probe[pname] = _rd.buffer_get_data(pb[_phase] if pb is Array else pb).to_float32_array()
+		_probe_want = PackedStringArray()
 	# Direct sub-timings (noise-immune, unlike fps): how long the GPU sync stall vs the channel copy/convert
 	# actually cost this drain. The readback (buffer_get_data + to_float32_array over ~17 full-grid channels) is
 	# the suspected field bottleneck; measuring it directly is how we know what gating it can win.
@@ -573,8 +589,54 @@ func _read_channels(read_slow: bool) -> Dictionary:
 ## CHANNEL_HOLD_DRAINS more drains. The field facade calls this whenever the channel is injected into or queried
 ## (a live disaster, a debug overlay), so a channel with no active consumer simply stops being copied back.
 ## No-op for channels that are always read anyway.
+##
+## **`request_channel` IS NOT READ-ONLY — ONLY A SIMULATION CONSUMER MAY CALL IT, NEVER A GAUGE.** Residency
+## decides what the CPU MIRRORS hold, and the field's own write paths read those mirrors and act on what they
+## find, so waking a channel changes the run:
+##   • `avg_atmos_dust()` sums `_f._dust` into the atmospheric opacity that sets INSOLATION — a dead dust mirror
+##     pins impact winter at transmission 1.0, a live one dims the sun (measured 2026-08-03: `dust_total`
+##     0.00 → 181-217, `atmos_transmission` 0.926 → 0.915 on otherwise identical runs).
+##   • `add_lava` pushes the WHOLE `lava` + `rock_fill` mirrors back with `set_field`, so how stale the mirror is
+##     decides how much GPU-evolved mass that upload rewinds (see `_audit_mirror_upload`).
+##   • `LAMineralStamp3D._scan()` compares the `rock_fill` mirror against `_solid` and emits SDF grow/shrink
+##     stamps plus a `displace("soil" → "water")` for every shrink.
+## A ledger that wants fresh legs must use `request_probe`/`take_probe` below instead.
 func request_channel(name: String) -> void:
 	_channel_hold[name] = _drain_count + CHANNEL_HOLD_DRAINS
+
+
+## ARM a READ-ONLY channel sample for a pure instrument (a conservation ledger). Taken at the NEXT drain and
+## collected with `take_probe()`.
+##
+## WHY IT IS DEFERRED TO THE DRAIN INSTEAD OF READ ON THE SPOT, and this cost several measured runs to learn:
+## **`buffer_get_data` is NOT a passive read on a local RenderingDevice.** Calling it from the report path
+## while `step()` has an outstanding `submit()` (`_pending == true`) makes the device flush that work outside
+## the one-submit-per-sync discipline this driver is built on, and the simulation comes out different.
+## Measured 2026-08-03, same seed and frame count, the only change being WHERE the mineral ledger's five legs
+## were read from: on-the-spot device reads took `h2o_total` 5062 → 9803, `sediment_total` 1073 → 1449,
+## `rock_shrinks` 816 → 1602 and `temp_mean` 39.8 → 44.6 °C. Restoring every `request_channel` call did NOT
+## bring it back, which is what identifies the READ rather than the residency. `read_raw`'s "no sync is done
+## here" describes what this file does not call; it does not describe what the engine does underneath, and
+## `read_raw` is only ever used from the checkpointed path where the device has just been synced.
+##
+## Taken inside `_drain_pending`, immediately after `_rd.sync()`, the read is the same operation
+## `_read_channels` is already performing on its neighbours and costs a copy. It still touches NOTHING the
+## simulation can observe: not `_channel_hold` (no channel becomes hot because a gauge looked at it), not
+## `_cached`, not `_drain_count`, not `_slow_gate`. See `request_channel` above for why that matters.
+## Several ledgers arm this in the same report block, so names UNION rather than replace and the whole set is
+## sampled from one drain — every ledger's legs then come from the same instant, which is the inclusion rule
+## they all depend on.
+func request_probe(names: PackedStringArray) -> void:
+	for name in names:
+		if not _probe_want.has(name):
+			_probe_want.append(name)
+
+
+## Collect the most recent read-only sample — one drain old at most, the same lag the CPU mirrors carry. Empty
+## until the first drain after `request_probe`, so a caller falls back to the mirrors and publishes which legs
+## it actually got (`mineral_live` / `mass_live`).
+func take_probe() -> Dictionary:
+	return _probe
 
 
 ## The CPU solid/static mask changed (initial solidity sample, a volcano SDF stamp, a terrain edit) — re-seed

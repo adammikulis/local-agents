@@ -61,9 +61,24 @@ func arm() -> void:
 
 ## Per-active-frame entry (call after the rock_fill readback). Idle (returns immediately, zero cost) unless
 ## armed; while armed, runs a throttled + budgeted crossing scan.
+##
+## THE CHANNEL REQUEST BELONGS HERE, NOT ONLY IN `arm()`. `_scan()` compares the `rock_fill` MIRROR against
+## `_solid`, so a stale mirror makes it stamp the SDF from an old picture of the terrain. `arm()` requests once
+## and the hold lasts CHANNEL_HOLD_DRAINS (20) drains, but `_scan()` re-arms `_window` (32 frames) every time it
+## finds a crossing, so a sustained eruption could go on scanning after the mirror went cold. Nothing noticed
+## until 2026-08-03, because a DIAGNOSTIC — LAMaterialFieldMineralBudget3D — requested `rock_fill` on every
+## report sample and held the mirror hot for the whole run. With that ledger no longer requesting anything,
+## this is the only thing keeping the stamp's own input fresh, which is where the responsibility belongs.
+##
+## HONEST SCOPE: this closes a latent staleness hazard. It is NOT the fix for the `h2o_total` 5062 -> 9803
+## excursion measured the same day — that was the ledger reading device buffers from the report path, and
+## adding this request did not move it (`rock_shrinks` 1617, `h2o_total` 9841 with it already in place). See
+## `LAMaterialSphereGPU3D.request_probe`. Cost here is one dictionary write per active frame.
 func maybe_scan() -> void:
 	if _window <= 0:
 		return
+	if _f != null and _f._gpu != null and _f._gpu.has_method("request_channel"):
+		_f._gpu.request_channel("rock_fill")
 	_window -= 1
 	_tick += 1
 	if _tick < SCAN_EVERY:

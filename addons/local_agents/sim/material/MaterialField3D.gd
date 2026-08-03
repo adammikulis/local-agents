@@ -1115,10 +1115,13 @@ func h2o_total() -> float:
 ## Mean temperature over the snow-covered cells — proves snow sits on the COLD side (should read below FREEZE_TEMP).
 func snow_line_temp() -> float:
 	return _ledger.snow_line_temp()
+## Airborne dust at a world point. Was a bare `return 0.0` with no comment — a point read that answered "how
+## much debris is in the air here" with a permanent no. Forwards to the channel module like every other
+## per-cell read; it self-wakes the demand-gated `dust` readback the way co2_at does.
 func dust_at(x: float, y: float, z: float) -> float:
-	return 0.0
-func dust_cell_count() -> int:
-	return 0
+	return _channels.dust_at(x, y, z)
+# (`dust_cell_count()` removed 2026-08-03 — superseded by LAMaterialFieldMineralBudget3D's `dusty_cells`, which
+#  counts the same cells with the same threshold inside a pass it already makes. Reason in MaterialFieldQueries3D.)
 
 # MINERAL conservation ledger (rock unification) lives in LAMaterialFieldQueries3D (`_queries.*_total()` etc.);
 # report() reads it directly. ONE conserved mineral; mineral_total must stay BOUNDED (the unification's proof).
