@@ -20,12 +20,22 @@ const STATE_DEAD: String = "dead"       # a fresh carcass
 const STATE_DECAYED: String = "decayed" # rotting — worth less, tolerated mainly by scavengers
 const STATE_COOKED: String = "cooked"   # prepared — worth more (a hook for villager cooking)
 
-# Energy multiplier by state: rot halves the value; cooking boosts it.
-const STATE_VALUE: Dictionary = {
+# STATE CHANGES DIGESTIBILITY, NOT MASS. This used to be a MASS multiplier — `"cooked": 1.6` meant a cooked
+# meal put 60% more matter into the animal than the food contained, which is food from nothing, and
+# `"decayed": 0.5` deleted half of a rotting carcass a SECOND time (its `_carrion` has already shrunk by
+# exactly what decomposition consumed, so halving the remainder double-counted the rot).
+#
+# What is real is that state changes how much ENERGY a gut can extract from a given mass. Cooking
+# gelatinises starch and denatures protein, so more of the same food is assimilated rather than passed —
+# the Wrangham argument, and a measured effect of roughly 10-30% on net energy yield. Putrefaction works the
+# other way: microbes have already consumed the most digestible fraction, so what is left yields less per
+# unit mass. Both are multipliers on EFFICIENCY, applied in LACreatureDigestion where the gut converts mass
+# to energy — and the mass ledger is untouched by either.
+const STATE_DIGESTIBILITY: Dictionary = {
 	"living": 1.0,
 	"dead": 1.0,
-	"decayed": 0.5,
-	"cooked": 1.6,
+	"decayed": 0.65,   # microbes got the easy fraction first
+	"cooked": 1.25,    # gelatinised starch / denatured protein: more of the same mass is assimilated
 }
 
 # Which nutrition types each diet will eat. Scavengers eat flesh like carnivores but (see below)
@@ -55,11 +65,14 @@ static func can_forage(diet: String, profile: Dictionary) -> bool:
 	return true
 
 
-## Base value scaled by state — the actual energy a full portion of this food is worth.
+## The MASS a full portion of this food is. No state multiplier: what leaves the food is what enters the
+## animal, and state is expressed as digestibility below instead. (This used to return `base * state_mult`,
+## which is how a cooked meal came out 60% heavier than the ingredients.)
 static func value(profile: Dictionary) -> float:
-	var base: float = float(profile.get("value", 0.0))
-	return base * state_mult(profile)
+	return maxf(0.0, float(profile.get("value", 0.0)))
 
 
-static func state_mult(profile: Dictionary) -> float:
-	return float(STATE_VALUE.get(String(profile.get("state", "dead")), 1.0))
+## How much ENERGY a gut extracts per unit mass of this food, relative to fresh. Applied in
+## LACreatureDigestion, never to the mass ingested — see the STATE_DIGESTIBILITY note above.
+static func digestibility(profile: Dictionary) -> float:
+	return float(STATE_DIGESTIBILITY.get(String(profile.get("state", "dead")), 1.0))

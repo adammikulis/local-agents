@@ -5,23 +5,28 @@ extends RefCounted
 ## ageing, and environmental temperature/drowning read from the shared MaterialField. Static + dependency-free
 ## of the LocalAgentCreature type (dynamic access, like the other Creature* helpers). Each tick returns TRUE if the
 ## creature DIED this frame, and the caller must then stop processing it. (Explicit types only, no ':=' inferred typing.)
+##
+## THE BURN IS A REAL RESPIRATION NOW. Every joule an animal spent used to vanish: `c.energy -= …` and that was
+## the end of it. Nothing consumed oxygen, nothing produced carbon dioxide, and no body heat ever reached the
+## temperature field — while the substrate's own respiration record R20 does all three correctly for plant
+## biomass. Animals were exempt from the chemistry the rest of the world obeys. The burn now goes through
+## `LAMaterialFieldBiota3D.respire`, which debits O₂ and credits CO₂ one for one in the animal's head cell and
+## warms it, so the carbon it spends comes off the body and lands in the air where it belongs.
+##
+## AND BREATHING TAKES OXYGEN. `tick_breath` used to be a READ-ONLY THRESHOLD TEST — `breathable_o2_at(...) >=
+## BREATHE_MIN_O2` — which let an animal breathe air it never took. The threshold is still what decides whether
+## it can breathe AT ALL (water and smoke displace O₂), but the oxygen it actually uses is drawn by the
+## respiration above, in the cell its head is in.
+##
+## THE THERMAL COMFORT BAND IS GONE — see LACreatureThermal. Four module constants (`WARM_COMFORT 28`,
+## `COOL_COMFORT 8`, `LETHAL_HEAT 50`, `LETHAL_COLD -18`) used to give a whale, a desert beetle and an arctic
+## fox one identical thermal physiology, when two-thirds of the roster are ectotherms who do not have a comfort
+## band at all. Endotherms now pay a Scholander heat-defence cost below their own thermoneutral zone and
+## ectotherms follow a Q10 rate curve, both driven by species config.
 
-# Temperature comfort band (°C), read from the field at the creature's feet. Between COOL and WARM costs
-# nothing; beyond, heat parches + burns energy (past LETHAL → heatstroke), cold burns energy (past LETHAL →
-# frozen); at COMBUST organic tissue catches fire. (Drowning/suffocation is its own rule — see tick_breath.)
-const WARM_COMFORT: float = 28.0
-const COOL_COMFORT: float = 8.0
-const HEAT_THIRST_FACTOR: float = 0.15     # extra thirst/sec per °C above WARM_COMFORT
-const HEAT_ENERGY_FACTOR: float = 0.08     # extra energy/sec burned per °C above WARM_COMFORT
-const COLD_ENERGY_FACTOR: float = 0.012    # energy/sec burned per °C below COOL_COMFORT. The vegetated land band
-                                           # runs genuinely COOL, and this tax was the hidden extinction engine: it
-                                           # drained energy to 0 (a death reported as "starvation") on the cold night
-                                           # side faster than a grazer could refeed, so herbivores collapsed while
-                                           # carnivores (fed by big kills) rode it out. Cold still KILLS at LETHAL_COLD
-                                           # (frozen) — a real, occasional killer — but no longer slow-starves the herds.
-const LETHAL_HEAT: float = 50.0            # °C at/above which it dies of heatstroke (no flame)
-const COMBUST_TEMP: float = 200.0          # °C — organic tissue catches FIRE (in a wildfire/lava)
-const LETHAL_COLD: float = -18.0           # °C at/below which it freezes
+const COMBUST_TEMP: float = 200.0          # °C — organic tissue catches FIRE (in a wildfire/lava). Kept as a
+                                           # module constant because it is a property of TISSUE, not of thermal
+                                           # strategy: a beetle and a whale burn at the same temperature.
 # Breathing (one emergent rule, read in TRUE 3D at the creature's head cell — no 2.5D column, no can_fly):
 # a creature breathes its MEDIUM. LUNGS need breathable air (water OR smoke displacing O2 → can't breathe);
 # GILLS need to be submerged (a beached gill-breather suffocates in air). Out of medium it burns its per-animal
@@ -29,7 +34,11 @@ const LETHAL_COLD: float = -18.0           # °C at/below which it freezes
 # kills fast. Big lungs = long dives to hunt. One rule → drowning + smoke/CO2 suffocation + beached fish.
 const BREATHE_MIN_O2: float = 0.3          # O2 below this can't sustain a lung (water displaces it, or fire smoke)
 const BREATH_REFILL: float = 25.0          # breath reserve refilled per sec while in the breathing medium
-const SUFFOCATE_DRAIN: float = 45.0        # energy/sec once the breath reserve is exhausted — death comes fast
+## Energy per second burned once the breath reserve is spent, as a multiple of the animal's own basal rate.
+## It was a flat 45.0/sec for every creature, which is more than a mouse's entire body and a rounding error to
+## a whale — the same one-size-fits-all mistake as the comfort band. Anoxia kills fast in proportion to how
+## fast the animal lives, so it is a multiple of basal, not a constant.
+const SUFFOCATE_OVER_BASAL: float = 30.0
 # Old-age FRAILTY (senescence-driven mortality — see LACreatureSenescence). Past FRAILTY_ONSET on the 0..1
 # senescence factor, failing resilience drains health at up to FRAILTY_HP_FRAC of max_health/sec (scaled by how
 # far past onset), so an old, worn-out animal dies of "old age" — sooner if it is also stressed/hurt. A hard
@@ -50,21 +59,40 @@ static func tick(c, delta: float) -> bool:
 		exertion = 1.6
 	elif c.state == "sleep" or c.state == "rest" or c.state == "roost":
 		exertion = 0.5                        # sleeping/resting conserves energy — why animals do it
-	c.energy -= c.metabolism * exertion * delta * evo
+	# `c.metabolism` is this frame's true resting cost, set by LACreatureThermal from the animal's own thermal
+	# strategy and the ambient temperature (an endotherm's rises in the cold, an ectotherm's falls). `exertion`
+	# is the ACTIVE multiplier — the `active_metabolism` gene scales it, so a lineage can evolve toward a
+	# thriftier or a more powerful working animal.
+	var burned: float = c.metabolism * exertion * float(c.active_metabolism) * delta * evo
 	# ORNAMENT UPKEEP: a displaying male pays extra energy every tick to hold his bright signal (0 for females /
 	# undisplayed genomes). This is what makes the display HONEST — only a genuinely well-fed male can afford to
 	# stay bright — so the sexual-selection loop (LAAppraisal / LACreatureReproduction) selects real fitness.
-	c.energy -= LAAppraisal.display_upkeep(c, delta) * evo
+	burned += LAAppraisal.display_upkeep(c, delta) * evo
+	c.energy -= burned
+	# RESPIRE what was burned: the carbon leaves the body as CO₂ and the oxygen to oxidise it comes out of the
+	# cell the animal is breathing. This is the leg that used to be missing entirely — the energy simply ceased
+	# to exist. The head cell is radially outward from the body on a spherical planet (world +Y is wrong away
+	# from the poles), the same read `tick_breath` uses.
+	if burned > 0.0 and c._material != null and c._material.has_method("respire_at"):
+		var up: Vector3 = c.terrain.up_at(c.global_position) if (c.terrain != null and c.terrain.has_method("up_at")) else Vector3.UP
+		c._material.respire_at(c.global_position + up * c.size, burned)
 	if c.energy <= 0.0:
 		c.die("starvation")
 		return true
 	# Thirst drains steadily; dehydration kills like starvation. Drinking (elsewhere) refills it. Left UNSCALED by
 	# evo on purpose: drinking cadence is brain-driven (not compressed), so compressing thirst too would cause a
 	# dehydration die-off at high factors — thirst just becomes a lesser pressure over a compressed life.
-	c.hydration -= c.thirst_rate * delta
+	# WHERE THE WATER GOES: it leaves as vapour (breath, sweat) and as the water in urine, so it is handed to
+	# the field's airborne moisture rather than deleted. Both legs of the animal's water budget are now real —
+	# `LACreatureThirst.handle_thirst` empties a puddle to refill this.
+	var lost: float = c.thirst_rate * delta
+	c.hydration -= lost
+	if lost > 0.0 and c._material != null and c._material.has_method("transpire_at"):
+		c._material.transpire_at(c.global_position, lost)
 	if c.hydration <= 0.0:
 		c.die("thirst")
 		return true
+	LACreatureBodyMass.tick(c)                # a body is worth what it weighs; keep food_value in step
 	# Old-age mortality, driven by the SENESCENCE CURVE (LACreatureSenescence) rather than a hard age cliff:
 	# as the factor rises past prime, the body's reserve (max_energy) shrinks (see the senescence tick) and
 	# frailty mounts, draining health so a worn-out animal dies of "old age" — earlier if it is also stressed
@@ -83,29 +111,29 @@ static func tick(c, delta: float) -> bool:
 	return false
 
 
-## Temperature comfort + combustion from the shared field at `pos`. Returns true if the creature died
-## (combusted / heatstroke / frozen). Drowning/suffocation is now its own emergent rule — see tick_breath.
+## Thermal physiology + combustion from the shared field at `pos`. Returns true if the creature died.
+##
+## The physiology itself lives in LACreatureThermal, which models an endotherm and an ectotherm as the
+## different animals they are: an endotherm defends a core temperature and its burn RISES in the cold
+## (Scholander), an ectotherm's body temperature is ambient and its burn FALLS with a Q10 curve while it slows
+## down instead. What used to be here was one comfort band and two lethal thresholds shared by every species.
+##
+## This must run BEFORE the metabolism burn each frame, because it is what SETS `c.metabolism` for the frame.
+## Drowning/suffocation is its own emergent rule — see tick_breath.
 static func tick_environment(c, pos: Vector3, delta: float) -> bool:
 	if c._material == null:
 		return false
 	var t: float = c._material.temp_at(pos)
 	# Flesh doesn't glow like hot metal — it COMBUSTS. In fire/lava heat the creature bursts into flame and
-	# dies burned (organic matter ignites; inorganic ground glows via the shader instead).
+	# dies burned (organic matter ignites; inorganic ground glows via the shader instead). A property of
+	# TISSUE, so it is shared across every thermal strategy.
 	if t >= COMBUST_TEMP:
 		c._combust()
 		return true
-	if t > WARM_COMFORT:
-		var over: float = t - WARM_COMFORT
-		c.hydration -= over * HEAT_THIRST_FACTOR * delta   # heat parches → seek water (existing drive)
-		c.energy -= over * HEAT_ENERGY_FACTOR * delta
-		if t >= LETHAL_HEAT:
-			c.die("heatstroke")
-			return true
-	elif t < COOL_COMFORT:
-		c.energy -= (COOL_COMFORT - t) * COLD_ENERGY_FACTOR * delta
-		if t <= LETHAL_COLD:
-			c.die("frozen")
-			return true
+	var cause: String = LACreatureThermal.tick(c, t, delta)
+	if cause != "":
+		c.die(cause)
+		return true
 	return false
 
 
@@ -144,10 +172,11 @@ static func tick_breath(c, pos: Vector3, delta: float) -> bool:
 	if can_breathe:
 		c._breath = minf(c._breath + BREATH_REFILL * delta, c.breath_capacity)
 		return false
-	# Out of medium: hold breath from the reserve, then suffocate hard once it is spent.
+	# Out of medium: hold breath from the reserve, then suffocate hard once it is spent. The drain scales with
+	# the animal's own basal rate — a flat 45/sec was more than a mouse's whole body and nothing to a whale.
 	c._breath -= delta
 	if c._breath <= 0.0:
-		c.energy -= SUFFOCATE_DRAIN * delta
+		c.energy -= float(c.basal_metabolism) * SUFFOCATE_OVER_BASAL * delta
 		if c.energy <= 0.0:
 			var drowned: bool = c.breathes != "water" and c._material.is_submerged_at(head.x, head.y, head.z)
 			c.die("drowned" if drowned else "suffocated")

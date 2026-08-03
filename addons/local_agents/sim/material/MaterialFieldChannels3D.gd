@@ -187,17 +187,14 @@ func biomass_total() -> float:
 	return sum
 
 
-## Deposit dead decomposable matter at the surface cell under a world point (a rotting carcass, wildfire
-## ash). Fungus grows on it + rots it back into the carbon/nutrient loop. Mirrors photosynthesize()'s lookup.
-func deposit_detritus(world_pos: Vector3, amount: float) -> void:
-	if _f._cell_count <= 0 or amount <= 0.0:
-		return
-	var c: int = _f.world_to_cell(world_pos)       # the carcass's own 3D cell on the ground
-	if c < 0 or _f._solid[c] != 0:
-		return
-	if _f._detritus.size() != _f._cell_count:
-		_f._detritus.resize(_f._cell_count)
-	_f._detritus[c] += amount
+## `deposit_detritus` USED TO LIVE HERE AND DID NOTHING. It wrote `_f._detritus[c] += amount` — the CPU
+## mirror — and that mirror reaches the GPU exactly once, through the one-shot `_detritus_seed_dirty` upload
+## in LAMaterialFieldSphereStep3D, which is cleared immediately so the GPU-evolved detritus is never
+## clobbered. Every drain that requests the channel then overwrites the mirror with the readback. So from the
+## moment the decomposer loop was wired, every rotting carcass and every dropping was DELETED rather than
+## returned to the soil, and `detritus_peak` reported the seed. Deleted 2026-08-03; the working version is
+## LAMaterialFieldBiota3D.litter, which parks the credit on the device injection queue like every other
+## CPU-side write into a GPU-resident channel.
 
 
 # Per-cell debug readers for the phase channels (mirror biomass_at/co2_at): molten mineral, bedrock

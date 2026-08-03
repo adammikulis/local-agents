@@ -37,7 +37,21 @@ var _water_force: Vector3 = Vector3.ZERO     # cached water-current sweep (recom
                                              # Builds when sprinting past the aerobic threshold, clears aerobically
                                              # at rest; caps top speed + makes conserving energy a top drive so
                                              # animals aren't perpetually running. (0.4: full ATP/glycogen/O₂ chem.)
-var metabolism: float = 2.2
+var metabolism: float = 2.2                  # THIS FRAME's resting cost, set every frame by LACreatureThermal
+
+# --- BODY MASS: the one measured number the physiology is derived from (LACreatureBodyMass) --------------
+# A fox and a mouse used to carry the identical `"metabolism": 1.7` at 260x the difference in body mass, and
+# twenty species carried twenty independently hand-fitted metabolism/max_energy/food_value triples. Now each
+# species declares ONE real measured `mass_kg` and everything scales off it: the burn as M^0.75 (Kleiber),
+# the reserve as M^1.0, so time-to-starve as M^0.25. `structural_mass` is the non-labile tissue — what is left
+# of a body when the reserve is spent, and what a carcass still weighs.
+var mass_kg: float = 0.5                     # real body mass in kilograms (species data; not `size`, see the module)
+var structural_mass: float = 0.0             # bone/muscle/organ in simulation mass units
+var basal_metabolism: float = 1.0            # resting cost at a comfortable temperature, before thermal + exertion
+var active_metabolism: float = 1.0           # heritable gene: multiplier on the EXERTION cost of working
+var bite_rate: float = 1.0                   # mass units a mouth can process per second (scales with demand)
+var thermal_strategy: String = "endotherm"   # "endotherm" | "endotherm_avian" | "ectotherm" (LACreatureThermal)
+var thermal_speed_mult: float = 1.0          # a cold ectotherm is sluggish (chill coma), not starving
 
 # --- breathing (emergent: breathe your medium; suffocate out of it). Land animals breathe AIR — submerged
 # past the head, or in O2-depleted smoke, they can't breathe and burn through a per-animal BREATH reserve;
@@ -66,13 +80,17 @@ var gut: float = 0.0                          # biomass currently buffered in th
 var gut_capacity: float = 0.0                 # max gut fill (set at spawn ~ max_energy * CAPACITY_FRAC)
 var gut_waste: float = 0.0                    # indigestible residue awaiting excretion (feeds LACreatureExcretion)
 var microbiome: float = 1.0                   # gut-flora digestive-efficiency scalar (herbivores ferment plants)
+var gut_digestibility: float = 1.0            # mass-weighted digestibility of what is in the gut (LAFood state)
 
 # --- thirst (emergent: drink from the water field or die of dehydration) ---
 # hydration mirrors energy: full at max, drains at thirst_rate, drinking refills, 0 = death.
 var hydration: float = 100.0
 var max_hydration: float = 100.0
 var thirst_rate: float = 1.0
-const DRINK_RATE: float = 45.0             # hydration/sec restored while drinking
+# `DRINK_RATE` is GONE from here. It was a flat 45.0/sec copied into THREE files (this one,
+# LACreatureThirst, LACreatureThink) — more than a mouse's entire body water per second and a trickle to a
+# whale — and two of the three copies refilled hydration without emptying any water cell at all. There is one
+# drinking path now, LACreatureThirst.drink, and it scales with the animal's own water turnover.
 const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupts other drives
 
 # Temperature-comfort + drowning constants moved to LACreatureMetabolism (which owns that survival tick):
@@ -176,7 +194,8 @@ var _dead: bool = false
 var _shadow: RigidBody3D = null
 var _settle_t: float = 0.0
 var _decay_age: float = 0.0
-var _carrion: float = 0.0                     # remaining meat value once a carcass
+var _carrion: float = 0.0                     # meat MASS left on the carcass (drawn from the live body at death)
+var _carrion_initial: float = 0.0             # what the body weighed when it died — the rot/shrink denominator
 var _rot_overlay: StandardMaterial3D = null   # shared green->black decay tint on the model
 
 var _heading: Vector3 = Vector3.FORWARD
@@ -300,6 +319,7 @@ var _nest_node = null                            # LANest (the placed home site)
 # all logic lives in the module. `pregnant` gates re-conception; `_mate` is the captured partner used at birth.
 var pregnant: bool = false
 var _gestation_t: float = 0.0                    # seconds of gestation remaining while pregnant
+var _gestation_paid: float = 0.0                 # body mass already invested in the young (recovered on resorption)
 var _mate = null                                 # LocalAgentCreature partner captured at conception (for the birth genome/bond)
 var _repro_cd: float = 0.0                       # seconds until this creature may conceive again (post-birth / pair refractory)
 
@@ -583,10 +603,16 @@ func _physics_process(delta: float) -> void:
 	_sense_mult = 1.0
 	if _ecology != null and _ecology.has_method("is_night_at") and _ecology.is_night_at(global_position):
 		_sense_mult = 1.4 if nocturnal else 0.7
-	# Ambient groundcover grazing: a herbivore on vegetated ground draws a steady subsistence feed from the shared
-	# biomass field (grass/algae) into its gut, so grassland itself feeds it and pure grazers don't starve amid
-	# plenty — the land twin of the aquatic ambient-biomass grazers. Run BEFORE digestion so it is digested this
-	# same frame. Barren/frozen ground (biomass≈0) yields nothing, keeping cold/desert a real pressure.
+	# THERMAL PHYSIOLOGY FIRST: it SETS this frame's `metabolism` from the animal's own thermal strategy and the
+	# ambient temperature (an endotherm's resting cost rises in the cold; an ectotherm's follows a Q10 curve and
+	# it slows down instead), so it must run before anything spends energy. It also kills on hypothermia,
+	# hyperthermia, chill or overheat — limits derived from the animal's physiology rather than from one shared
+	# pair of lethal thresholds. See LACreatureThermal.
+	if LACreatureMetabolism.tick_environment(self, global_position, delta):
+		return
+	# Grazing: a plant-eater on vegetated ground crops the field's real `biomass` channel at its feet, and the
+	# pasture is DEBITED by what the mouth takes. Run BEFORE digestion so it is digested this same frame. Barren,
+	# frozen, flooded or already-grazed ground yields nothing — which is what makes starvation reachable.
 	LACreatureDigestion.ambient_graze(self, global_position, delta)
 	# Digestion: the gut converts buffered food into energy (+ pending feces) this frame — run BEFORE the
 	# metabolism burn/starvation check so a creature that just ate is credited its digested energy and won't
@@ -620,9 +646,8 @@ func _physics_process(delta: float) -> void:
 	# The field's wind3_at is zero today, so this is inert until the substrate lights it up.
 	LACreatureFieldForces.tick(self, delta)
 
-	# Temperature comfort + combustion, emergent from the shared field at my feet.
-	if LACreatureMetabolism.tick_environment(self, pos, delta):
-		return
+	# (Thermal physiology + combustion ran at the TOP of this tick — it sets the frame's `metabolism`, so it has
+	# to precede every energy spend rather than follow them.)
 	# Breathing: drown when submerged past my breath reserve, or suffocate in O2-depleted smoke.
 	if LACreatureMetabolism.tick_breath(self, pos, delta):
 		return
@@ -849,7 +874,11 @@ func _physics_process(delta: float) -> void:
 				_heading = _target_heading
 		# Muscle lactate caps top speed — a winded animal can't keep sprinting, so it must recover. Biological, not
 		# a game meter: exertion earlier this frame built the lactate that now throttles it.
-		_eff_speed = eff_speed * (1.0 - 0.5 * lactate)   # carry this decision to the movement of the next few frames
+		# THERMAL SPEED is the second cap, and it is what an ECTOTHERM's cold response actually looks like: its
+		# body temperature is ambient, so cold does not cost it energy, it SLOWS IT DOWN (chill coma). A cold
+		# beetle at dawn is sluggish, not starving — the old shared comfort band charged it energy instead,
+		# which is the endotherm's response applied to an animal that is not one. 1.0 for endotherms, always.
+		_eff_speed = eff_speed * (1.0 - 0.5 * lactate) * thermal_speed_mult
 		_force_think = false
 
 	if prof:
@@ -987,6 +1016,23 @@ func food_profile() -> Dictionary:
 	return LACreatureRagdoll.food_profile(self)
 
 
-# Remaining meat value in the carcass.
+# Remaining meat mass in the carcass.
 func nutrition() -> float:
 	return _carrion
+
+
+# --- body-mass contract (the trophic ledger; see LACreatureBodyMass) -----------------------------
+# What this body weighs right now: structural tissue + labile reserve + gut contents. A predator's meal, a
+# carcass and a gestation are all measured in this, so nothing can gain mass a body did not have.
+func body_mass() -> float:
+	return _carrion if _dead else LACreatureBodyMass.body_mass(self)
+
+
+# A predator (or a scavenger) takes up to `want` of this body and gets back what was actually there. On a live
+# animal it spends gut, then reserve, then structural tissue; on a carcass it strips the remaining meat. This
+# is what makes a kill conserve: the predator's gain and the carcass left behind add up to the prey's live
+# mass, instead of the old path banking `food_value * 0.7` and THEN minting a full-size carcass on top.
+func draw_body_mass(want: float) -> float:
+	if _dead:
+		return LACreatureRagdoll.feed(self, want)
+	return LACreatureBodyMass.draw(self, want)

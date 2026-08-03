@@ -12,9 +12,12 @@ extends RefCounted
 ## (Explicit types only, no ':=' inferred typing.)
 
 
-## Minimum pending digested residue (LACreatureDigestion.gut_waste) before a feces deposit is worth making —
-## an animal that has not digested anything has nothing to pass.
-const FECES_MIN_WASTE: float = 0.5
+## Minimum pending digested residue before a feces deposit is worth making, as a FRACTION OF GUT CAPACITY —
+## an animal that has not digested anything has nothing to pass. It was an absolute 0.5, which is larger than
+## the entire gut of every animal in the roster once physiology is derived from real body mass (a rabbit's gut
+## holds 0.0035), so nothing below the size of a person could ever defecate and the whole death→soil return
+## leg was closed for the rest of the fauna. A threshold on a per-animal quantity has to scale with the animal.
+const FECES_MIN_GUT_FRAC: float = 0.02
 
 ## Detritus deposited into the field's soil-nutrient loop per unit of feces mass (same 1:1 conserving-transfer
 ## convention CreatureRagdoll.DETRITUS_YIELD uses for carcasses) — R15 fungus-decompose then rots it into
@@ -31,7 +34,7 @@ static func tick(c, ground_pos: Vector3, delta: float) -> void:
 	c._poop_cd -= delta
 	if c._poop_cd <= 0.0:
 		c._poop_cd = randf_range(24.0, 48.0)
-		if c.gut_waste >= FECES_MIN_WASTE:
+		if c.gut_waste >= maxf(float(c.gut_capacity), 0.0) * FECES_MIN_GUT_FRAC:
 			deposit(c, ground_pos, "feces", c.gut_waste)
 			c.gut_waste = 0.0                     # expelled — the pending digested residue is passed (no double count)
 	c._urine_cd -= delta
@@ -50,5 +53,9 @@ static func deposit(c, ground_pos: Vector3, kind: String, waste_amount: float) -
 		return
 	if c._material.has_method("deposit_waste"):
 		c._material.deposit_waste(ground_pos, c, kind)
+	# The detritus leg reaches the DEVICE now. It used to call `LAMaterialFieldChannels3D.deposit_detritus`,
+	# which wrote `_f._detritus[c] += amount` — a CPU mirror uploaded to the GPU exactly once at seed and
+	# overwritten by every readback thereafter — so every dropping this animal has ever passed was deleted
+	# rather than returned to the soil. Same call name, working body (LAMaterialFieldBiota3D.litter).
 	if kind == "feces" and waste_amount > 0.0 and c._material.has_method("deposit_detritus"):
 		c._material.deposit_detritus(ground_pos, waste_amount * FECES_DETRITUS_YIELD)

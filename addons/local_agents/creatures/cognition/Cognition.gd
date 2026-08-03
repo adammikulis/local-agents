@@ -323,7 +323,7 @@ func _reinforce(c, senses: Dictionary) -> void:
 	var breath_frac: float = minf(_last_o2, float(senses.get("o2", 1.0)))
 	aversive += clampf((1.0 - breath_frac) * W_O2, 0.0, TERM_CAP)
 	# Temperature: the worst deviation outside the comfort band across the interval (cold snap / heat).
-	var dev: float = maxf(_comfort_deviation(_last_temp), _comfort_deviation(float(senses.get("temp", _last_temp))))
+	var dev: float = maxf(_comfort_deviation(c, _last_temp), _comfort_deviation(c, float(senses.get("temp", _last_temp))))
 	aversive += clampf(dev * W_TEMP, 0.0, TERM_CAP)
 
 	var reward: float = clampf(appetitive - aversive, -1.0, 1.0)
@@ -346,14 +346,15 @@ func _reinforce(c, senses: Dictionary) -> void:
 	(entry as Dictionary)["risk"] = clampf(prev_risk * RISK_RETAIN + aversive, 0.0, RISK_MAX)
 
 
-# How far `t` (°C) lies outside the comfort band [COOL, WARM]; 0 inside. Reuses the metabolism band so the
-# discomfort the body actually suffers and the aversion the mind learns are the SAME threshold (no drift).
-func _comfort_deviation(t: float) -> float:
-	if t > LACreatureMetabolism.WARM_COMFORT:
-		return t - LACreatureMetabolism.WARM_COMFORT
-	if t < LACreatureMetabolism.COOL_COMFORT:
-		return LACreatureMetabolism.COOL_COMFORT - t
-	return 0.0
+# How far `t` (°C) lies outside THIS animal's own tolerated range; 0 inside. Still the same threshold the body
+# suffers on (no drift), but that threshold is per-species now: it used to read `LACreatureMetabolism`'s
+# `WARM_COMFORT` / `COOL_COMFORT` module constants, so an arctic fox, a whale and a desert beetle all learned
+# to dread the identical temperature. A creature with no thermal config (an old test actor) reads 0 rather
+# than inheriting somebody else's physiology.
+func _comfort_deviation(c, t: float) -> float:
+	if c == null or not ("thermal_strategy" in c):
+		return 0.0
+	return LACreatureThermal.discomfort(c, t)
 
 
 # Drive urgency in [0,1]: how hard hunger OR thirst is pushing this creature right now (fractional deficit).

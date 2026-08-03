@@ -35,7 +35,14 @@ const BASE_EFFICIENCY: float = 0.82
 const MICROBIOME_HERBIVORE: float = 1.12   # gut-flora bonus for a plant-fermenting herbivore (-> ~0.92 efficiency)
 const MICROBIOME_DEFAULT: float = 1.0      # carnivore / omnivore / scavenger: no cellulose flora, base rate
 
-const FULL_EPS: float = 0.01            # at/above (max_energy - this) the gut holds (satiety) — buffers surplus
+## SATIETY MARGIN, as a FRACTION of the reserve. At/above (1 - this) of max_energy the gut holds instead of
+## digesting, buffering the surplus. It was an absolute 0.01 — which is fine when every animal's reserve is
+## ~100 units, and catastrophic once physiology is derived from real body mass: a rabbit's whole reserve is
+## 0.004, so `energy >= max_energy - 0.01` was true at every energy level and DIGESTION NEVER RAN for any
+## animal smaller than a human. Anything measured against a fraction of the animal has to BE a fraction of
+## the animal; this is the same defect as a flat drink rate or a flat display cost, and it is the one that
+## bites hardest because it fails silently.
+const FULL_FRAC: float = 0.999          # at/above this fraction of max_energy the gut holds (satiety)
 
 
 ## Size the gut and pick the microbiome from diet, once at spawn (called from LocalAgentCreature.setup after max_energy
@@ -45,46 +52,73 @@ static func setup(c) -> void:
 		return
 	c.gut = 0.0
 	c.gut_waste = 0.0
-	c.gut_capacity = maxf(float(c.max_energy) * CAPACITY_FRAC, 1.0)
+	c.gut_digestibility = 1.0
+	# Gut volume is ISOMETRIC with body mass (M^1.0) — an animal's gut is a fixed fraction of it — so sizing it
+	# off `max_energy`, which is itself the mass-proportional reserve, keeps the scaling right for free. The
+	# `maxf(…, 1.0)` floor is GONE: it gave an ant a gut a thousand times its own body, which is where a single
+	# bite of a shrub used to fit inside an insect.
+	c.gut_capacity = maxf(float(c.max_energy) * CAPACITY_FRAC, 0.0)
 	c.microbiome = MICROBIOME_HERBIVORE if String(c.diet) == "herbivore" else MICROBIOME_DEFAULT
 
 
-# Ambient GROUNDCOVER grazing. A plant-eater standing on vegetated ground continuously nibbles the grass/algae
-# living there — the shared biomass field — the SAME "grazers live off ambient biomass" rule that keeps the
-# aquatic web base stable (Fish grazers never starve; only foragers burn energy). Land herbivores had no such
-# safety net: they depended entirely on reaching discrete Plant nodes and so starved to extinction amid abundant
-# vegetation, while carnivores/scavengers/omnivores thrived. This gives grassland itself a subsistence food value
-# — a grazer on green ground stays fed and can bank surplus for breeding — while BARREN or FROZEN ground
-# (biomass≈0) yields nothing, so cold/desert is still a real starvation pressure. Discrete Plant bites remain the
-# richer food. Emergent: one O(1) field read, gated by diet; no per-species code.
-# GROUNDCOVER SUBSISTENCE FEED. Grazers draw a steady subsistence graze from the grassland they stand on so pure
-# herbivores don't starve amid plenty. This reads the GROUND at the grazer's FEET, not the R19 biomass field: on
-# the thick sphere atmosphere (~80-cell shell) photosynthesis deposits its biomass in the sky-exposed TOP-of-column
-# cell, dozens of cells ABOVE the grazer — so a ground-level biomass read was always 0 and the safety net was dead
-# (starvation was the dominant death by far, 237 vs 1 eaten, while total biomass sat healthy but unreachable OVER
-# THE OCEAN). Instead we key the feed on the same thing that actually grows grass: WARM, non-flooded ground.
-# Groundcover thrives where the surface is warm (photosynthesis ∝ temperature, exactly as R19) and there is no
-# standing water; it yields NOTHING on frozen poles or open sea, so cold/desert/ocean stay a real pressure and the
-# food is bounded by climate. Emergent from the local field — no per-species code, never depletes, can't be crashed.
-const GRAZE_MIN_TEMP: float = 3.0        # °C below which the ground is too cold/frozen for grass → no feed
-const GRAZE_FULL_TEMP: float = 14.0      # °C at/above which groundcover is at full lushness
-const AMBIENT_GRAZE_RATE: float = 5.0    # biomass/sec drawn from lush warm groundcover (scaled by warmth below)
+# GRAZING. A plant-eater standing on vegetated ground nibbles the grass living there — the field's real
+# `biomass` channel, the one photosynthesis (R19) actually grows — and the pasture is DEBITED by exactly what
+# the mouth takes. Where nothing is growing, an animal gets nothing, which is what makes starvation reachable.
+#
+# WHAT THIS REPLACES, because it was the largest source of matter from nothing in the whole simulation.
+# `AMBIENT_GRAZE_RATE = 5.0` biomass per second was handed to any herbivore standing on warm ground. The only
+# field read was `temp_at` — a THERMOMETER, not a stock — and nothing anywhere was decremented. Across the
+# roster that conjured food on the order of 250-350 units per second. The comment stated the design outright:
+# "never depletes, can't be crashed".
+#
+# ITS STATED JUSTIFICATION WAS ALSO STALE. The old comment said a ground-level biomass read "was always 0"
+# because photosynthesis "deposits its biomass in the sky-exposed TOP-of-column cell, dozens of cells ABOVE
+# the grazer". That was true of an older record and is not true now: R19 is gated `GATE_NEAR_GROUND`, the open
+# cell with rock beneath it (see LABioRecords), which is precisely where a grazing animal's mouth is. So the
+# reason for the hand-out had already been fixed when the hand-out was written.
+#
+# THE BITE IS BOUNDED BY THE ANIMAL, NOT BY A GLOBAL RATE. `LACreatureBodyMass.bite_rate` scales intake with
+# the animal's own metabolic demand, so a villager strips a cell far faster than an ant, from one exponent
+# rather than a per-species constant. What the pasture could not supply comes back as `biota_graze_short`.
+#
+# FILTER FEEDERS AND GRAZERS ARE THE SAME RULE. A whale straining plankton out of the water column and a
+# rabbit cropping grass are both taking the field's standing crop at their own cell; there is no separate
+# filter-feeding code, and `DIETS_THAT_GRAZE` is config, not an identity branch.
+const DIETS_THAT_GRAZE: PackedStringArray = ["herbivore", "grazer", "filter_feeder"]
+## Water carried by each unit of forage. Fresh plant matter is roughly 75% water by mass against ~25% dry
+## matter, so a unit of the carbon the `biomass` channel tracks comes with about three units of water.
+const FORAGE_WATER_PER_MASS: float = 3.0
+## Water carried by each unit of FLESH. Vertebrate soft tissue runs near 70% water, so meat is slightly drier
+## than fresh forage per unit of carbon — which is why obligate carnivores still drink and grazers often do not.
+const FLESH_WATER_PER_MASS: float = 2.3
 
 static func ambient_graze(c, pos: Vector3, delta: float) -> void:
-	if c == null or delta <= 0.0 or c._material == null or String(c.diet) != "herbivore":
+	if c == null or delta <= 0.0 or c._material == null:
+		return
+	if not DIETS_THAT_GRAZE.has(String(c.diet)):
 		return
 	if c.gut >= c.gut_capacity:
 		return                                       # gut full — no room to nibble more
-	var up: Vector3 = c.terrain.up_at(pos) if (c.terrain != null and c.terrain.has_method("up_at")) else Vector3.UP
-	var feet: Vector3 = pos + up * maxf(float(c.size), 0.8)   # just above the ground the body quantises into
-	if c._material.has_method("is_water_at") and c._material.is_water_at(feet):
-		return                                       # standing in water / sea — no groundcover
-	var t: float = float(c._material.temp_at(feet))
-	# Lushness rises with surface warmth (mirrors photosynthesis ∝ temp): frozen ground barren, temperate+ = full.
-	var lush: float = clampf((t - GRAZE_MIN_TEMP) / (GRAZE_FULL_TEMP - GRAZE_MIN_TEMP), 0.0, 1.0)
-	if lush <= 0.0:
+	if not c._material.has_method("graze_biomass"):
 		return
-	ingest(c, AMBIENT_GRAZE_RATE * lush * delta * LAAblate.evo_fast())
+	var want: float = float(c.bite_rate) * delta * LAAblate.evo_fast()
+	if want <= 0.0:
+		return
+	var got: float = c._material.graze_biomass(pos, want)
+	if got <= 0.0:
+		return
+	ingest(c, got, {"type": LAFood.TYPE_CARBS, "state": LAFood.STATE_LIVING, "value": got})
+	# FORAGE WATER. Most terrestrial animals get most of their water from what they eat, and small ones —
+	# insects, desert rodents — very often never drink free water at all. That is not a convenience: fresh
+	# forage is roughly three-quarters water by mass, and the plant lifted that water out of the ground, so a
+	# grazer eating it is drinking the groundwater at one remove. Drawn through the SAME debit as a drink, out
+	# of the field at the animal's own cell, so it conserves rather than appearing from the plant's carbon.
+	# (Metabolic water is deliberately NOT credited: the substrate's `biomass` is a carbon proxy with no
+	# hydrogen in it, so oxidising it cannot honestly yield H₂O.)
+	if c._material.has_method("drink_water") and c.hydration < c.max_hydration:
+		var thirsty_for: float = minf(got * FORAGE_WATER_PER_MASS, float(c.max_hydration) - float(c.hydration))
+		if thirsty_for > 0.0:
+			c.hydration += c._material.drink_water(pos, thirsty_for)
 
 
 ## A bite: add its biomass to the gut buffer, bounded by capacity (a stuffed gut can't hold more — the excess
@@ -93,7 +127,16 @@ static func ambient_graze(c, pos: Vector3, delta: float) -> void:
 static func ingest(c, biomass: float, _profile: Dictionary = {}) -> void:
 	if c == null or biomass <= 0.0:
 		return
-	c.gut = minf(c.gut_capacity, c.gut + biomass)
+	var taken: float = minf(biomass, maxf(0.0, float(c.gut_capacity) - float(c.gut)))
+	if taken <= 0.0:
+		return
+	# Mass-weighted DIGESTIBILITY of what is in the gut. A gut holds a mixture, so a bite of rotten carrion
+	# blends with the fresh grass already in there rather than replacing its yield. This is where the food's
+	# state now acts — on how much energy comes out per unit mass, never on how much mass went in.
+	var d: float = LAFood.digestibility(_profile)
+	var held: float = maxf(0.0, float(c.gut))
+	c.gut_digestibility = ((c.gut_digestibility * held) + (d * taken)) / maxf(held + taken, 0.0001)
+	c.gut = held + taken
 	# Let the gut flora learn from this bite (shifts recent_diet toward the food's plant-fraction) — one source of
 	# truth: the same event that buffers the food adapts the microbiome. Guarded (null before setup / on old actors).
 	if "gut_microbiome" in c and c.gut_microbiome != null:
@@ -107,7 +150,7 @@ static func ingest(c, biomass: float, _profile: Dictionary = {}) -> void:
 static func tick(c, delta: float) -> void:
 	if c == null or c.gut <= 0.0 or delta <= 0.0:
 		return
-	if c.energy >= c.max_energy - FULL_EPS:
+	if c.energy >= c.max_energy * FULL_FRAC:
 		return                                       # sated: hold the gut, buffer the surplus (no matter lost)
 	# LA_EVO_FAST compresses digestion throughput by the SAME factor as the metabolic burn (CreatureMetabolism),
 	# so energy recovery keeps pace with the faster burn — a bite refills proportionally faster and the population
@@ -120,9 +163,15 @@ static func tick(c, delta: float) -> void:
 	# spawn-time microbiome scalar. Bounded/floored inside multiplier() so it stays near the old 1.12 range — no
 	# food-web destabilisation.
 	var mb: float = c.gut_microbiome.multiplier() if ("gut_microbiome" in c and c.gut_microbiome != null) else float(c.microbiome)
-	var efficiency: float = clampf(BASE_EFFICIENCY * mb, 0.0, 1.0)
+	var efficiency: float = clampf(BASE_EFFICIENCY * mb * float(c.gut_digestibility), 0.0, 1.0)
 	var to_energy: float = digested * efficiency
-	c.energy = minf(c.max_energy, c.energy + to_energy)
+	# A full reserve does NOT destroy the surplus. `minf(max_energy, …)` silently deleted whatever did not fit,
+	# which is small (the early-out above stops digestion near satiety) but is still matter vanishing. The
+	# overflow goes back to the gut, where the next frame will digest it once the reserve has room.
+	var room: float = maxf(0.0, float(c.max_energy) - float(c.energy))
+	var absorbed: float = minf(to_energy, room)
+	c.energy += absorbed
+	c.gut += to_energy - absorbed
 	c.gut_waste += digested - to_energy              # matter conserved: digested == energy gained + waste
 
 

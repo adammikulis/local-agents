@@ -27,11 +27,18 @@ extends RefCounted
 ## the live source value, so the caller gets an exact drain without knowing what the device holds.
 const DRAIN_ALL: float = 1.0e30
 
-## Channels whose mass is MINERAL rather than H₂O. This queue carries TWO ledgers, not one: excavated bedrock
+## Channels whose mass is MINERAL rather than H₂O. This queue carries THREE ledgers, not one: excavated bedrock
 ## handed to sediment/dust (a crater) is a real conserving transfer, but folding it into `moved` would print
 ## rock as water moved and the h2o_* gauges would stop meaning what they say. Routing by source channel keeps
 ## each total honest without either caller having to know the other exists.
 const MINERAL_CHANNELS: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust"]
+
+## Channels whose mass is BIOTIC — the carbon/oxygen substances an ANIMAL exchanges with the field
+## (LAMaterialFieldBiota3D: grazing debits `biomass`, respiration debits `o2` and credits `co2`, a rotting body
+## credits `detritus`). Added 2026-08-03 with the creature-conservation work, for exactly the reason the mineral
+## book exists: an animal breathing is not a storm, and counting its oxygen inside `h2o_inject_moved` would make
+## the water gauges report a quantity that is not water. Same mechanism, third set of books.
+const BIOTIC_CHANNELS: PackedStringArray = ["biomass", "o2", "co2", "detritus", "fuel"]
 
 # --- cumulative H₂O injection ledger (SIM_REPORT gauges) ---------------------------------------------------
 var demand: float = 0.0        # mass transfers ASKED their sources for. Before this fix the same figure was
@@ -63,6 +70,19 @@ var mineral_moved: float = 0.0     # TRANSFER: mass actually moved between phase
                                    # -> sediment/dust) is this. Compare it with `crater_mass`: equal means the
                                    # strike moved rock, not destroyed it, and a gap is destroyed mass the loose
                                    # phases never received.
+# --- cumulative BIOTIC ledger (same mechanism, third set of books — see BIOTIC_CHANNELS) --------------------
+#
+# What a living body takes out of the field and what it puts back. `biotic_offered` is what the CPU-side scan
+# believed was standing there (grass at the animal's feet, O₂ in its head cell); `biotic_moved` is what the
+# device actually had, so `offered - moved` is the honest measure of an animal biting at ground that turned out
+# to be bare. `biotic_minted` counts credits with no field debit — a body returning its OWN tissue as CO₂ or
+# detritus, which is not a mint at all but a transfer out of a pool this field does not hold. That is why
+# LAMaterialFieldBiota3D publishes `biota_carbon`: the pool standing in living bodies, so the carbon books close
+# across the boundary instead of appearing to leak at it.
+var biotic_offered: float = 0.0
+var biotic_moved: float = 0.0
+var biotic_minted: float = 0.0
+
 var mineral_minted: float = 0.0    # SOURCE: mass added with NO debit anywhere in the field — the vent drawing
                                    # on the mantle reservoir outside the simulated shell. Physically honest and
                                    # deliberately kept, but it means a perfectly conserving substrate still
@@ -158,9 +178,12 @@ func transfer(src: String, src_cells: PackedInt32Array, amounts: PackedFloat32Ar
 	if src_cells.size() == 0 or src_cells.size() != amounts.size() or src_cells.size() != dst_cells.size():
 		return
 	var is_mineral: bool = MINERAL_CHANNELS.has(src)
+	var is_biotic: bool = BIOTIC_CHANNELS.has(src)
 	for a in amounts:
 		if is_mineral:
 			mineral_offered += a
+		elif is_biotic:
+			biotic_offered += a
 		else:
 			offered += a
 	_merge("t|%s|%s|%f" % [src, dst, dst_ceiling], "transfer", src, dst, src_cells, amounts, dst_cells, dst_ceiling)
@@ -209,6 +232,8 @@ func flush(gpu) -> void:
 				op["dst"], op["dst_cells"], float(op["ceiling"]))
 			if MINERAL_CHANNELS.has(String(op["src"])):
 				mineral_moved += m
+			elif BIOTIC_CHANNELS.has(String(op["src"])):
+				biotic_moved += m
 			else:
 				moved += m
 		elif kind == "displace":
@@ -221,6 +246,8 @@ func flush(gpu) -> void:
 			var a: float = gpu.add_field_sparse(op["src"], op["src_cells"], op["amounts"], float(op["ceiling"]))
 			if MINERAL_CHANNELS.has(String(op["src"])):
 				mineral_minted += a
+			elif BIOTIC_CHANNELS.has(String(op["src"])):
+				biotic_minted += a
 			else:
 				minted += a
 	_ops.clear()
@@ -265,6 +292,12 @@ func report() -> Dictionary:
 		"mineral_inject_offered": snappedf(mineral_offered, 0.01),
 		"mineral_inject_moved": snappedf(mineral_moved, 0.01),
 		"mineral_inject_minted": snappedf(mineral_minted, 0.01),
+		# BIOTIC — what living bodies took out of the field and put back (see BIOTIC_CHANNELS).
+		# `biotic_inject_short` is grass an animal bit at that the device did not actually hold.
+		"biotic_inject_offered": snappedf(biotic_offered, 0.01),
+		"biotic_inject_moved": snappedf(biotic_moved, 0.01),
+		"biotic_inject_short": snappedf(maxf(0.0, biotic_offered - biotic_moved), 0.01),
+		"biotic_inject_minted": snappedf(biotic_minted, 0.01),
 		"inject_flushed_cells": flushed_cells,
 		"inject_add_cells": add_cells,
 	}
