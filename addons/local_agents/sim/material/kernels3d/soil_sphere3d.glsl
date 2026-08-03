@@ -9,7 +9,9 @@
 // valley wall, a hillfoot) it DAYLIGHTS — exfiltrates as surface water = a SPRING. Surface water (the water CA)
 // carries the spring flow downhill to the sea = a RIVER. Rain/snowmelt INFILTRATES from the surface to recharge
 // the table (with a bone-dry hydrophobic crust so a deluge on baked ground runs off = flash flood). The bedrock
-// floor is what stops the naive "all groundwater sinks to the core" and makes the aquifer surface-following.
+// floor is what stops the naive "all groundwater sinks to the core"; CAPILLARY RETENTION (k_rel/RESIDUAL below)
+// is what makes the aquifer surface-following, by stopping gravity drainage at field capacity instead of
+// letting every shell bleed into the one beneath it.
 //
 // One 2-pass GATHER over the shared `send` scratch (each send = mass moved in a direction; the receiver adds it
 // to soil if it is regolith, to surface water if it is open — the soil<->water phase change at the boundary is
@@ -43,8 +45,34 @@ const float CAPACITY = 0.60;          // groundwater a regolith cell holds when 
 const float MAX_MASS = 1.0;           // surface water a cell holds before it is "full" (MUST match MaterialField3D
                                       // + water_sphere3d.glsl). An outlet at or above this can take no more, which
                                       // is what gives a spring its back-pressure.
-const float CONDUCT = 0.35;           // Darcy conductivity: groundwater flow per unit head difference per step
+const float CONDUCT = 0.35;           // SATURATED Darcy conductivity: flow per unit hydraulic gradient per step
 const float MAX_FLOW_FRAC = 0.35;     // cap total outflow to this fraction of a cell's soil per step (stability)
+// UNSATURATED CONDUCTIVITY — WHY A DRY CELL MUST NOT DRAIN AT THE SATURATED RATE.
+// Porous media do not conduct at K_sat when their pores are not full: K(theta) = K_sat * k_r(S_e), and k_r
+// collapses by orders of magnitude as the pores empty, because what is left clings to grain surfaces in films
+// too thin and too disconnected to carry flow. Below the RESIDUAL saturation, capillary (matric) suction holds
+// the water against gravity indefinitely — that is what FIELD CAPACITY means, and it is why a soil profile a
+// week after rain is still moist near the surface instead of having drained to the bedrock. In a real profile
+// the root zone is the WETTEST part after rain.
+//
+// THIS TERM WAS ENTIRELY ABSENT. CONDUCT was applied flat at every saturation, so every regolith cell went on
+// draining downward at full saturated conductivity all the way to zero and nothing ever held water in the
+// vadose zone. Measured on 0.4-dev @ e7f543d at field_step 799, mean saturation by shell from the ground
+// surface inward: [0.0026, 0.0048, 0.0345, 0.1686] — the root zone was the DRIEST cell in the column, by a
+// factor of 65, and the whole aquifer had bled into the bedrock floor and out to sea (soil_total 3997 -> 421).
+// Slot-order greed (fixed below) accounted for only ~11% of that; this is the mechanism.
+const float RESIDUAL = 0.30;          // fraction of CAPACITY held against gravity by capillarity. Field capacity
+                                      // over porosity for real soils: sand 0.091/0.437 = 0.21, sandy loam
+                                      // 0.207/0.453 = 0.46, loam 0.27/0.463 = 0.58 (Rawls, Brakensiek & Saxton
+                                      // 1982, USDA texture class means). Weathered regolith is coarse, so this
+                                      // sits at the sand / sandy-loam end.
+// Irmay (1954), the cubic law for granular porous media: k_r = S_e^3. (Brooks & Corey's k_r = S_e^(3+2/lambda)
+// and Mualem-van Genuchten are the same shape with a texture-dependent exponent; the cubic is the coarse-media
+// limit and is the least assuming choice for regolith.)
+float k_rel(float s) {
+	float se = clamp((s / CAPACITY - RESIDUAL) / (1.0 - RESIDUAL), 0.0, 1.0);
+	return se * se * se;
+}
 // SPRINGS emerge where the water-table HEAD rises above an open neighbour's floor — i.e. at VALLEY WALLS where
 // the regolith meets open ground laterally, NOT on flat ground (whose only open neighbour is straight up, which
 // the table can't exceed unless brim-full). This auto-concentrates discharge at valleys and self-limits: seeping
@@ -152,6 +180,11 @@ void main() {
 				return;
 			}
 			float my_head = head_of(idx, s);
+			// The DONOR's unsaturated conductivity gates every leg that moves water THROUGH the rock — Darcy and
+			// the spring seepage face alike. Upstream weighting is the standard for unsaturated flow: the cell
+			// water is leaving is the one whose pore network has to carry it. A cell at or below field capacity
+			// has k_rel == 0 and conducts nothing, which is what stops the vadose zone bleeding dry.
+			float kr = k_rel(s);
 			// PROPORTIONAL ALLOCATION, NOT SLOT-ORDER GREED. Every direction's DESIRED flow is computed first,
 			// then the step's stability budget is shared among them by ONE scale factor, so no direction can be
 			// starved by where it happens to sit in the neighbour table.
@@ -200,7 +233,7 @@ void main() {
 						// Dividing by cell_size makes CONDUCT what its comment always claimed: flow per unit
 						// hydraulic gradient, the same dimensionless currency as INFIL_RATE.
 						float grad = dh / max(params.cell_size, 1e-6);
-						float flow = min(CONDUCT * grad, max(0.0, CAPACITY - soil_in[n]));
+						float flow = min(CONDUCT * kr * grad, max(0.0, CAPACITY - soil_in[n]));
 						if (flow > 0.0) {
 							want[d] = flow;
 							leg[d] = LEG_DARCY;
@@ -240,7 +273,7 @@ void main() {
 						// (cell_size = 8*PLANET_SCALE), so 0.20 * a few metres always exceeded
 						// remaining = MAX_FLOW_FRAC*s <= 0.21 and min() picked the stability cap EVERY time.
 						// Every spring in the world ran flat out at the cap, head-proportional in name only.
-						float exf = SPRING_CONDUCT * (exf_head / params.cell_size);
+						float exf = SPRING_CONDUCT * kr * (exf_head / params.cell_size);
 						// BACK-PRESSURE. A full outlet cannot accept water, and until now nothing said so: for the
 						// INWARD neighbour the geometry makes the head positive by construction
 						//     exf_head = table + (1 - w)*cell_size >= table > 0
@@ -269,6 +302,10 @@ void main() {
 			// not physics. Real artesian flow is driven by a confined aquifer's recharge area standing HIGHER
 			// somewhere else — a pressure that is not a function of local water depth and that this substrate
 			// does not yet carry. Until a real pressure channel exists, this leg approximates it.
+			//
+			// Deliberately NOT gated by k_rel: it stands in for a pressure the substrate does not carry, not for
+			// conduction through partly-filled pores, and it only fires above SEEP_THRESH * CAPACITY where
+			// k_rel is 0.63-1.0 anyway. Gating it would be applying a correction to a placeholder.
 			float seep_want = 0.0;
 			float surplus = s - CAPACITY * SEEP_THRESH;
 			if (surplus > 0.0) {
