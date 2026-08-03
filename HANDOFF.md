@@ -27,10 +27,13 @@ carries the measurable bar. **A defect you find is FIXED, wherever it lives. Not
 a broken thing instead of repairing it** — that policy was invented by an agent, never approved, and it is how
 this tracker filled up with known-and-unfixed physics.
 
-**THE ONE THING TO UNDERSTAND BEFORE YOU TOUCH THE SUBSTRATE.** This simulation creates matter from nothing.
-Not as a rounding error — by construction, because the reaction engine is a **rate table, not a chemistry**.
-That is item 1 and everything else here is smaller. Be suspicious of any task description, including one
-written in this file, that proposes to fix a shortage by adding a *source*.
+**THE ONE THING TO UNDERSTAND BEFORE YOU TOUCH THE SUBSTRATE.** This simulation used to create matter from
+nothing by construction, because the reaction engine was a rate table rather than a chemistry. As of
+2026-08-03 a record that creates or destroys matter is refused at load and by CI — see item 1 for what is
+closed, what the remaining holes are, and the numbers. Two habits survive the fix and are worth keeping: be
+suspicious of any task description, including one written in this file, that proposes to fix a shortage by
+adding a *source*; and translate the euphemism before you accept a claim, because "minting" and "drift" both
+mean matter appearing out of nothing.
 
 `sorting.py` at repo root is the maintainer's, untracked — leave it.
 
@@ -101,45 +104,39 @@ Disaster load 8–9 phenomena / 5 impacts / 3–4 eruptions; `field_step` 590; `
 
 ## DO THIS NEXT (ranked)
 
-### 1 — THE SUBSTRATE CREATES MATTER FROM NOTHING. THE ELEMENTS MUST BE PRESENT AT INITIALIZATION.
+### 1 — CONSERVATION: WHAT IS CLOSED, AND THE THREE HOLES THAT ARE NOT
 
-**This is the top item and it replaces what used to be items 1 and 2.** Those read "nitrogen has no source —
-build the source" and "carbon is minted by a prescriber — replace with a finite atmosphere + outgassing as the
-SOURCE". Both accepted that a substance needs a runtime source. **It does not.** A planet does not manufacture
-nitrogen; it was assembled with 78% N₂ in its air and has been rearranging it ever since. The fix for a tap
-with no tank is not a better tap.
+*(Rewritten 2026-08-03 after the T-CONSERVE track. This item used to say the substrate creates matter from
+nothing by construction and that the DEFS engine is a rate table, not a chemistry. That was true and it is
+fixed. Measured on `feature/conservation`, `--planet-only`, 600 frames, `--fast=8 --seed=4242`, three runs per
+arm at equal `mass_run_steps` 786 and equal disaster load.)*
 
-**Why this is possible is STRUCTURAL.** The DEFS engine is a rate table, not a chemistry:
-- `rec()` takes `reactants[]` and `products[]` as independent lists with hand-written coefficients and
-  **nothing relates them.** R15 shipped consuming 0.8 O₂ per 1.0 CO₂ produced — 18% under-oxidised, creating
-  oxygen every cycle — and was fixed by a person noticing and setting two constants equal by hand.
-- **`RELAX_TARGET` has no reactant at all.** `reactions_sphere3d.glsl:372` skips the entire cap-and-debit
-  block for it, so only the product credit runs. Every carbon atom that has ever existed here came from R12.
-- **There is no load-time validation of any kind.** Conservation is asserted in comments and enforced nowhere.
+| gauge | before | after |
+|---|---|---|
+| `carbon_run_drift_per_step` | +6.475 / +6.475 / +6.493 | −0.0225 / −0.0227 / −0.0227 |
+| `oxidant_run_drift_per_step` (o2 + co2) | not measured; free O₂ looked flat only because a sky-pin absorbed everything | −0.0048 / +0.0093 / +0.0093 |
+| `nitrogen_run_drift_per_step` (mineral + organic N) | not measured | −0.0048, on a pool of 516 |
+| `carbon_closed_run_drift_per_step` (every carbon pool) | not measured | −0.0679 |
 
-**The work, in order:**
-1. **Seed every conserved substance at world build, finite, at physically real proportions** (Earth: 78% N₂,
-   21% O₂, 0.04% CO₂). `_co2` is currently `resize()`d with no `.fill()` while the line above fills `_o2`.
-2. **Delete `RELAX_TARGET`,** or confine it to a genuine boundary with an explicit reservoir behind it. Once
-   there is real air in the cell above, "relax toward ambient" is exchange with a neighbour that holds the
-   gas — an ordinary conserving transfer — and R11/R12 stop being needed.
-3. **Add a load-time BALANCE GATE** shaped like `check_physical_constants.sh`: refuse any record whose
-   products do not balance its reactants. This is the part that matters most — it makes the violation
-   *unwritable* rather than merely absent, and a rule that lives only in a comment has already been broken here.
-4. **Nitrogen fixation is then an ordinary record**, not a source: atmospheric N₂ → fixed N, conserving,
-   driven by biology and by lightning (which fixes real nitrogen on real planets). The biosphere collapse
-   blamed on a missing source was really a missing ATMOSPHERE.
+**A reaction that creates matter is now UNWRITABLE, and that is the part that matters.**
+`reactions/ReactionBalance.gd` declares what every channel is MADE OF and refuses a record that does not
+balance in carbon, nitrogen, H₂O, mineral or oxidant; `LAMaterialReactions3D.records()` refuses the whole
+table on a violation; `scripts/check_reaction_balance.sh` runs in `agent_harness.sh lint`, which is what CI
+runs, and exits 2 rather than 0 when it cannot run. Demonstrated failing on four deliberately-authored bad
+records and on a revert of a real fix. **Do not weaken this to unblock a record — fix the record.**
 
-Measured: `carbon_drift_per_step` +1.94/+2.37/+2.09; `carbon_first` 720 against `carbon_total` ~5200, so
-carbon has grown 7× from its seeded value. Fertility reads closed only because uptake and release were
-matched by hand at the litter C:N ratio — nothing structural holds them there.
-
-**On the ledgers, since they are this project's proudest instrument:** a drift gauge tells you the violation
-*happened*. It cannot tell you the violation is *possible*. Keep the ledgers; they are not the fix.
-
-**Free DEFS slot index is 20.** Slots 5 (`FUEL`) and 6 (`FIRE`) are declared in both the GDScript enum and the
-kernel `#define`s but have **no `read_ch`/`add_ch` branch**, so they read 0 and their writes vanish silently —
-the same two-hand-maintained-lists drift a balance gate should also catch.
+**Still open, in order of size:**
+- **`carbon_closed_run_drift_per_step` −0.068** is the one to chase next. It is dominated by `fuel`, which
+  `MaterialSurfaceSeed3D` refills from standing `biomass` WITHOUT debiting biomass. **What would decide it:**
+  run with the refill disabled and compare the closed drift.
+- **Nitrogen has no atmosphere.** There is no N₂ channel, so nitrogen fixation cannot be written as a
+  conserving record — which is correct, and it is why `fert_total` is small and primary production is
+  nitrogen-limited. Adding N₂ is a new GPU channel plus a lightning/biological fixation record. **Do not
+  "fix" the shortage by adding a source; that is the exact mistake this item used to encode.**
+- **A cell that turns to rock traps its gas** rather than annihilating it (fixed), but the gas is still
+  seeded inside bedrock: `MaterialField3D._alloc_channels` fills `_o2` over EVERY cell including ~20,000
+  interior rock cells, while its own comment claims it covers "every OPEN cell". Harmless to the drift now,
+  wrong as a statement about the world.
 
 ### 2 — THE PLANET COOLS WITHOUT STOPPING, AND NOTHING SAYS WHERE IT SETTLES
 
