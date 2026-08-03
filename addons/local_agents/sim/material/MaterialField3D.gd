@@ -58,12 +58,27 @@ const INITIAL_TEMP: float = 15.0
 # is ever held at a constant temperature. add_magma_source seeds it. Sphere-only. The model, and the
 # reason a temperature boundary could never have worked, live in LAMaterialFieldGeotherm3D; this hub
 # only forwards.
-# Ambient atmospheric oxygen every OPEN cell is seeded to (LAMaterialGas3D relaxes surface cells back toward
-# it; combustion draws it down). MUST match LAMaterialGas3D.O2_AMBIENT.
+# THE ATMOSPHERE. Every open cell is seeded with real air, once, at world build, and nothing tops it up
+# afterwards — the planet was assembled with an atmosphere and rearranges it from then on, which is what a
+# planet does. One unit of a gas channel is DEFINED as the amount of O₂ in a cell of ambient air, so
+# O2_AMBIENT stays 1.0 and every existing O₂ threshold (CreatureMetabolism.BREATHE_MIN_O2 0.3,
+# fire_sphere3d O2_MIN 0.35) keeps meaning what it meant. Everything else in the air follows from its
+# measured mole fraction, with nothing left to tune.
+#
+# WHAT THIS REPLACED (2026-08-03). `_co2` was `resize()`d with NO `.fill()` — a planet whose air contained no
+# carbon at all — and both gases were then held near a target by reaction records R11/R12, which used a rate
+# model with NO REACTANT: the kernel skipped the debit and ran only the product credit. Carbon entered this
+# world at +6.5 units per field step and `carbon_total` had grown from 720 to about 5820 over 600 frames.
+# Those records are deleted. Note the honest consequence: CO₂ per cell is now 0.00200 rather than the 0.05
+# "ambient trace" the deleted record aimed at, because 0.05 was never a measurement of anything and
+# 419 ppm / 20.946 % is.
 const O2_AMBIENT: float = 1.0
-# Ambient atmospheric humidity every OPEN cell is seeded to — the starting moisture the terminator condenses
-# into cloud/fog on the cold (night) side. Evaporation from the static field sea replenishes it.
-const VAPOR_AMBIENT: float = 0.3
+const CO2_AMBIENT: float = O2_AMBIENT * (LAPhysical.AIR_MOLE_FRAC_CO2 / LAPhysical.AIR_MOLE_FRAC_O2)
+# VAPOR_AMBIENT IS DELETED. It claimed to be "the ambient atmospheric humidity every OPEN cell is seeded to",
+# and it seeded nothing: the fill it drove was never uploaded to the GPU (see _alloc_channels and
+# MaterialSphereGPU3D's seed list), so for the whole life of this substrate the atmosphere has started dry
+# and filled by evaporation. The value was also wrong by three orders of magnitude — 0.3 per cell is five
+# times the planet's entire water budget in vapour — so the fill could never simply be switched on.
 # Frozen H₂O (snowpack/ice) — the third phase of the ONE conserved water substance (liquid `_water`, airborne
 # `_moisture`, frozen `_snow`). GPU-owned: the snowice deposition kernel + freeze/melt reaction records (R21/R22)
 # grow and thaw it; read back for queries/telemetry only. SNOW_PRESENT = depth that counts a cell snow-covered;
@@ -423,7 +438,14 @@ func _alloc_channels() -> void:
 	_temp.fill(INITIAL_TEMP)
 	_moisture = PackedFloat32Array()
 	_moisture.resize(_cell_count)
-	_moisture.fill(VAPOR_AMBIENT)
+	# THE `.fill(VAPOR_AMBIENT)` THAT WAS HERE WAS DEAD, AND ITS VALUE WAS WRONG BY THREE ORDERS OF MAGNITUDE.
+	# Dead: `moisture` was never in MaterialSphereGPU3D's GPU seed list, so the device buffer started at zero
+	# and the first readback overwrote this mirror — the fill had never once reached the simulation. Wrong:
+	# 0.3 per cell over ~123,000 cells is ~37,000 units of H2O against a whole-planet `h2o_total` of ~7,000,
+	# so "fixing" the dead fill by uploading it would have seeded five times the planet's entire water budget
+	# as vapour. Real air at 15 C and 60% relative humidity holds about 1e-4 of a cell of liquid water. The
+	# atmosphere starts dry and fills by evaporation, which is measurable within the first steps of a run.
+	_moisture.fill(0.0)
 	_lava = PackedFloat32Array()
 	_lava.resize(_cell_count)
 	# Soil water reservoir (water table): starts BONE DRY (0) everywhere; rain/rivers wet it over the run.
@@ -436,14 +458,17 @@ func _alloc_channels() -> void:
 	_fuel.resize(_cell_count)
 	_fire = PackedFloat32Array()
 	_fire.resize(_cell_count)
-	# Oxygen starts at ambient in every cell (solid cells are ignored by the gas/fire loops); the sky
-	# exchange keeps open surface cells topped up, combustion draws burning cells down.
+	# THE AIR, seeded once and finite thereafter. Both gases are filled at Earth's measured composition; the
+	# sky-exchange records that used to top them up from nothing are deleted. Solid cells are ignored by the
+	# gas loops. (The `.fill` on `_co2` is the whole fix for "the planet had no carbon in its air": the line
+	# was a bare `resize()` immediately below a `_o2.fill()`, and nobody noticed for months because a
+	# reaction record was manufacturing the carbon anyway.)
 	_o2 = PackedFloat32Array()
 	_o2.resize(_cell_count)
 	_o2.fill(O2_AMBIENT)
-	# CO₂ starts at a clean-air trace of 0; combustion/decay raise it, plants + the sky vent draw it back down.
 	_co2 = PackedFloat32Array()
 	_co2.resize(_cell_count)
+	_co2.fill(CO2_AMBIENT)
 	# Detritus + fungus start empty; carcasses/ash deposit detritus, fungus grows on it (decomposer loop).
 	_detritus = PackedFloat32Array()
 	_detritus.resize(_cell_count)

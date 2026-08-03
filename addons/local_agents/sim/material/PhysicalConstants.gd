@@ -148,3 +148,37 @@ const ALBEDO_SNOW_ICE: float = 0.65
 # --- COMBUSTION -------------------------------------------------------------------------------------------
 # Piloted ignition temperature of dry cellulosic fuel (wood, leaf litter, cured grass).
 const VEGETATION_IGNITION_C: float = 300.0
+
+# --- THE COMPOSITION OF AIR -------------------------------------------------------------------------------
+# Dry-air mole fractions. N₂ and O₂ are fixed properties of the atmosphere; Ar is next and is inert; CO₂ is
+# the 2023 NOAA global annual mean (419 ppm) and is the only one of the four that moves on a human timescale.
+#
+# WHY THESE ARE HERE AND WHAT THEY REPLACED. This simulation had no atmosphere. `_o2` was filled to a
+# constant 1.0 and `_co2` was `resize()`d with NO `.fill()` at all — clean air with zero carbon in it — and
+# both were then held near a target by a reaction record with NO REACTANT, so the product credit ran and
+# nothing was ever debited. Every carbon atom that has ever existed in this simulation was conjured by that
+# one record, at a measured +6.5 units per field step, and `carbon_total` had grown from 720 to about 5820
+# over a 600-frame run. A planet does not manufacture its own air: it was assembled with an atmosphere and
+# has been rearranging it ever since. These four numbers are what "assembled with an atmosphere" means.
+#
+# THE ABSOLUTE UNIT IS A FREE CHOICE; THE RATIOS ARE THE PHYSICS. The substrate's gas channels are in an
+# arbitrary substance unit, and one unit is DEFINED as the amount of O₂ in a cell of ambient air — which is
+# what `LAMaterialField3D.O2_AMBIENT = 1.0` already meant, and keeps every existing O₂ threshold
+# (CreatureMetabolism.BREATHE_MIN_O2 0.3, fire_sphere3d O2_MIN 0.35) valid. Everything else in the air
+# follows from that choice by its mole fraction, with nothing left to tune. In particular CO₂ per cell is
+# O2_AMBIENT x (AIR_MOLE_FRAC_CO2 / AIR_MOLE_FRAC_O2) = 0.00200, which is 25x SMALLER than the 0.05 "ambient
+# trace" the deleted record relaxed toward. That 0.05 was not a measurement of anything; the ratio is.
+const AIR_MOLE_FRAC_N2: float = 0.78084     # NASA/NOAA standard atmosphere, dry air
+const AIR_MOLE_FRAC_O2: float = 0.20946
+const AIR_MOLE_FRAC_AR: float = 0.00934
+const AIR_MOLE_FRAC_CO2: float = 0.000419   # NOAA GML global annual mean, 2023
+
+# --- ORGANIC MATTER: THE CARBON-TO-NITROGEN RATIO ---------------------------------------------------------
+# Measured mass ratios of carbon to nitrogen. They are properties of the material, and they are what makes
+# "mineralisation releases the nitrogen that was ALREADY in the litter" a structural fact instead of a
+# coincidence between two constants somebody set equal by hand: the nitrogen a decomposer releases, and the
+# nitrogen a plant takes up to build the same tissue, are the SAME ratio because they are the same matter.
+# Fresh leaf litter runs 20-60:1 depending on species; well-humified soil organic matter converges near 10-12:1
+# (Batjes 1996). 20 is the litter figure this substrate's detritus channel represents.
+const LITTER_C_TO_N: float = 20.0
+const SOIL_ORGANIC_C_TO_N: float = 12.0

@@ -52,14 +52,23 @@ const SOIL_ROOT: int = 19
 const CONST_FRAC: int = 0             # x = k * driver
 const BILINEAR: int = 1               # x = k * driver * driver2
 const EXCESS_OVER_THRESHOLD: int = 2  # x = max(0, driver - threshold) * k   (fires when driver is ABOVE threshold)
-const RELAX_TARGET: int = 3           # x = k * (threshold - driver)  (signed; no reactant; product = driver)
+# 3 IS RETIRED AND MUST STAY UNUSED. It was RELAX_TARGET — "x = k * (threshold - driver); signed; NO
+# REACTANT; product = driver" — and that definition is a description of matter appearing from nothing.
+# reactions_sphere3d.glsl skipped its whole cap-and-debit block, so only the product credit ever ran. Two
+# records used it (R11 pinning O₂ and R12 pinning CO₂ at the top of the atmosphere) and R12 was the origin of
+# every carbon atom that has ever existed in this simulation: +6.5 units per field step, `carbon_total` grown
+# from 720 to ~5820 over a 600-frame run. Both records and the model are deleted. The planet now starts with
+# a real finite atmosphere at Earth's measured composition (LAPhysical.AIR_MOLE_FRAC_*), so "relax toward
+# ambient" has nothing left to do: the air above a cell genuinely holds the gas, and moving it there is an
+# ordinary conserving transfer that o2_transport/co2_transport already perform.
+# The number stays burned rather than reused so an old serialised table cannot silently mean something new.
+const DEFICIT_BELOW_THRESHOLD: int = 4  # x = max(0, threshold - driver) * k  (fires when driver is BELOW threshold)
 # DEFICIT_BELOW_THRESHOLD is the mirror of EXCESS_OVER_THRESHOLD: it fires when the driver is BELOW the
 # threshold instead of above it, so a single scalar driver (temperature) can drive a reaction in BOTH
 # directions. EXCESS handles "when hot/wet/high" (melt at T>MELT_TEMP); DEFICIT handles "when cold/dry/low"
 # (freeze at T<FREEZE_TEMP). Both still cap the extent by their reactants, so they stay mass-conserving
 # transfers — the ONLY difference is the sign of (driver − threshold). Any future "when cold/dry/low"
 # reaction (frost, dew, condensation onto a cold surface) reuses this without a new kernel.
-const DEFICIT_BELOW_THRESHOLD: int = 4  # x = max(0, threshold - driver) * k  (fires when driver is BELOW threshold)
 # OPTIMUM_BAND is the shape none of the four above can express: a rate that PEAKS in the middle and falls off in
 # BOTH directions. All four threshold models are monotone — "more is more" (EXCESS) or "less is more" (DEFICIT) —
 # so anything with a best value in the middle had no way to be written as a record. That gap is exactly why

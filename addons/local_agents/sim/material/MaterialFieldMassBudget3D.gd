@@ -46,10 +46,28 @@ extends RefCounted
 ## so folding them in would hide R12's signature inside two unrelated budgets. They are reported BESIDE the
 ## total as memo lines instead, so a reader can add them and see what happens.
 ##
-## OXYGEN'S CONVENTION: FREE molecular O₂ only — the `o2` channel — and NOT the oxygen bound in CO₂. The
-## reaction table treats CO₂ as an indivisible unit and never converts between bound and free oxygen
-## atom-for-atom, so counting bound O would import a stoichiometry the substrate does not implement and
-## produce a "conserved" total that no kernel is trying to conserve.
+## OXYGEN'S CONVENTION: `o2_total` is FREE molecular O₂ only — the `o2` channel — and NOT the oxygen bound in
+## CO₂. That is still the right thing to publish for "how much air is there to breathe", but as a
+## CONSERVATION gauge it is the wrong shape and always was, because free O₂ is not a conserved quantity:
+## photosynthesis and respiration trade it against the oxygen bound in CO₂ all day, so a healthy biosphere
+## makes `o2_total` wander for entirely honest reasons.
+##
+## THE CONSERVED QUANTITY IS `oxidant_total` = o2 + co2, ADDED 2026-08-03. One unit of free O₂ and one unit
+## of CO₂ each carry one O₂-equivalent of oxidising capacity (a fully oxidised carbon has one O₂ bound into
+## it; reduced carbon has none), so every oxidation and every reduction in the reaction table moves that
+## capacity between the two pools and conserves the sum. LAReactionBalance enforces exactly this identity per
+## record, which is what makes the gauge meaningful: any drift in `oxidant_total` is now provably OUTSIDE the
+## reaction table. The old note said counting bound oxygen "would import a stoichiometry the substrate does
+## not implement" — the substrate implements it now, and it is the same identity BioRecords.gd was already
+## asserting in prose ("O₂ consumed == CO₂ produced") and enforcing by hand.
+##
+## AND `carbon_closed_total` = co2 + biomass + detritus + fungus + fuel, ADDED for the same reason. The note
+## below is right that the three-slot triangle is what the REACTION TABLE moves, and that keeping the memo
+## lines separate is what let R12's signature stand out. But fungus and fuel are carbon in the real world,
+## and a carbon ledger that omits two carbon pools cannot answer "is carbon conserved" — only "is carbon
+## conserved among the slots I chose to look at". Measured on the run that added this: `carbon_total` fell
+## 18.8 units while `fungus_total` rose 58, so the narrow total showed a small leak where the wide one shows
+## a net gain. Both are published; the narrow one localises, the wide one is the conservation claim.
 ##
 ## READBACK. `detritus` and `fungus` were NEVER READ BACK from the GPU before 2026-08-03 — they appear in no
 ## hot, situational or slow readback set — so their CPU mirrors held the all-zero allocation for the life of
@@ -79,11 +97,27 @@ var _prev_step: int = -1
 # number of steps, so it is the number to quote for "does this substance mint", and the two disagreeing is
 # itself informative (a substance that is bounded but noisy shows a large per-sample drift and a run-long one
 # near zero).
+#
+## AND THE BASELINE MUST NOT BE TAKEN BEFORE ITS LEGS ARRIVE. Until 2026-08-03 every `_first_*` was captured
+## on the very FIRST call, and on that call the device probe armed in `report()` has not landed yet, so every
+## leg fell back to a CPU mirror — and `co2`, `detritus` and `fungus` are demand-gated (never read back
+## unless something asks) while `biomass` is a slow channel. The measured consequence: `carbon_first` read
+## exactly 720.00 in every run of every arm, which is the seeded soil detritus and nothing else, with no CO₂
+## and no biomass in it. Every `carbon_run_drift_per_step` ever quoted from this gauge was therefore measured
+## against a baseline that omitted the atmosphere. Each quantity now waits for its OWN legs and records its
+## own first step, so a baseline is a real measurement or it is not taken at all.
 var _first_carbon: float = NAN
 var _first_o2: float = NAN
 var _first_fert: float = NAN
 var _first_biomass: float = NAN
-var _first_step: int = -1
+var _first_oxidant: float = NAN
+var _first_closed: float = NAN
+var _first_carbon_step: int = -1
+var _first_o2_step: int = -1
+var _first_fert_step: int = -1
+var _first_biomass_step: int = -1
+var _first_oxidant_step: int = -1
+var _first_closed_step: int = -1
 
 
 func setup(field) -> void:
@@ -223,26 +257,68 @@ func report(step_index: int) -> Dictionary:
 		_prev_fert = fert_open
 		_prev_biomass = bio_open
 		_prev_step = step_index
-	# RUN-LONG DRIFT — the headline conservation figure. First sample is the baseline; everything after is
-	# measured against it over the field steps actually elapsed.
-	if _first_step < 0:
-		_first_carbon = carbon
-		_first_o2 = o2_open
-		_first_fert = fert_open
-		_first_biomass = bio_open
-		_first_step = step_index
-	var run_steps: int = step_index - _first_step
+	# THE TWO GAUGES THAT ARE ACTUALLY CONSERVED (see the header). `oxidant_total` is the O₂-equivalent sum
+	# the reaction table provably holds; `carbon_closed_total` is carbon over EVERY pool that carries it, not
+	# only the three the reaction table moves between.
+	var oxidant: float = o2_open + co2_open
+	var carbon_closed: float = carbon + fung_open + fuel_open
+	out["oxidant_total"] = snappedf(oxidant, 0.01)
+	out["carbon_closed_total"] = snappedf(carbon_closed, 0.01)
+
+	# RUN-LONG DRIFT — the headline conservation figure. The first sample is the baseline; everything after is
+	# measured against it over the field steps actually elapsed. Each quantity takes its baseline only once
+	# ITS OWN legs have arrived from the device (see the note on `_first_*` above); until then it reports no
+	# baseline at all rather than a mirror artefact.
+	var run_steps: int = 0
+	if has_co2 and has_bio and has_det:
+		if _first_carbon_step < 0:
+			_first_carbon = carbon
+			_first_carbon_step = step_index
+		run_steps = step_index - _first_carbon_step
+		out["carbon_first"] = snappedf(_first_carbon, 0.01)
+		if run_steps > 0:
+			out["carbon_run_drift_per_step"] = snappedf((carbon - _first_carbon) / float(run_steps), 0.0001)
+	if has_o2:
+		if _first_o2_step < 0:
+			_first_o2 = o2_open
+			_first_o2_step = step_index
+		out["o2_first"] = snappedf(_first_o2, 0.01)
+		if step_index > _first_o2_step:
+			out["o2_run_drift_per_step"] = snappedf(
+				(o2_open - _first_o2) / float(step_index - _first_o2_step), 0.0001)
+	if has_fert:
+		if _first_fert_step < 0:
+			_first_fert = fert_open
+			_first_fert_step = step_index
+		out["fert_first"] = snappedf(_first_fert, 0.01)
+		if step_index > _first_fert_step:
+			out["fert_run_drift_per_step"] = snappedf(
+				(fert_open - _first_fert) / float(step_index - _first_fert_step), 0.0001)
+	if has_bio:
+		if _first_biomass_step < 0:
+			_first_biomass = bio_open
+			_first_biomass_step = step_index
+		out["biomass_first"] = snappedf(_first_biomass, 0.01)
+		if step_index > _first_biomass_step:
+			out["biomass_run_drift_per_step"] = snappedf(
+				(bio_open - _first_biomass) / float(step_index - _first_biomass_step), 0.0001)
+	if has_o2 and has_co2:
+		if _first_oxidant_step < 0:
+			_first_oxidant = oxidant
+			_first_oxidant_step = step_index
+		out["oxidant_first"] = snappedf(_first_oxidant, 0.01)
+		if step_index > _first_oxidant_step:
+			out["oxidant_run_drift_per_step"] = snappedf(
+				(oxidant - _first_oxidant) / float(step_index - _first_oxidant_step), 0.0001)
+	if has_co2 and has_bio and has_det and has_fung and has_fuel:
+		if _first_closed_step < 0:
+			_first_closed = carbon_closed
+			_first_closed_step = step_index
+		out["carbon_closed_first"] = snappedf(_first_closed, 0.01)
+		if step_index > _first_closed_step:
+			out["carbon_closed_run_drift_per_step"] = snappedf(
+				(carbon_closed - _first_closed) / float(step_index - _first_closed_step), 0.0001)
 	out["mass_run_steps"] = run_steps
-	out["carbon_first"] = snappedf(_first_carbon, 0.01)
-	out["o2_first"] = snappedf(_first_o2, 0.01)
-	out["fert_first"] = snappedf(_first_fert, 0.01)
-	out["biomass_first"] = snappedf(_first_biomass, 0.01)
-	if run_steps > 0:
-		var rinv: float = 1.0 / float(run_steps)
-		out["carbon_run_drift_per_step"] = snappedf((carbon - _first_carbon) * rinv, 0.0001)
-		out["o2_run_drift_per_step"] = snappedf((o2_open - _first_o2) * rinv, 0.0001)
-		out["fert_run_drift_per_step"] = snappedf((fert_open - _first_fert) * rinv, 0.0001)
-		out["biomass_run_drift_per_step"] = snappedf((bio_open - _first_biomass) * rinv, 0.0001)
 	out["mass_scan_ms"] = snappedf(float(Time.get_ticks_usec() - t0) / 1000.0, 0.01)
 	return out
 
@@ -260,5 +336,8 @@ func _blank() -> Dictionary:
 		"carbon_first": 0.0, "o2_first": 0.0, "fert_first": 0.0, "biomass_first": 0.0,
 		"carbon_run_drift_per_step": 0.0, "o2_run_drift_per_step": 0.0,
 		"fert_run_drift_per_step": 0.0, "biomass_run_drift_per_step": 0.0,
+		"oxidant_total": 0.0, "oxidant_first": 0.0, "oxidant_run_drift_per_step": 0.0,
+		"carbon_closed_total": 0.0, "carbon_closed_first": 0.0,
+		"carbon_closed_run_drift_per_step": 0.0,
 		"mass_live": {},
 	}

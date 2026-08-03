@@ -27,7 +27,12 @@ const O2_PER_DECOMPOSE: float = 1.0      # == CO2_PER_DECOMPOSE, by the identity
 # This is why the old FERT_UPTAKE_COST was cut 25x "so it only binds where fert is genuinely near-zero":
 # nutrient limitation was removed rather than the nutrient SOURCE being fixed. With both at the C:N ratio,
 # Liebig limitation by nutrient becomes real again and a barren soil genuinely limits growth.
-const LITTER_C_TO_N: float = 20.0
+# MOVED to LAPhysical 2026-08-03: the carbon-to-nitrogen ratio of leaf litter is a measured property of the
+# material, not a model parameter, and it is now the SAME declaration LAReactionBalance uses to say what
+# organic matter is made of. That is what turns "mineralisation releases the nitrogen that was already in the
+# litter" from a comment into an arithmetic identity the balance gate checks: the release coefficient here,
+# the uptake coefficient below, and the nitrogen content of biomass/detritus/fungus are one number.
+const LITTER_C_TO_N: float = LAPhysical.LITTER_C_TO_N
 const FERT_PER_DECOMPOSE: float = 1.0 / LITTER_C_TO_N      # 0.05 (was 1.5)
 
 # PHOTOSYNTHESIS: CO₂ + H₂O + light → biomass + O₂. LIGHT drives it, and light is now the real thing —
@@ -167,6 +172,17 @@ const RESP_O2_COST: float = RESP_CO2_YIELD   # aerobic: O₂ consumed == CO₂ p
 # anyone tuning RESP_CO2_YIELD for behaviour would have broken conservation silently. Deriving the partner
 # makes the invariant structural: change the split and it still closes.
 const RESP_DET_YIELD: float = 1.0 - RESP_CO2_YIELD   # detritus (litter) shed per unit biomass respired
+# RESPIRATION WAS DESTROYING NITROGEN, and nothing noticed because there was no nitrogen accounting to notice
+# with. Found 2026-08-03 by the new balance gate on its first run against the shipped table. One unit of
+# biomass carries 1/LITTER_C_TO_N of nitrogen. Respiration sends 0.6 of the carbon to CO₂ — which carries no
+# nitrogen — and 0.4 to detritus, which carries only 0.4/20 = 0.02. The other 0.03 units simply vanished, 60%
+# of the nitrogen in every unit of biomass respired, forever.
+# The physics: burning the carbon off a molecule does not destroy the nitrogen in it. Plants resorb some
+# nitrogen before shedding a leaf and the rest is mineralised at the litter's own ratio, so the nitrogen the
+# carbon leg leaves behind returns to the soil's plant-available pool. The coefficient is DERIVED from the
+# same C:N ratio as the other two, so it cannot drift out of balance: whatever nitrogen the reactant carried
+# and the detritus product does not, is what the soil receives.
+const RESP_FERT_YIELD: float = (1.0 - RESP_DET_YIELD) / LITTER_C_TO_N   # 0.03 — the N the CO₂ leg leaves behind
 
 
 ## The records this domain contributes to the live table (see LAMaterialReactions3D).
@@ -201,11 +217,14 @@ static func records() -> Array:
 				[MOISTURE, PHOTO_WATER_COST, TGT_SELF]],
 			GATE_NEAR_GROUND | GATE_NOT_STATIC, PHOTO_T_OPT, TEMP, PHOTO_T_WIDTH),
 
-		# R20 — RESPIRATION + DECAY: biomass + O₂ → CO₂ + detritus, everywhere biomass exists (ungated).
-		# BILINEAR: x = RESP_RATE*biomass*o2; BIOMASS reactant caps the extent (can't respire more than present),
-		# O₂ reactant makes it aerobic. Products: CO₂ back to air + DETRITUS litter (which the fungus-decompose
-		# R15 then rots into CO₂ + fertility) → the full carbon loop closes on the GPU, no CPU carcass bridge.
+		# R20 — RESPIRATION + DECAY: biomass + O₂ → CO₂ + detritus + mineral nitrogen, everywhere biomass
+		# exists (ungated). BILINEAR: x = RESP_RATE*biomass*o2; the BIOMASS reactant caps the extent (can't
+		# respire more than is present) and the O₂ reactant makes it aerobic. Products: CO₂ back to the air,
+		# DETRITUS litter (which the fungus-decompose R15 then rots into CO₂ + fertility), and the NITROGEN
+		# the carbon leg leaves behind — see RESP_FERT_YIELD. Without that third product this record destroyed
+		# 60% of the nitrogen in every unit of biomass it touched.
 		rec(BILINEAR, RESP_RATE, BIOMASS, [[BIOMASS, 1.0], [O2, RESP_O2_COST]],
-			[[CO2, RESP_CO2_YIELD, TGT_SELF], [DETRITUS, RESP_DET_YIELD, TGT_SELF]],
+			[[CO2, RESP_CO2_YIELD, TGT_SELF], [DETRITUS, RESP_DET_YIELD, TGT_SELF],
+				[FERT, RESP_FERT_YIELD, TGT_SELF]],
 			0, 0.0, O2),
 	]
