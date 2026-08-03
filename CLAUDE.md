@@ -224,6 +224,45 @@ committed). When removing files:
   eruptions a run happened to draw (2 vs 6), not Gaussian — so quote `phenomenon/impact` and
   `phenomenon/eruption` too. `LA_NO_AMBIENT_DISASTERS=1` is NOT enough to hold the timeline fixed: it gates
   only the ambient director, and `LAPlateTectonics` keeps firing on its own drumbeat.
+- **REVIEW STRUCTURE BY DEFAULT, NOT JUST VALUES — every time you surface a constant or a metric.** The
+  standing question is not "is this number right?" but **"what is this a constant OF, and should it be one?"**
+  and for a metric, **"is this the right SHAPE of measurement?"** Surfacing something as evidence is NOT the
+  same as reviewing it, and you owe the review even when you only opened the file to quote a number for some
+  other argument. Two failures on 2026-08-03, one root:
+  - `CreatureMetabolism`'s `WARM_COMFORT 28 / COOL_COMFORT 8 / LETHAL_HEAT 50 / LETHAL_COLD -18` are module
+    consts applied to EVERY creature — a whale and a desert beetle share one thermal physiology, with no
+    species config and no heritable gene. They were quoted in a table as evidence about something else and
+    the design smell went unremarked, in the same session that twice cited this file's own "config over
+    `if species == X`" rule.
+  - `temp_mean`, a single global spatial mean, was used to argue the planet was overheating while
+    `surf_mean` — where creatures actually stand — was flat. A global mean cannot answer a local question,
+    an instantaneous sample cannot answer "how extreme does it get", and a scalar cannot show structure.
+  - **The tells:** a const applied in a loop over entities that differ in reality (species, biomes,
+    materials); a mean used to argue about a local phenomenon; a single sample used to argue about a range;
+    any comment justifying a value by "the sim's actual range".
+- **A PHYSICAL CONSTANT IS NOT A TUNING KNOB. NEVER FIT ONE — AND WHEN YOU FIND A FITTED ONE, FIX IT THAT
+  DAY AND SAY SO.** Measured properties of real matter — the freezing/boiling point of water, basalt's
+  liquidus, an ignition temperature, the solar constant, an albedo, the Stefan-Boltzmann constant — are
+  FACTS. Hardcoding them is correct and is the point. What is forbidden is moving one so a broken simulation
+  produces a nice-looking output. If a physical constant has to move for the sim to look right, **the sim is
+  wrong; fix the sim.**
+  - **The case that proves it, found 2026-08-03: WATER FROZE AT 12.5 °C.** The planet could not get below
+    ~11 °C, so instead of fixing the planet someone moved the freezing point of water up to meet it — in
+    **five places at three different values** (12.5 in `MaterialReactions3D` and `snowice_sphere3d`, 13.0 in
+    `charge_accum_sphere3d` and `activity_sphere3d`, melting at 14.0). The comment said so outright: *"TUNED
+    to the sim's ACTUAL open-cell temperature range (~11–21 °C) … A literal 0 °C freeze can never fire
+    here."* Snow then "worked", `snow_cells` read 879–2102, and **every measurement ever taken against those
+    numbers was meaningless.** The same instinct set the planet's *core* to 1300 °C — an erupting-basalt
+    temperature, roughly a quarter of a real iron core — because a hotter one baked the surface.
+  - **This rule is not the band-aid rule below.** That one says a clamp comes out *after* its root is fixed.
+    This one says a real-matter constant should never have been moved at all: it is not a clamp, it is a lie
+    about the material. Do not wait for a phase gate — correct it, and tell the maintainer what you changed
+    and what it was hiding.
+  - **The tells:** a temperature that is not a round physical value; a comment justifying a constant by "the
+    sim's actual range"; the SAME physical quantity declared in more than one file (that is drift waiting to
+    happen, and it happened here); a constant whose history is a sequence of "was X, baked the surface, now
+    Y". Physical constants live in `material/PhysicalConstants.gd` with a citation for what each is a
+    property OF; `scripts/check_physical_constants.sh` gates the GLSL copies against it.
 - **REMOVING A BAND-AID IS THE ACCEPTANCE TEST FOR FIXING ITS ROOT.** When a clamp, rarity roll or floor
   exists to suppress a runaway, the proof that the root is fixed is that the clamp can come OUT and the
   runaway does not return. If it does return, say so — do not quietly restore the clamp and claim the root
