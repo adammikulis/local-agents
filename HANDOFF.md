@@ -180,33 +180,6 @@ no `co2` reference at all. The only non-R12 carbon source in the entire sim is c
 Measured on the merged branch, `--no-fauna`: `carbon_drift_per_step` **+1.94/+2.37/+2.09**, `carbon_first`
 720 against `carbon_total` ~5200 — carbon has grown 7× from its seeded value.
 
-**3 — THE PHYSICS RATE DEPENDED ON WHERE THE CAMERA POINTED. Being fixed by DELETING the activity LOD.**
-*(Corrected 2026-08-03. This item read "THE REACTION ENGINE HAS NO CLOCK … every rate is per-FRAME, so no
-constant in the table can be compared to any measured chemical rate." The first half is overstated and the
-second half is false. `MaterialFieldSphereStep3D.gd:14` sets `STEP_DT = 1.0/10.0` and the step loop consumes
-the accumulator in fixed 0.1 s slices, so every `k` in the DEFS table IS a per-0.1-s rate and IS convertible
-to a real timescale. `reactions_sphere3d.glsl:140` does declare a `dt` nothing reads, but under a fixed step
-that is tidiness, not a defect — and the reaction engine is not relevance-gated at all, so the "combustion
-runs 16× slower far from the camera" example was pointing at the wrong file.)*
-
-**The real defect was in nine OTHER kernels**, which skipped time on a per-cell camera-relevance stride with
-no catch-up (`fire_sphere3d.glsl:102-106` is the pattern: `fire_out[g] = fire_in[g]; return;`). Measured
-2026-08-03, `LA_NO_ACTIVITY_LOD=1` as the control, matched disaster load, 3 runs vs 2:
-
-| | LOD on | LOD off | |
-|---|---|---|---|
-| `active_cells` | 26,966 | 69,120 | skips **61%** of per-cell work |
-| `field_ms` | 5.210 | **4.938** | **the LOD is SLOWER** |
-| `field_dispatch_ms` | 0.188 | 0.184 | no difference |
-| `temp_mean` | 38.65/39.11/39.20 | 34.73/34.17 | **4.5 °C of climate error** |
-| `sediment_total` | 976.6/986.2/968.3 | 1000.5/1008.4 | −2.7%, arms do not overlap |
-
-Skipping 61% of the work made it *slower*, because `ActivityPass` is itself a full-grid dispatch computing
-relevance for every cell — you pay a whole pass to decide what to skip, and dispatch is only 4% of field
-cost. So it charged 4.5 °C of physics error and bought nothing. **Maintainer decision: delete it** (keeping
-the lava cell list, whose compaction is the genuinely good O(active) form — re-pointed at a physical
-predicate instead of camera relevance).
-
 **4 — THE PLANET NOW COOLS WITHOUT STOPPING, AND NOTHING SAYS WHERE IT SETTLES.** *(New 2026-08-03. The
 entry that was here — "the core is a quarter of a real core and it never depletes" — is DONE and deleted:
 the core is a finite reservoir at LAPhysical.INNER_CORE_C that cools as it supplies, reaching the world as
@@ -262,21 +235,6 @@ Not changed in the same commit that unified the clock, because it is a real clim
 `energy_imbalance_cool` at equal `field_sim_s` — a real ocean should flatten the diurnal swing over water and
 slow the cold drift.
 
-**5 — THE AQUIFER'S OUTFLOW IS SPENT IN SLOT ORDER.** *(Corrected 2026-08-03. The title was "THE AQUIFER
-CANNOT REACH THE SURFACE, SO THERE ARE NO SPRINGS", and the entry said the hot-spring mechanism "just has no
-water to work with". Springs work. Measured on `feature/geotherm-real`, seed 4242, 600 frames, `--fast=8`,
-matched draw 5 impacts / 3 eruptions: `hotspring_cells` **1003** with the geotherm armed against **0-2** with
-`LA_NO_GEOTHERM=1`. What the springs had no supply of was HOT ROCK, not water — the interior was isothermal
-at 15 °C. See the new item below.)*
-One defect remains in `soil_sphere3d.glsl`: **the loop spends its outflow budget greedily in SLOT ORDER, and
-slot 0 is the inward neighbour**, which `head_of()` makes lower-head unless brim-full — so whenever the cell
-below has headroom the whole budget drains downward and lateral flow is starved. Fix with proportional
-allocation (compute all six desired flows, scale them to the budget together); it restructures a
-conservation-critical gather, so verify it alone. Measured cost with the geotherm DISARMED: `soil_total` 2983
-/ 3005 / 3007 with `soil_stranded` 124-125, against the old baked-crust 375 / 5.5 — the bug holds back 24x
-more groundwater than it used to. *(An earlier correction to this entry, still true: it once ended "the ocean
-thermostat that used to quench it is already deleted on `feature/energy-balance`". It is not deleted — #4b.)*
-
 **5b — THE GEOTHERM DRAINS THE AQUIFER IN 80 SIMULATED SECONDS.** *(New 2026-08-03, `feature/geotherm-real`.)*
 Arming the geotherm costs 92% of the groundwater at the 600-frame horizon. Three armed runs (bit-identical)
 against three disarmed, same seed, matched draw, `field_step` 590 in all six:
@@ -329,25 +287,6 @@ exactly 0 to a 6.7:1 wettest-to-driest gradient.
   measuring lava-adjacent water, not groundwater discharge. Decide it with `--hotspring-test` once the
   geothermal-gradient work lands.
 
-**6 — THE CREATURE LAYER'S ENERGETICS ARE FICTIONAL** (the demography is not — see below). In order:
-- **`CreatureDigestion.ambient_graze` mints food.** It reads the TEMPERATURE at the animal's feet, converts
-  it to "lushness", and ingests — with no source and nothing decremented. Its own comment: *"never depletes,
-  can't be crashed."* At the planet's coldest ground a herbivore earns ~2× its total burn rate, forever.
-  Herbivore numbers are therefore set by `pop_cap`, a JSON integer, not by food; predators sit on that. It
-  explains the death histogram (old age 665, starvation 23): **starvation is unreachable.** Make grazing
-  debit the real biomass field, rate-limited by bite mechanics and gated on standing crop (Holling type II).
-- **Nothing scales with body mass.** A fox is 19× a mouse's mass and burns identical energy. `size` drives
-  health and food value but not metabolism, lifespan, gestation or thermal tolerance. `basal_metabolism` and
-  `active_metabolism` genes exist on the DNA strand and are read by NOTHING. Kleiber (M^0.75) gives the whole
-  roster's physiology from one measured mass per species instead of eleven hand-fitted constants.
-- **One thermal physiology for every animal** — `WARM_COMFORT 28 / COOL_COMFORT 8 / LETHAL_HEAT 50 /
-  LETHAL_COLD −18` as module consts, zero thermal keys across all 28 species JSONs, no gene. Ectotherms
-  (16 of 28 species) should have Q10 scaling and CTmin/CTmax, not an endotherm's comfort band.
-- **`Plant.gd` regrows a grazed plant fully in ~6 s** at a flat rate regardless of biomass, light, soil or
-  season, and `feed()` never consumes it. **`Fish.gd` spends energy only `if not preys_on.is_empty()`** — bug,
-  shrimp, jellyfish, crab and turtle never spend energy and cannot starve, and they are the base of the
-  aquatic web.
-
 **7 — GEOLOGY IS PROBABILITY ROLLS, NOT MECHANISM.** `D1 WEATHERING` is gated `GATE_SURFACE`, which this
 file defines as the TOP OF THE ATMOSPHERE — `rock_fill` there is 0, so the record is **dead** and the
 latitudinal weathering gradient it claims to produce does not exist. Its `WEATHER_TEMP = 20.0` is
@@ -397,7 +336,7 @@ queue's `move_field_sparse`, the way every other injector already resolves again
 with `LA_INJECT_AUDIT=1` and require the printed delta to be 0.0. It touches `MaterialField3D.gd`, which is
 extract-only, so the transfer belongs in a new module the hub delegates to.
 
-**8b — THE H₂O LEDGER, THE ONE HELD UP AS SOUND, HAS A LARGE UNEXPLAINED EXCURSION.** It now has the
+**8e — THE H₂O LEDGER, THE ONE HELD UP AS SOUND, HAS A LARGE UNEXPLAINED EXCURSION.** It now has the
 run-level gauge every other substance already had (`h2o_first` / `h2o_run_drift` / `h2o_run_drift_per_step`,
 matching `carbon_first` and siblings). First measurements, `--planet-only`, seed 4242:
 
