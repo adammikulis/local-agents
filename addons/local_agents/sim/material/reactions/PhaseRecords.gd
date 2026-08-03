@@ -1,5 +1,5 @@
 class_name LAPhaseRecords
-extends LAReactionDefs
+extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
 ## PHASE-CHANGE records — one substance, phase from temperature (R21 freeze, R22 melt,
 ## M5 lava solidify, M6 rock melt).

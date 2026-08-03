@@ -1,5 +1,5 @@
 class_name LABioRecords
-extends LAReactionDefs
+extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
 ## LIVING-CARBON records (R15 fungus decompose, R19 photosynthesis, R20 respiration + decay).
 

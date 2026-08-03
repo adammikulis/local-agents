@@ -1,5 +1,5 @@
 class_name LAGasRecords
-extends LAReactionDefs
+extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
 ## ATMOSPHERIC GAS exchange records (R11 O₂ sky refill, R12 CO₂ sky exchange).
 

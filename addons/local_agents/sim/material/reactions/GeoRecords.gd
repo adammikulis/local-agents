@@ -1,5 +1,5 @@
 class_name LAGeoRecords
-extends LAReactionDefs
+extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
 ## GEOLOGICAL mineral records (M4 dust loft, M3 susp settle, D1 weathering, D2 lithification).
 

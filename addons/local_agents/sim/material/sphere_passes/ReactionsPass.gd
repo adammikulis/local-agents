@@ -57,12 +57,30 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	_pipe = _rd.compute_pipeline_create(_shader)
 
 	# Upload the immutable record table once as a read-only SSBO.
+	#
+	# AN EMPTY TABLE IS FATAL, NOT A NO-OP. Measured 2026-08-03, and it cost a whole round of measurements:
+	# the record modules were merged to the dev branch without an editor scan, so `LAMaterialReactions3D` was
+	# briefly unresolvable, `load()` returned null, and the sim ran with ZERO reaction records. Every same-cell
+	# chemistry stopped at once — no M3 settle, no M5 solidify, no freeze/melt, no photosynthesis — and the run
+	# still printed a completely normal-looking SIM_REPORT. The only tell was in the aggregates, if you happened
+	# to be comparing: susp piled up to 2300 against a baseline of 72 because nothing settled it, sediment read
+	# exactly 0.00 against 980, lava reached 1313 against 37 because nothing froze it, and temp_mean hit 152 C.
+	# A silent zero here is indistinguishable from "the chemistry is just quiet", which is why it must be loud.
 	var defs_script: GDScript = load(REACTIONS_SCRIPT)
+	if defs_script == null:
+		push_error("ReactionsPass: could not load %s — the reaction table is GONE and all same-cell chemistry "
+			% REACTIONS_SCRIPT + "would silently stop. Run scripts/editor_scan.sh (a new class_name only "
+			+ "registers after a scan).")
+		return
 	var recs: Array = defs_script.records()
+	if recs.is_empty():
+		push_error("ReactionsPass: the reaction table is EMPTY. Every same-cell reaction (photosynthesis, "
+			+ "respiration, decompose, freeze/melt, lava solidify, weathering, lithification) is disabled. "
+			+ "This is a load failure, not a valid configuration — check the record modules in "
+			+ "material/reactions/ and run scripts/editor_scan.sh.")
+		return
 	_n_records = recs.size()
 	var bytes: PackedByteArray = defs_script.serialize(recs)
-	if bytes.size() == 0:
-		bytes = PackedByteArray([0, 0, 0, 0])   # never create a 0-byte SSBO
 	_defs_ssbo = _rd.storage_buffer_create(bytes.size(), bytes)
 
 	var temp: Array = _pair(bufs, "temp")

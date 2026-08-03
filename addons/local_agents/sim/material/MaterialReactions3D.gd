@@ -1,5 +1,5 @@
 class_name LAMaterialReactions3D
-extends LAReactionDefs
+extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
 ## REGISTRY for the generic DEFS reaction engine (Phase B3 §2). Every hand-coded "clean same-cell"
 ## chemical/phase reaction on the sphere path (gas sky-exchange, CO₂ vent, fungus decompose, …) is expressed
