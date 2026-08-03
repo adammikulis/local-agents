@@ -27,9 +27,9 @@ extends RefCounted
 ##    line beside it. So every unit burnt was carbon entering the books from outside them. For scale, the
 ##    planet's entire standing crop is `biomass_open_total` ~6.5 units: the fuel seed was fifteen hundred
 ##    times the whole biosphere.
-##    Now the ground gets ONE declared organic initial condition (BASELINE_ORGANIC) and the flammable share of
-##    it (LITTER_FLAMMABLE_FRAC) is split off into `fuel` instead of being conjured beside it. The total
-##    organic matter the world starts with is unchanged and stated in one place.
+##    Now the litter is a stated FRACTION of the soil organic matter it comes from (LITTER_FLAMMABLE_FRAC of
+##    BASELINE_DETRITUS), which cuts it to 216 units — a 97.8% reduction — and ties it to something real
+##    instead of a number. What remains is small, declared and reported (`fuel_seeded`).
 ##
 ## 2. THE REFILL CONVERTED BIOMASS INTO FUEL WITHOUT DEBITING BIOMASS — `_f._fuel[c] = biomass[c] * GAIN`,
 ##    every 40 steps, forever, with the biomass left standing exactly where it was. Litter really is made of
@@ -43,16 +43,32 @@ extends RefCounted
 ## sphere neighbour table, exactly as the query/inject/step modules do.
 ## (Explicit types only, no ':=' inferred typing.)
 
-# Dead organic matter on a bare ground-surface cell at world activation — ONE declared initial condition for
-# "this planet was not born sterile", covering both the decomposer's substrate and the litter that can burn.
-# Sized so it clears the fungus kernel's DETRITUS_MIN = 0.05 with room to spare, which is what the decomposer
-# loop needs to bootstrap at all.
-const BASELINE_ORGANIC: float = 0.15
-# The FLAMMABLE share of surface dead organic matter. Fire-behaviour models separate FINE fuels — litter,
-# cured grass, small twigs, the material that actually carries a spreading flame front — from coarse woody
-# debris and buried humus, which do not. The fine fraction of a surface dead-fuel load is measured at roughly
-# 20-40% in temperate litter; 30% is the middle of that. It is a property of what dead vegetation is made of,
-# not a knob: raising it does not make more fuel, it moves the split between two channels of one budget.
+# Soil organic matter on a bare ground-surface cell at world activation — the decomposer's substrate, and a
+# declared initial condition for "this planet was not born sterile". Sized so it clears the fungus kernel's
+# DETRITUS_MIN = 0.05 with room to spare, which is what the decomposer loop needs to bootstrap at all. It is
+# INSIDE the carbon ledger (`carbon_total` sums co2 + biomass + detritus; SIM_REPORT shows it as
+# `carbon_first` 720 = 4800 ground cells x 0.15), so it is declared, counted, and unchanged by this fix.
+const BASELINE_DETRITUS: float = 0.15
+# The flammable LITTER lying on top of that soil, as a fraction of it. Fire-behaviour models separate FINE
+# fuels — litter, cured grass, small twigs, the material that carries a spreading flame front — from the
+# coarse debris and buried humus that do not, and the fine fraction of a surface dead-fuel load is measured at
+# roughly 20-40% in temperate litter. 30% is the middle. It is a ratio between two real components of ground
+# organic matter, not a knob for how much fuel there is.
+#
+# WHY THIS IS A FRACTION AND NOT AN ABSOLUTE, and why it is not taken OUT of the detritus: the violation being
+# fixed is a flat BASELINE_FUEL = 2.0, which is 9,600 mass units — fifteen hundred times the planet's entire
+# standing crop — sitting outside the carbon books and burning into CO2 that is inside them. Tying the litter
+# to the soil organic matter it comes from cuts that to 216 units, a 97.8% reduction, WITHOUT touching the
+# declared detritus seed. An earlier version of this fix carved the litter out of the detritus instead, which
+# conserved carbon at the seed but cut the decomposer's substrate 30% and, measured on --planet-only,
+# propagated straight through fungus (5.51 -> 2.90) and fertility (0.36 -> 0.14) to halve the standing crop
+# (biomass_open_total 6.65 -> 3.07). That was a collateral change to the world, not a conservation fix.
+#
+# WHAT IS STILL OWED, and it is not this module's to fix: those 216 units are carbon-bearing and
+# `MaterialFieldMassBudget3D` counts `fuel_open_total` only as a MEMO LINE beside `carbon_total`, so burning
+# fuel still moves carbon from outside the books to inside them. The seed is now small, declared and reported
+# (`fuel_seeded`), but the accounting gap closes properly only when the budget module adds fuel to the carbon
+# sum — that file is another track's.
 const LITTER_FLAMMABLE_FRAC: float = 0.30
 # The standing litter a cell's LIVING biomass supports, as a fraction of it. Annual litterfall runs 5-10% of
 # standing biomass and litter sits on the ground for one to three years before it decomposes, so the standing
@@ -90,8 +106,7 @@ func seed_initial() -> void:
 	if nbr.size() < _f._cell_count * 6:
 		return
 	var has_detritus: bool = _f._detritus.size() == _f._cell_count
-	var fuel_share: float = BASELINE_ORGANIC * LITTER_FLAMMABLE_FRAC
-	var soil_share: float = BASELINE_ORGANIC - fuel_share
+	var fuel_share: float = BASELINE_DETRITUS * LITTER_FLAMMABLE_FRAC
 	for c in _f._cell_count:
 		if _f._solid[c] != 0:
 			continue
@@ -100,7 +115,7 @@ func seed_initial() -> void:
 			_f._fuel[c] = fuel_share
 			_seeded_fuel += fuel_share
 			if has_detritus:
-				_f._detritus[c] = maxf(_f._detritus[c], soil_share)
+				_f._detritus[c] = maxf(_f._detritus[c], BASELINE_DETRITUS)
 	_f._fuel_dirty = true
 	_f._detritus_seed_dirty = has_detritus
 
