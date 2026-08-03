@@ -347,6 +347,47 @@ rediscover.
   `const PackedStringArray` literal being illegal; `ResourceLoader.exists()` not seeing a `.json`).
   Run the command, quote the output, then change the code.
 
+## RULE ZERO — REALISM IS THE FIRST GOAL. ASK "IS THIS HOW THE WORLD WORKS?" BEFORE ANYTHING ELSE.
+
+**This outranks every other rule in this file.** Before you write, review, or accept any model, constant,
+coupling or measurement, ask the physical question — *does this correspond to how the real world actually
+works?* Not "does the code run", not "does the test pass", not "does the number look reasonable". Those are
+all downstream. A simulation that runs perfectly and does not match reality is broken.
+
+**Every serious defect found on 2026-08-03 fails that one question, and every one of them was caught by the
+maintainer rather than by an agent:**
+- **Water froze at 12.5 °C** (five files, three values) because the planet could not get cold, so a previous
+  pass moved the freezing point of water instead of fixing the planet.
+- **The planet's core was 1300 °C** — an *erupting basalt* temperature, about a quarter of a real iron core
+  (~5200 °C) — because a hotter one baked the surface.
+- **Every creature had identical thermal physiology** (`WARM_COMFORT 28 / COOL_COMFORT 8 / LETHAL_COLD -18`,
+  module consts): a whale, a desert beetle and an arctic fox, the same. No species config, no heritable gene.
+- **Volcanoes waited for rabbits.** The ambient disaster director would not start its clock until a creature
+  had spawned, so geology was gated on the biosphere.
+- **The deep ocean sat at 10 °C — below its own freezing point — without freezing**, saved only by a 26 °C
+  thermostat overriding the temperature field.
+- **"The planet can't go below 0 °C"** was concluded from a *global* `temp_min`, when freezing is local:
+  poles, summits, night side, and aloft (where snow actually forms) all freeze independently.
+
+**How to apply, in order:**
+1. **Name the real-world referent.** What physical thing is this a model OF? If you cannot say, that is the
+   finding. Cite the real value or mechanism.
+2. **Check the coupling against reality.** Systems that are independent in the world must be independent in
+   the code, in BOTH directions. Geology does not consult biology; biology does not schedule earthquakes.
+3. **Check the scale.** A core is hotter than lava. An ocean is colder than magma. A pole is colder than an
+   equator. If a number is off by 4x from the real thing, it is wrong even if it runs.
+4. **Check that entities that differ in reality differ in code** — species, materials, biomes. One constant
+   shared across genuinely different things is a modelling error, not a simplification.
+5. **Check the measurement is the right shape.** A global mean cannot answer a local question; one sample
+   cannot answer "how extreme"; a scalar cannot show structure.
+6. **When reality and convenience conflict, reality wins.** If the sim must be wrong for the numbers to look
+   right, fix the sim. Never bend a physical fact to a broken model — see the PHYSICAL CONSTANT rule below.
+
+**Do this UNPROMPTED, on every file you open — including files you only opened to read.** Every item above
+was visible in code an agent had already read. Surfacing something is not reviewing it. If you notice a
+reality violation while doing something else, FIX IT or REPORT IT that turn; do not route around it because
+it is not your current task. Routing around it is the failure mode, and it is the most common one.
+
 ## Guiding design principle — Emergent-Everything (north star)
 
 - **THE CORE — named phenomena have ZERO dedicated code. DISSOLVE, don't patch.** There is ONE physical
