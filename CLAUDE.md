@@ -250,14 +250,22 @@ committed). When removing files:
   **Sub-agent prompts must point at this script, never at a bare `godot --headless --editor`.**
 
 - **BUT the wrapper is only for the scenes that NEED a window — everything else runs bare headless in
-  about a second.** Measured 2026-07-28: a wrapper run costs 2–4 MINUTES, because the windowed scene
-  prints its report and then fails to exit, so the script waits out its `RUN_TIMEOUT`. The same scenes
-  run headless in 0–2s with exit code 0:
+  about a second.** *(Corrected 2026-08-03. This bullet used to say "a wrapper run costs 2–4 MINUTES,
+  because the windowed scene prints its report and then fails to exit, so the script waits out its
+  `RUN_TIMEOUT`", and the next bullet told you never to loop wrapper runs. **The exit path was fixed and
+  nobody updated this.** `run_sim_offscreen.sh` now waits on a dedicated `LA_RUN_COMPLETE={"code":N}`
+  sentinel that every harness prints immediately before quitting, and its own header records the default
+  ceiling being cut 240s → 60s because these scenes finish well inside it. Measured: three consecutive
+  600-frame `VoxelWorld` runs at `--fast=8` with `LA_RUN_TIMEOUT=600` took **88, 91 and 91 seconds** —
+  if they were waiting out a timeout they would have taken 600. So a windowed run costs about
+  `frames/7` seconds and EXITS. **Looping several wrapper runs in one command is fine, and is how you
+  get the 3-runs-per-arm the measurement rules demand.**)* The example scenes are still much cheaper and
+  still the right default — they run headless in 0–2s with exit code 0:
   `godot --headless addons/local_agents/examples/<Demo>.tscn -- --run-frames=40`. BoxFieldDemo ~1s,
   ThinkingCreatureDemo ~1s, CoreCreatureSmoke ~0s, SimWorldPlanetDemo ~2s. Only
   `game/VoxelWorld.tscn` (GPU compute field) genuinely needs the window. Reserve the wrapper for it
-  and for `--shoot` screenshots. **Never loop several wrapper runs in one command** — that is minutes
-  of waiting for nothing.
+  and for `--shoot` screenshots — but DO loop it when you need repeats: a 3-runs-per-arm A/B at 600
+  frames is about nine minutes unattended, which is the price of a result you can believe.
 
 - "Does it work" checks require **both** a non-headless launched-window run **and** headless harness
   suites; run them in whichever order is convenient (a non-headless launch first is a good habit for
