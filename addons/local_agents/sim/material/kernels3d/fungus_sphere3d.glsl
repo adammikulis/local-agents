@@ -10,7 +10,14 @@
 // stone), the population GROWTH, and the DEATH/DECAY dieback.
 //
 // Reads fung_in (self + neighbours for spores) + detritus (read-only now — the record owns the debit), writes
-// fung_out (ping-pong). Constants copied EXACTLY from MaterialFungus3D.gd.
+// fung_out (ping-pong).
+//
+// THIS KERNEL IS THE AUTHORITY FOR THE CONSTANTS BELOW. The two comments here used to say they were "copied
+// EXACTLY from MaterialFungus3D.gd" / "MUST match MaterialFungus3D.gd exactly", and that file WAS DELETED
+// when the CPU oracle was retired (docs/0.4_PARALLELIZATION_GUIDE.md:32) — so both pointed the reader at a
+// file that does not exist, which is how a constant quietly becomes unowned. One other file mirrors two of
+// them: LAMaterialFieldChannels3D's FUNGUS_PRESENT / DETRITUS_PRESENT gauge thresholds, which cite these
+// lines. They are model thresholds, not properties of matter, so they do not belong in LAPhysical.
 
 layout(local_size_x = 64) in;
 
@@ -34,8 +41,11 @@ layout(push_constant, std430) uniform Params {
 	float pad5;
 } params;
 
-// Substrate thresholds + rates — MUST match MaterialFungus3D.gd exactly.
+// Substrate thresholds + rates. Declared here and owned here (see the header).
 const float DETRITUS_MIN = 0.05;
+// FUNGUS_MIN is not read by this kernel — its consumer is LAMaterialFieldChannels3D.FUNGUS_PRESENT, the
+// "this cell has a live colony" threshold the SIM_REPORT fungus_cells gauge counts against. Kept here so the
+// gauge and the physics agree on what a colony is by construction.
 const float FUNGUS_MIN = 0.02;
 const float FUNGUS_MAX = 3.0;
 const float MOIST_MIN = 0.02;
@@ -43,8 +53,13 @@ const float MOIST_REF = 0.06;
 const float VAPOR_MOIST = 1.0;
 const float RAIN_MOIST = 0.5;
 const float DETRITUS_DAMP = 0.15;
+// Thermal death of a mesophilic fungus. Real mesophiles top out around 40-45 C (thermophiles reach 60, which
+// this single generic decomposer channel does not model). A property of the organism, not of matter.
 const float TEMP_WARM = 42.0;
-const float TEMP_COLD = 0.0;
+// Growth stops when the water in and around the mycelium turns to ice, so this IS the freezing point of
+// water and is bound to the authority rather than left free. It is exactly the kind of constant that was
+// once moved to 12.5 in five files because the planet could not get cold; the annotation makes that fail.
+const float TEMP_COLD = 0.0;    // LAPhysical.WATER_FREEZE_C
 const float FIRE_MIN = 0.02;
 const float GROW_RATE = 0.06;
 const float SPREAD = 0.02;

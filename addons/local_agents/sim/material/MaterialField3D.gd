@@ -119,7 +119,8 @@ var _o2: PackedFloat32Array = PackedFloat32Array()       # atmospheric oxygen le
 # air, so a gentle downward buoyancy makes it settle into hollows/valleys (emergent suffocation pockets); the
 # sky surface vents it to the atmosphere. Field-resident so the fire kernel can EMIT it on-GPU (like O₂).
 var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ level per cell (0 = clean air)
-# --- Emergent DECOMPOSER loop (LAMaterialFungus3D): dead organic matter (DETRITUS) deposited by rotting
+# --- Emergent DECOMPOSER loop (kernels3d/fungus_sphere3d.glsl + the decompose reaction record; the old
+# LAMaterialFungus3D CPU module is deleted): dead organic matter (DETRITUS) deposited by rotting
 # carcasses + wildfire ash is colonised by FUNGUS, which rots it back into CO₂ + soil fertility while drawing
 # O₂ (aerobic). Closes the carbon/nutrient loop (death→soil→plant). Seeded ~0; only exists where a source made it.
 # --- SOIL WATER / water table (LASoilPass / soil_sphere3d): water held in the REGOLITH band, the top few
@@ -1166,7 +1167,7 @@ func biomass_at(x: float, y: float, z: float) -> float:
 ## explode; bounded by the CO₂ budget + respiration). Fed into SIM_REPORT.
 func biomass_total() -> float:
 	return _channels.biomass_total()
-# Emergent DECOMPOSER loop (LAMaterialFungus3D): dead matter (detritus) → fungus → CO₂ + soil fertility.
+# Emergent DECOMPOSER loop (fungus_sphere3d.glsl): dead matter (detritus) → fungus → CO₂ + soil fertility.
 ## Deposit dead decomposable matter at the surface cell under a world point (a rotting carcass, wildfire ash).
 func deposit_detritus(world_pos: Vector3, amount: float) -> void:
 	_channels.deposit_detritus(world_pos, amount)
@@ -1179,13 +1180,13 @@ func rock_fill_at(x: float, y: float, z: float) -> float:
 func charge_at(x: float, y: float, z: float) -> float:
 	return _channels.charge_at(x, y, z)
 func fungus_at(x: float, y: float, z: float) -> float:
-	return 0.0
-func fungus_peak() -> float:
-	return 0.0
-func fungus_cells() -> int:
-	return 0
-func detritus_peak() -> float:
-	return 0.0
+	return _channels.fungus_at(x, y, z)
+## Decomposer extent + intensity for fungus AND detritus in one pass ({fungus_peak, fungus_cells,
+## detritus_peak, detritus_cells}); merged into SIM_REPORT by LAMaterialFieldReport3D. Replaces the separate
+## fungus_peak/fungus_cells/detritus_peak signatures, which were hardcoded zeros and would have been three
+## grid sweeps for four numbers.
+func decomposer_stats() -> Dictionary:
+	return _channels.decomposer_stats()
 # Photosynthesis (CO₂ → O₂ + biomass) + its daylight gate are DISSOLVED into MaterialReactions3D records R19/R20
 # and run entirely on the GPU (see biomass_at/biomass_total). The old CPU `solar_factor()` + `photosynthesize()`
 # writes were invisible to the GPU (begin_frame only re-uploads temp/water) and are deleted.
