@@ -21,21 +21,30 @@ layout(set = 0, binding = 4, std430) restrict writeonly buffer Rain { float rain
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	uint pad0;
-	uint pad1;
+	float rain_threshold;   // Kessler q_crit in cell-fill units — DERIVED in AtmospherePass.rain_threshold()
+	float rain_rate;        // Kessler k_auto x real seconds per step — AtmospherePass.rain_rate_per_step()
 	uint pad2;
 } params;
 
-// Saturation curve + rain constants — MUST match MaterialField3D.gd's _sat()/derivation.
-const float SAT_BASE = 0.06;
-const float SAT_TEMP_GAIN = 0.055;
-const float EVAP_TEMP_REF = 22.0;
-// RAIN is the atmosphere's moisture SINK. It was too weak to balance the infinite static-sea evaporation SOURCE,
-// so a large reservoir of sub-threshold condensate piled up cell-by-cell and total moisture ran away (cloud deck
-// grew without bound → snow-out). Lowered threshold + faster rate so the sink SCALES with load and drains the
-// condensate that clouds are made of → atmospheric moisture reaches a STEADY cover instead of climbing forever.
-const float RAIN_MASS_THRESHOLD = 0.14;   // start raining once condensate exceeds a thin margin over saturation
-const float RAIN_RATE = 0.24;             // fraction of the excess condensate shed as rain per step
+// --- THE SATURATION CURVE IS THE PHASE RULE, AND IT IS ONE FUNCTION -----------------------------------------
+// August-Roche-Magnus (Alduchov & Eskridge 1996) + the ideal gas law, expressed in the field's own unit: the
+// fraction of a cell that would be full of liquid water. 1.95e-5 at 22 °C.
+//
+// WHAT THIS REPLACED: `SAT_BASE = 0.06` — a hand-written saturation mass fraction, 3080x the real value, which
+// is single-handedly why this planet kept 30% of its mobile water in the sky against Earth's 0.001%. Its slope
+// (SAT_TEMP_GAIN = 0.055/°C) was very nearly right; only the magnitude was invented.
+const float MAGNUS_A_PA = 610.94;        // LAPhysical.MAGNUS_A_PA
+const float MAGNUS_B = 17.625;           // LAPhysical.MAGNUS_B
+const float MAGNUS_C_C = 243.04;         // LAPhysical.MAGNUS_C_C
+const float VAPOUR_R = 461.52;           // LAPhysical.VAPOUR_GAS_CONST_J_KGK
+const float KELVIN_0 = 273.15;           // LAPhysical.KELVIN_OFFSET
+const float RHO_WATER = 997.0;           // LAPhysical.WATER_DENSITY_KG_M3
+
+float sat_mass_frac(float t_c) {
+	float t = max(t_c, -80.0);
+	float e_sat = MAGNUS_A_PA * exp(MAGNUS_B * t / (t + MAGNUS_C_C));
+	return (e_sat / (VAPOUR_R * max(t + KELVIN_0, 1.0))) / RHO_WATER;
+}
 
 void main() {
 	uint g = gl_GlobalInvocationID.x;
@@ -49,10 +58,13 @@ void main() {
 		return;
 	}
 
+	// AUTOCONVERSION (Kessler 1969): the condensed part of the cell's water is cloud droplets, which stay
+	// aloft; only the part over the critical cloud-water content coalesces into drops heavy enough to fall.
+	// Nothing here caps how much water the air holds — that is the saturation curve's job, and it is why the
+	// threshold is now 6.1e-7 (a real 0.5 g/kg of cloud water) rather than 0.14, three times saturation.
 	float aw = aw_in[g];
-	float sat = SAT_BASE * exp(SAT_TEMP_GAIN * (temp[g] - EVAP_TEMP_REF));
-	float condensed = max(0.0, aw - sat);
-	float rain = max(0.0, condensed - RAIN_MASS_THRESHOLD) * RAIN_RATE;
+	float condensed = max(0.0, aw - sat_mass_frac(temp[g]));
+	float rain = max(0.0, condensed - params.rain_threshold) * params.rain_rate;
 
 	aw_out[g] = aw - rain;
 	rain_out[g] = rain;

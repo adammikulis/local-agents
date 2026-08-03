@@ -50,6 +50,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var send_rid: RID = bufs.get("send", RID())
 	var nbr_rid: RID = bufs.get("nbr", RID())
 	var regolith_rid: RID = bufs.get("regolith", RID())
+	var grain_rid: RID = bufs.get("grain", RID())
 	var water_pair: Array = bufs.get("water", [RID(), RID()])
 	var soil_pair: Array = bufs.get("soil", [RID(), RID()])
 	var temp_pair: Array = bufs.get("temp", [RID(), RID()])
@@ -66,6 +67,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[5, soil_pair[back]],      # SoilOut = back soil (this step's output)
 			[6, regolith_rid],         # Regolith aquifer permeability mask
 			[7, temp_pair[back]],      # Temp = POST-thermal temp (BACK, rw) — carry geothermal heat into springs
+			[8, grain_rid],            # Grain diameter (m) — Kozeny-Carman input, with the Athy porosity profile
 			[9, dbg_rid],              # SoilDbg — per-leg budget probe (LAMaterialSphereGPU3D.SOIL_DBG_SLOTS)
 			[15, nbr_rid],             # Neigh table
 		])
@@ -121,7 +123,14 @@ func _build_set(shader: RID, entries: Array) -> RID:
 
 
 func _pc(cc: int, pass_id: int, depth: int, core_r: float, cell_size: float) -> PackedByteArray:
-	# std430 push constant: 4x uint (cell_count, pass_id, depth, pad) then 2x float (core_radius, cell_size).
+	# std430 push constant: 4x uint (cell_count, pass_id, depth, pad) then 4x float (core_radius, cell_size,
+	# shell_m, step_s). The last two are the REAL-WORLD scales the Darcy conversion needs — how many metres a
+	# regolith shell stands for and how many seconds a field step stands for — so the kernel can compute a
+	# conductivity in m/s from pore geometry and land it in the substrate's per-step cell-fill unit. Both are
+	# derived by the modules that own them (LAMaterialFieldRegolith3D, LAMaterialFieldSphereStep3D) rather
+	# than written down again here.
 	var out: PackedByteArray = PackedInt32Array([cc, pass_id, depth, 0]).to_byte_array()
-	out.append_array(PackedFloat32Array([core_r, cell_size]).to_byte_array())
+	out.append_array(PackedFloat32Array([core_r, cell_size,
+		LAMaterialFieldRegolith3D.shell_metres(),
+		LAMaterialFieldSphereStep3D.real_seconds_per_step()]).to_byte_array())
 	return out

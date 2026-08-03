@@ -20,10 +20,7 @@ var _cloud_scan_lo: float = 0.0
 var _fog_lo: float = 0.0
 var _fog_hi: float = 0.0
 var _fog_max_temp: float = 12.0
-var _rain_thresh: float = 0.45
-var _sat_base: float = 0.06
-var _sat_gain: float = 0.055
-var _sat_ref: float = 22.0
+var _rain_thresh: float = 6.14e-7   # Kessler autoconversion threshold; AtmospherePass.rain_threshold() is the authority
 
 # Per-surface-column reductions (reused each bake).
 var _sc: PackedFloat32Array = PackedFloat32Array()      # cloud density
@@ -35,7 +32,7 @@ var _imgs: Array = []
 var _tex: Texture2DArray = null
 
 
-func setup(grid: RefCounted, sea_r: float, fog_max_temp: float, rain_thresh: float, sat_base: float, sat_gain: float, sat_ref: float) -> void:
+func setup(grid: RefCounted, sea_r: float, fog_max_temp: float, rain_thresh: float) -> void:
 	_res = grid.res
 	_depth = grid.depth
 	_surf = grid.surf_count
@@ -48,9 +45,6 @@ func setup(grid: RefCounted, sea_r: float, fog_max_temp: float, rain_thresh: flo
 	_fog_hi = sea_r + 4.0            # fog is the near-ground band only
 	_fog_max_temp = fog_max_temp
 	_rain_thresh = rain_thresh
-	_sat_base = sat_base
-	_sat_gain = sat_gain
-	_sat_ref = sat_ref
 	_sc.resize(_surf)
 	_sf.resize(_surf)
 	_sp.resize(_surf)
@@ -102,7 +96,7 @@ func bake(moisture: PackedFloat32Array, temp: PackedFloat32Array, snow: PackedFl
 			_smin[s] = t
 		if has_snow and snow[i] > _ssnow[s]:
 			_ssnow[s] = snow[i]
-		var cond: float = moisture[i] - _sat_base * exp(_sat_gain * (t - _sat_ref))
+		var cond: float = moisture[i] - LAPhysical.saturation_mass_fraction(t)
 		if cond <= 0.0:
 			continue
 		# Cloud = the column's condensate ALOFT (altitude split, not temperature — on a planet the

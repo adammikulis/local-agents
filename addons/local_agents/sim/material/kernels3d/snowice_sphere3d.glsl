@@ -34,12 +34,22 @@ layout(push_constant, std430) uniform Params {
 // Phase-change + saturation constants — MUST match MaterialReactions3D.gd (FREEZE_TEMP) + the atmos kernels (sat curve).
 const float FREEZE_TEMP = 0.0;      // LAPhysical.WATER_FREEZE_C — the phase boundary, not a tunable      // water freezes at zero, as it should — see MaterialReactions3D
 const float DEPOSIT_FRAC = 0.10;     // fraction of the condensed excess frozen out per step (gradual snowpack build)
-const float SAT_BASE = 0.06;
-const float SAT_TEMP_GAIN = 0.055;
-const float EVAP_TEMP_REF = 22.0;
-const float SNOW_MIN = 0.001;        // clamp dust-thin snow to 0
-const float SUBLIMATE_FRAC = 0.004;  // per-step fraction of the snowpack that sublimates back to moisture, so
-                                     // deposition balances at a STEADY snow line instead of an unbounded snow-out
+const float SNOW_MIN = 1.0e-9;       // clamp numerically-dust-thin snow to 0 (was 1e-3, which is a real 16 mm
+                                     // of water equivalent — a threshold in the same units the sky now works
+                                     // in would delete an entire season's snowfall as a rounding error)
+// The saturation curve, one function — see atmos_precip_sphere3d.glsl's block for what it replaced.
+const float MAGNUS_A_PA = 610.94;    // LAPhysical.MAGNUS_A_PA
+const float MAGNUS_B = 17.625;       // LAPhysical.MAGNUS_B
+const float MAGNUS_C_C = 243.04;     // LAPhysical.MAGNUS_C_C
+const float VAPOUR_R = 461.52;       // LAPhysical.VAPOUR_GAS_CONST_J_KGK
+const float KELVIN_0 = 273.15;       // LAPhysical.KELVIN_OFFSET
+const float RHO_WATER = 997.0;       // LAPhysical.WATER_DENSITY_KG_M3
+
+float sat_mass_frac(float t_c) {
+	float t = max(t_c, -80.0);
+	float e_sat = MAGNUS_A_PA * exp(MAGNUS_B * t / (t + MAGNUS_C_C));
+	return (e_sat / (VAPOUR_R * max(t + KELVIN_0, 1.0))) / RHO_WATER;
+}
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
@@ -59,8 +69,7 @@ void main() {
 	if (st < FREEZE_TEMP) {
 		// DEPOSITION: freeze the CONDENSED part of the air's water (moisture over saturation) — the fog/low
 		// cloud resting on this cold ground — into snow. Conserving: whatever leaves moisture arrives as snow.
-		float sat = SAT_BASE * exp(SAT_TEMP_GAIN * (st - EVAP_TEMP_REF));
-		float condensed = max(0.0, moisture[idx] - sat);
+		float condensed = max(0.0, moisture[idx] - sat_mass_frac(st));
 		if (condensed > 0.0) {
 			float x = condensed * DEPOSIT_FRAC;
 			moisture[idx] -= x;
@@ -68,17 +77,11 @@ void main() {
 		}
 	}
 
-	// SUBLIMATION — the snowpack's steady-state SINK. Snow deposition alone is one-way on ground that never warms
-	// past MELT_TEMP (the poles / high peaks), so snow ACCUMULATED without bound — a creeping snow-out that buried
-	// the grazable land and starved the herds over a long run. Real snow also leaves the pack by SUBLIMATING
-	// straight back to vapour (even well below freezing, driven by dry air + sun). A small per-step fraction
-	// returns to moisture, so deposition and sublimation balance at a STEADY snow line (persistent polar snow +
-	// sea ice remain — they just stop growing forever). Conserving: snow → moisture (the H₂O ledger is preserved).
-	float subl = snow[idx] * SUBLIMATE_FRAC;
-	if (subl > 0.0) {
-		snow[idx] -= subl;
-		moisture[idx] += subl;
-	}
+	// SUBLIMATION LIVES IN THE REACTION TABLE NOW (LAPhaseRecords R25), driven by the same saturation deficit
+	// as evaporation from water and soil. What was here was `snow * 0.004` per step: a sink that ran at one
+	// speed in bone-dry desert air and in saturated polar air alike, because it never looked at the humidity
+	// that actually drives sublimation. It existed to stop an unbounded snow-out, which was itself a symptom
+	// of a sky holding 3080x too much water. One rule, three reservoirs, no per-phase rate.
 
 	if (snow[idx] < SNOW_MIN) {
 		moisture[idx] += snow[idx];   // return the dust-thin remnant to the air (CONSERVING) instead of deleting

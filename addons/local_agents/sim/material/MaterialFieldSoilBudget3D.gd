@@ -109,15 +109,18 @@ func sample() -> Dictionary:
 		var base: int = c * SLOTS
 		for k in SLOTS:
 			leg[k] += dbg[base + k]
-	# The FINAL soil (post-ReactionsPass) over the same regolith mask the ledger's soil_total uses, read from
-	# the same flush as the probe so the two describe one step rather than two.
+	# The FINAL soil (post-ReactionsPass) summed the same UNMASKED way the ledger's soil_total is, read from
+	# the same flush as the probe so the two describe one step rather than two. Unmasked because the device's
+	# regolith mask can now gain cells (solid_derive turns rock that closes over water into water-bearing
+	# rock) and the CPU mirror is never read back — see LAMaterialFieldLedger3D.regolith_soil_total.
+	# `regolith_cells` still counts the CPU mask, which is the world-gen aquifer, and the gap between it and
+	# where soil actually sits is itself worth seeing.
 	var final_soil: float = 0.0
 	var reg_cells: int = 0
 	for c in cc:
-		if has_reg and regolith[c] == 0:
-			continue
 		final_soil += soil[c]
-		reg_cells += 1
+		if not has_reg or regolith[c] != 0:
+			reg_cells += 1
 
 	var darcy_sent: float = leg[DARCY_SENT]
 	var spring_sent: float = leg[SPRING_SENT]
@@ -232,9 +235,12 @@ func _table_profile(soil: PackedFloat32Array, regolith: PackedByteArray, cc: int
 				n_d[d] += 1
 				r -= 1
 		col += 1
-	var cap: float = LAMaterialField3D.SOIL_CAPACITY
+	# Saturation is soil over the cell's own CAPACITY, and capacity is POROSITY, which closes with burial —
+	# so each depth band divides by its own value, not by one number for the column. (It used to divide by a
+	# flat SOIL_CAPACITY = 0.6, which both overstated the deep bands' saturation and hid the compaction.)
 	for d in bands:
 		cells.append(n_d[d])
+		var cap: float = LAMaterialFieldRegolith3D.porosity_at(d)
 		if n_d[d] > 0 and cap > 0.0:
 			sat.append(snappedf(float(sum_d[d]) / (float(n_d[d]) * cap), 0.0001))
 		else:

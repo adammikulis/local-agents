@@ -189,16 +189,9 @@ func process(delta: float) -> void:
 		_f._gpu.set_spin_axis(_f.dir_to_field(_f._body.spin_axis() if _f._body.has_method("spin_axis") else Vector3.UP))
 	if _f._terrain != null and _f._terrain.has_method("sea_radius") and _f._gpu.has_method("set_sea_radius"):
 		_f._gpu.set_sea_radius(_f._terrain.sea_radius())
-	# GLOBAL water-cycle bound: feed the current cloud cover to atmos_evap so the infinite static sea tapers its
-	# pumping as the atmosphere fills toward a steady cover (a local humidity brake can't cap a total that
-	# transport keeps moving around). Uses the cached aggregate (refreshed by the atmos/report cadence) — the
-	# brake changes slowly, so a slightly stale value is fine and avoids forcing a per-step GPU readback.
-	if _f._gpu.has_method("set_atmos_humidity"):
-		# Average atmospheric moisture per cell — the DIRECT measure of the water-cycle load (cloud cover under-reads
-		# it, since most moisture rides as sub-saturation humidity, not condensed cloud). The evap gate uses this to
-		# stop the infinite sea pumping once the air holds its target mass. Uses cached totals (no per-step readback).
-		var open_est: float = maxf(float(_f._cell_count), 1.0)
-		_f._gpu.set_atmos_humidity(_f._moisture_total_c / open_est)
+	# (The global water-cycle brake that used to be fed here is gone with the evaporation kernel it drove. It
+	# existed to stop an un-debited infinite sea pumping the atmosphere past a target moisture; evaporation is
+	# now the saturation-deficit phase rule, which cannot pump air past saturation in the first place.)
 	# add_lava injected on the CPU this frame → push the edited lava + bedrock into the GPU before stepping
 	# (dirty-gated: on clean frames both stay GPU-resident, so we never clobber the on-device evolution).
 	if _f._lava_dirty and _f._gpu.has_method("set_field"):

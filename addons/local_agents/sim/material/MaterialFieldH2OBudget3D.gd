@@ -52,9 +52,21 @@ extends RefCounted
 ## what this file claims, the opening read would land on a stale buffer and `chain` would be large. It is the
 ## only number here that can falsify the instrument, which is why the pairing costs its extra sampled step.
 ##
-## WHAT IT MEASURED, 2026-07-30, seed 4242, --fast=2, 150 frames, quoted at field_step 767.
+## THE SEED FIGURES BELOW ARE SUPERSEDED. *(Corrected 2026-08-03.)* They read "the world is SEEDED with
+## 7485.40 units of H₂O ... soil 3997.07 (13323 regolith cells x the 0.3 world-gen seed)". The 0.3 was
+## SOIL_CAPACITY 0.6 x half-saturation, and 0.6 is above the porosity of every real granular material. A
+## regolith cell's capacity is its POROSITY, which closes with burial (Athy 1930), so the seed is now
+## LAMaterialFieldRegolith3D.porosity_at(depth) x 0.5 — a mean of 0.141 rather than 0.3. Measured seed today,
+## same command: all_total 5331.17 = water 3454.14 + soil 1877.04 + moisture 0.00 + snow 0.00, and it holds
+## that value to two decimals for the whole run. The missing 2154 units were never real groundwater.
+## The BURIAL figures below are superseded too, and by more: they were "mostly MOISTURE, 1020.96-1562.94
+## buried", which was a consequence of a saturation curve 3080x too large. With the real curve and
+## solid_derive_sphere3d.glsl converting a closing cell's water to PORE WATER, burial measured 196 units at
+## field_step 256 against 1454 for the same seed without it.
 ##
-## The world is SEEDED with 7485.40 units of H₂O and every run opens there: water 3483.78 (the sea cells at
+## WHAT IT MEASURED, 2026-07-30, seed 4242, --fast=2, 150 frames, quoted at field_step 767 (pre-correction).
+##
+## The world was SEEDED with 7485.40 units of H₂O and every run opened there: water 3483.78 (the sea cells at
 ## mass 1.0), soil 3997.07 (13323 regolith cells x the 0.3 world-gen seed), moisture 4.55, snow 0.
 ##
 ##   run   impacts/eruptions   all_total 1 -> 767      buried   open_total   SIM_REPORT h2o_closed_total
@@ -249,8 +261,6 @@ func _totals() -> Array:
 	var moisture: PackedFloat32Array = gpu.read_raw("moisture", back if _moisture_back else phase)
 	var soil: PackedFloat32Array = gpu.read_raw("soil", back if _soil_back else phase)
 	var snow: PackedFloat32Array = gpu.read_raw("snow", 0)
-	var regolith: PackedByteArray = _f._regolith
-	var has_reg: bool = regolith.size() == cc
 	var has_solid: bool = solid.size() >= cc
 
 	var solid_cells: int = 0
@@ -281,8 +291,11 @@ func _totals() -> Array:
 			s_open += sv
 		else:
 			solid_cells += 1
-		if (not has_reg) or regolith[c] != 0:
-			g_open += gv
+		# Soil is UNMASKED, exactly as LAMaterialFieldLedger3D counts it: the channel lives wherever the
+		# buffer is non-zero, and solid_derive_sphere3d.glsl now makes new aquifer cells on the device that
+		# no CPU-side mask knows about. Keeping the regolith mask here would report freshly-made pore water
+		# as `buried` at the very moment the substrate stopped burying it.
+		g_open += gv
 	var open_total: float = w_open + m_open + s_open + g_open
 	var all_total: float = w_all + m_all + s_all + g_all
 	var open_parts: Dictionary = {
