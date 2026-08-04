@@ -57,9 +57,17 @@ cd addons/local_agents/gdextensions/localagents
 ./scripts/build_extension.sh --platform macos    # or: linux | windows
 ```
 
-For the model, open the project in Godot, click Project > Project Settings > Plugins > Enable (Local
-Agents), then open the Local Agents panel in the bottom bar and use the Downloads tab. It puts the
-file where the plugin expects it.
+fetch_dependencies.sh also downloads the default model and Piper voices straight into
+`addons/local_agents/models/` and `addons/local_agents/voices/`, unless you pass `--skip-models` /
+`--skip-voices`. That's a convenience for building from source, not where the plugin looks by
+default.
+
+For the model day to day, open the project in Godot, click Project > Project Settings > Plugins >
+Enable (Local Agents), then open the Local Agents panel in the bottom bar. The Downloads tab fetches
+a model into Godot's user data directory, not the project folder. The Detected Models tab scans that
+directory plus your Hugging Face hub cache (`~/.cache/huggingface/hub`, or `$HF_HUB_CACHE`/`$HF_HOME`
+if you've set them) and any custom folder you point it at, so a model you already have does not get
+downloaded twice.
 
 If either one is missing the plugin tells you which, and what to do about it.
 
