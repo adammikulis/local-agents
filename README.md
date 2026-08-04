@@ -1,33 +1,15 @@
 # Local Agents
 
 This is a plugin for the Godot game engine that runs a local Large Language Model (LLM) inside your
-game. The model runs on the player's own machine, so there is no cloud service, no API key, and no
-internet connection needed. Load a .gguf model file and you're going!
+game. The backend is [llama.cpp](https://github.com/ggml-org/llama.cpp), so it runs on the player's own
+machine: no cloud service, no API key, no internet connection needed. Load a .gguf model file and
+you're going!
 
 Most game characters either follow a script or pick from a list of pre-written lines. Here the model
-writes the dialogue while the game is being played. It can also decide what a character should do
-next, and the game turns that decision into an action.
+writes the dialogue while the game is being played, and it can decide what a character should do next,
+with the game turning that decision into an action.
 
-![A voxel planet with weather, terrain and animals](addons/local_agents/docs/img/planet.png)
-
-## The planet demo
-
-The largest example that ships with the plugin is a small planet that runs itself.
-
-Underneath everything is one layer of physics covering heat, water, air, fire and rock. The rest
-follows from that. Rain falls where water evaporated and then cooled. A volcano erupts where pressure
-built up under rock and had nowhere else to go. There is no "make a storm" function anywhere in the
-code, and no scripted disasters.
-
-Animals live on the surface. They eat, drink, flee, hunt, form herds and raise young. Most of the
-time they run on cheap built-in instincts, because asking a language model about every animal every
-frame would be far too slow. When something unfamiliar happens, that animal asks the model what to
-do, and the answer becomes an action in the world.
-
-There is also an optional commentator. It is a second copy of the model that watches the simulation
-and talks about what is happening out loud, in a generated voice.
-
-All of it runs offline on one machine.
+![The quickstart scene answering a prompt](addons/local_agents/docs/img/quickstart.png)
 
 ## How the pieces fit
 
@@ -37,11 +19,10 @@ The model is a .gguf file, the quantized format llama.cpp uses. The default is Q
 which needs roughly 4GB. Smaller models like Qwen3-0.6B run on much less at the cost of quality, and
 any .gguf works, so you can swap the model without touching code.
 
-The native extension is a C++ GDExtension wrapping
-[llama.cpp](https://github.com/ggml-org/llama.cpp) for generation, whisper.cpp for transcription, and
-Piper for speech. It can either load the model in-process or talk to a llama-server over HTTP, which
-is useful when several agents share one model. There is also a SQLite-backed graph store with vector
-search for agent memory.
+The native extension is a C++ GDExtension wrapping llama.cpp for generation, whisper.cpp for
+transcription, and Piper for speech. It can either load the model in-process or talk to a llama-server
+over HTTP, which is useful when several agents share one model. There is also a SQLite-backed graph
+store with vector search for agent memory.
 
 The plugin is the Godot side: an agent node, a memory graph resource, the creature behaviour stack,
 and the editor panel you download models from.
@@ -49,21 +30,15 @@ and the editor panel you download models from.
 Speed is what shapes most of the design. Generation takes hundreds of milliseconds and a game draws
 sixty frames a second, so nothing can call the model on the frame path. Requests go out on a worker
 thread through a shared scheduler with a hard budget (two in flight, four per second across the whole
-world), and a creature only escalates to the model when its cheap reinforced rules do not already
-have a confident answer. If the model is busy or absent, the creature falls back to those rules and
-keeps going.
+world), and an agent only escalates to the model when its cheap reinforced rules do not already have a
+confident answer. If the model is busy or absent, it falls back to those rules and keeps going.
 
-The planet's physics is the same story one level down. It runs as GPU compute shaders over the voxel
-grid rather than in GDScript, and only where something is actually happening. Quiet regions tick
-slowly or sleep, and activity wakes its neighbours, so a fire or a flood grows its own bubble of
-compute at the speed the phenomenon spreads.
+## Just want to try it?
 
-## Just want to play it?
-
-Prebuilt desktop builds are on the [Releases page](https://github.com/adammikulis/local-agents/releases)
-— macOS and Linux. **Windows has no package yet:** the extension compiles in CI, but CI does not
-collect its llama/ggml runtime DLLs, so a Windows build cannot be assembled. Build from source on
-Windows in the meantime.
+Prebuilt desktop builds are on the [Releases page](https://github.com/adammikulis/local-agents/releases),
+macOS and Linux only. Windows has no package yet: the extension compiles in CI, but CI does not collect
+its llama/ggml runtime DLLs, so a Windows build cannot be assembled. Build from source on Windows in the
+meantime.
 
 The rest of this section is for working on it in the editor.
 
@@ -134,8 +109,6 @@ params) signal and decide in your own code what each action does.
 Open `addons/local_agents/examples/DemoLauncher.tscn` and press play. It lists every example with an
 Open button. They build on each other so it is worth going in order.
 
-![The quickstart scene answering a prompt](addons/local_agents/docs/img/quickstart.png)
-
 1. AgentQuickstart.tscn: one agent, a prompt box, a reply. The smallest thing that works.
 2. AgentActionsDemo.tscn: the model's reply becomes game actions instead of text. Buttons fire the
    same actions, so this one still works with no model installed.
@@ -146,19 +119,42 @@ Open button. They build on each other so it is worth going in order.
 5. Agent3DExample.tscn: a talking agent in a 3D scene.
 6. GraphExample.tscn: the memory graph on its own. Runs without a model.
 7. TutorialDemo.tscn: the in-game tutorial sequencer driving a scripted walkthrough.
-8. ThinkingCreatureDemo.tscn: one creature with the full cognition stack — drives, learning, and a
+8. ThinkingCreatureDemo.tscn: one creature with the full cognition stack, drives, learning, and a
    sparing local-LLM slow brain.
 9. CoreCreatureSmoke.tscn: the creature library with no sim around it, which is the drop-in case.
 10. BoxFieldDemo.tscn: the material field on a small box grid, for looking at one channel at a time.
 11. SimWorldPlanetDemo.tscn: the whole planet behind the one-node `LASimWorld` facade.
-12. Play the planet: the game shell itself — `game/VoxelWorld.tscn`, launched from the same
-    launcher. It needs a real window, because the GPU field has no compute device headless.
+12. Play the planet: the game shell itself, launched from the same launcher. See below.
 
 The first eleven live in `addons/local_agents/examples/`, and `scripts/agent_harness.sh lint` keeps
 that directory, the demo catalogue and `docs/DEMOS.md` in agreement.
 
-The planet is `addons/local_agents/game/VoxelWorld.tscn`. It can also run itself and report back,
-which is how it gets tested:
+## The planet demo
+
+The agent stack ships with one large example built to put it through its paces: a small planet that
+runs itself, `addons/local_agents/game/VoxelWorld.tscn`. It's the twelfth example above, and it is
+optional. If you only want the agent library, delete `addons/local_agents/game/`. Nothing outside it
+points in, and `scripts/agent_harness.sh lint` proves that on every run by staging a game-free copy
+and force-loading every script in it. See
+[addons/local_agents/docs/USAGE.md](addons/local_agents/docs/USAGE.md) for what else the library
+boundary does and does not cover.
+
+Underneath the planet is one layer of physics covering heat, water, air, fire and rock, run as GPU
+compute shaders over the voxel grid rather than in GDScript, and only where something is actually
+happening: quiet regions tick slowly or sleep, and activity wakes its neighbours. Rain falls where
+water evaporated and then cooled. A volcano erupts where pressure built up under rock and had nowhere
+else to go. There is no "make a storm" function anywhere in the code, and no scripted disasters.
+
+Animals live on the surface and mostly run on cheap built-in instincts, because asking a language
+model about every animal every frame would be far too slow. When something unfamiliar happens, that
+animal asks the local model what to do, and the answer becomes an action in the world. There is also
+an optional commentator. It runs the same loaded model on its own context, not a second copy in
+memory, and talks about what is happening out loud, in a generated voice. All of it runs offline on
+one machine.
+
+![A voxel planet with weather, terrain and animals](addons/local_agents/docs/img/planet.png)
+
+It can run itself and report back, which is how it gets tested:
 
 ```bash
 # run 300 frames, print one SIM_REPORT={...} line, quit
@@ -167,12 +163,6 @@ scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -
 # take a screenshot
 godot addons/local_agents/game/VoxelWorld.tscn -- --shoot=/tmp/shot.png --overview
 ```
-
-If you only want the agent library, delete `addons/local_agents/game/`. Nothing outside it points in,
-and `scripts/agent_harness.sh lint` proves that on every run by staging a game-free copy and
-force-loading every script in it. See
-[addons/local_agents/docs/USAGE.md](addons/local_agents/docs/USAGE.md) for what else the library
-boundary does and does not cover.
 
 ## Tests
 
