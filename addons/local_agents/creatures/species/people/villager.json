@@ -1,6 +1,5 @@
 {
   "species": "villager",
-  "thermogenesis": 0.8,
   "diet": "omnivore",
   "speed": 3.0,
   "size": 1.0,
@@ -23,7 +22,6 @@
   "hierarchy": "command",
   "pop_cap": 14,
   "breath_capacity": 14.0,
-  "thirst_rate": 1.1,
   "throws": true,
   "throw_range": 15.0,
   "flock_cohesion": 0.7,
@@ -35,5 +33,7 @@
   "hearing_range": 16.0,
   "nests": true,
   "nest_habitat": "ground",
-  "max_age": 360.0
+  "max_age": 360.0,
+  "mass_kg": 62.0,
+  "thermogenesis": 0.8
 }

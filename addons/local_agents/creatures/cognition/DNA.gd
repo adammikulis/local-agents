@@ -48,7 +48,10 @@ const SYMBOL_MAX: int = 3              # a base is 0..3 (A/C/G/T)
 ## surface times the local oxygen times the temperature band — see LACreatureRespiration — so there is no
 ## scalar burn rate left for a locus to carry. `size` already encodes it, because area is size².)
 const GENE_KEYS: Array = [
-	"speed", "size", "sense_radius", "eye_fov", "max_energy", "thirst_rate",
+	# `max_energy` and `thirst_rate` are GONE from this list — with `metabolism` before them, they are derived
+	# from the species' measured body mass now (LACreatureBodyMass), not authored per species, so nothing sets
+	# their config keys and the loci that carried them are retired below.
+	"speed", "size", "sense_radius", "eye_fov",
 	"maturity_age", "throw_range", "cruise_height",
 	"flock_cohesion", "flock_alignment", "flock_separation", "flock_radius", "flock_weight",
 ]
@@ -68,8 +71,20 @@ const LOCI: Array = [
 	["size", "gene", 2, 0.0, 8.0],
 	["sense_radius", "gene", 2, 0.0, 80.0],
 	["eye_fov", "gene", 2, 0.0, 360.0],
-	["max_energy", "gene", 2, 0.0, 400.0],
-	["thirst_rate", "gene", 2, 0.0, 10.0],
+	# TWO LOCI RETIRED, and it is worth saying why rather than leaving them looking live. `max_energy` and
+	# `thirst_rate` are no longer species data at all: LACreatureBodyMass derives the reserve from the
+	# species' measured mass and the water turnover from the body's gas-exchange surface. A legacy gene only
+	# expresses when the species config sets its key, and neither of them does any more, so these two could
+	# never reach a phenotype again. They are `reserved` rather than deleted so the strand LENGTH and every
+	# following locus offset are unchanged.
+	#
+	# HERITABLE BODY MASS is the honest successor to `max_energy` and is deliberately NOT built here: this
+	# roster spans five milligrams to four hundred kilograms, which a linear locus cannot represent, so it
+	# needs a log-scaled locus. That is a real follow-up, not a thing quietly dropped. What IS heritable and
+	# read every frame is `respiratory_capacity` and `thermogenesis` below, which are the anatomy and the
+	# physiology the reaction actually consumes.
+	["_retired_max_energy", "reserved", 2, 0.0, 1.0],
+	["_retired_thirst_rate", "reserved", 2, 0.0, 1.0],
 	["maturity_age", "gene", 2, 0.0, 120.0],
 	["throw_range", "gene", 2, 0.0, 40.0],
 	["cruise_height", "gene", 2, 0.0, 60.0],

@@ -23,8 +23,8 @@ const VORT_TO_STRENGTH: float = 0.5       # K: |vorticity| → strength; tuned s
 const STRENGTH_RATE: float = 0.1          # smoothing of strength toward the field-read target
 
 # --- Seeding (the actor's job: inject a tight warm updraft/low so a vortex EMERGES and Coriolis spins it) ---
-const SEED_HEAT_PER_SEC: float = 26.0     # warm buoyant core → localized low → inflow → Coriolis spin
-const SEED_HEAT_R: float = 12.0           # tight radius keeps the low deep + local (a sharp low spins tight)
+# (SEED_HEAT_PER_SEC = 26.0 °C/s and SEED_HEAT_R = 12.0 deleted 2026-08-03 — see `_seed_low` below for why a
+# tornado is not allowed to manufacture the buoyancy it rides on.)
 
 # --- Track the vortex the field grew (+ wind + per-index noise so many twisters don't move in lockstep) ---
 const VORTEX_FOLLOW: float = 8.0          # base drifts toward the strongest nearby vorticity (the real mesocyclone)
@@ -144,13 +144,28 @@ func _fuel() -> float:
 	return clampf(0.5 * warm + 0.55 * humid + 0.22 * ocean, 0.0, 1.0)
 
 
-# SEED: inject a tight warm updraft at the foot. Warm air is buoyant → a localized low → inflow that the
-# field's Coriolis rule curls into a spinning vortex. Without this the field has nothing to spin; with it,
-# the twister's own mesocyclone EMERGES and then feeds its strength. (No effect off the field.)
-func _seed_low(delta: float) -> void:
-	if _field == null or not _field.has_method("add_heat"):
-		return
-	_field.add_heat(Vector3(_base.x, _base.y + 3.0, _base.z), SEED_HEAT_PER_SEC * delta, SEED_HEAT_R)
+# A TORNADO DOES NOT HEAT THE PLANET. It is what already-buoyant air does when it is made to spin, and the
+# buoyancy is the sun's, delivered by heat3d_solar_sphere3d hours earlier.
+#
+# This used to inject SEED_HEAT_PER_SEC = 26 °C per second into the air at the funnel's foot, every frame, for
+# the funnel's whole life, out of nothing — re-adding surface warming the solar kernel had already delivered,
+# and (because `add_heat` marked the temperature mirror dirty) rewinding a step of the planet's entire heat
+# budget on every one of those frames to do it. There is no store it could have come from: the actor has no
+# energy of its own, and a vortex is a rearrangement of momentum, not a source of it.
+#
+# DELETED rather than re-sourced. The alternative was to make it a conserving move — take heat from the
+# surrounding ring and concentrate it at the core — but that is a claim that a tornado warms its own centre by
+# cooling its surroundings, which is not what one does either. What actually organises a vortex is the
+# pre-existing thermal and pressure structure of the air, which this substrate already simulates: the funnel
+# should FIND a mesocyclone, not manufacture one. `_vortex_gradient()` below is exactly that read, and it is
+# what the funnel now runs on alone.
+#
+# HONEST CONSEQUENCE, because the deletion has one: with no seed, a tornado only tracks vorticity the field
+# grew on its own. If the substrate's own convection never spins one up, the funnel drifts on noise instead of
+# following a real core. That is a gap in the substrate's convection, not a licence to conjure heat, and it
+# belongs to whoever owns the wind/pressure kernels.
+func _seed_low(_delta: float) -> void:
+	pass
 
 
 # Direction (world XZ) toward the strongest nearby vertical vorticity — the actual vortex core the field

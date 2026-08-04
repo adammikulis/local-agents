@@ -19,11 +19,20 @@ extends RefCounted
 ##
 ## THE THREE PHYSICAL STATEMENTS THIS MODULE MAKES, and they are the whole model:
 ##
-## 1. MASS AND SURFACE COME FROM ONE LINEAR DIMENSION. A body of linear size `s` has volume ∝ s³ and surface
-##    ∝ s². That is not an allometric exponent anybody chose; it is what volume and area ARE. Mass follows
-##    from volume by LAPhysical.ANIMAL_TISSUE_DENSITY_KG_M3. So the roster's existing, already-heritable
-##    `size` gene sets a creature's mass, its oxygen uptake and its thermal inertia, and no per-species mass
-##    table is needed.
+## 1. MASS IS MEASURED; SURFACE FOLLOWS FROM IT BY GEOMETRY. A species declares its real body mass in
+##    kilograms (`mass_kg` in the species JSON — a fox is 5 kg, an ant 5 mg, a whale 400 kg) and that is the
+##    input. Its volume is that mass over LAPhysical.ANIMAL_TISSUE_DENSITY_KG_M3, its characteristic length is
+##    the cube root of that volume, and its gas-exchange surface goes as that length squared. Nothing in that
+##    chain is an allometric exponent anybody chose: it is what volume and area ARE, solved for length instead
+##    of from it.
+##
+##    THIS REPLACED `mass = density * VOLUME_SHAPE * size³`. The `size` gene is the VISUAL and collision scale
+##    and the roster compresses it hard so a beetle is visible beside a villager on a planet-scale world (ant
+##    0.08 against villager 1.0, where the real ratio is nearer 0.003). Deriving mass from it imported that
+##    rendering decision into the physics and got the small end of the roster wrong by four orders of
+##    magnitude — it made an ant weigh 36 grams. A measured body mass is a fact about an animal; a shape
+##    constant fitted so that `size 1.0` came out near 70 kg was the arbitrary half of this model, and it is
+##    gone. `size` still sets the capsule, the reach and the head offset, which is all it was ever a fact about.
 ##
 ## 2. THE RATE IS SET BY OXYGEN CROSSING A SURFACE (Fick's law), NOT BY HOW MUCH FUEL IS PRESENT. This is the
 ##    one real difference between respiration in a soil cell and respiration in a body. In soil the oxygen is
@@ -73,47 +82,47 @@ extends RefCounted
 ## (Explicit types only, no ':=' inferred typing.)
 
 # --- BODY GEOMETRY -----------------------------------------------------------------------------------------
-# A creature's `size` is its characteristic linear body dimension (LACreatureBody builds its capsule from it).
-# These two turn that one length into a volume and a gas-exchange area. They are SHAPE factors — the
-# dimensionless "how boxy is this animal" — and they cancel out of every ratio the allometry produces, so
-# they set units and nothing else. VOLUME_SHAPE is deliberately far below the collision capsule's volume:
-# the capsule is a movement proxy sized for the physics query, not a body (it would make a villager 1800 kg).
-const VOLUME_SHAPE: float = 0.07          # body volume = VOLUME_SHAPE * size³ (a human at size 1.0 → ~70 kg)
-const AREA_SHAPE: float = 1.0             # gas-exchange area ∝ AREA_SHAPE * size²
+# The surface of a body of a given volume. For a sphere A = (36π)^(1/3) · V^(2/3), and (36π)^(1/3) is the
+# isoperimetric constant — the smallest surface any volume can have. A real animal is nowhere near spherical
+# and carries several times this, and its RESPIRATORY surface (alveoli, gill lamellae, tracheae) is larger
+# again by orders of magnitude; both of those live in the heritable `respiratory_capacity` gene and in RESP_K
+# below, which is where a dimensionless shape factor belongs. What this constant asserts is only that a body
+# has a surface and that the surface goes as the two-thirds power of the volume, which is geometry.
+const SPHERE_AREA_COEFF: float = 4.835976   # (36π)^(1/3): surface of a sphere per V^(2/3)
 
 # --- REACTION RATE -----------------------------------------------------------------------------------------
 # The per-second k on the body's oxidation, the animal-body counterpart of LABioRecords.RESP_RATE (which is
 # the per-STEP k on the same reaction in soil). ONE constant for the whole roster, replacing the thirteen
 # per-species `metabolism` numbers the species JSONs used to carry.
 #
-# ITS VALUE IS A UNIT CHOICE, NOT A FIT, AND THE DISTINCTION MATTERS. The SCALING is physics: rate ∝ s². What
+# ITS VALUE IS A UNIT CHOICE, NOT A FIT, AND THE DISTINCTION MATTERS. The SCALING is physics: rate ∝ area. What
 # this constant fixes is where the roster sits on the world's compressed clock — a fox does not really starve
-# in ninety seconds, and this simulation's creatures live for a few hundred. It is set so a mid-sized animal
-# burns at the same absolute rate it did before this change, which preserves the existing calibration of the
-# food economy and leaves the mass-scaling as the only behavioural difference to measure. Changing it moves
-# every species together and changes no ratio.
-const RESP_K: float = 2.66                # extent/sec = RESP_K * exchange_area * o2 * band * exertion
-
-# Oxidisable reserve a body of this mass can hold — fat and glycogen are a MASS of tissue, so the store
-# scales with body mass exactly as the burn scales with surface. That pairing is the whole reason fasting
-# endurance rises with body size: reserve ∝ s³ over burn ∝ s² leaves endurance ∝ s. (Real endurance goes as
-# M^0.25 ≡ s^0.75, so this is slightly generous to large animals and in the right direction. The alternative
-# — the old flat per-species tank — had an ant carrying 21% of a villager's reserve on 0.05% of its mass.)
+# in a few minutes, and this simulation's creatures live for a few hundred seconds. It also carries the
+# conversion into the FIELD's mass unit, because an animal's burn is now debited out of the same `biomass`
+# ledger a plant grows into (see LACreatureBodyMass.TISSUE_PER_KG).
 #
-# WHAT THIS CONSTANT IS ANCHORED TO, MEASURED. Reserve/burn gives fasting endurance = 26.3 * ENERGY_PER_MASS *
-# size seconds. The physiological ratios are fixed by the two exponents above and do not move with it; what it
-# sets is where the whole roster sits against the BEHAVIOURAL clock, and that turned out to be the binding
-# constraint rather than anything metabolic. At the first value tried (3.61, which reproduced the fox's old
-# absolute reserve) the smallest animals had 7.6 s of endurance and the run went: ants, bees, beetles, flies
-# and mice extinct, foxes/villagers/vultures/swallows extinct, population 51/52/56 against a baseline of
-# 148/120/112, with starvation deaths 53-73 against 14-24. The scaling was not the problem — an ant really
-# does have far less fasting endurance than a fox, and 7.6 s against an 80 s lifespan is if anything generous
-# next to a real ant's ~3 days against a year. The problem is that a creature's FORAGING cadence in this
-# simulation does not scale down with its body: movement speed, cognition tick and food spacing are the same
-# for an ant as for a villager, so a small animal cannot physically find a meal inside a correctly-short
-# endurance. Until foraging cadence scales with body size, the anchor has to clear the behavioural clock, and
-# 19.0 gives the smallest animal ~40 s to find food. Every RATIO in the roster is untouched by this.
-const ENERGY_PER_MASS: float = 19.0       # max_energy = ENERGY_PER_MASS * body_mass  (≡ 1330 * size³)
+# THE ANCHOR, STATED. It is set so the VILLAGER — the one species whose measured mass (62 kg) and the mass the
+# old `size`-derived formula produced (70 kg at size 1.0) agree, so it is the pivot on which the two models
+# meet — keeps exactly the fasting endurance it had before this change: reserve/burn = 500 s. Every other
+# species then moves by however far its REAL mass differs from what its rendering `size` implied, which is the
+# whole point of taking measured masses. Changing this constant moves the entire roster together and changes
+# no ratio in it.
+const RESP_K: float = 4.2558e-4           # extent/sec = RESP_K * exchange_area * o2 * band * exertion
+
+# THE OXIDISABLE RESERVE IS NOT DECLARED HERE ANY MORE. Fat and glycogen are a MASS of tissue, so the store
+# is a fixed fraction of live body mass, and live body mass is now measured rather than derived — see
+# LACreatureBodyMass.RESERVE_FRAC, which carries the measured body-fat fraction of a wild mammal and the one
+# unit conversion (TISSUE_PER_KG) between a kilogram of animal and the field's mass unit. What survives here
+# is the RATIO the pairing produces: reserve ∝ mass over burn ∝ surface leaves fasting endurance ∝ the body's
+# linear dimension, i.e. ∝ M^(1/3), so a big animal can skip meals and a small one cannot.
+#
+# WHAT THAT COSTS AT THE SMALL END, SAID PLAINLY RATHER THAN TUNED AWAY. With real masses the roster spans
+# 5 mg to 400 kg, so endurance spans 2.2 s (ant) to 931 s (whale). A real ant does have vastly less fasting
+# endurance than a fox, so the ORDERING is right, but a creature's FORAGING cadence in this simulation does
+# not scale down with its body — movement speed, cognition tick and food spacing are the same for an ant as
+# for a villager. A small animal therefore has to be standing on something edible almost continuously. That
+# is a property of the behavioural clock, not of this model, and the honest response is to report what the
+# small end does rather than to inflate the reserve until it stops mattering.
 
 # MAINTENANCE: the floor every gram of living tissue needs just to hold its ion gradients and turn over its
 # proteins, whether or not the animal is doing anything. Proportional to MASS, while production is limited by
@@ -122,19 +131,26 @@ const ENERGY_PER_MASS: float = 19.0       # max_energy = ENERGY_PER_MASS * body_
 # in ordinary air at an ordinary temperature is never in deficit; it bites only when the band collapses, the
 # oxygen runs out, or the body outgrows its own surface.
 ## THE UPPER SIZE LIMIT IS EMERGENT, AND IT IS THE 2/3 EXPONENT'S MOST VISIBLE CONSEQUENCE. Because
-## production goes as surface (s²) and this requirement goes as mass (s³), the ratio production/requirement
-## falls as 1/s: every body has a size past which its surface cannot feed its volume. That is Rubner's
-## argument stated as a survival condition rather than as a rate law, and it is why this constant is set
-## against the LARGEST animal on the roster (the whale, size 3.0) rather than a typical one — at a value the
-## whale survives, a fox has ~5x margin and a beetle ~30x. A real whale exists because its delivery network
-## scales as M^3/4 and not as its skin; see the note at the top of this file about what the substrate lacks.
-const MAINTENANCE_K: float = 0.008        # required extent/sec = MAINTENANCE_K * body_mass
-## Health lost per second per unit of unmet maintenance. Sized so a TOTAL production failure — a drowning
-## animal whose breath store has run out, a body past protein denaturation, one frozen solid — kills in
-## roughly half a minute rather than instantly, which is the honest timescale for all three. It is never
-## reached by a mild deficit: a healthy animal in ordinary air runs 5-30x above its maintenance requirement,
-## so this only engages when the reaction has actually collapsed.
-const DEFICIT_DAMAGE: float = 40.0
+## production goes as surface (M^2/3) and this requirement goes as mass (M^1), the ratio
+## production/requirement falls as M^(-1/3): every body has a size past which its surface cannot feed its
+## volume. That is Rubner's argument stated as a survival condition rather than as a rate law. Anchored, like
+## RESP_K, on the villager — production/requirement = 4.75 there, exactly what it was before this change —
+## which now leaves the WHALE (400 kg measured, against the 1890 kg its rendering `size` used to imply) at
+## 2.6x and an ant at 1100x. A real whale exists because its delivery network scales as M^3/4 and not as its
+## skin; see the note at the top of this file about what the substrate lacks.
+const MAINTENANCE_K: float = 8.4211e-5    # required extent/sec = MAINTENANCE_K * live_mass (field mass units)
+## Health lost per second, as a FRACTION OF THIS ANIMAL'S OWN max_health, at a total production failure.
+## Sized so a body that can produce nothing at all — a drowning animal whose breath store has run out, one
+## past protein denaturation, one frozen solid — dies in roughly half a minute, which is the honest timescale
+## for all three. It is never reached by a mild deficit: a healthy animal in ordinary air runs 3-1000x above
+## its maintenance requirement, so this only engages when the reaction has actually collapsed.
+##
+## IT IS A FRACTION BECAUSE THE ALTERNATIVE CANNOT BE RIGHT AT TWO BODY MASSES AT ONCE. It used to be an
+## absolute 40.0 health per unit of unmet maintenance, which is fine while every animal's rates are within a
+## factor of ten of each other and meaningless once they span eight orders of magnitude: at real masses the
+## same constant killed a villager in seconds and would have taken an ant several hours to notice. Anything
+## measured against a fraction of the animal has to BE a fraction of the animal.
+const DEFICIT_HP_FRAC: float = 1.0 / 30.0
 
 # --- OXYGEN UPTAKE (Fick) ----------------------------------------------------------------------------------
 # Diffusive flux across the exchange surface is proportional to area × the concentration difference. The
@@ -148,7 +164,7 @@ const O2_UPTAKE_K: float = 1.0
 # over its conductance to the outside, so tau ∝ mass/area ∝ size — pure geometry again, and the reason a
 # beetle equilibrates in moments while a whale holds its temperature for hours. THERMAL_TAU_K carries the
 # units (seconds per unit size on this world's clock).
-const THERMAL_TAU_K: float = 6.0          # tau (sec) = THERMAL_TAU_K * body_mass / exchange_area
+const THERMAL_TAU_K: float = 5.1318       # tau (sec) = THERMAL_TAU_K * body_mass_kg / exchange_area
 # Ceiling on the cold-driven uptake boost, reached at thermogenesis = 1. A shivering mammal runs at roughly
 # 5-10x its basal rate, and a bumblebee warming its flight muscles before take-off is in the same range, so an
 # order-of-magnitude ceiling is the measured one. The boost is not a switch: it is multiplied by how far below
@@ -165,7 +181,17 @@ const MAX_THERMOGENESIS_GAIN: float = 12.0
 # MASS CANCELLING OUT — production and conductive loss both scale with surface here, so they cancel exactly.
 # Real endotherms hold a slightly larger elevation as they get bigger (production M^3/4 against loss M^2/3),
 # and this substrate cannot reproduce that for the same missing-network reason recorded at the top of the file.
-const METABOLIC_HEAT_K: float = 0.25      # °C of body warming per unit extent per unit body mass
+#
+# WHY IT IS NOT THE LITERAL J/kg RATIO, WHICH IS WORTH STATING BECAUSE IT LOOKS LIKE ONE. The physical value
+# is LAPhysical.BIOMASS_HEAT_OF_COMBUSTION_J_PER_KG / LAPhysical.ANIMAL_SPECIFIC_HEAT_J_KGK, and this
+# simulation's clock is compressed — a villager here burns roughly four thousand times a real human's mass per
+# second, because it lives a whole life in a few hundred seconds — while THERMAL_TAU_K is on the uncompressed
+# clock. Multiplying the literal enthalpy by an uncompressed time constant gives a steady-state elevation in
+# the hundreds of degrees. Until the world's time compression is a number somebody has written down, both
+# constants are anchored to behaviour instead: tau and the steady-state elevation are exactly what they were
+# before measured masses arrived (420 s and 3.99 °C at the villager), and the elevation is mass-invariant, so
+# every species keeps the endothermy it had. That is a unit conversion, and it is labelled as one.
+const METABOLIC_HEAT_K: float = 1826.9    # °C of body warming per unit extent per kg of body mass
 
 # --- TEMPERATURE BAND (derived from LAPhysical — nothing here is fitted) ----------------------------------
 # Zero at the freezing point of cell water and zero at the protein denaturation onset; peak at the midpoint.
@@ -189,23 +215,38 @@ static func temp_band(t: float) -> float:
 
 # --- BODY QUANTITIES ---------------------------------------------------------------------------------------
 
-## Body mass from the creature's one linear dimension: density × volume. The `size` gene is already heritable,
-## so mass is heritable and evolvable with no new locus.
+## Body mass in KILOGRAMS — the species' measured mass, carried on the creature as `mass_kg` by
+## LACreatureBodyMass.apply. Not derived from `size`; see statement 1 in the header.
 static func body_mass(c) -> float:
-	var s: float = maxf(float(c.size), 0.02)
-	return LAPhysical.ANIMAL_TISSUE_DENSITY_KG_M3 * VOLUME_SHAPE * s * s * s
+	return maxf(float(c.get("mass_kg")), 1.0e-7)
 
 
-## Gas-exchange surface — geometric area times the heritable `respiratory_capacity` gene, which is how much
-## exchange surface this lineage packs into that area (a bird's air sacs against a reptile's simple lung).
+## The body's characteristic linear dimension, in metres: the cube root of the volume its measured mass
+## occupies at tissue density. Volume → length is a definition, not an exponent anybody picked.
+static func body_length(m_kg: float) -> float:
+	return pow(maxf(m_kg, 1.0e-9) / LAPhysical.ANIMAL_TISSUE_DENSITY_KG_M3, 1.0 / 3.0)
+
+
+## Gas-exchange surface — the geometric surface of that body (length², the second definition) times the
+## heritable `respiratory_capacity` gene, which is how much exchange surface this lineage packs into that
+## area (a bird's air sacs against a reptile's simple lung). Metabolic rate ∝ this, i.e. ∝ M^(2/3), with
+## neither 2/3 nor any other exponent written down anywhere.
 static func exchange_area(c) -> float:
-	var s: float = maxf(float(c.size), 0.02)
-	return AREA_SHAPE * s * s * maxf(float(c.get("respiratory_capacity")), 0.05)
+	var l: float = body_length(body_mass(c))
+	return SPHERE_AREA_COEFF * l * l * maxf(float(c.get("respiratory_capacity")), 0.05)
 
 
-## The oxidisable reserve a body of this mass can hold.
-static func reserve_capacity(c) -> float:
-	return ENERGY_PER_MASS * body_mass(c)
+## What a body of this species can oxidise per second in ordinary air at its own optimum — the aerobic
+## capacity before behaviour, in the field's mass units. The one rate every other physiological rate in
+## LACreatureBodyMass is derived from (bite rate, water turnover), so they all inherit the same M^(2/3).
+static func capacity_rate(c) -> float:
+	return RESP_K * exchange_area(c)
+
+
+## The floor this body has to produce every second just to stay alive, in the field's mass units. Proportional
+## to LIVING TISSUE, which is where LACreatureBodyMass's one kilogram→mass-unit conversion enters the rate law.
+static func maintenance_rate(c) -> float:
+	return MAINTENANCE_K * LACreatureBodyMass.TISSUE_PER_KG * body_mass(c)
 
 
 # --- THE TICK ----------------------------------------------------------------------------------------------
@@ -294,9 +335,12 @@ static func tick(c, pos: Vector3, delta: float) -> bool:
 	# The comparison is CAPACITY against the requirement, not the throttled burn: an animal dozing in good air
 	# is idling, not suffocating. What crosses this line is a body whose oxygen ran out, whose temperature band
 	# collapsed, or which has simply outgrown the surface that has to feed its volume.
-	var need: float = MAINTENANCE_K * mass * delta * evo
-	if capacity < need:
-		c.health -= (need - capacity) * DEFICIT_DAMAGE
+	var need: float = maintenance_rate(c) * delta * evo
+	if capacity < need and need > 0.0:
+		# The shortfall as a FRACTION of the requirement (0 = met, 1 = producing nothing at all), so the damage
+		# is on the animal's own scale at every body mass — see DEFICIT_HP_FRAC.
+		var shortfall: float = clampf((need - capacity) / need, 0.0, 1.0)
+		c.health -= shortfall * DEFICIT_HP_FRAC * float(c.max_health) * delta * evo
 		if c.health <= 0.0:
 			c.die(deficit_cause(c, o2))
 			return true

@@ -27,7 +27,12 @@ const O2_PER_DECOMPOSE: float = 1.0      # == CO2_PER_DECOMPOSE, by the identity
 # This is why the old FERT_UPTAKE_COST was cut 25x "so it only binds where fert is genuinely near-zero":
 # nutrient limitation was removed rather than the nutrient SOURCE being fixed. With both at the C:N ratio,
 # Liebig limitation by nutrient becomes real again and a barren soil genuinely limits growth.
-const LITTER_C_TO_N: float = 20.0
+# MOVED to LAPhysical 2026-08-03: the carbon-to-nitrogen ratio of leaf litter is a measured property of the
+# material, not a model parameter, and it is now the SAME declaration LAReactionBalance uses to say what
+# organic matter is made of. That is what turns "mineralisation releases the nitrogen that was already in the
+# litter" from a comment into an arithmetic identity the balance gate checks: the release coefficient here,
+# the uptake coefficient below, and the nitrogen content of biomass/detritus/fungus are one number.
+const LITTER_C_TO_N: float = LAPhysical.LITTER_C_TO_N
 const FERT_PER_DECOMPOSE: float = 1.0 / LITTER_C_TO_N      # 0.05 (was 1.5)
 
 # PHOTOSYNTHESIS: CO₂ + H₂O + light → biomass + O₂. LIGHT drives it, and light is now the real thing —
@@ -130,6 +135,23 @@ const PHOTO_T_WIDTH: float = 24.0        # °C from the optimum to where it stop
 # the FERT_UPTAKE_COST trap again — that constant was cut 25x for the same reason — and it is now twice in
 # this one file that the honest size was far gentler than the sizing argument predicted.
 const PHOTO_WATER_COST: float = 0.05     # soil water transpired per unit CO₂ fixed (debit SOIL_ROOT, credit MOISTURE)
+# THE STOICHIOMETRIC WATER, WHICH WAS MISSING ENTIRELY. Photosynthesis is CO₂ + H₂O -> CH₂O + O₂: one water
+# SPLIT per carbon fixed, its hydrogen built into the sugar and its oxygen released as the O₂. That leg had
+# no coefficient at all, so the biomass this record produced contained hydrogen that came from nowhere and
+# the O₂ it released came from nowhere with it. The old balance table could not see it, because it declared
+# an `h2o` substance rather than H and O atoms.
+#
+# IT IS DERIVED, NOT CHOSEN: 1.0 per unit of CO₂, because that is the reaction. The root draw is therefore
+# the stoichiometric water plus the transpiration above, and only the transpired part is returned to the air
+# as vapour — the split part leaves as biomass and comes back when that biomass is respired or rots.
+#
+# NOTE WHAT THIS SAYS ABOUT THE MODEL, since it inverts a real ratio. Real transpiration moves 200-1000
+# molecules of water per carbon fixed, so on Earth the stoichiometric leg is a rounding error beside it. Here
+# the transpiration coefficient is 0.05, so the leg that is negligible in reality is TWENTY TIMES the leg
+# this substrate models. That is a statement about PHOTO_WATER_COST being four orders too small, which is the
+# same finding HANDOFF records as "the atmosphere holds 30% of the planet's H₂O against Earth's 0.001%". It
+# is not a reason to leave the stoichiometry out.
+const PHOTO_WATER_DRAW: float = 1.0 + PHOTO_WATER_COST   # split (1.0, becomes biomass) + transpired (returned)
 # NUTRIENT UPTAKE (closes the "fertility actually feeds plants" gap — bio-0.4-shipped left this open): FERT is
 # now a second reactant on R19, so growth is co-limited by CO₂ AND soil fertility (Liebig's-law-of-the-minimum,
 # same reactant-cap machinery that already caps CO2 — no new rate model needed).
@@ -167,6 +189,27 @@ const RESP_O2_COST: float = RESP_CO2_YIELD   # aerobic: O₂ consumed == CO₂ p
 # anyone tuning RESP_CO2_YIELD for behaviour would have broken conservation silently. Deriving the partner
 # makes the invariant structural: change the split and it still closes.
 const RESP_DET_YIELD: float = 1.0 - RESP_CO2_YIELD   # detritus (litter) shed per unit biomass respired
+# RESPIRATION WAS DESTROYING NITROGEN, and nothing noticed because there was no nitrogen accounting to notice
+# with. Found 2026-08-03 by the new balance gate on its first run against the shipped table. One unit of
+# biomass carries 1/LITTER_C_TO_N of nitrogen. Respiration sends 0.6 of the carbon to CO₂ — which carries no
+# nitrogen — and 0.4 to detritus, which carries only 0.4/20 = 0.02. The other 0.03 units simply vanished, 60%
+# of the nitrogen in every unit of biomass respired, forever.
+# The physics: burning the carbon off a molecule does not destroy the nitrogen in it. Plants resorb some
+# nitrogen before shedding a leaf and the rest is mineralised at the litter's own ratio, so the nitrogen the
+# carbon leg leaves behind returns to the soil's plant-available pool. The coefficient is DERIVED from the
+# same C:N ratio as the other two, so it cannot drift out of balance: whatever nitrogen the reactant carried
+# and the detritus product does not, is what the soil receives.
+const RESP_FERT_YIELD: float = (1.0 - RESP_DET_YIELD) / LITTER_C_TO_N   # 0.03 — the N the CO₂ leg leaves behind
+# AND THE WATER. Oxidising CH₂O to CO₂ releases one H₂O per carbon: CH₂O + O₂ -> CO₂ + H₂O. Respiration
+# sends RESP_CO2_YIELD of the carbon that way and keeps the rest as litter, so the water released is exactly
+# the carbon that left, and the coefficient is DERIVED rather than chosen. Until 2026-08-03 no phase of the
+# carbon cycle exchanged water at all, because the balance table declared an `h2o` substance instead of
+# hydrogen and oxygen atoms and so could not see the omission. This is respiration humidifying the air, which
+# is a real and measurable thing a forest does.
+const RESP_WATER_YIELD: float = RESP_CO2_YIELD                          # 0.6 — one H₂O per carbon oxidised
+# Decomposition oxidises its carbon ALL the way (1.0 CO₂ per unit of detritus), so it releases one water per
+# unit, by the same identity.
+const DECOMPOSE_WATER_YIELD: float = CO2_PER_DECOMPOSE                  # 1.0 — one H₂O per carbon oxidised
 
 
 ## The records this domain contributes to the live table (see LAMaterialReactions3D).
@@ -177,7 +220,8 @@ static func records() -> Array:
 		# falls out of listing O₂ as a reactant, coeff O2_PER_DECOMPOSE). Fert → SCRATCH (fungus_fert reduce).
 		rec(BILINEAR, DECOMPOSE_RATE, FUNGUS,
 			[[DETRITUS, 1.0], [O2, O2_PER_DECOMPOSE]],
-			[[CO2, CO2_PER_DECOMPOSE, TGT_SELF], [FERT, FERT_PER_DECOMPOSE, TGT_SCRATCH]],
+			[[CO2, CO2_PER_DECOMPOSE, TGT_SELF], [MOISTURE, DECOMPOSE_WATER_YIELD, TGT_SELF],
+				[FERT, FERT_PER_DECOMPOSE, TGT_SCRATCH]],
 			0, 0.0, DETRITUS),
 
 		# R19 — PHOTOSYNTHESIS: light + CO₂ + soil water + nutrient → biomass + O₂ + transpired vapour, on the
@@ -196,16 +240,19 @@ static func records() -> Array:
 		# is untouched by it. It also couples two systems that had never met: the aquifer now feels the forest,
 		# and the forest humidifies its own air.
 		rec(OPTIMUM_BAND, PHOTO_RATE, LIGHT,
-			[[CO2, 1.0], [SOIL_ROOT, PHOTO_WATER_COST], [FERT, FERT_UPTAKE_COST]],
+			[[CO2, 1.0], [SOIL_ROOT, PHOTO_WATER_DRAW], [FERT, FERT_UPTAKE_COST]],
 			[[O2, PHOTO_O2_YIELD, TGT_SELF], [BIOMASS, PHOTO_BIOMASS_YIELD, TGT_SELF],
 				[MOISTURE, PHOTO_WATER_COST, TGT_SELF]],
 			GATE_NEAR_GROUND | GATE_NOT_STATIC, PHOTO_T_OPT, TEMP, PHOTO_T_WIDTH),
 
-		# R20 — RESPIRATION + DECAY: biomass + O₂ → CO₂ + detritus, everywhere biomass exists (ungated).
-		# BILINEAR: x = RESP_RATE*biomass*o2; BIOMASS reactant caps the extent (can't respire more than present),
-		# O₂ reactant makes it aerobic. Products: CO₂ back to air + DETRITUS litter (which the fungus-decompose
-		# R15 then rots into CO₂ + fertility) → the full carbon loop closes on the GPU, no CPU carcass bridge.
+		# R20 — RESPIRATION + DECAY: biomass + O₂ → CO₂ + detritus + mineral nitrogen, everywhere biomass
+		# exists (ungated). BILINEAR: x = RESP_RATE*biomass*o2; the BIOMASS reactant caps the extent (can't
+		# respire more than is present) and the O₂ reactant makes it aerobic. Products: CO₂ back to the air,
+		# DETRITUS litter (which the fungus-decompose R15 then rots into CO₂ + fertility), and the NITROGEN
+		# the carbon leg leaves behind — see RESP_FERT_YIELD. Without that third product this record destroyed
+		# 60% of the nitrogen in every unit of biomass it touched.
 		rec(BILINEAR, RESP_RATE, BIOMASS, [[BIOMASS, 1.0], [O2, RESP_O2_COST]],
-			[[CO2, RESP_CO2_YIELD, TGT_SELF], [DETRITUS, RESP_DET_YIELD, TGT_SELF]],
+			[[CO2, RESP_CO2_YIELD, TGT_SELF], [DETRITUS, RESP_DET_YIELD, TGT_SELF],
+				[MOISTURE, RESP_WATER_YIELD, TGT_SELF], [FERT, RESP_FERT_YIELD, TGT_SELF]],
 			0, 0.0, O2),
 	]

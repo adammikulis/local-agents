@@ -20,13 +20,43 @@ extends StaticBody3D
 const GROUP_SELECTABLE: String = "selectable"
 const GROUP_TREE: String = "tree"
 
-const GROW_TIME: float = 20.0        # seconds sapling -> full size
+const GROW_TIME: float = 20.0        # seconds sapling -> full size ON FULLY PRODUCTIVE GROUND (see _growth_rate)
 const START_FRACTION: float = 0.35   # freshly planted trees are visible immediately
+
+## A TREE GROWS AT THE SPEED ITS GROUND FIXES CARBON, NOT AT THE SPEED OF A CLOCK.
+##
+## What this replaced: `age += delta; _apply_growth()`. An entire trunk and canopy accreted from wall-clock
+## time — the same rate on bare rock, in the dark, at the pole, and in a rich equatorial grove — with no CO₂,
+## light, fertility or soil-water draw anywhere in it.
+##
+## WHY THIS IS A GATE AND NOT A STOCK, stated because the Plant node next door got the opposite treatment and
+## the difference is deliberate. A plant's edible RESERVE is CONSUMED: a herbivore eats it and it becomes
+## animal energy, so it has to be real mass drawn out of the field's biomass channel or the food web mints
+## matter. A tree's SCALE is not consumed by anything — the wood standing in a cell is already counted once,
+## in that cell's `biomass`, and giving the node a second private wood stock would double-count the same
+## carbon. So the honest fix here is to make the visual track the chemistry rather than to invent a ledger:
+## a tree on ground photosynthesis never greened simply stops growing.
+##
+## The scale is the biomass at the tree's own cell against a reference density. TREE_BIOMASS_FULL is that
+## reference — the local standing crop at which a tree is growing as fast as it can — and it is measured, not
+## picked: `biomass_ground` on a 600-frame baseline is ~6.05 mass units over 4800 lit ground cells, so a
+## typical vegetated cell carries ~1.3e-3. A cell at twice the planetary average is treated as fully
+## productive. Nothing about the tree's appearance enters that number.
+const TREE_BIOMASS_FULL: float = 0.0025
+const TREE_GROWTH_FLOOR: float = 0.05   # a trickle even on poor ground, so a sapling on thin soil creeps up
+                                        # rather than freezing forever at exactly START_FRACTION
 const TOPPLE_TIME: float = 1.5       # seconds to fall flat
 const TOPPLE_ANGLE: float = 1.483529 # ~85 degrees, avoids clipping through ground
 
 var terrain = null             # terrain service exposing surface_height(x, z)
+var _material = null           # LAMaterialField3D — the shared substrate this tree's growth reads (see _growth_rate)
 var config: Dictionary = {}
+
+
+## Wire the shared material field so this tree's growth tracks the carbon its ground actually fixes. Injected
+## by LAEcologyService at spawn, exactly as plants and creatures get theirs.
+func set_material_field(m) -> void:
+	_material = m
 
 ## SPECIES ARE DATA, NOT BRANCHES. Everything that differed between an oak and a pine used to be an
 ## `if species == "pine"` at five separate sites: trunk height range, canopy colour, which canopy builder to
@@ -318,12 +348,25 @@ func _physics_process(delta: float) -> void:
 			age += _settle_accum
 			_settle_accum = 0.0
 		return
-	age += delta
+	age += delta * _growth_rate()
 	_apply_growth()
 	# Push the growing pose until mature; then settle (no per-frame render cost) until a topple wakes it.
 	_sync_render()
 	if _grown_fraction() >= 1.0:
 		_render_settled = true
+
+
+## How fast this tree may add wood right now, in [TREE_GROWTH_FLOOR, 1], from the standing biomass the
+## photosynthesis chemistry has fixed in its own cell. This is the whole coupling: a grove on rich equatorial
+## ground fills out in GROW_TIME, a sapling on a cold thin margin creeps, and neither needs a per-species
+## branch or a placement table. With no field wired (headless tests, the box demo) it falls back to 1.0 so
+## nothing that has no chemistry to consult silently stops growing.
+func _growth_rate() -> float:
+	if _material == null or not _material.has_method("biomass_at"):
+		return 1.0
+	var pos: Vector3 = global_position
+	var b: float = _material.biomass_at(pos.x, pos.y, pos.z)
+	return clampf(b / TREE_BIOMASS_FULL, TREE_GROWTH_FLOOR, 1.0)
 
 
 func _grown_fraction() -> float:

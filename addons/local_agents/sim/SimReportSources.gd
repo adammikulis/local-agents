@@ -115,7 +115,28 @@ static func cognition(w) -> Dictionary:
 	var gene_pop: int = 0
 	# ALLOMETRY, MEASURED RATHER THAN ASSERTED. Per species: body mass, the REALISED oxidation rate the
 	# substrate actually granted (LACreatureRespiration._resp_rate, which is what survived the oxygen Liebig
-	# cap and the temperature band), and body temperature. The exponent is then fitted across species by
+	# cap and the temperature band), and body temperature.
+	#
+	# THIS IS AN INSTRUMENT, AND IT IS THE POINT OF THE WHOLE PHYSIOLOGY. Both inputs are things the run did:
+	# the mass is the species' MEASURED `mass_kg` and the rate is what each body actually burned this tick.
+	# Neither is derived from an exponent, so the slope cannot read back its own assumption. That property is
+	# fragile and worth protecting — the alternative physiology this replaced set `basal_rate` to
+	# `BASAL_COEFF * mass^KLEIBER_EXPONENT`, and a fit over THAT can only ever return the 0.75 somebody typed
+	# in, which is a gauge that cannot fail. If a future change makes this tautological, delete the gauge
+	# rather than ship one that measures its own input.
+	#
+	# WHAT THE NUMBER MEANS. ~0.667 is RUBNER'S SURFACE LAW: it is what pure surface-area-to-volume geometry
+	# produces when a body's oxygen has to cross one exchange surface, which is all this substrate has. Real
+	# animals measure ~0.75 (Kleiber 1932; Savage et al. 2004 across 600+ species), and the leading explanation
+	# is a fractal nutrient-delivery network — space-filling branching vasculature with size-invariant terminal
+	# units (West, Brown & Enquist 1997). THIS SUBSTRATE HAS NO VASCULATURE. That is why it reads 2/3, and why
+	# typing 3/4 in anywhere would be asserting machinery that does not exist.
+	#
+	# SO 2/3 IS NOT A DISCREPANCY TO FIX, IT IS A READING TO WATCH. Give creatures a real circulatory system —
+	# branching transport, terminal units that do not scale with the body — and this gauge should climb toward
+	# 0.75 ON ITS OWN. That climb is the evidence the mechanism is real rather than declared, and it is the
+	# only kind of evidence worth having. Measured on the size-derived masses that preceded this: 0.660 /
+	# 0.666 / 0.656. The exponent is then fitted across species by
 	# ordinary least squares on log(rate) against log(mass) — so the scaling law is an OUTPUT of the run.
 	# Nothing anywhere types in 0.75 or 0.667; if the exponent moves, the physics moved.
 	# Three is enough for the CAPACITY fit and five was actively harmful: at 600 frames only the five largest-

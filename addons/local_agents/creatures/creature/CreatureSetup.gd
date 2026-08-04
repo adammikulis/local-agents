@@ -78,33 +78,21 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.flock_separation = float(config.get("flock_separation", c.flock_separation))
 	c.flock_radius = float(config.get("flock_radius", c.sense_radius))
 	c.flock_weight = float(config.get("flock_weight", c.flock_weight))
-	# RESPIRATORY ANATOMY, expressed before the reserve because the reserve is derived from the body.
+	# RESPIRATORY ANATOMY, expressed before the body ledger because the ledger's derived rates read it.
 	c.respiratory_capacity = float(config.get("respiratory_capacity", c.respiratory_capacity))
 	c.thermogenesis = float(config.get("thermogenesis", c.thermogenesis))
-	# OXIDISABLE RESERVE = fat and glycogen, which are a MASS of tissue, so the store scales with body mass
-	# (∝ size³) exactly as the burn scales with gas-exchange surface (∝ size²). That pairing is the whole
-	# reason fasting endurance rises with body size, and it is why `max_energy` is no longer a per-species
-	# JSON number: the old flat tanks had an ant carrying 21% of a villager's reserve on 0.05% of its mass.
-	# A config override is still honoured for tests and set-pieces.
-	c.max_energy = float(config.get("max_energy", LACreatureRespiration.reserve_capacity(c)))
-	c.energy = c.max_energy
 	# HP scales with body size: a bigger animal endures more before a blast kills it.
 	c.max_health = float(config.get("max_health", 30.0 + c.size * 120.0))
 	c.health = c.max_health
 	c.breath_capacity = float(config.get("breath_capacity", c.breath_capacity))
 	c._breath = c.breath_capacity
 	c.breathes = String(config.get("breathes", c.breathes))
-	c.max_hydration = float(config.get("max_hydration", 100.0))
-	c.hydration = c.max_hydration
-	c.thirst_rate = float(config.get("thirst_rate", c.thirst_rate))
-	# WHAT A BODY IS WORTH TO EAT IS ITS MASS, and mass goes as size³. This was `size * 90.0` — LINEAR in a
-	# LENGTH — which said a whale (size 3.0) was worth 10x a fox (0.8) where its volume says 53x, and it was
-	# the reason the reserve rescaling broke the food economy: reserves became proportional to mass while the
-	# food that fills them stayed proportional to length, so the two diverged by size² across the roster.
-	# Setting a body's food value to the reserve a body of that mass carries keeps the whole economy in ONE
-	# unit and needs no separate constant. Per-species overrides are gone from the JSONs for the same reason
-	# `metabolism` and `max_energy` are: it is derived, not authored.
-	c.food_value = float(config.get("food_value", LACreatureRespiration.reserve_capacity(c)))
+	# ONE MEASURED BODY MASS DRIVES THE LEDGER, and every physiological RATE comes off the body's surface.
+	# This sets mass_kg / structural_mass / max_energy / max_hydration / thirst_rate / bite_rate / food_value,
+	# which used to be a scatter of independently hand-fitted per-species numbers agreeing neither with each
+	# other nor with biology (a fox and a mouse both carried `"metabolism": 1.7` at 260x the difference in
+	# mass). See LACreatureBodyMass for which constants are facts and which is the one unit conversion.
+	LACreatureBodyMass.apply(c, config)
 	c.max_age = float(config.get("max_age", maxf(c.maturity_age * 5.0, 60.0)))
 	# COHORT DESYNC: independent lifespan jitter so an age-matched cohort doesn't die of old age all at once
 	# (the old-age death spike). max_age is not a heritable gene (it tracks maturity_age*5), so this is the only
@@ -193,3 +181,8 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	# speed/max_energy baselines NOW (after config/genome expression) so age can grade them down later.
 	c.senescence = LACreatureSenescence.new()
 	c.senescence.setup(c)
+	# A BODY APPEARED. Register its mass with the field's biota ledger so matter that entered the world by
+	# spawning is counted where a reader can see it, instead of showing up later as an unexplained carbon
+	# surplus when the animal dies and rots into the soil. A BIRTH (genome passed) is excluded: the mother was
+	# already debited the newborn's whole mass, so counting it again would double it.
+	LACreatureBodyMass.note_spawn(c, genome_arg != null)

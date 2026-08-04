@@ -129,7 +129,10 @@ static func on_eat(c, profile: Dictionary, gained: float) -> void:
 		return
 	if c._cognition == null:
 		return
-	var max_energy: float = maxf(float(c.max_energy), 1.0)
+	# Divide-by-zero guard only — an EPSILON, not a plausible-looking 1.0. With physiology derived from real
+	# body mass a rabbit's whole reserve is 0.004, so a floor of 1.0 replaced the denominator outright and
+	# every bite registered as flavourless whatever it was worth, which silently disables taste learning.
+	var max_energy: float = maxf(float(c.max_energy), 1.0e-9)
 	var frac: float = gained / max_energy
 	var felt: float = frac / NEUTRAL_BITE_FRAC - 1.0
 	# TOXICITY folds an aversive term into `felt` BEFORE the clamp, so a poison drives the taste cue NEGATIVE even

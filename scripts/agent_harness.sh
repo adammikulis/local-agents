@@ -214,6 +214,19 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_physical_constants.sh ($rc_physical)"
       exit 1
     fi
+    # Gate: no reaction record may create or destroy matter. The DEFS engine took reactants and products as
+    # two independent lists of hand-written coefficients with nothing relating them, and one rate model had
+    # no reactant at all, so only its product credit ever ran — which is where every carbon atom in this
+    # simulation came from. Conservation was asserted in comments and enforced nowhere; this is the
+    # enforcement. Exit 2 means the gate could not run.
+    set +e
+    "$SCRIPT_DIR/check_reaction_balance.sh"
+    rc_balance=$?
+    set -e
+    if [[ $rc_balance -ne 0 ]]; then
+      echo "LINT_FAIL: check_reaction_balance.sh ($rc_balance)"
+      exit 1
+    fi
     # Gate: the addon still parses with the game deleted. docs/USAGE.md promises this; nothing
     # enforced it, and it had already rotted once.
     set +e

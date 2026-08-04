@@ -2,7 +2,7 @@ class_name LAMaterialFieldMineralBudget3D
 extends RefCounted
 
 ## LAMaterialFieldMineralBudget3D — THE CONSERVATION LEDGER FOR MINERAL, built to the shape
-## LAMaterialFieldLedger3D proved on H₂O and LAMaterialFieldMassBudget3D copied for carbon: a total, its five
+## LAMaterialFieldLedger3D proved on H₂O and LAMaterialFieldElementInventory3D copied for carbon: a total, its five
 ## phase legs, and a DRIFT PER FIELD STEP. The drift is the instrument. `mineral_total` is called "the
 ## unification's proof object" everywhere in this subtree, and until this module it was published as SIX
 ## ABSOLUTES AND ZERO DELTAS (MaterialFieldReport3D.gd), which cannot show a slow leak and cannot show minting
@@ -30,7 +30,7 @@ extends RefCounted
 ##
 ## `mineral_open` is kept as a MEMO LINE (the same legs re-summed over open cells only) and
 ## `mineral_buried` is the difference, so burial stays VISIBLE rather than being silently deleted from the
-## books — the pattern LAMaterialFieldMassBudget3D's `*_all` legs established. It is not a second ledger.
+## books — the pattern LAMaterialFieldElementInventory3D's `*_all` legs established. It is not a second ledger.
 ##
 ## SOURCES ARE NOT DRIFT, AND THIS IS WHY THE RAW NUMBER IS THE WRONG ONE TO QUOTE.
 ## The planet has one admitted mineral SOURCE: LAMaterialFieldInject3D.erupt_source (":296 — the deep reservoir
@@ -102,7 +102,7 @@ extends RefCounted
 var _f = null                                # back-reference to the owning LAMaterialField3D
 
 # Previous sample, for the per-sample drift. NAN until the first sample so the first reading reports no drift
-# rather than a spurious one — the convention LAMaterialFieldLedger3D and LAMaterialFieldMassBudget3D share.
+# rather than a spurious one — the convention LAMaterialFieldLedger3D and LAMaterialFieldElementInventory3D share.
 var _prev_total: float = NAN
 var _prev_step: int = -1
 

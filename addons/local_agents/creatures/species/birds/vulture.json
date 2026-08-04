@@ -1,6 +1,5 @@
 {
   "species": "vulture",
-  "thermogenesis": 0.8,
   "diet": "scavenger",
   "speed": 5.5,
   "size": 0.7,
@@ -18,7 +17,6 @@
   "herd": true,
   "leader_loyalty": 0.0,
   "pop_cap": 12,
-  "thirst_rate": 0.7,
   "flock_cohesion": 0.4,
   "flock_alignment": 0.6,
   "flock_separation": 0.7,
@@ -28,5 +26,7 @@
   "hearing_range": 22.0,
   "nests": true,
   "nest_habitat": "tree",
-  "max_age": 220.0
+  "max_age": 220.0,
+  "mass_kg": 1.4,
+  "thermogenesis": 0.8
 }
