@@ -34,24 +34,51 @@ extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 ## (the only block that moved, M5/M6, shares no channel with the M4/M3 it moved past), which is why this
 ## refactor is behaviour-neutral. It was verified, not assumed.
 
+## GasRecords.gd IS GONE, deleted 2026-08-03, and it is worth saying what it held. It contributed exactly two
+## records, R11 and R12, which pinned O₂ and CO₂ toward a fixed number at the top of the atmosphere using the
+## RELAX_TARGET rate model — a model with NO REACTANT, whose cap-and-debit block the kernel skipped outright.
+## R12 was the source of every carbon atom that has ever existed in this simulation. The planet now starts
+## with a real finite atmosphere at Earth's measured composition, so there is nothing for a sky-exchange
+## record to do: the air above a cell genuinely holds the gas, and o2_transport/co2_transport move it there
+## as an ordinary conserving transfer.
 const RECORD_MODULES: PackedStringArray = [
-	"res://addons/local_agents/sim/material/reactions/GasRecords.gd",
 	"res://addons/local_agents/sim/material/reactions/BioRecords.gd",
 	"res://addons/local_agents/sim/material/reactions/PhaseRecords.gd",
 	"res://addons/local_agents/sim/material/reactions/GeoRecords.gd",
 ]
 
+const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionBalance.gd")
 
-## The live reaction table, composed from every registered domain module. Called once, at ReactionsPass
-## setup, so the per-module `load()` costs nothing on the per-frame path. A module that fails to load is
-## reported and skipped rather than silently dropped — a missing domain would otherwise look like a planet
-## whose chemistry simply stopped, which is exactly the kind of failure this repo has shipped before.
+
+## The live reaction table, composed from every registered domain module and CHECKED before it is returned.
+## Called once, at ReactionsPass setup, so the per-module `load()` and the check cost nothing on the
+## per-frame path. A module that fails to load is reported and skipped rather than silently dropped — a
+## missing domain would otherwise look like a planet whose chemistry simply stopped, which is exactly the
+## kind of failure this repo has shipped before.
+##
+## THE REFUSAL IS DELIBERATELY TOTAL. If any record fails LAReactionBalance, this returns an EMPTY table
+## rather than dropping the offender, and ReactionsPass treats an empty table as fatal and says so. Dropping
+## just the bad record would leave a planet running a chemistry nobody authored, quietly; refusing everything
+## makes a matter-creating record impossible to ship by accident. That is the whole point — a rule that lives
+## only in a comment has already been broken here twice.
 static func records() -> Array:
 	var out: Array = []
+	var labels: PackedStringArray = PackedStringArray()
 	for path in RECORD_MODULES:
 		var scr: GDScript = load(path)
 		if scr == null:
 			push_error("LAMaterialReactions3D: record module missing: " + path)
 			continue
-		out.append_array(scr.records())
+		var domain: Array = scr.records()
+		for i in range(domain.size()):
+			labels.append("%s record %d" % [path.get_file(), i])
+		out.append_array(domain)
+	var violations: PackedStringArray = BalanceScript.check_all(out, labels)
+	if not violations.is_empty():
+		for v in violations:
+			push_error("REACTION BALANCE VIOLATION — " + v)
+		push_error("LAMaterialReactions3D: %d violation(s); the reaction table is REFUSED. " % violations.size()
+			+ "A record that creates or destroys matter does not run here. Fix the record (or declare the "
+			+ "substance it moves in LAReactionBalance.composition()) and try again.")
+		return []
 	return out

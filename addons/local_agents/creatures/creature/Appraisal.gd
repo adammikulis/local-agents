@@ -62,7 +62,7 @@ static func effective_display(c) -> float:
 	if gene <= 0.0:
 		return 0.0
 	var health_frac: float = clampf(float(c.get("health")) / maxf(float(c.get("max_health")), 1.0), 0.0, 1.0)
-	var vigor: float = clampf(float(c.get("energy")) / maxf(float(c.get("max_energy")), 1.0), 0.0, 1.0)
+	var vigor: float = clampf(float(c.get("energy")) / maxf(float(c.get("max_energy")), 1.0e-9), 0.0, 1.0)
 	var condition: float = 0.35 + 0.65 * (health_frac * vigor)     # never fully zero, but poor condition dulls it hard
 	var sex_factor: float = 1.0 if bool(c.get("is_male")) else FEMALE_DISPLAY_FACTOR
 	return clampf(gene * condition * sex_factor, 0.0, 1.0)
@@ -77,9 +77,24 @@ static func display_upkeep(c, delta: float) -> float:
 	var gene: float = _display_gene(c)
 	if gene <= 0.0:
 		return 0.0
-	return DISPLAY_UPKEEP_PER_SEC * gene * gene * delta      # quadratic → a very bright signal is disproportionately costly
+	# The cost is a MULTIPLE OF THE ANIMAL'S OWN MAINTENANCE REQUIREMENT (LACreatureRespiration), not a flat
+	# rate. It used to be an absolute 1.6/sec for every creature in the game — which is a fraction of a
+	# villager's budget and many times an insect's entire body, so the ornament was free for the large and
+	# instantly lethal for the small. An honest signal has to cost the SAME SHARE of the bearer's budget
+	# whatever it weighs; that is what makes it comparable between suitors, and it is why the handicap
+	# principle works at every body size. Quadratic in the gene: a very bright signal is disproportionately
+	# costly, which is what keeps it honest at the top of the range.
+	return LACreatureRespiration.maintenance_rate(c) * DISPLAY_UPKEEP_OVER_MAINTENANCE * gene * gene * delta
 
-const DISPLAY_UPKEEP_PER_SEC: float = 1.6
+const DISPLAY_UPKEEP_OVER_MAINTENANCE: float = 0.9
+
+
+## VIGOR is `energy / max_energy`, and the divide-by-zero guard on the denominator is now 1e-9 rather than
+## 1.0. A floor of 1.0 is invisible while every animal's reserve is ~100 units and silently destroys the
+## measurement once physiology is derived from real body mass: a rabbit's whole reserve is 0.004, so the
+## floor replaced the denominator entirely and every creature in the game read as vigor ~0.004 — a fraction
+## that is supposed to span 0..1 pinned near zero, which flattens mate choice and dominance to noise. A guard
+## against division by zero must be an epsilon, never a plausible-looking value.
 
 
 ## DOMINANCE — how much this creature would win a contest / out-rank a rival. A weighted sum of live phenotype;
@@ -89,7 +104,7 @@ const DISPLAY_UPKEEP_PER_SEC: float = 1.6
 static func dominance(c) -> float:
 	var w: Dictionary = _weights(c)
 	var maturity: float = clampf(float(c.get("age")) / maxf(float(c.get("maturity_age")), 0.001), 0.0, MATURITY_CAP)
-	var vigor: float = float(c.get("energy")) / maxf(float(c.get("max_energy")), 1.0)
+	var vigor: float = float(c.get("energy")) / maxf(float(c.get("max_energy")), 1.0e-9)
 	var competence: float = 0.0
 	if c.has_method("get_cognition"):
 		var cog = c.get_cognition()

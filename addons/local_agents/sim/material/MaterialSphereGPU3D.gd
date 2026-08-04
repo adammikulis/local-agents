@@ -272,9 +272,23 @@ func setup(field) -> void:
 		_zeros(MAX_PLATES * PLATE_STRIDE))
 
 	# Seed channels from the field's CPU state.
+	#
+	# A CPU `.fill()` THAT IS NOT IN THIS LIST NEVER REACHES THE SIMULATION. Every GPU buffer is created
+	# zero-filled, so a channel the field seeds on the CPU but not here simply starts at zero on the device,
+	# and the CPU mirror's value is wiped by the first readback. Two channels were in exactly that state
+	# until 2026-08-03: `moisture` was `.fill(VAPOR_AMBIENT)` in MaterialField3D and had never once been
+	# uploaded, and `co2` had neither a CPU fill nor an upload. Both are here now.
 	_seed("temp", field._temp)
 	_seed("o2", field._o2)
+	_seed("co2", field._co2)            # the atmosphere's carbon — finite, at Earth's measured mole fraction
 	_seed("soil", field._soil)          # initial water table (regolith primed by _compute_regolith)
+	# `moisture` IS DELIBERATELY NOT SEEDED, and the reason is worth the four lines. MaterialField3D used to
+	# `.fill(VAPOR_AMBIENT = 0.3)` it and that fill was never uploaded — so it was dead, and adding it to this
+	# list looked like the obvious fix. It is not: 0.3 per cell over ~123,000 cells is about 37,000 units of
+	# H2O against a whole-planet `h2o_total` of ~7,000, i.e. seeding five times the planet's entire water
+	# budget as vapour. The dead fill is deleted at its source instead. A physically-sized starting humidity
+	# (real air at 15 C and 60% RH is ~1e-4 of a cell of liquid water, which is negligible) needs the
+	# water channel's kg-per-unit convention pinned down first; the atmosphere fills by evaporation meanwhile.
 	_seed_solid()
 	_seed_rock_fill()
 	_seed_regolith()                    # aquifer permeability mask + grain-size field (static)

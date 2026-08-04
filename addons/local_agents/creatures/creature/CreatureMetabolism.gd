@@ -31,7 +31,7 @@ const COMBUST_TEMP: float = 200.0          # °C — organic tissue catches FIRE
 ## why a hot animal seeks a drink and a dehydrated one overheats. Driven off BODY temperature against
 ## LACreatureRespiration's band optimum rather than off a comfort constant, so the temperature that makes an
 ## animal thirsty and the temperature that limits its chemistry are the same number and cannot drift apart.
-const EVAPORATIVE_WATER_COST: float = 0.15
+const EVAPORATIVE_OVER_TURNOVER: float = 0.15
 
 # Breathing (one emergent rule, read in TRUE 3D at the creature's head cell — no 2.5D column, no can_fly):
 # a creature breathes its MEDIUM. LUNGS need breathable air (water OR smoke displacing O2 → can't breathe);
@@ -58,10 +58,17 @@ static func tick(c, delta: float) -> bool:
 	# Thirst drains steadily; dehydration kills like starvation. Drinking (elsewhere) refills it. Left UNSCALED by
 	# evo on purpose: drinking cadence is brain-driven (not compressed), so compressing thirst too would cause a
 	# dehydration die-off at high factors — thirst just becomes a lesser pressure over a compressed life.
-	c.hydration -= c.thirst_rate * delta
+	# WHERE THE WATER GOES: it leaves as vapour (breath, sweat) and as the water in urine, so it is handed to
+	# the field's airborne moisture rather than deleted. Both legs of the animal's water budget are real now —
+	# `LACreatureThirst.drink` empties a puddle to refill this, and H₂O is the substance this project holds up
+	# as its worked example of a closed ledger. Animals were outside it.
+	var lost: float = c.thirst_rate * delta
+	c.hydration -= lost
+	transpire(c, c.global_position, lost)
 	if c.hydration <= 0.0:
 		c.die("thirst")
 		return true
+	LACreatureBodyMass.tick(c)                # a body is worth what it weighs; keep food_value in step
 	# Old-age mortality, driven by the SENESCENCE CURVE (LACreatureSenescence) rather than a hard age cliff:
 	# as the factor rises past prime, the body's reserve (max_energy) shrinks (see the senescence tick) and
 	# frailty mounts, draining health so a worn-out animal dies of "old age" — earlier if it is also stressed
@@ -94,8 +101,23 @@ static func tick_environment(c, pos: Vector3, delta: float) -> bool:
 		return true
 	var over: float = float(c.body_temp) - LACreatureRespiration.band_optimum_c()
 	if over > 0.0:
-		c.hydration -= over * EVAPORATIVE_WATER_COST * delta
+		# EVAPORATIVE LOSS SCALES WITH THE ANIMAL, like every other rate on this body. It was an absolute
+		# 0.15 units per °C per second, which is a trickle to a villager and many times an insect's entire
+		# body water every second once hydration is derived from real body mass. Expressed as a multiple of
+		# the animal's own water turnover it is right at every body size, and it goes to the AIR rather than
+		# nowhere — a panting animal humidifies its own cell, which is what sweating physically does.
+		var shed: float = over * EVAPORATIVE_OVER_TURNOVER * float(c.thirst_rate) * delta
+		c.hydration -= shed
+		transpire(c, pos, shed)
 	return false
+
+
+## Hand `mass` of body water to the field's airborne moisture at `pos`. One place, so no leg of the water
+## budget can quietly forget to do it.
+static func transpire(c, pos: Vector3, mass: float) -> void:
+	if mass <= 0.0 or c._material == null or not c._material.has_method("transpire_at"):
+		return
+	c._material.transpire_at(pos, mass)
 
 
 ## Breathing (emergent, TRUE 3D): a creature breathes its medium at its actual head cell — a LUNG needs

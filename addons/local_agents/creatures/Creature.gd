@@ -38,8 +38,8 @@ var _water_force: Vector3 = Vector3.ZERO     # cached water-current sweep (recom
                                              # at rest; caps top speed + makes conserving energy a top drive so
                                              # animals aren't perpetually running. (0.4: full ATP/glycogen/O₂ chem.)
 # --- body state the respiration reaction runs on (LACreatureRespiration). There is no `metabolism` trait any
-# more: a body's burn rate is its gas-exchange SURFACE times the local oxygen times the temperature band, so
-# it falls out of the already-heritable `size` gene rather than a per-species constant.
+# more: a body's burn rate is its gas-exchange SURFACE times the local oxygen times the temperature band, and
+# that surface is the geometric surface of the species' MEASURED body mass below, not a per-species constant.
 var body_temp: float = 20.0                 # °C of the BODY, not the air. Newton-cools toward ambient with a
                                             # time constant ∝ mass/area, and is raised by the heat its own
                                             # oxidation releases. An ectotherm tracks ambient because its
@@ -54,6 +54,14 @@ var _resp_rate: float = 0.0                 # last tick's REALISED oxidation, pe
                                             # rate. Read by SIM_REPORT to fit the mass-scaling exponent, so the
                                             # allometry is something the run reports rather than something a
                                             # constant asserts.
+
+# --- BODY MASS: the account every transaction with the world is measured in (LACreatureBodyMass) ----------
+# The RATE law is above (surface × oxygen × band). What these carry is the MASS, because a grazing bite, a
+# predator's meal, a carcass and a gestation all have to come out of a real account or the substrate's carbon
+# books cannot close. `mass_kg` is the species' MEASURED body mass, not `size` — see LACreatureBodyMass.
+var mass_kg: float = 0.5                     # real body mass in kilograms (species data; not the `size` gene)
+var structural_mass: float = 0.0             # bone/muscle/organ in simulation mass units (the non-labile half)
+var bite_rate: float = 1.0                   # mass units a mouth can process per second (∝ aerobic capacity)
 
 # --- breathing (emergent: breathe your medium; suffocate out of it). Land animals breathe AIR — submerged
 # past the head, or in O2-depleted smoke, they can't breathe and burn through a per-animal BREATH reserve;
@@ -82,13 +90,17 @@ var gut: float = 0.0                          # biomass currently buffered in th
 var gut_capacity: float = 0.0                 # max gut fill (set at spawn ~ max_energy * CAPACITY_FRAC)
 var gut_waste: float = 0.0                    # indigestible residue awaiting excretion (feeds LACreatureExcretion)
 var microbiome: float = 1.0                   # gut-flora digestive-efficiency scalar (herbivores ferment plants)
+var gut_digestibility: float = 1.0            # mass-weighted digestibility of what is in the gut (LAFood state)
 
 # --- thirst (emergent: drink from the water field or die of dehydration) ---
 # hydration mirrors energy: full at max, drains at thirst_rate, drinking refills, 0 = death.
 var hydration: float = 100.0
 var max_hydration: float = 100.0
 var thirst_rate: float = 1.0
-const DRINK_RATE: float = 45.0             # hydration/sec restored while drinking
+# `DRINK_RATE` is GONE from here. It was a flat 45.0/sec copied into THREE files (this one,
+# LACreatureThirst, LACreatureThink) — more than a mouse's entire body water per second and a trickle to a
+# whale — and two of the three copies refilled hydration without emptying any water cell at all. There is one
+# drinking path now, LACreatureThirst.drink, and it scales with the animal's own water turnover.
 const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupts other drives
 
 # Temperature-comfort + drowning constants moved to LACreatureMetabolism (which owns that survival tick):
@@ -192,7 +204,8 @@ var _dead: bool = false
 var _shadow: RigidBody3D = null
 var _settle_t: float = 0.0
 var _decay_age: float = 0.0
-var _carrion: float = 0.0                     # remaining meat value once a carcass
+var _carrion: float = 0.0                     # meat MASS left on the carcass (drawn from the live body at death)
+var _carrion_initial: float = 0.0             # what the body weighed when it died — the rot/shrink denominator
 var _rot_overlay: StandardMaterial3D = null   # shared green->black decay tint on the model
 
 var _heading: Vector3 = Vector3.FORWARD
@@ -316,6 +329,7 @@ var _nest_node = null                            # LANest (the placed home site)
 # all logic lives in the module. `pregnant` gates re-conception; `_mate` is the captured partner used at birth.
 var pregnant: bool = false
 var _gestation_t: float = 0.0                    # seconds of gestation remaining while pregnant
+var _gestation_paid: float = 0.0                 # body mass already invested in the young (recovered on resorption)
 var _mate = null                                 # LocalAgentCreature partner captured at conception (for the birth genome/bond)
 var _repro_cd: float = 0.0                       # seconds until this creature may conceive again (post-birth / pair refractory)
 
@@ -603,10 +617,9 @@ func _physics_process(delta: float) -> void:
 	_sense_mult = 1.0
 	if _ecology != null and _ecology.has_method("is_night_at") and _ecology.is_night_at(global_position):
 		_sense_mult = 1.4 if nocturnal else 0.7
-	# Ambient groundcover grazing: a herbivore on vegetated ground draws a steady subsistence feed from the shared
-	# biomass field (grass/algae) into its gut, so grassland itself feeds it and pure grazers don't starve amid
-	# plenty — the land twin of the aquatic ambient-biomass grazers. Run BEFORE digestion so it is digested this
-	# same frame. Barren/frozen ground (biomass≈0) yields nothing, keeping cold/desert a real pressure.
+	# Grazing: a plant-eater on vegetated ground crops the field's real `biomass` channel at its feet, and the
+	# pasture is DEBITED by what the mouth takes. Run BEFORE digestion so it is digested this same frame. Barren,
+	# frozen, flooded or already-grazed ground yields nothing — which is what makes starvation reachable.
 	LACreatureDigestion.ambient_graze(self, global_position, delta)
 	# Digestion: the gut converts buffered food into energy (+ pending feces) this frame — run BEFORE the
 	# metabolism burn/starvation check so a creature that just ate is credited its digested energy and won't
@@ -1014,6 +1027,23 @@ func food_profile() -> Dictionary:
 	return LACreatureRagdoll.food_profile(self)
 
 
-# Remaining meat value in the carcass.
+# Remaining meat mass in the carcass.
 func nutrition() -> float:
 	return _carrion
+
+
+# --- body-mass contract (the trophic ledger; see LACreatureBodyMass) -----------------------------
+# What this body weighs right now: structural tissue + labile reserve + gut contents. A predator's meal, a
+# carcass and a gestation are all measured in this, so nothing can gain mass a body did not have.
+func body_mass() -> float:
+	return _carrion if _dead else LACreatureBodyMass.body_mass(self)
+
+
+# A predator (or a scavenger) takes up to `want` of this body and gets back what was actually there. On a live
+# animal it spends gut, then reserve, then structural tissue; on a carcass it strips the remaining meat. This
+# is what makes a kill conserve: the predator's gain and the carcass left behind add up to the prey's live
+# mass, instead of the old path banking `food_value * 0.7` and THEN minting a full-size carcass on top.
+func draw_body_mass(want: float) -> float:
+	if _dead:
+		return LACreatureRagdoll.feed(self, want)
+	return LACreatureBodyMass.draw(self, want)

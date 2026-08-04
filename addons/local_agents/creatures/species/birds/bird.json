@@ -1,6 +1,5 @@
 {
   "species": "bird",
-  "thermogenesis": 0.85,
   "diet": "herbivore",
   "speed": 6.5,
   "size": 0.4,
@@ -19,7 +18,6 @@
   "leader_loyalty": 0.0,
   "hierarchy": "family",
   "pop_cap": 60,
-  "thirst_rate": 0.6,
   "flock_cohesion": 0.9,
   "flock_alignment": 1.2,
   "flock_separation": 0.7,
@@ -36,5 +34,7 @@
     "vigor": 0.5,
     "maturity": 0.6,
     "display": 2.5
-  }
+  },
+  "mass_kg": 0.028,
+  "thermogenesis": 0.85
 }

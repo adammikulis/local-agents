@@ -58,17 +58,31 @@ const INITIAL_TEMP: float = 15.0
 # is ever held at a constant temperature. add_magma_source seeds it. Sphere-only. The model, and the
 # reason a temperature boundary could never have worked, live in LAMaterialFieldGeotherm3D; this hub
 # only forwards.
-# Ambient atmospheric oxygen every OPEN cell is seeded to (LAMaterialGas3D relaxes surface cells back toward
-# it; combustion draws it down). MUST match LAMaterialGas3D.O2_AMBIENT.
+# THE ATMOSPHERE. Every open cell is seeded with real air, once, at world build, and nothing tops it up
+# afterwards — the planet was assembled with an atmosphere and rearranges it from then on, which is what a
+# planet does. One unit of a gas channel is DEFINED as the amount of O₂ in a cell of ambient air, so
+# O2_AMBIENT stays 1.0 and every existing O₂ threshold (CreatureMetabolism.BREATHE_MIN_O2 0.3,
+# fire_sphere3d O2_MIN 0.35) keeps meaning what it meant. Everything else in the air follows from its
+# measured mole fraction, with nothing left to tune.
+#
+# WHAT THIS REPLACED (2026-08-03). `_co2` was `resize()`d with NO `.fill()` — a planet whose air contained no
+# carbon at all — and both gases were then held near a target by reaction records R11/R12, which used a rate
+# model with NO REACTANT: the kernel skipped the debit and ran only the product credit. Carbon entered this
+# world at +6.5 units per field step and `carbon_total` had grown from 720 to about 5820 over 600 frames.
+# Those records are deleted. Note the honest consequence: CO₂ per cell is now 0.00200 rather than the 0.05
+# "ambient trace" the deleted record aimed at, because 0.05 was never a measurement of anything and
+# 419 ppm / 20.946 % is.
 const O2_AMBIENT: float = 1.0
-# Ambient RELATIVE humidity every OPEN cell is seeded to — the starting moisture the terminator condenses into
-# cloud/fog on the cold (night) side. The seed is now this fraction of the LOCAL saturation
-# (LAPhysical.saturation_mass_fraction at the seed temperature) rather than an absolute mass: 0.80 is the
-# measured global mean near-surface relative humidity (~80% over ocean, ~70% over land). It was
-# `VAPOR_AMBIENT = 0.3` — an ABSOLUTE 0.3 of a cell full of liquid water per air cell, which is fifteen
-# thousand times saturation, so every cell in the world began as dense fog and the run spent its first
-# hundred steps raining that out.
-const AMBIENT_RELATIVE_HUMIDITY: float = 0.80
+const CO2_AMBIENT: float = O2_AMBIENT * (LAPhysical.AIR_MOLE_FRAC_CO2 / LAPhysical.AIR_MOLE_FRAC_O2)
+# VAPOR_AMBIENT IS DELETED. It claimed to be "the ambient atmospheric humidity every OPEN cell is seeded to",
+# and it seeded nothing: the fill it drove was never uploaded to the GPU (see _alloc_channels and
+# MaterialSphereGPU3D's seed list), so for the whole life of this substrate the atmosphere has started dry
+# and filled by evaporation. The value was also wrong by three orders of magnitude — 0.3 per cell is five
+# times the planet's entire water budget in vapour — so the fill could never simply be switched on.
+# (2026-08-03 merge note: the 0.4-dev hydrology branch replaced the constant with a relative-humidity seed,
+# `0.80 * LAPhysical.saturation_mass_fraction(INITIAL_TEMP)`. That seed was still dead for the same reason —
+# `moisture` is not in MaterialSphereGPU3D's `_seed` list on EITHER branch — so it is not carried across. The
+# physically-sized starting humidity it was reaching for is recorded there, waiting on the kg-per-unit pin.)
 # Frozen H₂O (snowpack/ice) — the third phase of the ONE conserved water substance (liquid `_water`, airborne
 # `_moisture`, frozen `_snow`). GPU-owned: the snowice deposition kernel + freeze/melt reaction records (R21/R22)
 # grow and thaw it; read back for queries/telemetry only. SNOW_PRESENT = depth that counts a cell snow-covered;
@@ -219,12 +233,14 @@ var _ledger = null                                       # LAMaterialFieldLedger
 var _channels = null                                     # LAMaterialFieldChannels3D — per-cell gas/biomass/phase reads
 var _report_mod = null                                   # LAMaterialFieldReport3D — SIM_REPORT telemetry snapshot
 var _regolith_mod = null                                 # LAMaterialFieldRegolith3D — aquifer rock: mask, grain size, porosity
+var _biota = null                                        # LAMaterialFieldBiota3D — the living-body <-> field matter seam
 const AtmosScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldAtmos3D.gd")
 const LedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLedger3D.gd")
 const ChannelsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldChannels3D.gd")
 const ReportScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldReport3D.gd")
 const GeothermScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldGeotherm3D.gd")
 const RegolithScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldRegolith3D.gd")
+const BiotaScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldBiota3D.gd")
 
 
 func _init() -> void:
@@ -240,6 +256,8 @@ func _init() -> void:
 	_report_mod.setup(self)
 	_regolith_mod = RegolithScript.new()
 	_regolith_mod.setup(self)
+	_biota = BiotaScript.new()
+	_biota.setup(self)
 
 
 ## Wire the real scene sun (DirectionalLight3D); the heat module reads its energy + angle for solar input.
@@ -441,9 +459,14 @@ func _alloc_channels() -> void:
 	_temp.fill(INITIAL_TEMP)
 	_moisture = PackedFloat32Array()
 	_moisture.resize(_cell_count)
-	# Seed the sky at a real RELATIVE humidity of the saturation at the seed temperature, not at an absolute
-	# mass — see AMBIENT_RELATIVE_HUMIDITY. Every cell starts at INITIAL_TEMP, so one evaluation covers them all.
-	_moisture.fill(AMBIENT_RELATIVE_HUMIDITY * LAPhysical.saturation_mass_fraction(INITIAL_TEMP))
+	# THE `.fill(VAPOR_AMBIENT)` THAT WAS HERE WAS DEAD, AND ITS VALUE WAS WRONG BY THREE ORDERS OF MAGNITUDE.
+	# Dead: `moisture` was never in MaterialSphereGPU3D's GPU seed list, so the device buffer started at zero
+	# and the first readback overwrote this mirror — the fill had never once reached the simulation. Wrong:
+	# 0.3 per cell over ~123,000 cells is ~37,000 units of H2O against a whole-planet `h2o_total` of ~7,000,
+	# so "fixing" the dead fill by uploading it would have seeded five times the planet's entire water budget
+	# as vapour. Real air at 15 C and 60% relative humidity holds about 1e-4 of a cell of liquid water. The
+	# atmosphere starts dry and fills by evaporation, which is measurable within the first steps of a run.
+	_moisture.fill(0.0)
 	_lava = PackedFloat32Array()
 	_lava.resize(_cell_count)
 	# Soil water reservoir (water table): starts BONE DRY (0) everywhere; rain/rivers wet it over the run.
@@ -456,14 +479,17 @@ func _alloc_channels() -> void:
 	_fuel.resize(_cell_count)
 	_fire = PackedFloat32Array()
 	_fire.resize(_cell_count)
-	# Oxygen starts at ambient in every cell (solid cells are ignored by the gas/fire loops); the sky
-	# exchange keeps open surface cells topped up, combustion draws burning cells down.
+	# THE AIR, seeded once and finite thereafter. Both gases are filled at Earth's measured composition; the
+	# sky-exchange records that used to top them up from nothing are deleted. Solid cells are ignored by the
+	# gas loops. (The `.fill` on `_co2` is the whole fix for "the planet had no carbon in its air": the line
+	# was a bare `resize()` immediately below a `_o2.fill()`, and nobody noticed for months because a
+	# reaction record was manufacturing the carbon anyway.)
 	_o2 = PackedFloat32Array()
 	_o2.resize(_cell_count)
 	_o2.fill(O2_AMBIENT)
-	# CO₂ starts at a clean-air trace of 0; combustion/decay raise it, plants + the sky vent draw it back down.
 	_co2 = PackedFloat32Array()
 	_co2.resize(_cell_count)
+	_co2.fill(CO2_AMBIENT)
 	# Detritus + fungus start empty; carcasses/ash deposit detritus, fungus grows on it (decomposer loop).
 	_detritus = PackedFloat32Array()
 	_detritus.resize(_cell_count)
@@ -1165,13 +1191,12 @@ func biomass_at(x: float, y: float, z: float) -> float:
 func biomass_total() -> float:
 	return _channels.biomass_total()
 # Emergent DECOMPOSER loop (fungus_sphere3d.glsl): dead matter (detritus) → fungus → CO₂ + soil fertility.
-## Deposit dead decomposable matter at the surface cell under a world point (a rotting carcass, wildfire ash).
-func deposit_detritus(world_pos: Vector3, amount: float) -> void:
-	_channels.deposit_detritus(world_pos, amount)
-## Oxidise `requested` units of a body's own biomass against the LOCAL air — R20's chemistry, applied inside an
-## animal. Returns what the cell's oxygen could actually support (the aerobic Liebig cap).
-func respire_at(world_pos: Vector3, requested: float) -> float:
-	return _channels.respire_at(world_pos, requested)
+# `deposit_detritus` MOVED to the biota block at the end of this file, because the version that lived here
+# never reached the device: it wrote `_f._detritus[c] += amount`, a mirror uploaded once at seed and
+# overwritten by every readback. See LAMaterialFieldBiota3D.litter. The same is true of the `respire_at` that
+# lived here on the 0.4-dev side: it wrote `_f._o2` / `_f._co2` / `_f._detritus`, all three of which the next
+# GPU readback overwrites wholesale (MaterialFieldSphereStep3D). The surviving `respire_at` is the biota one
+# at the end of this file, which parks the debit and the credit on the device injection queue.
 # Per-cell debug readers for the phase channels (mirror biomass_at/co2_at): molten mineral, bedrock
 # fraction, and pre-lightning electrification. Pure reads for the DebugPanel field-view heatmaps.
 func lava_at(x: float, y: float, z: float) -> float:
@@ -1226,3 +1251,35 @@ func rebuild_surface() -> void:
 ## per frame.
 func report() -> Dictionary:
 	return _report_mod.report()
+
+
+# --- LIVING BODIES <-> FIELD (LAMaterialFieldBiota3D) ---------------------------------------------------
+# Thin forwarders only. Every one of these used to be a hole in the ledger: grazing read a THERMOMETER and
+# took nothing, respiration was a boolean test that consumed no oxygen, drinking emptied no puddle, and the
+# detritus return wrote a mirror the device never sees. The bodies live in the biota module.
+## Take up to `want` of the standing crop under `pos`; returns what the pasture actually had.
+func graze_biomass(pos: Vector3, want: float) -> float:
+	return _biota.graze(pos, want) if _biota != null else 0.0
+## Take up to `want` H₂O out of the world at `pos` (surface water, then the groundwater underfoot).
+func drink_water(pos: Vector3, want: float) -> float:
+	return _biota.drink(pos, want) if _biota != null else 0.0
+## Oxidise `mass` of body tissue at `pos`: debits O₂, credits CO₂ one for one, and warms the cell.
+func respire_at(pos: Vector3, mass: float) -> float:
+	return _biota.respire(pos, mass) if _biota != null else 0.0
+## Return `mass` of body tissue to the soil as litter (a carcass, a dropping, a sunken fish).
+func deposit_detritus(pos: Vector3, mass: float) -> void:
+	if _biota != null:
+		_biota.litter(pos, mass)
+## Body water leaving as vapour (breath, sweat, urine) into the air at `pos`.
+func transpire_at(pos: Vector3, mass: float) -> void:
+	if _biota != null:
+		_biota.transpire(pos, mass)
+## Accounting only: body mass taken from a NODE (a plant, a carcass) rather than from a field channel.
+func note_biota_node_intake(mass: float) -> void:
+	if _biota != null:
+		_biota.note_node_intake(mass)
+## Accounting only: a body appeared with `mass` that no field channel paid for (see the biota module's note on
+## founders versus runtime spawns — a BIRTH is not one of these, the mother is debited for it).
+func note_biota_spawn(mass: float, founder: bool) -> void:
+	if _biota != null:
+		_biota.note_spawn(mass, founder)

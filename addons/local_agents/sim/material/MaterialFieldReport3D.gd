@@ -14,7 +14,7 @@ const PhotoStatsScript: GDScript = preload("res://addons/local_agents/sim/materi
 const EnergyBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd")
 const ExtremesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldExtremes3D.gd")
 const ClimateSwingScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd")
-const MassBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMassBudget3D.gd")
+const ElementInventoryScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldElementInventory3D.gd")
 const MineralBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralBudget3D.gd")
 
 ## Process frames between recomputes of the O(cells) instrument block. See `_heavy_block()` for why a gate is
@@ -27,7 +27,7 @@ var _photo = null                                        # LAMaterialFieldPhotoS
 var _energy = null                                       # LAMaterialFieldEnergyBudget3D — absorbed/emitted/net radiation
 var _extremes = null                                     # LAMaterialFieldExtremes3D — min/max-ever register
 var _swing = null                                        # LAMaterialFieldClimateSwing3D — diurnal + seasonal range
-var _mass = null                                         # LAMaterialFieldMassBudget3D — carbon/oxygen/fertility ledgers
+var _mass = null                                         # LAMaterialFieldElementInventory3D — carbon/oxygen/fertility ledgers
 var _mineral = null                                      # LAMaterialFieldMineralBudget3D — the five-phase rock ledger
 var _heavy_cache: Dictionary = {}                        # last computed instrument block
 var _heavy_frame: int = -1_000_000                       # process frame it was computed on
@@ -42,7 +42,7 @@ func setup(field) -> void:
 	_extremes = ExtremesScript.new()
 	_swing = ClimateSwingScript.new()
 	_swing.setup(field)
-	_mass = MassBudgetScript.new()
+	_mass = ElementInventoryScript.new()
 	_mass.setup(field)
 	_mineral = MineralBudgetScript.new()
 	_mineral.setup(field)

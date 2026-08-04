@@ -13,9 +13,11 @@
 //     thin rock SHELL, while an INTERIOR cell (surrounded by hot lava = zero exposed faces) stays > 800 and
 //     molten — so the core stays liquid long enough to DRAIN downhill (lava_flow drains into non-solid cells),
 //     leaving a hollow inside the solidified flow: a LAVA TUBE. A cell fully enclosed by SOLID rock (no open
-//     face at all) cools toward a HOT geothermal ambient instead of the cold air ambient, so a buried core does
-//     not flash-freeze — it stays molten until it drains (or, if truly sealed, freezes only slowly). We only
-//     change WHERE/how fast lava sheds heat; we never INJECT heat (the update can only ever lower temperature).
+//     face at all) is left ENTIRELY ALONE here — it radiates to nothing, so its only heat loss is conduction
+//     into the surrounding rock, which heat_sphere3d.glsl performs conservatively. We only change WHERE/how
+//     fast EXPOSED lava sheds heat; we never INJECT heat (the update can only ever lower temperature).
+//     *(2026-08-03: the buried case used to cool toward an invented HOT_ROCK_AMBIENT = 780 C with no cell
+//     receiving the heat, which DELETED HEAT at every buried lava cell every step. See the constant block.)*
 // Neighbour reads use the precomputed INDEX TABLE nbr[idx*6 + d] (slot 0 = inward/down, 1-4 lateral, 5 =
 // outward/up; -1 = boundary). Constants copied EXACTLY from MaterialLava3D.gd.
 
@@ -65,7 +67,9 @@ const float LAVA_COOL_RATE = 0.05;
 // truly-sealed pocket still eventually freezes (no immortal heat source) but SLOWLY (base rate), giving a
 // buried core time to drain before it hardens.
 const float EXPOSURE_GAIN = 1.0;
-const float HOT_ROCK_AMBIENT = 780.0;
+// HOT_ROCK_AMBIENT = 780.0 used to live here — the temperature a fully buried lava cell was cooled toward.
+// Deleted 2026-08-03: it was a prescribed target with no cell on the receiving end, so it DELETED HEAT every
+// step. A buried cell now cools only by conduction, in heat_sphere3d.glsl, which gives the heat to the rock.
 
 void main() {
 	// One invocation per ACTIVE cell. `active_args[3]` is the compacted list length; the trailing invocations
@@ -112,15 +116,27 @@ void main() {
 		}
 	}
 
-	// A cell with NO open face at all is buried in solid rock: cool toward the hot geothermal ambient (stays
-	// molten to drain), NOT the cold air ambient. Otherwise cool toward the air ambient, radiating.
-	float ambient = (open_faces == 0) ? HOT_ROCK_AMBIENT : LAVA_AMBIENT;
-	// Newtonian cool, its rate scaled UP by exposed-face count (shell-first). A deep pool (large d) retains heat
-	// longer than a thin crust; a live vent re-heats to 1150C via re-emplacement, so the active vent stays molten
-	// while a stranded flow's rind hardens first.
+	// A CELL BURIED IN ROCK DOES NOT COOL HERE AT ALL. It has no open face, so it radiates to nothing; the only
+	// way its heat leaves is by CONDUCTION into the rock around it, and heat_sphere3d.glsl already does that
+	// with the real thermal conductivities — conserving, because the rock it warms gains exactly what the lava
+	// loses.
+	//
+	// WHAT THIS REPLACES: a buried cell used to be cooled toward HOT_ROCK_AMBIENT = 780 C, a temperature
+	// invented so that "a truly-sealed pocket still eventually freezes (no immortal heat source) but SLOWLY".
+	// Nothing anywhere received that heat, so THIS DELETED HEAT, every step, at every buried lava cell. It was
+	// also doing conduction's job badly: a sealed pocket's real fate depends on the rock around it, which the
+	// thermal kernel knows and this one does not. Deleting the target does not make the pocket immortal — it
+	// hands it to the kernel that can cool it honestly.
+	if (open_faces == 0) {
+		return;
+	}
+	// An EXPOSED cell does radiate: its open faces see air and sky, and that outgoing radiation is a genuine
+	// loss from the planet's surface energy budget, which is why this leg stays. Newtonian cool toward the air
+	// ambient, its rate scaled UP by exposed-face count (shell-first). A deep pool (large d) retains heat longer
+	// than a thin crust; a live vent re-heats via re-emplacement, so the active vent stays molten while a
+	// stranded flow's rind hardens first.
 	float cool_k = LAVA_COOL_RATE * clamp(EMPLACE_DEPTH / d, 0.25, 3.0) * (1.0 + EXPOSURE_GAIN * float(exposed));
-	// Update can ONLY ever lower temperature (min with the current value guards against injecting heat when the
-	// buried ambient sits above the cell's temperature); clamp at the ambient floor when cooling.
-	float cooled = max(ambient, temp[g] - cool_k * (temp[g] - ambient));
+	// Update can ONLY ever lower temperature; clamp at the ambient floor when cooling.
+	float cooled = max(LAVA_AMBIENT, temp[g] - cool_k * (temp[g] - LAVA_AMBIENT));
 	temp[g] = min(temp[g], cooled);
 }

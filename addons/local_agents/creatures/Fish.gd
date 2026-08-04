@@ -86,7 +86,20 @@ const BREATH_REFILL: float = 25.0     # breath reserve refilled per sec while in
 # starves, so seeding those populations (bug/shrimp/turtle/crab/jellyfish) behaves exactly as before. ---
 var energy: float = 60.0
 var max_energy: float = 60.0
-var metabolism: float = 0.5           # energy burned per second (baseline swim cost)
+var metabolism: float = 0.5           # THIS FRAME's realised burn (aerobic capacity x the temperature band)
+# --- BODY MASS + THE SAME RESPIRATION A LAND ANIMAL RUNS ON ----------------------------------------------
+# A swimmer is the same physics: a MEASURED body mass (LACreatureBodyMass) sets the account, and the burn is
+# what its gas-exchange surface can oxidise at the water's temperature (LACreatureRespiration). There is no
+# `thermal_strategy` here and no Q10 table — a fish's body temperature IS the water's, so its rate simply
+# rides the reaction's own temperature band, which is what being an ectotherm consists of.
+var mass_kg: float = 0.05             # real body mass in kilograms (species data)
+var structural_mass: float = 0.0      # non-labile tissue; what a sunken body still weighs
+var respiratory_capacity: float = 1.0 # gill surface packed into the body's area (the land animals' gene)
+var aerobic_capacity: float = 0.5     # what the gills and the water could support per second, before the band
+var bite_rate: float = 1.0            # mass units a mouth can process per second
+var thermal_band: float = 1.0         # 0..1 reaction rate at the water temperature; also caps swim speed
+var gut: float = 0.0                  # ingested mass awaiting assimilation (bounds a meal to the animal's gut)
+var gut_waste: float = 0.0            # kept so LACreatureBodyMass.body_mass reads one shape for every animal
 var hungry_at: float = 0.6            # forage urgently once energy drops below this fraction of max
 # Fish live IN water, so they never thirst — hydration is kept full so the SHARED cognition reward math (which
 # weighs energy + hydration) sees zero thirst pressure. Present so the reused stack needs no per-fish branch.
@@ -134,7 +147,6 @@ func setup(_terrain, _mat_field, _config: Dictionary) -> void:
 	color = config.get("color", color)
 	sense_radius = float(config.get("sense_radius", sense_radius))
 	maturity_age = float(config.get("maturity_age", maturity_age))
-	food_value = float(config.get("food_value", food_value))
 	max_age = float(config.get("max_age", max_age))
 	# Habitat band + presentation, all config — never a per-species branch.
 	salinity_min = float(config.get("salinity_min", salinity_min))
@@ -154,10 +166,18 @@ func setup(_terrain, _mat_field, _config: Dictionary) -> void:
 	# Fragile: HP scales gently with size, but fish die easily to a strike near the bolt.
 	max_health = float(config.get("max_health", 8.0 + size * 20.0))
 	health = max_health
-	# Energy / hunger + predator flight + kin (all config-driven; sensible defaults keep the base web fed).
-	max_energy = float(config.get("max_energy", max_energy))
+	# ONE MEASURED BODY MASS drives the swimmer's physiology exactly as it drives a land animal's — Kleiber for
+	# the burn, mass for the reserve, and the ectotherm scaling for everything but the cetacean. The hand-fitted
+	# `max_energy` / `metabolism` / `food_value` numbers are gone from the aquatic data too.
+	mass_kg = LACreatureBodyMass.mass_kg(config)
+	respiratory_capacity = float(config.get("respiratory_capacity", respiratory_capacity))
+	structural_mass = LACreatureBodyMass.structural(config)
+	max_energy = LACreatureBodyMass.reserve(config)
 	energy = max_energy
-	metabolism = float(config.get("metabolism", metabolism))
+	aerobic_capacity = LACreatureRespiration.capacity_rate(self)
+	metabolism = aerobic_capacity
+	bite_rate = LACreatureBodyMass.bite_rate(self)
+	food_value = LACreatureBodyMass.body_mass(self)
 	hungry_at = float(config.get("hungry_at", hungry_at))
 	flees_from = PackedStringArray(config.get("flees_from", PackedStringArray()))
 	family_id = int(config.get("family_id", get_instance_id()))
@@ -177,6 +197,11 @@ func setup(_terrain, _mat_field, _config: Dictionary) -> void:
 	_heading = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0).normalized()
 	if _heading == Vector3.ZERO:
 		_heading = Vector3.FORWARD
+	# A BODY APPEARED: register its mass with the field's biota ledger (swimmers are always spawner-made —
+	# there is no aquatic gestation path — so this is never a birth being double-counted).
+	if material != null and material.has_method("note_biota_spawn"):
+		material.note_biota_spawn(LACreatureBodyMass.body_mass(self),
+			int(Engine.get_physics_frames()) <= LACreatureBodyMass.FOUNDING_FRAMES)
 
 
 # --- shared cognition wiring (mirrors LocalAgentCreature so the ecology injects the same way) ---------------
@@ -458,16 +483,33 @@ func _build_model() -> void:
 			anim.play(clip)
 
 
-# A thrown rock / bite killed me, or I aged out.
+# A thrown rock / bite killed me, or I aged out. THE BODY SINKS AND ROTS; it is not deleted.
+#
+# `die()` used to free the node with no carcass and no litter, so every dead swimmer took its whole mass out of
+# the world. A fish has no ragdoll carcass node (it is not worth one), but the matter still has to go
+# somewhere: whatever is left of the body after a predator's bite is handed straight to the field's decomposer
+# loop as detritus at the spot it died, which is what a sinking body does.
 func die(_cause: String = "", _impulse: Vector3 = Vector3.ZERO) -> void:
 	# `_impulse` is accepted (and ignored) so a meteor's die(cause, impulse) call doesn't crash on fish.
 	if _dying:
 		return
 	_dying = true
 	LASimReport.event("death", {"cause": _cause, "species": species})
+	var remains: float = LACreatureBodyMass.body_mass(self)
+	if remains > 0.0 and material != null and material.has_method("deposit_detritus"):
+		material.deposit_detritus(global_position, remains)
+	structural_mass = 0.0
+	energy = 0.0
+	gut = 0.0
 	if material != null and material.has_method("splash"):
 		material.splash(global_position, 0.6)
 	queue_free()
+
+
+# The trophic contract land creatures expose, so a predator's bite is drawn out of this body rather than
+# invented from a `food_value` number. Spends gut, then reserve, then structural tissue.
+func draw_body_mass(want: float) -> float:
+	return LACreatureBodyMass.draw(self, want)
 
 
 func on_struck() -> void:
@@ -534,24 +576,61 @@ func _physics_process(delta: float) -> void:
 	if material == null:
 		return
 
-	# Basking species haul out onto the beach and rest at the surface for a spell (turtles/crabs).
+	var pos: Vector3 = global_position
+	# METABOLISM — EVERY SWIMMER, EVERY FRAME, INCLUDING A BASKING ONE. (The basking early-return used to sit
+	# above this, so a hauled-out turtle skipped the whole energy budget as well; resting is cheaper than
+	# swimming, it is not free.) It used to be gated on `if not preys_on.is_empty()`, so a
+	# swimmer with an empty prey list (bug, shrimp, jellyfish, turtle, crab — about 56 individuals in a default
+	# sandbox) NEVER BURNED A JOULE and could never starve: locomotion with no fuel. The comment rationalised it
+	# as "grazes ambient biomass", but no graze happened anywhere in this file — nothing was consumed and
+	# nothing was produced. Those animals now do BOTH halves for real: they burn like everything else, and they
+	# crop the field's actual `biomass` in their own cell through the same seam a land grazer uses.
+	#
+	# The burn is thermal too. A fish is an ECTOTHERM: its body temperature is the water's, so its rate is the
+	# reaction's own temperature band read at the water it is in — zero at the freezing point of cell water and
+	# zero at protein denaturation, both measured properties of matter (LAPhysical). Cold water genuinely slows
+	# a fish's metabolism instead of costing it energy, and past either edge the chemistry stops and it dies.
+	var water_c: float = 20.0
+	if material != null and material.has_method("temp_at"):
+		water_c = float(material.temp_at(pos))
+	thermal_band = LACreatureRespiration.temp_band(water_c)
+	metabolism = aerobic_capacity * thermal_band
+	var burned: float = metabolism * delta
+	energy -= burned
+	if burned > 0.0 and material != null and material.has_method("respire_at"):
+		material.respire_at(pos, burned)         # O₂ in, CO₂ out — a fish breathes the water it swims in
+	if energy <= 0.0:
+		die("starved")
+		return
+	if thermal_band <= 0.0:
+		# Past an edge of the band the reaction cannot run at all. Which edge names the cause; it is one
+		# mechanism, not two rules with two thresholds.
+		die("hyperthermia" if water_c > LACreatureRespiration.band_optimum_c() else "hypothermia")
+		return
+	# GRAZE: a filter feeder or a grazer strains the standing crop out of the water at its own cell. Same call,
+	# same debit, same shortfall accounting as a rabbit cropping grass — a whale and a rabbit are one rule, and
+	# `LACreatureDigestion.DIETS_THAT_GRAZE` is the one place that says which diets do it.
+	#
+	# GATED ON DIET, NOT ON AN EMPTY PREY LIST. Keying it on `preys_on.is_empty()` inferred the feeding mode
+	# from an accident of the data: the whale declares `"diet": "filter_feeder"` AND `"preys_on": ["shrimp"]`,
+	# so a non-empty list meant the largest animal on the planet never filtered anything — while its Kleiber
+	# burn made it, with the villagers, 44% of the whole fauna's metabolic demand. A species says what it eats;
+	# the code must not deduce that from a different field.
+	if LACreatureDigestion.DIETS_THAT_GRAZE.has(diet) and material != null and material.has_method("graze_biomass"):
+		var room: float = maxf(0.0, max_energy - energy)
+		if room > 0.0:
+			var got: float = material.graze_biomass(pos, minf(bite_rate * delta, room))
+			energy = minf(max_energy, energy + got)
+	food_value = LACreatureBodyMass.body_mass(self)   # a body is worth what it weighs
+
+	# Basking species haul out onto the beach and rest at the surface for a spell (turtles/crabs). Placed AFTER
+	# the energy budget so a basking animal still metabolises, breathes and can starve.
 	_bask_cd -= delta
 	if _bask_timer > 0.0:
 		_bask_timer -= delta
 		state = "bask"
 		return
 
-	# METABOLISM: a forager (non-empty preys_on) burns energy every frame and STARVES at empty — its hunger is
-	# what drives the forage cascade below, and eating prey (_eat_prey) refills it. The base of the web
-	# (grazers/filter feeders — empty preys_on) grazes ambient biomass, so it stays fed and its numbers are
-	# bounded only by predation/age exactly as before this change (no new starvation on the existing populations).
-	if not preys_on.is_empty():
-		energy -= metabolism * delta
-		if energy <= 0.0:
-			die("starved")
-			return
-
-	var pos: Vector3 = global_position
 	# Local "up": radial on a planet, +Y on the flat island. Used for every up-reference below.
 	var up: Vector3 = terrain.up_at(pos) if terrain != null else Vector3.UP
 
@@ -584,7 +663,10 @@ func _physics_process(delta: float) -> void:
 	# Test the step: if it would leave habitable water (dry, OR water outside this species' salinity /
 	# depth band), steer back toward the nearest habitable cell. This ONE rule self-sorts every species.
 	var candidate: Vector3 = desired.normalized() if desired.length() > 0.001 else _heading
-	var step_len: float = speed * delta
+	# A cold ectotherm swims slowly. This is what cold actually does to a fish — it does not charge it energy,
+	# it lowers every rate it has, and the same temperature band that set the metabolism above sets this, from
+	# the same read. No separate chill-coma threshold: one curve, two consequences.
+	var step_len: float = speed * maxf(thermal_band, 0.05) * delta
 
 	# Swim tangentially inside the spherical water shell; the helper sets global_position.
 	if _swim_planet(pos, candidate, step_len, up):
@@ -741,17 +823,27 @@ func _nearest_prey(pos: Vector3) -> Node3D:
 	return best
 
 
-# Consume a prey actor: transfer its food_value into MY energy (so eating actually refuels a hungry fish),
-# then kill it through its own death path (bugs/shrimp are LAFish → die() splashes + frees). Eating both BOUNDS
-# the prey population AND is the fish's only energy source — the aquatic food web now carries real energy.
+# Consume a prey actor: DRAW mass out of its body into mine, then kill it. Whatever the mouth could not take
+# stays on the body and sinks as litter through the prey's own death path.
+#
+# What this replaces: it read `prey.food_value` and credited the WHOLE of it at 100% efficiency, capped at
+# `max_energy` — so the surplus above the cap was discarded outright, the prey's body was never debited (it was
+# freed whole a line later), and a small fish could gain more than a large prey ever contained. Nothing
+# balanced on either side of the bite.
 func _eat_prey(prey: Node3D) -> void:
 	if prey == null or not is_instance_valid(prey):
 		return
 	var prey_species: String = String(prey.get("species")) if "species" in prey else ""
-	# Energy transfer: gain the prey's food_value (duck-typed — any actor exposing food_value works), capped at max.
-	var fv = prey.get("food_value")
-	if fv != null:
-		energy = minf(energy + float(fv), max_energy)
+	# The bite is bounded by what this body can hold — the surplus is left on the carcass rather than deleted.
+	var room: float = maxf(0.0, max_energy - energy)
+	var meat: float = 0.0
+	if prey.has_method("draw_body_mass"):
+		meat = float(prey.draw_body_mass(room))
+	elif "food_value" in prey:
+		meat = minf(room, float(prey.get("food_value")))
+		if material != null and material.has_method("note_biota_node_intake"):
+			material.note_biota_node_intake(meat)
+	energy = minf(max_energy, energy + meat)
 	LASimReport.event("predation", {"species": species, "prey": prey_species})
 	if prey.has_method("die"):
 		prey.die("eaten")
@@ -899,9 +991,11 @@ func get_inspector_payload() -> Dictionary:
 		"Water: %s (salinity %.2f to %.2f, depth %.0f to %.0f)" % [band, salinity_min, salinity_max, depth_min, depth_max],
 		"Age: %.0fs / %.0fs" % [age, max_age],
 	]
-	# Only foragers have a real energy budget (grazers/filter feeders live off ambient biomass — see metabolism).
-	if not preys_on.is_empty():
-		lines.append("Energy: %.0f / %.0f%s" % [energy, max_energy, "  (hungry)" if energy < max_energy * hungry_at else ""])
+	# EVERY swimmer has a real energy budget now — the grazers and filter feeders that "lived off ambient
+	# biomass" were simply not burning anything. Shown with more precision than the old "%.0f" because a small
+	# ectotherm's whole reserve is a fraction of a unit once physiology is derived from its real body mass.
+	lines.append("Energy: %.3f / %.3f%s" % [energy, max_energy, "  (hungry)" if energy < max_energy * hungry_at else ""])
+	lines.append("Mass: %.4g kg" % mass_kg)
 	return {
 		"title": species.capitalize(),
 		"lines": lines,
