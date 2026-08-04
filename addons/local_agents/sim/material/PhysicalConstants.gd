@@ -173,6 +173,35 @@ const ALBEDO_SNOW_ICE: float = 0.65
 # Piloted ignition temperature of dry cellulosic fuel (wood, leaf litter, cured grass).
 const VEGETATION_IGNITION_C: float = 300.0
 
+# HOW MUCH HEAT A FIRE RELEASES, WITHOUT NEEDING TO KNOW WHAT IS BURNING.
+# Huggett (1980) measured that burning almost any organic fuel releases 13.1 MJ per KILOGRAM OF OXYGEN
+# CONSUMED, within about 5 % across wood, cellulose, plastics and hydrocarbons — because the energy comes out
+# of the O=O bond, not the fuel's. It is why oxygen-consumption calorimetry works, and it is the right anchor
+# for this substrate: the field carries an `o2` channel with a defined ambient, and no bulk density for its
+# `fuel` channel, so heat per unit oxygen is measurable here while heat per unit fuel is not.
+#
+# It replaced a THERMOSTAT. fire_sphere3d.glsl used to execute `if (temp < BURN_TEMP) temp = BURN_TEMP;` with
+# BURN_TEMP = 640 — every burning cell on the planet was HELD at one temperature, so a fire in a swamp and a
+# fire in dry litter read the same, and `ext_open_hot` in SIM_REPORT was pinned at exactly 640.0. A fire's
+# temperature is a RESULT: the heat its combustion releases, against the heat capacity of what is burning,
+# minus what it radiates away.
+const HEAT_PER_KG_OXYGEN_J: float = 1.31e7
+
+# The oxygen in a cell of ambient air, as a DENSITY — what a field value of `o2` = 1.0 (GasRecords.O2_AMBIENT)
+# physically stands for. Dry air is 23.14 % oxygen by mass (standard composition) and sea-level air at 300 K is
+# 1.18 kg/m³ — the same density VOL_HEAT_CAP_AIR_J_M3K above is built from, so the two agree by construction.
+# 1.18 * 0.2314 = 0.2731 kg of O₂ per cubic metre of air.
+const AIR_O2_MASS_FRACTION: float = 0.2314
+const AMBIENT_O2_DENSITY_KG_M3: float = 0.2731
+
+# The fraction of its heat release a wildland flame loses as RADIATION rather than keeping in its own plume.
+# Measured at 0.2-0.4 for free-burning vegetation fires (the spread is mostly flame depth and soot loading);
+# 0.30 is the mid value. This is the whole of flame SPREAD in this substrate: a burning cell radiates this
+# share of its own combustion energy to the open cells around it, they warm, and the ones carrying fuel reach
+# VEGETATION_IGNITION_C and light. There is no separate "ember" constant any more — spread is a property of
+# the heat release, not a number of its own.
+const FLAME_RADIATIVE_FRACTION: float = 0.30
+
 # --- GROUNDWATER: PERMEABILITY IS GEOMETRY, NOT A MATERIAL NAME ---------------------------------------------
 # Saturated hydraulic conductivity K spans roughly TWELVE orders of magnitude across geologic materials
 # (Freeze & Cherry 1979, Table 2.2): gravel 1e-3..1 m/s, clean sand 1e-5..1e-2, silty sand 1e-7..1e-3,
