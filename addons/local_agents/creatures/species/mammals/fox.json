@@ -1,6 +1,5 @@
 {
   "species": "fox",
-  "thermogenesis": 0.85,
   "diet": "carnivore",
   "speed": 4.6,
   "size": 0.8,
@@ -25,7 +24,6 @@
   "breed_carrying_density": 3,
   "breed_density_radius": 22.0,
   "nocturnal": true,
-  "thirst_rate": 1.0,
   "flock_cohesion": 0.25,
   "flock_alignment": 0.4,
   "flock_separation": 0.85,
@@ -35,5 +33,9 @@
   "hearing_range": 18.0,
   "nests": true,
   "nest_habitat": "ground",
-  "max_age": 220.0
+  "max_age": 220.0,
+  "mass_kg": 5.0,
+  "thermal_strategy": "endotherm",
+  "lower_critical_c": -10.0,
+  "upper_critical_c": 28.0
 }

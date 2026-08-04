@@ -33,8 +33,8 @@ const OUTER_RADIUS: float = 150.0
 const EYEWALL_POINTS: int = 12            # moisture-pump points around the eyewall ring
 const VAPOR_PER_SEC: float = 9.0          # total vapor/s at full strength (spread over the eyewall points)
 const VAPOR_INJECT_R: float = 20.0
-const COOL_PER_SEC: float = 10.0          # aloft cooling at each eyewall point (°C/s)
-const COOL_INJECT_R: float = 26.0
+# (COOL_PER_SEC = 10.0 °C/s and COOL_INJECT_R = 26.0 deleted 2026-08-03 — a hurricane does not destroy heat;
+# see the note in `_pump_eyewall` where the injection was.)
 
 # --- Motion (slow, wind-steered track) ---
 const TRACK_SPEED: float = 7.0            # base forward crawl (world u/s)
@@ -203,16 +203,13 @@ func _physics_process(delta: float) -> void:
 	_update_fx()
 
 
-# SEED the low: pump moisture + cool air aloft around the EYEWALL (never the calm eye) so a dense
-# rain-bearing spiral builds around a rain-free centre — the eye emerges because nothing is injected there.
+# SEED the low: pump moisture around the EYEWALL (never the calm eye) so a dense rain-bearing spiral builds
+# around a rain-free centre — the eye emerges because nothing is injected there.
 # Gated by the warm-ocean fuel `fuel`: over the sea it feeds the low that Coriolis spins into the hurricane
 # vortex; over land `fuel`→0, the seeding stops, and the vortex (hence strength) decays — landfall EMERGES.
 func _pump_eyewall(fuel: float, delta: float) -> void:
 	if fuel <= 0.0:
 		return
-	var cloud_base: float = _center.y + 60.0
-	if _field.has_method("cloud_base_y"):
-		cloud_base = float(_field.cloud_base_y())
 	var ring_r: float = (EYE_RADIUS + OUTER_RADIUS) * 0.5
 	var drive: float = maxf(_strength, STRENGTH_START) * fuel   # keep a seeding floor during spin-up
 	var per_point: float = VAPOR_PER_SEC * drive * delta / float(EYEWALL_POINTS)
@@ -227,8 +224,12 @@ func _pump_eyewall(fuel: float, delta: float) -> void:
 				gy = g.y
 		if _field.has_method("add_vapor"):
 			_field.add_vapor(Vector3(px, gy + 3.0, pz), per_point, VAPOR_INJECT_R)
-		if _field.has_method("add_cooling"):
-			_field.add_cooling(Vector3(px, cloud_base, pz), COOL_PER_SEC * drive * delta, COOL_INJECT_R)
+	# THE EYEWALL COOLING IS GONE (COOL_PER_SEC = 10 °C/s per eyewall point, every frame, via `add_cooling`,
+	# which is `add_heat(-amount)`). It destroyed heat outright to force condensation, and heat is conserved:
+	# nothing in a hurricane annihilates energy. What actually cools rising air is EXPANSION as it climbs into
+	# lower pressure, and that is the substrate's adiabatic lapse, which already runs. The latent heat released
+	# when the lifted vapour condenses is what powers a real cyclone, and it is the condensation reaction's to
+	# deliver — not this actor's to fake by subtracting degrees at cloud base.
 
 
 # The rotating wind: sweep wildlife in the annulus through the substrate's field-force seam (the same

@@ -8,6 +8,21 @@ extends Node3D
 const HIT_RADIUS: float = 1.3
 const MAX_LIFETIME: float = 4.0
 const ARC_HEIGHT: float = 1.5
+# The stone's own size, so its mass is its geometry rather than a number. Matches the visual BoxMesh below.
+const STONE_SIDE: float = 0.35
+
+## A THROWN ROCK IS STILL A ROCK WHEN IT LANDS. Every exit from this node — a hit, a splash, a lifetime cull,
+## a lost target — called `queue_free()` and the stone stopped existing. `LARock.take()` had already freed the
+## boulder it came from, so the pair deleted a rock's worth of mineral every time a villager hunted.
+## The substrate never held a loose rock (it is a scene node, not a `rock_fill` cell), which is exactly why
+## nothing noticed: `mineral_total` could see neither the world-gen creation nor this destruction.
+## Now the stone deposits its mass into the field's `sediment` channel wherever it comes to rest — loose
+## broken stone on the ground, which the slump and erosion kernels then move downhill like any other debris.
+## It is booked as `mineral_inject_minted`, honestly: the mass really is entering the field from outside it,
+## because the boulder it came from was outside too. Closing that last gap needs `LARock.take()`'s return
+## value plumbed into `throw_at` at CreatureThink.gd:122/147, which is another track's file.
+var mineral_mass: float = -1.0                  # < 0 = derive from STONE_SIDE on first use
+var _deposited: bool = false
 
 var _terrain: Object = null
 var _water: Object = null
@@ -41,7 +56,12 @@ func setup(terrain, water = null) -> void:
 	)
 	add_child(mesh_instance)
 
-func throw_at(from: Vector3, target: Node3D, speed: float = 22.0) -> void:
+func throw_at(from: Vector3, target: Node3D, speed: float = 22.0, carried_mass: float = -1.0) -> void:
+	# `carried_mass` is the mass of the boulder the thrower actually picked up (LARock.take()'s return). When
+	# the caller does not pass it, the stone falls back to its own geometry — an honest estimate rather than
+	# nothing, and the gap is one line at the call site.
+	if carried_mass >= 0.0:
+		mineral_mass = carried_mass
 	global_position = from
 	_start_pos = from
 	_target = target
@@ -107,6 +127,31 @@ func _strike() -> void:
 	_maybe_splash(global_position)
 	_spawn_impact_puff()
 	queue_free()
+
+
+# Every path out of this node runs through _exit_tree, which is why the deposit lives here rather than in
+# _strike: a stone culled by its lifetime, dropped through the terrain, or orphaned by a dead target is just
+# as much a rock lying on the ground as one that hit something.
+func _exit_tree() -> void:
+	_deposit_stone()
+
+
+func _deposit_stone() -> void:
+	if _deposited:
+		return
+	_deposited = true
+	if _water == null or not ("_inject" in _water) or _water._inject == null:
+		return
+	var inject = _water._inject
+	if not inject.has_method("deposit_sediment"):
+		return
+	if mineral_mass < 0.0:
+		var side: float = maxf(float(_water._cell_size), 0.001) if ("_cell_size" in _water) else 0.0
+		if side <= 0.0:
+			return
+		# One full cell of rock is MAX_MASS, so this stone is its own volume against a cell's.
+		mineral_mass = float(_water.MAX_MASS) * (STONE_SIDE * STONE_SIDE * STONE_SIDE) / (side * side * side)
+	inject.deposit_sediment(global_position, mineral_mass)
 
 
 # Splash accent if the rock came down in water.

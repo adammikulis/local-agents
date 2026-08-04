@@ -218,6 +218,11 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 	_plants.setup(self)
 	_aquatic = LAEcologyAquatic.new()
 	_aquatic.setup(self)
+	# The biosphere's OFF-FIELD carbon, as a registered SIM_REPORT source. Mass a plant node draws out of the
+	# field's `biomass` channel into its own tissue leaves the substrate's carbon ledger (`carbon_total` sums
+	# co2 + biomass + detritus in the FIELD only), so without these gauges a perfectly conserving draw would
+	# read as carbon destroyed and a leak would be indistinguishable from ordinary uptake.
+	LASimReport.register(Callable(self, "vegetation_report"))
 	# Scent/waste is now an emergent field channel (LAMaterialScent3D in MaterialField3D), not an observer.
 	_tracks = TrackSystemScript.new()
 	_tracks.name = "TrackSystem"
@@ -297,11 +302,39 @@ func set_llm_service(service) -> void:
 	_llm_service = service
 
 
-# A hot event "starts a fire" only by depositing heat — vegetation there ignites on the next
-# combustion scan because its cell crossed the ignition temperature. Pure emergence, no fire code.
-func ignite_area(world_pos: Vector3, radius: float) -> void:
-	if _material != null and _material.has_method("add_heat"):
-		_material.add_heat(world_pos, 900.0, radius)   # ~3x wood's 300°C ignition temp
+## SIM_REPORT source: where the biosphere's carbon is when it is not in the field.
+##
+##   veg_food_held    — reserve standing in live plant nodes right now. Add it to `carbon_biomass` for the
+##                      planet's real standing crop.
+##   veg_food_drawn   — cumulative mass plant nodes have taken OUT of the field's biomass channel.
+##   veg_food_returned— cumulative mass handed BACK as detritus when a plant node was removed.
+##   veg_seed_cost    — cumulative parent reserve spent on germination (a seedling is built from its parent).
+##
+## `drawn - returned - (what herbivores ate)` is what is currently standing in plant tissue, so `held` and the
+## other three are the closure check: held should never exceed drawn, and returned should never exceed drawn.
+func vegetation_report() -> Dictionary:
+	return {
+		"veg_food_held": snappedf(LAPlant.food_held_total, 0.0001),
+		"veg_food_drawn": snappedf(LAPlant.food_drawn_total, 0.0001),
+		"veg_food_returned": snappedf(LAPlant.food_returned_total, 0.0001),
+		"veg_seed_cost": snappedf(LAEcologyPlants.seed_cost_total, 0.0001),
+	}
+
+
+# AN IGNITION SOURCE IS NOT A HEAT SOURCE. This used to be `add_heat(world_pos, 900.0, radius)` — nine
+# hundred degrees over every cell in the radius, from nothing — and its only caller is
+# `VoxelDisasters.gd:245-246`, which fires it at a meteor's impact point the same frame the meteor itself
+# deposits its own energy at that point. So it was a SECOND heat source for one event, on top of the first,
+# and the comment justifying it ("~3x wood's 300 °C ignition temp") was reasoning about a threshold, not about
+# where the energy came from.
+#
+# It is now a no-op that keeps the call site alive: the impactor's kinetic + thermal energy (Meteor.gd
+# `_impact_energy_j`) is the whole heat budget of a strike, and whether it crosses the fuel's ignition
+# temperature is for the substrate to decide. If a future caller genuinely needs to start a fire from a
+# NAMED store — a dropped torch, a magma contact — it should debit that store and call
+# `LAMaterialFieldInject3D.add_heat_energy` with the joules.
+func ignite_area(_world_pos: Vector3, _radius: float) -> void:
+	pass
 
 
 # Emergent growth CONDITION (not a hardcoded elevation): a seed only takes where the ground is warm enough
@@ -435,6 +468,8 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 		actors_root.add_child(rock)
 		rock.global_position = placed
 		rock.setup(terrain)
+		if rock.has_method("set_material_field"):
+			rock.set_material_field(_material)          # so a thrown rock lands as a real amount of sediment
 		node = rock
 	elif kind == "tree":
 		var tree: TreeScript = TreeScript.new()
@@ -443,6 +478,8 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 		if _veg_renderer != null and tree.has_method("set_vegetation_renderer"):
 			tree.set_vegetation_renderer(_veg_renderer)    # render through the batched MultiMesh, not a model child
 		tree.setup(terrain, _tree_config())
+		if tree.has_method("set_material_field"):
+			tree.set_material_field(_material)          # so its growth tracks the carbon its ground fixes
 		node = tree
 	else:
 		var cfg: Dictionary = _species_config(kind)

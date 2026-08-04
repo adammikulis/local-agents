@@ -7,6 +7,21 @@ extends StaticBody3D
 
 var _terrain: Object = null
 
+## THE ROCK'S OWN MINERAL MASS, in the substrate's units, so it can be handed on instead of deleted.
+##
+## `take()` used to `queue_free()` the node when a villager picked it up, and `LAThrownRock` freed itself
+## again on impact — so a boulder that was picked up and thrown simply stopped existing. Nothing in the
+## substrate ever held it (a loose rock is a scene node, not a `rock_fill` cell), so it never showed in
+## `mineral_total`, which is exactly why the deletion went unnoticed: the ledger could not see either the
+## creation at world-gen or the destruction on impact.
+##
+## The mass is derived from the boulder's own geometry and basalt's density, converted into the substrate's
+## mass units the same way LAMaterialEjecta3D does (MAX_MASS is one full cell of rock), so a thrown rock now
+## lands as a real amount of `sediment` — loose broken stone on the ground, which is what a thrown rock is —
+## and the slump/erosion kernels move it downhill like any other debris.
+var mineral_mass: float = 0.0
+var _radius: float = 0.5
+
 func setup(terrain) -> void:
 	_terrain = terrain
 
@@ -16,6 +31,7 @@ func setup(terrain) -> void:
 	add_to_group("selectable")
 
 	var size: float = 0.45 + randf() * 0.4  # ~0.45-0.85 units
+	_radius = size
 
 	# Natural irregular boulder (not a cube).
 	var mesh: ArrayMesh = LARockMesh.make(size, randi(), 0.45)
@@ -35,6 +51,12 @@ func setup(terrain) -> void:
 
 	_snap_to_surface()
 
+## Wire the shared material field so this boulder knows what it weighs in the substrate's own units. Injected
+## by LAEcologyService at spawn, like every other actor's field handle.
+func set_material_field(m) -> void:
+	mineral_mass = mineral_mass_for(m)
+
+
 func _snap_to_surface() -> void:
 	if _terrain == null or not _terrain.has_method("ground_point"):
 		return
@@ -49,6 +71,21 @@ func get_inspector_payload() -> Dictionary:
 		"lines": ["A loose rock.", "Villagers throw these to hunt."],
 	}
 
-## Called when a villager picks this rock up.
-func take() -> void:
+## The boulder's mineral mass in substrate units, for a field whose cell geometry sets the conversion. A
+## sphere of basalt of this rock's radius, against one full cell of rock = MAX_MASS. Returns 0 with no field
+## (headless tests), which is honest: there is no ledger there to be consistent with.
+func mineral_mass_for(field) -> float:
+	if field == null or not ("_cell_size" in field):
+		return 0.0
+	var side: float = maxf(float(field._cell_size), 0.001)
+	var cell_kg: float = LAPhysical.ROCK_DENSITY_KG_M3 * side * side * side
+	var rock_kg: float = LAPhysical.ROCK_DENSITY_KG_M3 * (4.0 / 3.0) * PI * _radius * _radius * _radius
+	return float(field.MAX_MASS) * rock_kg / maxf(cell_kg, 0.0001)
+
+
+## Called when a villager picks this rock up. The node goes, the MATTER does not: the caller is handed the
+## boulder's mineral mass so it can carry it (into a LAThrownRock, which deposits it where it lands).
+func take() -> float:
+	var carried: float = mineral_mass
 	queue_free()
+	return carried

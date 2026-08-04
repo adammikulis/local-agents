@@ -108,38 +108,21 @@ static func cognition(w) -> Dictionary:
 	# Population gene means — the evolvable loci whose drift makes SELECTION observable (a toxin-heavy pasture
 	# should push neophobia up over generations, predation should push speed up, etc.). Accumulated in THIS same
 	# O(N) pass — no second population scan (big-O discipline). decode_gene() is the raw locus value.
-	const REPORTED_GENES: Array = ["size", "speed", "respiratory_capacity", "thermogenesis", "carnivory", "neophobia", "boldness", "scent_acuity", "taste_sensitivity", "constitution", "display"]
+	const REPORTED_GENES: Array = ["size", "speed", "basal_metabolism", "active_metabolism", "carnivory", "neophobia", "boldness", "scent_acuity", "taste_sensitivity", "constitution", "display"]
 	var gene_sum: Dictionary = {}
 	for gk in REPORTED_GENES:
 		gene_sum[gk] = 0.0
 	var gene_pop: int = 0
-	# ALLOMETRY, MEASURED RATHER THAN ASSERTED. Per species: body mass, the REALISED oxidation rate the
-	# substrate actually granted (LACreatureRespiration._resp_rate, which is what survived the oxygen Liebig
-	# cap and the temperature band), and body temperature. The exponent is then fitted across species by
-	# ordinary least squares on log(rate) against log(mass) — so the scaling law is an OUTPUT of the run.
-	# Nothing anywhere types in 0.75 or 0.667; if the exponent moves, the physics moved.
-	# Three is enough for the CAPACITY fit and five was actively harmful: at 600 frames only the five largest-
-	# population species clear n>=5, which throws away the whole small end of the roster and cuts the fit's mass
-	# lever arm from 420x to 38x. The slope then swings 0.43-0.65 run to run on noise. Capacity is a geometric
-	# quantity with little behavioural variance, so a species mean over three individuals is a real measurement.
-	const METAB_FIT_MIN_N: int = 3
-	# ALLELE SPLIT — does a gene actually DRIVE anything? For each of the two respiratory loci, creatures are
-	# bucketed by whether they carry an above- or below-median allele, and each bucket reports the metabolic
-	# rate NORMALISED BY mass^(2/3). That normalisation is the point: raw rate is dominated by body size, so
-	# dividing by the surface-scaling term leaves the gene's own contribution visible. If a locus is dead —
-	# which is exactly what `basal_metabolism` and `active_metabolism` were — its two buckets read the same.
-	# The split is the population MEDIAN of each locus, not a fixed constant: a fixed threshold puts the entire
-	# population in one bucket whenever the locus has not drifted past it, which reports "no effect" for a gene
-	# that simply has not varied yet. Collected here, bucketed after the loop.
-	var resp_vals: Array = []
-	var thermo_vals: Array = []
-	var norm_vals: Array = []
-	var btemp_vals: Array = []
-	var mass_by_sp: Dictionary = {}
-	var rate_by_sp: Dictionary = {}
-	var btemp_by_sp: Dictionary = {}
-	var cap_by_sp: Dictionary = {}
-	var n_by_sp: Dictionary = {}
+	# THE ALLOMETRY BLOCK THAT STOOD HERE IS REMOVED, AND SO ARE `metab`, `metab_exponent`,
+	# `metab_capacity_exponent` and the `allele` split. It fitted log(rate) against log(mass) across species to
+	# report the metabolic scaling exponent as an OUTPUT of the run — a good instrument — but every input it
+	# read (`_resp_rate`, `_resp_capacity`, `body_temp`, and the `respiratory_capacity`/`thermogenesis` loci)
+	# belonged to LACreatureRespiration, which this merge retires in favour of the conservation branch's
+	# LACreatureBodyMass / LACreatureThermal (see the note in Creature.gd). Repointing it at the surviving
+	# physiology would make it TAUTOLOGICAL rather than measured: LACreatureBodyMass.basal_rate IS
+	# `BASAL_COEFF * mass^KLEIBER_EXPONENT`, so a fit over it can only ever read back the 0.75 that was typed
+	# in, which is a gauge that cannot fail. A real replacement needs a realised-burn field on the surviving
+	# body model; it is not invented here.
 	for c in creatures:
 		if not is_instance_valid(c) or not c.has_method("get_cognition"):
 			continue
@@ -161,26 +144,6 @@ static func cognition(w) -> Dictionary:
 		if bool(c.get("is_male")):
 			males += 1
 		# Same O(N) pass — no extra population scan (big-O discipline).
-		# LAFish shares the cognition stack but is a separate class with its own energy path and no body-temp /
-		# respiration state, so it has no `_resp_rate` to report. Skip it rather than fake a zero, which would
-		# drag the fitted exponent toward nothing.
-		var sp: String = String(c.get("species"))
-		if sp != "" and c.get("_resp_rate") != null:
-			n_by_sp[sp] = int(n_by_sp.get(sp, 0)) + 1
-			mass_by_sp[sp] = float(mass_by_sp.get(sp, 0.0)) + LACreatureRespiration.body_mass(c)
-			rate_by_sp[sp] = float(rate_by_sp.get(sp, 0.0)) + float(c.get("_resp_rate"))
-			btemp_by_sp[sp] = float(btemp_by_sp.get(sp, 0.0)) + float(c.get("body_temp"))
-			cap_by_sp[sp] = float(cap_by_sp.get(sp, 0.0)) + float(c.get("_resp_capacity"))
-			# Mass-normalised rate: divide out the surface-scaling term so what remains is the allele's own effect.
-			var cm: float = LACreatureRespiration.body_mass(c)
-			resp_vals.append(float(c.get("respiratory_capacity")))
-			thermo_vals.append(float(c.get("thermogenesis")))
-			# Normalise the AEROBIC CAPACITY, not the realised rate. Capacity is what the gene acts on; the
-			# realised rate additionally carries whether this particular animal was asleep, fleeing or starving,
-			# and that behavioural variance is several times the size of an 8% allele difference — measured, the
-			# realised-rate split swung 0.90x to 1.42x run to run on a locus whose true effect is ~1.09x.
-			norm_vals.append(float(c.get("_resp_capacity")) / maxf(pow(cm, 2.0 / 3.0), 1e-6))
-			btemp_vals.append(float(c.get("body_temp")))
 		anim_stride_sum += int(c.get("_anim_stride"))
 		# Bird-only display mean: birds court on ornament (dominance_traits.display), so if sexual selection is
 		# working this rises over generations while the population-wide display mean (diluted by the other
@@ -201,44 +164,6 @@ static func cognition(w) -> Dictionary:
 	if gene_pop > 0:
 		for gk in REPORTED_GENES:
 			genes[gk] = snappedf(gene_sum[gk] / float(gene_pop), 0.001)
-	# Fit log(rate) = a + b*log(mass) across the species present. `b` IS the emergent metabolic scaling
-	# exponent: 1.0 would mean rate tracks mass (no allometry at all, which is what this simulation did before
-	# — a fox and a mouse burned the same), 2/3 is Rubner's surface law, 3/4 is Kleiber's. Species with a dead
-	# or unmeasured rate are skipped so a torpid outlier cannot fake a slope.
-	var metab: Dictionary = {}
-	var sx: float = 0.0
-	var sy: float = 0.0
-	var sxx: float = 0.0
-	var sxy: float = 0.0
-	var sn: int = 0
-	for sp in n_by_sp.keys():
-		var n: float = float(int(n_by_sp[sp]))
-		var m: float = float(mass_by_sp[sp]) / n
-		var r: float = float(rate_by_sp[sp]) / n
-		metab[sp] = {"n": int(n), "mass": snappedf(m, 0.001), "rate": snappedf(r, 0.0001),
-			"cap": snappedf(float(cap_by_sp[sp]) / n, 0.0001),
-			# Capacity divided by the surface-scaling term. If metabolic capacity really goes as mass^(2/3),
-			# THIS COLUMN IS CONSTANT across the roster — which is a far more legible test of the scaling law
-			# than any single fitted slope, because a reader can see it hold species by species.
-			"cap_norm": snappedf(float(cap_by_sp[sp]) / n / maxf(pow(m, 2.0 / 3.0), 1e-6), 0.0001),
-			"body_c": snappedf(float(btemp_by_sp[sp]) / n, 0.01)}
-		# A species down to its last two individuals is a sample, not a measurement: with n=2 a single fleeing
-		# animal (exertion 1.6x) or a single starved one (rate 0) moves that species' whole point, and the
-		# low-mass end of this roster is exactly where the small populations are. Require a real sample.
-		if m > 0.0 and r > 0.0 and n >= float(METAB_FIT_MIN_N):
-			var lx: float = log(m)
-			var ly: float = log(r)
-			sx += lx
-			sy += ly
-			sxx += lx * lx
-			sxy += lx * ly
-			sn += 1
-	var expo: float = 0.0
-	var cap_expo: float = _fit_exponent(n_by_sp, mass_by_sp, cap_by_sp, METAB_FIT_MIN_N)
-	if sn >= 2:
-		var den: float = float(sn) * sxx - sx * sx
-		if absf(den) > 1e-9:
-			expo = (float(sn) * sxy - sx * sy) / den
 	var sched: int = 0
 	if w._ecology != null and w._ecology.has_method("cognition_scheduler"):
 		var sc = w._ecology.cognition_scheduler()
@@ -249,90 +174,10 @@ static func cognition(w) -> Dictionary:
 		"max_generation": max_gen, "slow_brain_calls": sched, "cues_learned": cues, "vetoes": vetoed,
 		"aversions": aversions, "learners": learners,
 		"genes": genes, "gene_pop": gene_pop, "males": males,
-		"metab": metab, "metab_exponent": snappedf(expo, 0.001), "metab_species": sn,
-		"metab_capacity_exponent": snappedf(cap_expo, 0.001),
-		"allele": {
-			"resp": _allele_split(resp_vals, norm_vals, btemp_vals),
-			"thermo": _allele_split(thermo_vals, norm_vals, btemp_vals),
-		},
 		"anim_stride_avg": snappedf(float(anim_stride_sum) / float(maxi(minds, 1)), 0.01),
 		"bird_display": snappedf(bird_display_sum / float(maxi(bird_n, 1)), 0.001),
 	}
 
 
-## Split the population at a locus's MEDIAN and report what each half's metabolism looks like. Returns the
-## two bucket means plus the ratio between them, which is the number that answers "does this gene do
-## anything": 1.00 means the locus is inert, anything else means it reaches behaviour.
-##
-## `norm_rate` is the metabolic rate divided by mass^(2/3) — body size divided out, so what is left is the
-## allele's own contribution rather than the fact that big animals burn more. This is the measurement
-## `basal_metabolism` and `active_metabolism` would have failed for their entire existence: they were declared,
-## encoded, expressed, and read by nothing, so their two halves were bound to be identical.
-static func _allele_split(gene: Array, norm: Array, btemp: Array) -> Dictionary:
-	var n: int = gene.size()
-	if n < 4:
-		return {}
-	var sorted_g: Array = gene.duplicate()
-	sorted_g.sort()
-	var median: float = float(sorted_g[n / 2])
-	var hi_n: int = 0
-	var lo_n: int = 0
-	var hi_g: float = 0.0
-	var lo_g: float = 0.0
-	var hi_r: float = 0.0
-	var lo_r: float = 0.0
-	var hi_t: float = 0.0
-	var lo_t: float = 0.0
-	for i in range(n):
-		if float(gene[i]) > median:
-			hi_n += 1
-			hi_g += float(gene[i])
-			hi_r += float(norm[i])
-			hi_t += float(btemp[i])
-		elif float(gene[i]) < median:
-			lo_n += 1
-			lo_g += float(gene[i])
-			lo_r += float(norm[i])
-			lo_t += float(btemp[i])
-	if hi_n == 0 or lo_n == 0:
-		# The locus is monomorphic in the living population — no standing variation to measure, which is a
-		# statement about the gene pool and not about whether the gene is read.
-		return {"monomorphic": true, "value": snappedf(median, 0.001), "n": n}
-	var hr: float = hi_r / float(hi_n)
-	var lr: float = lo_r / float(lo_n)
-	return {
-		"hi_n": hi_n, "lo_n": lo_n,
-		"hi_gene": snappedf(hi_g / float(hi_n), 0.001), "lo_gene": snappedf(lo_g / float(lo_n), 0.001),
-		"hi_rate": snappedf(hr, 0.0001), "lo_rate": snappedf(lr, 0.0001),
-		"rate_ratio": snappedf(hr / lr, 0.001) if lr > 0.0 else 0.0,
-		"hi_body_c": snappedf(hi_t / float(hi_n), 0.01), "lo_body_c": snappedf(lo_t / float(lo_n), 0.01),
-	}
 
 
-## Ordinary least squares on log(y) against log(mass), across species with a real sample. Shared by the field
-## metabolic rate and the aerobic capacity so both exponents are fitted the same way.
-static func _fit_exponent(n_by_sp: Dictionary, mass_by_sp: Dictionary, y_by_sp: Dictionary, min_n: int) -> float:
-	var sx: float = 0.0
-	var sy: float = 0.0
-	var sxx: float = 0.0
-	var sxy: float = 0.0
-	var k: int = 0
-	for sp in n_by_sp.keys():
-		var n: float = float(int(n_by_sp[sp]))
-		if n < float(min_n):
-			continue
-		var m: float = float(mass_by_sp[sp]) / n
-		var y: float = float(y_by_sp.get(sp, 0.0)) / n
-		if m <= 0.0 or y <= 0.0:
-			continue
-		var lx: float = log(m)
-		var ly: float = log(y)
-		sx += lx
-		sy += ly
-		sxx += lx * lx
-		sxy += lx * ly
-		k += 1
-	if k < 2:
-		return 0.0
-	var den: float = float(k) * sxx - sx * sx
-	return (float(k) * sxy - sx * sy) / den if absf(den) > 1e-9 else 0.0

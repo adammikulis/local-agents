@@ -41,8 +41,26 @@ const MIN_ENERGY_FRAC: float = 0.55     # well-fed-enough-to-breed gate. Kept co
                                         # low enough that grazers in the cool land band still breed fast enough to keep the
                                         # herbivore base — and the predators that depend on it — supplied. Eased from 0.6.
 const GESTATION_SECONDS: float = 12.0   # seconds a bearer carries a pregnancy before giving birth
-const GESTATION_ENERGY_COST: float = 24.0   # total energy the bearer pays, drained smoothly across gestation (trimmed from
-                                        # 30 so pregnancy is survivable in the cool land band without a starvation death spiral)
+## A PREGNANCY COSTS THE MOTHER THE NEWBORN'S MASS, plus the metabolic overhead of building it.
+##
+## `GESTATION_ENERGY_COST = 24.0` was a flat total for every species, and the newborn was then built by
+## `LACreatureSetup` with a FULL reserve, full health and a body of its own. A whole animal appeared for a
+## 24-unit debit — for a villager that is 1.5% of the mother's reserve, and for an insect it was many times
+## the mother's entire body. Matter came out of nowhere at every birth, and the cost did not scale with what
+## was being built.
+##
+## The debit is now the child's own live mass (structural tissue + the reserve it is born with), which is
+## `LACreatureBodyMass.live_mass` of the species, times the overhead below. That makes reproduction genuinely
+## expensive for a big-bodied species and cheap for a small one, which is the actual trade-off behind
+## r-selection and K-selection — and it emerges from the mass rather than from a per-species number.
+##
+## PREGNANCY CAN NOW FAIL. If the mother cannot pay, she resorbs the pregnancy rather than conjuring the
+## young: a real response to a hard season, and the only alternative that does not mint a body.
+const GESTATION_OVERHEAD: float = 1.35  # mother's cost / newborn's mass — placenta, remodelling, the work of
+                                        # building tissue is never free (mammalian reproductive efficiency
+                                        # measures out around 0.7-0.8, i.e. an overhead near 1.3)
+const RESORB_FRACTION: float = 0.5      # of the mass already invested, this much is recovered on resorption;
+                                        # the rest has already been spent building tissue and is respired
 const POST_BIRTH_COOLDOWN: float = 8.0      # seconds a bearer must recover (refeed) before conceiving again — shortened from
                                         # 18 so the herbivore base replaces attrition fast enough to sustain the food web
 const MATE_REFRACTORY: float = 6.0      # short pair-bond cooldown put on the partner at conception (stops the SAME
@@ -87,14 +105,39 @@ static func tick(c, delta: float) -> void:
 		c._repro_cd = maxf(0.0, c._repro_cd - delta)
 	if not c.pregnant:
 		return
-	# Carrying young costs energy every frame (spread the total cost across the gestation period). The period
-	# is compressed by LA_EVO_FAST for evolution-observation runs, so the drain uses the same shortened duration
-	# and the TOTAL energy cost per birth stays GESTATION_ENERGY_COST regardless of the compression.
+	# Carrying young costs the mother the CHILD'S OWN MASS, spread across the gestation period. The period is
+	# compressed by LA_EVO_FAST for evolution-observation runs, so the drain uses the same shortened duration
+	# and the total cost per birth is unchanged by the compression.
 	var gest_dur: float = GESTATION_SECONDS / LAAblate.evo_fast()
-	c.energy = maxf(0.0, c.energy - GESTATION_ENERGY_COST * (delta / gest_dur))
+	var total: float = gestation_cost(c)
+	var due: float = total * (delta / maxf(gest_dur, 0.0001))
+	var paid: float = LACreatureBodyMass.draw(c, due)
+	c._gestation_paid += paid
+	# RELATIVE tolerance, not an absolute one. A `due - 0.0001` epsilon is meaningless against an insect's
+	# per-frame instalment (order 1e-8 once physiology is derived from real body mass) — the test could never
+	# fire, so resorption would never happen for anything smaller than a person.
+	if paid < due * 0.999:
+		# She could not pay. RESORB: half of what has already been invested comes back to her (the rest is
+		# tissue that was built and is now respired), and the pregnancy ends without a body being conjured.
+		c.energy += c._gestation_paid * RESORB_FRACTION
+		if c._material != null and c._material.has_method("respire_at"):
+			c._material.respire_at(c.global_position, c._gestation_paid * (1.0 - RESORB_FRACTION))
+		c.pregnant = false
+		c._gestation_t = 0.0
+		c._gestation_paid = 0.0
+		c._mate = null
+		c._repro_cd = POST_BIRTH_COOLDOWN / LAAblate.evo_fast()
+		LASimReport.event("resorption", {"species": c.species})
+		return
 	c._gestation_t -= delta
 	if c._gestation_t <= 0.0:
 		_give_birth(c)
+
+
+## What this pregnancy will cost the mother in total: the newborn's whole live mass times the overhead of
+## building it. Derived from the species' measured body mass, so a whale pays for a whale and an ant for an ant.
+static func gestation_cost(c) -> float:
+	return LACreatureBodyMass.live_mass(c.config) * GESTATION_OVERHEAD
 
 
 ## True once this creature could start a pregnancy RIGHT NOW: mature, not already pregnant, off cooldown,
@@ -235,6 +278,7 @@ static func _best_mate(c, pos: Vector3):
 static func _conceive(c, mate) -> void:
 	c.pregnant = true
 	c._gestation_t = GESTATION_SECONDS / LAAblate.evo_fast()
+	c._gestation_paid = 0.0
 	c._mate = mate
 	if mate != null and is_instance_valid(mate):
 		mate._repro_cd = maxf(mate._repro_cd, MATE_REFRACTORY / LAAblate.evo_fast())
@@ -247,6 +291,7 @@ static func _conceive(c, mate) -> void:
 static func _give_birth(c) -> void:
 	c.pregnant = false
 	c._gestation_t = 0.0
+	c._gestation_paid = 0.0
 	# The mate is captured at conception and only cleared here, so it can be FREED mid-gestation if the partner
 	# dies. Passing a freed Node to birth_offspring raised "previously freed" errors; null it out here so birth
 	# falls back cleanly to a single-parent line (the breeding module already handles a null mate).

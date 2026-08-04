@@ -8,6 +8,33 @@
 North stars this obeys: *dissolve-don't-patch* (measure success in special-case code **deleted**),
 *GPU-GLSL-only, no CPU oracle*, *perf-over-parity* (behavioural verification, not bit-exact CPU↔GPU).
 
+> ## Correction, 2026-08-03 — `RELAX_TARGET` was a mistake and is deleted. Read this before the rest.
+>
+> Everything below describing the `RELAX_TARGET` rate model is superseded, and it is worth saying exactly
+> what was wrong, because the error is *in the design*, not in some implementation of it. This document
+> specifies a rate model that "has zero reactants, a single product that is the driver channel itself, and
+> skips the reactant-cap loop", and it classifies the two records using it (R11 O₂, R12 CO₂) as **CLEAN**. A
+> reaction with no reactant whose product credit still runs is matter appearing from nothing. It ran for
+> months: measured 2026-08-03, R12 was the source of **every carbon atom that has ever existed in this
+> simulation**, at +6.5 units per field step, growing `carbon_total` from 720 to about 5820 over a 600-frame
+> run.
+>
+> The model, its `#define`, both records and the whole `GasRecords.gd` module are gone. Rate-model id **3**
+> stays permanently burned so an old serialised table cannot silently mean something new. The planet now
+> starts with a real finite atmosphere at Earth's measured composition (`LAPhysical.AIR_MOLE_FRAC_*`), so
+> "relax toward ambient" has nothing left to do — the air above a cell genuinely holds the gas, and
+> `o2_transport` / `co2_transport` move it there as ordinary conserving transfers.
+>
+> Two further numbers below are superseded for the same reason: R15's `O2_PER_DECOMPOSE` is shown as **0.8**
+> and `FERT_PER_DECOMPOSE` as **1.5**. Both created matter — 0.8 O₂ consumed against 1.0 CO₂ produced mints
+> oxygen every cycle, and 1.5 nutrient per unit of litter is a 29:1 amplifier drawing on no pool at all. They
+> are 1.0 and 1/`LAPhysical.LITTER_C_TO_N` now.
+>
+> **What replaces the honour system this document ran on:** every record is checked at load by
+> `reactions/ReactionBalance.gd`, and by `scripts/check_reaction_balance.sh` in CI. A record that does not
+> balance in carbon, nitrogen, H₂O, mineral and oxidant is refused, and so is one with products and no
+> reactant. Anything below that a reader is tempted to implement has to pass that gate first.
+
 ---
 
 ## 1. Reaction inventory (every hand-coded chemical/phase reaction on the sphere path)

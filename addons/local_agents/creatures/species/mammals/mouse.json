@@ -1,6 +1,5 @@
 {
   "species": "mouse",
-  "thermogenesis": 0.95,
   "diet": "herbivore",
   "speed": 3.8,
   "size": 0.3,
@@ -25,7 +24,6 @@
   "breed_carrying_density": 6,
   "breed_density_radius": 9.0,
   "breath_capacity": 5.0,
-  "thirst_rate": 1.1,
   "flock_cohesion": 0.6,
   "flock_alignment": 0.5,
   "flock_separation": 1.1,
@@ -35,5 +33,9 @@
   "hearing_range": 15.0,
   "nests": true,
   "nest_habitat": "ground",
-  "max_age": 120.0
+  "max_age": 120.0,
+  "mass_kg": 0.019,
+  "thermal_strategy": "endotherm",
+  "lower_critical_c": 26.0,
+  "upper_critical_c": 32.0
 }

@@ -13,6 +13,20 @@ extends RefCounted
 ## surface + tangent placement helpers, the germination gate, the actor instancer, biomass reads and the
 ## water gate), so there is exactly one owner of each. Explicit types only (project rule: no ':=').
 
+## A SEED IS BUILT OUT OF THE PARENT. It is not free.
+##
+## What this replaced: every 1.5 s, 30% of seed-ready plants spawned a child, and the child arrived holding a
+## full 27.6-unit food reserve while the parent lost nothing. Two plants where there had been one, and the
+## second one's matter came from nowhere.
+##
+## Now the parent pays SEED_RESERVE_COST out of its own reserve and the seedling starts holding exactly that,
+## so germination MOVES mass rather than making it. A parent that has not managed to take up that much from
+## the ground it stands on cannot set seed at all — which is what makes a barren pasture stop spreading, with
+## no cap or timer saying so. The cost is a fraction of a full-grown plant's capacity: real seed mass is a
+## small share of the parent's standing biomass, and one plant's seed crop is not a second whole plant.
+const SEED_RESERVE_COST: float = 1.0
+static var seed_cost_total: float = 0.0   # cumulative parent reserve spent on germination (SIM_REPORT)
+
 var _eco: LAEcologyService = null
 
 
@@ -38,9 +52,28 @@ func _tick_plant_seeding() -> void:
 			continue
 		if LASimRng.shared().randf() > 0.7:
 			continue                                # most seed-ready plants spread each tick → pasture densifies
+		# THE PARENT PAYS FIRST. `feed()` is the plant's own honest debit path (the same one a herbivore's bite
+		# uses), so drawing the seed's mass through it means a parent that has not taken up enough from the
+		# ground simply cannot set seed — no germination, and nothing created. Its seed timer still resets
+		# below, so it tries again once it has built the reserve back up.
+		var paid: float = 0.0
+		if p.has_method("feed"):
+			paid = float(p.feed(SEED_RESERVE_COST))
+		if paid < SEED_RESERVE_COST:
+			if paid > 0.0 and p.has_method("credit_reserve"):
+				p.credit_reserve(paid)              # could not afford a whole seed — give the part back
+			if p.has_method("consume"):
+				p.consume()
+			continue
+		seed_cost_total += paid * LAPlant.BIOMASS_PER_FOOD   # booked in the FIELD's mass units, like the rest
 		var placed = _eco._place_on_surface(_eco._tangent_offset_point((p as Node3D).global_position, LASimRng.shared().randf_range(-3.5, 3.5), LASimRng.shared().randf_range(-3.5, 3.5)))
+		var child = null
 		if placed != null and _eco._can_grow_here(placed):
-			_eco._instance_actor(kind, placed)      # seed only takes on warm, snow-free ground (emergent treeline)
+			child = _eco._instance_actor(kind, placed)  # seed only takes on warm, snow-free ground (emergent treeline)
+		if child != null and child.has_method("credit_reserve"):
+			child.credit_reserve(paid)              # the seedling IS the mass its parent invested
+		elif p.has_method("credit_reserve"):
+			p.credit_reserve(paid)                  # nowhere to germinate — the parent keeps its investment
 		if p.has_method("consume"):
 			p.consume()
 

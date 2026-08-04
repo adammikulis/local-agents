@@ -35,6 +35,23 @@ const GRAZE_BIOMASS_FULL: float = 0.05        # biomass at/above which a grazer 
 const GRAZE_BIOMASS_FLOOR: float = 0.30       # survival birth-rate multiplier in barren water (never a hard 0 → no collapse)
 const GRAZE_BIOMASS_SAMPLES: int = 6          # adults sampled for the school's mean biomass (O(k), not O(adults))
 
+## A FISH IS BUILT OUT OF A FISH. Land births already work this way — LACreatureReproduction gestates an
+## offspring against the bearer's own energy budget — but the aquatic tick still materialised up to four
+## complete bodies per species every 2.5 s at no cost to anybody: a school with two adults and a deficit
+## produced young whose mass and energy came from nowhere.
+##
+## The bearer now pays SPAWN_ENERGY_FRAC of its maximum energy to produce one young, and cannot spawn at all
+## below SPAWN_ENERGY_FLOOR of full. So a starving school stops breeding on its own, without a rule saying
+## so, and a well-fed one recovers — which is what the `grazes_biomass` food gate was reaching for by
+## multiplying a birth RATE instead of charging for the birth.
+##
+## The fraction is a real reproductive investment, not a knob: for a broadcast-spawning fish the gonad output
+## of one season is measured at 10-25% of body mass, and the energy to build it comes out of the same budget
+## the animal swims on. 0.15 is inside that range. The floor is what stops an adult spending itself to death
+## producing young it cannot then feed.
+const SPAWN_ENERGY_FRAC: float = 0.15
+const SPAWN_ENERGY_FLOOR: float = 0.45
+
 var _eco: LAEcologyService = null
 
 # Frame-stamped soft-ceiling cache: species -> [physics_frame, below_cap_bool]. species_below_cap is asked by
@@ -160,6 +177,21 @@ func _tick_aquatic() -> void:
 			_birth_aquatic_one(String(kind), adults, cfg)
 
 
+# Charge a bearer for one spawning: returns the energy actually taken, or 0 if it could not afford it (which
+# means no young). Guarded on the properties rather than the type, so an adult of any aquatic species that
+# carries an energy budget pays and one that does not is simply refused — no per-species branch.
+func _spawn_cost(pa: Node3D) -> float:
+	if not ("energy" in pa) or not ("max_energy" in pa):
+		return 0.0
+	var maxe: float = float(pa.get("max_energy"))
+	var have: float = float(pa.get("energy"))
+	if maxe <= 0.0 or have < maxe * SPAWN_ENERGY_FLOOR:
+		return 0.0
+	var cost: float = maxe * SPAWN_ENERGY_FRAC
+	pa.set("energy", maxf(0.0, have - cost))
+	return cost
+
+
 # Birth-rate multiplier (∈ [GRAZE_BIOMASS_FLOOR, 1]) for a grazer school from the biomass base it feeds on —
 # the mean surface biomass at a cheap random sample of its adults. Rich algae water → full rate; barren water →
 # the survival floor (so the base tracks primary production without ever collapsing to zero and starving the web).
@@ -181,6 +213,10 @@ func _graze_food_mult(adults: Array) -> float:
 # waterline. The water gate in _instance_actor rejects any point that isn't inside the sea shell.
 func _birth_aquatic_one(kind: String, adults: Array, cfg: Dictionary) -> void:
 	var pa: Node3D = adults[LASimRng.shared().randi_range(0, adults.size() - 1)] as Node3D
+	# THE BEARER PAYS FIRST, or there is no young. Nothing else in this function ever asked where the new body
+	# came from; a school could double while every one of its members was starving.
+	if pa != null and is_instance_valid(pa) and _spawn_cost(pa) <= 0.0:
+		return
 	if pa != null and is_instance_valid(pa):
 		var jitter: Vector3 = LASimRng.shared().rand_dir() * LASimRng.shared().randf_range(0.5, 2.5)
 		var near: Vector3 = pa.global_position + jitter

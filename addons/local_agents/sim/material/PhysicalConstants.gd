@@ -313,3 +313,105 @@ const SEDIMENT_DENSITY_KG_M3: float = 2000.0
 # each plate's speed from between them instead of from a made-up angular rate.
 const PLATE_SPEED_MIN_MM_PER_YEAR: float = 10.0
 const PLATE_SPEED_MAX_MM_PER_YEAR: float = 100.0
+# --- THE COMPOSITION OF AIR -------------------------------------------------------------------------------
+# Dry-air mole fractions. N₂ and O₂ are fixed properties of the atmosphere; Ar is next and is inert; CO₂ is
+# the 2023 NOAA global annual mean (419 ppm) and is the only one of the four that moves on a human timescale.
+#
+# WHY THESE ARE HERE AND WHAT THEY REPLACED. This simulation had no atmosphere. `_o2` was filled to a
+# constant 1.0 and `_co2` was `resize()`d with NO `.fill()` at all — clean air with zero carbon in it — and
+# both were then held near a target by a reaction record with NO REACTANT, so the product credit ran and
+# nothing was ever debited. Every carbon atom that has ever existed in this simulation was conjured by that
+# one record, at a measured +6.5 units per field step, and `carbon_total` had grown from 720 to about 5820
+# over a 600-frame run. A planet does not manufacture its own air: it was assembled with an atmosphere and
+# has been rearranging it ever since. These four numbers are what "assembled with an atmosphere" means.
+#
+# THE ABSOLUTE UNIT IS A FREE CHOICE; THE RATIOS ARE THE PHYSICS. The substrate's gas channels are in an
+# arbitrary substance unit, and one unit is DEFINED as the amount of O₂ in a cell of ambient air — which is
+# what `LAMaterialField3D.O2_AMBIENT = 1.0` already meant, and keeps every existing O₂ threshold
+# (CreatureMetabolism.BREATHE_MIN_O2 0.3, fire_sphere3d O2_MIN 0.35) valid. Everything else in the air
+# follows from that choice by its mole fraction, with nothing left to tune. In particular CO₂ per cell is
+# O2_AMBIENT x (AIR_MOLE_FRAC_CO2 / AIR_MOLE_FRAC_O2) = 0.00200, which is 25x SMALLER than the 0.05 "ambient
+# trace" the deleted record relaxed toward. That 0.05 was not a measurement of anything; the ratio is.
+const AIR_MOLE_FRAC_N2: float = 0.78084     # NASA/NOAA standard atmosphere, dry air
+const AIR_MOLE_FRAC_O2: float = 0.20946
+const AIR_MOLE_FRAC_AR: float = 0.00934
+const AIR_MOLE_FRAC_CO2: float = 0.000419   # NOAA GML global annual mean, 2023
+
+# --- ORGANIC MATTER: THE CARBON-TO-NITROGEN RATIO ---------------------------------------------------------
+# Measured mass ratios of carbon to nitrogen. They are properties of the material, and they are what makes
+# "mineralisation releases the nitrogen that was ALREADY in the litter" a structural fact instead of a
+# coincidence between two constants somebody set equal by hand: the nitrogen a decomposer releases, and the
+# nitrogen a plant takes up to build the same tissue, are the SAME ratio because they are the same matter.
+# Fresh leaf litter runs 20-60:1 depending on species; well-humified soil organic matter converges near 10-12:1
+# (Batjes 1996). 20 is the litter figure this substrate's detritus channel represents.
+const LITTER_C_TO_N: float = 20.0
+const SOIL_ORGANIC_C_TO_N: float = 12.0
+# ============================================================================================================
+# SURFACE ENERGY BALANCE — added 2026-08-03 by the conservation repair of the solar/buoyancy/conduction chain.
+# Appended as one contiguous block because four lanes were editing this file the same day.
+# ============================================================================================================
+
+# --- SHORTWAVE IS NOT LONGWAVE, AND THE DIFFERENCE *IS* THE GREENHOUSE --------------------------------------
+# ATMOS_OPTICAL_DEPTH above (0.835) is the LONGWAVE greybody depth of a sea-level air column. Reusing it for
+# sunlight would be a physical error, not an approximation: an atmosphere that absorbed 57% of the incoming
+# beam and 57% of the outgoing infrared would have no greenhouse effect at all. The whole mechanism is that
+# air is nearly transparent to the visible and nearly opaque to the thermal infrared, so the two optical
+# depths are separate measured quantities.
+#
+# Earth's atmosphere absorbs 78 W/m^2 of the 341 W/m^2 arriving at the top of the atmosphere — 22.9%
+# (Trenberth, Fasullo & Kiehl 2009, "Earth's Global Energy Budget", BAMS 90:311). A Beer-Lambert vertical
+# path reproducing that absorption has tau = -ln(1 - 0.2287) = 0.2597.
+const ATMOS_SW_OPTICAL_DEPTH: float = 0.2597
+
+# Relative optical air mass at a 90 deg zenith angle. The naive slant path 1/cos(z) diverges at the horizon;
+# the real one saturates near 38 because the atmosphere is a curved shell, not a slab (Kasten & Young 1989,
+# "Revised optical air mass tables and approximation formula", Applied Optics 28:4735). It is what bounds the
+# terminator's air mass instead of an arbitrary epsilon.
+const AIR_MASS_HORIZON: float = 38.0
+
+# --- WATER: DENSITY AND THE LATENT HEAT OF VAPORISATION ------------------------------------------------------
+# Liquid water at 300 K. The latent heat is at 100 C / 1 atm. Their ratio to water's specific heat is the
+# number that makes boiling such a violent heat sink: L/c = 2.257e6 / 4184 = 539 K. Flashing a hundredth of a
+# cell's water to steam costs the same sensible heat as cooling that water by 5.4 K, which is why a boiling
+# spring pins itself at 100 C and why seawater quenches lava to pillow basalt in seconds.
+# (WATER_DENSITY_KG_M3 is declared once at the top of this file — 997.0, liquid water at 300 K — so the
+# duplicate that stood here on the conservation branch is dropped rather than shadowed.)
+const LATENT_HEAT_VAPORISATION_J_KG: float = 2.257e6
+
+# --- SNOW -----------------------------------------------------------------------------------------------------
+# Settled seasonal snowpack: rho 300 kg/m^3 (fresh fall 50-100, settled 200-400, firn 500+), c 2090 J/kg/K
+# (ice), lambda 0.15 W/m/K (measured range 0.05-0.5 with density; 0.15 is the settled-pack value). The
+# conductivity is why a snow blanket keeps the soil under it above freezing.
+const VOL_HEAT_CAP_SNOW_J_M3K: float = 6.27e5       # 300 * 2090
+const THERMAL_CONDUCT_SNOW_W_MK: float = 0.15
+# ============================================================================================================
+# APPENDED 2026-08-03 — the energies a conserving substrate needs, so a deposit of heat can name what it came
+# out of instead of being conjured. Each is a measured property of the real process, cited the same way as
+# everything above it.
+# ============================================================================================================
+
+# --- LIGHTNING --------------------------------------------------------------------------------------------
+# Total energy dissipated by one negative cloud-to-ground flash. Measured flashes span roughly 1-5 GJ
+# (a ~5 C charge transfer across a ~100 MV potential difference, plus the return-stroke sequence); 1 GJ is
+# the conservative low end and the value usually quoted for a "typical" flash.
+#
+# THIS IS A PROPERTY OF THE DISCHARGE, NOT A TUNING KNOB FOR HOW HOT THE GROUND GETS. What the substrate does
+# with it is arithmetic: E / (heat capacity of the cells the channel spans). That is why a bolt in this model
+# now heats AIR strongly and wet ground barely, and why a bolt with no accumulated charge behind it delivers
+# nothing at all. The number this replaced was a flat `STRIKE_HEAT = 900` °C added to every cell in a radius,
+# which is heat created from nothing at a rate set by nothing.
+const LIGHTNING_FLASH_J: float = 1.0e9
+
+# --- HEAT OF COMBUSTION -----------------------------------------------------------------------------------
+# Lower heating value of dry cellulosic biomass (wood, leaf litter, cured grass): the energy released when one
+# kilogram of it burns completely. Measured at 16-19 MJ/kg across wood species; 18 MJ/kg is the standard value
+# used for dry forest fuels. This is what makes an ignition's heat the FUEL it consumes rather than a number.
+const BIOMASS_HEAT_OF_COMBUSTION_J_KG: float = 1.8e7
+
+# --- CARBON CONTENT OF DRY PLANT MATTER --------------------------------------------------------------------
+# Dry plant biomass is close to half carbon by mass — measured at 45-50% across woody and herbaceous species,
+# with 0.47 the value the IPCC uses for forest carbon accounting. The substrate's `biomass` channel and its
+# `fuel` channel are the SAME material in different states (standing vegetation, and the flammable litter it
+# becomes), so converting between them is a change of state, not a change of substance, and must move mass
+# one-for-one rather than manufacture it.
+const BIOMASS_CARBON_FRACTION: float = 0.47

@@ -44,11 +44,11 @@ const SYMBOL_MAX: int = 3              # a base is 0..3 (A/C/G/T)
 # The legacy quantitative genes LocalAgentCreature.setup() has always consumed. Kept as the canonical list so callers
 # can enumerate them and so express() reproduces the SAME-named floats. (Plain Array — a PackedStringArray
 # constructor is not a constant expression.)
-## (`metabolism` was removed from this list and from LOCI below: a body's burn rate is now its gas-exchange
-## surface times the local oxygen times the temperature band — see LACreatureRespiration — so there is no
-## scalar burn rate left for a locus to carry. `size` already encodes it, because area is size².)
 const GENE_KEYS: Array = [
-	"speed", "size", "sense_radius", "eye_fov", "max_energy", "thirst_rate",
+	# `metabolism`, `max_energy` and `thirst_rate` are GONE from this list — they are derived from the
+	# species' measured body mass now (LACreatureBodyMass), not authored per species, so nothing sets their
+	# config keys and the loci that carried them are retired below.
+	"speed", "size", "sense_radius", "eye_fov",
 	"maturity_age", "throw_range", "cruise_height",
 	"flock_cohesion", "flock_alignment", "flock_separation", "flock_radius", "flock_weight",
 ]
@@ -68,8 +68,21 @@ const LOCI: Array = [
 	["size", "gene", 2, 0.0, 8.0],
 	["sense_radius", "gene", 2, 0.0, 80.0],
 	["eye_fov", "gene", 2, 0.0, 360.0],
-	["max_energy", "gene", 2, 0.0, 400.0],
-	["thirst_rate", "gene", 2, 0.0, 10.0],
+	# THREE LOCI RETIRED, and it is worth saying why rather than leaving them looking live. `metabolism`,
+	# `max_energy` and `thirst_rate` are no longer species data at all: LACreatureBodyMass derives all three
+	# from one measured `mass_kg` (Kleiber for the burn, mass for the reserve, metabolic rate for the water
+	# turnover). A legacy gene only expresses when the species config sets its key, and none of them do any
+	# more, so these three could never reach a phenotype again. They are `reserved` rather than deleted so the
+	# strand LENGTH and every following locus offset are unchanged.
+	#
+	# What supersedes them is real and wired: `basal_metabolism` scales the derived resting rate and
+	# `active_metabolism` scales the exertion cost, both read every frame. HERITABLE BODY MASS is the honest
+	# successor to `max_energy` and is NOT built here — this roster spans five milligrams to four hundred
+	# kilograms, which a linear locus cannot represent, so it needs a log-scaled locus. That is a real
+	# follow-up, not a thing quietly dropped.
+	["_retired_metabolism", "reserved", 2, 0.0, 1.0],
+	["_retired_max_energy", "reserved", 2, 0.0, 1.0],
+	["_retired_thirst_rate", "reserved", 2, 0.0, 1.0],
 	["maturity_age", "gene", 2, 0.0, 120.0],
 	["throw_range", "gene", 2, 0.0, 40.0],
 	["cruise_height", "gene", 2, 0.0, 60.0],
@@ -83,21 +96,19 @@ const LOCI: Array = [
 	["carnivory", "gene", 1, 0.0, 1.0],
 	["neophobia", "gene", 1, 0.0, 1.0],
 	["boldness", "gene", 1, 0.0, 1.0],
-	# RESPIRATORY CAPACITY and THERMOGENESIS replaced two loci named `basal_metabolism` and
-	# `active_metabolism`, which were declared here, encoded from config, expressed by express() — and read by
-	# NOTHING. They were numbers standing in for a rate rather than for any part of an animal, which is why
-	# nothing could use them. These two are the anatomy and physiology the reaction actually reads
-	# (LACreatureRespiration): how much gas-exchange surface the body packs into its area, and how hard it
-	# raises oxygen throughput when it falls below its own enzyme optimum.
+	# METABOLIC-RATE GENES, now actually READ. They sat on the strand from the day they were added and NOTHING
+	# in the codebase consumed either of them — a declared gene that nothing reads is a promise the code does
+	# not keep, exactly like a dead `@export`. `LACreatureBodyMass.apply` multiplies the Kleiber-derived basal
+	# rate by `basal_metabolism`, and `LACreatureMetabolism.tick` multiplies the exertion cost by
+	# `active_metabolism`, so a lineage can evolve toward a thrifty resting animal or a powerful working one
+	# and the two can trade off against each other independently.
 	#
-	# THERMOGENESIS IS WHERE ENDOTHERM AND ECTOTHERM LIVE, and it is a continuum with no flag anywhere. At 0 the
-	# cold-drive term vanishes identically: body temperature tracks ambient, metabolic rate rides the
-	# temperature band up and down with the weather, and the animal goes torpid in the cold — an ectotherm, by
-	# arithmetic rather than by a branch. High values buy a stable warm body and pay for it in oxygen and fuel.
-	# Because it is an ordinary heritable locus under ordinary selection, which strategy pays on THIS planet is
-	# something the run decides, not something a species table asserts.
-	["respiratory_capacity", "gene", 1, 0.25, 2.5],
-	["thermogenesis", "gene", 1, 0.0, 1.0],
+	# THE RANGE IS NOW THE REAL ONE. It was [0.0, 3.0], where 0.0 means an animal that burns nothing and never
+	# starves — not a phenotype, a bug waiting for a mutation to find it. Intraspecific basal metabolic rate in
+	# a wild vertebrate population varies by roughly ±30% around the species mean after mass is accounted for
+	# (repeatable, heritable, and much studied), so the locus spans that and no more.
+	["basal_metabolism", "gene", 1, 0.7, 1.3],
+	["active_metabolism", "gene", 1, 0.7, 1.3],
 	["scent_acuity", "gene", 1, 0.0, 1.0],
 	["taste_sensitivity", "gene", 1, 0.0, 1.0],
 	["_spacer_c", "spacer", 2, 0.0, 0.0],
@@ -265,11 +276,8 @@ static func from_config(cfg: Dictionary) -> LADNA:
 	g.encode_gene("carnivory", LADNA._carnivory_from_diet(String(cfg.get("diet", "herbivore"))))
 	g.encode_gene("neophobia", float(cfg.get("neophobia", 0.5)))
 	g.encode_gene("boldness", float(cfg.get("boldness", 0.5)))
-	g.encode_gene("respiratory_capacity", float(cfg.get("respiratory_capacity", 1.0)))
-	# Ancestral thermogenesis: a species that says nothing starts ECTOTHERMIC (0.0), which is both the ancestral
-	# condition in life's actual history and the honest default — endothermy is the derived, expensive trait and
-	# a lineage should have to be given it or evolve it. Birds and mammals declare it; everything else does not.
-	g.encode_gene("thermogenesis", float(cfg.get("thermogenesis", 0.0)))
+	g.encode_gene("basal_metabolism", float(cfg.get("basal_metabolism", 1.0)))
+	g.encode_gene("active_metabolism", float(cfg.get("active_metabolism", 1.0)))
 	g.encode_gene("scent_acuity", float(cfg.get("scent_acuity", 0.5)))
 	g.encode_gene("taste_sensitivity", float(cfg.get("taste_sensitivity", 0.5)))
 	g.encode_gene("constitution", float(cfg.get("constitution", 1.2)))   # healthy immune default; epidemics select it up
@@ -280,35 +288,6 @@ static func from_config(cfg: Dictionary) -> LADNA:
 	g.encode_gene("water_affinity", float(cfg.get("water_affinity", 0.5)))
 	g.encode_gene("carrion_appetite", float(cfg.get("carrion_appetite", carn * 0.6)))
 	return g
-
-
-## STANDING GENETIC VARIATION for a founding population: scatter every quantitative locus by a small fraction
-## around the species template, so the founders of a species are individuals rather than CLONES.
-##
-## WHY NOT JUST CALL mutate(). That was tried and it is the wrong operator here, for a measurable reason. A
-## point mutation flips one 2-bit base, and in the high base of a codon that moves the decoded value by up to
-## 192/255 of the locus's ENTIRE declared range — for `size`, declared 0..8, a single hit is a body-size change
-## of several metres. Seeding founders that way produced a bee with a body mass of 102 against its template's
-## 0.15, i.e. a bee heavier than a fox, which then poisoned the population-level allometry fit (the measured
-## metabolic exponent fell to 0.26-0.51 because the species' masses no longer meant anything). Mutation is
-## meant to be a rare, large, mostly-fatal event; standing variation within a wild population is a small
-## continuous scatter about the mean, and they are not the same operator.
-##
-## Body size in a real wild population varies by a few per cent to a fifth about the species mean, so a small
-## fractional jitter is both the honest model and the safe one. Applied through the seeded LASimRng, so a run
-## still reproduces exactly from its seed.
-const FOUNDER_VARIATION: float = 0.08     # +/- fraction applied to each quantitative locus at founding
-
-func seed_variation(rng: LASimRng, frac: float = FOUNDER_VARIATION) -> LADNA:
-	if rng == null:
-		rng = LASimRng.shared()
-	for row in LOCI:
-		var kind: String = String(row[1])
-		if kind != "gene" and kind != "cue":
-			continue
-		var name: String = String(row[0])
-		encode_gene(name, decode_gene(name) * (1.0 + rng.randf_range(-frac, frac)))
-	return self
 
 
 ## Asexual/seed fallback (single parent): clone strand + instincts + coded set, bump generation.

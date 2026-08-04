@@ -29,6 +29,11 @@ const IMMUNITY_WANE: float = 0.002        # immunity lost per second (slow — s
 const SHED_PERIOD: float = 0.5            # seconds between shedding passes (transmission is throttled, not per-frame)
 const INFECTIOUS_LOAD: float = 0.12       # min symptomatic load to shed to others
 const MAX_LOAD: float = 1.2
+## Extra energy a fever burns per degree of `rec["fever"]`, per unit load, per second. A fever is a raised
+## metabolic rate: roughly +10-13% of basal per °C of core-temperature elevation in a mammal. This is the
+## conversion from a strain's declared fever into the fuel that produces it — the heat that reaches the field
+## is then exactly the heat that mass released, instead of a number added to the temperature channel for free.
+const FEVER_DRAIN_PER_DEGREE: float = 0.12
 
 var _shed_cd: float = 0.0
 
@@ -99,9 +104,18 @@ func tick(creature, delta: float) -> bool:
 			# the field — emergent overheat + a warm-body cue). Movement lethargy emerges from the energy drain.
 			creature.energy = maxf(0.0, creature.energy - float(rec["drain"]) * load * delta)
 			creature.health -= float(rec["lethality"]) * load * delta
+			# A FEVER'S HEAT IS THE ENERGY THE FEVER BURNED. `add_heat(pos, fever * load * delta, 2.0)` used
+			# to push raw degrees into the temperature field with no source anywhere — the `rec["drain"]` two
+			# lines above is a separate, unrelated constant, so the warmth was simply invented. A fever IS a
+			# raised metabolic rate, and the fuel it burns is where its heat comes from. So a strain's `fever`
+			# now buys an EXTRA DRAIN, and that mass goes through the same respiration path every other joule
+			# takes — O₂ in, CO₂ out, and the heat delivered to the cell by LAMaterialFieldBiota3D.
 			var fever: float = float(rec["fever"])
-			if fever > 0.0 and creature._material != null and creature._material.has_method("add_heat"):
-				creature._material.add_heat(pos, fever * load * delta, 2.0)
+			var fever_burn: float = fever * FEVER_DRAIN_PER_DEGREE * load * delta
+			if fever_burn > 0.0:
+				creature.energy = maxf(0.0, creature.energy - fever_burn)
+				if creature._material != null and creature._material.has_method("respire_at"):
+					creature._material.respire_at(pos, fever_burn)
 			# Lethargy: a sick animal is WINDED — feed muscle lactate so the existing lactate speed-cap slows it.
 			# A slowed, weak animal is easier PREY, so predators preferentially cull the sick → the population is
 			# selected for constitution. No new movement hook — the lactate→speed machinery already does the rest.

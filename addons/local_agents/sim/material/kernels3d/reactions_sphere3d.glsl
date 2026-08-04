@@ -133,7 +133,10 @@ const float BOIL_TEMP = 100.0;          // LAPhysical.WATER_BOIL_C — above it 
 #define CONST_FRAC             0
 #define BILINEAR               1
 #define EXCESS_OVER_THRESHOLD  2
-#define RELAX_TARGET           3
+// 3 IS RETIRED AND STAYS UNUSED — it was RELAX_TARGET, whose own definition ("signed; no reactant; product =
+// driver") describes matter appearing from nothing. The main loop below used to SKIP the entire cap-and-debit
+// block for it, so only the product credit ran. See LAReactionDefs for the full account; an unknown rate
+// model now yields no extent at all rather than an unbounded source.
 #define DEFICIT_BELOW_THRESHOLD 4   // mirror of EXCESS: fires when driver is BELOW threshold (freeze at T<FREEZE_TEMP)
 #define OPTIMUM_BAND           5    // x = k * driver * max(0, 1 - ((driver2 - threshold)/param2)^2) — a rate that
                                     // PEAKS at an optimum and falls off BOTH ways. See MaterialReactions3D.gd.
@@ -466,7 +469,7 @@ void main() {
 			continue;
 		}
 		float drv = read_ch(rc.driver_slot, i);
-		float x;
+		float x = 0.0;
 		if (rc.rate_model == CONST_FRAC) {
 			x = rc.rate_k * drv;
 		} else if (rc.rate_model == BILINEAR) {
@@ -497,28 +500,32 @@ void main() {
 			float t_k = min(temp[i], BOIL_TEMP) + KELVIN_0;
 			float t_ref = max(rc.param2, 1.0);
 			x = rc.rate_k * drv * conc2 * exp(-rc.threshold * (1.0 / max(t_k, 1.0) - 1.0 / t_ref));
-		} else {                            // RELAX_TARGET — signed, no reactant, product = driver channel
-			x = rc.rate_k * (rc.threshold - drv);
 		}
+		// An UNKNOWN rate model now yields x = 0 and the record simply does nothing. It used to fall through
+		// to RELAX_TARGET, so a typo'd model id became an unbounded source of whatever channel it named.
 
-		if (rc.rate_model != RELAX_TARGET) {
-			if (x <= 0.0) {
-				continue;
-			}
-			// Reactant caps: the extent can't drive any reactant (or the aux cap) negative.
-			for (int k = 0; k < rc.n_react; k++) {
-				float coeff = max(rc.react_coeff[k], 1e-6);
-				x = min(x, read_ch(rc.react_slot[k], i) / coeff);
-			}
-			if (rc.cap_slot >= 0) {
-				x = min(x, read_ch(rc.cap_slot, i) / max(rc.cap_coeff, 1e-6));
-			}
-			if (x <= 0.0) {
-				continue;
-			}
-			for (int k = 0; k < rc.n_react; k++) {
-				add_ch(rc.react_slot[k], i, -rc.react_coeff[k] * x);
-			}
+		if (x <= 0.0) {
+			continue;
+		}
+		// Reactant caps: the extent can't drive any reactant (or the aux cap) negative.
+		//
+		// THIS BLOCK IS NOW UNCONDITIONAL, and that is the fix. It used to be wrapped in
+		// `if (rc.rate_model != RELAX_TARGET)`, so ONE rate model skipped the cap and the debit entirely and
+		// ran only the product credit below. That is matter from nothing by construction, and two shipped
+		// records used it: R11 pinned O2 and R12 pinned CO2 at the top of the atmosphere. R12 was the origin
+		// of every carbon atom that ever existed in this simulation.
+		for (int k = 0; k < rc.n_react; k++) {
+			float coeff = max(rc.react_coeff[k], 1e-6);
+			x = min(x, read_ch(rc.react_slot[k], i) / coeff);
+		}
+		if (rc.cap_slot >= 0) {
+			x = min(x, read_ch(rc.cap_slot, i) / max(rc.cap_coeff, 1e-6));
+		}
+		if (x <= 0.0) {
+			continue;
+		}
+		for (int k = 0; k < rc.n_react; k++) {
+			add_ch(rc.react_slot[k], i, -rc.react_coeff[k] * x);
 		}
 
 		for (int k = 0; k < rc.n_prod; k++) {
