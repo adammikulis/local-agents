@@ -198,5 +198,6 @@ CLAUDE.md and GODOT_BEST_PRACTICES.md cover contributor process and Godot conven
 
 ---
 
-This project started as MindGame, a hand-rolled C# Godot plugin for local LLMs, which had one of the
-first in-engine coding agents.
+This project began on 2024-03-14 as MindGame (adammikulis/MindGame) — a C# / LlamaSharp Godot plugin
+for loading a .gguf model and chatting with it locally, with a built-in model download manager. That
+makes it one of the earliest local-LLM agents embedded in a piece of software.
