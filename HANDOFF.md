@@ -1,50 +1,61 @@
 # TODO / Roadmap — Local Agents (voxel-planet caretaker sim)
 
-**This file is the map of what is LEFT. It is not a history.** Anything finished is deleted the moment it is
-committed — git is the record of what was done. Two rules follow:
-- **When you finish something, delete its entry.** Do not tick it, strike it, or annotate it as done.
-- **When you find an entry is FALSE, fix it in place** and say what it claimed, so nobody re-derives the same
-  wrong conclusion. Durable lessons belong in `CLAUDE.md` (process) or `GODOT_BEST_PRACTICES.md` (Godot), not here.
+**This file is the map of what is LEFT. It is not a history.** A finished item is deleted the moment it is
+committed; git is the record of what was done. When an entry is FALSE, fix it in place and say what it
+claimed, so nobody re-derives the same wrong conclusion.
 
-**And distrust this file's FRAMINGS, not only its facts.** Rewritten 2026-08-03 because the previous version
-led with "every subsystem with a conservation ledger conserves; every subsystem without one mints", and a
-whole session of work was planned against that sentence before the maintainer stopped it. Every factual claim
-in it was checkable and several were checked. The *framing* was the problem: "minting" made **creating matter
-from nothing** sound like an accounting discrepancy, so the plan it produced was to measure the discrepancy
-better and, worse, to fix a shortage by adding another source. If a phrase here lets you think about a physics
-violation without picturing the physics, replace the phrase.
+**MAINTAINER'S RULE: this file and `CLAUDE.md` may not be changed without his approval.**
 
-Main scene: the game boots to `addons/local_agents/game/menu/MainMenu.tscn`; the flagship sim is
-`addons/local_agents/game/VoxelWorld.tscn`. Read `CLAUDE.md` and `addons/local_agents/sim/EMERGENCE.md` first.
+**Distrust the FRAMINGS here, not just the facts.** A previous version led with "every subsystem with a
+conservation ledger conserves; every subsystem without one mints", and a full session of work was planned
+against that sentence. Every factual claim in it was checkable. The framing was the problem — "minting" made
+**creating matter from nothing** sound like an accounting discrepancy, so the plan it produced was to measure
+the discrepancy better and to fix a shortage by adding another source. If a phrase here lets you think about a
+physics violation without picturing the physics, replace the phrase.
 
 ---
 
 ## ▶ START HERE
 
-**0.4 IS THE PLANET, AND NOTHING ELSE. Creature work is 0.5 and does not start yet** — not lower priority,
-*premature*, because behaviour tuned against a broken substrate has to be redone. `CLAUDE.md` → SCOPE RULE
-carries the measurable bar. **A defect you find is FIXED, wherever it lives. Nothing here licenses recording
-a broken thing instead of repairing it** — that policy was invented by an agent, never approved, and it is how
-this tracker filled up with known-and-unfixed physics.
+**THE GOAL IS THE ACTUAL EARTH, to a chosen granularity.** Not a planet tuned to be pleasant. Every constant
+is a measured property of real matter, every initial condition describes what the planet was made of, and
+**temperature, atmosphere, ocean and habitability are OUTPUTS, never inputs.** Almost every defect found on
+2026-08-03 was a violation of that one sentence.
 
-**THE ONE THING TO UNDERSTAND BEFORE YOU TOUCH THE SUBSTRATE.** This simulation creates matter from nothing.
-Not as a rounding error — by construction, because the reaction engine is a **rate table, not a chemistry**.
-That is item 1 and everything else here is smaller. Be suspicious of any task description, including one
-written in this file, that proposes to fix a shortage by adding a *source*.
+**0.4 is the PLANET. Creature work is 0.5** — not lower priority, premature. But **a defect you find is
+FIXED, wherever it lives.** Nothing here licenses recording a broken thing instead of repairing it.
+
+**Work in manageable chunks. Do not speedrun toward life.** The staged plan below exists because mixing a
+correctness fix with a behavioural rewrite makes both unmeasurable.
 
 `sorting.py` at repo root is the maintainer's, untracked — leave it.
 
-### Branch state
+### State (2026-08-03, end of session)
 
-`0.4-dev` is the integration branch and everything is merged into it; no outstanding worktrees. 0.3.1 shipped
-on `main` (`v0.3.1`). Work in a worktree off `0.4-dev`.
+`0.4-dev` is the integration branch. Merged today: the LOD deletion (−505 lines), the aquifer's capillary
+retention, sediment transport, the seeded geotherm, one phase rule for all water, and metabolism dissolved
+into the substrate's own respiration reaction.
+
+**IN FLIGHT, NOT MERGED — do not start work that touches these:**
+- `feature/conservation` (19 commits) — the balance gate, the element inventory, `RELAX_TARGET` deleted.
+  **Resolved against `0.4-dev` on `integrate/conservation` but NOT landed**, because it carries a metabolism
+  model the maintainer decided against. Its tip `6ad2417` is pre-biotic seeding, deliberately separate.
+- A re-anchoring of the creature conservation fixes onto the emergent mass model (the maintainer's decision:
+  keep emergent Rubner scaling, feed it conservation's measured `mass_kg`).
+- A kernel pass on combustion, spring heat, the soil kernel's invented water, and the magma stubs.
+- `55cda84` — latent heat, committed and deliberately unmerged. Charging honest enthalpies shows this
+  planet's water cycle runs **~4500× too fast** and the surface reaches −131 °C. That is a decision about the
+  iteration loop, not a bug fix.
+
+**THE BASELINE IS VOID.** Crust now moves, water obeys a real saturation curve, and metabolism is a
+substrate reaction. Nothing measured before today is comparable to anything measured after. Re-establish it.
 
 ---
 
 ## HOW TO RUN AND MEASURE
 
-**Never launch godot windowed directly** — it steals the maintainer's keyboard focus. Always the wrapper.
-`--fixed-fps 60` is an ENGINE flag and goes BEFORE the `--`:
+Never launch godot windowed directly — it steals the maintainer's keyboard focus. `--fixed-fps 60` is an
+ENGINE flag and goes BEFORE the `--`:
 
 ```
 LA_RUN_TIMEOUT=900 LA_NO_STREAMER=1 scripts/run_sim_offscreen.sh --path . \
@@ -52,267 +63,192 @@ LA_RUN_TIMEOUT=900 LA_NO_STREAMER=1 scripts/run_sim_offscreen.sh --path . \
   -- --sandbox --planet-only --run-frames=600 --fast=8 --seed=4242
 ```
 
-A 600-frame run costs ~90 s and EXITS (it prints `LA_RUN_COMPLETE`). Looping runs is normal and expected.
-- `--no-fauna` — animals off, **vegetation kept**, so the carbon cycle is intact. Use for climate/chemistry.
-- `--planet-only` — vegetation off too: pure geophysics. Use for geology/hydrology/mineral.
+~90 s per run; it exits by printing `LA_RUN_COMPLETE`. `--no-fauna` keeps vegetation (carbon cycle intact);
+`--planet-only` is pure geophysics.
 
 **In a fresh worktree, in this order, or your measurements are fiction:** symlink `bin/`, then
-`godot --headless --path . --import` (unimported `.glsl` gives a silently dead GPU field), then
-`scripts/editor_scan.sh` (always — a new worktree has no class cache; never a bare `godot --headless --editor`,
-two concurrent scans segfault).
+`godot --headless --path . --import`, then `scripts/editor_scan.sh` — always, because a fresh worktree has no
+class cache. Never a bare `godot --headless --editor`; two concurrent scans segfault.
 
-**Gates:** `scripts/agent_harness.sh lint` is exactly what CI runs and includes
-`scripts/check_physical_constants.sh` and the file-length limits. `scripts/smoke_check.sh` for a fast health
-check; `scripts/sim_check.sh` for a one-line behavioural verify.
+**Gates:** `scripts/agent_harness.sh lint` is what CI runs, and includes `check_physical_constants.sh` and
+`check_reaction_balance.sh`. **Instruments:** `LA_SOIL_BUDGET=1`, `LA_H2O_BUDGET=1`, `LA_MINERAL_BUDGET=1`,
+`LA_MINERAL_PROFILE=1` (the only one that answers "did it move DOWNHILL", which no total can).
 
-**Instruments:** `LA_SOIL_BUDGET=1` (per-leg groundwater), `LA_H2O_BUDGET=1` (per-pass water),
-`LA_MINERAL_BUDGET=1` (per-pass mineral), `LA_MINERAL_PROFILE=1` (elevation profile of mobile mineral — the
-one that answers "did it move DOWNHILL", which no total can). The two budgets share the driver's single step
-probe and are mutually exclusive; the profile samples in `post_step()` and composes with either.
-
-### Measurement discipline
-
-- **Three runs per arm, minimum.** Quote `phenomenon`, `phenomenon/impact`, `phenomenon/eruption` and `bolts`
-  beside every scalar — residual spread is DISCRETE, dominated by how many disasters a run drew.
-- **Compare at equal `field_sim_s` / `field_step`, never at equal `--run-frames`.**
-- **A global mean cannot answer a local question.** `temp_mean` is inflated by magma cells; `temp_ground_p50`
-  is where things stand. Prefer `energy_net_cool` to `energy_net`.
-- **CHECK THE SIM IS ALIVE FIRST.** A silent load failure once printed a completely normal-looking
-  `SIM_REPORT` with zero reaction records. An aggregate that is exactly `0.00`, or an order of magnitude off
-  baseline, is a broken pipeline until proven otherwise — not a result.
-- **A gate that passes with the feature disabled is not a gate.** Build the disabled arm and show divergence.
-  This caught an inert 175-line module that had passed every check written for it.
-
-### Current baseline — `--planet-only`, 600 frames, `--fast=8 --seed=4242 --fixed-fps 60`
-
-The planet changed a great deal on 2026-08-03; anything older than this table is superseded.
-
-| | |
-|---|---|
-| `soil_total` 3357 | `h2o_total` 7034 |
-| `sediment_total` 260 | `susp_total` 42.5 |
-| `erosion_cells` 134 | `mineral_total` 32192 |
-| `hotspring_cells` 281 | `rock_core_c` 292.8 |
-| `temp_ground_p50` 17.6 | `energy_imbalance_cool` ≈ −0.27 |
-
-Disaster load 8–9 phenomena / 5 impacts / 3–4 eruptions; `field_step` 590; `field_sim_s` 79.8.
+- **Three runs per arm**, quoting `phenomenon`/`impact`/`eruption`/`bolts` — residual spread is discrete and
+  disaster-driven. Compare at equal `field_sim_s`, never equal `--run-frames`.
+- **A global mean cannot answer a local question.** `temp_mean` is inflated by magma; use `temp_ground_p50`.
+- **CHECK THE SIM IS ALIVE FIRST.** A silent load failure once printed a normal-looking `SIM_REPORT` with
+  zero reaction records. An aggregate that is exactly `0.00`, or an order of magnitude off, is a broken
+  pipeline until proven otherwise.
+- **A gate that passes with the feature disabled is not a gate.** Build the disabled arm. This caught an
+  inert 175-line module that had passed every check written for it.
+- **At 43.2 s per field step, a 600-frame run is ~7 hours of planet time** — during which Earth gets about
+  1 mm of rain. "Do rivers run" needs 4000+ frames, not a bigger constant.
 
 ---
 
-## DO THIS NEXT (ranked)
+## WHAT IS STILL FAKE, HARDCODED, OR IMPOSSIBLE ON A REAL PLANET
 
-### 1 — THE SUBSTRATE CREATES MATTER FROM NOTHING. THE ELEMENTS MUST BE PRESENT AT INITIALIZATION.
+Ranked by how much they distort the simulation. Everything here is a place the sim asserts an answer instead
+of computing one.
 
-**This is the top item and it replaces what used to be items 1 and 2.** Those read "nitrogen has no source —
-build the source" and "carbon is minted by a prescriber — replace with a finite atmosphere + outgassing as the
-SOURCE". Both accepted that a substance needs a runtime source. **It does not.** A planet does not manufacture
-nitrogen; it was assembled with 78% N₂ in its air and has been rearranging it ever since. The fix for a tap
-with no tank is not a better tap.
+### Held by fiat — a value is asserted, so the physics cannot close
 
-**Why this is possible is STRUCTURAL.** The DEFS engine is a rate table, not a chemistry:
-- `rec()` takes `reactants[]` and `products[]` as independent lists with hand-written coefficients and
-  **nothing relates them.** R15 shipped consuming 0.8 O₂ per 1.0 CO₂ produced — 18% under-oxidised, creating
-  oxygen every cycle — and was fixed by a person noticing and setting two constants equal by hand.
-- **`RELAX_TARGET` has no reactant at all.** `reactions_sphere3d.glsl:372` skips the entire cap-and-debit
-  block for it, so only the product credit runs. Every carbon atom that has ever existed here came from R12.
-- **There is no load-time validation of any kind.** Conservation is asserted in comments and enforced nowhere.
+1. **THE OCEAN IS A THERMOSTAT.** `kernels3d/heat3d_cool_sphere3d.glsl:47-50` holds the sea near a fixed
+   temperature. It does not participate in the energy balance at all, so **the global energy books cannot
+   close while it exists**, and "where does the planet settle" is unanswerable. This is the single largest
+   remaining fiction.
+2. **THE SEA HAS ~0.93 m OF THERMAL INERTIA** where a real ocean has 20–100 m. Rock lands at 0.248 m against
+   a derived diurnal skin depth of 0.168 m, which is fine; water is wrong by one to two orders. It is why the
+   planet has no thermal memory between day and night.
+3. **BURNING CELLS ARE PINNED TO 640 °C** and combustion destroys half its carbon. A fire's temperature
+   should be a result of combustion enthalpy against heat capacity and losses. *(In flight.)*
+4. **SPRING HEAT HAS NO DONOR** — geothermally warmed groundwater arrives hot and the rock never cools by
+   what it gave up. *(In flight.)*
+5. **THE SOIL KERNEL INVENTS WATER** on a `max(0.0, raw)` clamp — flooring a negative silently creates the
+   difference. *(In flight.)*
 
-**The work, in order:**
-1. **Seed every conserved substance at world build, finite, at physically real proportions** (Earth: 78% N₂,
-   21% O₂, 0.04% CO₂). `_co2` is currently `resize()`d with no `.fill()` while the line above fills `_o2`.
-2. **Delete `RELAX_TARGET`,** or confine it to a genuine boundary with an explicit reservoir behind it. Once
-   there is real air in the cell above, "relax toward ambient" is exchange with a neighbour that holds the
-   gas — an ordinary conserving transfer — and R11/R12 stop being needed.
-3. **Add a load-time BALANCE GATE** shaped like `check_physical_constants.sh`: refuse any record whose
-   products do not balance its reactants. This is the part that matters most — it makes the violation
-   *unwritable* rather than merely absent, and a rule that lives only in a comment has already been broken here.
-4. **Nitrogen fixation is then an ordinary record**, not a source: atmospheric N₂ → fixed N, conserving,
-   driven by biology and by lightning (which fixes real nitrogen on real planets). The biosphere collapse
-   blamed on a missing source was really a missing ATMOSPHERE.
+### Missing physics — a real mechanism simply is not there
 
-Measured: `carbon_drift_per_step` +1.94/+2.37/+2.09; `carbon_first` 720 against `carbon_total` ~5200, so
-carbon has grown 7× from its seeded value. Fertility reads closed only because uptake and release were
-matched by hand at the litter C:N ratio — nothing structural holds them there.
+6. **NO LATENT HEAT.** Evaporation does not cool and condensation does not warm, anywhere. This is the
+   biggest single omission in the water cycle, and the branch that adds it (`55cda84`) shows why it was
+   never noticed: with honest enthalpies the cycle runs **~4500× too fast** and the surface hits −131 °C. The
+   current water cycle is fast *because* it is free.
+7. **NO MANTLE CONVECTION.** The geotherm is a seeded initial condition maintained by a reservoir. A real
+   planet's interior circulates, and that circulation is what drives plate motion, so the plates below are
+   kinematic rather than driven.
+8. **NO ENTHALPY ON MASS TRANSFER.** Every inter-cell transfer moves temperature without moving heat
+   capacity, so mixing two cells does not conserve energy.
+9. **ROCK HAS ONE COMPOSITION.** No mineralogy, no ore, no strata, no differentiation. Weathering and
+   lithification act on a single undifferentiated `rock_fill`, so there is no granite/basalt distinction and
+   no reason for one place to be different from another.
+10. **THE FOOD WEB HAS NEVER WORKED.** `death/eaten` is 0 and `biota_node_intake` 0.00 in **every** arm
+    including the untouched baseline — predation appears never to have functioned. The free `ambient_graze`
+    food source hid it for as long as it existed.
 
-**On the ledgers, since they are this project's proudest instrument:** a drift gauge tells you the violation
-*happened*. It cannot tell you the violation is *possible*. Keep the ledgers; they are not the fix.
+### Prescribed where it should emerge
 
-**Free DEFS slot index is 20.** Slots 5 (`FUEL`) and 6 (`FIRE`) are declared in both the GDScript enum and the
-kernel `#define`s but have **no `read_ch`/`add_ch` branch**, so they read 0 and their writes vanish silently —
-the same two-hand-maintained-lists drift a balance gate should also catch.
+11. **PLATE TECTONICS IS KINEMATIC VORONOI.** Plate boundaries are prescribed and rotate; the crust now
+    genuinely advects with them, but the plates themselves are not a consequence of convection dragging a
+    brittle shell until it cracks. *(Maintainer has explicitly OK'd faking this one — true geodynamics is
+    research-grade. `GEOLOGIC_TIME_ACCELERATION = 3.0e5` is the knob, set by measurement, in
+    `PlateTectonics.gd:67`.)*
+12. **BREEDING IS A POPULATION TICK WITH A `pop_cap`**, at least for aquatic species — a global ceiling
+    rather than population regulated by food, energy and space. `EcologyBreeding.gd:23,29`.
+13. **THE DAY IS A GAME NUMBER.** `SimClock.DAY_LENGTH = 200.0` against a field step of 43.2 real seconds and
+    a separate `PLANET_SPIN_RATE`. Earth's day is 86400 s. Three clocks that do not derive from one rotation.
+14. **THE PLANET IS PINNED AT THE WORLD ORIGIN** and the sun moves around it (`SystemOrbits.gd:228`). A
+    deliberate moving-frame choice; making it literal is the 0.6 headline.
+15. **VEGETATION DOES NOT AFFECT ALBEDO.** A forest is far darker than sand, so the biological half of the
+    ice-albedo feedback cannot exist. Work on this was started and halted.
 
-### 2 — THE PLANET COOLS WITHOUT STOPPING, AND NOTHING SAYS WHERE IT SETTLES
+### Instruments that lie
 
-`energy_imbalance_cool` is ≈ −0.27 and the surface has no demonstrated equilibrium. **What would decide it:**
-4000–6000 frames, watching whether `temp_ground_p50` asymptotes or keeps falling, and `snow_cells` for an
-ice-albedo runaway. Do not tune the solar constant — 1361 W/m² is a measured fact, and moving a physical
-constant to stabilise a model is how this codebase ended up with water freezing at 12.5 °C.
+16. **`magma_cell_count()` / `magma_erupting()` are hardcoded** `0`/`false` and published every report.
+    *(In flight.)* A gauge that always reads zero cannot distinguish "none" from "broken", and this project
+    has already lost a round of measurements to exactly that.
+17. **The element inventory has no per-pass attribution.** It reports that carbon moved, not which reaction
+    moved it. The mineral probe already does this and found a leak in one run by naming `fire_dust`.
 
-**The geotherm does not fix this and never could.** The interior delivers ~9 W/m² at the base of the crust,
-but rock's real diffusivity moves a thermal front 0.16 m in the 590 steps a run covers. The interior is a
-boundary condition on the crust, not a term in the surface budget.
+---
 
-- **2b — the ocean is a thermostat, not a body of water.** Live at `kernels3d/heat3d_cool_sphere3d.glsl:47-50`:
-  the sea is held near a fixed temperature by fiat and does not participate in the energy balance at all. The
-  books cannot close while it exists.
-- **2c — the sea has ~0.93 m of thermal inertia where it should have 20–100 m.** Checkable now that the
-  capacities are stated in real units (rock lands at 0.248 m against a derived diurnal skin depth of 0.168 m,
-  which is fine; water is wrong by one to two orders).
+## DO THIS NEXT — the staged plan
 
-### 3 — GEOLOGY IS PROBABILITY ROLLS, NOT MECHANISM
+Each stage has its own verification. Do not merge stages.
 
-- **D1 WEATHERING's temperature law is backwards.** Rate ∝ `max(0, WEATHER_TEMP − T)` with `WEATHER_TEMP`
-  20.0, justified in-comment by "the sim's actual range" — the exact anti-pattern `CLAUDE.md` names, and the
-  range quoted is stale. It **runs away as the planet gets colder**: at −18 °C it takes 0.152 of the bedrock
-  per step. Frost shattering peaks where temperature *cycles across 0 °C*, not where it is coldest; chemical
-  weathering is Arrhenius and needs water. A correct record needs a **band-around-zero driver the reaction
-  engine does not have** — a new rate model, and one that will move sediment production enough to invalidate
-  any A/B running beside it. Documented with numbers at `reactions/GeoRecords.gd:23-46`.
-- **D2 LITHIFICATION is ungated** (`gate_mask = 0`), has no burial or pressure term, and the per-cell loop
-  runs all records in one dispatch — so D1 and D2 can futile-cycle in the same cell in the same step.
-- **`PlateTectonics` rotates plate SEEDS and moves no crust** (`PlateTectonics.gd:81-82` is the entire motion
-  model; the class never touches the field), so the Ring of Fire sweeps across stationary continents.
-  **Maintainer's decision: advect the crust** — keep the kinematic Voronoi plates, but move `rock_fill` and
-  `sediment` with the plate velocity so continents actually drift. Also drop the undocumented
-  `VENT_CHANCE_DIVERGENT = 0.12`, which sits beside a sibling carrying a 20-line justification.
-- **Craters excavate nothing**, so half the mineral ledger has nothing to check.
+**STAGE 1 — stop the sim creating matter and energy.** *(in flight)* Land the balance gate, the element
+composition table, the renamed inventory, and the creature-layer fixes re-anchored onto the emergent mass
+model. Verified by one question: does the planet still create matter, yes or no. Then close the kernel
+violations (1, 3, 4, 5 above).
 
-### 4 — THE PLANET IS WET NOW, AND EVERY CONSTANT DOWNSTREAM OF RAIN WAS FITTED WHILE IT WAS DRY
+**STAGE 2 — seed a primordial planet.** Post-magma-ocean Hadean, ~4.4 Ga: hot surface, thick CO₂/N₂
+atmosphere, water still largely steam, **no free O₂** (it is a product of life), no biosphere. **Oceans must
+CONDENSE, not be placed.** Delete `INITIAL_TEMP = 15.0` and every "partway" seed. Source and cite the
+composition, and name the era. **Uninhabitable for a whole run is an acceptable result.** `6ad2417` is a
+start on this.
 
-The aquifer gained capillary retention, so groundwater is 3474 units of H₂O that used to be in the sky:
-`moisture_total` 3742 → 2139, `cloud_cells` 4210 → 373, and with less rain `sediment_total` 967 → 282,
-`susp_total` 70 → 17. **Decide it by measuring whether erosion now carves drainage to the sea over a long
-horizon**, not by moving a constant back to where it made the old numbers look right.
+**STAGE 3 — does it cool, and where does it settle?** Kill the ocean thermostat first, or the books cannot
+close. Run 4000–6000 frames; watch `temp_ground_p50` for an asymptote and `snow_cells` for an ice-albedo
+runaway. **Do not tune the solar constant** — 1361 W/m² is a measured fact.
 
-- **The atmosphere holds ~30% of the planet's H₂O. Earth holds ~0.001%.** Still off by four orders. Compare
-  `moisture_total` against `water_total + soil_total`: a planet whose air outweighs its ocean is wrong however
-  the individual numbers look.
-- **`CONDUCT = 0.35` is ONE hydraulic conductivity for all regolith.** Real K spans ~12 orders of magnitude by
-  material. Same design smell as one thermal physiology per creature. Needs per-cell permeability, which the
-  binary `regolith` mask cannot carry.
-- **Soil water has no evaporative sink.** Root uptake is the only path out, ~0.03/step against a ~3400-unit
-  reservoir. Real evapotranspiration is the dominant soil-water loss.
-- **4b — arming the geotherm costs the water table.** The path is real (hot regolith → spring → >100 °C →
-  steam) and H₂O stays conserved, but the *rate* is not defensible because **recharge is missing**.
-- **4c — live airborne dust costs the water table a quarter of itself and nobody knows why.** A *forced* 14%
-  constant dimming raises it instead. Those probes were one run each against a 3–6 unit spread; needs 3 per
-  arm with `LA_SOIL_BUDGET` on both.
+**STAGE 4 — oceans condense, CO₂ draws down.** Verify the sequence *happens*: cooling past the condensation
+point rains the atmosphere out; silicate weathering pulls CO₂ into carbonate. Success is the event occurring,
+not a number looking right.
 
-### 5 — EROSION TRANSPORTS, BUT NOBODY HAS SHOWN IT CARVES
+**STAGE 5 — the geological bake (`--geotime`).** Run the planet forward through geological time and freeze
+the result as the start state. This is what makes habitability an output. Needs a real stopping condition
+(temperature asymptote, oceans condensed, atmosphere stable). The snapshot path exists; `--geotime` does not.
 
-The transport leg ships and sediment measurably travels downhill (the high-elevation tercile loses surface
-mineral at every horizon). Untested is whether it carves **drainage to the sea** at this rate: `relief` moved
-2.445 → 2.560 in *both* arms at 80 sim-seconds, so the landscape has not responded yet. Wants
-`--run-frames=2000`+, not a constant.
-
-**Two warts found in the transport work:** `susp` sealed inside rock is frozen forever (reactions skip solid
-cells, so suspension in a cell that later crosses the solid threshold never returns — it is most of
-`susp_total`); and `mineral_total` rides a **demand-gated mirror** — `rock_fill` is in `SITUATIONAL_CHANNELS`
-and only refreshes while something arms it, so the ledger's 99% term can be stale.
-
-### 6 — SMALLER, ALL MEASURED
-
-- **`magma_cell_count()` and `magma_erupting()` are hardcoded `0`/`false`** in `MaterialField3D.gd` and
-  published in every report. Four sibling stubs were fixed; these two remain.
-- **`add_lava` rewinds the GPU with a whole-mirror `set_field`** — it needs a sparse move, and it touches the
-  extract-only hub.
-- **The H₂O ledger has a large unexplained excursion.** With the run-level gauge: water falls 29% early then
-  partly recovers, and the per-step figure shrinks 6× with horizon. The aquifer fix improved it from −2.74 to
-  −0.446 per step. Untested: settling transient, or `h2o_first` sampling before world-gen finishes seeding.
-- **`--planet-only` is not fully deterministic** (eruptions 4/3/3 at one seed) despite its commit claiming it
-  is the only mode that can be. Either close it or correct the claim.
-- **A4: rebuild `VoxelWorld` → Anima. HELD for supervised handling** — it rebuilds the composition root, so it
-  needs launched-window verification.
-
-### 7 — THE GEOLOGICAL BAKE (`--geotime`)
-
-**0.4 work, not a stretch goal** — it is what makes this "the emergent planet" rather than merely a correct
-one. Run the planet forward through geological time (erosion, volcanism, climate) and freeze the result as a
-livable start state. `--geotime` does not exist; the snapshot path does. It is the natural consumer of
-everything above and cannot be built until erosion carves, springs run and the elements conserve — so it goes
-last, and it is the proof that the rest worked.
+Life is not a stage. It is what stage 5 hands to 0.5.
 
 ---
 
 ## LIVE ENGINE CONSTRAINTS (measured here — do not re-derive)
 
 - **`buffer_get_data_async` returns STALE data** for compute-written buffers on Godot 4.4+ (engine bug
-  [#105256](https://github.com/godotengine/godot/issues/105256)). Forking the engine was considered and rejected.
-- **Reading the device directly from the REPORT path CORRUPTS THE SIM.** On a local `RenderingDevice` with a
-  `step()` submit in flight, `buffer_get_data` flushes outside the driver's one-submit-per-sync discipline:
-  `h2o_total` 5062 → 9803, `temp_mean` 39.8 → 44.6. Defer the sample into `_drain_pending()`, after
-  `_rd.sync()`. See `request_probe`/`take_probe`.
+  [#105256](https://github.com/godotengine/godot/issues/105256)). Forking was considered and rejected.
+- **Reading the device from the REPORT path CORRUPTS THE SIM.** With a `step()` submit in flight,
+  `buffer_get_data` flushes outside the driver's one-submit-per-sync discipline: `h2o_total` 5062 → 9803,
+  `temp_mean` 39.8 → 44.6. Defer the sample into `_drain_pending()`, after `_rd.sync()`.
 - **`request_channel()` is NOT read-only.** It decides which channels get mirrored, and the field's *write*
-  paths read those mirrors. Changing what is mirrored changes the simulation — this is how impact winter was
-  found to be alive only because a diagnostic happened to request `dust`.
-- **There is NO GPU-side execution timer in this build.** `gpu_dispatch_ms` always reads 0.00 on Metal;
-  `LA_RENDER_DRIVER=vulkan` exists for a one-off diagnostic. Read fps and `field_ms` as directional only.
-- **Where the field's time actually goes** (`field_ms` 5.210 total): `field_readback_ms` 4.020 (**77%**),
-  `field_pin_ms` 0.660 (13%), `field_dispatch_ms` 0.188 (**4%**), `field_post_ms` 0.097. Optimise readback.
-  A camera-relevance LOD was deleted for optimising the 4% while costing 4.5 °C of climate error.
-- **The neighbour table and the tangent frame are SEPARATE tables and must stay that way** — the discrete
-  hairy-ball theorem, proved and recorded in `GODOT_BEST_PRACTICES.md`. Anything reading a vector across a
-  seam must use the precomputed per-link rotation.
-- **A wrapper run reads the tree AT LAUNCH**, so editing a worktree mid-batch silently mixes code versions.
-- **A runner passing `FOO="${FOO:-}"` arms any probe gating on `OS.has_environment`** — true for an empty value.
+  paths read those mirrors. This is how impact winter was found to be alive only because a diagnostic
+  happened to request `dust`.
+- **CPU writes to `_f._o2` / `_f._co2` / `_f._detritus` are silently discarded** —
+  `MaterialFieldSphereStep3D.gd:282-306` overwrites them wholesale from the GPU readback every drain. Park
+  transactions on the device injection queue instead. Every breath an animal took once debited nothing.
+- **No GPU-side execution timer in this build.** `gpu_dispatch_ms` reads 0.00 on Metal.
+- **Where the field's time goes:** readback **77%**, core pin 13%, dispatch **4%**. Optimise readback. A
+  camera-relevance LOD was deleted for optimising the 4% while costing 4.5 °C of climate error.
+- **The neighbour table and the tangent frame are SEPARATE tables** — the discrete hairy-ball theorem, proved
+  in `GODOT_BEST_PRACTICES.md`. Anything reading a vector across a seam uses the per-link rotation.
+- **A wrapper run reads the tree AT LAUNCH** — editing a worktree mid-batch silently mixes code versions.
+- **`FOO="${FOO:-}"` arms any probe gating on `OS.has_environment`** — true for an empty value.
 
 ---
 
 ## WHAT IS SOUND — do not rebuild these
 
-The H₂O ledger's inclusion rule and the inject queue's transfer/add split; the DEFS record engine's std430
-layout and every 1:1 conserving record; the neighbour/tangent tables; `REPOSE_TAN = 0.70`; the soil budget's
-per-leg identity; the erosion transport law (no fitted constant — load moves in the same proportions as the
-water that carries it); the geotherm as a seeded initial condition with a derived vertical scale; and the
-aquifer's `k_rel`/`RESIDUAL` capillary retention.
+The H₂O ledger's inclusion rule; the DEFS record engine's std430 layout; the neighbour/tangent tables;
+`REPOSE_TAN = 0.70`; the soil budget's per-leg identity (`kernel_residual` exactly 0.0); the erosion
+transport law (no fitted constant — load moves in the same proportions as the water carrying it); the
+geotherm as a seeded initial condition with a derived vertical scale; the aquifer's `k_rel`/`RESIDUAL`
+capillary retention; the saturation curve from August-Roche-Magnus; Kozeny-Carman conductivity from porosity;
+weathering as ice expansion and Arrhenius dissolution; lithification on real lithostatic pressure; and
+metabolism as the substrate's own respiration reaction with mass-scaling emergent rather than typed.
 
 ---
 
-## 0.5 — THE LIVING CREATURES — PARKED. DO NOT START THIS.
+## 0.5 — THE LIVING CREATURES — PARKED
 
-Everything here is 0.5 and does not begin until the planet is locked down (`CLAUDE.md` → SCOPE RULE). The
-sequenced plan lives in `docs/0.5_CREATURE_FEATURES.md` and `docs/0.5_PARALLELIZATION_GUIDE.md`.
-
-**Creature-layer physics defects — ALL OF THESE ARE BEING FIXED NOW, not recorded.** They are listed here
-only until the work lands, and then this list goes away.
-`CreatureDigestion.ambient_graze` creates food out of the temperature at the animal's feet, with no source and
-nothing decremented ("never depletes, can't be crashed"), so starvation is unreachable and herbivore numbers
-are set by a JSON `pop_cap`. **That is item 1 again, in the creature layer** — the same engine-level
-permission to conjure matter, wearing different clothes. Nothing scales with body mass: a fox and a mouse burn
-identical energy, and the `basal_metabolism`/`active_metabolism` genes are read by nothing. One thermal
-physiology covers all 28 species. `Fish.gd` spends energy only `if not preys_on.is_empty()`, so shrimp,
-jellyfish, crab and turtle cannot starve.
+Does not begin until the planet is locked down. Plans: `docs/0.5_CREATURE_FEATURES.md`,
+`docs/0.5_PARALLELIZATION_GUIDE.md`. Note the food web (item 10) has never worked and is the first thing to
+establish, not the last.
 
 ## 0.6 — THE FULL SOLAR SYSTEM
 
-0.3 shipped the moving-frame system (real orbital state, seasons, insolation, a moon, momentum). 0.6 makes it
-literal and navigable: migrate the GPU field to a moving-frame body-local representation so the planet node
-can translate; planets, moons and sun as first-class bodies on real orbits; land on the moon; render the real
+Make the moving frame literal: migrate the GPU field to a body-local representation so the planet can
+translate; planets, moons and sun as first-class bodies on real orbits; land on the moon; render the real
 orbits; persist the orbital state.
 
 ---
 
 ## Where everything lives
 
-- **THE substrate:** `material/MaterialField3D.gd` (thin facade, **extract-only**) + `MaterialSphereGPU3D`
-  (GPU host) · `sphere_passes/*` · `kernels3d/*_sphere3d.glsl` (authoritative) · `MaterialReactions3D` (the
-  registry) + `reactions/{ReactionDefs,Gas,Bio,Phase,Geo}Records.gd` · `PhysicalConstants.gd` (`LAPhysical`)
-  · the budget/probe modules · `WaterParticles` · `mesh/VegetationRenderer`.
-- **Composition root:** `game/VoxelWorld.gd` (**extract-only**) + `game/world/*` controllers.
-- **Actors:** `actors/*` + `actors/creature/*`; disasters are seeds/visuals only. **Cognition:** `cognition/*`.
-  **Ecology:** `ecology/*`. **Data:** `data/species/**/*.json`.
-- **Reusable addon:** `agents/` (LocalAgent + Agent3D) · `runtime/` · `ui/ModelManager*` · `examples/`.
+- **Substrate:** `material/MaterialField3D.gd` (thin facade, **extract-only**) + `MaterialSphereGPU3D` ·
+  `sphere_passes/*` · `kernels3d/*_sphere3d.glsl` (authoritative) · `MaterialReactions3D` (registry) +
+  `reactions/{ReactionDefs,Bio,Phase,Geo}Records.gd` + `ReactionBalance.gd` (the gate) ·
+  `PhysicalConstants.gd` (`LAPhysical`) · the budget/probe/inventory modules.
+- **Composition root:** `game/VoxelWorld.gd` (**extract-only**) + `game/world/*`.
+- **Actors:** `actors/*`, `creatures/**`; disasters are seeds/visuals only. **Cognition:** `cognition/*`.
+- **Reusable addon:** `agents/` (LocalAgent + Agent3D) · `runtime/` · `examples/`.
 
 ## North-star
 
-**Realism is the first goal** (`CLAUDE.md` RULE ZERO). Ask whether a model corresponds to how the world
-actually works before asking whether it runs, whether the test passes, or whether the number looks reasonable.
-Those are all downstream.
+**Realism is the first goal.** Ask whether a model corresponds to how the world actually works before asking
+whether it runs or whether the number looks reasonable. **Dissolve, don't patch:** named phenomena have zero
+dedicated code; success is special-case code DELETED. **Nothing is created from nothing** — a shortage is
+never fixed by adding a source. **Emergent-everything · 3D always · GPU-first · perf-first · Big-O
+first-class · config over `if species == X`.**
 
-**Dissolve, don't patch:** ONE physical substrate — matter with pressure, temperature, phase, gravity,
-momentum and chemistry. Named phenomena (volcano, eruption, storm, delta) have **zero dedicated code**; they
-emerge. Success is special-case code DELETED. · **Emergent-everything** · **3D always** · **GPU/native-first**
-· **perf-first** · **Big-O first-class** · **config over `if species == X`**.
-
-**Dual-purpose:** a reusable Godot dev tool (the `LocalAgent` LLM node) AND a full game that is its flagship
-demo. Local LLMs drive creature cognition and the streamer, fully offline — headline this.
+**Dual-purpose:** a reusable Godot dev tool (the `LocalAgent` LLM node) AND the game that is its flagship
+demo. Local LLMs drive creature cognition and the streamer, fully offline.
