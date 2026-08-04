@@ -156,9 +156,8 @@ else to go. There is no "make a storm" function anywhere in the code, and no scr
 Animals live on the surface and mostly run on cheap built-in instincts, because asking a language
 model about every animal every frame would be far too slow. When something unfamiliar happens, that
 animal asks the local model what to do, and the answer becomes an action in the world. There is also
-an optional commentator. It runs the same loaded model on its own context, not a second copy in
-memory, and talks about what is happening out loud, in a generated voice. All of it runs offline on
-one machine.
+an optional commentator feature that uses a local LLM to talk about what is happening out loud, in a
+generated voice. All of it runs offline on one machine.
 
 ![A voxel planet with weather, terrain and animals](addons/local_agents/docs/img/planet.png)
 
