@@ -11,21 +11,31 @@ dedicated code — they're what the substrate physics does. NOTE: the maintainer
 SDF, heat field, lava, and shock, so they want a design pass with the maintainer, not a blind one-shot.
 
 ## Substrate we already have (the ingredients)
-- **Radial heat field** — hot core (pinned ~1300°C) → cool surface, conducted through the crust (rock insulates
-  ~6× air). The geothermal ENGINE.
+- **Radial heat field — a SEEDED GEOTHERM.** *(Corrected 2026-08-03. This said "hot core (pinned ~1300°C) →
+  cool surface, conducted through the crust (rock insulates ~6× air)". All three parts were wrong: 1300 °C is
+  an erupting-basalt temperature rather than a core one, the core is no longer pinned, and the conductivities
+  were fitted — the kernel now uses real material properties, and rock does not insulate relative to air, it
+  conducts ~100× better. What keeps an interior hot under a temperate surface is that geothermal flux is
+  negligible against solar across kilometres of rock.)* The profile is an INITIAL CONDITION: rock's real
+  diffusivity moves a thermal front 0.16 m in the ~7 hours of planet time a 600-frame run covers, so no
+  geotherm can establish at runtime — Earth has one because it was born with one. A finite reservoir seeded
+  at real temperatures maintains it and slowly cools. The geothermal ENGINE.
 - **Magma / lava** — `_lava`, magma buoyancy (`magma_buoy_sphere3d`), lava flow, phase change (melt/solidify).
+  Eruptions now draw from a FINITE mantle reserve; the vent used to be documented as "effectively infinite",
+  which meant every island this planet ever built was made of matter that did not exist.
 - **Rock as fractional bedrock** — `rock_fill` (GPU-owned); `solid` derived from it. Terrain is one SDF that can
-  be carved (`carve_sphere`) + filled (`fill_box`), and rock solidifies/melts by temperature.
+  be carved (`carve_sphere`) + filled (`fill_box`), and rock solidifies/melts by temperature. It advects with
+  the plates now, so continents genuinely drift. ONE composition, though — no mineralogy, no strata.
 - **Shock waves** — `_shock` propagating seismic field (impacts/tremors inject it; terrain muffles it).
-- **Groundwater AQUIFER (PARTIAL, 0.4)** — regolith permeability band + bedrock floor + Darcy flow.
-  `soil_sphere3d`. *(Corrected 2026-08-03: this said "DONE … → perennial springs/rivers". There are no
-  springs. The outflow loop spends its budget greedily in SLOT ORDER and slot 0 is the inward/downward
-  neighbour, which `head_of()` makes lower-head unless brim-full — so whenever the cell below has headroom
-  the whole budget drains downward and no lateral flow or spring runs at all. Equilibrium is a water table
-  pinned ~2 cells below the surface everywhere. The Darcy UNITS bug is fixed; the slot-order greed is not.
-  Fix is proportional allocation: compute all six desired flows, then scale them to the budget together.
-  This is what blocks geysers, fumaroles and volcanic tidal pools — the magma-free hot-spring mechanism
-  already exists and is emergent, it just has no water to work with.)*
+- **Groundwater AQUIFER — WORKING, and springs run.** *(Corrected 2026-08-03. This said "DONE → perennial
+  springs/rivers", which was false — there were none. Then it said the only defect was slot-order greed in the
+  outflow loop, which was also wrong: the greed was ~10% of it. The kernel had NO unsaturated-conductivity
+  term, so regolith drained at its SATURATED conductivity down to zero water.)* Real media obey
+  K = K_sat·k_r(S_e) and hold water against gravity below the residual saturation — that is field capacity,
+  and it is why a real root zone is the wettest part of a profile after rain. Both fixed: the water table is
+  surface-following (saturation ramp 1:65 → 1:2.3), lateral discharge exceeds downward percolation, and
+  `hotspring_cells` reads 281–401 against 0–2 with the geotherm disarmed. Conductivity is now computed from
+  per-cell porosity and grain size (Kozeny-Carman) rather than one number for all regolith.
 - **N-body gravity + bodies** — `LAGravity`, `LAPlanetBody`, a moon, orbits (moving-frame). Test-particle pull.
 
 ## 1. Real FRACTURING (task #15) — prerequisite for everything below
@@ -56,6 +66,6 @@ ejecta scaled way up): a magma-ocean heat pulse + massive ejecta + global shock 
 melts the surface. Full version: true body-splitting (system 1) + debris that re-accretes into the moon.
 
 ## Sequencing
-`aquifer (DONE)` → `real fracturing (#15)` → `mantle convection engine` → `plate tectonics (#17)` → giant impacts
+`aquifer (WORKING)` → `real fracturing (#15)` → `mantle convection engine` → `plate tectonics (#17)` → giant impacts
 / Theia (#16) ride on the fracturing. This is the deep-geophysics half of "grow the planet" — the erosion/
 sediment/glacier arc in `ROADMAP_0.5.md` is the surface half; together they make the planet genuinely alive.
