@@ -162,8 +162,6 @@ tracks breaking changes. The emergent-design rule the sim is built on lives in
 
 ---
 
-This project started on 2024-03-14 as MindGame, a hand-rolled C# / LlamaSharp Godot plugin for
-loading a .gguf model and chatting with it locally. At the time the local-LLM binding it depended on
-was too new for the coding assistants of the day to know, so there was no shortcut, it had to be
-written by hand. Over about 2.3 years and roughly 830 commits it grew into this project: a GDScript
-addon backed by a native C++/llama.cpp GDExtension, with the voxel planet as the live showcase.
+This project began on 2024-03-14 as MindGame (adammikulis/MindGame) — a C# / LlamaSharp Godot plugin
+for loading a .gguf model and chatting with it locally, with a built-in model download manager. That
+makes it one of the earliest local-LLM agents embedded in a piece of software.
