@@ -115,9 +115,8 @@ rest follows from that: there is no scripted storm or scripted disaster anywhere
 forage, flee and hunt with kinship. Most of the time they run on cheap built-in rules, because asking
 a language model about every animal every frame would be far too slow. When something unfamiliar
 happens, that animal asks the local model what to do, and the answer becomes an action in the world.
-There is also an optional streamer. It runs the same loaded model on its own context, not a second
-copy in memory, and narrates the sim live in a generated voice. All of it runs offline on one
-machine.
+There is also an optional streamer feature that uses a local LLM to narrate the sim live in a
+generated voice. All of it runs offline on one machine.
 
 ![A voxel planet with weather, terrain and animals](addons/local_agents/docs/img/planet.png)
 
