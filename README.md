@@ -17,9 +17,10 @@ next, with the game turning that decision into an action.
 There are three parts, and two of them you download once.
 
 The model is a .gguf file, the quantized format llama.cpp uses. The default is
-Qwen3-4B-Instruct-2507 at Q4_K_M, resolved from `user://local_agents/models/qwen3-4b-instruct/` (or
-the in-repo `addons/local_agents/models/` copy the build script can fetch). Any .gguf works, so you
-can swap the model without touching code.
+Qwen3-4B-Instruct-2507 at Q4_K_M. Day to day it resolves from Godot's user data directory
+(`user://local_agents/models/qwen3-4b-instruct/`), and the plugin also checks your Hugging Face hub
+cache first so a model you already have does not get downloaded twice. Any .gguf works, so you can
+swap the model without touching code.
 
 The native extension is a C++ GDExtension (`localagents`) wrapping llama.cpp for text generation,
 whisper.cpp for transcription, and Piper for speech, all embedded, all local.
@@ -45,12 +46,16 @@ cd addons/local_agents/gdextensions/localagents
 ```
 
 This produces `bin/localagents.<platform>.{dylib,so,dll}` plus the bundled runtimes. Running
-`fetch_dependencies.sh` without `--skip-models` also downloads the default model, which covers the
-next step in one shot.
+`fetch_dependencies.sh` without `--skip-models` also drops the default model straight into
+`addons/local_agents/models/`, a convenience for building from source, not where the plugin looks
+by default.
 
-For the model on its own, open the project in Godot, enable the Local Agents plugin (Project >
-Project Settings > Plugins), then use the Local Agents > Downloads panel at the bottom of the editor.
-It puts the file where the plugin expects it.
+For the model day to day, open the project in Godot, enable the Local Agents plugin (Project >
+Project Settings > Plugins), then use the Local Agents panel at the bottom of the editor. The
+Downloads tab fetches into Godot's user data directory, not the project folder. The Detected Models
+tab scans that directory plus your Hugging Face hub cache (`~/.cache/huggingface/hub`, or
+`$HF_HUB_CACHE`/`$HF_HOME` if set) and any custom folder you point it at, so an already-downloaded
+model is reused instead of redownloaded.
 
 If either piece is missing, the runtime status says so ("Native runtime missing...") instead of doing
 nothing.
