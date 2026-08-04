@@ -928,8 +928,11 @@ func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = V
 	if _ejecta != null:
 		_ejecta.eject(world_pos, mass, energy, dir_bias)
 
+## Cells holding melt that has reached OPEN ground — lava. Thin forwarder; the walk (and the magma/lava
+## distinction it rests on) lives in LAMaterialFieldQueries3D.molten_counts.
+## (Was `return 0`, a gauge that read "no lava" identically whether there was none or the reporting was dead.)
 func lava_cell_count() -> int:
-	return 0
+	return _queries.lava_cell_count() if _queries != null else 0
 
 func wet_cell_count() -> int:
 	return _queries.wet_cell_count()
@@ -1075,10 +1078,14 @@ func geotherm_report() -> Dictionary:
 	return _geotherm.report()
 
 
+## Cells holding melt still CONFINED by rock — magma, as against the lava_cell_count above. Thin forwarders;
+## both, and the eruption test, come from the single walk in LAMaterialFieldQueries3D.molten_counts.
+## (Both were hardcoded — `return 0` / `return false` — while `magma_cells` was published in every SIM_REPORT.)
 func magma_cell_count() -> int:
-	return 0
+	return _queries.magma_cell_count() if _queries != null else 0
+## Molten rock standing in open cells: magma has reached the surface, which is what an eruption IS.
 func magma_erupting() -> bool:
-	return false
+	return _queries.magma_erupting() if _queries != null else false
 ## Open cells currently carrying a suspended mineral load — the `erosion_cells` gauge in SIM_REPORT. Thin
 ## forwarder; the count lives in LAMaterialFieldMineralProfile3D (static, so no diagnostic instance is needed).
 ## (Was `return 0` — a hardcoded zero that read "no erosion anywhere" identically whether erosion was working
