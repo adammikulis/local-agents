@@ -20,8 +20,20 @@ const BRACKISH_FLOOR: float = 0.35
 # activity_sphere3d.glsl:95", which made a gauge's reporting floor look like a copy of a substrate rule bound
 # only by a comment. It is not one, and that kernel is being retired on another lane.)*
 const DUST_PRESENT: float = 0.001
+# PRESENCE FLOOR for the molten-rock counts below: the smallest lava mass a cell can carry and still be called
+# molten rather than numerical residue. Matches lava_phase_sphere3d.glsl's own LAVA_MIN_MASS, the threshold
+# that kernel uses to decide a cell holds melt at all — so the gauge and the physics agree on what "there is
+# molten rock here" means. A property of the measurement, not of basalt.
+const MOLTEN_MIN: float = 0.0001
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
+# Cache for the ONE walk that answers all three molten-rock gauges (see molten_counts). Keyed on the field's
+# own step counter, so a report that asks for all three pays for one pass and a report taken twice inside one
+# field step pays for none. It reads only the `_lava`/`_solid` mirrors that are already there — no device read
+# and no `request_channel`, so it is a pure instrument.
+var _molten_step: int = -1
+var _molten_magma: int = 0
+var _molten_lava: int = 0
 
 
 func setup(field) -> void:
@@ -508,6 +520,54 @@ func lava_total() -> float:
 	for c in _f._cell_count:
 		sum += _f._lava[c]
 	return sum
+
+
+## WHERE THE MOLTEN ROCK IS — the one walk behind `magma_cells`, `lava_cells` and `magma_erupting`.
+##
+## The distinction is the real one, and it is geometric, not a flag anybody sets: MAGMA is melt still CONFINED
+## by rock (the cell is derived-solid), LAVA is melt that has broken into an OPEN cell. An ERUPTION is not an
+## event with a timer or a state machine — it is simply the condition "molten rock has reached open ground",
+## which is what the word means. Nothing here is scripted; the counts are a reading of the `_lava` channel the
+## flow/phase kernels evolve, and the channel's own phase kernel is what takes mass out of it when melt
+## freezes, so a cell counts as molten exactly while the substrate says it holds melt.
+##
+## THESE THREE USED TO BE HARDCODED. `LAMaterialField3D.magma_cell_count()` was `return 0`,
+## `magma_erupting()` was `return false`, and `lava_cell_count()` was `return 0` — all three published in
+## every SIM_REPORT (`magma_cells`, `lava_cells`) and read by LASceneEnergyGraph's thermal term. A gauge that
+## always reads zero cannot tell "no magma" from "magma reporting is broken", and this project has already
+## lost a round of measurements to exactly that.
+func molten_counts() -> Dictionary:
+	var step: int = _f._gpu._step_index if _f._gpu != null else -1
+	if step >= 0 and step == _molten_step:
+		return {"magma_cells": _molten_magma, "lava_cells": _molten_lava}
+	_molten_magma = 0
+	_molten_lava = 0
+	_molten_step = step
+	if _f._lava.size() != _f._cell_count or _f._solid.size() != _f._cell_count:
+		return {"magma_cells": 0, "lava_cells": 0}
+	for c in _f._cell_count:
+		if _f._lava[c] < MOLTEN_MIN:
+			continue
+		if _f._solid[c] != 0:
+			_molten_magma += 1          # confined by rock — magma
+		else:
+			_molten_lava += 1           # out in the open — lava
+	return {"magma_cells": _molten_magma, "lava_cells": _molten_lava}
+
+
+## Cells holding melt that has NOT reached open ground — magma.
+func magma_cell_count() -> int:
+	return int(molten_counts()["magma_cells"])
+
+
+## Cells holding melt that HAS reached open ground — lava.
+func lava_cell_count() -> int:
+	return int(molten_counts()["lava_cells"])
+
+
+## Molten rock is standing in open cells, which is what an eruption IS. No timer, no burst state, no actor.
+func magma_erupting() -> bool:
+	return int(molten_counts()["lava_cells"]) > 0
 
 ## Derived-solid (bedrock) cell count — a display/diagnostic (cells whose derived solid flag is set). NOT the mineral
 ## mass baseline anymore: Stage B made bedrock a FRACTIONAL channel (rock_fill), so the mass baseline is rock_fill_total().

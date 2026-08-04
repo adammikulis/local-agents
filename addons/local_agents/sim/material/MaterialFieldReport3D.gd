@@ -287,6 +287,10 @@ func report() -> Dictionary:
 		"fog_cover": _f.avg_fog_cover(), "moisture_total": _f.moisture_total(),
 		"wind": _f.wind().length(), "scent_cells": _f.scent_cell_count(),
 		"fertility_peak": _f.fertility_peak(), "magma_cells": _f.magma_cell_count(),
+		# Molten rock standing in OPEN cells — an eruption, by what the word means. `magma_erupting()` already
+		# existed and nothing called it (it was a hardcoded `return false`); it costs nothing here because it
+		# reads the same cached walk `magma_cells` and `lava_cells` above have already paid for.
+		"magma_erupting": _f.magma_erupting(),
 		"erosion_cells": _f.erosion_cell_count(), "snow_cells": _f.snow_cell_count(), "ice_cells": _f.ice_cell_count(),
 		"sea_ice_cells": q.sea_ice_cell_count(), "sea_ice_temp": q.sea_ice_temp_avg(), "open_sea_temp": q.open_sea_temp_avg(),
 		# (`dust_cells` moved into the mineral budget's single pass — it already walks the dust channel, so
