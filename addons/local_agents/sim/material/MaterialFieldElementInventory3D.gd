@@ -21,6 +21,13 @@ extends RefCounted
 ##     reactions_sphere3d.glsl skipped the reactant-cap block for it. A tap with no tank behind it. NOW: the
 ##     atmosphere is seeded finite at Earth's measured composition, R11/R12 and the rate model are deleted,
 ##     and this ledger measured the result — `carbon_run_drift_per_step` +6.49 -> -0.024.
+##     *(That -0.024 DOES NOT REPRODUCE, and the reason is instructive. Measured 2026-08-08 on the 600-frame
+##     `--sandbox --planet-only --fast=8 --seed=4242` baseline: `carbon_run_drift_per_step` reads -0.3132, and
+##     `carbon_buried` 291.02 over `mass_run_steps` 786 is 0.370/step of that on its own. The narrow triangle's
+##     drift is dominated by BURIAL, so it cannot be quoted as evidence that carbon conserves — whatever run
+##     produced -0.024 was reading a planet that had buried almost nothing yet. The figure that answers the
+##     conservation question on the same run is `carbon_closed_run_drift_per_step`, mask-free, which reads
+##     0.0000 with `carbon_closed_first` and `carbon_closed_all` both 1074.27.)*
 ##   * OXYGEN gained on every turn of the carbon cycle: photosynthesis yielded 1.0 O₂ per carbon fixed while
 ##     respiration spent 0.5 and decomposition 0.8 against 1.0 CO₂. The two directions are chemical inverses
 ##     and their coefficients were not equal, so each cycle left free oxygen behind. NOW: the identity is
@@ -41,6 +48,21 @@ extends RefCounted
 ## it, and a ledger with one mask cannot tell burial from a kernel dropping mass. The H₂O budget found exactly
 ## that case, which is why the pattern is copied rather than reinvented.
 ##
+## THAT RULE WAS WRITTEN HERE AND THEN BROKEN HERE, FOR `fungus` AND `fuel`, UNTIL 2026-08-08. Those two legs
+## accumulated INSIDE the `if is_open` branch, so alone among the seven they had no `_all` twin, and everything
+## built on them inherited the single mask: `nitrogen_total`, `carbon_closed_total`, `element_N`, and — the
+## damaging one — the run-long drift baselines taken off them. The measured consequence was
+## `nitrogen_first` 46.80 -> `nitrogen_total` 31.88 over 600 frames, on a run whose `fires` and `fire_peak`
+## were both 0, which reads as the substrate destroying a third of the planet's nitrogen. It is burial:
+## `fuel`'s ONLY decrementing writer anywhere in the tree is fire_sphere3d.glsl:187, so with no fire the device
+## channel cannot fall, while solid_derive_sphere3d.glsl:72 keeps flipping cells solid at rock_fill >= 0.5 and
+## carrying their litter out of the open mask. The gauge was measuring coal formation and calling it a leak.
+##
+## THE GENERAL LESSON, because this is the second time it has cost a false conservation verdict: a ledger's
+## INCLUSION RULE is part of its arithmetic, and a leg that quietly uses a different one is not a smaller
+## version of the same measurement — it is a different quantity with the same name. When adding a leg here,
+## the `_all` twin is not optional bookkeeping; it is what makes the leg comparable to the six beside it.
+##
 ## CARBON'S CONVENTION, stated because a conserved quantity is only as meaningful as its boundary:
 ##   carbon_total = co2 + biomass + detritus.
 ## Those are the three slots the reaction table actually moves carbon between, and between them the
@@ -50,6 +72,13 @@ extends RefCounted
 ## (fire_sphere3d, fungus_sphere3d) with no stoichiometric link to this triangle, so keeping them out is what
 ## lets a leak be LOCALISED to one side or the other. They are reported beside the total as memo lines, and
 ## summed into `carbon_closed_total` below, which is the conservation claim.
+##
+## WHICH MASK EACH RUN-LONG DRIFT USES, since the two answer different questions. The CONSERVATION claims —
+## `nitrogen_run_drift_per_step` and `carbon_closed_run_drift_per_step` — measure the MASK-FREE totals, because
+## "was any matter created or destroyed" is a question about the planet, not about the open cells.
+## `carbon_run_drift_per_step` stays on the OPEN total on purpose: the narrow triangle is a LOCALISER, and what
+## it localises is where in the reaction table a discrepancy sits, which is an open-cell question. Its mask-free
+## reading is published beside it as `carbon_all`, with `carbon_buried` as the gap.
 ##
 ## OXYGEN'S CONVENTION: `o2_total` is FREE molecular O₂ only — the `o2` channel — and NOT the oxygen bound in
 ## CO₂. That is still the right thing to publish for "how much air is there to breathe", but as a
@@ -184,7 +213,9 @@ func report(step_index: int) -> Dictionary:
 	var fert_open: float = 0.0
 	var fert_all: float = 0.0
 	var fung_open: float = 0.0
+	var fung_all: float = 0.0
 	var fuel_open: float = 0.0
+	var fuel_all: float = 0.0
 	var open_cells: int = 0
 	for c in cc:
 		var is_open: bool = solid[c] == 0
@@ -213,12 +244,18 @@ func report(step_index: int) -> Dictionary:
 			fert_all += v5
 			if is_open:
 				fert_open += v5
+		if has_fung:
+			var v6: float = fung[c]
+			fung_all += v6
+			if is_open:
+				fung_open += v6
+		if has_fuel:
+			var v7: float = fuel[c]
+			fuel_all += v7
+			if is_open:
+				fuel_open += v7
 		if is_open:
 			open_cells += 1
-			if has_fung:
-				fung_open += fung[c]
-			if has_fuel:
-				fuel_open += fuel[c]
 
 	var carbon: float = co2_open + bio_open + det_open
 	var carbon_all: float = co2_all + bio_all + det_all
@@ -233,9 +270,13 @@ func report(step_index: int) -> Dictionary:
 	out["fert_total"] = snappedf(fert_open, 0.01)
 	out["fert_all"] = snappedf(fert_all, 0.01)
 	out["biomass_open_total"] = snappedf(bio_open, 0.01)
-	# MEMO LINES — carbon-bearing but outside the reaction table's closed triangle (see the header).
+	# MEMO LINES — carbon-bearing but outside the reaction table's closed triangle (see the header). Both carry
+	# an `_all` twin as of 2026-08-08; until then these two legs were the only ones in the module with no
+	# mask-free counterpart, which is what made `nitrogen_total` unable to tell burial from destruction.
 	out["fungus_total"] = snappedf(fung_open, 0.01)
+	out["fungus_all"] = snappedf(fung_all, 0.01)
 	out["fuel_open_total"] = snappedf(fuel_open, 0.01)
+	out["fuel_all"] = snappedf(fuel_all, 0.01)
 	out["mass_open_cells"] = open_cells
 	# PROVENANCE. A leg whose channel never arrived from the GPU reads as a flat zero, which is
 	# indistinguishable from a substance that genuinely is not there. This says which is which.
@@ -272,6 +313,7 @@ func report(step_index: int) -> Dictionary:
 	# only the three the reaction table moves between.
 	var oxidant: float = o2_open + co2_open
 	var carbon_closed: float = carbon + fung_open + fuel_open
+	var carbon_closed_all: float = carbon_all + fung_all + fuel_all
 	# THE ELEMENTAL INVENTORY — the part that is not circular.
 	#
 	# Every total above sums DIFFERENT SUBSTANCES AT 1 UNIT EACH and names the result after an element:
@@ -284,17 +326,25 @@ func report(step_index: int) -> Dictionary:
 	# These are. Each channel is multiplied by the ELEMENTS one unit of it actually contains, read from
 	# LAReactionBalance.composition() — the SAME declaration the load-time balance gate checks every record
 	# against. The two cannot disagree, because a disagreement would have to be a disagreement with itself.
+	#
+	# AND THE INVENTORY IS TAKEN TWICE, ONCE PER MASK. `element_X` is the open-cell figure — what is in play —
+	# and `element_X_all` is the mask-free one, which is the conservation claim. The difference is what the
+	# planet has BURIED, not what a kernel dropped, and that distinction is the whole reason this module sums
+	# every leg both ways.
 	var open_by_channel: Dictionary = {
 		"co2": co2_open, "o2": o2_open, "detritus": det_open, "biomass": bio_open,
 		"fert": fert_open, "fungus": fung_open, "fuel": fuel_open,
 	}
-	var elements: Dictionary = {}
-	for ch in open_by_channel:
-		var parts: Dictionary = BalanceScript.channel_elements(ch)
-		for el in parts:
-			elements[el] = float(elements.get(el, 0.0)) + float(open_by_channel[ch]) * float(parts[el])
+	var all_by_channel: Dictionary = {
+		"co2": co2_all, "o2": o2_all, "detritus": det_all, "biomass": bio_all,
+		"fert": fert_all, "fungus": fung_all, "fuel": fuel_all,
+	}
+	var elements: Dictionary = _elements_of(open_by_channel)
 	for el in elements:
 		out["element_" + String(el)] = snappedf(float(elements[el]), 0.01)
+	var elements_all: Dictionary = _elements_of(all_by_channel)
+	for el_a in elements_all:
+		out["element_" + String(el_a) + "_all"] = snappedf(float(elements_all[el_a]), 0.01)
 	# NITROGEN, over every pool that holds it. `fert_total` alone answers "how much nutrient can a plant take
 	# up", which is a useful number and NOT a conservation gauge: mineral N and organic N trade places all
 	# day, so a healthy soil makes `fert_total` wander for honest reasons. The conserved quantity is the sum,
@@ -302,10 +352,24 @@ func report(step_index: int) -> Dictionary:
 	# matter to carry nitrogen at the measured litter C:N ratio, and every record is checked against that one
 	# declaration, so the release coefficient in R15, the uptake coefficient in R19 and the litterfall
 	# coefficient in R20 cannot disagree.
+	#
+	# AND IT IS THE MASK-FREE SUM THAT IS THE CLAIM. *(Corrected 2026-08-08.)* `nitrogen_total` was built from
+	# the open legs alone and its run-long drift was taken off that, so it read -14.92 over 600 frames on a run
+	# with no fire at all and looked like the substrate destroying a third of the planet's nitrogen. It was
+	# BURIAL: `fuel` has exactly one decrementing writer in the tree (fire_sphere3d.glsl:187) and no fire ran, so
+	# device fuel cannot fall — but cells close over it as solid_derive_sphere3d.glsl flips them at
+	# rock_fill >= 0.5, and a one-masked gauge books that as a loss. Buried organic matter is what coal is.
+	# `nitrogen_all` is the conserved quantity; `nitrogen_buried` is the gap, and the two together say which of
+	# the two things happened.
 	var nitrogen: float = fert_open + (bio_open + det_open + fung_open + fuel_open) / LAPhysical.LITTER_C_TO_N
+	var nitrogen_all: float = fert_all + (bio_all + det_all + fung_all + fuel_all) / LAPhysical.LITTER_C_TO_N
 	out["oxidant_total"] = snappedf(oxidant, 0.01)
 	out["carbon_closed_total"] = snappedf(carbon_closed, 0.01)
+	out["carbon_closed_all"] = snappedf(carbon_closed_all, 0.01)
+	out["carbon_closed_buried"] = snappedf(carbon_closed_all - carbon_closed, 0.01)
 	out["nitrogen_total"] = snappedf(nitrogen, 0.01)
+	out["nitrogen_all"] = snappedf(nitrogen_all, 0.01)
+	out["nitrogen_buried"] = snappedf(nitrogen_all - nitrogen, 0.01)
 
 	# RUN-LONG DRIFT — the headline conservation figure. The first sample is the baseline; everything after is
 	# measured against it over the field steps actually elapsed. Each quantity takes its baseline only once
@@ -352,25 +416,41 @@ func report(step_index: int) -> Dictionary:
 		if step_index > _first_oxidant_step:
 			out["oxidant_run_drift_per_step"] = snappedf(
 				(oxidant - _first_oxidant) / float(step_index - _first_oxidant_step), 0.0001)
+	# THE TWO CONSERVATION CLAIMS TAKE THEIR RUN-LONG DRIFT OFF THE MASK-FREE TOTAL. *(Changed 2026-08-08; both
+	# used to measure the open-masked total against an open-masked baseline, so both were reporting burial as a
+	# leak.)* `carbon_run_drift_per_step` above deliberately stays on the OPEN total: that one is the narrow
+	# three-slot triangle, whose job is to LOCALISE a leak to one side of the reaction table, and its mask-free
+	# reading is already published as `carbon_all`.
 	if has_co2 and has_bio and has_det and has_fung and has_fuel:
 		if _first_closed_step < 0:
-			_first_closed = carbon_closed
+			_first_closed = carbon_closed_all
 			_first_closed_step = step_index
 		out["carbon_closed_first"] = snappedf(_first_closed, 0.01)
 		if step_index > _first_closed_step:
 			out["carbon_closed_run_drift_per_step"] = snappedf(
-				(carbon_closed - _first_closed) / float(step_index - _first_closed_step), 0.0001)
+				(carbon_closed_all - _first_closed) / float(step_index - _first_closed_step), 0.0001)
 	if has_fert and has_bio and has_det and has_fung and has_fuel:
 		if _first_nitrogen_step < 0:
-			_first_nitrogen = nitrogen
+			_first_nitrogen = nitrogen_all
 			_first_nitrogen_step = step_index
 		out["nitrogen_first"] = snappedf(_first_nitrogen, 0.01)
 		if step_index > _first_nitrogen_step:
 			out["nitrogen_run_drift_per_step"] = snappedf(
-				(nitrogen - _first_nitrogen) / float(step_index - _first_nitrogen_step), 0.0001)
+				(nitrogen_all - _first_nitrogen) / float(step_index - _first_nitrogen_step), 0.0001)
 	out["mass_run_steps"] = run_steps
 	out["mass_scan_ms"] = snappedf(float(Time.get_ticks_usec() - t0) / 1000.0, 0.01)
 	return out
+
+
+## Multiply each channel's stored amount by the ELEMENTS one unit of it contains, read from the same
+## LAReactionBalance declaration the load-time balance gate checks every record against. Called once per mask.
+func _elements_of(by_channel: Dictionary) -> Dictionary:
+	var elements: Dictionary = {}
+	for ch in by_channel:
+		var parts: Dictionary = BalanceScript.channel_elements(ch)
+		for el in parts:
+			elements[el] = float(elements.get(el, 0.0)) + float(by_channel[ch]) * float(parts[el])
+	return elements
 
 
 func _blank() -> Dictionary:
@@ -381,14 +461,15 @@ func _blank() -> Dictionary:
 		"o2_total": 0.0, "o2_all": 0.0, "o2_drift": 0.0, "o2_drift_per_step": 0.0,
 		"fert_total": 0.0, "fert_all": 0.0, "fert_drift": 0.0, "fert_drift_per_step": 0.0,
 		"biomass_open_total": 0.0, "biomass_drift": 0.0, "biomass_drift_per_step": 0.0,
-		"fungus_total": 0.0, "fuel_open_total": 0.0,
+		"fungus_total": 0.0, "fungus_all": 0.0, "fuel_open_total": 0.0, "fuel_all": 0.0,
 		"mass_open_cells": 0, "mass_drift_steps": 0, "mass_run_steps": 0, "mass_scan_ms": 0.0,
 		"carbon_first": 0.0, "o2_first": 0.0, "fert_first": 0.0, "biomass_first": 0.0,
 		"carbon_run_drift_per_step": 0.0, "o2_run_drift_per_step": 0.0,
 		"fert_run_drift_per_step": 0.0, "biomass_run_drift_per_step": 0.0,
 		"oxidant_total": 0.0, "oxidant_first": 0.0, "oxidant_run_drift_per_step": 0.0,
-		"carbon_closed_total": 0.0, "carbon_closed_first": 0.0,
-		"carbon_closed_run_drift_per_step": 0.0,
-		"nitrogen_total": 0.0, "nitrogen_first": 0.0, "nitrogen_run_drift_per_step": 0.0,
+		"carbon_closed_total": 0.0, "carbon_closed_all": 0.0, "carbon_closed_buried": 0.0,
+		"carbon_closed_first": 0.0, "carbon_closed_run_drift_per_step": 0.0,
+		"nitrogen_total": 0.0, "nitrogen_all": 0.0, "nitrogen_buried": 0.0,
+		"nitrogen_first": 0.0, "nitrogen_run_drift_per_step": 0.0,
 		"mass_live": {},
 	}
