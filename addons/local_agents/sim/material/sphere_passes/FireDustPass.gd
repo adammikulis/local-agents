@@ -72,19 +72,36 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var co2: Array = bufs["co2"]
 	var sediment: Array = bufs["sediment"]
 	var dust: Array = bufs["dust"]
+	# The two products combustion used to destroy: its water (as vapour) and the fuel's own nitrogen.
+	var moisture: Array = bufs["moisture"]
+	var fert: Array = bufs["fert"]
 
 	# --- Per-parity uniform sets ------------------------------------------------------------------
 	for p in 2:
 		var back: int = 1 - p
 
 		# fire_sphere3d.glsl — 0 fire_in(live), 1 fire_out(back), 2 fuel(single), 3 temp(back, in place),
-		# 4 water(back), 5 solid(single), 6 o2(BACK, in place), 7 co2(BACK, in place), 15 nbr.
+		# 4 water(back), 5 solid(single), 6 o2(BACK, in place), 7 co2(BACK, in place),
+		# 8 moisture(BACK, in place), 9 fert(LIVE, in place), 15 nbr.
 		# o2/co2 must mutate the BACK half: GasWind wrote its transport result into o2/co2[back] earlier this
 		# step, and the authoritative readback reads _live() = the back half AFTER the phase flip — so combustion
 		# must consume O2 / emit CO2 into [back] or its writes are silently discarded (fire wouldn't affect gas).
+		#
+		# THE TWO NEW PRODUCTS TAKE DIFFERENT HALVES, and the rule is "write the half that still survives after
+		# this pass" — which depends entirely on who runs LATER in PASS_SCRIPTS. FireDustPass is 12th of 13.
+		#   * moisture -> BACK, for the same reason as o2/co2. AtmospherePass (7th) finished the channel by
+		#     ASSIGNING moisture[back] in atmos_precip; nothing after us assigns it. EcoSurfacePass' snowice
+		#     does read-modify-WRITE on moisture[back], which composes: our vapour is simply available for it
+		#     to freeze out, which is what combustion water in cold air should do.
+		#   * fert -> LIVE. EcoSurfacePass (13th) runs AFTER us and its scent_fert kernel ASSIGNS
+		#     fert[back] = f(fert[live]). A credit written to fert[back] would be overwritten and the ash's
+		#     nitrogen silently deleted — the exact failure the o2/co2 note above warns about, mirrored.
+		#     Writing fert[live] instead puts the nitrogen where scent_fert's soil-creep gather reads it, so it
+		#     lands in fert[back] the same step and spreads from there.
 		_fire_set[p] = _build_set(rd, _fire_shader, [
 			[0, fire[p]], [1, fire[back]], [2, fuel], [3, temp[back]],
-			[4, water[back]], [5, solid], [6, o2[back]], [7, co2[back]], [15, nbr]])
+			[4, water[back]], [5, solid], [6, o2[back]], [7, co2[back]],
+			[8, moisture[back]], [9, fert[p]], [15, nbr]])
 
 		# dust_transport_sphere3d.glsl — 0 dust_in(live), 1 dust_out(back), 2 sediment(back, in place +=
 		# deposit), 3 outscale(single), 4 vel_x, 5 vel_y, 6 vel_z, 7 solid, 15 nbr, 16 link_tan.

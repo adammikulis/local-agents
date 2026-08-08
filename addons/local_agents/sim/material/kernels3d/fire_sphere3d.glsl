@@ -8,15 +8,43 @@
 // WHAT COMBUSTION IS HERE. One reaction, and it is the one BioRecords already writes for respiration and
 // decomposition, run fast and hot:
 //
-//     fuel(CH₂O) + O₂  ->  CO₂ + heat
+//     fuel(CH₂O) + O₂  ->  CO₂ + H₂O + heat,   and the nitrogen the fuel carried, which does not burn
 //
-// so ONE unit of fuel leaves the fuel channel, ONE unit of O₂ leaves the air, and ONE unit of CO₂ arrives —
-// the same 1 C : 1 O₂ : 1 CO₂ identity BioRecords R15 (decompose) and R20 (respiration) obey, because it is
-// the same oxidation. THIS KERNEL USED TO DESTROY HALF ITS CARBON: it debited fuel at BURN_RATE = 0.12 and
-// credited CO₂ at CO2_PER_BURN = 0.06, so every second carbon atom that left the fuel arrived nowhere, and it
-// drew O₂ at 0.06 against 0.12 of fuel, which is an oxidation that needs half the oxygen the reaction needs.
-// Both were independent hand-written rates with nothing relating them. Now there is ONE rate, `burned`, and
-// the three channels are debited and credited from it.
+// LAReactionBalance.composition() declares what a unit of `fuel` IS — {C 1, H 2, O 1, N 1/LITTER_C_TO_N},
+// carbohydrate plus the nitrogen litter really carries at its measured C:N ratio — so the balance here is
+// arithmetic, not opinion. Per unit burned the reactants bring C1 H2 O3 N0.05 (one fuel plus one O₂), and
+// every atom of it is now placed: C1 O2 -> `co2`, H2 O1 -> `moisture`, N0.05 -> `fert`.
+//
+// UNTIL 2026-08-07 ONLY THE CARBON ARRIVED, and every unit burned destroyed 2 hydrogen, 1 oxygen and 1/20
+// nitrogen. The kernel debited fuel and O₂ and credited CO₂ alone: combustion water and the ash's nitrogen
+// were simply deleted. The load-time balance gate could not see it, because check_reaction_balance.sh
+// validates LAReactionDefs records and this combustion is a standalone kernel that no record describes.
+// (The carbon half was repaired earlier: fuel was debited at BURN_RATE 0.12 while CO₂ was credited at
+// CO2_PER_BURN 0.06, two independent hand-written rates, so every second carbon atom arrived nowhere. There
+// is ONE rate now, `burned`, and every channel is debited and credited from it.)
+//
+// THE TWO PRODUCT COEFFICIENTS ARE NOT CHOSEN HERE — they are the ones the reaction table already uses for
+// this same oxidation, so combustion cannot drift away from decomposition:
+//   * water   BioRecords.DECOMPOSE_WATER_YIELD = CO2_PER_DECOMPOSE = 1.0, "one H₂O per carbon oxidised".
+//   * nitrogen BioRecords.FERT_PER_DECOMPOSE  = 1.0 / LITTER_C_TO_N,     the litter's own C:N ratio.
+// R15 rots one unit of detritus to 1 CO₂ + 1 H₂O + 0.05 fert. Burning one unit of fuel does exactly that,
+// faster and hotter, which is what this kernel's own header has always claimed it was.
+//
+// THE WATER IS VAPOUR, AND IT IS DELIBERATELY NOT CHARGED A LATENT HEAT. Combustion water leaves a flame far
+// above its boiling point, so it belongs in `moisture` (the air's suspended H₂O) and not in `water` (liquid
+// standing in the cell). It also costs nothing extra to make: HEAT_PER_KG_OXYGEN_J below is Huggett's
+// oxygen-consumption figure, which is measured on the NET heat of combustion — the product water is already
+// counted as vapour in it. Debiting a latent heat here would subtract the same energy twice. Once that vapour
+// drifts into cold air the atmosphere pass condenses it and snowice can freeze it out, exactly like any other
+// water in the sky, with no per-case code.
+//
+// THE NITROGEN IS A LUMPED APPROXIMATION. Say what it approximates and what it omits: a real wildfire
+// VOLATILISES most fuel nitrogen — to N₂, NO/NO₂ and NH₃ — and leaves the remainder as mineral N (largely
+// NH₄⁺) in the ash. This substrate has no NOx or N₂ channel, and `fert` is its only plant-available mineral
+// nitrogen, so ALL of the fuel's N is credited there. What that gets right is that the nitrogen is conserved
+// and lands on the ground the fire burned over, which is why a burn is followed by a flush of growth. What it
+// omits is the gaseous share, so this OVERSTATES post-fire soil nitrogen and understates the atmospheric
+// loss. The honest alternative available today was to keep deleting it, which is not an approximation.
 //
 // AND IT USED TO PIN THE TEMPERATURE. `if (temp[g] < BURN_TEMP) { temp[g] = BURN_TEMP; }` with BURN_TEMP =
 // 640 held every burning cell on the planet at one temperature — a thermostat, the same defect pattern as the
@@ -67,6 +95,13 @@ layout(set = 0, binding = 4, std430) restrict buffer Water   { float water[]; };
 layout(set = 0, binding = 5, std430) restrict buffer Solid   { float solid[]; };
 layout(set = 0, binding = 6, std430) restrict buffer O2      { float o2[]; };
 layout(set = 0, binding = 7, std430) restrict buffer CO2     { float co2[]; };
+// The two products the reaction used to destroy. Both are mutated IN PLACE on the half whose value survives
+// this step — which is a DIFFERENT half for each, and FireDustPass.gd's set carries the reason:
+//   moisture -> the BACK half, the one AtmospherePass finished writing before this pass ran;
+//   fert     -> the LIVE half, because EcoSurfacePass runs AFTER this pass and its scent_fert kernel
+//               ASSIGNS fert[back] from fert[live], so a credit written to back would be overwritten.
+layout(set = 0, binding = 8, std430) restrict buffer Moisture { float moisture[]; };
+layout(set = 0, binding = 9, std430) restrict buffer Fert     { float fert[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };   // idx*6 + slot
 
 layout(push_constant, std430) uniform Params {
@@ -84,12 +119,32 @@ const float O2_UNIT_KG_M3 = 0.2731;     // LAPhysical.AMBIENT_O2_DENSITY_KG_M3 �
 const float RC_AIR = 1186.0;            // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
 const float RC_WATER = 4.171e6;         // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
 const float RADIATIVE_SHARE = 0.30;     // LAPhysical.FLAME_RADIATIVE_FRACTION
+const float LITTER_C_TO_N = 20.0;       // LAPhysical.LITTER_C_TO_N — the measured mass C:N of leaf litter,
+                                        // the same ratio LAReactionBalance uses to say what `fuel` contains
+                                        // and BioRecords uses to release nitrogen from decomposition
+const float LOC_O2_MOLE_FRAC = 0.15;    // LAPhysical.LIMITING_OXYGEN_CONCENTRATION_FRAC
+const float AIR_O2_MOLE_FRAC = 0.20946; // LAPhysical.AIR_MOLE_FRAC_O2
 
 // Heat released per unit of fuel burned, per unit of cell volume [J/m³]. Derived, so it carries NO LAPhysical
 // reference: the gate checks literals, and a product of two of them is not one. One unit of fuel takes one
 // unit of O₂ with it (the reaction above), and one unit of O₂ is O2_UNIT_KG_M3 kilograms of oxygen, each of
 // which releases HEAT_PER_KG_O2 joules.
 const float HEAT_PER_UNIT_BURN = O2_UNIT_KG_M3 * HEAT_PER_KG_O2;   // 3.577e6 J/m³ per unit burned
+
+// THE OXYGEN A FLAME NEEDS. A measured property of the fuel and the oxidiser, not a difficulty setting:
+// below the limiting oxygen concentration a flame goes out however hot it is, which is why a fire in a
+// sealed room self-extinguishes long before the oxygen is gone and why an anoxic planet cannot burn.
+// Derived from the two authority constants above rather than written down, so the gate binds BOTH legs and
+// neither can drift: the `o2` channel is in units of modern ambient air, so the measured mole fraction is
+// divided by air's own to become a channel value. 0.15 / 0.20946 = 0.716.
+//
+// It was 0.35 — about 7 vol% O₂, half the real threshold — so a cell burned roughly twice the oxygen a real
+// flame can before suffocating. Its own comment said exactly that and left the value in place.
+const float O2_MIN = LOC_O2_MOLE_FRAC / AIR_O2_MOLE_FRAC;
+
+// Nitrogen released per unit of fuel burned, straight off the fuel's declared composition. Identical to
+// BioRecords.FERT_PER_DECOMPOSE, because rotting and burning oxidise the same carbon out of the same matter.
+const float N_PER_FUEL = 1.0 / LITTER_C_TO_N;
 
 // --- MODEL PARAMETERS (properties of this model, not of matter) -------------------------------------------
 const float FUEL_MIN = 0.02;     // fuel below this cannot be lit
@@ -99,18 +154,37 @@ const float FIRE_GROW = 0.3;     // intensity gained per step while fuel lasts
 const float BURN_RATE = 0.12;    // fuel consumed per step at full intensity (a step is ~43 real seconds, so a
                                  // cell's fuel load burns out in minutes — a real surface-fire residence time)
 const float WET_MAX = 0.05;      // standing water that drowns a flame (wet firebreak)
-const float O2_MIN = 0.35;       // local O₂ below which a flame suffocates. A MODEL parameter, and a
-                                 // questionable one: 0.35 of ambient is ~7 vol% O₂, while the measured
-                                 // limiting oxygen concentration for flaming combustion of cellulosic solids
-                                 // is ~15 vol% (~0.72 of ambient). Left alone here because raising it changes
-                                 // the fire REGIME (how long a cell can burn before it needs fresh air), which
-                                 // is a separate measurement from making the reaction conserve.
 const float RADIATING_FACES = 5.0;   // the 4 lateral neighbours + the one above; a flame does not throw down
 
 // The cell's volumetric heat capacity [J/m³/K]: a full cell of air plus whatever water it is carrying. The air
 // term is a CONSTANT rather than (1 - w) * RC_AIR on purpose — these cells are not sealed boxes, air moves in
 // and out freely and is not a conserved channel here, so treating it as a fixed background thermal mass is
 // both the honest reading and the one that keeps the arithmetic exact when water arrives or leaves.
+//
+// IS THIS WHY FIRES RAN AT 5682 C? NO, AND THE ARITHMETIC RULES IT OUT. Commit 7905991 measured ext_open_hot
+// at 2544.8 / 2051.1 / 5682.7 C against a real wildfire's 800-1200 C, and named three suspects: this heat
+// capacity, the suffocation threshold, or something else. Sizing them:
+//   * Burning one whole unit of O₂ in a dry cell raises it HEAT_PER_UNIT_BURN / RC_AIR = 3.577e6 / 1186 =
+//     3016 K. That is the constant-cp adiabatic stoichiometric rise, ~35% above a real wood/air flame's
+//     ~2200 K because cp climbs with temperature and the products dissociate. Expected, and not a blunder.
+//   * For THIS function to be the cause, `cap` would have to be 1186 * (5682-300)/(1200-300) = 7092 J/m³/K,
+//     i.e. 6.0x the air term. The one mass genuinely missing from it is the fuel itself: one unit of fuel is
+//     one unit of O₂ by the reaction above, so 0.2731 kg/m³ of O₂ carries 0.256 kg/m³ of CH₂O, which at dry
+//     wood's ~1500 J/kg/K is ~400 J/m³/K — a 34% addition, not a 500% one. (Rock is not a candidate: this
+//     kernel returns early for solid cells, so a burning cell contains no rock, only sits beside it.)
+//   * The suffocation threshold IS a real 2x error and is the one fixed here. A cell can only draw its O₂
+//     down to O2_MIN before the flame dies, so one charge of ambient air delivers (1 - O2_MIN) * 3016 K:
+//     1961 K at the old 0.35, and 857 K at the measured 0.716. That is the leg that was a wrong physical
+//     constant, and correcting it cuts what any single charge of air can deliver by 2.3x.
+//   * WHAT REMAINS, and it is not in this file: a cell that has suffocated is refilled toward ambient by
+//     gas_sky/GasWind and burns again, while nothing carries its hot gas away. A real flame is an open
+//     buoyant plume — it entrains fresh air AND loses the heated products, which is most of why a measured
+//     wildfire sits far below its adiabatic temperature. Here only the first half happens, so a fuelled cell
+//     can ratchet past one charge's worth of heat. That is thermal transport (ThermalPass / GasWindPass),
+//     not combustion stoichiometry.
+// NOT RE-MEASURED, because combustion is currently unreachable: five run arms (--planet-only, --no-fauna,
+// and --no-fauna with --auto-lightning / --auto-meteor / --auto-volcano, 600 frames, --fast=8, seed 4242)
+// all report fires 0 / fire_cells 0 / fire_peak 0.0 with ext_open_hot never above 330 C. See the track report.
 float heat_capacity(uint c) {
 	return RC_AIR + max(water[c], 0.0) * RC_WATER;
 }
@@ -180,13 +254,15 @@ void main() {
 		fnew = 0.0;                                   // drowned OR suffocated
 	} else if (f > FIRE_MIN) {
 		if (fuel_i > 0.0) {
-			// CARBON AND OXYGEN, ATOM FOR ATOM. What leaves the fuel arrives as CO₂; the oxidation takes one
-			// O₂ with it. `burned` is capped by both reactants — a cell cannot burn fuel it does not have, and
-			// cannot burn carbon there is no oxygen for.
+			// EVERY ATOM PLACED, not just the carbon. Reactants C1 H2 O3 N0.05 per unit burned; products
+			// C1 O2 as CO₂, H2 O1 as water vapour, N0.05 as mineral nitrogen in the ash. `burned` is capped
+			// by both reactants — a cell cannot burn fuel it does not have, nor carbon there is no oxygen for.
 			float burned = min(BURN_RATE * clamp(f, 0.0, 1.0), min(fuel_i, o2_i));
 			fuel[g] = fuel_i - burned;
 			o2[g] = o2_i - burned;
-			co2[g] += burned;
+			co2[g] += burned;                     // C1 O2
+			moisture[g] += burned;                // H2 O1 — the fuel's hydrogen and its own oxygen, as vapour
+			fert[g] += burned * N_PER_FUEL;       // N — what the litter carried, back to the ground it burned
 			temp[g] += burned * HEAT_PER_UNIT_BURN / cap;   // the reaction's own enthalpy, nothing pinned
 			fnew = (fuel[g] <= 0.0) ? 0.0 : min(1.0, f + FIRE_GROW);
 		} else {
