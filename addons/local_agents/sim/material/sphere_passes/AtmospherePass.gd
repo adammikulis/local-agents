@@ -26,7 +26,13 @@ extends RefCounted
 ##                          ctx["cell_size"] (default 5.0, folded with dt+wind_gain into the transport wdt).
 ##
 ## bufs channels used (PAIR → [rid_a, rid_b] ping-pong; SINGLE → rid):
-##   PAIR:  temp water moisture        SINGLE: solid static vel_x vel_z nbr
+##   PAIR:  temp water moisture        SINGLE: solid static vel_x vel_z nbr snow rock_fill
+##
+## THE RAIN GATHER WRITES temp[back] NOW, and that is new (2026-08-07). Condensation releases the latent heat
+## of vaporisation, and until this landed nothing in the substrate credited it — LAPhaseRecords R23/R24/R25
+## charge evaporation for the heat it takes, so without the return leg the water cycle is a one-way heat sink
+## and the planet cools without bound. snow/rock_fill are bound purely to give the receiving cell its own heat
+## capacity (with `water`, the same mix heat_sphere3d.glsl uses).
 ##
 ## BUFFER CHAINING (ping-pong; everything the pass touches for `moisture` ends in the `back` = [1-parity]
 ## slot so the driver's end-of-frame parity flip promotes it to live). temp/water are read from `back`
@@ -165,9 +171,13 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 
 		# RAIN — atmos_rain_sphere3d.glsl: 0=rain scratch, 1=solid, 2=water(back, in place += rain − boil),
 		# 3=boil scratch (all zeros now), 4=STATIC (rain over the sea vanishes into the infinite reservoir, not
-		# parked in undrained static-cell water — the fix for the unbounded h2o climb), 15=nbr.
+		# parked in undrained static-cell water — the fix for the unbounded h2o climb),
+		# 5=temp(back, IN PLACE — the latent heat of condensation, credited in the cell that condensed it;
+		# Thermal already wrote this half this step and nothing between here and the parity flip re-reads it as
+		# a producer), 6=snow + 7=rock_fill (SINGLE) — with water they give the cell's heat capacity, 15=nbr.
 		_rain_set[p] = _mkset(rd, _rain_shader, [
-			[0, _rain_buf], [1, solid], [2, water[back]], [3, _boil_buf], [4, stat], [15, nbr]])
+			[0, _rain_buf], [1, solid], [2, water[back]], [3, _boil_buf], [4, stat],
+			[5, temp[back]], [6, bufs["snow"]], [7, bufs["rock_fill"]], [15, nbr]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:

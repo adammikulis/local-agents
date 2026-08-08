@@ -94,10 +94,23 @@ of computing one.
 
 ### Held by fiat — a value is asserted, so the physics cannot close
 
-1. **THE OCEAN IS A THERMOSTAT.** `kernels3d/heat3d_cool_sphere3d.glsl:47-50` holds the sea near a fixed
-   temperature. It does not participate in the energy balance at all, so **the global energy books cannot
-   close while it exists**, and "where does the planet settle" is unanswerable. This is the single largest
-   remaining fiction.
+1. **THE SKY HOLDS ~460x TOO MUCH WATER, AND IT IS NOW THE LARGEST TERM IN THE ENERGY BUDGET.** Measured
+   2026-08-07 while landing the phase enthalpies. `moisture_total` 6.55 against a mobile `h2o_total` 4352 is
+   0.15% of the planet's water in its air, where Earth holds 0.001%; per cloud cell that is 0.4 kg of water
+   per m³ of air against a real cloud's 0.0001–0.003. The saturation curve correctly caps the VAPOUR, but the
+   CONDENSATE above it is unbounded — `atmos_precip_sphere3d.glsl` sheds only 4.3%/step of the part over
+   Kessler's `q_crit`, so a standing cloud store accumulates. Nothing exposed this while phase changes were
+   free. **Now that rain pays the latent heat of condensation, that store cooks the planet:** `temp_mean`
+   36.9 → 145.6 °C, `temp_ground_p50` 30.0 → 116.3, no snow and no ice anywhere. Attributed by arms — with the
+   record enthalpies on and the rain/deposition legs off, `temp_ground_p50` is 30.0, i.e. the whole shift is
+   the condensation leg. The latent heats are measured facts and must not move; **what has to come down is the
+   precipitation rate / the condensate store.** What would decide it: an instrument for gross evaporation and
+   gross rain per step (neither is gauged today), then compare the implied latent flux against the ~80 W/m²
+   Earth carries. *(Rewritten 2026-08-07. This item used to read "THE OCEAN IS A THERMOSTAT —
+   `kernels3d/heat3d_cool_sphere3d.glsl:47-50` holds the sea near a fixed temperature ... the single largest
+   remaining fiction." Doubly false: that thermostat was deleted on 2026-08-03 and its own kernel header said
+   so, and the kernel itself is now deleted outright — its one live job, the latent heat of boiling, moved onto
+   the reaction records that perform the transfer.)*
 2. **THE SEA HAS ~0.93 m OF THERMAL INERTIA** where a real ocean has 20–100 m. Rock lands at 0.248 m against
    a derived diurnal skin depth of 0.168 m, which is fine; water is wrong by one to two orders. It is why the
    planet has no thermal memory between day and night.

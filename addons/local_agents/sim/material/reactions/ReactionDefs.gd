@@ -193,23 +193,55 @@ static var cell_size_m: float = 16.0
 ## so only that much can freeze in a step however cold it gets, even though the rock itself is not the thing
 ## being used up at that ratio. (The kernel and serialize() have always supported it; `rec()` had no parameters
 ## for it, so no record could ever author one. Wired up 2026-08-03.)
+##
+## --- `enthalpy_j_m3` — THE ENERGY A REACTION COSTS, AND THE ONE CONVENTION FOR ITS SIGN --------------------
+## Every phase change moves mass between two states of one substance and every one of them costs or releases a
+## measured enthalpy. Until 2026-08-07 exactly one was charged anywhere in this substrate — vaporisation at the
+## boiling point, in heat3d_cool_sphere3d.glsl, at a rate that "MUST match atmos_evap_sphere3d.glsl", a file
+## that had already been deleted. So the kernel charged heat for a transfer it did not perform while R23
+## performed a transfer it did not charge for, and freeze, melt, sublimation, deposition and basalt
+## crystallisation all ran for free. Heat appeared from nothing at every one of them.
+##
+## SIGN: POSITIVE IS ENDOTHERMIC. This is the ordinary chemical convention for a reaction enthalpy ΔH —
+## positive means the reaction ABSORBS heat from its surroundings, so THE CELL COOLS. The kernel applies
+##     temp[i] -= x * enthalpy_j_m3 / rc_of(i)
+## so evaporation, melting, sublimation and rock melting carry a POSITIVE enthalpy and condensation, freezing,
+## deposition and crystallisation carry a NEGATIVE one. Every forward/reverse pair must be equal and opposite
+## or the substrate has a temperature ratchet: if evaporation cools and condensation never warms, the planet
+## cools without bound.
+##
+## UNITS: VOLUMETRIC, J per cubic metre of the substance moved (rho_substance x H), NOT per kilogram. A record
+## is authored as an explicit product of the two facts, e.g.
+##     LAPhysical.WATER_DENSITY_KG_M3 * LAPhysical.LATENT_HEAT_VAPORISATION_J_KG
+## Volumetric because the extent `x` is in CELL-FILL units and the kernel divides by the cell's volumetric heat
+## capacity (J/m³/K), so the cell size cancels on both sides and no length scale is needed — and because the
+## record has exactly one spare field, so it cannot also carry a density. A per-slot density table in the
+## kernel would be a second place for the same fact to live, which is how the freezing point of water ended up
+## declared in five files at three values.
+##
+## TEMP IS STILL NOT A PRODUCT. LAReactionBalance refuses TEMP as a reactant or a product — "a record that
+## produces degrees is not a reaction" — and that gate stays exactly as it was. Enthalpy is a SEPARATE field
+## precisely because the temperature change depends on the receiving cell's heat capacity, which is a property
+## of the cell rather than a stoichiometric coefficient.
 static func rec(rate_model: int, rate_k: float, driver_slot: int, reactants: Array, products: Array,
 		gate_mask: int = 0, threshold: float = 0.0, driver2_slot: int = -1, param2: float = 0.0,
-		cap_slot: int = -1, cap_coeff: float = 0.0) -> Dictionary:
+		cap_slot: int = -1, cap_coeff: float = 0.0, enthalpy_j_m3: float = 0.0) -> Dictionary:
 	return {
 		"rate_model": rate_model, "rate_k": rate_k, "threshold": threshold, "gate_mask": gate_mask,
 		"driver_slot": driver_slot, "driver2_slot": driver2_slot, "param2": param2,
-		"cap_slot": cap_slot, "cap_coeff": cap_coeff,
+		"cap_slot": cap_slot, "cap_coeff": cap_coeff, "enthalpy_j_m3": enthalpy_j_m3,
 		"reactants": reactants, "products": products,
 	}
 
 
 ## Serialize the records into a std430 SSBO byte buffer. Layout per Reaction (128 bytes, 16-aligned):
 ##   0 rate_model(i) 4 rate_k(f) 8 threshold(f) 12 gate_mask(i) | 16 driver_slot(i) 20 driver2_slot(i)
-##   24 cap_slot(i) 28 cap_coeff(f) | 32 n_react(i) 36 n_prod(i) 40 param2(f) 44 pad |
+##   24 cap_slot(i) 28 cap_coeff(f) | 32 n_react(i) 36 n_prod(i) 40 param2(f) 44 enthalpy_j_m3(f) |
 ##   48 react_slot[4](i) | 64 react_coeff[4](f) | 80 prod_slot[4](i) | 96 prod_coeff[4](f) | 112 prod_target[4](i)
-## Offset 40 was one of two spare pads; OPTIMUM_BAND claims it as `param2` (its band half-width), so the record
-## stays exactly 128 bytes and every existing offset is untouched. One pad remains at 44 for the next model.
+## The record had two spare pads. OPTIMUM_BAND claimed offset 40 as `param2` (its band half-width) and
+## `enthalpy_j_m3` now claims the last one at 44, so the record stays exactly 128 bytes and every existing
+## offset is untouched. THERE ARE NO PADS LEFT: the next field needs a stride change here and a matching
+## `struct Reaction` change in reactions_sphere3d.glsl, and the two must be edited together.
 static func serialize(recs: Array) -> PackedByteArray:
 	var buf: PackedByteArray = PackedByteArray()
 	buf.resize(recs.size() * RECORD_BYTES)
@@ -229,7 +261,7 @@ static func serialize(recs: Array) -> PackedByteArray:
 		buf.encode_s32(base + 32, reactants.size())
 		buf.encode_s32(base + 36, products.size())
 		buf.encode_float(base + 40, float(rec.get("param2", 0.0)))
-		buf.encode_s32(base + 44, 0)
+		buf.encode_float(base + 44, float(rec.get("enthalpy_j_m3", 0.0)))
 		for k in range(4):
 			var rs: int = int(reactants[k][0]) if k < reactants.size() else -1
 			var rc: float = float(reactants[k][1]) if k < reactants.size() else 0.0

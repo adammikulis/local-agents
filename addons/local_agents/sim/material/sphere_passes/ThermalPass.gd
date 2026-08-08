@@ -1,11 +1,31 @@
 class_name LASphereThermalPass
 extends RefCounted
 
-## CUBED-SPHERE thermal-forcing GPU pass plugin. Wires the five per-cell sphere heat/lava kernels that run
-## AFTER conduction + the water/lava flow gathers, mirroring the box orchestrator's post-conduction heat tail
-## (LAMaterialGPU3D solar->buoyancy->cooling, then the lava_phase + magma_buoy geological cores). It owns only
-## its pipelines, per-parity uniform sets and one private lava-snapshot scratch buffer; every field SSBO is
-## handed in via `bufs` and every per-frame scalar via `ctx`.
+## CUBED-SPHERE thermal-forcing GPU pass plugin. Wires the four per-cell sphere heat/lava kernels that run
+## AFTER conduction + the water/lava flow gathers (solar -> buoyancy, then the lava_phase + magma_buoy
+## geological cores). It owns only its pipelines, per-parity uniform sets and one private lava-snapshot scratch
+## buffer; every field SSBO is handed in via `bufs` and every per-frame scalar via `ctx`.
+##
+## THERE IS NO LONGER A "COOL" LEG, AND THAT IS THE POINT (2026-08-07). `heat3d_cool_sphere3d.glsl` was
+## DELETED. It was the substrate's only latent-heat charge: a wet cell above 100 C paid the enthalpy of
+## vaporisation for the water it boiled, at its own `BOIL_RATE = 0.02` which its comment said "MUST match
+## atmos_evap_sphere3d.glsl" — a kernel commit 40c69f1 had already deleted. Evaporation had meanwhile become
+## record R23 at a derived bulk-aerodynamic rate, so the kernel was charging heat for a transfer it did not
+## perform while the record performed a transfer it did not charge for, and the two rates had nothing to do
+## with each other. Freeze, melt, sublimation, deposition and basalt crystallisation paid nothing at all.
+##
+## A latent heat is a property of the TRANSITION, so it now travels ON THE RECORD that performs the transition
+## (LAReactionDefs `enthalpy_j_m3`, authored in LAPhaseRecords), plus the two kernels that own transitions the
+## record engine cannot express: atmos_rain_sphere3d (condensation) and snowice_sphere3d (deposition). One
+## phase change, one place, both directions.
+##
+## WHAT WENT WITH IT: the submerged-lava quench. That kernel had no free-surface gate, so it boiled water off
+## any hot wet cell including a drowned one, which is what flashed a seabed vent to pillow basalt. R23 gates
+## GATE_AIR_ABOVE — a submerged cell has no air touching it and physically cannot evaporate — so the quench is
+## left to conduction and buoyancy. heat3d_buoyancy still quenches such a cell fast, but for a bad reason:
+## its rc_of (like heat_sphere3d's and heat3d_solar's) omits `lava` from the material mix, so a molten cell is
+## booked at AIR's heat capacity, 2000x too little, and dumping its temperature into the sea above delivers
+## almost no energy. That is a defect in those three kernels, reported rather than fixed here.
 ##
 ## KERNELS + ORDER (recorded into the caller's compute list, in this exact sequence):
 ##   1. heat3d_solar_sphere3d:    THE TERMINATOR. Per-cell insolation = max(0, dot(cell_radial, sun_dir)), and
@@ -16,32 +36,22 @@ extends RefCounted
 ##   2. heat3d_buoyancy_sphere3d: hot void rises radially outward, moving ENERGY across the bond and dividing
 ##                                by each side's own heat capacity. RACE-FREE double-buffered GATHER
 ##                                (TempIn -> TempOut) + solid + snow/water/rock_fill + nbr(15).
-##   3. heat3d_cool_sphere3d:     the LATENT-HEAT sink — a wet cell above 100 C pays the latent heat of
-##                                vaporisation for the water it boils off, which is what quenches submerged
-##                                lava to pillow basalt and pins a boiling spring near 100 C. IN-PLACE on
-##                                temp, reads post-flow water + solid + lava(4) + rock_fill(6) and a cell_size
-##                                push param. *(Corrected 2026-08-03: this entry used to read "evaporative/
-##                                marine cooling of wet cells toward the sea thermocline ... a wet cell
-##                                carrying lava QUENCHES hard". The thermocline it named was a prescribed
-##                                26 C/10 C curve and the quench relaxed toward it, deleting the heat; both
-##                                are gone. See that kernel's header.)*
-##   4. lava_phase_sphere3d:      sustain (keep remaining lava molten) + shell-first edge cooling; IN-PLACE on
+##   3. lava_phase_sphere3d:      sustain (keep remaining lava molten) + shell-first edge cooling; IN-PLACE on
 ##                                temp, own-cell writes only. COMPACTED: dispatched INDIRECTLY over the
 ##                                active-cell list LavaCellListPass builds earlier in the same step, so it runs
 ##                                one invocation per MOLTEN cell instead of one per grid cell. The list's
 ##                                predicate is physical ("holds molten rock in open space"), so this is exact.
-##   5. magma_buoy_sphere3d:      buoyant overpressure up-flow, TWO passes (0 = copy snapshot, 1 =
+##   4. magma_buoy_sphere3d:      buoyant overpressure up-flow, TWO passes (0 = copy snapshot, 1 =
 ##                                gather/apply) with a barrier between; lava + private scratch + temp + solid +
 ##                                nbr(15).
 ##
 ## PARITY / PING-PONG CONTRACT (READ THIS before wiring the orchestrator):
 ##   `parity` p selects the live buffer for every PAIR channel: live = bufs[key][p], back = bufs[key][1 - p].
 ##   Because the sphere buoyancy is a GATHER (unlike the box's in-place column sweep), it is the single flip in
-##   this pass. To keep the downstream in-place kernels (cool/lava_phase/magma) reading the buoyancy OUTPUT while
+##   this pass. To keep the downstream in-place kernels (lava_phase/magma) reading the buoyancy OUTPUT while
 ##   still binding the BACK buffer (matching the box's role labels), the chain is arranged as:
 ##     - solar     : IN-PLACE on temp LIVE[p]   (runs first, feeds the buoyancy gather)
 ##     - buoyancy  : temp LIVE[p] (TempIn) -> temp BACK[1-p] (TempOut)   (fresh temp now in BACK)
-##     - cool      : IN-PLACE on temp BACK[1-p], reads water BACK[1-p]   (post-flow water)
 ##     - lava_phase: IN-PLACE on lava BACK[1-p] + temp BACK[1-p]
 ##     - magma     : lava BACK[1-p] + temp BACK[1-p] + private scratch
 ##   ENTRY expectation: fresh temp in LIVE[p]; fresh water + lava already in BACK[1-p] (their flow gathers ran
@@ -52,7 +62,6 @@ const CONDUCT_PATH: String = "res://addons/local_agents/sim/material/kernels3d/h
 const COPY_PATH: String = "res://addons/local_agents/sim/material/kernels3d/copy_sphere3d.glsl"
 const SOLAR_PATH: String = "res://addons/local_agents/sim/material/kernels3d/heat3d_solar_sphere3d.glsl"
 const BUOY_PATH: String = "res://addons/local_agents/sim/material/kernels3d/heat3d_buoyancy_sphere3d.glsl"
-const COOL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/heat3d_cool_sphere3d.glsl"
 const LAVA_PHASE_PATH: String = "res://addons/local_agents/sim/material/kernels3d/lava_phase_sphere3d.glsl"
 const MAGMA_PATH: String = "res://addons/local_agents/sim/material/kernels3d/magma_buoy_sphere3d.glsl"
 
@@ -68,20 +77,17 @@ var _cond_scratch: RID = RID()             # private conduction gather target (n
 
 var _solar_shader: RID = RID()
 var _buoy_shader: RID = RID()
-var _cool_shader: RID = RID()
 var _lava_phase_shader: RID = RID()
 var _magma_shader: RID = RID()
 
 var _solar_pipe: RID = RID()
 var _buoy_pipe: RID = RID()
-var _cool_pipe: RID = RID()
 var _lava_phase_pipe: RID = RID()
 var _magma_pipe: RID = RID()
 
 # Per-parity uniform sets (index = parity p).
 var _solar_set: Array = [RID(), RID()]
 var _buoy_set: Array = [RID(), RID()]
-var _cool_set: Array = [RID(), RID()]
 var _lava_phase_set: Array = [RID(), RID()]
 var _magma_set: Array = [RID(), RID()]
 
@@ -102,8 +108,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	_solar_pipe = rd.compute_pipeline_create(_solar_shader)
 	_buoy_shader = _load_shader(rd, BUOY_PATH)
 	_buoy_pipe = rd.compute_pipeline_create(_buoy_shader)
-	_cool_shader = _load_shader(rd, COOL_PATH)
-	_cool_pipe = rd.compute_pipeline_create(_cool_shader)
 	_lava_phase_shader = _load_shader(rd, LAVA_PHASE_PATH)
 	_lava_phase_pipe = rd.compute_pipeline_create(_lava_phase_shader)
 	_magma_shader = _load_shader(rd, MAGMA_PATH)
@@ -171,12 +175,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_buoy_set[p] = _make_set(rd, _buoy_shader, [
 			[0, temp_live], [1, temp_back], [2, solid],
 			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]], [15, nbr]])
-		# cool: 0 = temp (BACK, in-place), 1 = water (BACK, post-flow), 2 = solid, 4 = lava (BACK, post-flow),
-		# 6 = rock_fill — the latent-heat sink needs the cell's heat capacity, and lava is molten rock.
-		# *(`pos` dropped 2026-08-03: it fed sea_water_target()'s radial depth, and that prescribed thermocline
-		# is deleted.)*
-		_cool_set[p] = _make_set(rd, _cool_shader, [
-			[0, temp_back], [1, water_back], [2, solid], [4, lava_back], [6, bufs["rock_fill"]]])
 		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid, 4 = the compacted
 		# active-cell list, 5 = its dispatch-indirect args + list length (LavaCellListPass built both earlier
 		# this step, and applied this kernel's own lava/solid early-outs when it did), 15 = nbr
@@ -193,7 +191,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	var sun_dir: Vector3 = ctx.get("sun_dir", Vector3(0.0, 1.0, 0.0))
 	# sea_radius is the altitude datum the solar kernel still carries for other uses (its own lapse term is
-	# long deleted, and the cool kernel stopped reading it when the prescribed thermocline went). The driver sets
+	# long deleted, and the only other reader, the deleted cool kernel, stopped reading it in 2026-08). The driver sets
 	# it every begin_frame (MaterialSphereGPU3D:265, then set_sea_radius from the terrain), so this default
 	# only ever applies if that stops happening — in which case the RIGHT answer is the grid's own sea
 	# shell, not a literal. It used to read 248.0, a value from a 250-radius planet that has not existed
@@ -244,17 +242,9 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	var buoy_pc: PackedByteArray = _count_pc(cc)
 	rd.compute_list_set_push_constant(cl, buoy_pc, buoy_pc.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)          # buoyancy output (temp BACK) visible to cooling
+	rd.compute_list_add_barrier(cl)          # buoyancy output (temp BACK) visible to the lava passes
 
-	# 3. COOL — the latent heat of vaporisation charged against boiling water, in-place on temp BACK.
-	rd.compute_list_bind_compute_pipeline(cl, _cool_pipe)
-	rd.compute_list_bind_uniform_set(cl, _cool_set[parity], 0)
-	var cool_pc: PackedByteArray = _cool_pc(cc, cell_size)
-	rd.compute_list_set_push_constant(cl, cool_pc, cool_pc.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)          # post-heat temp committed before the lava passes read it
-
-	# 4. LAVA PHASE — sustain + shell-first edge cooling, in-place on lava BACK + temp BACK. COMPACTED:
+	# 3. LAVA PHASE — sustain + shell-first edge cooling, in-place on lava BACK + temp BACK. COMPACTED:
 	# dispatched INDIRECTLY over LavaCellListPass's active-cell list, so this is one invocation per molten cell
 	# rather than per grid cell. On a planet with no lava that is one idle workgroup instead of `groups`
 	# (~1080) of them.
@@ -265,7 +255,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	rd.compute_list_dispatch_indirect(cl, _active_args, 0)
 	rd.compute_list_add_barrier(cl)          # post-phase lava/temp visible to the magma snapshot
 
-	# 5. MAGMA — two-pass buoyant overpressure up-flow (0 = copy snapshot, 1 = gather/apply).
+	# 4. MAGMA — two-pass buoyant overpressure up-flow (0 = copy snapshot, 1 = gather/apply).
 	rd.compute_list_bind_compute_pipeline(cl, _magma_pipe)
 	rd.compute_list_bind_uniform_set(cl, _magma_set[parity], 0)
 	var magma_pc0: PackedByteArray = _magma_pc(cc, 0)
@@ -287,7 +277,7 @@ func dispose(rd: RenderingDevice) -> void:
 	if rd == null:
 		return
 	for s: Array in [_conduct_set, _copy_set, _solar_set, _buoy_set,
-			_cool_set, _lava_phase_set, _magma_set]:
+			_lava_phase_set, _magma_set]:
 		for r in s:
 			if r is RID and r.is_valid():
 				rd.free_rid(r)
@@ -295,12 +285,11 @@ func dispose(rd: RenderingDevice) -> void:
 	_copy_set = [RID(), RID()]
 	_solar_set = [RID(), RID()]
 	_buoy_set = [RID(), RID()]
-	_cool_set = [RID(), RID()]
 	_lava_phase_set = [RID(), RID()]
 	_magma_set = [RID(), RID()]
-	for r: RID in [_conduct_pipe, _copy_pipe, _solar_pipe, _buoy_pipe, _cool_pipe,
+	for r: RID in [_conduct_pipe, _copy_pipe, _solar_pipe, _buoy_pipe,
 			_lava_phase_pipe, _magma_pipe, _scratch, _cond_scratch,
-			_conduct_shader, _copy_shader, _solar_shader, _buoy_shader, _cool_shader,
+			_conduct_shader, _copy_shader, _solar_shader, _buoy_shader,
 			_lava_phase_shader, _magma_shader]:
 		if r.is_valid():
 			rd.free_rid(r)
@@ -308,7 +297,6 @@ func dispose(rd: RenderingDevice) -> void:
 	_copy_pipe = RID()
 	_solar_pipe = RID()
 	_buoy_pipe = RID()
-	_cool_pipe = RID()
 	_lava_phase_pipe = RID()
 	_magma_pipe = RID()
 	_scratch = RID()
@@ -317,7 +305,6 @@ func dispose(rd: RenderingDevice) -> void:
 	_copy_shader = RID()
 	_solar_shader = RID()
 	_buoy_shader = RID()
-	_cool_shader = RID()
 	_lava_phase_shader = RID()
 	_magma_shader = RID()
 
@@ -358,19 +345,6 @@ func _solar_pc(cc: int, sun_dir: Vector3, sea_radius: float, dt_s: float, cell_s
 	pc.encode_float(20, sun_dir.y)
 	pc.encode_float(24, sun_dir.z)
 	pc.encode_float(28, sea_radius)
-	return pc
-
-
-# heat3d_cool Params: { uint cell_count; float cell_size; float pad0; float pad1; } — 16 bytes. cell_size
-# replaced sea_radius, which was the altitude datum for the deleted prescribed thermocline; the latent-heat
-# sink needs the cell's depth to turn a water FRACTION into kilograms per square metre.
-func _cool_pc(cc: int, cell_size: float) -> PackedByteArray:
-	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(16)
-	pc.encode_u32(0, cc)
-	pc.encode_float(4, cell_size)
-	pc.encode_float(8, 0.0)
-	pc.encode_float(12, 0.0)
 	return pc
 
 
