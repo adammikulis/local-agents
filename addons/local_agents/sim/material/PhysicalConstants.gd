@@ -464,3 +464,56 @@ const LIGHTNING_FLASH_J: float = 1.0e9
 # becomes), so converting between them is a change of state, not a change of substance, and must move mass
 # one-for-one rather than manufacture it.
 const BIOMASS_CARBON_FRACTION: float = 0.47
+# ============================================================================================================
+# APPENDED 2026-08-07 — THE ENERGY OF A PHASE CHANGE, and the oxygen a flame needs.
+#
+# Every phase transition in this substrate moves mass between two states of one substance, and every one of
+# them costs or releases a measured enthalpy. Exactly ONE was ever charged — vaporisation, at the boiling
+# point, by heat3d_cool_sphere3d.glsl, at a rate that "MUST match atmos_evap_sphere3d.glsl", a file that had
+# already been deleted. So water could freeze, melt, sublimate and deposit for free, basalt could crystallise
+# for free, and rock could melt for free. These are properties of the materials. They are not rates, and the
+# rate a transition proceeds at is a separate question answered by the record that performs it.
+# ============================================================================================================
+
+# --- WATER: FUSION AND SUBLIMATION --------------------------------------------------------------------------
+# The two enthalpies the water cycle was missing; LATENT_HEAT_VAPORISATION_J_KG above is the third.
+#
+# FUSION, at 0 °C and 1 atm. Against water's specific heat the ratio is L_f/c = 3.337e5 / 4184 = 79.8 K, so
+# freezing a hundredth of a cell's water releases the heat of warming that water by 0.8 K. Small beside
+# vaporisation and not negligible: it is why a lake sits near 0 °C for weeks while it freezes instead of
+# dropping straight through, and why a snowpack survives the first warm afternoon.
+const LATENT_HEAT_FUSION_J_KG: float = 3.337e5
+
+# SUBLIMATION, ice directly to vapour at 0 °C. By Hess's law it is the sum of the other two AT THAT
+# TEMPERATURE — 2.501e6 (vaporisation at 0 °C) + 3.337e5 — which is why it is stated rather than derived
+# from the 2.257e6 above: that figure is quoted at 100 °C, and adding a 100 °C vaporisation to a 0 °C fusion
+# would be adding two numbers that describe different temperatures. A sublimating snowpack pays the full
+# 2.834e6, which is why alpine sublimation is a large share of ablation.
+const LATENT_HEAT_SUBLIMATION_J_KG: float = 2.834e6
+
+# --- BASALT: THE ENTHALPY OF CRYSTALLISATION ----------------------------------------------------------------
+# Released when basaltic melt crystallises through its solidus, absorbed again when rock melts. Measured at
+# 3.5-5e5 J/kg across basaltic compositions (Lange, Cashman & Navrotsky 1994, Contrib Mineral Petrol 118:169);
+# 4e5 is the value Turcotte & Schubert's Geodynamics uses. Against rock's specific heat that is 4.0e5 / 840 =
+# 476 K — comparable to the whole sensible heat of a flow between its liquidus and the surface. It is what
+# makes a lava flow crust over and hold its interior molten, rather than cooling smoothly to ambient.
+const BASALT_LATENT_HEAT_CRYSTALLISATION_J_KG: float = 4.0e5
+
+# --- BASALT: THERMAL-INFRARED EMISSIVITY ---------------------------------------------------------------------
+# A lava surface is very nearly a blackbody in the thermal infrared: 0.95-0.98 measured on fresh basalt
+# (Ball & Pinkerton 2006, J Geophys Res 111:B11203, on the emissivity assumptions thermal cameras make in
+# volcanology). This is what an exposed molten cell radiates WITH. It replaces a Newtonian relax toward a
+# prescribed 40 °C ambient, which deleted the heat instead of emitting it — no cell received it, and the
+# planet's energy books could not see it leave.
+const BASALT_EMISSIVITY: float = 0.95
+
+# --- THE LIMITING OXYGEN CONCENTRATION -------------------------------------------------------------------------
+# The minimum oxygen MOLE FRACTION that sustains flaming combustion of cellulosic fuel — measured near
+# 0.13-0.16 for wood and cellulose (ASTM D2863 oxygen-index method; Babrauskas, Ignition Handbook, 2003).
+# 0.15 is the mid value. Below it a flame goes out however hot it is, which is why a fire in a sealed room
+# self-extinguishes long before the oxygen is gone, and why an anoxic planet cannot burn.
+#
+# IT IS A PROPERTY OF THE FUEL AND THE OXIDISER, NOT A DIFFICULTY SETTING. The O₂ channel is in units of
+# modern ambient air (see AIR_MOLE_FRAC_O2), so a kernel comparing against it wants
+# LIMITING_OXYGEN_CONCENTRATION_FRAC / AIR_MOLE_FRAC_O2 = 0.716 channel units.
+const LIMITING_OXYGEN_CONCENTRATION_FRAC: float = 0.15

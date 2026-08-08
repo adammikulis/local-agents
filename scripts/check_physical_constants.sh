@@ -53,13 +53,17 @@
 #    and any name qualified by another material (ROCK, BASALT, LAVA, MAGMA, IRON, METAL, SOLIDIF), whose
 #    phase points are not water's.
 #
-# SCOPE, v1: the water phase points and the charge-separation band, which is where the drift actually
-# happened. Widening it is a one-line edit to WATCHED_* below. Two quantities are deliberately NOT watched
-# yet because the kernels and the authority genuinely disagree today and it is not this gate's call to
-# pick a winner — see the report in the commit that added this file:
-#   * heat3d_solar_sphere3d.glsl:96  SOLAR_CONSTANT = 600.0   vs LAPhysical.SOLAR_CONSTANT_W_M2 = 1361.0
-#   * heat3d_solar_sphere3d.glsl:95  STEFAN = 5.670374e-8     vs LAPhysical.STEFAN_BOLTZMANN = 5.670374419e-8
-# Add them here the day the kernel is reconciled, and they can never drift again.
+# SCOPE, v2: the water phase points, the charge-separation band, and the two radiation constants.
+# Widening it is a one-line edit to WATCHED_* below.
+#
+# *(Corrected 2026-08-07. This paragraph used to name two quantities as "deliberately NOT watched yet
+# because the kernels and the authority genuinely disagree today", citing
+# `heat3d_solar_sphere3d.glsl:96  SOLAR_CONSTANT = 600.0` and `:95  STEFAN = 5.670374e-8`, and ended "Add
+# them here the day the kernel is reconciled." THE KERNEL WAS RECONCILED. heat3d_solar_sphere3d.glsl:114-115
+# now carry 5.670374419e-8 and 1361.0, both already annotated, so rule 1 has been binding them the whole
+# time — the comment outlived the disagreement and went on telling every reader this planet's sun was dimmed
+# to 600 W/m². They join the watched set below, which is what that sentence asked for: a NEW kernel constant
+# named SOLAR_CONSTANT or STEFAN can no longer be introduced without a reference.)*
 #
 # EXIT CODES.  0 = clean.  1 = a violation.  2 = the gate COULD NOT RUN (missing tool, missing authority
 # file, missing kernel directory, or an authority that parsed to zero constants). 2 is distinct on
@@ -132,9 +136,13 @@ awk -v AUTH="$AUTH_MAP" -v ROOT="$REPO_ROOT/" '
   BEGIN {
     while ((getline line < AUTH) > 0) { split(line, kv, "\t"); auth[kv[1]] = kv[2] + 0; authstr[kv[1]] = kv[2]; have[kv[1]] = 1 }
     close(AUTH)
-    # v1 watched quantities. Widen here, not in the parser.
+    # v2 watched quantities. Widen here, not in the parser.
     WATCH_PHASE  = "(FREEZE|MELT|THAW|BOIL)"
     WATCH_CHARGE = "(FREEZE|ZONE|WARM|COLD)"
+    # RADIATION. Each maps to exactly one authority constant, so an unannotated copy can be named outright
+    # rather than asked about. These were the two the v1 scope left out while the kernel disagreed with the
+    # authority; it no longer does.
+    WATCH_RADIATION = "(SOLAR_CONSTANT|STEFAN)"
     MODEL_TOKENS = "(RATE|FRAC|GAIN|SCALE|COEFF|COEF|MIN|MAX|THRESH|STEP|COUNT|DAMP|LEAK|SPAN|MASS|FLOW|DEPTH)"
     OTHER_MATTER = "(ROCK|BASALT|LAVA|MAGMA|IRON|METAL|SOLIDIF)"
   }
@@ -195,6 +203,20 @@ awk -v AUTH="$AUTH_MAP" -v ROOT="$REPO_ROOT/" '
     u = toupper(name)
     if (u ~ /CHARGE/ && u ~ WATCH_CHARGE && u !~ MODEL_TOKENS) {
       fail(FILENAME, FNR, name " = " val " names the charge-separation band but carries no LAPhysical reference. The band has two endpoints (CHARGE_ZONE_WARM_C / CHARGE_ZONE_COLD_C) and no safe default, so say which: append \"// LAPhysical.CHARGE_ZONE_WARM_C\".")
+      next
+    }
+    if (u ~ WATCH_RADIATION && u !~ MODEL_TOKENS) {
+      rtarget = (u ~ /STEFAN/) ? "STEFAN_BOLTZMANN" : "SOLAR_CONSTANT_W_M2"
+      if (!have[rtarget]) {
+        fail(FILENAME, FNR, name " names a radiation constant but the authority defines no " rtarget ".")
+        next
+      }
+      if (num_eq(v, auth[rtarget])) {
+        printf "NOTE %s:%d  %s = %s agrees with LAPhysical.%s but is bound only by its value. Append \"// LAPhysical.%s\" to make it explicit.\n", rel(FILENAME), FNR, name, val, rtarget, rtarget
+        notes++
+        next
+      }
+      fail(FILENAME, FNR, name " = " val " names a radiation constant but is neither annotated LAPhysical." rtarget " nor equal to it (" authstr[rtarget] "). Solar irradiance and the Stefan-Boltzmann constant are measured facts. This kernel once ran SOLAR_CONSTANT = 600.0, \"sized so the sub-solar point equilibrates near 300 K\" — fitting the star to the planet. Do not re-dim the sun.")
       next
     }
     if (u !~ WATCH_PHASE || u ~ MODEL_TOKENS || u ~ OTHER_MATTER) next
