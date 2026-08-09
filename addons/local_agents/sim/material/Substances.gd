@@ -166,7 +166,11 @@ static func table() -> Dictionary:
 			"molar_mass": PC.MOLAR_MASS_CH2O_UNIT_KG_MOL,
 			"density": PC.DRY_WOOD_DENSITY_KG_M3,
 			"specific_heat": PC.DRY_WOOD_SPECIFIC_HEAT_J_KGK,
-			"heat_of_combustion_j_kg": PC.HEAT_PER_KG_OXYGEN_J,
+			# PER KG OF FUEL. This held HEAT_PER_KG_OXYGEN_J, which is Huggett's constant — joules per kg of OXYGEN
+			# CONSUMED, a different physical quantity, 1.30x larger. The correct per-fuel figure was already in
+			# PhysicalConstants 160 lines from the wrong one. Unread so far, which is the only reason the fire
+			# path and the metabolism path have not yet disagreed about the energy content of one molecule.
+			"heat_of_combustion_j_kg": PC.BIOMASS_HEAT_OF_COMBUSTION_J_PER_KG,
 			"pyrolysis_ea_over_r_k": PC.CELLULOSE_PYROLYSIS_EA_OVER_R_K,
 			"albedo": PC.ALBEDO_VEGETATION,
 		},
