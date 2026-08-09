@@ -41,10 +41,22 @@ extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 ## with a real finite atmosphere at Earth's measured composition, so there is nothing for a sky-exchange
 ## record to do: the air above a cell genuinely holds the gas, and o2_transport/co2_transport move it there
 ## as an ordinary conserving transfer.
+## CombustionRecords.gd is LAST, and the order is physical rather than alphabetical. Records CHAIN within one
+## cell (see the note above), and combustion is the fastest process in the table by orders of magnitude: it
+## takes the oxygen the slower biology left and returns the carbon the slower biology will fix. Putting it
+## after the bio records means a burning cell's photosynthesis and respiration have already run on the air
+## they actually had, rather than on air a fire has emptied in the same step.
+##
+## It REPLACES fire_sphere3d.glsl, deleted 2026-08-09 with its whole state machine — IGNITE_TEMP (one global
+## ignition temperature for every combustible cell on the planet), FIRE_START, FIRE_MIN, FIRE_GROW, the stored
+## `fire` intensity and a bespoke radiant-spread gather. It was also the one piece of chemistry in the
+## substrate that NO record described, so `check_reaction_balance.sh` could not see it, which is how it came to
+## destroy hydrogen, oxygen and nitrogen for as long as it did.
 const RECORD_MODULES: PackedStringArray = [
 	"res://addons/local_agents/sim/material/reactions/BioRecords.gd",
 	"res://addons/local_agents/sim/material/reactions/PhaseRecords.gd",
 	"res://addons/local_agents/sim/material/reactions/GeoRecords.gd",
+	"res://addons/local_agents/sim/material/reactions/CombustionRecords.gd",
 ]
 
 const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionBalance.gd")

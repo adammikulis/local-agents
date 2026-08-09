@@ -27,6 +27,17 @@ layout(set = 0, binding = 1, std430) restrict buffer Water    { float water[]; }
 layout(set = 0, binding = 2, std430) restrict buffer Moisture { float moisture[]; };
 layout(set = 0, binding = 3, std430) restrict buffer O2       { float o2[]; };
 layout(set = 0, binding = 4, std430) restrict buffer CO2      { float co2[]; };
+// FUEL — cured cellulosic litter, the SAME substance as biomass and detritus. Bound and reactable as of
+// 2026-08-09: combustion is a record now (CombustionRecords.gd), not fire_sphere3d.glsl, so this is where
+// fuel is oxidised. Slot 5 was declared in both enums for months with no ladder branch on either side, so it
+// read 0 and every write to it vanished.
+layout(set = 0, binding = 5, std430) restrict buffer Fuel     { float fuel[]; };
+// FIRE — an INSTRUMENT, not a channel and not a reactable slot. Assigned at the bottom of main() as the
+// fraction of this cell's fuel that combustion consumed this step, for `fire_cells` / `fire_peak` /
+// `is_burning`. NOTHING in the physics reads it; it has no read_ch/add_ch branch on purpose, and
+// LAReactionBalance.driver_only() refuses it as a reactant or product, which is what keeps a derived
+// quantity from turning back into stored state.
+layout(set = 0, binding = 6, std430) restrict buffer Fire     { float fire[]; };
 layout(set = 0, binding = 7, std430) restrict buffer Detritus { float detritus[]; };
 layout(set = 0, binding = 8, std430) restrict readonly buffer Fungus { float fungus[]; };
 layout(set = 0, binding = 9, std430) restrict buffer Fert { float fert[]; };           // soil nutrient (R15 fungus-decompose + creature excretion feed it; R19 uptake now debits it — LIVE half, its diffuse/leach producer runs later this step, same convention as Fungus above)
@@ -57,8 +68,9 @@ layout(set = 0, binding = 25, std430) restrict readonly buffer Radial { float ra
 layout(set = 0, binding = 26, std430) restrict readonly buffer Static { float static_cells[]; }; // 1 = infinite sea/lake reservoir
 // AQUIFER PERMEABILITY MASK (1 = groundwater-bearing regolith). The mask root_soil() walks — soil lives here,
 // not "wherever the rock is solid". Bound at 27, past the end of the slot-alias range (bindings 0..26 shadow
-// the slot enum, and 5/6/19 stay reserved for FUEL/FIRE/SOIL_ROOT), because regolith is not a reactable
-// channel. Same buffer soil_sphere3d.glsl binds at its own binding 6.
+// the slot enum; 5 and 6 are FUEL and the FIRE instrument as of 2026-08-09, 19 is derived SOIL_ROOT and needs
+// no buffer), because regolith is not a reactable channel. Same buffer soil_sphere3d.glsl binds at its own
+// binding 6.
 layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float regolith[]; };
 // --- THE TWO NON-SILICATE MINERAL SPECIES (2026-08-08). Every mineral channel above is calcium silicate
 // CaSiO3; the Urey reaction CaSiO3 + CO2 -> CaCO3 + SiO2 has two products that are not, so each gets a
@@ -138,8 +150,20 @@ const float ROCK_DENSITY = 2900.0;      // LAPhysical.ROCK_DENSITY_KG_M3 — bas
 const float SEDIMENT_DENSITY = 2000.0;  // LAPhysical.SEDIMENT_DENSITY_KG_M3 — unconsolidated wet sediment
                                         // (absolute temperature for Arrhenius comes from KELVIN_0 above —
                                         // one name for one constant, so it cannot drift into two)
-const float BOIL_TEMP = 100.0;          // LAPhysical.WATER_BOIL_C — above it there is no liquid water, so an
-                                        // aqueous reaction rate stops rising with temperature (see ARRHENIUS)
+// (BOIL_TEMP is GONE from this kernel, 2026-08-09. It was the ARRHENIUS branch's hard-coded aqueous ceiling —
+// a fact about WATER applied to every Arrhenius record there will ever be. It is `t_ceiling_k` on the record
+// now, so D1b still stops at its solvent's boiling point and combustion, which has no solvent, does not.)
+
+// --- A CELL'S VOLUMETRIC HEAT CAPACITY [J/m3/K] ------------------------------------------------------------
+// What an ENTHALPY of reaction has to be divided by to become a temperature change: the same reaction warms
+// dry air by thousands of kelvin and a waterlogged cell by tens, which is the whole of why wet fuel resists
+// lighting and why a flame in a swamp is not a flame in dry litter — with no per-case code and no wet-cell
+// gate anywhere. Deliberately the SAME expression heat3d_cool_sphere3d.glsl:93-102 uses (a second, disagreeing
+// capacity model is a defect this repo already carries once — see LAMaterialFieldEnergyLedger3D item 9).
+// No `solid` branch: this kernel returns early for solid cells, so every caller here is an open cell.
+const float RC_AIR   = 1186.0;          // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
+const float RC_ROCK  = 2.436e6;         // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
+const float RC_WATER = 4.171e6;         // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
 
 #define CONST_FRAC             0
 #define BILINEAR               1
@@ -182,12 +206,17 @@ struct Reaction {
 	int   n_react;
 	int   n_prod;
 	float param2;      // second rate-model scalar (OPTIMUM_BAND: the half-width of the band around `threshold`)
-	int   pad1;
+	float t_ceiling_k; // ARRHENIUS: absolute T above which the law stops applying (its phase is gone). 0 = none.
 	int   react_slot[4];
 	float react_coeff[4];
 	int   prod_slot[4];
 	float prod_coeff[4];
 	int   prod_target[4];
+	// --- the 16-byte block the record grew by, 2026-08-09 (see LAReactionDefs.serialize) ---
+	float enthalpy_j_m3;  // heat RELEASED (>0) or absorbed (<0) per unit of extent, J per m3 of cell
+	int   quench_slot;    // a REACTANT this reaction goes out before exhausting; -1 = none
+	float quench_min;     // ...the amount of it the reaction may not draw below (flammability limit)
+	int   pad2;
 };
 
 layout(set = 0, binding = 21, std430) restrict readonly buffer Defs { Reaction recs[]; };
@@ -346,6 +375,14 @@ void bedrock_below_add(uint i, float v) {
 	rock_fill[uint(d)] = max(0.0, rock_fill[uint(d)] + v);
 }
 
+// See the RC_* block above. Air, rock (bedrock plus whatever is molten) and liquid water by volume fraction.
+float rc_of(uint i) {
+	float f_rock = clamp(rock_fill[i] + lava[i], 0.0, 1.0);
+	float f_water = clamp(water[i], 0.0, 1.0);
+	float f_air = max(0.0, 1.0 - f_rock - f_water);
+	return RC_AIR * f_air + RC_ROCK * f_rock + RC_WATER * f_water;
+}
+
 // Resolve a channel slot to its per-cell value. Unbound slots read 0 (a record must not reference them).
 float read_ch(int slot, uint i) {
 	if (slot == TEMP)     return temp[i];
@@ -353,6 +390,7 @@ float read_ch(int slot, uint i) {
 	if (slot == MOISTURE) return moisture[i];
 	if (slot == O2)       return o2[i];
 	if (slot == CO2)      return co2[i];
+	if (slot == FUEL)     return fuel[i];
 	if (slot == DETRITUS) return detritus[i];
 	if (slot == FUNGUS)   return fungus[i];
 	if (slot == FERT)     return fert[i];
@@ -391,6 +429,7 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == MOISTURE) { moisture[i] += v; }
 	else if (slot == O2)       { o2[i]        = max(0.0, o2[i] + v); }
 	else if (slot == CO2)      { co2[i]       = max(0.0, co2[i] + v); }
+	else if (slot == FUEL)     { fuel[i]      = max(0.0, fuel[i]     + v); }   // combustion is fuel's only sink
 	else if (slot == DETRITUS) { detritus[i]  = max(0.0, detritus[i] + v); }
 	else if (slot == FERT)     { fert[i]      = max(0.0, fert[i] + v); }
 	else if (slot == BIOMASS)  { biomass[i]   = max(0.0, biomass[i]  + v); }
@@ -474,9 +513,11 @@ void main() {
 		return;
 	}
 	scratch[i] = 0.0;                       // reset per-cell SCRATCH each step (replaces fungus kernel's fert reset)
+	fire[i] = 0.0;                          // the burning INSTRUMENT — assigned from this step's fuel loss below
 	if (solid[i] != 0.0) {
 		return;                             // reactions run in OPEN cells only
 	}
+	float fuel_before = fuel[i];            // for the fire instrument; combustion is fuel's only sink
 
 	for (uint r = 0u; r < params.n_records; r++) {
 		Reaction rc = recs[r];
@@ -507,12 +548,17 @@ void main() {
 			// activation energy in `threshold` (Ea/R, kelvin), referenced to `param2` (the temperature k is
 			// quoted at). First order in `driver` and, when it names a slot, in `driver2`.
 			//
-			// THE CEILING AT BOILING IS THE PHYSICS OF THE PHASE, NOT A GUARD. An aqueous reaction needs liquid
-			// water; above LAPhysical.WATER_BOIL_C there is none (atmos_evap_sphere3d flashes it to steam), so
-			// the rate stops climbing there instead of extrapolating a solution-chemistry law into a cell with
-			// no solution in it.
+			// THE CEILING IS THE PHYSICS OF A PHASE, AND IT BELONGS TO THE RECORD. An AQUEOUS reaction needs
+			// liquid water, so D1b stops climbing at water's boiling point rather than extrapolating solution
+			// chemistry into a cell with no solution in it. That was written HERE as a literal until
+			// 2026-08-09, which applied WATER's boiling point to every Arrhenius record there will ever be —
+			// and would have capped combustion at 100 C, where cellulose does not pyrolyse at all. A record
+			// with `t_ceiling_k == 0` describes no such phase and gets no ceiling.
 			float conc2 = (rc.driver2_slot >= 0) ? read_ch(rc.driver2_slot, i) : 1.0;
-			float t_k = min(temp[i], BOIL_TEMP) + KELVIN_0;
+			float t_k = temp[i] + KELVIN_0;
+			if (rc.t_ceiling_k > 0.0) {
+				t_k = min(t_k, rc.t_ceiling_k);
+			}
 			float t_ref = max(rc.param2, 1.0);
 			x = rc.rate_k * drv * conc2 * exp(-rc.threshold * (1.0 / max(t_k, 1.0) - 1.0 / t_ref));
 		}
@@ -529,9 +575,21 @@ void main() {
 		// ran only the product credit below. That is matter from nothing by construction, and two shipped
 		// records used it: R11 pinned O2 and R12 pinned CO2 at the top of the atmosphere. R12 was the origin
 		// of every carbon atom that ever existed in this simulation.
+		//
+		// THE QUENCH IS A FLOOR ON ONE REACTANT, and it is a different statement from the cap around it. The
+		// cap says an extent cannot outrun its supply. The quench says a reaction stops before its supply is
+		// gone: a flame goes out below the limiting oxygen concentration and leaves most of the oxygen in the
+		// room behind it, which is why a fire in a sealed space self-extinguishes and why an anoxic planet
+		// cannot burn. Written as a gate on the concentration it would only bind on the NEXT step, and a cell
+		// could still take its air to zero in this one — so it is the amount of that species the reaction is
+		// not allowed to touch. See LAReactionDefs.
 		for (int k = 0; k < rc.n_react; k++) {
 			float coeff = max(rc.react_coeff[k], 1e-6);
-			x = min(x, read_ch(rc.react_slot[k], i) / coeff);
+			float avail = read_ch(rc.react_slot[k], i);
+			if (rc.react_slot[k] == rc.quench_slot) {
+				avail = max(0.0, avail - rc.quench_min);
+			}
+			x = min(x, avail / coeff);
 		}
 		if (rc.cap_slot >= 0) {
 			x = min(x, read_ch(rc.cap_slot, i) / max(rc.cap_coeff, 1e-6));
@@ -550,5 +608,24 @@ void main() {
 				add_ch(rc.prod_slot[k], i, rc.prod_coeff[k] * x);
 			}
 		}
+
+		// THE ENTHALPY, and it is an ENERGY rather than a mass coefficient for a reason: how hot a cell gets
+		// depends on ITS OWN heat capacity, so the same combustion raises dry air thousands of kelvin and a
+		// waterlogged cell tens. That is where "a damp fuel resists lighting" comes from here — the water is in
+		// rc_of, not in a gate. `temp` is a DEGREES channel, which is why this cannot be a TEMP product (the
+		// balance gate refuses one); see LAReactionDefs on what this leaves open in the energy books.
+		if (rc.enthalpy_j_m3 != 0.0) {
+			temp[i] += rc.enthalpy_j_m3 * x / max(rc_of(i), 1.0);
+		}
+	}
+
+	// THE BURNING INSTRUMENT. `fire` is not a state any more: a cell is burning if its combustion RATE is
+	// high, which is derived, exactly as cloud is derived from moisture against saturation. Combustion is the
+	// only sink `fuel` has anywhere in the tree, so the fraction of a cell's fuel that disappeared this step
+	// IS its burn intensity, in the same 0..1 the stored channel used to carry (the old kernel's BURN_RATE was
+	// 0.12 per step at full intensity, and LAMaterialFieldQueries3D.FIRE_PRESENT still reads 0.02).
+	// Nothing in the physics reads this back.
+	if (fuel_before > 0.0) {
+		fire[i] = clamp((fuel_before - fuel[i]) / fuel_before, 0.0, 1.0);
 	}
 }

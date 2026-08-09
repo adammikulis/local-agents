@@ -41,6 +41,13 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	# it replaced was a constant fitted to "the sim's actual range" with the temperature sign backwards, and
 	# nothing in the suite could have caught that.
 	"res://addons/local_agents/tests/test_weathering_rate_law.gd",
+	# Combustion is chemistry and has no ignition temperature. Pure GDScript over the LIVE record: it walks
+	# LACombustionRecords across a temperature sweep with the kernel's own arithmetic and asserts that the rate
+	# is smooth and positive everywhere (no threshold), spans twenty orders of magnitude (a runaway), balances
+	# CH2O + O2 -> CO2 + H2O + N in MOLES, stops below the limiting oxygen concentration, and warms a damp cell
+	# a hundredfold less than a dry one through the heat capacity alone. It exists because combustion is
+	# unreachable in a run — every arm reports `fires` 0 — so no SIM_REPORT can settle any of this.
+	"res://addons/local_agents/tests/test_combustion_rate_law.gd",
 ]
 
 const INTEGRATION_TESTS: Array[String] = []

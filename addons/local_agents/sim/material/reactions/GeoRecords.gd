@@ -276,12 +276,21 @@ static func records() -> Array:
 		# EVERY COEFFICIENT IS 1:1 IN MOLES. `unit_ratio(slot, BEDROCK_BELOW)` is how many units of `slot`
 		# hold the moles that one unit of bedrock holds, read off LAReactionBalance.mol_per_unit(), so the
 		# stoichiometry stays visible as the 1:1:1:1 it is and the conversion cannot be mistyped.
+		#
+		# THE AQUEOUS CEILING IS THIS RECORD'S, NOT THE RATE MODEL'S. *(Moved 2026-08-09; behaviour
+		# unchanged.)* A reaction between rock and LIQUID WATER cannot proceed where there is no liquid
+		# water, so the exponential is evaluated at min(T, water's boiling point) — without it a 154 C
+		# lava-adjacent cell asks for a rate a thousand times the reference and this record dissolves a whole
+		# cell of bedrock in one step. That clamp used to be a LITERAL inside the kernel's ARRHENIUS branch,
+		# which applied WATER's phase boundary to every Arrhenius record there will ever be. It is the
+		# `t_ceiling_k` argument now; combustion, which has no solvent, passes 0 for "no ceiling".
 		rec(ARRHENIUS, DISSOLUTION_K, WATER,
 			[[BEDROCK_BELOW, 1.0], [CO2, LAReactionBalance.unit_ratio(CO2, BEDROCK_BELOW)]],
 			[[CARBONATE, LAReactionBalance.unit_ratio(CARBONATE, BEDROCK_BELOW), TGT_SELF],
 				[SILICA, LAReactionBalance.unit_ratio(SILICA, BEDROCK_BELOW), TGT_SELF]],
 			GATE_NEAR_GROUND, LAPhysical.SILICATE_DISSOLUTION_EA_OVER_R_K, CO2,
-			LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET),
+			LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET,
+			-1, 0.0, LAPhysical.WATER_BOIL_C + LAPhysical.KELVIN_OFFSET),
 
 		# D1c — METAMORPHIC DECARBONATION (carbonate + silica → bedrock below + CO2 here). D1b run backwards
 		# at metamorphic temperature: CaCO3 + SiO2 -> CaSiO3 + CO2. EXCESS_OVER_THRESHOLD on TEMP at

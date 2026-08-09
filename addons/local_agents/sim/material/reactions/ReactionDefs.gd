@@ -18,7 +18,18 @@ const WATER: int = 1
 const MOISTURE: int = 2
 const O2: int = 3
 const CO2: int = 4
+# FUEL is a REACTABLE CHANNEL as of 2026-08-09 — cured cellulosic litter, the same substance as BIOMASS and
+# DETRITUS (LAReactionBalance.SLOT_SUBSTANCE maps all four to `cellulose`). It was declared here and in the
+# kernel's #defines with NO branch in either switch-ladder, so it read 0 and any write to it vanished; the
+# only thing that ever consumed it was a standalone kernel no record described. It has read_ch/add_ch
+# branches now and CombustionRecords.gd oxidises it.
 const FUEL: int = 5
+# FIRE IS NOT A CHANNEL AND IS NOT A REACTABLE SLOT. It is an INSTRUMENT: the fraction of a cell's fuel that
+# combustion consumed this step, written by the reactions kernel for `fire_cells` / `fire_peak` / `is_burning`
+# and read by no physics anywhere — derived, exactly as cloud is derived from moisture against saturation.
+# The stored 0..1 intensity it used to be, with its FIRE_START / FIRE_MIN / FIRE_GROW state machine, is gone
+# with fire_sphere3d.glsl. `LAReactionBalance.driver_only()` keeps it un-writable by any record, which is
+# what stops the instrument becoming a state again.
 const FIRE: int = 6
 const DETRITUS: int = 7
 const FUNGUS: int = 8
@@ -152,13 +163,17 @@ const OPTIMUM_BAND: int = 5
 # It was added for silicate dissolution (chemical weathering), where the alternative was another monotone
 # threshold model standing in for a real rate law — which is how the record it replaced ended up with a
 # backwards temperature sign and a fitted constant. Every reaction rate in nature has this shape; nothing
-# about it is specific to rock.
+# about it is specific to rock — it is also what makes COMBUSTION a thermal runaway rather than a branch,
+# which is why fire_sphere3d.glsl and its single global ignition temperature are gone (CombustionRecords.gd).
 #
-# THE AQUEOUS CEILING IS PHYSICS, NOT A CLAMP. The kernel evaluates the exponential at min(T, water's boiling
-# point) because a reaction between rock and LIQUID WATER cannot proceed where there is no liquid water. The
-# substrate agrees: atmos_evap_sphere3d flashes water to steam at LAPhysical.WATER_BOIL_C. Without it, an
-# extrapolation to a 154 C lava-adjacent cell asks for a rate 1000x the reference and the record dissolves a
-# whole bedrock cell in one step, which is an artefact of extrapolating a law past the phase it describes.
+# THE TEMPERATURE CEILING IS A PROPERTY OF THE RECORD, NOT OF THE RATE MODEL. *(Changed 2026-08-09.)* The
+# kernel used to evaluate every Arrhenius exponential at min(T, LAPhysical.WATER_BOIL_C), because a reaction
+# between rock and LIQUID WATER cannot proceed where there is no liquid water — true of D1b, and a fact about
+# WATER that had been baked into the rate law itself. The same constant applied to every future Arrhenius
+# record is the design smell CLAUDE.md names ("a const applied in a loop over entities that differ in
+# reality"), and it would have silently capped combustion at 100 C, where cellulose does not pyrolyse at all.
+# `t_ceiling_k` on the record carries it now: D1b passes water's boiling point (its solvent stops existing
+# there), combustion passes 0 = no ceiling (a solid fuel has no phase whose disappearance stops the reaction).
 const ARRHENIUS: int = 6
 
 # --- Gate bitflags (0 = ungated) -------------------------------------------------------------------------
@@ -193,7 +208,46 @@ const GATE_NOT_STATIC: int = 64       # NOT an infinite static reservoir cell. T
 const TGT_SELF: int = 0               # add into the live/back cell channel
 const TGT_SCRATCH: int = 3            # add into the per-cell scratch buffer (fungus-fert pattern)
 
-const RECORD_BYTES: int = 128         # std430 size of one Reaction (see layout in serialize())
+const RECORD_BYTES: int = 144         # std430 size of one Reaction (see layout in serialize())
+
+# --- THE ENTHALPY OF REACTION, AND WHY IT IS NOT A `TEMP` PRODUCT -------------------------------------------
+# A reaction that releases or absorbs heat needs an ENERGY term, and it cannot be a mass coefficient: the
+# temperature a cell reaches depends on ITS OWN heat capacity, so the same reaction warms dry air by three
+# thousand kelvin and a waterlogged cell by twenty. That is why `LAReactionBalance.driver_only()` refuses TEMP
+# as a product — "a reaction that produces degrees" is not a reaction — and why the enthalpy is a separate
+# scalar the kernel divides by the cell's rc.
+#
+# `enthalpy_j_m3` is JOULES PER CUBIC METRE OF CELL PER UNIT OF EXTENT, signed: positive releases heat
+# (exothermic), negative absorbs it. A record derives it from measured matter, never types it — combustion's
+# is `(kg of O2 the record's own stoichiometry consumes) x LAPhysical.HEAT_PER_KG_OXYGEN_J`.
+#
+# IT IS ALSO WHERE THE SUBSTRATE'S ENERGY BOOKS ARE OPEN, AND THAT MUST BE SAID PLAINLY. This substrate stores
+# no CHEMICAL energy: a unit of fuel carries mass and no enthalpy of formation, so when combustion debits the
+# fuel and credits this heat, the heat appears from nothing as far as the thermal ledger is concerned. The
+# MASS side is exact (the balance gate proves it); the ENERGY side is a known open term, already listed as
+# item 3 in LAMaterialFieldEnergyLedger3D's "what is not booked". Closing it means enthalpies of formation in
+# LASubstances and every kernel reading them, which is a substrate-wide change, not a record.
+#
+# --- THE QUENCH: THE SUPPLY A REACTION GOES OUT BEFORE EXHAUSTING --------------------------------------------
+# The reactant cap says an extent cannot outrun its supply. The quench says some reactions stop BEFORE their
+# supply is gone: a flame goes out below the limiting oxygen concentration — about 15 % — and leaves most of
+# the oxygen in the room behind it, which is why a fire in a sealed space self-extinguishes and why an anoxic
+# planet cannot burn. `quench_slot` names a REACTANT and `quench_min` the amount of it the reaction may not
+# draw below; the kernel subtracts that floor from the available amount inside the reactant cap.
+#
+# WRITING IT AS A GATE ON THE CONCENTRATION IS WRONG, and the first version here was. A gate binds on the NEXT
+# step, so a cell could still take its air to exactly zero in this one — which is the difference between a
+# flame that lands at a real wildfire's 1150 K and one that reaches the full stoichiometric 3300 K.
+#
+# It is deliberately not a GATE BIT either: a gate is a fact about a cell's GEOMETRY (is there rock beneath,
+# is there sky above), the same for every record that asks. This is a fact about one reaction's chemistry, so
+# it is per-record data, and `GATE_OXYGEN_ENOUGH` would have been a named-phenomenon bit in the kernel.
+
+# --- A RATE LAW'S TEMPERATURE CEILING (ARRHENIUS) ----------------------------------------------------------
+# `t_ceiling_k` is the absolute temperature above which a rate law stops applying because the PHASE it
+# describes stops existing — an aqueous reaction has no solvent above the boiling point, so extrapolating its
+# exponential into a lava-adjacent cell asks for a rate a thousand times the reference and dissolves a whole
+# cell of bedrock in one step. 0 means NO CEILING, which is the honest answer for a solid-state reaction.
 
 # --- THE ONE LENGTH SCALE A RECORD MAY NEED ----------------------------------------------------------------
 # A rate derived from a real physical FLUX (per square metre per second) becomes a per-cell, per-step extent
@@ -214,23 +268,31 @@ static var cell_size_m: float = 16.0
 ## so only that much can freeze in a step however cold it gets, even though the rock itself is not the thing
 ## being used up at that ratio. (The kernel and serialize() have always supported it; `rec()` had no parameters
 ## for it, so no record could ever author one. Wired up 2026-08-03.)
+##
+## `t_ceiling_k`, `enthalpy_j_m3`, `quench_slot` and `quench_min` are documented in full beside
+## RECORD_BYTES above. All four default to "absent", so every record written before they existed reads
+## exactly as it did.
 static func rec(rate_model: int, rate_k: float, driver_slot: int, reactants: Array, products: Array,
 		gate_mask: int = 0, threshold: float = 0.0, driver2_slot: int = -1, param2: float = 0.0,
-		cap_slot: int = -1, cap_coeff: float = 0.0) -> Dictionary:
+		cap_slot: int = -1, cap_coeff: float = 0.0, t_ceiling_k: float = 0.0,
+		enthalpy_j_m3: float = 0.0, quench_slot: int = -1, quench_min: float = 0.0) -> Dictionary:
 	return {
 		"rate_model": rate_model, "rate_k": rate_k, "threshold": threshold, "gate_mask": gate_mask,
 		"driver_slot": driver_slot, "driver2_slot": driver2_slot, "param2": param2,
-		"cap_slot": cap_slot, "cap_coeff": cap_coeff,
+		"cap_slot": cap_slot, "cap_coeff": cap_coeff, "t_ceiling_k": t_ceiling_k,
+		"enthalpy_j_m3": enthalpy_j_m3, "quench_slot": quench_slot, "quench_min": quench_min,
 		"reactants": reactants, "products": products,
 	}
 
 
-## Serialize the records into a std430 SSBO byte buffer. Layout per Reaction (128 bytes, 16-aligned):
+## Serialize the records into a std430 SSBO byte buffer. Layout per Reaction (144 bytes, 16-aligned):
 ##   0 rate_model(i) 4 rate_k(f) 8 threshold(f) 12 gate_mask(i) | 16 driver_slot(i) 20 driver2_slot(i)
-##   24 cap_slot(i) 28 cap_coeff(f) | 32 n_react(i) 36 n_prod(i) 40 param2(f) 44 pad |
-##   48 react_slot[4](i) | 64 react_coeff[4](f) | 80 prod_slot[4](i) | 96 prod_coeff[4](f) | 112 prod_target[4](i)
-## Offset 40 was one of two spare pads; OPTIMUM_BAND claims it as `param2` (its band half-width), so the record
-## stays exactly 128 bytes and every existing offset is untouched. One pad remains at 44 for the next model.
+##   24 cap_slot(i) 28 cap_coeff(f) | 32 n_react(i) 36 n_prod(i) 40 param2(f) 44 t_ceiling_k(f) |
+##   48 react_slot[4](i) | 64 react_coeff[4](f) | 80 prod_slot[4](i) | 96 prod_coeff[4](f) | 112 prod_target[4](i) |
+##   128 enthalpy_j_m3(f) 132 quench_slot(i) 136 quench_min(f) 140 pad
+## The last spare pad at 44 became `t_ceiling_k`; the record then grew by ONE 16-byte block, 128 -> 144, for
+## the enthalpy and the quench pair. Every pre-existing offset is untouched, and the struct is all 4-byte
+## scalars and scalar arrays, so std430's array stride is the struct size and 144 is already 16-aligned.
 static func serialize(recs: Array) -> PackedByteArray:
 	var buf: PackedByteArray = PackedByteArray()
 	buf.resize(recs.size() * RECORD_BYTES)
@@ -250,7 +312,11 @@ static func serialize(recs: Array) -> PackedByteArray:
 		buf.encode_s32(base + 32, reactants.size())
 		buf.encode_s32(base + 36, products.size())
 		buf.encode_float(base + 40, float(rec.get("param2", 0.0)))
-		buf.encode_s32(base + 44, 0)
+		buf.encode_float(base + 44, float(rec.get("t_ceiling_k", 0.0)))
+		buf.encode_float(base + 128, float(rec.get("enthalpy_j_m3", 0.0)))
+		buf.encode_s32(base + 132, int(rec.get("quench_slot", -1)))
+		buf.encode_float(base + 136, float(rec.get("quench_min", 0.0)))
+		buf.encode_s32(base + 140, 0)
 		for k in range(4):
 			var rs: int = int(reactants[k][0]) if k < reactants.size() else -1
 			var rc: float = float(reactants[k][1]) if k < reactants.size() else 0.0
