@@ -252,10 +252,16 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	if _f._gpu != null and _f._gpu.has_method("take_probe"):
 		legs = _f._gpu.take_probe()
 		_f._gpu.request_probe(LEGS)
+	# LIVENESS IS PROVENANCE, NOT LENGTH. *(Fixed 2026-08-08.)* This read `has_rock = rock_fill.size() == cc`
+	# after falling back to the CPU mirror, and the mirror is the same length as the probe — so the flag said
+	# "live" in exactly the case it exists to warn about. `rock_fill` is demand-gated
+	# (MaterialSphereGPU3D.SITUATIONAL_CHANNELS), so its mirror can be arbitrarily stale, and a stock built on
+	# a stale mirror is a number with no provenance. The flag now reports whether the PROBE delivered it.
+	var probe_rock: bool = legs.has("rock_fill")
 	var rock_fill: PackedFloat32Array = legs.get("rock_fill", _f._rock_fill)
 	var water: PackedFloat32Array = _f._water
 	var snow: PackedFloat32Array = _f._snow
-	var has_rock: bool = rock_fill.size() == cc
+	var has_rock: bool = probe_rock and rock_fill.size() == cc
 	var has_water: bool = water.size() == cc
 	var has_snow: bool = snow.size() == cc
 
