@@ -18,6 +18,15 @@
 // WINDSPEED is sqrt(vel²); LIGHT is max(0, dot(radial, sun_dir)) — the SAME per-cell insolation
 // heat3d_solar_sphere3d uses, so one sun drives both the temperature field and the chemistry; SOIL_ROOT is the
 // water of the regolith column beneath an open cell, which is where roots actually reach.
+//
+// A RECORD NOW ALSO CARRIES THE ENERGY ITS TRANSFER COSTS (2026-08-07). `enthalpy_j_m3` is the reaction's
+// ΔH per cubic metre of substance moved, positive = endothermic = the cell cools, and the loop below charges
+// it against the cell's own volumetric heat capacity after the products are credited. THIS IS THE ONLY WAY
+// THIS KERNEL WRITES `temp`: TEMP remains a driver, never a reactant or a product, and LAReactionBalance still
+// refuses any record that tries to consume or produce degrees. It is a separate field precisely because the
+// temperature change depends on what the receiving cell is made of, which is not a stoichiometric coefficient.
+// It replaces heat3d_cool_sphere3d.glsl (deleted), which charged the latent heat of vaporisation at a rate
+// belonging to a kernel that no longer existed while R23 moved the mass at a different one.
 
 layout(local_size_x = 64) in;
 
@@ -120,6 +129,42 @@ float sat_mass_frac(float t_c) {
 	float e_sat = MAGNUS_A_PA * exp(MAGNUS_B * t / (t + MAGNUS_C_C));
 	return (e_sat / (VAPOUR_R * max(t + KELVIN_0, 1.0))) / RHO_WATER;
 }
+
+// d(sat)/dT, analytically. Differentiating ln(sat) = ln A + B*T/(T+C) - ln(R*(T+K0)) - ln rho gives
+// sat * (B*C/(T+C)^2 - 1/(T+K0)) — the "7% more water vapour per degree" slope, exactly. It is what tells the
+// engine how fast an evaporating cell destroys its own driving force by cooling; see the self-arrest below.
+float sat_slope(float t_c) {
+	float t = max(t_c, -80.0);
+	float tc = t + MAGNUS_C_C;
+	return sat_mass_frac(t) * (MAGNUS_B * MAGNUS_C_C / (tc * tc) - 1.0 / max(t + KELVIN_0, 1.0));
+}
+
+// --- WHAT A CELL IS MADE OF, THERMALLY ----------------------------------------------------------------------
+// A reaction's ENTHALPY is an energy per cubic metre of substance moved; turning it into a temperature change
+// needs the cell's own VOLUMETRIC HEAT CAPACITY. Measured properties of matter — GLSL cannot read GDScript, so
+// these are copies and scripts/check_physical_constants.sh holds them equal to the authority.
+const float RC_ROCK  = 2.436e6;      // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
+const float RC_AIR   = 1186.0;       // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
+const float RC_WATER = 4.171e6;      // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
+const float RC_SNOW  = 6.27e5;       // LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K
+
+// The mix is by VOLUME FRACTION — water, snow, rock_fill and lava are all fractions of the cell and air fills
+// what is left. Same text as heat_sphere3d.glsl's rc_of / heat3d_solar_sphere3d.glsl's rc_of_cell, with ONE
+// deliberate difference: MOLTEN ROCK COUNTS AS ROCK. Basalt's specific heat barely moves across its melting
+// range, so a cell holding lava carries rock's rho*c, not air's — without that a crystallising lava cell would
+// be treated as 2000x lighter than it is and M5 would drive its temperature nonsense. (This came from
+// heat3d_cool_sphere3d.glsl, which had it right and is now deleted. The three shared heat kernels named above
+// still omit lava from their mix; that is a finding about them, reported, not fixed here.)
+float rc_of(uint i) {
+	if (solid[i] != 0.0) {
+		return RC_ROCK;
+	}
+	float f_rock = clamp(rock_fill[i] + lava[i], 0.0, 1.0);
+	float f_water = clamp(water[i], 0.0, 1.0);
+	float f_snow = clamp(snow[i], 0.0, 1.0);
+	float f_air = max(0.0, 1.0 - f_rock - f_water - f_snow);
+	return RC_AIR * f_air + RC_ROCK * f_rock + RC_WATER * f_water + RC_SNOW * f_snow;
+}
 #define OVERBURDEN 22  // DERIVED driver: LITHOSTATIC pressure (Pa) of the SOLID column above. See overburden().
 #define BEDROCK_BELOW 23 // DERIVED, WRITABLE: the bedrock of the SOLID cell directly beneath this open one —
                        // the rock a surface process actually attacks. Unique per thread; see bedrock_below().
@@ -182,7 +227,11 @@ struct Reaction {
 	int   n_react;
 	int   n_prod;
 	float param2;      // second rate-model scalar (OPTIMUM_BAND: the half-width of the band around `threshold`)
-	int   pad1;
+	// THE ENERGY THIS REACTION COSTS, in J per cubic metre of substance moved (rho x H, volumetric — so the
+	// cell size cancels against the volumetric heat capacity below and no length scale is needed). SIGN IS THE
+	// CHEMICAL ONE: POSITIVE = ENDOTHERMIC = the reaction absorbs heat = THE CELL COOLS. Authored per record in
+	// LAReactionDefs, which states the convention once. 0 = the reaction exchanges no heat.
+	float enthalpy_j_m3;
 	int   react_slot[4];
 	float react_coeff[4];
 	int   prod_slot[4];
@@ -536,6 +585,49 @@ void main() {
 		if (rc.cap_slot >= 0) {
 			x = min(x, read_ch(rc.cap_slot, i) / max(rc.cap_coeff, 1e-6));
 		}
+
+		// --- THE SELF-ARREST: A PHASE CHANGE STOPS AT ITS OWN PHASE BOUNDARY ---------------------------------
+		// This is physics, not a clamp, and it is what makes the latent-heat plateau real. A reaction that
+		// releases or absorbs heat MOVES THE VERY DRIVER THAT DRIVES IT: freezing warms the cell toward 0 C,
+		// where freezing stops; evaporating cools the cell and humidifies its air, both of which shrink the
+		// saturation deficit, which is the wet-bulb temperature emerging rather than being written down.
+		//
+		// In continuous time the driver decays exponentially to zero and never crosses it. ONE EXPLICIT STEP
+		// CAN, and by a lot: freezing a whole cell of water releases L_f/c_water = 79.8 K, so a -20 C cell with
+		// water would land at +60 C in a single step, and crystallising a cell of basalt releases 476 K. Melt
+		// then fires on the overshoot, refreezes on the next, and the pair ratchets.
+		//
+		// The bound is ONE NEWTON STEP toward the driver's own zero: x <= force / (-d(force)/dx). Because the
+		// driving force is CONVEX in x for every case here (linear in T for the threshold models, and sat(T) is
+		// convex), the tangent's root always UNDERSHOOTS the true root — so this can never step past zero, and
+		// it is exact for the linear cases. Two drivers depend on this reaction's own heat:
+		//   TEMP            d(force)/dx = +/- dT/dx           -> x <= |T - threshold| * rc / |enthalpy|
+		//   VAPOUR_DEFICIT  d(force)/dx = sat'(T)*dT/dx - 1   -> the wet-bulb limit (the -1 is the vapour the
+		//                                                        reaction itself adds to the same cell's air)
+		// Anything else is unaffected by the cell's temperature, so there is nothing to arrest.
+		float rc_cell = 0.0;
+		if (rc.enthalpy_j_m3 != 0.0) {
+			rc_cell = max(rc_of(i), 1.0);
+			float dt_dx = -rc.enthalpy_j_m3 / rc_cell;      // K per unit extent; negative = the cell cools
+			float ddrive_dx = 0.0;
+			bool coupled = true;
+			if (rc.driver_slot == TEMP) {
+				ddrive_dx = (rc.rate_model == DEFICIT_BELOW_THRESHOLD) ? -dt_dx : dt_dx;
+			} else if (rc.driver_slot == VAPOUR_DEFICIT) {
+				ddrive_dx = sat_slope(temp[i]) * dt_dx - 1.0;
+			} else {
+				coupled = false;
+			}
+			// ddrive_dx >= 0 means the heat drives the reaction HARDER (a runaway, e.g. a self-heating
+			// combustion). That is a real shape and it has no arrest point, so it is deliberately left alone —
+			// the record's own reactant cap is then the only bound, as it is for every non-thermal reaction.
+			if (coupled && ddrive_dx < 0.0) {
+				float force = (rc.rate_model == DEFICIT_BELOW_THRESHOLD)
+					? (rc.threshold - drv) : (drv - rc.threshold);
+				x = min(x, max(0.0, force) / (-ddrive_dx));
+			}
+		}
+
 		if (x <= 0.0) {
 			continue;
 		}
@@ -549,6 +641,16 @@ void main() {
 			} else {
 				add_ch(rc.prod_slot[k], i, rc.prod_coeff[k] * x);
 			}
+		}
+
+		// THE HEAT THE TRANSFER COST OR RELEASED. `x` is in cell-fill units and `enthalpy_j_m3` is per cubic
+		// metre of substance, so x * enthalpy is J per cubic metre of CELL, and rc_of is J/m^3/K of cell: the
+		// cell size cancels on both sides and the quotient is a temperature. (Same algebra heat3d_cool_sphere3d
+		// wrote out per unit AREA — a fraction f of a cell is f*cell_size metres of water against an areal
+		// capacity of rc*cell_size — with the cell_size divided out of both.) `rc_cell` is the capacity BEFORE
+		// the debits above, which is the state the enthalpy was drawn against.
+		if (rc.enthalpy_j_m3 != 0.0) {
+			temp[i] -= x * rc.enthalpy_j_m3 / rc_cell;
 		}
 	}
 }

@@ -27,8 +27,10 @@ extends RefCounted
 ##                            moved to ReactionsPass; this kernel is now the cross-cell growth/spread/death half)
 ##   fungus_fert_sphere3d     0 FertCell=fungus_fert · 1 Fert=fert[back] (add in place on scent_fert output) ·
 ##                            2 Solid=solid · 15 Neigh=nbr
-##   snowice_sphere3d         0 Snow=<snow> · 1 Temp=temp[back] · 2 Moisture=moisture[back] (-=frozen condensate) ·
-##                            3 Solid=solid · 15 Neigh=nbr   (deposition-only: freezes CONDENSED moisture → snow on
+##   snowice_sphere3d         0 Snow=<snow> · 1 Temp=temp[back] (READ/WRITE — the deposition enthalpy warms it) ·
+##                            2 Moisture=moisture[back] (-=frozen condensate) · 3 Solid=solid ·
+##                            4 Water=water[back] · 5 RockFill=rock_fill (both heat-capacity mix only) ·
+##                            15 Neigh=nbr   (deposition-only: freezes CONDENSED moisture → snow on
 ##                            cold ground, mass-conserving; freeze-liquid + melt are now records R21/R22)
 ##   shock_sphere3d           0 ShockIn=shock[live] · 1 ShockOut=shock[back] · 2 Solid=solid · 15 Neigh=nbr
 ##
@@ -123,6 +125,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var surf_vz_rid: RID = _single(bufs, "surf_vz")
 	var detritus_rid: RID = _single(bufs, "detritus")
 	var fungus_fert_rid: RID = _single(bufs, "fungus_fert")  # per-cell fertility scratch (written by ReactionsPass' decompose record, reduced by fungus_fert)
+	var rock_fill_rid: RID = _single(bufs, "rock_fill")      # snowice heat-capacity mix only
 
 	# --- PAIR channels: [live, back] indexed by parity -----------------------------
 	var scent_pair: Array = _pair(bufs, "scent")      # 5*cc packed
@@ -132,6 +135,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# The ONE unified atmospheric-water channel (Phase 2a). Fungus reads it as local moisture (the suspended
 	# total is the behavioural proxy, perf-over-parity); snow deposition freezes its condensed part out to snow.
 	var moisture_pair: Array = _pair(bufs, "moisture")
+	var water_pair: Array = _pair(bufs, "water")      # snowice heat-capacity mix only
 	var fire_pair: Array = _pair(bufs, "fire")
 	var shock_pair: Array = _pair(bufs, "shock")
 
@@ -183,11 +187,16 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# Snow DEPOSITION (snowfall): freeze the CONDENSED moisture on cold ground → snow, mass-conserving. Reads
 		# the SETTLED temp + moisture (BACK halves — Thermal/Atmosphere wrote them this step) and debits moisture
 		# in that same BACK half so the loss carries forward as next frame's live (no later pass writes moisture).
+		# temp[back] is now READ/WRITE: deposition releases the enthalpy of sublimation and the cell warms by it
+		# (LAPhaseRecords R25 charges the reverse). This pass is last in the step, so that write is the final
+		# word on temp before the parity flip — nothing downstream reads a stale copy.
 		_snowice_set[p] = _build_set(_snowice_shader, [
 			[0, _snow_rid(bufs, p)], # Snow depth (SINGLE, in place)
-			[1, temp_pair[back]],    # Temp (settled, read)
+			[1, temp_pair[back]],    # Temp (settled; warmed in place by the deposition enthalpy)
 			[2, moisture_pair[back]],# Moisture (settled, debited in place — the frozen-out condensate)
 			[3, solid_rid],          # Solid
+			[4, water_pair[back]],   # Water — heat-capacity mix only
+			[5, rock_fill_rid],      # RockFill — heat-capacity mix only
 			[15, nbr_rid],
 		])
 

@@ -92,6 +92,36 @@ const SURFACE_WIND_M_S: float = 7.0              # global mean 10 m wind over oc
 const SOIL_SURFACE_RESISTANCE_S_M: float = 1000.0
 const SATURATED_SURFACE_LAYER: float = 0.36      # a saturated surface shell = its porosity at zero burial
 
+# --- THE ENERGY EVERY ONE OF THESE TRANSITIONS COSTS --------------------------------------------------------
+# Until 2026-08-07 not one of the records below paid anything. Water froze, melted, sublimated and deposited
+# for free; basalt crystallised for free and rock melted for free. The ONE charge anywhere in the substrate was
+# heat3d_cool_sphere3d.glsl, which debited the latent heat of vaporisation at its own BOIL_RATE = 0.02 with the
+# comment that it "MUST match atmos_evap_sphere3d.glsl" — a kernel commit 40c69f1 had already deleted. So the
+# kernel charged heat for a transfer nothing performed while R23 performed a transfer nothing charged for. That
+# kernel is deleted with this change and the charge lives on the record that does the work.
+#
+# VOLUMETRIC (rho x H, J/m³ of substance moved) because the extent is in cell-fill units and the kernel divides
+# by the cell's volumetric heat capacity, so the cell size cancels. SIGN IS THE CHEMICAL ONE: POSITIVE =
+# ENDOTHERMIC = the cell COOLS (see LAReactionDefs.rec). Each pair below is equal and opposite, which is not a
+# nicety — an unmatched leg is a temperature ratchet, and the reason the planet must not be allowed one is that
+# the water cycle runs it thousands of times per cell over a run.
+#
+# ALL THREE ARE QUOTED AT 0 °C, AND THAT IS NOT A STYLE CHOICE. *(Corrected 2026-08-08.)* This block first
+# shipped pairing `LATENT_HEAT_VAPORISATION_J_KG` — stated at 100 °C — with fusion and sublimation at 0 °C.
+# The three are not independent: a closed cycle water → vapour → snow → water nets to zero only if
+# L_sub = L_vap + L_fus AT ONE TEMPERATURE, and mixing the two reference points left that loop RELEASING
+# 2.433e5 J/kg per traverse from nothing, with its mirror absorbing the same. Every leg fires constantly, so
+# it was a temperature ratchet turning thousands of times per cell per run. Sublimation is DERIVED as the sum
+# now, so the closure is structural rather than a coincidence one edit could break.
+const ENTHALPY_VAPORISATION_J_M3: float = \
+	LAPhysical.WATER_DENSITY_KG_M3 * LAPhysical.LATENT_HEAT_VAPORISATION_0C_J_KG   # 2.494e9
+const ENTHALPY_FUSION_J_M3: float = \
+	LAPhysical.WATER_DENSITY_KG_M3 * LAPhysical.LATENT_HEAT_FUSION_J_KG            # 3.327e8
+const ENTHALPY_SUBLIMATION_J_M3: float = \
+	LAPhysical.WATER_DENSITY_KG_M3 * LAPhysical.LATENT_HEAT_SUBLIMATION_J_KG       # 2.826e9
+const ENTHALPY_CRYSTALLISATION_J_M3: float = \
+	LAPhysical.ROCK_DENSITY_KG_M3 * LAPhysical.BASALT_LATENT_HEAT_CRYSTALLISATION_J_KG   # 1.160e9
+
 
 ## Per-step evaporation extent per unit of vapour deficit — see the block above. Derived from the substrate's
 ## own clock and cell size, so it tracks a changed day length or grid resolution instead of going stale.
@@ -112,8 +142,11 @@ static func records() -> Array:
 		# deficit itself, so a cell's own air is brought TO saturation and never past it — the bound is the
 		# saturation curve, not a ceiling anybody chose. One record covers the sea, a lake, a river and a
 		# puddle; it covers BOILING too, because e_sat reaches one atmosphere at 100 °C and the deficit with it.
+		# AND IT PAYS FOR ITSELF: +vaporisation, so the cell it leaves COOLS. That is evaporative cooling, and
+		# against water's specific heat the ratio is L/c = 539 K — the dominant surface heat sink on any wet
+		# planet, and one this substrate charged nowhere except inside a boiling-only kernel that is now deleted.
 		rec(EXCESS_OVER_THRESHOLD, evap_k, VAPOUR_DEFICIT, [[WATER, 1.0]], [[MOISTURE, 1.0, TGT_SELF]],
-			GATE_AIR_ABOVE, 0.0),
+			GATE_AIR_ABOVE, 0.0, -1, 0.0, -1, 0.0, ENTHALPY_VAPORISATION_J_M3),
 
 		# R24 — BARE-SOIL EVAPORATION (soil water → atmospheric moisture). THE SAME RULE, read through the
 		# ground: wet soil in unsaturated air evaporates for exactly the reason the sea does. This is the leg
@@ -123,8 +156,10 @@ static func records() -> Array:
 		# soil-resistance limit and a drying one tapers with what it still holds — no threshold anywhere. The
 		# reservoir is SOIL_TOP, the shallow drying front, not the whole rooting column: roots lift water from
 		# metres down, evaporation only pulls what is within diffusion reach of the surface.
+		# Same +vaporisation as R23 — water does not care which reservoir it left — and the cell it cools is the
+		# ground-hugging one, which is where temp_ground_* is measured and where a creature stands.
 		rec(BILINEAR, soil_k, VAPOUR_DEFICIT, [[SOIL_TOP, 1.0]], [[MOISTURE, 1.0, TGT_SELF]],
-			GATE_NEAR_GROUND | GATE_AIR_ABOVE, 0.0, SOIL_TOP),
+			GATE_NEAR_GROUND | GATE_AIR_ABOVE, 0.0, SOIL_TOP, 0.0, -1, 0.0, ENTHALPY_VAPORISATION_J_M3),
 
 		# R25 — SUBLIMATION (snow → atmospheric moisture). The same rule a third time, over ice. It REPLACES
 		# snowice_sphere3d.glsl's SUBLIMATE_FRAC = 0.004, a flat per-step fraction added to stop the snowpack
@@ -135,8 +170,10 @@ static func records() -> Array:
 		# (The Magnus curve is over LIQUID water; over ice e_sat is lower — 1.5% at -5 °C, 10% at -20 °C — so
 		# this slightly overstates sublimation in the coldest cells. That very difference drives the Bergeron
 		# process, and it earns its own curve the day mixed-phase cloud microphysics matters here.)
+		# +sublimation, the FULL 2.834e6 J/kg: ice to vapour skips the liquid, so it costs the heat of fusion on
+		# top of vaporisation. Its reverse is the snowice deposition kernel, which credits the same number.
 		rec(EXCESS_OVER_THRESHOLD, evap_k, VAPOUR_DEFICIT, [[SNOW, 1.0]], [[MOISTURE, 1.0, TGT_SELF]],
-			GATE_AIR_ABOVE, 0.0),
+			GATE_AIR_ABOVE, 0.0, -1, 0.0, -1, 0.0, ENTHALPY_SUBLIMATION_J_M3),
 
 		# R21 — FREEZE (liquid → snow): standing/melt WATER at a cell colder than FREEZE_TEMP crystallizes to
 		# SNOW. DEFICIT_BELOW_THRESHOLD: x = max(0, FREEZE_TEMP - temp) * FREEZE_RATE, capped by the WATER present
@@ -144,26 +181,38 @@ static func records() -> Array:
 		# atmospheric water at cold ground, which needs sat(T)) is the snowice deposition kernel; this record is
 		# the liquid leg — it refreezes meltwater/puddles/rivers so the H₂O phase tracks temperature everywhere,
 		# not only in the air. It is also the exemplar of the new below-threshold rate model.
-		rec(DEFICIT_BELOW_THRESHOLD, FREEZE_RATE, TEMP, [[WATER, 1.0]], [[SNOW, 1.0, TGT_SELF]], 0, FREEZE_TEMP),
+		# NEGATIVE enthalpy: freezing RELEASES the heat of fusion and the cell warms. This is why a lake sits near
+		# 0 °C for weeks while it freezes instead of dropping straight through, and the kernel's self-arrest is what
+		# makes that plateau real — the release can carry the cell TO the phase boundary and not one degree past.
+		rec(DEFICIT_BELOW_THRESHOLD, FREEZE_RATE, TEMP, [[WATER, 1.0]], [[SNOW, 1.0, TGT_SELF]], 0, FREEZE_TEMP,
+			-1, 0.0, -1, 0.0, -ENTHALPY_FUSION_J_M3),
 
 		# R22 — MELT (snow → water): SNOW at a cell warmer than MELT_TEMP thaws to liquid WATER (meltwater the
 		# water CA then routes downhill on the next step). EXCESS_OVER_THRESHOLD: x = max(0, temp - MELT_TEMP) *
 		# MELT_RATE, capped by the SNOW present → conserving transfer (snow -= x; water += x). REPLACES the melt
 		# branch of snowice_sphere3d.glsl (which is now deposition-only).
-		rec(EXCESS_OVER_THRESHOLD, MELT_RATE, TEMP, [[SNOW, 1.0]], [[WATER, 1.0, TGT_SELF]], 0, MELT_TEMP),
+		# +fusion, exactly the negative of R21's: melting ABSORBS the same heat freezing released. Equal and
+		# opposite is not a nicety — an unmatched pair on a boundary a cell crosses twice a day is a temperature
+		# ratchet, and it would run thousands of times per cell over one run.
+		rec(EXCESS_OVER_THRESHOLD, MELT_RATE, TEMP, [[SNOW, 1.0]], [[WATER, 1.0, TGT_SELF]], 0, MELT_TEMP,
+			-1, 0.0, -1, 0.0, ENTHALPY_FUSION_J_M3),
 
 		# M5 — LAVA SOLIDIFY (molten → bedrock): lava colder than SOLIDIFY_TEMP freezes to rock. Runs in the open
 		# cells lava occupies. DEFICIT_BELOW_THRESHOLD on the post-thermal TEMP: x = max(0, SOLIDIFY_TEMP - temp) *
 		# SOLIDIFY_RATE, capped by the LAVA present → a conserving lava→rock_fill transfer. DISSOLVES the direct
 		# `solid=1; lava=0` write formerly in lava_phase_sphere3d.glsl (which lost the lava mass); the accreted
 		# rock_fill crossing 0.5 is what turns the cell to derived bedrock (and, in Stage C, stamps the SDF).
+		# NEGATIVE: crystallisation releases 4.0e5 J/kg, which against basalt's specific heat is 476 K — about the
+		# whole sensible heat of a flow between its liquidus and the ground. It is why a lava flow crusts over and
+		# holds its interior molten instead of cooling smoothly, and the substrate was getting it for free.
 		rec(DEFICIT_BELOW_THRESHOLD, SOLIDIFY_RATE, TEMP, [[LAVA, 1.0]], [[ROCK_FILL, 1.0, TGT_SELF]],
-			0, SOLIDIFY_TEMP),
+			0, SOLIDIFY_TEMP, -1, 0.0, -1, 0.0, -ENTHALPY_CRYSTALLISATION_J_M3),
 
 		# M6 — ROCK MELT (bedrock → molten): open-cell rock hotter than ROCK_MELT_TEMP melts to lava.
 		# EXCESS_OVER_THRESHOLD on TEMP: x = max(0, temp - ROCK_MELT_TEMP) * ROCK_MELT_RATE, capped by ROCK_FILL →
 		# conserving rock_fill→lava transfer. Only fires in OPEN cells (engine skips solid), so it melts partial
 		# boundary rock; deep full-bedrock melt is driven by add_lava / the Stage-C bore (see the const note).
+		# +crystallisation: melting rock absorbs back exactly what M5 released. Same pairing argument as R21/R22.
 		rec(EXCESS_OVER_THRESHOLD, ROCK_MELT_RATE, TEMP, [[ROCK_FILL, 1.0]], [[LAVA, 1.0, TGT_SELF]],
-			0, ROCK_MELT_TEMP),
+			0, ROCK_MELT_TEMP, -1, 0.0, -1, 0.0, ENTHALPY_CRYSTALLISATION_J_M3),
 	]

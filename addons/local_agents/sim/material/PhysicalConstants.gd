@@ -553,12 +553,29 @@ const BIOMASS_CARBON_FRACTION: float = 0.47
 # dropping straight through, and why a snowpack survives the first warm afternoon.
 const LATENT_HEAT_FUSION_J_KG: float = 3.337e5
 
-# SUBLIMATION, ice directly to vapour at 0 °C. By Hess's law it is the sum of the other two AT THAT
-# TEMPERATURE — 2.501e6 (vaporisation at 0 °C) + 3.337e5 — which is why it is stated rather than derived
-# from the 2.257e6 above: that figure is quoted at 100 °C, and adding a 100 °C vaporisation to a 0 °C fusion
-# would be adding two numbers that describe different temperatures. A sublimating snowpack pays the full
-# 2.834e6, which is why alpine sublimation is a large share of ablation.
-const LATENT_HEAT_SUBLIMATION_J_KG: float = 2.834e6
+# VAPORISATION AT 0 °C, and it is a DIFFERENT NUMBER from the 2.257e6 above, which is quoted at 100 °C.
+# The latent heat of vaporisation falls with temperature — the standard linear fit is
+# L_v(T) = 2.501e6 − 2361·T_C, which reproduces the boiling-point figure to 0.35% — so a substrate that
+# evaporates water at ambient temperature and boils it at 100 °C is using two points on one curve.
+#
+# THIS CONSTANT EXISTS BECAUSE ITS ABSENCE BROKE HESS'S LAW, in code, live. *(Added 2026-08-08.)* The three
+# enthalpies here are not independent: a closed cycle water → vapour → snow → water must net to zero, which
+# requires L_sub = L_vap + L_fus AT ONE TEMPERATURE. Pairing the 100 °C vaporisation with the 0 °C fusion and
+# sublimation leaves 2.257e6 + 3.337e5 = 2.591e6 against 2.834e6 — short by 2.433e5 J/kg, so every traverse
+# of that loop RELEASED that much energy from nothing, and its mirror absorbed it. The comment that used to
+# sit below named this exact trap ("adding a 100 °C vaporisation to a 0 °C fusion would be adding two numbers
+# that describe different temperatures") and the reaction records fell into it anyway, because the constant
+# they needed in order not to was the one that did not exist.
+const LATENT_HEAT_VAPORISATION_0C_J_KG: float = 2.501e6
+
+# SUBLIMATION, ice directly to vapour at 0 °C — DERIVED, so the cycle cannot fail to close. By Hess's law it
+# is the sum of the other two at that temperature, and stating it as the sum rather than as a literal is what
+# makes the closure structural instead of a coincidence two independent edits could break.
+#
+# THE DERIVED VALUE IS ITS OWN CHECK: 2.501e6 + 3.337e5 = 2.8347e6 against a measured 2.834e6, agreeing to
+# 0.02% — well inside the uncertainty on the inputs. If that agreement ever stops holding, one of the two
+# inputs is wrong, which is exactly what you want a derived constant to tell you.
+const LATENT_HEAT_SUBLIMATION_J_KG: float = LATENT_HEAT_VAPORISATION_0C_J_KG + LATENT_HEAT_FUSION_J_KG
 
 # --- BASALT: THE ENTHALPY OF CRYSTALLISATION ----------------------------------------------------------------
 # Released when basaltic melt crystallises through its solidus, absorbed again when rock melts. Measured at
