@@ -13,8 +13,16 @@
 // surface wind (surf_vx/surf_vz) onto each lateral direction; the sphere neighbour table carries only indices,
 // not per-slot world directions, so the directional bias cannot be mechanically preserved. This pass keeps the
 // SYMMETRIC diffusion share only (DIFFUSE per open lateral neighbour) — i.e. the box kernel with wind = 0 —
-// plus the per-channel DECAY and the rain-wash (precip * RAIN_WASH), all copied EXACTLY from MaterialScent3D.gd.
+// plus the per-channel DECAY and the rain-wash (precip * RAIN_WASH).
 // Reads only the OLD scent snapshot (scent_in), writes scent_out → order-independent.
+//
+// THIS FILE IS THE ONLY DECLARATION OF THE FOUR RATES BELOW. *(Corrected 2026-08-09. The line above used to end
+// "all copied EXACTLY from MaterialScent3D.gd", the const block said "MUST match MaterialScent3D.gd exactly",
+// and the DECAY line named "MaterialScent3D.DECAY". All three are false in the same way, and it is a subtler
+// failure than a deleted file: LAMaterialScent3D EXISTS, so the pointer looks checkable, but it holds
+// SCENT_ACTIVE and SEED_NEIGHBOUR_FRACTION and nothing else — no DIFFUSE, no RAIN_WASH, no DECAY. A grep for
+// those three names returns this file alone. scent_fert_sphere3d.glsl:14 recorded exactly this correction for
+// its own three rates on 2026-08-08 and this sibling was missed.)*
 
 layout(local_size_x = 64) in;
 
@@ -29,11 +37,17 @@ layout(push_constant, std430) uniform Params {
 	float precip;
 } params;
 
-// Tunables — MUST match MaterialScent3D.gd exactly. (ADVECT/wind dropped on the sphere; see header.)
+// MODEL PARAMETERS, owned here (see the header for what used to be claimed). Per-step shares of a scent
+// channel, chosen so a trail is followable for a plausible number of steps; none is a measured property of an
+// odourant, and the per-channel spread is a design statement about how long each cue should last (blood fades
+// fastest, food slowest), not a measurement of volatility. (ADVECT/wind dropped on the sphere; see header.)
 const float DIFFUSE = 0.08;
 const float RAIN_WASH = 0.30;            // extra decay * precipitation()
 const int CHANNELS = 5;
-// Per-channel decay per step (PREY, PREDATOR, BLOOD, FOOD, ALARM) — MaterialScent3D.DECAY.
+// Per-channel decay per step, in channel order PREY, PREDATOR, BLOOD, FOOD, ALARM. That ORDER is a live
+// contract with a file that exists: LAScentChannels (addons/local_agents/creatures/ScentChannels.gd:12-16)
+// declares those five indices 0..4 and SCENT_CHANNELS = 5, and LAMaterialField3D:114 sources its own from
+// there. The five VALUES are this kernel's own.
 const float DECAY[5] = float[5](0.030, 0.030, 0.100, 0.015, 0.045);
 
 void main() {

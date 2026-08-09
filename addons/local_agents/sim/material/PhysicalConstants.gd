@@ -237,6 +237,28 @@ const COMPACTION_LENGTH_M: float = 2500.0
 const GRAIN_D_UPLAND_M: float = 6.0e-5      # 0.06 mm — very fine sand / coarse silt (residual saprolite)
 const GRAIN_D_LOWLAND_M: float = 4.0e-3     # 4 mm — fine gravel (valley-fill alluvium)
 
+# --- GRANULAR MECHANICS: THE ANGLE OF REPOSE ------------------------------------------------------------------
+# Added 2026-08-09. The steepest slope a pile of DRY, COHESIONLESS grains stands at before it avalanches. It is a
+# measured property of the material — grain friction, angularity and interlock decide it, not how the pile was
+# built — and it is why every dune, scree cone, spoil heap and hourglass pile of one material has the same face
+# angle. Measured: dry sand 30-35 deg, angular gravel and crushed rock 35-40, smooth glass beads ~24, wet or
+# cohesive material higher and not this number at all (Beakawi Al-Hashemi & Baghabra Al-Amoudi 2018, "A review of
+# the angle of repose of granular materials", Powder Technology 330:397; Carrigy 1970 on natural sands). 35 deg is
+# the standard value for the dry sand-and-gravel mixture this substrate's `sediment` channel represents, and it
+# sits in the overlap of both ranges.
+#
+# THE TANGENT IS WHAT IS DECLARED, because a slope threshold on a grid is a RISE OVER A RUN and that is the form
+# the property enters in. tan(35 deg) = 0.7002; atan(0.70) = 34.99 deg. Two decimals, deliberately: the underlying
+# measurement is a 30-37 deg band, and +-3 deg is +-0.07 in tangent, so a third decimal would assert a precision
+# the material does not have.
+#
+# WHAT IT REPLACED: nothing at all. `slump_sphere3d.glsl:38` carried `REPOSE_TAN = 0.70` as a bare literal whose
+# only stated authority was "MUST match MaterialSlump3D.gd", a file deleted with the CPU oracle — so a value
+# HANDOFF.md lists as settled had no checkable source. Sourcing it does not make the substrate's use of it
+# correct: the kernel compares a mass difference against this tangent, which is only a slope if a cell is as wide
+# as it is tall, and on the shipped cubed-sphere grid it is not. See the note at that line.
+const REPOSE_TAN_DRY_GRANULAR: float = 0.70
+
 
 ## Saturation vapour density as a FRACTION OF A CELL FULL OF LIQUID WATER — the substrate's own unit.
 ## This is the phase rule's whole content: it is how much water air at `t_c` can hold, and nothing else may

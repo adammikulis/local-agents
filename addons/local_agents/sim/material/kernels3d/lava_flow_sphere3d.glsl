@@ -10,7 +10,13 @@
 // sink (unlike water). The ONLY change vs the box kernel is neighbour addressing: instead of idx±offset +
 // `if(iy>0)` bounds tests, every cell gathers its 6 neighbours from the precomputed INDEX TABLE
 // `nbr[idx*6 + d]` (slot 0 = inward/radial-DOWN = gravity, 1-4 = LATERAL, 5 = outward/radial-UP;
-// -1 = boundary → skipped). Constants copied EXACTLY from MaterialLava3D.gd / MaterialField3D.gd.
+// -1 = boundary → skipped).
+//
+// WHERE THE CONSTANTS BELOW COME FROM. *(Corrected 2026-08-09. This line used to end "Constants copied EXACTLY
+// from MaterialLava3D.gd / MaterialField3D.gd" and the const block said "MUST match MaterialLava3D.gd /
+// MaterialField3D.gd exactly". MaterialLava3D.gd was deleted with the CPU oracle and is nowhere in this tree,
+// so every LAVA_* constant's stated authority was a file nobody could open. lava_phase_sphere3d.glsl:120 already
+// records the same correction for its own copy of that pointer.)*
 //
 // SEND slot = idx*6 + dir. Direct map box dir d → table slot d:
 //   dir 0 = DOWN (radially inward) = nbr slot 0; dir 1-4 = LATERAL = nbr slots 1-4; dir 5 = UP (radially
@@ -32,13 +38,32 @@ layout(push_constant, std430) uniform Params {
 	uint pad1;
 } params;
 
-// Constants — MUST match MaterialLava3D.gd / MaterialField3D.gd exactly.
+// --- THE SUBSTRATE'S CELL-FILL UNITS — authority LAMaterialField3D (MaterialField3D.gd:26-27). That file
+// exists, so this half of the old contract was real and is kept.
 const float MAX_MASS = 1.0;
 const float MAX_COMPRESS = 0.02;
+
+// --- MODEL PARAMETERS of this kernel's integrator. NO physical constant is among them and none is claimed.
+// LAVA_MAX_FLOW is a per-step transfer cap, LAVA_LATERAL_FRACTION a level-out share, LAVA_MIN_FLOW a dribble
+// cutoff. This file is the only declaration of all three.
+//
+// WHAT LAVA_MAX_FLOW IS STANDING IN FOR, said once so nobody mistakes it for a measurement: the header calls it
+// "a SMALLER cap so lava creeps", and what makes real lava creep is VISCOSITY — basaltic melt is 10-1000 Pa s
+// against water's 1.0e-3, six orders of magnitude, and it varies by orders more with temperature and crystal
+// content as a flow cools. 0.25 is not a viscosity and does not vary with temperature; it is a fixed fraction of
+// a cell per step, so in this substrate a 1200 C fluid melt and a nearly-solid 850 C toe creep at the same rate.
+// The honest form is a temperature-dependent rate derived from a measured viscosity, which is a physics change,
+// not a comment.
 const float LAVA_MAX_FLOW = 0.25;
-const float LAVA_MIN_MASS = 0.0001;
 const float LAVA_MIN_FLOW = 0.01;
 const float LAVA_LATERAL_FRACTION = 0.25;
+// PRESENCE FLOOR — "this cell holds melt at all". It is declared FOUR times at this one value and the copies
+// are load-bearing, so name them rather than let a fifth drift in: lava_phase_sphere3d.glsl:123 (the phase
+// kernel's own early-out), cell_list_lava_sphere3d.glsl:63 (the cell-list predicate that stands in for it, with
+// a stated MUST-match contract that IS live because both files exist), and LAMaterialFieldQueries3D.MOLTEN_MIN
+// (the gauge, so the report and the physics agree on what "molten" means). A property of the measurement's
+// resolution, not of basalt.
+const float LAVA_MIN_MASS = 0.0001;
 // MOLTEN_FLOOR = 950.0 used to live here. It is gone: nothing in this kernel prescribes a temperature any
 // more, so there is no floor to declare. Heat arrives by mixing with the mass that carries it.
 

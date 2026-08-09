@@ -13,8 +13,14 @@
 // only indices, not per-slot world directions, and on a cubed sphere the lateral neighbours point in varying
 // world directions — so the directional bias cannot be mechanically preserved. This pass keeps the SYMMETRIC
 // diffusion share only (DIFFUSE per open neighbour), i.e. exactly the box kernel with wind = 0: still
-// mass-conserving and pairwise-symmetric. DIFFUSE is copied EXACTLY from MaterialGas3D.gd. Reads only the OLD
-// o2 snapshot (o2_in) + solid, writes o2_out[g] → order-independent.
+// mass-conserving and pairwise-symmetric. Reads only the OLD o2 snapshot (o2_in) + solid, writes o2_out[g] →
+// order-independent.
+//
+// *(Corrected 2026-08-09. This used to read "DIFFUSE is copied EXACTLY from MaterialGas3D.gd", and the const
+// block said "MUST match MaterialGas3D.gd exactly". MaterialGas3D.gd was deleted with the CPU oracle and is
+// nowhere in this tree, so the sole stated authority for this kernel's one constant could not be opened. This
+// file owns DIFFUSE now; co2_transport_sphere3d.glsl declares its own at the same value, which is a
+// coincidence of two gases being given one mixing rate, not a contract — see the note there.)*
 //
 // CONSERVATION (2026-08-03). "Still mass-conserving" above was true of the DIFFUSION and false of the kernel:
 // a cell that turned to rock had its oxygen set to zero, which DESTROYED OXYGEN — see the solid branch below,
@@ -37,7 +43,15 @@ layout(push_constant, std430) uniform Params {
 	uint pad2;
 } params;
 
-// Transport tunable — MUST match MaterialGas3D.gd exactly. (ADVECT/wind dropped on the sphere; see header.)
+// --- MODEL PARAMETER, and this file is its only declaration. The share of a cell's O₂ handed to each open
+// neighbour per step. (ADVECT/wind dropped on the sphere; see header.)
+//
+// IT IS NOT A DIFFUSIVITY, and it must not be read as one. Molecular diffusion of O₂ in air is 2.0e-5 m^2/s,
+// which over a cell of this grid moves oxygen a measurable distance in months — utterly negligible on every
+// timescale this simulation runs, exactly as conduction through rock is (see the note in LAPhysical's thermal
+// block). What actually mixes a planet's atmosphere is TURBULENT transport, three to six orders of magnitude
+// faster and set by the flow, not by the molecule. So 0.12 is a stand-in for eddy mixing at this grid's scale
+// and step: a property of this model, with no measured value to be checked against.
 const float DIFFUSE = 0.12;
 
 void main() {

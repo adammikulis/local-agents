@@ -16,7 +16,19 @@ extends RefCounted
 ## shader's inverse-gnomonic face sample lands on the exact texel. (Explicit types only, no ':=' inferred typing.)
 
 const ICE_GAIN: float = 6.0        # snow-depth → ice coverage: a thin frozen skin (~0.17) already reads fully white
-const SNOW_PRESENT: float = 0.01   # MUST match MaterialField3D.SNOW_PRESENT — dust-thin snow is not ice yet
+
+## Presence floor: below this much frozen H₂O a sea cell is dust-thin rime, not ice, and bakes to 0.
+##
+## IT IS NOW SOURCED, NOT COPIED. *(Corrected 2026-08-09. This was `const SNOW_PRESENT: float = 0.01` with the
+## comment "MUST match MaterialField3D.SNOW_PRESENT". That contract was LIVE, its authority EXISTS, and it was
+## FALSE: LAMaterialField3D.SNOW_PRESENT is 1.9e-4, so the two had drifted 53x apart. The authority moved
+## deliberately — 0.01 was found to be 16 cm of water equivalent, about 1.6 m of snowpack, and was cut to the
+## ~3 mm water equivalent at which surface albedo saturates (Wiscombe & Warren 1980); see MaterialField3D.gd:88-94
+## — and this copy was left behind, so the ocean shell has been demanding 53x the snow the rest of the substrate
+## calls snow-covered before it draws any sea ice at all. A hand-copied duplicate is how that happens; a
+## reference is how it stops. Same defect class as the eight kernels whose authority had been deleted outright,
+## and worse for being invisible: `grep` finds the file, so the pointer looks checkable.)*
+const SNOW_PRESENT: float = LAMaterialField3D.SNOW_PRESENT
 
 var _res: int = 0
 var _depth: int = 0
