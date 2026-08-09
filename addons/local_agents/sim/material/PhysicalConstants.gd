@@ -586,3 +586,76 @@ const BASALT_EMISSIVITY: float = 0.95
 # modern ambient air (see AIR_MOLE_FRAC_O2), so a kernel comparing against it wants
 # LIMITING_OXYGEN_CONCENTRATION_FRAC / AIR_MOLE_FRAC_O2 = 0.716 channel units.
 const LIMITING_OXYGEN_CONCENTRATION_FRAC: float = 0.15
+# ============================================================================================================
+# APPENDED 2026-08-08 — the measured properties LASubstances needs to describe each material completely.
+#
+# These are not new physics. Most were already in this substrate as bare literals inside a kernel, bound to
+# nothing, or implied by a volumetric heat capacity that had already multiplied a density and a specific heat
+# together so neither could be read back out. A substance table needs them separately, because a material's
+# density and its specific heat are two different facts about it.
+# ============================================================================================================
+
+# --- SPECIFIC HEATS (J/kg/K), the per-mass companions of the VOL_HEAT_CAP_* above ---------------------------
+# The volumetric figures are rho*c products: VOL_HEAT_CAP_WATER_J_M3K = 997 * 4184. Storing only the product
+# means a cell that is half water cannot be given the right capacity without dividing by a density that was
+# never written down. These are the c's.
+const WATER_SPECIFIC_HEAT_J_KGK: float = 4184.0     # liquid water, 25 C
+const ICE_SPECIFIC_HEAT_J_KGK: float = 2090.0       # ice at 0 C — HALF liquid water's, which is why a snowpack
+                                                    # swings temperature so much faster than a lake
+const VAPOUR_SPECIFIC_HEAT_J_KGK: float = 1996.0    # water vapour at constant pressure, 100 C
+const AIR_SPECIFIC_HEAT_J_KGK: float = 1005.0       # dry air at constant pressure, 300 K
+
+# --- WATER: VAPORISATION AT 0 C ------------------------------------------------------------------------------
+# A DIFFERENT NUMBER from LATENT_HEAT_VAPORISATION_J_KG above, which is quoted at 100 C. The latent heat of
+# vaporisation falls with temperature — the standard linear fit L_v(T) = 2.501e6 - 2361*T_C reproduces the
+# boiling-point figure to 0.35% — so a substrate that evaporates at ambient temperature and boils at 100 C is
+# reading two points on one curve.
+#
+# IT EXISTS BECAUSE ITS ABSENCE BROKE HESS'S LAW IN SHIPPED CODE. A closed cycle water -> vapour -> snow ->
+# water nets to zero only if L_sub = L_vap + L_fus AT ONE TEMPERATURE. Pairing the 100 C vaporisation with the
+# 0 C fusion and sublimation left 2.257e6 + 3.337e5 = 2.591e6 against 2.834e6 — short by 2.433e5 J/kg, and
+# every traverse of that loop released the difference from nothing while its mirror absorbed it.
+# LASubstances derives sublimation as the sum rather than declaring it, so the three can no longer disagree.
+const LATENT_HEAT_VAPORISATION_0C_J_KG: float = 2.501e6
+
+# --- EMISSIVITY -----------------------------------------------------------------------------------------------
+# Thermal-infrared emissivity of a water surface. Near-blackbody, which is why the ocean radiates so
+# efficiently and why sea-surface temperature can be measured from orbit at all.
+const EMISSIVITY_WATER: float = 0.96
+
+# --- DRY WOOD / CELLULOSIC FUEL -------------------------------------------------------------------------------
+# Oven-dry softwood: 400-600 kg/m3 across species (denser hardwoods reach 900); 500 is the mid value for the
+# conifer and grass litter that carries a wildfire. Specific heat of dry wood is 1300-1700 J/kg/K over normal
+# temperatures.
+const DRY_WOOD_DENSITY_KG_M3: float = 500.0
+const DRY_WOOD_SPECIFIC_HEAT_J_KGK: float = 1500.0
+
+# THE ACTIVATION ENERGY OF CELLULOSE PYROLYSIS, AND WHY IT REPLACES AN IGNITION TEMPERATURE.
+# A solid fuel has no ignition point the way water has a freezing point. It pyrolyses — heat drives off
+# combustible volatiles at a rate that rises exponentially with temperature — and "ignition" is the name for
+# the moment that release outruns the losses. The threshold quoted in handbooks (300 C piloted, 400-500 C
+# unpiloted for wood) is an artefact of the apparatus it was measured in: it moves with moisture content,
+# particle size, oxygen concentration and exposure time, none of which a single constant can carry.
+#
+# What IS a property of the material is the activation energy. Cellulose pyrolysis is measured at
+# 200-250 kJ/mol by thermogravimetry (Antal & Varhegyi 1995 review the spread and its causes); 230 kJ/mol is
+# the mid value for the primary decomposition. Divided by the gas constant it is a temperature, which is the
+# form an Arrhenius rate wants — the same form SILICATE_DISSOLUTION_EA_OVER_R_K already takes.
+#
+# This is what lets fire be a thermal runaway instead of a branch, and lets a damp fuel resist lighting
+# because the water in the cell is absorbing the heat, with no per-case code.
+const CELLULOSE_PYROLYSIS_EA_J_MOL: float = 2.30e5
+const CELLULOSE_PYROLYSIS_EA_OVER_R_K: float = CELLULOSE_PYROLYSIS_EA_J_MOL / GAS_CONSTANT_J_MOL_K
+
+# --- ALBEDO OF VEGETATION ---------------------------------------------------------------------------------
+# A forest canopy is DARKER than bare ground — 0.08-0.15 for conifers, 0.15-0.20 for grassland and crops.
+# 0.12 is a mid value for mixed vegetation. This is the biological half of the ice-albedo feedback, and its
+# absence is why a forest currently warms its planet no differently from the sand it grows on.
+const ALBEDO_VEGETATION: float = 0.12
+
+# --- MOLAR MASSES OF THE MINERAL SPECIES ------------------------------------------------------------------
+# Wollastonite CaSiO3, quartz SiO2 and calcite CaCO3 — the three the Urey reaction is written over.
+# Summed from IUPAC atomic weights: Ca 40.078, Si 28.085, C 12.011, O 15.999.
+const MOLAR_MASS_WOLLASTONITE_KG_MOL: float = 0.116164   # 40.078 + 28.085 + 3*15.999
+const MOLAR_MASS_SILICA_KG_MOL: float = 0.060083         # 28.085 + 2*15.999
+const MOLAR_MASS_CALCITE_KG_MOL: float = 0.100086        # 40.078 + 12.011 + 3*15.999
