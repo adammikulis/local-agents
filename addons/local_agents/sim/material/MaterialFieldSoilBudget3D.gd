@@ -37,7 +37,7 @@ extends RefCounted
 ## (Explicit types only, no ':=' inferred typing.)
 
 # MUST match soil_sphere3d.glsl's DBG_* defines and LAMaterialSphereGPU3D.SOIL_DBG_SLOTS.
-const SLOTS: int = 20
+const SLOTS: int = 21
 const DARCY_SENT: int = 0
 const SPRING_SENT: int = 1
 const SEEP_SENT: int = 2
@@ -48,6 +48,7 @@ const OWN_OUT: int = 6
 const DARCY_RECV: int = 7
 const INFIL_RECV: int = 8
 const CLAMP_GAIN: int = 9
+const OPEN_CLAMP_GAIN: int = 20   # the OPEN leg's twin — see soil_sphere3d.glsl:DBG_OPEN_CLAMP_GAIN
 const SPRING_RECV: int = 10
 const OPEN_DROP: int = 11
 const OPEN_FROM_OPEN: int = 12
@@ -176,6 +177,11 @@ func sample() -> Dictionary:
 		"spring_lost": snappedf(spring_sent + seep_sent - spring_recv, 0.0001),
 		# --- the silent sinks that are not transfers at all
 		"clamp_gain": snappedf(clamp_gain, 0.0001),
+		# The OPEN leg's twin, added 2026-08-09 (HANDOFF item 3). Half of one `max(0, ...)` identity was
+		# measured and half was not, for as long as this probe has existed. The unmeasured half creates
+		# WATER rather than soil, which is why no soil total could ever have revealed it and why the H2O
+		# ledger could see it only as an unattributed aggregate. Nonzero here is H2O from nothing, named.
+		"open_clamp_gain": snappedf(leg[OPEN_CLAMP_GAIN], 0.0001),
 		"open_drop": snappedf(leg[OPEN_DROP], 0.0001),
 		"open_from_open": snappedf(leg[OPEN_FROM_OPEN], 0.0001),
 		"bedrock_in": snappedf(leg[BEDROCK_IN], 0.0001),

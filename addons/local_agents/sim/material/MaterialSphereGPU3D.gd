@@ -115,7 +115,7 @@ const SCENT_PLANES: int = 5
 # the clamp gain and the two branches that silently drop what they gather. Always written (a handful of stores
 # next to six neighbour gathers) but read back only on demand — LAMaterialFieldSoilBudget3D under LA_SOIL_BUDGET.
 # MUST match DBG_SLOTS in soil_sphere3d.glsl.
-const SOIL_DBG_SLOTS: int = 20
+const SOIL_DBG_SLOTS: int = 21
 # Slots in the `active_args` buffer (see setup()). 0-2 are the uvec3 dispatch-indirect argument; 3 is the
 # compacted list length a compacted kernel uses as its loop bound. 8 rather than 4 purely for 32-byte alignment.
 const ACTIVE_ARGS_SLOTS: int = 8

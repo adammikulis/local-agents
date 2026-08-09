@@ -227,7 +227,7 @@ const int LEG_SPRING = 2;
 // list A back in slot 2 — and on a cubed sphere that is a stronger claim than "adjacency is mutual", which
 // is all LASphereGrid.validate() ever checked. Where the two differ the sender debits a slot nobody reads.
 // sent != received IS that leak, measured rather than argued.
-const uint DBG_SLOTS = 20u;
+const uint DBG_SLOTS = 21u;
 #define DBG_DARCY_SENT    0u   // regolith -> regolith (Darcy)
 #define DBG_SPRING_SENT   1u   // regolith -> open (exfiltration / spring)
 #define DBG_SEEP_SENT     2u   // regolith -> open, upward (waterlogged up-seep)
@@ -247,6 +247,10 @@ const uint DBG_SLOTS = 20u;
 #define DBG_SPRING_DOWN  14u   // discharged INWARD (slot 0) — a shell lower, i.e. downward percolation
 #define DBG_SPRING_LAT   15u   // discharged laterally (slots 1-4) — the intended valley-wall spring
 #define DBG_SPRING_UP    16u   // discharged OUTWARD (slot 5) through the spring branch (not the up-seep leg)
+// The OPEN leg's clamp, which had no gauge at all while its regolith twin ten lines above it did. It is the
+// same `max(0, ...)` shape and it can only ever CREATE water, so an unmeasured one is matter from nothing
+// with nobody counting. *(Added 2026-08-09; HANDOFF item 3.)*
+#define DBG_OPEN_CLAMP_GAIN 20u   // max(0,x)-x at an OPEN cell: >0 means the clamp INVENTED water
 #define DBG_SPRING_WET   17u   // the part of spring_sent whose outlet already holds >= half a cell of water
 // `open_elev` can only ever see ONE cell of water, because it is `open_floor + clamp(water[n],0,1)*cell_size`.
 // These two say whether that blindness matters: an outlet with a tall OPEN column above it is a sea or lake
@@ -566,6 +570,7 @@ void main() {
 	dbg[dbase + DBG_INFIL_RECV] = 0.0;  dbg[dbase + DBG_CLAMP_GAIN] = 0.0;
 	dbg[dbase + DBG_SPRING_RECV] = 0.0; dbg[dbase + DBG_OPEN_DROP] = 0.0;
 	dbg[dbase + DBG_OPEN_FROM_OPEN] = 0.0; dbg[dbase + DBG_BEDROCK_IN] = 0.0;
+	dbg[dbase + DBG_OPEN_CLAMP_GAIN] = 0.0;
 
 	if (regolith[g] != 0.0) {
 		// Regolith: gains groundwater from higher-head neighbours + infiltration from above; loses outflow.
@@ -580,7 +585,13 @@ void main() {
 		dbg[dbase + DBG_CLAMP_GAIN] = applied - raw;
 	} else if (solid[g] == 0.0) {
 		// Open cell: gains spring exfiltration from regolith neighbours, loses infiltration it sent down.
-		water[g] = max(0.0, water[g] - own_out + inflow);
+		// Keep `raw` in a local and book what the clamp added, exactly as the regolith twin above does.
+		// `water` is read-write here (not `writeonly` like SoilOut), so this could re-read instead — but the
+		// mirrored form is the point: two legs of one identity should be measured the same way.
+		float raw_w = water[g] - own_out + inflow;
+		float applied_w = max(0.0, raw_w);
+		water[g] = applied_w;
+		dbg[dbase + DBG_OPEN_CLAMP_GAIN] = applied_w - raw_w;
 		dbg[dbase + DBG_SPRING_RECV] = from_reg;
 		dbg[dbase + DBG_OPEN_FROM_OPEN] = from_open;
 		dbg[dbase + DBG_OPEN_DROP] = soil_in[g];     // overwritten with 0 on the next line — a sink if nonzero
