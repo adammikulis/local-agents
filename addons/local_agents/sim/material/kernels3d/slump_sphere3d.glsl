@@ -7,7 +7,16 @@
 // (sediment is cold). The ONLY change vs the box kernel is neighbour addressing: instead of idx±offset +
 // `if(iy>0)` bounds tests, every cell gathers its 6 neighbours from the precomputed INDEX TABLE
 // `nbr[idx*6 + d]` (slot 0 = inward/radial-DOWN = gravity, 1-4 = LATERAL, 5 = outward/radial-UP;
-// -1 = boundary → skipped). Constants copied EXACTLY from MaterialSlump3D.gd / MaterialField3D.gd.
+// -1 = boundary → skipped).
+//
+// WHERE THE CONSTANTS BELOW COME FROM. *(Corrected 2026-08-09. This line used to end "Constants copied EXACTLY
+// from MaterialSlump3D.gd / MaterialField3D.gd", and the const block said "MUST match MaterialSlump3D.gd /
+// MaterialField3D.gd exactly". Half of that was already false: MaterialSlump3D.gd was deleted with the CPU
+// oracle and exists nowhere in this tree, so the stated authority for every SLUMP_* constant and for REPOSE_TAN
+// could not be checked by anyone. A contract against a deleted file is worse than none — it reads as live.)*
+// MAX_MASS and MAX_COMPRESS are the substrate's cell-fill units and DO still have an authority,
+// LAMaterialField3D; REPOSE_TAN is a measured property of matter and now has one, LAPhysical; the SLUMP_*
+// rates are properties of THIS kernel's integrator and this file is their only declaration.
 //
 // SEND slot = idx*6 + dir. Direct map box dir d → table slot d:
 //   dir 0 = DOWN (radially inward) = nbr slot 0; dir 1-4 = LATERAL = nbr slots 1-4; dir 5 = UP (radially
@@ -28,14 +37,41 @@ layout(push_constant, std430) uniform Params {
 	uint pad1;
 } params;
 
-// Constants — MUST match MaterialSlump3D.gd / MaterialField3D.gd exactly.
+// --- THE SUBSTRATE'S CELL-FILL UNITS — authority LAMaterialField3D (that file exists; these two are checked
+// against MaterialField3D.gd:26-27 by reading, not by a gate).
 const float MAX_MASS = 1.0;
 const float MAX_COMPRESS = 0.02;
+
+// --- MODEL PARAMETERS of this kernel's explicit integrator. Properties of THIS solver, not of sediment: a
+// per-step transfer cap, a numerical floor, a dribble cutoff and an over-relaxation share. THIS FILE IS THEIR
+// ONLY DECLARATION — a grep for SLUMP_MAX_FLOW / SLUMP_MIN_MASS / SLUMP_MIN_FLOW / SLUMP_LATERAL_FRACTION
+// returns this file alone. They had no authority anywhere; they have none now; saying so is the honest form.
 const float SLUMP_MAX_FLOW = 0.5;
 const float SLUMP_MIN_MASS = 0.0001;
 const float SLUMP_MIN_FLOW = 0.01;
 const float SLUMP_LATERAL_FRACTION = 0.25;
-const float REPOSE_TAN = 0.70;
+
+// --- THE ANGLE OF REPOSE — a measured property of dry granular matter, and the only physical constant in this
+// kernel. tan(35 deg) = 0.7002, the standard repose angle of dry sand and gravel. See LAPhysical for the sources.
+//
+// IT IS NOT APPLIED AS AN ANGLE, AND THAT IS A REAL DEFECT — SURFACED HERE, NOT FIXED, because fixing it changes
+// the physics and this pass is comments and constants only. The lateral test below is
+// `sed_in[me] - sed_in[lateral neighbour] > REPOSE_TAN`, a difference of MASSES. One unit of mass is one FULL
+// cell, so that difference is a height of `cell_size`; comparing it against a tangent asserts the lateral run is
+// also `cell_size`, i.e. that cells are CUBES. On the cubed sphere they are not. The radial thickness is exactly
+// `cell_size` (LASphereGrid.cell_centre) but the lateral spacing is `R * (2/res) * sqrt(1+b^2)/(1+a^2+b^2)`,
+// which grows with radius and shrinks toward a face corner. At the shipped grid (LASimWorld: res 20, depth 20,
+// core_radius 170, cell_size 8 — the ratio is scale-invariant) the width/height aspect runs 1.07 at the shell
+// floor near a face corner to 4.08 at the shell top at a face centre, so the slope this kernel actually holds
+// sediment at is 33.2 deg in the first place and 9.8 deg in the last. It is never 35 deg except by accident, and
+// it is not even one angle: the same material stands at three times the slope at the bottom of the shell as at
+// the top, which is a fact about the grid and about nothing physical.
+//
+// THE FIX is to compare against `REPOSE_TAN * lateral_spacing / cell_size` per link, which needs the per-column
+// link geometry this kernel is not currently given (dust_transport_sphere3d.glsl already binds an `ltan` table
+// for a related reason). That is a behaviour change to sediment transport — piles would stand steeper nearly
+// everywhere — so it is the maintainer's call, not a comment edit.
+const float REPOSE_TAN = 0.70;   // LAPhysical.REPOSE_TAN_DRY_GRANULAR
 
 // Stable amount for the LOWER of two radially-stacked cells (identical to the water/lava CA _stable_below).
 float stable_below(float total_mass) {

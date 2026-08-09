@@ -9,7 +9,13 @@
 // `nbr[idx*6 + slot]` — slot 1 = -x, 2 = +x, 3 = -z, 4 = +z, 5 = outward/UP (+y), 0 = inward/DOWN (unused
 // here: the downward settling flux is fall_frac(), never gated by the open-below test — deposit is handled in
 // the transport pass). fall_frac() reads only the cell's OWN velocity, so no neighbour lookup. Its math MUST
-// stay identical to dust_transport_sphere3d.glsl. Constants copied EXACTLY from dust_outscale3d.glsl.
+// stay identical to dust_transport_sphere3d.glsl — that contract is live and real, both files exist, and the
+// two halves of one out-scaling must agree or the transport un-scales what this pass scaled.
+//
+// *(Corrected 2026-08-09. This line used to end "Constants copied EXACTLY from dust_outscale3d.glsl", and the
+// const block said "MUST match dust_outscale3d.glsl / MaterialDust3D.gd exactly". Both are deleted —
+// MaterialDust3D.gd with the CPU oracle, dust_outscale3d.glsl with the box kernels — so the only surviving
+// authority is the sibling sphere kernel, which is what the contract now names.)*
 
 layout(local_size_x = 64) in;
 
@@ -36,13 +42,18 @@ float toward_link(uint c, int l) {
 	return vel_x[c] * ltan[b] + vel_z[c] * ltan[b + 1u];
 }
 
-// Transport tunables — MUST match dust_outscale3d.glsl / MaterialDust3D.gd exactly.
+// --- MODEL PARAMETERS. Properties of THIS solver, not of dust: a CFL cap on a cell's total outgoing share and
+// the three terms of the fall rule below. MUST match dust_transport_sphere3d.glsl, which recomputes both
+// functions — a live contract, that file exists. No other file declares any of them.
+// Why the settle rule is a model parameter and not a Stokes velocity is written out at the matching block in
+// dust_transport_sphere3d.glsl; the short form is that the `dust` channel carries no grain size.
 const float OUT_MAX = 0.55;
 const float SETTLE_BASE = 0.25;
 const float SETTLE_MIN_FRAC = 0.02;
 const float SETTLE_WIND_REF = 6.0;
 
-// Downward flux fraction of a cell — identical to MaterialDust3D._fall_frac / dust_transport_sphere3d.glsl.
+// Downward flux fraction of a cell — identical to dust_transport_sphere3d.glsl's fall_frac(), the live contract.
+// (It also used to name MaterialDust3D._fall_frac; that file is deleted, so the sibling kernel is the authority.)
 float fall_frac(uint i, float k) {
 	float vxi = vel_x[i];
 	float vyi = vel_y[i];

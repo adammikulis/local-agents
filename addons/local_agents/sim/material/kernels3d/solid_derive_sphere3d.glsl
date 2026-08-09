@@ -61,7 +61,18 @@ layout(push_constant, std430) uniform Params {
 	uint pad2;
 } params;
 
-const float SOLID_THRESHOLD = 0.5;   // half a cell of mineral mass = bedrock (MUST match MaterialField3D / Stage C stamp)
+// Half a cell of mineral mass = bedrock. A MODEL PARAMETER — where a continuous fill fraction is declared to
+// have become rock — not a property of the rock.
+//
+// *(Corrected 2026-08-09. This said "MUST match MaterialField3D / Stage C stamp". MaterialField3D.gd declares
+// no SOLID_THRESHOLD and never did; the comment named a file rather than the thing to match, which reads as a
+// checkable contract and is not one. What the value really has to agree with is every OTHER place the same
+// 0.5 is written, and it is written as a BARE LITERAL in all of them: LAMaterialFieldInject3D.gd:604 and :789
+// (walk outward to the first non-bedrock cell), LAPlateTectonics.gd:57, and the SDF stamp trigger described at
+// Volcano.gd:11. Five copies of one threshold with no owner is the drift pattern this repo already paid for
+// once with the freezing point of water; naming them is the cheap half of the fix, giving them one owner is
+// the other half and is a code change.)*
+const float SOLID_THRESHOLD = 0.5;
 
 void main() {
 	uint g = gl_GlobalInvocationID.x;

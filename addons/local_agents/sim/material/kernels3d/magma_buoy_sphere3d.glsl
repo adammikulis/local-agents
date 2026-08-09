@@ -5,8 +5,14 @@
 // GATHER logic and IDENTICAL constants/math; only neighbour addressing changes. The box read the cell ABOVE
 // via `+layer` (guarded by iy<dim_y-1) and the cell BELOW via `-layer` (iy>0); here both come from the
 // precomputed INDEX TABLE `nbr[idx*6 + slot]` — slot 5 = outward/UP (above), slot 0 = inward/DOWN (below);
-// -1 = boundary → no flow. Only OVERPRESSURE (mass beyond MAX_MASS) is buoyed. Constants copied EXACTLY from
-// magma_buoy3d.glsl / MaterialMagma3D.gd, EXCEPT the two temperature constants, which are deleted.
+// -1 = boundary → no flow. Only OVERPRESSURE (mass beyond MAX_MASS) is buoyed.
+//
+// WHERE THE CONSTANTS BELOW COME FROM. *(Corrected 2026-08-09. This line used to end "Constants copied EXACTLY
+// from magma_buoy3d.glsl / MaterialMagma3D.gd, EXCEPT the two temperature constants, which are deleted", and the
+// const block said "MUST match magma_buoy3d.glsl / MaterialMagma3D.gd exactly". BOTH named files are gone —
+// MaterialMagma3D.gd went with the CPU oracle and magma_buoy3d.glsl went with the box kernels, and no `*3d.glsl`
+// box original survives anywhere in kernels3d/. So the entire stated authority for this kernel's constants was
+// two files that cannot be opened.)*
 //
 // CARRY-HEAT IS NO LONGER "VERBATIM" (2026-08-03). That word used to end the line above, and what it preserved
 // was a rule that FLOORED a receiving cell at 950 C and never cooled the donor — heat appearing from nothing at
@@ -29,8 +35,19 @@ layout(push_constant, std430) uniform Params {
 	uint pad1;
 } params;
 
-// Constants — MUST match magma_buoy3d.glsl / MaterialMagma3D.gd exactly.
+// The substrate's cell-fill unit — authority LAMaterialField3D (MaterialField3D.gd:26). That file exists.
 const float MAX_MASS = 1.0;
+
+// --- MODEL PARAMETERS. Properties of THIS kernel's overpressure rule; this file is their only declaration.
+// BUOY_FRAC is the linear share of a cell's overpressure that rises per step, K_P the pressure-dependent term
+// that makes a larger surplus rise faster, MAX_UP_FLOW the per-step stability cap, MIN_OP the numerical floor.
+//
+// WHAT THEY STAND IN FOR, named so the model is not mistaken for the mechanism: magma rises because it is LESS
+// DENSE than the rock around it, and that density contrast is measurable — basaltic melt is 2600-2800 kg/m^3
+// against LAPhysical.ROCK_DENSITY_KG_M3 = 2900 for the crust it ascends through, a deficit of a few per cent
+// which drives buoyancy against the melt's viscosity. Neither density nor viscosity appears here: the ascent
+// rate is a fixed fraction of a mass surplus, so melt of any composition and any temperature rises identically.
+// A rate derived from the real density contrast would be the honest form and is a physics change, not a comment.
 const float BUOY_FRAC = 0.55;
 const float K_P = 0.6;
 const float MAX_UP_FLOW = 0.4;

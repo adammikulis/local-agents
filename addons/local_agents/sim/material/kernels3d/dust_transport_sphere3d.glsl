@@ -8,7 +8,14 @@
 // the DOWN direction (slot 0): the cell's own downward flux DEPOSITS into `sediment[g]` when the cell below is
 // SOLID or the boundary/floor (slot 0 = -1), else it was already donated to the open cell below as its
 // "cell above" inflow. The retained-fraction raw_out_total() + the deposit fall_frac() are recomputed here and
-// MUST match dust_outscale_sphere3d.glsl exactly. Constants copied EXACTLY from dust_transport3d.glsl.
+// MUST match dust_outscale_sphere3d.glsl exactly — THAT contract is live and real: both files exist, the two
+// halves of the same out-scaling must agree or the transport un-scales what the precompute scaled.
+//
+// *(Corrected 2026-08-09. The line above used to end "Constants copied EXACTLY from dust_transport3d.glsl", and
+// the const block said "MUST match dust_transport3d.glsl / MaterialDust3D.gd exactly". Both named files are
+// deleted: MaterialDust3D.gd went with the CPU oracle and dust_transport3d.glsl with the box kernels. The only
+// authority these constants ever had that still exists is the SIBLING SPHERE KERNEL, so that is what the
+// contract now says.)*
 
 layout(local_size_x = 64) in;
 
@@ -37,14 +44,27 @@ float toward_link(uint c, int l) {
 	return vel_x[c] * ltan[b] + vel_z[c] * ltan[b + 1u];
 }
 
-// Transport tunables — MUST match dust_transport3d.glsl / MaterialDust3D.gd exactly.
+// --- MODEL PARAMETERS. Properties of THIS solver, not of dust. OUT_MAX is the CFL cap on a cell's total
+// outgoing share, DIFFUSE_RATE the symmetric per-neighbour mixing share, and SETTLE_* the fall rule below.
+// The four shared with dust_outscale_sphere3d.glsl MUST match it, and that contract is live because that file
+// exists; DIFFUSE_RATE is used only here. Nothing else declares any of them.
+//
+// WHAT THE SETTLE RULE STANDS IN FOR: airborne mineral dust falls at its STOKES TERMINAL VELOCITY, which is set
+// by grain diameter squared — 60 um silt falls ~0.3 m/s while 2 um clay falls ~0.0002 m/s, four orders of
+// magnitude apart — and stays aloft while turbulence exceeds that. This kernel has none of it: SETTLE_BASE is
+// one fall fraction for all dust, and SETTLE_WIND_REF = 6.0 is a wind speed at which settling is suppressed to
+// SETTLE_MIN_FRAC, neither derived from a grain size nor cited to a threshold friction velocity. The substrate
+// could do better than it does — LAPhysical.GRAIN_D_UPLAND_M / GRAIN_D_LOWLAND_M already carry real sieve
+// diameters and Stokes needs only those plus air's viscosity — but the `dust` channel carries no grain size, so
+// a real settling velocity is a channel change, not a constant swap. Stated, not fixed.
 const float OUT_MAX = 0.55;
 const float DIFFUSE_RATE = 0.02;
 const float SETTLE_BASE = 0.25;
 const float SETTLE_MIN_FRAC = 0.02;
 const float SETTLE_WIND_REF = 6.0;
 
-// Downward flux fraction — identical to dust_outscale_sphere3d.glsl / MaterialDust3D._fall_frac.
+// Downward flux fraction — identical to dust_outscale_sphere3d.glsl's fall_frac(), which is the live contract.
+// (It also used to name MaterialDust3D._fall_frac; that file is deleted, so the sibling kernel is the authority.)
 float fall_frac(uint i, float k) {
 	float vxi = vel_x[i];
 	float vyi = vel_y[i];

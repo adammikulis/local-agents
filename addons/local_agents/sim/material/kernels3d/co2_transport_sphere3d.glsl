@@ -8,8 +8,12 @@
 // 4 = +z, 5 = outward/UP (+y); -1 = boundary → skipped (matches the box's world-axis lateral convention,
 // same as water_sphere3d). CO₂ is denser than air: it carries an extra CO2_SETTLE share DOWN (added to this
 // cell's own outflow into slot 0 AND to the inflow it gathers from the cell ABOVE, slot 5).
-// Reads only the OLD co2 snapshot + wind + solid, writes co2_out[g]. Constants copied EXACTLY from
-// co2_transport3d.glsl / MaterialGas3D.gd.
+// Reads only the OLD co2 snapshot + wind + solid, writes co2_out[g].
+//
+// *(Corrected 2026-08-09. This line used to end "Constants copied EXACTLY from co2_transport3d.glsl /
+// MaterialGas3D.gd" and the const block said "MUST match co2_transport3d.glsl / MaterialGas3D.gd exactly".
+// Both named files are deleted — MaterialGas3D.gd with the CPU oracle, co2_transport3d.glsl with the box
+// kernels — so the whole stated authority for this kernel's constants was unopenable. This file owns them.)*
 //
 // CONSERVATION (2026-08-03). The line above used to end "— mass-conserving", and the kernel WAS NOT. Two
 // separate leaks, both fixed below and both described where they are fixed:
@@ -47,7 +51,20 @@ layout(push_constant, std430) uniform Params {
 	uint pad2;
 } params;
 
-// Transport tunables — MUST match co2_transport3d.glsl / MaterialGas3D.gd exactly.
+// --- MODEL PARAMETERS, and this file is their only declaration. Shares of a cell's CO₂ per step: DIFFUSE per
+// open neighbour, ADVECT the wind-biased addition, INV_WIND_REF the speed that saturates that bias, CO2_SETTLE
+// the extra downward share. None is a measured property of carbon dioxide and none is claimed to be.
+//
+// DIFFUSE = 0.12 EQUALS o2_transport_sphere3d.glsl's DIFFUSE, and that is a coincidence of two gases being
+// handed one mixing rate, NOT a contract — nothing requires them to move together. Both are stand-ins for
+// turbulent mixing rather than molecular diffusivities (O₂ in air 2.0e-5 m^2/s, CO₂ 1.6e-5, a 25% difference
+// that this substrate could not resolve and does not try to); the reasoning is written out at that file.
+//
+// CO2_SETTLE is the one with a real physical referent, so name it: CO₂ IS denser than air, by the ratio of the
+// molar masses — LAPhysical.MOLAR_MASS_CO2_KG_MOL 0.0440095 against dry air's ~0.02896, i.e. 1.52x — which is
+// why it pools in hollows and why volcanic CO₂ kills in valleys. 0.05 is not derived from that ratio; it is a
+// downward share chosen to produce the behaviour. A settling flux computed from the density contrast against
+// the local pressure gradient would be the honest form, and it is a physics change, not a comment.
 const float DIFFUSE = 0.12;
 const float ADVECT = 0.08;
 const float INV_WIND_REF = 1.0 / 6.0;

@@ -12,8 +12,12 @@ extends RefCounted
 ##
 ## The driver owns the ping-pong `bufs` dictionary and the compute list. This plugin only builds pipelines +
 ## per-parity uniform sets in setup(), then records bind/push/dispatch/barrier into the driver's `cl` in
-## dispatch(). Parity roles mirror the verified box orchestrator (MaterialGPU3D.gd) so behaviour matches:
-## a PAIR channel's "live" role binds bufs[key][parity] and its "back" role binds bufs[key][1-parity].
+## dispatch(). The parity convention is stated here because this pass is now where it lives: a PAIR channel's
+## "live" role binds bufs[key][parity] and its "back" role binds bufs[key][1-parity].
+## *(Corrected 2026-08-09. This used to read "Parity roles mirror the verified box orchestrator
+## (MaterialGPU3D.gd) so behaviour matches". MaterialGPU3D.gd was deleted with the box stack and is nowhere in
+## this tree, so "mirrors the verified X" pointed at nothing verifiable — and it named a deleted file as the
+## reason to trust a convention, which is exactly backwards.)*
 ##
 ## bufs contract (from the driver): PAIR key → [rid_a, rid_b]; SINGLE key → rid. `nbr` is a SINGLE int32
 ## index table (cell*6 + slot; slot 0=down, 1-4=lateral, 5=up), bound at binding 15 on every kernel.
