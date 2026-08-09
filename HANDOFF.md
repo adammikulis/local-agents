@@ -30,25 +30,57 @@ correctness fix with a behavioural rewrite makes both unmeasurable.
 
 `sorting.py` at repo root is the maintainer's, untracked — leave it.
 
-### State (2026-08-03, end of session)
+### State (2026-08-08, end of session)
 
-`0.4-dev` is the integration branch. Merged today: the LOD deletion (−505 lines), the aquifer's capillary
-retention, sediment transport, the seeded geotherm, one phase rule for all water, and metabolism dissolved
-into the substrate's own respiration reaction.
+`0.4-dev` is the integration branch, at `48111ae`.
 
-**IN FLIGHT, NOT MERGED — do not start work that touches these:**
-- `feature/conservation` (19 commits) — the balance gate, the element inventory, `RELAX_TARGET` deleted.
-  **Resolved against `0.4-dev` on `integrate/conservation` but NOT landed**, because it carries a metabolism
-  model the maintainer decided against. Its tip `6ad2417` is pre-biotic seeding, deliberately separate.
-- A re-anchoring of the creature conservation fixes onto the emergent mass model (the maintainer's decision:
-  keep emergent Rubner scaling, feed it conservation's measured `mass_kg`).
-- A kernel pass on combustion, spring heat, the soil kernel's invented water, and the magma stubs.
-- `55cda84` — latent heat, committed and deliberately unmerged. Charging honest enthalpies shows this
-  planet's water cycle runs **~4500× too fast** and the surface reaches −131 °C. That is a decision about the
-  iteration loop, not a bug fix.
+**A CHANNEL UNIT IS NOT A MOLE, AND THE CONSERVATION GATE DID NOT KNOW.** This is the finding that
+matters most, because it means the gate could not have been telling the truth. `LAReactionBalance` says
+each slot declares "the ELEMENTS one unit of it contains" and held molecular FORMULAS, which are per MOLE.
+One unit of `o2` is the O₂ in a cell of ambient air, **8.535 mol/m³**; one unit of `water` is a cell FULL
+of liquid water, **55343 mol/m³**. A factor of **6484**, and `check_records` compared them as equal.
+Teaching it `mol_per_unit()` failed nine checks instantly — every biological record, every gas↔water leg.
+The same defect was in the element inventory and in `fire_sphere3d`. Fixed at `3887890` and in the merge
+above. **Anything measured on `element_*` before 2026-08-07 is not comparable to anything after it.**
 
-**THE BASELINE IS VOID.** Crust now moves, water obeys a real saturation curve, and metabolism is a
-substrate reaction. Nothing measured before today is comparable to anything measured after. Re-establish it.
+**THE ROCK HAS A CHEMISTRY NOW, AND THE PLANET HAS A CARBON SINK.** The lumped `M` species is gone:
+silicate CaSiO₃, silica SiO₂, carbonate CaCO₃, with Ca and Si joining C/N/H/O. D1b became the real Urey
+reaction, CO₂ a REACTANT rather than the catalyst it was. Measured: 91.5 units of carbon moved from air
+into rock in 600 frames with a conservation drift of 7.6e-5 of the pool. This closes HANDOFF item 9's
+first half and is what Stage 4 was asking for.
+
+**ENERGY HAS A STOCK AND A DRIFT GAUGE FOR THE FIRST TIME** (`LAMaterialFieldEnergyLedger3D`).
+`energy_stock` 1.432e17, `energy_run_drift_per_step` −1.53e13 — **1.07e-4 per step, 6.3% of the planet's
+whole thermal stock over 590 steps.** That is the number the whole effort exists to drive to zero, and
+nothing in this repository could see it before. Four leaks closed on the way: lava relaxing to a
+prescribed 40 °C with no receiver, lava radiating out through the planet's own core, spring heat with no
+donor, and combustion destroying H, O and N.
+
+**IN FLIGHT, NOT MERGED:**
+- **T2 latent heat, on `worktree-wf_c468d92c-702-2`. REJECTED, and the defect is in a constant set added
+  this session at `c479b36`.** The enthalpies violate Hess's law: `L_vap` is quoted at 100 °C while
+  `L_fus` and `L_sub` are at 0 °C, so `2.257e6 + 3.337e5 = 2.591e6` falls short of `L_sub = 2.834e6` by
+  2.433e5 J/kg, and the loop water → vapour → snow → water releases that much from nothing every
+  traverse. **The fix is one line: state all three at 0 °C.** `2.501e6 + 3.337e5 = 2.8347e6` against the
+  measured 2.834e6 closes to 0.02%, inside the constants' own uncertainty. Its verifier also measured a
+  moist-greenhouse runaway on that branch; re-measure after the Hess fix before believing it, because the
+  base has moved three commits since.
+- `6ad2417` on `feature/conservation` — the pre-biotic atmosphere seed. Applies cleanly. Its own commit
+  message says not to merge it inside a conservation measurement window.
+- `integrate/conservation` is fully absorbed and prunable. `55cda84` **cannot be cherry-picked** — it
+  edits `atmos_evap_sphere3d.glsl`, which `40c69f1` deleted.
+
+**THE BASELINE, at `48111ae`,** three runs, `--sandbox --planet-only --run-frames=600 --fast=8
+--seed=4242`, all at `field_step` 590 / `field_sim_s` 79.8:
+`temp_ground_p50` 26.21 · `temp_mean` 31.89 · `energy_absorbed_cool_mean` 123.5 ·
+`energy_emitted_cool_mean` 251.4 · `energy_imbalance_cool` −1.036 · `energy_stock` 1.432e17 ·
+`energy_run_drift_per_step` −1.53e13 · `nitrogen_run_drift_per_step` −0.0009 · `h2o_total` 4278 ·
+`snow_cells` 963 · `hotspring_boiling` 51 · `element_C` 5698 · `phenomenon/impact` 17 · `/eruption` 2.
+
+**AND THE PLANET IS STILL RUNNING AWAY, WHICH 600 FRAMES HIDES.** Measured on the pre-session tree:
+`temp_ground_p50` 30 °C at 600 frames, **61.8 °C at 1200**. Thirty degrees was never an equilibrium, it
+was an early point on a ramp. Any claim about where this planet settles needs 4000+ frames, and Stage 3
+cannot be answered at 600.
 
 ---
 
@@ -94,26 +126,35 @@ of computing one.
 
 ### Held by fiat — a value is asserted, so the physics cannot close
 
-1. **THE OCEAN IS A THERMOSTAT.** `kernels3d/heat3d_cool_sphere3d.glsl:47-50` holds the sea near a fixed
-   temperature. It does not participate in the energy balance at all, so **the global energy books cannot
-   close while it exists**, and "where does the planet settle" is unanswerable. This is the single largest
-   remaining fiction.
-2. **THE SEA HAS ~0.93 m OF THERMAL INERTIA** where a real ocean has 20–100 m. Rock lands at 0.248 m against
-   a derived diurnal skin depth of 0.168 m, which is fine; water is wrong by one to two orders. It is why the
-   planet has no thermal memory between day and night.
-3. **BURNING CELLS ARE PINNED TO 640 °C** and combustion destroys half its carbon. A fire's temperature
-   should be a result of combustion enthalpy against heat capacity and losses. *(In flight.)*
-4. **SPRING HEAT HAS NO DONOR** — geothermally warmed groundwater arrives hot and the rock never cools by
-   what it gave up. *(In flight.)*
-5. **THE SOIL KERNEL INVENTS WATER** on a `max(0.0, raw)` clamp — flooring a negative silently creates the
-   difference. *(In flight.)*
+*(Items 1–5 were all corrected or closed on 2026-08-07/08. What they SAID is kept, briefly, because two of
+them sent work at problems that no longer existed and one of them was the file's headline claim.)*
+
+1. ~~THE OCEAN IS A THERMOSTAT~~ — **FALSE, and it was already false when it was written.** It said
+   `heat3d_cool_sphere3d.glsl:47-50` "holds the sea near a fixed temperature … the single largest remaining
+   fiction". That kernel was rewritten on 2026-08-03, the same day this entry was; `sea_water_target()`,
+   `SST_SURFACE` and `WATER_TEMP_DEEP` are all gone and its own header documents each deletion. **Stage 3's
+   "kill the ocean thermostat first" was already done.**
+2. ~~THE SEA HAS ~0.93 m OF THERMAL INERTIA~~ — **FALSE.** The four areal `CAP_*` literals are deleted;
+   capacity is `ρc × cell_size` = **16 m** of water. The honest remaining gap is that a real mixed layer is
+   20–100 m, and the fix is MORE CELLS, not a bigger literal — `heat3d_solar_sphere3d.glsl:154-158` says so.
+3. ~~BURNING CELLS ARE PINNED TO 640 °C~~ — **FALSE for the pin and the carbon** since `fire_sphere3d.glsl:190`
+   (`temp += burned * HEAT_PER_UNIT_BURN / cap`, and 1 C : 1 O₂ : 1 CO₂). Combustion **also** destroyed H, O
+   and N until 2026-08-08, which this entry never noticed.
+4. ~~SPRING HEAT HAS NO DONOR~~ — **CLOSED.** Cold recharge now cools the rock it soaks into, and the mix is
+   capacity-weighted. `hotspring_boiling` 107 → 51. **What is still unpaid is the regolith→regolith DARCY
+   leg**, disclosed in `soil_sphere3d.glsl:51`.
+5. ~~THE SOIL KERNEL INVENTS WATER~~ — the regolith clamp is instrumented (`DBG_CLAMP_GAIN`) and
+   `kernel_residual` reads 0.0. **A second clamp at `soil_sphere3d.glsl:499` on the `water[g]` leg is still
+   uninstrumented.**
 
 ### Missing physics — a real mechanism simply is not there
 
-6. **NO LATENT HEAT.** Evaporation does not cool and condensation does not warm, anywhere. This is the
-   biggest single omission in the water cycle, and the branch that adds it (`55cda84`) shows why it was
-   never noticed: with honest enthalpies the cycle runs **~4500× too fast** and the surface hits −131 °C. The
-   current water cycle is fast *because* it is free.
+6. **NO LATENT HEAT — still true, and the branch that adds it is REJECTED on a Hess's-law violation.**
+   *(Corrected 2026-08-08. This entry blamed `55cda84` for showing the cycle runs "~4500× too fast" at
+   −131 °C. That branch **cannot even be applied** — it edits `atmos_evap_sphere3d.glsl`, which `40c69f1`
+   deleted; evaporation is now records R23/R24/R25 at a derived bulk-aerodynamic rate with no free
+   parameter, so the 4500× figure was measured against a rate that no longer exists.)* The live attempt is
+   `worktree-wf_c468d92c-702-2`; see the state block for the one-line fix.
 7. **NO MANTLE CONVECTION.** The geotherm is a seeded initial condition maintained by a reservoir. A real
    planet's interior circulates, and that circulation is what drives plate motion, so the plates below are
    kinematic rather than driven.
@@ -150,11 +191,17 @@ of computing one.
 
 ### Instruments that lie
 
-16. **`magma_cell_count()` / `magma_erupting()` are hardcoded** `0`/`false` and published every report.
-    *(In flight.)* A gauge that always reads zero cannot distinguish "none" from "broken", and this project
-    has already lost a round of measurements to exactly that.
+16. ~~`magma_cell_count()` / `magma_erupting()` are hardcoded~~ — **FALSE, they are live**
+    (`MaterialFieldQueries3D.gd:539-570`, one cached walk). The real remaining defect is different and
+    narrower: `molten_counts()` reads the `_f._lava` **CPU mirror**, and `lava` is demand-gated
+    (`SITUATIONAL_CHANNELS`), so between eruptions the gauge can read a stale mirror and report 0 with no
+    provenance flag — exactly what `mass_live` exists to prevent for the element inventory.
 17. **The element inventory has no per-pass attribution.** It reports that carbon moved, not which reaction
     moved it. The mineral probe already does this and found a leak in one run by naming `fire_dust`.
+18. **A GAUGE THAT SUMS OPEN CELLS ONLY IS NOT A CONSERVATION GAUGE**, and at least one still is:
+    `MaterialFieldQueries3D.gd:624-631` (`fuel_total`). This is what made nitrogen look like it was being
+    destroyed at 32% per run when it was being buried. Any total used to answer "was matter created or
+    destroyed" needs its mask-free twin.
 
 ---
 
@@ -162,10 +209,17 @@ of computing one.
 
 Each stage has its own verification. Do not merge stages.
 
-**STAGE 1 — stop the sim creating matter and energy.** *(in flight)* Land the balance gate, the element
-composition table, the renamed inventory, and the creature-layer fixes re-anchored onto the emergent mass
-model. Verified by one question: does the planet still create matter, yes or no. Then close the kernel
-violations (1, 3, 4, 5 above).
+**STAGE 1 — stop the sim creating matter and energy.** *(most of the way; the instrument now exists, which
+is what changed.)* The balance gate, the element inventory and the composition table all landed before this
+session; the kernel violations 1/3/4/5 are closed. **What is left is one number:**
+`energy_run_drift_per_step` reads **−1.53e13 against an `energy_stock` of 1.432e17 — 1.07e-4 per step, 6.3%
+of the planet's thermal stock over 590 steps.** Drive it toward zero. The ledger names its own unbooked
+terms in its header; work that list. Then latent heat (item 6), which is the largest single missing term
+and needs the Hess fix first.
+
+**Verified by one question, and it is now askable:** does the planet still create energy, yes or no.
+Before this session nothing in the repository could answer it — every climate claim was argued from
+temperature, which is a state variable and tells you where the planet HAS got to, never why.
 
 **STAGE 2 — seed a primordial planet.** Post-magma-ocean Hadean, ~4.4 Ga: hot surface, thick CO₂/N₂
 atmosphere, water still largely steam, **no free O₂** (it is a product of life), no biosphere. **Oceans must
