@@ -148,6 +148,21 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		var temp_back: RID = temp[back]
 		var water_back: RID = water[back]
 		var lava_back: RID = lava[back]
+		# THE EIGHT CARRIERS rc_shared.glsli GAINED 2026-08-09, at the same indices 30-37 in all four heat
+		# kernels. None of these kernels reads one of them for its own physics; they are here because a cell's
+		# heat capacity is a property of everything in it, and these eight were counted NOWHERE — so a gram of
+		# rock becoming suspended load, or of water infiltrating into the aquifer, deleted its own thermal
+		# mass. LAMaterialFieldEnergyProbe3D measured that as a -6.64e14 J capacity leg against a -3.14e14
+		# heat leg: the invisible carriers were twice everything these kernels do. `erosion_pickup` alone read
+		# -9.79e14 while writing no temperature at all.
+		# Halves: sediment/susp/dust/soil/moisture/fungus are PAIR channels whose producers all run AFTER
+		# Thermal (Soil, ErosionPickup, Reactions, FireDust, EcoSurface, Atmosphere), so `back` is last step's
+		# settled output and `p` is the value this step opened with — the same one-step coupling lag this pass
+		# already sanctions for `pressure` and `biomass`. carbonate/silica are SINGLE buffers with no halves.
+		var shared_carriers: Array = [
+			[30, bufs["sediment"][p]], [31, bufs["susp"][p]], [32, bufs["dust"][p]],
+			[33, bufs["carbonate"]], [34, bufs["silica"]], [35, bufs["soil"][p]],
+			[36, bufs["moisture"][p]], [37, bufs["fungus"][p]]]
 
 		# conduct (heat_sphere3d): 0 = TempIn (LIVE), 1 = TempOut (scratch), 2 = nbr, 3 = solid, and the
 		# material mix 4 = snow, 5 = water (BACK, post-flow), 6 = rock_fill. Per-bond INTERFACE conductivity
@@ -164,7 +179,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_conduct_set[p] = _make_set(rd, _conduct_shader, [
 			[0, temp_live], [1, _cond_scratch], [2, nbr], [3, solid],
 			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]],
-			[20, lava_back], [21, bufs["fuel"]], [22, bufs["biomass"]], [23, bufs["detritus"]]])
+			[20, lava_back], [21, bufs["fuel"]], [22, bufs["biomass"]], [23, bufs["detritus"]]]
+			+ shared_carriers)
 		_copy_set[p] = _make_set(rd, _copy_shader, [
 			[0, _cond_scratch], [1, temp_live]])
 		# solar: 0 = temp (LIVE, in-place), 1 = solid, 3 = pos (flat float3), 14 = radial, 15 = nbr.
@@ -189,14 +205,16 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]], [7, bufs["pressure"]],
 			[8, _cond_scratch], [14, radial], [15, nbr], [27, bufs["biomass"]],
 			# 20/21/23 = lava / fuel / detritus for rc_shared.glsli (biomass is already bound at 27 for albedo).
-			[20, lava_back], [21, bufs["fuel"]], [23, bufs["detritus"]]])
+			[20, lava_back], [21, bufs["fuel"]], [23, bufs["detritus"]]]
+			+ shared_carriers)
 		# buoyancy: 0 = TempIn (LIVE), 1 = TempOut (BACK), 2 = solid, the material mix 4 = snow, 5 = water,
 		# 6 = rock_fill (it convects an ENERGY flux and divides by each side's own capacity), 15 = nbr.
 		_buoy_set[p] = _make_set(rd, _buoy_shader, [
 			[0, temp_live], [1, temp_back], [2, solid],
 			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]], [15, nbr],
 			# 20-23 = the carriers rc_shared.glsli needs; this kernel reads none of them itself.
-			[20, lava_back], [21, bufs["fuel"]], [22, bufs["biomass"]], [23, bufs["detritus"]]])
+			[20, lava_back], [21, bufs["fuel"]], [22, bufs["biomass"]], [23, bufs["detritus"]]]
+			+ shared_carriers)
 		# cool: 0 = temp (BACK, in-place), 1 = water (BACK, post-flow), 2 = solid, 4 = lava (BACK, post-flow),
 		# 6 = rock_fill — the latent-heat sink needs the cell's heat capacity, and lava is molten rock.
 		# *(`pos` dropped 2026-08-03: it fed sea_water_target()'s radial depth, and that prescribed thermocline
@@ -205,7 +223,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[0, temp_back], [1, water_back], [2, solid], [4, lava_back], [6, bufs["rock_fill"]],
 			# 21-24 for rc_shared.glsli. Note 24 = SNOW: this kernel's own rc_of had no snow term at all, so a
 			# snowpack cell read as mostly AIR to the one kernel whose job is radiative cooling.
-			[21, bufs["fuel"]], [22, bufs["biomass"]], [23, bufs["detritus"]], [24, bufs["snow"]]])
+			[21, bufs["fuel"]], [22, bufs["biomass"]], [23, bufs["detritus"]], [24, bufs["snow"]]]
+			+ shared_carriers)
 		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid, 4 = the compacted
 		# active-cell list, 5 = its dispatch-indirect args + list length (LavaCellListPass built both earlier
 		# this step, and applied this kernel's own lava/solid early-outs when it did), 15 = nbr

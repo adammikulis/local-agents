@@ -128,9 +128,15 @@ const THERMAL_CONDUCT_AIR_W_MK: float = 0.026
 const THERMAL_CONDUCT_WATER_W_MK: float = 0.60
 const ROCK_DENSITY_KG_M3: float = 2900.0
 const ROCK_SPECIFIC_HEAT_J_KGK: float = 840.0
-const VOL_HEAT_CAP_ROCK_J_M3K: float = 2.436e6      # 2900 * 840
-const VOL_HEAT_CAP_AIR_J_M3K: float = 1186.0        # 1.18 * 1005
-const VOL_HEAT_CAP_WATER_J_M3K: float = 4.171e6     # 997 * 4184
+# DERIVED, not stored. Each of these is a rho*c product and used to be a literal with its own derivation
+# written in a trailing comment — "# 2900 * 840" — which is a relationship asserted in prose next to a number
+# that can stop matching it. VOL_HEAT_CAP_ORGANIC_J_M3K was already derived; these three now are too, so the
+# whole family behaves the same way and moving a density or a specific heat moves the product with it.
+# The physical-constants gate resolves expressions over already-known names, so deriving them keeps every
+# GLSL copy bound (see scripts/check_physical_constants.sh's "DERIVED CONSTANTS ARE FIRST-CLASS HERE").
+const VOL_HEAT_CAP_ROCK_J_M3K: float = ROCK_DENSITY_KG_M3 * ROCK_SPECIFIC_HEAT_J_KGK
+const VOL_HEAT_CAP_AIR_J_M3K: float = AIR_DENSITY_KG_M3 * AIR_SPECIFIC_HEAT_J_KGK
+const VOL_HEAT_CAP_WATER_J_M3K: float = WATER_DENSITY_KG_M3 * WATER_SPECIFIC_HEAT_J_KGK
 const THERMAL_DIFFUSIVITY_ROCK_M2_S: float = 1.026e-6    # 2.5 / 2.436e6
 const THERMAL_DIFFUSIVITY_AIR_M2_S: float = 2.192e-5     # 0.026 / 1186
 const THERMAL_DIFFUSIVITY_WATER_M2_S: float = 1.438e-7   # 0.60 / 4.171e6
@@ -530,7 +536,33 @@ const LATENT_HEAT_VAPORISATION_J_KG: float = 2.257e6
 # Settled seasonal snowpack: rho 300 kg/m^3 (fresh fall 50-100, settled 200-400, firn 500+), c 2090 J/kg/K
 # (ice), lambda 0.15 W/m/K (measured range 0.05-0.5 with density; 0.15 is the settled-pack value). The
 # conductivity is why a snow blanket keeps the soil under it above freezing.
-const VOL_HEAT_CAP_SNOW_J_M3K: float = 6.27e5       # 300 * 2090
+const SNOWPACK_DENSITY_KG_M3: float = 300.0
+# THIS WAS 6.27e5 (= 300 * 2090) AND IT WAS WRONG BY 3.32x, BECAUSE IT MULTIPLIED A SNOWPACK DENSITY BY A
+# CHANNEL THAT IS NOT MEASURED IN SNOWPACK VOLUME. *(Corrected 2026-08-09.)*
+#
+# The `snow` channel is WATER EQUIVALENT, in the same unit as `water`. Two independent facts pin that down:
+# LAMaterialField3D.ICE_DEPTH is `0.5` and its own comment reads "~8 m water equivalent = a real glacial
+# thickness"; and LAMaterialFieldLedger3D.h2o_total() sums water + moisture + snow + soil ONE FOR ONE as the
+# conserved H2O ledger, which is only valid if all four share a unit. Record R21 freezes [[WATER,1.0]] to
+# [[SNOW,1.0]], so a unit of snow is a unit of water that changed phase — 997 kg of H2O, not 300.
+#
+# So the mass in one channel-unit of snow is WATER_DENSITY_KG_M3, and the material it is made of is ICE.
+# "Water equivalent" is exactly the statement that the liquid density is the one that converts the channel to
+# a mass; the snowpack's 300 describes the VOLUME that mass occupies once it has fallen, which is a different
+# question and not the one rho*c asks. Keeping the 300 made a cell of frozen water hold a third of the heat
+# it really holds, in every kernel that includes rc_shared.glsli and in all three CPU transcriptions.
+#
+# This is the same class of error as the one this file's rc unification just fixed, one layer down: there,
+# heat3d_cool had NO snow term and read a snowpack as air, 500x too easy to cool, and correcting it took
+# `snow_cells` 1170 -> 76. This correction pushes the same way again — frozen water is 3.3x more thermally
+# inert than the sim believed — so expect `snow_cells` to fall further, and do NOT read that as a regression
+# or reach for a constant to prop it back up. HANDOFF item 4 asks whether 76 is right; this changes the number
+# that question is asked about.
+#
+# SNOWPACK_DENSITY_KG_M3 is kept because it is a real measured property and the volume a pack occupies is a
+# real question (depth for rendering, burial, the conductivity below). It is simply not the density that
+# converts THIS channel to a mass.
+const VOL_HEAT_CAP_SNOW_J_M3K: float = WATER_DENSITY_KG_M3 * ICE_SPECIFIC_HEAT_J_KGK
 # ORGANIC MATTER — dry cellulosic litter, cured fuel and living tissue, which are one material here.
 # DERIVED as the other three are products, so it cannot drift from the density and specific heat it is made
 # of. It is the DOMINANT thermal mass of any cell that can burn: 632x RC_AIR, so a burning cell's temperature
@@ -538,6 +570,28 @@ const VOL_HEAT_CAP_SNOW_J_M3K: float = 6.27e5       # 300 * 2090
 # a flame 29x too hot.
 const VOL_HEAT_CAP_ORGANIC_J_M3K: float = DRY_WOOD_DENSITY_KG_M3 * DRY_WOOD_SPECIFIC_HEAT_J_KGK
 const THERMAL_CONDUCT_SNOW_W_MK: float = 0.15
+
+# --- THE CARRIERS THAT HELD MATTER AND NO HEAT ----------------------------------------------------------------
+# Added 2026-08-09. `rc_of` counted SEVEN carriers — rock_fill, lava, water, snow, fuel, biomass, detritus —
+# out of the eighteen-odd channels that hold matter, so every gram that crossed into one of the others
+# DELETED ITS OWN HEAT CAPACITY. Measured by LAMaterialFieldEnergyProbe3D: the per-pass CAPACITY leg is
+# -6.64e14 J against a heat leg of -3.14e14, i.e. the unmodelled carriers are twice the size of everything
+# the temperature kernels do, and `erosion_pickup` alone reads -9.79e14 WHILE WRITING NO TEMPERATURE AT ALL —
+# that is bedrock becoming suspended load and its thermal mass ceasing to exist at the moment it does.
+#
+# VAPOUR is water-equivalent for the same reason SNOW is (LAMaterialFieldLedger3D sums water + moisture +
+# snow + soil as one conserved quantity), so its channel unit is 997 kg of H2O carrying vapour's c, not a
+# vapour density times a vapour c. `soil` needs no constant of its own: it is liquid groundwater, so it is
+# WATER. The loose silicate phases — sediment, susp, dust — need none either: the mineral ledger and every
+# 1:1 transfer between them declare them ONE substance with rock_fill, so they carry rock's rho*c.
+#
+# KNOWN INCONSISTENCY, NOT INTRODUCED HERE AND NOT FIXED HERE: reactions_sphere3d.glsl's overburden walk
+# weighs `sediment` at SEDIMENT_DENSITY_KG_M3 2000 while the mole book (LAMaterialFieldMineralBudget3D's
+# lith_element_*) counts the same channel-unit as silicate at ROCK_DENSITY_KG_M3 2900. One of those is wrong.
+# The heat side is made consistent with the CONSERVATION side here, because that is the one a ledger checks.
+const VOL_HEAT_CAP_CARBONATE_J_M3K: float = CALCITE_DENSITY_KG_M3 * CALCITE_SPECIFIC_HEAT_J_KGK
+const VOL_HEAT_CAP_SILICA_J_M3K: float = QUARTZ_DENSITY_KG_M3 * QUARTZ_SPECIFIC_HEAT_J_KGK
+const VOL_HEAT_CAP_VAPOUR_J_M3K: float = WATER_DENSITY_KG_M3 * VAPOUR_SPECIFIC_HEAT_J_KGK
 # ============================================================================================================
 # APPENDED 2026-08-03 — the energies a conserving substrate needs, so a deposit of heat can name what it came
 # out of instead of being conjured. Each is a measured property of the real process, cited the same way as
@@ -640,6 +694,14 @@ const ICE_SPECIFIC_HEAT_J_KGK: float = 2090.0       # ice at 0 C — HALF liquid
                                                     # swings temperature so much faster than a lake
 const VAPOUR_SPECIFIC_HEAT_J_KGK: float = 1996.0    # water vapour at constant pressure, 100 C
 const AIR_SPECIFIC_HEAT_J_KGK: float = 1005.0       # dry air at constant pressure, 300 K
+# Sea-level dry air at 300 K. It was already load-bearing in TWO places and written down in NEITHER: the old
+# `VOL_HEAT_CAP_AIR_J_M3K = 1186.0 # 1.18 * 1005` carried it in a comment, and AMBIENT_O2_DENSITY_KG_M3's
+# 0.2731 is 0.2314 * 1.18 folded into a literal. One name now, and both are products of it.
+const AIR_DENSITY_KG_M3: float = 1.18
+# The two non-silicate mineral species, so `carbonate` and `silica` can carry heat like every other channel
+# that holds matter. Densities were already here (CALCITE / QUARTZ); these are the missing c's.
+const CALCITE_SPECIFIC_HEAT_J_KGK: float = 820.0    # CaCO3, calcite, 25 C (0.82 kJ/kg/K)
+const QUARTZ_SPECIFIC_HEAT_J_KGK: float = 740.0     # SiO2, alpha-quartz, 25 C (0.74 kJ/kg/K)
 
 # --- WATER: VAPORISATION AT 0 C ------------------------------------------------------------------------------
 # A DIFFERENT NUMBER from LATENT_HEAT_VAPORISATION_J_KG above, which is quoted at 100 C. The latent heat of

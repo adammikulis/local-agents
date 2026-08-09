@@ -170,7 +170,7 @@ const float KELVIN = 273.15;           // LAPhysical.KELVIN_OFFSET — T^4 is in
 // whose whole job is a sink. A VOL_HEAT_CAP_MAGMA_J_M3K belongs in PhysicalConstants.gd with its citation;
 // adding it is a change to a file this pass does not own.
 const float RC_LAVA = 2.436e6;         // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
-const float RC_AIR = 1186.0;           // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
+const float RC_AIR = 1185.9;           // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
 
 void main() {
 	// One invocation per ACTIVE cell. `active_args[3]` is the compacted list length; the trailing invocations

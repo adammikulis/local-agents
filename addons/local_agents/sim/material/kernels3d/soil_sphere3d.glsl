@@ -112,9 +112,9 @@ const int REG_CELLS = 4;                   // MUST match MaterialField3D.REGOLIT
 // currency of every enthalpy mix below: water carries 1.7x rock's rho*c per unit volume and 3500x air's, which
 // is why a trickle of groundwater can dominate the temperature of the cell it lands in. Same three values, same
 // names, as heat3d_cool_sphere3d.glsl and heat3d_solar_sphere3d.glsl — one quantity, one number.
-const float RC_AIR   = 1186.0;    // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
+const float RC_AIR   = 1185.9;    // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
 const float RC_ROCK  = 2.436e6;   // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
-const float RC_WATER = 4.171e6;   // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
+const float RC_WATER = 4171448.0; // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
 
 // A REGOLITH cell's heat capacity, from what it is actually made of: a solid matrix of fraction (1 - phi), pore
 // water `s`, and air in the pore space that is left. `heat3d_cool_sphere3d.glsl:94 rc_of()` returns a flat

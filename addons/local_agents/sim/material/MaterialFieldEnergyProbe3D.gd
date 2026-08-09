@@ -121,9 +121,21 @@ const TEMP_PRODUCER: String = "ThermalPass"
 ## Ping-pong producers for the composition channels `rc_of` reads. A checkpoint AFTER the named pass must read
 ## that channel's `back` half. `rock_fill`, `snow`, `fuel`, `biomass` and `detritus` are SINGLE buffers with no
 ## halves (LAMaterialSphereGPU3D.SINGLE_CHANNELS), so they are absent here and `read_raw` ignores the half.
+## The half-map for the PAIR channels LAHeatCapacity reads. `lava` and `sediment` are taken straight from
+## LAMaterialFieldMineralProbe3D, which verified them against its own `chain_all`. `rock_fill`, `snow`,
+## `fuel`, `biomass`, `detritus`, `carbonate` and `silica` are SINGLE buffers with no halves, so they are
+## absent here and `read_raw` ignores the half for them. A channel missing from this map that IS a pair
+## reads the pre-step half all the way through the step, which shows up as its producer's leg landing on the
+## wrong pass rather than as a wrong total — `chain_j` is what catches it.
 const PRODUCERS: Dictionary = {
 	"lava": "WaterSlumpLavaPass",
 	"water": "WaterSlumpLavaPass",
+	"sediment": "WaterSlumpLavaPass",
+	"susp": "ErosionPickupPass",
+	"dust": "FireDustPass",
+	"soil": "SoilPass",
+	"moisture": "AtmospherePass",
+	"fungus": "EcoSurfacePass",
 }
 
 ## The nine passes that write no `temp` buffer. Their HEAT leg is asserted zero as a structural self-check.
@@ -264,14 +276,14 @@ func post_step() -> void:
 ## return [heat_j, capacity_j] against the previous checkpoint. `opening` skips the split (there is no
 ## previous checkpoint) and just latches the state.
 ##
-## THE rc FORMULA HERE IS A TRANSCRIPTION OF kernels3d/rc_shared.glsli `rc_of()`, AND THAT IS A KNOWN HAZARD —
-## it is how the ledger's own stock came to be measured against a capacity model the kernels did not use,
-## which made a 7.4% drift read as 12.8% once the two were reconciled. It is tolerable HERE and only here,
-## because every published number is a DIFFERENCE taken against the same formula on both sides: a
-## transcription error scales all thirteen legs by a common factor and cannot change which pass is largest,
-## which is the only question this instrument is asked. Do not read `stock_j` as an absolute —
-## LAMaterialFieldEnergyLedger3D owns that number. Any edit to rc_shared.glsli must change this in the same
-## commit.
+## The mix comes from LAHeatCapacity — the ONE GDScript definition, transcribed from rc_shared.glsli and held
+## to it by scripts/check_heat_capacity_ssot.sh. This file must not write the formula down again; four
+## copies of it in GDScript is what put the BOOKED and the STOCK sides of the ledger on different models and
+## made a 7.4% drift read as 12.8%.
+##
+## Read `stock_j` as an instrument-internal quantity, not as the planet's energy: every number published here
+## is a DIFFERENCE against the same formula on both sides, so it answers "which pass" robustly.
+## LAMaterialFieldEnergyLedger3D owns the absolute.
 func _sample(opening: bool) -> Array:
 	var gpu = _f._gpu
 	var cc: int = _f._cell_count
@@ -279,28 +291,14 @@ func _sample(opening: bool) -> Array:
 	var side: float = maxf(float(_f._cell_size), 0.001)
 	_volume = side * side * side
 
-	var rock: PackedFloat32Array = _read(gpu, "rock_fill", phase)
-	var lava: PackedFloat32Array = _read(gpu, "lava", phase)
-	var water: PackedFloat32Array = _read(gpu, "water", phase)
-	var snow: PackedFloat32Array = _read(gpu, "snow", phase)
-	var fuel: PackedFloat32Array = _read(gpu, "fuel", phase)
-	var bio: PackedFloat32Array = _read(gpu, "biomass", phase)
-	var det: PackedFloat32Array = _read(gpu, "detritus", phase)
+	var ch: Dictionary = {}
+	for name in LAHeatCapacity.channels():
+		ch[name] = _read(gpu, name, phase)
 	var temp: PackedFloat32Array = _read(gpu, "temp", phase)
-
-	var rc_air: float = LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
-	var rc_rock: float = LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
-	var rc_water: float = LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
-	var rc_snow: float = LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K
-	var rc_org: float = LAPhysical.VOL_HEAT_CAP_ORGANIC_J_M3K
-
-	var ok: bool = temp.size() >= cc and rock.size() >= cc and lava.size() >= cc and water.size() >= cc \
-		and snow.size() >= cc and fuel.size() >= cc and bio.size() >= cc and det.size() >= cc
-	if not ok:
+	if temp.size() < cc:
 		return [0.0, 0.0]
 
-	var rc_now: PackedFloat64Array = PackedFloat64Array()
-	rc_now.resize(cc)
+	var rc_now: PackedFloat64Array = LAHeatCapacity.field(ch, cc)
 	var t_now: PackedFloat64Array = PackedFloat64Array()
 	t_now.resize(cc)
 	var have_prev: bool = (not opening) and _rc_prev.size() >= cc and _t_prev.size() >= cc
@@ -309,15 +307,8 @@ func _sample(opening: bool) -> Array:
 	var heat: float = 0.0
 	var capacity: float = 0.0
 	for c in cc:
-		var f_rock: float = clampf(rock[c] + lava[c], 0.0, 1.0)
-		var f_water: float = clampf(water[c], 0.0, 1.0)
-		var f_snow: float = clampf(snow[c], 0.0, 1.0)
-		var f_org: float = clampf(fuel[c] + bio[c] + det[c], 0.0, 1.0)
-		var f_air: float = maxf(0.0, 1.0 - f_rock - f_water - f_snow - f_org)
-		var rc: float = rc_air * f_air + rc_rock * f_rock + rc_water * f_water \
-			+ rc_snow * f_snow + rc_org * f_org
+		var rc: float = rc_now[c]
 		var tk: float = temp[c] + LAPhysical.KELVIN_OFFSET
-		rc_now[c] = rc
 		t_now[c] = tk
 		stock += rc * tk
 		cap += rc

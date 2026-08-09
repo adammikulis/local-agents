@@ -223,7 +223,15 @@ const BASELINE_SKIP_SAMPLES: int = 2
 ## its own header says why: a stock computed from a different capacity model measures the disagreement between
 ## two models rather than the physics. So when the shared one gained carriers, this had to gain the same ones
 ## or the drift it reports would have been the mismatch.
-const LEGS: PackedStringArray = ["rock_fill", "lava", "fuel"]
+## *(Widened again 2026-08-09, with the carriers.)* `rc_of` counted seven channels out of the fifteen that
+## hold matter, so eight substances were thermally invisible and every gram crossing into one deleted its own
+## heat capacity — measured at TWICE the size of everything the temperature kernels do (see
+## LAMaterialFieldEnergyProbe3D). Of the eight, `dust`, `detritus`, `fungus`, `carbonate` and `silica` are
+## demand-gated or have no CPU mirror at all, so they must arrive through the probe.
+## `carbonate` and `silica` have NO `_f._*` mirror BY DESIGN (LAMaterialFieldMineralBudget3D:194-195) — an
+## absent probe leg reads as absent rather than as a stale zero, which is the behaviour we want.
+const LEGS: PackedStringArray = ["rock_fill", "lava", "fuel", "dust", "detritus", "fungus",
+	"carbonate", "silica"]
 
 var _f = null                                # back-reference to the owning LAMaterialField3D
 
@@ -318,25 +326,43 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	var rc_rock: float = LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
 	var rc_water: float = LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
 	var rc_snow: float = LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K
-	var rc_org: float = LAPhysical.VOL_HEAT_CAP_ORGANIC_J_M3K
+	# THE MIX IS LAHeatCapacity's NOW, NOT THIS FILE'S. *(2026-08-09.)* This loop used to transcribe
+	# rc_shared.glsli inline, and so did LAMaterialFieldEnergyBudget3D — which computes the BOOKED solar and
+	# longwave terms that this ledger differences its STOCK against. Two copies on two sides of one
+	# subtraction is how part of the reported drift became two instruments disagreeing rather than the planet
+	# losing heat; reconciling this copy with the kernels' once already took the measured drift from 7.4% to
+	# 12.8%. One definition, gated by scripts/check_heat_capacity_ssot.sh.
+	var ch: Dictionary = {
+		"rock_fill": rock_fill if has_rock else PackedFloat32Array(),
+		"lava": lava if has_lava else PackedFloat32Array(),
+		"fuel": fuel if has_fuel else PackedFloat32Array(),
+		"water": water if has_water else PackedFloat32Array(),
+		"snow": snow if has_snow else PackedFloat32Array(),
+		"biomass": biomass if has_org else PackedFloat32Array(),
+		"detritus": detritus if has_org else PackedFloat32Array(),
+		# Not demand-gated, so the always-hot CPU mirror is the honest source.
+		"sediment": _f._sediment, "susp": _f._susp, "soil": _f._soil, "moisture": _f._moisture,
+		# Demand-gated or mirror-less: probe legs only. `.get(name, empty)` rather than a mirror fallback,
+		# so a leg that did not arrive reads as ABSENT (contributing zero, and reported so in
+		# `energy_stock_live`) instead of as a stale value pretending to be a measurement.
+		"dust": legs.get("dust", PackedFloat32Array()),
+		"fungus": legs.get("fungus", PackedFloat32Array()),
+		"carbonate": legs.get("carbonate", PackedFloat32Array()),
+		"silica": legs.get("silica", PackedFloat32Array()),
+	}
+	var rc_all: PackedFloat64Array = LAHeatCapacity.field(ch, cc)
+	var cap_live: Dictionary = LAHeatCapacity.live_map(ch, cc)
 	for c in cc:
-		# kernels3d/rc_shared.glsli rc_of(), transcribed. Fractions of the CELL VOLUME, air filling whatever
-		# is left. NO `solid` BRANCH — the shared definition dropped it on 2026-08-09 and so does this. A cell
-		# that really is full rock still scores RC_ROCK because f_rock reaches 1.0 on its own; what is gone is
-		# the 43% capacity STEP that used to fire when rock_fill crossed 0.5, on a planet that crosses it
-		# thousands of times a run.
 		var f_rock: float = clampf((rock_fill[c] if has_rock else 0.0) + (lava[c] if has_lava else 0.0), 0.0, 1.0)
 		var f_water: float = clampf(water[c], 0.0, 1.0) if has_water else 0.0
 		var f_snow: float = clampf(snow[c], 0.0, 1.0) if has_snow else 0.0
-		var f_org: float = 0.0
-		if has_org:
-			f_org = clampf((fuel[c] if has_fuel else 0.0) + biomass[c] + detritus[c], 0.0, 1.0)
-		var f_air: float = maxf(0.0, 1.0 - f_rock - f_water - f_snow - f_org)
-		var rc: float = rc_air * f_air + rc_rock * f_rock + rc_water * f_water + rc_snow * f_snow + rc_org * f_org
+		var rc: float = rc_all[c]
+		# The per-carrier capacity legs stay coarse on purpose: they exist to name WHICH SUBSTANCE moved the
+		# capacity term, and rock/water/snow/air is the resolution that question has ever needed.
 		cap_rock += rc_rock * f_rock
 		cap_water += rc_water * f_water
 		cap_snow += rc_snow * f_snow
-		cap_air += rc_air * f_air
+		cap_air += rc_air * maxf(0.0, 1.0 - f_rock - f_water - f_snow)
 		if solid[c] != 0 and c % depth == 0:
 			shell_solid += 1
 		var tk: float = temp[c] + LAPhysical.KELVIN_OFFSET
@@ -357,8 +383,10 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	}
 	out["energy_stock"] = stock
 	out["energy_stock_cells"] = cc
-	out["energy_stock_live"] = {"rock_fill": has_rock, "water": has_water, "snow": has_snow,
-		"lava": has_lava, "fuel": has_fuel, "organic": has_org}
+	# Every channel the capacity mix reads, and whether it actually arrived. Built by LAHeatCapacity from the
+	# same dictionary the mix consumed, so it cannot fall out of step with the model the way a hand-written
+	# list of six flags did while the model was counting fifteen channels.
+	out["energy_stock_live"] = cap_live
 	# The grid's total heat capacity, in J/K, and which substance holds it. `energy_capacity_w_m2` is the RATE
 	# this moves at; these say what moved.
 	out["energy_cap_j_k"] = (cap_rock + cap_water + cap_snow + cap_air) * volume

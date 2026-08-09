@@ -171,9 +171,27 @@ func _compute() -> Dictionary:
 	var legs: Dictionary = {}
 	if _f._gpu != null and _f._gpu.has_method("take_probe"):
 		legs = _f._gpu.take_probe()
-		_f._gpu.request_probe(PackedStringArray(["pressure", "rock_fill"]))
+		# The capacity mix needs every carrier, and five of them are demand-gated or mirror-less. Probe names
+		# UNION across callers (see request_probe), so asking for the same legs the energy ledger asks for
+		# costs one shared sample, and both instruments then read the SAME instant — which is the inclusion
+		# rule they both depend on.
+		var want: PackedStringArray = PackedStringArray(["pressure"])
+		want.append_array(LAHeatCapacity.channels())
+		_f._gpu.request_probe(want)
 	var pressure: PackedFloat32Array = legs.get("pressure", _f._pressure)
 	var rock_fill: PackedFloat32Array = legs.get("rock_fill", _f._rock_fill)
+	# ONE capacity model, shared with the stock this module's output is differenced against. See the note at
+	# the `rc` assignment below for what the two-copy version cost.
+	var _rc_channels: Dictionary = {
+		"rock_fill": rock_fill, "lava": legs.get("lava", _f._lava),
+		"sediment": _f._sediment, "susp": _f._susp, "dust": legs.get("dust", PackedFloat32Array()),
+		"carbonate": legs.get("carbonate", PackedFloat32Array()),
+		"silica": legs.get("silica", PackedFloat32Array()),
+		"water": _f._water, "soil": _f._soil, "snow": _f._snow, "moisture": _f._moisture,
+		"fuel": legs.get("fuel", _f._fuel), "biomass": _f._biomass,
+		"detritus": legs.get("detritus", _f._detritus),
+		"fungus": legs.get("fungus", PackedFloat32Array()),
+	}
 	if solid.size() != cc or temp.size() != cc:
 		return out
 	var has_water: bool = water.size() == cc
@@ -293,17 +311,17 @@ func _compute() -> Dictionary:
 			# canopy is darker than the ground it stands on.
 			var land: float = lerpf(LAPhysical.ALBEDO_BARE_GROUND, LAPhysical.ALBEDO_VEGETATION, veg)
 			var albedo: float = lerpf(lerpf(land, LAPhysical.ALBEDO_OCEAN, wet), LAPhysical.ALBEDO_SNOW_ICE, icy)
-			# glsl:201-210 rc_of_cell() x glsl:418 cell_size — the volumetric heat capacity of what the cell
-			# holds, by volume fraction, times the cell's own depth. Air fills whatever is left.
-			var f_rock: float = clampf(rock_fill[c], 0.0, 1.0) if has_rock else 0.0
-			var f_snow: float = clampf(snow_m, 0.0, 1.0)
-			var rc: float = LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
-			if not solid_here:
-				var f_air: float = maxf(0.0, 1.0 - f_rock - wet - f_snow)
-				rc = LAPhysical.VOL_HEAT_CAP_AIR_J_M3K * f_air \
-					+ LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K * f_rock \
-					+ LAPhysical.VOL_HEAT_CAP_WATER_J_M3K * wet \
-					+ LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K * f_snow
+			# THIS BLOCK WAS THE PRE-UNIFICATION CAPACITY MODEL, SITTING ON THE BOOKED SIDE OF THE LEDGER'S
+			# OWN SUBTRACTION. *(Replaced 2026-08-09.)* It kept the `solid` early-return that
+			# rc_shared.glsli deleted — the one that made a unit of bedrock split 0.4/0.6 across two cells
+			# hold 3.41e6 J/m3K while split 0.5/0.5 held 4.87e6, a 43% jump for no change of mass — and it
+			# counted neither lava nor organic matter nor any of the eight carriers added with them.
+			# LAMaterialFieldEnergyLedger3D differences the BOOKED terms computed here against a STOCK built
+			# from the shared model, so every one of those disagreements was published as planetary energy
+			# drift. Reconciling the stock's copy alone already took the measured drift from 7.4% to 12.8%;
+			# this was the other half of that subtraction, and it was still on the old model afterwards.
+			# Its old comment cited "glsl:201-210 rc_of_cell()", a function that no longer exists.
+			var rc: float = LAHeatCapacity.cell(_rc_channels, c)
 			var cap: float = maxf(rc * cell_size, 1.0)
 			# Provenance only — this reports whether the greenhouse came from a live pressure readback. The
 			# radiative terms below use `p_beam`, the COLUMN's value, because both cells must share it.

@@ -96,8 +96,20 @@ const float WATER_MIN = 0.05;         // matches atmos_evap_sphere3d.glsl's own 
 // need to be: a cell above the boiling point of water is not holding snow.
 // A CELL'S VOLUMETRIC HEAT CAPACITY — ONE definition for every kernel that books heat, because five
 // copies in four different formulas is how heat gets created and destroyed at every exchange.
-// Textual include: it binds rock_fill/lava/water/snow/fuel/biomass/detritus by NAME, so it must sit
+// Textual include: it binds all fifteen carriers by NAME, so it must sit
 // below the buffer declarations. See rc_shared.glsli for the table of what each old copy left out.
+// THE EIGHT CARRIERS rc_shared.glsli GAINED 2026-08-09. This kernel reads none of them itself; they are
+// bound because a cell's heat capacity is a property of EVERYTHING in it, and these eight were counted
+// nowhere, so every gram that crossed into one deleted its own thermal mass. Indices 30-37 are the same
+// in all four heat kernels on purpose. Do not drop one because "this kernel does not need it".
+layout(set = 0, binding = 30, std430) restrict readonly buffer Sediment { float sediment[]; };
+layout(set = 0, binding = 31, std430) restrict readonly buffer Susp { float susp[]; };
+layout(set = 0, binding = 32, std430) restrict readonly buffer Dust { float dust[]; };
+layout(set = 0, binding = 33, std430) restrict readonly buffer Carbonate { float carbonate[]; };
+layout(set = 0, binding = 34, std430) restrict readonly buffer Silica { float silica[]; };
+layout(set = 0, binding = 35, std430) restrict readonly buffer Soil { float soil[]; };
+layout(set = 0, binding = 36, std430) restrict readonly buffer Moisture { float moisture[]; };
+layout(set = 0, binding = 37, std430) restrict readonly buffer Fungus { float fungus[]; };
 #include "rc_shared.glsli"
 
 void main() {
