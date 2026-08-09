@@ -306,6 +306,41 @@ commands and the legacy-adapter list below are historical and should not be run 
 
 ## Breaking Changes
 
+- **2026-08-09 (0.4): combustion is a reaction record; `fire_sphere3d.glsl` is deleted.**
+  - **Record schema.** The reaction record grew 128 → **144 bytes** (`LAReactionDefs.RECORD_BYTES`) for
+    three fields physics forced: `enthalpy_j_m3` (heat per unit of extent, divided by the cell's own heat
+    capacity — it cannot be a TEMP product because the balance gate rightly refuses one), `quench_slot` /
+    `quench_min` (the supply a reaction goes out BEFORE exhausting — the flammability limit), and
+    `t_ceiling_k` (the temperature a rate law stops applying at, moved off the ARRHENIUS branch where it was
+    hardcoded to water's boiling point, i.e. a fact about WATER applied to every Arrhenius record there will
+    ever be). Any serialised table from an older build is the wrong stride and must be rebuilt; there are no
+    persisted record tables, so nothing on disk is affected.
+  - **Channel semantics.** `fire` changes meaning from a persistent 0..1 intensity with its own state
+    machine to a per-step INSTRUMENT: the fraction of the cell's usable oxygen that combustion consumed,
+    where usable means above the flammability limit. Its consumers (`fire_cells`, `fire_peak`, `is_burning`,
+    `fungus_sphere3d`'s scorch test) keep their 0.02 thresholds and keep meaning what they meant. `FUEL`
+    (slot 5) becomes a real reactable channel with `read_ch`/`add_ch` branches; it was declared in both
+    enums with no branch in either, so it read 0 and its writes vanished.
+  - **Deleted constants.** `LAPhysical.VEGETATION_IGNITION_C` and `FLAME_RADIATIVE_FRACTION` were that
+    kernel's authorities and have no consumer. A solid fuel has no ignition point the way water has a
+    freezing point; what is a property of the material is the activation energy of its pyrolysis, which
+    lives with the material in `LASubstances`.
+
+- **2026-08-08 (0.4): `LASubstances` is the SSOT for matter, and `PhysicalConstants.gd` is no longer it.**
+  - **Where a material property lives.** Every material declares its own in ONE entry — formula, molar
+    mass, density, specific heats by phase, phase boundaries, latent heats, conductivity, emissivity,
+    albedo, kinetics. `LAReactionBalance.composition()` and `.mol_per_unit()` are VIEWS of it through one
+    `SLOT_SUBSTANCE` map, not parallel tables. `PhysicalConstants.gd` keeps only what is NOT a property of
+    a substance: gravity, the solar constant, Stefan-Boltzmann.
+  - **Channel units.** Organic matter gained a real density (dry wood, 500 kg/m³), so one unit of the
+    organic channels is **1951× more substance** than it was when the unit had been inferred from the fire
+    kernel's `burned = min(fuel, o2)`. Every cross-substance coefficient in R15/R19/R20 moved by that
+    factor, and **`element_*` changed scale**: nothing measured before `557a34b` is comparable on those
+    keys. The bio RATE constants were fitted against the old stoichiometry and are still owed a derivation.
+  - **Phase is derived, not stored** (`enthalpy_to_state`). No channel collapse has happened yet — `water`,
+    `moisture` and `snow` are still three channels — but the table is what they collapse onto, and it is
+    what makes latent heat structural rather than a number six records can disagree about.
+
 - **2026-08-08 (0.4): the lumped mineral species `M` is gone, and the field gained two channels.**
   - **Save/field schema.** `carbonate` and `silica` join `LAMaterialSphereGPU3D.SINGLE_CHANNELS`, so
     `snapshot_channels()` writes two more arrays and `restore_channels()` reads them. Restore is
