@@ -116,8 +116,10 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 // --- MODEL PARAMETERS -------------------------------------------------------------------------------------
-// Properties of this substrate and of this integrator, not of matter. MUST match MaterialLava3D.gd /
-// cell_list_lava_sphere3d.glsl where noted.
+// Properties of this substrate and of this integrator, not of matter. MUST match
+// cell_list_lava_sphere3d.glsl where noted. *(The old text also named MaterialLava3D.gd, which does not
+// exist anywhere in this tree and could not be matched against. A comment that points at a deleted file is
+// worse than none: it reads as a live contract nobody can check.)*
 const float LAVA_MIN_MASS = 0.0001;
 // The temperature below which this kernel stops calling a cell molten and hands it to the M5 solidify record.
 // It matches reactions/PhaseRecords.gd's SOLIDIFY_TEMP, which is the record that actually performs
@@ -209,24 +211,44 @@ void main() {
 	// cell boils, which is what quenches it to pillow basalt in a few steps.
 	float cap = max((RC_LAVA * f_lava + RC_AIR * (1.0 - f_lava)) * params.cell_size, 1.0);
 
-	// Classify this cell's 6 faces ONCE. A face radiates if there is somewhere for the radiation to go:
-	//   * nbr < 0  — the domain boundary, i.e. space. Nothing comes back (the 2.7 K microwave background is
-	//                3e-6 W/m^2, eleven orders below the outgoing term).
+	// Classify this cell's 6 faces ONCE. A face radiates if there is somewhere for the radiation to go.
+	// The neighbour table is `cell*6 + slot` with slot 0 = INWARD (radial down), 1-4 lateral, 5 = OUTWARD.
+	//   * slot 5 with nbr < 0 — the top of the atmosphere, i.e. space. Nothing comes back (the 2.7 K
+	//                microwave background is 3e-6 W/m^2, eleven orders below the outgoing term).
+	//   * slot 0 with nbr < 0 — THE CORE BOUNDARY, WHICH IS NOT SPACE. *(Fixed 2026-08-08. This loop tested
+	//                `nb < 0` on all six slots and called every one of them space, so the innermost shell
+	//                radiated out through the centre of the planet. `nbr[c*6+0] == c-1` is a bijection down
+	//                a column — ReactionDefs.gd:83-87 — so slot 0 only goes negative at r = 0, where the
+	//                neighbour is the geothermal reservoir. It is rock: opaque, and heat_sphere3d.glsl:150
+	//                already carries that bond as the core conduction term.)*
 	//   * solid    — rock. Opaque in both directions, so no radiative term at all; heat_sphere3d.glsl carries
 	//                this bond by conduction and gives the rock exactly what the lava loses.
-	//   * open     — air, water or another lava cell. It radiates back at its own temperature, and that
-	//                return is what makes an interior face between two equally hot cells carry nothing.
+	//   * MOLTEN   — another lava cell. TREATED AS AN INTERIOR FACE AND SKIPPED, which is what makes this
+	//                kernel conserve. Radiation between two molten cells is an exchange, and this kernel is
+	//                dispatched INDIRECTLY over the active-cell list, so both ends do run — but each computes
+	//                its own half in place against a neighbour temperature the other half is concurrently
+	//                writing, so the two halves are not antisymmetric and the pair does not conserve. The
+	//                previous version floored emission at zero to hide that, which made the hotter cell lose
+	//                heat that the cooler one never received. Conduction (heat_sphere3d) already carries a
+	//                lava-lava bond correctly, so the honest move is to leave this face to it.
+	//   * open     — air or water. It radiates back at its own temperature.
 	uint base = g * 6u;
 	float faces = 0.0;      // how many faces emit, in units of a whole cell face
 	float lw_in = 0.0;      // W/m^2 returning across those faces, held constant across the sub-steps
 	for (int i = 0; i < 6; i++) {
 		int nb = nbr[base + uint(i)];
 		if (nb < 0) {
+			if (i == 0) {
+				continue;   // the core, not space
+			}
 			faces += 1.0;
 			continue;
 		}
 		if (solid[nb] != 0.0) {
 			continue;
+		}
+		if (lava[nb] > LAVA_MIN_MASS) {
+			continue;       // interior molten face — conduction owns it
 		}
 		faces += 1.0;
 		float tn = max(temp[nb] + KELVIN, 1.0);
@@ -247,11 +269,20 @@ void main() {
 	for (int s = 0; s < slices; ++s) {
 		float tk = max(t_c + KELVIN, 1.0);
 		float em = f_lava * (faces * BASALT_EMIS * STEFAN * tk * tk * tk * tk - lw_in);
-		// FLOORED AT ZERO, and this is the kernel's one invariant: emission may only ever LOWER a cell's
-		// temperature. A neighbour hotter than this cell does warm it in reality, but it warms it by radiating
-		// — which is that neighbour's own emission, computed by its own invocation of this kernel, and adding
-		// it here as well would count the same photons twice. It also makes the pre-existing in-place race on
-		// `temp[nb]` harmless: a stale read can move the magnitude, never the sign.
+		// FLOORED AT ZERO, and the reason is NOT the one that used to be written here. *(Corrected
+		// 2026-08-08. It said "a neighbour hotter than this cell warms it by radiating — which is that
+		// neighbour's own emission, computed by its own invocation". That is false: this kernel's invocation
+		// for a cell only ever SUBTRACTS from that cell. Nothing anywhere credited the cooler cell, so
+		// across a lava-lava gradient the hotter one lost heat that the cooler one never received, and the
+		// floor is what hid it. That case no longer reaches here — an interior molten face is skipped in the
+		// classification above and left to conduction.)*
+		//
+		// What the floor does now is refuse an UNBOOKED GAIN. The remaining radiating faces see air, water or
+		// space, and this kernel does not debit the air for what it hands the lava. Emission outward is an
+		// approximation with a known sign — a sink the planet's books can account for. Emission inward would
+		// be a source with no donor, which is the one thing this substrate may never have. Basalt at 1400 K
+		// beside air makes the inward case physically unreachable anyway; the floor is there so it cannot
+		// become reachable by accident.
 		t_c -= clamp(max(em, 0.0) * sub_dt / cap, 0.0, MAX_DT_PER_STEP);
 	}
 	temp[g] = t_c;
