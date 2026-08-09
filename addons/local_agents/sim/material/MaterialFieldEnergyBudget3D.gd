@@ -51,7 +51,7 @@ extends RefCounted
 ##
 ## AND `energy_clamped_cells` IS THE INSTRUMENT'S OWN INTEGRITY CHECK. The kernel guards one step's dT with
 ## `clamp(dT, -MAX_DT_PER_STEP, MAX_DT_PER_STEP)` and calls it "numerical guard ONLY (not a physics clamp)"
-## (heat3d_solar_sphere3d.glsl:385-399). That claim is true only while the guard never binds. This counts the
+## (heat3d_solar_sphere3d.glsl:507-521). That claim is true only while the guard never binds. This counts the
 ## cells where it does. A non-zero count means energy is being silently discarded and the books below do NOT
 ## describe what the field actually did.
 ##
@@ -65,39 +65,49 @@ extends RefCounted
 # --- CONSTANTS FROM LAPhysical -----------------------------------------------------------------------------
 # These are properties of matter, so they live in one place and are read, never re-typed. Each is equal to the
 # kernel's own copy (the kernel must declare its own because GLSL cannot read GDScript):
-#   LAPhysical.STEFAN_BOLTZMANN 5.670374419e-8  vs  glsl:108 STEFAN         5.670374419e-8  (equal)
-#   LAPhysical.KELVIN_OFFSET    273.15          vs  glsl:110 KELVIN         273.15
-#   LAPhysical.ALBEDO_BARE_GROUND 0.15          vs  glsl:124 ALBEDO_GROUND  0.15
-#   LAPhysical.ALBEDO_OCEAN       0.06          vs  glsl:125 ALBEDO_WATER   0.06
-#   LAPhysical.ALBEDO_SNOW_ICE    0.65          vs  glsl:126 ALBEDO_ICE     0.65
-#   LAPhysical.ATMOS_OPTICAL_DEPTH 0.835        vs  glsl:195 TAU_SEA        0.835
-#   LAPhysical.TWO_STREAM_COEFF    0.75         vs  glsl:196 TAU_TWO_STREAM 0.75
-#   LAPhysical.ATMOS_SW_OPTICAL_DEPTH 0.2597    vs  glsl:221 TAU_SW         0.2597
-#   LAPhysical.AIR_MASS_HORIZON   38.0          vs  glsl:225 AIR_MASS_HORIZON 38.0
-#   LAPhysical.VOL_HEAT_CAP_{AIR,ROCK,WATER,SNOW} vs glsl:153-156 RC_{AIR,ROCK,WATER,SNOW}
+#   LAPhysical.STEFAN_BOLTZMANN 5.670374419e-8  vs  glsl:118 STEFAN         5.670374419e-8  (equal)
+#   LAPhysical.KELVIN_OFFSET    273.15          vs  glsl:120 KELVIN         273.15
+#   LAPhysical.ALBEDO_BARE_GROUND 0.15          vs  glsl:134 ALBEDO_GROUND  0.15
+#   LAPhysical.ALBEDO_OCEAN       0.06          vs  glsl:135 ALBEDO_WATER   0.06
+#   LAPhysical.ALBEDO_SNOW_ICE    0.65          vs  glsl:136 ALBEDO_ICE     0.65
+#   LAPhysical.DRY_WOOD_DENSITY_KG_M3 500.0     vs  glsl:163 RHO_CELLULOSE  500.0
+#   LAPhysical.ALBEDO_VEGETATION  0.12          vs  glsl:164 ALBEDO_VEG     0.12
+#   LAPhysical.FOLIAGE_FRACTION_OF_PLANT_MASS 0.03 vs glsl:165 FOLIAGE_FRACTION 0.03
+#   LAPhysical.LEAF_MASS_PER_AREA_KG_M2 0.080   vs  glsl:166 LEAF_MASS_PER_AREA 0.080
+#   LAPhysical.CANOPY_EXTINCTION_COEFF 0.5      vs  glsl:167 CANOPY_EXTINCTION 0.5
+#   LAPhysical.ATMOS_OPTICAL_DEPTH 0.835        vs  glsl:245 TAU_SEA        0.835
+#   LAPhysical.TWO_STREAM_COEFF    0.75         vs  glsl:246 TAU_TWO_STREAM 0.75
+#   LAPhysical.ATMOS_SW_OPTICAL_DEPTH 0.2597    vs  glsl:271 TAU_SW         0.2597
+#   LAPhysical.AIR_MASS_HORIZON   38.0          vs  glsl:275 AIR_MASS_HORIZON 38.0
+#   LAPhysical.VOL_HEAT_CAP_{AIR,ROCK,WATER,SNOW} vs glsl:193-196 RC_{AIR,ROCK,WATER,SNOW}
 # *(Every glsl line number in this file was stale by 20-50 lines before 2026-08-03. The VALUES still matched,
-# which is why nobody noticed: a citation that points at the wrong line is only found when someone follows it.)*
+# which is why nobody noticed: a citation that points at the wrong line is only found when someone follows it.
+# IT HAPPENED AGAIN, and this is the follow: at 50e71a3 every number in this block was stale by 6-16 lines —
+# STEFAN was cited at 108 and sat at 114, TAU_SW at 221 and sat at 237 — because the kernel grew comment
+# blocks above them. All of them are re-derived here against the kernel as it stands on 2026-08-09. That two
+# rounds of hand-transcribed line numbers have now both rotted is the argument for citing the CONSTANT NAME,
+# which cannot move; the line number is a convenience and should be read as one.)*
 
 # --- CONSTANTS MIRRORED FROM THE KERNEL --------------------------------------------------------------------
 # These are MODEL parameters of this world (cell scale, step size, thresholds), not properties of matter, so
 # they are NOT in LAPhysical and are transcribed here with their kernel line. If you change one in the kernel,
 # change it here in the same edit — nothing else keeps them equal.
 # CORRECTED 2026-08-03. This read 600.0, described as "this world's solar constant, NOT LAPhysical's 1361".
-# The kernel had already been reconciled to the measured 1361 (heat3d_solar_sphere3d.glsl:109,
+# The kernel had already been reconciled to the measured 1361 (heat3d_solar_sphere3d.glsl:119,
 # `// LAPhysical.SOLAR_CONSTANT_W_M2`) and nobody updated the instrument, so for as long as that gap
 # existed this file under-reported absorbed shortwave by 2.27x — and with it energy_net, energy_net_cool,
 # energy_imbalance and energy_imbalance_cool, which are the numbers every climate argument is made from.
 # It is read from the authority now rather than transcribed, so it cannot drift again.
-const K_SOLAR_CONSTANT: float = LAPhysical.SOLAR_CONSTANT_W_M2   # glsl:109
-const K_ICE_ALBEDO_GAIN: float = 40.0      # glsl:127 — snow mass -> reflectivity; a dusting already whitens
+const K_SOLAR_CONSTANT: float = LAPhysical.SOLAR_CONSTANT_W_M2   # glsl:119
+const K_ICE_ALBEDO_GAIN: float = 40.0      # glsl:137 — snow mass -> reflectivity; a dusting already whitens
 # THE FOUR AREAL HEAT CAPACITIES ARE GONE, from the kernel and from here. They were K_HEAT_CAP_AIR 345600 /
 # ROCK 604800 / WATER 3888000 / SNOW 1080000 J/m^2/K, and against rho*c*cell_size for the very cell the
 # conduction kernel was stepping they were wrong by 18.2x (air, too large), 64.4x (rock), 17.2x (water) and
 # 9.3x (snow). The kernel derives the capacity per cell now — LAPhysical's real volumetric values times the
 # cell's own depth — so this file reads the same authority instead of transcribing four literals.
-const K_P_REF: float = 100.0               # glsl:194 P_REF — sea-level column pressure in this world's units
-const K_MAX_DT_PER_STEP: float = 5.0       # glsl:122 MAX_DT_PER_STEP — the guard whose binding this file counts
-const K_WATER_SURFACE_MIN: float = 0.5     # glsl:229 WATER_SURFACE_MIN — water fraction that makes a cell a sea surface
+const K_P_REF: float = 100.0               # glsl:244 P_REF — sea-level column pressure in this world's units
+const K_MAX_DT_PER_STEP: float = 5.0       # glsl:132 MAX_DT_PER_STEP — the guard whose binding this file counts
+const K_WATER_SURFACE_MIN: float = 0.5     # glsl:279 WATER_SURFACE_MIN — water fraction that makes a cell a sea surface
 
 var _f = null                                # back-reference to the owning LAMaterialField3D
 var _samples: int = 0                        # recomputes so far
@@ -155,7 +165,7 @@ func _compute() -> Dictionary:
 	# 2026-08-03: this used to call `request_channel("pressure")` here. A gauge must not decide readback
 	# residency — the simulation's own write paths read those mirrors, so requesting one changes the run. See
 	# the `request_channel` docstring in LAMaterialSphereGPU3D.)* If a leg does not come back the mirror stands
-	# in, and for pressure the all-zero mirror means the kernel's own step-0 fallback (glsl:350-356) applies:
+	# in, and for pressure the all-zero mirror means the kernel's own step-0 fallback (glsl:427-430) applies:
 	# p_col <= 0 -> P_REF, a uniform sea-level emissivity with no altitude structure. `energy_pressure_live`
 	# reports which of the two the numbers below were built from, so nobody reads a flat profile as a result.
 	var legs: Dictionary = {}
@@ -170,6 +180,11 @@ func _compute() -> Dictionary:
 	var has_snow: bool = snow.size() == cc
 	var has_rock: bool = rock_fill.size() == cc
 	var has_pressure: bool = pressure.size() == cc
+	# The canopy leg of the albedo (glsl:396-401). Read from the CPU mirror the same way `snow` and `water`
+	# above are, and NEVER by calling request_channel — a gauge that changes which channels are resident
+	# changes the simulation, which is the rule this file's own header lane exists to keep.
+	var biomass: PackedFloat32Array = _f._biomass
+	var has_biomass: bool = biomass.size() == cc
 	var pressure_live: int = 0
 	var sun: Vector3 = sun_field_dir()
 
@@ -208,9 +223,9 @@ func _compute() -> Dictionary:
 	for surf in columns:
 		var base: int = surf * depth
 		# Per-COLUMN insolation: `SphereGrid.cell_radial(c)` is `_dir[c / depth]`, one vector per column, so the
-		# only Vector3 work in this scan is O(columns). Same expression as glsl:312-316.
+		# only Vector3 work in this scan is O(columns). Same expression as glsl:370-373.
 		var insolation: float = maxf(0.0, _f.cell_radial(base).dot(sun))
-		# glsl:254-273 find_column_surface(), hoisted: the column is scanned top-down ONCE for the cell the beam
+		# glsl:307-326 find_column_surface(), hoisted: the column is scanned top-down ONCE for the cell the beam
 		# lands on, which is both the MATERIAL SURFACE and the overlying air mass the top-of-atmosphere cell
 		# must use for its own share. Doing it per column here is the same answer as the kernel's per-TOA-cell
 		# walk and costs O(depth) instead of O(depth) per candidate.
@@ -227,7 +242,7 @@ func _compute() -> Dictionary:
 				break
 		# The overlying air mass at the cell the beam lands on — ONE number for the whole column, so the
 		# shortwave shares are complementary and the longwave exchange is symmetric by construction, not by
-		# coincidence (glsl:365-386).
+		# coincidence (glsl:427-443).
 		var p_beam: float = 0.0
 		if surf_c >= 0:
 			p_beam = pressure[surf_c] if has_pressure else 0.0
@@ -236,7 +251,7 @@ func _compute() -> Dictionary:
 		var mu: float = maxf(insolation, 1.0 / LAPhysical.AIR_MASS_HORIZON)
 		var trans: float = exp(-LAPhysical.ATMOS_SW_OPTICAL_DEPTH * (p_beam / K_P_REF) / mu)
 		# The air column's LONGWAVE absorptivity — what it intercepts of the surface's infrared and re-emits
-		# from both faces (glsl:429). The top-of-atmosphere cell of this column, needed for the exchange.
+		# from both faces (glsl:485). The top-of-atmosphere cell of this column, needed for the exchange.
 		var eps_a: float = 1.0 - 1.0 / (1.0 + LAPhysical.TWO_STREAM_COEFF * LAPhysical.ATMOS_OPTICAL_DEPTH * (p_beam / K_P_REF))
 		var top_c: int = -1
 		if solid[base + depth - 1] == 0:
@@ -252,7 +267,7 @@ func _compute() -> Dictionary:
 
 		for r in depth:
 			var c: int = base + r
-			# glsl:283-310. Column layout is c = surf * depth + r (LAMaterialField3D._compute_regolith), so the
+			# glsl:333-367. Column layout is c = surf * depth + r (LAMaterialField3D._compute_regolith), so the
 			# outward neighbour (nbr slot 5) is c+1 and the inward one (slot 0) is c-1; -1 means space/core.
 			var up: int = c + 1 if r < depth - 1 else -1
 			var down: int = c - 1 if r > 0 else -1
@@ -267,9 +282,18 @@ func _compute() -> Dictionary:
 			var wet: float = clampf(water[c], 0.0, 1.0) if has_water else 0.0
 			var snow_m: float = snow[c] if has_snow else 0.0
 			var icy: float = clampf(snow_m * K_ICE_ALBEDO_GAIN, 0.0, 1.0)
-			# glsl:337-339 — ice/snow reflect, open water absorbs nearly everything, bare ground between.
-			var albedo: float = lerpf(lerpf(LAPhysical.ALBEDO_BARE_GROUND, LAPhysical.ALBEDO_OCEAN, wet), LAPhysical.ALBEDO_SNOW_ICE, icy)
-			# glsl:161-172 rc_of_cell() x glsl:344 cell_size — the volumetric heat capacity of what the cell
+			# glsl:396-401 — canopy cover by Beer-Lambert through the leaf area the cell's standing biomass
+			# carries. Vegetation darkens the LAND inside the water mix, so plankton cannot brighten a sea.
+			var veg: float = 0.0
+			if has_biomass:
+				var leaf_kg_m2: float = maxf(biomass[c], 0.0) * LAPhysical.DRY_WOOD_DENSITY_KG_M3 \
+					* cell_size * LAPhysical.FOLIAGE_FRACTION_OF_PLANT_MASS
+				veg = 1.0 - exp(-LAPhysical.CANOPY_EXTINCTION_COEFF * (leaf_kg_m2 / LAPhysical.LEAF_MASS_PER_AREA_KG_M2))
+			# glsl:412-413 — ice/snow reflect, open water absorbs nearly everything, bare ground between, and a
+			# canopy is darker than the ground it stands on.
+			var land: float = lerpf(LAPhysical.ALBEDO_BARE_GROUND, LAPhysical.ALBEDO_VEGETATION, veg)
+			var albedo: float = lerpf(lerpf(land, LAPhysical.ALBEDO_OCEAN, wet), LAPhysical.ALBEDO_SNOW_ICE, icy)
+			# glsl:201-210 rc_of_cell() x glsl:418 cell_size — the volumetric heat capacity of what the cell
 			# holds, by volume fraction, times the cell's own depth. Air fills whatever is left.
 			var f_rock: float = clampf(rock_fill[c], 0.0, 1.0) if has_rock else 0.0
 			var f_snow: float = clampf(snow_m, 0.0, 1.0)
@@ -287,7 +311,7 @@ func _compute() -> Dictionary:
 			if p_col > 0.0:
 				pressure_live += 1
 			var eps_cell: float = eps_a if (top_of_atm or mat_surface) else 0.0
-			# glsl:387-397 — the column's beam, spent once. The top-of-atmosphere cell takes what the air
+			# glsl:445-453 — the column's beam, spent once. The top-of-atmosphere cell takes what the air
 			# intercepts; the material surface takes what got through, less what it reflects. Exposed bedrock
 			# faces space with no air over it at all, so nothing is intercepted above it.
 			var t_k: float = maxf(temp[c] + LAPhysical.KELVIN_OFFSET, 1.0)
@@ -304,7 +328,7 @@ func _compute() -> Dictionary:
 				albedo_sum_surface += albedo
 				if bedrock_top:
 					cells_bedrock += 1
-			# glsl:429-450 — the two-layer grey exchange. The air layer radiates eps_a from BOTH faces and
+			# glsl:485-503 — the two-layer grey exchange. The air layer radiates eps_a from BOTH faces and
 			# absorbs eps_a of the surface's flux; the surface radiates as a blackbody and receives the air's
 			# downward half. `emitted` is therefore the NET longwave leaving this cell, and summed over the
 			# column it is (1 - eps_a)*sigma*Ts^4 + eps_a*sigma*Ta^4 — the outgoing longwave, counted once.
@@ -340,7 +364,7 @@ func _compute() -> Dictionary:
 			if insolation > 0.0:
 				lit_cells += 1
 			# TOP-OF-ATMOSPHERE vs MATERIAL SURFACE, kept apart. They are the kernel's two distinct roles
-			# (glsl:283-310) and they behave nothing alike: the TOA set sits under almost no air, so its
+			# (glsl:333-367) and they behave nothing alike: the TOA set sits under almost no air, so its
 			# emissivity approaches 1 and it radiates as a bare blackbody, while the surface sits under the full
 			# column. Summed together they average into a number that describes neither. A cell that is BOTH (a
 			# summit reaching the top of the shell) is counted under TOA, once.

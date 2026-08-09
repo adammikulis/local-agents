@@ -219,8 +219,12 @@ them sent work at problems that no longer existed and one of them was the file's
     a separate `PLANET_SPIN_RATE`. Earth's day is 86400 s. Three clocks that do not derive from one rotation.
 14. **THE PLANET IS PINNED AT THE WORLD ORIGIN** and the sun moves around it (`SystemOrbits.gd:228`). A
     deliberate moving-frame choice; making it literal is the 0.6 headline.
-15. **VEGETATION DOES NOT AFFECT ALBEDO.** A forest is far darker than sand, so the biological half of the
-    ice-albedo feedback cannot exist. Work on this was started and halted.
+15. **THE FOREST YOU CAN SEE IS INVISIBLE TO THE CLIMATE.** *(Replaces "VEGETATION DOES NOT AFFECT ALBEDO",
+    closed 2026-08-09: the solar kernel now darkens land by canopy cover — `energy_albedo_mean` 0.2090 ->
+    0.1959.)* It reads the `biomass` FIELD channel, which is the only vegetation the physics has. `--no-fauna`
+    spawns 236 tree ACTORS carrying `biota_carbon` 0.0, and its field biomass is inside the planet-only arm's
+    own run-to-run spread (4.531 vs 4.508) — so 236 trees change the planet's albedo by nothing. Decide
+    whether a tree actor is scenery or matter; if matter, it owes the field a deposit.
 
 ### Instruments that lie
 

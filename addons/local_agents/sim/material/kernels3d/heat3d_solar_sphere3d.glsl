@@ -55,6 +55,10 @@ layout(set = 0, binding = 7, std430) restrict readonly buffer Pressure { float p
 layout(set = 0, binding = 8, std430) restrict readonly buffer TempPrev { float temp_prev[]; };
 layout(set = 0, binding = 14, std430) restrict readonly buffer Radial { float radial[]; };  // per-cell outward unit vec, packed flat c*3+{0,1,2}
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };         // idx*6 + slot
+// LIVING PLANT MATTER -> canopy cover -> surface albedo (see the VEGETATION block below). Bound at 27 rather
+// than at BIOMASS's slot number 11, because bindings up to 26 shadow the reaction engine's slot enum and a
+// binding that half-matches it is worse than one that plainly does not.
+layout(set = 0, binding = 27, std430) restrict readonly buffer Biomass { float biomass[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -131,6 +135,36 @@ const float ALBEDO_GROUND = 0.15;
 const float ALBEDO_WATER = 0.06;
 const float ALBEDO_ICE = 0.65;
 const float ICE_ALBEDO_GAIN = 40.0;    // snow mass -> reflectivity; a thin dusting already whitens a cell
+// ===== VEGETATION — THE BIOLOGICAL HALF OF THE ICE-ALBEDO FEEDBACK ================================
+// *(Added 2026-08-09. Until now `biomass` appeared nowhere in this kernel: a planet that greened absorbed
+//  exactly as much sunlight as the bare ground it greened over, so the loop that makes a forest warm its own
+//  climate — and a dying forest cool it — did not exist in either direction.)*
+//
+// A canopy is DARKER than the ground it grows on (0.08-0.15 conifer, 0.15-0.20 grass and crops, against
+// 0.15 for this planet's bare ground), so the cell reflects at the canopy's albedo over the fraction of its
+// ground the canopy COVERS and at the ground's albedo over the rest. That is an area-weighted mean, which is
+// the same `mix` the wet and icy terms already are.
+//
+// THE COVER FRACTION IS NOT A RAMP WITH A CLAMP. It is Beer-Lambert extinction through the leaf area the
+// cell carries — `1 - exp(-k * LAI)` — which saturates on its own, so unlike ICE_ALBEDO_GAIN below it needs
+// no clamp and has no chosen saturation point. Closure is a measurement: at the observed LAI 3-4 of a closed
+// canopy the interception is 0.78-0.86.
+//
+// AND LAI COMES FROM THE MASS THE CHANNEL ALREADY HOLDS, in three steps that each use a measured number:
+//   areal dry mass  = biomass * RHO_CELLULOSE * cell_size   (biomass is a VOLUME FRACTION of the cell, like
+//                                                            water/snow/rock_fill — LAReactionBalance
+//                                                            .mol_per_unit: "a channel unit is the
+//                                                            substance's own density, a full cell of it")
+//   leaf mass       = areal dry mass * FOLIAGE_FRACTION      (a plant is mostly stem and root)
+//   LAI             = leaf mass / LEAF_MASS_PER_AREA
+// Measured on this planet at seed 4242: mean ground-cell biomass 0.00102, so 8.2 kg/m^2 of standing matter,
+// 0.245 kg/m^2 of that foliage, LAI 3.1 — a just-closed canopy, which is the regime a vegetated cell should
+// be in. Dropping FOLIAGE_FRACTION would make it LAI 102 and every vegetated cell would saturate at once.
+const float RHO_CELLULOSE = 500.0;        // LAPhysical.DRY_WOOD_DENSITY_KG_M3 — LASubstances cellulose.density
+const float ALBEDO_VEG = 0.12;            // LAPhysical.ALBEDO_VEGETATION — LASubstances cellulose.albedo
+const float FOLIAGE_FRACTION = 0.03;      // LAPhysical.FOLIAGE_FRACTION_OF_PLANT_MASS
+const float LEAF_MASS_PER_AREA = 0.080;   // LAPhysical.LEAF_MASS_PER_AREA_KG_M2
+const float CANOPY_EXTINCTION = 0.5;      // LAPhysical.CANOPY_EXTINCTION_COEFF
 // ===== HEAT CAPACITY — DERIVED FROM WHAT THE CELL IS MADE OF ======================================
 // *(Rewritten 2026-08-03. This block used to declare four AREAL capacities as literals —
 //  CAP_AIR 345600 / CAP_ROCK 604800 / CAP_WATER 3888000 / CAP_SNOW 1080000 — and its own comment worked out
@@ -359,7 +393,24 @@ void main() {
 		// anywhere in this simulation before now.
 		float wet = clamp(water[idx], 0.0, 1.0);
 		float icy = clamp(snow[idx] * ICE_ALBEDO_GAIN, 0.0, 1.0);
-		float albedo = mix(mix(ALBEDO_GROUND, ALBEDO_WATER, wet), ALBEDO_ICE, icy);
+		// CANOPY COVER, from the leaf area this cell's standing biomass carries. See the VEGETATION block.
+		// exp() of a large negative underflows to 0, which IS a closed canopy — no clamp is needed and none is
+		// written, because inventing one would put a chosen saturation point back in.
+		float leaf_kg_m2 = max(biomass[idx], 0.0) * RHO_CELLULOSE * params.cell_size * FOLIAGE_FRACTION;
+		float lai = leaf_kg_m2 / LEAF_MASS_PER_AREA;
+		float veg = 1.0 - exp(-CANOPY_EXTINCTION * lai);
+		// THE NESTING IS THE PHYSICS, and it is why vegetation goes INSIDE the water mix rather than beside it.
+		// Plants darken the LAND; a cell that is open sea reflects as water however much biomass drifts in it,
+		// and mixing a 0.12 canopy over a 0.06 sea would make plankton BRIGHTEN the ocean, which is backwards.
+		// Snow then covers whatever is underneath, canopy included.
+		//
+		// WHAT THAT LAST STEP OVERSTATES, said plainly: real conifers stand PROUD of a snowpack and mask it, so
+		// a snowy boreal forest sits near 0.2-0.3 where snowy open ground reaches 0.65-0.8. Reproducing that
+		// needs a canopy HEIGHT against a snow depth and this substrate stores neither, so snow here whitens a
+		// forest as completely as it whitens a field. That is an overstatement of the SNOW term, named, not a
+		// term missing from the vegetation one.
+		float land = mix(ALBEDO_GROUND, ALBEDO_VEG, veg);
+		float albedo = mix(mix(land, ALBEDO_WATER, wet), ALBEDO_ICE, icy);
 
 		// HEAT CAPACITY per cell: the volumetric heat capacity of what the cell holds, times the cell's own
 		// depth. Derived, not declared — see the block above for the four literals this replaced and by how

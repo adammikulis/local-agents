@@ -12,7 +12,10 @@ extends RefCounted
 ##                                a column shortwave budget that spends the beam ONCE: the top-of-atmosphere
 ##                                cell takes the air's share and the material surface (topmost water cell, or
 ##                                ground on rock) takes what got through. heat-IN-PLACE on temp + solid +
-##                                radial(14) + nbr(15) + snow/water/rock_fill/pressure.
+##                                radial(14) + nbr(15) + snow/water/rock_fill/pressure + biomass(27), the last
+##                                of which darkens the land albedo by the canopy cover its mass implies — the
+##                                biological half of the ice-albedo feedback, absent from this kernel until
+##                                2026-08-09.
 ##   2. heat3d_buoyancy_sphere3d: hot void rises radially outward, moving ENERGY across the bond and dividing
 ##                                by each side's own heat capacity. RACE-FREE double-buffered GATHER
 ##                                (TempIn -> TempOut) + solid + snow/water/rock_fill + nbr(15).
@@ -169,10 +172,16 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# what temp holds, and nothing writes it again this step. The two-layer longwave exchange needs the
 		# PARTNER cell's temperature and solar runs IN PLACE on temp, so reading temp there would be a race
 		# whose outcome depends on scheduling; this makes it deterministic instead.
+		# 27 = biomass — the BIOLOGICAL half of the ice-albedo feedback. The kernel turns the cell's standing
+		# plant mass into a canopy cover fraction and darkens the land albedo by it, so a planet that greens
+		# absorbs more sunlight and one that browns absorbs less. SINGLE buffer (SINGLE_CHANNELS), so like
+		# pressure there is no parity choice; it is written by ReactionsPass, which runs AFTER Thermal, so it is
+		# one step stale here — the same coupling lag this pass already sanctions for pressure, and standing
+		# biomass moves far slower over one 43.2 s step than a hydrostatic column does.
 		_solar_set[p] = _make_set(rd, _solar_shader, [
 			[0, temp_live], [1, solid], [3, pos],
 			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]], [7, bufs["pressure"]],
-			[8, _cond_scratch], [14, radial], [15, nbr]])
+			[8, _cond_scratch], [14, radial], [15, nbr], [27, bufs["biomass"]]])
 		# buoyancy: 0 = TempIn (LIVE), 1 = TempOut (BACK), 2 = solid, the material mix 4 = snow, 5 = water,
 		# 6 = rock_fill (it convects an ENERGY flux and divides by each side's own capacity), 15 = nbr.
 		_buoy_set[p] = _make_set(rd, _buoy_shader, [
