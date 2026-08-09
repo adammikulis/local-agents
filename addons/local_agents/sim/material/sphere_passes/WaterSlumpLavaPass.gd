@@ -101,6 +101,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[2, send_rid],           # Send scratch
 			[3, sediment_pair[back]], # SedOut = back sediment
 			[15, nbr_rid],           # Neigh table
+			[16, bufs["link_arc"]],  # angular separation per lateral link — the RUN the repose angle needs
 		])
 		_lava_set[p] = _build_set(_lava_shader, [
 			[0, lava_pair[p]],       # LavaIn  = live lava
@@ -112,12 +113,15 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		])
 
 
-func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if _rd == null:
 		return
 	# Each CA is a 2-pass gather sharing the single `send` scratch (each pass 0 self-zeroes it). Order: water, slump, lava.
 	_two_pass(rd, cl, _water_pipe, _water_set[parity], cc, groups)
-	_two_pass(rd, cl, _slump_pipe, _slump_set[parity], cc, groups)
+	# Slump needs the shell geometry the other two do not: the angle of repose is a slope, and a slope needs
+	# the lateral RUN, which on a cubed sphere varies with radius and with distance from a face corner.
+	_two_pass_geo(rd, cl, _slump_pipe, _slump_set[parity], cc, groups,
+		maxi(int(ctx.get("depth", 1)), 1), float(ctx.get("core_radius", 0.0)), float(ctx.get("cell_size", 1.0)))
 	_two_pass(rd, cl, _lava_pipe, _lava_set[parity], cc, groups)
 
 
@@ -153,6 +157,29 @@ func dispose(rd: RenderingDevice) -> void:
 ## buffer_clear is needed (and none is legal while a compute list is open). Bindings are re-bound each pass so
 ## a push-constant change is unambiguous; the barrier after pass 0 makes the outflow writes visible to pass 1's
 ## neighbour reads, and the barrier after pass 1 orders the back-buffer + shared-send writes ahead of the next kernel.
+## Slump's variant: the same two passes, with the shell geometry pushed so the repose threshold can be a real
+## angle. Separate from `_two_pass` because water and lava declare the 16-byte Params and a push constant must
+## match the shader's own struct.
+func _two_pass_geo(rd: RenderingDevice, cl: int, pipe: RID, uset: RID, cc: int, groups: int,
+		depth: int, core_radius: float, cell_size: float) -> void:
+	for pass_id in 2:
+		rd.compute_list_bind_compute_pipeline(cl, pipe)
+		rd.compute_list_bind_uniform_set(cl, uset, 0)
+		var pc: PackedByteArray = PackedByteArray()
+		pc.resize(32)
+		pc.encode_u32(0, cc)
+		pc.encode_u32(4, pass_id)
+		pc.encode_u32(8, depth)
+		pc.encode_float(12, core_radius)
+		pc.encode_float(16, cell_size)
+		pc.encode_float(20, 0.0)
+		pc.encode_float(24, 0.0)
+		pc.encode_float(28, 0.0)
+		rd.compute_list_set_push_constant(cl, pc, pc.size())
+		rd.compute_list_dispatch(cl, groups, 1, 1)
+		rd.compute_list_add_barrier(cl)
+
+
 func _two_pass(rd: RenderingDevice, cl: int, pipe: RID, uset: RID, cc: int, groups: int) -> void:
 	# PASS 0 — outflow
 	rd.compute_list_bind_compute_pipeline(cl, pipe)

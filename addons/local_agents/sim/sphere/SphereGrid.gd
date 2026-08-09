@@ -117,6 +117,17 @@ var tan_b: PackedVector3Array = PackedVector3Array()       # surf_count : unit t
 # surf_count*4*2, indexed (surf*4 + lateral_slot)*2 — LATERAL SLOT ORDER, i.e. kernel slots 1..4 are l = 0..3.
 var link_tan: PackedFloat32Array = PackedFloat32Array()    # unit direction toward that neighbour, in MY (a,b)
 var link_rot: PackedFloat32Array = PackedFloat32Array()    # (cos, sin) transporting MY (a,b) into the NEIGHBOUR's
+# ANGULAR separation to each lateral neighbour, radians, one per surface cell per lateral slot. Multiply by a
+# cell's RADIUS to get the arc distance between the two cell centres — the lateral RUN of that link.
+#
+# It exists because a slope is a rise over a RUN, and this grid's run is not its cell size. The radial
+# thickness of a cell is exactly `cell_size`, but the lateral spacing is an arc that grows with radius and
+# shrinks toward a face corner, so on the shipped grid the width/height aspect ranges 1.07 to 4.08. Any kernel
+# comparing a height difference against a tangent — the angle of repose is the one that does — is asserting
+# cells are cubes, and holds sediment at 33 degrees at the shell floor and 10 degrees at the top instead of
+# the 35 the material actually stands at. Stored per SURFACE cell like the other two link tables, because the
+# angle depends only on the two directions; the radius scaling is the kernel's one multiply.
+var link_arc: PackedFloat32Array = PackedFloat32Array()    # radians between cell centres, per lateral slot
 
 
 ## Local coord of surface cell (i,j) → cube point → unit sphere direction, for face `f`.
@@ -463,8 +474,10 @@ func _transport(v: Vector3, n_from: Vector3, n_to: Vector3) -> Vector3:
 func _build_link_frames() -> void:
 	link_tan.resize(surf_count * 8)
 	link_rot.resize(surf_count * 8)
+	link_arc.resize(surf_count * 4)
 	link_tan.fill(0.0)
 	link_rot.fill(0.0)
+	link_arc.fill(0.0)
 	for s in surf_count:
 		var ns: Vector3 = _dir[s]
 		var a_s: Vector3 = tan_a[s]
@@ -489,6 +502,9 @@ func _build_link_frames() -> void:
 			var at: Vector3 = _transport(a_s, ns, nm)
 			link_rot[base + 0] = at.dot(tan_a[m])
 			link_rot[base + 1] = at.dot(tan_b[m])
+			# Angle between the two cell directions. Times the radius it is the arc between their centres,
+			# which is the lateral RUN any slope test needs.
+			link_arc[s * 4 + l] = ns.angle_to(nm)
 
 
 ## Cell-indexed accessors for the per-surface frame (callers hold cell indices, columns are contiguous).

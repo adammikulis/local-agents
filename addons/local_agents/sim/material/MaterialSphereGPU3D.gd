@@ -270,6 +270,9 @@ func setup(field) -> void:
 	# the memory and stays cache-resident. Kernels index it as ((g / depth) * 4 + l) * 2.
 	var ltan_bytes: PackedByteArray = _grid.link_tan.to_byte_array()
 	_bufs["link_tan"] = _rd.storage_buffer_create(ltan_bytes.size(), ltan_bytes)
+	# Angular separation per lateral link — the lateral RUN a slope test needs (see LASphereGrid.link_arc).
+	var larc_bytes: PackedByteArray = _grid.link_arc.to_byte_array()
+	_bufs["link_arc"] = _rd.storage_buffer_create(larc_bytes.size(), larc_bytes)
 	# PLATE TABLE — the drifting Voronoi plates PlateAdvectPass carries the crust with. PLATE_STRIDE floats per
 	# plate (seed.xyz, rate, pole.xyz, pad); allocated at a fixed ceiling and refilled by set_plates(), which is
 	# called from OUTSIDE the compute list because a buffer_update while one is open is illegal. Zero-filled, so

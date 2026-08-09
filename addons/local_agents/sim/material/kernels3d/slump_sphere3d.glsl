@@ -28,13 +28,20 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer SedIn { float sed_
 layout(set = 0, binding = 1, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Send { float send[]; };            // idx*6 + dir
 layout(set = 0, binding = 3, std430) restrict writeonly buffer SedOut { float sed_out[]; };
-layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };    // idx*6 + slot
+layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
+// ANGULAR separation to each lateral neighbour, radians, per SURFACE column (LASphereGrid.link_arc). Times a
+// cell's radius it is the arc between the two cell centres — the lateral RUN of that link.
+layout(set = 0, binding = 16, std430) restrict readonly buffer LinkArc { float larc[]; };    // idx*6 + slot
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	uint pass_id;   // 0 = outflow, 1 = inflow/apply
-	uint pad0;
-	uint pad1;
+	uint pass_id;      // 0 = outflow, 1 = inflow/apply
+	uint depth;        // radial shells per column — turns a cell index into its column and its layer
+	float core_radius; // shell floor; a cell's radius is core_radius + (layer + 0.5) * cell_size
+	float cell_size;   // radial thickness of a cell, and the RISE a unit of mass represents
+	float pad0;
+	float pad1;
+	float pad2;
 } params;
 
 // --- THE SUBSTRATE'S CELL-FILL UNITS — authority LAMaterialField3D (that file exists; these two are checked
@@ -67,10 +74,11 @@ const float SLUMP_LATERAL_FRACTION = 0.25;
 // it is not even one angle: the same material stands at three times the slope at the bottom of the shell as at
 // the top, which is a fact about the grid and about nothing physical.
 //
-// THE FIX is to compare against `REPOSE_TAN * lateral_spacing / cell_size` per link, which needs the per-column
-// link geometry this kernel is not currently given (dust_transport_sphere3d.glsl already binds an `ltan` table
-// for a related reason). That is a behaviour change to sediment transport — piles would stand steeper nearly
-// everywhere — so it is the maintainer's call, not a comment edit.
+// FIXED 2026-08-08. The kernel now binds LASphereGrid.link_arc — the angular separation to each lateral
+// neighbour — and compares against `REPOSE_TAN * run / cell_size`, where `run` is that angle times the cell's
+// own radius. A mass difference of 1.0 is a rise of `cell_size`, so the ratio is the real slope and the
+// threshold is the real angle, at every radius and every distance from a face corner. Sediment stands at
+// 35 degrees everywhere now instead of 33 at the shell floor and 10 at the top.
 const float REPOSE_TAN = 0.70;   // LAPhysical.REPOSE_TAN_DRY_GRANULAR
 
 // Stable amount for the LOWER of two radially-stacked cells (identical to the water/lava CA _stable_below).
@@ -135,9 +143,17 @@ void main() {
 			if (solid[inb] != 0.0) {
 				continue;
 			}
+			// THE REPOSE THRESHOLD IS AN ANGLE, SO IT NEEDS THE RUN. A mass difference of 1.0 is a rise of
+			// `cell_size`; the run is the arc to this neighbour, `angle * radius`. Comparing the difference
+			// directly against a tangent (which is what this did) asserts run == cell_size, i.e. cubes.
+			uint column = gidx / max(params.depth, 1u);
+			uint layer = gidx - column * max(params.depth, 1u);
+			float radius = params.core_radius + (float(layer) + 0.5) * params.cell_size;
+			float run = larc[column * 4u + uint(d)] * radius;
+			float thresh = REPOSE_TAN * run / max(params.cell_size, 1e-6);
 			float diff = remaining - sed_in[inb];
-			if (diff > REPOSE_TAN) {
-				float excess = diff - REPOSE_TAN;
+			if (diff > thresh) {
+				float excess = diff - thresh;
 				float lflow = clamp(excess * SLUMP_LATERAL_FRACTION, 0.0, min(SLUMP_MAX_FLOW, remaining));
 				if (lflow > SLUMP_MIN_FLOW) {
 					send[base + 1u + uint(d)] = lflow;
