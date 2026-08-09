@@ -60,6 +60,65 @@ FRONT_BID="$(osascript -e 'tell application "System Events" to get bundle identi
 WIN_POS="${LA_WIN_POS:--10000,-10000}"
 RENDER_DRIVER="${LA_RENDER_DRIVER:-metal}"
 
+# --- STALE-SHADER GUARD ------------------------------------------------------
+# A .glsl whose COMPILED resource under .godot/imported/ is older than the source means Godot loads the OLD
+# kernel and says nothing. The run completes, prints a full normal-looking SIM_REPORT, and every number in it
+# is fiction.
+#
+# WHY THIS EXISTS. Measured 2026-08-09: the PRIMARY checkout had 15 kernels whose compiled .res predated their
+# source, reactions_sphere3d.glsl by six days and four commits. A 600-frame run there gave `biomass_total`
+# 0.0, `snow_cells` 0, `o2_total` 40474, `carbon_total` 606 — against 5.25 / 1160 / 3695 / 12425 from the SAME
+# COMMIT in a freshly imported worktree. The entire reaction engine had not run. That run was taken as an A/B
+# baseline before the mismatch was spotted, and its whole "before" arm was an artefact of the stale cache.
+#
+# THE GAP IS IN DOCUMENTED PROCESS, NOT CODE. scripts/new_worktree.sh imports a FRESH worktree and every doc
+# says to use it. NOTHING re-imports a LONG-LIVED checkout after a merge lands someone else's kernel edit, so
+# the primary checkout rots silently from that moment on.
+#
+# FAIL, DO NOT AUTO-FIX: a measurement wrapper that quietly mutates the import cache is exactly the hidden
+# side effect this project bans on authoritative paths. Name what is stale and how to fix it.
+# LA_SKIP_SHADER_CHECK=1 bypasses, for a tree that is meant to be unimported.
+if [ "${LA_SKIP_SHADER_CHECK:-0}" != "1" ]; then
+  proj="."
+  prev=""
+  for arg in "$@"; do
+    if [ "$prev" = "--path" ]; then proj="$arg"; break; fi
+    prev="$arg"
+  done
+  if [ -d "$proj/.godot/imported" ]; then
+    stale_list=""
+    stale_n=0
+    while IFS= read -r src; do
+      base="$(basename "$src")"
+      newest="$(ls -t "$proj"/.godot/imported/"$base"-*.res 2>/dev/null | head -1)"
+      # No compiled resource AT ALL is the worse case: load() returns null and the pass is silently dead.
+      if [ -z "$newest" ] || [ "$src" -nt "$newest" ]; then
+        stale_n=$((stale_n + 1))
+        if [ "$stale_n" -le 8 ]; then stale_list="$stale_list
+    $base"; fi
+      fi
+    # SCOPE MATTERS OR THE GUARD CRIES WOLF AND GETS BYPASSED. `.claude/worktrees/` holds whole sibling
+    # CHECKOUTS (675 .glsl in this tree against 82 real ones), and `thirdparty/` vendors llama.cpp's and
+    # whisper.cpp's Vulkan shaders, which no sim pass loads. What is left is the 34 kernels the field runs.
+    done < <(find "$proj" -name '*.glsl' \
+      -not -path '*/.godot/*' -not -path '*/.claude/*' -not -path '*/.git/*' \
+      -not -path '*/thirdparty/*' 2>/dev/null)
+    if [ "$stale_n" -gt 0 ]; then
+      {
+        echo "STALE_SHADERS={\"count\":$stale_n,\"path\":\"$proj\"}"
+        echo ""
+        echo "REFUSING TO RUN: $stale_n compute kernel(s) are newer than their compiled resource, so Godot"
+        echo "  would load the OLD kernel and print a normal-looking SIM_REPORT built on it. Stale:$stale_list"
+        if [ "$stale_n" -gt 8 ]; then echo "    ... and $((stale_n - 8)) more"; fi
+        echo ""
+        echo "  Fix:  godot --headless --path $proj --import"
+        echo "  Then re-run. Bypass with LA_SKIP_SHADER_CHECK=1 only if you MEAN to run an unimported tree."
+      } >&2
+      exit 3
+    fi
+  fi
+fi
+
 # --- output tap --------------------------------------------------------------
 # The watchdog needs to see the child's output to tell "never got there" from "got there and hung". Godot's
 # own `--log-file` gives that for free and flushes live (verified), so the child's stdout/stderr stay wired
