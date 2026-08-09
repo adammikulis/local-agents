@@ -4,7 +4,12 @@
 committed; git is the record of what was done. When an entry is FALSE, fix it in place and say what it
 claimed, so nobody re-derives the same wrong conclusion.
 
-**MAINTAINER'S RULE: this file and `CLAUDE.md` may not be changed without his approval.**
+**KEEP THIS FILE AND `CLAUDE.md` CORRECT — THAT IS THE JOB, NOT A PERMISSION TO ASK FOR.** *(Changed
+2026-08-08 by the maintainer: it used to read "this file and `CLAUDE.md` may not be changed without his
+approval", which flatly contradicted `CLAUDE.md`'s own standing order to update this file unprompted at
+every landing, and worse, turned every false claim into something to REPORT rather than repair. He cannot
+police every line of two 800-line documents; an agent that finds a wrong entry and asks permission has
+handed the work back. Fix it, say what it claimed, and move on.)*
 
 **Distrust the FRAMINGS here, not just the facts.** A previous version led with "every subsystem with a
 conservation ledger conserves; every subsystem without one mints", and a full session of work was planned

@@ -21,9 +21,15 @@ requires it or is only conventionally bundled with it. Say so and do the planet 
 
 **"Locked down" is a measurable bar, not a feeling.** The planet is locked down when:
 - **every conserved substance has a drift gauge and every gauge reads ~0** — H₂O, mineral, carbon, oxygen,
-  fertility, nitrogen, energy. The one-line diagnosis from four audits stands: *every subsystem with a
-  conservation ledger conserves; every subsystem without one mints.* A substance with no ledger is not
-  "probably fine", it is unmeasured.
+  fertility, nitrogen, energy. **A substance with no drift gauge is not "probably fine", it is UNMEASURED.**
+  *(Corrected 2026-08-08. This used to add "the one-line diagnosis from four audits stands: every subsystem
+  with a conservation ledger conserves; every subsystem without one mints." Delete that sentence from your
+  head — it is false in both halves and it cost a session. `HANDOFF.md`'s own preamble disavows it by name as
+  the FRAMING that produced a plan to fix a shortage by adding another source, and this file repudiates its
+  central word 500 lines below, at "translate the euphemism". It is also now factually dead: energy HAS a
+  ledger and loses 7.5% of the planet's thermal stock per 600 frames, while the nitrogen that looked like it
+  was being destroyed at 32% per run turned out to be BURIED — an unledgered total reading badly, not matter
+  created. A ledger tells you whether you are measuring, never whether you are conserving.)*
 - **no physical constant is fitted.** Every real-matter value is sourced from `material/PhysicalConstants.gd`
   with a citation and gated by `scripts/check_physical_constants.sh`.
 - **the named emergent phenomena actually occur** — springs and rivers run, sediment travels and deposits,
@@ -59,7 +65,15 @@ work forward.
   changes only this line). `main` is downstream — it holds the shipped release (currently **0.3.1**, tagged
   `v0.3.1`). Do **not** commit feature work directly to `main`.
 - **Do every non-trivial change in a dedicated git worktree branched off the current dev branch**, not in
-  the primary checkout:
+  the primary checkout, and **make it with `scripts/new_worktree.sh`, not by hand**:
+  `scripts/new_worktree.sh <feature>`
+  It does the four-step dance in one command — add the worktree, symlink the compiled `bin/`, run
+  `--import`, and editor-scan. **The `--import` is the step nobody remembers and the one that matters**: a
+  fresh worktree's `.glsl` compute kernels are unimported, so `load()` returns null, the GPU MaterialField is
+  SILENTLY DEAD (`biomass` 0, the log full of `get_spirv on a null value`) and every number in `SIM_REPORT`
+  is fiction that looks fine. *(Added 2026-08-08. This section taught the two-step form — `git worktree add`
+  then symlink — for as long as it has existed, while `GODOT_BEST_PRACTICES.md` and `HANDOFF.md` both said
+  to use the script. Doing it by hand:)*
   `git worktree add ../local-agents-<feature> -b feature/<name> <dev-branch>`
   Build there, commit as you go, and merge back into the dev branch only when verified. This is the
   standard because another session/agent running git ops (checkout/reset/merge) on the shared
@@ -100,11 +114,18 @@ work forward.
 
 ## Destructive-command safety (bulk delete/find)
 
-Do **not** delete files with `find ... -name <dir> -exec rm -rf` or a bare recursive `rm` that walks
-`scenes/simulation/`. The live `voxel/` subtree has `actors/`, `ui/`, and `shaders/` subdirectories
-whose **names collide** with old-stack siblings, so a name-based `find` silently matches the new
-scene too (this already nuked `voxel/{actors,ui,shaders}` once — recovered only because it was
-committed). When removing files:
+Do **not** delete files with `find ... -name <dir> -exec rm -rf` or a bare recursive `rm`. A name-based
+`find` matches every sibling sharing that name, and this tree is full of them — `actors/`, `ui/`,
+`shaders/`, `material/`, `kernels3d/` each appear under more than one root. It has already nuked a
+directory once, recovered only because it was committed.
+
+*(Corrected 2026-08-08. This named `scenes/simulation/` as the thing to protect and told you to anchor on
+`.../scenes/simulation/actors`. There IS no `scenes/simulation/` at the repo root, and
+`addons/local_agents/scenes/simulation/voxel/` holds **zero tracked files** — everything left in it is
+gitignored Godot metadata, including `.import` stubs for kernels that were deleted. The rule was guarding
+an orphan while the live tree, `addons/local_agents/sim/**` and `game/**`, went unnamed.)*
+
+When removing files:
 - Prefer **explicit paths** or `git rm <path>` (it refuses to touch untracked files and stages the delete for review).
 - If you must `find`, scope it: anchor with `-path '.../scenes/simulation/actors'` (full path, not `-name`),
   or add `-maxdepth 1`, and never combine `-name` with `-exec rm`/`-delete` over a shared parent.
@@ -183,8 +204,13 @@ committed). When removing files:
   note breaking API/schema changes there before merge. Keep commits scoped by domain
   (runtime/editor/tests/docs) where practical.
 - **`HANDOFF.md` IS THE MAP OF WHAT IS LEFT. IT IS NEVER A HISTORY.** Maintainer's rule, absolute:
-  **a checked-off item is DELETED as soon as it is committed.** Do not tick it, strike it, mark it
-  `DONE`/`SHIPPED`/`MERGED`/`RESOLVED`, or keep it "for context". Git is the record of what was done. A
+  **a checked-off item is DELETED as soon as it is committed.** Do not tick it, mark it
+  `DONE`/`SHIPPED`/`MERGED`/`RESOLVED`, or keep it "for context". Git is the record of what was done.
+  **THE ONE EXCEPTION, and it is the next bullet's rule not a loophole: an entry that was FALSE is struck
+  and annotated rather than deleted**, because deleting it silently lets the next agent re-derive the same
+  wrong conclusion. That is what "say what it claimed" means. *(Reconciled 2026-08-08: this said "do not
+  strike it" while the correction rule below orders exactly that, and `HANDOFF.md` now carries six struck
+  entries on purpose — items whose old text had been sending work at problems that no longer existed.)* A
   tracker that doubles as a changelog buries the next agent's actual job — measured 2026-07-30, the file
   had reached 1053 lines of which **578 were finished session narrative**, and its "START HERE" header was
   followed by 530 lines of history before the reader met a single actionable item. Cutting it to 435 lost
@@ -199,8 +225,11 @@ committed). When removing files:
     and say what it said before, so nobody re-derives the same wrong conclusion);
   - before merging any branch to the dev branch, and before a session ends or pauses.
   - **Correcting stale claims matters more than appending new ones.** This file told every agent for
-    weeks that Keystone A's erosion pickup kernel "doesn't exist" (it ships, `MaterialSphereGPU3D.gd:51`)
-    and that Keystone C was "not built" (it ships, `:55`). Both errors sent work at problems that were
+    weeks that Keystone A's erosion pickup kernel "doesn't exist" and that Keystone C was "not built". Both
+    ship. *(The `MaterialSphereGPU3D.gd:51` / `:55` citations that used to sit here are now wrong themselves
+    — `:51` is a blank line, `:55` a comment about atmospheric ping-ponging. Erosion pickup is
+    `sphere_passes/ErosionPickupPass.gd`, ordered at `MaterialSphereGPU3D.gd:100-103`. This is the bullet
+    demanding you cite `file:line`, so it earning its own correction is the lesson, not an irony.)* Both errors sent work at problems that were
     already solved, and one of them ordered a fix to `EMERGENCE.md`, which was correct all along. A
     tracker that is confidently wrong is worse than one that is merely out of date.
   - **Verify before you write.** Every status claim you add or leave standing must be one you just
@@ -239,11 +268,11 @@ committed). When removing files:
       8.0. The clamp is unreachable at every speed the game can select.
     - **What actually happens** is that `--run-frames=N` buys wildly different amounts of world-time at
       different multipliers, because `LAVoxelTimeControl` scales `Engine.max_physics_steps_per_frame`
-      with the speed (`VoxelTimeControl.gd:219`) while `time_scale` is already scaling the delta. Sim
+      with the speed (`VoxelTimeControl.gd:244`) while `time_scale` is already scaling the delta. Sim
       seconds per RENDERED frame: **0.0995 at `--fast=1`, 0.533 at 2, 1.98 at 4, 5.28 at 8** — a 53x
       spread over an 8x speed range. The old measurement compared 150 frames against 150 frames, so the
       `--fast=4` run was read at ~1.5 sim days and the `--fast=2` run at 0.4. It had not starved; it was
-      four sim-days older. (That line at `:219` is deliberate and stays — it is worth 54-56% of the
+      four sim-days older. (That line at `:244` is deliberate and stays — it is worth 54-56% of the
       throughput at `--fast` 4 and 8. Its comment carries the measurement.)
     - **At equal simulated time nothing collapses.** Three runs each, seed 4242, at 80 sim-seconds:
       `--fast=2` ends with 146-174 creatures (impacts 4/7/12, eruptions 2/2/3); `--fast=4` ends with
@@ -303,9 +332,12 @@ committed). When removing files:
   and for a metric, **"is this the right SHAPE of measurement?"** Surfacing something as evidence is NOT the
   same as reviewing it, and you owe the review even when you only opened the file to quote a number for some
   other argument. Two failures on 2026-08-03, one root:
-  - `CreatureMetabolism`'s `WARM_COMFORT 28 / COOL_COMFORT 8 / LETHAL_HEAT 50 / LETHAL_COLD -18` are module
-    consts applied to EVERY creature — a whale and a desert beetle share one thermal physiology, with no
-    species config and no heritable gene. They were quoted in a table as evidence about something else and
+  - `CreatureMetabolism` **had** `WARM_COMFORT 28 / COOL_COMFORT 8 / LETHAL_HEAT 50 / LETHAL_COLD -18` as
+    module consts applied to EVERY creature — a whale and a desert beetle sharing one thermal physiology,
+    with no species config and no heritable gene. *(All seven of that block are DELETED; the band comes from
+    `LAPhysical.WATER_FREEZE_C` / `PROTEIN_DENATURE_C` via `LACreatureRespiration.temp_band` now. Kept as
+    the worked example, PAST TENSE — written in the present it sent an agent into creature files to fix
+    something already closed.)* They were quoted in a table as evidence about something else and
     the design smell went unremarked, in the same session that twice cited this file's own "config over
     `if species == X`" rule.
   - `temp_mean`, a single global spatial mean, was used to argue the planet was overheating while
@@ -345,7 +377,7 @@ committed). When removing files:
 - **NON-INTERACTIVE RUNS MUST NOT INTERRUPT THE USER — use `scripts/run_sim_offscreen.sh`.** Metal/GPU runs
   need a real window (headless has no compute device), and a Godot window both APPEARS on-screen AND STEALS
   KEYBOARD FOCUS at launch — a hard interruption. The wrapper `scripts/run_sim_offscreen.sh` fixes both:
-  launches with `--position 30000,30000 --resolution 640x400` (off-screen, applied before first paint) AND
+  launches off-screen (`--position -10000,-10000 --resolution 640x400`, applied before first paint) AND
   hands focus back to whatever app was frontmost (macOS `osascript`, retried as Godot grabs focus during
   startup). ALWAYS run non-interactive sims through it — `scripts/run_sim_offscreen.sh --path . <scene> --
   --run-frames=N` (env like `LA_NO_STREAMER=1` still works). This applies to the main thread AND every
@@ -698,8 +730,11 @@ failure mode, and it is the most common one.
 
 ## File size & refactor discipline
 
-- **DESIGNATED THIN HUBS — `VoxelWorld.gd` and `MaterialField3D.gd` are EXTRACT-ONLY; do NOT add behavior
-  to them.** These two files have been split THREE times because new work keeps re-accreting into them (they
+- **EXTRACT-ONLY HUBS — `VoxelWorld.gd` and `MaterialField3D.gd`; do NOT add behavior to them.**
+  *(Renamed from "DESIGNATED THIN HUBS" on 2026-08-08, because one of them is not thin and calling it that
+  invited the next addition. `VoxelWorld.gd` is 827 lines, which is a reasonable composition root.
+  `MaterialField3D.gd` is **1309 — already OVER the 1300 soft-smell limit this same document sets**, and
+  the largest first-party file in the repo. The rule below is what it needs, not the adjective.)* These two files have been split THREE times because new work keeps re-accreting into them (they
   are the composition root and the field hub, so it's where wiring/channels naturally land). Stop the cycle
   by rule: **`VoxelWorld` is a composition root ONLY** — it may instantiate + wire controllers and nothing
   more; a new feature gets at most a one-line `add_child(controller)` / signal hookup there, and its behavior
@@ -777,14 +812,20 @@ failure mode, and it is the most common one.
 
 ## Orientation
 
-- **Main scene / active work:** `addons/local_agents/game/VoxelWorld.tscn` — a
-  from-scratch godot_voxel ecosystem sim. Current state, architecture, pending work, and the exact
-  run/verify commands are in **`HANDOFF.md`**; the emergent-natural-disasters effort (unified
-  `material/MaterialField` substrate + disasters) is tracked in its plan file and built in the
-  `feature/emergent-disasters` worktree. The guiding principle is **emergent-everything** (see
-  `.../voxel/EMERGENCE.md`).
+- **Active work:** `addons/local_agents/game/VoxelWorld.tscn` — a from-scratch godot_voxel ecosystem sim.
+  It is NOT the project's main scene; `project.godot` boots `game/menu/MainMenu.tscn`, so launching bare
+  gets you the menu and the sim wants `--sandbox` or the scene path. Current state, architecture, pending
+  work and the exact run/verify commands are in **`HANDOFF.md`**. The guiding principle is
+  **emergent-everything** — `addons/local_agents/sim/EMERGENCE.md`.
+  *(Corrected 2026-08-08: this said "Main scene", pointed the principle at `.../voxel/EMERGENCE.md` which
+  has never existed at that path, and said the disasters effort is "built in the
+  `feature/emergent-disasters` worktree" — that branch was merged and deleted on 2026-07-05 in `b146ffc`,
+  and "its plan file" named no file and resolves to nothing in `docs/`.)*
 - **Godot 4.7**, `godot` on PATH. Test/observe via `scripts/agent_harness.sh <command>`; the voxel
   scene also self-harnesses (`-- --run-frames=N` prints `SIM_REPORT={...}`; `--shoot=<png>` for
   windowed screenshots; `--auto-meteor` drops a test impact). A NEW `.gd` `class_name` or
-  `.gdextension` only registers after an editor scan — run `godot --headless --editor --quit-after 400`
-  once, else classes report MISSING.
+  `.gdextension` only registers after an editor scan — run **`scripts/editor_scan.sh`** once, else classes
+  report MISSING. *(Corrected 2026-08-08: this said `godot --headless --editor --quit-after 400`, the exact
+  bare form this file bans above — two concurrent scans SEGFAULT, measured six crashes in three minutes. The
+  ban was 400 lines away from the instruction that violated it, and this is the end of the file, where a
+  skimming agent lands.)*
