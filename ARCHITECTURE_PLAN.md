@@ -68,9 +68,21 @@ CPU oracles**; the GLSL kernels are the sole implementation, verified behavioura
 
 The substrate is founded on **conserved chemical substances**, not per-phenomenon channels: one
 conserved H₂O substance (liquid/vapor/cloud/fog/snow/ice are phases derived from temperature vs
-saturation), a `biomass` substance, and a unified fractional `rock_fill` with a derived solid + a
-`mineral_total` conservation ledger. Transitions between substances are **data records** in a generic
-reaction engine (`material/MaterialReactions3D.gd`) rather than bespoke code.
+saturation), a `biomass` substance, and a fractional `rock_fill` with a derived solid. Transitions between
+substances are **data records** in a generic reaction engine (`material/MaterialReactions3D.gd`) rather than
+bespoke code, and every record is checked at load and in CI against one declaration of what each channel is
+made OF (`material/reactions/ReactionBalance.gd`).
+
+**The rock has a chemistry as of 2026-08-08.** Three mineral species — silicate CaSiO₃, silica SiO₂,
+carbonate CaCO₃ — replace the lumped mineral mass `M`. Every pre-existing mineral phase (`rock_fill`, `lava`,
+`sediment`, `dust`, `susp`) is silicate, because they all exchange mass at 1:1 and a transfer may not change
+composition; the two new channels exist because the Urey reaction CaSiO₃ + CO₂ → CaCO₃ + SiO₂ has two
+products that are not silicate. That reaction is the planet's silicate-weathering carbon sink, and its
+reverse at metamorphic temperature (`DECARBONATION_TEMP_C`, derived as ΔH/ΔS) is the volcanic return leg.
+**`mineral_total` is no longer the mineral conservation ledger** — it is a unit sum over three different
+substances now, so the strict gauge is `lith_element_Ca` / `lith_element_Si`, and the lithosphere's element
+book is kept separate from the atmosphere's (`lith_element_*` vs `element_*`) because crustal oxygen is four
+orders of magnitude larger and would erase the atmospheric signal.
 
 **Retired:** the old `WorldSimulation`/`PlantRabbitField`/`VoxelWorldDemo` gameplay stack was deleted,
 and the **native C++ voxel/sim sources were dropped** — the `localagents` GDExtension now ships only
@@ -293,6 +305,25 @@ commands and the legacy-adapter list below are historical and should not be run 
     - blocker: GPU reduction diagnostics contract is not yet wired into all runtime verification harnesses.
 
 ## Breaking Changes
+
+- **2026-08-08 (0.4): the lumped mineral species `M` is gone, and the field gained two channels.**
+  - **Save/field schema.** `carbonate` and `silica` join `LAMaterialSphereGPU3D.SINGLE_CHANNELS`, so
+    `snapshot_channels()` writes two more arrays and `restore_channels()` reads them. Restore is
+    forward/backward tolerant by construction (unknown keys are ignored, missing keys leave the
+    zero-initialised buffer), so an OLD save loads into a new build and starts with no weathering products —
+    which is the physically correct state for a planet that has not weathered yet. A NEW save loaded by an
+    old build silently drops the two channels. There are no downstream consumers.
+  - **Reaction-record schema.** `LAReactionBalance.composition()` no longer declares an `M` substance; the
+    element set is C, N, H, O, **Ca, Si**, all atoms. `mol_per_unit()` gives every mineral phase a real molar
+    basis instead of `1.0`. Any record written against the old table that puts mineral on one side and atoms
+    on the other now has to balance rather than being refused — the M-mixing rejection block is deleted, and
+    its own comment named this commit as its removal condition. Slots `CARBONATE = 24` and `SILICA = 25` are
+    added; they are the first slots whose numbers do NOT alias their kernel bindings (28 and 29), because the
+    alias range ran out at 26.
+  - **Gauge contract.** `mineral_total` / `mineral_run_drift_per_step` stop being a conservation claim and
+    become a phase budget (they sum three substances now). The replacements are `lith_element_Ca` /
+    `lith_element_Si` and their relative run-drifts. New keys: `carbonate_total`, `silica_total`,
+    `carbonate_open`, `silica_open`, `carbonate_cells`, `lith_element_*`, `element_C_total`.
 
 - **2026-07-29 (0.4): the addon became installable without reading its source.** A consumer previously
   had to hand-register an autoload, could not reach the model downloader without the native binary the

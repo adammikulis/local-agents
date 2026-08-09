@@ -18,13 +18,15 @@ extends RefCounted
 ##
 ## WHAT "BALANCE" MEANS HERE, precisely. Each channel SLOT is declared below as the ELEMENTS one unit of it
 ## contains. A record balances when, for every element, the sum over its products equals the sum over its
-## reactants. Five elements:
+## reactants. Six elements, all of them ATOMS:
 ##
-##   C - carbon atoms.    N - nitrogen atoms.    H - hydrogen atoms.    O - oxygen atoms.
-##   M - mineral mass, the one lumped species: bedrock ROCK_FILL, molten LAVA, loose SEDIMENT, airborne DUST
-##       and waterborne SUSP are one substance, and every geological record is a phase transfer between them.
-##       Silicate stoichiometry is not modelled, so M is a mass rather than an atom count. Nothing converts
-##       between M and the other four, so it never needs to be.
+##   C - carbon.   N - nitrogen.   H - hydrogen.   O - oxygen.   Ca - calcium.   Si - silicon.
+##
+## THERE IS NO LONGER AN `M`. *(Changed 2026-08-08.)* Until then the mineral phases were declared as one
+## lumped mass with no stoichiometry, justified by "nothing converts between M and C/H/O/N" — which was true
+## only because chemical weathering was written with CO2 as a CATALYST it never consumed. The mineral phases
+## now carry real formulas: silicate CaSiO3, silica SiO2, carbonate CaCO3. That is what makes the Urey
+## reaction CaSiO3 + CO2 -> CaCO3 + SiO2 writable, and with it the silicate-weathering carbon sink.
 ##
 ## THE COMPOSITIONS ARE THE ORDINARY MOLECULAR ONES. CO2 is C1 O2. Free O2 is O2. Liquid WATER, atmospheric
 ## MOISTURE, frozen SNOW and the rooting column's SOIL_ROOT are all H2 O1 - one substance in four phases and
@@ -75,9 +77,14 @@ const TOL: float = 1.0e-6
 
 ## Constant names on LAReactionDefs that are NOT channel slots (rate models, gate bits, product targets, the
 ## record stride). Everything else in that file's constant map is a slot, so adding a slot needs no edit here.
+##
+## ARRHENIUS WAS MISSING FROM THIS LIST until 2026-08-08, and the omission was not harmless. It is 6, the same
+## value as FIRE, and it is declared LATER in the file, so `slot_names()` resolved slot 6 to "ARRHENIUS" and
+## FIRE never appeared in the map at all — meaning the kernel cross-check silently stopped checking FIRE's
+## #define, and any message about slot 6 named a rate model rather than a channel.
 const NON_SLOT_CONSTS: PackedStringArray = [
 	"CONST_FRAC", "BILINEAR", "EXCESS_OVER_THRESHOLD", "DEFICIT_BELOW_THRESHOLD", "OPTIMUM_BAND",
-	"RECORD_BYTES",
+	"ARRHENIUS", "RECORD_BYTES",
 ]
 
 
@@ -108,7 +115,12 @@ static func composition() -> Dictionary:
 		"N": (LAPhysical.MOLAR_MASS_CARBON_KG_MOL / LAPhysical.LITTER_C_TO_N) / LAPhysical.MOLAR_MASS_NITROGEN_KG_MOL,
 	}
 	var water: Dictionary = {"H": 2.0, "O": 1.0}
-	var mineral: Dictionary = {"M": 1.0}
+	# CALCIUM SILICATE, the one composition every existing mineral phase carries. Wollastonite CaSiO3 is the
+	# standard proxy for the silicate the mantle makes (Walker, Hays & Kasting 1981). It has to be ONE
+	# composition across bedrock, lava, sediment, dust and suspension because those five exchange mass with
+	# each other at 1:1 and a transfer may not change composition — see LAReactionDefs.CARBONATE for the
+	# connected-component argument and why exactly two more channels were needed, not ten.
+	var silicate: Dictionary = {"Ca": 1.0, "Si": 1.0, "O": 3.0}
 	return {
 		DefsScript.WATER: water,
 		DefsScript.MOISTURE: water,
@@ -126,16 +138,22 @@ static func composition() -> Dictionary:
 		DefsScript.FUNGUS: organic,
 		DefsScript.FUEL: organic,
 		DefsScript.FERT: {"N": 1.0},
-		DefsScript.LAVA: mineral,
-		DefsScript.ROCK_FILL: mineral,
+		DefsScript.LAVA: silicate,
+		DefsScript.ROCK_FILL: silicate,
 		# BEDROCK_BELOW is the `rock_fill` of the solid cell underneath, reached across one radial neighbour —
-		# the same substance ROCK_FILL is, at the same one mineral unit per unit, which is what makes frost
-		# shattering and silicate dissolution conserving rock -> sediment/susp transfers rather than sources.
-		# DERIVED VIEW: absent from INVENTORY_CHANNELS, since `rock_fill` is already summed there.
-		DefsScript.BEDROCK_BELOW: mineral,
-		DefsScript.SEDIMENT: mineral,
-		DefsScript.DUST: mineral,
-		DefsScript.SUSP: mineral,
+		# the same substance ROCK_FILL is, on the same molar basis, which is what makes frost shattering a
+		# conserving rock -> sediment transfer rather than a source. DERIVED VIEW: absent from
+		# INVENTORY_CHANNELS, since `rock_fill` is already summed there.
+		DefsScript.BEDROCK_BELOW: silicate,
+		DefsScript.SEDIMENT: silicate,
+		DefsScript.DUST: silicate,
+		DefsScript.SUSP: silicate,
+		# THE TWO WEATHERING PRODUCTS. Calcite is the ONLY place carbon can leave the atmosphere permanently in
+		# this substrate; quartz is the residue the reaction has to put its silicon in, and nothing weathers it
+		# further, which is why it has no consumer other than the decarbonation record that reverses the whole
+		# reaction at metamorphic temperature.
+		DefsScript.CARBONATE: {"Ca": 1.0, "C": 1.0, "O": 3.0},
+		DefsScript.SILICA: {"Si": 1.0, "O": 2.0},
 	}
 
 
@@ -167,30 +185,39 @@ static func composition() -> Dictionary:
 ## natural. It is the GATE and the INVENTORY that must convert — they are the two places that compare
 ## ACROSS channels, and they are the only two places that need to.
 ##
-## MINERALS ARE 1.0 AND ARE NOT MOLES, AND THAT IS A FENCE, NOT A RESULT. `M` is a lumped mass rather than
-## an atom count because silicate stoichiometry is not modelled. All six mineral phases share one cell-fill
-## unit so they are consistent with EACH OTHER, which is all the M column can currently be asked to be.
+## THE MINERAL PHASES CARRY REAL MOLAR BASES AS OF 2026-08-08. *(This paragraph used to say "MINERALS ARE 1.0
+## AND ARE NOT MOLES, AND THAT IS A FENCE, NOT A RESULT", and justified the fence by the absence of any
+## M<->CHON conversion. That absence was itself the defect — D1b took CO2 as a catalyst it never consumed —
+## and it is fixed. The M-mixing rejection block in `check_records` is deleted with it; its own comment named
+## this commit as its removal condition.)*
 ##
-## DO NOT JUSTIFY THIS BY "NOTHING CONVERTS BETWEEN M AND C/H/O/N". *(An earlier draft of this comment did,
-## and it was circular.)* That is true of the record table today only because D1b CHEMICAL WEATHERING
-## (GeoRecords.gd:172) takes WATER as its driver and CO2 as its driver2 — CATALYSTS — and consumes neither.
-## The real reaction consumes both: CaSiO3 + 2CO2 + H2O -> Ca(2+) + 2HCO3(-) + SiO2. Silicate weathering is
-## the long-term carbon sink that has regulated Earth's climate for four billion years, and this planet does
-## not have it. So the absence of an M<->CHON conversion is a DEFECT being described, not a property being
-## relied on, and the fence below exists because that defect is going to get fixed.
+## WHAT ONE MINERAL UNIT IS. The same thing one unit of `water` is: a CELL FULL of the substance, at its
+## measured density. Moles per unit is then density / molar mass, and every number in it is a fact:
+##   silicate  ROCK_DENSITY_KG_M3 / MOLAR_MASS_CASIO3 = 2900 / 0.11616 = 24966 mol/m^3
+##   silica    QUARTZ_DENSITY     / MOLAR_MASS_SIO2   = 2650 / 0.06008 = 44105 mol/m^3
+##   carbonate CALCITE_DENSITY    / MOLAR_MASS_CACO3  = 2710 / 0.10009 = 27076 mol/m^3
 ##
-## Rock is roughly 46% oxygen by mass, so a molar basis for M is perfectly measurable — that is not why it is
-## absent. It is absent because crustal oxygen would swamp `element_O` by orders of magnitude and destroy the
-## one thing that ledger is for, which is watching the ATMOSPHERE. Geochemistry keeps those reservoirs on
-## separate books for the same reason. When mineralogy lands, M gets real species (silicate, carbonate) with
-## their own compositions, and carbonate is where weathered carbon goes.
+## THE SILICATE PHASES ALL SHARE ONE BASIS, AND THAT IS NOT A SIMPLIFICATION — it is what the substrate
+## already asserts. Every mineral transfer it performs is 1:1 in channel units (M5/M6 lava<->rock, D1a
+## rock->sediment, D2 sediment->rock, M3 susp->sediment, M4 sediment->dust, the dust kernel's deposit back to
+## sediment, erosion pickup's rock->susp). A 1:1 transfer between two channels on DIFFERENT molar bases would
+## create or destroy matter, so the code has always meant them to share one, and this writes that down.
+##   The bulk density of loose sediment is a different quantity and is NOT this one: SEDIMENT_DENSITY_KG_M3
+##   = 2000 describes how much VOLUME a given mineral mass occupies once it is a grain framework with pores,
+##   which is why the overburden walk weighs a sediment cell less than a rock cell. Conflating a bulk density
+##   with a molar basis would make every one of those 1:1 transfers a 31% mass leak.
 ##
-## UNTIL THEN THE GATE REFUSES TO BE QUIET ABOUT IT — see the M-mixing check in `check_records`. A record
-## with M on one side and C, H, O or N on the other cannot be balanced by anything here, and passing it
-## silently is how a carbon sink would get written that leaks every atom it moves.
+## CRUSTAL OXYGEN WOULD SWAMP `element_O`, AND THAT PROBLEM IS REAL — it is why minerals had no molar basis
+## before. It is not solved by refusing to measure the rock. It is solved the way geochemistry solves it,
+## by keeping the reservoirs on SEPARATE BOOKS: LAMaterialFieldElementInventory3D publishes the
+## atmosphere/biosphere totals as `element_*` and LAMaterialFieldMineralBudget3D publishes the lithosphere as
+## `lith_element_*`, with `element_C_total` the one sum that has to close.
 static func mol_per_unit() -> Dictionary:
 	var gas: float = LAPhysical.AMBIENT_O2_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_O2_KG_MOL
 	var water: float = LAPhysical.WATER_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
+	# A cell full of calcium silicate. Shared by every phase of it — see the header for why sharing one basis
+	# is the substrate's own assertion rather than a convenience.
+	var silicate: float = LAPhysical.ROCK_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_CASIO3_KG_MOL
 	# ORGANIC MATTER HAD NO DECLARED UNIT ANYWHERE — that absence is itself a finding. It is fixed here by
 	# the one relation the substrate already asserts: fire_sphere3d.glsl:186-189 oxidises fuel and O₂
 	# ONE FOR ONE (`burned = min(fuel_i, o2_i)`, then debits both by `burned`), and CH₂O + O₂ -> CO₂ + H₂O
@@ -208,8 +235,10 @@ static func mol_per_unit() -> Dictionary:
 		# comes from: one unit of organic matter releases `organic["N"]` moles of N, so pinning FERT to the
 		# same molar basis makes that a 1:1 relation a record can state without a conversion factor.
 		DefsScript.FERT: organic,
-		DefsScript.LAVA: 1.0, DefsScript.ROCK_FILL: 1.0, DefsScript.BEDROCK_BELOW: 1.0,
-		DefsScript.SEDIMENT: 1.0, DefsScript.DUST: 1.0, DefsScript.SUSP: 1.0,
+		DefsScript.LAVA: silicate, DefsScript.ROCK_FILL: silicate, DefsScript.BEDROCK_BELOW: silicate,
+		DefsScript.SEDIMENT: silicate, DefsScript.DUST: silicate, DefsScript.SUSP: silicate,
+		DefsScript.CARBONATE: LAPhysical.CALCITE_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_CACO3_KG_MOL,
+		DefsScript.SILICA: LAPhysical.QUARTZ_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_SIO2_KG_MOL,
 	}
 
 
@@ -237,7 +266,18 @@ const INVENTORY_CHANNELS: Dictionary = {
 	"o2": 3, "co2": 4,
 	"biomass": 11, "detritus": 7, "fungus": 8, "fuel": 5, "fert": 9,
 	"lava": 10, "rock_fill": 17, "sediment": 13, "dust": 14, "susp": 15,
+	"carbonate": 24, "silica": 25,
 }
+
+
+## The channels whose contents are LITHOSPHERE — rock, and the loose mineral derived from it. Kept as its own
+## list because the two reservoirs are summed onto separate books: a cell of bedrock holds 24966 mol of
+## silicate against a cell of air's 0.002 units of CO2, so one combined `element_O` would be crustal oxygen
+## plus rounding error, and the atmospheric signal the ledger exists to watch would be gone. Everything in
+## INVENTORY_CHANNELS that is not in here is atmosphere, hydrosphere or biosphere.
+const LITHOSPHERE_CHANNELS: PackedStringArray = [
+	"rock_fill", "lava", "sediment", "susp", "dust", "carbonate", "silica",
+]
 
 
 ## Elements a unit of `channel` contains. Empty for a channel that carries no matter.
@@ -317,30 +357,10 @@ static func check_records(recs: Array, labels: PackedStringArray = PackedStringA
 					sums[sub] = float(sums.get(sub, 0.0)) + sgn * moles * float(parts[sub])
 		if bad_slot:
 			continue
-		# MINERAL MASS AND ATOMS CANNOT BE WEIGHED AGAINST EACH OTHER, so a record that puts them on opposite
-		# sides is refused rather than silently summed. `M` is a lumped mass with no stoichiometry (see
-		# composition()), so "1 unit of M becomes 1 mole of CO2" is not a statement this table can check.
-		#
-		# THIS BLOCK IS SCAFFOLDING AND IT HAS A REMOVAL CONDITION: it comes out the day the mineral phases
-		# carry real species compositions — silicate CaSiO3, carbonate CaCO3, residue SiO2 — because then
-		# `M` no longer exists and the ordinary element sums cover it. That work is what makes the Urey
-		# reaction CaSiO3 + CO2 -> CaCO3 + SiO2 writable, and with it silicate weathering as a genuine carbon
-		# sink instead of the catalysed rate GeoRecords.gd:172 currently models. Delete this, do not extend it.
-		var has_mineral: bool = false
-		var has_atoms: bool = false
-		for sub in sums:
-			if absf(float(sums[sub])) <= 0.0:
-				continue
-			if String(sub) == "M":
-				has_mineral = true
-			else:
-				has_atoms = true
-		if has_mineral and has_atoms:
-			out.append("%s: puts lumped mineral mass (M) on one side and atoms on the other. " % label
-				+ "Mineral has no stoichiometry here, so this cannot be balanced. Silicate weathering needs "
-				+ "real species (CaSiO3 / CaCO3 / SiO2) before a record may convert rock into or out of C, "
-				+ "H, O or N — see LAReactionBalance.composition().")
-			continue
+		# (The M-mixing rejection block that stood here is DELETED, 2026-08-08. It refused any record that put
+		# lumped mineral mass on one side and atoms on the other, and its own comment named its removal
+		# condition: "the day the mineral phases carry real species compositions". They do. Ca and Si are
+		# ordinary columns in the sums below now, so the Urey reaction is checked the same way respiration is.)
 		for sub in sums:
 			var net: float = float(sums[sub])
 			var scale: float = 0.0

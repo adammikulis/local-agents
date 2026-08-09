@@ -86,6 +86,27 @@ const OVERBURDEN: int = 22
 # move for river scour and rests on the same argument. A record using this slot should gate GATE_NEAR_GROUND,
 # which is what guarantees the cell below is rock at all.
 const BEDROCK_BELOW: int = 23
+# --- THE TWO NON-SILICATE MINERAL SPECIES (2026-08-08) -----------------------------------------------------
+# Every mineral phase above is ONE species — calcium silicate, CaSiO3 — and it has to be, because they all
+# exchange mass with each other at 1:1 and nothing in a transfer may change composition: LAVA <-> ROCK_FILL
+# (M5/M6), BEDROCK_BELOW -> SEDIMENT (D1a), SEDIMENT -> ROCK_FILL (D2), SEDIMENT <-> DUST (M4 + the transport
+# kernel's leeward deposit), SUSP -> SEDIMENT (M3) and ROCK_FILL -> SUSP (erosion pickup). Those five phases
+# are one connected component under composition-preserving transfers, so they carry one composition.
+#
+# The Urey reaction CaSiO3 + CO2 -> CaCO3 + SiO2 has two products that are NOT that species, and a channel
+# holds one composition, so each needs a channel of its own. TWO new channels, and two is the minimum: fewer
+# is impossible (the reaction has two distinct non-silicate products) and more would be a channel with no
+# record. There is deliberately no `dust_carbonate`, no `susp_silica` and no limestone BEDROCK phase — no
+# record in this table lofts, scours, settles or melts either species, and a channel nothing writes is a
+# channel that lies about what the substrate models. What that omits is stated in GeoRecords.gd.
+#
+# Both are OWN-CELL stocks in the near-ground open cell where weathering happens, exactly as loose SEDIMENT
+# is. They do not advect: the weathering rind and the carbonate crust stay on the outcrop that made them.
+const CARBONATE: int = 24             # CaCO3 — where weathered carbon goes, and the only place it can go
+const SILICA: int = 25                # SiO2 — the weathering residue; nothing weathers it further
+# NOTE: the slot enum and the kernel's BINDING numbers alias only up to 26. Bindings 24/25/26 are already
+# Soil/Radial/Static, so these two slots bind at 28 and 29 in reactions_sphere3d.glsl. The alias was always a
+# convenience, never a contract; `check_kernel()` verifies the #define VALUES, which is the thing that matters.
 
 # --- Rate models (extent x per cell) ---------------------------------------------------------------------
 const CONST_FRAC: int = 0             # x = k * driver

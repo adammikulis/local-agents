@@ -65,6 +65,12 @@ const PAIR_CHANNELS: PackedStringArray = [
 const SINGLE_CHANNELS: PackedStringArray = [
 	"solid", "static", "fuel", "charge", "detritus", "biomass", "pressure",
 	"vel_x", "vel_y", "vel_z", "dust_outscale", "fungus_fert", "surf_vx", "surf_vz", "snow", "rock_fill",
+	# THE TWO NON-SILICATE MINERAL SPECIES (2026-08-08). `carbonate` (CaCO3) is where silicate weathering puts
+	# the CO2 it consumes — the only carbon sink this planet has — and `silica` (SiO2) is the residue the same
+	# reaction has to put its silicon in. SINGLE rather than PAIR because nothing advects them: ReactionsPass
+	# is their only reader and only writer (D1b credits, D1c decarbonation debits), so there is no producer
+	# pass to ping-pong against. Both start at zero, which is correct: an unweathered planet has neither.
+	"carbonate", "silica",
 	"regolith",     # aquifer permeability mask (1 = groundwater-bearing rock) — static; seeded once
 	"grain"]        # representative grain diameter in METRES per regolith cell — static; seeded once. The
 	                # aquifer kernel turns it into hydraulic conductivity through Kozeny-Carman, so K varies

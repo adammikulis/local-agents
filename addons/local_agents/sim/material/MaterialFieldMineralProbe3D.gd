@@ -64,6 +64,14 @@ extends RefCounted
 ## half-mapping above is verified, not assumed.
 ## (Explicit types only, no ':=' inferred typing.)
 
+## THE FIVE-LEG SUM IS NO LONGER EXACTLY CONSERVED THROUGH `ReactionsPass`, as of 2026-08-08, and a reader
+## chasing a leak needs to know before they chase this one. The mineral phases carry real formulas now
+## (silicate CaSiO3), and record D1b — the Urey reaction — converts silicate bedrock into carbonate and
+## silica, which are two OTHER channels this probe does not sum. So `reactions` will show a small standing
+## negative that is weathering working, not mass vanishing. It is tiny: 0.031 cell-units over a whole
+## 600-frame run, against a five-leg total of 31978. Anything larger than that is a real leak. The strict
+## gauge is `lith_element_Ca` / `lith_element_Si` in LAMaterialFieldMineralBudget3D.
+
 ## Field steps between sampled PAIRS. 2 of every 50 steps paying the round-trips is a cost the run does not
 ## notice, and it matches the H₂O probe's cadence so the two diagnostics line up on the same horizons.
 const SAMPLE_EVERY: int = 50
