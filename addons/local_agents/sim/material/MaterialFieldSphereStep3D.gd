@@ -48,6 +48,7 @@ const SoilBudgetScript: GDScript = preload("res://addons/local_agents/sim/materi
 const H2OBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldH2OBudget3D.gd")
 const MineralProfileScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd")
 const MineralProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProbe3D.gd")
+const EnergyProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyProbe3D.gd")
 
 var _f = null                                          # back-reference to the owning LAMaterialField3D
 var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
@@ -67,6 +68,12 @@ var _mineral_profile = null
 # driver's ONE `set_step_probe` slot, so it and the H₂O probe are mutually exclusive; setup() warns and keeps
 # this one when both variables are present, rather than letting one silently take every checkpoint.
 var _mineral_probe = null
+# Per-pass ENERGY budget probe (LA_ENERGY_BUDGET) — which pass moves the planet's heat. Third contender for the
+# driver's ONE `set_step_probe` slot, so it is in the same mutual-exclusion chain as the other two. It exists
+# because LAMaterialFieldEnergyLedger3D reports a single global drift and lists ELEVEN unbooked terms it cannot
+# rank; one was picked off that list on judgement and moved the number 2.5%. Naming the pass is what the mineral
+# probe did for rock, in one run.
+var _energy_probe = null
 
 # TWO CLOCKS, PUBLISHED SO THEY CAN BE COMPARED. `field_sim_s` is the simulated time the substrate ACTUALLY
 # advanced (STEP_DT per GPU step); `field_offer_s` is the simulated time the physics tick HANDED it (the sum
@@ -94,16 +101,31 @@ func setup(field) -> void:
 	if _armed("LA_SOIL_BUDGET"):
 		_soil_budget = SoilBudgetScript.new()
 		_soil_budget.setup(field)
-	if _armed("LA_MINERAL_BUDGET"):
-		_mineral_probe = MineralProbeScript.new()
-		_mineral_probe.setup(field)
-	if _armed("LA_H2O_BUDGET"):
-		if _mineral_probe != null:
-			push_warning("LA_H2O_BUDGET and LA_MINERAL_BUDGET both set — they share the driver's single "
-				+ "step probe. Running the MINERAL probe only; unset it to get the H2O one.")
-		else:
-			_h2o_budget = H2OBudgetScript.new()
-			_h2o_budget.setup(field)
+	# THE DRIVER HAS EXACTLY ONE `set_step_probe` SLOT and three probes want it. Arming two would give one of
+	# them every checkpoint and the other none, silently, so this picks by a DECLARED precedence and names
+	# every armed flag in the warning. *(Was a nested if between two probes; a third contender turned that
+	# shape into one that hides which probe actually ran.)*
+	var slot_order: Array = [
+		["LA_MINERAL_BUDGET", MineralProbeScript],
+		["LA_H2O_BUDGET", H2OBudgetScript],
+		["LA_ENERGY_BUDGET", EnergyProbeScript]]
+	var slot_armed: PackedStringArray = PackedStringArray()
+	for entry in slot_order:
+		if _armed(entry[0]):
+			slot_armed.append(entry[0])
+	if slot_armed.size() > 1:
+		push_warning("%s all set — they share the driver's single step probe. Running %s only; unset it to "
+			% [", ".join(slot_armed), slot_armed[0]] + "get one of the others.")
+	if slot_armed.size() > 0:
+		for entry in slot_order:
+			if entry[0] != slot_armed[0]:
+				continue
+			var probe_obj = entry[1].new()
+			probe_obj.setup(field)
+			match entry[0]:
+				"LA_MINERAL_BUDGET": _mineral_probe = probe_obj
+				"LA_H2O_BUDGET": _h2o_budget = probe_obj
+				"LA_ENERGY_BUDGET": _energy_probe = probe_obj
 	if _armed("LA_MINERAL_PROFILE"):
 		_mineral_profile = MineralProfileScript.new()
 		_mineral_profile.setup(field)
@@ -247,6 +269,8 @@ func process(delta: float) -> void:
 	# At most one budget probe is ever non-null (setup() enforces it), so this stays one branch, not a nest.
 	# Untyped like every other duck-typed module handle in this file.
 	var probe = _h2o_budget if _h2o_budget != null else _mineral_probe
+	if probe == null:
+		probe = _energy_probe
 	for i in steps:
 		if probe != null:
 			probe.pre_step()          # arm/disarm the driver's between-pass probe for THIS step
