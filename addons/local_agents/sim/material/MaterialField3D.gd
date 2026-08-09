@@ -1036,7 +1036,7 @@ func slump_count() -> int:
 ## Light the cell under a node on fire (disaster/scripted ignition).
 ## STILL A NO-OP, AND DELIBERATELY SO: the honest implementation injects heat, and the last version of that
 ## added 900 °C to every cell in a radius out of nothing (removed in 23c8f66). Ignition must come from the
-## substrate reaching `VEGETATION_IGNITION_C` on its own. Named here rather than quietly wired so the
+## substrate reaching cellulose's own pyrolysis kinetics on its own. Named here rather than quietly wired so the
 ## reason survives: `EcologyService.ignite_area` is the same no-op for the same reason.
 func ignite(_node) -> void:
 	pass
