@@ -16,6 +16,7 @@ const ExtremesScript: GDScript = preload("res://addons/local_agents/sim/material
 const ClimateSwingScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd")
 const ElementInventoryScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldElementInventory3D.gd")
 const MineralBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralBudget3D.gd")
+const EnergyLedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyLedger3D.gd")
 
 ## Process frames between recomputes of the O(cells) instrument block. See `_heavy_block()` for why a gate is
 ## needed at all — the short version is that this provider is polled every rendered frame, not once a
@@ -29,6 +30,7 @@ var _extremes = null                                     # LAMaterialFieldExtrem
 var _swing = null                                        # LAMaterialFieldClimateSwing3D — diurnal + seasonal range
 var _mass = null                                         # LAMaterialFieldElementInventory3D — carbon/oxygen/fertility ledgers
 var _mineral = null                                      # LAMaterialFieldMineralBudget3D — the five-phase rock ledger
+var _energy_stock = null                                 # LAMaterialFieldEnergyLedger3D — rho*c*V*T stock + its drift
 var _heavy_cache: Dictionary = {}                        # last computed instrument block
 var _heavy_frame: int = -1_000_000                       # process frame it was computed on
 
@@ -46,6 +48,8 @@ func setup(field) -> void:
 	_mass.setup(field)
 	_mineral = MineralBudgetScript.new()
 	_mineral.setup(field)
+	_energy_stock = EnergyLedgerScript.new()
+	_energy_stock.setup(field)
 
 
 ## SURFACE CLIMATE BY LATITUDE AND ALTITUDE — the gauge that can actually answer "can it freeze HERE".
@@ -383,7 +387,13 @@ func _heavy_block() -> Dictionary:
 	var d: Dictionary = surface_climate()
 	#   energy — the radiative books. There was NO energy accounting anywhere before this; a radiative sink was
 	#            added on this line of work and nothing could verify it.
-	d.merge(_energy.report())
+	var flux: Dictionary = _energy.report()
+	d.merge(flux)
+	#   energy STOCK — the conservation ledger energy did not have. The line above is a FLUX instrument that
+	#            mirrors ONE kernel, so it cannot see any term that kernel does not compute; this one sums
+	#            rho*c*V*T over every cell and differences it against the terms that CAN be booked. It is
+	#            handed `flux` rather than recomputing the radiative legs, so the two cannot disagree.
+	d.merge(_energy_stock.report(_f._gpu._step_index if _f._gpu != null else 0, flux))
 	#   mass   — conservation ledgers for carbon, oxygen, fertility and biomass, on the H₂O ledger's pattern.
 	#            Every substance here that had a ledger conserved; every substance without one minted.
 	d.merge(_mass.report(_f._gpu._step_index if _f._gpu != null else 0))
