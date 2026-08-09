@@ -119,6 +119,40 @@ static func field(ch: Dictionary, cell_count: int) -> PackedFloat64Array:
 	return out
 
 
+## The field's total heat capacity BY SUBSTANCE, J/m3K summed over cells (multiply by the cell volume for
+## J/K). This lives here rather than in the ledger because it is the same model read a different way: a
+## carrier added to the mix above appears in these legs automatically, where a hand-written breakdown in the
+## ledger silently kept reporting four legs while the model counted fifteen channels.
+static func legs(ch: Dictionary, cell_count: int) -> Dictionary:
+	var groups: Array = [["silicate", SILICATE, LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K],
+		["carbonate", CARBONATE, LAPhysical.VOL_HEAT_CAP_CARBONATE_J_M3K],
+		["silica", SILICA, LAPhysical.VOL_HEAT_CAP_SILICA_J_M3K],
+		["water", WATER_LIQUID, LAPhysical.VOL_HEAT_CAP_WATER_J_M3K],
+		["snow", WATER_SOLID, LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K],
+		["vapour", WATER_VAPOUR, LAPhysical.VOL_HEAT_CAP_VAPOUR_J_M3K],
+		["organic", ORGANIC, LAPhysical.VOL_HEAT_CAP_ORGANIC_J_M3K]]
+	var out: Dictionary = {}
+	var occupied: float = 0.0
+	for g in groups:
+		var acc: float = 0.0
+		for name in g[1]:
+			var a = ch.get(name)
+			if a is PackedFloat32Array and a.size() >= cell_count:
+				for c in cell_count:
+					acc += clampf(a[c], 0.0, 1.0)
+		out[g[0]] = acc * g[2]
+		occupied += acc
+	# Air is the remainder of the grid, floored at zero per cell the same way `mix` floors it.
+	out["air"] = maxf(0.0, float(cell_count) - occupied) * LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
+	return out
+
+
+## The capacity of a cell that is entirely one substance. For boundary conditions that are a material by
+## definition rather than a mixture — the geotherm's rock floor is the only caller today.
+static func pure_rock() -> float:
+	return mix(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+
 ## Which of this model's channels the caller actually supplied. Publish it beside any number derived from
 ## `field()` or `cell()`: an absent channel reads as zero, and a reader cannot otherwise tell "there is no
 ## groundwater here" from "nobody sampled the groundwater".

@@ -214,6 +214,19 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_physical_constants.sh ($rc_physical)"
       exit 1
     fi
+    # Gate: ONE definition of a cell's volumetric heat capacity per side of the GPU boundary. The gate above
+    # CANNOT see this class of defect and its own failure proves it — that one checks VALUES, and all nine
+    # copies of this mix read the right values while putting them in four mutually incompatible formulas.
+    # Two of the nine were the BOOKED and the STOCK sides of the energy ledger's own subtraction, so their
+    # disagreement was published as planetary energy drift for as long as it existed. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_heat_capacity_ssot.sh"
+    rc_heatcap=$?
+    set -e
+    if [[ $rc_heatcap -ne 0 ]]; then
+      echo "LINT_FAIL: check_heat_capacity_ssot.sh ($rc_heatcap)"
+      exit 1
+    fi
     # Gate: no reaction record may create or destroy matter. The DEFS engine took reactants and products as
     # two independent lists of hand-written coefficients with nothing relating them, and one rate model had
     # no reactant at all, so only its product credit ever ran — which is where every carbon atom in this

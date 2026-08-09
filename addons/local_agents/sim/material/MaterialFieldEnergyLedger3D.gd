@@ -317,15 +317,6 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	var d_heat: float = 0.0          # Σ rc₀ΔT
 	var d_cap: float = 0.0           # Σ Δrc·T₁
 	var shell_solid: int = 0         # solid cells on the r == 0 face — the geotherm's own population
-	# The grid's heat capacity by carrier, so a change in the capacity term names its own substance.
-	var cap_rock: float = 0.0
-	var cap_water: float = 0.0
-	var cap_snow: float = 0.0
-	var cap_air: float = 0.0
-	var rc_air: float = LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
-	var rc_rock: float = LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
-	var rc_water: float = LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
-	var rc_snow: float = LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K
 	# THE MIX IS LAHeatCapacity's NOW, NOT THIS FILE'S. *(2026-08-09.)* This loop used to transcribe
 	# rc_shared.glsli inline, and so did LAMaterialFieldEnergyBudget3D — which computes the BOOKED solar and
 	# longwave terms that this ledger differences its STOCK against. Two copies on two sides of one
@@ -353,16 +344,7 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	var rc_all: PackedFloat64Array = LAHeatCapacity.field(ch, cc)
 	var cap_live: Dictionary = LAHeatCapacity.live_map(ch, cc)
 	for c in cc:
-		var f_rock: float = clampf((rock_fill[c] if has_rock else 0.0) + (lava[c] if has_lava else 0.0), 0.0, 1.0)
-		var f_water: float = clampf(water[c], 0.0, 1.0) if has_water else 0.0
-		var f_snow: float = clampf(snow[c], 0.0, 1.0) if has_snow else 0.0
 		var rc: float = rc_all[c]
-		# The per-carrier capacity legs stay coarse on purpose: they exist to name WHICH SUBSTANCE moved the
-		# capacity term, and rock/water/snow/air is the resolution that question has ever needed.
-		cap_rock += rc_rock * f_rock
-		cap_water += rc_water * f_water
-		cap_snow += rc_snow * f_snow
-		cap_air += rc_air * maxf(0.0, 1.0 - f_rock - f_water - f_snow)
 		if solid[c] != 0 and c % depth == 0:
 			shell_solid += 1
 		var tk: float = temp[c] + LAPhysical.KELVIN_OFFSET
@@ -377,10 +359,14 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	var stock: float = rc_sum_t * volume
 	var d_heat_j: float = d_heat * volume
 	var d_cap_j: float = d_cap * volume
-	var cap_legs: Dictionary = {
-		"rock": snappedf(cap_rock * volume, 1.0), "water": snappedf(cap_water * volume, 1.0),
-		"snow": snappedf(cap_snow * volume, 1.0), "air": snappedf(cap_air * volume, 1.0),
-	}
+	# By substance, from LAHeatCapacity, so a carrier added to the mix appears here automatically. The old
+	# hand-written breakdown had four legs (rock/water/snow/air) and went on reporting four while the model
+	# underneath it counted fifteen channels — the missing eight were exactly the ones this ledger was built
+	# to find.
+	var cap_raw: Dictionary = LAHeatCapacity.legs(ch, cc)
+	var cap_legs: Dictionary = {}
+	for k in cap_raw:
+		cap_legs[k] = snappedf(float(cap_raw[k]) * volume, 1.0)
 	out["energy_stock"] = stock
 	out["energy_stock_cells"] = cc
 	# Every channel the capacity mix reads, and whether it actually arrived. Built by LAHeatCapacity from the
@@ -389,7 +375,10 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	out["energy_stock_live"] = cap_live
 	# The grid's total heat capacity, in J/K, and which substance holds it. `energy_capacity_w_m2` is the RATE
 	# this moves at; these say what moved.
-	out["energy_cap_j_k"] = (cap_rock + cap_water + cap_snow + cap_air) * volume
+	var cap_total: float = 0.0
+	for k in cap_legs:
+		cap_total += float(cap_legs[k])
+	out["energy_cap_j_k"] = cap_total
 	out["energy_cap_legs"] = cap_legs
 
 	# THE BOOKED RATES, in watts. `energy_absorbed` / `energy_emitted` are sums of per-cell fluxes in W/m², so

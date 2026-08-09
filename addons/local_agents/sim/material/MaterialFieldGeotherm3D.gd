@@ -201,7 +201,11 @@ func step() -> void:
 	# steady because the base of a crust is steady, which is the correct behaviour and not a stuck number.
 	_flux_w_m2 = LAPhysical.THERMAL_CONDUCT_ROCK_W_MK * (_boundary_c - _shell_c) / cell_size
 	# q * A * dt / (rho*c * V) with A = dx^2 and V = dx^3 collapses to q * dt / (rho*c * dx).
-	_flux_dt = _flux_w_m2 * real_seconds_per_step() / (LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K * cell_size)
+	# Through LAHeatCapacity rather than reading LAPhysical directly. This boundary IS solid rock by
+	# definition, so it wants a pure-substance capacity rather than a mixture — but it must still come from
+	# the ONE model, because nine independent copies of that model is what put the booked and the stock sides
+	# of the energy ledger on different physics. Gated by scripts/check_heat_capacity_ssot.sh.
+	_flux_dt = _flux_w_m2 * real_seconds_per_step() / (LAHeatCapacity.pure_rock() * cell_size)
 
 	# The reservoir pays for it. (The cubed-sphere's r = 0 cells are not exactly dx^2 in area — summed they
 	# come to about 8% more than 4*pi*core_radius^2 at res 32, the gnomonic area distortion — so the debit is

@@ -232,9 +232,15 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# face onto another equally hot lava cell returns as much as it receives, and only a face onto cold air
 		# or space carries the full sigma*eps*T^4 — so a flow's rind hardens while the core stays molten and
 		# drains, leaving a lava tube, with no exposed-face count anywhere).
+		# 6/7/21-24 + shared_carriers: this kernel joined rc_shared.glsli on 2026-08-09. It had a PRIVATE
+		# two-component capacity (lava + air) that counted no water at all, so a molten cell quenching on the
+		# sea floor cooled as if it were surrounded by air instead of by the 4.17e6 J/m3K of the ocean.
 		_lava_phase_set[p] = _make_set(rd, _lava_phase_shader, [
 			[0, lava_back], [1, temp_back], [2, solid],
-			[4, active_idx], [5, active_args], [15, nbr]])
+			[4, active_idx], [5, active_args], [15, nbr],
+			[6, bufs["rock_fill"]], [7, water_back], [21, bufs["fuel"]], [22, bufs["biomass"]],
+			[23, bufs["detritus"]], [24, bufs["snow"]]]
+			+ shared_carriers)
 		# magma: 0 = lava (BACK, rw), 1 = scratch (private), 2 = temp (BACK, carry-heat), 3 = solid, 15 = nbr.
 		_magma_set[p] = _make_set(rd, _magma_shader, [
 			[0, lava_back], [1, _scratch], [2, temp_back], [3, solid], [15, nbr]])
