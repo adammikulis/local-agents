@@ -716,6 +716,45 @@ const QUARTZ_SPECIFIC_HEAT_J_KGK: float = 740.0     # SiO2, alpha-quartz, 25 C (
 # LASubstances derives sublimation as the sum rather than declaring it, so the three can no longer disagree.
 const LATENT_HEAT_VAPORISATION_0C_J_KG: float = 2.501e6
 
+# ============================================================================================================
+# THE LIQUID-VAPOUR BOUNDARY IS A CURVE, NOT A TEMPERATURE, AND ABOVE THE CRITICAL POINT IT DOES NOT EXIST.
+# *(Added 2026-08-09.)* Everything above this block described water's phase changes with SCALARS —
+# `WATER_BOIL_C = 100.0`, one latent heat at 0 C and another at 100 C, and the relation between them written
+# out in a COMMENT rather than implemented. That is a model of water at one atmosphere and nowhere else, and
+# this planet is not at one atmosphere everywhere: it has a `pressure` channel precisely because the air
+# column varies, and the whole point of the project is a post-Theia planet whose steam envelope is of order
+# a hundred bar.
+#
+# WHAT THE SCALARS GET WRONG, in the direction that matters most here:
+#   * at 0.5 atm water boils at 81 C, not 100;
+#   * at 100 bar it boils at about 302 C, not 100. A cooling magma-ocean planet therefore condenses its
+#     ocean when the surface passes ~300 C, and a model that waits for 100 C waits for a temperature the
+#     planet will not reach for a geological age — so the ocean never forms, and the failure looks like
+#     "the physics does not work" rather than "the boundary is in the wrong place";
+#   * above 373.946 C / 220.64 bar there is NO liquid-vapour boundary at all. Water is supercritical: one
+#     phase, no meniscus, no latent heat. A table that asserts a boiling point there is asserting a
+#     transition that does not happen.
+#
+# CLAUSIUS-CLAPEYRON is the relation, integrated with the latent heat treated as locally constant:
+#     P_sat(T) = P_ref * exp[ (L/R_v) * (1/T_ref - 1/T) ]      inverted for T in LASubstances.boil_c_at()
+# R_v is VAPOUR_GAS_CONST_J_KGK above, which was already here and used by the saturation curve.
+#
+# AND THE LATENT HEAT IS A FUNCTION OF TEMPERATURE, which is why the two constants above disagree. The
+# linear fit L_v(T) = 2.501e6 - 2361*T_C that the comment above quotes is good to 0.35% between 0 and 100 C
+# and CATASTROPHIC near the critical point, where it returns 1.6e6 for a quantity that is physically zero.
+# The Watson correlation has the right asymptote and is the standard engineering form:
+#     L(T) = L_ref * ((Tc - T) / (Tc - T_ref))^0.38
+# anchored at 100 C it reproduces the 0 C measurement to 1.5%, which is the price of being correct at the
+# end of the curve that the linear fit cannot represent at all.
+const WATER_CRITICAL_T_C: float = 373.946            # IAPWS-95 critical temperature, 647.096 K
+const WATER_CRITICAL_P_PA: float = 2.2064e7          # IAPWS-95 critical pressure, 220.64 bar
+const STANDARD_PRESSURE_PA: float = 101325.0         # one standard atmosphere, the reference boil_c is quoted at
+const WATSON_LATENT_EXPONENT: float = 0.38           # Watson correlation exponent for the latent-heat curve
+# The linear fit, as a CONSTANT rather than a sentence in a comment, so the relation between the two
+# measured latent heats is checkable instead of asserted. Valid 0-100 C; use the Watson form outside it.
+const LATENT_VAPORISATION_SLOPE_J_KGK: float = 2361.0
+# ============================================================================================================
+
 # --- EMISSIVITY -----------------------------------------------------------------------------------------------
 # Thermal-infrared emissivity of a water surface. Near-blackbody, which is why the ocean radiates so
 # efficiently and why sea-surface temperature can be measured from orbit at all.
