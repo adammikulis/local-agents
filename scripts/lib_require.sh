@@ -20,7 +20,11 @@ require_tool() {
     # and left the gate name blank in exactly that case.
     local caller="${BASH_SOURCE[1]:-gate}"
     echo "ERROR: ${caller##*/} requires '$tool' and it is not installed." >&2
-    echo "       Refusing to report a pass on zero files. Install it (apt: ripgrep) and re-run." >&2
+    # The remedy names the tool that is actually missing. This line used to read "(apt: ripgrep)"
+    # unconditionally, because rg was the only caller when it was written; editor_scan.sh now requires
+    # godot, and being told to apt-install ripgrep when Godot is what is absent sends the reader the
+    # wrong way. A gate's error message is read exactly once, at the worst moment, so it has to be right.
+    echo "       Refusing to report a pass on zero files. Install '$tool' and re-run." >&2
     exit 2
   fi
 }

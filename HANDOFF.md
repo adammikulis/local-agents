@@ -154,9 +154,13 @@ them sent work at problems that no longer existed and one of them was the file's
 2. ~~THE SEA HAS ~0.93 m OF THERMAL INERTIA~~ — **FALSE.** The four areal `CAP_*` literals are deleted;
    capacity is `ρc × cell_size` = **16 m** of water. The honest remaining gap is that a real mixed layer is
    20–100 m, and the fix is MORE CELLS, not a bigger literal — `heat3d_solar_sphere3d.glsl:154-158` says so.
-3. ~~BURNING CELLS ARE PINNED TO 640 °C~~ — **FALSE for the pin and the carbon** since `fire_sphere3d.glsl:190`
-   (`temp += burned * HEAT_PER_UNIT_BURN / cap`, and 1 C : 1 O₂ : 1 CO₂). Combustion **also** destroyed H, O
-   and N until 2026-08-08, which this entry never noticed.
+3. ~~BURNING CELLS ARE PINNED TO 640 °C~~ — **FALSE for the pin and the carbon**, and the kernel it used to
+   cite is gone. *(Re-cited 2026-08-09; it read "since `fire_sphere3d.glsl:190`".)* Combustion is a REACTION
+   RECORD now — `reactions/CombustionRecords.gd` R26, ARRHENIUS on cellulose's measured pyrolysis activation
+   energy — so `fire_sphere3d.glsl` is deleted with its `IGNITE_TEMP`, `FIRE_START`, `FIRE_MIN`, `FIRE_GROW`,
+   the stored `fire` intensity and its radiant-spread gather. It also brings combustion under
+   `check_reaction_balance.sh`, which is why it destroyed H, O and N for as long as it did: no record
+   described it, so no gate could see it.
 4. ~~SPRING HEAT HAS NO DONOR~~ — **CLOSED.** Cold recharge now cools the rock it soaks into, and the mix is
    capacity-weighted. `hotspring_boiling` 107 → 51. **What is still unpaid is the regolith→regolith DARCY
    leg**, disclosed in `soil_sphere3d.glsl:51`.

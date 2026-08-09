@@ -15,6 +15,27 @@ ENFORCED_DIRS=(
   "addons/local_agents/graph"
 )
 
+# A directory that has been renamed or split away silently removes itself from enforcement: the grep
+# below sends its "No such file or directory" to /dev/null and ends in `|| true`, so the hit list comes
+# back empty and the gate prints OK. The pass condition is the ABSENCE of ':=' — absence from a directory
+# that was not read is not evidence. Prove each root exists and holds GDScript before trusting that.
+scanned=0
+for d in "${ENFORCED_DIRS[@]}"; do
+  if [[ ! -d "$d" ]]; then
+    echo "ERROR: check_no_inferred_typing.sh enforced directory '$d' does not exist." >&2
+    echo "       It was renamed or removed and this gate stopped covering it silently. Update" >&2
+    echo "       ENFORCED_DIRS, do not leave a stale entry that enforces nothing." >&2
+    exit 2
+  fi
+  n=$(find "$d" -name '*.gd' -type f | grep -c . || true)
+  scanned=$((scanned + n))
+done
+if [[ "$scanned" -eq 0 ]]; then
+  echo "ERROR: check_no_inferred_typing.sh found zero .gd files across ${ENFORCED_DIRS[*]}." >&2
+  echo "       Refusing to report a pass on zero files." >&2
+  exit 2
+fi
+
 # Match ' := ' assignments (avoids matching '==', '<=', '>=', ':=' only as the walrus infer op).
 PATTERN=':='
 
@@ -36,4 +57,4 @@ if [ -n "$enforced_hits" ]; then
   echo "check_no_inferred_typing: FAIL"
   exit 1
 fi
-echo "check_no_inferred_typing: OK (${#ENFORCED_DIRS[@]} enforced dirs clean; $repo_hits legacy files repo-wide still use ':=')"
+echo "check_no_inferred_typing: OK (${#ENFORCED_DIRS[@]} enforced dirs, $scanned .gd files clean; $repo_hits legacy files repo-wide still use ':=')"

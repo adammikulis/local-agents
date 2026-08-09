@@ -107,13 +107,59 @@ fi
 # --- 1. parse the authority into NAME<TAB>VALUE ------------------------------------------------------
 AUTH_MAP="$(mktemp -t la_physical_auth.XXXXXX)"
 trap 'rm -f "$AUTH_MAP"' EXIT
+# DERIVED CONSTANTS ARE FIRST-CLASS HERE, and they have to be. A constant defined as an expression over
+# other constants is how a RELATIONSHIP between measured quantities is made structural instead of asserted —
+# LATENT_HEAT_SUBLIMATION_J_KG = LATENT_HEAT_VAPORISATION_0C_J_KG + LATENT_HEAT_FUSION_J_KG is Hess's law,
+# and stating it as a literal is what let that law be broken by 2.433e5 J/kg in shipped code. But this parser
+# accepted ONLY plain numeric literals, so deriving a constant silently dropped it from the authority map and
+# every kernel copy of it became unbindable. That is the gate quietly getting weaker as the code gets better,
+# which is the worst possible direction. So: literals first, then resolve expressions over already-known
+# names, iterating until nothing new resolves. Supports the forms that actually occur — a chain of `+`, `-`,
+# `*` and `/` over names and numbers, no parentheses, evaluated left to right. Anything it cannot resolve is
+# simply absent from the map, exactly as before, and a kernel referencing it fails loudly rather than passing.
 awk '
+  function resolve(expr,   n, i, parts, ops, acc, tok, v) {
+    gsub(/[ \t]/, "", expr)
+    n = split(expr, parts, /[-+*\/]/)
+    # rebuild the operator sequence in order
+    i = 0; ops = ""
+    while (match(expr, /[-+*\/]/)) { ops = ops substr(expr, RSTART, 1); expr = substr(expr, RSTART + 1) }
+    for (i = 1; i <= n; i++) {
+      tok = parts[i]
+      if (tok ~ /^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/) v = tok + 0
+      else if (tok in known) v = known[tok]
+      else return "UNRESOLVED"
+      if (i == 1) { acc = v; continue }
+      op = substr(ops, i - 1, 1)
+      if (op == "+") acc = acc + v
+      else if (op == "-") acc = acc - v
+      else if (op == "*") acc = acc * v
+      else if (op == "/") { if (v == 0) return "UNRESOLVED"; acc = acc / v }
+      else return "UNRESOLVED"
+    }
+    return acc
+  }
   match($0, /^[ \t]*const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*:[ \t]*float[ \t]*=/) {
     decl = substr($0, RSTART, RLENGTH)
     sub(/^[ \t]*const[ \t]+/, "", decl); sub(/[ \t]*:.*$/, "", decl)
     val = substr($0, RSTART + RLENGTH)
     sub(/#.*$/, "", val); gsub(/^[ \t]+|[ \t]+$/, "", val)
-    if (val ~ /^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/) printf "%s\t%s\n", decl, val
+    if (val ~ /^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/) { known[decl] = val + 0; order[++nord] = decl; lit[decl] = val }
+    else if (val != "") { pending[decl] = val; porder[++npend] = decl }
+  }
+  END {
+    # iterate: an expression may name a constant that is itself an expression
+    changed = 1
+    while (changed) {
+      changed = 0
+      for (i = 1; i <= npend; i++) {
+        d = porder[i]
+        if (d in known) continue
+        r = resolve(pending[d])
+        if (r != "UNRESOLVED") { known[d] = r + 0; order[++nord] = d; lit[d] = sprintf("%.10g", r); changed = 1 }
+      }
+    }
+    for (i = 1; i <= nord; i++) printf "%s\t%s\n", order[i], lit[order[i]]
   }
 ' "$AUTHORITY" > "$AUTH_MAP"
 

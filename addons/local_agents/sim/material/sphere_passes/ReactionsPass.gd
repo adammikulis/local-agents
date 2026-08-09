@@ -15,6 +15,7 @@ extends RefCounted
 ##
 ## Kernel binding -> bufs-key map (authoritative layout is reactions_sphere3d.glsl):
 ##   0 Temp=temp[back] · 1 Water=water[back] · 2 Moisture=moisture[back] · 3 O2=o2[back] · 4 CO2=co2[back] ·
+##   5 Fuel=fuel(single) · 6 Fire=fire[back] ·
 ##   7 Detritus=detritus(single) · 8 Fungus=fungus[live] · 9 Fert=fert[live] (R19 nutrient-uptake reactant now
 ##   debits it in place, and its own diffuse/leach/decompose-deposit producer, EcoSurfacePass's scent_fert/
 ##   fungus_fert kernels, runs LATER this step, so LIVE is the freshest read, same convention as Fungus) ·
@@ -124,6 +125,12 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var radial: RID = _single(bufs, "radial")
 	var static_rid: RID = _single(bufs, "static")
 	var regolith: RID = _single(bufs, "regolith")   # aquifer mask — the column SOIL_ROOT walks (see below)
+	# COMBUSTION's two buffers (2026-08-09). `fuel` is SINGLE and is a real reactable channel now — R26
+	# oxidises it, and it is the only sink fuel has anywhere in the tree. `fire` is a PAIR but is NOT a
+	# channel: the kernel assigns it as the fraction of a cell's fuel that burned this step, purely so
+	# `fire_cells` / `fire_peak` / `is_burning` have something true to read. Nothing in the physics reads it.
+	var fuel: RID = _single(bufs, "fuel")
+	var fire: Array = _pair(bufs, "fire")
 	# The two non-silicate mineral species (slots 24/25, bindings 28/29). SINGLE buffers: nothing advects them,
 	# and this kernel is their only reader and only writer, so there is no producer to ping-pong against.
 	var carbonate: RID = _single(bufs, "carbonate")
@@ -137,6 +144,11 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[2, moisture[back]],    # settled moisture (Atmosphere output)
 			[3, o2[back]],          # o2 transport output — edited in place (sky refill / decompose draw)
 			[4, co2[back]],         # co2 transport output — edited in place (sky vent / decompose emit)
+			[5, fuel],              # SINGLE — R26 combustion debits it (its only sink in the whole tree)
+			[6, fire[back]],        # BACK — the burn INSTRUMENT, assigned every step. Back for the same reason
+			                        # o2/co2 are: the authoritative readback reads the back half after the
+			                        # phase flip, so a write to LIVE would be discarded. Nothing reads it back
+			                        # into the physics, so there is no ordering hazard either way.
 			[7, detritus],          # SINGLE — decompose debits in place / respiration credits in place
 			[8, fungus[p]],         # LIVE — decompose driver (read-only; producer runs later)
 			[9, fert[p]],           # LIVE — R19 nutrient-uptake reactant, debited in place (producer runs later)

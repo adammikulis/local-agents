@@ -50,9 +50,9 @@ Commands:
                 Set LA_GATE_MODEL=/path/to/model.gguf to also require a real reply.
   lint          Run every structural gate: file length (soft 1300 warn / hard 1500 fail),
                 no-direct-refcounted, no ':=' typing, @tool write safety, demo catalogue,
-                public surface, library-only parse, physical constants (GLSL kernel copies
-                must equal LAPhysical). Policy markers stay advisory.
-                CI runs this exact command, so a green here is a green there.
+                public surface, whole-tree parse, library-only parse, physical constants
+                (GLSL kernel copies must equal LAPhysical), reaction balance. Policy markers
+                stay advisory. CI runs this exact command, so a green here is a green there.
   -h | --help   Show this help and exit 0.
 
 Environment:
@@ -227,8 +227,22 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_reaction_balance.sh ($rc_balance)"
       exit 1
     fi
+    # Gate: every script in the REAL tree parses. An editor scan does not check this — it emits twenty
+    # progress lines and nothing about any script — so a broken pass module let the sim run to
+    # completion and print a full SIM_REPORT with a whole transport CA silently missing. The sweep
+    # existed but ran only inside check_library_only.sh, which deletes game/ before scanning, so game/
+    # (54 scripts) was force-parsed by nothing at all. Exit 2 means the gate could not run.
+    set +e
+    "$SCRIPT_DIR/check_parse_all.sh"
+    rc_parseall=$?
+    set -e
+    if [[ $rc_parseall -ne 0 ]]; then
+      echo "LINT_FAIL: check_parse_all.sh ($rc_parseall)"
+      exit 1
+    fi
     # Gate: the addon still parses with the game deleted. docs/USAGE.md promises this; nothing
-    # enforced it, and it had already rotted once.
+    # enforced it, and it had already rotted once. Distinct from the sweep above: that one asks whether
+    # the tree parses, this one asks whether the LIBRARY HALF parses on its own.
     set +e
     "$SCRIPT_DIR/check_library_only.sh"
     rc_libonly=$?
