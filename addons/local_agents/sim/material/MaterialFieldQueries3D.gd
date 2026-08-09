@@ -27,6 +27,12 @@ const DUST_PRESENT: float = 0.001
 const MOLTEN_MIN: float = 0.0001
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
+
+## Fire intensity above which a cell counts as burning. MUST match `FIRE_MIN` in fire_sphere3d.glsl, which is
+## the intensity the kernel itself calls "out" — below it the cell is not alight, so counting it would report
+## fires the substrate does not have. A MODEL parameter (a floor on an intensity this model defines), not a
+## property of matter, so it is declared here beside its readers rather than in LAPhysical.
+const FIRE_PRESENT: float = 0.02
 # Cache for the ONE walk that answers all three molten-rock gauges (see molten_counts). Keyed on the field's
 # own step counter, so a report that asks for all three pays for one pass and a report taken twice inside one
 # field step pays for none. It reads only the `_lava`/`_solid` mirrors that are already there — no device read
@@ -655,9 +661,29 @@ func fire_cells() -> int:
 		return 0
 	var n: int = 0
 	for c in _f._cell_count:
-		if _f._fire[c] > 0.02:
+		if _f._fire[c] > FIRE_PRESENT:
 			n += 1
 	return n
+
+
+## Is the cell under `node` burning? Reads the same channel at the same threshold `fire_cells` counts on, so
+## the two can never disagree about what "burning" means.
+##
+## IT REPLACES A HARDCODED `return false` ON THE FIELD HUB. That default was written "until the sphere fire
+## readback lands"; the readback landed, `fire_cells`/`fire_peak` beside it are real, and the hardcoded pair
+## stayed — so SIM_REPORT carried a live fire count and a fabricated one at once, and three consumers read
+## the fabricated one, including the wildfire event detector.
+##
+## `fire` IS DEMAND-GATED (LAMaterialSphereGPU3D.SITUATIONAL_CHANNELS), so an un-woken mirror reads its zero
+## seed and this answers false whether or not anything is alight. That limitation is stated rather than
+## papered over, and it is NOT fixed by calling `request_channel` here: this is an instrument, residency is
+## simulation-visible, and a gauge that changes the run is not a gauge. A consumer needing a live answer
+## wakes the channel itself — the rule `avg_atmos_dust` follows.
+func is_burning(node) -> bool:
+	if node == null or _f._fire.size() != _f._cell_count:
+		return false
+	var c: int = _f.world_to_cell(node.global_position)
+	return c >= 0 and _f._fire[c] > FIRE_PRESENT
 
 
 # --- LAVA-TUBE / HOLLOW signature -------------------------------------------
