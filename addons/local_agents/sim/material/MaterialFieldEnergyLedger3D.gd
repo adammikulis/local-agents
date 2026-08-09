@@ -75,15 +75,24 @@ extends RefCounted
 ##
 ## ===== WHAT IS *NOT* BOOKED. THIS LIST IS THE POINT, NOT A FAILURE. =======================================
 ##
-## Four other tracks are closing these right now and their terms do not exist on this branch. The gauge reads
-## the sum of them as `energy_residual_*` and it is supposed to be large. A ledger that appeared to close
-## while these were live would be lying.
+## THIS LIST IS STAGE 1'S WORK QUEUE. The gauge reads the sum of these as `energy_residual_*` and it is
+## supposed to be large; a ledger that appeared to close while they were live would be lying. Items 10 and
+## 11 are the two the gauge itself found and the two worth taking first — they are not ordered by size.
+## *(Preamble corrected 2026-08-09. It read "Four other tracks are closing these right now and their terms
+## do not exist on this branch", which stopped being true when those tracks landed or were held back, and
+## which reads to the next agent as "someone else has this".)*
 ##
 ##   1. LATENT HEAT OF BOILING — heat3d_cool_sphere3d.glsl:128 `temp[idx] = t - boiled * cost_per_frac / cap`.
 ##   2. LATENT HEAT OF CRYSTALLISATION — lava_phase_sphere3d.glsl:141 `temp[g] = min(temp[g], cooled)`.
-##   3. COMBUSTION ENTHALPY and the fire's radiant term — fire_sphere3d.glsl:190 and :172.
-##   4. THE REACTION ENGINE'S TEMP SLOT — reactions_sphere3d.glsl:376 `if (slot == TEMP) { temp[i] += v; }`.
-##      Any record carrying a TEMP product adds degrees with nothing debited anywhere.
+##   3. COMBUSTION ENTHALPY — now a SUB-CASE OF ITEM 4 rather than its own term, and it is booked nowhere
+##      either way. *(Re-cited 2026-08-09: this said "and the fire's radiant term — fire_sphere3d.glsl:190
+##      and :172", and that kernel was deleted in 94538d8. The radiant term went with it. Combustion is
+##      record R26 now, and its heat arrives through the record engine's enthalpy line,
+##      reactions_sphere3d.glsl:640 `temp[i] += rc.enthalpy_j_m3 * x / max(rc_of(i), 1.0)`.)*
+##   4. THE REACTION ENGINE'S HEAT, and it is TWO lines, not one. A record's declared enthalpy at
+##      reactions_sphere3d.glsl:640 (above), and the raw TEMP slot at :434
+##      `if (slot == TEMP) { temp[i] += v; }`. Either way a record adds degrees with nothing debited
+##      anywhere. *(:376 before; the line moved.)*
 ##   5. GROUNDWATER ADVECTED HEAT — soil_sphere3d.glsl:515 `temp[g] = mix(temp[g], donor_t, frac)`. The
 ##      receiving cell moves toward the donor's temperature and the donor is not cooled on that line.
 ##   6. LAVA AND MAGMA ADVECTED HEAT — lava_flow_sphere3d.glsl:172 and magma_buoy_sphere3d.glsl:97, both

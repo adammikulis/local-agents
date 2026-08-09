@@ -28,10 +28,16 @@ const MOLTEN_MIN: float = 0.0001
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
-## Fire intensity above which a cell counts as burning. MUST match `FIRE_MIN` in fire_sphere3d.glsl, which is
-## the intensity the kernel itself calls "out" — below it the cell is not alight, so counting it would report
-## fires the substrate does not have. A MODEL parameter (a floor on an intensity this model defines), not a
-## property of matter, so it is declared here beside its readers rather than in LAPhysical.
+## Fire intensity above which a cell counts as burning — the fraction of a cell's usable oxygen that
+## COMBUSTION drew this step (written by reactions_sphere3d.glsl), below which the cell is not alight and
+## counting it would report fires the substrate does not have. A MODEL parameter (a floor on an intensity
+## this model defines), not a property of matter, so it is declared here beside its readers rather than in
+## LAPhysical.
+##
+## THIS IS THE SOLE OWNER OF THE VALUE as of 2026-08-09. It used to say "MUST match `FIRE_MIN` in
+## fire_sphere3d.glsl" — a file deleted in 94538d8 — while a second live copy of 0.02 sat in
+## fungus_sphere3d.glsl. One threshold in two files, bound by a comment naming a third that no longer
+## existed. The fungus copy went with the gate that read it: no physics reads this instrument now.
 const FIRE_PRESENT: float = 0.02
 # Cache for the ONE walk that answers all three molten-rock gauges (see molten_counts). Keyed on the field's
 # own step counter, so a report that asks for all three pays for one pass and a report taken twice inside one

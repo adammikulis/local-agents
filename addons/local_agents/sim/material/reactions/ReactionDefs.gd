@@ -24,12 +24,20 @@ const CO2: int = 4
 # only thing that ever consumed it was a standalone kernel no record described. It has read_ch/add_ch
 # branches now and CombustionRecords.gd oxidises it.
 const FUEL: int = 5
-# FIRE IS NOT A CHANNEL AND IS NOT A REACTABLE SLOT. It is an INSTRUMENT: the fraction of a cell's fuel that
-# combustion consumed this step, written by the reactions kernel for `fire_cells` / `fire_peak` / `is_burning`
-# and read by no physics anywhere — derived, exactly as cloud is derived from moisture against saturation.
+# FIRE IS NOT A CHANNEL AND IS NOT A REACTABLE SLOT. It is an INSTRUMENT: the fraction of a cell's USABLE
+# OXYGEN that COMBUSTION drew this step, written by the reactions kernel for `fire_cells` / `fire_peak` /
+# `is_burning` — derived, exactly as cloud is derived from moisture against saturation.
 # The stored 0..1 intensity it used to be, with its FIRE_START / FIRE_MIN / FIRE_GROW state machine, is gone
 # with fire_sphere3d.glsl. `LAReactionBalance.driver_only()` keeps it un-writable by any record, which is
 # what stops the instrument becoming a state again.
+#
+# "AND READ BY NO PHYSICS ANYWHERE" IS TRUE AS OF 2026-08-09, AND WAS FALSE WHEN IT WAS WRITTEN.
+# fungus_sphere3d.glsl gated both growth and spore spread on `fire > 0.02`, so this sentence described an
+# intent the tree did not honour. Two lines above it were wrong the same way: the instrument measured the
+# fraction of OXYGEN, not of fuel, and it took the whole step's oxygen delta rather than combustion's own —
+# which counted R15 decomposition and respiration as fire, so a decomposing cell read as burning and the
+# fungus reading it stopped growing. Kernel and gate are both fixed; if a mechanism ever needs to know a
+# cell is on fire, it reads TEMPERATURE, which is a state variable, not this.
 const FIRE: int = 6
 const DETRITUS: int = 7
 const FUNGUS: int = 8
