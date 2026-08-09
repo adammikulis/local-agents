@@ -855,14 +855,11 @@ func precipitation() -> float:
 func moisture_total() -> float:
 	return _atmos.moisture_total()
 
-# The flat cloud/fog sheet projection (cloud_grid/fog_grid) was a box-era concept, dissolved with the
-# CloudLayer sheets — the water-particle renderer samples the baked cover texture instead. cloud_base_y/
-# fog_base_y survive as the near-ground radii the derived point queries (cloud_at/fog_at) sample at.
-func cloud_base_y() -> float:
-	return _atmos.cloud_base_y()
-
-func fog_base_y() -> float:
-	return _atmos.fog_base_y()
+# `cloud_base_y()` / `fog_base_y()` ARE DELETED. The comment here claimed they "survive as the near-ground
+# radii the derived point queries sample at" — but cloud_at/fog_at call LAMaterialFieldAtmos3D directly and
+# nothing anywhere called these two. They are also the wrong SHAPE for this planet: a single scalar Y is a
+# flat-sheet concept, and on a sphere the height a cloud forms at is a radius that varies per column with
+# temperature. The module's own methods remain for the one caller that has them.
 
 ## Relative humidity 0..1 near the ground at a world XZ column = vapor / sat(T) = min(moisture, sat)/sat.
 func relative_humidity_at(x: float, z: float) -> float:
