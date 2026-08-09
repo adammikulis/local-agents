@@ -320,6 +320,11 @@ const RENDER_MIN: float = 0.08            # min water mass in a cell for its top
 const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of sea_level are left to the ocean plane
 var _step_accum: float = 0.0
 var _ready_sim: bool = false
+# THE WORLD LIFECYCLE (LAMaterialFieldSeal3D). SEEDING until every book can be opened, then SEALED, after
+# which matter is closed and every joule must be booked. Held here rather than inside the report module
+# because the injection queue needs it too: the same call that is the INITIAL CONDITION during seeding is a
+# conservation violation after it, and only this flag tells the two apart.
+var _seal = null
 # --- Per-frame CPU-cost throttles (the field is CPU-bound; these cut redundant full-grid work while
 # preserving behavior). Each is a "cadence" counter advanced once per ACTIVE physics frame (a frame that
 # ran >=1 sim step, i.e. ~STEP_HZ). The throttled work touches only slow-changing / render-only state, so

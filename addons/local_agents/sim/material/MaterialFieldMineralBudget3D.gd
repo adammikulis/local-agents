@@ -365,8 +365,14 @@ func report(step_index: int) -> Dictionary:
 	# RUN-LONG DRIFT — the headline conservation figure, and its source-corrected twin. The baseline is latched
 	# only after the demand-gated mirrors have arrived (see BASELINE_SKIP_SAMPLES).
 	_samples += 1
-	if _first_step < 0 and _samples > BASELINE_SKIP_SAMPLES:
+	# LATCHED AT THE SEAL, NOT AT A SAMPLE COUNT. This used to fire on the third heavy sample
+	# (BASELINE_SKIP_SAMPLES), which is a sampling artifact landing in the MIDDLE of seeding, so the
+	# planet being BUILT was counted as drift. See LAMaterialFieldSeal3D for the two measured ways that
+	# lied — carbon reading +1360%% of its own baseline, and a baseline taken through a channel that had
+	# not arrived yet coming out bit-identical across two arms that differ by 29%%.
+	if _first_step < 0 and _sealed():
 		_first_total = total
+		_note_seed("mineral", total)
 		_first_src = src
 		_first_step = step_index
 		_first_ca = float(lith.get("Ca", 0.0))
@@ -412,3 +418,19 @@ func _blank() -> Dictionary:
 		"lith_element_Ca": 0.0, "lith_element_Si": 0.0, "lith_element_O": 0.0, "lith_element_C": 0.0,
 		"lith_ca_rel_drift_per_step": 0.0, "lith_si_rel_drift_per_step": 0.0,
 	}
+
+
+## True once LAMaterialFieldSeal3D has closed the books. Before it, this module publishes totals but latches
+## no baseline and reports no run-drift — because until the world is sealed the only thing a drift gauge can
+## measure is the planet being assembled.
+func _sealed() -> bool:
+	return _f != null and _f._seal != null and _f._seal.sealed()
+
+
+## Hand the world seal this module's baseline, at the instant it latches. The seal cannot scrape it out of
+## the report dict: an unlatched ledger publishes 0.0 there, which is indistinguishable from a substance that
+## genuinely starts at zero (carbonate does). The module that owns the number writes it, once, when it
+## becomes real.
+func _note_seed(key: String, value: float) -> void:
+	if _f != null and _f._seal != null:
+		_f._seal.note_seed({key: value})
