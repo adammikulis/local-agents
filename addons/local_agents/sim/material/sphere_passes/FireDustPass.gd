@@ -1,10 +1,19 @@
 extends RefCounted
 
-## Cubed-sphere FIRE + DUST pass plugin. Wires three GPU-proven sphere kernels behind the sphere GPU
-## driver's pass contract (setup(rd, bufs, cc) / dispatch(rd, cl, parity, ctx, cc, groups)):
-##   * fire_sphere3d.glsl:           combustion GATHER (ember spread + plume; consumes fuel/O₂, emits CO₂)
+## Cubed-sphere DUST pass plugin. Wires two GPU-proven sphere kernels behind the sphere GPU driver's pass
+## contract (setup(rd, bufs, cc) / dispatch(rd, cl, parity, ctx, cc, groups)):
 ##   * dust_outscale_sphere3d.glsl:  per-cell CFL out-flux scale precompute (→ dust_outscale SINGLE buffer)
 ##   * dust_transport_sphere3d.glsl: airborne dust advect/diffuse/settle gather + leeward deposit to sediment
+##
+## THE FIRE IS GONE FROM IT, 2026-08-09, and so is fire_sphere3d.glsl. Combustion is a reaction record now —
+## `reactions/CombustionRecords.gd` R26, an ARRHENIUS rate on cellulose's measured pyrolysis activation
+## energy — so the kernel this pass was named after, together with IGNITE_TEMP (one global ignition
+## temperature for every combustible cell on the planet), FIRE_START, FIRE_MIN, FIRE_GROW, the stored `fire`
+## intensity channel and a bespoke radiant-spread gather, is deleted rather than ported. Flame spread is the
+## heat the reaction releases, carried by the thermal kernels that already exist; there is no spread code.
+## THE FILE KEEPS ITS NAME on purpose: renaming it means editing LAMaterialSphereGPU3D.PASS_SCRIPTS, which
+## other tracks are editing concurrently. The rename is owed and is cosmetic.
+##
 ## The old dust_loft_sphere3d.glsl (scour dry sediment into the cell-above's dust) is DISSOLVED into the DEFS
 ## reaction engine as record M4 (sediment→own-cell dust, MaterialReactions3D.gd), a clean own-cell transfer;
 ## the kernel is deleted (dissolve-don't-patch). ReactionsPass runs the loft before this pass so transport
@@ -22,7 +31,6 @@ extends RefCounted
 ## bufs contract (from the driver): PAIR key → [rid_a, rid_b]; SINGLE key → rid. `nbr` is a SINGLE int32
 ## index table (cell*6 + slot; slot 0=down, 1-4=lateral, 5=up), bound at binding 15 on every kernel.
 
-const FIRE_PATH: String = "res://addons/local_agents/sim/material/kernels3d/fire_sphere3d.glsl"
 const OUTSCALE_PATH: String = "res://addons/local_agents/sim/material/kernels3d/dust_outscale_sphere3d.glsl"
 const TRANSPORT_PATH: String = "res://addons/local_agents/sim/material/kernels3d/dust_transport_sphere3d.glsl"
 
@@ -30,25 +38,18 @@ const TRANSPORT_PATH: String = "res://addons/local_agents/sim/material/kernels3d
 const DEFAULT_DT: float = 0.1
 const DEFAULT_CELL_SIZE: float = 8.0
 
-var _fire_pipe: RID = RID()
 var _outscale_pipe: RID = RID()
 var _transport_pipe: RID = RID()
 
-var _fire_shader: RID = RID()
 var _outscale_shader: RID = RID()
 var _transport_shader: RID = RID()
 
-var _fire_set: Array = [RID(), RID()]       # per parity p
 var _transport_set: Array = [RID(), RID()]  # per parity p
 var _outscale_set: Array = [RID(), RID()]   # per parity p (both identical — it binds no PAIR channel)
 
 
 func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	# --- Pipelines --------------------------------------------------------------------------------
-	var fire_sf: RDShaderFile = load(FIRE_PATH)
-	_fire_shader = rd.shader_create_from_spirv(fire_sf.get_spirv())
-	_fire_pipe = rd.compute_pipeline_create(_fire_shader)
-
 	var outscale_sf: RDShaderFile = load(OUTSCALE_PATH)
 	_outscale_shader = rd.shader_create_from_spirv(outscale_sf.get_spirv())
 	_outscale_pipe = rd.compute_pipeline_create(_outscale_shader)
@@ -59,7 +60,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 
 	# --- Shared buffers ---------------------------------------------------------------------------
 	var nbr: RID = bufs["nbr"]
-	var fuel: RID = bufs["fuel"]
 	var solid: RID = bufs["solid"]
 	var vel_x: RID = bufs["vel_x"]
 	var vel_y: RID = bufs["vel_y"]
@@ -69,43 +69,12 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	# dust kernels read link directions from here rather than assuming a slot is an axis.
 	var ltan: RID = bufs["link_tan"]
 
-	var fire: Array = bufs["fire"]
-	var temp: Array = bufs["temp"]
-	var water: Array = bufs["water"]
-	var o2: Array = bufs["o2"]
-	var co2: Array = bufs["co2"]
 	var sediment: Array = bufs["sediment"]
 	var dust: Array = bufs["dust"]
-	# The two products combustion used to destroy: its water (as vapour) and the fuel's own nitrogen.
-	var moisture: Array = bufs["moisture"]
-	var fert: Array = bufs["fert"]
 
 	# --- Per-parity uniform sets ------------------------------------------------------------------
 	for p in 2:
 		var back: int = 1 - p
-
-		# fire_sphere3d.glsl — 0 fire_in(live), 1 fire_out(back), 2 fuel(single), 3 temp(back, in place),
-		# 4 water(back), 5 solid(single), 6 o2(BACK, in place), 7 co2(BACK, in place),
-		# 8 moisture(BACK, in place), 9 fert(LIVE, in place), 15 nbr.
-		# o2/co2 must mutate the BACK half: GasWind wrote its transport result into o2/co2[back] earlier this
-		# step, and the authoritative readback reads _live() = the back half AFTER the phase flip — so combustion
-		# must consume O2 / emit CO2 into [back] or its writes are silently discarded (fire wouldn't affect gas).
-		#
-		# THE TWO NEW PRODUCTS TAKE DIFFERENT HALVES, and the rule is "write the half that still survives after
-		# this pass" — which depends entirely on who runs LATER in PASS_SCRIPTS. FireDustPass is 12th of 13.
-		#   * moisture -> BACK, for the same reason as o2/co2. AtmospherePass (7th) finished the channel by
-		#     ASSIGNING moisture[back] in atmos_precip; nothing after us assigns it. EcoSurfacePass' snowice
-		#     does read-modify-WRITE on moisture[back], which composes: our vapour is simply available for it
-		#     to freeze out, which is what combustion water in cold air should do.
-		#   * fert -> LIVE. EcoSurfacePass (13th) runs AFTER us and its scent_fert kernel ASSIGNS
-		#     fert[back] = f(fert[live]). A credit written to fert[back] would be overwritten and the ash's
-		#     nitrogen silently deleted — the exact failure the o2/co2 note above warns about, mirrored.
-		#     Writing fert[live] instead puts the nitrogen where scent_fert's soil-creep gather reads it, so it
-		#     lands in fert[back] the same step and spreads from there.
-		_fire_set[p] = _build_set(rd, _fire_shader, [
-			[0, fire[p]], [1, fire[back]], [2, fuel], [3, temp[back]],
-			[4, water[back]], [5, solid], [6, o2[back]], [7, co2[back]],
-			[8, moisture[back]], [9, fert[p]], [15, nbr]])
 
 		# dust_transport_sphere3d.glsl — 0 dust_in(live), 1 dust_out(back), 2 sediment(back, in place +=
 		# deposit), 3 outscale(single), 4 vel_x, 5 vel_y, 6 vel_z, 7 solid, 15 nbr, 16 link_tan.
@@ -126,24 +95,16 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	var cell_size: float = float(ctx.get("cell_size", DEFAULT_CELL_SIZE))
 	var k: float = dt / cell_size if cell_size != 0.0 else 0.0
 
-	var pc_fire: PackedByteArray = _pc_count(cc)
 	var pc_k: PackedByteArray = _pc_count_k(cc, k, maxi(int(ctx.get("depth", 1)), 1))
 
-	# 1) FIRE — combustion gather: fire[live] -> fire[back]; temp/fuel/o2/co2 mutated in place.
-	rd.compute_list_bind_compute_pipeline(cl, _fire_pipe)
-	rd.compute_list_bind_uniform_set(cl, _fire_set[parity], 0)
-	rd.compute_list_set_push_constant(cl, pc_fire, pc_fire.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)
-
-	# 2) DUST OUTSCALE — precompute per-cell CFL out-flux scale into the dust_outscale SINGLE buffer.
+	# 1) DUST OUTSCALE — precompute per-cell CFL out-flux scale into the dust_outscale SINGLE buffer.
 	rd.compute_list_bind_compute_pipeline(cl, _outscale_pipe)
 	rd.compute_list_bind_uniform_set(cl, _outscale_set[parity], 0)
 	rd.compute_list_set_push_constant(cl, pc_k, pc_k.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # out-flux scale visible to the transport gather
 
-	# 3) DUST TRANSPORT — gather advect/diffuse/settle: dust[live] -> dust[back], deposit into sediment[back].
+	# 2) DUST TRANSPORT — gather advect/diffuse/settle: dust[live] -> dust[back], deposit into sediment[back].
 	rd.compute_list_bind_compute_pipeline(cl, _transport_pipe)
 	rd.compute_list_bind_uniform_set(cl, _transport_set[parity], 0)
 	rd.compute_list_set_push_constant(cl, pc_k, pc_k.size())
@@ -157,21 +118,17 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 func dispose(rd: RenderingDevice) -> void:
 	if rd == null:
 		return
-	for s: Array in [_fire_set, _transport_set, _outscale_set]:
+	for s: Array in [_transport_set, _outscale_set]:
 		for r in s:
 			if r is RID and r.is_valid():
 				rd.free_rid(r)
-	_fire_set = [RID(), RID()]
 	_transport_set = [RID(), RID()]
 	_outscale_set = [RID(), RID()]
-	for r: RID in [_fire_pipe, _outscale_pipe, _transport_pipe,
-			_fire_shader, _outscale_shader, _transport_shader]:
+	for r: RID in [_outscale_pipe, _transport_pipe, _outscale_shader, _transport_shader]:
 		if r.is_valid():
 			rd.free_rid(r)
-	_fire_pipe = RID()
 	_outscale_pipe = RID()
 	_transport_pipe = RID()
-	_fire_shader = RID()
 	_outscale_shader = RID()
 	_transport_shader = RID()
 
@@ -190,10 +147,6 @@ func _u(binding: int, buf: RID) -> RDUniform:
 	u.binding = binding
 	u.add_id(buf)
 	return u
-
-# fire push: { uint cell_count; uint pad0,pad1,pad2; }.
-func _pc_count(cc: int) -> PackedByteArray:
-	return PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
 
 # dust_outscale / dust_transport push: { uint cell_count; float k; uint pad0; uint depth; }
 # `depth` turns a cell index into its radial COLUMN, which is how the per-column link-direction table is indexed.
