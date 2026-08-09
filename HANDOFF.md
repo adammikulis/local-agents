@@ -37,7 +37,7 @@ correctness fix with a behavioural rewrite makes both unmeasurable.
 
 ### State (2026-08-08, end of session)
 
-`0.4-dev` is at `65f545c`.
+`0.4-dev` is at `1f1bd92`.
 
 **THE SHAPE OF THE DATA WAS THE DEFECT, AND IT IS BEING FIXED.** A material's properties lived in five
 places joined by naming convention — a dozen flat constants prefixed `WATER_`, a slot enum, a composition
@@ -75,19 +75,27 @@ thermal stock in 600 frames.** Read the TOTAL; `energy_run_steps` is 760, not `f
 correct — a cell of air holds 0.27 kg of O₂ and a cell of wood is 500 kg, so a cell cannot oxidise its own
 litter. **The bio RATE constants were fitted against the old stoichiometry and still need re-deriving.**
 
-**IN FLIGHT (four worktree tracks, launched from `50e71a3`):** combustion as a reaction record with
-Arrhenius kinetics (deletes `fire_sphere3d` and the ignition constant); the bio rate constants; vegetation
-albedo (HANDOFF item 15); and the gate below.
+**COMBUSTION IS CHEMISTRY NOW.** `fire_sphere3d.glsl` is deleted (−298 lines) and with it `IGNITE_TEMP`,
+`FIRE_START`, `FIRE_MIN`, `FIRE_GROW` and a private radiant-spread path. R26 is ARRHENIUS on cellulose's
+measured pyrolysis activation energy, running the same oxidation R15 runs for decomposition, so ignition is
+a thermal runaway rather than a branch. **It is under the conservation gate for the first time** — it was a
+standalone kernel no record described, which is why it destroyed H, O and N for as long as it did.
+Vegetation darkens the land (item 15, closed).
 
-**A GATE REPORTED SUCCESS ON A TREE THAT DID NOT PARSE.** `editor_scan.sh` printed "OK (0 errors)" while
-`WaterSlumpLavaPass.gd` failed to load; the sim then emitted a full `SIM_REPORT` at `field_step` 590 with a
-whole transport CA silently not running. **Run `agent_harness.sh lint` and look for
-`PARSE_ALL={...,"failed":0}` before believing any number.**
+**HELD BACK, NOT MERGED: the bio-rate constants.** They were fitted against the old (wrong) stoichiometry
+and still need re-deriving, but the attempt takes `biomass_total` from 5.175 to **0.002171** in isolation
+and its own verifier found its single end-to-end check was a units error wrong by 2.8×. A 2400× collapse
+may be the honest answer; it is not established as one. Branch `worktree-wf_094c4b16-05a-2`.
 
-**THE BASELINE, at `50e71a3`,** `--sandbox --planet-only --run-frames=600 --fast=8 --seed=4242`,
-`field_step` 590 / `field_sim_s` 79.8: `temp_ground_p50` 26.30 · `temp_mean` ~35 ·
-`energy_imbalance_cool` ~−1.3 · `h2o_total` 4287 · `soil_total` 2809 · `snow_cells` 1145 ·
-`element_C` 1.09e7 · `energy_run_drift_per_step` −1.51e13.
+**THE SCAN FORCE-LOADS EVERY SCRIPT NOW.** It printed "OK (0 errors)" on a tree where
+`WaterSlumpLavaPass.gd` failed to parse, and the sim then emitted a full `SIM_REPORT` at `field_step` 590
+with a whole transport CA silently not running. It reports **"318 scripts force-loaded, 0 parse errors"** —
+a marker whose PRESENCE means something, rather than the absence of a pattern.
+
+**THE BASELINE, at `1f1bd92`,** `--sandbox --planet-only --run-frames=600 --fast=8 --seed=4242`,
+`field_step` 590 / `field_sim_s` 79.8: `temp_ground_p50` 26.52 · `temp_mean` 35.32 · `snow_cells` 1162 ·
+`biomass_total` 5.217 · `soil_total` 2797 · `element_C` 1.095e7 · `magma_cells` 6 ·
+`energy_run_drift_per_step` −1.559e13.
 
 **AND THE PLANET IS STILL RUNNING AWAY, WHICH 600 FRAMES HIDES.** Measured on the pre-session tree:
 `temp_ground_p50` 30 °C at 600 frames, **61.8 °C at 1200**. Thirty degrees was never an equilibrium, it
@@ -229,10 +237,9 @@ them sent work at problems that no longer existed and one of them was the file's
     a separate `PLANET_SPIN_RATE`. Earth's day is 86400 s. Three clocks that do not derive from one rotation.
 14. **THE PLANET IS PINNED AT THE WORLD ORIGIN** and the sun moves around it (`SystemOrbits.gd:228`). A
     deliberate moving-frame choice; making it literal is the 0.6 headline.
-15. **VEGETATION DOES NOT AFFECT ALBEDO.** A forest is far darker than sand, so the biological half of the
-    ice-albedo feedback cannot exist. *(In flight 2026-08-08. `LAPhysical.ALBEDO_VEGETATION` = 0.12 is
-    sourced and carried by `LASubstances` as `cellulose.albedo`; the solar kernel does not read it yet.)*
-
+15. ~~VEGETATION DOES NOT AFFECT ALBEDO~~ — **CLOSED 2026-08-09.** A forest is darker than the sand it
+    grows on, and the solar kernel now folds vegetation cover into surface albedo beside `wet` and `icy`,
+    so the biological half of the ice-albedo feedback exists. `LAPhysical.ALBEDO_VEGETATION` = 0.12.
 ### Instruments that lie
 
 16. ~~`magma_cell_count()` / `magma_erupting()` are hardcoded~~ — **FALSE, they are live**

@@ -200,6 +200,32 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 
 ## Error Log / Preventative Patterns
 
+### 2026-08-09 — a per-record struct read OUTSIDE its own loop, and the planet melted
+
+**What happened.** A GPU kernel iterates a table of reaction records — `for (r...) { Reaction rc = recs[r];
+... }` — and I added an instrument AFTER that loop that read `rc.react_coeff` and `rc.quench_min` to
+normalise its output. In GLSL `rc` is still in scope there and still holds a value: whichever record ran
+LAST, which is not the one the instrument is about. The kernel compiled, the gates passed, and the
+instrument wrote garbage into a channel another kernel gates behaviour on.
+
+**What it cost.** `magma_cells` 3 → 191, `lava_cells` 1 → 425, `snow_cells` and `biomass_total` to exactly
+0, `temp_ground_p50` 26.2 → 30.0. Rock melting across the planet, from an instrument that was supposed to
+observe nothing.
+
+**Why it was slow to find.** Four independent tracks had just merged. Every one of them was inert when run
+alone, which is what finally identified the integrator's own commit as the cause — but only after a wrong
+first guess (reverting a track, which changed nothing).
+
+**Preventative patterns.**
+- **A value computed per-record must be consumed inside that record's iteration.** If an instrument needs a
+  record's fields, capture what it needs while the matching record is live, or compute it from channel
+  state that does not depend on which record ran last. The second is better: it cannot pick up the wrong one.
+- **Bisect by reverting your OWN change first when tracks are individually clean.** "Each part works, the
+  whole does not" points at the integration, and the integrator's commit is part of the integration.
+- **An aggregate that reads exactly `0` is a broken pipeline until proven otherwise** — `biomass_total` and
+  `snow_cells` both hitting 0 was the tell, and it is the same tell this repo has recorded twice before.
+
+
 ### 2026-08-08 — `editor_scan.sh` reports "OK (0 errors)" on a tree that does not parse
 
 **What happened.** `sphere_passes/WaterSlumpLavaPass.gd` was edited to read a variable that had been named
