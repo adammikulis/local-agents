@@ -37,9 +37,14 @@ correctness fix with a behavioural rewrite makes both unmeasurable.
 
 ### State (2026-08-09)
 
-`0.4-dev` is at `138166e`. Branch `feature/handoff-refresh` carries this session's work and is **ready to
-merge**: the fungus/fire instrument fix, the stale-shader guard, and the heat-capacity unification. Numbers
-below are measured on that branch unless they say otherwise.
+`0.4-dev` is at `c6a185f`, verified after merge (`snow_cells` 76, `biomass_total` 6.25,
+`energy_run_drift` −1.987e16 = 12.8% of stock). All of this session's work is merged and its worktrees
+pruned.
+
+**IF YOU MEASURE ANYTHING, RE-IMPORT FIRST.** This checkout was six days and 15 kernels stale and produced a
+full, normal-looking `SIM_REPORT` over a week-old reaction engine. `run_sim_offscreen.sh` now refuses to
+launch in that state, but the lesson generalises past shaders: the primary checkout is the one nobody
+rebuilds.
 
 **Paths here are relative to `addons/local_agents/`, and `material/` means `sim/material/`.** A bare
 `soil_sphere3d.glsl:583` is `addons/local_agents/sim/material/kernels3d/soil_sphere3d.glsl:583`.
