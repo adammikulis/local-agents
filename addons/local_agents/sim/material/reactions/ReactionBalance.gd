@@ -100,146 +100,55 @@ static func driver_only() -> PackedInt32Array:
 ## is an authoring error and the gate says so, rather than silently treating it as massless.
 ##
 ## THE INVENTORY READS THIS SAME FUNCTION (LAMaterialFieldElementInventory3D), which is what stops the
-## conservation gauge from assuming the property it exists to check.
+
+## WHICH SUBSTANCE EACH CHANNEL SLOT HOLDS — the only thing this file declares about matter any more.
+##
+## Everything below used to be TWO hand-written dictionaries: `composition()` listing atoms per slot, and
+## `mol_per_unit()` listing moles per slot. Both restated facts that belong to the MATERIAL, not to the
+## channel, so a material's properties lived in five places joined by naming convention and the two could
+## silently disagree. They are views of `LASubstances` now, and a slot's only job is to say what it holds.
+##
+## SEVERAL SLOTS SHARE A SUBSTANCE, and that is the point rather than a redundancy: `water`, `moisture` and
+## `snow` are one substance in three phases; `biomass`, `detritus`, `fungus` and `fuel` are one material in
+## four places; `lava`, `rock_fill`, `sediment`, `dust` and `susp` are one mineral in five. Those groupings
+## are exactly the channels that collapse when phase stops being stored.
+const SLOT_SUBSTANCE: Dictionary = {
+	1: "h2o", 2: "h2o", 12: "h2o", 19: "h2o", 21: "h2o",        # WATER MOISTURE SNOW SOIL_ROOT SOIL_TOP
+	3: "o2", 4: "co2",
+	11: "cellulose", 7: "cellulose", 8: "cellulose", 5: "cellulose",  # BIOMASS DETRITUS FUNGUS FUEL
+	9: "fixed_n",                                                 # FERT
+	10: "silicate", 17: "silicate", 23: "silicate", 13: "silicate", 14: "silicate", 15: "silicate",
+	24: "carbonate", 25: "silica",
+}
+
+
+## Atoms per CHANNEL UNIT for each slot — `LASubstances` composition scaled by what one unit of that channel
+## weighs. The gate counts atoms; this is the only place a channel unit is converted into them.
 static func composition() -> Dictionary:
-	# CH2O plus the nitrogen the material actually carries, at its measured C:N ratio.
-	#
-	# THE NITROGEN TERM WAS `1.0 / LAPhysical.LITTER_C_TO_N` = 0.0500, AND THAT MIXED TWO KINDS OF RATIO.
-	# *(Corrected 2026-08-07.)* Every other number in this dictionary is a count of ATOMS PER MOLECULE —
-	# CH2O is one carbon, two hydrogens, one oxygen — but LITTER_C_TO_N is a ratio of MASSES (20 kg of
-	# carbon per kg of nitrogen, PhysicalConstants.gd:396). Spending a mass ratio in a column of mole
-	# counts overstated organic nitrogen by 16%. Per mole of CH2O the material carries
-	# (CARBON_MOLAR_MASS / LITTER_C_TO_N) kilograms of N, which is 0.0429 mol.
-	var organic: Dictionary = {
-		"C": 1.0, "H": 2.0, "O": 1.0,
-		"N": (LAPhysical.MOLAR_MASS_CARBON_KG_MOL / LAPhysical.LITTER_C_TO_N) / LAPhysical.MOLAR_MASS_NITROGEN_KG_MOL,
-	}
-	var water: Dictionary = {"H": 2.0, "O": 1.0}
-	# CALCIUM SILICATE, the one composition every existing mineral phase carries. Wollastonite CaSiO3 is the
-	# standard proxy for the silicate the mantle makes (Walker, Hays & Kasting 1981). It has to be ONE
-	# composition across bedrock, lava, sediment, dust and suspension because those five exchange mass with
-	# each other at 1:1 and a transfer may not change composition — see LAReactionDefs.CARBONATE for the
-	# connected-component argument and why exactly two more channels were needed, not ten.
-	var silicate: Dictionary = {"Ca": 1.0, "Si": 1.0, "O": 3.0}
-	return {
-		DefsScript.WATER: water,
-		DefsScript.MOISTURE: water,
-		DefsScript.SNOW: water,
-		DefsScript.SOIL_ROOT: water,
-		# SOIL_TOP is the same `soil` water as SOIL_ROOT, read through a shallower window (the drying front
-		# rather than the whole rooting column), so it is water for exactly the same reason. Like SOIL_ROOT it
-		# is a DERIVED VIEW and is deliberately absent from INVENTORY_CHANNELS below — summing it would count
-		# the same water a second time.
-		DefsScript.SOIL_TOP: water,
-		DefsScript.O2: {"O": 2.0},
-		DefsScript.CO2: {"C": 1.0, "O": 2.0},
-		DefsScript.BIOMASS: organic,
-		DefsScript.DETRITUS: organic,
-		DefsScript.FUNGUS: organic,
-		DefsScript.FUEL: organic,
-		DefsScript.FERT: {"N": 1.0},
-		DefsScript.LAVA: silicate,
-		DefsScript.ROCK_FILL: silicate,
-		# BEDROCK_BELOW is the `rock_fill` of the solid cell underneath, reached across one radial neighbour —
-		# the same substance ROCK_FILL is, on the same molar basis, which is what makes frost shattering a
-		# conserving rock -> sediment transfer rather than a source. DERIVED VIEW: absent from
-		# INVENTORY_CHANNELS, since `rock_fill` is already summed there.
-		DefsScript.BEDROCK_BELOW: silicate,
-		DefsScript.SEDIMENT: silicate,
-		DefsScript.DUST: silicate,
-		DefsScript.SUSP: silicate,
-		# THE TWO WEATHERING PRODUCTS. Calcite is the ONLY place carbon can leave the atmosphere permanently in
-		# this substrate; quartz is the residue the reaction has to put its silicon in, and nothing weathers it
-		# further, which is why it has no consumer other than the decarbonation record that reverses the whole
-		# reaction at metamorphic temperature.
-		DefsScript.CARBONATE: {"Ca": 1.0, "C": 1.0, "O": 3.0},
-		DefsScript.SILICA: {"Si": 1.0, "O": 2.0},
-	}
+	var out: Dictionary = {}
+	var tbl: Dictionary = LASubstances.table()
+	for slot in SLOT_SUBSTANCE:
+		var id: String = String(SLOT_SUBSTANCE[slot])
+		out[int(slot)] = tbl.get(id, {}).get("formula", {}).duplicate()
+	return out
 
 
-## HOW MANY MOLES OF ITS SUBSTANCE ONE UNIT OF A CHANNEL HOLDS — the fact `composition()` needs and did
-## not have, and without which this gate could not have been telling the truth.
+## Moles of substance in one unit of a channel. A channel unit is the substance's own DENSITY in kilograms
+## per cubic metre — a full cell of it — so this is density / molar_mass and nothing is chosen here.
 ##
-## THE DEFECT IT CLOSES. The header above says each slot is "declared as the ELEMENTS one unit of it
-## contains". What is declared is the molecular FORMULA, which is elements per MOLE. Those are the same
-## statement only if one channel unit is one mole for every channel, and the substrate never worked that
-## way — it was never even claimed to:
-##   * `o2` and `co2` are in the gas unit PhysicalConstants.gd:377-380 DEFINES as "the amount of O₂ in a
-##     cell of ambient air", AMBIENT_O2_DENSITY_KG_M3 = 0.2731 kg/m³, so one unit is 8.535 mol/m³. CO₂'s
-##     seed is set from that by MOLE fraction, so a co2 unit is the same molar amount as an o2 unit.
-##   * `water`, `moisture`, `snow` and the `soil` the root slots view are a FRACTION OF A CELL FULL OF
-##     LIQUID WATER — LAPhysical.saturation_mass_fraction says so in its own docstring and divides by
-##     WATER_DENSITY_KG_M3 to produce it. One unit is 997 kg/m³ = 55343 mol/m³.
-## Those two differ by a factor of 6484, and `check_records` was comparing them as though they were equal.
-## So a record could couple a gas channel to a water channel at coefficient 1:1, pass this gate, and be
-## wrong about hydrogen by three and a half orders of magnitude. That is the whole photosynthesis /
-## respiration / decomposition set.
-##
-## WHY THE FIX IS HERE AND NOT IN THE ENGINE. The obvious repair — make records declare molar stoichiometry
-## and have `serialize()` convert — is wrong, and worth naming so nobody spends a day on it. A record's
-## EXTENT `x` is denominated in the units of its coefficients, and `rate_k` is what produces `x`. Several
-## rates are DERIVED from real physics directly in cell-fill units: R23's evaporation k is
-## `C_E * U * dt / H`, a bulk aerodynamic mass transfer whose answer is a fraction of a water cell
-## (PhaseRecords.gd:67-77). Rewriting coefficients into moles would force every one of those derivations to
-## be redone in moles for no physical gain. The coefficients stay in channel units, where the rates are
-## natural. It is the GATE and the INVENTORY that must convert — they are the two places that compare
-## ACROSS channels, and they are the only two places that need to.
-##
-## THE MINERAL PHASES CARRY REAL MOLAR BASES AS OF 2026-08-08. *(This paragraph used to say "MINERALS ARE 1.0
-## AND ARE NOT MOLES, AND THAT IS A FENCE, NOT A RESULT", and justified the fence by the absence of any
-## M<->CHON conversion. That absence was itself the defect — D1b took CO2 as a catalyst it never consumed —
-## and it is fixed. The M-mixing rejection block in `check_records` is deleted with it; its own comment named
-## this commit as its removal condition.)*
-##
-## WHAT ONE MINERAL UNIT IS. The same thing one unit of `water` is: a CELL FULL of the substance, at its
-## measured density. Moles per unit is then density / molar mass, and every number in it is a fact:
-##   silicate  ROCK_DENSITY_KG_M3 / MOLAR_MASS_CASIO3 = 2900 / 0.11616 = 24966 mol/m^3
-##   silica    QUARTZ_DENSITY     / MOLAR_MASS_SIO2   = 2650 / 0.06008 = 44105 mol/m^3
-##   carbonate CALCITE_DENSITY    / MOLAR_MASS_CACO3  = 2710 / 0.10009 = 27076 mol/m^3
-##
-## THE SILICATE PHASES ALL SHARE ONE BASIS, AND THAT IS NOT A SIMPLIFICATION — it is what the substrate
-## already asserts. Every mineral transfer it performs is 1:1 in channel units (M5/M6 lava<->rock, D1a
-## rock->sediment, D2 sediment->rock, M3 susp->sediment, M4 sediment->dust, the dust kernel's deposit back to
-## sediment, erosion pickup's rock->susp). A 1:1 transfer between two channels on DIFFERENT molar bases would
-## create or destroy matter, so the code has always meant them to share one, and this writes that down.
-##   The bulk density of loose sediment is a different quantity and is NOT this one: SEDIMENT_DENSITY_KG_M3
-##   = 2000 describes how much VOLUME a given mineral mass occupies once it is a grain framework with pores,
-##   which is why the overburden walk weighs a sediment cell less than a rock cell. Conflating a bulk density
-##   with a molar basis would make every one of those 1:1 transfers a 31% mass leak.
-##
-## CRUSTAL OXYGEN WOULD SWAMP `element_O`, AND THAT PROBLEM IS REAL — it is why minerals had no molar basis
-## before. It is not solved by refusing to measure the rock. It is solved the way geochemistry solves it,
-## by keeping the reservoirs on SEPARATE BOOKS: LAMaterialFieldElementInventory3D publishes the
-## atmosphere/biosphere totals as `element_*` and LAMaterialFieldMineralBudget3D publishes the lithosphere as
-## `lith_element_*`, with `element_C_total` the one sum that has to close.
+## *(It used to be four hand-picked bases with an argument attached to each, including "organic matter had
+## no declared unit anywhere, so a unit of it IS a unit of O2 by the fire kernel's arithmetic". That was a
+## real inference, but keeping it as a written-down number let it drift from the material it described.
+## Cellulose has a density; the answer follows from it.)*
 static func mol_per_unit() -> Dictionary:
-	var gas: float = LAPhysical.AMBIENT_O2_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_O2_KG_MOL
-	var water: float = LAPhysical.WATER_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
-	# A cell full of calcium silicate. Shared by every phase of it — see the header for why sharing one basis
-	# is the substrate's own assertion rather than a convenience.
-	var silicate: float = LAPhysical.ROCK_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_CASIO3_KG_MOL
-	# ORGANIC MATTER HAD NO DECLARED UNIT ANYWHERE — that absence is itself a finding. It is fixed here by
-	# the one relation the substrate already asserts: fire_sphere3d.glsl:186-189 oxidises fuel and O₂
-	# ONE FOR ONE (`burned = min(fuel_i, o2_i)`, then debits both by `burned`), and CH₂O + O₂ -> CO₂ + H₂O
-	# is one mole of each. So a unit of organic matter IS a unit of O₂ in moles, by the kernel's own
-	# arithmetic — 8.535 mol/m³, which is 0.2563 kg/m³ of CH₂O. Like the gas unit above it is a FREE CHOICE
-	# whose ratios are the physics; this one is the choice already embedded in the code.
-	var organic: float = gas
-	return {
-		DefsScript.WATER: water, DefsScript.MOISTURE: water, DefsScript.SNOW: water,
-		DefsScript.SOIL_ROOT: water, DefsScript.SOIL_TOP: water,
-		DefsScript.O2: gas, DefsScript.CO2: gas,
-		DefsScript.BIOMASS: organic, DefsScript.DETRITUS: organic,
-		DefsScript.FUNGUS: organic, DefsScript.FUEL: organic,
-		# FERT is mineral nitrogen and its unit follows organic matter's, because decomposition is where it
-		# comes from: one unit of organic matter releases `organic["N"]` moles of N, so pinning FERT to the
-		# same molar basis makes that a 1:1 relation a record can state without a conversion factor.
-		DefsScript.FERT: organic,
-		DefsScript.LAVA: silicate, DefsScript.ROCK_FILL: silicate, DefsScript.BEDROCK_BELOW: silicate,
-		DefsScript.SEDIMENT: silicate, DefsScript.DUST: silicate, DefsScript.SUSP: silicate,
-		DefsScript.CARBONATE: LAPhysical.CALCITE_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_CACO3_KG_MOL,
-		DefsScript.SILICA: LAPhysical.QUARTZ_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_SIO2_KG_MOL,
-	}
+	var out: Dictionary = {}
+	var tbl: Dictionary = LASubstances.table()
+	for slot in SLOT_SUBSTANCE:
+		var sub: Dictionary = tbl.get(String(SLOT_SUBSTANCE[slot]), {})
+		var m: float = float(sub.get("molar_mass", 0.0))
+		out[int(slot)] = (float(sub.get("density", 0.0)) / m) if m > 0.0 else 0.0
+	return out
+
 
 
 ## How many units of `slot` hold the same number of MOLES as one unit of `ref_slot`.

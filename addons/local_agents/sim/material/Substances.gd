@@ -165,7 +165,7 @@ static func table() -> Dictionary:
 		# are the standard proxies every carbon-cycle model uses (Walker, Hays & Kasting 1981).
 		"silicate": {
 			"formula": {"Ca": 1.0, "Si": 1.0, "O": 3.0},
-			"molar_mass": PC.MOLAR_MASS_WOLLASTONITE_KG_MOL,
+			"molar_mass": PC.MOLAR_MASS_CASIO3_KG_MOL,
 			"density": PC.ROCK_DENSITY_KG_M3,
 			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
 			"melt_c": PC.BASALT_SOLIDUS_C,
@@ -176,8 +176,8 @@ static func table() -> Dictionary:
 		},
 		"silica": {
 			"formula": {"Si": 1.0, "O": 2.0},
-			"molar_mass": PC.MOLAR_MASS_SILICA_KG_MOL,
-			"density": PC.ROCK_DENSITY_KG_M3,
+			"molar_mass": PC.MOLAR_MASS_SIO2_KG_MOL,
+			"density": PC.QUARTZ_DENSITY_KG_M3,
 			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
 			"conductivity": PC.THERMAL_CONDUCT_ROCK_W_MK,
 			"emissivity": PC.BASALT_EMISSIVITY,
@@ -185,7 +185,7 @@ static func table() -> Dictionary:
 		},
 		"carbonate": {
 			"formula": {"Ca": 1.0, "C": 1.0, "O": 3.0},
-			"molar_mass": PC.MOLAR_MASS_CALCITE_KG_MOL,
+			"molar_mass": PC.MOLAR_MASS_CACO3_KG_MOL,
 			"density": PC.CALCITE_DENSITY_KG_M3,
 			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
 			"conductivity": PC.THERMAL_CONDUCT_ROCK_W_MK,

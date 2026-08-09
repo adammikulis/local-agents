@@ -653,9 +653,7 @@ const CELLULOSE_PYROLYSIS_EA_OVER_R_K: float = CELLULOSE_PYROLYSIS_EA_J_MOL / GA
 # absence is why a forest currently warms its planet no differently from the sand it grows on.
 const ALBEDO_VEGETATION: float = 0.12
 
-# --- MOLAR MASSES OF THE MINERAL SPECIES ------------------------------------------------------------------
-# Wollastonite CaSiO3, quartz SiO2 and calcite CaCO3 — the three the Urey reaction is written over.
-# Summed from IUPAC atomic weights: Ca 40.078, Si 28.085, C 12.011, O 15.999.
-const MOLAR_MASS_WOLLASTONITE_KG_MOL: float = 0.116164   # 40.078 + 28.085 + 3*15.999
-const MOLAR_MASS_SILICA_KG_MOL: float = 0.060083         # 28.085 + 2*15.999
-const MOLAR_MASS_CALCITE_KG_MOL: float = 0.100086        # 40.078 + 12.011 + 3*15.999
+# THE MINERAL MOLAR MASSES ARE NOT REPEATED HERE. MOLAR_MASS_CASIO3_KG_MOL, MOLAR_MASS_SIO2_KG_MOL and
+# MOLAR_MASS_CACO3_KG_MOL are already declared above with the same atomic weights. This block briefly held
+# WOLLASTONITE/SILICA/CALCITE aliases for them — the same three facts under second names, which is exactly
+# how the freezing point of water came to be declared in five places at three values. Deleted the same day.

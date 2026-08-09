@@ -220,8 +220,24 @@ static func records() -> Array:
 	# spending them directly as water-channel coefficients overstated every water leg by 6484x. The balance
 	# gate could not see it until it was taught the two units (LAReactionBalance.mol_per_unit); the moment it
 	# was, it flagged all three records in this file on both H and O.
-	var w_per_gas: float = LAReactionBalance.unit_ratio(MOISTURE, CO2)
-	var soil_per_gas: float = LAReactionBalance.unit_ratio(SOIL_ROOT, CO2)
+	# EVERY CROSS-SUBSTANCE COEFFICIENT GOES THROUGH unit_ratio, AND THE CONSTANTS ABOVE ARE PURE
+	# STOICHIOMETRY. `unit_ratio(a, b)` is how many units of `a` hold the moles that one unit of `b` holds,
+	# read off the substance table, so a coefficient here reads as the mole count a chemist writes and the
+	# conversion cannot be mistyped or forgotten.
+	#
+	# EACH RECORD IS DENOMINATED IN ITS ORGANIC REACTANT, because that is what its rate is expressed in.
+	# The old code converted only the water legs and left O2/CO2/FERT on the assumption that organic matter
+	# and O2 shared a basis — true only while organic matter had no declared density. It has one now
+	# (dry wood, 500 kg/m3), so a unit of detritus is 16652 mol/m3 against O2's 8.535, and the balance gate
+	# caught every leg that had assumed otherwise.
+	var o2_per_org: float = LAReactionBalance.unit_ratio(O2, DETRITUS)
+	var co2_per_org: float = LAReactionBalance.unit_ratio(CO2, DETRITUS)
+	var w_per_org: float = LAReactionBalance.unit_ratio(MOISTURE, DETRITUS)
+	var fert_per_org: float = LAReactionBalance.unit_ratio(FERT, DETRITUS)
+	var soil_per_co2: float = LAReactionBalance.unit_ratio(SOIL_ROOT, CO2)
+	var org_per_co2: float = LAReactionBalance.unit_ratio(BIOMASS, CO2)
+	var w_per_co2: float = LAReactionBalance.unit_ratio(MOISTURE, CO2)
+	var fert_per_co2: float = LAReactionBalance.unit_ratio(FERT, CO2)
 	# Nitrogen per unit of organic matter, read off the composition table rather than restated, so a record
 	# cannot disagree with the gate about what litter is made of. It is MOLAR: LITTER_C_TO_N is a ratio of
 	# masses, and (CARBON_MOLAR_MASS / 20) / NITROGEN_MOLAR_MASS = 0.0429 mol N per mol CH₂O — not the
@@ -233,9 +249,10 @@ static func records() -> Array:
 		# BILINEAR: x = DECOMPOSE_RATE*fungus*detritus, capped by the detritus + O₂ reactants (the aerobic cap
 		# falls out of listing O₂ as a reactant, coeff O2_PER_DECOMPOSE). Fert → SCRATCH (fungus_fert reduce).
 		rec(BILINEAR, DECOMPOSE_RATE, FUNGUS,
-			[[DETRITUS, 1.0], [O2, O2_PER_DECOMPOSE]],
-			[[CO2, CO2_PER_DECOMPOSE, TGT_SELF], [MOISTURE, DECOMPOSE_WATER_YIELD * w_per_gas, TGT_SELF],
-				[FERT, organic_n, TGT_SCRATCH]],
+			[[DETRITUS, 1.0], [O2, O2_PER_DECOMPOSE * o2_per_org]],
+			[[CO2, CO2_PER_DECOMPOSE * co2_per_org, TGT_SELF],
+				[MOISTURE, DECOMPOSE_WATER_YIELD * w_per_org, TGT_SELF],
+				[FERT, organic_n * fert_per_org, TGT_SCRATCH]],
 			0, 0.0, DETRITUS),
 
 		# R19 — PHOTOSYNTHESIS: light + CO₂ + soil water + nutrient → biomass + O₂ + transpired vapour, on the
@@ -261,8 +278,8 @@ static func records() -> Array:
 			# squarely inside the real 200-1000 range, so it is left alone. Debiting SOIL_ROOT by
 			# (stoichiometric + transpired) and crediting MOISTURE by the transpired part keeps h2o_total
 			# untouched by the transpiration leg, which is what makes it a phase transfer rather than a loss.
-			[[CO2, 1.0], [SOIL_ROOT, soil_per_gas + PHOTO_WATER_COST], [FERT, organic_n]],
-			[[O2, PHOTO_O2_YIELD, TGT_SELF], [BIOMASS, PHOTO_BIOMASS_YIELD, TGT_SELF],
+			[[CO2, 1.0], [SOIL_ROOT, soil_per_co2 + PHOTO_WATER_COST], [FERT, organic_n * fert_per_co2]],
+			[[O2, PHOTO_O2_YIELD, TGT_SELF], [BIOMASS, PHOTO_BIOMASS_YIELD * org_per_co2, TGT_SELF],
 				[MOISTURE, PHOTO_WATER_COST, TGT_SELF]],
 			GATE_NEAR_GROUND | GATE_NOT_STATIC, PHOTO_T_OPT, TEMP, PHOTO_T_WIDTH),
 
@@ -272,9 +289,9 @@ static func records() -> Array:
 		# DETRITUS litter (which the fungus-decompose R15 then rots into CO₂ + fertility), and the NITROGEN
 		# the carbon leg leaves behind — see RESP_FERT_YIELD. Without that third product this record destroyed
 		# 60% of the nitrogen in every unit of biomass it touched.
-		rec(BILINEAR, RESP_RATE, BIOMASS, [[BIOMASS, 1.0], [O2, RESP_O2_COST]],
-			[[CO2, RESP_CO2_YIELD, TGT_SELF], [DETRITUS, RESP_DET_YIELD, TGT_SELF],
-				[MOISTURE, RESP_WATER_YIELD * w_per_gas, TGT_SELF],
-				[FERT, organic_n * (1.0 - RESP_DET_YIELD), TGT_SELF]],
+		rec(BILINEAR, RESP_RATE, BIOMASS, [[BIOMASS, 1.0], [O2, RESP_O2_COST * o2_per_org]],
+			[[CO2, RESP_CO2_YIELD * co2_per_org, TGT_SELF], [DETRITUS, RESP_DET_YIELD, TGT_SELF],
+				[MOISTURE, RESP_WATER_YIELD * w_per_org, TGT_SELF],
+				[FERT, organic_n * (1.0 - RESP_DET_YIELD) * fert_per_org, TGT_SELF]],
 			0, 0.0, O2),
 	]
