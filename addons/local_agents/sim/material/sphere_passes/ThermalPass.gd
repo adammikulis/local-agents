@@ -25,8 +25,15 @@ extends RefCounted
 ##                                carrying lava QUENCHES hard". The thermocline it named was a prescribed
 ##                                26 C/10 C curve and the quench relaxed toward it, deleting the heat; both
 ##                                are gone. See that kernel's header.)*
-##   4. lava_phase_sphere3d:      sustain (keep remaining lava molten) + shell-first edge cooling; IN-PLACE on
-##                                temp, own-cell writes only. COMPACTED: dispatched INDIRECTLY over the
+##   4. lava_phase_sphere3d:      THERMAL RADIATION from molten rock — sigma*eps*T^4 out of every face that
+##                                opens onto space, air or water, net of what that neighbour returns; IN-PLACE
+##                                on temp, own-cell writes only. *(Corrected 2026-08-07: this entry used to
+##                                read "sustain (keep remaining lava molten) + shell-first edge cooling". The
+##                                sustain leg had already been dissolved into the M5 record and left no write
+##                                behind, and the shell-first leg was a Newtonian relax toward a prescribed
+##                                40 C with no cell receiving the heat. Both are gone; the rind still hardens
+##                                first, now because an interior face sees a neighbour as hot as itself and
+##                                therefore radiates nothing.)* COMPACTED: dispatched INDIRECTLY over the
 ##                                active-cell list LavaCellListPass builds earlier in the same step, so it runs
 ##                                one invocation per MOLTEN cell instead of one per grid cell. The list's
 ##                                predicate is physical ("holds molten rock in open space"), so this is exact.
@@ -180,8 +187,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid, 4 = the compacted
 		# active-cell list, 5 = its dispatch-indirect args + list length (LavaCellListPass built both earlier
 		# this step, and applied this kernel's own lava/solid early-outs when it did), 15 = nbr
-		# (shell-first edge cooling reads each cell's 6 faces to count EXPOSED faces -> a flow's rind hardens
-		# while the core stays molten and drains, leaving a lava tube).
+		# (the radiative exchange reads each cell's 6 faces: a face onto rock is opaque and carries nothing, a
+		# face onto another equally hot lava cell returns as much as it receives, and only a face onto cold air
+		# or space carries the full sigma*eps*T^4 — so a flow's rind hardens while the core stays molten and
+		# drains, leaving a lava tube, with no exposed-face count anywhere).
 		_lava_phase_set[p] = _make_set(rd, _lava_phase_shader, [
 			[0, lava_back], [1, temp_back], [2, solid],
 			[4, active_idx], [5, active_args], [15, nbr]])
@@ -254,13 +263,13 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # post-heat temp committed before the lava passes read it
 
-	# 4. LAVA PHASE — sustain + shell-first edge cooling, in-place on lava BACK + temp BACK. COMPACTED:
+	# 4. LAVA PHASE — thermal radiation from exposed molten faces, in-place on lava BACK + temp BACK. COMPACTED:
 	# dispatched INDIRECTLY over LavaCellListPass's active-cell list, so this is one invocation per molten cell
 	# rather than per grid cell. On a planet with no lava that is one idle workgroup instead of `groups`
 	# (~1080) of them.
 	rd.compute_list_bind_compute_pipeline(cl, _lava_phase_pipe)
 	rd.compute_list_bind_uniform_set(cl, _lava_phase_set[parity], 0)
-	var phase_pc: PackedByteArray = _lava_phase_pc(cc)
+	var phase_pc: PackedByteArray = _lava_phase_pc(cc, _real_seconds_per_step(), cell_size)
 	rd.compute_list_set_push_constant(cl, phase_pc, phase_pc.size())
 	rd.compute_list_dispatch_indirect(cl, _active_args, 0)
 	rd.compute_list_add_barrier(cl)          # post-phase lava/temp visible to the magma snapshot
@@ -406,14 +415,20 @@ func _count_pc(cc: int) -> PackedByteArray:
 	return pc
 
 
-# lava_phase Params: { uint cell_count; uint pad0; uint pad1; uint pad2; } — 16 bytes. cell_count is only a
-# defensive bound on the cell id read out of the active list.
-func _lava_phase_pc(cc: int) -> PackedByteArray:
+# lava_phase Params: { uint cell_count; float dt_s; float cell_size; uint pad2; } — 16 bytes. cell_count is
+# only a defensive bound on the cell id read out of the active list.
+#
+# `dt_s` and `cell_size` took what were pad0/pad1. That kernel used to relax lava toward a prescribed 40 C
+# ambient, and a relax rate needs neither a duration nor a length; it now emits sigma*eps*T^4 from the cell's
+# exposed faces, which is a FLUX in W/m^2, so turning it into a temperature needs the step's real seconds and
+# the depth of matter behind the face. Same two numbers, from the same two sources, as _solar_pc above — one
+# clock and one grid across the whole pass. If either arrives 0 the kernel radiates nothing at all.
+func _lava_phase_pc(cc: int, dt_s: float, cell_size: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)
 	pc.encode_u32(0, cc)
-	pc.encode_u32(4, 0)
-	pc.encode_u32(8, 0)
+	pc.encode_float(4, dt_s)
+	pc.encode_float(8, cell_size)
 	pc.encode_u32(12, 0)
 	return pc
 

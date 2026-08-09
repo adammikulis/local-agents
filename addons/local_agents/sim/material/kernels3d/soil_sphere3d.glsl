@@ -17,6 +17,45 @@
 // to soil if it is regolith, to surface water if it is open — the soil<->water phase change at the boundary is
 // mass-conserving). Race-free: each cell writes only its own soil/water. Elevation is computed in-kernel from
 // r = gid % depth, so no elevation buffer is needed. NEIGHBOUR slots: 0=inward/down … 5=outward/up; -1=boundary.
+//
+// --- WATER CARRIES ITS ENTHALPY, AND THE ROCK PAYS FOR THE SPRING -------------------------------------------
+// Moving water moves HEAT. Until 2026-08-08 only half of that was booked: a spring landing in an open cell
+// WARMED it toward the donor rock's temperature, and no write anywhere cooled anything. The comment at the
+// receiver argued the case instead of paying it — "the parcel's heat is the rock's, continuously replenished by
+// conduction from the core/magma" — which is a description of an INFINITE heat source. 1084 hot-spring cells,
+// 122 of them boiling, peaking at 263 C, all of it heat from nothing.
+//
+// The leak is not where it looks. Removing water from a cell AT THAT CELL'S OWN TEMPERATURE is isothermal: the
+// cell loses m*rho_c_w*T of energy and m*rho_c_w of heat capacity, so E/C is unchanged and the export needs no
+// temperature write at all. What was missing is the OTHER end of the same cycle — the cold rain infiltrating
+// back INTO the rock was heated to the rock's temperature for free, every step, forever. That is the term that
+// makes the aquifer an infinite reservoir, and it is worth m*rho_c_w*(T_rock - T_surface) per unit recharge.
+// A real geothermal field cools exactly this way: cold recharge sweeps the stored heat out of the rock.
+//
+// So both mixes are now capacity-weighted enthalpy mixes, T = (C_here*T_here + C_in*T_in)/(C_here + C_in),
+// which is what conserves energy across a mass transfer — mix() on TEMPERATURE alone moves degrees without
+// moving joules.
+//
+// RACE-FREEDOM, and it is the reason the two halves live in different passes.
+//   * PASS 1 already reads `temp[nb]` at REGOLITH donors to warm an open receiver. That read is safe only
+//     because pass 1's temp writes are own-cell AND confined to NON-REGOLITH OPEN cells (the `regolith[g]`
+//     branch writes no temp). Read set {regolith} and write set {non-regolith open} are disjoint. Adding a
+//     regolith temp write to pass 1 would break exactly that, because many open cells can share one donor.
+//   * PASS 0 READS NO TEMPERATURE AT ALL, so it is free. The recharge debit goes there, and it is safe by the
+//     RADIAL BIJECTION `nbr[c*6+0] == c-1` (SphereGrid.gd:178): a regolith cell is the DOWN-neighbour of
+//     EXACTLY ONE cell, so the open cell above it is its only possible writer. Lateral slots hold same-`r`
+//     cells and can never collide with a same-column r-1 cell. Same argument ReactionDefs.BEDROCK_BELOW and
+//     erosion_pickup_sphere3d.glsl already rest on. The infiltration branch runs only for cells that are open
+//     AND NOT regolith (the regolith branch returns first), so no thread ever reads a temperature another
+//     thread is writing.
+//   * WHAT IS STILL NOT PAID: the regolith->regolith DARCY leg. Water moving between two rock cells arrives
+//     with no enthalpy and is silently re-heated to the receiver's temperature, worth m*rho_c_w*(T_recv-T_donor)
+//     per link. Booking it needs the receiver to write its own temp in pass 1 while other threads read it as a
+//     donor, which is the race above; there is no bijection for it (a regolith cell has up to six Darcy donors)
+//     and the `send` scratch has no spare slot to carry the donor temperature across the barrier. It is
+//     constructible with ONE extra dispatch or ONE extra float per cell, both of which live outside this file.
+//     It is a smaller term than the recharge — adjacent rock cells sit one geotherm step apart, not 100-300 C
+//     apart — but it is not zero and it is not fixed.
 
 layout(local_size_x = 64) in;
 
@@ -68,6 +107,23 @@ const float RHO_WATER = 997.0;             // LAPhysical.WATER_DENSITY_KG_M3
 const float SURFACE_POROSITY = 0.40;       // LAPhysical.REGOLITH_SURFACE_POROSITY
 const float COMPACTION_LEN_M = 2500.0;     // LAPhysical.COMPACTION_LENGTH_M
 const int REG_CELLS = 4;                   // MUST match MaterialField3D.REGOLITH_CELLS
+
+// VOLUMETRIC HEAT CAPACITIES — what it costs to warm a cubic metre of each thing by one degree. These are the
+// currency of every enthalpy mix below: water carries 1.7x rock's rho*c per unit volume and 3500x air's, which
+// is why a trickle of groundwater can dominate the temperature of the cell it lands in. Same three values, same
+// names, as heat3d_cool_sphere3d.glsl and heat3d_solar_sphere3d.glsl — one quantity, one number.
+const float RC_AIR   = 1186.0;    // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
+const float RC_ROCK  = 2.436e6;   // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
+const float RC_WATER = 4.171e6;   // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
+
+// A REGOLITH cell's heat capacity, from what it is actually made of: a solid matrix of fraction (1 - phi), pore
+// water `s`, and air in the pore space that is left. `heat3d_cool_sphere3d.glsl:94 rc_of()` returns a flat
+// RC_ROCK for every solid cell, which throws the groundwater's thermal mass away — a saturated cell at phi 0.4
+// is 3.13e6, 28% above 2.436e6. This kernel is the one place that has phi and s in hand, so it uses them; the
+// divergence is reported rather than papered over.
+float reg_heat_cap(float phi, float s) {
+	return (1.0 - phi) * RC_ROCK + s * RC_WATER + max(0.0, phi - s) * RC_AIR;
+}
 
 const float MAX_MASS = 1.0;           // surface water a cell holds before it is "full" (MUST match MaterialField3D
                                       // + water_sphere3d.glsl). An outlet at or above this can take no more, which
@@ -448,6 +504,27 @@ void main() {
 			if (infil > 0.0) {
 				send[base + 0u] = infil;
 				dbg[dbase + DBG_INFIL_SENT] = infil;
+				// COLD RECHARGE COOLS THE ROCK IT SOAKS INTO — the debit that pays for every hot spring.
+				//
+				// This surface water leaves at THIS cell's temperature, which is isothermal for this cell (it
+				// loses infil*RC_WATER of energy and infil*RC_WATER of capacity together), so nothing is written
+				// here. It ARRIVES in the rock below as a parcel that is 100-300 C colder than the rock, and the
+				// rock has to warm it out of its own stored heat. Before this, the parcel was simply assigned the
+				// rock's temperature on arrival and the rock kept its own, which made the aquifer an infinite
+				// geothermal reservoir; a real one depletes exactly here, which is why hot springs need deep
+				// circulation or magma rather than a warm shallow soil.
+				//
+				// Capacity-weighted mix, which is the only form that conserves energy across a mass transfer.
+				// The capacity used is the rock cell's PRE-STEP one: its own outflow this step is computed by
+				// its own thread with no barrier between us, so it is not readable here. That overstates C by at
+				// most MAX_FLOW_FRAC * s * RC_WATER, which UNDER-cools — it can only leave the old leak partly
+				// open, never invent a new one in the other direction.
+				//
+				// Race-free by the radial bijection: `ib` is `g - 1`, so this thread is the only one that can
+				// address temp[ib] (see the header). Pass 0 reads no other cell's temperature.
+				float c_in = infil * RC_WATER;
+				float c_rock = reg_heat_cap(ib_cap, soil_in[ib]);
+				temp[ib] = (c_rock * temp[ib] + c_in * temp[g]) / (c_rock + c_in);
 			}
 		}
 		return;
@@ -461,6 +538,13 @@ void main() {
 	// cell, track (inflow_i * donor_temp_i) and inflow_i, so an open cell can arrive at the inflow-weighted
 	// donor temperature. Donors are regolith-only (open cells only push water DOWN), so no open temp is ever
 	// read here — and regolith cells never WRITE temp in this pass — making the neighbour temp reads race-free.
+	//
+	// THAT DISJOINTNESS IS LOAD-BEARING, NOT INCIDENTAL. Read set {regolith}, write set {non-regolith open}. A
+	// regolith cell has up to six donors, so any temp write on the regolith side of THIS pass is a genuine race
+	// — which is why the recharge debit is in pass 0 under the radial bijection instead. Do not "just add" a
+	// regolith temp write here; see the header for what it would take to do the Darcy leg properly.
+	// The values read are post-pass-0, so the rock has already been cooled by this step's recharge before its
+	// discharge is drawn from it. That is the right order: you cannot spend the same joule twice.
 	float hot_flux = 0.0;
 	float hot_mass = 0.0;
 	// Probe: the same gather, split by DONOR TYPE, so "what regolith sent" can be compared against "what
@@ -501,19 +585,35 @@ void main() {
 		dbg[dbase + DBG_OPEN_FROM_OPEN] = from_open;
 		dbg[dbase + DBG_OPEN_DROP] = soil_in[g];     // overwritten with 0 on the next line — a sink if nonzero
 		soil_out[g] = 0.0;
-		// CARRY GEOTHERMAL HEAT: groundwater surfacing from hot regolith arrives at the donor rock's temperature.
-		// Mix the incoming hot groundwater into the surface water already present (energy-conserving: the parcel's
-		// heat is the rock's, continuously replenished by conduction from the core/magma). Water sourced from
-		// deep/near-magma regolith surfaces HOT → the boiling/evap kernel steams it (a hot spring / fumarole);
-		// water from cool shallow regolith surfaces cool → an ordinary spring. Nothing is scripted: which springs
-		// are hot falls out of the head gradient meeting the existing geothermal heat field.
+		// CARRY GEOTHERMAL HEAT: groundwater surfacing from regolith arrives at the donor rock's temperature.
+		// Water sourced from deep/near-magma regolith surfaces HOT → the boiling/evap kernel steams it (a hot
+		// spring / fumarole); water from cool shallow regolith surfaces cool → an ordinary spring. Nothing is
+		// scripted: which springs are hot falls out of the head gradient meeting the geothermal heat field.
+		//
+		// The DONOR needs no write. Its water left at its own temperature, so it lost energy and heat capacity
+		// in the same ratio and its temperature is unchanged — the debit for that heat is charged where the
+		// cycle closes, at the recharge in pass 0 (see the header). What USED to be missing here is different
+		// and is fixed below.
+		//
+		// TWO CORRECTIONS, both of which made heat appear.
+		// 1. `mix(temp[g], donor_t, hot_mass/wnew)` interpolates TEMPERATURE on a MASS fraction, so it moves
+		//    degrees without moving joules whenever the two parcels differ in heat capacity. The energy-
+		//    conserving form is T = (C_here*T_here + C_in*T_in) / (C_here + C_in). For a cell that is pure
+		//    water the two agree; they diverge for a thin film, where the cell is mostly air.
+		// 2. `if (donor_t > temp[g])` made the transfer ONE-WAY: cold groundwater discharging into a warmer
+		//    pool was discarded rather than cooling it. Advection is signed — a cold spring cools what it runs
+		//    into, and a ratchet that only ever adds heat is a heat source. The guard is gone.
+		// The `wnew > 1.0e-6` guard went with it: C_here + C_in is strictly positive whenever hot_mass > 0
+		// because air alone carries RC_AIR, so there is nothing left to divide by zero.
 		if (hot_mass > 0.0) {
 			float donor_t = hot_flux / hot_mass;
-			float wnew = water[g];
-			if (donor_t > temp[g] && wnew > 1.0e-6) {
-				float frac = clamp(hot_mass / wnew, 0.0, 1.0);
-				temp[g] = mix(temp[g], donor_t, frac);
-			}
+			// What was already standing here, at temp[g]: the post-outflow water minus the parcel that just
+			// arrived. `water[g]` is read raw — the CA is compressible, so it can exceed one cell — and the air
+			// share is whatever volume that leaves, floored at zero.
+			float w_here = max(0.0, water[g] - hot_mass);
+			float c_here = w_here * RC_WATER + max(0.0, 1.0 - w_here) * RC_AIR;
+			float c_in = hot_mass * RC_WATER;
+			temp[g] = (c_here * temp[g] + c_in * donor_t) / (c_here + c_in);
 		}
 	} else {
 		soil_out[g] = soil_in[g];                          // impermeable bedrock: inert
