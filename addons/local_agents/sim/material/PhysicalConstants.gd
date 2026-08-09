@@ -675,6 +675,43 @@ const CELLULOSE_PYROLYSIS_EA_OVER_R_K: float = CELLULOSE_PYROLYSIS_EA_J_MOL / GA
 # absence is why a forest currently warms its planet no differently from the sand it grows on.
 const ALBEDO_VEGETATION: float = 0.12
 
+# --- CANOPY LIGHT INTERCEPTION ------------------------------------------------------------------------------
+# An albedo alone cannot darken a planet: a cell reflects at the canopy's albedo only over the fraction of its
+# ground the canopy actually COVERS, and that fraction has to come from the mass the cell carries. These three
+# are what turns a mass into a cover fraction. They are properties of a CANOPY — a structure — in the same way
+# ATMOS_OPTICAL_DEPTH and TWO_STREAM_COEFF above are properties of an air column, which is why they live here
+# and not on `cellulose` in LASubstances: dry litter and cured fuel are the same substance and have no leaf
+# area at all, so hanging leaf geometry on the polymer would assert something false about three other channels.
+#
+# LEAF MASS PER AREA is the measured quantity of the leaf-economics spectrum (Wright et al. 2004, Nature
+# 428:821, GLOPNET, 2548 species): how many kilograms of dry leaf stand behind a square metre of leaf surface.
+# It spans about 0.014 (soft herbaceous) to 1.5 (sclerophyll) kg/m^2, log-mean near 0.08. Dividing an areal
+# dry mass by it gives LEAF AREA INDEX directly, so no reciprocal "specific leaf area" is declared — one
+# number, in the form it is measured in.
+const LEAF_MASS_PER_AREA_KG_M2: float = 0.080
+
+# WHAT FRACTION OF STANDING PLANT MATTER IS FOLIAGE. A plant is mostly structure: stems, branches and roots
+# carry the mass, leaves carry the area. Globally, plant biomass is ~450 GtC (Bar-On, Phillips & Milo 2018)
+# of which leaves are a few percent; the ratio runs 0.01-0.03 in mature forest, 0.05-0.15 in shrubland and
+# 0.4-0.6 in grassland, where nearly all the tissue photosynthesises. 0.03 is the global figure.
+#
+# THIS EXISTS BECAUSE THE SUBSTRATE HAS ONE ORGANIC POOL, NOT TWO. `biomass` is not split into wood and leaf,
+# so the conversion from standing mass to leaf area has to carry the ratio explicitly. Without it the model
+# asserts a plant made entirely of leaves: at this planet's measured 8.2 kg/m^2 of ground-cell biomass that
+# is a leaf area index of 102, against 4-6 for a real closed forest. The day `biomass` grows a structural
+# fraction, this constant is what that fraction replaces.
+const FOLIAGE_FRACTION_OF_PLANT_MASS: float = 0.03
+
+# BEER-LAMBERT EXTINCTION THROUGH A CANOPY (Monsi & Saeki 1953). The fraction of a beam intercepted by leaf
+# area L is 1 - exp(-k*L), and k is the mean projection of a leaf onto the beam direction. For a spherical
+# leaf-angle distribution — leaves pointing every way, the standard default — that projection is exactly 1/2
+# by geometry, being the mean of |cos| between a random unit normal and a fixed direction.
+#
+# It is also what makes "the canopy closes" a measured thing rather than a chosen saturation point: at the
+# observed closure of LAI 3-4 the interception is 0.78-0.86, and it approaches 1 asymptotically, so nothing
+# has to be clamped.
+const CANOPY_EXTINCTION_COEFF: float = 0.5
+
 # THE MINERAL MOLAR MASSES ARE NOT REPEATED HERE. MOLAR_MASS_CASIO3_KG_MOL, MOLAR_MASS_SIO2_KG_MOL and
 # MOLAR_MASS_CACO3_KG_MOL are already declared above with the same atomic weights. This block briefly held
 # WOLLASTONITE/SILICA/CALCITE aliases for them — the same three facts under second names, which is exactly
