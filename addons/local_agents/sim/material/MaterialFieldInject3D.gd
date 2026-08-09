@@ -151,20 +151,35 @@ func _device_ready() -> bool:
 ## RELATIONSHIP TO heat3d_solar_sphere3d.glsl's CAP_AIR/CAP_ROCK/CAP_WATER/CAP_SNOW: those are AREAL
 ## (J/m²/K), because the solar kernel applies a surface FLUX to a surface cell, and their formula is
 ## `volumetric capacity x thermally-active depth`. This is the SAME formula with the depth being the cell
-## itself, which is the right form for an energy dumped INTO a volume rather than one crossing its face. It is
-## written against the formula and against LAPhysical, not against the kernel's literals, so a re-derivation
-## of those literals does not silently move this.
+## itself, which is the right form for an energy dumped INTO a volume rather than one crossing its face.
+##
+## IT USED TO WRITE ITS OWN MIX, AND THAT WAS THE LEDGER'S UNBOOKED ITEM 9. *(Fixed 2026-08-09.)* The old
+## body was water-plus-air with a `solid` early-return to flat rock — no snow, no lava, no organic matter,
+## none of the eight carriers the shared model gained — so a joule injected here bought a temperature change
+## the field's own capacity model disagreed with, and `add_heat_energy` BOOKS that joule
+## (`queue.note_energy`) as a sourced term the conservation ledger then differences against the stock. A
+## booked joule and the stock's response to it therefore differed for any cell holding snow, litter, lava or
+## partial rock. Its old docstring defended writing the formula out here — "written against the formula and
+## against LAPhysical, not against the kernel's literals, so a re-derivation of those literals does not
+## silently move this" — and that reasoning is exactly backwards: binding to the CONSTANTS while forking the
+## COMPOSITION is the drift that actually happened, five times in GLSL and four in GDScript. One definition.
 func _cell_heat_capacity(cell: int) -> float:
 	var side: float = maxf(float(_f._cell_size), 0.001)
 	var volume: float = side * side * side
-	if _f._solid.size() == _f._cell_count and _f._solid[cell] != 0:
-		return LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K * volume
-	# An open cell is air plus whatever liquid is standing in it. MAX_MASS is a full cell of water, so that
-	# ratio is the water fraction and the remainder is air.
-	var wet: float = 0.0
-	if _f._water.size() == _f._cell_count and _f.MAX_MASS > 0.0:
-		wet = clampf(_f._water[cell] / _f.MAX_MASS, 0.0, 1.0)
-	return (LAPhysical.VOL_HEAT_CAP_WATER_J_M3K * wet + LAPhysical.VOL_HEAT_CAP_AIR_J_M3K * (1.0 - wet)) * volume
+	return LAHeatCapacity.cell(_rc_channels(), cell) * volume
+
+
+## The carriers, from the CPU mirrors. This is the injection path, not a gauge, so it reads mirrors directly
+## and must NOT call request_channel — residency is simulation state. A demand-gated channel whose mirror is
+## cold contributes zero here, which understates the cell's capacity and so OVERSTATES the temperature a
+## given joule buys; that is the honest failure direction (visible as heat) rather than a silent one.
+func _rc_channels() -> Dictionary:
+	return {
+		"rock_fill": _f._rock_fill, "lava": _f._lava, "sediment": _f._sediment, "susp": _f._susp,
+		"dust": _f._dust, "water": _f._water, "soil": _f._soil, "snow": _f._snow,
+		"moisture": _f._moisture, "fuel": _f._fuel, "biomass": _f._biomass,
+		"detritus": _f._detritus, "fungus": _f._fungus, "porosity": _f._porosity,
+	}
 
 
 ## Deliver `joules` of ENERGY into the cells within `radius` of `world_pos`, drawn from whatever store the
@@ -180,9 +195,14 @@ func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> 
 	var cells: PackedInt32Array = _cells_within(world_pos, radius)
 	if cells.size() == 0:
 		return 0.0
+	# Build the carrier table ONCE, not once per cell — it is the same dictionary of the same mirrors for
+	# every cell in the bubble, and a meteor's bubble is thousands of them.
+	var ch: Dictionary = _rc_channels()
+	var side: float = maxf(float(_f._cell_size), 0.001)
+	var volume: float = side * side * side
 	var total_cap: float = 0.0
 	for c in cells:
-		total_cap += _cell_heat_capacity(c)
+		total_cap += LAHeatCapacity.cell(ch, c) * volume
 	if total_cap <= 0.0:
 		return 0.0
 	var delta_c: float = joules / total_cap

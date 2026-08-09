@@ -69,6 +69,14 @@ layout(set = 0, binding = 6, std430) restrict readonly buffer Regolith { float r
 layout(set = 0, binding = 7, std430) restrict buffer Temp { float temp[]; };                // POST-thermal temp, carry-heat in place
 layout(set = 0, binding = 8, std430) restrict readonly buffer Grain { float grain[]; };     // representative grain diameter, metres
 layout(set = 0, binding = 9, std430) restrict buffer SoilDbg { float dbg[]; };              // per-leg budget probe
+// PUBLISH the Athy porosity this kernel already computes. `rock_fill` is a SATURATION of a cell's rock
+// matrix, not a volume fraction of mineral, and four consumers read it as the latter — the heat capacity,
+// the overburden walk, the mineral mole book and the erosion supply cap. A full surface regolith cell is
+// ~64% mineral and ~36% pore, so reading its 1.0 as a mineral volume fraction and then ALSO counting the
+// `soil` standing in those pores made the cell claim 1.362 cell-volumes of matter. Everyone converts
+// against this one number now instead of assuming 1.0, and the formula stays in the one place that has the
+// burial walk in hand.
+layout(set = 0, binding = 11, std430) restrict buffer Porosity { float porosity[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
 
 layout(push_constant, std430) uniform Params {
@@ -112,9 +120,9 @@ const int REG_CELLS = 4;                   // MUST match MaterialField3D.REGOLIT
 // currency of every enthalpy mix below: water carries 1.7x rock's rho*c per unit volume and 3500x air's, which
 // is why a trickle of groundwater can dominate the temperature of the cell it lands in. Same three values, same
 // names, as heat3d_cool_sphere3d.glsl and heat3d_solar_sphere3d.glsl — one quantity, one number.
-const float RC_AIR   = 1186.0;    // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
+const float RC_AIR   = 1185.9;    // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
 const float RC_ROCK  = 2.436e6;   // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
-const float RC_WATER = 4.171e6;   // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
+const float RC_WATER = 4171448.0; // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
 
 // A REGOLITH cell's heat capacity, from what it is actually made of: a solid matrix of fraction (1 - phi), pore
 // water `s`, and air in the pore space that is left. `heat3d_cool_sphere3d.glsl:94 rc_of()` returns a flat
@@ -227,7 +235,7 @@ const int LEG_SPRING = 2;
 // list A back in slot 2 — and on a cubed sphere that is a stronger claim than "adjacency is mutual", which
 // is all LASphereGrid.validate() ever checked. Where the two differ the sender debits a slot nobody reads.
 // sent != received IS that leak, measured rather than argued.
-const uint DBG_SLOTS = 20u;
+const uint DBG_SLOTS = 21u;
 #define DBG_DARCY_SENT    0u   // regolith -> regolith (Darcy)
 #define DBG_SPRING_SENT   1u   // regolith -> open (exfiltration / spring)
 #define DBG_SEEP_SENT     2u   // regolith -> open, upward (waterlogged up-seep)
@@ -247,6 +255,10 @@ const uint DBG_SLOTS = 20u;
 #define DBG_SPRING_DOWN  14u   // discharged INWARD (slot 0) — a shell lower, i.e. downward percolation
 #define DBG_SPRING_LAT   15u   // discharged laterally (slots 1-4) — the intended valley-wall spring
 #define DBG_SPRING_UP    16u   // discharged OUTWARD (slot 5) through the spring branch (not the up-seep leg)
+// The OPEN leg's clamp, which had no gauge at all while its regolith twin ten lines above it did. It is the
+// same `max(0, ...)` shape and it can only ever CREATE water, so an unmeasured one is matter from nothing
+// with nobody counting. *(Added 2026-08-09; HANDOFF item 3.)*
+#define DBG_OPEN_CLAMP_GAIN 20u   // max(0,x)-x at an OPEN cell: >0 means the clamp INVENTED water
 #define DBG_SPRING_WET   17u   // the part of spring_sent whose outlet already holds >= half a cell of water
 // `open_elev` can only ever see ONE cell of water, because it is `open_floor + clamp(water[n],0,1)*cell_size`.
 // These two say whether that blindness matters: an outlet with a tall OPEN column above it is a sea or lake
@@ -284,6 +296,10 @@ void main() {
 		dbg[dbase + DBG_SPRING_CAPPED] = 0.0; dbg[dbase + DBG_SPRING_FREECOL] = 0.0;
 
 		bool is_regolith = regolith[g] != 0.0;
+		// Publish phi for every cell, every step, before any early return. ZERO outside regolith, which is
+		// the correct answer there and makes `rock_fill * (1.0 - porosity[i])` reduce to `rock_fill` for
+		// bedrock with no branch at the consumer. This is the ONLY writer of the channel.
+		porosity[g] = is_regolith ? porosity_of(int(g)) : 0.0;
 
 		if (is_regolith) {
 			// GROUNDWATER: flow to lower-head regolith neighbours (Darcy) + DAYLIGHT into open neighbours (springs).
@@ -566,6 +582,7 @@ void main() {
 	dbg[dbase + DBG_INFIL_RECV] = 0.0;  dbg[dbase + DBG_CLAMP_GAIN] = 0.0;
 	dbg[dbase + DBG_SPRING_RECV] = 0.0; dbg[dbase + DBG_OPEN_DROP] = 0.0;
 	dbg[dbase + DBG_OPEN_FROM_OPEN] = 0.0; dbg[dbase + DBG_BEDROCK_IN] = 0.0;
+	dbg[dbase + DBG_OPEN_CLAMP_GAIN] = 0.0;
 
 	if (regolith[g] != 0.0) {
 		// Regolith: gains groundwater from higher-head neighbours + infiltration from above; loses outflow.
@@ -580,7 +597,13 @@ void main() {
 		dbg[dbase + DBG_CLAMP_GAIN] = applied - raw;
 	} else if (solid[g] == 0.0) {
 		// Open cell: gains spring exfiltration from regolith neighbours, loses infiltration it sent down.
-		water[g] = max(0.0, water[g] - own_out + inflow);
+		// Keep `raw` in a local and book what the clamp added, exactly as the regolith twin above does.
+		// `water` is read-write here (not `writeonly` like SoilOut), so this could re-read instead — but the
+		// mirrored form is the point: two legs of one identity should be measured the same way.
+		float raw_w = water[g] - own_out + inflow;
+		float applied_w = max(0.0, raw_w);
+		water[g] = applied_w;
+		dbg[dbase + DBG_OPEN_CLAMP_GAIN] = applied_w - raw_w;
 		dbg[dbase + DBG_SPRING_RECV] = from_reg;
 		dbg[dbase + DBG_OPEN_FROM_OPEN] = from_open;
 		dbg[dbase + DBG_OPEN_DROP] = soil_in[g];     // overwritten with 0 on the next line — a sink if nonzero

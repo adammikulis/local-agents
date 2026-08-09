@@ -71,6 +71,16 @@ const SINGLE_CHANNELS: PackedStringArray = [
 	# is their only reader and only writer (D1b credits, D1c decarbonation debits), so there is no producer
 	# pass to ping-pong against. Both start at zero, which is correct: an unweathered planet has neither.
 	"carbonate", "silica",
+	# ATHY POROSITY, the pore fraction of a regolith cell (0 outside regolith). Written every step by
+	# soil_sphere3d.glsl, which is the one place that already computes it, so the formula is not copied.
+	# WHY IT IS A CHANNEL AND NOT A LOCAL: `rock_fill` is a SATURATION of a cell's rock matrix, not a volume
+	# fraction of mineral, and four consumers were reading it as the latter — the heat capacity, the
+	# overburden walk, the mineral mole book and the erosion supply cap. A full surface regolith cell is
+	# ~64% mineral and ~36% pore, so reading its 1.0 as a mineral volume fraction, then adding the `soil`
+	# standing in those pores, made the cell claim 1.362 cell-volumes of matter. The conversion needs phi,
+	# and phi is a static function of burial depth that several passes need, so it is precomputed once per
+	# step rather than re-walked per consumer.
+	"porosity",
 	"regolith",     # aquifer permeability mask (1 = groundwater-bearing rock) — static; seeded once
 	"grain"]        # representative grain diameter in METRES per regolith cell — static; seeded once. The
 	                # aquifer kernel turns it into hydraulic conductivity through Kozeny-Carman, so K varies
@@ -115,7 +125,7 @@ const SCENT_PLANES: int = 5
 # the clamp gain and the two branches that silently drop what they gather. Always written (a handful of stores
 # next to six neighbour gathers) but read back only on demand — LAMaterialFieldSoilBudget3D under LA_SOIL_BUDGET.
 # MUST match DBG_SLOTS in soil_sphere3d.glsl.
-const SOIL_DBG_SLOTS: int = 20
+const SOIL_DBG_SLOTS: int = 21
 # Slots in the `active_args` buffer (see setup()). 0-2 are the uvec3 dispatch-indirect argument; 3 is the
 # compacted list length a compacted kernel uses as its loop bound. 8 rather than 4 purely for 32-byte alignment.
 const ACTIVE_ARGS_SLOTS: int = 8
@@ -224,7 +234,7 @@ const SLOW_READBACK_EVERY: int = 4
 # stale read never matters. `fuel`/`charge`/`rock_fill` are deliberately NOT here: fuel/charge consumers edit +
 # re-upload the channel, and ROCK_FILL is scanned EVERY frame by MineralStamp3D to stamp the terrain SDF (the
 # volcano land-building) + rewrite _solid — a stale/coarse rock_fill made eruptions grow FLOATING CUBES. Stay hot.
-const SLOW_CHANNELS: PackedStringArray = ["sediment", "susp", "fert", "soil", "biomass"]
+const SLOW_CHANNELS: PackedStringArray = ["sediment", "susp", "fert", "soil", "biomass", "porosity"]
 
 # BETWEEN-PASS PROBE (LA_H2O_BUDGET diagnostics only; armed per step by LAMaterialFieldH2OBudget3D, left
 # invalid otherwise). When valid, step() runs the checkpointed path below instead of the normal one-submit

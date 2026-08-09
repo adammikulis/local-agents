@@ -69,6 +69,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[7, temp_pair[back]],      # Temp = POST-thermal temp (BACK, rw) — carry geothermal heat into springs
 			[8, grain_rid],            # Grain diameter (m) — Kozeny-Carman input, with the Athy porosity profile
 			[9, dbg_rid],              # SoilDbg — per-leg budget probe (LAMaterialSphereGPU3D.SOIL_DBG_SLOTS)
+			[11, bufs["porosity"]],    # Porosity — phi, published for every other consumer of rock_fill
 			[15, nbr_rid],             # Neigh table
 		])
 

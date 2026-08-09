@@ -98,6 +98,28 @@ layout(set = 0, binding = 2, std430) restrict buffer Solid { float solid[]; };
 layout(set = 0, binding = 4, std430) restrict readonly buffer ActiveIdx { uint active_idx[]; };
 layout(set = 0, binding = 5, std430) restrict readonly buffer ActiveArgs { uint active_args[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };   // idx*6 + slot
+// CARRIERS FOR rc_shared.glsli. This kernel reads none of them for its own physics; `lava` at binding 0 is
+// the one it acts on. It used to carry a PRIVATE two-component capacity — RC_LAVA*f_lava + RC_AIR*(1-f_lava)
+// — which is the ninth copy of the mix in this repo and the one with the largest hole: it counted NO WATER,
+// so a molten cell quenching on the sea floor cooled as though it were surrounded by air rather than by the
+// 4.17e6 J/m3K of the ocean. Its own comment sent the reader upstream for the submerged case, to
+// heat3d_cool_sphere3d.glsl's latent-heat charge — which is a heat sink with no matching mass transfer,
+// because the kernel that was supposed to move the water (atmos_evap_sphere3d.glsl) has been DELETED and
+// only its .import stub remains.
+layout(set = 0, binding = 6, std430) restrict readonly buffer RockFill { float rock_fill[]; };
+layout(set = 0, binding = 7, std430) restrict readonly buffer Water { float water[]; };
+layout(set = 0, binding = 21, std430) restrict readonly buffer Fuel { float fuel[]; };
+layout(set = 0, binding = 22, std430) restrict readonly buffer Biomass { float biomass[]; };
+layout(set = 0, binding = 23, std430) restrict readonly buffer Detritus { float detritus[]; };
+layout(set = 0, binding = 24, std430) restrict readonly buffer Snow { float snow[]; };
+layout(set = 0, binding = 30, std430) restrict readonly buffer Sediment { float sediment[]; };
+layout(set = 0, binding = 31, std430) restrict readonly buffer Susp { float susp[]; };
+layout(set = 0, binding = 32, std430) restrict readonly buffer Dust { float dust[]; };
+layout(set = 0, binding = 33, std430) restrict readonly buffer Carbonate { float carbonate[]; };
+layout(set = 0, binding = 34, std430) restrict readonly buffer Silica { float silica[]; };
+layout(set = 0, binding = 35, std430) restrict readonly buffer Soil { float soil[]; };
+layout(set = 0, binding = 36, std430) restrict readonly buffer Moisture { float moisture[]; };
+layout(set = 0, binding = 37, std430) restrict readonly buffer Fungus { float fungus[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;   // only a defensive bound on the id read out of active_idx
@@ -114,6 +136,9 @@ layout(push_constant, std430) uniform Params {
 	float cell_size;
 	uint pad2;
 } params;
+
+layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
+#include "rc_shared.glsli"
 
 // --- MODEL PARAMETERS -------------------------------------------------------------------------------------
 // Properties of this substrate and of this integrator, not of matter. MUST match
@@ -169,8 +194,6 @@ const float KELVIN = 273.15;           // LAPhysical.KELVIN_OFFSET — T^4 is in
 // value therefore cools lava slightly FASTER than reality, which is the conservative direction for a kernel
 // whose whole job is a sink. A VOL_HEAT_CAP_MAGMA_J_M3K belongs in PhysicalConstants.gd with its citation;
 // adding it is a change to a file this pass does not own.
-const float RC_LAVA = 2.436e6;         // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
-const float RC_AIR = 1186.0;           // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
 
 void main() {
 	// One invocation per ACTIVE cell. `active_args[3]` is the compacted list length; the trailing invocations
@@ -209,7 +232,7 @@ void main() {
 	// conservative direction. A SUBMERGED molten cell is the case where that matters, and it is handled
 	// upstream: heat3d_cool_sphere3d.glsl charges the latent heat of vaporisation against the seawater such a
 	// cell boils, which is what quenches it to pillow basalt in a few steps.
-	float cap = max((RC_LAVA * f_lava + RC_AIR * (1.0 - f_lava)) * params.cell_size, 1.0);
+	float cap = max(rc_of(g) * params.cell_size, 1.0);
 
 	// Classify this cell's 6 faces ONCE. A face radiates if there is somewhere for the radiation to go.
 	// The neighbour table is `cell*6 + slot` with slot 0 = INWARD (radial down), 1-4 lateral, 5 = OUTWARD.

@@ -17,6 +17,8 @@ const ClimateSwingScript: GDScript = preload("res://addons/local_agents/sim/mate
 const ElementInventoryScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldElementInventory3D.gd")
 const MineralBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralBudget3D.gd")
 const EnergyLedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyLedger3D.gd")
+const SealScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSeal3D.gd")
+const ConservationScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldConservation3D.gd")
 
 ## Process frames between recomputes of the O(cells) instrument block. See `_heavy_block()` for why a gate is
 ## needed at all — the short version is that this provider is polled every rendered frame, not once a
@@ -30,7 +32,13 @@ var _extremes = null                                     # LAMaterialFieldExtrem
 var _swing = null                                        # LAMaterialFieldClimateSwing3D — diurnal + seasonal range
 var _mass = null                                         # LAMaterialFieldElementInventory3D — carbon/oxygen/fertility ledgers
 var _mineral = null                                      # LAMaterialFieldMineralBudget3D — the five-phase rock ledger
-var _energy_stock = null                                 # LAMaterialFieldEnergyLedger3D — rho*c*V*T stock + its drift
+var _energy_stock = null                         # LAMaterialFieldEnergyLedger3D — rho*c*V*T stock + its drift
+# The cross-book carbon baseline, latched at the seal. Lives here rather than in either ledger because it is
+# the SUM of the two, and neither of them can see the other.
+var _first_element_c: float = NAN
+var _first_element_c_step: int = -1
+var _conservation = null                         # LAMaterialFieldConservation3D — the law, enforced
+var _seal = null                                 # LAMaterialFieldSeal3D — SEEDING -> SEALED, the line the books start at
 var _heavy_cache: Dictionary = {}                        # last computed instrument block
 var _heavy_frame: int = -1_000_000                       # process frame it was computed on
 
@@ -50,6 +58,13 @@ func setup(field) -> void:
 	_mineral.setup(field)
 	_energy_stock = EnergyLedgerScript.new()
 	_energy_stock.setup(field)
+	_seal = SealScript.new()
+	_seal.setup(field)
+	_conservation = ConservationScript.new()
+	_conservation.setup(field)
+	# The field holds the seal so anything outside this report path can ask it — the injection queue has to
+	# know whether a mint is seeding or a violation, and it does not go through the report.
+	field._seal = _seal
 
 
 ## SURFACE CLIMATE BY LATITUDE AND ALTITUDE — the gauge that can actually answer "can it freeze HERE".
@@ -284,6 +299,13 @@ func _open_temp_stats() -> Dictionary:
 ## down on the scaled clock). The O(cells) instrument block added here is gated in `_heavy_block()` for that
 ## reason; the pre-existing scans above are not, and that is a live perf question this lane did not touch.
 func report() -> Dictionary:
+	# THE SEAL IS EVALUATED FIRST, BEFORE ANY LEDGER RUNS. Every conserved-substance ledger latches its
+	# baseline on `_sealed()`, so if the seal were polled later in this function the ledgers would see
+	# "unsealed" on the very sample the world seals and latch one sample late — which is how the seed
+	# manifest first recorded `h2o` as null while every other substance came through.
+	if _seal != null and _f._gpu != null and _f._gpu.has_method("take_probe"):
+		if _seal.poll(_f._gpu.take_probe()):
+			print("WORLD_SEALED=", JSON.stringify(_seal.report()))
 	var q: LAMaterialFieldQueries3D = _f._queries
 	var r: Dictionary = {
 		"wet_cells": _f.wet_cell_count(), "heat_peak": _f.peak_heat(), "heat_cells": _f.hot_cell_count(),
@@ -356,6 +378,14 @@ func report() -> Dictionary:
 	_extremes.track("energy_net", float(heavy.get("energy_net", 0.0)))
 	_extremes.track("subsolar_lat", float(r.get("swing_subsolar_lat", 0.0)))
 	r.merge(_extremes.report())
+	if _seal != null:
+		r.merge(_seal.report())
+	# THE LAW, CHECKED LAST — here rather than inside _heavy_block() because the H2O ledger's `h2o_first` is
+	# merged into `r` after that block runs, and checking early reported the planet's water as "unmeasured".
+	# It reads what every ledger has published, so it must run after all of them.
+	if _conservation != null:
+		r.merge(_conservation.check(r))
+
 	return r
 
 
@@ -408,6 +438,30 @@ func _heavy_block() -> Dictionary:
 	# say whether that transfer conserves; this sum is the claim, and it is only meaningful here, where both
 	# have just been sampled from the same probe drain.
 	if d.has("element_C") and d.has("lith_element_C"):
-		d["element_C_total"] = snappedf(float(d["element_C"]) + float(d["lith_element_C"]), 0.01)
+		var c_total: float = float(d["element_C"]) + float(d["lith_element_C"])
+		d["element_C_total"] = snappedf(c_total, 0.01)
+		# AND IT IS DIFFERENCED NOW, WHICH IT NEVER WAS. *(2026-08-09.)* This is the only dimensionally
+		# honest carbon number in the report: it is in MOLES, it scales every channel by `mol_per_unit`, and
+		# it spans BOTH books, so carbon moving from air into carbonate rock does not read as a loss. It was
+		# published as an absolute and never baselined — which meant the number actually being watched for
+		# carbon conservation was `carbon_total`, a raw sum of co2 + biomass + detritus CHANNEL UNITS. Those
+		# are three different substances with different carbon content per unit, which is exactly the defect
+		# LAMaterialFieldElementInventory3D._elements_of() describes in its own comment as having once made
+		# element_H and element_O "totals of two different things, so neither could be differenced to detect
+		# anything". `carbon_total` reads +1261% over 300 frames from a sealed baseline; it cannot mean what
+		# it appears to mean, because it is not a quantity. This is.
+		if _seal != null and _seal.sealed():
+			var step_now: int = int(_f._gpu._step_index) if _f._gpu != null else 0
+			if is_nan(_first_element_c):
+				_first_element_c = c_total
+				_first_element_c_step = step_now
+				_seal.note_seed({"element_C_mol": c_total})
+			d["element_C_total_first"] = snappedf(_first_element_c, 0.01)
+			d["element_C_total_drift"] = snappedf(c_total - _first_element_c, 0.01)
+			var c_steps: int = step_now - _first_element_c_step
+			if c_steps > 0:
+				d["element_C_total_drift_per_step"] = snappedf((c_total - _first_element_c) / float(c_steps), 0.0001)
+			if _first_element_c != 0.0:
+				d["element_C_total_rel_drift"] = snappedf((c_total - _first_element_c) / _first_element_c, 1e-9)
 	_heavy_cache = d
 	return d

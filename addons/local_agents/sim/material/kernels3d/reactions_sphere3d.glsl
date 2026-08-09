@@ -80,6 +80,12 @@ layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float 
 // verifies against the #defines below. ------------------------------------------------------------------
 layout(set = 0, binding = 28, std430) restrict buffer Carbonate { float carbonate[]; };  // CaCO3 — the carbon sink
 layout(set = 0, binding = 29, std430) restrict buffer Silica { float silica[]; };        // SiO2 — the residue
+// Athy pore fraction (0 outside regolith). Declared HERE, with the other buffers, and not beside the
+// rc_shared.glsli include at the bottom: `overburden()` reads it ~30 lines above that point, and GLSL
+// requires declaration before use — putting it by the include made this whole kernel fail to compile,
+// and the sim then ran to completion and printed a normal-looking SIM_REPORT with the entire reaction
+// engine silently absent.
+layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
 
 // Slot enum — MUST match MaterialReactions3D.gd.
 #define TEMP     0
@@ -356,7 +362,13 @@ float overburden(uint i) {
 		if (c < 0) {
 			break;
 		}
-		m += rock_fill[uint(c)] * ROCK_DENSITY + sediment[uint(c)] * SEDIMENT_DENSITY;
+		// `rock_fill` is a matrix SATURATION, so the mineral actually present is rock_fill * (1 - phi).
+		// Terzaghi effective stress counts the SOLID weight only (LAPhysical's lithification note says so
+		// outright), which is why the pore water is correctly absent — but the pore VOLUME was being weighed
+		// as if it were basalt, overstating the shallowest few kilometres of every column by ~1/(1-phi).
+		// porosity[] is 0 outside regolith, so this is unchanged for bedrock.
+		m += rock_fill[uint(c)] * (1.0 - clamp(porosity[uint(c)], 0.0, 1.0)) * ROCK_DENSITY
+			+ sediment[uint(c)] * SEDIMENT_DENSITY;
 		c = nbr[uint(c) * 6u + 5u];
 	}
 	return m * params.overburden_pa;

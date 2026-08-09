@@ -384,23 +384,30 @@ func report(step_index: int) -> Dictionary:
 	# baseline at all rather than a mirror artefact.
 	var run_steps: int = 0
 	if has_co2 and has_bio and has_det:
-		if _first_carbon_step < 0:
+		# LATCHED AT THE SEAL, NOT AT A SAMPLE COUNT. This used to fire on the third heavy sample
+		# (BASELINE_SKIP_SAMPLES), which is a sampling artifact landing in the MIDDLE of seeding, so the
+		# planet being BUILT was counted as drift. See LAMaterialFieldSeal3D for the two measured ways that
+		# lied — carbon reading +1360%% of its own baseline, and a baseline taken through a channel that had
+		# not arrived yet coming out bit-identical across two arms that differ by 29%%.
+		if _first_carbon_step < 0 and _sealed():
 			_first_carbon = carbon
+			_note_seed("carbon", carbon)
 			_first_carbon_step = step_index
 		run_steps = step_index - _first_carbon_step
 		out["carbon_first"] = snappedf(_first_carbon, 0.01)
 		if run_steps > 0:
 			out["carbon_run_drift_per_step"] = snappedf((carbon - _first_carbon) / float(run_steps), 0.0001)
 	if has_o2:
-		if _first_o2_step < 0:
+		if _first_o2_step < 0 and _sealed():
 			_first_o2 = o2_open
+			_note_seed("o2", o2_open)
 			_first_o2_step = step_index
 		out["o2_first"] = snappedf(_first_o2, 0.01)
 		if step_index > _first_o2_step:
 			out["o2_run_drift_per_step"] = snappedf(
 				(o2_open - _first_o2) / float(step_index - _first_o2_step), 0.0001)
 	if has_fert:
-		if _first_fert_step < 0:
+		if _first_fert_step < 0 and _sealed():
 			_first_fert = fert_open
 			_first_fert_step = step_index
 		out["fert_first"] = snappedf(_first_fert, 0.01)
@@ -408,7 +415,7 @@ func report(step_index: int) -> Dictionary:
 			out["fert_run_drift_per_step"] = snappedf(
 				(fert_open - _first_fert) / float(step_index - _first_fert_step), 0.0001)
 	if has_bio:
-		if _first_biomass_step < 0:
+		if _first_biomass_step < 0 and _sealed():
 			_first_biomass = bio_open
 			_first_biomass_step = step_index
 		out["biomass_first"] = snappedf(_first_biomass, 0.01)
@@ -416,7 +423,7 @@ func report(step_index: int) -> Dictionary:
 			out["biomass_run_drift_per_step"] = snappedf(
 				(bio_open - _first_biomass) / float(step_index - _first_biomass_step), 0.0001)
 	if has_o2 and has_co2:
-		if _first_oxidant_step < 0:
+		if _first_oxidant_step < 0 and _sealed():
 			_first_oxidant = oxidant
 			_first_oxidant_step = step_index
 		out["oxidant_first"] = snappedf(_first_oxidant, 0.01)
@@ -429,7 +436,7 @@ func report(step_index: int) -> Dictionary:
 	# three-slot triangle, whose job is to LOCALISE a leak to one side of the reaction table, and its mask-free
 	# reading is already published as `carbon_all`.
 	if has_co2 and has_bio and has_det and has_fung and has_fuel:
-		if _first_closed_step < 0:
+		if _first_closed_step < 0 and _sealed():
 			_first_closed = carbon_closed_all
 			_first_closed_step = step_index
 		out["carbon_closed_first"] = snappedf(_first_closed, 0.01)
@@ -437,7 +444,7 @@ func report(step_index: int) -> Dictionary:
 			out["carbon_closed_run_drift_per_step"] = snappedf(
 				(carbon_closed_all - _first_closed) / float(step_index - _first_closed_step), 0.0001)
 	if has_fert and has_bio and has_det and has_fung and has_fuel:
-		if _first_nitrogen_step < 0:
+		if _first_nitrogen_step < 0 and _sealed():
 			_first_nitrogen = nitrogen_all
 			_first_nitrogen_step = step_index
 		out["nitrogen_first"] = snappedf(_first_nitrogen, 0.01)
@@ -490,3 +497,19 @@ func _blank() -> Dictionary:
 		"nitrogen_first": 0.0, "nitrogen_run_drift_per_step": 0.0,
 		"mass_live": {},
 	}
+
+
+## True once LAMaterialFieldSeal3D has closed the books. Before it, this module publishes totals but latches
+## no baseline and reports no run-drift — because until the world is sealed the only thing a drift gauge can
+## measure is the planet being assembled.
+func _sealed() -> bool:
+	return _f != null and _f._seal != null and _f._seal.sealed()
+
+
+## Hand the world seal this module's baseline, at the instant it latches. The seal cannot scrape it out of
+## the report dict: an unlatched ledger publishes 0.0 there, which is indistinguishable from a substance that
+## genuinely starts at zero (carbonate does). The module that owns the number writes it, once, when it
+## becomes real.
+func _note_seed(key: String, value: float) -> void:
+	if _f != null and _f._seal != null:
+		_f._seal.note_seed({key: value})
