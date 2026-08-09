@@ -107,6 +107,17 @@ if [[ -z "$parse_line" ]]; then
 fi
 echo "  $parse_line"
 
+# checked:0 reads exactly like a clean sweep — same failed:0, same empty failures list, same absence of
+# error lines for the grep below to find. It means the rsync above copied nothing, or the addon moved.
+# The staging is elaborate enough that "it silently produced an empty tree" is a real way for this gate
+# to go quiet, so the count is checked rather than assumed.
+checked="$(printf '%s' "$parse_line" | grep -oE '"checked":[0-9]+' | grep -oE '[0-9]+$' || true)"
+if [[ -z "${checked:-}" || "$checked" -le 0 ]]; then
+  echo "check_library_only: FAIL — the sweep examined ${checked:-no} scripts, so nothing was verified."
+  echo "                    The staged tree at $TMP is empty or the addon path moved."
+  exit 2
+fi
+
 # The sweep's exit code alone is not enough. load() on a script whose preload target is missing prints
 # a Parse Error and still returns a non-null Script, so the null check inside the sweep never fires
 # for the exact failure this gate exists to catch. Loading is what makes the engine parse every file;

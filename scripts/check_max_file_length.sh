@@ -5,6 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib_require.sh
 source "$SCRIPT_DIR/lib_require.sh"
 require_tool rg   # without this the file list comes back empty and the gate passes on zero files
+# The scan roots below are RELATIVE. Without this cd they resolve against the caller's directory, rg
+# prints "No such file or directory" four times, the list comes back empty and the gate exits 0 having
+# examined nothing — the same vacuous pass require_tool was added to stop, reached by a different road.
+# Measured 2026-08-09: run from a scratch directory this printed "No matching files found" and exit 0.
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 # Two thresholds: a SOFT smell limit that warns (split before you cross it) and a HARD limit that FAILS
 # the build. A first-party source/config file over the hard limit must be split into focused modules.
 SOFT_FILE_LINES="${SOFT_FILE_LINES:-1300}"
@@ -44,9 +50,14 @@ done < <(
   | rg -v '/build_native/'
 )
 
+# An empty list is never a pass. This tree has hundreds of matching files, so zero means the roots moved,
+# a glob broke, or rg failed — every one of which leaves the gate measuring nothing. Exit 2 (could not
+# run), never 0. This branch used to `exit 0` with the message below, which is verbatim what CI printed on
+# every push for months while ripgrep was missing from the runner.
 if [[ ${#FILES[@]} -eq 0 ]]; then
-  echo "No matching files found for max-file-length check."
-  exit 0
+  echo "ERROR: no matching files found for max-file-length check under $REPO_ROOT." >&2
+  echo "       Refusing to report a pass on zero files — the scan roots or globs are wrong." >&2
+  exit 2
 fi
 
 warnings=0

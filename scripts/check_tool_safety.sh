@@ -55,6 +55,22 @@ cd "$ROOT"
 # offender pattern (see the self-test in the report for this script). Defaults to the addon.
 SCAN_DIR="${LA_TOOL_SAFETY_SCAN_DIR:-addons/local_agents}"
 
+# A missing or empty SCAN_DIR makes the `find` at the bottom produce nothing, the while loop never runs,
+# `violations` stays empty and the gate prints OK — a pass earned by reading zero files. The pass
+# condition here is the ABSENCE of an unguarded @tool write, so it is only worth anything if something
+# was actually read. Exit 2 (could not run) rather than 0.
+if [ ! -d "$SCAN_DIR" ]; then
+  echo "check_tool_safety: scan directory '$SCAN_DIR' does not exist — nothing to check." >&2
+  echo "check_tool_safety: FAIL (cannot run)" >&2
+  exit 2
+fi
+scanned_gd=$(find "$SCAN_DIR" -name '*.gd' -type f | grep -c . || true)
+if [ "${scanned_gd:-0}" -eq 0 ]; then
+  echo "check_tool_safety: zero .gd files under '$SCAN_DIR'. Refusing to report a pass on zero files." >&2
+  echo "check_tool_safety: FAIL (cannot run)" >&2
+  exit 2
+fi
+
 # Properties Godot serialises into the .tscn. A write to one of these from editor-reachable code
 # silently edits the user's scene.
 SERIALISED_PROPS='text|visible|position|rotation|scale|placeholder_text|modulate'
@@ -240,4 +256,4 @@ if [ -n "$violations" ]; then
   exit 1
 fi
 
-echo "check_tool_safety: OK ($tool_files @tool files, $checked_files with lifecycle callbacks analysed, ${#allowlist[@]} allowlisted)"
+echo "check_tool_safety: OK ($scanned_gd .gd scanned, $tool_files @tool files, $checked_files with lifecycle callbacks analysed, ${#allowlist[@]} allowlisted)"

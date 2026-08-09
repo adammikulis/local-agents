@@ -22,7 +22,15 @@ git -C "$PRIMARY" worktree add "$WT" -b "$BRANCH" "$BASE" >&2
 ln -sfn "$BIN" "$WT/addons/local_agents/gdextensions/localagents/bin"
 echo "[new_worktree] importing shaders (compiles .glsl kernels — required or the GPU field is dead)…" >&2
 godot --headless --path "$WT" --import >/dev/null 2>&1 || echo "[new_worktree] WARN: --import returned nonzero (check manually)" >&2
-echo "[new_worktree] editor scan (registers new class_name / .gdextension)…" >&2
-godot --headless --path "$WT" --editor --quit-after 400 >/dev/null 2>&1 || echo "[new_worktree] WARN: editor scan returned nonzero" >&2
+# Through scripts/editor_scan.sh, never `godot --headless --editor` directly. Two unlocked scans against
+# the same .godot/ segfault (six crashes in three minutes, measured 2026-07-28) and a fresh worktree is
+# exactly when several agents start at once; the wrapper takes the per-project lock. It also force-loads
+# every script, so a worktree that does not parse is reported here instead of at the first SIM_REPORT.
+echo "[new_worktree] editor scan + parse sweep (registers new class_name / .gdextension)…" >&2
+scan_rc=0
+"$PRIMARY/scripts/editor_scan.sh" --path "$WT" >&2 || scan_rc=$?
+if [[ "$scan_rc" -ne 0 ]]; then
+  echo "[new_worktree] WARN: editor scan exited $scan_rc — the worktree is NOT clean, see above." >&2
+fi
 echo "[new_worktree] ready: branch '$BRANCH' off '$BASE'" >&2
 echo "$WT"
