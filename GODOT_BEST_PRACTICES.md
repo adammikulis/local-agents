@@ -198,6 +198,41 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 - For required dependencies, show explicit error states rather than silent fallback behavior.
 - Update README/testing documentation when behavior or commands change.
 
+## Live engine constraints (measured in this repo — do not re-derive)
+
+*(Moved from `HANDOFF.md` 2026-08-09. It is durable knowledge about the ENGINE, which that file's
+own rule says belongs here: "a finding worth keeping goes to CLAUDE.md (process) or
+GODOT_BEST_PRACTICES (Godot/runtime/engine). What stays in HANDOFF.md is live reference only.")*
+
+- **`buffer_get_data_async` returns STALE data** for compute-written buffers on Godot 4.4+ (engine bug
+  [#105256](https://github.com/godotengine/godot/issues/105256)). Forking was considered and rejected.
+- **Reading the device from the REPORT path CORRUPTS THE SIM.** With a `step()` submit in flight,
+  `buffer_get_data` flushes outside the driver's one-submit-per-sync discipline: `h2o_total` 5062 → 9803,
+  `temp_mean` 39.8 → 44.6. Defer the sample into `_drain_pending()`, after `_rd.sync()`.
+- **`request_channel()` is NOT read-only.** It decides which channels get mirrored, and the field's *write*
+  paths read those mirrors. This is how impact winter was found to be alive only because a diagnostic
+  happened to request `dust`.
+- **CPU writes to `_f._o2` / `_f._co2` / `_f._detritus` are silently discarded** —
+  `MaterialFieldSphereStep3D.gd:282-306` overwrites them wholesale from the GPU readback every drain. Park
+  transactions on the device injection queue instead. Every breath an animal took once debited nothing.
+- **No GPU-side execution timer in this build.** `gpu_dispatch_ms` reads 0.00 on Metal.
+- **Where the field's time goes: RE-MEASURE IT, the old split is void.** It read "readback 77%, core pin 13%,
+  dispatch 4%", and the core pin no longer exists — `MaterialSphereGPU3D.gd:327-330` records that the
+  geothermal core stopped writing `_temp` on the CPU every step and became a flux boundary inside
+  `heat_sphere3d.glsl`. So 13% is attributed to work that does not run, and the rest cannot be trusted to
+  add up. Readback is still the thing to optimise. A
+  camera-relevance LOD was deleted for optimising the 4% while costing 4.5 °C of climate error.
+- **The neighbour table and the tangent frame are SEPARATE tables** — the discrete hairy-ball theorem, proved
+  in `GODOT_BEST_PRACTICES.md`. Anything reading a vector across a seam uses the per-link rotation.
+- **A wrapper run reads the tree AT LAUNCH** — editing a worktree mid-batch silently mixes code versions.
+- **`FOO="${FOO:-}"` arms anything gating on `OS.has_environment`** — true for an empty value. *(Narrowed
+  2026-08-08: the four budget probes this file names are FIXED — `MaterialFieldSphereStep3D._armed()` now
+  requires a non-empty value. Still live for `LA_FIELD_CADENCE`, `LA_NO_STREAMER`, `LA_PROFILE`,
+  `LA_SNAPSHOTS`, `LA_NO_AMBIENT_DISASTERS`, `LA_NO_ANIM_LOD`.)*
+
+---
+
+
 ## Error Log / Preventative Patterns
 
 ### 2026-08-09 — a per-record struct read OUTSIDE its own loop, and the planet melted

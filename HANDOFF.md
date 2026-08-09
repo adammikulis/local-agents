@@ -316,51 +316,6 @@ Life is not a stage. It is what stage 5 hands to 0.5.
 
 ---
 
-## LIVE ENGINE CONSTRAINTS (measured here — do not re-derive)
-
-- **`buffer_get_data_async` returns STALE data** for compute-written buffers on Godot 4.4+ (engine bug
-  [#105256](https://github.com/godotengine/godot/issues/105256)). Forking was considered and rejected.
-- **Reading the device from the REPORT path CORRUPTS THE SIM.** With a `step()` submit in flight,
-  `buffer_get_data` flushes outside the driver's one-submit-per-sync discipline: `h2o_total` 5062 → 9803,
-  `temp_mean` 39.8 → 44.6. Defer the sample into `_drain_pending()`, after `_rd.sync()`.
-- **`request_channel()` is NOT read-only.** It decides which channels get mirrored, and the field's *write*
-  paths read those mirrors. This is how impact winter was found to be alive only because a diagnostic
-  happened to request `dust`.
-- **CPU writes to `_f._o2` / `_f._co2` / `_f._detritus` are silently discarded** —
-  `MaterialFieldSphereStep3D.gd:282-306` overwrites them wholesale from the GPU readback every drain. Park
-  transactions on the device injection queue instead. Every breath an animal took once debited nothing.
-- **No GPU-side execution timer in this build.** `gpu_dispatch_ms` reads 0.00 on Metal.
-- **Where the field's time goes: RE-MEASURE IT, the old split is void.** It read "readback 77%, core pin 13%,
-  dispatch 4%", and the core pin no longer exists — `MaterialSphereGPU3D.gd:327-330` records that the
-  geothermal core stopped writing `_temp` on the CPU every step and became a flux boundary inside
-  `heat_sphere3d.glsl`. So 13% is attributed to work that does not run, and the rest cannot be trusted to
-  add up. Readback is still the thing to optimise. A
-  camera-relevance LOD was deleted for optimising the 4% while costing 4.5 °C of climate error.
-- **The neighbour table and the tangent frame are SEPARATE tables** — the discrete hairy-ball theorem, proved
-  in `GODOT_BEST_PRACTICES.md`. Anything reading a vector across a seam uses the per-link rotation.
-- **A wrapper run reads the tree AT LAUNCH** — editing a worktree mid-batch silently mixes code versions.
-- **`FOO="${FOO:-}"` arms anything gating on `OS.has_environment`** — true for an empty value. *(Narrowed
-  2026-08-08: the four budget probes this file names are FIXED — `MaterialFieldSphereStep3D._armed()` now
-  requires a non-empty value. Still live for `LA_FIELD_CADENCE`, `LA_NO_STREAMER`, `LA_PROFILE`,
-  `LA_SNAPSHOTS`, `LA_NO_AMBIENT_DISASTERS`, `LA_NO_ANIM_LOD`.)*
-
----
-
-## WHAT IS SOUND — do not rebuild these
-
-The H₂O ledger's inclusion rule; the DEFS record engine's std430 layout; the neighbour/tangent tables;
-~~`REPOSE_TAN = 0.70`~~ — **it was on this list and it was not sound.** The value is right (tan 35°, the
-repose angle of dry granular material, now sourced in `LAPhysical` and gate-bound) but it was APPLIED as a
-mass difference against a tangent, which asserts cells are cubes. On the cubed sphere the aspect runs
-1.07–4.08, so sediment stood at 33° at the shell floor and 9.8° at the top. Fixed via `LASphereGrid.link_arc`; the soil budget's per-leg identity (`kernel_residual` exactly 0.0); the erosion
-transport law (no fitted constant — load moves in the same proportions as the water carrying it); the
-geotherm as a seeded initial condition with a derived vertical scale; the aquifer's `k_rel`/`RESIDUAL`
-capillary retention; the saturation curve from August-Roche-Magnus; Kozeny-Carman conductivity from porosity;
-weathering as ice expansion and Arrhenius dissolution; lithification on real lithostatic pressure; and
-metabolism as the substrate's own respiration reaction with mass-scaling emergent rather than typed.
-
----
-
 ## 0.5 — THE LIVING CREATURES — PARKED
 
 Does not begin until the planet is locked down. Plans: `docs/0.5_CREATURE_FEATURES.md`,
@@ -387,11 +342,4 @@ orbits; persist the orbital state.
 
 ## North-star
 
-**Realism is the first goal.** Ask whether a model corresponds to how the world actually works before asking
-whether it runs or whether the number looks reasonable. **Dissolve, don't patch:** named phenomena have zero
-dedicated code; success is special-case code DELETED. **Nothing is created from nothing** — a shortage is
-never fixed by adding a source. **Emergent-everything · 3D always · GPU-first · perf-first · Big-O
-first-class · config over `if species == X`.**
-
-**Dual-purpose:** a reusable Godot dev tool (the `LocalAgent` LLM node) AND the game that is its flagship
-demo. Local LLMs drive creature cognition and the streamer, fully offline.
+Not restated here. `CLAUDE.md` holds it, and a second copy is a second thing to drift.
