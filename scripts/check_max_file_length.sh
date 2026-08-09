@@ -34,7 +34,7 @@ done
 # MARKDOWN IS CHECKED TOO (added 2026-07-29). Docs rot the same way source does: API.md reached 1480 lines
 # and nothing warned, because this list globbed source extensions only. Prose over the soft limit is the same
 # problem as code over it — nobody reads to the bottom, and claims at the bottom go stale unnoticed.
-# `docs/` and the repo-root .md files (HANDOFF.md, CLAUDE.md, GODOT_BEST_PRACTICES.md, ARCHITECTURE_PLAN.md,
+# `docs/` and the repo-root .md files (HANDOFF.md, CLAUDE.md, GODOT_BEST_PRACTICES.md,
 # README.md) were never scanned by any root in this list, so they are added here explicitly. Third-party
 # markdown under gdextensions/ stays excluded by the filters below.
 FILES=()

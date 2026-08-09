@@ -13,7 +13,7 @@ project is built: emergent-everything / dissolve-don't-patch (a chemistry substr
 data-driven reactions; named phenomena have zero dedicated code), GPU/native-first, perf- and parallelizability-
 first refactoring (the composition-root hubs `VoxelWorld`/`MaterialField3D` are extract-only), iterate-fast, and
 the worktree workflow. `AGENTS.md` points here too. If you change behaviour or commands, update `README`,
-`GODOT_BEST_PRACTICES.md`, and record breaking changes in `ARCHITECTURE_PLAN.md`.
+`GODOT_BEST_PRACTICES.md`. Breaking changes go in the COMMIT MESSAGE — git is the record of what shipped.
 
 ## Goals
 - Keep the Godot integration lightweight: GDScript glue plus the `localagents` GDExtension only.

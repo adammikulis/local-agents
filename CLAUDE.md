@@ -200,8 +200,13 @@ When removing files:
   doubt about file overlap, stage rather than parallel-launch: two agents editing one file collide.
 - Run/observe with `scripts/agent_harness.sh <command>` for tests, smoke, and live introspection (see
   `GODOT_BEST_PRACTICES.md` → "Headless Harness Invocation" for the canonical command list + markers).
-- For substantial or breaking work, keep `ARCHITECTURE_PLAN.md` current: record the intended change and
-  note breaking API/schema changes there before merge. Keep commits scoped by domain
+- **For substantial or breaking work, the record is the COMMIT MESSAGE.** Say what the schema or API change
+  is and what a consumer has to do about it, there. *(`ARCHITECTURE_PLAN.md` was deleted 2026-08-09. Its job
+  was "what shipped and why", which is git's job — and its content had rotted accordingly: a "Current Live
+  Work" section restating HANDOFF's queue under a header still calling the project 0.3, a closed P0 wave
+  kept "for context", and eleven operating rules duplicating this file, one of which stated the file-size
+  gate as a warn-only 1000 lines when it is soft 1300 / hard 1500 and FAILS. A second place to write down
+  what happened is a second place for it to be wrong.)* Keep commits scoped by domain
   (runtime/editor/tests/docs) where practical.
 - **`HANDOFF.md` IS THE MAP OF WHAT IS LEFT. IT IS NEVER A HISTORY.** Maintainer's rule, absolute:
   **a checked-off item is DELETED as soon as it is committed.** Do not tick it, mark it
@@ -800,7 +805,7 @@ failure mode, and it is the most common one.
   build fails until it's split. It also runs `check_no_direct_refcounted_invocation.sh` (a real gate banning
   `godot -s addons/local_agents/tests/test_*.gd` in automation).
   - **`.md` is checked as of 2026-07-29, and so are `docs/` and the repo-root docs** (`HANDOFF.md`,
-    `CLAUDE.md`, `GODOT_BEST_PRACTICES.md`, `ARCHITECTURE_PLAN.md`, `README.md`), none of which any scan
+    `CLAUDE.md`, `GODOT_BEST_PRACTICES.md`, `README.md`), none of which any scan
     root previously covered. Prose rots exactly like code: `API.md` reached 1480 lines unnoticed because
     the glob listed source extensions only, and nobody reads to the bottom of a file that long, so the
     claims down there go stale unchecked. **`HANDOFF.md` is subject to this too** — when it approaches
@@ -836,7 +841,7 @@ failure mode, and it is the most common one.
 - `GODOT_BEST_PRACTICES.md` is the canonical, enforceable source for Godot-specific design, runtime,
   testing, validation, harness invocation, and process guidance. If behavior or commands change, update
   `README` and `GODOT_BEST_PRACTICES.md` together, and record breaking changes/migrations in
-  `ARCHITECTURE_PLAN.md`. When an avoidable Godot/runtime/parser/test-process error is found, append a
+  the commit message. When an avoidable Godot/runtime/parser/test-process error is found, append a
   dated entry to `GODOT_BEST_PRACTICES.md` under `Error Log / Preventative Patterns`.
 
 ## Orientation

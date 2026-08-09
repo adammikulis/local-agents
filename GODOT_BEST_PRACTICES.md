@@ -22,7 +22,7 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 - GDS adapter authority rule: gameplay-runtime GDS layers are adapter-only and must not own mutation outcome logic or decide mutation success/failure.
 - Projectile impact destruction rule: enforce a direct authoritative flow only as `impact contact -> C++ mutation -> apply result`.
 - Ban multi-hop GDS contract layers on projectile destruction paths: no flatten/interpret/rewrap chains in GDS for mutation authority.
-- Transitional tracking for remaining CPU/GDS pieces (recommended hygiene): note CPU/GDS transitional segments in `ARCHITECTURE_PLAN.md` when they are worth remembering, with enough context (owner / removal trigger / target wave / blocker are useful fields) to retire them later. This is guidance, not a grep-gated mandatory format.
+- There is no "transitional CPU/GDS" tracking list, and there must not be one. `CLAUDE.md`'s no-transitional-shims rule is the policy: either it is built native/GPU-first, or it is ordinary code improved directly, or it is a permanent CPU fallback that is first-class by design. A debt list is how a stopgap becomes furniture.
 - When a preventable error appears, add a dated entry to `Error Log / Preventative Patterns` in this file.
 
 ## Godot Design and Structure Process

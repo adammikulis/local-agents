@@ -316,6 +316,31 @@ Life is not a stage. It is what stage 5 hands to 0.5.
 
 ---
 
+## WHAT IS SETTLED — do not rebuild these
+
+*(The most dangerous list in this file, because work AVOIDS what is on it — so an entry that stops being
+true has to come OFF. `REPOSE_TAN` did, on 2026-08-08: the value was right and the application was not. It
+belongs in a map of what is LEFT only because "nothing is left here" is itself a claim about remaining
+work.)*
+
+The H₂O ledger's inclusion rule; the DEFS record engine's std430 layout; the neighbour/tangent tables;
+~~`REPOSE_TAN = 0.70`~~ — **it was on this list and it was not sound.** The value is right (tan 35°, the
+repose angle of dry granular material, now sourced in `LAPhysical` and gate-bound) but it was APPLIED as a
+mass difference against a tangent, which asserts cells are cubes. On the cubed sphere the aspect runs
+1.07–4.08, so sediment stood at 33° at the shell floor and 9.8° at the top. Fixed via `LASphereGrid.link_arc`; the soil budget's per-leg identity (`kernel_residual` exactly 0.0); the erosion
+transport law (no fitted constant — load moves in the same proportions as the water carrying it); the
+geotherm as a seeded initial condition with a derived vertical scale; the aquifer's `k_rel`/`RESIDUAL`
+capillary retention; the saturation curve from August-Roche-Magnus; Kozeny-Carman conductivity from porosity;
+weathering as ice expansion and Arrhenius dissolution; lithification on real lithostatic pressure; and
+metabolism as the substrate's own respiration reaction with mass-scaling emergent rather than typed.
+
+---
+
+
+## OPEN DECISIONS
+
+- Open (Memory/Graph lane): decide whether to keep SQLite-only graph architecture or introduce a
+
 ## 0.5 — THE LIVING CREATURES — PARKED
 
 Does not begin until the planet is locked down. Plans: `docs/0.5_CREATURE_FEATURES.md`,

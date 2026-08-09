@@ -131,5 +131,5 @@ cells form, storms track + return, no NaN/runaway) — no parity gate, no CPU or
 - **Multi-week, biggest-risk change in the project** — terrain, gravity, camera, locomotion, AND the field's
   index/neighbour layer + all kernels. Gate each phase behind a working milestone; do it NOW before more
   flat-assuming code accretes (the tech-debt argument), and lean on the per-process split for parallelism.
-- GLSL-kernel-only (no CPU oracles). Record the cubed-sphere substrate change in `ARCHITECTURE_PLAN.md` before
+- GLSL-kernel-only (no CPU oracles). Record the cubed-sphere substrate change in the commit message before
   Phase 2 merges.

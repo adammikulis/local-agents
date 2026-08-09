@@ -9,7 +9,7 @@ ecosystem sim (`scenes/simulation/voxel/VoxelWorld.tscn`, see `HANDOFF.md`), whi
 GPU compute for the material field (`material/MaterialGPU3D.gd` + `material/kernels3d/*.glsl`). This document is kept as the native/GPU-first
 target model and design intent, not as a description of current code.
 
-Active execution tracking is in `ARCHITECTURE_PLAN.md`. This document defines the native target model and migration intent.
+Active execution tracking is in `HANDOFF.md`. This document defines the native target model and migration intent.
 
 ## Objective
 
