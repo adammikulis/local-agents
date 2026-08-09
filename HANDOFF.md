@@ -37,52 +37,57 @@ correctness fix with a behavioural rewrite makes both unmeasurable.
 
 ### State (2026-08-08, end of session)
 
-`0.4-dev` is the integration branch, at `48111ae`.
+`0.4-dev` is at `65f545c`.
 
-**A CHANNEL UNIT IS NOT A MOLE, AND THE CONSERVATION GATE DID NOT KNOW.** This is the finding that
-matters most, because it means the gate could not have been telling the truth. `LAReactionBalance` says
-each slot declares "the ELEMENTS one unit of it contains" and held molecular FORMULAS, which are per MOLE.
-One unit of `o2` is the O₂ in a cell of ambient air, **8.535 mol/m³**; one unit of `water` is a cell FULL
-of liquid water, **55343 mol/m³**. A factor of **6484**, and `check_records` compared them as equal.
-Teaching it `mol_per_unit()` failed nine checks instantly — every biological record, every gas↔water leg.
-The same defect was in the element inventory and in `fire_sphere3d`. Fixed at `3887890` and in the merge
-above. **Anything measured on `element_*` before 2026-08-07 is not comparable to anything after it.**
+**THE SHAPE OF THE DATA WAS THE DEFECT, AND IT IS BEING FIXED.** A material's properties lived in five
+places joined by naming convention — a dozen flat constants prefixed `WATER_`, a slot enum, a composition
+dict, a mol_per_unit dict, and hand-copied literals in six kernels bound by comment. Four separate defects
+came out of that one shape and each was patched alone before anyone saw they were the same thing: ignition
+was a global because a fuel had nowhere to carry its own behaviour; minerals needed the lumped fiction `M`
+so silicate weathering could not be written; a channel unit was not a mole and the gate did not know; and
+latent heat was set at two reference temperatures at once.
 
-**THE ROCK HAS A CHEMISTRY NOW, AND THE PLANET HAS A CARBON SINK.** The lumped `M` species is gone:
-silicate CaSiO₃, silica SiO₂, carbonate CaCO₃, with Ca and Si joining C/N/H/O. D1b became the real Urey
-reaction, CO₂ a REACTANT rather than the catalyst it was. Measured: 91.5 units of carbon moved from air
-into rock in 600 frames with a conservation drift of 7.6e-5 of the pool. This closes HANDOFF item 9's
-first half and is what Stage 4 was asking for.
+**`material/Substances.gd` (`LASubstances`) IS THE SSOT NOW.** Every material declares its own measured
+properties in ONE entry. `LAReactionBalance.composition()` and `.mol_per_unit()` are VIEWS of it through a
+single `SLOT_SUBSTANCE` map. `PhysicalConstants.gd` keeps only what is not a property of a substance.
+**Do not add a flat constant for something a material owns, and check the fact is not already there under
+another name** — a duplicate molar mass was committed and reverted the same day.
 
-**ENERGY HAS A STOCK AND A DRIFT GAUGE FOR THE FIRST TIME** (`LAMaterialFieldEnergyLedger3D`).
-`energy_stock_first` 1.548e17 falling to `energy_stock` 1.432e17 — **`energy_run_drift` −1.163e16 J, 7.5%
-of the planet's whole thermal stock in 600 frames.** That is the number the whole effort exists to drive to
-zero, and
-nothing in this repository could see it before. Four leaks closed on the way: lava relaxing to a
-prescribed 40 °C with no receiver, lava radiating out through the planet's own core, spring heat with no
-donor, and combustion destroying H, O and N.
+**PHASE AND TEMPERATURE ARE DERIVED, NOT STORED — that is the direction, and only the table exists so far.**
+`enthalpy_to_state()` returns both from energy and mass. Verified headless: ice at 0 °C and water at 0 °C
+differ by exactly the latent heat of fusion, half-melted ice sits at exactly 0.0 °C, quarter-boiled water at
+exactly 100.0 °C, round trip exact from −40 to 400 °C. **Latent heat becomes impossible to forget** because
+the flat sections of the enthalpy curve are where the energy goes, and Hess's law becomes unviolatable
+because sublimation is derived as fusion + vaporisation instead of declared.
 
-**IN FLIGHT, NOT MERGED:**
-- **T2 latent heat, on `worktree-wf_c468d92c-702-2`. REJECTED, and the defect is in a constant set added
-  this session at `c479b36`.** The enthalpies violate Hess's law: `L_vap` is quoted at 100 °C while
-  `L_fus` and `L_sub` are at 0 °C, so `2.257e6 + 3.337e5 = 2.591e6` falls short of `L_sub = 2.834e6` by
-  2.433e5 J/kg, and the loop water → vapour → snow → water releases that much from nothing every
-  traverse. **The fix is one line: state all three at 0 °C.** `2.501e6 + 3.337e5 = 2.8347e6` against the
-  measured 2.834e6 closes to 0.02%, inside the constants' own uncertainty. Its verifier also measured a
-  moist-greenhouse runaway on that branch; re-measure after the Hess fix before believing it, because the
-  base has moved three commits since.
-- `6ad2417` on `feature/conservation` — the pre-biotic atmosphere seed. Applies cleanly. Its own commit
-  message says not to merge it inside a conservation measurement window.
-- `integrate/conservation`'s content is absorbed, but **`git branch -d` will REFUSE it** — it is not an
-  ancestor of `0.4-dev` (the same work landed by another route). Use `-D` deliberately or leave it.
-  `55cda84` **cannot be cherry-picked** — it edits `atmos_evap_sphere3d.glsl`, which `40c69f1` deleted.
+**THE ROCK HAS A CHEMISTRY AND THE PLANET HAS A CARBON SINK.** Silicate CaSiO₃, silica SiO₂, carbonate
+CaCO₃; Ca and Si join C/N/H/O. D1b is the real Urey reaction with CO₂ a REACTANT. Measured: 91.5 units of
+carbon moved from air into rock in 600 frames, conservation drift 7.6e-5 of the pool. **D1c decarbonation
+never fires** (threshold 280.7 °C derived from ΔH/ΔS; the hottest cell reaches 256 °C), so the sink is
+one-way and a long `--geotime` run would strip the atmosphere.
 
-**THE BASELINE, at `48111ae`,** three runs, `--sandbox --planet-only --run-frames=600 --fast=8
---seed=4242`, all at `field_step` 590 / `field_sim_s` 79.8:
-`temp_ground_p50` 26.21 · `temp_mean` 31.89 · `energy_absorbed_cool_mean` 123.5 ·
-`energy_emitted_cool_mean` 251.4 · `energy_imbalance_cool` −1.036 · `energy_stock` 1.432e17 ·
-`energy_run_drift` −1.163e16 (`energy_run_steps` 760, NOT `field_step`) · `nitrogen_run_drift_per_step` −0.0009 · `h2o_total` 4278 ·
-`snow_cells` 963 · `hotspring_boiling` 51 · `element_C` 5698 · `phenomenon/impact` 17 · `/eruption` 2.
+**ENERGY HAS A STOCK AND A DRIFT GAUGE** (`LAMaterialFieldEnergyLedger3D`) and that number is Stage 1's
+target: `energy_run_drift` **−1.163e16 J against `energy_stock_first` 1.548e17 — 7.5% of the planet's whole
+thermal stock in 600 frames.** Read the TOTAL; `energy_run_steps` is 760, not `field_step` 590.
+
+**ORGANIC MATTER GAINED A REAL DENSITY, so `element_*` changed scale by ~1951x.** Nothing measured before
+`557a34b` is comparable on those keys. Decomposition and respiration are now hard oxygen-limited, which is
+correct — a cell of air holds 0.27 kg of O₂ and a cell of wood is 500 kg, so a cell cannot oxidise its own
+litter. **The bio RATE constants were fitted against the old stoichiometry and still need re-deriving.**
+
+**IN FLIGHT (four worktree tracks, launched from `50e71a3`):** combustion as a reaction record with
+Arrhenius kinetics (deletes `fire_sphere3d` and the ignition constant); the bio rate constants; vegetation
+albedo (HANDOFF item 15); and the gate below.
+
+**A GATE REPORTED SUCCESS ON A TREE THAT DID NOT PARSE.** `editor_scan.sh` printed "OK (0 errors)" while
+`WaterSlumpLavaPass.gd` failed to load; the sim then emitted a full `SIM_REPORT` at `field_step` 590 with a
+whole transport CA silently not running. **Run `agent_harness.sh lint` and look for
+`PARSE_ALL={...,"failed":0}` before believing any number.**
+
+**THE BASELINE, at `50e71a3`,** `--sandbox --planet-only --run-frames=600 --fast=8 --seed=4242`,
+`field_step` 590 / `field_sim_s` 79.8: `temp_ground_p50` 26.30 · `temp_mean` ~35 ·
+`energy_imbalance_cool` ~−1.3 · `h2o_total` 4287 · `soil_total` 2809 · `snow_cells` 1145 ·
+`element_C` 1.09e7 · `energy_run_drift_per_step` −1.51e13.
 
 **AND THE PLANET IS STILL RUNNING AWAY, WHICH 600 FRAMES HIDES.** Measured on the pre-session tree:
 `temp_ground_p50` 30 °C at 600 frames, **61.8 °C at 1200**. Thirty degrees was never an equilibrium, it
@@ -161,12 +166,15 @@ them sent work at problems that no longer existed and one of them was the file's
 
 ### Missing physics — a real mechanism simply is not there
 
-6. **NO LATENT HEAT — still true, and the branch that adds it is REJECTED on a Hess's-law violation.**
-   *(Corrected 2026-08-08. This entry blamed `55cda84` for showing the cycle runs "~4500× too fast" at
-   −131 °C. That branch **cannot even be applied** — it edits `atmos_evap_sphere3d.glsl`, which `40c69f1`
-   deleted; evaporation is now records R23/R24/R25 at a derived bulk-aerodynamic rate with no free
-   parameter, so the 4500× figure was measured against a rate that no longer exists.)* The live attempt is
-   `worktree-wf_c468d92c-702-2`; see the state block for the one-line fix.
+6. **NO LATENT HEAT — and the fix is now structural rather than a charge.** *(Rewritten 2026-08-08.)* The
+   record-enthalpy branch (`worktree-wf_c468d92c-702-2`) is SUPERSEDED and should not be merged: it
+   attached a latent heat to each of six phase-change records, which is a number six places can get wrong
+   and which one of them did — L_vap at 100 °C paired with L_fus at 0 °C, releasing 2.433e5 J/kg from
+   nothing per traverse. `LASubstances.enthalpy_to_state()` makes it unforgettable instead: phase is a
+   function of energy, so the latent heat is WHERE THE ENERGY SITS on the curve and no kernel can skip it.
+   **What is left is the migration** — store energy per cell, derive temperature, and collapse
+   `water`/`moisture`/`snow` into one conserved `h2o`. That deletes R21, R22, R23, R24, R25, the snowice
+   deposition kernel and the rain condensation leg.
 7. **NO MANTLE CONVECTION.** The geotherm is a seeded initial condition maintained by a reservoir. A real
    planet's interior circulates, and that circulation is what drives plate motion, so the plates below are
    kinematic rather than driven.
@@ -178,15 +186,13 @@ them sent work at problems that no longer existed and one of them was the file's
    three kernels that are already right and misses the two that are not.)* The real cases:
    **the regolith→regolith Darcy leg**, disclosed at `soil_sphere3d.glsl:51`, and **sediment slump**, which
    `slump_sphere3d.glsl:6` marks "NO carry-heat".
-9. **ROCK HAS THREE COMPOSITIONS AND NO STRATIGRAPHY.** *(Narrowed 2026-08-08. It read "ROCK HAS ONE
-   COMPOSITION ... a single undifferentiated `rock_fill`", which was true and is the defect the Urey
-   reaction had to fix first.)* There are now three species — silicate CaSiO₃, silica SiO₂, carbonate CaCO₃ —
-   and weathering converts between them. What is still missing: no ore, no strata, no differentiation, no
-   granite/basalt distinction, and **no sedimentary rock**. Carbonate and silica are loose own-cell stocks
-   that neither travel nor lithify, so there is no limestone and no sandstone; adding them means splitting
-   `rock_fill`, and `solid` derives from `rock_fill`, so that reaches solidity, overburden, plate advection
-   and the mineral stamp. Per-species SUSP/DUST would then follow, and with them per-species erosion, slump
-   and dust transport. That is the next increment and it is a large one.
+9. **ROCK HAS THREE COMPOSITIONS AND NO STRATIGRAPHY, AND ORGANIC MATTER HAS ONE.** Minerals are
+   speciated (silicate / silica / carbonate) and the Urey reaction balances, but carbonate and silica do
+   not travel and do not lithify, so there is no limestone and no sandstone; `solid` derives from
+   `rock_fill`, so splitting it reaches solidity, overburden, plate advection and the mineral stamp, and
+   per-species SUSP/DUST/erosion/slump follow. **Organic matter is still ONE lumped CH₂O** — which is why
+   ignition is one number, and why this planet cannot have peat even though it demonstrably BURIES
+   organics (`carbon_buried` ~290 units per run).
 10. **WHETHER THE FOOD WEB WORKS IS UNMEASURED — and the two gauges this entry cited cannot answer it.**
     *(Corrected 2026-08-08.)* It read "`death/eaten` is 0 and `biota_node_intake` 0.00 in every arm …
     predation appears never to have functioned", and both halves are artefacts:
@@ -220,7 +226,8 @@ them sent work at problems that no longer existed and one of them was the file's
 14. **THE PLANET IS PINNED AT THE WORLD ORIGIN** and the sun moves around it (`SystemOrbits.gd:228`). A
     deliberate moving-frame choice; making it literal is the 0.6 headline.
 15. **VEGETATION DOES NOT AFFECT ALBEDO.** A forest is far darker than sand, so the biological half of the
-    ice-albedo feedback cannot exist. Work on this was started and halted.
+    ice-albedo feedback cannot exist. *(In flight 2026-08-08. `LAPhysical.ALBEDO_VEGETATION` = 0.12 is
+    sourced and carried by `LASubstances` as `cellulose.albedo`; the solar kernel does not read it yet.)*
 
 ### Instruments that lie
 
@@ -331,7 +338,10 @@ Life is not a stage. It is what stage 5 hands to 0.5.
 ## WHAT IS SOUND — do not rebuild these
 
 The H₂O ledger's inclusion rule; the DEFS record engine's std430 layout; the neighbour/tangent tables;
-`REPOSE_TAN = 0.70`; the soil budget's per-leg identity (`kernel_residual` exactly 0.0); the erosion
+~~`REPOSE_TAN = 0.70`~~ — **it was on this list and it was not sound.** The value is right (tan 35°, the
+repose angle of dry granular material, now sourced in `LAPhysical` and gate-bound) but it was APPLIED as a
+mass difference against a tangent, which asserts cells are cubes. On the cubed sphere the aspect runs
+1.07–4.08, so sediment stood at 33° at the shell floor and 9.8° at the top. Fixed via `LASphereGrid.link_arc`; the soil budget's per-leg identity (`kernel_residual` exactly 0.0); the erosion
 transport law (no fitted constant — load moves in the same proportions as the water carrying it); the
 geotherm as a seeded initial condition with a derived vertical scale; the aquifer's `k_rel`/`RESIDUAL`
 capillary retention; the saturation curve from August-Roche-Magnus; Kozeny-Carman conductivity from porosity;

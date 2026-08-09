@@ -200,6 +200,31 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 
 ## Error Log / Preventative Patterns
 
+### 2026-08-08 — `editor_scan.sh` reports "OK (0 errors)" on a tree that does not parse
+
+**What happened.** `sphere_passes/WaterSlumpLavaPass.gd` was edited to read a variable that had been named
+`_ctx` in its signature. `scripts/editor_scan.sh` printed `editor_scan: OK (0 errors)`. The windowed sim then
+ran to completion and emitted a complete `SIM_REPORT` with `field_step` 590 and `field_sim_s` 79.8 — the
+markers used to confirm a run is healthy.
+
+**Why it was nearly missed.** The numbers looked plausible at a glance. The only tells were
+`temp_ground_p50` at exactly `INITIAL_TEMP` (15.0), `temp_ground_p10` also 15.0, and `snow_cells` 0 — because
+`WaterSlumpLavaPass` had failed to load and the water, slump and lava transport CAs did not run at all.
+Godot logs `SCRIPT ERROR: Parse Error:` and `Failed to load script ... with error "Parse error"` and keeps
+going, so the process exits 0.
+
+**Why the scan misses it.** The scan exists to catch UNREGISTERED `class_name`s, and counts the error
+pattern that produces. A parse error in a script loaded by a *scene* at runtime is a different class and does
+not register in the same count.
+
+**Preventative pattern.** `scripts/agent_harness.sh lint` force-loads every script through
+`check_library_only.sh` and prints `PARSE_ALL={"checked":N,"failed":0,"failures":[]}`. **Run lint, and look
+for that marker, before trusting any measurement.** An editor scan alone is necessary and not sufficient.
+
+**The general shape, which has bitten this repo before:** a gate whose PASS is the absence of a pattern can
+pass vacuously. A gate whose pass is the PRESENCE of a success marker cannot.
+
+
 ### 2026-08-03: an unscanned sibling worktree runs green, exits 0, and simulates NOTHING
 
 - Failure: a perf baseline was measured in `../local-agents-energy` (branch `feature/energy-balance`). The run

@@ -383,6 +383,35 @@ When removing files:
   --run-frames=N` (env like `LA_NO_STREAMER=1` still works). This applies to the main thread AND every
   sub-agent's run commands. (Moving the window after `_ready` is too late — it flashes + steals focus first.)
 
+- **AN EDITOR SCAN IS NOT ENOUGH TO TRUST A RUN — `agent_harness.sh lint` IS.** *(Measured 2026-08-08.)*
+  A file with a hard parse error (`Identifier "ctx" not declared`) passed `scripts/editor_scan.sh` with
+  **"OK (0 errors)"**. The sim then ran to completion and printed a full, normal-looking `SIM_REPORT` at
+  `field_step` 590 — while an entire transport CA had failed to load and silently did not run. The only
+  tells were `temp_ground_p50` sitting at exactly `INITIAL_TEMP` 15.0 and `snow_cells` 0. What caught it
+  was `check_library_only.sh`'s force-load, which prints `PARSE_ALL={"checked":N,"failed":0}` and runs
+  ONLY under `agent_harness.sh lint`. **Before you believe a number, look for that marker.** A scene-loaded
+  script's parse error is not the same class as an unregistered `class_name`, and the scan only counts the
+  second.
+
+- **THE SUBSTANCE TABLE IS THE SSOT FOR MATTER — `material/Substances.gd` (`LASubstances`).** Every
+  material declares its own measured properties in ONE entry: formula, molar mass, density, specific heats
+  by phase, phase boundaries, latent heats, conductivity, emissivity, albedo, reaction kinetics.
+  `LAReactionBalance.composition()` and `.mol_per_unit()` are VIEWS of it. `PhysicalConstants.gd` keeps
+  only what is NOT a property of a substance — gravity, the solar constant, Stefan-Boltzmann.
+  - **Do not add a flat constant for something a material owns.** "Ignition was a global
+    (`VEGETATION_IGNITION_C`) because a fuel had nowhere to carry its own behaviour" is the shape to
+    recognise: a flat namespace has no slot for *a property OF cellulose*, only for *a constant whose name
+    mentions vegetation*. Four separate defects came out of that one shape and each was patched alone
+    before anyone saw they were the same thing.
+  - **Check the fact is not already there under another name.** A duplicate molar mass under a second name
+    was committed and reverted the same day the header warning about it was written.
+  - **Phase and temperature are DERIVED, not stored.** `enthalpy_to_state()` returns both from energy and
+    mass, so latent heat is structural: ice at 0 °C and water at 0 °C differ BY the latent heat because
+    that is where the energy sits on the curve, and a kernel cannot skip a phase boundary because there is
+    no boundary to skip — only a stretch where temperature stops responding. Sublimation is DERIVED as
+    fusion + vaporisation rather than declared, so Hess's law cannot be violated. It was, for one commit,
+    by 2.433e5 J/kg per traverse of the water cycle.
+
 - **NEVER run two editor scans at once — use `scripts/editor_scan.sh`.** A full
   `godot --headless --editor` loads every GDExtension, including the zylann.voxel EDITOR build, which
   spins worker threads to import and generate. Two of those racing on the same `.godot/` directory
