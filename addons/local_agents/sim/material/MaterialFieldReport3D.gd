@@ -18,6 +18,7 @@ const ElementInventoryScript: GDScript = preload("res://addons/local_agents/sim/
 const MineralBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralBudget3D.gd")
 const EnergyLedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyLedger3D.gd")
 const SealScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSeal3D.gd")
+const ConservationScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldConservation3D.gd")
 
 ## Process frames between recomputes of the O(cells) instrument block. See `_heavy_block()` for why a gate is
 ## needed at all — the short version is that this provider is polled every rendered frame, not once a
@@ -36,6 +37,7 @@ var _energy_stock = null                         # LAMaterialFieldEnergyLedger3D
 # the SUM of the two, and neither of them can see the other.
 var _first_element_c: float = NAN
 var _first_element_c_step: int = -1
+var _conservation = null                         # LAMaterialFieldConservation3D — the law, enforced
 var _seal = null                                 # LAMaterialFieldSeal3D — SEEDING -> SEALED, the line the books start at
 var _heavy_cache: Dictionary = {}                        # last computed instrument block
 var _heavy_frame: int = -1_000_000                       # process frame it was computed on
@@ -58,6 +60,8 @@ func setup(field) -> void:
 	_energy_stock.setup(field)
 	_seal = SealScript.new()
 	_seal.setup(field)
+	_conservation = ConservationScript.new()
+	_conservation.setup(field)
 	# The field holds the seal so anything outside this report path can ask it — the injection queue has to
 	# know whether a mint is seeding or a violation, and it does not go through the report.
 	field._seal = _seal
@@ -376,6 +380,11 @@ func report() -> Dictionary:
 	r.merge(_extremes.report())
 	if _seal != null:
 		r.merge(_seal.report())
+	# THE LAW, CHECKED LAST — here rather than inside _heavy_block() because the H2O ledger's `h2o_first` is
+	# merged into `r` after that block runs, and checking early reported the planet's water as "unmeasured".
+	# It reads what every ledger has published, so it must run after all of them.
+	if _conservation != null:
+		r.merge(_conservation.check(r))
 
 	return r
 

@@ -218,4 +218,24 @@ if [ "$REASON" = "timeout_no_report" ]; then
 elif [ "$REASON" = "hung_after_report" ]; then
   GODOT_RC=125
 fi
+
+# --- CONSERVATION: A RUN THAT BREAKS THE LAW IS A FAILED RUN ------------------------------------------------
+# Once the world is sealed, matter is closed apart from booked sources. LAMaterialFieldConservation3D audits
+# every element total once, at a fixed horizon past the seal, and prints CONSERVATION_VIOLATION for any
+# substance that has drifted further than its recorded debt.
+#
+# THIS EXITS NON-ZERO BECAUSE A NUMBER IN A REPORT DID NOT STOP IT HAPPENING. Every substance already had a
+# gauge; the project's own history is a carbon shortage being read off one of them and answered by ADDING A
+# SOURCE. A gauge invites interpretation. A red run does not. Exit 126, distinct from 124 (never reported)
+# and 125 (hung after reporting), so a caller can tell the three apart.
+#
+# It is a RATCHET, not a clean bill of health: the debt table records what the planet loses TODAY and the
+# gate fires when a substance gets worse. Zero is the target and the table is the work queue.
+if [ "$TAP" != "caller-owned" ] && [ -f "$TAP" ] && [ "$GODOT_RC" -eq 0 ]; then
+  if grep -q '^CONSERVATION_VIOLATION=' "$TAP" 2>/dev/null; then
+    echo "CONSERVATION_FAILED={\"count\":$(grep -c '^CONSERVATION_VIOLATION=' "$TAP")}" >&2
+    grep '^CONSERVATION_VIOLATION=' "$TAP" >&2
+    GODOT_RC=126
+  fi
+fi
 exit "$GODOT_RC"
