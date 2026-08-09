@@ -142,9 +142,32 @@ const float HEAT_PER_UNIT_BURN = O2_UNIT_KG_M3 * HEAT_PER_KG_O2;   // 3.577e6 J/
 // flame can before suffocating. Its own comment said exactly that and left the value in place.
 const float O2_MIN = LOC_O2_MOLE_FRAC / AIR_O2_MOLE_FRAC;
 
-// Nitrogen released per unit of fuel burned, straight off the fuel's declared composition. Identical to
-// BioRecords.FERT_PER_DECOMPOSE, because rotting and burning oxidise the same carbon out of the same matter.
-const float N_PER_FUEL = 1.0 / LITTER_C_TO_N;
+// Nitrogen released per unit of fuel burned, off the fuel's declared composition. The same figure
+// BioRecords hands R15, because rotting and burning oxidise the same carbon out of the same matter.
+//
+// IT IS MOLAR, AND `1.0 / LITTER_C_TO_N` WAS NOT. *(Fixed 2026-08-08.)* LITTER_C_TO_N is a ratio of MASSES —
+// 20 kg of carbon per kg of nitrogen — and spending it as a mole count in a stoichiometric coefficient
+// overstates the nitrogen by 16%. Per mole of CH₂O the litter carries CARBON_MOLAR_MASS / 20 kilograms of
+// nitrogen, i.e. that divided by NITROGEN_MOLAR_MASS moles. `fert` shares organic matter's molar basis, so
+// this needs no unit conversion on top of it — only the right number.
+const float C_MOLAR_MASS = 0.0120110;      // LAPhysical.MOLAR_MASS_CARBON_KG_MOL
+const float N_MOLAR_MASS = 0.0140067;      // LAPhysical.MOLAR_MASS_NITROGEN_KG_MOL
+const float N_PER_FUEL = (C_MOLAR_MASS / LITTER_C_TO_N) / N_MOLAR_MASS;
+
+// --- THE UNIT BRIDGE FROM A GAS CHANNEL TO A WATER CHANNEL -------------------------------------------------
+// `burned` is an amount of the O₂ channel, whose unit is the O₂ in a cell of ambient air. `moisture` is a
+// FRACTION OF A CELL FULL OF LIQUID WATER. Those are not the same amount of substance and they are nowhere
+// near it: 8.535 mol/m³ against 55343, a factor of 6484. So `moisture += burned` for a 1:1 molar reaction
+// emitted 6484 times the water combustion actually makes — enough to put a burning cell three orders of
+// magnitude past saturation in one step. It is the same defect the biological records carried until the
+// balance gate was taught mol_per_unit(), and combustion is a standalone kernel, so no gate can catch this
+// one. It has to be right here.
+const float O2_MOLAR_MASS = 0.0319988;     // LAPhysical.MOLAR_MASS_O2_KG_MOL
+const float WATER_MOLAR_MASS = 0.018015;   // LAPhysical.MOLAR_MASS_WATER_KG_MOL
+const float WATER_DENSITY = 997.0;         // LAPhysical.WATER_DENSITY_KG_M3
+const float GAS_MOL_PER_UNIT = O2_UNIT_KG_M3 / O2_MOLAR_MASS;
+const float WATER_MOL_PER_UNIT = WATER_DENSITY / WATER_MOLAR_MASS;
+const float MOISTURE_PER_GAS_UNIT = GAS_MOL_PER_UNIT / WATER_MOL_PER_UNIT;
 
 // --- MODEL PARAMETERS (properties of this model, not of matter) -------------------------------------------
 const float FUEL_MIN = 0.02;     // fuel below this cannot be lit
@@ -261,7 +284,7 @@ void main() {
 			fuel[g] = fuel_i - burned;
 			o2[g] = o2_i - burned;
 			co2[g] += burned;                     // C1 O2
-			moisture[g] += burned;                // H2 O1 — the fuel's hydrogen and its own oxygen, as vapour
+			moisture[g] += burned * MOISTURE_PER_GAS_UNIT;   // H2 O1 — as vapour, in the water channel's unit
 			fert[g] += burned * N_PER_FUEL;       // N — what the litter carried, back to the ground it burned
 			temp[g] += burned * HEAT_PER_UNIT_BURN / cap;   // the reaction's own enthalpy, nothing pinned
 			fnew = (fuel[g] <= 0.0) ? 0.0 : min(1.0, f + FIRE_GROW);
