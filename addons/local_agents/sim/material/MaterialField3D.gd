@@ -1023,19 +1023,36 @@ func disturb_terrain(world_pos: Vector3, radius: float, strength: float) -> void
 func slump_count() -> int:
 	return 0
 
-# --- Fire / combustion — CPU combustion oracle retired; safe defaults until the sphere fire readback lands. --
+# --- Fire / combustion — thin forwarders to LAMaterialFieldQueries3D, which walks the `fire` channel. -------
+#
+# THESE WERE HARDCODED `return 0` / `return false` AS "SAFE DEFAULTS UNTIL THE SPHERE FIRE READBACK LANDS".
+# *(Fixed 2026-08-08.)* The readback had landed: `LAMaterialFieldQueries3D.fire_cells()` and `fire_peak()`
+# walk `_f._fire` and are published in every SIM_REPORT as `fire_cells` / `fire_peak`. So the report carried
+# a REAL fire count and a HARDCODED one side by side, and three consumers read the hardcoded one:
+#   * `LASimReportSources.gd:27-28` publishes it as `fires`
+#   * `LAEventTracker.gd:164-165` — so no wildfire phenomenon could ever be detected
+#   * `LAStreamerDirector.gd:624-625` — so the streamer could never see a fire
+# A zero that means "none" and a zero that means "nobody implemented this" are indistinguishable, which is
+# the same defect `magma_cell_count` had above and the same one HANDOFF item 16 is about. It cost real
+# evidence: `fires: 0` was quoted in this session's own commit messages as proof that no fire burned during
+# a run. The conclusion happened to be right — `fuel_total` and `ext_open_hot` established it independently
+# — but the number cited as evidence could not have said otherwise.
 
-## Light the cell under a node on fire (disaster/scripted ignition). No-op until wired to the sphere driver.
-func ignite(node) -> void:
+## Light the cell under a node on fire (disaster/scripted ignition).
+## STILL A NO-OP, AND DELIBERATELY SO: the honest implementation injects heat, and the last version of that
+## added 900 °C to every cell in a radius out of nothing (removed in 23c8f66). Ignition must come from the
+## substrate reaching `VEGETATION_IGNITION_C` on its own. Named here rather than quietly wired so the
+## reason survives: `EcologyService.ignite_area` is the same no-op for the same reason.
+func ignite(_node) -> void:
 	pass
 
 ## Is the cell under this node currently burning?
 func is_burning(node) -> bool:
-	return false
+	return _queries.is_burning(node) if _queries != null else false
 
-## Number of cells currently on fire (SMOKE_SUMMARY `fires`).
+## Number of cells currently on fire (SMOKE_SUMMARY `fires`) — the same walk `fire_cells` publishes.
 func active_fire_count() -> int:
-	return 0
+	return _queries.fire_cells() if _queries != null else 0
 
 
 # --- Scent / waste / fertility — thin forwarders to LAMaterialScent3D (the 5-plane scent channel module).
