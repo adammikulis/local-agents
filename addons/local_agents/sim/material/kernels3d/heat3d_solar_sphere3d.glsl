@@ -59,6 +59,11 @@ layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]
 // than at BIOMASS's slot number 11, because bindings up to 26 shadow the reaction engine's slot enum and a
 // binding that half-matches it is worse than one that plainly does not.
 layout(set = 0, binding = 27, std430) restrict readonly buffer Biomass { float biomass[]; };
+// CARRIERS THIS KERNEL DOES NOT USE ITSELF, bound because rc_shared.glsli needs every one of them.
+// Leaving one out is exactly the divergence that file exists to end.
+layout(set = 0, binding = 20, std430) restrict readonly buffer Lava { float lava[]; };
+layout(set = 0, binding = 21, std430) restrict readonly buffer Fuel { float fuel[]; };
+layout(set = 0, binding = 23, std430) restrict readonly buffer Detritus { float detritus[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -190,24 +195,15 @@ const float CANOPY_EXTINCTION = 0.5;      // LAPhysical.CANOPY_EXTINCTION_COEFF
 // shallow end of the real range and the sea will still swing a little faster than Earth's does. The honest
 // fix for that is MORE CELLS in the mixed layer, not a bigger literal here: the number below is what the
 // simulation actually contains, and inflating it would be re-inventing the constant this block deleted.
-const float RC_AIR   = 1186.0;    // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
-const float RC_ROCK  = 2.436e6;   // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
-const float RC_WATER = 4.171e6;   // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
-const float RC_SNOW  = 6.27e5;    // LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K
 // A cell holding half water and half air is half of each, not the sum of two full cells — `solid`, `water`,
 // `rock_fill` and `snow` are all FRACTIONS OF THE CELL VOLUME (SolidDerivePass: solid iff rock_fill >= 0.5),
 // so the mix is by volume and air fills whatever is left. Identical text in heat_sphere3d.glsl (rc_of) and
 // heat3d_buoyancy_sphere3d.glsl; change one and change all three.
-float rc_of_cell(uint i) {
-	if (solid[i] != 0.0) {
-		return RC_ROCK;
-	}
-	float f_rock = clamp(rock_fill[i], 0.0, 1.0);
-	float f_water = clamp(water[i], 0.0, 1.0);
-	float f_snow = clamp(snow[i], 0.0, 1.0);
-	float f_air = max(0.0, 1.0 - f_rock - f_water - f_snow);
-	return RC_AIR * f_air + RC_ROCK * f_rock + RC_WATER * f_water + RC_SNOW * f_snow;
-}
+// A CELL'S VOLUMETRIC HEAT CAPACITY — ONE definition for every kernel that books heat, because five
+// copies in four different formulas is how heat gets created and destroyed at every exchange.
+// Textual include: it binds rock_fill/lava/water/snow/fuel/biomass/detritus by NAME, so it must sit
+// below the buffer declarations. See rc_shared.glsli for the table of what each old copy left out.
+#include "rc_shared.glsli"
 // ===== GREENHOUSE — emissivity from the overlying air mass ========================================
 // A grey atmosphere of optical depth tau lets a fraction 1/(1 + 0.75*tau) of the surface's blackbody flux
 // reach space (the standard two-stream result, T_s^4 = T_e^4 * (1 + 0.75*tau)). So the greybody EMISSIVITY
@@ -415,7 +411,7 @@ void main() {
 		// HEAT CAPACITY per cell: the volumetric heat capacity of what the cell holds, times the cell's own
 		// depth. Derived, not declared — see the block above for the four literals this replaced and by how
 		// much each was wrong.
-		float cap = max(rc_of_cell(idx) * params.cell_size, 1.0);
+		float cap = max(rc_of(idx) * params.cell_size, 1.0);
 
 		// ===== THE COLUMN'S TWO CELLS, AND THE ONE AIR MASS BETWEEN THEM ===============================
 		// `p_beam` is the overlying air mass at the cell the beam LANDS on. It sets BOTH how much sunlight

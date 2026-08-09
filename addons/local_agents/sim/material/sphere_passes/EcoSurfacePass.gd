@@ -22,9 +22,13 @@ extends RefCounted
 ##   scent_transport_sphere3d 0 ScentIn=scent[live] · 1 ScentOut=scent[back] · 15 Neigh=nbr
 ##   scent_fert_sphere3d      0 FertIn=fert[live] · 1 FertOut=fert[back] · 15 Neigh=nbr
 ##   fungus_sphere3d          0 FungIn=fungus[live] · 1 FungOut=fungus[back] · 2 Detritus=detritus(readonly) ·
-##                            5 Temp=temp[live] · 6 Vapor=vapor[live] · 7 Fire=fire[live] · 8 Solid=solid ·
+##                            5 Temp=temp[live] · 6 Vapor=vapor[live] · 8 Solid=solid ·
 ##                            15 Neigh=nbr   (the same-cell decompose chemistry + its CO2/O2/fert-scratch writes
-##                            moved to ReactionsPass; this kernel is now the cross-cell growth/spread/death half)
+##                            moved to ReactionsPass; this kernel is now the cross-cell growth/spread/death half.
+##                            BINDING 7 (Fire) WAS DROPPED 2026-08-09: the kernel gated growth and spread on the
+##                            `fire` INSTRUMENT, which measures every oxidation's O2 draw rather than combustion,
+##                            so decomposition read as fire and the decomposer suppressed itself. The gap in the
+##                            numbering is deliberate — see fungus_sphere3d.glsl.)
 ##   fungus_fert_sphere3d     0 FertCell=fungus_fert · 1 Fert=fert[back] (add in place on scent_fert output) ·
 ##                            2 Solid=solid · 15 Neigh=nbr
 ##   snowice_sphere3d         0 Snow=<snow> · 1 Temp=temp[back] · 2 Moisture=moisture[back] (-=frozen condensate) ·
@@ -132,7 +136,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# The ONE unified atmospheric-water channel (Phase 2a). Fungus reads it as local moisture (the suspended
 	# total is the behavioural proxy, perf-over-parity); snow deposition freezes its condensed part out to snow.
 	var moisture_pair: Array = _pair(bufs, "moisture")
-	var fire_pair: Array = _pair(bufs, "fire")
+	# No `fire` pair here any more. This pass was the last physics reader of that channel; it is an INSTRUMENT
+	# now and only the gauges read it. See the fungus kernel's FIRE note for why the gate came out.
 	var shock_pair: Array = _pair(bufs, "shock")
 
 	# --- scent_wind: parity-free (SINGLE buffers only) -> one set ------------------
@@ -168,8 +173,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[2, detritus_rid],       # Detritus (SINGLE, read-only — decompose record owns the debit)
 			[5, temp_pair[p]],       # Temp  (live, read)
 			[6, moisture_pair[p]],   # Moisture = the unified airborne-H₂O channel (live, read)
-			[7, fire_pair[p]],       # Fire  (live, read)
-			[8, solid_rid],          # Solid
+			[8, solid_rid],          # Solid   (7 = Fire is gone; the gap is deliberate)
 			[15, nbr_rid],
 		])
 

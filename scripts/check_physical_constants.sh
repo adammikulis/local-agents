@@ -96,11 +96,14 @@ if [[ ! -d "$KERNEL_DIR" ]]; then
   exit 2
 fi
 
+# .glsli TOO, NOT JUST .glsl. Shared includes hold real constants — rc_shared.glsli owns the five RC_*
+# volumetric heat capacities for every kernel that includes it — and a glob of `*.glsl` alone would let a
+# value slip out of this gate simply by being factored into a header. Added 2026-08-09 with that file.
 shopt -s nullglob
-kernels=("$KERNEL_DIR"/*.glsl)
+kernels=("$KERNEL_DIR"/*.glsl "$KERNEL_DIR"/*.glsli)
 shopt -u nullglob
 if [[ ${#kernels[@]} -eq 0 ]]; then
-  echo "ERROR: no .glsl kernels found under $KERNEL_DIR — refusing to report a pass on zero files." >&2
+  echo "ERROR: no .glsl/.glsli kernels found under $KERNEL_DIR — refusing to report a pass on zero files." >&2
   exit 2
 fi
 

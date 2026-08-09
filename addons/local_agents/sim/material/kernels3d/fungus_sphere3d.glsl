@@ -49,7 +49,8 @@ layout(set = 0, binding = 1, std430) restrict writeonly buffer FungOut { float f
 layout(set = 0, binding = 2, std430) restrict buffer Detritus { float detritus[]; };
 layout(set = 0, binding = 5, std430) restrict readonly buffer Temp  { float temp[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer Vapor { float vapor[]; };
-layout(set = 0, binding = 7, std430) restrict readonly buffer Fire  { float fire[]; };
+// BINDING 7 (Fire) IS GONE ON PURPOSE, 2026-08-09 — see the FIRE note below. The gap is deliberate; the
+// remaining bindings keep their numbers so no other kernel or pass has to move.
 layout(set = 0, binding = 8, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
 
@@ -83,7 +84,22 @@ const float TEMP_WARM = 42.0;
 // water and is bound to the authority rather than left free. It is exactly the kind of constant that was
 // once moved to 12.5 in five files because the planet could not get cold; the annotation makes that fail.
 const float TEMP_COLD = 0.0;    // LAPhysical.WATER_FREEZE_C
-const float FIRE_MIN = 0.02;
+// FIRE: THIS KERNEL NO LONGER READS IT, AND `const float FIRE_MIN = 0.02;` IS DELETED WITH THE TWO TESTS
+// THAT USED IT (2026-08-09). Growth and spread both used to carry `|| fire[c] > FIRE_MIN`, and that was
+// wrong three times over.
+//   * IT WAS PHYSICS READING A GAUGE. ReactionDefs.gd declares `fire` an INSTRUMENT "read by no physics
+//     anywhere"; this kernel was the counterexample that made the sentence false. A mechanism may never
+//     depend on a diagnostic.
+//   * THE GAUGE WAS NOT MEASURING FIRE. reactions_sphere3d.glsl captures `o2_before` BEFORE the whole
+//     record loop, so `fire` is the fraction of usable oxygen drawn by EVERY oxidation in the step —
+//     R15 decomposition and respiration included, not only R26 combustion.
+//   * SO IT MADE THE DECOMPOSER SUPPRESS ITSELF. Fungus rots litter -> the rot draws O2 -> `fire` rises
+//     past 0.02 -> the fungus reads itself as burning and stops growing and stops spreading, hardest
+//     exactly where decomposition is most vigorous. Nobody designed that loop; it fell out of the gauge.
+// Fire still kills fungus, through the term that actually represents it: a cell alight is far past
+// TEMP_WARM, and thermal death is a measured property of a mesophile rather than a threshold on an
+// instrument. The 0.02 now has ONE owner, LAMaterialFieldQueries3D.FIRE_PRESENT, beside the gauge that
+// reads it.
 const float GROW_RATE = 0.06;
 const float SPREAD = 0.02;
 const float DECAY = 0.02;
@@ -93,7 +109,7 @@ const float DRY_DECAY = 0.06;
 // receiver has to evaluate the DONOR's condition rather than its own — that asymmetry is exactly what used to
 // let spread mint fungus.
 //
-// DELIBERATELY READS NO CHANNEL THIS KERNEL WRITES. It tests only temp, fire and vapor, all readonly here.
+// DELIBERATELY READS NO CHANNEL THIS KERNEL WRITES. It tests only temp and vapor, both readonly here.
 // The obvious version of this function also required `detritus[c] > DETRITUS_MIN`, matching the growth test
 // below — but `detritus` is read-write in this kernel (growth debits it, decay credits it), so a neighbour
 // reading detritus[c] while thread c writes it is a DATA RACE, and the spread would have become
@@ -104,7 +120,7 @@ const float DRY_DECAY = 0.06;
 bool spreads_at(uint c) {
 	float moist_c = VAPOR_MOIST * vapor[c] + RAIN_MOIST * params.precip;
 	float tc = temp[c];
-	return !(tc > TEMP_WARM || fire[c] > FIRE_MIN) && tc >= TEMP_COLD && moist_c >= MOIST_MIN;
+	return tc <= TEMP_WARM && tc >= TEMP_COLD && moist_c >= MOIST_MIN;
 }
 
 // How many of cell `c`'s six neighbours are OPEN — the divisor both ends of a spore transfer agree on.
@@ -140,7 +156,7 @@ void main() {
 	// Moisture: air humidity + active rain + the dampness of the rotting matter itself.
 	float moist = VAPOR_MOIST * vapor[i] + RAIN_MOIST * params.precip + DETRITUS_DAMP * clamp(d, 0.0, 1.0);
 	float t = temp[i];
-	bool scorched = t > TEMP_WARM || fire[i] > FIRE_MIN;
+	bool scorched = t > TEMP_WARM;
 	bool frozen = t < TEMP_COLD;
 	bool dry = moist < MOIST_MIN;
 	bool favourable = d > DETRITUS_MIN && !scorched && !frozen && !dry;

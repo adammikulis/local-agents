@@ -60,6 +60,12 @@ layout(set = 0, binding = 1, std430) restrict readonly buffer Water { float wate
 layout(set = 0, binding = 2, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 4, std430) restrict readonly buffer Lava { float lava[]; };      // molten mineral per cell
 layout(set = 0, binding = 6, std430) restrict readonly buffer RockFill { float rock_fill[]; };
+// CARRIERS THIS KERNEL DOES NOT USE ITSELF, bound because rc_shared.glsli needs every one of them.
+// Leaving one out is exactly the divergence that file exists to end.
+layout(set = 0, binding = 21, std430) restrict readonly buffer Fuel { float fuel[]; };
+layout(set = 0, binding = 22, std430) restrict readonly buffer Biomass { float biomass[]; };
+layout(set = 0, binding = 23, std430) restrict readonly buffer Detritus { float detritus[]; };
+layout(set = 0, binding = 24, std430) restrict readonly buffer Snow { float snow[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -77,9 +83,6 @@ layout(push_constant, std430) uniform Params {
 const float BOIL_TEMP = 100.0;        // LAPhysical.WATER_BOIL_C — the phase boundary, not a tunable
 const float RHO_WATER = 997.0;        // LAPhysical.WATER_DENSITY_KG_M3
 const float LATENT_VAPOR = 2.257e6;   // LAPhysical.LATENT_HEAT_VAPORISATION_J_KG
-const float RC_AIR   = 1186.0;        // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
-const float RC_ROCK  = 2.436e6;       // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
-const float RC_WATER = 4.171e6;       // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
 
 // MODEL parameters of the boiling rate, and they MUST match atmos_evap_sphere3d.glsl, which does the matching
 // mass transfer later in the same step (PASS_SCRIPTS: Thermal runs before Atmosphere). They are how fast the
@@ -91,15 +94,11 @@ const float WATER_MIN = 0.05;         // matches atmos_evap_sphere3d.glsl's own 
 // A cell's heat capacity from what it is made of, by volume fraction. Molten rock (lava) carries rock's
 // rho*c — basalt's specific heat barely moves across its melting range. Snow is not in this mix and does not
 // need to be: a cell above the boiling point of water is not holding snow.
-float rc_of(uint i) {
-	if (solid[i] != 0.0) {
-		return RC_ROCK;
-	}
-	float f_rock = clamp(rock_fill[i] + lava[i], 0.0, 1.0);
-	float f_water = clamp(water[i], 0.0, 1.0);
-	float f_air = max(0.0, 1.0 - f_rock - f_water);
-	return RC_AIR * f_air + RC_ROCK * f_rock + RC_WATER * f_water;
-}
+// A CELL'S VOLUMETRIC HEAT CAPACITY — ONE definition for every kernel that books heat, because five
+// copies in four different formulas is how heat gets created and destroyed at every exchange.
+// Textual include: it binds rock_fill/lava/water/snow/fuel/biomass/detritus by NAME, so it must sit
+// below the buffer declarations. See rc_shared.glsli for the table of what each old copy left out.
+#include "rc_shared.glsli"
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;

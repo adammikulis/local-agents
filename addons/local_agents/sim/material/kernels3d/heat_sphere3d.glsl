@@ -80,6 +80,12 @@ layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float soli
 layout(set = 0, binding = 4, std430) restrict readonly buffer Snow { float snow[]; };
 layout(set = 0, binding = 5, std430) restrict readonly buffer Water { float water[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer RockFill { float rock_fill[]; };
+// CARRIERS THIS KERNEL DOES NOT USE ITSELF, bound because rc_shared.glsli needs every one of them.
+// Leaving one out is exactly the divergence that file exists to end.
+layout(set = 0, binding = 20, std430) restrict readonly buffer Lava { float lava[]; };
+layout(set = 0, binding = 21, std430) restrict readonly buffer Fuel { float fuel[]; };
+layout(set = 0, binding = 22, std430) restrict readonly buffer Biomass { float biomass[]; };
+layout(set = 0, binding = 23, std430) restrict readonly buffer Detritus { float detritus[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -103,10 +109,6 @@ const float LAMBDA_ROCK  = 2.5;      // LAPhysical.THERMAL_CONDUCT_ROCK_W_MK
 const float LAMBDA_AIR   = 0.026;    // LAPhysical.THERMAL_CONDUCT_AIR_W_MK
 const float LAMBDA_WATER = 0.60;     // LAPhysical.THERMAL_CONDUCT_WATER_W_MK
 const float LAMBDA_SNOW  = 0.15;     // LAPhysical.THERMAL_CONDUCT_SNOW_W_MK
-const float RC_ROCK  = 2.436e6;      // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
-const float RC_AIR   = 1186.0;       // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
-const float RC_WATER = 4.171e6;      // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
-const float RC_SNOW  = 6.27e5;       // LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K
 
 // A cell's conductivity and heat capacity from what it is made of, by VOLUME FRACTION — `water`, `rock_fill`
 // and `snow` are all fractions of the cell (SolidDerivePass: solid iff rock_fill >= 0.5) and air fills the
@@ -124,16 +126,11 @@ float lambda_of(uint i) {
 	return LAMBDA_AIR * f_air + LAMBDA_ROCK * f_rock + LAMBDA_WATER * f_water + LAMBDA_SNOW * f_snow;
 }
 
-float rc_of(uint i) {
-	if (solid[i] != 0.0) {
-		return RC_ROCK;
-	}
-	float f_rock = clamp(rock_fill[i], 0.0, 1.0);
-	float f_water = clamp(water[i], 0.0, 1.0);
-	float f_snow = clamp(snow[i], 0.0, 1.0);
-	float f_air = max(0.0, 1.0 - f_rock - f_water - f_snow);
-	return RC_AIR * f_air + RC_ROCK * f_rock + RC_WATER * f_water + RC_SNOW * f_snow;
-}
+// A CELL'S VOLUMETRIC HEAT CAPACITY — ONE definition for every kernel that books heat, because five
+// copies in four different formulas is how heat gets created and destroyed at every exchange.
+// Textual include: it binds rock_fill/lava/water/snow/fuel/biomass/detritus by NAME, so it must sit
+// below the buffer declarations. See rc_shared.glsli for the table of what each old copy left out.
+#include "rc_shared.glsli"
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;

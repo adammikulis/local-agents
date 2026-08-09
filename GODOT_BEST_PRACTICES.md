@@ -235,6 +235,35 @@ GODOT_BEST_PRACTICES (Godot/runtime/engine). What stays in HANDOFF.md is live re
 
 ## Error Log / Preventative Patterns
 
+### 2026-08-09 — a long-lived checkout runs WEEK-OLD compute kernels and says nothing
+
+**What happened.** `.glsl` compute kernels are Godot *imported resources*: the thing a pass `load()`s is the
+compiled `.res` under `.godot/imported/`, not the source file. Nothing recompiles it when the source changes
+outside the editor. `scripts/new_worktree.sh` runs `--import` for a FRESH worktree and every doc says to use
+it — but **no step anywhere re-imports a long-lived checkout after a merge lands someone else's kernel
+edit.** The primary checkout here had drifted to **15 kernels whose compiled `.res` predated their source**,
+`reactions_sphere3d.glsl` by six days and four commits.
+
+**What it cost.** A 600-frame run in that checkout produced `biomass_total` 0.0, `snow_cells` 0, `o2_total`
+40474 and `carbon_total` 606, against 5.19 / 1169 / 3828 / 12582 from the *same commit* in a freshly
+imported worktree — the entire reaction engine was a week-old build. It printed a complete, well-formed
+`SIM_REPORT` over the top of that. It was taken as the "before" arm of an A/B and the whole comparison was
+an artefact; the change under test was nearly credited with turning the reaction engine back on.
+
+**The tell, and it is the one the project already teaches:** an aggregate that is exactly `0.00` when the
+mechanism that feeds it demonstrably ran. `biomass_total` 0.0 with 233 live tree actors is not a small
+number, it is a dead pipeline. The same signature — `biomass=0` — is what the worktree `--import` note
+warns about; it just was not connected to *aged* imports, only to missing ones.
+
+**Preventative pattern.** `scripts/run_sim_offscreen.sh` now refuses to launch when any `.glsl` in the
+project is newer than its newest compiled `.res`, printing `STALE_SHADERS={"count":N,"path":...}` and
+exiting **3**. It FAILS rather than auto-importing, because a measurement wrapper that quietly mutates the
+import cache is the hidden side effect this project bans on authoritative paths. Scope the search or the
+guard cries wolf: `.claude/worktrees/` holds whole sibling checkouts (675 `.glsl` against 82 real ones) and
+`thirdparty/` vendors llama.cpp's and whisper.cpp's Vulkan shaders, which no pass loads. Verified firing at
+15 on the stale primary and 0 on a fresh worktree. **If you see the marker:**
+`godot --headless --path <dir> --import`.
+
 ### 2026-08-09 — a per-record struct read OUTSIDE its own loop, and the planet melted
 
 **What happened.** A GPU kernel iterates a table of reaction records — `for (r...) { Reaction rc = recs[r];

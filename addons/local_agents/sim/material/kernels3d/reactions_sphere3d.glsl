@@ -158,13 +158,14 @@ const float SEDIMENT_DENSITY = 2000.0;  // LAPhysical.SEDIMENT_DENSITY_KG_M3 —
 // What an ENTHALPY of reaction has to be divided by to become a temperature change: the same reaction warms
 // dry air by thousands of kelvin and a waterlogged cell by tens, which is the whole of why wet fuel resists
 // lighting and why a flame in a swamp is not a flame in dry litter — with no per-case code and no wet-cell
-// gate anywhere. Deliberately the SAME expression heat3d_cool_sphere3d.glsl:93-102 uses (a second, disagreeing
-// capacity model is a defect this repo already carries once — see LAMaterialFieldEnergyLedger3D item 9).
-// No `solid` branch: this kernel returns early for solid cells, so every caller here is an open cell.
-const float RC_AIR   = 1186.0;          // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
-const float RC_ROCK  = 2.436e6;         // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
-const float RC_WATER = 4.171e6;         // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
-const float RC_ORGANIC = 7.5e5;   // LAPhysical.VOL_HEAT_CAP_ORGANIC_J_M3K
+// gate anywhere.
+//
+// SHARED, 2026-08-09. This block used to declare its own RC_* and its own rc_of, above a comment claiming it
+// was "deliberately the SAME expression heat3d_cool_sphere3d.glsl:93-102 uses". IT WAS NOT: this copy carried
+// an ORGANIC term that one did not, and that one carried lava while this one had no SNOW. Five copies, four
+// different formulas. See rc_shared.glsli for the table and for why the `solid` early-return is gone.
+// The `#include` itself is further down, because it is TEXTUAL and reads the carrier buffers by name, so it
+// has to land after the last `layout(...) buffer` declaration rather than up here with the other constants.
 // The oxygen concentration below which a flame goes out however hot it is, in this channel's units of
 // ambient air: the measured limiting oxygen concentration over air's own mole fraction.
 const float LOC_MOLE_FRAC = 0.15;          // LAPhysical.LIMITING_OXYGEN_CONCENTRATION_FRAC
@@ -382,13 +383,10 @@ void bedrock_below_add(uint i, float v) {
 }
 
 // See the RC_* block above. Air, rock (bedrock plus whatever is molten) and liquid water by volume fraction.
-float rc_of(uint i) {
-	float f_rock = clamp(rock_fill[i] + lava[i], 0.0, 1.0);
-	float f_water = clamp(water[i], 0.0, 1.0);
-	float f_org = clamp(fuel[i] + biomass[i] + detritus[i], 0.0, 1.0);
-	float f_air = max(0.0, 1.0 - f_rock - f_water - f_org);
-	return RC_AIR * f_air + RC_ROCK * f_rock + RC_WATER * f_water + RC_ORGANIC * f_org;
-}
+// A CELL'S VOLUMETRIC HEAT CAPACITY — one definition, shared by every kernel that books heat.
+// Must sit below the buffer declarations: the include is textual and binds rock_fill/lava/water/snow/
+// fuel/biomass/detritus by NAME.
+#include "rc_shared.glsli"
 
 // Resolve a channel slot to its per-cell value. Unbound slots read 0 (a record must not reference them).
 float read_ch(int slot, uint i) {
@@ -525,7 +523,8 @@ void main() {
 		return;                             // reactions run in OPEN cells only
 	}
 	float fuel_before = fuel[i];            // combustion is fuel's only sink
-	float o2_before = o2[i];                // the oxygen the fire instrument below measures against
+	float o2_before = o2[i];                // the cell's USABLE-oxygen denominator for the fire instrument
+	float o2_burn = 0.0;                    // ...and its NUMERATOR: oxygen drawn by COMBUSTION alone, summed below
 
 	for (uint r = 0u; r < params.n_records; r++) {
 		Reaction rc = recs[r];
@@ -605,6 +604,15 @@ void main() {
 		if (x <= 0.0) {
 			continue;
 		}
+		// ATTRIBUTION FOR THE BURNING INSTRUMENT, and it has to happen HERE, inside the loop, against THIS
+		// record. `rc.driver_slot == FUEL` identifies combustion uniquely: R26 in CombustionRecords.gd is the
+		// only record in the whole table driven by FUEL, and add_ch calls fuel "combustion's only sink" for
+		// the same reason. This is a snapshot of a channel around one record's application — NOT a read of
+		// `rc` after the loop, which is the mistake documented at the bottom of this file that melted the
+		// planet. `rc` is live and correct on this line.
+		bool is_combustion = (rc.driver_slot == FUEL);
+		float o2_pre_rec = is_combustion ? o2[i] : 0.0;
+
 		for (int k = 0; k < rc.n_react; k++) {
 			add_ch(rc.react_slot[k], i, -rc.react_coeff[k] * x);
 		}
@@ -615,6 +623,10 @@ void main() {
 			} else {
 				add_ch(rc.prod_slot[k], i, rc.prod_coeff[k] * x);
 			}
+		}
+
+		if (is_combustion) {
+			o2_burn += max(0.0, o2_pre_rec - o2[i]);
 		}
 
 		// THE ENTHALPY, and it is an ENERGY rather than a mass coefficient for a reason: how hot a cell gets
@@ -628,11 +640,9 @@ void main() {
 	}
 
 	// THE BURNING INSTRUMENT. `fire` is not a state any more: a cell is burning if its combustion RATE is
-	// high, which is derived, exactly as cloud is derived from moisture against saturation. Combustion is the
-	// only sink `fuel` has anywhere in the tree, so the fraction of a cell's fuel that disappeared this step
-	// IS its burn intensity, in the same 0..1 the stored channel used to carry (the old kernel's BURN_RATE was
-	// 0.12 per step at full intensity, and LAMaterialFieldQueries3D.FIRE_PRESENT still reads 0.02).
-	// Nothing in the physics reads this back.
+	// high, which is derived, exactly as cloud is derived from moisture against saturation. It is read by the
+	// gauges (`fire_cells` / `fire_peak` / `is_burning`) and, as of 2026-08-09, BY NO PHYSICS ANYWHERE —
+	// fungus_sphere3d.glsl was the last mechanism gating on it and that gate is deleted.
 	if (fuel_before > 0.0) {
 		// FIRE IS THE FRACTION OF THIS CELL'S USABLE OXYGEN THAT COMBUSTION CONSUMED THIS STEP.
 		//
@@ -641,15 +651,18 @@ void main() {
 		// this channel's units of ambient air is 0.716). So 1.0 means "burning as hard as this cell's air
 		// allows", which is what an intensity should mean and what a threshold on it can test.
 		//
-		// *(Corrected twice. It was first `(fuel_before - fuel) / fuel_before`, which the oxygen cap bounds
-		// at 3.2e-3 against the 0.02 that MaterialFieldQueries3D.FIRE_PRESENT and fungus_sphere3d.FIRE_MIN
-		// both call burning — so every fire gauge would have read "nothing is alight" through an entire
-		// burn, and a well-stocked fire read LOWER than an exhausted one. The first repair read the
-		// coefficients off `rc` AFTER the record loop, where `rc` holds whichever record ran last rather
-		// than combustion; that wrote garbage into a channel fungus_sphere3d gates spread on, and the
-		// planet melted — magma_cells 3 -> 191, lava_cells 1 -> 425, snow and biomass to zero. Measuring
-		// the oxygen directly needs no record field and cannot pick up the wrong one.)*
+		// *(Corrected three times, and the third is the one that mattered. It was first
+		// `(fuel_before - fuel) / fuel_before`, which the oxygen cap bounds at 3.2e-3 against the 0.02 that
+		// MaterialFieldQueries3D.FIRE_PRESENT calls burning — so every fire gauge would have read "nothing
+		// is alight" through an entire burn, and a well-stocked fire read LOWER than an exhausted one. The
+		// second repair read the coefficients off `rc` AFTER the record loop, where `rc` holds whichever
+		// record ran last rather than combustion; that wrote garbage into a channel fungus_sphere3d gated
+		// spread on, and the planet melted — magma_cells 3 -> 191, lava_cells 1 -> 425, snow and biomass to
+		// zero. The third took the WHOLE STEP's oxygen delta, `o2_before - o2[i]`, which is not combustion:
+		// R15 decomposition and respiration draw oxygen too, so ordinary rot read as fire. Since
+		// fungus_sphere3d gated on this, a decomposer suppressed itself by decomposing. The numerator is now
+		// attributed per record, inside the loop, to the one record whose driver is FUEL.)*
 		float o2_usable = max(0.0, o2_before - O2_FLAMMABILITY_LIMIT);
-		fire[i] = (o2_usable > 0.0) ? clamp((o2_before - o2[i]) / o2_usable, 0.0, 1.0) : 0.0;
+		fire[i] = (o2_usable > 0.0) ? clamp(o2_burn / o2_usable, 0.0, 1.0) : 0.0;
 	}
 }
