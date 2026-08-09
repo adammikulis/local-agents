@@ -304,6 +304,28 @@ const STANDARD_GRAVITY_M_S2: float = 9.80665        # CGPM-defined standard grav
 const GAS_CONSTANT_J_MOL_K: float = 8.314462618     # CODATA molar gas constant R
 const SECONDS_PER_YEAR: float = 3.15576e7           # Julian year, 365.25 days
 
+# --- MOLAR MASSES (IUPAC 2021 standard atomic weights) ------------------------------------------------------
+# Added 2026-08-07 because the conservation gate needed them and did not have them. It declares each channel
+# as "the ELEMENTS one unit of it contains" and holds molecular FORMULAS, which are elements per MOLE — the
+# two agree only if one channel unit is one mole for every channel, and they are not even close: one unit of
+# `o2` is the O₂ in a cell of ambient air (8.5 mol/m³) and one unit of `water` is a cell FULL of liquid water
+# (55343 mol/m³), a factor of 6484. Converting between a channel unit and moles is the missing step, and it
+# cannot be done without these.
+#
+# They also fix a second instance of the same confusion. LITTER_C_TO_N is a MASS ratio, and the composition
+# table spends it as a mole count (`N: 1.0 / LITTER_C_TO_N` = 0.0500). Nitrogen per mole of CH₂O is
+# (CARBON_MOLAR_MASS / LITTER_C_TO_N) / NITROGEN_MOLAR_MASS = 0.0429 — 16% lower.
+const MOLAR_MASS_WATER_KG_MOL: float = 0.018015     # H₂O
+const MOLAR_MASS_O2_KG_MOL: float = 0.0319988       # O₂
+const MOLAR_MASS_CO2_KG_MOL: float = 0.0440095      # CO₂
+const MOLAR_MASS_CARBON_KG_MOL: float = 0.0120110   # C
+const MOLAR_MASS_NITROGEN_KG_MOL: float = 0.0140067  # N
+# CH₂O — the EMPIRICAL FORMULA UNIT of a carbohydrate, not any actual carbohydrate. Glucose is C₆H₁₂O₆ at
+# 0.180156 kg/mol and cellulose is a polymer of it; this is one sixth of that, the per-carbon unit
+# LAReactionBalance.composition() models all organic matter as so that photosynthesis and respiration
+# balance as CO₂ + H₂O <-> CH₂O + O₂. Naming it "carbohydrate" would be six times wrong for glucose.
+const MOLAR_MASS_CH2O_UNIT_KG_MOL: float = 0.0300260
+
 # --- WATER AND ICE DENSITY: WHY ROCK SHATTERS WHEN IT FREEZES -----------------------------------------------
 # Water is one of very few substances that EXPANDS on freezing, and that expansion is the entire mechanism of
 # frost weathering. At 0 C and 1 atm liquid water is 999.84 kg/m^3 and ice Ih is 916.7, so a given mass of

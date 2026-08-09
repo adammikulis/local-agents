@@ -288,11 +288,23 @@ func report(step_index: int) -> Dictionary:
 		"co2": co2_open, "o2": o2_open, "detritus": det_open, "biomass": bio_open,
 		"fert": fert_open, "fungus": fung_open, "fuel": fuel_open,
 	}
+	#
+	# AND BY THE MOLES ONE UNIT OF IT HOLDS, which this sum did not do until 2026-08-07 and which is the
+	# difference between an atom count and a sum of incommensurate scales. `composition()` is elements per
+	# MOLE; a channel value is in channel units; and a channel unit is not a mole. One unit of `o2` is the
+	# O₂ in a cell of ambient air (8.535 mol/m³), one unit of `water` is a cell FULL of liquid water
+	# (55343 mol/m³). Adding them un-scaled made `element_H` and `element_O` sums of two different things,
+	# so neither could be differenced to detect anything — which is why the same defect survived in the
+	# reaction records for as long as it did. LAReactionBalance.mol_per_unit() is the one declaration, and
+	# the gate reads it too, so the instrument and the check still cannot disagree.
+	var mpu: Dictionary = BalanceScript.mol_per_unit()
+	var slots: Dictionary = BalanceScript.INVENTORY_CHANNELS
 	var elements: Dictionary = {}
 	for ch in open_by_channel:
 		var parts: Dictionary = BalanceScript.channel_elements(ch)
+		var moles: float = float(open_by_channel[ch]) * float(mpu.get(int(slots.get(ch, -1)), 1.0))
 		for el in parts:
-			elements[el] = float(elements.get(el, 0.0)) + float(open_by_channel[ch]) * float(parts[el])
+			elements[el] = float(elements.get(el, 0.0)) + moles * float(parts[el])
 	for el in elements:
 		out["element_" + String(el)] = snappedf(float(elements[el]), 0.01)
 	# NITROGEN, over every pool that holds it. `fert_total` alone answers "how much nutrient can a plant take

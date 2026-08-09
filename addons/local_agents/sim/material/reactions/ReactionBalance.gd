@@ -96,7 +96,17 @@ static func driver_only() -> PackedInt32Array:
 ## conservation gauge from assuming the property it exists to check.
 static func composition() -> Dictionary:
 	# CH2O plus the nitrogen the material actually carries, at its measured C:N ratio.
-	var organic: Dictionary = {"C": 1.0, "H": 2.0, "O": 1.0, "N": 1.0 / LAPhysical.LITTER_C_TO_N}
+	#
+	# THE NITROGEN TERM WAS `1.0 / LAPhysical.LITTER_C_TO_N` = 0.0500, AND THAT MIXED TWO KINDS OF RATIO.
+	# *(Corrected 2026-08-07.)* Every other number in this dictionary is a count of ATOMS PER MOLECULE —
+	# CH2O is one carbon, two hydrogens, one oxygen — but LITTER_C_TO_N is a ratio of MASSES (20 kg of
+	# carbon per kg of nitrogen, PhysicalConstants.gd:396). Spending a mass ratio in a column of mole
+	# counts overstated organic nitrogen by 16%. Per mole of CH2O the material carries
+	# (CARBON_MOLAR_MASS / LITTER_C_TO_N) kilograms of N, which is 0.0429 mol.
+	var organic: Dictionary = {
+		"C": 1.0, "H": 2.0, "O": 1.0,
+		"N": (LAPhysical.MOLAR_MASS_CARBON_KG_MOL / LAPhysical.LITTER_C_TO_N) / LAPhysical.MOLAR_MASS_NITROGEN_KG_MOL,
+	}
 	var water: Dictionary = {"H": 2.0, "O": 1.0}
 	var mineral: Dictionary = {"M": 1.0}
 	return {
@@ -127,6 +137,96 @@ static func composition() -> Dictionary:
 		DefsScript.DUST: mineral,
 		DefsScript.SUSP: mineral,
 	}
+
+
+## HOW MANY MOLES OF ITS SUBSTANCE ONE UNIT OF A CHANNEL HOLDS — the fact `composition()` needs and did
+## not have, and without which this gate could not have been telling the truth.
+##
+## THE DEFECT IT CLOSES. The header above says each slot is "declared as the ELEMENTS one unit of it
+## contains". What is declared is the molecular FORMULA, which is elements per MOLE. Those are the same
+## statement only if one channel unit is one mole for every channel, and the substrate never worked that
+## way — it was never even claimed to:
+##   * `o2` and `co2` are in the gas unit PhysicalConstants.gd:377-380 DEFINES as "the amount of O₂ in a
+##     cell of ambient air", AMBIENT_O2_DENSITY_KG_M3 = 0.2731 kg/m³, so one unit is 8.535 mol/m³. CO₂'s
+##     seed is set from that by MOLE fraction, so a co2 unit is the same molar amount as an o2 unit.
+##   * `water`, `moisture`, `snow` and the `soil` the root slots view are a FRACTION OF A CELL FULL OF
+##     LIQUID WATER — LAPhysical.saturation_mass_fraction says so in its own docstring and divides by
+##     WATER_DENSITY_KG_M3 to produce it. One unit is 997 kg/m³ = 55343 mol/m³.
+## Those two differ by a factor of 6484, and `check_records` was comparing them as though they were equal.
+## So a record could couple a gas channel to a water channel at coefficient 1:1, pass this gate, and be
+## wrong about hydrogen by three and a half orders of magnitude. That is the whole photosynthesis /
+## respiration / decomposition set.
+##
+## WHY THE FIX IS HERE AND NOT IN THE ENGINE. The obvious repair — make records declare molar stoichiometry
+## and have `serialize()` convert — is wrong, and worth naming so nobody spends a day on it. A record's
+## EXTENT `x` is denominated in the units of its coefficients, and `rate_k` is what produces `x`. Several
+## rates are DERIVED from real physics directly in cell-fill units: R23's evaporation k is
+## `C_E * U * dt / H`, a bulk aerodynamic mass transfer whose answer is a fraction of a water cell
+## (PhaseRecords.gd:67-77). Rewriting coefficients into moles would force every one of those derivations to
+## be redone in moles for no physical gain. The coefficients stay in channel units, where the rates are
+## natural. It is the GATE and the INVENTORY that must convert — they are the two places that compare
+## ACROSS channels, and they are the only two places that need to.
+##
+## MINERALS ARE 1.0 AND ARE NOT MOLES, AND THAT IS A FENCE, NOT A RESULT. `M` is a lumped mass rather than
+## an atom count because silicate stoichiometry is not modelled. All six mineral phases share one cell-fill
+## unit so they are consistent with EACH OTHER, which is all the M column can currently be asked to be.
+##
+## DO NOT JUSTIFY THIS BY "NOTHING CONVERTS BETWEEN M AND C/H/O/N". *(An earlier draft of this comment did,
+## and it was circular.)* That is true of the record table today only because D1b CHEMICAL WEATHERING
+## (GeoRecords.gd:172) takes WATER as its driver and CO2 as its driver2 — CATALYSTS — and consumes neither.
+## The real reaction consumes both: CaSiO3 + 2CO2 + H2O -> Ca(2+) + 2HCO3(-) + SiO2. Silicate weathering is
+## the long-term carbon sink that has regulated Earth's climate for four billion years, and this planet does
+## not have it. So the absence of an M<->CHON conversion is a DEFECT being described, not a property being
+## relied on, and the fence below exists because that defect is going to get fixed.
+##
+## Rock is roughly 46% oxygen by mass, so a molar basis for M is perfectly measurable — that is not why it is
+## absent. It is absent because crustal oxygen would swamp `element_O` by orders of magnitude and destroy the
+## one thing that ledger is for, which is watching the ATMOSPHERE. Geochemistry keeps those reservoirs on
+## separate books for the same reason. When mineralogy lands, M gets real species (silicate, carbonate) with
+## their own compositions, and carbonate is where weathered carbon goes.
+##
+## UNTIL THEN THE GATE REFUSES TO BE QUIET ABOUT IT — see the M-mixing check in `check_records`. A record
+## with M on one side and C, H, O or N on the other cannot be balanced by anything here, and passing it
+## silently is how a carbon sink would get written that leaks every atom it moves.
+static func mol_per_unit() -> Dictionary:
+	var gas: float = LAPhysical.AMBIENT_O2_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_O2_KG_MOL
+	var water: float = LAPhysical.WATER_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
+	# ORGANIC MATTER HAD NO DECLARED UNIT ANYWHERE — that absence is itself a finding. It is fixed here by
+	# the one relation the substrate already asserts: fire_sphere3d.glsl:186-189 oxidises fuel and O₂
+	# ONE FOR ONE (`burned = min(fuel_i, o2_i)`, then debits both by `burned`), and CH₂O + O₂ -> CO₂ + H₂O
+	# is one mole of each. So a unit of organic matter IS a unit of O₂ in moles, by the kernel's own
+	# arithmetic — 8.535 mol/m³, which is 0.2563 kg/m³ of CH₂O. Like the gas unit above it is a FREE CHOICE
+	# whose ratios are the physics; this one is the choice already embedded in the code.
+	var organic: float = gas
+	return {
+		DefsScript.WATER: water, DefsScript.MOISTURE: water, DefsScript.SNOW: water,
+		DefsScript.SOIL_ROOT: water, DefsScript.SOIL_TOP: water,
+		DefsScript.O2: gas, DefsScript.CO2: gas,
+		DefsScript.BIOMASS: organic, DefsScript.DETRITUS: organic,
+		DefsScript.FUNGUS: organic, DefsScript.FUEL: organic,
+		# FERT is mineral nitrogen and its unit follows organic matter's, because decomposition is where it
+		# comes from: one unit of organic matter releases `organic["N"]` moles of N, so pinning FERT to the
+		# same molar basis makes that a 1:1 relation a record can state without a conversion factor.
+		DefsScript.FERT: organic,
+		DefsScript.LAVA: 1.0, DefsScript.ROCK_FILL: 1.0, DefsScript.BEDROCK_BELOW: 1.0,
+		DefsScript.SEDIMENT: 1.0, DefsScript.DUST: 1.0, DefsScript.SUSP: 1.0,
+	}
+
+
+## How many units of `slot` hold the same number of MOLES as one unit of `ref_slot`.
+##
+## This is the number a record needs whenever it couples two channel families, and having to write it by
+## hand is what let the biological records ship a 1:1 gas-to-water coefficient that was wrong by 6484x.
+## A record says `[[MOISTURE, 1.0 * unit_ratio(MOISTURE, CO2)]]` and means "one H2O per CO2" — the
+## stoichiometry stays visible and the conversion cannot be mistyped, because both halves come from
+## mol_per_unit().
+static func unit_ratio(slot: int, ref_slot: int) -> float:
+	var mpu: Dictionary = mol_per_unit()
+	var to: float = float(mpu.get(slot, 0.0))
+	var from: float = float(mpu.get(ref_slot, 0.0))
+	if to <= 0.0 or from <= 0.0:
+		return 1.0
+	return from / to
 
 
 ## The stored channels the inventory sums, mapped to the slot whose composition they carry. SOIL_ROOT is
@@ -173,6 +273,12 @@ static func check_records(recs: Array, labels: PackedStringArray = PackedStringA
 	var comp: Dictionary = composition()
 	var names: Dictionary = slot_names()
 	var drivers: PackedInt32Array = driver_only()
+	# THE CONVERSION THIS GATE RAN WITHOUT UNTIL 2026-08-07. `comp` is elements per MOLE; a record's
+	# coefficients are in CHANNEL UNITS, and a channel unit is not a mole. Multiplying by `mpu` is what turns
+	# a coefficient into an amount of substance, and it is the difference between comparing atoms and
+	# comparing two arbitrary scales. Without it a gas-to-water coefficient of 1:1 read as balanced while
+	# being wrong by 6484x. See mol_per_unit() for where each factor comes from.
+	var mpu: Dictionary = mol_per_unit()
 	for r in range(recs.size()):
 		var rec: Dictionary = recs[r]
 		var label: String = String(labels[r]) if r < labels.size() else "record[%d]" % r
@@ -206,9 +312,34 @@ static func check_records(recs: Array, labels: PackedStringArray = PackedStringA
 					bad_slot = true
 					continue
 				var parts: Dictionary = comp[slot]
+				var moles: float = coeff * float(mpu.get(slot, 1.0))
 				for sub in parts:
-					sums[sub] = float(sums.get(sub, 0.0)) + sgn * coeff * float(parts[sub])
+					sums[sub] = float(sums.get(sub, 0.0)) + sgn * moles * float(parts[sub])
 		if bad_slot:
+			continue
+		# MINERAL MASS AND ATOMS CANNOT BE WEIGHED AGAINST EACH OTHER, so a record that puts them on opposite
+		# sides is refused rather than silently summed. `M` is a lumped mass with no stoichiometry (see
+		# composition()), so "1 unit of M becomes 1 mole of CO2" is not a statement this table can check.
+		#
+		# THIS BLOCK IS SCAFFOLDING AND IT HAS A REMOVAL CONDITION: it comes out the day the mineral phases
+		# carry real species compositions — silicate CaSiO3, carbonate CaCO3, residue SiO2 — because then
+		# `M` no longer exists and the ordinary element sums cover it. That work is what makes the Urey
+		# reaction CaSiO3 + CO2 -> CaCO3 + SiO2 writable, and with it silicate weathering as a genuine carbon
+		# sink instead of the catalysed rate GeoRecords.gd:172 currently models. Delete this, do not extend it.
+		var has_mineral: bool = false
+		var has_atoms: bool = false
+		for sub in sums:
+			if absf(float(sums[sub])) <= 0.0:
+				continue
+			if String(sub) == "M":
+				has_mineral = true
+			else:
+				has_atoms = true
+		if has_mineral and has_atoms:
+			out.append("%s: puts lumped mineral mass (M) on one side and atoms on the other. " % label
+				+ "Mineral has no stoichiometry here, so this cannot be balanced. Silicate weathering needs "
+				+ "real species (CaSiO3 / CaCO3 / SiO2) before a record may convert rock into or out of C, "
+				+ "H, O or N — see LAReactionBalance.composition().")
 			continue
 		for sub in sums:
 			var net: float = float(sums[sub])
@@ -217,7 +348,7 @@ static func check_records(recs: Array, labels: PackedStringArray = PackedStringA
 				for e2 in rec.get(side2, []):
 					var s2: int = int(e2[0])
 					if comp.has(s2) and comp[s2].has(sub):
-						scale += absf(float(e2[1]) * float(comp[s2][sub]))
+						scale += absf(float(e2[1]) * float(mpu.get(s2, 1.0)) * float(comp[s2][sub]))
 			if absf(net) > TOL * maxf(scale, 1.0):
 				var verb: String = "CREATES" if net > 0.0 else "DESTROYS"
 				# `%s` on a String.num, not a `%g` — GDScript's format has no `g` conversion and silently

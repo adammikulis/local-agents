@@ -214,14 +214,28 @@ const DECOMPOSE_WATER_YIELD: float = CO2_PER_DECOMPOSE                  # 1.0 �
 
 ## The records this domain contributes to the live table (see LAMaterialReactions3D).
 static func records() -> Array:
+	# THE UNIT BRIDGE, and every water leg below was missing it. A gas channel unit is the O₂ in a cell of
+	# ambient air (8.535 mol/m³); a water channel unit is a cell FULL of liquid water (55343 mol/m³). The
+	# constants above are STOICHIOMETRY — "one H₂O per carbon oxidised" — and stoichiometry is in moles, so
+	# spending them directly as water-channel coefficients overstated every water leg by 6484x. The balance
+	# gate could not see it until it was taught the two units (LAReactionBalance.mol_per_unit); the moment it
+	# was, it flagged all three records in this file on both H and O.
+	var w_per_gas: float = LAReactionBalance.unit_ratio(MOISTURE, CO2)
+	var soil_per_gas: float = LAReactionBalance.unit_ratio(SOIL_ROOT, CO2)
+	# Nitrogen per unit of organic matter, read off the composition table rather than restated, so a record
+	# cannot disagree with the gate about what litter is made of. It is MOLAR: LITTER_C_TO_N is a ratio of
+	# masses, and (CARBON_MOLAR_MASS / 20) / NITROGEN_MOLAR_MASS = 0.0429 mol N per mol CH₂O — not the
+	# 0.0500 that spending the mass ratio directly produced. FERT shares organic matter's molar basis, so
+	# this is also its coefficient with no further conversion.
+	var organic_n: float = float(LAReactionBalance.composition()[DETRITUS]["N"])
 	return [
 		# R15 — Fungus DECOMPOSE: detritus + O₂ → CO₂ (self) + fertility (scratch) (fungus_sphere3d:100-118).
 		# BILINEAR: x = DECOMPOSE_RATE*fungus*detritus, capped by the detritus + O₂ reactants (the aerobic cap
 		# falls out of listing O₂ as a reactant, coeff O2_PER_DECOMPOSE). Fert → SCRATCH (fungus_fert reduce).
 		rec(BILINEAR, DECOMPOSE_RATE, FUNGUS,
 			[[DETRITUS, 1.0], [O2, O2_PER_DECOMPOSE]],
-			[[CO2, CO2_PER_DECOMPOSE, TGT_SELF], [MOISTURE, DECOMPOSE_WATER_YIELD, TGT_SELF],
-				[FERT, FERT_PER_DECOMPOSE, TGT_SCRATCH]],
+			[[CO2, CO2_PER_DECOMPOSE, TGT_SELF], [MOISTURE, DECOMPOSE_WATER_YIELD * w_per_gas, TGT_SELF],
+				[FERT, organic_n, TGT_SCRATCH]],
 			0, 0.0, DETRITUS),
 
 		# R19 — PHOTOSYNTHESIS: light + CO₂ + soil water + nutrient → biomass + O₂ + transpired vapour, on the
@@ -240,7 +254,14 @@ static func records() -> Array:
 		# is untouched by it. It also couples two systems that had never met: the aquifer now feels the forest,
 		# and the forest humidifies its own air.
 		rec(OPTIMUM_BAND, PHOTO_RATE, LIGHT,
-			[[CO2, 1.0], [SOIL_ROOT, PHOTO_WATER_DRAW], [FERT, FERT_UPTAKE_COST]],
+			# THE TWO WATER LEGS ARE DIFFERENT QUANTITIES AND ONLY ONE OF THEM IS STOICHIOMETRY.
+			# The 1.0 inside PHOTO_WATER_DRAW is the H₂O that becomes biomass — one per CO₂, a molar fact, so
+			# it converts. PHOTO_WATER_COST is TRANSPIRATION, a plant behaviour measured in water channel
+			# units already; at 0.05 it is 0.05 * 55343 / 8.535 = 324 moles of water per mole of carbon fixed,
+			# squarely inside the real 200-1000 range, so it is left alone. Debiting SOIL_ROOT by
+			# (stoichiometric + transpired) and crediting MOISTURE by the transpired part keeps h2o_total
+			# untouched by the transpiration leg, which is what makes it a phase transfer rather than a loss.
+			[[CO2, 1.0], [SOIL_ROOT, soil_per_gas + PHOTO_WATER_COST], [FERT, organic_n]],
 			[[O2, PHOTO_O2_YIELD, TGT_SELF], [BIOMASS, PHOTO_BIOMASS_YIELD, TGT_SELF],
 				[MOISTURE, PHOTO_WATER_COST, TGT_SELF]],
 			GATE_NEAR_GROUND | GATE_NOT_STATIC, PHOTO_T_OPT, TEMP, PHOTO_T_WIDTH),
@@ -253,6 +274,7 @@ static func records() -> Array:
 		# 60% of the nitrogen in every unit of biomass it touched.
 		rec(BILINEAR, RESP_RATE, BIOMASS, [[BIOMASS, 1.0], [O2, RESP_O2_COST]],
 			[[CO2, RESP_CO2_YIELD, TGT_SELF], [DETRITUS, RESP_DET_YIELD, TGT_SELF],
-				[MOISTURE, RESP_WATER_YIELD, TGT_SELF], [FERT, RESP_FERT_YIELD, TGT_SELF]],
+				[MOISTURE, RESP_WATER_YIELD * w_per_gas, TGT_SELF],
+				[FERT, organic_n * (1.0 - RESP_DET_YIELD), TGT_SELF]],
 			0, 0.0, O2),
 	]
