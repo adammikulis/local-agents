@@ -37,8 +37,9 @@ correctness fix with a behavioural rewrite makes both unmeasurable.
 
 ### State (2026-08-09)
 
-`0.4-dev` is at `138166e`, but **the CODE baseline is still `1f1bd92`** — every commit since is
-documentation, so the numbers quoted below stand and a run at HEAD is comparable to one at `1f1bd92`.
+`0.4-dev` is at `138166e`. Branch `feature/handoff-refresh` carries this session's work and is **ready to
+merge**: the fungus/fire instrument fix, the stale-shader guard, and the heat-capacity unification. Numbers
+below are measured on that branch unless they say otherwise.
 
 **Paths here are relative to `addons/local_agents/`, and `material/` means `sim/material/`.** A bare
 `soil_sphere3d.glsl:583` is `addons/local_agents/sim/material/kernels3d/soil_sphere3d.glsl:583`.
@@ -72,10 +73,17 @@ never fires** (threshold 280.7 °C derived from ΔH/ΔS; the hottest cell reache
 one-way and a long `--geotime` run would strip the atmosphere.
 
 **ENERGY HAS A STOCK AND A DRIFT GAUGE** (`LAMaterialFieldEnergyLedger3D`) and that number is Stage 1's
-target: `energy_run_drift` **−1.163e16 J against `energy_stock_first` 1.548e17 — 7.5% of the planet's whole
+target: `energy_run_drift` **−1.981e16 J against `energy_stock_first` 1.551e17 — 12.8% of the planet's whole
 thermal stock in 600 frames.** Read the TOTAL; `energy_run_steps` is 760, not `field_step` 590.
-**The ledger's own header quotes −1.1442e16 and that is not a contradiction** — it is an earlier run of the
-identical config, from before `1f1bd92`. Both are 7.4–7.5% of stock. Quote the run with the number.
+
+> **THAT NUMBER USED TO READ 7.4%, AND THE OLD ONE WAS MEASURED AGAINST A CAPACITY MODEL THE KERNELS DID NOT
+> USE.** *(Corrected 2026-08-09.)* The ledger builds its stock by TRANSCRIBING the kernels' `rc_of` into
+> GDScript — its own header says a stock from a different capacity model measures the disagreement between
+> two models rather than the physics. That is precisely what had happened: `rc_of` existed in five copies in
+> four formulas, and the ledger was a sixth. It is one shared definition now
+> (`kernels3d/rc_shared.glsli`), the transcription matches it, and `energy_stock_live` reports all six
+> carriers live. **Every energy-drift figure recorded before this is against the old mismatch — do not
+> compare across it.** Any future edit to `rc_shared.glsli` must change the transcription in the same commit.
 
 **ORGANIC MATTER GAINED A REAL DENSITY, so `element_*` changed scale by ~1951x.** Nothing measured before
 `557a34b` is comparable on those keys. Decomposition and respiration are now hard oxygen-limited, which is
@@ -115,12 +123,15 @@ a marker whose PRESENCE means something, rather than the absence of a pattern.
 `energy_run_drift_per_step` −1.559e13.
 
 **A SECOND BASELINE, `--no-fauna` (vegetation on), measured 2026-08-09 at `138166e`** in a freshly imported
-worktree, otherwise the same command. Three runs, `field_step` 590, impacts 20/20/19, eruptions 2/2/2:
-`temp_ground_p50` 26.45 / 26.57 / 26.40 · `soil_total` 2816 / 2822 / 2803 · `biomass_total` 5.193 / 5.191 /
-5.207 · `fungus_total` 31.56 / 31.77 / 31.97 · `fungus_cells` 433 / 437 / 439 · `fuel_total` 151.6 / 151.6 /
-152.4 · `carbon_total` 12582 / 12639 / 12612 · `o2_total` 3837 / 3828 / 3828 · `snow_cells` 1169 / 1171 /
-1171 · `energy_run_drift` −1.164e16 / −1.194e16 / −1.173e16. **`fire_cells` 0 and `fire_peak` 0.0 in all
-three** — see item 16 before reading that as "nothing burned".
+worktree, otherwise the same command. Three runs, `field_step` 590, impacts 19, eruptions 1, AFTER the heat-capacity unification:
+`temp_ground_p50` **25.05** · `soil_total` ~2830 · `biomass_total` **6.24** · `fungus_cells` **580** ·
+`fuel_total` ~152 · `carbon_total` ~12170 · `o2_total` ~3520 · `snow_cells` **76** ·
+`energy_run_drift` **−1.981e16** (12.8% of stock). **`fire_cells` 0 and `fire_peak` 0.0** — see item 16
+before reading that as "nothing burned".
+
+> **THE PRE-UNIFICATION NUMBERS, for one comparison only:** `temp_ground_p50` 26.45 · `biomass_total` 5.19 ·
+> `fungus_cells` 435 · `snow_cells` **1170**. The snowpack fell 94% and that is the honest headline of that
+> change, not a side effect — see item 3.
 
 > **THE FIRST ATTEMPT AT THAT BASELINE WAS FICTION, AND THE WAY IT FAILED IS THE WARNING.** It was taken in
 > the PRIMARY checkout and read `biomass_total` **0.0**, `snow_cells` **0**, `o2_total` 40474 and
@@ -216,9 +227,21 @@ batch is gone, because git holds it and nobody was going to re-derive them.)*
    at `:573` keeps `raw` in a local and books `applied - raw` into `DBG_CLAMP_GAIN` at `:580`. Do the same
    on this leg. Deciding it: `LA_SOIL_BUDGET=1` and read whether the new gauge is nonzero.
 
+4. **NOTHING KEEPS SNOW ON THIS PLANET, AND THAT WAS INVISIBLE UNTIL THE HEAT CAPACITY WAS FIXED.**
+   `snow_cells` fell **1170 → 76** the moment `heat3d_cool` started counting snow in its heat capacity.
+   That kernel — the one whose entire job is radiative cooling — had no snow term, so a snowpack cell read
+   as ~1186 J/m³K (air) instead of 6.27e5 (snow): **a 500× under-estimate of what it takes to warm snow.**
+   Snow was trivially cold-able and therefore persisted. This is the band-aid-removal test coming out the
+   wrong way round — the clamp came out and the phenomenon it was propping up went with it. 76 cells is what
+   this planet's climate actually supports at 600 frames; 1170 was an artefact, and **every snow, ice-albedo
+   and treeline claim measured before 2026-08-09 was measured against it.** Deciding whether 76 is right:
+   this planet has no seasons deep enough and no orographic lift to speak of, so the question is whether
+   snow should persist at all at `temp_ground_p50` 25 °C — which is Stage 3's asymptote question, not a
+   snow-kernel question. Do not "fix" it by moving a constant.
+
 ### Missing physics — a real mechanism simply is not there
 
-4. **NO LATENT HEAT — and the fix is now structural rather than a charge.** *(Rewritten 2026-08-08.)* The
+5. **NO LATENT HEAT — and the fix is now structural rather than a charge.** *(Rewritten 2026-08-08.)* The
    record-enthalpy branch (`worktree-wf_c468d92c-702-2`) is SUPERSEDED and should not be merged: it
    attached a latent heat to each of six phase-change records, which is a number six places can get wrong
    and which one of them did — L_vap at 100 °C paired with L_fus at 0 °C, releasing 2.433e5 J/kg from
@@ -227,10 +250,10 @@ batch is gone, because git holds it and nobody was going to re-derive them.)*
    **What is left is the migration** — store energy per cell, derive temperature, and collapse
    `water`/`moisture`/`snow` into one conserved `h2o`. That deletes R21, R22, R23, R24, R25, the snowice
    deposition kernel and the rain condensation leg.
-5. **NO MANTLE CONVECTION.** The geotherm is a seeded initial condition maintained by a reservoir
+6. **NO MANTLE CONVECTION.** The geotherm is a seeded initial condition maintained by a reservoir
    (`MaterialFieldGeotherm3D.gd:4-5`). A real planet's interior circulates, and that circulation is what
    drives plate motion, so the plates below are kinematic rather than driven.
-6. **TWO MASS TRANSFERS STILL MOVE TEMPERATURE WITHOUT MOVING HEAT.** *(Corrected 2026-08-08. This said
+7. **TWO MASS TRANSFERS STILL MOVE TEMPERATURE WITHOUT MOVING HEAT.** *(Corrected 2026-08-08. This said
    "EVERY inter-cell transfer", which is false and expensive: three kernels already carry enthalpy with the
    mass and two say so in their own headers — `lava_flow_sphere3d.glsl` gathers `inflow_heat` as a
    mass-weighted donor sum (`:165-176`, mixed at `:197`, claimed in its header at `:6`),
@@ -241,14 +264,14 @@ batch is gone, because git holds it and nobody was going to re-derive them.)*
    MAX_MASS`; re-cited 2026-08-09.)* The real cases:
    **the regolith→regolith Darcy leg**, disclosed at `soil_sphere3d.glsl:51`, and **sediment slump**, which
    `slump_sphere3d.glsl:6` marks "NO carry-heat". Spring heat's donor was the third and is paid.
-7. **ROCK HAS THREE COMPOSITIONS AND NO STRATIGRAPHY, AND ORGANIC MATTER HAS ONE.** Minerals are
+8. **ROCK HAS THREE COMPOSITIONS AND NO STRATIGRAPHY, AND ORGANIC MATTER HAS ONE.** Minerals are
    speciated (silicate / silica / carbonate) and the Urey reaction balances, but carbonate and silica do
    not travel and do not lithify, so there is no limestone and no sandstone; `solid` derives from
    `rock_fill`, so splitting it reaches solidity, overburden, plate advection and the mineral stamp, and
    per-species SUSP/DUST/erosion/slump follow. **Organic matter is still ONE lumped CH₂O** — which is why
    ignition is one number, and why this planet cannot have peat even though it demonstrably BURIES
    organics (`carbon_buried` ~290 units per run).
-8. **WHETHER THE FOOD WEB WORKS IS UNMEASURED — and the two gauges this entry cited cannot answer it.**
+9. **WHETHER THE FOOD WEB WORKS IS UNMEASURED — and the two gauges this entry cited cannot answer it.**
     *(Corrected 2026-08-08.)* It read "`death/eaten` is 0 and `biota_node_intake` 0.00 in every arm …
     predation appears never to have functioned", and both halves are artefacts:
     - **`biota_node_intake` reads 0.00 when predation WORKS.** It is credited only on the fallback branch
@@ -265,29 +288,45 @@ batch is gone, because git holds it and nobody was going to re-derive them.)*
 
 ### Prescribed where it should emerge
 
-9. **PLATE TECTONICS IS KINEMATIC VORONOI.** Plate boundaries are prescribed and rotate; the crust now
+10. **PLATE TECTONICS IS KINEMATIC VORONOI.** Plate boundaries are prescribed and rotate; the crust now
     genuinely advects with them, but the plates themselves are not a consequence of convection dragging a
     brittle shell until it cracks. *(Maintainer has explicitly OK'd faking this one — true geodynamics is
     research-grade. `GEOLOGIC_TIME_ACCELERATION = 3.0e5` is the knob, set by measurement, in
     `PlateTectonics.gd:67`.)*
-10. **BREEDING HAS A GLOBAL `pop_cap` CEILING, AND SPACE DOES NOT REGULATE IT.** *(Narrowed 2026-08-08. It
+11. **BREEDING HAS A GLOBAL `pop_cap` CEILING, AND SPACE DOES NOT REGULATE IT.** *(Narrowed 2026-08-08. It
     said "rather than population regulated by food, energy and space", and food and energy DO regulate it
     now: `EcologyBreeding.gd:188-191` refuses to spawn below `SPAWN_ENERGY_FLOOR` and charges
     `SPAWN_ENERGY_FRAC` of the parent's maximum, and `:171-175` multiplies the birth count by a biomass food
     gate. The cap at `:160-163` sits on top of those as a hard ceiling.)* Space is the unregulated one.
     Cited as `:23,29` before, which are prose lines inside a comment block.
-11. **THE DAY IS A GAME NUMBER.** `SimClock.gd:29` `DAY_LENGTH = 200.0`, against a field step whose 43.2
+12. **THE DAY IS A GAME NUMBER.** `SimClock.gd:29` `DAY_LENGTH = 200.0`, against a field step whose 43.2
     real seconds are DERIVED from it (`MaterialFieldSphereStep3D.real_seconds_per_step()`, `:39-44`) and a
     `PLANET_SPIN_RATE = 0.10` that is not (`game/VoxelWorld.gd:88`, applied `:602`; a third reader flags the
     mismatch at `MaterialFieldClimateSwing3D.gd:32`). Earth's day is 86400 s. Three clocks, one rotation.
-12. **THE PLANET IS PINNED AT THE WORLD ORIGIN** and the sun moves around it — `SystemOrbits.gd:25-26`
+13. **THE PLANET IS PINNED AT THE WORLD ORIGIN** and the sun moves around it — `SystemOrbits.gd:25-26`
     ("The planet does not move; the star does") and the code that does it at `:207`. A deliberate
     moving-frame choice; making it literal is the 0.6 headline. *(Cited as `:228` before, which is a doc
     comment inside `_integrate_orbit` — true, but not the mechanism.)*
 
+14. **O₂ AND CO₂ ARE TWO GASES IN ONE ATMOSPHERE AND ONLY ONE OF THEM RIDES THE WIND.**
+    `co2_transport_sphere3d.glsl` is diffusion + wind advection + a density-driven downward settle + a CFL
+    cap. `o2_transport_sphere3d.glsl` is the SAME lattice with only the diffusion term, and its header says
+    so outright: *"NON-MECHANICAL: the wind ADVECTION term is DROPPED here."* So in one parcel of air the
+    CO₂ blows downwind and the O₂ does not. `scent_transport_sphere3d.glsl` has the same hole — *"DROPPED
+    (as in o2_transport_sphere3d)"* — **against a stated design goal**: `CLAUDE.md`'s one-substrate rule
+    uses *"scent that rides the real wind and washes in the rain"* as its canonical example, and only the
+    rain half is built (`RAIN_WASH = 0.30`). `GAS_SETTLE = 0.05` is also a hardcoded buoyancy share when
+    `LASubstances` already carries the molar masses it should derive from (CO₂ 44.01 vs air 28.96).
+    **The fix is one parameterised solver** — `{diffuse, advect, settle, out_max, decay, rain_wash,
+    channels}` — replacing all three (~356 lines → ~200), which also absorbs `dust_outscale_sphere3d.glsl`
+    (96 lines computing the CFL scale `co2_transport` computes inline in `out_scale()`). Sequence it:
+    unify AT PARITY first (advect 0 for O₂/scent) so the refactor A/Bs as a no-op, then turn the wind on as
+    its own measured commit. NOT candidates: `atmos_transport` (condensation-coupled H₂O),
+    `erosion_transport` (on the settled list), `dust_transport`'s leeward deposition.
+
 ### Instruments that lie
 
-13. **`molten_counts()` CAN REPORT ZERO FROM A STALE MIRROR WITH NO PROVENANCE FLAG.** It reads `_f._lava`
+15. **`molten_counts()` CAN REPORT ZERO FROM A STALE MIRROR WITH NO PROVENANCE FLAG.** It reads `_f._lava`
     and `_f._solid` (`MaterialFieldQueries3D.gd:552-560`), and `lava` is demand-gated
     (`MaterialSphereGPU3D.SITUATIONAL_CHANNELS:198-199`), so between eruptions the gauge cannot tell "no
     lava" from "the channel never arrived" — exactly what `mass_live` exists to prevent for the element
@@ -296,10 +335,10 @@ batch is gone, because git holds it and nobody was going to re-derive them.)*
     live, and have been: `MaterialFieldQueries3D.gd:531-576`, one cached walk behind a `_molten_step`
     guard.)* Deciding it: give `molten_counts()` the same provenance flag and read it on a run with no
     eruption.
-14. **The element inventory has no per-pass attribution.** It reports that carbon moved, not which reaction
+16. **The element inventory has no per-pass attribution.** It reports that carbon moved, not which reaction
     moved it (`MaterialFieldElementInventory3D.gd:262-280`). The mineral probe already does this and found a
     leak in one run by naming `fire_dust` (`MaterialFieldMineralProbe3D.gd:50`).
-15. **`fuel_total()` IS THE LAST MASKED CONSERVATION TOTAL.** *(Narrowed 2026-08-09. It read "A GAUGE THAT
+17. **`fuel_total()` IS THE LAST MASKED CONSERVATION TOTAL.** *(Narrowed 2026-08-09. It read "A GAUGE THAT
     SUMS OPEN CELLS ONLY IS NOT A CONSERVATION GAUGE, and at least one still is … Any total used to answer
     'was matter created or destroyed' needs its mask-free twin" — and the twins landed on 2026-08-08.
     `MaterialFieldElementInventory3D.gd:278-279` publishes `fuel_open_total` beside `fuel_all`, and every
@@ -311,7 +350,7 @@ batch is gone, because git holds it and nobody was going to re-derive them.)*
     `:423`, `:736`) are shell-mean, flow and fertility diagnostics — not conservation gauges, and correctly
     masked. Deciding it: publish the twin beside it, or make `fuel_total` the unmasked one and rename the
     masked reader.
-16. **`fire_peak` READS 0.0 THROUGH RUNS WHERE COMBUSTION IS RUNNING, AND NOBODY KNOWS WHICH ZERO IT IS.**
+18. **`fire_peak` READS 0.0 THROUGH RUNS WHERE COMBUSTION IS RUNNING, AND NOBODY KNOWS WHICH ZERO IT IS.**
     `fire` is in `MaterialSphereGPU3D.SITUATIONAL_CHANNELS`, so its CPU mirror is only fetched on demand —
     the same defect as item 13, on a different channel. Measured 2026-08-09 over six 600-frame `--no-fauna`
     runs: `fire_cells` 0 and `fire_peak` 0.0 in every one, while `fuel_total` fell from a seeded 216 to
@@ -334,20 +373,25 @@ thermal stock in 600 frames.** Drive it toward zero.
 
 **The work queue is the ELEVEN unbooked terms the ledger names in its own header**
 (`MaterialFieldEnergyLedger3D.gd:76-130`) — read it there rather than copying it here, because it cites the
-exact line of each leak. It is not ordered by size. **Start with the two the gauge itself found**, which are
-the two that are defects in the CAPACITY MODEL rather than in any one kernel:
+exact line of each leak. It is not ordered by size. **Item 11 is now CLOSED and it cost only 2.5% of the
+drift**, so do not expect the rest to be cheap either: that was `rc_of` not being a function of the matter
+present, and unifying five copies into `kernels3d/rc_shared.glsli` moved the number very little while
+changing the planet a lot (see item 4). **ITEM 10 IS THE ONE TO TAKE NEXT:**
 
 - **#10 — GROUNDWATER HAS NO HEAT CAPACITY, AND IT IS MOST OF THIS PLANET'S WATER.** `rc_of` counts the
-  `water` channel and not `soil`, and `soil` is the aquifer: `soil_total` 2935 against `water_total` 1311.
-  The ledger's note on it — *"This gauge was built to find unbooked terms and this is the one it found."*
-- **#11 — `rc_of` IS NOT A FUNCTION OF THE MATTER PRESENT.** A solid cell returns `RC_ROCK` whole, an open
-  cell returns the volume-fraction mix, and `solid` is `rock_fill >= 0.5`. So one unit of bedrock split
-  0.4/0.6 across two cells holds 3.41e6 J/m³K and split 0.5/0.5 holds 4.87e6 — **a 43% jump in stored heat
-  for no change of mass**, on a planet that crosses that threshold constantly (`rock_grows` 5611 /
-  `rock_shrinks` 6056 / `crust_moved` 3926). A step function in heat capacity is a Rule Zero violation on
-  its own terms, drift gauge or no. `energy_cap_legs` is published so this is readable rather than inferred.
+  `water` channel and not `soil`, and `soil` is the aquifer: `soil_total` ~2830 against `water_total` ~1310.
+  More than twice as much of this world's water is thermally invisible as is visible, and a unit of water
+  that infiltrates from the surface deletes its own thermal mass from the planet. The ledger's own note:
+  *"This gauge was built to find unbooked terms and this is the one it found."* **Now that there is exactly
+  one `rc_of`, adding `soil` to it is a one-line change in one file** — which is the point of having
+  unified it. The cost is that the aquifer's carriers must be bound into every kernel that includes it, the
+  same way lava/fuel/biomass/detritus were.
+- **#9 got WIDER, not narrower.** `MaterialFieldInject3D._cell_heat_capacity` mixes water and air only,
+  against a shared `rc_of` that now also counts lava, snow and organic. It cannot call the shared definition
+  because that is GLSL and this is GDScript — so it is a THIRD transcription waiting to drift. Either derive
+  both from `LASubstances` or delete the injection's private model.
 
-Then latent heat (item 4), the largest single missing term.
+Then latent heat (item 5), the largest single missing term.
 
 > **READ THE TOTAL, NOT THE RATE TIMES A STEP COUNT.** *(Corrected 2026-08-08. This said "1.07e-4 per step,
 > 6.3% over 590 steps", which multiplied `energy_run_drift_per_step` by `field_step`. Those are different
@@ -449,7 +493,7 @@ Still settled, and each is one grep from being falsified if you doubt it:
 ## 0.5 — THE LIVING CREATURES — PARKED
 
 Does not begin until the planet is locked down. Plans: `docs/0.5_CREATURE_FEATURES.md`,
-`docs/0.5_PARALLELIZATION_GUIDE.md`. Note the food web (item 8) has never been MEASURED and is the first thing to
+`docs/0.5_PARALLELIZATION_GUIDE.md`. Note the food web (item 9) has never been MEASURED and is the first thing to
 establish, not the last.
 
 ## 0.6 — THE FULL SOLAR SYSTEM

@@ -20,11 +20,13 @@ extends RefCounted
 ##
 ##   energy_stock = Σ over EVERY cell, rock and void, of  rc(cell) * cell_size³ * (T + 273.15)   [joules]
 ##
-## `rc(cell)` is the kernels' own `rc_of_cell` (heat3d_solar_sphere3d.glsl:167-176, identical text in
-## heat_sphere3d.glsl `rc_of` and heat3d_buoyancy_sphere3d.glsl `rc_of`): a solid cell is rock, an open cell
-## is the volume-fraction mix of rock_fill / water / snow with air filling the rest. Reading the same
+## `rc(cell)` is the kernels' own `rc_of` — kernels3d/rc_shared.glsli, ONE definition included by all five
+## heat/reaction kernels since 2026-08-09 — transcribed here into GDScript: the volume-fraction mix of
+## rock_fill+lava / water / snow / organic with air filling the rest, and NO solid branch. Reading the same
 ## expression the kernels read is the whole point — a stock computed from a different capacity model would
-## measure the disagreement between two models rather than the physics.
+## measure the disagreement between two models rather than the physics. *(That is not hypothetical: when the
+## kernels were unified this file was still on the old composition for one commit, which would have made
+## `energy_drift` report the model mismatch. This transcription and rc_shared.glsli must change together.)*
 ##
 ## THE REFERENCE IS ABSOLUTE ZERO, NOT 0 °C, and that is not a formality. The stock is an internal energy in
 ## the constant-heat-capacity idealisation, so it must be referenced to the only non-arbitrary zero there is.
@@ -76,8 +78,9 @@ extends RefCounted
 ## ===== WHAT IS *NOT* BOOKED. THIS LIST IS THE POINT, NOT A FAILURE. =======================================
 ##
 ## THIS LIST IS STAGE 1'S WORK QUEUE. The gauge reads the sum of these as `energy_residual_*` and it is
-## supposed to be large; a ledger that appeared to close while they were live would be lying. Items 10 and
-## 11 are the two the gauge itself found and the two worth taking first — they are not ordered by size.
+## supposed to be large; a ledger that appeared to close while they were live would be lying. It is not
+## ordered by size. ITEM 10 is the one to take next: it is the biggest thing the gauge itself found, and
+## item 11 — the other one it found — is now closed and cost only 2.5% of the drift.
 ## *(Preamble corrected 2026-08-09. It read "Four other tracks are closing these right now and their terms
 ## do not exist on this branch", which stopped being true when those tracks landed or were held back, and
 ## which reads to the next agent as "someone else has this".)*
@@ -104,8 +107,11 @@ extends RefCounted
 ##   8. WATER VAPOUR'S SENSIBLE HEAT — `moisture` appears in no `rc_of`, so the capacity model does not hold
 ##      it. This is the `energy_capacity_*` leg above, which is why that leg is published separately.
 ##   9. THE INJECTION'S OWN CAPACITY MODEL disagrees with the kernels'. MaterialFieldInject3D
-##      ._cell_heat_capacity (:157-168) mixes water and air only; `rc_of` mixes rock_fill, water, snow and
-##      air. So a booked joule and the stock's response to it differ for any cell holding snow or partial rock.
+##      ._cell_heat_capacity (:157-168) mixes water and air only; `rc_of` now mixes rock_fill, lava, water, snow
+##      AND organic (rc_shared.glsli), so the gap this entry describes got WIDER when that was unified — a
+##      booked joule and the stock's response to it differ for any cell holding snow, lava, litter or
+##      partial rock. The injection path should call the shared definition; it cannot today because it is
+##      GDScript and rc_shared.glsli is GLSL. That is the actual work item.
 ##  10. GROUNDWATER HAS NO HEAT CAPACITY, AND IT IS MOST OF THIS PLANET'S WATER. `rc_of` counts the `water`
 ##      channel and not the `soil` one, and `soil` is the aquifer — LAMaterialFieldLedger3D sums
 ##      water + soil + snow + moisture as h2o_total, and on the baseline run `soil_total` is 2935 against a
@@ -115,15 +121,20 @@ extends RefCounted
 ##      thermal reservoir, it is why groundwater temperature is stable through a diurnal cycle, and it is the
 ##      medium a hot spring is made of. This gauge was built to find unbooked terms and this is the one it
 ##      found; see the measurement below.
-##  11. `rc_of` ITSELF IS NOT A FUNCTION OF THE MATTER PRESENT, and this is a defect in the capacity model
-##      rather than in any one kernel — the same expression stands in all three (heat3d_solar_sphere3d.glsl
-##      :167, heat_sphere3d.glsl:126, heat3d_buoyancy_sphere3d.glsl:73). A SOLID cell returns RC_ROCK whole,
-##      an open cell returns the volume-fraction mix, and `solid` is `rock_fill >= 0.5`. So one unit of
-##      bedrock split 0.4/0.6 across two cells holds 0.4*RC + RC = 3.41e6 J/m³K and split 0.5/0.5 holds
-##      2*RC = 4.87e6 — a 43% jump in stored heat for no change of mass, and this planet crosses that
-##      threshold constantly (`rock_grows` 5611 / `rock_shrinks` 6056 / `crust_moved` 3926 on the baseline
-##      run). `energy_cap_legs` is published so this is readable rather than inferred: it splits the grid's
-##      total J/K by carrier, against `energy_cap_legs_first`.
+##  11. ~~`rc_of` ITSELF IS NOT A FUNCTION OF THE MATTER PRESENT~~ — CLOSED 2026-08-09, and it was WORSE
+##      than this entry said. It read "the same expression stands in all three", naming heat3d_solar,
+##      heat_sphere3d and heat3d_buoyancy. It was neither the same expression nor only three: `rc_of` was
+##      written FIVE times in FOUR different formulas, and heat3d_cool — the kernel whose whole job is
+##      radiative cooling — had no SNOW term, while three others had no LAVA term and four had no ORGANIC
+##      term. A snowy cell was mostly air to one kernel and snow to another. There is one definition now,
+##      kernels3d/rc_shared.glsli, included by all five, and the `solid` early-return that caused the 43%
+##      capacity step at rock_fill 0.5 is gone with it.
+##
+##      IT MOVED THE DRIFT 2.5% (mean -1.177e16 -> -1.148e16 over three runs per arm), so it was not the
+##      leak. Item 10 is still the one to take. What it DID move: snow_cells 1170 -> 76, because a snowpack
+##      cell had been reading as air, 500x too easy to cool. Kept here rather than deleted because the
+##      "same expression in all three" framing is exactly the kind of claim that stops the next person
+##      looking.
 ##
 ## AND `energy_clamped_cells` CANNOT BE FOLDED IN AS A BOOKED LOSS. It was asked for and it does not fit,
 ## for two independent reasons. (a) It counts the wrong event: LAMaterialFieldEnergyBudget3D:326 tests the
@@ -205,8 +216,14 @@ extends RefCounted
 ## where the baseline was actually taken, so this is checkable rather than trusted.
 const BASELINE_SKIP_SAMPLES: int = 2
 
-## The one demand-gated channel the capacity mix needs. Read-only, at the drain.
-const LEGS: PackedStringArray = ["rock_fill"]
+## The demand-gated channels the capacity mix needs. Read-only, at the drain — a gauge may never call
+## request_channel, which decides CPU-mirror residency and is therefore not a read at all.
+## *(Widened 2026-08-09 from just `rock_fill`.)* The kernels' `rc_of` moved into kernels3d/rc_shared.glsli and
+## now counts lava and organic matter as well as rock/water/snow. THIS MODULE TRANSCRIBES THAT EXPRESSION, and
+## its own header says why: a stock computed from a different capacity model measures the disagreement between
+## two models rather than the physics. So when the shared one gained carriers, this had to gain the same ones
+## or the drift it reports would have been the mismatch.
+const LEGS: PackedStringArray = ["rock_fill", "lava", "fuel"]
 
 var _f = null                                # back-reference to the owning LAMaterialField3D
 
@@ -268,11 +285,20 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	# a stale mirror is a number with no provenance. The flag now reports whether the PROBE delivered it.
 	var probe_rock: bool = legs.has("rock_fill")
 	var rock_fill: PackedFloat32Array = legs.get("rock_fill", _f._rock_fill)
+	var lava: PackedFloat32Array = legs.get("lava", _f._lava)
+	var fuel: PackedFloat32Array = legs.get("fuel", _f._fuel)
 	var water: PackedFloat32Array = _f._water
 	var snow: PackedFloat32Array = _f._snow
+	# biomass and detritus are NOT demand-gated (MaterialSphereGPU3D.SINGLE_CHANNELS, always mirrored), so
+	# they need no probe leg. lava and fuel are, hence their presence in LEGS above.
+	var biomass: PackedFloat32Array = _f._biomass
+	var detritus: PackedFloat32Array = _f._detritus
 	var has_rock: bool = probe_rock and rock_fill.size() == cc
+	var has_lava: bool = legs.has("lava") and lava.size() == cc
+	var has_fuel: bool = legs.has("fuel") and fuel.size() == cc
 	var has_water: bool = water.size() == cc
 	var has_snow: bool = snow.size() == cc
+	var has_org: bool = biomass.size() == cc and detritus.size() == cc
 
 	var depth: int = _f._dim_y
 	var have_prev: bool = _prev_rc.size() == cc and _prev_tk.size() == cc
@@ -292,28 +318,27 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	var rc_rock: float = LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
 	var rc_water: float = LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
 	var rc_snow: float = LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K
+	var rc_org: float = LAPhysical.VOL_HEAT_CAP_ORGANIC_J_M3K
 	for c in cc:
-		# heat3d_solar_sphere3d.glsl:167-176 rc_of_cell(), transcribed. Fractions of the CELL VOLUME, air
-		# filling whatever is left; a solid cell is rock outright.
-		var rc: float = rc_rock
-		if solid[c] == 0:
-			var f_rock: float = clampf(rock_fill[c], 0.0, 1.0) if has_rock else 0.0
-			var f_water: float = clampf(water[c], 0.0, 1.0) if has_water else 0.0
-			var f_snow: float = clampf(snow[c], 0.0, 1.0) if has_snow else 0.0
-			var f_air: float = maxf(0.0, 1.0 - f_rock - f_water - f_snow)
-			rc = rc_air * f_air + rc_rock * f_rock + rc_water * f_water + rc_snow * f_snow
-			cap_rock += rc_rock * f_rock
-			cap_water += rc_water * f_water
-			cap_snow += rc_snow * f_snow
-			cap_air += rc_air * f_air
-		else:
-			# A SOLID CELL IS SCORED AS WHOLE ROCK, not by its fraction — that is `rc_of`'s own rule and it is
-			# transcribed rather than corrected here. It means the planet's total heat capacity is not a
-			# function of the matter present: the same bedrock mass spread as 0.4/0.6 across two cells holds
-			# 3.41e6 J/m³K and as 0.5/0.5 holds 4.87e6, a 43% jump for no change of mass. See the header.
-			cap_rock += rc_rock
-			if c % depth == 0:
-				shell_solid += 1
+		# kernels3d/rc_shared.glsli rc_of(), transcribed. Fractions of the CELL VOLUME, air filling whatever
+		# is left. NO `solid` BRANCH — the shared definition dropped it on 2026-08-09 and so does this. A cell
+		# that really is full rock still scores RC_ROCK because f_rock reaches 1.0 on its own; what is gone is
+		# the 43% capacity STEP that used to fire when rock_fill crossed 0.5, on a planet that crosses it
+		# thousands of times a run.
+		var f_rock: float = clampf((rock_fill[c] if has_rock else 0.0) + (lava[c] if has_lava else 0.0), 0.0, 1.0)
+		var f_water: float = clampf(water[c], 0.0, 1.0) if has_water else 0.0
+		var f_snow: float = clampf(snow[c], 0.0, 1.0) if has_snow else 0.0
+		var f_org: float = 0.0
+		if has_org:
+			f_org = clampf((fuel[c] if has_fuel else 0.0) + biomass[c] + detritus[c], 0.0, 1.0)
+		var f_air: float = maxf(0.0, 1.0 - f_rock - f_water - f_snow - f_org)
+		var rc: float = rc_air * f_air + rc_rock * f_rock + rc_water * f_water + rc_snow * f_snow + rc_org * f_org
+		cap_rock += rc_rock * f_rock
+		cap_water += rc_water * f_water
+		cap_snow += rc_snow * f_snow
+		cap_air += rc_air * f_air
+		if solid[c] != 0 and c % depth == 0:
+			shell_solid += 1
 		var tk: float = temp[c] + LAPhysical.KELVIN_OFFSET
 		rc_sum_t += rc * tk
 		if have_prev:
@@ -332,7 +357,8 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	}
 	out["energy_stock"] = stock
 	out["energy_stock_cells"] = cc
-	out["energy_stock_live"] = {"rock_fill": has_rock, "water": has_water, "snow": has_snow}
+	out["energy_stock_live"] = {"rock_fill": has_rock, "water": has_water, "snow": has_snow,
+		"lava": has_lava, "fuel": has_fuel, "organic": has_org}
 	# The grid's total heat capacity, in J/K, and which substance holds it. `energy_capacity_w_m2` is the RATE
 	# this moves at; these say what moved.
 	out["energy_cap_j_k"] = (cap_rock + cap_water + cap_snow + cap_air) * volume
