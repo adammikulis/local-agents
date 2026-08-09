@@ -515,6 +515,18 @@ rediscover.
   `const PackedStringArray` literal being illegal; `ResourceLoader.exists()` not seeing a `.json`).
   Run the command, quote the output, then change the code.
 
+## HOW GOOD IS THE PHYSICS? `PHYSICS_RUBRIC.md` — and the score is a number, not a judgement.
+
+Six criteria, 0-4, scored on every landing with a dated row appended. `scripts/physics_score.sh` COMPUTES
+criteria 1 (matter conserved, in moles), 2 (energy booked — the residual, not the drift) and 5 (how much the
+seed still asserts) straight out of `SIM_REPORT`; 3, 4 and 6 are audit counts and are hand-entered, so they
+are the ones to distrust. It exists because the person scoring the work is the person who did it — and the
+very first hand-total was wrong by one, in the hand-entered half.
+
+**Opening score 7 / 24 (2026-08-09).** Read it before planning substrate work: it says which criterion is
+binding, and it records two hard couplings — seed minimality cannot pass 2 until energy is booked, and
+matter conservation is gated on per-pass attribution existing.
+
 ## RULE ZERO — REALISM IS THE FIRST GOAL. ASK "IS THIS HOW THE WORLD WORKS?" BEFORE ANYTHING ELSE.
 
 **This outranks every other rule in this file.** Before you write, review, or accept any model, constant,
@@ -685,6 +697,30 @@ failure mode, and it is the most common one.
   approach and what it unlocks, and ask. Do **not** silently work around it (delivering a lesser result
   the user didn't know was a compromise), and do **not** unilaterally rip it out either. The user will
   usually say "yes, change it" — but it's their call, and flagging it is how big upgrades get found.
+- **NEVER, EVER CHOOSE SOMETHING BECAUSE THE OLD BROKEN SYSTEM HAD IT THAT WAY.** *(Maintainer, 2026-08-09,
+  and it outranks the rule below because it is the reason that rule keeps being needed.)* Compatibility with
+  a wrong model is not a reason. "Parity with what was there" is not a reason. "So the existing tuning still
+  sees familiar numbers" is not a reason. **The test: if the only answer to "why is it this value, or this
+  shape?" is "that is what it was", it is not a reason** — go and find out what physics says, or delete it.
+  - **It is not abstract, and the cost is not cosmetic. The worked examples are all live:**
+    - `wind_pressure_sphere3d.glsl` `G_ACC = 33.5`, whose own comment says it was chosen *"because that is
+      where the old P0 sat — so pass B's ACCEL/DAMP tuning still sees gradients of a familiar size."* A
+      tuning convenience inherited from a superseded pass is why the planet's pressure is in arbitrary
+      units instead of pascals, and therefore why **every pressure-dependent law in the substrate is
+      unreachable** — including the boiling point, on a project whose target is a 100-bar steam envelope.
+    - `GATE_NOT_RAINING`, labelled in-tree as *"dust_loft raining flag parity"* — parity with a deleted
+      kernel's fudge, and now a GLOBAL boolean gating a per-cell process.
+    - `heat3d_cool_sphere3d.glsl`'s `WATER_MIN = 0.05`, *"matches atmos_evap_sphere3d.glsl's own wet-cell
+      floor"* — a file that no longer exists.
+    - `atmos_rain_sphere3d.glsl`'s `boil` binding, kept permanently zeroed *"only so the UNCHANGED
+      atmos_rain_sphere3d reads all-zeros."*
+  - **The subtle form, which is the one that actually gets written: preserving a SHAPE rather than a
+    value.** Keeping `boil_c` as a scalar "reference point" in the substance table and building the
+    saturation curve beside it preserved the defect and added a second thing to maintain — the honest move
+    was to ask what the table should contain. A relation added next to the scalar it replaces, with every
+    consumer still on the scalar, is worse than not having written it.
+  - **This composes with, and precedes, the rule below.** That one says the current shape is not a law.
+    This one says the current shape is not a REASON either, even when nothing is blocking you.
 - **"X can't, because Y" is almost always FALSE HERE. Y is a fact about how the code is written today,
   and the code is yours to change.** Catch yourself writing "this can't use that because it needs
   P, Q, R" and stop: you have just described the current shape and promoted it to a law. The question

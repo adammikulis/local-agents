@@ -89,6 +89,13 @@ with a PER-PASS probe. Every other one has a global total, which says a number m
 
 ---
 
+## HOW GOOD IS IT? — `PHYSICS_RUBRIC.md`, scored 7/24 on 2026-08-09
+
+Six criteria with a dated score history; `scripts/physics_score.sh` computes the measurable half. Three
+audits (constants, reaction engine, kernels) produced the counts behind criteria 3, 4 and 6. The ordering
+of work below follows from it rather than from judgement: **energy must be booked before the seed can
+shrink**, because an ocean condensing out of a steam atmosphere IS a latent-heat process.
+
 ## HOW TO RUN AND MEASURE
 
 Never launch godot windowed directly — it steals the maintainer's keyboard focus. `--fixed-fps 60` is an
