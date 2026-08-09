@@ -188,6 +188,28 @@ When removing files:
     picked. Read the findings yourself and fix them directly.
   - Adversarial verification is still right for code and for audits, where a finding is one falsifiable
     claim about behaviour that a command can settle. Keep it there.
+- **NEVER PRESENT A MENU WHEN ONE OPTION IS CORRECT — AND EFFORT IS NEVER A TIEBREAKER.** Decide by
+  correctness alone, say the answer in ONE sentence, and build it. "Contained", "blast radius",
+  "multi-session", "needs re-baselining", "reaches N files", "a bigger change" are facts about SCHEDULE.
+  State them AFTER the decision, never as inputs to it, and never as grounds for recommending the lesser
+  option. **The tell: if your options differ mainly in how much work they are, you have already failed —
+  delete the menu.** A stopgap proposed because the correct thing is more work is the exact failure this
+  rule exists to stop, and it is the DEFAULT failure: the cheap option always has the better-sounding
+  justification, because "contained" and "low risk" are the vocabulary of not doing the work.
+  `AskUserQuestion` is for what only the maintainer knows — what he wants the world to BE like. It is
+  never for "should I do the correct thing or the cheap thing", and a question of that shape is not a
+  question, it is a request for permission to do less.
+  - **EXPLAIN THE DEFECT IN PLAIN LANGUAGE, NAMING THE REAL-WORLD THING, BEFORE ANY `file:line`.** A
+    maintainer who cannot picture the physics cannot catch you getting it wrong — and catching it is
+    what he has actually been doing, every time (see Rule Zero's list, all six found by him). An opening
+    paragraph of identifiers and binding indices is not a summary, it is a way of not being checked.
+    Say "a patch of soil is treated as solid rock when it is really 60% grains and 40% water and air"
+    FIRST; the citations come after, for the agent who has to go fix it.
+  - *(Added 2026-08-09, after finding that `rock_fill` asserts a regolith cell is 100% rock while
+    `soil_sphere3d.glsl` computes 40% pore space for that same cell — and then offering a three-option
+    menu with the correct fix placed second and the cheaper one labelled "Recommended". The maintainer's
+    words: "stop punting based on effort, stop pitching stopgaps based on effort." There was already a
+    memory saying decide by correctness alone. It did not hold, which is why the rule is HERE.)*
 - **PRE-WRITE CONTRACTS to keep the pipeline full.** A sub-agent contract is: the goal, the exact
   files/records to add/change/DELETE, the shared interface it must honor, and a **hard behavioural
   acceptance gate** (exact run command + pass thresholds; "commit only if it passes, else report the
@@ -310,9 +332,15 @@ When removing files:
     genuinely fixed code the spread is 3-6 units on ~275 (267.2 / 272.4 / 272.7 and 278.2 / 280.2 / 275.0,
     three runs each). Nearly a whole false rule was written from that batch. Commit or stash first, then run.
   - **AND `env FOO=` COUNTS AS SET.** The same batch silently ran with `LA_SOIL_BUDGET` armed because the
-    runner passed `LA_SOIL_BUDGET="${LA_SOIL_BUDGET:-}"` and the probe gates on `OS.has_environment`, which
+    runner passed `LA_SOIL_BUDGET="${LA_SOIL_BUDGET:-}"` and the probe gated on `OS.has_environment`, which
     is true for an empty value. Gate diagnostics on `OS.get_environment(...) != ""`, and do not let a runner
-    pass through variables the caller did not set.
+    pass through variables the caller did not set. *(Tense corrected 2026-08-09: this read "the probe gates
+    on `OS.has_environment`", present tense, and it has not been true since 2026-08-08 — all four field
+    diagnostics route through `MaterialFieldSphereStep3D._armed()` at `:88-89`, which IS
+    `OS.get_environment(name) != ""`. A fixed bug written in the present tense sends the next agent to
+    re-fix it. The RULE stands and is why `_armed()` exists; `OS.has_environment` is still live elsewhere —
+    `game/VoxelWorld.gd:121,127-134`, `creatures/sim/SimAblate.gd:20,61,92,106`, `SimRng.gd:28,128` — and
+    those are the same hazard, unfixed.)*
 - **AN INSTRUMENT THAT CHANGES RESIDENCY IS NOT AN INSTRUMENT — a gauge may NEVER call
   `request_channel`.** *(Added 2026-08-03.)* `LAMaterialSphereGPU3D.request_channel` looks read-only and is
   not: it decides which GPU channels get copied back into the CPU MIRRORS, and the simulation's own write
