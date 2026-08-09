@@ -164,8 +164,12 @@ const float SEDIMENT_DENSITY = 2000.0;  // LAPhysical.SEDIMENT_DENSITY_KG_M3 —
 const float RC_AIR   = 1186.0;          // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
 const float RC_ROCK  = 2.436e6;         // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
 const float RC_WATER = 4.171e6;         // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
-// Dry cellulosic fuel/litter/living tissue — one material here (LASubstances "cellulose").
 const float RC_ORGANIC = 7.5e5;   // LAPhysical.VOL_HEAT_CAP_ORGANIC_J_M3K
+// The oxygen concentration below which a flame goes out however hot it is, in this channel's units of
+// ambient air: the measured limiting oxygen concentration over air's own mole fraction.
+const float LOC_MOLE_FRAC = 0.15;          // LAPhysical.LIMITING_OXYGEN_CONCENTRATION_FRAC
+const float AIR_O2_MOLE_FRAC_K = 0.20946;  // LAPhysical.AIR_MOLE_FRAC_O2
+const float O2_FLAMMABILITY_LIMIT = LOC_MOLE_FRAC / AIR_O2_MOLE_FRAC_K;
 
 #define CONST_FRAC             0
 #define BILINEAR               1
@@ -378,20 +382,6 @@ void bedrock_below_add(uint i, float v) {
 }
 
 // See the RC_* block above. Air, rock (bedrock plus whatever is molten) and liquid water by volume fraction.
-// A CELL'S HEAT CAPACITY IS THE CAPACITY OF WHAT IS IN IT, AND THAT INCLUDES THE FUEL.
-//
-// *(ORGANIC MATTER ADDED 2026-08-08, and its absence was a 29x error on the one configuration that matters.)*
-// This summed air, rock and liquid water only — copied from heat3d_cool_sphere3d.glsl, where it is defensible
-// because that kernel only ever runs above the boiling point of water. Here it decides how hot a burning cell
-// gets, and a burning cell is by definition one holding fuel. A cell carrying the seeded 0.045 units of fuel
-// carries 0.045 * 500 = 22.5 kg/m3 of dry wood, which at 1500 J/kg/K is 33750 J/m3/K — 28x RC_AIR, and the
-// dominant term by an order of magnitude. Omitting it put the flame temperature 29x high: the enthalpy of one
-// charge of ambient air divided by air alone is 856 K, and divided by the air PLUS the wood it is burning is
-// 29 K. The old fire kernel sized the same omission at 34%, but that was under a 1:1 fuel:O2 channel
-// assumption which is itself wrong by 1951x, so the real figure was always this one.
-//
-// Living BIOMASS and DETRITUS are the same material as FUEL (LASubstances "cellulose") and are counted with
-// it: a cell full of leaf litter has the thermal mass of leaf litter whether or not it is cured to burn.
 float rc_of(uint i) {
 	float f_rock = clamp(rock_fill[i] + lava[i], 0.0, 1.0);
 	float f_water = clamp(water[i], 0.0, 1.0);
@@ -534,8 +524,8 @@ void main() {
 	if (solid[i] != 0.0) {
 		return;                             // reactions run in OPEN cells only
 	}
-	float fuel_before = fuel[i];            // for the fire instrument; combustion is fuel's only sink
-	float o2_before = o2[i];                // the oxygen that bounded this step's burn — the instrument's denominator
+	float fuel_before = fuel[i];            // combustion is fuel's only sink
+	float o2_before = o2[i];                // the oxygen the fire instrument below measures against
 
 	for (uint r = 0u; r < params.n_records; r++) {
 		Reaction rc = recs[r];
@@ -644,36 +634,22 @@ void main() {
 	// 0.12 per step at full intensity, and LAMaterialFieldQueries3D.FIRE_PRESENT still reads 0.02).
 	// Nothing in the physics reads this back.
 	if (fuel_before > 0.0) {
-		// FIRE IS THE BURN RATE AS A FRACTION OF THE MOST THIS CELL COULD BURN, not a fraction of its fuel.
+		// FIRE IS THE FRACTION OF THIS CELL'S USABLE OXYGEN THAT COMBUSTION CONSUMED THIS STEP.
 		//
-		// *(Corrected 2026-08-08. It was `(fuel_before - fuel) / fuel_before`, and that quantity cannot cross
-		// the threshold its consumers test against. The extent is oxygen-capped at
-		// (1 - OXYGEN_QUENCH) / o2_per_fuel = 1.455e-4, so against the seeded fuel load of 0.045 it maxes at
-		// 3.2e-3 — six times below the 0.02 that `MaterialFieldQueries3D.FIRE_PRESENT` and
-		// `fungus_sphere3d.FIRE_MIN` both call burning. `fire_cells`, `fire_peak`, `is_burning` and fungus
-		// `scorched` would have read "nothing is on fire" through an entire burn. It was also INVERTED in
-		// fuel: dividing by the fuel present made a well-stocked fire read LOWER than an exhausted one.)*
+		// Usable means above the flammability limit — the concentration below which a flame goes out however
+		// hot it is (LAPhysical.LIMITING_OXYGEN_CONCENTRATION_FRAC, ~15 vol% for cellulosic fuel, which in
+		// this channel's units of ambient air is 0.716). So 1.0 means "burning as hard as this cell's air
+		// allows", which is what an intensity should mean and what a threshold on it can test.
 		//
-		// The denominator is what the cell's own air can support — the same oxygen cap the extent hit — so
-		// 1.0 means "burning as hard as this cell's oxygen allows", which is what an intensity should mean
-		// and what a threshold on it can sensibly test. It is bounded, it rises with the reaction, and it
-		// does not depend on how much fuel is stacked in the cell.
-		// The ceiling is the same one the reactant cap and the quench floor between them imposed: the oxygen
-		// this cell had, less the flammability limit it may not draw below, divided by the oxygen one unit
-		// of fuel consumes. Read off the record so it cannot drift from the cap that actually bound.
-		float o2_head = o2_before;
-		float o2_coeff = 1.0;
-		for (int q = 0; q < rc.n_react; q++) {
-			if (rc.react_slot[q] == O2) {
-				o2_coeff = max(rc.react_coeff[q], 1e-9);
-				if (rc.quench_slot == O2) {
-					o2_head = max(0.0, o2_before - rc.quench_min);
-				}
-			}
-		}
-		float burn_ceiling = o2_head / o2_coeff;
-		fire[i] = (burn_ceiling > 0.0)
-			? clamp((fuel_before - fuel[i]) / burn_ceiling, 0.0, 1.0)
-			: 0.0;
+		// *(Corrected twice. It was first `(fuel_before - fuel) / fuel_before`, which the oxygen cap bounds
+		// at 3.2e-3 against the 0.02 that MaterialFieldQueries3D.FIRE_PRESENT and fungus_sphere3d.FIRE_MIN
+		// both call burning — so every fire gauge would have read "nothing is alight" through an entire
+		// burn, and a well-stocked fire read LOWER than an exhausted one. The first repair read the
+		// coefficients off `rc` AFTER the record loop, where `rc` holds whichever record ran last rather
+		// than combustion; that wrote garbage into a channel fungus_sphere3d gates spread on, and the
+		// planet melted — magma_cells 3 -> 191, lava_cells 1 -> 425, snow and biomass to zero. Measuring
+		// the oxygen directly needs no record field and cannot pick up the wrong one.)*
+		float o2_usable = max(0.0, o2_before - O2_FLAMMABILITY_LIMIT);
+		fire[i] = (o2_usable > 0.0) ? clamp((o2_before - o2[i]) / o2_usable, 0.0, 1.0) : 0.0;
 	}
 }
