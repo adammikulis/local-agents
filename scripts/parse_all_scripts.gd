@@ -54,6 +54,16 @@ func _initialize() -> void:
 		"failures": Array(failures),
 	}
 	print("PARSE_ALL=%s" % JSON.stringify(payload))
+
+	# Zero scripts is never a pass. _collect() returns quietly when the root does not exist, so a typo in
+	# --root, a staging step that failed to copy, or a directory rename all yield checked:0 / failed:0 —
+	# which reads exactly like a clean sweep to every caller. Exit 2 (the repo's "gate could not run"
+	# code, distinct from a real failure's 1) so the callers' own guards are a second line and not the
+	# only one.
+	if scripts.size() == 0:
+		printerr("parse_all_scripts: found no .gd files under %s — nothing was parsed." % root)
+		quit(2)
+		return
 	quit(1 if failures.size() > 0 else 0)
 
 
