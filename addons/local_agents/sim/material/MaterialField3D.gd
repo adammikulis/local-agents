@@ -643,9 +643,10 @@ func water_force_at(pos: Vector3) -> Vector3:
 	return _queries.water_force_at(pos)
 
 
-## Register a persistent spring: `rate` water mass per second injected at `pos` each step.
-func add_source(pos: Vector3, rate: float) -> void:
-	_sources.append({"pos": pos, "rate": rate})
+# `add_source(pos, rate)` IS DELETED — a scripted persistent spring, superseded by a real one. Springs are
+# emergent now: soil_sphere3d exfiltrates groundwater wherever the water table meets the surface, at a rate
+# the head gradient sets, and which springs run hot falls out of the geotherm rather than being placed. A
+# fixed-rate injector beside that is a second, unconserved way to make water appear.
 
 
 # --- Live frame loop + fluid-surface rendering ------------------------------
@@ -749,15 +750,11 @@ func _compute_regolith() -> void:
 	_regolith_mod.compute()
 
 
-## The regolith permeability mask (1 = groundwater-bearing rock). Uploaded to the GPU soil pass.
-func regolith_mask() -> PackedByteArray:
-	return _regolith
+# `regolith_mask()` and `grain_field()` ARE DELETED. Their docstrings said "uploaded to the GPU soil pass",
+# and that was not true: LAMaterialSphereGPU3D._seed_regolith reads `_field._regolith` directly. They were a
+# second path to the same two arrays that nothing took, on a hub already over its size limit.
 
 
-## Per-cell representative grain diameter in metres (0 outside the regolith band). Uploaded once beside the
-## permeability mask; the aquifer kernel turns it into hydraulic conductivity through Kozeny-Carman.
-func grain_field() -> PackedFloat32Array:
-	return _grain
 
 ## Release the GPU driver's local RenderingDevice while the tree is still up — freeing every RID cleanly so
 ## the device reports 0 leaked RIDs. (The `rc=134` MoltenVK `recursive_mutex` abort at NSApplication-terminate
@@ -909,9 +906,9 @@ func updraft_at(pos: Vector3) -> float:
 func wind3_at(x: float, y: float, z: float) -> Vector3:
 	return _queries.wind3_at(x, y, z)
 
-## The cloud/fog grids project to (dim_x × dim_z) so CloudLayer's texture maps 1:1 with the 2.5D field.
-func grid_dim() -> int:
-	return _dim_x
+# `grid_dim()` IS DELETED. It existed so "CloudLayer's texture maps 1:1 with the 2.5D field" — there is no
+# CloudLayer and no 2.5D field; both survive only in gravestone comments. Cloud is derived from `moisture`
+# against the saturation curve now and has no grid of its own.
 
 func grid_half_extent() -> float:
 	return _half_extent
@@ -939,9 +936,10 @@ func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if _inject != null:
 		_inject.add_vapor(world_pos, amount, radius)
 
-## Cool a volume (negative heat) — a storm's cold aloft. Thin helper over add_heat.
-func add_cooling(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
-	add_heat(world_pos, -absf(amount), maxf(0.0, radius))
+# `add_cooling()` IS DELETED, and it would have been a conservation defect the moment anything called it. It
+# was "a thin helper over add_heat" with a negated amount — and `add_heat` is the path that NAMES NO SOURCE
+# (booked separately as `heat_unsourced_dc` precisely because it cannot say where the energy came from). A
+# helper that makes heat vanish with no receiver is that same hole in the other direction.
 
 ## Inject electrification charge at a world point (+`radius`) — an explicit charge seed. Real (module, dirty-gated).
 func add_charge(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
@@ -1264,9 +1262,8 @@ func shock_cell_count() -> int:
 	return _shock_mod.shock_cell_count() if _shock_mod != null else 0
 
 
-# Box dynamic-water surface mesh render adapter retired; the cubed-sphere renders water via the ocean shell.
-func rebuild_surface() -> void:
-	pass
+# `rebuild_surface()` IS DELETED. Its own comment already said "box dynamic-water surface mesh render adapter
+# retired" and its body was `pass`; the cubed sphere renders water through the ocean shell.
 
 
 ## Central-telemetry provider (registered once with LASimReport): this field's channel aggregates, in ONE
