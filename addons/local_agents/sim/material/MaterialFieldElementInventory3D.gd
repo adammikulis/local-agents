@@ -305,6 +305,13 @@ func report(step_index: int) -> Dictionary:
 		var moles: float = float(open_by_channel[ch]) * float(mpu.get(int(slots.get(ch, -1)), 1.0))
 		for el in parts:
 			elements[el] = float(elements.get(el, 0.0)) + moles * float(parts[el])
+	# `element_*` IS THE ATMOSPHERE-AND-BIOSPHERE BOOK, and it is named that in the header for a reason: it
+	# sums `open_by_channel` above, which is the gas and organic-matter channels and nothing else. The
+	# LITHOSPHERE is on its own book (LAMaterialFieldMineralBudget3D publishes `lith_element_*`) because a cell
+	# of bedrock holds 24965 mol of silicate against a cell of air's 0.017 mol of CO2 — one combined
+	# `element_O` would be crustal oxygen plus rounding error, and the signal this ledger exists to watch would
+	# be gone. The HYDROSPHERE is on a third (LAMaterialFieldLedger3D's `h2o_total`), which is why `element_H`
+	# here counts only the hydrogen bound in organic matter.
 	for el in elements:
 		out["element_" + String(el)] = snappedf(float(elements[el]), 0.01)
 	# NITROGEN, over every pool that holds it. `fert_total` alone answers "how much nutrient can a plant take

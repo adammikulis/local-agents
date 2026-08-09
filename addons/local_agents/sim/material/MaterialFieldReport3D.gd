@@ -391,5 +391,13 @@ func _heavy_block() -> Dictionary:
 	#            downstream lost a key) PLUS the drift, the source-corrected net rate, and both masks. It is a
 	#            NET REDUCTION in work here: one pass instead of the eleven the ungated block above ran.
 	d.merge(_mineral.report(_f._gpu._step_index if _f._gpu != null else 0))
+	# CARBON ACROSS BOTH BOOKS, and this is the only place they are added. The two ledgers above are kept
+	# separate because crustal oxygen would swamp the atmospheric signal (see either module's header) — but
+	# carbon is the one element that genuinely crosses between them, because silicate weathering moves it out
+	# of the air and into carbonate rock and metamorphic decarbonation moves it back. Neither ledger alone can
+	# say whether that transfer conserves; this sum is the claim, and it is only meaningful here, where both
+	# have just been sampled from the same probe drain.
+	if d.has("element_C") and d.has("lith_element_C"):
+		d["element_C_total"] = snappedf(float(d["element_C"]) + float(d["lith_element_C"]), 0.01)
 	_heavy_cache = d
 	return d

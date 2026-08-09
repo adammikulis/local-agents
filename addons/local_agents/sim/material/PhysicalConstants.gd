@@ -326,6 +326,53 @@ const MOLAR_MASS_NITROGEN_KG_MOL: float = 0.0140067  # N
 # balance as CO₂ + H₂O <-> CH₂O + O₂. Naming it "carbohydrate" would be six times wrong for glucose.
 const MOLAR_MASS_CH2O_UNIT_KG_MOL: float = 0.0300260
 
+# --- THE THREE MINERAL SPECIES, AND WHY THE ROCK NEEDED A CHEMISTRY -----------------------------------------
+# Added 2026-08-08. Until then every mineral phase in the substrate — bedrock, lava, loose sediment, airborne
+# dust, waterborne suspension — was declared as one lumped mass `M` with no stoichiometry, and the reason given
+# was that "nothing converts between M and C/H/O/N". That was circular: it was true only because chemical
+# weathering was written with WATER as its driver and CO2 as a second driver, both CATALYSTS, consumed by
+# neither. The real reaction consumes CO2 and locks it in carbonate rock:
+#     CaSiO3 + CO2 -> CaCO3 + SiO2
+# — the net Urey reaction, the long-term carbon sink that has regulated Earth's climate for four billion
+# years. A lumped mineral mass cannot express it, so the rock gets a chemistry.
+#
+# THE STANDARD PETROLOGICAL TRIPLE that every carbon-cycle model uses:
+#   silicate  CaSiO3  wollastonite, the standard proxy for the calcium silicate the mantle makes
+#                     (Walker, Hays & Kasting 1981, and every long-term carbon-cycle model since)
+#   silica    SiO2    quartz — the weathering residue, which does not weather further
+#   carbonate CaCO3   calcite — where weathered carbon goes, and the only place it can go
+#
+# MOLAR MASSES from the IUPAC 2021 standard atomic weights used above (Ca 40.078, Si 28.085, O 15.9994,
+# C 12.011), so they cannot drift from MOLAR_MASS_CARBON_KG_MOL and its siblings.
+const MOLAR_MASS_CASIO3_KG_MOL: float = 0.1161612    # CaSiO3  40.078 + 28.085 + 3*15.9994
+const MOLAR_MASS_SIO2_KG_MOL: float = 0.0600838      # SiO2    28.085 + 2*15.9994
+const MOLAR_MASS_CACO3_KG_MOL: float = 0.1000872     # CaCO3   40.078 + 12.011 + 3*15.9994
+# DENSITIES of the two new species, measured crystal densities of the named minerals. The silicate species has
+# NO density constant of its own on purpose: wollastonite measures 2.86-3.09 g/cm^3 and ROCK_DENSITY_KG_M3
+# above is 2900, inside that range and already the substrate's one crustal-rock density. Declaring a second
+# number for the same physical quantity is exactly the drift this file exists to prevent.
+const QUARTZ_DENSITY_KG_M3: float = 2650.0           # alpha-quartz, 2.65 g/cm^3
+const CALCITE_DENSITY_KG_M3: float = 2710.0          # calcite, 2.71 g/cm^3
+
+# --- METAMORPHIC DECARBONATION: THE RETURN LEG OF THE CARBON CYCLE ------------------------------------------
+# A sink with no source strips an atmosphere. The Urey reaction runs BACKWARDS when the rock gets hot —
+#     CaCO3 + SiO2 -> CaSiO3 + CO2
+# — which is the wollastonite-forming reaction of contact and regional metamorphism, and it is how subducted
+# and buried limestone returns its carbon to the air. Volcanic CO2 outgassing is this reaction, not a separate
+# mechanism, so the substrate gets it as a record rather than as a scripted emission.
+#
+# ITS TEMPERATURE IS DERIVED, NOT PICKED. At equilibrium dG = 0, so T_eq = dH / dS, from the standard-state
+# enthalpies and entropies of the four phases (Robie & Hemingway; CODATA for CO2):
+#   dH = (-1634.9 - 393.51) - (-1207.6 - 910.7) = +89.89 kJ/mol
+#   dS = ( 81.69 + 213.79) - (  91.7 +  41.46) = +162.32 J/mol/K
+#   T_eq = 89890 / 162.32 = 553.8 K = 280.7 C
+# at one bar of CO2. Real metamorphic rocks cross the wollastonite isograd higher than this (500-600 C at
+# crustal pressure, because P raises T_eq) and lower where H2O dilutes the fluid; the one-bar value is the
+# right one for a substrate whose reacting cells are open to the atmosphere.
+const CALCITE_QUARTZ_DECARB_ENTHALPY_J_MOL: float = 89890.0
+const CALCITE_QUARTZ_DECARB_ENTROPY_J_MOL_K: float = 162.32
+const DECARBONATION_TEMP_C: float = 280.7     # 89890 / 162.32 - 273.15
+
 # --- WATER AND ICE DENSITY: WHY ROCK SHATTERS WHEN IT FREEZES -----------------------------------------------
 # Water is one of very few substances that EXPANDS on freezing, and that expansion is the entire mechanism of
 # frost weathering. At 0 C and 1 atm liquid water is 999.84 kg/m^3 and ice Ih is 916.7, so a given mass of

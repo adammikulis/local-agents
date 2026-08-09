@@ -60,6 +60,14 @@ layout(set = 0, binding = 26, std430) restrict readonly buffer Static { float st
 // the slot enum, and 5/6/19 stay reserved for FUEL/FIRE/SOIL_ROOT), because regolith is not a reactable
 // channel. Same buffer soil_sphere3d.glsl binds at its own binding 6.
 layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float regolith[]; };
+// --- THE TWO NON-SILICATE MINERAL SPECIES (2026-08-08). Every mineral channel above is calcium silicate
+// CaSiO3; the Urey reaction CaSiO3 + CO2 -> CaCO3 + SiO2 has two products that are not, so each gets a
+// channel. OWN-CELL stocks in the near-ground open cell that weathered — they do not advect, and no kernel
+// other than this one reads or writes them. Bound at 28/29 because the slot<->binding alias runs out at 26
+// (24/25/26 are Soil/Radial/Static above); the slot NUMBERS are 24 and 25, which is what check_kernel()
+// verifies against the #defines below. ------------------------------------------------------------------
+layout(set = 0, binding = 28, std430) restrict buffer Carbonate { float carbonate[]; };  // CaCO3 — the carbon sink
+layout(set = 0, binding = 29, std430) restrict buffer Silica { float silica[]; };        // SiO2 — the residue
 
 // Slot enum — MUST match MaterialReactions3D.gd.
 #define TEMP     0
@@ -115,6 +123,9 @@ float sat_mass_frac(float t_c) {
 #define OVERBURDEN 22  // DERIVED driver: LITHOSTATIC pressure (Pa) of the SOLID column above. See overburden().
 #define BEDROCK_BELOW 23 // DERIVED, WRITABLE: the bedrock of the SOLID cell directly beneath this open one —
                        // the rock a surface process actually attacks. Unique per thread; see bedrock_below().
+#define CARBONATE 24   // CaCO3, bound at 28 — the only place weathered carbon can go (D1b), and the only
+                       // thing D1c can give back to the air. Own-cell stock; nothing advects it.
+#define SILICA    25   // SiO2, bound at 29 — the weathering residue. Nothing weathers it further.
 
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust (dust_loft parity)
 #define REGOLITH_CELLS 4    // rooting depth = the permeable regolith band (MUST match MaterialField3D.REGOLITH_CELLS)
@@ -359,6 +370,8 @@ float read_ch(int slot, uint i) {
 	if (slot == SOIL_TOP) { int c = top_regolith(i); return (c < 0) ? 0.0 : soil[uint(c)]; }
 	if (slot == OVERBURDEN) return overburden(i);
 	if (slot == BEDROCK_BELOW) return bedrock_below(i);
+	if (slot == CARBONATE) return carbonate[i];
+	if (slot == SILICA)    return silica[i];
 	return 0.0;
 }
 
@@ -390,6 +403,8 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == SOIL_ROOT) { root_soil_draw(i, -v); }                     // roots draw water OUT of the column (v < 0)
 	else if (slot == SOIL_TOP)  { int c = top_regolith(i); if (c >= 0) { soil[uint(c)] = max(0.0, soil[uint(c)] + v); } }
 	else if (slot == BEDROCK_BELOW) { bedrock_below_add(i, v); }               // weathering eats the outcrop it stands on
+	else if (slot == CARBONATE) { carbonate[i] = max(0.0, carbonate[i] + v); } // D1b credits, D1c debits
+	else if (slot == SILICA)    { silica[i]    = max(0.0, silica[i]    + v); }
 }
 
 // Gate helpers reuse the exact neighbour tests proven in the dissolved kernels.

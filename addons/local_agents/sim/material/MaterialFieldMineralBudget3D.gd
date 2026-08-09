@@ -114,6 +114,14 @@ var _first_src: float = 0.0
 var _first_step: int = -1
 var _samples: int = 0
 
+# THE ATOMS, which are what conservation is actually about now that the mineral phases carry real formulas.
+# Calcium and silicon enter and leave no other reservoir in this substrate — no record and no kernel converts
+# them into gas, water or tissue — so their totals over every mineral phase are the strict conservation gauge
+# that `mineral_total` used to be while everything was one lumped mass. A non-zero run-drift on either is a
+# leak, full stop; a non-zero drift on `mineral_total` is now just weathering doing its job.
+var _first_ca: float = NAN
+var _first_si: float = NAN
+
 # BASELINE BEDROCK, latched at the same sample the run-long drift baseline is, and the reference `crust_moved`
 # measures displacement against. One extra full-grid float array (276 KB at the shipped resolution) and one
 # extra accumulator inside the walk this module already does — no second scan.
@@ -134,8 +142,24 @@ var _rock_ref_step: int = -1
 ## with the per-sample rate (that is exactly how the original artifact was caught: +0.112 against -0.163).
 const BASELINE_SKIP_SAMPLES: int = 2
 
-## The five phases of the one substance, in the order the header names them. Read as one device sample.
-const LEGS: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust"]
+## The five phases of the one substance, in the order the header names them, PLUS the two non-silicate species.
+## Read as one device sample.
+##
+## `mineral_total` IS NO LONGER THE CONSERVATION CLAIM, and that is a real change of meaning rather than a
+## rename. *(2026-08-08.)* Until then all five phases were one lumped substance `M` and their unit sum was
+## conserved by construction, which is what `mineral_run_drift_per_step ~ 0` was asserting. The mineral phases
+## now carry real formulas, and the Urey reaction D1b turns 1 unit of silicate bedrock into 0.922 units of
+## carbonate plus 0.566 units of silica — a unit sum that does not balance, and must not, because those are
+## three different substances on three different molar bases. What IS conserved is ATOMS, so the gauge to read
+## is `lith_element_Ca` / `lith_element_Si` below. `mineral_total` stays, unchanged in value and in keys,
+## because it is still the right number for "how much silicate is in each phase" — it is a phase budget now,
+## not a conservation ledger.
+const LEGS: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust", "carbonate", "silica"]
+
+## The one declaration of what each mineral channel is made OF and how many moles a unit holds — the SAME
+## table the load-time reaction gate checks every record against, so the instrument and the check cannot
+## disagree. See LAMaterialFieldElementInventory3D for why this book is kept separate from the atmospheric one.
+const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionBalance.gd")
 
 
 func setup(field) -> void:
@@ -167,6 +191,12 @@ func report(step_index: int) -> Dictionary:
 	var sed: PackedFloat32Array = legs.get("sediment", _f._sediment)
 	var susp: PackedFloat32Array = legs.get("susp", _f._susp)
 	var dust: PackedFloat32Array = legs.get("dust", _f._dust)
+	# The two non-silicate species have NO CPU mirror on purpose — nothing on the CPU reads them, so there is
+	# no `_f._carbonate` to fall back to and an absent probe leg reads as absent rather than as a stale zero.
+	var carb: PackedFloat32Array = legs.get("carbonate", PackedFloat32Array())
+	var silica: PackedFloat32Array = legs.get("silica", PackedFloat32Array())
+	var has_carb: bool = carb.size() == cc
+	var has_silica: bool = silica.size() == cc
 	var has_rock: bool = rock.size() == cc
 	var has_lava: bool = lava.size() == cc
 	var has_sed: bool = sed.size() == cc
@@ -183,6 +213,11 @@ func report(step_index: int) -> Dictionary:
 	var susp_open: float = 0.0
 	var dust_all: float = 0.0
 	var dust_open: float = 0.0
+	var carb_all: float = 0.0
+	var carb_open: float = 0.0
+	var silica_all: float = 0.0
+	var silica_open: float = 0.0
+	var carb_cells: int = 0
 	var dusty_cells: int = 0
 	var solid_cells: int = 0
 	var crust_moved: float = 0.0
@@ -220,6 +255,20 @@ func report(step_index: int) -> Dictionary:
 				dust_open += v4
 			if v4 > LAMaterialFieldQueries3D.DUST_PRESENT:
 				dusty_cells += 1
+		if has_carb:
+			var v5: float = carb[c]
+			carb_all += v5
+			if is_open:
+				carb_open += v5
+			# CARBONATE-BEARING CELLS. A total alone cannot say whether the sink ran weakly everywhere or hard
+			# in a few places, and "where does the weathering happen" is the question a carbon sink raises.
+			if v5 > 0.0:
+				carb_cells += 1
+		if has_silica:
+			var v6: float = silica[c]
+			silica_all += v6
+			if is_open:
+				silica_open += v6
 
 	var total: float = rock_all + lava_all + sed_all + susp_all + dust_all
 	var open_total: float = rock_open + lava_open + sed_open + susp_open + dust_open
@@ -258,8 +307,43 @@ func report(step_index: int) -> Dictionary:
 	# phase that genuinely holds nothing — and, worse, a frozen mirror reads as perfect conservation.
 	out["mineral_live"] = {
 		"rock_fill": has_rock, "lava": has_lava, "sediment": has_sed,
-		"susp": has_susp, "dust": has_dust,
+		"susp": has_susp, "dust": has_dust, "carbonate": has_carb, "silica": has_silica,
 	}
+	# --- THE TWO NON-SILICATE SPECIES, AND THE LITHOSPHERE'S ELEMENT BOOK ------------------------------------
+	# `carbonate_total` is the carbon sink's output and the number to watch: it is the only place in this
+	# substrate where carbon can leave the atmosphere and stay left. `silica_total` is the residue the same
+	# reaction makes, and the two are locked to each other at 1.629 units of carbonate per unit of silica by
+	# the stoichiometry — a divergence between them would mean a record is unbalanced, which is a second,
+	# independent check on the gate.
+	out["carbonate_total"] = snappedf(carb_all, 0.0001)
+	out["silica_total"] = snappedf(silica_all, 0.0001)
+	out["carbonate_open"] = snappedf(carb_open, 0.0001)
+	out["silica_open"] = snappedf(silica_open, 0.0001)
+	out["carbonate_cells"] = carb_cells
+	# THE LITHOSPHERE ON ITS OWN BOOK. Each channel times the ELEMENTS one unit of it contains times the MOLES
+	# one unit holds, read from LAReactionBalance — the same declaration the load-time gate checks records
+	# against, so this instrument cannot disagree with the rule it is measuring.
+	#
+	# SEPARATE FROM `element_*` DELIBERATELY, and this is the whole reason minerals had no molar basis before.
+	# A cell of bedrock holds 24965 mol of CaSiO3; a cell of air holds 0.002 units of CO2, which is 0.017 mol.
+	# Summed together, `element_O` would be crustal oxygen plus rounding error and the atmospheric signal the
+	# ledger exists to watch would be gone — a combined number would make the instrument worse, not better.
+	# Geochemistry keeps the reservoirs apart for the same reason. `element_C_total` in the report is the one
+	# place they are added, because carbon is the one element that genuinely crosses between them.
+	var mpu: Dictionary = BalanceScript.mol_per_unit()
+	var by_channel: Dictionary = {
+		"rock_fill": rock_all, "lava": lava_all, "sediment": sed_all, "susp": susp_all, "dust": dust_all,
+		"carbonate": carb_all, "silica": silica_all,
+	}
+	var lith: Dictionary = {}
+	for ch in BalanceScript.LITHOSPHERE_CHANNELS:
+		var parts: Dictionary = BalanceScript.channel_elements(ch)
+		var moles: float = float(by_channel.get(ch, 0.0)) * float(
+			mpu.get(int(BalanceScript.INVENTORY_CHANNELS.get(ch, -1)), 1.0))
+		for el in parts:
+			lith[el] = float(lith.get(el, 0.0)) + moles * float(parts[el])
+	for el in lith:
+		out["lith_element_" + String(el)] = snappedf(float(lith[el]), 0.01)
 
 	# THE ADMITTED SOURCE. erupt_source injects mantle lava with no debit anywhere in the field, so it is
 	# booked as `mineral_minted` by the injection queue and must be subtracted before any statement about
@@ -285,6 +369,8 @@ func report(step_index: int) -> Dictionary:
 		_first_total = total
 		_first_src = src
 		_first_step = step_index
+		_first_ca = float(lith.get("Ca", 0.0))
+		_first_si = float(lith.get("Si", 0.0))
 	var run_steps: int = step_index - _first_step if _first_step >= 0 else 0
 	out["mineral_run_steps"] = run_steps
 	out["mineral_samples"] = _samples
@@ -296,6 +382,16 @@ func report(step_index: int) -> Dictionary:
 		out["mineral_src_per_step"] = snappedf((src - _first_src) * rinv, 0.0001)
 		# THE ANSWER TO "DOES MINERAL MINT": raw drift with the vent's declared supply removed.
 		out["mineral_net_per_step"] = snappedf(((total - _first_total) - (src - _first_src)) * rinv, 0.0001)
+		# AND THE ATOM-LEVEL ANSWER, which is the one that survives the species split. Reported as a RELATIVE
+		# rate because the absolute totals are ~7.8e8 mol: an absolute drift of 1 mol per step would be
+		# 1.3e-9 of the reservoir and reads as noise in a snapped absolute, which is exactly how a slow leak
+		# hides. See LAMaterialFieldLedger3D — this is the same lesson H2O taught.
+		if not is_nan(_first_ca) and _first_ca > 0.0:
+			out["lith_ca_rel_drift_per_step"] = snappedf(
+				(float(lith.get("Ca", 0.0)) - _first_ca) * rinv / _first_ca, 1.0e-12)
+		if not is_nan(_first_si) and _first_si > 0.0:
+			out["lith_si_rel_drift_per_step"] = snappedf(
+				(float(lith.get("Si", 0.0)) - _first_si) * rinv / _first_si, 1.0e-12)
 	out["mineral_scan_ms"] = snappedf(float(Time.get_ticks_usec() - t0) / 1000.0, 0.01)
 	return out
 
@@ -311,4 +407,8 @@ func _blank() -> Dictionary:
 		"mineral_src_total": 0.0, "mineral_src_per_step": 0.0, "mineral_net_per_step": 0.0,
 		"mineral_scan_ms": 0.0, "mineral_live": {},
 		"crust_moved": 0.0, "crust_moved_ref_step": -1,
+		"carbonate_total": 0.0, "silica_total": 0.0, "carbonate_open": 0.0, "silica_open": 0.0,
+		"carbonate_cells": 0,
+		"lith_element_Ca": 0.0, "lith_element_Si": 0.0, "lith_element_O": 0.0, "lith_element_C": 0.0,
+		"lith_ca_rel_drift_per_step": 0.0, "lith_si_rel_drift_per_step": 0.0,
 	}

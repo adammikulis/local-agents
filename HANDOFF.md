@@ -119,9 +119,15 @@ of computing one.
    kinematic rather than driven.
 8. **NO ENTHALPY ON MASS TRANSFER.** Every inter-cell transfer moves temperature without moving heat
    capacity, so mixing two cells does not conserve energy.
-9. **ROCK HAS ONE COMPOSITION.** No mineralogy, no ore, no strata, no differentiation. Weathering and
-   lithification act on a single undifferentiated `rock_fill`, so there is no granite/basalt distinction and
-   no reason for one place to be different from another.
+9. **ROCK HAS THREE COMPOSITIONS AND NO STRATIGRAPHY.** *(Narrowed 2026-08-08. It read "ROCK HAS ONE
+   COMPOSITION ... a single undifferentiated `rock_fill`", which was true and is the defect the Urey
+   reaction had to fix first.)* There are now three species — silicate CaSiO₃, silica SiO₂, carbonate CaCO₃ —
+   and weathering converts between them. What is still missing: no ore, no strata, no differentiation, no
+   granite/basalt distinction, and **no sedimentary rock**. Carbonate and silica are loose own-cell stocks
+   that neither travel nor lithify, so there is no limestone and no sandstone; adding them means splitting
+   `rock_fill`, and `solid` derives from `rock_fill`, so that reaches solidity, overburden, plate advection
+   and the mineral stamp. Per-species SUSP/DUST would then follow, and with them per-species erosion, slump
+   and dust transport. That is the next increment and it is a large one.
 10. **THE FOOD WEB HAS NEVER WORKED.** `death/eaten` is 0 and `biota_node_intake` 0.00 in **every** arm
     including the untouched baseline — predation appears never to have functioned. The free `ambient_graze`
     food source hid it for as long as it existed.
@@ -171,9 +177,20 @@ start on this.
 close. Run 4000–6000 frames; watch `temp_ground_p50` for an asymptote and `snow_cells` for an ice-albedo
 runaway. **Do not tune the solar constant** — 1361 W/m² is a measured fact.
 
-**STAGE 4 — oceans condense, CO₂ draws down.** Verify the sequence *happens*: cooling past the condensation
-point rains the atmosphere out; silicate weathering pulls CO₂ into carbonate. Success is the event occurring,
-not a number looking right.
+**STAGE 4 — oceans condense.** Verify the sequence *happens*: cooling past the condensation point rains the
+atmosphere out. Success is the event occurring, not a number looking right.
+
+*(The CO₂ half of this stage LANDED 2026-08-08 and is deleted from the ask. Silicate weathering is the Urey
+reaction now — `GeoRecords.gd` D1b, CaSiO₃ + CO₂ → CaCO₃ + SiO₂ — and it draws `carbon_co2` from 81.5 to 26.7
+over a 600-frame run while total carbon holds at 845.9 mask-free. Two things it left open, and both are live
+work rather than history: the **return leg D1c never fires** — metamorphic decarbonation needs 280.7 °C and
+the hottest cell in the field reaches 256 °C, so the sink is one-way and CO₂ declines monotonically, which
+means a long `--geotime` run will strip the atmosphere; and the drawdown is ~8× Earth's rate for the same
+elapsed geological time because **this planet's atmosphere is only a few cells deep over every weathering
+cell**, so its CO₂ reservoir is thin relative to the reacting surface. Neither is fixed by moving a rate
+constant — the weathering rate measures 0.30× real basaltic denudation on this project's own declared
+geological clock. What would decide the first: run long enough, or hot enough, for a lava flow to cover
+weathered ground, and watch `carbonate_total` fall while `carbon_co2` rises.)*
 
 **STAGE 5 — the geological bake (`--geotime`).** Run the planet forward through geological time and freeze
 the result as the start state. This is what makes habitability an output. Needs a real stopping condition

@@ -18,7 +18,11 @@
 # reaction honest about what it is made of.
 #
 # WHAT IT CHECKS (the detail lives in reactions/ReactionBalance.gd, which is also what the runtime calls):
-#   1. every record balances in carbon, nitrogen, h2o, mineral and oxidant (O2-equivalents);
+#   1. every record balances in ATOMS — C, N, H, O, Ca and Si — after converting each coefficient from
+#      channel units to moles, because a channel unit is not a mole and the two differ by up to 6484x;
+#      *(the list here used to read "carbon, nitrogen, h2o, mineral and oxidant (O2-equivalents)", which
+#      described a pseudo-substance table that no longer exists; minerals gained real formulas 2026-08-08
+#      and with them calcium and silicon, which is what makes CaSiO3 + CO2 -> CaCO3 + SiO2 checkable);
 #   2. a record with products and NO reactant is refused outright, in those words;
 #   3. TEMP / LIGHT / WINDSPEED / FIRE are drivers, not substances, and cannot be consumed or produced;
 #   4. a slot with no declared composition is refused rather than silently treated as massless;

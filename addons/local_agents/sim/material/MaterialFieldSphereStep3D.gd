@@ -79,22 +79,32 @@ var _sim_s: float = 0.0
 var _offer_s: float = 0.0
 
 
+## `env FOO=` COUNTS AS SET, so these gates ask for a non-empty VALUE. *(Fixed 2026-08-08; they were
+## `OS.has_environment(...)`.)* This is not hypothetical here: CLAUDE.md records a twelve-run A/B batch that
+## silently ran with `LA_SOIL_BUDGET` armed because its runner passed `LA_SOIL_BUDGET="${LA_SOIL_BUDGET:-}"`,
+## and `has_environment` is true for an empty value. That matters more for these four than for most flags,
+## because arming a probe changes what the driver READS BACK from the device between passes — an armed probe
+## is not a passive observer, it is a different run.
+func _armed(name: String) -> bool:
+	return OS.get_environment(name) != ""
+
+
 func setup(field) -> void:
 	_f = field
-	if OS.has_environment("LA_SOIL_BUDGET"):
+	if _armed("LA_SOIL_BUDGET"):
 		_soil_budget = SoilBudgetScript.new()
 		_soil_budget.setup(field)
-	if OS.has_environment("LA_MINERAL_BUDGET"):
+	if _armed("LA_MINERAL_BUDGET"):
 		_mineral_probe = MineralProbeScript.new()
 		_mineral_probe.setup(field)
-	if OS.has_environment("LA_H2O_BUDGET"):
+	if _armed("LA_H2O_BUDGET"):
 		if _mineral_probe != null:
 			push_warning("LA_H2O_BUDGET and LA_MINERAL_BUDGET both set — they share the driver's single "
 				+ "step probe. Running the MINERAL probe only; unset it to get the H2O one.")
 		else:
 			_h2o_budget = H2OBudgetScript.new()
 			_h2o_budget.setup(field)
-	if OS.has_environment("LA_MINERAL_PROFILE"):
+	if _armed("LA_MINERAL_PROFILE"):
 		_mineral_profile = MineralProfileScript.new()
 		_mineral_profile.setup(field)
 

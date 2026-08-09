@@ -28,7 +28,10 @@ extends RefCounted
 ##   26 Static=static (the GATE_NOT_STATIC test — the sea/lake reservoir is not real per-cell chemistry) ·
 ##   27 Regolith=regolith (SINGLE, seeded once — the aquifer mask root_soil() walks INSTEAD of `solid`, since
 ##   `solid` is re-derived from rock_fill every step and an eroded/carved regolith cell is open but still an
-##   aquifer; same buffer SoilPass binds at its own binding 6).
+##   aquifer; same buffer SoilPass binds at its own binding 6) ·
+##   28 Carbonate=carbonate (SINGLE) · 29 Silica=silica (SINGLE) — the two non-silicate mineral species the
+##   Urey reaction D1b produces and D1c consumes. They are past the end of the slot<->binding alias range
+##   (their SLOT numbers are 24 and 25; bindings 24/25/26 are already Soil/Radial/Static).
 ## Push { uint cell_count; uint n_records; float dt; uint raining; float sun_x, sun_y, sun_z, overburden_pa; },
 ## 32 bytes.
 ## sun_dir is sourced from `ctx` exactly as ThermalPass.gd does, so the light the chemistry sees and the light
@@ -121,6 +124,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var radial: RID = _single(bufs, "radial")
 	var static_rid: RID = _single(bufs, "static")
 	var regolith: RID = _single(bufs, "regolith")   # aquifer mask — the column SOIL_ROOT walks (see below)
+	# The two non-silicate mineral species (slots 24/25, bindings 28/29). SINGLE buffers: nothing advects them,
+	# and this kernel is their only reader and only writer, so there is no producer to ping-pong against.
+	var carbonate: RID = _single(bufs, "carbonate")
+	var silica: RID = _single(bufs, "silica")
 
 	for p in 2:
 		var back: int = 1 - p
@@ -154,6 +161,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[25, radial],           # per-cell outward unit vector — the derived LIGHT slot's geometry
 			[26, static_rid],       # infinite sea/lake reservoir mask — GATE_NOT_STATIC
 			[27, regolith],         # aquifer permeability mask — root_soil() walks THIS, not `solid`
+			[28, carbonate],        # SINGLE CaCO3 — D1b (the Urey reaction) credits it, D1c debits it
+			[29, silica],           # SINGLE SiO2 — the weathering residue, same two records
 		])
 
 

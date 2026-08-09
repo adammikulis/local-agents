@@ -613,6 +613,15 @@ func susp_total() -> float:
 ## SIM_REPORT does NOT come through here any more — LAMaterialFieldMineralBudget3D
 ## computes all five legs plus both masks plus the drift in ONE pass, behind the report's heavy-cadence gate.
 ## Prefer that module for anything on a per-frame path.
+##
+## AND IT IS NO LONGER THE UNIFICATION'S PROOF OBJECT. *(Corrected 2026-08-08. The paragraph above says this
+## sum "must stay BOUNDED net of the vent's declared mantle source — this is the unification's proof object",
+## which was exactly right while all five phases were ONE lumped substance. They are not: the mineral phases
+## carry real formulas now, and the Urey reaction turns silicate bedrock into carbonate plus silica, which are
+## two other channels on two other molar bases. A unit sum over these five therefore falls, correctly, by
+## whatever weathering has removed. The proof object is `lith_element_Ca` / `lith_element_Si` in
+## LAMaterialFieldMineralBudget3D — calcium and silicon leave no mineral phase, so their totals are the strict
+## conservation gauge this sum used to be.)*
 func mineral_total() -> float:
 	return rock_fill_total() + lava_total() + sediment_total() + dust_total() + susp_total()
 
