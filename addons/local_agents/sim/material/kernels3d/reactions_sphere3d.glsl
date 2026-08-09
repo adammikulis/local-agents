@@ -158,13 +158,14 @@ const float SEDIMENT_DENSITY = 2000.0;  // LAPhysical.SEDIMENT_DENSITY_KG_M3 —
 // What an ENTHALPY of reaction has to be divided by to become a temperature change: the same reaction warms
 // dry air by thousands of kelvin and a waterlogged cell by tens, which is the whole of why wet fuel resists
 // lighting and why a flame in a swamp is not a flame in dry litter — with no per-case code and no wet-cell
-// gate anywhere. Deliberately the SAME expression heat3d_cool_sphere3d.glsl:93-102 uses (a second, disagreeing
-// capacity model is a defect this repo already carries once — see LAMaterialFieldEnergyLedger3D item 9).
-// No `solid` branch: this kernel returns early for solid cells, so every caller here is an open cell.
-const float RC_AIR   = 1186.0;          // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
-const float RC_ROCK  = 2.436e6;         // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
-const float RC_WATER = 4.171e6;         // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
-const float RC_ORGANIC = 7.5e5;   // LAPhysical.VOL_HEAT_CAP_ORGANIC_J_M3K
+// gate anywhere.
+//
+// SHARED, 2026-08-09. This block used to declare its own RC_* and its own rc_of, above a comment claiming it
+// was "deliberately the SAME expression heat3d_cool_sphere3d.glsl:93-102 uses". IT WAS NOT: this copy carried
+// an ORGANIC term that one did not, and that one carried lava while this one had no SNOW. Five copies, four
+// different formulas. See rc_shared.glsli for the table and for why the `solid` early-return is gone.
+// The `#include` itself is further down, because it is TEXTUAL and reads the carrier buffers by name, so it
+// has to land after the last `layout(...) buffer` declaration rather than up here with the other constants.
 // The oxygen concentration below which a flame goes out however hot it is, in this channel's units of
 // ambient air: the measured limiting oxygen concentration over air's own mole fraction.
 const float LOC_MOLE_FRAC = 0.15;          // LAPhysical.LIMITING_OXYGEN_CONCENTRATION_FRAC
@@ -382,13 +383,10 @@ void bedrock_below_add(uint i, float v) {
 }
 
 // See the RC_* block above. Air, rock (bedrock plus whatever is molten) and liquid water by volume fraction.
-float rc_of(uint i) {
-	float f_rock = clamp(rock_fill[i] + lava[i], 0.0, 1.0);
-	float f_water = clamp(water[i], 0.0, 1.0);
-	float f_org = clamp(fuel[i] + biomass[i] + detritus[i], 0.0, 1.0);
-	float f_air = max(0.0, 1.0 - f_rock - f_water - f_org);
-	return RC_AIR * f_air + RC_ROCK * f_rock + RC_WATER * f_water + RC_ORGANIC * f_org;
-}
+// A CELL'S VOLUMETRIC HEAT CAPACITY — one definition, shared by every kernel that books heat.
+// Must sit below the buffer declarations: the include is textual and binds rock_fill/lava/water/snow/
+// fuel/biomass/detritus by NAME.
+#include "rc_shared.glsli"
 
 // Resolve a channel slot to its per-cell value. Unbound slots read 0 (a record must not reference them).
 float read_ch(int slot, uint i) {

@@ -1,0 +1,65 @@
+// =====================================================================================================
+// THE ONE DEFINITION OF A CELL'S VOLUMETRIC HEAT CAPACITY. `#include "rc_shared.glsli"`.
+//
+// WHY THIS FILE EXISTS. `rc_of` was written FIVE times in FOUR MUTUALLY INCOMPATIBLE versions, and the
+// same cell therefore had a different heat capacity depending on which kernel was asking:
+//
+//     kernel                    rock  water  snow  lava  organic   solid early-return
+//     heat3d_cool                 y     y      -     y       -            y
+//     heat_sphere3d               y     y      y     -       -            y
+//     heat3d_solar (rc_of_cell)   y     y      y     -       -            y
+//     heat3d_buoyancy             y     y      y     -       -            y
+//     reactions                   y     y      -     y       y            -
+//
+// A snowy cell was mostly air to the cooling kernel. A lava-filled cell was air to three of the five. A
+// cell of wood was air to all four heat kernels. Energy is rc * T * V, so when one kernel deposits heat
+// against one capacity and another removes it against a different one, ENERGY IS CREATED OR DESTROYED ON
+// EVERY EXCHANGE. That is the drift LAMaterialFieldEnergyLedger3D measures, and its own unbooked item 11
+// understated it: that note says "the same expression stands in all three", and it was neither the same
+// expression nor only three.
+//
+// The RC_* values were never the problem — every copy was correctly bound to LAPhysical and the
+// physical-constants gate passed on all of them. THE COMPOSITION diverged, which no value gate can see.
+// That is the general lesson: a gate on constants does not gate the FORMULA they sit in.
+//
+// THERE IS NO `solid` EARLY-RETURN HERE, AND ITS ABSENCE IS THE SECOND FIX. Every copy above except the
+// reactions one returned RC_ROCK whole for a solid cell, and `solid` is `rock_fill >= 0.5`. So one unit of
+// bedrock split 0.4/0.6 across two cells held 0.4*RC + RC = 3.41e6 J/m3K, and split 0.5/0.5 held
+// 2*RC = 4.87e6 — a 43% jump in stored heat for NO CHANGE OF MASS, on a planet that crosses that threshold
+// thousands of times a run (rock_grows 5611 / rock_shrinks 6056 / crust_moved 3926 on the baseline).
+// Capacity is a continuous function of the matter present now, so the step is gone. A cell that really is
+// full rock still returns RC_ROCK, because f_rock reaches 1.0 on its own.
+//
+// CONTRACT FOR AN INCLUDING KERNEL. This is a TEXTUAL include, so it binds by NAME, not by binding number
+// (the numbers legitimately differ per kernel). The includer MUST declare readable buffers named exactly:
+//     rock_fill[]  lava[]  water[]  snow[]  fuel[]  biomass[]  detritus[]
+// If your kernel does not need one of those for its own physics it still binds it, because leaving a
+// carrier out is exactly the divergence this file exists to end. Add the binding; do not fork the function.
+// =====================================================================================================
+
+// Volumetric heat capacities, J/m3K. Bound to the authority and checked by scripts/check_physical_constants.sh,
+// which scans .glsli as well as .glsl precisely so moving these here did not move them out of the gate.
+const float RC_AIR     = 1186.0;    // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
+const float RC_ROCK    = 2.436e6;   // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
+const float RC_WATER   = 4.171e6;   // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
+const float RC_SNOW    = 6.27e5;    // LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K
+const float RC_ORGANIC = 7.5e5;     // LAPhysical.VOL_HEAT_CAP_ORGANIC_J_M3K
+
+// What one cell of matter can store per kelvin, as a volume-fraction mix of everything that is in it.
+// Molten rock is rock: lava is the same mineral as rock_fill, in a different phase, and its capacity does
+// not change enough at this granularity to model separately (LAPhysical carries one figure for both).
+float rc_of(uint i) {
+	float f_rock  = clamp(rock_fill[i] + lava[i], 0.0, 1.0);
+	float f_water = clamp(water[i], 0.0, 1.0);
+	float f_snow  = clamp(snow[i], 0.0, 1.0);
+	float f_org   = clamp(fuel[i] + biomass[i] + detritus[i], 0.0, 1.0);
+	// Air fills whatever is left. It cannot go negative: the four fractions are each clamped to [0,1] and
+	// their sum is allowed to exceed 1 (an over-full cell is a substrate defect, not this function's to
+	// hide), in which case the cell is simply all condensed matter and holds no air.
+	float f_air   = max(0.0, 1.0 - f_rock - f_water - f_snow - f_org);
+	return RC_AIR * f_air
+		+ RC_ROCK * f_rock
+		+ RC_WATER * f_water
+		+ RC_SNOW * f_snow
+		+ RC_ORGANIC * f_org;
+}

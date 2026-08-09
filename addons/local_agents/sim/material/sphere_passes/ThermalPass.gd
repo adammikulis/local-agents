@@ -156,9 +156,15 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# than as air. *(snow + rock_fill added 2026-08-03 so this kernel and the solar one agree about what
 		# a cell is made of; the same three channels feed heat3d_solar and heat3d_buoyancy.)*
 		# copy: 0 = scratch, 1 = temp LIVE.
+		# 20-23 = lava / fuel / biomass / detritus. THIS KERNEL DOES NOT USE THEM; rc_shared.glsli does.
+		# Every kernel that books heat now binds every carrier, because the alternative is what this repo
+		# had: five rc_of copies in four formulas, so a lava cell was AIR to three of them and a cell of
+		# wood was air to all four heat kernels. Energy is rc*T*V, so those disagreements minted and
+		# destroyed heat at every exchange. See rc_shared.glsli.
 		_conduct_set[p] = _make_set(rd, _conduct_shader, [
 			[0, temp_live], [1, _cond_scratch], [2, nbr], [3, solid],
-			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]]])
+			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]],
+			[20, lava_back], [21, bufs["fuel"]], [22, bufs["biomass"]], [23, bufs["detritus"]]])
 		_copy_set[p] = _make_set(rd, _copy_shader, [
 			[0, _cond_scratch], [1, temp_live]])
 		# solar: 0 = temp (LIVE, in-place), 1 = solid, 3 = pos (flat float3), 14 = radial, 15 = nbr.
@@ -181,18 +187,25 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_solar_set[p] = _make_set(rd, _solar_shader, [
 			[0, temp_live], [1, solid], [3, pos],
 			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]], [7, bufs["pressure"]],
-			[8, _cond_scratch], [14, radial], [15, nbr], [27, bufs["biomass"]]])
+			[8, _cond_scratch], [14, radial], [15, nbr], [27, bufs["biomass"]],
+			# 20/21/23 = lava / fuel / detritus for rc_shared.glsli (biomass is already bound at 27 for albedo).
+			[20, lava_back], [21, bufs["fuel"]], [23, bufs["detritus"]]])
 		# buoyancy: 0 = TempIn (LIVE), 1 = TempOut (BACK), 2 = solid, the material mix 4 = snow, 5 = water,
 		# 6 = rock_fill (it convects an ENERGY flux and divides by each side's own capacity), 15 = nbr.
 		_buoy_set[p] = _make_set(rd, _buoy_shader, [
 			[0, temp_live], [1, temp_back], [2, solid],
-			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]], [15, nbr]])
+			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]], [15, nbr],
+			# 20-23 = the carriers rc_shared.glsli needs; this kernel reads none of them itself.
+			[20, lava_back], [21, bufs["fuel"]], [22, bufs["biomass"]], [23, bufs["detritus"]]])
 		# cool: 0 = temp (BACK, in-place), 1 = water (BACK, post-flow), 2 = solid, 4 = lava (BACK, post-flow),
 		# 6 = rock_fill — the latent-heat sink needs the cell's heat capacity, and lava is molten rock.
 		# *(`pos` dropped 2026-08-03: it fed sea_water_target()'s radial depth, and that prescribed thermocline
 		# is deleted.)*
 		_cool_set[p] = _make_set(rd, _cool_shader, [
-			[0, temp_back], [1, water_back], [2, solid], [4, lava_back], [6, bufs["rock_fill"]]])
+			[0, temp_back], [1, water_back], [2, solid], [4, lava_back], [6, bufs["rock_fill"]],
+			# 21-24 for rc_shared.glsli. Note 24 = SNOW: this kernel's own rc_of had no snow term at all, so a
+			# snowpack cell read as mostly AIR to the one kernel whose job is radiative cooling.
+			[21, bufs["fuel"]], [22, bufs["biomass"]], [23, bufs["detritus"]], [24, bufs["snow"]]])
 		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid, 4 = the compacted
 		# active-cell list, 5 = its dispatch-indirect args + list length (LavaCellListPass built both earlier
 		# this step, and applied this kernel's own lava/solid early-outs when it did), 15 = nbr
