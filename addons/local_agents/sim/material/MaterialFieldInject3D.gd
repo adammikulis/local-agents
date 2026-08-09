@@ -178,7 +178,7 @@ func _rc_channels() -> Dictionary:
 		"rock_fill": _f._rock_fill, "lava": _f._lava, "sediment": _f._sediment, "susp": _f._susp,
 		"dust": _f._dust, "water": _f._water, "soil": _f._soil, "snow": _f._snow,
 		"moisture": _f._moisture, "fuel": _f._fuel, "biomass": _f._biomass,
-		"detritus": _f._detritus, "fungus": _f._fungus,
+		"detritus": _f._detritus, "fungus": _f._fungus, "porosity": _f._porosity,
 	}
 
 

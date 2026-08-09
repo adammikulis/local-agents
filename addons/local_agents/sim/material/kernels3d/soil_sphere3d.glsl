@@ -69,6 +69,14 @@ layout(set = 0, binding = 6, std430) restrict readonly buffer Regolith { float r
 layout(set = 0, binding = 7, std430) restrict buffer Temp { float temp[]; };                // POST-thermal temp, carry-heat in place
 layout(set = 0, binding = 8, std430) restrict readonly buffer Grain { float grain[]; };     // representative grain diameter, metres
 layout(set = 0, binding = 9, std430) restrict buffer SoilDbg { float dbg[]; };              // per-leg budget probe
+// PUBLISH the Athy porosity this kernel already computes. `rock_fill` is a SATURATION of a cell's rock
+// matrix, not a volume fraction of mineral, and four consumers read it as the latter — the heat capacity,
+// the overburden walk, the mineral mole book and the erosion supply cap. A full surface regolith cell is
+// ~64% mineral and ~36% pore, so reading its 1.0 as a mineral volume fraction and then ALSO counting the
+// `soil` standing in those pores made the cell claim 1.362 cell-volumes of matter. Everyone converts
+// against this one number now instead of assuming 1.0, and the formula stays in the one place that has the
+// burial walk in hand.
+layout(set = 0, binding = 11, std430) restrict buffer Porosity { float porosity[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
 
 layout(push_constant, std430) uniform Params {
@@ -288,6 +296,10 @@ void main() {
 		dbg[dbase + DBG_SPRING_CAPPED] = 0.0; dbg[dbase + DBG_SPRING_FREECOL] = 0.0;
 
 		bool is_regolith = regolith[g] != 0.0;
+		// Publish phi for every cell, every step, before any early return. ZERO outside regolith, which is
+		// the correct answer there and makes `rock_fill * (1.0 - porosity[i])` reduce to `rock_fill` for
+		// bedrock with no branch at the consumer. This is the ONLY writer of the channel.
+		porosity[g] = is_regolith ? porosity_of(int(g)) : 0.0;
 
 		if (is_regolith) {
 			// GROUNDWATER: flow to lower-head regolith neighbours (Darcy) + DAYLIGHT into open neighbours (springs).

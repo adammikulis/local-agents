@@ -37,7 +37,13 @@ extends RefCounted
 ## leaving it out of here makes every gram that crosses into it delete its own thermal mass, which is the
 ## defect this whole file was written to close: `rc_of` counted seven of these fifteen, and the missing eight
 ## were measured at twice the size of everything the temperature kernels do put together.
-const SILICATE: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust"]
+## `rock_fill` is a SATURATION of the cell's rock matrix, not a volume fraction of mineral, so it is the one
+## silicate channel that must be scaled by (1 - phi) before it can be mixed with the rest. Kept separate from
+## SILICATE for exactly that reason — see the note in `mix`.
+const MATRIX: PackedStringArray = ["rock_fill"]
+## The loose silicate phases. These ARE volume fractions already and carry no matrix of their own, so phi
+## does not apply to them.
+const SILICATE: PackedStringArray = ["lava", "sediment", "susp", "dust"]
 const WATER_LIQUID: PackedStringArray = ["water", "soil"]
 const WATER_SOLID: PackedStringArray = ["snow"]
 const WATER_VAPOUR: PackedStringArray = ["moisture"]
@@ -49,7 +55,7 @@ const SILICA: PackedStringArray = ["silica"]
 ## `request_probe` leg list) without restating it.
 static func channels() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
-	for g in [SILICATE, CARBONATE, SILICA, WATER_LIQUID, WATER_SOLID, WATER_VAPOUR, ORGANIC]:
+	for g in [MATRIX, SILICATE, CARBONATE, SILICA, WATER_LIQUID, WATER_SOLID, WATER_VAPOUR, ORGANIC]:
 		for name in g:
 			out.append(name)
 	return out
@@ -84,7 +90,12 @@ static func mix(f_silicate: float, f_carbonate: float, f_silica: float, f_water:
 ## array is the wrong length, contributes ZERO — which is the honest answer for "this instrument did not
 ## sample that channel", and is why callers that care publish a liveness map beside their result.
 static func cell(ch: Dictionary, c: int) -> float:
-	return mix(_sum(ch, SILICATE, c), _sum(ch, CARBONATE, c), _sum(ch, SILICA, c),
+	var phi: float = 0.0
+	var pa = ch.get("porosity")
+	if pa is PackedFloat32Array and c < pa.size():
+		phi = clampf(pa[c], 0.0, 1.0)
+	var silicate: float = _sum(ch, MATRIX, c) * (1.0 - phi) + _sum(ch, SILICATE, c)
+	return mix(silicate, _sum(ch, CARBONATE, c), _sum(ch, SILICA, c),
 		_sum(ch, WATER_LIQUID, c), _sum(ch, WATER_SOLID, c), _sum(ch, WATER_VAPOUR, c),
 		_sum(ch, ORGANIC, c))
 
@@ -98,6 +109,13 @@ static func cell(ch: Dictionary, c: int) -> float:
 ## temperature at all appear to be moving heat.
 static func field(ch: Dictionary, cell_count: int) -> PackedFloat64Array:
 	var groups: Array = [SILICATE, CARBONATE, SILICA, WATER_LIQUID, WATER_SOLID, WATER_VAPOUR, ORGANIC]
+	var matrix: Array = []
+	for name in MATRIX:
+		var ma = ch.get(name)
+		if ma is PackedFloat32Array and ma.size() >= cell_count:
+			matrix.append(ma)
+	var phi_a = ch.get("porosity")
+	var have_phi: bool = phi_a is PackedFloat32Array and phi_a.size() >= cell_count
 	var live: Array = []
 	for g in groups:
 		var arrays: Array = []
@@ -115,7 +133,12 @@ static func field(ch: Dictionary, cell_count: int) -> PackedFloat64Array:
 			for a in live[gi]:
 				acc += a[c]
 			f[gi] = acc
-		out[c] = mix(f[0], f[1], f[2], f[3], f[4], f[5], f[6])
+		# The matrix channel converts from saturation to mineral volume fraction before it joins the mix.
+		var phi: float = clampf(phi_a[c], 0.0, 1.0) if have_phi else 0.0
+		var m: float = 0.0
+		for a in matrix:
+			m += a[c]
+		out[c] = mix(m * (1.0 - phi) + f[0], f[1], f[2], f[3], f[4], f[5], f[6])
 	return out
 
 
@@ -124,6 +147,8 @@ static func field(ch: Dictionary, cell_count: int) -> PackedFloat64Array:
 ## carrier added to the mix above appears in these legs automatically, where a hand-written breakdown in the
 ## ledger silently kept reporting four legs while the model counted fifteen channels.
 static func legs(ch: Dictionary, cell_count: int) -> Dictionary:
+	var phi_a = ch.get("porosity")
+	var have_phi: bool = phi_a is PackedFloat32Array and phi_a.size() >= cell_count
 	var groups: Array = [["silicate", SILICATE, LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K],
 		["carbonate", CARBONATE, LAPhysical.VOL_HEAT_CAP_CARBONATE_J_M3K],
 		["silica", SILICA, LAPhysical.VOL_HEAT_CAP_SILICA_J_M3K],
@@ -133,6 +158,15 @@ static func legs(ch: Dictionary, cell_count: int) -> Dictionary:
 		["organic", ORGANIC, LAPhysical.VOL_HEAT_CAP_ORGANIC_J_M3K]]
 	var out: Dictionary = {}
 	var occupied: float = 0.0
+	# The matrix channel first, converted from saturation to mineral volume fraction, then folded into the
+	# silicate leg it belongs to — one substance, one leg.
+	var matrix_acc: float = 0.0
+	for name in MATRIX:
+		var ma = ch.get(name)
+		if ma is PackedFloat32Array and ma.size() >= cell_count:
+			for c in cell_count:
+				var phi: float = clampf(phi_a[c], 0.0, 1.0) if have_phi else 0.0
+				matrix_acc += clampf(ma[c], 0.0, 1.0) * (1.0 - phi)
 	for g in groups:
 		var acc: float = 0.0
 		for name in g[1]:
@@ -140,6 +174,8 @@ static func legs(ch: Dictionary, cell_count: int) -> Dictionary:
 			if a is PackedFloat32Array and a.size() >= cell_count:
 				for c in cell_count:
 					acc += clampf(a[c], 0.0, 1.0)
+		if g[0] == "silicate":
+			acc += matrix_acc
 		out[g[0]] = acc * g[2]
 		occupied += acc
 	# Air is the remainder of the grid, floored at zero per cell the same way `mix` floors it.
@@ -161,6 +197,8 @@ static func live_map(ch: Dictionary, cell_count: int) -> Dictionary:
 	for name in channels():
 		var a = ch.get(name)
 		out[name] = a is PackedFloat32Array and a.size() >= cell_count
+	var phi = ch.get("porosity")
+	out["porosity"] = phi is PackedFloat32Array and phi.size() >= cell_count
 	return out
 
 

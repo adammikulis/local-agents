@@ -188,6 +188,7 @@ func _compute() -> Dictionary:
 		"carbonate": legs.get("carbonate", PackedFloat32Array()),
 		"silica": legs.get("silica", PackedFloat32Array()),
 		"water": _f._water, "soil": _f._soil, "snow": _f._snow, "moisture": _f._moisture,
+		"porosity": _f._porosity,
 		"fuel": legs.get("fuel", _f._fuel), "biomass": _f._biomass,
 		"detritus": legs.get("detritus", _f._detritus),
 		"fungus": legs.get("fungus", PackedFloat32Array()),

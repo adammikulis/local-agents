@@ -333,6 +333,7 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 		"detritus": detritus if has_org else PackedFloat32Array(),
 		# Not demand-gated, so the always-hot CPU mirror is the honest source.
 		"sediment": _f._sediment, "susp": _f._susp, "soil": _f._soil, "moisture": _f._moisture,
+		"porosity": _f._porosity,
 		# Demand-gated or mirror-less: probe legs only. `.get(name, empty)` rather than a mirror fallback,
 		# so a leg that did not arrive reads as ABSENT (contributing zero, and reported so in
 		# `energy_stock_live`) instead of as a stale value pretending to be a measurement.

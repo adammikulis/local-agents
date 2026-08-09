@@ -110,6 +110,7 @@ layout(set = 0, binding = 34, std430) restrict readonly buffer Silica { float si
 layout(set = 0, binding = 35, std430) restrict readonly buffer Soil { float soil[]; };
 layout(set = 0, binding = 36, std430) restrict readonly buffer Moisture { float moisture[]; };
 layout(set = 0, binding = 37, std430) restrict readonly buffer Fungus { float fungus[]; };
+layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
 #include "rc_shared.glsli"
 
 void main() {

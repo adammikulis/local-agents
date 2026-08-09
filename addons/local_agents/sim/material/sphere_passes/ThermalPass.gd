@@ -162,7 +162,12 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		var shared_carriers: Array = [
 			[30, bufs["sediment"][p]], [31, bufs["susp"][p]], [32, bufs["dust"][p]],
 			[33, bufs["carbonate"]], [34, bufs["silica"]], [35, bufs["soil"][p]],
-			[36, bufs["moisture"][p]], [37, bufs["fungus"][p]]]
+			[36, bufs["moisture"][p]], [37, bufs["fungus"][p]],
+			# 38 = phi. SoilPass WRITES it and runs after Thermal, so this is one step stale — which costs
+			# nothing, because porosity is a static function of burial depth and only changes when a cell
+			# becomes regolith. On the very first step it is all zeros, i.e. rc_of falls back to reading
+			# rock_fill as a volume fraction for one step, and then self-corrects.
+			[38, bufs["porosity"]]]
 
 		# conduct (heat_sphere3d): 0 = TempIn (LIVE), 1 = TempOut (scratch), 2 = nbr, 3 = solid, and the
 		# material mix 4 = snow, 5 = water (BACK, post-flow), 6 = rock_fill. Per-bond INTERFACE conductivity

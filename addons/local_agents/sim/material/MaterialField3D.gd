@@ -743,6 +743,10 @@ func _seed_sphere_sea() -> void:
 ## conductivity is computed from. `SOIL_CAPACITY = 0.6` is gone with it: a cell's capacity is its POROSITY,
 ## which varies with burial, and a flat 0.6 was above the porosity of every real granular material.
 const REGOLITH_CELLS: int = LAMaterialFieldRegolith3D.REGOLITH_CELLS
+# Athy pore fraction per cell (0 outside regolith). Written on the GPU by soil_sphere3d.glsl and read back
+# on the slow cadence — it is static after the first step, so a coarse mirror is exact, not approximate.
+# Every CPU consumer that converts `rock_fill` from a matrix SATURATION to a mineral VOLUME FRACTION needs it.
+var _porosity: PackedFloat32Array = PackedFloat32Array()
 var _regolith: PackedByteArray = PackedByteArray()
 var _grain: PackedFloat32Array = PackedFloat32Array()    # representative grain diameter (m) per regolith cell
 

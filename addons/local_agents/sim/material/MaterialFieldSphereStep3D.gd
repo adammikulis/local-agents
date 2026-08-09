@@ -310,6 +310,7 @@ func _apply_readback(res: Dictionary) -> void:
 	if res.has("moisture") and res["moisture"].size() == n: _f._moisture = res["moisture"]
 	_f._atmos_dirty = true          # new moisture/temp → invalidate the cached condensate aggregates
 	if res.has("lava") and res["lava"].size() == n: _f._lava = res["lava"]
+	if res.has("porosity") and res["porosity"].size() == n: _f._porosity = res["porosity"]
 	if res.has("fire") and res["fire"].size() == n: _f._fire = res["fire"]
 	if res.has("fuel") and res["fuel"].size() == n: _f._fuel = res["fuel"]
 	if res.has("fert") and res["fert"].size() == n: _f._fert = res["fert"]

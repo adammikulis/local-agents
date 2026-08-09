@@ -169,6 +169,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[20, scratch],          # fungus-fert SCRATCH product target
 			[21, _defs_ssbo],
 			[24, soil[back]],       # settled water table (SoilPass output) — R19's transpiration draws from the
+			[38, bufs["porosity"]],  # phi — rc_of and the overburden walk convert rock_fill with it
 			                        # regolith column BENEATH an open cell (SOIL_ROOT), the only place soil exists
 			[25, radial],           # per-cell outward unit vector — the derived LIGHT slot's geometry
 			[26, static_rid],       # infinite sea/lake reservoir mask — GATE_NOT_STATIC

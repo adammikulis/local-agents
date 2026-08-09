@@ -54,7 +54,7 @@
 //
 // CONTRACT FOR AN INCLUDING KERNEL. This is a TEXTUAL include, so it binds by NAME, not by binding number
 // (the numbers legitimately differ per kernel). The includer MUST declare readable buffers named exactly:
-//     silicate : rock_fill[]  lava[]  sediment[]  susp[]  dust[]
+//     silicate : rock_fill[]  lava[]  sediment[]  susp[]  dust[]   + porosity[]
 //     minerals : carbonate[]  silica[]
 //     H2O      : water[]  soil[]  snow[]  moisture[]
 //     organic  : fuel[]  biomass[]  detritus[]  fungus[]
@@ -90,7 +90,16 @@ const float RC_SILICA    = 1961000.0;  // LAPhysical.VOL_HEAT_CAP_SILICA_J_M3K
 // water sitting in pore space, so `soil` is WATER; it is not a substance of its own and must not get a
 // constant of its own.
 float rc_of(uint i) {
-	float f_rock  = clamp(rock_fill[i] + lava[i] + sediment[i] + susp[i] + dust[i], 0.0, 1.0);
+	// `rock_fill` IS A SATURATION OF THE CELL'S ROCK MATRIX, NOT A VOLUME FRACTION OF MINERAL, and reading
+	// it as the latter is what made a full surface regolith cell claim 1.362 cell-volumes of matter: 1.0 of
+	// "rock" plus the 0.36 of `soil` standing in pores that the 1.0 was already pretending were rock.
+	// A regolith cell at phi 0.36 is 0.64 mineral + 0.36 pore, and the pore is `soil` (water) plus air.
+	// porosity[] is 0 outside regolith, so this reduces to `rock_fill` for bedrock with no branch.
+	// The loose phases are already volume fractions and carry no matrix of their own, so phi is not applied
+	// to them. Checked against soil_sphere3d.glsl's reg_heat_cap, which is the same expression written out:
+	// 0.64*2.436e6 + 0.36*4.171e6 = 3.06e6, where the un-corrected form gave 3.94e6, a 29% overcount.
+	float f_rock  = clamp(rock_fill[i] * (1.0 - clamp(porosity[i], 0.0, 1.0))
+		+ lava[i] + sediment[i] + susp[i] + dust[i], 0.0, 1.0);
 	float f_carb  = clamp(carbonate[i], 0.0, 1.0);
 	float f_sil   = clamp(silica[i], 0.0, 1.0);
 	float f_water = clamp(water[i] + soil[i], 0.0, 1.0);

@@ -137,6 +137,7 @@ layout(push_constant, std430) uniform Params {
 	uint pad2;
 } params;
 
+layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
 #include "rc_shared.glsli"
 
 // --- MODEL PARAMETERS -------------------------------------------------------------------------------------
