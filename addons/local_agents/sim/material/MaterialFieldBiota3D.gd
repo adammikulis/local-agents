@@ -41,9 +41,12 @@ extends RefCounted
 ##   `biota_carbon` going NEGATIVE is meaningful, not a bug: it means bodies are exporting into the field more
 ##   carbon than they took from it, which happens because animals also eat PLANT NODES and each other, and a
 ##   plant node's mass never came out of a field channel. `biota_node_intake` counts that separately so the two
-##   sources are never silently merged. (`LAPlant.FOOD_REGROW` regrows a plant's reserve from nothing at 8/sec,
-##   which is a real violation in `sim/actors/Plant.gd` — a file another track owns concurrently, reported and
-##   not touched here.)
+##   sources are never silently merged. *(This used to end by reporting `LAPlant.FOOD_REGROW` as "a real
+##   violation in `sim/actors/Plant.gd` … a file another track owns concurrently". That track landed:
+##   FOOD_REGROW no longer exists, and a plant now DRAWS its reserve out of the `biomass` standing in its own
+##   cell through `LAMaterialFieldInject3D.take_biomass`, a device-resolved debit, so a plant on ground the
+##   chemistry never greened gets nothing. The note outlived the defect and was still being read as live on
+##   2026-08-08.)*
 ##
 ## OXYGEN'S CONVENTION is the budget's: FREE molecular O₂ only. An animal's aerobic respiration debits `o2` and
 ## credits `co2` ONE FOR ONE, which is the identity `LABioRecords` already enforces on the substrate's own
