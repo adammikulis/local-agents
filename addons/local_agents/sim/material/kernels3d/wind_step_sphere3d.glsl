@@ -25,8 +25,6 @@ layout(set = 0, binding = 16, std430) restrict readonly buffer LinkTan { float l
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	float pvx;        // legacy global prevailing wind on tangent axis A (still relaxed toward, now near-zero)
-	float pvz;        // legacy global prevailing wind on tangent axis B
 	float dt;         // STEP_DT
 	uint buoy;        // 1 = buoyancy enabled (MaterialWind3D._enable_buoyancy)
 	float spin_x;     // planet SPIN AXIS (north pole) in the field frame — latitude + banded-flow reference
@@ -51,12 +49,8 @@ const float BL_HEIGHT = 40.0;       // boundary-layer e-folding height, world un
 // Velocity magnitude clamp, in METRES PER SECOND now that the acceleration is real. 110 m/s is above the
 // fastest sustained jet-stream cores measured on Earth (~100 m/s) and below anything physical, so it is a
 // no statable dimension, sized against a pressure field that was itself arbitrary.)*
-const float MAX_WIND = 110.0;
-const float BUOY_ACCEL = 0.5;       // upward accel per °C of (this cell − cell above) temperature inversion
-const float BUOY_ACCEL_MAX = 6.0;   // cap the buoyant accel before the dt scale (stability)
-const float CORIOLIS = 0.6;         // sideways deflection of horizontal wind → pressure lows SPIN
-const float EDGE_FORCE = 0.30;      // boundary cells relax this fraction toward the base flow (inflow)
-const float BODY_FORCE = 0.02;      // interior cells relax this gentle fraction toward the base flow
+// Coriolis parameter f = 2*omega*sin(lat), rad/s.
+const float TWO_OMEGA = 1.45842318e-4;   // LAPhysical.CORIOLIS_TWO_OMEGA_RAD_S
 const float OROG_LIFT = 0.5;        // fraction of horizontal momentum blocked by rising terrain that becomes UPLIFT
 
 void main() {
@@ -121,7 +115,10 @@ void main() {
 	if (params.buoy == 1u && s_up >= 0 && solid[s_up] == 0.0) {
 		float inv = temp[g] - temp[s_up];
 		if (inv > 0.0) {
-			nvy += min(inv * BUOY_ACCEL, BUOY_ACCEL_MAX) * params.dt;
+			// Boussinesq buoyancy: a = g * dT / T. No cap — a runaway here means the momentum equation is
+			// wrong, and hiding it behind a clamp is how it stays wrong.
+			float t_here_k = temp[g] + 273.15;
+			nvy += GRAVITY_M_S2 * (inv / max(t_here_k, 1.0)) * params.dt;
 		}
 	}
 
@@ -133,15 +130,10 @@ void main() {
 	spin_axis = slen > 1e-5 ? spin_axis / slen : vec3(0.0, 1.0, 0.0);
 	float sinlat = clamp(dot(cell_radial, spin_axis), -1.0, 1.0);
 
-	float rvx = nvx + CORIOLIS * sinlat * nvz * params.dt;
-	float rvz = nvz - CORIOLIS * sinlat * nvx * params.dt;
+	float rvx = nvx + TWO_OMEGA * sinlat * nvz * params.dt;
+	float rvz = nvz - TWO_OMEGA * sinlat * nvx * params.dt;
 	nvx = rvx;
 	nvz = rvz;
-
-	bool on_edge = (lat[0] < 0 || lat[1] < 0 || lat[2] < 0 || lat[3] < 0);
-	float force = (on_edge ? EDGE_FORCE : BODY_FORCE) * bl;
-	nvx += (params.pvx - nvx) * force;
-	nvz += (params.pvz - nvz) * force;
 
 	nvx *= (1.0 - damp);
 	nvy *= (1.0 - DAMP_SURFACE);
@@ -169,15 +161,6 @@ void main() {
 		nvy = 0.0;
 	} else if (nvy < 0.0 && (s_dn < 0 || solid[s_dn] != 0.0)) {
 		nvy = 0.0;
-	}
-
-	// Magnitude clamp (stability).
-	float sp2 = nvx * nvx + nvy * nvy + nvz * nvz;
-	if (sp2 > MAX_WIND * MAX_WIND) {
-		float s = MAX_WIND / sqrt(sp2);
-		nvx *= s;
-		nvy *= s;
-		nvz *= s;
 	}
 
 	vel_x[g] = nvx;

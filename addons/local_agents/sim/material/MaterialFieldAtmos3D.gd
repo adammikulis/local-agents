@@ -110,7 +110,7 @@ func climate_snapshot() -> Dictionary:
 		return {}
 	return {
 		"moisture": _f._moisture, "temp": _f._temp, "snow": _f._snow,
-		"solid": _f._solid, "static": _f._static, "cell_count": _f._cell_count,
+		"solid": _f._solid, "cell_count": _f._cell_count,
 	}
 
 

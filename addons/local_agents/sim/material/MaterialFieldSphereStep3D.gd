@@ -98,7 +98,7 @@ func process(delta: float) -> void:
 		if _f._terrain == null or not _f._terrain.has_method("is_solid"):
 			return
 		_f._sample_solidity_sphere()
-		_f._seed_sphere_sea()         # static field sea = the evaporation source that drives the water cycle
+		_f._seed_sphere_sea()         # fills the ocean basin with real, flowing water
 		_f._compute_regolith()        # the permeable aquifer band (+ initial water table) for groundwater flow
 		LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins (static water bodies)
 		_f.activate()                 # is_sphere() → picks SphereGPUScript + sets _use_gpu

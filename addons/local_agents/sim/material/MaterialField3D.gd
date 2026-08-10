@@ -28,7 +28,6 @@ var _cell_count: int = 0
 var _solid: PackedByteArray = PackedByteArray()          # 1 = rock (holds no fluid), 0 = void (air/water)
 var _water: PackedFloat32Array = PackedFloat32Array()    # water mass per cell (can exceed 1 under pressure)
 var _wnext: PackedFloat32Array = PackedFloat32Array()    # double buffer for the water step
-var _static: PackedByteArray = PackedByteArray()
 
 # --- Shared 3D field state used by the concern modules (heat / atmosphere / lava). Every cell (rock OR
 const INITIAL_TEMP: float = 15.0
@@ -321,8 +320,6 @@ func _alloc_channels() -> void:
 	_water.resize(_cell_count)
 	_wnext = PackedFloat32Array()
 	_wnext.resize(_cell_count)
-	_static = PackedByteArray()
-	_static.resize(_cell_count)
 	_temp = PackedFloat32Array()
 	_temp.resize(_cell_count)
 	_temp.fill(INITIAL_TEMP)

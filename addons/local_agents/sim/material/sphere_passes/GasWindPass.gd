@@ -133,7 +133,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	var pc_wp: PackedByteArray = _pc_windpressure(_columns, depth,
 			float(ctx.get("core_radius", 0.0)), float(ctx.get("cell_size", 1.0)),
 			float(ctx.get("sea_radius", 0.0)), dt, step_index)
-	var pc_ws: PackedByteArray = _pc_windstep(cc, wind.x, wind.y, dt, buoy_on, spin, depth,
+	var pc_ws: PackedByteArray = _pc_windstep(cc, dt, buoy_on, spin, depth,
 			float(ctx.get("core_radius", 0.0)), float(ctx.get("cell_size", 1.0)), float(ctx.get("sea_radius", 0.0)))
 	var pc_ch: PackedByteArray = _pc_charge(cc, dt)
 
@@ -256,22 +256,20 @@ func _pc_windpressure(columns: int, depth: int, core_radius: float, cell_size: f
 	return pc
 
 
-func _pc_windstep(cc: int, pvx: float, pvz: float, dt: float, buoy: int, spin: Vector3,
+func _pc_windstep(cc: int, dt: float, buoy: int, spin: Vector3,
 		depth: int, core_radius: float, cell_size: float, sea_radius: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(48)
+	pc.resize(40)
 	pc.encode_u32(0, cc)
-	pc.encode_float(4, pvx)
-	pc.encode_float(8, pvz)
-	pc.encode_float(12, dt)
-	pc.encode_u32(16, buoy)
-	pc.encode_float(20, spin.x)
-	pc.encode_float(24, spin.y)
-	pc.encode_float(28, spin.z)
-	pc.encode_u32(32, depth)
-	pc.encode_float(36, core_radius)
-	pc.encode_float(40, cell_size)
-	pc.encode_float(44, sea_radius)
+	pc.encode_float(4, dt)
+	pc.encode_u32(8, buoy)
+	pc.encode_float(12, spin.x)
+	pc.encode_float(16, spin.y)
+	pc.encode_float(20, spin.z)
+	pc.encode_u32(24, depth)
+	pc.encode_float(28, core_radius)
+	pc.encode_float(32, cell_size)
+	pc.encode_float(36, sea_radius)
 	return pc
 
 # Params { uint cell_count; float dt; uint pad0; float pad1; } — charge_accum.

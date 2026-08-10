@@ -8,9 +8,11 @@ const TRANSPORT_PATH: String = "res://addons/local_agents/sim/material/kernels3d
 const DEFAULT_DT: float = 0.1
 # Dust's still-air settling share. A PARTICULATE settles by grain size through Stokes drag, and the substrate
 # could compute that — LAPhysical.GRAIN_D_UPLAND_M / GRAIN_D_LOWLAND_M carry real sieve diameters and Stokes
-# Still-air settling velocity, m/s. Stokes for medium silt (~60 um quartz) in air. The `dust` channel
-# carries no grain size, so this is one value for all dust rather than a function of the grain.
-const DUST_SETTLE_V: float = 0.3
+# Still-air settling velocity, m/s, from Stokes drag on the airborne grain size. The `dust` channel carries
+# no per-cell grain diameter, so every grain settles as GRAIN_D_UPLAND_M.
+static func _dust_settle_v() -> float:
+	return LAPhysical.stokes_settling_velocity(LAPhysical.GRAIN_D_UPLAND_M,
+			LAPhysical.AIR_DENSITY_KG_M3, LAPhysical.AIR_DYNAMIC_VISCOSITY_PA_S)
 # Eddy mixing is a property of the FLOW, not of what is suspended in it, so this is the same number the gases
 # use (GasWindPass.EDDY_DIFFUSE). Two tracers with two mixing rates would assert the air stirs one, not the other.
 const EDDY_DIFFUSE: float = 0.02
@@ -109,7 +111,7 @@ func _pc_tracer(cc: int, depth: int, k: float) -> PackedByteArray:
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, depth)
 	pc.encode_float(8, k)
-	pc.encode_float(12, DUST_SETTLE_V)
+	pc.encode_float(12, _dust_settle_v())
 	pc.encode_float(16, EDDY_DIFFUSE)
 	pc.encode_u32(20, 1)
 	pc.encode_u32(24, 0)

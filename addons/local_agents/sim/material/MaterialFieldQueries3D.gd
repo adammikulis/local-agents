@@ -215,7 +215,7 @@ func hot_spring_stats() -> Dictionary:
 	var spring_wet: int = 0  # open non-sea cells holding ANY discharge film (denominator for the warm fraction)
 	var mx: float = 0.0      # hottest open non-sea surface-water cell (the true spring peak, no threshold)
 	for i in range(count):
-		if _f._solid[i] != 0 or _f._static[i] != 0:
+		if _f._solid[i] != 0:
 			continue
 		if _f._water[i] < 0.01:
 			continue
@@ -238,7 +238,7 @@ func hot_spring_stats() -> Dictionary:
 func wet_cell_count() -> int:
 	var n: int = 0
 	for i in range(_f._cell_count):
-		if _f._solid[i] == 0 and _f._static[i] == 0 and _f._water[i] >= _f.RENDER_MIN:
+		if _f._solid[i] == 0 and _f._water[i] >= _f.RENDER_MIN:
 			n += 1
 	return n
 

@@ -102,9 +102,21 @@ const KOZENY_CARMAN_C: float = 180.0
 # quantity, two constants, two values. The CGPM-defined figure is the authority and this is now an alias, so
 const GRAVITY_M_S2: float = STANDARD_GRAVITY_M_S2
 const WATER_DYNAMIC_VISCOSITY_PA_S: float = 1.002e-3    # liquid water at 20 °C
+const AIR_DYNAMIC_VISCOSITY_PA_S: float = 1.81e-5       # dry air at 15 °C, 1 atm
 
 const REGOLITH_SURFACE_POROSITY: float = 0.40
 const COMPACTION_LENGTH_M: float = 2500.0
+
+## Terminal settling velocity of a grain in a fluid, m/s (Stokes drag): v = (rho_p - rho_f) g d^2 / 18 mu.
+## Valid only for Reynolds < 1. At GRAIN_D_UPLAND_M in air Re = 1.2, so this is at the edge of validity and
+## reads a little fast; at GRAIN_D_LOWLAND_M it returns 1396 m/s, which is meaningless — a 4 mm grain is not
+## airborne and is never passed here.
+static func stokes_settling_velocity(grain_d_m: float, fluid_density: float, fluid_viscosity: float) -> float:
+	if fluid_viscosity <= 0.0:
+		return 0.0
+	return (ROCK_DENSITY_KG_M3 - fluid_density) * STANDARD_GRAVITY_M_S2 * grain_d_m * grain_d_m \
+		/ (18.0 * fluid_viscosity)
+
 
 const GRAIN_D_UPLAND_M: float = 6.0e-5      # 0.06 mm — very fine sand / coarse silt (residual saprolite)
 const GRAIN_D_LOWLAND_M: float = 4.0e-3     # 4 mm — fine gravel (valley-fill alluvium)
@@ -133,6 +145,9 @@ const BIOMASS_HEAT_OF_COMBUSTION_J_PER_KG: float = 1.7e7
 const ANIMAL_SPECIFIC_HEAT_J_KGK: float = 3500.0
 # --- UNIVERSAL CONSTANTS ------------------------------------------------------------------------------------
 const STANDARD_GRAVITY_M_S2: float = 9.80665        # CGPM-defined standard gravity
+const PLANET_ANGULAR_VELOCITY_RAD_S: float = 7.2921159e-5   # Earth sidereal rotation, 2*pi/86164.1 s
+## Coriolis parameter is f = CORIOLIS_TWO_OMEGA_RAD_S * sin(latitude).
+const CORIOLIS_TWO_OMEGA_RAD_S: float = PLANET_ANGULAR_VELOCITY_RAD_S * 2.0
 const GAS_CONSTANT_J_MOL_K: float = 8.314462618     # CODATA molar gas constant R
 const SECONDS_PER_YEAR: float = 3.15576e7           # Julian year, 365.25 days
 

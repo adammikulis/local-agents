@@ -11,7 +11,6 @@ layout(local_size_x = 64) in;
 layout(set = 0, binding = 0, std430) restrict readonly buffer Rain { float rain[]; };
 layout(set = 0, binding = 1, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Water { float water[]; };
-layout(set = 0, binding = 4, std430) restrict readonly buffer Static { float static_cells[]; };  // calm sea = infinite sink
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
 
 layout(push_constant, std430) uniform Params {
@@ -29,7 +28,7 @@ void main() {
 	int idx = int(g);
 	int base = idx * 6;
 
-	if (solid[g] != 0.0 || static_cells[g] != 0.0) {
+	if (solid[g] != 0.0) {
 		return;
 	}
 

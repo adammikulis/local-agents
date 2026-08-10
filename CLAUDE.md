@@ -1,5 +1,57 @@
 # CLAUDE.md
 
+# RULE 1 — DELETE IT. DO NOT PRESERVE IT. THIS OUTRANKS EVERYTHING BELOW.
+
+**If it is wrong, delete it.** Not behind a flag, a mode, a default, an alias, a pad, or a fallback. A switch
+that keeps broken behaviour reachable is the same defect with a switch on it. There is no "keep it for
+compatibility" here — there are no downstream consumers.
+
+**Ask whether the thing exists in the real world. If it does not, there is nothing to preserve.** Seas are
+not static. Mass does not move without its heat. A gas does not ignore the wind. Water does not vanish when
+it reaches the ocean. When the answer is "reality has no such thing", delete it — do not parameterise it.
+
+# YOU MAY NOT VIOLATE PHYSICS WITHOUT EXPLICIT PERMISSION. ASK. EVERY TIME.
+
+**Any departure from real physics requires the maintainer's explicit consent, obtained BEFORE you write it.**
+Not after, not in the commit message, not as a note in HANDOFF. There is no implicit licence anywhere — not
+"it was already like that", not "the old code did it", not "it is only a stopgap", not "it keeps the tests
+green", not "I will fix it next commit".
+
+**This covers all of it, not just conservation:** matter or energy created or destroyed · a constant you
+invented rather than derived or cited · a mechanism reality does not have (a static sea, a global flag gating
+a per-cell process, mass that moves without its heat) · a clamp, floor, cap or target that exists to stop a
+symptom · a rate fitted so an output looks right · a phase change that skips its latent heat · a gauge that
+answers a different question than the one asked.
+
+**If you cannot derive it or cite it, STOP AND ASK.** "I need a settling velocity and the channel carries no
+grain size — may I use one value for all dust?" is the correct move. Choosing 0.3 and writing "Stokes for
+60 um quartz" beside it is not, and that is the exact thing that makes this code never work.
+
+**Enforced, not just written:** `scripts/check_model_parameters.sh` fails the build on any kernel constant
+that is neither bound to `LAPhysical` nor listed in `docs/MODEL_PARAMETERS.md`. Adding a number you made up
+therefore breaks the build until it is either derived or written down as a declared modelling choice with a
+reason. Prose rules did not hold on this repo; gates did.
+
+**Do not invent a constant and dress it as physics.** No number gets a citation-flavoured comment unless it
+was actually derived or actually cited. Writing "Stokes for 60 um quartz" next to a value you chose is a lie,
+and it is worse than the bare value because it stops the next reader checking.
+
+**Do not run a test until the rip-out is finished.** A run against code you have already convicted measures
+the interaction of defects, costs minutes, and gets discarded by the next edit. Rip everything out, then run
+once.
+
+**Do not file it — fix it.** Finding a defect and writing it down is not progress. If you found it, it is
+yours.
+
+**No prose in comments.** Short and factual: what it does, and units. If a claim matters make it a gate; if
+it does not, delete it. Measured numbers belong in gates, never in comments.
+
+*(Written 2026-08-10, in the maintainer's words: "STOP CLINGING TO BROKEN CODE", "IF YOU KNOW IT'S WRONG RIP
+IT OUT", "I never wanted a static sea... I said over and over again I don't want one", "NO HUMAN PROGRAMMER
+DOES THE SHIT THAT YOU DO". Every one of those followed an agent adding a flag instead of a deletion.)*
+
+---
+
 **This is the canonical, enforceable process doc for this repo — read it first.** It applies to every
 agent (Claude Code, Codex, and sub-agents). `GODOT_BEST_PRACTICES.md` is its companion and the
 canonical source for Godot-specific design, runtime, testing, validation, and harness-invocation
