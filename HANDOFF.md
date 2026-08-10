@@ -89,6 +89,74 @@ with a PER-PASS probe. Every other one has a global total, which says a number m
 
 ---
 
+## ▶ START HERE, 2026-08-09 LATE — branch `feature/enthalpy`, NOT merged, 4 commits off `0.4-dev`
+
+`0177274` phase boundary as a curve · `d64d249` the rule + rubric + score script · `3bf94ac` the world's
+length scale · plus `docs/PHYSICS_AUDIT_2026-08-09.md`.
+
+**READ `docs/PHYSICS_AUDIT_2026-08-09.md` FIRST.** Three audits, every finding with a file:line and the
+arithmetic. It replaces guessing about what is wrong.
+
+### DO NOT A/B THESE ONE AT A TIME — RIP OUT THE WHOLE ENERGY/PHASE SUBSYSTEM, THEN MEASURE ONCE
+
+The fixes below are NOT independent and must not be measured separately: latent heat, the greenhouse's
+composition, the pascal conversion and simultaneous record solving all have to land before the energy books
+mean anything at all (`energy_residual / energy_booked` is currently **1742**). A per-change A/B on this
+substrate measures the interaction with the four larger defects still live, costs ~5 minutes a run, and
+returns an uninterpretable number — see CLAUDE.md's rule, which this session earned the hard way.
+
+**Land P0's second half + P1 + P2 as ONE replacement**, then verify against the binary acceptance test —
+does the planet cool, does an ocean condense — rather than against a drift delta.
+
+### THE NEXT COMMIT IS P0's SECOND HALF, AND IT IS FULLY SPECIFIED
+
+The length scale now exists and is derived (`METRES_PER_MODEL_UNIT = 168.6`, validated: `M_air`, `R_d` and
+`H = R_d T/g` all reproduce standard values to 0.01%, and `H` comes out **50.02 model units against the
+kernel's hand-tuned `H_REF = 50`**). `LAPhysical.air_units_to_pascals()` exists and gives the sim's
+sea-level column as **93 180 Pa**, on which `boil_c_at` returns **97.59 °C**.
+
+**But the pressure CHANNEL is still in world units, so nothing calls any of it.** That is the job:
+
+1. `wind_pressure_sphere3d.glsl` — delete `G_ACC = 33.5` and `H_PER_KELVIN = 0.1736`. Both are the same
+   two physical facts (g and R_d) in world units, and `G_ACC`'s own comment says 33.5 was chosen *"because
+   that is where the old P0 sat, so pass B's ACCEL/DAMP tuning still sees gradients of a familiar size."*
+   Write `pressure` in **pascals** as `g * rho * dz` summed inward, and the scale height as
+   `R_d * T / g` in model units.
+2. `wind_step_sphere3d.glsl` — **this is why it is not a rescale.** Its acceleration is ALREADY the real
+   `(1/rho) grad(p)` with the old tuning constant removed, so once `p` is in Pa, `rho` must be in kg/m³
+   (`AIR_DENSITY_KG_M3 * air[i]`) and the gradient per METRE. Velocities then come out in m/s, which they
+   currently are not — check `MAX_WIND = 24` against a real jet (~70 m/s) once they do.
+3. `heat3d_solar_sphere3d.glsl` — `P_REF = 100.0` becomes `LAPhysical.STANDARD_PRESSURE_PA`. The
+   greenhouse reads `p/P_REF`, a ratio, so this is safe **only if both change together**.
+4. `MaterialFieldEnergyBudget3D.gd:108` mirrors `K_P_REF = 100.0`; same change.
+5. Then wire `boil_c_at(id, p_pa)` into `MaterialFieldQueries3D.gd:305` and `GeoRecords.gd:293`'s
+   Arrhenius ceiling, and **delete `heat3d_cool_sphere3d.glsl`** (audit A3 — it is a 100 °C thermostat).
+6. Also unfinished from P0: **`params.dt` is uploaded to `reactions_sphere3d.glsl` and never read**, so
+   every reaction rate is per-STEP (audit C5).
+
+### DOES THE TWENTY-SHELL MODEL NEED TO CHANGE? — asked 2026-08-09, answered with numbers
+
+**Not for the atmosphere, and yes for the aquifer, and no bigger planet.** Three things settled:
+
+- **A bigger planet makes it worse, not better.** `H/R` goes as `1/R²` (from `H = R_d T/g` and
+  `g = (4/3)piG rho R`), so a larger body has a proportionally *thinner* atmosphere and needs *finer*
+  cells. Earth's ratio is 1:758.
+- **Gravity is cheap to change if ever needed — Newtonian G is used NOWHERE** (no `6.674e-11` in the tree,
+  no N-body). `g` appears in exactly three places: hydraulic conductivity (`soil_sphere3d.glsl:112`),
+  lithostatic pressure (`ReactionsPass.gd:55`) and the air column (`G_ACC`).
+- **The grid is a SHELL, not a ball** — ten cells of air above the sea and ten of crust below — so it only
+  has to resolve ~3 scale heights up and the crust down. At 2698 m per cell it does that correctly.
+
+**What it genuinely cannot do is resolve the aquifer.** Four regolith cells span **10.8 km** against the
+2 km `GROUNDWATER_CIRCULATION_M` describes. The old 500 m/cell was a second length scale kept to hide this.
+Three honest ways out, and it is a design call rather than a bug:
+  (a) accept it — the aquifer is one coarse cell and `REGOLITH_CELLS` drops to 1;
+  (b) **non-uniform radial spacing** — fine near the surface, coarse aloft and at depth, which is what every
+      real Earth-system model does. `cell_size` becomes per-shell; 21 uses across 12 kernels;
+  (c) more shells — costs O(cells) everywhere and still wastes resolution on the deep interior.
+(b) is the physically correct one and the only one that serves a post-Theia seed, where the interesting
+structure is all within a few km of a surface that is also radiating to space.
+
 ## HOW GOOD IS IT? — `PHYSICS_RUBRIC.md`, scored 7/24 on 2026-08-09
 
 Six criteria with a dated score history; `scripts/physics_score.sh` computes the measurable half. Three

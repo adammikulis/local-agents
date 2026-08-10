@@ -697,6 +697,23 @@ failure mode, and it is the most common one.
   approach and what it unlocks, and ask. Do **not** silently work around it (delivering a lesser result
   the user didn't know was a compromise), and do **not** unilaterally rip it out either. The user will
   usually say "yes, change it" — but it's their call, and flagging it is how big upgrades get found.
+- **DO NOT A/B A FIX AGAINST A BASELINE YOU KNOW IS BROKEN. RIP THE SUBSYSTEM OUT, REPLACE IT, THEN
+  MEASURE ONCE.** *(Maintainer, 2026-08-09: "your constant testing for systems we KNOW are broken is a waste
+  of time… you'll literally never get a good result with half-broken code.")* A three-run arm costs ~5
+  minutes and, on a substrate with four larger defects still live, returns a number dominated by the
+  interaction with those defects rather than by the change. It reads as rigour and is theatre.
+  - **Measured, in the session that earned this rule:** an A/B of the porosity fix cost ~15 minutes of runs
+    and read 7.76% -> 8.03%, "worse" — against a baseline latched before the channel it depended on had
+    arrived, so the number meant nothing. A second arm measured a lava-capacity fix in a scenario whose
+    `lava_cells` is 0. And every carbon figure taken all session read **+1261% when the truth was -10.7%**,
+    opposite sign, because the gauge summed three substances' channel units.
+  - **The tell:** if you cannot say what the number would have to be for the change to be WRONG, you are
+    not measuring, you are generating reassurance. `energy_residual / energy_booked` is 1742 — no energy
+    A/B can mean anything until latent heat exists at all.
+  - **So:** when a subsystem is known broken, replace the whole of it in one change and verify against a
+    BEHAVIOURAL acceptance test that is binary — does the planet cool, does an ocean condense, does the gate
+    fail on purpose — not against a drift delta. Keep A/B arms for a substrate you believe is correct and
+    are checking you did not break.
 - **NEVER, EVER CHOOSE SOMETHING BECAUSE THE OLD BROKEN SYSTEM HAD IT THAT WAY.** *(Maintainer, 2026-08-09,
   and it outranks the rule below because it is the reason that rule keeps being needed.)* Compatibility with
   a wrong model is not a reason. "Parity with what was there" is not a reason. "So the existing tuning still
