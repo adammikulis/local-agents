@@ -102,9 +102,16 @@ anywhere. Audited at 600 steps past the seal, seed 4242, `--sandbox --planet-onl
 | energy (`energy_run_drift`) | -8.0% of stock | -7.4% of stock | not gated | — |
 
 **FOUR SUBSTANCES IMPROVED BY 3–5×** because the biological rates stopped being fitted, and **their
-allowances came DOWN in the same commit**, which is what the ratchet requires. The headroom is ~15% rather
-than the ~5% these started at, on purpose: these are one run each and this project's spread is discrete and
-disaster-driven. Retighten toward 5% once three runs per arm confirm them.
+allowances came DOWN in the same commit**, which is what the ratchet requires.
+
+**THESE LEAKS ARE STRUCTURAL, NOT DISASTER NOISE — confirmed on a second seed, and it overturns a standing
+assumption.** Seed 9091 (17 impacts / 2 eruptions) against seed 4242 (19 impacts / 1 flood / 1 eruption):
+`element_C` -28.581% vs **-28.553%**, `o2` -24.788% vs **-24.639%**, `oxidant` -10.402% vs **-10.240%**,
+`nitrogen` -0.620% vs **-0.620%**, `mineral` -0.0061% vs **-0.0060%**. Five of six agree to within 0.16pp
+across a completely different disaster draw. **`h2o` is the exception at -19.18% vs -17.56%, 1.6pp apart.**
+So the standing "quote `phenomena_kinds`, the spread is discrete and disaster-driven" caution is right about
+WATER and wrong about everything else — the other five can be measured on one run, and their allowances can
+go to ~5% headroom whenever someone wants. Water is the one that genuinely needs three runs per arm.
 
 - **CARBON GOT WORSE, −26.75% → −28.58%, AND ITS ALLOWANCE WAS NOT RAISED.** 0.42pp of headroom is left, so
   the next change touching the carbon path very likely trips 126. The maintainer took the change anyway on

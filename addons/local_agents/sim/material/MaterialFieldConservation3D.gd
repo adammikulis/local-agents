@@ -96,9 +96,18 @@ const DEBT: Dictionary = {
 	#
 	# RETIGHTENED 2026-08-10, after the biological rates stopped being fitted (see the note below). Four of
 	# the six moved by factors of 3-5x, and the rule is that a table entry comes DOWN in the commit that
-	# earns it. The headroom here is ~15% rather than the ~5% these started at, ON PURPOSE: the new figures
-	# are ONE run each, and this project's residual spread is discrete and disaster-driven rather than
-	# Gaussian. Retighten toward 5% once three runs per arm confirm them.
+	# earns it. The headroom is ~15% rather than the ~5% these started at.
+	#
+	# CONFIRMED ON A SECOND SEED, AND IT OVERTURNED THE REASON FOR THAT HEADROOM. The caution was "one run
+	# each, and this project's spread is discrete and disaster-driven". Seed 9091 (17 impacts / 2 eruptions)
+	# against seed 4242 (19 impacts / 1 flood / 1 eruption) says otherwise for five of the six:
+	#     element_C  -0.28581 vs -0.28553    o2       -0.24788 vs -0.24639
+	#     oxidant    -0.10402 vs -0.10240    nitrogen -0.00620 vs -0.00620
+	#     mineral    -0.000061 vs -0.000060
+	#     h2o        -0.19182 vs -0.17555   <- 1.6pp apart, the ONLY seed-sensitive one
+	# So these leaks are STRUCTURAL, not noise, and the disaster draw barely touches them. Five of the six
+	# can go to ~5% headroom whenever someone wants; WATER is the one that genuinely needs three runs per
+	# arm before its allowance moves.
 	"element_C_total": 0.29,      # measured -0.286 — NOT LOWERED, AND NOT RAISED. See CARBON GOT WORSE below.
 	"h2o_closed_total": 0.21,     # measured -0.192 (was -0.195; the 0.1pp is inside the noise, so unchanged)
 	"o2_total": 0.29,             # measured -0.248 (was -0.903)
