@@ -109,7 +109,7 @@ layout(push_constant, std430) uniform Params {
 // separate constant 0.60, above the porosity of every real granular material, while the conductivity was
 // computed as if from a different rock.
 const float KOZENY_C = 180.0;              // LAPhysical.KOZENY_CARMAN_C
-const float GRAVITY = 9.81;                // LAPhysical.GRAVITY_M_S2
+const float GRAVITY = 9.80665;             // LAPhysical.GRAVITY_M_S2
 const float WATER_VISCOSITY = 1.002e-3;    // LAPhysical.WATER_DYNAMIC_VISCOSITY_PA_S
 const float RHO_WATER = 997.0;             // LAPhysical.WATER_DENSITY_KG_M3
 const float SURFACE_POROSITY = 0.40;       // LAPhysical.REGOLITH_SURFACE_POROSITY

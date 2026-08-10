@@ -120,37 +120,126 @@ plan below.
 
 ---
 
-## ▶ ALSO LIVE — `feature/enthalpy`, six commits off `0.4-dev`, NOT merged
+## ▶ THE ENTHALPY WORK IS MERGED — `feature/enthalpy`, six commits, landed 2026-08-09
 
-Branched at `7353b1d`, so it rebases cleanly. `0177274` the liquid-vapour boundary is a curve · `d64d249`
-the rule + `PHYSICS_RUBRIC.md` + `scripts/physics_score.sh` · `3bf94ac` the world's length scale ·
-`017658a` `docs/PHYSICS_AUDIT_2026-08-09.md` · `f61d426` latent heat on all seven phase records ·
-`d74cbb6` its own HANDOFF section.
+*(Collapsed from two sections that both announced this branch as NOT merged. It is merged; keeping either
+heading would have made the file wrong about its own tip on the first read.)*
 
-**It carries its own `▶ START HERE` block with the next commit fully specified, and CLAUDE.md rules that are
-not on `0.4-dev`** — do not re-derive any of it here. What matters from this side:
+`0177274` the liquid-vapour boundary is a curve · `d64d249` the rule + `PHYSICS_RUBRIC.md` +
+`scripts/physics_score.sh` · `3bf94ac` the world's length scale · `017658a`
+`docs/PHYSICS_AUDIT_2026-08-09.md` · `f61d426` latent heat on all seven phase records.
 
-- **Latent heat LANDED** (`f61d426`), which closes most of item 5 below. All seven phase records carry an
-  enthalpy DERIVED from `LASubstances`; Hess closes to exactly 0.0. **Evaporative cooling — ~80 W/m², the
-  largest single term in Earth's surface energy budget — did not exist in this simulation before it.**
+**READ `docs/PHYSICS_AUDIT_2026-08-09.md` FIRST.** Three audits, every finding with a `file:line` and the
+arithmetic. It replaces guessing about what is wrong.
+
+**What it changed, and what it did not:**
+
+- **Latent heat exists** (`f61d426`). All seven phase records carry an enthalpy DERIVED from `LASubstances`;
+  Hess closes to exactly 0.0, so the 2.433e5 J/kg that shipped code released from nothing per
+  water→vapour→snow→water traverse is no longer expressible. **Evaporative cooling — ~80 W/m², the largest
+  single term in Earth's surface energy budget — did not exist in this simulation before it.**
 - **`boil_c` was a scalar and water's boiling point is a function of pressure** (`0177274`). At 100 bar it is
   306 °C, and a post-Theia planet condenses its ocean when the surface passes ~300 °C — so a model waiting
   for 100 °C waits forever and the failure reads as "the physics does not work".
-- **The sim had no metres-per-model-unit** and four subsystems had each invented one (`3bf94ac`). Note this
-  lands a SECOND live statement about the world's scale: the branch derives `METRES_PER_MODEL_UNIT = 168.6`
-  (2698 m per atmosphere cell), while `MaterialFieldGeotherm3D.gd:23-30` states the depth conceit — that
-  taking the model's metres literally makes this a 500 m asteroid, so depth is vertically exaggerated.
-  Reconcile those at merge; do not let the tree carry two answers to "how big is this planet".
-- **The rule it earned, and it applies here too: do not A/B a fix against a baseline you know is broken.**
-  With residual/booked at 1739, no energy A/B on `0.4-dev` means anything either.
+- **The sim had no metres-per-model-unit** and four subsystems had each invented one (`3bf94ac`).
+- **IT LEFT TWO LIVE ANSWERS TO "HOW BIG IS THIS PLANET", AND THAT IS NOW A DEFECT IN THE TREE RATHER THAN
+  a difference between branches.** `LAPhysical.METRES_PER_MODEL_UNIT = 168.6` gives 2698 m per atmosphere
+  cell, while `MaterialFieldGeotherm3D.gd:23-30` states the depth conceit — that taking the model's metres
+  literally makes this a 500 m asteroid, so depth is vertically exaggerated. **Reconcile them.** The audit
+  already names the consequence: four regolith cells span 10.8 km against the 2 km
+  `GROUNDWATER_CIRCULATION_M` describes, so this grid cannot resolve its own aquifer.
 
-**Merging it is a decision, not a formality.** Its own next commit rewrites the pressure channel into
-pascals and deletes `heat3d_cool_sphere3d.glsl` — which still exists on BOTH branches, and which is now a
-duplicate of R23's energy leg as well as a 100 °C thermostat — and it wants that landed as one replacement
-rather than picked apart. What is already on the branch is additive: enthalpies on records, new
-`LASubstances`/`LAPhysical` relations, two new docs, no kernel deleted yet.
+**Measured at the merge** (seed 4242, `--planet-only --no-fauna --run-frames=600 --fast=8`, one run per arm,
+19–20 impacts each): every gated substance same or better — `element_C` -26.745% → **-26.700%**,
+`h2o_closed` -20.065% → **-19.296%**, `oxidant` -56.205% → **-53.634%**, `o2` -90.337% → **-90.257%**,
+`mineral` -0.0273% → **-0.0263%**, `nitrogen` unchanged. `energy_booked` -7.70e12 → **-1.033e13**, a third
+more of the planet's heat actually attributed, and **`energy_residual / energy_booked` 1739 → 1280**. Zero
+violations, exit 0, lint green. `snow_cells` 20 → 4 and two `flood` phenomena appeared where the baseline had
+none, which is what a planet that can finally pay for a phase change looks like — but that is one run, so it
+is an observation, not a result.
 
----
+### DO NOT A/B THESE ONE AT A TIME — RIP OUT THE WHOLE ENERGY/PHASE SUBSYSTEM, THEN MEASURE ONCE
+
+The fixes below are NOT independent and must not be measured separately: latent heat, the greenhouse's
+composition, the pascal conversion and simultaneous record solving all have to land before the energy books
+mean anything at all. `energy_residual / energy_booked` was 1742 when this was written and is **1280** now
+that latent heat has landed — better, and still three orders of magnitude from a closed set of books. A
+per-change A/B on this substrate measures the interaction with the larger defects still live, costs ~5
+minutes a run, and returns an uninterpretable number — see CLAUDE.md's rule, which that session earned the
+hard way.
+
+**Land P0's second half + P1 + P2 as ONE replacement**, then verify against the binary acceptance test —
+does the planet cool, does an ocean condense — rather than against a drift delta.
+
+**STILL OPEN IN THE PHASE/ENERGY AREA, all three named by `f61d426` itself:** `heat3d_cool` is now a
+DUPLICATE of R23's energy leg as well as a 100 °C thermostat, so delete it (audit A3); **condensation
+(`atmos_precip`) and deposition (`snowice`) still release nothing** (audit A4); and a record carries ONE
+enthalpy where L(T) is a curve, so evaporation is charged at its 0 °C figure everywhere — ~11% wrong at
+100 °C and completely wrong near 374 °C.
+- **For A4, DO NOT RE-DERIVE IT — the arithmetic already exists**, on the abandoned worktree branch
+  `worktree-agent-a59c3ef2f80727598` (`55cda84`, "every phase change of water now pays for itself"). It
+  puts the condensation and deposition legs in `atmos_precip_sphere3d.glsl` and `snowice_sphere3d.glsl`,
+  with the unit derivation forced rather than chosen (CAP_WATER ÷ water's specific heat fixes one channel
+  unit at 929.3 kg/m², which is the 0.932 m depth the solar kernel already quotes). It is 104 commits
+  behind and its kernels must NOT be merged wholesale — lift the derivation, put the physics in records.
+  That branch also records the trap: without counting an unbounded snowpack's inertia and suspended
+  water's own capacity, `temp_min` reached -3434 °C.
+
+### THE NEXT COMMIT IS P0's SECOND HALF, AND IT IS FULLY SPECIFIED
+
+The length scale now exists and is derived (`METRES_PER_MODEL_UNIT = 168.6`, validated: `M_air`, `R_d` and
+`H = R_d T/g` all reproduce standard values to 0.01%, and `H` comes out **50.02 model units against the
+kernel's hand-tuned `H_REF = 50`**). `LAPhysical.air_units_to_pascals()` exists and gives the sim's
+sea-level column as **93 180 Pa**, on which `boil_c_at` returns **97.59 °C**.
+
+**But the pressure CHANNEL is still in world units, so nothing calls any of it.** That is the job:
+
+1. `wind_pressure_sphere3d.glsl` — delete `G_ACC = 33.5` and `H_PER_KELVIN = 0.1736`. Both are the same
+   two physical facts (g and R_d) in world units, and `G_ACC`'s own comment says 33.5 was chosen *"because
+   that is where the old P0 sat, so pass B's ACCEL/DAMP tuning still sees gradients of a familiar size."*
+   Write `pressure` in **pascals** as `g * rho * dz` summed inward, and the scale height as
+   `R_d * T / g` in model units.
+2. `wind_step_sphere3d.glsl` — **this is why it is not a rescale.** Its acceleration is ALREADY the real
+   `(1/rho) grad(p)` with the old tuning constant removed, so once `p` is in Pa, `rho` must be in kg/m³
+   (`AIR_DENSITY_KG_M3 * air[i]`) and the gradient per METRE. Velocities then come out in m/s, which they
+   currently are not — check `MAX_WIND = 24` against a real jet (~70 m/s) once they do.
+3. `heat3d_solar_sphere3d.glsl` — `P_REF = 100.0` becomes `LAPhysical.STANDARD_PRESSURE_PA`. The
+   greenhouse reads `p/P_REF`, a ratio, so this is safe **only if both change together**.
+4. `MaterialFieldEnergyBudget3D.gd:108` mirrors `K_P_REF = 100.0`; same change.
+5. Then wire `boil_c_at(id, p_pa)` into `MaterialFieldQueries3D.gd:305` and `GeoRecords.gd:293`'s
+   Arrhenius ceiling, and **delete `heat3d_cool_sphere3d.glsl`** (audit A3 — it is a 100 °C thermostat).
+6. Also unfinished from P0: **`params.dt` is uploaded to `reactions_sphere3d.glsl` and never read**, so
+   every reaction rate is per-STEP (audit C5).
+
+### DOES THE TWENTY-SHELL MODEL NEED TO CHANGE? — asked 2026-08-09, answered with numbers
+
+**Not for the atmosphere, and yes for the aquifer, and no bigger planet.** Three things settled:
+
+- **A bigger planet makes it worse, not better.** `H/R` goes as `1/R²` (from `H = R_d T/g` and
+  `g = (4/3)piG rho R`), so a larger body has a proportionally *thinner* atmosphere and needs *finer*
+  cells. Earth's ratio is 1:758.
+- **Gravity is cheap to change if ever needed — Newtonian G is used NOWHERE** (no `6.674e-11` in the tree,
+  no N-body). `g` appears in exactly three places: hydraulic conductivity (`soil_sphere3d.glsl:112`),
+  lithostatic pressure (`ReactionsPass.gd:55`) and the air column (`G_ACC`).
+- **The grid is a SHELL, not a ball** — ten cells of air above the sea and ten of crust below — so it only
+  has to resolve ~3 scale heights up and the crust down. At 2698 m per cell it does that correctly.
+
+**What it genuinely cannot do is resolve the aquifer.** Four regolith cells span **10.8 km** against the
+2 km `GROUNDWATER_CIRCULATION_M` describes. The old 500 m/cell was a second length scale kept to hide this.
+Three honest ways out, and it is a design call rather than a bug:
+  (a) accept it — the aquifer is one coarse cell and `REGOLITH_CELLS` drops to 1;
+  (b) **non-uniform radial spacing** — fine near the surface, coarse aloft and at depth, which is what every
+      real Earth-system model does. `cell_size` becomes per-shell; 21 uses across 12 kernels;
+  (c) more shells — costs O(cells) everywhere and still wastes resolution on the deep interior.
+(b) is the physically correct one and the only one that serves a post-Theia seed, where the interesting
+structure is all within a few km of a surface that is also radiating to space.
+
+## HOW GOOD IS IT? — `PHYSICS_RUBRIC.md`, scored 7/24 on 2026-08-09
+
+Six criteria with a dated score history; `scripts/physics_score.sh` computes the measurable half. Three
+audits (constants, reaction engine, kernels) produced the counts behind criteria 3, 4 and 6. The ordering
+of work below follows from it rather than from judgement: **energy must be booked before the seed can
+shrink**, because an ocean condensing out of a steam atmosphere IS a latent-heat process.
 
 ## HOW TO RUN AND MEASURE
 
@@ -406,12 +495,14 @@ batch is gone, because git holds it and nobody was going to re-derive them.)*
 Each stage has its own verification. Do not merge stages.
 
 **DO THESE FIRST, in this order.**
-1. **DECIDE `feature/enthalpy`.** It holds latent heat, the pressure-dependent phase boundary, the world's
-   length scale and the physics audit, and everything below is measured against a substrate it changes. Six
-   commits, branched at `7353b1d`, so it rebases clean. Either land it or say why not — but do not start new
-   energy work on `0.4-dev` while it sits there, because `energy_residual / energy_booked` is **1739** and no
-   energy A/B here can mean anything until latent heat exists at all. Do NOT take `feature/latent-heat`
-   (`ae1a497`) instead — that is the superseded version that pairs L_vap at 100 °C with L_fus at 0 °C.
+1. **P0's SECOND HALF — WRITE THE PRESSURE CHANNEL IN PASCALS.** Fully specified above, six numbered steps.
+   It is first because the substrate already carries `boil_c_at(id, p_pa)` and `air_units_to_pascals()` and
+   **nothing can call them**: the pressure channel is in world units inherited from a superseded pass. Every
+   pressure-dependent law is unreachable until this lands, on a project whose target is a 100-bar steam
+   envelope. Land P0+P1+P2 as ONE replacement and verify against a binary behavioural test.
+   *(Step 1 used to read "DECIDE `feature/enthalpy`". Decided 2026-08-09: merged, verified, every gated
+   substance same or better. Do NOT take `feature/latent-heat` (`ae1a497`) — the superseded version that
+   pairs L_vap at 100 °C with L_fus at 0 °C.)*
 2. **PER-PASS ATTRIBUTION FOR MATTER**, the way `LAMaterialFieldEnergyProbe3D` now does it for heat and
    `LAMaterialFieldMineralProbe3D` already did for rock. Mineral is two to three orders of magnitude tighter
    than every other substance and is the only one with a per-pass probe; that is the whole lesson. Point the

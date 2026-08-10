@@ -111,9 +111,23 @@ static func table() -> Dictionary:
 			"specific_heat_solid": PC.ICE_SPECIFIC_HEAT_J_KGK,
 			"specific_heat_gas": PC.VAPOUR_SPECIFIC_HEAT_J_KGK,
 			"melt_c": PC.WATER_FREEZE_C,
+			# `boil_c` IS A REFERENCE POINT ON A CURVE, NOT THE BOUNDARY. It is where water boils at
+			# `boil_ref_p_pa` and nowhere else; ask `boil_c_at(id, p_pa)` for the actual boundary. The two
+			# keys travel together so a reader cannot pick up the temperature without the pressure it was
+			# quoted at — which is exactly how a scalar 100.0 came to be treated as the phase boundary
+			# everywhere on a planet with a pressure channel.
 			"boil_c": PC.WATER_BOIL_C,
+			"boil_ref_p_pa": PC.STANDARD_PRESSURE_PA,
+			# ABOVE THIS THERE IS NO LIQUID-VAPOUR BOUNDARY. Water is one supercritical phase: no meniscus,
+			# no boiling, and a latent heat of exactly zero. A post-Theia steam envelope sits near here, so
+			# leaving it out does not just misplace the boundary, it asserts one that does not exist.
+			"critical_t_c": PC.WATER_CRITICAL_T_C,
+			"critical_p_pa": PC.WATER_CRITICAL_P_PA,
 			"latent_fusion_j_kg": PC.LATENT_HEAT_FUSION_J_KG,
+			# Quoted at 0 C. It is a FUNCTION of temperature — `latent_vaporisation_at()` — and this entry is
+			# the anchor, not the value to use at an arbitrary temperature.
 			"latent_vaporisation_j_kg": PC.LATENT_HEAT_VAPORISATION_0C_J_KG,
+			"latent_vaporisation_ref_t_c": PC.WATER_FREEZE_C,
 			"conductivity": PC.THERMAL_CONDUCT_WATER_W_MK,
 			"emissivity": PC.EMISSIVITY_WATER,
 			"albedo": PC.ALBEDO_OCEAN,
@@ -152,7 +166,11 @@ static func table() -> Dictionary:
 			"molar_mass": PC.MOLAR_MASS_CH2O_UNIT_KG_MOL,
 			"density": PC.DRY_WOOD_DENSITY_KG_M3,
 			"specific_heat": PC.DRY_WOOD_SPECIFIC_HEAT_J_KGK,
-			"heat_of_combustion_j_kg": PC.HEAT_PER_KG_OXYGEN_J,
+			# PER KG OF FUEL. This held HEAT_PER_KG_OXYGEN_J, which is Huggett's constant — joules per kg of OXYGEN
+			# CONSUMED, a different physical quantity, 1.30x larger. The correct per-fuel figure was already in
+			# PhysicalConstants 160 lines from the wrong one. Unread so far, which is the only reason the fire
+			# path and the metabolism path have not yet disagreed about the energy content of one molecule.
+			"heat_of_combustion_j_kg": PC.BIOMASS_HEAT_OF_COMBUSTION_J_PER_KG,
 			"pyrolysis_ea_over_r_k": PC.CELLULOSE_PYROLYSIS_EA_OVER_R_K,
 			"albedo": PC.ALBEDO_VEGETATION,
 		},
@@ -269,6 +287,82 @@ static func enthalpy_at(id: String, t_c: float) -> float:
 	return h + c_gas * (t_c - boil)
 
 
+## THE BOILING POINT AT A GIVEN PRESSURE. Clausius-Clapeyron, integrated with the latent heat taken as
+## locally constant between the reference point and the target:
+##     P_sat(T) = P_ref * exp[ (L/R_v) * (1/T_ref - 1/T) ]   ->   T = 1 / [ 1/T_ref - (R_v/L)*ln(P/P_ref) ]
+##
+## THIS FUNCTION EXISTS BECAUSE `boil_c` WAS BEING READ AS THE PHASE BOUNDARY. It is not; it is one point on
+## a curve, quoted at one atmosphere. On a planet with a pressure channel that scalar is wrong nearly
+## everywhere: 81 C at half an atmosphere, ~302 C at a hundred bar. The second figure is the one that
+## matters for this project — a cooling magma-ocean planet condenses its ocean when the surface passes
+## ~300 C, and a model waiting for 100 C waits for a temperature it will not reach, so the ocean never forms
+## and the failure reads as "the physics does not work" instead of "the boundary is in the wrong place".
+##
+## ABOVE THE CRITICAL POINT THERE IS NO ANSWER, and this returns the critical temperature rather than
+## extrapolating a boundary into a region where water has none. Callers must check `is_supercritical()`
+## rather than treating the return as a boiling point in that regime.
+static func boil_c_at(id: String, p_pa: float) -> float:
+	var s: Dictionary = table().get(id, {})
+	var t_ref_c: float = float(s.get("boil_c", INF))
+	if not is_finite(t_ref_c):
+		return INF
+	var p_ref: float = float(s.get("boil_ref_p_pa", PC.STANDARD_PRESSURE_PA))
+	var p_crit: float = float(s.get("critical_p_pa", INF))
+	var t_crit: float = float(s.get("critical_t_c", INF))
+	if is_finite(p_crit) and p_pa >= p_crit:
+		return t_crit
+	var p: float = maxf(p_pa, 1.0)
+	var t_ref_k: float = t_ref_c + PC.KELVIN_OFFSET
+	# The latent heat at the REFERENCE point, which is what the integrated form is anchored on.
+	var l: float = latent_vaporisation_at(id, t_ref_c)
+	if l <= 0.0:
+		return t_ref_c
+	var inv_t: float = 1.0 / t_ref_k - (PC.VAPOUR_GAS_CONST_J_KGK / l) * log(p / p_ref)
+	if inv_t <= 0.0:
+		return t_crit if is_finite(t_crit) else t_ref_c
+	var t_c: float = 1.0 / inv_t - PC.KELVIN_OFFSET
+	# The boundary cannot run past the critical point; beyond it the two phases are one.
+	return minf(t_c, t_crit) if is_finite(t_crit) else t_c
+
+
+## THE LATENT HEAT OF VAPORISATION AT A TEMPERATURE, which is a CURVE and was stored as two disconnected
+## constants with the relation between them written in a comment. Watson correlation:
+##     L(T) = L_ref * ((Tc - T) / (Tc - T_ref))^0.38
+##
+## WHY WATSON AND NOT THE LINEAR FIT the constants file quotes. `L_v(T) = 2.501e6 - 2361*T_C` is good to
+## 0.35% from 0 to 100 C and catastrophic beyond it: at the critical point it returns 1.6e6 for a quantity
+## that is physically ZERO. Watson has the right asymptote — L goes to zero at Tc, because that is what a
+## critical point IS — at the cost of 1.5% against the measured 100 C figure. A model that spans a
+## magma-ocean cooldown needs the end of the curve to be right more than it needs the middle to be exact.
+static func latent_vaporisation_at(id: String, t_c: float) -> float:
+	var s: Dictionary = table().get(id, {})
+	var l_ref: float = float(s.get("latent_vaporisation_j_kg", 0.0))
+	if l_ref <= 0.0:
+		return 0.0
+	var t_crit: float = float(s.get("critical_t_c", INF))
+	if not is_finite(t_crit):
+		return l_ref
+	if t_c >= t_crit:
+		return 0.0
+	var t_ref: float = float(s.get("latent_vaporisation_ref_t_c", 0.0))
+	var span_ref: float = t_crit - t_ref
+	if span_ref <= 0.0:
+		return l_ref
+	return l_ref * pow((t_crit - t_c) / span_ref, PC.WATSON_LATENT_EXPONENT)
+
+
+## Is this substance past its critical point at these conditions? Above it there is one fluid phase, no
+## boiling, and no latent heat — so a caller that branches on "liquid or gas" has no valid answer and must
+## ask this first.
+static func is_supercritical(id: String, t_c: float, p_pa: float) -> bool:
+	var s: Dictionary = table().get(id, {})
+	var t_crit: float = float(s.get("critical_t_c", INF))
+	var p_crit: float = float(s.get("critical_p_pa", INF))
+	if not is_finite(t_crit) or not is_finite(p_crit):
+		return false
+	return t_c >= t_crit and p_pa >= p_crit
+
+
 ## THE INVERSE, AND THE POINT OF THE WHOLE FILE: given how much energy a kilogram of a substance holds, what
 ## temperature is it and what phase is it in? Returns {"t_c", "phase", "melted", "vaporised"} — the last two
 ## being the FRACTION through each transition, which is how a cell can be half-melted and sit exactly at its
@@ -279,15 +373,23 @@ static func enthalpy_at(id: String, t_c: float) -> float:
 ## heat to a freezing cell warms it more slowly for free, and one that removes heat cannot skip past the
 ## phase boundary, because there is no boundary to skip — only a stretch of the curve where temperature stops
 ## responding.
-static func enthalpy_to_state(id: String, h_j_kg: float) -> Dictionary:
+## *(SIGNATURE CHANGED 2026-08-09: it took only enthalpy, and could not answer its own question.)* Phase is a
+## function of energy AND PRESSURE. Boiling at a fixed temperature is a model of one atmosphere, and this
+## planet has a pressure channel because it is not at one atmosphere everywhere. `p_pa` defaults to standard
+## pressure so an existing caller keeps its old behaviour explicitly rather than silently.
+static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDARD_PRESSURE_PA) -> Dictionary:
 	var s: Dictionary = table().get(id, {})
 	var c_sol: float = float(s.get("specific_heat_solid", s.get("specific_heat", 0.0)))
 	var c_liq: float = float(s.get("specific_heat", 0.0))
 	var c_gas: float = float(s.get("specific_heat_gas", c_liq))
 	var melt: float = float(s.get("melt_c", INF))
-	var boil: float = float(s.get("boil_c", INF))
+	# THE BOUNDARY AT THIS PRESSURE, not the one-atmosphere reference point. See boil_c_at().
+	var boil: float = boil_c_at(id, p_pa)
 	var l_fus: float = float(s.get("latent_fusion_j_kg", 0.0))
-	var l_vap: float = float(s.get("latent_vaporisation_j_kg", 0.0))
+	# THE LATENT HEAT AT THE BOUNDARY, not at whichever temperature the table happened to quote. At high
+	# pressure the boundary moves up the curve and the plateau it costs to cross gets SHORTER, reaching zero
+	# at the critical point — which is why a supercritical cell has no plateau at all below.
+	var l_vap: float = latent_vaporisation_at(id, boil) if is_finite(boil) else 0.0
 
 	if not is_finite(melt):
 		# A substance this planet never melts — silica, the gases. Temperature is sensible heat alone.

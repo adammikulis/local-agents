@@ -230,7 +230,11 @@ const AMBIENT_O2_DENSITY_KG_M3: float = 0.2731
 # with nothing fitted: phi 0.35 with d = 0.5 mm gives 1.4e-3 m/s (coarse sand), d = 4 mm gives 8.8e-2 m/s
 # (fine gravel), d = 0.05 mm gives 1.4e-5 m/s (silty sand). One relation, the whole range.
 const KOZENY_CARMAN_C: float = 180.0
-const GRAVITY_M_S2: float = 9.81
+# ONE GRAVITY. This was 9.81 while STANDARD_GRAVITY_M_S2 below was 9.80665, both live: soil_sphere3d.glsl
+# used the first for hydraulic conductivity and ReactionsPass the second for lithostatic pressure. Same
+# quantity, two constants, two values. The CGPM-defined figure is the authority and this is now an alias, so
+# the two cannot drift apart again.
+const GRAVITY_M_S2: float = STANDARD_GRAVITY_M_S2
 const WATER_DYNAMIC_VISCOSITY_PA_S: float = 1.002e-3    # liquid water at 20 °C
 
 # Porosity of unconsolidated near-surface granular deposits, and how it CLOSES with burial. Freeze & Cherry
@@ -352,6 +356,8 @@ const SECONDS_PER_YEAR: float = 3.15576e7           # Julian year, 365.25 days
 # table spends it as a mole count (`N: 1.0 / LITTER_C_TO_N` = 0.0500). Nitrogen per mole of CH₂O is
 # (CARBON_MOLAR_MASS / LITTER_C_TO_N) / NITROGEN_MOLAR_MASS = 0.0429 — 16% lower.
 const MOLAR_MASS_WATER_KG_MOL: float = 0.018015     # H₂O
+const MOLAR_MASS_N2_KG_MOL: float = 0.0280134       # N₂
+const MOLAR_MASS_AR_KG_MOL: float = 0.0399480       # Ar
 const MOLAR_MASS_O2_KG_MOL: float = 0.0319988       # O₂
 const MOLAR_MASS_CO2_KG_MOL: float = 0.0440095      # CO₂
 const MOLAR_MASS_CARBON_KG_MOL: float = 0.0120110   # C
@@ -437,7 +443,11 @@ const ROCK_POROSITY_NEAR_SURFACE: float = 0.05
 # per +10 C near room temperature — exp((Ea/R)(1/298.15 - 1/308.15)) = 2.2 — so that textbook rule of thumb is
 # a consequence of this number rather than something anyone typed in.
 const SILICATE_DISSOLUTION_EA_J_MOL: float = 60000.0
-const SILICATE_DISSOLUTION_EA_OVER_R_K: float = 7216.9    # 60000 / 8.314462618, in kelvin
+# DERIVED, and it had already drifted: this stored 7216.9 while its own inputs give 7216.34. A stored
+# product that has stopped matching its derivation, in the file whose thesis is that this is how water came
+# to freeze at 12.5 C. CELLULOSE_PYROLYSIS_EA_OVER_R_K two hundred lines away was derived correctly; this
+# was not.
+const SILICATE_DISSOLUTION_EA_OVER_R_K: float = SILICATE_DISSOLUTION_EA_J_MOL / GAS_CONSTANT_J_MOL_K
 # The temperature laboratory dissolution rates are quoted at. Arrhenius needs a reference point; this is the
 # standard one, and it is a property of the measurement, not of the rock.
 const LAB_REFERENCE_TEMP_C: float = 25.0
@@ -490,6 +500,70 @@ const AIR_MOLE_FRAC_N2: float = 0.78084     # NASA/NOAA standard atmosphere, dry
 const AIR_MOLE_FRAC_O2: float = 0.20946
 const AIR_MOLE_FRAC_AR: float = 0.00934
 const AIR_MOLE_FRAC_CO2: float = 0.000419   # NOAA GML global annual mean, 2023
+
+# ============================================================================================================
+# THE WORLD'S LENGTH SCALE, AND THE AIR PROPERTIES THAT FOLLOW FROM REAL EQUATIONS.
+# *(Added 2026-08-09. Before this the simulation had NO metres-per-model-unit and four subsystems had each
+# invented their own: the lithosphere said 500 m per cell, evaporation took the grid coordinate 16 and used
+# it AS metres, and the atmosphere implied ~2.7 km per cell through a tuned scale-height constant. Nothing
+# converted the pressure field to pascals, which is why the pressure-dependent phase relations in
+# LASubstances could not be called at all.)*
+#
+# ONE DECLARED MODELLING CHOICE, AND EVERYTHING ELSE DERIVED. `METRES_PER_MODEL_UNIT` is the only number
+# here that physics does not hand you: it says how finely this grid resolves the world, the same way a
+# weather model chooses its mesh. Every other quantity below is a real relation evaluated on it.
+#
+# WHY 168.6. The grid (LASimWorld: core 170, cell 8, depth 20, sea 250 — all x scale) is a SHELL, ten cells
+# of atmosphere above the sea and ten of crust below. An atmosphere model wants roughly three scale heights
+# of air, so ten cells should span 3H. At Earth's gravity and a 288 K reference that is 3 x 8431 = 25.3 km,
+# giving 2.53 km per cell and ~158 m per model unit. 168.6 is the same figure read off the atmosphere the
+# substrate already seeds, and the two agreeing to 6% is the reason this number is credible rather than
+# chosen. Moving it re-scales the world; it does not re-tune anything, because nothing downstream is fitted.
+#
+# THE HONEST CONSEQUENCE, STATED RATHER THAN BENT: at 2.7 km per cell the four regolith cells span 10.8 km
+# against the 2 km GROUNDWATER_CIRCULATION_M describes. **This grid cannot resolve a 2 km aquifer.** That is
+# a resolution limit of a twenty-shell model, not a licence to keep a second length scale for the
+# lithosphere — which is exactly what the old 500 m/cell was.
+const METRES_PER_MODEL_UNIT: float = 168.6
+
+# Dry air, from the mole fractions above and the molar masses above. M_air = sum(x_i * M_i) — a real
+# weighted mean, not a stored 0.02896 whose derivation lives in a comment.
+const MOLAR_MASS_DRY_AIR_KG_MOL: float = \
+	AIR_MOLE_FRAC_N2 * MOLAR_MASS_N2_KG_MOL \
+	+ AIR_MOLE_FRAC_O2 * MOLAR_MASS_O2_KG_MOL \
+	+ AIR_MOLE_FRAC_AR * MOLAR_MASS_AR_KG_MOL \
+	+ AIR_MOLE_FRAC_CO2 * MOLAR_MASS_CO2_KG_MOL
+# The specific gas constant of dry air, R/M. It was MISSING, and its absence is why
+# wind_pressure_sphere3d.glsl carries `H_PER_KELVIN = 0.1736`, described in that file as "the gas constant
+# over gravity in this world's units" — the most important structural parameter of an atmosphere, as a bare
+# literal calibrated to a cell count.
+const DRY_AIR_GAS_CONSTANT_J_KGK: float = GAS_CONSTANT_J_MOL_K / MOLAR_MASS_DRY_AIR_KG_MOL
+
+
+## Atmospheric scale height in METRES at a temperature: H = R_d * T / g, the hydrostatic relation for an
+## isothermal ideal-gas column. A FUNCTION, because H is a function of temperature — storing one number for
+## it is the defect this file has now hit five times.
+static func scale_height_m(t_c: float) -> float:
+	return DRY_AIR_GAS_CONSTANT_J_KGK * maxf(t_c + KELVIN_OFFSET, 1.0) / STANDARD_GRAVITY_M_S2
+
+
+## The same, in MODEL UNITS, which is what a kernel walking radial shells needs.
+static func scale_height_model_units(t_c: float) -> float:
+	return scale_height_m(t_c) / METRES_PER_MODEL_UNIT
+
+
+## Hydrostatic pressure in PASCALS from a column mass expressed in the `air` channel's units, where 1.0 is
+## the air in a sea-level cell of the seeded standard atmosphere. p = g * (mass per unit area), and the mass
+## per unit area of one air-unit is (sea-level density) x (one cell's height in metres).
+##
+## THIS IS THE CONVERSION THE SUBSTRATE DID NOT HAVE, and its absence is why `LASubstances.boil_c_at(id,
+## p_pa)` — the pressure-dependent boiling point — could not be called with the simulation's own pressure.
+## The kernel's `G_ACC = 33.5` is this quantity in world units, and its own comment says 33.5 was chosen
+## "because that is where the old P0 sat", i.e. to keep a superseded pass's tuning looking familiar.
+static func air_units_to_pascals(column_air_units: float, cell_size_model_units: float) -> float:
+	var cell_m: float = cell_size_model_units * METRES_PER_MODEL_UNIT
+	return STANDARD_GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * cell_m * column_air_units
+# ============================================================================================================
 
 # --- ORGANIC MATTER: THE CARBON-TO-NITROGEN RATIO ---------------------------------------------------------
 # Measured mass ratios of carbon to nitrogen. They are properties of the material, and they are what makes
@@ -715,6 +789,45 @@ const QUARTZ_SPECIFIC_HEAT_J_KGK: float = 740.0     # SiO2, alpha-quartz, 25 C (
 # every traverse of that loop released the difference from nothing while its mirror absorbed it.
 # LASubstances derives sublimation as the sum rather than declaring it, so the three can no longer disagree.
 const LATENT_HEAT_VAPORISATION_0C_J_KG: float = 2.501e6
+
+# ============================================================================================================
+# THE LIQUID-VAPOUR BOUNDARY IS A CURVE, NOT A TEMPERATURE, AND ABOVE THE CRITICAL POINT IT DOES NOT EXIST.
+# *(Added 2026-08-09.)* Everything above this block described water's phase changes with SCALARS —
+# `WATER_BOIL_C = 100.0`, one latent heat at 0 C and another at 100 C, and the relation between them written
+# out in a COMMENT rather than implemented. That is a model of water at one atmosphere and nowhere else, and
+# this planet is not at one atmosphere everywhere: it has a `pressure` channel precisely because the air
+# column varies, and the whole point of the project is a post-Theia planet whose steam envelope is of order
+# a hundred bar.
+#
+# WHAT THE SCALARS GET WRONG, in the direction that matters most here:
+#   * at 0.5 atm water boils at 81 C, not 100;
+#   * at 100 bar it boils at about 302 C, not 100. A cooling magma-ocean planet therefore condenses its
+#     ocean when the surface passes ~300 C, and a model that waits for 100 C waits for a temperature the
+#     planet will not reach for a geological age — so the ocean never forms, and the failure looks like
+#     "the physics does not work" rather than "the boundary is in the wrong place";
+#   * above 373.946 C / 220.64 bar there is NO liquid-vapour boundary at all. Water is supercritical: one
+#     phase, no meniscus, no latent heat. A table that asserts a boiling point there is asserting a
+#     transition that does not happen.
+#
+# CLAUSIUS-CLAPEYRON is the relation, integrated with the latent heat treated as locally constant:
+#     P_sat(T) = P_ref * exp[ (L/R_v) * (1/T_ref - 1/T) ]      inverted for T in LASubstances.boil_c_at()
+# R_v is VAPOUR_GAS_CONST_J_KGK above, which was already here and used by the saturation curve.
+#
+# AND THE LATENT HEAT IS A FUNCTION OF TEMPERATURE, which is why the two constants above disagree. The
+# linear fit L_v(T) = 2.501e6 - 2361*T_C that the comment above quotes is good to 0.35% between 0 and 100 C
+# and CATASTROPHIC near the critical point, where it returns 1.6e6 for a quantity that is physically zero.
+# The Watson correlation has the right asymptote and is the standard engineering form:
+#     L(T) = L_ref * ((Tc - T) / (Tc - T_ref))^0.38
+# anchored at 100 C it reproduces the 0 C measurement to 1.5%, which is the price of being correct at the
+# end of the curve that the linear fit cannot represent at all.
+const WATER_CRITICAL_T_C: float = 373.946            # IAPWS-95 critical temperature, 647.096 K
+const WATER_CRITICAL_P_PA: float = 2.2064e7          # IAPWS-95 critical pressure, 220.64 bar
+const STANDARD_PRESSURE_PA: float = 101325.0         # one standard atmosphere, the reference boil_c is quoted at
+const WATSON_LATENT_EXPONENT: float = 0.38           # Watson correlation exponent for the latent-heat curve
+# The linear fit, as a CONSTANT rather than a sentence in a comment, so the relation between the two
+# measured latent heats is checkable instead of asserted. Valid 0-100 C; use the Watson form outside it.
+const LATENT_VAPORISATION_SLOPE_J_KGK: float = 2361.0
+# ============================================================================================================
 
 # --- EMISSIVITY -----------------------------------------------------------------------------------------------
 # Thermal-infrared emissivity of a water surface. Near-blackbody, which is why the ocean radiates so

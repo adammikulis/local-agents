@@ -113,7 +113,7 @@ static func records() -> Array:
 		# saturation curve, not a ceiling anybody chose. One record covers the sea, a lake, a river and a
 		# puddle; it covers BOILING too, because e_sat reaches one atmosphere at 100 °C and the deficit with it.
 		rec(EXCESS_OVER_THRESHOLD, evap_k, VAPOUR_DEFICIT, [[WATER, 1.0]], [[MOISTURE, 1.0, TGT_SELF]],
-			GATE_AIR_ABOVE, 0.0),
+			GATE_AIR_ABOVE, 0.0, -1, 0.0, -1, 0.0, 0.0, -_latent_vaporisation_j_m3()),
 
 		# R24 — BARE-SOIL EVAPORATION (soil water → atmospheric moisture). THE SAME RULE, read through the
 		# ground: wet soil in unsaturated air evaporates for exactly the reason the sea does. This is the leg
@@ -124,7 +124,8 @@ static func records() -> Array:
 		# reservoir is SOIL_TOP, the shallow drying front, not the whole rooting column: roots lift water from
 		# metres down, evaporation only pulls what is within diffusion reach of the surface.
 		rec(BILINEAR, soil_k, VAPOUR_DEFICIT, [[SOIL_TOP, 1.0]], [[MOISTURE, 1.0, TGT_SELF]],
-			GATE_NEAR_GROUND | GATE_AIR_ABOVE, 0.0, SOIL_TOP),
+			GATE_NEAR_GROUND | GATE_AIR_ABOVE, 0.0, SOIL_TOP, 0.0, -1, 0.0, 0.0,
+			-_latent_vaporisation_j_m3()),
 
 		# R25 — SUBLIMATION (snow → atmospheric moisture). The same rule a third time, over ice. It REPLACES
 		# snowice_sphere3d.glsl's SUBLIMATE_FRAC = 0.004, a flat per-step fraction added to stop the snowpack
@@ -136,7 +137,7 @@ static func records() -> Array:
 		# this slightly overstates sublimation in the coldest cells. That very difference drives the Bergeron
 		# process, and it earns its own curve the day mixed-phase cloud microphysics matters here.)
 		rec(EXCESS_OVER_THRESHOLD, evap_k, VAPOUR_DEFICIT, [[SNOW, 1.0]], [[MOISTURE, 1.0, TGT_SELF]],
-			GATE_AIR_ABOVE, 0.0),
+			GATE_AIR_ABOVE, 0.0, -1, 0.0, -1, 0.0, 0.0, -_latent_sublimation_j_m3()),
 
 		# R21 — FREEZE (liquid → snow): standing/melt WATER at a cell colder than FREEZE_TEMP crystallizes to
 		# SNOW. DEFICIT_BELOW_THRESHOLD: x = max(0, FREEZE_TEMP - temp) * FREEZE_RATE, capped by the WATER present
@@ -144,13 +145,15 @@ static func records() -> Array:
 		# atmospheric water at cold ground, which needs sat(T)) is the snowice deposition kernel; this record is
 		# the liquid leg — it refreezes meltwater/puddles/rivers so the H₂O phase tracks temperature everywhere,
 		# not only in the air. It is also the exemplar of the new below-threshold rate model.
-		rec(DEFICIT_BELOW_THRESHOLD, FREEZE_RATE, TEMP, [[WATER, 1.0]], [[SNOW, 1.0, TGT_SELF]], 0, FREEZE_TEMP),
+		rec(DEFICIT_BELOW_THRESHOLD, FREEZE_RATE, TEMP, [[WATER, 1.0]], [[SNOW, 1.0, TGT_SELF]], 0, FREEZE_TEMP,
+			-1, 0.0, -1, 0.0, 0.0, _latent_fusion_j_m3()),
 
 		# R22 — MELT (snow → water): SNOW at a cell warmer than MELT_TEMP thaws to liquid WATER (meltwater the
 		# water CA then routes downhill on the next step). EXCESS_OVER_THRESHOLD: x = max(0, temp - MELT_TEMP) *
 		# MELT_RATE, capped by the SNOW present → conserving transfer (snow -= x; water += x). REPLACES the melt
 		# branch of snowice_sphere3d.glsl (which is now deposition-only).
-		rec(EXCESS_OVER_THRESHOLD, MELT_RATE, TEMP, [[SNOW, 1.0]], [[WATER, 1.0, TGT_SELF]], 0, MELT_TEMP),
+		rec(EXCESS_OVER_THRESHOLD, MELT_RATE, TEMP, [[SNOW, 1.0]], [[WATER, 1.0, TGT_SELF]], 0, MELT_TEMP,
+			-1, 0.0, -1, 0.0, 0.0, -_latent_fusion_j_m3()),
 
 		# M5 — LAVA SOLIDIFY (molten → bedrock): lava colder than SOLIDIFY_TEMP freezes to rock. Runs in the open
 		# cells lava occupies. DEFICIT_BELOW_THRESHOLD on the post-thermal TEMP: x = max(0, SOLIDIFY_TEMP - temp) *
@@ -158,12 +161,51 @@ static func records() -> Array:
 		# `solid=1; lava=0` write formerly in lava_phase_sphere3d.glsl (which lost the lava mass); the accreted
 		# rock_fill crossing 0.5 is what turns the cell to derived bedrock (and, in Stage C, stamps the SDF).
 		rec(DEFICIT_BELOW_THRESHOLD, SOLIDIFY_RATE, TEMP, [[LAVA, 1.0]], [[ROCK_FILL, 1.0, TGT_SELF]],
-			0, SOLIDIFY_TEMP),
+			0, SOLIDIFY_TEMP, -1, 0.0, -1, 0.0, 0.0, _latent_rock_j_m3()),
 
 		# M6 — ROCK MELT (bedrock → molten): open-cell rock hotter than ROCK_MELT_TEMP melts to lava.
 		# EXCESS_OVER_THRESHOLD on TEMP: x = max(0, temp - ROCK_MELT_TEMP) * ROCK_MELT_RATE, capped by ROCK_FILL →
 		# conserving rock_fill→lava transfer. Only fires in OPEN cells (engine skips solid), so it melts partial
 		# boundary rock; deep full-bedrock melt is driven by add_lava / the Stage-C bore (see the const note).
 		rec(EXCESS_OVER_THRESHOLD, ROCK_MELT_RATE, TEMP, [[ROCK_FILL, 1.0]], [[LAVA, 1.0, TGT_SELF]],
-			0, ROCK_MELT_TEMP),
+			0, ROCK_MELT_TEMP, -1, 0.0, -1, 0.0, 0.0, -_latent_rock_j_m3()),
 	]
+
+
+## LATENT HEAT PER UNIT OF EXTENT, in J/m3, derived from LASubstances rather than written down here.
+##
+## SIGN: POSITIVE IS EXOTHERMIC. reactions_sphere3d.glsl does `temp[i] += enthalpy_j_m3 * x / rc_of(i)`, so a
+## positive number warms the cell. Freezing and solidifying RELEASE (positive); melting, evaporating and
+## subliming ABSORB (negative).
+##
+## UNITS: the extent `x` is in cell-fill units of the reactant, and one cell-fill unit of water is one cell
+## volume of water, so J/m3 = density x L. Nothing here is a new number — every value is the substance
+## table's, converted once.
+##
+## THE LIMITATION, STATED: a record carries ONE enthalpy, and the latent heat of vaporisation is a function
+## of temperature (LASubstances.latent_vaporisation_at, Watson) falling to zero at the critical point. These
+## use the table's reference values, so evaporation is charged at its 0 C figure everywhere. That is wrong by
+## ~11% at 100 C and completely wrong approaching 374 C. Fixing it needs the record format to carry a
+## relation rather than a constant — which is the same "scalar where a relation belongs" shape this substrate
+## has now hit five times, and is the next thing to fix here, not something to leave unmentioned.
+static func _latent_fusion_j_m3() -> float:
+	var t: Dictionary = LASubstances.table().get("h2o", {})
+	return float(t.get("density", 0.0)) * float(t.get("latent_fusion_j_kg", 0.0))
+
+
+static func _latent_vaporisation_j_m3() -> float:
+	var t: Dictionary = LASubstances.table().get("h2o", {})
+	return float(t.get("density", 0.0)) * float(t.get("latent_vaporisation_j_kg", 0.0))
+
+
+## Sublimation is fusion PLUS vaporisation — derived, never declared, so Hess's law cannot be violated. It
+## was, in shipped code, by 2.433e5 J/kg per traverse of the water cycle.
+static func _latent_sublimation_j_m3() -> float:
+	var t: Dictionary = LASubstances.table().get("h2o", {})
+	return float(t.get("density", 0.0)) * LASubstances.latent_sublimation_j_kg("h2o")
+
+
+## Basalt's crystallisation enthalpy, same convention.
+static func _latent_rock_j_m3() -> float:
+	var t: Dictionary = LASubstances.table().get("silicate", {})
+	return float(t.get("density", 0.0)) * float(t.get("latent_fusion_j_kg", 0.0))
