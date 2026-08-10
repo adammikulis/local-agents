@@ -42,6 +42,7 @@ const float AIR_FLOOR = 0.02;       // density floor in AIR UNITS: caps the 1/rh
 // m/s^2 instead of a number whose units nobody could state.
 const float GRAVITY_M_S2 = 9.80665;        // LAPhysical.STANDARD_GRAVITY_M_S2
 const float AIR_DENSITY_KG_M3 = 1.18;      // LAPhysical.AIR_DENSITY_KG_M3
+const float KELVIN_0 = 273.15;             // LAPhysical.KELVIN_OFFSET
 const float METRES_PER_MODEL_UNIT = 168.6; // LAPhysical.METRES_PER_MODEL_UNIT
 const float DAMP_SURFACE = 0.08;    // linear drag fraction removed per step at the ground (the old DAMP)
 const float DAMP_FREE = 0.010;      // residual drag in the free atmosphere
@@ -117,7 +118,7 @@ void main() {
 		if (inv > 0.0) {
 			// Boussinesq buoyancy: a = g * dT / T. No cap — a runaway here means the momentum equation is
 			// wrong, and hiding it behind a clamp is how it stays wrong.
-			float t_here_k = temp[g] + 273.15;
+			float t_here_k = temp[g] + KELVIN_0;
 			nvy += GRAVITY_M_S2 * (inv / max(t_here_k, 1.0)) * params.dt;
 		}
 	}

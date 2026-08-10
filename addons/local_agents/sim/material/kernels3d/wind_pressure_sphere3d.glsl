@@ -31,7 +31,7 @@ layout(push_constant, std430) uniform Params {
 // --- air/pressure model -------------------------------------------------------------------------------
 // LAPhysical.SCALE_HEIGHT_PER_K_MODEL = DRY_AIR_GAS_CONSTANT_J_KGK / (STANDARD_GRAVITY_M_S2 *
 const float H_PER_KELVIN = 0.1735950488;   // LAPhysical.SCALE_HEIGHT_PER_K_MODEL
-const float T0_K = 273.15;         // celsius -> kelvin (the field stores celsius)
+const float T0_K = 273.15;         // LAPhysical.KELVIN_OFFSET — the field stores celsius
 const float T_MIN_K = 180.0;       // scale-height guard: keeps H positive and finite next to lava/ice
 const float T_MAX_K = 400.0;
 const float H_REF = H_PER_KELVIN * 288.15;   // seed profile scale height (~50)

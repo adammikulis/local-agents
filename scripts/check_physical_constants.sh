@@ -228,7 +228,12 @@ awk -v AUTH="$AUTH_MAP" -v ROOT="$REPO_ROOT/" '
     # authority; it no longer does.
     WATCH_RADIATION = "(SOLAR_CONSTANT|STEFAN)"
     MODEL_TOKENS = "(RATE|FRAC|GAIN|SCALE|COEFF|COEF|MIN|MAX|THRESH|STEP|COUNT|DAMP|LEAK|SPAN|MASS|FLOW|DEPTH)"
+    # Rock is not water, so a rock phase point must not be checked against WATER_*. It is REDIRECTED to
+    # BASALT_* below, not exempted. SOLIDIF used to sit in this list and the exemption is how
+    # SOLIDIFY_TEMP = 800 survived against a 1000 C solidus.
     OTHER_MATTER = "(ROCK|BASALT|LAVA|MAGMA|IRON|METAL|SOLIDIF)"
+    WATCH_ROCK_PHASE = "(SOLIDIF|SOLIDUS|LIQUIDUS)"
+    WATCH_ALBEDO = "ALBEDO"
   }
 
   FNR == 1 { anchor_val = ""; anchor_name = ""; files++ }
@@ -303,6 +308,50 @@ awk -v AUTH="$AUTH_MAP" -v ROOT="$REPO_ROOT/" '
       fail(FILENAME, FNR, name " = " val " names a radiation constant but is neither annotated LAPhysical." rtarget " nor equal to it (" authstr[rtarget] "). Solar irradiance and the Stefan-Boltzmann constant are measured facts. This kernel once ran SOLAR_CONSTANT = 600.0, \"sized so the sub-solar point equilibrates near 300 K\" — fitting the star to the planet. Do not re-dim the sun.")
       next
     }
+    # --- the Kelvin offset is bound by its VALUE, because 273.15 is only ever one quantity ---------
+    if (num_eq(v, 273.15) && have["KELVIN_OFFSET"]) {
+      printf "NOTE %s:%d  %s = %s is the Kelvin offset but is bound only by its value. Append \"// LAPhysical.KELVIN_OFFSET\".\n", rel(FILENAME), FNR, name, val
+      notes++
+      next
+    }
+
+    # --- surface albedo -------------------------------------------------------------------------
+    if (u ~ WATCH_ALBEDO && u !~ MODEL_TOKENS) {
+      if (u ~ /(WATER|OCEAN|SEA)/) atarget = "ALBEDO_OCEAN"
+      else if (u ~ /(ICE|SNOW)/) atarget = "ALBEDO_SNOW_ICE"
+      else if (u ~ /(VEG|LEAF|CANOPY)/) atarget = "ALBEDO_VEGETATION"
+      else atarget = "ALBEDO_BARE_GROUND"
+      if (!have[atarget]) {
+        fail(FILENAME, FNR, name " names a surface albedo but the authority defines no " atarget ".")
+        next
+      }
+      if (num_eq(v, auth[atarget])) {
+        printf "NOTE %s:%d  %s = %s agrees with LAPhysical.%s but is bound only by its value. Append \"// LAPhysical.%s\" to make it explicit.\n", rel(FILENAME), FNR, name, val, atarget, atarget
+        notes++
+        next
+      }
+      fail(FILENAME, FNR, name " = " val " names a surface albedo but is neither annotated LAPhysical." atarget " nor equal to it (" authstr[atarget] "). Albedo is a measured property of a surface.")
+      next
+    }
+
+    # --- ROCK PHASE POINTS: redirected, not exempted ----------------------------------------------
+    # A carve-out is where a wrong value hides. These names used to fall through OTHER_MATTER and be
+    # scanned by nothing at all.
+    if ((u ~ WATCH_ROCK_PHASE || (u ~ /(ROCK|BASALT|LAVA|MAGMA)/ && u ~ /(MELT|FREEZE)/)) && u !~ MODEL_TOKENS) {
+      rtgt = (u ~ /(MELT|LIQUIDUS)/) ? "BASALT_LIQUIDUS_C" : "BASALT_SOLIDUS_C"
+      if (!have[rtgt]) {
+        fail(FILENAME, FNR, name " names a rock phase point but the authority defines no " rtgt ".")
+        next
+      }
+      if (num_eq(v, auth[rtgt])) {
+        printf "NOTE %s:%d  %s = %s agrees with LAPhysical.%s but is bound only by its value. Append \"// LAPhysical.%s\" to make it explicit.\n", rel(FILENAME), FNR, name, val, rtgt, rtgt
+        notes++
+        next
+      }
+      fail(FILENAME, FNR, name " = " val " names a rock phase point but is neither annotated LAPhysical." rtgt " nor equal to it (" authstr[rtgt] "). The solidus and liquidus of basalt are measured properties of the rock, not thresholds to tune.")
+      next
+    }
+
     if (u !~ WATCH_PHASE || u ~ MODEL_TOKENS || u ~ OTHER_MATTER) next
     target = (u ~ /FREEZE/) ? "WATER_FREEZE_C" : ((u ~ /MELT|THAW/) ? "WATER_MELT_C" : "WATER_BOIL_C")
     if (!have[target]) {

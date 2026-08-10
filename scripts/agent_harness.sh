@@ -223,6 +223,18 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_physical_constants.sh ($rc_physical)"
       exit 1
     fi
+    # Gate: every number is derived, bound, or written down in docs/MODEL_PARAMETERS.md. The gate above asks
+    # whether a copy equals the authority; it cannot ask whether the thing should be a number at all. Scans
+    # the GDScript sim layer too, which is where a second air density (1.225 against the authority's 1.18)
+    # sat invisible to a GLSL-only gate. Exit 2 means the gate could not run.
+    set +e
+    "$SCRIPT_DIR/check_model_parameters.sh"
+    rc_modelparams=$?
+    set -e
+    if [[ $rc_modelparams -ne 0 ]]; then
+      echo "LINT_FAIL: check_model_parameters.sh ($rc_modelparams)"
+      exit 1
+    fi
     # Gate: ONE definition of a cell's volumetric heat capacity per side of the GPU boundary. The gate above
     # CANNOT see this class of defect and its own failure proves it — that one checks VALUES, and all nine
     # copies of this mix read the right values while putting them in four mutually incompatible formulas.

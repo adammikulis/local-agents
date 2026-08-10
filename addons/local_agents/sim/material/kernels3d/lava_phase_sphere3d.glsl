@@ -43,7 +43,7 @@ layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float 
 
 // --- MODEL PARAMETERS -------------------------------------------------------------------------------------
 const float LAVA_MIN_MASS = 0.0001;
-const float SOLIDIFY_TEMP = 800.0;
+const float SOLIDIFY_TEMP = 1000.0;    // LAPhysical.BASALT_SOLIDUS_C
 const float MAX_DT_PER_STEP = 5.0;
 const int   MAX_SUBSTEPS = 8;
 

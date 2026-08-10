@@ -11,9 +11,9 @@ const FREEZE_RATE: float = 0.05          # per-step k on the below-threshold liq
 const MELT_RATE: float = 0.05            # per-step k on the above-threshold snow-melt extent
 
 # --- BEDROCK phase transfers (rock unification Stage B) — molten LAVA <-> fractional bedrock ROCK_FILL ------------
-const SOLIDIFY_TEMP: float = 800.0       # lava below this (°C) has cooled through the solidus → freezes to bedrock
+const SOLIDIFY_TEMP: float = LAPhysical.BASALT_SOLIDUS_C   # 1000 °C — below the solidus basalt is fully solid
 const SOLIDIFY_RATE: float = 0.02        # per-step k on x = max(0, SOLIDIFY_TEMP - temp) * k (capped by lava)
-const ROCK_MELT_TEMP: float = 1200.0     # open-cell rock hotter than this (°C, above the lava emplace temp) melts
+const ROCK_MELT_TEMP: float = LAPhysical.BASALT_LIQUIDUS_C # 1200 °C — above the liquidus basalt is fully melt
 const ROCK_MELT_RATE: float = 0.02       # per-step k on x = max(0, temp - ROCK_MELT_TEMP) * k (capped by rock_fill)
 
 # --- H₂O EVAPORATION: ONE RULE, WHEREVER LIQUID WATER MEETS AIR --------------------------------------------
