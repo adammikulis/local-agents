@@ -120,25 +120,60 @@ trap 'rm -f "$AUTH_MAP"' EXIT
 # names, iterating until nothing new resolves. Supports the forms that actually occur — a chain of `+`, `-`,
 # `*` and `/` over names and numbers, no parentheses, evaluated left to right. Anything it cannot resolve is
 # simply absent from the map, exactly as before, and a kernel referencing it fails loudly rather than passing.
+#
+# LINE CONTINUATIONS ARE JOINED FIRST, and that is not cosmetic. This awk reads a line at a time, so a
+# constant declared as `const NAME: float = \` with its expression on the following lines parsed as an empty
+# value and fell out of the map entirely. That silently hid MOLAR_MASS_DRY_AIR_KG_MOL — a weighted mean over
+# four mole fractions, written across five lines — and with it DRY_AIR_GAS_CONSTANT_J_KGK, which depends on
+# it. THE SPECIFIC GAS CONSTANT OF DRY AIR, the most important structural parameter of an atmosphere, was
+# invisible to the gate on the day it was added. Found 2026-08-10 when a new derived constant that depends on
+# it could not be bound. Same failure mode the paragraph above describes, one syntax later: the gate got
+# quietly weaker as the authority got better.
 awk '
-  function resolve(expr,   n, i, parts, ops, acc, tok, v) {
-    gsub(/[ \t]/, "", expr)
-    n = split(expr, parts, /[-+*\/]/)
-    # rebuild the operator sequence in order
-    i = 0; ops = ""
-    while (match(expr, /[-+*\/]/)) { ops = ops substr(expr, RSTART, 1); expr = substr(expr, RSTART + 1) }
+  # ONE VALUE PER TOKEN — a name or a numeric literal, exponent included.
+  function val_of(tok,   v) {
+    if (tok ~ /^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/) return tok + 0
+    if (tok in known) return known[tok]
+    return "UNRESOLVED"
+  }
+  # A `*` and `/` chain, evaluated left to right. Same precedence, so left-to-right IS correct here.
+  function resolve_term(term,   n, parts, ops, i, acc, v, e) {
+    e = term; ops = ""
+    while (match(e, /[*\/]/)) { ops = ops substr(e, RSTART, 1); e = substr(e, RSTART + 1) }
+    n = split(term, parts, /[*\/]/)
     for (i = 1; i <= n; i++) {
-      tok = parts[i]
-      if (tok ~ /^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/) v = tok + 0
-      else if (tok in known) v = known[tok]
-      else return "UNRESOLVED"
+      v = val_of(parts[i])
+      if (v == "UNRESOLVED") return "UNRESOLVED"
       if (i == 1) { acc = v; continue }
-      op = substr(ops, i - 1, 1)
-      if (op == "+") acc = acc + v
-      else if (op == "-") acc = acc - v
-      else if (op == "*") acc = acc * v
-      else if (op == "/") { if (v == 0) return "UNRESOLVED"; acc = acc / v }
-      else return "UNRESOLVED"
+      if (substr(ops, i - 1, 1) == "*") acc = acc * v
+      else { if (v == 0) return "UNRESOLVED"; acc = acc / v }
+    }
+    return acc
+  }
+  # PRECEDENCE IS REAL: split on + and - FIRST, then evaluate each */ term, then sum.
+  #
+  # *(Rewritten 2026-08-10. The previous resolver evaluated the WHOLE chain left to right with no
+  # precedence, so `x1*M1 + x2*M2 + x3*M3 + x4*M4` — a weighted mean, the shape every derived mixture
+  # property has — came out as ((((x1*M1)+x2)*M2)+x3)*M3... It did not fail; it produced a NUMBER. The
+  # authority map then held 4.787e-5 for MOLAR_MASS_DRY_AIR_KG_MOL against a true 0.028968, and any kernel
+  # bound to it would have been compared against garbage: a correct kernel constant FAILS and a wrong one can
+  # PASS. That is strictly worse than the constant being absent, which is what the line-continuation bug
+  # above was doing to the same constant. Exponent signs are protected before the +/- split, because
+  # `1.0e-9` would otherwise be torn into `1.0e` and `9`.)*
+  function resolve(expr,   n, i, parts, ops, acc, v, e, t) {
+    gsub(/[ \t]/, "", expr)
+    gsub(/[eE]\+/, "\001", expr); gsub(/[eE]-/, "\002", expr)
+    e = expr; ops = ""
+    while (match(e, /[-+]/)) { ops = ops substr(e, RSTART, 1); e = substr(e, RSTART + 1) }
+    n = split(expr, parts, /[-+]/)
+    for (i = 1; i <= n; i++) {
+      t = parts[i]
+      gsub(/\001/, "e+", t); gsub(/\002/, "e-", t)
+      v = resolve_term(t)
+      if (v == "UNRESOLVED") return "UNRESOLVED"
+      if (i == 1) { acc = v; continue }
+      if (substr(ops, i - 1, 1) == "+") acc = acc + v
+      else acc = acc - v
     }
     return acc
   }
@@ -164,7 +199,7 @@ awk '
     }
     for (i = 1; i <= nord; i++) printf "%s\t%s\n", order[i], lit[order[i]]
   }
-' "$AUTHORITY" > "$AUTH_MAP"
+' <(sed -e :a -e '/\\$/N; s/\\\n//; ta' "$AUTHORITY") > "$AUTH_MAP"
 
 auth_count="$(wc -l < "$AUTH_MAP" | tr -d ' ')"
 if [[ "$auth_count" -eq 0 ]]; then

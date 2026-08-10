@@ -93,13 +93,13 @@ anywhere. Audited at 600 steps past the seal, seed 4242, `--sandbox --planet-onl
 
 | substance | was, `7353b1d` | now | allowance | headroom |
 |---|---|---|---|---|
-| `mineral_total` | -0.027% | **-0.0061%** | 0.010% | 0.004pp |
+| `mineral_total` | -0.027% | **-0.0064%** | 0.010% | 0.004pp |
 | `nitrogen_all` | -2.14% | **-0.62%** | 0.75% | 0.13pp |
-| `oxidant_total` | -56.20% | **-10.40%** | 12% | 1.60pp |
-| `o2_total` | -90.34% | **-24.79%** | 29% | 4.21pp |
-| `h2o_closed_total` | -20.06% | -19.18% | 21% | 1.82pp |
-| `element_C_total` | -26.75% | **-28.58% (WORSE)** | 29% | **0.42pp** |
-| energy (`energy_run_drift`) | -8.0% of stock | -7.4% of stock | not gated | — |
+| `oxidant_total` | -56.20% | **-10.76%** | 12% | 1.24pp |
+| `o2_total` | -90.34% | **-24.71%** | 29% | 4.29pp |
+| `h2o_closed_total` | -20.06% | **-18.74%** | 21% | 2.26pp |
+| `element_C_total` | -26.75% | **-28.27% (WORSE)** | 29% | **0.73pp** |
+| energy (`energy_run_drift`) | -8.0% of stock | **-3.0% of stock** | not gated | — |
 
 **FOUR SUBSTANCES IMPROVED BY 3–5×** because the biological rates stopped being fitted, and **their
 allowances came DOWN in the same commit**, which is what the ratchet requires.
@@ -190,9 +190,13 @@ hard way.
 **Land P0's second half + P1 + P2 as ONE replacement**, then verify against the binary acceptance test —
 does the planet cool, does an ocean condense — rather than against a drift delta.
 
-**STILL OPEN IN THE PHASE/ENERGY AREA, all three named by `f61d426` itself:** `heat3d_cool` is now a
-DUPLICATE of R23's energy leg as well as a 100 °C thermostat, so delete it (audit A3); **condensation
-(`atmos_precip`) and deposition (`snowice`) still release nothing** (audit A4); and a record carries ONE
+**STILL OPEN IN THE PHASE/ENERGY AREA.** *(Audit A3 — `heat3d_cool` — is CLOSED: the kernel is DELETED,
+2026-08-10. It boiled water at a flat 100 °C with a hand-tuned rate while R23 did the same phase change from
+the saturation curve with the derived latent heat, so the substrate had two authorities on one phase change,
+double-counting mass and cooling, one of them the energy ledger's unbooked term #1. Removing it cut
+`energy_run_drift` from -1.239e16 to **-5.038e15**, 59%, and `residual/booked` from 877 to **319**.)*
+What remains: **condensation (`atmos_precip`) and deposition (`snowice`) still release nothing** (audit A4);
+and a record carries ONE
 enthalpy where L(T) is a curve, so evaporation is charged at its 0 °C figure everywhere — ~11% wrong at
 100 °C and completely wrong near 374 °C.
 - **For A4, DO NOT RE-DERIVE IT — the arithmetic already exists**, at the tag

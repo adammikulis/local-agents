@@ -18,7 +18,6 @@ layout(local_size_x = 64) in;
 layout(set = 0, binding = 0, std430) restrict readonly buffer Rain { float rain[]; };
 layout(set = 0, binding = 1, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Water { float water[]; };
-layout(set = 0, binding = 3, std430) restrict readonly buffer Boil { float boil[]; };  // dynamic water flashed to steam by atmos_condense_sphere3d — drained here
 layout(set = 0, binding = 4, std430) restrict readonly buffer Static { float static_cells[]; };  // calm sea = infinite sink
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
 
@@ -68,10 +67,11 @@ void main() {
 		}
 	}
 
-	// BOILING drain: atmos_condense_sphere3d flashed boil[g] of this DYNAMIC cell's water to steam (added the
-	// vapor there); remove that same water here (mass-conserving). Static cells write boil=0 (no drain).
-	float net = add - boil[g];
-	if (net != 0.0) {
-		water[g] = water[g] + net;
+	// *(A `boil[]` drain was subtracted here until 2026-08-10, sourced from atmos_condense_sphere3d — A
+	// KERNEL THAT DOES NOT EXIST. Nothing ever wrote that buffer; AtmospherePass created it zero-filled and
+	// bound it readonly, so the subtraction was always minus zero. It survived because it kept "the
+	// UNCHANGED atmos_rain reading all-zeros", which is parity with a deleted thing and never a reason.)*
+	if (add != 0.0) {
+		water[g] = water[g] + add;
 	}
 }

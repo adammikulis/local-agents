@@ -199,7 +199,9 @@ const GATE_DAYLIGHT: int = 8          # insolation above DAYLIGHT_MIN (the lit h
                                       # that must not fire at all below an insolation floor) can use — but if you
                                       # are reaching for it to gate a rate, drive on LIGHT instead.
 const GATE_DRY: int = 16              # cell water <= WET_MAX_LOFT (dry surface) — sand only lofts when not wet
-const GATE_NOT_RAINING: int = 32      # global precipitation off — rain pins all dust down (loft parity)
+# *(Bit 32 was GATE_NOT_RAINING until 2026-08-10: a GLOBAL rain flag gating a PER-CELL process, kept for
+# parity with the deleted dust_loft kernel, and redundant with GATE_DRY which tests the cell's own
+# water. Bit value 32 is now free.)*
 const GATE_AIR_ABOVE: int = 128       # THE FREE SURFACE — the air/liquid interface. True when the OUTWARD radial
                                       # neighbour exists, is not rock, and is not itself drowned (water below
                                       # half a cell). It is what makes a phase change happen at the TOP of a

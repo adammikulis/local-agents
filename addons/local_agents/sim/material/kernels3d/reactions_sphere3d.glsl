@@ -196,7 +196,6 @@ const float O2_FLAMMABILITY_LIMIT = LOC_MOLE_FRAC / AIR_O2_MOLE_FRAC_K;
 #define GATE_NEAR_GROUND 4
 #define GATE_DAYLIGHT    8
 #define GATE_DRY         16   // cell is DRY (water <= WET_MAX_LOFT) — sand only lofts when not wet
-#define GATE_NOT_RAINING 32   // global precipitation is off (params.raining == 0) — rain pins ALL dust down
 #define GATE_NOT_STATIC  64   // cell is NOT an infinite static reservoir (the sea/lake abstraction, which carries
                               // water=1 and is deliberately not simulated) — real per-cell chemistry only
 #define GATE_AIR_ABOVE   128  // THE FREE SURFACE: the outward neighbour is air (not rock, not drowned). A
@@ -238,7 +237,13 @@ layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint n_records;
 	float dt;
-	uint raining;   // 1 = precipitation on → GATE_NOT_RAINING records (dust loft) are suppressed globally
+	// *(Slot 3 held `uint raining` until 2026-08-10 — a GLOBAL boolean that suppressed dust loft over the
+	// WHOLE PLANET whenever it rained anywhere, so a rain shower pinned the dust down in a desert on the far
+	// side of the world. Its own comment called it "dust_loft raining flag parity", i.e. parity with a
+	// kernel that had already been deleted. It was also REDUNDANT: the same record carries GATE_DRY, which
+	// tests THIS cell's own water, and a wet cell not lofting is the actual physics. Kept as a pad so the
+	// 32-byte layout is unchanged.)*
+	uint pad_was_raining;
 	float sun_x;    // world-space vector TOWARD the sun; MAGNITUDE carries insolation (same value ThermalPass
 	float sun_y;    // hands heat3d_solar_sphere3d, so light and heat are driven by ONE quantity)
 	float sun_z;
@@ -486,11 +491,6 @@ bool gate_ok(int mask, uint i) {
 	if ((mask & GATE_DRY) != 0) {
 		if (water[i] > WET_MAX_LOFT) {
 			return false;                   // wet sand / puddle never lofts (dust_loft:53 parity)
-		}
-	}
-	if ((mask & GATE_NOT_RAINING) != 0) {
-		if (params.raining != 0u) {
-			return false;                   // rain pins ALL dust down globally (dust_loft raining flag parity)
 		}
 	}
 	if ((mask & GATE_NEAR_GROUND) != 0) {

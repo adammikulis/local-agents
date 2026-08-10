@@ -236,11 +236,12 @@ static func records() -> Array:
 	return [
 		# M4 — DUST LOFT (loose → airborne): wind over LOFT_WIND scours dry loose SEDIMENT into the OWN cell's
 		# airborne DUST. EXCESS_OVER_THRESHOLD on WINDSPEED (sqrt(vel_x²+vel_z²), the derived driver), gated
-		# GATE_DRY (water<=WET_MAX_LOFT) + GATE_NOT_RAINING. Reactant cap on SEDIMENT. REPLACES + DELETES
+		# GATE_DRY (water<=WET_MAX_LOFT) — the cell's OWN wetness, which is what actually pins dust.
+		# *(A global GATE_NOT_RAINING went with the flag on 2026-08-10.)* Reactant cap on SEDIMENT. REPLACES + DELETES
 		# dust_loft_sphere3d.glsl (the cross-cell scatter into the cell above → re-aimed own-cell; transport
 		# lofts it up next step). A conserving sediment→dust transfer of the ONE mineral substance.
 		rec(EXCESS_OVER_THRESHOLD, LOFT_RATE, WINDSPEED, [[SEDIMENT, 1.0]], [[DUST, 1.0, TGT_SELF]],
-			GATE_DRY | GATE_NOT_RAINING, LOFT_WIND),
+			GATE_DRY, LOFT_WIND),
 
 		# M3 — SUSP SETTLE (suspended → loose): turbid water drops its load. CONST_FRAC on SUSP →
 		# SEDIMENT (own-cell, conserving). LIVE: ErosionPickupPass (MaterialSphereGPU3D.gd) scours rock_fill

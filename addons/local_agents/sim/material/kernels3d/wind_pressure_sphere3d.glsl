@@ -72,17 +72,32 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 // --- air/pressure model -------------------------------------------------------------------------------
-// H_PER_KELVIN is the scale height per kelvin, i.e. the gas constant over gravity in this world's units.
-// 0.1736 puts H = 50 world units (3.1 cells) at 288 K, so the ~160-unit atmosphere above the sea shell spans
-// about 3.2 scale heights — the same span-to-scale-height ratio Earth's troposphere-plus-stratosphere has.
-const float H_PER_KELVIN = 0.1736;
+// Scale height per kelvin, H = R_d*T/g in model units. DERIVED, not chosen: it is bound to
+// LAPhysical.SCALE_HEIGHT_PER_K_MODEL = DRY_AIR_GAS_CONSTANT_J_KGK / (STANDARD_GRAVITY_M_S2 *
+// METRES_PER_MODEL_UNIT). *(Was a bare literal 0.1736 until 2026-08-10, with a comment correctly calling it
+// "the gas constant over gravity in this world's units" — so the number was right and it was still a
+// transcription nothing checked. The derivation reproduces it to 0.04%.)* It puts H = 50 model units
+// (3.1 cells) at 288 K, so the ~160-unit atmosphere above the sea shell spans about 3.2 scale heights.
+const float H_PER_KELVIN = 0.1735950488;   // LAPhysical.SCALE_HEIGHT_PER_K_MODEL
 const float T0_K = 273.15;         // celsius -> kelvin (the field stores celsius)
 const float T_MIN_K = 180.0;       // scale-height guard: keeps H positive and finite next to lava/ice
 const float T_MAX_K = 400.0;
 const float H_REF = H_PER_KELVIN * 288.15;   // seed profile scale height (~50)
 const float AIR_DENS_REF = 1.0;    // air mass in a sea-level cell of the seeded standard atmosphere
-// Pressure per unit column mass. 33.5 puts a sea-level column (mass ~2.99 in the units above) at ~100, which
-// is where the old P0 sat — so pass B's ACCEL/DAMP tuning still sees gradients of a familiar size.
+// PRESSURE PER UNIT COLUMN MASS, AND IT IS NOT PASCALS. 33.5 was chosen "because that is where the old P0
+// sat — so pass B's ACCEL/DAMP tuning still sees gradients of a familiar size", which is inheriting a value
+// from a superseded pass and is never a reason. LAPhysical.air_units_to_pascals() is the real conversion and
+// puts this planet's sea-level column at 93 180 Pa, so this constant is ~932x too small.
+//
+// WHY IT IS STILL HERE, 2026-08-10, stated rather than hidden: converting it ALONE would be worse than
+// leaving it. wind_step_sphere3d.glsl integrates on `params.dt` = LAMaterialFieldSphereStep3D.STEP_DT = 0.1
+// SIMULATED seconds, while one field step stands for 43.2 REAL seconds — a factor of 432, already recorded
+// as a live defect at MaterialFieldSphereStep3D.gd:33. Making pressure real (x932) against a clock that is
+// 432x too short replaces one honest arbitrary constant with two compensating errors that happen to nearly
+// cancel, which is a substrate that LOOKS dimensionally sound and is not.
+// THE FIX IS ONE COMMIT AND IT IS SPECIFIED IN HANDOFF: real pascals here, real seconds in the wind clock,
+// rho = AIR_DENSITY_KG_M3 * air in wind_step, the gradient per METRE, P_REF -> STANDARD_PRESSURE_PA in
+// heat3d_solar and MaterialFieldEnergyBudget3D, then MAX_WIND checked against a real jet (~70 m/s).
 const float G_ACC = 33.5;
 // Fraction of a level's air crossing one face per step: the plain CFL number v*dt/dx, capped for stability.
 // At MAX_WIND=24, dt=0.1, cell_size=16 this is 0.15, so the cap never binds in normal running; it exists so a

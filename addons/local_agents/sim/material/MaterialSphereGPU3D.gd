@@ -2,7 +2,7 @@ class_name LAMaterialSphereGPU3D
 extends RefCounted
 
 ## Cubed-sphere GPU field driver (Phase B). Drop-in for LAMaterialGPU3D when the field is a planet: same
-## 8-method contract (setup/begin_frame/step/end_frame/set_field/set_precip/set_prevailing/set_raining). It
+## 7-method contract (setup/begin_frame/step/end_frame/set_field/set_precip/set_prevailing). It
 ## allocates ALL field channels (ping-pong pairs) + the shared single buffers + the SphereGrid neighbour /
 ## radial / position SSBOs, exposes them as a `bufs` dict, and runs a list of per-domain PASS MODULES
 ## (sphere_passes/*.gd) that each wire their kernels via that dict. Passes are authored independently; the
@@ -1014,8 +1014,6 @@ func set_precip(v: float) -> void:
 func set_prevailing(v: Vector2) -> void:
 	_ctx["wind"] = v
 
-func set_raining(v: bool) -> void:
-	_ctx["raining"] = 1 if v else 0
 
 
 ## Free every RID this driver owns, THEN the local RenderingDevice — run while the tree is still up (via

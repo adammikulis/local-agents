@@ -697,6 +697,31 @@ failure mode, and it is the most common one.
   approach and what it unlocks, and ask. Do **not** silently work around it (delivering a lesser result
   the user didn't know was a compromise), and do **not** unilaterally rip it out either. The user will
   usually say "yes, change it" — but it's their call, and flagging it is how big upgrades get found.
+- **IF YOU KNOW IT IS WRONG, RIP IT OUT. DO NOT TEST IT, DO NOT MEASURE IT, DO NOT REVERT TO IT.**
+  *(Maintainer, 2026-08-10, verbatim: "GET RID OF ALL THE BAD SHIT", "STOP RUNNING TESTS ON CODE YOU KNOW IS
+  WRONG", "IF YOU KNOW IT'S WRONG RIP IT OUT", and — asked whether a fix that made carbon worse against a
+  broken substrate should be reverted — **"NO FUCKING NEVER"**.)* This is the standing rule and it outranks
+  every measurement discipline in this file, because those disciplines exist to tell you what is true about
+  a substrate you BELIEVE, and they are worthless pointed at one you have already convicted.
+  - **The moment you can name the defect, its removal is the task.** Not after the A/B, not after the
+    baseline, not after this ticket. Naming it and then scheduling it is the failure — a defect you have
+    identified and left running is worse than one nobody found, because now the tree also contains your
+    note explaining why it was acceptable.
+  - **NEVER REVERT A CORRECT FIX BECAUSE BROKEN CODE DOWNSTREAM DISAGREES WITH IT.** If a real fix makes a
+    number worse, that number was measured through the defect you have not removed yet. Removing the fix
+    restores the lie and destroys the evidence. **Go remove the other defect.** The question "should I
+    revert?" has one answer here and it is no.
+  - **A GATE WITH A CARVE-OUT FOR CODE YOU KNOW IS WRONG IS NOT A GATE.** An `# allowed exception` or a
+    `# retire this when …` in a checker is the checker telling you where the body is buried. Fix the code;
+    delete the exception in the same commit.
+  - **The tell, and it is always the same sentence:** "keep X so the existing tests/tuning/baseline still
+    work." That is the reason the thing survives, and it is never a reason. See the rule below it.
+  - **Worked example, 2026-08-10, and it is mine.** I merged latent heat and left `heat3d_cool_sphere3d.glsl`
+    standing — 141 lines whose entire `main()` boiled water at a flat 100 °C with a hand-tuned rate, on a
+    substrate where R23 now does that phase change from the saturation curve WITH the derived latent heat.
+    Two authorities on one phase change, double-counting both the mass and the cooling, one of them the
+    energy ledger's own unbooked term #1. I had read the audit entry naming it. I merged anyway and planned
+    to measure. The maintainer had to ask what I was delaying.
 - **DO NOT A/B A FIX AGAINST A BASELINE YOU KNOW IS BROKEN. RIP THE SUBSYSTEM OUT, REPLACE IT, THEN
   MEASURE ONCE.** *(Maintainer, 2026-08-09: "your constant testing for systems we KNOW are broken is a waste
   of time… you'll literally never get a good result with half-broken code.")* A three-run arm costs ~5

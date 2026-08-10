@@ -560,6 +560,16 @@ static func scale_height_model_units(t_c: float) -> float:
 ## p_pa)` — the pressure-dependent boiling point — could not be called with the simulation's own pressure.
 ## The kernel's `G_ACC = 33.5` is this quantity in world units, and its own comment says 33.5 was chosen
 ## "because that is where the old P0 sat", i.e. to keep a superseded pass's tuning looking familiar.
+## Scale height per kelvin, in MODEL units: H = R_d*T/g metres, divided by METRES_PER_MODEL_UNIT. This is a
+## DERIVED relation, not a chosen number, and it exists so no kernel has to write the quotient down.
+## wind_pressure_sphere3d.glsl carried it as a bare literal 0.1736 with a comment calling it "the gas
+## constant over gravity in this world's units" — which is exactly what this is, and the derivation
+## reproduces that literal to 0.04%. It was RIGHT and it was still a transcription; the gate binds it now.
+## (Written without parentheses on purpose: check_physical_constants.sh evaluates the authority left to
+## right over names, `*` and `/`, and cannot resolve a parenthesised group — so R/g/m, not R/(g*m).)
+const SCALE_HEIGHT_PER_K_MODEL: float = DRY_AIR_GAS_CONSTANT_J_KGK / STANDARD_GRAVITY_M_S2 / METRES_PER_MODEL_UNIT
+
+
 static func air_units_to_pascals(column_air_units: float, cell_size_model_units: float) -> float:
 	var cell_m: float = cell_size_model_units * METRES_PER_MODEL_UNIT
 	return STANDARD_GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * cell_m * column_air_units

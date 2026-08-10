@@ -18,9 +18,8 @@ extends RefCounted
 ## (LAPhaseRecords R23/R24/R25) in the generic reaction engine, and the kernel is deleted.
 ##
 ## PLUGIN CONTRACT
-##   setup(rd, bufs, cc):   load 3 shaders/pipelines, allocate the rain scratch (+ a zeroed boil scratch the
-##                          unchanged rain gather still reads), and build 2 uniform sets per kernel (one per
-##                          parity p; PAIR channel bindings use live=[p]/back=[1-p]).
+##   setup(rd, bufs, cc):   load 3 shaders/pipelines, allocate the rain scratch, and build 2 uniform sets
+##                          per kernel (one per parity p; PAIR channel bindings use live=[p]/back=[1-p]).
 ##   dispatch(rd, cl, parity, ctx, cc, groups): record the three stages into the driver's compute list.
 ##                          ctx: ctx["wind"] (Vector2 prevailing), ctx["dt"] (default 0.1),
 ##                          ctx["cell_size"] (default 5.0, folded with dt+wind_gain into the transport wdt).
@@ -104,10 +103,11 @@ var _precip_pipe: RID = RID()
 var _rain_pipe: RID = RID()
 
 # Internal per-cell scratch (cell_count floats each). PRECIP WRITES the rain scratch (every cell), the rain
-# gather READS it. The boil scratch is kept ZEROED only so the UNCHANGED atmos_rain_sphere3d (which still
-# binds a boil drain at binding 3) reads all-zeros — boiling now debits water directly in the evap kernel.
+# gather READS it. *(A second `_boil_buf` scratch lived here until 2026-08-10, kept ZEROED "only so the
+# UNCHANGED atmos_rain_sphere3d reads all-zeros". Nothing ever wrote it and its stated source kernel,
+# atmos_condense_sphere3d, does not exist — so the rain gather subtracted zero every step forever. Parity
+# with a deleted thing is not a reason to keep a binding alive.)*
 var _rain_buf: RID = RID()
-var _boil_buf: RID = RID()
 # Private moisture scratch — the transport's output and the precip's input. See the chaining note in the
 # header: with evaporation dissolved into the reaction engine there are only two moisture-writing stages left,
 # and a two-link ping-pong cannot both start in live and end in back.
@@ -133,7 +133,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	_rain_pipe = rd.compute_pipeline_create(_rain_shader)
 
 	_rain_buf = rd.storage_buffer_create(_zeros(cc).size(), _zeros(cc))
-	_boil_buf = rd.storage_buffer_create(_zeros(cc).size(), _zeros(cc))
 	_moist_buf = rd.storage_buffer_create(_zeros(cc).size(), _zeros(cc))
 
 	var moisture: Array = bufs["moisture"]
@@ -163,11 +162,11 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_precip_set[p] = _mkset(rd, _precip_shader, [
 			[0, _moist_buf], [1, temp[back]], [2, solid], [3, moisture[back]], [4, _rain_buf]])
 
-		# RAIN — atmos_rain_sphere3d.glsl: 0=rain scratch, 1=solid, 2=water(back, in place += rain − boil),
-		# 3=boil scratch (all zeros now), 4=STATIC (rain over the sea vanishes into the infinite reservoir, not
+		# RAIN — atmos_rain_sphere3d.glsl: 0=rain scratch, 1=solid, 2=water(back, in place += rain),
+		# 4=STATIC (rain over the sea vanishes into the infinite reservoir, not
 		# parked in undrained static-cell water — the fix for the unbounded h2o climb), 15=nbr.
 		_rain_set[p] = _mkset(rd, _rain_shader, [
-			[0, _rain_buf], [1, solid], [2, water[back]], [3, _boil_buf], [4, stat], [15, nbr]])
+			[0, _rain_buf], [1, solid], [2, water[back]], [4, stat], [15, nbr]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
@@ -213,7 +212,7 @@ func dispose(rd: RenderingDevice) -> void:
 	_rain_set = [RID(), RID()]
 	for r in [_transport_pipe, _precip_pipe, _rain_pipe,
 			_transport_shader, _precip_shader, _rain_shader,
-			_rain_buf, _boil_buf, _moist_buf]:
+			_rain_buf, _moist_buf]:
 		if r is RID and r.is_valid():
 			rd.free_rid(r)
 

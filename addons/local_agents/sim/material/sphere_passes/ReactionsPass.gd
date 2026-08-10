@@ -33,7 +33,7 @@ extends RefCounted
 ##   28 Carbonate=carbonate (SINGLE) · 29 Silica=silica (SINGLE) — the two non-silicate mineral species the
 ##   Urey reaction D1b produces and D1c consumes. They are past the end of the slot<->binding alias range
 ##   (their SLOT numbers are 24 and 25; bindings 24/25/26 are already Soil/Radial/Static).
-## Push { uint cell_count; uint n_records; float dt; uint raining; float sun_x, sun_y, sun_z, overburden_pa; },
+## Push { uint cell_count; uint n_records; float dt; uint pad; float sun_x, sun_y, sun_z, overburden_pa; },
 ## 32 bytes.
 ## sun_dir is sourced from `ctx` exactly as ThermalPass.gd does, so the light the chemistry sees and the light
 ## the solar kernel heats with are ONE quantity — including its magnitude, which carries insolation.
@@ -183,7 +183,6 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	if _rd == null or not _pipe.is_valid() or _n_records <= 0:
 		return
 	var dt: float = float(ctx.get("dt", 0.1))
-	var raining: int = int(ctx.get("raining", 0))   # GATE_NOT_RAINING (dust loft M4) reads this
 	# Same source + same default as ThermalPass.gd:150 — the solar kernel and the reaction engine must see the
 	# IDENTICAL sun, magnitude included (it carries orbit-distance² × atmospheric transmission, so dust dimming
 	# and impact winter suppress photosynthesis directly rather than second-hand through cooling).
@@ -193,7 +192,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, _n_records)
 	pc.encode_float(8, dt)
-	pc.encode_u32(12, raining)
+	pc.encode_u32(12, 0)   # was `raining`; the global rain gate is deleted (see the kernel's Params note)
 	pc.encode_float(16, sun_dir.x)
 	pc.encode_float(20, sun_dir.y)
 	pc.encode_float(24, sun_dir.z)
