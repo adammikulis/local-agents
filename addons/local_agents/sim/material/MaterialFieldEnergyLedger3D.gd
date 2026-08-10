@@ -79,8 +79,11 @@ extends RefCounted
 ##
 ## THIS LIST IS STAGE 1'S WORK QUEUE. The gauge reads the sum of these as `energy_residual_*` and it is
 ## supposed to be large; a ledger that appeared to close while they were live would be lying. It is not
-## ordered by size. ITEM 10 is the one to take next: it is the biggest thing the gauge itself found, and
-## item 11 — the other one it found — is now closed and cost only 2.5% of the drift.
+## ordered by size. **ITEMS 8, 9, 10 AND 11 ARE ALL CLOSED as of 2026-08-09, and between them they moved the
+## drift 12.77% -> 7.76% of stock. WHAT IS LEFT IS 1 THROUGH 7, and 1, 2 and 3 are latent heat** — which
+## is why `feature/enthalpy` is where the next joules are, not here. Measured at 0.4-dev `7353b1d`:
+## `energy_residual` -1.3396e16 against `energy_booked` -7.704e12, a ratio of 1739, so the books are
+## essentially all remainder and no energy A/B on this branch can mean anything yet.
 ## *(Preamble corrected 2026-08-09. It read "Four other tracks are closing these right now and their terms
 ## do not exist on this branch", which stopped being true when those tracks landed or were held back, and
 ## which reads to the next agent as "someone else has this".)*
@@ -104,23 +107,24 @@ extends RefCounted
 ##   7. UNSOURCED HEAT INJECTIONS — MaterialFieldInject3D.add_heat (:200-207), the raw degrees form that names
 ##      no store. Published raw beside the books as `energy_unsourced_dc` (degrees x cells since the baseline)
 ##      rather than converted, because converting it would need each cell's rc at the instant it was hit.
-##   8. WATER VAPOUR'S SENSIBLE HEAT — `moisture` appears in no `rc_of`, so the capacity model does not hold
-##      it. This is the `energy_capacity_*` leg above, which is why that leg is published separately.
-##   9. THE INJECTION'S OWN CAPACITY MODEL disagrees with the kernels'. MaterialFieldInject3D
-##      ._cell_heat_capacity (:157-168) mixes water and air only; `rc_of` now mixes rock_fill, lava, water, snow
-##      AND organic (rc_shared.glsli), so the gap this entry describes got WIDER when that was unified — a
-##      booked joule and the stock's response to it differ for any cell holding snow, lava, litter or
-##      partial rock. The injection path should call the shared definition; it cannot today because it is
-##      GDScript and rc_shared.glsli is GLSL. That is the actual work item.
-##  10. GROUNDWATER HAS NO HEAT CAPACITY, AND IT IS MOST OF THIS PLANET'S WATER. `rc_of` counts the `water`
-##      channel and not the `soil` one, and `soil` is the aquifer — LAMaterialFieldLedger3D sums
-##      water + soil + snow + moisture as h2o_total, and on the baseline run `soil_total` is 2935 against a
-##      `water_total` of 1311. So more than twice as much of this world's water is thermally invisible as is
-##      visible, and a unit of water that infiltrates from the surface into the aquifer deletes its own
-##      thermal mass from the planet. This is not a bookkeeping nicety: an aquifer of that size is a real
-##      thermal reservoir, it is why groundwater temperature is stable through a diurnal cycle, and it is the
-##      medium a hot spring is made of. This gauge was built to find unbooked terms and this is the one it
-##      found; see the measurement below.
+##   8. ~~WATER VAPOUR'S SENSIBLE HEAT~~ — CLOSED 2026-08-09. It read "`moisture` appears in no `rc_of`, so
+##      the capacity model does not hold it". It does now: RC_VAPOUR (rc_shared.glsli:81) against
+##      `f_vap = clamp(moisture[i], 0, 1)` (:107), and `LAHeatCapacity.WATER_VAPOUR` on the GDScript side.
+##      The `energy_capacity_*` leg is still published separately, and still worth reading separately.
+##   9. ~~THE INJECTION'S OWN CAPACITY MODEL disagrees with the kernels'~~ — CLOSED 2026-08-09. It read
+##      "MaterialFieldInject3D._cell_heat_capacity mixes water and air only … it cannot call the shared
+##      definition today because it is GDScript and rc_shared.glsli is GLSL. That is the actual work item."
+##      That work item was done by building the GDScript side of the SSOT: `_cell_heat_capacity` (:166-169)
+##      is `LAHeatCapacity.cell(_rc_channels(), cell) * volume`, and check_heat_capacity_ssot.sh now fails
+##      the build if the mix is written down anywhere but material/HeatCapacity.gd or rc_shared.glsli.
+##  10. ~~GROUNDWATER HAS NO HEAT CAPACITY~~ — CLOSED 2026-08-09, AND IT WAS THE LARGEST OF EIGHT RATHER THAN
+##      THE ONLY ONE. It read "`rc_of` counts the `water` channel and not the `soil` one, and `soil` is the
+##      aquifer — `soil_total` 2935 against `water_total` 1311, so more than twice as much of this world's
+##      water is thermally invisible as is visible, and a unit of water that infiltrates deletes its own
+##      thermal mass from the planet." All true, and `sediment`, `susp`, `dust`, `moisture`, `fungus`,
+##      `carbonate` and `silica` were invisible the same way. All eight are counted now (rc_shared.glsli:59
+##      lists the substance grouping) and the drift fell 12.77% -> 7.76% of stock. The reasoning is kept
+##      because it is the argument for why an aquifer is a thermal reservoir, which is still the physics.
 ##  11. ~~`rc_of` ITSELF IS NOT A FUNCTION OF THE MATTER PRESENT~~ — CLOSED 2026-08-09, and it was WORSE
 ##      than this entry said. It read "the same expression stands in all three", naming heat3d_solar,
 ##      heat_sphere3d and heat3d_buoyancy. It was neither the same expression nor only three: `rc_of` was

@@ -69,8 +69,11 @@ extends RefCounted
 ##
 ## So: ONE evaluation, at the first sample at or after REFERENCE_STEPS past the seal. Reproducible, immune
 ## to both problems, and the same shape the project already measures in (fixed-length arms compared at equal
-## `field_sim_s`). A run shorter than the horizon reports `too_short` and gates nothing, which is honest —
-## a 120-frame smoke test has no opinion about conservation and should not pretend to.
+## `field_sim_s`). A run shorter than the horizon publishes `conservation_audited: false` and gates nothing,
+## which is honest — a 120-frame smoke test has no opinion about conservation and should not pretend to.
+## *(Corrected 2026-08-09: this said such a run "reports `too_short`". No such string is ever emitted; the
+## only signal is the boolean, and a reader grepping the name this header gave them finds nothing. Naming a
+## marker that does not exist is the same defect class as a gauge that cannot fail.)*
 ##
 ## The worst excursion is still tracked and published (`conservation_worst`), because the gate found on its
 ## first run that water breaches at -20.5% and RECOVERS to -17.8% — a total read only at the finish line
