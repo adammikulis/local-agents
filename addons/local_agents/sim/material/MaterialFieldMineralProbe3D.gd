@@ -54,7 +54,8 @@ extends RefCounted
 ##
 ## The likely mechanism, NOT yet confirmed by a fix: FireDustPass is relevance-gated. A cell whose stride skips
 ## this step does `dust_out[g] = dust_in[g]` (dust_transport_sphere3d.glsl:83) and so never collects the
-## downward/lateral flux its running neighbours already SENT, and dust_outscale_sphere3d.glsl:77 writes 0.0 for
+## downward/lateral flux its running neighbours already SENT, and the CFL scale (now inline in
+## dust_transport_sphere3d.glsl, after dust_outscale_sphere3d.glsl was deleted) is 1.0 for
 ## a gated cell, which the transport's inflow terms read as "that neighbour sent nothing". Both directions drop
 ## mass on the floor. Anyone fixing it should re-run this probe and watch `fire_dust` go to 0.0000 — that is
 ## the acceptance test, and it is the reason a per-pass instrument was worth building instead of arguing.

@@ -15,7 +15,7 @@ extends RefCounted
 
 # Channel name (as read back by the GPU driver) -> the field's CPU mirror array property, for the channels the
 # field keeps a CPU copy of (actor queries + SIM_REPORT totals read these until the next GPU readback). Channels
-# with no CPU mirror (susp/fert/dust_outscale/etc.) still round-trip on the GPU via restore_channels().
+# with no CPU mirror (susp/fert/etc.) still round-trip on the GPU via restore_channels().
 const CPU_MIRROR: Dictionary = {
 	"temp": "_temp", "water": "_water", "moisture": "_moisture", "lava": "_lava", "fire": "_fire",
 	"o2": "_o2", "co2": "_co2", "biomass": "_biomass", "snow": "_snow", "dust": "_dust",

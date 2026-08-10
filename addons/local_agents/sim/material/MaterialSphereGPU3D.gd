@@ -64,7 +64,7 @@ const PAIR_CHANNELS: PackedStringArray = [
 # and GPU-evolved (M5 solidify / M6 melt records write it), re-uploaded from the CPU only on an add_lava injection.
 const SINGLE_CHANNELS: PackedStringArray = [
 	"solid", "static", "fuel", "charge", "detritus", "biomass", "pressure",
-	"vel_x", "vel_y", "vel_z", "dust_outscale", "fungus_fert", "surf_vx", "surf_vz", "snow", "rock_fill",
+	"vel_x", "vel_y", "vel_z", "fungus_fert", "surf_vx", "surf_vz", "snow", "rock_fill",
 	# THE TWO NON-SILICATE MINERAL SPECIES (2026-08-08). `carbonate` (CaCO3) is where silicate weathering puts
 	# the CO2 it consumes — the only carbon sink this planet has — and `silica` (SiO2) is the residue the same
 	# reaction has to put its silicon in. SINGLE rather than PAIR because nothing advects them: ReactionsPass
