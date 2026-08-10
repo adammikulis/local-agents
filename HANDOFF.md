@@ -108,6 +108,13 @@ returns an uninterpretable number — see CLAUDE.md's rule, which this session e
 **Land P0's second half + P1 + P2 as ONE replacement**, then verify against the binary acceptance test —
 does the planet cool, does an ocean condense — rather than against a drift delta.
 
+### DONE SINCE: latent heat (`f61d426`)
+
+All seven phase records carry a derived enthalpy; Hess closes to exactly 0.0. **Evaporative cooling now
+exists**, which it did not. Remaining in that area: `heat3d_cool` is now a DUPLICATE of R23's energy leg as
+well as a thermostat — delete it; condensation (`atmos_precip`) and deposition (`snowice`) still release
+nothing; and a record carries one enthalpy where L(T) is a curve.
+
 ### THE NEXT COMMIT IS P0's SECOND HALF, AND IT IS FULLY SPECIFIED
 
 The length scale now exists and is derived (`METRES_PER_MODEL_UNIT = 168.6`, validated: `M_air`, `R_d` and
