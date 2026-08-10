@@ -99,7 +99,13 @@ layout(push_constant, std430) uniform Params {
 // magnitude from the surface to the top of the atmosphere. That is the second half of the jet: the thermal
 // gradient aloft is what pushes, and thin air aloft is why the same push moves that air so much faster than
 // it moves the dense air at the surface. AIR_FLOOR caps the gain where a column is nearly empty.
-const float AIR_FLOOR = 0.02;       // density floor: caps the 1/rho gain at 50x (top-of-atmosphere guard)
+const float AIR_FLOOR = 0.02;       // density floor in AIR UNITS: caps the 1/rho gain at 50x (top-of-atmosphere)
+// REAL UNITS, 2026-08-10. Pass A now writes `pressure` in PASCALS, so the gradient is Pa per model unit and
+// must be divided by the metres one cell spans; rho is a real kg/m3; and the acceleration that comes out is
+// m/s^2 instead of a number whose units nobody could state.
+const float GRAVITY_M_S2 = 9.80665;        // LAPhysical.STANDARD_GRAVITY_M_S2
+const float AIR_DENSITY_KG_M3 = 1.18;      // LAPhysical.AIR_DENSITY_KG_M3
+const float METRES_PER_MODEL_UNIT = 168.6; // LAPhysical.METRES_PER_MODEL_UNIT
 // DRAG IS A SURFACE PROPERTY. Wind slows because it rubs on the ground; there is nothing aloft for it to rub
 // on. A single height-independent DAMP therefore says "the whole atmosphere is dragging on the planet", and
 // that one assumption is what forbids a jet: it makes friction (0.10/step, DAMP plus the prevailing relax)
@@ -113,7 +119,11 @@ const float AIR_FLOOR = 0.02;       // density floor: caps the 1/rho gain at 50x
 const float DAMP_SURFACE = 0.08;    // linear drag fraction removed per step at the ground (the old DAMP)
 const float DAMP_FREE = 0.010;      // residual drag in the free atmosphere
 const float BL_HEIGHT = 40.0;       // boundary-layer e-folding height, world units (2.5 cells)
-const float MAX_WIND = 24.0;        // velocity magnitude clamp (stability)
+// Velocity magnitude clamp, in METRES PER SECOND now that the acceleration is real. 110 m/s is above the
+// fastest sustained jet-stream cores measured on Earth (~100 m/s) and below anything physical, so it is a
+// stability backstop rather than a shape the flow is pushed into. *(Was 24.0 in world units, a number with
+// no statable dimension, sized against a pressure field that was itself arbitrary.)*
+const float MAX_WIND = 110.0;
 const float BUOY_ACCEL = 0.5;       // upward accel per °C of (this cell − cell above) temperature inversion
 const float BUOY_ACCEL_MAX = 6.0;   // cap the buoyant accel before the dt scale (stability)
 const float CORIOLIS = 0.6;         // sideways deflection of horizontal wind → pressure lows SPIN
@@ -169,10 +179,14 @@ void main() {
 	float bl = exp(-max(altitude, 0.0) / BL_HEIGHT);
 	float damp = DAMP_FREE + (DAMP_SURFACE - DAMP_FREE) * bl;
 
-	// (1/rho)*grad(p), with rho taken from this cell's own air mass — see AIR_FLOOR above.
-	float accel = 1.0 / max(air[g], AIR_FLOOR);
-	float nvx = vel_x[g] - gx * accel * params.dt;
-	float nvz = vel_z[g] - gz * accel * params.dt;
+	// (1/rho) grad(p) IN REAL UNITS: grad is Pa per model unit, so per METRE it is grad / cell_m; rho is
+	// kg/m3 from this cell's own air mass. The result is m/s^2 and params.dt is REAL SECONDS, so velocity
+	// comes out in m/s.
+	float cell_m = params.cell_size * METRES_PER_MODEL_UNIT;
+	float rho = AIR_DENSITY_KG_M3 * max(air[g], AIR_FLOOR);
+	float inv_rho_dx = 1.0 / (rho * cell_m);
+	float nvx = vel_x[g] - gx * inv_rho_dx * params.dt;
+	float nvz = vel_z[g] - gz * inv_rho_dx * params.dt;
 	float nvy = vel_y[g];
 
 	// BUOYANCY (radial-up wind): a hot cell under a cooler open cell rises. Uses the OUTWARD neighbour (slot 5)

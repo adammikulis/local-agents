@@ -105,7 +105,7 @@ const K_ICE_ALBEDO_GAIN: float = 40.0      # glsl:137 — snow mass -> reflectiv
 # conduction kernel was stepping they were wrong by 18.2x (air, too large), 64.4x (rock), 17.2x (water) and
 # 9.3x (snow). The kernel derives the capacity per cell now — LAPhysical's real volumetric values times the
 # cell's own depth — so this file reads the same authority instead of transcribing four literals.
-const K_P_REF: float = 100.0               # glsl:244 P_REF — sea-level column pressure in this world's units
+const K_P_REF: float = LAPhysical.STANDARD_PRESSURE_PA   # mirrors heat3d_solar P_REF; pressure is PASCALS now
 const K_MAX_DT_PER_STEP: float = 5.0       # glsl:132 MAX_DT_PER_STEP — the guard whose binding this file counts
 const K_WATER_SURFACE_MIN: float = 0.5     # glsl:279 WATER_SURFACE_MIN — water fraction that makes a cell a sea surface
 

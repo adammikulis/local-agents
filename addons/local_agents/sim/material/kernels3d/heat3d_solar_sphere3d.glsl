@@ -250,7 +250,7 @@ layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float 
 // the pair is no longer consistent and the planet will run warmer until that is re-derived. Measure before
 // touching SOLAR_CONSTANT: the last time it was cut 20% the global mean moved ONE degree, because the sun is
 // not what sets this planet's temperature.
-const float P_REF = 100.0;           // sea-level column pressure in this world's units
+const float P_REF = 101325.0;        // LAPhysical.STANDARD_PRESSURE_PA — pass A writes real pascals now
 const float TAU_SEA = 0.835;         // LAPhysical.ATMOS_OPTICAL_DEPTH — LONGWAVE depth of a sea-level column
 const float TAU_TWO_STREAM = 0.75;   // LAPhysical.TWO_STREAM_COEFF — the coefficient in T_s^4 = T_e^4 (1 + 0.75 tau)
 // ===== COLUMN SHORTWAVE BUDGET — THE BEAM IS SPENT ONCE ===========================================

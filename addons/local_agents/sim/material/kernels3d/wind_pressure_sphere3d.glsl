@@ -19,7 +19,7 @@
 //      exponential profile set by the LOCAL temperature: w[r] = w[r-1]*exp(-dz/H), H = H_PER_KELVIN * T.
 //      This is the standard hydrostatic closure (real atmosphere models do not prognose vertical momentum
 //      either), and it is what makes the column's THICKNESS temperature-dependent.
-//   3. PRESSURE is integrated inward from space: p[r] = G_ACC * (mass above + half this cell's own mass).
+//   3. PRESSURE is integrated inward from space, IN PASCALS: p[r] = g * rho_air * dz_m * (mass above + half own).
 //      Monotone decreasing outward by construction, because mass is non-negative.
 //
 // WHY A JET FALLS OUT OF THAT. Two columns holding the SAME mass but at different temperatures do not hold
@@ -84,21 +84,18 @@ const float T_MIN_K = 180.0;       // scale-height guard: keeps H positive and f
 const float T_MAX_K = 400.0;
 const float H_REF = H_PER_KELVIN * 288.15;   // seed profile scale height (~50)
 const float AIR_DENS_REF = 1.0;    // air mass in a sea-level cell of the seeded standard atmosphere
-// PRESSURE PER UNIT COLUMN MASS, AND IT IS NOT PASCALS. 33.5 was chosen "because that is where the old P0
-// sat — so pass B's ACCEL/DAMP tuning still sees gradients of a familiar size", which is inheriting a value
-// from a superseded pass and is never a reason. LAPhysical.air_units_to_pascals() is the real conversion and
-// puts this planet's sea-level column at 93 180 Pa, so this constant is ~932x too small.
+// PRESSURE IS IN PASCALS. p = g * (mass per unit area of the air above), and the mass per unit area of one
+// air-unit is (sea-level air density) x (one cell's height in metres). Every factor is a measured property
+// bound to the authority; nothing here is chosen.
 //
-// WHY IT IS STILL HERE, 2026-08-10, stated rather than hidden: converting it ALONE would be worse than
-// leaving it. wind_step_sphere3d.glsl integrates on `params.dt` = LAMaterialFieldSphereStep3D.STEP_DT = 0.1
-// SIMULATED seconds, while one field step stands for 43.2 REAL seconds — a factor of 432, already recorded
-// as a live defect at MaterialFieldSphereStep3D.gd:33. Making pressure real (x932) against a clock that is
-// 432x too short replaces one honest arbitrary constant with two compensating errors that happen to nearly
-// cancel, which is a substrate that LOOKS dimensionally sound and is not.
-// THE FIX IS ONE COMMIT AND IT IS SPECIFIED IN HANDOFF: real pascals here, real seconds in the wind clock,
-// rho = AIR_DENSITY_KG_M3 * air in wind_step, the gradient per METRE, P_REF -> STANDARD_PRESSURE_PA in
-// heat3d_solar and MaterialFieldEnergyBudget3D, then MAX_WIND checked against a real jet (~70 m/s).
-const float G_ACC = 33.5;
+// *(This was `G_ACC = 33.5` until 2026-08-10, with its own comment saying 33.5 was picked "because that is
+// where the old P0 sat — so pass B's ACCEL/DAMP tuning still sees gradients of a familiar size". A value
+// inherited from a superseded pass so downstream tuning kept looking familiar, which made the whole pressure
+// field arbitrary and left LASubstances.boil_c_at(id, p_pa) — the pressure-dependent boiling point — with no
+// caller on a project whose target is a 100-bar steam envelope.)*
+const float GRAVITY_M_S2 = 9.80665;        // LAPhysical.STANDARD_GRAVITY_M_S2
+const float AIR_DENSITY_KG_M3 = 1.18;      // LAPhysical.AIR_DENSITY_KG_M3
+const float METRES_PER_MODEL_UNIT = 168.6; // LAPhysical.METRES_PER_MODEL_UNIT
 // Fraction of a level's air crossing one face per step: the plain CFL number v*dt/dx, capped for stability.
 // At MAX_WIND=24, dt=0.1, cell_size=16 this is 0.15, so the cap never binds in normal running; it exists so a
 // transient cannot move more than a level holds. Both sides of a face evaluate the same expression, so the
@@ -224,12 +221,14 @@ void main() {
 	float above = 0.0;
 	for (int r = r_top; r >= r_bot; --r) {
 		float a = air_out[base + uint(r)];
-		pressure[base + uint(r)] = G_ACC * (above + 0.5 * a);   // cell-centred: half its own weight
+		// PASCALS: g * rho_air * (cell height in metres) * (air-units above, plus half this cell's own).
+		pressure[base + uint(r)] = GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * (params.cell_size * METRES_PER_MODEL_UNIT)
+			* (above + 0.5 * a);
 		above += a;
 	}
 	// Everything below the atmosphere (rock, ocean interior, caves) holds no air and carries the column's
 	// surface pressure, so the horizontal field stays continuous across the sea floor.
-	float p_surf = G_ACC * above;
+	float p_surf = GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * (params.cell_size * METRES_PER_MODEL_UNIT) * above;
 	for (int r = r_bot - 1; r >= 0; --r) {
 		air_out[base + uint(r)] = 0.0;
 		pressure[base + uint(r)] = p_surf;
