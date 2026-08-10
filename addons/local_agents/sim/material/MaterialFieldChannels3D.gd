@@ -10,6 +10,64 @@ func setup(field) -> void:
 	_f = field
 
 
+# --- SMELL IS NOT A CHANNEL. IT IS READING THE AIRBORNE CHEMISTRY THAT IS ACTUALLY THERE. ------------------
+# The five-plane `scent` channel is deleted. It had hardcoded semantic planes (prey/predator/blood/food/alarm)
+# for what is physically one thing — molecules in air — and two of the five had no emitter anywhere in the
+# tree, so a receptor for them could never fire. What follows is generic over the substance: an animal reads
+# the concentration of a gas, and which gases it can read is a property of the animal.
+#
+# A rotting carcass is found by its CO₂ because decomposition really does produce CO₂ (BioRecords.gd:112-117)
+# and that CO₂ really does ride the wind. Nothing here knows what a carcass is.
+
+## CPU mirror of an airborne channel, or an empty array when that channel is not one.
+func _airborne_mirror(substance: String) -> PackedFloat32Array:
+	match substance:
+		"co2": return _f._co2
+		"o2": return _f._o2
+		"moisture": return _f._moisture
+		"dust": return _f._dust
+	return PackedFloat32Array()
+
+
+## Concentration of an airborne substance at a world point, in that channel's own units.
+func airborne_at(substance: String, world_pos: Vector3) -> float:
+	var m: PackedFloat32Array = _airborne_mirror(substance)
+	if m.size() != _f._cell_count or _f._sphere == null:
+		return 0.0
+	if _f._gpu != null:
+		_f._gpu.request_channel(substance)
+	var c: int = _f.world_to_cell(world_pos)
+	return m[c] if c >= 0 else 0.0
+
+
+## Unit world direction UP the concentration gradient of an airborne substance — casting about for a smell.
+## Zero where the air is uniform, which is the honest answer: there is nothing to follow.
+func airborne_gradient(substance: String, world_pos: Vector3) -> Vector3:
+	var m: PackedFloat32Array = _airborne_mirror(substance)
+	if m.size() != _f._cell_count or _f._sphere == null:
+		return Vector3.ZERO
+	if _f._gpu != null:
+		_f._gpu.request_channel(substance)
+	var c: int = _f.world_to_cell(world_pos)
+	if c < 0:
+		return Vector3.ZERO
+	var pos_c: Vector3 = _f.cell_world_pos_linear(c)
+	var here: float = m[c]
+	var nbr: PackedInt32Array = _f._sphere.neighbours
+	var grad: Vector3 = Vector3.ZERO
+	for d in range(6):
+		var nb: int = nbr[c * 6 + d]
+		if nb < 0 or _f._solid[nb] != 0:
+			continue
+		var dir: Vector3 = _f.cell_world_pos_linear(nb) - pos_c
+		if dir.length_squared() < 1.0e-8:
+			continue
+		grad += dir.normalized() * (m[nb] - here)
+	if grad.length_squared() < 1.0e-8:
+		return Vector3.ZERO
+	return grad.normalized()
+
+
 # --- Emergent atmospheric OXYGEN: O₂ level at a point + depletion diagnostics -------------------------
 
 func o2_at(x: float, y: float, z: float) -> float:

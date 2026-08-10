@@ -311,30 +311,42 @@ func _scaled(arr: PackedFloat32Array, k: float) -> PackedFloat32Array:
 	return out
 
 ## Inject electrification charge into the air cell at `world_pos` (and within `radius`) — an explicit charge
-## seed (a storm's charge source, or an ionising impact). The charge channel is GPU-resident + evolves in
-## place, so mark it dirty for the sphere-step re-upload; the charge module then reads it back + may break down.
+## seed (a storm's charge source, or an ionising impact). Queued as a sparse ADD against the live buffer; the
+## charge module then reads it back + may break down.
 func add_charge(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if amount <= 0.0 or _f._charge.size() != _f._cell_count:
 		return
-	var cells: PackedInt32Array = _cells_within(world_pos, radius)
-	for c in cells:
+	var cells: PackedInt32Array = PackedInt32Array()
+	var deltas: PackedFloat32Array = PackedFloat32Array()
+	for c in _cells_within(world_pos, radius):
 		if _f._solid[c] == 0:
 			_f._charge[c] = maxf(0.0, _f._charge[c] + amount)
-	_f._charge_dirty = true
+			cells.append(c)
+			deltas.append(amount)
+	if _f._inject != null and cells.size() > 0:
+		_f._inject.queue.add("charge", cells, deltas)
 	_f._charge_woke = true                                # wake the breakdown scan — a small injected blob can
 	                                                      # slip between the strided probe's samples otherwise
 
 
+## Drain each cell in the bubble down to `residual` and return how much came out (the bolt's energy). The drain
+## is queued as a NEGATIVE sparse delta sized from the mirror; add_field_sparse clamps at 0, so a device value
+## below the mirror empties rather than going negative.
 func deplete_charge(world_pos: Vector3, radius: float, residual: float) -> float:
 	if _f._charge.size() != _f._cell_count:
 		return 0.0
-	var cells: PackedInt32Array = _cells_within(world_pos, radius)
+	var cells: PackedInt32Array = PackedInt32Array()
+	var deltas: PackedFloat32Array = PackedFloat32Array()
 	var drained: float = 0.0
-	for c in cells:
+	for c in _cells_within(world_pos, radius):
 		if _f._charge[c] > residual:
-			drained += _f._charge[c] - residual
+			var take: float = _f._charge[c] - residual
+			drained += take
 			_f._charge[c] = residual
-	_f._charge_dirty = true
+			cells.append(c)
+			deltas.append(-take)
+	if _f._inject != null and cells.size() > 0:
+		_f._inject.queue.add("charge", cells, deltas)
 	return drained
 
 

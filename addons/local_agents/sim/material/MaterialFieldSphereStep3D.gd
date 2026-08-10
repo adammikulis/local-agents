@@ -155,33 +155,14 @@ func process(delta: float) -> void:
 		_f._gpu.set_spin_axis(_f.dir_to_field(_f._body.spin_axis() if _f._body.has_method("spin_axis") else Vector3.UP))
 	if _f._terrain != null and _f._terrain.has_method("sea_radius") and _f._gpu.has_method("set_sea_radius"):
 		_f._gpu.set_sea_radius(_f._terrain.sea_radius())
-	if _f._lava_dirty and _f._gpu.has_method("set_field"):
-		_f._gpu.set_field("lava", _f._lava)
-		_f._lava_dirty = false
-	if _f._rock_fill_dirty and _f._gpu.has_method("set_field"):
-		_f._gpu.set_field("rock_fill", _f._rock_fill)
-		_f._rock_fill_dirty = false
-	# Substrate-foundation local injections (dirty-gated, mirror lava): emit_shock/add_charge/add_vapor
-	# edited the CPU channel this frame → push it into the GPU before the step so the kernel evolves it.
-	if _f._shock_dirty and _f._gpu.has_method("set_field"):
-		_f._gpu.set_field("shock", _f._shock)
-		_f._shock_dirty = false
-	if _f._charge_dirty and _f._gpu.has_method("set_field"):
-		_f._gpu.set_field("charge", _f._charge)
-		_f._charge_dirty = false
-	# Scent is a 5-plane packed channel; deposit() seeded a plane on the CPU this frame → push it before the step.
-	if _f._scent_dirty and _f._gpu.has_method("set_field"):
-		_f._gpu.set_field("scent", _f._scent)
-		_f._scent_dirty = false
-	# Combustion fuel seeded/refilled on the CPU (surface seed module) → push it into the GPU fuel buffer so the
-	# fire kernel (which gates on fuel > 0) can ignite + consume it. Dirty-gated: else fuel stays GPU-resident.
-	if _f._fuel_dirty and _f._gpu.has_method("set_field"):
-		_f._gpu.set_field("fuel", _f._fuel)
+	# Bootstrap fuel + detritus: the ONLY whole-mirror uploads left, and seed_field refuses them past step 0.
+	# Every other channel's CPU edits (shock, charge, scent, rock_fill) are queued sparse ops now — see the
+	# seed_field header for why a mirror upload at step time is observer-dependent rather than merely stale.
+	if _f._fuel_dirty and _f._gpu.has_method("seed_field"):
+		_f._gpu.seed_field("fuel", _f._fuel)
 		_f._fuel_dirty = false
-	# One-shot: push the initial soil detritus seed into the GPU before the first step so the decomposer has
-	# substrate from frame 0. Cleared immediately so the GPU-evolved detritus (respiration/decompose) is never clobbered.
-	if _f._detritus_seed_dirty and _f._gpu.has_method("set_field"):
-		_f._gpu.set_field("detritus", _f._detritus)
+	if _f._detritus_seed_dirty and _f._gpu.has_method("seed_field"):
+		_f._gpu.seed_field("detritus", _f._detritus)
 		_f._detritus_seed_dirty = false
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		if OS.has_environment("LA_INJECT_AUDIT"):
@@ -248,8 +229,6 @@ func _apply_readback(res: Dictionary) -> void:
 	# velocity field (wind3_at/wind_at read a real force instead of ZERO).
 	if res.has("shock") and res["shock"].size() == n: _f._shock = res["shock"]
 	if res.has("charge") and res["charge"].size() == n: _f._charge = res["charge"]
-	# Scent is the 5-plane packed buffer (SCENT_CHANNELS * n) — scatter it back so senses smell live gradients.
-	if res.has("scent") and res["scent"].size() == LAMaterialField3D.SCENT_CHANNELS * n: _f._scent = res["scent"]
 	if res.has("vel_x") and res["vel_x"].size() == n: _f._vel_x = res["vel_x"]
 	if res.has("vel_y") and res["vel_y"].size() == n: _f._vel_y = res["vel_y"]
 	if res.has("vel_z") and res["vel_z"].size() == n: _f._vel_z = res["vel_z"]

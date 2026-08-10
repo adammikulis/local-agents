@@ -33,7 +33,6 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/FireDustPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/EcoSurfacePass.gd"]
 
-const SCENT_PLANES: int = 5
 const SOIL_DBG_SLOTS: int = 21
 # Slots in the `active_args` buffer (see setup()). 0-2 are the uvec3 dispatch-indirect argument; 3 is the
 # compacted list length a compacted kernel uses as its loop bound. 8 rather than 4 purely for 32-byte alignment.
@@ -52,7 +51,7 @@ static func available() -> bool:
 	return true
 
 var _rd: RenderingDevice = null
-# LA_INJECT_AUDIT=1 -> every whole-mirror set_field upload prints how much mass it wrote away (see
+# LA_INJECT_AUDIT=1 -> every whole-mirror seed_field upload prints how much mass it wrote away (see
 # _audit_mirror_upload). Read once here, not per call: it costs a full-grid readback plus two sums.
 var _audit_mirror: bool = OS.has_environment("LA_INJECT_AUDIT")
 var _field = null
@@ -112,7 +111,6 @@ func setup(field) -> void:
 
 	for name in PAIR_CHANNELS:
 		_bufs[name] = [_new_f(_cc), _new_f(_cc)]
-	_bufs["scent"] = [_new_f(_cc * SCENT_PLANES), _new_f(_cc * SCENT_PLANES)]
 	for name in SINGLE_CHANNELS:
 		_bufs[name] = _new_f(_cc)
 	_bufs["send"] = _new_f(_cc * 6)
@@ -380,9 +378,6 @@ func _read_channels(read_slow: bool) -> Dictionary:
 	var out: Dictionary = _empty_result()
 	for k in ["temp", "water", "moisture", "o2"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
-	# scent is a 5-plane packed pair (SCENT_PLANES * cell_count) — read its live half whole so the CPU bridge
-	# scatters all five planes (prey/predator/blood/food/alarm) back for the sense gradients.
-	out["scent"] = _rd.buffer_get_data(_live("scent")).to_float32_array()
 	# snow (SINGLE) — read every physics frame per living carcass (decomposition/permafrost gating), not just
 	# render/debug, so it stays hot even though most consumers are periodic.
 	if _bufs.has("snow"):
@@ -441,8 +436,6 @@ func _audit_mirror_upload(name: String, arr) -> void:
 	var live: PackedFloat32Array = _rd.buffer_get_data(buf).to_float32_array()
 	var lt: float = 0.0
 	var mt: float = 0.0
-	# Whole array, not the first _cc entries: `scent` is a 5-plane pair (SCENT_PLANES * _cc) and capping at _cc
-	# would report one plane's drift as the channel's.
 	var n: int = mini(live.size(), arr.size())
 	for i in n:
 		lt += live[i]
@@ -450,27 +443,38 @@ func _audit_mirror_upload(name: String, arr) -> void:
 	print("MIRROR_REWIND={\"channel\":\"%s\",\"live\":%.4f,\"mirror\":%.4f,\"delta\":%.4f}" % [name, lt, mt, mt - lt])
 
 
-func set_field(name: String, arr) -> void:
+# --- SEEDING AN INITIAL CONDITION, WHICH IS NOT THE SAME OPERATION AS EDITING EVOLVED STATE ----------------
+#
+# A whole-mirror upload writes the CPU copy over the device. Before the first step that is a SEED: the mirror is
+# the only authority, because nothing has evolved yet. After the first step it is a REWIND — it destroys however
+# much the GPU produced since that mirror was last read back, and how much that is depends on when the channel
+# was last resident, which depends on who called request_channel, which depends on which consumers are alive.
+# Physics that changes with who is looking is not physics. Step-time edits go through the inject queue's
+# sparse ops (add/transfer/displace/discard), which read the LIVE buffer and write only the cells they touch.
+#
+func seed_field(name: String, arr) -> void:
 	if _rd == null or not _bufs.has(name):
+		return
+	if _step_index > 0:
+		push_error(("seed_field('%s') after %d steps: a whole-mirror upload past step 0 rewinds live GPU state " +
+			"by an amount that depends on channel residency. Queue a sparse edit instead.") % [name, _step_index])
 		return
 	if _audit_mirror and arr is PackedFloat32Array:
 		_audit_mirror_upload(name, arr)
 	if name == "temp":
-		_temp_dirty = true      # keep the gated begin_frame upload in step with a whole-mirror set
+		_temp_dirty = true      # keep the gated begin_frame upload in step with a whole-mirror seed
 	var b = _bufs[name]
 	if b is Array:
-		# scent is a 5-plane pair (SCENT_PLANES * cell_count); every other pair channel is one plane (cell_count).
-		# Upload the whole array into the live half when it matches the channel's expected length (mirrors
-		# restore_channels) — the shared _upload_f only accepts a single-plane cell_count array, so route directly.
-		var expect: int = _cc * (SCENT_PLANES if name == "scent" else 1)
-		if arr.size() == expect:
+		# Every PAIR channel is one plane of cell_count. (It was not, while `scent` packed five semantic planes
+		# into one buffer; that channel is deleted — smell is the airborne chemistry, not a channel of its own.)
+		if arr.size() == _cc:
 			var bytes: PackedByteArray = arr.to_byte_array()
 			_rd.buffer_update(b[_phase], 0, bytes.size(), bytes)
 	else:
 		_upload_f(b, arr)
 
 
-# --- SPARSE IN-PLACE EDITS (the additive counterpart to set_field) ----------------------------------------
+# --- SPARSE IN-PLACE EDITS (the only legal step-time write) -----------------------------------------------
 
 ## A delta this negative empties a cell exactly (the clamp floor is 0), so callers that want to DRAIN a cell
 ## without knowing what is in it pass this and read the returned total.
@@ -487,11 +491,13 @@ func add_field_sparse(name: String, cells: PackedInt32Array, deltas: PackedFloat
 	if arr.size() < _cc:
 		return 0.0
 	var applied: float = 0.0
-	var lo: int = _cc
+	# Bound on the BUFFER, not on _cc, so a channel wider than one plane is editable at all.
+	var n: int = arr.size()
+	var lo: int = n
 	var hi: int = -1
 	for i in cells.size():
 		var c: int = cells[i]
-		if c < 0 or c >= _cc:
+		if c < 0 or c >= n:
 			continue
 		var before: float = arr[c]
 		var delta: float = deltas[i]
@@ -600,7 +606,6 @@ func snapshot_channels() -> Dictionary:
 	_flush_pending()        # a step submit may be in flight (async pipeline) — sync before reading the buffers
 	for name in PAIR_CHANNELS:
 		out[name] = _rd.buffer_get_data(_live(name)).to_float32_array()
-	out["scent"] = _rd.buffer_get_data(_bufs["scent"][_phase]).to_float32_array()
 	for name in SINGLE_CHANNELS:
 		out[name] = _rd.buffer_get_data(_bufs[name]).to_float32_array()
 	return out
@@ -619,8 +624,7 @@ func restore_channels(data: Dictionary) -> void:
 		var bytes: PackedByteArray = arr.to_byte_array()
 		var b = _bufs[key]
 		if b is Array:
-			var expect: int = _cc * (SCENT_PLANES if key == "scent" else 1)
-			if arr.size() != expect:
+			if arr.size() != _cc:
 				continue
 			_rd.buffer_update(b[0], 0, bytes.size(), bytes)
 			_rd.buffer_update(b[1], 0, bytes.size(), bytes)
@@ -743,7 +747,7 @@ func _empty_result() -> Dictionary:
 		"fire": PackedFloat32Array(), "fuel": PackedFloat32Array(),
 		"sediment": PackedFloat32Array(), "o2": PackedFloat32Array(),
 		"co2": PackedFloat32Array(), "charge": PackedFloat32Array(),
-		"scent": PackedFloat32Array(), "fert": PackedFloat32Array(),
+"fert": PackedFloat32Array(),
 		"detritus": PackedFloat32Array(), "shock": PackedFloat32Array(),
 		"dust": PackedFloat32Array(), "snow": PackedFloat32Array(),
 		"susp": PackedFloat32Array(), "biomass": PackedFloat32Array(),

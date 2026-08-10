@@ -153,13 +153,14 @@ static func nearest_visible_in_state(c, pos: Vector3, group: String, states) -> 
 	return best
 
 
-## Direction UP the prey-scent gradient in the shared field, or ZERO if none (predator tracking). The old
-## per-species trail collapsed into one PREY channel: a carnivore follows prey musk toward prey-dense ground
-## (vision still picks the individual target). The scent rides the real wind, so this is "smell prey downwind".
+## Direction UP the CO₂ gradient, or ZERO if the air is uniform (predator tracking). There is no prey-scent
+## channel: animals exhale CO₂ and carrion decomposes into it, so dense ground reads as a CO₂ plume drifting on
+## the real wind. Tracking a host by its CO₂ is what mosquitoes and ticks actually do. Vision still picks the
+## individual target; this only says which way smells of life.
 static func follow_prey_scent(c, pos: Vector3) -> Vector3:
-	if c._material == null or not c._material.has_method("scent_gradient") or c.preys_on.is_empty():
+	if c._material == null or not c._material.has_method("airborne_gradient") or c.preys_on.is_empty():
 		return Vector3.ZERO
-	var dir: Vector3 = c._material.scent_gradient(pos, LAScentChannels.SCENT_PREY)
+	var dir: Vector3 = c._material.airborne_gradient("co2", pos)
 	if dir != Vector3.ZERO:
 		dir.y = 0.0
 		return dir

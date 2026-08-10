@@ -3,14 +3,7 @@ extends RefCounted
 ## nbr is the int32 cc*6 neighbour table on binding 15 (slot 0 = inward/down .. slot 5 = outward/up).
 
 const KDIR: String = "res://addons/local_agents/sim/material/kernels3d/"
-const SCENT_TRANSPORT_PATH: String = KDIR + "tracer_transport_sphere3d.glsl"
-
-# Per-step decay per scent channel, in LAScentChannels order (PREY, PREDATOR, BLOOD, FOOD, ALARM). These are
-# design statements about how long each cue lasts, not measured volatilities.
-const SCENT_DECAY: Array = [0.030, 0.030, 0.100, 0.015, 0.045]
-const SCENT_RAIN_WASH: float = 0.30
-const SCENT_DIFFUSE: float = 0.08
-const SCENT_FERT_PATH: String = KDIR + "scent_fert_sphere3d.glsl"
+const FERT_PATH: String = KDIR + "fert_sphere3d.glsl"
 const FUNGUS_PATH: String = KDIR + "fungus_sphere3d.glsl"
 const FUNGUS_FERT_PATH: String = KDIR + "fungus_fert_sphere3d.glsl"
 const SNOWICE_PATH: String = KDIR + "snowice_sphere3d.glsl"
@@ -19,24 +12,21 @@ const SHOCK_PATH: String = KDIR + "shock_sphere3d.glsl"
 var _rd: RenderingDevice = null
 
 # Compiled shaders (kept so their RIDs stay owned for the pipelines' lifetime).
-var _scent_transport_shader: RID = RID()
-var _scent_fert_shader: RID = RID()
+var _fert_shader: RID = RID()
 var _fungus_shader: RID = RID()
 var _fungus_fert_shader: RID = RID()
 var _snowice_shader: RID = RID()
 var _shock_shader: RID = RID()
 
 # Compute pipelines.
-var _scent_transport_pipe: RID = RID()
-var _scent_fert_pipe: RID = RID()
+var _fert_pipe: RID = RID()
 var _fungus_pipe: RID = RID()
 var _fungus_fert_pipe: RID = RID()
 var _snowice_pipe: RID = RID()
 var _shock_pipe: RID = RID()
 
 # Uniform sets, one per ping-pong parity.
-var _scent_transport_set: Array = [RID(), RID()]
-var _scent_fert_set: Array = [RID(), RID()]
+var _fert_set: Array = [RID(), RID()]
 var _fungus_set: Array = [RID(), RID()]
 var _fungus_fert_set: Array = [RID(), RID()]
 var _snowice_set: Array = [RID(), RID()]
@@ -50,10 +40,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		return
 
 	# --- Compile the kernels -------------------------------------------------------
-	_scent_transport_shader = _compile(SCENT_TRANSPORT_PATH)
-	_scent_transport_pipe = _rd.compute_pipeline_create(_scent_transport_shader)
-	_scent_fert_shader = _compile(SCENT_FERT_PATH)
-	_scent_fert_pipe = _rd.compute_pipeline_create(_scent_fert_shader)
+	_fert_shader = _compile(FERT_PATH)
+	_fert_pipe = _rd.compute_pipeline_create(_fert_shader)
 	_fungus_shader = _compile(FUNGUS_PATH)
 	_fungus_pipe = _rd.compute_pipeline_create(_fungus_shader)
 	_fungus_fert_shader = _compile(FUNGUS_FERT_PATH)
@@ -74,7 +62,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var fungus_fert_rid: RID = _single(bufs, "fungus_fert")  # per-cell fertility scratch (written by ReactionsPass' decompose record, reduced by fungus_fert)
 
 	# --- PAIR channels: [live, back] indexed by parity -----------------------------
-	var scent_pair: Array = _pair(bufs, "scent")      # 5*cc packed
 	var fert_pair: Array = _pair(bufs, "fert")
 	var fungus_pair: Array = _pair(bufs, "fungus")
 	var temp_pair: Array = _pair(bufs, "temp")
@@ -89,13 +76,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	for p in 2:
 		var back: int = 1 - p
 
-		# tracer_transport, one dispatch per scent channel via the `offset` push field.
-		_scent_transport_set[p] = _build_set(_scent_transport_shader, [
-			[0, scent_pair[p]], [1, scent_pair[back]], [2, scent_pair[back]], [3, solid_rid],
-			[4, vel_x_rid], [5, vel_y_rid], [6, vel_z_rid], [15, nbr_rid], [16, ltan_rid],
-		])
-
-		_scent_fert_set[p] = _build_set(_scent_fert_shader, [
+		_fert_set[p] = _build_set(_fert_shader, [
 			[0, fert_pair[p]],       # FertIn  = live fertility
 			[1, fert_pair[back]],    # FertOut = back fertility (fungus_fert then adds into THIS)
 			[15, nbr_rid],
@@ -114,7 +95,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 
 		_fungus_fert_set[p] = _build_set(_fungus_fert_shader, [
 			[0, fungus_fert_rid],    # FertCell = the per-cell scratch fungus just wrote
-			[1, fert_pair[back]],    # Fert = scent_fert's output (fert[back]), added into in place
+			[1, fert_pair[back]],    # Fert = fert's output (fert[back]), added into in place
 			[2, solid_rid],          # Solid
 			[15, nbr_rid],
 		])
@@ -146,12 +127,8 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	var cell_m: float = float(ctx.get("cell_size", 1.0)) * LAPhysical.METRES_PER_MODEL_UNIT
 	var k_courant: float = LAMaterialFieldSphereStep3D.real_seconds_per_step() / cell_m if cell_m != 0.0 else 0.0
 
-	# Order: scent_transport -> scent_fert -> fungus -> fungus_fert -> snowice -> shock.
-	for ch in SCENT_DECAY.size():
-		_run(rd, cl, _scent_transport_pipe, _scent_transport_set[parity],
-				_pc_tracer(cc, depth, k_courant, 0.0, SCENT_DIFFUSE,
-						cc * ch, float(SCENT_DECAY[ch]) + precip * SCENT_RAIN_WASH), groups)
-	_run(rd, cl, _scent_fert_pipe, _scent_fert_set[parity], _pc_precip16(cc, precip), groups)
+	# Order: fert -> fungus -> fungus_fert -> snowice -> shock.
+	_run(rd, cl, _fert_pipe, _fert_set[parity], _pc_precip16(cc, precip), groups)
 	_run(rd, cl, _fungus_pipe, _fungus_set[parity], _pc_precip32(cc, precip), groups)
 	_run(rd, cl, _fungus_fert_pipe, _fungus_fert_set[parity], _pc_u4(cc), groups)
 	_run(rd, cl, _snowice_pipe, _snowice_set[parity], _pc_u4(cc), groups)
@@ -163,31 +140,28 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 func dispose(rd: RenderingDevice) -> void:
 	if rd == null:
 		return
-	for s: Array in [_scent_transport_set, _scent_fert_set, _fungus_set,
+	for s: Array in [_fert_set, _fungus_set,
 			_fungus_fert_set, _snowice_set, _shock_set]:
 		for r in s:
 			if r is RID and r.is_valid():
 				rd.free_rid(r)
-	_scent_transport_set = [RID(), RID()]
-	_scent_fert_set = [RID(), RID()]
+	_fert_set = [RID(), RID()]
 	_fungus_set = [RID(), RID()]
 	_fungus_fert_set = [RID(), RID()]
 	_snowice_set = [RID(), RID()]
 	_shock_set = [RID(), RID()]
-	for r: RID in [_scent_transport_pipe, _scent_fert_pipe, _fungus_pipe,
+	for r: RID in [_fert_pipe, _fungus_pipe,
 			_fungus_fert_pipe, _snowice_pipe, _shock_pipe,
-			_scent_transport_shader, _scent_fert_shader, _fungus_shader,
+_fert_shader, _fungus_shader,
 			_fungus_fert_shader, _snowice_shader, _shock_shader]:
 		if r.is_valid():
 			rd.free_rid(r)
-	_scent_transport_pipe = RID()
-	_scent_fert_pipe = RID()
+	_fert_pipe = RID()
 	_fungus_pipe = RID()
 	_fungus_fert_pipe = RID()
 	_snowice_pipe = RID()
 	_shock_pipe = RID()
-	_scent_transport_shader = RID()
-	_scent_fert_shader = RID()
+	_fert_shader = RID()
 	_fungus_shader = RID()
 	_fungus_fert_shader = RID()
 	_snowice_shader = RID()
@@ -275,7 +249,7 @@ func _pc_u4(cc: int) -> PackedByteArray:
 	return PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
 
 
-## Push: {uint cell_count, pad, pad, float precip} — 16 bytes (scent_transport, scent_fert).
+## Push: {uint cell_count, pad, pad, float precip} — 16 bytes (fert).
 func _pc_precip16(cc: int, precip: float) -> PackedByteArray:
 	var b: PackedByteArray = PackedInt32Array([cc, 0, 0]).to_byte_array()
 	b.append_array(PackedFloat32Array([precip]).to_byte_array())

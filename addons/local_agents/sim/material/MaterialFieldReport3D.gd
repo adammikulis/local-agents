@@ -238,7 +238,7 @@ func report() -> Dictionary:
 		"wet_cells": _f.wet_cell_count(), "heat_peak": _f.peak_heat(), "heat_cells": _f.hot_cell_count(),
 		"lava_cells": _f.lava_peak(), "cloud_cells": _f.cloud_cell_count(), "cloud_cover": _f.avg_cloud_cover(),
 		"fog_cover": _f.avg_fog_cover(), "moisture_total": _f.moisture_total(),
-		"wind": _f.wind().length(), "scent_cells": _f.scent_cell_count(),
+		"wind": _f.wind().length(),
 		"fertility_peak": _f.fertility_peak(), "magma_cells": _f.magma_cell_count(),
 		# Molten rock standing in OPEN cells — an eruption, by what the word means. `magma_erupting()` already
 		# reads the same cached walk `magma_cells` and `lava_cells` above have already paid for.

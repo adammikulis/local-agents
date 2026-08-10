@@ -44,12 +44,6 @@ const ICE_DEPTH: float = 0.5              # ~8 m water equivalent = a real glaci
 const FOG_MAX_TEMP: float = 12.0
 # is 5e-5 kg/m³ / 997 kg/m³ = 5.0e-8. It was 0.05, a thousand times saturation itself.
 const CONDENSE_COVER_MIN: float = 5.0e-8
-const SCENT_PREY: int = LAScentChannels.SCENT_PREY
-const SCENT_PREDATOR: int = LAScentChannels.SCENT_PREDATOR
-const SCENT_BLOOD: int = LAScentChannels.SCENT_BLOOD
-const SCENT_FOOD: int = LAScentChannels.SCENT_FOOD
-const SCENT_ALARM: int = LAScentChannels.SCENT_ALARM
-const SCENT_CHANNELS: int = LAScentChannels.SCENT_CHANNELS
 var _temp: PackedFloat32Array = PackedFloat32Array()     # temperature °C per cell (rock + void)
 # ONE conserved atmospheric-water channel: total water suspended in a cell's air (Phase 2a — collapses the
 # old vapor/cloud/fog trio). vapor = min(moisture, sat(T)); condensed = max(0, moisture − sat(T)); the
@@ -95,9 +89,6 @@ var _charge: PackedFloat32Array = PackedFloat32Array()   # electrification charg
 var _dust: PackedFloat32Array = PackedFloat32Array()     # airborne dust density per cell (wind-lofted sand storm)
 # Seismic / sound SHOCK amplitude per cell — a propagating pressure wave (GPU shock_sphere3d radiates it).
 var _shock: PackedFloat32Array = PackedFloat32Array()
-# Five-plane SCENT density (SCENT_CHANNELS * _cell_count, plane-major: channel*_cell_count + cell). Prey/
-# predator/blood/food/alarm chemical trails the GPU scent kernel diffuses + advects on the wind each step.
-var _scent: PackedFloat32Array = PackedFloat32Array()
 var _sun_light = null                                    # DirectionalLight3D — solar forcing (top cells)
 
 var _ecology = null                                      # LAEcologyService back-ref (ash regrowth / actor coupling)
@@ -121,11 +112,9 @@ var _surface_seed = null                                 # LAMaterialSurfaceSeed
 # per-actor dissolution agents fill: shock (Earthquake/Meteor), charge→bolt (Thunderstorm), ejecta (bombs/debris).
 var _shock_mod = null                                    # LAMaterialShock3D — shock channel + emit/readback
 var _charge_mod = null                                   # LAMaterialCharge3D — charge readback + breakdown→bolt
-var _scent_mod = null                                    # LAMaterialScent3D — 5-plane scent channel + deposit/readback
 var _ejecta = null                                       # LAMaterialEjecta3D — momentum/ejecta parcels (Node3D child)
 var _pending_lightning_cb: Callable = Callable()         # lightning visual callback (registered pre-activate)
 const ShockScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialShock3D.gd")
-const ScentScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialScent3D.gd")
 const ChargeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialCharge3D.gd")
 const EjectaScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialEjecta3D.gd")
 # they hold no per-cell state (every one reaches back into this field's arrays), so the field stays the thin
@@ -215,11 +204,6 @@ const HEAT_TEX_EVERY: int = 3            # terrain-glow heat texture refresh cad
 const SLOW_READ_EVERY: int = 3           # render-only GPU readback cadence for vapor/cloud/fog
 var _heat_tex_tick: int = 0
 var _slow_read_tick: int = 0
-var _lava_dirty: bool = false
-var _rock_fill_dirty: bool = false       # add_lava debited bedrock on the CPU → re-upload rock_fill this step
-var _shock_dirty: bool = false           # emit_shock seeded shock on the CPU → re-upload shock this step
-var _scent_dirty: bool = false           # deposit() seeded scent on the CPU → re-upload the 5-plane scent this step
-var _charge_dirty: bool = false          # add_charge seeded charge on the CPU → re-upload charge this step
 var _charge_woke: bool = false           # a charge injection woke the breakdown scan (stimulus = compute bubble)
 var _fuel_dirty: bool = false            # fuel seed/refill edited the CPU channel → re-upload fuel this step
 var _detritus_seed_dirty: bool = false   # one-shot: initial soil detritus seeded → upload once before the first step
@@ -379,9 +363,6 @@ func _alloc_channels() -> void:
 	_dust.resize(_cell_count)
 	_shock = PackedFloat32Array()
 	_shock.resize(_cell_count)
-	# Five scent planes packed into one flat array (plane-major): SCENT_CHANNELS * _cell_count.
-	_scent = PackedFloat32Array()
-	_scent.resize(SCENT_CHANNELS * _cell_count)
 	# Read-only query accessors bind to this field now; the arrays they read exist from here on.
 	_queries = QueriesScript.new()
 	_queries.setup(self)
@@ -529,8 +510,6 @@ func activate() -> void:
 	_charge_mod.setup(self)
 	if _pending_lightning_cb.is_valid():
 		_charge_mod.set_visual(_pending_lightning_cb)
-	_scent_mod = ScentScript.new()
-	_scent_mod.setup(self)
 	_ejecta = EjectaScript.new()
 	_ejecta.setup(self)
 	add_child(_ejecta)                            # Node3D: integrates ballistic parcels + owns the GPU ejecta particles
@@ -855,43 +834,23 @@ func active_fire_count() -> int:
 	return _queries.fire_cells() if _queries != null else 0
 
 
-# --- Scent / waste / fertility — thin forwarders to LAMaterialScent3D (the 5-plane scent channel module).
-# The field stays an extract-only facade: deposits seed a plane + set _scent_dirty (uploaded before the next
-# GPU step), reads sample the plane the sphere driver read back. Channel indices (SCENT_PREY/…) live at top. --
+# --- THERE IS NO SCENT CHANNEL. SMELL IS THE AIRBORNE CHEMISTRY THAT IS ACTUALLY THERE. --------------------
+# Dung, blood and a carcass are matter, not cues. They land as `detritus` via deposit_detritus, the decomposer
+# record eats them (detritus + O₂ + fungus -> CO₂ + moisture + fert, BioRecords.gd), and the CO₂ that comes off
+# rides the same transport as every other gas. So a corpse smells because it is rotting, and the plume drifts
+# on the real wind, thins with distance and washes out in rain with nothing saying it should.
+#
+# deposit_waste / deposit_food are DELETED, not moved. deposit_waste only ever seeded a scent plane, and its
+# one caller (CreatureExcretion.deposit) already deposits the real detritus on the next line. deposit_food had
+# no callers at all.
 
-## Drop feces/urine at a world point. Feces carries a FOOD/musk cue (predators track prey by dung); urine is a
-## territorial musk that marks a PREY trail. Simple per-kind channel mapping — the scent kernel diffuses it.
-func deposit_waste(world_pos: Vector3, creature, kind: String) -> void:
-	if _scent_mod == null:
-		return
-	var channel: int = SCENT_FOOD if kind == "feces" else SCENT_PREY
-	_scent_mod.deposit(world_pos, channel, 1.0)
-
-## A fresh burst of BLOOD scent (a wound or a kill).
+## A wound or a kill: blood is water plus organic solids, and the solids are what rots.
 func deposit_blood(world_pos: Vector3, amount: float) -> void:
-	if _scent_mod != null:
-		_scent_mod.deposit(world_pos, SCENT_BLOOD, amount)
-
-## A carcass advertising FOOD (the decaying-corpse cue scavengers follow).
-func deposit_food(world_pos: Vector3, amount: float) -> void:
-	if _scent_mod != null:
-		_scent_mod.deposit(world_pos, SCENT_FOOD, amount)
-
-## Scent density of a channel (SCENT_PREY/PREDATOR/BLOOD/FOOD/ALARM) at a world point.
-func scent_at(world_pos: Vector3, channel: int) -> float:
-	return _scent_mod.scent_at(world_pos, channel) if _scent_mod != null else 0.0
-
-## Normalized world direction UP a scent channel's gradient (predator tracking, prey avoidance).
-func scent_gradient(world_pos: Vector3, channel: int) -> Vector3:
-	return _scent_mod.scent_gradient(world_pos, channel) if _scent_mod != null else Vector3.ZERO
+	deposit_detritus(world_pos, amount)
 
 ## Soil nutrient at a world point (plants grow faster on rich ground) — the read-back GPU fertility channel.
 func fertility_at(world_pos: Vector3) -> float:
 	return _queries.fertility_at(world_pos) if _queries != null else 0.0
-
-## Columns carrying meaningful airborne scent (SMOKE_SUMMARY `scent_cells`).
-func scent_cell_count() -> int:
-	return _scent_mod.scent_cell_count() if _scent_mod != null else 0
 
 ## Peak soil nutrient (SMOKE_SUMMARY `fertility_peak`) — the read-back GPU fertility channel.
 func fertility_peak() -> float:

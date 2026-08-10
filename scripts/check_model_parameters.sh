@@ -176,6 +176,30 @@ if [[ "$rows" -gt "$cap" ]]; then
   echo "to be a modelling choice, raise MAX_DECLARED in the same commit and say why in the message."
   exit 1
 fi
+# --- NO GHOST ROWS: a declared constant that no longer exists must leave the registry ------------------
+# Without this the queue only ever grows stale: a row for a deleted (or since-derived) constant still counts
+# toward the ceiling, so deleting code stops lowering the number and the ratchet quietly stops meaning
+# anything. The rename of scent_fert_sphere3d.glsl -> fert_sphere3d.glsl is the case that showed it: three
+# rows kept pointing at a path that no longer existed and nothing said so.
+ghosts=0
+while IFS=$'\t' read -r gfile gname; do
+  [[ -z "$gname" || "$gfile" == "*" ]] && continue
+  case " $AUTHORITY_FILES " in *" ${gfile##*/} "*) continue ;; esac
+  if [[ ! -f "$REPO_ROOT/$gfile" ]]; then
+    echo "FAIL  ${REGISTRY#"$REPO_ROOT"/}: \`$gname\` is declared against $gfile, which does not exist."
+    ghosts=$((ghosts + 1))
+  elif ! grep -Eq "(^|[[:space:]])const[[:space:]]+([A-Za-z0-9_]+[[:space:]]+)?${gname}([[:space:]]*[:=]|[[:space:]])" "$REPO_ROOT/$gfile"; then
+    echo "FAIL  ${REGISTRY#"$REPO_ROOT"/}: \`$gname\` is declared but no longer exists in $gfile."
+    ghosts=$((ghosts + 1))
+  fi
+done < <(awk '/^[ \t]*\|/ { n = split($0, c, "|"); if (n < 4) next; f = c[2]; nm = c[3]; gsub(/[` \t]/, "", f); gsub(/[` \t]/, "", nm); if (nm == "" || nm == "constant" || nm ~ /^-+$/) next; printf "%s\t%s\n", f, nm }' "$REGISTRY")
+if [[ $ghosts -gt 0 ]]; then
+  echo
+  echo "Delete those rows. A registry entry for a constant that is gone is not a record, it is a ghost that"
+  echo "holds the ceiling up and makes the ratchet stop measuring anything."
+  exit 1
+fi
+
 if [[ "$rows" -lt "$cap" ]]; then
   echo "NOTE  registry is $((cap - rows)) below its ceiling — lower MAX_DECLARED to $rows to bank the progress."
 fi

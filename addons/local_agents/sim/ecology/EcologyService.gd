@@ -223,7 +223,6 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 	# co2 + biomass + detritus in the FIELD only), so without these gauges a perfectly conserving draw would
 	# read as carbon destroyed and a leak would be indistinguishable from ordinary uptake.
 	LASimReport.register(Callable(self, "vegetation_report"))
-	# Scent/waste is now an emergent field channel (LAMaterialScent3D in MaterialField3D), not an observer.
 	_tracks = TrackSystemScript.new()
 	_tracks.name = "TrackSystem"
 	add_child(_tracks)
@@ -669,8 +668,8 @@ func broadcast_call(world_pos: Vector3, from_species: String, call_type: String,
 	_stimulus.broadcast_call(world_pos, from_species, call_type, caller)
 
 
-# Grow a plant at world_pos if the plant population is under its cap. Called by LAMaterialScent3D where
-# soil FERTILITY is richest (dung fertilizes → grass sprouts) and by wildfire ash regrowth.
+# Grow a plant at world_pos if the plant population is under its cap. Called by wildfire ash regrowth. (It
+# also claimed LAMaterialScent3D called it where soil fertility is richest. That module never called this.)
 func seed_plant_at(world_pos: Vector3) -> void:
 	var cap: int = int(_plant_config().get("pop_cap", 120))
 	if get_tree().get_nodes_in_group("plant").size() >= cap:

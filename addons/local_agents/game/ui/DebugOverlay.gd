@@ -33,24 +33,15 @@ var _mat: StandardMaterial3D = null
 var _highlight: Dictionary = {}            # group name -> true (which types are highlighted)
 var _paths: bool = false
 var _wind: bool = false
-var _scent: bool = false
 var _field_channel: String = ""           # active field-channel heatmap ("" = none). One at a time.
 
 # Field-channel heatmap: a grid of directions over the planet, each drawn as a colored radial spike
-# rising from the surface, height + colour = the sampled channel value (a channel swap on the wind/scent
-# grid mechanism). Toggle-gated — nothing is sampled unless a channel view is active.
+# rising from the surface, height + colour = the sampled channel value (a channel swap on the wind-grid
+# mechanism). Toggle-gated — nothing is sampled unless a channel view is active.
 const FIELD_LAT: int = 22               # latitude rings of sample directions over the sphere
 const FIELD_LON: int = 44               # longitude steps per ring
 const FIELD_SPIKE_MIN: float = 1.5      # shortest visible spike (so any non-zero cell still reads)
 const FIELD_SPIKE_MAX: float = 14.0     # tallest spike (channel value saturated)
-# Scent-channel colours for the debug view (dominant channel tints each grid cell's arrow).
-const SCENT_COLORS: Array = [
-	Color(0.45, 0.65, 1.0, 0.8),           # PREY   — blue
-	Color(1.0, 0.35, 0.2, 0.8),            # PREDATOR — red
-	Color(0.9, 0.1, 0.15, 0.85),           # BLOOD  — deep red
-	Color(0.6, 0.85, 0.25, 0.8),           # FOOD   — olive
-	Color(1.0, 0.85, 0.2, 0.85),           # ALARM  — yellow
-]
 
 
 func setup(field, terrain = null) -> void:
@@ -84,10 +75,6 @@ func set_wind(on: bool) -> void:
 	_wind = on
 
 
-func set_scent(on: bool) -> void:
-	_scent = on
-
-
 ## Select the active field-channel heatmap ("" = off). One channel at a time — enabling a new channel
 ## replaces the previous. Keys match LADebugPanel VIEWS (biomass/water_phase/snow/lava/rock_fill/co2/o2/
 ## charge/fertility).
@@ -99,7 +86,7 @@ func _process(_delta: float) -> void:
 	if _im == null:
 		return
 	_im.clear_surfaces()
-	if _highlight.is_empty() and not _paths and not _wind and not _scent and _field_channel == "":
+	if _highlight.is_empty() and not _paths and not _wind and _field_channel == "":
 		return                              # nothing to draw — leave the mesh empty (no cost)
 	_im.surface_begin(Mesh.PRIMITIVE_LINES)
 	if not _highlight.is_empty():
@@ -108,8 +95,6 @@ func _process(_delta: float) -> void:
 		_draw_paths()
 	if _wind:
 		_draw_wind()
-	if _scent:
-		_draw_scent()
 	if _field_channel != "":
 		_draw_field_channel()
 	_im.surface_end()
@@ -215,39 +200,6 @@ func _draw_wind() -> void:
 			_line(base - hoff, tip - hoff, col)
 			_line(tip, tip - dir * (arrow * 0.32) + side * (arrow * 0.18), col)
 			_line(tip, tip - dir * (arrow * 0.32) - side * (arrow * 0.18), col)
-
-
-# The emergent SCENT field as a grid of markers above the ground: each cell samples all channels, and
-# where any scent is present draws a vertical tick (height = intensity) + a short arrow up the DOMINANT
-# channel's gradient, tinted by that channel (prey/predator/blood/food/alarm). This replaces the old marker
-# MMI view — it shows scent riding the wind + pooling in valleys, off the same field creatures read.
-func _draw_scent() -> void:
-	if _field == null or not _field.has_method("scent_at"):
-		return
-	var ext: float = _field.grid_half_extent() if _field.has_method("grid_half_extent") else 300.0
-	var step: float = ext * 2.0 / float(WIND_GRID)
-	var y: float = _field.sea_level + 10.0
-	for gx in range(WIND_GRID):
-		for gz in range(WIND_GRID):
-			var wx: float = -ext + (float(gx) + 0.5) * step
-			var wz: float = -ext + (float(gz) + 0.5) * step
-			var probe: Vector3 = Vector3(wx, y, wz)
-			var best: float = 0.0
-			var best_ch: int = -1
-			for ch in range(SCENT_COLORS.size()):
-				var s: float = _field.scent_at(probe, ch)
-				if s > best:
-					best = s
-					best_ch = ch
-			if best_ch < 0 or best < 0.01:
-				continue
-			var col: Color = SCENT_COLORS[best_ch]
-			var base: Vector3 = Vector3(wx, y, wz)
-			var h: float = clampf(1.0 + best * 3.0, 1.0, 8.0)
-			_line(base, base + Vector3.UP * h, col)          # a tick whose height reads intensity
-			var g: Vector3 = _field.scent_gradient(probe, best_ch)
-			if g.length() > 0.001:
-				_line(base, base + g.normalized() * (step * 0.35), col)
 
 
 # The active FIELD CHANNEL as a heatmap over the planet surface: a lat/long grid of directions, each

@@ -3,7 +3,7 @@ extends RefCounted
 
 ## Digestion + marking waste for LocalAgentCreature, factored out of the hot _physics_process. A fed creature
 ## periodically drops feces (soil fertility + a food/musk cue predators track prey by) and, more often,
-## urine (territorial musk). Both deposit into the shared scent/fertility field (LAMaterialScent3D) via
+## urine (territorial musk). Faeces is organic matter and goes into the detritus channel to rot, via
 ## c._material. No node is spawned; the deposit is a few cells that diffuse + wash away. Feces enrich
 ## the soil so plants regrow on dung (emergent nutrient cycle), so a well-fed animal fertilises its range.
 ##
@@ -43,19 +43,14 @@ static func tick(c, ground_pos: Vector3, delta: float) -> void:
 		deposit(c, ground_pos, "urine", 0.0)
 
 
-## Deposit waste at `ground_pos` into the shared scent/fertility field. Feces enriches the soil — a REAL
-## detritus deposit (was scent-only: this comment used to overclaim, see the repo-hygiene audit) that feeds
-## the existing detritus→fungus/decompose→fertility loop — and carries a food + musk cue predators track prey
-## by; urine is territorial musk only, no soil contribution. No node is spawned — the deposit is a few cells
-## that diffuse/wash away or, for feces' detritus leg, decay through the field's carbon/nutrient chemistry.
+## Deposit waste at `ground_pos`. Faeces is organic matter, so it goes into the detritus channel and decays
+## through the field's own chemistry (detritus + O₂ + fungus -> CO₂ + moisture + fertility); the CO₂ that comes
+## off is what another animal can smell. There is no separate cue: the deposit IS the smell, once it rots.
+##
+## The parallel deposit_waste() call that used to sit here is deleted. It seeded a semantic scent plane beside
+## this line, so the same dropping was registered twice in two unrelated representations.
 static func deposit(c, ground_pos: Vector3, kind: String, waste_amount: float) -> void:
 	if c._material == null:
 		return
-	if c._material.has_method("deposit_waste"):
-		c._material.deposit_waste(ground_pos, c, kind)
-	# The detritus leg reaches the DEVICE now. It used to call `LAMaterialFieldChannels3D.deposit_detritus`,
-	# which wrote `_f._detritus[c] += amount` — a CPU mirror uploaded to the GPU exactly once at seed and
-	# overwritten by every readback thereafter — so every dropping this animal has ever passed was deleted
-	# rather than returned to the soil. Same call name, working body (LAMaterialFieldBiota3D.litter).
 	if kind == "feces" and waste_amount > 0.0 and c._material.has_method("deposit_detritus"):
 		c._material.deposit_detritus(ground_pos, waste_amount * FECES_DETRITUS_YIELD)

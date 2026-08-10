@@ -166,10 +166,6 @@ func _on_debug_view(view: String, on: bool) -> void:
 		"wind":
 			if _debug_overlay != null:
 				_debug_overlay.set_wind(on)
-		"scent":
-			_scent_visible = on
-			if _debug_overlay != null:
-				_debug_overlay.set_scent(on)
 		"drainage":
 			if _drainage != null:
 				_drainage.set_shown(on)
@@ -266,13 +262,15 @@ func _on_debug_screenshot() -> void:
 
 # --- V/T toggles (from the interaction controller, forwarded through the world) ---
 
-## V key: toggle the emergent scent-field debug gizmos (DebugOverlay).
+## V key: toggle the airborne-CO₂ heatmap. There is no scent field to draw — what an animal smells is the
+## gas that respiration and decomposition actually put in the air, so the smell view IS the CO₂ channel view,
+## drawn by the same generic field-channel heatmap every other channel uses.
 func toggle_scent_view() -> void:
 	_scent_visible = not _scent_visible
 	if _debug_overlay != null:
-		_debug_overlay.set_scent(_scent_visible)
+		_debug_overlay.set_field_channel("co2" if _scent_visible else "")
 	if _hud != null:
-		_hud.set_status("Scent view: %s" % ("ON" if _scent_visible else "off"))
+		_hud.set_status("Airborne CO₂ view: %s" % ("ON" if _scent_visible else "off"))
 
 
 ## T key: toggle the terrain temperature heatmap debug view.

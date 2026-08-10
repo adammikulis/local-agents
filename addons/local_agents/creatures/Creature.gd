@@ -261,7 +261,7 @@ var _leader_elect_cd: int = 0
 var _ecology = null
 
 # Digestion + marking: a fed creature periodically drops FECES (soil fertility + a food/musk cue) and, more
-# often, URINE (territorial musk). Both deposit into the shared scent/fertility field (LAMaterialScent3D)
+# often, URINE (territorial musk). Faeces is organic matter and goes into the detritus channel to rot.
 # via _material — predators track prey by their dung, and dung fertilizes the soil so plants regrow.
 var _poop_cd: float = 0.0
 var _urine_cd: float = 0.0

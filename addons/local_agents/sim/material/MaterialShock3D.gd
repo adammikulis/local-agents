@@ -17,14 +17,17 @@ func setup(field) -> void:
 
 
 ## Inject a shock/sound wave of `magnitude` at a world point — an explosion, thunder-clap, meteor impact,
-## eruption blast, or stampede. Seeds the centre cell (+ its neighbour ring) of the GPU shock channel; the
-## kernel radiates it outward next step. Dirty-gated: the CPU-seeded amplitude is uploaded before the step.
+## eruption blast, or stampede. Queues a sparse ADD on the centre cell + its neighbour ring; the kernel radiates
+## it outward next step. The mirror is updated too, but only so shock_at/shock_gradient answer before the next
+## readback — it is never uploaded, so nothing here can rewind what the kernel produced.
 func emit_shock(world_pos: Vector3, magnitude: float) -> void:
 	if magnitude <= 0.0 or _f._shock.size() != _f._cell_count:
 		return
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0 or c >= _f._cell_count:
 		return
+	var cells: PackedInt32Array = PackedInt32Array([c])
+	var deltas: PackedFloat32Array = PackedFloat32Array([magnitude])
 	_f._shock[c] = _f._shock[c] + magnitude
 	if _f._sphere != null:
 		var nbr: PackedInt32Array = _f._sphere.neighbours
@@ -33,7 +36,10 @@ func emit_shock(world_pos: Vector3, magnitude: float) -> void:
 			var nb: int = nbr[c * 6 + d]
 			if nb >= 0 and _f._solid[nb] == 0:
 				_f._shock[nb] = _f._shock[nb] + spill
-	_f._shock_dirty = true
+				cells.append(nb)
+				deltas.append(spill)
+	if _f._inject != null:
+		_f._inject.queue.add("shock", cells, deltas)
 
 
 ## Shock amplitude at a world point (0 outside the shell / where the wave has not reached).

@@ -227,9 +227,9 @@ static func _despawn_carcass(c) -> void:
 
 # Decompose in place: the microbe bloom (gated by field warmth+moisture) eats the carcass biomass and hands
 # it to the substrate's decomposer loop; the body washes green->black + shrinks in step with how much biomass
-# is gone, then vanishes once fully returned to soil. The carcass also advertises FOOD scent emergently —
-# LAMaterialScent3D scans the "carrion" group each step and lays FOOD from `_carrion`, so scavengers home in
-# on it (rides the wind + washes in rain for free), and any diet=scavenger creature can bite via feed().
+# is gone, then vanishes once fully returned to soil. Scavengers find it by the CO2 the decomposer record puts
+# in the air, which drifts on the real wind. (This used to claim LAMaterialScent3D scanned the "carrion" group
+# each step and laid a FOOD plane. That module had no such scan; the sentence was never true.)
 static func decay_tick(c, delta: float) -> void:
 	c._decay_age += delta
 	var initial: float = maxf(float(c._carrion_initial), 0.0001)

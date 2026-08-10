@@ -24,15 +24,16 @@ extends RefCounted
 ## Static + dependency-free of the LocalAgentCreature type (dynamic field access, like the other Creature* helpers).
 ## (Explicit types only, no ':=' inferred typing.)
 
-# The scent channels a creature can smell, paired with the cue key its learned valence is stored under. One
-# row per LAMaterialField3D channel: [channel_index, cue_key]. The cue key is just the generic reward-channel
-# string LACognition.reinforce_cue / cue_value already understand — the SIGN of the value is never set here.
+# The airborne SUBSTANCES a creature can smell, paired with the cue key its learned valence is stored under:
+# [substance, cue_key]. The cue key is the generic reward-channel string LACognition.reinforce_cue / cue_value
+# already understand — the SIGN of the value is never set here, so what a smell MEANS is learned, not declared.
+#
+# This replaced five hardcoded semantic planes (prey/predator/blood/food/alarm), two of which had no emitter
+# anywhere in the tree and so could never fire. A row is only legitimate here if something really produces that
+# substance: CO₂ comes off respiration and decomposition (BioRecords.gd), so it is a real cue for a body or a
+# carcass. Sulphur, decay volatiles and the rest join this table when outgassing and decay chemistry make them.
 const SCENT_CUES: Array = [
-	[LAScentChannels.SCENT_PREY, "scent:prey"],
-	[LAScentChannels.SCENT_PREDATOR, "scent:predator"],
-	[LAScentChannels.SCENT_BLOOD, "scent:blood"],
-	[LAScentChannels.SCENT_FOOD, "scent:food"],
-	[LAScentChannels.SCENT_ALARM, "scent:alarm"],
+	["co2", "smell:co2"],
 ]
 
 # Taste reward tuning. A bite delivers a fraction of max energy; a "par" bite is worth NEUTRAL_BITE_FRAC of
@@ -62,16 +63,16 @@ const TOXIN_FELT_PENALTY: float = 2.2      # aversive taste subtracted from felt
 const TASTE_AVOID_THRESHOLD: float = -0.4  # a taste cue at/below this is refused when not desperate
 const TASTE_DESPERATE_FRAC: float = 0.3    # below this energy fraction, hunger overrides the taste aversion
 
-# How strongly a born-in [0,1] DNA prior seeds its learned cue (before lifetime learning refines it). Each
-# row maps a genome cue-prior gene to a cue key and a sign: blood-wariness is an AVERSION to the blood scent;
-# carrion-appetite an appetite for the food scent; water-affinity a draw to water. Add a gene->cue row to
-# grow the innate set — no code branch. (water has no scent channel today, so its prior is stored as a born-in
-# valence that spreads culturally and is ready the moment a water scent channel lands — see SCENT_CUES.)
+# How strongly a born-in [0,1] DNA prior seeds its learned cue (before lifetime learning refines it). Each row
+# maps a genome cue-prior gene to a cue key and a sign. A row belongs here only if SCENT_CUES can actually
+# deliver that cue: a prior for a smell nothing emits is a born-in opinion about a substance that does not
+# exist, which is the defect the five semantic scent planes had.
+#
+# blood_wariness and water_affinity therefore have NO row. Their genes stay in LADNA and get their rows back
+# when a substance carries them — blood volatiles, and whatever a nose actually detects about open water.
 const PRIOR_SCALE: float = 2.0
 const PRIOR_MAP: Array = [
-	["blood_wariness", "scent:blood", -1.0],
-	["carrion_appetite", "scent:food", 1.0],
-	["water_affinity", "scent:water", 1.0],
+	["carrion_appetite", "smell:co2", 1.0],
 ]
 
 # Smell steering: how hard a starving creature banks toward/away from a learned scent, and the states in
@@ -153,7 +154,7 @@ static func on_eat(c, profile: Dictionary, gained: float) -> void:
 static func steer(c, pos: Vector3, desired: Vector3) -> Vector3:
 	if c == null or c._cognition == null or c._material == null:
 		return desired
-	if not c._material.has_method("scent_gradient"):
+	if not c._material.has_method("airborne_gradient"):
 		return desired
 	if STEER_SUPPRESS_STATES.has(String(c.state)):
 		return desired
@@ -167,7 +168,7 @@ static func steer(c, pos: Vector3, desired: Vector3) -> Vector3:
 		var val: float = c._cognition.cue_value(String(row[1]))
 		if absf(val) < STEER_CUE_EPS:
 			continue
-		var grad: Vector3 = c._material.scent_gradient(pos, int(row[0]))   # points UP-gradient (toward source)
+		var grad: Vector3 = c._material.airborne_gradient(String(row[0]), pos)  # points UP-gradient (toward source)
 		if grad.length() < 0.001:
 			continue
 		bias += grad.normalized() * val                                    # liked (+) toward, feared (-) away

@@ -145,12 +145,15 @@ func _open_neighbour(c: int, solid: PackedByteArray) -> int:
 
 
 ## TEST HOOK (--stamp-test proof): force a void cell's rock_fill fractional-solid so the next scan fires a
-## GROW stamp — the deterministic proof that a rock_fill 0.5-crossing physically grows terrain. The edit is
-## dirty-gated so it round-trips through the GPU like add_lava. Not used in normal play.
+## GROW stamp — the deterministic proof that a rock_fill 0.5-crossing physically grows terrain. Queued as a
+## sparse top-up to `amount` (the ceiling makes it a raise-to, matching the old max()). Not used in normal play.
 func debug_deposit(world_pos: Vector3, amount: float) -> void:
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0 or c >= _f._cell_count or _f._rock_fill.size() != _f._cell_count:
 		return
-	_f._rock_fill[c] = maxf(_f._rock_fill[c], clampf(amount, 0.0, 1.0))
-	_f._rock_fill_dirty = true
+	var want: float = clampf(amount, 0.0, 1.0)
+	var gain: float = want - _f._rock_fill[c]
+	_f._rock_fill[c] = maxf(_f._rock_fill[c], want)
+	if gain > 0.0 and _f._inject != null:
+		_f._inject.queue.add("rock_fill", PackedInt32Array([c]), PackedFloat32Array([gain]), want)
 	arm()
