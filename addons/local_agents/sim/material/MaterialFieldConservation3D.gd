@@ -91,15 +91,38 @@ extends RefCounted
 ##                    only substance with a per-pass probe. That is not a coincidence; it is the argument for
 ##                    building the same instrument for the others.
 const DEBT: Dictionary = {
-	# |relative drift| at REFERENCE_STEPS past the seal, with ~5% headroom over the measured figure so
-	# ordinary run-to-run spread (impacts, eruptions) does not fire it.
-	"element_C_total": 0.29,      # measured -0.267
-	"h2o_closed_total": 0.21,     # measured -0.195
-	"o2_total": 0.95,             # measured -0.903
-	"oxidant_total": 0.59,        # measured -0.562
-	"nitrogen_all": 0.024,        # measured -0.0214
-	"mineral_total": 0.0004,      # measured -0.00027 — the bar for everything else
+	# |relative drift| at REFERENCE_STEPS past the seal, with headroom over the measured figure so ordinary
+	# run-to-run spread (impacts, eruptions) does not fire it.
+	#
+	# RETIGHTENED 2026-08-10, after the biological rates stopped being fitted (see the note below). Four of
+	# the six moved by factors of 3-5x, and the rule is that a table entry comes DOWN in the commit that
+	# earns it. The headroom here is ~15% rather than the ~5% these started at, ON PURPOSE: the new figures
+	# are ONE run each, and this project's residual spread is discrete and disaster-driven rather than
+	# Gaussian. Retighten toward 5% once three runs per arm confirm them.
+	"element_C_total": 0.29,      # measured -0.286 — NOT LOWERED, AND NOT RAISED. See CARBON GOT WORSE below.
+	"h2o_closed_total": 0.21,     # measured -0.192 (was -0.195; the 0.1pp is inside the noise, so unchanged)
+	"o2_total": 0.29,             # measured -0.248 (was -0.903)
+	"oxidant_total": 0.12,        # measured -0.104 (was -0.562)
+	"nitrogen_all": 0.0075,       # measured -0.0062 (was -0.0214)
+	"mineral_total": 0.0001,      # measured -0.000061 (was -0.00027) — still the bar for everything else
 }
+
+## CARBON GOT WORSE AND THE TABLE DOES NOT HIDE IT: -0.267 -> -0.286, against an allowance of 0.29 that is
+## deliberately NOT being raised. There is 0.42 percentage points of headroom left, so the next change that
+## touches the carbon path very likely trips this gate, and that is the gate doing its job.
+##
+## THE RULE SAYS A CHANGE THAT MAKES A SUBSTANCE WORSE IS WRONG, AND THIS CHANGE WAS TAKEN ANYWAY — by the
+## maintainer, explicitly, on 2026-08-10. Recorded here rather than in a commit message alone because a
+## future reader finding carbon 1.9pp worse deserves to know it was a decision and not an accident. The
+## reasoning: the rates it replaced were FITTED — each picked by running the sim and keeping the value whose
+## `biomass_total` looked best, which is the one thing CLAUDE.md's physical-constant rule forbids outright —
+## and Rule Zero outranks this ratchet. Four substances improved 3-5x in the same change.
+##
+## WHAT IS NOT KNOWN, STATED PLAINLY: nobody has measured WHY carbon got worse. The plausible story is that
+## it is redistribution rather than new destruction — field `biomass_total` falls 6.27 -> 0.0028 when
+## photosynthesis stops running ~3000x too fast, so carbon that sat inert in a biomass pool now moves
+## through CO2 and detritus where the pre-existing leak can reach it. THAT IS A GUESS. It is exactly the
+## question per-pass matter attribution exists to answer, and it is the next job.
 
 ## Steps past the seal at which the books are audited, once. 600 is the project's standard verification
 ## horizon (a 600-frame run at --fast=8 is ~760 steps, so this lands comfortably inside one).

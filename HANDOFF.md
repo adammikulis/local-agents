@@ -88,27 +88,39 @@ spanning substances must go through `mol_per_unit`.
 
 `LAMaterialFieldConservation3D.DEBT` is the single source; do not keep a second copy of these numbers
 anywhere. Audited at 600 steps past the seal, seed 4242, `--sandbox --planet-only --no-fauna
---run-frames=600 --fast=8`. Re-measured at `7353b1d` on 2026-08-09 (one run, 20 impacts / 1 eruption,
-`conservation_steps` 789, zero violations):
+--run-frames=600 --fast=8`. Re-measured 2026-08-10 at the tip, ONE run per arm (19 impacts / 1 flood /
+1 eruption, `conservation_steps` 789, zero violations, exit 0):
 
-| substance | audited | allowance | worst excursion this run |
-|---|---|---|---|
-| `mineral_total` | **-0.027%** | 0.04% | 0.027% |
-| `nitrogen_all` | -2.14% | 2.4% | 2.14% |
-| `h2o_closed_total` | -20.06% | 21% | **24.97%** |
-| `element_C_total` | -26.75% | 29% | 26.75% |
-| `oxidant_total` | -56.20% | 59% | 56.20% |
-| `o2_total` | -90.34% | 95% | 90.34% |
-| energy (`energy_run_drift`) | **-8.0%** of stock | not gated | — |
+| substance | was, `7353b1d` | now | allowance | headroom |
+|---|---|---|---|---|
+| `mineral_total` | -0.027% | **-0.0061%** | 0.010% | 0.004pp |
+| `nitrogen_all` | -2.14% | **-0.62%** | 0.75% | 0.13pp |
+| `oxidant_total` | -56.20% | **-10.40%** | 12% | 1.60pp |
+| `o2_total` | -90.34% | **-24.79%** | 29% | 4.21pp |
+| `h2o_closed_total` | -20.06% | -19.18% | 21% | 1.82pp |
+| `element_C_total` | -26.75% | **-28.58% (WORSE)** | 29% | **0.42pp** |
+| energy (`energy_run_drift`) | -8.0% of stock | -7.4% of stock | not gated | — |
 
-- **WATER IS 2% FROM TRIPPING ITS OWN GATE** (-20.06% against a 21% allowance), and its worst excursion
-  this run, 24.97%, is already ABOVE that allowance. The audit is deliberately a single reading at a fixed
-  horizon, so the excursion does not fire it — but the next change that touches water probably will, and
-  that is the gate working, not the gate being wrong.
+**FOUR SUBSTANCES IMPROVED BY 3–5×** because the biological rates stopped being fitted, and **their
+allowances came DOWN in the same commit**, which is what the ratchet requires. The headroom is ~15% rather
+than the ~5% these started at, on purpose: these are one run each and this project's spread is discrete and
+disaster-driven. Retighten toward 5% once three runs per arm confirm them.
+
+- **CARBON GOT WORSE, −26.75% → −28.58%, AND ITS ALLOWANCE WAS NOT RAISED.** 0.42pp of headroom is left, so
+  the next change touching the carbon path very likely trips 126. The maintainer took the change anyway on
+  2026-08-10, explicitly: the rates it replaced were FITTED, and Rule Zero outranks this ratchet. **Nobody
+  has measured why carbon got worse.** The plausible story is redistribution rather than new destruction —
+  field `biomass_total` falls 6.27 → 0.0028 when photosynthesis stops running ~3000× too fast, so carbon
+  that sat inert in a biomass pool now moves through CO₂ and detritus where the pre-existing leak reaches
+  it. **That is a guess**, and it is exactly what per-pass matter attribution exists to settle.
+- **WATER IS 1.8pp FROM TRIPPING ITS OWN GATE**, and its worst excursion this run, **25.82%**, is already
+  ABOVE its 21% allowance. The audit is deliberately a single reading at a fixed horizon, so the excursion
+  does not fire it — but the next change that touches water probably will, and that is the gate working.
 - **Energy is NOT gated and must not be.** Sunlight enters and longwave leaves; what has to go to zero is
-  `energy_residual`, not the change in stock. This run: `energy_run_drift` -1.3404e16 J against an
-  `energy_stock_first` of 1.6728e17, and `energy_residual` -1.3396e16 against `energy_booked` -7.704e12.
-  **Residual/booked is 1739** — the books are essentially all remainder.
+  `energy_residual`, not the change in stock. At the tip: `energy_run_drift` -1.2390e16 J against an
+  `energy_stock_first` of 1.6728e17, and `energy_residual` -1.2376e16 against `energy_booked` -1.412e13.
+  **Residual/booked is 877**, down from 1739 before latent heat and the derived rates — still three orders
+  of magnitude from books that close.
 - Every sanctioned mint counter is 0.0 (`h2o_inject_minted`, `mineral_inject_minted`,
   `biotic_inject_minted`, `heat_inject_unsourced_dc`, `energy_unsourced_dc`, `crater_mass`), so none of this
   arrives through an injection seam.
@@ -176,14 +188,16 @@ DUPLICATE of R23's energy leg as well as a 100 °C thermostat, so delete it (aud
 (`atmos_precip`) and deposition (`snowice`) still release nothing** (audit A4); and a record carries ONE
 enthalpy where L(T) is a curve, so evaporation is charged at its 0 °C figure everywhere — ~11% wrong at
 100 °C and completely wrong near 374 °C.
-- **For A4, DO NOT RE-DERIVE IT — the arithmetic already exists**, on the abandoned worktree branch
-  `worktree-agent-a59c3ef2f80727598` (`55cda84`, "every phase change of water now pays for itself"). It
-  puts the condensation and deposition legs in `atmos_precip_sphere3d.glsl` and `snowice_sphere3d.glsl`,
-  with the unit derivation forced rather than chosen (CAP_WATER ÷ water's specific heat fixes one channel
-  unit at 929.3 kg/m², which is the 0.932 m depth the solar kernel already quotes). It is 104 commits
-  behind and its kernels must NOT be merged wholesale — lift the derivation, put the physics in records.
-  That branch also records the trap: without counting an unbounded snowpack's inertia and suspended
-  water's own capacity, `temp_min` reached -3434 °C.
+- **For A4, DO NOT RE-DERIVE IT — the arithmetic already exists**, at the tag
+  **`archive/atmos-latent-heat-kernels`** (`55cda84`, "every phase change of water now pays for itself";
+  the branch `worktree-agent-a59c3ef2f80727598` still points there too, but cite the TAG — branch names
+  here are volatile and twenty-six of them were deleted on 2026-08-09). It puts the condensation and
+  deposition legs in `atmos_precip_sphere3d.glsl` and `snowice_sphere3d.glsl`, with the unit derivation
+  forced rather than chosen (CAP_WATER ÷ water's specific heat fixes one channel unit at 929.3 kg/m²,
+  which is the 0.932 m depth the solar kernel already quotes). It is 104 commits behind and its kernels
+  must NOT be merged wholesale — lift the derivation, put the physics in records. It also records the
+  trap: without counting an unbounded snowpack's inertia and suspended water's own heat capacity,
+  `temp_min` reached -3434 °C and `temp_max` +3059 °C.
 
 ### THE NEXT COMMIT IS P0's SECOND HALF, AND IT IS FULLY SPECIFIED
 
@@ -503,12 +517,13 @@ Each stage has its own verification. Do not merge stages.
    *(Step 1 used to read "DECIDE `feature/enthalpy`". Decided 2026-08-09: merged, verified, every gated
    substance same or better. Do NOT take `feature/latent-heat` (`ae1a497`) — the superseded version that
    pairs L_vap at 100 °C with L_fus at 0 °C.)*
-2. **PER-PASS ATTRIBUTION FOR MATTER**, the way `LAMaterialFieldEnergyProbe3D` now does it for heat and
-   `LAMaterialFieldMineralProbe3D` already did for rock. Mineral is two to three orders of magnitude tighter
-   than every other substance and is the only one with a per-pass probe; that is the whole lesson. Point the
-   same shape at the element inventory and carbon / oxygen / water each name their pass in one run instead of
-   being argued about. **Nothing blocks this one**, and it is what turns the debt table from a scoreboard
-   into a set of addresses.
+2. **PER-PASS ATTRIBUTION FOR MATTER, AND IT NOW HAS A SPECIFIC QUESTION TO ANSWER: WHAT DESTROYED THE
+   EXTRA 1.9% OF CARBON?** Build it the way `LAMaterialFieldEnergyProbe3D` does for heat and
+   `LAMaterialFieldMineralProbe3D` already did for rock. Mineral is three orders of magnitude tighter than
+   everything else and is the only substance with a per-pass probe; that is the whole lesson. Point the same
+   shape at the element inventory and carbon / oxygen / water each name their pass in one run instead of
+   being argued about. **Nothing blocks this one.** It turns the debt table from a scoreboard into a set of
+   addresses, and carbon is now 0.42pp from failing the build, so it is no longer an abstract improvement.
 3. **THEN DELETE SEED ENTRIES**, one at a time, each with the acceptance test that the thing it asserted now
    emerges. Watch the line vanish from `world_seed`. `INITIAL_TEMP` is the one to start on, because it is not
    in the manifest at all and so is not being scored — see the State section.

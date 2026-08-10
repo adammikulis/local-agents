@@ -1,297 +1,297 @@
 class_name LABioRecords
 extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
-## LIVING-CARBON records (R15 fungus decompose, R19 photosynthesis, R20 respiration + decay).
+## LIVING-CARBON records — R15 decompose, R19 photosynthesis, R20a respiration, R20b litterfall.
+##
+## ==============================================================================================
+## EVERY RATE IN THIS FILE IS DERIVED FROM A MEASURED BIOLOGICAL FLUX. NONE IS FITTED TO AN OUTPUT.
+## ==============================================================================================
+##
+## WHAT THE OLD RATES WERE, and why they had to go. `DECOMPOSE_RATE 0.05`, `PHOTO_RATE 0.05` and
+## `RESP_RATE 0.01` were each arrived at by running the sim and picking the value whose `biomass_total`
+## looked best — the file said so outright ("0.12 was tried to lift the total back toward the 3271-4306
+## baseline. It did the OPPOSITE: biomass_total 320"; "cost 0.05 -> biomass_ground 1143 … More vegetation,
+## six times the wet/dry contrast"). They were then fitted against stoichiometry that was WRONG: organic
+## matter had no declared density, so a unit of detritus was assumed to hold the same moles as a unit of
+## O2. Cellulose has a density now (dry wood, 500 kg/m3), one unit of it is 16652 mol/m3 against O2's
+## 8.535, and every cross-substance coefficient moved by 1951x. A rate fitted to the old extents means
+## nothing against the new ones.
+##
+## SO THEY ARE NOT RE-FITTED. Each is now a measured flux divided by the measured stock it acts on, put
+## into this substrate's units by its own clock (LAMaterialFieldSphereStep3D.real_seconds_per_step, 43.2 s)
+## and cell height (LAReactionDefs.cell_size_m, 16 m) and the substance table's molar bases. The pattern is
+## LAPhaseRecords' — its evaporation coefficient is a bulk aerodynamic transfer coefficient times a wind
+## speed times dt over H, with no free parameter — and it is the only pattern that survives a change of
+## stoichiometry, because nothing in it was ever chosen to make an output look a particular way.
+##
+## THE HONEST CONSEQUENCE, STATED UP FRONT: this substrate's biology now runs at REAL biological speed, and
+## real biological speed is very slow next to a 600-frame run. One field step is 43.2 real seconds, so a
+## 600-frame run at --fast=8 is 590 steps = 25 488 s = 7.1 hours of planet time. In 7 hours a canopy fixes a
+## few grams of carbon per square metre and litter loses 0.003 % of its mass. MEASURED on exactly that run,
+## starting from the bare ground the world seeds: `biomass_ground` 0.00191 over 4430 ground cells = 3.4 g of
+## dry matter per square metre, against the 4.0 g/m2 the derivation predicts — the record does what the
+## arithmetic says it does. Expect the biosphere totals to look FLAT over any run anyone will actually
+## do. That is not the rates being wrong; it is what "a year takes a year" means. Geology has the same
+## problem and answers it with a declared multiplier (LAPlateTectonics.GEOLOGIC_TIME_ACCELERATION = 3.0e5,
+## which is why weathering is quoted in "accelerated years"). Biology gets NO such multiplier here, and
+## must not get one silently: photosynthesis is driven by the LIGHT slot, which is the real terminator on
+## the real day, so a biological clock running faster than the solar one would put plants out of step with
+## their own sun. If the project wants a visible biosphere in one run, that is a decision about the whole
+## substrate's clock, not a number to raise in this file.
+## (Explicit types only, no ':=' inferred typing.)
 
-const DECOMPOSE_RATE: float = 0.05
+# --- THE MEASURED QUANTITIES THE RATES BELOW ARE DERIVED FROM ------------------------------------------
+# These are global fluxes and stocks, not properties of a material, so they live here beside the records
+# that use them rather than in LASubstances — the same place LAPhaseRecords keeps its bulk transfer
+# coefficient and its 7 m/s mean ocean wind. Each is one published number with its source named.
 
-# OXYGEN OBEYS AN IDENTITY, NOT A TUNING TARGET. Photosynthesis and aerobic oxidation are exact inverses:
-#   CO₂ + H₂O + light -> CH₂O + O₂      one O₂ RELEASED per carbon fixed
-#   CH₂O + O₂         -> CO₂ + H₂O      one O₂ CONSUMED per CO₂ produced
-# So every oxidation record in this table must satisfy  O₂ consumed == CO₂ produced.  It did not:
-# R15 decompose was 0.8 against 1.0, and R20 respiration 0.5 against 0.6 — both ~18% under-oxidised, both in
-# the same direction. Traced through one unit of carbon (fix -> respire -> decompose the litter) the loop
-# closed on carbon exactly (0.6 + 0.4 == 1.0, an unremarked and untested coincidence) while MINTING 0.18 O₂
-# per cycle, forever. Measured by the new mass ledger before the fix: carbon +6.48/step, fertility +2.24/step
-# from a first sample of exactly 0.0. Oxygen read flat only because R11's sky pin is an unbounded source that
-# absorbed the surplus — the mint was real and invisible.
-# Setting these equal closes oxygen ANALYTICALLY, for any rate, with nothing left to tune.
-const CO2_PER_DECOMPOSE: float = 1.0
-const O2_PER_DECOMPOSE: float = 1.0      # == CO2_PER_DECOMPOSE, by the identity above (was 0.8)
+# PHOTOSYNTHESIS — Monteith's light-use efficiency (Monteith 1972, 1977): fixed carbon is proportional to
+# ABSORBED photosynthetically active radiation, GPP = eps * APAR, and eps is the measured constant of that
+# proportionality. MODIS MOD17 carries eps_max by biome from 0.68 (grassland) to 1.26 (evergreen
+# needleleaf) g C per MJ of absorbed PAR (Running et al. 2004; Heinsch et al. 2003). 1.0 is the middle.
+const PHOTO_LUE_KG_C_PER_J: float = 1.0e-9        # 1.0 g C / MJ absorbed PAR
+# PAR is the 400-700 nm band, a measured 45 % of incoming shortwave energy (Monteith & Unsworth; the value
+# MOD17 uses). The substrate's LIGHT slot is a fraction of the SOLAR CONSTANT, so this is the factor that
+# turns it into the part a chloroplast can use.
+const PAR_FRACTION_OF_SHORTWAVE: float = 0.45
+# TRANSPIRATION — the measured water cost of fixing carbon. A C3 canopy moves 200-1000 moles of water per
+# mole of CO2 fixed (the inverse of water-use efficiency, ~2-5 mmol CO2 per mol H2O); 400 is mid-range.
+# *(This REPLACES a fitted `PHOTO_WATER_COST = 0.05`. Its own comment recorded the fit: "MEASURED at 0.2,
+# 0.45 and 0.0 … 0.2 wins outright", then "RE-MEASURED AT 0.05, WHICH BEATS 0.2 ON EVERY AXIS … biomass_ground
+# 708 -> 1143, lit wet/dry 1.14 -> 6.86". Picking a transpiration ratio because it produces more vegetation
+# and more contrast is fitting a physical quantity to an output. The number it landed on happened to be
+# defensible — 0.05 water-channel units per CO2 unit is 324 mol H2O per mol C — but it was defensible by
+# accident, and the reasoning is what has to be right. Derived, it comes out 0.0617.)*
+const TRANSPIRATION_MOL_H2O_PER_MOL_C: float = 400.0
 
-# FERTILITY COMES OUT OF THE LITTER, and litter has a finite nutrient content. This was 1.5 — one unit of
-# detritus produced 1.5 units of nutrient, from no source pool at all, against an uptake of 0.02: a 29:1
-# amplifier. Real mineralisation releases the nitrogen that was ALREADY in the litter, bounded by its C:N
-# ratio — about 20:1 for leaf litter, 10:1 for soil organic matter. So the yield is 1/20, and plant uptake
-# must debit at the same ratio or the books cannot close. FERT_UPTAKE_COST is set to match below.
-# This is why the old FERT_UPTAKE_COST was cut 25x "so it only binds where fert is genuinely near-zero":
-# nutrient limitation was removed rather than the nutrient SOURCE being fixed. With both at the C:N ratio,
-# Liebig limitation by nutrient becomes real again and a barren soil genuinely limits growth.
-# MOVED to LAPhysical 2026-08-03: the carbon-to-nitrogen ratio of leaf litter is a measured property of the
-# material, not a model parameter, and it is now the SAME declaration LAReactionBalance uses to say what
-# organic matter is made of. That is what turns "mineralisation releases the nitrogen that was already in the
-# litter" from a comment into an arithmetic identity the balance gate checks: the release coefficient here,
-# the uptake coefficient below, and the nitrogen content of biomass/detritus/fungus are one number.
-const LITTER_C_TO_N: float = LAPhysical.LITTER_C_TO_N
-const FERT_PER_DECOMPOSE: float = 1.0 / LITTER_C_TO_N      # 0.05 (was 1.5)
+# RESPIRATION and LITTERFALL — the specific rates at which standing vegetation burns itself and sheds
+# itself, taken as global flux over global stock. Three published aggregates, nothing else:
+const GLOBAL_GPP_PG_C_PER_YEAR: float = 123.0       # Beer et al. 2010, Science: 123 +/- 8 Pg C/yr
+const GLOBAL_NPP_PG_C_PER_YEAR: float = 56.4        # Field et al. 1998, Science: terrestrial NPP
+const GLOBAL_PLANT_CARBON_PG_C: float = 450.0       # Bar-On, Phillips & Milo 2018, PNAS: plant biomass
+# DECOMPOSITION — Olson (1963) says litter mass loss is first order, X(t) = X0 * exp(-k t). The measured k
+# for the WHOLE dead-organic pool is its heterotrophic respiration over its stock:
+const SOIL_HETEROTROPHIC_RESP_PG_C_PER_YEAR: float = 54.0   # Bond-Lamberts & Thomson 2010; Hashimoto 2015
+const SOIL_ORGANIC_CARBON_PG_C: float = 1500.0              # Batjes 1996, soil organic C to 1 m
+# …and the decomposer community that k is measured WITH. R15 is first order in the decomposer stock as well
+# as in the substrate, so its constant is a rate PER UNIT OF DECOMPOSER and needs the decomposer density the
+# measurement corresponds to. Global soil microbial biomass carbon is 16.7 Pg C over 1.30e14 m2 of land
+# (Xu, Thornton & Post 2013, Global Ecol. Biogeogr.) = 0.128 kg C/m2.
+const SOIL_MICROBIAL_C_KG_PER_M2: float = 0.128
 
-# PHOTOSYNTHESIS: CO₂ + H₂O + light → biomass + O₂. LIGHT drives it, and light is now the real thing —
-# max(0, dot(cell_radial, sun_dir)) — not a stand-in.
-#
-# WHAT THIS REPLACED, and why it was wrong. The rate used to be x = PHOTO_RATE * co2 * TEMP, with temperature
-# standing in for daylight on the argument that "the day side is warmer". Temperature is not light. It lags the
-# terminator by the thermal time constant, it is raised by anything hot, and it is not raised at all by a bright
-# cold day. So the old law had a hot desert fixing carbon at midnight, a bright polar summer fixing almost none,
-# lava flows and wildfires growing plants, and dust dimming suppressing growth only second-hand by cooling.
-# Every one of those is gone: light is light now, and it comes from the same sun_dir the solar kernel uses, so
-# there is exactly one sun in this simulation and its magnitude (orbit distance² × atmospheric transmission)
-# dims the chemistry directly.
-#
-# WHERE IT RUNS, and why that moved. The record was gated GATE_SURFACE, which on a shell means the outermost
-# open cell of a radial line — the TOP OF THE ATMOSPHERE, ~78 world-units above the terrain. Measured on
-# 2026-07-29 (seed=777, --fast=4, 400 frames): biomass at the sky skin 2334, biomass at the ground skin 0.0.
-# All primary production was happening in the stratosphere, and two other systems had grown workarounds for it
-# (EcologyService._biomass_at sampled at the shell-top radius; fungus_fert_sphere3d deposited the column's whole
-# fertility into the sky cell). It is GATE_NEAR_GROUND now — the ground-hugging cell that has rock beneath it,
-# which is where a plant is, where its roots can reach soil, and where the moisture it transpires belongs.
-# GATE_NOT_STATIC additionally keeps it out of the infinite sea reservoir, which is an unsimulated abstraction.
-#
-# MEASURED INPUTS the constants below are set from (same run; 2156 land ground-skin cells):
-#   light      mean 0.281, p50 0.069, max 0.988, lit (>0.05) 50.7% of cells
-#   ground temp mean 12.2 °C, p10 2.9, p50 7.6, p90 24.5  (much colder than the 29.0 open-cell mean — the
-#              ground skin is where the altitude lapse bites and where the night side actually cools)
-#   ground CO₂  mean 0.0404, p10 0.0323  (RICHER than the 0.030 global mean — respiration happens at the ground,
-#              so moving the record there does not starve it of carbon)
-#   rooting-column water  mean 0.702, p10 2.6e-7, p50 0.805, p90 1.275, max 1.904;
-#              13.4% of land is bone dry (<0.01) and 39.0% is dry (<0.5)
-# PHOTO_RATE — MEASURED, and the measurement overturned the obvious guess. 0.04 reproduces the OLD per-cell
-# extent (old x ≈ 0.4·co2 ≈ 0.012/step at co2 ≈ 0.030; new x at the mean lit ground cell = 0.04·0.554·0.55 ≈
-# 0.012/step) and gave biomass_total 689. Reasoning that equilibrium biomass = fixation/RESP_RATE is linear in
-# the rate, 0.12 was tried to lift the total back toward the 3271–4306 baseline. It did the OPPOSITE:
-# biomass_total 320, and ground CO₂ fell from 0.0710 to 0.0313 with a p10 of 0.0015. Tripling the rate does not
-# triple fixation, because on the GROUND the binding constraint is not the rate, it is how fast CO₂ gets down
-# here from the sky trace. A rate that outruns delivery just strips the local carbon to zero every step, which
-# also starves the cells that would otherwise have fixed slowly, so net production FALLS. Back near 0.05, where
-# CO₂ sits comfortably above the extent and Liebig binds only at the brightest cells — which is the regime the
-# whole record is supposed to be in.
-const PHOTO_RATE: float = 0.05           # per-step k on x = PHOTO_RATE * light * band(temp)
-const PHOTO_O2_YIELD: float = 1.0        # O₂ released per unit CO₂ fixed (stoichiometric ~1:1)
-const PHOTO_BIOMASS_YIELD: float = 1.0   # biomass grown per unit CO₂ fixed
-# TEMPERATURE OPTIMUM (the OPTIMUM_BAND parameters). Photosynthesis stops frozen and stops cooked; between
-# those it peaks. band(T) = max(0, 1 - ((T - PHOTO_T_OPT)/PHOTO_T_WIDTH)^2) → zero at 0 °C and at 48 °C, peak at
-# 24 °C. Against the measured ground temperature spread that gives band ≈ 0.23 at the p10 cold tail (2.9 °C),
-# 0.53 at the median (7.6 °C), 0.76 at the mean (12.2 °C) and ~1.0 at the warm p90 (24.5 °C) — a real gradient,
-# not an on/off gate. The upper edge is what stops a lava flow or a wildfire from growing plants: those cells
-# are hundreds of °C, far outside the band, so the rate is exactly 0 with no "is it lava" test anywhere.
-const PHOTO_T_OPT: float = 24.0          # °C at which carbon fixation peaks
-const PHOTO_T_WIDTH: float = 24.0        # °C from the optimum to where it stops (so: 0 °C and 48 °C)
-# TRANSPIRATION: water cost per unit of carbon fixed, moved soil → moisture as a CONSERVING PHASE TRANSFER
-# (roots take up liquid groundwater, leaves release vapour) — the same debit-one-credit-the-other pattern R21/R22
-# freeze/melt use, so nothing leaves the H₂O ledger. It is BOTH the third Liebig reactant (the extent cannot
-# exceed rooting_column_water / PHOTO_WATER_COST) and the mechanism that makes deserts.
-# SIZED, not guessed. The failure mode to avoid is documented directly below on FERT_UPTAKE_COST: a per-step
-# SINK competes against a stock's NET ACCUMULATION RATE, not its peak. Measured land groundwater: 2156 columns
-# × 0.702 = 1514 units, draining to the sea at ~5.8 units/step (2587 seeded → 1514 over ~169 steps).
-#
-# HOW WATER ACTUALLY LIMITS HERE, which is not what a first reading of "Liebig reactant" suggests. The reactant
-# cap is a CLIP (`x ≤ stock/cost`), not a graded response, so it only bites once the local stock is nearly gone.
-# It therefore does two distinct things at two timescales: IMMEDIATELY it zeroes the cells whose rooting column
-# is already empty (the measured 13.4% of land at <0.01, and 2.6e-7 at the 10th percentile — these are deserts
-# from the first step), and SLOWLY it expands that set, because transpiration pulls on every lit cell while
-# lateral Darcy flow only refills the cells water CONVERGES into. Ground that gets no convergence loses the
-# drawdown race and joins the desert. This constant sets the speed of the second process.
-#
-# SIZE IT AGAINST THE REALISED EXTENT, NOT THE LIGHT-LIMITED ONE. The realised extent is ~0.003/step, six times
-# smaller than the light-limited ~0.02, because CO₂ and the night side hold it down — so a first sizing off the
-# light-limited rate over-costs the water by 6x. Same trap the FERT_UPTAKE_COST note below records: a per-step
-# sink competes against a RATE, and it has to be the rate that actually happens.
-#
-# MEASURED at 0.2, 0.45 and 0.0 (same seed, same everything else). 0.2 wins outright, and it wins for a reason
-# worth writing down: raising the cost does not deepen the water limitation, it SHALLOWS it. At 0.45 growth on
-# marginal ground is throttled, so those plants transpire less, so the table draws down LESS and fewer cells
-# ever cross into limitation — biomass_total 318, lit wet/dry contrast 16.3x, dry land 41.0%. At 0.2 plants on
-# marginal ground still grow, transpire more in total, and pull the table down further — biomass_total 781, lit
-# wet/dry contrast 51.8x, dry land 43.3%. The sink is self-limiting, so the cheaper cost yields both more
-# vegetation and more desert. That is not what the sizing argument above predicts; the runs said otherwise, and
-# the runs win.
-#
-# THE TRANSFER DOES NOT LEAK, and the control that proves it is this constant set to 0.0 — transfer disabled,
-# everything else identical, same seed. h2o_total 9556.61 (off) vs 9648.66 (on) = +0.96%, well inside the ±5%
-# run-to-run spread the baseline shows on its own. And the mass is accounted for on both sides:
-# soil_total 3942.75 -> 3590.86 (-351.9), moisture_total 4972.69 -> 5382.61 (+409.9). The same control also
-# isolates the water leg's ONLY behavioural effect: lit wet/dry biomass contrast 0.94 with it off (flat — dry
-# and wet ground carry the same biomass) against 51.8 with it on.
-#
-# RE-MEASURED 2026-07-30 AT 0.05, WHICH BEATS 0.2 ON EVERY AXIS. Every run quoted above used `--fast=4`, and
-# that flag did nothing at all: Engine.time_scale had two owners and the command line's value was always
-# overwritten (see LAVoxelTimeControl.set_multiplier). So those numbers are 1x over a shorter horizon than
-# their author believed, and none of them reached even a tenth of a simulated day. Re-run with a working
-# fast-forward — same seed 4242, --fast=2, 300 frames, 0.8 simulated days, everything else identical:
-#     cost 0.2  -> biomass_ground  708, lit wet/dry 1.14, h2o_total 10300, trees 400
-#     cost 0.05 -> biomass_ground 1143, lit wet/dry 6.86, h2o_total 10981, trees 400
-# More vegetation, six times the wet/dry contrast, and less water lost. The reason inverts the note above: a
-# cost this heavy makes the water cap bind almost EVERYWHERE, wet ground included, which flattens the very
-# contrast the reactant exists to create. Liebig only says something when exactly ONE input is scarce. This is
-# the FERT_UPTAKE_COST trap again — that constant was cut 25x for the same reason — and it is now twice in
-# this one file that the honest size was far gentler than the sizing argument predicted.
-const PHOTO_WATER_COST: float = 0.05     # soil water transpired per unit CO₂ fixed (debit SOIL_ROOT, credit MOISTURE)
-# THE STOICHIOMETRIC WATER, WHICH WAS MISSING ENTIRELY. Photosynthesis is CO₂ + H₂O -> CH₂O + O₂: one water
-# SPLIT per carbon fixed, its hydrogen built into the sugar and its oxygen released as the O₂. That leg had
-# no coefficient at all, so the biomass this record produced contained hydrogen that came from nowhere and
-# the O₂ it released came from nowhere with it. The old balance table could not see it, because it declared
-# an `h2o` substance rather than H and O atoms.
-#
-# IT IS DERIVED, NOT CHOSEN: 1.0 per unit of CO₂, because that is the reaction. The root draw is therefore
-# the stoichiometric water plus the transpiration above, and only the transpired part is returned to the air
-# as vapour — the split part leaves as biomass and comes back when that biomass is respired or rots.
-#
-# NOTE WHAT THIS SAYS ABOUT THE MODEL, since it inverts a real ratio. Real transpiration moves 200-1000
-# molecules of water per carbon fixed, so on Earth the stoichiometric leg is a rounding error beside it. Here
-# the transpiration coefficient is 0.05, so the leg that is negligible in reality is TWENTY TIMES the leg
-# this substrate models. That is a statement about PHOTO_WATER_COST being four orders too small, which is the
-# same finding HANDOFF records as "the atmosphere holds 30% of the planet's H₂O against Earth's 0.001%". It
-# is not a reason to leave the stoichiometry out.
-const PHOTO_WATER_DRAW: float = 1.0 + PHOTO_WATER_COST   # split (1.0, becomes biomass) + transpired (returned)
-# NUTRIENT UPTAKE (closes the "fertility actually feeds plants" gap — bio-0.4-shipped left this open): FERT is
-# now a second reactant on R19, so growth is co-limited by CO₂ AND soil fertility (Liebig's-law-of-the-minimum,
-# same reactant-cap machinery that already caps CO2 — no new rate model needed).
-#
-# TUNING HISTORY (measured, same-seed A/B on --sandbox, frame 600, seed=777 so both runs hit the identical
-# eruption/impact timeline — isolates the code change from disaster-load noise): a naive per-cell estimate
-# (fertility_peak ~3-6, typical CO2-capped extent ~0.02-0.06/step) suggested 0.5 would rarely bind — WRONG,
-# because a per-step SINK competes against the STOCK'S NET ACCUMULATION RATE, not its accumulated peak. At
-# 0.5 the new uptake drain (~0.02/step/cell) was comparable to or larger than the ~0.01/step net inflow that
-# took 600 steps to build fertility_peak to 6.31 in the first place — planet-wide biomass_total crashed
-# 9514->1873 (-80%) and fertility_peak crashed 6.31->0.36 (-94%), a self-reinforcing collapse (less biomass ->
-# less respiration/detritus -> less decompose -> less fert -> even less photosynthesis), NOT the intended
-# "only barren ground throttles" behaviour. Cut ~25x to 0.02, keeping the drain clearly subordinate to the
-# natural replenishment rate so it only binds where fert is genuinely near-zero.
-# SUPERSEDED, and the block above is kept because it is the evidence. That collapse was real, but it was the
-# symptom of a SOURCE that produced 1.5 nutrient per unit litter — a 29:1 amplifier — not of an uptake that
-# was too heavy. Cutting uptake 25x removed nutrient limitation instead of fixing the source, which is why
-# fertility then ran away (measured: +2.24/step, from a first sample of exactly 0.0). With
-# FERT_PER_DECOMPOSE now at the litter C:N ratio, uptake must debit at the SAME ratio or the books cannot
-# close, and the two match by construction rather than by tuning. If the collapse above returns at this
-# value, that is a real finding about primary production and must be reported, not tuned away again.
-const FERT_UPTAKE_COST: float = 1.0 / LITTER_C_TO_N   # 0.05 — the same C:N ratio the litter releases at
-# Respiration + decay: biomass + O₂ → CO₂ + detritus. Living matter slowly oxidizes everywhere it exists,
-# returning carbon to the air (CO₂) and shedding litter (detritus) that the fungus-decompose record then rots
-# into CO₂ + soil fertility. Proportional to biomass → self-limiting (as biomass rises, respiration rises to
-# match fixation), which BOUNDS the loop, and it closes the carbon cycle entirely on the GPU.
-const RESP_RATE: float = 0.01            # per-step k on x = RESP_RATE * biomass * o2
-# RESP_O2_COST MUST EQUAL RESP_CO2_YIELD — one O₂ consumed per CO₂ produced, the same identity R15 obeys
-# above. It was 0.5 against 0.6, minting 0.1 O₂ per unit respired. Not tunable: any pair where these differ
-# creates or destroys oxygen for free.
-const RESP_CO2_YIELD: float = 0.6        # CO₂ returned to air per unit biomass respired
-const RESP_O2_COST: float = RESP_CO2_YIELD   # aerobic: O₂ consumed == CO₂ produced (was 0.5)
-# And the carbon side: RESP_CO2_YIELD + RESP_DET_YIELD must be 1.0, or respiration creates or destroys carbon.
-# It already was, by coincidence — nothing stated it, nothing tested it, and there is no carbon_total, so
-# anyone tuning RESP_CO2_YIELD for behaviour would have broken conservation silently. Deriving the partner
-# makes the invariant structural: change the split and it still closes.
-const RESP_DET_YIELD: float = 1.0 - RESP_CO2_YIELD   # detritus (litter) shed per unit biomass respired
-# RESPIRATION WAS DESTROYING NITROGEN, and nothing noticed because there was no nitrogen accounting to notice
-# with. Found 2026-08-03 by the new balance gate on its first run against the shipped table. One unit of
-# biomass carries 1/LITTER_C_TO_N of nitrogen. Respiration sends 0.6 of the carbon to CO₂ — which carries no
-# nitrogen — and 0.4 to detritus, which carries only 0.4/20 = 0.02. The other 0.03 units simply vanished, 60%
-# of the nitrogen in every unit of biomass respired, forever.
-# The physics: burning the carbon off a molecule does not destroy the nitrogen in it. Plants resorb some
-# nitrogen before shedding a leaf and the rest is mineralised at the litter's own ratio, so the nitrogen the
-# carbon leg leaves behind returns to the soil's plant-available pool. The coefficient is DERIVED from the
-# same C:N ratio as the other two, so it cannot drift out of balance: whatever nitrogen the reactant carried
-# and the detritus product does not, is what the soil receives.
-const RESP_FERT_YIELD: float = (1.0 - RESP_DET_YIELD) / LITTER_C_TO_N   # 0.03 — the N the CO₂ leg leaves behind
-# AND THE WATER. Oxidising CH₂O to CO₂ releases one H₂O per carbon: CH₂O + O₂ -> CO₂ + H₂O. Respiration
-# sends RESP_CO2_YIELD of the carbon that way and keeps the rest as litter, so the water released is exactly
-# the carbon that left, and the coefficient is DERIVED rather than chosen. Until 2026-08-03 no phase of the
-# carbon cycle exchanged water at all, because the balance table declared an `h2o` substance instead of
-# hydrogen and oxygen atoms and so could not see the omission. This is respiration humidifying the air, which
-# is a real and measurable thing a forest does.
-const RESP_WATER_YIELD: float = RESP_CO2_YIELD                          # 0.6 — one H₂O per carbon oxidised
-# Decomposition oxidises its carbon ALL the way (1.0 CO₂ per unit of detritus), so it releases one water per
-# unit, by the same identity.
-const DECOMPOSE_WATER_YIELD: float = CO2_PER_DECOMPOSE                  # 1.0 — one H₂O per carbon oxidised
+# THE TEMPERATURE BAND is bracketed by two constants already declared as properties of matter, so this file
+# states no third temperature of its own. Photosynthesis stops when the cell's water freezes
+# (LAPhysical.WATER_FREEZE_C) and stops when its enzymes denature (LAPhysical.PROTEIN_DENATURE_C, 45 C, the
+# onset of irreversible thermal unfolding). OPTIMUM_BAND is a symmetric parabola, so the optimum is the
+# MIDPOINT of those two — a consequence of the model's shape, not a fourth measurement. It lands at 22.5 C,
+# inside the measured 20-30 C optimum of C3 photosynthesis, which is the check rather than the input.
+# *(This replaces PHOTO_T_OPT 24.0 / PHOTO_T_WIDTH 24.0, whose upper zero was 48 C — a fourth version of
+# "the temperature at which life stops", 3 C away from the one PhysicalConstants declares. The same
+# quantity written down twice at two values is the drift pattern that froze water at 12.5 C.)*
+# The real response is ASYMMETRIC — a gentle rise and a sharp fall — and a parabola cannot say that. The
+# substrate has no rate model that can; noting it is more use than pretending otherwise.
+const PHOTO_T_OPT: float = (LAPhysical.PROTEIN_DENATURE_C + LAPhysical.WATER_FREEZE_C) * 0.5
+const PHOTO_T_WIDTH: float = (LAPhysical.PROTEIN_DENATURE_C - LAPhysical.WATER_FREEZE_C) * 0.5
+
+
+## Kilograms of a substance in ONE unit of a channel that holds it — the channel unit IS the substance's
+## condensed density (LAReactionBalance.mol_per_unit), so this is that density, read from the one table.
+static func _density(id: String) -> float:
+	return float(LASubstances.table().get(id, {}).get("density", 0.0))
+
+
+## Real seconds one field step stands for. The substrate has ONE clock and this is it.
+static func _dt() -> float:
+	return LAMaterialFieldSphereStep3D.real_seconds_per_step()
+
+
+## PHOTO_RATE — the per-step extent, in CO2 channel units, of a fully-absorbing canopy in full sun.
+##
+##     x = PHOTO_RATE * LIGHT * band(TEMP)
+##     PHOTO_RATE = (eps / M_C) * f_PAR * S0 * dt / (H * mol_per_unit(CO2))
+##
+## Every factor is measured: eps is the light-use efficiency above, f_PAR the PAR share of shortwave, S0 the
+## solar constant (LAPhysical.SOLAR_CONSTANT_W_M2, the SAME one the solar kernel heats with), dt the field
+## step and H the cell height — the last two being exactly how LAPhaseRecords._evap_k turns an areal flux
+## into a per-cell fill. It comes out 1.61e-5, against the fitted 0.05 it replaces: 3100x slower.
+##
+## WHAT fAPAR IS DOING HERE, since eps is defined per unit ABSORBED PAR: it is 1. The record therefore
+## computes the POTENTIAL gross primary production of a cell whose canopy absorbs everything, and the
+## substrate's own limits bring it down — the temperature band, and the three Liebig reactants (CO2, root
+## water, nutrient). Checked against Earth: at this planet's measured mean ground insolation the potential
+## works out near 2 kg C/m2/yr where Earth's terrestrial mean GPP is 0.8, i.e. the right order and on the
+## generous side, which is what "potential, before local limitation" should look like.
+##
+## AND THE MISSING MECHANISM, NAMED RATHER THAN HIDDEN: real fAPAR is 1 - exp(-k*LAI), so it depends on how
+## much leaf is standing there. This record has no biomass term at all — BIOMASS is not a reactant, not a
+## driver and not a cap — so bare rock fixes carbon at the same rate as a forest. That is photosynthesis
+## without a photosynthesiser, and it is a REALISM defect, not a rate defect: it would still be there at any
+## value of this constant. It is not fixed here because the fix has two halves and only one of them is in
+## this file — capping the extent by BIOMASS (rec() already takes cap_slot/cap_coeff, so no kernel change)
+## sterilises the planet permanently unless something seeds a starting biomass, and the seed lives in
+## LAMaterialSurfaceSeed3D, which seeds detritus and fuel and deliberately leaves biomass at zero.
+static func _photo_k() -> float:
+	var mol_c: float = LAPhysical.MOLAR_MASS_CARBON_KG_MOL
+	var h: float = maxf(cell_size_m, 0.001)
+	var mpu_co2: float = _density("co2") / LAPhysical.MOLAR_MASS_CO2_KG_MOL
+	if mol_c <= 0.0 or mpu_co2 <= 0.0:
+		return 0.0
+	return (PHOTO_LUE_KG_C_PER_J / mol_c) * PAR_FRACTION_OF_SHORTWAVE \
+		* LAPhysical.SOLAR_CONSTANT_W_M2 * _dt() / (h * mpu_co2)
+
+
+## RESP_RATE — specific autotrophic respiration of standing vegetation, per step, at ambient oxygen.
+##
+##     Ra / B = (GPP - NPP) / B = (123 - 56.4) / 450 = 0.148 per year
+##
+## x = RESP_RATE * biomass * o2 is BILINEAR, so the constant is quoted per unit of O2 — and one unit of O2
+## is, by the definition of the channel, the O2 in a cell of AMBIENT AIR (LAPhysical.AMBIENT_O2_DENSITY_KG_M3).
+## So the reference oxygen concentration is exactly 1.0 and no number has to be chosen for it. Below ambient
+## the rate falls, which is right in direction if not in shape: real maintenance respiration is near
+## zero-order in O2 until oxygen gets scarce, so first order overstates how much a mildly hypoxic cell slows.
+static func _resp_k() -> float:
+	var per_year: float = (GLOBAL_GPP_PG_C_PER_YEAR - GLOBAL_NPP_PG_C_PER_YEAR) / GLOBAL_PLANT_CARBON_PG_C
+	return per_year * _dt() / LAPhysical.SECONDS_PER_YEAR
+
+
+## LITTERFALL_RATE — the specific rate at which standing vegetation becomes dead organic matter.
+##
+##     litterfall / B = NPP / B = 56.4 / 450 = 0.125 per year
+##
+## At steady state every gram of net primary production eventually falls, so the litterfall flux IS NPP.
+## This is a SEPARATE RECORD from respiration and it has to be: they are two different measured processes
+## with two different rates, and while they shared one record neither could be derived. The old table put
+## them together and split the output 0.6 CO2 / 0.4 detritus by assertion — worth saying that the derived
+## split, 0.148 / (0.148 + 0.125) = 0.54, lands close to it, so the old ratio was about right and the way it
+## was arrived at was not. Splitting also removes an O2 dependence that never belonged: litterfall was
+## inside an O2-capped record, so leaves stopped falling when the air ran short of oxygen.
+static func _litterfall_k() -> float:
+	var per_year: float = GLOBAL_NPP_PG_C_PER_YEAR / GLOBAL_PLANT_CARBON_PG_C
+	return per_year * _dt() / LAPhysical.SECONDS_PER_YEAR
+
+
+## The decomposer stock the measured decomposition constant corresponds to, in FUNGUS channel units:
+## 0.128 kg C/m2 of soil microbial biomass, converted to CH2O, spread through the cell it lives in, and
+## divided by the channel unit (a cell full of organic matter at 500 kg/m3). It comes out 4.0e-5.
+static func _decomposer_reference() -> float:
+	var rho: float = _density("cellulose")
+	var h: float = maxf(cell_size_m, 0.001)
+	if rho <= 0.0 or LAPhysical.MOLAR_MASS_CARBON_KG_MOL <= 0.0:
+		return 0.0
+	var ch2o_kg_m2: float = SOIL_MICROBIAL_C_KG_PER_M2 \
+		* (LAPhysical.MOLAR_MASS_CH2O_UNIT_KG_MOL / LAPhysical.MOLAR_MASS_CARBON_KG_MOL)
+	return ch2o_kg_m2 / (h * rho)
+
+
+## DECOMPOSE_RATE — Olson's first-order decay constant, per unit of decomposer.
+##
+##     k = Rh / SOC = 54 / 1500 = 0.036 per year   (mean residence time 28 years)
+##     DECOMPOSE_RATE = k * dt / SECONDS_PER_YEAR / (decomposer stock k was measured with)
+##
+## It comes out 1.23e-3, against the fitted 0.05: 41x slower.
+##
+## READ THE FOLLOWING BEFORE TRUSTING THE REALISED RATE. This constant is honest; the realised rate is not,
+## and the remaining error is not here. R15 is BILINEAR on (fungus x detritus), so what actually runs is
+## `DECOMPOSE_RATE * fungus`, and this substrate's decomposer stock is much larger than a real soil's.
+## Measured on a 600-frame --planet-only run with these rates in place: `fungus_total` 25.01 over 4430 ground
+## cells is 0.0056 per cell, against the 4.0e-5 a real soil's microbial community weighs — 141x — and
+## `fungus_peak` 0.0244 is 610x. So litter still rots 141-610 times faster than Olson, and the file to fix is
+## `kernels3d/fungus_sphere3d.glsl`, whose GROW_RATE of 0.06 per step is 4.4e4 per year and whose FUNGUS_MAX
+## ceiling of 3.0 would be 75 000x a real soil's microbial biomass. Those are model constants with no
+## measurement behind them, in a file this track does not own.
+static func _decompose_k() -> float:
+	var k_per_year: float = SOIL_HETEROTROPHIC_RESP_PG_C_PER_YEAR / SOIL_ORGANIC_CARBON_PG_C
+	var ref: float = _decomposer_reference()
+	if ref <= 0.0:
+		return 0.0
+	return (k_per_year * _dt() / LAPhysical.SECONDS_PER_YEAR) / ref
 
 
 ## The records this domain contributes to the live table (see LAMaterialReactions3D).
 static func records() -> Array:
-	# THE UNIT BRIDGE, and every water leg below was missing it. A gas channel unit is the O₂ in a cell of
-	# ambient air (8.535 mol/m³); a water channel unit is a cell FULL of liquid water (55343 mol/m³). The
-	# constants above are STOICHIOMETRY — "one H₂O per carbon oxidised" — and stoichiometry is in moles, so
-	# spending them directly as water-channel coefficients overstated every water leg by 6484x. The balance
-	# gate could not see it until it was taught the two units (LAReactionBalance.mol_per_unit); the moment it
-	# was, it flagged all three records in this file on both H and O.
-	# EVERY CROSS-SUBSTANCE COEFFICIENT GOES THROUGH unit_ratio, AND THE CONSTANTS ABOVE ARE PURE
-	# STOICHIOMETRY. `unit_ratio(a, b)` is how many units of `a` hold the moles that one unit of `b` holds,
-	# read off the substance table, so a coefficient here reads as the mole count a chemist writes and the
-	# conversion cannot be mistyped or forgotten.
-	#
-	# EACH RECORD IS DENOMINATED IN ITS ORGANIC REACTANT, because that is what its rate is expressed in.
-	# The old code converted only the water legs and left O2/CO2/FERT on the assumption that organic matter
-	# and O2 shared a basis — true only while organic matter had no declared density. It has one now
-	# (dry wood, 500 kg/m3), so a unit of detritus is 16652 mol/m3 against O2's 8.535, and the balance gate
-	# caught every leg that had assumed otherwise.
+	# EVERY CROSS-SUBSTANCE COEFFICIENT GOES THROUGH unit_ratio, AND THE COEFFICIENTS ARE PURE STOICHIOMETRY.
+	# `unit_ratio(a, b)` is how many units of `a` hold the moles that one unit of `b` holds, read off the
+	# substance table, so a coefficient reads as the mole count a chemist writes and the conversion cannot be
+	# mistyped. Each record is denominated in its ORGANIC reactant, because that is what its rate is in.
 	var o2_per_org: float = LAReactionBalance.unit_ratio(O2, DETRITUS)
 	var co2_per_org: float = LAReactionBalance.unit_ratio(CO2, DETRITUS)
 	var w_per_org: float = LAReactionBalance.unit_ratio(MOISTURE, DETRITUS)
 	var fert_per_org: float = LAReactionBalance.unit_ratio(FERT, DETRITUS)
+	var o2_per_co2: float = LAReactionBalance.unit_ratio(O2, CO2)
 	var soil_per_co2: float = LAReactionBalance.unit_ratio(SOIL_ROOT, CO2)
 	var org_per_co2: float = LAReactionBalance.unit_ratio(BIOMASS, CO2)
-	var w_per_co2: float = LAReactionBalance.unit_ratio(MOISTURE, CO2)
 	var fert_per_co2: float = LAReactionBalance.unit_ratio(FERT, CO2)
 	# Nitrogen per unit of organic matter, read off the composition table rather than restated, so a record
 	# cannot disagree with the gate about what litter is made of. It is MOLAR: LITTER_C_TO_N is a ratio of
-	# masses, and (CARBON_MOLAR_MASS / 20) / NITROGEN_MOLAR_MASS = 0.0429 mol N per mol CH₂O — not the
-	# 0.0500 that spending the mass ratio directly produced. FERT shares organic matter's molar basis, so
-	# this is also its coefficient with no further conversion.
+	# MASSES, and (CARBON_MOLAR_MASS / 20) / NITROGEN_MOLAR_MASS = 0.0429 mol N per mol CH2O — not the 0.0500
+	# that spending the mass ratio directly produced.
 	var organic_n: float = float(LAReactionBalance.composition()[DETRITUS]["N"])
+	# TRANSPIRED WATER per unit of CO2 fixed, in water-channel units: a measured molar ratio put through the
+	# same unit bridge as everything else. 400 mol H2O per mol C is 0.0617 here.
+	var transpired: float = TRANSPIRATION_MOL_H2O_PER_MOL_C * soil_per_co2
 	return [
-		# R15 — Fungus DECOMPOSE: detritus + O₂ → CO₂ (self) + fertility (scratch) (fungus_sphere3d:100-118).
-		# BILINEAR: x = DECOMPOSE_RATE*fungus*detritus, capped by the detritus + O₂ reactants (the aerobic cap
-		# falls out of listing O₂ as a reactant, coeff O2_PER_DECOMPOSE). Fert → SCRATCH (fungus_fert reduce).
-		rec(BILINEAR, DECOMPOSE_RATE, FUNGUS,
-			[[DETRITUS, 1.0], [O2, O2_PER_DECOMPOSE * o2_per_org]],
-			[[CO2, CO2_PER_DECOMPOSE * co2_per_org, TGT_SELF],
-				[MOISTURE, DECOMPOSE_WATER_YIELD * w_per_org, TGT_SELF],
+		# R15 — FUNGUS DECOMPOSE: detritus + O2 -> CO2 (self) + water + fertility (scratch).
+		# BILINEAR: x = DECOMPOSE_RATE * fungus * detritus, capped by the detritus and O2 present — the
+		# aerobic limit falls out of listing O2 as a reactant rather than being a branch anywhere.
+		#
+		# THE STOICHIOMETRY IS FULL OXIDATION and every coefficient below is a literal 1 in moles:
+		#     CH2O + O2 -> CO2 + H2O,  releasing the nitrogen the carbon leg leaves behind.
+		# *(Three constants — CO2_PER_DECOMPOSE, O2_PER_DECOMPOSE, DECOMPOSE_WATER_YIELD — are DELETED. All
+		# three were 1.0 and all three restated one equation. They existed because the table once shipped
+		# O2 at 0.8 against CO2 at 1.0, an 18 % under-oxidation that created oxygen every cycle, and setting
+		# two constants equal by hand was the fix available at the time. LAReactionBalance enforces it
+		# structurally now: an unbalanced oxygen column refuses the whole table at load.)*
+		rec(BILINEAR, _decompose_k(), FUNGUS,
+			[[DETRITUS, 1.0], [O2, o2_per_org]],
+			[[CO2, co2_per_org, TGT_SELF],
+				[MOISTURE, w_per_org, TGT_SELF],
 				[FERT, organic_n * fert_per_org, TGT_SCRATCH]],
 			0, 0.0, DETRITUS),
 
-		# R19 — PHOTOSYNTHESIS: light + CO₂ + soil water + nutrient → biomass + O₂ + transpired vapour, on the
-		# GROUND. OPTIMUM_BAND: x = PHOTO_RATE * LIGHT * band(TEMP; PHOTO_T_OPT, PHOTO_T_WIDTH). LIGHT is the
-		# driver because light is what drives photosynthesis; temperature is a BAND because the reaction has an
-		# optimum, not a slope (see the constants block above for what this replaced and why).
+		# R19 — PHOTOSYNTHESIS: light + CO2 + soil water + nutrient -> biomass + O2 + transpired vapour, on
+		# the GROUND. OPTIMUM_BAND: x = PHOTO_RATE * LIGHT * band(TEMP; PHOTO_T_OPT, PHOTO_T_WIDTH). LIGHT
+		# drives it because light is what drives photosynthesis, and it is the real per-cell insolation the
+		# solar kernel uses, so there is one sun. TEMP is a BAND because the reaction has an optimum: the
+		# upper edge is also what stops a lava flow growing plants, with no "is it lava" test anywhere.
 		#
-		# THREE Liebig reactants cap the extent — x ≤ min(co2, root_water/PHOTO_WATER_COST, fert/FERT_UPTAKE_COST)
-		# — so growth is limited by whichever input is actually scarce here, which is the whole point: carbon on a
-		# drawn-down leaf, water on a plateau, nutrient on barren rock. No branch decides which; the min does.
+		# THREE Liebig reactants cap the extent — x <= min(co2, root_water/(1 + transpired), fert/uptake) —
+		# so growth is limited by whichever input is actually scarce: carbon on a drawn-down leaf, water on a
+		# plateau, nutrient on barren rock. No branch decides which; the min does.
 		#
-		# The water leg is a CONSERVING PHASE TRANSFER, not a consumption: SOIL_ROOT is debited by
-		# PHOTO_WATER_COST·x and MOISTURE is credited by exactly the same PHOTO_WATER_COST·x. That is
-		# transpiration — roots lift liquid groundwater, leaves release it as vapour — and it is the identical
-		# debit-one-credit-the-other shape R21/R22 use for freeze/melt, so h2o_total (water+moisture+snow+soil)
-		# is untouched by it. It also couples two systems that had never met: the aquifer now feels the forest,
-		# and the forest humidifies its own air.
-		rec(OPTIMUM_BAND, PHOTO_RATE, LIGHT,
-			# THE TWO WATER LEGS ARE DIFFERENT QUANTITIES AND ONLY ONE OF THEM IS STOICHIOMETRY.
-			# The 1.0 inside PHOTO_WATER_DRAW is the H₂O that becomes biomass — one per CO₂, a molar fact, so
-			# it converts. PHOTO_WATER_COST is TRANSPIRATION, a plant behaviour measured in water channel
-			# units already; at 0.05 it is 0.05 * 55343 / 8.535 = 324 moles of water per mole of carbon fixed,
-			# squarely inside the real 200-1000 range, so it is left alone. Debiting SOIL_ROOT by
-			# (stoichiometric + transpired) and crediting MOISTURE by the transpired part keeps h2o_total
-			# untouched by the transpiration leg, which is what makes it a phase transfer rather than a loss.
-			[[CO2, 1.0], [SOIL_ROOT, soil_per_co2 + PHOTO_WATER_COST], [FERT, organic_n * fert_per_co2]],
-			[[O2, PHOTO_O2_YIELD, TGT_SELF], [BIOMASS, PHOTO_BIOMASS_YIELD * org_per_co2, TGT_SELF],
-				[MOISTURE, PHOTO_WATER_COST, TGT_SELF]],
+		# GATE_NEAR_GROUND is where a plant is — the ground-hugging open cell with rock beneath it, roots in
+		# the soil below and leaves in the air. (It was GATE_SURFACE, which on a shell is the TOP OF THE
+		# ATMOSPHERE: measured 2026-07-29, biomass at the sky skin 2334 and at the ground skin 0.0.)
+		# GATE_NOT_STATIC keeps it out of the infinite sea reservoir, which is an unsimulated abstraction.
+		#
+		# THE WATER LEGS ARE TWO DIFFERENT QUANTITIES. `soil_per_co2` is the H2O SPLIT by the reaction — one
+		# molecule per carbon, whose hydrogen becomes the sugar and whose oxygen leaves as the O2 — and it is
+		# consumed. `transpired` is the water the plant moves through itself to do it, and it is a CONSERVING
+		# PHASE TRANSFER: SOIL_ROOT is debited by exactly what MOISTURE is credited, so h2o_total does not
+		# see it. That is what couples the aquifer to the forest and the forest to its own humidity.
+		rec(OPTIMUM_BAND, _photo_k(), LIGHT,
+			[[CO2, 1.0], [SOIL_ROOT, soil_per_co2 + transpired], [FERT, organic_n * fert_per_co2]],
+			[[O2, o2_per_co2, TGT_SELF], [BIOMASS, org_per_co2, TGT_SELF],
+				[MOISTURE, transpired, TGT_SELF]],
 			GATE_NEAR_GROUND | GATE_NOT_STATIC, PHOTO_T_OPT, TEMP, PHOTO_T_WIDTH),
 
-		# R20 — RESPIRATION + DECAY: biomass + O₂ → CO₂ + detritus + mineral nitrogen, everywhere biomass
-		# exists (ungated). BILINEAR: x = RESP_RATE*biomass*o2; the BIOMASS reactant caps the extent (can't
-		# respire more than is present) and the O₂ reactant makes it aerobic. Products: CO₂ back to the air,
-		# DETRITUS litter (which the fungus-decompose R15 then rots into CO₂ + fertility), and the NITROGEN
-		# the carbon leg leaves behind — see RESP_FERT_YIELD. Without that third product this record destroyed
-		# 60% of the nitrogen in every unit of biomass it touched.
-		rec(BILINEAR, RESP_RATE, BIOMASS, [[BIOMASS, 1.0], [O2, RESP_O2_COST * o2_per_org]],
-			[[CO2, RESP_CO2_YIELD * co2_per_org, TGT_SELF], [DETRITUS, RESP_DET_YIELD, TGT_SELF],
-				[MOISTURE, RESP_WATER_YIELD * w_per_org, TGT_SELF],
-				[FERT, organic_n * (1.0 - RESP_DET_YIELD) * fert_per_org, TGT_SELF]],
+		# R20a — MAINTENANCE RESPIRATION: biomass + O2 -> CO2 + water + mineral nitrogen, everywhere biomass
+		# exists. BILINEAR: x = RESP_RATE * biomass * o2; the BIOMASS reactant caps it (nothing can respire
+		# more than is present) and the O2 reactant makes it aerobic. Full oxidation, CH2O + O2 -> CO2 + H2O,
+		# so the carbon and water coefficients are ones in moles.
+		#
+		# THE NITROGEN LEG IS NOT OPTIONAL. Burning the carbon off a molecule does not destroy the nitrogen
+		# in it, and this substrate's organic matter carries a FIXED C:N ratio, so nitrogen cannot stay
+		# behind in a smaller amount of tissue — it has to go somewhere, and the somewhere is the soil's
+		# plant-available pool. Plants really do resorb nitrogen before shedding tissue and the rest really
+		# is mineralised. Without this product the record destroyed the nitrogen of everything it touched.
+		rec(BILINEAR, _resp_k(), BIOMASS, [[BIOMASS, 1.0], [O2, o2_per_org]],
+			[[CO2, co2_per_org, TGT_SELF], [MOISTURE, w_per_org, TGT_SELF],
+				[FERT, organic_n * fert_per_org, TGT_SELF]],
 			0, 0.0, O2),
+
+		# R20b — LITTERFALL: biomass -> detritus. CONST_FRAC: x = LITTERFALL_RATE * biomass, capped by the
+		# biomass present. Living tissue and dead litter are the SAME substance in two places, so this is a
+		# pure one-for-one move with no chemistry in it — which is exactly why it must not have been sharing
+		# a record, and an oxygen cap, with the oxidation above.
+		rec(CONST_FRAC, _litterfall_k(), BIOMASS, [[BIOMASS, 1.0]], [[DETRITUS, 1.0, TGT_SELF]], 0),
 	]
