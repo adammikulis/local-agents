@@ -132,7 +132,7 @@ func _rebuild(radial: Vector3) -> void:
 	if _f._water.size() != grid.cell_count:
 		return
 	var inv_xform: Transform3D = global_transform.affine_inverse()
-	var out: Dictionary = _builder.build(grid, _f._water, _f._solid, _f._static,
+	var out: Dictionary = _builder.build(grid, _f._water, _f._solid,
 		inv_xform, radial, cos(CAP_ANGLE), _f.RENDER_MIN, MAX_MASS, _sea_radius, _f.SEA_WAVE_EPS)
 	if _mesh.get_surface_count() > 0:
 		_mesh.clear_surfaces()

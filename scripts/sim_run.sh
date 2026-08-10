@@ -25,8 +25,8 @@
 #   --raw          print the whole SIM_REPORT as formatted JSON instead of a key list
 #   --keep         keep the log file and print its path
 #
-# EXIT CODES are the wrapper's, unchanged: 0 clean · 3 stale shaders · 124 never reported · 125 hung after
-# reporting · 126 CONSERVATION_VIOLATION. A non-zero exit is printed loudly rather than swallowed.
+# EXIT CODES: 0 clean · 3 stale shaders · 4 the run logged engine errors (numbers withheld) · 124 never
+# reported · 125 hung after reporting · 126 CONSERVATION_VIOLATION.
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -64,7 +64,17 @@ command -v python3 >/dev/null 2>&1 || { echo "sim_run: python3 is not on PATH (n
 # RE-IMPORT FIRST, ALWAYS. A .glsl edited since its last import leaves the compiled .res stale, and the run
 # would load the OLD kernel and print a normal-looking report built on it. The wrapper refuses to launch a
 # stale tree (exit 3), so this turns that refusal into a non-event instead of a thing to remember.
-godot --headless --path "$PROJ" --import >/dev/null 2>&1
+# Only import when a .glsl is newer than its compiled .res — a full import costs ~2.3s and most runs need none.
+NEED_IMPORT=0
+while IFS= read -r g; do
+  base="$(basename "$g")"
+  newest_res="$(ls -t "$PROJ/.godot/imported/${base}-"*.res 2>/dev/null | head -1)"
+  if [ -z "$newest_res" ] || [ "$g" -nt "$newest_res" ]; then NEED_IMPORT=1; break; fi
+done < <(find "$PROJ/addons" -name '*.glsl' 2>/dev/null)
+if [ "$NEED_IMPORT" -eq 1 ]; then
+  echo "sim_run: a kernel changed — importing." >&2
+  godot --headless --path "$PROJ" --import >/dev/null 2>&1
+fi
 
 ARGS=(--sandbox "--run-frames=${FRAMES}" "--fast=${FAST}" "--seed=${SEED}")
 [ "$FULL" -eq 0 ] && ARGS+=(--planet-only)
@@ -90,10 +100,22 @@ if [ "$RC" -ne 0 ]; then
   tail -15 "$LOG" | cut -c1-200 >&2
 fi
 
+# ERROR CENSUS FIRST, ALWAYS, AND IT IS FATAL. A run can emit a million SCRIPT ERROR lines and still print a
+# perfectly normal SIM_REPORT; the first version of this script grepped only for get_spirv and printed the
+# numbers, so a broken tree looked healthy for an entire session. If the engine complained, the numbers are
+# not evidence of anything and this refuses to show them.
+ERRS=$(grep -cE '^(SCRIPT )?ERROR:|errored bytecode|Parameter "shader" is null' "$LOG" 2>/dev/null || true)
+if [ "${ERRS:-0}" -gt 0 ]; then
+  echo "sim_run: ${ERRS} ENGINE ERROR LINE(S). THE RUN IS INVALID — numbers withheld." >&2
+  grep -oE '^(SCRIPT )?ERROR: .{0,110}' "$LOG" | sort | uniq -c | sort -rn | head -8 >&2
+  [ "$KEEP" -eq 1 ] && echo "sim_run: log kept at $LOG" >&2 || rm -f "$LOG"
+  exit 4
+fi
+
 # A silently-dead GPU field prints a normal-looking report, so say so rather than letting a reader assume.
-if grep -qiE "get_spirv|on a null value" "$LOG" 2>/dev/null; then
-  echo "sim_run: SHADER LOAD FAILURE in this run — every number below is fiction." >&2
-  grep -iE "get_spirv|on a null value" "$LOG" | head -3 >&2
+if grep -qiE "get_spirv|on a null value|errored bytecode|Parameter \"shader\" is null|SCRIPT ERROR" "$LOG" 2>/dev/null; then
+  echo "sim_run: SHADER OR SCRIPT FAILURE in this run — every number below is fiction." >&2
+  grep -iE "get_spirv|on a null value|errored bytecode|Parameter \"shader\" is null|SCRIPT ERROR" "$LOG" | head -5 >&2
 fi
 
 REPORT_KEYS="$REPORT_KEYS" RAW="$RAW" python3 - "$LOG" <<'PY'

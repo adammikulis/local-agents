@@ -7,7 +7,6 @@ layout(local_size_x = 64) in;
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer WaterIn { float water_in[]; };   // settled water (back half)
 layout(set = 0, binding = 1, std430) restrict readonly buffer Solid { float solid[]; };
-layout(set = 0, binding = 2, std430) restrict readonly buffer Static { float static_cells[]; }; // calm sea sink (no scour)
 layout(set = 0, binding = 3, std430) restrict buffer RockFill { float rock_fill[]; };            // bedrock mineral — scoured in place (cross-cell to DOWN, unique)
 layout(set = 0, binding = 4, std430) restrict buffer Susp { float susp[]; };                     // susp back half — += scour, OWN-cell only
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };             // idx*6 + slot
@@ -37,7 +36,7 @@ void main() {
 	// below therefore writes NOTHING — leaving that load exactly as transport left it.
 
 	// Only OPEN, non-static (genuinely flowing) water cells scour. Rock and the held static sea are inert.
-	if (solid[gidx] != 0.0 || static_cells[gidx] != 0.0) {
+	if (solid[gidx] != 0.0) {
 		return;
 	}
 	float depth = water_in[gidx];

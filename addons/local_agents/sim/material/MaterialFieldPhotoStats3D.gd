@@ -27,7 +27,6 @@ func report() -> Dictionary:
 		return out
 	var cc: int = _f._cell_count
 	var solid: PackedByteArray = _f._solid
-	var stat: PackedByteArray = _f._static
 	var soil: PackedFloat32Array = _f._soil
 	var regolith: PackedByteArray = _f._regolith
 	var biomass: PackedFloat32Array = _f._biomass
@@ -79,7 +78,7 @@ func report() -> Dictionary:
 	var open_soil: float = 0.0                               # soil in those cells — what the old solid-masked walk lost
 
 	for c in cc:
-		if solid[c] != 0 or stat[c] != 0:
+		if solid[c] != 0:
 			continue                                     # rock, and the static sea reservoir, are not plant ground
 		var r: int = c % depth
 		if (r >= depth - 1) or (solid[c + 1] != 0):      # SKY skin = the kernel's GATE_SURFACE test

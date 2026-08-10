@@ -68,7 +68,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var rock_fill: RID = _single(bufs, "rock_fill")
 	var soil: Array = _pair(bufs, "soil")
 	var radial: RID = _single(bufs, "radial")
-	var static_rid: RID = _single(bufs, "static")
 	var regolith: RID = _single(bufs, "regolith")   # aquifer mask — the column SOIL_ROOT walks (see below)
 	# oxidises it, and it is the only sink fuel has anywhere in the tree. `fire` is a PAIR but is NOT a
 	# channel: the kernel assigns it as the fraction of a cell's fuel that burned this step, purely so
@@ -115,7 +114,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[38, bufs["porosity"]],  # phi — rc_of and the overburden walk convert rock_fill with it
 			                        # regolith column BENEATH an open cell (SOIL_ROOT), the only place soil exists
 			[25, radial],           # per-cell outward unit vector — the derived LIGHT slot's geometry
-			[26, static_rid],       # infinite sea/lake reservoir mask — GATE_NOT_STATIC
 			[27, regolith],         # aquifer permeability mask — root_soil() walks THIS, not `solid`
 			[28, carbonate],        # SINGLE CaCO3 — D1b (the Urey reaction) credits it, D1c debits it
 			[29, silica],           # SINGLE SiO2 — the weathering residue, same two records

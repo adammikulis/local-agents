@@ -11,7 +11,6 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer SuspIn { float sus
 layout(set = 0, binding = 1, std430) restrict writeonly buffer SuspOut { float susp_out[]; };
 layout(set = 0, binding = 2, std430) restrict readonly buffer Water { float water[]; };          // PRE-step water (live half)
 layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float solid[]; };
-layout(set = 0, binding = 4, std430) restrict readonly buffer Static { float static_cells[]; };  // calm sea: receives, never sends
 layout(set = 0, binding = 5, std430) restrict buffer Send { float send[]; };                     // idx*6 + dir (shared scratch)
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };             // idx*6 + slot
 
@@ -48,7 +47,7 @@ void main() {
 		send[base + 5u] = 0.0;
 
 		// Rock carries nothing; the held calm sea has no head, so it receives but never sends.
-		if (params.enabled == 0u || solid[gidx] != 0.0 || static_cells[gidx] != 0.0) {
+		if (params.enabled == 0u || solid[gidx] != 0.0) {
 			return;
 		}
 		float load = susp_in[gidx];
@@ -68,7 +67,7 @@ void main() {
 		int ib = nbr[base + 0u];
 		raw[0] = 0.0;
 		if (ib >= 0 && solid[ib] == 0.0) {
-			raw[0] = (static_cells[ib] != 0.0) ? w : min(w, max(0.0, MAX_MASS - water[uint(ib)]));
+			raw[0] = min(w, max(0.0, MAX_MASS - water[uint(ib)]));
 		}
 		total += raw[0];
 
@@ -76,11 +75,6 @@ void main() {
 			raw[d + 1] = 0.0;
 			int inb = nbr[base + 1u + uint(d)];
 			if (inb < 0 || solid[inb] != 0.0) {
-				continue;
-			}
-			if (static_cells[inb] != 0.0) {
-				raw[d + 1] = w * LATERAL_SHARE;
-				total += raw[d + 1];
 				continue;
 			}
 			float head = w - water[uint(inb)];

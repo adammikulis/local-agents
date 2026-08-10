@@ -27,7 +27,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	_pipe = _rd.compute_pipeline_create(_shader)
 
 	var solid_rid: RID = bufs.get("solid", RID())
-	var static_rid: RID = bufs.get("static", RID())
 	var send_rid: RID = bufs.get("send", RID())
 	var nbr_rid: RID = bufs.get("nbr", RID())
 	var regolith_rid: RID = bufs.get("regolith", RID())
@@ -42,7 +41,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 		_set[p] = _build_set(_shader, [
 			[0, water_pair[back]],     # Water  = settled back water (read-modify-write)
 			[1, solid_rid],            # Solid
-			[2, static_rid],           # Static (sea reservoir — skipped)
 			[3, send_rid],             # Send scratch
 			[4, soil_pair[p]],         # SoilIn  = live soil (last step's output)
 			[5, soil_pair[back]],      # SoilOut = back soil (this step's output)

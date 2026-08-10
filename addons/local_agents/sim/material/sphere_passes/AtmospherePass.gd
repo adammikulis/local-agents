@@ -76,7 +76,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var temp: Array = bufs["temp"]
 	var water: Array = bufs["water"]
 	var solid: RID = bufs["solid"]
-	var stat: RID = bufs["static"]
 	var vel_x: RID = bufs["vel_x"]
 	var vel_y: RID = bufs["vel_y"]
 	var vel_z: RID = bufs["vel_z"]
@@ -102,7 +101,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# 4=STATIC (rain over the sea vanishes into the infinite reservoir, not
 		# parked in undrained static-cell water — the fix for the unbounded h2o climb), 15=nbr.
 		_rain_set[p] = _mkset(rd, _rain_shader, [
-			[0, _rain_buf], [1, solid], [2, water[back]], [4, stat], [15, nbr]])
+			[0, _rain_buf], [1, solid], [2, water[back]], [15, nbr]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:

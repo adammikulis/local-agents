@@ -7,7 +7,6 @@ layout(local_size_x = 64) in;
 
 layout(set = 0, binding = 0, std430) restrict buffer Water { float water[]; };            // settled surface water (in place)
 layout(set = 0, binding = 1, std430) restrict readonly buffer Solid { float solid[]; };
-layout(set = 0, binding = 2, std430) restrict readonly buffer Static { float static_cells[]; };
 layout(set = 0, binding = 3, std430) restrict buffer Send { float send[]; };                // idx*6 + dir (shared scratch)
 layout(set = 0, binding = 4, std430) restrict readonly buffer SoilIn { float soil_in[]; };  // live soil (last step)
 layout(set = 0, binding = 5, std430) restrict writeonly buffer SoilOut { float soil_out[]; };

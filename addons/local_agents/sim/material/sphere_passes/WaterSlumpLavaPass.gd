@@ -1,28 +1,26 @@
 extends RefCounted
 
+## Gravity-driven mass movement for every flowing material, through one kernel.
+## Two passes per material (outflow, then gather) sharing the driver's `send` scratch.
 
-const WATER_PATH: String = "res://addons/local_agents/sim/material/kernels3d/water_sphere3d.glsl"
-const SLUMP_PATH: String = "res://addons/local_agents/sim/material/kernels3d/slump_sphere3d.glsl"
-const LAVA_PATH: String = "res://addons/local_agents/sim/material/kernels3d/lava_flow_sphere3d.glsl"
+const FLOW_PATH: String = "res://addons/local_agents/sim/material/kernels3d/gravity_flow_sphere3d.glsl"
+
+## One row per flowing material. `repose` is LAPhysical.REPOSE_TAN_DRY_GRANULAR for granular material and 0
+## for a fluid, which levels out freely. The flow caps are model parameters of this grid and step.
+const MATERIALS: Array = [
+	{"channel": "water", "max_flow": 1.0, "lateral": 0.5, "repose": 0.0},
+	{"channel": "sediment", "max_flow": 0.5, "lateral": 0.25,
+		"repose": LAPhysical.REPOSE_TAN_DRY_GRANULAR},
+	{"channel": "lava", "max_flow": 0.25, "lateral": 0.25, "repose": 0.0},
+]
+const MIN_FLOW: float = 0.01
+const MIN_MASS: float = 0.0001
 
 var _rd: RenderingDevice = null
-
-# Compiled shaders (kept so their RIDs stay owned for the pipeline's lifetime).
-var _water_shader: RID = RID()
-var _slump_shader: RID = RID()
-var _lava_shader: RID = RID()
-
-# Compute pipelines.
-var _water_pipe: RID = RID()
-var _slump_pipe: RID = RID()
-var _lava_pipe: RID = RID()
-
-# Uniform sets, one per parity p in [0, 1].
-var _water_set: Array = [RID(), RID()]
-var _slump_set: Array = [RID(), RID()]
-var _lava_set: Array = [RID(), RID()]
-
-# Shared outflow scratch (idx*6 + dir). Self-cleared by each kernel's pass 0 — no external buffer_clear.
+var _flow_shader: RID = RID()
+var _flow_pipe: RID = RID()
+## _sets[material_index][parity]
+var _sets: Array = []
 var _send: RID = RID()
 
 
@@ -32,152 +30,92 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		push_error("WaterSlumpLavaPass: null RenderingDevice")
 		return
 
-	_send = bufs.get("send", RID())  # the SINGLE shared outflow scratch (float32, cc*6)
+	_send = bufs.get("send", RID())
 
-	# --- Compile the three kernels -------------------------------------------------
-	var water_sf: RDShaderFile = load(WATER_PATH)
-	_water_shader = _rd.shader_create_from_spirv(water_sf.get_spirv())
-	_water_pipe = _rd.compute_pipeline_create(_water_shader)
+	var sf: RDShaderFile = load(FLOW_PATH)
+	_flow_shader = _rd.shader_create_from_spirv(sf.get_spirv())
+	_flow_pipe = _rd.compute_pipeline_create(_flow_shader)
 
-	var slump_sf: RDShaderFile = load(SLUMP_PATH)
-	_slump_shader = _rd.shader_create_from_spirv(slump_sf.get_spirv())
-	_slump_pipe = _rd.compute_pipeline_create(_slump_shader)
-
-	var lava_sf: RDShaderFile = load(LAVA_PATH)
-	_lava_shader = _rd.shader_create_from_spirv(lava_sf.get_spirv())
-	_lava_pipe = _rd.compute_pipeline_create(_lava_shader)
-
-	# --- Resolve the shared SINGLE buffers once ------------------------------------
 	var solid_rid: RID = bufs.get("solid", RID())
-	var static_rid: RID = bufs.get("static", RID())
-	var send_rid: RID = _send
 	var nbr_rid: RID = bufs.get("nbr", RID())
-
-	# PAIR channels: [live, back] per parity.
-	var water_pair: Array = bufs.get("water", [RID(), RID()])
-	var sediment_pair: Array = bufs.get("sediment", [RID(), RID()])
-	var lava_pair: Array = bufs.get("lava", [RID(), RID()])
+	var larc_rid: RID = bufs.get("link_arc", RID())
 	var temp_pair: Array = bufs.get("temp", [RID(), RID()])
 
-	# --- Two uniform sets per kernel (one per parity) ------------------------------
+	_sets = []
+	for _m in MATERIALS.size():
+		_sets.append([RID(), RID()])
 	for p in 2:
 		var back: int = 1 - p
-		_water_set[p] = _build_set(_water_shader, [
-			[0, water_pair[p]],      # WaterIn  = live water
-			[1, solid_rid],          # Solid
-			[2, static_rid],         # Static (infinite sink)
-			[3, send_rid],           # Send scratch
-			[4, water_pair[back]],   # WaterOut = back water
-			[15, nbr_rid],           # Neigh table
-		])
-		_slump_set[p] = _build_set(_slump_shader, [
-			[0, sediment_pair[p]],   # SedIn  = live sediment
-			[1, solid_rid],          # Solid
-			[2, send_rid],           # Send scratch
-			[3, sediment_pair[back]], # SedOut = back sediment
-			[15, nbr_rid],           # Neigh table
-			[16, bufs["link_arc"]],  # angular separation per lateral link — the RUN the repose angle needs
-		])
-		_lava_set[p] = _build_set(_lava_shader, [
-			[0, lava_pair[p]],       # LavaIn  = live lava
-			[1, solid_rid],          # Solid
-			[2, send_rid],           # Send scratch
-			[3, lava_pair[back]],    # LavaOut = back lava
-			[4, temp_pair[p]],       # Temp    = live temp (carry-heat, in-place read/modify)
-			[15, nbr_rid],           # Neigh table
-		])
+		for mi in MATERIALS.size():
+			var pair: Array = bufs.get(String(MATERIALS[mi]["channel"]), [RID(), RID()])
+			_sets[mi][p] = _build_set(_flow_shader, [
+				[0, pair[p]], [1, pair[back]], [2, _send], [3, solid_rid],
+				[5, temp_pair[p]], [15, nbr_rid], [16, larc_rid],
+			])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if _rd == null:
 		return
-	# Each CA is a 2-pass gather sharing the single `send` scratch (each pass 0 self-zeroes it). Order: water, slump, lava.
-	_two_pass(rd, cl, _water_pipe, _water_set[parity], cc, groups)
-	# Slump needs the shell geometry the other two do not: the angle of repose is a slope, and a slope needs
-	# the lateral RUN, which on a cubed sphere varies with radius and with distance from a face corner.
-	_two_pass_geo(rd, cl, _slump_pipe, _slump_set[parity], cc, groups,
-		maxi(int(ctx.get("depth", 1)), 1), float(ctx.get("core_radius", 0.0)), float(ctx.get("cell_size", 1.0)))
-	_two_pass(rd, cl, _lava_pipe, _lava_set[parity], cc, groups)
+	var depth: int = maxi(int(ctx.get("depth", 1)), 1)
+	var core_radius: float = float(ctx.get("core_radius", 0.0))
+	var cell_size: float = float(ctx.get("cell_size", 1.0))
+	for mi in MATERIALS.size():
+		_two_pass(rd, cl, _sets[mi][parity], cc, groups, MATERIALS[mi], depth, core_radius, cell_size)
 
 
-## Free every RID this pass owns (uniform sets, then pipelines, then shaders), in dependent-first order,
-## before the driver drops the local RenderingDevice. The `send` scratch is BORROWED from the driver's
-## `bufs` (not created here) so it is NOT freed here — the driver frees it.
 func dispose(rd: RenderingDevice) -> void:
 	if rd == null:
 		return
-	for s: Array in [_water_set, _slump_set, _lava_set]:
+	for s: Array in _sets:
 		for r in s:
 			if r is RID and r.is_valid():
 				rd.free_rid(r)
-	_water_set = [RID(), RID()]
-	_slump_set = [RID(), RID()]
-	_lava_set = [RID(), RID()]
-	for r: RID in [_water_pipe, _slump_pipe, _lava_pipe,
-			_water_shader, _slump_shader, _lava_shader]:
+	_sets = []
+	for r: RID in [_flow_pipe, _flow_shader]:
 		if r.is_valid():
 			rd.free_rid(r)
-	_water_pipe = RID()
-	_slump_pipe = RID()
-	_lava_pipe = RID()
-	_water_shader = RID()
-	_slump_shader = RID()
-	_lava_shader = RID()
+	_flow_pipe = RID()
+	_flow_shader = RID()
 
 
 # --- helpers ------------------------------------------------------------------
 
-func _two_pass_geo(rd: RenderingDevice, cl: int, pipe: RID, uset: RID, cc: int, groups: int,
+func _two_pass(rd: RenderingDevice, cl: int, uset: RID, cc: int, groups: int, mat: Dictionary,
 		depth: int, core_radius: float, cell_size: float) -> void:
 	for pass_id in 2:
-		rd.compute_list_bind_compute_pipeline(cl, pipe)
+		rd.compute_list_bind_compute_pipeline(cl, _flow_pipe)
 		rd.compute_list_bind_uniform_set(cl, uset, 0)
-		var pc: PackedByteArray = PackedByteArray()
-		pc.resize(32)
-		pc.encode_u32(0, cc)
-		pc.encode_u32(4, pass_id)
-		pc.encode_u32(8, depth)
-		pc.encode_float(12, core_radius)
-		pc.encode_float(16, cell_size)
-		pc.encode_float(20, 0.0)
-		pc.encode_float(24, 0.0)
-		pc.encode_float(28, 0.0)
+		var pc: PackedByteArray = _pc(cc, pass_id, mat, depth, core_radius, cell_size)
 		rd.compute_list_set_push_constant(cl, pc, pc.size())
 		rd.compute_list_dispatch(cl, groups, 1, 1)
 		rd.compute_list_add_barrier(cl)
 
 
-func _two_pass(rd: RenderingDevice, cl: int, pipe: RID, uset: RID, cc: int, groups: int) -> void:
-	# PASS 0 — outflow
-	rd.compute_list_bind_compute_pipeline(cl, pipe)
-	rd.compute_list_bind_uniform_set(cl, uset, 0)
-	var pc0: PackedByteArray = _pc(cc, 0)
-	rd.compute_list_set_push_constant(cl, pc0, pc0.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)
+## { cell_count, pass_id, depth, core_radius, cell_size, max_flow, min_flow, min_mass, lateral, repose }
+func _pc(cc: int, pass_id: int, mat: Dictionary, depth: int, core_radius: float,
+		cell_size: float) -> PackedByteArray:
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(40)
+	pc.encode_u32(0, cc)
+	pc.encode_u32(4, pass_id)
+	pc.encode_u32(8, depth)
+	pc.encode_float(12, core_radius)
+	pc.encode_float(16, cell_size)
+	pc.encode_float(20, float(mat["max_flow"]))
+	pc.encode_float(24, MIN_FLOW)
+	pc.encode_float(28, MIN_MASS)
+	pc.encode_float(32, float(mat["lateral"]))
+	pc.encode_float(36, float(mat["repose"]))
+	return pc
 
-	# PASS 1 — inflow / apply
-	rd.compute_list_bind_compute_pipeline(cl, pipe)
-	rd.compute_list_bind_uniform_set(cl, uset, 0)
-	var pc1: PackedByteArray = _pc(cc, 1)
-	rd.compute_list_set_push_constant(cl, pc1, pc1.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)
 
-
-## Builds a uniform set from a list of [binding, rid] pairs bound to the shader's set 0.
 func _build_set(shader: RID, entries: Array) -> RID:
 	var uniforms: Array = []
 	for e in entries:
-		var binding: int = e[0]
-		var buf: RID = e[1]
 		var u: RDUniform = RDUniform.new()
 		u.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-		u.binding = binding
-		u.add_id(buf)
+		u.binding = int(e[0])
+		u.add_id(e[1])
 		uniforms.append(u)
 	return _rd.uniform_set_create(uniforms, shader, 0)
-
-
-func _pc(cc: int, pass_id: int) -> PackedByteArray:
-	return PackedInt32Array([cc, pass_id, 0, 0]).to_byte_array()

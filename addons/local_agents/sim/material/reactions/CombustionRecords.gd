@@ -44,6 +44,6 @@ static func records() -> Array:
 			[[CO2, co2_per_fuel, TGT_SELF],
 				[MOISTURE, w_per_fuel, TGT_SELF],
 				[FERT, organic_n * fert_per_fuel, TGT_SELF]],
-			GATE_NOT_STATIC, LAPhysical.CELLULOSE_PYROLYSIS_EA_OVER_R_K, O2, PYROLYSIS_REF_TEMP_K,
+			0, LAPhysical.CELLULOSE_PYROLYSIS_EA_OVER_R_K, O2, PYROLYSIS_REF_TEMP_K,
 			-1, 0.0, 0.0, _enthalpy_j_m3(o2_per_fuel), O2, OXYGEN_QUENCH),
 	]

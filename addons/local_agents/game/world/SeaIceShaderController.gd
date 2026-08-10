@@ -52,7 +52,7 @@ func _process(delta: float) -> void:
 	if not _field.is_sphere():
 		return
 	var snap: Dictionary = _field.climate_snapshot()
-	if snap.is_empty() or not snap.has("static"):
+	if snap.is_empty():
 		return
 	var grid: RefCounted = _field.sphere_grid()
 	if grid == null:
@@ -60,7 +60,7 @@ func _process(delta: float) -> void:
 	if _baker == null:
 		_baker = SeaIceBakerScript.new()
 		_baker.setup(grid)
-	_baker.bake(snap["snow"], snap["solid"], snap["static"], int(snap["cell_count"]))
+	_baker.bake(snap["snow"], snap["solid"], int(snap["cell_count"]))
 	var tex: Texture2DArray = _baker.texture()
 	if tex == null:
 		return

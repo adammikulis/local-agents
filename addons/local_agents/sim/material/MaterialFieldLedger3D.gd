@@ -88,32 +88,11 @@ func h2o_total() -> float:
 	return water_total() + _f.moisture_total() + snow_total() + soil_total()
 
 
-func static_water_total() -> float:
-	if _f._water.size() != _f._cell_count or _f._static.size() != _f._cell_count:
-		return 0.0
-	var solid: PackedByteArray = _f._solid
-	var stat: PackedByteArray = _f._static
-	var water: PackedFloat32Array = _f._water
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		if solid[c] == 0 and stat[c] != 0:
-			sum += water[c]
-	return sum
 
 
 ## How many cells are held static. Sizes the dynamic-sea change: these are the cells that start being
 ## simulated, and they are ALREADY being dispatched every step (every kernel runs the full grid and the
 ## static ones early-out), so this counts new physics work, not new dispatches.
-func static_cell_count() -> int:
-	if _f._static.size() != _f._cell_count:
-		return 0
-	var solid: PackedByteArray = _f._solid
-	var stat: PackedByteArray = _f._static
-	var n: int = 0
-	for c in _f._cell_count:
-		if solid[c] == 0 and stat[c] != 0:
-			n += 1
-	return n
 
 
 func regolith_soil_total() -> float:
@@ -144,7 +123,6 @@ func stranded_soil_total() -> float:
 
 func conservation_report(step_index: int) -> Dictionary:
 	var h2o: float = h2o_total()
-	var static_water: float = static_water_total()
 	var drift: float = 0.0
 	var per_step: float = 0.0
 	if not is_nan(_prev_h2o) and step_index > _prev_step:
@@ -158,8 +136,7 @@ func conservation_report(step_index: int) -> Dictionary:
 		_first_step = step_index
 	var run_steps: int = step_index - _first_step
 	var out: Dictionary = {
-		"h2o_static_water": snappedf(static_water, 0.01),
-		"h2o_dynamic_total": snappedf(h2o - static_water, 0.01),
+		"h2o_dynamic_total": snappedf(h2o, 0.01),
 		"h2o_closed_total": snappedf(h2o, 0.01),
 		"h2o_drift": snappedf(drift, 0.01),
 		"h2o_drift_per_step": snappedf(per_step, 0.001),
@@ -167,7 +144,6 @@ func conservation_report(step_index: int) -> Dictionary:
 		"h2o_run_steps": run_steps,
 		"soil_stranded": snappedf(stranded_soil_total(), 0.01),
 		"soil_stranded_cells": _stranded_cells,
-		"static_cells": static_cell_count(),
 	}
 	if run_steps > 0:
 		out["h2o_run_drift"] = snappedf(h2o - _first_h2o, 0.01)

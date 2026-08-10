@@ -13,10 +13,12 @@ const EnergyLedgerScript: GDScript = preload("res://addons/local_agents/sim/mate
 const SealScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSeal3D.gd")
 const ConservationScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldConservation3D.gd")
 
-## Process frames between recomputes of the O(cells) instrument block. See `_heavy_block()` for why a gate is
-## needed at all — the short version is that this provider is polled every rendered frame, not once a
-## snapshot, and the docstrings that said otherwise were wrong.
-const HEAVY_EVERY_FRAMES: int = 8
+## Process frames between recomputes of the O(cells) instrument block.
+##
+## These gauges are GDScript walks over every cell — measured on frame 1: energy_stock 87.9 ms, energy 38.5,
+## mass 13.7, mineral 11.0, clim 7.1, against a field step of 6.5 ms. At every 8 frames they were ~20x the
+## cost of the simulation they measure and dominated every verification run. `LA_GAUGE_EVERY` overrides.
+const HEAVY_EVERY_FRAMES: int = 64
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 var _photo = null                                        # LAMaterialFieldPhotoStats3D — primary-production spatial stats
@@ -300,9 +302,20 @@ func report() -> Dictionary:
 	return r
 
 
+## True on the last frame of a --run-frames run, so the closing report is always freshly computed.
+func _is_final_frame() -> bool:
+	var want: int = int(Engine.get_meta("la_run_frames", 0))
+	return want > 0 and Engine.get_frames_drawn() >= want - 1
+
+
 func _heavy_block() -> Dictionary:
 	var frame: int = int(Engine.get_process_frames())
-	if not _heavy_cache.is_empty() and frame - _heavy_frame < HEAVY_EVERY_FRAMES:
+	var every: int = HEAVY_EVERY_FRAMES
+	var ov: String = OS.get_environment("LA_GAUGE_EVERY")
+	if ov != "":
+		every = maxi(int(ov), 1)
+	# Always recompute on the final frame so the report a run is judged on is never a stale cache.
+	if not _heavy_cache.is_empty() and frame - _heavy_frame < every and not _is_final_frame():
 		return _heavy_cache
 	_heavy_frame = frame
 	# BY NOTHING: a grep for `clim_lat_mean` found the literal that builds it and no consumer anywhere, so the

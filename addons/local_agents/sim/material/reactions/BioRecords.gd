@@ -120,7 +120,7 @@ static func records() -> Array:
 			[[CO2, 1.0], [SOIL_ROOT, soil_per_co2 + transpired], [FERT, organic_n * fert_per_co2]],
 			[[O2, o2_per_co2, TGT_SELF], [BIOMASS, org_per_co2, TGT_SELF],
 				[MOISTURE, transpired, TGT_SELF]],
-			GATE_NEAR_GROUND | GATE_NOT_STATIC, PHOTO_T_OPT, TEMP, PHOTO_T_WIDTH),
+			GATE_NEAR_GROUND, PHOTO_T_OPT, TEMP, PHOTO_T_WIDTH),
 
 		rec(BILINEAR, _resp_k(), BIOMASS, [[BIOMASS, 1.0], [O2, o2_per_org]],
 			[[CO2, co2_per_org, TGT_SELF], [MOISTURE, w_per_org, TGT_SELF],

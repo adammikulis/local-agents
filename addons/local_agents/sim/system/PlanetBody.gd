@@ -121,6 +121,6 @@ func is_ready_at(world_pos: Vector3) -> bool:
 	return _terrain != null and _terrain.is_ready_at(world_pos)
 
 ## Attach a VoxelViewer under `node` so terrain streams/meshes around it.
-func attach_viewer(node: Node3D) -> void:
+func attach_viewer(node: Node3D, visuals: bool = true) -> void:
 	if _terrain != null:
-		_terrain.attach_viewer(node)
+		_terrain.attach_viewer(node, visuals)

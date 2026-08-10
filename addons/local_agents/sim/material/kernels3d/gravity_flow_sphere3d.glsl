@@ -36,7 +36,7 @@ layout(push_constant, std430) uniform Params {
 	float min_flow;
 	float min_mass;
 	float lateral_frac;
-	float repose_tan;     // 0 disables the repose gate
+	float repose_tan;     // 0 = level out freely
 } params;
 
 const float MAX_MASS = 1.0;
@@ -75,8 +75,7 @@ void main() {
 		// DOWN
 		int ib = nbr[base + 0u];
 		if (ib >= 0 && solid[ib] == 0.0) {
-			{
-				float flow = stable_below(remaining + mass_in[ib]) - mass_in[ib];
+			float flow = stable_below(remaining + mass_in[ib]) - mass_in[ib];
 			flow = clamp(flow, 0.0, min(params.max_flow, remaining));
 			if (flow > params.min_flow) {
 				send[base + 0u] = flow;

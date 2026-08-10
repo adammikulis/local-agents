@@ -929,7 +929,6 @@ func ice_cell_count() -> int:
 func snow_total() -> float:
 	return _ledger.snow_total()
 ## Total liquid water over the field, over every open cell — the static sea/lake reservoir INCLUDED. Its
-## subset is `_ledger.static_water_total()`; the sea-excluded figure is SIM_REPORT's `h2o_dynamic_total`.
 func water_total() -> float:
 	return _ledger.water_total()
 ## Total water stored in the SOIL, over every REGOLITH cell — the subsurface leg of the conserved h2o budget.

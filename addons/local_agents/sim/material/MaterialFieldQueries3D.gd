@@ -544,12 +544,12 @@ func fertility_peak() -> float:
 
 ## True if linear cell `c` is the topmost layer of the static sea (the freezable sea surface).
 func _is_sea_surface(c: int, depth: int) -> bool:
-	if _f._static[c] == 0 or _f._solid[c] != 0:
+	if _f._solid[c] != 0:
 		return false
 	var r: int = c % depth
 	if r == depth - 1:
 		return true                                   # outermost shell — nothing above it
-	return _f._static[c + 1] == 0                     # the cell just outward is air → this is the surface
+	return _f._solid[c + 1] == 0                      # the cell just outward is air → this is the surface
 
 ## Count of sea-surface cells frozen over (snow/ice depth past SNOW_PRESENT) — the emergent sea-ice extent.
 func sea_ice_cell_count() -> int:

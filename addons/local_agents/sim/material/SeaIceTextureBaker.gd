@@ -31,8 +31,8 @@ func texture() -> Texture2DArray:
 
 
 ## Reduce the field's per-cell snow over each surface column into the sea-ice coverage, then pack the texture.
-func bake(snow: PackedFloat32Array, solid: PackedByteArray, static_cells: PackedByteArray, cell_count: int) -> void:
-	if _surf <= 0 or snow.size() != cell_count or static_cells.size() != cell_count:
+func bake(snow: PackedFloat32Array, solid: PackedByteArray, cell_count: int) -> void:
+	if _surf <= 0 or snow.size() != cell_count:
 		return
 	_sice.fill(0.0)
 	var depth: int = _depth
@@ -44,11 +44,6 @@ func bake(snow: PackedFloat32Array, solid: PackedByteArray, static_cells: Packed
 			var c: int = base + r
 			if solid[c] != 0:
 				break                                    # hit land before any sea → dry column, no sea ice
-			if static_cells[c] != 0:
-				if snow[c] > SNOW_PRESENT:
-					_sice[s] = clamp(snow[c] * ICE_GAIN, 0.0, 1.0)
-				break                                    # topmost sea layer classified → done with this column
-	_pack()
 
 
 ## Pack the per-column ice coverage into the R channel of the 6-layer RGBA8 texture. Face f, surface (i,j) ->

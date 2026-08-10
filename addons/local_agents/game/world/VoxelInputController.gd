@@ -41,6 +41,9 @@ var _ecology: Node = null
 # A default that every automated caller has to opt OUT of is the wrong default.
 # `--no-streamer` and LA_NO_STREAMER still work and are now redundant belt-and-braces.
 var _streamer_enabled: bool = false
+# --bare: physics only. No terrain meshing, no collision baking, no presentation layer. For verification
+# runs whose output is numbers.
+var _bare: bool = false
 var _streamer_persona: String = "hype"
 var _streamer_avatar_flavor: String = "male"
 
@@ -257,6 +260,8 @@ func parse_cmdline() -> void:
 			_auto_volcano = true
 		elif arg == "--auto-seavolcano":
 			_auto_seavolcano = true
+		elif arg == "--bare":
+			_bare = true
 		elif arg == "--streamer":
 			_streamer_enabled = true
 		elif arg == "--no-streamer":
@@ -942,6 +947,7 @@ func _frame_villager_hut() -> void:
 
 # --- Flag accessors (read by the world composition root) ---------------------
 func streamer_enabled() -> bool: return _streamer_enabled
+func bare() -> bool: return _bare
 func streamer_persona() -> String: return _streamer_persona
 func streamer_avatar_flavor() -> String: return _streamer_avatar_flavor
 func time_of_day_seed() -> float: return _time_of_day

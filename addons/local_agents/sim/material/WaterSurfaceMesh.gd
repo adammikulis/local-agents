@@ -11,7 +11,7 @@ const SEA_BIAS: float = 0.4   # draw the dynamic near-cap sea this far OUTSIDE t
 
 ## Build the water surface. Returns {"verts": PackedVector3Array, "normals": PackedVector3Array,
 ## "colors": PackedColorArray, "indices": PackedInt32Array, "count": int}. `count`==0 → nothing to draw.
-func build(grid: RefCounted, water: PackedFloat32Array, solid: PackedByteArray, static_cells: PackedByteArray,
+func build(grid: RefCounted, water: PackedFloat32Array, solid: PackedByteArray,
 		inv_xform: Transform3D, cam_radial: Vector3, cap_cos: float,
 		render_min: float, max_mass: float, sea_radius: float, sea_wave_eps: float) -> Dictionary:
 	var depth: int = grid.depth
@@ -45,8 +45,6 @@ func build(grid: RefCounted, water: PackedFloat32Array, solid: PackedByteArray, 
 			var c: int = base + r
 			if solid[c] != 0:
 				break                                    # hit ground before any water → dry column
-			if static_cells[c] != 0:
-				# Static water body. Above sea level = a perched freshwater LAKE (its brim-full cell top is the
 				# surface); at sea level = the calm SEA, drawn here across the near cap and biased just OUTWARD of
 				# the cheap ocean sphere so it occludes it (waves/foam/ripples near the player, sphere far away).
 				if core_radius + float(r + 1) * cell_size > sea_radius + sea_wave_eps:

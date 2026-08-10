@@ -141,13 +141,15 @@ func set_shader_param(param: String, value) -> void:
 		(_terrain.material as ShaderMaterial).set_shader_parameter(param, value)
 
 ## Add a VoxelViewer under `camera` so terrain streams/meshes/collides around it.
-func attach_viewer(camera: Node3D) -> void:
+## `visuals` false keeps SDF data generation (which the field's solid mask needs) but skips meshing and
+## collision baking — the whole planet, for a run that only reads numbers.
+func attach_viewer(camera: Node3D, visuals: bool = true) -> void:
 	if camera == null:
 		return
 	var viewer: VoxelViewer = VoxelViewer.new()
 	viewer.view_distance = _terrain.view_distance if _terrain != null else 512
-	viewer.requires_visuals = true
-	viewer.requires_collisions = true
+	viewer.requires_visuals = visuals
+	viewer.requires_collisions = visuals
 	camera.add_child(viewer)
 	_viewer = viewer
 

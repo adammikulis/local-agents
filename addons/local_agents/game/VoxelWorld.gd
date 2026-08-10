@@ -245,7 +245,7 @@ func _ready() -> void:
 	_camera.name = "CameraRig"
 	add_child(_camera)
 	_camera.current = true
-	_body.attach_viewer(_camera)
+	_body.attach_viewer(_camera, not _input.bare())
 	# Orbit-the-planet camera (radial up, MMB-drag orbit, scroll zoom) framing the body from space.
 	if _camera.has_method("set_orbit_target"):
 		_camera.set_orbit_target(_body.center(), _body.radius())

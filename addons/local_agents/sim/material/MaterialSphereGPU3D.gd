@@ -6,7 +6,7 @@ const PAIR_CHANNELS: PackedStringArray = [
 	"temp", "water", "moisture", "lava", "sediment", "fire", "dust",
 	"o2", "co2", "shock", "fungus", "susp", "fert", "soil", "air"]
 const SINGLE_CHANNELS: PackedStringArray = [
-	"solid", "static", "fuel", "charge", "detritus", "biomass", "pressure",
+	"solid", "fuel", "charge", "detritus", "biomass", "pressure",
 	"vel_x", "vel_y", "vel_z", "fungus_fert", "snow", "rock_fill",
 	"carbonate", "silica",
 	"porosity",
@@ -699,10 +699,6 @@ func _seed_solid() -> void:
 		f[i] = 1.0 if _field._solid[i] != 0 else 0.0
 	var b: PackedByteArray = f.to_byte_array()
 	_rd.buffer_update(_bufs["solid"], 0, b.size(), b)
-	for i in _cc:
-		f[i] = 1.0 if _field._static[i] != 0 else 0.0
-	var b2: PackedByteArray = f.to_byte_array()
-	_rd.buffer_update(_bufs["static"], 0, b2.size(), b2)
 
 func _seed_regolith() -> void:
 	var m: PackedByteArray = _field._regolith

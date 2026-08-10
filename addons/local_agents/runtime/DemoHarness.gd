@@ -204,6 +204,9 @@ static func parse_run_frames(fallback: int = 0) -> int:
 
 func _parse_cli() -> void:
 	run_frames = parse_run_frames(run_frames)
+	# Published so the O(cells) report gauges can force one fresh recompute on the closing frame instead of
+	# serving a cached block; without it a long gauge cadence would stale the numbers a run is judged on.
+	Engine.set_meta("la_run_frames", run_frames)
 	for arg_v in OS.get_cmdline_user_args():
 		var arg: String = String(arg_v)
 		if arg.begins_with(ARG_SHOOT_FRAMES):

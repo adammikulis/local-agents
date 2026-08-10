@@ -30,7 +30,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	_pipe = _rd.compute_pipeline_create(_shader)
 
 	var solid_rid: RID = bufs.get("solid", RID())
-	var static_rid: RID = bufs.get("static", RID())
 	var send_rid: RID = bufs.get("send", RID())
 	var nbr_rid: RID = bufs.get("nbr", RID())
 	var water_pair: Array = bufs.get("water", [RID(), RID()])
@@ -44,7 +43,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[2, water_pair[p]],      # Water   = LIVE half: the pre-step head the water CA actually flowed on
 			                         # (nothing after the CA writes this half; see the kernel header)
 			[3, solid_rid],          # Solid
-			[4, static_rid],         # Static (calm sea: receives, never sends)
 			[5, send_rid],           # Shared outflow scratch (self-zeroed by pass 0)
 			[15, nbr_rid],           # Neigh table
 		])

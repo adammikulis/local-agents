@@ -69,7 +69,6 @@ const GATE_DRY: int = 16              # cell water <= WET_MAX_LOFT (dry surface)
 # parity with the deleted dust_loft kernel, and redundant with GATE_DRY which tests the cell's own
 # water. Bit value 32 is now free.)*
 const GATE_AIR_ABOVE: int = 128       # THE FREE SURFACE — the air/liquid interface. True when the OUTWARD radial
-const GATE_NOT_STATIC: int = 64       # NOT an infinite static reservoir cell. The sea/lake is seeded as water=1
                                       # `static` cells that are deliberately never simulated (MaterialField3D
                                       # ._seed_sphere_sea), so per-cell chemistry there is meaningless.
 
