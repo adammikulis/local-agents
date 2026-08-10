@@ -1,16 +1,7 @@
 class_name LAMaterialFieldLakes3D
 extends RefCounted
 
-## Computes STANDING LAKES on the cubed-sphere terrain and seeds them as persistent water bodies at world-gen.
 ## Runs a PRIORITY-FLOOD depression fill (Barnes et al.) over the surface columns: starting from the sea, it
-## propagates the lowest spill level inward, so every land column learns the water level of the basin it sits in.
-## Where that spill level rises above the column's own ground, the bowl is underwater → a lake. The lake cells
-## are marked STATIC (a permanent water body, exactly like the sea) so they never drain away. The dry-land
-## equilibrium of the water cycle can't keep a perched lake full on its own, and a real planet simply HAS lakes.
-## Rivers/springs/rain flow INTO them (dynamic water entering a static cell is absorbed, as with the sea); they
-## evaporate and feed local humidity. Elevations are the cell-quantised ground shells, so integer BUCKET
-## priority-flood is O(cells) with no heap. Called once from the field's seed sequence (a composable module, with no
-## behaviour added to the field hub). (Explicit types only, no ':=' inferred typing.)
 
 ## Fill the field's enclosed land basins with static lake water. Reads/writes the field's packed arrays directly
 ## (the same access the query/inject/step sibling modules use).
@@ -104,12 +95,6 @@ const RIVER_ACCUM_MIN: int = 6           # upstream cells before a channel carri
 const RIVER_MAX_DEPTH_CELLS: int = 2     # deepest a big trunk river incises (cells below the valley floor)
 const RIVER_CARVE_MAX: int = 6000        # safety cap on channel carves (bounds the one-time world-gen cost)
 
-## Seed PERSISTENT RIVERS along the drainage network: standard D8 flow accumulation on a CONTINUOUS sub-shell
-## elevation (sampled from the terrain SDF — the shell-quantised elevation can't concentrate flow across the
-## smooth continents), then fill the high-accumulation valley channels with static freshwater (depth scaling with
-## upstream area, so trunk rivers are wider/deeper than headwater creeks). The rivers run down the terrain's own
-## valleys into the lakes/sea; the dry-land water-cycle equilibrium can't keep them full on its own, so — like
-## the lakes and the sea — they are a permanent water body (the emergent drainage decides WHERE; this fills it).
 func _seed_rivers(field, grid: RefCounted, sea_r: float, core_r: float, cs: float, sc: int, depth: int, surf_nbr: PackedInt32Array) -> int:
 	var terrain = field._terrain
 	if terrain == null or not terrain.has_method("sdf_at"):
@@ -171,13 +156,6 @@ func _seed_rivers(field, grid: RefCounted, sea_r: float, core_r: float, cs: floa
 		var d: int = downstream[s]
 		if d >= 0 and is_land[d] == 1:
 			accum[d] += accum[s]
-	# CARVE the channels into the terrain SDF so rivers sit in INCISED valleys (a light notch in the ground)
-	# rather than flat water ribbons laid on top — and fill the notch with static freshwater. Incision depth
-	# grows (log) with upstream area (trunk rivers cut deeper than headwater creeks). Because the channel is
-	# placed by ACTUAL flow accumulation (D8), rivers cut through FLAT land too, not just where mountains are —
-	# fully decoupled from the ridge/mountain noise. The carve keeps the field's solidity in step (the carved
-	# cells become open water). Off (LA_NO_RIVER_CARVE) or on a terrain without carve_sphere → the old
-	# thin-ribbon-above-the-floor fill, so headless/reference paths still get rivers.
 	var can_carve: bool = terrain.has_method("carve_sphere") and not OS.has_environment("LA_NO_RIVER_CARVE")
 	var center2: Vector3 = grid.center
 	var count: int = 0

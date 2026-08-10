@@ -1,15 +1,6 @@
 #[compute]
 #version 450
 
-// CUBED-SPHERE atmosphere PRECIPITATION — the condensate SHED of the unified water cycle. With the three
-// old atmospheric water channels collapsed into ONE conserved `moisture`, condensation/re-evaporation/
-// cloud-decay stop existing as stored steps: cloud/fog are just the suspended-liquid part of moisture,
-// `condensed = max(0, moisture - sat(T))`, read instantaneously. This kernel is the ONLY water-cycle sink
-// aloft — when the condensed part gets heavy it sheds rain: `rain = max(0, condensed - RAIN_MASS_THRESHOLD)
-// * RAIN_RATE`; moisture loses that mass here and the existing atmos_rain_sphere3d gather routes it down
-// the radial column to the ground water. Purely per-cell (no neighbour reads); the fall is the gather's job.
-//
-// sat() curve + constants copied from the (now-deleted) atmos_condense math so behaviour matches.
 
 layout(local_size_x = 64) in;
 
@@ -27,12 +18,6 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 // --- THE SATURATION CURVE IS THE PHASE RULE, AND IT IS ONE FUNCTION -----------------------------------------
-// August-Roche-Magnus (Alduchov & Eskridge 1996) + the ideal gas law, expressed in the field's own unit: the
-// fraction of a cell that would be full of liquid water. 1.95e-5 at 22 °C.
-//
-// WHAT THIS REPLACED: `SAT_BASE = 0.06` — a hand-written saturation mass fraction, 3080x the real value, which
-// is single-handedly why this planet kept 30% of its mobile water in the sky against Earth's 0.001%. Its slope
-// (SAT_TEMP_GAIN = 0.055/°C) was very nearly right; only the magnitude was invented.
 const float MAGNUS_A_PA = 610.94;        // LAPhysical.MAGNUS_A_PA
 const float MAGNUS_B = 17.625;           // LAPhysical.MAGNUS_B
 const float MAGNUS_C_C = 243.04;         // LAPhysical.MAGNUS_C_C
@@ -58,10 +43,6 @@ void main() {
 		return;
 	}
 
-	// AUTOCONVERSION (Kessler 1969): the condensed part of the cell's water is cloud droplets, which stay
-	// aloft; only the part over the critical cloud-water content coalesces into drops heavy enough to fall.
-	// Nothing here caps how much water the air holds — that is the saturation curve's job, and it is why the
-	// threshold is now 6.1e-7 (a real 0.5 g/kg of cloud water) rather than 0.14, three times saturation.
 	float aw = aw_in[g];
 	float condensed = max(0.0, aw - sat_mass_frac(temp[g]));
 	float rain = max(0.0, condensed - params.rain_threshold) * params.rain_rate;

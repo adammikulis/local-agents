@@ -2,38 +2,14 @@ class_name LAMaterialFieldSphereStep3D
 extends RefCounted
 
 ## LAMaterialFieldSphereStep3D: the cubed-sphere per-frame STEP ORCHESTRATION of LAMaterialField3D,
-## factored out so the field node stays a thin substrate/composition core (and under the file-size gate).
-## Holds NO field state of its own: it reaches into the owning LAMaterialField3D (`_f`) for the GPU driver,
-## the per-cell channel arrays, the dirty flags and the step accumulator, exactly as the query/inject
-## modules do. Only the fixed-step begin_frame/step/end_frame loop + the readback scatter live here; the
-## in-place packed-array mutators (core-heat pin, solidity sample, sea seed) stay on the field (they edit
-## packed arrays element-wise, which is cleanest done on the owning object).
-## (Explicit types only, no ':=' inferred typing.)
 
 # Fixed-step cadence — mirrors the field's own constants so the loop is self-contained.
 const STEP_DT: float = 1.0 / 10.0
-# Per-call step ceiling. THIS IS NOT WHAT MAKES A HIGH `--fast` KILL THE POPULATION, measured 2026-07-30 —
-# the accumulator clamp below drops banked time only once `_step_accum` exceeds STEP_DT*(MAX+1) = 0.3, and
-# the physics delta this is fed is `Engine.time_scale / 60`, which reaches 0.3 only at time_scale 18.
-# LAVoxelTimeControl.SPEEDS tops out at 8.0 (delta 0.1333), so the clamp is UNREACHABLE at every speed the
-# game can select. Measured directly at --fast 1/2/4/8: `field_offer_s - field_sim_s` was 0.03-0.10 in all
-# twelve runs, which is the residue still sitting in the accumulator at quit, not a systematic discard.
-# The field and the ecology advance the same number of sim-seconds; see the `field_sim_s`/`eco_sim_s` pair.
 const MAX_STEPS_PER_FRAME: int = 2
 const FIELD_CADENCE_MAX: int = 60                       # clamp for the published Sim knob (avoid absurd skips)
 
 # --- THE FIELD'S ONE CLOCK ---------------------------------------------------------------------------------
-# Seconds in a real day. The sim clock declares a day is LASimClock.DAY_LENGTH SIMULATED seconds, so one field
-# step of STEP_DT simulated seconds stands for STEP_DT * (86400 / DAY_LENGTH) REAL seconds. At the shipped
-# 200 s day: 0.1 * 432 = 43.2.
-#
-# IT IS STATIC, AND IT LIVES HERE, BECAUSE THERE WERE TWO CLOCKS IN ONE THERMAL PASS. `heat_sphere3d.glsl` and
-# LAMaterialFieldGeotherm3D advanced 43.2 REAL seconds per step over SI volumetric heat capacities, while
-# `heat3d_solar_sphere3d.glsl` — dispatched by the SAME LASphereThermalPass, inside the same step — advanced
 # STEP_DT = 0.1 over model-unit capacities: a factor of 432 between two halves of one energy budget. Neither
-# was wrong on its own, and a pair like that is never caught by a test, which is exactly the kind of defect
-# that ends up blamed on something else. There is ONE derivation now and every caller reads it — the geotherm,
-# the conduction kernel, the solar kernel, and the energy-budget instrument that mirrors the solar kernel.
 const REAL_SECONDS_PER_DAY: float = 86400.0
 
 ## Real seconds ONE field step represents — derived from the sim clock, never typed. See the block above.
@@ -59,39 +35,17 @@ var _soil_budget = null
 # on BOTH sides of the GPU step (pre_step arms the driver's between-pass probe, post_step prints), and this loop
 # is the only place that has one.
 var _h2o_budget = null
-# Elevation profile of the mobile mineral phases (LA_MINERAL_PROFILE). Same reason again: it is a per-STEP
-# sample, and it answers the one question no total in SIM_REPORT can — whether sediment moves DOWNHILL.
-# It samples in post_step() rather than through the driver's probe slot, so it does NOT contend with the two
-# budget probes below and all three can be armed at once.
 var _mineral_profile = null
 # Per-pass MINERAL budget probe (LA_MINERAL_BUDGET) — the same instrument for the five rock phases. It uses the
 # driver's ONE `set_step_probe` slot, so it and the H₂O probe are mutually exclusive; setup() warns and keeps
 # this one when both variables are present, rather than letting one silently take every checkpoint.
 var _mineral_probe = null
-# Per-pass ENERGY budget probe (LA_ENERGY_BUDGET) — which pass moves the planet's heat. Third contender for the
-# driver's ONE `set_step_probe` slot, so it is in the same mutual-exclusion chain as the other two. It exists
-# because LAMaterialFieldEnergyLedger3D reports a single global drift and lists ELEVEN unbooked terms it cannot
-# rank; one was picked off that list on judgement and moved the number 2.5%. Naming the pass is what the mineral
-# probe did for rock, in one run.
 var _energy_probe = null
 
-# TWO CLOCKS, PUBLISHED SO THEY CAN BE COMPARED. `field_sim_s` is the simulated time the substrate ACTUALLY
-# advanced (STEP_DT per GPU step); `field_offer_s` is the simulated time the physics tick HANDED it (the sum
-# of delta). Every actor in the tree keeps the second number in full, so a gap between the two would be time
-# the living half of the world spent eating while its physical half stood still. Measured 2026-07-30 the gap
-# is 0.03-0.10 seconds at every supported speed — the accumulator residue, and nothing more. Publishing both
-# is what turns "the population dies at --fast=4" from a story into a number a single run settles.
-# (LAEcologyService publishes eco_sim_s, the same sum taken on the actor side.)
 var _sim_s: float = 0.0
 var _offer_s: float = 0.0
 
 
-## `env FOO=` COUNTS AS SET, so these gates ask for a non-empty VALUE. *(Fixed 2026-08-08; they were
-## `OS.has_environment(...)`.)* This is not hypothetical here: CLAUDE.md records a twelve-run A/B batch that
-## silently ran with `LA_SOIL_BUDGET` armed because its runner passed `LA_SOIL_BUDGET="${LA_SOIL_BUDGET:-}"`,
-## and `has_environment` is true for an empty value. That matters more for these four than for most flags,
-## because arming a probe changes what the driver READS BACK from the device between passes — an armed probe
-## is not a passive observer, it is a different run.
 func _armed(name: String) -> bool:
 	return OS.get_environment(name) != ""
 
@@ -103,7 +57,6 @@ func setup(field) -> void:
 		_soil_budget.setup(field)
 	# THE DRIVER HAS EXACTLY ONE `set_step_probe` SLOT and three probes want it. Arming two would give one of
 	# them every checkpoint and the other none, silently, so this picks by a DECLARED precedence and names
-	# every armed flag in the warning. *(Was a nested if between two probes; a third contender turned that
 	# shape into one that hides which probe actually ran.)*
 	var slot_order: Array = [
 		["LA_MINERAL_BUDGET", MineralProbeScript],
@@ -131,11 +84,6 @@ func setup(field) -> void:
 		_mineral_profile.setup(field)
 
 
-## Field substrate steps every N physics frames, N = the player's Sim knob `la_field_cadence` (published by
-## LAVoxelSettingsApplier as an Engine metadata global). Default/missing/zero → 1 (step every frame, i.e. the
-## historical behaviour). Read live so a mid-game settings re-apply retunes it. Skip-and-accumulate: dt is
-## banked every frame regardless, so a slower cadence runs the (fixed-step) loop less often — genuinely less
-## GPU field work — without desyncing the buffers (dirty-gated uploads still flush on the next run).
 func _field_cadence() -> int:
 	if OS.has_environment("LA_FIELD_CADENCE"):   # benchmark override: measure field step-rate vs perf/aggregates
 		return clampi(int(OS.get_environment("LA_FIELD_CADENCE")), 1, FIELD_CADENCE_MAX)
@@ -174,12 +122,6 @@ func process(delta: float) -> void:
 	if _frame_gate < cadence:
 		return
 	_frame_gate = 0
-	# At the natural cadence (1) allow up to MAX_STEPS to catch up a frame hitch — conserving sim time. At a
-	# slower cadence (N > 1) cap to ONE step per gate AND drop the dt banked during the skipped frames, so the
-	# field genuinely dispatches LESS often (fewer GPU steps → lower avg field_ms) instead of catching up: it
-	# evolves in slight slow-motion, the intended perf trade. Every step is still a full begin/step/end with
-	# the dirty-gated uploads, so buffers never desync. (The knob only slows the field once N pushes below the
-	# ~10 Hz fixed-step rate; presets 1-2 keep full fidelity.)
 	var cap: int = MAX_STEPS_PER_FRAME if cadence <= 1 else 1
 	var steps: int = 0
 	while _f._step_accum >= STEP_DT and steps < cap:
@@ -208,24 +150,11 @@ func process(delta: float) -> void:
 		# sun by LASystemOrbits. The solar kernel's max(0, dot(cell_radial, sun_dir)) then scales intensity with the
 		# direction — nearer the sun bakes, farther freezes, airborne dust dims it → impact winter. Default 1.0.
 		var insol: float = float(_f._sun_light.get_meta("insolation", 1.0))
-		# Into the FIELD's frame: the grid is body-local, so a world-space sun would hold still over the
-		# same cells while the planet turned underneath it — no terminator sweep, which is exactly the
-		# state that made day/night unreachable in the substrate. Magnitude (insolation) is preserved
-		# because the transform is a pure rotation.
 		_f._gpu.set_sun_dir(_f.dir_to_field(_f._sun_light.global_transform.basis.z * insol))
-	# Planet spin axis, in the field's frame. GasWindPass reads ctx["spin_axis"] for latitude bands and
-	# Coriolis handedness and NOTHING ever set it, so it defaulted to world +Y while the real axis is 23.5
-	# degrees away — the wind bands have been referenced to the wrong pole. In the body frame the axis is a
-	# constant, so this is exact and free.
 	if _f._body != null and _f._gpu.has_method("set_spin_axis"):
 		_f._gpu.set_spin_axis(_f.dir_to_field(_f._body.spin_axis() if _f._body.has_method("spin_axis") else Vector3.UP))
 	if _f._terrain != null and _f._terrain.has_method("sea_radius") and _f._gpu.has_method("set_sea_radius"):
 		_f._gpu.set_sea_radius(_f._terrain.sea_radius())
-	# (The global water-cycle brake that used to be fed here is gone with the evaporation kernel it drove. It
-	# existed to stop an un-debited infinite sea pumping the atmosphere past a target moisture; evaporation is
-	# now the saturation-deficit phase rule, which cannot pump air past saturation in the first place.)
-	# add_lava injected on the CPU this frame → push the edited lava + bedrock into the GPU before stepping
-	# (dirty-gated: on clean frames both stay GPU-resident, so we never clobber the on-device evolution).
 	if _f._lava_dirty and _f._gpu.has_method("set_field"):
 		_f._gpu.set_field("lava", _f._lava)
 		_f._lava_dirty = false
@@ -254,11 +183,6 @@ func process(delta: float) -> void:
 	if _f._detritus_seed_dirty and _f._gpu.has_method("set_field"):
 		_f._gpu.set_field("detritus", _f._detritus)
 		_f._detritus_seed_dirty = false
-	# PENDING SPARSE INJECTIONS (storm evaporation, flood surge, water displaced by growing rock). These are
-	# applied to the LIVE device buffers, not uploaded as a whole-channel mirror: the previous `set_field
-	# ("moisture", _f._moisture)` here rewound moisture to the CPU snapshot from the last readback (a frame, up
-	# to two steps, old) every time a storm injected, silently discarding what the atmosphere kernels had done in
-	# between. The GPU is idle at this point (begin_frame drained it), which is why the flush belongs here.
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		if OS.has_environment("LA_INJECT_AUDIT"):
 			# Diagnostic: how far the CPU mirror has drifted from the live buffer right now == exactly the mass
@@ -299,10 +223,6 @@ func process(delta: float) -> void:
 		_mineral_profile.post_step()  # LA_MINERAL_PROFILE: print WHERE the loose mineral is, by elevation
 
 
-## Scatter every channel the sphere driver read back into its CPU array, so actor world-space queries
-## (temp_at/o2_at/co2_at/is_submerged_at, routed through world_to_cell) and the SIM_REPORT field metrics
-## see LIVE field state instead of the stale seed values. The readback cost is already paid inside
-## end_frame(); assigning a PackedFloat32Array is a cheap COW reference. Guarded per channel by size.
 func _apply_readback(res: Dictionary) -> void:
 	var n: int = _f._cell_count
 	if res.has("temp") and res["temp"].size() == n: _f._temp = res["temp"]
@@ -334,9 +254,7 @@ func _apply_readback(res: Dictionary) -> void:
 	if res.has("vel_y") and res["vel_y"].size() == n: _f._vel_y = res["vel_y"]
 	if res.has("vel_z") and res["vel_z"].size() == n: _f._vel_z = res["vel_z"]
 	# Hydrostatic column pressure — demand-gated (LAMaterialFieldEnergyBudget3D requests it to mirror the solar
-	# kernel's greenhouse emissivity). Nothing read this channel back before 2026-08-03.
 	if res.has("pressure") and res["pressure"].size() == n: _f._pressure = res["pressure"]
 	# Decomposer loop channels — demand-gated (LAMaterialFieldElementInventory3D requests them for the carbon
-	# ledger). Also never read back before 2026-08-03, which is why detritus_peak/fungus_* reported the seed.
 	if res.has("detritus") and res["detritus"].size() == n: _f._detritus = res["detritus"]
 	if res.has("fungus") and res["fungus"].size() == n: _f._fungus = res["fungus"]

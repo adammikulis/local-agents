@@ -2,39 +2,6 @@ class_name LAMaterialFieldSoilBudget3D
 extends RefCounted
 
 ## LAMaterialFieldSoilBudget3D: a per-LEG mass budget for the groundwater channel, so a soil drain has to name
-## itself instead of being hand-traced. Diagnostic only — created by LAMaterialFieldSphereStep3D and only when
-## `LA_SOIL_BUDGET` is in the environment, because it costs a ~6.9 MB readback per sample.
-##
-## WHY A LEG-BY-LEG LEDGER RATHER THAN MORE READING. soil_total was falling 684 -> 51.8 between field steps 53
-## and 746 with every individual transfer looking correct on inspection: springs cannot discharge into a full
-## sea cell, Darcy is conserving by construction, up-seep never reaches its threshold, and infiltration only
-## adds. Every one of those statements is about what a leg is SUPPOSED to move. This measures what each leg
-## ACTUALLY moved and makes them sum, which is the only version of the argument that can be wrong out loud.
-##
-## THE ONE IDENTITY IT CHECKS. Over the regolith mask, for one step:
-##     reg_out - reg_in  ==  darcy_recv + infil_recv - own_out + clamp_gain
-## every term read straight out of the kernel. It holds exactly (to fp) if the soil kernel's apply pass is
-## self-consistent, so a residual there means the kernel's own arithmetic is not what the code appears to say.
-## Then, separately:
-##     soil_final - reg_out    = everything that ran AFTER the soil kernel (ReactionsPass R19 root uptake)
-##     darcy_sent - darcy_recv = groundwater debited by a sender and credited to nobody
-##     infil_sent - infil_recv = surface water debited from `water` and credited to no aquifer cell
-##     (spring_sent + seep_sent) - spring_recv = exfiltration that left the soil and never reached the surface
-## The three `sent - recv` residuals are all zero if and only if the neighbour table is SLOT-OPPOSITE
-## reciprocal. LASphereGrid.validate() checks the WEAKER property (adjacency is mutual — A lists B somewhere
-## among its four) and reports symmetric/ok, but every 2-pass gather kernel in this project assumes the
-## stronger one: pass 1 reads `send[neighbour * 6 + opposite(slot)]`, so B must list A in the OPPOSITE slot,
-## not merely somewhere.
-##
-## THE TABLE SATISFIES IT. (Corrected 2026-08-03, while landing the erosion transport gather. This line used
-## to end "Across the cube-face seams it does not." It does.) Built at the shipped res 24 / depth 20 and
-## checked exhaustively: of **407808 directed links, 0 are non-reciprocal** — in the kernel slot order the
-## gathers actually use (pairing 0<->5, 1<->2, 3<->4) and in the grid-native order (pairing d^1) alike — with
-## `lateral_bends` 48 = 2*res, exactly what LASphereGrid's header predicts for an even res. The seam repair
-## works. So a nonzero `*_lost` residual here is a defect in the KERNEL that produced it, not in the geometry
-## underneath: do not go looking at the seams first.
-##
-## (Explicit types only, no ':=' inferred typing.)
 
 # MUST match soil_sphere3d.glsl's DBG_* defines and LAMaterialSphereGPU3D.SOIL_DBG_SLOTS.
 const SLOTS: int = 21
@@ -61,7 +28,6 @@ const SPRING_CAPPED: int = 18
 const SPRING_FREECOL: int = 19
 
 ## How many field steps between printed budgets. A sample is a full-grid readback, so this is not free; every
-## 50 steps still puts a line either side of both horizons the drain was measured at (53 and 746).
 const SAMPLE_EVERY: int = 50
 
 var _f = null                    # back-reference to the owning LAMaterialField3D
@@ -110,12 +76,6 @@ func sample() -> Dictionary:
 		var base: int = c * SLOTS
 		for k in SLOTS:
 			leg[k] += dbg[base + k]
-	# The FINAL soil (post-ReactionsPass) summed the same UNMASKED way the ledger's soil_total is, read from
-	# the same flush as the probe so the two describe one step rather than two. Unmasked because the device's
-	# regolith mask can now gain cells (solid_derive turns rock that closes over water into water-bearing
-	# rock) and the CPU mirror is never read back — see LAMaterialFieldLedger3D.regolith_soil_total.
-	# `regolith_cells` still counts the CPU mask, which is the world-gen aquifer, and the gap between it and
-	# where soil actually sits is itself worth seeing.
 	var final_soil: float = 0.0
 	var reg_cells: int = 0
 	for c in cc:
@@ -177,8 +137,6 @@ func sample() -> Dictionary:
 		"spring_lost": snappedf(spring_sent + seep_sent - spring_recv, 0.0001),
 		# --- the silent sinks that are not transfers at all
 		"clamp_gain": snappedf(clamp_gain, 0.0001),
-		# The OPEN leg's twin, added 2026-08-09 (HANDOFF item 3). Half of one `max(0, ...)` identity was
-		# measured and half was not, for as long as this probe has existed. The unmeasured half creates
 		# WATER rather than soil, which is why no soil total could ever have revealed it and why the H2O
 		# ledger could see it only as an unattributed aggregate. Nonzero here is H2O from nothing, named.
 		"open_clamp_gain": snappedf(leg[OPEN_CLAMP_GAIN], 0.0001),
@@ -194,18 +152,6 @@ func sample() -> Dictionary:
 	}
 
 
-## THE WATER TABLE'S SHAPE, not its total. `soil_total` is a scalar and a scalar cannot say whether the
-## aquifer is surface-following (the header's claim) or pooled in the bottom regolith shells with the top dry
-## (what soil_sphere3d.glsl's own comment said the slot-order greed produced). Returns
-## [saturation_by_depth, cells_by_depth], indexed by SHELLS BELOW THE GROUND SURFACE: index 0 is the outermost
-## regolith shell (the one whose lateral neighbours daylight as springs and whose roof is open air), index
-## REGOLITH_CELLS-1 the deepest, sitting on impermeable bedrock. Each entry is the MEAN SATURATION over that
-## depth's cells (soil / SOIL_CAPACITY), so the numbers are comparable across depths that hold different cell
-## counts, and a surface-following table reads roughly flat while a bottom-pinned one reads as a ramp.
-##
-## Column layout is c = surf_index * depth + r with r increasing outward (LAMaterialField3D._compute_regolith),
-## so the ground surface of a column is simply its OUTERMOST regolith cell — no neighbour table needed, and no
-## dependence on the live `solid` mask, which erosion moves out from under the once-seeded regolith band.
 func _table_profile(soil: PackedFloat32Array, regolith: PackedByteArray, cc: int) -> Array:
 	var bands: int = LAMaterialField3D.REGOLITH_CELLS
 	var sat: Array = []
@@ -242,7 +188,6 @@ func _table_profile(soil: PackedFloat32Array, regolith: PackedByteArray, cc: int
 				r -= 1
 		col += 1
 	# Saturation is soil over the cell's own CAPACITY, and capacity is POROSITY, which closes with burial —
-	# so each depth band divides by its own value, not by one number for the column. (It used to divide by a
 	# flat SOIL_CAPACITY = 0.6, which both overstated the deep bands' saturation and hid the compaction.)
 	for d in bands:
 		cells.append(n_d[d])

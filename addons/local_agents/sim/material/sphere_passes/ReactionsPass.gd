@@ -1,54 +1,9 @@
 extends RefCounted
 
-## Cubed-sphere GENERIC REACTION pass (Phase B3 §3). Wires the ONE data-driven reaction kernel
-## (reactions_sphere3d.glsl) into the sphere GPU driver as a single recordable pass. It replaces a pile of
-## bespoke "clean same-cell" reaction kernels (gas sky-exchange/vent, fungus decompose, …) with one kernel
-## that loops an array of Reaction RECORDS (authored in MaterialReactions3D.gd, uploaded once as a read-only
-## SSBO). Adding a reaction is adding a record there, not a kernel here.
-##
-## Slotted AFTER AtmospherePass and SoilPass so temp/water/o2/co2/moisture/soil are all settled (one-step
-## coupling lag is the accepted norm, see MaterialSphereGPU3D.gd:19-20). Buffer HALVES per channel (why each
-## differs): o2/co2 were produced by GasWind's transport into BACK (1-p); temp by Thermal into BACK;
-## water/moisture by Atmosphere into BACK; SOIL by SoilPass's own ping-pong into BACK (it runs immediately
-## before this pass, so BACK is this step's settled water table) — so all of those read/edit BACK. FUNGUS's
-## and FERT's producers (EcoSurface's kernels) run LATER, so those are still LIVE (p) at this slot.
-##
-## Kernel binding -> bufs-key map (authoritative layout is reactions_sphere3d.glsl):
-##   0 Temp=temp[back] · 1 Water=water[back] · 2 Moisture=moisture[back] · 3 O2=o2[back] · 4 CO2=co2[back] ·
-##   5 Fuel=fuel(single) · 6 Fire=fire[back] ·
-##   7 Detritus=detritus(single) · 8 Fungus=fungus[live] · 9 Fert=fert[live] (R19 nutrient-uptake reactant now
-##   debits it in place, and its own diffuse/leach/decompose-deposit producer, EcoSurfacePass's scent_fert/
-##   fungus_fert kernels, runs LATER this step, so LIVE is the freshest read, same convention as Fungus) ·
-##   10 Solid=solid · 11 Biomass=biomass(single) ·
-##   12 Snow=snow(single, freeze/melt phase transfer) · 15 Neigh=nbr · 20 Scratch=fungus_fert(single, SCRATCH
-##   product) · 21 Defs=<record SSBO> · 22 Lava=lava[back] · 23 RockFill=rock_fill(single). M5 solidify /
-##   M6 melt transfer mineral mass between LAVA and ROCK_FILL (own-cell, conserving) ·
-##   24 Soil=soil[back] (SoilPass ran this step and wrote BACK; the SOIL_ROOT slot reads + debits the regolith
-##   column beneath an open cell — transpiration's source) · 25 Radial=radial (per-cell outward unit vector,
-##   the LIGHT slot's geometry; the same SSBO ThermalPass binds at 14 for the solar kernel) ·
-##   26 Static=static (the GATE_NOT_STATIC test — the sea/lake reservoir is not real per-cell chemistry) ·
-##   27 Regolith=regolith (SINGLE, seeded once — the aquifer mask root_soil() walks INSTEAD of `solid`, since
-##   `solid` is re-derived from rock_fill every step and an eroded/carved regolith cell is open but still an
-##   aquifer; same buffer SoilPass binds at its own binding 6) ·
-##   28 Carbonate=carbonate (SINGLE) · 29 Silica=silica (SINGLE) — the two non-silicate mineral species the
-##   Urey reaction D1b produces and D1c consumes. They are past the end of the slot<->binding alias range
-##   (their SLOT numbers are 24 and 25; bindings 24/25/26 are already Soil/Radial/Static).
-## Push { uint cell_count; uint n_records; float dt; uint pad; float sun_x, sun_y, sun_z, overburden_pa; },
-## 32 bytes.
-## sun_dir is sourced from `ctx` exactly as ThermalPass.gd does, so the light the chemistry sees and the light
-## the solar kernel heats with are ONE quantity — including its magnitude, which carries insolation.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reactions_sphere3d.glsl"
 const REACTIONS_SCRIPT: String = "res://addons/local_agents/sim/material/MaterialReactions3D.gd"
 
-## Pascals of lithostatic pressure per unit of (cell fill x density) in the column above a cell — what the
-## kernel's OVERBURDEN slot multiplies its mass sum by. It is g times the number of MODEL METRES one cell
-## stands for, and that depth is not a number anybody picks: the field's REGOLITH band is defined as the
-## groundwater circulation zone, so LAPhysical.GROUNDWATER_CIRCULATION_M spread over
-## LAMaterialField3D.REGOLITH_CELLS is metres-per-cell by the same derivation LAMaterialFieldGeotherm3D uses
-## for the geotherm. At the shipped 2000 m over 4 cells that is 500 m per cell, so a full cell of bedrock
-## weighs 2900 * 9.80665 * 500 = 14.2 MPa and four of them reach the lithification threshold exactly.
-## Independent of cell_size and of grid resolution, because the aquifer band is 2 km however many cells it is.
 static func overburden_pa_per_unit() -> float:
 	var cells: int = maxi(int(LAMaterialField3D.REGOLITH_CELLS), 1)
 	var metres_per_cell: float = LAPhysical.GROUNDWATER_CIRCULATION_M / float(cells)
@@ -74,16 +29,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		return
 	_pipe = _rd.compute_pipeline_create(_shader)
 
-	# Upload the immutable record table once as a read-only SSBO.
-	#
-	# AN EMPTY TABLE IS FATAL, NOT A NO-OP. Measured 2026-08-03, and it cost a whole round of measurements:
-	# the record modules were merged to the dev branch without an editor scan, so `LAMaterialReactions3D` was
-	# briefly unresolvable, `load()` returned null, and the sim ran with ZERO reaction records. Every same-cell
-	# chemistry stopped at once — no M3 settle, no M5 solidify, no freeze/melt, no photosynthesis — and the run
-	# still printed a completely normal-looking SIM_REPORT. The only tell was in the aggregates, if you happened
-	# to be comparing: susp piled up to 2300 against a baseline of 72 because nothing settled it, sediment read
-	# exactly 0.00 against 980, lava reached 1313 against 37 because nothing froze it, and temp_mean hit 152 C.
-	# A silent zero here is indistinguishable from "the chemistry is just quiet", which is why it must be loud.
 	var defs_script: GDScript = load(REACTIONS_SCRIPT)
 	if defs_script == null:
 		push_error("ReactionsPass: could not load %s — the reaction table is GONE and all same-cell chemistry "
@@ -125,7 +70,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var radial: RID = _single(bufs, "radial")
 	var static_rid: RID = _single(bufs, "static")
 	var regolith: RID = _single(bufs, "regolith")   # aquifer mask — the column SOIL_ROOT walks (see below)
-	# COMBUSTION's two buffers (2026-08-09). `fuel` is SINGLE and is a real reactable channel now — R26
 	# oxidises it, and it is the only sink fuel has anywhere in the tree. `fire` is a PAIR but is NOT a
 	# channel: the kernel assigns it as the fraction of a cell's fuel that burned this step, purely so
 	# `fire_cells` / `fire_peak` / `is_burning` have something true to read. Nothing in the physics reads it.
@@ -158,7 +102,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[14, dust[p]],          # airborne dust (LIVE) — loft (M4) credits it here so FireDust transport advects it THIS step
 			[16, susp[back]],       # waterborne suspended sediment — settle (M3) debits it. LIVE: ErosionTransport
 			                        # wrote this half (advected load) and ErosionPickup added this step's scour.
-			                        # (Corrected 2026-08-03: said "dead phase today → inert". It has not been
 			                        # inert since the pickup pass landed.)
 			[17, vel_x],            # SINGLE — WINDSPEED driver leg (sqrt(vel_x²+vel_z²))
 			[18, vel_z],            # SINGLE — WINDSPEED driver leg

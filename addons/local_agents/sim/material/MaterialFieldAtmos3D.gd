@@ -2,23 +2,7 @@ class_name LAMaterialFieldAtmos3D
 extends RefCounted
 
 ## LAMaterialFieldAtmos3D: the ATMOSPHERE derivation of LAMaterialField3D, factored out of the extract-only
-## field hub (same pattern as the query / inject / scent / step modules: it holds no per-cell state of its own
-## and reaches into the owning field `_f` for the shared arrays).
-##
-## Nothing here is stored as its own channel. There is ONE conserved atmospheric-water channel (`_moisture`);
 ## vapor = min(moisture, sat(T)), condensed = max(0, moisture - sat(T)), and the condensed part reads as fog
-## (cool + near ground) or cloud (else). Every accessor below recomputes that instantaneously from `_moisture`
-## + `_temp`, so cloud/fog/vapor can never drift out of sync with the substrate.
-##
-## The domain aggregates (cover fractions, cloud-cell count, precipitation proxy, total suspended mass) are
-## computed in ONE grid pass and CACHED in the field's slots (`_f._cloud_cover_c` … `_f._moisture_total_c`),
-## invalidated by `_f._atmos_dirty` whenever a new moisture/temp field is read back (~10Hz). The cache slots
-## stay on the field because the step/snapshot modules set the dirty flag and read `_moisture_total_c`.
-## Big-O: one O(cells) pass per SIM step, not per query x per render frame.
-##
-## Also owns the render COVER-TEXTURE bake (LACoverTextureBaker), folded into the same ~10Hz pass, plus the
-## atmosphere shell radii the water-particle renderer places particles against.
-## (Explicit types only, no ':=' inferred typing.)
 
 const CoverBakerScript: GDScript = preload("res://addons/local_agents/sim/material/CoverTextureBaker.gd")
 # The precipitation threshold has ONE owner (Kessler autoconversion, derived from real air/water densities);
@@ -35,7 +19,6 @@ func setup(field) -> void:
 
 ## Saturation humidity at temperature `t` — the dewpoint moisture is read against, and the ONE thing that
 ## decides how much water this planet's air can hold. Clausius-Clapeyron, owned by LAPhysical and shared with
-## every kernel that needs it, instead of the three hand-written constants that used to be copied around.
 func _sat(t: float) -> float:
 	return LAPhysical.saturation_mass_fraction(t)
 
@@ -81,12 +64,6 @@ func refresh_aggregates() -> void:
 	var precip_n: int = 0
 	var total: float = 0.0
 	for i in range(cell_count):
-		# THE INCLUSION RULE (canonical statement: LAMaterialFieldLedger3D's header). `_moisture` lives in OPEN
-		# cells, so open is the whole test — every one of them, static ones included. The static flag marks the
-		# cells whose `_water` is an infinite reservoir; it says nothing about their air, which is simulated
-		# normally, so dropping them here would delete the atmosphere over the entire ocean from the ledger.
-		# `total` below is the h2o_total moisture leg, and it must agree with the other three legs about what a
-		# cell is or transfers across the boundary mint and destroy ledger mass. Do not add a `stat[i]` test.
 		if solid[i] != 0:
 			continue
 		var aw: float = moisture[i]
@@ -120,13 +97,6 @@ func refresh_aggregates() -> void:
 func _ensure_cover_baker() -> void:
 	if _cover_baker != null or _f._sphere == null:
 		return
-	# Sea radius comes from the terrain service and only from it. A `248.0` default used to sit here,
-	# overwritten on every path that can reach this line: `_sphere` is non-null only after
-	# MaterialField3D.setup_sphere ran, and its two callers (VoxelWorld.gd:334, SimWorld.gd:214) both pass
-	# `_body.terrain()`, an LAVoxelTerrainService that implements sea_radius. So the fallback was dead — and
-	# wrong, by roughly 2x: the live sea shell is at 500 (VoxelWorld.PLANET_SEA_RADIUS), which is the worst
-	# combination, since a value that never runs in testing would silently halve every atmosphere band radius
-	# the one time it did. If the terrain ever does go missing, say so instead of baking a made-up planet.
 	if _f._terrain == null or not _f._terrain.has_method("sea_radius"):
 		push_error("LAMaterialFieldAtmos3D: sphere field has no terrain sea_radius — cover baker not built")
 		return
@@ -135,10 +105,6 @@ func _ensure_cover_baker() -> void:
 	_cover_baker.setup(_f._sphere, sea_r, LAMaterialField3D.FOG_MAX_TEMP, AtmospherePassScript.rain_threshold())
 
 
-## Read-only CLIMATE snapshot — the live per-cell moisture/temp/snow/solid readback the biome surface baker
-## reduces into a terrain-colour texture (LABiomeShaderController owns the baking; the field just exposes its
-## buffers). Empty dict until the field is active. Returns the live arrays (not copies) — the baker only reads
-## them, matching how the cover baker consumes the same buffers in-place.
 func climate_snapshot() -> Dictionary:
 	if _f._cell_count <= 0 or _f._moisture.size() != _f._cell_count or _f._temp.size() != _f._cell_count:
 		return {}
@@ -210,7 +176,6 @@ func cloud_cell_count() -> int:
 	return _f._cloud_cells_c
 
 
-# The flat cloud/fog sheet projection (cloud_grid/fog_grid) was a box-era concept, dissolved with the
 # CloudLayer sheets — the water-particle renderer samples the baked cover texture instead. cloud_base_y/
 # fog_base_y survive as the near-ground radii the derived point queries (cloud_at/fog_at) sample at.
 func cloud_base_y() -> float:
@@ -238,10 +203,6 @@ func dewpoint_at(x: float, z: float) -> float:
 	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
 	if c < 0 or _f._solid[c] != 0 or _f._moisture[c] <= 0.0:
 		return NAN
-	# Invert the Magnus form for the temperature at which this cell's moisture would be saturated. Going
-	# through vapour PRESSURE (rather than the density sat() returns) makes the inversion exact: the density
-	# form carries an extra 1/T that has no closed-form inverse, and the pressure error from ignoring it is
-	# under a degree over the whole habitable range.
 	var e: float = _f._moisture[c] * LAPhysical.WATER_DENSITY_KG_M3 * LAPhysical.VAPOUR_GAS_CONST_J_KGK \
 		* (_f._temp[c] + LAPhysical.KELVIN_OFFSET)
 	var ln_ratio: float = log(maxf(e / LAPhysical.MAGNUS_A_PA, 1.0e-12))

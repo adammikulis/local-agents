@@ -1,20 +1,6 @@
 class_name LAWaterSurfaceMesh
 extends RefCounted
 
-## Pure builder for the dynamic water surface mesh: the geometry half of LAMaterialFieldRender3D, split out
-## so the renderer node stays thin (and both stay under the file-size gate), exactly as CoverTextureBaker is
-## split from the field. Stateless: `build()` takes the field's per-cell arrays + the cubed-sphere grid and
-## returns ready-to-upload ArrayMesh surface arrays. No GPU work, because the water CA already ran on the field; this
-## just turns the settled `water` column heights near the camera into a welded, flowing surface sheet.
-##
-## Emits vertices in a LOCAL patch frame (caller's inverse transform) whose +Y is the camera radial, because
-## VoxelWater.gdshader is a flat/Y-up shader (its swell + normal assume world-up = +Y). Over the near cap the
-## curvature is small, so Y-up is locally correct. One vertex per surface COLUMN centre; adjacent columns weld
-## into quads via the grid's seam-aware surf_nbr table (continuous across cube-face seams, no special-casing).
-## Per-vertex COLOR = (flow.x, flow.z, steepness, salinity) in the [0,1] encoding the shader expects.
-##
-## v1 renders DYNAMIC land water only (springs/rivers/lakes/floods) and leaves the calm sea to the cheap ocean
-## sphere; unifying the sea into this surface is a follow-up (A2). (Explicit types only, no ':=' inferred typing.)
 
 const N_A1: int = 1      # surf_nbr slot: +a lateral neighbour
 const N_B1: int = 3      # surf_nbr slot: +b lateral neighbour

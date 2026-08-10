@@ -2,115 +2,7 @@ class_name LAMaterialFieldEnergyProbe3D
 extends RefCounted
 
 ## LAMaterialFieldEnergyProbe3D: a PER-PASS heat budget, so the planet's energy drift has to NAME THE PASS
-## that causes it instead of being guessed at. Diagnostic only — created by LAMaterialFieldSphereStep3D and
-## only when `LA_ENERGY_BUDGET` is in the environment, because a sampled step costs one CPU↔GPU round-trip
-## per pass.
-##
-## WHY THIS EXISTS. LAMaterialFieldEnergyLedger3D reports ONE number, `energy_run_drift`, and its header lists
-## ELEVEN unbooked terms with no way to rank them. Item 11 was picked off that list on judgement, fixed, and
-## MOVED THE DRIFT 2.5% — a whole session spent to learn that one term was not the leak. Ten guesses remain.
-## The mineral probe already solved this exact shape: eleven of its twelve passes read 0.0000 and the whole
-## leak was `fire_dust`, named in one run. This is that instrument for energy.
-##
-## DIRECT SIBLING OF LAMaterialFieldMineralProbe3D — read that file's header first; the pair/chain/half-map
-## machinery here is deliberately identical so the two diagnostics can be compared line for line.
-##
-## ONLY FOUR OF THE THIRTEEN PASSES WRITE `temp` AT ALL, and that is what makes this cheap and self-checking:
-##   WaterSlumpLavaPass  — lava_flow_sphere3d.glsl:197, donor-mix inflow heat
-##   ThermalPass         — six kernels: conduct, solar, buoyancy, cool, lava_phase, magma_buoy
-##   SoilPass            — soil_sphere3d.glsl:527 and :616, capacity-weighted mixes
-##   ReactionsPass       — reactions_sphere3d.glsl:432 (raw TEMP slot) and :638 (record enthalpy)
-## The other nine bind `temp` read-only or not at all, so their HEAT leg must be exactly zero. Any pass may
-## legitimately show a CAPACITY leg, because moving matter is most passes' whole job — see the split below.
-## A nonzero heat leg on a non-writer means this instrument or its half-map is wrong, not that the planet is
-## leaking. That is a free, strong self-check the single global gauge could never offer.
-##
-## IT SPLITS EACH PASS INTO A HEAT LEG AND A CAPACITY LEG, AND THE CAPACITY ONE IS THE POINT.
-## Energy is rc*T*V, and over one pass BOTH move, so the exact change of a cell splits two ways:
-##
-##     rc_n*T_n - rc_p*T_p  ==  rc_p*(T_n - T_p)  +  T_n*(rc_n - rc_p)
-##                              \___ HEAT ___/       \___ CAPACITY ___/
-##
-## an algebraic identity, so `heat + capacity == total` exactly, per pass, with no residual to explain. HEAT
-## is the same matter changing temperature. CAPACITY is the matter itself arriving or leaving — and when a
-## carrier moves between cells WITHOUT its enthalpy, or into a channel `rc_of` does not count at all, the
-## capacity leg is what records it.
-##
-## *(The first version of this probe held `rc` fixed at the step's opening and published the heat leg only,
-## reasoning that LAMaterialFieldEnergyLedger3D "already attributes the capacity leg". It does not — it
-## attributes that leg to a CARRIER (`energy_cap_legs`), never to a PASS, which is the whole question. Worse,
-## the fixed-rc form made the pair falsifier useless: `chain_heat` came back -2.2e14 J, and that was not a
-## stale buffer, it was `rc` being rebuilt between the two steps of the pair. Measured on the same run,
 ## `cap_j_k` fell 3.81733e14 -> 3.80969e14 J/K; times ~288 K that is -2.204e14, the "error" to four digits.
-## An instrument whose falsifier fires on the dominant physical term cannot falsify anything. And the
-## discarded leg was the big one: on the baseline `energy_capacity_w_m2` is -288705 against
-## `energy_heat_w_m2` -51124, so holding rc fixed carefully attributed 15% of the drift and threw away 85%.)*
-##
-## The cost of doing it properly is reading the seven composition channels at every checkpoint rather than
-## once: ~112 full-grid reads on a sampled step against 21. At two sampled steps in fifty, nobody notices.
-##
-## WHICH HALF IS CURRENT. `temp` is a PAIR channel with ONE producer, which is why it is the easiest channel
-## in the driver to instrument per-pass. Every writer before ThermalPass edits LIVE; ThermalPass's buoyancy
-## leg writes BACK for EVERY cell (heat3d_buoyancy_sphere3d.glsl:88 the pass-through branch, :116 the
-## convecting one); everything after edits BACK in place; the end-of-step parity flip promotes BACK. The
-## composition channels have their own producers, listed in PRODUCERS below. Keyed by pass NAME so reordering
-## PASS_SCRIPTS cannot silently invalidate the map.
-##
-## THE SELF-CHECK. `residual` is zero by construction (telescoping differences), which is worth nothing on
-## its own, so the instrument samples steps in CONSECUTIVE PAIRS: `chain_j` is the second sample's opening
-## stock minus the first sample's closing stock. Both are now taken against their own live composition, so a
-## wrong half-map is the only thing that can make it large. With the nine structural heat zeros it is the
-## second of two numbers that can falsify this instrument.
-##
-## IT MUST NOT PERTURB THE RUN, and there are two specific ways it could.
-##   1. It never calls `request_channel` — residency is simulation state (LAMaterialSphereGPU3D:682-692:
-##      a woken `dust` mirror changes insolation, a stale one changes what `add_lava` rewinds).
-##   2. It reads ONLY from inside `on_checkpoint`, where `_step_checkpointed` has just called `_rd.sync()`.
-##      `buffer_get_data` with a submit still in flight is NOT a passive read — measured 2026-08-03, the same
-##      seed and frame count moved `h2o_total` 5062 -> 9803 and `temp_mean` 39.8 -> 44.6 C.
-##      In particular it does NOT call `_flush_pending()` the way `read_soil_budget` does, because that makes
-##      the next `_drain_pending` early-return and skip a whole mirror refresh plus any pending `take_probe`.
-##
-## MUTUALLY EXCLUSIVE WITH `LA_H2O_BUDGET` AND `LA_MINERAL_BUDGET`. All three arm the driver's single
-## `set_step_probe` callable. LAMaterialFieldSphereStep3D picks by declared precedence and warns.
-##
-## WHAT IT MEASURED, 2026-08-09, seed 4242, `--sandbox --planet-only --no-fauna --run-frames=300 --fast=8`,
-## eight sampled pairs from field_step 1 to 359. Sums over the sixteen sampled steps, so read the RANKING and
-## the ZEROS, not the absolute totals (the samples are not consecutive).
-##
-##     pass                   HEAT J          CAPACITY J
-##     thermal              -3.1743e+14       0.0000e+00
-##     water_slump_lava     -1.7383e+09      +1.2877e+15
-##     erosion_pickup        0.0000e+00      -9.7929e+14
-##     plate_advect          0.0000e+00      -7.4095e+14
-##     soil                 +3.7695e+12      -3.5476e+14
-##     atmosphere            0.0000e+00      +8.4971e+13
-##     solid_derive          0.0000e+00      +4.2028e+13
-##     eco_surface           0.0000e+00      -2.8292e+13
-##     reactions             0.0000e+00      +2.4954e+13
-##     erosion_transport / lava_cell_list / fire_dust / gas_wind : 0.0 and 0.0
-##     TOTAL                -3.1367e+14      -6.6369e+14
-##
-## SELF-CHECK PASSED AT EVERY SAMPLE: nine passes exactly 0.0 heat, `residual_j` ~1e3 against totals ~1e14
-## (1e-10 relative), `chain_j` 0.0 except +1.2e13 at step 359 — the vent injection queue flushing between the
-## two steps of that pair, the same real source LAMaterialFieldMineralProbe3D records at its own step 359.
-##
-## THE TWO READINGS THAT MATTER.
-##   1. THE HEAT LEG IS ONE PASS. `thermal` is 99.9% of it and every other pass is at or near zero. Whatever
-##      is wrong with how this planet's temperature evolves is inside ThermalPass's six kernels, not spread
-##      across the step. That is a much smaller search than eleven unranked terms.
-##   2. THE CAPACITY LEG IS TWICE THE HEAT LEG AND NOBODY WAS LOOKING AT IT. -6.64e14 against -3.14e14, and
-##      it is not one pass — it is every pass that MOVES MATTER. A pass that relocates mass and carries its
-##      enthalpy nets ~0 here, because one cell's loss is another's gain. A large net is mass arriving
-##      somewhere at a temperature it did not bring with it, or leaving into a channel `rc_of` does not
-##      count. **`rc_of` counts SEVEN carriers — rock_fill, lava, water, snow, fuel, biomass, detritus — out
-##      of the eighteen-odd channels that hold matter.** `soil`, `sediment`, `susp`, `dust`, `moisture`,
-##      `fert`, `fungus`, `carbonate` and `silica` are all thermally invisible, so every gram that crosses
-##      into one of them deletes its own heat capacity. That is why `erosion_pickup` (rock -> susp) reads
-##      -9.8e14 while writing no temperature at all: the scoured rock's thermal mass simply stops existing.
-##      HANDOFF item 10 names `soil` as "the one the gauge found"; it is the largest of NINE, not the only
-##      one, and this instrument is what makes the other eight visible.
-## (Explicit types only, no ':=' inferred typing.)
 
 ## Field steps between sampled PAIRS. Matches the mineral and H2O probes so the three line up on one horizon.
 const SAMPLE_EVERY: int = 50
@@ -118,15 +10,6 @@ const SAMPLE_EVERY: int = 50
 ## The one pass that flips `temp`'s ping-pong half.
 const TEMP_PRODUCER: String = "ThermalPass"
 
-## Ping-pong producers for the composition channels `rc_of` reads. A checkpoint AFTER the named pass must read
-## that channel's `back` half. `rock_fill`, `snow`, `fuel`, `biomass` and `detritus` are SINGLE buffers with no
-## halves (LAMaterialSphereGPU3D.SINGLE_CHANNELS), so they are absent here and `read_raw` ignores the half.
-## The half-map for the PAIR channels LAHeatCapacity reads. `lava` and `sediment` are taken straight from
-## LAMaterialFieldMineralProbe3D, which verified them against its own `chain_all`. `rock_fill`, `snow`,
-## `fuel`, `biomass`, `detritus`, `carbonate` and `silica` are SINGLE buffers with no halves, so they are
-## absent here and `read_raw` ignores the half for them. A channel missing from this map that IS a pair
-## reads the pre-step half all the way through the step, which shows up as its producer's leg landing on the
-## wrong pass rather than as a wrong total — `chain_j` is what catches it.
 const PRODUCERS: Dictionary = {
 	"lava": "WaterSlumpLavaPass",
 	"water": "WaterSlumpLavaPass",
@@ -156,12 +39,6 @@ var _in_pair: int = 0              # 0 = not sampling, 1 = first of the pair, 2 
 
 var _done: Dictionary = {}         # pass name -> true, once it has run this step (drives the half-map)
 var _volume: float = 0.0           # one cell, m3
-# FLOAT64, AND THAT IS LOAD-BEARING, NOT TIDINESS. Every published number here is a DIFFERENCE of two
-# checkpoints, so the storage precision sets the noise floor of the whole instrument. Held as float32 these
-# read a spurious ~-5e8 J of "heat" per checkpoint on all nine passes that write no temperature: rc is ~2.4e6,
-# whose float32 ulp is ~0.25, and 0.25 x 288 K x ~1e5 cells x the cell volume is exactly that. The device
-# buffers are float32 and that is fine — reading the same unchanged buffer twice gives bit-identical values,
-# so an untouched cell differences to exactly zero — but the rc computed FROM them must not be re-quantised.
 var _rc_prev: PackedFloat64Array = PackedFloat64Array()
 var _t_prev: PackedFloat64Array = PackedFloat64Array()
 var _prev: float = 0.0             # stock in joules at the previous checkpoint
@@ -272,18 +149,6 @@ func post_step() -> void:
 
 # --- internals ----------------------------------------------------------------
 
-## Read the composition and temperature at the half that is current RIGHT NOW, update `_prev`/`_cap_now`, and
-## return [heat_j, capacity_j] against the previous checkpoint. `opening` skips the split (there is no
-## previous checkpoint) and just latches the state.
-##
-## The mix comes from LAHeatCapacity — the ONE GDScript definition, transcribed from rc_shared.glsli and held
-## to it by scripts/check_heat_capacity_ssot.sh. This file must not write the formula down again; four
-## copies of it in GDScript is what put the BOOKED and the STOCK sides of the ledger on different models and
-## made a 7.4% drift read as 12.8%.
-##
-## Read `stock_j` as an instrument-internal quantity, not as the planet's energy: every number published here
-## is a DIFFERENCE against the same formula on both sides, so it answers "which pass" robustly.
-## LAMaterialFieldEnergyLedger3D owns the absolute.
 func _sample(opening: bool) -> Array:
 	var gpu = _f._gpu
 	var cc: int = _f._cell_count

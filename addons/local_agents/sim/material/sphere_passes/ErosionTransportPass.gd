@@ -1,44 +1,6 @@
 extends RefCounted
 
-## Cubed-sphere GPU pass plugin: EROSION TRANSPORT — suspended sediment rides the water downstream.
-##
-## Wires the ONE kernel erosion_transport_sphere3d.glsl into the SphereGPU driver via the plugin contract
-## (setup() once, dispatch() each step). Before this pass existed the mineral cycle had no advection leg at
 ## all: erosion pickup scoured bedrock into `susp` and credited it to the scouring cell, and M3 SETTLE put it
-## straight back down as `sediment` in that same cell. A river scoured its bed and refilled it in the same
-## step, so deltas, beaches, floodplains and canyons were not unproven — they were impossible.
-##
-## PLACEMENT (MaterialSphereGPU3D.PASS_SCRIPTS): immediately BEFORE ErosionPickupPass, which is itself
-## immediately before ReactionsPass. That order is forced by the ping-pong, and gives each of the three one
-## unambiguous job on the back half of `susp`:
-##   1. THIS pass reads susp[live] and FULLY writes susp[back] — every cell, moved.
-##   2. ErosionPickupPass adds this step's fresh scour to susp[back] IN PLACE (own-cell only, so a
-##      read-modify-write on one buffer is race-free).
-##   3. ReactionsPass reads susp[back] for M3 SETTLE.
-## Transport therefore moves LAST step's load and pickup adds THIS step's, which is the right way round: a
-## grain has to be in the water before the water can carry it.
-##
-## SHARED `send` SCRATCH. This is a two-pass gather and uses the driver's single cc*6 outflow scratch
-## (bufs["send"]), exactly as WaterSlumpLavaPass and SoilPass do. That is safe because pass 0 unconditionally
-## self-zeroes all six of its own slots before any early return, and because the three consumers are strictly
-## ordered within one step (WaterSlumpLava -> Soil -> here) with no reader in between. If a future pass is
-## inserted between SoilPass and this one and also uses `send`, it must follow the same self-zeroing rule.
-##
-## Kernel binding -> bufs-key map (authoritative layout is erosion_transport_sphere3d.glsl):
-##   0 SuspIn=susp[live] · 1 SuspOut=susp[back] · 2 Water=water[LIVE] · 3 Solid=solid · 4 Static=static ·
-##   5 Send=send · 15 Neigh=nbr
-## Push constant: { cell_count, pass_id, enabled, 0 }.
-##
-## Water is bound LIVE, not back: the flux this pass rides is the one the water CA took, and the CA computed
-## it from the live half. The back half is the head left over AFTER that flow equalised it. See the kernel
-## header — this is the difference between a working transport leg and a token one.
-##
-## `LA_EROSION_TRANSPORT=0` turns the advection OFF while leaving the dispatch, the buffers and the ping-pong
-## carry exactly as they are (pass 0 zeroes its sends, so pass 1 degenerates to susp_out = susp_in). It exists
-## so the transport leg can be A/B'd against itself in ONE build, at one seed, on one machine — the arm this
-## repo's measurement rules ask for. It is a measurement control, not a fallback: the sim always ships with
-## transport on.
-## (Explicit types only, no ':=' inferred typing.)
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/erosion_transport_sphere3d.glsl"
 

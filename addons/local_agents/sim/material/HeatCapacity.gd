@@ -1,45 +1,7 @@
 class_name LAHeatCapacity
 extends RefCounted
 
-## THE ONE GDSCRIPT DEFINITION OF A CELL'S VOLUMETRIC HEAT CAPACITY — the CPU twin of
-## kernels3d/rc_shared.glsli, and the only place on this side of the GPU boundary that is allowed to write
-## the mix down.
-##
-## WHY IT EXISTS. `rc_of` was written FIVE times in FOUR incompatible versions in GLSL; that was fixed by
-## rc_shared.glsli. It was ALSO written four more times in GDScript, and that was not:
-##   LAMaterialFieldEnergyLedger3D  — the energy STOCK
-##   LAMaterialFieldEnergyBudget3D  — the BOOKED solar and longwave terms
-##   LAMaterialFieldInject3D        — `_cell_heat_capacity`, what a joule of injected heat buys
-##   LAMaterialFieldGeotherm3D      — the core boundary flux
-## The first two are the two halves of one subtraction. The ledger differences a BOOKED number against a
-## STOCK, so when those two disagree about what a cell is made of, part of the reported drift is two
-## instruments arguing rather than the planet losing heat. That is not hypothetical: unifying the ledger's
-## copy with the kernels' took the measured drift from 7.4% to 12.8% of the planet's thermal stock, and the
-## Budget copy — the BOOKED side — was still the pre-unification model with a `solid` early-return and no
-## lava or organic term. A gate on the constants cannot see this, because every copy read the right
-## constants and put them in a different formula.
-##
-## HOW IT STAYS EQUAL TO THE GLSL. It cannot include a `.glsli`, so it is a transcription, and a
-## transcription is a copy that has been told not to drift. Two things hold it:
-##   1. scripts/check_heat_capacity_ssot.sh fails the build if VOL_HEAT_CAP_*_J_M3K is read anywhere but
-##      here, or if an RC_* constant is declared outside rc_shared.glsli. That gates the SHAPE — which is
-##      what drifted — rather than the values, which never did.
-##   2. Any edit to rc_shared.glsli's `rc_of` must change `_mix` below in the same commit. There is one
-##      function here and one there; keep them one edit apart.
-##
-## THE GROUPING IS BY SUBSTANCE, NOT BY CHANNEL, and that is the part that matters. A channel is not a
-## material, it is a PLACE a material can be. Five channels hold silicate, four hold H2O in three phases,
-## four hold cellulose. Grouping by substance means a new channel joins the group it belongs to instead of
-## needing a constant of its own — and it is why `soil` needs no constant: groundwater is water.
-## (Explicit types only, no ':=' inferred typing.)
 
-## Channel -> substance group. THE ORDER OF THIS TABLE IS THE MODEL. Adding a channel that holds matter and
-## leaving it out of here makes every gram that crosses into it delete its own thermal mass, which is the
-## defect this whole file was written to close: `rc_of` counted seven of these fifteen, and the missing eight
-## were measured at twice the size of everything the temperature kernels do put together.
-## `rock_fill` is a SATURATION of the cell's rock matrix, not a volume fraction of mineral, so it is the one
-## silicate channel that must be scaled by (1 - phi) before it can be mixed with the rest. Kept separate from
-## SILICATE for exactly that reason — see the note in `mix`.
 const MATRIX: PackedStringArray = ["rock_fill"]
 ## The loose silicate phases. These ARE volume fractions already and carry no matrix of their own, so phi
 ## does not apply to them.
@@ -100,13 +62,7 @@ static func cell(ch: Dictionary, c: int) -> float:
 		_sum(ch, ORGANIC, c))
 
 
-## The whole field at once, as float64. Prefer this to calling `cell()` in a loop: it hoists the dictionary
-## lookups and the length checks out of the per-cell path, which matters at ~1e5 cells sampled every report.
-##
-## FLOAT64 IS DELIBERATE. Callers difference these arrays between samples, so the storage precision sets the
-## noise floor of whatever they are measuring. Held as float32, rc (~2.4e6, ulp ~0.25) put a spurious
 ## ~5e8 J/checkpoint on LAMaterialFieldEnergyProbe3D's readings — enough to make nine passes that write no
-## temperature at all appear to be moving heat.
 static func field(ch: Dictionary, cell_count: int) -> PackedFloat64Array:
 	var groups: Array = [SILICATE, CARBONATE, SILICA, WATER_LIQUID, WATER_SOLID, WATER_VAPOUR, ORGANIC]
 	var matrix: Array = []
@@ -144,8 +100,6 @@ static func field(ch: Dictionary, cell_count: int) -> PackedFloat64Array:
 
 ## The field's total heat capacity BY SUBSTANCE, J/m3K summed over cells (multiply by the cell volume for
 ## J/K). This lives here rather than in the ledger because it is the same model read a different way: a
-## carrier added to the mix above appears in these legs automatically, where a hand-written breakdown in the
-## ledger silently kept reporting four legs while the model counted fifteen channels.
 static func legs(ch: Dictionary, cell_count: int) -> Dictionary:
 	var phi_a = ch.get("porosity")
 	var have_phi: bool = phi_a is PackedFloat32Array and phi_a.size() >= cell_count

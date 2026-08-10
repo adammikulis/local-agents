@@ -1,110 +1,15 @@
 class_name LAMaterialFieldEnergyBudget3D
 extends RefCounted
 
-## LAMaterialFieldEnergyBudget3D — THE PLANET'S ENERGY BOOKS. Absorbed shortwave in, emitted longwave out,
-## and the difference, summed over the same surface cells the solar kernel acts on.
-##
-## WHY IT EXISTS. `feature/energy-balance` replaced a relax-to-target thermostat with a real radiative sink
-## (`dT = (absorbed - sigma*eps*T^4) * dt / C`), and NOTHING IN THIS REPOSITORY MEASURED ENERGY. A grep for
-## energy_in / energy_out / radiated / absorbed returned zero hits outside the kernels themselves. Every
-## climate claim was therefore argued from temperature — a state variable, which tells you where the planet
-## HAS got to and never why, nor which way it is heading. A sink you cannot measure is a sink you cannot
-## verify, and the last time this project reasoned about climate from an unmeasured quantity it moved water's
-## freezing point to 12.5 C in five files.
-##
-## WHAT IT IS, EXACTLY: a CPU REFERENCE COMPUTATION OF A GPU KERNEL'S OWN ARITHMETIC. Every expression below
-## is transcribed from `kernels3d/heat3d_solar_sphere3d.glsl` (line citations inline), evaluated on the CPU
-## mirrors of the same channels, over the same surface set. It computes NOTHING the kernel does not, and it
-## writes NOTHING back — it is a voltmeter across the circuit, not part of it.
-##   * IF THE TWO EVER DISAGREE, THE KERNEL IS AUTHORITATIVE. It is what actually moves the temperature; this
-##     is a restatement of it in another language, one commit away from drifting. A mismatch is a bug HERE
-##     until proven otherwise, and the fix is to re-read the kernel and correct this file — never to "fix"
-##     the kernel so it agrees with the instrument.
-##   * The CPU mirrors it reads are one GPU drain behind the kernel's own view, so a fast transient is
-##     smoothed. That is a resolution limit, not an error, and it does not affect the running totals.
-##
-## THE UNITS. *(Corrected 2026-08-03. This paragraph used to say `SOLAR_CONSTANT` in the kernel is 600.0
-## rather than the measured 1361, "sized to this world's cell scale". That stopped being true when the
-## kernel was reconciled to the real value, and this file went on mirroring 600 — under-reporting absorbed
-## shortwave by 2.27x in every energy number it published.)* The irradiance and the Stefan-Boltzmann
 ## constant are now the measured ones, so a per-cell flux really is in W/m^2. The TOTALS are still sums
-## over cells rather than an integral over area, so they are not watts; the MEANS
-## (`energy_absorbed_mean`, `energy_emitted_mean`) are the numbers that compare against real physics —
 ## an Earth-like planet sits near 240 W/m^2 absorbed on the global mean.
-##
-## THE ONE THING THIS MEASURES THAT TEMPERATURE CANNOT: `energy_net` is the planet's instantaneous heating
-## rate. Positive means it is still warming toward equilibrium, negative that it is shedding. At equilibrium
-## it is small against `energy_absorbed`, which is what `energy_imbalance` reports. A planet whose temperature
-## has stopped moving and whose imbalance is 40% is not in equilibrium — it is being held by something else
-## (conduction from the pinned geothermal core, lava, a clamp), and only the books show that.
-##
-## READ `*_cool` FOR THE CLIMATE. THE GLOBAL TOTALS ARE A LAVA THERMOMETER. Emission goes as T⁴, so one cell
-## of erupting basalt at 1573 K radiates about 900 times what a 288 K surface does, and a few hundred of them
-## swamp every other cell on the planet. Measured on the first run of this instrument, seed 4242, 600 frames:
-## 8923 surface cells, `energy_emitted_mean` 10223 against a mean surface temperature of 88 °C — a temperature
-## whose OWN blackbody flux is 756. The gap is entirely the tail; the T⁴-weighted mean temperature was 420 °C
-## while the arithmetic mean was 88 °C. The instrument was arithmetically correct and told you almost nothing,
-## which is the failure mode this whole lane exists to avoid. So every total is ALSO reported over the
-## sub-solidus surface only (`< LAPhysical.BASALT_SOLIDUS_C` — a real material property, not a fitted cut),
-## and that is the pair to read for anything about climate. `energy_cells_magma` says how many cells the split
-## moved, so nobody mistakes a quiet planet's numbers for a suppressed one.
-##
-## AND `energy_clamped_cells` IS THE INSTRUMENT'S OWN INTEGRITY CHECK. The kernel guards one step's dT with
-## `clamp(dT, -MAX_DT_PER_STEP, MAX_DT_PER_STEP)` and calls it "numerical guard ONLY (not a physics clamp)"
-## (heat3d_solar_sphere3d.glsl:507-521). That claim is true only while the guard never binds. This counts the
-## cells where it does. A non-zero count means energy is being silently discarded and the books below do NOT
-## describe what the field actually did.
-##
-## COST. One O(open cells) scan. The CALLER gates it (LAMaterialFieldReport3D._heavy_block), because the
-## report provider turns out to be polled every rendered frame rather than "at snapshot time" — see that
-## function for the measurement. `energy_scan_ms` reports what one sweep actually costs, so the cadence can be
-## re-argued from a number. The per-column insolation is hoisted out of the inner loop (radial is per-column,
-## `SphereGrid.cell_radial` is `_dir[c / depth]`), so the Vector3 work is O(columns), not O(cells).
-## (Explicit types only, no ':=' inferred typing.)
 
 # --- CONSTANTS FROM LAPhysical -----------------------------------------------------------------------------
-# These are properties of matter, so they live in one place and are read, never re-typed. Each is equal to the
-# kernel's own copy (the kernel must declare its own because GLSL cannot read GDScript):
-#   LAPhysical.STEFAN_BOLTZMANN 5.670374419e-8  vs  glsl:118 STEFAN         5.670374419e-8  (equal)
-#   LAPhysical.KELVIN_OFFSET    273.15          vs  glsl:120 KELVIN         273.15
-#   LAPhysical.ALBEDO_BARE_GROUND 0.15          vs  glsl:134 ALBEDO_GROUND  0.15
-#   LAPhysical.ALBEDO_OCEAN       0.06          vs  glsl:135 ALBEDO_WATER   0.06
-#   LAPhysical.ALBEDO_SNOW_ICE    0.65          vs  glsl:136 ALBEDO_ICE     0.65
-#   LAPhysical.DRY_WOOD_DENSITY_KG_M3 500.0     vs  glsl:163 RHO_CELLULOSE  500.0
-#   LAPhysical.ALBEDO_VEGETATION  0.12          vs  glsl:164 ALBEDO_VEG     0.12
-#   LAPhysical.FOLIAGE_FRACTION_OF_PLANT_MASS 0.03 vs glsl:165 FOLIAGE_FRACTION 0.03
-#   LAPhysical.LEAF_MASS_PER_AREA_KG_M2 0.080   vs  glsl:166 LEAF_MASS_PER_AREA 0.080
-#   LAPhysical.CANOPY_EXTINCTION_COEFF 0.5      vs  glsl:167 CANOPY_EXTINCTION 0.5
-#   LAPhysical.ATMOS_OPTICAL_DEPTH 0.835        vs  glsl:245 TAU_SEA        0.835
-#   LAPhysical.TWO_STREAM_COEFF    0.75         vs  glsl:246 TAU_TWO_STREAM 0.75
-#   LAPhysical.ATMOS_SW_OPTICAL_DEPTH 0.2597    vs  glsl:271 TAU_SW         0.2597
-#   LAPhysical.AIR_MASS_HORIZON   38.0          vs  glsl:275 AIR_MASS_HORIZON 38.0
-#   LAPhysical.VOL_HEAT_CAP_{AIR,ROCK,WATER,SNOW} vs glsl:193-196 RC_{AIR,ROCK,WATER,SNOW}
-# *(Every glsl line number in this file was stale by 20-50 lines before 2026-08-03. The VALUES still matched,
-# which is why nobody noticed: a citation that points at the wrong line is only found when someone follows it.
-# IT HAPPENED AGAIN, and this is the follow: at 50e71a3 every number in this block was stale by 6-16 lines —
-# STEFAN was cited at 108 and sat at 114, TAU_SW at 221 and sat at 237 — because the kernel grew comment
-# blocks above them. All of them are re-derived here against the kernel as it stands on 2026-08-09. That two
-# rounds of hand-transcribed line numbers have now both rotted is the argument for citing the CONSTANT NAME,
-# which cannot move; the line number is a convenience and should be read as one.)*
 
 # --- CONSTANTS MIRRORED FROM THE KERNEL --------------------------------------------------------------------
-# These are MODEL parameters of this world (cell scale, step size, thresholds), not properties of matter, so
-# they are NOT in LAPhysical and are transcribed here with their kernel line. If you change one in the kernel,
-# change it here in the same edit — nothing else keeps them equal.
-# CORRECTED 2026-08-03. This read 600.0, described as "this world's solar constant, NOT LAPhysical's 1361".
-# The kernel had already been reconciled to the measured 1361 (heat3d_solar_sphere3d.glsl:119,
-# `// LAPhysical.SOLAR_CONSTANT_W_M2`) and nobody updated the instrument, so for as long as that gap
-# existed this file under-reported absorbed shortwave by 2.27x — and with it energy_net, energy_net_cool,
-# energy_imbalance and energy_imbalance_cool, which are the numbers every climate argument is made from.
-# It is read from the authority now rather than transcribed, so it cannot drift again.
 const K_SOLAR_CONSTANT: float = LAPhysical.SOLAR_CONSTANT_W_M2   # glsl:119
 const K_ICE_ALBEDO_GAIN: float = 40.0      # glsl:137 — snow mass -> reflectivity; a dusting already whitens
-# THE FOUR AREAL HEAT CAPACITIES ARE GONE, from the kernel and from here. They were K_HEAT_CAP_AIR 345600 /
 # ROCK 604800 / WATER 3888000 / SNOW 1080000 J/m^2/K, and against rho*c*cell_size for the very cell the
-# conduction kernel was stepping they were wrong by 18.2x (air, too large), 64.4x (rock), 17.2x (water) and
-# 9.3x (snow). The kernel derives the capacity per cell now — LAPhysical's real volumetric values times the
-# cell's own depth — so this file reads the same authority instead of transcribing four literals.
 const K_P_REF: float = LAPhysical.STANDARD_PRESSURE_PA   # mirrors heat3d_solar P_REF; pressure is PASCALS now
 const K_MAX_DT_PER_STEP: float = 5.0       # glsl:132 MAX_DT_PER_STEP — the guard whose binding this file counts
 const K_WATER_SURFACE_MIN: float = 0.5     # glsl:279 WATER_SURFACE_MIN — water fraction that makes a cell a sea surface
@@ -114,7 +19,6 @@ var _samples: int = 0                        # recomputes so far
 
 # Running integrals. Integrated against `field_sim_s` — the FIELD's own simulated clock — because the kernel
 # applies its flux over STEP_DT per field step. Integrating against wall time or render frames would make the
-# totals track framerate and `--fast`, which is the error the physics-clock rule in CLAUDE.md exists to stop.
 var _cum_absorbed: float = 0.0
 var _cum_emitted: float = 0.0
 var _last_sim_s: float = -1.0
@@ -124,22 +28,10 @@ func setup(field) -> void:
 	_f = field
 
 
-## The books. THE CALLER OWNS THE CADENCE — LAMaterialFieldReport3D._heavy_block() gates and caches this, so
-## every call here does the full scan. One owner for the gate, on purpose: two gates at the same period beat
-## against each other the moment one of the two constants is edited, which is the same failure shape as two
-## owners of one global.
 func report() -> Dictionary:
 	return _compute()
 
 
-## World-space unit vector toward the sun, magnitude carrying insolation, ROTATED INTO THE FIELD'S FRAME.
-##
-## The frame conversion is the whole point and is easy to get wrong: the grid is body-local (it rides the
-## spinning planet), so `LAMaterialField3D.cell_radial` returns a BODY-LOCAL vector, while the sun node lives
-## in the system frame. LAMaterialFieldSphereStep3D.gd:158 hands the kernel `dir_to_field(basis.z * insol)`
-## for exactly this reason, and this mirrors it so the insolation measured here is the insolation the kernel
-## computed. Dotting a world-frame sun against a body-local radial gives a number that is right only at the
-## instant the body's rotation happens to be identity.
 func sun_field_dir() -> Vector3:
 	if _f == null or _f._sun_light == null:
 		return Vector3.ZERO
@@ -160,21 +52,9 @@ func _compute() -> Dictionary:
 	var temp: PackedFloat32Array = _f._temp
 	var water: PackedFloat32Array = _f._water
 	var snow: PackedFloat32Array = _f._snow
-	# `pressure` and `rock_fill` are GPU-owned and demand-gated (MaterialSphereGPU3D.SITUATIONAL_CHANNELS), so
-	# take them from the read-only drain probe rather than asking for their mirrors to be kept hot. *(Changed
-	# 2026-08-03: this used to call `request_channel("pressure")` here. A gauge must not decide readback
-	# residency — the simulation's own write paths read those mirrors, so requesting one changes the run. See
-	# the `request_channel` docstring in LAMaterialSphereGPU3D.)* If a leg does not come back the mirror stands
-	# in, and for pressure the all-zero mirror means the kernel's own step-0 fallback (glsl:427-430) applies:
-	# p_col <= 0 -> P_REF, a uniform sea-level emissivity with no altitude structure. `energy_pressure_live`
-	# reports which of the two the numbers below were built from, so nobody reads a flat profile as a result.
 	var legs: Dictionary = {}
 	if _f._gpu != null and _f._gpu.has_method("take_probe"):
 		legs = _f._gpu.take_probe()
-		# The capacity mix needs every carrier, and five of them are demand-gated or mirror-less. Probe names
-		# UNION across callers (see request_probe), so asking for the same legs the energy ledger asks for
-		# costs one shared sample, and both instruments then read the SAME instant — which is the inclusion
-		# rule they both depend on.
 		var want: PackedStringArray = PackedStringArray(["pressure"])
 		want.append_array(LAHeatCapacity.channels())
 		_f._gpu.request_probe(want)
@@ -228,7 +108,6 @@ func _compute() -> Dictionary:
 	var cells_cool: int = 0
 	var t_cool_sum: float = 0.0
 	var emit_magma: float = 0.0
-	# The column shortwave split, reported so the two halves can be read against each other. Before 2026-08-03
 	# they were not halves at all: both cells absorbed the full undiminished beam.
 	var sw_atm: float = 0.0
 	var sw_surface: float = 0.0
@@ -245,9 +124,6 @@ func _compute() -> Dictionary:
 		# only Vector3 work in this scan is O(columns). Same expression as glsl:370-373.
 		var insolation: float = maxf(0.0, _f.cell_radial(base).dot(sun))
 		# glsl:307-326 find_column_surface(), hoisted: the column is scanned top-down ONCE for the cell the beam
-		# lands on, which is both the MATERIAL SURFACE and the overlying air mass the top-of-atmosphere cell
-		# must use for its own share. Doing it per column here is the same answer as the kernel's per-TOA-cell
-		# walk and costs O(depth) instead of O(depth) per candidate.
 		var surf_c: int = -1
 		for r in range(depth - 1, -1, -1):
 			var c0: int = base + r
@@ -312,16 +188,7 @@ func _compute() -> Dictionary:
 			# canopy is darker than the ground it stands on.
 			var land: float = lerpf(LAPhysical.ALBEDO_BARE_GROUND, LAPhysical.ALBEDO_VEGETATION, veg)
 			var albedo: float = lerpf(lerpf(land, LAPhysical.ALBEDO_OCEAN, wet), LAPhysical.ALBEDO_SNOW_ICE, icy)
-			# THIS BLOCK WAS THE PRE-UNIFICATION CAPACITY MODEL, SITTING ON THE BOOKED SIDE OF THE LEDGER'S
-			# OWN SUBTRACTION. *(Replaced 2026-08-09.)* It kept the `solid` early-return that
-			# rc_shared.glsli deleted — the one that made a unit of bedrock split 0.4/0.6 across two cells
 			# hold 3.41e6 J/m3K while split 0.5/0.5 held 4.87e6, a 43% jump for no change of mass — and it
-			# counted neither lava nor organic matter nor any of the eight carriers added with them.
-			# LAMaterialFieldEnergyLedger3D differences the BOOKED terms computed here against a STOCK built
-			# from the shared model, so every one of those disagreements was published as planetary energy
-			# drift. Reconciling the stock's copy alone already took the measured drift from 7.4% to 12.8%;
-			# this was the other half of that subtraction, and it was still on the old model afterwards.
-			# Its old comment cited "glsl:201-210 rc_of_cell()", a function that no longer exists.
 			var rc: float = LAHeatCapacity.cell(_rc_channels, c)
 			var cap: float = maxf(rc * cell_size, 1.0)
 			# Provenance only — this reports whether the greenhouse came from a live pressure readback. The
@@ -348,9 +215,6 @@ func _compute() -> Dictionary:
 				if bedrock_top:
 					cells_bedrock += 1
 			# glsl:485-503 — the two-layer grey exchange. The air layer radiates eps_a from BOTH faces and
-			# absorbs eps_a of the surface's flux; the surface radiates as a blackbody and receives the air's
-			# downward half. `emitted` is therefore the NET longwave leaving this cell, and summed over the
-			# column it is (1 - eps_a)*sigma*Ts^4 + eps_a*sigma*Ta^4 — the outgoing longwave, counted once.
 			var lw_self: float = 0.0
 			var lw_in: float = 0.0
 			if top_of_atm:
@@ -363,7 +227,6 @@ func _compute() -> Dictionary:
 					lw_in += eps_cell * LAPhysical.STEFAN_BOLTZMANN * t_top_4
 			var emitted: float = lw_self * LAPhysical.STEFAN_BOLTZMANN * t_k * t_k * t_k * t_k - lw_in
 			# The step the kernel would apply, and whether its numerical guard binds. The dt is the field's ONE
-			# clock, read from its owner rather than transcribed — this used to be a local K_STEP_DT of 0.1
 			# mirroring a kernel constant that disagreed with the conduction kernel dispatched beside it.
 			var d_t: float = (absorbed - emitted) * LAMaterialFieldSphereStep3D.real_seconds_per_step() / cap
 			if absf(d_t) > K_MAX_DT_PER_STEP:
@@ -382,11 +245,6 @@ func _compute() -> Dictionary:
 				emit_magma += emitted
 			if insolation > 0.0:
 				lit_cells += 1
-			# TOP-OF-ATMOSPHERE vs MATERIAL SURFACE, kept apart. They are the kernel's two distinct roles
-			# (glsl:333-367) and they behave nothing alike: the TOA set sits under almost no air, so its
-			# emissivity approaches 1 and it radiates as a bare blackbody, while the surface sits under the full
-			# column. Summed together they average into a number that describes neither. A cell that is BOTH (a
-			# summit reaching the top of the shell) is counted under TOA, once.
 			if top_of_atm:
 				surf_toa += 1
 				abs_toa += absorbed
@@ -432,19 +290,7 @@ func _compute() -> Dictionary:
 	out["energy_cells"] = n
 	out["energy_lit_cells"] = lit_cells
 	out["energy_lit_frac"] = float(lit_cells) / fn
-	# ALBEDO OVER THE CELLS THAT HAVE ONE. *(Corrected 2026-08-03. This averaged over EVERY surface cell,
-	# which included the top-of-atmosphere air cell above each ocean — `wet` is 0 up there, so the air over the
-	# sea was scored at ALBEDO_BARE_GROUND 0.15 and the mean was dominated by an albedo no ocean surface has.
-	# It read 0.137 on a planet whose land is 0.15 and whose sea is 0.06.) The top-of-atmosphere cell has no
-	# surface reflectance at all now — it takes the air column's share of the beam, which is an absorption, not
-	# a (1 - albedo) — so the mean runs over material surfaces and exposed bedrock only.
 	out["energy_albedo_mean"] = albedo_sum_surface / float(maxi(surf_ground + cells_bedrock, 1))
-	# THE AIR COLUMN'S LONGWAVE ABSORPTIVITY — the greenhouse strength, `eps_a = 1 - 1/(1 + 0.75*tau*p/P_REF)`.
-	# *(Changed 2026-08-03. This used to report the complementary quantity, the TRANSMISSION `1/(1+0.75 tau p)`,
-	# computed per cell from that cell's own pressure — so the top-of-atmosphere cell contributed ~1.0 and the
-	# mean described a planet with almost no greenhouse. It reads what the air INTERCEPTS now, from the
-	# column's own air mass, which is the number both radiating cells actually use. 0 means a transparent
-	# atmosphere, 1 an opaque one; a sea-level column here is 0.385.)*
 	out["energy_emissivity_mean"] = emis_sum / fn
 	out["energy_cap_mean"] = cap_sum / fn
 	out["energy_surf_temp_mean"] = t_sum / fn
@@ -469,14 +315,11 @@ func _compute() -> Dictionary:
 	# above describe volcanism and nothing else.
 	out["energy_magma_share"] = emit_magma / emitted_total if emitted_total > 1.0e-9 else 0.0
 	# THE COLUMN SHORTWAVE SPLIT. `energy_sw_atm + energy_sw_surface` IS `energy_absorbed` — the two are the
-	# air's share and the ground's share of one beam, not two independent absorptions. Before 2026-08-03 both
-	# cells took the full undiminished beam and the sum was the solar constant counted twice per lit column;
 	# `energy_sw_frac_atm` is the fraction the atmosphere intercepts, which should sit near Earth's measured
 	# 0.23 wherever the column is close to sea-level pressure and the sun is high.
 	out["energy_sw_atm"] = sw_atm
 	out["energy_sw_surface"] = sw_surface
 	out["energy_sw_frac_atm"] = sw_atm / absorbed_total if absorbed_total > 1.0e-9 else 0.0
-	# Bare rock facing space. It radiated nothing at all until 2026-08-03 (`if (solid) return`), so any column
 	# capped by stone traded no radiation with the sky in either direction.
 	out["energy_cells_bedrock"] = cells_bedrock
 	out["energy_cum_absorbed"] = _cum_absorbed

@@ -1,58 +1,6 @@
 class_name LASphereThermalPass
 extends RefCounted
 
-## CUBED-SPHERE thermal-forcing GPU pass plugin. Wires the five per-cell sphere heat/lava kernels that run
-## AFTER conduction + the water/lava flow gathers, mirroring the box orchestrator's post-conduction heat tail
-## (LAMaterialGPU3D solar->buoyancy->cooling, then the lava_phase + magma_buoy geological cores). It owns only
-## its pipelines, per-parity uniform sets and one private lava-snapshot scratch buffer; every field SSBO is
-## handed in via `bufs` and every per-frame scalar via `ctx`.
-##
-## KERNELS + ORDER (recorded into the caller's compute list, in this exact sequence):
-##   1. heat3d_solar_sphere3d:    THE TERMINATOR. Per-cell insolation = max(0, dot(cell_radial, sun_dir)), and
-##                                a column shortwave budget that spends the beam ONCE: the top-of-atmosphere
-##                                cell takes the air's share and the material surface (topmost water cell, or
-##                                ground on rock) takes what got through. heat-IN-PLACE on temp + solid +
-##                                radial(14) + nbr(15) + snow/water/rock_fill/pressure + biomass(27), the last
-##                                of which darkens the land albedo by the canopy cover its mass implies — the
-##                                biological half of the ice-albedo feedback, absent from this kernel until
-##                                2026-08-09.
-##   2. heat3d_buoyancy_sphere3d: hot void rises radially outward, moving ENERGY across the bond and dividing
-##                                by each side's own heat capacity. RACE-FREE double-buffered GATHER
-##                                (TempIn -> TempOut) + solid + snow/water/rock_fill + nbr(15).
-## *(heat3d_cool_sphere3d WAS #3 and is DELETED, 2026-08-10. It boiled water at a FLAT 100 C with a
-## hand-tuned BOIL_RATE, on a substrate where R23 does the same phase change from the saturation curve and
-## now carries the derived latent heat. Two authorities on one phase change, double-counting both the mass
-## and the cooling, and its half was the energy ledger''s UNBOOKED TERM #1. Its WATER_MIN "matches
-## atmos_evap_sphere3d.glsl", a file that no longer exists.)*
-##   4. lava_phase_sphere3d:      THERMAL RADIATION from molten rock — sigma*eps*T^4 out of every face that
-##                                opens onto space, air or water, net of what that neighbour returns; IN-PLACE
-##                                on temp, own-cell writes only. *(Corrected 2026-08-07: this entry used to
-##                                read "sustain (keep remaining lava molten) + shell-first edge cooling". The
-##                                sustain leg had already been dissolved into the M5 record and left no write
-##                                behind, and the shell-first leg was a Newtonian relax toward a prescribed
-##                                40 C with no cell receiving the heat. Both are gone; the rind still hardens
-##                                first, now because an interior face sees a neighbour as hot as itself and
-##                                therefore radiates nothing.)* COMPACTED: dispatched INDIRECTLY over the
-##                                active-cell list LavaCellListPass builds earlier in the same step, so it runs
-##                                one invocation per MOLTEN cell instead of one per grid cell. The list's
-##                                predicate is physical ("holds molten rock in open space"), so this is exact.
-##   5. magma_buoy_sphere3d:      buoyant overpressure up-flow, TWO passes (0 = copy snapshot, 1 =
-##                                gather/apply) with a barrier between; lava + private scratch + temp + solid +
-##                                nbr(15).
-##
-## PARITY / PING-PONG CONTRACT (READ THIS before wiring the orchestrator):
-##   `parity` p selects the live buffer for every PAIR channel: live = bufs[key][p], back = bufs[key][1 - p].
-##   Because the sphere buoyancy is a GATHER (unlike the box's in-place column sweep), it is the single flip in
-##   this pass. To keep the downstream in-place kernels (cool/lava_phase/magma) reading the buoyancy OUTPUT while
-##   still binding the BACK buffer (matching the box's role labels), the chain is arranged as:
-##     - solar     : IN-PLACE on temp LIVE[p]   (runs first, feeds the buoyancy gather)
-##     - buoyancy  : temp LIVE[p] (TempIn) -> temp BACK[1-p] (TempOut)   (fresh temp now in BACK)
-##     - cool      : IN-PLACE on temp BACK[1-p], reads water BACK[1-p]   (post-flow water)
-##     - lava_phase: IN-PLACE on lava BACK[1-p] + temp BACK[1-p]
-##     - magma     : lava BACK[1-p] + temp BACK[1-p] + private scratch
-##   ENTRY expectation: fresh temp in LIVE[p]; fresh water + lava already in BACK[1-p] (their flow gathers ran
-##   earlier this frame). EXIT state: fresh temp AND lava both in BACK[1-p], consistent with the box's
-##   post-heat convention (downstream wind/atmosphere read temp_back) and a single end-of-step parity flip.
 
 const CONDUCT_PATH: String = "res://addons/local_agents/sim/material/kernels3d/heat_sphere3d.glsl"
 const COPY_PATH: String = "res://addons/local_agents/sim/material/kernels3d/copy_sphere3d.glsl"
@@ -138,39 +86,13 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		var temp_back: RID = temp[back]
 		var water_back: RID = water[back]
 		var lava_back: RID = lava[back]
-		# THE EIGHT CARRIERS rc_shared.glsli GAINED 2026-08-09, at the same indices 30-37 in all four heat
-		# kernels. None of these kernels reads one of them for its own physics; they are here because a cell's
-		# heat capacity is a property of everything in it, and these eight were counted NOWHERE — so a gram of
-		# rock becoming suspended load, or of water infiltrating into the aquifer, deleted its own thermal
-		# mass. LAMaterialFieldEnergyProbe3D measured that as a -6.64e14 J capacity leg against a -3.14e14
-		# heat leg: the invisible carriers were twice everything these kernels do. `erosion_pickup` alone read
-		# -9.79e14 while writing no temperature at all.
-		# Halves: sediment/susp/dust/soil/moisture/fungus are PAIR channels whose producers all run AFTER
-		# Thermal (Soil, ErosionPickup, Reactions, FireDust, EcoSurface, Atmosphere), so `back` is last step's
-		# settled output and `p` is the value this step opened with — the same one-step coupling lag this pass
-		# already sanctions for `pressure` and `biomass`. carbonate/silica are SINGLE buffers with no halves.
 		var shared_carriers: Array = [
 			[30, bufs["sediment"][p]], [31, bufs["susp"][p]], [32, bufs["dust"][p]],
 			[33, bufs["carbonate"]], [34, bufs["silica"]], [35, bufs["soil"][p]],
 			[36, bufs["moisture"][p]], [37, bufs["fungus"][p]],
-			# 38 = phi. SoilPass WRITES it and runs after Thermal, so this is one step stale — which costs
-			# nothing, because porosity is a static function of burial depth and only changes when a cell
-			# becomes regolith. On the very first step it is all zeros, i.e. rc_of falls back to reading
-			# rock_fill as a volume fraction for one step, and then self-corrects.
 			[38, bufs["porosity"]]]
 
-		# conduct (heat_sphere3d): 0 = TempIn (LIVE), 1 = TempOut (scratch), 2 = nbr, 3 = solid, and the
-		# material mix 4 = snow, 5 = water (BACK, post-flow), 6 = rock_fill. Per-bond INTERFACE conductivity
-		# and per-cell HEAT CAPACITY come from the real material properties in LAPhysical, so the crust no
-		# longer "insulates" by a fitted constant and an ocean cell conducts and stores heat as water rather
-		# than as air. *(snow + rock_fill added 2026-08-03 so this kernel and the solar one agree about what
-		# a cell is made of; the same three channels feed heat3d_solar and heat3d_buoyancy.)*
 		# copy: 0 = scratch, 1 = temp LIVE.
-		# 20-23 = lava / fuel / biomass / detritus. THIS KERNEL DOES NOT USE THEM; rc_shared.glsli does.
-		# Every kernel that books heat now binds every carrier, because the alternative is what this repo
-		# had: five rc_of copies in four formulas, so a lava cell was AIR to three of them and a cell of
-		# wood was air to all four heat kernels. Energy is rc*T*V, so those disagreements minted and
-		# destroyed heat at every exchange. See rc_shared.glsli.
 		_conduct_set[p] = _make_set(rd, _conduct_shader, [
 			[0, temp_live], [1, _cond_scratch], [2, nbr], [3, solid],
 			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]],
@@ -179,22 +101,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_copy_set[p] = _make_set(rd, _copy_shader, [
 			[0, _cond_scratch], [1, temp_live]])
 		# solar: 0 = temp (LIVE, in-place), 1 = solid, 3 = pos (flat float3), 14 = radial, 15 = nbr.
-		# snow/water/rock_fill feed the albedo + heat-capacity terms in the energy balance.
-		# 7 = pressure — the overlying air mass the kernel's emissivity reads, which is what makes high ground
-		# cold WITHOUT a prescribed lapse. SINGLE buffer, so there is no parity choice to make. It is one step
-		# stale here: GasWindPass writes it and runs AFTER Thermal (see PASS_SCRIPTS), which is the
-		# coupling-fidelity lag this driver already sanctions, and a hydrostatic column varies slowly.
-		# 8 = the PRE-SOLAR temperature snapshot. `_cond_scratch` is the conduction gather target, and the copy
-		# leg immediately before solar pushes it back into temp LIVE — so at solar's dispatch it holds exactly
-		# what temp holds, and nothing writes it again this step. The two-layer longwave exchange needs the
-		# PARTNER cell's temperature and solar runs IN PLACE on temp, so reading temp there would be a race
-		# whose outcome depends on scheduling; this makes it deterministic instead.
-		# 27 = biomass — the BIOLOGICAL half of the ice-albedo feedback. The kernel turns the cell's standing
-		# plant mass into a canopy cover fraction and darkens the land albedo by it, so a planet that greens
-		# absorbs more sunlight and one that browns absorbs less. SINGLE buffer (SINGLE_CHANNELS), so like
-		# pressure there is no parity choice; it is written by ReactionsPass, which runs AFTER Thermal, so it is
-		# one step stale here — the same coupling lag this pass already sanctions for pressure, and standing
-		# biomass moves far slower over one 43.2 s step than a hydrostatic column does.
 		_solar_set[p] = _make_set(rd, _solar_shader, [
 			[0, temp_live], [1, solid], [3, pos],
 			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]], [7, bufs["pressure"]],
@@ -211,14 +117,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[20, lava_back], [21, bufs["fuel"]], [22, bufs["biomass"]], [23, bufs["detritus"]]]
 			+ shared_carriers)
 		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid, 4 = the compacted
-		# active-cell list, 5 = its dispatch-indirect args + list length (LavaCellListPass built both earlier
-		# this step, and applied this kernel's own lava/solid early-outs when it did), 15 = nbr
-		# (the radiative exchange reads each cell's 6 faces: a face onto rock is opaque and carries nothing, a
-		# face onto another equally hot lava cell returns as much as it receives, and only a face onto cold air
-		# or space carries the full sigma*eps*T^4 — so a flow's rind hardens while the core stays molten and
-		# drains, leaving a lava tube, with no exposed-face count anywhere).
-		# 6/7/21-24 + shared_carriers: this kernel joined rc_shared.glsli on 2026-08-09. It had a PRIVATE
-		# two-component capacity (lava + air) that counted no water at all, so a molten cell quenching on the
 		# sea floor cooled as if it were surrounded by air instead of by the 4.17e6 J/m3K of the ocean.
 		_lava_phase_set[p] = _make_set(rd, _lava_phase_shader, [
 			[0, lava_back], [1, temp_back], [2, solid],
@@ -233,32 +131,13 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	var sun_dir: Vector3 = ctx.get("sun_dir", Vector3(0.0, 1.0, 0.0))
-	# sea_radius is the altitude datum the solar kernel still carries for other uses (its own lapse term is
-	# long deleted, and the cool kernel stopped reading it when the prescribed thermocline went). The driver sets
-	# it every begin_frame (MaterialSphereGPU3D:265, then set_sea_radius from the terrain), so this default
-	# only ever applies if that stops happening — in which case the RIGHT answer is the grid's own sea
-	# shell, not a literal. It used to read 248.0, a value from a 250-radius planet that has not existed
-	# since PLANET_RADIUS became 500: silently half the real datum, and dead code that looked live.
 	var sea_radius: float = float(ctx.get("sea_radius", 0.0))
-	# Conduction scale: dt / dx^2 in seconds per square metre. dx is the grid's own RADIAL cell size — the
-	# cubed-sphere's lateral spacing is about twice that at the default res 24, so lateral conduction is
-	# overstated ~4x against radial. With real diffusivities every coefficient is ~1e-7, four orders inside
-	# the stability limit and negligible against advection, so the anisotropy changes nothing measurable;
-	# it would matter if conduction ever became a leading term again. dt is what
-	# one field step represents in REAL seconds, which the sim clock fixes (a day is LASimClock.DAY_LENGTH
-	# simulated seconds and 86400 real ones). A model parameter of this world, not a property of matter,
-	# which is why it is pushed and the diffusivities are not.
 	var cell_size: float = float(ctx.get("cell_size", 0.0))
 	var dt_over_dx2: float = 0.0
 	if cell_size > 0.0:
 		dt_over_dx2 = _real_seconds_per_step() / (cell_size * cell_size)
 	var core_boundary_c: float = float(ctx.get("core_boundary_c", 0.0))
 
-	# 0. CONDUCTION — relax temp toward its 6-neighbour mean (net-zero-flip: gather LIVE->scratch, copy back).
-	# This is the ONLY lateral/radial heat conduction in the field, and it also carries the interior's boundary
-	# bond at r = 0. It does NOT establish the geotherm: with rock's real diffusivity a front crosses one cell
-	# in ~10 days of simulated time, so the geotherm is SEEDED by LAMaterialFieldGeotherm3D and this pass
-	# maintains it. Runs through rock AND void.
 	var cond_pc: PackedByteArray = _conduct_pc(cc, core_boundary_c, dt_over_dx2)
 	rd.compute_list_bind_compute_pipeline(cl, _conduct_pipe)
 	rd.compute_list_bind_uniform_set(cl, _conduct_set[parity], 0)
@@ -288,10 +167,6 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	rd.compute_list_add_barrier(cl)          # buoyancy output (temp BACK) committed before the lava passes read it
 
 
-	# 4. LAVA PHASE — thermal radiation from exposed molten faces, in-place on lava BACK + temp BACK. COMPACTED:
-	# dispatched INDIRECTLY over LavaCellListPass's active-cell list, so this is one invocation per molten cell
-	# rather than per grid cell. On a planet with no lava that is one idle workgroup instead of `groups`
-	# (~1080) of them.
 	rd.compute_list_bind_compute_pipeline(cl, _lava_phase_pipe)
 	rd.compute_list_bind_uniform_set(cl, _lava_phase_set[parity], 0)
 	var phase_pc: PackedByteArray = _lava_phase_pc(cc, _real_seconds_per_step(), cell_size)
@@ -372,12 +247,6 @@ func _make_set(rd: RenderingDevice, shader: RID, pairs: Array) -> RID:
 	return rd.uniform_set_create(uniforms, shader, 0)
 
 
-# heat3d_solar Params: { uint cell_count; float dt_s; float cell_size; uint pad2; float sun_x; float sun_y;
-#   float sun_z; float sea_radius; } — 32 bytes. sun_dir at offset 16; sea_radius (altitude datum) at 28.
-# `dt_s` took the old pad0 slot: the solar kernel carried its own `const float STEP_DT = 0.1` — the SIMULATED
-# step — while the conduction kernel in this same pass ran on 43.2 REAL seconds. One clock now, pushed.
-# `cell_size` took pad1: the kernel derives its AREAL heat capacity as rho*c*cell_size instead of declaring
-# four literals, so the same cell now holds the same heat in the solar and conduction kernels.
 func _solar_pc(cc: int, sun_dir: Vector3, sea_radius: float, dt_s: float, cell_size: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(32)
@@ -394,10 +263,6 @@ func _solar_pc(cc: int, sun_dir: Vector3, sea_radius: float, dt_s: float, cell_s
 
 
 
-# heat_sphere3d Params: { uint cell_count; float core_boundary_c; float dt_over_dx2; uint pad2; } — 16 bytes.
-# core_boundary_c is the geothermal boundary: the TEMPERATURE of the rock ghost cell one shell below the
-# grid's bottom face, published by LAMaterialFieldGeotherm3D. It enters conduction because that is what it is
-# — a seventh neighbour made of rock. <= 0 disarms the bond.
 func _conduct_pc(cc: int, core_boundary_c: float, dt_over_dx2: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)
@@ -409,7 +274,6 @@ func _conduct_pc(cc: int, core_boundary_c: float, dt_over_dx2: float) -> PackedB
 
 
 ## Real seconds one field step represents. EVERY kernel in this pass now runs on it — conduction, the
-## geotherm boundary AND the solar energy balance, which used to run on the SIMULATED step instead, a factor
 ## of 432 apart inside one energy budget. The derivation lives with STEP_DT; this is a forwarder.
 func _real_seconds_per_step() -> float:
 	return LAMaterialFieldSphereStep3D.real_seconds_per_step()
@@ -426,14 +290,7 @@ func _count_pc(cc: int) -> PackedByteArray:
 	return pc
 
 
-# lava_phase Params: { uint cell_count; float dt_s; float cell_size; uint pad2; } — 16 bytes. cell_count is
-# only a defensive bound on the cell id read out of the active list.
-#
-# `dt_s` and `cell_size` took what were pad0/pad1. That kernel used to relax lava toward a prescribed 40 C
-# ambient, and a relax rate needs neither a duration nor a length; it now emits sigma*eps*T^4 from the cell's
 # exposed faces, which is a FLUX in W/m^2, so turning it into a temperature needs the step's real seconds and
-# the depth of matter behind the face. Same two numbers, from the same two sources, as _solar_pc above — one
-# clock and one grid across the whole pass. If either arrives 0 the kernel radiates nothing at all.
 func _lava_phase_pc(cc: int, dt_s: float, cell_size: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)

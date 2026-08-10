@@ -1,34 +1,5 @@
 extends RefCounted
 
-## Cubed-sphere GPU pass plugin: PLATE TRANSPORT — the crust is carried by the plate it sits on.
-##
-## Wires the ONE kernel plate_advect_sphere3d.glsl into the SphereGPU driver via the plugin contract
-## (setup() once, dispatch() each step). Before this pass existed LAPlateTectonics rotated plate SEED POINTS
-## and nothing else — it never touched the material field — so plate boundaries migrated across continents
-## that had never moved. The kernel header carries the physics; this file is the wiring.
-##
-## PLACEMENT (MaterialSphereGPU3D.PASS_SCRIPTS): FIRST, ahead of SolidDerivePass. The transport edits
-## `rock_fill`, and `solid` is DERIVED from rock_fill at the top of every step, so moving the crust before the
-## derive is what makes the rest of the step (water, heat, reactions, the mineral stamp) see the crust where it
-## now is rather than where it was. Nothing runs before it, so the shared `send` scratch is free; pass 0
-## self-zeroes all six of its slots anyway, which is the contract WaterSlumpLavaPass and ErosionTransportPass
-## also follow.
-##
-## TWO CHANNELS, ONE PIPELINE. rock_fill (a SINGLE buffer) and sediment (a ping-pong half) are the same
-## conserved mineral in different phases and are carried by the same rule, so they are dispatched through one
-## pipeline with different uniform sets rather than being special-cased in the kernel. Bedrock and its loose
-## cover ride the plate together, which is what a continental margin does.
-##
-## Kernel binding -> bufs-key map (authoritative layout is plate_advect_sphere3d.glsl):
-##   0 Field=<rock_fill | sediment[live]> · 1 Send=send · 2 Radial=radial · 3 Pos=pos · 4 Neigh=nbr ·
-##   5 Plates=plates
-## Push { uint cell_count, pass_id, n_plates, depth; float dt, cell_size, core_radius, max_mass; }, 32 bytes.
-##
-## `LA_NO_PLATE_ADVECT=1` holds the crust still while leaving the dispatch, the buffers and the plate table
-## exactly as they are (n_plates is forced to 0, so pass 0 sends nothing and pass 1 is an exact no-op). It is
-## the measurement control that lets crust motion be A/B'd against itself in ONE build, at one seed, on one
-## machine — the arm this repo's measurement rules ask for. It is not a fallback: the sim always ships moving.
-## (Explicit types only, no ':=' inferred typing.)
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/plate_advect_sphere3d.glsl"
 
@@ -69,11 +40,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 		return
 
 	var water_pair: Array = bufs.get("water", [RID(), RID()])
-	# Every set also binds water + rock_fill, because pass 2 (the fluid displacement) shares this pipeline.
-	# Water is bound LIVE: this pass runs first in the step, so the live half is last step's settled water and
-	# is exactly what the water CA reads next. rock_fill is bound twice in the rock sets (as the carried channel
-	# at 0 and as pass 2's solidity input at 7); that is a read of the same buffer, not an alias hazard, because
-	# the two passes never run at the same time.
 	for p in 2:
 		_set_rock[p] = _build_set([
 			[0, rock_rid], [1, send_rid], [2, radial_rid], [3, pos_rid], [4, nbr_rid], [5, plates_rid],
@@ -96,7 +62,6 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 		_carry(rd, cl, sed_set, ctx, cc, groups, n_plates)
 	# ...and then ONE displacement pass, after both mineral channels have settled, so it sees the rock where it
 	# now is. Skipped entirely when the crust is not moving — with no advection nothing newly closes over water,
-	# and the ordinary substrate owns whatever was already buried.
 	if n_plates > 0 and rock_set.is_valid():
 		rd.compute_list_bind_compute_pipeline(cl, _pipe)
 		rd.compute_list_bind_uniform_set(cl, rock_set, 0)

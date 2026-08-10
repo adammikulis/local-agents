@@ -2,23 +2,7 @@ class_name LAMaterialCharge3D
 extends RefCounted
 
 ## LAMaterialCharge3D: the CHARGE→BOLT firing of LAMaterialField3D, factored into its own module (the field
-## only forwards). The charge FIELD already accumulates on the GPU (charge_accum_sphere3d, wired in GasWindPass):
-## charge separates where a convective updraft lofts supercooled cloud. This module owns the DISCHARGE half, and
-## after each readback it looks for cells whose charge has crossed the dielectric BREAKDOWN threshold and FIRES
-## A BOLT there: it injects a heat pulse at the strike (so a bolt can ignite fuel, an emergent wildfire), zeroes
-## the cell's charge (the discharge, re-uploaded next step), counts the strike, and calls the registered VISUAL
-## callback (the LightningStrike actor / thunder). This is the substrate primitive Thunderstorm DISSOLVES into:
-## the storm becomes a moisture/heat SEED, and lightning falls out of the field's own charge physics.
-##
-## Big-O / relevance: breakdown is not a per-frame full-grid sweep. A cheap STRIDED probe first asks "is any
-## region charged at all?"; the full breakdown scan runs ONLY when the probe sees charge climbing (a bubble in
-## time, since charge exists only under an active storm, which is rare). Holds no field state; reaches into `_f`.
-## (Explicit types only, no ':=' inferred typing.)
 
-# Charge at which a cell breaks down and fires a bolt. Reachable only by a VIGOROUS storm's accumulation (a
-# strong cold updraft × supercooled cloud) OR a direct add_charge seed — kept high enough, against
-# charge_accum's reduced CHARGE_GAIN=4 + faster CHARGE_LEAK=0.05, that only real storm cells reach it (so
-# lightning is modest and storm-clustered, not a continuous planet-wide firehose).
 const BREAKDOWN: float = 8.0
 # After firing, charge is knocked down to this (a near-full discharge) so a cell must recharge before it can
 # strike again — a natural cooldown, no timer.
@@ -27,17 +11,7 @@ const RESIDUAL_AFTER_BOLT: float = 0.1
 # and must fully rebuild before re-firing. Draining only the single cell left its still-charged neighbours at
 # breakdown to re-fire next step (the firehose). Radius spans the convective charged core (~a few cells).
 const DEPLETE_R: float = 22.0
-# THE BOLT'S HEAT IS THE CHARGE IT DESTROYS. This used to be `STRIKE_HEAT = 900` — nine hundred degrees added
-# to every cell within `STRIKE_HEAT_R`, out of nothing, while `deplete_charge` separately zeroed the storm's
-# accumulated charge and threw that energy away. Both halves were wrong in the same way and they cancelled
 # nothing: the field lost its electrostatic store AND gained heat that no store paid for.
-#
-# What a discharge actually does is convert the stored electrostatic energy into heat, light and sound along
-# the channel. So the bolt now delivers exactly `drained charge x J_PER_CHARGE`, and the conversion is
-# anchored on a measured flash: LAPhysical.LIGHTNING_FLASH_J is a typical cloud-to-ground flash, and one cell
-# sitting at BREAKDOWN is one such flash's worth of separated charge. A weakly charged core therefore fires a
-# weak bolt, and a cell with no charge behind it cannot fire at all — which is the emergent behaviour the flat
-# constant was hiding.
 const J_PER_CHARGE: float = LAPhysical.LIGHTNING_FLASH_J / BREAKDOWN
 # The energy goes into the volume the discharge actually spanned — the charged core it drained — not into a
 # separate, smaller blob at the leader cell. A real return stroke heats its whole channel, and using the same
@@ -49,11 +23,6 @@ const MAX_BOLTS_PER_STEP: int = 4
 # BREAKDOWN (charge is spatially broad, so a coarse stride still catches a charged region).
 const PROBE_STRIDE: int = 64
 const PROBE_GATE: float = 0.5
-# The strided probe has a blind spot: GPU-grown charge can cross BREAKDOWN in a cell the stride skips, and
-# `_charge_woke` is only set by explicit injection — so a NATURAL storm's charge never trips the gate and no
-# bolt fires. Guarantee detection with a coarse-cadence FORCED full scan: at least once every FULL_SCAN_EVERY
-# frames run the full 127K-cell pass regardless of the probe. It's amortized and cheap in practice — charge is
-# ~0 everywhere except under an active storm, which is rare — so this is one full sweep per ~20 quiescent frames.
 const FULL_SCAN_EVERY: int = 20
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
@@ -122,10 +91,6 @@ func post_step() -> void:
 		_f._charge_dirty = true                           # push the discharge back to the GPU next step
 
 
-# Fire one bolt at cell `cc`: DRAIN the charged core around the strike (the discharge, not a single-cell
-# reset, so the storm cell must fully rebuild), turn exactly that drained charge into heat in the same volume,
-# count it, and call the visual. The debit comes FIRST and the credit is sized from what it actually yielded —
-# that ordering is what makes the two sides one event instead of two independent constants.
 func _fire_bolt(cc: int) -> void:
 	var pos: Vector3 = _f.cell_world_pos_linear(cc)
 	_bolts += 1

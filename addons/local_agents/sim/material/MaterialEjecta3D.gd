@@ -2,54 +2,7 @@ class_name LAMaterialEjecta3D
 extends Node3D
 
 ## LAMaterialEjecta3D: THE KEYSTONE momentum/ejecta primitive of the substrate. When a pressure release throws
-## matter (a volcano bomb, a meteor's debris, a geyser/steam blast), that matter is just a PARCEL of mass+heat
-## given momentum: it arcs under the planet's RADIAL gravity and, on landing, re-deposits its mass + heat into
-## the field at the impact cell. There is no "bomb code", because every named thrown-debris phenomenon is this ONE
-## primitive with different seed parameters. Disaster actors DISSOLVE into a single eject() call.
-##
-## PERF is BOUNDED + ACTIVITY-LOD (a meteor volley must NOT tank the frame-rate). Two levers, per the repo's
-## Big-O / bubbles-of-compute mandate, layered on the emergent physics WITHOUT losing it:
-##   1. GLOBAL BUDGET/POOL. There is a hard cap on TOTAL live parcels, quality-scaled (Potato/Low small →
-##      Ultra large) from the published `la_effects_scale`. At the cap a new impact spawns FEWER airborne
-##      parcels; the leftover mass is DEPOSITED IMMEDIATELY at the impact point (conserved, nothing vanishes),
-##      so a sustained volley plateaus at the budget instead of growing debris fields without bound.
-##   2. ACTIVITY-LOD FAST-SETTLE. Only parcels that are near AND in the camera's view stay airborne and tick
-##      (the compute bubble). A parcel that is off-screen or far from the camera SETTLES IMMEDIATELY. It still
-##      deposits its mass/heat (conserved) and just skips the invisible arc animation. An impact whose launch
-##      point is off-screen spawns ZERO parcels and deposits in one shot. Airborne work therefore scales with
-##      what the player can actually see, not with how many meteors fell.
-## Neither lever changes the physics: airborne parcels still carry real momentum and every gram of mass/heat
-## still redeposits into the field (mass conserved). Only the COUNT is bounded and invisible arcs are skipped.
-##
-## PHYSICS (CPU, serial, because airborne parcels are FEW by construction now, like actors; the per-cell field CAs stay
-## on the GPU). The per-parcel step is data-parallel, but the hard budget + view-LOD keep the live count to a
-## few dozen, so CPU ballistic integration costs a fraction of a millisecond. A GPU port would only add a
-## landing-event readback hop (against the minimize-CPU↔GPU-hops rule) for no measurable win. The CPU form is
-## the right tool at this bounded scale.
-##   • eject(world_pos, mass, energy, dir_bias) launches a small spray of parcels outward (radial + bias +
-##     cone), speed scaled from `energy`, subject to the budget + view-LOD gates above.
-##   • each step every AIRBORNE parcel integrates under the SAME N-body field every other free body feels
-##     (LAGravity.acceleration_at) — the planet, the moon and the star, in the planet-centred frame.
-##   • a parcel LANDS when it has risen and fallen back to (or below) its launch radius while descending (or is
-##     culled by the LOD/lifetime gate); it then deposits: add_lava at the impact (a conserving bedrock→lava
-##     phase move, so mineral_total stays BOUNDED, because the parcel melts an impact blob rather than fabricating
-##     mass) + add_heat (the glowing scar).
-##
-## RENDER: a MultiMeshInstance3D of small emissive embers (GPU-instanced, ONE draw call) whose per-instance
-## transforms track the live parcels, the field-driven glowing-ejecta visual. The MultiMesh is allocated to the
-## absolute ceiling once; visible_instance_count follows the live (budgeted) count.
-## (Explicit types only, no ':=' inferred typing.)
 
-# There is no gravity constant here. A thrown parcel is matter, and matter falls under LAGravity like a
-# meteor, a moon or a planet does — one rule, one G, one set of masses. This file used to carry its own
-# `GRAVITY = 22.0` radial about the field origin, which was a second, quieter hardcoded single-centre gravity
-# living inside the substrate: it never saw the moon, never saw the star, and disagreed with the 55 units/s²
-# every other falling thing felt, so an ejecta parcel and a meteor dropped side by side fell at different rates.
-# Consequence of the fix: arcs are ~2.5x shorter, because real surface gravity is 55, not 22.
-# A world with no registered gravity body (the flat box demo) gets zero acceleration — parcels coast and settle
-# on the MAX_LIFETIME cull with their mass still conserved. That is the honest answer for a world with no
-# gravity source, not a fallback constant pretending otherwise.
-# Parcels launched per eject() call (a spray, not a single dot). Kept small — ejecta are sparse events.
 const PARCELS_PER_EJECT: int = 6
 # Speed = clamp(sqrt(2·energy/mass)·GAIN) — a ballistic launch speed from the release energy. The max is kept
 # modest so a parcel's arc completes in a couple of seconds (visible + it re-deposits within a short run).
@@ -69,11 +22,6 @@ const BUDGET_FLOOR: int = 48
 const EJECTA_LOD_RADIUS: float = 450.0
 # Safety lifetime — a parcel that never lands (numerical edge) is culled after this many seconds.
 const MAX_LIFETIME: float = 12.0
-# THE LANDING SCAR IS THE PARCEL'S KINETIC ENERGY. This used to be `LAND_HEAT_PER_MASS = 400.0` degrees per
-# unit mass, added to every cell in LAND_HEAT_R out of nothing — a parcel that was culled the instant it was
-# launched dumped exactly as much heat as one that fell from height, because the number was proportional to
-# mass and to nothing else. A landing parcel deposits the energy it is CARRYING, 1/2 m v², which is zero for a
-# parcel at rest and large for one that came down fast. Nothing else needs to be said about "impact scars".
 const LAND_HEAT_R: float = 8.0
 
 var _f = null                                            # owning LAMaterialField3D
@@ -182,10 +130,6 @@ func _airborne_visible(cam: Camera3D, pos: Vector3) -> bool:
 	return cam.is_position_in_frustum(pos)
 
 
-## THE INJECT SEAM. Launch a spray of ejecta parcels carrying `mass` (mineral) + heat from `world_pos`, thrown
-## with `energy` outward along the radial blended with `dir_bias`. Shared by volcano bombs, meteor debris, and
-## geyser/steam blasts — the ONE momentum primitive. Bounded by the global budget + view-LOD (see class doc);
-## all mass is conserved either as an arcing parcel or an immediate deposit. No-op if the field is not ready.
 func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = Vector3.ZERO) -> void:
 	if _f == null or mass <= 0.0 or energy <= 0.0 or is_nan(world_pos.x):
 		return
@@ -279,10 +223,6 @@ func _process(delta: float) -> void:
 	_refresh_visual()
 
 
-# One field MASS unit in kilograms. `LAMaterialField3D.MAX_MASS` is a FULL cell, and a full cell of rock is
-# its volume times basalt's density — so the substrate's mass units already have a real conversion sitting in
-# them and nobody had ever written it down. (The cell is `_cell_size` model units on a side and 1 model unit is
-# 1 m horizontally; see LAMaterialFieldInject3D._cell_heat_capacity for where that scale claim comes from.)
 func _mass_unit_kg() -> float:
 	if _f == null:
 		return 0.0
@@ -291,10 +231,6 @@ func _mass_unit_kg() -> float:
 	return LAPhysical.ROCK_DENSITY_KG_M3 * side * side * side / max_mass
 
 
-# Deposit a landed parcel's mass + heat into the field. add_lava is a CONSERVING bedrock→lava phase move (it
-# melts a blob of the impact column's bedrock), so mineral_total stays BOUNDED — the parcel relocates/melts
-# mass rather than fabricating it. The heat is the parcel's own KINETIC ENERGY at the moment it stops, which
-# is where a real impact's heat comes from; a parcel deposited at rest deposits no heat, and that is correct.
 func _deposit(pos: Vector3, mass: float, speed: float) -> void:
 	_deposited += mass
 	if _f.has_method("add_lava"):

@@ -1,22 +1,5 @@
 extends RefCounted
 
-## Cubed-sphere GPU pass plugin: the SOIL WATER / WATER-TABLE CA (soil_sphere3d.glsl). Surface water soaks
-## into the ground (up to a holding capacity) and the ground releases it back slowly as baseflow + saturation
-## overflow, the reservoir that makes land water persist, rivers run perennial, and floods behave (dry soaks,
-## saturated sheds). Wired to the SphereGPU driver via the plugin contract (setup once, dispatch each step).
-##
-## It runs AFTER AtmospherePass so it sees the settled + freshly-rained surface water. It modifies the settled
-## water[back] IN PLACE (like the rain does) and ping-pongs the `soil` channel live→back. A 2-pass GATHER over
-## the shared `send` scratch (self-zeroed in pass 0) keeps the vertical air↔ground exchange race-free.
-##
-## Per-parity binding → bufs map (see soil_sphere3d.glsl header for the authoritative layout):
-##   0 Water = water[BACK] (settled surface water, read-modify-write) · 1 Solid · 2 Static · 3 Send scratch ·
-##   4 SoilIn = soil[LIVE] · 5 SoilOut = soil[BACK] · 6 Regolith · 7 Temp = temp[BACK] (post-thermal, rw) ·
-##   9 SoilDbg · 15 Neigh
-## EVERY CELL RUNS EVERY STEP. Until 2026-08-03 binding 8 was a camera-relevance score and PASS 0 threw away a
-## cell's transfer compute on a stride derived from it, so groundwater moved slower where nobody was standing.
-## Deleted — see MaterialSphereGPU3D.gd's header note.
-## Push constant: PackedInt32Array([cell_count, pass_id, depth, 0]) + [core_radius, cell_size] floats.
 
 const SOIL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/soil_sphere3d.glsl"
 
@@ -36,8 +19,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	# FAIL LOUD ON A KERNEL THAT DID NOT COMPILE. Godot's own message for this is "Can't create a shader from
 	# an errored bytecode", which says nothing about WHICH kernel or WHY, and the driver's WIP-tolerant pass
 	# loader then keeps the pass in the list with a null pipeline — so the aquifer silently stops running and
-	# the sim goes on printing plausible soil numbers. Measured 2026-07-30: a one-line GLSL error (reading a
-	# `writeonly` buffer) killed this pass for a 750-step run and the only symptom was a soil total that drifted.
 	var err: String = spirv.get_stage_compile_error(RenderingDevice.SHADER_STAGE_COMPUTE)
 	if not err.is_empty():
 		push_error("SoilPass: " + SOIL_PATH.get_file() + " failed to compile — the aquifer will not run.\n" + err)
@@ -125,11 +106,7 @@ func _build_set(shader: RID, entries: Array) -> RID:
 
 func _pc(cc: int, pass_id: int, depth: int, core_r: float, cell_size: float) -> PackedByteArray:
 	# std430 push constant: 4x uint (cell_count, pass_id, depth, pad) then 4x float (core_radius, cell_size,
-	# shell_m, step_s). The last two are the REAL-WORLD scales the Darcy conversion needs — how many metres a
-	# regolith shell stands for and how many seconds a field step stands for — so the kernel can compute a
 	# conductivity in m/s from pore geometry and land it in the substrate's per-step cell-fill unit. Both are
-	# derived by the modules that own them (LAMaterialFieldRegolith3D, LAMaterialFieldSphereStep3D) rather
-	# than written down again here.
 	var out: PackedByteArray = PackedInt32Array([cc, pass_id, depth, 0]).to_byte_array()
 	out.append_array(PackedFloat32Array([core_r, cell_size,
 		LAMaterialFieldRegolith3D.shell_metres(),

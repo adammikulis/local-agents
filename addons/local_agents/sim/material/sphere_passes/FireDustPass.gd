@@ -1,39 +1,19 @@
 extends RefCounted
 
-## Cubed-sphere DUST pass plugin. Wires two GPU-proven sphere kernels behind the sphere GPU driver's pass
-## contract (setup(rd, bufs, cc) / dispatch(rd, cl, parity, ctx, cc, groups)):
-##   * dust_transport_sphere3d.glsl: airborne dust advect/diffuse/settle gather + leeward deposit to sediment
-##
-## THE FIRE IS GONE FROM IT, 2026-08-09, and so is fire_sphere3d.glsl. Combustion is a reaction record now —
-## `reactions/CombustionRecords.gd` R26, an ARRHENIUS rate on cellulose's measured pyrolysis activation
-## energy — so the kernel this pass was named after, together with IGNITE_TEMP (one global ignition
-## temperature for every combustible cell on the planet), FIRE_START, FIRE_MIN, FIRE_GROW, the stored `fire`
-## intensity channel and a bespoke radiant-spread gather, is deleted rather than ported. Flame spread is the
-## heat the reaction releases, carried by the thermal kernels that already exist; there is no spread code.
-## THE FILE KEEPS ITS NAME on purpose: renaming it means editing LAMaterialSphereGPU3D.PASS_SCRIPTS, which
-## other tracks are editing concurrently. The rename is owed and is cosmetic.
-##
-## The old dust_loft_sphere3d.glsl (scour dry sediment into the cell-above's dust) is DISSOLVED into the DEFS
-## reaction engine as record M4 (sediment→own-cell dust, MaterialReactions3D.gd), a clean own-cell transfer;
-## the kernel is deleted (dissolve-don't-patch). ReactionsPass runs the loft before this pass so transport
-## advects the freshly lofted dust the same step.
-##
-## The driver owns the ping-pong `bufs` dictionary and the compute list. This plugin only builds pipelines +
-## per-parity uniform sets in setup(), then records bind/push/dispatch/barrier into the driver's `cl` in
-## dispatch(). The parity convention is stated here because this pass is now where it lives: a PAIR channel's
-## "live" role binds bufs[key][parity] and its "back" role binds bufs[key][1-parity].
-## *(Corrected 2026-08-09. This used to read "Parity roles mirror the verified box orchestrator
-## (MaterialGPU3D.gd) so behaviour matches". MaterialGPU3D.gd was deleted with the box stack and is nowhere in
-## this tree, so "mirrors the verified X" pointed at nothing verifiable — and it named a deleted file as the
-## reason to trust a convention, which is exactly backwards.)*
-##
-## bufs contract (from the driver): PAIR key → [rid_a, rid_b]; SINGLE key → rid. `nbr` is a SINGLE int32
 ## index table (cell*6 + slot; slot 0=down, 1-4=lateral, 5=up), bound at binding 15 on every kernel.
 
-const TRANSPORT_PATH: String = "res://addons/local_agents/sim/material/kernels3d/dust_transport_sphere3d.glsl"
+const TRANSPORT_PATH: String = "res://addons/local_agents/sim/material/kernels3d/tracer_transport_sphere3d.glsl"
 
 # Defaults for the ctx fields (documented in the report). k (Courant factor) = dt / cell_size.
 const DEFAULT_DT: float = 0.1
+# Dust's still-air settling share. A PARTICULATE settles by grain size through Stokes drag, and the substrate
+# could compute that — LAPhysical.GRAIN_D_UPLAND_M / GRAIN_D_LOWLAND_M carry real sieve diameters and Stokes
+# Still-air settling velocity, m/s. Stokes for medium silt (~60 um quartz) in air. The `dust` channel
+# carries no grain size, so this is one value for all dust rather than a function of the grain.
+const DUST_SETTLE_V: float = 0.3
+# Eddy mixing is a property of the FLOW, not of what is suspended in it, so this is the same number the gases
+# use (GasWindPass.EDDY_DIFFUSE). Two tracers with two mixing rates would assert the air stirs one, not the other.
+const EDDY_DIFFUSE: float = 0.02
 const DEFAULT_CELL_SIZE: float = 8.0
 
 var _transport_pipe: RID = RID()
@@ -67,22 +47,20 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	for p in 2:
 		var back: int = 1 - p
 
-		# dust_transport_sphere3d.glsl — 0 dust_in(live), 1 dust_out(back), 2 sediment(back, in place +=
-		# deposit), 4 vel_x, 5 vel_y, 6 vel_z, 7 solid, 15 nbr, 16 link_tan.
-		# *(Binding 3 was the precomputed `dust_outscale` buffer, gone 2026-08-10 with the kernel that filled
-		#  it. The transport computes the CFL scale inline for itself AND for any neighbour, because that
-		#  scale reads only the neighbour's own velocity and its neighbours' solid flags.)*
 		_transport_set[p] = _build_set(rd, _transport_shader, [
-			[0, dust[p]], [1, dust[back]], [2, sediment[back]],
-			[4, vel_x], [5, vel_y], [6, vel_z], [7, solid], [15, nbr], [16, ltan]])
+			[0, dust[p]], [1, dust[back]], [2, sediment[back]], [3, solid],
+			[4, vel_x], [5, vel_y], [6, vel_z], [15, nbr], [16, ltan]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
-	var dt: float = float(ctx.get("dt", DEFAULT_DT))
-	var cell_size: float = float(ctx.get("cell_size", DEFAULT_CELL_SIZE))
-	var k: float = dt / cell_size if cell_size != 0.0 else 0.0
+	# v*dt/dx in REAL units: the velocity field is m/s since the pascal migration, and one field step is
+	# real_seconds_per_step() rather than the 0.1 GAME seconds ctx["dt"] carries. Dividing by a model-unit
+	# cell size would be 168.6x too large.
+	var dt: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	var cell_m: float = float(ctx.get("cell_size", DEFAULT_CELL_SIZE)) * LAPhysical.METRES_PER_MODEL_UNIT
+	var k: float = dt / cell_m if cell_m != 0.0 else 0.0
 
-	var pc_k: PackedByteArray = _pc_count_k(cc, k, maxi(int(ctx.get("depth", 1)), 1))
+	var pc_k: PackedByteArray = _pc_tracer(cc, maxi(int(ctx.get("depth", 1)), 1), k)
 
 	# DUST TRANSPORT — gather advect/diffuse/settle: dust[live] -> dust[back], deposit into sediment[back].
 	rd.compute_list_bind_compute_pipeline(cl, _transport_pipe)
@@ -125,13 +103,15 @@ func _u(binding: int, buf: RID) -> RDUniform:
 	u.add_id(buf)
 	return u
 
-# dust_transport push: { uint cell_count; float k; uint pad0; uint depth; }
-# `depth` turns a cell index into its radial COLUMN, which is how the per-column link-direction table is indexed.
-func _pc_count_k(cc: int, k: float, depth: int) -> PackedByteArray:
+func _pc_tracer(cc: int, depth: int, k: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(16)
+	pc.resize(32)
 	pc.encode_u32(0, cc)
-	pc.encode_float(4, k)
-	pc.encode_u32(8, 0)
-	pc.encode_u32(12, depth)
+	pc.encode_u32(4, depth)
+	pc.encode_float(8, k)
+	pc.encode_float(12, DUST_SETTLE_V)
+	pc.encode_float(16, EDDY_DIFFUSE)
+	pc.encode_u32(20, 1)
+	pc.encode_u32(24, 0)
+	pc.encode_u32(28, 0)
 	return pc

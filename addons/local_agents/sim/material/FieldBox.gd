@@ -3,26 +3,6 @@ class_name LocalAgentFieldBox
 extends Node3D
 
 ## LocalAgentFieldBox: the material field sandbox as a node you can DROP INTO A SCENE.
-##
-## Drag this in, press play, and you get a volumetric MaterialField in BOX mode (setup_dims) with a heat
-## source at its floor and a plane of cubes tinted by the live temperature, so you can watch warmth diffuse
-## and rise. Everything the code-only demo did by hand (sizing the volume, injecting heat, sampling
-## temperatures back out, colouring the slice) is an inspector property here.
-##
-## It OWNS a LAMaterialField3D as a child rather than extending it: the field script is a designated
-## extract-only hub, so the inspector surface lives out here and the field stays untouched.
-##
-## Box mode is a pure-CPU substrate: LAMaterialField3D._physics_process routes a non-sphere field to
-## LAMaterialFieldBoxStep3D, a CPU thermal step, and never creates the RenderingDevice that the
-## cubed-sphere path uses. So the simulation itself runs anywhere, headless included; only the slice
-## VISUAL needs a display, and it is skipped (and reported) when there is none.
-##
-## Coordinates are LOCAL to this node: the field does maths in its own space, so the box and its cubes
-## move with this node's transform together.
-##
-## Pair it with a LocalAgentDemoHarness (report_source = this node) for the repo's standard
-## `-- --run-frames=N` report line.
-## (Explicit types only, no ':=' inferred typing.)
 
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialField3D.gd")
 
@@ -127,11 +107,7 @@ func _sample(ix: int, iy: int, iz: int) -> float:
 	return _field.temp_at(_cell_point(ix, iy, iz))
 
 
-# Heat goes in on the PHYSICS clock, because that is the clock LAMaterialField3D steps the volume on
-# (its own _physics_process). Injecting from _process tied the energy put into the box to the display
 # framerate: the same 120-frame run deposited very different totals on a fast machine and a slow one,
-# and every number in demo_report() moved with it. Physics ticks are fixed-rate, so "40 degrees per
-# frame for 40 frames" now means the same thing on every machine.
 func _physics_process(_delta: float) -> void:
 	if _field == null:
 		return

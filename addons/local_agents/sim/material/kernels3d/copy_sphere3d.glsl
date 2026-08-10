@@ -1,10 +1,6 @@
 #[compute]
 #version 450
 
-// Trivial element-wise copy (src -> dst) over the flat cell array. Used to fold a scratch-buffer gather
-// result back into a shared ping-pong buffer WITHOUT consuming a parity flip: a gather kernel must write a
-// buffer other than the one it reads (race-free), but some passes need the result in-place in the SAME slot
-// they read from. Pattern: gather LIVE -> scratch, then copy scratch -> LIVE. Net zero flips.
 
 layout(local_size_x = 64) in;
 

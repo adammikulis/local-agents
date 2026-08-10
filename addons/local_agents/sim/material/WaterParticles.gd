@@ -2,14 +2,7 @@ class_name LAWaterParticles
 extends GPUParticles3D
 
 ## LAWaterParticles: the ONE atmosphere visual for the planet, a single GPUParticles3D whose custom
-## process + draw shaders render whichever PHASE the field's water is in (cloud / fog / rain / snow),
-## phase being a per-particle property classified from the sampled field-cover texture. It dissolves the
-## old flat CloudLayer sheets (cloud + fog) and the RainLayer box into one field-driven, spherical system.
-##
 ## Bridge: the field bakes a 6-layer RGBA cover texture (one texel per SphereGrid surface cell) at ~10Hz;
-## this node feeds it plus the live camera/sun to the process shader, which places particles in the camera-
-## facing dome, samples the texture by normalize(pos - center), gates them to the emergent bands, and drifts
-## them SLOWLY. All per-particle work is on the GPU. (Explicit types only, no ':=' inferred typing.)
 
 const PROC_SHADER: String = "res://addons/local_agents/sim/shaders/WaterParticles.gdshader"
 const DRAW_SHADER: String = "res://addons/local_agents/sim/shaders/WaterParticlesDraw.gdshader"
@@ -22,8 +15,6 @@ var _camera: Node3D = null
 var _sun: DirectionalLight3D = null
 var _center: Vector3 = Vector3.ZERO
 # Unset until setup() supplies it. This read `248.0` and could never be observed: setup() assigns it as its
-# first act and every read of _sea_radius is later in that same function. It was also wrong by roughly 2x —
-# the live sea shell is at 500 (VoxelWorld.PLANET_SEA_RADIUS) — so it was a dead value that lied about the
 # planet's size to anyone reading the file for the scale of the atmosphere bands.
 var _sea_radius: float = 0.0
 var _prevailing: Vector3 = Vector3(0.15, 1.0, 0.0)

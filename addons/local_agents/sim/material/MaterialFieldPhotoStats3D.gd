@@ -2,39 +2,6 @@ class_name LAMaterialFieldPhotoStats3D
 extends RefCounted
 
 ## LAMaterialFieldPhotoStats3D: the SPATIAL telemetry for primary production — what the photosynthesis
-## record actually sees, cell by cell, instead of one planet-wide total. A focused report module in the same
-## family as the ledger / query / report modules: it holds no state, reaches into the owning field `_f`, and
-## every scan runs at SNAPSHOT cadence only, never per frame.
-##
-## It exists because `biomass_total` alone cannot answer the question this is about: is growth DIFFERENTIATED
-## by the things that should limit it (light, root water), or is it uniform? One total reads identical for
-## "the whole planet greens evenly" and "only the wet lit half greens". So this reports the DRIVERS and the
-## RESPONSE over the same cell set, plus the wet/dry and lit/dark contrasts, which are the falsifiable claims.
-##
-## CELL SETS (they are not the same set, and that difference was itself a finding — measured 2026-07-29):
-##   * GROUND skin — an OPEN cell whose INWARD neighbour is solid rock. This is where a plant physically is:
-##     leaves in the air cell, roots in the rock below. Matches heat3d_solar's `ground_hug` + the snowice
-##     deposition surface. 2156 cells.
-##   * SKY skin — an OPEN cell whose OUTWARD neighbour is space or rock (the reaction kernel's GATE_SURFACE).
-##     On a shell that is the TOP OF THE ATMOSPHERE, ~78 world-units above the terrain. 3456 cells.
-##   Before Keystone B, R19 photosynthesis was gated GATE_SURFACE, so 100% of it ran at the top of the
-##   atmosphere: biomass_sky 2334, biomass_ground 0.0.
-##
-## ROOT WATER: `soil` is only ever non-zero in REGOLITH cells — soil_sphere3d.glsl:223-229 keys on the regolith
-## mask and writes `soil_out[g] = 0.0` for every non-regolith open cell. A plant's root water is therefore the
-## soil in the permeable regolith COLUMN beneath it (REGOLITH_CELLS deep; below that is impermeable bedrock),
-## which is exactly the agronomic rooting-zone available water. `root_d1..d4` break that column down by shell
-## because the shape matters: Darcy drives groundwater toward lower head, so the table sits on the bedrock
-## floor and the top shells are dry (measured d1 5.1e-9, d2 1.3e-8, d3 0.199, d4 0.543). Reading `soil` at the
-## open cell, or at the single cell directly below it, reads a structural zero — not an absence of land water.
-##
-## The column walk masks on `regolith`, NOT on `solid` (corrected 2026-07-30). The two masks diverge — `solid`
-## is re-derived from rock_fill every step, `regolith` is seeded once — so an eroded or river-carved aquifer
-## cell reads open while still holding and still simulating its soil, and the old walk broke before counting
-## it. `root_col_open_frac` / `root_col_open_soil` below report exactly how many columns that affects and how
-## much water it was worth, because the honest answer to "how big was this" is a measurement, not the
-## reasoning that found it.
-## (Explicit types only, no ':=' inferred typing.)
 
 const LIT_MIN: float = 0.05                # insolation above which a cell counts as genuinely lit
 const WET_SPLIT: float = 0.5               # rooting-column water splitting "dry" ground from "wet" ground
@@ -47,25 +14,6 @@ func setup(field) -> void:
 	_f = field
 
 
-## Sun direction IN THE FIELD'S OWN (body-local) FRAME, magnitude carrying insolation — byte-for-byte the
-## quantity the field hands the solar kernel (MaterialFieldSphereStep3D.gd:158) and the reaction engine's
-## derived LIGHT slot, so the light measured here is the light the chemistry sees. No sun node (a bare
-## headless field) -> zero.
-##
-## THE FRAME IS THE WHOLE POINT, and it was wrong until 2026-08-03. This returned the raw WORLD-space
-## `basis.z`, and `report()` dots it against `_f.cell_radial(c)`, which is BODY-LOCAL — MaterialField3D's
-## cell_radial returns the grid's seeded radial with no basis applied, unlike cell_world_pos which does apply
-## one. VoxelWorld spins the planet every frame (VoxelWorld.gd:600, 0.10 rad/s ≈ one turn per 63 s), so by
-## report time the body basis is at an arbitrary angle and the gauge was lighting the WRONG HEMISPHERE.
-##
-## MEASURED, by computing both frames over the SAME cells at the SAME instant across three 600-frame runs
-## (seed 4242, --fast=8): the two sun directions disagreed by up to **135°**. Yet `light_mean` moved only
-## 8.1% and `light_lit_frac` 7.0% — a rotated hemisphere is still a hemisphere, which is exactly why this
-## survived so long and why light_mean is the WRONG sentinel for a frame error. What the bug destroyed was
-## the light-vs-response CONTRAST: `biomass_dark_mean` was off by up to 99%, and `biomass_lit_dark_ratio`
-## read 1.32 / 1.41 / 1.35 in the world frame against 2.37 / 2.30 / 2.34 in the body frame. Discard any
-## light-vs-growth figure taken before 2026-08-03. dir_to_field is a pure rotation, so insolation carries
-## through untouched.
 func sun_dir() -> Vector3:
 	if _f._sun_light == null:
 		return Vector3.ZERO
@@ -141,13 +89,6 @@ func report() -> Dictionary:
 			continue                                     # not GROUND skin — no rock beneath, so no roots
 		ground_n += 1
 		bio_ground += biomass[c]
-		# Rooting-zone water: walk inward through the permeable REGOLITH band, counting the first open aquifer
-		# cell and stopping there (which is what makes each ground cell's column disjoint from every other's).
-		# This MUST stay cell-for-cell identical to reactions_sphere3d.glsl's root_soil() — it is the gauge for
-		# that walk, and when it mirrored the kernel's old solid-mask test the two agreed with each other while
-		# both were wrong, so the telemetry confirmed the bug instead of catching it. Mask on `regolith`, not
-		# `solid`: `solid` is re-derived from rock_fill every step while `regolith` is seeded once, so an
-		# eroded or carved aquifer cell reads open yet still holds and still simulates its soil.
 		var col: float = 0.0
 		if has_soil and has_reg:
 			for d in reg:
@@ -157,13 +98,6 @@ func report() -> Dictionary:
 				col += soil[rc]
 				dsum[d] += soil[rc]
 				if solid[rc] == 0:
-					# An OPEN aquifer cell: regolith that erosion, a MineralStamp3D shrink or world-gen river
-					# carving has cleared. It terminates the walk (see above), and it is EXACTLY the cell the
-					# old solid-masked walk discarded — so `open_soil` is the water that walk was hiding and
-					# `open_n` counts the columns it hid water from. Reported because the size of the
-					# solid-vs-regolith divergence has to be a MEASURED number, and it has to be measured
-					# IN-RUN: disasters bypass the sim seed, so two runs at one seed diverge physically and a
-					# cross-run before/after cannot resolve an effect this small.
 					open_n += 1
 					open_soil += soil[rc]
 					break
@@ -181,10 +115,6 @@ func report() -> Dictionary:
 		if light > LIT_MIN:
 			lit_n += 1
 			bio_lit += biomass[c]
-			# WETNESS, ISOLATED FROM LIGHT. Wet ground and lit ground are correlated on a planet (the wettest
-			# land is often the cold pole), so a raw wet/dry split confounds the two drivers. Restricting the
-			# comparison to cells that are already LIT removes light as the limiter, leaving water as the only
-			# thing that differs — this is the pair that actually tests the claim.
 			if col < DRY_EPS:
 				lit_dry_n += 1
 				bio_lit_dry += biomass[c]
@@ -215,11 +145,6 @@ func report() -> Dictionary:
 	out["fert_ground_mean"] = fert_sum / gn
 	out["root_col_dry_frac"] = float(dry_n) / gn
 	out["root_col_bone_frac"] = float(bone_n) / gn
-	# SOLID-vs-REGOLITH DIVERGENCE, measured rather than argued. `root_col_open_frac` is the share of ground
-	# columns whose rooting walk ends on an opened aquifer cell, and `root_col_open_soil` is the mean water per
-	# ground column that sat in those cells — precisely what the walk discarded while it masked on `solid`.
-	# Both are 0 on a world where nothing has carved or eroded the regolith, and both grow as it does, so this
-	# is also the live gauge for how far the once-seeded regolith mask has drifted from the per-step `solid`.
 	out["root_col_open_frac"] = float(open_n) / gn
 	out["root_col_open_soil"] = open_soil / gn
 	var col_sorted: PackedFloat32Array = col_vals.duplicate()
@@ -230,13 +155,6 @@ func report() -> Dictionary:
 	out["root_col_p50"] = _pct(col_sorted, 0.50)
 	out["root_col_p90"] = _pct(col_sorted, 0.90)
 	out["root_col_max"] = col_sorted[col_sorted.size() - 1]
-	# Wetness quartiles: sort the land ground cells by rooting-column water and report mean biomass in each.
-	# READ THESE WITH CARE — they are CONFOUNDED and should not be used as the wetness result on their own.
-	# On a planet the wettest ground is disproportionately the cold dark pole (that is where water converges and
-	# stays), so a raw water-quartile split also sorts by light and temperature, and the quartile means come out
-	# NON-MONOTONE even when water is limiting hard (measured: 0.338 / 0.441 / 0.467 / 0.199 while the
-	# light-isolated contrast over the same cells was 51.8x). `biomass_lit_wet_dry_ratio` below is the valid
-	# statistic; these four are kept because seeing the confound is more useful than not having the shape.
 	var q1: float = _pct(col_sorted, 0.25)
 	var q2: float = _pct(col_sorted, 0.50)
 	var q3: float = _pct(col_sorted, 0.75)

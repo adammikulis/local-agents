@@ -1,70 +1,6 @@
 class_name LAReactionBalance
 extends RefCounted
 
-## THE BALANCE GATE — a reaction record that creates or destroys matter is UNWRITABLE.
-##
-## WHY THIS EXISTS. The DEFS engine was a rate table, not a chemistry: `rec()` took `reactants[]` and
-## `products[]` as two independent lists of hand-written coefficients with NOTHING relating them, and there
-## was no load-time validation of any kind. Conservation was asserted in comments and enforced nowhere. Two
-## records exploited that by construction:
-##   * R15 decompose shipped consuming 0.8 O₂ per 1.0 CO₂ produced — 18% under-oxidised, creating oxygen
-##     every cycle. It was "fixed" by a person noticing and setting two constants equal by hand.
-##   * R11 (O₂) and R12 (CO₂) used the RELAX_TARGET rate model, which has NO REACTANT: the kernel skipped
-##     the whole cap-and-debit block, so only the product credit ran. Every carbon atom that ever existed in
-##     this simulation was conjured by R12, at a measured +6.5 units per field step.
-## A rule that lives only in a comment has already been broken here twice, so this is not a comment. Every
-## record is checked at load (LAMaterialReactions3D.records() refuses the whole table on a violation) and
-## again by `scripts/check_reaction_balance.sh`, which CI runs through `scripts/agent_harness.sh lint`.
-##
-## WHAT "BALANCE" MEANS HERE, precisely. Each channel SLOT is declared below as the ELEMENTS one unit of it
-## contains. A record balances when, for every element, the sum over its products equals the sum over its
-## reactants. Six elements, all of them ATOMS:
-##
-##   C - carbon.   N - nitrogen.   H - hydrogen.   O - oxygen.   Ca - calcium.   Si - silicon.
-##
-## THERE IS NO LONGER AN `M`. *(Changed 2026-08-08.)* Until then the mineral phases were declared as one
-## lumped mass with no stoichiometry, justified by "nothing converts between M and C/H/O/N" — which was true
-## only because chemical weathering was written with CO2 as a CATALYST it never consumed. The mineral phases
-## now carry real formulas: silicate CaSiO3, silica SiO2, carbonate CaCO3. That is what makes the Urey
-## reaction CaSiO3 + CO2 -> CaCO3 + SiO2 writable, and with it the silicate-weathering carbon sink.
-##
-## THE COMPOSITIONS ARE THE ORDINARY MOLECULAR ONES. CO2 is C1 O2. Free O2 is O2. Liquid WATER, atmospheric
-## MOISTURE, frozen SNOW and the rooting column's SOIL_ROOT are all H2 O1 - one substance in four phases and
-## places. Living and dead organic matter (BIOMASS, DETRITUS, FUNGUS, cured FUEL) is CH2O, the carbohydrate
-## unit, plus nitrogen at the measured C:N ratio of the material (LAPhysical.LITTER_C_TO_N). FERT is
-## plant-available mineral nitrogen. Photosynthesis, respiration and decomposition then balance as the real
-## reactions do -- CO2 + H2O -> CH2O + O2, and CH2O + O2 -> CO2 + H2O -- and the identity BioRecords.gd used
-## to assert in prose, "O2 consumed == CO2 produced", falls out of the oxygen column instead of being
-## maintained by hand.
-##
-## THIS TABLE IS THE ONE DECLARATION, AND THE INVENTORY READS IT TOO. LAMaterialFieldElementInventory3D sums
-## the field's channels through this same `composition()`, which is what stops the instrument being circular.
-## Before 2026-08-03 the budget summed the CO2, biomass and detritus channels at 1 unit each and called the
-## total "carbon" - true only if the reaction coefficients relating those three are carbon-balanced, which is
-## exactly the property the gauge existed to check. It assumed what it was measuring, so it could not detect
-## the failure it was for. The records and the inventory cannot disagree now, because a disagreement would
-## have to be a disagreement with itself.
-##
-## THE STOICHIOMETRIC WATER IS MODELLED, AND IT WAS NOT BEFORE. An earlier version of this file declared an
-## `h2o` substance and an `oxidant` (O2-equivalent) pseudo-substance instead of H and O atoms, and argued
-## that photosynthesis's one-water-per-carbon leg could be left out because real transpiration moves 200-1000
-## waters per carbon fixed, making the stoichiometric leg well under a percent of a plant's throughput. That
-## argument is sound about REALITY and unsound about THIS substrate, whose transpiration coefficient is 0.05
-## rather than 400 - so the leg it dismissed as negligible is twenty times the one it kept. Leaving it out
-## also meant hydrogen and oxygen had no accounting at all. R19 now debits SOIL_ROOT by
-## (1.0 + PHOTO_WATER_COST), and R15/R20 credit the water their oxidation releases.
-##
-## SLOTS WITH NO SUBSTANCE. TEMP is energy, not matter. WINDSPEED, LIGHT and FIRE are derived drivers or
-## intensities, not stocks. None may appear as a reactant or a product — a record that "produces" degrees or
-## lux is not a reaction — and the gate refuses one that tries.
-##
-## THE KERNEL CROSS-CHECK. The slot enum is declared TWICE: once here in GDScript and once as `#define`s in
-## reactions_sphere3d.glsl, which resolves a slot through two switch-ladders (`read_ch` for reads, `add_ch`
-## for writes). Slots 5 (FUEL) and 6 (FIRE) were declared in BOTH enums and had NO ladder branch at all, so
-## they read 0 and any write to them vanished silently. `check_kernel()` parses the kernel and refuses: a
-## name or value mismatch between the two enums, a driver whose slot has no `read_ch` branch, a reactant
-## whose slot lacks either branch, and a product whose slot has no `add_ch` branch.
-## (Explicit types only, no ':=' inferred typing.)
 
 const DefsScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 
@@ -75,12 +11,7 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/re
 ## any real imbalance ever found here — R15's was 18%, R20's nitrogen deficit 60%.
 const TOL: float = 1.0e-6
 
-## Constant names on LAReactionDefs that are NOT channel slots (rate models, gate bits, product targets, the
-## record stride). Everything else in that file's constant map is a slot, so adding a slot needs no edit here.
-##
-## ARRHENIUS WAS MISSING FROM THIS LIST until 2026-08-08, and the omission was not harmless. It is 6, the same
 ## value as FIRE, and it is declared LATER in the file, so `slot_names()` resolved slot 6 to "ARRHENIUS" and
-## FIRE never appeared in the map at all — meaning the kernel cross-check silently stopped checking FIRE's
 ## #define, and any message about slot 6 named a rate model rather than a channel.
 const NON_SLOT_CONSTS: PackedStringArray = [
 	"CONST_FRAC", "BILINEAR", "EXCESS_OVER_THRESHOLD", "DEFICIT_BELOW_THRESHOLD", "OPTIMUM_BAND",
@@ -88,30 +19,12 @@ const NON_SLOT_CONSTS: PackedStringArray = [
 ]
 
 
-## Slots that carry no conserved substance and may therefore never be a reactant or a product. TEMP is
 ## energy: a reaction that releases or absorbs heat needs an enthalpy term, which is a different mechanism
-## from a mass coefficient because the temperature change depends on the receiving cell's heat capacity. The
-## rest are derived drivers computed from geometry (LIGHT, WINDSPEED) or an intensity (FIRE).
 static func driver_only() -> PackedInt32Array:
 	return PackedInt32Array([DefsScript.TEMP, DefsScript.WINDSPEED, DefsScript.LIGHT, DefsScript.FIRE])
 
 
-## Slot -> { ELEMENT: atoms per unit of the channel }. A slot absent from BOTH this table and driver_only()
-## is an authoring error and the gate says so, rather than silently treating it as massless.
-##
-## THE INVENTORY READS THIS SAME FUNCTION (LAMaterialFieldElementInventory3D), which is what stops the
 
-## WHICH SUBSTANCE EACH CHANNEL SLOT HOLDS — the only thing this file declares about matter any more.
-##
-## Everything below used to be TWO hand-written dictionaries: `composition()` listing atoms per slot, and
-## `mol_per_unit()` listing moles per slot. Both restated facts that belong to the MATERIAL, not to the
-## channel, so a material's properties lived in five places joined by naming convention and the two could
-## silently disagree. They are views of `LASubstances` now, and a slot's only job is to say what it holds.
-##
-## SEVERAL SLOTS SHARE A SUBSTANCE, and that is the point rather than a redundancy: `water`, `moisture` and
-## `snow` are one substance in three phases; `biomass`, `detritus`, `fungus` and `fuel` are one material in
-## four places; `lava`, `rock_fill`, `sediment`, `dust` and `susp` are one mineral in five. Those groupings
-## are exactly the channels that collapse when phase stops being stored.
 const SLOT_SUBSTANCE: Dictionary = {
 	1: "h2o", 2: "h2o", 12: "h2o", 19: "h2o", 21: "h2o",        # WATER MOISTURE SNOW SOIL_ROOT SOIL_TOP
 	3: "o2", 4: "co2",
@@ -133,13 +46,6 @@ static func composition() -> Dictionary:
 	return out
 
 
-## Moles of substance in one unit of a channel. A channel unit is the substance's own DENSITY in kilograms
-## per cubic metre — a full cell of it — so this is density / molar_mass and nothing is chosen here.
-##
-## *(It used to be four hand-picked bases with an argument attached to each, including "organic matter had
-## no declared unit anywhere, so a unit of it IS a unit of O2 by the fire kernel's arithmetic". That was a
-## real inference, but keeping it as a written-down number let it drift from the material it described.
-## Cellulose has a density; the answer follows from it.)*
 static func mol_per_unit() -> Dictionary:
 	var out: Dictionary = {}
 	var tbl: Dictionary = LASubstances.table()
@@ -151,13 +57,6 @@ static func mol_per_unit() -> Dictionary:
 
 
 
-## How many units of `slot` hold the same number of MOLES as one unit of `ref_slot`.
-##
-## This is the number a record needs whenever it couples two channel families, and having to write it by
-## hand is what let the biological records ship a 1:1 gas-to-water coefficient that was wrong by 6484x.
-## A record says `[[MOISTURE, 1.0 * unit_ratio(MOISTURE, CO2)]]` and means "one H2O per CO2" — the
-## stoichiometry stays visible and the conversion cannot be mistyped, because both halves come from
-## mol_per_unit().
 static func unit_ratio(slot: int, ref_slot: int) -> float:
 	var mpu: Dictionary = mol_per_unit()
 	var to: float = float(mpu.get(slot, 0.0))
@@ -179,11 +78,6 @@ const INVENTORY_CHANNELS: Dictionary = {
 }
 
 
-## The channels whose contents are LITHOSPHERE — rock, and the loose mineral derived from it. Kept as its own
-## list because the two reservoirs are summed onto separate books: a cell of bedrock holds 24966 mol of
-## silicate against a cell of air's 0.002 units of CO2, so one combined `element_O` would be crustal oxygen
-## plus rounding error, and the atmospheric signal the ledger exists to watch would be gone. Everything in
-## INVENTORY_CHANNELS that is not in here is atmosphere, hydrosphere or biosphere.
 const LITHOSPHERE_CHANNELS: PackedStringArray = [
 	"rock_fill", "lava", "sediment", "susp", "dust", "carbonate", "silica",
 ]
@@ -222,11 +116,6 @@ static func check_records(recs: Array, labels: PackedStringArray = PackedStringA
 	var comp: Dictionary = composition()
 	var names: Dictionary = slot_names()
 	var drivers: PackedInt32Array = driver_only()
-	# THE CONVERSION THIS GATE RAN WITHOUT UNTIL 2026-08-07. `comp` is elements per MOLE; a record's
-	# coefficients are in CHANNEL UNITS, and a channel unit is not a mole. Multiplying by `mpu` is what turns
-	# a coefficient into an amount of substance, and it is the difference between comparing atoms and
-	# comparing two arbitrary scales. Without it a gas-to-water coefficient of 1:1 read as balanced while
-	# being wrong by 6484x. See mol_per_unit() for where each factor comes from.
 	var mpu: Dictionary = mol_per_unit()
 	for r in range(recs.size()):
 		var rec: Dictionary = recs[r]
@@ -266,7 +155,6 @@ static func check_records(recs: Array, labels: PackedStringArray = PackedStringA
 					sums[sub] = float(sums.get(sub, 0.0)) + sgn * moles * float(parts[sub])
 		if bad_slot:
 			continue
-		# (The M-mixing rejection block that stood here is DELETED, 2026-08-08. It refused any record that put
 		# lumped mineral mass on one side and atoms on the other, and its own comment named its removal
 		# condition: "the day the mineral phases carry real species compositions". They do. Ca and Si are
 		# ordinary columns in the sums below now, so the Urey reaction is checked the same way respiration is.)

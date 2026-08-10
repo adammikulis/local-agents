@@ -2,42 +2,13 @@ class_name LAMaterialFieldInjectQueue3D
 extends RefCounted
 
 ## LAMaterialFieldInjectQueue3D: the PENDING-DEVICE-EDIT queue and the H₂O injection LEDGER.
-##
-## Everything that injects into the field from the CPU (a storm lifting vapor, a flood surge, a cell of rock
-## burying the water that was in it) parks its edit here, and the sphere-step loop flushes the whole queue on
-## device just before it dispatches. Two things fall out of that, and both were bugs before this existed:
-##
-## 1. AN INJECTION ADDS, IT DOES NOT REWIND. The old path edited the CPU mirror and set a dirty flag, so the
-##    step uploaded the WHOLE mirror over the live GPU buffer — but that mirror was last filled by a readback
-##    one frame (up to two steps) old, so an injection frame replaced the device's current state with a stale
-##    snapshot plus the injection, discarding whatever the kernels did in between. Every edit here is applied
-##    to the LIVE buffer through LAMaterialSphereGPU3D.add_field_sparse / move_field_sparse instead.
-##
-## 2. A TRANSFER CANNOT MINT. `transfer()` names a SOURCE for every credit, and the move is resolved on device
-##    against the live source values, so the debit and the credit are the same number by construction. What the
-##    source could not supply shows up as `h2o_inject_short` (demand minus moved) and is reported — never
-##    silently created. `minted` counts the edits that genuinely have no source (a scripted flood surge), so
-##    that mass is visible rather than hidden inside a channel.
-##
-## The counters are cumulative over the run and published into SIM_REPORT by LAMaterialFieldReport3D, which is
-## the whole point: a conservation law nothing reports is a claim, not a law.
-## (Explicit types only, no ':=' inferred typing.)
 
 ## A per-cell amount this large means "take everything that is there" — move_field_sparse clamps the take to
 ## the live source value, so the caller gets an exact drain without knowing what the device holds.
 const DRAIN_ALL: float = 1.0e30
 
-## Channels whose mass is MINERAL rather than H₂O. This queue carries THREE ledgers, not one: excavated bedrock
-## handed to sediment/dust (a crater) is a real conserving transfer, but folding it into `moved` would print
-## rock as water moved and the h2o_* gauges would stop meaning what they say. Routing by source channel keeps
-## each total honest without either caller having to know the other exists.
 const MINERAL_CHANNELS: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust"]
 
-## Channels whose mass is BIOTIC — the carbon/oxygen substances an ANIMAL exchanges with the field
-## (LAMaterialFieldBiota3D: grazing debits `biomass`, respiration debits `o2` and credits `co2`, a rotting body
-## credits `detritus`). Added 2026-08-03 with the creature-conservation work, for exactly the reason the mineral
-## book exists: an animal breathing is not a storm, and counting its oxygen inside `h2o_inject_moved` would make
-## the water gauges report a quantity that is not water. Same mechanism, third set of books.
 const BIOTIC_CHANNELS: PackedStringArray = ["biomass", "o2", "co2", "detritus", "fuel"]
 
 # --- cumulative H₂O injection ledger (SIM_REPORT gauges) ---------------------------------------------------
@@ -53,41 +24,15 @@ var buried: float = 0.0        # mass discarded because a cell turned solid with
 var displaced: float = 0.0     # mass a solidifying/melting cell handed to a neighbour instead of stranding
 
 # --- cumulative MINERAL ledger (same mechanism, separate books — see MINERAL_CHANNELS) ----------------------
-#
-# TRANSFER AND SOURCE ARE SEPARATE BOOKS, split 2026-08-03. They used to share one counter named
-# `mineral_credited`, published as `mineral_inject_credited`, whose docstring said it was the crater's excavated
-# bedrock "because rock_fill is debited through its whole-mirror upload". That description was STALE and the
-# gauge measured the opposite thing: the crater has gone through `transfer()` since
 # MaterialFieldInject3D.gd:493-494 (device-resolved, so it lands in `mineral_moved`), and the ONLY `add()` on a
-# mineral channel is the volcanic vent at MaterialFieldInject3D.gd:333 — a declared mantle SOURCE (":296 the
-# deep reservoir is effectively infinite, so mineral_total rises by exactly the mass injected"). So every unit
-# the old gauge ever reported was minted rock booked under a name that claimed it was conserved, which is
-# precisely what pollutes the crater-vs-vent cross-check. Measured on a 600-frame --planet-only run:
-# `mineral_inject_credited` 216.0 with `mineral_inject_moved` 0.0 and `crater_mass` 0.0.
 var mineral_offered: float = 0.0   # mineral mass a transfer's CPU-side scan believed its source held
 var mineral_moved: float = 0.0     # TRANSFER: mass actually moved between phases — device-resolved, so debit
-                                   # == credit and this can never mint. The crater's excavated bedrock (rock
-                                   # -> sediment/dust) is this. Compare it with `crater_mass`: equal means the
-                                   # strike moved rock, not destroyed it, and a gap is destroyed mass the loose
-                                   # phases never received.
 # --- cumulative BIOTIC ledger (same mechanism, third set of books — see BIOTIC_CHANNELS) --------------------
-#
-# What a living body takes out of the field and what it puts back. `biotic_offered` is what the CPU-side scan
-# believed was standing there (grass at the animal's feet, O₂ in its head cell); `biotic_moved` is what the
-# device actually had, so `offered - moved` is the honest measure of an animal biting at ground that turned out
-# to be bare. `biotic_minted` counts credits with no field debit — a body returning its OWN tissue as CO₂ or
-# detritus, which is not a mint at all but a transfer out of a pool this field does not hold. That is why
-# LAMaterialFieldBiota3D publishes `biota_carbon`: the pool standing in living bodies, so the carbon books close
-# across the boundary instead of appearing to leak at it.
 var biotic_offered: float = 0.0
 var biotic_moved: float = 0.0
 var biotic_minted: float = 0.0
 
 var mineral_minted: float = 0.0    # SOURCE: mass added with NO debit anywhere in the field — the vent drawing
-                                   # on the mantle reservoir outside the simulated shell. Physically honest and
-                                   # deliberately kept, but it means a perfectly conserving substrate still
-                                   # shows a RISING mineral_total, so LAMaterialFieldMineralBudget3D subtracts
-                                   # this before reporting `mineral_net_per_step`.
 
 # AUDIT (LA_INJECT_AUDIT=1): |CPU mirror total - live device total| for a channel at flush time. That gap IS
 # the mass the old set_field-from-the-mirror upload would have written away, so a nonzero reading here is a
@@ -110,36 +55,6 @@ func is_empty() -> bool:
 	return _ops.is_empty()
 
 
-## Fold a new edit into the op with the same (kind, source channel, destination channel) signature instead of
-## appending a second one. This is not tidiness, it is the cost model: every op costs a FULL-BUFFER device read
-## and write-back, and a single thunderstorm frame issues one injection per seeding point (five, plus a soil
-## pass each). Coalescing turns ~10 full-grid round-trips per storm frame into 2. Cells repeated across merged
-## edits are still correct — move_field_sparse walks them in order against the values it is already updating.
-##
-## THE `duplicate()` CALLS ARE LOAD-BEARING; do not simplify them away. A caller is entitled to pass the same
-## PackedInt32Array as both `src_cells` and `dst_cells`, and three separate callers do: `add()` and `discard()`
-## because an add's destination IS its source, and `resample_terrain()` because an excavated cell hands its
-## bedrock to sediment right where it stands. The array is copy-on-write, so the two dictionary entries then
-## reference ONE buffer, and reading them into two locals does not detach it: `sc.append_array()` grew it and
-## the following `dc.append_array()` grew the already-grown array a second time. After one merge `src_cells`
-## was [1, 2, 3, 3] against three `amounts`. Both sparse primitives early-return 0.0 on a size mismatch
-## (`add_field_sparse` on cells vs deltas, `move_field_sparse` on src_cells vs amounts), so the whole op was
-## silently dropped. `flushed_cells` and `add_cells` counted the doubled array, over-reporting at the same
-## time: 3 queued cells reported as 4.
-##
-## Both ends are defended, deliberately: `dst_cells` is duplicated when the op is CREATED so no op ever holds
-## one buffer in two slots, and all three arrays are duplicated when an op is MERGED so the appends cannot
-## alias whatever a future caller passes. Either alone is sufficient; together they are cheap insurance on a
-## failure mode that reports nothing when it fires.
-##
-## THE `add` AND `transfer` CASES HAVE DIFFERENT REACHABILITY, and an earlier version of this comment got the
-## second one wrong by saying `transfer`/`displace` "pass two distinct arrays and so never aliased".
-##  - `add`/`discard` need two same-signature ops in ONE flush window, so that is latent: four barrage runs
-##    and one `--auto-barrage --hotspring-test` raised the mismatch zero times, and the fix should NOT be read
-##    as the cause of any measured crater-fill change.
-##  - `transfer` from `resample_terrain` DOES alias, and it fired in normal play: measured on a barrage,
-##    99/99/99 cells in and 268/169/268 out, so every coalesced mineral transfer was dropped. Coalescing is
-##    the common case the moment two excavations land between flushes, which is what a barrage is.
 func _merge(key: String, kind: String, src: String, dst: String, src_cells: PackedInt32Array,
 		amounts: PackedFloat32Array, dst_cells: PackedInt32Array, ceiling: float) -> void:
 	var slot: int = _index.get(key, -1)
@@ -161,10 +76,6 @@ func _merge(key: String, kind: String, src: String, dst: String, src_cells: Pack
 	op["dst_cells"] = dc
 
 
-## Record the mass a transfer WANTED, before any of it is sourced. Kept separate from `transfer()` because one
-## logical demand may be met from several source channels (a storm draws liquid first, then the water table),
-## and because a demand with NO available source must still be counted — that case queues nothing at all and
-## would otherwise vanish. `short` is then simply demand - moved, which is the number to look at.
 func note_demand(want: float) -> void:
 	if want > 0.0:
 		demand += want
@@ -254,10 +165,6 @@ func flush(gpu) -> void:
 	_index.clear()
 
 
-## AUDIT hook (LA_INJECT_AUDIT=1 only): measure how far the CPU mirror of `channel` has drifted from the live
-## device buffer at this instant. That difference is exactly what the old `set_field(channel, mirror)` upload
-## would have written over the top of the kernels' work, so it is the direct evidence that an injection used
-## to rewind the channel. Pure measurement — it changes nothing.
 func audit_rewind(gpu, channel: String, mirror: PackedFloat32Array) -> void:
 	if gpu == null or not gpu.has_method("channel_total") or mirror.size() == 0:
 		return
@@ -283,12 +190,6 @@ func report() -> Dictionary:
 		"h2o_buried": snappedf(buried, 0.01),
 		"h2o_displaced": snappedf(displaced, 0.01),
 		"h2o_stale_rewind": snappedf(rewind_peak, 0.01),
-		# MINERAL, in TWO books so the crater-vs-vent cross-check works (see the counters' own comments).
-		# `mineral_inject_moved` is the CRATER: the DEVICE truth for how much rock a terrain edit actually took
-		# out of the bedrock channel, against which `crater_mass` is only what the (possibly stale) CPU mirror
-		# asked for. `mineral_inject_minted` is the VENT: mantle rock entering the field with no debit, which
-		# LAMaterialFieldMineralBudget3D subtracts before judging whether the substrate conserves. The former
-		# key `mineral_inject_credited` is GONE — it reported the vent under a name that claimed conservation.
 		"mineral_inject_offered": snappedf(mineral_offered, 0.01),
 		"mineral_inject_moved": snappedf(mineral_moved, 0.01),
 		"mineral_inject_minted": snappedf(mineral_minted, 0.01),

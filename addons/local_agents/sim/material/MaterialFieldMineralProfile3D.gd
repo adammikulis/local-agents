@@ -2,46 +2,6 @@ class_name LAMaterialFieldMineralProfile3D
 extends RefCounted
 
 ## LAMaterialFieldMineralProfile3D: WHERE the planet's loose mineral is, by elevation — not how much of it
-## there is. Diagnostic only, created by LAMaterialFieldSphereStep3D and only when `LA_MINERAL_PROFILE` is in
-## the environment, because a sample is a full-grid CPU walk.
-##
-## WHY A PROFILE AND NOT A TOTAL. `sediment_total` and `susp_total` are scalars, and a scalar cannot answer
-## the only question sediment transport raises: does mineral MOVE DOWNHILL? A river that scours its bed and
-## drops the load back into the same cell publishes exactly the same totals as one that carries it to a basin
-## and builds a delta. The two are the difference between a planet with a landscape history and one without,
-## and no aggregate in SIM_REPORT can tell them apart. This measures the SHAPE of the distribution instead.
-##
-## THE METHOD — first split the pools, then measure only the one that can move.
-##
-## 0. THE SPLIT. Loose mineral sits in three places that behave nothing alike: BURIED inside solid rock,
-##    DEEP in enclosed cavities below the local bed, and on the SURFACE above it. Only the last is reachable
-##    by water. Mixing them makes the aggregate move for reasons unrelated to transport, which is exactly what
-##    the first version of this probe did. `buried_loose` and `deep_loose` are reported as bare totals; every
-##    other statistic here is over the surface pool alone.
-##
-## 1. BED TERCILES, the structural one. Every surface column has a bed top: the outermost solid shell. Bin the
-##    columns into low / middle / high thirds BY THAT, cutting the terciles from the terrain itself so each
-##    bin holds the same number of columns and the bins do not move with the mineral. Then sum the surface
-##    mineral standing in each bin. A distribution shifting from `hi` to `lo` is downhill transport, and
-##    `lo_over_hi` is the single number that says so.
-##
-## 2. MEAN BED ELEVATION, the direct one. `surf_mean_bed` is the bed elevation the surface mineral is lying
-##    on, mass-weighted. `bed_mean` is the same average over the ground itself. `surf_bed_offset` is the
-##    difference: how far below the planet's average ground the loose mineral has come to rest.
-##
-## 3. MEAN SHELL and SHELL HISTOGRAM, the fine-grained ones. A cell's radial shell index is its elevation in
-##    cells. `surf_mean_shell` is that index mass-weighted; `shell_hist` is the whole distribution, twenty
-##    numbers, because a scalar cannot show a shape. `surf_above_bed` is the mean height above the LOCAL bed,
-##    which says how thickly the deposit stands independently of where the bed is.
-##
-## `field_step` is what any two samples must be compared at: these are not steady quantities, and comparing
-## them at equal FRAMES compares two different horizons.
-##
-## NOT USED: `rock_fill`. It would give a sub-cell continuous bed elevation, but its CPU mirror is
-## demand-gated (MaterialSphereGPU3D.SITUATIONAL_CHANNELS) and only refreshes while something has armed it,
-## so a profile built on it would be silently stale. The solid mask and the two loose phases are read every
-## slow drain.
-## (Explicit types only, no ':=' inferred typing.)
 
 ## Field steps between printed profiles. A sample walks every cell once, so this is not free.
 const SAMPLE_EVERY: int = 100
@@ -52,15 +12,6 @@ const SAMPLE_EVERY: int = 100
 const SUSP_ACTIVE: float = 0.001
 
 
-## How many OPEN cells are currently carrying suspended mineral — the honest `erosion_cells` gauge.
-##
-## This is static and takes its inputs directly so the field can forward to it without owning a diagnostic
-## instance, and so it costs one walk of two packed arrays rather than a profile sample.
-##
-## (Added 2026-08-03. `LAMaterialField3D.erosion_cell_count()` was `return 0` — a hardcoded zero published in
-## every SIM_REPORT as `erosion_cells`. It read "no erosion anywhere" for the entire period in which erosion
-## genuinely could not move anything, and it would have read exactly the same if erosion had been working
-## perfectly. A gauge that cannot distinguish those two states is not a weak gauge, it is a false one.)
 static func suspended_cell_count(susp: PackedFloat32Array, solid: PackedByteArray) -> int:
 	var n: int = susp.size()
 	if n == 0 or solid.size() != n:
@@ -73,12 +24,6 @@ static func suspended_cell_count(susp: PackedFloat32Array, solid: PackedByteArra
 
 var _f = null                    # back-reference to the owning LAMaterialField3D
 var _gate: int = 0
-# FROZEN BINS. The low/mid/high tercile a column belongs to is decided ONCE, on the first sample, and reused
-# for every sample after it. Re-cutting the terciles each time would compare two different sets of columns and
-# could hide the very thing this measures: if the highlands erode down and the basins fill up, a re-cut bin
-# boundary moves with them and the shift cancels out. Frozen bins make it a PAIRED measurement — the same
-# columns, tracked — so `bed_hi_mean` falling while `bed_lo_mean` rises is landscape evolution, and `relief`
-# is the number that says so.
 var _bin: PackedByteArray = PackedByteArray()   # per column: 0 = low tercile, 1 = middle, 2 = high
 var _bin_ready: bool = false
 
@@ -113,17 +58,6 @@ func sample() -> Dictionary:
 		return {}
 
 	# --- one walk: split the loose mineral into the three pools that behave completely differently ---------
-	# THIS SPLIT IS THE WHOLE MEASUREMENT. Only a fraction of this planet's loose mineral can move at all, and
-	# averaging the three pools together hides the one that can:
-	#   BURIED  — inside a SOLID cell, swallowed by bedrock that grew over it. No CA steps a solid cell.
-	#   DEEP    — in an OPEN cell at or below its column's bed top: an enclosed cavity in the crust (this run
-	#             reports ~2300 of them). Open, but no surface water reaches it, so nothing carries it either.
-	#   SURFACE — in an OPEN cell ABOVE its column's bed top. This is the pool rivers, lakes and the sea touch,
-	#             and the only one erosion transport can act on.
-	# Measured before the split: the combined mean shell read 2.4-2.7 while the bed top averaged 8.8, i.e. the
-	# number was describing the deep interior and would have moved for reasons that have nothing to do with
-	# transport. Every statistic below is over the SURFACE pool; the other two are reported as bare totals so
-	# nothing is hidden.
 	var bed: PackedInt32Array = PackedInt32Array()
 	bed.resize(surf)
 	var col_surf: PackedFloat32Array = PackedFloat32Array()

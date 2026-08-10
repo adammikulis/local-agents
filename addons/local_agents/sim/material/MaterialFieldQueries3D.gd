@@ -2,47 +2,17 @@ class_name LAMaterialFieldQueries3D
 extends RefCounted
 
 ## LAMaterialFieldQueries3D: the READ-ONLY query accessors of the dense 3D MaterialField3D, factored
-## out so the field node stays a thin simulation/composition core (and under the file-size gate). Holds
-## NO state of its own: it reaches into the owning LAMaterialField3D (`_f`) for the shared per-cell
-## arrays (`_temp`, `_water`, `_solid`, `_static`, `_lava`) plus geometry (`_dim_x/_dim_y/_dim_z`,
-## `_cell_size`, `_origin`, `sea_level`) and constants (`MAX_MASS`, `RENDER_MIN`), exactly as the heat /
-## atmosphere / lava concern modules do. Every method here is a pure getter that never mutates the field.
-## The field exposes each as a thin forwarder so the 2.5D-compatible consumer API is unchanged.
-## (Explicit types only, no ':=' inferred typing.)
 
 # Salinity banding (depth-of-sea proxy) — own copies of the field's constants so fish behave identically.
 const SALT_FULL_DEPTH: float = 22.0
 const BRACKISH_FLOOR: float = 0.35
-# PRESENCE FLOOR for the `dust_cells` gauge: the smallest airborne-dust density this counts as "a dusty cell"
-# rather than numerical residue. It is a property of the MEASUREMENT, not of dust — there is no physical
-# threshold at which a suspension starts existing — so it lives with the gauge that uses it and is deliberately
-# not in `material/PhysicalConstants.gd`. *(Corrected 2026-08-03: this said the value "mirrors DUST_MIN in
 # activity_sphere3d.glsl:95", which made a gauge's reporting floor look like a copy of a substrate rule bound
-# only by a comment. It is not one, and that kernel is being retired on another lane.)*
 const DUST_PRESENT: float = 0.001
-# PRESENCE FLOOR for the molten-rock counts below: the smallest lava mass a cell can carry and still be called
-# molten rather than numerical residue. Matches lava_phase_sphere3d.glsl's own LAVA_MIN_MASS, the threshold
-# that kernel uses to decide a cell holds melt at all — so the gauge and the physics agree on what "there is
-# molten rock here" means. A property of the measurement, not of basalt.
 const MOLTEN_MIN: float = 0.0001
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
-## Fire intensity above which a cell counts as burning — the fraction of a cell's usable oxygen that
-## COMBUSTION drew this step (written by reactions_sphere3d.glsl), below which the cell is not alight and
-## counting it would report fires the substrate does not have. A MODEL parameter (a floor on an intensity
-## this model defines), not a property of matter, so it is declared here beside its readers rather than in
-## LAPhysical.
-##
-## THIS IS THE SOLE OWNER OF THE VALUE as of 2026-08-09. It used to say "MUST match `FIRE_MIN` in
-## fire_sphere3d.glsl" — a file deleted in 94538d8 — while a second live copy of 0.02 sat in
-## fungus_sphere3d.glsl. One threshold in two files, bound by a comment naming a third that no longer
-## existed. The fungus copy went with the gate that read it: no physics reads this instrument now.
 const FIRE_PRESENT: float = 0.02
-# Cache for the ONE walk that answers all three molten-rock gauges (see molten_counts). Keyed on the field's
-# own step counter, so a report that asks for all three pays for one pass and a report taken twice inside one
-# field step pays for none. It reads only the `_lava`/`_solid` mirrors that are already there — no device read
-# and no `request_channel`, so it is a pure instrument.
 var _molten_step: int = -1
 var _molten_magma: int = 0
 var _molten_lava: int = 0
@@ -53,19 +23,10 @@ func setup(field) -> void:
 
 
 # --- Cell resolver (world -> linear cell) ------------------------------------
-# Sphere-native: the ONE world→cell seam is the field's world_to_cell (cubed-sphere gnomonic lookup; box mode
-# clamps). Every query below indexes the linear cell it returns and null-guards c < 0 (outside the shell), so
-# a read anywhere off the +Y pole is a safe default, never an out-of-bounds PackedByteArray access.
 func _cell_at(pos: Vector3) -> int:
 	return _f.world_to_cell(pos)
 
 
-# True where the seeded SEA/lake shell sits over the ground beneath `pos` — the sphere replacement for the box
-# "column has sea water" test, using the field's own water buffer (cheap, no terrain raycast). Samples the top
-# sea layer along pos's radial (just under the sea surface, then one cell deeper to straddle it): over an ocean
-# basin those cells are open seeded water (mass ≥ MIN_MASS); over land they are inside solid rock (dry). The
-# shallow (near-surface) sample is what catches the topmost seeded layer — sampling a full cell down misses
-# shallow basins whose floor sits between the two depths. O(1): a couple of world_to_cell lookups, no scan.
 func _sea_under(pos: Vector3) -> bool:
 	if _f._terrain == null or not _f._terrain.has_method("sea_radius") or _f._water.size() != _f._cell_count:
 		return false
@@ -112,13 +73,6 @@ const SWEEP_PROBE: float = 6.0        # tangent-plane sample distance for the do
 const SWEEP_STRENGTH: float = 9.0     # world units/sec of push per (depth × slope) unit — tune vs flood feel
 const SWEEP_MIN_WATER: float = 0.12   # below this local water mass (and no sea shell) there's no current
 
-## Local WATER CURRENT force at a world point — the direction + strength moving water pushes anything standing
-## in it. It is the shallow-water drag: proportional to how DEEP the water is AND how STEEP the free surface is
-## (the terrain's tangent-plane gradient), pointed DOWNHILL. Zero where there's no water or the ground is flat
-## — a still pond gives no sweep (you just drown if it's deep), a flooded hillside or a river gives a strong
-## downhill shove. No new CA and no new state: derived from the existing water buffer + terrain.surface_radius.
-## Returned in world space, tangent to the surface. O(1) + a few radial raycasts, and only paid by actors the
-## caller already knows are in water (they gate on is_water_at first).
 func water_force_at(pos: Vector3) -> Vector3:
 	if _f._water.size() != _f._cell_count or _f._terrain == null or not _f._terrain.has_method("surface_radius"):
 		return Vector3.ZERO
@@ -206,10 +160,6 @@ func salinity_at(pos: Vector3) -> float:
 
 # --- Diagnostics -------------------------------------------------------------
 
-## Radial rock-temperature profile — mean temp of SOLID cells binned by radial shell r = c % _dim_y
-## (r = 0 is the innermost core shell, r = _dim_y - 1 the outermost/surface). Reports the geothermal
-## gradient the crust actually carries (core → mid-crust → near-surface rock) so we can see whether the
-## crust insulates the hot core from a temperate surface. Sphere-only; snapshot-time, single O(cells) pass.
 func rock_radial_profile() -> Dictionary:
 	if not _f.is_sphere() or _f._dim_y <= 0 or _f._temp.size() != _f._cell_count:
 		return {}
@@ -228,15 +178,6 @@ func rock_radial_profile() -> Dictionary:
 	var q25: float = _shell_mean(shell_sum, shell_n, int(round(float(depth) * 0.25)))
 	var mid: float = _shell_mean(shell_sum, shell_n, depth / 2)
 	var q75: float = _shell_mean(shell_sum, shell_n, int(round(float(depth) * 0.75)))
-	# Near-surface rock = outermost shell that still holds solid cells (walk inward from the rim).
-	#
-	# READ `rock_surf_c` AND `rock_q75_c` WITH CARE — they are NOT the rock surface. They are SHELL means at
-	# fixed radii, and the outer shells are above the terrain nearly everywhere, so the only solid cells in
-	# them are volcanic buildup: a handful of freshly-erupted, still-molten cells. Measured 2026-08-03 with a
-	# room-temperature interior (rock_core_c 15.02), the same report read rock_q75_c 596 and rock_surf_c 505 —
-	# purely lava, and read naively they say the crust is hotter at the top than at the core.
-	# `rock_skin_c` below is the right shape for the question "how hot is the ground": ONE cell per column,
-	# each column's own outermost rock, so every column counts once and no shell is empty.
 	var top: int = depth - 1
 	while top > 0 and shell_n[top] == 0:
 		top -= 1
@@ -264,22 +205,6 @@ func _shell_mean(shell_sum: PackedFloat32Array, shell_n: PackedInt32Array, r: in
 	return shell_sum[r] / float(shell_n[r])
 
 
-## HOT-SPRING gauge (proof the geothermal groundwater→surface heat coupling emerges). Counts OPEN, non-sea
-## (dynamic-water, not the static ocean reservoir) surface-water cells whose temperature has been driven well
-## above ambient by groundwater surfacing through hot rock — i.e. hot springs / fumaroles. `hotspring_cells` =
-## warm discharge (>60°C), `hotspring_boiling` = at or over the BOILING POINT OF WATER, `hotspring_max_c` = the
-## hottest such cell. The static-sea exclusion + the 60°C floor keep the ordinary sea and solar-warmed rivers
-## out, so a non-zero count is specifically groundwater-carried geothermal heat. Snapshot-time, one O(cells) pass.
-##
-## THE BOILING THRESHOLD WAS 90.0, described in this comment as "where the evap kernel flashes steam". That was
-## false — `atmos_evap_sphere3d.glsl` flashes at BOIL_TEMP 100.0, which is LAPhysical.WATER_BOIL_C — so the
-## gauge counted 10 degrees of cells as boiling that the physics did not, and justified it with a claim about a
-## kernel it did not match. Corrected 2026-08-03 to read the authority. `hotspring_boiling` counts here are not
-## comparable across that change; `hotspring_cells` (>60) is unaffected.
-##
-## The 60°C warm floor and the 30°C mild floor stay literals on purpose: they are not phase points, they are
-## the thresholds a person would call a spring "hot" or "warm" at, and there is no measured property of matter
-## behind either.
 func hot_spring_stats() -> Dictionary:
 	var count: int = _f._cell_count
 	if _f._temp.size() != count or _f._water.size() != count or _f._solid.size() != count:
@@ -336,14 +261,6 @@ func hot_cell_count(threshold: float = 60.0) -> int:
 
 # --- Storm queries (read the emergent wind field; storm actors track the vortex they seed) -----------
 
-## Radial vorticity (the SPIN of the air about the local "up") at a world point. The kernel stores velocity in
-## a per-cell TANGENT frame (vel_x along tan_a, vel_z along tan_b, vel_y radial), and adjacent cells do NOT
-## share that frame — the frame is face-local and discontinuous at the seams. A curl differences NEIGHBOUR
-## velocities, so each neighbour's pair must first be rotated into THIS cell's frame (`rotate_into_neighbour`
-## on the neighbour's reverse link) before it means anything. Then the radial curl is the sum over the four
-## lateral links of 0.5 * cross2(link direction, that neighbour's velocity), which in a face interior is
-## exactly the old d(vel_z)/d(tan_a) − d(vel_x)/d(tan_b) central difference. Sampled a couple of cells aloft
-## (the free-stream over the seeded low). Reads the cell + its 4 tangent neighbours only — O(1), no grid sweep.
 func vorticity_at(pos: Vector3) -> float:
 	if _f._sphere == null or _f._vel_x.size() != _f._cell_count or _f._vel_z.size() != _f._cell_count:
 		return 0.0
@@ -382,17 +299,7 @@ func updraft_at(pos: Vector3) -> float:
 
 
 # --- Emergent WIND as a real momentum/force (read back from the GPU velocity field) ------------------
-# The kernel stores velocity in a per-cell TANGENT FRAME: vel_x along LASphereGrid.tan_a, vel_z along tan_b,
-# vel_y along the OUTWARD RADIAL. wind3_at reconstructs a true WORLD-space velocity from that frame so loose
-# mass (creatures/debris/sediment) can be advected/flung by it. Two table lookups — O(1), no grid sweep.
-#
-# CORRECTED 2026-07-30. This used to rebuild the axes from neighbour POSITIONS — `tan_a = pos(nbr[c*6+2]) -
-# pos(nbr[c*6+1])` — which was wrong twice over. First, `neighbours` is the INTERNAL table, ordered
 # [IN, OUT, A0, A1, B0, B1], not the kernel packing [in, -a, +a, -b, +b, out] those indices assumed, so slot 1
-# was the OUTWARD RADIAL neighbour and "tangent A" was built from a lateral minus a radial cell. Second, even
-# with the right indices the slot-pair axis is not the frame the kernel stores momentum in: the pairing is a
-# 2-factorisation chosen for reciprocity, and its orientation flips between cycles. The frame has its own
-# table now, and this reads it.
 
 ## Full LOCAL 3D wind velocity (world-space) at a world point. Vector3.ZERO outside the shell / before readback.
 func wind3_at(x: float, y: float, z: float) -> Vector3:
@@ -438,17 +345,7 @@ func wind() -> Vector2:
 
 
 # --- MINERAL conservation ledger (rock unification) — ONE conserved mineral, phases summed in one mass unit ----
-# ROCK is ONE substance whose PHASE (bedrock / molten / loose / suspended / airborne) is a state; every transition
-# is a mass transfer between the legs (a full cell of any phase = MAX_MASS = 1.0). mineral_total() must stay BOUNDED
-# across frames to within genuine sources/vents — the unification's proof object. Stage B made bedrock FRACTIONAL
-# (rock_fill), so the ledger conserves CONTINUOUSLY across the solid boundary (a partial solidify credits fractional
-# rock, not a whole fabricated cell). sediment/dust are surface phases (open cells); lava/rock_fill sum ALL cells.
 
-## Loose granular regolith (talus/dune sediment) — the "loose" mineral phase. Summed over ALL cells (not just
-## open): lithification (D2) and solidify can turn a sediment-bearing cell to bedrock with residual sediment
-## still in it, and the slump kernel FREEZES a solidified cell's sediment in place — counting only open cells
-## would then LEAK that trapped mass out of the ledger. Sediment is 0 in solid cells at seed, so summing all
-## cells equals the old open-only sum until a cell traps some, which is exactly the mass conservation must keep.
 func sediment_total() -> float:
 	if _f._sediment.size() != _f._cell_count:
 		return 0.0
@@ -457,22 +354,6 @@ func sediment_total() -> float:
 		sum += _f._sediment[c]
 	return sum
 
-## Airborne wind-lofted dust — the "airborne" mineral phase. Summed over ALL cells, like the other four legs.
-##
-## MASK UNIFIED 2026-08-03. This was the ONE leg of `mineral_total()` that gated on `_f._solid[c] == 0`, so the
-## five-leg sum was assembled from two different populations and was not a conserved quantity at all. The
-## decisive argument is that `solid` IS `rock_fill`: LASolidDerivePass re-derives the flag from rock_fill >= 0.5
-## every step, so masking a mineral leg on solidity makes the ledger's own membership a function of the very
-## quantity it measures — a cell crossing 0.5 would move dust in or out of the books with no transfer having
-## happened. See LAMaterialFieldMineralBudget3D's header for the full rule.
-##
-## dust_transport_sphere3d.glsl clears a solid cell's dust each step, so on the DEVICE mask `dust_all` and
-## `dust_open` differ only by what crossed the threshold within one step. On the CPU mirror the gap is much
-## larger (`_f._solid` is written only by the solidity sample and MineralStamp's scan, while the device re-derives
-## it every step): measured 221.62 all-cells against 163.67 open-cells on one --planet-only run, i.e. the old
-## open-only mask would still have dropped 58 units even with a live mirror. That clear used to DELETE the
-## mass; it now hands it to `sediment` (a conserving transfer between two counted legs), which is what makes
-## the mask-free sum honest rather than merely consistent.
 func dust_total() -> float:
 	if _f._dust.size() != _f._cell_count:
 		return 0.0
@@ -481,45 +362,15 @@ func dust_total() -> float:
 		sum += _f._dust[c]
 	return sum
 
-## Mean airborne dust across the grid — a 0..~ opacity proxy for how much debris in the air blocks the sun
-## (a meteor volley lofts dust → this rises → insolation drops → impact winter). Cheap O(1)-amortised via dust_total.
-##
-## THIS IS THE WHOLE IMPACT-WINTER MECHANISM (LASystemOrbits._compute_transmission) AND IT READ A DEAD MIRROR
-## UNTIL 2026-08-03. `dust` is a SITUATIONAL_CHANNEL: it is only read back from the GPU while something has
-## called `request_channel("dust")`, and the only caller was the crater path, which fires on a strike and goes
-## cold 20 drains later. So `_f._dust` held the all-zero allocation for essentially every frame of every run,
-## `dust_total()` returned 0.00, transmission stayed pinned at 1.0, and no volley could ever dim the sun.
-##
-## SO THE CONSUMER REQUESTS ITS OWN CHANNEL, HERE. *(Corrected 2026-08-03. This said
-## "LAMaterialFieldMineralBudget3D now requests the channel on every report sample … which is what makes this
-## live", and that was the defect, not the fix: it made a PHYSICAL mechanism depend on whether a DIAGNOSTIC was
-## running. Turning the ledger off — or moving it behind an env gate, as was proposed — would have silently
-## switched impact winter back off. A gauge must never be load-bearing for physics.)* `_compute_transmission`
-## polls this every 15 process frames and CHANNEL_HOLD_DRAINS is 20, so one request per poll keeps the mirror
-## permanently live on its own account.
-##
-## Measured 2026-08-03, `--planet-only --run-frames=600 --fast=8 --seed=4242 --fixed-fps 60`: `dust_total`
-## 0.00 with a dead mirror against 181-217 with a live one, and `atmos_transmission` 0.925-0.927 against
-## 0.915-0.919. The dimming is small on a quiet planet — mean dust ~0.0031 against `DUST_OPACITY` 3.5 is ~1%
-## opacity — but it is the difference between a mechanism that can fire and one wired to a constant zero.
 func avg_atmos_dust() -> float:
 	if _f._cell_count <= 0:
 		return 0.0
 	# Impact winter is a real consumer of the dust mirror, so it keeps its own channel hot. Without this the
-	# only steady requester was the mineral ledger, i.e. a diagnostic.
 	if _f._gpu != null and _f._gpu.has_method("request_channel"):
 		_f._gpu.request_channel("dust")
 	return dust_total() / float(_f._cell_count)
 
 
-# `dust_cell_count()` was REMOVED here on 2026-08-03, and this note is the stated reason the "unwired code is an
-# unfinished job" rule asks for: it was SUPERSEDED, not merely unreferenced. It walked the whole grid counting
-# cells over `DUST_PRESENT`, and SIM_REPORT's `dust_cells` now comes from `dusty_cells` in
-# LAMaterialFieldMineralBudget3D, which counts them with the same threshold inside the single pass it already
-# makes over the dust channel. Wiring the old one back in would add an eleventh O(cells) walk to produce a
-# number the ledger has already produced. Reference count before removal, both forms (identifier and `res://`
-# path, across .gd/.tscn/.tres/.cfg): one caller, the `LAMaterialField3D.dust_cell_count()` forwarder, which
-# went with it, and which was itself a `return 0` stub until this line of work.
 
 
 ## Molten rock (lava) over ALL cells — the "molten" phase. Summed everywhere (not just open cells) because add_lava
@@ -534,20 +385,6 @@ func lava_total() -> float:
 	return sum
 
 
-## WHERE THE MOLTEN ROCK IS — the one walk behind `magma_cells`, `lava_cells` and `magma_erupting`.
-##
-## The distinction is the real one, and it is geometric, not a flag anybody sets: MAGMA is melt still CONFINED
-## by rock (the cell is derived-solid), LAVA is melt that has broken into an OPEN cell. An ERUPTION is not an
-## event with a timer or a state machine — it is simply the condition "molten rock has reached open ground",
-## which is what the word means. Nothing here is scripted; the counts are a reading of the `_lava` channel the
-## flow/phase kernels evolve, and the channel's own phase kernel is what takes mass out of it when melt
-## freezes, so a cell counts as molten exactly while the substrate says it holds melt.
-##
-## THESE THREE USED TO BE HARDCODED. `LAMaterialField3D.magma_cell_count()` was `return 0`,
-## `magma_erupting()` was `return false`, and `lava_cell_count()` was `return 0` — all three published in
-## every SIM_REPORT (`magma_cells`, `lava_cells`) and read by LASceneEnergyGraph's thermal term. A gauge that
-## always reads zero cannot tell "no magma" from "magma reporting is broken", and this project has already
-## lost a round of measurements to exactly that.
 func molten_counts() -> Dictionary:
 	var step: int = _f._gpu._step_index if _f._gpu != null else -1
 	if step >= 0 and step == _molten_step:
@@ -612,28 +449,6 @@ func susp_total() -> float:
 		sum += _f._susp[c]
 	return sum
 
-## The ONE mineral total: Σ bedrock(rock_fill) + molten(lava) + loose(sediment) + suspended(susp) + airborne(dust),
-## every leg over EVERY cell (the unified inclusion rule — see dust_total above and
-## LAMaterialFieldMineralBudget3D's header). Must stay BOUNDED net of the vent's declared mantle source — this
-## is the unification's proof object. Every phase transfer (scour rock→susp, settle susp→sediment, slump,
-## weather rock→sediment, lithify sediment→rock, M5/M6 lava↔rock) moves mass between two counted legs.
-##
-## COST NOTE: five separate O(cells) walks. Kept because one caller still reaches for an individual getter —
-## `LAEventTracker.gd:156` calls `lava_total()`. *(Corrected 2026-08-03: this said "LAEventTracker and the save
-## controller reach for the individual getters". The save controller does not, and neither does
-## `VoxelInputController`, which reads `rock_fill_total`/`mineral_total` out of the SNAPSHOT dictionary.)*
-## SIM_REPORT does NOT come through here any more — LAMaterialFieldMineralBudget3D
-## computes all five legs plus both masks plus the drift in ONE pass, behind the report's heavy-cadence gate.
-## Prefer that module for anything on a per-frame path.
-##
-## AND IT IS NO LONGER THE UNIFICATION'S PROOF OBJECT. *(Corrected 2026-08-08. The paragraph above says this
-## sum "must stay BOUNDED net of the vent's declared mantle source — this is the unification's proof object",
-## which was exactly right while all five phases were ONE lumped substance. They are not: the mineral phases
-## carry real formulas now, and the Urey reaction turns silicate bedrock into carbonate plus silica, which are
-## two other channels on two other molar bases. A unit sum over these five therefore falls, correctly, by
-## whatever weathering has removed. The proof object is `lith_element_Ca` / `lith_element_Si` in
-## LAMaterialFieldMineralBudget3D — calcium and silicon leave no mineral phase, so their totals are the strict
-## conservation gauge this sum used to be.)*
 func mineral_total() -> float:
 	return rock_fill_total() + lava_total() + sediment_total() + dust_total() + susp_total()
 
@@ -672,19 +487,6 @@ func fire_cells() -> int:
 	return n
 
 
-## Is the cell under `node` burning? Reads the same channel at the same threshold `fire_cells` counts on, so
-## the two can never disagree about what "burning" means.
-##
-## IT REPLACES A HARDCODED `return false` ON THE FIELD HUB. That default was written "until the sphere fire
-## readback lands"; the readback landed, `fire_cells`/`fire_peak` beside it are real, and the hardcoded pair
-## stayed — so SIM_REPORT carried a live fire count and a fabricated one at once, and three consumers read
-## the fabricated one, including the wildfire event detector.
-##
-## `fire` IS DEMAND-GATED (LAMaterialSphereGPU3D.SITUATIONAL_CHANNELS), so an un-woken mirror reads its zero
-## seed and this answers false whether or not anything is alight. That limitation is stated rather than
-## papered over, and it is NOT fixed by calling `request_channel` here: this is an instrument, residency is
-## simulation-visible, and a gauge that changes the run is not a gauge. A consumer needing a live answer
-## wakes the channel itself — the rule `avg_atmos_dust` follows.
 func is_burning(node) -> bool:
 	if node == null or _f._fire.size() != _f._cell_count:
 		return false
@@ -693,12 +495,6 @@ func is_burning(node) -> bool:
 
 
 # --- LAVA-TUBE / HOLLOW signature -------------------------------------------
-# A lava tube is an OPEN cell (rock_fill < 0.5 ⇒ derived-solid == 0, and no molten lava sitting in it — it has
-# DRAINED) that is walled in by SOLID rock on most of its faces. Count them: an emergent tube/hollow interior
-# shows up as a nonzero population of "open cell with ≥ min_solid_nbr solid neighbours". With uniform own-cell
-# cooling a stalled flow freezes into a SOLID PLUG (no enclosed voids, ≈ 0); with shell-first edge-cooling the
-# rind solidifies around a still-molten core that then drains → a hollow remains → this count rises. Pure O(cells)
-# snapshot read (polled at report time only), no grid sweep per frame.
 const TUBE_LAVA_NEAR_ZERO: float = 0.05
 
 func enclosed_void_cells(min_solid_nbr: int = 4) -> int:
@@ -745,12 +541,6 @@ func fertility_peak() -> float:
 
 
 # --- SEA ICE — emergent frozen sea surface (polar caps / winter sea ice) --------------------------------------
-# A "sea-surface" cell is a static-sea cell (`_static==1`, so it is the calm seeded ocean, not a perched lake or
-# dynamic river) whose OUTWARD radial neighbour (c+1 in the contiguous column c = s*depth + r) is NOT static —
-# i.e. the topmost sea layer, the air/water interface where sea ice forms. Sea ice is just the `_snow` (frozen
-# H₂O) channel accumulated on that cell by the freeze reaction — no separate buffer. These getters split the
-# frozen vs open sea so SIM_REPORT proves caps are EMERGENT (cold poles freeze, warm tropics stay open), not
-# global. Sphere-only (needs the contiguous radial column layout); returns 0 in box mode.
 
 ## True if linear cell `c` is the topmost layer of the static sea (the freezable sea surface).
 func _is_sea_surface(c: int, depth: int) -> bool:
@@ -800,11 +590,6 @@ func open_sea_temp_avg() -> float:
 			sum += _f._temp[c]
 			n += 1
 	return sum / float(n) if n > 0 else 0.0
-# Shell-first DIAGNOSTIC (proof the differential cooling fires). Classifies live lava cells (lava ≥ near-zero,
-# temp ≥ solidus) as INTERIOR (0 exposed faces — every open neighbour is hot lava, or all neighbours solid) vs
-# RIND (≥1 exposed face — borders open air/void or a cold cell), and reports how many of each plus their mean
-# temperature. If the mechanism works, interior cells outnumber-or-outlast the rind and run HOTTER than rind
-# cells (the rind sheds heat faster). Snapshot-time only.
 func lava_shell_diag() -> Dictionary:
 	if _f._sphere == null or _f._solid.size() != _f._cell_count or _f._lava.size() != _f._cell_count:
 		return {"lava_live": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}

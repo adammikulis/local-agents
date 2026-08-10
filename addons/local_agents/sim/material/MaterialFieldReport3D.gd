@@ -2,13 +2,6 @@ class_name LAMaterialFieldReport3D
 extends RefCounted
 
 ## LAMaterialFieldReport3D: the central-telemetry snapshot of LAMaterialField3D, factored out of the
-## extract-only field hub. Same pattern as the query / atmos / ledger / channel modules: no state of its own,
-## it reaches into the owning field `_f` and calls the field's own (cheap forwarder) accessors.
-##
-## This is the ONE dict the field contributes to SIM_REPORT, so every channel aggregate flows in from its
-## owner instead of being hand-threaded into a format string somewhere else. Polled only at snapshot time, so
-## the O(cells) scans behind these getters never run per frame.
-## (Explicit types only, no ':=' inferred typing.)
 
 const PhotoStatsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd")
 const EnergyBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd")
@@ -67,38 +60,9 @@ func setup(field) -> void:
 	field._seal = _seal
 
 
-## SURFACE CLIMATE BY LATITUDE AND ALTITUDE — the gauge that can actually answer "can it freeze HERE".
-##
-## THIS EXISTS BECAUSE A GLOBAL AGGREGATE ANSWERED THE WRONG QUESTION AND COST THE PROJECT ITS PHYSICS.
-## Freezing is LOCAL: a planet does not need to be cold, it needs cold POLES and cold SUMMITS. But the only
-## temperature readouts here were global — `temp_min`, `temp_mean`, `temp_max` over every open cell at once.
-## Someone read `temp_min` ~11 °C, concluded "a literal 0 °C freeze can never fire here", and moved WATER'S
-## FREEZING POINT to 12.5 °C in five files rather than asking why nowhere on the planet was cold. `temp_min`
-## was not even wrong — it is a correct bound — but a bound cannot tell you whether the climate has
-## STRUCTURE, and structure is the entire question. `temp_mean` is worse for this: it mixes ground-hugging
-## air with open lava and core cells, so it can climb 25 °C while every cell a creature stands on is flat.
-##
-## So: bin the GROUND-HUGGING surface cells (open, with solid rock directly inward — where snow deposits and
-## where creatures live) by |latitude| against the spin axis, and report each band's mean and min plus how
-## much of the surface is actually below freezing. A warm equator with cold poles is a working climate; a
-## flat profile is a broken one, however comfortable its global mean looks.
-## WATER FREEZES IN FOUR DIFFERENT PLACES AND THIS MEASURES ALL OF THEM.
-##   * by LATITUDE — cold poles, warm equator
-##   * by ALTITUDE — a summit freezes at ANY latitude, which is what makes a snow-capped equatorial peak
-##   * ALOFT — snowice_sphere3d freezes CONDENSED ATMOSPHERIC moisture, so the air column is the primary
-##     snow source and a ground-only scan would miss the mechanism entirely
-##   * over TIME — the coldest moment is the deep night side, and a snapshot every 180 frames walks straight
-##     past it. `coldest_ever` is a RUNNING minimum updated on every snapshot, so a transient low is kept.
 const CLIMATE_BANDS: int = 6                    # 15° per band from equator to pole
 const ALT_BANDS: int = 4                        # ground / low / mid / high, by altitude above the sea shell
 const ALT_BAND_SPAN: float = 8.0                # world units per altitude band
-## Scan bound. Raised from 60000 on 2026-08-03, when this function was first wired into the report: the
-## shipped grid is 6 x 24 x 24 x 20 = 69120 cells, so 60000 dropped 13% of the planet — and because cells are
-## enumerated column-major by cube face, what it dropped was a contiguous SLAB OF FACE, i.e. an entire
-## geographic region, from a gauge whose whole job is geographic structure. A cap that silently deletes one
-## sixth of the map is worse than a slower scan. The per-column hoist below made the FULL sweep cheaper than
-## the truncated one was, so nothing was traded for it. It stays as a guard against a much larger grid, and
-## the scan is column-aligned so it can only ever cut whole columns.
 const CLIMATE_MAX_CELLS: int = 200000
 const PLANET_SPIN_AXIS: Vector3 = Vector3(0.40, 0.92, 0.0)
 
@@ -135,23 +99,11 @@ func surface_climate() -> Dictionary:
 	var air_n: int = 0
 	var coldest: float = 1.0e20        # coldest OPEN cell anywhere this snapshot (ground or aloft)
 	var ground_coldest: float = 1.0e20
-	# FREEZING STANDING WATER — lakes and sea icing over. The most ordinary way water freezes on a planet,
-	# and the one a latitude/altitude scan alone does NOT answer: a cell can be below zero and simply have no
-	# water in it. These count cells that actually HOLD liquid water and are below freezing, which is the
-	# population R21 (WATER -> SNOW) converts, and `water_coldest` is how cold the wettest places get.
 	var water: PackedFloat32Array = _f._water
 	var has_water: bool = water.size() == _f._cell_count
 	var water_frozen: int = 0
 	var water_cells: int = 0
 	var water_coldest: float = 1.0e20
-	# COLUMN-MAJOR, AND THE PER-CELL TRIGONOMETRY IS HOISTED OUT (2026-08-03). This loop used to call
-	# `cell_world_pos_linear(c)` — a cross-object call, a Basis multiply and a `length()` — plus an `asin` for
-	# EVERY cell, and then the report provider turned out to be polled every rendered frame (see the cadence
-	# note on `report()`), which cost the run more than the whole rest of the field step. Two facts make all of
-	# it unnecessary: `SphereGrid.cell_world_pos` is `center + _dir[s] * (core_radius + (r+0.5)*cell_size)`, so
-	# the RADIUS depends only on `r`, and the DIRECTION only on the column; and `_origin` IS `grid.center`
-	# (MaterialField3D.setup_sphere:376), so the offset cancels exactly. Latitude is therefore a per-column
-	# quantity and altitude a per-r one. Same numbers, ~O(columns + depth) trig instead of O(cells).
 	var grid = _f._sphere
 	var core_r: float = float(grid.core_radius)
 	var cell_sz: float = float(grid.cell_size)
@@ -169,11 +121,6 @@ func surface_climate() -> Dictionary:
 		r_ab[r] = clampi(int(maxf(alt_r, 0.0) / ALT_BAND_SPAN), 0, ALT_BANDS - 1)
 	for s in columns:
 		var base: int = s * depth
-		# `cell_radial` is the BODY-LOCAL outward unit; the latitude convention here is the WORLD one, so
-		# rotate it into the world frame exactly as `cell_world_pos_linear` does. (Both give the same latitude
-		# because the body spins about this very axis, but keeping the frames explicit is what stops the next
-		# reader from dotting a body-local vector against a world axis and getting a number that is only right
-		# when the rotation happens to be identity.)
 		var wdir: Vector3 = _f._body_basis * _f.cell_radial(base)
 		var lat: float = absf(rad_to_deg(asin(clampf(wdir.dot(axis), -1.0, 1.0))))
 		var band: int = clampi(int(lat / (90.0 / float(CLIMATE_BANDS))), 0, CLIMATE_BANDS - 1)
@@ -195,11 +142,6 @@ func surface_climate() -> Dictionary:
 			alt_n[ab] += 1
 			if t < alt_min[ab]:
 				alt_min[ab] = t
-			# STANDING WATER that is below freezing — the population R21 (WATER -> SNOW) actually converts.
-			# These three counters were declared here and never once written, so the comment above them
-			# described a measurement that did not exist. Filled in rather than deleted: a cell can be well
-			# below zero and simply hold no water, and only this pair of numbers separates "the planet cannot
-			# get cold" from "the cold places are dry", which are opposite diagnoses.
 			if has_water and water[c] > LAMaterialField3D.MIN_MASS:
 				water_cells += 1
 				if t < LAPhysical.WATER_FREEZE_C:
@@ -257,14 +199,6 @@ func surface_climate() -> Dictionary:
 	}
 
 
-## Open-cell (void) temperature spread — the direct read of whether the solar terminator + heat diffusion
-## actually move the temp field (a flat min==max means solar is not depositing). Snapshot-time only.
-##
-## CAUTION, and the reason `surface_climate()` above exists: these are GLOBAL aggregates over every open
-## cell, which includes open lava and core cells. `temp_mean` can therefore rise steeply while the ground
-## every creature stands on is unchanged, and `temp_min` can only ever tell you the single coldest cell —
-## never whether the climate has a warm-equator/cold-pole STRUCTURE. Do not conclude anything about
-## habitability, snow or freezing from these three numbers alone.
 func _open_temp_stats() -> Dictionary:
 	var solid: PackedByteArray = _f._solid
 	var temp: PackedFloat32Array = _f._temp
@@ -293,16 +227,7 @@ func _open_temp_stats() -> Dictionary:
 	return {"temp_min": mn, "temp_mean": sum / float(n), "temp_max": mx, "temp_open": n, "temp_all_max": all_mx}
 
 
-## CORRECTED 2026-08-03. This said "Polled only at snapshot time, so these (cheap forwarder) reads don't run
-## per frame", and both halves are false: the reads behind these forwarders are O(cells) scans, not cheap, and
-## the provider is polled EVERY RENDERED FRAME at any high `--fast` (LAGameHud's 0.5 s refresh Timer counts
-## down on the scaled clock). The O(cells) instrument block added here is gated in `_heavy_block()` for that
-## reason; the pre-existing scans above are not, and that is a live perf question this lane did not touch.
 func report() -> Dictionary:
-	# THE SEAL IS EVALUATED FIRST, BEFORE ANY LEDGER RUNS. Every conserved-substance ledger latches its
-	# baseline on `_sealed()`, so if the seal were polled later in this function the ledgers would see
-	# "unsealed" on the very sample the world seals and latch one sample late — which is how the seed
-	# manifest first recorded `h2o` as null while every other substance came through.
 	if _seal != null and _f._gpu != null and _f._gpu.has_method("take_probe"):
 		if _seal.poll(_f._gpu.take_probe()):
 			print("WORLD_SEALED=", JSON.stringify(_seal.report()))
@@ -314,7 +239,6 @@ func report() -> Dictionary:
 		"wind": _f.wind().length(), "scent_cells": _f.scent_cell_count(),
 		"fertility_peak": _f.fertility_peak(), "magma_cells": _f.magma_cell_count(),
 		# Molten rock standing in OPEN cells — an eruption, by what the word means. `magma_erupting()` already
-		# existed and nothing called it (it was a hardcoded `return false`); it costs nothing here because it
 		# reads the same cached walk `magma_cells` and `lava_cells` above have already paid for.
 		"magma_erupting": _f.magma_erupting(),
 		"erosion_cells": _f.erosion_cell_count(), "snow_cells": _f.snow_cell_count(), "ice_cells": _f.ice_cell_count(),
@@ -328,7 +252,6 @@ func report() -> Dictionary:
 		"fuel_total": q.fuel_total(), "fire_peak": q.fire_peak(), "fire_cells": q.fire_cells(),
 		"h2o_total": _f.h2o_total(), "water_total": _f.water_total(), "snow_total": _f.snow_total(), "soil_total": _f.soil_total(),
 		"snow_line_temp": _f.snow_line_temp(),
-		# MINERAL is NOT here. Its six absolutes plus `rock_cells` used to be computed on this line, ungated,
 		# and cost ELEVEN O(cells) walks per report call — `mineral_total()` re-walks the grid five times and
 		# the five individual getters walked it five more. LAMaterialFieldMineralBudget3D produces all of them,
 		# both masks, and the drift they never had, in ONE pass behind `_heavy_block()`'s cadence gate.
@@ -336,25 +259,13 @@ func report() -> Dictionary:
 		"enclosed_void5": q.enclosed_void_cells(5),
 		"rock_grows": (_f._stamp.grows if _f._stamp != null else 0), "rock_shrinks": (_f._stamp.shrinks if _f._stamp != null else 0),
 	}
-	# CONSERVATION. The four h2o legs above are absolute levels; a total printed only as an absolute cannot
-	# show a slow leak, which is exactly how this one hid. These add the reservoir the ledger does not count
-	# (static water), the closed sum of all five, the per-step drift, and the soil the regolith mask sees but
-	# the solidity mask has lost. Sampled on the field's own step counter so drift is per SIM step, not per
-	# render frame — a frame-based rate would track framerate rather than physics.
 	r.merge(_f._ledger.conservation_report(_f._gpu._step_index if _f._gpu != null else 0))
-	# INJECTION LEDGER. The gauges above say whether the books balance; these say who moved the money.
-	# `h2o_inject_demand` is what storms asked their own footprint for — and, before add_vapor became a
-	# transfer, exactly what they created out of nothing. `..._moved` is what the planet actually supplied,
-	# `..._short` the difference (a storm on a dry footprint), `..._minted` the genuinely sourceless adds (a
-	# scripted flood surge), and `h2o_displaced`/`h2o_buried` what a solidity change did with the water in a
-	# cell that stopped being able to hold it.
 	if _f._inject != null:
 		r.merge(_f._inject.queue.report())
 	var temps: Dictionary = _open_temp_stats()
 	r.merge(temps)
 	r.merge(_photo.report())
 	# DECOMPOSER extent + intensity (fungus_peak/_cells, detritus_peak/_cells). One grid pass for all four.
-	# These used to be three separate calls into hub stubs that returned a literal zero, so the decomposer
 	# half of the carbon loop published nothing but zeros while fungus_total beside it read real values.
 	r.merge(_f.decomposer_stats())
 	r.merge(q.rock_radial_profile())
@@ -389,28 +300,11 @@ func report() -> Dictionary:
 	return r
 
 
-## THE HEAVY BLOCK — the three O(cells) instruments, behind ONE cadence gate, cached in between.
-##
-## THE GATE IS NOT AN OPTIMISATION, IT IS A CORRECTION OF A FALSE COMMENT. This file's header (and the
-## docstring on `report()` above) claimed the provider is "polled only at snapshot time, so the O(cells) scans
-## never run per frame". Measured 2026-08-03: that is FALSE at any interesting `--fast`. LAGameHud arms a
-## `Timer` at REFRESH_INTERVAL 0.5 s and a Timer counts down on the SCALED clock, so at `--fast=8` — where the
-## idle delta is around a second per rendered frame — it fires every single frame and takes a full snapshot,
-## which polls every provider. The existing scans in this function have therefore always been per-frame work;
-## adding three more without a gate took a 600-frame run from 47.6 s to over 600 s (it did not reach frame
-## 180). With the gate the same run costs a few percent, and `clim_scan_ms` / `energy_scan_ms` /
-## `mass_scan_ms` report what one sweep of each actually costs so this can be re-argued from numbers.
-##
-## Every quantity behind the gate is either an aggregate that moves slowly or a per-STEP drift, and the drifts
-## divide by the field steps actually elapsed, so a coarser sample changes their resolution and not their
-## value. The one thing that genuinely needs every sample — the weather stations' diurnal range — is
-## deliberately outside it.
 func _heavy_block() -> Dictionary:
 	var frame: int = int(Engine.get_process_frames())
 	if not _heavy_cache.is_empty() and frame - _heavy_frame < HEAVY_EVERY_FRAMES:
 		return _heavy_cache
 	_heavy_frame = frame
-	# SURFACE CLIMATE — wired in here (2026-08-03). `surface_climate()` was written in this very file and CALLED
 	# BY NOTHING: a grep for `clim_lat_mean` found the literal that builds it and no consumer anywhere, so the
 	# one gauge that can answer "can it freeze HERE" never reached a single SIM_REPORT. Per the standing rule
 	# that unwired code is a previous session's unfinished job, it is connected rather than left.
@@ -419,10 +313,6 @@ func _heavy_block() -> Dictionary:
 	#            added on this line of work and nothing could verify it.
 	var flux: Dictionary = _energy.report()
 	d.merge(flux)
-	#   energy STOCK — the conservation ledger energy did not have. The line above is a FLUX instrument that
-	#            mirrors ONE kernel, so it cannot see any term that kernel does not compute; this one sums
-	#            rho*c*V*T over every cell and differences it against the terms that CAN be booked. It is
-	#            handed `flux` rather than recomputing the radiative legs, so the two cannot disagree.
 	d.merge(_energy_stock.report(_f._gpu._step_index if _f._gpu != null else 0, flux))
 	#   mass   — conservation ledgers for carbon, oxygen, fertility and biomass, on the H₂O ledger's pattern.
 	#            Every substance here that had a ledger conserved; every substance without one minted.
@@ -431,25 +321,9 @@ func _heavy_block() -> Dictionary:
 	#            downstream lost a key) PLUS the drift, the source-corrected net rate, and both masks. It is a
 	#            NET REDUCTION in work here: one pass instead of the eleven the ungated block above ran.
 	d.merge(_mineral.report(_f._gpu._step_index if _f._gpu != null else 0))
-	# CARBON ACROSS BOTH BOOKS, and this is the only place they are added. The two ledgers above are kept
-	# separate because crustal oxygen would swamp the atmospheric signal (see either module's header) — but
-	# carbon is the one element that genuinely crosses between them, because silicate weathering moves it out
-	# of the air and into carbonate rock and metamorphic decarbonation moves it back. Neither ledger alone can
-	# say whether that transfer conserves; this sum is the claim, and it is only meaningful here, where both
-	# have just been sampled from the same probe drain.
 	if d.has("element_C") and d.has("lith_element_C"):
 		var c_total: float = float(d["element_C"]) + float(d["lith_element_C"])
 		d["element_C_total"] = snappedf(c_total, 0.01)
-		# AND IT IS DIFFERENCED NOW, WHICH IT NEVER WAS. *(2026-08-09.)* This is the only dimensionally
-		# honest carbon number in the report: it is in MOLES, it scales every channel by `mol_per_unit`, and
-		# it spans BOTH books, so carbon moving from air into carbonate rock does not read as a loss. It was
-		# published as an absolute and never baselined — which meant the number actually being watched for
-		# carbon conservation was `carbon_total`, a raw sum of co2 + biomass + detritus CHANNEL UNITS. Those
-		# are three different substances with different carbon content per unit, which is exactly the defect
-		# LAMaterialFieldElementInventory3D._elements_of() describes in its own comment as having once made
-		# element_H and element_O "totals of two different things, so neither could be differenced to detect
-		# anything". `carbon_total` reads +1261% over 300 frames from a sealed baseline; it cannot mean what
-		# it appears to mean, because it is not a quantity. This is.
 		if _seal != null and _seal.sealed():
 			var step_now: int = int(_f._gpu._step_index) if _f._gpu != null else 0
 			if is_nan(_first_element_c):

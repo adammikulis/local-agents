@@ -1,20 +1,9 @@
 #[compute]
 #version 450
 
-// CUBED-SPHERE water CA — the sphere port of water3d.glsl. IDENTICAL two-pass GATHER logic (pass 0 outflow
-// records per-direction sends on the OLD water snapshot; pass 1 inflow = old - sent + received), IDENTICAL
-// constants and flow/gravity math. The ONLY change is neighbour addressing: instead of idx±offset + `if(iy>0)`
-// bounds tests, every cell gathers its 6 neighbours from the precomputed INDEX TABLE `nbr[idx*6 + d]`
 // (slot 0 = inward/radial-DOWN = gravity, 1-4 = LATERAL, 5 = outward/radial-UP; -1 = boundary → skipped).
-// Static cells remain INFINITE SINKS exactly as the box kernel. Constants copied EXACTLY from
-// MaterialField3D.gd — do not diverge.
-//
-// SEND slot = idx*6 + dir. Direct map box dir d → table slot d:
 //   dir 0 = DOWN  (radially inward)  = nbr slot 0
-//   dir 1 = -x, dir 2 = +x, dir 3 = -z, dir 4 = +z  (LATERAL)  = nbr slots 1-4
 //   dir 5 = UP    (radially outward) = nbr slot 5
-// PASS-1 opposite-slot pairing (a neighbour reached via my slot s sent into me on its slot opposite(s)):
-//   (0 <-> 5) radial, (1 <-> 2), (3 <-> 4)  — matches the box kernel's exact inflow mapping.
 
 layout(local_size_x = 64) in;
 

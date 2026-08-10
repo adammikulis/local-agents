@@ -1,20 +1,8 @@
 #[compute]
 #version 450
 
-// CUBED-SPHERE SNOW DEPOSITION — the sat(T)-aware SNOWFALL leg of the unified H₂O cycle (Phase 2c). H₂O is ONE
-// conserved substance in three phases (MOISTURE in the air, WATER on the ground, SNOW frozen); the phase is
-// emergent from temperature. This kernel owns the ONE transition the generic DEFS reaction engine can't express
-// (it has no saturation curve): freezing the CONDENSED atmospheric water directly out of the air onto cold
-// ground as snow — deposition / snowfall / hoar frost. Everything else about snow is now records in
 // MaterialReactions3D.gd: FREEZE (liquid water → snow, R21) and MELT (snow → water, R22). The old melt branch
-// and the non-conserving global-`precip`×rate accretion branch are DELETED — this kernel is deposition-only and
-// MASS-CONSERVING (snow += x; moisture -= x, so H₂O total = water + moisture + snow is preserved).
-//
-// GROUND-SURFACE gate (kept from the box heritage — the genuinely-special part): snow accretes ON THE TERRAIN,
-// not at the top of the atmosphere, so a cell qualifies only if it is OPEN (solid == 0) and its INWARD-radial
 // neighbour (slot 0) is solid ground. That is where FOG (cool near-ground condensate) sits, so cold humid
-// ground freezes its suspended water into a snowpack. Each qualifying cell touches only its own snow[idx] and
-// moisture[idx] → race-free. FREEZE_TEMP + the sat() curve MUST match MaterialReactions3D.gd / the atmos kernels.
 
 layout(local_size_x = 64) in;
 
@@ -77,11 +65,6 @@ void main() {
 		}
 	}
 
-	// SUBLIMATION LIVES IN THE REACTION TABLE NOW (LAPhaseRecords R25), driven by the same saturation deficit
-	// as evaporation from water and soil. What was here was `snow * 0.004` per step: a sink that ran at one
-	// speed in bone-dry desert air and in saturated polar air alike, because it never looked at the humidity
-	// that actually drives sublimation. It existed to stop an unbounded snow-out, which was itself a symptom
-	// of a sky holding 3080x too much water. One rule, three reservoirs, no per-phase rate.
 
 	if (snow[idx] < SNOW_MIN) {
 		moisture[idx] += snow[idx];   // return the dust-thin remnant to the air (CONSERVING) instead of deleting

@@ -1,63 +1,12 @@
 #[compute]
 #version 450
 
-// CUBED-SPHERE WIND — PASS B: velocity update. Sphere port of wind_step3d.glsl (box). Each non-solid cell
-// accelerates its own velocity DOWN the pressure gradient (PASS A's field), adds buoyant lift, curls
-// sideways (Coriolis), relaxes toward the prevailing base flow, damps, deflects off rock faces, and
-// magnitude-clamps. Reads pressure + temp + solid + its OWN velocity and writes its OWN velocity → per-cell,
-// no neighbour-VELOCITY reads, so it updates the velocity buffers IN PLACE exactly like the CPU oracle.
-//
-// The ONLY change vs the box is neighbour ADDRESSING — the pressure/buoyancy/Coriolis/drag/clamp MATH is kept
 // structurally identical. Box idx±offset → INDEX TABLE nbr[idx*6 + d] (slot 0 = inward/radial-DOWN,
-// 1-4 = LATERAL, 5 = outward/radial-UP; -1 = boundary; a solid/boundary neighbour REFLECTS = reads p0c):
-//
-//   * PRESSURE GRADIENT — the box took central differences over the two lateral world axes (±1 = x,
-//     ±dim_x = z). On the sphere those two axes are the cell's own TANGENT FRAME (LASphereGrid.tan_a/tan_b),
-//     which is a SEPARATE TABLE from the neighbour slots — see below. The gradient is assembled as a real
-//     tangent VECTOR, 0.5 * sum over the four lateral neighbours of (p_n - p_c) * dir_n, where dir_n is the
-//     unit direction toward that neighbour in this cell's own (a, b) components (`ltan`). In a clean face
-//     interior dir is exactly (-1,0),(+1,0),(0,-1),(0,+1) and the sum collapses to the old
-//     0.5*(p[2]-p[1]), 0.5*(p[4]-p[3]) — identical arithmetic, now without the assumption that made it so.
-//     The two tangent components stay named vel_x / vel_z. The RADIAL pair (0,5) carries the vertical one.
-//
-//   * WHY THE SLOTS CANNOT BE THE FRAME (2026-07-30). This kernel used to declare vel_x as "tangent axis A
-//     (slots 1/2)" and rotate that pair for Coriolis. The four lateral slots were doing two incompatible
-//     jobs: the gather kernels need them slot-opposite RECIPROCAL, Coriolis needs them consistently HANDED,
-//     and on a sphere no single table can be both (the handedness sign at a crossing is the transverse
-//     intersection sign of two closed curves, and every closed curve on a sphere bounds, so the signed count
-//     is exactly zero — measured 1732 right / 1724 left at res 24). Worse than a sign flip: 17.13% of links
-//     had their two ends disagreeing about which way "tangent A" points, an interior defect scaling O(res^2).
-//     The frame now comes from LASphereGrid.tan_a/tan_b — face-local geometric axes, right-handed on all six
-//     faces by construction, discontinuous only at the seams, which is all Coriolis ever needed. `ltan`
-//     carries that discontinuity so this kernel does not have to know about it.
-//   * VEL_Y ↔ RADIAL-UP — the box vel_y is the world +Y vertical wind; on the sphere it is REDEFINED to be the
-//     OUTWARD-RADIAL (up) component. Buoyant lift is therefore added to vel_y as the radial-up accel, using the
 //     OUTWARD neighbour (slot 5) as the "cell above" (box used +layer). This keeps buoyancy AND the charge
-//     kernel's updraft (which reads vel_y) consistent: vel_y > 0 = rising/outward air everywhere on the shell.
 //   * BUOYANCY guard — box required a cell above (iy < dy-1); here it requires slot 5 >= 0 (an outward neighbour
-//     exists) and that it is non-solid.
-//   * PREVAILING inflow — the box strengthened the base-flow relax on domain-boundary cells (ix/iz on an edge).
 //     On the sphere a cell is "on edge" iff any of its 4 lateral neighbours is a boundary (slot 1-4 == -1);
-//     interior cells (all lateral neighbours present) get the gentle BODY_FORCE. A closed sphere has no
-//     lateral boundary, so in practice every cell takes BODY_FORCE. (pvx/pvz remain the prevailing wind
-//     projected onto the two tangent axes by the dispatch side, exactly as the box supplied them.)
-//
-//   * TERRAIN DEFLECTION — cannot blow INTO a solid/boundary neighbour. Instead of zeroing a whole named
-//     component, the horizontal velocity has its projection onto each BLOCKED link direction removed. In a
 //     face interior that is exactly the old "zero vel_x against slot 2/1, vel_z against slot 4/3"; near a
-//     seam it is the same statement without needing the link to be axis-aligned. vel_y is still zeroed
 //     against slot 5 (outward) / slot 0 (inward), which are genuinely the radial directions.
-//
-// DELETED HERE (2026-07-30): the latitude-banded base flow `u(lat) = -BASE_WIND*cos(3*lat)`, BASE_WIND = 6.0.
-// It drew the trades and the mid-latitude westerlies in by hand — the same species of fake as the ATMOS_RELAX
-// temperature anchor. It existed because the old pass A had no altitude term at all, so the atmosphere had no
-// vertical structure and a thermal wind was not representable; with nothing to make a jet, a jet was asserted.
-// Pass A now integrates real hydrostatic pressure over a conserved air mass, so the equator-to-pole gradient
-// aloft is a consequence of the temperature field and the zonal bands emerge from it through Coriolis. The
-// world position buffer (binding 13) went with the cosine — it was read only to rebuild the local tangent
-// basis the band vector had to be projected onto. `radial` (binding 14) stays: Coriolis still needs latitude.
-// Measured cost of the deletion, in the bench: mean zonal wind aloft falls from 0.92 (cosine-driven) to 0.078
-// (thermal-wind-driven). The structure is now real and the magnitude is honest; it is not the same number.
 
 layout(local_size_x = 64) in;
 
@@ -89,16 +38,6 @@ layout(push_constant, std430) uniform Params {
 	float sea_radius;    // altitude datum for the boundary layer
 } params;
 
-// Wind dynamics.
-// PRESSURE-GRADIENT FORCE. The acceleration a parcel feels is (1/rho)*grad(p), NOT a constant times grad(p) —
-// the same pressure difference throws thin air much harder than dense air. That distinction was not
-// expressible before: there was no air mass in the substrate, so the gain had to be the constant ACCEL = 0.5.
-// Pass A now carries a real air mass, and the hydrostatic relation it integrates (dp/dz = -rho*g with g =
-// G_ACC) fixes the density exactly: rho = air/dz. With the lateral spacing equal to the radial one, the whole
-// (1/rho)*grad(p) reduces to gx/air. So the gain is per-cell 1/air, and it rises by more than an order of
-// magnitude from the surface to the top of the atmosphere. That is the second half of the jet: the thermal
-// gradient aloft is what pushes, and thin air aloft is why the same push moves that air so much faster than
-// it moves the dense air at the surface. AIR_FLOOR caps the gain where a column is nearly empty.
 const float AIR_FLOOR = 0.02;       // density floor in AIR UNITS: caps the 1/rho gain at 50x (top-of-atmosphere)
 // REAL UNITS, 2026-08-10. Pass A now writes `pressure` in PASCALS, so the gradient is Pa per model unit and
 // must be divided by the metres one cell spans; rho is a real kg/m3; and the acceleration that comes out is
@@ -106,22 +45,11 @@ const float AIR_FLOOR = 0.02;       // density floor in AIR UNITS: caps the 1/rh
 const float GRAVITY_M_S2 = 9.80665;        // LAPhysical.STANDARD_GRAVITY_M_S2
 const float AIR_DENSITY_KG_M3 = 1.18;      // LAPhysical.AIR_DENSITY_KG_M3
 const float METRES_PER_MODEL_UNIT = 168.6; // LAPhysical.METRES_PER_MODEL_UNIT
-// DRAG IS A SURFACE PROPERTY. Wind slows because it rubs on the ground; there is nothing aloft for it to rub
-// on. A single height-independent DAMP therefore says "the whole atmosphere is dragging on the planet", and
-// that one assumption is what forbids a jet: it makes friction (0.10/step, DAMP plus the prevailing relax)
-// beat Coriolis (CORIOLIS*sin(lat)*dt = 0.048 at mid-latitudes) at EVERY height, so the flow can never turn
-// geostrophic and has no reason to be faster aloft than at the surface. Measured with a uniform DAMP: the
-// meridional overturning came out correct (equatorward at the surface, poleward aloft) but the zonal wind was
-// barotropic — 0.082 at the surface against 0.083 aloft, a ratio of 1.01, which is not a jet.
-// So drag decays with altitude on the BL_HEIGHT scale, from DAMP_SURFACE at the ground to DAMP_FREE in the
-// free atmosphere. The surface value is unchanged, so surface wind (what creatures and fire actually feel)
-// keeps its old behaviour; only the free atmosphere is released.
 const float DAMP_SURFACE = 0.08;    // linear drag fraction removed per step at the ground (the old DAMP)
 const float DAMP_FREE = 0.010;      // residual drag in the free atmosphere
 const float BL_HEIGHT = 40.0;       // boundary-layer e-folding height, world units (2.5 cells)
 // Velocity magnitude clamp, in METRES PER SECOND now that the acceleration is real. 110 m/s is above the
 // fastest sustained jet-stream cores measured on Earth (~100 m/s) and below anything physical, so it is a
-// stability backstop rather than a shape the flow is pushed into. *(Was 24.0 in world units, a number with
 // no statable dimension, sized against a pressure field that was itself arbitrary.)*
 const float MAX_WIND = 110.0;
 const float BUOY_ACCEL = 0.5;       // upward accel per °C of (this cell − cell above) temperature inversion
@@ -161,7 +89,6 @@ void main() {
 
 	// PRESSURE GRADIENT as a real tangent vector: 0.5 * sum (p_n - p_c) * dir_n over the four lateral links.
 	// A solid/boundary neighbour reflects (contributes p0c, hence nothing). In a face interior the four dirs
-	// are (-1,0),(+1,0),(0,-1),(0,+1) and this is bit-for-bit the old 0.5*(p_hi - p_lo) on each axis.
 	vec2 grad = vec2(0.0);
 	for (int l = 0; l < 4; ++l) {
 		int m = lat[l];
@@ -206,57 +133,20 @@ void main() {
 	spin_axis = slen > 1e-5 ? spin_axis / slen : vec3(0.0, 1.0, 0.0);
 	float sinlat = clamp(dot(cell_radial, spin_axis), -1.0, 1.0);
 
-	// CORIOLIS scaled by sin(lat): ZERO at the equator (winds flow straight down the pressure gradient), full
-	// at the poles, and OPPOSITE-signed between hemispheres (sinlat flips) → correct cyclonic/anticyclonic
-	// handedness N vs S. A rotating low (vortex) still EMERGES; now it emerges with real latitude structure.
-	//
-	// SIGN CORRECTED 2026-07-30 — it used to deflect the wrong way, and until the tangent frame got its own
-	// table nothing could tell. The Coriolis acceleration is a = -2*omega x v. With omega = Omega*spin_axis
-	// (spin_axis IS the north pole, by the right-hand rule of the planet's own rotation) its horizontal part
-	// is -f*(radial x v), f = 2*Omega*sin(lat). The frame is right-handed — tan_a x tan_b = radial — so
-	// radial x v is the +90 degree rotation (a -> b), i.e. components (-v_b, v_a). Therefore
-	//     v' = v - f*dt*(-v_b, v_a) = (v_a + f*dt*v_b,  v_b - f*dt*v_a),
-	// which deflects eastward motion toward the equator in the northern hemisphere: to the RIGHT, as it must.
-	// The old form was (v_a - k*v_b, v_b + k*v_a) — the exact negative, a deflection to the LEFT.
-	// This was invisible while the frame came from the neighbour slots, because that frame was 50/50 handed
-	// (1732 right / 1724 left at res 24), so "the sign of the deflection" was not a defined quantity.
-	// Measured consequence, bench_atmosphere_column at res 24 / 400 steps: the thermal-wind maximum aloft is
-	// the same size and sits in the same place either way, but it blew EAST-to-WEST at -1.95 (shell 17,
-	// 15-30 deg) before and WEST-to-EAST after. The overturning was right all along and is untouched:
-	// poleward aloft, equatorward at the surface.
 	float rvx = nvx + CORIOLIS * sinlat * nvz * params.dt;
 	float rvz = nvz - CORIOLIS * sinlat * nvx * params.dt;
 	nvx = rvx;
 	nvz = rvz;
 
-	// LEGACY PREVAILING relax, all that is left of the base-flow term now the latitude-band cosine is gone. The
-	// dispatch side supplies pvx/pvz (the global prevailing wind projected onto the tangent axes); on a closed
-	// sphere no cell is on a lateral boundary, so this is a uniform gentle pull toward that one vector. It is
-	// NOT a banded pattern and it does not know about latitude — nothing here prescribes where wind should be.
-	// It rides the same boundary-layer profile as the drag, because it IS a drag: a pull toward a wind fixed
-	// somewhere else. Left height-independent it would be the single largest friction aloft (0.02 against
-	// DAMP_FREE's 0.006) and would hold the free atmosphere back on its own.
 	bool on_edge = (lat[0] < 0 || lat[1] < 0 || lat[2] < 0 || lat[3] < 0);
 	float force = (on_edge ? EDGE_FORCE : BODY_FORCE) * bl;
 	nvx += (params.pvx - nvx) * force;
 	nvz += (params.pvz - nvz) * force;
 
-	// DRAG. HORIZONTAL drag tapers through the boundary layer (see DAMP_SURFACE / DAMP_FREE / BL_HEIGHT).
-	// VERTICAL drag deliberately does NOT: it keeps the full surface value at every height. The buoyancy term
-	// above compares RAW temperature against the cell overhead, so any lapse rate at all reads as unstable —
-	// a real atmosphere is stable until the lapse exceeds the adiabatic one, which needs potential temperature
-	// this substrate does not carry. The vertical drag is what stands in for that missing stability, and it is
-	// the only thing bounding the updraft. Measured with it tapered: the mean radial wind reached 10.5 and
-	// saturated the MAX_WIND clamp, drowning the horizontal circulation this pass exists to produce.
 	nvx *= (1.0 - damp);
 	nvy *= (1.0 - DAMP_SURFACE);
 	nvz *= (1.0 - damp);
 
-	// TERRAIN DEFLECTION + OROGRAPHIC UPLIFT: air cannot blow INTO a solid/boundary neighbour. Instead of simply
-	// discarding that horizontal momentum, the component blocked by RISING TERRAIN is banked and converted to
-	// radial-UP wind (vel_y) if there is open sky above — the air is forced up and over the mountain. That uplift
-	// feeds the buoyancy/condensation chain, so the windward slope gets the rising-air rain and the lee stays dry
-	// (a rain shadow) — orographic precipitation falls out, no special-case code.
 	float blocked = 0.0;
 	vec2 vh = vec2(nvx, nvz);
 	for (int l = 0; l < 4; ++l) {

@@ -1,16 +1,9 @@
 #[compute]
 #version 450
 
-// CUBED-SPHERE atmosphere RAIN GATHER — sphere port of atmos_rain3d.glsl (box). The race-free cross-cell
-// WRITE half of precipitation: atmos_condense_sphere3d already subtracted each raining cell's rain from its
-// cloud and stored the rain MASS in the per-cell `rain` scratch. Rain FALLS toward the ground — the box
-// routed each cell's rain to the cell BELOW when open, else into itself. This gather inverts that: each
 // cell sums the rain aimed AT it — its own rain when it has no open cell DOWN (inward, slot 0), plus the
 // rain from the cell directly ABOVE (outward, slot 5) when that cell drains down into this open cell.
 //   "down/below/ground" → INWARD radial neighbour = slot 0;  "up/above" → OUTWARD = slot 5.
-//   box `iy==0 || solid below → self`  becomes  `slot0 == -1 || solid[slot0] → self`.
-// One invocation per cell.
-//
 // NEIGHBOUR TABLE: nbr[idx*6 + d], slot 0=inward/down … 5=outward/up; -1 = boundary.
 
 layout(local_size_x = 64) in;
@@ -36,10 +29,6 @@ void main() {
 	int idx = int(g);
 	int base = idx * 6;
 
-	// Solid cells hold no water. STATIC sea cells are the infinite reservoir (both the evap SOURCE and the
-	// drainage SINK) — rain over the ocean must VANISH into it, exactly as the water CA makes water flowing into
-	// a static cell vanish. Without this the rain gather parked evaporated mass permanently in static-cell water
-	// (nothing drains it) → an unbounded source that slowly flooded the world (the h2o climb). Skip both.
 	if (solid[g] != 0.0 || static_cells[g] != 0.0) {
 		return;
 	}
@@ -67,9 +56,7 @@ void main() {
 		}
 	}
 
-	// *(A `boil[]` drain was subtracted here until 2026-08-10, sourced from atmos_condense_sphere3d — A
 	// KERNEL THAT DOES NOT EXIST. Nothing ever wrote that buffer; AtmospherePass created it zero-filled and
-	// bound it readonly, so the subtraction was always minus zero. It survived because it kept "the
 	// UNCHANGED atmos_rain reading all-zeros", which is parity with a deleted thing and never a reason.)*
 	if (add != 0.0) {
 		water[g] = water[g] + add;

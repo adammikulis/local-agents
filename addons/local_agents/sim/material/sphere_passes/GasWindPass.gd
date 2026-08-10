@@ -1,42 +1,16 @@
 extends RefCounted
 
-## Cubed-sphere GAS + WIND + CHARGE compute pass. Wires six GPU-proven cubed-sphere kernels into the
-## sphere GPU driver as ONE recordable pass (the driver owns the RenderingDevice, the compute list, and
-## begin/sync/submit). This object only: (1) compiles the six shaders + pipelines and builds two uniform
-## sets per kernel (one per ping-pong parity) in `setup()`, and (2) records dispatches into a caller-owned
-## compute list in `dispatch()`.
-##
-## Kernels + role (see each .glsl for the verbatim math):
-##   wind_pressure_sphere3d:   PASS A: conserved AIR mass + hydrostatic pressure. One thread per radial COLUMN
-##                             (not per cell): it moves column mass by the vertically-integrated upwind flux,
-##                             settles it onto the temperature-set exponential profile, and integrates
-##                             pressure inward as the weight of the air above. air <= air + temp + velocity.
-##   wind_step_sphere3d:       PASS B: per-cell velocity update down the pressure gradient (+buoy/Coriolis/drag).
-##   gas_transport_sphere3d:   ONE kernel, dispatched once per row of GASES. Diffusion + wind advection +
-##                             a density settle derived from the gas's molar mass.
-##   charge_accum_sphere3d:    per-cell charge separation from updraft x supercooled cloud, in place on charge.
-## (The O₂ sky-refill + CO₂ sky-vent that gas_sky_sphere3d did here dissolved into the generic ReactionsPass, and
-##  they are now two Reaction records, applied one pass later on the same o2/co2 transport-output buffers.)
-##
-## PLUGIN CONTRACT (bufs dictionary):
-##   PAIR channels (ping-pong [rid_live, rid_back]) used here: temp, o2, co2, cloud, air.
-##   SINGLE channels (rid) used here: solid, pressure, vel_x, vel_y, vel_z, charge, nbr.
-## For a dispatch at ping-pong parity p: PAIR reads live = pair[p], PAIR transport writes back = pair[1 - p].
-## ReactionsPass (one pass later) edits those same o2/co2 back buffers for the sky exchange/vent; charge edits
-## the single charge rid here.
 
 const WIND_PRESSURE_PATH: String = "res://addons/local_agents/sim/material/kernels3d/wind_pressure_sphere3d.glsl"
 const WIND_STEP_PATH: String = "res://addons/local_agents/sim/material/kernels3d/wind_step_sphere3d.glsl"
 # ONE TRANSPORT KERNEL FOR EVERY GAS. o2_transport_sphere3d.glsl and co2_transport_sphere3d.glsl were the
-# same kernel twice and are DELETED (2026-08-10); after the solver was shared they differed by exactly one
-# float. While they were separate they DRIFTED, which is the argument: co2 advected with the wind and o2 did
 # not, on a stated limitation of the lattice that did not exist.
-const GAS_TRANSPORT_PATH: String = "res://addons/local_agents/sim/material/kernels3d/gas_transport_sphere3d.glsl"
+const TRACER_TRANSPORT_PATH: String = "res://addons/local_agents/sim/material/kernels3d/tracer_transport_sphere3d.glsl"
 
-# THE GAS TABLE. A new airborne gas is a ROW HERE — its channel and its density contrast against dry air —
-# not a kernel, not a pipeline, not a file. `contrast` is (M_gas - M_air)/M_air from LASubstances' molar
-# masses; it is the ONLY per-gas quantity, because turbulent mixing is a property of the flow rather than of
-# the molecule and the kernel therefore shares one DIFFUSE/ADVECT across every gas.
+# Still-air settling velocity per unit of fractional molar-mass excess over dry air, m/s. Gravitational
+# separation of a turbulent atmosphere is weak; this models a dense gas pooling in still air.
+const SETTLE_V_PER_CONTRAST: float = 0.05
+const EDDY_DIFFUSE: float = 0.02
 const GASES: Array = [
 	{"channel": "o2", "contrast": 0.10460},    # O2  31.998 vs dry air 28.968
 	{"channel": "co2", "contrast": 0.51927},   # CO2 44.010 vs dry air 28.968
@@ -44,11 +18,7 @@ const GASES: Array = [
 const CHARGE_ACCUM_PATH: String = "res://addons/local_agents/sim/material/kernels3d/charge_accum_sphere3d.glsl"
 
 # --- default constants used when a scalar is not supplied in ctx (NOTE any default picked) -------------------
-# THE WIND RUNS ON THE REAL CLOCK, 2026-08-10. `ctx["dt"]` is LAMaterialFieldSphereStep3D.STEP_DT = 0.1
-# SIMULATED game-seconds, while one field step stands for real_seconds_per_step() = 43.2 REAL seconds — a
-# factor of 432, already recorded as a live defect at MaterialFieldSphereStep3D.gd:33. Now that pass A writes
 # pascals and pass B computes a real m/s^2 acceleration, integrating either of them against a game-second
-# clock would be two errors that nearly cancel: a substrate that LOOKS dimensionally sound and is not.
 const DEFAULT_DT: float = 0.1          # fallback only; converted to real seconds below
 const DEFAULT_WIND: Vector2 = Vector2.ZERO   # prevailing wind (pvx, pvz) when ctx has no "wind"
 const DEFAULT_BUOY: float = 1.0        # buoyancy enabled (1) when ctx has no "buoy"
@@ -87,7 +57,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	_wp_pipe = _rd.compute_pipeline_create(_wp_shader)
 	_ws_shader = _compile(WIND_STEP_PATH)
 	_ws_pipe = _rd.compute_pipeline_create(_ws_shader)
-	_gas_shader = _compile(GAS_TRANSPORT_PATH)
+	_gas_shader = _compile(TRACER_TRANSPORT_PATH)
 	_gas_pipe = _rd.compute_pipeline_create(_gas_shader)
 	_ch_shader = _compile(CHARGE_ACCUM_PATH)
 	_ch_pipe = _rd.compute_pipeline_create(_ch_shader)
@@ -121,19 +91,16 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_wp_set[p] = _uset(_wp_shader, [[0, air[p]], [1, air[back]], [2, temp[p]], [3, solid],
 				[4, pressure], [5, vx], [6, vz], [15, nbr], [16, ltan]])
 		# wind_step: 0=PressureIn, 1=TempIn(live), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 6=AirIn(back), 14=Radial, 15=Neigh
-		# (binding 13 = Pos went away with the latitude-band cosine — it was only read to rebuild the local
-		#  tangent basis that band vector had to be projected onto.)
-		# AirIn is the BACK half: wind_pressure wrote this step's air there and a barrier separates the two, so
-		# pass B divides by the same fresh density its pressure field was integrated from.
 		_ws_set[p] = _uset(_ws_shader, [[0, pressure], [1, temp[p]], [2, solid], [3, vx], [4, vy], [5, vz],
 				[6, air[back]], [14, radial], [15, nbr], [16, ltan]])
 		# gas_transport, one set per gas: 0=GasIn(live), 1=GasOut(back), 2=Solid, 3/4/5=Vel, 15=Neigh, 16=LinkTan.
 		for gi in GASES.size():
 			var ch: Array = bufs[String(GASES[gi]["channel"])]
-			_gas_sets[gi][p] = _uset(_gas_shader, [[0, ch[p]], [1, ch[back]], [2, solid],
-					[3, vx], [4, vy], [5, vz], [15, nbr], [16, ltan]])
+			# 2 = Deposit: a gas has no settled phase, so `deposit` is 0 and this is never written. It is bound
+			# to the gas's own back buffer because the layout requires something there.
+			_gas_sets[gi][p] = _uset(_gas_shader, [[0, ch[p]], [1, ch[back]], [2, ch[back]], [3, solid],
+					[4, vx], [5, vy], [6, vz], [15, nbr], [16, ltan]])
 		# charge_accum: 0=Charge(single, in place), 1=TempIn(live), 2=CloudIn(live), 3=VelY, 4=Solid.
-		# (Binding 5 was a camera-relevance score until 2026-08-03: a distant thundercloud separated charge on a
 		#  slower clock than a near one. Deleted — see MaterialSphereGPU3D.gd's header note.)
 		_ch_set[p] = _uset(_ch_shader, [[0, charge], [1, temp[p]], [2, cloud[p]], [3, vy], [4, solid]])
 
@@ -145,6 +112,11 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	# REAL seconds, from the one function that already knows what a field step is worth. Everything
 	# downstream of this line is SI. (ctx["dt"] is STEP_DT, 0.1 GAME seconds, and is deliberately not used.)
 	var dt: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	# Courant factor for the tracer transport: v*dt/dx, so REAL seconds over the cell's size in REAL METRES.
+	# The velocity field is m/s as of the pascal migration, so dividing by a MODEL-unit cell size would be
+	# 168.6x too large and every cell would sit pinned against the CFL cap.
+	var cell_m: float = float(ctx.get("cell_size", 1.0)) * LAPhysical.METRES_PER_MODEL_UNIT
+	var k_courant: float = dt / cell_m if cell_m != 0.0 else 0.0
 	var wind: Vector2 = ctx.get("wind", DEFAULT_WIND)
 	var buoy_on: int = 1 if float(ctx.get("buoy", DEFAULT_BUOY)) >= 0.5 else 0
 	# Planet spin axis (north pole) in the field frame — drives latitude, banded zonal flow + Coriolis handedness.
@@ -165,10 +137,6 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 			float(ctx.get("core_radius", 0.0)), float(ctx.get("cell_size", 1.0)), float(ctx.get("sea_radius", 0.0)))
 	var pc_ch: PackedByteArray = _pc_charge(cc, dt)
 
-	# 1) wind_pressure (PASS A): air[live] + temp + velocity -> air[back] + pressure. ONE THREAD PER COLUMN:
-	# it walks the column O(depth) times (mass flux, hydrostatic settle, pressure integral), so total work is
-	# O(cells) at 1/depth the threads. Reads the 4 neighbour COLUMNS' air, hence the ping-pong (a same-buffer
-	# in-place update would race with the neighbouring column's thread).
 	rd.compute_list_bind_compute_pipeline(cl, _wp_pipe)
 	rd.compute_list_bind_uniform_set(cl, _wp_set[p], 0)
 	rd.compute_list_set_push_constant(cl, pc_wp, pc_wp.size())
@@ -187,7 +155,8 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	for gi in GASES.size():
 		rd.compute_list_bind_compute_pipeline(cl, _gas_pipe)
 		rd.compute_list_bind_uniform_set(cl, _gas_sets[gi][p], 0)
-		var pc_gas: PackedByteArray = _pc_gas(cc, depth, float(GASES[gi]["contrast"]))
+		var pc_gas: PackedByteArray = _pc_tracer(cc, depth, k_courant,
+				SETTLE_V_PER_CONTRAST * float(GASES[gi]["contrast"]), EDDY_DIFFUSE, 0)
 		rd.compute_list_set_push_constant(cl, pc_gas, pc_gas.size())
 		rd.compute_list_dispatch(cl, groups, 1, 1)
 
@@ -248,16 +217,20 @@ func _uset(shader: RID, entries: Array) -> RID:
 		uniforms.append(u)
 	return _rd.uniform_set_create(uniforms, shader, 0)
 
-# Params { uint cell_count; uint depth; float settle_contrast; float pad0; } — gas_transport. `depth` turns a
-# cell index into its column for the link-tangent lookup; `settle_contrast` is the gas's fractional
-# molar-mass excess over dry air and is the ONLY thing that differs between one gas and the next.
-func _pc_gas(cc: int, depth: int, contrast: float) -> PackedByteArray:
+# Params { uint cell_count; uint depth; float k; float settle_v; float diffuse; uint deposit; uint pad0;
+# uint pad1; } — tracer_transport, shared with FireDustPass. `k` is the Courant factor dt/cell_size in REAL
+# units; `settle_v` is the still-air settling velocity in m/s, signed: >0 sinks, <0 rises.
+func _pc_tracer(cc: int, depth: int, k: float, settle_v: float, diffuse: float, deposit: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(16)
+	pc.resize(32)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, depth)
-	pc.encode_float(8, contrast)
-	pc.encode_float(12, 0.0)
+	pc.encode_float(8, k)
+	pc.encode_float(12, settle_v)
+	pc.encode_float(16, diffuse)
+	pc.encode_u32(20, deposit)
+	pc.encode_u32(24, 0)
+	pc.encode_u32(28, 0)
 	return pc
 
 # Params { uint cell_count; uint depth; uint pad1; uint pad2; } — legacy cellcount push. `depth` turns a
@@ -283,10 +256,6 @@ func _pc_windpressure(columns: int, depth: int, core_radius: float, cell_size: f
 	return pc
 
 
-# Params { uint cell_count; float pvx; float pvz; float dt; uint buoy; float spin_x; float spin_y; float spin_z;
-#          uint depth; float core_radius; float cell_size; float sea_radius; } — wind_step.
-# The shell geometry is here so the kernel can turn a cell index into an ALTITUDE (column-contiguous indexing
-# makes the shell g % depth) and taper drag through the boundary layer. No position buffer needed for it.
 func _pc_windstep(cc: int, pvx: float, pvz: float, dt: float, buoy: int, spin: Vector3,
 		depth: int, core_radius: float, cell_size: float, sea_radius: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()

@@ -1,83 +1,13 @@
 class_name LAMaterialFieldBiota3D
 extends RefCounted
 
-## LAMaterialFieldBiota3D — THE ONE SEAM THROUGH WHICH A LIVING BODY EXCHANGES MATTER WITH THE FIELD.
-##
-## Before this module existed, animals were outside physics. Every one of these was live in the shipped tree
-## and every one of them created or destroyed matter:
-##   * a herbivore standing on warm ground was handed 5 biomass/second out of nothing. The only field read was
-##     `temp_at` — a thermometer, not a stock — and nothing anywhere was decremented. The header comment said
-##     so: "never depletes, can't be crashed".
-##   * every joule an animal burned VANISHED. Nothing consumed oxygen, nothing produced carbon dioxide, and no
-##     body heat reached the temperature field. Breathing was a boolean threshold test on the O₂ a creature
-##     never took.
-##   * drinking refilled hydration with no water cell debited, and the sweat/urine side drained hydration into
-##     nowhere. H₂O is the substance this project holds up as its worked example of a closed ledger.
-##   * a carcass's decomposition and an animal's feces called `deposit_detritus`, which wrote the CPU MIRROR
-##     `_f._detritus[c] += amount` — a mirror uploaded to the device exactly ONCE (`_detritus_seed_dirty`, at
-##     seed) and OVERWRITTEN by the readback on every drain that requests it. So the return leg of the whole
-##     death→soil loop was silently discarded. That deposit now runs through the device queue here, which is
-##     the only reason the loop closes at all.
-##
-## WHAT THIS MODULE IS, MECHANICALLY. It plans each exchange against the CPU mirrors (cheap, one cell read) and
-## parks it on LAMaterialFieldInject3D's queue, which LAMaterialFieldSphereStep3D flushes onto the LIVE device
-## buffers at the one point in the frame where the GPU is idle. Nothing here uploads a whole channel and
-## nothing here calls `buffer_get_data` — both of those change the simulation (see the `request_channel` and
-## `request_probe` notes in LAMaterialSphereGPU3D). A debit is resolved on device against the live value, so it
-## can never drive a cell negative and never takes grass that is not there, however stale the mirror it was
-## planned against. What the ground could not supply comes back as `biota_graze_short`.
-##
-## THE MIRROR IS DECREMENTED LOCALLY THE INSTANT AN ANIMAL BITES, and that is not bookkeeping — it is the
-## competition. `biomass` rides the SLOW readback set (every 4th drain), so without the local decrement every
-## grazer on a cell would plan against the same stale standing crop for four drains and they would all be
-## credited the same blade of grass. The device would then clamp the aggregate and the shortfall would show up
-## as a huge `biota_graze_short` instead of as animals competing for a finite pasture.
-##
-## THE CARBON BOUNDARY, stated because a conserved quantity is only as meaningful as its boundary.
-## LAMaterialFieldElementInventory3D defines `carbon_total = co2 + biomass + detritus`. Living bodies are a FOURTH
-## carbon pool that budget cannot see, so this module publishes it: `biota_carbon` is the running sum of
-## everything bodies have taken out of the field minus everything they have put back. Read the two together and
-## the biosphere's books close; read `carbon_total` alone and a herd eating grass looks like a leak.
-##   `biota_carbon` going NEGATIVE is meaningful, not a bug: it means bodies are exporting into the field more
-##   carbon than they took from it, which happens because animals also eat PLANT NODES and each other, and a
-##   plant node's mass never came out of a field channel. `biota_node_intake` counts that separately so the two
-##   sources are never silently merged. *(This used to end by reporting `LAPlant.FOOD_REGROW` as "a real
-##   violation in `sim/actors/Plant.gd` … a file another track owns concurrently". That track landed:
-##   FOOD_REGROW no longer exists, and a plant now DRAWS its reserve out of the `biomass` standing in its own
-##   cell through `LAMaterialFieldInject3D.take_biomass`, a device-resolved debit, so a plant on ground the
-##   chemistry never greened gets nothing. The note outlived the defect and was still being read as live on
-##   2026-08-08.)*
-##
-## OXYGEN'S CONVENTION is the budget's: FREE molecular O₂ only. An animal's aerobic respiration debits `o2` and
-## credits `co2` ONE FOR ONE, which is the identity `LABioRecords` already enforces on the substrate's own
-## respiration record R20 ("RESP_O2_COST MUST EQUAL RESP_CO2_YIELD — one O₂ consumed per CO₂ produced"). The
-## carbon in that CO₂ comes out of the body, not out of the air, so `biota_carbon` falls by exactly what `co2`
-## rises by.
-##
-## (Explicit types only, no ':=' inferred typing.)
 
-## A grazer may not strip a cell bare in one bite — that is what makes a pasture recover rather than being
-## mined out. Real grazing systems leave residual leaf area because the animal physically cannot get its mouth
-## below it, and the residual is what regrows. `BITE_TAKE_FRAC` is the share of the standing crop above the
-## residual one bite may remove.
 const GRAZE_RESIDUAL: float = 0.02       # standing crop per cell a mouth cannot reach (regrowth stays possible)
 const BITE_TAKE_FRAC: float = 0.35       # share of the reachable crop one animal's bite may take in a frame
 
-## Metabolic heat: how many °C one unit of respired tissue raises its cell. This is a UNIT CONVERSION between
-## the sim's mass/energy unit and the field's temperature channel, not a property of matter — the sim's "energy
-## unit" has no joule value, so there is nothing to derive it from. It is deliberately small: an animal is a
-## rounding error against a cell of rock or air, and the point of wiring it at all is that the heat has to go
-## SOMEWHERE rather than vanish. A herd sheltering together should warm its hollow, not the planet.
 const HEAT_C_PER_MASS: float = 0.02
 const HEAT_RADIUS: float = 0.0           # the animal's own cell only; body heat does not teleport
 
-## THE CONTROL. `LA_NO_BIOTA_DEBIT=1` turns every debit in this module into a free hand-out: grazing returns
-## what was asked without touching the pasture, drinking refills without a puddle, respiration takes no oxygen.
-## That is EXACTLY the pre-fix behaviour, and it exists so the acceptance measurement can be a real experiment
-## rather than an assertion — a gate that passes with the feature switched off is not a gate. The credits
-## (litter, transpire, CO₂) are switched off with it, because in the world this reproduces they did not run
-## either. Gated on a NON-EMPTY value, not on `has_environment`: `env FOO= …` counts as set and has silently
-## armed a diagnostic here before.
 static func disabled() -> bool:
 	return OS.get_environment("LA_NO_BIOTA_DEBIT") != ""
 
@@ -104,10 +34,6 @@ func setup(field) -> void:
 	LASimReport.register(report)
 
 
-## The queue every exchange parks on. Null (and every method below a no-op) on a field with no GPU driver —
-## a bare box-mode field or a headless test — because nothing would ever flush it and the ops would pile up
-## forever. A creature simply cannot eat or breathe the world in that configuration, which is honest: there is
-## no world to eat.
 func _queue():
 	if _f == null or _f._inject == null:
 		return null
@@ -116,15 +42,6 @@ func _queue():
 	return _f._inject.queue
 
 
-## The GROUND-HUGGING open cell under a world point — the cell photosynthesis actually grows grass in.
-## R19 is gated `GATE_NEAR_GROUND` (see LABioRecords), i.e. the open cell whose inward neighbour is rock, so
-## this is where the standing crop is and where a mouth reaches. Returns -1 outside the shell.
-##
-## *(This corrects a claim that justified the free-food hack. `LACreatureDigestion.ambient_graze`'s comment
-## said photosynthesis "deposits its biomass in the sky-exposed TOP-of-column cell, dozens of cells ABOVE the
-## grazer — so a ground-level biomass read was always 0". That was true of an older photosynthesis record and
-## is not true now; R19 was moved to the ground cell, and LABioRecords:50 says so. The stale comment was the
-## stated reason for handing herbivores food out of nothing.)*
 func ground_cell(world_pos: Vector3) -> int:
 	if _f == null or _f._cell_count <= 0:
 		return -1
@@ -156,13 +73,6 @@ func ground_cell(world_pos: Vector3) -> int:
 
 # --- INTAKE: matter leaving the field and entering a body -------------------------------------------------
 
-## GRAZE. Take up to `want` of the standing crop in the ground cell under `world_pos` and return what the
-## animal actually got. Debits the field's real `biomass` channel; a bare, frozen or flooded cell yields
-## exactly nothing, which is what makes starvation reachable.
-##
-## The debit's destination is -1 — the mass leaves the field entirely, because the body it enters is not a
-## field channel. That is not a loss: `biota_carbon` rises by the same number, and falls again when the animal
-## respires it, excretes it, or dies and rots.
 func graze(world_pos: Vector3, want: float) -> float:
 	if want <= 0.0:
 		return 0.0
@@ -197,7 +107,6 @@ func graze(world_pos: Vector3, want: float) -> float:
 	return take
 
 
-## DRINK. Take up to `want` of H₂O out of the world at `world_pos` and return what was there. Liquid surface
 ## water first (a lake, a river, the sea); failing that the groundwater the animal is standing on, which is
 ## what a real animal at a seep or a dug well gets. Returns 0 on dry ground, so thirst is a real pressure.
 func drink(world_pos: Vector3, want: float) -> float:
@@ -243,12 +152,6 @@ func _draw(q, channel: String, mirror: PackedFloat32Array, c: int, want: float) 
 
 # --- OUTPUT: matter leaving a body and entering the field -------------------------------------------------
 
-## RESPIRE. An animal oxidises `mass` of its own tissue at `head_pos`: it draws that much free O₂ out of the
-## cell it is breathing and returns the same amount as CO₂, one for one — the identity LABioRecords enforces on
-## the substrate's own respiration record. The metabolic heat goes into the temperature field.
-##
-## Returns the O₂ the cell could actually supply. A creature in air the substrate has drawn down gets less than
-## it asked for, and its caller can act on that; nothing here silently invents the difference.
 func respire(head_pos: Vector3, mass: float) -> float:
 	if mass <= 0.0:
 		return 0.0
@@ -282,14 +185,6 @@ func respire(head_pos: Vector3, mass: float) -> float:
 	return got
 
 
-## LITTER. Return `mass` of body tissue to the soil as detritus at `world_pos` — a carcass rotting, an animal
-## passing the indigestible residue of a meal, a fish sinking. The substrate's decomposer loop (R15) then rots
-## it into CO₂ and soil fertility.
-##
-## This is the leg that was DEAD. `LAMaterialFieldChannels3D.deposit_detritus` writes `_f._detritus[c] +=
-## amount`, and the detritus mirror reaches the device exactly once (the one-shot `_detritus_seed_dirty` upload
-## in LAMaterialFieldSphereStep3D) and is overwritten by the readback thereafter. Every carcass and every
-## dropping since that channel was wired went nowhere.
 func litter(world_pos: Vector3, mass: float) -> void:
 	if mass <= 0.0 or disabled():
 		return                           # the control arm: the body's mass simply disappears, as it used to
@@ -333,17 +228,6 @@ func note_node_intake(mass: float) -> void:
 		node_intake += mass
 
 
-## A BODY APPEARED. Every creature spawned by the ecology arrives with a full structural mass and a full
-## reserve that came from nowhere in the substrate, and the honest thing is to SAY SO rather than let it show
-## up later as a mysterious carbon surplus when the animal dies and rots.
-##
-## Two cases, and they are physically different:
-##   * the FOUNDING population is an initial condition — a planet that starts with a biosphere is a premise,
-##     not a violation, in the same way the ocean starts full of water;
-##   * every later spawn is matter created at runtime. A BIRTH is not one of these: the mother is debited the
-##     newborn's whole mass in LACreatureReproduction, so a birth moves mass rather than making it. Anything
-##     else reaching this counter after the founding wave is a top-up spawner minting animals, and
-##     `biota_spawn_runtime` is the number that makes that visible.
 func note_spawn(mass: float, founder: bool) -> void:
 	if mass <= 0.0:
 		return
@@ -383,7 +267,6 @@ func report() -> Dictionary:
 		"biota_water_out": snappedf(water_out, 0.01),
 		"biota_heat": snappedf(heat_out, 0.01),
 		# Per-cell device edits this seam queued. Zero with animals alive means the seam is DEAD — which is the
-		# state this module was written to end, and the control the acceptance gate disables to prove it.
 		"biota_exchanges": exchanges,
 		"biota_enabled": 0.0 if disabled() else 1.0,
 	}

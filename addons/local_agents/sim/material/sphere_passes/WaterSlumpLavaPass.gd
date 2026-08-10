@@ -1,30 +1,5 @@
 extends RefCounted
 
-## Cubed-sphere GPU pass plugin: the three finite-volume mass-transport CAs (water, granular slump, and
-## lava flow), wired to the SphereGPU driver via the PLUGIN CONTRACT (setup() once, dispatch() each step).
-##
-## The driver owns the RenderingDevice, all channel buffers, and the compute list. This plugin only:
-##   1. setup(): compiles the three cubed-sphere kernels, then builds TWO uniform sets per kernel (one per
-##      parity), mapping each kernel's .glsl binding indices onto the driver's shared `bufs` buffers.
-##   2. dispatch(): records the three 2-pass gathers into the driver's open compute list `cl`.
-##
-## All three kernels are the sphere ports of the box finite-volume CAs and follow the SAME two-pass GATHER
-## structure: pass 0 records per-direction OUTFLOW into the shared `send` scratch (idx*6 + dir), a barrier,
-## then pass 1 = old - own_out + received INFLOW into the ping-pong BACK buffer. They all share the single
-## `send` scratch, and no external clear is needed: every kernel's pass 0 unconditionally zeroes all 6 of its
-## own send slots (idx*6+0..5) before any early-return, so the buffer is fully re-initialised each pass. That
-## lets the three CAs run back-to-back in ONE open compute list without a buffer_clear (which is illegal while
-## a compute list is open). Order: water, then slump, then lava.
-##
-## Per-kernel binding -> bufs-key map (see the .glsl headers for the authoritative layout):
-##   water_sphere3d:      0 WaterIn=water[live] · 1 Solid=solid · 2 Static=static · 3 Send=send ·
-##                        4 WaterOut=water[back] · 15 Neigh=nbr
-##   slump_sphere3d:      0 SedIn=sediment[live] · 1 Solid=solid · 2 Send=send · 3 SedOut=sediment[back] ·
-##                        15 Neigh=nbr
-##   lava_flow_sphere3d:  0 LavaIn=lava[live] · 1 Solid=solid · 2 Send=send · 3 LavaOut=lava[back] ·
-##                        4 Temp=temp[live] (carry-heat, in-place read/modify) · 15 Neigh=nbr
-##
-## Push constant (all three): PackedInt32Array([cell_count, pass_id, 0, 0]).to_byte_array().
 
 const WATER_PATH: String = "res://addons/local_agents/sim/material/kernels3d/water_sphere3d.glsl"
 const SLUMP_PATH: String = "res://addons/local_agents/sim/material/kernels3d/slump_sphere3d.glsl"
@@ -152,14 +127,6 @@ func dispose(rd: RenderingDevice) -> void:
 
 # --- helpers ------------------------------------------------------------------
 
-## Records one 2-pass finite-volume CA into the open compute list: run pass 0 (outflow -> send), barrier, run
-## pass 1 (inflow -> back buffer), barrier. Pass 0 self-zeroes all 6 send slots per cell before writing, so no
-## buffer_clear is needed (and none is legal while a compute list is open). Bindings are re-bound each pass so
-## a push-constant change is unambiguous; the barrier after pass 0 makes the outflow writes visible to pass 1's
-## neighbour reads, and the barrier after pass 1 orders the back-buffer + shared-send writes ahead of the next kernel.
-## Slump's variant: the same two passes, with the shell geometry pushed so the repose threshold can be a real
-## angle. Separate from `_two_pass` because water and lava declare the 16-byte Params and a push constant must
-## match the shader's own struct.
 func _two_pass_geo(rd: RenderingDevice, cl: int, pipe: RID, uset: RID, cc: int, groups: int,
 		depth: int, core_radius: float, cell_size: float) -> void:
 	for pass_id in 2:

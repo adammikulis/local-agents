@@ -2,121 +2,8 @@ class_name LAMaterialFieldH2OBudget3D
 extends RefCounted
 
 ## LAMaterialFieldH2OBudget3D: a PER-PASS mass budget for the whole conserved H₂O ledger, so a water drain has
-## to name the pass that causes it instead of being argued about. Diagnostic only — created by
-## LAMaterialFieldSphereStep3D and only when `LA_H2O_BUDGET` is in the environment, because a sampled step
-## costs one CPU↔GPU round-trip per pass plus a handful of full-grid readbacks.
-##
-## WHY PER-PASS AND NOT PER-KERNEL PROBE SLOTS. The soil budget (LAMaterialFieldSoilBudget3D) put 20 dbg slots
-## inside soil_sphere3d.glsl because it had to separate legs WITHIN one kernel. Naming which of the twelve
-## passes loses water needs nothing that fine, and the cheap form is strictly better evidence: each leg here is
-## a DIFFERENCE OF MEASURED BUFFER STATE, read straight off the device between two passes. So the legs sum to
-## the step's total change BY CONSTRUCTION — there is no restatement of any kernel's arithmetic in GDScript
-## that could itself be wrong, and a pass added tomorrow is instrumented for free.
-##
-## THE FOUR CHANNELS ARE ONE SUBSTANCE. liquid `water` + airborne `moisture` + frozen `snow` + subsurface
-## `soil`. Every transfer the substrate performs (evaporate, precipitate, rain, freeze, melt, infiltrate,
-## spring, seep, root-uptake) moves H₂O BETWEEN these four, so a pass that is conserving shows `d_sum` ≈ 0
-## however large its individual `d_water` / `d_moisture` are. A pass with a nonzero `d_sum` is creating or
-## destroying water, and its magnitude is the answer in units/step.
-##
-## TWO MASKS, AND THE DIFFERENCE BETWEEN THEM IS ITSELF A RESULT.
-##   `open` — water/moisture/snow over OPEN cells (solid == 0), soil over REGOLITH cells. This is exactly the
-##            inclusion rule LAMaterialFieldLedger3D uses, so `open.total` is comparable to SIM_REPORT's
-##            `h2o_closed_total` (one readback cadence apart).
-##   `all`  — the same four channels summed over EVERY cell, mask-free.
-## A pass that leaves `all` flat while `open` falls has not destroyed water: it has BURIED it, by turning a
-## cell solid (SolidDerivePass re-derives `solid` from rock_fill every step) with water still in it. water
-## _sphere3d.glsl's pass 1 passes a solid cell's water through untouched, so buried water is still in the
-## buffer, still invisible to the ledger, and never comes back unless the cell melts or is carved open. That
-## is a completely different bug from a kernel dropping mass, and no single-masked total can tell them apart.
-##
-## `open` here uses the GPU's DERIVED solid mask; LAMaterialFieldLedger3D uses the CPU mirror `_f._solid`, and
-## the two are not the same mask. `solid` is never read back — the CPU copy is written only by
-## _sample_solidity_sphere() and MineralStamp3D's scan, while SolidDerivePass rewrites the device copy from
-## rock_fill every step and _seed_solid() uploads the CPU copy over it whenever `_solid_dirty`. The fight is
-## visible in the numbers: `chain` catches the upload as a jump of -779.49 / -469.87 / -402.66 between two
-## consecutive steps, and the very next `solid_derive` leg undoes it (+790.54 / +471.83 / +436.90). What does
-## not undo is the standing disagreement, which is why `open_total` here reads 432 / 1102 / 460 units above
-## SIM_REPORT's `h2o_closed_total` at the same horizon. Prefer this module's number: the kernels all gate on
-## the device mask, so it is the one the physics actually uses.
-##
-## WHICH HALF IS CURRENT. Every H₂O pair channel is written exactly once per step, live → back, by one
-## PRODUCER pass; every later pass edits `back` in place; the end-of-step parity flip promotes back to live.
-## So the current half at a checkpoint is `live` before the producer has run and `back` after — three
-## transitions in the whole step, keyed by pass NAME below so a reordering of PASS_SCRIPTS cannot silently
-## invalidate this. `snow` is a SINGLE buffer with no halves at all.
-##
-## THE SELF-CHECK. `residual` is zero by construction (telescoping differences), which is worth nothing on its
-## own, so the instrument samples steps in CONSECUTIVE PAIRS: `chain` is the second sample's opening total
-## minus the first sample's closing total. If the half-mapping above were wrong, or the parity flip did not do
-## what this file claims, the opening read would land on a stale buffer and `chain` would be large. It is the
-## only number here that can falsify the instrument, which is why the pairing costs its extra sampled step.
-##
-## THE SEED FIGURES BELOW ARE SUPERSEDED. *(Corrected 2026-08-03.)* They read "the world is SEEDED with
-## 7485.40 units of H₂O ... soil 3997.07 (13323 regolith cells x the 0.3 world-gen seed)". The 0.3 was
-## SOIL_CAPACITY 0.6 x half-saturation, and 0.6 is above the porosity of every real granular material. A
-## regolith cell's capacity is its POROSITY, which closes with burial (Athy 1930), so the seed is now
-## LAMaterialFieldRegolith3D.porosity_at(depth) x 0.5 — a mean of 0.141 rather than 0.3. Measured seed today,
-## same command: all_total 5331.17 = water 3454.14 + soil 1877.04 + moisture 0.00 + snow 0.00, and it holds
-## that value to two decimals for the whole run. The missing 2154 units were never real groundwater.
-## The BURIAL figures below are superseded too, and by more: they were "mostly MOISTURE, 1020.96-1562.94
-## buried", which was a consequence of a saturation curve 3080x too large. With the real curve and
-## solid_derive_sphere3d.glsl converting a closing cell's water to PORE WATER, burial measured 196 units at
-## field_step 256 against 1454 for the same seed without it.
-##
-## WHAT IT MEASURED, 2026-07-30, seed 4242, --fast=2, 150 frames, quoted at field_step 767 (pre-correction).
-##
-## The world was SEEDED with 7485.40 units of H₂O and every run opened there: water 3483.78 (the sea cells at
-## mass 1.0), soil 3997.07 (13323 regolith cells x the 0.3 world-gen seed), moisture 4.55, snow 0.
-##
-##   run   impacts/eruptions   all_total 1 -> 767      buried   open_total   SIM_REPORT h2o_closed_total
-##    1          4 / 3        7485.40 -> 7482.36      1387.45     6094.91          5662.85
-##    2          0 / 0        7485.40 -> 7485.40      1755.00     5730.40          4628.39
-##    3          4 / 3        7485.40 -> 7478.45      1197.77     6280.68          5820.97
-##
-## THE RANGES ABOVE ARE THREE RUNS AND THEY ARE TOO NARROW — an independent verifier's three further runs put
-## a sample outside every one of them, so quote the COMBINED figures below, not the table's own spread. The
-## qualitative result survives comfortably; the precision did not.
-##   substrate H₂O loss over 766 steps   combined 0.00 - 16.70 units  =  0.00% - 0.22%   (table said 0.00-0.09%)
-##   SIM_REPORT h2o_closed_total         combined 4628.39 - 6021.15                     (table said 4628-5821)
-##   burial @ 767                        combined 1079.82 - 1755.00                     (table said 1198-1755)
-## Verifier's own three: loss 8.50 / 16.70 / 11.90 at 7/4, 9/4 and 5/3 impacts/eruptions. All three sit above
-## the table's ceiling, on the same side, which is what makes this a real underestimate rather than noise.
-##
-## `legs_all` is 0.0000 for all twelve passes at every sample in every run, on both sides: no pass creates or
-## destroys water. `legs_open` is 0.0000 too, except `solid_derive`. Nothing moves H₂O into bedrock; only the
-## mask moves.
-##
-## AND THE RESIDUAL IS NOT FLOAT32 ACCUMULATION, which an earlier caveat here claimed. It is exactly
-## SIM_REPORT's `h2o_buried` — MineralStamp's accounted discard of H₂O in fully-enclosed cells — matching the
-## substrate delta 3 runs of 3 to snap precision (loss 8.50/16.70/11.90 against h2o_buried 8.50/16.69/11.90).
-## That makes the conservation result STRONGER, not weaker: the books close against a named quantity.
-##
-## The ledger's decline is therefore entirely BURIAL, and it is mostly MOISTURE, not sea water: at field_step
-## 767 the buried 1080-1755 splits as moisture 1020.96-1562.94, water 164.61-183.55, snow 5.97-8.51, soil off
-## the regolith mask exactly 0.00. Water in a cell whose rock_fill crosses 0.5 stops being counted and stops
-## being simulated (every kernel early-outs on solid), and MineralStamp3D._settle_h2o only displaces the
-## subset its throttled, budgeted CPU scan happens to catch — h2o_displaced varies 23.31-306.26 across runs,
-## a 13x spread that is worth explaining on its own.
-##
-## AND THE BASELINE THIS WAS BEING COMPARED AGAINST IS NOT CONSERVED WATER. Restoring `_static[c] = 1` in
-## _seed_sphere_sea for one run (nothing else changed) reproduces the static-sea arm: all_total 7488.26 at
-## step 1 -> 13751.54 at step 767, +6263.28 MINTED, with SIM_REPORT h2o_closed_total 13750.05 /
-## h2o_static_water 2629.25 / static_cells 3436 at 4 impacts and 3 eruptions. The instrument names the leg
-## directly: `atmosphere` runs +6.61/step at field_step 409 and tapers to +0.33/step by 767 as the humidity
-## brake engages, against `water_slump_lava` at -0.15 to -1.22/step (runoff the static sea absorbs). That is
-## atmos_evap_sphere3d.glsl's `added += e * static_brake` with no matching debit, and it is the whole of the
-## "5600-7000 missing units" the dynamic sea was suspected of losing. The static build did not hold that
-## water; it made it.
-##
-## This is also the instrument's real acceptance test. On a build that genuinely fails to conserve, the legs
-## are large and named; on this branch they are zero. A budget that only ever prints zeros has not been shown
-## to work.
-##
-## (Explicit types only, no ':=' inferred typing.)
 
 ## Field steps between sampled PAIRS. Every 50 puts a line either side of the horizons the dynamic-sea water
-## loss was measured at, and 2 of every 50 steps paying the round-trips is a cost the run does not notice.
 const SAMPLE_EVERY: int = 50
 
 ## Pass names (LAMaterialSphereGPU3D._pass_names = the script basename) at which each pair channel's current
@@ -291,10 +178,6 @@ func _totals() -> Array:
 			s_open += sv
 		else:
 			solid_cells += 1
-		# Soil is UNMASKED, exactly as LAMaterialFieldLedger3D counts it: the channel lives wherever the
-		# buffer is non-zero, and solid_derive_sphere3d.glsl now makes new aquifer cells on the device that
-		# no CPU-side mask knows about. Keeping the regolith mask here would report freshly-made pore water
-		# as `buried` at the very moment the substrate stopped burying it.
 		g_open += gv
 	var open_total: float = w_open + m_open + s_open + g_open
 	var all_total: float = w_all + m_all + s_all + g_all

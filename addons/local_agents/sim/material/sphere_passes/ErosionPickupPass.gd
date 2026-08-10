@@ -1,27 +1,5 @@
 extends RefCounted
 
-## Cubed-sphere GPU pass plugin: EROSION PICKUP, the scour leg of the mineral cycle (Stage D). Wires the ONE
-## kernel erosion_pickup_sphere3d.glsl into the SphereGPU driver via the plugin contract (setup() once,
-## dispatch() each step). Flowing water lifts bedrock (rock_fill) off its bed into waterborne suspension (susp);
-## ErosionTransportPass then carries that suspension downstream, and the M3 SETTLE record (ReactionsPass) drops
-## it as loose sediment where the flow slackens. rock_fill scoured below 0.5 opens the bed (incision) via
-## SolidDerive + stamps the SDF via MineralStamp3D; sediment that piles up and lithifies re-crosses 0.5 → new
-## land. Deposition is emergent: nothing here or in transport knows what a delta or a floodplain is.
-##
-## PLACEMENT (MaterialSphereGPU3D.PASS_SCRIPTS): right BEFORE ReactionsPass and right AFTER ErosionTransportPass,
-## with the water CA + Atmosphere having already settled water into the BACK half. Reads water[back] (the current
-## water), scours rock_fill (SINGLE, in place), and ADDS the scour to susp[back] IN PLACE — transport has already
-## written every cell of that half, so this pass only ever adds, and each early return leaves the advected load
-## exactly as transport left it. Single dispatch: the scour targets each solid bed cell's UNIQUE up-cell (radial
-## reciprocity), so the cross-cell rock_fill write is race-free with no barrier; the susp add is own-cell.
-##
-## Kernel binding -> bufs-key map (authoritative layout is erosion_pickup_sphere3d.glsl):
-##   0 WaterIn=water[back] · 1 Solid=solid · 2 Static=static · 3 RockFill=rock_fill(single) ·
-##   4 Susp=susp[back] (read-modify-write, own-cell) · 15 Neigh=nbr
-## EVERY CELL RUNS EVERY STEP. Until 2026-08-03 binding 6 was a camera-relevance score and this kernel skipped
-## its scour test on a stride derived from it, so a river eroded its bed faster when the player was watching it.
-## Deleted — see MaterialSphereGPU3D.gd's header note.
-## Push constant: { cell_count, 0, 0, 0 }.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/erosion_pickup_sphere3d.glsl"
 

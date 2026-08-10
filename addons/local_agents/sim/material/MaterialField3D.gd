@@ -2,20 +2,6 @@ class_name LAMaterialField3D
 extends Node3D
 
 ## LAMaterialField3D: the DENSE 3D material-flow substrate (successor to the 2.5D LAMaterialField).
-##
-## The 2.5D field stored one column per XZ cell (a surface height + material *depths*). That could not
-## represent caves: water can't pool in a cavern, lava can't drain into a tube, a plume can't rise a
-## shaft. This field stores a real 3D volume (a temperature + per-material amount for every (x,y,z)
-## cell), so all of that EMERGES from local rules that now include the Y axis.
-##
-## DENSE (not sparse bricks): at the sim's 5-unit resolution the whole volume is ~0.9M cells × a few
-## float layers ≈ ~20 MB, so a flat 3D array is the simplest thing that works. Solid rock cells (from
-## the terrain SDF via is_solid) hold no fluid and are skipped; an active-cell list keeps the CPU
-## oracle cheap without brick machinery. The GPU kernels become a 3D dispatch over the same arrays.
-##
-## Index layout: idx = (iy * _dim_z + iz) * _dim_x + ix  (X contiguous, then Z, then Y). World position
-## of a cell centre = _origin + Vector3(ix, iy, iz) * _cell_size.
-## (Explicit types only, no ':=' inferred typing.)
 
 const Mat: GDScript = preload("res://addons/local_agents/sim/material/Materials.gd")
 const MineralStampScript: GDScript = preload("res://addons/local_agents/sim/material/MineralStamp3D.gd")
@@ -42,75 +28,19 @@ var _cell_count: int = 0
 var _solid: PackedByteArray = PackedByteArray()          # 1 = rock (holds no fluid), 0 = void (air/water)
 var _water: PackedFloat32Array = PackedFloat32Array()    # water mass per cell (can exceed 1 under pressure)
 var _wnext: PackedFloat32Array = PackedFloat32Array()    # double buffer for the water step
-# 1 = calm STATIC sea: seeded once below sea level and left at rest — NOT stepped and NOT meshed (the
-# GPU ocean plane draws it). Only DYNAMIC water (springs, rivers, cave pools, splashes) is simulated and
-# rendered, so the cost tracks the active water, not the whole seabed. Dynamic water that flows into a
-# static cell is absorbed (drains into the sea). This is what keeps the dense 3D field cheap.
 var _static: PackedByteArray = PackedByteArray()
 
 # --- Shared 3D field state used by the concern modules (heat / atmosphere / lava). Every cell (rock OR
-# void) carries a temperature; the atmosphere layers + lava are per-cell amounts like water. The modules
-# reach into these arrays through the field (`_f`), 3D-generalising the 2.5D MaterialHeat/Atmosphere/
-# Liquid. INITIAL_TEMP seeds a mild ground so nothing freezes before the field settles.
 const INITIAL_TEMP: float = 15.0
-# Geothermal core: a FINITE reservoir of rock below the shell's innermost layer, at a temperature that
-# FALLS as it conducts heat up into the bottom face (and rises a little from radioactive decay). No cell
-# is ever held at a constant temperature. add_magma_source seeds it. Sphere-only. The model, and the
-# reason a temperature boundary could never have worked, live in LAMaterialFieldGeotherm3D; this hub
-# only forwards.
-# THE ATMOSPHERE. Every open cell is seeded with real air, once, at world build, and nothing tops it up
-# afterwards — the planet was assembled with an atmosphere and rearranges it from then on, which is what a
-# planet does. One unit of a gas channel is DEFINED as the amount of O₂ in a cell of ambient air, so
-# O2_AMBIENT stays 1.0 and every existing O₂ threshold (CreatureMetabolism.BREATHE_MIN_O2 0.3,
-# fire_sphere3d O2_MIN 0.35) keeps meaning what it meant. Everything else in the air follows from its
-# measured mole fraction, with nothing left to tune.
-#
-# WHAT THIS REPLACED (2026-08-03). `_co2` was `resize()`d with NO `.fill()` — a planet whose air contained no
-# carbon at all — and both gases were then held near a target by reaction records R11/R12, which used a rate
-# model with NO REACTANT: the kernel skipped the debit and ran only the product credit. Carbon entered this
-# world at +6.5 units per field step and `carbon_total` had grown from 720 to about 5820 over 600 frames.
-# Those records are deleted. Note the honest consequence: CO₂ per cell is now 0.00200 rather than the 0.05
-# "ambient trace" the deleted record aimed at, because 0.05 was never a measurement of anything and
-# 419 ppm / 20.946 % is.
 const O2_AMBIENT: float = 1.0
 const CO2_AMBIENT: float = O2_AMBIENT * (LAPhysical.AIR_MOLE_FRAC_CO2 / LAPhysical.AIR_MOLE_FRAC_O2)
-# VAPOR_AMBIENT IS DELETED. It claimed to be "the ambient atmospheric humidity every OPEN cell is seeded to",
-# and it seeded nothing: the fill it drove was never uploaded to the GPU (see _alloc_channels and
-# MaterialSphereGPU3D's seed list), so for the whole life of this substrate the atmosphere has started dry
-# and filled by evaporation. The value was also wrong by three orders of magnitude — 0.3 per cell is five
-# times the planet's entire water budget in vapour — so the fill could never simply be switched on.
-# (2026-08-03 merge note: the 0.4-dev hydrology branch replaced the constant with a relative-humidity seed,
-# `0.80 * LAPhysical.saturation_mass_fraction(INITIAL_TEMP)`. That seed was still dead for the same reason —
-# `moisture` is not in MaterialSphereGPU3D's `_seed` list on EITHER branch — so it is not carried across. The
-# physically-sized starting humidity it was reaching for is recorded there, waiting on the kg-per-unit pin.)
-# Frozen H₂O (snowpack/ice) — the third phase of the ONE conserved water substance (liquid `_water`, airborne
-# `_moisture`, frozen `_snow`). GPU-owned: the snowice deposition kernel + freeze/melt reaction records (R21/R22)
-# grow and thaw it; read back for queries/telemetry only. SNOW_PRESENT = depth that counts a cell snow-covered;
 # ICE_DEPTH = a thick pack that reads as glacial ice (the deep end of the same channel — no separate ice buffer).
-# Both are DEPTHS OF WATER EQUIVALENT as a fraction of a cell (16 m at the shipped grid). Ground reads as
-# snow-covered once about 3 cm of snow lies on it — that is where surface albedo saturates (Wiscombe & Warren
-# 1980) — which is ~3 mm water equivalent, hence 1.9e-4. It was 0.01: sixteen centimetres of water equivalent,
-# about 1.6 m of snowpack, a threshold no honest snowfall rate reaches inside a run.
 const SNOW_PRESENT: float = 1.9e-4
 const ICE_DEPTH: float = 0.5              # ~8 m water equivalent = a real glacial thickness, not a snowfall
-# The saturation curve the unified `moisture` channel is read against is LAPhysical.saturation_mass_fraction —
 # Clausius-Clapeyron, one function, one owner. It used to be three constants here (SAT_BASE 0.06 /
-# SAT_TEMP_GAIN 0.055 / EVAP_TEMP_REF 22.0) copied by hand into four kernels and two texture bakers, and the
-# base was 3080x the real saturation mass fraction, which is single-handedly why this planet kept 30% of its
-# mobile water in the sky. cloud/fog/vapor are still DERIVED from moisture vs sat(T) and never stored.
-# FOG_MAX_TEMP splits the cool near-ground condensate (fog) from cloud aloft.
 const FOG_MAX_TEMP: float = 12.0
-# CONDENSE_COVER_MIN is the suspended condensate a cell must carry to READ as cloud cover. It is a real cloud
-# liquid-water content: marine stratus and fair-weather cumulus run 0.05-0.5 g/m³ (Miles, Verlinde & Clothiaux
-# 2000), and 0.05 g/m³ is the thin end at which cloud is optically visible. In the field's cell-fill unit that
 # is 5e-5 kg/m³ / 997 kg/m³ = 5.0e-8. It was 0.05, a thousand times saturation itself.
 const CONDENSE_COVER_MIN: float = 5.0e-8
-# The precipitation threshold is Kessler autoconversion, and its one owner is LAAtmospherePass.rain_threshold().
-# It used to be declared here as 0.42 under a comment saying it "matches atmos_precip_sphere3d" — where it was
-# 0.14. Three times apart, in two files, each claiming to be the other.
-# Scent channel indices — sourced from the CORE const LAScentChannels (creatures/ScentChannels.gd) so the
-# field (writer) and the creature senses/cognition (reader, in the core library) can never drift. The field
-# re-exports them as LAMaterialField3D.SCENT_* for the game-side material passes that reference them here.
 const SCENT_PREY: int = LAScentChannels.SCENT_PREY
 const SCENT_PREDATOR: int = LAScentChannels.SCENT_PREDATOR
 const SCENT_BLOOD: int = LAScentChannels.SCENT_BLOOD
@@ -130,35 +60,14 @@ var _snow: PackedFloat32Array = PackedFloat32Array()
 var _rock_fill: PackedFloat32Array = PackedFloat32Array()
 var _lava: PackedFloat32Array = PackedFloat32Array()     # lava mass per cell (a hot, viscous liquid)
 # --- Emergent FIRE / COMBUSTION (LAMaterialCombustion3D): a FUEL channel (flammable vegetation mass seeded
-# on grassy surface cells + under plant/tree actors) and a FIRE channel (burning intensity, 0 = not burning).
-# Flammable fuel ignites when its cell reaches ignite temp (lava/lightning/meteor/spreading front), burns —
-# injecting heat + consuming fuel — spreads to neighbours on HEAT + the WIND field (downwind), and leaves ash.
 var _fuel: PackedFloat32Array = PackedFloat32Array()     # flammable fuel mass per cell (vegetation)
 var _fire: PackedFloat32Array = PackedFloat32Array()     # burning intensity per cell (0 = not burning)
 # --- Emergent ATMOSPHERIC OXYGEN (LAMaterialGas3D): a per-cell O₂ level, seeded to O2_AMBIENT in every OPEN
-# cell and replenished from the sky only at each column's exposed surface. It diffuses/advects on the wind;
-# combustion CONSUMES it and can't burn below O2_MIN, so fire suffocates in sealed caves + roars where wind
-# replenishes O₂ — emergent, no per-case code. Field-resident so the fire kernel can read/consume it on-GPU.
 var _o2: PackedFloat32Array = PackedFloat32Array()       # atmospheric oxygen level per cell (1.0 = ambient)
 # --- Emergent CARBON DIOXIDE (LAMaterialGas3D, second channel): a per-cell CO₂ level seeded to a trace ~0.
-# Combustion (fuel + O₂ → CO₂ + ash + heat) and decay EMIT it; plants FIX it in daylight (photosynthesis →
-# O₂ + biomass), closing the carbon/oxygen loop. It diffuses/advects on the wind like O₂ but is DENSER than
-# air, so a gentle downward buoyancy makes it settle into hollows/valleys (emergent suffocation pockets); the
-# sky surface vents it to the atmosphere. Field-resident so the fire kernel can EMIT it on-GPU (like O₂).
 var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ level per cell (0 = clean air)
 # --- Emergent DECOMPOSER loop (kernels3d/fungus_sphere3d.glsl + the decompose reaction record; the old
-# LAMaterialFungus3D CPU module is deleted): dead organic matter (DETRITUS) deposited by rotting
-# carcasses + wildfire ash is colonised by FUNGUS, which rots it back into CO₂ + soil fertility while drawing
-# O₂ (aerobic). Closes the carbon/nutrient loop (death→soil→plant). Seeded ~0; only exists where a source made it.
 # --- SOIL WATER / water table (LASoilPass / soil_sphere3d): water held in the REGOLITH band, the top few
-# groundwater-bearing shells of each column (`_regolith`, NOT simply "solid" — soil_sphere3d.glsl:223 keys on
-# the regolith mask, so a carved or eroded cell reads open yet still holds and still simulates its soil).
-# The reservoir that lets land water persist — surface water infiltrates in, the ground releases it slowly as
-# baseflow (perennial rivers) + saturation overflow. GPU-owned; read back for `soil_total()` + the conserved
-# h2o ledger (infiltrated water lives here, NOT in _water, so it must be counted). The SAME conserved H₂O
-# substance as _water/_moisture/_snow, just the subsurface phase. (There is no per-point `soil_at()`; this
-# said there was until 2026-07-30, and no such method has ever existed anywhere in the tree. The rooting-zone
-# read that would use one is the kernel's derived SOIL_ROOT slot plus LAMaterialFieldPhotoStats3D's mirror.)
 var _soil: PackedFloat32Array = PackedFloat32Array()     # water stored in the ground per cell (0 = bone dry)
 var _detritus: PackedFloat32Array = PackedFloat32Array() # dead decomposable organic matter per cell (0 = none)
 var _fungus: PackedFloat32Array = PackedFloat32Array()   # fungal biomass density per cell (0 = none; high = mushrooms)
@@ -166,9 +75,6 @@ var _fungus: PackedFloat32Array = PackedFloat32Array()   # fungal biomass densit
 # channel (scent_fert blur/leach + fungus_fert deposit); read back each frame for fertility_at/fertility_peak.
 var _fert: PackedFloat32Array = PackedFloat32Array()     # soil nutrient density per cell (0 = barren)
 # --- Emergent LIVING BIOMASS (MaterialReactions3D R19/R20 — the plant carbon-fix leg dissolved into the field).
-# GPU-produced/consumed ONLY: photosynthesis grows it at sky-exposed surface cells (CO₂ + warmth/light → biomass
-# + O₂), respiration/decay oxidizes it back (biomass + O₂ → CO₂ + detritus). Seeded 0; a pure GPU channel that
-# reads back for queries/telemetry. Vegetation now EMERGES from the chemistry, not just from plant actor nodes.
 var _biomass: PackedFloat32Array = PackedFloat32Array()  # living plant matter density per cell (0 = none)
 # --- Emergent 3D wind (LAMaterialWind3D): a per-cell air PRESSURE + 3D VELOCITY field replacing the old
 # single global scalar wind. Pressure falls out of temperature (warm=low), velocity accelerates down the
@@ -191,11 +97,6 @@ var _shock: PackedFloat32Array = PackedFloat32Array()
 var _scent: PackedFloat32Array = PackedFloat32Array()
 var _sun_light = null                                    # DirectionalLight3D — solar forcing (top cells)
 
-# CPU-ORACLE CONCERN MODULES RETIRED. The cubed-sphere *_sphere3d GLSL kernels (MaterialSphereGPU3D + its
-# sphere_passes) are the sole implementation now; the old per-cell CPU sims (heat/atmosphere/lava/wind/slump/
-# combustion/scent/gas/fungus/magma/erosion/snowice/dust/charge/shock/water) and the box GPU driver / box
-# render + heat-texture adapters were deleted. The write/read facades below return safe defaults for any
-# channel not yet wired through the sphere readback.
 var _ecology = null                                      # LAEcologyService back-ref (ash regrowth / actor coupling)
 const SphereGPUScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialSphereGPU3D.gd")
 const QueriesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldQueries3D.gd")
@@ -224,7 +125,6 @@ const ShockScript: GDScript = preload("res://addons/local_agents/sim/material/Ma
 const ScentScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialScent3D.gd")
 const ChargeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialCharge3D.gd")
 const EjectaScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialEjecta3D.gd")
-# Read-only DERIVATION modules. Each owns one cohesive family of accessors whose bodies used to inline here;
 # they hold no per-cell state (every one reaches back into this field's arrays), so the field stays the thin
 # facade + step orchestration and each family is independently ownable. Built in _init so every accessor is
 # safe to call before setup_dims/setup_sphere, exactly as the inlined bodies were.
@@ -265,20 +165,6 @@ func set_sun(light) -> void:
 	_sun_light = light
 
 
-# THE FIELD GRID IS BODY-LOCAL. Its cells, their pos/radial buffers and the rock sampled into them are
-# fixed relative to the PLANET, not to the world — which is what lets the planet turn at all.
-#
-# It used to be world-fixed while the body rotated, and the two drifted apart: the field's rock_fill and
-# the terrain SDF stopped describing the same place, so a long accretion smeared a volcanic cone into an
-# arc. The response at the time was to switch the planet's rotation OFF (it is off in every default path)
-# and freeze it explicitly for the seabed-volcano demo. A world that cannot turn also cannot separate its
-# day from its year, so it had no seasons either — the obliquity was there, but with no spin a surface
-# point sees the sun circle once per ORBIT and the two cycles are indistinguishable.
-#
-# Reparenting the field node would not have fixed it: the cell<->world mapping is pure arithmetic off
-# `grid.center` and never consults a transform. So the frame lives here, in the ONLY two functions that
-# cross between world and cell space — all ~49 call sites go through them and need no change. Directions
-# and points handed to the GPU are rotated to match where they are pushed (LAMaterialFieldSphereStep3D).
 var _body = null                                         # LAPlanetBody — the frame this grid rides
 var _body_basis: Basis = Basis.IDENTITY                  # body->world rotation, refreshed once per step
 var _body_basis_inv: Basis = Basis.IDENTITY
@@ -320,34 +206,12 @@ const RENDER_MIN: float = 0.08            # min water mass in a cell for its top
 const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of sea_level are left to the ocean plane
 var _step_accum: float = 0.0
 var _ready_sim: bool = false
-# THE WORLD LIFECYCLE (LAMaterialFieldSeal3D). SEEDING until every book can be opened, then SEALED, after
-# which matter is closed and every joule must be booked. Held here rather than inside the report module
-# because the injection queue needs it too: the same call that is the INITIAL CONDITION during seeding is a
-# conservation violation after it, and only this flag tells the two apart.
 var _seal = null
 # --- Per-frame CPU-cost throttles (the field is CPU-bound; these cut redundant full-grid work while
-# preserving behavior). Each is a "cadence" counter advanced once per ACTIVE physics frame (a frame that
-# ran >=1 sim step, i.e. ~STEP_HZ). The throttled work touches only slow-changing / render-only state, so
-# staling it a couple of frames is imperceptible; the authoritative sim state is untouched.
 const HEAT_TEX_EVERY: int = 3            # terrain-glow heat texture refresh cadence (full-grid column scan)
 const SLOW_READ_EVERY: int = 3           # render-only GPU readback cadence for vapor/cloud/fog
 var _heat_tex_tick: int = 0
 var _slow_read_tick: int = 0
-# Moisture is fully GPU-resident. It used to carry a `_vapor_dirty` flag that made the step re-upload the whole
-# CPU mirror whenever a storm injected — but the mirror was a readback one frame (up to two steps) old, so an
-# injection frame REWOUND the channel to that snapshot and threw away everything the atmosphere kernels had done
-# since. Storm injections now go through LAMaterialFieldInjectQueue3D as sparse edits applied to the LIVE device
-# buffer, so there is nothing left to dirty. (Same fix removed the water channel's `mark_water_dirty` injection
-# path; `_water_dirty` in the driver now only covers the one-time initial seed.)
-# LAVA is GPU-owned + GPU-evolved (the flow CA runs on-device); the CPU edits it only on a disaster/volcano
-# (add_lava, or the magma tail's deep-source feed/bore). Its upload+readback are DIRTY-GATED TOGETHER: uploaded
-# only when a CPU edit dirtied it (else it stays resident — re-uploading a stale copy would clobber the GPU's
-# flow), and read back only on the slow cadence OR the frame the edit round-trips. With no active volcano it
-# neither uploads nor downloads on clean frames (a full-grid GPU->CPU download saved); while a volcano vents the
-# magma tail dirties it every frame so it round-trips correctly. SHOCK is GPU-authoritative too (only impact
-# emits write it on the CPU), so its UPLOAD is dirty-gated; its readback is cadenced (camera shake tolerates a
-# 1-in-3-stale amplitude). Charge/detritus were tried here too but reverted to every-frame: charge's bolt tail
-# needs fresh charge each frame, and detritus is continuous-evolution + continuous-deposit (see the upload block).
 var _lava_dirty: bool = false
 var _rock_fill_dirty: bool = false       # add_lava debited bedrock on the CPU → re-upload rock_fill this step
 var _shock_dirty: bool = false           # emit_shock seeded shock on the CPU → re-upload shock this step
@@ -464,13 +328,7 @@ func _alloc_channels() -> void:
 	_temp.fill(INITIAL_TEMP)
 	_moisture = PackedFloat32Array()
 	_moisture.resize(_cell_count)
-	# THE `.fill(VAPOR_AMBIENT)` THAT WAS HERE WAS DEAD, AND ITS VALUE WAS WRONG BY THREE ORDERS OF MAGNITUDE.
 	# Dead: `moisture` was never in MaterialSphereGPU3D's GPU seed list, so the device buffer started at zero
-	# and the first readback overwrote this mirror — the fill had never once reached the simulation. Wrong:
-	# 0.3 per cell over ~123,000 cells is ~37,000 units of H2O against a whole-planet `h2o_total` of ~7,000,
-	# so "fixing" the dead fill by uploading it would have seeded five times the planet's entire water budget
-	# as vapour. Real air at 15 C and 60% relative humidity holds about 1e-4 of a cell of liquid water. The
-	# atmosphere starts dry and fills by evaporation, which is measurable within the first steps of a run.
 	_moisture.fill(0.0)
 	_lava = PackedFloat32Array()
 	_lava.resize(_cell_count)
@@ -485,9 +343,7 @@ func _alloc_channels() -> void:
 	_fire = PackedFloat32Array()
 	_fire.resize(_cell_count)
 	# THE AIR, seeded once and finite thereafter. Both gases are filled at Earth's measured composition; the
-	# sky-exchange records that used to top them up from nothing are deleted. Solid cells are ignored by the
 	# gas loops. (The `.fill` on `_co2` is the whole fix for "the planet had no carbon in its air": the line
-	# was a bare `resize()` immediately below a `_o2.fill()`, and nobody noticed for months because a
 	# reaction record was manufacturing the carbon anyway.)
 	_o2 = PackedFloat32Array()
 	_o2.resize(_cell_count)
@@ -558,14 +414,6 @@ func cell_world_pos_linear(c: int) -> Vector3:
 	var ix: int = rem - iz * _dim_x
 	return cell_world_pos(ix, iy, iz)
 
-## The substrate's spatial RESOLUTION in world units — the edge length of one cell.
-##
-## Public because callers outside the field need it to know what the substrate can even represent. A world
-## edit smaller than this is invisible to the physics however well it renders: the field samples cell
-## CENTRES, so a carve that does not engulf one changes no cell's state. That is not hypothetical — meteor
-## craters were `IMPACT_RADIUS * size` = 10 world units against a cell size of 16, so six impacts excavated
-## zero cells while still denting the (much finer) SDF mesh, and `crater_mass` — the cross-check the mineral
-## ledger uses to prove a strike MOVED rock rather than destroying it — read 0.0 the whole time.
 func cell_size() -> float:
 	return _cell_size
 
@@ -648,10 +496,6 @@ func water_force_at(pos: Vector3) -> Vector3:
 	return _queries.water_force_at(pos)
 
 
-# `add_source(pos, rate)` IS DELETED — a scripted persistent spring, superseded by a real one. Springs are
-# emergent now: soil_sphere3d exfiltrates groundwater wherever the water table meets the surface, at a rate
-# the head gradient sets, and which springs run hot falls out of the geotherm rather than being placed. A
-# fixed-rate injector beside that is a second, unconserved way to make water appear.
 
 
 # --- Live frame loop + fluid-surface rendering ------------------------------
@@ -659,15 +503,6 @@ func water_force_at(pos: Vector3) -> Vector3:
 ## Begin simulating + rendering (called after setup + sample_solidity + seed_sea). Builds the render
 ## node and starts the throttled step in _physics_process.
 func activate() -> void:
-	# CPU-ORACLE MODULES RETIRED. The *_sphere3d GLSL kernels (run by MaterialSphereGPU3D + its sphere_passes)
-	# ARE the implementation now — no CPU heat/atmosphere/lava/wind/slump/combustion/scent/gas/fungus/magma/
-	# erosion/snowice/dust/charge/shock sims are instantiated or stepped. The field's query/inject facades
-	# null-guard every one of these (`_x.foo() if _x != null else <default>`), so leaving them null makes the
-	# not-yet-sphere-wired channels return safe defaults until their readback lands (fuller-readback step).
-	# GPU-RESIDENT backend: persistent SSBOs, the whole heat+water step batched on-GPU, ONE readback per
-	# frame (see MaterialGPU3D's frame API). Headless has no local RenderingDevice → CPU oracle.
-	# Seed CPU bedrock fraction from the solid mask (GPU seeds its buffer identically): solid=1.0, void=0.0 —
-	# keeps the CPU ledger valid before the first readback and matches the derived solid exactly (nothing melted).
 	if _rock_fill.size() == _cell_count and _solid.size() == _cell_count:
 		for c in _cell_count:
 			_rock_fill[c] = 1.0 if _solid[c] != 0 else 0.0
@@ -720,10 +555,6 @@ func _sample_solidity_sphere() -> void:
 	for c in _cell_count:
 		_solid[c] = 1 if _terrain.is_solid(cell_world_pos_linear(c)) else 0
 
-## Seed the calm ocean into the FIELD water channel: every open cell at/below sea_radius becomes static water
-## (mass 1, not simulated → no per-frame cost + it can't fall to the core under radial gravity). This is the
-## evaporation SOURCE the water cycle was missing on the sphere — warm day-side sea evaporates → vapor →
-## clouds → rain. (The visual sea is still the GPU ocean plane; this is the physics source, mirroring the box.)
 func _seed_sphere_sea() -> void:
 	if _sphere == null or _terrain == null or not _terrain.has_method("sea_radius"):
 		return
@@ -737,16 +568,8 @@ func _seed_sphere_sea() -> void:
 		if (cell_world_pos_linear(c) - _origin).length_squared() <= sea_sq:
 			_water[c] = 1.0
 
-## The REGOLITH (aquifer) band: the top REGOLITH_CELLS solid shells of each column are PERMEABLE — groundwater
-## lives + flows here; everything below is impermeable BEDROCK. This surface-following band is what lets the
-## water table flow ridge→valley (through the rock) and DAYLIGHT as springs where it meets open ground, instead
-## of the naive "all groundwater sinks to the core". Computed once from the solid mask (grid columns are
 ## contiguous: cell = surf_col*depth + r, r=depth-1 outermost). Also SEEDS an initial half-full water table so
-## springs flow from the start (a planet has an existing aquifer; it then self-maintains via rain/snow recharge).
-## The band depth, the initial saturation and the whole derivation now live in LAMaterialFieldRegolith3D,
 ## which also owns the grain-size field and the Athy porosity profile the aquifer's Kozeny-Carman
-## conductivity is computed from. `SOIL_CAPACITY = 0.6` is gone with it: a cell's capacity is its POROSITY,
-## which varies with burial, and a flat 0.6 was above the porosity of every real granular material.
 const REGOLITH_CELLS: int = LAMaterialFieldRegolith3D.REGOLITH_CELLS
 # Athy pore fraction per cell (0 outside regolith). Written on the GPU by soil_sphere3d.glsl and read back
 # on the slow cadence — it is static after the first step, so a coarse mirror is exact, not approximate.
@@ -760,14 +583,12 @@ func _compute_regolith() -> void:
 
 
 # `regolith_mask()` and `grain_field()` ARE DELETED. Their docstrings said "uploaded to the GPU soil pass",
-# and that was not true: LAMaterialSphereGPU3D._seed_regolith reads `_field._regolith` directly. They were a
 # second path to the same two arrays that nothing took, on a hub already over its size limit.
 
 
 
 ## Release the GPU driver's local RenderingDevice while the tree is still up — freeing every RID cleanly so
 ## the device reports 0 leaked RIDs. (The `rc=134` MoltenVK `recursive_mutex` abort at NSApplication-terminate
-## is separately avoided by the clean-quit path — `LAAppExit`/`LAProcess.exit_now`; see GODOT_BEST_PRACTICES.md → Error Log, 2026-07-09.)
 ## Covers both the box and sphere drivers.
 func _exit_tree() -> void:
 	if _gpu != null and _gpu.has_method("dispose"):
@@ -805,11 +626,6 @@ func salinity_at(pos: Vector3) -> float:
 
 
 # --- Atmosphere queries — all DERIVED from the one conserved `moisture` channel vs sat(T) (Phase 2a).
-# cloud/fog/vapor are no longer stored; every reader recomputes them instantaneously from _moisture + _temp.
-# The derivation, the cached domain aggregates and the render cover-texture bake all live in
-# LAMaterialFieldAtmos3D; the field keeps only the cache SLOTS below (the step + snapshot modules invalidate
-# `_atmos_dirty` and read `_moisture_total_c`) plus these forwarders, so the consumer signatures
-# (WeatherSystem/Thunderstorm/CloudLayer/RainLayer) are unchanged.
 var _atmos_dirty: bool = true
 var _cloud_cover_c: float = 0.0
 var _fog_cover_c: float = 0.0
@@ -864,11 +680,6 @@ func precipitation() -> float:
 func moisture_total() -> float:
 	return _atmos.moisture_total()
 
-# `cloud_base_y()` / `fog_base_y()` ARE DELETED. The comment here claimed they "survive as the near-ground
-# radii the derived point queries sample at" — but cloud_at/fog_at call LAMaterialFieldAtmos3D directly and
-# nothing anywhere called these two. They are also the wrong SHAPE for this planet: a single scalar Y is a
-# flat-sheet concept, and on a sphere the height a cloud forms at is a radius that varies per column with
-# temperature. The module's own methods remain for the one caller that has them.
 
 ## Relative humidity 0..1 near the ground at a world XZ column = vapor / sat(T) = min(moisture, sat)/sat.
 func relative_humidity_at(x: float, z: float) -> float:
@@ -942,10 +753,6 @@ func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if _inject != null:
 		_inject.add_vapor(world_pos, amount, radius)
 
-# `add_cooling()` IS DELETED, and it would have been a conservation defect the moment anything called it. It
-# was "a thin helper over add_heat" with a negated amount — and `add_heat` is the path that NAMES NO SOURCE
-# (booked separately as `heat_unsourced_dc` precisely because it cannot say where the energy came from). A
-# helper that makes heat vanish with no receiver is that same hole in the other direction.
 
 ## Inject electrification charge at a world point (+`radius`) — an explicit charge seed. Real (module, dirty-gated).
 func add_charge(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
@@ -1016,10 +823,6 @@ func splash(world_pos: Vector3, strength: float) -> void:
 func set_ecology(e) -> void:
 	_ecology = e
 
-## Shake a chunk of ground loose into LANDSLIDE sediment: carve the terrain SDF here into loose granular
-## mass that then flows downhill to its angle of repose (crater rims slump inward, debris piles at the base)
-## and re-solidifies where it settles. Emergent — one channel every disaster (meteor, volcano breach,
-## earthquake) reuses via EcologyService.disturb_ground. Delegates all the granular math to LAMaterialSlump3D.
 func disturb_terrain(world_pos: Vector3, radius: float, strength: float) -> void:
 	pass
 
@@ -1028,25 +831,7 @@ func slump_count() -> int:
 	return 0
 
 # --- Fire / combustion — thin forwarders to LAMaterialFieldQueries3D, which walks the `fire` channel. -------
-#
-# THESE WERE HARDCODED `return 0` / `return false` AS "SAFE DEFAULTS UNTIL THE SPHERE FIRE READBACK LANDS".
-# *(Fixed 2026-08-08.)* The readback had landed: `LAMaterialFieldQueries3D.fire_cells()` and `fire_peak()`
-# walk `_f._fire` and are published in every SIM_REPORT as `fire_cells` / `fire_peak`. So the report carried
-# a REAL fire count and a HARDCODED one side by side, and three consumers read the hardcoded one:
-#   * `LASimReportSources.gd:27-28` publishes it as `fires`
-#   * `LAEventTracker.gd:164-165` — so no wildfire phenomenon could ever be detected
-#   * `LAStreamerDirector.gd:624-625` — so the streamer could never see a fire
-# A zero that means "none" and a zero that means "nobody implemented this" are indistinguishable, which is
-# the same defect `magma_cell_count` had above and the same one HANDOFF item 16 is about. It cost real
-# evidence: `fires: 0` was quoted in this session's own commit messages as proof that no fire burned during
-# a run. The conclusion happened to be right — `fuel_total` and `ext_open_hot` established it independently
-# — but the number cited as evidence could not have said otherwise.
 
-## Light the cell under a node on fire (disaster/scripted ignition).
-## STILL A NO-OP, AND DELIBERATELY SO: the honest implementation injects heat, and the last version of that
-## added 900 °C to every cell in a radius out of nothing (removed in 23c8f66). Ignition must come from the
-## substrate reaching `VEGETATION_IGNITION_C` on its own. Named here rather than quietly wired so the
-## reason survives: `EcologyService.ignite_area` is the same no-op for the same reason.
 func ignite(_node) -> void:
 	pass
 
@@ -1106,10 +891,6 @@ func fertility_peak() -> float:
 # CPU oracles retired; these channels are not yet read back from the sphere GPU driver, so the emitters are
 # no-ops and the diagnostics return safe defaults until their sphere readback lands.
 func add_magma_source(world_pos: Vector3, temp: float, rate: float) -> void:
-	# Sphere geothermal core: SEED the interior reservoir's temperature AND the crustal geotherm above it
-	# (world_pos/rate unused — the reservoir is the whole unsimulated interior, not a point). From then on the
-	# temperature is a state variable that cools; nothing re-asserts it. The geotherm is an INITIAL CONDITION
-	# because conduction through rock takes millennia to cross this shell — see LAMaterialFieldGeotherm3D.
 	_geotherm.arm(temp)
 
 
@@ -1136,17 +917,9 @@ func magma_erupting() -> bool:
 ## Open cells currently carrying a suspended mineral load — the `erosion_cells` gauge in SIM_REPORT. Thin
 ## forwarder; the count lives in LAMaterialFieldMineralProfile3D (static, so no diagnostic instance is needed).
 ## (Was `return 0` — a hardcoded zero that read "no erosion anywhere" identically whether erosion was working
-## or, as it happened, structurally unable to move anything at all. Fixed 2026-08-03 with the transport leg.)
 func erosion_cell_count() -> int:
 	return LAMaterialFieldMineralProfile3D.suspended_cell_count(_susp, _solid)
 # --- Conserved H₂O ledger + snow/ice diagnostics — bodies live in LAMaterialFieldLedger3D. ONE water
-# substance in four phase channels (liquid `_water`, airborne `_moisture`, frozen `_snow`, subsurface
-# `_soil`); every transition is a transfer between them, so h2o_total must stay BOUNDED. All four legs obey
-# ONE inclusion rule — a cell counts where its channel physically lives (open cells for water/moisture/snow,
-# regolith cells for soil), and the static flag is a memo line, not a filter. The rule and why the four legs
-# used to disagree are documented once, in LAMaterialFieldLedger3D's header. -------------------------------
-## Snow depth at a world point (frozen H₂O in the cell). 2.5D-style (x,z) calls have no radial point, so they
-## return the safe default 0 (matching temp_at); a full 3D call (x,z,y) reads the real cell — three-d-always.
 func snow_depth_at(pos: Vector3) -> float:
 	return _ledger.snow_depth_at(pos)
 ## Open cells carrying a snowpack (frozen H₂O over SNOW_PRESENT) — the emergent snow-line count for SIM_REPORT.
@@ -1179,14 +952,10 @@ func snow_line_temp() -> float:
 ## per-cell read; it self-wakes the demand-gated `dust` readback the way co2_at does.
 func dust_at(x: float, y: float, z: float) -> float:
 	return _channels.dust_at(x, y, z)
-# (`dust_cell_count()` removed 2026-08-03 — superseded by LAMaterialFieldMineralBudget3D's `dusty_cells`, which
 #  counts the same cells with the same threshold inside a pass it already makes. Reason in MaterialFieldQueries3D.)
 
-# MINERAL conservation ledger (rock unification) lives in LAMaterialFieldQueries3D (`_queries.*_total()` etc.);
-# report() reads it directly. ONE conserved mineral; mineral_total must stay BOUNDED (the unification's proof).
 # --- Per-cell CHANNEL point reads (atmospheric O₂/CO₂, living biomass, the decomposer deposit, and the
 # phase-channel debug readers) — bodies live in LAMaterialFieldChannels3D. -------------------------------
-## Atmospheric O₂ level at a world point (ambient outside the shell / in box mode).
 func o2_at(x: float, y: float, z: float) -> float:
 	return _channels.o2_at(x, y, z)
 ## BREATHABLE oxygen at a TRUE-3D world point — the cell's O₂, but ZERO once WATER fills the cell (water
@@ -1218,15 +987,6 @@ func biomass_at(x: float, y: float, z: float) -> float:
 ## explode; bounded by the CO₂ budget + respiration). Fed into SIM_REPORT.
 func biomass_total() -> float:
 	return _channels.biomass_total()
-# Emergent DECOMPOSER loop (fungus_sphere3d.glsl): dead matter (detritus) → fungus → CO₂ + soil fertility.
-# `deposit_detritus` MOVED to the biota block at the end of this file, because the version that lived here
-# never reached the device: it wrote `_f._detritus[c] += amount`, a mirror uploaded once at seed and
-# overwritten by every readback. See LAMaterialFieldBiota3D.litter. The same is true of the `respire_at` that
-# lived here on the 0.4-dev side: it wrote `_f._o2` / `_f._co2` / `_f._detritus`, all three of which the next
-# GPU readback overwrites wholesale (MaterialFieldSphereStep3D). The surviving `respire_at` is the biota one
-# at the end of this file, which parks the debit and the credit on the device injection queue.
-# Per-cell debug readers for the phase channels (mirror biomass_at/co2_at): molten mineral, bedrock
-# fraction, and pre-lightning electrification. Pure reads for the DebugPanel field-view heatmaps.
 func lava_at(x: float, y: float, z: float) -> float:
 	return _channels.lava_at(x, y, z)
 func rock_fill_at(x: float, y: float, z: float) -> float:
@@ -1235,16 +995,8 @@ func charge_at(x: float, y: float, z: float) -> float:
 	return _channels.charge_at(x, y, z)
 func fungus_at(x: float, y: float, z: float) -> float:
 	return _channels.fungus_at(x, y, z)
-## Decomposer extent + intensity for fungus AND detritus in one pass ({fungus_peak, fungus_cells,
-## detritus_peak, detritus_cells}); merged into SIM_REPORT by LAMaterialFieldReport3D. Replaces the separate
-## fungus_peak/fungus_cells/detritus_peak signatures, which were hardcoded zeros and would have been three
-## grid sweeps for four numbers.
 func decomposer_stats() -> Dictionary:
 	return _channels.decomposer_stats()
-# Photosynthesis (CO₂ → O₂ + biomass) + its daylight gate are DISSOLVED into MaterialReactions3D records R19/R20
-# and run entirely on the GPU (see biomass_at/biomass_total). The old CPU `solar_factor()` + `photosynthesize()`
-# writes were invisible to the GPU (begin_frame only re-uploads temp/water) and are deleted.
-## Wire the lightning bolt visual callback (spawn_lightning); the charge module fires it on breakdown.
 func set_lightning_visual(cb: Callable) -> void:
 	_pending_lightning_cb = cb
 	if _charge_mod != null:
@@ -1272,17 +1024,11 @@ func shock_cell_count() -> int:
 # retired" and its body was `pass`; the cubed sphere renders water through the ocean shell.
 
 
-## Central-telemetry provider (registered once with LASimReport): this field's channel aggregates, in ONE
-## dict, so they flow into SIM_REPORT from their owner instead of being hand-threaded into a format string.
-## Built in LAMaterialFieldReport3D; polled only at snapshot time, so the O(cells) reads behind it never run
-## per frame.
 func report() -> Dictionary:
 	return _report_mod.report()
 
 
 # --- LIVING BODIES <-> FIELD (LAMaterialFieldBiota3D) ---------------------------------------------------
-# Thin forwarders only. Every one of these used to be a hole in the ledger: grazing read a THERMOMETER and
-# took nothing, respiration was a boolean test that consumed no oxygen, drinking emptied no puddle, and the
 # detritus return wrote a mirror the device never sees. The bodies live in the biota module.
 ## Take up to `want` of the standing crop under `pos`; returns what the pasture actually had.
 func graze_biomass(pos: Vector3, want: float) -> float:

@@ -1,33 +1,10 @@
 class_name LASeaIceTextureBaker
 extends RefCounted
 
-## Bakes the EMERGENT sea-ice signal into a 6-layer R8-in-RGBA8 Texture2DArray (one texel per SphereGrid
-## surface column), the render bridge the ocean shell (VoxelWaterSphere.gdshader) samples so frozen sea reads
-## WHITE from orbit (polar caps + winter sea ice) while open sea stays blue. Sea ice is NOT a new phenomenon
-## with its own physics: it is simply the conserved `_snow` (frozen H₂O) channel that the generic freeze
-## reaction (MaterialReactions3D R21: WATER → SNOW below FREEZE_TEMP) accumulates on cold STATIC-SEA surface
-## cells, and thaws (R22) where the sea warms back up. This baker only READS that field and reduces it to a
-## per-column 0..1 "sea frozen" value for the shader, with no simulation and no special-case cap code.
-##
-## Per column c = s*depth + r: scan radially OUTWARD→in for the topmost STATIC-sea cell (the sea surface). Its
-## `snow` depth, scaled + clamped, is the ice value. Land columns (a solid cell is hit before any sea) and open
-## warm sea (no snow on the surface cell) bake to 0. ONE O(surf_count) reduction, folded into the sea-ice
-## controller's throttled refresh. Cell layout + face packing MATCH CoverTextureBaker/BiomeTextureBaker so the
-## shader's inverse-gnomonic face sample lands on the exact texel. (Explicit types only, no ':=' inferred typing.)
 
 const ICE_GAIN: float = 6.0        # snow-depth → ice coverage: a thin frozen skin (~0.17) already reads fully white
 
-## Presence floor: below this much frozen H₂O a sea cell is dust-thin rime, not ice, and bakes to 0.
-##
-## IT IS NOW SOURCED, NOT COPIED. *(Corrected 2026-08-09. This was `const SNOW_PRESENT: float = 0.01` with the
-## comment "MUST match MaterialField3D.SNOW_PRESENT". That contract was LIVE, its authority EXISTS, and it was
 ## FALSE: LAMaterialField3D.SNOW_PRESENT is 1.9e-4, so the two had drifted 53x apart. The authority moved
-## deliberately — 0.01 was found to be 16 cm of water equivalent, about 1.6 m of snowpack, and was cut to the
-## ~3 mm water equivalent at which surface albedo saturates (Wiscombe & Warren 1980); see MaterialField3D.gd:88-94
-## — and this copy was left behind, so the ocean shell has been demanding 53x the snow the rest of the substrate
-## calls snow-covered before it draws any sea ice at all. A hand-copied duplicate is how that happens; a
-## reference is how it stops. Same defect class as the eight kernels whose authority had been deleted outright,
-## and worse for being invisible: `grep` finds the file, so the pointer looks checkable.)*
 const SNOW_PRESENT: float = LAMaterialField3D.SNOW_PRESENT
 
 var _res: int = 0

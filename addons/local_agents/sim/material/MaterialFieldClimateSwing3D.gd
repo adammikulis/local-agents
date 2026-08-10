@@ -1,56 +1,11 @@
 class_name LAMaterialFieldClimateSwing3D
 extends RefCounted
 
-## LAMaterialFieldClimateSwing3D — DOES THIS PLANET HAVE A DAY, AND DOES IT HAVE SEASONS?
-##
-## Both were unanswerable before this. LASystemOrbits integrates a real tilted orbit and LASimClock names the
-## seasons, but NOTHING measured the temperature swing either one produces, so "we have seasons" rested on the
-## existence of the code that ought to cause them. That is the same evidentiary mistake as a dead `@export`:
-## the mechanism is plumbed, looks correct, and is never observed to do anything.
-##
-## THE BAND STATISTIC IS A MEDIAN, NOT A MEAN, AND THAT WAS A MEASUREMENT NOT A PREFERENCE. The first run of
-## this instrument (seed 4242, 600 frames) reported a diurnal range of 352.67 °C for the 30-45 degree band
-## against 4-21 °C for the other five. One of that band's eight stations had been overrun by a lava flow, and
-## with eight samples per band a single magmatic station moves the MEAN by forty times the signal. A median
-## over eight is unmoved by one outlier and is the same number when there is none, so it costs nothing on a
-## quiet planet and does not lie on a volcanic one. `swing_diurnal_max_c` keeps the outlier visible rather
-## than throwing it away — an eruption at a weather station is a real event, it is just not a diurnal cycle.
-##
-## A LATITUDE BAND'S MEAN CANNOT SHOW A DIURNAL CYCLE, AND THIS IS THE WHOLE DESIGN CONSTRAINT. A band circles
-## the planet, so at every instant half of it is in daylight and half in night and its mean is nearly flat all
-## day. The diurnal range lives at a PLACE, not in an average over longitude. So this module plants WEATHER
-## STATIONS: a fixed set of ground cells, chosen once, spread over longitude within each latitude band. The
-## field grid is body-local, so a fixed cell index is a fixed place on the planet, and it carries that place
-## through day and night exactly as a thermometer bolted to the ground would.
-##   * DIURNAL range per band = the mean over that band's stations of each station's own (max - min) within
-##     one rotation. That is the meteorological definition, not a max-minus-min over a mixture of places.
-##   * LONG range per band = the same over the last LONG_DAYS completed rotations, so seasonal drift shows up
-##     as a long range that exceeds the diurnal one.
-##
-## THE DAY IS MEASURED, NOT ASSUMED, and it had to be, because the two constants that claim to define it
-## disagree by a factor of three. `LASimClock.DAY_LENGTH` is 200.0 s; the planet actually turns at
-## `LAVoxelWorld.PLANET_SPIN_RATE` 0.10 rad/s, which is a rotation every 62.83 s (the solar kernel's own
-## comment says "a ~63 s rotation"). So this tracks the ANGLE THE SUN SWEEPS in the field's frame and calls a
-## day a full turn — the same quantity that actually makes the terminator move — and reports the period it
-## measures rather than trusting either number.
-##
-## THE SEASON IS SPIN-INVARIANT AND IS COMPUTED IN THE WORLD FRAME. Sub-solar latitude is
-## `asin(dot(sun_hat, spin_axis_hat))`: the planet turning about its own axis does not change it, and only the
-## orbit does. Its running min and max ARE the measured axial tilt — the planet's obliquity, read off the
-## instrument instead of off the constant that set it up (`PLANET_SPIN_AXIS` is 23.5 degrees off +Y). A year
-## is ~670 s against a ~63 s day, so a run has to cover roughly 10 days before the swing means anything, and
-## `swing_days` says whether it did.
-##
-## Costs O(stations) per sample — 48 array reads — plus two full-grid scans ONCE, at station-siting time.
-## Bands, the spin axis and the latitude convention are taken from LAMaterialFieldReport3D so the bands here
-## are literally the bands `surface_climate()` reports, not a parallel definition that can drift from them.
-## (Explicit types only, no ':=' inferred typing.)
 
 const BANDS: int = LAMaterialFieldReport3D.CLIMATE_BANDS       # 15 degrees per band, equator-first
 const STATIONS_PER_BAND: int = 8                               # longitude spread within a band
 const LONG_DAYS: int = 8                                       # rotations held in the long window
 ## A sample that jumps more than this much sun-angle has under-sampled the rotation and the day boundary it
-## implies is unreliable. Counted rather than hidden: an aliased run must not read as a measured one.
 const ALIAS_LIMIT: float = PI * 0.5
 ## Process frames between siting attempts while there is still no land to site on (pre-spawn, or a headless
 ## field with no terrain). Without it a world that never grows ground pays two full-grid scans per report.
@@ -142,17 +97,11 @@ func report() -> Dictionary:
 		"swing_days": _days,
 		"swing_long_window_days": _ring_filled,
 		"swing_samples": _samples,
-		# The measured rotation period, on the two clocks that disagree about it. `swing_day_s` is the
-		# scene's own elapsed time (LASimClock, the clock the body spin integrates against); expect ~62.8 s,
-		# NOT the 200.0 s LASimClock calls a day. `swing_day_field_s` is how much of the FIELD's simulated
-		# time one rotation covers, which is what actually sets the depth of the night-side cooling — and it
-		# is not a constant, because the field and the idle clock advance at different rates under `--fast`.
 		"swing_day_s": snappedf(_day_period_s, 0.01),
 		"swing_day_field_s": snappedf(_day_period_field_s, 0.01),
 		"swing_samples_per_day": snappedf(_samples_per_day, 0.1),
 		"swing_alias_samples": _alias,
 		# Sub-solar latitude: the season, in degrees, and its running extremes — the planet's obliquity as
-		# MEASURED. A run shorter than a year cannot reach the full swing; read it against `swing_days`.
 		"swing_subsolar_lat": snappedf(_subsolar_lat, 0.01),
 		"swing_subsolar_min": snappedf(_subsolar_min if _subsolar_min < 1.0e19 else 0.0, 0.01),
 		"swing_subsolar_max": snappedf(_subsolar_max if _subsolar_max > -1.0e19 else 0.0, 0.01),
@@ -163,14 +112,6 @@ func report() -> Dictionary:
 
 # --- Stations ----------------------------------------------------------------------------------------------
 
-## Plant the network, once. Two passes: count the ground-hugging cells per latitude band, then take every
-## k-th so the stations spread across the band instead of clustering on whichever face is enumerated first.
-##
-## GROUND-HUGGING (open, with solid rock directly inward) is `surface_climate()`'s land set and the solar
-## kernel's `ground_hug` — where snow deposits and where a creature stands. Latitude uses the same world
-## position and the same world spin axis that module uses, so a station's band is its band there too.
-## Latitude is invariant under the planet's own rotation (the body turns about that exact axis), so siting
-## the network once is exact rather than a snapshot of where things happened to be.
 func _site_stations() -> void:
 	var cc: int = _f._cell_count
 	var depth: int = int(_f._sphere.depth)

@@ -1,116 +1,7 @@
 class_name LAMaterialFieldElementInventory3D
 extends RefCounted
 
-## LAMaterialFieldElementInventory3D — CONSERVATION LEDGERS FOR CARBON, OXYGEN, FERTILITY AND BIOMASS, built to the
-## shape LAMaterialFieldLedger3D already proved on H₂O: a total per substance, and a DRIFT PER FIELD STEP
-## against the previous sample. The drift is the instrument. A total printed as an absolute cannot show a slow
-## leak — that is exactly how the water leak hid — and it cannot show minting at all.
-##
-## WHY THESE FOUR AND WHY NOW. The correlation was hard to miss once someone looked: every substance that HAD
-## a ledger conserved, and every substance without one created matter. H₂O had `h2o_total`,
-## `h2o_drift_per_step` and per-pass probes, and its transfers were real transfers. Minerals had
-## `mineral_total`. Carbon, oxygen and fertility had NOTHING — a grep for carbon_total / co2_total / o2_total
-## under sim/material/ returned zero — and all three created matter from nothing.
-##
-## ALL THREE OF THOSE DEFECTS ARE FIXED AS OF 2026-08-03, and what they were is kept here because the
-## instrument's whole justification is that it was the thing that measured them. **Do not read the list below
-## as a description of live code.**
-##   * CARBON had no source pool at all. `_co2` was allocated and NOT filled — the line above it filled `_o2`
-##     with O2_AMBIENT, so the omission was visible in the diff — and the planet's entire carbon inventory
-##     then arrived through ONE record, R12, which used a rate model carrying no reactant list at all while
-##     reactions_sphere3d.glsl skipped the reactant-cap block for it. A tap with no tank behind it. NOW: the
-##     atmosphere is seeded finite at Earth's measured composition, R11/R12 and the rate model are deleted,
-##     and this ledger measured the result — `carbon_run_drift_per_step` +6.49 -> -0.024.
-##     *(That -0.024 DOES NOT REPRODUCE, and the reason is instructive. Measured 2026-08-08 on the 600-frame
-##     `--sandbox --planet-only --fast=8 --seed=4242` baseline: `carbon_run_drift_per_step` reads -0.3132, and
-##     `carbon_buried` 291.02 over `mass_run_steps` 786 is 0.370/step of that on its own. The narrow triangle's
-##     drift is dominated by BURIAL, so it cannot be quoted as evidence that carbon conserves — whatever run
-##     produced -0.024 was reading a planet that had buried almost nothing yet. The figure that answers the
-##     conservation question on the same run is `carbon_closed_run_drift_per_step`, mask-free, which reads
-##     0.0000 with `carbon_closed_first` and `carbon_closed_all` both 1074.27.)*
-##   * OXYGEN gained on every turn of the carbon cycle: photosynthesis yielded 1.0 O₂ per carbon fixed while
-##     respiration spent 0.5 and decomposition 0.8 against 1.0 CO₂. The two directions are chemical inverses
-##     and their coefficients were not equal, so each cycle left free oxygen behind. NOW: the identity is
-##     enforced per record by LAReactionBalance's `oxidant` sum, not by two constants set equal by hand.
-##   * FERTILITY was created at roughly 75:1 per unit of extent (1.5 produced against 0.02 consumed) with no
-##     source pool on either side. NOW: organic matter is declared to CARRY nitrogen at the measured litter
-##     C:N ratio, and release, uptake and litterfall all derive from that one declaration.
-## A drift that comes back non-zero is still the correct result to report, not a bug in the meter.
-##
-## THE INCLUSION RULE, and it is the same lesson the water ledger learned the hard way: every leg uses ONE
-## mask, or the ledger's own disagreement gets read as physics. Here every leg is summed over OPEN cells
-## (`solid[c] == 0`), because that is where all four substances live and where every kernel that moves them
-## gates. Static cells are INCLUDED for the same reason the water ledger includes them: static marks what is
-## SIMULATED, not what EXISTS.
-##
-## AND EVERY LEG IS ALSO SUMMED MASK-FREE (`*_all`). The difference between the two is a real quantity, not a
-## rounding check: a cell that turns solid with biomass or detritus in it has BURIED that mass, not destroyed
-## it, and a ledger with one mask cannot tell burial from a kernel dropping mass. The H₂O budget found exactly
-## that case, which is why the pattern is copied rather than reinvented.
-##
-## THAT RULE WAS WRITTEN HERE AND THEN BROKEN HERE, FOR `fungus` AND `fuel`, UNTIL 2026-08-08. Those two legs
-## accumulated INSIDE the `if is_open` branch, so alone among the seven they had no `_all` twin, and everything
-## built on them inherited the single mask: `nitrogen_total`, `carbon_closed_total`, `element_N`, and — the
-## damaging one — the run-long drift baselines taken off them. The measured consequence was
-## `nitrogen_first` 46.80 -> `nitrogen_total` 31.88 over 600 frames, on a run whose `fires` and `fire_peak`
-## were both 0, which reads as the substrate destroying a third of the planet's nitrogen. It is burial:
-## `fuel`'s ONLY decrementing writer anywhere in the tree is fire_sphere3d.glsl:187, so with no fire the device
-## channel cannot fall, while solid_derive_sphere3d.glsl:72 keeps flipping cells solid at rock_fill >= 0.5 and
-## carrying their litter out of the open mask. The gauge was measuring coal formation and calling it a leak.
-##
-## THE GENERAL LESSON, because this is the second time it has cost a false conservation verdict: a ledger's
-## INCLUSION RULE is part of its arithmetic, and a leg that quietly uses a different one is not a smaller
-## version of the same measurement — it is a different quantity with the same name. When adding a leg here,
-## the `_all` twin is not optional bookkeeping; it is what makes the leg comparable to the six beside it.
-##
-## CARBON'S CONVENTION, stated because a conserved quantity is only as meaningful as its boundary:
 ##   carbon_total = co2 + biomass + detritus.
-## Those are the three slots the reaction table actually moves carbon between, and between them the
-## stoichiometry IS closed: R19 fixes 1 CO₂ into 1 biomass, R20 turns 1 biomass into 0.6 CO₂ + 0.4 detritus
-## (0.6 + 0.4 = 1), R15 rots 1 detritus into 1 CO₂. So any drift in this sum is a kernel outside the reaction
-## table. FUEL and FUNGUS are carbon-bearing in the real world but are moved by their own kernels
-## (fire_sphere3d, fungus_sphere3d) with no stoichiometric link to this triangle, so keeping them out is what
-## lets a leak be LOCALISED to one side or the other. They are reported beside the total as memo lines, and
-## summed into `carbon_closed_total` below, which is the conservation claim.
-##
-## WHICH MASK EACH RUN-LONG DRIFT USES, since the two answer different questions. The CONSERVATION claims —
-## `nitrogen_run_drift_per_step` and `carbon_closed_run_drift_per_step` — measure the MASK-FREE totals, because
-## "was any matter created or destroyed" is a question about the planet, not about the open cells.
-## `carbon_run_drift_per_step` stays on the OPEN total on purpose: the narrow triangle is a LOCALISER, and what
-## it localises is where in the reaction table a discrepancy sits, which is an open-cell question. Its mask-free
-## reading is published beside it as `carbon_all`, with `carbon_buried` as the gap.
-##
-## OXYGEN'S CONVENTION: `o2_total` is FREE molecular O₂ only — the `o2` channel — and NOT the oxygen bound in
-## CO₂. That is still the right thing to publish for "how much air is there to breathe", but as a
-## CONSERVATION gauge it is the wrong shape and always was, because free O₂ is not a conserved quantity:
-## photosynthesis and respiration trade it against the oxygen bound in CO₂ all day, so a healthy biosphere
-## makes `o2_total` wander for entirely honest reasons.
-##
-## THE CONSERVED QUANTITY IS `oxidant_total` = o2 + co2, ADDED 2026-08-03. One unit of free O₂ and one unit
-## of CO₂ each carry one O₂-equivalent of oxidising capacity (a fully oxidised carbon has one O₂ bound into
-## it; reduced carbon has none), so every oxidation and every reduction in the reaction table moves that
-## capacity between the two pools and conserves the sum. LAReactionBalance enforces exactly this identity per
-## record, which is what makes the gauge meaningful: any drift in `oxidant_total` is now provably OUTSIDE the
-## reaction table. The old note said counting bound oxygen "would import a stoichiometry the substrate does
-## not implement" — the substrate implements it now, and it is the same identity BioRecords.gd was already
-## asserting in prose ("O₂ consumed == CO₂ produced") and enforcing by hand.
-##
-## AND `carbon_closed_total` = co2 + biomass + detritus + fungus + fuel, ADDED for the same reason. The note
-## below is right that the three-slot triangle is what the REACTION TABLE moves, and that keeping the memo
-## lines separate is what let R12's signature stand out. But fungus and fuel are carbon in the real world,
-## and a carbon ledger that omits two carbon pools cannot answer "is carbon conserved" — only "is carbon
-## conserved among the slots I chose to look at". Measured on the run that added this: `carbon_total` fell
-## 18.8 units while `fungus_total` rose 58, so the narrow total showed a small leak where the wide one shows
-## a net gain. Both are published; the narrow one localises, the wide one is the conservation claim.
-##
-## READBACK. `detritus` and `fungus` were NEVER READ BACK from the GPU before 2026-08-03 — they appear in no
-## hot, situational or slow readback set — so their CPU mirrors held the all-zero allocation for the life of
-## every process, and `detritus_peak` / `fungus_cells` / `fungus_peak` in SIM_REPORT have been reporting that
-## seed rather than the simulation. They are demand-gated now and this module requests them; `mass_live`
-## reports which channels arrived, so a total built on a stale mirror is never mistaken for a measurement.
-##
-## Costs ONE O(cells) pass accumulating every leg at once, on the report's snapshot cadence.
-## (Explicit types only, no ':=' inferred typing.)
 
 ## Every channel this ledger sums, read as ONE read-only device sample (see `report()`).
 const LEGS: PackedStringArray = ["co2", "o2", "detritus", "biomass", "fert", "fungus", "fuel"]
@@ -128,21 +19,6 @@ var _prev_fert: float = NAN
 var _prev_biomass: float = NAN
 var _prev_step: int = -1
 
-# FIRST sample, and the run-long drift measured against it. The per-sample drift above is one short window —
-# 15 field steps at the report's cadence — and a single window is a sample, not a trend: it catches whatever
-# eruption or wildfire happened to be burning. The run-long figure divides the WHOLE change by the WHOLE
-# number of steps, so it is the number to quote for "does this substance mint", and the two disagreeing is
-# itself informative (a substance that is bounded but noisy shows a large per-sample drift and a run-long one
-# near zero).
-#
-## AND THE BASELINE MUST NOT BE TAKEN BEFORE ITS LEGS ARRIVE. Until 2026-08-03 every `_first_*` was captured
-## on the very FIRST call, and on that call the device probe armed in `report()` has not landed yet, so every
-## leg fell back to a CPU mirror — and `co2`, `detritus` and `fungus` are demand-gated (never read back
-## unless something asks) while `biomass` is a slow channel. The measured consequence: `carbon_first` read
-## exactly 720.00 in every run of every arm, which is the seeded soil detritus and nothing else, with no CO₂
-## and no biomass in it. Every `carbon_run_drift_per_step` ever quoted from this gauge was therefore measured
-## against a baseline that omitted the atmosphere. Each quantity now waits for its OWN legs and records its
-## own first step, so a baseline is a real measurement or it is not taken at all.
 var _first_carbon: float = NAN
 var _first_o2: float = NAN
 var _first_fert: float = NAN
@@ -175,14 +51,6 @@ func report(step_index: int) -> Dictionary:
 	var solid: PackedByteArray = _f._solid
 	if solid.size() != cc:
 		return out
-	# THE LEGS, SAMPLED READ-ONLY. *(Changed 2026-08-03. This used to call `request_channel` on co2, detritus,
-	# fungus and fuel "so a build that never takes a snapshot pays nothing". That is not free either way:
-	# residency decides what the CPU MIRRORS hold, and the simulation's own write paths read those mirrors —
-	# `LAMaterialSurfaceSeed3D.post_readback()` refills fuel from `_f._fuel` and pushes the WHOLE mirror back
-	# with `set_field`, so how stale it is decides how much GPU-evolved fuel that upload rewinds. A ledger must
-	# not be able to change a fire. See the `request_channel` docstring in LAMaterialSphereGPU3D for the full
-	# list of mirror-reading write paths.)* Collect the probe the previous sample armed and arm the next; the
-	# mirrors stand in until the first one lands, and `mass_live` says which legs arrived.
 	var legs: Dictionary = {}
 	if _f._gpu != null and _f._gpu.has_method("take_probe"):
 		legs = _f._gpu.take_probe()
@@ -271,7 +139,6 @@ func report(step_index: int) -> Dictionary:
 	out["fert_all"] = snappedf(fert_all, 0.01)
 	out["biomass_open_total"] = snappedf(bio_open, 0.01)
 	# MEMO LINES — carbon-bearing but outside the reaction table's closed triangle (see the header). Both carry
-	# an `_all` twin as of 2026-08-08; until then these two legs were the only ones in the module with no
 	# mask-free counterpart, which is what made `nitrogen_total` unable to tell burial from destruction.
 	out["fungus_total"] = snappedf(fung_open, 0.01)
 	out["fungus_all"] = snappedf(fung_all, 0.01)
@@ -312,25 +179,9 @@ func report(step_index: int) -> Dictionary:
 	# the reaction table provably holds; `carbon_closed_total` is carbon over EVERY pool that carries it, not
 	# only the three the reaction table moves between.
 	var oxidant: float = o2_open + co2_open
+	var oxidant_all: float = o2_all + co2_all
 	var carbon_closed: float = carbon + fung_open + fuel_open
 	var carbon_closed_all: float = carbon_all + fung_all + fuel_all
-	# THE ELEMENTAL INVENTORY — the part that is not circular.
-	#
-	# Every total above sums DIFFERENT SUBSTANCES AT 1 UNIT EACH and names the result after an element:
-	# `carbon` adds the co2, biomass and detritus channels; `oxidant` adds o2 and co2. That is only valid if
-	# the reaction coefficients relating those channels are themselves element-balanced — which is precisely
-	# the property this instrument exists to check. It assumed what it was measuring, so it could not detect
-	# the failure it was for. Kept because they localise a leak to one side of the loop, but they are not the
-	# conservation claim.
-	#
-	# These are. Each channel is multiplied by the ELEMENTS one unit of it actually contains, read from
-	# LAReactionBalance.composition() — the SAME declaration the load-time balance gate checks every record
-	# against. The two cannot disagree, because a disagreement would have to be a disagreement with itself.
-	#
-	# AND THE INVENTORY IS TAKEN TWICE, ONCE PER MASK. `element_X` is the open-cell figure — what is in play —
-	# and `element_X_all` is the mask-free one, which is the conservation claim. The difference is what the
-	# planet has BURIED, not what a kernel dropped, and that distinction is the whole reason this module sums
-	# every leg both ways.
 	var open_by_channel: Dictionary = {
 		"co2": co2_open, "o2": o2_open, "detritus": det_open, "biomass": bio_open,
 		"fert": fert_open, "fungus": fung_open, "fuel": fuel_open,
@@ -340,37 +191,15 @@ func report(step_index: int) -> Dictionary:
 		"fert": fert_all, "fungus": fung_all, "fuel": fuel_all,
 	}
 	var elements: Dictionary = _elements_of(open_by_channel)
-	# `element_*` IS THE ATMOSPHERE-AND-BIOSPHERE BOOK, and that is deliberate. It sums `open_by_channel`
-	# above — the gas and organic-matter channels and nothing else. The LITHOSPHERE is on its own book
-	# (LAMaterialFieldMineralBudget3D publishes `lith_element_*`) because a cell of bedrock holds four orders
-	# of magnitude more oxygen than a cell of air holds CO2: one combined `element_O` would be crustal oxygen
-	# plus rounding error, and the atmospheric signal this ledger exists to watch would be gone. The
-	# HYDROSPHERE is on a third (LAMaterialFieldLedger3D's `h2o_total`), which is why `element_H` here counts
-	# only the hydrogen bound in organic matter. `element_C_total` is the one cross-book sum.
 	for el in elements:
 		out["element_" + String(el)] = snappedf(float(elements[el]), 0.01)
 	var elements_all: Dictionary = _elements_of(all_by_channel)
 	for el_a in elements_all:
 		out["element_" + String(el_a) + "_all"] = snappedf(float(elements_all[el_a]), 0.01)
-	# NITROGEN, over every pool that holds it. `fert_total` alone answers "how much nutrient can a plant take
-	# up", which is a useful number and NOT a conservation gauge: mineral N and organic N trade places all
-	# day, so a healthy soil makes `fert_total` wander for honest reasons. The conserved quantity is the sum,
-	# and it is conserved for a structural reason rather than a tuned one — LAReactionBalance declares organic
-	# matter to carry nitrogen at the measured litter C:N ratio, and every record is checked against that one
-	# declaration, so the release coefficient in R15, the uptake coefficient in R19 and the litterfall
-	# coefficient in R20 cannot disagree.
-	#
-	# AND IT IS THE MASK-FREE SUM THAT IS THE CLAIM. *(Corrected 2026-08-08.)* `nitrogen_total` was built from
-	# the open legs alone and its run-long drift was taken off that, so it read -14.92 over 600 frames on a run
-	# with no fire at all and looked like the substrate destroying a third of the planet's nitrogen. It was
-	# BURIAL: `fuel` has exactly one decrementing writer in the tree (fire_sphere3d.glsl:187) and no fire ran, so
-	# device fuel cannot fall — but cells close over it as solid_derive_sphere3d.glsl flips them at
-	# rock_fill >= 0.5, and a one-masked gauge books that as a loss. Buried organic matter is what coal is.
-	# `nitrogen_all` is the conserved quantity; `nitrogen_buried` is the gap, and the two together say which of
-	# the two things happened.
 	var nitrogen: float = fert_open + (bio_open + det_open + fung_open + fuel_open) / LAPhysical.LITTER_C_TO_N
 	var nitrogen_all: float = fert_all + (bio_all + det_all + fung_all + fuel_all) / LAPhysical.LITTER_C_TO_N
 	out["oxidant_total"] = snappedf(oxidant, 0.01)
+	out["oxidant_all"] = snappedf(oxidant_all, 0.01)
 	out["carbon_closed_total"] = snappedf(carbon_closed, 0.01)
 	out["carbon_closed_all"] = snappedf(carbon_closed_all, 0.01)
 	out["carbon_closed_buried"] = snappedf(carbon_closed_all - carbon_closed, 0.01)
@@ -378,17 +207,8 @@ func report(step_index: int) -> Dictionary:
 	out["nitrogen_all"] = snappedf(nitrogen_all, 0.01)
 	out["nitrogen_buried"] = snappedf(nitrogen_all - nitrogen, 0.01)
 
-	# RUN-LONG DRIFT — the headline conservation figure. The first sample is the baseline; everything after is
-	# measured against it over the field steps actually elapsed. Each quantity takes its baseline only once
-	# ITS OWN legs have arrived from the device (see the note on `_first_*` above); until then it reports no
-	# baseline at all rather than a mirror artefact.
 	var run_steps: int = 0
 	if has_co2 and has_bio and has_det:
-		# LATCHED AT THE SEAL, NOT AT A SAMPLE COUNT. This used to fire on the third heavy sample
-		# (BASELINE_SKIP_SAMPLES), which is a sampling artifact landing in the MIDDLE of seeding, so the
-		# planet being BUILT was counted as drift. See LAMaterialFieldSeal3D for the two measured ways that
-		# lied — carbon reading +1360%% of its own baseline, and a baseline taken through a channel that had
-		# not arrived yet coming out bit-identical across two arms that differ by 29%%.
 		if _first_carbon_step < 0 and _sealed():
 			_first_carbon = carbon
 			_note_seed("carbon", carbon)
@@ -424,14 +244,13 @@ func report(step_index: int) -> Dictionary:
 				(bio_open - _first_biomass) / float(step_index - _first_biomass_step), 0.0001)
 	if has_o2 and has_co2:
 		if _first_oxidant_step < 0 and _sealed():
-			_first_oxidant = oxidant
+			_first_oxidant = oxidant_all
 			_first_oxidant_step = step_index
+		# `oxidant_first` latches the MASK-FREE total, because that is what the gate compares against.
 		out["oxidant_first"] = snappedf(_first_oxidant, 0.01)
 		if step_index > _first_oxidant_step:
 			out["oxidant_run_drift_per_step"] = snappedf(
 				(oxidant - _first_oxidant) / float(step_index - _first_oxidant_step), 0.0001)
-	# THE TWO CONSERVATION CLAIMS TAKE THEIR RUN-LONG DRIFT OFF THE MASK-FREE TOTAL. *(Changed 2026-08-08; both
-	# used to measure the open-masked total against an open-masked baseline, so both were reporting burial as a
 	# leak.)* `carbon_run_drift_per_step` above deliberately stays on the OPEN total: that one is the narrow
 	# three-slot triangle, whose job is to LOCALISE a leak to one side of the reaction table, and its mask-free
 	# reading is already published as `carbon_all`.
@@ -459,13 +278,7 @@ func report(step_index: int) -> Dictionary:
 ## Multiply each channel's stored amount by the ELEMENTS one unit of it contains, read from the same
 ## LAReactionBalance declaration the load-time balance gate checks every record against. Called once per mask.
 func _elements_of(by_channel: Dictionary) -> Dictionary:
-	# ATOMS, WHICH MEANS SCALING BY THE MOLES ONE UNIT OF EACH CHANNEL HOLDS. `composition()` is elements per
-	# MOLE; a channel value is in channel units; and a channel unit is not a mole — one unit of `o2` is the O₂
 	# in a cell of ambient air (8.535 mol/m³) against one unit of `water`'s cell FULL of liquid water (55343).
-	# Summing them unscaled made `element_H` and `element_O` totals of two different things, so neither could
-	# be differenced to detect anything, which is why the same defect survived in the reaction records for as
-	# long as it did. LAReactionBalance.mol_per_unit() is the one declaration and the balance gate reads it
-	# too, so the instrument and the check cannot disagree.
 	var mpu: Dictionary = BalanceScript.mol_per_unit()
 	var slots: Dictionary = BalanceScript.INVENTORY_CHANNELS
 	var elements: Dictionary = {}
@@ -506,10 +319,6 @@ func _sealed() -> bool:
 	return _f != null and _f._seal != null and _f._seal.sealed()
 
 
-## Hand the world seal this module's baseline, at the instant it latches. The seal cannot scrape it out of
-## the report dict: an unlatched ledger publishes 0.0 there, which is indistinguishable from a substance that
-## genuinely starts at zero (carbonate does). The module that owns the number writes it, once, when it
-## becomes real.
 func _note_seed(key: String, value: float) -> void:
 	if _f != null and _f._seal != null:
 		_f._seal.note_seed({key: value})

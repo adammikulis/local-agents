@@ -1,65 +1,15 @@
 extends RefCounted
 
-## Cubed-sphere GPU pass plugin: the ECOSYSTEM / SURFACE field CAs. These are scent (surface-wind precompute,
-## lateral transport, soil-fertility creep), the fungus decomposer + its radial fertility reduce, the
-## snow phase, and the shock/sound pressure-wave, all wired to the SphereGPU driver via the PLUGIN CONTRACT
-## (setup() once, dispatch() each step).
-##
-## The driver owns the RenderingDevice, all channel buffers, and the open compute list. This plugin only:
-##   1. setup(): compiles the sphere kernels, then builds the uniform sets (one per parity for any kernel
-##      that touches a ping-pong PAIR channel; a single shared set for the parity-free scent_wind
-##      precompute), mapping each kernel's .glsl binding indices onto the driver's shared `bufs`.
-##   2. dispatch(): records each kernel into the driver's open compute list `cl`, with a barrier after
-##      every kernel so a producer's writes are visible to the next kernel that reads them.
-##
-## PAIR channels arrive as [live, back] = bufs[key][parity], bufs[key][1-parity]; SINGLE channels are a
-## bare RID. scent is a PAIR sized 5*cc packed by channel (base = ch*cc); every other field is len cc.
 ## nbr is the int32 cc*6 neighbour table on binding 15 (slot 0 = inward/down .. slot 5 = outward/up).
-##
-## Per-kernel binding -> bufs-key map (authoritative layout is each kernel's .glsl header):
-##   scent_wind_sphere3d      0 VelX=vel_x  · 1 VelZ=vel_z · 2 Solid=solid ·
-##                            3 SurfVx=surf_vx · 4 SurfVz=surf_vz · 15 Neigh=nbr           (SINGLE-only, 1 set)
-##   scent_transport_sphere3d 0 ScentIn=scent[live] · 1 ScentOut=scent[back] · 15 Neigh=nbr
-##   scent_fert_sphere3d      0 FertIn=fert[live] · 1 FertOut=fert[back] · 15 Neigh=nbr
-##   fungus_sphere3d          0 FungIn=fungus[live] · 1 FungOut=fungus[back] · 2 Detritus=detritus(readonly) ·
-##                            5 Temp=temp[live] · 6 Vapor=vapor[live] · 8 Solid=solid ·
-##                            15 Neigh=nbr   (the same-cell decompose chemistry + its CO2/O2/fert-scratch writes
-##                            moved to ReactionsPass; this kernel is now the cross-cell growth/spread/death half.
-##                            BINDING 7 (Fire) WAS DROPPED 2026-08-09: the kernel gated growth and spread on the
-##                            `fire` INSTRUMENT, which measures every oxidation's O2 draw rather than combustion,
-##                            so decomposition read as fire and the decomposer suppressed itself. The gap in the
-##                            numbering is deliberate — see fungus_sphere3d.glsl.)
-##   fungus_fert_sphere3d     0 FertCell=fungus_fert · 1 Fert=fert[back] (add in place on scent_fert output) ·
-##                            2 Solid=solid · 15 Neigh=nbr
-##   snowice_sphere3d         0 Snow=<snow> · 1 Temp=temp[back] · 2 Moisture=moisture[back] (-=frozen condensate) ·
-##                            3 Solid=solid · 15 Neigh=nbr   (deposition-only: freezes CONDENSED moisture → snow on
-##                            cold ground, mass-conserving; freeze-liquid + melt are now records R21/R22)
-##   shock_sphere3d           0 ShockIn=shock[live] · 1 ShockOut=shock[back] · 2 Solid=solid · 15 Neigh=nbr
-##
-## Push-constant layouts (see each .glsl Params):
-##   scent_wind, fungus_fert, shock, snowice : {uint cell_count, pad, pad, pad}                -> 16 bytes
-##   scent_transport, scent_fert    : {uint cell_count, pad, pad, float precip}                -> 16 bytes
-##   fungus                         : {uint cell_count, pad,pad,pad, float precip, pad,pad,pad} -> 32 bytes
-## precip comes from ctx.get("precip", 0.0). (dt is unused: every rate here is a per-step constant.)
-##
-## NOT HERE: erosion. (Corrected 2026-08-03. This block said "erosion_advect_sphere3d.glsl /
-## erosion_deposit_sphere3d.glsl do NOT exist in kernels3d/ (only the box versions erosion_advect3d.glsl /
-## erosion_deposit3d.glsl are present), so the erosion advect+deposit dispatches are omitted. Wire them here
-## once the sphere ports land." The parenthesis was false — there were no box versions either, and pointing at
-## a phantom file made the gap look like a port that had merely not been copied over. Sediment advection now
-## exists as erosion_transport_sphere3d.glsl and is dispatched by its OWN pass, ErosionTransportPass, which
-## must run beside ErosionPickupPass in the susp ping-pong window, not out here after Reactions. Deposition is
-## not a kernel at all: it is the M3 SETTLE reaction record acting on carried load, so there is nothing left
-## to "wire here".
-##
-## IMPROVISED buffer key: the snow-depth field has no documented PAIR/SINGLE key in the contract. It is a
-## per-cell depth mutated in place, so this pass resolves it as bufs["snow"] — which the driver does allocate
-## (MaterialSphereGPU3D.SINGLE_CHANNELS), so the "susp" fallback below is unreachable and no snow/susp aliasing
-## can occur. Verified 2026-08-03 while landing sediment transport.
 
 const KDIR: String = "res://addons/local_agents/sim/material/kernels3d/"
-const SCENT_WIND_PATH: String = KDIR + "scent_wind_sphere3d.glsl"
-const SCENT_TRANSPORT_PATH: String = KDIR + "scent_transport_sphere3d.glsl"
+const SCENT_TRANSPORT_PATH: String = KDIR + "tracer_transport_sphere3d.glsl"
+
+# Per-step decay per scent channel, in LAScentChannels order (PREY, PREDATOR, BLOOD, FOOD, ALARM). These are
+# design statements about how long each cue lasts, not measured volatilities.
+const SCENT_DECAY: Array = [0.030, 0.030, 0.100, 0.015, 0.045]
+const SCENT_RAIN_WASH: float = 0.30
+const SCENT_DIFFUSE: float = 0.08
 const SCENT_FERT_PATH: String = KDIR + "scent_fert_sphere3d.glsl"
 const FUNGUS_PATH: String = KDIR + "fungus_sphere3d.glsl"
 const FUNGUS_FERT_PATH: String = KDIR + "fungus_fert_sphere3d.glsl"
@@ -69,7 +19,6 @@ const SHOCK_PATH: String = KDIR + "shock_sphere3d.glsl"
 var _rd: RenderingDevice = null
 
 # Compiled shaders (kept so their RIDs stay owned for the pipelines' lifetime).
-var _scent_wind_shader: RID = RID()
 var _scent_transport_shader: RID = RID()
 var _scent_fert_shader: RID = RID()
 var _fungus_shader: RID = RID()
@@ -78,7 +27,6 @@ var _snowice_shader: RID = RID()
 var _shock_shader: RID = RID()
 
 # Compute pipelines.
-var _scent_wind_pipe: RID = RID()
 var _scent_transport_pipe: RID = RID()
 var _scent_fert_pipe: RID = RID()
 var _fungus_pipe: RID = RID()
@@ -86,8 +34,7 @@ var _fungus_fert_pipe: RID = RID()
 var _snowice_pipe: RID = RID()
 var _shock_pipe: RID = RID()
 
-# Uniform sets. scent_wind is SINGLE-only (one set); the rest touch a PAIR so they hold one set per parity.
-var _scent_wind_set: RID = RID()
+# Uniform sets, one per ping-pong parity.
 var _scent_transport_set: Array = [RID(), RID()]
 var _scent_fert_set: Array = [RID(), RID()]
 var _fungus_set: Array = [RID(), RID()]
@@ -103,8 +50,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		return
 
 	# --- Compile the kernels -------------------------------------------------------
-	_scent_wind_shader = _compile(SCENT_WIND_PATH)
-	_scent_wind_pipe = _rd.compute_pipeline_create(_scent_wind_shader)
 	_scent_transport_shader = _compile(SCENT_TRANSPORT_PATH)
 	_scent_transport_pipe = _rd.compute_pipeline_create(_scent_transport_shader)
 	_scent_fert_shader = _compile(SCENT_FERT_PATH)
@@ -123,8 +68,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var nbr_rid: RID = _single(bufs, "nbr")
 	var vel_x_rid: RID = _single(bufs, "vel_x")
 	var vel_z_rid: RID = _single(bufs, "vel_z")
-	var surf_vx_rid: RID = _single(bufs, "surf_vx")
-	var surf_vz_rid: RID = _single(bufs, "surf_vz")
+	var vel_y_rid: RID = _single(bufs, "vel_y")
+	var ltan_rid: RID = _single(bufs, "link_tan")
 	var detritus_rid: RID = _single(bufs, "detritus")
 	var fungus_fert_rid: RID = _single(bufs, "fungus_fert")  # per-cell fertility scratch (written by ReactionsPass' decompose record, reduced by fungus_fert)
 
@@ -136,28 +81,18 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# The ONE unified atmospheric-water channel (Phase 2a). Fungus reads it as local moisture (the suspended
 	# total is the behavioural proxy, perf-over-parity); snow deposition freezes its condensed part out to snow.
 	var moisture_pair: Array = _pair(bufs, "moisture")
-	# No `fire` pair here any more. This pass was the last physics reader of that channel; it is an INSTRUMENT
 	# now and only the gauges read it. See the fungus kernel's FIRE note for why the gate came out.
 	var shock_pair: Array = _pair(bufs, "shock")
 
-	# --- scent_wind: parity-free (SINGLE buffers only) -> one set ------------------
-	_scent_wind_set = _build_set(_scent_wind_shader, [
-		[0, vel_x_rid],      # VelX
-		[1, vel_z_rid],      # VelZ
-		[2, solid_rid],      # Solid
-		[3, surf_vx_rid],    # SurfVx (writeonly, per-cell)
-		[4, surf_vz_rid],    # SurfVz (writeonly, per-cell)
-		[15, nbr_rid],       # Neigh
-	])
 
 	# --- One uniform set per parity for every PAIR-touching kernel -----------------
 	for p in 2:
 		var back: int = 1 - p
 
+		# tracer_transport, one dispatch per scent channel via the `offset` push field.
 		_scent_transport_set[p] = _build_set(_scent_transport_shader, [
-			[0, scent_pair[p]],      # ScentIn  = live scent (5-packed)
-			[1, scent_pair[back]],   # ScentOut = back scent
-			[15, nbr_rid],
+			[0, scent_pair[p]], [1, scent_pair[back]], [2, scent_pair[back]], [3, solid_rid],
+			[4, vel_x_rid], [5, vel_y_rid], [6, vel_z_rid], [15, nbr_rid], [16, ltan_rid],
 		])
 
 		_scent_fert_set[p] = _build_set(_scent_fert_shader, [
@@ -207,14 +142,15 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	if _rd == null:
 		return
 	var precip: float = float(ctx.get("precip", 0.0))
+	var depth: int = maxi(int(ctx.get("depth", 1)), 1)
+	var cell_m: float = float(ctx.get("cell_size", 1.0)) * LAPhysical.METRES_PER_MODEL_UNIT
+	var k_courant: float = LAMaterialFieldSphereStep3D.real_seconds_per_step() / cell_m if cell_m != 0.0 else 0.0
 
-	# Order: scent_wind -> scent_transport -> scent_fert -> fungus -> fungus_fert -> snowice -> shock.
-	# (erosion_advect / erosion_deposit skipped: sphere kernels absent — see header.)
-	# A barrier after every kernel makes each producer's writes visible to its consumer:
-	#   fungus writes the per-cell fertility scratch that fungus_fert reduces (hard dependency);
-	#   scent_fert writes fert[back] that fungus_fert adds into in place (hard dependency).
-	_run(rd, cl, _scent_wind_pipe, _scent_wind_set, _pc_u4(cc), groups)
-	_run(rd, cl, _scent_transport_pipe, _scent_transport_set[parity], _pc_precip16(cc, precip), groups)
+	# Order: scent_transport -> scent_fert -> fungus -> fungus_fert -> snowice -> shock.
+	for ch in SCENT_DECAY.size():
+		_run(rd, cl, _scent_transport_pipe, _scent_transport_set[parity],
+				_pc_tracer(cc, depth, k_courant, 0.0, SCENT_DIFFUSE,
+						cc * ch, float(SCENT_DECAY[ch]) + precip * SCENT_RAIN_WASH), groups)
 	_run(rd, cl, _scent_fert_pipe, _scent_fert_set[parity], _pc_precip16(cc, precip), groups)
 	_run(rd, cl, _fungus_pipe, _fungus_set[parity], _pc_precip32(cc, precip), groups)
 	_run(rd, cl, _fungus_fert_pipe, _fungus_fert_set[parity], _pc_u4(cc), groups)
@@ -227,9 +163,6 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 func dispose(rd: RenderingDevice) -> void:
 	if rd == null:
 		return
-	if _scent_wind_set.is_valid():
-		rd.free_rid(_scent_wind_set)
-		_scent_wind_set = RID()
 	for s: Array in [_scent_transport_set, _scent_fert_set, _fungus_set,
 			_fungus_fert_set, _snowice_set, _shock_set]:
 		for r in s:
@@ -241,26 +174,40 @@ func dispose(rd: RenderingDevice) -> void:
 	_fungus_fert_set = [RID(), RID()]
 	_snowice_set = [RID(), RID()]
 	_shock_set = [RID(), RID()]
-	for r: RID in [_scent_wind_pipe, _scent_transport_pipe, _scent_fert_pipe, _fungus_pipe,
+	for r: RID in [_scent_transport_pipe, _scent_fert_pipe, _fungus_pipe,
 			_fungus_fert_pipe, _snowice_pipe, _shock_pipe,
-			_scent_wind_shader, _scent_transport_shader, _scent_fert_shader, _fungus_shader,
+			_scent_transport_shader, _scent_fert_shader, _fungus_shader,
 			_fungus_fert_shader, _snowice_shader, _shock_shader]:
 		if r.is_valid():
 			rd.free_rid(r)
-	_scent_wind_pipe = RID()
 	_scent_transport_pipe = RID()
 	_scent_fert_pipe = RID()
 	_fungus_pipe = RID()
 	_fungus_fert_pipe = RID()
 	_snowice_pipe = RID()
 	_shock_pipe = RID()
-	_scent_wind_shader = RID()
 	_scent_transport_shader = RID()
 	_scent_fert_shader = RID()
 	_fungus_shader = RID()
 	_fungus_fert_shader = RID()
 	_snowice_shader = RID()
 	_shock_shader = RID()
+
+
+# tracer_transport push: { cell_count, depth, k, settle_v, diffuse, deposit, offset, decay }.
+func _pc_tracer(cc: int, depth: int, k: float, settle_v: float, diffuse: float,
+		offset: int, decay: float) -> PackedByteArray:
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(32)
+	pc.encode_u32(0, cc)
+	pc.encode_u32(4, depth)
+	pc.encode_float(8, k)
+	pc.encode_float(12, settle_v)
+	pc.encode_float(16, diffuse)
+	pc.encode_u32(20, 0)
+	pc.encode_u32(24, offset)
+	pc.encode_float(28, decay)
+	return pc
 
 
 # --- helpers ------------------------------------------------------------------
@@ -323,7 +270,7 @@ func _snow_rid(bufs: Dictionary, p: int) -> RID:
 	return susp[p]
 
 
-## Push: {uint cell_count, pad, pad, pad} — 16 bytes (scent_wind, fungus_fert, shock).
+## Push: {uint cell_count, pad, pad, pad} — 16 bytes (fungus_fert, shock).
 func _pc_u4(cc: int) -> PackedByteArray:
 	return PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
 

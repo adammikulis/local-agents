@@ -697,6 +697,27 @@ failure mode, and it is the most common one.
   approach and what it unlocks, and ask. Do **not** silently work around it (delivering a lesser result
   the user didn't know was a compromise), and do **not** unilaterally rip it out either. The user will
   usually say "yes, change it" — but it's their call, and flagging it is how big upgrades get found.
+- **STOP WRITING PROSE IN COMMENTS. A COMMENT IS A CLAIM, AND CLAIMS HERE ARE WRONG.** *(Maintainer,
+  2026-08-10: "good god is every claim false", "can we stop it with the prose? it's so annoying and wrong".)*
+  Comments must be SHORT and factual: what the code does, and units. Not history, not rationale essays, not
+  measured numbers from some past run, not multi-paragraph justifications.
+  - **The evidence, all from one day's reading:** "the sphere neighbour table carries only indices, not
+    per-slot world directions" (it carries `ltan`, and the file next door used it) · "a run shorter than the
+    horizon reports `too_short`" (that string is emitted nowhere) · "every total here is the MASK-FREE one"
+    (one was not, and it failed the build) · `WATER_MIN` "matches atmos_evap_sphere3d.glsl" (deleted file) ·
+    a `boil` drain from `atmos_condense_sphere3d` (kernel never existed) · "dust_loft raining flag parity"
+    (parity with a deleted kernel, and redundant with a gate already on the same record).
+  - **NOT ONE was caught by reading. Every one was caught by a gate firing or a run producing an impossible
+    number.** Prose cannot be executed, so it rots silently and then misleads with authority.
+  - **So: if a claim matters, make it a GATE, a test, or an assert. If it does not matter, delete it.** A
+    long comment is not thoroughness, it is an unverified assertion with a large surface area.
+  - **Do not write a measurement into a comment.** It is true for one commit. Gates carry numbers; comments
+    do not.
+- **DO NOT RUN A TEST UNTIL THE CHANGE IS FINISHED.** *(Maintainer, 2026-08-10: "can you stop running test
+  after test before you've collapsed the kernels?")* Running after each intermediate edit measures a
+  half-finished substrate, costs minutes per run, and the result is discarded by the next edit. Collapse the
+  whole set, THEN run once. This composes with the rule below about not A/B-ing a baseline you have already
+  convicted: a run is for confirming a finished thing works, not for narrating progress.
 - **IF YOU KNOW IT IS WRONG, RIP IT OUT. DO NOT TEST IT, DO NOT MEASURE IT, DO NOT REVERT TO IT.**
   *(Maintainer, 2026-08-10, verbatim: "GET RID OF ALL THE BAD SHIT", "STOP RUNNING TESTS ON CODE YOU KNOW IS
   WRONG", "IF YOU KNOW IT'S WRONG RIP IT OUT", and — asked whether a fix that made carbon worse against a

@@ -1,17 +1,6 @@
 class_name LAMaterials
 extends RefCounted
 
-## Data-driven material registry for the unified MaterialField.
-##
-## EMERGENT-EVERYTHING: every substance in the sim (solids, granular soil, liquids, gases) is one
-## entry here, and the differences between water/lava/steam/rock/sand are DATA, not code. Flow,
-## phase changes, combustion, buoyancy and settling all fall out of these properties, so the field's
-## step loop never branches on "if water" / "if lava". Add a material by adding a row.
-##
-## Temperature is REAL degrees Celsius: 0°C freezes water, 100°C boils it, wood autoignites ~300°C,
-## lava solidifies ~800°C / rock melts ~1200°C. Ambient is a mild ~5-28°C driven by the sun; 0 is
-## cold, not neutral. Disasters inject real spikes (lightning/lava → hundreds/thousands of °C,
-## blizzard → below zero). (Explicit types only, no ':=' inferred typing.)
 
 ## Material ids. Kept as plain ints (array index) so per-material state can live in flat arrays.
 const AIR: int = 0
@@ -37,18 +26,6 @@ const PHASE_GAS: int = 3          # diffuses + rises by buoyancy; carries heat (
 ## Sentinel: no thermal transition on this end.
 const NONE: int = -1
 
-## One definition dictionary per material id (index == id). Fields:
-##   name          display name
-##   phase         PHASE_* movement class
-##   density       relative; heavier settles below lighter (gas ordering, water-vs-lava)
-##   flow          liquid redistribution factor (0 for non-liquids); lava << water = slow creep
-##   heat_capacity thermal mass — energy a unit carries per degree (convection weighting)
-##   buoyancy      gas rise rate (0 for non-gas)
-##   repose        granular slope tangent it settles toward (0 = irrelevant)
-##   cold_to/cold_temp   becomes cold_to when temp <= cold_temp (freeze/condense/solidify)
-##   hot_to/hot_temp     becomes hot_to  when temp >= hot_temp  (melt/boil)
-##   flammable/ignite_temp/burns_to  combustion: at/above ignite_temp, converts to burns_to + heat
-##   color         base render tint
 const DEFS: Array = [
 	{   # AIR
 		"name": "air", "phase": PHASE_GAS, "density": 0.0012, "flow": 0.0,

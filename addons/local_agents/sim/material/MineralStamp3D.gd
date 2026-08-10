@@ -1,28 +1,6 @@
 class_name LAMineralStamp3D
 extends RefCounted
 
-## Rock Stage C: the SDF terrain-growth stamp.
-##
-## Stage B made bedrock a FRACTIONAL `rock_fill` channel and `solid` a DERIVED view of it (solid iff
-## rock_fill >= 0.5). So when cooled lava re-accretes (M5) or a hot bore melts rock (M6), `rock_fill` can
-## rise or fall THROUGH 0.5 in a cell whose real godot_voxel terrain mesh does not yet reflect it. This
-## module closes that loop. It watches rock_fill's 0.5-crossings and stamps them into the SDF:
-##   • void -> solid (rock_fill rose past 0.55): GROW terrain (VoxelTerrainService.fill_rock)
-##   • solid -> void (rock_fill fell below 0.45): SHRINK terrain (VoxelTerrainService.carve_sphere)
-##
-## It is EVENT-DRIVEN, not a per-cell CA: the crossing scan idles at zero cost until armed by a mineral
-## edit (add_lava / a deposit), then runs on a throttled cadence with a per-scan stamp budget, and re-arms
-## itself while it still finds crossings, so a sustained eruption keeps stamping and a quiet world sleeps.
-## Hysteresis (grow >= 0.55, shrink <= 0.45) stops a cell hovering at 0.5 from thrashing the remesher.
-##
-## The field's `_rock_fill`/`_solid` stay the source of truth; the SDF mesh is the downstream VIEW this
-## refreshes. `_solid` doubles as the previous-derived-solid cache (the last-stamped state): comparing the
-## live rock_fill against it detects crossings, and writing it on each stamp keeps the CPU solid mask
-## consistent with the grown/shrunk mesh for the field's world-space queries, all for free at O(changed-cells).
-##
-## Frame note: the field grid is world-fixed while the planet body SPINS, so a stamp is placed via the
-## terrain's world->local transform (VoxelTerrainService already does `to_local`), which is correct at the instant
-## of the crossing. (Explicit types only, no ':=' inferred typing.)
 
 const GROW_THRESHOLD: float = 0.55       # hysteresis high: void->solid only once rock_fill rises past this
 const SHRINK_THRESHOLD: float = 0.45     # hysteresis low: solid->void only once rock_fill falls below this
@@ -59,21 +37,6 @@ func arm() -> void:
 		_f._gpu.request_channel("rock_fill")
 
 
-## Per-active-frame entry (call after the rock_fill readback). Idle (returns immediately, zero cost) unless
-## armed; while armed, runs a throttled + budgeted crossing scan.
-##
-## THE CHANNEL REQUEST BELONGS HERE, NOT ONLY IN `arm()`. `_scan()` compares the `rock_fill` MIRROR against
-## `_solid`, so a stale mirror makes it stamp the SDF from an old picture of the terrain. `arm()` requests once
-## and the hold lasts CHANNEL_HOLD_DRAINS (20) drains, but `_scan()` re-arms `_window` (32 frames) every time it
-## finds a crossing, so a sustained eruption could go on scanning after the mirror went cold. Nothing noticed
-## until 2026-08-03, because a DIAGNOSTIC — LAMaterialFieldMineralBudget3D — requested `rock_fill` on every
-## report sample and held the mirror hot for the whole run. With that ledger no longer requesting anything,
-## this is the only thing keeping the stamp's own input fresh, which is where the responsibility belongs.
-##
-## HONEST SCOPE: this closes a latent staleness hazard. It is NOT the fix for the `h2o_total` 5062 -> 9803
-## excursion measured the same day — that was the ledger reading device buffers from the report path, and
-## adding this request did not move it (`rock_shrinks` 1617, `h2o_total` 9841 with it already in place). See
-## `LAMaterialSphereGPU3D.request_probe`. Cost here is one dictionary write per active frame.
 func maybe_scan() -> void:
 	if _window <= 0:
 		return
@@ -144,21 +107,6 @@ func _scan() -> void:
 		print("STAMP_SCAN={ms:%.3f, found:%d, cells:%d}" % [last_scan_ms, found, n])
 
 
-## Where the H₂O goes when a cell changes phase of MATTER under it. A stamp used to set `solid[c] = 1` (or 0)
-## and walk away, which quietly broke the water ledger in both directions:
-##   • GROW — the cell keeps its water/snow/moisture on the GPU (the kernels skip solid cells, so it is frozen
-##     there forever) while dropping out of water_total/snow_total/moisture_total. Volcano land-growth therefore
-##     stepped h2o down with no mass having moved.
-##   • SHRINK — the cell's SOIL (its pore water, which soil_total counts only while the cell is solid) drops out
-##     the same way, and the cell's now-counted water/snow reappear from nowhere. Melt-back stepped h2o up.
-## Neither is a physical event, so neither should move the ledger. The physical answer is displacement: rock
-## growing into a cell PUSHES the water out into the neighbouring open cell (radially outward first — water
-## floats above rock), and rock melting away RELEASES its pore water as free water in the cell it just vacated.
-## Where a buried cell has no open neighbour at all the mass is genuinely discarded, and then it is counted in
-## the queue's `h2o_buried` and printed — an accounted loss, never a silent one.
-##
-## The moves resolve on device against the LIVE channel values, so the debit and the credit are the same number
-## even though the CPU mirrors this module reads are a readback old.
 func _settle_h2o(bury_src: PackedInt32Array, bury_dst: PackedInt32Array, free_soil: PackedInt32Array) -> void:
 	if _f == null or _f._inject == null or _f._gpu == null:
 		return

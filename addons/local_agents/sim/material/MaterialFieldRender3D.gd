@@ -1,17 +1,6 @@
 class_name LAMaterialFieldRender3D
 extends MeshInstance3D
 
-## The dynamic water-surface renderer: the module the VoxelWater.gdshader header has always named but which
-## was never built. It turns the field's settled `water` column into a visible, flowing, rippling surface for
-## every freshwater body (springs, rivers, waterfalls, lakes, floods). Until now that water was fully simulated
-## but drawn NOWHERE, so rivers were invisible; this closes that gap.
-##
-## Behaviour lives here (NOT in the thin hubs): it owns the water ArrayMesh, the VoxelWater.gdshader material,
-## the impact-ripple ring buffer, the rebuild cadence, and the near-cap LOD scan. The mesh math is delegated to
-## LAWaterSurfaceMesh. Perf follows the "bubbles of compute" rule: the mesh is rebuilt only over the camera's
-## near cap and only every REBUILD_PERIOD seconds (waves + ripples animate at full rate in-shader via TIME), so
-## there is never a per-frame full-grid sweep. Reads the field's per-cell arrays directly (`_f._water`/`_solid`/
-## `_static`) exactly as the sibling query/inject modules do. (Explicit types only, no ':=' inferred typing.)
 
 const WaterShader: Shader = preload("res://addons/local_agents/sim/shaders/VoxelWater.gdshader")
 const MeshBuilderScript: GDScript = preload("res://addons/local_agents/sim/material/WaterSurfaceMesh.gd")
@@ -72,10 +61,6 @@ func setup(field, camera: Node3D, terrain, _sun, center: Vector3, sea_radius: fl
 	_ready = true
 
 
-## Feed the emergent sea-ice coverage texture to the near-cap water material so a frozen sea reads WHITE up close
-## too — matching the ocean shell so descending onto a frozen pole is continuous ice, not a blue cap under white.
-## The mesh node sits at the planet centre, so the shader recovers the surface radial from its own MODEL_MATRIX;
-## no centre uniform needed. Bound once by LASeaIceShaderController (disabled by LA_NO_SEAICE / on the flat island).
 func set_sea_ice_texture(tex: Texture2DArray) -> void:
 	if _mat == null:
 		return

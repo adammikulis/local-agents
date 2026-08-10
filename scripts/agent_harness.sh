@@ -48,6 +48,10 @@ Commands:
   dropin        Prove the addon works as a drop-in: stage a consumer project holding only
                 addons/local_agents/, author a scene with no script in it, and run it.
                 Set LA_GATE_MODEL=/path/to/model.gguf to also require a real reply.
+  sim [args]    Run the planet and print its books via scripts/sim_run.sh. Off-screen, streamer off,
+                re-imports first so stale kernels cannot fake a report. Defaults to the standard
+                verification arm (200 frames, seed 4242, --fast=8, --planet-only --no-fauna).
+                e.g. agent_harness.sh sim --frames 600      agent_harness.sh sim --raw
   lint          Run every structural gate: file length (soft 1300 warn / hard 1500 fail),
                 no-direct-refcounted, no ':=' typing, @tool write safety, demo catalogue,
                 public surface, whole-tree parse, library-only parse, physical constants
@@ -73,7 +77,7 @@ fi
 shift || true
 
 case "$cmd" in
-  fast|all|bounded|single|smoke|extension|lint|demo|dropin) ;;
+  fast|all|bounded|single|smoke|extension|lint|demo|dropin|sim) ;;
   *)
     echo "agent_harness: unknown command '$cmd'" >&2
     usage >&2
@@ -95,6 +99,11 @@ LOG_FILE="$LOG_DIR/agent_harness_${cmd}_$(date +%s).log"
 # --- build the child command as an argv array --------------------------------
 child=()
 case "$cmd" in
+  sim)
+    shift
+    "$(dirname "${BASH_SOURCE[0]}")/sim_run.sh" "$@"
+    exit $?
+    ;;
   fast)
     child=("$GODOT" --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --fast)
     ;;

@@ -1,24 +1,5 @@
 extends RefCounted
 
-## CUBED-SPHERE SOLID-DERIVE pass (rock unification Stage B). Runs FIRST in the per-step pass list, before any
-## kernel reads `solid`. It recomputes the binary `solid` cache from the authoritative fractional mineral channel
-## `rock_fill` (solid iff rock_fill >= 0.5) via one cheap per-cell kernel (solid_derive_sphere3d.glsl). This makes
-## `solid` a DERIVED VIEW of rock_fill instead of an independent buffer seeded once from the SDF and never updated
-## (the old seed→never-readback divergence). Every downstream `solid == 0.0` reader is unchanged.
-##
-## It also LITHIFIES the loose mineral phases of any cell that is now rock — sediment, suspension and dust
-## fold into `rock_fill` rather than being sealed beside it where no kernel will ever touch them again (see the
-## kernel header). Those three are PAIR channels and this pass runs before anything has written the back half,
-## so it reads and edits the LIVE half in place, which is what every later pass takes as its input.
-##
-## The WATER phases fold the same way — into `soil` as pore water, with the cell marked regolith so the
-## aquifer kernel picks it up from the next step. See the kernel header for why that is what really happens.
-##
-## Kernel binding -> bufs-key: 0 RockFill=rock_fill (single, rw) · 1 Solid=solid (single) ·
-## 2 Sediment=sediment[live] · 3 Susp=susp[live] · 4 Dust=dust[live] · 5 Water=water[live] ·
-## 6 Moisture=moisture[live] · 7 Snow=snow (single) · 8 Soil=soil[live] · 9 Regolith (single, rw) ·
-## 10 Grain (single, rw).
-## Push { uint cell_count; float fresh_grain_m; 2x pad }, 16 bytes.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/solid_derive_sphere3d.glsl"
 

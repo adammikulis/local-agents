@@ -1,24 +1,7 @@
 #[compute]
 #version 450
 
-// CUBED-SPHERE lava FLOW — the sphere port of lava_flow3d.glsl. IDENTICAL two-pass GATHER logic and
-// IDENTICAL viscous flow math (the water CA's finite-volume rule with a SMALLER LAVA_MAX_FLOW cap so lava
-// creeps). Molten heat rides WITH the mass: a cell that RECEIVES lava MIXES the arriving enthalpy with its own
-// (2026-08-03 — this used to read "is pulled up to at least MOLTEN_FLOOR (the oracle's _carry_heat)", which
-// assigned 950 C to any cell that received a trickle and never cooled the donor, MAKING HEAT APPEAR FROM
-// NOTHING on every lava front; see the mixing rule at the bottom of pass 1). Lava has NO static
-// sink (unlike water). The ONLY change vs the box kernel is neighbour addressing: instead of idx±offset +
-// `if(iy>0)` bounds tests, every cell gathers its 6 neighbours from the precomputed INDEX TABLE
 // `nbr[idx*6 + d]` (slot 0 = inward/radial-DOWN = gravity, 1-4 = LATERAL, 5 = outward/radial-UP;
-// -1 = boundary → skipped).
-//
-// WHERE THE CONSTANTS BELOW COME FROM. *(Corrected 2026-08-09. This line used to end "Constants copied EXACTLY
-// from MaterialLava3D.gd / MaterialField3D.gd" and the const block said "MUST match MaterialLava3D.gd /
-// MaterialField3D.gd exactly". MaterialLava3D.gd was deleted with the CPU oracle and is nowhere in this tree,
-// so every LAVA_* constant's stated authority was a file nobody could open. lava_phase_sphere3d.glsl:120 already
-// records the same correction for its own copy of that pointer.)*
-//
-// SEND slot = idx*6 + dir. Direct map box dir d → table slot d:
 //   dir 0 = DOWN (radially inward) = nbr slot 0; dir 1-4 = LATERAL = nbr slots 1-4; dir 5 = UP (radially
 //   outward) = nbr slot 5. PASS-1 opposite-slot pairing: (0 <-> 5) radial, (1 <-> 2), (3 <-> 4).
 
@@ -44,25 +27,9 @@ const float MAX_MASS = 1.0;
 const float MAX_COMPRESS = 0.02;
 
 // --- MODEL PARAMETERS of this kernel's integrator. NO physical constant is among them and none is claimed.
-// LAVA_MAX_FLOW is a per-step transfer cap, LAVA_LATERAL_FRACTION a level-out share, LAVA_MIN_FLOW a dribble
-// cutoff. This file is the only declaration of all three.
-//
-// WHAT LAVA_MAX_FLOW IS STANDING IN FOR, said once so nobody mistakes it for a measurement: the header calls it
-// "a SMALLER cap so lava creeps", and what makes real lava creep is VISCOSITY — basaltic melt is 10-1000 Pa s
-// against water's 1.0e-3, six orders of magnitude, and it varies by orders more with temperature and crystal
-// content as a flow cools. 0.25 is not a viscosity and does not vary with temperature; it is a fixed fraction of
-// a cell per step, so in this substrate a 1200 C fluid melt and a nearly-solid 850 C toe creep at the same rate.
-// The honest form is a temperature-dependent rate derived from a measured viscosity, which is a physics change,
-// not a comment.
 const float LAVA_MAX_FLOW = 0.25;
 const float LAVA_MIN_FLOW = 0.01;
 const float LAVA_LATERAL_FRACTION = 0.25;
-// PRESENCE FLOOR — "this cell holds melt at all". It is declared FOUR times at this one value and the copies
-// are load-bearing, so name them rather than let a fifth drift in: lava_phase_sphere3d.glsl:123 (the phase
-// kernel's own early-out), cell_list_lava_sphere3d.glsl:63 (the cell-list predicate that stands in for it, with
-// a stated MUST-match contract that IS live because both files exist), and LAMaterialFieldQueries3D.MOLTEN_MIN
-// (the gauge, so the report and the physics agree on what "molten" means). A property of the measurement's
-// resolution, not of basalt.
 const float LAVA_MIN_MASS = 0.0001;
 // MOLTEN_FLOOR = 950.0 used to live here. It is gone: nothing in this kernel prescribes a temperature any
 // more, so there is no floor to declare. Heat arrives by mixing with the mass that carries it.
@@ -177,22 +144,6 @@ void main() {
 
 	lava_out[gidx] = lava_in[gidx] - own_out + inflow;
 
-	// CARRY MOLTEN HEAT — a real mixing rule, not a floor.
-	//
-	// WHAT THIS REPLACES: `if (inflow > 0.0 && temp[gidx] < MOLTEN_FLOOR) { temp[gidx] = MOLTEN_FLOOR; }`.
-	// Any cell that received so much as a trickle of lava was ASSIGNED 950 C outright, no matter how little
-	// arrived or how cold the donor was, and the donor was never cooled by giving it away. THAT MADE HEAT
-	// APPEAR FROM NOTHING, at every cell on every advancing lava front, every step — the same shape of defect
-	// as the ocean thermostat that was just deleted, and it is why a flow could crawl indefinitely over cold
-	// rock without ever paying for the warming.
-	//
-	// Now the arriving mass mixes with what is already here: T = (m_here*T_here + m_in*T_in) / (m_here + m_in),
-	// with the donor left at its own temperature because the lava it kept really is still at that temperature.
-	// `m_here` is MAX_MASS — one cell's worth of matter — rather than the cell's LAVA mass, because temp[] is
-	// the temperature of the whole cell (rock included), not of its lava alone. Using the lava mass would let a
-	// drop of lava landing on a cell holding none set that entire cell to magmatic temperature. A front now
-	// warms the ground it crosses in proportion to how much lava actually arrives, and cools as it spreads
-	// thin — which is what makes a flow stall on its own instead of being propped up by an assignment.
 	if (inflow > 0.0) {
 		temp[gidx] = (MAX_MASS * temp[gidx] + inflow_heat) / (MAX_MASS + inflow);
 	}

@@ -1,46 +1,5 @@
 extends RefCounted
 
-## Cubed-sphere ACTIVE-CELL COMPACTION pass. Runs cell_list_lava_sphere3d.glsl to build the compacted index
-## list + dispatch-indirect argument that ThermalPass's lava_phase leg consumes, turning that kernel from one
-## invocation per GRID cell into one invocation per ACTIVE cell.
-##
-## THE SELECTION IS PHYSICAL — a cell is listed because it HOLDS MOLTEN ROCK IN OPEN SPACE. This pass used to
-## AND that with a camera-relevance stride gate, which made which lava cooled depend on where the player was
-## standing; that mechanism is deleted (see MaterialSphereGPU3D.gd's header note). What is left is the part
-## that was always right: an O(active) compaction keyed on what the matter is doing.
-##
-## THE SHAPE, so the next pass to be converted can copy it. Three dispatches into the caller's compute list,
-## barrier-separated, all from ONE pipeline selected by a `pass_id` push constant:
-##   0. RESET  — one thread zeroes the counters and writes the constant groups_y/groups_z of the indirect arg.
-##   1. APPEND — full grid, workgroup-aggregated atomic append of every cell that passes the predicate.
-##   2. ARGS   — one thread turns the final count into groups_x = ceil(count / 64).
-## The consumer then binds `active_idx` + `active_args` and calls compute_list_dispatch_indirect(cl, args, 0)
-## instead of compute_list_dispatch(cl, groups, 1, 1). The APPEND pass is the only full-grid dispatch left, and
-## it reads 4 floats per cell rather than the consumer's full input set, so the trade is a cheap uniform scan
-## for a dispatch that scales with the phenomenon instead of the planet.
-##
-## PLACEMENT (MaterialSphereGPU3D.PASS_SCRIPTS): between WaterSlumpLavaPass and ThermalPass. It needs
-## lava[back] final (WaterSlumpLava's lava_flow leg writes it) and `solid` final (SolidDerivePass), and nothing
-## between here and lava_phase writes either, so the list cannot go stale.
-##
-## WHAT MAKES THE ARGS VISIBLE TO ThermalPass: Godot's RenderingDeviceGraph, which tracks buffer
-## dependencies and inserts barriers automatically. NOT the driver's full_barrier() call — that is
-## DEPRECATED AND A NO-OP in Godot 4.7, and it warns 8855 times in a 150-frame run saying so
-## ("Barriers are automatically inserted by RenderingDevice"). An earlier version of this comment
-## credited full_barrier(), which matters because this is the comment the next pass conversion is told
-## to copy: someone would have preserved a no-op believing it was load-bearing.
-##
-## EXTENDING IT TO ANOTHER KERNEL. Two conditions, both hard. (1) The kernel's skip path must be a bare
-## `return` — a compacted dispatch simply never runs the un-listed cells, so any kernel that WRITES on its skip
-## path would leave those writes undone. lava_phase qualifies; several other kernels do not (a ping-pong
-## channel whose back half must be carried needs that carry hoisted somewhere that still covers every cell, or
-## the channel made single-buffered and in-place, before this is legal for it). (2) The predicate must be
-## PHYSICAL and read only inputs that are already final at this point in the pass order — what the matter is
-## doing, never what the camera can see. A predicate that depends on the viewer is not an optimisation, it is
-## a change to the simulation.
-##
-## Kernel binding -> bufs-key map (authoritative layout is cell_list_lava_sphere3d.glsl):
-##   1 Lava=lava[back] · 2 Solid=solid · 4 ActiveIdx=active_idx · 5 ActiveArgs=active_args
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/cell_list_lava_sphere3d.glsl"
 
@@ -87,13 +46,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
-	# FAIL LOUDLY, ONCE. If setup() failed, this pass no-ops, `active_args` stays all-zero, and ThermalPass's
-	# dispatch_indirect then runs ZERO workgroups — lava_phase is completely dead while the sim keeps running
-	# and SIM_REPORT keeps printing normal-looking numbers. That is precisely the silent-degradation the repo
-	# forbids on an authoritative path, and it is reachable by the documented fresh-worktree trap (a .glsl that
-	# was never imported makes load() return null). The cheapest honest guard is to say so unmissably rather
-	# than let a run look healthy: one error, not one per frame, because 60 Hz of push_error buries the log
-	# that would explain it.
 	if not _pipe.is_valid():
 		if not _failed_announced:
 			_failed_announced = true

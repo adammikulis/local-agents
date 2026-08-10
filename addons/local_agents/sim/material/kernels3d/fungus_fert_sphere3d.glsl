@@ -1,26 +1,10 @@
 #[compute]
 #version 450
 
-// CUBED-SPHERE FUNGUS FERTILITY — per-radial-column reduce. Sphere port of fungus_fert3d.glsl. The box kernel
-// dispatched one invocation per XZ COLUMN and summed the per-cell fertility fungus3d produced this step
-// (fert_cell = FERT_PER_DECOMPOSE * consumed) down the WHOLE straight column, adding the total into the scent
-// soil-fertility field at that column — closing the rot->soil->plant loop on-device. On the sphere a "column"
-// is a RADIAL line, so we dispatch PER CELL (like heat_sphere3d, `if (idx >= cell_count) return;`), let each
 // SURFACE cell own its radial line, walk the line INWARD via nbr slot 0 summing fert_cell, and deposit the total
-// into fert at that surface cell. The reduce/deposit math is copied VERBATIM.
-//
-// OWNER cell on the sphere: the representative for a radial column is the OUTERMOST open cell — OPEN
 // (solid == 0) whose OUTWARD-radial neighbour (nbr slot 5) is -1 (space boundary) or solid. That is the local
 // landing-set form of "walk slot 5 outward until -1 or rock". From it we walk INWARD (slot 0) to the sphere
 // centre (until slot 0 == -1), summing fert_cell of every cell on the line (solid cells contribute the 0 that
-// fungus3d wrote for them), which reproduces the box's whole-column sum. The DEPOSIT, however, lands on the
-// GROUND cell of that line (the first open cell with rock directly beneath it), not on the owner — see the
-// note at the write below for the measurement that forced the change. Each line writes exactly one cell that
-// it uniquely owns → race-free (distinct radial lines own distinct ground cells).
-// Runs AFTER the scent fertility blur/leach pass, in place on its output. The constants below were copied
-// from MaterialFungus3D.gd, WHICH NO LONGER EXISTS (deleted with the CPU oracle — see
-// docs/0.4_PARALLELIZATION_GUIDE.md:32), so this kernel owns them now; FERT_PER_DECOMPOSE is already folded
-// into fert_cell upstream by the decompose reaction record.
 
 layout(local_size_x = 64) in;
 
@@ -68,15 +52,6 @@ void main() {
 		}
 		j = below;
 	}
-	// DEPOSIT ON THE GROUND, not at the top of the atmosphere. The old kernel wrote the column's whole
-	// fertility into its own (sky-exposed, outermost) cell, which on a shell sits ~78 world-units ABOVE the
-	// terrain. That put the entire soil-nutrient channel in the stratosphere: measured 2026-07-29, mean fert
-	// over the 2156 land ground cells was exactly 0.0 while fertility_peak read 0.37. Photosynthesis was
-	// gated to the same wrong surface, so the loop was self-consistently misplaced and nobody noticed. R19
-	// now runs on the ground (GATE_NEAR_GROUND), roots reach into the rock below, and nutrient has to be
-	// there to be taken up — so the reduce lands where the roots are. This also repairs `fertility_at(pos)`,
-	// which reads the cell at a world point and therefore used to report ~0 anywhere a player actually looked.
-	// Still one write per radial line to a cell that line uniquely owns → race-free as before.
 	int target = (ground >= 0) ? ground : int(idx);
 	fert[uint(target)] += sum;
 }

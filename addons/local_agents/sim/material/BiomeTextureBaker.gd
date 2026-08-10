@@ -1,22 +1,10 @@
 class_name LABiomeTextureBaker
 extends RefCounted
 
-## Bakes the field's near-GROUND climate into a 6-layer RGBA8 Texture2DArray (one texel per SphereGrid
-## surface column), so the terrain shader can colour by CLIMATE (moisture + temperature), not altitude
-## alone. This is the "one green lawn -> distinct places" bridge: a dry plateau reads savanna/desert while a
-## humid coast reads jungle, purely because the emergent field is drier/wetter there. No per-place scripting.
-##
-## Mirrors LACoverTextureBaker exactly (same grid, same gnomonic pack) so the terrain shader recovers the
-## texel with the SAME face math the water renderer already uses. ONE O(surf_count) reduction, run off the
-## live CPU readback the atmosphere refresh already produced. Cell layout: c = s*depth + r.
-##
-## Channels (RGBA8, per surface column):
 ##   R = relative humidity of the near-ground air (moisture / sat(T)), 0 arid .. 1 humid -> dry<->lush axis
 ##   G = warmth, temperature °C remapped over a cold..hot band, 0 tundra-cold .. 1 tropical-hot
 ##   B = snowpack presence (cold-wet flag), lets the shader bias toward frost/tundra tint
 ##   A = valid flag (255 once baked) so the shader FALLS BACK to altitude-only bands before the first bake
-##       (a fresh/ headless launch samples black -> A=0 -> unchanged legacy look, never a broken colour).
-## (Explicit types only, no ':=' inferred typing.)
 
 const WARM_COLD_C: float = -25.0     # temperature that reads fully "tundra cold" (G = 0)
 const WARM_HOT_C: float = 40.0       # temperature that reads fully "tropical hot" (G = 1)
@@ -65,11 +53,6 @@ func bake(moisture: PackedFloat32Array, temp: PackedFloat32Array, snow: PackedFl
 	# Radial layer nearest the sea shell — the fallback climate cell for an all-void (ocean/sky) column.
 	var sea_r_layer: int = clampi(int((_sea - _core) / _cell), 0, depth - 1)
 
-	# Pass 1: per-column near-ground climate cell + RELATIVE HUMIDITY (moisture vs the dewpoint sat(T)). RH is
-	# the physical wetness signal: RH >= ~1 means the air is saturated -> it condenses/rains there -> lush
-	# jungle; RH near 0 is bone-dry -> desert. Anchored ABSOLUTELY at saturation (RH_LUSH), NOT relative to the
-	# planet's range, so the biome of a place depends on its own climate — and ocean columns (always saturated)
-	# never skew land. Purely from the emergent moisture field: dry interiors self-differentiate from humid coasts.
 	_cell_of.resize(_surf)
 	_rh.resize(_surf)
 	var rh_sum: float = 0.0

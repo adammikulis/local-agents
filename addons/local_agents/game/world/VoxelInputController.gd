@@ -35,7 +35,12 @@ var _interaction: Node3D = null
 var _ecology: Node = null
 
 # --- Streamer seeds (read by the world when it builds the streamer host) ---
-var _streamer_enabled: bool = true        # --no-streamer (or env LA_NO_STREAMER) skips the local-LLM overlay
+# THE STREAMER IS OPT-IN, 2026-08-10. It defaults OFF and `--streamer` turns it on. It used to default ON,
+# so every headless, offscreen, perf and verification run had to remember to pass LA_NO_STREAMER=1 or it
+# would spin up a local llama-server; forgetting cost minutes and perturbed whatever was being measured.
+# A default that every automated caller has to opt OUT of is the wrong default.
+# `--no-streamer` and LA_NO_STREAMER still work and are now redundant belt-and-braces.
+var _streamer_enabled: bool = false
 var _streamer_persona: String = "hype"
 var _streamer_avatar_flavor: String = "male"
 
@@ -252,8 +257,10 @@ func parse_cmdline() -> void:
 			_auto_volcano = true
 		elif arg == "--auto-seavolcano":
 			_auto_seavolcano = true
+		elif arg == "--streamer":
+			_streamer_enabled = true
 		elif arg == "--no-streamer":
-			_streamer_enabled = false
+			_streamer_enabled = false          # kept: it is in scripts, docs and muscle memory, and is now a no-op
 		elif arg.begins_with("--streamer-persona="):
 			_streamer_persona = arg.substr("--streamer-persona=".length())
 		elif arg.begins_with("--streamer-avatar="):
