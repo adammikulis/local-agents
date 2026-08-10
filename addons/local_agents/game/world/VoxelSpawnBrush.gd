@@ -76,7 +76,8 @@ func stop_paint() -> void:
 func adjust_radius(grow: bool) -> void:
 	var d: float = BRUSH_STEP if grow else -BRUSH_STEP
 	_brush_radius = clampf(_brush_radius + d, BRUSH_MIN, BRUSH_MAX)
-	_hud.set_status("Brush radius: %.0f m" % _brush_radius)
+	if _hud != null:
+		_hud.set_status("Brush radius: %.0f m" % _brush_radius)
 
 
 # Map the brush radius to a meteor size multiplier: the default radius (5) leaves the rock at its
@@ -95,7 +96,8 @@ func place_armed(screen_pos: Vector2) -> void:
 			var ray: Dictionary = _camera.aim_ray(screen_pos)
 			_apply_at(ray["origin"] + ray["dir"] * 1500.0)
 			return
-		_hud.set_status("No ground under cursor. Aim at the terrain.")
+		if _hud != null:
+			_hud.set_status("No ground under cursor. Aim at the terrain.")
 		return
 	_paint_brush(point)
 
@@ -148,43 +150,52 @@ func _apply_at(point: Vector3) -> void:
 		# rock (Ctrl + wheel grows it), so a bigger brush lands a bigger, more cratering meteor.
 		meteor.launch(point, _camera.global_position, _meteor_size_scale())
 		_world.set_destruction(1.0)
-		_hud.set_status("Meteor inbound!")
+		if _hud != null:
+			_hud.set_status("Meteor inbound!")
 	elif _armed_kind == "volcano":
 		_disasters.spawn_volcano(point)
 		_world.set_destruction(1.0)
-		_hud.set_status("A volcano rises. Stand back!")
+		if _hud != null:
+			_hud.set_status("A volcano rises. Stand back!")
 	elif _armed_kind == "lightning":
 		_disasters.spawn_lightning(point)
 		_world.set_destruction(0.7)
-		_hud.set_status("A bolt strikes!")
+		if _hud != null:
+			_hud.set_status("A bolt strikes!")
 	elif _armed_kind == "earthquake":
 		var quake: Node = EarthquakeScript.new()
 		_actors_root.add_child(quake)
 		quake.setup(_terrain, _ecology)
 		quake.rupture(point)
 		_world.set_destruction(1.0)
-		_hud.set_status("The ground heaves!")
+		if _hud != null:
+			_hud.set_status("The ground heaves!")
 	elif _armed_kind == "flood":
 		var flood: Node = FloodScript.new()
 		_actors_root.add_child(flood)
 		flood.setup(_terrain, _ecology)
 		# Tie the surge footprint to the spawn brush so a flood only covers where the player aimed.
 		flood.surge(point, _brush_radius)
-		_hud.set_status("Flood surge!")
+		if _hud != null:
+			_hud.set_status("Flood surge!")
 	elif _armed_kind == "tornado":
 		_disasters.spawn_tornado(point)
 		_world.set_destruction(0.8)
-		_hud.set_status("A tornado touches down!")
+		if _hud != null:
+			_hud.set_status("A tornado touches down!")
 	elif _armed_kind == "thunderstorm":
 		_disasters.spawn_thunderstorm(point)
-		_hud.set_status("A thunderstorm gathers!")
+		if _hud != null:
+			_hud.set_status("A thunderstorm gathers!")
 	elif _armed_kind == "hurricane":
 		_disasters.spawn_hurricane(point)
 		_world.set_destruction(1.0)
-		_hud.set_status("A hurricane spins up!")
+		if _hud != null:
+			_hud.set_status("A hurricane spins up!")
 	else:
 		_ecology.spawn(_armed_kind, point)
-		_hud.set_status("Spawned %s." % _armed_kind)
+		if _hud != null:
+			_hud.set_status("Spawned %s." % _armed_kind)
 
 
 # Continue a paint stroke as the cursor drags: re-paint once the brush has moved far enough that

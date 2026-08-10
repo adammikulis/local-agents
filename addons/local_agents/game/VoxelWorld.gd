@@ -269,23 +269,29 @@ func _ready() -> void:
 	_ecology.setup(_terrain, _actors_root)
 	# Shared GPU-instanced vegetation renderer: plants/trees draw through its batched MultiMesh (one draw per
 	# type) instead of hundreds of per-node MeshInstances. Lives under actors_root so it rides the planet frame.
-	_veg_renderer = VegetationRendererScript.new()
-	_veg_renderer.name = "VegetationRenderer"
-	_actors_root.add_child(_veg_renderer)
-	_ecology.set_vegetation_renderer(_veg_renderer)
+	if not _input.bare():
+		_veg_renderer = VegetationRendererScript.new()
+		if _veg_renderer != null:
+			_veg_renderer.name = "VegetationRenderer"
+		_actors_root.add_child(_veg_renderer)
+		_ecology.set_vegetation_renderer(_veg_renderer)
 	# Let the camera query the seismic field so ground disturbances shake it emergently.
 	if _camera != null and _camera.has_method("set_ecology"):
 		_camera.set_ecology(_ecology)
 
 	# --- HUD ---
-	_hud = HudScript.new()
-	_hud.name = "HUD"
-	add_child(_hud)
-	_hud.set_status("Streaming terrain...")
+	if not _input.bare():
+		_hud = HudScript.new()
+		if _hud != null:
+			_hud.name = "HUD"
+		add_child(_hud)
+		if _hud != null:
+			_hud.set_status("Streaming terrain...")
 	# Gamified overlay (objective/progress/stage + unlock toasts + planet summary); reads progression + telemetry.
 	# Kept as a ref so the interaction controller's H key can toggle it alongside the spawn palette.
-	_game_hud = GameHudScript.new()
-	add_child(_game_hud)
+	if not _input.bare():
+		_game_hud = GameHudScript.new()
+		add_child(_game_hud)
 
 	# Player time-dilation controls (Space=pause, ,/. = slower/faster, Home=1×). Owns Engine.time_scale.
 	_time_control = TimeControlScript.new()
@@ -296,19 +302,25 @@ func _ready() -> void:
 	_time_control.set_multiplier(float(_input.fast_multiplier()))
 
 	# --- Procedural audio ---
-	_audio = AudioDirectorScript.new()
-	_audio.name = "AudioDirector"
-	add_child(_audio)
-	_audio.configure()
+	if not _input.bare():
+		_audio = AudioDirectorScript.new()
+		if _audio != null:
+			_audio.name = "AudioDirector"
+		add_child(_audio)
+		if _audio != null:
+			_audio.configure()
 	# On/off + per-bus volumes are applied from the player's settings by LAVoxelAudioController.setup()
 	# (created below) — audio ships ON by default, silenced only by LA_NO_AUDIO / --no-audio. The root just
 	# builds the director and seeds a neutral mood.
-	_audio.set_music_mood({"population": 0, "time_of_day": 0.30, "destruction_intensity": 0.0})
+	if _audio != null:
+		_audio.set_music_mood({"population": 0, "time_of_day": 0.30, "destruction_intensity": 0.0})
 	# Wire the HUD audio menu to the live director + listen for the auto-adapt toggle.
 	if _hud != null and _hud.has_method("set_audio_director"):
-		_hud.set_audio_director(_audio)
+		if _hud != null:
+			_hud.set_audio_director(_audio)
 	if _hud != null and _hud.has_signal("music_auto_adapt_changed"):
-		_hud.music_auto_adapt_changed.connect(_on_music_auto_adapt_changed)
+		if _hud != null:
+			_hud.music_auto_adapt_changed.connect(_on_music_auto_adapt_changed)
 
 	# --- Weather: rain + wind. Wind advects scent; rain washes it away. ---
 	_weather = WeatherScript.new()
@@ -358,32 +370,43 @@ func _ready() -> void:
 
 	# Game-feel audio: salt the music seed + fire an SFX sting per emergent phenomenon event. Thin
 	# wiring over the audio director; all behavior lives in the controller (composition root = one line).
-	_audio_ctrl = AudioControllerScript.new()
-	_audio_ctrl.name = "AudioController"
-	add_child(_audio_ctrl)
-	_audio_ctrl.setup(self)
+	if not _input.bare():
+		_audio_ctrl = AudioControllerScript.new()
+		if _audio_ctrl != null:
+			_audio_ctrl.name = "AudioController"
+		add_child(_audio_ctrl)
+		if _audio_ctrl != null:
+			_audio_ctrl.setup(self)
 
 	# The calm sea: ONE GPU ocean plane at sea level. Planet: a finite spherical sea SHELL at sea_radius.
-	_ocean = OceanPlaneScript.new()
-	add_child(_ocean)
+	if not _input.bare():
+		_ocean = OceanPlaneScript.new()
+		add_child(_ocean)
 	if _terrain.is_planet():
-		_ocean.setup_sphere(_body.center(), _body.sea_radius(), bool(_render_opts.get("ocean_transparent", true)))
+		if _ocean != null:
+			_ocean.setup_sphere(_body.center(), _body.sea_radius(), bool(_render_opts.get("ocean_transparent", true)))
 	else:
-		_ocean.setup(_terrain.sea_level(), _camera)
+		if _ocean != null:
+			_ocean.setup(_terrain.sea_level(), _camera)
 
 	# The field's emergent condensate, rendered as ONE GPU particle system: cloud / fog / rain / snow, the
 	# phase a per-particle property classified from the field's baked cover texture.
-	_water = WaterParticlesScript.new()
-	add_child(_water)
-	_water.setup(_material, _camera, _sky_ctrl.sun(), _body.center(), _body.sea_radius())
+	if not _input.bare():
+		_water = WaterParticlesScript.new()
+		add_child(_water)
+		if _water != null:
+			_water.setup(_material, _camera, _sky_ctrl.sun(), _body.center(), _body.sea_radius())
 
 	# The dynamic FLUID SURFACE: springs/rivers/waterfalls/lakes/floods meshed from the field's `water` column
 	# and drawn with VoxelWater.gdshader (this water was simulated but never rendered before). Near-cap + ~4.5 Hz
 	# rebuild; all behavior in the module (composition root = one add_child).
-	_water_surface = WaterSurfaceScript.new()
-	_water_surface.name = "WaterSurface"
-	add_child(_water_surface)
-	_water_surface.setup(_material, _camera, _terrain, _sky_ctrl.sun(), _body.center(), _body.sea_radius())
+	if not _input.bare():
+		_water_surface = WaterSurfaceScript.new()
+		if _water_surface != null:
+			_water_surface.name = "WaterSurface"
+		add_child(_water_surface)
+		if _water_surface != null:
+			_water_surface.setup(_material, _camera, _terrain, _sky_ctrl.sun(), _body.center(), _body.sea_radius())
 
 	# The sky cycle reads the field each frame (cloud-cover dimming) + pushes the day/night colour tint to
 	# the water-particle renderer.
@@ -415,19 +438,25 @@ func _ready() -> void:
 	# BIOME COLORATION: bake the emergent climate (moisture + temperature) into a terrain-shader texture so
 	# the ground reads as distinct places (desert / savanna / jungle / steppe / tundra) instead of one lawn.
 	# All logic in the controller + baker module; composition root = one add_child + wire.
-	_biome_shader = BiomeShaderScript.new()
-	_biome_shader.name = "BiomeShader"
-	add_child(_biome_shader)
-	_biome_shader.setup(_material, _terrain)
+	if not _input.bare():
+		_biome_shader = BiomeShaderScript.new()
+		if _biome_shader != null:
+			_biome_shader.name = "BiomeShader"
+		add_child(_biome_shader)
+		if _biome_shader != null:
+			_biome_shader.setup(_material, _terrain)
 
 	# EMERGENT SEA ICE: bake the conserved frozen-sea (`_snow` on cold static-sea cells) into a cube-face texture
 	# the ocean shell samples so polar caps + winter sea ice read WHITE from orbit while warm sea stays blue. No
 	# new physics — the generic freeze reaction already froze the cold sea; this only renders it. Disable with
 	# LA_NO_SEAICE. Composition root = one add_child + wire.
-	_sea_ice_shader = SeaIceShaderScript.new()
-	_sea_ice_shader.name = "SeaIceShader"
-	add_child(_sea_ice_shader)
-	_sea_ice_shader.setup(_material, _ocean, _water_surface)
+	if not _input.bare():
+		_sea_ice_shader = SeaIceShaderScript.new()
+		if _sea_ice_shader != null:
+			_sea_ice_shader.name = "SeaIceShader"
+		add_child(_sea_ice_shader)
+		if _sea_ice_shader != null:
+			_sea_ice_shader.setup(_material, _ocean, _water_surface)
 
 	# --- Debug menu (left) + world-space gizmo overlay: field views, type highlights, intended paths. ---
 	_debug = DebugWiringScript.new()
@@ -436,11 +465,14 @@ func _ready() -> void:
 	_debug.setup(self, _material, _terrain, _sky_ctrl, _hud, _input, _ecology)
 	# Drainage-network debug highlight (where rivers should run) — a child of the planet body so it rides the
 	# spin; DebugWiring owns its toggle (DEBUG panel "Rivers" + --debug-rivers). Composition root = wiring only.
-	_drainage = DrainageOverlayScript.new()
-	_drainage.name = "DrainageOverlay"
-	_body.add_child(_drainage)
-	_drainage.setup(_material)
-	_debug.set_drainage(_drainage, _input.debug_rivers())
+	if not _input.bare():
+		_drainage = DrainageOverlayScript.new()
+		if _drainage != null:
+			_drainage.name = "DrainageOverlay"
+		_body.add_child(_drainage)
+		if _drainage != null:
+			_drainage.setup(_material)
+		_debug.set_drainage(_drainage, _input.debug_rivers())
 
 	# --- Streamer / commentator (lower-right face-cam driven by the local LLM). LAZY + default-OFF: nothing
 	# is built at startup, so a fresh launch spins up NO local LLM / TTS and shows no overlay. The player
@@ -487,8 +519,9 @@ func _ready() -> void:
 	add_child(_companion)
 	_companion.setup(_camera, _terrain, _hud)
 	_interaction.set_companion(_companion)
-	if _hud.has_signal("spawn_selected"):
-		_hud.spawn_selected.connect(_interaction.on_spawn_selected)
+	if _hud != null and _hud.has_signal("spawn_selected"):
+		if _hud != null:
+			_hud.spawn_selected.connect(_interaction.on_spawn_selected)
 	# Re-root the family-tree inspector whenever the selection changes (debug reader; wired here as the two
 	# controllers are built in different phases of composition).
 	if _debug != null:
@@ -496,10 +529,13 @@ func _ready() -> void:
 		_debug.set_interaction(_interaction)   # enables the debug menu's "select all thinking/queued" action
 	# Click-a-creature "what it's thinking" panel — surfaces the existing per-creature cognition (its last
 	# decision + the local model's rationale). Pure UI reader; subscribes to the same selection signal.
-	_thought_panel = ThoughtPanelScript.new()
-	_thought_panel.name = "CreatureThoughtPanel"
-	add_child(_thought_panel)
-	_thought_panel.setup(_interaction)
+	if not _input.bare():
+		_thought_panel = ThoughtPanelScript.new()
+		if _thought_panel != null:
+			_thought_panel.name = "CreatureThoughtPanel"
+		add_child(_thought_panel)
+		if _thought_panel != null:
+			_thought_panel.setup(_interaction)
 
 	# --- Initial spawning controller (ticked each frame until the surface has meshed). ---
 	_spawn = SpawnControllerScript.new()
@@ -741,7 +777,8 @@ func _update_music_mood() -> void:
 	if not _music_auto_adapt:
 		return
 	var population: int = get_tree().get_nodes_in_group("creature").size()
-	_audio.set_music_mood({
+	if _audio != null:
+		_audio.set_music_mood({
 		"population": population,
 		"time_of_day": _sky_ctrl.time_of_day() if _sky_ctrl != null else 0.30,
 		"destruction_intensity": _music_destruction,
@@ -752,7 +789,8 @@ func _update_music_mood() -> void:
 func _on_music_auto_adapt_changed(on: bool) -> void:
 	_music_auto_adapt = on
 	if _hud != null and _hud.has_method("set_status"):
-		_hud.set_status("Music auto-adapt: %s" % ("on" if on else "off, manual control"))
+		if _hud != null:
+			_hud.set_status("Music auto-adapt: %s" % ("on" if on else "off, manual control"))
 
 
 # --- controller callbacks: the interaction/brush/disasters controllers forward the few bits of

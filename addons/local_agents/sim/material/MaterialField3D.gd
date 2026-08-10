@@ -4,6 +4,7 @@ extends Node3D
 ## LAMaterialField3D: the DENSE 3D material-flow substrate (successor to the 2.5D LAMaterialField).
 
 const Mat: GDScript = preload("res://addons/local_agents/sim/material/Materials.gd")
+const SolidCacheScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSolidCache3D.gd")
 const MineralStampScript: GDScript = preload("res://addons/local_agents/sim/material/MineralStamp3D.gd")
 
 # --- Water CA tuning (finite-volume cellular water: fall, pressurise, spread — mass-conserving and
@@ -18,6 +19,9 @@ const LATERAL_FRACTION: float = 0.5      # share of the level-out flow sent to e
 
 # --- Grid state -------------------------------------------------------------
 var _terrain = null
+## The dictionary PlanetBody.setup() was given — the full definition of this world's terrain, and the key
+## the solid-mask cache is hashed from.
+var _terrain_opts: Dictionary = {}
 var _cell_size: float = 5.0
 var _origin: Vector3 = Vector3.ZERO       # world position of cell (0,0,0) centre
 var _dim_x: int = 0
@@ -549,8 +553,18 @@ func heat_world_size() -> Vector2:
 
 ## Sphere solid mask: sample the terrain SDF per cell (world pos from the grid). One-time at activation.
 func _sample_solidity_sphere() -> void:
+	var k: String = ""
+	if not _terrain_opts.is_empty():
+		k = SolidCacheScript.key(_terrain_opts, _cell_count, _dim_y, _sphere.core_radius,
+				_cell_size, _origin)
+		var cached: PackedByteArray = SolidCacheScript.load_mask(k, _cell_count, self)
+		if cached.size() == _cell_count:
+			_solid = cached
+			return
 	for c in _cell_count:
 		_solid[c] = 1 if _terrain.is_solid(cell_world_pos_linear(c)) else 0
+	if k != "":
+		SolidCacheScript.save_mask(k, _solid)
 
 func _seed_sphere_sea() -> void:
 	if _sphere == null or _terrain == null or not _terrain.has_method("sea_radius"):

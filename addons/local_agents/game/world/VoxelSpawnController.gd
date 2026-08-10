@@ -154,7 +154,8 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 		_material.add_magma_source(_body.center(), LAPhysical.INNER_CORE_C, 0.6)
 	_seed_diseases()
 	_spawned_initial = true
-	_hud.set_status("World ready. Spawn things, click to inspect, press V for scent.")
+	if _hud != null:
+		_hud.set_status("World ready. Spawn things, click to inspect, press V for scent.")
 
 
 # Seed a few PATIENT-ZERO infections so outbreaks are part of the living world (they then spread, cull, and
