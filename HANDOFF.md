@@ -35,13 +35,61 @@ correctness fix with a behavioural rewrite makes both unmeasurable.
 
 `sorting.py` at repo root is the maintainer's, untracked — leave it.
 
-### State (2026-08-09, night) — `0.4-dev` at `7353b1d`
+### State (2026-08-10) — `0.4-dev` at `a1919d0`
 
-**`feature/heat-capacity-ssot` IS MERGED.** *(Corrected 2026-08-09. This said it was "seven commits off
-`0.4-dev` at `541897d`, not merged", which stopped being true at `7353b1d` — it went in as nine, with the
-conservation gate on top.)* In order: `b5f8e04` per-pass energy probe · `347495f` heat capacity counts every
-carrier · `db22352` the SSOT gate · `27b2795` the soil clamp gauge · `92ae453` rock_fill is a saturation ·
-`b436129` the world seal · `5e1303f` the mole-based carbon gauge · `a9817e8` the conservation gate.
+**READ `CLAUDE.md`'s FIRST TWO RULES BEFORE TOUCHING ANYTHING.** They are new, they are at the very top, and
+they were written because an agent spent a session violating both: **delete what is wrong, never preserve it
+behind a flag**, and **any departure from real physics needs the maintainer's explicit permission, asked
+first**. The second is gate-backed by `scripts/check_model_parameters.sh` where it can be.
+
+**THREE THINGS ARE BROKEN RIGHT NOW AND THEY ARE THE TOP OF THE QUEUE:**
+1. **`--bare` CHANGES THE PHYSICS.** Same seed, same frames: `o2_total` 37125.09 with the presentation layer,
+   **36641.69 without** — 1.3% apart, while h2o and carbon match to the digit. Something in the skipped set
+   (HUD, audio, ocean plane, water particles/surface, vegetation renderer, biome + sea-ice shader
+   controllers, drainage overlay, thought panel) is feeding the field. **Until that is found, `--bare` is for
+   "does it boot" only and NO conservation number may be quoted from it.** Introduced by `a1919d0`.
+2. **`moisture` IS DEAD.** `MaterialField3D` fills it with zeros and its own comment says the channel was
+   never in `MaterialSphereGPU3D`'s GPU seed list. `moisture_total` and `cloud_cells` read 0 in every run, so
+   the entire water-vapour half of the water cycle is not running.
+3. **`dust_total` reads 0** on short runs since the tracer collapse. Unconfirmed whether that is real
+   (settling velocity is now Stokes-derived at 0.314 m/s, which may simply drain the sky) or a wiring break.
+
+**TODAY'S WORK, all merged and pushed.** Kernels **32 → 25**. Comment prose **11,364 → 2,516 lines
+(42% → 14%)**. Net about −10,000 lines.
+- **One transport kernel for every airborne tracer** — `tracer_transport_sphere3d.glsl`. o2, co2, dust,
+  moisture and all five scent channels are rows, not kernels. Deleted: `o2_transport`, `co2_transport`,
+  `dust_transport`, `dust_outscale`, `atmos_transport`, `scent_transport`, `scent_wind`.
+- **One gravity-flow kernel** — `gravity_flow_sphere3d.glsl` replaces `water`, `lava_flow` and `slump`, which
+  were the same kernel three times. Moving mass always carries its enthalpy now; there is no flag for it.
+- **The static sea is gone**, from 17 files. It was an infinite sink — a static cell ran `mass_out = mass_in`
+  and discarded every inflow, so water reaching the ocean was destroyed. `_static` was also allocated and
+  never written, and one leftover upload threw **1,244,189 SCRIPT ERROR lines in a 20-frame run**.
+- **Pressure is in pascals**, `G_ACC = 33.5` deleted; the wind runs on `real_seconds_per_step()` instead of a
+  clock 432× short; Coriolis is `2Ω sin(lat)` from Earth's sidereal rate instead of an invented `0.6`;
+  buoyancy is Boussinesq `g·ΔT/T`; the prescribed global "prevailing wind" that every cell was relaxed toward
+  is deleted; `MAX_WIND` is deleted because wind speed is an output.
+- **The physical-constants gate had two real bugs** — it silently dropped line-continued constants (hiding
+  `DRY_AIR_GAS_CONSTANT_J_KGK`) and its resolver had **no operator precedence**, so `x1*M1 + x2*M2 + …`
+  produced a wrong number rather than failing. Both fixed; the authority map went 129 → 135 constants.
+- Latent heat, the pressure-dependent boiling point and the world's first derived length scale merged from
+  `feature/enthalpy`; the biological rates are derived from cited measurements instead of fitted to biomass.
+
+**HOW TO RUN, ONE COMMAND:** `scripts/agent_harness.sh sim [--frames N] [--raw] [--report k1,k2]`. It
+re-imports only when a kernel changed, and **counts engine errors FIRST and REFUSES to print numbers if there
+are any (exit 4)** — because for a whole session `sim_run` printed a clean-looking report over a million
+error lines. A gauge that cannot report its own failure case is the defect this repo keeps producing.
+
+**RUN COST, measured not guessed** (20 frames): engine+project boot 0.26 s · node construction 0.17 s ·
+**terrain generation 3.3 s, which happens on its own timeline whether or not anything queries it** ·
+solid-mask sample 0.36 s (now cached, keyed on a hash of the generator options + grid + generator source,
+and spot-checked at 256 cells before it is trusted) · frames ~2.3 s. Gauge cadence is 64 (`LA_GAUGE_EVERY`
+overrides) with a forced fresh recompute on the closing frame: the O(cells) GDScript gauges cost **158 ms
+against a 6.5 ms field step**. Total 8.1 s, or 6.8 s with `--bare` — see defect 1 before trusting that.
+
+*(Superseded state: `feature/heat-capacity-ssot` merged at `7353b1d` as nine commits — `b5f8e04` per-pass
+energy probe · `347495f` heat capacity counts every carrier · `db22352` the SSOT gate · `27b2795` the soil
+clamp gauge · `92ae453` rock_fill is a saturation · `b436129` the world seal · `5e1303f` the mole-based
+carbon gauge · `a9817e8` the conservation gate.)*
 
 **A RUN THAT CREATES OR DESTROYS ATOMS NOW EXITS 126.** `LAMaterialFieldConservation3D` audits every element
 total against its sealed baseline, once, at a fixed 600 steps past the seal, and prints
@@ -291,6 +339,15 @@ NOT a `bin/` at the repo root, which does not exist — then
 `godot --headless --path . --import`, then `scripts/editor_scan.sh` — always, because a fresh worktree has no
 class cache. Never a bare `godot --headless --editor`; two concurrent scans segfault.
 
+**THE ONE RUN COMMAND IS `scripts/agent_harness.sh sim`** (wrapping `scripts/sim_run.sh`). It runs the
+standard arm off-screen with the streamer off, imports only when a kernel actually changed, and **counts
+engine errors first and refuses to print numbers when there are any, exiting 4**. Flags: `--frames N`,
+`--seed N`, `--fast N`, `--path DIR`, `--fauna`, `--full`, `--raw`, `--report k1,k2`, `--keep`, and
+`-- <extra scene args>`. Do not hand-write the wrapper invocation again.
+
+**THE STREAMER IS OPT-IN** (`--streamer`). It used to default on, so every automated run had to remember
+`LA_NO_STREAMER=1` or it would boot a local llama-server.
+
 **Gates:** `scripts/agent_harness.sh lint` is what CI runs, and includes `check_physical_constants.sh`,
 `check_reaction_balance.sh` and `check_heat_capacity_ssot.sh`. A run that breaks conservation exits **126**.
 
@@ -520,14 +577,29 @@ batch is gone, because git holds it and nobody was going to re-derive them.)*
 Each stage has its own verification. Do not merge stages.
 
 **DO THESE FIRST, in this order.**
-1. **P0's SECOND HALF — WRITE THE PRESSURE CHANNEL IN PASCALS.** Fully specified above, six numbered steps.
-   It is first because the substrate already carries `boil_c_at(id, p_pa)` and `air_units_to_pascals()` and
-   **nothing can call them**: the pressure channel is in world units inherited from a superseded pass. Every
-   pressure-dependent law is unreachable until this lands, on a project whose target is a 100-bar steam
-   envelope. Land P0+P1+P2 as ONE replacement and verify against a binary behavioural test.
-   *(Step 1 used to read "DECIDE `feature/enthalpy`". Decided 2026-08-09: merged, verified, every gated
-   substance same or better. Do NOT take `feature/latent-heat` (`ae1a497`) — the superseded version that
-   pairs L_vap at 100 °C with L_fus at 0 °C.)*
+1. **FIX THE THREE LIVE BREAKAGES** listed in the State section: `--bare` changing `o2_total` by 1.3%, the
+   dead `moisture` channel, and `dust_total` reading 0. The first two are the ones that matter — a dead
+   moisture channel means the water cycle's vapour half has not been running, so every cloud, rain and
+   evaporation claim in this file predates evidence.
+2. **FINISH THE KERNEL COLLAPSE. 25 left; the floor is about 18.** Remaining families, each one operator
+   with per-row data: `magma_buoy` + `erosion_transport` (the rest of the gravity movers, though both have
+   genuinely different laws — check before flattening) · `atmos_rain` + `atmos_precip` (`atmos_rain` is now
+   just `water += rain`) · `scent_fert` + `fungus_fert` · `heat_sphere3d` + `heat3d_buoyancy` (same bond
+   gather, different driver). Genuinely distinct and staying: `reactions`, `soil`, `heat3d_solar`,
+   `lava_phase`, `plate_advect`, `wind_pressure`, `wind_step`, `fungus`, `erosion_pickup`, `snowice`,
+   `charge_accum`, `shock`, `solid_derive`, `cell_list_lava`, `copy`, and the two collapsed kernels.
+3. **THE CONSTANTS I CHOSE THIS SESSION ARE THE ONLY UNDERIVED ONES LEFT IN TRANSPORT** and each needs
+   deriving or an explicit exemption: `SETTLE_CALM_REF = 6.0` m/s, `SETTLE_MIN_RATIO = 0.08`,
+   `OUT_MAX = 0.9`, `EDDY_DIFFUSE = 0.02`, `SETTLE_V_PER_CONTRAST = 0.05`. Dust settling IS derived now
+   (`LAPhysical.stokes_settling_velocity`, 0.314 m/s, Re = 1.2 so it sits at the edge of Stokes validity).
+4. **P0's SECOND HALF IS DONE** — pressure is in pascals, the wind is on the real clock, `P_REF` and
+   `K_P_REF` are `STANDARD_PRESSURE_PA`. What remains from that plan: wire `boil_c_at(id, p_pa)` into its
+   two remaining scalar consumers (`MaterialFieldQueries3D`, `GeoRecords`) and **delete
+   `heat3d_cool_sphere3d.glsl`** — it is a duplicate of R23's energy leg and a 100 °C thermostat.
+   Also still true: **`params.dt` is uploaded to `reactions_sphere3d.glsl` and never read**, so every
+   reaction rate is per-STEP rather than per-second.
+   *(Do NOT take `feature/latent-heat` (`ae1a497`) — the superseded version that pairs L_vap at 100 °C with
+   L_fus at 0 °C. `feature/enthalpy` is merged.)*
 2. **PER-PASS ATTRIBUTION FOR MATTER, AND IT NOW HAS A SPECIFIC QUESTION TO ANSWER: WHAT DESTROYED THE
    EXTRA 1.9% OF CARBON?** Build it the way `LAMaterialFieldEnergyProbe3D` does for heat and
    `LAMaterialFieldMineralProbe3D` already did for rock. Mineral is three orders of magnitude tighter than

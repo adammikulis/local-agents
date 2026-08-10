@@ -235,6 +235,34 @@ GODOT_BEST_PRACTICES (Godot/runtime/engine). What stays in HANDOFF.md is live re
 
 ## Error Log / Preventative Patterns
 
+### 2026-08-10 — a gauge that cannot report its own failure hid 1.24 million errors for a session
+
+`scripts/sim_run.sh` printed the SIM_REPORT keys and grepped only for `get_spirv`. A run emitting
+1,244,189 `SCRIPT ERROR` lines therefore looked healthy, two compute kernels were silently failing to
+compile, and every number quoted from those runs was fiction. **Any harness that summarises a run must count
+engine errors FIRST and refuse to report when there are any.** It exits 4 now.
+
+### 2026-08-10 — a nil call in `_ready` silently skips every subsystem after it
+
+One unguarded `_audio.set_music_mood(...)` threw in a mode where the audio director was not built. GDScript
+aborts the rest of `_ready`, so the spawn controller and everything below it were never created — and the
+scene still ran and still printed a full report. **When adding a mode that skips node construction, null-
+guard every call site, and verify with an error census rather than by reading the numbers.**
+
+### 2026-08-10 — GDScript property access is not checked by any parse gate
+
+`_f._static` survived deletion of `var _static` in 17 files. `check_parse_all` force-loads every script and
+saw nothing, because a dynamic property lookup only fails when the line executes. **After deleting a member,
+grep the WHOLE tree (`sim/` and `game/`), not the directory you happened to be in.**
+
+### 2026-08-10 — regex edits on GLSL delete live statements and out-of-order `#define`s do not fail loudly
+
+A `[^\n]*static_cells\[[^\n]*\n` sweep removed lines that also carried live assignments, and a
+preprocessor-restore pass reinserted `#define`s after their first use. Godot's importer writes an errored
+`.res` and prints nothing; the failure only surfaces at pipeline creation. **To read a real GLSL error:**
+load the `.glsl` as `RDShaderFile` in a headless script and print `get_spirv().compile_error_compute`.
+
+
 ### 2026-08-09 — a long-lived checkout runs WEEK-OLD compute kernels and says nothing
 
 **What happened.** `.glsl` compute kernels are Godot *imported resources*: the thing a pass `load()`s is the
