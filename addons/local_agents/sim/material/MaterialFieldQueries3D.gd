@@ -314,10 +314,10 @@ func wind3_at(x: float, y: float, z: float) -> Vector3:
 			+ grid.tangent_b(c) * _f._vel_z[c])
 
 
-## LOCAL horizontal wind (world XZ) at a world column — the tangential drift a storm cell rides. Sampled a
-## little above the sea shell so it reads the free-stream, not the ground layer.
-func wind_at(x: float, z: float) -> Vector2:
-	var v: Vector3 = wind3_at(x, _f.sea_level + 40.0, z)
+## LOCAL horizontal wind at a world point, as world XZ — the tangential drift a storm cell rides. Sampled
+## where the storm actually is, which is the only place its steering wind means anything.
+func wind_at(world_pos: Vector3) -> Vector2:
+	var v: Vector3 = wind3_at(world_pos.x, world_pos.y, world_pos.z)
 	return Vector2(v.x, v.z)
 
 

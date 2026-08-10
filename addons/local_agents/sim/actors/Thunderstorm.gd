@@ -148,7 +148,7 @@ func _physics_process(delta: float) -> void:
 	# DRIFT — a storm cell rides the LOCAL wind at its own position AND biases toward its strongest nearby
 	# convective lift, so it tracks the updraft the field grew rather than only sliding downwind.
 	if _field.has_method("wind_at") or _field.has_method("wind"):
-		var wind: Vector2 = _field.wind_at(_center.x, _center.z) if _field.has_method("wind_at") else _field.wind()
+		var wind: Vector2 = _field.wind_at(_center) if _field.has_method("wind_at") else _field.wind()
 		_center.x += wind.x * WIND_DRIFT * delta
 		_center.z += wind.y * WIND_DRIFT * delta
 	var lift_dir: Vector2 = _lift_gradient()

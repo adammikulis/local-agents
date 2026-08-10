@@ -49,7 +49,7 @@ func compute() -> void:
 	var depth: int = int(_f._sphere.depth)
 	var core_r: float = float(_f._sphere.core_radius)
 	var cell_size: float = float(_f._sphere.cell_size)
-	var sea_r: float = _f.sea_level
+	var sea_r: float = _f.sea_radius()
 	# The elevation band the grain-size gradient is read over: from the sea shell up to the highest ground
 	# this planet actually has. Derived from the terrain rather than assumed, so a flatter or steeper world
 	# still spans the same range of materials.

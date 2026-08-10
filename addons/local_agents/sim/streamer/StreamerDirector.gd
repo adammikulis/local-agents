@@ -170,7 +170,7 @@ func _take_sample() -> void:
 	if tree == null:
 		return
 	var mat = _world.get("_material") if _world != null else null
-	var sea: float = float(mat.sea_level) if mat != null and mat.get("sea_level") != null else 0.0
+	var sea: float = float(mat.sea_radius()) if mat != null and mat.has_method("sea_radius") else 0.0
 	var species_counts: Dictionary = {}
 	var states: Dictionary = {}
 	var species_states: Dictionary = {}   # species -> {state -> count}

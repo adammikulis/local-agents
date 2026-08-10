@@ -170,7 +170,7 @@ func _draw_paths() -> void:
 func _draw_wind() -> void:
 	if _field == null or not _field.has_method("wind_at"):
 		return
-	var y: float = _field.sea_level + 48.0     # a plane above most terrain so the arrows read clearly
+	var y: float = _field.sea_radius() + 48.0  # a shell above most terrain so the arrows read clearly
 	var ext: float = _field.grid_half_extent() if _field.has_method("grid_half_extent") else 300.0
 	var step: float = ext * 2.0 / float(WIND_GRID)
 	# Map local speed (m/s-ish) to arrow length so slow air draws short stubs and jets draw long arrows.
@@ -182,7 +182,7 @@ func _draw_wind() -> void:
 		for gz in range(WIND_GRID):
 			var wx: float = -ext + (float(gx) + 0.5) * step
 			var wz: float = -ext + (float(gz) + 0.5) * step
-			var w: Vector2 = _field.wind_at(wx, wz)
+			var w: Vector2 = _field.wind_at(Vector3(wx, y, wz))
 			var speed: float = w.length()
 			if speed < 0.02:
 				continue

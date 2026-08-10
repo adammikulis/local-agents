@@ -216,7 +216,7 @@ func _physics_process(delta: float) -> void:
 	# each twister tracks its own path instead of moving in lockstep.
 	var wind: Vector2 = Vector2.ZERO
 	if _field != null and _field.has_method("wind_at"):
-		wind = _field.wind_at(_base.x, _base.z)
+		wind = _field.wind_at(_base)
 	elif _field != null and _field.has_method("wind"):
 		wind = _field.wind()
 	_wind_dir = wind

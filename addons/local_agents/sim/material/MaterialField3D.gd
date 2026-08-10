@@ -187,7 +187,17 @@ func point_to_field(world_pos: Vector3) -> Vector3:
 	return _origin + _body_basis_inv * (world_pos - _origin)
 
 
-var sea_level: float = 0.0
+## Radius of the sea shell. `sea_level` — a flat-world world-Y — is DELETED: it was declared here and never
+## assigned by anything in the sim path (VoxelTerrainService._sea_level is a different object), so every
+## consumer that thought it was measuring height above the sea was measuring height above the planet CENTRE.
+## MaterialFieldRegolith3D even named its local `sea_r`, wanting exactly this and reading a Y of 0, which
+## collapsed the grain-size gradient and gave Kozeny-Carman ONE permeability planet-wide — the opposite of
+## that module's whole thesis. Everything here is radial; there is no world-Y on a sphere.
+func sea_radius() -> float:
+	if _terrain != null and _terrain.has_method("sea_radius"):
+		return float(_terrain.sea_radius())
+	return 0.0
+
 var _half_extent: float = 0.0
 
 # --- Frame loop + rendering -------------------------------------------------
@@ -195,7 +205,7 @@ const STEP_HZ: float = 10.0
 const STEP_DT: float = 1.0 / STEP_HZ
 const MAX_STEPS_PER_FRAME: int = 2
 const RENDER_MIN: float = 0.08            # min water mass in a cell for its top face to render
-const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of sea_level are left to the ocean plane
+const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of the sea shell are left to the ocean plane
 var _step_accum: float = 0.0
 var _ready_sim: bool = false
 var _seal = null
@@ -696,9 +706,11 @@ func set_plate_motion(table: PackedFloat32Array) -> void:
 func wind() -> Vector2:
 	return _queries.wind()
 
-## LOCAL horizontal wind (world XZ) at a point — the emergent GPU velocity read back into `_vel_*`.
-func wind_at(x: float, z: float) -> Vector2:
-	return _queries.wind_at(x, z)
+## LOCAL horizontal wind at a world POINT, as the tangential drift in world XZ — the emergent GPU velocity
+## read back into `_vel_*`. Takes a 3D point: the old (x, z) form sampled `sea_level + 40`, and sea_level was
+## never assigned, so every storm read its steering wind from a cell 40 units off the planet's centre.
+func wind_at(world_pos: Vector3) -> Vector2:
+	return _queries.wind_at(world_pos)
 
 ## Radial vorticity (air SPIN about local up) at a world point — storm actors track/scale off the emergent vortex.
 func vorticity_at(pos: Vector3) -> float:

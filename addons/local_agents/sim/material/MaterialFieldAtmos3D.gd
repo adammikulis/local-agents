@@ -122,17 +122,17 @@ func field_cover_texture() -> Texture2DArray:
 
 func atmos_cloud_base_r() -> float:
 	_ensure_cover_baker()
-	return _cover_baker.cloud_base_r() if _cover_baker != null else _f.sea_level + 62.0
+	return _cover_baker.cloud_base_r() if _cover_baker != null else _f.sea_radius() + 62.0
 
 
 func atmos_fog_top_r() -> float:
 	_ensure_cover_baker()
-	return _cover_baker.fog_top_r() if _cover_baker != null else _f.sea_level + 16.0
+	return _cover_baker.fog_top_r() if _cover_baker != null else _f.sea_radius() + 16.0
 
 
 func atmos_fog_lo_r() -> float:
 	_ensure_cover_baker()
-	return _cover_baker.fog_lo_r() if _cover_baker != null else _f.sea_level
+	return _cover_baker.fog_lo_r() if _cover_baker != null else _f.sea_radius()
 
 
 func atmos_outer_r() -> float:
@@ -179,11 +179,11 @@ func cloud_cell_count() -> int:
 # CloudLayer sheets — the water-particle renderer samples the baked cover texture instead. cloud_base_y/
 # fog_base_y survive as the near-ground radii the derived point queries (cloud_at/fog_at) sample at.
 func cloud_base_y() -> float:
-	return _f.sea_level + 62.0
+	return _f.sea_radius() + 62.0
 
 
 func fog_base_y() -> float:
-	return _f.sea_level + 6.0
+	return _f.sea_radius() + 6.0
 
 
 ## Relative humidity 0..1 near the ground at a world XZ column = vapor / sat(T) = min(moisture, sat)/sat.
