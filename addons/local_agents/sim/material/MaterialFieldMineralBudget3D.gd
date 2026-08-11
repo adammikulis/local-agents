@@ -92,50 +92,56 @@ func report(step_index: int) -> Dictionary:
 	var solid_cells: int = 0
 	var crust_moved: float = 0.0
 	var has_ref: bool = _rock_ref.size() == cc
+	# VOLUME-WEIGHTED, IN CUBIC METRES — same reason as MaterialFieldElementInventory3D. mol_per_unit() is
+	# mol/m^3, so a dimensionless sum times it is not moles. Note `crust_moved` stays UNWEIGHTED below: it
+	# counts how far rock_fill has travelled as a fraction, which is a measure of churn, not of matter.
+	var grid = _f._sphere
+	var have_grid: bool = grid != null and grid.cell_count == cc
 	for c in cc:
 		var is_open: bool = solid[c] == 0
+		var vol: float = LAFieldTotals.cell_volume_m3(grid, c) if have_grid else 1.0
 		if not is_open:
 			solid_cells += 1
 		if has_rock:
-			var v0: float = rock[c]
+			var v0: float = rock[c] * vol
 			rock_all += v0
 			if is_open:
 				rock_open += v0
 			if has_ref:
-				crust_moved += absf(v0 - _rock_ref[c])
+				crust_moved += absf(rock[c] - _rock_ref[c])
 		if has_lava:
-			var v1: float = lava[c]
+			var v1: float = lava[c] * vol
 			lava_all += v1
 			if is_open:
 				lava_open += v1
 		if has_sed:
-			var v2: float = sed[c]
+			var v2: float = sed[c] * vol
 			sed_all += v2
 			if is_open:
 				sed_open += v2
 		if has_susp:
-			var v3: float = susp[c]
+			var v3: float = susp[c] * vol
 			susp_all += v3
 			if is_open:
 				susp_open += v3
 		if has_dust:
-			var v4: float = dust[c]
+			var v4: float = dust[c] * vol
 			dust_all += v4
 			if is_open:
 				dust_open += v4
-			if v4 > LAMaterialFieldQueries3D.DUST_PRESENT:
+			if dust[c] > LAMaterialFieldQueries3D.DUST_PRESENT:
 				dusty_cells += 1
 		if has_carb:
-			var v5: float = carb[c]
+			var v5: float = carb[c] * vol
 			carb_all += v5
 			if is_open:
 				carb_open += v5
 			# CARBONATE-BEARING CELLS. A total alone cannot say whether the sink ran weakly everywhere or hard
 			# in a few places, and "where does the weathering happen" is the question a carbon sink raises.
-			if v5 > 0.0:
+			if carb[c] > 0.0:
 				carb_cells += 1
 		if has_silica:
-			var v6: float = silica[c]
+			var v6: float = silica[c] * vol
 			silica_all += v6
 			if is_open:
 				silica_open += v6
