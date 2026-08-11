@@ -33,8 +33,9 @@ const INNER_CORE_C: float = 5200.0
 const CORE_MANTLE_BOUNDARY_C: float = 3700.0
 const UPPER_MANTLE_C: float = 1300.0
 
-# --- UPPER CRUST: THE GEOTHERM A SURFACE SIMULATION ACTUALLY NEEDS ------------------------------------------
-const GEOTHERMAL_GRADIENT_C_PER_KM: float = 60.0
+# --- UPPER CRUST ------------------------------------------------------------------------------------------
+# Conductive geotherm, K/m. Fourier: dT/dz = q / lambda, from the two measured constants below.
+const GEOTHERMAL_GRADIENT_C_PER_M: float = GEOTHERMAL_FLUX_W_M2 / THERMAL_CONDUCT_ROCK_W_MK
 
 const GROUNDWATER_CIRCULATION_M: float = 2000.0
 
@@ -220,6 +221,13 @@ const AIR_MOLE_FRAC_CO2: float = 0.000419   # NOAA GML global annual mean, 2023
 # ============================================================================================================
 const METRES_PER_MODEL_UNIT: float = 168.6
 
+
+## Model units to metres. One scale, not a horizontal/vertical pair: the field is laid on a cubed sphere,
+## where the radial stack and the lateral arc are the same coordinate (LASphereGrid.cell_volume returns
+## solid_angle * (ro^3 - ri^3) / 3, a model-unit volume that becomes m^3 under one factor cubed).
+static func model_units_to_metres(u: float) -> float:
+	return u * METRES_PER_MODEL_UNIT
+
 # Dry air, from the mole fractions above and the molar masses above. M_air = sum(x_i * M_i) — a real
 # weighted mean, not a stored 0.02896 whose derivation lives in a comment.
 const MOLAR_MASS_DRY_AIR_KG_MOL: float = \
@@ -246,8 +254,8 @@ const SCALE_HEIGHT_PER_K_MODEL: float = DRY_AIR_GAS_CONSTANT_J_KGK / STANDARD_GR
 
 
 static func air_units_to_pascals(column_air_units: float, cell_size_model_units: float) -> float:
-	var cell_m: float = cell_size_model_units * METRES_PER_MODEL_UNIT
-	return STANDARD_GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * cell_m * column_air_units
+	return STANDARD_GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * model_units_to_metres(cell_size_model_units) \
+		* column_air_units
 # ============================================================================================================
 
 # --- ORGANIC MATTER: THE CARBON-TO-NITROGEN RATIO ---------------------------------------------------------

@@ -1,13 +1,9 @@
 class_name LAMaterialFieldGeotherm3D
 extends RefCounted
 
-## LAMaterialFieldGeotherm3D: the planet's internal heat. A geotherm SEEDED as an initial condition, plus a
-## Rock's thermal diffusivity is LAPhysical.THERMAL_DIFFUSIVITY_ROCK_M2_S = 1.026e-6 m^2/s. A thermal front
-## LAPhysical.GROUNDWATER_CIRCULATION_M = 2 km. So
-##     exaggeration  = GROUNDWATER_CIRCULATION_M / (REGOLITH_CELLS * cell_size) = 2000 / 64 = 31.25
-## thing: its measured 0.087 W/m^2 (LAPhysical.GEOTHERMAL_FLUX_W_M2) is ~27x what pure conduction through
-## flux was a constant by construction: 2.5 * (5200 - 15) / 340 = 38.125 W/m^2 in every run, to the last
-## draws. It was a clock, not a coupling. It was also inert: 38 W/m^2 into a 16 m rock cell is 4.2e-5 C per
+## LAMaterialFieldGeotherm3D: the planet's internal heat — a finite reservoir that seeds a conductive
+## geotherm through the solid column and supplies the base of the shell across a conduction bond.
+## Grid lengths are MODEL UNITS; every SI quantity here converts through LAPhysical.model_units_to_metres.
 
 
 const DISARM_ENV: String = "LA_NO_GEOTHERM"
@@ -24,7 +20,7 @@ var _shell_cells: PackedInt32Array = PackedInt32Array()   # r == 0 cells (the sh
 # --- the seeded geotherm -----------------------------------------------------------------------------------
 var _boundary_seed: float = 0.0      # ghost-cell temperature at arming, on the reference geotherm
 var _boundary_c: float = 0.0         # ...and now, scaled by how far the reservoir has cooled
-var _grad_c_per_m: float = 0.0       # the reference geotherm's gradient, deg C per model metre
+var _grad_c_per_m: float = 0.0       # the reference geotherm's gradient, deg C per REAL metre
 var _seeded_cells: int = 0
 
 # --- per-step outputs (published to the GPU and to SIM_REPORT) ---------------------------------------------
@@ -68,8 +64,8 @@ func step() -> void:
 	var grid: RefCounted = _f.sphere_grid()
 	if grid == null:
 		return
-	var cell_size: float = float(grid.cell_size)
-	if cell_size <= 0.0:
+	var cell_m: float = LAPhysical.model_units_to_metres(float(grid.cell_size))
+	if cell_m <= 0.0:
 		return
 
 	var shell_sum: float = 0.0
@@ -84,23 +80,19 @@ func step() -> void:
 		return
 	_shell_c = shell_sum / float(shell_n)
 
-	# seeded profile this is exactly lambda * the geotherm's gradient, 2.5 * 1.875 = 4.69 W/m^2. That is 54x
-	# mean (2.5 * 0.06 = 0.15 W/m^2 against 0.087). 0.15 * 31.25 / 0.087 = 54. Nothing else is in it.
-	_flux_w_m2 = LAPhysical.THERMAL_CONDUCT_ROCK_W_MK * (_boundary_c - _shell_c) / cell_size
-	_flux_dt = _flux_w_m2 * real_seconds_per_step() / (LAHeatCapacity.pure_rock() * cell_size)
+	# Fourier across one cell: W/m^2, then the degrees it adds to ONE r == 0 cell over a step.
+	_flux_w_m2 = LAPhysical.THERMAL_CONDUCT_ROCK_W_MK * (_boundary_c - _shell_c) / cell_m
+	_flux_dt = _flux_w_m2 * real_seconds_per_step() / (LAHeatCapacity.pure_rock() * cell_m)
 
-	# The reservoir pays for it. (The cubed-sphere's r = 0 cells are not exactly dx^2 in area — summed they
-	# come to about 8% more than 4*pi*core_radius^2 at res 32, the gnomonic area distortion — so the debit is
-	# that much conservative. It is a discretisation error of the grid, not of this model.)
+	# The reservoir pays for it, in units of its own cell-equivalent thermal mass.
 	_core_temp -= _flux_dt * float(shell_n) / _cell_equiv
-	# ...and radioactive decay pays a little back. This is the term that keeps a real planet's interior hot
-	# for 4.5 Gyr, and at this body's size it is utterly negligible against the loss — which is exactly why
-	# asteroids are cold rock and planets are not. It is here because it is real, not because it is visible.
+	# Radiogenic decay pays a little back. W/kg over J/kg/K is K/s.
 	_core_temp += (LAPhysical.RADIOGENIC_W_PER_KG / LAPhysical.ROCK_SPECIFIC_HEAT_J_KGK) * real_seconds_per_step()
-	# The interior convects, so its whole adiabat rises and falls together: the ghost cell at the top of it
-	# carries the same fractional change as the bulk.
-	if _armed_temp > 0.0:
-		_boundary_c = _boundary_seed * (_core_temp / _armed_temp)
+	# The interior convects: the ghost cell at the top of the adiabat carries the bulk's fractional change.
+	# The fraction is a ratio of ABSOLUTE temperatures; a ratio of Celsius readings is not a ratio.
+	if _armed_temp + LAPhysical.KELVIN_OFFSET > 0.0:
+		var fall: float = (_core_temp + LAPhysical.KELVIN_OFFSET) / (_armed_temp + LAPhysical.KELVIN_OFFSET)
+		_boundary_c = (_boundary_seed + LAPhysical.KELVIN_OFFSET) * fall - LAPhysical.KELVIN_OFFSET
 	_steps += 1
 	if _steps == 1:
 		_flux_min = _flux_w_m2
@@ -118,7 +110,6 @@ func step() -> void:
 
 
 ## Real seconds one field step represents — the field's ONE clock, owned by the module that owns STEP_DT.
-## kernel disagreed with both. One derivation, four readers.
 func real_seconds_per_step() -> float:
 	return LAMaterialFieldSphereStep3D.real_seconds_per_step()
 
@@ -170,12 +161,10 @@ func _seed_profile() -> int:
 		return 0
 	var depth: int = int(grid.depth)
 	var surf_count: int = int(grid.surf_count)
-	var cell_size: float = float(grid.cell_size)
-	if depth <= 0 or surf_count <= 0 or cell_size <= 0.0:
+	var cell_m: float = LAPhysical.model_units_to_metres(float(grid.cell_size))
+	if depth <= 0 or surf_count <= 0 or cell_m <= 0.0:
 		return 0
-	_grad_c_per_m = _derive_gradient(cell_size)
-	if _grad_c_per_m <= 0.0:
-		return 0
+	_grad_c_per_m = LAPhysical.GEOTHERMAL_GRADIENT_C_PER_M
 	var ambient: float = float(_f.INITIAL_TEMP)
 	var n: int = 0
 	var base_sum: float = 0.0
@@ -194,20 +183,12 @@ func _seed_profile() -> int:
 			if _f._solid[c] == 0:
 				continue
 			# Depth of this cell's CENTRE below the top face of the column's outermost rock cell.
-			var t: float = ambient + _grad_c_per_m * (float(surf_r - r) + 0.5) * cell_size
+			var t: float = ambient + _grad_c_per_m * (float(surf_r - r) + 0.5) * cell_m
 			_f._temp[c] = t
 			n += 1
 			if r == 0:
 				base_sum += t
 				base_n += 1
-	_boundary_seed = ((base_sum / float(base_n)) if base_n > 0 else ambient) + _grad_c_per_m * cell_size
+	_boundary_seed = ((base_sum / float(base_n)) if base_n > 0 else ambient) + _grad_c_per_m * cell_m
 	_boundary_c = _boundary_seed
 	return n
-
-
-func _derive_gradient(cell_size: float) -> float:
-	var band_m: float = float(LAMaterialField3D.REGOLITH_CELLS) * cell_size
-	if band_m <= 0.0:
-		return 0.0
-	var exaggeration: float = LAPhysical.GROUNDWATER_CIRCULATION_M / band_m
-	return (LAPhysical.GEOTHERMAL_GRADIENT_C_PER_KM / 1000.0) * exaggeration
