@@ -120,8 +120,14 @@ const LOCI: Array = [
 	# highest-dominance males (LACreatureReproduction) → the gene is under sexual selection and a lineage visibly
 	# brightens over generations. Claimed from a reserved locus, so the strand length is unchanged.
 	["display", "gene", 2, 0.0, 1.0],
-	["_reserved_2", "reserved", 2, 0.0, 1.0],
-	["_reserved_3", "reserved", 2, 0.0, 1.0],
+	# THERMAL NICHE — where this genome's enzymes work best, and how wide a range they tolerate. Heritable,
+	# so an ice cap or a hot spring selects the optimum toward itself and a seasonal band selects for width.
+	# Both envelopes are LAPhysical's rather than anybody's: an optimum may sit anywhere liquid water and
+	# intact protein overlap, and tolerance is a FRACTION of that envelope's half-range, not a °C somebody
+	# picked. Tolerance 0 is a legal genome that cannot function at any temperature and dies at once.
+	# Claimed from reserved loci, so strand length and every following offset are unchanged.
+	["thermal_optimum_c", "gene", 2, LAPhysical.WATER_FREEZE_C, LAPhysical.PROTEIN_DENATURE_C],
+	["thermal_tolerance", "gene", 2, 0.0, 1.0],
 	["_reserved_4", "reserved", 2, 0.0, 1.0],
 	["_reserved_5", "reserved", 2, 0.0, 1.0],
 	["_reserved_6", "reserved", 2, 0.0, 1.0],
@@ -274,6 +280,14 @@ static func from_config(cfg: Dictionary) -> LADNA:
 	# condition in life's actual history and the honest default — endothermy is the derived, expensive trait and
 	# a lineage should have to be given it or evolve it. Birds and mammals declare it; everything else does not.
 	g.encode_gene("thermogenesis", float(cfg.get("thermogenesis", 0.0)))
+	# Ancestral thermal niche: a genome that declares nothing is an unspecialised GENERALIST — its optimum sits
+	# at the middle of the envelope and it spans all of it (tolerance 1.0). That is the least assertive prior
+	# available, not a comfort range anybody measured: it claims no adaptation and lets the planet narrow the
+	# lineage. A zero here would be a genome that cannot function at any temperature, which is a legal genome
+	# but a terrible default, and _blank_strand() is zero-filled, so both loci MUST be encoded explicitly.
+	g.encode_gene("thermal_optimum_c", float(cfg.get("thermal_optimum_c",
+		(LAPhysical.WATER_FREEZE_C + LAPhysical.PROTEIN_DENATURE_C) * 0.5)))
+	g.encode_gene("thermal_tolerance", float(cfg.get("thermal_tolerance", 1.0)))
 	g.encode_gene("scent_acuity", float(cfg.get("scent_acuity", 0.5)))
 	g.encode_gene("taste_sensitivity", float(cfg.get("taste_sensitivity", 0.5)))
 	g.encode_gene("constitution", float(cfg.get("constitution", 1.2)))   # healthy immune default; epidemics select it up

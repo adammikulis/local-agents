@@ -311,6 +311,16 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_no_silent_fallback.sh ($rc_fallback)"
       exit 1
     fi
+    # Gate: the same defect in duck-type form — a has_method() probe on the substrate standing a literal in
+    # for a reading it could not take. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_no_invented_fallback.sh"
+    rc_invented=$?
+    set -e
+    if [[ $rc_invented -ne 0 ]]; then
+      echo "LINT_FAIL: check_no_invented_fallback.sh ($rc_invented)"
+      exit 1
+    fi
     set +e
     "$SCRIPT_DIR/check_sphere_grid.sh"
     rc_grid=$?

@@ -104,12 +104,9 @@ func _warm_ocean_fraction() -> float:
 		var px: float = _center.x + cos(a) * (EYE_RADIUS + OUTER_RADIUS) * 0.5
 		var pz: float = _center.z + sin(a) * (EYE_RADIUS + OUTER_RADIUS) * 0.5
 		total += 1
-		var is_ocean: bool = _field.has_method("is_ocean_at") and _field.is_ocean_at(Vector3(px, _center.y, pz))
-		if not is_ocean:
+		if not _field.is_ocean_at(Vector3(px, _center.y, pz)):
 			continue
-		var t: float = 20.0
-		if _field.has_method("temp_at"):
-			t = float(_field.temp_at(Vector3(px, _center.y, pz)))
+		var t: float = float(_field.temp_at(Vector3(px, _center.y, pz)))
 		if t >= WARM_OCEAN_TEMP:
 			warm_ocean += 1
 	return float(warm_ocean) / float(maxi(1, total))

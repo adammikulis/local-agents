@@ -77,6 +77,8 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	# RESPIRATORY ANATOMY, expressed before the body ledger because the ledger's derived rates read it.
 	c.respiratory_capacity = float(config.get("respiratory_capacity", c.respiratory_capacity))
 	c.thermogenesis = float(config.get("thermogenesis", c.thermogenesis))
+	c.thermal_optimum_c = float(config.get("thermal_optimum_c", c.thermal_optimum_c))
+	c.thermal_tolerance = float(config.get("thermal_tolerance", c.thermal_tolerance))
 	# HP scales with body size: a bigger animal endures more before a blast kills it.
 	c.max_health = float(config.get("max_health", 30.0 + c.size * 120.0))
 	c.health = c.max_health
@@ -134,7 +136,7 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	# animal spawned on a cold night straight into a metabolic deficit before it had drawn a breath. Newton
 	# cooling then carries it to wherever its thermogenesis and its surroundings actually put it, within one
 	# thermal time constant (moments for a beetle, minutes for a whale).
-	c.body_temp = LACreatureRespiration.band_optimum_c()
+	c.body_temp = LACreatureRespiration.band_optimum_c(c)
 	c._target_altitude = c.cruise_height
 	c.state = "cruise" if c.can_fly else "wander"
 	c._poop_cd = randf_range(20.0, 45.0)

@@ -65,17 +65,16 @@ static func family_id(c) -> int:
 
 
 ## Full welfare-sense snapshot for reinforcement: {health, fear, o2, temp}. Encapsulates the actor's
-## PRIVATE breath/panic/material coupling so LACognition need not know the field names. `temp_fallback`
-## is returned when the actor has no material field to probe (keeps the brain's last-known ambient).
-## Behaviour is identical to the direct field reads it replaces.
-static func senses(c, temp_fallback: float) -> Dictionary:
+## PRIVATE breath/panic/material coupling so LACognition need not know the field names. `temp` is absent
+## from the returned dictionary when the actor has no material field: there is no ambient to sense.
+static func senses(c) -> Dictionary:
 	var o2: float = 1.0
 	if c.breath_capacity > 0.0:
 		o2 = clampf(c._breath / c.breath_capacity, 0.0, 1.0)
-	var temp: float = temp_fallback
-	if c._material != null and c._material.has_method("temp_at"):
-		temp = c._material.temp_at(c.global_position)
-	return {"health": c.health, "fear": c._panic_timer, "o2": o2, "temp": temp}
+	var out: Dictionary = {"health": c.health, "fear": c._panic_timer, "o2": o2}
+	if c._material != null:
+		out["temp"] = float(c._material.temp_at(c.global_position))
+	return out
 
 
 ## Same-species neighbours in the scene tree (the social-learning scan pool). The group-naming convention

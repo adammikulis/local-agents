@@ -104,7 +104,7 @@ var _last_hydration: float = -1.0
 var _last_health: float = -1.0            # HP at the last decision — a drop since = damage taken (aversive)
 var _last_fear: float = 0.0               # panic/fear level at the last decision — a rise since = dread (aversive)
 var _last_o2: float = 1.0                 # breath fraction (0..1) at the last decision — low = suffocating
-var _last_temp: float = 15.0             # ambient °C at the last decision — outside comfort band = discomfort
+var _last_temp: float = NAN              # ambient °C at the last decision; NAN until one has been sensed
 var _last_veto: bool = false             # did the last decide() REFUSE a learned-lethal action? (Creature reads this to retreat)
 var _last_was_fallback: bool = false     # was _last_action a veto REDIRECT (not a free choice)? gates the durability guard
 
@@ -290,7 +290,7 @@ func _record_choice(action: String, how: String, sig: Dictionary) -> void:
 ## called once per decision, which is already throttled — no per-frame or neighbour scan. Returns
 ## {health, fear, o2, temp}: HP, the panic/fear level, the breath fraction in-medium, and ambient °C.
 func _sample_senses(c) -> Dictionary:
-	return LACognizerAdapter.senses(c, _last_temp)
+	return LACognizerAdapter.senses(c)
 
 
 ## Reward the last action by how the creature's WHOLE welfare changed since (Half A). Energy + hydration
@@ -325,7 +325,7 @@ func _reinforce(c, senses: Dictionary) -> void:
 	var breath_frac: float = minf(_last_o2, float(senses.get("o2", 1.0)))
 	aversive += clampf((1.0 - breath_frac) * W_O2, 0.0, TERM_CAP)
 	# Temperature: the worst deviation outside the comfort band across the interval (cold snap / heat).
-	var dev: float = maxf(_comfort_deviation(_last_temp), _comfort_deviation(float(senses.get("temp", _last_temp))))
+	var dev: float = maxf(_comfort_deviation(_last_temp, c), _comfort_deviation(float(senses.get("temp", _last_temp)), c))
 	aversive += clampf(dev * W_TEMP, 0.0, TERM_CAP)
 
 	var reward: float = clampf(appetitive - aversive, -1.0, 1.0)
@@ -354,8 +354,10 @@ func _reinforce(c, senses: Dictionary) -> void:
 # actually suffers and the aversion the mind learns are the SAME curve and cannot drift apart.
 #
 # The signal is bounded and smooth, so a mind can grade a mild chill against a lethal one.
-func _comfort_deviation(t: float) -> float:
-	return 1.0 - LACreatureRespiration.temp_band(t)
+func _comfort_deviation(t: float, c) -> float:
+	if is_nan(t):
+		return 0.0                       # never sensed an ambient: no discomfort to feel
+	return 1.0 - LACreatureRespiration.temp_band(t, c)
 
 
 # Drive urgency in [0,1]: how hard hunger OR thirst is pushing this creature right now (fractional deficit).

@@ -112,12 +112,10 @@ func touch_down(point: Vector3) -> void:
 
 func get_inspector_payload() -> Dictionary:
 	var lines: Array = []
-	var over_ocean: bool = _field != null and _field.has_method("is_ocean_at") and _field.is_ocean_at(_base)
+	var over_ocean: bool = _field != null and _field.is_ocean_at(_base)
 	lines.append("Status: %s" % ("waterspout" if over_ocean else "tornado"))
 	lines.append("Strength: %.0f%%" % (_strength / STRENGTH_MAX * 100.0))
-	var spin: float = 0.0
-	if _field != null and _field.has_method("vorticity_at"):
-		spin = _field.vorticity_at(_base)
+	var spin: float = _field.vorticity_at(_base) if _field != null else 0.0
 	lines.append("Spin (vorticity): %.2f" % spin)
 	lines.append("Fuel (warm+humid): %.0f%%" % (_fuel() * 100.0))
 	lines.append("Age: %.0fs / %.0fs" % [_age, LIFETIME_MAX])
@@ -128,18 +126,13 @@ func get_inspector_payload() -> Dictionary:
 # the tornado's whole life arc falls out of this local sample of the atmosphere at its foot.
 func _fuel() -> float:
 	if _field == null:
-		return 0.5
-	var t: float = 15.0
-	if _field.has_method("temp_at"):
-		t = float(_field.temp_at(_base))
-	var rh: float = 0.5
-	if _field.has_method("relative_humidity_at"):
-		rh = float(_field.relative_humidity_at(_base.x, _base.z))
+		push_error("Tornado has no material field: there is no atmosphere to draw fuel from.")
+		return 0.0
+	var t: float = float(_field.temp_at(_base))
+	var rh: float = float(_field.relative_humidity_at(_base.x, _base.z))
 	var warm: float = clampf((t - 8.0) / 24.0, 0.0, 1.0)          # 8°C → starved, 32°C → full
 	var humid: float = clampf(rh, 0.0, 1.2)
-	var ocean: float = 0.0
-	if _field.has_method("is_ocean_at") and _field.is_ocean_at(_base):
-		ocean = 1.0                                              # endless moisture over warm water
+	var ocean: float = 1.0 if _field.is_ocean_at(_base) else 0.0
 	return clampf(0.5 * warm + 0.55 * humid + 0.22 * ocean, 0.0, 1.0)
 
 

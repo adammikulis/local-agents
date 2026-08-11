@@ -44,6 +44,10 @@ var body_temp: float = 20.0                 # °C of the BODY, not the air. Newt
                                             # oxidation releases. An ectotherm tracks ambient because its
                                             # thermogenesis gene is ~0, not because of any branch.
 var respiratory_capacity: float = 1.0       # heritable gas-exchange surface packed into the body's area
+var thermal_optimum_c: float = (LAPhysical.WATER_FREEZE_C + LAPhysical.PROTEIN_DENATURE_C) * 0.5
+                                            # heritable: the body temperature this genome's enzymes work best at.
+var thermal_tolerance: float = 1.0          # heritable: how much of the liquid-water/protein envelope it spans,
+                                            # as a fraction. 0 is a genome that cannot function at all.
 var thermogenesis: float = 0.0              # heritable: how hard the body raises oxygen throughput when cold.
                                             # 0 IS an ectotherm; high IS an endotherm. One continuum, no flag.
 var _resp_capacity: float = 0.0             # last tick's AEROBIC CAPACITY per second (what the body's surface and

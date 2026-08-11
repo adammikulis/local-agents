@@ -199,6 +199,40 @@ next sentence has to say whether you are going to.
 that is already known wrong, the failure has already happened — and it is the same mechanism as RULE 2:
 not refusal, but a locally plausible reason why the obvious change does not apply *here*.
 
+# RULE 4 — WHEN A DELETION BREAKS A REFERRER, FIX THE REFERRER. NEVER RESTORE WHAT YOU DELETED.
+
+**This is the mechanism that gets past Rules 1, 2 and 3, and it has a precise trigger you cannot miss:
+you delete something, and a gate goes red because something else referenced it.** At that instant there
+are exactly two repairs. FORWARD: go to the referrer and decide what it should do now. BACKWARD: put the
+deleted thing back. Backward is always smaller, always turns the light green faster, and always ends with
+the code you convicted still running.
+
+**The gates make this WORSE, and that is not a reason to have fewer gates — it is the reason for this
+rule.** A red gate creates pressure to make it green by the minimum edit, and the minimum edit is the
+revert. Optimising for the light is how a conviction gets quietly withdrawn.
+
+**THE REFRAME, and it is the whole rule: a reference error after a deletion is not a rejection. It is the
+LIST of everything that depended on the thing you just convicted.** It is a work queue. The compiler just
+did the grep for you. Read it as "here are the five callers you now have to judge", never as "put it back".
+
+**A DELETION IS NOT FINISHED WHEN THE GATE IS GREEN. It is finished when every referrer has been
+individually judged** — fixed, deleted, or explicitly kept with a stated reason for why that one is right.
+"The build passes" is not one of the three.
+
+**THE REQUIRED OUTPUT, checkable in the moment:** before writing any repair, say what the referrer DOES and
+whether it should exist. If you cannot say it, you have not looked, and you are about to revert.
+
+*(Written 2026-08-11. `Fish.gd` computed a fish's metabolism from an invented 20 °C whenever a duck-typed
+probe missed, so the guard came out and `water_c` with it. `Fish.gd:597` still referenced `water_c` to pick
+between "hyperthermia" and "hypothermia"; the parse gate went red; the variable went straight back in
+without the referrer ever being read. It turned out to be correct — but that was luck, established
+afterwards, and one line further down sat the real find: the thermal band it labels gives every one of
+~28 species one optimum and one lethal pair, derived from water's freezing point and generic protein
+denaturation. That is the exact defect CLAUDE.md already records as fixed when `WARM_COMFORT`/`LETHAL_COLD`
+were deleted — the values went and the shape stayed. Reverting a deletion is how you walk past the thing
+you were about to find. The maintainer, watching it happen again: "why is your instinct always to preserve
+bad, broken code simply if it is referenced elsewhere instead of fixing the elsewhere?")*
+
 # YOU MAY NOT VIOLATE PHYSICS WITHOUT EXPLICIT PERMISSION. ASK. EVERY TIME.
 
 **Any departure from real physics requires the maintainer's explicit consent, obtained BEFORE you write it.**

@@ -255,9 +255,9 @@ func _update_day_night() -> void:
 	# under the fixed sun). No clock advance / sun arc. Weather + cloud still dim the light.
 	if _planet_mode:
 		var pstorm: float = 1.0
-		if _weather != null and _weather.has_method("rain"):
+		if _weather != null:
 			pstorm = 1.0 - _weather.rain() * 0.68
-		if _material != null and _material.has_method("avg_cloud_cover"):
+		if _material != null:
 			pstorm *= 1.0 - clampf(_material.avg_cloud_cover() * 1.5, 0.0, 0.6)
 		var pup: Vector3 = Vector3.UP if absf(_sun_shine.dot(Vector3.UP)) < 0.98 else Vector3.RIGHT
 		_sun.look_at_from_position(Vector3.ZERO, _sun_shine, pup)   # light travels along _sun_shine

@@ -92,7 +92,7 @@ static func tick_environment(c, pos: Vector3, delta: float) -> bool:
 	if c._material.temp_at(pos) >= COMBUST_TEMP:
 		c._combust()
 		return true
-	var over: float = float(c.body_temp) - LACreatureRespiration.band_optimum_c()
+	var over: float = float(c.body_temp) - LACreatureRespiration.band_optimum_c(c)
 	if over > 0.0:
 		# EVAPORATIVE LOSS SCALES WITH THE ANIMAL, like every other rate on this body: it is a multiple of the
 		# animal's own water turnover, so it is right at every body size. The water goes to the AIR — a panting

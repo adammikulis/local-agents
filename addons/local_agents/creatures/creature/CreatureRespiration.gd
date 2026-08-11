@@ -43,12 +43,12 @@ extends RefCounted
 ##    MECHANISM is absent, which is the thing this repo's rules forbid. So the honest exponent is the
 ##    geometric one, and what the substrate is missing is named here rather than papered over.
 ##
-## 3. TEMPERATURE ACTS ON THE REACTION, NOT ON THE ANIMAL. Every reaction in this substrate that has an
-##    optimum uses OPTIMUM_BAND (LAReactionDefs), and photosynthesis already does: R19 peaks at 24 °C and
-##    reaches zero at 0 °C and 48 °C. Animal biochemistry gets the same treatment and its band edges are
-##    physical facts, not a fitted comfort range: it is zero at LAPhysical.WATER_FREEZE_C (0 °C — cell water
-##    crystallises, chemistry stops) and zero at LAPhysical.PROTEIN_DENATURE_C (45 °C — animal proteins
-##    unfold). One band, derived from two measured properties of matter, for every species.
+## 3. TEMPERATURE ACTS ON THE REACTION, NOT ON THE ANIMAL, AND EACH GENOME CARRIES ITS OWN BAND. The
+##    ENVELOPE is physical and shared: no carbon chemistry runs below LAPhysical.WATER_FREEZE_C (cell water
+##    crystallises) or above LAPhysical.PROTEIN_DENATURE_C (proteins unfold). Inside it, `thermal_optimum_c`
+##    is where this genome's enzymes peak and `thermal_tolerance` is how much of the envelope it spans, both
+##    heritable loci. An ice-cap physiology and a hot-spring physiology are two points in one continuum, and
+##    which exists on this planet is what selection answers — there is no per-species tolerance anywhere.
 ##
 ## ENDOTHERM AND ECTOTHERM ARE NOT TWO MODELS. There is no thermoregulation flag and no `if ectotherm`
 ## anywhere in this file. A body has a temperature that exchanges heat with its surroundings by Newton's law
@@ -173,23 +173,32 @@ const MAX_THERMOGENESIS_GAIN: float = 12.0
 # unit conversion, and it is labelled as one.
 const METABOLIC_HEAT_K: float = 1826.9    # °C of body warming per unit extent per kg of body mass
 
-# --- TEMPERATURE BAND (derived from LAPhysical — nothing here is fitted) ----------------------------------
-# Zero at the freezing point of cell water and zero at the protein denaturation onset; peak at the midpoint.
-# Same OPTIMUM_BAND shape LAReactionDefs defines and R19 photosynthesis already uses.
-static func band_optimum_c() -> float:
-	return (LAPhysical.WATER_FREEZE_C + LAPhysical.PROTEIN_DENATURE_C) * 0.5
-
-
-static func band_width_c() -> float:
+# --- TEMPERATURE BAND (per genome; the ENVELOPE is LAPhysical's) -------------------------------------------
+# The envelope is where liquid water and intact protein overlap. A GENOME picks its optimum inside it
+# (`thermal_optimum_c`) and how much of it that genome tolerates (`thermal_tolerance`, a fraction of the
+# envelope's half-range). Nothing here is per-species: an arctic and a hot-spring physiology are two points
+# in one continuum, and which one pays on this planet is what selection decides.
+static func envelope_half_c() -> float:
 	return (LAPhysical.PROTEIN_DENATURE_C - LAPhysical.WATER_FREEZE_C) * 0.5
 
 
-## The reaction-rate factor at body temperature `t` — 1.0 at the optimum, 0 at freezing and at denaturation.
-static func temp_band(t: float) -> float:
-	var w: float = band_width_c()
+## This genome's optimum in °C, and its half-width in °C.
+static func band_optimum_c(c) -> float:
+	return float(c.get("thermal_optimum_c"))
+
+
+static func band_width_c(c) -> float:
+	return clampf(float(c.get("thermal_tolerance")), 0.0, 1.0) * envelope_half_c()
+
+
+## The reaction-rate factor at body temperature `t` for THIS creature — 1.0 at its optimum, 0 at the edges
+## of what it tolerates. A genome with zero tolerance cannot function at any temperature; that is a real
+## genome and selection removes it, so it is 0.0 here and not an exemption.
+static func temp_band(t: float, c) -> float:
+	var w: float = band_width_c(c)
 	if w <= 0.0:
-		return 1.0
-	var d: float = (t - band_optimum_c()) / w
+		return 0.0
+	var d: float = (t - band_optimum_c(c)) / w
 	return maxf(0.0, 1.0 - d * d)
 
 
@@ -251,11 +260,11 @@ static func tick(c, pos: Vector3, delta: float) -> bool:
 	c.body_temp = float(c.body_temp) + (ambient - float(c.body_temp)) * k
 
 	# --- 2. OXIDATION: Fick-limited uptake × the temperature band × what the animal is doing. -------------
-	var band: float = temp_band(float(c.body_temp))
+	var band: float = temp_band(float(c.body_temp), c)
 	# Cold drive: how far below the band optimum the body has fallen, 0..1. An animal with thermogenesis
 	# raises its oxygen throughput to meet it (shivering, brown fat, higher perfusion). At thermogenesis 0
 	# this term vanishes identically and the body is an ectotherm — no branch, no flag.
-	var cold: float = clampf((band_optimum_c() - float(c.body_temp)) / maxf(band_width_c(), 0.001), 0.0, 1.0)
+	var cold: float = clampf((band_optimum_c(c) - float(c.body_temp)) / maxf(band_width_c(c), 0.001), 0.0, 1.0)
 	var gain: float = 1.0 + MAX_THERMOGENESIS_GAIN * clampf(float(c.get("thermogenesis")), 0.0, 1.0) * cold
 	var exertion: float = 1.0
 	if c.state == "flee" or c.state == "panic" or c.state == "chase":
@@ -283,7 +292,7 @@ static func tick(c, pos: Vector3, delta: float) -> bool:
 	# Hand the transaction to the substrate: it applies the same aerobic Liebig cap the kernel applies and
 	# books O₂ → CO₂ + detritus into this cell. What comes back is what the local air could support.
 	var extent: float = want
-	if c._material != null and c._material.has_method("respire_at"):
+	if c._material != null:
 		extent = c._material.respire_at(pos, want)
 	c.energy -= extent
 	# TWO measured quantities, and the distinction is the one physiology draws between FIELD metabolic rate and

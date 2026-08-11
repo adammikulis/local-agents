@@ -96,6 +96,9 @@ var respiratory_capacity: float = 1.0 # gill surface packed into the body's area
 var aerobic_capacity: float = 0.5     # what the gills and the water could support per second, before the band
 var bite_rate: float = 1.0            # mass units a mouth can process per second
 var thermal_band: float = 1.0         # 0..1 reaction rate at the water temperature; also caps swim speed
+var thermal_optimum_c: float = (LAPhysical.WATER_FREEZE_C + LAPhysical.PROTEIN_DENATURE_C) * 0.5
+                                      # heritable: the water temperature this genome's enzymes work best at
+var thermal_tolerance: float = 1.0    # heritable: fraction of the liquid-water/protein envelope it spans
 var gut: float = 0.0                  # ingested mass awaiting assimilation (bounds a meal to the animal's gut)
 var gut_waste: float = 0.0            # kept so LACreatureBodyMass.body_mass reads one shape for every animal
 var hungry_at: float = 0.6            # forage urgently once energy drops below this fraction of max
@@ -169,6 +172,8 @@ func setup(_terrain, _mat_field, _config: Dictionary) -> void:
 	# `max_energy` / `metabolism` / `food_value` numbers are gone from the aquatic data too.
 	mass_kg = LACreatureBodyMass.mass_kg(config)
 	respiratory_capacity = float(config.get("respiratory_capacity", respiratory_capacity))
+	thermal_optimum_c = float(config.get("thermal_optimum_c", thermal_optimum_c))
+	thermal_tolerance = float(config.get("thermal_tolerance", thermal_tolerance))
 	structural_mass = LACreatureBodyMass.structural(config)
 	max_energy = LACreatureBodyMass.reserve(config)
 	energy = max_energy
@@ -582,14 +587,12 @@ func _physics_process(delta: float) -> void:
 	# reaction's own temperature band read at the water it is in — zero at the freezing point of cell water and
 	# zero at protein denaturation, both measured properties of matter (LAPhysical). Cold water genuinely slows
 	# a fish's metabolism instead of costing it energy, and past either edge the chemistry stops and it dies.
-	var water_c: float = 20.0
-	if material != null and material.has_method("temp_at"):
-		water_c = float(material.temp_at(pos))
-	thermal_band = LACreatureRespiration.temp_band(water_c)
+	var water_c: float = float(material.temp_at(pos))
+	thermal_band = LACreatureRespiration.temp_band(water_c, self)
 	metabolism = aerobic_capacity * thermal_band
 	var burned: float = metabolism * delta
 	energy -= burned
-	if burned > 0.0 and material != null and material.has_method("respire_at"):
+	if burned > 0.0:
 		material.respire_at(pos, burned)         # O₂ in, CO₂ out — a fish breathes the water it swims in
 	if energy <= 0.0:
 		die("starved")
@@ -597,7 +600,7 @@ func _physics_process(delta: float) -> void:
 	if thermal_band <= 0.0:
 		# Past an edge of the band the reaction cannot run at all. Which edge names the cause; it is one
 		# mechanism, not two rules with two thresholds.
-		die("hyperthermia" if water_c > LACreatureRespiration.band_optimum_c() else "hypothermia")
+		die("hyperthermia" if water_c > LACreatureRespiration.band_optimum_c(self) else "hypothermia")
 		return
 	# GRAZE: a filter feeder or a grazer strains the standing crop out of the water at its own cell. Same call,
 	# same debit, same shortfall accounting as a rabbit cropping grass — a whale and a rabbit are one rule, and
