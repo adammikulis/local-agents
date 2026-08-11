@@ -1,5 +1,5 @@
 extends Resource
-class_name LocalAgentsGraphRule
+class_name LocalAgentGraphRule
 
 @export var condition: Callable = Callable()
 @export var memory_threshold: float = 0.0

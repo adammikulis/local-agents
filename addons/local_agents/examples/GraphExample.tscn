@@ -1,24 +1,98 @@
-[gd_scene load_steps=3 format=3 uid="uid://chbi2t7ql1f2a"]
+[gd_scene load_steps=12 format=3 uid="uid://chbi2t7ql1f2a"]
 
-[ext_resource type="Script" path="res://addons/local_agents/examples/GraphExample.gd" id="1_wrkdr"]
-[ext_resource type="Resource" uid="uid://dij7rm8mo7ufn" path="res://addons/local_agents/graph/Graph.tres" id="2_vsos6"]
+[ext_resource type="Script" path="res://addons/local_agents/examples/GraphExample.gd" id="1_example"]
+[ext_resource type="Script" path="res://addons/local_agents/graph/Graph.gd" id="2_graph"]
+[ext_resource type="Script" path="res://addons/local_agents/graph/GraphNode.gd" id="3_node"]
+[ext_resource type="Script" path="res://addons/local_agents/graph/GraphEdge.gd" id="4_edge"]
 
-[node name="Node" type="Node"]
-script = ExtResource("1_wrkdr")
-GraphResource = ExtResource("2_vsos6")
+[sub_resource type="Resource" id="Resource_food"]
+script = ExtResource("3_node")
+id = 0
+name = "Food"
+data = {
+"nutrition": 5
+}
 
-[node name="OutputLabel" type="Label" parent="."]
-unique_name_in_owner = true
+[sub_resource type="Resource" id="Resource_poison"]
+script = ExtResource("3_node")
+id = 1
+name = "Poison"
+data = {
+"toxicity": 10
+}
+
+[sub_resource type="Resource" id="Resource_apple"]
+script = ExtResource("3_node")
+id = 2
+name = "Apple"
+data = {
+"type": "fruit"
+}
+
+[sub_resource type="Resource" id="Resource_berry"]
+script = ExtResource("3_node")
+id = 3
+name = "Oozing Berry"
+data = {
+"type": "berry"
+}
+
+[sub_resource type="Resource" id="Resource_heals"]
+script = ExtResource("4_edge")
+id = 0
+source_id = 2
+target_id = 0
+name = "heals"
+weight = 1.0
+data = {}
+
+[sub_resource type="Resource" id="Resource_hurts"]
+script = ExtResource("4_edge")
+id = 1
+source_id = 3
+target_id = 1
+name = "hurts"
+weight = 1.0
+data = {}
+
+[sub_resource type="Resource" id="Resource_graph"]
+script = ExtResource("2_graph")
+nodes = Array[ExtResource("3_node")]([SubResource("Resource_food"), SubResource("Resource_poison"), SubResource("Resource_apple"), SubResource("Resource_berry")])
+edges = Array[ExtResource("4_edge")]([SubResource("Resource_heals"), SubResource("Resource_hurts")])
+
+[node name="GraphExample" type="Node"]
+script = ExtResource("1_example")
+graph = SubResource("Resource_graph")
+
+[node name="Margin" type="MarginContainer" parent="."]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-size_flags_vertical = 3
-offset_left = 12.0
-offset_top = 12.0
-offset_right = -12.0
-offset_bottom = -12.0
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
+
+[node name="Column" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="Margin/Column"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "LocalAgentGraph, nodes and edges authored in this scene"
+
+[node name="Hint" type="Label" parent="Margin/Column"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.74, 0.8, 1)
+text = "Select the root node, open Graph in the inspector, and add or edit nodes and edges there."
 autowrap_mode = 3
-vertical_alignment = 1
-text = "Preparing graph demo..."
+
+[node name="OutputLabel" type="Label" parent="Margin/Column"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+text = "The graph summary appears here at run time."
+autowrap_mode = 3

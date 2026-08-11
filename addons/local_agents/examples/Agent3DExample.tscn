@@ -1,27 +1,37 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=10 format=3]
 
-[ext_resource type="Script" path="res://addons/local_agents/examples/Agent3DExample.gd" id="1_2r4j7"]
-[ext_resource type="PackedScene" path="res://addons/local_agents/agents/Agent3D.tscn" id="2_f6j4y"]
+[ext_resource type="PackedScene" uid="uid://c5mwm2jt53kuc" path="res://addons/local_agents/agents/Agent3D.tscn" id="1_agent3d"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/agents/ui/ChatPanel.tscn" id="2_chatpanel"]
+[ext_resource type="Script" path="res://addons/local_agents/agents/StatusLabel.gd" id="3_status"]
 
-[sub_resource type="PlaneMesh" id="PlaneMesh_50tx4"]
-size = Vector2(14, 14)
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+sky_horizon_color = Color(0.646447, 0.655741, 0.670683, 1)
+ground_horizon_color = Color(0.646447, 0.655741, 0.670683, 1)
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_u4q2t"]
+[sub_resource type="Sky" id="Sky_env"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_world"]
+background_mode = 2
+sky = SubResource("Sky_env")
+tonemap_mode = 2
+ambient_light_source = 3
+reflected_light_source = 2
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
 size = Vector3(14, 0.2, 14)
 
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+size = Vector2(14, 14)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
+albedo_color = Color(0.286275, 0.333333, 0.305882, 1)
+roughness = 0.9
+
 [node name="Agent3DExample" type="Node3D"]
-script = ExtResource("1_2r4j7")
 
-[node name="Agent3D" parent="." instance=ExtResource("2_f6j4y")]
-unique_name_in_owner = true
-
-[node name="Ground" type="StaticBody3D" parent="."]
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Ground"]
-shape = SubResource("BoxShape3D_u4q2t")
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Ground"]
-mesh = SubResource("PlaneMesh_50tx4")
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_world")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.859009, -0.246761, 0.448301, 0, 0.876727, 0.480988, -0.511962, -0.413126, 0.752907, 0, 3.69511, 0)
@@ -32,93 +42,61 @@ shadow_enabled = true
 transform = Transform3D(0.994522, 0, -0.104528, -0.0441546, 0.906279, -0.420364, 0.0947338, 0.422677, 0.901314, 0, 4.25165, 6.44524)
 current = true
 
+[node name="Ground" type="StaticBody3D" parent="."]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Ground"]
+shape = SubResource("BoxShape3D_ground")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Ground"]
+mesh = SubResource("PlaneMesh_ground")
+surface_material_override/0 = SubResource("StandardMaterial3D_ground")
+
+[node name="Agent3D" parent="." instance=ExtResource("1_agent3d")]
+unique_name_in_owner = true
+
+[node name="Agent" parent="Agent3D" index="1"]
+system_prompt = "You are a friendly character standing in a small 3D world. Answer in one or two short sentences."
+
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
-[node name="HUDPanel" type="PanelContainer" parent="CanvasLayer"]
-anchors_preset = 1
-anchor_left = 0.0
-anchor_top = 0.0
-offset_left = 16.0
-offset_top = 16.0
-offset_right = 430.0
-offset_bottom = 500.0
+[node name="Hud" type="MarginContainer" parent="CanvasLayer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
 
-[node name="HUDMargin" type="MarginContainer" parent="CanvasLayer/HUDPanel"]
+[node name="Column" type="VBoxContainer" parent="CanvasLayer/Hud"]
 layout_mode = 2
-theme_override_constants/margin_left = 10
-theme_override_constants/margin_top = 10
-theme_override_constants/margin_right = 10
-theme_override_constants/margin_bottom = 10
+size_flags_horizontal = 0
+theme_override_constants/separation = 8
 
-[node name="HUDVBox" type="VBoxContainer" parent="CanvasLayer/HUDPanel/HUDMargin"]
+[node name="Title" type="Label" parent="CanvasLayer/Hud/Column"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Agent3D, a character that thinks"
 
-[node name="TitleLabel" type="Label" parent="CanvasLayer/HUDPanel/HUDMargin/HUDVBox"]
+[node name="SetupStatus" type="Label" parent="CanvasLayer/Hud/Column"]
+custom_minimum_size = Vector2(400, 0)
 layout_mode = 2
-text = "Agent3D Runtime Demo"
-
-[node name="GuidanceLabel" type="RichTextLabel" parent="CanvasLayer/HUDPanel/HUDMargin/HUDVBox"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 86)
-layout_mode = 2
-bbcode_enabled = true
-fit_content = true
-scroll_active = false
-text = "Preparing checks..."
-
-[node name="RuntimeStatusLabel" type="Label" parent="CanvasLayer/HUDPanel/HUDMargin/HUDVBox"]
-unique_name_in_owner = true
-layout_mode = 2
+text = "Local Agents status appears here at run time."
 autowrap_mode = 3
-text = "Runtime: Checking..."
+script = ExtResource("3_status")
 
-[node name="ModelStatusLabel" type="Label" parent="CanvasLayer/HUDPanel/HUDMargin/HUDVBox"]
-unique_name_in_owner = true
-layout_mode = 2
-autowrap_mode = 3
-text = "Model file: Checking..."
-
-[node name="LoadStatusLabel" type="Label" parent="CanvasLayer/HUDPanel/HUDMargin/HUDVBox"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Runtime model: Checking..."
-
-[node name="ActionStatusLabel" type="Label" parent="CanvasLayer/HUDPanel/HUDMargin/HUDVBox"]
-unique_name_in_owner = true
-layout_mode = 2
-autowrap_mode = 3
-text = "Action: Idle"
-
-[node name="ButtonsRow" type="HBoxContainer" parent="CanvasLayer/HUDPanel/HUDMargin/HUDVBox"]
-layout_mode = 2
-
-[node name="RefreshStatusButton" type="Button" parent="CanvasLayer/HUDPanel/HUDMargin/HUDVBox/ButtonsRow"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-text = "Refresh Status"
-
-[node name="LoadModelButton" type="Button" parent="CanvasLayer/HUDPanel/HUDMargin/HUDVBox/ButtonsRow"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-text = "Load Default Model"
-
-[node name="PromptInput" type="LineEdit" parent="CanvasLayer/HUDPanel/HUDMargin/HUDVBox"]
-unique_name_in_owner = true
-layout_mode = 2
-placeholder_text = "Prompt Agent3D and press Enter"
-
-[node name="SendButton" type="Button" parent="CanvasLayer/HUDPanel/HUDMargin/HUDVBox"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Send"
-
-[node name="TranscriptLabel" type="RichTextLabel" parent="CanvasLayer/HUDPanel/HUDMargin/HUDVBox"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 160)
+[node name="Filler" type="Control" parent="CanvasLayer/Hud/Column"]
 layout_mode = 2
 size_flags_vertical = 3
-fit_content = true
-scroll_following = true
-text = ""
+mouse_filter = 2
+
+[node name="ChatPanel" parent="CanvasLayer/Hud/Column" node_paths=PackedStringArray("agent") instance=ExtResource("2_chatpanel")]
+custom_minimum_size = Vector2(400, 280)
+layout_mode = 2
+agent = NodePath("../../../../Agent3D/Agent")
+prompt_prefix = "Reply in one or two short sentences."
+greeting = "Hi! I am standing right there. Ask me something."
+
+[editable path="Agent3D"]

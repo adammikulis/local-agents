@@ -10,7 +10,13 @@ The Local Agents data layer now persists conversational memory and project knowl
 | `edges`      | Directed links between nodes with optional weights and metadata.
 | `embeddings` | Vector store aligned with nodes. Each row stores the float vector, L2 norm, JSON metadata, and timestamps.
 
-The database enables cascading deletes, WAL mode, and JSON1/FTS5 extensions for future indexing work.
+The database enables cascading deletes (`PRAGMA foreign_keys = ON` plus `ON DELETE CASCADE`), WAL mode and
+`synchronous = NORMAL` (`NetworkGraph.cpp:103-105`). Metadata queries use SQLite's built-in JSON functions
+(`json_extract`, `NetworkGraph.cpp:458`).
+*(Corrected 2026-07-29: this sentence also claimed FTS5 was enabled "for future indexing work". It is not.
+The build defines no `SQLITE_ENABLE_FTS5`, nothing in `src/` references FTS5, and enabling it would take a
+build-flag change, not a runtime pragma. Full-text search over node data is therefore unavailable today —
+`search_embeddings` is vector similarity, not text search.)*
 
 ## GDExtension API Highlights
 
@@ -31,7 +37,7 @@ if graph.open(ProjectSettings.globalize_path("user://local_agents/network.sqlite
 
 ## Conversation Store
 
-`LocalAgentsConversationStore` fronts the SQLite store. It:
+`LAConversationStore` fronts the SQLite store. It:
 
 - Creates conversations and messages as graph nodes.
 - Maintains `contains` and `sequence` edges for traversal.
@@ -43,7 +49,7 @@ if graph.open(ProjectSettings.globalize_path("user://local_agents/network.sqlite
 `addons/local_agents/graph/ProjectGraphService.gd` scans project folders and maps them into the graph:
 
 ```gdscript
-var service := LocalAgentsProjectGraphService.new()
+var service := LAProjectGraphService.new()
 service.rebuild_project_graph("res://", ["gd", "tscn"])
 var hits := service.search_code("dialogue manager", 5)
 ```

@@ -1,14 +1,14 @@
-class_name LATutorialStep
+class_name LocalAgentTutorialStep
 extends Resource
 
 ## One step in a guided tutorial: the instruction text, what on screen it points at, and the condition
-## that advances to the next step. Pure data — a typed Resource so steps can be authored in the inspector
+## that advances to the next step. Pure data: a typed Resource so steps can be authored in the inspector
 ## or built in code, then handed to an LATutorialSequencer. Game-agnostic: nothing here knows about the
-## voxel sim or any particular scene. (Explicit types only — no ':=' .)
+## voxel sim or any particular scene. (Explicit types only. No ':=' inferred typing.)
 
 ## What the step's highlight points at.
 enum TargetKind {
-	NONE,     ## no spotlight — just a centered callout (intro / outro text)
+	NONE,     ## no spotlight, just a centered callout (intro / outro text)
 	CONTROL,  ## a Control node resolved from `control_path` relative to the sequencer's target root
 	RECT,     ## a fixed screen-space Rect2 (`rect`)
 	WORLD,    ## a world-space point (`world_point`) projected to screen via the sequencer's Camera3D
@@ -18,7 +18,7 @@ enum TargetKind {
 enum Advance {
 	NEXT_BUTTON,    ## the player presses the callout's "Next" button
 	TARGET_PRESSED, ## the target Control is a BaseButton and the player presses it
-	PREDICATE,      ## `advance_predicate` (a Callable returning bool) becomes true — polled each frame
+	PREDICATE,      ## `advance_predicate` (a Callable returning bool) becomes true, polled each frame
 	SIGNAL,         ## `signal_source` emits `signal_name` (e.g. an "objective met" broadcast)
 }
 
@@ -40,8 +40,8 @@ var signal_name: StringName = &""                 ## for SIGNAL: the signal to a
 
 ## Convenience: build a step that spotlights a Control and advances when the player presses it (the
 ## common "click this button" case). `path` is relative to the sequencer's target root.
-static func for_control(path: NodePath, body: String, heading: String = "", adv: Advance = Advance.TARGET_PRESSED) -> LATutorialStep:
-	var s: LATutorialStep = LATutorialStep.new()
+static func for_control(path: NodePath, body: String, heading: String = "", adv: Advance = Advance.TARGET_PRESSED) -> LocalAgentTutorialStep:
+	var s: LocalAgentTutorialStep = LocalAgentTutorialStep.new()
 	s.target_kind = TargetKind.CONTROL
 	s.control_path = path
 	s.text = body
@@ -50,9 +50,9 @@ static func for_control(path: NodePath, body: String, heading: String = "", adv:
 	return s
 
 
-## Convenience: a text-only step (no spotlight) advanced by the Next button — intro/outro cards.
-static func message(body: String, heading: String = "") -> LATutorialStep:
-	var s: LATutorialStep = LATutorialStep.new()
+## Convenience: a text-only step (no spotlight) advanced by the Next button, for intro and outro cards.
+static func message(body: String, heading: String = "") -> LocalAgentTutorialStep:
+	var s: LocalAgentTutorialStep = LocalAgentTutorialStep.new()
 	s.target_kind = TargetKind.NONE
 	s.text = body
 	s.title = heading
@@ -61,8 +61,8 @@ static func message(body: String, heading: String = "") -> LATutorialStep:
 
 
 ## Convenience: spotlight a world-space point (projected via the sequencer camera), advance by Next.
-static func for_world(point: Vector3, body: String, heading: String = "") -> LATutorialStep:
-	var s: LATutorialStep = LATutorialStep.new()
+static func for_world(point: Vector3, body: String, heading: String = "") -> LocalAgentTutorialStep:
+	var s: LocalAgentTutorialStep = LocalAgentTutorialStep.new()
 	s.target_kind = TargetKind.WORLD
 	s.world_point = point
 	s.text = body
@@ -74,8 +74,8 @@ static func for_world(point: Vector3, body: String, heading: String = "") -> LAT
 ## Build a step from a loose dictionary (handy for JSON-authored tutorials). Recognized keys mirror the
 ## exported properties: text, title, target_kind (int or one of "none"/"control"/"rect"/"world"),
 ## control_path, rect, world_point, advance (int or "next"/"target"/"predicate"/"signal").
-static func from_dict(d: Dictionary) -> LATutorialStep:
-	var s: LATutorialStep = LATutorialStep.new()
+static func from_dict(d: Dictionary) -> LocalAgentTutorialStep:
+	var s: LocalAgentTutorialStep = LocalAgentTutorialStep.new()
 	s.text = String(d.get("text", ""))
 	s.title = String(d.get("title", ""))
 	s.target_kind = _parse_kind(d.get("target_kind", TargetKind.NONE))

@@ -16,7 +16,7 @@ OUT="${2:-$DIR/trailers/${SHOT}.avi}"
 export LA_MUSIC_SEED="${LA_MUSIC_SEED:-1234}"
 export LA_NO_STREAMER=1
 export LA_RES="${LA_RES:-1280x720}"
-SCENE="addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn"
+SCENE="addons/local_agents/game/VoxelWorld.tscn"
 echo "[trailer] shot=$SHOT out=$OUT res=$LA_RES"
 # --write-movie tells Godot to record the viewport to OUT; the director quits when the shot ends → file finalizes.
 "$DIR/scripts/run_sim_offscreen.sh" --path "$DIR" --write-movie "$OUT" "$SCENE" -- --trailer-shot="$SHOT" --sandbox

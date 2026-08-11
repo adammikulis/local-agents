@@ -1,14 +1,27 @@
-[gd_scene load_steps=3 format=3 uid="uid://c2actn0demo01"]
+[gd_scene load_steps=5 format=3 uid="uid://c2actn0demo01"]
 
 [ext_resource type="Script" path="res://addons/local_agents/examples/AgentActionsDemo.gd" id="1_actions"]
-[ext_resource type="Script" path="res://addons/local_agents/agents/Agent.gd" id="2_agentn"]
+[ext_resource type="Script" path="res://addons/local_agents/agents/Agent.gd" id="2_agent"]
+[ext_resource type="Script" path="res://addons/local_agents/agents/StatusLabel.gd" id="3_status"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/agents/ui/ChatPanel.tscn" id="4_chatpanel"]
 
 [node name="AgentActionsDemo" type="Node"]
 script = ExtResource("1_actions")
+color_words = Dictionary[String, Color]({
+"blue": Color(0.25, 0.5, 0.95, 1),
+"green": Color(0.2, 0.8, 0.3, 1),
+"orange": Color(0.95, 0.55, 0.15, 1),
+"purple": Color(0.65, 0.3, 0.85, 1),
+"red": Color(0.9, 0.2, 0.2, 1),
+"white": Color(0.9, 0.9, 0.95, 1),
+"yellow": Color(0.95, 0.85, 0.2, 1)
+})
+neutral_color = Color(0.3, 0.32, 0.4, 1)
 
 [node name="Agent" type="Node" parent="."]
 unique_name_in_owner = true
-script = ExtResource("2_agentn")
+script = ExtResource("2_agent")
+system_prompt = "You control a single glowing orb. Reply with one short instruction that names exactly one colour from red, green, blue, yellow, orange, purple or white, and add the word pulse if the orb should flash. Say nothing else."
 
 [node name="Margin" type="MarginContainer" parent="."]
 anchors_preset = 15
@@ -21,72 +34,75 @@ theme_override_constants/margin_top = 16
 theme_override_constants/margin_right = 16
 theme_override_constants/margin_bottom = 16
 
-[node name="VBox" type="VBoxContainer" parent="Margin"]
+[node name="Column" type="VBoxContainer" parent="Margin"]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="Title" type="Label" parent="Margin/VBox"]
+[node name="Title" type="Label" parent="Margin/Column"]
 layout_mode = 2
-text = "Agent drives actions"
+theme_override_font_sizes/font_size = 22
+text = "The reply becomes actions, not text"
 
-[node name="Subtitle" type="Label" parent="Margin/VBox"]
+[node name="Hint" type="Label" parent="Margin/Column"]
 layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.74, 0.8, 1)
+text = "Ask for a colour below and the agent calls enqueue_action(\"set_color\", …). The buttons call the same thing, so the loop still runs with no model installed."
 autowrap_mode = 3
-text = "The model's reply becomes game actions (set_color, pulse). The manual buttons fire the exact same actions, so the loop is visible with no model."
 
-[node name="StatusLabel" type="Label" parent="Margin/VBox"]
-unique_name_in_owner = true
+[node name="SetupStatus" type="Label" parent="Margin/Column"]
 layout_mode = 2
+text = "Local Agents status appears here at run time."
 autowrap_mode = 3
-text = "Checking runtime..."
+script = ExtResource("3_status")
 
-[node name="Orb" type="ColorRect" parent="Margin/VBox"]
+[node name="Orb" type="ColorRect" parent="Margin/Column"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(120, 120)
 layout_mode = 2
 size_flags_horizontal = 4
 color = Color(0.3, 0.32, 0.4, 1)
 
-[node name="CaptionLabel" type="Label" parent="Margin/VBox"]
+[node name="Caption" type="Label" parent="Margin/Column"]
 unique_name_in_owner = true
 layout_mode = 2
+text = "Orb colour: neutral"
 horizontal_alignment = 1
-text = "Orb color: neutral"
 
-[node name="ManualButtons" type="HBoxContainer" parent="Margin/VBox"]
-unique_name_in_owner = true
+[node name="ManualButtons" type="HBoxContainer" parent="Margin/Column"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="Red" type="Button" parent="Margin/VBox/ManualButtons"]
+[node name="RedButton" type="Button" parent="Margin/Column/ManualButtons"]
 layout_mode = 2
 text = "Red"
 
-[node name="Green" type="Button" parent="Margin/VBox/ManualButtons"]
+[node name="GreenButton" type="Button" parent="Margin/Column/ManualButtons"]
 layout_mode = 2
 text = "Green"
 
-[node name="Blue" type="Button" parent="Margin/VBox/ManualButtons"]
+[node name="BlueButton" type="Button" parent="Margin/Column/ManualButtons"]
 layout_mode = 2
 text = "Blue"
 
-[node name="Pulse" type="Button" parent="Margin/VBox/ManualButtons"]
+[node name="PulseButton" type="Button" parent="Margin/Column/ManualButtons"]
 layout_mode = 2
 text = "Pulse"
 
-[node name="Reset" type="Button" parent="Margin/VBox/ManualButtons"]
+[node name="ResetButton" type="Button" parent="Margin/Column/ManualButtons"]
 layout_mode = 2
 text = "Reset"
 
-[node name="PromptInput" type="LineEdit" parent="Margin/VBox"]
-unique_name_in_owner = true
-layout_mode = 2
-placeholder_text = "Ask the agent to change the orb (for example: make it red and pulse)"
-
-[node name="LogLabel" type="RichTextLabel" parent="Margin/VBox"]
-unique_name_in_owner = true
+[node name="ChatPanel" parent="Margin/Column" node_paths=PackedStringArray("agent") instance=ExtResource("4_chatpanel")]
 layout_mode = 2
 size_flags_vertical = 3
-bbcode_enabled = true
-fit_content = true
-text = "Actions will be logged here."
+agent = NodePath("../../../Agent")
+placeholder_text = "Ask for a colour, e.g. make it orange and pulse"
+greeting = "Tell me what to do with the orb."
+
+[connection signal="action_requested" from="Agent" to="." method="_on_agent_action_requested"]
+[connection signal="pressed" from="Margin/Column/ManualButtons/RedButton" to="." method="_on_colour_button_pressed" binds = ["red"]]
+[connection signal="pressed" from="Margin/Column/ManualButtons/GreenButton" to="." method="_on_colour_button_pressed" binds = ["green"]]
+[connection signal="pressed" from="Margin/Column/ManualButtons/BlueButton" to="." method="_on_colour_button_pressed" binds = ["blue"]]
+[connection signal="pressed" from="Margin/Column/ManualButtons/PulseButton" to="." method="_on_pulse_button_pressed"]
+[connection signal="pressed" from="Margin/Column/ManualButtons/ResetButton" to="." method="_on_reset_button_pressed"]
+[connection signal="reply_received" from="Margin/Column/ChatPanel" to="." method="_on_reply_received"]

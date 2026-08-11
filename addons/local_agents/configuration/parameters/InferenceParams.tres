@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="LocalAgentsInferenceParams" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="LocalAgentInferenceParams" load_steps=2 format=3]
 
 [ext_resource type="Script" path="res://addons/local_agents/configuration/parameters/InferenceParams.gd" id="1_t62pi"]
 
