@@ -164,13 +164,19 @@ func _totals() -> Array:
 	var d_all: float = 0.0
 	var d_open: float = 0.0
 	var solid_cells: int = 0
+	# VOLUME-WEIGHTED, IN CUBIC METRES — this probe's whole job is to say WHICH PASS gained or lost mineral,
+	# and a pass that only MOVES rock between cells of different size shows up as a gain or a loss in a flat
+	# sum. That makes the per-pass attribution point at the wrong pass, which is worse than no attribution.
+	var grid = _f._sphere
+	var have_grid: bool = grid != null and grid.cell_count == cc
 	for c in cc:
 		var is_open: bool = (not has_solid) or solid[c] == 0.0
-		var rv: float = rock[c]
-		var lv: float = lava[c]
-		var sv: float = sed[c]
-		var uv: float = susp[c]
-		var dv: float = dust[c]
+		var vol: float = LAFieldTotals.cell_volume_m3(grid, c) if have_grid else 1.0
+		var rv: float = rock[c] * vol
+		var lv: float = lava[c] * vol
+		var sv: float = sed[c] * vol
+		var uv: float = susp[c] * vol
+		var dv: float = dust[c] * vol
 		r_all += rv
 		l_all += lv
 		s_all += sv
