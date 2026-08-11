@@ -149,8 +149,9 @@ void main() {
 		if (m < 0 || solid[m] != 0.0) {
 			continue;
 		}
-		// The neighbour's send slot aimed back at us is the OPPOSITE direction: 0<->5 radial, 1<->2, 3<->4.
-		uint rev = (d == 0u) ? 5u : ((d == 5u) ? 0u : (d ^ 1u));
+		// The neighbour's send slot aimed back at us. The table is RECIPROCAL IN THE OPPOSITE SLOT `d ^ 1`
+		// for all three pairs — LASphereGrid slots: 0/1 radial in/out, 2/3 lateral A, 4/5 lateral B.
+		uint rev = d ^ 1u;
 		float f = send[uint(m) * 6u + rev];
 		if (f > 0.0) {
 			inflow += f;

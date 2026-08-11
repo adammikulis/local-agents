@@ -42,54 +42,51 @@ they were written because an agent spent a session violating both: **delete what
 behind a flag**, and **any departure from real physics needs the maintainer's explicit permission, asked
 first**. The second is gate-backed by `scripts/check_model_parameters.sh` where it can be.
 
-**THE PLANET CREATES ROCK AND THE CONSERVATION GATE FIRES ON THE STANDARD ARM. THIS IS THE TOP OF THE
-QUEUE AND IT OUTRANKS EVERYTHING BELOW.** Measured 2026-08-11 at `54f6e58` — the UNMODIFIED tip, no branch
-changes — with the exact documented command (seed 4242, `--planet-only --no-fauna --run-frames=600
---fast=8`):
+**THE KERNEL COLLAPSE BROKE CONSERVATION, IT IS FIXED, AND THE FIX IS ONE CHARACTER.**
+`gravity_flow_sphere3d.glsl` — the kernel `64f3014` collapsed water/lava/slump into — gathered its inflow
+from the WRONG send slot on both RADIAL directions:
 
+```glsl
+// The neighbour's send slot aimed back at us is the OPPOSITE direction: 0<->5 radial, 1<->2, 3<->4.
+uint rev = (d == 0u) ? 5u : ((d == 5u) ? 0u : (d ^ 1u));   // WAS
+uint rev = d ^ 1u;                                          // IS
 ```
-CONSERVATION_VIOLATION={"allowed":0.00002,"at_steps":600,"first":31978.0,"now":55553.12,
-                        "rel_drift":0.737229,"seal_step":9,"substance":"mineral_total"}
-```
 
-**`mineral_total` grows +73.7% over the audit window.** It is not noise and not a horizon effect — the same
-arm reads **+81.3% at 400 frames** and **+144.7% end-to-end at 600**. `rock_fill` is a 0..1 fraction per
-cell, and `rock_fill_total` 49375 against `rock_cells` 34312 says it is above 1.0 in many cells, i.e.
-unbounded. `h2o` is doing the same thing: **+20.6% at 400 frames, +80.8% at 600.**
+**That comment was invented.** `LASphereGrid` builds the table reciprocal in the opposite slot `d ^ 1` for
+all three pairs and says so twice (`SphereGrid.gd:20`, `:73`), with slots `0=N_IN, 1=N_OUT, 2/3` lateral A,
+`4/5` lateral B. The kernel's mapping made every cell read its INWARD neighbour's lateral-B send slot: mass
+sent radially outward (slot 1) was read by nobody and destroyed, and lateral slot 5 was read twice and
+duplicated. `SphereGrid.gd:21-22` predicts exactly this — *"a link placed in the wrong slot debits a send
+slot that NO cell reads (mass destroyed) and makes some other slot get read twice (mass duplicated)."*
+Gravity flow is dominantly radial, so it dominated everything.
 
-**ENERGY HAS THE SAME PROBLEM AND THE SIGN IS ALSO WRONG.** This file says `energy_run_drift` is
-**-3.0% of stock**. Measured on the unmodified tip at the same arm: **+7.601e16 J against an
-`energy_stock_first` of 1.618e17 — the planet GAINS 47% of its whole thermal stock in 600 frames.**
-`energy_residual` is +7.603e16 against `energy_booked` -1.868e13, so residual/booked is **4069**, not the
-877 recorded here. Energy is not leaking, it is being created, and nothing in the ledger's unbooked-terms
-queue is written for that sign.
+**Found by the per-pass energy probe, not by reading.** `LA_ENERGY_BUDGET=1` named the leg in one run:
+`legs_cap_j.water_slump_lava` was **+5.1e14 to +6.2e14 J per step** against a whole-step `step_cap_j` of
++3.4e14. That is the argument for per-pass matter attribution, made concretely.
 
-**THE FULL COMPARISON, one run per arm, same seed and command.** `control` is `54f6e58` untouched;
-`branch` is this work. The branch is not the cause of any of it and is better on three of five — its
-baselines latch at seal step 2 instead of 9, so it MEASURES more of the run and therefore reports more
-violations, which is the gauge working:
+**Measured at 600 frames, seed 4242, `--planet-only --no-fauna --fast=8`, one run per arm:**
 
-| substance | HANDOFF claimed | control `54f6e58` | this branch |
-|---|---|---|---|
-| `mineral_total` | **-0.0064%** | **+149.1%** | +156.4% |
-| `h2o_closed_total` | -18.74% | **+56.4%** | +93.4% |
-| `o2_total` | -24.71% | **+8.6%** | +14.3% |
-| `element_C_total` | -28.27% | **-32.2%** | -33.8% |
-| `nitrogen_all` | -0.62% | — | -0.32% |
-| energy (share of stock) | **-3.0%** | **+47.0%** | +31.0% |
-| gate violations | none stated | `h2o_closed`, `mineral` | + `element_C`, `o2` |
+| substance | this file claimed | broken tip `54f6e58` | fixed | allowance |
+|---|---|---|---|---|
+| `mineral_total` | -0.0064% | +149.1% | **-0.422%** | 0.010% — STILL FIRES |
+| `h2o_closed_total` | -18.74% | +56.4% | **-13.11%** | 21% ✓ |
+| `o2_total` | -24.71% | +8.6% | **+1.49%** | 29% ✓ |
+| `element_C_total` | -28.27% | -32.2% | **-21.80%** | 29% ✓ |
+| `oxidant_all` | -10.76% | — | **+2.14%** | 12% ✓ |
+| `nitrogen_all` | -0.62% | — | **-0.21%** | 0.75% ✓ |
+| energy, share of stock | -3.0% | **+47.0%** | **-3.67%** | not gated |
+| gate violations | none stated | `h2o_closed`, `mineral` | **`mineral` only** | |
 
-**Only carbon is close. Every other substance is wrong, and three have the wrong SIGN.**
+**So the debt table was NOT fabricated — it was measured before the collapse and nobody re-measured after.**
+*(This section said on 2026-08-11 that the table was "false"; that was true of the TIP and wrong about the
+table's history. Corrected the same day, once the root cause was found.)* Energy returning to **-3.67% of
+stock** against a recorded -3.0%, and `residual/booked` **340** against a recorded 319, is what says the
+old numbers were real measurements of a substrate that then broke.
 
-**SO THE DEBT TABLE BELOW IS FALSE AND MUST NOT BE USED.** *(Struck 2026-08-11 rather than deleted, because
-it is the thing that would otherwise be re-derived.)* It claimed `mineral_total` **-0.0064%** against a
-0.010% allowance and called mineral "two to three orders of magnitude tighter than everything else"; the
-measured value is positive and four orders of magnitude larger, and the gate it is supposed to describe
-FIRES. `o2_total` is quoted at -24.71% and measures **+3.0%** — opposite sign. Only `element_C_total` is
-close (-28.27% quoted, -31.1% measured). **Nothing in that table has been reproduced except carbon.**
-What would decide it: whether the table was ever measured at the commit it is attributed to, or whether
-something between it and `54f6e58` started creating rock. `rock_grows` 4037 vs `rock_shrinks` 1763 over
-400 frames is where to start looking, along with impact/eruption mass (`crater_mass`) and `SolidDerivePass`.
+**WHAT IS STILL OPEN: `mineral_total` -0.422% against a 0.010% allowance — the one remaining violation.**
+That is 40x the allowance and the only substance still failing. It is now a small, localised number rather
+than a runaway, so the per-pass mineral probe (`LA_MINERAL_PROFILE=1`) can name its leg the same way the
+energy probe named this one.
 
 **THE THREE "LIVE BREAKAGES" LISTED HERE BEFORE WERE TWO-THIRDS FALSE.** *(Corrected 2026-08-11 by
 measurement.)*
@@ -221,13 +218,13 @@ anywhere. Audited at 600 steps past the seal, seed 4242, `--sandbox --planet-onl
 
 | substance | was, `7353b1d` | now | allowance | headroom |
 |---|---|---|---|---|
-| `mineral_total` | -0.027% | **+73.7% — GATE FIRES** | 0.010% | NONE |
+| `mineral_total` | -0.027% | **-0.422% — STILL FIRES** | 0.010% | NONE |
 | `nitrogen_all` | -2.14% | **-0.62%** | 0.75% | 0.13pp |
 | `oxidant_total` | -56.20% | **-10.76%** | 12% | 1.24pp |
 | `o2_total` | -90.34% | **-24.71%** | 29% | 4.29pp |
 | `h2o_closed_total` | -20.06% | **-18.74%** | 21% | 2.26pp |
 | `element_C_total` | -26.75% | **-28.27% (WORSE)** | 29% | **0.73pp** |
-| energy (`energy_run_drift`) | -8.0% of stock | **+47.0% of stock — CREATED, not lost** | not gated | — |
+| energy (`energy_run_drift`) | -8.0% of stock | **-3.67% of stock** | not gated | — |
 
 **FOUR SUBSTANCES IMPROVED BY 3–5×** because the biological rates stopped being fitted, and **their
 allowances came DOWN in the same commit**, which is what the ratchet requires.
@@ -657,24 +654,15 @@ batch is gone, because git holds it and nobody was going to re-derive them.)*
 Each stage has its own verification. Do not merge stages.
 
 **DO THESE FIRST, in this order.**
-0. **THE PLANET CREATES ENERGY: +47% of its thermal stock in 600 frames, and this file said -3.0%.** That
-   is a sign error in the recorded state, not a drift, and it outranks the rock because temperature drives
-   the phase changes, the reaction rates and the melt/solidify cycling that the rock books sit on top of.
-   **What would decide it:** `LAMaterialFieldEnergyProbe3D` is the per-pass heat probe and already exists —
-   arm `LA_ENERGY_BUDGET=1` (it takes the driver's single step-probe slot, so nothing else may be armed) on
-   a 400-frame run and read which pass gains. The ledger's own unbooked-terms list
-   (`MaterialFieldEnergyLedger3D.gd:79-137`) is written for a planet LOSING heat and does not describe this.
-1. **FIND OUT WHY THE PLANET CREATES ROCK.** `mineral_total` grows **+73.7%** over the audit window on the
-   unmodified tip and trips the conservation gate; `h2o` grows +80.8% over the same run. `rock_fill` exceeds
-   its own 0..1 range (`rock_fill_total` 49375 vs `rock_cells` 34312). Everything else in this file is
-   planning against books that do not close, and the debt table that said mineral was the TIGHTEST substance
-   is false. **What would decide it:** per-pass matter attribution for rock — the mineral probe already
-   names a pass (`LA_MINERAL_PROFILE=1`, `MaterialFieldMineralProbe3D`), so point it at a 400-frame run and
-   read which leg grows. Suspects, in order: `SolidDerivePass` / the `rock_fill` <-> `solid` round trip
-   (`rock_grows` 4037 vs `rock_shrinks` 1763 in 400 frames), impact/eruption emplacement (`crater_mass`),
-   and lithification.
+1. **`mineral_total` IS THE ONE REMAINING GATE VIOLATION: -0.422% against a 0.010% allowance.** Everything
+   else passes now that the gravity-flow gather bug is fixed (see State). 40x the allowance, but a small
+   localised number rather than a runaway. **What would decide it:** the per-pass mineral probe,
+   `LA_MINERAL_PROFILE=1` (`MaterialFieldMineralProbe3D`) — the same instrument that just named
+   `water_slump_lava` for energy in a single run. It takes the driver's ONE step-probe slot, so arm nothing
+   else with it.
    *(The three "live breakages" that used to head this list are resolved or were false — see the State
-   section. `moisture` and `dust_total` were never zero; `--bare` is deleted.)*
+   section. `moisture` and `dust_total` were never zero; `--bare` is deleted; the rock and energy runaways
+   were one wrong neighbour slot.)*
 2. **FINISH THE KERNEL COLLAPSE. 25 left; the floor is about 18.** Remaining families, each one operator
    with per-row data: `magma_buoy` + `erosion_transport` (the rest of the gravity movers, though both have
    genuinely different laws — check before flattening) · `atmos_rain` + `atmos_precip` (`atmos_rain` is now
