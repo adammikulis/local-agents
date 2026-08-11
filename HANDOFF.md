@@ -57,6 +57,30 @@ arm reads **+81.3% at 400 frames** and **+144.7% end-to-end at 600**. `rock_fill
 cell, and `rock_fill_total` 49375 against `rock_cells` 34312 says it is above 1.0 in many cells, i.e.
 unbounded. `h2o` is doing the same thing: **+20.6% at 400 frames, +80.8% at 600.**
 
+**ENERGY HAS THE SAME PROBLEM AND THE SIGN IS ALSO WRONG.** This file says `energy_run_drift` is
+**-3.0% of stock**. Measured on the unmodified tip at the same arm: **+7.601e16 J against an
+`energy_stock_first` of 1.618e17 — the planet GAINS 47% of its whole thermal stock in 600 frames.**
+`energy_residual` is +7.603e16 against `energy_booked` -1.868e13, so residual/booked is **4069**, not the
+877 recorded here. Energy is not leaking, it is being created, and nothing in the ledger's unbooked-terms
+queue is written for that sign.
+
+**THE FULL COMPARISON, one run per arm, same seed and command.** `control` is `54f6e58` untouched;
+`branch` is this work. The branch is not the cause of any of it and is better on three of five — its
+baselines latch at seal step 2 instead of 9, so it MEASURES more of the run and therefore reports more
+violations, which is the gauge working:
+
+| substance | HANDOFF claimed | control `54f6e58` | this branch |
+|---|---|---|---|
+| `mineral_total` | **-0.0064%** | **+149.1%** | +156.4% |
+| `h2o_closed_total` | -18.74% | **+56.4%** | +93.4% |
+| `o2_total` | -24.71% | **+8.6%** | +14.3% |
+| `element_C_total` | -28.27% | **-32.2%** | -33.8% |
+| `nitrogen_all` | -0.62% | — | -0.32% |
+| energy (share of stock) | **-3.0%** | **+47.0%** | +31.0% |
+| gate violations | none stated | `h2o_closed`, `mineral` | + `element_C`, `o2` |
+
+**Only carbon is close. Every other substance is wrong, and three have the wrong SIGN.**
+
 **SO THE DEBT TABLE BELOW IS FALSE AND MUST NOT BE USED.** *(Struck 2026-08-11 rather than deleted, because
 it is the thing that would otherwise be re-derived.)* It claimed `mineral_total` **-0.0064%** against a
 0.010% allowance and called mineral "two to three orders of magnitude tighter than everything else"; the
@@ -203,7 +227,7 @@ anywhere. Audited at 600 steps past the seal, seed 4242, `--sandbox --planet-onl
 | `o2_total` | -90.34% | **-24.71%** | 29% | 4.29pp |
 | `h2o_closed_total` | -20.06% | **-18.74%** | 21% | 2.26pp |
 | `element_C_total` | -26.75% | **-28.27% (WORSE)** | 29% | **0.73pp** |
-| energy (`energy_run_drift`) | -8.0% of stock | **-3.0% of stock** | not gated | — |
+| energy (`energy_run_drift`) | -8.0% of stock | **+47.0% of stock — CREATED, not lost** | not gated | — |
 
 **FOUR SUBSTANCES IMPROVED BY 3–5×** because the biological rates stopped being fitted, and **their
 allowances came DOWN in the same commit**, which is what the ratchet requires.
@@ -633,6 +657,13 @@ batch is gone, because git holds it and nobody was going to re-derive them.)*
 Each stage has its own verification. Do not merge stages.
 
 **DO THESE FIRST, in this order.**
+0. **THE PLANET CREATES ENERGY: +47% of its thermal stock in 600 frames, and this file said -3.0%.** That
+   is a sign error in the recorded state, not a drift, and it outranks the rock because temperature drives
+   the phase changes, the reaction rates and the melt/solidify cycling that the rock books sit on top of.
+   **What would decide it:** `LAMaterialFieldEnergyProbe3D` is the per-pass heat probe and already exists —
+   arm `LA_ENERGY_BUDGET=1` (it takes the driver's single step-probe slot, so nothing else may be armed) on
+   a 400-frame run and read which pass gains. The ledger's own unbooked-terms list
+   (`MaterialFieldEnergyLedger3D.gd:79-137`) is written for a planet LOSING heat and does not describe this.
 1. **FIND OUT WHY THE PLANET CREATES ROCK.** `mineral_total` grows **+73.7%** over the audit window on the
    unmodified tip and trips the conservation gate; `h2o` grows +80.8% over the same run. `rock_fill` exceeds
    its own 0..1 range (`rock_fill_total` 49375 vs `rock_cells` 34312). Everything else in this file is
