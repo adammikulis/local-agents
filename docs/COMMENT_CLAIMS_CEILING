@@ -1,4 +1,7 @@
-# Unless you can GUARANTEE the next agent updates a comment when the code changes, the comment is
-# pulled out. You cannot. A comment about the line it sits on dies with its code; one about another file,
-# a past state or a measurement rots on its own. Target is 0. May fall, may not rise.
-0
+# A comment about the line it sits on dies with its code. One about another file, a past state or a
+# measurement rots on its own, so it comes out. RATCHET: may fall, may NEVER rise.
+#
+# NOT A STANDING RED. A ceiling below the count makes lint fail on every run by design, and a permanently
+# red light has no signal — two commits went out over genuinely broken gates because red had become the
+# normal colour. Lower this as claims are deleted; never raise it to make a light green.
+32

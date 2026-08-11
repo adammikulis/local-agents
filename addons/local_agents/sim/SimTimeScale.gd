@@ -14,7 +14,11 @@ extends Node
 ## (Explicit types only, no ':=' inferred typing.)
 
 const SPEEDS: Array[float] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0]
-const PLAY_IDX: int = 2   # 1.0x
+
+
+## Real time. Found in SPEEDS rather than written as an index, so reordering the row cannot desync them.
+static func play_idx() -> int:
+	return SPEEDS.find(1.0)
 
 signal speed_changed(paused: bool, speed: float)
 
@@ -22,7 +26,7 @@ signal speed_changed(paused: bool, speed: float)
 ## than writing it directly and being silently overwritten by this node's own _ready().
 static var _active: LASimTimeScale = null
 
-var _idx: int = PLAY_IDX
+var _idx: int = SPEEDS.find(1.0)
 var _paused: bool = false
 
 
@@ -47,7 +51,7 @@ static func active() -> LASimTimeScale:
 ## Set the speed from a raw multiplier, snapped to the nearest supported SPEED. The entry point for every
 ## non-key speed change: `--fast=N`, the pause menu's speed row, the trailer director.
 func set_multiplier(mult: float) -> void:
-	var best: int = PLAY_IDX
+	var best: int = play_idx()
 	var best_delta: float = INF
 	for i in range(SPEEDS.size()):
 		var d: float = absf(SPEEDS[i] - mult)

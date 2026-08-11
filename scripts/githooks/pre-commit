@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# BLOCKS A COMMIT WHILE ANY GATE IS RED.
+#
+# Two commits went out over a genuinely failing gate on 2026-08-11, both times under a message describing
+# care, because the exit code was never read — only the tail of the output.
+#
+# The cause was self-inflicted. check_comment_claims had been given a ceiling BELOW its count, so lint
+# failed on every run by design. A permanently red light carries no signal, and the two real failures were
+# read as that background. Ceilings are ratchets: set at the count, lowered as things are fixed, never
+# raised to turn a light green.
+#
+# Bypass with `git commit --no-verify` only when you MEAN to record a broken tree.
+set -uo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+[ -x "$ROOT/scripts/agent_harness.sh" ] || exit 0
+
+out="$("$ROOT/scripts/agent_harness.sh" lint 2>&1)"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  printf '%s\n' "$out" | grep -E "LINT_FAIL|^FAIL |ERROR:" | head -12
+  echo
+  echo "COMMIT BLOCKED: agent_harness.sh lint exited $rc."
+  exit 1
+fi
+exit 0

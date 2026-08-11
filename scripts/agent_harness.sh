@@ -330,6 +330,18 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_neighbour_reciprocity.sh ($rc_recip)"
       exit 1
     fi
+    # These four were WRITTEN AND NEVER WIRED, so they only ran when somebody remembered to. A gate that
+    # is not in `lint` is not a gate — CI runs this exact command.
+    for g in check_duplicate_logic check_never_assigned check_voxel_grid check_gravity_solve; do
+      set +e
+      "$SCRIPT_DIR/$g.sh"
+      rc_g=$?
+      set -e
+      if [[ $rc_g -ne 0 ]]; then
+        echo "LINT_FAIL: $g.sh ($rc_g)"
+        exit 1
+      fi
+    done
     set +e
     "$SCRIPT_DIR/check_sphere_grid.sh"
     rc_grid=$?
