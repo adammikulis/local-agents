@@ -164,6 +164,41 @@ number you already know is wrong is worth defending against an instruction to ch
    not "still roughly right". Say it is invalid; do not carry it.
 3. Preserve *questions*, never *answers*. "What was this measuring?" survives a rewrite. "0.28" does not.
 
+# RULE 3 — NAME THE CONSTRAINT AS A LAW OR A DECISION. OUT LOUD. EVERY TIME.
+
+**There is already a rule saying "X can't, because Y" is usually false here, and it does not work.** It
+asks you to NOTICE, and noticing requires already suspecting — by the time the sentence "the fix is not one
+line because Y" is being written, Y has already been accepted. The rule fires after the decision it exists
+to prevent. So this one demands an OUTPUT instead, because an output can be checked and a state of mind
+cannot.
+
+**WHENEVER YOU DESCRIBE A CONSTRAINT, CLASSIFY IT IN THE SAME BREATH:**
+
+> **LAW** — physics, or the platform. *Headless Godot returns null from
+> `create_local_rendering_device()`, so a GPU field needs a window.* Verified today, not assumed; even a law
+> gets re-checked when it is load-bearing and old.
+>
+> **DECISION** — somebody typed it. Then answer three things: **who, when, and does the reason still hold?**
+> *`run_sim_offscreen.sh` exited 126 on any conservation violation — a decision, made when the debt table
+> tolerated today's drift, and it stopped holding the moment the ceilings became float noise.*
+
+An unclassified constraint is treated as a law by default, and that default is **empirically wrong in this
+repo**. Measured on 2026-08-11, in one day of reading: `sea_level` declared and never assigned;
+`_terrain_opts` declared and never assigned, so the solid-mask cache had never once run; `validate()` called
+by nothing, so the grid's closure and handedness checks had never executed; two of five scent planes with no
+emitter anywhere; `EJECTA_LOD_RADIUS` deciding where rock physically lands; 611 constants neither bound nor
+derived. **The base rate here is that existing code is an unexamined decision.** A prior that treats it as
+considered is not caution, it is a wrong number.
+
+**THE GRAMMAR IS THE TELL, and it is checkable in the moment because it is a sentence shape, not a
+judgement.** Any clause of the form *"it can't / it isn't / it doesn't / that's not possible — because
+<fact about the current code>"* is Rule 3 firing. The fact is true. It is also **yours to change**, and the
+next sentence has to say whether you are going to.
+
+**The maintainer should never be the one forcing this.** When he has to say "change the code" about code
+that is already known wrong, the failure has already happened — and it is the same mechanism as RULE 2:
+not refusal, but a locally plausible reason why the obvious change does not apply *here*.
+
 # YOU MAY NOT VIOLATE PHYSICS WITHOUT EXPLICIT PERMISSION. ASK. EVERY TIME.
 
 **Any departure from real physics requires the maintainer's explicit consent, obtained BEFORE you write it.**
