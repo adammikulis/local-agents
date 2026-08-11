@@ -1,5 +1,4 @@
-class_name LASphereThermalPass
-extends RefCounted
+extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 
 const CONDUCT_PATH: String = "res://addons/local_agents/sim/material/kernels3d/heat_sphere3d.glsl"
@@ -9,76 +8,51 @@ const BUOY_PATH: String = "res://addons/local_agents/sim/material/kernels3d/heat
 const LAVA_PHASE_PATH: String = "res://addons/local_agents/sim/material/kernels3d/lava_phase_sphere3d.glsl"
 const MAGMA_PATH: String = "res://addons/local_agents/sim/material/kernels3d/magma_buoy_sphere3d.glsl"
 
-var _cc: int = 0
-
-var _conduct_shader: RID = RID()
-var _copy_shader: RID = RID()
 var _conduct_pipe: RID = RID()
 var _copy_pipe: RID = RID()
-var _conduct_set: Array = [RID(), RID()]   # per phase: temp[p] -> _cond_scratch
-var _copy_set: Array = [RID(), RID()]      # per phase: _cond_scratch -> temp[p]
-var _cond_scratch: RID = RID()             # private conduction gather target (net-zero-flip copy-back)
-
-var _solar_shader: RID = RID()
-var _buoy_shader: RID = RID()
-var _lava_phase_shader: RID = RID()
-var _magma_shader: RID = RID()
-
 var _solar_pipe: RID = RID()
 var _buoy_pipe: RID = RID()
 var _lava_phase_pipe: RID = RID()
 var _magma_pipe: RID = RID()
 
 # Per-parity uniform sets (index = parity p).
+var _conduct_set: Array = [RID(), RID()]   # temp[p] -> _cond_scratch
+var _copy_set: Array = [RID(), RID()]      # _cond_scratch -> temp[p]
 var _solar_set: Array = [RID(), RID()]
 var _buoy_set: Array = [RID(), RID()]
 var _lava_phase_set: Array = [RID(), RID()]
 var _magma_set: Array = [RID(), RID()]
 
-# Private stable-snapshot scratch for the magma two-pass gather (cc floats). Never handed in via bufs — a
-# lava_phase/magma-only working buffer, exactly like the box's _buf_lava_scratch.
-var _scratch: RID = RID()
+# Private scratch: the conduction gather target (net-zero-flip copy-back) and the magma two-pass snapshot.
+var _cond_scratch: RID = RID()
+var _magma_scratch: RID = RID()
 
-# BORROWED (owned by the driver, freed there — NOT in dispose below): the dispatch-indirect argument buffer
-# LavaCellListPass publishes each step. Held as a field because dispatch() needs the RID, and it is the same
-# buffer for both parities.
+# BORROWED (owned by the driver): the dispatch-indirect argument buffer CellListPass publishes each step.
+# Held as a field because dispatch() needs the RID, and it is the same buffer for both parities.
 var _active_args: RID = RID()
 
 
-func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
-	_cc = cc
+func _setup(bufs: Dictionary, cc: int) -> void:
+	_conduct_pipe = _kernel(CONDUCT_PATH)
+	_copy_pipe = _kernel(COPY_PATH)
+	_solar_pipe = _kernel(SOLAR_PATH)
+	_buoy_pipe = _kernel(BUOY_PATH)
+	_lava_phase_pipe = _kernel(LAVA_PHASE_PATH)
+	_magma_pipe = _kernel(MAGMA_PATH)
 
-	_solar_shader = _load_shader(rd, SOLAR_PATH)
-	_solar_pipe = rd.compute_pipeline_create(_solar_shader)
-	_buoy_shader = _load_shader(rd, BUOY_PATH)
-	_buoy_pipe = rd.compute_pipeline_create(_buoy_shader)
-	_lava_phase_shader = _load_shader(rd, LAVA_PHASE_PATH)
-	_lava_phase_pipe = rd.compute_pipeline_create(_lava_phase_shader)
-	_magma_shader = _load_shader(rd, MAGMA_PATH)
-	_magma_pipe = rd.compute_pipeline_create(_magma_shader)
-	_conduct_shader = _load_shader(rd, CONDUCT_PATH)
-	_conduct_pipe = rd.compute_pipeline_create(_conduct_shader)
-	_copy_shader = _load_shader(rd, COPY_PATH)
-	_copy_pipe = rd.compute_pipeline_create(_copy_shader)
+	_magma_scratch = _scratch(cc)
+	_cond_scratch = _scratch(cc)
 
-	# Private magma snapshot scratch + conduction gather scratch (cc float32, zero-initialised).
-	var zf: PackedFloat32Array = PackedFloat32Array()
-	zf.resize(cc)
-	var zb: PackedByteArray = zf.to_byte_array()
-	_scratch = rd.storage_buffer_create(zb.size(), zb)
-	_cond_scratch = rd.storage_buffer_create(zb.size(), zb)
-
-	var solid: RID = bufs["solid"]
-	var nbr: RID = bufs["nbr"]
-	var radial: RID = bufs["radial"]
-	var pos: RID = bufs["pos"]
-	var temp: Array = bufs["temp"]
-	var water: Array = bufs["water"]
-	var lava: Array = bufs["lava"]
-	# Compacted active-cell list for the lava_phase leg (built by LavaCellListPass earlier in the same step).
-	var active_idx: RID = bufs["active_idx"]
-	var active_args: RID = bufs["active_args"]
-	_active_args = active_args
+	var solid: RID = _single(bufs, "solid")
+	var nbr: RID = _single(bufs, "nbr")
+	var radial: RID = _single(bufs, "radial")
+	var pos: RID = _single(bufs, "pos")
+	var temp: Array = _pair(bufs, "temp")
+	var water: Array = _pair(bufs, "water")
+	var lava: Array = _pair(bufs, "lava")
+	# Compacted active-cell list for the lava_phase leg (built by CellListPass earlier in the same step).
+	var active_idx: RID = _single(bufs, "active_idx")
+	_active_args = _single(bufs, "active_args")
 
 	for p in 2:
 		var back: int = 1 - p
@@ -87,57 +61,64 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		var water_back: RID = water[back]
 		var lava_back: RID = lava[back]
 		var shared_carriers: Array = [
-			[30, bufs["sediment"][p]], [31, bufs["susp"][p]], [32, bufs["dust"][p]],
-			[33, bufs["carbonate"]], [34, bufs["silica"]], [35, bufs["soil"][p]],
-			[36, bufs["moisture"][p]], [37, bufs["fungus"][p]],
-			[38, bufs["porosity"]]]
+			[30, _pair(bufs, "sediment")[p]], [31, _pair(bufs, "susp")[p]], [32, _pair(bufs, "dust")[p]],
+			[33, _single(bufs, "carbonate")], [34, _single(bufs, "silica")], [35, _pair(bufs, "soil")[p]],
+			[36, _pair(bufs, "moisture")[p]], [37, _pair(bufs, "fungus")[p]],
+			[38, _single(bufs, "porosity")]]
 
-		# copy: 0 = scratch, 1 = temp LIVE.
-		_conduct_set[p] = _make_set(rd, _conduct_shader, [
+		_conduct_set[p] = _uset(_conduct_pipe, [
 			[0, temp_live], [1, _cond_scratch], [2, nbr], [3, solid],
-			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]],
-			[20, lava_back], [21, bufs["fuel"]], [22, bufs["biomass"]], [23, bufs["detritus"]]]
+			[4, _single(bufs, "snow")], [5, water_back], [6, _single(bufs, "rock_fill")],
+			[20, lava_back], [21, _single(bufs, "fuel")], [22, _single(bufs, "biomass")],
+			[23, _single(bufs, "detritus")]]
 			+ shared_carriers)
-		_copy_set[p] = _make_set(rd, _copy_shader, [
+		# copy: 0 = scratch, 1 = temp LIVE.
+		_copy_set[p] = _uset(_copy_pipe, [
 			[0, _cond_scratch], [1, temp_live]])
 		# solar: 0 = temp (LIVE, in-place), 1 = solid, 3 = pos (flat float3), 14 = radial, 15 = nbr.
-		_solar_set[p] = _make_set(rd, _solar_shader, [
+		# 20/21/23 = lava / fuel / detritus for rc_shared.glsli (biomass is already bound at 27 for albedo).
+		_solar_set[p] = _uset(_solar_pipe, [
 			[0, temp_live], [1, solid], [3, pos],
-			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]], [7, bufs["pressure"]],
-			[8, _cond_scratch], [14, radial], [15, nbr], [27, bufs["biomass"]],
-			# 20/21/23 = lava / fuel / detritus for rc_shared.glsli (biomass is already bound at 27 for albedo).
-			[20, lava_back], [21, bufs["fuel"]], [23, bufs["detritus"]]]
+			[4, _single(bufs, "snow")], [5, water_back], [6, _single(bufs, "rock_fill")],
+			[7, _single(bufs, "pressure")],
+			[8, _cond_scratch], [14, radial], [15, nbr], [27, _single(bufs, "biomass")],
+			[20, lava_back], [21, _single(bufs, "fuel")], [23, _single(bufs, "detritus")]]
 			+ shared_carriers)
 		# buoyancy: 0 = TempIn (LIVE), 1 = TempOut (BACK), 2 = solid, the material mix 4 = snow, 5 = water,
 		# 6 = rock_fill (it convects an ENERGY flux and divides by each side's own capacity), 15 = nbr.
-		_buoy_set[p] = _make_set(rd, _buoy_shader, [
+		# 20-23 = the carriers rc_shared.glsli needs; this kernel reads none of them itself.
+		_buoy_set[p] = _uset(_buoy_pipe, [
 			[0, temp_live], [1, temp_back], [2, solid],
-			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]], [15, nbr],
-			# 20-23 = the carriers rc_shared.glsli needs; this kernel reads none of them itself.
-			[20, lava_back], [21, bufs["fuel"]], [22, bufs["biomass"]], [23, bufs["detritus"]]]
+			[4, _single(bufs, "snow")], [5, water_back], [6, _single(bufs, "rock_fill")], [15, nbr],
+			[20, lava_back], [21, _single(bufs, "fuel")], [22, _single(bufs, "biomass")],
+			[23, _single(bufs, "detritus")]]
 			+ shared_carriers)
 		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid, 4 = the compacted
 		# active list, 5 = its args, 15 = nbr, and the carriers rc_shared.glsli needs.
-		_lava_phase_set[p] = _make_set(rd, _lava_phase_shader, [
+		_lava_phase_set[p] = _uset(_lava_phase_pipe, [
 			[0, lava_back], [1, temp_back], [2, solid],
-			[4, active_idx], [5, active_args], [15, nbr],
-			[6, bufs["rock_fill"]], [7, water_back], [21, bufs["fuel"]], [22, bufs["biomass"]],
-			[23, bufs["detritus"]], [24, bufs["snow"]]]
+			[4, active_idx], [5, _active_args], [15, nbr],
+			[6, _single(bufs, "rock_fill")], [7, water_back], [21, _single(bufs, "fuel")],
+			[22, _single(bufs, "biomass")], [23, _single(bufs, "detritus")], [24, _single(bufs, "snow")]]
 			+ shared_carriers)
 		# magma: 0 = lava (BACK, rw), 1 = scratch (private), 2 = temp (BACK, carry-heat), 3 = solid, 15 = nbr.
-		_magma_set[p] = _make_set(rd, _magma_shader, [
-			[0, lava_back], [1, _scratch], [2, temp_back], [3, solid], [15, nbr]])
+		_magma_set[p] = _uset(_magma_pipe, [
+			[0, lava_back], [1, _magma_scratch], [2, temp_back], [3, solid], [15, nbr]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
+	if not _dispatchable():
+		return
 	var sun_dir: Vector3 = ctx.get("sun_dir", Vector3(0.0, 1.0, 0.0))
-	var sea_radius: float = float(ctx.get("sea_radius", 0.0))
-	var cell_size: float = float(ctx.get("cell_size", 0.0))
+	var sea_radius: float = _ctx_num(ctx, "sea_radius")
+	var cell_size: float = _ctx_cell_size(ctx)
+	var dt_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
 	var dt_over_dx2: float = 0.0
 	if cell_size > 0.0:
-		dt_over_dx2 = _real_seconds_per_step() / (cell_size * cell_size)
+		dt_over_dx2 = dt_s / (cell_size * cell_size)
 	var core_boundary_c: float = float(ctx.get("core_boundary_c", 0.0))
 
+	# 0. CONDUCTION — gather into the private scratch, then copy back onto temp LIVE.
 	var cond_pc: PackedByteArray = _conduct_pc(cc, core_boundary_c, dt_over_dx2)
 	rd.compute_list_bind_compute_pipeline(cl, _conduct_pipe)
 	rd.compute_list_bind_uniform_set(cl, _conduct_set[parity], 0)
@@ -153,7 +134,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	# 1. SOLAR — the terminator, in-place on temp LIVE.
 	rd.compute_list_bind_compute_pipeline(cl, _solar_pipe)
 	rd.compute_list_bind_uniform_set(cl, _solar_set[parity], 0)
-	var solar_pc: PackedByteArray = _solar_pc(cc, sun_dir, sea_radius, _real_seconds_per_step(), cell_size)
+	var solar_pc: PackedByteArray = _solar_pc(cc, sun_dir, sea_radius, dt_s, cell_size)
 	rd.compute_list_set_push_constant(cl, solar_pc, solar_pc.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # solar output (temp LIVE) visible to the buoyancy gather
@@ -161,92 +142,33 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	# 2. BUOYANCY — gather temp LIVE -> temp BACK.
 	rd.compute_list_bind_compute_pipeline(cl, _buoy_pipe)
 	rd.compute_list_bind_uniform_set(cl, _buoy_set[parity], 0)
-	var buoy_pc: PackedByteArray = _count_pc(cc)
+	var buoy_pc: PackedByteArray = _pc_cells(cc)
 	rd.compute_list_set_push_constant(cl, buoy_pc, buoy_pc.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # buoyancy output (temp BACK) committed before the lava passes read it
 
-
+	# 3. LAVA PHASE — over the compacted active list.
 	rd.compute_list_bind_compute_pipeline(cl, _lava_phase_pipe)
 	rd.compute_list_bind_uniform_set(cl, _lava_phase_set[parity], 0)
-	var phase_pc: PackedByteArray = _lava_phase_pc(cc, _real_seconds_per_step(), cell_size)
+	var phase_pc: PackedByteArray = _lava_phase_pc(cc, dt_s, cell_size)
 	rd.compute_list_set_push_constant(cl, phase_pc, phase_pc.size())
 	rd.compute_list_dispatch_indirect(cl, _active_args, 0)
 	rd.compute_list_add_barrier(cl)          # post-phase lava/temp visible to the magma snapshot
 
-	# 5. MAGMA — two-pass buoyant overpressure up-flow (0 = copy snapshot, 1 = gather/apply).
-	rd.compute_list_bind_compute_pipeline(cl, _magma_pipe)
-	rd.compute_list_bind_uniform_set(cl, _magma_set[parity], 0)
-	var magma_pc0: PackedByteArray = _magma_pc(cc, 0)
-	rd.compute_list_set_push_constant(cl, magma_pc0, magma_pc0.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)          # snapshot visible to the gather pass
-	rd.compute_list_bind_compute_pipeline(cl, _magma_pipe)
-	rd.compute_list_bind_uniform_set(cl, _magma_set[parity], 0)
-	var magma_pc1: PackedByteArray = _magma_pc(cc, 1)
-	rd.compute_list_set_push_constant(cl, magma_pc1, magma_pc1.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)          # committed lava/temp visible to downstream passes
-
-
-## Free every RID this pass owns, dependent-first: uniform sets, then pipelines, then the private scratch
-## buffers, then the shaders — before the driver drops the local RenderingDevice. `_scratch` and
-## `_cond_scratch` are created by this pass (not borrowed), so they ARE freed here.
-func dispose(rd: RenderingDevice) -> void:
-	if rd == null:
-		return
-	for s: Array in [_conduct_set, _copy_set, _solar_set, _buoy_set,
-			_lava_phase_set, _magma_set]:
-		for r in s:
-			if r is RID and r.is_valid():
-				rd.free_rid(r)
-	_conduct_set = [RID(), RID()]
-	_copy_set = [RID(), RID()]
-	_solar_set = [RID(), RID()]
-	_buoy_set = [RID(), RID()]
-	_lava_phase_set = [RID(), RID()]
-	_magma_set = [RID(), RID()]
-	for r: RID in [_conduct_pipe, _copy_pipe, _solar_pipe, _buoy_pipe,
-			_lava_phase_pipe, _magma_pipe, _scratch, _cond_scratch,
-			_conduct_shader, _copy_shader, _solar_shader, _buoy_shader,
-			_lava_phase_shader, _magma_shader]:
-		if r.is_valid():
-			rd.free_rid(r)
-	_conduct_pipe = RID()
-	_copy_pipe = RID()
-	_solar_pipe = RID()
-	_buoy_pipe = RID()
-	_lava_phase_pipe = RID()
-	_magma_pipe = RID()
-	_scratch = RID()
-	_cond_scratch = RID()
-	_conduct_shader = RID()
-	_copy_shader = RID()
-	_solar_shader = RID()
-	_buoy_shader = RID()
-	_lava_phase_shader = RID()
-	_magma_shader = RID()
+	# 4. MAGMA — two-pass buoyant overpressure up-flow (0 = copy snapshot, 1 = gather/apply).
+	for pass_id in 2:
+		rd.compute_list_bind_compute_pipeline(cl, _magma_pipe)
+		rd.compute_list_bind_uniform_set(cl, _magma_set[parity], 0)
+		var magma_pc: PackedByteArray = _magma_pc(cc, pass_id)
+		rd.compute_list_set_push_constant(cl, magma_pc, magma_pc.size())
+		rd.compute_list_dispatch(cl, groups, 1, 1)
+		rd.compute_list_add_barrier(cl)
 
 
 # --- helpers ---------------------------------------------------------------------------------------------
 
-func _load_shader(rd: RenderingDevice, path: String) -> RID:
-	var sf: RDShaderFile = load(path)
-	return rd.shader_create_from_spirv(sf.get_spirv())
-
-
-# Build a storage-buffer uniform set from [binding, rid] pairs. Every binding the shader declares must appear.
-func _make_set(rd: RenderingDevice, shader: RID, pairs: Array) -> RID:
-	var uniforms: Array[RDUniform] = []
-	for pair in pairs:
-		var u: RDUniform = RDUniform.new()
-		u.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-		u.binding = int(pair[0])
-		u.add_id(pair[1])
-		uniforms.append(u)
-	return rd.uniform_set_create(uniforms, shader, 0)
-
-
+# heat3d_solar Params: { uint cell_count; float dt_s; float cell_size; uint pad; vec3 sun_dir;
+#                        float sea_radius; } — 32 bytes.
 func _solar_pc(cc: int, sun_dir: Vector3, sea_radius: float, dt_s: float, cell_size: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(32)
@@ -261,8 +183,7 @@ func _solar_pc(cc: int, sun_dir: Vector3, sea_radius: float, dt_s: float, cell_s
 	return pc
 
 
-
-
+# heat_sphere Params: { uint cell_count; float core_boundary_c; float dt_over_dx2; uint pad; } — 16 bytes.
 func _conduct_pc(cc: int, core_boundary_c: float, dt_over_dx2: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)
@@ -273,24 +194,8 @@ func _conduct_pc(cc: int, core_boundary_c: float, dt_over_dx2: float) -> PackedB
 	return pc
 
 
-## Real seconds one field step represents. EVERY kernel in this pass now runs on it — conduction, the
-## of 432 apart inside one energy budget. The derivation lives with STEP_DT; this is a forwarder.
-func _real_seconds_per_step() -> float:
-	return LAMaterialFieldSphereStep3D.real_seconds_per_step()
-
-
-# heat3d_buoyancy Params: { uint cell_count; uint pad0; uint pad1; uint pad2; } — 16 bytes.
-func _count_pc(cc: int) -> PackedByteArray:
-	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(16)
-	pc.encode_u32(0, cc)
-	pc.encode_u32(4, 0)
-	pc.encode_u32(8, 0)
-	pc.encode_u32(12, 0)
-	return pc
-
-
-# exposed faces, which is a FLUX in W/m^2, so turning it into a temperature needs the step's real seconds and
+# lava_phase Params: { uint cell_count; float dt_s; float cell_size; uint pad; } — 16 bytes. The kernel
+# turns an exposed-face flux in W/m^2 into a temperature, so it needs the step's real seconds and the size.
 func _lava_phase_pc(cc: int, dt_s: float, cell_size: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)

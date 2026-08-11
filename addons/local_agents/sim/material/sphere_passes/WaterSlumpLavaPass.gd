@@ -1,4 +1,4 @@
-extends RefCounted
+extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 ## Gravity-driven mass movement for every flowing material, through one kernel.
 ## Two passes per material (outflow, then gather) sharing the driver's `send` scratch.
@@ -16,31 +16,20 @@ const MATERIALS: Array = [
 const MIN_FLOW: float = 0.01
 const MIN_MASS: float = 0.0001
 
-var _rd: RenderingDevice = null
-var _flow_shader: RID = RID()
 var _flow_pipe: RID = RID()
 ## _sets[material_index][parity]
 var _sets: Array = []
-var _send: RID = RID()
 
 
-func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
-	_rd = rd
-	if _rd == null:
-		push_error("WaterSlumpLavaPass: null RenderingDevice")
-		return
+func _setup(bufs: Dictionary, _cc: int) -> void:
+	_flow_pipe = _kernel(FLOW_PATH)
 
-	_send = bufs.get("send", RID())
-
-	var sf: RDShaderFile = load(FLOW_PATH)
-	_flow_shader = _rd.shader_create_from_spirv(sf.get_spirv())
-	_flow_pipe = _rd.compute_pipeline_create(_flow_shader)
-
-	var solid_rid: RID = bufs.get("solid", RID())
-	var nbr_rid: RID = bufs.get("nbr", RID())
-	var larc_rid: RID = bufs.get("link_arc", RID())
-	var omega_rid: RID = bufs.get("solid_angle", RID())
-	var temp_pair: Array = bufs.get("temp", [RID(), RID()])
+	var send_rid: RID = _single(bufs, "send")
+	var solid_rid: RID = _single(bufs, "solid")
+	var nbr_rid: RID = _single(bufs, "nbr")
+	var larc_rid: RID = _single(bufs, "link_arc")
+	var omega_rid: RID = _single(bufs, "solid_angle")
+	var temp_pair: Array = _pair(bufs, "temp")
 
 	_sets = []
 	for _m in MATERIALS.size():
@@ -48,36 +37,21 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	for p in 2:
 		var back: int = 1 - p
 		for mi in MATERIALS.size():
-			var pair: Array = bufs.get(String(MATERIALS[mi]["channel"]), [RID(), RID()])
-			_sets[mi][p] = _build_set(_flow_shader, [
-				[0, pair[p]], [1, pair[back]], [2, _send], [3, solid_rid],
+			var pair: Array = _pair(bufs, String(MATERIALS[mi]["channel"]))
+			_sets[mi][p] = _uset(_flow_pipe, [
+				[0, pair[p]], [1, pair[back]], [2, send_rid], [3, solid_rid],
 				[5, temp_pair[p]], [15, nbr_rid], [16, larc_rid], [17, omega_rid],
 			])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
-	if _rd == null:
+	if not _dispatchable():
 		return
-	var depth: int = maxi(int(ctx.get("depth", 1)), 1)
-	var core_radius: float = float(ctx.get("core_radius", 0.0))
-	var cell_size: float = float(ctx.get("cell_size", 1.0))
+	var depth: int = _ctx_depth(ctx)
+	var core_radius: float = _ctx_core_radius(ctx)
+	var cell_size: float = _ctx_cell_size(ctx)
 	for mi in MATERIALS.size():
 		_two_pass(rd, cl, _sets[mi][parity], cc, groups, MATERIALS[mi], depth, core_radius, cell_size)
-
-
-func dispose(rd: RenderingDevice) -> void:
-	if rd == null:
-		return
-	for s: Array in _sets:
-		for r in s:
-			if r is RID and r.is_valid():
-				rd.free_rid(r)
-	_sets = []
-	for r: RID in [_flow_pipe, _flow_shader]:
-		if r.is_valid():
-			rd.free_rid(r)
-	_flow_pipe = RID()
-	_flow_shader = RID()
 
 
 # --- helpers ------------------------------------------------------------------
@@ -109,14 +83,3 @@ func _pc(cc: int, pass_id: int, mat: Dictionary, depth: int, core_radius: float,
 	pc.encode_float(32, float(mat["lateral"]))
 	pc.encode_float(36, float(mat["repose"]))
 	return pc
-
-
-func _build_set(shader: RID, entries: Array) -> RID:
-	var uniforms: Array = []
-	for e in entries:
-		var u: RDUniform = RDUniform.new()
-		u.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-		u.binding = int(e[0])
-		u.add_id(e[1])
-		uniforms.append(u)
-	return _rd.uniform_set_create(uniforms, shader, 0)

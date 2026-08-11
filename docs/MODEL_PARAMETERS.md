@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 596**
+**MAX_DECLARED: 588**
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
@@ -538,20 +538,12 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/CombustionRecords.gd` | `PYROLYSIS_K_PER_S` | 2.5e-3 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/ReactionBalance.gd` | `TOL` | 1.0e-6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd` | `DRAIN_ALL` | 1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/sphere_passes/GasWindPass.gd` | `SETTLE_V_PER_CONTRAST` | 0.05 | transport tuning, chosen not derived | Stage 2: derive from the transport law, or delete with the kernel merge |
-| `addons/local_agents/sim/material/sphere_passes/GasWindPass.gd` | `EDDY_DIFFUSE` | 0.02 | transport tuning, chosen not derived | Stage 2: derive from the transport law, or delete with the kernel merge |
-| `addons/local_agents/sim/material/sphere_passes/GasWindPass.gd` | `DEFAULT_DT` | 0.1 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/sphere_passes/GasWindPass.gd` | `DEFAULT_BUOY` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/sphere_passes/FireDustPass.gd` | `DEFAULT_DT` | 0.1 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/sphere_passes/FireDustPass.gd` | `EDDY_DIFFUSE` | 0.02 | transport tuning, chosen not derived | Stage 2: derive from the transport law, or delete with the kernel merge |
-| `addons/local_agents/sim/material/sphere_passes/FireDustPass.gd` | `DEFAULT_CELL_SIZE` | 8.0 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/sphere_passes/TracerTransport.gd` | `SETTLE_V_PER_CONTRAST` | 0.05 | transport tuning, chosen not derived; one declaration for every tracer | Stage 2: derive from the transport law, or delete with the kernel merge |
+| `addons/local_agents/sim/material/sphere_passes/TracerTransport.gd` | `EDDY_DIFFUSE` | 0.02 | transport tuning, chosen not derived; one declaration for every tracer | Stage 2: derive from the transport law, or delete with the kernel merge |
 | `addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd` | `AUTOCONVERSION_RATE_PER_S` | 1.0e-3 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd` | `CLOUD_WATER_CRIT_KG_KG` | 0.5e-3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd` | `MOISTURE_DIFFUSE` | 0.035 | transport tuning, chosen not derived | Stage 2: derive from the transport law, or delete with the kernel merge |
-| `addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd` | `MOISTURE_CONTRAST` | -0.37812 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd` | `SETTLE_V_PER_CONTRAST` | 0.05 | transport tuning, chosen not derived | Stage 2: derive from the transport law, or delete with the kernel merge |
-| `addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd` | `DEFAULT_CELL_SIZE` | 5.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd` | `DEFAULT_DT` | 0.1 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/sphere_passes/WaterSlumpLavaPass.gd` | `MIN_FLOW` | 0.01 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/sphere_passes/WaterSlumpLavaPass.gd` | `MIN_MASS` | 0.0001 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldLakes3D.gd` | `RIVER_ACCUM_MIN` | 6 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |

@@ -1,4 +1,4 @@
-extends RefCounted
+extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 ## Compacted active-cell lists + indirect dispatch, one ROW per gated channel. A row's predicate reproduces
 ## its consumer kernel's own no-op condition, so a cell left out of the list is one that kernel would have
@@ -28,7 +28,6 @@ const ROWS_DEFAULT: Array = [{
 
 var rows: Array = ROWS_DEFAULT
 
-var _shader: RID = RID()
 var _pipe: RID = RID()
 var _sets: Array = []                   # per row: [set(parity 0), set(parity 1)]
 var _args_rid: Array = []               # per row: dispatch-indirect args RID
@@ -36,23 +35,11 @@ var _flags: PackedInt32Array = PackedInt32Array()
 var _failed_announced: bool = false     # so the GPU_REQUIRED error below fires once, not 60x a second
 
 
-func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
-	if rd == null:
-		push_error("CellListPass: null RenderingDevice")
-		return
+func _setup(bufs: Dictionary, _cc: int) -> void:
+	_pipe = _kernel(KERNEL_PATH)
 
-	var sf: RDShaderFile = load(KERNEL_PATH)
-	if sf == null:
-		push_error("CellListPass: cell_list_sphere3d.glsl failed to load (run --import after editing it)")
-		return
-	_shader = rd.shader_create_from_spirv(sf.get_spirv())
-	if not _shader.is_valid():
-		push_error("CellListPass: shader compile failed")
-		return
-	_pipe = rd.compute_pipeline_create(_shader)
-
-	var solid: RID = bufs.get("solid", RID())
-	var nbr: RID = bufs.get("nbr", RID())
+	var solid: RID = _single(bufs, "solid")
+	var nbr: RID = _single(bufs, "nbr")
 	for row: Dictionary in rows:
 		var idx_key: String = String(row["idx"])
 		var args_key: String = String(row["args"])
@@ -73,13 +60,15 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			flags |= Flag.AUX
 		_flags.append(flags)
 		_args_rid.append(bufs[args_key])
+		var prim: String = String(row["prim"])
+		var prim_back: bool = int(row["prim_half"]) == Half.BACK
 		var per_parity: Array = [RID(), RID()]
 		for p in 2:
-			var aux: RID = _half(bufs, aux_key, p, Half.LIVE) if aux_key != "" else solid
-			per_parity[p] = _build_set(rd, [
-				[1, _half(bufs, String(row["prim"]), p, int(row["prim_half"]))],
+			var aux: RID = _half(bufs, aux_key, p, false) if aux_key != "" else solid
+			per_parity[p] = _uset(_pipe, [
+				[1, _half(bufs, prim, p, prim_back)],
 				[2, solid],
-				[3, _half(bufs, String(row["prim"]), p, 1 - int(row["prim_half"]))],
+				[3, _half(bufs, prim, p, not prim_back)],
 				[4, bufs[idx_key]],
 				[5, bufs[args_key]],
 				[6, aux],
@@ -88,7 +77,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: int, groups: int) -> void:
-	if not _pipe.is_valid() or _sets.is_empty():
+	if not _dispatchable() or _sets.is_empty():
 		if not _failed_announced:
 			_failed_announced = true
 			push_error("GPU_REQUIRED: CellListPass has no pipeline, so every gated kernel will process ZERO "
@@ -118,26 +107,6 @@ func args_rid(label: String) -> RID:
 	return RID()
 
 
-## Free every RID this pass owns (uniform sets, pipeline, shader). `active_idx`/`active_args` are borrowed
-## from the driver's `bufs` and are freed there, not here — same convention as every other pass module.
-func dispose(rd: RenderingDevice) -> void:
-	if rd == null:
-		return
-	for per_parity: Array in _sets:
-		for r in per_parity:
-			if r is RID and r.is_valid():
-				rd.free_rid(r)
-	_sets = []
-	_args_rid = []
-	_flags = PackedInt32Array()
-	if _pipe.is_valid():
-		rd.free_rid(_pipe)
-		_pipe = RID()
-	if _shader.is_valid():
-		rd.free_rid(_shader)
-		_shader = RID()
-
-
 # --- helpers ---------------------------------------------------------------------------------------------
 
 func _record(rd: RenderingDevice, cl: int, pc: PackedByteArray, groups: int) -> void:
@@ -159,24 +128,3 @@ func _pc(cc: int, pass_id: int, flags: int, thr: float, aux_thr: float) -> Packe
 	pc.encode_u32(24, 0)
 	pc.encode_u32(28, 0)
 	return pc
-
-
-## PAIR channel -> the requested half at parity `p`; SINGLE channel -> its bare RID.
-func _half(bufs: Dictionary, name: String, p: int, which: int) -> RID:
-	var b = bufs.get(name, null)
-	if b is Array and b.size() >= 2:
-		return b[p] if which == Half.LIVE else b[1 - p]
-	if b is RID:
-		return b
-	return RID()
-
-
-func _build_set(rd: RenderingDevice, entries: Array) -> RID:
-	var uniforms: Array = []
-	for e in entries:
-		var u: RDUniform = RDUniform.new()
-		u.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-		u.binding = int(e[0])
-		u.add_id(e[1])
-		uniforms.append(u)
-	return rd.uniform_set_create(uniforms, _shader, 0)
