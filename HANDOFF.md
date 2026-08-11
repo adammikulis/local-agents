@@ -136,7 +136,27 @@ because it sits in the narrowest band of radii. Volume-weighted, mineral moved M
 against a 0.002% debt. Whatever orders those debts, it is not only geometry. Do not reason from that
 hypothesis again.
 
-**BUT THE DEBTS ARE THE WRONG SHAPE, AND THAT HAS TO BE FIXED BEFORE ANY OF THIS IS A VERDICT.** They
+**CORRECTED — THE TABLE ABOVE IS AN ARTIFACT, AND FIVE OF THOSE SIX ARE FINE.** The debts were reshaped
+to per-STEP rates the same day, and re-measured:
+
+| substance | rate/step | allowed/step | verdict |
+|---|---|---|---|
+| `element_C_total` | 2.23e-4 | 4.67e-4 | under |
+| `h2o_closed_total` | 8.90e-5 | 3.33e-4 | under, and SETTLING (trend 0.186) |
+| `o2_total` | 8.02e-5 | 9.17e-5 | under |
+| `oxidant_all` | 1.61e-5 | 7.50e-5 | under |
+| `nitrogen_all` | 4.62e-6 | 1.03e-5 | under |
+| `mineral_total` | 5.05e-4 | 3.33e-8 | **15,000x over** |
+
+h2o breaches early (4.78e-4 at step 652) and its rate then falls to 18.6% of that — a startup transient,
+not a leak. **MINERAL is the one real outstanding question**, and not because it leaks worst: its rate is
+the same ORDER as carbon's. What singles it out is a ceiling four orders of magnitude tighter than
+everything else's, set when it measured -0.000006. Either it regressed enormously, or volume-weighting
+`mineral_total` changed what it measures — rock_fill growing in the LARGE outer cells now counts far more
+than the flat sum allowed. Settle it with the per-pass mineral probe (LA_MINERAL_BUDGET), which attributes
+by pass.
+
+**WHY THE ORIGINAL TABLE WAS WRONG, kept because it is the lesson:** They
 are ceilings on a RELATIVE TOTAL, calibrated at the 600-step reference horizon, and the gate now checks
 every sample past it — these breaches are at step 6978-7770, thirteen times further. **A substance with
 any steady drift breaches a fixed relative ceiling eventually, so run length alone decides the verdict.**
