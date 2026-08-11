@@ -156,6 +156,28 @@ everything else's, set when it measured -0.000006. Either it regressed enormousl
 than the flat sum allowed. Settle it with the per-pass mineral probe (LA_MINERAL_BUDGET), which attributes
 by pass.
 
+**MINERAL, ATTRIBUTED (LA_MINERAL_BUDGET, field_step 8519-8570). The rock is real and the passes did not
+make it.**
+
+- `mineral_total` (mask-free, volume-weighted) grows from 1.64e15 at the seal to 7.87e15 — about 5x.
+- **`solid_cells` grows 31978 -> 53935.** The crust really is getting bigger; this is not a gauge reading
+  the same rock differently.
+- **But every sampled pass sums to a small net LOSS**, about -5.8e10 per step: `plate_advect` -6.9e10,
+  `water_slump_lava` +1.0e10 to +2.0e10, `erosion_pickup`, `fire_dust`, `reactions` and `solid_derive` all
+  four to six orders smaller. Over 8500 steps that is roughly -5e14, against an observed +6.2e15.
+- `solid_derive` is ~0 in the mask-free view and swings +/-1e14 in the OPEN-cell view, which is just cells
+  crossing the solidity threshold — mass moving between open and buried, not appearing.
+
+**So the source is NOT in the sampled pass loop.** Two candidates, and they are cheap to separate:
+1. CPU-side injection — `LAMineralStamp3D`, meteor and volcano stamps — which reaches the device through
+   the inject queue and is booked in `mineral_inject_minted` rather than in a pass leg.
+2. Bursty events BETWEEN samples: the probe samples 2 of every 50 steps (`SAMPLE_EVERY`), so an impact or
+   an eruption landing in the other 48 is invisible to it.
+
+Next: read `mineral_inject_minted` and `mineral_src_total` over a long run (they are already in
+SIM_REPORT), and if those are ~0, drop `SAMPLE_EVERY` to 1 for one short run so nothing can hide between
+pairs.
+
 **WHY THE ORIGINAL TABLE WAS WRONG, kept because it is the lesson:** They
 are ceilings on a RELATIVE TOTAL, calibrated at the 600-step reference horizon, and the gate now checks
 every sample past it — these breaches are at step 6978-7770, thirteen times further. **A substance with
