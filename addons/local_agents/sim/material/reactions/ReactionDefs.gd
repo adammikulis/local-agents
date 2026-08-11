@@ -9,9 +9,7 @@ const WATER: int = 1
 const MOISTURE: int = 2
 const O2: int = 3
 const CO2: int = 4
-# DETRITUS (LAReactionBalance.SLOT_SUBSTANCE maps all four to `cellulose`). It was declared here and in the
-# kernel's #defines with NO branch in either switch-ladder, so it read 0 and any write to it vanished; the
-# branches now and CombustionRecords.gd oxidises it.
+# DETRITUS (LAReactionBalance.SLOT_SUBSTANCE maps all four to `cellulose`). CombustionRecords.gd oxidises it.
 const FUEL: int = 5
 const FIRE: int = 6
 const DETRITUS: int = 7

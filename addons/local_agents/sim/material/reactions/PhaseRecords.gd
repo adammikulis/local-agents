@@ -97,8 +97,7 @@ static func _latent_vaporisation_j_m3() -> float:
 	return float(t.get("density", 0.0)) * float(t.get("latent_vaporisation_j_kg", 0.0))
 
 
-## Sublimation is fusion PLUS vaporisation — derived, never declared, so Hess's law cannot be violated. It
-## was, in shipped code, by 2.433e5 J/kg per traverse of the water cycle.
+## Sublimation is fusion PLUS vaporisation — derived, never declared, so Hess's law cannot be violated.
 static func _latent_sublimation_j_m3() -> float:
 	var t: Dictionary = LASubstances.table().get("h2o", {})
 	return float(t.get("density", 0.0)) * LASubstances.latent_sublimation_j_kg("h2o")

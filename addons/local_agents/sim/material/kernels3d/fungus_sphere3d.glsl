@@ -41,11 +41,9 @@ const float DETRITUS_DAMP = 0.15;
 // Thermal death of a mesophilic fungus. Real mesophiles top out around 40-45 C (thermophiles reach 60, which
 // this single generic decomposer channel does not model). A property of the organism, not of matter.
 const float TEMP_WARM = 42.0;
-// Growth stops when the water in and around the mycelium turns to ice, so this IS the freezing point of
-// water and is bound to the authority rather than left free. It is exactly the kind of constant that was
-// once moved to 12.5 in five files because the planet could not get cold; the annotation makes that fail.
+// Growth stops when the water in and around the mycelium turns to ice, so this is the freezing point of
+// water, bound to the authority rather than left free.
 const float TEMP_COLD = 0.0;    // LAPhysical.WATER_FREEZE_C
-// FIRE: THIS KERNEL NO LONGER READS IT, AND `const float FIRE_MIN = 0.02;` IS DELETED WITH THE TWO TESTS
 const float GROW_RATE = 0.06;
 const float SPREAD = 0.02;
 const float DECAY = 0.02;

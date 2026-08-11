@@ -130,7 +130,7 @@ const LIQUID: int = 1
 const GAS: int = 2
 
 
-## were three constants: 2.257e6 (quoted at 100 C) + 3.337e5 fell 2.433e5 J/kg short of a 2.834e6 stated at
+## Latent heat of sublimation, J/kg — DERIVED as fusion + vaporisation so Hess's law cannot be violated.
 static func latent_sublimation_j_kg(id: String) -> float:
 	var s: Dictionary = table().get(id, {})
 	return float(s.get("latent_fusion_j_kg", 0.0)) + float(s.get("latent_vaporisation_j_kg", 0.0))

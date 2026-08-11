@@ -40,9 +40,8 @@ const CO2_AMBIENT: float = O2_AMBIENT * (LAPhysical.AIR_MOLE_FRAC_CO2 / LAPhysic
 # ICE_DEPTH = a thick pack that reads as glacial ice (the deep end of the same channel — no separate ice buffer).
 const SNOW_PRESENT: float = 1.9e-4
 const ICE_DEPTH: float = 0.5              # ~8 m water equivalent = a real glacial thickness, not a snowfall
-# Clausius-Clapeyron, one function, one owner. It used to be three constants here (SAT_BASE 0.06 /
 const FOG_MAX_TEMP: float = 12.0
-# is 5e-5 kg/m³ / 997 kg/m³ = 5.0e-8. It was 0.05, a thousand times saturation itself.
+# Condensate fraction at which a cell counts as covered: 5e-5 kg/m³ over water's 997 kg/m³.
 const CONDENSE_COVER_MIN: float = 5.0e-8
 var _temp: PackedFloat32Array = PackedFloat32Array()     # temperature °C per cell (rock + void)
 # ONE conserved atmospheric-water channel: total water suspended in a cell's air (Phase 2a — collapses the
@@ -712,8 +711,7 @@ func wind() -> Vector2:
 	return _queries.wind()
 
 ## LOCAL horizontal wind at a world POINT, as the tangential drift in world XZ — the emergent GPU velocity
-## read back into `_vel_*`. Takes a 3D point: the old (x, z) form sampled `sea_level + 40`, and sea_level was
-## never assigned, so every storm read its steering wind from a cell 40 units off the planet's centre.
+## read back into `_vel_*`.
 func wind_at(world_pos: Vector3) -> Vector2:
 	return _queries.wind_at(world_pos)
 
@@ -774,7 +772,6 @@ func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = V
 
 ## Cells holding melt that has reached OPEN ground — lava. Thin forwarder; the walk (and the magma/lava
 ## distinction it rests on) lives in LAMaterialFieldQueries3D.molten_counts.
-## (Was `return 0`, a gauge that read "no lava" identically whether there was none or the reporting was dead.)
 func lava_cell_count() -> int:
 	return _queries.lava_cell_count() if _queries != null else 0
 
@@ -895,7 +892,6 @@ func geotherm_report() -> Dictionary:
 
 ## Cells holding melt still CONFINED by rock — magma, as against the lava_cell_count above. Thin forwarders;
 ## both, and the eruption test, come from the single walk in LAMaterialFieldQueries3D.molten_counts.
-## (Both were hardcoded — `return 0` / `return false` — while `magma_cells` was published in every SIM_REPORT.)
 func magma_cell_count() -> int:
 	return _queries.magma_cell_count() if _queries != null else 0
 ## Molten rock standing in open cells: magma has reached the surface, which is what an eruption IS.
@@ -903,7 +899,6 @@ func magma_erupting() -> bool:
 	return _queries.magma_erupting() if _queries != null else false
 ## Open cells currently carrying a suspended mineral load — the `erosion_cells` gauge in SIM_REPORT. Thin
 ## forwarder; the count lives in LAMaterialFieldMineralProfile3D (static, so no diagnostic instance is needed).
-## (Was `return 0` — a hardcoded zero that read "no erosion anywhere" identically whether erosion was working
 func erosion_cell_count() -> int:
 	return LAMaterialFieldMineralProfile3D.suspended_cell_count(_susp, _solid)
 # --- Conserved H₂O ledger + snow/ice diagnostics — bodies live in LAMaterialFieldLedger3D. ONE water
@@ -933,9 +928,8 @@ func h2o_total() -> float:
 ## Mean temperature over the snow-covered cells — proves snow sits on the COLD side (should read below FREEZE_TEMP).
 func snow_line_temp() -> float:
 	return _ledger.snow_line_temp()
-## Airborne dust at a world point. Was a bare `return 0.0` with no comment — a point read that answered "how
-## much debris is in the air here" with a permanent no. Forwards to the channel module like every other
-## per-cell read; it self-wakes the demand-gated `dust` readback the way co2_at does.
+## Airborne dust at a world point. Forwards to the channel module; self-wakes the demand-gated `dust`
+## readback the way co2_at does.
 func dust_at(x: float, y: float, z: float) -> float:
 	return _channels.dust_at(x, y, z)
 #  counts the same cells with the same threshold inside a pass it already makes. Reason in MaterialFieldQueries3D.)

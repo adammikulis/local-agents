@@ -14,11 +14,8 @@ const MomentumLedgerScript: GDScript = preload("res://addons/local_agents/sim/ma
 const SealScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSeal3D.gd")
 const ConservationScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldConservation3D.gd")
 
-## Process frames between recomputes of the O(cells) instrument block.
-##
-## These gauges are GDScript walks over every cell — measured on frame 1: energy_stock 87.9 ms, energy 38.5,
-## mass 13.7, mineral 11.0, clim 7.1, against a field step of 6.5 ms. At every 8 frames they were ~20x the
-## cost of the simulation they measure and dominated every verification run. `LA_GAUGE_EVERY` overrides.
+## Process frames between recomputes of the O(cells) instrument block. These gauges are GDScript walks over
+## every cell and cost far more than the field step they measure. `LA_GAUGE_EVERY` overrides.
 const HEAVY_EVERY_FRAMES: int = 64
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
@@ -272,12 +269,11 @@ func report() -> Dictionary:
 	r.merge(temps)
 	r.merge(_photo.report())
 	# DECOMPOSER extent + intensity (fungus_peak/_cells, detritus_peak/_cells). One grid pass for all four.
-	# half of the carbon loop published nothing but zeros while fungus_total beside it read real values.
 	r.merge(_f.decomposer_stats())
 	r.merge(q.rock_radial_profile())
 	# The geothermal RESERVOIR, which rock_radial_profile above cannot show: rock_core_c is the innermost
 	# simulated shell, and the reservoir is the unsimulated interior underneath it. core_res_c is the state
-	# variable that falls; core_flux_w_m2 is what it delivers, to be read against LAPhysical's 0.087.
+	# variable that falls; core_flux_w_m2 is what it delivers, against LAPhysical.GEOTHERMAL_FLUX_W_M2.
 	r.merge(_f.geotherm_report())
 	r.merge(q.hot_spring_stats())
 	r.merge(q.lava_shell_diag())

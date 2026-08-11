@@ -27,10 +27,8 @@ layout(set = 0, binding = 1, std430) restrict buffer Water    { float water[]; }
 layout(set = 0, binding = 2, std430) restrict buffer Moisture { float moisture[]; };
 layout(set = 0, binding = 3, std430) restrict buffer O2       { float o2[]; };
 layout(set = 0, binding = 4, std430) restrict buffer CO2      { float co2[]; };
-// FUEL — cured cellulosic litter, the SAME substance as biomass and detritus. Bound and reactable as of
-// 2026-08-09: combustion is a record now (CombustionRecords.gd), not fire_sphere3d.glsl, so this is where
-// fuel is oxidised. Slot 5 was declared in both enums for months with no ladder branch on either side, so it
-// read 0 and every write to it vanished.
+// FUEL — cured cellulosic litter, the SAME substance as biomass and detritus. Combustion is a record
+// (CombustionRecords.gd), so this is where fuel is oxidised.
 layout(set = 0, binding = 5, std430) restrict buffer Fuel     { float fuel[]; };
 // FIRE — an INSTRUMENT, not a channel and not a reactable slot. Assigned at the bottom of main() as the
 // fraction of this cell's fuel that combustion consumed this step, for `fire_cells` / `fire_peak` /
@@ -67,11 +65,10 @@ layout(set = 0, binding = 20, std430) restrict buffer Scratch { float scratch[];
 layout(set = 0, binding = 25, std430) restrict readonly buffer Radial { float radial[]; };  // per-cell outward unit vec, flat c*3+{0,1,2}
 // AQUIFER PERMEABILITY MASK (1 = groundwater-bearing regolith). The mask root_soil() walks — soil lives here,
 // not "wherever the rock is solid". Bound at 27, past the end of the slot-alias range (bindings 0..26 shadow
-// the slot enum; 5 and 6 are FUEL and the FIRE instrument as of 2026-08-09, 19 is derived SOIL_ROOT and needs
-// no buffer), because regolith is not a reactable channel. Same buffer soil_sphere3d.glsl binds at its own
-// binding 6.
+// the slot enum; 5 and 6 are FUEL and the FIRE instrument, 19 is derived SOIL_ROOT and needs no buffer),
+// because regolith is not a reactable channel. Same buffer soil_sphere3d.glsl binds at its own binding 6.
 layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float regolith[]; };
-// --- THE TWO NON-SILICATE MINERAL SPECIES (2026-08-08). Every mineral channel above is calcium silicate
+// --- THE TWO NON-SILICATE MINERAL SPECIES. Every mineral channel above is calcium silicate
 // CaSiO3; the Urey reaction CaSiO3 + CO2 -> CaCO3 + SiO2 has two products that are not, so each gets a
 // channel. OWN-CELL stocks in the near-ground open cell that weathered — they do not advect, and no kernel
 // other than this one reads or writes them. Bound at 28/29 because the slot<->binding alias runs out at 26
@@ -80,10 +77,8 @@ layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float 
 layout(set = 0, binding = 28, std430) restrict buffer Carbonate { float carbonate[]; };  // CaCO3 — the carbon sink
 layout(set = 0, binding = 29, std430) restrict buffer Silica { float silica[]; };        // SiO2 — the residue
 // Athy pore fraction (0 outside regolith). Declared HERE, with the other buffers, and not beside the
-// rc_shared.glsli include at the bottom: `overburden()` reads it ~30 lines above that point, and GLSL
-// requires declaration before use — putting it by the include made this whole kernel fail to compile,
-// and the sim then ran to completion and printed a normal-looking SIM_REPORT with the entire reaction
-// engine silently absent.
+// rc_shared.glsli include at the bottom: `overburden()` uses it above that point and GLSL requires
+// declaration before use.
 layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
 
 // Slot enum — MUST match MaterialReactions3D.gd.
@@ -156,9 +151,8 @@ const float ROCK_DENSITY = 2900.0;      // LAPhysical.ROCK_DENSITY_KG_M3 — bas
 const float SEDIMENT_DENSITY = 2000.0;  // LAPhysical.SEDIMENT_DENSITY_KG_M3 — unconsolidated wet sediment
                                         // (absolute temperature for Arrhenius comes from KELVIN_0 above —
                                         // one name for one constant, so it cannot drift into two)
-// (BOIL_TEMP is GONE from this kernel, 2026-08-09. It was the ARRHENIUS branch's hard-coded aqueous ceiling —
-// a fact about WATER applied to every Arrhenius record there will ever be. It is `t_ceiling_k` on the record
-// now, so D1b still stops at its solvent's boiling point and combustion, which has no solvent, does not.)
+// An Arrhenius record's own ceiling is `t_ceiling_k`, a property of that record's solvent — D1b stops at its
+// solvent's boiling point and combustion, which has no solvent, does not.
 
 // --- A CELL'S VOLUMETRIC HEAT CAPACITY [J/m3/K] ------------------------------------------------------------
 // What an ENTHALPY of reaction has to be divided by to become a temperature change: the same reaction warms
@@ -166,10 +160,7 @@ const float SEDIMENT_DENSITY = 2000.0;  // LAPhysical.SEDIMENT_DENSITY_KG_M3 —
 // lighting and why a flame in a swamp is not a flame in dry litter — with no per-case code and no wet-cell
 // gate anywhere.
 //
-// SHARED, 2026-08-09. This block used to declare its own RC_* and its own rc_of, above a comment claiming it
-// was "deliberately the SAME expression heat3d_cool_sphere3d.glsl:93-102 uses". IT WAS NOT: this copy carried
-// an ORGANIC term that one did not, and that one carried lava while this one had no SNOW. Five copies, four
-// different formulas. See rc_shared.glsli for the table and for why the `solid` early-return is gone.
+// The one definition lives in rc_shared.glsli; do not fork it.
 // The `#include` itself is further down, because it is TEXTUAL and reads the carrier buffers by name, so it
 // has to land after the last `layout(...) buffer` declaration rather than up here with the other constants.
 // The oxygen concentration below which a flame goes out however hot it is, in this channel's units of
@@ -224,7 +215,7 @@ struct Reaction {
 	int   prod_slot[4];
 	float prod_coeff[4];
 	int   prod_target[4];
-	// --- the 16-byte block the record grew by, 2026-08-09 (see LAReactionDefs.serialize) ---
+	// --- see LAReactionDefs.serialize ---
 	float enthalpy_j_m3;  // heat RELEASED (>0) or absorbed (<0) per unit of extent, J per m3 of cell
 	int   quench_slot;    // a REACTANT this reaction goes out before exhausting; -1 = none
 	float quench_min;     // ...the amount of it the reaction may not draw below (flammability limit)
@@ -237,13 +228,7 @@ layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint n_records;
 	float dt;
-	// *(Slot 3 held `uint raining` until 2026-08-10 — a GLOBAL boolean that suppressed dust loft over the
-	// WHOLE PLANET whenever it rained anywhere, so a rain shower pinned the dust down in a desert on the far
-	// side of the world. Its own comment called it "dust_loft raining flag parity", i.e. parity with a
-	// kernel that had already been deleted. It was also REDUNDANT: the same record carries GATE_DRY, which
-	// tests THIS cell's own water, and a wet cell not lofting is the actual physics. Kept as a pad so the
-	// 32-byte layout is unchanged.)*
-	uint pad_was_raining;
+	uint pad_was_raining;   // pad, keeping the 32-byte layout
 	float sun_x;    // world-space vector TOWARD the sun; MAGNITUDE carries insolation (same value ThermalPass
 	float sun_y;    // hands heat3d_solar_sphere3d, so light and heat are driven by ONE quantity)
 	float sun_z;
@@ -278,9 +263,7 @@ float light_at(uint i) {
 // STOPS at that opened cell; it just counts it first. It does not carry on into the shells below, and it must
 // not: an opened aquifer cell whose own inward neighbour is solid is itself a GATE_NEAR_GROUND rooting cell,
 // so the column beneath it belongs to the plant standing IN it, not to the one on the ledge above. Every
-// regolith cell therefore still has exactly one owner. The gain per affected column is one shell of soil, and
-// since carving and erosion cut from the surface DOWN while the water table sits on the bedrock floor
-// (measured root_d1 0.00026, root_d2 0.00024, root_d3 0.137, root_d4 0.422), that shell is usually a dry one.
+// regolith cell therefore still has exactly one owner. The gain per affected column is one shell of soil.
 // Whether this moves the dryness statistics at all is an empirical question, which is why the mirror gauge
 // LAMaterialFieldPhotoStats3D reports root_col_open_frac / root_col_open_soil: measure it, do not assume it.
 //
@@ -569,10 +552,8 @@ void main() {
 			//
 			// THE CEILING IS THE PHYSICS OF A PHASE, AND IT BELONGS TO THE RECORD. An AQUEOUS reaction needs
 			// liquid water, so D1b stops climbing at water's boiling point rather than extrapolating solution
-			// chemistry into a cell with no solution in it. That was written HERE as a literal until
-			// 2026-08-09, which applied WATER's boiling point to every Arrhenius record there will ever be —
-			// and would have capped combustion at 100 C, where cellulose does not pyrolyse at all. A record
-			// with `t_ceiling_k == 0` describes no such phase and gets no ceiling.
+			// chemistry into a cell with no solution in it. A record with `t_ceiling_k == 0` describes no
+			// such phase and gets no ceiling.
 			float conc2 = (rc.driver2_slot >= 0) ? read_ch(rc.driver2_slot, i) : 1.0;
 			float t_k = temp[i] + KELVIN_0;
 			if (rc.t_ceiling_k > 0.0) {
@@ -581,19 +562,15 @@ void main() {
 			float t_ref = max(rc.param2, 1.0);
 			x = rc.rate_k * drv * conc2 * exp(-rc.threshold * (1.0 / max(t_k, 1.0) - 1.0 / t_ref));
 		}
-		// An UNKNOWN rate model now yields x = 0 and the record simply does nothing. It used to fall through
-		// to RELAX_TARGET, so a typo'd model id became an unbounded source of whatever channel it named.
+		// An UNKNOWN rate model yields x = 0 and the record does nothing.
 
 		if (x <= 0.0) {
 			continue;
 		}
 		// Reactant caps: the extent can't drive any reactant (or the aux cap) negative.
 		//
-		// THIS BLOCK IS NOW UNCONDITIONAL, and that is the fix. It used to be wrapped in
-		// `if (rc.rate_model != RELAX_TARGET)`, so ONE rate model skipped the cap and the debit entirely and
-		// ran only the product credit below. That is matter from nothing by construction, and two shipped
-		// records used it: R11 pinned O2 and R12 pinned CO2 at the top of the atmosphere. R12 was the origin
-		// of every carbon atom that ever existed in this simulation.
+		// THIS BLOCK IS UNCONDITIONAL: no rate model may skip the cap and the debit and run only the product
+		// credit, which would be matter from nothing.
 		//
 		// THE QUENCH IS A FLOOR ON ONE REACTANT, and it is a different statement from the cap around it. The
 		// cap says an extent cannot outrun its supply. The quench says a reaction stops before its supply is
@@ -653,8 +630,7 @@ void main() {
 
 	// THE BURNING INSTRUMENT. `fire` is not a state any more: a cell is burning if its combustion RATE is
 	// high, which is derived, exactly as cloud is derived from moisture against saturation. It is read by the
-	// gauges (`fire_cells` / `fire_peak` / `is_burning`) and, as of 2026-08-09, BY NO PHYSICS ANYWHERE —
-	// fungus_sphere3d.glsl was the last mechanism gating on it and that gate is deleted.
+	// gauges (`fire_cells` / `fire_peak` / `is_burning`) and by no physics anywhere.
 	if (fuel_before > 0.0) {
 		// FIRE IS THE FRACTION OF THIS CELL'S USABLE OXYGEN THAT COMBUSTION CONSUMED THIS STEP.
 		//
@@ -663,17 +639,9 @@ void main() {
 		// this channel's units of ambient air is 0.716). So 1.0 means "burning as hard as this cell's air
 		// allows", which is what an intensity should mean and what a threshold on it can test.
 		//
-		// *(Corrected three times, and the third is the one that mattered. It was first
-		// `(fuel_before - fuel) / fuel_before`, which the oxygen cap bounds at 3.2e-3 against the 0.02 that
-		// MaterialFieldQueries3D.FIRE_PRESENT calls burning — so every fire gauge would have read "nothing
-		// is alight" through an entire burn, and a well-stocked fire read LOWER than an exhausted one. The
-		// second repair read the coefficients off `rc` AFTER the record loop, where `rc` holds whichever
-		// record ran last rather than combustion; that wrote garbage into a channel fungus_sphere3d gated
-		// spread on, and the planet melted — magma_cells 3 -> 191, lava_cells 1 -> 425, snow and biomass to
-		// zero. The third took the WHOLE STEP's oxygen delta, `o2_before - o2[i]`, which is not combustion:
-		// R15 decomposition and respiration draw oxygen too, so ordinary rot read as fire. Since
-		// fungus_sphere3d gated on this, a decomposer suppressed itself by decomposing. The numerator is now
-		// attributed per record, inside the loop, to the one record whose driver is FUEL.)*
+		// The numerator is attributed per record, inside the loop, to the one record whose driver is FUEL —
+		// the whole step's oxygen delta is not combustion, since decomposition and respiration draw oxygen
+		// too.
 		float o2_usable = max(0.0, o2_before - O2_FLAMMABILITY_LIMIT);
 		fire[i] = (o2_usable > 0.0) ? clamp(o2_burn / o2_usable, 0.0, 1.0) : 0.0;
 	}

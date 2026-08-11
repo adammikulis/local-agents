@@ -34,8 +34,7 @@ static func records() -> Array:
 	var w_per_fuel: float = LAReactionBalance.unit_ratio(MOISTURE, FUEL)
 	var fert_per_fuel: float = LAReactionBalance.unit_ratio(FERT, FUEL)
 	# Nitrogen per mole of CH2O, read off the composition table rather than restated, so this record cannot
-	# disagree with the gate about what litter is made of. It is MOLAR: LITTER_C_TO_N is a ratio of MASSES, and
-	# spending it directly as a mole count is a 16 % overstatement the old kernel had to be corrected for.
+	# disagree with the gate about what litter is made of. It is MOLAR; LITTER_C_TO_N is a ratio of MASSES.
 	var organic_n: float = float(LAReactionBalance.composition()[FUEL]["N"])
 	return [
 		rec(ARRHENIUS, _rate_k(), FUEL,

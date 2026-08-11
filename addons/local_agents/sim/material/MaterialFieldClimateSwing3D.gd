@@ -24,8 +24,7 @@ var _day_max: PackedFloat32Array = PackedFloat32Array()
 var _day_seen: PackedInt32Array = PackedInt32Array()
 
 # Per-station ring of the last LONG_DAYS completed rotations (min and max of each). `_ring_ok` marks which
-# slots hold a real observation: a station buried by lava or an impact contributes NOTHING to that day rather
-# than a zero, which would otherwise read as a station that spent a day at 0 C.
+# slots hold a real observation: a station buried by lava or an impact contributes nothing to that day.
 var _ring_min: PackedFloat32Array = PackedFloat32Array()
 var _ring_max: PackedFloat32Array = PackedFloat32Array()
 var _ring_ok: PackedByteArray = PackedByteArray()

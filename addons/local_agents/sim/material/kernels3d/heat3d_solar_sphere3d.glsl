@@ -38,12 +38,11 @@ layout(push_constant, std430) uniform Params {
 	float sea_radius;   // world radius of the sea shell — altitude datum for the lapse term
 } params;
 
-// the measured 1361 W/m^2 at 1 AU, and STEFAN is the full Stefan-Boltzmann constant rather than a truncation.
 const float STEFAN = 5.670374419e-8;   // LAPhysical.STEFAN_BOLTZMANN — the measured constant, in full
-const float SOLAR_CONSTANT = 1361.0;   // LAPhysical.SOLAR_CONSTANT_W_M2 — measured irradiance at 1 AU
+const float SOLAR_CONSTANT = 1361.0;   // LAPhysical.SOLAR_CONSTANT_W_M2 — irradiance at 1 AU
 const float KELVIN = 273.15;           // LAPhysical.KELVIN_OFFSET
 const float MAX_DT_PER_STEP = 5.0;     // last-resort stability limit (see SUB-STEPPING below)
-const int   MAX_SUBSTEPS = 8;          // slices per step when |dT| is large; 8 covers the measured 29.8 C
+const int   MAX_SUBSTEPS = 8;          // slices per step when |dT| is large
 const float ALBEDO_GROUND = 0.15;      // LAPhysical.ALBEDO_BARE_GROUND
 const float ALBEDO_WATER = 0.06;       // LAPhysical.ALBEDO_OCEAN
 const float ALBEDO_ICE = 0.65;         // LAPhysical.ALBEDO_SNOW_ICE
@@ -51,8 +50,6 @@ const float ICE_ALBEDO_GAIN = 40.0;    // snow mass -> reflectivity; a thin dust
 // ===== VEGETATION — THE BIOLOGICAL HALF OF THE ICE-ALBEDO FEEDBACK ================================
 // THE COVER FRACTION IS NOT A RAMP WITH A CLAMP. It is Beer-Lambert extinction through the leaf area the
 //   LAI             = leaf mass / LEAF_MASS_PER_AREA
-// Measured on this planet at seed 4242: mean ground-cell biomass 0.00102, so 8.2 kg/m^2 of standing matter,
-// 0.245 kg/m^2 of that foliage, LAI 3.1 — a just-closed canopy, which is the regime a vegetated cell should
 const float RHO_CELLULOSE = 500.0;        // LAPhysical.DRY_WOOD_DENSITY_KG_M3 — LASubstances cellulose.density
 const float ALBEDO_VEG = 0.12;            // LAPhysical.ALBEDO_VEGETATION — LASubstances cellulose.albedo
 const float FOLIAGE_FRACTION = 0.03;      // LAPhysical.FOLIAGE_FRACTION_OF_PLANT_MASS

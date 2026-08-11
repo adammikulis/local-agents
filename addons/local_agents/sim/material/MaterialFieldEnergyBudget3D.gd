@@ -191,7 +191,6 @@ func _compute() -> Dictionary:
 			# canopy is darker than the ground it stands on.
 			var land: float = lerpf(LAPhysical.ALBEDO_BARE_GROUND, LAPhysical.ALBEDO_VEGETATION, veg)
 			var albedo: float = lerpf(lerpf(land, LAPhysical.ALBEDO_OCEAN, wet), LAPhysical.ALBEDO_SNOW_ICE, icy)
-			# hold 3.41e6 J/m3K while split 0.5/0.5 held 4.87e6, a 43% jump for no change of mass — and it
 			var rc: float = LAHeatCapacity.cell(_rc_channels, c)
 			var cap: float = maxf(rc * cell_size, 1.0)
 			# Provenance only — this reports whether the greenhouse came from a live pressure readback. The

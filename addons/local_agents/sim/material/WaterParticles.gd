@@ -14,9 +14,7 @@ var _field = null
 var _camera: Node3D = null
 var _sun: DirectionalLight3D = null
 var _center: Vector3 = Vector3.ZERO
-# Unset until setup() supplies it. This read `248.0` and could never be observed: setup() assigns it as its
-# planet's size to anyone reading the file for the scale of the atmosphere bands.
-var _sea_radius: float = 0.0
+var _sea_radius: float = 0.0               # unset until setup() supplies it
 var _prevailing: Vector3 = Vector3(0.15, 1.0, 0.0)
 var _pm: ShaderMaterial = null             # process material
 var _dm: ShaderMaterial = null             # draw material

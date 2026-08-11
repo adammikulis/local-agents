@@ -7,8 +7,7 @@ const DefsScript: GDScript = preload("res://addons/local_agents/sim/material/rea
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reactions_sphere3d.glsl"
 
 ## Relative tolerance on a substance sum. Coefficients are authored as float literals and several are derived
-## (1.0 / LITTER_C_TO_N), so an exact compare would fail on representation alone. This is far tighter than
-## any real imbalance ever found here — R15's was 18%, R20's nitrogen deficit 60%.
+## (1.0 / LITTER_C_TO_N), so an exact compare would fail on representation alone.
 const TOL: float = 1.0e-6
 
 ## value as FIRE, and it is declared LATER in the file, so `slot_names()` resolved slot 6 to "ARRHENIUS" and

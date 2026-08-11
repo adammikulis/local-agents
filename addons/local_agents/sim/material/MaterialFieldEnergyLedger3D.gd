@@ -1,13 +1,8 @@
 class_name LAMaterialFieldEnergyLedger3D
 extends RefCounted
 
-## ~11 W/m² of a ~150 W/m² gap, and it WARMED 15 °C → 30 °C over a run the radiative books say should have
-## cooled 47 °C. About 140 W/m² enters from terms nothing books. This is the gauge that can see them.
+## The planet's thermal stock, and the books kept against it.
 ##   energy_stock = Σ over EVERY cell, rock and void, of  rc(cell) * cell_volume_m3(cell) * (T + 273.15)   [joules]
-##     `energy_emitted` (its :294-321), which are sums of per-cell fluxes in W/m², so a face area of
-## capacity by carrier and the water leg falls from 5.5171e13 to 1.852e13 J/K — 66.4%, and to three figures
-## (1.708e10 J/K each) leaving the `water` channel for `soil`, which carries no capacity: 2146 * 4.171e6 *
-## — 51764 W/m², against 240 W/m² of longwave. Two unbooked sinks exist only in that arm and this gauge cannot
 
 ## Samples to discard before latching the run-long BASELINE. The drain probe lands one drain after it is
 ## armed, so the FIRST sample reads a possibly-stale rock_fill mirror; and the report path can fire before the
@@ -17,10 +12,7 @@ const BASELINE_SKIP_SAMPLES: int = 2
 ## EVERY LEG OF THE CAPACITY MIX, READ THROUGH THE PROBE. Not "the demand-gated ones" — all of them.
 ## `request_probe`/`take_probe` reads at the drain into a dictionary no simulation consumer sees, so what
 ## this gauge gets does not depend on which OTHER consumer happened to call `request_channel` recently.
-## Mixing probe legs with mirror legs is what made `energy_stock` differ by 87% between a run with the
-## presentation layer and the same run `--bare`: `sediment`, `susp`, `soil` and `porosity` were read from
-## mirrors under a comment calling them "always-hot", and all four are in SLOW_CHANNELS, refreshed every
-## fourth drain.
+## Every leg comes from the probe; none may be read from a mirror.
 const LEGS: PackedStringArray = ["rock_fill", "lava", "fuel", "dust", "detritus", "fungus",
 	"carbonate", "silica", "water", "snow", "biomass", "sediment", "susp", "soil", "moisture", "porosity"]
 
@@ -96,9 +88,8 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	#
 	# `rc` is built from channel MIRRORS, and a demand-gated channel is only refreshed when something called
 	# request_channel — so which legs are present depends on which CONSUMERS are alive. An absent leg
-	# contributed zero capacity and the stock silently shrank: measured 2026-08-11 by
-	# scripts/check_observer_independence.sh, `energy_stock` differed by 87.13% between a run with the
-	# presentation layer and the same run with --bare. That is the gauge reading the observer, not the planet.
+	# contributes zero capacity, which would shrink the stock silently: the gauge would read the observer
+	# rather than the planet. scripts/check_observer_independence.sh gates that.
 	#
 	# Reporting "unmeasured" is the honest answer and it is what the element inventory already does with
 	# `mass_live`. A wrong number is worse than an absent one, because only the absent one stops a reader.
@@ -113,11 +104,8 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 		out["energy_stock_cells"] = cc
 		LASimReport.gauge("energy_stock_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
 		return out
-	# ENERGY IS rc * V * T, AND V IS PER CELL AND IN CUBIC METRES. Both halves of that were wrong here.
-	# `volume = cell_size^3` used one uniform volume for every cell on a grid whose cells differ by up to
-	# 8.8x, AND it was in model units cubed while rc is J/m^3/K, so a figure the header calls "[joules]" was
-	# short by METRES_PER_MODEL_UNIT^3, about 4.8e6. The two errors do not cancel each other and they do not
-	# cancel against the booked fluxes below, which carried the squared version of the same mistake.
+	# Energy is rc * V * T, with V the CELL's own volume in cubic metres — cells differ in volume, and rc is
+	# J/m^3/K, so a model-unit volume would not be joules.
 	var grid = _f._sphere
 	var have_grid: bool = grid != null and grid.cell_count == cc
 	var uniform_m3: float = pow(cell_size * LAPhysical.METRES_PER_MODEL_UNIT, 3.0)
@@ -163,12 +151,8 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	out["energy_cap_j_k"] = cap_total
 	out["energy_cap_legs"] = cap_legs
 
-	# THE BOOKED RATES, in watts. LAMaterialFieldEnergyBudget3D now sums each cell's flux against that cell's
-	# OWN outward face area in m², so these arrive as watts and need no conversion here. They used to be
-	# W/m² sums multiplied by one uniform `cell_size²` — uniform on a grid whose faces vary as r², and in
-	# model units against a flux in W/m², so short by METRES_PER_MODEL_UNIT² (~2.8e4). The stock above
-	# carried the CUBED version of the same mistake, so the two did not cancel: the residual-over-booked
-	# ratio inherited the difference, a factor of METRES_PER_MODEL_UNIT.
+	# THE BOOKED RATES, in watts. LAMaterialFieldEnergyBudget3D sums each cell's flux against that cell's OWN
+	# outward face area in m², so these arrive as watts and need no conversion here.
 	var solar_w: float = float(flux.get("energy_absorbed_w", 0.0))
 	var lw_w: float = float(flux.get("energy_emitted_w", 0.0))
 	var geo_flux: float = 0.0

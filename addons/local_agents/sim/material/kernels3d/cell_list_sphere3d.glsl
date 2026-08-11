@@ -58,9 +58,7 @@ void main() {
 	}
 	if (params.pass_id == 2u) {
 		if (g == 0u) {
-			// One workgroup minimum. A literal 0 would be the honest O(active) statement, but a zero-group
-			// indirect dispatch is not uniformly safe across backends, and one idle group of 64 threads (each
-			// of which early-outs on the count) is 0.05% of a full-grid dispatch — not worth the risk.
+			// One workgroup minimum: a zero-group indirect dispatch is not uniformly safe across backends.
 			uint n = active_args[3];
 			active_args[0] = max(1u, (n + 63u) / 64u);
 		}
