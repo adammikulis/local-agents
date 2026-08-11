@@ -1,0 +1,47 @@
+[gd_scene load_steps=7 format=3 uid="uid://c0resmoke0rabbit01"]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/CoreCreatureSmoke.gd" id="1_smoke"]
+[ext_resource type="PackedScene" uid="uid://bc7l2q0creature0" path="res://addons/local_agents/creatures/Creature.tscn" id="2_creature"]
+[ext_resource type="Script" path="res://addons/local_agents/runtime/DemoHarness.gd" id="3_harness"]
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_floor"]
+size = Vector2(80, 80)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]
+albedo_color = Color(0.32, 0.45, 0.28, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_floor"]
+size = Vector3(80, 0.4, 80)
+
+[node name="CoreCreatureSmoke" type="Node3D"]
+script = ExtResource("1_smoke")
+
+[node name="Floor" type="StaticBody3D" parent="."]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor"]
+mesh = SubResource("PlaneMesh_floor")
+material_override = SubResource("StandardMaterial3D_floor")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.2, 0)
+shape = SubResource("BoxShape3D_floor")
+
+[node name="Creature" parent="." instance=ExtResource("2_creature")]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+standalone_on_ready = true
+standalone_species = "rabbit"
+ground_y = 0.0
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.9004471, -0.4349655, 0, 0.4349655, 0.9004471, 0, 8, 16)
+current = true
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.8253356, 0, -0.5646425, -0.5032136, 0.4535961, -0.7355452, 0.2561196, 0.8912074, 0.374369, 0, 0, 0)
+
+[node name="DemoHarness" type="Node" parent="."]
+script = ExtResource("3_harness")
+run_frames = 60
+report_prefix = "CORE_SMOKE"
+report_suffix = ""

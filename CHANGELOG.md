@@ -1,7 +1,53 @@
 # Changelog
 
-All notable changes to this project are recorded here. The active project is the from-scratch
-godot_voxel ecosystem simulation (`addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn`).
+All notable changes to this project are recorded here. The project is two things at once: a
+reusable Godot addon for running local LLMs in-engine (the `LocalAgent` node and friends, under
+`addons/local_agents/{agents,runtime,ui,examples}`), and the flagship game that demonstrates it —
+a cubed-sphere planet simulation whose creatures and streamer are driven by those models, fully
+offline. The sim library lives in `addons/local_agents/sim/`, the game shell in
+`addons/local_agents/game/` (main scene `game/VoxelWorld.tscn`).
+
+## Unreleased — 0.4.0-dev
+
+Development branch `0.4-dev`, currently 292 commits past 0.3.1. **0.4 is the emergent planet**:
+geology, hydrology, volcanism and climate, all falling out of the one field. Not yet released, and
+the summary below is by theme rather than a settled release note.
+
+- **The planet's physics became conservative.** One conserved H₂O budget across liquid, vapour,
+  snow and soil water; the static sea dissolved (it had been minting water it never lost); a real
+  aquifer / water-table channel (springs are modelled as a flux but do NOT yet run — the
+  outflow loop spends its budget greedily in slot order and drains downward first); hydrostatic air mass; gravity and the star
+  as real bodies; body-local spin, with the Coriolis direction corrected and the cubed-sphere
+  neighbour table made slot-opposite reciprocal.
+- **Biology went deep** — literal DNA heredity, chemical-affinity learning, digestion over time,
+  per-creature courtship and gestation, sexed breeding, graded senescence, gut microbiome, fish
+  cognition, emergent disease and heritable constitution.
+- **Performance** — a compacted active-cell list with indirect dispatch, demand-gated readbacks,
+  animation and physics-rate LOD for creatures. A camera-relevance LOD over the FIELD was tried and
+  removed: it made the planet's physics depend on where the camera pointed, and measured slower than
+  no gating at all.
+- **The addon became a real library** — the `sim/` (library) vs `game/` (shell) split, the
+  `LocalAgent*` public / `LA*` internal naming rule, inspector surfaces, a Setup tab, and a
+  one-node `LASimWorld` facade.
+- **The gates started actually gating.** Several checks had been passing on zero files for months
+  because `rg` is absent on the CI runner; `scripts/lib_require.sh` now makes a gate that cannot
+  run fail instead of pass, and CI calls the same `scripts/agent_harness.sh lint` a developer does.
+
+## 0.3.1
+
+Caretaker-game patch; macOS and Linux desktop builds. The 0.4 living-creatures work stayed on its
+feature branch and is not in this release.
+
+- **Performance:** distance-gated compute-bubble LOD for creatures plus coarse-cadence vegetation
+  LOD — roughly 20 fps to 100+.
+- **Fixes:** spawn-puff freeze; audio-on-launch and streamer now default-off and lazy; radial-up
+  lightning; size-scaled meteor charge; surface-tangent brush and selection rings; the Linux
+  extension build (GCC `sqlite3_int64`→`Variant`); Linux export dependencies (versioned sonames,
+  and the unbuilt `libggml-blas` dropped).
+- **UX:** globe drag-rotate and invert toggles, Ctrl+scroll brush sizing, geosync arc-down zoom,
+  crust→mantle→magma geology glow, meteor barrage, control-by-spawning campaign start.
+- **Known gap, still open:** CI compiles `localagents.windows.dll` but does not collect its
+  llama/ggml runtime DLLs, so no Windows package can be assembled yet.
 
 ## 0.3.0
 

@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="LocalAgentDemoEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/DemoEntry.gd" id="1_entry"]
+
+[resource]
+script = ExtResource("1_entry")
+order = 40
+title = "Chat"
+description = "The full chat interface: model settings, sampling settings, runtime health and saved conversations."
+scene_path = "res://addons/local_agents/examples/ChatExample.tscn"
+requires_model = true
+requires_voxel_backend = false

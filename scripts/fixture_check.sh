@@ -16,8 +16,8 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SCENE="addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn"
-FIXTURE_DIR="addons/local_agents/scenes/simulation/voxel/test/fixtures/stable_world"
+SCENE="addons/local_agents/game/VoxelWorld.tscn"
+FIXTURE_DIR="addons/local_agents/sim/test/fixtures/stable_world"
 FRAMES=120
 
 for arg in "$@"; do

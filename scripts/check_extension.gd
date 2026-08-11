@@ -1,7 +1,7 @@
 extends SceneTree
 
 func _init() -> void:
-    var loader = preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+    var loader = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
     var ok := loader.ensure_initialized()
     if not ok:
         push_error("Extension init failed: %s" % loader.get_error())

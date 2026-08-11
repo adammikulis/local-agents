@@ -1,0 +1,127 @@
+diff --git a/addons/local_agents/sim/material/kernels3d/lava_flow_sphere3d.glsl b/addons/local_agents/sim/material/kernels3d/lava_flow_sphere3d.glsl
+index c51bfcd..ae9906f 100644
+--- a/addons/local_agents/sim/material/kernels3d/lava_flow_sphere3d.glsl
++++ b/addons/local_agents/sim/material/kernels3d/lava_flow_sphere3d.glsl
+@@ -1,9 +1,11 @@
+ #[compute]
+ #version 450
+ 
+-// CUBED-SPHERE lava FLOW — the sphere port of lava_flow3d.glsl. IDENTICAL two-pass GATHER logic and
+-// IDENTICAL viscous flow math (the water CA's finite-volume rule with a SMALLER LAVA_MAX_FLOW cap so lava
+-// creeps). Molten heat rides WITH the mass: any cell that RECEIVES lava is pulled up to at least
++// CUBED-SPHERE lava FLOW — the sphere port of lava_flow3d.glsl, plus one leg the box kernel never had: a
++// DOWNSLOPE redirect (leg 1b) so gravity keeps pulling when the cell directly below is blocked. Everything
++// else is the IDENTICAL two-pass GATHER logic and the IDENTICAL viscous flow math (the water CA's
++// finite-volume rule with a SMALLER LAVA_MAX_FLOW cap so lava creeps). Molten heat rides WITH the mass: any
++// cell that RECEIVES lava is pulled up to at least
+ // MOLTEN_FLOOR (the oracle's _carry_heat) so the front does not freeze on cold rock. Lava has NO static
+ // sink (unlike water). The ONLY change vs the box kernel is neighbour addressing: instead of idx±offset +
+ // `if(iy>0)` bounds tests, every cell gathers its 6 neighbours from the precomputed INDEX TABLE
+@@ -88,6 +90,50 @@ void main() {
+ 			return;
+ 		}
+ 
++		// 1b) DOWNSLOPE — GRAVITY DOES NOT STOP AT A WALL.
++		//
++		// Leg 1 asks one question: is the cell DIRECTLY below me open? On a growing pile the answer is always
++		// no — the cell below is the rock this flow just froze — so gravity contributed nothing and the lava
++		// stayed on the crest until it quenched, one cell higher every supply tick. That is the whole mechanism
++		// behind the one-cell seabed spire: not the supply, not the stamp, but a descent term that gave up the
++		// moment its single downward neighbour was blocked.
++		//
++		// Real material on a slope descends DIAGONALLY, and on a 6-neighbour grid a diagonal is one lateral
++		// step into a column whose own floor has fallen away. So when the direct descent is blocked, the pull is
++		// redirected: any lateral neighbour that is itself UNSUPPORTED (its inward neighbour is open too, i.e.
++		// the ground there is at least two cells below this crest) is DOWNHILL, and lava runs off that way under
++		// the SAME gravity flow leg 1 would have taken. Nothing here is a limit on how tall a pile may get — a
++		// pile grows as tall as its own flanks will support, which is what a shield volcano is.
++		//
++		// It is inert on level ground: on a flat seabed or a lava plain the lateral neighbours' floors are solid,
++		// every direction fails the unsupported test, and leg 2's level-out handles the spreading exactly as
++		// before. It costs one extra neighbour lookup per lateral, only on cells whose descent is blocked.
++		bool below_blocked = (ib < 0) || (solid[ib] != 0.0);
++		if (below_blocked) {
++			for (int g = 0; g < 4; g++) {
++				if (remaining < LAVA_MIN_MASS) {
++					break;
++				}
++				int gnb = nbr[base + 1u + uint(g)];
++				if (gnb < 0 || solid[gnb] != 0.0) {
++					continue;
++				}
++				int gbelow = nbr[uint(gnb) * 6u + 0u];       // the cell UNDER that lateral neighbour
++				if (gbelow < 0 || solid[gbelow] != 0.0) {
++					continue;                                // level ground on this side — not a slope
++				}
++				float gflow = stable_below(remaining + lava_in[gnb]) - lava_in[gnb];
++				gflow = clamp(gflow, 0.0, min(LAVA_MAX_FLOW, remaining));
++				if (gflow > LAVA_MIN_FLOW) {
++					send[base + 1u + uint(g)] = gflow;
++					remaining -= gflow;
++				}
++			}
++			if (remaining < LAVA_MIN_MASS) {
++				return;
++			}
++		}
++
+ 		// 2) LATERAL — level out with the 4 lateral neighbours (slots 1-4; only push to lower).
+ 		for (int d = 0; d < 4; d++) {
+ 			if (remaining < LAVA_MIN_MASS) {
+@@ -104,7 +150,10 @@ void main() {
+ 			if (diff > LAVA_MIN_FLOW) {
+ 				float lflow = clamp(diff * LAVA_LATERAL_FRACTION, 0.0, min(LAVA_MAX_FLOW, remaining));
+ 				if (lflow > LAVA_MIN_FLOW) {
+-					send[base + 1u + uint(d)] = lflow;
++					// ACCUMULATE: leg 1b may already have written a downslope send into this same slot, and an
++					// assignment here would silently drop it from `send` while `remaining` had already been
++					// debited for it — mass destroyed at exactly the cells this change exists to fix.
++					send[base + 1u + uint(d)] += lflow;
+ 					remaining -= lflow;
+ 				}
+ 			}
+diff --git a/addons/local_agents/sim/material/kernels3d/magma_buoy_sphere3d.glsl b/addons/local_agents/sim/material/kernels3d/magma_buoy_sphere3d.glsl
+index dd69dc7..cefdc23 100644
+--- a/addons/local_agents/sim/material/kernels3d/magma_buoy_sphere3d.glsl
++++ b/addons/local_agents/sim/material/kernels3d/magma_buoy_sphere3d.glsl
+@@ -33,6 +33,18 @@ const float MAX_UP_FLOW = 0.4;
+ const float MIN_OP = 0.0001;
+ const float MOLTEN_FLOOR = 950.0;
+ const float LAVA_EMPLACE_TEMP = 1150.0;
++// CONFINEMENT — buoyancy is ARCHIMEDES, so it needs a denser medium to rise through. Magma climbs the crust
++// because it is lighter than rock; it is the DENSEST thing in a seawater or air cell and cannot climb there at
++// all. This kernel's only gate used to be `the cell above is open`, which is exactly the case where the rule
++// does not hold: the moment a vent's overpressure reached open water it kept lifting, one cell per step, and
++// the quench froze what it lifted. That is the seabed spire — a mass elevator running on inverted buoyancy,
++// and no supply routing or height cap downstream could reach it because the lift happened here.
++//
++// The medium is now read from what is actually in the cell above: a CONNECTED MAGMA COLUMN transmits pressure
++// (a conduit really does push magma up through itself), open water or air does not. Emerging lava therefore
++// has to spread and descend under gravity like any other dense fluid, and a pile that wants to get taller has
++// to get wider first. Nothing here limits height — a conduit that stays full still climbs.
++const float LAVA_PRESENT = 0.0001;   // == LAVA_MIN_MASS: the threshold every lava kernel already calls "lava here"
+ 
+ // Buoyant up-transfer a cell contributes given its lava mass — mirrors _buoy_up exactly.
+ float buoy_up(float mass) {
+@@ -65,14 +77,17 @@ void main() {
+ 	float out_up = 0.0;
+ 	float in_below = 0.0;
+ 
+-	// UP (radially outward = slot 5): overpressure we shed into the open cell above.
++	// UP (radially outward = slot 5): overpressure we shed into the cell above — but ONLY through a CONNECTED
++	// MAGMA COLUMN (see CONFINEMENT above): the cell above must itself hold lava.
+ 	int iu = nbr[base + 5u];
+-	if (iu >= 0 && solid[iu] == 0.0) {
++	if (iu >= 0 && solid[iu] == 0.0 && scratch[uint(iu)] >= LAVA_PRESENT) {
+ 		out_up = buoy_up(scratch[g]);
+ 	}
+-	// DOWN (radially inward = slot 0): overpressure the open cell below buoys up into us.
++	// DOWN (radially inward = slot 0): overpressure the cell below buoys up into us — same rule, seen from the
++	// receiving end, so the pair agrees on every link and the gather stays mass-conserving. WE are the cell
++	// above here, so the test is on OUR OWN lava.
+ 	int ib = nbr[base + 0u];
+-	if (ib >= 0 && solid[ib] == 0.0) {
++	if (ib >= 0 && solid[ib] == 0.0 && base_mass >= LAVA_PRESENT) {
+ 		in_below = buoy_up(scratch[uint(ib)]);
+ 	}
+ 	lava[g] = base_mass - out_up + in_below;

@@ -1,12 +1,12 @@
 @tool
 extends Control
-class_name LocalAgentsConfigurationPanel
+class_name LAConfigurationPanel
 
 @onready var _tabs: TabContainer = %ConfigTabs
-@onready var _model_config: LocalAgentsModelConfig = %ModelConfig
-@onready var _inference_config: LocalAgentsInferenceConfig = %InferenceConfig
+@onready var _model_config: LAModelConfig = %ModelConfig
+@onready var _inference_config: LAInferenceConfig = %InferenceConfig
 
-var _manager: LocalAgentsAgentManager
+var _manager: LocalAgentManager
 
 func _ready() -> void:
     _manager = get_node_or_null("/root/AgentManager")

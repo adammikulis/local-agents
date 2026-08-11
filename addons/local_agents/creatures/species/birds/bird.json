@@ -1,0 +1,40 @@
+{
+  "species": "bird",
+  "diet": "herbivore",
+  "speed": 6.5,
+  "size": 0.4,
+  "color": [
+    0.3,
+    0.52,
+    0.85
+  ],
+  "can_fly": true,
+  "cruise_height": 14.0,
+  "sense_radius": 13.0,
+  "maturity_age": 11.0,
+  "preys_on": [],
+  "flees_from": [],
+  "herd": true,
+  "leader_loyalty": 0.0,
+  "hierarchy": "family",
+  "pop_cap": 60,
+  "flock_cohesion": 0.9,
+  "flock_alignment": 1.2,
+  "flock_separation": 0.7,
+  "flock_radius": 18.0,
+  "flock_weight": 1.4,
+  "eye_fov": 300.0,
+  "hearing_range": 20.0,
+  "nests": true,
+  "nest_habitat": "tree",
+  "max_age": 150.0,
+  "display": 0.35,
+  "dominance_traits": {
+    "size": 0.4,
+    "vigor": 0.5,
+    "maturity": 0.6,
+    "display": 2.5
+  },
+  "mass_kg": 0.028,
+  "thermogenesis": 0.85
+}

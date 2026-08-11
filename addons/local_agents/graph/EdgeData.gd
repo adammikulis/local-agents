@@ -1,4 +1,4 @@
 extends Resource
-class_name LocalAgentsEdgeData
+class_name LocalAgentEdgeData
 
 @export var data: Dictionary = {}

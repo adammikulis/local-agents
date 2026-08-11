@@ -1,0 +1,66 @@
+name: Lint
+
+# Runs `scripts/agent_harness.sh lint` — the exact command CLAUDE.md names as THE gate, so that a green
+# local lint means a green CI and there is no second list of checks to drift from the first.
+#
+# WHY THIS IS NOT THE WORKFLOW THAT WAS REMOVED. 9030ddd deleted `godot-headless-tests.yml` — 211 lines
+# that ran the Godot test suite on every push and had been unreliable. This is a different thing: ten
+# deterministic gates that finish in about 11 seconds locally and never start the simulation. Nothing about
+# the flakiness that got the test workflow removed applies to it.
+#
+# WHAT IT ENFORCES (scripts/agent_harness.sh:139-241): file length (soft 1300 / hard 1500), the
+# no-direct-refcounted-invocation ban, the `:=` inferred-typing ban, @tool write safety, the demo catalogue,
+# the public class surface, check_physical_constants.sh, check_reaction_balance.sh, and a library-only parse.
+# Between 9030ddd and this file, NONE of them ran on any push.
+#
+# EXIT 2 MEANS THE GATE COULD NOT RUN, and it is a failure on purpose. Several of these scripts need `rg`,
+# `awk` or `godot`, and this repo has already shipped gates that reported a pass while examining zero files
+# because ripgrep was missing on the runner. If this job starts failing with exit 2, the runner environment
+# is broken — do not "fix" it by making the step non-blocking.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # Pinned to the version the project develops against (`godot --version` on the dev host).
+      GODOT_VERSION: "4.7-stable"
+      GODOT_BIN: "Godot_v4.7-stable_linux.x86_64"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ripgrep
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
+      - name: Install Godot ${{ env.GODOT_VERSION }} (headless)
+        run: |
+          url="https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}/${GODOT_BIN}.zip"
+          curl -fsSL -o godot.zip "$url"
+          unzip -q godot.zip
+          sudo install -m 0755 "${GODOT_BIN}" /usr/local/bin/godot
+          godot --version
+
+      - name: Import project assets
+        # A fresh checkout has no .godot cache, so the .glsl kernels are unimported and every class_name is
+        # unregistered. The Godot-backed gates (reaction balance, library-only parse) read both.
+        run: |
+          godot --headless --path . --import 2>&1 | tail -5 || true
+
+      - name: Lint
+        run: |
+          scripts/agent_harness.sh lint
