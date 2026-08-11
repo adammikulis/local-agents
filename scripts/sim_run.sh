@@ -49,6 +49,7 @@ while [ $# -gt 0 ]; do
     --path) PROJ="$2"; shift 2 ;;
     --fauna) FAUNA=1; shift ;;
     --full) FULL=1; shift ;;
+    --with-ui) WITH_UI=1; shift ;;
     --raw) RAW=1; shift ;;
     --keep) KEEP=1; shift ;;
     --report) REPORT_KEYS="$2"; shift 2 ;;
@@ -76,7 +77,12 @@ if [ "$NEED_IMPORT" -eq 1 ]; then
   godot --headless --path "$PROJ" --import >/dev/null 2>&1
 fi
 
+# --bare BY DEFAULT. A measurement run has no use for the HUD, the audio director, the ocean plane, the
+# water particles, the vegetation renderer, the biome and sea-ice shaders, the drainage overlay or the
+# thought panel — those are `add_child` calls guarded by `if not _input.bare()`, so bare does not hide them,
+# it never builds them. Pass --with-ui to get them back for a look at the world.
 ARGS=(--sandbox "--run-frames=${FRAMES}" "--fast=${FAST}" "--seed=${SEED}")
+[ "${WITH_UI:-0}" -eq 0 ] && ARGS+=(--bare)
 [ "$FULL" -eq 0 ] && ARGS+=(--planet-only)
 [ "$FAUNA" -eq 0 ] && ARGS+=(--no-fauna)
 [ "${#EXTRA[@]}" -gt 0 ] && ARGS+=("${EXTRA[@]}")

@@ -42,7 +42,7 @@ if [ -z "$REPORT_SRC" ]; then
   LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-900}" LA_NO_STREAMER=1 \
     "$SCRIPT_DIR/run_sim_offscreen.sh" --path "$PROJ" \
     addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \
-    -- --sandbox --planet-only "--run-frames=${FRAMES}" --fast=8 "--seed=${SEED}" --no-fauna \
+    -- --sandbox --planet-only "--run-frames=${FRAMES}" --fast=8 "--seed=${SEED}" --no-fauna --bare \
     > "$TMP_OUT" 2>&1
   rc=$?
   # Exit 126 is a conservation violation, which is a RESULT here rather than a failure to run — the score
@@ -71,14 +71,18 @@ if [ -z "$REPORT_SRC" ]; then
   if [ "${LA_SCORE_SKIP_AUX:-}" = "" ]; then
     TMP_BASE="$(mktemp "${TMPDIR:-/tmp}/la_score_base.XXXXXX")"
     TMP_REPEAT="$(mktemp "${TMPDIR:-/tmp}/la_score_repeat.XXXXXX")"
-    TMP_BARE="$(mktemp "${TMPDIR:-/tmp}/la_score_bare.XXXXXX")"
-    trap 'rm -f "$TMP_OUT" "$TMP_BASE" "$TMP_REPEAT" "$TMP_BARE"' EXIT
+    TMP_PRESENT="$(mktemp "${TMPDIR:-/tmp}/la_score_present.XXXXXX")"
+    trap 'rm -f "$TMP_OUT" "$TMP_BASE" "$TMP_REPEAT" "$TMP_PRESENT"' EXIT
     # The pair for criterion 9 is two runs of the SAME length, so the main run cannot serve as one half.
-    echo "physics_score: determinism pair + observer arm, ${AUX_FRAMES} frames each" >&2
-    run_aux "$TMP_BASE"
-    run_aux "$TMP_REPEAT"
-    run_aux "$TMP_BARE" --bare
-    export LA_SCORE_BASE="$TMP_BASE" LA_SCORE_REPEAT="$TMP_REPEAT" LA_SCORE_BARE="$TMP_BARE"
+    # EVERY MEASUREMENT ARM IS `--bare`. The UI — HUD, audio, ocean, particles, vegetation, overlays — builds
+    # a dozen nodes that measure nothing and cost load time on every arm. Determinism is therefore tested in
+    # the configuration we actually measure in, and the observer criterion supplies the one arm WITH the
+    # presentation layer, because comparing the two is the whole of its job.
+    echo "physics_score: determinism pair (bare) + one presentation arm, ${AUX_FRAMES} frames each" >&2
+    run_aux "$TMP_BASE" --bare
+    run_aux "$TMP_REPEAT" --bare
+    run_aux "$TMP_PRESENT"
+    export LA_SCORE_BASE="$TMP_BASE" LA_SCORE_REPEAT="$TMP_REPEAT" LA_SCORE_BARE="$TMP_PRESENT"
   fi
 fi
 if [ ! -f "$REPORT_SRC" ]; then
@@ -311,11 +315,11 @@ print("criterion 9  DETERMINISM  score %d   %s" % (det_score, det_note))
 
 if rep_bare is None or rep_base is None:
     obs_score = 0
-    obs_note = "no --bare arm (LA_SCORE_BASE + LA_SCORE_BARE)"
+    obs_note = "no presentation arm (LA_SCORE_BASE + LA_SCORE_BARE)"
 else:
     ow = worst_rel(ref, rep_bare)
     obs_score = 4 if ow == 0.0 else band(ow, [0.01, 0.001, 0.000001])
-    obs_note = "worst conserved-total difference %.6g with the presentation layer off" % ow
+    obs_note = "worst conserved-total difference %.6g between bare and the presentation layer" % ow
 print("criterion 10 OBSERVER     score %d   %s" % (obs_score, obs_note))
 
 scores = [m_score, e_score, c_score, p_score, s_score, i_score, mo_score, em_score, det_score, obs_score]
