@@ -13,8 +13,8 @@ extends RefCounted
 ##                   llm_enabled, the heritable genome (LADNA strand + base_config/instincts/generation), and the
 ##                   LEARNED cognition (policy + cue_values) so a reloaded animal keeps what it learned.
 ##   * fish:         species, transform, age, health, breath, family_id (aquatic actors are outside the
-##                   kinship GRAPH, but they do carry the lineage label the shared cognition stack weights
-##                   imitation by, and it used to be dropped on every reload).
+##                   kinship GRAPH, but they carry the lineage label the shared cognition stack weights
+##                   imitation by).
 ##   * clock:        the world's elapsed time (LASimClock), so a reloaded world keeps its day count and the
 ##                   dated records already written against it stay in the past.
 ##   * vegetation:   plant/tree/rock kind + transform (ambient scatter; re-instanced in place).

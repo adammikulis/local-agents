@@ -292,8 +292,8 @@ func _objective_panel() -> Control:
 	return n as Control
 
 
-## First descendant of the given class (breadth-agnostic depth walk) — used to find the unnamed panel inside
-## the view-controls layer without coupling to its internal node names.
+## First descendant of the given class (breadth-agnostic depth walk). Finds the unnamed panel inside the
+## view-controls layer without coupling to its internal node names.
 func _first_of_class(root: Node, klass: String) -> Control:
 	for child in root.get_children():
 		if child.is_class(klass):

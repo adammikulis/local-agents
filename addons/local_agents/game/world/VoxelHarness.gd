@@ -158,13 +158,6 @@ static func _emit_draw_sources(w) -> void:
 
 ## How much of the living population is on the DARK side, and how many of those that puts off-shift.
 ##
-## This gauge exists because the thing it measures was silently broken and nothing caught it. Night used to
-## come from a global `time_of_day` scalar that is frozen at its seed value in planet mode (LAVoxelSkyCycle
-## returns before advancing its clock there), so every creature read "day" for the entire run: diurnal
-## animals never rested, nocturnal ones never woke, and the `night` bit in the learned-policy signature was
-## a constant that made half the signature space unreachable. A frozen scalar is indistinguishable from a
-## working one until something plots it.
-##
 ## Read it like this: on a lit sphere `night_frac` should sit near 0.5 and sweep as the terminator moves.
 ## A hard 0.0 or 1.0 means it is stuck again. `resting_frac` is the population actually off-shift, which is
 ## the premise LACreatureLod's cost model rests on ("a fraction of the population is always asleep").

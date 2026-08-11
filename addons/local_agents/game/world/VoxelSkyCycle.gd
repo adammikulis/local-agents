@@ -58,8 +58,7 @@ var _material: Node = null
 var _water: Node = null      # LAWaterParticles — the day/night colour tint is pushed to it each frame
 
 # Seconds per full day. Read from LASimClock, which OWNS elapsed time: this node draws the sun arc and the
-# moon phase, and a rendering node is the wrong owner for the world's history (see LASimClock's header). It
-# used to integrate its own `_time_of_day`, which wrapped at 1.0 and so could never say what day it was.
+# moon phase, and a rendering node is the wrong owner for the world's history (see LASimClock's header).
 const DAY_LENGTH: float = LASimClock.DAY_LENGTH
 const LUNAR_DAYS: float = 8.0               # in-game days per full new->full->new cycle
 const SUN_ENERGY_NOON: float = 1.45
@@ -340,8 +339,8 @@ func _update_day_night() -> void:
 
 ## Altitude-aware atmosphere for planet mode: blend the environment from the stark dark space look (pulled out)
 ## to a bright blue daytime sky with sky-sourced ambient + fog (down among the creatures), driven by the orbit
-## camera's surface_blend(). This is why the ground is no longer "too dark": near the surface the ambient lifts
-## from the 0.14 space value to SURFACE_AMBIENT and the background becomes the blue procedural sky (its day
+## camera's surface_blend(). Near the surface the ambient lifts from the space value to SURFACE_AMBIENT
+## and the background becomes the blue procedural sky (its day
 ## colours, set once in setup, are untouched in planet mode). The space view keeps its dark, stark-terminator
 ## look. Called every frame from the planet branch, so it has the last word on the environment.
 func _apply_surface_atmosphere() -> void:

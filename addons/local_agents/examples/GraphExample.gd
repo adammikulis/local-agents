@@ -7,10 +7,7 @@ class_name LAGraphExample
 ## node, open Graph in the inspector, and the four nodes and two edges are right there to edit. That
 ## is the point. A graph is data you author, not code you run.
 ##
-## It used to `load()` res://addons/local_agents/graph/Graph.tres and then grow it at run time
-## through `_ensure_node()` / `_ensure_edge()` guards. Two problems with that: res:// is read-only in
-## an exported build, and the four demo nodes lived in `_ready()` where the inspector could never
-## show them. Both are gone. Nothing in this file writes to a resource.
+## Nothing in this file writes to a resource — res:// is read-only in an exported build.
 ##
 ## Needs no model and no runtime, because a graph is plain data.
 ##

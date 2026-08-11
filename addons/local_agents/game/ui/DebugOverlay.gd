@@ -8,7 +8,7 @@ extends MeshInstance3D
 ## arrows. Purely presentational: it reads groups/positions and owns no sim state. (Explicit types only.)
 
 const BEAM_HEIGHT: float = 16.0            # tall beam so highlighted objects are visible far off
-const BEAM_THICK: float = 0.09             # offset used to fake line thickness (4 parallel beams)
+const BEAM_THICK: float = 0.09             # offset that fakes line thickness (4 parallel beams)
 const RING_RADIUS: float = 1.4
 const RING_SEGS: int = 20
 const PATH_LEN: float = 5.0

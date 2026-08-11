@@ -11,7 +11,7 @@ extends RefCounted
 ## Three things are asserted on every machine, because they need no backend at all:
 ##
 ## 1. two engines in one process never hand out the same output wav (an agent and the streamer each
-##    own one, and they used to overwrite each other's file mid-read),
+##    own one),
 ## 2. an explicit speak() while a queued line is in flight still leaves exactly one speaking_finished
 ##    per speaking_started,
 ## 3. backend_name() answers with one of its four documented values, and LocalAgentAgentSpeech

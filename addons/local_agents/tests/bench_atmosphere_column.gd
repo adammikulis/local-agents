@@ -192,7 +192,7 @@ func _run(steps: int, base_wind: float) -> void:
 	var pc_ws: PackedByteArray = PackedByteArray()
 	pc_ws.resize(48)
 	pc_ws.encode_u32(0, _cc)
-	pc_ws.encode_float(4, 0.0)      # pvx — the legacy prevailing wind, zero here
+	pc_ws.encode_float(4, 0.0)      # pvx — prevailing wind, zero here
 	pc_ws.encode_float(8, 0.0)      # pvz
 	pc_ws.encode_float(12, DT)
 	pc_ws.encode_u32(16, 1)         # buoyancy on
@@ -244,9 +244,8 @@ func _run(steps: int, base_wind: float) -> void:
 			_rd.free_rid(r)
 
 
-## The DELETED band-aid, restored on the CPU for the A/B only: relax each cell's tangent velocity toward the
-## prescribed zonal band u(lat) = -base*cos(3*lat) at the kernel's old BODY_FORCE rate. Same arithmetic the
-## kernel used to do inline, so run B reproduces the old behaviour on top of the new pressure field.
+## Run B only: relax each cell's tangent velocity toward the prescribed zonal band
+## u(lat) = -base*cos(3*lat) at BODY_FORCE rate, on the CPU.
 func _apply_base_wind(base: float) -> void:
 	const BODY_FORCE: float = 0.02
 	var vx: PackedFloat32Array = _rd.buffer_get_data(_bufs["vel_x"]).to_float32_array()

@@ -5,7 +5,7 @@ class_name LADemoLauncher
 ##
 ## The list is not in this file. It is scanned from `examples/demos/*.tres`, one LocalAgentDemoEntry
 ## per demo, following the `creatures/species/*.json` precedent. Drop a resource in the directory and
-## a row appears, so adding a demo is no longer a GDScript edit. Each entry holds a `res://` path
+## a row appears, so adding a demo needs no GDScript edit. Each entry holds a `res://` path
 ## rather than a PackedScene, so painting the menu costs one file check per row instead of loading
 ## every demo scene. A renamed scene is caught by scripts/check_demo_catalog.sh, which fails the
 ## build rather than leaving a button labelled "Missing".

@@ -5,15 +5,12 @@ class_name LocalAgentAgentSpeech
 ## Everything LocalAgent does with sound: a LocalAgentSpeechEngine for text to speech, and the
 ## SpeechService wiring for speech to text.
 ##
-## Split out of Agent.gd so the node keeps the inference API. The agent owns one of these and hands it
-## the values it needs per call (the voice id, the runtime directory), so nothing here reads the
-## node's exports.
+## The agent owns one of these and hands it the values it needs per call (the voice id, the runtime
+## directory), so nothing here reads the node's exports.
 ##
-## Speech used to go straight to AgentRuntime.synthesize_speech, which needs a `piper` binary in the
-## runtime directory that the addon does not ship, so speak() could not work in any install. It now
-## goes through LocalAgentSpeechEngine, which tries that binary first and then falls back to the
-## piper Python module and the system voice. Transcription still has no fallback: whisper needs the
-## native runtime.
+## speak() goes through LocalAgentSpeechEngine, which tries the `piper` binary in the runtime
+## directory first and then falls back to the piper Python module and the system voice. Transcription
+## has no fallback: whisper needs the native runtime.
 ##
 ## (Explicit types only - project rule: no ':=' inferred typing.)
 

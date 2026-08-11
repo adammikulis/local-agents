@@ -66,13 +66,12 @@ const RTS_ALT_START_CAMPAIGN: float = 40.0
 
 # --- RTS pitch ----------------------------------------------------------------
 # Pitch is constant across the whole zoom band — the defining property of an RTS camera. Zoom changes how
-# much ground you see, never the angle you see it from. The old rig had no independent pitch at all: the
-# angle was a side effect of zoom distance via the approach-arc blend, so zooming also tilted the view.
+# much ground you see, never the angle you see it from.
 const RTS_PITCH_DEG: float = 50.0
 const RTS_PITCH_MIN_DEG: float = 40.0
 const RTS_PITCH_MAX_DEG: float = 60.0
 
-# Progression ladder domain. GameProgression hands out zoom ceilings on the old radius-multiple scale
+# Progression ladder domain. GameProgression hands out zoom ceilings on a radius-multiple scale
 # (1.2 baseline .. 6.0 capstone); we map that range onto the RTS altitude ceiling instead of letting it set a
 # distance directly, so a stage unlock widens the tactical view rather than reintroducing the space pose.
 const ORBIT_MAX_DISTANCE_MULT: float = 6.0
@@ -442,8 +441,8 @@ func _rts_altitude() -> float:
 
 
 ## Where the current zoom sits in the RTS altitude band: 1.0 down among the creatures → 0.0 at the ceiling.
-## Read by the ground-walk taper for fine control when close. Note this no longer drives the camera ANGLE —
-## pitch is constant in RTS mode; this is purely a "how zoomed in am I" fraction.
+## Read by the ground-walk taper for fine control when close. It does not drive the camera ANGLE: pitch is
+## constant in RTS mode, so this is purely a "how zoomed in am I" fraction.
 func _approach_t() -> float:
 	var span: float = maxf(RTS_ALT_MAX - RTS_ALT_MIN, 0.0001)
 	return clampf(1.0 - (_rts_altitude() - RTS_ALT_MIN) / span, 0.0, 1.0)
@@ -486,8 +485,7 @@ func _update_orbit_transform() -> void:
 	# RTS POSE: hold a constant pitch and let zoom set the altitude. The camera sits `alt` above the ground
 	# point and far enough back along the tangent that the line of sight down to the look target makes exactly
 	# RTS_PITCH. Because the horizontal offset is derived from the altitude, zooming slides the camera along a
-	# fixed-angle ray — you see more or less ground, always from the same angle. That is the whole difference
-	# from the old rig, where the angle was a by-product of distance and zooming also tilted the view.
+	# fixed-angle ray — you see more or less ground, always from the same angle.
 	var alt: float = _rts_altitude()
 	var look_pt: Vector3 = surface_pt + upn * ARC_LOOK_HEIGHT   # gaze at creature height
 	var rise: float = maxf(alt - ARC_LOOK_HEIGHT, 0.1)          # vertical run from the look target up to the eye
@@ -880,10 +878,9 @@ func _pan_ground(right: float, forward: float) -> void:
 
 
 ## GROUND-WALK across the sphere: WASD/arrows + edge-scroll sweep the view over the planet surface —
-## screen-forward/right projected onto the tangent plane at the current view point, used to rotate the view
+## screen-forward/right projected onto the tangent plane at the current view point, rotating the view
 ## direction. Geosync rotates the body-locked local dir (so the walk rides the spin); plain orbit nudges
-## azimuth/elevation. Active across the whole RTS zoom band: an RTS camera pans at every zoom level, so unlike
-## the old rig there is no zoomed-out regime where this goes inert and the globe drag-rotates instead.
+## azimuth/elevation. Active across the whole RTS zoom band, at every zoom level.
 func _surface_walk(delta: float) -> void:
 	if not _orbit_mode or _fly or _solar_view:
 		return

@@ -12,7 +12,7 @@ extends RefCounted
 ## from the palette's own kind lists (LASpawnPaletteHud.LIFE_KINDS / DISASTER_KINDS), so adding a spawn
 ## entry re-labels its hotkey automatically. (Explicit types only, no ':=' inferred typing.)
 
-# Category labels (sentence case) used to group the catalog for the controls-reference screen.
+# Category labels (sentence case) grouping the catalog for the controls-reference screen.
 const CAT_LIFE: String = "Spawn life"
 const CAT_DISASTER: String = "Spawn disasters"
 const CAT_SELECTION: String = "Selection"

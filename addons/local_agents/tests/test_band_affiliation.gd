@@ -3,16 +3,12 @@ extends RefCounted
 
 ## Proves an animal can LEAVE one group and JOIN another, and that the world remembers both.
 ##
-## The thing under test is the split of one integer into two. `family_id` used to mean both "who I descend
-## from" and "who I run with"; lineage is immutable for life by design, so affiliation inherited an
-## immutability it had no business having and nothing could ever change groups. Affiliation now lives in
-## `band_id` (LACreatureAffiliation, derived from sustained association) and its history lives in dated
-## MEMBER_OF records in the backstory store (LABandChronicle).
+## Lineage (`family_id`) is immutable for life. Affiliation is a separate integer, `band_id`
+## (LACreatureAffiliation, derived from sustained association), and its history lives in dated MEMBER_OF
+## records in the backstory store (LABandChronicle).
 ##
-## WHAT IS ASSERTED, and why it is not the obvious thing. Every assertion below reads state back OUT of the
-## store — the membership history, the day-windowed context, the faction node. None of them asserts that a
-## call returned ok. The first backstory wiring in this repo returned ok from every single call and recalled
-## nothing (see the header of test_agent_backstory.gd), so "it said ok" is worth nothing here.
+## Every assertion below reads state back OUT of the store — the membership history, the day-windowed
+## context, the faction node. None of them asserts that a call returned ok.
 ##
 ## The rule is driven directly rather than through a launched world, because the question is whether the
 ## rule produces a membership CHANGE and whether the chronicle writes it down as a period with an end — and
@@ -59,8 +55,7 @@ func run_test(tree: SceneTree) -> bool:
 		push_error("NetworkGraph class missing after extension init.")
 		return false
 
-	# Set the path BEFORE the service enters the tree: _ready() is what opens the handle, and a late path
-	# used to be silently dropped, which once had a test wiping the player's real store while reporting PASS.
+	# Set the path BEFORE the service enters the tree: _ready() is what opens the handle.
 	var svc: Node = SvcScript.new()
 	svc.set_database_path(DB_PATH)
 	tree.get_root().add_child(svc)

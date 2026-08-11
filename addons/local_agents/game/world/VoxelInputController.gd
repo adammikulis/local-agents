@@ -256,7 +256,7 @@ func parse_cmdline() -> void:
 		elif arg == "--streamer":
 			_streamer_enabled = true
 		elif arg == "--no-streamer":
-			_streamer_enabled = false          # kept: it is in scripts, docs and muscle memory, and is now a no-op
+			_streamer_enabled = false          # accepted and ignored: a no-op
 		elif arg.begins_with("--streamer-persona="):
 			_streamer_persona = arg.substr("--streamer-persona=".length())
 		elif arg.begins_with("--streamer-avatar="):

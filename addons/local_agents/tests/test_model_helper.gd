@@ -8,9 +8,8 @@ const MODEL_REPO := "unsloth/Qwen3-0.6B-GGUF"
 const DEFAULT_FOLDER := "user://local_agents/models/qwen3-0_6b-instruct"
 const MODEL_DOWNLOAD_SERVICE := preload("res://addons/local_agents/controllers/ModelDownloadService.gd")
 
-# Fetches the tiny test GGUF with curl. This used to route through the deleted native download
-# wrapper, i.e. through the AgentRuntime singleton — so a headless test run could not obtain its own
-# fixture unless the native library was already built. curl has no such dependency, which is the point.
+# Fetches the tiny test GGUF with curl, which needs no native library — a headless run can obtain its
+# own fixture whether or not AgentRuntime is built.
 func ensure_local_model() -> String:
     var existing: String = find_existing_model()
     if existing != "":
