@@ -56,9 +56,8 @@ static func blast_falloff(d: float, radius: float) -> float:
 
 # A point blast (meteor, earthquake, lightning). Deals GRADED, deterministic damage: each actor in
 # range with take_damage() loses base_damage * falloff(distance) HP and dies only when its HP hits 0
-# — lethal at the centre, survivable at the rim. `base_damage` defaults large so the centre still
-# reproduces the old lethal-blast feel. Actors without take_damage (plants/rocks) fall back to the
-# old topple/die/clear behaviour.
+# — lethal at the centre, survivable at the rim. `base_damage` defaults large so the centre is lethal.
+# Actors without take_damage (plants/rocks) topple/die/clear instead.
 func damage_sphere(world_pos: Vector3, radius: float, base_damage: float = 1000.0) -> void:
 	var r2: float = radius * radius
 	for actor in get_tree().get_nodes_in_group("selectable"):

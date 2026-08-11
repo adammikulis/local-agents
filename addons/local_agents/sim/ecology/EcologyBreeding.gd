@@ -2,12 +2,11 @@ class_name LAEcologyBreeding
 extends RefCounted
 
 ## Reproduction / population dynamics for the living world: the genome/kinship/nest MACHINERY that every
-## birth reuses, plus the aquatic school's population tick. Phase 2 (W-REPRO) DISSOLVED the top-down land
-## breeding: land births are no longer scheduled here by a god-tick. Each individual now decides to breed
-## for itself (courtship + gestation, energy-costed) in LACreatureReproduction, which calls back into
-## birth_child() below to produce the actual offspring through the SAME heredity path. So the reusable
-## helpers stay here (one owner of the placement + genome + lineage machinery) while the DECISION to breed
-## moved out to the creature. Aquatic breeding (_tick_aquatic → _birth_aquatic_one, with the biomass food
+## birth reuses, plus the aquatic school's population tick. Land births are not scheduled here: each
+## individual decides to breed for itself (courtship + gestation, energy-costed) in LACreatureReproduction,
+## which calls back into birth_child() below to produce the actual offspring through the SAME heredity path.
+## The reusable helpers stay here (one owner of the placement + genome + lineage machinery); the DECISION to
+## breed belongs to the creature. Aquatic breeding (_tick_aquatic → _birth_aquatic_one, with the biomass food
 ## gate) is still a population tick for now (fish get the per-creature treatment later). Every young inherits
 ## a crossover+mutation genome, its parent's natal nest, and its family line in the kinship graph. No
 ## individual appears without living parents.
@@ -60,7 +59,7 @@ func setup(eco: LAEcologyService) -> void:
 # SOFT CEILING — true while `kind` is still below its per-species pop_cap (the LA_SPAWN_SCALE benchmark knob
 # scales it). The per-creature reproduction drive (LACreatureReproduction) gates CONCEPTION on this so a
 # creature never conceives once its species is at/over cap: food + energy regulate the population emergently,
-# and the cap is the hard backstop that stops any runaway. This replaces the old deficit-driven god-tick.
+# and the cap is the hard backstop that stops any runaway.
 # Result is cached per species per physics frame (see _cap_frame) so the population-wide courtship checks
 # stay O(species-per-frame), not O(n²).
 func species_below_cap(kind: String) -> bool:

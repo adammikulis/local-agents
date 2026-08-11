@@ -13,10 +13,8 @@ extends Node3D
 ##   • broadcast_scare / damage_sphere / disturb_ground panic, kill and slump via the shared stimuli;
 ##   • the crater itself emerges from the existing carve + ejecta redeposit.
 ##
-## Deleted vs the old scripted meteor: `_spawn_debris_chunks` (22 RigidBody3D debris chunks with random
-## velocities), `_impact_material_palette`, `_spawn_impact_fx` (one-shot burst particles + flash light) and
-## `_make_debris_mesh`. A "debris chunk", a "crater", a "shockwave" are all just words for what the one
-## substrate does. The actor is now seed + falling visual + one impact→substrate call.
+## A "debris chunk", a "crater", a "shockwave" are all just words for what the one substrate does. This actor
+## is seed + falling visual + one impact→substrate call.
 ## (Explicit types only, no ':=' inferred typing.)
 
 # --- Tunables -----------------------------------------------------------------
@@ -32,10 +30,8 @@ const DAMAGE_SCALE: float = 1.6            # ecology damage radius = radius * th
 const BODY_RADIUS: float = 1.4
 # --- Heating ------------------------------------------------------------------
 # A meteor has no fixed temperature. It arrives cold and heats by ramming air, so how hot it gets is
-# an outcome of how fast and how steeply it came in, not a constant anyone typed. There was a flat
-# 1600 °C here, injected on impact no matter whether the rock fell from orbit at 600 u/s or was lobbed
-# at 150, and a separate hardcoded orange for the visual, so the look and the physics could disagree
-# about the same rock.
+# an outcome of how fast and how steeply it came in, not a constant anyone typed. The glow visual reads
+# the same temperature, so the look and the physics cannot disagree about one rock.
 #
 # Convective entry heating goes as air density times the cube of speed, and the body radiates back
 # toward ambient. Those two lines are the whole model. What falls out: a fast steep entry goes
@@ -52,10 +48,8 @@ const MAX_SURFACE_TEMP_C: float = 3000.0   # cap, so a runaway entry cannot inje
 # right there, and a planet with no air at all never lights one up. A local scale-height formula would
 # have been a second, disagreeing atmosphere living inside this actor.
 const AIR_REFERENCE_O2: float = 0.21       # the o2 level treated as full thickness, so rho is a ratio
-# On impact the remaining kinetic energy also goes into the ground — as a real E = 1/2 m v^2 in joules, see
-# `_impact_energy_j()`. The two constants that used to live here (`KINETIC_HEAT_GAIN = 0.004` scaling v^2 into
-# degrees, and `MAX_IMPACT_TEMP_C = 2500` capping the result) are DELETED: neither was a property of anything,
-# and together they let one strike add up to 2500 °C to every one of ~150 cells with no energy behind it.
+# On impact the remaining kinetic energy goes into the ground as a real E = 1/2 m v^2 in joules, see
+# `_impact_energy_j()`.
 const FX_LINGER: float = 1.8               # seconds of FX after impact before free
 
 enum State { IDLE, FALLING, IMPACTED }
@@ -218,8 +212,8 @@ func _step_fall(delta: float) -> void:
 		var up_hint: Vector3 = _up_at(global_position)
 		look_at(global_position + _velocity, up_hint if absf(up_hint.dot(vdir)) < 0.98 else Vector3.UP)
 
-	# Missed everything and either drifted for ages or left the system — free it. (Never force a phantom
-	# impact here: that is what used to kill orbits before they could form.)
+	# Missed everything and either drifted for ages or left the system — free it. Never force a phantom
+	# impact here: an orbiting body must be allowed to stay in orbit.
 	if _fall_time > MAX_LIFETIME or _escaped():
 		queue_free()
 
@@ -235,9 +229,8 @@ func _air_density_at(pos: Vector3) -> float:
 	return clampf(float(field.o2_at(pos.x, pos.y, pos.z)) / AIR_REFERENCE_O2, 0.0, 1.0)
 
 
-## The two lines that replace the old fixed temperature. Heating goes as air density times the cube of
-## speed, cooling as the excess over ambient. Nothing here knows what a "meteor" is, so the same rule
-## would heat anything else moving fast through air.
+## Entry heating goes as air density times the cube of speed, cooling as the excess over ambient. Nothing
+## here knows what a "meteor" is, so the same rule would heat anything else moving fast through air.
 func _step_entry_heat(delta: float) -> void:
 	var speed: float = _velocity.length()
 	var rho: float = _air_density_at(global_position)
@@ -277,20 +270,9 @@ func _impact_mass_kg() -> float:
 ## in its body by entry friction. Both are properties of this rock on this trajectory, and both stop existing
 ## when it stops — that is what "the impact's heat is the impactor's energy" means.
 ##
-## THIS REPLACES A TEMPERATURE, AND THE DIFFERENCE IS THE WHOLE POINT. `_impact_temp_c()` returned a NUMBER OF
-## DEGREES (skin temperature plus `KINETIC_HEAT_GAIN * v² * size`, capped at 2500) which `add_heat` then added
-## to EVERY cell in a bubble of radius `r * 2.2` — roughly 150 cells at the shipped grid. So one strike raised
-## a hundred and fifty cells by up to two and a half thousand degrees each, out of nothing, and the amount did
-## not depend on how much rock there was to heat. `KINETIC_HEAT_GAIN` and `MAX_IMPACT_TEMP_C` were the two
-## constants holding that in a plausible-looking range; neither is a property of anything, and both are gone.
-##
-## WHAT THE HONEST NUMBER SAYS, stated here so nobody re-derives it as a bug: a 2.8 m basalt rock is about
-## 33,000 kg, and at this game's impact speeds (150-600 m/s) it carries 0.4-6 GJ of kinetic energy against a
-## bubble of basalt whose heat capacity is of order 1e12 J/K. The temperature rise is hundredths of a degree.
-## That is CORRECT — real impact melting needs meteoric speed, 11-72 km/s, not 600 m/s — and it means the
-## glowing crater was never a consequence of the impact, it was a typed-in temperature. If incandescent
-## craters are wanted back, the thing to change is the entry speed, which is a real physical quantity, not the
-## heat, which is an outcome.
+## The energy is delivered in joules, so the temperature rise it produces depends on how much rock there is
+## to heat. Real impact melting needs meteoric speed (11-72 km/s); at this game's fall speeds a strike is not
+## an incandescent crater, and the quantity to change for one is the entry speed, not the heat.
 func _impact_energy_j() -> float:
 	var m: float = _impact_mass_kg()
 	var speed: float = _velocity.length()
@@ -429,8 +411,8 @@ func _on_impact() -> void:
 		_picker = null
 
 	# Procedural impact boom (presentation only; resolves the AudioDirector by group). The flash, debris
-	# fling and ejecta blanket are no longer scripted here — they emerge from the eject/add_heat/add_charge
-	# seeds above (glowing ejecta parcels + molten crater glow + a discharge bolt).
+	# fling and ejecta blanket emerge from the eject/add_heat/add_charge seeds above (glowing ejecta parcels
+	# + molten crater glow + a discharge bolt).
 	LAAudioDirector.emit(get_tree(), "meteor_impact", _impact_point)
 
 

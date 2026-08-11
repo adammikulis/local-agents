@@ -17,7 +17,7 @@ const PlanetGenScript: GDScript = preload("res://addons/local_agents/sim/sphere/
 # --- Sea + cave-placement reference (world units). The planet's own terrain SDF comes from the sphere
 # generator; these remain as the default sea surface and the land radius that carve_caves uses to place
 # cave mouths. (Explicit types only — no ':=' inferred typing.)
-const ISLAND_RADIUS: float = 180.0        # land core radius (world units) — used to place caves
+const ISLAND_RADIUS: float = 180.0        # land core radius (world units); places cave mouths
 const SEA_LEVEL_Y: float = 6.0            # world Y of the sea surface (default sea level)
 
 var _terrain: VoxelLodTerrain = null
@@ -61,7 +61,7 @@ func up_at(pos: Vector3) -> Vector3:
 func sea_level() -> float:
 	return _sea_level
 
-## Land-core radius (world units) the island was shaped with — used to place caves/springs on land.
+## Land-core radius (world units) the island was shaped with; places caves/springs on land.
 func island_radius() -> float:
 	return _island_radius
 
@@ -213,9 +213,9 @@ func is_solid(pos: Vector3) -> bool:
 	return sdf_at(pos) < 0.0
 
 
-## Add a FLAT SDF box (world-space AABB centred at world_pos, given half extents). Used to build
-## flat-topped deposits — e.g. solidifying lava layers that tile into a continuous rocky surface,
-## instead of the rounded blobs a sphere leaves.
+## Add a FLAT SDF box (world-space AABB centred at world_pos, given half extents). Builds flat-topped
+## deposits — e.g. solidifying lava layers that tile into a continuous rocky surface, instead of the
+## rounded blobs a sphere leaves.
 func fill_box(world_pos: Vector3, half_extents: Vector3) -> void:
 	if _terrain == null:
 		return
@@ -294,9 +294,9 @@ func raycast_terrain(from: Vector3, dir: Vector3, max_distance: float) -> Dictio
 	return {"hit": true, "position": hit.position, "normal": hit.normal}
 
 ## The solid surface point directly beneath/above a WORLD point — re-seat it onto the ground along its own
-## radial (centre→pos). NAN-vector if that patch is unmeshed. Replaces the old downward surface_height cast,
-## which only hit at the +Y pole (a straight-down ray misses everywhere else on a sphere). Callers that want
-## the local ground altitude use altitude_at(pos); those re-seating onto the surface use this.
+## radial (centre→pos), which is the only cast that hits everywhere on a sphere. NAN-vector if that patch is
+## unmeshed. Callers that want the local ground altitude use altitude_at(pos); those re-seating onto the
+## surface use this.
 func ground_point(pos: Vector3) -> Vector3:
 	return surface_point(pos - _center)
 

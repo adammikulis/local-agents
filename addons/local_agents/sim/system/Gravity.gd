@@ -35,13 +35,11 @@ extends Object
 ## the moon's relative motion its (M_planet + M_moon) reduced mass for free.
 
 const GROUP: String = "gravity_body"
-const SURFACE_G: float = 55.0        # target surface gravity (units/s^2) on the reference body — matches old feel
+const SURFACE_G: float = 55.0        # target surface gravity (units/s^2) on the reference body
 const SOFTENING: float = 4.0         # min separation (units) so accel can't blow up as r -> 0 inside a body
 
-# G is cached, but keyed on WHICH body calibrated it. A bare static cache is a load-order trap: the first
-# caller to ask before any body registered used to latch the failure, and a scene reload would keep a G
-# calibrated against the previous world's radius. Storing the reference's instance id makes the cache
-# self-invalidating and makes a failed calibration retry instead of stick.
+# G is cached keyed on the instance id of the body that calibrated it: the cache self-invalidates when the
+# reference body changes, and a failed calibration retries instead of latching.
 static var _g_const: float = -1.0
 static var _g_ref_id: int = 0
 

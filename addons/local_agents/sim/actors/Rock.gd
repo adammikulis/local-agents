@@ -9,14 +9,10 @@ var _terrain: Object = null
 
 ## THE ROCK'S OWN MINERAL MASS, in the substrate's units, so it can be handed on instead of deleted.
 ##
-## `take()` used to `queue_free()` the node when a villager picked it up, and `LAThrownRock` freed itself
-## again on impact — so a boulder that was picked up and thrown simply stopped existing. Nothing in the
-## substrate ever held it (a loose rock is a scene node, not a `rock_fill` cell), so it never showed in
-## `mineral_total`, which is exactly why the deletion went unnoticed: the ledger could not see either the
-## creation at world-gen or the destruction on impact.
+## A loose rock is a scene node, not a `rock_fill` cell, so the substrate's `mineral_total` does not hold it.
 ##
 ## The mass is derived from the boulder's own geometry and basalt's density, converted into the substrate's
-## mass units the same way LAMaterialEjecta3D does (MAX_MASS is one full cell of rock), so a thrown rock now
+## mass units the same way LAMaterialEjecta3D does (MAX_MASS is one full cell of rock), so a thrown rock
 ## lands as a real amount of `sediment` — loose broken stone on the ground, which is what a thrown rock is —
 ## and the slump/erosion kernels move it downhill like any other debris.
 var mineral_mass: float = 0.0

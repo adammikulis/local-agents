@@ -4,13 +4,11 @@ extends Node3D
 ## GPU-instanced rendering for the static vegetation (plants + trees). Each plant/tree keeps its own sim
 ## node (growth, collision, feed, seeding) but DOES NOT own a MeshInstance3D anymore: it registers with this
 ## renderer and pushes its transform while it is growing (or toppling). All plants of one visual type then
-## render in ONE batched MultiMesh draw instead of hundreds of per-node draws, the on-brand GPU-first fix
-## for the 256+ vegetation actors that were dominating the draw-call count.
+## render in ONE batched MultiMesh draw instead of hundreds of per-node draws.
 ##
 ## One MultiMeshInstance3D per visual type (id from LAActorModels: "plant", "tree_oak", "tree_pine"). The
 ## source mesh is baked ONCE from the Kenney glTF, normalized to height 1 and base-anchored, so an actor's
-## instance transform is simply its own node transform scaled by its display height, so the actor's existing
-## growth/topple transform logic is unchanged, only its rendering is decoupled.
+## instance transform is simply its own node transform scaled by its display height.
 ##
 ## Lives UNDER actors_root and its MMIs sit at identity, so a pushed instance transform is the actor's LOCAL
 ## transform (actors are direct children of actors_root), so vegetation rides the planet frame for free.

@@ -3,8 +3,7 @@ extends Node3D
 
 ## A thunderstorm CELL. It doesn't paint rain or schedule thunder on a timeline. It seeds the physical
 ## ingredients of a storm into the MaterialField and lets the emergent water cycle do the rest: each step
-## it PUMPS humid air (add_vapor) up from the ground across its footprint, WARMS the surface (add_heat) to
-## grow the convective updraft, and COOLS the air aloft (add_cooling), so rising moist air passes its
+## it PUMPS humid air (add_vapor) up from the ground across its footprint, so rising moist air passes its
 ## dewpoint and the field's own condense→rain rules build a DENSE cloud → HEAVY rain right here.
 ##
 ## LIGHTNING IS NOT SPAWNED HERE. There is no bolt cadence, no strike timer, no random footprint pick. The
@@ -14,16 +13,15 @@ extends Node3D
 ## but the bolt itself falls out of the field's own charge physics, not out of this actor. The cell DRIFTS
 ## downwind and rains itself out over its lifetime. Built in code, no assets. (Explicit types only, no ':=' inferred typing.)
 ##
-## Deleted vs the old scripted storm: `_maybe_strike`, `_bolt_cd`, BOLT_MIN_CD/MAX_CD/CLOUD_REF and the
-## random-footprint spawn_lightning call. A bolt is just what charge does at breakdown, not "bolt code".
+## A bolt is just what charge does at breakdown, not "bolt code": this actor never fires one.
 
 const LIFETIME: float = 46.0              # seconds from first charge to spent
 const BUILD_TIME: float = 6.0             # ramps the SEEDING up over this at the start (grace before starve-death)
 const FADE_TIME: float = 10.0             # eases the SEEDING out over this at the end (the cell rains itself out)
 const RADIUS: float = 62.0                # footprint half-width (vapor pumping + lightning + drift box)
 
-# Moisture pump + surface heating + aloft cooling — the ingredients the actor SEEDS; the cloud/rain and the
-# convective updraft the cell then feeds on EMERGE from them via the field. Charge separation
+# Moisture pump — the one ingredient the actor SEEDS; the cloud/rain and the convective updraft the cell
+# then feeds on EMERGE from it via the field. Charge separation
 # (charge_accum_sphere3d) then feeds on updraft × cloud × how supercooled the cloud is, and climbs to
 # dielectric breakdown → a bolt, entirely in the field. (The storm seeds; MaterialCharge3D fires.)
 const VAPOR_PER_SEC: float = 5.0          # total vapor injected per second at full seeding (split over points)
@@ -163,8 +161,8 @@ func _physics_process(delta: float) -> void:
 	_update_fx(_strength)
 
 
-# Pump humid air up from the ground across the footprint + cool the air aloft, so the field's condensation
-# rules build cloud → rain here. Several injection points spread the cell so a broad sheet forms, not a dot.
+# Pump humid air up from the ground across the footprint, so the field's condensation rules build
+# cloud → rain here. Several injection points spread the cell so a broad sheet forms, not a dot.
 func _pump_moisture(intensity: float, delta: float) -> void:
 	if intensity <= 0.0:
 		return
@@ -183,21 +181,10 @@ func _pump_moisture(intensity: float, delta: float) -> void:
 				gy = g.y
 		if _field.has_method("add_vapor"):
 			_field.add_vapor(Vector3(px, gy + 3.0, pz), per_point, VAPOR_INJECT_R)
-	# A STORM MOVES HEAT AROUND. IT DOES NOT MAKE ANY, AND IT DOES NOT DESTROY ANY.
-	#
-	# Two injections used to live here and both are deleted. The surface warming (SEED_HEAT_PER_SEC = 10 °C/s
-	# spread over five points, every frame of the storm's life) re-added warming the solar kernel had already
-	# delivered to the same ground. The cold aloft (COOL_PER_SEC = 14 °C/s, `add_cooling`, which is literally
-	# `add_heat(-amount)`) destroyed heat outright to force condensation. Together they were an energy pump
-	# with no engine: heat appeared at the bottom of the column and vanished at the top, every frame, and on
-	# top of that each call re-uploaded the whole stale CPU temperature mirror over the live GPU field and so
-	# discarded a step of the planet's real heat budget.
-	#
-	# The moisture seed above is KEPT and is honest — `add_vapor` is a transfer that debits the liquid water and
-	# the soil water in the storm's own footprint, and reports the shortfall when the footprint is dry. What
-	# remains is a storm that lifts real water into real air and lets the substrate's own buoyancy and lapse
-	# rate decide whether it convects. If storms stop convecting without the pump, that is a finding about the
-	# atmosphere kernels, not a reason to restore an energy source that does not exist.
+	# A STORM MOVES HEAT AROUND. IT DOES NOT MAKE ANY, AND IT DOES NOT DESTROY ANY — this seeds moisture and
+	# nothing else. `add_vapor` is a transfer that debits the liquid water and the soil water in the storm's
+	# own footprint, and reports the shortfall when the footprint is dry; the substrate's own buoyancy and
+	# lapse rate decide whether the column convects.
 
 
 # --- Visuals: a dark churning cloud slab drifting over the cell (the rain itself is the RainLayer's) ---

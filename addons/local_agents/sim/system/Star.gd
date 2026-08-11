@@ -49,15 +49,9 @@ func setup(opts: Dictionary = {}) -> void:
 func mass() -> float:
 	return _mass
 
-## Physical radius of the star. Its intended job is the softening/escape scale — "how far out has a rock left
-## this body's neighbourhood" — and in normal operation LAGravity calibrates G on the planet, not here.
-##
-## It is NOT, however, safe to describe this as "not a gravity-calibration radius", which is what this comment
-## used to say. `LAGravity.reference_body()` falls back to the most massive body until one declares
-## `is_gravity_reference()`, and this star is ten times the planet's mass — so any gravity query made before
-## the planet registers calibrates G right here, as 55*250^2/1e7 = 0.34375, giving a surface gravity of 1.37
-## instead of 55. LAGravity now re-derives when the reference body changes, so that state no longer persists,
-## but this radius does feed the calibration in that window and the comment should not claim otherwise.
+## Physical radius of the star — the softening/escape scale. It also feeds the G calibration whenever
+## `LAGravity.reference_body()` falls back to this body, which it does until one body declares
+## `is_gravity_reference()`.
 func radius() -> float:
 	return _radius
 

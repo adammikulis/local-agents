@@ -21,9 +21,8 @@ extends Node3D
 ## cone_profile() below is the proof: it reports the accreted material's centroid drift from the vent radial and
 ## its major/minor half-width ratio.
 ##
-## Deleted vs the old scripted volcano: `_is_erupting`, `_bomb_cd`, `BOMBS_PER_BURST`/`BOMB_*`, `_launch_bombs`,
-## the bomb GPUParticles/RigidBody emitter, `_bomb_impact`, the burst timer and pressure state machine. A thrown
-## rock ("bomb"), a geyser, an island are all just words for what the one substrate does. (Explicit types only.)
+## A thrown rock ("bomb"), a geyser, an island are all just words for what the one substrate does — there is no
+## burst timer and no pressure state machine here. (Explicit types only.)
 
 const SCARE_INTERVAL: float = 2.0
 const SCARE_RADIUS: float = 55.0

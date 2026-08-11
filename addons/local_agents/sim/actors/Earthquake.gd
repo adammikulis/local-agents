@@ -9,10 +9,8 @@ extends Node3D
 ## broadcast_scare seeds the felt terror. The node then just lives a beat and frees; the wave lives in the
 ## field, not here.
 ##
-## Deleted vs the old scripted quake: the PULSE_INTERVAL timer, the per-pulse `_pulse()` scatter loop that
-## sprayed DISTURBS_PER_PULSE random disturb_ground + terrain.carve_sphere points across AREA_RADIUS every
-## tick, and those three scatter constants. "Shaking", "fissures", "landslides", "panic" are just words for
-## what the one propagating wave does. (Explicit types only, no ':=' inferred typing.)
+## "Shaking", "fissures", "landslides", "panic" are just words for what the one propagating wave does. There
+## is no pulse timer and no scatter loop. (Explicit types only, no ':=' inferred typing.)
 
 const DURATION: float = 3.0                 # brief node lifetime; the wave outlives it in the field
 const SCARE_RADIUS: float = 130.0

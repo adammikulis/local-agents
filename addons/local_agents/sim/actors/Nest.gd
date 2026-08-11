@@ -258,8 +258,8 @@ func _build_mound(radius: float, flatten: float, earth_color: Color, with_entran
 
 ## A human dwelling: a round mud/clay hut — a wide cylinder body under a conical
 ## thatch roof — sized (from HUT_SPEC) so a ~1.8 m villager stands comfortably
-## beside and could step through it, rather than the old ankle-high stub. Earthy
-## matte materials (no metal) and a dark doorway hollow so it reads as a home.
+## beside and could step through it. Earthy matte materials (no metal) and a dark
+## doorway hollow so it reads as a home.
 func _build_hut() -> void:
 	_mesh_root = MeshInstance3D.new()
 	_mesh_root.name = "NestMesh"
