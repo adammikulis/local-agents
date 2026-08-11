@@ -312,11 +312,12 @@ func set_llm_service(service) -> void:
 ## `drawn - returned - (what herbivores ate)` is what is currently standing in plant tissue, so `held` and the
 ## other three are the closure check: held should never exceed drawn, and returned should never exceed drawn.
 func vegetation_report() -> Dictionary:
+	var led: LAVegLedger = LAVegLedger.of(_material)
 	return {
-		"veg_food_held": snappedf(LAPlant.food_held_total, 0.0001),
-		"veg_food_drawn": snappedf(LAPlant.food_drawn_total, 0.0001),
-		"veg_food_returned": snappedf(LAPlant.food_returned_total, 0.0001),
-		"veg_seed_cost": snappedf(LAEcologyPlants.seed_cost_total, 0.0001),
+		"veg_food_held": snappedf(led.food_held, 0.0001),
+		"veg_food_drawn": snappedf(led.food_drawn, 0.0001),
+		"veg_food_returned": snappedf(led.food_returned, 0.0001),
+		"veg_seed_cost": snappedf(led.seed_cost, 0.0001),
 	}
 
 

@@ -221,6 +221,9 @@ const TRAUMA_DECAY: float = 1.1
 const SEISMIC_TRAUMA_GAIN: float = 2.0
 var _trauma: float = 0.0
 var _shake_applied: Vector3 = Vector3.ZERO
+# This rig's own shake stream. A camera belongs to a viewer, not to a world, so it owns its stream outright
+# and can never move a world's sequence.
+var _shake_rng: LASimRng = LASimRng.make(LASimRng.DEFAULT_SEED, "camera_shake")
 var _ecology: Object = null                # LAEcologyService — source of the seismic field (set by VoxelWorld)
 
 
@@ -1013,7 +1016,7 @@ func _apply_seismic_shake(delta: float) -> void:
 	_trauma = maxf(0.0, _trauma - TRAUMA_DECAY * delta)
 	if _trauma > 0.0:
 		var s: float = _trauma * _trauma * SHAKE_MAG
-		_shake_applied = Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * s
+		_shake_applied = Vector3(_shake_rng.randf_range(-1.0, 1.0), _shake_rng.randf_range(-1.0, 1.0), _shake_rng.randf_range(-1.0, 1.0)) * s
 		global_position += _shake_applied
 
 

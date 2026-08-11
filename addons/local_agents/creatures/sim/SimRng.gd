@@ -25,7 +25,7 @@ var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 # diffed to find the FIRST frame their stream positions differ. That names the subsystem drawing a
 # frame-count-dependent number of times instead of leaving it to be guessed at — the guesses cost a session.
 # Zero cost when the env var is absent: one static bool read per draw.
-static var trace_enabled: bool = OS.has_environment("LA_RNG_TRACE")
+static var trace_enabled: bool = OS.get_environment("LA_RNG_TRACE") != ""
 var draws: int = 0
 var _tags: Dictionary = {}          # caller tag -> draw count, only populated under LA_RNG_TRACE
 
@@ -125,7 +125,7 @@ static var _shared: LASimRng = null
 static func shared() -> LASimRng:
 	if _shared == null:
 		_shared = LASimRng.new()
-		if OS.has_environment("LA_SIM_SEED"):
+		if OS.get_environment("LA_SIM_SEED") != "":
 			_shared.set_seed(int(OS.get_environment("LA_SIM_SEED")))
 	return _shared
 
@@ -140,7 +140,7 @@ static func reset(seed: int) -> void:
 	shared().set_seed(seed)
 	_world_seed = seed
 	for k in _domains:
-		(_domains[k] as LASimRng).set_seed(_derive(seed, String(k)))
+		(_domains[k] as LASimRng).set_seed(derive(seed, String(k)))
 
 
 # --- PER-DOMAIN STREAMS ---------------------------------------------------------------------------------
@@ -166,12 +166,22 @@ static var _domains: Dictionary = {}
 
 # FNV-1a over the domain name, mixed with the world seed. Deterministic across runs and platforms (no
 # String.hash(), whose value is not guaranteed stable), and well-separated for short names.
-static func _derive(seed: int, domain: String) -> int:
+static func derive(seed: int, domain: String) -> int:
 	var h: int = 1469598103934665603
 	for i in domain.length():
 		h = (h ^ domain.unicode_at(i)) * 1099511628211
 		h = h & 0x7FFFFFFFFFFFFFFF          # keep it positive; RandomNumberGenerator takes any int
 	return (seed ^ h) & 0x7FFFFFFFFFFFFFFF
+
+
+## An INDEPENDENT stream OWNED BY ITS CALLER, seeded from that caller's own world seed and a domain name.
+## Nothing static is touched, so two worlds in one process cannot share or perturb each other's stream. This
+## is the form to use wherever the drawing object knows which world it belongs to; `for_domain()` below is
+## the process-wide fallback for callers that still have no world reference.
+static func make(world_seed: int, domain: String) -> LASimRng:
+	var r: LASimRng = LASimRng.new()
+	r.set_seed(derive(world_seed, domain))
+	return r
 
 
 ## An INDEPENDENT seeded stream for one simulation domain — "planet", "creatures", "weather", … Use this for
@@ -181,7 +191,7 @@ static func _derive(seed: int, domain: String) -> int:
 static func for_domain(domain: String) -> LASimRng:
 	if not _domains.has(domain):
 		var r: LASimRng = LASimRng.new()
-		r.set_seed(_derive(_world_seed, domain))
+		r.set_seed(derive(_world_seed, domain))
 		_domains[domain] = r
 	return _domains[domain]
 
