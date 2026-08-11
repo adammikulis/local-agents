@@ -10,6 +10,7 @@ const ClimateSwingScript: GDScript = preload("res://addons/local_agents/sim/mate
 const ElementInventoryScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldElementInventory3D.gd")
 const MineralBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralBudget3D.gd")
 const EnergyLedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyLedger3D.gd")
+const MomentumLedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMomentumLedger3D.gd")
 const SealScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSeal3D.gd")
 const ConservationScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldConservation3D.gd")
 
@@ -28,6 +29,7 @@ var _swing = null                                        # LAMaterialFieldClimat
 var _mass = null                                         # LAMaterialFieldElementInventory3D — carbon/oxygen/fertility ledgers
 var _mineral = null                                      # LAMaterialFieldMineralBudget3D — the five-phase rock ledger
 var _energy_stock = null                         # LAMaterialFieldEnergyLedger3D — rho*c*V*T stock + its drift
+var _momentum = null                             # LAMaterialFieldMomentumLedger3D — Σ m*v stock + its books
 # The cross-book carbon baseline, latched at the seal. Lives here rather than in either ledger because it is
 # the SUM of the two, and neither of them can see the other.
 var _first_element_c: float = NAN
@@ -53,6 +55,8 @@ func setup(field) -> void:
 	_mineral.setup(field)
 	_energy_stock = EnergyLedgerScript.new()
 	_energy_stock.setup(field)
+	_momentum = MomentumLedgerScript.new()
+	_momentum.setup(field)
 	_seal = SealScript.new()
 	_seal.setup(field)
 	_conservation = ConservationScript.new()
@@ -327,6 +331,9 @@ func _heavy_block() -> Dictionary:
 	var flux: Dictionary = _energy.report()
 	d.merge(flux)
 	d.merge(_energy_stock.report(_f._gpu._step_index if _f._gpu != null else 0, flux))
+	#   momentum — Σ m*v over the air, the third conserved quantity of mechanics. Books the pressure gradient,
+	#            Coriolis and buoyancy; `momentum_unbooked` names the terms it cannot reach.
+	d.merge(_momentum.report(_f._gpu._step_index if _f._gpu != null else 0))
 	#   mass   — conservation ledgers for carbon, oxygen, fertility and biomass, on the H₂O ledger's pattern.
 	#            Every substance here that had a ledger conserved; every substance without one minted.
 	d.merge(_mass.report(_f._gpu._step_index if _f._gpu != null else 0))
