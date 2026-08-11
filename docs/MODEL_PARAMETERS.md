@@ -99,8 +99,8 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/kernels3d/erosion_transport_sphere3d.glsl` | `MIN_SUSP` | 1.0e-6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/erosion_transport_sphere3d.glsl` | `MAX_OUT_FRAC` | 0.9 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/kernels3d/solid_derive_sphere3d.glsl` | `SOLID_THRESHOLD` | 0.5 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/kernels3d/shock_sphere3d.glsl` | `SPREAD` | 0.15 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/shock_sphere3d.glsl` | `LOSS` | 0.25 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/kernels3d/shock_sphere3d.glsl` | `SPREAD` | 0.15 | per-step k, so the wave speed is one cell per step at any dt | the maintainer says what `shock` is; then a medium wave speed replaces it |
+| `addons/local_agents/sim/material/kernels3d/shock_sphere3d.glsl` | `LOSS` | 0.25 | per-step k on a dimensionless intensity that is on no ledger; anelastic attenuation needs a Q and a frequency, and neither exists in `LAPhysical` | the maintainer says what `shock` is; then the attenuation is derived or the channel goes |
 | `addons/local_agents/sim/material/kernels3d/plate_advect_sphere3d.glsl` | `MAX_OUT_FRAC` | 0.9 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/kernels3d/plate_advect_sphere3d.glsl` | `MIN_MASS` | 1.0e-6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/wind_step_sphere3d.glsl` | `AIR_FLOOR` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |

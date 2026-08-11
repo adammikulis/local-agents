@@ -1,6 +1,10 @@
 #[compute]
 #version 450
 
+// `shock` is a DIMENSIONLESS intensity, not energy. Its seed magnitude is set by the emitting actor, it is
+// on no conservation ledger, and its only consumers are the panic gradient, the camera shake and the impact
+// counter. SPREAD and LOSS below are per STEP, not per second, so both the propagation speed and the decay
+// scale with the step rate rather than with simulated time.
 
 layout(local_size_x = 64) in;
 
@@ -19,7 +23,7 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 const float SPREAD = 0.15;   // per-neighbour diffusion weight (<= 1/6 for stability)
-const float LOSS = 0.25;     // fraction of shock energy lost per step
+const float LOSS = 0.25;     // fraction of the intensity discarded per step; neither derived nor cited
 
 void main() {
 	// One invocation per ACTIVE cell. A cell absent from the list has shock 0 in BOTH ping-pong halves and
@@ -33,12 +37,12 @@ void main() {
 		return;                     // defensive: a corrupt list must not scribble outside the grid
 	}
 	if (solid[g] != 0.0) {
-		shock_out[g] = 0.0;             // rock carries no shock energy
+		shock_out[g] = 0.0;             // the channel propagates through open cells only
 		return;
 	}
 	float s0 = shock_in[g];
-	// GATHER six neighbours; a solid / boundary neighbour REFLECTS (contributes s0) so energy stays on this
-	// side of the wall. Always six contributions → self-weight below is 1 - 6*SPREAD.
+	// GATHER six neighbours; a solid / boundary neighbour REFLECTS (contributes s0). Always six
+	// contributions → self-weight below is 1 - 6*SPREAD.
 	float nsum = 0.0;
 	for (int d = 0; d < 6; d++) {
 		int nb = nbr[g * 6u + uint(d)];
