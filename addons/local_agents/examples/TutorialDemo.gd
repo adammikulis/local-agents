@@ -10,11 +10,6 @@ extends Control
 ## text, title and target button are right there. This file only does what a game would still have to
 ## do by hand: hand the list to the sequencer and react to a button being pressed.
 ##
-## The version this replaced built the background, the labels, the VBox and all four buttons in
-## `_ready()` from a const array, then aimed its steps at NodePath("Buttons/Spawn"), a path into a
-## tree that existed only after that build ran. Opening the scene in the editor showed one empty
-## Control.
-##
 ## Headless: a LocalAgentDemoHarness child gives it the repo's standard contract.
 ##   -- --run-frames=N       auto-drive: press each spotlighted button in turn, print TUTORIAL_STEP /
 ##                           TUTORIAL_DONE and DEMO_REPORT, then quit (proves the advance wiring).

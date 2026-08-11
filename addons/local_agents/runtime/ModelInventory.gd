@@ -80,8 +80,8 @@ func scan(extra_folders: PackedStringArray = PackedStringArray(), hf_override: S
 	)
 	return rows
 
-# Returns the first on-disk path whose filename matches (case-insensitive), or "" when the file is
-# not present anywhere. Used to answer "is this catalog model already usable in place?".
+# Returns the first on-disk row whose filename matches (case-insensitive), or {} when the file is
+# not present anywhere.
 func find_file(filename: String, extra_folders: PackedStringArray = PackedStringArray(), hf_override: String = "") -> Dictionary:
 	var target: String = filename.strip_edges().to_lower()
 	if target == "":

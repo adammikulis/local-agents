@@ -4,12 +4,9 @@ class_name LADownloadController
 
 ## The editor Downloads tab: pick a model from the shipped catalog, fetch it, and watch the log.
 ##
-## There is exactly one downloader in this addon now. This tab used to route models through a thin
-## `api/` wrapper over the `AgentRuntime` native singleton, so downloading a model required the
-## native library, which is the very thing you download a model in order to use.
-## It now drives `LAModelDownloadManager` (pure GDScript, HTTPRequest, streams to a `.part`
-## file and promotes it only after the size verifies), the same downloader the in-game panel uses.
-## Nothing on the model path needs the native binary any more.
+## There is exactly one downloader in this addon: `LAModelDownloadManager` (pure GDScript, HTTPRequest,
+## streams to a `.part` file and promotes it only after the size verifies), the same one the in-game
+## panel uses. Nothing on the model path needs the native binary.
 ##
 ## The worker Thread survives only for the shell script job (voices / build dependencies via
 ## fetch_dependencies.sh). The model path is signal-driven and needs no thread at all.

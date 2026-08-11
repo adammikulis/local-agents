@@ -359,11 +359,8 @@ func _apply_model_path() -> void:
 
 # Put `path` in memory in place of whatever the runtime currently holds, and report whether that
 # model is resident afterwards.
-# Delegates to LocalAgentStatus, which owns the "what is resident" answer for the whole addon.
-# This used to keep its own static cache, but that cache was only written here while at least five
-# other paths loaded models without touching it (AgentStatus.ensure_model_loaded, three examples,
-# ChatController) — so a pinned agent could find the cache saying "yours" while the runtime actually
-# held someone else's weights, and generate on the wrong model with no error.
+# Delegates to LocalAgentStatus, which owns the "what is resident" answer for the whole addon. No
+# cache of that answer lives here.
 func _load_runtime_model(path: String, options: Dictionary) -> bool:
     return AgentStatus.load_model(path, options)
 

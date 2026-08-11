@@ -37,10 +37,7 @@ func run_test(tree: SceneTree) -> bool:
 
 	# Set the path BEFORE add_child so no default handle is ever opened: _ready() opens the graph, and this
 	# test's two clear_backstory_space() calls must land on its own file, never the player's shared
-	# user://local_agents/network.sqlite3. This ordering used to be load-bearing and silent — a late call
-	# was dropped with a warning and the test wiped the real store while reporting PASS. The service now
-	# honours a late set_database_path too (it reopens), so this is belt AND braces rather than the only
-	# thing standing between a green test and someone's data.
+	# user://local_agents/network.sqlite3.
 	var svc: Node = SvcScript.new()
 	svc.set_database_path(DB_PATH)
 	tree.get_root().add_child(svc)

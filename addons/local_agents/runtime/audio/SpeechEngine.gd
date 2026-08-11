@@ -327,8 +327,7 @@ func _pump() -> void:
 		_release_after(line, gen_os)
 		return
 
-	# Nothing took the line, so there is no beat to start and none to end. Drop it and try the next,
-	# rather than emit the bare speaking_finished this used to send with no speaking_started.
+	# Nothing took the line, so there is no beat to start and none to end. Drop it and try the next.
 	_warn_no_backend()
 	_pump()
 
@@ -627,8 +626,8 @@ func _requested_voice(options: Dictionary) -> String:
 	return requested if requested != "" else DEFAULT_VOICE
 
 
-# Prefer a previously downloaded copy under user://, then whatever RuntimePaths can find: a checked
-# in voice under res://addons/local_agents/voices, or a path the caller gave outright.
+# Prefer a downloaded copy under user://, then whatever RuntimePaths can find: a checked-in voice
+# under res://addons/local_agents/voices, or a path the caller gave outright.
 func _resolve_installed_voice() -> void:
 	var user_onnx: String = ProjectSettings.globalize_path("%s/%s.onnx" % [VOICE_USER_DIR, _voice_id])
 	if FileAccess.file_exists(user_onnx):

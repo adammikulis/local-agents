@@ -113,8 +113,7 @@ func _recent_recall(limit: int) -> PackedStringArray:
 
 ## Row keys used by BackstoryMemoryStateOps, read out of it rather than guessed: `candidates` from
 ## get_memory_recall_candidates (:329), `results` from search_memory_embeddings (:410), `memories` from
-## get_backstory_context (:280). I originally invented three plausible names, none of which was
-## `candidates`, and the wiring silently recalled nothing while every call returned ok.
+## get_backstory_context (:280). Read them out of the service; do not guess them.
 const ROW_KEYS: Array = ["candidates", "results", "memories"]
 
 

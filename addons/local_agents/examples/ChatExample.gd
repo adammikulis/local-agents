@@ -42,7 +42,7 @@ func _on_download_models_button_pressed() -> void:
     download_hint_label.text = "[b]Downloads[/b]\nOpen the editor bottom panel: [i]Local Agents -> Downloads[/i], fetch a model, then return to Chat and press [i]Load Model[/i]."
 
 
-# Connected in the scene to ExitButton.pressed. A [connection] block names a method, so the quit
-# needs one instead of the lambda this used to connect in code.
+# Connected in the scene to ExitButton.pressed. A [connection] block names a method, so the quit needs
+# a named method rather than a lambda.
 func _on_exit_button_pressed() -> void:
     get_tree().quit()

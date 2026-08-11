@@ -138,7 +138,7 @@ func spawn_tornado(point: Vector3) -> Node:
 
 ## A thunderstorm cell seeds vapor + surface heat + aloft cooling at `point` so the emergent cycle builds a
 ## dense cloud → heavy rain; lightning then emerges from MaterialCharge3D as the cloud charges to breakdown
-## (the cell no longer spawns bolts itself — it only seeds the ingredients).
+## (the cell seeds the ingredients only; it never spawns a bolt itself).
 func spawn_thunderstorm(point: Vector3) -> Node:
 	var s: Node = ThunderstormScript.new()
 	_actors_root.add_child(s)

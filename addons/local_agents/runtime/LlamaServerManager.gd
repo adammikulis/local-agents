@@ -17,7 +17,7 @@ var _last_startup_report: Dictionary = {}
 var _unavailable_until_ms: int = -1
 const UNAVAILABLE_COOLDOWN_MS: int = 3000
 # Quick single-shot connect budget for the "is a server ALREADY running?" probe — long enough for a local
-# server that is up to answer, short enough that a miss returns fast instead of the old 1200 ms spin.
+# server that is up to answer, short enough that a miss returns fast.
 const QUICK_PROBE_CONNECT_MS: int = 200
 
 func ensure_running(options: Dictionary, model_path: String, runtime_dir: String = "") -> Dictionary:
@@ -276,9 +276,7 @@ func _is_server_ready(host: String, port: int, timeout_ms: int) -> bool:
     return false
 
 # Single-shot readiness probe with a SHORT connect budget: one /health + /v1/models attempt, no retry spin.
-# Used for the "is a server already running?" question so a miss returns in ~QUICK_PROBE_CONNECT_MS instead of
-# the ~1200 ms the retry loop used to cost — the difference between a drop-in agent stalling at startup and
-# degrading to fast policy instantly.
+# A miss returns within QUICK_PROBE_CONNECT_MS.
 func _probe_server_ready(host: String, port: int) -> bool:
     if _http_get_ready(host, port, "/health", QUICK_PROBE_CONNECT_MS):
         return true

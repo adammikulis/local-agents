@@ -14,9 +14,6 @@ const BiomeBakerScript: GDScript = preload("res://addons/local_agents/sim/materi
 
 const REBAKE_PERIOD: float = 0.4      # seconds between climate rebakes (~2.5 Hz — biomes drift slowly)
 
-# The saturation curve used to be copied here as three constants "MUST match MaterialField3D.SAT_*". It is
-# now one function with one owner (LAPhysical.saturation_mass_fraction), which the baker calls directly, so
-# there is nothing left to keep in sync — the third copy of a number is where drift comes from.
 
 var _field: Object = null
 var _terrain: Object = null
@@ -53,12 +50,7 @@ func _process(delta: float) -> void:
 	if grid == null:
 		return
 	if _baker == null:
-		# Sea radius comes from the terrain service and only from it. A `248.0` default used to sit here and
-		# was overwritten on every path that reaches it: `setup()` already refuses to enable this controller
-		# unless `_terrain` is non-null and is a sphere terrain service, and every such service implements
-		# sea_radius. The fallback was dead — and wrong by roughly 2x, since the live sea shell is at 500
-		# (VoxelWorld.PLANET_SEA_RADIUS), so the one run that ever took it would have baked every biome band
-		# against a planet half the size.
+		# Sea radius comes from the terrain service and only from it. No default.
 		if not _terrain.has_method("sea_radius"):
 			push_error("LABiomeShaderController: terrain has no sea_radius — biome bake disabled")
 			_enabled = false

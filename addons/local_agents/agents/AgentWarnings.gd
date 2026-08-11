@@ -43,8 +43,7 @@ static func check(agent: Node) -> PackedStringArray:
     if speaks:
         out.append_array(_speech_warnings(agent))
     # AgentNode::_process returns early when tick_interval <= 0 (AgentNode.cpp:56), so this
-    # combination is an agent that never acts — not, as this warning previously claimed, one that
-    # acts every frame.
+    # combination is an agent that never acts.
     if bool(agent.get("tick_enabled")) and float(agent.get("tick_interval")) <= 0.0:
         out.append("Tick Enabled is on but Tick Interval is 0, so this agent will never act. Set an interval in seconds (1.0 is a reasonable start).")
     return out

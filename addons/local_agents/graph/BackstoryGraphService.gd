@@ -60,12 +60,6 @@ func _exit_tree() -> void:
 
 ## Point the store at a database file. HONOURED WHENEVER IT IS CALLED: if the graph is already open on a
 ## different path it is closed and reopened here, rather than the request being dropped.
-##
-## This used to warn and ignore, which made the call order load-bearing and invisible — _ready() opens the
-## graph, so a caller that set the path one line after add_child() silently kept writing to the shared default
-## store. A test did exactly that and wiped the player's real backstory space on every run while reporting
-## PASS. A setter that quietly does nothing is indistinguishable from one that works (the same failure shape
-## as a dead @export), so this one always works.
 func set_database_path(path: String) -> void:
     var previous: String = _resolved_database_path()
     _database_path_override = path.strip_edges()

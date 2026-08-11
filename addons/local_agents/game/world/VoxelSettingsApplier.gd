@@ -40,7 +40,7 @@ const SPAWN_SCALE_MAX: float = 4.0
 ## drought / exposure / predation that pressures a population, NOT catastrophes, so the ambient director
 ## only sprinkles the occasional tornado / hurricane / volcano and lets the ECOLOGY be the real attrition.
 ## Ordinary weather (rain → charge → LIGHTNING) is fully EMERGENT in the field's water cycle and needs no
-## director seed, so the director no longer fires bolts at all. At frequency 1 a catastrophe is seeded
+## director seed, so the director never seeds a bolt. At frequency 1 a catastrophe is seeded
 ## roughly every DISASTER_INTERVAL_FAST s, at ~0 every DISASTER_INTERVAL_SLOW s (effectively never in a
 ## normal run); below DISASTER_FREQ_OFF the director is disabled entirely (a calm world).
 const DISASTER_INTERVAL_FAST: float = 180.0
@@ -264,16 +264,10 @@ func _recompute_disaster_cadence() -> void:
 func _physics_process(delta: float) -> void:
 	if not _bound or not _ambient_enabled or _disasters == null:
 		return
-	# GEOLOGY DOES NOT WAIT FOR RABBITS. This gate used to be
-	#     if get_tree().get_nodes_in_group("creature").is_empty(): return
-	# which tied whether a VOLCANO can erupt to whether any animal had spawned. Two things wrong with that.
-	# It is backwards as physics — a planet's tectonics do not consult its biosphere — and it silently
-	# disabled the entire ambient director the moment fauna was absent, so a `--planet-only` run would have
-	# reported disasters "enabled" and produced none.
-	#
-	# What the check actually WANTED was "is the world built yet", so that a seed does not land mid-terrain
-	# generation. That is what it now asks, via the spawn controller's own life-independent `is_spawned()`
-	# (true once terrain has meshed and the initial build ran, whatever it did or did not populate).
+	# GEOLOGY DOES NOT WAIT FOR RABBITS. The gate asks "is the world built yet", so a seed does not land
+	# mid-terrain generation, via the spawn controller's life-independent `is_spawned()` (true once terrain
+	# has meshed and the initial build ran, whatever it did or did not populate). It must never consult the
+	# creature population.
 	if get_tree() == null or _world == null:
 		return
 	if _world.has_method("world_ready") and not bool(_world.world_ready()):

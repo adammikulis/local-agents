@@ -3,19 +3,16 @@ extends EditorPlugin
 
 ## The Local Agents editor plugin.
 ##
-## Enabling the plugin has to be ENOUGH. It does three things a third-party project used to have to
-## do by hand:
+## Enabling the plugin does three things:
 ##   1. registers the `AgentManager` autoload (required by every LocalAgent node),
 ##   2. publishes every `LocalAgentSettings` spec into Project Settings as a typed, hinted row,
 ##   3. adds the bottom panel, whose first tab is a first-run checklist.
 ##
-## None of that needs the native extension. Gating the panel on a successful extension load was the
-## bug: the Setup tab and the Downloads tab are exactly where you go to FIX a failed load, so hiding
-## them behind it made the addon unrecoverable from the editor.
+## None of that needs the native extension, and the panel is never gated on a successful extension
+## load — the Setup and Downloads tabs are where a failed load gets fixed.
 ##
 ## No custom node types are registered here. Every node script in this addon declares a `class_name`,
-## so Godot already lists it in Create Node; registering an editor-side alias on top of that put a
-## second, generically-iconed copy of Agent / LocalAgent3D / Creature / Sim World in the dialog.
+## so Godot already lists it in Create Node.
 ##
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 

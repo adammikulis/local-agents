@@ -5,13 +5,9 @@ extends Node
 
 ## The one shared owner of the local-LLM runtime for the whole sim. It holds a single LocalAgent (the
 ## in-process / llama-server primitive), resolves the model path + server URL in one place
-## (LocalAgentStatus + the chat-model candidates the streamer used to resolve privately), and hands out a
-## single shared LocalAgentLlmClient. The creature slow brain (LocalAgentCognitionScheduler) and the streamer
-## commentator (LAStreamerDirector) both talk through this one client → one server, one model, one config.
-##
-## This is the collapse of the three forked chat-completions paths: cognition's raw HTTPRequest client,
-## the streamer's private HTTPRequest client + private server manager + private model resolution, and the
-## standalone agent's native path are now the same LocalAgent behind this service.
+## (LocalAgentStatus), and hands out a single shared LocalAgentLlmClient. The creature slow brain
+## (LocalAgentCognitionScheduler) and the streamer commentator (LAStreamerDirector) both talk through this
+## one client → one server, one model, one config.
 ##
 ## No-code use: drop this node into a scene, tick `enabled`, and point a LocalAgentCognitionScheduler at
 ## it. Everything below is configurable from the inspector. `_ready()` self-configures from those exports
@@ -19,8 +15,8 @@ extends Node
 ##
 ## When the service is disabled (or nothing is installed) `is_available()` is false and every consumer
 ## runs its offline path: the heuristic teacher for cognition, the canned or silent streamer. That path
-## is correct behaviour, not an error, but it used to be completely silent. `log_availability` prints one
-## line saying which model and server were resolved, or why the service is offline and what to change.
+## is correct behaviour, not an error. `log_availability` prints one line saying which model and server
+## were resolved, or why the service is offline and what to change.
 ##
 ## (Explicit types only. Project rule: no ':=' inferred typing.)
 
@@ -28,15 +24,8 @@ const AgentScript: GDScript = preload("res://addons/local_agents/agents/Agent.gd
 const LlmClientScript: GDScript = preload("res://addons/local_agents/agents/LlmClient.gd")
 const RuntimePaths: GDScript = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 
-# MODEL_CANDIDATES used to live here: a second, hardcoded list of three GGUFs tried after
-# LocalAgentStatus had already resolved. It held the same three files as the DEFAULT
-# local_agents/model/search_paths (runtime/Settings.gd:43), in a different order, so the two resolvers
-# agreed only by coincidence. Nothing enforced that. Editing search_paths in Project Settings, or
-# adding a fourth candidate here, would have let the creature slow brain and the streamer load a model
-# that the setup panel reported as missing, because the panel reports on LocalAgentStatus.
-#
-# There is one resolver now. To add a search location, add it to search_paths, where check() will see
-# it too.
+# LocalAgentStatus is the only model resolver. To add a search location, add it to
+# local_agents/model/search_paths (runtime/Settings.gd), where check() sees it too.
 
 const SETTING_AUTO_ENABLE: String = "local_agents/llm/auto_enable_when_model_present"
 const SETTING_SERVER_URL: String = "local_agents/llm/server_url"
@@ -156,7 +145,7 @@ func _configure(options: Dictionary) -> void:
 # Enabled by ANY of: an explicit setup() flag, an explicit setup() server_url (a script pointing us at a
 # server it owns), the `enabled` export, or the project's auto-enable setting once a model resolves. The
 # FUNCTIONGEMMA_URL environment variable is the registered env override for local_agents/llm/server_url
-# (see LocalAgentSettings.SPECS), so setting it still brings the service online the way it used to.
+# (see LocalAgentSettings.SPECS), so setting it brings the service online.
 func _resolve_availability(options: Dictionary) -> bool:
 	if options.has("enabled"):
 		return bool(options["enabled"]) or (options.has("server_url") and _resolved_server != "")
@@ -216,13 +205,6 @@ func _teardown() -> void:
 
 ## This node's Model Path export wins, and everything else defers to LocalAgentStatus, which is the one
 ## model-resolution owner. Returns "" when nothing is installed.
-##
-## This used to be a second resolver: after asking LocalAgentStatus it re-tried
-## RuntimePaths.resolve_default_model() (which LocalAgentStatus had already tried, so it never fired)
-## and then walked its own hardcoded MODEL_CANDIDATES. Those three files were the same three as the
-## DEFAULT search_paths, so the two agreed by coincidence. The panel reports on LocalAgentStatus, so
-## any edit to either list would have let the creature brain and the streamer load a model the setup
-## panel called missing.
 func resolve_model_path(preferred: String = "") -> String:
 	if preferred.strip_edges() != "":
 		return preferred.strip_edges()

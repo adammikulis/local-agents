@@ -71,9 +71,9 @@ const PLANET_OCEAN_BIAS: float = 3.0 * PLANET_SCALE   # smooth simplex continent
 # lakes/more relief; 0 = flat plateaus that only drain to the sea).
 const PLANET_BASIN_RELIEF: float = 12.0 * PLANET_SCALE   # undulation depth; 0 = flat plateaus, no lake bowls
 const PLANET_BASIN_SIZE: float = 130.0 * PLANET_SCALE
-# RIDGES: ridged-multifractal MOUNTAIN layer. Rivers no longer ride this noise — the drainage network is carved
+# RIDGES: ridged-multifractal MOUNTAIN layer. Rivers do not ride this noise — the drainage network is carved
 # into the terrain from the ACTUAL water flow (see MaterialFieldLakes3D river carving), so this layer's only job
-# is gentle mountain extrusions. Kept LOW-amplitude + few octaves so peaks are rolling, not craggy spikes.
+# is gentle mountain extrusions. LOW-amplitude + few octaves so peaks are rolling, not craggy spikes.
 const PLANET_RIDGE_RELIEF: float = 4.0 * PLANET_SCALE   # mountain amplitude (LA_RIDGE overrides)
 const PLANET_RIDGE_SIZE: float = 95.0 * PLANET_SCALE
 const PLANET_RIDGE_OCTAVES: int = 2                     # fewer octaves = smoother ridge lines
@@ -210,8 +210,7 @@ func _ready() -> void:
 			DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 			Engine.max_fps = 0
 
-	# --- The world's elapsed time. Built BEFORE the sky, which is now a consumer of it rather than the
-	# owner of a wrapping float that could never say what day it was. Everything dated reads LASimClock.
+	# --- The world's elapsed time. Built BEFORE the sky, which consumes it. Everything dated reads LASimClock.
 	_clock = SimClockScript.new()
 	_clock.name = "SimClock"
 	add_child(_clock)

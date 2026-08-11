@@ -4,12 +4,6 @@ class_name LocalAgentStatus
 
 ## The ONE answer to "is Local Agents ready, and if not, what do I do about it?"
 ##
-## Before this existed the same probe was reimplemented four times — twice through private API
-## (`agent.agent_node.load_model()`, `Engine.get_singleton("AgentRuntime")` reflection) — in
-## AgentQuickstart, Agent3DExample, ChatController and the old RuntimeHealth helper (now deleted).
-## Every one of them phrased the
-## failure differently and none of them told the user how to fix it.
-##
 ## `check()` returns a fixed-shape Dictionary: the keys below are ALWAYS present, so a caller never
 ## has to branch on absence. `blockers` is ordered by fix order (you cannot load a model without the
 ## extension), which is what lets `next_step()` be a single sentence and lets a UI render a checklist
@@ -288,20 +282,15 @@ static func _model_loaded() -> bool:
 	return bool(runtime.call("is_model_loaded"))
 
 
-## Can this install actually say something out loud, by any route.
-##
-## This used to ask the native runtime whether a `piper` BINARY was present, and nothing else. The
-## addon does not ship that binary, so the answer was false on every stock install, which reported a
-## fully working setup as degraded forever. Speech really runs through SpeechEngine, which tries the
-## binary, then the piper Python module, then the system voice, so that is the question to ask.
+## Can this install actually say something out loud, by any route. Speech runs through SpeechEngine,
+## which tries the piper binary, then the piper Python module, then the system voice.
 static func _speech_ok() -> bool:
 	return SpeechEngine.speech_available(RuntimePaths.runtime_dir())
 
 
-# In the EDITOR, check the project setting rather than the scene tree. The editor does have a
-# SceneTree, but a non-@tool autoload script (AgentManager.gd is not @tool) is never instantiated
-# into the editor's root — so has_node() reports false even when the autoload is correctly
-# registered, which showed a permanently red, unfixable row in the Setup tab.
+# In the EDITOR, check the project setting rather than the scene tree: a non-@tool autoload script
+# (AgentManager.gd is not @tool) is never instantiated into the editor's root, so has_node() reports
+# false even when the autoload is correctly registered.
 static func _autoload_present() -> bool:
 	if Engine.is_editor_hint():
 		return ProjectSettings.has_setting("autoload/AgentManager")
