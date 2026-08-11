@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsTestRunnerHelper
+class_name LocalAgentTestRunnerHelper
 
 var failures: Array[String] = []
 

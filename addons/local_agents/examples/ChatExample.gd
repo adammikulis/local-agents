@@ -1,69 +1,48 @@
 extends Node
-class_name LocalAgentsChatExample
 
-@onready var chat_controller: LocalAgentsChatController = %ChatController
-@onready var saved_controller: LocalAgentsSavedChatsController = %SavedChatsController
-@onready var inference_config: LocalAgentsInferenceConfig = %InferenceConfig
-@onready var model_config: LocalAgentsModelConfig = %ModelConfig
-@onready var home_button: Button = %HomeButton
-@onready var chat_button: Button = %ChatButton
-@onready var download_models_button: Button = %DownloadModelsButton
-@onready var exit_button: Button = %ExitButton
-@onready var refresh_status_button: Button = %RefreshStatusButton
-@onready var runtime_status_label: Label = %RuntimeStatusLabel
-@onready var model_status_label: Label = %ModelStatusLabel
+## The sidebar navigation for the full chat example: which panel is showing, and the tip that goes
+## with it. That is all this scene needs a script for.
+##
+## The chat itself is the ChatController scene. The model and sampling editors are the ModelConfig
+## and InferenceConfig scenes. The readiness readout is the SetupStatus label (LocalAgentStatusLabel),
+## which polls LocalAgentStatus on its own timer. None of those are built or refreshed here.
+##
+## Every sidebar button is connected in ChatExample.tscn from the Node dock, and the scene is saved
+## already showing the Chat panel, so there is nothing left for a _ready() to do.
+##
+## (Explicit types only. The project rule bans ':=' inferred typing.)
+
+@onready var chat_controller: LAChatController = %ChatController
+@onready var inference_config: LAInferenceConfig = %InferenceConfig
+@onready var model_config: LAModelConfig = %ModelConfig
 @onready var download_hint_label: RichTextLabel = %DownloadHintLabel
 
-const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
-const RuntimePaths := preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 
-func _ready() -> void:
-    home_button.pressed.connect(_show_home)
-    chat_button.pressed.connect(_show_chat)
-    download_models_button.pressed.connect(_show_download_help)
-    exit_button.pressed.connect(func() -> void: get_tree().quit())
-    refresh_status_button.pressed.connect(_refresh_hud_status)
-    if saved_controller:
-        saved_controller.hide()
-    _show_chat()
-    _refresh_hud_status()
-
-func _show_home() -> void:
+# Connected in the scene to HomeButton.pressed.
+func _on_home_button_pressed() -> void:
     chat_controller.visible = false
     model_config.visible = true
     inference_config.visible = true
-    download_hint_label.visible = true
-    download_hint_label.text = "[b]Home[/b]\nCheck runtime health below, then open Chat when the model is ready."
-    _refresh_hud_status()
+    download_hint_label.text = "[b]Home[/b]\nCheck the setup status above, then open Chat when the model is ready."
 
-func _show_chat() -> void:
+
+# Connected in the scene to ChatButton.pressed. This is the state the scene is saved in.
+func _on_chat_button_pressed() -> void:
     chat_controller.visible = true
     model_config.visible = false
     inference_config.visible = false
-    download_hint_label.visible = true
     download_hint_label.text = "[b]Chat[/b]\nUse [i]Load Model[/i] in the chat toolbar before sending prompts."
-    _refresh_hud_status()
 
-func _show_download_help() -> void:
+
+# Connected in the scene to DownloadModelsButton.pressed.
+func _on_download_models_button_pressed() -> void:
     chat_controller.visible = false
     model_config.visible = true
     inference_config.visible = true
-    download_hint_label.visible = true
     download_hint_label.text = "[b]Downloads[/b]\nOpen the editor bottom panel: [i]Local Agents -> Downloads[/i], fetch a model, then return to Chat and press [i]Load Model[/i]."
-    _refresh_hud_status()
 
-func _refresh_hud_status() -> void:
-    var runtime_ok := ExtensionLoader.ensure_initialized()
-    if runtime_ok:
-        runtime_status_label.text = "Runtime: Ready"
-    else:
-        var runtime_error := ExtensionLoader.get_error()
-        if runtime_error.is_empty():
-            runtime_error = "Unavailable"
-        runtime_status_label.text = "Runtime: %s" % runtime_error
 
-    var default_model := RuntimePaths.resolve_default_model()
-    if default_model.is_empty():
-        model_status_label.text = "Model: Missing default model in user://local_agents/models"
-    else:
-        model_status_label.text = "Model: Found %s" % default_model.get_file()
+# Connected in the scene to ExitButton.pressed. A [connection] block names a method, so the quit
+# needs one instead of the lambda this used to connect in code.
+func _on_exit_button_pressed() -> void:
+    get_tree().quit()

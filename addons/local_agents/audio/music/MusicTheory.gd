@@ -1,9 +1,9 @@
 @tool
 extends RefCounted
-class_name LocalAgentsMusicTheory
+class_name LocalAgentMusicTheory
 
 ## Pure, stateless music-theory library: scales/modes, diatonic chord construction,
-## and note naming. No engine state, no RNG — trivially unit-testable and shared by
+## and note naming. No engine state, no RNG. Trivially unit-testable and shared by
 ## the progression planner and the music director.
 ##
 ## A "mode" is an ordered array of semitone offsets from the root within one octave.

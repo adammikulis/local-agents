@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsRomanNumeral
+class_name LocalAgentRomanNumeral
 
 ## Parses Roman-numeral chord tokens (I, ii, V7, vii°, bVII, IVmaj7, iiø, V+, …) and
 ## resolves them to absolute MIDI chords in a chosen key. Anchored to the major-scale

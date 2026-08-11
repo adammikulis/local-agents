@@ -1,0 +1,72 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/agents/ui/ChatPanel.gd" id="1_chatpanel"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_transcript"]
+content_margin_left = 6.0
+content_margin_top = 6.0
+content_margin_right = 6.0
+content_margin_bottom = 6.0
+bg_color = Color(0, 0, 0, 0.235294)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[node name="ChatPanel" type="PanelContainer"]
+custom_minimum_size = Vector2(360, 260)
+offset_right = 360.0
+offset_bottom = 260.0
+script = ExtResource("1_chatpanel")
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="Root" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 6
+
+[node name="StatusBar" type="HBoxContainer" parent="Margin/Root"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="StatusLabel" type="Label" parent="Margin/Root/StatusBar"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+autowrap_mode = 3
+text = "Local Agents: checking..."
+
+[node name="Transcript" type="RichTextLabel" parent="Margin/Root"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 120)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_styles/normal = SubResource("StyleBoxFlat_transcript")
+bbcode_enabled = true
+scroll_following = true
+selection_enabled = true
+
+[node name="InputRow" type="HBoxContainer" parent="Margin/Root"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="PromptInput" type="LineEdit" parent="Margin/Root/InputRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Type a prompt and press enter..."
+caret_blink = true
+
+[node name="SendButton" type="Button" parent="Margin/Root/InputRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Send"

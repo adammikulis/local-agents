@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsBackstoryClaimOps
+class_name LocalAgentBackstoryClaimOps
 
 static func claim_key(subject_id: String, predicate: String) -> String:
     return "%s|%s" % [subject_id.strip_edges().to_lower(), predicate.strip_edges().to_lower()]
@@ -23,8 +23,8 @@ static func normalize_claim_value(value: Variant) -> String:
 static func latest_truth_for_claim(svc, normalized_claim_key: String, world_day: int = -1) -> Dictionary:
     var rows = svc._graph.list_nodes_by_metadata(svc.TRUTH_SPACE, "claim_key", normalized_claim_key, svc.DEFAULT_SCAN_LIMIT, 0)
     var best: Dictionary = {}
-    var best_day := -2147483648
-    var best_updated := -2147483648
+    var best_day: int = -2147483648
+    var best_updated: int = -2147483648
     for row in rows:
         var data: Dictionary = row.get("data", {})
         var row_day = int(data.get("world_day", -1))

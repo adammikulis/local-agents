@@ -1,14 +1,14 @@
 @tool
 extends RefCounted
-class_name LocalAgentsModelInventory
+class_name LocalAgentModelInventory
 
 # On-disk GGUF model discovery.
 #
 # Scans the places a player already keeps GGUF models so the game reuses them instead of forcing a
 # redundant download:
-#   - the local user models dir (LocalAgentsRuntimePaths.MODELS_USER_ROOT),
+#   - the local user models dir (LocalAgentRuntimePaths.MODELS_USER_ROOT),
 #   - the Hugging Face hub cache ($HF_HUB_CACHE, else $HF_HOME/hub, else ~/.cache/huggingface/hub),
-#   - any extra folders the player points us at (persisted by LocalAgentsModelSettingsStore).
+#   - any extra folders the player points us at (persisted by LocalAgentModelSettingsStore).
 #
 # Every hit is returned as a plain Dictionary row {path, filename, size_bytes, source, source_label}
 # so the UI never has to know how the file was found. Matching a shipped-catalog model to a file on
@@ -155,7 +155,7 @@ static func run_selftest() -> Dictionary:
 		stray.store_string("{}")
 		stray.close()
 
-	var inventory: LocalAgentsModelInventory = LocalAgentsModelInventory.new()
+	var inventory: LocalAgentModelInventory = LocalAgentModelInventory.new()
 	var rows: Array = inventory.scan(PackedStringArray(), base)
 	# The scan also covers the real user-models folder on this machine; restrict correctness checks to
 	# the throwaway fake cache we just built so pre-existing local models don't skew the assertions.

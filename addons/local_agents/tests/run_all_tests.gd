@@ -5,11 +5,16 @@ const TestLaneRegistry := preload("res://addons/local_agents/tests/test_lane_reg
 const TestRunnerHelper := preload("res://addons/local_agents/tests/test_runner_helper.gd")
 
 const CORE_TESTS := TestLaneRegistry.DETERMINISTIC_TESTS
+# A subset of CORE_TESTS: everything that runs in-process in milliseconds. The one deterministic test
+# NOT here is test_node_frames.gd, which launches a child Godot to get real engine frames and so costs
+# more than the whole rest of this lane put together; it runs in the full sweep instead.
 const FAST_CORE_TESTS := [
     "res://addons/local_agents/tests/test_smoke_agent.gd",
     "res://addons/local_agents/tests/test_agent_utilities.gd",
     "res://addons/local_agents/tests/test_synth_dsp.gd",
     "res://addons/local_agents/tests/test_audio_music.gd",
+    "res://addons/local_agents/tests/test_native_option_contract.gd",
+    "res://addons/local_agents/tests/test_node_behaviour.gd",
 ]
 
 const LONG_TESTS := TestLaneRegistry.INTEGRATION_TESTS
@@ -22,7 +27,7 @@ const SKIP_HEAVY_FLAG := "--skip-heavy"
 const INCLUDE_LONG_FLAG := "--include-long"
 const FAST_FLAG := "--fast"
 const TestModelHelper := preload("res://addons/local_agents/tests/test_model_helper.gd")
-const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const AgentResultReporter := preload("res://addons/local_agents/tests/agent_result_reporter.gd")
 
 var _failures: Array[String] = []
