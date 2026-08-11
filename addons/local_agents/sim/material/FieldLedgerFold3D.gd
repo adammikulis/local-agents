@@ -47,15 +47,36 @@ func probe_step(fallback: int) -> int:
 	return fallback
 
 
+## Drop the per-cell energy baseline, so the next `amounts` call reports no dU terms rather than terms
+## measured against a sample taken at some other step.
+func clear_energy_prev() -> void:
+	_prev_rc = PackedFloat32Array()
+	_prev_tk = PackedFloat32Array()
+
+
 ## Walk the grid once. Returns the per-channel amounts, the counts, and the thermal stock terms.
-func fold(ch: Dictionary, step_index: int, sealed: bool) -> Dictionary:
+func fold(ch: Dictionary, step_index: int, sealed: bool, solid: PackedByteArray,
+		temp: PackedFloat32Array) -> Dictionary:
+	var out: Dictionary = amounts(ch, solid, temp, true)
+	if out.is_empty():
+		return out
+	var cc: int = _f._cell_count
+	_count_presence(out, ch, temp, cc)
+	_crust(out, ch, cc, step_index, sealed)
+	return out
+
+
+## The per-channel open/mask-free amounts, in cubic metres of channel. `temp` is in degrees Celsius and is
+## required only when `want_energy`, which appends the thermal stock and its dU split.
+func amounts(ch: Dictionary, solid: PackedByteArray, temp: PackedFloat32Array,
+		want_energy: bool) -> Dictionary:
 	var out: Dictionary = {}
 	if _f == null or _f._cell_count <= 0:
 		return out
 	var cc: int = _f._cell_count
-	var solid: PackedByteArray = _f._solid
-	var temp: PackedFloat32Array = _f._temp
-	if solid.size() != cc or temp.size() != cc:
+	if solid.size() != cc:
+		return out
+	if want_energy and temp.size() != cc:
 		return out
 	var cell_size: float = float(_f._cell_size)
 	if cell_size <= 0.0:
@@ -106,15 +127,14 @@ func fold(ch: Dictionary, step_index: int, sealed: bool) -> Dictionary:
 	out["live"] = live
 	out["open"] = amt_open
 	out["all"] = amt_all
-	_count_presence(out, ch, cc)
-	_crust(out, ch, cc, step_index, sealed)
-	_energy(out, ch, temp, solid, vol, cc)
+	if want_energy:
+		_energy(out, ch, temp, solid, vol, cc)
 	return out
 
 
 ## Threshold counts and the snow-line mean. These compare a per-cell FRACTION against a fraction threshold,
 ## so they stay UNWEIGHTED — multiplying one side by a volume would move the threshold per cell.
-func _count_presence(out: Dictionary, ch: Dictionary, cc: int) -> void:
+func _count_presence(out: Dictionary, ch: Dictionary, temp: PackedFloat32Array, cc: int) -> void:
 	var dust: PackedFloat32Array = ch.get("dust", PackedFloat32Array())
 	if dust.size() == cc:
 		var n_dust: int = 0
@@ -130,7 +150,6 @@ func _count_presence(out: Dictionary, ch: Dictionary, cc: int) -> void:
 				n_carb += 1
 		out["carbonate_cells"] = n_carb
 	var snow: PackedFloat32Array = ch.get("snow", PackedFloat32Array())
-	var temp: PackedFloat32Array = _f._temp
 	if snow.size() == cc and temp.size() == cc:
 		var n_snow: int = 0
 		var n_ice: int = 0
@@ -182,6 +201,7 @@ func _energy(out: Dictionary, ch: Dictionary, temp: PackedFloat32Array, solid: P
 		_prev_tk.resize(cc)
 	var depth: int = _f._dim_y
 	var stock: float = 0.0
+	var cap_j_k: float = 0.0
 	var d_heat_j: float = 0.0
 	var d_cap_j: float = 0.0
 	var shell_solid: int = 0
@@ -191,12 +211,14 @@ func _energy(out: Dictionary, ch: Dictionary, temp: PackedFloat32Array, solid: P
 			shell_solid += 1
 		var tk: float = temp[c] + LAPhysical.KELVIN_OFFSET
 		stock += rc * tk * vol[c]
+		cap_j_k += rc * vol[c]
 		if have_prev:
 			d_heat_j += _prev_rc[c] * (tk - _prev_tk[c]) * vol[c]
 			d_cap_j += (rc - _prev_rc[c]) * tk * vol[c]
 		_prev_rc[c] = rc
 		_prev_tk[c] = tk
 	out["energy_stock"] = stock
+	out["energy_cap_j_k"] = cap_j_k
 	out["energy_have_prev"] = have_prev
 	out["energy_d_heat_j"] = d_heat_j
 	out["energy_d_cap_j"] = d_cap_j

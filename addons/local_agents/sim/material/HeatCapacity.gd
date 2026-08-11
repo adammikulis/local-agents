@@ -62,7 +62,7 @@ static func cell(ch: Dictionary, c: int) -> float:
 		_sum(ch, ORGANIC, c))
 
 
-## ~5e8 J/checkpoint on LAMaterialFieldEnergyProbe3D's readings — enough to make nine passes that write no
+## The per-cell volumetric heat capacity of the mix, J/m3K, one entry per cell.
 static func field(ch: Dictionary, cell_count: int) -> PackedFloat64Array:
 	var groups: Array = [SILICATE, CARBONATE, SILICA, WATER_LIQUID, WATER_SOLID, WATER_VAPOUR, ORGANIC]
 	var matrix: Array = []
