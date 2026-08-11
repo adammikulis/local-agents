@@ -2,7 +2,7 @@ class_name LAEventTracker
 extends Node
 
 ## The emergent PHENOMENON EVENT TRACKER: the SINGLE source for FIELD-SUBSTRATE phenomena. It watches the
-## shared field each sample and emits typed discrete LAEvents ("eruption", "wildfire", "flood", "storm",
+## shared field each sample and emits typed discrete LAEvents ("eruption", "wildfire", "storm",
 ## "lightning", "impact") with type + intensity + frame/time (and a best-effort locus). Every event is
 ## derived purely from field aggregates, never from a scripted disaster actor. The streamer commentary and
 ## SIM_REPORT telemetry (and, later, the dissolved disaster actors' visuals) all CONSUME these events
@@ -78,9 +78,11 @@ func _build_registry() -> void:
 		# shock channel is stubbed to 0, so this is DORMANT until it is read back (logged), same as lightning.
 		_threshold_increment("impact", "shock_cells", 1.0, 3.0, 12.0,
 			"a violent impact just shook the ground"),
-		# Flood: a FAST rise in dynamic liquid water over a large baseline (a surge/pool-fill).
-		_threshold_rate("flood", "water_total", 40.0, 5.0, 12.0, 0.02,
-			"floodwater is rising fast"),
+		# NO FLOOD DETECTOR. `water_total` is a GLOBAL sum, and a flood is local: one valley filling while
+		# another dries sums to zero. What a global rise in liquid water actually means is planet-wide net
+		# condensation — a wet spell, not a flood — so the detector answered a different question from the
+		# one it named. A flood needs a spatial signal (a count of cells that gained standing water), which
+		# no gauge publishes; adding one needs a "flooded" threshold nobody can derive yet.
 		# Storm: the emergent wind speed crossing high (a gale whipping up). Scalar wind() magnitude.
 		_threshold("storm", "wind", "cross_up", 8.0, 4.0, 10.0, 0.5,
 			"a storm is whipping up — the wind is howling"),
