@@ -529,7 +529,7 @@ func fertility_at(pos: Vector3) -> float:
 	var c: int = _f.world_to_cell(pos)
 	return _f._fert[c] if c >= 0 else 0.0
 
-## Peak soil fertility over every open cell — >0 once the decomposer loop deposits nutrient (was hardcoded 0).
+## Peak soil fertility over every open cell — above 0 once the decomposer loop deposits nutrient.
 func fertility_peak() -> float:
 	if _f._fert.size() != _f._cell_count:
 		return 0.0

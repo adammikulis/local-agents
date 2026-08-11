@@ -2,13 +2,9 @@
 #version 450
 
 // `nbr[idx*6 + d]` (slot 0 = inward/down, 1-4 lateral, 5 = outward/up; -1 = boundary). This is the mechanical
-// ===== WHAT THIS KERNEL IS, AND WHAT IT USED TO BE =========================================================
-//      about 100x (2.5 against 0.026 W/m/K). Temperature spreads with DIFFUSIVITY alpha = lambda/(rho*c),
-//      where air beats rock 21x (2.19e-5 against 1.03e-6 m^2/s). The old pair matched neither ordering; it
-// 5200 C at 340 m under a 15 C surface demands q = 2.5 * 5185 / 340 = 38 W/m^2 — 440x Earth's 0.087 W/m^2.
-// LAMaterialFieldGeotherm3D from a finite reservoir that cools as it supplies. It enters at slot 0's missing
-// neighbour (slot 0 has no neighbour only at r = 0) through the SAME finite-volume expression every real
-// measured 0.087 W/m^2 is ~27x what pure conduction through 2890 km of mantle would deliver.
+// Finite-volume heat conduction between neighbouring cells. The geothermal flux is supplied by
+// LAMaterialFieldGeotherm3D from a finite reservoir that cools as it supplies, and enters at slot 0's
+// missing neighbour (slot 0 has no neighbour only at r = 0) through the same expression as every real face.
 
 layout(local_size_x = 64) in;
 

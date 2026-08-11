@@ -27,8 +27,7 @@ const DISSOLUTION_K: float = 2.0e-5
 # --- D1c METAMORPHIC DECARBONATION: THE RETURN LEG ---------------------------------------------------------
 
 # --- D2 LITHIFICATION (loose SEDIMENT → bedrock) -----------------------------------------------------------
-const LITH_RATE_PER_PA: float = 1.0e-9   # per-step k on x = max(0, P - P_lith) * k. One extra cell of rock
-                                         # burial is 14.2 MPa, so it lithifies ~1.4 % of its sediment per step.
+const LITH_RATE_PER_PA: float = 1.0e-9   # per-step k on x = max(0, P - P_lith) * k
 
 
 ## The records this domain contributes to the live table (see LAMaterialReactions3D).

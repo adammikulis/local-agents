@@ -262,10 +262,6 @@ static func air_units_to_pascals(column_air_units: float, cell_size_model_units:
 # (Batjes 1996). 20 is the litter figure this substrate's detritus channel represents.
 const LITTER_C_TO_N: float = 20.0
 const SOIL_ORGANIC_C_TO_N: float = 12.0
-# ============================================================================================================
-# Appended as one contiguous block because four lanes were editing this file the same day.
-# ============================================================================================================
-
 # --- SHORTWAVE IS NOT LONGWAVE, AND THE DIFFERENCE *IS* THE GREENHOUSE --------------------------------------
 # Earth's atmosphere absorbs 78 W/m^2 of the 341 W/m^2 arriving at the top of the atmosphere — 22.9%
 # (Trenberth, Fasullo & Kiehl 2009, "Earth's Global Energy Budget", BAMS 90:311). A Beer-Lambert vertical
@@ -370,8 +366,8 @@ const ALBEDO_VEGETATION: float = 0.12
 # It spans about 0.014 (soft herbaceous) to 1.5 (sclerophyll) kg/m^2, log-mean near 0.08. Dividing an areal
 const LEAF_MASS_PER_AREA_KG_M2: float = 0.080
 
-# carry the mass, leaves carry the area. Globally, plant biomass is ~450 GtC (Bar-On, Phillips & Milo 2018)
-# asserts a plant made entirely of leaves: at this planet's measured 8.2 kg/m^2 of ground-cell biomass that
+# Foliage as a fraction of standing plant mass. Stems and roots carry the mass, leaves carry the area
+# (Bar-On, Phillips & Milo 2018).
 const FOLIAGE_FRACTION_OF_PLANT_MASS: float = 0.03
 
 const CANOPY_EXTINCTION_COEFF: float = 0.5

@@ -6,11 +6,9 @@ extends RefCounted
 ##   B = snowpack presence (cold-wet flag), lets the shader bias toward frost/tundra tint
 ##   A = valid flag (255 once baked) so the shader FALLS BACK to altitude-only bands before the first bake
 
-const WARM_COLD_C: float = -25.0     # temperature that reads fully "tundra cold" (G = 0)
-const WARM_HOT_C: float = 40.0       # temperature that reads fully "tropical hot" (G = 1)
-const RH_LUSH: float = 1.2           # relative humidity that reads fully lush/jungle (R = 1); ~saturation.
-                                     # Tuned so mean land (~0.5 RH) reads grassland, dry interiors desert,
-                                     # saturated/coastal air jungle — an Earth-like desert/steppe/jungle spread.
+const WARM_COLD_C: float = -25.0     # °C at G = 0
+const WARM_HOT_C: float = 40.0       # °C at G = 1
+const RH_LUSH: float = 1.2           # relative humidity at R = 1
 
 var _res: int = 0
 var _depth: int = 0

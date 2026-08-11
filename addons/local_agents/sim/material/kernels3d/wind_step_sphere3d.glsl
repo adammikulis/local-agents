@@ -37,19 +37,15 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 const float AIR_FLOOR = 0.02;       // density floor in AIR UNITS: caps the 1/rho gain at 50x (top-of-atmosphere)
-// REAL UNITS, 2026-08-10. Pass A now writes `pressure` in PASCALS, so the gradient is Pa per model unit and
-// must be divided by the metres one cell spans; rho is a real kg/m3; and the acceleration that comes out is
-// m/s^2 instead of a number whose units nobody could state.
+// `pressure` is in PASCALS, so the gradient is Pa per model unit and is divided by the metres one cell
+// spans; rho is kg/m3, and the acceleration is m/s^2.
 const float GRAVITY_M_S2 = 9.80665;        // LAPhysical.STANDARD_GRAVITY_M_S2
 const float AIR_DENSITY_KG_M3 = 1.18;      // LAPhysical.AIR_DENSITY_KG_M3
 const float KELVIN_0 = 273.15;             // LAPhysical.KELVIN_OFFSET
 const float METRES_PER_MODEL_UNIT = 168.6; // LAPhysical.METRES_PER_MODEL_UNIT
-const float DAMP_SURFACE = 0.08;    // linear drag fraction removed per step at the ground (the old DAMP)
+const float DAMP_SURFACE = 0.08;    // linear drag fraction removed per step at the ground
 const float DAMP_FREE = 0.010;      // residual drag in the free atmosphere
 const float BL_HEIGHT = 40.0;       // boundary-layer e-folding height, world units (2.5 cells)
-// Velocity magnitude clamp, in METRES PER SECOND now that the acceleration is real. 110 m/s is above the
-// fastest sustained jet-stream cores measured on Earth (~100 m/s) and below anything physical, so it is a
-// no statable dimension, sized against a pressure field that was itself arbitrary.)*
 // Coriolis parameter f = 2*omega*sin(lat), rad/s.
 const float TWO_OMEGA = 1.45842318e-4;   // LAPhysical.CORIOLIS_TWO_OMEGA_RAD_S
 const float OROG_LIFT = 0.5;        // fraction of horizontal momentum blocked by rising terrain that becomes UPLIFT

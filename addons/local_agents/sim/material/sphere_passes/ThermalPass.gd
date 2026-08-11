@@ -117,7 +117,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[20, lava_back], [21, bufs["fuel"]], [22, bufs["biomass"]], [23, bufs["detritus"]]]
 			+ shared_carriers)
 		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid, 4 = the compacted
-		# sea floor cooled as if it were surrounded by air instead of by the 4.17e6 J/m3K of the ocean.
+		# active list, 5 = its args, 15 = nbr, and the carriers rc_shared.glsli needs.
 		_lava_phase_set[p] = _make_set(rd, _lava_phase_shader, [
 			[0, lava_back], [1, temp_back], [2, solid],
 			[4, active_idx], [5, active_args], [15, nbr],

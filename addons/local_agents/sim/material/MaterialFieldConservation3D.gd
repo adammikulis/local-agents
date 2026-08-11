@@ -17,29 +17,12 @@ static func noise_floor(cell_count: int) -> float:
 	return sqrt(float(maxi(cell_count, 1))) * FLOAT32_EPSILON
 
 
-## A CONSERVED SUBSTANCE DRIFTS AT ZERO. THE ONLY HONEST CEILING IS FLOAT NOISE.
-##
-## These were six per-substance allowances, each carried forward from a measured run — and every one of
-## those runs is now known to be unreadable. They were taken with flat-summed totals over cells that differ
-## in volume by up to 8.8x, before `element_C_mol` was in moles, on a substrate whose `energy_stock` moves
-## 87% depending on whether anyone is watching and whose two runs at ONE SEED differ by 0.41%.
-##
-## When the debts were reshaped from totals to rates on 2026-08-11 the values were preserved deliberately,
-## described as "a unit conversion, not a re-tuning — nothing was loosened". That was the wrong instinct
-## dressed as rigour: it protected six numbers whose provenance had already been invalidated. A ceiling
-## measured through a broken instrument is not a bar, it is a licence to leak up to it.
-##
-## So there is one number, and it is float noise. Conservation means the total does not change. Everything
-## breaches this today; that is the correct reading, not a reason to raise it. RAISING ANY OF THESE
-## REQUIRES THE MAINTAINER, and a measurement taken after the floor holds — determinism, observer
-## independence and a physics-clock horizon — because until then no run can justify a number.
+## Allowed drift per step, per substance. A conserved substance drifts at zero, so the only honest ceiling
+## is float noise. Raising any of these requires the maintainer.
 const DEBT_PER_STEP: Dictionary = {
 	"element_C_total": 0.0, "h2o_closed_total": 0.0, "o2_total": 0.0,
 	"oxidant_all": 0.0, "nitrogen_all": 0.0, "mineral_total": 0.0,
 }
-
-## reasoning: the rates it replaced were FITTED — each picked by running the sim and keeping the value whose
-
 
 ## Baseline key for each gated total. A substance with no sealed baseline is NOT gated — it is reported as
 ## unmeasurable, which is the honest answer and is itself worth seeing in a run.
