@@ -260,6 +260,40 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_step_quantum.sh ($rc_stepq)"
       exit 1
     fi
+    # Gate: the cubed-sphere geometry closes, and it publishes how uneven it is. LASphereGrid.validate()
+    # existed and NOTHING called it, so its closure, symmetry, reciprocity and tangent-handedness checks had
+    # never once run. It also asserts summed cell volumes equal the analytic shell. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_sphere_grid.sh"
+    rc_grid=$?
+    set -e
+    if [[ $rc_grid -ne 0 ]]; then
+      echo "LINT_FAIL: check_sphere_grid.sh ($rc_grid)"
+      exit 1
+    fi
+    # Gate: every compute kernel compiles. `godot --import` ACCEPTS a .glsl containing an undeclared symbol
+    # without complaint; the failure appears at runtime as `get_spirv on a null value`, and what that looks
+    # like from outside is a full, plausible SIM_REPORT with one pass silently not running. Needs no GPU.
+    set +e
+    "$SCRIPT_DIR/check_shaders_compile.sh"
+    rc_shaders=$?
+    set -e
+    if [[ $rc_shaders -ne 0 ]]; then
+      echo "LINT_FAIL: check_shaders_compile.sh ($rc_shaders)"
+      exit 1
+    fi
+    # Gate: a phase-change loop may not be an energy source. check_reaction_balance proves records balance in
+    # ATOMS and says nothing about enthalpy, so a wrong sign or a missing latent heat shipped silently — as it
+    # did, releasing 2.433e5 J/kg per traverse of the water cycle. Hess's law on every cycle, plus reverse
+    # pairs cancelling. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_reaction_energy.sh"
+    rc_renergy=$?
+    set -e
+    if [[ $rc_renergy -ne 0 ]]; then
+      echo "LINT_FAIL: check_reaction_energy.sh ($rc_renergy)"
+      exit 1
+    fi
     # Gate: no reaction record may create or destroy matter. The DEFS engine took reactants and products as
     # two independent lists of hand-written coefficients with nothing relating them, and one rate model had
     # no reactant at all, so only its product credit ever ran — which is where every carbon atom in this
