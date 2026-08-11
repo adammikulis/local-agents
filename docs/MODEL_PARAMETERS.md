@@ -51,7 +51,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/kernels3d/magma_buoy_sphere3d.glsl` | `BUOY_FRAC` | 0.55 | buoyancy as a fitted fraction, where `wind_step_sphere3d.glsl:115-123` states the same Archimedean law as Boussinesq `g·dT/T` with units | Stage 2: one buoyancy law, derived, for energy, mass and momentum alike |
 | `addons/local_agents/sim/material/kernels3d/magma_buoy_sphere3d.glsl` | `K_P` | 0.6 | buoyancy as a fitted fraction, where `wind_step_sphere3d.glsl:115-123` states the same Archimedean law as Boussinesq `g·dT/T` with units | Stage 2: one buoyancy law, derived, for energy, mass and momentum alike |
 | `addons/local_agents/sim/material/kernels3d/heat3d_buoyancy_sphere3d.glsl` | `BUOYANCY` | 0.18 | the same, for the energy leg | as above |
-| `addons/local_agents/sim/material/kernels3d/cell_list_lava_sphere3d.glsl` | `LAVA_MIN_MASS` | 0.0001 | a coupling contract with `lava_phase_sphere3d.glsl:45` that its own comment says MUST match, enforced by nothing | Stage 2: one compactor with per-row thresholds |
 | `addons/local_agents/sim/material/kernels3d/solid_derive_sphere3d.glsl` | `SOLID_THRESHOLD` | 0.5 | defines `solid` for every kernel in the tree, and is written unnamed three more times in `plate_advect_sphere3d.glsl:63,70,74` | Stage 2: one definition, in a shared include |
 | `addons/local_agents/sim/material/kernels3d/wind_pressure_sphere3d.glsl` | `H_REF` | `H_PER_KELVIN * 288.15` | derived, so the gate passes it, but 288.15 K is the ISA standard temperature: modern Earth, unbound, and wrong for a Hadean seed | Stage 3: scale height from the local mixture |
 
@@ -66,6 +65,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/kernels3d/charge_accum_sphere3d.glsl` | `CHARGE_LEAK_QUIET` | 0.4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/charge_accum_sphere3d.glsl` | `UPDRAFT_MIN` | 0.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/kernels3d/lava_phase_sphere3d.glsl` | `LAVA_MIN_MASS` | 0.0001 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/sphere_passes/CellListPass.gd` | `LAVA_MIN_MASS` | 0.0001 | the compactor's lava row must equal `lava_phase_sphere3d.glsl`'s own floor, which that kernel no longer rechecks | lava_phase rechecks its own floor, or the floor is derived from a melt fraction |
 | `addons/local_agents/sim/material/kernels3d/lava_phase_sphere3d.glsl` | `MAX_DT_PER_STEP` | 5.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/lava_phase_sphere3d.glsl` | `MAX_SUBSTEPS` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/heat3d_buoyancy_sphere3d.glsl` | `BUOYANCY` | 0.18 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -99,7 +99,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/kernels3d/erosion_transport_sphere3d.glsl` | `MIN_SUSP` | 1.0e-6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/erosion_transport_sphere3d.glsl` | `MAX_OUT_FRAC` | 0.9 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/kernels3d/solid_derive_sphere3d.glsl` | `SOLID_THRESHOLD` | 0.5 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/kernels3d/cell_list_lava_sphere3d.glsl` | `LAVA_MIN_MASS` | 0.0001 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/shock_sphere3d.glsl` | `SPREAD` | 0.15 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/shock_sphere3d.glsl` | `LOSS` | 0.25 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/plate_advect_sphere3d.glsl` | `MAX_OUT_FRAC` | 0.9 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
@@ -548,9 +547,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/CombustionRecords.gd` | `PYROLYSIS_K_PER_S` | 2.5e-3 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/ReactionBalance.gd` | `TOL` | 1.0e-6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd` | `DRAIN_ALL` | 1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/sphere_passes/LavaCellListPass.gd` | `PASS_RESET` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/sphere_passes/LavaCellListPass.gd` | `PASS_APPEND` | 1 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/sphere_passes/LavaCellListPass.gd` | `PASS_ARGS` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/sphere_passes/GasWindPass.gd` | `SETTLE_V_PER_CONTRAST` | 0.05 | transport tuning, chosen not derived | Stage 2: derive from the transport law, or delete with the kernel merge |
 | `addons/local_agents/sim/material/sphere_passes/GasWindPass.gd` | `EDDY_DIFFUSE` | 0.02 | transport tuning, chosen not derived | Stage 2: derive from the transport law, or delete with the kernel merge |
 | `addons/local_agents/sim/material/sphere_passes/GasWindPass.gd` | `DEFAULT_DT` | 0.1 | inherited, unreviewed | Stage 2 substrate rewrite |

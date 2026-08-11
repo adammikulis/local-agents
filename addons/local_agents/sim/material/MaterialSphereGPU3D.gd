@@ -22,7 +22,7 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/PlateAdvectPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/SolidDerivePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/WaterSlumpLavaPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/LavaCellListPass.gd",
+	"res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ThermalPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/GasWindPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd",
@@ -38,6 +38,13 @@ const SOIL_DBG_SLOTS: int = 21
 # compacted list length a compacted kernel uses as its loop bound. 8 rather than 4 purely for 32-byte alignment.
 const ACTIVE_ARGS_SLOTS: int = 8
 const ARG_SLOT_LIST_COUNT: int = 3
+# Compacted active-cell lists: label -> [index buffer key, dispatch-indirect args key]. ThermalPass reads the
+# lava pair by the unsuffixed keys. Each label publishes a `<label>_list_cells` gauge.
+const ACTIVE_LISTS: Dictionary = {
+	"lava": ["active_idx", "active_args"],
+	"shock": ["active_idx_shock", "active_args_shock"],
+	"fungus": ["active_idx_fungus", "active_args_fungus"],
+}
 # Plate table layout, shared with plate_advect_sphere3d.glsl: per plate, seed.xyz + rate + pole.xyz + pad.
 # MAX_PLATES is only the buffer ceiling; the live count travels in ctx["n_plates"].
 const PLATE_STRIDE: int = 8
@@ -115,11 +122,14 @@ func setup(field) -> void:
 		_bufs[name] = _new_f(_cc)
 	_bufs["send"] = _new_f(_cc * 6)
 	_bufs["soil_dbg"] = _new_f(_cc * SOIL_DBG_SLOTS)     # per-leg groundwater budget probe (see SOIL_DBG_SLOTS)
-	# BOTH the uvec3 dispatch-indirect argument (slots 0-2) and the atomic list-length counter (slot 3) — one
-	_bufs["active_idx"] = _new_u32(_cc)
-	_bufs["active_args"] = _rd.storage_buffer_create(
-		ACTIVE_ARGS_SLOTS * 4, _zeros(ACTIVE_ARGS_SLOTS),
-		RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
+	# Per list: the compacted cell indices, plus a buffer that is BOTH the uvec3 dispatch-indirect argument
+	# (slots 0-2) and the atomic list-length counter (slot 3).
+	for lname in ACTIVE_LISTS:
+		var lkeys: Array = ACTIVE_LISTS[lname]
+		_bufs[lkeys[0]] = _new_u32(_cc)
+		_bufs[lkeys[1]] = _rd.storage_buffer_create(
+			ACTIVE_ARGS_SLOTS * 4, _zeros(ACTIVE_ARGS_SLOTS),
+			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
 	# Sphere geometry SSBOs: neighbour table (int32, kernel slot order), radial + position (flat float3).
 	var nbr_bytes: PackedByteArray = _grid.neighbours_kernel_order().to_byte_array()
 	_bufs["nbr"] = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
@@ -356,14 +366,15 @@ func _read_gpu_pass_timings() -> void:
 
 
 func _read_active_list_counts() -> void:
-	if not _bufs.has("active_args"):
-		return
-	var raw: PackedByteArray = _rd.buffer_get_data(_bufs["active_args"])
-	if raw.size() < ACTIVE_ARGS_SLOTS * 4:
-		return
-	var slots: PackedInt32Array = raw.to_int32_array()
 	LASimReport.gauge("field_cells", float(_cc))
-	LASimReport.gauge("lava_list_cells", float(slots[ARG_SLOT_LIST_COUNT]))
+	for lname in ACTIVE_LISTS:
+		var key: String = String(ACTIVE_LISTS[lname][1])
+		if not _bufs.has(key):
+			continue
+		var raw: PackedByteArray = _rd.buffer_get_data(_bufs[key])
+		if raw.size() < ACTIVE_ARGS_SLOTS * 4:
+			continue
+		LASimReport.gauge(String(lname) + "_list_cells", float(raw.to_int32_array()[ARG_SLOT_LIST_COUNT]))
 
 
 ## "ThermalPass" -> "thermal"; a short, gauge-key-safe name (strip the "Pass" suffix, snake_case the rest).

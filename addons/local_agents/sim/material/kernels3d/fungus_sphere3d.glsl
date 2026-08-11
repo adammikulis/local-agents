@@ -7,6 +7,8 @@ layout(local_size_x = 64) in;
 layout(set = 0, binding = 0, std430) restrict readonly buffer FungIn  { float fung_in[]; };
 layout(set = 0, binding = 1, std430) restrict writeonly buffer FungOut { float fung_out[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Detritus { float detritus[]; };
+layout(set = 0, binding = 3, std430) restrict readonly buffer ActiveIdx { uint active_idx[]; };
+layout(set = 0, binding = 4, std430) restrict readonly buffer ActiveArgs { uint active_args[]; };
 layout(set = 0, binding = 5, std430) restrict readonly buffer Temp  { float temp[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer Vapor { float vapor[]; };
 // remaining bindings keep their numbers so no other kernel or pass has to move.
@@ -67,9 +69,16 @@ int open_neighbours(uint c) {
 }
 
 void main() {
-	uint i = gl_GlobalInvocationID.x;
-	if (i >= params.cell_count) {
+	// One invocation per ACTIVE cell. A cell absent from the list has fungus 0 in BOTH ping-pong halves,
+	// detritus 0, and zero fungus in all six neighbours: growth, spread and decay are all 0, so this kernel
+	// would have written its detritus back unchanged and exactly 0.0 into a fungus slot already 0.
+	uint li = gl_GlobalInvocationID.x;
+	if (li >= active_args[3]) {
 		return;
+	}
+	uint i = active_idx[li];
+	if (i >= params.cell_count) {
+		return;                     // defensive: a corrupt list must not scribble outside the grid
 	}
 	if (solid[i] != 0.0) {
 		fung_out[i] = fung_in[i];

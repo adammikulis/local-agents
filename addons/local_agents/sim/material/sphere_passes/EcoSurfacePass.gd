@@ -8,7 +8,32 @@ const FUNGUS_PATH: String = KDIR + "fungus_sphere3d.glsl"
 const FUNGUS_FERT_PATH: String = KDIR + "fungus_fert_sphere3d.glsl"
 const SHOCK_PATH: String = KDIR + "shock_sphere3d.glsl"
 
+const CellList = preload("res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd")
+
+## Active-cell rows for the two kernels below. Each predicate is that kernel's own no-op condition:
+## fungus and shock write their ping-pong OUT half, so a skipped cell must already hold the value the
+## kernel would have written — hence the BACK term. Both are diffusive, hence HALO. Thresholds are 0
+## (strict >): nothing below a floor is discarded, only exact zeros are.
+const CELL_ROWS: Array = [{
+	"label": "fungus",
+	"idx": "active_idx_fungus", "args": "active_args_fungus",
+	"prim": "fungus", "prim_half": CellList.Half.LIVE,
+	"back": true, "aux": "detritus", "halo": true,
+	"open_only": false, "inclusive": false,
+	"thr": 0.0, "aux_thr": 0.0,
+}, {
+	"label": "shock",
+	"idx": "active_idx_shock", "args": "active_args_shock",
+	"prim": "shock", "prim_half": CellList.Half.LIVE,
+	"back": true, "aux": "", "halo": true,
+	"open_only": false, "inclusive": false,
+	"thr": 0.0, "aux_thr": 0.0,
+}]
+
 var _rd: RenderingDevice = null
+var _cells: RefCounted = null
+var _fungus_args: RID = RID()
+var _shock_args: RID = RID()
 
 # Compiled shaders (kept so their RIDs stay owned for the pipelines' lifetime).
 var _fert_shader: RID = RID()
@@ -44,6 +69,16 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	_fungus_fert_pipe = _rd.compute_pipeline_create(_fungus_fert_shader)
 	_shock_shader = _compile(SHOCK_PATH)
 	_shock_pipe = _rd.compute_pipeline_create(_shock_shader)
+
+	# This pass owns its own compactor because the lists must be built AFTER ReactionsPass has written
+	# detritus — a cell that just received litter has to be in the fungus list the same step, not next step.
+	_cells = CellList.new()
+	_cells.rows = CELL_ROWS
+	_cells.setup(_rd, bufs, cc)
+	_fungus_args = _cells.args_rid("fungus")
+	_shock_args = _cells.args_rid("shock")
+	var fungus_idx: RID = _single(bufs, "active_idx_fungus")
+	var shock_idx: RID = _single(bufs, "active_idx_shock")
 
 	# --- Resolve the shared SINGLE buffers once ------------------------------------
 	var solid_rid: RID = _single(bufs, "solid")
@@ -81,6 +116,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[0, fungus_pair[p]],     # FungIn  = live fungus
 			[1, fungus_pair[back]],  # FungOut = back fungus
 			[2, detritus_rid],       # Detritus (SINGLE, read-only — decompose record owns the debit)
+			[3, fungus_idx],         # ActiveIdx  — compacted cell list
+			[4, _fungus_args],       # ActiveArgs — [3] is the list length
 			[5, temp_pair[p]],       # Temp  (live, read)
 			[6, moisture_pair[p]],   # Moisture = the unified airborne-H₂O channel (live, read)
 			[8, solid_rid],          # Solid   (7 = Fire is gone; the gap is deliberate)
@@ -100,6 +137,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[0, shock_pair[p]],      # ShockIn  = live shock
 			[1, shock_pair[back]],   # ShockOut = back shock
 			[2, solid_rid],          # Solid
+			[4, shock_idx],          # ActiveIdx  — compacted cell list
+			[5, _shock_args],        # ActiveArgs — [3] is the list length
 			[15, nbr_rid],
 		])
 
@@ -112,11 +151,14 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	var cell_m: float = float(ctx.get("cell_size", 1.0)) * LAPhysical.METRES_PER_MODEL_UNIT
 	var k_courant: float = LAMaterialFieldSphereStep3D.real_seconds_per_step() / cell_m if cell_m != 0.0 else 0.0
 
+	# Compact first: the fungus/shock lists must see the detritus ReactionsPass wrote earlier this step.
+	if _cells != null:
+		_cells.dispatch(rd, cl, parity, ctx, cc, groups)
 	# Order: fert -> fungus -> fungus_fert -> shock.
 	_run(rd, cl, _fert_pipe, _fert_set[parity], _pc_precip16(cc, precip), groups)
-	_run(rd, cl, _fungus_pipe, _fungus_set[parity], _pc_precip32(cc, precip), groups)
+	_run_indirect(rd, cl, _fungus_pipe, _fungus_set[parity], _pc_precip32(cc, precip), _fungus_args)
 	_run(rd, cl, _fungus_fert_pipe, _fungus_fert_set[parity], _pc_u4(cc), groups)
-	_run(rd, cl, _shock_pipe, _shock_set[parity], _pc_u4(cc), groups)
+	_run_indirect(rd, cl, _shock_pipe, _shock_set[parity], _pc_u4(cc), _shock_args)
 
 
 ## Free every RID this pass owns (uniform sets, then pipelines, then shaders), dependent-first, before the
@@ -124,6 +166,11 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 func dispose(rd: RenderingDevice) -> void:
 	if rd == null:
 		return
+	if _cells != null:
+		_cells.dispose(rd)
+		_cells = null
+	_fungus_args = RID()
+	_shock_args = RID()
 	for s: Array in [_fert_set, _fungus_set,
 			_fungus_fert_set, _shock_set]:
 		for r in s:
@@ -174,6 +221,17 @@ func _run(rd: RenderingDevice, cl: int, pipe: RID, uset: RID, pc: PackedByteArra
 	rd.compute_list_bind_uniform_set(cl, uset, 0)
 	rd.compute_list_set_push_constant(cl, pc, pc.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
+	rd.compute_list_add_barrier(cl)
+
+
+## Same, over the compacted active-cell list: group count comes from `args` slots 0-2, written this step.
+func _run_indirect(rd: RenderingDevice, cl: int, pipe: RID, uset: RID, pc: PackedByteArray, args: RID) -> void:
+	if not args.is_valid():
+		return
+	rd.compute_list_bind_compute_pipeline(cl, pipe)
+	rd.compute_list_bind_uniform_set(cl, uset, 0)
+	rd.compute_list_set_push_constant(cl, pc, pc.size())
+	rd.compute_list_dispatch_indirect(cl, args, 0)
 	rd.compute_list_add_barrier(cl)
 
 
