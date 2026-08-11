@@ -24,15 +24,16 @@ var buried: float = 0.0        # mass discarded because a cell turned solid with
 var displaced: float = 0.0     # mass a solidifying/melting cell handed to a neighbour instead of stranding
 
 # --- cumulative MINERAL ledger (same mechanism, separate books — see MINERAL_CHANNELS) ----------------------
-# MaterialFieldInject3D.gd:493-494 (device-resolved, so it lands in `mineral_moved`), and the ONLY `add()` on a
 var mineral_offered: float = 0.0   # mineral mass a transfer's CPU-side scan believed its source held
-var mineral_moved: float = 0.0     # TRANSFER: mass actually moved between phases — device-resolved, so debit
+var mineral_moved: float = 0.0     # TRANSFER: debit actually taken, in source-cell fractions. Eruption,
+                                   # excavation and melt are all transfers and land HERE, not in mineral_minted.
 # --- cumulative BIOTIC ledger (same mechanism, third set of books — see BIOTIC_CHANNELS) --------------------
 var biotic_offered: float = 0.0
 var biotic_moved: float = 0.0
 var biotic_minted: float = 0.0
 
-var mineral_minted: float = 0.0    # SOURCE: mass added with NO debit anywhere in the field — the vent drawing
+var mineral_minted: float = 0.0    # SOURCE: mineral added with NO debit anywhere in the field. Only `add()`
+                                   # reaches it — deposit_sediment and the stamp's debug_deposit.
 
 # AUDIT (LA_INJECT_AUDIT=1): |CPU mirror total - live device total| for a channel at flush time. That gap IS
 # the mass the old set_field-from-the-mirror upload would have written away, so a nonzero reading here is a
@@ -49,6 +50,15 @@ var add_cells: int = 0         # ...of which belonged to `add` ops, so a credit 
 
 var _ops: Array = []
 var _index: Dictionary = {}    # op signature -> slot in _ops, so same-signature edits COALESCE (see _merge)
+
+# The grid whose cell volumes size every cross-cell transfer. A channel value is a FRACTION of a cell and
+# cells on this grid differ in volume by up to 3.5x radially, so a credit equal to the debit is not equal mass.
+var _grid = null
+
+
+## `grid` is the LASphereGrid the field is laid over. Called by LAMaterialFieldInject3D.setup.
+func setup(grid) -> void:
+	_grid = grid
 
 
 func is_empty() -> bool:
@@ -81,9 +91,9 @@ func note_demand(want: float) -> void:
 		demand += want
 
 
-## Queue a CONSERVING transfer: take up to `amounts[i]` out of `src` at `src_cells[i]` and credit exactly what
-## came out into `dst` at `dst_cells[i]`. The debit is resolved against the live source on device, so the two
-## sides are equal by construction and this can never mint, however stale the mirror it was planned against.
+## Queue a CONSERVING transfer: take up to `amounts[i]` (a fraction of the SOURCE cell) out of `src` at
+## `src_cells[i]` and credit the same MASS into `dst` at `dst_cells[i]`. The debit is resolved against the live
+## source on device, so the two sides are equal by construction however stale the mirror it was planned against.
 func transfer(src: String, src_cells: PackedInt32Array, amounts: PackedFloat32Array,
 		dst: String, dst_cells: PackedInt32Array, dst_ceiling: float = INF) -> void:
 	if src_cells.size() == 0 or src_cells.size() != amounts.size() or src_cells.size() != dst_cells.size():
@@ -135,12 +145,14 @@ func add(channel: String, cells: PackedInt32Array, deltas: PackedFloat32Array, c
 func flush(gpu) -> void:
 	if gpu == null or _ops.is_empty():
 		return
+	if _grid == null:
+		push_error("InjectQueue.flush with no grid: a cross-cell transfer cannot be sized in mass. Call setup(grid).")
+		return
 	for op in _ops:
 		flushed_cells += (op["src_cells"] as PackedInt32Array).size()
 		var kind: String = String(op["kind"])
 		if kind == "transfer":
-			var m: float = gpu.move_field_sparse(op["src"], op["src_cells"], op["amounts"],
-				op["dst"], op["dst_cells"], float(op["ceiling"]))
+			var m: float = _move(gpu, op)
 			if MINERAL_CHANNELS.has(String(op["src"])):
 				mineral_moved += m
 			elif BIOTIC_CHANNELS.has(String(op["src"])):
@@ -148,8 +160,7 @@ func flush(gpu) -> void:
 			else:
 				moved += m
 		elif kind == "displace":
-			displaced += gpu.move_field_sparse(op["src"], op["src_cells"], op["amounts"],
-				op["dst"], op["dst_cells"], float(op["ceiling"]))
+			displaced += _move(gpu, op)
 		elif kind == "discard":
 			buried += -gpu.add_field_sparse(op["src"], op["src_cells"], op["amounts"])
 		elif kind == "add":
@@ -163,6 +174,67 @@ func flush(gpu) -> void:
 				minted += a
 	_ops.clear()
 	_index.clear()
+
+
+## vol(src_cell) / vol(dst_cell) — how much of the destination cell one cell-fraction of the source fills.
+func _ratio(s: int, d: int) -> float:
+	if s == d or s < 0 or d < 0 or s >= _grid.cell_count or d >= _grid.cell_count:
+		return 1.0
+	return _grid.cell_volume(s) / _grid.cell_volume(d)
+
+
+## Apply one transfer/displace op to the live device buffers; returns the debit, in SOURCE-cell fractions.
+## The credit is the debit times _ratio(), so matter is conserved across cells of different volume. Every take
+## is resolved against the live buffers read here, so the op costs a fixed number of round-trips whatever its
+## pair count.
+func _move(gpu, op: Dictionary) -> float:
+	var src: String = String(op["src"])
+	var dst: String = String(op["dst"])
+	var half: int = int(gpu.probe_phase())
+	var live_s: PackedFloat32Array = gpu.read_raw(src, half)
+	var same: bool = src == dst
+	var live_d: PackedFloat32Array = live_s if same else gpu.read_raw(dst, half)
+	if live_s.is_empty() or live_d.is_empty():
+		return 0.0
+	var sc: PackedInt32Array = op["src_cells"]
+	var dc: PackedInt32Array = op["dst_cells"]
+	var am: PackedFloat32Array = op["amounts"]
+	var ceiling: float = float(op["ceiling"])
+	var debit_cells: PackedInt32Array = PackedInt32Array()
+	var debit: PackedFloat32Array = PackedFloat32Array()
+	var credit_cells: PackedInt32Array = PackedInt32Array()
+	var credit: PackedFloat32Array = PackedFloat32Array()
+	var total: float = 0.0
+	for i in sc.size():
+		var s: int = sc[i]
+		if s < 0 or s >= live_s.size():
+			continue
+		var d: int = dc[i]
+		var has_dst: bool = d >= 0 and d < live_d.size()
+		var k: float = _ratio(s, d) if has_dst else 1.0
+		var take: float = minf(maxf(am[i], 0.0), live_s[s])
+		if has_dst and ceiling < INF:
+			var held: float = live_s[d] if same else live_d[d]
+			take = minf(take, maxf(0.0, ceiling - held) / k)
+		if take <= 0.0:
+			continue
+		live_s[s] -= take
+		debit_cells.append(s)
+		debit.append(-take)
+		if has_dst:
+			var gain: float = take * k
+			if same:
+				live_s[d] += gain
+			else:
+				live_d[d] += gain
+			credit_cells.append(d)
+			credit.append(gain)
+		total += take
+	if debit_cells.size() > 0:
+		gpu.add_field_sparse(src, debit_cells, debit)
+	if credit_cells.size() > 0:
+		gpu.add_field_sparse(dst, credit_cells, credit)
+	return total
 
 
 func audit_rewind(gpu, channel: String, mirror: PackedFloat32Array) -> void:

@@ -35,6 +35,11 @@ var _parts_all: Dictionary = {}   # closing per-channel split, for reading the S
 var _pair_open_end: float = NAN
 var _pair_all_end: float = NAN
 
+# The CPU injection queue flushes once per FRAME, outside the per-step loop this probe brackets, so its edits
+# land in NO leg. These carry its cumulative books so each line can report what it moved since the last one.
+var _prev_inj_moved: float = 0.0
+var _prev_inj_minted: float = 0.0
+
 
 func setup(field) -> void:
 	_f = field
@@ -122,6 +127,15 @@ func post_step() -> void:
 		"legs_open": _legs_open,
 		"legs_all": _legs_all,
 	}
+	var inj_moved: float = 0.0
+	var inj_minted: float = 0.0
+	if _f._inject != null and _f._inject.queue != null:
+		inj_moved = float(_f._inject.queue.mineral_moved)
+		inj_minted = float(_f._inject.queue.mineral_minted)
+	out["inject_moved"] = snappedf(inj_moved - _prev_inj_moved, 0.0001)
+	out["inject_minted"] = snappedf(inj_minted - _prev_inj_minted, 0.0001)
+	_prev_inj_moved = inj_moved
+	_prev_inj_minted = inj_minted
 	if _in_pair == 2 and not is_nan(_pair_all_end):
 		# The instrument's only falsifiable number: this step opened where the previous one closed, or the
 		# half-mapping / parity flip in the header is wrong.

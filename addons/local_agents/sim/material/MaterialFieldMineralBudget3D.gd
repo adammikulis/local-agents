@@ -197,9 +197,8 @@ func report(step_index: int) -> Dictionary:
 	for el in lith:
 		out["lith_element_" + String(el)] = snappedf(float(lith[el]), 0.01)
 
-	# THE ADMITTED SOURCE. erupt_source injects mantle lava with no debit anywhere in the field, so it is
-	# booked as `mineral_minted` by the injection queue and must be subtracted before any statement about
-	# whether the SUBSTRATE conserves. Read defensively: a build without the inject module still reports.
+	# THE ADMITTED SOURCE: sourceless CPU adds only (deposit_sediment, debug_deposit), subtracted before any
+	# statement about whether the SUBSTRATE conserves. Eruption and excavation are transfers and are NOT here.
 	var src: float = 0.0
 	if _f._inject != null and _f._inject.queue != null:
 		src = float(_f._inject.queue.mineral_minted)
