@@ -129,10 +129,62 @@ var link_rot: PackedFloat32Array = PackedFloat32Array()    # (cos, sin) transpor
 # angle depends only on the two directions; the radius scaling is the kernel's one multiply.
 var link_arc: PackedFloat32Array = PackedFloat32Array()    # radians between cell centres, per lateral slot
 
+# SOLID ANGLE subtended by each surface column, steradians. One per SURFACE cell; every radial layer of a
+# column shares it, because a solid angle is a set of directions and does not depend on radius.
+#
+# THIS GRID'S CELLS ARE NOT THE SAME SIZE. `link_arc` above already records the lateral half of that fact
+# (aspect 1.07 to 4.08 on the shipped grid) and applies it to slope. The other half is VOLUME: a column near
+# a face centre subtends more solid angle than one at a corner, and a cell high in the shell is wider than one
+# at the floor because lateral spacing is an arc that grows with radius. So a sum of per-cell channel values
+# is NOT an amount of anything, and a transport moving a fraction of one cell into a differently-sized one
+# does not move the amount of matter it debited.
+#
+# Exact, not approximated: for the gnomonic map dir = normalize(N + R*a + U*b), the solid-angle element is
+# da db / (1 + a^2 + b^2)^(3/2), whose antiderivative is atan(a*b / sqrt(1 + a^2 + b^2)). A cell is the 2D
+# difference of that over its own [a0,a1] x [b0,b1]. `validate()` checks the sum is 4*pi.
+var solid_angle: PackedFloat32Array = PackedFloat32Array()  # surf_count : steradians per column
+
 
 ## Local coord of surface cell (i,j) → cube point → unit sphere direction, for face `f`.
 func _dir_at(f: int, a_local: float, b_local: float) -> Vector3:
 	return (_FACE_N[f] + _FACE_R[f] * a_local + _FACE_U[f] * b_local).normalized()
+
+
+## Antiderivative of the gnomonic solid-angle element: d/da d/db of this is 1/(1+a^2+b^2)^(3/2).
+func _solid_angle_corner(a: float, b: float) -> float:
+	return atan(a * b / sqrt(1.0 + a * a + b * b))
+
+
+## Inner and outer radius of the shell a cell sits in. Centres are at +0.5 (see cell_world_pos), so layer r
+## spans [core_radius + r*cell_size, core_radius + (r+1)*cell_size].
+func cell_inner_radius(c: int) -> float:
+	return core_radius + float(c % depth) * cell_size
+
+
+func cell_outer_radius(c: int) -> float:
+	return core_radius + float(c % depth + 1) * cell_size
+
+
+## VOLUME of a cell, in model units cubed. Integrating r^2 dr over the shell gives (r_out^3 - r_in^3)/3, so
+## this is exact rather than the mid-radius approximation. Use it to turn any per-cell channel value into an
+## amount, and to size a transport between two cells that are not the same size.
+func cell_volume(c: int) -> float:
+	var ri: float = cell_inner_radius(c)
+	var ro: float = cell_outer_radius(c)
+	return solid_angle[c / depth] * (ro * ro * ro - ri * ri * ri) / 3.0
+
+
+## Area of a cell's OUTWARD radial face, model units squared — the face a vertical flux crosses.
+func face_area_outward(c: int) -> float:
+	var ro: float = cell_outer_radius(c)
+	return solid_angle[c / depth] * ro * ro
+
+
+## Area of a cell's INWARD radial face. Smaller than the outward one by (r_in/r_out)^2, which is exactly why
+## a purely radial transport that ignores area does not conserve.
+func face_area_inward(c: int) -> float:
+	var ri: float = cell_inner_radius(c)
+	return solid_angle[c / depth] * ri * ri
 
 
 func _surf_idx(f: int, i: int, j: int) -> int:
@@ -149,14 +201,22 @@ func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p
 	surf_count = FACES * res * res
 	cell_count = surf_count * depth
 
-	# 1) Surface directions (cell CENTRES).
+	# 1) Surface directions (cell CENTRES) + the solid angle each column subtends (cell EDGES).
 	_dir.resize(surf_count)
+	solid_angle.resize(surf_count)
 	for f in FACES:
 		for i in res:
 			var a: float = (float(i) + 0.5) / float(res) * 2.0 - 1.0
+			var a0: float = float(i) / float(res) * 2.0 - 1.0
+			var a1: float = float(i + 1) / float(res) * 2.0 - 1.0
 			for j in res:
 				var b: float = (float(j) + 0.5) / float(res) * 2.0 - 1.0
-				_dir[_surf_idx(f, i, j)] = _dir_at(f, a, b)
+				var b0: float = float(j) / float(res) * 2.0 - 1.0
+				var b1: float = float(j + 1) / float(res) * 2.0 - 1.0
+				var s: int = _surf_idx(f, i, j)
+				_dir[s] = _dir_at(f, a, b)
+				solid_angle[s] = (_solid_angle_corner(a1, b1) - _solid_angle_corner(a0, b1)
+					- _solid_angle_corner(a1, b0) + _solid_angle_corner(a0, b0))
 
 	# 2) Surface adjacency: in-face is direct; off-edge is the nearest surface cell on ANOTHER face to the
 	#    direction one step past the edge. Closed sphere → every cell has exactly 4 valid neighbours.
@@ -667,6 +727,22 @@ func validate() -> Dictionary:
 		face_handed_min = minf(face_handed_min, _FACE_R[f].cross(_FACE_U[f]).dot(_FACE_N[f]))
 	if handed_min < 0.999:
 		errors += 1
+	# GEOMETRY CLOSES OR IT DOES NOT. The solid angles of all six faces must sum to 4*pi; if they do not, the
+	# closed form or the cell-edge coordinates are wrong and every volume built on them is wrong too.
+	# `volume_ratio` is how many times bigger the largest cell is than the smallest — the size of the error
+	# that treating cells as identical was making. It is reported, never corrected: the grid IS uneven.
+	var omega_sum: float = 0.0
+	for s in surf_count:
+		omega_sum += solid_angle[s]
+	var vol_min: float = INF
+	var vol_max: float = 0.0
+	for c in cell_count:
+		var v: float = cell_volume(c)
+		vol_min = minf(vol_min, v)
+		vol_max = maxf(vol_max, v)
+	var omega_err: float = absf(omega_sum - TAU * 2.0)
+	if omega_err > 1.0e-4:
+		errors += 1
 	return {
 		"ok": closed and symmetric and non_recip == 0 and errors == 0,
 		"closed": closed, "symmetric": symmetric, "errors": errors,
@@ -674,4 +750,6 @@ func validate() -> Dictionary:
 		"surf_count": surf_count, "cell_count": cell_count,
 		"min_adj_dot": min_dot, "max_adj_dot": max_dot,
 		"tangent_handed_min": handed_min, "face_handed_min": face_handed_min,
+		"solid_angle_sum": omega_sum, "solid_angle_err": omega_err,
+		"volume_ratio": (vol_max / vol_min) if vol_min > 0.0 else 0.0,
 	}
