@@ -101,12 +101,9 @@ const SPHERE_AREA_COEFF: float = 4.835976   # (36π)^(1/3): surface of a sphere 
 # conversion into the FIELD's mass unit, because an animal's burn is now debited out of the same `biomass`
 # ledger a plant grows into (see LACreatureBodyMass.TISSUE_PER_KG).
 #
-# THE ANCHOR, STATED. It is set so the VILLAGER — the one species whose measured mass (62 kg) and the mass the
-# old `size`-derived formula produced (70 kg at size 1.0) agree, so it is the pivot on which the two models
-# meet — keeps exactly the fasting endurance it had before this change: reserve/burn = 500 s. Every other
-# species then moves by however far its REAL mass differs from what its rendering `size` implied, which is the
-# whole point of taking measured masses. Changing this constant moves the entire roster together and changes
-# no ratio in it.
+# THE ANCHOR, STATED. It is set so the VILLAGER's fasting endurance — reserve/burn — is 500 s on the world's
+# compressed clock. Every other species sits where its own measured mass puts it. Changing this constant moves
+# the entire roster together and changes no ratio in it.
 const RESP_K: float = 4.2558e-4           # extent/sec = RESP_K * exchange_area * o2 * band * exertion
 
 # THE OXIDISABLE RESERVE IS NOT DECLARED HERE ANY MORE. Fat and glycogen are a MASS of tissue, so the store
@@ -116,13 +113,11 @@ const RESP_K: float = 4.2558e-4           # extent/sec = RESP_K * exchange_area 
 # is the RATIO the pairing produces: reserve ∝ mass over burn ∝ surface leaves fasting endurance ∝ the body's
 # linear dimension, i.e. ∝ M^(1/3), so a big animal can skip meals and a small one cannot.
 #
-# WHAT THAT COSTS AT THE SMALL END, SAID PLAINLY RATHER THAN TUNED AWAY. With real masses the roster spans
-# 5 mg to 400 kg, so endurance spans 2.2 s (ant) to 931 s (whale). A real ant does have vastly less fasting
-# endurance than a fox, so the ORDERING is right, but a creature's FORAGING cadence in this simulation does
-# not scale down with its body — movement speed, cognition tick and food spacing are the same for an ant as
-# for a villager. A small animal therefore has to be standing on something edible almost continuously. That
-# is a property of the behavioural clock, not of this model, and the honest response is to report what the
-# small end does rather than to inflate the reserve until it stops mattering.
+# WHAT THAT COSTS AT THE SMALL END, SAID PLAINLY RATHER THAN TUNED AWAY. A real ant does have vastly less
+# fasting endurance than a fox, so the ORDERING is right, but a creature's FORAGING cadence here does not
+# scale down with its body — movement speed, cognition tick and food spacing are the same for an ant as for a
+# villager. A small animal therefore has to be standing on something edible almost continuously. That is a
+# property of the behavioural clock, not of this model.
 
 # MAINTENANCE: the floor every gram of living tissue needs just to hold its ion gradients and turn over its
 # proteins, whether or not the animal is doing anything. Proportional to MASS, while production is limited by
@@ -134,10 +129,9 @@ const RESP_K: float = 4.2558e-4           # extent/sec = RESP_K * exchange_area 
 ## production goes as surface (M^2/3) and this requirement goes as mass (M^1), the ratio
 ## production/requirement falls as M^(-1/3): every body has a size past which its surface cannot feed its
 ## volume. That is Rubner's argument stated as a survival condition rather than as a rate law. Anchored, like
-## RESP_K, on the villager — production/requirement = 4.75 there, exactly what it was before this change —
-## which now leaves the WHALE (400 kg measured, against the 1890 kg its rendering `size` used to imply) at
-## 2.6x and an ant at 1100x. A real whale exists because its delivery network scales as M^3/4 and not as its
-## skin; see the note at the top of this file about what the substrate lacks.
+## RESP_K, on the villager, so the largest bodies in the roster sit closest to that limit. A real whale exists
+## because its delivery network scales as M^3/4 and not as its skin; see the note at the top of this file
+## about what the substrate lacks.
 const MAINTENANCE_K: float = 8.4211e-5    # required extent/sec = MAINTENANCE_K * live_mass (field mass units)
 ## Health lost per second, as a FRACTION OF THIS ANIMAL'S OWN max_health, at a total production failure.
 ## Sized so a body that can produce nothing at all — a drowning animal whose breath store has run out, one
@@ -188,9 +182,8 @@ const MAX_THERMOGENESIS_GAIN: float = 12.0
 # second, because it lives a whole life in a few hundred seconds — while THERMAL_TAU_K is on the uncompressed
 # clock. Multiplying the literal enthalpy by an uncompressed time constant gives a steady-state elevation in
 # the hundreds of degrees. Until the world's time compression is a number somebody has written down, both
-# constants are anchored to behaviour instead: tau and the steady-state elevation are exactly what they were
-# before measured masses arrived (420 s and 3.99 °C at the villager), and the elevation is mass-invariant, so
-# every species keeps the endothermy it had. That is a unit conversion, and it is labelled as one.
+# constants are anchored to behaviour instead, and the elevation they produce is mass-invariant. That is a
+# unit conversion, and it is labelled as one.
 const METABOLIC_HEAT_K: float = 1826.9    # °C of body warming per unit extent per kg of body mass
 
 # --- TEMPERATURE BAND (derived from LAPhysical — nothing here is fitted) ----------------------------------
@@ -285,10 +278,7 @@ static func tick(c, pos: Vector3, delta: float) -> bool:
 	# OXYGEN, from the medium if the animal can breathe it, otherwise from what it is carrying. A held breath
 	# is a STORE of the same reactant, which is why this needs no separate suffocation rule: while the store
 	# lasts the reaction runs normally, and when it empties the oxygen term goes to zero, production collapses
-	# below maintenance, and the animal dies on the same path as one that is frozen or cooked. (This replaced
-	# LACreatureMetabolism.SUFFOCATE_DRAIN, a flat 45 energy/sec that was calibrated against the old per-species
-	# energy tanks; once reserves became proportional to body mass it emptied a small animal in a single tick
-	# and killed 69-80 creatures a run.)
+	# below maintenance, and the animal dies on the same path as one that is frozen or cooked.
 	var o2: float = 1.0
 	if c._material != null:
 		o2 = maxf(breathable_at(c, pos), 0.0)
@@ -296,11 +286,8 @@ static func tick(c, pos: Vector3, delta: float) -> bool:
 			o2 = LAMaterialField3D.O2_AMBIENT   # drawing on the held breath
 	# CAPACITY is what this body COULD oxidise here — R20's own rate law with the gas-exchange surface in place
 	# of bulk biomass. Note that exertion is deliberately NOT in it: resting lowers what an animal SPENDS, not
-	# what its lungs and its air could supply, and conflating the two was a real bug. It put every large animal
-	# into a false metabolic deficit whenever it slept (production was multiplied by 0.5 while the maintenance
-	# requirement stayed put, so the margin at size 1.0 fell from 4.75x to 2.4x and at the whale's size 3.0 went
-	# below 1.0 outright), and it killed the foxes, villagers and vultures outright: 10-12 deaths a run each
-	# against a baseline of 1-5, reported as starvation.
+	# what its lungs and its air could supply. Conflating the two puts a large animal into a false metabolic
+	# deficit whenever it sleeps, because production would fall while the maintenance requirement stayed put.
 	var capacity: float = RESP_K * area * gain * O2_UPTAKE_K * o2 * band * delta * evo
 	# What it actually burns. Exertion above 1 is a sprint, and exceeding the aerobic capacity is correct there
 	# — that excess is anaerobic, which is exactly what the muscle-lactate rule in LACreatureMetabolism models.

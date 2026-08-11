@@ -42,9 +42,8 @@ const W_DAMAGE: float = 6.0                # aversion per unit of fractional HP 
 const W_FEAR: float = 0.25                 # aversion per unit rise in the panic/fear level (predator dread)
 const W_O2: float = 1.0                    # aversion for being fully out of breath in my medium (suffocating)
 const W_TEMP: float = 1.0                  # aversion at a temperature where metabolism stops entirely (freezing
-                                           # or protein denaturation). Was 0.03 per °C outside a comfort band;
-                                           # _comfort_deviation is now a bounded 0..1 shortfall of the body's
-                                           # own reaction rate, so the weight is on the same scale as W_O2.
+                                           # or protein denaturation). _comfort_deviation is a bounded 0..1
+                                           # shortfall of the body's own reaction rate.
 const TERM_CAP: float = 1.0                # clamp on each individual aversive term so one sense can't dominate
 
 # --- drive-modulated risk tolerance (Half B) ----------------------------------------------------

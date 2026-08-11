@@ -8,8 +8,8 @@ extends RefCounted
 ##
 ## Radial locomotion: `up` points away from the planet centre, so all heading math is projected onto the local
 ## tangent plane and the ground read/snap go radial. The decided heading is a TARGET the creature turns toward
-## smoothly each frame (not snapped), so throttled decisions still read as fluid motion instead of 20 Hz
-## direction pops; acute flees snap instantly (the think block sets _heading directly on _force_think).
+## smoothly each frame (not snapped); acute flees snap instantly (the think block sets _heading directly on
+## _force_think).
 ##
 ## Static + dynamic field access on the passed creature, like the other Creature* modules.
 ## (Explicit types only, no ':=' inferred typing.)

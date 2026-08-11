@@ -31,17 +31,13 @@ extends RefCounted
 ##
 ## Splinter groups fall out of that rule with nothing written for them: a sub-group that drifts away keeps
 ## its mutual bonds and loses the rest, so step 3 empties it out of the old band and step 4 re-converges it
-## onto one new label. Measured: 10 of 19 bands in a 600-frame run were a family that had split this way.
+## onto one new label.
 ##
-## WHAT DOES NOT HAPPEN YET, measured rather than assumed. An earlier version of this header claimed
-## adoption, exile and "a driven-out animal finding a new pack". Instrumenting the scan showed
-## `vq_mixed_bands = 0` in every run: over 600 frames and ~250 creatures, not one multi-member band ever
-## held two distinct lineages. The cause is structural, not a tuning miss — step 2 queries only
-## `"species_" + c.species`, and `EcologySpawner._spawn_clustered_founders` starts families as spatial
-## clusters, so your same-species neighbours ARE your relatives. Bands are therefore a strictly FINER
-## partition of families, never a crossing one. Rival packs and cross-family adoption need something that
-## actually mixes lineages in space first (migration, or a founder scatter that interleaves families);
-## until then this rule cannot express them, however it is tuned.
+## WHAT THIS RULE CANNOT EXPRESS: bands never mix lineages. Step 2 queries only `"species_" + c.species`,
+## and `EcologySpawner._spawn_clustered_founders` starts families as spatial clusters, so a creature's
+## same-species neighbours are its relatives and a band is a strictly FINER partition of a family, never a
+## crossing one. Rival packs and cross-family adoption need something that mixes lineages in space first
+## (migration, or a founder scatter that interleaves families); no tuning of this rule reaches them.
 ##
 ## BAND LABELS ARE MINTED IN ORDER, and step 4 only ever adopts a SMALLER (older) label. That is what makes
 ## label propagation converge instead of two animals swapping labels forever, and it means a newcomer joins
@@ -52,8 +48,7 @@ extends RefCounted
 ## That reads like the right test — "the pull out must exceed the pull in" — and it is the right test for a
 ## DEFECTION, but adopting an older label is a MERGE, not a defection: nobody leaves anyone. Requiring it
 ## stalls every merge at the first animal whose closest companion is already a band-mate, which is almost all
-## of them. Measured on a 250-animal, 15-cluster bench: 106 distinct bands with the clause, 21 without, at
-## the same cost (18.8 vs 17.7 us per creature-tick, inside the noise).
+## of them.
 ##
 ## COMPLEXITY. Per creature, once per ASSOC_PERIOD (not per frame): one bounded query against the spatial
 ## hash LACreatureSenses already rebuilds at most once per group per frame, a linear pass over its
@@ -95,9 +90,7 @@ static func mint_label() -> int:
 ##
 ## The stagger comes from the band label, NOT from LASimRng, and that is deliberate on both counts. Drawing
 ## here would consume one number from the seeded stream per creature and shift every later draw — vegetation
-## scatter, sex, lifespan jitter — so two runs of the same seed would no longer be the same world and no A/B
-## against a pre-affiliation build could be read. Measured: an RNG-seeded stagger moved a --seed=4242 sandbox
-## from 1483 actors to 1580 and its draw calls from 1673 to 2093, which swamps anything being compared.
+## scatter, sex, lifespan jitter — so two runs of the same seed would no longer be the same world.
 ##
 ## And the label rather than the instance id, because the label is a plain counter and so is uniform mod
 ## STAGGER_SLOTS by construction. Instance ids advance by however many objects a creature's construction

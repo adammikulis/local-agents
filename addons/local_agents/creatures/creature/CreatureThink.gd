@@ -257,18 +257,16 @@ static func _try_eat_food(c, pos: Vector3) -> bool:
 		return false
 	var profile: Dictionary = best.food_profile()
 	var gained: float = 0.0
-	# THE BITE IS BOUNDED BY THE MOUTH AND BY WHAT IS THERE — and it is MASS, not a multiplied value.
-	# `LAFood.state_mult` used to scale the mass taken (rot halved it, cooking multiplied it by 1.6, which
-	# created 60% more matter than the food contained). State now changes DIGESTIBILITY instead, applied where
-	# the gut extracts energy, so what leaves the food is exactly what enters the animal.
+	# THE BITE IS BOUNDED BY THE MOUTH AND BY WHAT IS THERE — and it is MASS, never a multiplied value. State
+	# changes DIGESTIBILITY, applied where the gut extracts energy, so what leaves the food is exactly what
+	# enters the animal.
 	var bite: float = maxf(float(c.bite_rate), 1.0e-9)
 	# A FOOD NODE MAY KEEP ITS OWN UNIT, AND THE CONVERSION HAS TO BE APPLIED OR THE BITE MINTS MATTER. A
 	# carcass's `_carrion` is already in the field's mass units, so its factor is 1. A plant's reserve is in
-	# FOOD-ENERGY units and `LAPlant.BIOMASS_PER_FOOD` (1.8e-4) is what a unit of it weighs — the plant itself
-	# applies that factor on both sides of its own uptake. Without the conversion here, `feed(bite)` asked a
-	# plant for a mass and credited the food-units it got back AS a mass, so a single bite put roughly five
-	# thousand times the plant's loss into the animal. `food_mass_per_unit` is the node's own declaration of
-	# its unit; anything that does not declare one is already speaking mass.
+	# FOOD-ENERGY units and `LAPlant.BIOMASS_PER_FOOD` is what a unit of it weighs — the plant itself applies
+	# that factor on both sides of its own uptake. Without the conversion here, `feed(bite)` would ask a plant
+	# for a mass and credit the food-units it got back AS a mass. `food_mass_per_unit` is the node's own
+	# declaration of its unit; anything that does not declare one is already speaking mass.
 	var per_unit: float = 1.0
 	if best.has_method("food_mass_per_unit"):
 		per_unit = maxf(float(best.call("food_mass_per_unit")), 1.0e-12)

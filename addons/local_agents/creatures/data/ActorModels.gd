@@ -19,10 +19,9 @@ const _BASE: String = "res://addons/local_agents/assets/models/"
 
 # id -> { path, tint?[r,g,b], anims?{idle,move,run}, run?(m/s) }
 #
-# All models are preprocessed to face -Z (Creature.look_at points -Z at the heading), so there is
-# NO per-model yaw here. Verified by side-view test: Quaternius rigs (fox/fish/villager) export
-# facing +Z and were rotated 180 deg via scripts/bake_model_forward.py; the Kenney Cube Pets already
-# face -Z. Baking the forward axis into the asset data — not a magic yaw in code — keeps this uniform.
+# All models are preprocessed to face -Z (Creature.look_at points -Z at the heading), so there is NO
+# per-model yaw here. A model that faces the other way is re-baked by scripts/bake_model_forward.py; the
+# forward axis lives in the asset data, never as a yaw in code.
 const TABLE: Dictionary = {
 	# --- fauna ---
 	"fox": {

@@ -21,8 +21,7 @@ extends RefCounted
 # Gut sizing + rates. The gut holds up to CAPACITY_FRAC of the creature's max energy as buffered biomass (a big
 # meal is stored and drawn down over time). DIGEST_RATE is the fraction of the CURRENT gut contents converted
 # each second, so digestion is exponential — fast right after a meal, tapering as the gut empties — which is
-# why a starving animal recovers over a handful of seconds rather than in a single frame. Tune these two knobs
-# (and the efficiencies below) to match net intake to the old instant feed if the population drifts.
+# why a starving animal recovers over a handful of seconds rather than in a single frame.
 const CAPACITY_FRAC: float = 0.85       # gut capacity as a fraction of max_energy (biomass units == energy units)
 const DIGEST_RATE: float = 0.22         # fraction of current gut biomass digested per second
 
@@ -36,12 +35,8 @@ const MICROBIOME_HERBIVORE: float = 1.12   # gut-flora bonus for a plant-ferment
 const MICROBIOME_DEFAULT: float = 1.0      # carnivore / omnivore / scavenger: no cellulose flora, base rate
 
 ## SATIETY MARGIN, as a FRACTION of the reserve. At/above (1 - this) of max_energy the gut holds instead of
-## digesting, buffering the surplus. It was an absolute 0.01 — which is fine when every animal's reserve is
-## ~100 units, and catastrophic once physiology is derived from real body mass: a rabbit's whole reserve is
-## 0.004, so `energy >= max_energy - 0.01` was true at every energy level and DIGESTION NEVER RAN for any
-## animal smaller than a human. Anything measured against a fraction of the animal has to BE a fraction of
-## the animal; this is the same defect as a flat drink rate or a flat display cost, and it is the one that
-## bites hardest because it fails silently.
+## digesting, buffering the surplus. It is a fraction and never an absolute: an absolute margin exceeds the
+## whole reserve of a small animal, which stops its digestion entirely and does so silently.
 const FULL_FRAC: float = 0.999          # at/above this fraction of max_energy the gut holds (satiety)
 
 
@@ -54,9 +49,8 @@ static func setup(c) -> void:
 	c.gut_waste = 0.0
 	c.gut_digestibility = 1.0
 	# Gut volume is ISOMETRIC with body mass (M^1.0) — an animal's gut is a fixed fraction of it — so sizing it
-	# off `max_energy`, which is itself the mass-proportional reserve, keeps the scaling right for free. The
-	# `maxf(…, 1.0)` floor is GONE: it gave an ant a gut a thousand times its own body, which is where a single
-	# bite of a shrub used to fit inside an insect.
+	# off `max_energy`, which is itself the mass-proportional reserve, keeps the scaling right for free. No
+	# absolute floor: one would exceed a small animal's whole body.
 	c.gut_capacity = maxf(float(c.max_energy) * CAPACITY_FRAC, 0.0)
 	c.microbiome = MICROBIOME_HERBIVORE if String(c.diet) == "herbivore" else MICROBIOME_DEFAULT
 
@@ -64,18 +58,8 @@ static func setup(c) -> void:
 # GRAZING. A plant-eater standing on vegetated ground nibbles the grass living there — the field's real
 # `biomass` channel, the one photosynthesis (R19) actually grows — and the pasture is DEBITED by exactly what
 # the mouth takes. Where nothing is growing, an animal gets nothing, which is what makes starvation reachable.
-#
-# WHAT THIS REPLACES, because it was the largest source of matter from nothing in the whole simulation.
-# `AMBIENT_GRAZE_RATE = 5.0` biomass per second was handed to any herbivore standing on warm ground. The only
-# field read was `temp_at` — a THERMOMETER, not a stock — and nothing anywhere was decremented. Across the
-# roster that conjured food on the order of 250-350 units per second. The comment stated the design outright:
-# "never depletes, can't be crashed".
-#
-# ITS STATED JUSTIFICATION WAS ALSO STALE. The old comment said a ground-level biomass read "was always 0"
-# because photosynthesis "deposits its biomass in the sky-exposed TOP-of-column cell, dozens of cells ABOVE
-# the grazer". That was true of an older record and is not true now: R19 is gated `GATE_NEAR_GROUND`, the open
-# cell with rock beneath it (see LABioRecords), which is precisely where a grazing animal's mouth is. So the
-# reason for the hand-out had already been fixed when the hand-out was written.
+# The crop is at the mouth: photosynthesis (R19) is gated `GATE_NEAR_GROUND`, the open cell with rock beneath
+# it (see LABioRecords), which is where a grazing animal stands.
 #
 # THE BITE IS BOUNDED BY THE ANIMAL, NOT BY A GLOBAL RATE. `LACreatureBodyMass.bite_rate` scales intake with
 # the animal's own metabolic demand, so a villager strips a cell far faster than an ant, from one exponent
