@@ -1,12 +1,11 @@
 class_name LAMaterialFieldAtmos3D
 extends RefCounted
 
-## LAMaterialFieldAtmos3D: the ATMOSPHERE derivation of LAMaterialField3D, factored out of the extract-only
-## vapor = min(moisture, sat(T)), condensed = max(0, moisture - sat(T)), and the condensed part reads as fog
+## LAMaterialFieldAtmos3D: atmosphere queries derived from the one `moisture` channel of LAMaterialField3D.
+## vapor = min(moisture, sat(T)); condensate = max(0, moisture - sat(T)), split fog/cloud by temperature.
 
 const CoverBakerScript: GDScript = preload("res://addons/local_agents/sim/material/CoverTextureBaker.gd")
-# The precipitation threshold has ONE owner (Kessler autoconversion, derived from real air/water densities);
-# the report's precip proxy and the render cover bake must read the same number the kernel rains at.
+# Rain threshold: AtmospherePass owns it; the report proxy and the cover bake read the same number.
 const AtmospherePassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd")
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
@@ -17,8 +16,7 @@ func setup(field) -> void:
 	_f = field
 
 
-## Saturation humidity at temperature `t` — the dewpoint moisture is read against, and the ONE thing that
-## decides how much water this planet's air can hold. Clausius-Clapeyron, owned by LAPhysical and shared with
+## Saturation mass fraction at temperature `t` °C. Clausius-Clapeyron, owned by LAPhysical.
 func _sat(t: float) -> float:
 	return LAPhysical.saturation_mass_fraction(t)
 
@@ -46,14 +44,12 @@ func fog_at(x: float, z: float) -> float:
 	return _condensed_at(c) if _f._temp[c] < LAMaterialField3D.FOG_MAX_TEMP else 0.0
 
 
-## Recompute all condensate aggregates in a single grid pass. The fog/cloud split is a temperature proxy
-## (cool, T<FOG_MAX_TEMP = fog; warmer = cloud) for the kernel's slot-0 near-ground test, which is not
-## replicated on the CPU — these are report/visual metrics only.
+## Recompute the condensate aggregates + the mask-free moisture_total in one grid pass. Fog/cloud split by
+## temperature: below FOG_MAX_TEMP = fog, above = cloud. Report/visual metrics.
 func refresh_aggregates() -> void:
 	_f._atmos_dirty = false
 	# Local (copy-on-write, read-only) handles for the hot loop — same buffers, no per-cell property lookup.
 	var cell_count: int = _f._cell_count
-	var solid: PackedByteArray = _f._solid
 	var moisture: PackedFloat32Array = _f._moisture
 	var temp: PackedFloat32Array = _f._temp
 	var rain_threshold: float = AtmospherePassScript.rain_threshold()
@@ -64,10 +60,10 @@ func refresh_aggregates() -> void:
 	var precip_n: int = 0
 	var total: float = 0.0
 	for i in range(cell_count):
-		if solid[i] != 0:
-			continue
 		var aw: float = moisture[i]
 		total += aw
+		if aw <= 0.0:
+			continue
 		var cond: float = aw - _sat(temp[i])
 		if cond <= 0.0:
 			continue
@@ -152,24 +148,24 @@ func avg_fog_cover() -> float:
 	return _f._fog_cover_c
 
 
-## Domain precipitation proxy 0..1 — fraction of open cells whose condensate is over the rain threshold.
+## Precipitation proxy 0..1 — cells whose condensate is over the rain threshold, as a fraction of ALL cells,
+## rescaled by a fitted gain and clamped (see refresh_aggregates).
 func precipitation() -> float:
 	if _f._atmos_dirty:
 		refresh_aggregates()
 	return _f._precip_c
 
 
-## Total suspended atmospheric water mass — the AIRBORNE leg of the conserved H₂O ledger (`h2o_total`), summed
-## over every OPEN cell per the one inclusion rule documented in LAMaterialFieldLedger3D's header. Computed in
-## refresh_aggregates' single grid pass and cached, so this is a cache read, not a scan.
+## Airborne leg of h2o_total — every cell, no residency mask (LAMaterialFieldLedger3D's one inclusion rule).
+## Channel units. Accumulated in refresh_aggregates' single grid pass and cached: a cache read, not a scan.
 func moisture_total() -> float:
 	if _f._atmos_dirty:
 		refresh_aggregates()
 	return _f._moisture_total_c
 
 
-## Count of OPEN cells carrying derived condensate (moisture over saturation) at/above CONDENSE_COVER_MIN.
-## Cached with the other atmosphere aggregates (recomputed once per field readback, not per call).
+## Count of cells whose derived condensate (moisture over saturation) is at/above CONDENSE_COVER_MIN and
+## warmer than FOG_MAX_TEMP. Cached with the other atmosphere aggregates, not recomputed per call.
 func cloud_cell_count() -> int:
 	if _f._atmos_dirty:
 		refresh_aggregates()
