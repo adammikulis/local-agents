@@ -1,4 +1,4 @@
-extends RefCounted
+extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reactions_sphere3d.glsl"
@@ -9,25 +9,15 @@ static func overburden_pa_per_unit() -> float:
 	var metres_per_cell: float = LAPhysical.GROUNDWATER_CIRCULATION_M / float(cells)
 	return LAPhysical.STANDARD_GRAVITY_M_S2 * metres_per_cell
 
-var _rd: RenderingDevice = null
-var _shader: RID = RID()
 var _pipe: RID = RID()
-var _defs_ssbo: RID = RID()
 var _n_records: int = 0
 var _set: Array = [RID(), RID()]        # one uniform set per ping-pong parity
 
 
-func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
-	_rd = rd
-	if _rd == null:
-		push_error("ReactionsPass: null RenderingDevice")
+func _setup(bufs: Dictionary, _cc: int) -> void:
+	_pipe = _kernel(KERNEL_PATH)
+	if not _pipe.is_valid():
 		return
-
-	_shader = _compile(KERNEL_PATH)
-	if not _shader.is_valid():
-		push_error("ReactionsPass: reactions_sphere3d.glsl failed to compile (editor import scan needed?)")
-		return
-	_pipe = _rd.compute_pipeline_create(_shader)
 
 	var defs_script: GDScript = load(REACTIONS_SCRIPT)
 	if defs_script == null:
@@ -43,8 +33,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			+ "material/reactions/ and run scripts/editor_scan.sh.")
 		return
 	_n_records = recs.size()
-	var bytes: PackedByteArray = defs_script.serialize(recs)
-	_defs_ssbo = _rd.storage_buffer_create(bytes.size(), bytes)
+	var defs_ssbo: RID = _storage_buffer(defs_script.serialize(recs))
 
 	var temp: Array = _pair(bufs, "temp")
 	var water: Array = _pair(bufs, "water")
@@ -81,7 +70,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 
 	for p in 2:
 		var back: int = 1 - p
-		_set[p] = _uset(_shader, [
+		_set[p] = _uset(_pipe, [
 			[0, temp[back]],        # settled temp (Thermal output)
 			[1, water[back]],       # settled water (Atmosphere/WaterSlump output)
 			[2, moisture[back]],    # settled moisture (Atmosphere output)
@@ -109,10 +98,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[10, solid],
 			[15, nbr],
 			[20, scratch],          # fungus-fert SCRATCH product target
-			[21, _defs_ssbo],
+			[21, defs_ssbo],
 			[24, soil[back]],       # settled water table (SoilPass output) — R19's transpiration draws from the
-			[38, bufs["porosity"]],  # phi — rc_of and the overburden walk convert rock_fill with it
 			                        # regolith column BENEATH an open cell (SOIL_ROOT), the only place soil exists
+			[38, _single(bufs, "porosity")],   # phi — rc_of and the overburden walk convert rock_fill with it
 			[25, radial],           # per-cell outward unit vector — the derived LIGHT slot's geometry
 			[27, regolith],         # aquifer permeability mask — root_soil() walks THIS, not `solid`
 			[28, carbonate],        # SINGLE CaCO3 — D1b (the Urey reaction) credits it, D1c debits it
@@ -121,19 +110,19 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
-	if _rd == null or not _pipe.is_valid() or _n_records <= 0:
+	if not _dispatchable() or _n_records <= 0:
 		return
 	var dt: float = float(ctx.get("dt", 0.1))
-	# Same source + same default as ThermalPass.gd:150 — the solar kernel and the reaction engine must see the
-	# IDENTICAL sun, magnitude included (it carries orbit-distance² × atmospheric transmission, so dust dimming
-	# and impact winter suppress photosynthesis directly rather than second-hand through cooling).
+	# The solar kernel and the reaction engine must see the IDENTICAL sun, magnitude included: it carries
+	# orbit-distance² × atmospheric transmission, so dust dimming suppresses photosynthesis directly rather
+	# than second-hand through cooling.
 	var sun_dir: Vector3 = ctx.get("sun_dir", Vector3(0.0, 1.0, 0.0))
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(32)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, _n_records)
 	pc.encode_float(8, dt)
-	pc.encode_u32(12, 0)   # was `raining`; the global rain gate is deleted (see the kernel's Params note)
+	pc.encode_u32(12, 0)   # unused slot; the kernel's Params note carries the layout
 	pc.encode_float(16, sun_dir.x)
 	pc.encode_float(20, sun_dir.y)
 	pc.encode_float(24, sun_dir.z)
@@ -144,51 +133,3 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 
 
-func dispose(rd: RenderingDevice) -> void:
-	if rd == null:
-		return
-	for s in _set:
-		if s is RID and s.is_valid():
-			rd.free_rid(s)
-	_set = [RID(), RID()]
-	if _defs_ssbo.is_valid():
-		rd.free_rid(_defs_ssbo)
-		_defs_ssbo = RID()
-	if _pipe.is_valid():
-		rd.free_rid(_pipe)
-		_pipe = RID()
-	if _shader.is_valid():
-		rd.free_rid(_shader)
-		_shader = RID()
-
-
-# --- helpers ------------------------------------------------------------------
-
-func _compile(path: String) -> RID:
-	var sf: RDShaderFile = load(path)
-	if sf == null:
-		return RID()
-	return _rd.shader_create_from_spirv(sf.get_spirv())
-
-
-func _uset(shader: RID, entries: Array) -> RID:
-	var uniforms: Array = []
-	for e in entries:
-		var u: RDUniform = RDUniform.new()
-		u.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-		u.binding = int(e[0])
-		u.add_id(e[1])
-		uniforms.append(u)
-	return _rd.uniform_set_create(uniforms, shader, 0)
-
-
-func _single(bufs: Dictionary, key: String) -> RID:
-	var v = bufs.get(key, RID())
-	return v if v is RID else RID()
-
-
-func _pair(bufs: Dictionary, key: String) -> Array:
-	var v = bufs.get(key, null)
-	if v is Array and v.size() >= 2:
-		return v
-	return [RID(), RID()]
