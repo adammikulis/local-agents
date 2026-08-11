@@ -10,13 +10,6 @@ extends RefCounted
 ## chemistry of its own. It reads the stoichiometry off LABioRecords and hands the transaction to
 ## LAMaterialField3D.respire_at, which applies the identical oxygen Liebig cap the kernel applies.
 ##
-## WHAT THIS REPLACED, AND WHY THAT WAS WRONG. LACreatureMetabolism used to carry a hand-rolled burn
-## (`energy -= metabolism * exertion * delta`) against a per-species `metabolism` constant in the JSON, plus a
-## bespoke comfort band (WARM_COMFORT 28 / COOL_COMFORT 8 / LETHAL_HEAT 50 / LETHAL_COLD -18) applied as MODULE
-## CONSTANTS to all 23 animal species. A whale, a desert beetle and an arctic fox shared one thermal
-## physiology, and a fox and a mouse burned identical energy despite a 19x difference in body mass. Every one
-## of those numbers is now gone: none of them was a fact about anything.
-##
 ## THE THREE PHYSICAL STATEMENTS THIS MODULE MAKES, and they are the whole model:
 ##
 ## 1. MASS IS MEASURED; SURFACE FOLLOWS FROM IT BY GEOMETRY. A species declares its real body mass in
@@ -26,13 +19,10 @@ extends RefCounted
 ##    chain is an allometric exponent anybody chose: it is what volume and area ARE, solved for length instead
 ##    of from it.
 ##
-##    THIS REPLACED `mass = density * VOLUME_SHAPE * size³`. The `size` gene is the VISUAL and collision scale
-##    and the roster compresses it hard so a beetle is visible beside a villager on a planet-scale world (ant
-##    0.08 against villager 1.0, where the real ratio is nearer 0.003). Deriving mass from it imported that
-##    rendering decision into the physics and got the small end of the roster wrong by four orders of
-##    magnitude — it made an ant weigh 36 grams. A measured body mass is a fact about an animal; a shape
-##    constant fitted so that `size 1.0` came out near 70 kg was the arbitrary half of this model, and it is
-##    gone. `size` still sets the capsule, the reach and the head offset, which is all it was ever a fact about.
+##    MASS IS NOT DERIVED FROM THE `size` GENE. `size` is the VISUAL and collision scale, and the roster
+##    compresses it hard so a beetle is visible beside a villager on a planet-scale world (ant 0.08 against
+##    villager 1.0, where the real ratio is nearer 0.003); deriving mass from it would import that rendering
+##    decision into the physics. `size` sets the capsule, the reach and the head offset, and nothing else.
 ##
 ## 2. THE RATE IS SET BY OXYGEN CROSSING A SURFACE (Fick's law), NOT BY HOW MUCH FUEL IS PRESENT. This is the
 ##    one real difference between respiration in a soil cell and respiration in a body. In soil the oxygen is
@@ -72,7 +62,7 @@ extends RefCounted
 ## A high value is an endotherm, which pays for its stable body temperature in oxygen and fuel. The gene is
 ## under ordinary selection, so which strategy wins is the planet's answer and not a species table's.
 ##
-## STARVATION, HYPOTHERMIA, HYPERTHERMIA AND ANOXIA ARE ONE FAILURE. There are no longer four rules with four
+## STARVATION, HYPOTHERMIA, HYPERTHERMIA AND ANOXIA ARE ONE FAILURE. There are not four rules with four
 ## thresholds. There is a maintenance requirement proportional to living mass, and a production rate limited
 ## by oxygen and temperature; when production falls short of maintenance the deficit damages the body. Cold
 ## kills by collapsing the band, heat kills by denaturing past it, foul air kills by starving the Liebig cap,
@@ -92,8 +82,8 @@ const SPHERE_AREA_COEFF: float = 4.835976   # (36π)^(1/3): surface of a sphere 
 
 # --- REACTION RATE -----------------------------------------------------------------------------------------
 # The per-second k on the body's oxidation, the animal-body counterpart of LABioRecords.RESP_RATE (which is
-# the per-STEP k on the same reaction in soil). ONE constant for the whole roster, replacing the thirteen
-# per-species `metabolism` numbers the species JSONs used to carry.
+# the per-STEP k on the same reaction in soil). ONE constant for the whole roster; no per-species
+# `metabolism` number exists.
 #
 # ITS VALUE IS A UNIT CHOICE, NOT A FIT, AND THE DISTINCTION MATTERS. The SCALING is physics: rate ∝ area. What
 # this constant fixes is where the roster sits on the world's compressed clock — a fox does not really starve
@@ -106,8 +96,8 @@ const SPHERE_AREA_COEFF: float = 4.835976   # (36π)^(1/3): surface of a sphere 
 # the entire roster together and changes no ratio in it.
 const RESP_K: float = 4.2558e-4           # extent/sec = RESP_K * exchange_area * o2 * band * exertion
 
-# THE OXIDISABLE RESERVE IS NOT DECLARED HERE ANY MORE. Fat and glycogen are a MASS of tissue, so the store
-# is a fixed fraction of live body mass, and live body mass is now measured rather than derived — see
+# THE OXIDISABLE RESERVE IS NOT DECLARED HERE. Fat and glycogen are a MASS of tissue, so the store
+# is a fixed fraction of live body mass, and live body mass is measured — see
 # LACreatureBodyMass.RESERVE_FRAC, which carries the measured body-fat fraction of a wild mammal and the one
 # unit conversion (TISSUE_PER_KG) between a kilogram of animal and the field's mass unit. What survives here
 # is the RATIO the pairing produces: reserve ∝ mass over burn ∝ surface leaves fasting endurance ∝ the body's
@@ -136,14 +126,11 @@ const MAINTENANCE_K: float = 8.4211e-5    # required extent/sec = MAINTENANCE_K 
 ## Health lost per second, as a FRACTION OF THIS ANIMAL'S OWN max_health, at a total production failure.
 ## Sized so a body that can produce nothing at all — a drowning animal whose breath store has run out, one
 ## past protein denaturation, one frozen solid — dies in roughly half a minute, which is the honest timescale
-## for all three. It is never reached by a mild deficit: a healthy animal in ordinary air runs 3-1000x above
-## its maintenance requirement, so this only engages when the reaction has actually collapsed.
+## for all three. It is never reached by a mild deficit: it engages only when the reaction has collapsed.
 ##
-## IT IS A FRACTION BECAUSE THE ALTERNATIVE CANNOT BE RIGHT AT TWO BODY MASSES AT ONCE. It used to be an
-## absolute 40.0 health per unit of unmet maintenance, which is fine while every animal's rates are within a
-## factor of ten of each other and meaningless once they span eight orders of magnitude: at real masses the
-## same constant killed a villager in seconds and would have taken an ant several hours to notice. Anything
-## measured against a fraction of the animal has to BE a fraction of the animal.
+## IT IS A FRACTION BECAUSE THE ALTERNATIVE CANNOT BE RIGHT AT TWO BODY MASSES AT ONCE. An absolute health
+## drain per unit of unmet maintenance is meaningless across a roster whose rates span eight orders of
+## magnitude. Anything measured against a fraction of the animal has to BE a fraction of the animal.
 const DEFICIT_HP_FRAC: float = 1.0 / 30.0
 
 # --- OXYGEN UPTAKE (Fick) ----------------------------------------------------------------------------------
@@ -357,8 +344,8 @@ static func deficit_cause(c, o2: float) -> String:
 	if float(c.body_temp) <= LAPhysical.WATER_FREEZE_C:
 		return "hypothermia"
 	if o2 <= 0.01:
-		# Same distinction the old suffocation rule drew, on the same test: a lung-breather that has run out of
-		# oxygen while submerged drowned; anything else (a gill in air, a body in smoke or foul air) suffocated.
+		# A lung-breather that has run out of oxygen while submerged drowned; anything else (a gill in air, a
+		# body in smoke or foul air) suffocated.
 		if c._material != null and c.breathes != "water":
 			var up: Vector3 = c.terrain.up_at(c.global_position) if c.terrain != null and c.terrain.has_method("up_at") else Vector3.UP
 			if c._material.is_submerged_at(c.global_position.x + up.x * c.size,

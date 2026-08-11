@@ -28,8 +28,7 @@ var energy: float = 100.0
 var max_energy: float = 100.0
 # Per-creature disease/immune state — owned by LACreatureDisease so all of it lives off this monolith (the
 # seam the disease fan-out builds on). Set in setup(); ticked in _physics_process; transmission modules call
-# disease.infect(). Symptoms damage the HP `health` field below. Null-guarded so the sim runs identically
-# until disease behaviour lands.
+# disease.infect(). Symptoms damage the HP `health` field below. Null-guarded.
 var disease: LACreatureDisease = null
 var gut_microbiome: LACreatureMicrobiome = null  # adaptive gut flora — modulates digestive yield (LACreatureMicrobiome)
 var lactate: float = 0.0                     # muscle LACTATE (0..1): the anaerobic-exertion fatigue byproduct.
@@ -81,11 +80,10 @@ var food_value: float = 55.0
 var max_age: float = 90.0
 var hungry_at: float = 0.7
 
-# --- digestion: a gut buffer that turns eaten biomass into energy + waste OVER TIME (LACreatureDigestion),
-# replacing the old instant feed. A bite fills the gut; the gut digests each frame into energy (at a
-# microbiome-scaled efficiency) and pending feces (gut_waste). Energy now climbs as food digests, a full gut
-# buffers surplus, and an empty gut means no energy until the creature eats. State lives here; logic is in the
-# module. Sized + seeded at spawn (LACreatureDigestion.setup); the waste is deposited by LACreatureExcretion.
+# --- digestion: a gut buffer that turns eaten biomass into energy + waste OVER TIME (LACreatureDigestion).
+# A bite fills the gut; the gut digests each frame into energy (at a microbiome-scaled efficiency) and pending
+# feces (gut_waste). Energy climbs as food digests, a full gut buffers surplus, and an empty gut means no
+# energy until the creature eats. State lives here; logic is in the module. Sized + seeded at spawn (LACreatureDigestion.setup); the waste is deposited by LACreatureExcretion.
 var gut: float = 0.0                          # biomass currently buffered in the gut (energy-equivalent units)
 var gut_capacity: float = 0.0                 # max gut fill (set at spawn ~ max_energy * CAPACITY_FRAC)
 var gut_waste: float = 0.0                    # indigestible residue awaiting excretion (feeds LACreatureExcretion)
@@ -278,7 +276,6 @@ var _call_cd: float = 0.0
 var family_id: int = 0
 # AFFILIATION. band_id is who I currently RUN WITH, which is a different question and answers to a different
 # rule: it emerges from sustained association and CHANGES when the association does (LACreatureAffiliation).
-# These two used to be the same integer, which is why an animal could not leave one warren for another.
 # `_band_solo` is this creature's own permanent band-of-one label, returned to whenever it leaves a band.
 var band_id: int = 0
 var _band_solo: int = 0
@@ -289,7 +286,7 @@ var _cognition = null                      # LACognition (per-creature learned p
 # Per-creature TAMENESS / companion state — owned by LACreatureBond so all of it lives off this monolith (a
 # per-creature RefCounted module that owns its own state). Set in setup(); ticked in _physics_process; friendly
 # interaction calls bond.befriend(). While bonded + commanded it pre-empts the autonomous decision cascade (the
-# command override below). Null-guarded so a wild, untamed creature runs identically to before.
+# command override below). Null-guarded: a wild, untamed creature has none.
 var bond: LACreatureBond = null
 # PLAYER CONTROL over the local-LLM "slow brain". When off, cognition never escalates to the shared
 # scheduler (see LACognition._should_escalate) — the creature runs on its fast reinforced policy + innate
@@ -299,8 +296,8 @@ var bond: LACreatureBond = null
 ## Let this creature escalate novel situations to the language model. Off = fast rules only.
 ## Needs a cognition scheduler injected (set_cognition_scheduler) before it can do anything, and
 ## with no scheduler present this costs nothing, because escalations resolve on the heuristic teacher.
-## Defaults ON to match the behaviour before this was an export: no species JSON sets the key, so a
-## default of false silently took the slow brain away from every land creature in the shipped sim.
+## Defaults ON: no species JSON sets the key, so a default of false would take the slow brain away from
+## every land creature.
 @export var llm_enabled: bool = true
 var _migrate_dir: Vector3 = Vector3.ZERO   # steady heading chosen when the 'migrate' action fires
 var _veto_dir: Vector3 = Vector3.ZERO      # committed retreat heading when cognition VETOES a learned-lethal action
@@ -322,8 +319,7 @@ var _nest_node = null                            # LANest (the placed home site)
 
 # --- per-creature reproduction (LACreatureReproduction: courtship + energy-costed gestation) ---
 # A mature, well-fed adult seeks a nearby same-species mate; on pairing the bearer gestates (draining energy)
-# and BIRTHS one offspring at term, then cools down. Replaces the old top-down breeding god-tick. State only —
-# all logic lives in the module. `pregnant` gates re-conception; `_mate` is the captured partner used at birth.
+# and BIRTHS one offspring at term, then cools down. State only — all logic lives in the module. `pregnant` gates re-conception; `_mate` is the captured partner used at birth.
 var pregnant: bool = false
 var _gestation_t: float = 0.0                    # seconds of gestation remaining while pregnant
 var _gestation_paid: float = 0.0                 # body mass already invested in the young (recovered on resorption)
@@ -647,8 +643,7 @@ func _physics_process(delta: float) -> void:
 
 	# RESPIRATION: the substrate's own R20 oxidation (biomass + O₂ → CO₂ + detritus) running inside this body.
 	# Body temperature, the energy burn, the oxygen it draws from this cell and the CO₂ it exhales into it are
-	# all one reaction — see LACreatureRespiration. Replaces the old hand-rolled per-species energy burn and
-	# the module-constant comfort band. Death stops us.
+	# all one reaction — see LACreatureRespiration. Death stops us.
 	if LACreatureRespiration.tick(self, pos, delta):
 		return
 
@@ -834,7 +829,7 @@ func _physics_process(delta: float) -> void:
 			# (and non-herd creatures, which are their own leader) pay the senses scan + slow-brain LLM
 			# escalation; a confident learned habit may substitute a better action here. FOLLOWERS never reach
 			# this — they already adopted their leader's action above and ran the CHEAP learn_and_veto there.
-			# An empty policy changes nothing, so day-0 behaviour is unchanged (regression-safe).
+			# An empty policy changes nothing.
 			if big_pred == null and _is_leader and _cognition != null and state != "roost" and state != "nesting":
 				var sig: Dictionary = LASituationSignature.compute(self)
 				var innate_action: String = LACreatureThink.state_to_action(self, state)
@@ -1038,7 +1033,7 @@ func body_mass() -> float:
 # A predator (or a scavenger) takes up to `want` of this body and gets back what was actually there. On a live
 # animal it spends gut, then reserve, then structural tissue; on a carcass it strips the remaining meat. This
 # is what makes a kill conserve: the predator's gain and the carcass left behind add up to the prey's live
-# mass, instead of the old path banking `food_value * 0.7` and THEN minting a full-size carcass on top.
+# mass.
 func draw_body_mass(want: float) -> float:
 	if _dead:
 		return LACreatureRagdoll.feed(self, want)

@@ -14,8 +14,7 @@ extends CharacterBody3D
 const GROUP_SELECTABLE: String = "selectable"
 const GROUP_FISH: String = "fish"
 const SPECIES_GROUP: String = "aquatic"    # shared "all aquatic life" group (schooling base). NOT "species_fish":
-# that collides with the per-species group of the species literally named "fish", which made _tick_aquatic count
-# ALL aquatic actors against fish's pop_cap so fish never bred + SimReport mislabelled the whole pop as fish.
+# that collides with the per-species group of the species literally named "fish".
 
 const DEFAULT_SUBMERGE: float = 0.35  # how far below the surface a swimmer rides (config: "submerge")
 const GILL_SUBMERGE_MARGIN: float = 0.15  # keep a gill-breather's top this far under the sea shell so it stays submerged
@@ -82,8 +81,7 @@ const BREATH_REFILL: float = 25.0     # breath reserve refilled per sec while in
 # --- energy / hunger (0.4: a fish is a LIVING creature with a metabolism, like a land animal). Energy drains
 # every frame and is refilled by eating prey; a forager that empties its reserve starves. Hunger (energy below
 # hungry_at) is what makes a swimmer break off schooling to forage — the SAME drive land creatures run on.
-# The base of the web (grazers/filter feeders — an EMPTY preys_on) is sustained by ambient biomass and never
-# starves, so seeding those populations (bug/shrimp/turtle/crab/jellyfish) behaves exactly as before. ---
+# The base of the web (grazers/filter feeders — an EMPTY preys_on) is sustained by ambient biomass. ---
 var energy: float = 60.0
 var max_energy: float = 60.0
 var metabolism: float = 0.5           # THIS FRAME's realised burn (aerobic capacity x the temperature band)
@@ -485,10 +483,9 @@ func _build_model() -> void:
 
 # A thrown rock / bite killed me, or I aged out. THE BODY SINKS AND ROTS; it is not deleted.
 #
-# `die()` used to free the node with no carcass and no litter, so every dead swimmer took its whole mass out of
-# the world. A fish has no ragdoll carcass node (it is not worth one), but the matter still has to go
-# somewhere: whatever is left of the body after a predator's bite is handed straight to the field's decomposer
-# loop as detritus at the spot it died, which is what a sinking body does.
+# A fish has no ragdoll carcass node, but the matter still has to go somewhere: whatever is left of the body
+# after a predator's bite is handed straight to the field's decomposer loop as detritus at the spot it died,
+# which is what a sinking body does.
 func die(_cause: String = "", _impulse: Vector3 = Vector3.ZERO) -> void:
 	# `_impulse` is accepted (and ignored) so a meteor's die(cause, impulse) call doesn't crash on fish.
 	if _dying:
@@ -577,14 +574,9 @@ func _physics_process(delta: float) -> void:
 		return
 
 	var pos: Vector3 = global_position
-	# METABOLISM — EVERY SWIMMER, EVERY FRAME, INCLUDING A BASKING ONE. (The basking early-return used to sit
-	# above this, so a hauled-out turtle skipped the whole energy budget as well; resting is cheaper than
-	# swimming, it is not free.) It used to be gated on `if not preys_on.is_empty()`, so a
-	# swimmer with an empty prey list (bug, shrimp, jellyfish, turtle, crab — about 56 individuals in a default
-	# sandbox) NEVER BURNED A JOULE and could never starve: locomotion with no fuel. The comment rationalised it
-	# as "grazes ambient biomass", but no graze happened anywhere in this file — nothing was consumed and
-	# nothing was produced. Those animals now do BOTH halves for real: they burn like everything else, and they
-	# crop the field's actual `biomass` in their own cell through the same seam a land grazer uses.
+	# METABOLISM — EVERY SWIMMER, EVERY FRAME, INCLUDING A BASKING ONE. Resting is cheaper than swimming, not
+	# free, and an empty prey list does not exempt a swimmer: it burns like everything else, and it crops the
+	# field's `biomass` in its own cell through the same seam a land grazer uses.
 	#
 	# The burn is thermal too. A fish is an ECTOTHERM: its body temperature is the water's, so its rate is the
 	# reaction's own temperature band read at the water it is in — zero at the freezing point of cell water and
@@ -983,9 +975,8 @@ func get_inspector_payload() -> Dictionary:
 		"Water: %s (salinity %.2f to %.2f, depth %.0f to %.0f)" % [band, salinity_min, salinity_max, depth_min, depth_max],
 		"Age: %.0fs / %.0fs" % [age, max_age],
 	]
-	# EVERY swimmer has a real energy budget now — the grazers and filter feeders that "lived off ambient
-	# biomass" were simply not burning anything. Shown with more precision than the old "%.0f" because a small
-	# ectotherm's whole reserve is a fraction of a unit once physiology is derived from its real body mass.
+	# A small ectotherm's whole reserve is a fraction of a unit once physiology is derived from its real body
+	# mass, so this is shown to three decimals.
 	lines.append("Energy: %.3f / %.3f%s" % [energy, max_energy, "  (hungry)" if energy < max_energy * hungry_at else ""])
 	lines.append("Mass: %.4g kg" % mass_kg)
 	return {

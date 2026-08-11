@@ -64,7 +64,7 @@ static func context_prompt(sig: Dictionary, context: Dictionary) -> String:
 
 ## The chat messages for one escalation: the developer instruction + the situation description. This is
 ## the prompt-shaping half of the client — the LocalAgentLlmClient supplies the tools + tool_choice and
-## does the transport, so the scheduler no longer owns a raw HTTP body.
+## does the transport.
 static func build_messages(sig: Dictionary, context: Dictionary) -> Array:
 	return [
 		{"role": "system", "content": developer_prompt()},

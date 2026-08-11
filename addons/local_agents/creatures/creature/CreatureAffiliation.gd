@@ -3,23 +3,17 @@ extends RefCounted
 
 ## WHO I RUN WITH, kept separate from WHO I DESCEND FROM.
 ##
-## `family_id` used to mean both at once. That single integer is why a rabbit could not leave one warren
-## for another, why a warren had no existence apart from the rabbits currently standing in it, and why
-## rival packs and allied herds were inexpressible: lineage is immutable for life by design
-## (LAKinshipGraph's components only grow and its labels never change, which is exactly what keeps the
-## per-frame kin check a cached integer compare), so anything sharing that integer inherited immutability
-## it had no business having.
-##
-## So the two meanings are split, not swapped:
-##   * LINEAGE  — `family_id`, still owned by LAKinshipGraph, still immutable, still what the kin-weighted
-##                social learning reads (LACognition.observe, LocalAgentCreature.hear_call). A juvenile
-##                still follows its PARENT through it (LACreatureLeadership.elect).
+## Lineage is immutable for life by design (LAKinshipGraph's components only grow and its labels never
+## change, which is what keeps the per-frame kin check a cached integer compare). Affiliation is not, so it
+## is a separate label:
+##   * LINEAGE  — `family_id`, owned by LAKinshipGraph, immutable, and what the kin-weighted social
+##                learning reads (LACognition.observe, LocalAgentCreature.hear_call). A juvenile follows
+##                its PARENT through it (LACreatureLeadership.elect).
 ##   * BAND     — `band_id`, owned here, changes freely. What a lost herd animal regroups toward
 ##                (LACreatureFlocking._band_regroup), and what the dated MEMBER_OF records in the backstory
 ##                store describe (LABandChronicle).
 ##
-## A BAND IS NOT STAMPED AT SPAWN. Assigning a faction id where a family id used to go would only rename
-## the problem. A warren is not something you are born holding — it is what you get when animals
+## A BAND IS NOT STAMPED AT SPAWN. A warren is not something you are born holding — it is what you get when animals
 ## persistently ASSOCIATE, so that is literally what this computes, from ONE local rule with no species
 ## branch and no per-case code:
 ##

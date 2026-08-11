@@ -28,10 +28,9 @@ extends RefCounted
 # [substance, cue_key]. The cue key is the generic reward-channel string LACognition.reinforce_cue / cue_value
 # already understand — the SIGN of the value is never set here, so what a smell MEANS is learned, not declared.
 #
-# This replaced five hardcoded semantic planes (prey/predator/blood/food/alarm), two of which had no emitter
-# anywhere in the tree and so could never fire. A row is only legitimate here if something really produces that
-# substance: CO₂ comes off respiration and decomposition (BioRecords.gd), so it is a real cue for a body or a
-# carcass. Sulphur, decay volatiles and the rest join this table when outgassing and decay chemistry make them.
+# A row is legitimate here only if something really produces that substance: CO₂ comes off respiration and
+# decomposition (BioRecords.gd), so it is a real cue for a body or a carcass. Sulphur, decay volatiles and the
+# rest join this table when outgassing and decay chemistry make them.
 const SCENT_CUES: Array = [
 	["co2", "smell:co2"],
 ]

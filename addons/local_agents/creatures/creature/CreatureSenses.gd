@@ -12,7 +12,7 @@ const PREDATOR_SIZE_RATIO: float = 1.2
 
 # One spatial hash shared by every creature's sense queries; lazily built and rebuilt at most once per
 # physics frame per group (see LASpatialIndex). The first sense call of a frame that needs a group pays
-# the rebuild; the other 276 creatures reuse it. This is what turns the old O(n²) group scans into O(n).
+# the rebuild; every other creature reuses it, so a group scan is O(n) rather than O(n²).
 static var _index: LASpatialIndex = null
 
 

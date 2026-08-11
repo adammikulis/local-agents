@@ -46,8 +46,8 @@ static func build(model_path: String, target_height: float, anchor: String, yaw_
 		s = target_height / ab.size.y
 	root.scale = Vector3(s, s, s)
 
-	# Vertical anchor: center the AABB on the origin (creatures/fish, matching the old capsule),
-	# or put the model's base at the origin (trees/plants that grow up from the ground).
+	# Vertical anchor: center the AABB on the origin (creatures/fish), or put the model's base at the origin
+	# (trees/plants that grow up from the ground).
 	if anchor == "base":
 		root.position.y = -ab.position.y * s
 	else:

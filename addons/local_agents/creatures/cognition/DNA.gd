@@ -21,13 +21,12 @@ extends RefCounted
 ##                 Dictionary. They change only slowly: by crossover, forgetting, and rare "canalization" of a
 ##                 habit a lineage has relied on for generations (the Baldwin effect).
 ##   * base_config: species identity (colour, preys_on, flees_from, flags…), carried verbatim and never mutated.
-##                 DIET is the one exception that USED to live here immutably and now LEAVES: it is expressed
-##                 from the evolvable `carnivory` gradient (bucketed herbivore/omnivore/carnivore) so it can
-##                 blend and evolve while predation targets (preys_on) stay identity.
+##                 DIET is the one exception: it is not carried here but expressed from the evolvable
+##                 `carnivory` gradient (bucketed herbivore/omnivore/carnivore) so it can blend and evolve
+##                 while predation targets (preys_on) stay identity.
 ##
-## COMPATIBILITY SEAM: express() decodes to the SAME trait Dictionary LocalAgentCreature.setup() already consumes, so
-## nothing downstream changes. It only overrides a legacy gene the species config actually set (mirroring the
-## old genome, which never overrode an absent gene), and adds the new keys on top.
+## COMPATIBILITY SEAM: express() decodes to the trait Dictionary LocalAgentCreature.setup() consumes. It
+## overrides a gene only when the species config actually set it, and adds the new keys on top.
 ##
 ## DETERMINISM: every stochastic draw (crossover points, mutations, canalization) goes through an injected
 ## LASimRng (never a bare randf()), so a run reproduces from its seed.
@@ -41,16 +40,13 @@ const GENOME_FORMAT_VERSION: int = 1
 const SYMBOLS_PER_CODON: int = 4       # four 2-bit bases per codon → one byte (0..255) of resolution
 const SYMBOL_MAX: int = 3              # a base is 0..3 (A/C/G/T)
 
-# The legacy quantitative genes LocalAgentCreature.setup() has always consumed. Kept as the canonical list so callers
+# The legacy quantitative genes LocalAgentCreature.setup() consumes. Kept as the canonical list so callers
 # can enumerate them and so express() reproduces the SAME-named floats. (Plain Array — a PackedStringArray
 # constructor is not a constant expression.)
-## (`metabolism` was removed from this list and from LOCI below: a body's burn rate is now its gas-exchange
-## surface times the local oxygen times the temperature band — see LACreatureRespiration — so there is no
-## scalar burn rate left for a locus to carry. `size` already encodes it, because area is size².)
+## There is no `metabolism` gene: a body's burn rate is its gas-exchange surface times the local oxygen times
+## the temperature band (LACreatureRespiration). `size` encodes it, because area is size². `max_energy` and
+## `thirst_rate` are likewise derived from the species' measured body mass (LACreatureBodyMass).
 const GENE_KEYS: Array = [
-	# `max_energy` and `thirst_rate` are GONE from this list — with `metabolism` before them, they are derived
-	# from the species' measured body mass now (LACreatureBodyMass), not authored per species, so nothing sets
-	# their config keys and the loci that carried them are retired below.
 	"speed", "size", "sense_radius", "eye_fov",
 	"maturity_age", "throw_range", "cruise_height",
 	"flock_cohesion", "flock_alignment", "flock_separation", "flock_radius", "flock_weight",
@@ -71,18 +67,15 @@ const LOCI: Array = [
 	["size", "gene", 2, 0.0, 8.0],
 	["sense_radius", "gene", 2, 0.0, 80.0],
 	["eye_fov", "gene", 2, 0.0, 360.0],
-	# TWO LOCI RETIRED, and it is worth saying why rather than leaving them looking live. `max_energy` and
-	# `thirst_rate` are no longer species data at all: LACreatureBodyMass derives the reserve from the
-	# species' measured mass and the water turnover from the body's gas-exchange surface. A legacy gene only
-	# expresses when the species config sets its key, and neither of them does any more, so these two could
-	# never reach a phenotype again. They are `reserved` rather than deleted so the strand LENGTH and every
-	# following locus offset are unchanged.
+	# TWO LOCI RESERVED. `max_energy` and `thirst_rate` are not species data: LACreatureBodyMass derives the
+	# reserve from the species' measured mass and the water turnover from the body's gas-exchange surface. A
+	# legacy gene expresses only when the species config sets its key, and neither key is set, so neither can
+	# reach a phenotype. They are `reserved` rather than deleted so the strand LENGTH and every following
+	# locus offset are unchanged.
 	#
-	# HERITABLE BODY MASS is the honest successor to `max_energy` and is deliberately NOT built here: this
-	# roster spans five milligrams to four hundred kilograms, which a linear locus cannot represent, so it
-	# needs a log-scaled locus. That is a real follow-up, not a thing quietly dropped. What IS heritable and
-	# read every frame is `respiratory_capacity` and `thermogenesis` below, which are the anatomy and the
-	# physiology the reaction actually consumes.
+	# BODY MASS is not a locus: the roster spans five milligrams to four hundred kilograms, which a linear
+	# locus cannot represent — it needs a log-scaled one. What IS heritable is `respiratory_capacity` and
+	# `thermogenesis` below, the anatomy and physiology the reaction consumes.
 	["_retired_max_energy", "reserved", 2, 0.0, 1.0],
 	["_retired_thirst_rate", "reserved", 2, 0.0, 1.0],
 	["maturity_age", "gene", 2, 0.0, 120.0],
@@ -98,10 +91,7 @@ const LOCI: Array = [
 	["carnivory", "gene", 1, 0.0, 1.0],
 	["neophobia", "gene", 1, 0.0, 1.0],
 	["boldness", "gene", 1, 0.0, 1.0],
-	# RESPIRATORY CAPACITY and THERMOGENESIS replaced two loci named `basal_metabolism` and
-	# `active_metabolism`, which were declared here, encoded from config, expressed by express() — and read by
-	# NOTHING. They were numbers standing in for a rate rather than for any part of an animal, which is why
-	# nothing could use them. These two are the anatomy and physiology the reaction actually reads
+	# RESPIRATORY CAPACITY and THERMOGENESIS are the anatomy and physiology the reaction reads
 	# (LACreatureRespiration): how much gas-exchange surface the body packs into its area, and how hard it
 	# raises oxygen throughput when it falls below its own enzyme optimum.
 	#
@@ -254,9 +244,9 @@ func encode_gene(name: String, value: float) -> void:
 # --- CONSTRUCTION ------------------------------------------------------------------------------------------
 
 ## Build the ancestral genome for a species from its static config template. Legacy genes are encoded from
-## the template's numbers (and marked coded so express() overrides only those the species actually set —
-## mirroring the old genome). The new genes are seeded to sensible born-in values: carnivory from the
-## species diet (so gen-0 expresses the SAME diet, now evolvable), personality/senses/metabolism-rate and
+## the template's numbers (and marked coded so express() overrides only those the species actually set).
+## The new genes are seeded to sensible born-in values: carnivory from the
+## species diet (so gen-0 expresses the same diet, evolvably), personality/senses/metabolism-rate and
 ## the cue priors to config-or-neutral defaults. Instincts start empty — gen-0 animals rely on baked reflexes,
 ## the slow brain, and watching kin.
 static func from_config(cfg: Dictionary) -> LADNA:
@@ -271,8 +261,7 @@ static func from_config(cfg: Dictionary) -> LADNA:
 			g.coded_genes[k] = true
 		else:
 			g._encode_midpoint(k)
-	# flock_radius conventionally defaults to sense_radius when a species omits it — preserve that so the
-	# expressed flock radius matches the old Creature.setup fallback.
+	# flock_radius defaults to sense_radius when a species omits it.
 	if not cfg.has("flock_radius") and cfg.has("sense_radius"):
 		g.encode_gene("flock_radius", float(cfg["sense_radius"]))
 		g.coded_genes["flock_radius"] = true
@@ -303,11 +292,8 @@ static func from_config(cfg: Dictionary) -> LADNA:
 ## WHY NOT JUST CALL mutate(). That was tried and it is the wrong operator here, for a measurable reason. A
 ## point mutation flips one 2-bit base, and in the high base of a codon that moves the decoded value by up to
 ## 192/255 of the locus's ENTIRE declared range — for `size`, declared 0..8, a single hit is a body-size change
-## of several metres. Seeding founders that way produced a bee with a body mass of 102 against its template's
-## 0.15, i.e. a bee heavier than a fox, which then poisoned the population-level allometry fit (the measured
-## metabolic exponent fell to 0.26-0.51 because the species' masses no longer meant anything). Mutation is
-## meant to be a rare, large, mostly-fatal event; standing variation within a wild population is a small
-## continuous scatter about the mean, and they are not the same operator.
+## of several metres. Mutation is a rare, large, mostly-fatal event; standing variation within a wild
+## population is a small continuous scatter about the mean, and they are not the same operator.
 ##
 ## Body size in a real wild population varies by a few per cent to a fifth about the species mean, so a small
 ## fractional jitter is both the honest model and the safe one. Applied through the seeded LASimRng, so a run
@@ -364,9 +350,9 @@ static func _carnivory_from_diet(diet: String) -> float:
 # --- EXPRESSION --------------------------------------------------------------------------------------------
 
 ## The config dict LocalAgentCreature.setup() consumes: identity from base_config, decoded genes overlaid. Legacy
-## genes override only where the species set them (mirrors the old genome); the new genes + the diet gradient
-## + the cue_priors dict are added on top. DIET is expressed from the carnivory gradient (bucketed), so it is
-## now heritable/evolvable while leaving base_config immutable.
+## genes override only where the species set them; the new genes + the diet gradient + the cue_priors dict
+## are added on top. DIET is expressed from the carnivory gradient (bucketed), so it is heritable/evolvable
+## while base_config stays immutable.
 func express() -> Dictionary:
 	var out: Dictionary = base_config.duplicate(true)
 	var cue_priors: Dictionary = {}

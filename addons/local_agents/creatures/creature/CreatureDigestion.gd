@@ -1,8 +1,8 @@
 class_name LACreatureDigestion
 extends RefCounted
 
-## Gut buffer + digestion for LocalAgentCreature. Turns ingested food into energy and waste over time, replacing
-## the old instant-feed path. Eating no longer credits energy at the moment of the bite; a bite adds biomass
+## Gut buffer + digestion for LocalAgentCreature. Turns ingested food into energy and waste over time. Eating
+## does not credit energy at the moment of the bite; a bite adds biomass
 ## to a per-creature gut buffer, and tick() digests that buffer down each frame, converting biomass into
 ## energy at a digestive efficiency (scaled by the creature's microbiome, so a herbivore's gut flora ferments
 ## fibrous plant matter it otherwise couldn't extract) while the indigestible remainder becomes feces the
@@ -106,8 +106,8 @@ static func ambient_graze(c, pos: Vector3, delta: float) -> void:
 
 
 ## A bite: add its biomass to the gut buffer, bounded by capacity (a stuffed gut can't hold more — the excess
-## is simply not taken). `biomass` is the food's energy-equivalent value (the same number the old path credited
-## straight to energy); `profile` is accepted for future diet-fit nuance but unused today. O(1).
+## is simply not taken). `biomass` is the food's energy-equivalent value; `profile` is accepted for diet-fit
+## nuance and unused. O(1).
 static func ingest(c, biomass: float, _profile: Dictionary = {}) -> void:
 	if c == null or biomass <= 0.0:
 		return
@@ -144,14 +144,12 @@ static func tick(c, delta: float) -> void:
 		return
 	c.gut -= digested
 	# Realised efficiency uses the DYNAMIC gut-flora yield (adapts to lived diet) when present, else the static
-	# spawn-time microbiome scalar. Bounded/floored inside multiplier() so it stays near the old 1.12 range — no
-	# food-web destabilisation.
+	# spawn-time microbiome scalar. Bounded and floored inside multiplier().
 	var mb: float = c.gut_microbiome.multiplier() if ("gut_microbiome" in c and c.gut_microbiome != null) else float(c.microbiome)
 	var efficiency: float = clampf(BASE_EFFICIENCY * mb * float(c.gut_digestibility), 0.0, 1.0)
 	var to_energy: float = digested * efficiency
-	# A full reserve does NOT destroy the surplus. `minf(max_energy, …)` silently deleted whatever did not fit,
-	# which is small (the early-out above stops digestion near satiety) but is still matter vanishing. The
-	# overflow goes back to the gut, where the next frame will digest it once the reserve has room.
+	# A full reserve does NOT destroy the surplus: the overflow goes back to the gut, where the next frame
+	# digests it once the reserve has room.
 	var room: float = maxf(0.0, float(c.max_energy) - float(c.energy))
 	var absorbed: float = minf(to_energy, room)
 	c.energy += absorbed

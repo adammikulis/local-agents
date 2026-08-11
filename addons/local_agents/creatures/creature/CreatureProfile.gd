@@ -10,7 +10,7 @@ extends RefCounted
 ##
 ## The first creature to tick calls ensure(), which registers the report provider once (a static Callable, so
 ## it is not pruned when any one creature frees) and returns whether profiling is on, and the caller keeps that
-## in a local so the per-phase guards stay a plain boolean test, exactly as before.
+## in a local so the per-phase guards stay a plain boolean test.
 ## (Explicit types only, no ':=' inferred typing.)
 
 static var on: bool = false

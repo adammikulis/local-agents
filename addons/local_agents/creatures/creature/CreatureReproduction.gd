@@ -14,8 +14,8 @@ extends RefCounted
 ##      the digestion/metabolism budget therefore throttle breeding emergently (a starving region breeds
 ##      less, a fat region breeds freely), which is the real regulator.
 ##   2. The per-species pop_cap SOFT CEILING (LAEcologyBreeding.species_below_cap via the service): a creature
-##      cannot conceive once its species is at/over cap, so the population rides up to the cap and holds there
-##      (matching the old god-tick's steady state). The cap is the hard backstop against any runaway.
+##      cannot conceive once its species is at/over cap, so the population rides up to the cap and holds
+##      there. The cap is the hard backstop against any runaway.
 ## In-flight pregnancies complete even if the pop nudges just over cap during gestation, so the population
 ## oscillates gently around the cap by the number of concurrent pregnancies, bounded and never explosive.
 ##   3. LOCAL DENSITY (opt-in per species): a creature senses its own conspecific density (neighbours within
@@ -199,7 +199,7 @@ static func _crowd_cooldown_mult(c) -> float:
 
 
 ## Lightweight fertility test with NO pop_cap (group-scan) cost — mature, not pregnant, off cooldown, and
-## well-fed. Used to filter mate CANDIDATES cheaply inside the seek loop (the cap is checked once for the
+## well-fed. Filters mate CANDIDATES cheaply inside the seek loop (the cap is checked once for the
 ## seeker in ready_to_breed, and again implicitly since both share a species).
 static func _is_fertile(c) -> bool:
 	if not c.is_mature() or c.pregnant or c._repro_cd > 0.0:
@@ -287,8 +287,8 @@ static func _give_birth(c) -> void:
 	c._gestation_t = 0.0
 	c._gestation_paid = 0.0
 	# The mate is captured at conception and only cleared here, so it can be FREED mid-gestation if the partner
-	# dies. Passing a freed Node to birth_offspring raised "previously freed" errors; null it out here so birth
-	# falls back cleanly to a single-parent line (the breeding module already handles a null mate).
+	# dies. Null it out here so birth falls back cleanly to a single-parent line (the breeding module
+	# handles a null mate).
 	var mate = c._mate if (c._mate != null and is_instance_valid(c._mate)) else null
 	c._mate = null
 	# Density-scaled recovery: sparse regions recover at the base cooldown (fast rebound); as the local

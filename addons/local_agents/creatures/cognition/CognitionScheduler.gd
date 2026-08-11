@@ -99,8 +99,7 @@ signal degraded(reason: String)
 # --- configuration (set via setup) ---
 # The shared LLMClient (a LocalAgentLlmClient owned by LocalAgentLlmService), injected by setup(). When
 # null the scheduler asks `llm_service` for one; when that is null too, every escalation resolves with
-# the built-in heuristic teacher (the offline path). This replaces the old raw HTTPRequest +
-# server_url/model plumbing: one client, one server, one model.
+# the built-in heuristic teacher (the offline path). One client, one server, one model.
 var _llm_client = null
 var _trace_path_override: String = ""      # setup({"trace_path": ...}) wins over the exports above
 var _degraded_reported: bool = false       # `degraded` is emitted at most once

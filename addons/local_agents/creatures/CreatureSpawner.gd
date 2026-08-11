@@ -5,8 +5,8 @@ extends Node3D
 
 ## Drop this node into a scene, type how many of each species you want, press play: you get a population of
 ## standalone LocalAgentCreatures scattered around it, optionally standing on a floor it builds for you. It is
-## the no-code form of the spawn loop every demo used to write by hand (instantiate Creature.tscn, position it,
-## call setup_standalone, repeat). See examples/ThinkingCreatureDemo.gd for that loop in GDScript.
+## the no-code form of the spawn loop (instantiate Creature.tscn, position it, call setup_standalone, repeat).
+## See examples/ThinkingCreatureDemo.gd for that loop in GDScript.
 ##
 ## The creatures it makes are STANDALONE ones: a flat-ground terrain adapter at `ground_y`, no MaterialField,
 ## no ecology, no planet, just their pure fast/reinforced brain. Assign `cognition_scheduler` and turn on

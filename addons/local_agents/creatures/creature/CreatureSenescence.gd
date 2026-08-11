@@ -76,8 +76,7 @@ func fertility_mult(c) -> float:
 ## via the current multipliers. Idempotent — recomputed from a fixed reference each frame, so no compounding.
 ## A prime creature gets multiplier 1.0 (traits unchanged); only aged creatures slow and lose reserve. Called
 ## after LACreatureLifeStage.tick (which advances age) and BEFORE the metabolism/reproduction ticks that read
-## the updated traits. `delta` is unused today (traits are a pure function of age) but kept for symmetry + future
-## rate-based frailty.
+## the updated traits. `delta` is unused: traits are a pure function of age.
 func tick(c, _delta: float) -> void:
 	c.speed = base_speed * speed_mult(c)
 	var new_max: float = base_max_energy * max_energy_mult(c)
