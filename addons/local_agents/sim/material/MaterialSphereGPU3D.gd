@@ -244,12 +244,33 @@ func step() -> void:
 	for i in _passes.size():
 		var cl: int = _rd.compute_list_begin()
 		_passes[i].dispatch(_rd, cl, _phase, _ctx, _cc, _groups)
+		# EVERY PASS READS WHAT THE PREVIOUS ONE WROTE. Passes barrier internally between their own
+		# sub-dispatches but nothing ordered them against EACH OTHER, so in one submit they overlapped and
+		# read half-written buffers. The checkpointed path syncs per pass and was therefore correct, which is
+		# how this showed up: with LA_PASS_PROBE armed o2 stays at 69120, without it o2 reaches 4e17.
+		_rd.compute_list_add_barrier(cl)
 		_rd.compute_list_end()
 		_rd.capture_timestamp(_pass_names[i])
 	_rd.submit()                        # deferred sync — drained at the next begin_frame (GPU overlaps CPU frame work)
 	_pending = true
 	_phase = 1 - _phase
 	_step_index += 1
+
+## Total of one channel's LIVE half, read at a checkpoint. Only safe between passes on the checkpointed
+## path, where the driver has already synced — a read anywhere else flushes work mid-flight and changes the
+## simulation. PAIR channels resolve their live half; SINGLE channels are read directly.
+func channel_total_now(name: String) -> float:
+	if _rd == null:
+		return NAN
+	var rid: RID = _bufs[name] if name in SINGLE_CHANNELS else _live(name)
+	if not _bufs.has(name) or not rid.is_valid():
+		return NAN
+	var a: PackedFloat32Array = _rd.buffer_get_data(rid).to_float32_array()
+	var t: float = 0.0
+	for v in a:
+		t += v
+	return t
+
 
 ## Signature: `probe.call(pass_index: int, pass_name: String)`, pass_index -1 = before any pass ran.
 func set_step_probe(cb: Callable) -> void:

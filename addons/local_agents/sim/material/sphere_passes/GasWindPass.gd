@@ -36,6 +36,7 @@ var _gas_shader: RID = RID()
 var _gas_pipe: RID = RID()
 var _ch_shader: RID = RID()
 var _ch_pipe: RID = RID()
+var _dump: RID = RID()
 
 # uniform sets, one per ping-pong parity (index 0 and 1)
 var _wp_set: Array = [RID(), RID()]
@@ -76,6 +77,11 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var vz: RID = bufs["vel_z"]
 	var charge: RID = bufs["charge"]
 	var nbr: RID = bufs["nbr"]
+	# A write-only sink for bindings the kernel declares but this pass never uses. Never read back.
+	if not _dump.is_valid():
+		var z: PackedByteArray = PackedByteArray()
+		z.resize(cc * 4)
+		_dump = _rd.storage_buffer_create(z.size(), z)
 	var radial: RID = bufs["radial"]  # per-cell outward unit vector (latitude, for Coriolis handedness)
 	# Per-column tangent-frame table: the direction of each lateral link in the cell's OWN (tan_a, tan_b) axes.
 	# The wind kernels store momentum in that frame, so they read directions from here, never from slot order.
@@ -95,9 +101,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# gas_transport, one set per gas: 0=GasIn(live), 1=GasOut(back), 2=Solid, 3/4/5=Vel, 15=Neigh, 16=LinkTan.
 		for gi in GASES.size():
 			var ch: Array = bufs[String(GASES[gi]["channel"])]
-			# 2 = Deposit: a gas has no settled phase, so `deposit` is 0 and this is never written. It is bound
-			# to the gas's own back buffer because the layout requires something there.
-			_gas_sets[gi][p] = _uset(_gas_shader, [[0, ch[p]], [1, ch[back]], [2, ch[back]], [3, solid],
+			# 2 = Deposit. A gas has no settled phase so it is never written, but it must NOT be the gas's own
+			# out buffer: the kernel declares both `restrict`, which promises the driver they do not alias.
+			# Binding one buffer to both is undefined behaviour whether or not the second is written.
+			_gas_sets[gi][p] = _uset(_gas_shader, [[0, ch[p]], [1, ch[back]], [2, _dump], [3, solid],
 					[4, vx], [5, vy], [6, vz], [15, nbr], [16, ltan]])
 		# charge_accum: 0=Charge(single, in place), 1=TempIn(live), 2=CloudIn(live), 3=VelY, 4=Solid.
 		#  slower clock than a near one. Deleted — see MaterialSphereGPU3D.gd's header note.)

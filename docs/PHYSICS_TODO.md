@@ -124,13 +124,28 @@ order is the order.
       dispatches, which rules out slow drift and points at a single pass producing a huge `gain` on its first
       run. Instrument the first two steps, not a long run.
 
+      **THE KERNELS ARE PROVEN CLEAN.** `addons/local_agents/tests/KernelConservation.tscn` dispatches each
+      kernel on a real 4x4x6 cubed-sphere grid and checks total mass before vs after. 8 checks pass:
+      `gravity_flow`, `erosion_transport`, and `tracer_transport` under still air, wind, a solid crust, and
+      a 160 m/s gale. So no amount of staring at the kernels will find this — do not spend time there.
+
+      **A FALSE LEAD, RECORDED SO IT IS NOT RE-RUN.** With `LA_PASS_PROBE=o2` armed, o2 stays at 69 120 and
+      never diverges; without it the same run reaches 4e17. That looks like proof the passes are unordered,
+      and it is NOT: the probe path submits and SYNCS per pass, and this repo already documents that
+      `buffer_get_data` is not a passive read — syncing mid-flight changes the simulation. Adding an
+      explicit `compute_list_add_barrier` between passes changed nothing measurable, which is consistent.
+
       **So the defect is in the pass wiring, not the arithmetic.** Where to look next, in order:
       (a) `GasWindPass` binds the SAME buffer to binding 1 (`TracerOut`, `writeonly`) and binding 2
           (`Deposit`), both declared `restrict` — a promise to the driver that they do not alias, which they
           do. Benign only while nothing writes binding 2.
       (b) the parity/ping-pong: whether `ch[p]` and `ch[back]` are the halves the caller thinks they are on
           every pass, and whether a second dispatch re-reads a half already written this step.
-      (c) whether the tracer pass runs more than once per step against the same pair.
+      (c) whether the tracer pass runs more than once per step against the same pair;
+      (d) the DEFERRED READBACK. `begin_frame` drains the previous step (sync + readback into the CPU
+          mirrors) and then uploads dirty mirrors back. If a mirror is read while its step is still in
+          flight, garbage lands on the CPU and `set_field` writes it back to the GPU. That is the one path
+          that differs between the probe run and the normal run and has not been ruled out.
 
 - [ ] **The wind is supersonic and always has been** — 160 m/s after the lateral fix, 425 before, against a
       real jet stream of ~70 m/s. `MAX_WIND` was deleted on purpose (wind speed is an output), so this is the

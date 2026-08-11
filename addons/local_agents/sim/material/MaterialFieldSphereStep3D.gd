@@ -41,6 +41,9 @@ var _mineral_profile = null
 # this one when both variables are present, rather than letting one silently take every checkpoint.
 var _mineral_probe = null
 var _energy_probe = null
+# LA_PASS_PROBE=<channel>: totals one channel after every pass for the first few steps. Lowest precedence of
+# the step-probe contenders, so it never displaces a ledger someone armed deliberately.
+var _pass_probe = null
 
 var _sim_s: float = 0.0
 var _offer_s: float = 0.0
@@ -51,6 +54,8 @@ func _armed(name: String) -> bool:
 
 
 func setup(field) -> void:
+	_pass_probe = load("res://addons/local_agents/sim/material/MaterialFieldPassProbe3D.gd").new()
+	_pass_probe.setup(field)
 	_f = field
 	if _armed("LA_SOIL_BUDGET"):
 		_soil_budget = SoilBudgetScript.new()
@@ -195,6 +200,8 @@ func process(delta: float) -> void:
 	var probe = _h2o_budget if _h2o_budget != null else _mineral_probe
 	if probe == null:
 		probe = _energy_probe
+	if probe == null and _pass_probe != null and _pass_probe.armed():
+		probe = _pass_probe
 	for i in steps:
 		if probe != null:
 			probe.pre_step()          # arm/disarm the driver's between-pass probe for THIS step
