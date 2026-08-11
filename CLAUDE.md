@@ -853,9 +853,18 @@ mirror is the honest source"* (those channels are `SLOW_CHANNELS`, refreshed eve
 *"dust_loft raining flag parity"* (`dust_loft` was deleted), *"the sweep is 0.36 s"* (it is 1.0). Nothing
 told anyone when the ground moved.
 
-**So a comment asserting the STATE OF OTHER CODE is the worst kind**, because it breaks when a file you are
-not looking at changes. Those belong in a gate, which fails, or nowhere. `scripts/check_comment_claims.sh`
-flags them; its ceiling ratchets down and never up.
+**THE TEST, and it is the maintainer's: unless you can GUARANTEE the next agent will update the comment
+when the code changes, the comment is pulled out.** You cannot guarantee it. Nothing enforces a comment
+update, which is exactly why this repo is full of confidently wrong ones. So they come out.
+
+**What survives that test is narrow and easy to apply: a comment about THE LINE IT SITS ON dies with its
+code.** Delete the line, the comment goes too; change the line, the comment is in the diff in front of you.
+A comment about ANOTHER FILE, a PAST STATE, or a MEASUREMENT can go stale on its own, because the thing it
+describes changes somewhere you are not looking and nothing tells you.
+
+`scripts/check_comment_claims.sh` flags these. **The target is ZERO**, and its ceiling ratchets down and
+never up. When a claim genuinely must be enforced, it becomes a gate — a gate fails when it goes stale, and
+that is the entire difference.
 
 **STOP WRITING PROSE IN COMMENTS. A COMMENT IS A CLAIM, AND CLAIMS HERE ARE WRONG.** *(Maintainer,
   2026-08-10: "good god is every claim false", "can we stop it with the prose? it's so annoying and wrong".)*
