@@ -8,7 +8,6 @@ var _rd: RenderingDevice = null
 var _shader: RID = RID()
 var _pipe: RID = RID()
 var _set: Array = [RID(), RID()]        # one uniform set per ping-pong parity
-var _enabled: int = 1
 
 
 func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
@@ -16,8 +15,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	if _rd == null:
 		push_error("ErosionTransportPass: null RenderingDevice")
 		return
-	if OS.has_environment("LA_EROSION_TRANSPORT"):
-		_enabled = 1 if OS.get_environment("LA_EROSION_TRANSPORT") != "0" else 0
 
 	var sf: RDShaderFile = load(KERNEL_PATH)
 	if sf == null:
@@ -32,6 +29,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var solid_rid: RID = bufs.get("solid", RID())
 	var send_rid: RID = bufs.get("send", RID())
 	var nbr_rid: RID = bufs.get("nbr", RID())
+	var omega_rid: RID = bufs.get("solid_angle", RID())
 	var water_pair: Array = bufs.get("water", [RID(), RID()])
 	var susp_pair: Array = bufs.get("susp", [RID(), RID()])
 
@@ -45,26 +43,37 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[3, solid_rid],          # Solid
 			[5, send_rid],           # Shared outflow scratch (self-zeroed by pass 0)
 			[15, nbr_rid],           # Neigh table
+			[17, omega_rid],         # solid angle per column — cell volume, for the conservative gather
 		])
 
 
-func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if _rd == null or not _pipe.is_valid():
 		return
+	var depth: int = maxi(int(ctx.get("depth", 1)), 1)
+	var core_radius: float = float(ctx.get("core_radius", 0.0))
+	var cell_size: float = float(ctx.get("cell_size", 1.0))
 	# PASS 0 — outflow into `send`; barrier; PASS 1 — inflow/apply into susp[back].
-	rd.compute_list_bind_compute_pipeline(cl, _pipe)
-	rd.compute_list_bind_uniform_set(cl, _set[parity], 0)
-	var pc0: PackedByteArray = PackedInt32Array([cc, 0, _enabled, 0]).to_byte_array()
-	rd.compute_list_set_push_constant(cl, pc0, pc0.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)
+	for pass_id in 2:
+		rd.compute_list_bind_compute_pipeline(cl, _pipe)
+		rd.compute_list_bind_uniform_set(cl, _set[parity], 0)
+		var pc: PackedByteArray = _pc(cc, pass_id, depth, core_radius, cell_size)
+		rd.compute_list_set_push_constant(cl, pc, pc.size())
+		rd.compute_list_dispatch(cl, groups, 1, 1)
+		rd.compute_list_add_barrier(cl)
 
-	rd.compute_list_bind_compute_pipeline(cl, _pipe)
-	rd.compute_list_bind_uniform_set(cl, _set[parity], 0)
-	var pc1: PackedByteArray = PackedInt32Array([cc, 1, _enabled, 0]).to_byte_array()
-	rd.compute_list_set_push_constant(cl, pc1, pc1.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)
+
+## { cell_count, pass_id, depth, pad, core_radius, cell_size } — 24 bytes.
+func _pc(cc: int, pass_id: int, depth: int, core_radius: float, cell_size: float) -> PackedByteArray:
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(24)
+	pc.encode_u32(0, cc)
+	pc.encode_u32(4, pass_id)
+	pc.encode_u32(8, depth)
+	pc.encode_u32(12, 0)
+	pc.encode_float(16, core_radius)
+	pc.encode_float(20, cell_size)
+	return pc
 
 
 ## Free every RID this pass owns (uniform sets, pipeline, shader). Borrowed `bufs` entries are freed by the driver.

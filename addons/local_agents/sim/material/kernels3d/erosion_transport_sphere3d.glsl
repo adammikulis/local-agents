@@ -1,9 +1,8 @@
 #[compute]
 #version 450
 
-// already exists (M3, a constant per-step fraction, which is what a constant Stokes settling velocity looks
-// of the load as of the water. Suspended load does not climb, so slot 5 (radially outward) carries nothing.
-// susp_out = susp_in - own_out + inflow, where inflow reads each neighbour's send slot aimed back at me. What
+// Suspended load rides the water. Pass 0 writes outflow per slot; pass 1 gathers.
+// Slot 5 (radially outward) carries nothing: suspended load does not climb.
 
 layout(local_size_x = 64) in;
 
@@ -13,12 +12,17 @@ layout(set = 0, binding = 2, std430) restrict readonly buffer Water { float wate
 layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 5, std430) restrict buffer Send { float send[]; };                     // idx*6 + dir (shared scratch)
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };             // idx*6 + slot
+layout(set = 0, binding = 17, std430) restrict readonly buffer SolidAngle { float solid_angle[]; };  // per column, sr
+
+#include "cell_geom.glsli"
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	uint pass_id;   // 0 = outflow, 1 = inflow/apply
-	uint enabled;   // 0 = advection off (pass 0 sends nothing, so pass 1 is an exact carry) — measurement A/B
+	uint pass_id;      // 0 = outflow, 1 = inflow/apply
+	uint depth;        // radial shells per column
 	uint pad0;
+	float core_radius; // shell floor, model units
+	float cell_size;   // radial thickness of one layer, model units
 } params;
 
 // --- Tunables -------------------------------------------------------------------------------------------
@@ -27,6 +31,11 @@ const float LATERAL_SHARE = 0.5;
 const float WATER_MIN     = 0.02;    // below the wet-surface threshold there is no flow to ride (matches pickup)
 const float MIN_SUSP      = 1.0e-6;  // don't bother moving a numerically empty load
 const float MAX_OUT_FRAC  = 0.9;     // never empty a cell in one step (stability; the gather stays exact either way)
+
+// A send is a fraction of the SENDER's own cell; the receiver is a different size.
+float xfer(uint src, uint dst) {
+	return cg_transfer(src, dst, params.depth, params.core_radius, params.cell_size);
+}
 
 void main() {
 	uint gidx = gl_GlobalInvocationID.x;
@@ -46,8 +55,8 @@ void main() {
 		send[base + 4u] = 0.0;
 		send[base + 5u] = 0.0;
 
-		// Rock carries nothing; the held calm sea has no head, so it receives but never sends.
-		if (params.enabled == 0u || solid[gidx] != 0.0) {
+		// Rock carries nothing.
+		if (solid[gidx] != 0.0) {
 			return;
 		}
 		float load = susp_in[gidx];
@@ -99,8 +108,7 @@ void main() {
 	}
 
 	// ---- PASS 1: INFLOW / APPLY -------------------------------------------------
-	// Rock holds no suspension: pass its (zero) value through untouched. Everything else — including the
-	// static sea — applies the full gather, so mineral delivered to the sea is kept, not absorbed.
+	// Rock holds no suspension: pass its (zero) value through untouched.
 	if (solid[gidx] != 0.0) {
 		susp_out[gidx] = susp_in[gidx];
 		return;
@@ -109,14 +117,15 @@ void main() {
 	float own_out = send[base + 0u] + send[base + 1u] + send[base + 2u]
 		+ send[base + 3u] + send[base + 4u] + send[base + 5u];
 
+	// Each send is a fraction of the SENDER's cell; credit it scaled by vol(sender)/vol(me).
 	float inflow = 0.0;
 	int nb;
-	nb = nbr[base + 0u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 5u]; }  // down-neighbour sent UP (5)
-	nb = nbr[base + 5u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 0u]; }  // up-neighbour sent DOWN (0)
-	nb = nbr[base + 1u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 2u]; }  // -a neighbour sent +a (2)
-	nb = nbr[base + 2u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 1u]; }  // +a neighbour sent -a (1)
-	nb = nbr[base + 3u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 4u]; }  // -b neighbour sent +b (4)
-	nb = nbr[base + 4u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 3u]; }  // +b neighbour sent -b (3)
+	nb = nbr[base + 0u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 5u] * xfer(uint(nb), gidx); }  // below sent UP
+	nb = nbr[base + 5u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 0u] * xfer(uint(nb), gidx); }  // above sent DOWN
+	nb = nbr[base + 1u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 2u] * xfer(uint(nb), gidx); }
+	nb = nbr[base + 2u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 1u] * xfer(uint(nb), gidx); }
+	nb = nbr[base + 3u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 4u] * xfer(uint(nb), gidx); }
+	nb = nbr[base + 4u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 3u] * xfer(uint(nb), gidx); }
 
 	float value = susp_in[gidx] - own_out + inflow;
 	susp_out[gidx] = max(value, 0.0);

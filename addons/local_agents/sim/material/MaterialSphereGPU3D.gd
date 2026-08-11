@@ -140,6 +140,19 @@ func setup(field) -> void:
 	# Angular separation per lateral link — the lateral RUN a slope test needs (see LASphereGrid.link_arc).
 	var larc_bytes: PackedByteArray = _grid.link_arc.to_byte_array()
 	_bufs["link_arc"] = _rd.storage_buffer_create(larc_bytes.size(), larc_bytes)
+	# Solid angle per SURFACE column, steradians. Binding 17 on every kernel that includes cell_geom.glsli;
+	# with depth/core_radius/cell_size it gives cell volume and face area. Zero here makes every volume zero,
+	# so it is checked rather than assumed.
+	var omega: PackedFloat32Array = _grid.solid_angle
+	var omega_min: float = INF
+	for si in omega.size():
+		omega_min = minf(omega_min, omega[si])
+	if omega.size() * maxi(int(_grid.depth), 1) != _cc or not (omega_min > 0.0):
+		push_error("LAMaterialSphereGPU3D: solid_angle table is %d entries, min %f — cell volumes would be zero"
+			% [omega.size(), omega_min])
+		return
+	var omega_bytes: PackedByteArray = _grid.solid_angle_bytes()
+	_bufs["solid_angle"] = _rd.storage_buffer_create(omega_bytes.size(), omega_bytes)
 	_bufs["plates"] = _rd.storage_buffer_create(MAX_PLATES * PLATE_STRIDE * 4,
 		_zeros(MAX_PLATES * PLATE_STRIDE))
 

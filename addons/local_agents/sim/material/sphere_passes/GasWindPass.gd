@@ -81,6 +81,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# Per-column tangent-frame table: the direction of each lateral link in the cell's OWN (tan_a, tan_b) axes.
 	# The wind kernels store momentum in that frame, so they read directions from here, never from slot order.
 	var ltan: RID = bufs["link_tan"]
+	# Solid angle per column: the transport gather moves matter between cells of different volume.
+	var omega: RID = bufs["solid_angle"]
 
 	_gas_sets = []
 	for _gi in GASES.size():
@@ -99,7 +101,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			# 2 = Deposit: a gas has no settled phase, so `deposit` is 0 and this is never written. It is bound
 			# to the gas's own back buffer because the layout requires something there.
 			_gas_sets[gi][p] = _uset(_gas_shader, [[0, ch[p]], [1, ch[back]], [2, ch[back]], [3, solid],
-					[4, vx], [5, vy], [6, vz], [15, nbr], [16, ltan]])
+					[4, vx], [5, vy], [6, vz], [15, nbr], [16, ltan], [17, omega]])
 		# charge_accum: 0=Charge(single, in place), 1=TempIn(live), 2=CloudIn(live), 3=VelY, 4=Solid.
 		#  slower clock than a near one. Deleted — see MaterialSphereGPU3D.gd's header note.)
 		_ch_set[p] = _uset(_ch_shader, [[0, charge], [1, temp[p]], [2, cloud[p]], [3, vy], [4, solid]])
@@ -156,7 +158,8 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 		rd.compute_list_bind_compute_pipeline(cl, _gas_pipe)
 		rd.compute_list_bind_uniform_set(cl, _gas_sets[gi][p], 0)
 		var pc_gas: PackedByteArray = _pc_tracer(cc, depth, k_courant,
-				SETTLE_V_PER_CONTRAST * float(GASES[gi]["contrast"]), EDDY_DIFFUSE, 0)
+				SETTLE_V_PER_CONTRAST * float(GASES[gi]["contrast"]), EDDY_DIFFUSE, 0,
+				float(ctx.get("core_radius", 0.0)), float(ctx.get("cell_size", 1.0)))
 		rd.compute_list_set_push_constant(cl, pc_gas, pc_gas.size())
 		rd.compute_list_dispatch(cl, groups, 1, 1)
 
@@ -217,12 +220,14 @@ func _uset(shader: RID, entries: Array) -> RID:
 		uniforms.append(u)
 	return _rd.uniform_set_create(uniforms, shader, 0)
 
-# Params { uint cell_count; uint depth; float k; float settle_v; float diffuse; uint deposit; uint pad0;
-# uint pad1; } — tracer_transport, shared with FireDustPass. `k` is the Courant factor dt/cell_size in REAL
-# units; `settle_v` is the still-air settling velocity in m/s, signed: >0 sinks, <0 rises.
-func _pc_tracer(cc: int, depth: int, k: float, settle_v: float, diffuse: float, deposit: int) -> PackedByteArray:
+# Params { uint cell_count; uint depth; float k; float settle_v; float diffuse; uint deposit; uint offset;
+# float decay; float core_radius; float cell_size; } — tracer_transport, shared with FireDustPass and
+# AtmospherePass. `k` is the Courant factor dt/cell_size in REAL units; `settle_v` is the still-air settling
+# velocity in m/s, signed: >0 sinks, <0 rises; the last two size the cells the gather moves matter between.
+func _pc_tracer(cc: int, depth: int, k: float, settle_v: float, diffuse: float, deposit: int,
+		core_radius: float, cell_size: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(32)
+	pc.resize(40)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, depth)
 	pc.encode_float(8, k)
@@ -231,6 +236,8 @@ func _pc_tracer(cc: int, depth: int, k: float, settle_v: float, diffuse: float, 
 	pc.encode_u32(20, deposit)
 	pc.encode_u32(24, 0)
 	pc.encode_u32(28, 0)
+	pc.encode_float(32, core_radius)
+	pc.encode_float(36, cell_size)
 	return pc
 
 # Params { uint cell_count; uint depth; uint pad1; uint pad2; } — legacy cellcount push. `depth` turns a
