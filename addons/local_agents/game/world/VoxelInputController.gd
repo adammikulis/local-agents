@@ -41,9 +41,13 @@ var _ecology: Node = null
 # A default that every automated caller has to opt OUT of is the wrong default.
 # `--no-streamer` and LA_NO_STREAMER still work and are now redundant belt-and-braces.
 var _streamer_enabled: bool = false
-# --bare: physics only. No terrain meshing, no collision baking, no presentation layer. For verification
-# runs whose output is numbers.
-var _bare: bool = false
+# TWO INDEPENDENT LAYERS, BOTH OFF BY DEFAULT (inverted from `--bare` on 2026-08-11).
+#   --render  the Camera3D + the spatial nodes that draw the world (RenderLayer.tscn)
+#   --ui      the Control / CanvasLayer menus and panels + their input (UiLayer.tscn); implies --render
+# A camera is NOT UI, so they are not one switch. The simulation is the product and both are opt-in: a run
+# that forgets a flag gets the physics, never a half-built view feeding it.
+var _ui: bool = false
+var _render: bool = false
 var _streamer_persona: String = "hype"
 var _streamer_avatar_flavor: String = "male"
 
@@ -57,7 +61,6 @@ var _shoot_frames: int = 150
 var _run_frames: int = 0
 var _perf_frames: int = 0               # --perf-frames=N: GPU-timed fps bench (see parse_cmdline + VoxelWorld._process)
 var _smoke: bool = false                # --smoke: boot the MINIMAL (Potato/Low) config for fast parse+run checks
-var _force_wind: float = 0.0            # --wind=<x>: force a constant eastward wind (verification)
 var _cognition_stats: bool = false      # --cognition-stats: print fast/slow brain + genetics metrics
 var _auto_meteor: bool = false
 var _auto_barrage: bool = false          # --auto-barrage: rain a volley of large meteors (deep carve / fracture test)
@@ -154,10 +157,9 @@ var _start_mode_applied: bool = false
 
 
 func parse_cmdline() -> void:
-	# Build the Esc pause menu up front so it exists before any input arrives.
-	_pause_menu = PauseMenuScript.new()
-	_pause_menu.name = "PauseMenu"
-	add_child(_pause_menu)
+	# PARSING ONLY. This node builds no UI: it runs in every run, including runs with no presentation layer,
+	# and the Esc menu + view-controls bar it used to construct here are Controls. LAPresentation calls
+	# build_ui() when there is a screen to put them on.
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--shoot="):
 			_shoot_path = arg.substr("--shoot=".length())
@@ -227,8 +229,6 @@ func parse_cmdline() -> void:
 			_time_of_day = clampf(float(arg.substr("--time=".length())), 0.0, 1.0)
 		elif arg.begins_with("--lunar="):
 			_lunar_phase = clampf(float(arg.substr("--lunar=".length())), 0.0, 1.0)
-		elif arg.begins_with("--wind="):
-			_force_wind = float(arg.substr("--wind=".length()))
 		elif arg == "--debug-demo":
 			_debug_demo = true
 		elif arg == "--wind-view":
@@ -260,8 +260,10 @@ func parse_cmdline() -> void:
 			_auto_volcano = true
 		elif arg == "--auto-seavolcano":
 			_auto_seavolcano = true
-		elif arg == "--bare":
-			_bare = true
+		elif arg == "--ui":
+			_ui = true
+		elif arg == "--render":
+			_render = true
 		elif arg == "--streamer":
 			_streamer_enabled = true
 		elif arg == "--no-streamer":
@@ -324,10 +326,6 @@ func parse_cmdline() -> void:
 	# to also pass --seed= just to get a comparable result.
 	if _bench_name != "" and not _seed_explicit:
 		seed(DEFAULT_BENCH_SEED)
-	# Apply the fast-forward multiplier through the pause menu's single setter (shared with the in-menu speed
-	# buttons). Clamped there; N=1 leaves the engine clock untouched.
-	if _pause_menu != null:
-		_pause_menu.set_time_scale(_fast)
 
 
 ## Esc opens the pause menu (pausing the sim); G toggles geosync, F toggles fly, P toggles the solar-system
@@ -510,7 +508,16 @@ func bind(terrain, camera: Camera3D, body: Node3D, star: Node3D, material: Node,
 	# Wire the planet body so the camera's GEOSYNC mode can read its rotating frame (keeps VoxelWorld untouched).
 	if _camera != null and _camera.has_method("set_geosync_body"):
 		_camera.set_geosync_body(_body)
-	# Build the on-screen view-controls cluster: [Planet | Solar System] · [Free | Geosync] · [Auto-spin].
+	_refresh_view_controls()
+
+
+## Build this controller's on-screen surfaces: the Esc pause menu and the
+## [Planet | Solar System] · [Free | Geosync] · [Auto-spin] cluster. Called ONLY by LAPresentation, so a run
+## without --ui has neither. Every reader of _pause_menu / _view_controls null-guards.
+func build_ui() -> void:
+	_pause_menu = PauseMenuScript.new()
+	_pause_menu.name = "PauseMenu"
+	add_child(_pause_menu)
 	_view_controls = ViewControlsScript.new()
 	_view_controls.name = "ViewControls"
 	add_child(_view_controls)
@@ -947,7 +954,8 @@ func _frame_villager_hut() -> void:
 
 # --- Flag accessors (read by the world composition root) ---------------------
 func streamer_enabled() -> bool: return _streamer_enabled
-func bare() -> bool: return _bare
+func ui() -> bool: return _ui
+func render() -> bool: return _render
 func streamer_persona() -> String: return _streamer_persona
 func streamer_avatar_flavor() -> String: return _streamer_avatar_flavor
 func time_of_day_seed() -> float: return _time_of_day
@@ -957,7 +965,6 @@ func shoot_frames() -> int: return _shoot_frames
 func run_frames() -> int: return _run_frames
 func perf_frames() -> int: return _perf_frames
 func smoke() -> bool: return _smoke
-func force_wind() -> float: return _force_wind
 func overview() -> bool: return _overview
 func farview() -> bool: return _farview
 func auto_meteor() -> bool: return _auto_meteor

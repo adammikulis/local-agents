@@ -34,6 +34,7 @@ var _first_element_c: float = NAN
 var _first_element_c_step: int = -1
 var _conservation = null                         # LAMaterialFieldConservation3D — the law, enforced
 var _seal = null                                 # LAMaterialFieldSeal3D — SEEDING -> SEALED, the line the books start at
+var _seal_announced: bool = false                # WORLD_SEALED printed once, from the step-driven phase
 var _heavy_cache: Dictionary = {}                        # last computed instrument block
 var _heavy_frame: int = -1_000_000                       # process frame it was computed on
 
@@ -230,9 +231,12 @@ func _open_temp_stats() -> Dictionary:
 
 
 func report() -> Dictionary:
-	if _seal != null and _f._gpu != null and _f._gpu.has_method("take_probe"):
-		if _seal.poll(_f._gpu.take_probe()):
-			print("WORLD_SEALED=", JSON.stringify(_seal.report()))
+	# The seal is polled on the FIELD STEP (LAMaterialFieldSphereStep3D), never here: this runs on the gauge
+	# cadence, so polling here made the seal step depend on the report rate and on renderer-driven channel
+	# residency. Announce the transition once, from the phase the step has already reached.
+	if _seal != null and _seal.sealed() and not _seal_announced:
+		_seal_announced = true
+		print("WORLD_SEALED=", JSON.stringify(_seal.report()))
 	var q: LAMaterialFieldQueries3D = _f._queries
 	var r: Dictionary = {
 		"wet_cells": _f.wet_cell_count(), "heat_peak": _f.peak_heat(), "heat_cells": _f.hot_cell_count(),

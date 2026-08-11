@@ -632,10 +632,6 @@ func restore_channels(data: Dictionary) -> void:
 func set_precip(v: float) -> void:
 	_ctx["precip"] = v
 
-func set_prevailing(v: Vector2) -> void:
-	_ctx["wind"] = v
-
-
 
 func dispose() -> void:
 	if _rd == null:

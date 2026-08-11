@@ -31,6 +31,13 @@ func setup(world, terrain, ecology, actors_root: Node3D, camera: Camera3D, audio
 	_audio = audio
 
 
+## Camera + audio are PRESENTATION — the screen-ray casts and the stings. Both stay null without --ui; the
+## seeding itself is physics and does not consult either.
+func set_presentation(camera: Camera3D, audio) -> void:
+	_camera = camera
+	_audio = audio
+
+
 # The world always has one active volcano — placed on the highest of several sampled points so it's a
 # proper mountain landmark, well away from the origin spawn.
 func spawn_default_volcano() -> void:

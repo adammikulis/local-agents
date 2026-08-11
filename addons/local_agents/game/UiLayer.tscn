@@ -1,0 +1,62 @@
+[gd_scene load_steps=16 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/UiLayer.gd" id="1_uilayer"]
+[ext_resource type="Script" path="res://addons/local_agents/game/progression/GameProgression.gd" id="2_gameprogression"]
+[ext_resource type="Script" path="res://addons/local_agents/game/ui/SpawnPaletteHud.gd" id="3_spawnpalettehud"]
+[ext_resource type="Script" path="res://addons/local_agents/game/ui/GameHud.gd" id="4_gamehud"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelTimeControl.gd" id="5_voxeltimecontrol"]
+[ext_resource type="Script" path="res://addons/local_agents/game/ui/GeneratingPlanetScreen.gd" id="6_generatingplanetscreen"]
+[ext_resource type="Script" path="res://addons/local_agents/audio/AudioDirector.gd" id="7_audiodirector"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelAudioController.gd" id="8_voxelaudiocontroller"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelDebugWiring.gd" id="9_voxeldebugwiring"]
+[ext_resource type="Script" path="res://addons/local_agents/game/ui/DrainageOverlay.gd" id="10_drainageoverlay"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelSpawnBrush.gd" id="11_voxelspawnbrush"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelInteraction.gd" id="12_voxelinteraction"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/CompanionController.gd" id="13_companioncontroller"]
+[ext_resource type="Script" path="res://addons/local_agents/game/ui/CreatureThoughtPanel.gd" id="14_creaturethoughtpanel"]
+[ext_resource type="Script" path="res://addons/local_agents/game/ui/CampaignTutorial.gd" id="15_campaigntutorial"]
+
+[node name="UiLayer" type="Node"]
+script = ExtResource("1_uilayer")
+
+[node name="GameProgression" type="Node" parent="."]
+script = ExtResource("2_gameprogression")
+
+[node name="Hud" type="CanvasLayer" parent="."]
+script = ExtResource("3_spawnpalettehud")
+
+[node name="GameHud" type="CanvasLayer" parent="."]
+script = ExtResource("4_gamehud")
+
+[node name="TimeControl" type="CanvasLayer" parent="."]
+script = ExtResource("5_voxeltimecontrol")
+
+[node name="GeneratingPlanetScreen" type="CanvasLayer" parent="."]
+script = ExtResource("6_generatingplanetscreen")
+
+[node name="AudioDirector" type="Node" parent="."]
+script = ExtResource("7_audiodirector")
+
+[node name="AudioController" type="Node" parent="."]
+script = ExtResource("8_voxelaudiocontroller")
+
+[node name="DebugWiring" type="Node" parent="."]
+script = ExtResource("9_voxeldebugwiring")
+
+[node name="DrainageOverlay" type="MeshInstance3D" parent="."]
+script = ExtResource("10_drainageoverlay")
+
+[node name="SpawnBrush" type="Node3D" parent="."]
+script = ExtResource("11_voxelspawnbrush")
+
+[node name="Interaction" type="Node3D" parent="."]
+script = ExtResource("12_voxelinteraction")
+
+[node name="CompanionController" type="Node" parent="."]
+script = ExtResource("13_companioncontroller")
+
+[node name="CreatureThoughtPanel" type="CanvasLayer" parent="."]
+script = ExtResource("14_creaturethoughtpanel")
+
+[node name="CampaignTutorial" type="Node" parent="."]
+script = ExtResource("15_campaigntutorial")

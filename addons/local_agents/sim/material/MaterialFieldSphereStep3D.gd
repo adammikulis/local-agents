@@ -206,6 +206,15 @@ func process(delta: float) -> void:
 	var res: Dictionary = _f._gpu.end_frame()
 	var t_post: int = Time.get_ticks_usec()
 	_apply_readback(res)
+	# SEAL ON THE FIELD CLOCK, NOT THE REPORT CLOCK. The world seal is where every conservation baseline
+	# latches, and poll() used to be called only from MaterialFieldReport3D.report(), which runs on the
+	# 64-frame gauge cadence — so each probe round cost 64 frames, and whether a channel counted as live
+	# depended on whether some RENDERER happened to have made its mirror resident. Measured: the seal landed
+	# at field_step 9 with the render layer up and 265 without it, which latched every baseline at the end of
+	# the run and made all four drift gauges read a trivial 0.000%. The rate of a physical process may not
+	# depend on where the camera is pointed.
+	if _f._seal != null and _f._gpu.has_method("take_probe"):
+		_f._seal.poll(_f._gpu.take_probe())
 	# Surface seed module: coarse-cadence refill of fuel from the freshly read-back biomass (marks _fuel_dirty).
 	if _f._surface_seed != null:
 		_f._surface_seed.post_readback()

@@ -182,15 +182,11 @@ func _on_speed_pressed(n: int) -> void:
 		b.button_pressed = (b.text == "%dx" % n)
 
 
-## Reusable fast-forward setter. DELEGATES to LAVoxelTimeControl, which owns Engine.time_scale.
-##
-## This used to write Engine.time_scale itself, which made two owners of one global. LAVoxelTimeControl is
-## built after VoxelWorld parses the command line, and its _ready() -> _apply() writes the same global, so
-## whichever ran last won — always the time control, resetting the speed to 1.0×. That is why `--fast=N`
-## measurably did nothing. One writer now; this is a forwarder.
+## Reusable fast-forward setter. DELEGATES to LASimTimeAuthority, which owns Engine.time_scale.
+## One writer; this is a forwarder.
 func set_time_scale(n: int) -> void:
 	var mult: int = clampi(n, 1, SPEEDS[SPEEDS.size() - 1])
-	var ctrl: LAVoxelTimeControl = LAVoxelTimeControl.active()
+	var ctrl: LASimTimeAuthority = LASimTimeAuthority.active()
 	if ctrl != null:
 		ctrl.set_multiplier(float(mult))
 		return

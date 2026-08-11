@@ -101,11 +101,12 @@ var _atmos_t: float = 1.0                 # cached atmospheric transmission (dus
 var _tick: int = 0
 
 
-func setup(body: Node3D, sky_ctrl: Node, material) -> void:
+## `star` is the simulation's LAStar — the orbit's whole subject. It used to be fetched from the sky
+## controller, which is presentation, so a run without one had no star to integrate.
+func setup(body: Node3D, star: Node3D, material) -> void:
 	_body = body
-	_sky_ctrl = sky_ctrl
 	_material = material
-	_star = sky_ctrl.star() if sky_ctrl != null and sky_ctrl.has_method("star") else null
+	_star = star
 	_helio_pos = Vector3(ORBIT_RADIUS, 0.0, 0.0)
 	_seed_circular()
 	# Place the star NOW, not on the first update: it is a 1e7 mass and it enters the gravity group during
@@ -154,10 +155,15 @@ func tide_offset() -> float:
 	return TIDE_AMP * cos(2.0 * _moon_angle)
 
 
+## Optional presentation sink: the sky cycle, told which way the sun shines each frame. Absent without --ui.
+func set_sky_controller(sky_ctrl: Node) -> void:
+	_sky_ctrl = sky_ctrl
+
+
 ## Advance the orbit + moon and push the derived sun direction / position / insolation into the scene. Called
 ## from the world's process BEFORE the sky-cycle update (so the sun-shine direction is fresh when the sky reads it).
 func update(delta: float) -> void:
-	if _body == null or _sky_ctrl == null:
+	if _body == null:
 		return
 	# Publish state → integrate → derive. Publishing FIRST means both integrators (and any meteor stepping
 	# this frame) read one consistent set of body positions out of the gravity group.
@@ -171,14 +177,16 @@ func update(delta: float) -> void:
 		_atmos_t = _compute_transmission()
 
 	var centre: Vector3 = _body.center()
-	if _sky_ctrl.has_method("enter_space_mode"):
+	# Presentation only — the sky cycle's own light/environment. Absent in a run with no presentation layer.
+	if _sky_ctrl != null and _sky_ctrl.has_method("enter_space_mode"):
 		_sky_ctrl.enter_space_mode(centre)
 
 	# Insolation = inverse-square of the orbital distance × atmospheric transmission (dust/cloud block the sun).
-	# Stamp it on the sky sun as metadata; the field step multiplies sun_dir by it so intensity rides direction.
-	var sun_light = _sky_ctrl.sun() if _sky_ctrl.has_method("sun") else null
-	if sun_light != null:
-		sun_light.set_meta("insolation", _insolation())
+	# Stamped on the STAR's own light; the field step multiplies sun_dir by it so intensity rides direction.
+	# It was stamped on the sky cycle's light, which is presentation — so with no presentation layer the planet
+	# had no sun at all.
+	if _star != null and _star.light() != null:
+		_star.light().set_meta("insolation", _insolation())
 
 	_update_tide()
 
@@ -205,6 +213,10 @@ func _publish_bodies() -> void:
 	var centre: Vector3 = _body.center()
 	if _star != null:
 		_star.global_position = centre + _barycentre() - _helio_pos
+		# Re-aim after moving: the light's basis is the field's sun direction, and setup() aimed it once from
+		# the star's ORIGINAL position, so without this the solar term drifts as the orbit advances.
+		if _star.has_method("aim_at"):
+			_star.aim_at(centre)
 	if _moon != null:
 		_moon.global_position = centre + _moon_pos
 		# The tide wants a phase, and the moon's real position is where that phase now comes from: the

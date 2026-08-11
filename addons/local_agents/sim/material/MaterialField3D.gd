@@ -701,14 +701,9 @@ func relative_humidity_at(x: float, z: float) -> float:
 func dewpoint_at(x: float, z: float) -> float:
 	return _atmos.dewpoint_at(x, z)
 
-## Prevailing (large-scale) wind input. The emergent wind now lives on the GPU; forward it to the driver.
-func set_wind(w: Vector2) -> void:
-	if _gpu != null and _gpu.has_method("set_prevailing"):
-		_gpu.set_prevailing(w)
-
 ## The drifting PLATES, pushed in by LAPlateTectonics (which owns the kinematics) and consumed by the GPU
 ## driver's PlateAdvectPass, which carries rock_fill and sediment with the velocity they imply. Pure
-## delegation, like set_wind above: the field holds no plate state and does no plate work.
+## delegation: the field holds no plate state and does no plate work.
 func set_plate_motion(table: PackedFloat32Array) -> void:
 	if _gpu != null and _gpu.has_method("set_plates"):
 		_gpu.set_plates(table)

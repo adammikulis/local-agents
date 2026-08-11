@@ -43,7 +43,7 @@ func setup(opts: Dictionary = {}) -> void:
 	_light.light_energy = _base_energy
 	_light.shadow_enabled = true
 	add_child(_light)
-	_aim_at(Vector3.ZERO)
+	aim_at(Vector3.ZERO)
 
 	# Join the N-body group only once the position above is real. Registering in _ready() would put a mass
 	# this large at the world origin — on top of the planet — for the window between add_child and setup.
@@ -82,8 +82,10 @@ func insolation_at(body_center: Vector3) -> float:
 	var dist: float = maxf(1.0, global_position.distance_to(body_center))
 	return _base_energy * (_ref_distance * _ref_distance) / (dist * dist)
 
-## Point the directional light from the star toward a target (the primary body) so shading matches the geometry.
-func _aim_at(target: Vector3) -> void:
+## Point the directional light from the star toward a target (the primary body) so shading matches the
+## geometry. basis.z then points body -> star: the "toward the sun" convention the field's solar term reads.
+## Re-call whenever the star is repositioned, or the direction goes stale as the orbit advances.
+func aim_at(target: Vector3) -> void:
 	if _light == null:
 		return
 	var to: Vector3 = target - global_position

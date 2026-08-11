@@ -25,7 +25,8 @@
 #   --raw          print the whole SIM_REPORT as formatted JSON instead of a key list
 #   --keep         keep the log file and print its path
 #
-# EXIT CODES: 0 clean · 3 stale shaders · 4 the run logged engine errors (numbers withheld) · 124 never
+# EXIT CODES: 0 clean · 3 stale shaders · 4 the run logged engine errors (numbers withheld) · 5 a UI node
+#             was built without --ui · 124 never
 # reported · 125 hung after reporting · 126 CONSERVATION_VIOLATION.
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -93,6 +94,20 @@ RC=$?
 if grep -q '^CONSERVATION_VIOLATION=' "$LOG" 2>/dev/null; then
   echo "=== CONSERVATION_VIOLATION ===" >&2
   grep '^CONSERVATION_VIOLATION=' "$LOG" >&2
+fi
+
+# NO UI IN A SIMULATION RUN. This arm never passes --ui, so any Control / CanvasLayer in the tree is a
+# presentation node that leaked into the physics-only path. That has happened twice: the sim clock lived in
+# a CanvasLayer owning Engine.time_scale, and the CLI parser built the Esc menu + the view-controls bar.
+# Behavioural, so a UI node added anywhere in future trips it without anyone remembering a rule.
+WANT_UI=0
+for a in "${ARGS[@]}"; do [ "$a" = "--ui" ] && WANT_UI=1; done
+UI_N=$(grep -oE '"ui_nodes":[0-9]+' "$LOG" 2>/dev/null | tail -1 | cut -d: -f2)
+if [ "$WANT_UI" -eq 0 ] && [ -n "${UI_N:-}" ] && [ "$UI_N" -gt 0 ]; then
+  echo "sim_run: ${UI_N} UI NODE(S) BUILT IN A RUN WITH NO --ui. The presentation layer leaked into the" >&2
+  echo "         simulation path — find what built a Control/CanvasLayer and move it into Presentation.gd." >&2
+  [ "$KEEP" -eq 1 ] && echo "sim_run: log kept at $LOG" >&2 || rm -f "$LOG"
+  exit 5
 fi
 if [ "$RC" -ne 0 ]; then
   # Truncate: one line of this log is a 40 KB SIM_REPORT, and dumping it raw buries the actual error.

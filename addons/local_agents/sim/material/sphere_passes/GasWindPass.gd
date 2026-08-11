@@ -20,7 +20,6 @@ const CHARGE_ACCUM_PATH: String = "res://addons/local_agents/sim/material/kernel
 # --- default constants used when a scalar is not supplied in ctx (NOTE any default picked) -------------------
 # pascals and pass B computes a real m/s^2 acceleration, integrating either of them against a game-second
 const DEFAULT_DT: float = 0.1          # fallback only; converted to real seconds below
-const DEFAULT_WIND: Vector2 = Vector2.ZERO   # prevailing wind (pvx, pvz) when ctx has no "wind"
 const DEFAULT_BUOY: float = 1.0        # buoyancy enabled (1) when ctx has no "buoy"
 
 var _rd: RenderingDevice = null
@@ -117,7 +116,6 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	# 168.6x too large and every cell would sit pinned against the CFL cap.
 	var cell_m: float = float(ctx.get("cell_size", 1.0)) * LAPhysical.METRES_PER_MODEL_UNIT
 	var k_courant: float = dt / cell_m if cell_m != 0.0 else 0.0
-	var wind: Vector2 = ctx.get("wind", DEFAULT_WIND)
 	var buoy_on: int = 1 if float(ctx.get("buoy", DEFAULT_BUOY)) >= 0.5 else 0
 	# Planet spin axis (north pole) in the field frame — drives latitude, banded zonal flow + Coriolis handedness.
 	# The current planet's pole is world +Y (matches the terrain's radial snow-line convention); ctx may override.
