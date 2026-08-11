@@ -120,8 +120,8 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 	if not SPECIES.has(species):
 		species = DEFAULT_SPECIES
 
-	# Deterministic per-tree variation.
-	var seed_val: int = int(config.get("seed", randi()))
+	# "actors": placement-gated, so this draw count is not reproducible.
+	var seed_val: int = int(config.get("seed", LASimRng.for_domain("actors").randi()))
 	_rng.seed = seed_val
 
 	var def: Dictionary = _species_def()

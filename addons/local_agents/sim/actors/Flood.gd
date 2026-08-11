@@ -75,8 +75,9 @@ func _physics_process(delta: float) -> void:
 	_splash_cd -= delta
 	if _splash_cd <= 0.0 and _field.has_method("splash"):
 		_splash_cd = 0.2
-		var ang: float = randf() * TAU
-		var rr: float = randf() * _radius
+		var rng: LASimRng = LASimRng.for_domain("planet")
+		var ang: float = rng.randf() * TAU
+		var rr: float = rng.randf() * _radius
 		_field.splash(_center + _tangent(ang) * rr, 2.0)
 
 

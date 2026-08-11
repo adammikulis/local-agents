@@ -184,6 +184,13 @@ static func make(world_seed: int, domain: String) -> LASimRng:
 	return r
 
 
+## A STREAM MAY NOT BE SHARED WITH A CONSUMER WHOSE DRAW COUNT IS NOT REPRODUCIBLE. The count is what moves
+## everyone else's cursor, so one unreproducible consumer makes every other consumer of that stream
+## unreproducible too, however well seeded it is. A spawned actor (LARock, LATree, LANest) is placed only
+## once its ground has streamed in on a background worker thread, so its count is wall-clock dependent: those
+## draw from "actors", never "planet" or "vegetation". scripts/check_determinism.sh diffs the per-domain
+## counts of two runs at one seed and is where this is enforced.
+##
 ## An INDEPENDENT seeded stream for one simulation domain — "planet", "creatures", "weather", … Use this for
 ## anything whose reproducibility must not depend on unrelated subsystems' draw counts. Planet-side callers
 ## (tectonics, the ambient disaster director, field injection) should draw from `for_domain("planet")` rather
@@ -196,9 +203,10 @@ static func for_domain(domain: String) -> LASimRng:
 	return _domains[domain]
 
 
-## Per-domain trace snapshot (LA_RNG_TRACE), so a divergence hunt can see each stream separately.
+## Per-domain trace snapshot (LA_RNG_TRACE): draw count AND the per-caller breakdown, per stream.
+## A bare count names the stream that diverged but not the subsystem inside it, which is the question.
 static func domain_trace() -> Dictionary:
 	var out: Dictionary = {}
 	for k in _domains:
-		out[k] = (_domains[k] as LASimRng).draws
+		out[k] = (_domains[k] as LASimRng).trace_report()
 	return out
