@@ -42,6 +42,7 @@ const AudioControllerScript: GDScript = preload("res://addons/local_agents/game/
 const GameProgressionScript: GDScript = preload("res://addons/local_agents/game/progression/GameProgression.gd")
 const GameHudScript: GDScript = preload("res://addons/local_agents/game/ui/GameHud.gd")
 const TimeControlScript: GDScript = preload("res://addons/local_agents/game/world/VoxelTimeControl.gd")
+const SimTimeScaleScript: GDScript = preload("res://addons/local_agents/sim/SimTimeScale.gd")
 const TimelineScript: GDScript = preload("res://addons/local_agents/game/world/VoxelTimeline.gd")
 const CampaignTutorialScript: GDScript = preload("res://addons/local_agents/game/ui/CampaignTutorial.gd")
 const SettingsApplierScript: GDScript = preload("res://addons/local_agents/game/world/VoxelSettingsApplier.gd")
@@ -99,7 +100,8 @@ var _veg_renderer: Node3D    # LAVegetationRenderer (batched vegetation draws)
 var _render_opts: Dictionary = {}   # quality-preset render flags (ssao/glow/sun_shadows/fog/ocean_transparent)
 var _hud: CanvasLayer       # LASpawnPaletteHud
 var _game_hud: CanvasLayer = null  # LAGameHud — gamified objective/summary overlay (H toggles it)
-var _time_control: CanvasLayer = null  # LAVoxelTimeControl — pause/slow/play/fast (Space + ,/.) owning time_scale
+var _rate: LASimTimeScale = null       # owns Engine.time_scale + max_physics_steps_per_frame; always built
+var _time_control: CanvasLayer = null  # LAVoxelTimeControl — the on-screen readout and keys; presentation only
 var _actors_root: Node3D
 var _interaction: Node3D = null   # LAVoxelInteraction — input, selection, the player's hand
 var _brush: Node3D = null         # LAVoxelSpawnBrush — radius spawn brush + placement
@@ -293,13 +295,20 @@ func _ready() -> void:
 		_game_hud = GameHudScript.new()
 		add_child(_game_hud)
 
-	# Player time-dilation controls (Space=pause, ,/. = slower/faster, Home=1×). Owns Engine.time_scale.
-	_time_control = TimeControlScript.new()
-	add_child(_time_control)
-	_time_control.set_camera(_camera)
+	# THE PLAYBACK RATE. A plain node, built whether or not anything is drawn: the on-screen time control
+	# used to own Engine.time_scale, so a run without UI had no clock owner.
+	_rate = SimTimeScaleScript.new()
+	_rate.name = "SimTimeScale"
+	add_child(_rate)
 	# --fast=N applies HERE, after its owner exists. parse_cmdline() runs ~114 lines earlier, so a speed set
-	# there was overwritten by this node's own _ready(), and the flag did nothing at all.
-	_time_control.set_multiplier(float(_input.fast_multiplier()))
+	# there was overwritten by the owner's own _ready(), and the flag did nothing at all.
+	_rate.set_multiplier(float(_input.fast_multiplier()))
+
+	# Its on-screen readout and keys. Presentation; forwards to the rate above.
+	if not _input.bare():
+		_time_control = TimeControlScript.new()
+		add_child(_time_control)
+		_time_control.set_camera(_camera)
 
 	# --- Procedural audio ---
 	if not _input.bare():
@@ -459,10 +468,14 @@ func _ready() -> void:
 			_sea_ice_shader.setup(_material, _ocean, _water_surface)
 
 	# --- Debug menu (left) + world-space gizmo overlay: field views, type highlights, intended paths. ---
-	_debug = DebugWiringScript.new()
-	_debug.name = "DebugWiring"
-	add_child(_debug)
-	_debug.setup(self, _material, _terrain, _sky_ctrl, _hud, _input, _ecology)
+	# Bare-gated like every other presentation node. It was not, so a measurement run built the DebugPanel
+	# CanvasLayer and the gizmo overlay and drew them over the window. Every reader of `_debug` below is
+	# already null-guarded.
+	if not _input.bare():
+		_debug = DebugWiringScript.new()
+		_debug.name = "DebugWiring"
+		add_child(_debug)
+		_debug.setup(self, _material, _terrain, _sky_ctrl, _hud, _input, _ecology)
 	# Drainage-network debug highlight (where rivers should run) — a child of the planet body so it rides the
 	# spin; DebugWiring owns its toggle (DEBUG panel "Rivers" + --debug-rivers). Composition root = wiring only.
 	if not _input.bare():
@@ -539,9 +552,10 @@ func _ready() -> void:
 	_spawn.set_spawn_scale(_settings_applier.spawn_scale())   # quality actor_budget → fewer/more actors
 	# "Generating planet" loading overlay — covers the world ASSEMBLING (terrain streaming, camera arc settling,
 	# initial spawn) so the player never watches it build; finished + faded the moment the world is ready.
-	_gen_screen = LAGeneratingPlanetScreen.new()
-	_gen_screen.name = "GeneratingPlanetScreen"
-	add_child(_gen_screen)
+	if not _input.bare():
+		_gen_screen = LAGeneratingPlanetScreen.new()
+		_gen_screen.name = "GeneratingPlanetScreen"
+		add_child(_gen_screen)
 
 	# Wire the input controller's auto-demo hooks now that every scene ref exists.
 	_input.bind(_terrain, _camera, _body, _sky_ctrl.star(), _material, _disasters, _interaction, _ecology)

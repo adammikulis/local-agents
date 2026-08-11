@@ -1,27 +1,24 @@
 class_name LAVoxelTimeControl
 extends CanvasLayer
 
-## Player time-dilation controls (perf-first: event-driven, zero per-frame cost). The single authoritative
-## owner of the sim's playback rate (pause, slow-motion, real-time, and fast-forward), applied via
-## Engine.time_scale (speed) and get_tree().paused (hard pause). Runs PROCESS_MODE_ALWAYS so the keys and the
-## HUD keep working while the tree is paused (that is what lets Space un-pause).
+## Player time-dilation controls: the keys and the on-screen readout. PRESENTATION ONLY — the playback rate
+## itself is LASimTimeScale, a plain node, and this forwards to it. Runs PROCESS_MODE_ALWAYS so the keys and
+## the HUD keep working while the tree is paused (that is what lets Space un-pause).
 ##
 ## Keys:  Space = pause / play toggle · , = slower · . = faster · Home = reset to 1×.
 ## REVERSE + timeline FORK plug in here later (the snapshot ring-buffer): reverse becomes another speed state
 ## driven by restoring snapshots, and this stays the one place the HUD + rate live. This module is the
-## speed/pause half; it exposes current_speed()/is_paused() + a speed_changed signal for that next layer.
+## It forwards to LASimTimeScale and mirrors its speed_changed signal for the HUD and the snapshot layer.
 
-const SPEEDS: Array[float] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0]
-const PLAY_IDX: int = 2   # 1.0×
+const SPEEDS: Array[float] = LASimTimeScale.SPEEDS
 
 signal speed_changed(paused: bool, speed: float)
 
-## THE one live time control, so anything wanting to change speed goes through the node that OWNS
-## Engine.time_scale instead of writing it directly and being silently overwritten (see set_multiplier).
+## The live widget, for the pause menu and the trailer director to find. It is not the rate's owner;
+## LASimTimeScale.active() is.
 static var _active: LAVoxelTimeControl = null
 
-var _idx: int = PLAY_IDX
-var _paused: bool = false
+var _rate: LASimTimeScale = null    # the authority; this node only reads and drives it
 var _camera: Node = null           # optional — to yield Space to the fly-drone's lift control
 var _timeline: Node = null         # optional — LAVoxelTimeline (reverse/fork via the snapshot ring)
 var _reversing: bool = false       # mirror of the timeline's reverse state, for the HUD
@@ -37,8 +34,18 @@ func _init() -> void:
 
 func _ready() -> void:
 	_active = self
+	_rate = LASimTimeScale.active()
+	if _rate == null:
+		push_error("LAVoxelTimeControl: no LASimTimeScale in the tree — the rate has no owner.")
+	else:
+		_rate.speed_changed.connect(_on_rate_changed)
 	_build_hud()
-	_apply()
+	_update_hud()
+
+
+func _on_rate_changed(paused: bool, speed: float) -> void:
+	_update_hud()
+	speed_changed.emit(paused, speed)
 
 
 func _exit_tree() -> void:
@@ -54,20 +61,10 @@ static func active() -> LAVoxelTimeControl:
 ## Set the speed from a raw multiplier, snapped to the nearest supported SPEED. THIS is the entry point for
 ## every non-key speed change (the `--fast=N` command line, the pause menu's speed row, the trailer director).
 ##
-## `Engine.time_scale` has exactly ONE owner, this node, applied after it exists. A second writer earlier in
-## boot is silently undone by this node's own _ready() -> _apply(), which leaves `--fast=N` dead while
-## max_physics_steps_per_frame still looks right.
+## Forwards to LASimTimeScale, which is the single owner of Engine.time_scale.
 func set_multiplier(mult: float) -> void:
-	var best: int = PLAY_IDX
-	var best_delta: float = INF
-	for i in range(SPEEDS.size()):
-		var d: float = absf(SPEEDS[i] - mult)
-		if d < best_delta:
-			best_delta = d
-			best = i
-	_idx = best
-	_paused = false
-	_apply()
+	if _rate != null:
+		_rate.set_multiplier(mult)
 
 
 ## Optional: the camera rig, so Space pauses only when NOT flying the drone (fly uses Space for lift).
@@ -157,9 +154,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			slower()
 		KEY_HOME:
 			_exit_reverse()
-			_idx = PLAY_IDX
-			_paused = false
-			_apply()
+			if _rate != null:
+				_rate.set_multiplier(1.0)
 		KEY_J:
 			# Reverse-scrub toggle (snapshot rewind). Forking happens when a forward action resumes from here.
 			if _timeline != null and _timeline.has_method("toggle_reverse"):
@@ -171,54 +167,35 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func toggle_pause() -> void:
 	_exit_reverse()
-	_paused = not _paused
-	_apply()
+	if _rate != null:
+		_rate.toggle_pause()
 
 
 func play() -> void:
 	_exit_reverse()
-	_paused = false
-	_apply()
+	if _rate != null:
+		_rate.play()
 
 
 func faster() -> void:
 	_exit_reverse()
-	_paused = false
-	_idx = mini(_idx + 1, SPEEDS.size() - 1)
-	_apply()
+	if _rate != null:
+		_rate.faster()
 
 
 func slower() -> void:
 	_exit_reverse()
-	_paused = false
-	_idx = maxi(_idx - 1, 0)
-	_apply()
+	if _rate != null:
+		_rate.slower()
 
 
 func is_paused() -> bool:
-	return _paused
+	return _rate.is_paused() if _rate != null else false
 
 
 ## The effective playback rate the sim is running at (0 while paused). Read by the HUD + the snapshot layer.
 func current_speed() -> float:
-	return 0.0 if _paused else SPEEDS[_idx]
-
-
-func _apply() -> void:
-	get_tree().paused = _paused
-	if not _paused:
-		Engine.time_scale = SPEEDS[_idx]
-		# Ticks a single RENDERED frame may run, scaled by the speed on purpose. `time_scale` already
-		# multiplies each tick's delta, so this is not about physics keeping up: it buys THROUGHPUT, since
-		# rendering one frame of this world costs far more than one physics tick and packing more ticks into
-		# each frame amortises the render.
-		#
-		# The consequence: sim-time per RENDERED frame is QUADRATIC in the multiplier (8*s ticks each
-		# carrying s/60 seconds). `--run-frames=N` is therefore NOT a fixed horizon across multipliers —
-		# place two runs on the same horizon by reading `field_sim_s` out of the report, never by frames.
-		Engine.max_physics_steps_per_frame = maxi(8, int(ceil(SPEEDS[_idx])) * 8)
-	_update_hud()
-	speed_changed.emit(_paused, current_speed())
+	return _rate.current_speed() if _rate != null else 0.0
 
 
 func _update_hud(rev_count: int = -1) -> void:
@@ -228,9 +205,9 @@ func _update_hud(rev_count: int = -1) -> void:
 		# Explicit: rewind is approximate — it restores the LIFE, not the environment (perf-over-parity).
 		var tail: String = "" if rev_count < 0 else ("  ·  %d left" % rev_count)
 		_label.text = "◀◀  REWIND  (life reverts · world keeps flowing)%s" % tail
-	elif _paused:
+	elif is_paused():
 		_label.text = "‖  PAUSED"
 	else:
-		var s: float = SPEEDS[_idx]
+		var s: float = current_speed()
 		var num: String = ("%.2f" % s).rstrip("0").rstrip(".") if s < 1.0 else str(int(round(s)))
 		_label.text = ("▶  %s×" % num) if s >= 1.0 else ("◗  %s×" % num)

@@ -199,6 +199,44 @@ next sentence has to say whether you are going to.
 that is already known wrong, the failure has already happened — and it is the same mechanism as RULE 2:
 not refusal, but a locally plausible reason why the obvious change does not apply *here*.
 
+# RULE 5 — IF REMOVING THE WRONG THING BREAKS SOMETHING, THAT IS THE FINDING. NOT A VETO.
+
+**THE FIRST CHANCE IS READING IT, AND IT COSTS NOTHING.** When two things are welded together that have
+no business touching — a UI widget owning the physics clock, a gauge deciding residency, a camera
+deciding where rock lands — the reaction is "why the hell does a UI element control the entire sim",
+out loud, the moment you read the class declaration. Not a thought about how to work around it. If you
+find yourself reasoning about the MECHANICS of the coupling (can it be guarded, what breaks if I move
+it, what order does it initialise in) before you have said the coupling is absurd, you have already
+skipped the step. That is Rule Zero applied to structure rather than to constants.
+
+**THE SECOND CHANCE IS THE BREAKAGE, and it is the one people notice.** You take out something that
+should not be there. A run dies, a test reddens, a feature stops. The conclusion is NEVER "so it has to
+stay." It is "something load-bearing is living inside a thing that should not exist" — and THAT is the
+defect you were looking for. The breakage told you where. Needing this second chance means the first
+one was missed.
+
+**The tell is a sentence of the form "it can't be removed, because removing it breaks X."** That is
+RULE 3's grammar with a test result attached, and the test result makes it sound like evidence. It is
+not evidence about whether to remove it. It is a map of what to extract first.
+
+**Worked example, 2026-08-11, and I made the same inference the original author did.** The on-screen
+time control was a `CanvasLayer` that also owned `Engine.time_scale`, and it was the ONE presentation
+node in `VoxelWorld.gd` with no `bare()` guard among fourteen. Guarding it would have killed `--fast`.
+Somebody evidently found that out and left the UI in. I then wrote, in my own words, "it couldn't be
+guarded, because removing it would have killed --fast — that's why it was unconditional," having
+already split the authority out five minutes earlier. The maintainer: *"Yes it could be guarded. The
+killed run is an indicator to you that something is wrong if a UI element kills a run. You took the
+opposite conclusion."*
+
+**What it cost:** every measurement run drew a speed panel over the window, and the simulation's clock
+was owned by a widget — so a headless or bare world had no rate owner at all. Both invisible for as
+long as the coupling was treated as a reason.
+
+*(This is the same move as RULE 4 one level up. There, a compile error after a deletion is a work
+queue rather than a rejection. Here, a BROKEN RUN after a removal is a work queue rather than a
+rejection. In both, the red thing is pointing at the next task, and reading it as a stop sign is how
+the convicted code survives.)*
+
 # RULE 4 — WHEN A DELETION BREAKS A REFERRER, FIX THE REFERRER. NEVER RESTORE WHAT YOU DELETED.
 
 **This is the mechanism that gets past Rules 1, 2 and 3, and it has a precise trigger you cannot miss:

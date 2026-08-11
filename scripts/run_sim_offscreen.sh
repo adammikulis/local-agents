@@ -91,8 +91,29 @@ if [ "${LA_SKIP_SHADER_CHECK:-0}" != "1" ]; then
     while IFS= read -r src; do
       base="$(basename "$src")"
       newest="$(ls -t "$proj"/.godot/imported/"$base"-*.res 2>/dev/null | head -1)"
+      # CONTENT, NOT MTIME. Godot decides whether to reimport by comparing the source's md5 against the
+      # `source_md5` it recorded beside the artifact, so that is the authoritative comparison. An mtime
+      # test disagrees with it after any git operation that rewrites the working tree — a merge touches
+      # files whose content is unchanged — and then the guard refuses a tree Godot considers current,
+      # `--import` correctly does nothing, and the only way forward looks like LA_SKIP_SHADER_CHECK=1.
+      # A gate that cries wolf gets bypassed, and this one's bypass is the dangerous one.
+      md5f="${newest%.res}.md5"
+      recorded=""
+      [ -f "$md5f" ] && recorded="$(sed -n 's/^source_md5="\(.*\)"$/\1/p' "$md5f")"
+      actual=""
+      if command -v md5 >/dev/null 2>&1; then actual="$(md5 -q "$src")"
+      elif command -v md5sum >/dev/null 2>&1; then actual="$(md5sum "$src" | cut -d' ' -f1)"; fi
       # No compiled resource AT ALL is the worse case: load() returns null and the pass is silently dead.
-      if [ -z "$newest" ] || [ "$src" -nt "$newest" ]; then
+      if [ -z "$newest" ]; then
+        stale=1
+      elif [ -n "$recorded" ] && [ -n "$actual" ]; then
+        [ "$recorded" = "$actual" ] && stale=0 || stale=1
+      elif [ "$src" -nt "$newest" ]; then
+        stale=1                                   # no hash available either side: fall back to mtime
+      else
+        stale=0
+      fi
+      if [ "$stale" -eq 1 ]; then
         stale_n=$((stale_n + 1))
         if [ "$stale_n" -le 8 ]; then stale_list="$stale_list
     $base"; fi
