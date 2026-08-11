@@ -8,6 +8,7 @@ script = ExtResource("1_world")
 
 [node name="DemoHarness" type="Node" parent="." node_paths=PackedStringArray("report_source")]
 script = ExtResource("2_harness")
+count_physics_frames = true
 report_source = NodePath("..")
 report_prefix = "SIM"
 report_suffix = "_REPORT"

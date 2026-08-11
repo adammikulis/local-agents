@@ -5,9 +5,9 @@ const PauseMenuScript: GDScript = preload("res://addons/local_agents/game/world/
 const ViewControlsScript: GDScript = preload("res://addons/local_agents/game/world/VoxelViewControls.gd")
 
 ## --bench=<name> timelines: frame -> deterministic action, fired once each via _bench_fire(). Add a new
-## named Array here (and a case in _bench_fire()'s match) for a new scripted scenario; frames are absolute
-## world-frame numbers (pair with --run-frames= comfortably past the last one so the final SIM_REPORT still
-## sees the effects). "readback" exercises the field-readback-cost-relevant substrate systems (fire/fuel,
+## named Array here (and a case in _bench_fire()'s match) for a new scripted scenario; "frame" is an
+## absolute PHYSICS-TICK number, the same unit --run-frames counts (pair it comfortably past the last one
+## so the final SIM_REPORT still sees the effects). "readback" exercises the field-readback-cost-relevant substrate systems (fire/fuel,
 ## lava/rock_fill, storm-charge) at fixed points so field_dispatch_ms/field_readback_ms are comparable
 ## before/after a change instead of depending on organic random-world timing.
 const BENCH_TIMELINES: Dictionary = {
@@ -22,7 +22,8 @@ const BENCH_TIMELINES: Dictionary = {
 ## auto-demo firing (meteor/volcano/seavolcano/stamp-test/lightning/storm/select), and is the host point
 ## for an in-game pause (Esc) menu. Factored out of LAVoxelWorld so the "input / Esc menu" concern is one
 ## file. parse_cmdline() runs first (its seeds feed the sky), then bind() wires the scene refs the demo
-## hooks fire through, then update() is ticked each frame. (Explicit types only, no ':=' inferred typing.)
+## hooks fire through, then update_sim() is ticked each physics tick and update_render() each render
+## frame — exactly one of them runs the schedule, see both. (Explicit types only, no ':=' inferred typing.)
 
 # --- Scene refs the demo hooks fire through (wired via bind()) ---
 var _terrain = null
@@ -523,9 +524,26 @@ func mark_auto_meteor_fired() -> void:
 	_auto_meteor_fired = true
 
 
-## Per-frame auto-demo firing. `frame` is the world's frame counter; `spawned` gates every hook on the
-## ecology being placed. Pure harness/CLI behaviour — no-op unless a --auto-* / --stamp-test flag is set.
-func update(frame: int, spawned: bool) -> void:
+## Auto-demo firing on the SIMULATION clock (physics ticks), for a --run-frames run. Every trigger below
+## is expressed relative to `_run_frames`, which the harness counts in physics ticks, so the schedule has
+## to count the same ticks or a hook lands at a different point in a run of the same nominal length.
+func update_sim(frame: int, spawned: bool) -> void:
+	if _shoot_path != "":
+		return
+	_fire_schedule(frame, spawned)
+
+
+## The same schedule on the RENDER clock, for a --shoot run. The harness captures on render frame
+## `_shoot_frames` and every trigger in shoot mode is expressed relative to it, so it counts those.
+func update_render(frame: int, spawned: bool) -> void:
+	if _shoot_path == "":
+		return
+	_fire_schedule(frame, spawned)
+
+
+## `frame` is the counter of whichever clock armed the run; `spawned` gates every hook on the ecology
+## being placed. Pure harness/CLI behaviour — no-op unless a --auto-* / --stamp-test flag is set.
+func _fire_schedule(frame: int, spawned: bool) -> void:
 	# --bench=<name>: fire this timeline's scheduled actions + print periodic BENCH_SNAPSHOT lines. Runs
 	# before the ad-hoc --auto-* triggers below (independent, disjoint concerns — a bench run doesn't also
 	# set --auto-* flags in practice, but nothing here depends on that).
