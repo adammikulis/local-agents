@@ -1,12 +1,13 @@
 class_name LAMaterialFieldLedger3D
 extends RefCounted
 
-## LAMaterialFieldLedger3D: the conserved H₂O LEDGER of LAMaterialField3D (plus the snow/ice diagnostics it
-## modules: it holds no state of its own and reaches into the owning field `_f` for the shared channels.
+## LAMaterialFieldLedger3D: conserved H₂O totals + snow/ice cell counts for LAMaterialField3D.
+## ONE inclusion rule for every H₂O leg (water, snow, moisture, soil): every cell, no residency mask.
+## The four phases are kept mutually exclusive by solid_derive_sphere3d.glsl (it moves water/moisture/snow
+## into soil when a cell closes), so a mask in a gauge can only hide mass, never find it.
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
-var _stranded_cells: int = 0    # set by stranded_soil_total(); reported beside it
 var _prev_h2o: float = NAN
 var _prev_step: int = -1
 # Run-level anchor: the first sample this run, so drift can be amortised over the whole horizon instead of
@@ -28,15 +29,14 @@ func snow_depth_at(pos: Vector3) -> float:
 	return _f._snow[c] if c >= 0 else 0.0
 
 
-## Open cells carrying a snowpack (frozen H₂O over SNOW_PRESENT) — the emergent snow-line count for SIM_REPORT.
+## Cells carrying a snowpack (frozen H₂O over SNOW_PRESENT) — the emergent snow-line count for SIM_REPORT.
 func snow_cell_count() -> int:
 	if _f._snow.size() != _f._cell_count:
 		return 0
-	var solid: PackedByteArray = _f._solid
 	var snow: PackedFloat32Array = _f._snow
 	var n: int = 0
 	for c in _f._cell_count:
-		if solid[c] == 0 and snow[c] > LAMaterialField3D.SNOW_PRESENT:
+		if snow[c] > LAMaterialField3D.SNOW_PRESENT:
 			n += 1
 	return n
 
@@ -45,57 +45,38 @@ func snow_cell_count() -> int:
 func ice_cell_count() -> int:
 	if _f._snow.size() != _f._cell_count:
 		return 0
-	var solid: PackedByteArray = _f._solid
 	var snow: PackedFloat32Array = _f._snow
 	var n: int = 0
 	for c in _f._cell_count:
-		if solid[c] == 0 and snow[c] >= LAMaterialField3D.ICE_DEPTH:
+		if snow[c] >= LAMaterialField3D.ICE_DEPTH:
 			n += 1
 	return n
 
 
-## Total frozen H₂O over the field (one leg of the conserved h2o_total). Inclusion rule: every OPEN cell,
-## static ones included — snow on sea ice is real snow.
+## Frozen H₂O leg of h2o_total. Channel units.
 func snow_total() -> float:
 	if _f._snow.size() != _f._cell_count:
 		return 0.0
-	var solid: PackedByteArray = _f._solid
 	var snow: PackedFloat32Array = _f._snow
 	var sum: float = 0.0
 	for c in _f._cell_count:
-		if solid[c] == 0:
-			sum += snow[c]
+		sum += snow[c]
 	return sum
 
 
+## Liquid surface-water leg of h2o_total. Channel units.
 func water_total() -> float:
 	if _f._water.size() != _f._cell_count:
 		return 0.0
-	var solid: PackedByteArray = _f._solid
 	var water: PackedFloat32Array = _f._water
 	var sum: float = 0.0
 	for c in _f._cell_count:
-		if solid[c] == 0:
-			sum += water[c]
+		sum += water[c]
 	return sum
 
 
+## Pore-water leg of h2o_total. Channel units.
 func soil_total() -> float:
-	return regolith_soil_total()
-
-
-func h2o_total() -> float:
-	return water_total() + _f.moisture_total() + snow_total() + soil_total()
-
-
-
-
-## How many cells are held static. Sizes the dynamic-sea change: these are the cells that start being
-## simulated, and they are ALREADY being dispatched every step (every kernel runs the full grid and the
-## static ones early-out), so this counts new physics work, not new dispatches.
-
-
-func regolith_soil_total() -> float:
 	if _f._soil.size() != _f._cell_count:
 		return 0.0
 	var soil: PackedFloat32Array = _f._soil
@@ -105,20 +86,8 @@ func regolith_soil_total() -> float:
 	return sum
 
 
-func stranded_soil_total() -> float:
-	if _f._soil.size() != _f._cell_count or _f._regolith.size() != _f._cell_count:
-		return 0.0
-	var regolith: PackedByteArray = _f._regolith
-	var solid: PackedByteArray = _f._solid
-	var soil: PackedFloat32Array = _f._soil
-	var sum: float = 0.0
-	var n: int = 0
-	for c in _f._cell_count:
-		if regolith[c] != 0 and solid[c] == 0:
-			sum += soil[c]
-			n += 1
-	_stranded_cells = n
-	return sum
+func h2o_total() -> float:
+	return water_total() + _f.moisture_total() + snow_total() + soil_total()
 
 
 func conservation_report(step_index: int) -> Dictionary:
@@ -142,8 +111,6 @@ func conservation_report(step_index: int) -> Dictionary:
 		"h2o_drift_per_step": snappedf(per_step, 0.001),
 		"h2o_first": snappedf(_first_h2o, 0.01),
 		"h2o_run_steps": run_steps,
-		"soil_stranded": snappedf(stranded_soil_total(), 0.01),
-		"soil_stranded_cells": _stranded_cells,
 	}
 	if run_steps > 0:
 		out["h2o_run_drift"] = snappedf(h2o - _first_h2o, 0.01)
@@ -155,13 +122,12 @@ func conservation_report(step_index: int) -> Dictionary:
 func snow_line_temp() -> float:
 	if _f._snow.size() != _f._cell_count:
 		return 0.0
-	var solid: PackedByteArray = _f._solid
 	var snow: PackedFloat32Array = _f._snow
 	var temp: PackedFloat32Array = _f._temp
 	var sum: float = 0.0
 	var n: int = 0
 	for c in _f._cell_count:
-		if solid[c] == 0 and snow[c] > LAMaterialField3D.SNOW_PRESENT:
+		if snow[c] > LAMaterialField3D.SNOW_PRESENT:
 			sum += temp[c]
 			n += 1
 	return sum / float(n) if n > 0 else 0.0
