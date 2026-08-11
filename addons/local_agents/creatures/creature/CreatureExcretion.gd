@@ -13,10 +13,8 @@ extends RefCounted
 
 
 ## Minimum pending digested residue before a feces deposit is worth making, as a FRACTION OF GUT CAPACITY —
-## an animal that has not digested anything has nothing to pass. It was an absolute 0.5, which is larger than
-## the entire gut of every animal in the roster once physiology is derived from real body mass (a rabbit's gut
-## holds 0.0035), so nothing below the size of a person could ever defecate and the whole death→soil return
-## leg was closed for the rest of the fauna. A threshold on a per-animal quantity has to scale with the animal.
+## an animal that has not digested anything has nothing to pass. A threshold on a per-animal quantity has to
+## scale with the animal: an absolute one exceeds a small animal's whole gut and closes its death→soil leg.
 const FECES_MIN_GUT_FRAC: float = 0.02
 
 ## Detritus deposited into the field's soil-nutrient loop per unit of feces mass (same 1:1 conserving-transfer

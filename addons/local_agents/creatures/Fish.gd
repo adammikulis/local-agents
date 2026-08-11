@@ -611,11 +611,8 @@ func _physics_process(delta: float) -> void:
 	# same debit, same shortfall accounting as a rabbit cropping grass — a whale and a rabbit are one rule, and
 	# `LACreatureDigestion.DIETS_THAT_GRAZE` is the one place that says which diets do it.
 	#
-	# GATED ON DIET, NOT ON AN EMPTY PREY LIST. Keying it on `preys_on.is_empty()` inferred the feeding mode
-	# from an accident of the data: the whale declares `"diet": "filter_feeder"` AND `"preys_on": ["shrimp"]`,
-	# so a non-empty list meant the largest animal on the planet never filtered anything — while its Kleiber
-	# burn made it, with the villagers, 44% of the whole fauna's metabolic demand. A species says what it eats;
-	# the code must not deduce that from a different field.
+	# Gated on diet, never on an empty prey list: a species declares what it eats, and the feeding mode is not
+	# deduced from a different field.
 	if LACreatureDigestion.DIETS_THAT_GRAZE.has(diet) and material != null and material.has_method("graze_biomass"):
 		var room: float = maxf(0.0, max_energy - energy)
 		if room > 0.0:
@@ -825,11 +822,6 @@ func _nearest_prey(pos: Vector3) -> Node3D:
 
 # Consume a prey actor: DRAW mass out of its body into mine, then kill it. Whatever the mouth could not take
 # stays on the body and sinks as litter through the prey's own death path.
-#
-# What this replaces: it read `prey.food_value` and credited the WHOLE of it at 100% efficiency, capped at
-# `max_energy` — so the surplus above the cap was discarded outright, the prey's body was never debited (it was
-# freed whole a line later), and a small fish could gain more than a large prey ever contained. Nothing
-# balanced on either side of the bite.
 func _eat_prey(prey: Node3D) -> void:
 	if prey == null or not is_instance_valid(prey):
 		return

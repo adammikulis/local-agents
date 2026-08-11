@@ -59,13 +59,9 @@ signal degraded(reason: String)
 ## Ceiling on how many escalations per SIMULATED second are accepted world-wide. Escalations over the
 ## ceiling are dropped, and those creatures keep the action their fast brain already picked.
 ##
-## SIMULATED, not wall-clock, and that word is the whole point. This window used to be measured in
-## `Time.get_ticks_msec()`, which made the number of creatures that got to think depend on how fast the
-## machine happened to be running — and that was the last source of non-determinism in a seeded run.
-## Measured: under `--fixed-fps 60` the GPU field is bit-reproducible (soil_total and biomass_total
-## identical across runs) while `events.decision` still came back 663 vs 695, because `--fixed-fps` fixes the
-## delta handed to `_process` and does not touch the real clock. Counting physics frames instead makes the
-## budget a property of the simulation rather than of the hardware.
+## SIMULATED, not wall-clock: the window counts physics frames, so how many creatures get to think is a
+## property of the simulation and not of how fast the machine runs. A wall-clock window is non-deterministic
+## in a seeded run even under `--fixed-fps`, which fixes the delta handed to `_process` and not the clock.
 ##
 ## The model server is still protected, by `max_in_flight` above — a concurrency cap is what a server
 ## actually cares about, and it is unaffected by this. The one trade: under `--fast=N` the sim second passes

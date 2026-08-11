@@ -97,10 +97,7 @@ var gut_digestibility: float = 1.0            # mass-weighted digestibility of w
 var hydration: float = 100.0
 var max_hydration: float = 100.0
 var thirst_rate: float = 1.0
-# `DRINK_RATE` is GONE from here. It was a flat 45.0/sec copied into THREE files (this one,
-# LACreatureThirst, LACreatureThink) — more than a mouse's entire body water per second and a trickle to a
-# whale — and two of the three copies refilled hydration without emptying any water cell at all. There is one
-# drinking path now, LACreatureThirst.drink, and it scales with the animal's own water turnover.
+# Drinking lives in LACreatureThirst.drink and scales with the animal's own water turnover.
 const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupts other drives
 
 # Temperature-comfort + drowning constants moved to LACreatureMetabolism (which owns that survival tick):
@@ -897,8 +894,7 @@ func _physics_process(delta: float) -> void:
 		_pt = Time.get_ticks_usec()
 	# MOVEMENT — every frame: turn toward the decided TARGET heading, step, and re-seat radially on the
 	# surface (coast avoidance included). All of it lives in LACreatureLocomotion; the think cascade above
-	# only ever sets _target_heading / _eff_speed, which this carries the body along smoothly, so throttled
-	# decisions still read as fluid motion instead of 20 Hz direction pops.
+	# only ever sets _target_heading / _eff_speed, which this carries the body along smoothly.
 	LACreatureLocomotion.move(self, pos, ground_pos, delta)
 	if prof:
 		LACreatureProfile.add("cr_move", _pt)

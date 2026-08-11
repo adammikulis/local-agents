@@ -15,18 +15,10 @@ extends RefCounted
 ## changes groups (leaves its species/creature groups, joins carrion/corpse) and starts decaying.
 ## Static + dependency-free of concrete types (explicit types only, no ':=').
 
-## A CARCASS WEIGHS WHAT THE ANIMAL WEIGHED. There is no per-size nutrition constant any more.
-##
-## What this replaces: `_become_carcass` did `c._carrion = maxf(c.size, 0.05) * NUTRITION_PER_SIZE` — it
-## conjured a carcass out of a SIZE NUMBER at the instant of death, because the living body was never a mass
-## account at all. Decomposition then fed 100% of that invented mass into `deposit_detritus`, which lands in
-## the `detritus` channel that `LAMaterialFieldElementInventory3D` counts inside `carbon_total`. So every death
-## injected carbon into a ledger the project claims is conserved, and a starved animal that had burned its
-## whole reserve left exactly as much meat as a fat one.
-##
-## Now `_carrion` is `LACreatureBodyMass.body_mass(c)` at the moment of death: structural tissue plus whatever
-## reserve and gut contents were left. An animal that starved to death is worth almost nothing to a scavenger,
-## which is both correct and a real pressure on the scavenger guild.
+## A CARCASS WEIGHS WHAT THE ANIMAL WEIGHED. There is no per-size nutrition constant: `_carrion` is
+## `LACreatureBodyMass.body_mass(c)` at the moment of death — structural tissue plus whatever reserve and gut
+## contents were left — so an animal that starved to death is worth almost nothing to a scavenger, and no
+## death injects carbon into the `detritus` channel that `carbon_total` counts.
 const SETTLE_SPEED: float = 0.35          # below this lin+ang speed the shadow counts as resting
 const SETTLE_HOLD: float = 0.4            # seconds it must stay slow before we call it settled
 const MAX_RAGDOLL_TIME: float = 1.0       # hard cap on the tumble before we force-settle (see tick())
@@ -333,7 +325,7 @@ static func feed(c, amount: float) -> float:
 
 
 # Unified food model: a carcass is MEAT — fresh at first, then "decayed" (worth less) once decomposition has
-# converted more than 40% of the biomass.
+# taken the fraction of biomass below.
 static func food_profile(c) -> Dictionary:
 	var initial: float = maxf(float(c._carrion_initial), 0.0001)
 	var consumed_frac: float = clampf(1.0 - c._carrion / initial, 0.0, 1.0) if initial > 0.0 else 1.0

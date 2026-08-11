@@ -40,8 +40,7 @@ extends RefCounted
 # --- MEASURED PROPERTIES OF ANIMALS (facts; not tuning knobs) ---------------------------------------------
 const RESERVE_FRAC: float = 0.20       # labile reserve (fat + glycogen) as a fraction of live mass, wild mammal
 ## `max_hydration` is the LETHAL WATER DEFICIT, not total body water. An animal is dead long before its tissue
-## is dry: losing about 15% of body mass as water is fatal in a mammal. (Total body water is ~65% of mass, and
-## using that as the bar meant an animal had to lose four times a lethal amount before the sim noticed.)
+## is dry: losing about 15% of body mass as water is fatal in a mammal, while total body water is ~65% of mass.
 const LETHAL_WATER_DEFICIT_FRAC: float = 0.15
 
 # --- THE UNIT (what one simulation mass unit means; see the header) ----------------------------------------
@@ -52,15 +51,10 @@ const LETHAL_WATER_DEFICIT_FRAC: float = 0.15
 # "mass unit" have to be the same thing or the ledger is comparing apples to nothing.
 #
 # THE SCALE IS SET BY THE REAL FAUNA:FLORA RATIO. Global animal biomass is about 2 Gt of carbon against about
-# 450 Gt for plants — roughly 0.4%. The founding fauna here comes out a few per cent of the planet's standing
-# crop, which is generous next to the real ratio and deliberately so (this planet's primary production is
-# nutrient-limited, and erring toward a viable biosphere is the conservative direction).
-#
-# MEASURED, AND IT IS WHY THIS NUMBER IS WHERE IT IS. At one unit per 1/130 kg a single 62 kg villager massed
-# 8060 units while the ENTIRE PLANET'S standing crop was 300, and the founding fauna's body water came to
-# 38,250 against an `h2o_total` of 7,000: the animals outweighed the hydrosphere five times over. Both checks
-# fail the same way and both are fixed by the same factor of 10,000.
-const MASS_UNIT_SCALE: float = 1.0e-4  # the factor TISSUE_PER_KG was moved by, kept visible
+# 450 Gt for plants. The scale below holds the founding fauna to a small share of the planet's standing crop
+# and of the hydrosphere, erring generous next to the real ratio because primary production here is
+# nutrient-limited.
+const MASS_UNIT_SCALE: float = 1.0e-4  # fauna:flora scale factor applied to TISSUE_PER_KG
 const TISSUE_PER_KG: float = 130.0 * MASS_UNIT_SCALE      # simulation mass units per kilogram of live tissue
 const REFERENCE_MASS_KG: float = 0.5   # fallback when a species has no measured mass yet (a small mammal)
 

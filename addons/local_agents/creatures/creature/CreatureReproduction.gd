@@ -39,17 +39,11 @@ const MIN_ENERGY_FRAC: float = 0.55     # well-fed-enough-to-breed gate. Kept co
                                         # pregnancy costs GESTATION_ENERGY_COST over gestation ON TOP of metabolism, so
                                         # conceiving while only marginally fed risks starving the mother mid-gestation), but
                                         # low enough that grazers in the cool land band still breed fast enough to keep the
-                                        # herbivore base — and the predators that depend on it — supplied. Eased from 0.6.
+                                        # herbivore base — and the predators that depend on it — supplied.
 const GESTATION_SECONDS: float = 12.0   # seconds a bearer carries a pregnancy before giving birth
 ## A PREGNANCY COSTS THE MOTHER THE NEWBORN'S MASS, plus the metabolic overhead of building it.
 ##
-## `GESTATION_ENERGY_COST = 24.0` was a flat total for every species, and the newborn was then built by
-## `LACreatureSetup` with a FULL reserve, full health and a body of its own. A whole animal appeared for a
-## 24-unit debit — for a villager that is 1.5% of the mother's reserve, and for an insect it was many times
-## the mother's entire body. Matter came out of nowhere at every birth, and the cost did not scale with what
-## was being built.
-##
-## The debit is now the child's own live mass (structural tissue + the reserve it is born with), which is
+## The debit is the child's own live mass (structural tissue + the reserve it is born with), which is
 ## `LACreatureBodyMass.live_mass` of the species, times the overhead below. That makes reproduction genuinely
 ## expensive for a big-bodied species and cheap for a small one, which is the actual trade-off behind
 ## r-selection and K-selection — and it emerges from the mass rather than from a per-species number.

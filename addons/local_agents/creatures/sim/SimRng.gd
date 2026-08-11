@@ -149,10 +149,8 @@ static func reset(seed: int) -> void:
 # VALUES depend on how many times every OTHER consumer has drawn, so a subsystem that is itself perfectly
 # seeded still diverges when something unrelated upstream draws a different number of times.
 #
-# Measured 2026-08-03, two runs at --seed=4242, 400 frames, via LA_RNG_TRACE. LAPlateTectonics drew exactly
-# 48 `_rand_unit` values in BOTH runs — it ticked identically — yet `_fire_boundary_event` fired 1 time in
-# one run and 3 in the other. Its tick count was deterministic; the VALUES it read were not, because
-# `DNA.gd:mutate` (1057 vs 678) and `Cognition.gd:observe` (713 vs 732) had moved the shared cursor first.
+# A subsystem can tick identically in two runs and still read different values, because another subsystem's
+# draws moved the shared cursor first.
 #
 # And the root of THAT is real time: a cognition escalation holds its slot until the model's answer ARRIVES,
 # so how fast the LLM replied decides how many draws creature code makes this frame. Sharing one stream

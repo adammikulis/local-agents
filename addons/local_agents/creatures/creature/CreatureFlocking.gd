@@ -69,17 +69,10 @@ static func _leader_tether(c, pos: Vector3, flatten: bool) -> Vector3:
 ## (a bounded spatial-hash query, never a vision cone). Runs only in this rare case, so the query stays off
 ## the common path — Big-O flat.
 ##
-## Band FIRST, bloodline as the fallback. This used to read family_id alone, which meant a strayed animal
-## could only ever be pulled back toward blood relatives — the reason an animal could not leave one warren
-## for another and still belong anywhere. What a lost herd animal actually wants is whoever it has been
-## running with (LACreatureAffiliation).
-##
-## But band-only was a REGRESSION, measured over 160 real regroup calls: the band query found nobody where
-## the lineage query found a relative in 37 of 39 disagreements, so a fifth of lost animals got no homing
-## pull at all where they previously got one. Only ~1% actually homed to a non-relative. A band is a finer
-## partition of a family here, so "my band is out of earshot" does not mean "I have nobody" — it usually
-## means the band has scattered and blood is the wider circle still within range. Prefer the band, fall
-## back to lineage, and only a genuine loner (neither in range) pulls nowhere.
+## Band FIRST, bloodline as the fallback. What a lost herd animal wants is whoever it has been running with
+## (LACreatureAffiliation). But a band is a finer partition of a family here, so "my band is out of earshot"
+## does not mean "I have nobody" — it usually means the band has scattered and blood is the wider circle
+## still in range. Only a genuine loner (neither in range) pulls nowhere.
 static func _band_regroup(c, pos: Vector3, flatten: bool) -> Vector3:
 	var reach: float = maxf(c.flock_radius * LACreatureLeadership.LEASH_MULT, c.hearing_range)
 	var kin = LACreatureLeadership.nearest_band_adult(c, pos, reach)

@@ -8,8 +8,7 @@ extends RefCounted
 
 ## Drinking rate as a multiple of the animal's own water turnover: a thirsty animal refills far faster than it
 ## loses, but a big animal drinks more per second than a small one, from the mass scaling in
-## `LACreatureBodyMass.thirst_rate` rather than from a constant. It was a flat 45.0/sec for every creature —
-## more than a mouse's entire body water per second, and a trickle to a whale.
+## `LACreatureBodyMass.thirst_rate` rather than from a constant.
 const DRINK_OVER_TURNOVER: float = 60.0
 const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupts other drives
 
@@ -17,12 +16,9 @@ const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupt
 ## Thirst drive. Returns "" (not thirsty enough / no water known), "drink" (standing at water — refill in
 ## place) or "seek" (head toward the nearest water via the creature's _water_dir_cache).
 ##
-## DRINKING NOW EMPTIES THE PUDDLE. `is_water_at` is a PREDICATE — it answers "is this cell wet" and takes
-## nothing — so hydration used to be refilled from a lake that never went down, while the loss side drained it
-## into nowhere. Both legs are real now: the intake is debited out of the field's `water` (or, failing surface
-## water, the groundwater underfoot) through LAMaterialFieldBiota3D, and the loss returns as vapour in
-## LACreatureMetabolism.tick. H₂O is the substance this project holds up as its worked example of a closed
-## ledger, and animals were outside it.
+## DRINKING EMPTIES THE PUDDLE. `is_water_at` is a PREDICATE and takes nothing, so the intake is debited out
+## of the field's `water` (or, failing surface water, the groundwater underfoot) through LAMaterialFieldBiota3D,
+## and the loss returns as vapour in LACreatureMetabolism.tick. Both legs of the H₂O ledger are real.
 static func handle_thirst(c, pos: Vector3, delta: float) -> String:
 	if c._material == null or not c._material.has_method("is_water_at"):
 		return ""
