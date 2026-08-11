@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 610**
+**MAX_DECLARED: 596**
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
@@ -583,12 +583,10 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/SeaIceTextureBaker.gd` | `ICE_GAIN` | 6.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `FUNGUS_PRESENT` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `DETRITUS_PRESENT` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/MaterialFieldEnergyProbe3D.gd` | `SAMPLE_EVERY` | 50 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldEnergyProbe3D.gd` | `ZERO_EPS_J` | 1.0e6 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/FieldPassAttribution3D.gd` | `SAMPLE_EVERY` | 50 | diagnostic cadence: a sample checkpoints between every pass, so it is not free. Not derived, not cited — a cost choice | an active-cell probe that costs nothing to leave armed every step |
 | `addons/local_agents/sim/material/WaterParticles.gd` | `MAX_PARTICLES` | 12000 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/WaterParticles.gd` | `LIFETIME` | 7.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/WaterParticles.gd` | `CAP_ANGLE` | 1.4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldH2OBudget3D.gd` | `SAMPLE_EVERY` | 50 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd` | `LIT_MIN` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd` | `WET_SPLIT` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd` | `DRY_EPS` | 0.01 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -597,7 +595,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/BiomeTextureBaker.gd` | `RH_LUSH` | 1.2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialShock3D.gd` | `SHOCK_ACTIVE` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialShock3D.gd` | `SEED_NEIGHBOUR_FRACTION` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldMineralProbe3D.gd` | `SAMPLE_EVERY` | 50 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldConservation3D.gd` | `REFERENCE_STEPS` | 600 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldRender3D.gd` | `CAP_ANGLE` | 0.8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldRender3D.gd` | `FAR_ALT` | 130.0 | inherited, unreviewed | Stage 2 substrate rewrite |

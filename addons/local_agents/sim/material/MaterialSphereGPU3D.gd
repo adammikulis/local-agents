@@ -103,9 +103,9 @@ var _temp_dirty: bool = true
 const SLOW_READBACK_EVERY: int = 4
 const SLOW_CHANNELS: PackedStringArray = ["sediment", "susp", "fert", "soil", "biomass", "porosity"]
 
-# BETWEEN-PASS PROBE (LA_H2O_BUDGET diagnostics only; armed per step by LAMaterialFieldH2OBudget3D, left
-# invalid otherwise). When valid, step() runs the checkpointed path below instead of the normal one-submit
-# path. Nothing on the per-frame path reads this.
+# BETWEEN-PASS PROBE, armed per step by LAFieldPassAttribution3D and left invalid otherwise. When valid,
+# step() runs the checkpointed path below instead of the normal one-submit path. Nothing on the per-frame
+# path reads this.
 var _step_probe: Callable = Callable()
 
 

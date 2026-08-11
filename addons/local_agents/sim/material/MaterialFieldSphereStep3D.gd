@@ -39,26 +39,18 @@ static func day_length_sim_seconds() -> float:
 
 const LakesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLakes3D.gd")
 const SoilBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd")
-const H2OBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldH2OBudget3D.gd")
 const MineralProfileScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd")
-const MineralProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProbe3D.gd")
-const EnergyProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyProbe3D.gd")
+const AttributionScript: GDScript = preload("res://addons/local_agents/sim/material/FieldPassAttribution3D.gd")
 
 var _f = null                                          # back-reference to the owning LAMaterialField3D
 var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
 # Per-leg groundwater budget probe (LA_SOIL_BUDGET). Owned here rather than on the field because it is a
 # STEP diagnostic: it needs a hook that fires once per GPU step, which is this loop and nowhere else.
 var _soil_budget = null
-# Per-pass H₂O budget probe (LA_H2O_BUDGET). Owned here for the same reason as the soil budget: it needs a hook
-# on BOTH sides of the GPU step (pre_step arms the driver's between-pass probe, post_step prints), and this loop
-# is the only place that has one.
-var _h2o_budget = null
 var _mineral_profile = null
-# Per-pass MINERAL budget probe (LA_MINERAL_BUDGET) — the same instrument for the five rock phases. It uses the
-# driver's ONE `set_step_probe` slot, so it and the H₂O probe are mutually exclusive; setup() warns and keeps
-# this one when both variables are present, rather than letting one silently take every checkpoint.
-var _mineral_probe = null
-var _energy_probe = null
+# Per-pass attribution for one conserved substance. Owned here for the same reason as the soil budget: it
+# needs a hook on BOTH sides of the GPU step, and this loop is the only place that has one.
+var _attribution = null
 
 var _sim_s: float = 0.0
 var _offer_s: float = 0.0
@@ -73,30 +65,19 @@ func setup(field) -> void:
 	if _armed("LA_SOIL_BUDGET"):
 		_soil_budget = SoilBudgetScript.new()
 		_soil_budget.setup(field)
-	# THE DRIVER HAS EXACTLY ONE `set_step_probe` SLOT and three probes want it. Arming two would give one of
-	# them every checkpoint and the other none, silently, so this picks by a DECLARED precedence and names
-	# shape into one that hides which probe actually ran.)*
-	var slot_order: Array = [
-		["LA_MINERAL_BUDGET", MineralProbeScript],
-		["LA_H2O_BUDGET", H2OBudgetScript],
-		["LA_ENERGY_BUDGET", EnergyProbeScript]]
+	# The driver has exactly ONE `set_step_probe` slot and three substances want it. Arming two would give one
+	# of them every checkpoint and the other none, silently, so this picks by the records' declared precedence
+	# and says which one it ran.
 	var slot_armed: PackedStringArray = PackedStringArray()
-	for entry in slot_order:
-		if _armed(entry[0]):
-			slot_armed.append(entry[0])
+	for name in LAFieldAttributionRecords.ORDER:
+		if _armed(name):
+			slot_armed.append(name)
 	if slot_armed.size() > 1:
 		push_warning("%s all set — they share the driver's single step probe. Running %s only; unset it to "
 			% [", ".join(slot_armed), slot_armed[0]] + "get one of the others.")
 	if slot_armed.size() > 0:
-		for entry in slot_order:
-			if entry[0] != slot_armed[0]:
-				continue
-			var probe_obj = entry[1].new()
-			probe_obj.setup(field)
-			match entry[0]:
-				"LA_MINERAL_BUDGET": _mineral_probe = probe_obj
-				"LA_H2O_BUDGET": _h2o_budget = probe_obj
-				"LA_ENERGY_BUDGET": _energy_probe = probe_obj
+		_attribution = AttributionScript.new()
+		_attribution.setup(field, LAFieldAttributionRecords.of(slot_armed[0]))
 	if _armed("LA_MINERAL_PROFILE"):
 		_mineral_profile = MineralProfileScript.new()
 		_mineral_profile.setup(field)
@@ -189,16 +170,11 @@ func process(delta: float) -> void:
 			_f._inject.queue.audit_rewind(_f._gpu, "moisture", _f._moisture)
 		_f._inject.queue.flush(_f._gpu)
 	var t_step: int = Time.get_ticks_usec()
-	# At most one budget probe is ever non-null (setup() enforces it), so this stays one branch, not a nest.
-	# Untyped like every other duck-typed module handle in this file.
-	var probe = _h2o_budget if _h2o_budget != null else _mineral_probe
-	if probe == null:
-		probe = _energy_probe
 	for i in steps:
-		if probe != null:
-			probe.pre_step()          # arm/disarm the driver's between-pass probe for THIS step
+		if _attribution != null:
+			_attribution.pre_step()   # arm/disarm the driver's between-pass probe for THIS step
 			_f._gpu.step()
-			probe.post_step()         # print the per-pass budget (no-op on unsampled steps)
+			_attribution.post_step()  # print the per-pass budget (no-op on unsampled steps)
 		else:
 			_f._gpu.step()
 	LASimReport.gauge("field_dispatch_ms", float(Time.get_ticks_usec() - t_step) / 1000.0)

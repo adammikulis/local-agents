@@ -51,7 +51,7 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	if ch.is_empty():
 		return out
 	var step: int = _fold.probe_step(step_index)
-	var f: Dictionary = _fold.fold(ch, step, _books.sealed())
+	var f: Dictionary = _fold.fold(ch, step, _books.sealed(), _f._solid, _f._temp)
 	if f.is_empty():
 		return out
 	_samples += 1

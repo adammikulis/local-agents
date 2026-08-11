@@ -527,8 +527,8 @@ engine errors first and refuses to print numbers when there are any, exiting 4**
 **Instruments:** `LA_SOIL_BUDGET=1`, `LA_MINERAL_PROFILE=1` (the only one that answers "did it move
 DOWNHILL", which no total can) — both of these sample outside the contended slot and can be armed with
 anything. **THREE probes share the driver's ONE `set_step_probe` slot and are mutually exclusive:**
-`LA_MINERAL_BUDGET`, `LA_H2O_BUDGET`, `LA_ENERGY_BUDGET`, in that declared precedence
-(`MaterialFieldSphereStep3D.gd:104-128`). Arming more than one push-warns, names every armed flag, and runs
+`LA_MINERAL_BUDGET`, `LA_H2O_BUDGET`, `LA_ENERGY_BUDGET`, in the precedence `LAFieldAttributionRecords.ORDER`
+declares. Arming more than one push-warns, names every armed flag, and runs
 the FIRST in that order. Do not read a run that armed two as if both reported. *(Corrected 2026-08-09: this
 said there were two and that the shape was a nested `if` at `:100-106`. A third contender, the per-pass
 energy probe, turned that into an explicit precedence list.)*
@@ -719,8 +719,10 @@ batch is gone, because git holds it and nobody was going to re-derive them.)*
     exactly the ambiguity — a lava flow that has solidified and a channel that never arrived look identical.
     Deciding it: give `molten_counts()` the same provenance flag and read it on a run with no eruption.
 16. **The element inventory has no per-pass attribution.** It reports that carbon moved, not which reaction
-    moved it (`MaterialFieldLedger3D.gd`, `_publish_element`). The mineral probe already does this and found a
-    leak in one run by naming `fire_dust` (`MaterialFieldMineralProbe3D.gd:50`).
+    moved it (`MaterialFieldLedger3D.gd`, `_publish_element`). Mineral already does this under
+    `LA_MINERAL_BUDGET` and found a leak in one run by naming `fire_dust`. Since 2026-08-11 the instrument is
+    generic (`FieldPassAttribution3D.gd`), so the element inventory needs a RECORD in
+    `FieldAttributionRecords3D.gd`, not a fourth module.
 17. **`fuel_total()` IS THE LAST MASKED CONSERVATION TOTAL.** *(Narrowed 2026-08-09. It read "A GAUGE THAT
     SUMS OPEN CELLS ONLY IS NOT A CONSERVATION GAUGE, and at least one still is … Any total used to answer
     'was matter created or destroyed' needs its mask-free twin" — and the twins landed on 2026-08-08.
@@ -782,9 +784,10 @@ Each stage has its own verification. Do not merge stages.
    *(Do NOT take `feature/latent-heat` (`ae1a497`) — the superseded version that pairs L_vap at 100 °C with
    L_fus at 0 °C. `feature/enthalpy` is merged.)*
 2. **PER-PASS ATTRIBUTION FOR MATTER, AND IT NOW HAS A SPECIFIC QUESTION TO ANSWER: WHAT DESTROYED THE
-   EXTRA 1.9% OF CARBON?** Build it the way `LAMaterialFieldEnergyProbe3D` does for heat and
-   `LAMaterialFieldMineralProbe3D` already did for rock. Mineral is three orders of magnitude tighter than
-   everything else and is the only substance with a per-pass probe; that is the whole lesson. Point the same
+   EXTRA 1.9% OF CARBON?** The instrument exists and is parameterised: add an element record to
+   `FieldAttributionRecords3D.gd` (channels, rows, parts) and `LAFieldPassAttribution3D` reports it. Mineral
+   is three orders of magnitude tighter than everything else and is one of the three substances with a
+   per-pass probe; that is the whole lesson. Point the same
    shape at the element inventory and carbon / oxygen / water each name their pass in one run instead of
    being argued about. **Nothing blocks this one.** It turns the debt table from a scoreboard into a set of
    addresses, and carbon is now 0.42pp from failing the build, so it is no longer an abstract improvement.
@@ -957,8 +960,8 @@ orbits; persist the orbital state.
   `MaterialFieldConservation3D.gd` (the gate, and its `DEBT` table — the SSOT for how far off each substance
   is) · `MaterialFieldLedger3D.gd` + `FieldLedgerFold3D.gd` / `FieldLedgerRecords3D.gd` / `FieldLedgerBooks3D.gd`
   (THE conservation ledger: H2O, mineral, moles and the thermal stock, from one probe read and one
-  volume-weighted walk) · `MaterialFieldEnergyProbe3D.gd` / `MaterialFieldMineralProbe3D.gd` (per-pass
-  attribution, heat and rock — a different question, and they stay separate).
+  volume-weighted walk) · `FieldPassAttribution3D.gd` + `FieldAttributionRecords3D.gd` (per-pass attribution
+  — which pass changed the total; one module, one record per substance, and it shares the ledger's walk).
 - **Heat capacity, one definition per side of the GPU boundary:** `kernels3d/rc_shared.glsli` (GLSL) and
   `material/HeatCapacity.gd` (`LAHeatCapacity`, GDScript), held equal by `scripts/check_heat_capacity_ssot.sh`.
 - **Composition root:** `game/VoxelWorld.gd` (**extract-only**) + `game/world/*`.
