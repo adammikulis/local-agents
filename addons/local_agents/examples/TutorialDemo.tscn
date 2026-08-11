@@ -1,10 +1,128 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=9 format=3]
 
-[ext_resource type="Script" path="res://addons/local_agents/examples/TutorialDemo.gd" id="1_tutdemo"]
+[ext_resource type="Script" path="res://addons/local_agents/examples/TutorialDemo.gd" id="1_demo"]
+[ext_resource type="Script" path="res://addons/local_agents/ui/tutorial/TutorialStep.gd" id="2_step"]
+[ext_resource type="Script" path="res://addons/local_agents/ui/tutorial/TutorialHighlightOverlay.gd" id="3_overlay"]
+[ext_resource type="Script" path="res://addons/local_agents/ui/tutorial/TutorialSequencer.gd" id="4_sequencer"]
+[ext_resource type="Script" path="res://addons/local_agents/runtime/DemoHarness.gd" id="5_harness"]
+
+[sub_resource type="Resource" id="Resource_step_spawn"]
+script = ExtResource("2_step")
+text = "This is the Spawn button. Give it a click to add a creature."
+title = "Step 1: Spawn"
+target_kind = 1
+control_path = NodePath("Buttons/Spawn")
+target_pad = 8.0
+advance = 1
+
+[sub_resource type="Resource" id="Resource_step_grow"]
+script = ExtResource("2_step")
+text = "Nice. Now click Grow to expand the world."
+title = "Step 2: Grow"
+target_kind = 1
+control_path = NodePath("Buttons/Grow")
+target_pad = 8.0
+advance = 1
+
+[sub_resource type="Resource" id="Resource_step_reset"]
+script = ExtResource("2_step")
+text = "Last one. Click Reset to finish the tour."
+title = "Step 3: Reset"
+target_kind = 1
+control_path = NodePath("Buttons/Reset")
+target_pad = 8.0
+advance = 1
 
 [node name="TutorialDemo" type="Control"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-script = ExtResource("1_tutdemo")
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_demo")
+steps = Array[ExtResource("2_step")]([SubResource("Resource_step_spawn"), SubResource("Resource_step_grow"), SubResource("Resource_step_reset")])
+
+[node name="Background" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.16, 0.18, 0.22, 1)
+
+[node name="Heading" type="Label" parent="."]
+offset_left = 40.0
+offset_top = 30.0
+offset_right = 1000.0
+offset_bottom = 66.0
+theme_override_font_sizes/font_size = 24
+text = "Tutorial system demo"
+
+[node name="Subtitle" type="Label" parent="."]
+offset_left = 40.0
+offset_top = 70.0
+offset_right = 1000.0
+offset_bottom = 96.0
+theme_override_colors/font_color = Color(0.7, 0.74, 0.8, 1)
+text = "Follow the highlighted callout. It walks you through these buttons in turn."
+
+[node name="PressLog" type="Label" parent="."]
+unique_name_in_owner = true
+offset_left = 40.0
+offset_top = 102.0
+offset_right = 1000.0
+offset_bottom = 128.0
+theme_override_colors/font_color = Color(0.55, 0.85, 0.6, 1)
+text = "Nothing pressed yet."
+
+[node name="Buttons" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
+offset_left = 80.0
+offset_top = 180.0
+offset_right = 320.0
+offset_bottom = 444.0
+theme_override_constants/separation = 18
+
+[node name="Spawn" type="Button" parent="Buttons"]
+custom_minimum_size = Vector2(240, 48)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Spawn a creature"
+
+[node name="Grow" type="Button" parent="Buttons"]
+custom_minimum_size = Vector2(240, 48)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Grow the world"
+
+[node name="Reset" type="Button" parent="Buttons"]
+custom_minimum_size = Vector2(240, 48)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Reset everything"
+
+[node name="Help" type="Button" parent="Buttons"]
+custom_minimum_size = Vector2(240, 48)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Open help (not part of the tour)"
+
+[node name="HighlightOverlay" type="Control" parent="."]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("3_overlay")
+
+[node name="TutorialSequencer" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("4_sequencer")
+
+[node name="DemoHarness" type="Node" parent="."]
+script = ExtResource("5_harness")
+report_prefix = "DEMO"

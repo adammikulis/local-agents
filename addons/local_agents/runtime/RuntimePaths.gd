@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsRuntimePaths
+class_name LocalAgentRuntimePaths
 
 const RUNTIMES_BASE := "res://addons/local_agents/gdextensions/localagents/bin/runtimes"
 const MODELS_USER_ROOT := "user://local_agents/models"

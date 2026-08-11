@@ -1,182 +1,116 @@
 extends Control
 
-## Standalone demo + usage example for the reusable tutorial system (LATutorialSequencer +
-## LATutorialHighlightOverlay + LATutorialStep). Builds four demo buttons and a three-step guided tour
-## that spotlights three of them in turn ("click this", "now this"), verifiable WITHOUT the voxel sim.
+## Usage example for the reusable tutorial system (LATutorialSequencer + LATutorialHighlightOverlay +
+## LocalAgentTutorialStep): four demo buttons and a three-step guided tour that spotlights three of
+## them in turn ("click this", "now this"). Needs no model, no runtime and no voxel sim.
 ##
-## Self-harness (matches the repo's convention):
-##   -- --shoot=<png> [--shoot-frames=N]   capture a screenshot at frame N (tutorial resting on step 1,
-##                                          so the shot shows the spotlight + callout on a button), then quit.
-##   -- --run-frames=N                      auto-drive: programmatically press each spotlighted button to
-##                                          walk the tutorial to the end, print TUTORIAL_STEP / TUTORIAL_DONE
-##                                          and a DEMO_REPORT, then quit (proves advance-on-click wiring).
-## (Explicit types only — no ':=' .)
+## Everything you would configure lives in TutorialDemo.tscn: the buttons, the overlay, the sequencer
+## and the `steps` themselves, authored as LocalAgentTutorialStep sub-resources you can edit in the
+## inspector. The steps are the part worth copying. Select the root node, open Steps, and each step's
+## text, title and target button are right there. This file only does what a game would still have to
+## do by hand: hand the list to the sequencer and react to a button being pressed.
+##
+## The version this replaced built the background, the labels, the VBox and all four buttons in
+## `_ready()` from a const array, then aimed its steps at NodePath("Buttons/Spawn"), a path into a
+## tree that existed only after that build ran. Opening the scene in the editor showed one empty
+## Control.
+##
+## Headless: a LocalAgentDemoHarness child gives it the repo's standard contract.
+##   -- --run-frames=N       auto-drive: press each spotlighted button in turn, print TUTORIAL_STEP /
+##                           TUTORIAL_DONE and DEMO_REPORT, then quit (proves the advance wiring).
+##   -- --shoot=<png>        capture a frame with the spotlight resting on a button, then quit.
+##
+## (Explicit types only. The project rule bans ':=' inferred typing.)
 
-const OverlayScript: GDScript = preload("res://addons/local_agents/ui/tutorial/TutorialHighlightOverlay.gd")
-const SequencerScript: GDScript = preload("res://addons/local_agents/ui/tutorial/TutorialSequencer.gd")
-const StepScript: GDScript = preload("res://addons/local_agents/ui/tutorial/TutorialStep.gd")
+## The guided tour, in order. Authored as sub-resources in TutorialDemo.tscn.
+@export var steps: Array[LocalAgentTutorialStep] = []
 
-var _overlay: LATutorialHighlightOverlay = null
-var _seq: LATutorialSequencer = null
-var _buttons: Dictionary = {}          # name -> Button
-var _step_targets: Array[Button] = []  # target button per tutorial step (for auto-drive), null if none
-var _log: Label = null
+## Keys the "don't show again" flag the sequencer persists to user://. Blank hides that checkbox.
+@export var tutorial_id: String = "demo_tutorial"
 
-# Harness state.
-var _shoot_path: String = ""
-var _shoot_frames: int = 90
-var _run_frames: int = 0
-var _frame: int = 0
+@export_group("Headless auto-drive")
+## Frames the spotlight is left resting on a button before the headless auto-driver presses it.
+## Interactive runs never use this. `--run-frames` is what arms the driver.
+@export_range(0, 240, 1, "suffix:frames") var press_cooldown_frames: int = 6
+
+@onready var _overlay: LATutorialHighlightOverlay = %HighlightOverlay
+@onready var _sequencer: LATutorialSequencer = %TutorialSequencer
+@onready var _buttons: VBoxContainer = %Buttons
+@onready var _log: Label = %PressLog
+
 var _auto: bool = false
 var _auto_cooldown: int = 0
+var _harness_frames: int = 0
 var _finished: bool = false
 
 
 func _ready() -> void:
-	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_parse_args()
-	_build_background()
-	_build_buttons()
-	_overlay = OverlayScript.new()
-	add_child(_overlay)
-	_seq = SequencerScript.new()
-	add_child(_seq)
-	_seq.step_changed.connect(_on_step_changed)
-	_seq.tutorial_finished.connect(_on_finished)
-	_start_tutorial()
-	if _run_frames > 0 or _shoot_path != "":
-		set_process(true)
+	for child in _buttons.get_children():
+		if child is BaseButton:
+			(child as BaseButton).pressed.connect(_on_demo_button.bind(child.name))
+	_sequencer.step_changed.connect(_on_step_changed)
+	_sequencer.tutorial_finished.connect(_on_finished)
+	# Control paths in the steps are relative to this node, which is why `self` is the target root.
+	# No camera: every step here points at a Control, not a world position.
+	_sequencer.start(steps, _overlay, self, null, tutorial_id)
 
 
-func _parse_args() -> void:
-	for arg in OS.get_cmdline_user_args():
-		if arg.begins_with("--shoot="):
-			_shoot_path = arg.substr("--shoot=".length())
-		elif arg.begins_with("--shoot-frames="):
-			_shoot_frames = int(arg.substr("--shoot-frames=".length()))
-		elif arg.begins_with("--run-frames="):
-			_run_frames = int(arg.substr("--run-frames=".length()))
-			_auto = true
+func _on_demo_button(which: StringName) -> void:
+	_log.text = "You pressed: %s" % String(which)
 
 
-func _build_background() -> void:
-	var bg: ColorRect = ColorRect.new()
-	bg.color = Color(0.16, 0.18, 0.22)
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bg)
-
-	var heading: Label = Label.new()
-	heading.text = "Tutorial system demo"
-	heading.add_theme_font_size_override("font_size", 24)
-	heading.position = Vector2(40, 30)
-	add_child(heading)
-
-	var sub: Label = Label.new()
-	sub.text = "Follow the highlighted callout — it walks you through these buttons in turn."
-	sub.add_theme_color_override("font_color", Color(0.7, 0.74, 0.8))
-	sub.position = Vector2(40, 64)
-	add_child(sub)
-
-	_log = Label.new()
-	_log.add_theme_color_override("font_color", Color(0.55, 0.85, 0.6))
-	_log.position = Vector2(40, 96)
-	add_child(_log)
-
-
-func _build_buttons() -> void:
-	var panel: VBoxContainer = VBoxContainer.new()
-	panel.add_theme_constant_override("separation", 18)
-	panel.position = Vector2(80, 180)
-	panel.name = "Buttons"
-	add_child(panel)
-
-	var defs: Array = [
-		["Spawn", "Spawn a creature"],
-		["Grow", "Grow the world"],
-		["Reset", "Reset everything"],
-		["Help", "Open help (not part of the tour)"],
-	]
-	for d in defs:
-		var b: Button = Button.new()
-		b.text = String(d[1])
-		b.name = String(d[0])
-		b.custom_minimum_size = Vector2(240, 48)
-		b.add_theme_font_size_override("font_size", 18)
-		b.pressed.connect(_on_demo_button.bind(String(d[0])))
-		panel.add_child(b)
-		_buttons[String(d[0])] = b
-
-
-func _on_demo_button(which: String) -> void:
-	if _log != null:
-		_log.text = "You pressed: %s" % which
-
-
-func _start_tutorial() -> void:
-	var steps: Array[LATutorialStep] = []
-	var s1: LATutorialStep = StepScript.for_control(NodePath("Buttons/Spawn"),
-		"This is the Spawn button. Give it a click to add a creature.", "Step 1: Spawn")
-	var s2: LATutorialStep = StepScript.for_control(NodePath("Buttons/Grow"),
-		"Nice. Now click Grow to expand the world.", "Step 2: Grow")
-	var s3: LATutorialStep = StepScript.for_control(NodePath("Buttons/Reset"),
-		"Last one — click Reset to finish the tour.", "Step 3: Reset")
-	steps.append(s1)
-	steps.append(s2)
-	steps.append(s3)
-	# Target root for the CONTROL paths is this scene root; no camera needed (pure 2D demo).
-	_seq.start(steps, _overlay, self, null, "demo_tutorial")
-
-	# Cache the target button per step so the auto-driver can programmatically press them.
-	_step_targets = []
-	_step_targets.append(_buttons.get("Spawn", null))
-	_step_targets.append(_buttons.get("Grow", null))
-	_step_targets.append(_buttons.get("Reset", null))
-
-
-func _on_step_changed(index: int, _step: LATutorialStep) -> void:
+func _on_step_changed(index: int, _step: LocalAgentTutorialStep) -> void:
 	print("TUTORIAL_STEP=%d" % index)
-	_auto_cooldown = 24   # let the spotlight settle before the auto-driver presses
+	_auto_cooldown = press_cooldown_frames
 
 
 func _on_finished(completed: bool) -> void:
 	_finished = true
 	print("TUTORIAL_DONE=%s" % ("true" if completed else "false"))
-	if _log != null:
-		_log.text = "Tutorial finished."
+	_log.text = "Tutorial finished."
+
+
+# --- Headless self-test ------------------------------------------------------------------------
+# Only runs under `-- --run-frames=N`. Presses the button the current step spotlights, so a headless
+# run actually walks the tour instead of idling for N frames and reporting nothing.
+
+## Called once by LocalAgentDemoHarness with the resolved command line.
+func demo_harness_configured(frames: int, _shoot: String) -> void:
+	_harness_frames = frames
+	_auto = frames > 0
+	set_process(_auto)
 
 
 func _process(_delta: float) -> void:
-	_frame += 1
-
-	# Screenshot mode: sit on the first spotlight step and capture, so the shot shows spotlight + callout.
-	if _shoot_path != "" and _frame == _shoot_frames:
-		_capture(_shoot_path)
-		get_tree().quit(0)
+	if not _auto or _finished or not _sequencer.is_active():
 		return
-
-	# Auto-drive mode: press the current step's target button to advance (proves TARGET_PRESSED wiring).
-	if _auto and not _finished:
-		if _auto_cooldown > 0:
-			_auto_cooldown -= 1
-		elif _seq.is_active():
-			var idx: int = _seq.current_index()
-			if idx >= 0 and idx < _step_targets.size() and _step_targets[idx] != null:
-				(_step_targets[idx] as Button).pressed.emit()
-				_auto_cooldown = 24
-
-	if _run_frames > 0 and _frame >= _run_frames:
-		var report: Dictionary = {
-			"frames": _frame,
-			"tutorial_finished": _finished,
-			"fps": Performance.get_monitor(Performance.TIME_FPS),
-			"nodes": Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
-		}
-		print("DEMO_REPORT=%s" % JSON.stringify(report))
-		get_tree().quit(0)
+	if _auto_cooldown > 0:
+		_auto_cooldown -= 1
+		return
+	var target: BaseButton = _current_step_button()
+	if target != null:
+		target.pressed.emit()
+		_auto_cooldown = press_cooldown_frames
 
 
-func _capture(path: String) -> void:
-	var img: Image = get_viewport().get_texture().get_image()
-	img.save_png(path)
-	print("SHOT_SAVED=%s size=%dx%d step=%d" % [path, img.get_width(), img.get_height(), _seq.current_index()])
+# The step already names its target, so the driver reads it back rather than keeping a second list.
+func _current_step_button() -> BaseButton:
+	var index: int = _sequencer.current_index()
+	if index < 0 or index >= steps.size():
+		return null
+	return get_node_or_null(steps[index].control_path) as BaseButton
+
+
+## The payload LocalAgentDemoHarness prints at the end of a `--run-frames=N` run.
+func demo_report() -> Dictionary:
+	return {
+		"fps": Performance.get_monitor(Performance.TIME_FPS),
+		"frames": _harness_frames,
+		"nodes": Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
+		"tutorial_finished": _finished,
+	}
+
+
+## Appended to the harness's SHOT_SAVED line, so a screenshot records which step it caught.
+func demo_shot_info() -> String:
+	return "step=%d" % _sequencer.current_index()

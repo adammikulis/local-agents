@@ -1,5 +1,5 @@
 extends Resource
-class_name LocalAgentsGraphNode
+class_name LocalAgentGraphNode
 
 @export var id: int = 0
 @export var name: String = ""

@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsSongArranger
+class_name LocalAgentSongArranger
 
 ## Drives long-form song structure so music evolves instead of looping four chords
 ## forever. Walks a section form (intro → verse → chorus → … → outro) and, at each

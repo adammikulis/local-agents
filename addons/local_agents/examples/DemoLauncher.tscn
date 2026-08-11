@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3 uid="uid://e4demolaunchr01"]
+[gd_scene load_steps=3 format=3 uid="uid://e4demolaunchr01"]
 
 [ext_resource type="Script" path="res://addons/local_agents/examples/DemoLauncher.gd" id="1_launcher"]
+[ext_resource type="Script" path="res://addons/local_agents/agents/StatusLabel.gd" id="2_status"]
 
 [node name="DemoLauncher" type="Control"]
 layout_mode = 3
@@ -34,7 +35,15 @@ text = "Local Agents demos"
 [node name="Subtitle" type="Label" parent="Margin/VBox"]
 layout_mode = 2
 autowrap_mode = 3
-text = "A ladder of demos, each adding one capability over the last. Start at the top and work down to the flagship planet sim."
+text = "A ladder of demos, each adding one capability over the last. Start at the top and work down to the flagship planet sim. A greyed-out row says underneath it what is missing."
+
+[node name="SetupStatus" type="Label" parent="Margin/VBox"]
+layout_mode = 2
+autowrap_mode = 3
+text = "Local Agents: checking..."
+script = ExtResource("2_status")
+show_next_step = true
+refresh_interval = 2.0
 
 [node name="Scroll" type="ScrollContainer" parent="Margin/VBox"]
 layout_mode = 2

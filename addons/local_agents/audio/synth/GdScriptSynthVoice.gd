@@ -1,6 +1,6 @@
 @tool
 extends "res://addons/local_agents/audio/synth/SynthVoice.gd"
-class_name LocalAgentsGdScriptSynthVoice
+class_name LocalAgentGdScriptSynthVoice
 
 ## Default, dependency-free synthesis backend built on SynthDsp.
 ##
@@ -9,7 +9,7 @@ class_name LocalAgentsGdScriptSynthVoice
 
 const Params := preload("res://addons/local_agents/audio/params/SynthVoiceParamsResource.gd")
 
-func render(params: LocalAgentsSynthVoiceParamsResource, sample_rate: int) -> PackedFloat32Array:
+func render(params: LASynthVoiceParams, sample_rate: int) -> PackedFloat32Array:
 	if params == null:
 		return PackedFloat32Array()
 	var sr := maxi(8000, sample_rate)

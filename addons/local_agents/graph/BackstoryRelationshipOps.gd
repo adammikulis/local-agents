@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsBackstoryRelationshipOps
+class_name LocalAgentBackstoryRelationshipOps
 
 static func add_relationship(svc, source_npc_id: String, target_entity_id: String, relationship_type: String, from_day: int, to_day: int, confidence: float, source: String, exclusive: bool, metadata: Dictionary) -> Dictionary:
 	if relationship_type.strip_edges() == "":

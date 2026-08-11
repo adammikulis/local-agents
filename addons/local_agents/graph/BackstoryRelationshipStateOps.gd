@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsBackstoryRelationshipStateOps
+class_name LocalAgentBackstoryRelationshipStateOps
 
 static func recent_relationship_stats(svc, source_npc_id: String, target_npc_id: String, world_day: int, recent_window_days: int, recent_limit: int) -> Dictionary:
     var rows = svc._graph.list_nodes_by_metadata(svc.RELATIONSHIP_EVENT_SPACE, "relationship_key", relationship_key(source_npc_id, target_npc_id), svc.DEFAULT_SCAN_LIMIT, 0)

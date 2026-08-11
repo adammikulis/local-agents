@@ -1,0 +1,2 @@
+# Keep the test suite out of the consumer editor scan.
+# The harness invokes these by path (scripts/agent_harness.sh), so they still run.

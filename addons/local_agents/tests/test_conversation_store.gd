@@ -23,7 +23,7 @@ func run_test(tree: SceneTree) -> bool:
         push_error("NetworkGraph unavailable; build the native extension.")
         return false
 
-    var store := LocalAgentsConversationStore.new()
+    var store := LAConversationStore.new()
     tree.get_root().add_child(store)
     store.set("_runtime", MockRuntime.new())
     store.clear_all()

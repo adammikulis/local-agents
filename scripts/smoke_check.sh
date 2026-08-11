@@ -18,7 +18,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SCENE="addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn"
+SCENE="addons/local_agents/game/VoxelWorld.tscn"
 FRAMES=150
 FPS_FLOOR=1.0
 
