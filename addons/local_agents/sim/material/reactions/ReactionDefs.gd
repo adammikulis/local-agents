@@ -59,12 +59,8 @@ const OPTIMUM_BAND: int = 5
 const ARRHENIUS: int = 6
 
 # --- Gate bitflags (0 = ungated) -------------------------------------------------------------------------
-const GATE_OPEN_ABOVE: int = 1
-const GATE_SURFACE: int = 2           # OUTERMOST open cell (outward nbr is space/rock). On a shell that is the
                                       # TOP OF THE ATMOSPHERE — correct for sky gas exchange, wrong for ground.
 const GATE_NEAR_GROUND: int = 4       # GROUND-HUGGING open cell (INWARD nbr is rock) — where a plant, a snowpack
-                                      # and the altitude lapse all actually are. Distinct set from GATE_SURFACE.
-const GATE_DAYLIGHT: int = 8          # insolation above DAYLIGHT_MIN (the lit hemisphere). NO RECORD USES THIS,
 const GATE_DRY: int = 16              # cell water <= WET_MAX_LOFT (dry surface) — sand only lofts when not wet
 # parity with the deleted dust_loft kernel, and redundant with GATE_DRY which tests the cell's own
 # water. Bit value 32 is now free.)*

@@ -81,7 +81,7 @@ func report() -> Dictionary:
 		if solid[c] != 0:
 			continue                                     # rock, and the static sea reservoir, are not plant ground
 		var r: int = c % depth
-		if (r >= depth - 1) or (solid[c + 1] != 0):      # SKY skin = the kernel's GATE_SURFACE test
+		if (r >= depth - 1) or (solid[c + 1] != 0):      # sky skin: no open cell outward
 			sky_n += 1
 			bio_sky += biomass[c]
 		if r <= 0 or solid[c - 1] == 0:

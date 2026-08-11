@@ -117,21 +117,15 @@ void main() {
 
 	// EXCHANGE — every share this cell sends is scaled by scale_g, and every neighbour gathers that SAME
 	// scaled share off its own reverse link, so the flux across a face is one number both ends agree on and
-	float raw = 0.0;
+	float raw = raw_out(g);
 	float gain = 0.0;
 	for (int l = 0; l < 4; ++l) {
 		int m = nbr[base + N_LAT0 + uint(l)];
 		if (m < 0 || solid[m] != 0.0) {
 			continue;
 		}
-		raw += share(toward_link(g, l));
 		gain += tracer_in[params.offset + uint(m)] * share(toward_link(uint(m), l ^ 1)) * out_scale(uint(m));
 	}
-	if (open_u) { raw += share(vel_y[g]) + rise_frac(g); }
-	if (open_d) { raw += params.diffuse; }
-	// Downward flux leaves only where something receives it: an open cell below, or a deposit channel at the
-	// floor. A gas has neither, so it does not sink into rock.
-	if (open_d || params.deposit == 1u) { raw += fall_frac(g); }
 
 	// Vertical inflow: the cell below blowing UP into us (advection + mixing), and the cell above sending its
 	// whole downward flux — its settling plus the mixing share.

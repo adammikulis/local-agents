@@ -378,7 +378,7 @@ func _can_grow_here(placed: Vector3) -> bool:
 # and stay sparse on cold, dark or dry ground. 0 when no field is wired yet.
 #
 # This used to reach up the radial to the SHELL TOP (`_shell_top_radius`, r = depth-1, ~78 world-units above the
-# terrain) and sample there instead, because R19 photosynthesis was gated GATE_SURFACE and deposited a whole
+# terrain) and sample there instead, because photosynthesis is ground-hugging and deposited a whole
 # column's biomass into its sky-exposed outermost cell. That was a workaround for a misplaced reaction, and it
 # forced this query to be a per-COLUMN 2.5D lookup: two points on opposite sides of a ridge, or in and out of a
 # valley, read the SAME biomass because they shared a radial. R19 now runs on the ground (GATE_NEAR_GROUND), so

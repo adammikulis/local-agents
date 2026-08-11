@@ -95,7 +95,6 @@ float sat_mass_frac(float t_c) {
 
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust (dust_loft parity)
 #define REGOLITH_CELLS 4    // rooting depth = the permeable regolith band (MUST match MaterialField3D.REGOLITH_CELLS)
-#define DAYLIGHT_MIN 0.02   // insolation above which GATE_DAYLIGHT considers a cell to be in daylight
 // OVERBURDEN_MAX_CELLS bounds the outward walk. The lithification threshold is reached at four cells of full
 #define OVERBURDEN_MAX_CELLS 12
 const float ROCK_DENSITY = 2900.0;      // LAPhysical.ROCK_DENSITY_KG_M3 — basalt / crustal rock
@@ -117,10 +116,7 @@ const float O2_FLAMMABILITY_LIMIT = LOC_MOLE_FRAC / AIR_O2_MOLE_FRAC_K;
 #define ARRHENIUS              6    // x = k * driver * driver2 * exp(-(Ea/R)(1/T - 1/T_ref)) — the temperature
                                     // law of chemistry. threshold = Ea/R (K), param2 = T_ref (K). See ReactionDefs.gd.
 
-#define GATE_OPEN_ABOVE  1
-#define GATE_SURFACE     2
 #define GATE_NEAR_GROUND 4
-#define GATE_DAYLIGHT    8
 #define GATE_DRY         16   // cell is DRY (water <= WET_MAX_LOFT) — sand only lofts when not wet
                               // water=1 and is deliberately not simulated) — real per-cell chemistry only
 #define GATE_AIR_ABOVE   128  // THE FREE SURFACE: the outward neighbour is air (not rock, not drowned). A
@@ -322,21 +318,6 @@ bool gate_ok(int mask, uint i) {
 	if (mask == 0) {
 		return true;
 	}
-	if ((mask & GATE_SURFACE) != 0) {
-		// SKY-EXPOSED surface = outermost open cell (outward-radial neighbour is space or rock). gas_sky:50-51.
-		int up = nbr[i * N_SLOTS + N_OUT];
-		bool is_surface = (up < 0) || (solid[up] != 0.0);
-		if (!is_surface) {
-			return false;
-		}
-	}
-	if ((mask & GATE_OPEN_ABOVE) != 0) {
-		int au = nbr[i * N_SLOTS + N_OUT];
-		bool open_above = (au < 0) || (solid[au] == 0.0);
-		if (!open_above) {
-			return false;
-		}
-	}
 	if ((mask & GATE_DRY) != 0) {
 		if (water[i] > WET_MAX_LOFT) {
 			return false;                   // wet sand / puddle never lofts (dust_loft:53 parity)
@@ -347,11 +328,6 @@ bool gate_ok(int mask, uint i) {
 		int dn = nbr[i * N_SLOTS + N_IN];
 		if (dn < 0 || solid[dn] == 0.0) {
 			return false;
-		}
-	}
-	if ((mask & GATE_DAYLIGHT) != 0) {
-		if (light_at(i) <= DAYLIGHT_MIN) {
-			return false;                   // night side / grazing-incidence terminator
 		}
 	}
 	if ((mask & GATE_AIR_ABOVE) != 0) {

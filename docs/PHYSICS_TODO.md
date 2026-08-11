@@ -97,6 +97,40 @@ order is the order.
 
 ## E. Conservation, open
 
+- [ ] **THE AIRBORNE TRACERS CREATE MASS, AND A CORRECT FIX IS WHAT EXPOSED IT. THIS IS THE TOP ITEM.**
+      `o2_total` goes from 26 050 to **4.4e17** over 200 frames; `h2o` and `element_C` go with it.
+      `mineral_total`, which does not ride `tracer_transport`, stays sane — that is the tell.
+
+      **Bisected, not guessed.** Sane at `1433765`, broken at `bf710bd`. The only functional change between
+      them is the lateral-base correction in `tracer_transport`, `wind_step` and `wind_pressure`:
+      `nbr[base + N_OUT + l]` -> `nbr[base + N_LAT0 + l]`. The old form walked slots 1..4, i.e. it used UP as
+      one of the four HORIZONTAL directions and never visited one real lateral, and it paired each neighbour
+      with the wrong `link_tan` row. **The new form is correct** — verified against how `LASphereGrid` fills
+      the table — so it does not get reverted. It was masking this.
+
+      **Ruled out by measurement, so do not re-check these:**
+      · the `fall_frac` gating in the same commit — reverting it alone at `bf710bd` leaves the explosion;
+      · the wind being large — it FALLS with the fix, 425 -> 160 m/s (both still absurd, see below);
+      · the comment stripping in that commit — every removed line is a comment, diffed;
+      · `deposit` being set for a gas — `GasWindPass` passes 0.
+
+      **Ruled out by symmetry, on paper:** the exchange conserves exactly. A cell loses
+      `raw_out(g) * out_scale(g)`; each neighbour gathers one term of the donor's own `raw_out` scaled by the
+      donor's own `out_scale`, and those terms sum to exactly `raw_out(m)`. Reverse slots are `d ^ 1` and the
+      reverse LATERAL index is `l ^ 1`, both checked term by term against the table.
+
+      **So the defect is in the pass wiring, not the arithmetic.** Where to look next, in order:
+      (a) `GasWindPass` binds the SAME buffer to binding 1 (`TracerOut`, `writeonly`) and binding 2
+          (`Deposit`), both declared `restrict` — a promise to the driver that they do not alias, which they
+          do. Benign only while nothing writes binding 2.
+      (b) the parity/ping-pong: whether `ch[p]` and `ch[back]` are the halves the caller thinks they are on
+          every pass, and whether a second dispatch re-reads a half already written this step.
+      (c) whether the tracer pass runs more than once per step against the same pair.
+
+- [ ] **The wind is supersonic and always has been** — 160 m/s after the lateral fix, 425 before, against a
+      real jet stream of ~70 m/s. `MAX_WIND` was deleted on purpose (wind speed is an output), so this is the
+      momentum equation or its timebase, not a missing clamp. Suspect first now that pressure is in pascals.
+
 - [ ] **`o2_total` and `oxidant_all`** are the largest remaining drifts, newly visible now that the
       air-above gates select the right cells.
 - [ ] **`mineral_total`** still trips the conservation gate. The per-pass mineral probe localises it to
