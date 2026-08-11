@@ -87,8 +87,8 @@ func post_step() -> void:
 	_charge_peak = true_peak
 	# Stay awake while charge still lingers near breakdown; sleep once it has drained (skip the scan again).
 	_f._charge_woke = true_peak >= BREAKDOWN * PROBE_GATE
-	if discharged:
-		_f._charge_dirty = true                           # push the discharge back to the GPU next step
+	# No dirty flag: _fire_bolt drains through MaterialFieldInject3D.deplete_charge, which queues a sparse
+	# negative delta against the live buffer. The flag it used to set drove a whole-mirror upload.
 
 
 func _fire_bolt(cc: int) -> void:

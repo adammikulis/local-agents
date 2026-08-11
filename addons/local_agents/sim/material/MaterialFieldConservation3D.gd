@@ -70,9 +70,12 @@ func check(d: Dictionary) -> Dictionary:
 		if mag > float(_worst.get(key, 0.0)):
 			_worst[key] = mag
 		rows[key] = snappedf(rel, 1e-6)
-		# The verdict only at the horizon; before it the run is still accumulating, after it the same
-		# breach would be re-reported every sample.
-		if elapsed < REFERENCE_STEPS or _audited:
+		# No verdict before the horizon — the run is still accumulating. AFTER it, every sample is checked.
+		# `or _audited` used to sit here too, which made this gate evaluate exactly ONCE and then go blind:
+		# a run 60x past the horizon reported conservation_failed: false while carbon had grown 12x. The
+		# stated reason for it — "the same breach would be re-reported every sample" — is already handled by
+		# the `not _violations.has(key)` below, which is what makes it one line per substance.
+		if elapsed < REFERENCE_STEPS:
 			continue
 		if mag > float(DEBT[key]) and not _violations.has(key):
 			_violations.append(key)
@@ -93,6 +96,14 @@ func check(d: Dictionary) -> Dictionary:
 	out["conservation_violations"] = _violations
 	# "seeding" above is the only way to avoid answering, and it stops being available once the world seals.
 	out["conservation_failed"] = not _violations.is_empty()
+	# The PEAK excursion, which is a different question from "where did it end up": a substance that swings
+	# far out and returns has still broken conservation. Reported beside the verdict rather than folded into
+	# it, so a run says both what happened and how bad it got.
+	var worst_over: Dictionary = {}
+	for key in _worst:
+		if float(_worst[key]) > float(DEBT.get(key, INF)):
+			worst_over[key] = snappedf(float(_worst[key]), 1e-6)
+	out["conservation_worst_over_debt"] = worst_over
 	return out
 
 
