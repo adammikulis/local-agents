@@ -43,8 +43,8 @@ const O2_AMBIENT: float = 1.0             # one unit of `o2` IS a cell of ambien
 
 
 ## The extent, evaluated exactly as reactions_sphere3d.glsl does: the ARRHENIUS rate, then the reactant caps
-## with the quench floor subtracted from the quenched species. `t_ceiling_k` is read off the record (0 = none)
-## the same way the kernel reads it.
+## with the quench floor subtracted from the quenched species. A `t_ceiling_k` of zero on the record means
+## no ceiling, as in the kernel.
 func _extent(rec: Dictionary, t_c: float, fuel: float, o2: float) -> float:
 	var t_k: float = t_c + LAPhysical.KELVIN_OFFSET
 	var ceiling: float = float(rec.get("t_ceiling_k", 0.0))
@@ -177,7 +177,7 @@ func run_test(_tree: SceneTree) -> bool:
 			ok = false
 
 	# --- 4. THE OXYGEN QUENCH: a flame goes out before the oxygen does ---------------------------------------
-	# Measured as a MOLE FRACTION (0.15) and converted to the channel's ambient-air unit, so 0.716.
+	# A mole fraction, converted here to the channel's ambient-air unit.
 	var want_quench: float = LAPhysical.LIMITING_OXYGEN_CONCENTRATION_FRAC / LAPhysical.AIR_MOLE_FRAC_O2
 	if absf(quench - want_quench) > 1.0e-6:
 		push_error("the oxygen quench is %.4f, expected %.4f = LIMITING_OXYGEN_CONCENTRATION_FRAC / "

@@ -4,9 +4,8 @@ class_name LocalAgentManager
 signal agent_ready(agent)
 signal configs_updated()
 
-# res:// is READ-ONLY in an exported build (errno 19), so the shipped .tres is a read-only SEED only.
-# Runtime edits persist to a writable user:// copy (copy-on-first-write): read user:// if present, else
-# fall back to the res:// seed; always SAVE to user://.
+# res:// is read-only in an exported build (errno 19), so the shipped .tres is a seed. Load user:// when
+# present, else the res:// seed; always save to user:// (copy-on-first-write).
 const CONFIG_LIST_SEED_PATH: String = "res://addons/local_agents/configuration/parameters/ConfigList.tres"
 const USER_CONFIG_LIST_PATH: String = "user://local_agents/config/ConfigList.tres"
 const DEFAULT_INFERENCE_PARAMS_PATH: String = "res://addons/local_agents/configuration/parameters/InferenceParams.tres"

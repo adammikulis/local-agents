@@ -54,16 +54,9 @@ static func active() -> LAVoxelTimeControl:
 ## Set the speed from a raw multiplier, snapped to the nearest supported SPEED. THIS is the entry point for
 ## every non-key speed change (the `--fast=N` command line, the pause menu's speed row, the trailer director).
 ##
-## Why it has to funnel here, measured 2026-07-29: `Engine.time_scale` had TWO owners. `--fast=N` was applied
-## during VoxelWorld's parse_cmdline() (VoxelWorld.gd:177) by writing Engine.time_scale through the pause
-## menu, and then this node was created ~114 lines later (:291) and its _ready() -> _apply() reset
-## Engine.time_scale to SPEEDS[PLAY_IDX], i.e. 1.0. So `--fast` silently did nothing: a probe under
-## `--fast=8` read back time_scale 1.000 with delta exactly 1/60. The one thing that appeared to work,
-## max_physics_steps_per_frame reading 8, was a coincidence — both paths compute 8 at their own multiplier.
-##
-## The cost of that was not just a dead flag. CLAUDE.md, HANDOFF.md and the run wrappers all tell agents to
-## use `--fast=N` to compress slow-emergent time for verification, so every measurement taken "at --fast=4"
-## was really taken at 1x over a shorter horizon than its author believed.
+## `Engine.time_scale` has exactly ONE owner, this node, applied after it exists. A second writer earlier in
+## boot is silently undone by this node's own _ready() -> _apply(), which leaves `--fast=N` dead while
+## max_physics_steps_per_frame still looks right.
 func set_multiplier(mult: float) -> void:
 	var best: int = PLAY_IDX
 	var best_delta: float = INF
@@ -215,32 +208,14 @@ func _apply() -> void:
 	get_tree().paused = _paused
 	if not _paused:
 		Engine.time_scale = SPEEDS[_idx]
-		# Ticks a single RENDERED frame may run. SCALED BY THE SPEED ON PURPOSE, and the old one-line reason
-		# ("let physics keep up when fast-forwarding — more sub-steps per frame at high scale") was wrong
-		# about the mechanism, which cost a wrong diagnosis downstream. `time_scale` ALREADY multiplies the
-		# delta each tick carries, so physics never needed extra sub-steps to keep up. What this line
-		# actually buys is THROUGHPUT: rendering one frame of this world costs far more than one physics
-		# tick, so packing more ticks into each rendered frame amortises the render and gets more simulated
-		# seconds per WALL second, which is the number a verification run cares about.
+		# Ticks a single RENDERED frame may run, scaled by the speed on purpose. `time_scale` already
+		# multiplies each tick's delta, so this is not about physics keeping up: it buys THROUGHPUT, since
+		# rendering one frame of this world costs far more than one physics tick and packing more ticks into
+		# each frame amortises the render.
 		#
-		# THE COST, and it is the thing that produced a false bug report — sim-time per RENDERED frame
-		# becomes QUADRATIC in the multiplier (cap 8*s ticks, each carrying s/60 seconds, so 8*s²/60).
-		# Measured 2026-07-30, simulated seconds advanced per rendered frame:
-		#     --fast=1  0.0995      --fast=2  0.533      --fast=4  1.98      --fast=8  5.28
-		# a 53x spread across an 8x speed range. So `--run-frames=N` is NOT a fixed horizon: the same 150
-		# frames reach 0.4 sim days at --fast=2 and about 1.5 at --fast=4. That is the whole of "at
-		# --fast>=4 the population dies" — the two runs were compared at equal FRAMES, so the faster one
-		# was read four sim-days deeper into its own history. At equal SIMULATED TIME the population does
-		# not collapse at all: three runs each at 80 sim-seconds ended with 146-174 creatures at --fast=2
-		# and 193-200 at --fast=4. (The --fast=4 runs also drew far fewer ambient disasters over the same
-		# simulated time, 0-1 impacts against 4-12, which flatters them; the two are not a like-for-like
-		# world. Either way nothing starves.)
-		#
-		# A constant cap of 8 was measured as the alternative and rejected. It does make the horizon linear
-		# (sim-time per frame lands on exactly 8*delta: 0.261 / 0.533 / 1.064 at --fast 2/4/8) but it costs
-		# 54-56% of the throughput at --fast=4 and --fast=8 (80 sim-seconds in 69s and 38s of wall time,
-		# against 31s and 17s here) and buys only 1->3 fps, which is unwatchable either way. Speed here is
-		# worth more than a horizon you can correct by reading `field_sim_s` out of the report.
+		# The consequence: sim-time per RENDERED frame is QUADRATIC in the multiplier (8*s ticks each
+		# carrying s/60 seconds). `--run-frames=N` is therefore NOT a fixed horizon across multipliers —
+		# place two runs on the same horizon by reading `field_sim_s` out of the report, never by frames.
 		Engine.max_physics_steps_per_frame = maxi(8, int(ceil(SPEEDS[_idx])) * 8)
 	_update_hud()
 	speed_changed.emit(_paused, current_speed())

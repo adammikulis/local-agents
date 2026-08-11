@@ -46,9 +46,8 @@ func _extent(rec: Dictionary, t_c: float) -> float:
 	elif model == DefsScript.EXCESS_OVER_THRESHOLD:
 		x = maxf(0.0, t_c - thr) * k
 	elif model == DefsScript.ARRHENIUS:
-		# Same expression as the kernel, including the temperature ceiling — which is READ OFF THE RECORD as
-		# `t_ceiling_k` (0 = none) rather than hardcoded to water's boiling point. It was hardcoded here and in
-		# the kernel until 2026-08-09; D1b's answer is unchanged, because D1b is the record that has a solvent.
+		# Same expression as the kernel, including the temperature ceiling, which comes off the record as
+		# `t_ceiling_k` (zero means none) rather than being hardcoded to water's boiling point.
 		var t_k: float = t_c + LAPhysical.KELVIN_OFFSET
 		var ceiling: float = float(rec.get("t_ceiling_k", 0.0))
 		if ceiling > 0.0:

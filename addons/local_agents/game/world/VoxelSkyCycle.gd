@@ -20,8 +20,7 @@ const SPACE_AMBIENT_COLOR: Color = Color(0.10, 0.13, 0.22)  # faint cool fill on
 # where the background/ambient source switches to the blue atmosphere; SURFACE_AMBIENT is the sky-sourced ambient
 # energy at ground level — generous, so the ground reads as a lit, blue-sky day rather than a dim terminator.
 const SURFACE_ATMO_T: float = 0.12
-const SURFACE_AMBIENT: float = 0.55         # ground-level ambient energy (was 0.70 — trimmed so the day side
-                                            # doesn't blow out to white when the atmosphere fades in)
+const SURFACE_AMBIENT: float = 0.55         # ground-level ambient energy
 const SURFACE_FILL_COLOR: Color = Color(0.50, 0.56, 0.66)   # soft blue-grey day fill (ambient at the surface)
 const FOG_DENSITY_SURFACE: float = 0.0016   # target fog density at ground; fades in from 0 with descent
 
@@ -139,9 +138,8 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: D
 	e.glow_hdr_scale = 2.0
 	e.glow_hdr_luminance_cap = 12.0
 	e.glow_normalized = false
-	# Only the two mid-frequency levels are active: bloom passes are the cost driver at
-	# this resolution, and these give a soft halo without paying for full-res or very-wide
-	# blur taps. (Baseline: enabling all 5 levels cost ~40% fps for no extra visible gain.)
+	# Only the two mid-frequency levels are active: bloom passes are the cost driver, and these give a
+	# soft halo without paying for full-res or very-wide blur taps.
 	e.set_glow_level(1, 0.0)
 	e.set_glow_level(2, 0.0)
 	e.set_glow_level(3, 1.0)

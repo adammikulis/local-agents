@@ -9,16 +9,14 @@ extends RefCounted
 ## design, so those two rules disagree during boot, in the window after the star has registered and before
 ## the planet has.
 ##
-## That window used to be permanent. The cache validated only that the remembered instance id was still
-## ALIVE, never that it was still the reference body, so a single gravity query inside the window latched G
-## to the star for the life of the process: measured surface gravity 1.37 against the intended 55.0, with
-## nothing logged and no error raised. Nothing in the shipped boot opened the window — VoxelWorld registers
-## the star, then the planet, inside one `_ready()` with no query between them — which is exactly why this
-## needs a test rather than a comment. It was correct only because of the order two unrelated lines happen
-## to run in, and the next person to move a line would not have found out.
+## The cache must revalidate that the remembered body is still the REFERENCE body, not merely still alive:
+## a gravity query inside that window would otherwise latch G to the star for the life of the process, with
+## nothing logged and no error raised. Nothing in the shipped boot opens the window — VoxelWorld registers
+## the star, then the planet, inside one `_ready()` with no query between them — which is why this needs a
+## test rather than a comment: it holds only because of the order two unrelated lines run in.
 ##
-## The assertion is on the RECOVERED acceleration, not on any call reporting ok: the broken version returned
-## a perfectly valid float, it was just calibrated against the wrong body.
+## The assertion is on the RECOVERED acceleration, not on any call reporting ok: a mis-calibrated G still
+## returns a perfectly valid float.
 ## (Explicit types only, project rule: no ':=' inferred typing.)
 
 const STAR_MASS: float = 1.0e7
@@ -61,7 +59,7 @@ func run_test(tree: SceneTree) -> bool:
 	star.add_to_group(LAGravity.GROUP)
 
 	# THE WINDOW: the heavier body is registered and something asks for gravity before the planet exists.
-	# This is the query that used to poison the cache permanently.
+	# This is the query that can poison the cache.
 	var g_star_only: float = LAGravity.gravitational_constant(tree)
 
 	var planet: StubBody = StubBody.new()

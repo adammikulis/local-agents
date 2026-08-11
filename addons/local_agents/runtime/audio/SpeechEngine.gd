@@ -27,8 +27,7 @@ extends Node
 ## - `speak(text)` queues a line and returns immediately. Lines are serialized so the speaker never
 ##   talks over itself, and only the freshest MAX_QUEUE lines survive a backlog.
 ## - `speak_blocking(text)` synthesizes on the calling thread and returns whether audio was produced.
-##   Measured at 0.47s for a short line through python piper on an M-series Mac, so call it from a
-##   menu or a turn, not from _process.
+##   It blocks for the length of a piper invocation, so call it from a menu or a turn, not _process.
 ##
 ## The two share one speaker and speak_blocking wins. An explicit speak() ends whatever is talking, drops
 ## the queued backlog, and lets a synthesis already in flight land on the floor. Making speak() wait
@@ -65,8 +64,8 @@ const GENDER_VOICES: Dictionary = {
 	"female": "en_US-hfc_female-medium",
 }
 
-# Which interpreter can `import piper`, resolved once per process. A probe costs about 0.14s, and
-# every LocalAgent in a scene would otherwise pay it again.
+# Which interpreter can `import piper`, resolved once per process so every LocalAgent in a scene does
+# not re-run the probe.
 static var _python_cache: String = ""
 static var _python_cache_valid: bool = false
 
@@ -248,8 +247,8 @@ func speak(text: String) -> void:
 ## headless there is no audio device, so it reports whether the wav was written. False means nothing
 ## could speak, and the reason is pushed as a warning once per engine.
 ##
-## This blocks. A short line took 0.47s through python piper on an M-series Mac, including the
-## interpreter start and the model load. Use speak() on any per-frame path.
+## This blocks for a whole piper invocation, interpreter start and model load included. Use speak()
+## on any per-frame path.
 ##
 ## An explicit speak() outranks queued commentary: this cuts off whatever is speaking and clears the
 ## backlog before it starts, so the speaker never has two lines going at once.
@@ -544,15 +543,11 @@ static func python_interpreter() -> String:
 ## a system voice. This is the question a status probe wants answered, rather than "is the native
 ## binary present", which is false on every stock install.
 ##
-## `runtime/AgentStatus.gd._speech_ok()` delegates here, so the setup report and this agree. It used to
-## ask only whether the native binary existed, which is false on every stock install, so a working
-## setup reported itself degraded forever.
+## `runtime/AgentStatus.gd._speech_ok()` delegates here, so the setup report and this agree.
 ##
-## Gotcha before you call a false answer a bug: the python branch is WORKING-DIRECTORY DEPENDENT.
-## pyenv picks the interpreter from a `.python-version` file, so `python3` launched from a project that
-## has one can import piper while the same command from /tmp cannot. Measured 2026-07-29: true from the
-## repo, false from a staged copy under /tmp, same machine, same minute. That is the environment being
-## reported accurately rather than a wrong answer.
+## The python branch is WORKING-DIRECTORY DEPENDENT: pyenv picks the interpreter from a
+## `.python-version` file, so `python3` launched from a project that has one can import piper while the
+## same command elsewhere cannot. A false answer there is the environment, not a bug here.
 static func speech_available(runtime_dir: String = "") -> bool:
 	if RuntimePaths.resolve_executable("piper", runtime_dir) != "":
 		return true

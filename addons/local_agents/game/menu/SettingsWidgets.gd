@@ -5,8 +5,8 @@ extends RefCounted
 ## simulation and audio sections all draw the SAME labelled-slider / dropdown / preset-row widgets instead
 ## of each re-implementing them. Every builder attaches a tooltip (what the setting affects + whether the
 ## cost is GPU or CPU) that Godot shows on hover. This is the reused, metadata-free tooltip mechanism the rest of
-## the menus use. Numeric sliders show a live value readout formatted by a caller-supplied Callable, so a
-## population slider reads "200", a resolution slider "72" and a distance slider "800 m".
+## the menus use. Numeric sliders show a live value readout formatted by a caller-supplied Callable, so each
+## slider can present a bare count, a resolution or a distance with its unit.
 ##
 ## Pure static builders returning the created nodes (no state); the section objects hold the returned refs
 ## and drive them. (Explicit types only, no ':=' inferred typing.)

@@ -4,22 +4,15 @@ class_name LocalAgentDemoEntry
 
 ## One rung of the demo ladder, as data.
 ##
-## The launcher used to carry a `const DEMOS` array of untyped Dictionaries holding `res://` strings.
-## That gave three separate places to keep in step (the array, the README table, docs/USAGE.md) and
-## made a renamed scene fail at click time, as a button labelled "Missing", rather than at edit time.
-##
-## An entry is a Resource in `examples/demos/` instead, following the `creatures/species/*.json`
-## precedent: drop a file in the directory and it appears in the launcher. Nothing to edit in code.
+## An entry is a Resource in `examples/demos/`, following the `creatures/species/*.json` precedent: drop
+## a file in the directory and it appears in the launcher. Nothing to edit in code.
 ##
 ## `scene_path` is a plain path string, deliberately not a PackedScene. A PackedScene reference is a
-## real dependency, so loading twelve entries to paint a menu also loaded twelve demo scenes and
-## their entire script graphs. That measured ~563 ms of blocking work in _ready() against ~92 us for
-## a path check, on the one screen that is the addon's front door.
+## real dependency, so loading the entries to paint a menu would also load every demo scene and its
+## whole script graph on the screen that is the addon's front door.
 ##
-## Drift is caught by scripts/check_demo_catalog.sh instead, which fails the build when an entry
-## points at a scene that does not exist. That is strictly better than the PackedScene version, which
-## did not fail loudly as claimed: a missing scene made the whole .tres fail to load, and the launcher
-## logged a warning and silently dropped the row.
+## Drift is caught by scripts/check_demo_catalog.sh, which fails the build when an entry points at a
+## scene that does not exist.
 ##
 ## (Explicit types only. The project rule bans ':=' inferred typing.)
 
