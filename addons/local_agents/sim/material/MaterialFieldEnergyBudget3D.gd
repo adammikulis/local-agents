@@ -87,6 +87,9 @@ func _compute() -> Dictionary:
 	var pressure_live: int = 0
 	var sun: Vector3 = sun_field_dir()
 
+	var abs_w: float = 0.0            # TRUE watts: per-cell flux times that cell's own face area
+	var emit_w: float = 0.0
+	var face_m2_total: float = 0.0    # the real radiating area of the cells counted above, m^2
 	var abs_toa: float = 0.0
 	var abs_ground: float = 0.0
 	var emit_toa: float = 0.0
@@ -245,6 +248,13 @@ func _compute() -> Dictionary:
 				emit_magma += emitted
 			if insolation > 0.0:
 				lit_cells += 1
+			# W/m^2 sums feed the per-cell MEANS below and stay as they are. The WATTS are a different
+			# question and need each cell's own face area: a radial flux crosses the outward face, whose area
+			# is solid_angle * r^2 and varies across the grid by the same ~8.8x the volumes do.
+			var face_m2: float = LAFieldTotals.face_area_outward_m2(_f._sphere, c)
+			face_m2_total += face_m2
+			abs_w += absorbed * face_m2
+			emit_w += emitted * face_m2
 			if top_of_atm:
 				surf_toa += 1
 				abs_toa += absorbed
@@ -259,6 +269,10 @@ func _compute() -> Dictionary:
 		return out
 	var absorbed_total: float = abs_toa + abs_ground
 	var emitted_total: float = emit_toa + emit_ground
+	out["energy_absorbed_w"] = abs_w
+	out["energy_emitted_w"] = emit_w
+	out["energy_net_w"] = abs_w - emit_w
+	out["energy_face_area_m2"] = face_m2_total
 	var net: float = absorbed_total - emitted_total
 	var fn: float = float(n)
 

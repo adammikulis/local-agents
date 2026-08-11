@@ -3,7 +3,7 @@ extends RefCounted
 
 ## ~11 W/m² of a ~150 W/m² gap, and it WARMED 15 °C → 30 °C over a run the radiative books say should have
 ## cooled 47 °C. About 140 W/m² enters from terms nothing books. This is the gauge that can see them.
-##   energy_stock = Σ over EVERY cell, rock and void, of  rc(cell) * cell_size³ * (T + 273.15)   [joules]
+##   energy_stock = Σ over EVERY cell, rock and void, of  rc(cell) * cell_volume_m3(cell) * (T + 273.15)   [joules]
 ##     `energy_emitted` (its :294-321), which are sums of per-cell fluxes in W/m², so a face area of
 ## capacity by carrier and the water leg falls from 5.5171e13 to 1.852e13 J/K — 66.4%, and to three figures
 ## (1.708e10 J/K each) leaving the `water` channel for `soil`, which carries no capacity: 2146 * 4.171e6 *
@@ -113,26 +113,42 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	}
 	var rc_all: PackedFloat64Array = LAHeatCapacity.field(ch, cc)
 	var cap_live: Dictionary = LAHeatCapacity.live_map(ch, cc)
+	# ENERGY IS rc * V * T, AND V IS PER CELL AND IN CUBIC METRES. Both halves of that were wrong here.
+	# `volume = cell_size^3` used one uniform volume for every cell on a grid whose cells differ by up to
+	# 8.8x, AND it was in model units cubed while rc is J/m^3/K, so a figure the header calls "[joules]" was
+	# short by METRES_PER_MODEL_UNIT^3, about 4.8e6. The two errors do not cancel each other and they do not
+	# cancel against the booked fluxes below, which carried the squared version of the same mistake.
+	var grid = _f._sphere
+	var have_grid: bool = grid != null and grid.cell_count == cc
+	var uniform_m3: float = pow(cell_size * LAPhysical.METRES_PER_MODEL_UNIT, 3.0)
+	var stock: float = 0.0
+	var d_heat_j: float = 0.0
+	var d_cap_j: float = 0.0
+	var vol_total_m3: float = 0.0
 	for c in cc:
 		var rc: float = rc_all[c]
 		if solid[c] != 0 and c % depth == 0:
 			shell_solid += 1
 		var tk: float = temp[c] + LAPhysical.KELVIN_OFFSET
+		var v_m3: float = LAFieldTotals.cell_volume_m3(grid, c) if have_grid else uniform_m3
+		vol_total_m3 += v_m3
 		rc_sum_t += rc * tk
+		stock += rc * tk * v_m3
 		if have_prev:
 			d_heat += _prev_rc[c] * (tk - _prev_tk[c])
 			d_cap += (rc - _prev_rc[c]) * tk
+			d_heat_j += _prev_rc[c] * (tk - _prev_tk[c]) * v_m3
+			d_cap_j += (rc - _prev_rc[c]) * tk * v_m3
 		_prev_rc[c] = rc
 		_prev_tk[c] = tk
 
-	var volume: float = cell_size * cell_size * cell_size
-	var stock: float = rc_sum_t * volume
-	var d_heat_j: float = d_heat * volume
-	var d_cap_j: float = d_cap * volume
 	var cap_raw: Dictionary = LAHeatCapacity.legs(ch, cc)
 	var cap_legs: Dictionary = {}
+	# The per-leg capacities are sums over cells of rc, so they take the MEAN cell volume — the split between
+	# legs is what they are for, and a per-cell split would mean re-walking the field once per leg.
+	var mean_m3: float = (vol_total_m3 / float(cc)) if cc > 0 else 0.0
 	for k in cap_raw:
-		cap_legs[k] = snappedf(float(cap_raw[k]) * volume, 1.0)
+		cap_legs[k] = snappedf(float(cap_raw[k]) * mean_m3, 1.0)
 	out["energy_stock"] = stock
 	out["energy_stock_cells"] = cc
 	# Every channel the capacity mix reads, and whether it actually arrived. Built by LAHeatCapacity from the
@@ -147,16 +163,28 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	out["energy_cap_j_k"] = cap_total
 	out["energy_cap_legs"] = cap_legs
 
-	# THE BOOKED RATES, in watts. `energy_absorbed` / `energy_emitted` are sums of per-cell fluxes in W/m², so
-	# each cell's own face area (cell_size²) turns the sum into watts. The geotherm's scalar flux covers the
-	# SOLID r == 0 face only (see the header).
-	var face: float = cell_size * cell_size
-	var solar_w: float = float(flux.get("energy_absorbed", 0.0)) * face
-	var lw_w: float = float(flux.get("energy_emitted", 0.0)) * face
+	# THE BOOKED RATES, in watts. LAMaterialFieldEnergyBudget3D now sums each cell's flux against that cell's
+	# OWN outward face area in m², so these arrive as watts and need no conversion here. They used to be
+	# W/m² sums multiplied by one uniform `cell_size²` — uniform on a grid whose faces vary as r², and in
+	# model units against a flux in W/m², so short by METRES_PER_MODEL_UNIT² (~2.8e4). The stock above
+	# carried the CUBED version of the same mistake, so the two did not cancel: the residual-over-booked
+	# ratio inherited the difference, a factor of METRES_PER_MODEL_UNIT.
+	var solar_w: float = float(flux.get("energy_absorbed_w", 0.0))
+	var lw_w: float = float(flux.get("energy_emitted_w", 0.0))
 	var geo_flux: float = 0.0
 	if _f._geotherm != null:
 		geo_flux = float(_f._geotherm.report().get("core_flux_w_m2", 0.0))
-	var geo_w: float = geo_flux * face * float(shell_solid)
+	# The geotherm's scalar flux crosses the INNERMOST solid faces (see the header), whose area is the r == 0
+	# inward face, not a cube side.
+	var core_face_m2: float = 0.0
+	if have_grid:
+		var k2: float = LAPhysical.METRES_PER_MODEL_UNIT * LAPhysical.METRES_PER_MODEL_UNIT
+		for s_col in int(cc / depth):
+			core_face_m2 += grid.face_area_inward(s_col * depth) * k2
+		core_face_m2 = core_face_m2 / float(maxi(int(cc / depth), 1))
+	else:
+		core_face_m2 = pow(cell_size * LAPhysical.METRES_PER_MODEL_UNIT, 2.0)
+	var geo_w: float = geo_flux * core_face_m2 * float(shell_solid)
 	var inject_j: float = 0.0
 	var unsourced_dc: float = 0.0
 	if _f._inject != null and _f._inject.queue != null:
@@ -224,8 +252,9 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	out["energy_split_close"] = (_cum_heat + _cum_cap) - run_drift
 
 	# (262.3) and against the ~140 W/m² this planet gains from terms nothing books. The denominator is the
-	var ref_cells: int = int(flux.get("energy_cells", 0))
-	var area: float = float(ref_cells) * face
+	# The REAL radiating area of the cells the budget counted, summed there against each cell's own outward
+	# face. It was `ref_cells * cell_size²` — one uniform cube side, in model units, for faces that vary as r².
+	var area: float = float(flux.get("energy_face_area_m2", 0.0))
 	out["energy_ref_area_m2"] = area
 	if area > 0.0:
 		var run_s: float = dt_real * float(run_steps)

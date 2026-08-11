@@ -27,6 +27,19 @@ enum {
 }
 
 
+## A cell's volume in CUBIC METRES, and its outward radial face in SQUARE METRES. The grid works in model
+## units; anything holding an SI quantity per unit volume or per unit area — a volumetric heat capacity in
+## J/m^3/K, a flux in W/m^2 — has to cross here or it is not in joules or watts whatever it is labelled.
+static func cell_volume_m3(grid, c: int) -> float:
+	var k: float = LAPhysical.METRES_PER_MODEL_UNIT
+	return grid.cell_volume(c) * k * k * k
+
+
+static func face_area_outward_m2(grid, c: int) -> float:
+	var k: float = LAPhysical.METRES_PER_MODEL_UNIT
+	return grid.face_area_outward(c) * k * k
+
+
 ## Volume-weighted sum of a channel, in model units cubed. This is the quantity that is conserved when
 ## matter moves between cells; the raw sum is not.
 static func volume_sum(grid, arr: PackedFloat32Array, solid: PackedByteArray, which: int = CELLS_ALL) -> float:
@@ -53,9 +66,8 @@ static func substance_kg(grid, arr: PackedFloat32Array, solid: PackedByteArray, 
 	# ~31 (GROUNDWATER_CIRCULATION_M / (REGOLITH_CELLS * cell_size)), so one model unit is not the same
 	# distance radially as laterally and this cube is wrong by that factor. Declaring the two scales
 	# separately is its own track; this line is where the answer lands when it does.
-	var m3_per_unit: float = LAPhysical.METRES_PER_MODEL_UNIT
-	var m3: float = volume_sum(grid, arr, solid, which) * m3_per_unit * m3_per_unit * m3_per_unit
-	return m3 * density
+	var k: float = LAPhysical.METRES_PER_MODEL_UNIT
+	return volume_sum(grid, arr, solid, which) * k * k * k * density
 
 
 ## The raw sum every ledger currently takes — kept ONLY so the two can be compared, never as an answer.
