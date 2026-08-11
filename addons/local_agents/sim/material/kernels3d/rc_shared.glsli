@@ -14,7 +14,7 @@
 // A snowy cell was mostly air to the cooling kernel. A lava-filled cell was air to three of the five. A
 // cell of wood was air to all four heat kernels. Energy is rc * T * V, so when one kernel deposits heat
 // against one capacity and another removes it against a different one, ENERGY IS CREATED OR DESTROYED ON
-// EVERY EXCHANGE. That is the drift LAMaterialFieldEnergyLedger3D measures, and its own unbooked item 11
+// EVERY EXCHANGE. That is the drift LAMaterialFieldLedger3D measures, and its own unbooked item 11
 // understated it: that note says "the same expression stands in all three", and it was neither the same
 // expression nor only three.
 //

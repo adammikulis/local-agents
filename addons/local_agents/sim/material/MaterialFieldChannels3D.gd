@@ -19,6 +19,15 @@ func setup(field) -> void:
 # A rotting carcass is found by its CO₂ because decomposition really does produce CO₂ (BioRecords.gd:112-117)
 # and that CO₂ really does ride the wind. Nothing here knows what a carcass is.
 
+## Frozen H₂O in the cell at a world point, in channel units. A 2.5D (x,z) call has no radial point and
+## returns 0, matching temp_at; a full 3D call reads the real cell.
+func snow_depth_at(pos: Vector3) -> float:
+	if _f._snow.size() != _f._cell_count:
+		return 0.0
+	var c: int = _f.world_to_cell(pos)
+	return _f._snow[c] if c >= 0 else 0.0
+
+
 ## CPU mirror of an airborne channel, or an empty array when that channel is not one.
 func _airborne_mirror(substance: String) -> PackedFloat32Array:
 	match substance:

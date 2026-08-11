@@ -50,7 +50,7 @@ var _temp: PackedFloat32Array = PackedFloat32Array()     # temperature °C per c
 # condensed part reads as fog (cool + near ground) or cloud (else) — all DERIVED, nothing else stores it.
 var _moisture: PackedFloat32Array = PackedFloat32Array()
 # Frozen H₂O per cell (snowpack depth) — the SAME conserved substance as _water/_moisture, just the cold phase.
-# GPU-owned (never re-uploaded); read back each frame for snow_cell_count/ice_cell_count/snow_depth_at + h2o_total.
+# GPU-owned (never re-uploaded); the CPU mirror serves snow_depth_at. The ledger reads the drain probe.
 var _snow: PackedFloat32Array = PackedFloat32Array()
 # Fractional BEDROCK mineral mass per cell (Stage B). `solid` is DERIVED from it on the GPU (solid iff >= 0.5).
 # GPU-owned + GPU-evolved (M5/M6 records); the CPU edits it only on add_lava (dirty-gated upload).
@@ -906,33 +906,15 @@ func magma_erupting() -> bool:
 ## (Was `return 0` — a hardcoded zero that read "no erosion anywhere" identically whether erosion was working
 func erosion_cell_count() -> int:
 	return LAMaterialFieldMineralProfile3D.suspended_cell_count(_susp, _solid)
-# --- Conserved H₂O ledger + snow/ice diagnostics — bodies live in LAMaterialFieldLedger3D. ONE water
+## Snow depth at a world point, in channel units. Body in LAMaterialFieldChannels3D.
 func snow_depth_at(pos: Vector3) -> float:
-	return _ledger.snow_depth_at(pos)
-## Open cells carrying a snowpack (frozen H₂O over SNOW_PRESENT) — the emergent snow-line count for SIM_REPORT.
-func snow_cell_count() -> int:
-	return _ledger.snow_cell_count()
-## Cells whose pack is thick enough to read as glacial ICE (deep end of the SAME _snow channel, no separate buffer).
-func ice_cell_count() -> int:
-	return _ledger.ice_cell_count()
-## Total frozen H₂O over the field, over every open cell (one leg of the conserved h2o_total).
-func snow_total() -> float:
-	return _ledger.snow_total()
-## Total liquid water over the field, over every open cell — the static sea/lake reservoir INCLUDED. Its
-func water_total() -> float:
-	return _ledger.water_total()
-## Total water stored in the SOIL, over every REGOLITH cell — the subsurface leg of the conserved h2o budget.
-## Infiltrated water lives here rather than in _water, so it must be counted or conservation would appear to
-## leak. Masked on regolith, not solidity: carved/eroded aquifer cells read open but still hold their soil.
-func soil_total() -> float:
-	return _ledger.soil_total()
-## The planet's WHOLE conserved H₂O budget: liquid water (sea included) + airborne moisture + frozen snow +
-## soil water. A closed sum since the four legs' inclusion rule was unified — nothing sits outside it.
+	return _channels.snow_depth_at(pos)
+## The planet's whole conserved H₂O budget in cubic metres, as LAMaterialFieldLedger3D last measured it.
 func h2o_total() -> float:
-	return _ledger.h2o_total()
-## Mean temperature over the snow-covered cells — proves snow sits on the COLD side (should read below FREEZE_TEMP).
-func snow_line_temp() -> float:
-	return _ledger.snow_line_temp()
+	return _ledger.total("h2o_total")
+## Liquid surface water in cubic metres, as LAMaterialFieldLedger3D last measured it.
+func water_total() -> float:
+	return _ledger.total("water_total")
 ## Airborne dust at a world point. Was a bare `return 0.0` with no comment — a point read that answered "how
 ## much debris is in the air here" with a permanent no. Forwards to the channel module like every other
 ## per-cell read; it self-wakes the demand-gated `dust` readback the way co2_at does.

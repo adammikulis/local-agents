@@ -581,7 +581,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd` | `K_MAX_DT_PER_STEP` | 5.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd` | `K_WATER_SURFACE_MIN` | 0.5 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/SeaIceTextureBaker.gd` | `ICE_GAIN` | 6.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldMineralBudget3D.gd` | `BASELINE_SKIP_SAMPLES` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `FUNGUS_PRESENT` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `DETRITUS_PRESENT` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldEnergyProbe3D.gd` | `SAMPLE_EVERY` | 50 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -590,7 +589,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/WaterParticles.gd` | `LIFETIME` | 7.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/WaterParticles.gd` | `CAP_ANGLE` | 1.4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldH2OBudget3D.gd` | `SAMPLE_EVERY` | 50 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldEnergyLedger3D.gd` | `BASELINE_SKIP_SAMPLES` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd` | `LIT_MIN` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd` | `WET_SPLIT` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd` | `DRY_EPS` | 0.01 | inherited, unreviewed | Stage 2 substrate rewrite |

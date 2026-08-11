@@ -252,6 +252,6 @@ func _apply_readback(res: Dictionary) -> void:
 	if res.has("vel_z") and res["vel_z"].size() == n: _f._vel_z = res["vel_z"]
 	# Hydrostatic column pressure — demand-gated (LAMaterialFieldEnergyBudget3D requests it to mirror the solar
 	if res.has("pressure") and res["pressure"].size() == n: _f._pressure = res["pressure"]
-	# Decomposer loop channels — demand-gated (LAMaterialFieldElementInventory3D requests them for the carbon
+	# Decomposer loop channels — demand-gated (LAMaterialFieldLedger3D requests them for the carbon
 	if res.has("detritus") and res["detritus"].size() == n: _f._detritus = res["detritus"]
 	if res.has("fungus") and res["fungus"].size() == n: _f._fungus = res["fungus"]
