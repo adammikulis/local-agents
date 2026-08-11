@@ -11,8 +11,8 @@ config_version=5
 [application]
 
 config/name="LocalAgents"
-config/version="0.3.0"
-run/main_scene="res://addons/local_agents/scenes/menu/MainMenu.tscn"
+config/version="0.4.0-dev"
+run/main_scene="res://addons/local_agents/game/menu/MainMenu.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 config/icon="res://icon.svg"
 
@@ -24,8 +24,8 @@ general/text_to_speech=true
 [autoload]
 
 AgentManager="*res://addons/local_agents/agent_manager/AgentManager.gd"
-GameMode="*res://addons/local_agents/scenes/menu/GameMode.gd"
-AppExit="*res://addons/local_agents/scenes/AppExit.gd"
+GameMode="*res://addons/local_agents/game/menu/GameMode.gd"
+AppExit="*res://addons/local_agents/game/AppExit.gd"
 
 [display]
 
@@ -36,10 +36,6 @@ window/vsync/vsync_mode=0
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/local_agents/plugin.cfg")
-
-[local_agents]
-
-editor/enabled=false
 
 [physics]
 

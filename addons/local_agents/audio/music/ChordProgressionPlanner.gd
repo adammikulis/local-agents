@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsChordProgressionPlanner
+class_name LocalAgentChordProgressionPlanner
 
 ## Generates chord progressions over any mode using functional-harmony weighting,
 ## seeded for reproducibility. Output is a list of chord events; playback lives in

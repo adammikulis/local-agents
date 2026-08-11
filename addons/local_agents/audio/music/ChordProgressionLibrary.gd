@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsChordProgressionLibrary
+class_name LocalAgentChordProgressionLibrary
 
 ## A catalog of well-known chord progressions as Roman-numeral token lists, each
 ## annotated with a song that famously uses it, the tonality it lives in, and a

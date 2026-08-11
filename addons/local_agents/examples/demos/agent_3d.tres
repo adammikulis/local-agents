@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="LocalAgentDemoEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/DemoEntry.gd" id="1_entry"]
+
+[resource]
+script = ExtResource("1_entry")
+order = 50
+title = "A talking agent in 3D"
+description = "The Agent3D prefab on a floor, driven by the same runtime, with a chat panel and a live status readout beside it."
+scene_path = "res://addons/local_agents/examples/Agent3DExample.tscn"
+requires_model = false
+requires_voxel_backend = false

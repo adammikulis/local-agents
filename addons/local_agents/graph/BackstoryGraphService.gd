@@ -1,8 +1,8 @@
 @tool
 extends Node
-class_name LocalAgentsBackstoryGraphService
+class_name LocalAgentBackstoryGraphService
 
-const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const RuntimePaths = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 const LlamaServerManager = preload("res://addons/local_agents/runtime/LlamaServerManager.gd")
 const BackstoryCypherPlaybookScript = preload("res://addons/local_agents/graph/BackstoryCypherPlaybook.gd")
@@ -13,6 +13,7 @@ const BackstoryEmbeddingOpsScript = preload("res://addons/local_agents/graph/Bac
 const BackstoryGraphQueryOpsScript = preload("res://addons/local_agents/graph/BackstoryGraphQueryOps.gd")
 const BackstoryRelationshipStateOpsScript = preload("res://addons/local_agents/graph/BackstoryRelationshipStateOps.gd")
 const BackstoryClaimOpsScript = preload("res://addons/local_agents/graph/BackstoryClaimOps.gd")
+const BackstoryFactionOpsScript = preload("res://addons/local_agents/graph/BackstoryFactionOps.gd")
 const STORE_DIR = "user://local_agents"
 const DB_PATH = STORE_DIR + "/network.sqlite3"
 
@@ -57,11 +58,22 @@ func _exit_tree() -> void:
     if bool(_embedding_options.get("server_shutdown_on_exit", false)):
         _embedding_server_manager.stop_managed()
 
+## Point the store at a database file. HONOURED WHENEVER IT IS CALLED: if the graph is already open on a
+## different path it is closed and reopened here, rather than the request being dropped.
+##
+## This used to warn and ignore, which made the call order load-bearing and invisible — _ready() opens the
+## graph, so a caller that set the path one line after add_child() silently kept writing to the shared default
+## store. A test did exactly that and wiped the player's real backstory space on every run while reporting
+## PASS. A setter that quietly does nothing is indistinguishable from one that works (the same failure shape
+## as a dead @export), so this one always works.
 func set_database_path(path: String) -> void:
-    if _graph != null:
-        push_warning("set_database_path called after graph init; ignoring override")
-        return
+    var previous: String = _resolved_database_path()
     _database_path_override = path.strip_edges()
+    if _graph == null or _resolved_database_path() == previous:
+        return
+    _graph.close()
+    _graph = null
+    _ensure_graph()
 
 func set_embedding_options(options: Dictionary) -> void:
     _embedding_options = options.duplicate(true)
@@ -137,6 +149,19 @@ func get_relationship_state(source_npc_id: String, target_npc_id: String, world_
 
 func get_relationships_for_npc(npc_id: String, world_day: int, recent_window_days: int = 14, recent_limit: int = 64) -> Dictionary:
     return BackstoryRelationshipOpsScript.get_relationships_for_npc(self, npc_id, world_day, recent_window_days, recent_limit)
+
+## End an open dated relationship (the counterpart of add_relationship). Membership is a period, not a
+## flag, so something has to be able to close one — see LocalAgentBackstoryFactionOps.
+func close_relationship(source_npc_id: String, target_entity_id: String, relationship_type: String, to_day: int) -> Dictionary:
+    return BackstoryFactionOpsScript.close_relationship(self, source_npc_id, target_entity_id, relationship_type, to_day)
+
+## Every MEMBER_OF this npc has held, open or ended. get_backstory_context() answers "what is true on day
+## N"; this answers "what was the whole history".
+func membership_history(npc_id: String, limit: int = 64) -> Dictionary:
+    return BackstoryFactionOpsScript.membership_history(self, npc_id, limit)
+
+func get_faction(faction_id: String) -> Dictionary:
+    return BackstoryFactionOpsScript.get_faction(self, faction_id)
 
 func record_event(event_id: String, event_type: String, summary: String, world_day: int, place_id: String = "", participant_npc_ids: Array = [], metadata: Dictionary = {}) -> Dictionary:
     return BackstoryMemoryStateOpsScript.record_event(self, event_id, event_type, summary, world_day, place_id, participant_npc_ids, metadata)

@@ -98,6 +98,39 @@ patch_linux_rpath() {
     shopt -u nullglob
 }
 
+# Make a staged executable load its sibling libraries out of its own directory.
+#
+# patch_macos_install_names/patch_linux_rpath only walk the LIBRARIES (localagents.*, libllama*,
+# libggml*, libmtmd*), and stage_tools copies the executables in afterwards, so llama-cli and
+# llama-server kept whatever absolute rpath the build machine baked in. A shipped llama-server then
+# only ran on the machine it was built on, from that exact build directory: everywhere else it died
+# with `Library not loaded: @rpath/libmtmd.0.dylib`, which took the whole llama_server backend down.
+normalize_tool_linkage() {
+    local target_path="$1"
+    local platform="$2"
+    case "$platform" in
+        macos)
+            command_exists install_name_tool && command_exists otool || return 0
+            # Drop every absolute rpath the builder left behind, then point at the tool's own dir.
+            while IFS= read -r rpath; do
+                [[ -n "${rpath}" ]] || continue
+                install_name_tool -delete_rpath "${rpath}" "${target_path}" 2>/dev/null || true
+            done < <(otool -l "${target_path}" | awk '/LC_RPATH/{f=1} f&&/ path /{print $2; f=0}')
+            install_name_tool -add_rpath "@loader_path" "${target_path}" 2>/dev/null || true
+            # The libs were rewritten to @loader_path ids, so match that here too.
+            while IFS= read -r dep_path; do
+                [[ -n "${dep_path}" ]] || continue
+                install_name_tool -change "${dep_path}" "@loader_path/$(basename "${dep_path}")" \
+                    "${target_path}" 2>/dev/null || true
+            done < <(otool -L "${target_path}" | awk '/@rpath\/lib.*\.dylib/{print $1}')
+            ;;
+        linux)
+            command_exists patchelf || return 0
+            patchelf --set-rpath '$ORIGIN' "${target_path}" 2>/dev/null || true
+            ;;
+    esac
+}
+
 stage_tools() {
     local platform="$1"
     local tools=(llama-cli llama-server)
@@ -109,6 +142,7 @@ stage_tools() {
         [[ -f "${tool_path}" ]] || continue
         cp -f "${tool_path}" "${BIN_DIR}/${tool}"
         chmod +x "${BIN_DIR}/${tool}" 2>/dev/null || true
+        normalize_tool_linkage "${BIN_DIR}/${tool}" "$platform"
     done
 }
 

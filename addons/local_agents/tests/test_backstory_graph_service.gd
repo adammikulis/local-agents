@@ -2,7 +2,11 @@
 extends RefCounted
 
 const BackstoryGraphService = preload("res://addons/local_agents/graph/BackstoryGraphService.gd")
-const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
+
+# Set when the embedding backend was unreachable, so the pass line can say which half it proved.
+var _embedding_skipped: bool = false
+var _embedding_reason: String = ""
 
 func run_test(tree: SceneTree) -> bool:
     if not ExtensionLoader.ensure_initialized():
@@ -51,6 +55,23 @@ func run_test(tree: SceneTree) -> bool:
         add_memory_result.get("ok", false),
         "Failed to add memory"
     )
+    # add_memory() returns ok as soon as the graph write lands, and reports the embedding separately
+    # under "embedding". This test used to check only the outer ok, so it printed
+    # "BackstoryGraphService tests passed" on a run whose console also carried
+    # `AgentRuntime::embed_text - http_status_error: 501`. That is a soft pass over a real failure,
+    # which this repo forbids. Semantic recall is the whole point of storing an embedding, so a
+    # silent 501 means search_memory_embeddings() is quietly answering from nothing.
+    #
+    # It stays non-fatal on purpose: embeddings need a llama-server started with --embeddings, and
+    # requiring one would make the graph suite unrunnable on a machine that has no server. So the
+    # outcome is REPORTED rather than swallowed, and the run says which of the two things it proved.
+    var embedding_result: Dictionary = add_memory_result.get("embedding", {}) as Dictionary
+    if embedding_result.is_empty():
+        push_warning("Backstory: add_memory returned no embedding block, so indexing did not run at all.")
+    elif not bool(embedding_result.get("ok", false)):
+        _embedding_skipped = true
+        _embedding_reason = String(embedding_result.get("error", "unknown"))
+        push_warning("Backstory: memory embedding failed (%s). Graph ops are covered by this run, semantic recall is NOT. Start llama-server with --embeddings to cover it." % _embedding_reason)
     var upsert_npc_child_result: Dictionary = service.upsert_npc("npc_child", "Mira")
     ok = ok and _assert(upsert_npc_child_result.get("ok", false), "Failed to create npc_child")
     var upsert_npc_brent_result: Dictionary = service.upsert_npc("npc_brent", "Brent")
@@ -192,13 +213,68 @@ func run_test(tree: SceneTree) -> bool:
     var ritual_history: Dictionary = service.get_ritual_history_for_site("site_spring", 16, 8)
     ok = ok and _assert(ritual_history.get("ritual_events", []).size() >= 1, "Ritual history missing recorded event")
 
+    # A LATE set_database_path must actually redirect the store. It used to be dropped with a warning once
+    # _ready() had opened the graph, so a caller one line too late kept writing to the shared default
+    # database while every call still returned ok — test_agent_backstory.gd did exactly that and wiped the
+    # player's real backstory space on every run while reporting PASS. Assert on WHERE THE ROWS LANDED.
+    ok = ok and _assert(_check_late_database_switch(tree), "a late set_database_path did not redirect the store")
+
     service.clear_backstory_space()
     service.queue_free()
     if FileAccess.file_exists(absolute_test_db):
         DirAccess.remove_absolute(absolute_test_db)
     if ok:
-        print("BackstoryGraphService tests passed")
+        # Say what was actually covered. "tests passed" alone let a run with a dead embedding path
+        # read as full coverage.
+        if _embedding_skipped:
+            print("BackstoryGraphService tests passed (graph ops only, embeddings unavailable: %s)" % _embedding_reason)
+        else:
+            print("BackstoryGraphService tests passed (graph ops and embeddings)")
     return ok
+
+## Write one NPC, switch the database AFTER the graph is already open, write a second NPC, then reopen each
+## file on a fresh service and check each NPC landed in exactly one of them. Checking only that the second
+## write returned ok would pass even if the switch were ignored entirely — which is the bug this covers.
+func _check_late_database_switch(tree: SceneTree) -> bool:
+    var stamp: int = int(Time.get_unix_time_from_system())
+    var path_a: String = "user://local_agents/network_switch_a_%d.sqlite3" % stamp
+    var path_b: String = "user://local_agents/network_switch_b_%d.sqlite3" % stamp
+
+    var svc: Node = BackstoryGraphService.new()
+    svc.set_database_path(path_a)
+    tree.get_root().add_child(svc)
+    svc.upsert_npc("npc_before_switch", "Before")
+    svc.set_database_path(path_b)          # LATE: the graph is already open on path_a
+    svc.upsert_npc("npc_after_switch", "After")
+    svc.queue_free()
+
+    var ok: bool = true
+    ok = _assert(_npc_exists(tree, path_a, "npc_before_switch"),
+        "the pre-switch NPC is missing from the first database") and ok
+    ok = _assert(not _npc_exists(tree, path_a, "npc_after_switch"),
+        "the post-switch NPC leaked into the first database (the switch was ignored)") and ok
+    ok = _assert(_npc_exists(tree, path_b, "npc_after_switch"),
+        "the post-switch NPC never reached the second database") and ok
+    ok = _assert(not _npc_exists(tree, path_b, "npc_before_switch"),
+        "the pre-switch NPC leaked into the second database") and ok
+
+    for path in [path_a, path_b]:
+        var absolute: String = ProjectSettings.globalize_path(path)
+        if FileAccess.file_exists(absolute):
+            DirAccess.remove_absolute(absolute)
+    return ok
+
+
+## Existence probe against a specific database file: get_backstory_context reports ok=false with a
+## missing_npc error when the NPC is not in the store it is currently pointed at.
+func _npc_exists(tree: SceneTree, db_path: String, npc_id: String) -> bool:
+    var probe: Node = BackstoryGraphService.new()
+    probe.set_database_path(db_path)
+    tree.get_root().add_child(probe)
+    var context: Dictionary = probe.get_backstory_context(npc_id, -1, 4)
+    probe.queue_free()
+    return bool(context.get("ok", false))
+
 
 func _assert(condition: bool, message: String) -> bool:
     if not condition:

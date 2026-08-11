@@ -1,0 +1,199 @@
+class_name LAThrownRock
+extends Node3D
+
+## A rock in flight. Steers toward a moving target with a mild ballistic arc,
+## strikes (kills) the target on proximity, spawns a brief impact puff, and
+## cleans itself up. Robust against null/invalid targets and terrain.
+
+const HIT_RADIUS: float = 1.3
+const MAX_LIFETIME: float = 4.0
+const ARC_HEIGHT: float = 1.5
+# The stone's own size, so its mass is its geometry rather than a number. Matches the visual BoxMesh below.
+const STONE_SIDE: float = 0.35
+
+## A THROWN ROCK IS STILL A ROCK WHEN IT LANDS. Every exit from this node — a hit, a splash, a lifetime cull,
+## a lost target — called `queue_free()` and the stone stopped existing. `LARock.take()` had already freed the
+## boulder it came from, so the pair deleted a rock's worth of mineral every time a villager hunted.
+## The substrate never held a loose rock (it is a scene node, not a `rock_fill` cell), which is exactly why
+## nothing noticed: `mineral_total` could see neither the world-gen creation nor this destruction.
+## Now the stone deposits its mass into the field's `sediment` channel wherever it comes to rest — loose
+## broken stone on the ground, which the slump and erosion kernels then move downhill like any other debris.
+## It is booked as `mineral_inject_minted`, honestly: the mass really is entering the field from outside it,
+## because the boulder it came from was outside too. Closing that last gap needs `LARock.take()`'s return
+## value plumbed into `throw_at` at CreatureThink.gd:122/147, which is another track's file.
+var mineral_mass: float = -1.0                  # < 0 = derive from STONE_SIDE on first use
+var _deposited: bool = false
+
+var _terrain: Object = null
+var _water: Object = null
+var _target: Node3D = null
+var _speed: float = 22.0
+var _flying: bool = false
+var _elapsed: float = 0.0
+var _start_pos: Vector3 = Vector3.ZERO
+var _initial_distance: float = 0.0
+
+func setup(terrain, water = null) -> void:
+	_terrain = terrain
+	_water = water
+
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.albedo_color = Color(0.4, 0.38, 0.35)
+	material.roughness = 1.0
+	material.metallic = 0.0
+
+	var mesh: BoxMesh = BoxMesh.new()
+	mesh.size = Vector3(0.35, 0.35, 0.35)
+	mesh.material = material
+
+	var mesh_instance: MeshInstance3D = MeshInstance3D.new()
+	mesh_instance.name = "ThrownRockMesh"
+	mesh_instance.mesh = mesh
+	mesh_instance.rotation = Vector3(
+		randf_range(-0.4, 0.4),
+		randf_range(0.0, TAU),
+		randf_range(-0.4, 0.4)
+	)
+	add_child(mesh_instance)
+
+func throw_at(from: Vector3, target: Node3D, speed: float = 22.0, carried_mass: float = -1.0) -> void:
+	# `carried_mass` is the mass of the boulder the thrower actually picked up (LARock.take()'s return). When
+	# the caller does not pass it, the stone falls back to its own geometry — an honest estimate rather than
+	# nothing, and the gap is one line at the call site.
+	if carried_mass >= 0.0:
+		mineral_mass = carried_mass
+	global_position = from
+	_start_pos = from
+	_target = target
+	_speed = maxf(speed, 0.1)
+	_elapsed = 0.0
+	_flying = true
+	if is_instance_valid(_target):
+		_initial_distance = maxf(from.distance_to(_target.global_position), 0.001)
+	else:
+		_initial_distance = 0.001
+
+func _physics_process(delta: float) -> void:
+	if not _flying:
+		return
+
+	if not is_instance_valid(_target):
+		queue_free()
+		return
+
+	_elapsed += delta
+
+	var target_pos: Vector3 = _target.global_position
+	var pos: Vector3 = global_position
+
+	# Steer toward the target's current position.
+	var to_target: Vector3 = target_pos - pos
+	var distance: float = to_target.length()
+
+	if distance <= HIT_RADIUS:
+		_strike()
+		return
+
+	var direction: Vector3 = to_target / maxf(distance, 0.0001)
+	pos += direction * _speed * delta
+
+	# Mild parabolic arc: peak height when halfway to the target, zero at ends.
+	var progress: float = clampf(1.0 - (distance / _initial_distance), 0.0, 1.0)
+	var arc_offset: float = sin(progress * PI) * ARC_HEIGHT
+	pos.y += arc_offset * delta * _speed * 0.15
+
+	global_position = pos
+
+	# Safety: expired lifetime.
+	if _elapsed > MAX_LIFETIME:
+		queue_free()
+		return
+
+	# Safety: dropped below the terrain surface (radial altitude < 0 = underground).
+	if _terrain != null and _terrain.has_method("altitude_at"):
+		var alt: float = _terrain.altitude_at(global_position)
+		if not is_nan(alt) and alt < 0.0:
+			_maybe_splash(global_position)
+			queue_free()
+			return
+
+func _strike() -> void:
+	_flying = false
+	if is_instance_valid(_target):
+		if _target.has_method("on_struck"):
+			_target.on_struck()
+		else:
+			_target.queue_free()
+	_maybe_splash(global_position)
+	_spawn_impact_puff()
+	queue_free()
+
+
+# Every path out of this node runs through _exit_tree, which is why the deposit lives here rather than in
+# _strike: a stone culled by its lifetime, dropped through the terrain, or orphaned by a dead target is just
+# as much a rock lying on the ground as one that hit something.
+func _exit_tree() -> void:
+	_deposit_stone()
+
+
+func _deposit_stone() -> void:
+	if _deposited:
+		return
+	_deposited = true
+	if _water == null or not ("_inject" in _water) or _water._inject == null:
+		return
+	var inject = _water._inject
+	if not inject.has_method("deposit_sediment"):
+		return
+	if mineral_mass < 0.0:
+		var side: float = maxf(float(_water._cell_size), 0.001) if ("_cell_size" in _water) else 0.0
+		if side <= 0.0:
+			return
+		# One full cell of rock is MAX_MASS, so this stone is its own volume against a cell's.
+		mineral_mass = float(_water.MAX_MASS) * (STONE_SIDE * STONE_SIDE * STONE_SIDE) / (side * side * side)
+	inject.deposit_sediment(global_position, mineral_mass)
+
+
+# Splash accent if the rock came down in water.
+func _maybe_splash(at: Vector3) -> void:
+	if _water != null and _water.has_method("is_water_at") and _water.is_water_at(at):
+		if _water.has_method("splash"):
+			_water.splash(at, 1.0)
+
+func _spawn_impact_puff() -> void:
+	var parent: Node = get_parent()
+	if parent == null:
+		return
+
+	var puff: GPUParticles3D = GPUParticles3D.new()
+	puff.name = "ImpactPuff"
+	puff.one_shot = true
+	puff.emitting = true
+	puff.amount = 12
+	puff.lifetime = 0.5
+	puff.explosiveness = 1.0
+
+	var particle_mesh: SphereMesh = SphereMesh.new()
+	particle_mesh.radius = 0.05
+	particle_mesh.height = 0.1
+	puff.draw_pass_1 = particle_mesh
+
+	var process_material: ParticleProcessMaterial = ParticleProcessMaterial.new()
+	process_material.direction = Vector3(0, 1, 0)
+	process_material.spread = 45.0
+	process_material.initial_velocity_min = 1.0
+	process_material.initial_velocity_max = 3.0
+	process_material.gravity = Vector3(0, -9.8, 0)
+	process_material.color = Color(0.4, 0.38, 0.35)
+	puff.process_material = process_material
+
+	parent.add_child(puff)
+	puff.global_position = global_position
+
+	# Auto-free the puff shortly after it finishes.
+	var timer: Timer = Timer.new()
+	timer.one_shot = true
+	timer.wait_time = 1.0
+	puff.add_child(timer)
+	timer.timeout.connect(puff.queue_free)
+	timer.start()

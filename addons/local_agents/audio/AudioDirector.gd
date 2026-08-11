@@ -1,13 +1,13 @@
 @tool
 extends Node
-class_name LocalAgentsAudioDirector
+class_name LAAudioDirector
 
 ## Presentation-layer composition root for all procedural audio.
 ##
 ## Owns the swappable synth voice, the SFX bank + voice pool, and the generative
 ## MusicDirector. Sim/actor code reaches it via the "local_agents_audio" group and
 ## calls `play_sfx(...)`; VoxelWorld feeds `set_music_mood(...)` each frame.
-## It never reads or writes simulation-authoritative state — it only reacts.
+## It never reads or writes simulation-authoritative state. It only reacts.
 
 const GdScriptSynthVoice := preload("res://addons/local_agents/audio/synth/GdScriptSynthVoice.gd")
 const SfxBank := preload("res://addons/local_agents/audio/SfxBank.gd")
@@ -21,10 +21,10 @@ const DEFAULT_SAMPLE_RATE := 44100
 @export var music_enabled: bool = false   # music OFF by default on any launch (player enables it in the audio menu)
 @export var sfx_enabled: bool = true
 
-var _voice: LocalAgentsSynthVoice = null
-var _sfx: LocalAgentsSfxBank = null
-var _pool: LocalAgentsAudioVoicePool = null
-var _music: LocalAgentsMusicDirector = null
+var _voice: LocalAgentSynthVoice = null
+var _sfx: LocalAgentSfxBank = null
+var _pool: LAAudioVoicePool = null
+var _music: LAMusicDirector = null
 var _jitter := RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -46,7 +46,7 @@ static func emit(tree: SceneTree, key: String, world_position: Variant = null) -
 
 ## Build the audio stack. Call once after adding to the tree.
 func configure(
-	voice: LocalAgentsSynthVoice = null,
+	voice: LocalAgentSynthVoice = null,
 	sample_rate: int = DEFAULT_SAMPLE_RATE,
 	music_seed: int = 1337
 ) -> void:
@@ -86,7 +86,7 @@ func play_sfx(key: String, world_position: Variant = null, volume_db: float = 0.
 	return _pool.play_nonpositional(stream, pitch, vol, &"Ui", key)
 
 ## Register/override a custom SFX preset (see SynthPresets for the field shape).
-func register_sfx(key: String, params: LocalAgentsSynthVoiceParamsResource) -> void:
+func register_sfx(key: String, params: LASynthVoiceParams) -> void:
 	if _sfx != null:
 		_sfx.register(key, params)
 

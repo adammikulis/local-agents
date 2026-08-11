@@ -1,13 +1,13 @@
 @tool
 extends Control
-class_name LocalAgentsChatController
+class_name LAChatController
 
 signal prompt_input_received(text)
 
-const DEFAULT_STORE := preload("res://addons/local_agents/controllers/ConversationStore.gd")
-const ConversationSessionService := preload("res://addons/local_agents/controllers/services/ConversationSessionService.gd")
-const ConversationHistoryService := preload("res://addons/local_agents/controllers/services/ConversationHistoryService.gd")
-const RuntimeHealth := preload("res://addons/local_agents/runtime/RuntimeHealth.gd")
+const DEFAULT_STORE: GDScript = preload("res://addons/local_agents/controllers/ConversationStore.gd")
+const ConversationSessionService: GDScript = preload("res://addons/local_agents/controllers/services/ConversationSessionService.gd")
+const ConversationHistoryService: GDScript = preload("res://addons/local_agents/controllers/services/ConversationHistoryService.gd")
+const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
 
 @onready var _model_option: OptionButton = %ModelOptionButton
 @onready var _manage_model_button: Button = %ManageModelButton
@@ -29,20 +29,20 @@ const RuntimeHealth := preload("res://addons/local_agents/runtime/RuntimeHealth.
 @onready var _send_button: Button = %SendButton
 @onready var _clear_button: Button = %ClearButton
 @onready var _saved_chats_window: Window = %SavedChatsWindow
-@onready var _saved_chats_controller: LocalAgentsSavedChatsController = %SavedChatsController
+@onready var _saved_chats_controller: LASavedChatsController = %SavedChatsController
 @onready var _rename_window: Window = %RenameConversationWindow
 @onready var _rename_line_edit: LineEdit = %RenameLineEdit
 @onready var _rename_cancel_button: Button = %RenameCancelButton
 @onready var _rename_confirm_button: Button = %RenameConfirmButton
 
 var _tab_container: TabContainer
-var _configuration_panel: LocalAgentsConfigurationPanel
+var _configuration_panel: LAConfigurationPanel
 var _conversation_session_service
 var _conversation_history_service
-var _manager: LocalAgentsAgentManager
-var _agent: LocalAgentsAgent
-var _is_generating := false
-var _status_text := "Idle"
+var _manager: LocalAgentManager
+var _agent: LocalAgent
+var _is_generating: bool = false
+var _status_text: String = "Idle"
 
 func _ready() -> void:
 	_conversation_session_service = ConversationSessionService.new()
@@ -95,11 +95,11 @@ func _locate_tab_container() -> TabContainer:
 		node = node.get_parent()
 	return node as TabContainer
 
-func _get_configuration_panel() -> LocalAgentsConfigurationPanel:
+func _get_configuration_panel() -> LAConfigurationPanel:
 	if not _tab_container:
 		return null
-	var panel_node := _tab_container.get_node_or_null("Configuration")
-	if panel_node and panel_node is LocalAgentsConfigurationPanel:
+	var panel_node: Node = _tab_container.get_node_or_null("Configuration")
+	if panel_node and panel_node is LAConfigurationPanel:
 		return panel_node
 	return null
 
@@ -112,7 +112,7 @@ func _open_configuration_panel(section: String) -> void:
 		push_warning("Configuration tab unavailable")
 		return
 	_configuration_panel.refresh_configs()
-	var tab_index := _tab_container.get_tab_idx_from_control(_configuration_panel)
+	var tab_index: int = _tab_container.get_tab_idx_from_control(_configuration_panel)
 	if tab_index != -1:
 		_tab_container.current_tab = tab_index
 	match section:
@@ -121,7 +121,7 @@ func _open_configuration_panel(section: String) -> void:
 		"inference":
 			_configuration_panel.focus_inference()
 
-func _on_agent_ready(agent: LocalAgentsAgent) -> void:
+func _on_agent_ready(agent: LocalAgent) -> void:
 	if _agent:
 		if _agent.model_output_received.is_connected(_on_model_output_received):
 			_agent.model_output_received.disconnect(_on_model_output_received)
@@ -137,10 +137,13 @@ func _on_agent_ready(agent: LocalAgentsAgent) -> void:
 func _refresh_configs() -> void:
 	if not _manager:
 		return
-	_populate_option_button(_model_option, _manager.get_model_configs(), "model_config_name")
+	_populate_option_button(_model_option, _manager.get_model_configs(), "profile_name")
 	_populate_option_button(_inference_option, _manager.get_inference_configs(), "inference_config_name")
 	_update_state_labels()
 
+# Presets arrive as Resources (LocalAgentModelProfile / LocalAgentInferenceParams), but this only
+# read label_field out of a Dictionary — so cfg stayed empty and EVERY entry fell back to
+# "config N". The dropdowns have never shown a saved preset's real name. Handle both shapes.
 func _populate_option_button(button: OptionButton, configs: Array, label_field: String) -> void:
 	button.clear()
 	if configs.is_empty():
@@ -150,11 +153,16 @@ func _populate_option_button(button: OptionButton, configs: Array, label_field: 
 	button.disabled = false
 	for idx in configs.size():
 		var cfg_variant: Variant = configs[idx]
-		var cfg: Dictionary = {}
+		var label_value: Variant = null
 		if cfg_variant is Dictionary:
-			cfg = cfg_variant
-		var label_value := cfg.get(label_field, "config %d" % idx)
-		var label: String = label_value as String if label_value is String else str(label_value)
+			label_value = (cfg_variant as Dictionary).get(label_field, null)
+		elif cfg_variant is Object:
+			label_value = (cfg_variant as Object).get(label_field)
+		var label: String = ""
+		if label_value != null:
+			label = String(label_value).strip_edges()
+		if label == "":
+			label = "config %d" % idx
 		button.add_item(label, idx)
 	button.select(0)
 
@@ -177,7 +185,7 @@ func _refresh_conversations() -> void:
 func _on_model_selected(index: int) -> void:
 	if not _manager:
 		return
-	var configs := _manager.get_model_configs()
+	var configs: Array = _manager.get_model_configs()
 	if index < 0 or index >= configs.size():
 		return
 	_manager.apply_model_config(configs[index])
@@ -185,7 +193,7 @@ func _on_model_selected(index: int) -> void:
 func _on_inference_selected(index: int) -> void:
 	if not _manager:
 		return
-	var configs := _manager.get_inference_configs()
+	var configs: Array = _manager.get_inference_configs()
 	if index < 0 or index >= configs.size():
 		return
 	_manager.apply_inference_config(configs[index])
@@ -202,7 +210,7 @@ func _on_load_model_pressed() -> void:
 		_update_status("No default model configured")
 		return
 	var ok: bool = _agent.agent_node.load_model(default_model, {})
-	var status_text := "Model loaded" if ok else "Failed to load model"
+	var status_text: String = "Model loaded" if ok else "Failed to load model"
 	_update_status(status_text)
 	_update_state_labels()
 
@@ -236,7 +244,7 @@ func _on_rename_confirmed() -> void:
 	if selected_conversation_id == -1:
 		_rename_window.hide()
 		return
-	var new_title := _rename_line_edit.text.strip_edges()
+	var new_title: String = _rename_line_edit.text.strip_edges()
 	if new_title.is_empty():
 		_rename_window.hide()
 		return
@@ -257,7 +265,7 @@ func _on_delete_conversation_pressed() -> void:
 func _on_send_pressed() -> void:
 	if _is_generating:
 		return
-	var text := _prompt_edit.text.strip_edges()
+	var text: String = _prompt_edit.text.strip_edges()
 	if text.is_empty():
 		return
 	_prompt_edit.text = ""
@@ -342,9 +350,9 @@ func _refresh_graph() -> void:
 
 func _refresh_graph_with_conversation(convo: Dictionary) -> void:
 	_conversation_graph.clear()
-	var root := _conversation_graph.create_item()
+	var root: TreeItem = _conversation_graph.create_item()
 	root.set_text(0, convo.get("title", "Conversation"))
-	var convo_messages_variant := convo.get("messages", [])
+	var convo_messages_variant: Variant = convo.get("messages", [])
 	var convo_messages: Array = []
 	if convo_messages_variant is Array:
 		convo_messages = convo_messages_variant
@@ -352,7 +360,7 @@ func _refresh_graph_with_conversation(convo: Dictionary) -> void:
 		var message: Dictionary = {}
 		if message_variant is Dictionary:
 			message = message_variant
-		var item := _conversation_graph.create_item(root)
+		var item: TreeItem = _conversation_graph.create_item(root)
 		item.set_text(0, "%s #%d" % [message.get("role", "user"), message.get("order", 0)])
 		item.set_metadata(0, message)
 
@@ -379,11 +387,14 @@ func _update_state_labels() -> void:
 	_load_model_button.disabled = _agent == null
 	_status_label.text = _status_text
 
-	var runtime_state := RuntimeHealth.summarize()
+	# One probe, one source of truth (LocalAgentStatus). The old runtime-health helper phrased the same
+	# facts differently from every other surface in the addon and never said how to fix them.
+	var state: Dictionary = Status.check()
 	if _runtime_state_label:
-		_runtime_state_label.text = runtime_state.get("runtime", "Runtime: unknown")
+		_runtime_state_label.text = String(state["headline"])
+		_runtime_state_label.tooltip_text = String(state["next_step"])
 	if _speech_state_label:
-		_speech_state_label.text = runtime_state.get("speech", "Speech: unknown")
+		_speech_state_label.text = "Speech: ready" if bool(state["speech_ok"]) else "Speech: missing voice runtime"
 	_update_send_button_state()
 
 func _sync_agent_with_messages(messages: Array) -> void:

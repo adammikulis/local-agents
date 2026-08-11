@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="LocalAgentDemoEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/DemoEntry.gd" id="1_entry"]
+
+[resource]
+script = ExtResource("1_entry")
+order = 10
+title = "Quickstart"
+description = "The smallest thing that works: one LocalAgent node, a prompt box, a reply. Start here."
+scene_path = "res://addons/local_agents/examples/AgentQuickstart.tscn"
+requires_model = true
+requires_voxel_backend = false

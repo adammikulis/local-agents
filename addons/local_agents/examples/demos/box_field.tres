@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="LocalAgentDemoEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/DemoEntry.gd" id="1_entry"]
+
+[resource]
+script = ExtResource("1_entry")
+order = 100
+title = "Box-field heat sandbox"
+description = "The simulation substrate in a bare box: inject heat at the floor, watch it diffuse and buoy upward through a tinted slice. One field, no planet wrapped around it."
+scene_path = "res://addons/local_agents/examples/BoxFieldDemo.tscn"
+requires_model = false
+requires_voxel_backend = false

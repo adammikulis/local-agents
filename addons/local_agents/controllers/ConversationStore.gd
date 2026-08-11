@@ -1,15 +1,18 @@
 @tool
 extends Node
-class_name LocalAgentsConversationStore
+class_name LAConversationStore
 
-const STORE_DIR := "user://local_agents"
-const DB_PATH := STORE_DIR + "/network.sqlite3"
-const CONVERSATION_SPACE := "conversation"
-const MESSAGE_SPACE := "message"
+const STORE_DIR: String = "user://local_agents"
+const DB_PATH: String = STORE_DIR + "/network.sqlite3"
+const CONVERSATION_SPACE: String = "conversation"
+const MESSAGE_SPACE: String = "message"
 
-var _graph: NetworkGraph
+# Typed Object, not NetworkGraph. That class comes from the native GDExtension, so annotating against
+# it makes this file a PARSE error for anyone who enabled the plugin before building the binary. The
+# ClassDB.class_exists() guard below was always right; the annotation was what broke a first install.
+var _graph: Object = null
 var _runtime: Object = null
-var _rng := RandomNumberGenerator.new()
+var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func _ready() -> void:
     _rng.randomize()
@@ -34,8 +37,8 @@ func list_conversations(limit: int = 256, offset: int = 0) -> Array:
 func create_conversation(title: String) -> Dictionary:
     if not _ensure_graph():
         return {}
-    var timestamp := _timestamp()
-    var node_id := _graph.upsert_node(CONVERSATION_SPACE, _generate_label("conversation"), {
+    var timestamp: int = _timestamp()
+    var node_id: int = _graph.upsert_node(CONVERSATION_SPACE, _generate_label("conversation"), {
         "type": "conversation",
         "title": title,
         "created_at": timestamp,
@@ -57,7 +60,7 @@ func create_conversation(title: String) -> Dictionary:
 func rename_conversation(conversation_id: int, title: String) -> void:
     if not _ensure_graph():
         return
-    var node := _graph.get_node(conversation_id)
+    var node: Dictionary = _graph.get_node(conversation_id)
     if node.is_empty():
         return
     var data: Dictionary = node.get("data", {})
@@ -72,16 +75,16 @@ func delete_conversation(conversation_id: int) -> void:
 func append_message(conversation_id: int, role: String, content: String, metadata: Dictionary = {}) -> Dictionary:
     if not _ensure_graph():
         return {}
-    var conversation := _graph.get_node(conversation_id)
+    var conversation: Dictionary = _graph.get_node(conversation_id)
     if conversation.is_empty():
         push_error("Conversation %s not found" % conversation_id)
         return {}
-    var order_info := _next_message_context(conversation_id)
-    var order := int(order_info.get("next_order", 1))
-    var previous_id := int(order_info.get("previous_id", -1))
+    var order_info: Dictionary = _next_message_context(conversation_id)
+    var order: int = int(order_info.get("next_order", 1))
+    var previous_id: int = int(order_info.get("previous_id", -1))
 
-    var timestamp := _timestamp()
-    var payload := {
+    var timestamp: int = _timestamp()
+    var payload: Dictionary = {
         "type": "message",
         "conversation_id": conversation_id,
         "role": role,
@@ -90,8 +93,8 @@ func append_message(conversation_id: int, role: String, content: String, metadat
         "created_at": timestamp,
         "metadata": metadata.duplicate(true),
     }
-    var label := _generate_label("message")
-    var message_id := _graph.upsert_node(MESSAGE_SPACE, label, payload)
+    var label: String = _generate_label("message")
+    var message_id: int = _graph.upsert_node(MESSAGE_SPACE, label, payload)
     if message_id == -1:
         push_error("Failed to create message node")
         return {}
@@ -117,11 +120,11 @@ func append_message(conversation_id: int, role: String, content: String, metadat
 func load_conversation(conversation_id: int) -> Dictionary:
     if not _ensure_graph():
         return {}
-    var node := _graph.get_node(conversation_id)
+    var node: Dictionary = _graph.get_node(conversation_id)
     if node.is_empty():
         return {}
     var data: Dictionary = node.get("data", {})
-    var rows := _graph.list_nodes_by_metadata(MESSAGE_SPACE, "conversation_id", conversation_id, 4096, 0)
+    var rows: Array[Dictionary] = _graph.list_nodes_by_metadata(MESSAGE_SPACE, "conversation_id", conversation_id, 4096, 0)
     var messages: Array = []
     for row in rows:
         messages.append(_message_from_row(row))
@@ -145,19 +148,19 @@ func search_messages(query: String, top_k: int = 5, expand: int = 32) -> Array:
         return []
     if not runtime.has_method("embed_text"):
         return []
-    var embedding := runtime.call("embed_text", query, {"normalize": true})
+    var embedding: Variant = runtime.call("embed_text", query, {"normalize": true})
     if embedding.is_empty():
         return []
-    var matches := _graph.search_embeddings(embedding, top_k, expand)
+    var matches: Array[Dictionary] = _graph.search_embeddings(embedding, top_k, expand)
     var results: Array = []
     for item in matches:
-        var node_id := int(item.get("node_id", -1))
+        var node_id: int = int(item.get("node_id", -1))
         if node_id == -1:
             continue
-        var message := _graph.get_node(node_id)
+        var message: Dictionary = _graph.get_node(node_id)
         if message.is_empty():
             continue
-        var payload := _message_from_row(message)
+        var payload: Dictionary = _message_from_row(message)
         payload["similarity"] = float(item.get("similarity", 0.0))
         results.append(payload)
     results.sort_custom(func(a, b): return float(a.get("similarity", 0.0)) > float(b.get("similarity", 0.0)))
@@ -166,7 +169,7 @@ func search_messages(query: String, top_k: int = 5, expand: int = 32) -> Array:
 func clear_all() -> void:
     if not _ensure_graph():
         return
-    var conversations := _graph.list_nodes(CONVERSATION_SPACE, 65536, 0)
+    var conversations: Array[Dictionary] = _graph.list_nodes(CONVERSATION_SPACE, 65536, 0)
     for row in conversations:
         _graph.remove_node(int(row.get("id", -1)))
 
@@ -176,9 +179,9 @@ func _ensure_graph() -> bool:
     if not ClassDB.class_exists("NetworkGraph"):
         push_error("NetworkGraph extension unavailable")
         return false
-    _graph = NetworkGraph.new()
+    _graph = ClassDB.instantiate("NetworkGraph")   # by name: see the _graph declaration
     DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(STORE_DIR))
-    var ok := _graph.open(ProjectSettings.globalize_path(DB_PATH))
+    var ok: bool = _graph.open(ProjectSettings.globalize_path(DB_PATH))
     if not ok:
         push_error("Failed to open NetworkGraph database")
         _graph = null
@@ -186,12 +189,12 @@ func _ensure_graph() -> bool:
     return true
 
 func _next_message_context(conversation_id: int) -> Dictionary:
-    var rows := _graph.list_nodes_by_metadata(MESSAGE_SPACE, "conversation_id", conversation_id, 512, 0)
-    var max_order := 0
-    var last_id := -1
+    var rows: Array[Dictionary] = _graph.list_nodes_by_metadata(MESSAGE_SPACE, "conversation_id", conversation_id, 512, 0)
+    var max_order: int = 0
+    var last_id: int = -1
     for row in rows:
         var data: Dictionary = row.get("data", {})
-        var order := int(data.get("order", 0))
+        var order: int = int(data.get("order", 0))
         if order > max_order:
             max_order = order
             last_id = int(row.get("id", -1))
@@ -231,13 +234,13 @@ func _store_embedding(message_id: int, role: String, content: String, conversati
         return
     if not runtime.has_method("embed_text"):
         return
-    var truncated := content
+    var truncated: String = content
     if truncated.length() > 4096:
         truncated = truncated.substr(0, 4096)
-    var vector := runtime.call("embed_text", truncated, {"normalize": true})
+    var vector: Variant = runtime.call("embed_text", truncated, {"normalize": true})
     if vector.is_empty():
         return
-    var embedding_model := _resolve_embedding_model(runtime)
+    var embedding_model: String = _resolve_embedding_model(runtime)
     _graph.add_embedding(message_id, vector, {
         "type": "chat_message",
         "conversation_id": conversation_id,
@@ -263,7 +266,7 @@ func _resolve_embedding_model(runtime: Object) -> String:
     if runtime == null:
         return "unknown"
     if runtime.has_method("get_default_model_path"):
-        var path := String(runtime.call("get_default_model_path")).strip_edges()
+        var path: String = String(runtime.call("get_default_model_path")).strip_edges()
         if path != "":
             return path.get_file()
     return "unknown"

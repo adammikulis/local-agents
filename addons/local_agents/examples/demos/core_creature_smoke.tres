@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="LocalAgentDemoEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/DemoEntry.gd" id="1_entry"]
+
+[resource]
+script = ExtResource("1_entry")
+order = 80
+title = "One creature, nothing else"
+description = "The smallest creature scene there is: a single species from creatures/species/ standing on a flat floor. It references no field and no planet, which is what proves the creature stack runs on its own."
+scene_path = "res://addons/local_agents/examples/CoreCreatureSmoke.tscn"
+requires_model = false
+requires_voxel_backend = false
