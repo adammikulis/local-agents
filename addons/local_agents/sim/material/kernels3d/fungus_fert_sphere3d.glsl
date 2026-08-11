@@ -1,10 +1,10 @@
 #[compute]
 #version 450
 
-// SURFACE cell own its radial line, walk the line INWARD via nbr slot 0 summing fert_cell, and deposit the total
-// (solid == 0) whose OUTWARD-radial neighbour (nbr slot 5) is -1 (space boundary) or solid. That is the local
-// landing-set form of "walk slot 5 outward until -1 or rock". From it we walk INWARD (slot 0) to the sphere
-// centre (until slot 0 == -1), summing fert_cell of every cell on the line (solid cells contribute the 0 that
+// One thread per radial-line SEGMENT: its owner is the open cell whose outward neighbour (slot 5) is -1 or
+// solid. The owner walks inward (slot 0) until the next owner, summing fert_cell, and deposits the total on
+// the segment's lowest open cell. Every cell of a line belongs to exactly one segment, so nothing is summed
+// twice and nothing is dropped.
 
 layout(local_size_x = 64) in;
 
@@ -28,28 +28,31 @@ void main() {
 	if (solid[idx] != 0.0) {
 		return;
 	}
-	// The radial line is OWNED by its outermost open cell (outward-radial neighbour is space or rock), which is
-	// the unique, race-free representative for the whole line — one owner per line, exactly as before.
 	int up = nbr[idx * 6u + 5u];
 	bool is_surface = (up < 0) || (solid[up] != 0.0);
 	if (!is_surface) {
 		return;
 	}
-	// Reduce the RADIAL column: walk inward (slot 0) from the owner to the centre, summing fert_cell — and on
-	// the way down remember the GROUND, the first open cell that has rock directly beneath it.
+	// Walk inward (slot 0) summing fert_cell, remembering GROUND — the first open cell with rock beneath it.
 	float sum = fert_cell[idx];
 	int ground = (nbr[idx * 6u + 0u] >= 0 && solid[nbr[idx * 6u + 0u]] != 0.0) ? int(idx) : -1;
+	int prev = int(idx);
 	int j = nbr[idx * 6u + 0u];
 	// Guard the walk against a malformed table with a cell_count cap (a radial line cannot exceed the grid).
 	for (uint step = 0u; step < params.cell_count; step++) {
 		if (j < 0) {
 			break;
 		}
+		// j is open with rock outward, so j is the next segment's owner: it and everything inward are its.
+		if (solid[uint(j)] == 0.0 && solid[uint(prev)] != 0.0) {
+			break;
+		}
 		sum += fert_cell[uint(j)];
 		int below = nbr[uint(j) * 6u + 0u];
 		if (ground < 0 && solid[j] == 0.0 && below >= 0 && solid[below] != 0.0) {
-			ground = j;                    // topmost ground-hugging open cell on this line
+			ground = j;                    // lowest open cell of this segment
 		}
+		prev = j;
 		j = below;
 	}
 	int target = (ground >= 0) ? ground : int(idx);

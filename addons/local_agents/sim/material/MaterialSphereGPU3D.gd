@@ -123,6 +123,9 @@ func setup(field) -> void:
 	for name in SINGLE_CHANNELS:
 		_bufs[name] = _new_f(_cc)
 	_bufs["send"] = _new_f(_cc * 6)
+	# Per-slot enthalpy flux beside `send`: the donor writes mass * its own temperature, the receiver gathers
+	# it. Reading a neighbour's temp in the apply pass would read a value another thread is writing.
+	_bufs["heat_send"] = _new_f(_cc * 6)
 	_bufs["soil_dbg"] = _new_f(_cc * SOIL_DBG_SLOTS)     # per-leg groundwater budget probe (see SOIL_DBG_SLOTS)
 	# Per list: the compacted cell indices, plus a buffer that is BOTH the uvec3 dispatch-indirect argument
 	# (slots 0-2) and the atomic list-length counter (slot 3).

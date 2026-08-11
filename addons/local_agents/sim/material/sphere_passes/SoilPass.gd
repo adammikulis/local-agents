@@ -10,30 +10,25 @@ var _set: Array = [RID(), RID()]        # one uniform set per parity p in [0, 1]
 func _setup(bufs: Dictionary, _cc: int) -> void:
 	_pipe = _kernel(SOIL_PATH)
 
-	var solid_rid: RID = _single(bufs, "solid")
-	var send_rid: RID = _single(bufs, "send")
-	var nbr_rid: RID = _single(bufs, "nbr")
-	var regolith_rid: RID = _single(bufs, "regolith")
-	var grain_rid: RID = _single(bufs, "grain")
-	var water_pair: Array = _pair(bufs, "water")
-	var soil_pair: Array = _pair(bufs, "soil")
-	var temp_pair: Array = _pair(bufs, "temp")
-	var dbg_rid: RID = _single(bufs, "soil_dbg")
+	var b: Dictionary = _rids(bufs,
+		["solid", "send", "heat_send", "nbr", "regolith", "grain", "soil_dbg", "porosity"],
+		["water", "soil", "temp"])
 
 	for p in 2:
 		var back: int = 1 - p
 		_set[p] = _uset(_pipe, [
-			[0, water_pair[back]],     # Water  = settled back water (read-modify-write)
-			[1, solid_rid],            # Solid
-			[3, send_rid],             # Send scratch
-			[4, soil_pair[p]],         # SoilIn  = live soil (last step's output)
-			[5, soil_pair[back]],      # SoilOut = back soil (this step's output)
-			[6, regolith_rid],         # Regolith aquifer permeability mask
-			[7, temp_pair[back]],      # Temp = POST-thermal temp (BACK, rw) — carry geothermal heat into springs
-			[8, grain_rid],            # Grain diameter (m) — Kozeny-Carman input, with the Athy porosity profile
-			[9, dbg_rid],              # SoilDbg — per-leg budget probe (LAMaterialSphereGPU3D.SOIL_DBG_SLOTS)
-			[11, _single(bufs, "porosity")],   # Porosity — phi, published for every other consumer of rock_fill
-			[15, nbr_rid],             # Neigh table
+			[0, b["water"][back]],     # Water  = settled back water (read-modify-write)
+			[1, b["solid"]],
+			[3, b["send"]],            # Send scratch
+			[4, b["soil"][p]],         # SoilIn  = live soil (last step's output)
+			[5, b["soil"][back]],      # SoilOut = back soil (this step's output)
+			[6, b["regolith"]],        # Regolith aquifer permeability mask
+			[7, b["temp"][back]],      # Temp = POST-thermal temp (BACK, rw) — carry geothermal heat into springs
+			[8, b["grain"]],           # Grain diameter (m) — Kozeny-Carman input, with the Athy porosity profile
+			[9, b["soil_dbg"]],        # SoilDbg — per-leg budget probe (LAMaterialSphereGPU3D.SOIL_DBG_SLOTS)
+			[10, b["heat_send"]],      # HeatSend scratch — send * donor temp, gathered by the receiver
+			[11, b["porosity"]],       # Porosity — phi, published for every other consumer of rock_fill
+			[15, b["nbr"]],            # Neigh table
 		])
 
 

@@ -156,6 +156,17 @@ func _pair(bufs: Dictionary, key: String) -> Array:
 	return [RID(), RID()]
 
 
+## Many channels at once: each SINGLE name -> its RID, each PAIR name -> [half 0, half 1].
+## Keyed by channel name, so a binding list reads `b["solid"]` / `b["water"][back]`.
+func _rids(bufs: Dictionary, singles: PackedStringArray, pairs: PackedStringArray) -> Dictionary:
+	var out: Dictionary = {}
+	for key in singles:
+		out[key] = _single(bufs, key)
+	for key in pairs:
+		out[key] = _pair(bufs, key)
+	return out
+
+
 ## PAIR channel -> the live half at parity `p` when `back` is false, the other half when true.
 ## SINGLE channel -> its bare RID either way.
 func _half(bufs: Dictionary, key: String, p: int, back: bool) -> RID:
