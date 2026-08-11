@@ -259,7 +259,9 @@ func _recompute_disaster_cadence() -> void:
 
 # --- Ambient-disaster cadence (the difficulty director) ---
 
-func _process(delta: float) -> void:
+# The ambient director seeds storms/tornadoes/hurricanes/volcanoes into the field, so its cadence runs on
+# the FIXED physics tick — the same clock the field steps on.
+func _physics_process(delta: float) -> void:
 	if not _bound or not _ambient_enabled or _disasters == null:
 		return
 	# GEOLOGY DOES NOT WAIT FOR RABBITS. This gate used to be

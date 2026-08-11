@@ -261,6 +261,17 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_reaction_balance.sh ($rc_balance)"
       exit 1
     fi
+    # Gate: the render clock does not drive the simulation. The field steps on a fixed physics accumulator;
+    # the master clock and the orbit advanced in _process, so the sun moved a framerate-dependent distance
+    # across the sky per unit of chemistry. Static check — no run required. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_framerate_independence.sh"
+    rc_framerate=$?
+    set -e
+    if [[ $rc_framerate -ne 0 ]]; then
+      echo "LINT_FAIL: check_framerate_independence.sh ($rc_framerate)"
+      exit 1
+    fi
     # Gate: every script in the REAL tree parses. An editor scan does not check this — it emits twenty
     # progress lines and nothing about any script — so a broken pass module let the sim run to
     # completion and print a full SIM_REPORT with a whole transport CA silently missing. The sweep
