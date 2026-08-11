@@ -7,9 +7,6 @@ const PhotoStatsScript: GDScript = preload("res://addons/local_agents/sim/materi
 const EnergyBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd")
 const ExtremesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldExtremes3D.gd")
 const ClimateSwingScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd")
-const ElementInventoryScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldElementInventory3D.gd")
-const MineralBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralBudget3D.gd")
-const EnergyLedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyLedger3D.gd")
 const MomentumLedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMomentumLedger3D.gd")
 const SealScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSeal3D.gd")
 const ConservationScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldConservation3D.gd")
@@ -23,9 +20,6 @@ var _photo = null                                        # LAMaterialFieldPhotoS
 var _energy = null                                       # LAMaterialFieldEnergyBudget3D — absorbed/emitted/net radiation
 var _extremes = null                                     # LAMaterialFieldExtremes3D — min/max-ever register
 var _swing = null                                        # LAMaterialFieldClimateSwing3D — diurnal + seasonal range
-var _mass = null                                         # LAMaterialFieldElementInventory3D — carbon/oxygen/fertility ledgers
-var _mineral = null                                      # LAMaterialFieldMineralBudget3D — the five-phase rock ledger
-var _energy_stock = null                         # LAMaterialFieldEnergyLedger3D — rho*c*V*T stock + its drift
 var _momentum = null                             # LAMaterialFieldMomentumLedger3D — Σ m*v stock + its books
 # The cross-book carbon baseline, latched at the seal. Lives here rather than in either ledger because it is
 # the SUM of the two, and neither of them can see the other.
@@ -46,12 +40,6 @@ func setup(field) -> void:
 	_extremes = ExtremesScript.new()
 	_swing = ClimateSwingScript.new()
 	_swing.setup(field)
-	_mass = ElementInventoryScript.new()
-	_mass.setup(field)
-	_mineral = MineralBudgetScript.new()
-	_mineral.setup(field)
-	_energy_stock = EnergyLedgerScript.new()
-	_energy_stock.setup(field)
 	_momentum = MomentumLedgerScript.new()
 	_momentum.setup(field)
 	_seal = SealScript.new()
@@ -244,7 +232,7 @@ func report() -> Dictionary:
 		# Molten rock standing in OPEN cells — an eruption, by what the word means. `magma_erupting()` already
 		# reads the same cached walk `magma_cells` and `lava_cells` above have already paid for.
 		"magma_erupting": _f.magma_erupting(),
-		"erosion_cells": _f.erosion_cell_count(), "snow_cells": _f.snow_cell_count(), "ice_cells": _f.ice_cell_count(),
+		"erosion_cells": _f.erosion_cell_count(),
 		"sea_ice_cells": q.sea_ice_cell_count(), "sea_ice_temp": q.sea_ice_temp_avg(), "open_sea_temp": q.open_sea_temp_avg(),
 		# (`dust_cells` moved into the mineral budget's single pass — it already walks the dust channel, so
 		# counting there is free, where a call here would have added an O(cells) walk to the per-frame path.)
@@ -253,16 +241,12 @@ func report() -> Dictionary:
 		"co2_peak": _f.co2_peak(), "co2_avg": _f.co2_avg(),
 		"biomass_total": _f.biomass_total(),
 		"fuel_total": q.fuel_total(), "fire_peak": q.fire_peak(), "fire_cells": q.fire_cells(),
-		"h2o_total": _f.h2o_total(), "water_total": _f.water_total(), "snow_total": _f.snow_total(), "soil_total": _f.soil_total(),
-		"snow_line_temp": _f.snow_line_temp(),
-		# and cost ELEVEN O(cells) walks per report call — `mineral_total()` re-walks the grid five times and
-		# the five individual getters walked it five more. LAMaterialFieldMineralBudget3D produces all of them,
-		# both masks, and the drift they never had, in ONE pass behind `_heavy_block()`'s cadence gate.
+		# (Every conserved total — h2o/water/snow/soil, mineral, the element inventory, the thermal stock —
+		# is published by LAMaterialFieldLedger3D inside `_heavy_block()`, from ONE volume-weighted walk.)
 		"enclosed_void": q.enclosed_void_cells(),
 		"enclosed_void5": q.enclosed_void_cells(5),
 		"rock_grows": (_f._stamp.grows if _f._stamp != null else 0), "rock_shrinks": (_f._stamp.shrinks if _f._stamp != null else 0),
 	}
-	r.merge(_f._ledger.conservation_report(_f._gpu._step_index if _f._gpu != null else 0))
 	if _f._inject != null:
 		r.merge(_f._inject.queue.report())
 	var temps: Dictionary = _open_temp_stats()
@@ -287,19 +271,25 @@ func report() -> Dictionary:
 	# so adding the next one does not need a new plumbing decision.
 	_extremes.track("open_cold", float(temps.get("temp_min", 0.0)))
 	_extremes.track("open_hot", float(temps.get("temp_max", 0.0)))
-	_extremes.track("h2o_total", float(r.get("h2o_total", 0.0)))
+	_track_if_measured(r, "h2o_total", "h2o_total")
 	_extremes.track("energy_net", float(heavy.get("energy_net", 0.0)))
 	_extremes.track("subsolar_lat", float(r.get("swing_subsolar_lat", 0.0)))
 	r.merge(_extremes.report())
 	if _seal != null:
 		r.merge(_seal.report())
-	# THE LAW, CHECKED LAST — here rather than inside _heavy_block() because the H2O ledger's `h2o_first` is
-	# merged into `r` after that block runs, and checking early reported the planet's water as "unmeasured".
-	# It reads what every ledger has published, so it must run after all of them.
+	# THE LAW, CHECKED LAST. It reads what the ledger has published, so it must run after it.
 	if _conservation != null:
 		r.merge(_conservation.check(r))
 
 	return r
+
+
+## Track an extreme only when the ledger actually measured it. A refused total is null, and folding that in
+## as a zero would put a low-water record into the register that no run ever reached.
+func _track_if_measured(r: Dictionary, key: String, register: String) -> void:
+	var v = r.get(key)
+	if v is float or v is int:
+		_extremes.track(register, float(v))
 
 
 ## True on the last frame of a --run-frames run, so the closing report is always freshly computed.
@@ -326,17 +316,14 @@ func _heavy_block() -> Dictionary:
 	#            added on this line of work and nothing could verify it.
 	var flux: Dictionary = _energy.report()
 	d.merge(flux)
-	d.merge(_energy_stock.report(_f._gpu._step_index if _f._gpu != null else 0, flux))
+	var step: int = _f._gpu._step_index if _f._gpu != null else 0
 	#   momentum — Σ m*v over the air, the third conserved quantity of mechanics. Books the pressure gradient,
 	#            Coriolis and buoyancy; `momentum_unbooked` names the terms it cannot reach.
-	d.merge(_momentum.report(_f._gpu._step_index if _f._gpu != null else 0))
-	#   mass   — conservation ledgers for carbon, oxygen, fertility and biomass, on the H₂O ledger's pattern.
-	#            Every substance here that had a ledger conserved; every substance without one minted.
-	d.merge(_mass.report(_f._gpu._step_index if _f._gpu != null else 0))
-	#   mineral — the five-phase rock ledger. Publishes the same six absolutes this block replaced (so nothing
-	#            downstream lost a key) PLUS the drift, the source-corrected net rate, and both masks. It is a
-	#            NET REDUCTION in work here: one pass instead of the eleven the ungated block above ran.
-	d.merge(_mineral.report(_f._gpu._step_index if _f._gpu != null else 0))
+	d.merge(_momentum.report(step))
+	#   the conservation ledger — H2O, mineral, the element inventory and the thermal stock, all from ONE
+	#            probe read and ONE volume-weighted walk.
+	if _f._ledger != null:
+		d.merge(_f._ledger.report(step, flux))
 	if d.has("element_C") and d.has("lith_element_C"):
 		var c_total: float = float(d["element_C"]) + float(d["lith_element_C"])
 		d["element_C_total"] = snappedf(c_total, 0.01)

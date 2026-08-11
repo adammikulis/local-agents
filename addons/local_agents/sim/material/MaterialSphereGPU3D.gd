@@ -85,6 +85,9 @@ var _channel_hold: Dictionary = {}      # channel name -> drain index it stays h
 var _drain_count: int = 0               # monotonic drain counter the holds are measured against
 var _probe_want: PackedStringArray = PackedStringArray()
 var _probe: Dictionary = {}
+## Field step the probe dictionary was filled at. A consumer sampling on a coarse cadence gets a probe that
+## is older than its own call, and a drift rate divided by the wrong step count is wrong by that ratio.
+var _probe_step: int = -1
 # begin_frame upload gates: the solid/static masks and CPU water copy are re-uploaded only when actually edited
 # (SDF stamp / water injection), not every step — the per-step re-upload was pure CPU↔GPU transfer waste. Both
 # default true so the first begin_frame seeds them.
@@ -350,6 +353,7 @@ func _drain_pending() -> void:
 			var pb = _bufs[pname]
 			_probe[pname] = _rd.buffer_get_data(pb[_phase] if pb is Array else pb).to_float32_array()
 		_probe_want = PackedStringArray()
+		_probe_step = _step_index
 	# Direct sub-timings (noise-immune, unlike fps): how long the GPU sync stall vs the channel copy/convert
 	# actually cost this drain. The readback (buffer_get_data + to_float32_array over ~17 full-grid channels) is
 	# the suspected field bottleneck; measuring it directly is how we know what gating it can win.
@@ -436,11 +440,15 @@ func request_probe(names: PackedStringArray) -> void:
 			_probe_want.append(name)
 
 
-## Collect the most recent read-only sample — one drain old at most, the same lag the CPU mirrors carry. Empty
-## until the first drain after `request_probe`, so a caller falls back to the mirrors and publishes which legs
-## it actually got (`mineral_live` / `mass_live`).
+## The most recent read-only sample, taken at the drain into a dictionary no simulation consumer sees. Empty
+## until the first drain after `request_probe`; a leg that is absent is ABSENT, never substituted.
 func take_probe() -> Dictionary:
 	return _probe
+
+
+## Field step `take_probe`'s contents were sampled at, or -1 before the first sample.
+func probe_step() -> int:
+	return _probe_step
 
 
 ## The CPU solid/static mask changed (initial solidity sample, a volcano SDF stamp, a terrain edit) — re-seed

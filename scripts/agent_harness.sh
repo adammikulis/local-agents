@@ -301,6 +301,16 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_comment_claims.sh ($rc_cc)"
       exit 1
     fi
+    # Gate: a missing measurement is missing. A `.get(key, mirror)` default makes a gauge read whichever
+    # other consumer last called request_channel. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_no_silent_fallback.sh"
+    rc_fallback=$?
+    set -e
+    if [[ $rc_fallback -ne 0 ]]; then
+      echo "LINT_FAIL: check_no_silent_fallback.sh ($rc_fallback)"
+      exit 1
+    fi
     set +e
     "$SCRIPT_DIR/check_sphere_grid.sh"
     rc_grid=$?

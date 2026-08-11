@@ -412,9 +412,8 @@ asserted now emerges. Shrinking `h2o` means the sea, the lakes and the water tab
 their own, in that order.
 - ***(Corrected 2026-08-09. This listed a seventh entry, `temp_ground_p50 15.0`, and said "that last is
   exactly `INITIAL_TEMP`". The manifest carries no temperature at all. Every `note_seed` caller is a matter
-  or energy ledger: `MaterialFieldLedger3D.gd:320` (h2o), `MaterialFieldElementInventory3D.gd:394,:403`
-  (carbon, o2), `MaterialFieldMineralBudget3D.gd:375` (mineral), `MaterialFieldEnergyLedger3D.gd:423`
-  (energy_j) and `MaterialFieldReport3D.gd:458` (element_C_mol). `INITIAL_TEMP = 15.0` is still asserted, at
+  or energy ledger: `MaterialFieldLedger3D.gd` seeds h2o, carbon, o2, mineral and energy_j through
+  `LAFieldLedgerBooks3D.run()`, and `MaterialFieldReport3D.gd` seeds element_C_mol. `INITIAL_TEMP = 15.0` is still asserted, at
   `MaterialField3D.gd:55`, filled at `:464` — it is simply NOT ON THE SCOREBOARD, so the one seed the file
   called out by name is the one nothing is scoring. Either note it into the manifest or stop calling the
   manifest the whole scoreboard.)*
@@ -713,19 +712,19 @@ batch is gone, because git holds it and nobody was going to re-derive them.)*
     and `_f._solid` (`MaterialFieldQueries3D.gd:551-567`), and `lava` is demand-gated
     (`MaterialSphereGPU3D.SITUATIONAL_CHANNELS`, `:208-209`), so between eruptions the gauge cannot tell "no
     lava" from "the channel never arrived" — exactly what `mass_live` exists to prevent for the element
-    inventory (`MaterialFieldElementInventory3D.gd:283`). `magma_cell_count()` and `magma_erupting()`
+    inventory (`MaterialFieldLedger3D.gd`, `_publish_element`). `magma_cell_count()` and `magma_erupting()`
     delegate to it, so all three inherit it. *(This entry used to claim those two were HARDCODED. They are
     live, and have been: one cached walk behind a `_molten_step` guard.)* The `7353b1d` baseline reads
     `magma_cells` 5, `lava_cells` 0, `magma_erupting` false on a run that logged one eruption, which is
     exactly the ambiguity — a lava flow that has solidified and a channel that never arrived look identical.
     Deciding it: give `molten_counts()` the same provenance flag and read it on a run with no eruption.
 16. **The element inventory has no per-pass attribution.** It reports that carbon moved, not which reaction
-    moved it (`MaterialFieldElementInventory3D.gd:260-283`). The mineral probe already does this and found a
+    moved it (`MaterialFieldLedger3D.gd`, `_publish_element`). The mineral probe already does this and found a
     leak in one run by naming `fire_dust` (`MaterialFieldMineralProbe3D.gd:50`).
 17. **`fuel_total()` IS THE LAST MASKED CONSERVATION TOTAL.** *(Narrowed 2026-08-09. It read "A GAUGE THAT
     SUMS OPEN CELLS ONLY IS NOT A CONSERVATION GAUGE, and at least one still is … Any total used to answer
     'was matter created or destroyed' needs its mask-free twin" — and the twins landed on 2026-08-08.
-    `MaterialFieldElementInventory3D.gd:278-279` publishes `fuel_open_total` beside `fuel_all`, and every
+    `MaterialFieldLedger3D.gd` publishes `fuel_open_total` beside `fuel_all`, and every
     element-inventory leg now carries an `_all`. What is left is one gauge, not a class of them.)*
     `MaterialFieldQueries3D.gd:645-652` still gates on `_f._solid[c] == 0`, and it is what `SIM_REPORT`
     publishes as `fuel_total` (`MaterialFieldReport3D.gd:328`) — so the number a reader sees is the masked
@@ -804,9 +803,12 @@ head this list are closed. **What is left is two numbers, and neither is at zero
   against 1.548e17", divided by the run's CLOSING stock. `energy_stock` and `energy_stock_first` are
   different fields, and the seal moved the second one.)*
 
-**The work queue is the eleven unbooked terms the ledger names in its own header**
-(`MaterialFieldEnergyLedger3D.gd:79-137`) — read it there rather than copying it here, because it cites the
-exact line of each leak. **Items 8, 9, 10 and 11 are CLOSED** — that is every term the gauge itself found,
+**THE ELEVEN-TERM WORK QUEUE IS GONE AND HAS TO BE REBUILT FROM THE CODE.** *(Corrected 2026-08-11. This
+said "the work queue is the eleven unbooked terms the ledger names in its own header
+(`MaterialFieldEnergyLedger3D.gd:79-137`) — read it there rather than copying it here". A line-level comment
+scrub deleted most of that header before the ledgers were collapsed; what survived at HEAD was seven
+disconnected sentence fragments, and the file itself is now deleted. Nobody can read the queue there. The
+terms below are what this file still records about it, and they are all that is left.)* **Items 8, 9, 10 and 11 are CLOSED** — that is every term the gauge itself found,
 and between them the drift went 12.77% -> 7.76%. **Terms 1 through 7 remain, and 1, 2 and 3 are all latent
 heat**, which is why step 1 above is deciding `feature/enthalpy` rather than re-implementing it. Do not
 expect what is left to be cheap: item 11 was `rc_of` not being a function of the matter present, and
@@ -953,9 +955,10 @@ orbits; persist the orbital state.
   `material/PhysicalConstants.gd` (`LAPhysical`) · the budget/probe/inventory modules.
 - **The books:** `material/MaterialFieldSeal3D.gd` (SEEDING → SEALED, and the `world_seed` manifest) ·
   `MaterialFieldConservation3D.gd` (the gate, and its `DEBT` table — the SSOT for how far off each substance
-  is) · `MaterialFieldEnergyLedger3D.gd` (the stock, and the unbooked-terms work queue in its header) ·
-  `MaterialFieldEnergyProbe3D.gd` / `MaterialFieldMineralProbe3D.gd` (per-pass attribution, heat and rock) ·
-  `MaterialFieldElementInventory3D.gd` (moles, with `_all` mask-free twins and `mass_live` provenance).
+  is) · `MaterialFieldLedger3D.gd` + `FieldLedgerFold3D.gd` / `FieldLedgerRecords3D.gd` / `FieldLedgerBooks3D.gd`
+  (THE conservation ledger: H2O, mineral, moles and the thermal stock, from one probe read and one
+  volume-weighted walk) · `MaterialFieldEnergyProbe3D.gd` / `MaterialFieldMineralProbe3D.gd` (per-pass
+  attribution, heat and rock — a different question, and they stay separate).
 - **Heat capacity, one definition per side of the GPU boundary:** `kernels3d/rc_shared.glsli` (GLSL) and
   `material/HeatCapacity.gd` (`LAHeatCapacity`, GDScript), held equal by `scripts/check_heat_capacity_ssot.sh`.
 - **Composition root:** `game/VoxelWorld.gd` (**extract-only**) + `game/world/*`.

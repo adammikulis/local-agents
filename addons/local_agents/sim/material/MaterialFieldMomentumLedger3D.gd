@@ -157,7 +157,7 @@ func report(step_index: int) -> Dictionary:
 		latched = true
 	if _first_step >= 0 and not latched and steps > 0:
 		# Rectangle rule over the window at the force sampled at its right-hand end, the same approximation
-		# LAMaterialFieldEnergyLedger3D integrates its fluxes with.
+		# LAMaterialFieldLedger3D integrates its fluxes with.
 		var window_s: float = dt_real * float(steps)
 		_cum_pgf += f_pgf * window_s
 		_cum_cor += f_cor * window_s

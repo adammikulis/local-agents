@@ -171,7 +171,7 @@ func respire(head_pos: Vector3, mass: float) -> float:
 		return 0.0
 	_f._o2[c] = have - got
 	# O₂ is DEBITED (dst -1: the substrate's oxygen convention counts free molecular O₂ only, and the oxygen
-	# bound into the CO₂ below is deliberately not tracked — see LAMaterialFieldElementInventory3D's convention note).
+	# bound into the CO₂ below is deliberately not tracked — see LAMaterialFieldLedger3D's convention note).
 	q.transfer("o2", PackedInt32Array([c]), PackedFloat32Array([got]), "o2", PackedInt32Array([-1]))
 	# CO₂ is CREDITED with no field debit, because its carbon came out of the body. `biota_carbon` falls by the
 	# same number, which is what keeps the carbon books closed across the body/field boundary.
