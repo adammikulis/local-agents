@@ -3,10 +3,8 @@
 
 #include "neighbours.glsli"
 
-// SURFACE cell own its radial line, walk the line INWARD via nbr slot 0 summing fert_cell, and deposit the total
-// (solid == 0) whose OUTWARD-radial neighbour (nbr slot 5) is -1 (space boundary) or solid. That is the local
-// landing-set form of "walk slot 5 outward until -1 or rock". From it we walk INWARD (slot 0) to the sphere
-// centre (until slot 0 == -1), summing fert_cell of every cell on the line (solid cells contribute the 0 that
+// SURFACE cell own its radial line, walk the line INWARD via the radial neighbour summing fert_cell, and deposit the total
+// (solid == 0) whose OUTWARD-radial neighbour is -1 (space boundary) or solid. That is the local
 
 layout(local_size_x = 64) in;
 
@@ -37,7 +35,7 @@ void main() {
 	if (!is_surface) {
 		return;
 	}
-	// Reduce the RADIAL column: walk inward (slot 0) from the owner to the centre, summing fert_cell — and on
+	// Reduce the RADIAL column: walk inward from the owner to the centre, summing fert_cell — and on
 	// the way down remember the GROUND, the first open cell that has rock directly beneath it.
 	float sum = fert_cell[idx];
 	int ground = (nbr[idx * N_SLOTS + N_IN] >= 0 && solid[nbr[idx * N_SLOTS + N_IN]] != 0.0) ? int(idx) : -1;

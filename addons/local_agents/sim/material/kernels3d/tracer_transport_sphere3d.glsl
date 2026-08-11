@@ -11,7 +11,6 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer TracerIn  { float 
 layout(set = 0, binding = 1, std430) restrict writeonly buffer TracerOut { float tracer_out[]; };
 // Where settled material lands, for a tracer that HAS a settled phase (dust -> sediment). A tracer with
 // `deposit == 0` never writes here; the caller still binds something, and binds the tracer's own buffer if it
-// has nothing better.
 layout(set = 0, binding = 2, std430) restrict buffer Deposit { float deposit_ch[]; };
 layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 4, std430) restrict readonly buffer VelX { float vel_x[]; };
@@ -37,9 +36,8 @@ const float SETTLE_CALM_REF = 6.0;
 const float SETTLE_MIN_RATIO = 0.08;
 const float OUT_MAX = 0.9;
 
-// Speed of cell `c` toward its lateral link `l` (0..3 == neighbour slots 1..4), in that cell's tangent frame.
+// Speed of cell `c` toward its lateral link `l` (0..3, i.e. neighbour slots N_LAT0+l), in its tangent frame.
 // lattice did not carry, which is why O2 had no wind for as long as it was its own kernel. It carries it:
-// `ltan`. The claim was refuted by the file sitting next to it.)*
 float toward_link(uint c, int l) {
 	uint b = ((c / max(params.depth, 1u)) * 4u + uint(l)) * 2u;
 	return vel_x[c] * ltan[b] + vel_z[c] * ltan[b + 1u];
@@ -51,9 +49,6 @@ float share(float toward) {
 
 // Downward flux share: gravitational settling suppressed by wind, plus any downdraft carrying it faster.
 // Signed settling share of cell `i`: still-air settling velocity suppressed by wind, times the Courant
-// factor. POSITIVE sinks, NEGATIVE rises. Callers split it across the two vertical faces — a share is an
-// outflow fraction and can never be negative, so a rising tracer must be added to the UP face rather than
-// subtracted from the DOWN one.
 float settle_share(uint i) {
 	float vxi = vel_x[i];
 	float vyi = vel_y[i];
@@ -78,7 +73,7 @@ float raw_out(uint c) {
 	uint b = c * 6u;
 	float t = 0.0;
 	for (int l = 0; l < 4; ++l) {
-		int m = nbr[b + uint(l + int(N_OUT))];
+		int m = nbr[b + N_LAT0 + uint(l)];
 		if (m >= 0 && solid[m] == 0.0) { t += share(toward_link(c, l)); }
 	}
 	int cu = nbr[b + N_OUT];
@@ -122,11 +117,10 @@ void main() {
 
 	// EXCHANGE — every share this cell sends is scaled by scale_g, and every neighbour gathers that SAME
 	// scaled share off its own reverse link, so the flux across a face is one number both ends agree on and
-	// the operator is conservative to the face. Nothing is added outside the scaling.
 	float raw = 0.0;
 	float gain = 0.0;
 	for (int l = 0; l < 4; ++l) {
-		int m = nbr[base + uint(l + int(N_OUT))];
+		int m = nbr[base + N_LAT0 + uint(l)];
 		if (m < 0 || solid[m] != 0.0) {
 			continue;
 		}

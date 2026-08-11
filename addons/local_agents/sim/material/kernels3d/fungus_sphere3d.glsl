@@ -30,7 +30,6 @@ layout(push_constant, std430) uniform Params {
 const float DETRITUS_MIN = 0.05;
 // FUNGUS_MIN is not read by this kernel — its consumer is LAMaterialFieldChannels3D.FUNGUS_PRESENT, the
 // "this cell has a live colony" threshold the SIM_REPORT fungus_cells gauge counts against. Kept here so the
-// gauge and the physics agree on what a colony is by construction.
 const float FUNGUS_MIN = 0.02;
 const float FUNGUS_MAX = 3.0;
 const float MOIST_MIN = 0.02;
@@ -43,7 +42,6 @@ const float DETRITUS_DAMP = 0.15;
 const float TEMP_WARM = 42.0;
 // Growth stops when the water in and around the mycelium turns to ice, so this IS the freezing point of
 // water and is bound to the authority rather than left free. It is exactly the kind of constant that was
-// once moved to 12.5 in five files because the planet could not get cold; the annotation makes that fail.
 const float TEMP_COLD = 0.0;    // LAPhysical.WATER_FREEZE_C
 // FIRE: THIS KERNEL NO LONGER READS IT, AND `const float FIRE_MIN = 0.02;` IS DELETED WITH THE TWO TESTS
 const float GROW_RATE = 0.06;
@@ -112,7 +110,6 @@ void main() {
 
 	// 3) DEATH / DECAY — dies back fast where hot/frozen/dry or the food is exhausted. DEAD MYCELIUM IS
 	// DESTROYED the dead fungus outright, with no product anywhere — which is why the decay leg leaked in the
-	// opposite direction to the growth leg.
 	float died = ((scorched || frozen || dry || d <= DETRITUS_MIN) ? DRY_DECAY : DECAY) * max(0.0, gnew);
 	gnew -= died;
 	det_delta += died;

@@ -14,7 +14,6 @@ layout(set = 0, binding = 3, std430) restrict readonly buffer Pos { float pos[];
 layout(set = 0, binding = 4, std430) restrict readonly buffer Neigh { int nbr[]; };       // idx*6 + slot
 // PLATE TABLE, 8 floats per plate: seed.xyz (unit direction of the plate's Voronoi centre), rate (signed
 // angular speed, rad per simulated second), pole.xyz (unit Euler axis), pad. Uploaded by the driver each step
-// from LAPlateTectonics, which is the one owner of the kinematics — the same seeds it classifies boundaries with.
 layout(set = 0, binding = 5, std430) restrict readonly buffer Plates { float plate[]; };
 // The fluid the arriving rock has to push out of the way (see PASS 2). Bound for every dispatch but only
 // touched by pass 2, which runs once per step after both mineral channels have been carried.
@@ -96,7 +95,6 @@ void main() {
 	if (params.pass_id == 0u) {
 		// ---- PASS 0: OUTFLOW ----------------------------------------------------
 		// Self-zero all six slots before any early return, exactly like the other CAs, so the shared `send`
-		// scratch needs no buffer_clear (illegal while a compute list is open).
 		for (uint z = 0u; z < N_SLOTS; ++z) { send[base + z] = 0.0; }
 		if (params.n_plates == 0u) {
 			return;

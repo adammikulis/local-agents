@@ -5,18 +5,6 @@
 
 // Gravity-driven mass redistribution over the neighbour table, for any flowing material.
 // Replaces water_sphere3d, lava_flow_sphere3d and slump_sphere3d, which were one kernel three times.
-//
-// Two passes: pass 0 writes each cell's outflow into `send[idx*6 + dir]`, pass 1 gathers.
-// Order: DOWN (slot 0, N_IN) to the stable stack, then LATERAL level-out (slots 2-5), then UP (slot 1,
-// N_OUT) if the cell is over MAX_MASS. Slots are LASphereGrid's, opposite is `d ^ 1`.
-//
-// Per-material, all push constants:
-//   max_flow, min_flow, min_mass, lateral_frac  flow caps
-//   repose_tan   0 = level out freely (water, lava); >0 = only the excess over the angle of repose moves,
-//                which is what makes a granular pile stand at an angle instead of flowing flat
-//
-// Moving mass carries its enthalpy. Not optional: a transfer that moves matter without its heat is an
-// unbooked energy term.
 
 layout(local_size_x = 64) in;
 
@@ -89,8 +77,7 @@ void main() {
 		}
 
 		// LATERAL — slots 2..5 (LASphereGrid N_A0..N_B1). `larc` is indexed by the same lateral index,
-		// `link_arc[column*4 + l]` for slot 2+l, because the table is filled as
-		// `neighbours[c*6 + N_A0 + lateral_slot[...]]` with N_A0 = 2.
+		// `link_arc[column*4 + l]` for N_LAT0 + l, because the table is filled as
 		uint column = gidx / max(params.depth, 1u);
 		uint layer = gidx % max(params.depth, 1u);
 		float radius = params.core_radius + (float(layer) + 0.5) * params.cell_size;
@@ -120,8 +107,7 @@ void main() {
 			}
 		}
 
-		// UP, only when over-full — slot 1 is N_OUT (outward/up). It was slot 5, which is a LATERAL, so the
-		// overflow went sideways while the repose loop pushed mass through slot 1, i.e. UPWARD.
+		// UP, only when over-full.
 		if (remaining > MAX_MASS) {
 			int iu = nbr[base + N_OUT];
 			if (iu >= 0 && solid[iu] == 0.0) {

@@ -10,6 +10,35 @@ compatibility" here — there are no downstream consumers.
 not static. Mass does not move without its heat. A gas does not ignore the wind. Water does not vanish when
 it reaches the ocean. When the answer is "reality has no such thing", delete it — do not parameterise it.
 
+# RULE 1b — NO BASELINE HERE HAS EVER BEEN VALID. STOP REPORTING WHETHER A NUMBER GOT BETTER OR WORSE.
+
+**Nothing in this repository has ever worked, so no recorded number measures anything.** A figure taken
+through a broken kernel is not a measurement — it is the interaction of whichever defects were live that
+day. Two such figures differenced is a difference between two fictions. **Twelve kernels read the neighbour
+table's slot 5 as "the cell above" when slot 5 is a LATERAL**, so the solar column, the aquifer walk,
+evaporation's air-above test, both buoyancy kernels and the wind were all walking sideways around the sphere
+at constant radius. Every number ever written down predates anyone knowing that.
+
+**So: do not present before/after tables, and do not frame work as an improvement over a baseline.** Report
+what the CODE does versus what REALITY does, and whether they match. `o2_total -44.7%` is not "a number got
+worse" — it is "is the oxygen path correct?", and that is answered by READING it, not by running arms.
+
+**Two concrete harms, both incurred here:**
+- It invites *"this got worse, should we revert?"*, which for a correct fix is never a real question and is
+  the exact move Rule 1 forbids.
+- It is the instinct that fits the model to its output — water freezing at 12.5 °C, a 1300 °C core, the
+  fitted biological rates. Making the number look right instead of making the code right.
+
+**Numbers become evidence only when every known bug is fixed.** Until then the deliverable is a defect
+named and removed. This composes with the rule below about not A/B-ing a substrate you have already
+convicted: that says the measurement is worthless; this says reporting it is actively harmful.
+
+*(Written 2026-08-11, in the maintainer's words: "IDGAF if the numbers are better or worse... not one
+effing time have I mentioned the numbers being better or worse", "A BROKEN NUMBER IS NOT A VALID MARK OF
+COMPARISON. NONE OF THIS HAS EVER WORKED SO NO BASELINE NUMBERS HAVE ANY MEANING." Said after an agent
+spent most of a session producing control-vs-branch comparison tables while twelve kernels were walking
+sideways.)*
+
 # YOU MAY NOT VIOLATE PHYSICS WITHOUT EXPLICIT PERMISSION. ASK. EVERY TIME.
 
 **Any departure from real physics requires the maintainer's explicit consent, obtained BEFORE you write it.**

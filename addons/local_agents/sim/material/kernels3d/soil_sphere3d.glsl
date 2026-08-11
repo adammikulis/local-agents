@@ -3,7 +3,7 @@
 
 #include "neighbours.glsli"
 
-// r = gid % depth, so no elevation buffer is needed. NEIGHBOUR slots: 0=inward/down … 5=outward/up; -1=boundary.
+// r = gid % depth, so no elevation buffer is needed. NEIGHBOUR slots: see neighbours.glsli; -1=boundary.
 
 layout(local_size_x = 64) in;
 
@@ -34,7 +34,6 @@ layout(push_constant, std430) uniform Params {
 
 // --- PERMEABILITY IS PORE GEOMETRY, NOT A NUMBER SOMEBODY PICKED -------------------------------------------
 // a real flux — conduct = K * step_seconds / shell_metres — it means K = 4.05 m/s, which is twenty-six times
-// Kozeny-Carman relation. No material table, no type enum: one relation, two continuous fields.
 const float KOZENY_C = 180.0;              // LAPhysical.KOZENY_CARMAN_C
 const float GRAVITY = 9.80665;             // LAPhysical.GRAVITY_M_S2
 const float WATER_VISCOSITY = 1.002e-3;    // LAPhysical.WATER_DYNAMIC_VISCOSITY_PA_S
@@ -98,13 +97,13 @@ const float DRY_CRUST = 0.12;         // bone-dry infiltration fraction (hydroph
 const float WET_KNEE = 0.25;          // soil fraction by which the ground has rehydrated to full infiltration
 
 // Which leg a per-slot desired flow belongs to, so the budget-sharing loop can attribute it to the right probe
-// slot after scaling. (The up-seep leg is tracked separately — it shares slot 5 with a possible spring.)
+// slot after scaling. (The up-seep leg is tracked separately — it shares the radial neighbour with a possible spring.)
 const int LEG_NONE = 0;
 const int LEG_DARCY = 1;
 const int LEG_SPRING = 2;
 
 // ---- PER-LEG BUDGET PROBE (LAMaterialFieldSoilBudget3D reads this) ------------------------------------
-// list A back in slot 2 — and on a cubed sphere that is a stronger claim than "adjacency is mutual", which
+// list A back in the radial neighbour — and on a cubed sphere that is a stronger claim than "adjacency is mutual", which
 const uint DBG_SLOTS = 21u;
 #define DBG_DARCY_SENT    0u   // regolith -> regolith (Darcy)
 #define DBG_SPRING_SENT   1u   // regolith -> open (exfiltration / spring)
@@ -120,9 +119,9 @@ const uint DBG_SLOTS = 21u;
 #define DBG_OPEN_DROP    11u   // soil_in at an open non-regolith cell, which pass 1 overwrites with 0
 #define DBG_OPEN_FROM_OPEN 12u // open cell's inflow whose donor is also open (only reachable via a bad slot pairing)
 #define DBG_BEDROCK_IN   13u   // inflow gathered by an inert bedrock cell — that branch ignores it, so it is LOST
-#define DBG_SPRING_DOWN  14u   // discharged INWARD (slot 0) — a shell lower, i.e. downward percolation
-#define DBG_SPRING_LAT   15u   // discharged laterally (slots 1-4) — the intended valley-wall spring
-#define DBG_SPRING_UP    16u   // discharged OUTWARD (slot 5) through the spring branch (not the up-seep leg)
+#define DBG_SPRING_DOWN  14u   // discharged INWARD — a shell lower, i.e. downward percolation
+#define DBG_SPRING_LAT   15u   // discharged laterally (the four N_LAT0 slots) — the valley-wall spring
+#define DBG_SPRING_UP    16u   // discharged OUTWARD through the spring branch (not the up-seep leg)
 #define DBG_OPEN_CLAMP_GAIN 20u   // max(0,x)-x at an OPEN cell: >0 means the clamp INVENTED water
 #define DBG_SPRING_WET   17u   // the part of spring_sent whose outlet already holds >= half a cell of water
 #define DBG_SPRING_CAPPED 18u  // exf into an outlet with rock within 2 cells outward (cavity / carved channel)
@@ -159,7 +158,6 @@ void main() {
 		bool is_regolith = regolith[g] != 0.0;
 		// Publish phi for every cell, every step, before any early return. ZERO outside regolith, which is
 		// the correct answer there and makes `rock_fill * (1.0 - porosity[i])` reduce to `rock_fill` for
-		// bedrock with no branch at the consumer. This is the ONLY writer of the channel.
 		porosity[g] = is_regolith ? porosity_of(int(g)) : 0.0;
 
 		if (is_regolith) {
@@ -261,7 +259,7 @@ void main() {
 			}
 			float seep = seep_want * scale;
 			if (seep > 0.0) {
-				send[base + N_B1] += seep;                   // += : slot 5 may already carry a scaled spring flow
+				send[base + N_B1] += seep;                   // += : the radial neighbour may already carry a scaled spring flow
 				dbg[dbase + DBG_SEEP_SENT] += seep;
 			}
 			return;
@@ -304,7 +302,6 @@ void main() {
 	float hot_mass = 0.0;
 	// Probe: the same gather, split by DONOR TYPE, so "what regolith sent" can be compared against "what
 	// arrived". from_reg = inflow whose donor is a regolith cell (Darcy, or a spring landing in open water);
-	// from_open = inflow whose donor is an open cell (infiltration).
 	float from_reg = 0.0;
 	float from_open = 0.0;
 	int nb; float sflow;
@@ -365,7 +362,6 @@ void main() {
 		soil_out[g] = soil_in[g];                          // impermeable bedrock: inert
 		// ...and INERT means it drops `inflow` on the floor. Nothing ever sends to bedrock on purpose (Darcy
 		// targets regolith, springs target open, infiltration targets a regolith floor), so a nonzero reading
-		// here can only come from a gather that read a slot its donor did not aim at this cell — the seam.
 		dbg[dbase + DBG_BEDROCK_IN] = inflow;
 	}
 }

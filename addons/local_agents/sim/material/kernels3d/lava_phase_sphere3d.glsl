@@ -2,9 +2,6 @@
 #version 450
 
 //      cool_k = LAVA_COOL_RATE * clamp(EMPLACE_DEPTH / d, 0.25, 3.0) * (1.0 + EXPOSURE_GAIN * exposed);
-//      cooled = max(LAVA_AMBIENT, temp[g] - cool_k * (temp[g] - LAVA_AMBIENT));
-// rock_fill 0 (add_lava moved it) and so reads as AIR, 1186 J/m^3/K against molten rock's ~2.4e6, a factor of
-// Neighbour reads use the precomputed INDEX TABLE nbr[idx*6 + d] (slot 0 = inward/down, 1-4 lateral, 5 =
 
 layout(local_size_x = 64) in;
 
@@ -48,18 +45,13 @@ const float MAX_DT_PER_STEP = 5.0;
 const int   MAX_SUBSTEPS = 8;
 
 // at emissivity 0.95 radiates sigma*eps*T^4 = 5.670374419e-8 * 0.95 * 1423.15^4 = 2.21e5 W/m^2, i.e. 221
-// kW/m^2, which is what a thermal camera measures on an open channel of fresh basalt. Against a full cell of
-// molten rock 16 m deep — 2.436e6 * 16 = 3.90e7 J/m^2/K — one 43.2 s step is 2.21e5 * 43.2 / 3.90e7 = 0.245 C
 const float STEFAN = 5.670374419e-8;   // LAPhysical.STEFAN_BOLTZMANN
 const float BASALT_EMIS = 0.95;        // LAPhysical.BASALT_EMISSIVITY — fresh basalt is near-black in the IR
 const float KELVIN = 273.15;           // LAPhysical.KELVIN_OFFSET — T^4 is in KELVIN, and this is the whole
                                        // difference between 221 kW/m^2 and 8 kW/m^2 at an erupting temperature
-// MOLTEN basalt is not solid basalt and the authority does not yet separate them: melt runs rho ~2700 kg/m^3
-// against c_p ~1200 J/kg/K, so ~3.2e6 J/m^3/K, about 33% ABOVE the solid figure used here. Using the solid
 
 void main() {
 	// One invocation per ACTIVE cell. `active_args[3]` is the compacted list length; the trailing invocations
-	// of the last workgroup (and the single idle group dispatched when the list is empty) fall out here.
 	uint t = gl_GlobalInvocationID.x;
 	if (t >= active_args[3]) {
 		return;
@@ -69,7 +61,6 @@ void main() {
 		return;                     // defensive: a corrupt list must not scribble outside the grid
 	}
 	// lava >= LAVA_MIN_MASS and solid == 0 were both applied by cell_list_lava_sphere3d.glsl when it appended
-	// this cell, so a listed cell has already passed them.
 	if (temp[g] < SOLIDIFY_TEMP) {
 		return;
 	}
@@ -78,11 +69,7 @@ void main() {
 	// upstream: heat3d_cool_sphere3d.glsl charges the latent heat of vaporisation against the seawater such a
 	float cap = max(rc_of(g) * params.cell_size, 1.0);
 
-	// The neighbour table is `cell*6 + slot` with slot 0 = INWARD (radial down), 1-4 lateral, 5 = OUTWARD.
-	//   * slot 5 with nbr < 0 — the top of the atmosphere, i.e. space. Nothing comes back (the 2.7 K
-	//                microwave background is 3e-6 W/m^2, eleven orders below the outgoing term).
-	//   * slot 0 with nbr < 0 — THE CORE BOUNDARY, WHICH IS NOT SPACE. *(Fixed 2026-08-08. This loop tested
-	//                a column — ReactionDefs.gd:83-87 — so slot 0 only goes negative at r = 0, where the
+	// The neighbour table is `cell*6 + slot`; the slot names are in neighbours.glsli.
 	uint base = g * 6u;
 	float faces = 0.0;      // how many faces emit, in units of a whole cell face
 	float lw_in = 0.0;      // W/m^2 returning across those faces, held constant across the sub-steps
@@ -110,8 +97,6 @@ void main() {
 	}
 
 	// SUB-STEPPED T^4 SINK, the integrator from heat3d_solar_sphere3d.glsl. Size the slicing from the change
-	// the first evaluation implies, then re-evaluate the emission as the cell cools so the result converges on
-	// the same energy instead of being truncated at the clamp.
 	float t_c = temp[g];
 	float tk0 = max(t_c + KELVIN, 1.0);
 	float dt0 = f_lava * (faces * BASALT_EMIS * STEFAN * tk0 * tk0 * tk0 * tk0 - lw_in) * params.dt_s / cap;

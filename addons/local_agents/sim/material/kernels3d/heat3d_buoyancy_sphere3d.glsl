@@ -3,11 +3,8 @@
 
 #include "neighbours.glsli"
 
-// swap: each cell reads its OLD self + its OLD radial neighbours (slot 5 = above/outward, slot 0 =
+// swap: each cell reads its OLD self + its OLD radial neighbours (N_OUT = above, N_IN =
 // this substrate's open cells run from air at rho*c = 1186 J/m^3/K to seawater at 4.171e6, a ratio of 3517.
-//     Q  = BUOYANCY * 0.5 * min(rc_here, rc_nbr) * (T_hot - T_cold)      [J per m^3 of cell, per step]
-//     dT_hot = -Q / rc_hot        dT_cold = +Q / rc_cold
-// Neighbour table `nbr[idx*6 + slot]`: slot 0 = inward/DOWN, 5 = outward/UP; -1 = boundary → no exchange.
 
 layout(local_size_x = 64) in;
 
@@ -64,7 +61,7 @@ void main() {
 	float rc_here = max(rc_of(idx), 1.0);
 	float delta = 0.0;
 
-	// LOSE heat upward: if this cell is hotter than the open cell ABOVE (slot 5), it convects energy out.
+	// LOSE heat upward: if this cell is hotter than the open cell ABOVE, it convects energy out.
 	int iu = nbr[base + N_OUT];
 	if (iu >= 0 && solid[iu] == 0.0) {
 		float d = here - temp_in[iu];
@@ -74,7 +71,7 @@ void main() {
 		}
 	}
 
-	// GAIN the matching heat from below: if the open cell BELOW (slot 0) is hotter, its energy rises into us.
+	// GAIN the matching heat from below: if the open cell BELOW is hotter, its energy rises into us.
 	// The same `q` the cell below computed for this bond, divided by OUR capacity instead of its own.
 	int ib = nbr[base + N_IN];
 	if (ib >= 0 && solid[ib] == 0.0) {

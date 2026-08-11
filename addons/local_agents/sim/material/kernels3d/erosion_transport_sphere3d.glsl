@@ -4,8 +4,6 @@
 #include "neighbours.glsli"
 
 // already exists (M3, a constant per-step fraction, which is what a constant Stokes settling velocity looks
-// of the load as of the water. Suspended load does not climb, so slot 5 (radially outward) carries nothing.
-// susp_out = susp_in - own_out + inflow, where inflow reads each neighbour's send slot aimed back at me. What
 
 layout(local_size_x = 64) in;
 
@@ -39,8 +37,6 @@ void main() {
 
 	if (params.pass_id == 0u) {
 		// ---- PASS 0: OUTFLOW ----------------------------------------------------
-		// Self-zero all six slots before any early return, exactly like the other CAs, so the shared `send`
-		// scratch needs no buffer_clear (illegal while a compute list is open).
 		for (uint z = 0u; z < N_SLOTS; ++z) { send[base + z] = 0.0; }
 
 		// Rock carries nothing; the held calm sea has no head, so it receives but never sends.
@@ -57,7 +53,6 @@ void main() {
 		}
 
 		//   DOWN (N_IN)        — gravity moves as much as the cell below can still hold, or EVERYTHING
-		//   UP (N_OUT)         — nothing: suspended load does not climb.
 		float raw[5];
 		float total = 0.0;
 
@@ -95,8 +90,6 @@ void main() {
 	}
 
 	// ---- PASS 1: INFLOW / APPLY -------------------------------------------------
-	// Rock holds no suspension: pass its (zero) value through untouched. Everything else — including the
-	// static sea — applies the full gather, so mineral delivered to the sea is kept, not absorbed.
 	if (solid[gidx] != 0.0) {
 		susp_out[gidx] = susp_in[gidx];
 		return;
@@ -108,7 +101,6 @@ void main() {
 	float inflow = 0.0;
 	int nb;
 	// Credit the OPPOSITE slot, `d ^ 1`. These were six unrolled lines pairing 0<->5, 1<->2, 3<->4, which is
-	// not this table's pairing, so load was debited into slots nobody read and read twice out of others.
 	for (uint d = 0u; d < N_SLOTS; ++d) {
 		nb = nbr[base + d];
 		if (nb >= 0) { inflow += send[uint(nb) * N_SLOTS + opposite(d)]; }

@@ -16,7 +16,6 @@ layout(set = 0, binding = 6, std430) restrict readonly buffer VelZ { float vel_z
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };     // idx*6 + slot
 // Per-column tangent-frame table (LASphereGrid.link_tan): ((cell/depth)*4 + l)*2 is the unit direction toward
 // the lateral slot l+1 neighbour, in that cell's OWN (tan_a, tan_b) axes. See wind_step_sphere3d for why the
-// frame is a separate table from the neighbour slots.
 layout(set = 0, binding = 16, std430) restrict readonly buffer LinkTan { float ltan[]; };
 
 layout(push_constant, std430) uniform Params {
@@ -108,7 +107,7 @@ void main() {
 		m_col += a;
 		uint nb = c * 6u;
 		for (int l = 0; l < 4; ++l) {
-			int m = nbr[nb + uint(l + int(N_OUT))];
+			int m = nbr[nb + N_LAT0 + uint(l)];
 			if (m < 0 || solid[m] != 0.0) {
 				continue;
 			}
@@ -119,7 +118,6 @@ void main() {
 
 	// --- New column mass. Step 0 seeds the standard atmosphere (the channel is allocated all-zero). ---
 	// The seed integrates the reference profile from THIS column's own floor, so a column whose ground stands
-	// high starts with less air above it — mountain tops begin at low pressure, for the right reason.
 	float m_new;
 	if (params.step_index == 0u) {
 		float z_bot = params.core_radius + (float(r_bot) + 0.5) * params.cell_size;

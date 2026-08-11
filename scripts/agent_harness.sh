@@ -250,6 +250,16 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_neighbour_slots.sh ($rc_nbrslots)"
       exit 1
     fi
+    # Gate: comment only what is needed to understand that line. Prose cannot be executed, so it rots and
+    # then misleads with authority — every false slot-layout claim was a comment. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_comment_density.sh"
+    rc_comments=$?
+    set -e
+    if [[ $rc_comments -ne 0 ]]; then
+      echo "LINT_FAIL: check_comment_density.sh ($rc_comments)"
+      exit 1
+    fi
     # Gate: no reaction record may create or destroy matter. The DEFS engine took reactants and products as
     # two independent lists of hand-written coefficients with nothing relating them, and one rate model had
     # no reactant at all, so only its product credit ever ran — which is where every carbon atom in this

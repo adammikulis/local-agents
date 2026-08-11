@@ -4,7 +4,7 @@
 #include "neighbours.glsli"
 
 // MaterialReactions3D.gd: FREEZE (liquid water → snow, R21) and MELT (snow → water, R22). The old melt branch
-// neighbour (slot 0) is solid ground. That is where FOG (cool near-ground condensate) sits, so cold humid
+// neighbour is solid ground. That is where FOG (cool near-ground condensate) sits, so cold humid
 
 layout(local_size_x = 64) in;
 
@@ -27,7 +27,6 @@ const float DEPOSIT_FRAC = 0.10;     // fraction of the condensed excess frozen 
 const float SNOW_MIN = 1.0e-9;       // clamp numerically-dust-thin snow to 0 (was 1e-3, which is a real 16 mm
                                      // of water equivalent — a threshold in the same units the sky now works
                                      // in would delete an entire season's snowfall as a rounding error)
-// The saturation curve, one function — see atmos_precip_sphere3d.glsl's block for what it replaced.
 const float MAGNUS_A_PA = 610.94;    // LAPhysical.MAGNUS_A_PA
 const float MAGNUS_B = 17.625;       // LAPhysical.MAGNUS_B
 const float MAGNUS_C_C = 243.04;     // LAPhysical.MAGNUS_C_C
@@ -49,7 +48,7 @@ void main() {
 	if (solid[idx] != 0.0) {
 		return;                                            // rock is not a snow surface
 	}
-	// GROUND-SURFACE air cell: open, and its inward-radial neighbour (slot 0) is solid ground.
+	// GROUND-SURFACE air cell: open, and its inward-radial neighbour is solid ground.
 	int down = nbr[idx * N_SLOTS + N_IN];
 	if (down < 0 || solid[down] == 0.0) {
 		return;                                            // no ground directly below -> not a snow surface

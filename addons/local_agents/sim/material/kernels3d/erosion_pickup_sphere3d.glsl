@@ -3,7 +3,7 @@
 
 #include "neighbours.glsli"
 
-// RACE-FREEDOM: a cell i scours ONLY its radial-DOWN neighbour's bedrock (nbr slot 0). By the neighbour table's
+// RACE-FREEDOM: a cell i scours ONLY its radial-DOWN neighbour's bedrock. By the neighbour table's
 
 layout(local_size_x = 64) in;
 

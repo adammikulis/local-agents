@@ -3,7 +3,7 @@
 
 #include "neighbours.glsli"
 
-// precomputed INDEX TABLE `nbr[idx*6 + slot]` — slot 5 = outward/UP (above), slot 0 = inward/DOWN (below);
+// precomputed INDEX TABLE `nbr[idx*6 + slot]` — N_OUT = UP (above), N_IN = DOWN (below);
 
 layout(local_size_x = 64) in;
 
@@ -24,13 +24,11 @@ layout(push_constant, std430) uniform Params {
 const float MAX_MASS = 1.0;
 
 // --- MODEL PARAMETERS. Properties of THIS kernel's overpressure rule; this file is their only declaration.
-// DENSE than the rock around it, and that density contrast is measurable — basaltic melt is 2600-2800 kg/m^3
 const float BUOY_FRAC = 0.55;
 const float K_P = 0.6;
 const float MAX_UP_FLOW = 0.4;
 const float MIN_OP = 0.0001;
 // MOLTEN_FLOOR = 950.0 and LAVA_EMPLACE_TEMP = 1150.0 used to live here and are gone: this kernel no longer
-// prescribes or caps a temperature, it mixes the arriving enthalpy with the destination's own.
 
 // Buoyant up-transfer a cell contributes given its lava mass — mirrors _buoy_up exactly.
 float buoy_up(float mass) {
@@ -63,12 +61,12 @@ void main() {
 	float out_up = 0.0;
 	float in_below = 0.0;
 
-	// UP (radially outward = slot 5): overpressure we shed into the open cell above.
+	// UP: overpressure we shed into the open cell above.
 	int iu = nbr[base + N_OUT];
 	if (iu >= 0 && solid[iu] == 0.0) {
 		out_up = buoy_up(scratch[g]);
 	}
-	// DOWN (radially inward = slot 0): overpressure the open cell below buoys up into us.
+	// DOWN: overpressure the open cell below buoys up into us.
 	int ib = nbr[base + N_IN];
 	if (ib >= 0 && solid[ib] == 0.0) {
 		in_below = buoy_up(scratch[uint(ib)]);
