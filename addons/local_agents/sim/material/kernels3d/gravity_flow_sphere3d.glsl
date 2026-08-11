@@ -28,6 +28,7 @@ layout(set = 0, binding = 16, std430) restrict readonly buffer LinkArc { float l
 layout(set = 0, binding = 17, std430) restrict readonly buffer SolidAngle { float solid_angle[]; };  // per column, sr
 
 #include "cell_geom.glsli"
+#include "nbr_shared.glsli"
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -152,9 +153,7 @@ void main() {
 		if (m < 0 || solid[m] != 0.0) {
 			continue;
 		}
-		// The neighbour's send slot aimed back at us is the OPPOSITE direction: 0<->5 radial, 1<->2, 3<->4.
-		uint rev = (d == 0u) ? 5u : ((d == 5u) ? 0u : (d ^ 1u));
-		float f = send[uint(m) * 6u + rev];
+		float f = send[uint(m) * 6u + opposite_slot(d)];
 		if (f > 0.0) {
 			// The sender debited `f` of ITS OWN volume; this cell is a different size, so the credit is
 			// f * vol(sender)/vol(me). Heat rides the corrected amount, not the raw one.

@@ -15,6 +15,7 @@ layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]
 layout(set = 0, binding = 17, std430) restrict readonly buffer SolidAngle { float solid_angle[]; };  // per column, sr
 
 #include "cell_geom.glsli"
+#include "nbr_shared.glsli"
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -119,13 +120,10 @@ void main() {
 
 	// Each send is a fraction of the SENDER's cell; credit it scaled by vol(sender)/vol(me).
 	float inflow = 0.0;
-	int nb;
-	nb = nbr[base + 0u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 5u] * xfer(uint(nb), gidx); }  // below sent UP
-	nb = nbr[base + 5u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 0u] * xfer(uint(nb), gidx); }  // above sent DOWN
-	nb = nbr[base + 1u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 2u] * xfer(uint(nb), gidx); }
-	nb = nbr[base + 2u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 1u] * xfer(uint(nb), gidx); }
-	nb = nbr[base + 3u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 4u] * xfer(uint(nb), gidx); }
-	nb = nbr[base + 4u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 3u] * xfer(uint(nb), gidx); }
+	for (uint d = 0u; d < 6u; ++d) {
+		int nb = nbr[base + d];
+		if (nb >= 0) { inflow += send[uint(nb) * 6u + opposite_slot(d)] * xfer(uint(nb), gidx); }
+	}
 
 	float value = susp_in[gidx] - own_out + inflow;
 	susp_out[gidx] = max(value, 0.0);

@@ -1,5 +1,6 @@
 #[compute]
 #version 450
+#include "nbr_shared.glsli"
 
 // r = c % depth and R = core_radius + (r + 0.5) * cell_size, with no per-cell lookup. Advection is DONOR-CELL
 
@@ -143,8 +144,7 @@ void main() {
 			float face = load;
 			float down = fld[uint(inb)] - load;                 // gradient ahead of the front
 			if (abs(down) > 1.0e-9) {
-				// The opposite lateral slot is this axis's other direction: 1<->2, 3<->4.
-				int opp = int(1u + (uint(d) ^ 1u));
+				int opp = int(1u + opposite_link(uint(d)));
 				int iup = nbr[base + uint(opp)];
 				float behind = (iup >= 0) ? (load - fld[uint(iup)]) : 0.0;
 				float r = behind / down;
@@ -183,13 +183,10 @@ void main() {
 		+ send[base + 3u] + send[base + 4u] + send[base + 5u];
 
 	float inflow = 0.0;
-	int nb;
-	nb = nbr[base + 0u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 5u]; }  // down-neighbour sent UP (5)
-	nb = nbr[base + 5u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 0u]; }  // up-neighbour sent DOWN (0)
-	nb = nbr[base + 1u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 2u]; }  // -a neighbour sent +a (2)
-	nb = nbr[base + 2u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 1u]; }  // +a neighbour sent -a (1)
-	nb = nbr[base + 3u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 4u]; }  // -b neighbour sent +b (4)
-	nb = nbr[base + 4u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 3u]; }  // +b neighbour sent -b (3)
+	for (uint d = 0u; d < 6u; ++d) {
+		int nb = nbr[base + d];
+		if (nb >= 0) { inflow += send[uint(nb) * 6u + opposite_slot(d)]; }
+	}
 
 	fld[gidx] = max(0.0, fld[gidx] - own_out + inflow);
 }

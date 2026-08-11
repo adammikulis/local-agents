@@ -1,5 +1,6 @@
 #[compute]
 #version 450
+#include "nbr_shared.glsli"
 
 
 layout(local_size_x = 64) in;
@@ -111,7 +112,7 @@ void main() {
 				continue;
 			}
 			flux_out += a * face_share(toward(c, l, depth), cfl);
-			flux_in += air_in[m] * face_share(toward(uint(m), l ^ 1, depth), cfl);
+			flux_in += air_in[m] * face_share(toward(uint(m), int(opposite_link(uint(l))), depth), cfl);
 		}
 	}
 

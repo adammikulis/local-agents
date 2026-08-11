@@ -1,0 +1,26 @@
+// Neighbour-slot reciprocity for the two-pass send/gather transports.
+//
+// Kernel slot order is [IN, A0, A1, B0, B1, OUT] (LASphereGrid.neighbours_kernel_order), so the opposite
+// pairs are 0<->5, 1<->2, 3<->4. A gather must read the slot the DONOR aimed back, or mass is debited by
+// one cell and credited to another — or to none.
+//
+// `d ^ 1` is the opposite in SphereGrid's INTERNAL order [IN, OUT, A0, A1, B0, B1] only. The kernel-facing
+// table permutes that away, so `d ^ 1` on a kernel slot is wrong for all four laterals.
+
+#ifndef NBR_SHARED_GLSLI
+#define NBR_SHARED_GLSLI
+
+// The slot a neighbour at kernel slot `d` used to send back toward this cell.
+uint opposite_slot(uint d) {
+	if (d == 0u) { return 5u; }
+	if (d == 5u) { return 0u; }
+	return ((d - 1u) ^ 1u) + 1u;   // 1<->2, 3<->4
+}
+
+// Same pairing addressed by 0-based LINK index (link l == slot l+1), for kernels that iterate the four
+// laterals only.
+uint opposite_link(uint l) {
+	return l ^ 1u;
+}
+
+#endif

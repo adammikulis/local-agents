@@ -1,5 +1,6 @@
 #[compute]
 #version 450
+#include "nbr_shared.glsli"
 
 // r = gid % depth, so no elevation buffer is needed. NEIGHBOUR slots: 0=inward/down … 5=outward/up; -1=boundary.
 
@@ -305,13 +306,18 @@ void main() {
 	// from_open = inflow whose donor is an open cell (infiltration).
 	float from_reg = 0.0;
 	float from_open = 0.0;
-	int nb; float sflow;
-	nb = nbr[base + 0u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 5u]; inflow += sflow; if (regolith[nb] != 0.0) { from_reg += sflow; if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } } else { from_open += sflow; } }  // down-nbr sent UP into me
-	nb = nbr[base + 5u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 0u]; inflow += sflow; if (regolith[nb] != 0.0) { from_reg += sflow; if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } } else { from_open += sflow; } }  // up-nbr sent DOWN into me
-	nb = nbr[base + 1u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 2u]; inflow += sflow; if (regolith[nb] != 0.0) { from_reg += sflow; if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } } else { from_open += sflow; } }
-	nb = nbr[base + 2u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 1u]; inflow += sflow; if (regolith[nb] != 0.0) { from_reg += sflow; if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } } else { from_open += sflow; } }
-	nb = nbr[base + 3u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 4u]; inflow += sflow; if (regolith[nb] != 0.0) { from_reg += sflow; if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } } else { from_open += sflow; } }
-	nb = nbr[base + 4u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 3u]; inflow += sflow; if (regolith[nb] != 0.0) { from_reg += sflow; if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } } else { from_open += sflow; } }
+	for (uint d = 0u; d < 6u; ++d) {
+		int nb = nbr[base + d];
+		if (nb < 0) { continue; }
+		float sflow = send[uint(nb) * 6u + opposite_slot(d)];
+		inflow += sflow;
+		if (regolith[nb] != 0.0) {
+			from_reg += sflow;
+			if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; }
+		} else {
+			from_open += sflow;
+		}
+	}
 
 	// Probe: zero every APPLY leg first, so each branch below only has to fill in the ones it owns.
 	dbg[dbase + DBG_REG_IN] = 0.0;      dbg[dbase + DBG_REG_OUT] = 0.0;

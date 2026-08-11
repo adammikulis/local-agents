@@ -20,6 +20,7 @@ layout(set = 0, binding = 16, std430) restrict readonly buffer LinkTan { float l
 layout(set = 0, binding = 17, std430) restrict readonly buffer SolidAngle { float solid_angle[]; };  // per column, sr
 
 #include "cell_geom.glsli"
+#include "nbr_shared.glsli"
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -139,7 +140,7 @@ void main() {
 			continue;
 		}
 		raw += share(toward_link(g, l));
-		gain += tracer_in[params.offset + uint(m)] * share(toward_link(uint(m), l ^ 1)) * out_scale(uint(m))
+		gain += tracer_in[params.offset + uint(m)] * share(toward_link(uint(m), int(opposite_link(uint(l))))) * out_scale(uint(m))
 			* xfer(uint(m), g);
 	}
 	if (open_u) { raw += share(vel_y[g]) + rise_frac(g); }
