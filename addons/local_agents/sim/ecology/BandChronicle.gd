@@ -54,10 +54,8 @@ var _faction_ensured: Dictionary = {}  # band -> true once upsert_faction has ru
 
 
 ## The chronicle's OWN database, never the shared one. `LocalAgentBackstoryGraphService` defaults to
-## `user://local_agents/network.sqlite3`, which is also where a game's conversations and an agent's long
-## memory live. A chronicle that opened that file would mix a quarter of a million throwaway creature rows
-## into the player's actual data — measured before this line existed: 1777 npc nodes, 113 band factions and
-## 2004 MEMBER_OF edges accumulated in a single afternoon of test runs, next to 45 real chat messages.
+## `user://local_agents/network.sqlite3`, where a game's conversations and an agent's long memory live; a
+## chronicle opening that file would mix throwaway creature rows into the player's actual data.
 const CHRONICLE_DB_PATH: String = "user://local_agents/chronicle.sqlite3"
 
 

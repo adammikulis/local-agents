@@ -21,12 +21,11 @@ extends RefCounted
 ## Merely "A lists B somewhere" is not enough — a link placed in the wrong slot debits a send slot that NO cell
 ## reads (mass destroyed) and makes some other slot get read twice (mass duplicated).
 ##
-## The raw geometric stitch does NOT satisfy that, and no choice of per-face axes can fix it. Measured on the
-## unrepaired table at res 24: 288 of 576 directed cross-face links per radial layer land in a non-opposite
-## slot — 4 of the 12 cube edges have their local (a,b) axes ROTATED across the seam (a face-0 `+b` link is the
-## partner's `+a` link) and 2 more have them REFLECTED (both sides say `+b`). The rotation is irreducible: with
-## the grid lines kept straight, each face is crossed by exactly two of the three great-ring families (X-, Y-,
-## Z-rings), so labelling a family "the a-axis" globally requires 2-colouring a triangle. It cannot be done.
+## The raw geometric stitch does NOT satisfy that, and no choice of per-face axes can fix it: 4 of the 12 cube
+## edges have their local (a,b) axes ROTATED across the seam (a face-0 `+b` link is the partner's `+a` link)
+## and 2 more have them REFLECTED (both sides say `+b`). The rotation is irreducible: with the grid lines kept
+## straight, each face is crossed by exactly two of the three great-ring families (X-, Y-, Z-rings), so
+## labelling a family "the a-axis" globally requires 2-colouring a triangle. It cannot be done.
 ##
 ## The fix is to stop treating the four lateral slots as fixed compass directions and treat them as two
 ## RECIPROCAL PAIRS: partition each cell's 4 lateral links into pair A (slots N_A0/N_A1) and pair B
@@ -35,24 +34,23 @@ extends RefCounted
 ## in the interior of every face pair A really is the ±a axis and pair B the ±b axis, exactly as before — and
 ## REPAIR only the seams where the geometry contradicts itself, by BENDING the affected line at a handful of
 ## cells near the four rotated cube edges. Those bends are the topological branch cuts the 8 cube corners
-## demand, and there are O(res) of them, not O(res²): `lateral_bends` measures 2·res at even `res` and 6·res at
-## odd (an odd seam column cannot pair off internally, so its leftover cell routes a longer path) — at res 24
-## that is 48 bent links out of 6912. `surf_nbr` keeps its literal geometric meaning (WaterSurfaceMesh and
-## MaterialFieldLakes3D build quads and drainage from it), so only the 6-slot `neighbours` table is permuted.
+## demand, and there are O(res) of them, not O(res²); `lateral_bends` counts them. An odd seam column cannot
+## pair off internally, so its leftover cell routes a longer path. `surf_nbr` keeps its literal geometric
+## meaning (WaterSurfaceMesh and MaterialFieldLakes3D build quads and drainage from it), so only the 6-slot
+## `neighbours` table is permuted.
 ##
-## THE TANGENT BASIS IS A SEPARATE TABLE, AND IT HAS TO BE (2026-07-30)
-## -------------------------------------------------------------------
+## THE TANGENT BASIS IS A SEPARATE TABLE, AND IT HAS TO BE
+## -------------------------------------------------------
 ## The four lateral slots were doing a second job they cannot do: standing in for the TANGENT FRAME the wind
 ## kernel stores momentum in (`vel_x` along "the slot 1/2 axis", `vel_z` along "the slot 3/4 axis"). Coriolis
 ## rotates that pair, so it needs the frame to be consistently HANDED; the gather kernels need the slots to be
 ## slot-opposite RECIPROCAL. **Both cannot hold in one table, and that is topology, not a bug.** The pairing's
 ## two link families form closed cycles on the sphere; where two cycles cross, the handedness sign is the
 ## transverse intersection sign of two closed curves, and on a sphere every closed curve bounds, so that signed
-## count is exactly 0. Measured at res 16/24/32: every crossing pair carries BOTH signs and every pair sums to
-## zero. A 50/50 split is the FLOOR, not an accident (measured 1732 right / 1724 left at res 24). Worse than a
-## sign flip: cycle ORIENTATION is the convention momentum is stored in, so adjacent cells on different cycles
-## disagreed about which way "tangent A" points on 17.45/17.13/16.99% of links at res 16/24/32 — an INTERIOR
-## defect growing as O(res²), where the pre-repair face-local axes could only disagree across a seam (O(res)).
+## count is exactly 0: every crossing pair carries BOTH signs, so an even split of handedness is the FLOOR
+## rather than an accident. Worse than a sign flip: cycle ORIENTATION is the convention momentum would be
+## stored in, so adjacent cells on different cycles disagree about which way "tangent A" points — an INTERIOR
+## defect growing as O(res²), where face-local axes can only disagree across a seam, O(res).
 ##
 ## So the frame gets its own table and the pairing is left alone. `tan_a`/`tan_b` are built from the FACE-LOCAL
 ## geometric axes, which are right-handed on all six faces by construction (`cross(_FACE_R, _FACE_U)·_FACE_N`
@@ -143,8 +141,8 @@ var link_arc: PackedFloat32Array = PackedFloat32Array()    # radians between cel
 # da db / (1 + a^2 + b^2)^(3/2), whose antiderivative is atan(a*b / sqrt(1 + a^2 + b^2)). A cell is the 2D
 # difference of that over its own [a0,a1] x [b0,b1]. `validate()` checks the sum is 4*pi.
 var solid_angle: PackedFloat32Array = PackedFloat32Array()  # surf_count : steradians per column
-# Per-cell volume, model units cubed, precomputed. It is read once per cell per gauge per frame and the
-# arithmetic never changes, so computing it on demand cost 157 ms of a 10.9 ms field step.
+# Per-cell volume, model units cubed, precomputed: read once per cell per gauge per frame, and the
+# arithmetic never changes.
 var cell_vol: PackedFloat32Array = PackedFloat32Array()      # cell_count : volume in model units^3
 
 
@@ -176,8 +174,7 @@ func cell_volume(c: int) -> float:
 
 
 ## Volume per cell, model units cubed. Solid angle depends only on the column and the radial integral only on
-## the layer, so this is one multiply per cell — but it is read once per cell per gauge per frame, and doing
-## the arithmetic on demand cost 157 ms against a 10.9 ms field step.
+## the layer, so this is one multiply per cell, precomputed rather than evaluated on demand.
 func _build_cell_volumes() -> void:
 	cell_vol.resize(cell_count)
 	var radial: PackedFloat64Array = PackedFloat64Array()
@@ -363,8 +360,8 @@ func _repair_families(fam: PackedInt32Array) -> int:
 
 
 ## Stage 1 — flip a link shared by TWO cells that are unbalanced the SAME way: one flip fixes both. Along a
-## rotated seam every cell of the column is unbalanced identically, so this walks the column pairing them off
-## and is the only stage that runs when `res` is even (measured: exactly 2·res flips, i.e. res/2 per seam).
+## rotated seam every cell of the column is unbalanced identically, so this walks the column pairing them off,
+## and it is the only stage that runs when `res` is even.
 func _repair_pairs(fam: PackedInt32Array) -> int:
 	var flips: int = 0
 	var progress: bool = true
@@ -713,8 +710,8 @@ func neighbours_kernel_order() -> PackedInt32Array:
 ## `(c,d) ↦ (m,d^1)` an involution on the valid links: every written send slot has exactly one reader.
 ##
 ## symmetric = the weaker set-level property (A lists B ⟹ B lists A SOMEWHERE). It is kept because it isolates
-## a genuine stitch failure from a mere slot-assignment failure, but on its own it proves nothing about mass —
-## it was true, and reported ok, throughout the years this table was silently leaking at 1.4% of its links.
+## a genuine stitch failure from a mere slot-assignment failure, but on its own it proves nothing about mass:
+## it holds, and reports ok, on a table that is leaking at every mis-slotted link.
 ## closed = every surface neighbour index is in range. min/max_dot = alignment of adjacent cell directions
 ## (near 1.0 everywhere = a smooth, seam-free surface). `ok` requires ALL of closed, symmetric and reciprocal.
 func validate() -> Dictionary:

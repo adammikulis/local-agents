@@ -15,11 +15,7 @@ extends RefCounted
 
 ## A SEED IS BUILT OUT OF THE PARENT. It is not free.
 ##
-## What this replaced: every 1.5 s, 30% of seed-ready plants spawned a child, and the child arrived holding a
-## full 27.6-unit food reserve while the parent lost nothing. Two plants where there had been one, and the
-## second one's matter came from nowhere.
-##
-## Now the parent pays SEED_RESERVE_COST out of its own reserve and the seedling starts holding exactly that,
+## The parent pays SEED_RESERVE_COST out of its own reserve and the seedling starts holding exactly that,
 ## so germination MOVES mass rather than making it. A parent that has not managed to take up that much from
 ## the ground it stands on cannot set seed at all — which is what makes a barren pasture stop spreading, with
 ## no cap or timer saying so. The cost is a fraction of a full-grown plant's capacity: real seed mass is a

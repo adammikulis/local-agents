@@ -22,9 +22,8 @@ const SPINUP_TIME: float = 9.0            # grace while Coriolis spins the seede
 const VORT_TO_STRENGTH: float = 0.5       # K: |vorticity| → strength; tuned so a well-fed vortex saturates STRENGTH_MAX
 const STRENGTH_RATE: float = 0.1          # smoothing of strength toward the field-read target
 
-# --- Seeding (the actor's job: inject a tight warm updraft/low so a vortex EMERGES and Coriolis spins it) ---
-# (SEED_HEAT_PER_SEC = 26.0 °C/s and SEED_HEAT_R = 12.0 deleted 2026-08-03 — see `_seed_low` below for why a
-# tornado is not allowed to manufacture the buoyancy it rides on.)
+# --- Seeding (the actor's job: inject a tight low so a vortex EMERGES and Coriolis spins it) ---
+# A tornado does not manufacture the buoyancy it rides on; see `_seed_low`.
 
 # --- Track the vortex the field grew (+ wind + per-index noise so many twisters don't move in lockstep) ---
 const VORTEX_FOLLOW: float = 8.0          # base drifts toward the strongest nearby vorticity (the real mesocyclone)
@@ -366,7 +365,7 @@ func _build_fx() -> void:
 		_debris.emitting = true
 		_debris.local_coords = false
 		var quad: QuadMesh = QuadMesh.new()
-		quad.size = Vector2(0.34, 0.34)                # small flecks (was 0.7 blocky quads)
+		quad.size = Vector2(0.34, 0.34)                # small flecks
 		var dmat: StandardMaterial3D = StandardMaterial3D.new()
 		dmat.albedo_color = Color(1.0, 1.0, 1.0, 1.0)  # tint comes from the per-particle color ramp below
 		dmat.vertex_color_use_as_albedo = true

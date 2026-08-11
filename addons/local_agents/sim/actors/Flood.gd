@@ -1,8 +1,8 @@
 class_name LAFlood
 extends Node3D
 
-## A flash flood as an EMERGENT CLOUDBURST, not a spawn of water from nothing. It conjures NO water and (since
-## 2026-08-03) no heat either: like a Thunderstorm it seeds the physical ingredients of a violent downpour into
+## A flash flood as an EMERGENT CLOUDBURST, not a spawn of water from nothing. It conjures no water and no
+## heat: like a Thunderstorm it seeds the physical ingredients of a violent downpour into
 ## the MaterialField and lets the unified water cycle rain it out. Each step it PUMPS humid air (add_vapor) up
 ## over the footprint — a transfer that debits the footprint's own liquid and soil water — and lets the
 ## substrate's buoyancy and lapse rate carry it. Unlike a
@@ -87,10 +87,9 @@ func _seed_scale() -> float:
 	return clampf((DURATION + FADE_TIME - _age) / FADE_TIME, 0.0, 1.0)
 
 
-# Pump the cloudburst ingredients across the footprint: humid air + surface heat at several ground points, and
-# hard cooling in the air column overhead — the field then condenses cloud → heavy rain here on its own.
+# Pump humid air into the footprint at several ground points; the field condenses cloud and rains it out.
 func _pump_cloudburst(intensity: float, delta: float) -> void:
-	var offsets: Array = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]     # a FULL ring of angles (0..300°) + centre — spreads the cell evenly (was 0..150°, one-sided)
+	var offsets: Array = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]     # a full ring of angles + centre, so the footprint is even
 	var pts: int = offsets.size() + 1
 	var per_vapor: float = VAPOR_PER_SEC * intensity * delta / float(pts)
 	# Centre.
@@ -102,10 +101,9 @@ func _pump_cloudburst(intensity: float, delta: float) -> void:
 
 
 func _seed_point(gpos: Vector3, vapor: float) -> void:
-	# Drop each injection to the local ground so vapor rises from the surface (not from mid-air). The moisture
-	# is the ONLY thing seeded now: `add_vapor` lifts water that is really there (the footprint's liquid and its
-	# water table) and reports what it could not find, so a cloudburst over dry ground is a weak one. The
-	# surface-warming call that used to sit beside it created heat from nothing and is gone.
+	# Drop each injection to the local ground so vapor rises from the surface, not from mid-air. Moisture is the
+	# only thing seeded: `add_vapor` lifts water that is really there (the footprint's liquid and its water
+	# table) and reports what it could not find, so a cloudburst over dry ground is a weak one.
 	var p: Vector3 = gpos
 	if _terrain != null and _terrain.has_method("ground_point"):
 		var g: Vector3 = _terrain.ground_point(gpos)

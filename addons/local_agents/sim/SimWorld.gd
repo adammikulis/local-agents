@@ -58,8 +58,8 @@ const SLOW_BUILD_CELLS: int = 250000
 
 @export_group("Sphere bounds")
 @export_subgroup("Shape")
-## Mean solid radius of the planet, in world units. Relief, feature size and the field shell are all
-## scaled from this. The numbers were tuned at 250, so 500 gives the same-looking planet twice as big.
+## Mean solid radius of the planet, in world units. Relief, feature size and the field shell all scale
+## linearly with it, so doubling this gives the same-looking planet at twice the size.
 @export_range(25.0, 2000.0, 1.0, "or_greater", "suffix:m") var radius: float = 250.0
 ## How far the whole surface is pushed inward, in world units, before relief is added, so a larger
 ## number means more ocean, not more land (negative pushes outward for a drier planet). 0 puts the mean
@@ -195,7 +195,7 @@ func _build_sphere() -> bool:
 	if script_res == null:
 		push_error("VOXEL_BACKEND_REQUIRED: LocalAgentSimWorld could not load %s. That script needs the godot_voxel GDExtension (addons/zylann.voxel/); install it, or set world_type to FLAT." % PLANET_BODY_PATH)
 		return false
-	var scale: float = radius / 250.0                 # the sphere knobs were tuned at radius 250
+	var scale: float = radius / 250.0                 # relief knobs below are expressed at radius 250
 	_body = script_res.new()
 	_body.name = "PlanetBody"
 	add_child(_body)

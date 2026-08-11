@@ -58,18 +58,11 @@ const BIOMASS_GROWTH_MAX: float = 2.0    # cap on the biomass growth boost
 # next to the model that uses it, rather than in LAPhysical.
 #
 # WHAT IT IS PINNED ON: what a plant node MEANS. A plant node stands for one plant's worth of the vegetation
-# the field is carrying, so a full-grown one's reserve is one node's share of the planet's standing crop.
-# Measured on the 600-frame baseline, seed 4242: `biomass_open_total` 6.45 mass units carried by 477 plant
-# nodes and 320 tree nodes, which is 0.0081 mass units per vegetation node. Against FOOD_CAPACITY = 46 that
-# is 1.8e-4 mass units per unit of food energy.
+# the field carries, so a full-grown one's reserve is one node's share of the planet's standing crop, and the
+# ratio is that share divided by FOOD_CAPACITY.
 #
-# THIS IS A UNIT DEFINITION, NOT A FITTED CONSTANT, and the difference matters because getting it wrong looks
-# exactly like a result. The first version of this change assumed 1:1 — CreatureDigestion.gd:26 says "biomass
-# units == energy units", which is true INSIDE a creature's gut and says nothing about the field — and the
-# conclusion was that the substrate produces four orders of magnitude too little to feed anything. Measured
-# under that assumption: plants 374 against a baseline 478, trees 254-263 against 298-320, and germination
-# stopped completely because no parent could ever afford a seed. None of that was the planet being barren; it
-# was a missing conversion between two arbitrary scales.
+# It is a unit definition, not a fitted constant. A 1:1 assumption is wrong: "biomass units == energy units"
+# holds inside a creature's gut and says nothing about the field.
 const BIOMASS_PER_FOOD: float = 1.8e-4
 const FOOD_CAPACITY: float = 46.0        # ceiling on the reserve a full-grown plant may hold (food-energy units)
 const FOOD_UPTAKE_RATE: float = 8.0      # food-energy/second the plant may draw from its cell's standing

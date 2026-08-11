@@ -142,14 +142,14 @@ func _seed_founder_age(node) -> void:
 
 # Metres above the sea shell a direction's surface must clear to count as DRY LAND (not tidal shallows).
 const LAND_MARGIN: float = 2.0
-# How many random directions to try before giving up on finding dry land (the planet is ~70% ocean now, so a
-# handful of tries almost always lands one; the loop is cheap — a radial raycast against the low-LOD sphere).
+# How many random directions to try before giving up on finding dry land. Each try is one radial raycast
+# against the low-LOD sphere.
 const LAND_TRIES: int = 32
 
 
 func _random_spawn_point() -> Vector3:
-	# LAND-biased: the planet is ocean-DOMINANT now (~72% sea), so a blind random direction would drop most
-	# land actors (herd founders, rocks, forests) onto the SEABED, underwater. Rejection-sample directions and
+	# LAND-biased: the planet is ocean-dominant, so a blind random direction would drop most land actors
+	# (herd founders, rocks, forests) onto the SEABED, underwater. Rejection-sample directions and
 	# take the first whose surface clears the sea shell (dry land); keep the highest sampled direction as a
 	# fallback so we still return the most-land-like point if no clearly-dry site was meshed yet. The returned
 	# raw point is re-projected to the meshed ground by _place_on_surface(); an unmeshed patch queues + retries.

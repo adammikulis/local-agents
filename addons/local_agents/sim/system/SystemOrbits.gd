@@ -16,10 +16,7 @@ extends Node
 ## volley) drops the planet onto a decaying orbit into the sun, or past escape velocity out of the system.
 ## Explicit types; no ':='.
 ##
-## ONE SYSTEM (unified 2026-07-30). Three constants used to describe three different, mutually inconsistent
-## suns: `SUN_MU = 1e6` drove the orbit in abstract units, `SUN_SCENE_DISTANCE = 1200` drew the disc somewhere
-## unrelated, and `PLANET_MASS_EFF = 6e5` was an invented planet mass for impulses that did not match the
-## planet's actual 1e6. All three are gone. There is one G (LAGravity), one star mass (LAStar.mass()), one
+## ONE SYSTEM. There is one G (LAGravity), one star mass (LAStar.mass()), one
 ## planet mass (LAPlanetBody.mass()), and the star is drawn exactly where the orbit says it is. The orbital
 ## acceleration is now literally `LAGravity.acceleration_at()` evaluated at the star, so the moon perturbs
 ## the planet's year for free and nothing here can drift out of agreement with what a meteor feels.
@@ -44,15 +41,12 @@ const INSOLATION_MIN: float = 0.02        # never fully zero (numeric floor)
 const INSOLATION_MAX: float = 4.0         # cap the bake so the field can't NaN
 const DUST_OPACITY: float = 3.5           # how strongly atmospheric dust/cloud blocks the sun (impact winter)
 const CLOUD_OPACITY_K: float = 0.35       # per-unit-cover cloud opacity
-# The one admitted exaggeration left in this file: a 400-mass rock genuinely cannot move a 1e6 planet, so the
-# knock is scaled up to keep impacts consequential. 5.9 is not a taste value — it reproduces the pre-unification
-# response EXACTLY. The old code divided the impulse by an invented PLANET_MASS_EFF of 6e5 against an orbital
-# speed of 31.6; the real divisor is the planet's real mass 1e6 and the real orbital speed is 112.3, so the same
-# impulse needs 112.3/31.6 × 1e6/6e5 = 5.9x to shift the orbit by the same FRACTION of its velocity.
+# The one admitted exaggeration left in this file: a rock of a few hundred mass units genuinely cannot move a
+# planet, so the momentum an impact hands the orbit is multiplied to keep impacts consequential.
 const KNOCK_GAIN: float = 5.9
 
-# Moon: a real orbit about the planet, integrated through LAGravity like everything else. Its period is NOT a
-# constant here any more — it falls out of the separation and the masses (~104 s at 3.2 planet radii).
+# Moon: a real orbit about the planet, integrated through LAGravity like everything else. Its period is not a
+# constant here — it falls out of the separation and the masses.
 const MOON_RADIUS_MULT: float = 3.2       # orbit radius = planet_radius * this
 const MOON_INCLINATION: float = 0.28      # radians the moon plane is tipped from the planet equator
 
@@ -60,7 +54,7 @@ const MOON_INCLINATION: float = 0.28      # radians the moon plane is tipped fro
 # orbits. A justified fake — nearly free: sea_radius = base + TIDE_AMP·cos(2·moon_angle) (two bulges per orbit).
 # The ocean shell (LAOceanPlane) and the near-cap surface (LAMaterialFieldRender3D) both read the tided radius,
 # so the shoreline advances/recedes with no per-cell simulation.
-const TIDE_AMP: float = 4.0               # peak sea-level swing (world units) — ~0.8% of the 500u planet radius
+const TIDE_AMP: float = 4.0               # peak sea-level swing, world units
 
 var _body: Node3D = null                  # LAPlanetBody (the planet — orbit reference + scene centre)
 var _sky_ctrl: Node = null                # LAVoxelSkyController (owns the star node + the sky sun)
@@ -191,9 +185,7 @@ func _publish_bodies() -> void:
 		_star.global_position = centre + _barycentre() - _helio_pos
 	if _moon != null:
 		_moon.global_position = centre + _moon_pos
-		# The tide wants a phase, and the moon's real position is where that phase now comes from: the
-		# projection of its separation onto the equatorial plane. At seed this reads 0, matching the angle
-		# the old driven-cosine moon started at.
+		# Tide phase: the projection of the moon's separation onto the equatorial plane.
 		_moon_angle = atan2(_moon_pos.z, _moon_pos.x)
 
 
@@ -204,13 +196,11 @@ func _publish_bodies() -> void:
 ## already contains the star→planet term, the planet→star term (as the frame's indirect correction) and the
 ## moon's pull, so not one line of this is a constant typed into this file.
 ##
-## Measured against the BARYCENTRE, not the planet. The planet swings toward the moon once a month; LAGravity
-## reports that swing because it is real — a meteor genuinely feels the ground accelerate under it — but what
-## traces a Kepler ellipse about the star is the planet-moon pair's centre of mass. Integrating the monthly
-## wobble as though it were orbital motion pumps the year into an ellipse: measured 2026-07-30, the planetocentric
-## form drove the orbit from 12000 to 15812 units in 700 s, e = 0.14, swinging insolation 1.00 down to 0.57 with
-## nothing but the moon to cause it. With the planet pinned at the world origin, the barycentre's acceleration
-## is just the moon's, weighted by the moon's share of the pair's mass — two lines, and the drift is gone.
+## Integrated against the BARYCENTRE, not the planet. The planet swings toward the moon once a month; LAGravity
+## reports that swing because it is real, but what traces a Kepler ellipse about the star is the planet-moon
+## pair's centre of mass, and integrating the monthly wobble as orbital motion pumps the year into an ellipse.
+## With the planet pinned at the world origin, the barycentre's acceleration is the moon's, weighted by the
+## moon's share of the pair's mass.
 func _integrate_orbit(delta: float) -> void:
 	if _star == null:
 		return

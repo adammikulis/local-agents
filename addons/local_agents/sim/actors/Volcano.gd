@@ -16,14 +16,10 @@ extends Node3D
 ## (tracking the growing cone), so lava always emerges into the open water at the front where the cell above is
 ## sea. The pile climbs, never plugs. The vent node rides the planet body, so that radial follows the spin.
 ##
-## This used to need help. The MaterialField grid was WORLD-FIXED while the body SPUN, so over a long accretion
-## the field's rock_fill and the terrain SDF stopped describing the same place and the cone SMEARED into an arc
-## — and VoxelWorld froze the planet's rotation for the --auto-seavolcano demo to hide it. The field is
-## body-local now (LAMaterialField3D.sync_body_frame / dir_to_field / point_to_field), the freeze is gone, and
-## cone_profile() below measures what the freeze was covering for: with the planet turning through ~1.6
-## rotations over a 600-frame run, the accreted material's centroid stays within 0.02 rad of the vent radial
-## (~9 units of arc on a 500-unit planet) and its major/minor half-width ratio stays near 1. It builds a round
-## pile on one spot. Measured 2026-07-30 over five runs; see the SEAVOLCANO proof line.
+## The field is body-local (LAMaterialField3D.sync_body_frame / dir_to_field / point_to_field), so its rock_fill
+## and the terrain SDF describe the same ground while the planet spins and the cone does not smear into an arc.
+## cone_profile() below is the proof: it reports the accreted material's centroid drift from the vent radial and
+## its major/minor half-width ratio.
 ##
 ## Deleted vs the old scripted volcano: `_is_erupting`, `_bomb_cd`, `BOMBS_PER_BURST`/`BOMB_*`, `_launch_bombs`,
 ## the bomb GPUParticles/RigidBody emitter, `_bomb_impact`, the burst timer and pressure state machine. A thrown
@@ -40,17 +36,9 @@ const SUPPLY_INTERVAL: float = 0.05        # deposit cadence (s); many small dep
 # the erupted rock piles into a BROAD island cone instead of a single-column spire racing to the grid ceiling.
 const VENT_DISC: float = 0.10              # angular radius of the vent disc (rad); ~ a handful of columns wide
 #
-# ISLAND_FREEBOARD = 14.0 USED TO SIT HERE, skipping any column whose surface already stood 14 units above sea so
-# supply flowed to the submerged ones and "the island tops out as a low landmass rather than a runaway tower". It
-# was deleted 2026-07-30 because it does not do that. Measured over 600-frame runs: with the cap in place the pile
-# stands 107-116 units above sea level, eight times the freeboard it names, while the cap fires on 657 of 5120
-# deposit attempts (13%). Removing it changes nothing outside run-to-run spread — rise 139.7/155.6 uncapped versus
-# 144.2-149.8 capped, breach 97.9/114.3 versus 115.5-115.9, roundness and drift identical. It only ever chose WHICH
-# column in the disc received the next deposit; the height is set downstream by quench/solidify/stamp, which no
-# supply routing reaches. The runaway tower is REAL and still unsolved — the fix belongs in the substrate (the
-# stamp's response to accumulated rock_fill), not in a supply-side skip that cannot see the spire it is aiming at,
-# because surface_radius() casts a single ray that misses a one-cell-wide column. A clamp that does not clamp is
-# worse than none: it told every reader this was handled.
+# The runaway spire is a REAL and unsolved failure. Supply routing cannot fix it: choosing which column in the
+# disc receives the next deposit does not touch the height, which is set downstream by quench/solidify/stamp.
+# The fix belongs in the stamp's response to accumulated rock_fill.
 
 # Seismic tremor emitted while supplying (camera shake / felt seismic EMERGES from the shared field, not here).
 const ERUPT_SEISMIC: float = 3.0

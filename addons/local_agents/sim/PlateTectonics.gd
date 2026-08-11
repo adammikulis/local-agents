@@ -75,42 +75,13 @@ static func drift_rate(speed_mm_yr: float, radius: float) -> float:
 	var rad_per_real_s: float = m_per_real_s / maxf(radius, 1.0)
 	var real_s_per_sim_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_sim_second()
 	return rad_per_real_s * real_s_per_sim_s * GEOLOGIC_TIME_ACCELERATION
-# ARC VOLCANO at a convergent margin (else just a quake). THIS IS A RARITY ROLL STANDING IN FOR MISSING
-# PHYSICS and it is on the list to dissolve — but not yet, and the two comments describing it contradicted
-# each other, so here is the actual state.
-#
-# This line used to say volcanoes "can be frequent again without baking the planet" because subaerial lava
-# cools and solidifies, making it a finite heat source. The comment at the call site below said the opposite:
-# that the roll is "kept rare so sustained volcanic heat doesn't accumulate and bake the planet". Both were
-# written as current fact, 85 lines apart. The value never moved off 0.3 either way, so whichever was right,
-# nobody acted on it.
-#
-# What is true as of 2026-07-30: the premise is real (lava IS a finite heat source now) but the conclusion
-# does not follow, because this branch still has NO RADIATIVE SINK. Heat entering the field has nowhere to
-# leave, so a sustained source accumulates whether or not each individual flow cools. The sink —
-# dT = (absorbed - sigma*eps*T^4)*dt/C — is built on `feature/energy-balance` and has not merged. So the
-# call-site comment is the one describing today's code, and this one was aspirational.
-#
-# REMOVING THIS ROLL IS THE ACCEPTANCE TEST FOR THAT SINK, per the standing rule that a band-aid comes out to
-# prove its root is fixed. The measurement that settles it: raise this by a large factor (0.3 -> 1.0, every
-# convergent margin erupts) and compare temp_mean and temp_ground_mean at equal field_step across at least
-# three runs per arm, quoting eruption counts. If the planet bakes, the sink is not closing; if not, this goes.
+# Probability of an arc volcano at a convergent margin (else a quake). A rarity roll standing in for missing
+# physics: melt should emerge from crustal thinning plus the geotherm, with no boundary classifier at all.
 const VOLCANO_CHANCE_CONVERGENT: float = 0.3
 
-# THE RIFT VENT ROLL IS GONE. It used to be `VENT_CHANCE_DIVERGENT = 0.12`, undocumented, sitting beside a
-# sibling roll carrying twenty lines of justification. A vent at a spreading ridge is not a lottery: it happens
-# BECAUSE the plates are pulling apart, continuously, everywhere they do — mid-ocean ridges are the most
-# volcanically productive feature on Earth and they erupt along their whole length. So a divergent margin now
-# always vents, and the throttle that keeps this from being disaster spam is the one that was always doing the
-# work: the drumbeat fires one event per EVENT_PERIOD and picks the single best-scoring candidate, and
-# divergent margins already score lowest (speed * 0.4 against a transform's speed), so they only win when
-# nothing is closing or grinding anywhere in the sample.
-#
-# The deeper dissolution this UNBLOCKS but does not yet do: with the crust now actually advecting, a divergent
-# boundary THINS rock_fill on its own, and thin crust plus the geotherm is what puts melt near the surface. A
-# vent should ultimately emerge from that — hot rock reaching its solidus under a thinned lid — with no
-# boundary classifier involved at all. That is a bigger change than transport and it needs the thinning to be
-# measurable first.
+# A divergent margin always vents — a spreading ridge erupts along its whole length, it is not a lottery. The
+# throttle is the drumbeat: one event per EVENT_PERIOD, best-scoring candidate only, and divergent margins
+# score lowest (speed * 0.4 against a transform's speed).
 
 var _terrain = null                      # LAVoxelTerrainService (planet_center/radius, surface_point, sea_radius)
 var _disasters = null                    # LAVoxelDisasters (spawn_volcano / spawn_earthquake)
@@ -147,28 +118,17 @@ func setup(terrain, disasters, field = null) -> void:
 	_table.resize(PLATE_COUNT * 8)
 
 
-## THE TECTONIC DRUMBEAT RUNS ON THE PHYSICS CLOCK, not the render clock, and that is what makes a seeded run
-## reproducible. It used to be `_process`, so `_cd` counted down on RENDER-frame delta while this scene runs at
-## 2-3 fps with variable frame times — the number of tectonic events in a fixed `--run-frames=N` therefore
-## depended on how long each frame happened to take. Measured before this change, three runs at the SAME
-## `--seed=4242`: 2, 7 and 3 impacts and 2, 4 and 0 eruptions. `field_step` was 746 in every one of them, which
-## is the tell: the field's own clock is stable across runs and only the render-driven consumers wandered.
-## (That 746 belongs to THAT run configuration and is not a constant of the sim. The current acceptance
-## configuration — `--run-frames=600 --fast=8 --no-fauna --fixed-fps 60` — gives `field_step` 590, measured
-## over eleven runs on 2026-08-03. Quote the flags beside the number, or the next reader A/Bs against the
-## wrong horizon.)
+## The tectonic drumbeat runs on the physics clock, never the render clock, so a seeded run is reproducible.
 func _physics_process(delta: float) -> void:
 	if not _enabled or _terrain == null or _disasters == null:
 		return
 	if not _terrain.has_method("surface_point") or not _terrain.has_method("planet_center"):
 		return
-	# DRIFT: rotate each plate seed about its Euler pole every frame, so the Voronoi boundaries MIGRATE over time
-	# and the Ring of Fire slowly moves (was frozen — the seeds were set once in setup and never integrated).
+	# Drift: rotate each plate seed about its Euler pole, so the Voronoi boundaries migrate.
 	for i in range(_seeds.size()):
 		_seeds[i] = (_seeds[i] as Vector3).rotated((_poles[i] as Vector3).normalized(), float(_rates[i]) * delta)
-	# AND HAND THE PLATES TO THE SUBSTRATE, which is the half that did not exist. Rotating the seeds moves the
-	# BOUNDARIES; carrying rock_fill and sediment with the same velocity moves the CRUST. Without this the Ring
-	# of Fire swept across continents that never moved, which is not plate tectonics — it is a moving label.
+	# Hand the plates to the substrate: rotating the seeds moves the boundaries, carrying rock_fill and
+	# sediment at the same velocity moves the crust.
 	_push_plates()
 	_cd -= delta
 	if _cd > 0.0:
