@@ -4,7 +4,7 @@ class_name LocalAgentManager
 signal agent_ready(agent)
 signal configs_updated()
 
-# res:// is read-only in an exported build (errno 19), so the shipped .tres is a seed. Load user:// when
+# res:// is not writable in an exported build, so the shipped .tres is a seed. Load user:// when
 # present, else the res:// seed; always save to user:// (copy-on-first-write).
 const CONFIG_LIST_SEED_PATH: String = "res://addons/local_agents/configuration/parameters/ConfigList.tres"
 const USER_CONFIG_LIST_PATH: String = "user://local_agents/config/ConfigList.tres"
@@ -57,10 +57,8 @@ func _ensure_config_list() -> void:
         config_list = ResourceLoader.load(CONFIG_LIST_SEED_PATH)
         seeded_from_default = true
     if config_list == null:
-        # An existing user file that would not load. Most likely it persisted a ModelParams
-        # sub-resource, whose script was removed when model profiles replaced it, so its
-        # ext_resource no longer resolves. Falling through to a blank list silently discards every
-        # saved model and inference config, so keep a copy and say so rather than wiping it quietly.
+        # An existing user file that will not load. Falling through to a blank list would silently
+        # discard every saved model and inference config, so copy it aside and warn.
         if had_user_file:
             var salvage_path: String = "%s.unreadable" % USER_CONFIG_LIST_PATH
             if DirAccess.copy_absolute(

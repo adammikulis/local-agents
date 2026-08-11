@@ -67,7 +67,7 @@ const MATING_RADIUS: float = 3.0        # within this range of a ready mate, con
 # STERILE_FLOOR an old creature is effectively barren; between there and prime, its effective energy bar rises
 # (need = MIN_ENERGY_FRAC / fertility_mult), so breeding TAPERS off with age before ceasing — an emergent
 # reproductive-senescence window, straight off the one senescence curve, no per-age cases.
-const STERILE_FLOOR: float = 0.15       # fertility_mult at/below which the creature can no longer conceive (barren)
+const STERILE_FLOOR: float = 0.15       # fertility_mult at/below which the creature cannot conceive (barren)
 
 # --- density-dependent breeding (local negative feedback → logistic population, not boom→age-out→crash) -----
 # A creature senses its LOCAL conspecific density (same-species neighbours within breed_density_radius, an O(k)

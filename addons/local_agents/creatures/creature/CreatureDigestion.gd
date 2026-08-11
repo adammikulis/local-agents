@@ -69,11 +69,11 @@ static func setup(c) -> void:
 # rabbit cropping grass are both taking the field's standing crop at their own cell; there is no separate
 # filter-feeding code, and `DIETS_THAT_GRAZE` is config, not an identity branch.
 const DIETS_THAT_GRAZE: PackedStringArray = ["herbivore", "grazer", "filter_feeder"]
-## Water carried by each unit of forage. Fresh plant matter is roughly 75% water by mass against ~25% dry
-## matter, so a unit of the carbon the `biomass` channel tracks comes with about three units of water.
+## Water carried by each unit of forage. Fresh plant matter is ~0.75 water and ~0.25 dry matter by mass, so
+## one unit of the carbon the `biomass` channel tracks comes with three units of water.
 const FORAGE_WATER_PER_MASS: float = 3.0
-## Water carried by each unit of FLESH. Vertebrate soft tissue runs near 70% water, so meat is slightly drier
-## than fresh forage per unit of carbon — which is why obligate carnivores still drink and grazers often do not.
+## Water carried by each unit of FLESH. Vertebrate soft tissue is ~0.70 water by mass, so meat is drier than
+## fresh forage per unit of carbon — which is why obligate carnivores still drink and grazers often do not.
 const FLESH_WATER_PER_MASS: float = 2.3
 
 static func ambient_graze(c, pos: Vector3, delta: float) -> void:

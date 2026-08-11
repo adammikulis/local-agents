@@ -142,7 +142,7 @@ static func parse_action(response: Dictionary) -> String:
 				return name
 
 	# Fallback: some servers return the call as plain text. Match a real TOKEN, not a bare substring — require a
-	# word boundary before and a boundary or '(' after — so "head to the nearest water" no longer matches "rest"
+	# word boundary before and a boundary or '(' after — so "head to the nearest water" does not match "rest"
 	# inside "nea-rest", and multi-action text picks the EARLIEST call by position (not ACTIONS order).
 	var content: String = String(message.get("content", "")).to_lower()
 	if content != "":
@@ -151,7 +151,7 @@ static func parse_action(response: Dictionary) -> String:
 
 
 ## Find the EARLIEST valid action name that appears as a real token in `content_lower` (word boundary
-## before, and a boundary or '(' after — so "nea-rest" no longer matches "rest"). Returns "" if none.
+## before, and a boundary or '(' after — so "nea-rest" does not match "rest"). Returns "" if none.
 static func _scan_action_text(content_lower: String) -> String:
 	var best_pos: int = 0x7fffffff
 	var best_action: String = ""

@@ -286,7 +286,7 @@ func vorticity_at(pos: Vector3) -> float:
 
 ## Vertical wind (updraft = outward radial velocity, vel_y) a little above a world point — the convective
 ## lift feeding a thunderstorm cell. Sampled ~40 units aloft along the radial so it reads the cloud-base
-## lift, not the ground layer. Sphere-native single 3D read; 0 outside the shell / before readback.
+## lift, not the ground layer. Single 3D sample; returns 0.0 outside the shell or before readback.
 func updraft_at(pos: Vector3) -> float:
 	if _f._sphere == null or _f._vel_y.size() != _f._cell_count:
 		return 0.0
@@ -299,7 +299,6 @@ func updraft_at(pos: Vector3) -> float:
 
 
 # --- Emergent WIND as a real momentum/force (read back from the GPU velocity field) ------------------
-# [IN, OUT, A0, A1, B0, B1], not the kernel packing [in, -a, +a, -b, +b, out] those indices assumed, so slot 1
 
 ## Full LOCAL 3D wind velocity (world-space) at a world point. Vector3.ZERO outside the shell / before readback.
 func wind3_at(x: float, y: float, z: float) -> Vector3:

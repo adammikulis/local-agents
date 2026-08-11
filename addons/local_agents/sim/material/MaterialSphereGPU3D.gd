@@ -65,8 +65,7 @@ var _field = null
 var _grid: RefCounted = null
 var _cc: int = 0
 var _phase: int = 0                 # ping-pong phase ∈ {0,1}; flips once per step (NOT CPU parity)
-var _step_index: int = 0            # monotonic field-step counter; wind_pressure_sphere3d reads step_index == 0
-                                    # as "seed the standard atmosphere" (the air channel allocates all-zero)
+var _step_index: int = 0            # monotonic field-step counter, published to kernels as ctx["step_index"]
 var _groups: int = 0
 var _bufs: Dictionary = {}          # key → RID (single) or [rid_a, rid_b] (pair)
 var _passes: Array = []
@@ -444,7 +443,7 @@ func take_probe() -> Dictionary:
 	return _probe
 
 
-## Field step `take_probe`'s contents were sampled at, or -1 before the first sample.
+## Field step of the sample `take_probe` holds; -1 when there is none.
 func probe_step() -> int:
 	return _probe_step
 

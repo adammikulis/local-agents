@@ -154,7 +154,7 @@ static func atoms_per_kg(id: String) -> Dictionary:
 	return out
 
 
-## SPECIFIC ENTHALPY (J/kg) of a substance at a temperature, measured from its solid at 0 K — the curve whose
+## SPECIFIC ENTHALPY (J/kg) of a substance at a temperature, referenced to its solid at 0 K — the curve whose
 ## flat sections ARE the latent heats. This is the function that makes phase a consequence rather than a
 ## channel: sensible heat through each phase, plus the full latent step at each boundary crossed.
 static func enthalpy_at(id: String, t_c: float) -> float:

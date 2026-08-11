@@ -153,7 +153,7 @@ func _assert_load_model_contract(stub: StubRuntime) -> void:
 	if stub.load_calls.size() != 1:
 		_fail("Reloading the already-resident path called the runtime again (%d calls)." % stub.load_calls.size())
 
-	# STALENESS: something else unloaded the model. The tracked path must no longer be trusted.
+	# STALENESS: the model is unloaded underneath. load_model must reload, not short-circuit.
 	stub.loaded = false
 	AgentStatusScript.load_model(first_path, {})
 	if stub.load_calls.size() != 2:
