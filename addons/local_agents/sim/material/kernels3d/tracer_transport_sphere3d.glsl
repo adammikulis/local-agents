@@ -154,7 +154,7 @@ void main() {
 
 	float value = ti * (1.0 - raw * scale_g) + gain;
 
-	// DEPOSIT — this cell's own downward flux that meets SOLID ground (or the floor) settles out here. If the
+	// DEPOSIT — the downward flux that meets solid ground settles in this cell, so no volume change applies.
 	if (params.deposit == 1u && ti > 0.0 && !open_d) {
 		float dep = ti * fall_frac(g) * scale_g;
 		if (dep > 0.0) {
