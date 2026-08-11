@@ -846,7 +846,18 @@ quantities you expect to be fine.
   approach and what it unlocks, and ask. Do **not** silently work around it (delivering a lesser result
   the user didn't know was a compromise), and do **not** unilaterally rip it out either. The user will
   usually say "yes, change it" — but it's their call, and flagging it is how big upgrades get found.
-- **STOP WRITING PROSE IN COMMENTS. A COMMENT IS A CLAIM, AND CLAIMS HERE ARE WRONG.** *(Maintainer,
+- **A LIVE CONDITION BECOMES A MEMOIR THE INSTANT IT CHANGES.** "It is true right now" is not a defence for
+a comment — it identifies the class that rots. Every stale claim this repo has produced was true when it
+was written: *"matches atmos_evap_sphere3d.glsl"* (that file was later deleted), *"the always-hot CPU
+mirror is the honest source"* (those channels are `SLOW_CHANNELS`, refreshed every fourth drain),
+*"dust_loft raining flag parity"* (`dust_loft` was deleted), *"the sweep is 0.36 s"* (it is 1.0). Nothing
+told anyone when the ground moved.
+
+**So a comment asserting the STATE OF OTHER CODE is the worst kind**, because it breaks when a file you are
+not looking at changes. Those belong in a gate, which fails, or nowhere. `scripts/check_comment_claims.sh`
+flags them; its ceiling ratchets down and never up.
+
+**STOP WRITING PROSE IN COMMENTS. A COMMENT IS A CLAIM, AND CLAIMS HERE ARE WRONG.** *(Maintainer,
   2026-08-10: "good god is every claim false", "can we stop it with the prose? it's so annoying and wrong".)*
   Comments must be SHORT and factual: what the code does, and units. Not history, not rationale essays, not
   measured numbers from some past run, not multi-paragraph justifications.
