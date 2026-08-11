@@ -74,6 +74,50 @@ them with `add_lava` plus a heat inject — so where and when a parcel landed de
 `_process` integrators moved to the physics tick in total, and `scripts/check_framerate_independence.sh`
 now fails the build on any simulation mutator reachable from a `_process` body.
 
+## THE ORDER OF WORK CHANGED ON 2026-08-11. READ THIS BEFORE PICKING ANYTHING UP.
+
+**The plan was ordered by subsystem. It is ordered by what makes measurement possible now.** A whole day
+was spent measuring a substrate whose numbers could not mean anything yet, because the things that make a
+number trustworthy were sitting in the queue behind the things being measured.
+
+**THE MEASUREMENT FLOOR — nothing below it can be evaluated until these are zero:**
+1. **DETERMINISM.** Two runs at one seed differ by 0.41%. No A/B, no drift figure and no attribution means
+   anything until this is 0.
+2. **OBSERVER INDEPENDENCE.** `scripts/check_observer_independence.sh` reads **87.13% on `energy_stock`**
+   and 2-6% on every element total. Every figure taken before this was measured through it.
+3. **THE HORIZON.** `--run-frames` counts RENDER frames, so how much simulation a run contains depends on
+   the machine.
+
+**THEN, live physics violations** — matter from nothing is addressed or exempted, and there is no third
+outcome: the **mineral** source (crust grows 5x, no sampled pass makes it) and **volume-weighted
+transport** (every advection between differently-sized cells creates or destroys matter).
+
+**THEN the energy channel**, and it MUST come after volume weighting or every kernel written for it
+re-encodes the flat-cell assumption.
+
+**DEMOTED, and this is the reordering that matters most: the HADEAN SEED (Stage 4) waits.** It was the
+headline goal. Seeding a molten body onto a substrate that cannot conserve matter or reproduce a run is
+fitting behaviour to a fiction — the scope rule's own warning, one level up. Stage 1's `cell_size`->ctx and
+per-world clock serve parallel universes, which is blocked anyway; Stage 3's rotation and air composition
+are not measurement-blocking.
+
+**BLOCKED OUTRIGHT, not merely later: PARALLEL UNIVERSES.** A difference between two seed vectors is
+unreadable when one vector disagrees with itself by 0.41%. That is a dependency, not a preference.
+
+## THE ENERGY GAUGE IS OBSERVER-DEPENDENT BY CONSTRUCTION — the top item on the floor
+
+`energy_stock` is `Σ rc·T·V`, and `rc` comes from `LAHeatCapacity.field()` over a dictionary of channel
+MIRRORS. Demand-gated channels are only refreshed when something called `request_channel`, so with fewer
+consumers alive fewer mirrors are fresh, an absent leg contributes ZERO capacity, and the stock moves. The
+ledger's own `energy_stock_live` map exists to report which legs arrived, and it already publishes
+`porosity: false` on a full run.
+
+**Deciding it costs one comparison:** diff `energy_stock_live` between the two arms of
+`check_observer_independence.sh`. If more legs read false under `--bare`, that is the mechanism.
+**The fix is the one CLAUDE.md already states:** a consumer requests its own channels (as `avg_atmos_dust`
+does), or reads them from `request_probe`/`take_probe`, which is the pure-instrument path that does not
+change residency. A gauge may not decide which mirrors are fresh.
+
 ## THE SIM IS NOT REPRODUCIBLE, AND LOOKING AT IT STILL CHANGES IT — measured 2026-08-11
 
 `scripts/agent_harness.sh score` now computes all ten rubric criteria, and two of the four new ones found
