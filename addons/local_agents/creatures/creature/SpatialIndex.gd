@@ -1,21 +1,17 @@
 class_name LASpatialIndex
 extends RefCounted
 
-## Frame-stamped spatial hash over scene-group members. Replaces the per-creature O(n) group scans
-## in LACreatureSenses with an O(1)-ish bucketed lookup: with 277 creatures each doing several full
-## `get_nodes_in_group()` distance sweeps per physics frame the sensing was O(n²); binning candidates
-## into coarse cells and visiting only the cells overlapping a query's radius collapses that to a small
-## constant per query.
+## Frame-stamped spatial hash over scene-group members. LACreatureSenses queries it instead of sweeping
+## `get_nodes_in_group()` per creature: binning candidates into coarse cells and visiting only the cells
+## overlapping a query's radius keeps a query to a small constant rather than O(n).
 ##
 ## Rebuilt at most ONCE per physics frame PER GROUP (lazily: the first sense call of a frame that needs
 ## a group rebuilds it; later calls that frame reuse it). All creatures share ONE index instance
 ## (LACreatureSenses holds it), so the whole population pays for one rebuild per group per frame.
 ##
-## Binning is 3D (x/y/z cells): on a PLANET the population wraps a spherical shell, so the old XZ-only
-## (flat-island) binning projected the whole globe onto one overlapping disk. Creatures on opposite
-## hemispheres shared a cell and every query returned a near-global candidate set (senses collapsed back
-## toward O(n²), which is what made a bigger population so costly). Binning in full 3D partitions the shell,
-## so a query visits only the cells within `radius` in space. A candidate whose true 3D distance is within
+## Binning is 3D (x/y/z cells): on a PLANET the population wraps a spherical shell, and XZ-only binning
+## would project the whole globe onto one overlapping disk. Binning in full 3D partitions the shell, so a
+## query visits only the cells within `radius` in space. A candidate whose true 3D distance is within
 ## `radius` is guaranteed to fall in the visited 3D cells, because the cell set is a strict SUPERSET of the in-range
 ## set. Positions are cached at rebuild time (start of frame); a creature that moves within the frame is
 ## still found because the query visits neighbour cells and the CALLER re-checks the exact current distance

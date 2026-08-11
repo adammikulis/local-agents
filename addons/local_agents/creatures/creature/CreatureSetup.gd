@@ -19,11 +19,8 @@ extends RefCounted
 ## reference. (Explicit types only, no ':=' inferred typing.)
 
 # COHORT DESYNC: every individual gets its OWN maturity/lifespan, jittered around the species value, so a
-# generation doesn't mature, breed and die in lockstep. Without this, founders (all spawned at age 0 with an
-# identical species maturity_age) came of age together, bred in one pulse, then that whole cohort aged out
-# together — a synchronized boom-bust (the ~frame-360 peak then crash, and the old-age death spike). The spread
-# smears each of those events over a window, so births/deaths overlap generations and the population oscillates
-# gently around carrying capacity instead of pulsing. randf is on the run's seeded RNG → reproducible.
+# generation doesn't mature, breed and die in lockstep. The spread smears births and deaths over a window, so
+# generations overlap. randf is on the run's seeded RNG → reproducible.
 const MATURITY_VARIANCE: float = 0.45    # ±fraction on per-individual maturity_age
 const LIFESPAN_VARIANCE: float = 0.45    # ±fraction on per-individual max_age — WIDE, so even a big single-
                                          # generation boom (an overshoot cohort) ages out over a LONG spread of
@@ -48,8 +45,7 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 		# STANDING GENETIC VARIATION. from_config() encodes the species template exactly, so without this every
 		# founder of a species is a genetic CLONE of every other — variance exactly zero at every locus. A
 		# population with no standing variation cannot be selected on at all; it must wait for mutations to
-		# arise before evolution can begin, which is not how a real founding population works, and it left
-		# several loci unmeasurable because their "high" and "low" halves were literally the same animal.
+		# arise before evolution can begin, which is not how a real founding population works.
 		# See LADNA.seed_variation for why this is a small scatter and NOT a round of point mutation.
 		c._genome = LADNA.from_config(c.config).seed_variation(LASimRng.shared())
 		c.config = c._genome.express()
@@ -88,10 +84,8 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c._breath = c.breath_capacity
 	c.breathes = String(config.get("breathes", c.breathes))
 	# ONE MEASURED BODY MASS DRIVES THE LEDGER, and every physiological RATE comes off the body's surface.
-	# This sets mass_kg / structural_mass / max_energy / max_hydration / thirst_rate / bite_rate / food_value,
-	# which used to be a scatter of independently hand-fitted per-species numbers agreeing neither with each
-	# other nor with biology (a fox and a mouse both carried `"metabolism": 1.7` at 260x the difference in
-	# mass). See LACreatureBodyMass for which constants are facts and which is the one unit conversion.
+	# This sets mass_kg / structural_mass / max_energy / max_hydration / thirst_rate / bite_rate / food_value.
+	# See LACreatureBodyMass for which constants are facts and which is the one unit conversion.
 	LACreatureBodyMass.apply(c, config)
 	c.max_age = float(config.get("max_age", maxf(c.maturity_age * 5.0, 60.0)))
 	# COHORT DESYNC: independent lifespan jitter so an age-matched cohort doesn't die of old age all at once
@@ -169,8 +163,7 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.disease = LACreatureDisease.new()      # per-creature disease/immune state (owned off this monolith)
 	c.disease.setup(c, config)
 	# Gut flora, seeded from diet (herbivores born plant-fermenting); it ADAPTS to what the animal actually eats
-	# and modulates digestive yield (see LACreatureMicrobiome + LACreatureDigestion). Dynamicises the old static
-	# `microbiome` scalar. Owned off this monolith.
+	# and modulates digestive yield (see LACreatureMicrobiome + LACreatureDigestion). Owned off this monolith.
 	c.gut_microbiome = LACreatureMicrobiome.new()
 	c.gut_microbiome.setup(c, config)
 	# Per-creature tameness/companion state (owned off this monolith). A wild creature starts untamed;

@@ -7,8 +7,7 @@ extends RefCounted
 ## calm at the player's hand) raises it (befriend()); with no attention it decays slowly back toward wild.
 ## Once tameness crosses the bond threshold the creature is BONDED: it will accept a standing player command
 ## (come / stay / follow) which its decision cascade obeys, pre-empting its autonomous drive. An unbonded (or
-## lapsed) creature carries no command and behaves exactly as before, so the sim is unchanged until a creature
-## is actually tamed. State lives here; the command STEERING lives in LACreatureThink.execute_action, and the
+## lapsed) creature carries no command. State lives here; the command STEERING lives in LACreatureThink.execute_action, and the
 ## command/beacon are broadcast by LACompanionController. (Explicit types only, no ':=' inferred typing.)
 
 # How strong the bond is, 0 (wild) .. 1 (devoted). Rises with friendly interaction, decays slowly otherwise.

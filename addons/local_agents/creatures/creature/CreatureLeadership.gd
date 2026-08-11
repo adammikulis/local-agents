@@ -27,10 +27,10 @@ const MATURITY_CAP: float = 6.0   # elders keep gaining rank up to 6× maturity 
 
 
 ## A creature's emergent leadership rank — CHEAP reads only, no scans. Higher = more fit to lead. Delegates to
-## the shared valuator (LAAppraisal.dominance) so rank and mate choice run on ONE phenotype-scoring rule; with
-## default weights this is the same well-rounded-alpha ranking as before, and a species that courts on ornament
-## (dominance_traits.display) now leads on it too. The W_* / MATURITY_CAP consts above are retained as the
-## documented default weights (mirrored in LAAppraisal.DEFAULT_WEIGHTS).
+## the shared valuator (LAAppraisal.dominance) so rank and mate choice run on ONE phenotype-scoring rule: with
+## default weights it is a well-rounded-alpha ranking, and a species that courts on ornament
+## (dominance_traits.display) leads on it too. The W_* / MATURITY_CAP consts above are the documented default
+## weights (mirrored in LAAppraisal.DEFAULT_WEIGHTS).
 static func leader_score(c) -> float:
 	return LAAppraisal.dominance(c)
 
@@ -256,7 +256,7 @@ static func elect_flat(c, pos: Vector3, radius: float) -> void:
 	# The incumbent leader over c: itself while it leads, else the creature it currently follows.
 	if not c._is_leader:
 		# Sticky: keep the current leader while it is still a live, free creature AND within the LEASH (a
-		# generous multiple of `radius`). A mere drift past `radius` no longer demotes — the follower regroups
+		# generous multiple of `radius`). A drift past `radius` does not demote — the follower regroups
 		# back toward its leader/kin (CreatureFlocking) rather than becoming a leader-of-one. Only a truly gone
 		# leader (dead/carried/beyond-leash) forces the immediate self-heal below.
 		var leash: float = radius * LEASH_MULT

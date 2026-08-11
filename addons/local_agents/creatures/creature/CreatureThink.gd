@@ -42,9 +42,8 @@ static func think_prey(c, pos: Vector3, fallback: Vector3) -> Vector3:
 
 # DIRECTED GRAZING for a plant-eater. Eat a plant within reach; else — if hungry — steer toward the nearest
 # SENSED edible plant (the exact "locate the food and move to it" rule a predator uses to chase prey), which the
-# tangent-projection in Creature turns into surface movement; else wander + flock. Before this, a herbivore only
-# ate what it randomly bumped into (reach ~1.5 u) and so starved to extinction amid abundant, growing plants —
-# now it walks to the pasture. Emergent (no per-species code): one seek-and-eat drive, gated by the hunger signal.
+# tangent-projection in Creature turns into surface movement; else wander + flock. Emergent (no per-species
+# code): one seek-and-eat drive, gated by the hunger signal.
 static func forage_graze(c, pos: Vector3, fallback: Vector3) -> Vector3:
 	if _try_eat_plant(c, pos):
 		c.state = "eat"
@@ -148,13 +147,7 @@ static func _throw_rock_at(c, prey: Node3D) -> void:
 
 ## THE MEAL COMES OUT OF THE PREY'S BODY, AND THE CARCASS IS WHAT IS LEFT.
 ##
-## This used to bank `prey.food_value * 0.7` into the predator's gut and THEN call `prey.die("eaten")`, which
-## minted a separate full-size carcass out of a size number. One kill produced roughly `size * 103` of meat
-## from a body that had never held any mass at all. Line one was worse still: `var gain: float = c.food_value`
-## sized the meal from the PREDATOR'S own body whenever the prey had no `food_value`, so a fox eating something
-## small ate a fox-sized meal.
-##
-## Now the bite is DRAWN from the prey (`LACreatureBodyMass.draw`, which spends gut then reserve then tissue
+## The bite is DRAWN from the prey (`LACreatureBodyMass.draw`, which spends gut then reserve then tissue
 ## and can never return more than the animal holds), and the prey dies with the remainder still on it, which
 ## `LACreatureRagdoll._become_carcass` reads as the carrion a scavenger can strip. Predator gain + carcass ==
 ## the prey's live mass, by construction.
@@ -275,8 +268,7 @@ static func _try_eat_food(c, pos: Vector3) -> bool:
 		gained = float(best.call("feed", bite / per_unit)) * per_unit           # a bite of a carcass or a plant
 	else:
 		# A whole food node with no partial-bite contract: take what the mouth can hold and free it once it has
-		# actually been stripped. It used to credit the node's FULL value in one frame however small the animal,
-		# so an ant swallowed a shrub whole.
+		# actually been stripped.
 		gained = minf(bite, value_mass)
 		if gained >= value_mass - 1.0e-9:
 			(best as Node3D).queue_free()
@@ -522,8 +514,7 @@ static func execute_action(c, action: String, pos: Vector3, delta: float) -> Dic
 			return {"heading": c._heading + LACreatureFlocking.steer(c, pos, not c.can_fly), "state": "flock", "speed": c.speed}
 		"drink":
 			# Routed through the ONE drinking path (LACreatureThirst.drink) so this refill debits the puddle
-			# too. It used to be a second copy of the rate constant that refilled hydration with no water cell
-			# touched anywhere — two callers, both of which forgot the debit.
+			# too.
 			if c._material != null and c._material.has_method("is_water_at") and c._material.is_water_at(pos):
 				LACreatureThirst.drink(c, pos, delta)
 				return {"heading": c._heading, "state": "drink", "speed": 0.0}
@@ -541,9 +532,8 @@ static func execute_action(c, action: String, pos: Vector3, delta: float) -> Dic
 				c._migrate_dir = cards[randi() % cards.size()]
 			return {"heading": c._migrate_dir, "state": "migrate", "speed": c.speed}
 		"flee":
-			# A follower that ADOPTED its leader's flee (Creature._physics_process) must actually move — this
-			# used to fall through to the no-op default and keep wandering toward the danger. Sprint away from
-			# the nearest larger predator if one is sensed, else reverse the current heading.
+			# A follower that ADOPTED its leader's flee (Creature._physics_process) must actually move: sprint
+			# away from the nearest larger predator if one is sensed, else reverse the current heading.
 			var away: Vector3 = -c._heading
 			var pred = LACreatureSenses.nearest_larger_predator(c, pos)
 			if pred != null and is_instance_valid(pred) and (pos - pred.global_position).length() > 0.001:

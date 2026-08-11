@@ -22,8 +22,7 @@ static var _index: Dictionary = {}     # kind -> res:// path
 static var _indexed: bool = false
 
 
-## The config Dictionary for `kind` (same shape the old hardcoded `_species_config` returned), or an
-## empty Dictionary if there is no data file for it.
+## The config Dictionary for `kind`, or an empty Dictionary if there is no data file for it.
 static func load_config(kind: String) -> Dictionary:
 	if _cache.has(kind):
 		return (_cache[kind] as Dictionary).duplicate(true)

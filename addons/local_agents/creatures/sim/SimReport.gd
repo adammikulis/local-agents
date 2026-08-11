@@ -79,6 +79,6 @@ static func snapshot() -> Dictionary:
 	return out
 
 
-## Emit the snapshot as one line the harness/tools scrape. Replaces the hand-synced SMOKE_SUMMARY string.
+## Emit the snapshot as one line the harness/tools scrape.
 static func emit() -> void:
 	print("SIM_REPORT=", JSON.stringify(snapshot()))

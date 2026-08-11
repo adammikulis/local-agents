@@ -6,22 +6,15 @@ extends RefCounted
 ## other Creature* helpers). Each tick returns TRUE if the creature DIED this frame, and the caller must then
 ## stop processing it.
 ##
-## METABOLISM NO LONGER LIVES HERE — see LACreatureRespiration. This file used to carry a hand-rolled energy
-## burn (`energy -= metabolism * exertion * delta`) driven by a per-species `metabolism` constant, plus a
-## temperature comfort band written as MODULE CONSTANTS applied to every animal on the roster:
+## METABOLISM DOES NOT LIVE HERE — see LACreatureRespiration. There is no comfort band and no per-species
+## metabolism constant: "the temperature an animal is comfortable at" is not a measurable property of matter,
+## whereas the freezing point of cell water and the denaturation temperature of protein are, and those are
+## what bound the reaction (LAPhysical.WATER_FREEZE_C / PROTEIN_DENATURE_C, via
+## LACreatureRespiration.temp_band).
 ##
-##     WARM_COMFORT 28.0 / COOL_COMFORT 8.0 / LETHAL_HEAT 50.0 / LETHAL_COLD -18.0
-##     HEAT_THIRST_FACTOR 0.15 / HEAT_ENERGY_FACTOR 0.08 / COLD_ENERGY_FACTOR 0.012
-##
-## All seven are deleted. A whale, a desert beetle and an arctic fox shared that one band, and a fox and a
-## mouse burned identical energy across a 19x difference in body mass. None of those numbers was a fact about
-## anything: "the temperature an animal is comfortable at" is not a measurable property of matter, whereas the
-## freezing point of cell water and the denaturation temperature of protein are, and those are what bound the
-## reaction now (LAPhysical.WATER_FREEZE_C / PROTEIN_DENATURE_C, via LACreatureRespiration.temp_band).
-##
-## The deaths those constants used to produce separately — heatstroke, frozen, starvation — are now ONE
-## failure: the substrate's respiration reaction cannot meet the body's maintenance requirement, whether
-## because the temperature band collapsed, the oxygen ran out, or the reserve is empty.
+## Heatstroke, freezing and starvation are ONE failure: the substrate's respiration reaction cannot meet the
+## body's maintenance requirement, whether because the temperature band collapsed, the oxygen ran out, or the
+## reserve is empty.
 ## (Explicit types only, no ':=' inferred typing.)
 
 const COMBUST_TEMP: float = 200.0          # °C — organic tissue catches FIRE (in a wildfire/lava)
@@ -36,8 +29,9 @@ const EVAPORATIVE_OVER_TURNOVER: float = 0.15
 # Breathing (one emergent rule, read in TRUE 3D at the creature's head cell — no 2.5D column, no can_fly):
 # a creature breathes its MEDIUM. LUNGS need breathable air (water OR smoke displacing O2 → can't breathe);
 # GILLS need to be submerged (a beached gill-breather suffocates in air). Out of medium it burns its per-animal
-# breath reserve (Creature.breath_capacity), refilling at BREATH_REFILL/sec back in it; at zero, SUFFOCATE_DRAIN
-# kills fast. Big lungs = long dives to hunt. One rule → drowning + smoke/CO2 suffocation + beached fish.
+# breath reserve (Creature.breath_capacity), refilling at BREATH_REFILL/sec back in it; at zero the
+# respiration reaction's oxygen term is zero and the animal dies on the shared maintenance-failure path.
+# Big lungs = long dives to hunt. One rule → drowning + smoke/CO2 suffocation + beached fish.
 const BREATHE_MIN_O2: float = 0.3          # O2 below this can't sustain a lung (water displaces it, or fire smoke)
 const BREATH_REFILL: float = 25.0          # breath reserve refilled per sec while in the breathing medium
 # Old-age FRAILTY (senescence-driven mortality — see LACreatureSenescence). Past FRAILTY_ONSET on the 0..1
@@ -59,9 +53,8 @@ static func tick(c, delta: float) -> bool:
 	# evo on purpose: drinking cadence is brain-driven (not compressed), so compressing thirst too would cause a
 	# dehydration die-off at high factors — thirst just becomes a lesser pressure over a compressed life.
 	# WHERE THE WATER GOES: it leaves as vapour (breath, sweat) and as the water in urine, so it is handed to
-	# the field's airborne moisture rather than deleted. Both legs of the animal's water budget are real now —
-	# `LACreatureThirst.drink` empties a puddle to refill this, and H₂O is the substance this project holds up
-	# as its worked example of a closed ledger. Animals were outside it.
+	# the field's airborne moisture rather than deleted. `LACreatureThirst.drink` empties a puddle to refill
+	# this, so both legs of the animal's water budget stay inside the H₂O ledger.
 	var lost: float = c.thirst_rate * delta
 	c.hydration -= lost
 	transpire(c, c.global_position, lost)
@@ -73,8 +66,8 @@ static func tick(c, delta: float) -> bool:
 	# as the factor rises past prime, the body's reserve (max_energy) shrinks (see the senescence tick) and
 	# frailty mounts, draining health so a worn-out animal dies of "old age" — earlier if it is also stressed
 	# or hurt (its declining health has less margin). A hard backstop at factor 1.0 (age == the evo-compressed
-	# max_age) guarantees death even for an unstressed elder, matching the old lifespan schedule. Lifespan still
-	# compresses by the full LA_EVO_FAST factor (the factor() curve measures against max_age / evo).
+	# max_age) guarantees death even for an unstressed elder. Lifespan compresses by the full LA_EVO_FAST
+	# factor (the factor() curve measures against max_age / evo).
 	var sen: float = c.senescence.factor(c) if c.senescence != null else clampf(c.age / maxf(c.max_age / evo, 0.001), 0.0, 1.0)
 	if sen >= 1.0:
 		c.die("old age")
@@ -88,9 +81,9 @@ static func tick(c, delta: float) -> bool:
 
 
 ## COMBUSTION and evaporative water loss from the shared field at `pos`. Returns true if the creature died.
-## Everything the old comfort band did — heat/cold energy taxes, heatstroke, freezing — is gone: those are
-## consequences of the respiration reaction's temperature band now (LACreatureRespiration), not of a
-## per-degree tax written down here. What remains are the two things that are NOT metabolism:
+## Heat and cold do their damage through the respiration reaction's temperature band
+## (LACreatureRespiration), not through a per-degree tax here. This owns the two things that are NOT
+## metabolism:
 ##   * flesh does not glow like hot metal, it COMBUSTS — in fire or lava the animal bursts into flame;
 ##   * a body warmer than its own reaction optimum sheds heat by evaporating water, and pays in hydration.
 static func tick_environment(c, pos: Vector3, delta: float) -> bool:
@@ -101,11 +94,9 @@ static func tick_environment(c, pos: Vector3, delta: float) -> bool:
 		return true
 	var over: float = float(c.body_temp) - LACreatureRespiration.band_optimum_c()
 	if over > 0.0:
-		# EVAPORATIVE LOSS SCALES WITH THE ANIMAL, like every other rate on this body. It was an absolute
-		# 0.15 units per °C per second, which is a trickle to a villager and many times an insect's entire
-		# body water every second once hydration is derived from real body mass. Expressed as a multiple of
-		# the animal's own water turnover it is right at every body size, and it goes to the AIR rather than
-		# nowhere — a panting animal humidifies its own cell, which is what sweating physically does.
+		# EVAPORATIVE LOSS SCALES WITH THE ANIMAL, like every other rate on this body: it is a multiple of the
+		# animal's own water turnover, so it is right at every body size. The water goes to the AIR — a panting
+		# animal humidifies its own cell, which is what sweating physically does.
 		var shed: float = over * EVAPORATIVE_OVER_TURNOVER * float(c.thirst_rate) * delta
 		c.hydration -= shed
 		transpire(c, pos, shed)
@@ -155,10 +146,9 @@ static func tick_breath(c, pos: Vector3, delta: float) -> bool:
 	if can_breathe:
 		c._breath = minf(c._breath + BREATH_REFILL * delta, c.breath_capacity)
 		return false
-	# Out of medium: draw down the held breath. NOTHING KILLS HERE ANY MORE. The store is a store of OXYGEN,
+	# Out of medium: draw down the held breath. NOTHING KILLS HERE. The store is a store of OXYGEN,
 	# so LACreatureRespiration reads it as the reaction's oxygen source while it lasts, and once it is empty
 	# that reaction's oxygen term is zero, production falls below maintenance, and the animal dies on the one
-	# shared failure path (reported "drowned" or "suffocated" exactly as before). This used to be a second,
-	# parallel death rule with its own flat energy drain — see the note on the deleted SUFFOCATE_DRAIN.
+	# shared failure path (reported "drowned" or "suffocated").
 	c._breath = maxf(c._breath - delta, 0.0)
 	return false

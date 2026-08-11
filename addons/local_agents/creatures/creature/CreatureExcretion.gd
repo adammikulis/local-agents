@@ -44,9 +44,6 @@ static func tick(c, ground_pos: Vector3, delta: float) -> void:
 ## Deposit waste at `ground_pos`. Faeces is organic matter, so it goes into the detritus channel and decays
 ## through the field's own chemistry (detritus + O₂ + fungus -> CO₂ + moisture + fertility); the CO₂ that comes
 ## off is what another animal can smell. There is no separate cue: the deposit IS the smell, once it rots.
-##
-## The parallel deposit_waste() call that used to sit here is deleted. It seeded a semantic scent plane beside
-## this line, so the same dropping was registered twice in two unrelated representations.
 static func deposit(c, ground_pos: Vector3, kind: String, waste_amount: float) -> void:
 	if c._material == null:
 		return

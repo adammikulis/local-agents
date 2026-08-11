@@ -15,9 +15,7 @@ extends RefCounted
 ## helpers. (Explicit types only, no ':=' inferred typing.)
 
 # Default dominance weights — a well-rounded contender: biggest · best-conditioned · eldest/most-experienced,
-# with display neutral by default (species that court on ornament raise it via `dominance_traits`). These
-# reproduce the old LACreatureLeadership.leader_score ranking so leadership is unchanged for species that do
-# not opt into display-weighted dominance.
+# with display neutral by default (species that court on ornament raise it via `dominance_traits`).
 const DEFAULT_WEIGHTS: Dictionary = {
 	"maturity": 1.0,     # age relative to maturity — elders out-rank (village elder >> young adult)
 	"size": 1.2,         # body size — the raw physical-dominance axis
@@ -93,8 +91,7 @@ const DISPLAY_UPKEEP_OVER_MAINTENANCE: float = 0.9
 
 ## DOMINANCE — how much this creature would win a contest / out-rank a rival. A weighted sum of live phenotype;
 ## higher = more fit to lead and more attractive as a mate. Cheap reads only (no scans), so it is safe to call
-## in the leadership + mate-seek loops. Generalises the old leader_score: with DEFAULT_WEIGHTS it returns the
-## same ranking, and a species that sets `dominance_traits.display` folds the ornament in.
+## in the leadership + mate-seek loops. A species that sets `dominance_traits.display` folds the ornament in.
 static func dominance(c) -> float:
 	var w: Dictionary = _weights(c)
 	var maturity: float = clampf(float(c.get("age")) / maxf(float(c.get("maturity_age")), 0.001), 0.0, MATURITY_CAP)

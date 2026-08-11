@@ -25,7 +25,7 @@ extends RefCounted
 const THINK_STRIDE: int = 3                # decide every N physics frames (movement stays every-frame)
 const FAR_THINK_STRIDE: int = 30           # far/off-screen discretionary thinking cap (~2 Hz)
 const SLEEP_THINK_STRIDE: int = 30         # asleep/resting: no decisions to make — heaviest throttle
-const MID_LOD_D2: float = 4900.0           # physics-LOD's legacy A/B tier boundary (LA_NO_PHYS_LOD only)
+const MID_LOD_D2: float = 4900.0           # physics-LOD binary-tier boundary (LA_NO_PHYS_LOD only)
 # The distance at which camera-relevance has fallen to 0.5 (LALodStride.relevance_from_distance): stride
 # grows smoothly from THINK_STRIDE (the floor even up close — decisions never need 60 Hz resolution) up
 # to FAR_THINK_STRIDE, with no cutoff anywhere. One number, no separate rate+cap pair to keep in sync.
@@ -36,14 +36,14 @@ const THINK_LOD_CHARACTERISTIC_DISTANCE: float = 90.0
 # Reflexes (flee/thirst) + all pathing stay per-individual.
 const FOLLOWER_THINK_STRIDE: int = 18      # a follower re-decides rarely (~3 Hz) — it coasts on the adopted action
 
-const FAR_LOD_D2: float = 40000.0   # legacy binary-tier A/B baseline only (LA_NO_PHYS_LOD)
+const FAR_LOD_D2: float = 40000.0   # binary-tier A/B baseline only (LA_NO_PHYS_LOD)
 # PHYSICS-RATE LOD: the whole _physics_process (movement + physiology + think) runs on a stride derived
 # from camera relevance (LALodStride) — near-view creatures update near every frame (smooth motion), the
 # far-side population a couple times a second, smoothly in between with no cutoff. Same principle + shape
 # as the animation-framerate LOD (LACreatureAnim).
 const PHYS_LOD_CHARACTERISTIC_DISTANCE: float = 40.0
 const PHYS_STRIDE_MAX: int = 12     # far-side creatures update at most every 12th frame
-static var _phys_lod_off: bool = OS.has_environment("LA_NO_PHYS_LOD")   # A/B knob: force the old binary tiers
+static var _phys_lod_off: bool = OS.has_environment("LA_NO_PHYS_LOD")   # A/B knob: force the binary tiers
 
 # Camera position, fetched once per physics frame and shared by every creature (a single
 # get_camera_3d() lookup, not one per creature). INF when there is no active camera.
@@ -105,8 +105,8 @@ static func base_think_stride(c) -> int:
 	var cam: Vector3 = camera_pos(c)
 	if is_inf(cam.x):
 		return THINK_STRIDE
-	# Continuous relevance-driven ramp (replaces the old NEAR/MID/FAR jump-tier ladder) — no distance
-	# branch anywhere: stride grows smoothly from THINK_STRIDE, capped at FAR_THINK_STRIDE.
+	# Continuous relevance-driven ramp — no distance branch anywhere: stride grows smoothly from
+	# THINK_STRIDE, capped at FAR_THINK_STRIDE.
 	var d: float = sqrt(c.global_position.distance_squared_to(cam))
 	var relevance: float = LALodStride.relevance_from_distance(d, THINK_LOD_CHARACTERISTIC_DISTANCE)
 	return LALodStride.stride_for(relevance, FAR_THINK_STRIDE, THINK_STRIDE)
@@ -125,7 +125,7 @@ static func phys_gate(c, delta: float) -> float:
 	c._lod_accum += delta
 	var lod_stride: int
 	if _phys_lod_off:
-		lod_stride = 8 if cam_d2 > FAR_LOD_D2 else (4 if cam_d2 > MID_LOD_D2 else 1)   # legacy binary tiers (A/B baseline)
+		lod_stride = 8 if cam_d2 > FAR_LOD_D2 else (4 if cam_d2 > MID_LOD_D2 else 1)   # binary tiers (A/B baseline)
 	else:
 		var relevance: float = LALodStride.relevance_from_distance(sqrt(cam_d2), PHYS_LOD_CHARACTERISTIC_DISTANCE)
 		lod_stride = LALodStride.stride_for(relevance, PHYS_STRIDE_MAX)

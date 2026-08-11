@@ -10,25 +10,22 @@ extends RefCounted
 ## books to close — live mass, the labile reserve, structural tissue, what a predator can draw out of a body,
 ## and what a body weighed when it spawned.
 ##
-## WHY THAT SPLIT EXISTS, AND WHAT IT REPLACED. Two branches replaced the old physiology at the same time. One
-## derived body mass from the `size` gene and scaled the burn as Rubner M^(2/3); the other took a measured
-## per-species `mass_kg` and scaled the burn as Kleiber M^(3/4) with declared endotherm/ectotherm strategies.
-## The composite keeps the emergent surface law and takes the measured masses:
+## WHY THAT SPLIT EXISTS. The surface law is emergent and the masses are measured:
 ##   * KLEIBER'S M^0.75 IS NOT ASSERTED HERE. West, Brown & Enquist (1997) explain it as a consequence of a
 ##     space-filling fractal delivery network with size-invariant terminal units — branching vasculature,
 ##     capillaries, alveoli. This substrate has none of that: a body is one point with one exchange surface.
 ##     Typing 0.75 in would encode the conclusion of a theory whose mechanism is absent. If that machinery is
 ##     ever built, 0.75 must be allowed to EMERGE. Read the fitted exponent in SIM_REPORT (`metab_exponent`).
-##   * THE MEASURED MASSES ARE KEPT, because a body mass is a fact about an animal. `size` is the visual and
+##   * THE MASSES ARE MEASURED, because a body mass is a fact about an animal. `size` is the visual and
 ##     collision scale and the roster compresses it hard (ant 0.08 against villager 1.0, where the real ratio
-##     is nearer 0.003), so deriving mass from it imported a rendering decision into the physics and made an
-##     ant weigh 36 grams. `mass_kg` is its own species field and the two are independent on purpose.
+##     is nearer 0.003), so deriving mass from it would import a rendering decision into the physics.
+##     `mass_kg` is its own species field and the two are independent on purpose.
 ##   * ENDOTHERM AND ECTOTHERM ARE NOT A CATEGORY here. There is no `thermal_strategy` and no `BASAL_SCALE`
 ##     table. The heritable, continuous `thermogenesis` gene is how hard a body raises its oxygen throughput
 ##     when it falls below its own enzyme optimum; at 0 the term vanishes identically and the animal IS an
 ##     ectotherm, by arithmetic rather than by a branch. Ancestrally 0; birds and mammals declare it.
 ##
-## WHICH CONSTANTS ARE FACTS AND WHICH ARE UNITS, stated because this repo has been burned by the difference.
+## WHICH CONSTANTS ARE FACTS AND WHICH ARE UNITS.
 ##   * `RESERVE_FRAC` and `LETHAL_WATER_DEFICIT_FRAC` are measured properties of animals.
 ##   * `TISSUE_PER_KG` is a UNIT CONVERSION — the simulation's mass unit has no kilogram value of its own, so
 ##     something has to define one, and this does. Moving it rescales the whole fauna against the planet's
@@ -92,12 +89,10 @@ static func hydration_capacity(config: Dictionary) -> float:
 ## and a bird's efficient lung both come through the heritable `respiratory_capacity` gene that is already in
 ## that capacity, so there is no thermal-strategy table here and no `if insect`.
 ##
-## THE ORDERING IS THE PHYSICS AND IT USED TO BE BACKWARDS. A terrestrial animal dies of dehydration in about
-## three days and of starvation in about thirty: thirst is roughly twenty times the more urgent pressure, in
-## every species. The roster had it inverted — a fox reached zero hydration at 100 s and zero energy at 76 s —
-## so animals starved before they ever got thirsty and the water drive barely mattered. `WATER_PER_CAPACITY`
-## is set so time-to-dehydrate is exactly HALF time-to-starve at every body mass: hydration capacity is 0.15 of
-## live mass and the reserve is 0.20, so 0.15 / (0.20 * 1.5) = 0.5 and the ratio is mass-invariant by
+## THE ORDERING IS THE PHYSICS. A terrestrial animal dies of dehydration in about three days and of
+## starvation in about thirty: thirst is roughly twenty times the more urgent pressure, in every species.
+## `WATER_PER_CAPACITY` is set so time-to-dehydrate is exactly HALF time-to-starve at every body mass:
+## hydration capacity is 0.15 of live mass and the reserve is 0.20, so 0.15 / (0.20 * 1.5) = 0.5 and the ratio is mass-invariant by
 ## construction. The 1:2 compression rather than the real 1:20 is a stated time-compression choice of the same
 ## kind as RESP_K's anchor — a strictly real ratio would kill every animal of thirst within seconds of
 ## spawning — and what is preserved is what is physically meaningful: thirst comes FIRST, always, everywhere.
@@ -136,8 +131,8 @@ static func note_spawn(c, from_genome: bool) -> void:
 
 ## Express the mass-derived physiology onto a freshly-configured creature. Called from LACreatureSetup after
 ## species/genome expression, and it OVERWRITES whatever the config said for these fields — that is the point.
-## `max_energy`, `food_value`, `thirst_rate` and `max_hydration` are no longer twenty independent tuned
-## numbers, they are one measured mass and one surface law.
+## `max_energy`, `food_value`, `thirst_rate` and `max_hydration` all come from one measured mass and one
+## surface law.
 static func apply(c, config: Dictionary) -> void:
 	c.mass_kg = mass_kg(config)
 	c.structural_mass = structural(config)

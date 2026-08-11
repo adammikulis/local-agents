@@ -203,8 +203,7 @@ static func _forget_carcass(c) -> void:
 # Force a capped-out carcass to vanish now: RETURN WHAT IS LEFT OF IT TO THE SOIL, drop any lingering physics
 # shadow, and free the body node.
 #
-# It used to just `queue_free()`, so hitting MAX_CARCASSES deleted a whole body — every gram of it — out of the
-# world. The cap is a performance backstop against a pathological pileup (a mass die-off in permafrost, where
+# The cap is a performance backstop against a pathological pileup (a mass die-off in permafrost, where
 # everything mummifies instead of rotting); it is not a licence to destroy matter. Handing the remainder
 # straight to the decomposer loop is the same thing decomposition would have done, only faster.
 static func _despawn_carcass(c) -> void:
@@ -220,8 +219,7 @@ static func _despawn_carcass(c) -> void:
 # Decompose in place: the microbe bloom (gated by field warmth+moisture) eats the carcass biomass and hands
 # it to the substrate's decomposer loop; the body washes green->black + shrinks in step with how much biomass
 # is gone, then vanishes once fully returned to soil. Scavengers find it by the CO2 the decomposer record puts
-# in the air, which drifts on the real wind. (This used to claim LAMaterialScent3D scanned the "carrion" group
-# each step and laid a FOOD plane. That module had no such scan; the sentence was never true.)
+# in the air, which drifts on the real wind.
 static func decay_tick(c, delta: float) -> void:
 	c._decay_age += delta
 	var initial: float = maxf(float(c._carrion_initial), 0.0001)

@@ -353,9 +353,7 @@ func _reinforce(c, senses: Dictionary) -> void:
 # protein denaturation at the other). Reads LACreatureRespiration's band directly, so the discomfort the body
 # actually suffers and the aversion the mind learns are the SAME curve and cannot drift apart.
 #
-# This replaced a pair of comfort constants (WARM_COMFORT 28 / COOL_COMFORT 8) shared by every species, and the
-# new signal is better in a way worth stating: it is bounded and smooth, so a mind can grade a mild chill
-# against a lethal one instead of reading an unbounded linear °C overshoot with no scale on it.
+# The signal is bounded and smooth, so a mind can grade a mild chill against a lethal one.
 func _comfort_deviation(t: float) -> float:
 	return 1.0 - LACreatureRespiration.temp_band(t)
 
