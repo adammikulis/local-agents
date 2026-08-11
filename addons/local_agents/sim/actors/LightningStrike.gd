@@ -65,7 +65,7 @@ func _build_bolt(point: Vector3, up: Vector3) -> void:
 	mat.albedo_color = Color(0.9, 0.95, 1.0)
 	mat.vertex_color_use_as_albedo = true
 	mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP, mat)
-	var rng: LASimRng = LASimRng.shared()
+	var rng: LASimRng = LASimRng.for_domain("planet")
 	var top: Vector3 = point + up * STRIKE_HEIGHT + t1 * rng.randf_range(-14.0, 14.0) + t2 * rng.randf_range(-14.0, 14.0)
 	for s in range(SEGMENTS + 1):
 		var t: float = float(s) / float(SEGMENTS)

@@ -90,7 +90,7 @@ var _picker: StaticBody3D = null
 
 func _ready() -> void:
 	add_to_group("selectable")
-	_phase = LASimRng.shared().randf() * TAU
+	_phase = LASimRng.for_domain("planet").randf() * TAU
 
 
 func setup(terrain: Object, ecology: Object) -> void:

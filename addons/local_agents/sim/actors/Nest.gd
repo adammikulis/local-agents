@@ -185,10 +185,11 @@ func _build_twig_cup() -> void:
 		twig.position = Vector3(cos(angle) * ring_radius, 0.09, sin(angle) * ring_radius)
 		# Tip each twig slightly outward and give it a little random lean so the
 		# rim reads as roughly woven rather than a clean geometric ring.
+		var rng: LASimRng = LASimRng.for_domain("actors")
 		twig.rotation = Vector3(
-			randf_range(-0.35, 0.35),
+			rng.randf_range(-0.35, 0.35),
 			angle,
-			0.5 + randf_range(-0.2, 0.2)
+			0.5 + rng.randf_range(-0.2, 0.2)
 		)
 		_mesh_root.add_child(twig)
 
