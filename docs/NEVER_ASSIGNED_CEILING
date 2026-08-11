@@ -1,0 +1,3 @@
+# A field stuck at its initial value silently disables whatever reads it. sea_level, _terrain_opts and
+# _half_extent were all this. May fall, may not rise.
+0

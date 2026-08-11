@@ -198,7 +198,6 @@ func sea_radius() -> float:
 		return float(_terrain.sea_radius())
 	return 0.0
 
-var _half_extent: float = 0.0
 
 # --- Frame loop + rendering -------------------------------------------------
 const STEP_HZ: float = 10.0
@@ -733,9 +732,6 @@ func wind3_at(x: float, y: float, z: float) -> Vector3:
 # `grid_dim()` IS DELETED. It existed so "CloudLayer's texture maps 1:1 with the 2.5D field" — there is no
 # CloudLayer and no 2.5D field; both survive only in gravestone comments. Cloud is derived from `moisture`
 # against the saturation curve now and has no grid of its own.
-
-func grid_half_extent() -> float:
-	return _half_extent
 
 
 # Heat + lava injection + diagnostics. Local injection (add_heat/add_vapor/add_charge/add_lava) is REAL — it

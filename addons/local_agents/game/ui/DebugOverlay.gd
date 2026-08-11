@@ -164,25 +164,25 @@ func _draw_paths() -> void:
 		_line(tip, tip - dir * 1.0 - side, col)
 
 
-# The emergent LOCAL wind field as a grid of arrows floating above the world: each arrow is sampled from
-# wind_at(x,z) at its own XZ position, so its direction AND length (= local speed) vary across the map —
-# this is the primary way to SEE funneling through valley gaps and fronts pulling air into a heated low.
+# The emergent local wind as arrows over the planet: sampled on a lat/long grid, the same layout
+# _draw_field_channel uses, so direction and length (= local speed) vary across the sphere.
 func _draw_wind() -> void:
-	if _field == null or not _field.has_method("wind_at"):
+	if _field == null or not _field.has_method("wind_at") or _terrain == null:
 		return
-	var y: float = _field.sea_radius() + 48.0  # a shell above most terrain so the arrows read clearly
-	var ext: float = _field.grid_half_extent() if _field.has_method("grid_half_extent") else 300.0
-	var step: float = ext * 2.0 / float(WIND_GRID)
+	var shell: float = _field.sea_radius() + 48.0
 	# Map local speed (m/s-ish) to arrow length so slow air draws short stubs and jets draw long arrows.
 	const SPEED_REF: float = 5.0
 	const LEN_MIN: float = 4.0
 	const LEN_MAX: float = 24.0
 	const THICK: float = 0.7                   # parallel-line offset faking arrow thickness (visible far off)
-	for gx in range(WIND_GRID):
-		for gz in range(WIND_GRID):
-			var wx: float = -ext + (float(gx) + 0.5) * step
-			var wz: float = -ext + (float(gz) + 0.5) * step
-			var w: Vector2 = _field.wind_at(Vector3(wx, y, wz))
+	var centre: Vector3 = _terrain.center() if _terrain.has_method("center") else Vector3.ZERO
+	for iy in range(1, WIND_GRID):
+		var theta: float = PI * float(iy) / float(WIND_GRID)
+		for ix in range(WIND_GRID * 2):
+			var phi: float = TAU * float(ix) / float(WIND_GRID * 2)
+			var radial: Vector3 = Vector3(sin(theta) * cos(phi), cos(theta), sin(theta) * sin(phi))
+			var probe: Vector3 = centre + radial * shell
+			var w: Vector2 = _field.wind_at(probe)
 			var speed: float = w.length()
 			if speed < 0.02:
 				continue
@@ -191,8 +191,8 @@ func _draw_wind() -> void:
 			# Colour ramps calm(blue) -> fast(cyan/white) so speed reads at a glance too.
 			var t: float = clampf(speed / (SPEED_REF * 1.5), 0.0, 1.0)
 			var col: Color = Color(0.35 + 0.55 * t, 0.7 + 0.3 * t, 1.0, 0.85)
-			var side: Vector3 = dir.cross(Vector3.UP).normalized()
-			var base: Vector3 = Vector3(wx, y, wz)
+			var side: Vector3 = dir.cross(radial).normalized()
+			var base: Vector3 = probe
 			var tip: Vector3 = base + dir * arrow
 			var hoff: Vector3 = side * THICK
 			# Shaft (doubled for thickness) + arrowhead.
