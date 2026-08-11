@@ -42,22 +42,68 @@ they were written because an agent spent a session violating both: **delete what
 behind a flag**, and **any departure from real physics needs the maintainer's explicit permission, asked
 first**. The second is gate-backed by `scripts/check_model_parameters.sh` where it can be.
 
-**THREE THINGS ARE BROKEN RIGHT NOW AND THEY ARE THE TOP OF THE QUEUE:**
+## THE GROUND UNDER EVERYTHING ELSE — READ THIS BEFORE PLANNING ANY CONSERVATION WORK
+
+**Cells are not the same size, and until 2026-08-10 nothing in the substrate knew it.** A column near the
+centre of a cube face subtends far more solid angle than one at a corner (~4.9x), and a cell high in the
+shell is wider than one at the floor because lateral spacing is an arc growing with radius (~1.8x). Measured
+by `scripts/check_sphere_grid.sh`: **largest cell / smallest cell = 6.30x (res 8), 7.91x (res 16), 8.76x
+(res 32)** — and the ratio grows as the grid is refined.
+
+So, in plain language: **a "total" in this project is a count-weighted sum, not an amount of anything**, and
+**a transport that moves a fraction of one cell into a differently sized cell debits more matter than it
+delivers**. That is matter created and destroyed on every advection step, in every channel, by construction.
+
+`LASphereGrid` now carries `solid_angle`, `cell_volume`, `face_area_inward` / `face_area_outward`, derived
+exactly (the gnomonic solid-angle closed form; summed cell volumes match the analytic shell to 0.002-0.01
+ppm). **NO KERNEL AND NO LEDGER CONSUMES THEM YET.** That conversion is the next structural job and it must
+land BEFORE energy becomes a channel, or every new kernel re-encodes the flat-cell assumption.
+
+**Consequence for this file: every drift percentage below predates this and has it baked in** — including
+the figures `PHYSICS_RUBRIC.md` criterion 1 is scored on, and the observation that mineral is the one
+substance that conserves (minerals sit in a narrow band of radii, so they suffer least from it).
+
+**Also fixed 2026-08-10, deleting their entries rather than ticking them:** snowfall's destroyed latent heat
+(deposition is a record now, was a kernel that could not charge heat because its Temp binding was readonly);
+`magma_buoy`'s enthalpy mix weighting the destination by a constant instead of its retained mass, which
+created heat on every buoyant transfer; `sea_level`, declared and never assigned, so the aquifer's grain-size
+gradient collapsed to one permeability planet-wide and cloud base sat inside the mantle; and the five-plane
+`scent` channel, two of whose planes had no emitter anywhere in the tree.
+
+**WHAT IS BROKEN RIGHT NOW, AT THE TOP OF THE QUEUE:**
 1. **`--bare` CHANGES THE PHYSICS.** Same seed, same frames: `o2_total` 37125.09 with the presentation layer,
-   **36641.69 without** — 1.3% apart, while h2o and carbon match to the digit. Something in the skipped set
-   (HUD, audio, ocean plane, water particles/surface, vegetation renderer, biome + sea-ice shader
-   controllers, drainage overlay, thought panel) is feeding the field. **Until that is found, `--bare` is for
-   "does it boot" only and NO conservation number may be quoted from it.** Introduced by `a1919d0`.
-2. **`moisture` IS DEAD.** `MaterialField3D` fills it with zeros and its own comment says the channel was
-   never in `MaterialSphereGPU3D`'s GPU seed list. `moisture_total` and `cloud_cells` read 0 in every run, so
-   the entire water-vapour half of the water cycle is not running.
+   **36641.69 without** — 1.3% apart, while h2o and carbon match to the digit. Introduced by `a1919d0`.
+   ~~Something in the skipped set is feeding the field.~~ **CORRECTED 2026-08-10 — one structural mechanism
+   is now closed, and the remaining gap is unmeasured rather than unexplained.** `set_field` uploaded a whole
+   CPU mirror over the device every step. Past step 0 that destroys whatever the GPU produced since that
+   mirror was last read back, and how much that is depends on channel residency, which depends on who called
+   `request_channel`, which depends on which consumers are alive — so the number moved with the presentation
+   layer. Four of the seven channels it wrote (`lava`, `rock_fill`, `shock`, `fuel`) are in
+   `SITUATIONAL_CHANNELS`. It is `seed_field` now and `push_error`s past step 0; step-time edits are queued
+   sparse ops against the live buffer. **Whether the 1.3% is gone is UNMEASURED** — no windowed run has been
+   taken since, so the rule below still stands until one is.
+   **NO conservation number may be quoted from `--bare` until a run says the two agree.**
+2. ~~**`moisture` IS DEAD.**~~ **FALSE — struck 2026-08-10.** It is read back unconditionally on every drain
+   (`MaterialSphereGPU3D.gd:381`), produced on device by the three evaporation records
+   (`reactions_sphere3d.glsl:449`) and scattered back at `MaterialFieldSphereStep3D.gd:230`. Starting the
+   atmosphere dry and letting evaporation load it is CORRECT, and is the template the other seeds should
+   copy. If `cloud_cells` reads 0 the mechanism is that condensate never exceeds `CONDENSE_COVER_MIN =
+   5.0e-8`, which is a runtime question about the saturation curve, not a wiring break. This entry sent work
+   at a problem that did not exist.
 3. **`dust_total` reads 0** on short runs since the tracer collapse. Unconfirmed whether that is real
    (settling velocity is now Stokes-derived at 0.314 m/s, which may simply drain the sky) or a wiring break.
+4. **CELLS ARE NOT THE SAME SIZE AND NOTHING WEIGHTS BY IT.** Measured 2026-08-10 by
+   `scripts/check_sphere_grid.sh`: the largest cell is **6.3x / 7.9x / 8.8x** the smallest at res 8 / 16 / 32,
+   and the ratio GROWS with resolution. So every conserved total is a raw sum over unequal volumes rather
+   than an amount, and every transport moving a fraction of one cell into a differently sized one creates or
+   destroys matter. `LASphereGrid` carries `cell_volume` / `face_area_outward` now; NO consumer uses them
+   yet. **Every drift figure in this file predates that and has it baked in**, including the numbers
+   `PHYSICS_RUBRIC.md` criterion 1 is scored on.
 
 **TODAY'S WORK, all merged and pushed.** Kernels **32 → 25**. Comment prose **11,364 → 2,516 lines
 (42% → 14%)**. Net about −10,000 lines.
 - **One transport kernel for every airborne tracer** — `tracer_transport_sphere3d.glsl`. o2, co2, dust,
-  moisture and all five scent channels are rows, not kernels. Deleted: `o2_transport`, `co2_transport`,
+  moisture and (then) five scent channels are rows, not kernels. The scent CHANNEL is since deleted: Deleted: `o2_transport`, `co2_transport`,
   `dust_transport`, `dust_outscale`, `atmos_transport`, `scent_transport`, `scent_wind`.
 - **One gravity-flow kernel** — `gravity_flow_sphere3d.glsl` replaces `water`, `lava_flow` and `slump`, which
   were the same kernel three times. Moving mass always carries its enthalpy now; there is no flag for it.
@@ -280,7 +326,7 @@ sea-level column as **93 180 Pa**, on which `boil_c_at` returns **97.59 °C**.
    greenhouse reads `p/P_REF`, a ratio, so this is safe **only if both change together**.
 4. `MaterialFieldEnergyBudget3D.gd:108` mirrors `K_P_REF = 100.0`; same change.
 5. Then wire `boil_c_at(id, p_pa)` into `MaterialFieldQueries3D.gd:305` and `GeoRecords.gd:293`'s
-   Arrhenius ceiling, and **delete `heat3d_cool_sphere3d.glsl`** (audit A3 — it is a 100 °C thermostat).
+   Arrhenius ceiling. ~~and delete `heat3d_cool_sphere3d.glsl`~~ — DONE, the kernel is gone (see line 259).
 6. Also unfinished from P0: **`params.dt` is uploaded to `reactions_sphere3d.glsl` and never read**, so
    every reaction rate is per-STEP (audit C5).
 
@@ -440,14 +486,22 @@ batch is gone, because git holds it and nobody was going to re-derive them.)*
    not get cold. The older record-enthalpy branch (`worktree-wf_c468d92c-702-2` / `feature/latent-heat`
    `ae1a497`) is SUPERSEDED and must not be merged — it is the version that pairs L_vap at 100 °C with
    L_fus at 0 °C.
-   **What is left, in order:** `heat3d_cool_sphere3d.glsl` still charges latent heat for a boil at a flat
-   100 °C whose mass transfer R23 now performs properly, so it is a duplicate AND a thermostat and should
+   **What is left, in order:** ~~`heat3d_cool_sphere3d.glsl` still charges latent heat for a boil at a flat
+   100 °C~~ — DELETED 2026-08-10. It was a duplicate AND a thermostat and should
    be deleted (audit A3); condensation (`atmos_precip`) and deposition (`snowice`) still release nothing
    (audit A4); a record carries ONE enthalpy where L(T) is a curve (Watson), so evaporation is charged at
    its 0 °C figure everywhere — ~11% wrong at 100 °C and completely wrong near 374 °C. **The structural
    migration is still owed on top of all that** — store energy per cell, derive temperature via
    `LASubstances.enthalpy_to_state()`, and collapse `water`/`moisture`/`snow` into one conserved `h2o`.
-   That deletes R21, R22, R23, R24, R25, the snowice deposition kernel and the rain condensation leg.
+   That deletes the phase records, the snowice deposition kernel and the rain condensation leg.
+   *(Corrected 2026-08-10: this named "R21, R22, R23, R24, R25". **R23, R24 and R25 DO NOT EXIST.**
+   `LAPhaseRecords.records()` returns EIGHT records as of the deposition fix, and R21/R22 are comment labels
+   on two of them, not identifiers anything resolves. Several entries in this file reason about R23 as
+   though it were a thing; none of them can be acted on as written.)*
+   **DONE since:** the snowice deposition kernel is deleted and IS a record now, paying
+   +latent_sublimation (fusion + vaporisation, derived, so Hess's law holds). It previously moved vapour
+   straight to ice with NO energy term at all — its `Temp` binding was `readonly`, so it was structurally
+   incapable of charging the heat — and called that "conserving", meaning mass only.
 6. **NO MANTLE CONVECTION.** The geotherm is a seeded initial condition maintained by a reservoir
    (`MaterialFieldGeotherm3D.gd:4-5`). A real planet's interior circulates, and that circulation is what
    drives plate motion, so the plates below are kinematic rather than driven.
@@ -595,7 +649,7 @@ Each stage has its own verification. Do not merge stages.
 4. **P0's SECOND HALF IS DONE** — pressure is in pascals, the wind is on the real clock, `P_REF` and
    `K_P_REF` are `STANDARD_PRESSURE_PA`. What remains from that plan: wire `boil_c_at(id, p_pa)` into its
    two remaining scalar consumers (`MaterialFieldQueries3D`, `GeoRecords`) and **delete
-   `heat3d_cool_sphere3d.glsl`** — it is a duplicate of R23's energy leg and a 100 °C thermostat.
+   `heat3d_cool_sphere3d.glsl`** — ~~a duplicate of R23's energy leg and a 100 °C thermostat.~~ ALREADY DONE.
    Also still true: **`params.dt` is uploaded to `reactions_sphere3d.glsl` and never read**, so every
    reaction rate is per-STEP rather than per-second.
    *(Do NOT take `feature/latent-heat` (`ae1a497`) — the superseded version that pairs L_vap at 100 °C with
