@@ -42,9 +42,11 @@ they were written because an agent spent a session violating both: **delete what
 behind a flag**, and **any departure from real physics needs the maintainer's explicit permission, asked
 first**. The second is gate-backed by `scripts/check_model_parameters.sh` where it can be.
 
-**THE KERNEL COLLAPSE BROKE CONSERVATION, IT IS FIXED, AND THE FIX IS ONE CHARACTER.**
-`gravity_flow_sphere3d.glsl` — the kernel `64f3014` collapsed water/lava/slump into — gathered its inflow
-from the WRONG send slot on both RADIAL directions:
+**THE KERNEL COLLAPSE BROKE CONSERVATION AND THE PHYSICS, AND BOTH ARE FIXED.**
+`gravity_flow_sphere3d.glsl` — the kernel `64f3014` collapsed water/lava/slump into — had TWO slot bugs
+from one wrong belief about the neighbour table (that it is `0=down, 1..4=lateral, 5=up`).
+
+**Bug 1, conservation.** The gather read the wrong send slot on both RADIAL directions:
 
 ```glsl
 // The neighbour's send slot aimed back at us is the OPPOSITE direction: 0<->5 radial, 1<->2, 3<->4.
@@ -60,22 +62,33 @@ duplicated. `SphereGrid.gd:21-22` predicts exactly this — *"a link placed in t
 slot that NO cell reads (mass destroyed) and makes some other slot get read twice (mass duplicated)."*
 Gravity flow is dominantly radial, so it dominated everything.
 
+**Bug 2, physics.** The OUTFLOW pass used the same wrong layout: `DOWN` slot 0 (correct), `LATERAL` slots
+`1..4` and `UP` slot 5. Slot 1 is `N_OUT`, i.e. UP — so **the repose/level-out rule pushed mass upward**,
+the over-full overflow went sideways into lateral slot 5, and real lateral slot 5 never received a lateral
+flow at all. `larc[column*4 + l]` was attached to the wrong links with it. Now `DOWN` 0, `UP` 1,
+`LATERAL` 2..5, arc index `l` for slot `2+l` (the table is filled `neighbours[c*6 + N_A0 + lateral_slot]`,
+`N_A0 = 2`). Bug 1 alone restored the books because a reciprocal gather conserves whatever slot the sender
+used; bug 2 is why water was not flowing where gravity points.
+
 **Found by the per-pass energy probe, not by reading.** `LA_ENERGY_BUDGET=1` named the leg in one run:
 `legs_cap_j.water_slump_lava` was **+5.1e14 to +6.2e14 J per step** against a whole-step `step_cap_j` of
 +3.4e14. That is the argument for per-pass matter attribution, made concretely.
 
 **Measured at 600 frames, seed 4242, `--planet-only --no-fauna --fast=8`, one run per arm:**
 
-| substance | this file claimed | broken tip `54f6e58` | fixed | allowance |
-|---|---|---|---|---|
-| `mineral_total` | -0.0064% | +149.1% | **-0.422%** | 0.010% — STILL FIRES |
-| `h2o_closed_total` | -18.74% | +56.4% | **-13.11%** | 21% ✓ |
-| `o2_total` | -24.71% | +8.6% | **+1.49%** | 29% ✓ |
-| `element_C_total` | -28.27% | -32.2% | **-21.80%** | 29% ✓ |
-| `oxidant_all` | -10.76% | — | **+2.14%** | 12% ✓ |
-| `nitrogen_all` | -0.62% | — | **-0.21%** | 0.75% ✓ |
-| energy, share of stock | -3.0% | **+47.0%** | **-3.67%** | not gated |
-| gate violations | none stated | `h2o_closed`, `mineral` | **`mineral` only** | |
+| substance | this file claimed | broken tip `54f6e58` | bug 1 fixed | BOTH fixed | allowance |
+|---|---|---|---|---|---|
+| `mineral_total` | -0.0064% | +149.1% | -0.422% | **-0.418%** | 0.010% — STILL FIRES |
+| `h2o_closed_total` | -18.74% | +56.4% | -13.11% | **-10.05%** | 21% ✓ |
+| `o2_total` | -24.71% | +8.6% | +1.49% | **-0.022%** | 29% ✓ |
+| `element_C_total` | -28.27% | -32.2% | -21.80% | **-23.82%** | 29% ✓ |
+| energy, share of stock | -3.0% | **+47.0%** | -3.67% | **-3.37%** | not gated |
+| `energy_residual / energy_booked` | 319 | — | 340 | **209** | — |
+| gate violations | none stated | `h2o_closed`, `mineral` | `mineral` | **`mineral` only** | |
+
+**`temp_ground_p50` moves off `INITIAL_TEMP` for the first time in these runs — 15.02 °C to 21.83 °C** once
+water flows the way gravity points. A ground median sitting at exactly the seeded 15.0 was the tell, and
+`CLAUDE.md` names that exact reading as the signature of a CA that is not running.
 
 **So the debt table was NOT fabricated — it was measured before the collapse and nobody re-measured after.**
 *(This section said on 2026-08-11 that the table was "false"; that was true of the TIP and wrong about the
@@ -657,7 +670,7 @@ Each stage has its own verification. Do not merge stages.
 1. **`mineral_total` IS THE ONE REMAINING GATE VIOLATION: -0.422% against a 0.010% allowance.** Everything
    else passes now that the gravity-flow gather bug is fixed (see State). 40x the allowance, but a small
    localised number rather than a runaway. **What would decide it:** the per-pass mineral probe,
-   `LA_MINERAL_PROFILE=1` (`MaterialFieldMineralProbe3D`) — the same instrument that just named
+   `LA_MINERAL_BUDGET=1` (`MaterialFieldMineralProbe3D`) — the same instrument that just named
    `water_slump_lava` for energy in a single run. It takes the driver's ONE step-probe slot, so arm nothing
    else with it.
    *(The three "live breakages" that used to head this list are resolved or were false — see the State

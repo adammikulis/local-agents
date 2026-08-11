@@ -5,8 +5,8 @@
 // Replaces water_sphere3d, lava_flow_sphere3d and slump_sphere3d, which were one kernel three times.
 //
 // Two passes: pass 0 writes each cell's outflow into `send[idx*6 + dir]`, pass 1 gathers.
-// Order: DOWN (slot 0) to the stable stack, then LATERAL level-out (slots 1-4), then UP (slot 5) if the
-// cell is over MAX_MASS.
+// Order: DOWN (slot 0, N_IN) to the stable stack, then LATERAL level-out (slots 2-5), then UP (slot 1,
+// N_OUT) if the cell is over MAX_MASS. Slots are LASphereGrid's, opposite is `d ^ 1`.
 //
 // Per-material, all push constants:
 //   max_flow, min_flow, min_mass, lateral_frac  flow caps
@@ -86,7 +86,9 @@ void main() {
 			return;
 		}
 
-		// LATERAL
+		// LATERAL — slots 2..5 (LASphereGrid N_A0..N_B1). `larc` is indexed by the same lateral index,
+		// `link_arc[column*4 + l]` for slot 2+l, because the table is filled as
+		// `neighbours[c*6 + N_A0 + lateral_slot[...]]` with N_A0 = 2.
 		uint column = gidx / max(params.depth, 1u);
 		uint layer = gidx % max(params.depth, 1u);
 		float radius = params.core_radius + (float(layer) + 0.5) * params.cell_size;
@@ -94,7 +96,7 @@ void main() {
 			if (remaining < params.min_mass) {
 				break;
 			}
-			int inb = nbr[base + 1u + uint(d)];
+			int inb = nbr[base + 2u + uint(d)];
 			if (inb < 0 || solid[inb] != 0.0) {
 				continue;
 			}
@@ -110,20 +112,21 @@ void main() {
 			if (movable > params.min_flow) {
 				float lflow = clamp(movable * params.lateral_frac, 0.0, min(params.max_flow, remaining));
 				if (lflow > params.min_flow) {
-					send[base + 1u + uint(d)] = lflow;
+					send[base + 2u + uint(d)] = lflow;
 					remaining -= lflow;
 				}
 			}
 		}
 
-		// UP, only when over-full
+		// UP, only when over-full — slot 1 is N_OUT (outward/up). It was slot 5, which is a LATERAL, so the
+		// overflow went sideways while the repose loop pushed mass through slot 1, i.e. UPWARD.
 		if (remaining > MAX_MASS) {
-			int iu = nbr[base + 5u];
+			int iu = nbr[base + 1u];
 			if (iu >= 0 && solid[iu] == 0.0) {
 				float uflow = remaining - stable_below(remaining + mass_in[iu]);
 				uflow = clamp(uflow, 0.0, min(params.max_flow, remaining));
 				if (uflow > params.min_flow) {
-					send[base + 5u] = uflow;
+					send[base + 1u] = uflow;
 					remaining -= uflow;
 				}
 			}
