@@ -16,8 +16,7 @@ const PYROLYSIS_K_PER_S: float = 2.5e-3
 const OXYGEN_QUENCH: float = LAPhysical.LIMITING_OXYGEN_CONCENTRATION_FRAC / LAPhysical.AIR_MOLE_FRAC_O2
 
 
-## Per-step extent per unit of (fuel x oxygen) at the reference temperature. Derived from the substrate's own
-## clock, so it tracks a changed day length instead of going stale — the pattern LAPhaseRecords._evap_k uses.
+## Per-step extent per unit of (fuel x oxygen) at the reference temperature. Scales with the step quantum.
 static func _rate_k() -> float:
 	return PYROLYSIS_K_PER_S * LAMaterialFieldSphereStep3D.real_seconds_per_step()
 

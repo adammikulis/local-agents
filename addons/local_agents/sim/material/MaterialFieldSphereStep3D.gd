@@ -3,21 +3,39 @@ extends RefCounted
 
 ## LAMaterialFieldSphereStep3D: the cubed-sphere per-frame STEP ORCHESTRATION of LAMaterialField3D,
 
-# Fixed-step cadence — mirrors the field's own constants so the loop is self-contained.
+# Sim-clock seconds banked per field step (accumulator cadence, not simulated time).
 const STEP_DT: float = 1.0 / 10.0
 const MAX_STEPS_PER_FRAME: int = 2
 const FIELD_CADENCE_MAX: int = 60                       # clamp for the published Sim knob (avoid absurd skips)
 
-# --- THE FIELD'S ONE CLOCK ---------------------------------------------------------------------------------
-# STEP_DT = 0.1 over model-unit capacities: a factor of 432 between two halves of one energy budget. Neither
-const REAL_SECONDS_PER_DAY: float = 86400.0
+# Simulated seconds ONE field step represents. Fixed quantum; declared in docs/MODEL_PARAMETERS.md.
+# Every derived rate in the substrate scales by this and by nothing else — the day length is DERIVED from it
+# below, not an input to it. Gated by scripts/check_step_quantum.sh.
+const SIM_SECONDS_PER_STEP: float = 43.2
 
-## Real seconds ONE field step represents — derived from the sim clock, never typed. See the block above.
+## Simulated seconds one field step represents.
 static func real_seconds_per_step() -> float:
-	var day: float = float(LASimClock.DAY_LENGTH)
-	if day <= 0.0:
-		return 0.0
-	return STEP_DT * (REAL_SECONDS_PER_DAY / day)
+	return SIM_SECONDS_PER_STEP
+
+
+## Simulated seconds per sim-clock second.
+static func real_seconds_per_sim_second() -> float:
+	return SIM_SECONDS_PER_STEP / STEP_DT
+
+
+## Planet rotation period, seconds.
+static func rotation_period_s() -> float:
+	return TAU / LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S
+
+
+## Field steps in one rotation. Rises when the planet spins slower; the per-step chemistry does not move.
+static func steps_per_rotation() -> float:
+	return rotation_period_s() / SIM_SECONDS_PER_STEP
+
+
+## Sim-clock seconds in one rotation. The sim clock's day is this and nothing else.
+static func day_length_sim_seconds() -> float:
+	return steps_per_rotation() * STEP_DT
 
 const LakesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLakes3D.gd")
 const SoilBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd")
