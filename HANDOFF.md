@@ -104,6 +104,147 @@ relevance rule and it is legitimate. It may not vary with "is this the ocean or 
 distinction has no physical referent. Deletes `SEA_WAVE_EPS`, `SEA_BIAS`, the geometric salinity
 classification, and one of the two meshes.
 
+## ▶▶ START OF SESSION 2026-08-11-b. FOUR BRANCHES ARE UNMERGED AND TWO CARRY CONSERVATION FIXES.
+
+**Do this before anything else. They are finished, verified work sitting on branches, and they will rot.**
+
+| branch | what it is | state |
+|---|---|---|
+| `worktree-wf_7f772184-82c-1` | **soil groundwater carries its heat** (new `hsend` per-slot enthalpy buffer beside `send`); **fungus_fert column double-count** fixed | CONFLICTS with `SoilPass.gd` — the pass-base refactor landed first |
+| `worktree-wf_7f772184-82c-2` | **lava radiative cooling lands on the neighbour** instead of vanishing (new `_rad_dep` receiver-indexed scratch) | CONFLICTS with `ThermalPass.gd` — same reason |
+| `worktree-agent-a59c3ef2f80727598` | "every phase change of water pays for itself" | **DO NOT MERGE. 241 commits behind, edits the deleted `atmos_evap_sphere3d.glsl`, and its content is superseded by phase RECORDS that DERIVE sublimation from fusion + vaporisation. Merging it would restore the Hess's-law violation.** Delete the branch once its worktree is removed. |
+
+Tracks 3 (`one pass base`) and 4 (`comment claims 31 -> 3`) are already merged; the tree is green.
+
+**Both conflicts are the same shape**: track 3 restructured the pass classes while tracks 1 and 2 added
+buffers to the same files. Resolve by taking the NEW pass-base structure and re-adding each track's buffer
+(`hsend` binding 10 in `SoilPass`, `_rad_dep` in `ThermalPass`). Read each track's own commit message — both
+carry a full conservation argument for why the fix is right.
+
+## THE MEASUREMENT SUBSTRATE WAS LYING, AND THAT INVALIDATES EVERY NUMBER IN THIS FILE BELOW
+
+Measured 2026-08-11, all after the ledger and probe collapses:
+
+- **`--fast` never multiplied the field's step rate the way anyone assumed.** 200 render frames gives
+  `field_step` **31** at `--fast=1` and **190** at `--fast=8`. A 600-frame run reaches `field_step` **590**.
+- **THE CONSERVATION AUDIT HAS THEREFORE NEVER FIRED.** `MaterialFieldConservation3D.REFERENCE_STEPS = 600`
+  is counted in FIELD STEPS SINCE SEAL, and the standard 600-frame arm does not reach it. Every
+  `conservation_failed: false` ever quoted means **NEVER EVALUATED**, not "passed". `conservation_audited`
+  is the field to read, and it is `false`.
+- **`Engine.time_scale` was owned by a `CanvasLayer`** — the on-screen time control. FIXED: `LASimTimeScale`
+  (`sim/SimTimeScale.gd`) is a plain node that always exists; the widget forwards to it.
+- The first honest 600-frame numbers, which are NOT a baseline to trust yet because of the above:
+  h2o **+30.4%**, carbon **-11.1%**, o2 **+2.3%**, mineral **+3.0%**, `energy_residual` **4,719x**
+  `energy_booked`, `temp_ground_p50` 39.7 C.
+
+**FIRST TASK OF THE NEXT SESSION: decide what the audit horizon should be** — either express
+`REFERENCE_STEPS` in something a normal run reaches, or make the standard arm long enough — then re-measure
+everything. Nothing below is meaningful until the audit actually renders a verdict.
+
+## THE GATES WERE NOT GATING. FIXED, BUT READ THIS BEFORE TRUSTING A GREEN LIGHT
+
+- **Four gates were written and never wired into `lint`**: `check_duplicate_logic`, `check_never_assigned`,
+  `check_voxel_grid`, `check_gravity_solve`. CI runs `agent_harness.sh lint`; a gate outside it never runs.
+- **`lint` was deliberately left permanently RED** (comment-claims ceiling 0 against a count of 32). A light
+  that is always red carries no signal, and two commits went out over genuinely failing gates because red
+  was the expected background. **Ceilings are ratchets: set AT the count, lowered as things are fixed, never
+  raised to make a light green.**
+- **`scripts/githooks/pre-commit` now blocks any commit while lint is non-zero.** `core.hooksPath` is
+  ABSOLUTE because it is shared across every linked worktree. Mutation-tested.
+- `run_sim_offscreen.sh`'s stale-shader guard compared MTIME, so any git operation that rewrote the working
+  tree made it refuse a tree Godot considered current — and the only apparent way forward was
+  `LA_SKIP_SHADER_CHECK=1`. It compares Godot's own recorded `source_md5` now.
+
+## PRESENTATION IS STILL OPT-OUT, AND THAT IS THE NEXT STRUCTURAL FIX
+
+`--bare` is enforced by **fourteen hand-written `if not _input.bare():` guards**. One decision written
+fourteen times, with the polarity backwards: UI is built BY DEFAULT and each piece must be individually
+excused, so anything anyone adds draws over a measurement run until a human notices it on screen. Three
+separate leaks were found that way today (`DebugWiring`, `GeneratingPlanetScreen`, and the time control).
+
+**The fix, not started:** delete `--bare` and `bare()`, add `--with-ui`, and move every presentation node's
+construction into ONE controller that `VoxelWorld` builds behind a SINGLE condition. `VoxelWorld.gd` is a
+designated extract-only composition root; fourteen conditional construction blocks are what that rule
+forbids. `sim_run.sh` already defaults to no-UI and has `--with-ui`, so the wrapper is ready.
+
+**Still unguarded right now:** `_pause_menu` (`VoxelInputController.gd:156`), `_view_controls` (`:505`),
+`CampaignTutorial` (`VoxelWorld.gd:582`).
+
+**AND ADD THE CHECK THAT WOULD HAVE CAUGHT ALL OF IT:** a script that runs the scene with no UI and walks
+the tree asserting zero `CanvasLayer` and zero `Control`. Every leak so far was found by the maintainer
+looking at a window.
+
+## THE OPEN TASK LIST, EXPLICITLY. Nothing here lives only in a session's task tracker.
+
+Ordered. Each says what would DECIDE it, not just that it is open.
+
+**A. Unblock the measurement (do first — everything else is unmeasurable until these land)**
+1. **Audit horizon.** `REFERENCE_STEPS = 600` field steps is unreachable at the standard 600-frame arm
+   (`field_step` 590). Decide the horizon, then re-measure the four drifts and the energy residual.
+2. **Wire `check_observer_independence.sh` into a gate path.** It exists, is not in `lint` (correctly — it
+   takes minutes), and is not in any other automated path either, so it runs only by hand. `--bare` vs
+   `--with-ui` now differ structurally, so this must be re-measured before any number is quoted.
+3. **Determinism.** Tree and rock placement draw counts still vary with how much terrain has streamed in
+   (`rng_same: false`, verified twice). The fix is a position-hashed per-object RNG stream so placement
+   ORDER stops mattering. A previous agent declined on the grounds that a quantisation constant would be
+   its own to pick — hashing to the existing grid cell index invents nothing.
+4. **Probe budget** — gauges off for throughput, on for finalists, and the numbers identical either way.
+
+**B. The grid migration (authorised 2026-08-11, outranks everything but A)**
+5. **GPU gravity.** `LAFieldGravity` is GDScript only. It needs a compute kernel and `gx/gy/gz` bound as a
+   buffer every kernel can read — that is what replaces slot 0.
+6. **Host binding.** `MaterialSphereGPU3D` / `MaterialField3D` construct and consume `LASphereGrid`. Convert
+   IN PLACE. Do not add a second path.
+7. **Kernel fan-out.** 17 of 24 kernels carry a radial assumption. 7 do not: `atmos_precip`, `cell_list`,
+   `copy`, `fert`, `fungus`, `shock`, `solid_derive`. One owner per kernel. Column walks become a march
+   along `down_at`, not an index step.
+8. **Sparsity.** 4.8x dense is the real cost; the answer is the lava cell-list compactor generalised to
+   `{channel, threshold}` rows. Most of the box is vacuum or inert core.
+
+**C. Survives the grid change — still broken**
+9. `wind_pressure_sphere3d.glsl:127` `max(m_col + flux_in - flux_out, 0.0)` MINTS air. The limiter must bound
+   outflow by available mass on the DONOR's own state, so donor and receiver agree without a clamp.
+10. `shock_sphere3d.glsl` `LOSS = 0.25` destroys a quarter of the field per step, unledgered and fitted.
+    **Answer the structural question first: is `shock` energy, or a dimensionless intensity?** Do not invent
+    a replacement rate.
+11. `wind_pressure` WALK 4 re-lays column mass onto the hydrostatic profile conserving a sum of an INTENSIVE
+    channel. Uniform cells may close this on their own — check rather than assume.
+12. **Five accounting modules not yet folded**: `MaterialFieldEnergyBudget3D`, `MomentumLedger3D`,
+    `PhotoStats3D`, `MineralProfile3D`, `SoilBudget3D`. `SoilBudget` is verified to be a DIFFERENT mechanism
+    (per-leg `DBG_*` slots, not between-pass checkpoints) and should stay.
+13. **Comment claims 3 -> 0.** All three survivors are in `kernels3d/`. If they turn out to be cited
+    real-matter values sitting on the constant they describe, the GATE's regex is what needs to change —
+    say which pattern would distinguish a citation from a run reading.
+
+**D. Substrate work the grid does not touch**
+14. **Energy per cell, temperature DERIVED** via `LASubstances.enthalpy_to_state()` (which still has zero
+    callers). Deletes the `temp` channel and `INITIAL_TEMP` with it. Needs a GLSL counterpart.
+15. **One conserved h2o, one inclusion mask.** `FieldLedgerRecords3D.H2O` already declares one rule for all
+    four phases; the kernels do not yet agree.
+16. `reactions_sphere3d` **reads `params.dt`** — it is uploaded and ignored, so every reaction rate is
+    per-step rather than per-second.
+17. **Per-pass conservation attribution required by the pass interface**, so a drain must name its pass.
+18. **Channels carry SI quantities**, not dimensionless fill fractions.
+19. **One rotation rate.** Delete `PLANET_SPIN_RATE` and `DAY_LENGTH` as physics inputs; derive
+    `CORIOLIS_TWO_OMEGA_RAD_S` from the single rate.
+20. **Air composition becomes a field**; density from the ideal gas law; delete `O2_AMBIENT`/`CO2_AMBIENT`
+    as seeds and let outgassing produce the atmosphere.
+21. **The Hadean seed** — delete every asserted initial state; `note_seed` mandatory AT the point of
+    assertion rather than at the seal; allocate `_snow` properly (it is absent from `_alloc_channels`).
+22. **A world must be steppable with no frame loop** — the prerequisite for parallel universes.
+23. **Parallel universes**; snapshot carries a winner across resolutions (`restore()` currently refuses a
+    cell-count mismatch, which is exactly the coarse-to-fine transition).
+
+**E. Creature layer — 0.5, but these are DEFECTS, not features**
+24. **`Fish.gd` has its own copy of half the creature stack.** It duplicates mass, respiration, thermal and
+    energy state rather than using the `Creature` modules. Not audited today.
+25. Body mass is now a heritable log locus and bodies can grow — but **the growth curve's visual scale and
+    the mass fraction are two separate reads of the same age**; confirm they cannot diverge.
+
+**F. Dev loop**
+26. **Cache terrain generation.** Every run regenerates the planet; this is the single biggest cost in the
+    ~90s-per-600-frame loop.
+
 ## THE GRID IS BEING REPLACED. THE CUBED SPHERE IS GOING. THIS OUTRANKS EVERY OTHER ITEM IN THIS FILE.
 
 **Maintainer, 2026-08-11, authorising it: "shouldn't the grid just be a universal square grid? and parts of
