@@ -67,7 +67,12 @@ const GATE_NEAR_GROUND: int = 4       # GROUND-HUGGING open cell (INWARD nbr is 
 const GATE_DAYLIGHT: int = 8          # insolation above DAYLIGHT_MIN (the lit hemisphere). NO RECORD USES THIS,
 const GATE_DRY: int = 16              # cell water <= WET_MAX_LOFT (dry surface) — sand only lofts when not wet
 # parity with the deleted dust_loft kernel, and redundant with GATE_DRY which tests the cell's own
-# water. Bit value 32 is now free.)*
+# water.)*
+const GATE_FREEZING: int = 32         # cell temp below LAPhysical.WATER_FREEZE_C. Deposition needs it: the
+                                      # condensate driver says HOW MUCH water is out of solution, not which
+                                      # phase it lands in, and above 0 C that condensate is rain, not snow.
+                                      # Retires with the enthalpy channel, which derives phase from energy
+                                      # and so has no phase branch to gate.
 const GATE_AIR_ABOVE: int = 128       # THE FREE SURFACE — the air/liquid interface. True when the OUTWARD radial
                                       # `static` cells that are deliberately never simulated (MaterialField3D
                                       # ._seed_sphere_sea), so per-cell chemistry there is meaningless.

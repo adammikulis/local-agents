@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 616**
+**MAX_DECLARED: 615**
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
@@ -109,8 +109,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/kernels3d/wind_step_sphere3d.glsl` | `DAMP_FREE` | 0.010 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/wind_step_sphere3d.glsl` | `BL_HEIGHT` | 40.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/wind_step_sphere3d.glsl` | `OROG_LIFT` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/snowice_sphere3d.glsl` | `DEPOSIT_FRAC` | 0.10 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/material/kernels3d/snowice_sphere3d.glsl` | `SNOW_MIN` | 1.0e-9 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/kernels3d/erosion_pickup_sphere3d.glsl` | `WATER_MIN` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/kernels3d/erosion_pickup_sphere3d.glsl` | `STREAM_K` | 0.25 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/erosion_pickup_sphere3d.glsl` | `MAX_SCOUR` | 0.08 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -484,6 +482,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd` | `SUSP_ACTIVE` | 0.001 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `FREEZE_RATE` | 0.05 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `MELT_RATE` | 0.05 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
+| `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `DEPOSIT_RATE` | 0.10 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SOLIDIFY_RATE` | 0.02 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `ROCK_MELT_RATE` | 0.02 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `VAPOUR_TRANSFER_COEFF` | 1.2e-3 | inherited, unreviewed | Stage 2 substrate rewrite |

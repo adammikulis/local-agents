@@ -71,10 +71,15 @@ void main() {
 	if (ib >= 0 && solid[ib] == 0.0) {
 		in_below = buoy_up(scratch[uint(ib)]);
 	}
-	lava[g] = base_mass - out_up + in_below;
+	float kept = base_mass - out_up;
+	float total = kept + in_below;
+	lava[g] = total;
 
-	// MOLTEN_FLOOR = 950 C, then written into this cell if it was cooler — so a cell receiving buoyed magma was
-	if (in_below > 0.0 && ib >= 0) {
-		temp[g] = (MAX_MASS * temp[g] + in_below * temp[uint(ib)]) / (MAX_MASS + in_below);
+	// Mass-weighted enthalpy mix against the RETAINED mass, the same form as gravity_flow_sphere3d.glsl:167.
+	// It weighted this cell's own heat by the constant MAX_MASS instead. buoy_up only fires on overpressure, so
+	// `kept` is >= MAX_MASS in every cell this runs on and the constant always under-weighted the destination:
+	// arriving magma dominated the mix by more than its mass, creating heat on every buoyant transfer.
+	if (in_below > 0.0 && ib >= 0 && total > 0.0) {
+		temp[g] = (kept * temp[g] + in_below * temp[uint(ib)]) / total;
 	}
 }

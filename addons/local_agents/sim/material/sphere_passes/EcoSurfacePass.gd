@@ -6,7 +6,6 @@ const KDIR: String = "res://addons/local_agents/sim/material/kernels3d/"
 const FERT_PATH: String = KDIR + "fert_sphere3d.glsl"
 const FUNGUS_PATH: String = KDIR + "fungus_sphere3d.glsl"
 const FUNGUS_FERT_PATH: String = KDIR + "fungus_fert_sphere3d.glsl"
-const SNOWICE_PATH: String = KDIR + "snowice_sphere3d.glsl"
 const SHOCK_PATH: String = KDIR + "shock_sphere3d.glsl"
 
 var _rd: RenderingDevice = null
@@ -15,21 +14,18 @@ var _rd: RenderingDevice = null
 var _fert_shader: RID = RID()
 var _fungus_shader: RID = RID()
 var _fungus_fert_shader: RID = RID()
-var _snowice_shader: RID = RID()
 var _shock_shader: RID = RID()
 
 # Compute pipelines.
 var _fert_pipe: RID = RID()
 var _fungus_pipe: RID = RID()
 var _fungus_fert_pipe: RID = RID()
-var _snowice_pipe: RID = RID()
 var _shock_pipe: RID = RID()
 
 # Uniform sets, one per ping-pong parity.
 var _fert_set: Array = [RID(), RID()]
 var _fungus_set: Array = [RID(), RID()]
 var _fungus_fert_set: Array = [RID(), RID()]
-var _snowice_set: Array = [RID(), RID()]
 var _shock_set: Array = [RID(), RID()]
 
 
@@ -46,8 +42,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	_fungus_pipe = _rd.compute_pipeline_create(_fungus_shader)
 	_fungus_fert_shader = _compile(FUNGUS_FERT_PATH)
 	_fungus_fert_pipe = _rd.compute_pipeline_create(_fungus_fert_shader)
-	_snowice_shader = _compile(SNOWICE_PATH)
-	_snowice_pipe = _rd.compute_pipeline_create(_snowice_shader)
 	_shock_shader = _compile(SHOCK_PATH)
 	_shock_pipe = _rd.compute_pipeline_create(_shock_shader)
 
@@ -101,16 +95,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		])
 
 		# Snow DEPOSITION (snowfall): freeze the CONDENSED moisture on cold ground → snow, mass-conserving. Reads
-		# the SETTLED temp + moisture (BACK halves — Thermal/Atmosphere wrote them this step) and debits moisture
-		# in that same BACK half so the loss carries forward as next frame's live (no later pass writes moisture).
-		_snowice_set[p] = _build_set(_snowice_shader, [
-			[0, _snow_rid(bufs, p)], # Snow depth (SINGLE, in place)
-			[1, temp_pair[back]],    # Temp (settled, read)
-			[2, moisture_pair[back]],# Moisture (settled, debited in place — the frozen-out condensate)
-			[3, solid_rid],          # Solid
-			[15, nbr_rid],
-		])
-
+		
 		_shock_set[p] = _build_set(_shock_shader, [
 			[0, shock_pair[p]],      # ShockIn  = live shock
 			[1, shock_pair[back]],   # ShockOut = back shock
@@ -127,11 +112,10 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	var cell_m: float = float(ctx.get("cell_size", 1.0)) * LAPhysical.METRES_PER_MODEL_UNIT
 	var k_courant: float = LAMaterialFieldSphereStep3D.real_seconds_per_step() / cell_m if cell_m != 0.0 else 0.0
 
-	# Order: fert -> fungus -> fungus_fert -> snowice -> shock.
+	# Order: fert -> fungus -> fungus_fert -> shock.
 	_run(rd, cl, _fert_pipe, _fert_set[parity], _pc_precip16(cc, precip), groups)
 	_run(rd, cl, _fungus_pipe, _fungus_set[parity], _pc_precip32(cc, precip), groups)
 	_run(rd, cl, _fungus_fert_pipe, _fungus_fert_set[parity], _pc_u4(cc), groups)
-	_run(rd, cl, _snowice_pipe, _snowice_set[parity], _pc_u4(cc), groups)
 	_run(rd, cl, _shock_pipe, _shock_set[parity], _pc_u4(cc), groups)
 
 
@@ -141,30 +125,27 @@ func dispose(rd: RenderingDevice) -> void:
 	if rd == null:
 		return
 	for s: Array in [_fert_set, _fungus_set,
-			_fungus_fert_set, _snowice_set, _shock_set]:
+			_fungus_fert_set, _shock_set]:
 		for r in s:
 			if r is RID and r.is_valid():
 				rd.free_rid(r)
 	_fert_set = [RID(), RID()]
 	_fungus_set = [RID(), RID()]
 	_fungus_fert_set = [RID(), RID()]
-	_snowice_set = [RID(), RID()]
 	_shock_set = [RID(), RID()]
 	for r: RID in [_fert_pipe, _fungus_pipe,
-			_fungus_fert_pipe, _snowice_pipe, _shock_pipe,
+			_fungus_fert_pipe, _shock_pipe,
 _fert_shader, _fungus_shader,
-			_fungus_fert_shader, _snowice_shader, _shock_shader]:
+			_fungus_fert_shader, _shock_shader]:
 		if r.is_valid():
 			rd.free_rid(r)
 	_fert_pipe = RID()
 	_fungus_pipe = RID()
 	_fungus_fert_pipe = RID()
-	_snowice_pipe = RID()
 	_shock_pipe = RID()
 	_fert_shader = RID()
 	_fungus_shader = RID()
 	_fungus_fert_shader = RID()
-	_snowice_shader = RID()
 	_shock_shader = RID()
 
 
@@ -256,7 +237,7 @@ func _pc_precip16(cc: int, precip: float) -> PackedByteArray:
 	return b
 
 
-## Push: {uint cell_count, pad,pad,pad, float precip, pad,pad,pad} — 32 bytes (fungus, snowice).
+## Push: {uint cell_count, pad,pad,pad, float precip, pad,pad,pad} — 32 bytes (fungus).
 func _pc_precip32(cc: int, precip: float) -> PackedByteArray:
 	var b: PackedByteArray = PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
 	b.append_array(PackedFloat32Array([precip, 0.0, 0.0, 0.0]).to_byte_array())

@@ -9,6 +9,7 @@ const FREEZE_TEMP: float = LAPhysical.WATER_FREEZE_C   # 0.0 °C — liquid WATE
 const MELT_TEMP: float = LAPhysical.WATER_MELT_C       # 0.0 °C — SNOW → liquid WATER. The same boundary.
 const FREEZE_RATE: float = 0.05          # per-step k on the below-threshold liquid-freeze extent
 const MELT_RATE: float = 0.05            # per-step k on the above-threshold snow-melt extent
+const DEPOSIT_RATE: float = 0.10         # per-step k on the condensed-moisture deposition extent
 
 # --- BEDROCK phase transfers (rock unification Stage B) — molten LAVA <-> fractional bedrock ROCK_FILL ------------
 const SOLIDIFY_TEMP: float = LAPhysical.BASALT_SOLIDUS_C   # 1000 °C — below the solidus basalt is fully solid
@@ -58,9 +59,20 @@ static func records() -> Array:
 		rec(DEFICIT_BELOW_THRESHOLD, FREEZE_RATE, TEMP, [[WATER, 1.0]], [[SNOW, 1.0, TGT_SELF]], 0, FREEZE_TEMP,
 			-1, 0.0, -1, 0.0, 0.0, _latent_fusion_j_m3()),
 
+		# DEPOSITION (condensed moisture → snow): the leg snowice_sphere3d.glsl used to run. It moved
+		# moisture into snow with NO enthalpy term at all — its Temp binding is `readonly`, so it structurally
+		# could not pay — and its comment called that "conserving", meaning mass only. Vapour going to ice
+		# releases fusion PLUS vaporisation, and none of it reached the field: energy destroyed on every
+		# snowfall, and absorbed for free on the way back.
+		#
+		# DEFICIT_BELOW_THRESHOLD on the SIGNED VAPOUR_DEFICIT driver (sat(T) − moisture) at threshold 0 gives
+		# x = max(0, moisture − sat(T)) · k, which IS the kernel's `condensed`. GATE_FREEZING keeps it off warm
+		# condensate, which is rain's job.
+		rec(DEFICIT_BELOW_THRESHOLD, DEPOSIT_RATE, VAPOUR_DEFICIT, [[MOISTURE, 1.0]], [[SNOW, 1.0, TGT_SELF]],
+			GATE_NEAR_GROUND | GATE_FREEZING, 0.0, -1, 0.0, -1, 0.0, 0.0, _latent_sublimation_j_m3()),
+
 		# R22 — MELT (snow → water): SNOW at a cell warmer than MELT_TEMP thaws to liquid WATER (meltwater the
 		# water CA then routes downhill on the next step). EXCESS_OVER_THRESHOLD: x = max(0, temp - MELT_TEMP) *
-		# branch of snowice_sphere3d.glsl (which is now deposition-only).
 		rec(EXCESS_OVER_THRESHOLD, MELT_RATE, TEMP, [[SNOW, 1.0]], [[WATER, 1.0, TGT_SELF]], 0, MELT_TEMP,
 			-1, 0.0, -1, 0.0, 0.0, -_latent_fusion_j_m3()),
 

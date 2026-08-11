@@ -125,6 +125,7 @@ layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float 
 // once here, in the field's own unit (a fraction of a cell full of liquid water), it governs the sea, a
 // puddle, wet soil and a snowbank identically — the records differ only in which liquid they name.
 // August-Roche-Magnus with Alduchov & Eskridge (1996) coefficients, then the ideal gas law for vapour.
+const float WATER_FREEZE_C = 0.0;        // LAPhysical.WATER_FREEZE_C
 const float MAGNUS_A_PA = 610.94;        // LAPhysical.MAGNUS_A_PA
 const float MAGNUS_B = 17.625;           // LAPhysical.MAGNUS_B
 const float MAGNUS_C_C = 243.04;         // LAPhysical.MAGNUS_C_C
@@ -195,6 +196,7 @@ const float O2_FLAMMABILITY_LIMIT = LOC_MOLE_FRAC / AIR_O2_MOLE_FRAC_K;
 #define GATE_NEAR_GROUND 4
 #define GATE_DAYLIGHT    8
 #define GATE_DRY         16   // cell is DRY (water <= WET_MAX_LOFT) — sand only lofts when not wet
+#define GATE_FREEZING    32   // cell temp below WATER_FREEZE_C — see LAReactionDefs.GATE_FREEZING
                               // water=1 and is deliberately not simulated) — real per-cell chemistry only
 #define GATE_AIR_ABOVE   128  // THE FREE SURFACE: the outward neighbour is air (not rock, not drowned). A
                               // submerged cell has no air touching it and cannot evaporate. See ReactionDefs.
@@ -489,6 +491,11 @@ bool gate_ok(int mask, uint i) {
 	if ((mask & GATE_DRY) != 0) {
 		if (water[i] > WET_MAX_LOFT) {
 			return false;                   // wet sand / puddle never lofts (dust_loft:53 parity)
+		}
+	}
+	if ((mask & GATE_FREEZING) != 0) {
+		if (temp[i] >= WATER_FREEZE_C) {
+			return false;                   // above the phase boundary the condensate is liquid, not ice
 		}
 	}
 	if ((mask & GATE_NEAR_GROUND) != 0) {
