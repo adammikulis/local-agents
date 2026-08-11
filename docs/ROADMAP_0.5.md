@@ -45,7 +45,7 @@ percolation just sinks all the water to the core.
 
 ---
 *0.4 water shipped: ocean-heavy Voronoi planet · land-biased spawn · mass-scaled water sweep + plant rooting ·
-emergent cloudburst floods + smite governor · vertical soil water table (persistence, flash-flood realism,
+emergent cloudburst floods · vertical soil water table (persistence, flash-flood realism,
 baseflow, conservation) · snowmelt-recharged springs.*
 
 *Two creature items used to be listed here as "0.4 backlog": disease/pests (W-TRAITS) and off-camera

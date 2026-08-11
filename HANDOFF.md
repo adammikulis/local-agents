@@ -56,24 +56,6 @@ redefines every `--bench` frame number, and `_input.update(_frame, spawned)` (`V
 so that counter has to move to `_physics_process` in the same commit or the disasters desync from the run
 length. One owner, both halves.
 
-## THREE THINGS THE FRAMERATE TRACK SURFACED AS DECISIONS RATHER THAN FIXING
-
-1. **`LAPopulationGovernor._smite` fires a CLOUDBURST at the densest herd when the population exceeds a
-   ceiling.** Weather scheduled by a headcount — the "volcanoes waited for rabbits" defect in reverse, with
-   meteorology consulting biology. Its cadence was made framerate-independent; the MECHANISM was left,
-   because deleting it is an architecture call. **It should be deleted, not fixed.**
-2. **`LAWeatherSystem.wetness`, `wet()` and the `weather_changed` signal have zero consumers.** The scent
-   channel that read them is gone. Delete them or find them a reader.
-3. **`SystemOrbits.CLOUD_OPACITY_CAP = 0.22`** is a clamp whose own comment says it exists because "nothing
-   in this simulation radiated heat to space" — a condition that no longer holds. It names its own removal
-   condition, which is the band-aid rule's acceptance test: take it out and see whether the runaway returns.
-
-**Already fixed by that track, worth knowing because it was a matter-and-energy path:**
-`MaterialEjecta3D` integrated ballistic parcels carrying mass and heat on the RENDER delta and deposited
-them with `add_lava` plus a heat inject — so where and when a parcel landed depended on framerate. Six
-`_process` integrators moved to the physics tick in total, and `scripts/check_framerate_independence.sh`
-now fails the build on any simulation mutator reachable from a `_process` body.
-
 ## THE SIM IS NOT REPRODUCIBLE, AND LOOKING AT IT STILL CHANGES IT — measured 2026-08-11
 
 `scripts/agent_harness.sh score` now computes all ten rubric criteria, and two of the four new ones found
