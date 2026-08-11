@@ -14,8 +14,15 @@ extends RefCounted
 ## field has stepped at all, which would book world-gen's settling as drift. `energy_first_step` publishes
 const BASELINE_SKIP_SAMPLES: int = 2
 
+## EVERY LEG OF THE CAPACITY MIX, READ THROUGH THE PROBE. Not "the demand-gated ones" — all of them.
+## `request_probe`/`take_probe` reads at the drain into a dictionary no simulation consumer sees, so what
+## this gauge gets does not depend on which OTHER consumer happened to call `request_channel` recently.
+## Mixing probe legs with mirror legs is what made `energy_stock` differ by 87% between a run with the
+## presentation layer and the same run `--bare`: `sediment`, `susp`, `soil` and `porosity` were read from
+## mirrors under a comment calling them "always-hot", and all four are in SLOW_CHANNELS, refreshed every
+## fourth drain.
 const LEGS: PackedStringArray = ["rock_fill", "lava", "fuel", "dust", "detritus", "fungus",
-	"carbonate", "silica"]
+	"carbonate", "silica", "water", "snow", "biomass", "sediment", "susp", "soil", "moisture", "porosity"]
 
 var _f = null                                # back-reference to the owning LAMaterialField3D
 
@@ -67,21 +74,12 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 		legs = _f._gpu.take_probe()
 		_f._gpu.request_probe(LEGS)
 	var probe_rock: bool = legs.has("rock_fill")
-	var rock_fill: PackedFloat32Array = legs.get("rock_fill", _f._rock_fill)
-	var lava: PackedFloat32Array = legs.get("lava", _f._lava)
-	var fuel: PackedFloat32Array = legs.get("fuel", _f._fuel)
-	var water: PackedFloat32Array = _f._water
-	var snow: PackedFloat32Array = _f._snow
-	# biomass and detritus are NOT demand-gated (MaterialSphereGPU3D.SINGLE_CHANNELS, always mirrored), so
-	# they need no probe leg. lava and fuel are, hence their presence in LEGS above.
-	var biomass: PackedFloat32Array = _f._biomass
-	var detritus: PackedFloat32Array = _f._detritus
-	var has_rock: bool = probe_rock and rock_fill.size() == cc
-	var has_lava: bool = legs.has("lava") and lava.size() == cc
-	var has_fuel: bool = legs.has("fuel") and fuel.size() == cc
-	var has_water: bool = water.size() == cc
-	var has_snow: bool = snow.size() == cc
-	var has_org: bool = biomass.size() == cc and detritus.size() == cc
+	# NO MIRROR FALLBACK ANYWHERE. A leg that did not arrive reads as ABSENT and the stock is refused below,
+	# rather than a stale array standing in for a measurement.
+	var ch: Dictionary = {}
+	for leg_name in LEGS:
+		var arr: PackedFloat32Array = legs.get(leg_name, PackedFloat32Array())
+		ch[leg_name] = arr if arr.size() == cc else PackedFloat32Array()
 
 	var depth: int = _f._dim_y
 	var have_prev: bool = _prev_rc.size() == cc and _prev_tk.size() == cc
@@ -92,25 +90,6 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	var d_heat: float = 0.0          # Σ rc₀ΔT
 	var d_cap: float = 0.0           # Σ Δrc·T₁
 	var shell_solid: int = 0         # solid cells on the r == 0 face — the geotherm's own population
-	var ch: Dictionary = {
-		"rock_fill": rock_fill if has_rock else PackedFloat32Array(),
-		"lava": lava if has_lava else PackedFloat32Array(),
-		"fuel": fuel if has_fuel else PackedFloat32Array(),
-		"water": water if has_water else PackedFloat32Array(),
-		"snow": snow if has_snow else PackedFloat32Array(),
-		"biomass": biomass if has_org else PackedFloat32Array(),
-		"detritus": detritus if has_org else PackedFloat32Array(),
-		# Not demand-gated, so the always-hot CPU mirror is the honest source.
-		"sediment": _f._sediment, "susp": _f._susp, "soil": _f._soil, "moisture": _f._moisture,
-		"porosity": _f._porosity,
-		# Demand-gated or mirror-less: probe legs only. `.get(name, empty)` rather than a mirror fallback,
-		# so a leg that did not arrive reads as ABSENT (contributing zero, and reported so in
-		# `energy_stock_live`) instead of as a stale value pretending to be a measurement.
-		"dust": legs.get("dust", PackedFloat32Array()),
-		"fungus": legs.get("fungus", PackedFloat32Array()),
-		"carbonate": legs.get("carbonate", PackedFloat32Array()),
-		"silica": legs.get("silica", PackedFloat32Array()),
-	}
 	var rc_all: PackedFloat64Array = LAHeatCapacity.field(ch, cc)
 	var cap_live: Dictionary = LAHeatCapacity.live_map(ch, cc)
 	# A GAUGE THAT CANNOT SEE ALL ITS LEGS MUST SAY SO, NOT PUBLISH A SMALLER NUMBER.

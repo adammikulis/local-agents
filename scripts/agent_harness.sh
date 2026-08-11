@@ -291,6 +291,16 @@ if [[ "$cmd" == "lint" ]]; then
     # Gate: the cubed-sphere geometry closes, and it publishes how uneven it is. LASphereGrid.validate()
     # existed and NOTHING called it, so its closure, symmetry, reciprocity and tangent-handedness checks had
     # never once run. It also asserts summed cell volumes equal the analytic shell. Exit 2 = could not run.
+    # Gate: a source comment may not carry a measurement or a date. A contract stays true; a measurement is
+    # true for one commit. Ratcheted in docs/COMMENT_CLAIMS_CEILING.
+    set +e
+    "$SCRIPT_DIR/check_comment_claims.sh"
+    rc_cc=$?
+    set -e
+    if [[ $rc_cc -ne 0 ]]; then
+      echo "LINT_FAIL: check_comment_claims.sh ($rc_cc)"
+      exit 1
+    fi
     set +e
     "$SCRIPT_DIR/check_sphere_grid.sh"
     rc_grid=$?
