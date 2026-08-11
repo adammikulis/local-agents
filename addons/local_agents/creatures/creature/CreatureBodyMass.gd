@@ -36,8 +36,8 @@ extends RefCounted
 
 # --- MEASURED PROPERTIES OF ANIMALS (facts; not tuning knobs) ---------------------------------------------
 const RESERVE_FRAC: float = 0.20       # labile reserve (fat + glycogen) as a fraction of live mass, wild mammal
-## `max_hydration` is the LETHAL WATER DEFICIT, not total body water. An animal is dead long before its tissue
-## is dry: losing about 15% of body mass as water is fatal in a mammal, while total body water is ~65% of mass.
+## `max_hydration` is the LETHAL WATER DEFICIT, not total body water: the fraction of live mass a mammal can
+## lose as water before it dies. Total body water is ~0.65 of live mass, so an animal dies long before dry.
 const LETHAL_WATER_DEFICIT_FRAC: float = 0.15
 
 # --- THE UNIT (what one simulation mass unit means; see the header) ----------------------------------------

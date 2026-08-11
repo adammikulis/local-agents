@@ -13,8 +13,8 @@ extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 # proportionality. MODIS MOD17 carries eps_max by biome from 0.68 (grassland) to 1.26 (evergreen
 # needleleaf) g C per MJ of absorbed PAR (Running et al. 2004; Heinsch et al. 2003). 1.0 is the middle.
 const PHOTO_LUE_KG_C_PER_J: float = 1.0e-9        # 1.0 g C / MJ absorbed PAR
-# PAR is the 400-700 nm band, a measured 45 % of incoming shortwave energy (Monteith & Unsworth; the value
-# MOD17 uses). The substrate's LIGHT slot is a fraction of the SOLAR CONSTANT, so this is the factor that
+# PAR is the 400-700 nm band, 0.45 of incoming shortwave energy (Monteith & Unsworth; the value MOD17
+# uses). The substrate's LIGHT slot is a fraction of the SOLAR CONSTANT, so this is the factor that
 # turns it into the part a chloroplast can use.
 const PAR_FRACTION_OF_SHORTWAVE: float = 0.45
 const TRANSPIRATION_MOL_H2O_PER_MOL_C: float = 400.0

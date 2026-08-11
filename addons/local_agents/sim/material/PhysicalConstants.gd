@@ -144,7 +144,7 @@ const PROTEIN_DENATURE_C: float = 45.0
 # material is; the 1 MJ/kg difference is inside the measurement spread for plant matter either way.
 const BIOMASS_HEAT_OF_COMBUSTION_J_PER_KG: float = 1.7e7
 
-# Specific heat of animal tissue — again mostly water, measured ~3500 J/kg/K against water's 4184 (tissue is
+# Specific heat of animal tissue, mostly water; J/kg/K against water's 4184.
 const ANIMAL_SPECIFIC_HEAT_J_KGK: float = 3500.0
 # --- UNIVERSAL CONSTANTS ------------------------------------------------------------------------------------
 const STANDARD_GRAVITY_M_S2: float = 9.80665        # CGPM-defined standard gravity
@@ -206,9 +206,9 @@ const LAB_REFERENCE_TEMP_C: float = 25.0
 # --- LITHIFICATION: A PRESSURE, NOT A DEPTH -----------------------------------------------------------------
 #     P = ROCK_DENSITY_KG_M3 * STANDARD_GRAVITY_M_S2 * GROUNDWATER_CIRCULATION_M
 const LITHIFICATION_PRESSURE_PA: float = 5.688e7
-# Bulk density of unconsolidated wet sediment (sand and mud), measured range 1600-2200 kg/m^3. It is lower
-# than rock because sediment is a grain framework with water in the pores — which is exactly why a sediment
-# pile has to be thicker than a rock pile to reach the same overburden pressure.
+# Bulk density of unconsolidated wet sediment (sand and mud), kg/m^3; range 1600-2200. Lower than rock
+# because sediment is a grain framework with water in the pores, so a sediment pile has to be thicker
+# than a rock pile to reach the same overburden pressure.
 const SEDIMENT_DENSITY_KG_M3: float = 2000.0
 
 # --- PLATE MOTION -------------------------------------------------------------------------------------------
@@ -264,8 +264,8 @@ static func air_units_to_pascals(column_air_units: float, cell_size_model_units:
 const LITTER_C_TO_N: float = 20.0
 const SOIL_ORGANIC_C_TO_N: float = 12.0
 # --- SHORTWAVE IS NOT LONGWAVE, AND THE DIFFERENCE *IS* THE GREENHOUSE --------------------------------------
-# Earth's atmosphere absorbs 78 W/m^2 of the 341 W/m^2 arriving at the top of the atmosphere — 22.9%
-# (Trenberth, Fasullo & Kiehl 2009, "Earth's Global Energy Budget", BAMS 90:311). A Beer-Lambert vertical
+# Beer-Lambert vertical optical depth for shortwave, from the 78 of 341 W/m^2 Earth's atmosphere absorbs
+# at the top of the atmosphere (Trenberth, Fasullo & Kiehl 2009, BAMS 90:311).
 const ATMOS_SW_OPTICAL_DEPTH: float = 0.2597
 
 const AIR_MASS_HORIZON: float = 38.0
@@ -275,7 +275,7 @@ const LATENT_HEAT_VAPORISATION_J_KG: float = 2.257e6
 
 # --- SNOW -----------------------------------------------------------------------------------------------------
 # Settled seasonal snowpack: rho 300 kg/m^3 (fresh fall 50-100, settled 200-400, firn 500+), c 2090 J/kg/K
-# (ice), lambda 0.15 W/m/K (measured range 0.05-0.5 with density; 0.15 is the settled-pack value). The
+# (ice), lambda 0.15 W/m/K (0.05-0.5 with density; 0.15 is the settled-pack value).
 const SNOWPACK_DENSITY_KG_M3: float = 300.0
 const VOL_HEAT_CAP_SNOW_J_M3K: float = WATER_DENSITY_KG_M3 * ICE_SPECIFIC_HEAT_J_KGK
 const VOL_HEAT_CAP_ORGANIC_J_M3K: float = DRY_WOOD_DENSITY_KG_M3 * DRY_WOOD_SPECIFIC_HEAT_J_KGK

@@ -60,7 +60,7 @@ const ASSOC_PERIOD: float = 0.5
 const BOND_GAIN: float = 1.0
 const BOND_DECAY: float = 0.35
 const BOND_MAX: float = 4.0
-## Bond at which I will adopt a companion's band, and the bond below which a band-mate no longer counts as
+## Bond at which I will adopt a companion's band, and the bond below which a band-mate stops counting as
 ## company at all. JOIN above KEEP so the two thresholds cannot chatter against each other.
 const JOIN_BOND: float = 1.5
 const KEEP_BOND: float = 0.5
@@ -84,7 +84,7 @@ static func mint_label() -> int:
 ##
 ## The stagger comes from the band label, NOT from LASimRng, and that is deliberate on both counts. Drawing
 ## here would consume one number from the seeded stream per creature and shift every later draw — vegetation
-## scatter, sex, lifespan jitter — so two runs of the same seed would no longer be the same world.
+## scatter, sex, lifespan jitter — so two runs of the same seed would diverge.
 ##
 ## And the label rather than the instance id, because the label is a plain counter and so is uniform mod
 ## STAGGER_SLOTS by construction. Instance ids advance by however many objects a creature's construction

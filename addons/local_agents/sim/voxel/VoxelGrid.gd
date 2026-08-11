@@ -46,8 +46,8 @@ var cell_count: int = 0
 var neighbours: PackedInt32Array = PackedInt32Array()
 
 
-## The slot a neighbour at slot `d` used to point back here. Axis-aligned, so it is the bit flip and
-## needs no table. The cubed-sphere grid needed a permutation here and got it wrong for four slots.
+## The slot at which the neighbour at slot `d` points back here. Axis-aligned, so it is the bit flip
+## and needs no table.
 static func opposite_slot(d: int) -> int:
 	return d ^ 1
 

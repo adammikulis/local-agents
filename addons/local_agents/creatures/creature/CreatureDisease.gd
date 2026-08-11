@@ -30,7 +30,7 @@ const SHED_PERIOD: float = 0.5            # seconds between shedding passes (tra
 const INFECTIOUS_LOAD: float = 0.12       # min symptomatic load to shed to others
 const MAX_LOAD: float = 1.2
 ## Extra energy a fever burns per degree of `rec["fever"]`, per unit load, per second. A fever is a raised
-## metabolic rate: roughly +10-13% of basal per °C of core-temperature elevation in a mammal. This is the
+## metabolic rate: +0.10 to +0.13 of basal per °C of core-temperature elevation in a mammal. This is the
 ## conversion from a strain's declared fever into the fuel that produces it — the heat that reaches the field
 ## is then exactly the heat that mass released, instead of a number added to the temperature channel for free.
 const FEVER_DRAIN_PER_DEGREE: float = 0.12

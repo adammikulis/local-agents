@@ -173,9 +173,7 @@ static func _kill_and_eat(c, prey: Node3D) -> void:
 			prey.queue_free()
 		return
 	LACreatureDigestion.ingest(c, meat, prey_profile)
-	# THE PREY'S BODY WATER comes with its flesh. A carnivore in the field usually does not need to drink,
-	# because meat is about 70% water — and this leg conserves exactly, since it is transferred out of the
-	# animal that was carrying it rather than credited from nothing.
+	# The prey's body water moves with its flesh: debited from the prey, never credited from nothing.
 	_transfer_prey_water(c, prey, meat)
 	LAAudioDirector.emit(c.get_tree(), "chomp", c.global_position)
 	c._emit_call("forage")                     # a kill call: kin nearby learn to hunt this situation

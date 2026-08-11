@@ -6,7 +6,7 @@ extends RefCounted
 ## It draws its own four-step overall preset row (Low / Medium / High / Ultra) plus the individual CPU knobs
 ## those presets map to: creature population budget, AI/cognition tick rate, LLM call cadence and field
 ## update cadence. Picking a preset sets every knob; nudging any individual knob re-derives the preset
-## (falling to "Custom" when the knobs no longer match). Every control carries a tooltip naming what it
+## (falling to "Custom" when the knobs do not match). Every control carries a tooltip naming what it
 ## affects and that the cost is on the CPU. Numeric knobs show a live value readout.
 ##
 ## It edits an LAGameSettings in place and calls `on_changed` after every edit. Built from LASettingsWidgets

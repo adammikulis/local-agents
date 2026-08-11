@@ -2,7 +2,7 @@ class_name LADNA
 extends RefCounted
 
 ## A creature's heritable makeup as a LITERAL DNA SEQUENCE: a strand of 2-bit symbols (four bases,
-## A/C/G/T ≡ 0..3), read four-to-a-codon (one byte, 0..255), against a FIXED locus table that assigns each
+## A/C/G/T ≡ 0..3), grouped four-to-a-codon (one byte, 0..255), against a FIXED locus table that assigns each
 ## gene a span of codons. A gene's numeric value is DECODED from its codons (combined big-endian, normalised
 ## to the gene's [min, max]); an offspring is a genuine RECOMBINATION + point-mutation of two parent strands,
 ## so drift, blending and (through non-coding SPACER regions between genes) pleiotropy and frameshift room

@@ -16,7 +16,7 @@ extends Resource
 ##                         field update cadence;
 ##   - audio             → master / music / sfx linear volumes (0..1).
 ## Changing any individual graphics or simulation knob flips that category's preset to CUSTOM (the preset
-## enums carry a trailing CUSTOM member the UI shows when the knobs no longer match a named preset).
+## enums carry a trailing CUSTOM member the UI shows when the knobs do not match a named preset).
 ##
 ## Persistence is a human-editable ConfigFile at `user://game_settings.cfg` (load_or_default / save).
 ##

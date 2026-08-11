@@ -91,8 +91,8 @@ func _is_awaitable_result(result: Variant) -> bool:
 		return false
 	if not (result is Object):
 		return false
-	# Godot 4.6 no longer resolves GDScriptFunctionState as a type literal in scripts.
-	# Detect by runtime class name to keep async run_test support without parse-time coupling.
+	# GDScriptFunctionState is not usable as a type literal here, so async run_test support is
+	# detected by runtime class name instead.
 	return String((result as Object).get_class()) == "GDScriptFunctionState"
 
 func _arm_timeout_watchdog() -> void:
