@@ -66,6 +66,7 @@ func mantle_report() -> Dictionary:
 
 func setup(field) -> void:
 	_f = field
+	queue.setup(field._sphere)               # cell volumes — every cross-cell transfer is sized in mass, not fraction
 	LASimReport.register(mantle_report)
 	# Terrain-destruction telemetry as a registered provider (the LASimReport.register plugin seam), so the
 	# crater proof is polled at snapshot time — when `_rock_fill` holds the freshest readback — instead of

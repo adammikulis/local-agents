@@ -5,9 +5,6 @@ extends RefCounted
 const GROW_THRESHOLD: float = 0.55       # hysteresis high: void->solid only once rock_fill rises past this
 const SHRINK_THRESHOLD: float = 0.45     # hysteresis low: solid->void only once rock_fill falls below this
 const SCAN_EVERY: int = 4                # throttle: at most one crossing scan per this many active frames
-# Keep the active window SHORT: a CPU edit's crossing round-trips through the GPU in a few frames, and a
-# still-cooling lava flow re-arms the window every time a crossing is actually found (see _scan). A long
-# blind window would burn ~O(cell_count) futile scans and dent fps; this catches the edit, then sleeps.
 const ACTIVE_WINDOW: int = 32            # frames to keep scanning after the last edit / found crossing
 const STAMP_BUDGET: int = 96             # max SDF edits emitted per scan (bounds the per-frame remesh burst)
 
@@ -144,9 +141,8 @@ func _open_neighbour(c: int, solid: PackedByteArray) -> int:
 	return -1
 
 
-## TEST HOOK (--stamp-test proof): force a void cell's rock_fill fractional-solid so the next scan fires a
-## GROW stamp — the deterministic proof that a rock_fill 0.5-crossing physically grows terrain. Queued as a
-## sparse top-up to `amount` (the ceiling makes it a raise-to, matching the old max()). Not used in normal play.
+## TEST HOOK (--stamp-test): raise a void cell's rock_fill to `amount` so the next scan fires a GROW stamp.
+## The gain is a sourceless add and is booked as mineral_minted. Not used in normal play.
 func debug_deposit(world_pos: Vector3, amount: float) -> void:
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0 or c >= _f._cell_count or _f._rock_fill.size() != _f._cell_count:
