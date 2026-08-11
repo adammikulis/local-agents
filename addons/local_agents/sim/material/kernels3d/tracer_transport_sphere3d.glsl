@@ -17,6 +17,9 @@ layout(set = 0, binding = 5, std430) restrict readonly buffer VelY { float vel_y
 layout(set = 0, binding = 6, std430) restrict readonly buffer VelZ { float vel_z[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh   { int nbr[]; };      // idx*6 + slot
 layout(set = 0, binding = 16, std430) restrict readonly buffer LinkTan { float ltan[]; };   // per-column dirs
+layout(set = 0, binding = 17, std430) restrict readonly buffer SolidAngle { float solid_angle[]; };  // per column, sr
+
+#include "cell_geom.glsli"
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -27,6 +30,8 @@ layout(push_constant, std430) uniform Params {
 	uint deposit;         // 1 = settled material becomes `deposit_ch`; 0 = the tracer is held in place
 	uint offset;          // index base: channel-packed tracers (scent) pass ch*cell_count, others 0
 	float decay;          // per-step fractional loss, 0 for a conserved tracer
+	float core_radius;    // shell floor, model units
+	float cell_size;      // radial thickness of one layer, model units
 } params;
 
 // Wind speed at which settling is fully suppressed, m/s.
@@ -92,6 +97,12 @@ float out_scale(uint c) {
 	return (t > OUT_MAX && t > 0.0) ? (OUT_MAX / t) : 1.0;
 }
 
+// A share is a fraction of the SENDER's own cell. The receiver is a different size, so the value it gains is
+// the sent share times vol(sender)/vol(receiver).
+float xfer(uint src, uint dst) {
+	return cg_transfer(src, dst, params.depth, params.core_radius, params.cell_size);
+}
+
 void main() {
 	uint g = gl_GlobalInvocationID.x;
 	if (g >= params.cell_count) {
@@ -129,7 +140,8 @@ void main() {
 			continue;
 		}
 		raw += share(toward_link(g, l));
-		gain += tracer_in[params.offset + uint(m)] * share(toward_link(uint(m), l ^ 1)) * out_scale(uint(m));
+		gain += tracer_in[params.offset + uint(m)] * share(toward_link(uint(m), l ^ 1)) * out_scale(uint(m))
+			* xfer(uint(m), g);
 	}
 	if (open_u) { raw += share(vel_y[g]) + rise_frac(g); }
 	if (open_d) { raw += params.diffuse; }   // the settling half of the downward face is fall_frac, below
@@ -137,8 +149,8 @@ void main() {
 
 	// Vertical inflow: the cell below blowing UP into us (advection + mixing), and the cell above sending its
 	// whole downward flux — its settling plus the mixing share.
-	if (open_d) { gain += tracer_in[params.offset + uint(nb_d)] * (share(vel_y[nb_d]) + rise_frac(uint(nb_d))) * out_scale(uint(nb_d)); }
-	if (open_u) { gain += tracer_in[params.offset + uint(nb_u)] * (fall_frac(uint(nb_u)) + params.diffuse) * out_scale(uint(nb_u)); }
+	if (open_d) { gain += tracer_in[params.offset + uint(nb_d)] * (share(vel_y[nb_d]) + rise_frac(uint(nb_d))) * out_scale(uint(nb_d)) * xfer(uint(nb_d), g); }
+	if (open_u) { gain += tracer_in[params.offset + uint(nb_u)] * (fall_frac(uint(nb_u)) + params.diffuse) * out_scale(uint(nb_u)) * xfer(uint(nb_u), g); }
 
 	float value = ti * (1.0 - raw * scale_g) + gain;
 

@@ -25,6 +25,9 @@ layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float soli
 layout(set = 0, binding = 5, std430) restrict buffer Temp { float temp[]; };            // in place
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };    // idx*6 + slot
 layout(set = 0, binding = 16, std430) restrict readonly buffer LinkArc { float larc[]; };  // column*4 + slot
+layout(set = 0, binding = 17, std430) restrict readonly buffer SolidAngle { float solid_angle[]; };  // per column, sr
+
+#include "cell_geom.glsli"
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -153,8 +156,11 @@ void main() {
 		uint rev = (d == 0u) ? 5u : ((d == 5u) ? 0u : (d ^ 1u));
 		float f = send[uint(m) * 6u + rev];
 		if (f > 0.0) {
-			inflow += f;
-			inflow_heat += f * temp[m];
+			// The sender debited `f` of ITS OWN volume; this cell is a different size, so the credit is
+			// f * vol(sender)/vol(me). Heat rides the corrected amount, not the raw one.
+			float got = f * cg_transfer(uint(m), gidx, params.depth, params.core_radius, params.cell_size);
+			inflow += got;
+			inflow_heat += got * temp[m];
 		}
 	}
 
