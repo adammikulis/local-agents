@@ -1,3 +1,3 @@
-# Source comments may not carry a measurement or a date: true for one commit, then a corpse.
-# This may fall and may not rise. Lower it when you delete some.
-193
+# Source comments carry contracts. Measurements, dates and history are true for one commit.
+# May fall, may not rise.
+119

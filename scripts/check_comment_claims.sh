@@ -2,7 +2,7 @@
 # =====================================================================================================
 # COMMENT-CLAIM GATE — a source comment may not carry a measurement or a date.
 #
-# A comment stating a CONTRACT stays true. A comment stating a MEASUREMENT is true for one commit, and this
+# A comment stating a CONTRACT stays true. A comment stating a MEASUREMENT or a HISTORY is true for one commit, and this
 # repo is full of the corpses: "the sweep is 0.36 s" (it is 1.0), "-26.7% carbon" (the sign was wrong),
 # "matches atmos_evap_sphere3d.glsl" (deleted file). CLAUDE.md has banned this in prose since 2026-08-10 and
 # it kept happening, including by the agent that re-read the ban the same hour.
@@ -33,6 +33,14 @@ PCT   = re.compile(r"\d+(?:\.\d+)?\s?%")
 DATE  = re.compile(r"\b20\d\d-\d\d-\d\d\b")
 MEAS  = re.compile(r"\b(measured|read|reads|was|were|took|costs?)\b[^.\n]{0,40}?\b\d+(?:\.\d+)?(?:e[-+]?\d+)?\b",
                    re.I)
+# HISTORY WITH NO NUMBER IN IT ROTS IDENTICALLY, and the first version of this gate could not see it. A
+# verifier found 13 such sentences left standing in files the sweep had just edited — including one whose
+# same claim had been rewritten into a contract two hundred lines away.
+# "no longer" and "obsolete" are NOT here: both routinely describe present behaviour ("ext_resource no
+# longer resolves" is a live condition), and 38 arguable hits would get this gate bypassed. Only phrases
+# that can only be history.
+HIST  = re.compile(r"\b(used to|previously|formerly|was replaced|replaced by|"
+                   r"the old (code|kernel|version|comment|value|way)|before the refactor)\b", re.I)
 
 def comment_of(line, ext):
     if ext == ".gd":
@@ -59,7 +67,7 @@ for dp, dns, fns in os.walk(os.path.join(root, "addons", "local_agents")):
             if not c:
                 continue
             why = "percentage" if PCT.search(c) else "date" if DATE.search(c) else \
-                  "measurement" if MEAS.search(c) else None
+                  "measurement" if MEAS.search(c) else "history" if HIST.search(c) else None
             if why:
                 hits.append((rel, n, why, c.strip()[:88]))
 
