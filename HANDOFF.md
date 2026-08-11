@@ -35,24 +35,74 @@ correctness fix with a behavioural rewrite makes both unmeasurable.
 
 `sorting.py` at repo root is the maintainer's, untracked — leave it.
 
-### State (2026-08-10) — `0.4-dev` at `a1919d0`
+### State (2026-08-11) — `feature/live-breakages`
 
 **READ `CLAUDE.md`'s FIRST TWO RULES BEFORE TOUCHING ANYTHING.** They are new, they are at the very top, and
 they were written because an agent spent a session violating both: **delete what is wrong, never preserve it
 behind a flag**, and **any departure from real physics needs the maintainer's explicit permission, asked
 first**. The second is gate-backed by `scripts/check_model_parameters.sh` where it can be.
 
-**THREE THINGS ARE BROKEN RIGHT NOW AND THEY ARE THE TOP OF THE QUEUE:**
-1. **`--bare` CHANGES THE PHYSICS.** Same seed, same frames: `o2_total` 37125.09 with the presentation layer,
-   **36641.69 without** — 1.3% apart, while h2o and carbon match to the digit. Something in the skipped set
-   (HUD, audio, ocean plane, water particles/surface, vegetation renderer, biome + sea-ice shader
-   controllers, drainage overlay, thought panel) is feeding the field. **Until that is found, `--bare` is for
-   "does it boot" only and NO conservation number may be quoted from it.** Introduced by `a1919d0`.
-2. **`moisture` IS DEAD.** `MaterialField3D` fills it with zeros and its own comment says the channel was
-   never in `MaterialSphereGPU3D`'s GPU seed list. `moisture_total` and `cloud_cells` read 0 in every run, so
-   the entire water-vapour half of the water cycle is not running.
-3. **`dust_total` reads 0** on short runs since the tracer collapse. Unconfirmed whether that is real
-   (settling velocity is now Stokes-derived at 0.314 m/s, which may simply drain the sky) or a wiring break.
+**THE PLANET CREATES ROCK AND THE CONSERVATION GATE FIRES ON THE STANDARD ARM. THIS IS THE TOP OF THE
+QUEUE AND IT OUTRANKS EVERYTHING BELOW.** Measured 2026-08-11 at `54f6e58` — the UNMODIFIED tip, no branch
+changes — with the exact documented command (seed 4242, `--planet-only --no-fauna --run-frames=600
+--fast=8`):
+
+```
+CONSERVATION_VIOLATION={"allowed":0.00002,"at_steps":600,"first":31978.0,"now":55553.12,
+                        "rel_drift":0.737229,"seal_step":9,"substance":"mineral_total"}
+```
+
+**`mineral_total` grows +73.7% over the audit window.** It is not noise and not a horizon effect — the same
+arm reads **+81.3% at 400 frames** and **+144.7% end-to-end at 600**. `rock_fill` is a 0..1 fraction per
+cell, and `rock_fill_total` 49375 against `rock_cells` 34312 says it is above 1.0 in many cells, i.e.
+unbounded. `h2o` is doing the same thing: **+20.6% at 400 frames, +80.8% at 600.**
+
+**SO THE DEBT TABLE BELOW IS FALSE AND MUST NOT BE USED.** *(Struck 2026-08-11 rather than deleted, because
+it is the thing that would otherwise be re-derived.)* It claimed `mineral_total` **-0.0064%** against a
+0.010% allowance and called mineral "two to three orders of magnitude tighter than everything else"; the
+measured value is positive and four orders of magnitude larger, and the gate it is supposed to describe
+FIRES. `o2_total` is quoted at -24.71% and measures **+3.0%** — opposite sign. Only `element_C_total` is
+close (-28.27% quoted, -31.1% measured). **Nothing in that table has been reproduced except carbon.**
+What would decide it: whether the table was ever measured at the commit it is attributed to, or whether
+something between it and `54f6e58` started creating rock. `rock_grows` 4037 vs `rock_shrinks` 1763 over
+400 frames is where to start looking, along with impact/eruption mass (`crater_mass`) and `SolidDerivePass`.
+
+**THE THREE "LIVE BREAKAGES" LISTED HERE BEFORE WERE TWO-THIRDS FALSE.** *(Corrected 2026-08-11 by
+measurement.)*
+1. **`--bare` changed the physics — REAL, and now structurally impossible.** The cause was not "something in
+   the skipped set is feeding the field": the skipped set consumed a shared disaster RNG and, far more
+   importantly, **the world seal depended on renderer-driven channel residency** (see below). `--bare` is
+   deleted; see the layer split.
+2. **~~`moisture` IS DEAD~~ — FALSE.** It reads `moisture_total` 2.7–20.3 and `cloud_cells` 9344–9840 in
+   every arm measured. The claim rested on a comment in `MaterialField3D._alloc_channels()` saying the
+   channel "was never in the GPU seed list", which is true and irrelevant — the CPU mirror starts at zero
+   because moisture starts at zero, and `MaterialSphereGPU3D` reads it back every frame (`:381`).
+3. **~~`dust_total` reads 0~~ — FALSE.** It reads 2106–2300 in every arm measured.
+
+**THE WORLD SEAL USED TO DEPEND ON WHERE THE CAMERA WAS POINTED.** `LAMaterialFieldSeal3D.poll()` was called
+only from `MaterialFieldReport3D.report()`, which runs on the 64-frame gauge cadence, and a demand-gated
+channel counted as "live" only if some RENDERER had already made its mirror resident. Measured: the seal
+landed at `field_step` 9 with the render layer up and **265 without it**, which latched every conservation
+baseline near the end of the run and made all four drift gauges read a trivial **0.000%** — a gate that
+always passes. `poll()` now runs on the field step, right after the readback; both arms seal at step 2.
+**This is why the debt table's numbers cannot be compared across arms taken before 2026-08-11.**
+
+**THE SIM, THE CAMERA AND THE UI ARE THREE SCENES NOW, AND `--bare` IS GONE.**
+| scene | flag | contents |
+|---|---|---|
+| `game/Simulation.tscn` | always | planet, field, star, ecology, geology, telemetry, persistence |
+| `game/RenderLayer.tscn` | `--render` | `Camera3D` + the spatial nodes that draw the world |
+| `game/UiLayer.tscn` | `--ui` | `Control`/`CanvasLayer` menus and panels + their input; implies `--render` |
+
+A camera is not UI. Two nodes were doing both jobs and both were load-bearing physics: `LAVoxelTimeControl`
+is a `CanvasLayer` that owned `Engine.time_scale` (split — `LASimTimeAuthority` is a plain Node and owns the
+clock), and the sun the field integrates was a light owned by the sky VISUAL cycle (the `LAStar` light
+carries direction + the `insolation` meta now, and re-aims as it orbits — `setup()` aimed it once from its
+original position). **Use `--render` when you need to SEE a run; do not reach for `--ui`.**
+
+**GATE: `SIM_REPORT` publishes `ui_nodes`** (every `Control`/`CanvasLayer` in the tree) and `sim_run.sh`
+exits **5** when a run without `--ui` has any. Reads 0. A grep could not have caught the two that were built
+inside `VoxelInputController.parse_cmdline()`/`bind()`.
 
 **TODAY'S WORK, all merged and pushed.** Kernels **32 → 25**. Comment prose **11,364 → 2,516 lines
 (42% → 14%)**. Net about −10,000 lines.
@@ -132,7 +182,13 @@ statement to the contrary — including the plan CLAUDE.md records, to fix a sho
 reading a number that is not a quantity. `h2o_total` and `mineral_total` are legitimate raw sums; anything
 spanning substances must go through `mol_per_unit`.
 
-### Conservation — the gate's own debt table IS the work queue
+### Conservation — ~~the gate's own debt table IS the work queue~~ THE TABLE IS FALSE, SEE THE STATE SECTION
+
+> **DO NOT PLAN AGAINST THE NUMBERS BELOW.** Re-measured 2026-08-11 on the UNMODIFIED tip `54f6e58` with the
+> exact command this section names: `mineral_total` is **+73.7%** and trips `CONSERVATION_VIOLATION`, not
+> -0.0064%; `o2_total` is **+3.0%**, not -24.71%, which is the opposite sign. Only `element_C_total` is
+> close. The table is kept, struck, because deleting it would let the next reader re-derive it.
+
 
 `LAMaterialFieldConservation3D.DEBT` is the single source; do not keep a second copy of these numbers
 anywhere. Audited at 600 steps past the seal, seed 4242, `--sandbox --planet-only --no-fauna
@@ -141,7 +197,7 @@ anywhere. Audited at 600 steps past the seal, seed 4242, `--sandbox --planet-onl
 
 | substance | was, `7353b1d` | now | allowance | headroom |
 |---|---|---|---|---|
-| `mineral_total` | -0.027% | **-0.0064%** | 0.010% | 0.004pp |
+| `mineral_total` | -0.027% | **+73.7% — GATE FIRES** | 0.010% | NONE |
 | `nitrogen_all` | -2.14% | **-0.62%** | 0.75% | 0.13pp |
 | `oxidant_total` | -56.20% | **-10.76%** | 12% | 1.24pp |
 | `o2_total` | -90.34% | **-24.71%** | 29% | 4.29pp |
@@ -577,10 +633,17 @@ batch is gone, because git holds it and nobody was going to re-derive them.)*
 Each stage has its own verification. Do not merge stages.
 
 **DO THESE FIRST, in this order.**
-1. **FIX THE THREE LIVE BREAKAGES** listed in the State section: `--bare` changing `o2_total` by 1.3%, the
-   dead `moisture` channel, and `dust_total` reading 0. The first two are the ones that matter — a dead
-   moisture channel means the water cycle's vapour half has not been running, so every cloud, rain and
-   evaporation claim in this file predates evidence.
+1. **FIND OUT WHY THE PLANET CREATES ROCK.** `mineral_total` grows **+73.7%** over the audit window on the
+   unmodified tip and trips the conservation gate; `h2o` grows +80.8% over the same run. `rock_fill` exceeds
+   its own 0..1 range (`rock_fill_total` 49375 vs `rock_cells` 34312). Everything else in this file is
+   planning against books that do not close, and the debt table that said mineral was the TIGHTEST substance
+   is false. **What would decide it:** per-pass matter attribution for rock — the mineral probe already
+   names a pass (`LA_MINERAL_PROFILE=1`, `MaterialFieldMineralProbe3D`), so point it at a 400-frame run and
+   read which leg grows. Suspects, in order: `SolidDerivePass` / the `rock_fill` <-> `solid` round trip
+   (`rock_grows` 4037 vs `rock_shrinks` 1763 in 400 frames), impact/eruption emplacement (`crater_mass`),
+   and lithification.
+   *(The three "live breakages" that used to head this list are resolved or were false — see the State
+   section. `moisture` and `dust_total` were never zero; `--bare` is deleted.)*
 2. **FINISH THE KERNEL COLLAPSE. 25 left; the floor is about 18.** Remaining families, each one operator
    with per-row data: `magma_buoy` + `erosion_transport` (the rest of the gravity movers, though both have
    genuinely different laws — check before flattening) · `atmos_rain` + `atmos_precip` (`atmos_rain` is now

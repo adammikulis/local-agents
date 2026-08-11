@@ -208,10 +208,19 @@ func report(step_index: int) -> Dictionary:
 	if steps > 0 or _prev_step < 0:
 		_prev_total = total
 		_prev_step = step_index
-	# RUN-LONG DRIFT — the headline conservation figure, and its source-corrected twin. The baseline is latched
-	# only after the demand-gated mirrors have arrived (see BASELINE_SKIP_SAMPLES).
+	# RUN-LONG DRIFT — the headline conservation figure, and its source-corrected twin.
+	#
+	# THE BASELINE LATCHES ONLY WHEN EVERY LEG OF THE TOTAL IS GENUINELY PRESENT. The condition used to be
+	# `_sealed()` alone, while the comment here claimed the mirrors had arrived — and they had not: a
+	# demand-gated leg falls back to its CPU mirror, an absent mirror reads as a flat zero, so the baseline
+	# latched low and the channel arriving later read as rock being CREATED. Measured after the seal moved onto
+	# the field step: mineral_first 32084 against 34095 at the same horizon, +6.3% of "growth" that was the
+	# gauge, not the planet. `mineral_first_live` publishes the decision so a zero baseline is visible rather
+	# than silent.
 	_samples += 1
-	if _first_step < 0 and _sealed():
+	var legs_live: bool = has_rock and has_lava and has_sed and has_susp and has_dust and has_carb and has_silica
+	out["mineral_first_live"] = legs_live
+	if _first_step < 0 and _sealed() and legs_live:
 		_first_total = total
 		_note_seed("mineral", total)
 		_first_src = src
