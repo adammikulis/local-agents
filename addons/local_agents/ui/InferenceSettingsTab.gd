@@ -1,15 +1,15 @@
 extends VBoxContainer
-class_name LocalAgentsInferenceSettingsTab
+class_name LAInferenceSettingsTab
 
 # "Inference settings" tab of the model manager.
 #
-# Surfaces a generous set of the fields on the reused LocalAgentsInferenceParams resource plus the
+# Surfaces a generous set of the fields on the reused LocalAgentInferenceParams resource plus the
 # model-load knobs (context length, threads, GPU layers) and a system prompt. Also lets the player
 # pick which model drives each sim role (streamer / creature cognition / embedding), or leave a role
 # on the single active model. Everything writes straight into the shared store and persists on Save.
 
-var _store: LocalAgentsModelSettingsStore = null
-var _inventory: LocalAgentsModelInventory = null
+var _store: LocalAgentModelSettingsStore = null
+var _inventory: LocalAgentModelInventory = null
 
 var _n_ctx: SpinBox = null
 var _temperature: SpinBox = null
@@ -24,7 +24,7 @@ var _system_prompt: TextEdit = null
 var _role_options: Dictionary = {}   # role -> OptionButton
 var _status: Label = null
 
-func setup(store: LocalAgentsModelSettingsStore, inventory: LocalAgentsModelInventory) -> void:
+func setup(store: LocalAgentModelSettingsStore, inventory: LocalAgentModelInventory) -> void:
 	_store = store
 	_inventory = inventory
 	_build()
@@ -79,9 +79,9 @@ func _build() -> void:
 	role_grid.add_theme_constant_override("h_separation", 16)
 	role_grid.add_theme_constant_override("v_separation", 6)
 	body.add_child(role_grid)
-	for role: String in LocalAgentsModelSettingsStore.ROLES:
+	for role: String in LocalAgentModelSettingsStore.ROLES:
 		var label: Label = Label.new()
-		label.text = String(LocalAgentsModelSettingsStore.ROLE_LABELS.get(role, role))
+		label.text = String(LocalAgentModelSettingsStore.ROLE_LABELS.get(role, role))
 		role_grid.add_child(label)
 		var option: OptionButton = OptionButton.new()
 		option.size_flags_horizontal = Control.SIZE_EXPAND_FILL

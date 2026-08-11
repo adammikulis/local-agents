@@ -1,0 +1,40 @@
+[gd_scene load_steps=4 format=3 uid="uid://bsimworldplanet1"]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/SimWorldPlanetDemo.gd" id="1_sw"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/SimWorld.gd" id="2_simworld"]
+[ext_resource type="Script" path="res://addons/local_agents/runtime/DemoHarness.gd" id="3_harness"]
+
+[node name="SimWorldPlanetDemo" type="Node3D"]
+script = ExtResource("1_sw")
+
+[node name="SimWorld" type="Node3D" parent="."]
+unique_name_in_owner = true
+script = ExtResource("2_simworld")
+world_type = 0
+build_on_ready = true
+radius = 180.0
+ocean_bias = 3.0
+caves_enabled = true
+grid_res = 16
+grid_depth = 20
+sun_enabled = true
+auto_spawn = true
+initial_counts = Dictionary[String, int]({
+"bird": 10,
+"fox": 3,
+"plant": 40,
+"rabbit": 14
+})
+forest_clusters = 6
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 468)
+far = 4000.0
+current = true
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.8775826, 0, -0.4794255, -0.270704, 0.8253356, -0.4955204, 0.395687, 0.5646425, 0.7243001, 0, 0, 0)
+
+[node name="DemoHarness" type="Node" parent="."]
+script = ExtResource("3_harness")
+report_prefix = "SIM_WORLD"

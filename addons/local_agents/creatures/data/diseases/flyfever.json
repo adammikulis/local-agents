@@ -1,0 +1,6 @@
+{
+  "name": "Fly Fever", "vector": "pest",
+  "transmissibility": 0.45, "range": 3.0, "incubation": 4.0,
+  "virulence": 0.06, "lethality": 0.025, "drain": 0.5, "slow": 0.35, "fever": 2.5,
+  "resolve": 0.035, "immunity_gain": 0.7, "hosts": []
+}

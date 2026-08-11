@@ -1,0 +1,6 @@
+{
+  "name": "Black Pox", "vector": "contact",
+  "transmissibility": 0.3, "range": 3.5, "incubation": 10.0,
+  "virulence": 0.04, "lethality": 0.06, "drain": 0.6, "slow": 0.5, "fever": 3.0,
+  "resolve": 0.02, "immunity_gain": 0.95, "hosts": ["mammals", "people"]
+}

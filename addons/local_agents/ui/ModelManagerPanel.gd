@@ -1,5 +1,5 @@
 extends Control
-class_name LocalAgentsModelManagerPanel
+class_name LAModelManagerPanel
 
 # In-game model manager: one panel, four tabs.
 #
@@ -8,15 +8,15 @@ class_name LocalAgentsModelManagerPanel
 #   Add your own        - browse to a .gguf, pull by HF repo id, or add scan locations.
 #   Inference settings  - context length / sampling / GPU layers / system prompt / per-role models.
 #
-# Everything reuses existing pieces: LocalAgentsModelDownloadManager + catalog for downloads,
-# LocalAgentsModelInventory for detection, LocalAgentsModelSettingsStore (backed by
-# LocalAgentsInferenceParams) for persisted config. No sim/field files are touched.
+# Everything reuses existing pieces: LAModelDownloadManager + catalog for downloads,
+# LocalAgentModelInventory for detection, LocalAgentModelSettingsStore (backed by
+# LocalAgentInferenceParams) for persisted config. No sim/field files are touched.
 #
 # Public API:
 #   open()                  -> show + refresh every tab
 #   close()                 -> hide
-#   settings_store()        -> LocalAgentsModelSettingsStore (live)
-#   inventory()             -> LocalAgentsModelInventory
+#   settings_store()        -> LocalAgentModelSettingsStore (live)
+#   inventory()             -> LocalAgentModelInventory
 #   active_model_path()     -> String  (the player's chosen model, or "")
 #   inference_options()     -> Dictionary  (ready for LlamaServerManager.ensure_running)
 #   model_for_role(role)    -> String
@@ -34,14 +34,14 @@ const InferenceTab: GDScript = preload("res://addons/local_agents/ui/InferenceSe
 
 signal active_model_changed(path: String)
 
-var _store: LocalAgentsModelSettingsStore = null
-var _inventory: LocalAgentsModelInventory = null
+var _store: LocalAgentModelSettingsStore = null
+var _inventory: LocalAgentModelInventory = null
 
 var _tabs: TabContainer = null
 var _active_label: Label = null
-var _detected_tab: LocalAgentsDetectedModelsTab = null
-var _add_tab: LocalAgentsAddYourOwnTab = null
-var _inference_tab: LocalAgentsInferenceSettingsTab = null
+var _detected_tab: LADetectedModelsTab = null
+var _add_tab: LAAddYourOwnTab = null
+var _inference_tab: LAInferenceSettingsTab = null
 
 # Self-harness state.
 var _shoot_path: String = ""
@@ -56,9 +56,9 @@ func _ready() -> void:
 	if is_scene_root:
 		_parse_cmdline()
 
-	_store = LocalAgentsModelSettingsStore.new()
+	_store = LocalAgentModelSettingsStore.new()
 	_store.load()
-	_inventory = LocalAgentsModelInventory.new()
+	_inventory = LocalAgentModelInventory.new()
 
 	if is_scene_root and _fake_hf_cache != "":
 		_store.hf_cache_override = _fake_hf_cache
@@ -142,10 +142,10 @@ func open() -> void:
 func close() -> void:
 	visible = false
 
-func settings_store() -> LocalAgentsModelSettingsStore:
+func settings_store() -> LocalAgentModelSettingsStore:
 	return _store
 
-func inventory() -> LocalAgentsModelInventory:
+func inventory() -> LocalAgentModelInventory:
 	return _inventory
 
 func active_model_path() -> String:
@@ -192,8 +192,8 @@ var _demo_register: String = ""
 func _run_selftest_if_requested() -> bool:
 	for arg: String in OS.get_cmdline_user_args():
 		if arg == "--model-manager-selftest":
-			var store_report: Dictionary = LocalAgentsModelSettingsStore.run_selftest()
-			var inv_report: Dictionary = LocalAgentsModelInventory.run_selftest()
+			var store_report: Dictionary = LocalAgentModelSettingsStore.run_selftest()
+			var inv_report: Dictionary = LocalAgentModelInventory.run_selftest()
 			var report: Dictionary = {
 				"ok": bool(store_report.get("ok", false)) and bool(inv_report.get("ok", false)),
 				"settings": store_report,

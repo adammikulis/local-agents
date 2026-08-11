@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="520" viewBox="0 0 660 520" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+<rect width="660" height="520" rx="8" fill="#21232b"/>
+<text x="14" y="28" font-size="12.5" fill="#d6dae3" font-weight="bold">Local Agents — nodes added to the Create Node dialog</text>
+<text x="14" y="58" font-size="11" fill="#7f8797" letter-spacing="1">AGENTS</text>
+<g transform="translate(24,78) scale(1.05)" stroke="#e0e0e0" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11v7h-6l-3.5 3v-3h-1.5z"/><circle cx="6" cy="7" r=".9" fill="#e0e0e0" stroke="none"/><circle cx="10" cy="7" r=".9" fill="#e0e0e0" stroke="none"/></g>
+<text x="50" y="90" font-size="12" fill="#e6e9f0">LocalAgent</text>
+<text x="252" y="90" font-size="11" fill="#8d94a4">: Node</text>
+<text x="386" y="90" font-size="11" fill="#767d8c">loads a .gguf and answers / acts</text>
+<g transform="translate(24,104) scale(1.05)" stroke="#fc7f7f" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.8 14 5v6l-6 3.2L2 11V5z"/><path d="M2 5l6 3 6-3M8 8v6.2"/></g>
+<text x="50" y="116" font-size="12" fill="#e6e9f0">LocalAgent3D</text>
+<text x="252" y="116" font-size="11" fill="#8d94a4">: CharacterBody3D</text>
+<text x="386" y="116" font-size="11" fill="#767d8c">an agent with a body and a speech bubble</text>
+<g transform="translate(24,130) scale(1.05)" stroke="#8eef97" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.6"/><path d="M4.4 6.2h7.2M4.4 8.6h5.2M4.4 11h3.2"/></g>
+<text x="50" y="142" font-size="12" fill="#e6e9f0">LocalAgentChatPanel</text>
+<text x="252" y="142" font-size="11" fill="#8d94a4">: PanelContainer</text>
+<text x="386" y="142" font-size="11" fill="#767d8c">drop-in chat window (instance the .tscn)</text>
+<g transform="translate(24,156) scale(1.05)" stroke="#e0e0e0" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.8 3.2h8.4v5H5.6l-2.6 2.2V8.2H1.8z"/><path d="M14.2 6.6v5h-1.2v2.2l-2.6-2.2H6.4v-2"/></g>
+<text x="50" y="168" font-size="12" fill="#e6e9f0">LocalAgentConversation</text>
+<text x="252" y="168" font-size="11" fill="#8d94a4">: Node</text>
+<text x="386" y="168" font-size="11" fill="#767d8c">several agents taking turns</text>
+<g transform="translate(24,182) scale(1.05)" stroke="#8eef97" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.6"/><path d="M5.6 8.2 7.3 9.9l3.2-3.6"/></g>
+<text x="50" y="194" font-size="12" fill="#e6e9f0">LocalAgentStatusLabel</text>
+<text x="252" y="194" font-size="11" fill="#8d94a4">: Label</text>
+<text x="386" y="194" font-size="11" fill="#767d8c">is it working, and what to fix</text>
+<g transform="translate(24,208) scale(1.05)" stroke="#e0e0e0" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.1"/><circle cx="3" cy="4" r="1.3"/><circle cx="13" cy="4" r="1.3"/><circle cx="3" cy="12" r="1.3"/><circle cx="13" cy="12" r="1.3"/><path d="M6.3 6.7 4.1 5.1M9.7 6.7l2.2-1.6M6.3 9.3l-2.2 1.6M9.7 9.3l2.2 1.6"/></g>
+<text x="50" y="220" font-size="12" fill="#e6e9f0">LocalAgentLlmService</text>
+<text x="252" y="220" font-size="11" fill="#8d94a4">: Node</text>
+<text x="386" y="220" font-size="11" fill="#767d8c">one shared model for the whole scene</text>
+<text x="14" y="248" font-size="11" fill="#7f8797" letter-spacing="1">CREATURES</text>
+<g transform="translate(24,268) scale(1.05)" stroke="#fc7f7f" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.2 10.4a3.1 3.1 0 0 1 3.1-3.1h2.6a3.1 3.1 0 0 1 3.1 3.1v.9H3.2z"/><circle cx="11.4" cy="4.6" r="2.3"/><path d="M4.6 11.3v2.1M10.6 11.3v2.1"/></g>
+<text x="50" y="280" font-size="12" fill="#e6e9f0">LocalAgentCreature</text>
+<text x="252" y="280" font-size="11" fill="#8d94a4">: CharacterBody3D</text>
+<text x="386" y="280" font-size="11" fill="#767d8c">an animal with a fast brain</text>
+<g transform="translate(24,294) scale(1.05)" stroke="#fc7f7f" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="1.9"/><path d="M8 1.6v2.4M8 12v2.4M1.6 8h2.4M12 8h2.4M3.5 3.5l1.7 1.7M10.8 10.8l1.7 1.7M12.5 3.5l-1.7 1.7M5.2 10.8l-1.7 1.7"/></g>
+<text x="50" y="306" font-size="12" fill="#e6e9f0">LocalAgentCreatureSpawner</text>
+<text x="252" y="306" font-size="11" fill="#8d94a4">: Node3D</text>
+<text x="386" y="306" font-size="11" fill="#767d8c">a population, no spawn loop</text>
+<g transform="translate(24,320) scale(1.05)" stroke="#e0e0e0" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2.6h12l-4.4 5.2v5.6l-3.2-1.8V7.8z"/><circle cx="12.6" cy="12.4" r="1.6"/></g>
+<text x="50" y="332" font-size="12" fill="#e6e9f0">LocalAgentCognitionScheduler</text>
+<text x="252" y="332" font-size="11" fill="#8d94a4">: Node</text>
+<text x="386" y="332" font-size="11" fill="#767d8c">budgets escalations to the model</text>
+<text x="14" y="360" font-size="11" fill="#7f8797" letter-spacing="1">WORLD</text>
+<g transform="translate(24,380) scale(1.05)" stroke="#fc7f7f" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M2.2 6.4h11.6M2.2 9.6h11.6M8 2a9 9 0 0 1 0 12A9 9 0 0 1 8 2z"/></g>
+<text x="50" y="392" font-size="12" fill="#e6e9f0">LocalAgentSimWorld</text>
+<text x="252" y="392" font-size="11" fill="#8d94a4">: Node3D</text>
+<text x="386" y="392" font-size="11" fill="#767d8c">a whole planet or a flat sandbox</text>
+<g transform="translate(24,406) scale(1.05)" stroke="#fc7f7f" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.4" y="2.4" width="11.2" height="11.2" rx="1.2"/><path d="M2.4 6.2h11.2M2.4 9.8h11.2M6.2 2.4v11.2M9.8 2.4v11.2"/></g>
+<text x="50" y="418" font-size="12" fill="#e6e9f0">LocalAgentFieldBox</text>
+<text x="252" y="418" font-size="11" fill="#8d94a4">: Node3D</text>
+<text x="386" y="418" font-size="11" fill="#767d8c">the heat/water substrate, visible</text>
+<text x="14" y="446" font-size="11" fill="#7f8797" letter-spacing="1">UTILITY</text>
+<g transform="translate(24,466) scale(1.05)" stroke="#e0e0e0" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="9.2" r="5.1"/><path d="M8 6.4v2.8l1.9 1.2M6.2 1.9h3.6M8 1.9v1.9M12.8 4.3l1.1-1.1"/></g>
+<text x="50" y="478" font-size="12" fill="#e6e9f0">LocalAgentDemoHarness</text>
+<text x="252" y="478" font-size="11" fill="#8d94a4">: Node</text>
+<text x="386" y="478" font-size="11" fill="#767d8c">--run-frames reports and screenshots</text>
+<g transform="translate(24,492) scale(1.05)" stroke="#e0a06a" fill="none" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="4.4" r="1.7"/><circle cx="12" cy="6.4" r="1.7"/><circle cx="6.6" cy="12" r="1.7"/><path d="M5.6 5.1 10.4 6M5.2 5.9l1 4.5M10.9 7.8l-3 3.1"/></g>
+<text x="50" y="504" font-size="12" fill="#e6e9f0">LocalAgentGraph</text>
+<text x="252" y="504" font-size="11" fill="#8d94a4">: Resource</text>
+<text x="386" y="504" font-size="11" fill="#767d8c">a memory graph of nodes and edges</text>
+</svg>

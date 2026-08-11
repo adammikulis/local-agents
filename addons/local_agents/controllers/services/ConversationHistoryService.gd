@@ -1,5 +1,5 @@
 extends RefCounted
-class_name LocalAgentsConversationHistoryService
+class_name LocalAgentConversationHistoryService
 
 func append_to_history(history_label: RichTextLabel, text: String) -> void:
     history_label.append_text("%s\n" % text)
@@ -11,14 +11,14 @@ func render_conversation(history_label: RichTextLabel, messages: Array) -> void:
         var message: Dictionary = {}
         if message_variant is Dictionary:
             message = message_variant
-        var role := message.get("role", "user")
+        var role: String = message.get("role", "user")
         if role == "system":
             continue
         var label: String = "Agent" if role == "assistant" else role.capitalize()
         append_to_history(history_label, "[b]%s[/b]: %s" % [label, message.get("content", "")])
 
 func sorted_messages_from_conversation(convo: Dictionary) -> Array:
-    var messages_variant := convo.get("messages", [])
+    var messages_variant: Variant = convo.get("messages", [])
     var messages: Array = []
     if messages_variant is Array:
         messages = messages_variant
@@ -33,10 +33,10 @@ func build_agent_history(messages: Array) -> Array:
             message = message_variant
         else:
             continue
-        var role_value := message.get("role", "")
-        var content_value := message.get("content", "")
-        var role := role_value as String if role_value is String else str(role_value)
-        var content := content_value as String if content_value is String else str(content_value)
+        var role_value: Variant = message.get("role", "")
+        var content_value: Variant = message.get("content", "")
+        var role: String = role_value as String if role_value is String else str(role_value)
+        var content: String = content_value as String if content_value is String else str(content_value)
         if role == "system" or content.strip_edges().is_empty():
             continue
         filtered.append({

@@ -2,7 +2,7 @@
 # Advisory-only drift check for the kept engineering invariants.
 #
 # History: this script used to hard-fail (exit 1) unless ~40 exact marker strings
-# were present across AGENTS.md / GODOT_BEST_PRACTICES.md / ARCHITECTURE_PLAN.md,
+# were present across AGENTS.md / GODOT_BEST_PRACTICES.md,
 # including wave IDs and a shim inventory with mandatory field counts. That process
 # ceremony has been retired. The *engineering* ethos (native/GPU-first, zero
 # fallback, fail-fast typed errors, shader-first) is kept as governance prose, so
@@ -10,6 +10,9 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib_require.sh
+source "$SCRIPT_DIR/lib_require.sh"
+require_tool rg
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 AGENTS_FILE="$REPO_ROOT/AGENTS.md"

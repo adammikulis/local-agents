@@ -1,7 +1,7 @@
 @tool
 extends RefCounted
 
-const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 
 class MockRuntime:
     func is_model_loaded() -> bool:
@@ -21,7 +21,7 @@ func run_test(tree: SceneTree) -> bool:
         push_error("NetworkGraph missing after extension initialization.")
         return false
 
-    var store := LocalAgentsConversationStore.new()
+    var store := LAConversationStore.new()
     tree.get_root().add_child(store)
     store._runtime = MockRuntime.new()
     store.clear_all()

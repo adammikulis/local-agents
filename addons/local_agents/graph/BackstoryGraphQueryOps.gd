@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsBackstoryGraphQueryOps
+class_name LocalAgentBackstoryGraphQueryOps
 
 static func node_by_external_id(svc, space: String, key: String, value: Variant) -> Dictionary:
     if not svc._ensure_graph():

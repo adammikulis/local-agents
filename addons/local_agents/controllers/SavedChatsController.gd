@@ -1,6 +1,6 @@
 @tool
 extends Control
-class_name LocalAgentsSavedChatsController
+class_name LASavedChatsController
 
 signal conversation_selected(conversation_id)
 signal conversation_deleted(conversation_id)
@@ -40,7 +40,7 @@ func _on_item_activated(index: int) -> void:
 
 func _emit_selected_conversation(index: int = -1) -> void:
     if index == -1:
-        var selected := list.get_selected_items()
+        var selected: PackedInt32Array = list.get_selected_items()
         if selected.is_empty():
             return
         index = selected[0]
@@ -50,10 +50,10 @@ func _emit_selected_conversation(index: int = -1) -> void:
     emit_signal("conversation_selected", convo_id)
 
 func _on_delete_pressed() -> void:
-    var selected := list.get_selected_items()
+    var selected: PackedInt32Array = list.get_selected_items()
     if selected.is_empty():
         return
-    var index := selected[0]
+    var index: int = selected[0]
     if index < 0 or index >= conversations.size():
         return
     var convo_id: int = conversations[index].get("id", index)
@@ -69,7 +69,7 @@ func close_panel() -> void:
     hide()
 
 func _update_buttons() -> void:
-    var has_selection := not list.get_selected_items().is_empty()
+    var has_selection: bool = not list.get_selected_items().is_empty()
     select_button.disabled = not has_selection
     delete_button.disabled = not has_selection
 

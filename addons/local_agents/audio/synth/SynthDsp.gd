@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsSynthDsp
+class_name LocalAgentSynthDsp
 
 ## Pure, stateless DSP primitives for procedural audio synthesis.
 ##
