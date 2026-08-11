@@ -113,6 +113,27 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	}
 	var rc_all: PackedFloat64Array = LAHeatCapacity.field(ch, cc)
 	var cap_live: Dictionary = LAHeatCapacity.live_map(ch, cc)
+	# A GAUGE THAT CANNOT SEE ALL ITS LEGS MUST SAY SO, NOT PUBLISH A SMALLER NUMBER.
+	#
+	# `rc` is built from channel MIRRORS, and a demand-gated channel is only refreshed when something called
+	# request_channel — so which legs are present depends on which CONSUMERS are alive. An absent leg
+	# contributed zero capacity and the stock silently shrank: measured 2026-08-11 by
+	# scripts/check_observer_independence.sh, `energy_stock` differed by 87.13% between a run with the
+	# presentation layer and the same run with --bare. That is the gauge reading the observer, not the planet.
+	#
+	# Reporting "unmeasured" is the honest answer and it is what the element inventory already does with
+	# `mass_live`. A wrong number is worse than an absent one, because only the absent one stops a reader.
+	var missing: PackedStringArray = PackedStringArray()
+	for leg_name in cap_live:
+		if not bool(cap_live[leg_name]):
+			missing.append(String(leg_name))
+	if missing.size() > 0:
+		out["energy_stock"] = null
+		out["energy_stock_live"] = cap_live
+		out["energy_stock_missing"] = missing
+		out["energy_stock_cells"] = cc
+		LASimReport.gauge("energy_stock_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
+		return out
 	# ENERGY IS rc * V * T, AND V IS PER CELL AND IN CUBIC METRES. Both halves of that were wrong here.
 	# `volume = cell_size^3` used one uniform volume for every cell on a grid whose cells differ by up to
 	# 8.8x, AND it was in model units cubed while rc is J/m^3/K, so a figure the header calls "[joules]" was

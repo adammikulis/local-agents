@@ -277,6 +277,11 @@ func setup_sphere(grid: RefCounted, terrain = null) -> void:
 	_sphere = grid
 	if terrain != null:
 		_terrain = terrain      # sphere path's terrain wiring (box uses setup()); needed to activate + sample solidity
+		# The solid-mask cache's key. `_terrain_opts` was declared for this and never assigned, so the guard
+		# at _sample_solidity_sphere was always false and THE CACHE HAD NEVER ONCE BEEN USED — every run paid
+		# the full per-cell is_solid sweep, ~1 s, to recompute a mask that had not changed.
+		if terrain.has_method("generator_options"):
+			_terrain_opts = terrain.generator_options()
 	_cell_size = maxf(0.5, grid.cell_size)
 	_origin = grid.center
 	_cell_count = grid.cell_count

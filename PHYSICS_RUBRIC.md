@@ -111,9 +111,16 @@ between two seed vectors is unreadable if the same vector does not reproduce its
 |---|---|---|---|---|---|---|---|---|---|
 
 ### 10. Observer independence — *does looking at it change it?*
-**Computed** from a `--bare` arm against the same run with the presentation layer on. A lockdown criterion in
-`CLAUDE.md`: no rate may change because of where the camera points, what the framerate is, or which gauge is
-switched on. It is also the precondition for a throughput sweep with the probes off.
+**Computed** from a `--bare` arm against the same run with the presentation layer on, over the conserved
+totals AND `energy_stock`. A lockdown criterion in `CLAUDE.md`: no rate may change because of where the
+camera points, what the framerate is, or which gauge is switched on. It is also the precondition for a
+throughput sweep with the probes off.
+
+**`scripts/check_observer_independence.sh` is the gate, and it must be run BEFORE any other number is
+trusted.** *(Added 2026-08-11. This criterion first scored on the element totals alone and read 3.83%.
+Including `energy_stock` took it to **87.13%** — the same substrate, a wider probe. A criterion that omits
+a quantity cannot see a defect in it, which is the rubric's own argument for computing rather than judging,
+turned on the rubric. Do not narrow a probe to the quantities you expect to be fine.)*
 
 | **0** | not measured | **1** | > 1% | **2** | 0.1–1% | **3** | 1e-6 – 0.1% | **4** | bit-identical |
 |---|---|---|---|---|---|---|---|---|---|
@@ -142,6 +149,7 @@ across that boundary.)*
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 2026-08-09 | `0177274` | 1 | 1 | 1 | 1 | 1 | 2 | — | — | — | — | **7 / 24** | first score, after the three-audit baseline |
 | 2026-08-11 | `dd64de9` | 1 | 1 | 1 | 1 | 1 | 2 | 0 | 1 | 1 | 1 | **10 / 40** | all ten computed; three new criteria measured for the first time |
+| 2026-08-11 | `00f994b` | 1 | 1 | 1 | 1 | 1 | 2 | 0 | 1 | 1 | 1 | **10 / 40** | criterion 10 re-measured against energy: 3.8% -> **87.1%** |
 
 ### Notes on 2026-08-11 — four criteria added, and they found three things nothing was watching
 

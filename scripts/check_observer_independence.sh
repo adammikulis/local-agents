@@ -27,7 +27,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FRAMES="${LA_OBS_FRAMES:-120}"
+FRAMES="${LA_OBS_FRAMES:-60}"   # enough to seal the world and sample; this is a check, not a soak
 SEED="${LA_OBS_SEED:-4242}"
 # Float32 round-trips through the GPU, so bit-equality is not available. Anything above this is structural.
 TOL="${LA_OBS_TOL:-1e-9}"
