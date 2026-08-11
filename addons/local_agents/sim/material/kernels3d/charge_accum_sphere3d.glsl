@@ -22,7 +22,7 @@ const float FREEZE_T = -10.0;      // LAPhysical.CHARGE_ZONE_WARM_C — warm edg
 const float COLD_SPAN = 15.0;      // down to LAPhysical.CHARGE_ZONE_COLD_C (-25 C): the charging band
 const float CHARGE_GAIN = 8.0;     // charge separated per (updraft × cloud × cold) per second
 const float CHARGE_LEAK = 0.05;       // bleed WHILE electrifying — sets the forcing threshold for breakdown (cores only)
-const float CHARGE_LEAK_QUIET = 0.4;  // fast bleed once the storm driver is gone (~8 -> ~0.1 in ~9 steps)
+const float CHARGE_LEAK_QUIET = 0.4;  // fast bleed once the storm driver is gone
 const float UPDRAFT_MIN = 0.0;     // only POSITIVE vertical wind (rising air) separates charge
 
 void main() {

@@ -178,8 +178,7 @@ void main() {
 		float albedo = mix(mix(land, ALBEDO_WATER, wet), ALBEDO_ICE, icy);
 
 		// HEAT CAPACITY per cell: the volumetric heat capacity of what the cell holds, times the cell's own
-		// depth. Derived, not declared — see the block above for the four literals this replaced and by how
-		// much each was wrong.
+		// depth. Derived, not declared.
 		float cap = max(rc_of(idx) * params.cell_size, 1.0);
 
 		// ===== THE COLUMN'S TWO CELLS, AND THE ONE AIR MASS BETWEEN THEM ===============================

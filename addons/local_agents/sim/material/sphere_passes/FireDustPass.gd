@@ -73,7 +73,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	rd.compute_list_set_push_constant(cl, pc_k, pc_k.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # final dust[back] + sediment deposits committed
-	# (dust LOFT is now DEFS record M4, run in ReactionsPass before this pass — kernel deleted.)
+	# (dust LOFT is DEFS record M4, run in ReactionsPass before this pass.)
 
 
 ## Free every RID this pass owns (uniform sets, then pipelines, then shaders), dependent-first, before the

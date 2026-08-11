@@ -56,7 +56,7 @@ layout(set = 0, binding = 23, std430) restrict buffer RockFill { float rock_fill
 // soil_sphere3d.glsl:223-229 keys on the regolith mask and zeroes soil in every non-regolith open cell — so a
 // plant's water is the soil in the permeable column BENEATH it, read/debited through the SOIL_ROOT slot below,
 // never at the reacting cell itself. NOTE "regolith", not "solid": an eroded or carved regolith cell is open
-// AND still an aquifer, which is exactly the case the walk used to get wrong. -------------------------------
+// AND still an aquifer. ------------------------------------------------------------------------------------
 layout(set = 0, binding = 24, std430) restrict buffer Soil { float soil[]; };
 // --- Gate inputs + scratch product target + the record table ----------------------------------------------
 layout(set = 0, binding = 10, std430) restrict readonly buffer Solid { float solid[]; };
@@ -172,10 +172,7 @@ const float O2_FLAMMABILITY_LIMIT = LOC_MOLE_FRAC / AIR_O2_MOLE_FRAC_K;
 #define CONST_FRAC             0
 #define BILINEAR               1
 #define EXCESS_OVER_THRESHOLD  2
-// 3 IS RETIRED AND STAYS UNUSED — it was RELAX_TARGET, whose own definition ("signed; no reactant; product =
-// driver") describes matter appearing from nothing. The main loop below used to SKIP the entire cap-and-debit
-// block for it, so only the product credit ran. See LAReactionDefs for the full account; an unknown rate
-// model now yields no extent at all rather than an unbounded source.
+// 3 IS RETIRED AND STAYS UNUSED. An unknown rate model yields no extent at all, never an unbounded source.
 #define DEFICIT_BELOW_THRESHOLD 4   // mirror of EXCESS: fires when driver is BELOW threshold (freeze at T<FREEZE_TEMP)
 #define OPTIMUM_BAND           5    // x = k * driver * max(0, 1 - ((driver2 - threshold)/param2)^2) — a rate that
                                     // PEAKS at an optimum and falls off BOTH ways. See MaterialReactions3D.gd.
@@ -235,7 +232,7 @@ layout(push_constant, std430) uniform Params {
 	// Pascals of lithostatic pressure per unit of (mass x density) in the column above — i.e. g times the model
 	// metres one cell represents. ReactionsPass derives it from the field's own vertical scale (the same
 	// GROUNDWATER_CIRCULATION_M / REGOLITH_CELLS the geotherm uses), so it re-derives at any grid resolution
-	// and nobody types a depth. Replaces a spare pad.
+	// and nobody types a depth.
 	float overburden_pa;
 } params;
 
@@ -424,10 +421,9 @@ float read_ch(int slot, uint i) {
 // runs later this step in EcoSurfacePass, so this write is the freshest value by the time that kernel reads it,
 // same one-step ordering already used for FUNGUS as a read-only driver). SOIL_ROOT is the one slot whose write
 // lands outside this cell — into the private rooting column beneath it; see root_soil_draw for why that is
-// still race-free. (That column may now include ONE open aquifer cell, which is itself a reacting thread; its
+// still race-free. (That column may include ONE open aquifer cell, which is itself a reacting thread; its
 // own walk starts one cell further in, so the two never share a cell, and `soil` has no readable slot in
-// read_ch, so nothing else reads what either of them writes.) SOIL was previously bound NOWHERE and had NO
-// add_ch branch at all, so any write to it silently vanished; SOIL_ROOT is the branch that closes that hole.
+// read_ch, so nothing else reads what either of them writes.)
 void add_ch(int slot, uint i, float v) {
 	if      (slot == TEMP)     { temp[i]     += v; }
 	else if (slot == WATER)    { water[i]     = max(0.0, water[i] + v); }

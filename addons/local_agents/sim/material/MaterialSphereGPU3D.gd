@@ -192,9 +192,8 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 	# inter-frame CPU work) and read its channels into `_cached`. Must happen before the temp/water uploads below,
 	# which write the same live buffers the step wrote. This is the CPU↔GPU overlap that hides the field step cost.
 	_drain_pending()
-	# geothermal core pin wrote _temp on the CPU every step. It does not any more. The core is a flux
-	# boundary applied inside heat_sphere3d.glsl (LAMaterialFieldGeotherm3D pushes one scalar), so the only
-	# CPU writer left is injection (add_heat / meteors / lava), which marks it dirty. Same gate as water.
+	# The core is a flux boundary applied inside heat_sphere3d.glsl (LAMaterialFieldGeotherm3D pushes one
+	# scalar); the only CPU writer of _temp is injection (add_heat / meteors / lava), which marks it dirty.
 	if _temp_dirty:
 		_upload_f(_live("temp"), temp)
 		_temp_dirty = false
@@ -221,8 +220,7 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 		_ctx["sun_dir"] = Vector3(0, 1, 0)
 
 ## Planet spin axis in the FIELD's frame. GasWindPass reads ctx["spin_axis"] for its latitude bands and
-## Coriolis handedness; until this existed nothing set it, so it fell back to world +Y while the planet's
-## real axis is 23.5 degrees away — every wind band was referenced to the wrong pole.
+## Coriolis handedness.
 func set_spin_axis(v: Vector3) -> void:
 	_ctx["spin_axis"] = v.normalized() if v.length() > 0.001 else Vector3(0, 1, 0)
 

@@ -1,20 +1,18 @@
 // =====================================================================================================
 // THE ONE DEFINITION OF A CELL'S SIZE. `#include "cell_geom.glsli"`.
 //
-// WHY THIS FILE EXISTS. This grid's cells are NOT the same size and no kernel knew it. A column near a
-// cube-face centre subtends ~4.9x the solid angle of one at a corner, and a cell high in the shell is
-// wider than one at the floor because lateral spacing is an arc growing with radius. Measured by
-// scripts/check_sphere_grid.sh: largest/smallest cell volume is 6.30 / 7.91 / 8.76 at res 8 / 16 / 32,
-// and the ratio GROWS with resolution.
+// WHY THIS FILE EXISTS. This grid's cells are NOT the same size: a column near a cube-face centre subtends
+// more solid angle than one at a corner, and a cell high in the shell is wider than one at the floor
+// because lateral spacing is an arc growing with radius. The volume ratio is gated by
+// scripts/check_sphere_grid.sh, and it grows with resolution.
 //
-// Two things follow, and both are wrong in every kernel that predates this file:
+// Two things follow:
 //   - A SUM of a per-cell channel value is not an amount of anything.
 //   - A TRANSFER of "0.3 of a cell" into a differently sized cell delivers a different amount of matter
 //     than it debited. Matter created and destroyed, every advection step, every channel.
 //
 // It exists as an include for the reason rc_shared.glsli does: written once per kernel it would be
-// written five ways, and a gate on the CONSTANTS cannot see a divergent FORMULA. LASphereGrid.link_arc
-// is the same insight applied to slope, and it reached exactly one consumer.
+// written five ways, and a gate on the CONSTANTS cannot see a divergent FORMULA.
 //
 // WHAT THE INCLUDER MUST PROVIDE — this is textual, like rc_shared.glsli, and reads one buffer by name:
 //

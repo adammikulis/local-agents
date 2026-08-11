@@ -249,7 +249,7 @@ func _compute() -> Dictionary:
 				lit_cells += 1
 			# W/m^2 sums feed the per-cell MEANS below and stay as they are. The WATTS are a different
 			# question and need each cell's own face area: a radial flux crosses the outward face, whose area
-			# is solid_angle * r^2 and varies across the grid by the same ~8.8x the volumes do.
+			# is solid_angle * r^2 and varies across the grid as the volumes do.
 			var face_m2: float = LAFieldTotals.face_area_outward_m2(_f._sphere, c)
 			face_m2_total += face_m2
 			abs_w += absorbed * face_m2

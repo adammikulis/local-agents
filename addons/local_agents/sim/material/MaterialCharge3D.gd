@@ -88,7 +88,7 @@ func post_step() -> void:
 	# Stay awake while charge still lingers near breakdown; sleep once it has drained (skip the scan again).
 	_f._charge_woke = true_peak >= BREAKDOWN * PROBE_GATE
 	# No dirty flag: _fire_bolt drains through MaterialFieldInject3D.deplete_charge, which queues a sparse
-	# negative delta against the live buffer. The flag it used to set drove a whole-mirror upload.
+	# negative delta against the live buffer.
 
 
 func _fire_bolt(cc: int) -> void:

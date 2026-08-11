@@ -419,7 +419,7 @@ func magma_erupting() -> bool:
 	return int(molten_counts()["lava_cells"]) > 0
 
 ## Derived-solid (bedrock) cell count — a display/diagnostic (cells whose derived solid flag is set). NOT the mineral
-## mass baseline anymore: Stage B made bedrock a FRACTIONAL channel (rock_fill), so the mass baseline is rock_fill_total().
+## mass baseline: bedrock is a FRACTIONAL channel (rock_fill), whose mass baseline is rock_fill_total().
 func rock_cells() -> int:
 	var n: int = 0
 	for c in _f._cell_count:

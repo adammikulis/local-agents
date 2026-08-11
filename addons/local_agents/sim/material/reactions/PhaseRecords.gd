@@ -58,12 +58,7 @@ static func records() -> Array:
 		rec(DEFICIT_BELOW_THRESHOLD, FREEZE_RATE, TEMP, [[WATER, 1.0]], [[SNOW, 1.0, TGT_SELF]], 0, FREEZE_TEMP,
 			-1, 0.0, -1, 0.0, 0.0, _latent_fusion_j_m3()),
 
-		# DEPOSITION (condensed moisture → snow): the leg snowice_sphere3d.glsl used to run. It moved
-		# moisture into snow with NO enthalpy term at all — its Temp binding is `readonly`, so it structurally
-		# could not pay — and its comment called that "conserving", meaning mass only. Vapour going to ice
-		# releases fusion PLUS vaporisation, and none of it reached the field: energy destroyed on every
-		# snowfall, and absorbed for free on the way back.
-		#
+		# DEPOSITION (condensed moisture → snow). Vapour going to ice releases fusion PLUS vaporisation.
 		# DEFICIT_BELOW_THRESHOLD on the SIGNED VAPOUR_DEFICIT driver (sat(T) − moisture) at threshold 0 gives
 		# x = max(0, moisture − sat(T)) · k, which IS the kernel's `condensed`. GATE_FREEZING keeps it off warm
 		# condensate, which is rain's job.

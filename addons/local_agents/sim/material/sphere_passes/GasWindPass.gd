@@ -3,8 +3,7 @@ extends RefCounted
 
 const WIND_PRESSURE_PATH: String = "res://addons/local_agents/sim/material/kernels3d/wind_pressure_sphere3d.glsl"
 const WIND_STEP_PATH: String = "res://addons/local_agents/sim/material/kernels3d/wind_step_sphere3d.glsl"
-# ONE TRANSPORT KERNEL FOR EVERY GAS. o2_transport_sphere3d.glsl and co2_transport_sphere3d.glsl were the
-# not, on a stated limitation of the lattice that did not exist.
+# ONE TRANSPORT KERNEL FOR EVERY GAS.
 const TRACER_TRANSPORT_PATH: String = "res://addons/local_agents/sim/material/kernels3d/tracer_transport_sphere3d.glsl"
 
 # Still-air settling velocity per unit of fractional molar-mass excess over dry air, m/s. Gravitational
@@ -65,10 +64,9 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var temp: Array = bufs["temp"]     # PAIR
 	var o2: Array = bufs["o2"]         # PAIR
 	var co2: Array = bufs["co2"]       # PAIR
-	# Charge separation feeds on supercooled condensate aloft. cloud/fog are no longer stored (Phase 2a
-	# collapsed them into `moisture`); the total suspended water is a fine moisture proxy for the updraft ×
-	# cloud charge term (behavioural, perf-over-parity).
-	var cloud: Array = bufs["moisture"]   # PAIR (was "cloud"; now the unified moisture channel)
+	# Charge separation feeds on supercooled condensate aloft; total suspended water is the moisture proxy
+	# for the updraft × cloud charge term (behavioural, perf-over-parity).
+	var cloud: Array = bufs["moisture"]   # PAIR — the unified moisture channel
 	var air: Array = bufs["air"]       # PAIR — conserved air mass; pressure is its weight (see wind_pressure)
 	var solid: RID = bufs["solid"]     # SINGLE
 	var pressure: RID = bufs["pressure"]

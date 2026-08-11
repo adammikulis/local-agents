@@ -78,7 +78,7 @@ func graze(world_pos: Vector3, want: float) -> float:
 		return 0.0
 	if disabled():
 		graze_asked += want
-		graze_taken += want              # the control arm: food out of nothing, exactly as it used to be
+		graze_taken += want              # the control arm: food out of nothing
 		return want
 	var q = _queue()
 	if q == null:
@@ -187,7 +187,7 @@ func respire(head_pos: Vector3, mass: float) -> float:
 
 func litter(world_pos: Vector3, mass: float) -> void:
 	if mass <= 0.0 or disabled():
-		return                           # the control arm: the body's mass simply disappears, as it used to
+		return                           # the control arm: the body's mass simply disappears
 	var q = _queue()
 	if q == null:
 		return

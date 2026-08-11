@@ -27,8 +27,7 @@ const float BUOY_FRAC = 0.55;
 const float K_P = 0.6;
 const float MAX_UP_FLOW = 0.4;
 const float MIN_OP = 0.0001;
-// MOLTEN_FLOOR = 950.0 and LAVA_EMPLACE_TEMP = 1150.0 used to live here and are gone: this kernel no longer
-// prescribes or caps a temperature, it mixes the arriving enthalpy with the destination's own.
+// This kernel prescribes and caps no temperature: it mixes the arriving enthalpy with the destination's own.
 
 // Buoyant up-transfer a cell contributes given its lava mass — mirrors _buoy_up exactly.
 float buoy_up(float mass) {
