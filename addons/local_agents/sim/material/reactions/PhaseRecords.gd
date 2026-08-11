@@ -30,8 +30,7 @@ const SOIL_SURFACE_RESISTANCE_S_M: float = 1000.0
 const SATURATED_SURFACE_LAYER: float = 0.36      # a saturated surface shell = its porosity at zero burial
 
 
-## Per-step evaporation extent per unit of vapour deficit — see the block above. Derived from the substrate's
-## own clock and cell size, so it tracks a changed day length or grid resolution instead of going stale.
+## Per-step evaporation extent per unit of vapour deficit. Scales with the fixed step quantum and cell size.
 static func _evap_k() -> float:
 	var dt: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
 	var h: float = maxf(cell_size_m, 0.001)

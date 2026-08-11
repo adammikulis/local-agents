@@ -40,7 +40,7 @@ static func _density(id: String) -> float:
 	return float(LASubstances.table().get(id, {}).get("density", 0.0))
 
 
-## Real seconds one field step stands for. The substrate has ONE clock and this is it.
+## Simulated seconds one field step stands for. The substrate has ONE step quantum and this is it.
 static func _dt() -> float:
 	return LAMaterialFieldSphereStep3D.real_seconds_per_step()
 

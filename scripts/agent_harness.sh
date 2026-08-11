@@ -248,6 +248,18 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_heat_capacity_ssot.sh ($rc_heatcap)"
       exit 1
     fi
+    # Gate: a field step is a fixed quantum of simulated time. real_seconds_per_step() used to divide by
+    # LASimClock.DAY_LENGTH, a game-feel knob, and every derived rate in the substrate multiplies by that
+    # function — so the day length silently rescaled evaporation, pyrolysis, decomposition, photosynthesis,
+    # rain, thermal diffusion, transport CFL, geotherm flux and plate drift. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_step_quantum.sh"
+    rc_stepq=$?
+    set -e
+    if [[ $rc_stepq -ne 0 ]]; then
+      echo "LINT_FAIL: check_step_quantum.sh ($rc_stepq)"
+      exit 1
+    fi
     # Gate: no reaction record may create or destroy matter. The DEFS engine took reactants and products as
     # two independent lists of hand-written coefficients with nothing relating them, and one rate model had
     # no reactant at all, so only its product credit ever ran — which is where every carbon atom in this

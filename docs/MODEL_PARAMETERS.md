@@ -148,7 +148,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/PlateTectonics.gd` | `CONVERGE_MIN` | 0.25 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/PlateTectonics.gd` | `GEOLOGIC_TIME_ACCELERATION` | 3.0e5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/PlateTectonics.gd` | `VOLCANO_CHANCE_CONVERGENT` | 0.3 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/SimClock.gd` | `DAY_LENGTH` | 200.0 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/SimClock.gd` | `DAY_LENGTH` | 200.0 | a literal where a consequence belongs. The day is the planet's rotation period expressed in sim-clock seconds, which `LAMaterialFieldSphereStep3D.day_length_sim_seconds()` now computes from `PLANET_ANGULAR_VELOCITY_RAD_S` and the step quantum: 199.454, not 200. No rate reads it any more (`scripts/check_step_quantum.sh`), so what is left is a calendar and a sky. | replace the literal with `LAMaterialFieldSphereStep3D.day_length_sim_seconds()`, and point `game/world/VoxelSkyCycle.gd` at the same function |
 | `addons/local_agents/sim/SimClock.gd` | `DAYS_PER_SEASON` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_OUTPUT_SDF` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_ADD` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -444,7 +444,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd` | `SAMPLE_EVERY` | 50 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd` | `MAX_STEPS_PER_FRAME` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd` | `FIELD_CADENCE_MAX` | 60 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd` | `REAL_SECONDS_PER_DAY` | 86400.0 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd` | `SIM_SECONDS_PER_STEP` | 43.2 | the substrate's time quantum: how much simulated time one field step advances. Nothing in physics fixes it — it is the integrator's resolution, the way a weather model picks its timestep. It is the value the whole substrate was already stepping at (it was `STEP_DT * 86400 / DAY_LENGTH`), kept so no reaction rate changes meaning in the commit that stops it being a function of a game-feel knob. Unreviewed as a magnitude. | derive it from the explicit-kernel stability limit — the smallest of the thermal diffusion number and the transport CFL at the shipped grid — so the step is set by what the kernels can integrate rather than declared |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `STATIONS_PER_BAND` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `LONG_DAYS` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `SITE_RETRY_FRAMES` | 60 | inherited, unreviewed | Stage 2 substrate rewrite |

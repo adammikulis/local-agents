@@ -66,16 +66,14 @@ const CONVERGE_MIN: float = 0.25         # |relative-normal velocity| fraction a
 # THAT is what would let this be turned up.
 const GEOLOGIC_TIME_ACCELERATION: float = 3.0e5
 
-## Angular speed (radians per SIMULATED second) of a plate moving `speed_mm_yr` at the surface of a body of
-## radius `radius`, with geologic time accelerated. Horizontal world units are read as metres — the same
-## literal reading LAMaterialFieldGeotherm3D states before applying its own VERTICAL exaggeration, i.e. this
-## body is 500 m across. The chain is mm/yr -> m per real second -> rad per real second -> rad per SIMULATED
-## second (the field's own clock: LAMaterialFieldSphereStep3D.REAL_SECONDS_PER_DAY over LASimClock.DAY_LENGTH)
-## -> times the acceleration above.
+## Angular speed (radians per sim-clock second) of a plate moving `speed_mm_yr` at the surface of a body of
+## radius `radius`, with geologic time accelerated. Horizontal world units are read as metres. Chain:
+## mm/yr -> m per simulated second -> rad per simulated second -> rad per sim-clock second (the field's fixed
+## step quantum) -> times the acceleration above.
 static func drift_rate(speed_mm_yr: float, radius: float) -> float:
 	var m_per_real_s: float = (speed_mm_yr * 0.001) / LAPhysical.SECONDS_PER_YEAR
 	var rad_per_real_s: float = m_per_real_s / maxf(radius, 1.0)
-	var real_s_per_sim_s: float = LAMaterialFieldSphereStep3D.REAL_SECONDS_PER_DAY / maxf(LASimClock.DAY_LENGTH, 1.0)
+	var real_s_per_sim_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_sim_second()
 	return rad_per_real_s * real_s_per_sim_s * GEOLOGIC_TIME_ACCELERATION
 # ARC VOLCANO at a convergent margin (else just a quake). THIS IS A RARITY ROLL STANDING IN FOR MISSING
 # PHYSICS and it is on the list to dissolve — but not yet, and the two comments describing it contradicted
