@@ -1,0 +1,6 @@
+{
+  "name": "Mange", "vector": "contact",
+  "transmissibility": 0.35, "range": 3.0, "incubation": 8.0,
+  "virulence": 0.05, "lethality": 0.02, "drain": 0.5, "slow": 0.35, "fever": 0.0,
+  "resolve": 0.03, "immunity_gain": 0.7, "hosts": ["mammals"]
+}

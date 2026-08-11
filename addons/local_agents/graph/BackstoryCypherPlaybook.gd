@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsBackstoryCypherPlaybook
+class_name LocalAgentBackstoryCypherPlaybook
 
 static func build_playbook(resolved_npc_id: String, resolved_day: int, resolved_limit: int, version: String) -> Dictionary:
 	var window_start = maxi(0, resolved_day - 14)

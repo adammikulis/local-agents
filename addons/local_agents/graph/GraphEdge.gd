@@ -1,5 +1,5 @@
 extends Resource
-class_name LocalAgentsGraphEdge
+class_name LocalAgentGraphEdge
 
 @export var id: int = 0
 @export var source_id: int = 0

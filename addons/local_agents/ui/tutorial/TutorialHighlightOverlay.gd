@@ -5,9 +5,10 @@ extends Control
 ## target rectangle, outlines it, points an arrow at it, and floats a text callout (title + body +
 ## Back / Skip / Next buttons + a "don't show again" checkbox) beside it. The spotlight animates smoothly
 ## between targets and degrades gracefully when a target is momentarily null or off-screen (it just dims
-## and centers the callout). Purely presentational: it owns no step logic — an LATutorialSequencer drives
-## it via show_step()/finish() and listens to its button signals. Reusable + game-agnostic; builds its own
-## child widgets in code so no companion .tscn is needed. (Explicit types only — no ':=' .)
+## and centers the callout). Purely presentational: it owns no step logic. An LATutorialSequencer drives
+## it via show_step()/finish() and listens to its button signals. Reusable and game-agnostic. It builds
+## its own child widgets in code, so no companion .tscn is needed.
+## (Explicit types only. No ':=' inferred typing.)
 
 signal next_pressed
 signal back_pressed

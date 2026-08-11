@@ -28,7 +28,6 @@ data_*/
 mono_crash.*.json
 
 # Project-specific ignores
-AGENTS.md
 android/
 .vs
 .vscode/
@@ -49,7 +48,7 @@ addons/local_agents/voices/
 
 # Local tooling bundles (e.g. downloaded Godot editor archives)
 tools/
-logs/validation_lane/
+/logs/
 
 # generated FunctionGemma finetune artifacts
 addons/local_agents/models/functiongemma/train_examples.jsonl
