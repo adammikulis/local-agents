@@ -1,101 +1,59 @@
 class_name LADebugPanel
 extends CanvasLayer
 
-## The left-docked DEBUG MENU. A collapsible, scrollable column of toggles grouped into: field VIEWS
-## (temperature/wind/scent PLUS the substrate channel heatmaps: biomass, water-phase, snow, lava,
-## rock_fill, CO2/O2, charge, fertility), species HIGHLIGHTs, BEHAVIOR-state highlights (tint creatures
-## by what they're doing), overlay PATHS, and PERF toggles. It owns no state, and each toggle just emits a
-## signal VoxelWorld wires to the terrain shader, the debug overlay, the creatures, or the environment.
-## (Explicit types only, no ':=' inferred typing.)
+## Left-docked debug menu (DebugPanel.tscn). The shell is the scene; the toggle rows are generated from the
+## registries below, so a new view/highlight is a table row and not a node. Owns no state — each row emits.
 
 signal view_toggled(view: String, on: bool)          # "temp"|"wind"|"scent"|a field-channel key
 signal highlight_toggled(group: String, on: bool)    # a "species_*" or "nest" group
 signal behavior_toggled(behavior: String, on: bool)  # a creature behavior-state category
 signal paths_toggled(on: bool)
 signal perf_toggled(key: String, on: bool)           # "shadows" | "ssao"
-signal family_tree_toggled(on: bool)                 # show the kinship family-tree inspector for the selection
-signal screenshot_requested()                        # user clicked the save-screenshot button
-signal select_llm_requested(kind: String)            # select every creature thinking/queued via the local model
-signal perf_overlay_toggled(on: bool)                # HUD readout: expand to frame/field/physics ms + draw calls
-signal render_debug_toggled(mode: String, on: bool)  # viewport debug draw: "wireframe" | "overdraw" (one at a time)
+signal family_tree_toggled(on: bool)
+signal screenshot_requested()
+signal select_llm_requested(kind: String)
+signal perf_overlay_toggled(on: bool)
+signal render_debug_toggled(mode: String, on: bool)  # "wireframe" | "overdraw"
 
-# Field-channel heatmap rows: display label -> view_toggled key (the DebugOverlay samples that channel).
+# [display label, view_toggled key] — the DebugOverlay samples that channel.
 const FIELD_VIEWS: Array = [
 	["Biomass", "biomass"], ["Water phase", "water_phase"], ["Snow / ice", "snow"],
 	["Lava", "lava"], ["Rock fill", "rock_fill"], ["CO₂", "co2"], ["O₂", "o2"],
 	["Charge", "charge"], ["Fertility", "fertility"],
 ]
 
-# Highlight rows: display label -> scene group to light up.
+# [display label, scene group to light up]
 const HIGHLIGHTS: Array = [
 	["Rabbits", "species_rabbit"], ["Foxes", "species_fox"], ["Birds", "species_bird"],
 	["Vultures", "species_vulture"], ["Villagers", "species_villager"], ["Fish", "species_fish"],
 	["Plants", "species_plant"], ["Nests", "nest"],
 ]
 
-# Behavior-state highlight rows: display label -> behavior category (Creature tints itself when its
-# current state maps to an enabled category). Idle/Wander has no tint, so it is intentionally omitted.
+# [display label, behavior category]. Idle/Wander has no tint, so it is omitted.
 const BEHAVIORS: Array = [
 	["Foraging", "foraging"], ["Hunting", "hunting"], ["Fleeing", "fleeing"],
 	["Drinking", "drinking"], ["Sleeping", "sleeping"], ["Nesting / Mating", "nesting"],
 ]
 
-# Local-LLM slow-brain highlight rows: display label -> tint category (LALLMControl.HL_*). A creature dyes
-# itself while it is consulting (thinking) or waiting on (queued) the shared cognition scheduler — the
-# player watches who is talking to the on-device model live. Routed through behavior_toggled (same registry).
+# [display label, LALLMControl.HL_* tint category]. Routed through behavior_toggled.
 const LLM_HIGHLIGHTS: Array = [
 	["Thinking (local model)", "llm_thinking"], ["Queued", "llm_queued"],
 ]
 
-var _body: VBoxContainer = null
+@onready var _header: Button = $Panel/Col/Header
+@onready var _body: VBoxContainer = $Panel/Col/Scroll/Body
+
 var _collapsed: bool = false
-var _scroll: ScrollContainer = null
 
 
 func _ready() -> void:
-	layer = 50
-	var panel: PanelContainer = PanelContainer.new()
-	panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	panel.position = Vector2(10.0, 120.0)
-	panel.custom_minimum_size = Vector2(172.0, 0.0)
-	var style: StyleBoxFlat = StyleBoxFlat.new()
-	style.bg_color = Color(0.08, 0.09, 0.11, 0.82)
-	style.set_corner_radius_all(8)
-	style.set_content_margin_all(8.0)
-	panel.add_theme_stylebox_override("panel", style)
-	add_child(panel)
-
-	var col: VBoxContainer = VBoxContainer.new()
-	col.add_theme_constant_override("separation", 3)
-	panel.add_child(col)
-
-	# Header with a collapse toggle.
-	var header: Button = Button.new()
-	header.text = "▾  DEBUG"
-	header.flat = true
-	header.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	header.add_theme_font_size_override("font_size", 13)
-	header.pressed.connect(_toggle_collapsed)
-	col.add_child(header)
-
-	# A scroll container caps the panel height so the (now long) toggle list scrolls instead of running off
-	# the screen. It sizes to its content up to the cap, then shows a scrollbar.
-	_scroll = ScrollContainer.new()
-	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_scroll.custom_minimum_size = Vector2(0.0, 460.0)
-	col.add_child(_scroll)
-
-	_body = VBoxContainer.new()
-	_body.add_theme_constant_override("separation", 2)
-	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_scroll.add_child(_body)
+	_header.pressed.connect(_toggle_collapsed)
 
 	_add_section("VIEWS")
 	_add_check("Temperature", func(on: bool) -> void: view_toggled.emit("temp", on))
 	_add_check("Wind", func(on: bool) -> void: view_toggled.emit("wind", on))
 	_add_check("Scent", func(on: bool) -> void: view_toggled.emit("scent", on))
 	_add_check("Rivers (drainage)", func(on: bool) -> void: view_toggled.emit("drainage", on))
-	# Substrate channel heatmaps (one at a time in the overlay; enabling a new one replaces the last).
 	for frow in FIELD_VIEWS:
 		var vkey: String = frow[1]
 		_add_check(frow[0], func(on: bool) -> void: view_toggled.emit(vkey, on))
@@ -127,17 +85,16 @@ func _ready() -> void:
 	_add_check("Intended paths", func(on: bool) -> void: paths_toggled.emit(on))
 
 	_add_section("PERF")
+	# Start OFF with no emit — the applied quality preset owns the real render state.
 	var shadows: CheckButton = _add_check("Sun shadows", func(on: bool) -> void: perf_toggled.emit("shadows", on))
-	shadows.set_pressed_no_signal(false)             # start OFF (no emit) — the applied quality preset drives the real
+	shadows.set_pressed_no_signal(false)
 	var ssao: CheckButton = _add_check("SSAO", func(on: bool) -> void: perf_toggled.emit("ssao", on))
-	ssao.set_pressed_no_signal(false)                # render state; forcing ON lied about it + its init emit was swallowed → 2 clicks
+	ssao.set_pressed_no_signal(false)
 
 	_add_section("STATS")
 	_add_check("Detailed perf readout", func(on: bool) -> void: perf_overlay_toggled.emit(on))
 
 	_add_section("RENDER DEBUG")
-	# Godot viewport debug-draw modes (dev QoL): show the geometry as wireframe, or overdraw (brighter =
-	# more overlapping fragments = fill-rate cost). One at a time — enabling one is handled downstream.
 	_add_check("Wireframe", func(on: bool) -> void: render_debug_toggled.emit("wireframe", on))
 	_add_check("Overdraw", func(on: bool) -> void: render_debug_toggled.emit("overdraw", on))
 

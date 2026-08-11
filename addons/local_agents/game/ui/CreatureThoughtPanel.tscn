@@ -1,0 +1,110 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/ui/CreatureThoughtPanel.gd" id="1_thoughtpanel"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_thoughtpanel"]
+content_margin_left = 10.0
+content_margin_top = 10.0
+content_margin_right = 10.0
+content_margin_bottom = 10.0
+bg_color = Color(0.06, 0.07, 0.1, 0.9)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.3, 0.55, 0.85, 0.9)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[node name="CreatureThoughtPanel" type="CanvasLayer"]
+layer = 88
+script = ExtResource("1_thoughtpanel")
+
+[node name="ThoughtPanel" type="PanelContainer" parent="."]
+visible = false
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -340.0
+offset_top = 14.0
+offset_right = -14.0
+offset_bottom = -14.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_thoughtpanel")
+
+[node name="VBox" type="VBoxContainer" parent="ThoughtPanel"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="ThoughtPanel/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.86, 0.92, 1, 1)
+theme_override_font_sizes/font_size = 17
+
+[node name="Badge" type="Label" parent="ThoughtPanel/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.58, 0.61, 0.68, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="Thought" type="Label" parent="ThoughtPanel/VBox"]
+custom_minimum_size = Vector2(300, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.98, 0.9, 0.55, 1)
+theme_override_font_sizes/font_size = 15
+autowrap_mode = 3
+
+[node name="Hint" type="Label" parent="ThoughtPanel/VBox"]
+custom_minimum_size = Vector2(300, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.58, 0.61, 0.68, 1)
+theme_override_font_sizes/font_size = 11
+autowrap_mode = 3
+
+[node name="Sep1" type="HSeparator" parent="ThoughtPanel/VBox"]
+layout_mode = 2
+
+[node name="LlmToggle" type="CheckButton" parent="ThoughtPanel/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Local model reasoning"
+
+[node name="GroupRow" type="HBoxContainer" parent="ThoughtPanel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="SpeciesBtn" type="Button" parent="ThoughtPanel/VBox/GroupRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Apply to species"
+
+[node name="AllBtn" type="Button" parent="ThoughtPanel/VBox/GroupRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Apply to all"
+
+[node name="Sep2" type="HSeparator" parent="ThoughtPanel/VBox"]
+layout_mode = 2
+
+[node name="Lines" type="VBoxContainer" parent="ThoughtPanel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="Sep3" type="HSeparator" parent="ThoughtPanel/VBox"]
+layout_mode = 2
+
+[node name="StreamLabel" type="Label" parent="ThoughtPanel/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.58, 0.61, 0.68, 1)
+theme_override_font_sizes/font_size = 12
+text = "Recent thoughts"
+
+[node name="HistoryScroll" type="ScrollContainer" parent="ThoughtPanel/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="HistoryBox" type="VBoxContainer" parent="ThoughtPanel/VBox/HistoryScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2

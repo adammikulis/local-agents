@@ -119,6 +119,11 @@ order is the order.
       donor's own `out_scale`, and those terms sum to exactly `raw_out(m)`. Reverse slots are `d ^ 1` and the
       reverse LATERAL index is `l ^ 1`, both checked term by term against the table.
 
+      **IT HAPPENS IN AT MOST TWO STEPS, NOT BY ACCUMULATION.** `o2_first` — latched at the seal, field_step
+      2 — is ALREADY 4.67e17 against a seeded ~37 000. So whatever it is multiplies by ~1e13 within two
+      dispatches, which rules out slow drift and points at a single pass producing a huge `gain` on its first
+      run. Instrument the first two steps, not a long run.
+
       **So the defect is in the pass wiring, not the arithmetic.** Where to look next, in order:
       (a) `GasWindPass` binds the SAME buffer to binding 1 (`TracerOut`, `writeonly`) and binding 2
           (`Deposit`), both declared `restrict` — a promise to the driver that they do not alias, which they

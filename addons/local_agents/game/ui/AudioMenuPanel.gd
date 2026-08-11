@@ -1,65 +1,51 @@
 class_name LAAudioMenuPanel
 extends PanelContainer
 
-## In-code audio control menu for the voxel simulation. Binds the whole procedural
-## audio control surface (LAAudioDirector) to the UI: music composition
-## (scale / progression / key / tempo / time signature / auto / arrangement), a single
-## UNIFIED per-aspect mixer (Master / Music / SFX / Voice / UI, each a volume slider +
-## a mute), and an SFX preview bench.
+## The audio control menu (AudioMenuPanel.tscn). Binds LAAudioDirector to the UI: music composition
+## (scale / progression / key / tempo / time signature / auto / arrangement), a unified per-aspect mixer
+## (Master / Music / SFX / Voice / UI, each a volume slider + a mute), and an SFX preview bench.
 ##
-## Every audio aspect is one row with the SAME two controls: drag the slider to set its
-## volume, click the mute to silence it. Each row acts on that aspect's AudioServer bus
-## (see audio/default_bus_layout.tres) and, where one exists, its director synthesis flag,
-## so muting also stops the work, giving one control surface with no separate enable checkboxes.
-## The streamer TTS plays on the "Voice" bus, so it's controlled here too.
+## Each mixer row acts on that aspect's AudioServer bus (audio/default_bus_layout.tres) and, where one
+## exists, its director synthesis flag, so muting also stops the work. The streamer TTS rides "Voice".
 ##
-## Presentation only. It drives the audio engine and the AudioServer buses, and it never
-## reads or writes simulation-authoritative state. Built entirely in code, inheriting
-## the shared Theme from the parent HudRoot (see SpawnPaletteHud). No .tscn.
+## Presentation only: it drives the audio engine and the AudioServer buses and never touches
+## simulation-authoritative state. It inherits the shared Theme from the parent HudRoot.
 
 ## Emitted when the "Auto-adapt music (sim mood)" toggle changes. VoxelWorld listens
 ## and stops/starts feeding its live mood snapshot so manual picks can stick.
 signal auto_adapt_changed(on: bool)
 
-# The audio aspects, one mixer row each. `bus` is the AudioServer bus it rides; `flag` names the
-# director synthesis toggle a mute should also flip ("" = bus-only, e.g. Voice/UI). Order = top→bottom.
+# One mixer row per audio aspect. `bus` is the AudioServer bus it rides; `flag` names the director
+# synthesis toggle a mute should also flip ("" = bus-only); `node` is its row in the scene.
 const ASPECTS: Array = [
-	{"label": "Master", "bus": "Master", "flag": "master"},
-	{"label": "Music", "bus": "Music", "flag": "music"},
-	{"label": "SFX", "bus": "Sfx", "flag": "sfx"},
-	{"label": "Voice", "bus": "Voice", "flag": ""},
-	{"label": "UI", "bus": "Ui", "flag": ""},
+	{"label": "Master", "bus": "Master", "flag": "master", "node": "MasterRow"},
+	{"label": "Music", "bus": "Music", "flag": "music", "node": "MusicRow"},
+	{"label": "SFX", "bus": "Sfx", "flag": "sfx", "node": "SfxRow"},
+	{"label": "Voice", "bus": "Voice", "flag": "", "node": "VoiceRow"},
+	{"label": "UI", "bus": "Ui", "flag": "", "node": "UiRow"},
 ]
 
 const KEY_MIN: int = 33   # A1
 const KEY_MAX: int = 57   # A3
-const TEMPO_MIN: float = 30.0
-const TEMPO_MAX: float = 220.0
 const TIME_SIG_MIN: int = 2
 const TIME_SIG_MAX: int = 12
 
-# Colors mirror SpawnPaletteHud's palette so the two panels read as one system.
-const COL_TEXT: Color = Color(0.90, 0.92, 0.95, 1.0)
-const COL_TEXT_DIM: Color = Color(0.62, 0.66, 0.72, 1.0)
-const COL_TEXT_HEADING: Color = Color(0.98, 0.99, 1.0, 1.0)
-const COL_ACCENT: Color = Color(0.33, 0.70, 0.98, 1.0)
-const COL_BORDER: Color = Color(0.24, 0.27, 0.33, 1.0)
+@onready var _col: VBoxContainer = $Margin/Scroll/Col
+@onready var _mode_option: OptionButton = $Margin/Scroll/Col/ModeOption
+@onready var _prog_option: OptionButton = $Margin/Scroll/Col/ProgOption
+@onready var _key_slider: HSlider = $Margin/Scroll/Col/KeyRow/Slider
+@onready var _key_value: Label = $Margin/Scroll/Col/KeyRow/Value
+@onready var _tempo_slider: HSlider = $Margin/Scroll/Col/TempoRow/Slider
+@onready var _tempo_value: Label = $Margin/Scroll/Col/TempoRow/Value
+@onready var _timesig_slider: HSlider = $Margin/Scroll/Col/TimeSigRow/Slider
+@onready var _timesig_value: Label = $Margin/Scroll/Col/TimeSigRow/Value
+@onready var _auto_mode_check: CheckButton = $Margin/Scroll/Col/AutoMode
+@onready var _arrangement_check: CheckButton = $Margin/Scroll/Col/Arrangement
+@onready var _auto_adapt_check: CheckButton = $Margin/Scroll/Col/AutoAdapt
+@onready var _status_label: Label = $Margin/Scroll/Col/Status
+@onready var _sfx_grid: GridContainer = $Margin/Scroll/Col/SfxGrid
 
 var _director: LAAudioDirector = null
-
-# Controls we need to read/refresh after bind.
-var _mode_option: OptionButton
-var _prog_option: OptionButton
-var _key_slider: HSlider
-var _key_value: Label
-var _tempo_slider: HSlider
-var _tempo_value: Label
-var _timesig_slider: HSlider
-var _timesig_value: Label
-var _auto_mode_check: CheckButton
-var _arrangement_check: CheckButton
-var _auto_adapt_check: CheckButton
-var _status_label: Label
 
 var _mode_names: PackedStringArray = []
 var _prog_names: PackedStringArray = []
@@ -73,14 +59,26 @@ var _suppress_signals: bool = false
 
 
 func _ready() -> void:
-	visible = false
-	set_anchors_and_offsets_preset(Control.PRESET_CENTER_LEFT)
-	offset_left = 12.0
-	offset_top = 0.0
-	grow_vertical = Control.GROW_DIRECTION_BOTH
-	custom_minimum_size = Vector2(320.0, 0.0)
-	mouse_filter = Control.MOUSE_FILTER_STOP
-	_build()
+	for aspect in ASPECTS:
+		_wire_aspect_row(aspect)
+
+	_mode_option.item_selected.connect(_on_mode_selected)
+	_prog_option.item_selected.connect(_on_progression_selected)
+	_key_slider.value_changed.connect(_on_key_changed)
+	_tempo_slider.value_changed.connect(_on_tempo_changed)
+	_timesig_slider.value_changed.connect(_on_timesig_changed)
+
+	_auto_mode_check.toggled.connect(func(on: bool) -> void:
+		if not _suppress_signals and _director != null:
+			_director.set_music_auto(on))
+	_arrangement_check.toggled.connect(func(on: bool) -> void:
+		if not _suppress_signals and _director != null:
+			_director.set_music_arrangement_enabled(on))
+	_auto_adapt_check.toggled.connect(func(on: bool) -> void:
+		if not _suppress_signals:
+			auto_adapt_changed.emit(on))
+
+	_fill_sfx_bench()
 	set_process(true)
 
 
@@ -133,8 +131,7 @@ func bind(director: LAAudioDirector) -> void:
 	_timesig_slider.value = clampf(float(time_sig), float(TIME_SIG_MIN), float(TIME_SIG_MAX))
 	_timesig_value.text = "%d / 4" % int(_timesig_slider.value)
 
-	# Tempo isn't in music_status(); leave the slider at its default midpoint and let
-	# the user drive it. (Arrangement can still modulate it live.)
+	# Tempo isn't in music_status(); leave the slider where it is and let the user drive it.
 	_update_tempo_label(_tempo_slider.value)
 
 	# Initialize every mixer row's slider (volume) + mute from current AudioServer bus state.
@@ -174,97 +171,38 @@ func refresh_status() -> void:
 
 
 # ---------------------------------------------------------------------------
-# Construction
+# Wiring
 # ---------------------------------------------------------------------------
 
-func _build() -> void:
-	var margin: MarginContainer = MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 14)
-	margin.add_theme_constant_override("margin_right", 14)
-	margin.add_theme_constant_override("margin_top", 12)
-	margin.add_theme_constant_override("margin_bottom", 12)
-	add_child(margin)
+# Bind one scene mixer row to its bus: the slider sets the bus volume; the mute silences the bus AND flips
+# its director synthesis flag (if any).
+func _wire_aspect_row(aspect: Dictionary) -> void:
+	var row: HBoxContainer = _col.get_node_or_null(String(aspect["node"])) as HBoxContainer
+	if row == null:
+		return
+	var bus: String = String(aspect["bus"])
+	var flag: String = String(aspect["flag"])
 
-	var scroll: ScrollContainer = ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.custom_minimum_size = Vector2(292.0, 460.0)
-	margin.add_child(scroll)
+	var slider: HSlider = row.get_node_or_null("Slider") as HSlider
+	if slider != null:
+		slider.value_changed.connect(func(v: float) -> void:
+			if _suppress_signals:
+				return
+			var idx: int = AudioServer.get_bus_index(bus)
+			if idx >= 0:
+				AudioServer.set_bus_volume_db(idx, linear_to_db(v) if v > 0.0 else -80.0))
+		_bus_sliders[bus] = slider
 
-	var col: VBoxContainer = VBoxContainer.new()
-	col.add_theme_constant_override("separation", 8)
-	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(col)
-
-	_add_heading(col, "AUDIO")
-
-	# --- Unified per-aspect mixer: one row (volume slider + mute) per aspect. This is the single
-	# on/off + level surface; muting an aspect also stops its synthesis where a director flag exists.
-	_add_section_title(col, "Mixer")
-	for aspect in ASPECTS:
-		_add_aspect_row(col, aspect)
-
-	# --- Music composition ---
-	_add_section_title(col, "Music")
-
-	_mode_option = _add_option(col, "Scale / mode")
-	_mode_option.item_selected.connect(_on_mode_selected)
-
-	_prog_option = _add_option(col, "Progression")
-	_prog_option.item_selected.connect(_on_progression_selected)
-
-	var key_row: Dictionary = _add_slider(col, "Key", float(KEY_MIN), float(KEY_MAX), 1.0, float(KEY_MIN))
-	_key_slider = key_row["slider"]
-	_key_value = key_row["value"]
-	_key_slider.value_changed.connect(_on_key_changed)
-
-	var tempo_row: Dictionary = _add_slider(col, "Tempo", TEMPO_MIN, TEMPO_MAX, 1.0, 84.0)
-	_tempo_slider = tempo_row["slider"]
-	_tempo_value = tempo_row["value"]
-	_tempo_slider.value_changed.connect(_on_tempo_changed)
-
-	var ts_row: Dictionary = _add_slider(col, "Time sig", float(TIME_SIG_MIN), float(TIME_SIG_MAX), 1.0, 4.0)
-	_timesig_slider = ts_row["slider"]
-	_timesig_value = ts_row["value"]
-	_timesig_slider.value_changed.connect(_on_timesig_changed)
-
-	_auto_mode_check = _add_check(col, "Engine auto-mode", false)
-	_auto_mode_check.tooltip_text = "Let the engine pick the scale from mood/time-of-day"
-	_auto_mode_check.toggled.connect(func(on: bool) -> void:
-		if not _suppress_signals and _director != null:
-			_director.set_music_auto(on))
-
-	_arrangement_check = _add_check(col, "Long-form arrangement", true)
-	_arrangement_check.tooltip_text = "Multi-section song structure (may modulate key/tempo/meter)"
-	_arrangement_check.toggled.connect(func(on: bool) -> void:
-		if not _suppress_signals and _director != null:
-			_director.set_music_arrangement_enabled(on))
-
-	_auto_adapt_check = _add_check(col, "Auto-adapt to sim", true)
-	_auto_adapt_check.tooltip_text = "Feed live sim mood to the music. Turn off so your manual picks stick."
-	_auto_adapt_check.toggled.connect(func(on: bool) -> void:
-		if not _suppress_signals:
-			auto_adapt_changed.emit(on))
-
-	_status_label = Label.new()
-	_status_label.add_theme_color_override("font_color", COL_TEXT_DIM)
-	_status_label.add_theme_font_size_override("font_size", 12)
-	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status_label.text = "(no status)"
-	col.add_child(_status_label)
-
-	# --- SFX bench ---
-	_add_section_title(col, "SFX bench")
-	_build_sfx_bench(col)
+	var mute: CheckButton = row.get_node_or_null("Mute") as CheckButton
+	if mute != null:
+		mute.toggled.connect(func(on: bool) -> void:
+			_on_aspect_mute(bus, flag, on))
+		_bus_mutes[bus] = mute
 
 
-func _build_sfx_bench(col: VBoxContainer) -> void:
-	var grid: GridContainer = GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 6)
-	grid.add_theme_constant_override("v_separation", 6)
-	col.add_child(grid)
-
-	# sfx_keys() needs the director; when not yet bound, fall back to a static preset list.
+# The preview bench is one button per SFX key, and the key set comes from the director (or the preset
+# table before one is bound), so the buttons are made here rather than declared in the scene.
+func _fill_sfx_bench() -> void:
 	var keys: Array = []
 	if _director != null:
 		keys = _director.sfx_keys()
@@ -282,51 +220,7 @@ func _build_sfx_bench(col: VBoxContainer) -> void:
 			if _director != null:
 				# Non-positional preview (omit world position).
 				_director.play_sfx(sfx_key))
-		grid.add_child(btn)
-
-
-# One unified mixer row for an audio aspect: [ label | volume slider | mute ]. The slider sets the
-# aspect's bus volume; the mute silences the bus AND flips its director synthesis flag (if any).
-func _add_aspect_row(col: VBoxContainer, aspect: Dictionary) -> void:
-	var bus: String = String(aspect["bus"])
-	var flag: String = String(aspect["flag"])
-
-	var row: HBoxContainer = HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	col.add_child(row)
-
-	var label: Label = Label.new()
-	label.text = String(aspect["label"])
-	label.custom_minimum_size = Vector2(52.0, 0.0)
-	label.add_theme_color_override("font_color", COL_TEXT)
-	label.add_theme_font_size_override("font_size", 13)
-	row.add_child(label)
-
-	var slider: HSlider = HSlider.new()
-	slider.min_value = 0.0
-	slider.max_value = 1.0
-	slider.step = 0.01
-	slider.value = 1.0
-	slider.custom_minimum_size = Vector2(150.0, 0.0)
-	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	slider.tooltip_text = "%s volume" % String(aspect["label"])
-	slider.value_changed.connect(func(v: float) -> void:
-		if _suppress_signals:
-			return
-		var idx: int = AudioServer.get_bus_index(bus)
-		if idx >= 0:
-			AudioServer.set_bus_volume_db(idx, linear_to_db(v) if v > 0.0 else -80.0))
-	row.add_child(slider)
-	_bus_sliders[bus] = slider
-
-	var mute: CheckButton = CheckButton.new()
-	mute.tooltip_text = "Mute %s" % String(aspect["label"])
-	mute.focus_mode = Control.FOCUS_NONE
-	mute.toggled.connect(func(on: bool) -> void:
-		_on_aspect_mute(bus, flag, on))
-	row.add_child(mute)
-	_bus_mutes[bus] = mute
+		_sfx_grid.add_child(btn)
 
 
 # Mute/unmute an aspect: silence its bus and, if it has a director synthesis flag, stop/start that
@@ -395,85 +289,8 @@ func _on_timesig_changed(value: float) -> void:
 
 
 # ---------------------------------------------------------------------------
-# Widget helpers
+# Label helpers
 # ---------------------------------------------------------------------------
-
-func _add_heading(col: VBoxContainer, text: String) -> void:
-	var l: Label = Label.new()
-	l.text = text
-	l.add_theme_color_override("font_color", COL_ACCENT)
-	l.add_theme_font_size_override("font_size", 16)
-	col.add_child(l)
-
-
-func _add_section_title(col: VBoxContainer, text: String) -> void:
-	var rule: ColorRect = ColorRect.new()
-	rule.color = COL_BORDER
-	rule.custom_minimum_size = Vector2(0.0, 1.0)
-	rule.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(rule)
-	var l: Label = Label.new()
-	l.text = text
-	l.add_theme_color_override("font_color", COL_TEXT_HEADING)
-	l.add_theme_font_size_override("font_size", 13)
-	col.add_child(l)
-
-
-func _add_check(col: VBoxContainer, text: String, initial: bool) -> CheckButton:
-	var c: CheckButton = CheckButton.new()
-	c.text = text
-	c.button_pressed = initial
-	c.focus_mode = Control.FOCUS_NONE
-	c.add_theme_font_size_override("font_size", 13)
-	col.add_child(c)
-	return c
-
-
-func _add_option(col: VBoxContainer, label_text: String) -> OptionButton:
-	var l: Label = Label.new()
-	l.text = label_text
-	l.add_theme_color_override("font_color", COL_TEXT_DIM)
-	l.add_theme_font_size_override("font_size", 12)
-	col.add_child(l)
-	var opt: OptionButton = OptionButton.new()
-	opt.focus_mode = Control.FOCUS_NONE
-	opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	opt.add_theme_font_size_override("font_size", 13)
-	col.add_child(opt)
-	return opt
-
-
-## Returns {"slider": HSlider, "value": Label}. A label + [slider ---- value] row.
-func _add_slider(col: VBoxContainer, label_text: String, mn: float, mx: float, step: float, initial: float) -> Dictionary:
-	var l: Label = Label.new()
-	l.text = label_text
-	l.add_theme_color_override("font_color", COL_TEXT_DIM)
-	l.add_theme_font_size_override("font_size", 12)
-	col.add_child(l)
-
-	var row: HBoxContainer = HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	col.add_child(row)
-
-	var slider: HSlider = HSlider.new()
-	slider.min_value = mn
-	slider.max_value = mx
-	slider.step = step
-	slider.value = initial
-	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(slider)
-
-	var value: Label = Label.new()
-	value.text = str(int(initial))
-	value.add_theme_color_override("font_color", COL_TEXT)
-	value.add_theme_font_size_override("font_size", 13)
-	value.custom_minimum_size = Vector2(56.0, 0.0)
-	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	row.add_child(value)
-
-	return {"slider": slider, "value": value}
-
 
 func _update_key_label(midi: int) -> void:
 	if _key_value != null:
@@ -495,7 +312,6 @@ func _select_option_by_text(opt: OptionButton, text: String) -> void:
 
 
 func _midi_name(midi: int) -> String:
-	# Prefer the engine's canonical naming; fall back to a local table.
 	if midi <= 0:
 		return "-"
 	var names: PackedStringArray = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]

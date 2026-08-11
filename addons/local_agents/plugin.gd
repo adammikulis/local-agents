@@ -20,7 +20,7 @@ extends EditorPlugin
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
 const PANEL_SCENE: PackedScene = preload("res://addons/local_agents/editor/LocalAgentPanel.tscn")
-const SETUP_TAB_SCRIPT: GDScript = preload("res://addons/local_agents/editor/SetupTab.gd")
+const SETUP_TAB_SCENE: PackedScene = preload("res://addons/local_agents/editor/SetupTab.tscn")
 const CHOICE_INSPECTOR_SCRIPT: GDScript = preload("res://addons/local_agents/editor/ChoiceInspectorPlugin.gd")
 const EXTENSION_LOADER: GDScript = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const SETTINGS: GDScript = preload("res://addons/local_agents/runtime/Settings.gd")
@@ -128,7 +128,7 @@ func _register_autoload() -> void:
 func _create_setup_panel() -> void:
     if _panel_instance:
         return
-    var setup: Control = SETUP_TAB_SCRIPT.new()
+    var setup: Control = SETUP_TAB_SCENE.instantiate()
     setup.name = "LocalAgentSetup"
     setup.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     setup.size_flags_vertical = Control.SIZE_EXPAND_FILL

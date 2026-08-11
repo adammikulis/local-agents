@@ -218,19 +218,29 @@ static func boil_c_at(id: String, p_pa: float) -> float:
 ## constants with the relation between them written in a comment. Watson correlation:
 ## that is physically ZERO. Watson has the right asymptote — L goes to zero at Tc, because that is what a
 ## Per-element data, keyed the way `formula` is. One row per element, never one per compound.
-const ELEMENT_IONISATION_EV: Dictionary = {
-	"H": PC.IONISATION_EV_H, "O": PC.IONISATION_EV_O, "C": PC.IONISATION_EV_C, "N": PC.IONISATION_EV_N,
-	"Si": PC.IONISATION_EV_SI, "Ca": PC.IONISATION_EV_CA, "Fe": PC.IONISATION_EV_FE,
-	"Mg": PC.IONISATION_EV_MG, "Al": PC.IONISATION_EV_AL,
-}
-const ELEMENT_DEGEN: Dictionary = {
-	"H": [PC.DEGEN_H_0, PC.DEGEN_H_1], "O": [PC.DEGEN_O_0, PC.DEGEN_O_1],
-	"C": [PC.DEGEN_C_0, PC.DEGEN_C_1], "N": [PC.DEGEN_N_0, PC.DEGEN_N_1],
-}
-const ELEMENT_ENTROPY_J_MOLK: Dictionary = {
-	"H": PC.ENTROPY_H_ATOM_J_MOLK, "O": PC.ENTROPY_O_ATOM_J_MOLK,
-	"C": PC.ENTROPY_C_ATOM_J_MOLK, "N": PC.ENTROPY_N_ATOM_J_MOLK,
-}
+## Static funcs, not consts: `table()` is one for the same reason. A const Dictionary holding values from
+## another preloaded script is a const-expression the runtime can fail to evaluate even when the editor scan
+## passes, and the whole script then has no static methods at all.
+static func element_ionisation_ev() -> Dictionary:
+	return {
+		"H": PC.IONISATION_EV_H, "O": PC.IONISATION_EV_O, "C": PC.IONISATION_EV_C, "N": PC.IONISATION_EV_N,
+		"Si": PC.IONISATION_EV_SI, "Ca": PC.IONISATION_EV_CA, "Fe": PC.IONISATION_EV_FE,
+		"Mg": PC.IONISATION_EV_MG, "Al": PC.IONISATION_EV_AL,
+	}
+
+
+static func element_degen() -> Dictionary:
+	return {
+		"H": [PC.DEGEN_H_0, PC.DEGEN_H_1], "O": [PC.DEGEN_O_0, PC.DEGEN_O_1],
+		"C": [PC.DEGEN_C_0, PC.DEGEN_C_1], "N": [PC.DEGEN_N_0, PC.DEGEN_N_1],
+	}
+
+
+static func element_entropy_j_molk() -> Dictionary:
+	return {
+		"H": PC.ENTROPY_H_ATOM_J_MOLK, "O": PC.ENTROPY_O_ATOM_J_MOLK,
+		"C": PC.ENTROPY_C_ATOM_J_MOLK, "N": PC.ENTROPY_N_ATOM_J_MOLK,
+	}
 
 
 ## Dissociated fraction at temperature and pressure, from the law of mass action. M <-> v atoms, with
@@ -243,14 +253,15 @@ static func dissociated_fraction(id: String, t_k: float, p_pa: float) -> float:
 	var s_mol: float = float(s.get("entropy_gas_j_molk", 0.0))
 	if dh <= 0.0 or s_mol <= 0.0 or t_k <= 0.0:
 		return 0.0
+	var s_ent: Dictionary = element_entropy_j_molk()
 	var nu: float = 0.0
 	var s_atoms: float = 0.0
 	for el in s.get("formula", {}):
 		var n: float = float(s["formula"][el])
-		if not ELEMENT_ENTROPY_J_MOLK.has(el):
+		if not s_ent.has(el):
 			return 0.0
 		nu += n
-		s_atoms += n * float(ELEMENT_ENTROPY_J_MOLK[el])
+		s_atoms += n * float(s_ent[el])
 	if nu <= 1.0:
 		return 0.0
 	var dg: float = dh - t_k * (s_atoms - s_mol)
@@ -285,15 +296,17 @@ static func ionised_fraction(id: String, t_k: float, p_pa: float) -> float:
 	var kt: float = PC.BOLTZMANN_J_K * t_k
 	# The thermal de Broglie factor, (2 pi m_e k T / h^2)^(3/2).
 	var lam: float = pow(2.0 * PI * PC.ELECTRON_MASS_KG * kt / (PC.PLANCK_J_S * PC.PLANCK_J_S), 1.5)
+	var ev: Dictionary = element_ionisation_ev()
+	var dg: Dictionary = element_degen()
 	var atoms: float = 0.0
 	var ion_atoms: float = 0.0
 	for el in f:
 		var n: float = float(f[el])
 		atoms += n
-		if not ELEMENT_IONISATION_EV.has(el) or not ELEMENT_DEGEN.has(el):
+		if not ev.has(el) or not dg.has(el):
 			continue
-		var chi: float = float(ELEMENT_IONISATION_EV[el]) * PC.EV_TO_J_PER_MOL / PC.AVOGADRO_PER_MOL
-		var g: Array = ELEMENT_DEGEN[el]
+		var chi: float = float(ev[el]) * PC.EV_TO_J_PER_MOL / PC.AVOGADRO_PER_MOL
+		var g: Array = dg[el]
 		var ratio: float = 2.0 * float(g[1]) / maxf(float(g[0]), 1.0)
 		var expo: float = -chi / kt
 		var big: float = ratio * lam * exp(expo) / maxf(n_m3, 1.0)
@@ -365,11 +378,7 @@ static func ionisation_j_kg(id: String) -> float:
 	var mm: float = float(s.get("molar_mass", 0.0))
 	if f.is_empty() or mm <= 0.0:
 		return 0.0
-	var ev: Dictionary = {
-		"H": PC.IONISATION_EV_H, "O": PC.IONISATION_EV_O, "C": PC.IONISATION_EV_C,
-		"N": PC.IONISATION_EV_N, "Si": PC.IONISATION_EV_SI, "Ca": PC.IONISATION_EV_CA,
-		"Fe": PC.IONISATION_EV_FE, "Mg": PC.IONISATION_EV_MG, "Al": PC.IONISATION_EV_AL,
-	}
+	var ev: Dictionary = element_ionisation_ev()
 	var j_mol: float = 0.0
 	for el in f:
 		if not ev.has(el):

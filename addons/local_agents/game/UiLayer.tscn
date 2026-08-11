@@ -2,8 +2,8 @@
 
 [ext_resource type="Script" path="res://addons/local_agents/game/UiLayer.gd" id="1_uilayer"]
 [ext_resource type="Script" path="res://addons/local_agents/game/progression/GameProgression.gd" id="2_gameprogression"]
-[ext_resource type="Script" path="res://addons/local_agents/game/ui/SpawnPaletteHud.gd" id="3_spawnpalettehud"]
-[ext_resource type="Script" path="res://addons/local_agents/game/ui/GameHud.gd" id="4_gamehud"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/ui/SpawnPaletteHud.tscn" id="3_spawnpalettehud"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/ui/GameHud.tscn" id="4_gamehud"]
 [ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelTimeControl.gd" id="5_voxeltimecontrol"]
 [ext_resource type="Script" path="res://addons/local_agents/game/ui/GeneratingPlanetScreen.gd" id="6_generatingplanetscreen"]
 [ext_resource type="Script" path="res://addons/local_agents/audio/AudioDirector.gd" id="7_audiodirector"]
@@ -13,7 +13,7 @@
 [ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelSpawnBrush.gd" id="11_voxelspawnbrush"]
 [ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelInteraction.gd" id="12_voxelinteraction"]
 [ext_resource type="Script" path="res://addons/local_agents/game/world/CompanionController.gd" id="13_companioncontroller"]
-[ext_resource type="Script" path="res://addons/local_agents/game/ui/CreatureThoughtPanel.gd" id="14_creaturethoughtpanel"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/ui/CreatureThoughtPanel.tscn" id="14_creaturethoughtpanel"]
 [ext_resource type="Script" path="res://addons/local_agents/game/ui/CampaignTutorial.gd" id="15_campaigntutorial"]
 
 [node name="UiLayer" type="Node"]
@@ -22,11 +22,9 @@ script = ExtResource("1_uilayer")
 [node name="GameProgression" type="Node" parent="."]
 script = ExtResource("2_gameprogression")
 
-[node name="Hud" type="CanvasLayer" parent="."]
-script = ExtResource("3_spawnpalettehud")
+[node name="Hud" parent="." instance=ExtResource("3_spawnpalettehud")]
 
-[node name="GameHud" type="CanvasLayer" parent="."]
-script = ExtResource("4_gamehud")
+[node name="GameHud" parent="." instance=ExtResource("4_gamehud")]
 
 [node name="TimeControl" type="CanvasLayer" parent="."]
 script = ExtResource("5_voxeltimecontrol")
@@ -55,8 +53,7 @@ script = ExtResource("12_voxelinteraction")
 [node name="CompanionController" type="Node" parent="."]
 script = ExtResource("13_companioncontroller")
 
-[node name="CreatureThoughtPanel" type="CanvasLayer" parent="."]
-script = ExtResource("14_creaturethoughtpanel")
+[node name="CreatureThoughtPanel" parent="." instance=ExtResource("14_creaturethoughtpanel")]
 
 [node name="CampaignTutorial" type="Node" parent="."]
 script = ExtResource("15_campaigntutorial")

@@ -1,7 +1,7 @@
 class_name LAVoxelInputController
 extends Node
 
-const PauseMenuScript: GDScript = preload("res://addons/local_agents/game/world/VoxelPauseMenu.gd")
+const PauseMenuScene: PackedScene = preload("res://addons/local_agents/game/world/VoxelPauseMenu.tscn")
 const ViewControlsScript: GDScript = preload("res://addons/local_agents/game/world/VoxelViewControls.gd")
 
 ## --bench=<name> timelines: frame -> deterministic action, fired once each via _bench_fire(). Add a new
@@ -515,7 +515,7 @@ func bind(terrain, camera: Camera3D, body: Node3D, star: Node3D, material: Node,
 ## [Planet | Solar System] · [Free | Geosync] · [Auto-spin] cluster. Called ONLY by LAPresentation, so a run
 ## without --ui has neither. Every reader of _pause_menu / _view_controls null-guards.
 func build_ui() -> void:
-	_pause_menu = PauseMenuScript.new()
+	_pause_menu = PauseMenuScene.instantiate() as LAVoxelPauseMenu
 	_pause_menu.name = "PauseMenu"
 	add_child(_pause_menu)
 	_view_controls = ViewControlsScript.new()

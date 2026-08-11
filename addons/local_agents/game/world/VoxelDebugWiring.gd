@@ -7,7 +7,7 @@ extends Node
 ## toggles the interaction controller triggers. Factored out of LAVoxelWorld so the "debug views + behavior
 ## highlights" concern is one file. (Explicit types only, no ':=' inferred typing.)
 
-const DebugPanelScript: GDScript = preload("res://addons/local_agents/game/ui/DebugPanel.gd")
+const DebugPanelScene: PackedScene = preload("res://addons/local_agents/game/ui/DebugPanel.tscn")
 const DebugOverlayScript: GDScript = preload("res://addons/local_agents/game/ui/DebugOverlay.gd")
 const FamilyTreePanelScript: GDScript = preload("res://addons/local_agents/game/ui/FamilyTreePanel.gd")
 const CreatureScript: GDScript = preload("res://addons/local_agents/creatures/Creature.gd")
@@ -64,7 +64,7 @@ func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud:
 	_debug_overlay.name = "DebugOverlay"
 	world.add_child(_debug_overlay)
 	_debug_overlay.setup(_material, _terrain)
-	_debug_panel = DebugPanelScript.new()
+	_debug_panel = DebugPanelScene.instantiate() as CanvasLayer
 	_debug_panel.name = "DebugPanel"
 	world.add_child(_debug_panel)
 	_debug_panel.view_toggled.connect(_on_debug_view)

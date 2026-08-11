@@ -1,0 +1,342 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/ui/AudioMenuPanel.gd" id="1_audiomenu"]
+
+[node name="AudioMenuPanel" type="PanelContainer"]
+visible = false
+custom_minimum_size = Vector2(320, 0)
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 12.0
+grow_vertical = 2
+script = ExtResource("1_audiomenu")
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 12
+
+[node name="Scroll" type="ScrollContainer" parent="Margin"]
+custom_minimum_size = Vector2(292, 460)
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="Col" type="VBoxContainer" parent="Margin/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Heading" type="Label" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.33, 0.7, 0.98, 1)
+theme_override_font_sizes/font_size = 16
+text = "AUDIO"
+
+[node name="MixerRule" type="ColorRect" parent="Margin/Scroll/Col"]
+custom_minimum_size = Vector2(0, 1)
+layout_mode = 2
+size_flags_horizontal = 3
+color = Color(0.24, 0.27, 0.33, 1)
+
+[node name="MixerTitle" type="Label" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.98, 0.99, 1, 1)
+theme_override_font_sizes/font_size = 13
+text = "Mixer"
+
+[node name="MasterRow" type="HBoxContainer" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Name" type="Label" parent="Margin/Scroll/Col/MasterRow"]
+custom_minimum_size = Vector2(52, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
+theme_override_font_sizes/font_size = 13
+text = "Master"
+
+[node name="Slider" type="HSlider" parent="Margin/Scroll/Col/MasterRow"]
+custom_minimum_size = Vector2(150, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+tooltip_text = "Master volume"
+max_value = 1.0
+step = 0.01
+value = 1.0
+
+[node name="Mute" type="CheckButton" parent="Margin/Scroll/Col/MasterRow"]
+layout_mode = 2
+focus_mode = 0
+tooltip_text = "Mute Master"
+
+[node name="MusicRow" type="HBoxContainer" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Name" type="Label" parent="Margin/Scroll/Col/MusicRow"]
+custom_minimum_size = Vector2(52, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
+theme_override_font_sizes/font_size = 13
+text = "Music"
+
+[node name="Slider" type="HSlider" parent="Margin/Scroll/Col/MusicRow"]
+custom_minimum_size = Vector2(150, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+tooltip_text = "Music volume"
+max_value = 1.0
+step = 0.01
+value = 1.0
+
+[node name="Mute" type="CheckButton" parent="Margin/Scroll/Col/MusicRow"]
+layout_mode = 2
+focus_mode = 0
+tooltip_text = "Mute Music"
+
+[node name="SfxRow" type="HBoxContainer" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Name" type="Label" parent="Margin/Scroll/Col/SfxRow"]
+custom_minimum_size = Vector2(52, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
+theme_override_font_sizes/font_size = 13
+text = "SFX"
+
+[node name="Slider" type="HSlider" parent="Margin/Scroll/Col/SfxRow"]
+custom_minimum_size = Vector2(150, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+tooltip_text = "SFX volume"
+max_value = 1.0
+step = 0.01
+value = 1.0
+
+[node name="Mute" type="CheckButton" parent="Margin/Scroll/Col/SfxRow"]
+layout_mode = 2
+focus_mode = 0
+tooltip_text = "Mute SFX"
+
+[node name="VoiceRow" type="HBoxContainer" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Name" type="Label" parent="Margin/Scroll/Col/VoiceRow"]
+custom_minimum_size = Vector2(52, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
+theme_override_font_sizes/font_size = 13
+text = "Voice"
+
+[node name="Slider" type="HSlider" parent="Margin/Scroll/Col/VoiceRow"]
+custom_minimum_size = Vector2(150, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+tooltip_text = "Voice volume"
+max_value = 1.0
+step = 0.01
+value = 1.0
+
+[node name="Mute" type="CheckButton" parent="Margin/Scroll/Col/VoiceRow"]
+layout_mode = 2
+focus_mode = 0
+tooltip_text = "Mute Voice"
+
+[node name="UiRow" type="HBoxContainer" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Name" type="Label" parent="Margin/Scroll/Col/UiRow"]
+custom_minimum_size = Vector2(52, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
+theme_override_font_sizes/font_size = 13
+text = "UI"
+
+[node name="Slider" type="HSlider" parent="Margin/Scroll/Col/UiRow"]
+custom_minimum_size = Vector2(150, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+tooltip_text = "UI volume"
+max_value = 1.0
+step = 0.01
+value = 1.0
+
+[node name="Mute" type="CheckButton" parent="Margin/Scroll/Col/UiRow"]
+layout_mode = 2
+focus_mode = 0
+tooltip_text = "Mute UI"
+
+[node name="MusicRule" type="ColorRect" parent="Margin/Scroll/Col"]
+custom_minimum_size = Vector2(0, 1)
+layout_mode = 2
+size_flags_horizontal = 3
+color = Color(0.24, 0.27, 0.33, 1)
+
+[node name="MusicTitle" type="Label" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.98, 0.99, 1, 1)
+theme_override_font_sizes/font_size = 13
+text = "Music"
+
+[node name="ModeLabel" type="Label" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 12
+text = "Scale / mode"
+
+[node name="ModeOption" type="OptionButton" parent="Margin/Scroll/Col"]
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 0
+theme_override_font_sizes/font_size = 13
+
+[node name="ProgLabel" type="Label" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 12
+text = "Progression"
+
+[node name="ProgOption" type="OptionButton" parent="Margin/Scroll/Col"]
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 0
+theme_override_font_sizes/font_size = 13
+
+[node name="KeyLabel" type="Label" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 12
+text = "Key"
+
+[node name="KeyRow" type="HBoxContainer" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Slider" type="HSlider" parent="Margin/Scroll/Col/KeyRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+min_value = 33.0
+max_value = 57.0
+step = 1.0
+value = 33.0
+
+[node name="Value" type="Label" parent="Margin/Scroll/Col/KeyRow"]
+custom_minimum_size = Vector2(56, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
+theme_override_font_sizes/font_size = 13
+text = "33"
+horizontal_alignment = 2
+
+[node name="TempoLabel" type="Label" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 12
+text = "Tempo"
+
+[node name="TempoRow" type="HBoxContainer" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Slider" type="HSlider" parent="Margin/Scroll/Col/TempoRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+min_value = 30.0
+max_value = 220.0
+step = 1.0
+value = 84.0
+
+[node name="Value" type="Label" parent="Margin/Scroll/Col/TempoRow"]
+custom_minimum_size = Vector2(56, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
+theme_override_font_sizes/font_size = 13
+text = "84"
+horizontal_alignment = 2
+
+[node name="TimeSigLabel" type="Label" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 12
+text = "Time sig"
+
+[node name="TimeSigRow" type="HBoxContainer" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Slider" type="HSlider" parent="Margin/Scroll/Col/TimeSigRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+min_value = 2.0
+max_value = 12.0
+step = 1.0
+value = 4.0
+
+[node name="Value" type="Label" parent="Margin/Scroll/Col/TimeSigRow"]
+custom_minimum_size = Vector2(56, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
+theme_override_font_sizes/font_size = 13
+text = "4"
+horizontal_alignment = 2
+
+[node name="AutoMode" type="CheckButton" parent="Margin/Scroll/Col"]
+layout_mode = 2
+focus_mode = 0
+tooltip_text = "Let the engine pick the scale from mood/time-of-day"
+theme_override_font_sizes/font_size = 13
+text = "Engine auto-mode"
+
+[node name="Arrangement" type="CheckButton" parent="Margin/Scroll/Col"]
+layout_mode = 2
+focus_mode = 0
+tooltip_text = "Multi-section song structure (may modulate key/tempo/meter)"
+theme_override_font_sizes/font_size = 13
+button_pressed = true
+text = "Long-form arrangement"
+
+[node name="AutoAdapt" type="CheckButton" parent="Margin/Scroll/Col"]
+layout_mode = 2
+focus_mode = 0
+tooltip_text = "Feed live sim mood to the music. Turn off so your manual picks stick."
+theme_override_font_sizes/font_size = 13
+button_pressed = true
+text = "Auto-adapt to sim"
+
+[node name="Status" type="Label" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 12
+text = "(no status)"
+autowrap_mode = 3
+
+[node name="SfxRule" type="ColorRect" parent="Margin/Scroll/Col"]
+custom_minimum_size = Vector2(0, 1)
+layout_mode = 2
+size_flags_horizontal = 3
+color = Color(0.24, 0.27, 0.33, 1)
+
+[node name="SfxTitle" type="Label" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.98, 0.99, 1, 1)
+theme_override_font_sizes/font_size = 13
+text = "SFX bench"
+
+[node name="SfxGrid" type="GridContainer" parent="Margin/Scroll/Col"]
+layout_mode = 2
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 6
+columns = 2
