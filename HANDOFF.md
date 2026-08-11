@@ -120,8 +120,34 @@ Both cannot be true. The difference is the SUMMING RULE: the probe sums the devi
 `solid_cells` moves all run (31978 -> 31636), so every cell crossing the solidity threshold shifts mass
 between differently-masked legs and the total moves with no water going anywhere.
 
-**So: do not go hunting for a water source yet.** Merge the h2o-mask track (one inclusion rule for all
-four legs) and re-measure. If the breach survives a unified mask, it is real and the hunt starts then.
+**MEASURED AFTER THE MERGE — the mask helped and did not close it, and EVERY substance breaches:**
+
+| substance | drift | allowed | at step |
+|---|---|---|---|
+| `h2o_closed_total` | +57.3% (was +157% pre-mask-fix) | 0.20 | 723 |
+| `element_C_total` | +163% | 0.28 | 6978 |
+| `oxidant_all` | +15.6% | 0.045 | 6978 |
+| `nitrogen_all` | +4.3% | 0.0062 | 6978 |
+| `mineral_total` | **+475%** | 0.00002 | 6978 |
+| `o2_total` | +22.6% | 0.055 | 7770 |
+
+**THE RADIAL-SPREAD PREDICTION IS REFUTED.** It said mineral would barely move once volume-weighted,
+because it sits in the narrowest band of radii. Volume-weighted, mineral moved MOST of all — 475%
+against a 0.002% debt. Whatever orders those debts, it is not only geometry. Do not reason from that
+hypothesis again.
+
+**BUT THE DEBTS ARE THE WRONG SHAPE, AND THAT HAS TO BE FIXED BEFORE ANY OF THIS IS A VERDICT.** They
+are ceilings on a RELATIVE TOTAL, calibrated at the 600-step reference horizon, and the gate now checks
+every sample past it — these breaches are at step 6978-7770, thirteen times further. **A substance with
+any steady drift breaches a fixed relative ceiling eventually, so run length alone decides the verdict.**
+That is a measurement whose answer depends on how long you looked, which is the same class of defect as
+the blind audit it replaced.
+
+The right quantity is a PER-STEP RATE, which is run-length independent. Changing that re-defines what
+all six numbers mean and needs its own calibration run: measure each substance's drift per step over a
+few horizons, confirm it is linear (a leak) rather than saturating (a transient), and set the ceilings
+from that. Until then, treat the table above as "six substances drift" and NOT as "six substances leak
+at these magnitudes".
 
 **WHAT IS BROKEN RIGHT NOW, AT THE TOP OF THE QUEUE:**
 1. **`--bare` CHANGES THE PHYSICS.** Same seed, same frames: `o2_total` 37125.09 with the presentation layer,
