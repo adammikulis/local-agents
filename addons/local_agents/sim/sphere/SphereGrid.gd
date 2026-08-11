@@ -187,6 +187,23 @@ func face_area_inward(c: int) -> float:
 	return solid_angle[c / depth] * ri * ri
 
 
+## The solid-angle table as an SSBO payload — surf_count floats, indexed by SURFACE cell. Kernels get volume
+## and face area from this plus depth/core_radius/cell_size, via kernels3d/cell_geom.glsli, rather than a
+## cell_count-sized buffer: a solid angle does not depend on radius, so a per-column table is the whole of it.
+func solid_angle_bytes() -> PackedByteArray:
+	return solid_angle.to_byte_array()
+
+
+## What a cell's volume would be if every cell were the same size — the assumption every kernel currently
+## makes. Divide the real volume by this to see the per-cell error that assumption is making.
+func mean_cell_volume() -> float:
+	if cell_count <= 0:
+		return 0.0
+	var r_lo: float = core_radius
+	var r_hi: float = core_radius + float(depth) * cell_size
+	return (TAU * 2.0 / 3.0) * (r_hi * r_hi * r_hi - r_lo * r_lo * r_lo) / float(cell_count)
+
+
 func _surf_idx(f: int, i: int, j: int) -> int:
 	return (f * res + i) * res + j
 
