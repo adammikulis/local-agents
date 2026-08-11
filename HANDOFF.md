@@ -104,6 +104,72 @@ relevance rule and it is legitimate. It may not vary with "is this the ocean or 
 distinction has no physical referent. Deletes `SEA_WAVE_EPS`, `SEA_BIAS`, the geometric salinity
 classification, and one of the two meshes.
 
+## THE GRID IS BEING REPLACED. THE CUBED SPHERE IS GOING. THIS OUTRANKS EVERY OTHER ITEM IN THIS FILE.
+
+**Maintainer, 2026-08-11, authorising it: "shouldn't the grid just be a universal square grid? and parts of
+it are occupied by things at times. why is it spherical? makes no sense" — then "do it. immediately this
+must be corrected before we do *anything* else."**
+
+**WHY.** The cubed-sphere shell grid made the planet's SHAPE an input. The coordinate system WAS the planet,
+so sphericity was asserted rather than produced and nothing could ever be any other shape. It is the largest
+output-declared-as-input in the project.
+
+**MEASURED, before anyone re-argues it.** At the live config (radius 500, shell 340-660, 16-unit cells):
+
+| | cubed sphere | uniform Cartesian |
+|---|---|---|
+| cells | 122,880 | 592,704 (4.8x, dense) |
+| cell volume ratio | **5.34, and RISING with resolution** | **1.000** |
+| terrain coupling | interpolated SDF sample per cell | exactly 16 voxels per cell, integer |
+
+Of that 5.34, only **1.098 was radial shell geometry**. The other 4.9x was the equidistant gnomonic
+projection — a choice, climbing toward its analytic limit of 3^1.5 = 5.196. Fixing the projection instead
+(equiangular, ~1.3x) was considered and REJECTED: it preserves the shape that should not exist.
+
+**WHAT DELETES when the kernels move.** `solid_angle`, `cell_vol`, `cg_transfer`/`xfer`, `link_arc`, the
+tangent basis and its parallel transport, `_seam`, the family orientation repair, the kernel-order slot
+permutation, and `nbr_shared.glsli`. On an axis-aligned grid the opposite of `d` IS `d ^ 1`.
+
+**IT RETIRES A CLASS OF DEFECT, NOT FIFTEEN INSTANCES.** A survey of all 19 kernels found the missing
+donor/receiver volume ratio in `heat`, `heat3d_buoyancy`, `magma_buoy`, `wind_pressure`, `atmos_rain`,
+`erosion_pickup`, `reactions` (SOIL_ROOT, SOIL_TOP, BEDROCK_BELOW), `fungus`, `fungus_fert`, `fert` and
+`shock` — eleven more on top of the four that had it. With uniform cells the ratio is 1 and every one is
+fixed by construction. `heat_sphere3d` stops being a finite-volume scheme that isn't one for the same
+reason: one face area, one volume, so `dt/dx^2` IS the coefficient.
+
+### Done and gated
+- **`sim/voxel/VoxelGrid.gd`** — uniform box, slots ordered so opposite = `d ^ 1`, boundary faces `-1`,
+  `build_over_voxel_bounds()` snapping to godot_voxel's own `voxel_bounds`. `check_voxel_grid.sh` tests
+  reciprocity, the involution, index/coords round-trip over every cell, boundary handling, volume ratio and
+  voxel alignment. Mutation-tested.
+- **`sim/voxel/FieldGravity.gd`** — Poisson solve, `laplacian(phi) = 4 pi G rho`, `g = -grad(phi)`,
+  red-black Gauss-Seidel, warm-started, isolated-body monopole boundary. `check_gravity_solve.sh` checks it
+  against the closed form for a uniform sphere. Mutation-tested.
+
+**NOT a centre-of-mass shortcut, and do not "simplify" it into one.** `g = -GM r_hat / r^2` about a COM is
+the field OF A SPHERE; it would re-assert the symmetry this migration exists to delete. The two gate lines
+that distinguish a solve from an assertion are `centre_ratio` (gravity VANISHES at the centre of a uniform
+sphere; a GM/r^2 model diverges there) and `two_body_attracts`.
+
+### Next, in order
+1. **GPU gravity.** The solver is GDScript only. It needs a compute kernel, and `gx/gy/gz` bound as a
+   buffer every kernel can read, because that is what replaces slot 0.
+2. **Host binding.** `MaterialSphereGPU3D` / `MaterialField3D` construct and consume `LASphereGrid`. Convert
+   IN PLACE; do not add a second path.
+3. **The kernel fan-out.** 17 of 24 kernels carry a radial assumption (`nbr[base+0u]` as down, `% depth`,
+   `core_radius`, inward/outward). 7 do not: `atmos_precip`, `cell_list`, `copy`, `fert`, `fungus`,
+   `shock`, `solid_derive`. Each kernel is one owner. The column walks (`top_regolith`, `bedrock_below`,
+   `overburden`, and the five in the audit) become a march along `down_at`, not an index step.
+4. **Sparsity.** 4.8x dense is the real cost and the answer is the active-cell compaction that already
+   exists for lava, generalised — most of the box is vacuum or inert core. NOT a reason to keep the sphere.
+
+### Survives the migration and still needs fixing
+- `wind_pressure_sphere3d.glsl` `max(..., 0.0)` at the column settle MINTS air.
+- `lava_phase_sphere3d.glsl` radiates across open non-lava faces and credits the energy to nobody.
+- `shock_sphere3d.glsl` `LOSS = 0.25` destroys a quarter of the field per step, unledgered.
+- `wind_pressure` WALK 4 re-lays column mass onto the hydrostatic profile conserving a sum of an INTENSIVE
+  channel. Uniform cells make that sum proportional to mass, so this one may close on its own — check.
+
 ## THE ORDER OF WORK CHANGED ON 2026-08-11. READ THIS BEFORE PICKING ANYTHING UP.
 
 **The plan was ordered by subsystem. It is ordered by what makes measurement possible now.** A whole day
