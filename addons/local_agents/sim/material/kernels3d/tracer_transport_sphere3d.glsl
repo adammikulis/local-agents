@@ -128,8 +128,10 @@ void main() {
 		gain += tracer_in[params.offset + uint(m)] * share(toward_link(uint(m), l ^ 1)) * out_scale(uint(m));
 	}
 	if (open_u) { raw += share(vel_y[g]) + rise_frac(g); }
-	if (open_d) { raw += params.diffuse; }   // the settling half of the downward face is fall_frac, below
-	raw += fall_frac(g);
+	if (open_d) { raw += params.diffuse; }
+	// Downward flux leaves only where something receives it: an open cell below, or a deposit channel at the
+	// floor. A gas has neither, so it does not sink into rock.
+	if (open_d || params.deposit == 1u) { raw += fall_frac(g); }
 
 	// Vertical inflow: the cell below blowing UP into us (advection + mixing), and the cell above sending its
 	// whole downward flux — its settling plus the mixing share.

@@ -55,11 +55,8 @@ func build(opts: Dictionary) -> void:
 	_terrain = _body.terrain()
 	_actors_root = _body.actors_root
 	_body.set_spin_axis(Vector3(opts.get("spin_axis", Vector3.UP)).normalized())
-	# TERRAIN STREAMING IS PHYSICS. godot_voxel only generates blocks around an attached VoxelViewer, and the
-	# field samples that SDF — so the simulation owns a data-only viewer (no visuals, no collision meshing)
-	# rather than depending on the camera. When the camera was the only viewer, a run without a render layer
-	# never streamed: the seal slid from field_step 9 to 265, so every conservation baseline latched at the
-	# end of the run and every drift gauge read a trivial 0.000%.
+	# Data-only viewer: godot_voxel streams only around a VoxelViewer, and the field samples that SDF, so
+	# streaming must not depend on the camera.
 	_terrain_viewer.global_position = _body.center()
 	_body.attach_viewer(_terrain_viewer, false)
 
@@ -105,17 +102,18 @@ func _build_field() -> void:
 		_ecology.set_material_field(_material)
 
 
-## THE CONTRACT EVERY GATHER KERNEL DEPENDS ON, CHECKED ONCE AT BUILD. `LASphereGrid.validate()` computes
-## slot-opposite reciprocity — `nbr[c*6+d] == m` implies `nbr[m*6+(d^1)] == c` — and it existed, complete,
-## called by NOBODY. Two bugs in `gravity_flow_sphere3d.glsl` rode on exactly that contract being assumed:
-## a gather from the wrong slot destroyed and duplicated mass (+149% mineral, +47% of the planet's thermal
-## stock), and the outflow pass sent "sideways" flow straight up. A checker nothing runs is not a checker.
+## Slot-opposite reciprocity, the contract every gather kernel depends on. Fatal if it fails.
 func _validate_grid(grid: RefCounted) -> void:
 	if not grid.has_method("validate"):
 		return
 	var v: Dictionary = grid.validate()
-	LASimReport.gauge("grid_non_reciprocal", float(v.get("non_reciprocal", -1)))
-	LASimReport.gauge("grid_valid", 1.0 if bool(v.get("ok", false)) else 0.0)
+	# Registered, not gauged: LASimReport.reset() runs at initial spawn and wipes anything set during build,
+	# which is why this reported nothing the first time it was wired.
+	LASimReport.register(func() -> Dictionary: return {
+		"grid_valid": bool(v.get("ok", false)),
+		"grid_non_reciprocal": int(v.get("non_reciprocal", -1)),
+		"grid_lateral_bends": int(v.get("lateral_bends", -1)),
+	})
 	if not bool(v.get("ok", false)):
 		# Fatal: every flow kernel on this grid moves mass into slots that do not answer back, so nothing the
 		# run reports afterwards is a measurement. sim_run.sh greps for the marker.

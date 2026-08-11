@@ -343,7 +343,15 @@ func _heavy_block() -> Dictionary:
 		d["element_C_total"] = snappedf(c_total, 0.01)
 		if _seal != null and _seal.sealed():
 			var step_now: int = int(_f._gpu._step_index) if _f._gpu != null else 0
-			if is_nan(_first_element_c):
+			# The baseline latches only when BOTH sides of the sum have their channels. Gating on the seal
+			# alone latched it through mirrors that had not arrived, so the baseline read near zero and every
+			# later sample looked like carbon appearing from nothing.
+			var live: Dictionary = d.get("mass_live", {})
+			var c_live: bool = bool(live.get("co2", false)) and bool(live.get("biomass", false)) \
+				and bool(live.get("detritus", false)) and bool(live.get("fungus", false)) \
+				and bool(live.get("fuel", false)) and bool(d.get("mineral_first_live", false))
+			d["element_C_first_live"] = c_live
+			if is_nan(_first_element_c) and c_live:
 				_first_element_c = c_total
 				_first_element_c_step = step_now
 				_seal.note_seed({"element_C_mol": c_total})
