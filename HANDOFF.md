@@ -56,6 +56,54 @@ redefines every `--bench` frame number, and `_input.update(_frame, spawned)` (`V
 so that counter has to move to `_physics_process` in the same commit or the disasters desync from the run
 length. One owner, both halves.
 
+## THERE IS NO SEA LEVEL. THERE IS AN AMOUNT OF WATER AND A SHAPE OF LAND.
+
+**`sea_radius` is one global scalar, so this planet can have exactly one sea, at one radius, everywhere.**
+That single fact is why there are two placement systems for one substance: `MaterialField3D._seed_sphere_sea`
+fills the ocean, and `MaterialFieldLakes3D` (191 lines of priority-flood) places STATIC lakes separately,
+because a scalar cannot express a second body of water at a different level.
+
+**It cannot represent an all-ocean planet, two unconnected seas, or a dry world**, which makes the
+parallel-universe sweep impossible: you cannot vary planet parameters when the sea is a constant.
+
+**THE MODEL THAT REPLACES ALL OF IT, and it is one rule:** seed a MASS of H2O as part of bulk composition;
+water flows downhill under gravity; where it pools is the sea, the lakes, and their levels.
+
+| case | what produces it | dedicated code |
+|---|---|---|
+| all-ocean world | H2O mass exceeds basin volume | none |
+| several unconnected seas | basins that do not connect | none |
+| dry world | too little water, or too hot to condense | none |
+| "sea level" | a measurement taken from the field | none — it is an OUTPUT |
+
+Deletes: `sea_radius` as an INPUT, `_seed_sphere_sea`, `MaterialFieldLakes3D`'s placement, and the
+`sea_level` concept. `LAOceanPlane` keeps a radius for RENDERING, read from where the water actually is.
+
+**This is Stage 4, and it is why Stage 4 is not merely "delete the asserted seeds" — the asserted seed is
+load-bearing for a data structure that cannot describe the alternatives.** Do the water first: it is the
+substance with a full transport path already built, so it is the honest test of whether an output-only
+world state works at all.
+
+## ONE WATER RENDERER. THE CUTOFF BETWEEN "SEA" AND "LAKE" IS AN INVENTED NUMBER.
+
+Water is drawn by two systems and the boundary between them is `SEA_WAVE_EPS = 0.6` — "calm-sea top faces
+within this of the sea shell are left to the ocean plane" (`MaterialField3D`). A patch of water is drawn by
+`LAOceanPlane` or by `LAWaterSurfaceMesh` according to how near it is to a global scalar.
+
+**`SEA_BIAS = 0.4` is the proof the split is wrong**: `WaterSurfaceMesh` draws the near-cap sea that far
+OUTSIDE the ocean sphere so the two do not z-fight. A constant whose only job is to paper over a seam is
+evidence the seam should not be there.
+
+**AND THE SPLIT DECIDES PHYSICS, NOT JUST PIXELS.** `WaterSurfaceMesh` PASS 1 classifies each column as
+"SEA (salt) / LAKE+RIVER (fresh)" BY GEOMETRY. Salinity is a property of what is dissolved in the water —
+a substance the reaction table can carry — not of how far a cell sits from a scalar. A landlocked salt lake
+and a freshwater sea are both unrepresentable, and neither is exotic.
+
+**ONE renderer, reading the water channel.** LOD may vary with DISTANCE FROM THE CAMERA — that is the
+relevance rule and it is legitimate. It may not vary with "is this the ocean or a lake", because that
+distinction has no physical referent. Deletes `SEA_WAVE_EPS`, `SEA_BIAS`, the geometric salinity
+classification, and one of the two meshes.
+
 ## THE ORDER OF WORK CHANGED ON 2026-08-11. READ THIS BEFORE PICKING ANYTHING UP.
 
 **The plan was ordered by subsystem. It is ordered by what makes measurement possible now.** A whole day
