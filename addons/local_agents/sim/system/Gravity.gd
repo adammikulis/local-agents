@@ -11,10 +11,7 @@ extends Object
 ##
 ## ONE SYSTEM, ONE G. The star is a member of this group like everything else, and the planet's own
 ## heliocentric orbit is integrated by THIS function too (LASystemOrbits._integrate_orbit), so a mass
-## expressed here is the same mass that sets the year. There is no second gravity constant in second
-## units. (Before 2026-07-30 there was: `SUN_MU = 1e6` in LASystemOrbits drove the orbit while the star
-## was not a gravity body at all, and the visible sun sat at a decorative `SUN_SCENE_DISTANCE = 1200`
-## unrelated to the orbital distance it was supposedly at.)
+## expressed here is the same mass that sets the year. There is no second gravity constant in second units.
 ##
 ## THE FRAME — read this before adding a force. World space is the PLANET-CENTRED, NON-ROTATING frame.
 ## The planet sits at the world origin and NEVER TRANSLATES (terrain, field, ocean and actors are its

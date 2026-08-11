@@ -84,10 +84,8 @@ var _fish_timer: float = 0.0
 var _tree_timer: float = 0.0             # forest succession: groves densify on biomass-rich ground
 # THE ACTOR-SIDE CLOCK, published so the world's two halves can be compared instead of argued about. Every
 # node in the tree (this service, every creature, every plant) is handed the full physics delta; the
-# substrate is handed the same delta and keeps only what its own step ceiling allows. If consumption were
-# ever outrunning regrowth because of a clock mismatch, `eco_sim_s` here would run ahead of `field_sim_s`
-# (LAMaterialFieldSphereStep3D). Measured 2026-07-30 at --fast 1/2/4/8, it does not: the two agree to
-# within 0.1 second at every multiplier, which is what retired the "high --fast desyncs the field" theory.
+# substrate is handed the same delta and keeps only what its own step ceiling allows. A clock mismatch shows
+# up as `eco_sim_s` here running ahead of `field_sim_s` (LAMaterialFieldSphereStep3D).
 var _eco_s: float = 0.0
 var _phys_frames: int = 0
 var _aquatic_kinds_cache: Array = []     # aquatic species ids (config aquatic:true), indexed once

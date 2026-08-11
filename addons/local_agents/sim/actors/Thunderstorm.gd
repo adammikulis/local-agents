@@ -28,10 +28,9 @@ const RADIUS: float = 62.0                # footprint half-width (vapor pumping 
 # dielectric breakdown → a bolt, entirely in the field. (The storm seeds; MaterialCharge3D fires.)
 const VAPOR_PER_SEC: float = 5.0          # total vapor injected per second at full seeding (split over points)
 const VAPOR_INJECT_R: float = 14.0        # radius of each vapor blob at the ground
-# (SEED_HEAT_PER_SEC = 10.0, SEED_HEAT_R = 16.0, COOL_PER_SEC = 14.0 and COOL_INJECT_R = 30.0 deleted
-# 2026-08-03 — a storm has no energy source and no energy sink of its own; see `_pump_moisture` below.)
 
-# Intensity now EMERGES from the convective updraft (+Y lift) the seeding grows — not a scripted envelope.
+# A storm has no energy source and no energy sink of its own: it seeds moisture only, and its intensity
+# EMERGES from the convective updraft (+Y lift) that seeding grows.
 const STRENGTH_MAX: float = 1.0           # intensity is normalized 0..1
 const UPDRAFT_TO_STRENGTH: float = 0.3    # K: |updraft| → strength; tuned so a strong convective lift saturates
 const STRENGTH_RATE: float = 0.1          # smoothing of strength toward the field-read target

@@ -35,20 +35,12 @@ const GRAZE_BIOMASS_FULL: float = 0.05        # biomass at/above which a grazer 
 const GRAZE_BIOMASS_FLOOR: float = 0.30       # survival birth-rate multiplier in barren water (never a hard 0 → no collapse)
 const GRAZE_BIOMASS_SAMPLES: int = 6          # adults sampled for the school's mean biomass (O(k), not O(adults))
 
-## A FISH IS BUILT OUT OF A FISH. Land births already work this way — LACreatureReproduction gestates an
-## offspring against the bearer's own energy budget — but the aquatic tick still materialised up to four
-## complete bodies per species every 2.5 s at no cost to anybody: a school with two adults and a deficit
-## produced young whose mass and energy came from nowhere.
+## A FISH IS BUILT OUT OF A FISH. The bearer pays SPAWN_ENERGY_FRAC of its maximum energy to produce one
+## young and cannot spawn at all below SPAWN_ENERGY_FLOOR of full, so a starving school stops breeding on its
+## own, without a rule saying so, and a well-fed one recovers.
 ##
-## The bearer now pays SPAWN_ENERGY_FRAC of its maximum energy to produce one young, and cannot spawn at all
-## below SPAWN_ENERGY_FLOOR of full. So a starving school stops breeding on its own, without a rule saying
-## so, and a well-fed one recovers — which is what the `grazes_biomass` food gate was reaching for by
-## multiplying a birth RATE instead of charging for the birth.
-##
-## The fraction is a real reproductive investment, not a knob: for a broadcast-spawning fish the gonad output
-## of one season is measured at 10-25% of body mass, and the energy to build it comes out of the same budget
-## the animal swims on. 0.15 is inside that range. The floor is what stops an adult spending itself to death
-## producing young it cannot then feed.
+## The fraction stands for a broadcast spawner's seasonal gonad output, built out of the same energy budget
+## the animal swims on. The floor stops an adult spending itself to death producing young it cannot feed.
 const SPAWN_ENERGY_FRAC: float = 0.15
 const SPAWN_ENERGY_FLOOR: float = 0.45
 

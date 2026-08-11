@@ -6,14 +6,10 @@ extends Node3D
 ## around it, and it draws a simple grey cratered sphere. It has NO terrain/field sim of its own (a second full
 ## body is the 0.4 multi-planet migration), so meteors don't crater it. Explicit types; no ':='.
 ##
-## It stopped being a kinematic prop on 2026-07-30. It used to be placed at cos/sin of a `MOON_RATE` angle each
-## frame — a circle drawn next to the physics rather than by it, so it could not be perturbed, could not perturb
-## its own orbit back, and its "month" was a constant nobody could derive from its mass or its distance. Its
-## period now falls out of sqrt(a³/G(M_planet + M_moon)) like any other orbit (~104 s at 3.2 planet radii, which
-## is within half a second of the old hand-set rate — the constant was a good guess, but it was still a guess).
+## Its period falls out of sqrt(a³/G(M_planet + M_moon)) like any other orbit; nothing sets a month directly.
 
 const RADIUS: float = 42.0
-const MASS: float = 8.0e4          # 8% of the planet's 1e6: enough to bend a passing meteor, never enough to dominate
+const MASS: float = 8.0e4          # model units: enough to bend a passing meteor, never enough to dominate
 
 var _mesh: MeshInstance3D = null
 

@@ -113,36 +113,15 @@ static func cognition(w) -> Dictionary:
 	for gk in REPORTED_GENES:
 		gene_sum[gk] = 0.0
 	var gene_pop: int = 0
-	# ALLOMETRY, MEASURED RATHER THAN ASSERTED. Per species: body mass, the REALISED oxidation rate the
-	# substrate actually granted (LACreatureRespiration._resp_rate, which is what survived the oxygen Liebig
-	# cap and the temperature band), and body temperature.
-	#
-	# THIS IS AN INSTRUMENT, AND IT IS THE POINT OF THE WHOLE PHYSIOLOGY. Both inputs are things the run did:
-	# the mass is the species' MEASURED `mass_kg` and the rate is what each body actually burned this tick.
-	# Neither is derived from an exponent, so the slope cannot read back its own assumption. That property is
-	# fragile and worth protecting — the alternative physiology this replaced set `basal_rate` to
-	# `BASAL_COEFF * mass^KLEIBER_EXPONENT`, and a fit over THAT can only ever return the 0.75 somebody typed
-	# in, which is a gauge that cannot fail. If a future change makes this tautological, delete the gauge
-	# rather than ship one that measures its own input.
-	#
-	# WHAT THE NUMBER MEANS. ~0.667 is RUBNER'S SURFACE LAW: it is what pure surface-area-to-volume geometry
-	# produces when a body's oxygen has to cross one exchange surface, which is all this substrate has. Real
-	# animals measure ~0.75 (Kleiber 1932; Savage et al. 2004 across 600+ species), and the leading explanation
-	# is a fractal nutrient-delivery network — space-filling branching vasculature with size-invariant terminal
-	# units (West, Brown & Enquist 1997). THIS SUBSTRATE HAS NO VASCULATURE. That is why it reads 2/3, and why
-	# typing 3/4 in anywhere would be asserting machinery that does not exist.
-	#
-	# SO 2/3 IS NOT A DISCREPANCY TO FIX, IT IS A READING TO WATCH. Give creatures a real circulatory system —
-	# branching transport, terminal units that do not scale with the body — and this gauge should climb toward
-	# 0.75 ON ITS OWN. That climb is the evidence the mechanism is real rather than declared, and it is the
-	# only kind of evidence worth having. Measured on the size-derived masses that preceded this: 0.660 /
-	# 0.666 / 0.656. The exponent is then fitted across species by
-	# ordinary least squares on log(rate) against log(mass) — so the scaling law is an OUTPUT of the run.
-	# Nothing anywhere types in 0.75 or 0.667; if the exponent moves, the physics moved.
-	# Three is enough for the CAPACITY fit and five was actively harmful: at 600 frames only the five largest-
-	# population species clear n>=5, which throws away the whole small end of the roster and cuts the fit's mass
-	# lever arm from 420x to 38x. The slope then swings 0.43-0.65 run to run on noise. Capacity is a geometric
-	# quantity with little behavioural variance, so a species mean over three individuals is a real measurement.
+	# Allometry instrument. Per species: body mass, the realised oxidation rate the substrate granted
+	# (LACreatureRespiration._resp_rate, after the oxygen Liebig cap and the temperature band), and body
+	# temperature. The exponent is fitted across species by ordinary least squares on log(rate) against
+	# log(mass), so the scaling law is an OUTPUT of the run — no exponent is typed in anywhere. A body with
+	# one exchange surface and no vasculature gives Rubner's surface law, 2/3; Kleiber's 3/4 needs a
+	# branching transport network with size-invariant terminal units (West, Brown & Enquist 1997). If a
+	# future change makes the fit tautological, delete the gauge rather than let it measure its own input.
+	# Minimum individuals per species admitted to the capacity fit. Low enough to keep the small end of the
+	# roster in, which is what gives the fit its mass lever arm.
 	const METAB_FIT_MIN_N: int = 3
 	# ALLELE SPLIT — does a gene actually DRIVE anything? For each of the two respiratory loci, creatures are
 	# bucketed by whether they carry an above- or below-median allele, and each bucket reports the metabolic
@@ -196,10 +175,8 @@ static func cognition(w) -> Dictionary:
 			var cm: float = LACreatureRespiration.body_mass(c)
 			resp_vals.append(float(c.get("respiratory_capacity")))
 			thermo_vals.append(float(c.get("thermogenesis")))
-			# Normalise the AEROBIC CAPACITY, not the realised rate. Capacity is what the gene acts on; the
-			# realised rate additionally carries whether this particular animal was asleep, fleeing or starving,
-			# and that behavioural variance is several times the size of an 8% allele difference — measured, the
-			# realised-rate split swung 0.90x to 1.42x run to run on a locus whose true effect is ~1.09x.
+			# Normalise the aerobic CAPACITY, not the realised rate: capacity is what the gene acts on, while a
+			# realised rate also carries whether this animal was asleep, fleeing or starving.
 			norm_vals.append(float(c.get("_resp_capacity")) / maxf(pow(cm, 2.0 / 3.0), 1e-6))
 			btemp_vals.append(float(c.get("body_temp")))
 		anim_stride_sum += int(c.get("_anim_stride"))

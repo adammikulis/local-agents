@@ -33,8 +33,6 @@ const OUTER_RADIUS: float = 150.0
 const EYEWALL_POINTS: int = 12            # moisture-pump points around the eyewall ring
 const VAPOR_PER_SEC: float = 9.0          # total vapor/s at full strength (spread over the eyewall points)
 const VAPOR_INJECT_R: float = 20.0
-# (COOL_PER_SEC = 10.0 °C/s and COOL_INJECT_R = 26.0 deleted 2026-08-03 — a hurricane does not destroy heat;
-# see the note in `_pump_eyewall` where the injection was.)
 
 # --- Motion (slow, wind-steered track) ---
 const TRACK_SPEED: float = 7.0            # base forward crawl (world u/s)
