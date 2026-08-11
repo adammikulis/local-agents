@@ -52,6 +52,10 @@ Commands:
                 re-imports first so stale kernels cannot fake a report. Defaults to the standard
                 verification arm (200 frames, seed 4242, --fast=8, --planet-only --no-fauna).
                 e.g. agent_harness.sh sim --frames 600      agent_harness.sh sim --raw
+  score [args]  PHYSICS_RUBRIC.md, all ten criteria, COMPUTED. Never hand-enter a row: the half a person
+                scores is the half that moves. Prints the table row ready to paste. Takes its own
+                comparison runs for determinism and observer independence, so it is minutes.
+                e.g. agent_harness.sh score --frames 300
   lint          Run every structural gate: file length (soft 1300 warn / hard 1500 fail),
                 no-direct-refcounted, no ':=' typing, @tool write safety, demo catalogue,
                 public surface, whole-tree parse, library-only parse, physical constants
@@ -136,6 +140,13 @@ case "$cmd" in
   # run on every change.
   dropin)
     child=("$SCRIPT_DIR/check_dropin_scene.sh" "$@")
+    ;;
+  # The rubric, all ten criteria, computed. NOBODY HAND-ENTERS A ROW: the half a person scores is the half
+  # that moves, and the criteria that used to be hand-entered were described in PHYSICS_RUBRIC.md itself as
+  # "the ones to distrust". It takes its own comparison runs for determinism and observer independence, so
+  # it is minutes, not seconds — a landing-time command, not a per-change one.
+  score)
+    child=("$SCRIPT_DIR/physics_score.sh" "$@")
     ;;
   lint)
     : # handled specially below

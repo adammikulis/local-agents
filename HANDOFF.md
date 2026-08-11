@@ -35,12 +35,33 @@ correctness fix with a behavioural rewrite makes both unmeasurable.
 
 `sorting.py` at repo root is the maintainer's, untracked — leave it.
 
-### State (2026-08-10) — `0.4-dev` at `a1919d0`
+### State (2026-08-11) — `feature/physics-substrate`, 56 commits past `54f6e58`
 
 **READ `CLAUDE.md`'s FIRST TWO RULES BEFORE TOUCHING ANYTHING.** They are new, they are at the very top, and
 they were written because an agent spent a session violating both: **delete what is wrong, never preserve it
 behind a flag**, and **any departure from real physics needs the maintainer's explicit permission, asked
 first**. The second is gate-backed by `scripts/check_model_parameters.sh` where it can be.
+
+## THE SIM IS NOT REPRODUCIBLE, AND LOOKING AT IT STILL CHANGES IT — measured 2026-08-11
+
+`scripts/agent_harness.sh score` now computes all ten rubric criteria, and two of the four new ones found
+things nothing was watching:
+
+- **DETERMINISM: two runs at the SAME seed and the same length differ by 0.41%** in a conserved total.
+  Every A/B this project has ever quoted was taken against a substrate that does not repeat itself, and
+  **parallel universes cannot compare seed vectors until it does** — a difference between two vectors is
+  unreadable when one vector disagrees with itself. This is the first thing to fix in Stage 1; the
+  per-universe RNG work landed today is a prerequisite, not the whole of it.
+- **OBSERVER INDEPENDENCE: `--bare` still differs by 3.83%.** The whole-mirror `set_field` upload was ONE
+  mechanism and closing it did not close the property. The standing rule holds: no conservation number may
+  be quoted from a `--bare` run.
+- **MOMENTUM: there is no ledger at all.** Matter has ledgers, energy has one, and the third conserved
+  quantity of mechanics is unmeasured. Wind and flow carry it, pressure gradients and gravity create it,
+  drag destroys it, nothing sums it.
+
+**DO NOT HAND-ENTER A RUBRIC ROW.** All ten criteria are computed — 1, 2 and 5 from `SIM_REPORT`, 3 and 4
+from `docs/MODEL_PARAMETERS.md`, 6 from probe coverage, 7 from the ledger's absence, 8 from a count of
+named-phenomenon actor scripts, 9 and 10 from comparison runs the script takes itself.
 
 ## THE GROUND UNDER EVERYTHING ELSE — READ THIS BEFORE PLANNING ANY CONSERVATION WORK
 
@@ -301,20 +322,18 @@ spanning substances must go through `mol_per_unit`.
 
 ### Conservation — the gate's own debt table IS the work queue
 
-`LAMaterialFieldConservation3D.DEBT` is the single source; do not keep a second copy of these numbers
-anywhere. Audited at 600 steps past the seal, seed 4242, `--sandbox --planet-only --no-fauna
---run-frames=600 --fast=8`. Re-measured 2026-08-10 at the tip, ONE run per arm (19 impacts / 1 flood /
-1 eruption, `conservation_steps` 789, zero violations, exit 0):
+`LAMaterialFieldConservation3D.DEBT_PER_STEP` is the single source; do not keep a second copy of these
+numbers anywhere.
 
-| substance | was, `7353b1d` | now | allowance | headroom |
-|---|---|---|---|---|
-| `mineral_total` | -0.027% | **-0.0064%** | 0.010% | 0.004pp |
-| `nitrogen_all` | -2.14% | **-0.62%** | 0.75% | 0.13pp |
-| `oxidant_total` | -56.20% | **-10.76%** | 12% | 1.24pp |
-| `o2_total` | -90.34% | **-24.71%** | 29% | 4.29pp |
-| `h2o_closed_total` | -20.06% | **-18.74%** | 21% | 2.26pp |
-| `element_C_total` | -26.75% | **-28.27% (WORSE)** | 29% | **0.73pp** |
-| energy (`energy_run_drift`) | -8.0% of stock | **-3.0% of stock** | not gated | — |
+**THE DEBTS ARE PER-STEP RATES AS OF 2026-08-11, AND EVERY FIGURE BELOW THIS LINE PREDATES THAT.** They were
+ceilings on a relative TOTAL, so a substance with any steady drift breached eventually and the verdict was
+decided by how long the run happened to be. Anything quoted as "-28.27%" or "12% allowance" is in the old
+unit and is not comparable to a rate. `scripts/physics_score.sh` reads the current figures; do not
+transcribe them here, because a second copy is a second thing to go stale.
+
+**THE OLD TABLE IS DELETED RATHER THAN STRUCK.** Unlike the false claims elsewhere in this file, those
+numbers were true when measured and merely obsolete — git holds them, and leaving a table of
+non-comparable percentages under a heading that says "work queue" is how the wrong unit gets quoted back.
 
 **FOUR SUBSTANCES IMPROVED BY 3–5×** because the biological rates stopped being fitted, and **their
 allowances came DOWN in the same commit**, which is what the ratchet requires.
@@ -354,130 +373,12 @@ plan below.
 
 ---
 
-## ▶ THE ENTHALPY WORK IS MERGED — `feature/enthalpy`, six commits, landed 2026-08-09
+## HOW GOOD IS IT? — `scripts/physics_score.sh`, and it is the whole score now
 
-*(Collapsed from two sections that both announced this branch as NOT merged. It is merged; keeping either
-heading would have made the file wrong about its own tip on the first read.)*
-
-`0177274` the liquid-vapour boundary is a curve · `d64d249` the rule + `PHYSICS_RUBRIC.md` +
-`scripts/physics_score.sh` · `3bf94ac` the world's length scale · `017658a`
-`docs/PHYSICS_AUDIT_2026-08-09.md` · `f61d426` latent heat on all seven phase records.
-
-**READ `docs/PHYSICS_AUDIT_2026-08-09.md` FIRST.** Three audits, every finding with a `file:line` and the
-arithmetic. It replaces guessing about what is wrong.
-
-**What it changed, and what it did not:**
-
-- **Latent heat exists** (`f61d426`). All seven phase records carry an enthalpy DERIVED from `LASubstances`;
-  Hess closes to exactly 0.0, so the 2.433e5 J/kg that shipped code released from nothing per
-  water→vapour→snow→water traverse is no longer expressible. **Evaporative cooling — ~80 W/m², the largest
-  single term in Earth's surface energy budget — did not exist in this simulation before it.**
-- **`boil_c` was a scalar and water's boiling point is a function of pressure** (`0177274`). At 100 bar it is
-  306 °C, and a post-Theia planet condenses its ocean when the surface passes ~300 °C — so a model waiting
-  for 100 °C waits forever and the failure reads as "the physics does not work".
-- **The sim had no metres-per-model-unit** and four subsystems had each invented one (`3bf94ac`).
-- **IT LEFT TWO LIVE ANSWERS TO "HOW BIG IS THIS PLANET", AND THAT IS NOW A DEFECT IN THE TREE RATHER THAN
-  a difference between branches.** `LAPhysical.METRES_PER_MODEL_UNIT = 168.6` gives 2698 m per atmosphere
-  cell, while `MaterialFieldGeotherm3D.gd:23-30` states the depth conceit — that taking the model's metres
-  literally makes this a 500 m asteroid, so depth is vertically exaggerated. **Reconcile them.** The audit
-  already names the consequence: four regolith cells span 10.8 km against the 2 km
-  `GROUNDWATER_CIRCULATION_M` describes, so this grid cannot resolve its own aquifer.
-
-**Measured at the merge** (seed 4242, `--planet-only --no-fauna --run-frames=600 --fast=8`, one run per arm,
-19–20 impacts each): every gated substance same or better — `element_C` -26.745% → **-26.700%**,
-`h2o_closed` -20.065% → **-19.296%**, `oxidant` -56.205% → **-53.634%**, `o2` -90.337% → **-90.257%**,
-`mineral` -0.0273% → **-0.0263%**, `nitrogen` unchanged. `energy_booked` -7.70e12 → **-1.033e13**, a third
-more of the planet's heat actually attributed, and **`energy_residual / energy_booked` 1739 → 1280**. Zero
-violations, exit 0, lint green. `snow_cells` 20 → 4 and two `flood` phenomena appeared where the baseline had
-none, which is what a planet that can finally pay for a phase change looks like — but that is one run, so it
-is an observation, not a result.
-
-### DO NOT A/B THESE ONE AT A TIME — RIP OUT THE WHOLE ENERGY/PHASE SUBSYSTEM, THEN MEASURE ONCE
-
-The fixes below are NOT independent and must not be measured separately: latent heat, the greenhouse's
-composition, the pascal conversion and simultaneous record solving all have to land before the energy books
-mean anything at all. `energy_residual / energy_booked` was 1742 when this was written and is **1280** now
-that latent heat has landed — better, and still three orders of magnitude from a closed set of books. A
-per-change A/B on this substrate measures the interaction with the larger defects still live, costs ~5
-minutes a run, and returns an uninterpretable number — see CLAUDE.md's rule, which that session earned the
-hard way.
-
-**Land P0's second half + P1 + P2 as ONE replacement**, then verify against the binary acceptance test —
-does the planet cool, does an ocean condense — rather than against a drift delta.
-
-**STILL OPEN IN THE PHASE/ENERGY AREA.** *(Audit A3 — `heat3d_cool` — is CLOSED: the kernel is DELETED,
-2026-08-10. It boiled water at a flat 100 °C with a hand-tuned rate while R23 did the same phase change from
-the saturation curve with the derived latent heat, so the substrate had two authorities on one phase change,
-double-counting mass and cooling, one of them the energy ledger's unbooked term #1. Removing it cut
-`energy_run_drift` from -1.239e16 to **-5.038e15**, 59%, and `residual/booked` from 877 to **319**.)*
-What remains: **condensation (`atmos_precip`) and deposition (`snowice`) still release nothing** (audit A4);
-and a record carries ONE
-enthalpy where L(T) is a curve, so evaporation is charged at its 0 °C figure everywhere — ~11% wrong at
-100 °C and completely wrong near 374 °C.
-- **For A4, DO NOT RE-DERIVE IT — the arithmetic already exists**, at the tag
-  **`archive/atmos-latent-heat-kernels`** (`55cda84`, "every phase change of water now pays for itself";
-  the branch `worktree-agent-a59c3ef2f80727598` still points there too, but cite the TAG — branch names
-  here are volatile and twenty-six of them were deleted on 2026-08-09). It puts the condensation and
-  deposition legs in `atmos_precip_sphere3d.glsl` and `snowice_sphere3d.glsl`, with the unit derivation
-  forced rather than chosen (CAP_WATER ÷ water's specific heat fixes one channel unit at 929.3 kg/m²,
-  which is the 0.932 m depth the solar kernel already quotes). It is 104 commits behind and its kernels
-  must NOT be merged wholesale — lift the derivation, put the physics in records. It also records the
-  trap: without counting an unbounded snowpack's inertia and suspended water's own heat capacity,
-  `temp_min` reached -3434 °C and `temp_max` +3059 °C.
-
-### THE NEXT COMMIT IS P0's SECOND HALF, AND IT IS FULLY SPECIFIED
-
-The length scale now exists and is derived (`METRES_PER_MODEL_UNIT = 168.6`, validated: `M_air`, `R_d` and
-`H = R_d T/g` all reproduce standard values to 0.01%, and `H` comes out **50.02 model units against the
-kernel's hand-tuned `H_REF = 50`**). `LAPhysical.air_units_to_pascals()` exists and gives the sim's
-sea-level column as **93 180 Pa**, on which `boil_c_at` returns **97.59 °C**.
-
-**But the pressure CHANNEL is still in world units, so nothing calls any of it.** That is the job:
-
-1. `wind_pressure_sphere3d.glsl` — delete `G_ACC = 33.5` and `H_PER_KELVIN = 0.1736`. Both are the same
-   two physical facts (g and R_d) in world units, and `G_ACC`'s own comment says 33.5 was chosen *"because
-   that is where the old P0 sat, so pass B's ACCEL/DAMP tuning still sees gradients of a familiar size."*
-   Write `pressure` in **pascals** as `g * rho * dz` summed inward, and the scale height as
-   `R_d * T / g` in model units.
-2. `wind_step_sphere3d.glsl` — **this is why it is not a rescale.** Its acceleration is ALREADY the real
-   `(1/rho) grad(p)` with the old tuning constant removed, so once `p` is in Pa, `rho` must be in kg/m³
-   (`AIR_DENSITY_KG_M3 * air[i]`) and the gradient per METRE. Velocities then come out in m/s, which they
-   currently are not — check `MAX_WIND = 24` against a real jet (~70 m/s) once they do.
-3. `heat3d_solar_sphere3d.glsl` — `P_REF = 100.0` becomes `LAPhysical.STANDARD_PRESSURE_PA`. The
-   greenhouse reads `p/P_REF`, a ratio, so this is safe **only if both change together**.
-4. `MaterialFieldEnergyBudget3D.gd:108` mirrors `K_P_REF = 100.0`; same change.
-5. Then wire `boil_c_at(id, p_pa)` into `MaterialFieldQueries3D.gd:305` and `GeoRecords.gd:293`'s
-   Arrhenius ceiling. ~~and delete `heat3d_cool_sphere3d.glsl`~~ — DONE, the kernel is gone (see line 259).
-6. Also unfinished from P0: **`params.dt` is uploaded to `reactions_sphere3d.glsl` and never read**, so
-   every reaction rate is per-STEP (audit C5).
-
-### DOES THE TWENTY-SHELL MODEL NEED TO CHANGE? — asked 2026-08-09, answered with numbers
-
-**Not for the atmosphere, and yes for the aquifer, and no bigger planet.** Three things settled:
-
-- **A bigger planet makes it worse, not better.** `H/R` goes as `1/R²` (from `H = R_d T/g` and
-  `g = (4/3)piG rho R`), so a larger body has a proportionally *thinner* atmosphere and needs *finer*
-  cells. Earth's ratio is 1:758.
-- **Gravity is cheap to change if ever needed — Newtonian G is used NOWHERE** (no `6.674e-11` in the tree,
-  no N-body). `g` appears in exactly three places: hydraulic conductivity (`soil_sphere3d.glsl:112`),
-  lithostatic pressure (`ReactionsPass.gd:55`) and the air column (`G_ACC`).
-- **The grid is a SHELL, not a ball** — ten cells of air above the sea and ten of crust below — so it only
-  has to resolve ~3 scale heights up and the crust down. At 2698 m per cell it does that correctly.
-
-**What it genuinely cannot do is resolve the aquifer.** Four regolith cells span **10.8 km** against the
-2 km `GROUNDWATER_CIRCULATION_M` describes. The old 500 m/cell was a second length scale kept to hide this.
-Three honest ways out, and it is a design call rather than a bug:
-  (a) accept it — the aquifer is one coarse cell and `REGOLITH_CELLS` drops to 1;
-  (b) **non-uniform radial spacing** — fine near the surface, coarse aloft and at depth, which is what every
-      real Earth-system model does. `cell_size` becomes per-shell; 21 uses across 12 kernels;
-  (c) more shells — costs O(cells) everywhere and still wastes resolution on the deep interior.
-(b) is the physically correct one and the only one that serves a post-Theia seed, where the interesting
-structure is all within a few km of a surface that is also radiating to space.
-
-## HOW GOOD IS IT? — `PHYSICS_RUBRIC.md`, scored 7/24 on 2026-08-09
-
-Six criteria with a dated score history; `scripts/physics_score.sh` computes the measurable half. Three
-audits (constants, reaction engine, kernels) produced the counts behind criteria 3, 4 and 6. The ordering
+**Do not hand-enter a rubric row.** All six criteria are computed: 1, 2 and 5 from `SIM_REPORT`, and 3, 4 and
+6 from `docs/MODEL_PARAMETERS.md` and the probe coverage. The script prints the row ready to paste, and
+`PHYSICS_RUBRIC.md` holds the dated history. Criteria 3 and 4 used to be audit counts somebody had to
+remember to redo, which meant the person scoring the work was scoring their own half of it. The ordering
 of work below follows from it rather than from judgement: **energy must be booked before the seed can
 shrink**, because an ocean condensing out of a steam atmosphere IS a latent-heat process.
 
