@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 //   * TOP OF ATMOSPHERE — the outermost open cell (slot 5 is -1, real space). It absorbs the share of the beam
 //   * EXPOSED BEDROCK — a SOLID cell whose slot 5 is space. Bare rock facing the sky radiates; nothing else in
 
@@ -95,7 +97,7 @@ const int MAX_COLUMN_WALK = 64;
 int find_column_top(uint start) {
 	int c = int(start);
 	for (int s = 0; s < MAX_COLUMN_WALK; ++s) {
-		int u = nbr[uint(c) * 6u + 5u];
+		int u = nbr[uint(c) * N_SLOTS + N_OUT];
 		if (u < 0) {
 			return c;                                      // reached space: c is the top
 		}
@@ -116,7 +118,7 @@ int find_column_surface(uint start) {
 		if (water[c] >= WATER_SURFACE_MIN) {
 			return c;                                      // topmost water cell: the sea/lake surface
 		}
-		int d = nbr[uint(c) * 6u + 0u];
+		int d = nbr[uint(c) * N_SLOTS + N_IN];
 		if (d < 0) {
 			return -1;                                     // open to the bottom of the shell
 		}
@@ -133,8 +135,8 @@ void main() {
 	if (idx >= params.cell_count) {
 		return;
 	}
-	int up = nbr[idx * 6u + 5u];
-	int down = nbr[idx * 6u + 0u];
+	int up = nbr[idx * N_SLOTS + N_OUT];
+	int down = nbr[idx * N_SLOTS + N_IN];
 	bool solid_here = solid[idx] != 0.0;
 	bool faces_space = up < 0;
 

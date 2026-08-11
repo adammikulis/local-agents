@@ -236,6 +236,20 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_heat_capacity_ssot.sh ($rc_heatcap)"
       exit 1
     fi
+    # Gate: ONE definition of the 6-slot neighbour layout. It was written from memory in every kernel that
+    # touches nbr[], and most wrote it down wrong — twelve read slot 5 as "the cell above" when slot 5 is a
+    # LATERAL and up is slot 1, so the solar column, the aquifer walk, reactions' air-above gates, both
+    # buoyancy kernels, tracer transport and the wind were all walking sideways at constant radius. Four
+    # gathers hand-rolled the reverse map instead of `d ^ 1` and duplicated and destroyed mass with it.
+    # Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_neighbour_slots.sh"
+    rc_nbrslots=$?
+    set -e
+    if [[ $rc_nbrslots -ne 0 ]]; then
+      echo "LINT_FAIL: check_neighbour_slots.sh ($rc_nbrslots)"
+      exit 1
+    fi
     # Gate: no reaction record may create or destroy matter. The DEFS engine took reactants and products as
     # two independent lists of hand-written coefficients with nothing relating them, and one rate model had
     # no reactant at all, so only its product credit ever ran — which is where every carbon atom in this

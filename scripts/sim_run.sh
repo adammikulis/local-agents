@@ -100,6 +100,15 @@ fi
 # presentation node that leaked into the physics-only path. That has happened twice: the sim clock lived in
 # a CanvasLayer owning Engine.time_scale, and the CLI parser built the Esc menu + the view-controls bar.
 # Behavioural, so a UI node added anywhere in future trips it without anyone remembering a rule.
+# THE NEIGHBOUR TABLE IS THE CONTRACT EVERY FLOW KERNEL RIDES ON. If slot-opposite reciprocity fails, mass
+# moves into slots that never answer back and no number in the run is a measurement.
+if grep -q '^GRID_INVALID=' "$LOG" 2>/dev/null; then
+  echo "sim_run: GRID_INVALID — the sphere neighbour table is not slot-opposite reciprocal." >&2
+  grep '^GRID_INVALID=' "$LOG" | head -1 >&2
+  [ "$KEEP" -eq 1 ] && echo "sim_run: log kept at $LOG" >&2 || rm -f "$LOG"
+  exit 6
+fi
+
 WANT_UI=0
 for a in "${ARGS[@]}"; do [ "$a" = "--ui" ] && WANT_UI=1; done
 UI_N=$(grep -oE '"ui_nodes":[0-9]+' "$LOG" 2>/dev/null | tail -1 | cut -d: -f2)

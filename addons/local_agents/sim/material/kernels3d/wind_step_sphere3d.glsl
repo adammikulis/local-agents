@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 // structurally identical. Box idx±offset → INDEX TABLE nbr[idx*6 + d] (slot 0 = inward/radial-DOWN,
 //     OUTWARD neighbour (slot 5) as the "cell above" (box used +layer). This keeps buoyancy AND the charge
 //   * BUOYANCY guard — box required a cell above (iy < dy-1); here it requires slot 5 >= 0 (an outward neighbour
@@ -67,15 +69,15 @@ void main() {
 
 	uint base = g * 6u;
 	uint depth = max(params.depth, 1u);
-	int s_dn = nbr[base + 0u];   // radial DOWN
-	int s_up = nbr[base + 5u];   // radial UP (outward)
+	int s_dn = nbr[base + N_IN];
+	int s_up = nbr[base + N_OUT];
 
 	// The four lateral links, each as an index and a direction in THIS cell's tangent frame.
 	uint lb = (g / depth) * 8u;
 	int lat[4];
 	vec2 ldir[4];
 	for (int l = 0; l < 4; ++l) {
-		lat[l] = nbr[base + uint(l + 1)];
+		lat[l] = nbr[base + uint(l + int(N_OUT))];
 		ldir[l] = vec2(ltan[lb + uint(l) * 2u], ltan[lb + uint(l) * 2u + 1u]);
 	}
 

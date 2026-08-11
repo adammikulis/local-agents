@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 // RACE-FREEDOM: a cell i scours ONLY its radial-DOWN neighbour's bedrock (nbr slot 0). By the neighbour table's
 
 layout(local_size_x = 64) in;
@@ -45,7 +47,7 @@ void main() {
 	}
 
 	// The BED: the radial-DOWN neighbour must be bedrock with mineral to give.
-	int ib = nbr[base + 0u];
+	int ib = nbr[base + N_IN];
 	if (ib < 0 || solid[ib] == 0.0 || rock_fill[uint(ib)] <= ROCK_MIN) {
 		return;
 	}
@@ -54,7 +56,7 @@ void main() {
 	// drives the water CA's lateral flow) → large in a fast river on a slope, ~0 in a flat pond / the sea edge.
 	float grad = 0.0;
 	for (int d = 0; d < 4; d++) {
-		int inb = nbr[base + 1u + uint(d)];
+		int inb = nbr[base + N_LAT0 + uint(d)];
 		if (inb < 0) {
 			continue;
 		}

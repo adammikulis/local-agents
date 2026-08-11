@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 // r = gid % depth, so no elevation buffer is needed. NEIGHBOUR slots: 0=inward/down … 5=outward/up; -1=boundary.
 
 layout(local_size_x = 64) in;
@@ -58,13 +60,13 @@ const float MAX_FLOW_FRAC = 0.35;     // cap total outflow to this fraction of a
 // walk over the static regolith mask, so it is race-free and needs no extra channel.
 int burial_shells(int c) {
 	int d = 0;
-	int walk = nbr[uint(c) * 6u + 5u];
+	int walk = nbr[uint(c) * N_SLOTS + N_OUT];
 	for (int k = 0; k < REG_CELLS; k++) {
 		if (walk < 0 || regolith[walk] == 0.0) {
 			break;
 		}
 		d++;
-		walk = nbr[uint(walk) * 6u + 5u];
+		walk = nbr[uint(walk) * N_SLOTS + N_OUT];
 	}
 	return d;
 }
@@ -144,8 +146,8 @@ void main() {
 
 	if (params.pass_id == 0u) {
 		// ---- PASS 0: compute transfers into `send` (self-zero all 6 slots first) --------------------------
-		send[base + 0u] = 0.0; send[base + 1u] = 0.0; send[base + 2u] = 0.0;
-		send[base + 3u] = 0.0; send[base + 4u] = 0.0; send[base + 5u] = 0.0;
+		send[base + N_IN] = 0.0; send[base + N_OUT] = 0.0; send[base + N_A0] = 0.0;
+		send[base + N_A1] = 0.0; send[base + N_B0] = 0.0; send[base + N_B1] = 0.0;
 		// Probe: zero the SENT legs before any early return, exactly as `send` is zeroed — an inert cell then
 		// truthfully reports sending nothing.
 		dbg[dbase + DBG_DARCY_SENT] = 0.0; dbg[dbase + DBG_SPRING_SENT] = 0.0;
@@ -216,10 +218,10 @@ void main() {
 			float seep_want = 0.0;
 			float surplus = s - my_cap * SEEP_THRESH;
 			if (surplus > 0.0) {
-				int up = nbr[base + 5u];
+				int up = nbr[base + N_OUT];
 				if (up >= 0 && solid[up] == 0.0) {
-					// open cell through slot 5 — two legs sharing one outlet must share its capacity, which the
-					seep_want = min(surplus * SEEP_RATE, max(0.0, MAX_MASS - water[up] - want[5]));
+					// open cell through N_OUT — two legs sharing one outlet must share its capacity, which the
+					seep_want = min(surplus * SEEP_RATE, max(0.0, MAX_MASS - water[up] - want[N_OUT]));
 					total_want += seep_want;
 				}
 			}
@@ -248,18 +250,18 @@ void main() {
 				// How tall is the OPEN column standing above this outlet? 3+ open cells = a real water
 				// body (sea/lake); rock within 2 = a cavity or a carved channel, i.e. confined.
 				int oc = 0;
-				int walk = nbr[uint(n) * 6u + 5u];
+				int walk = nbr[uint(n) * N_SLOTS + N_OUT];
 				for (int k = 0; k < 3; k++) {
 					if (walk < 0 || solid[walk] != 0.0) { break; }
 					oc++;
-					walk = nbr[uint(walk) * 6u + 5u];
+					walk = nbr[uint(walk) * N_SLOTS + N_OUT];
 				}
 				if (oc >= 3) { dbg[dbase + DBG_SPRING_FREECOL] += f; }
 				else { dbg[dbase + DBG_SPRING_CAPPED] += f; }
 			}
 			float seep = seep_want * scale;
 			if (seep > 0.0) {
-				send[base + 5u] += seep;                   // += : slot 5 may already carry a scaled spring flow
+				send[base + N_B1] += seep;                   // += : slot 5 may already carry a scaled spring flow
 				dbg[dbase + DBG_SEEP_SENT] += seep;
 			}
 			return;
@@ -271,7 +273,7 @@ void main() {
 			if (w <= MIN_W) {
 				return;
 			}
-			int ib = nbr[base + 0u];                       // inward / down
+			int ib = nbr[base + N_IN];
 			if (ib < 0 || regolith[ib] == 0.0) {
 				return;                                    // no aquifer directly below to soak into
 			}
@@ -284,7 +286,7 @@ void main() {
 			float cap_rate = INFIL_RATE * wetting * (1.0 - wet);
 			float infil = min(w, min(cap_rate, ib_cap - soil_in[ib]));
 			if (infil > 0.0) {
-				send[base + 0u] = infil;
+				send[base + N_IN] = infil;
 				dbg[dbase + DBG_INFIL_SENT] = infil;
 				float c_in = infil * RC_WATER;
 				float c_rock = reg_heat_cap(ib_cap, soil_in[ib]);
@@ -295,8 +297,8 @@ void main() {
 	}
 
 	// ---- PASS 1: apply — each cell adds inflow to its own store, subtracts its own outflow ----------------
-	float own_out = send[base + 0u] + send[base + 1u] + send[base + 2u]
-		+ send[base + 3u] + send[base + 4u] + send[base + 5u];
+	float own_out = send[base + N_IN] + send[base + N_OUT] + send[base + N_A0]
+		+ send[base + N_A1] + send[base + N_B0] + send[base + N_B1];
 	float inflow = 0.0;
 	float hot_flux = 0.0;
 	float hot_mass = 0.0;
@@ -306,12 +308,20 @@ void main() {
 	float from_reg = 0.0;
 	float from_open = 0.0;
 	int nb; float sflow;
-	nb = nbr[base + 0u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 5u]; inflow += sflow; if (regolith[nb] != 0.0) { from_reg += sflow; if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } } else { from_open += sflow; } }  // down-nbr sent UP into me
-	nb = nbr[base + 5u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 0u]; inflow += sflow; if (regolith[nb] != 0.0) { from_reg += sflow; if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } } else { from_open += sflow; } }  // up-nbr sent DOWN into me
-	nb = nbr[base + 1u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 2u]; inflow += sflow; if (regolith[nb] != 0.0) { from_reg += sflow; if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } } else { from_open += sflow; } }
-	nb = nbr[base + 2u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 1u]; inflow += sflow; if (regolith[nb] != 0.0) { from_reg += sflow; if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } } else { from_open += sflow; } }
-	nb = nbr[base + 3u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 4u]; inflow += sflow; if (regolith[nb] != 0.0) { from_reg += sflow; if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } } else { from_open += sflow; } }
-	nb = nbr[base + 4u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 3u]; inflow += sflow; if (regolith[nb] != 0.0) { from_reg += sflow; if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } } else { from_open += sflow; } }
+	// One loop over the six slots, crediting the OPPOSITE slot. It was six unrolled lines pairing
+	// 0<->5, 1<->2, 3<->4, which is not the table's pairing — the aquifer both destroyed and duplicated water.
+	for (uint d = 0u; d < N_SLOTS; ++d) {
+		nb = nbr[base + d];
+		if (nb < 0) { continue; }
+		sflow = send[uint(nb) * N_SLOTS + opposite(d)];
+		inflow += sflow;
+		if (regolith[nb] != 0.0) {
+			from_reg += sflow;
+			if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; }
+		} else {
+			from_open += sflow;
+		}
+	}
 
 	// Probe: zero every APPLY leg first, so each branch below only has to fill in the ones it owns.
 	dbg[dbase + DBG_REG_IN] = 0.0;      dbg[dbase + DBG_REG_OUT] = 0.0;

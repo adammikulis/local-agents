@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 // r = c % depth and R = core_radius + (r + 0.5) * cell_size, with no per-cell lookup. Advection is DONOR-CELL
 
 layout(local_size_x = 64) in;
@@ -70,7 +72,7 @@ bool supported(int c) {
 	if (rock_fill[uint(c)] >= 0.5) {
 		return true;
 	}
-	int dn = nbr[uint(c) * 6u + 0u];
+	int dn = nbr[uint(c) * N_SLOTS + N_IN];
 	return dn >= 0 && rock_fill[uint(dn)] >= 0.5;
 }
 
@@ -85,7 +87,7 @@ void main() {
 		// ---- PASS 2: THE ROCK PUSHES THE WATER OUT OF THE WAY -------------------
 		// ENTOMBED: the cell went solid, the water CA skips solid cells, and the mass sat there unreachable.
 		float out_w = evicted(gidx);
-		int dn = nbr[base + 0u];
+		int dn = nbr[base + N_IN];
 		float in_w = (dn >= 0) ? evicted(uint(dn)) : 0.0;
 		water[gidx] = max(0.0, water[gidx] - out_w + in_w);
 		return;
@@ -95,12 +97,7 @@ void main() {
 		// ---- PASS 0: OUTFLOW ----------------------------------------------------
 		// Self-zero all six slots before any early return, exactly like the other CAs, so the shared `send`
 		// scratch needs no buffer_clear (illegal while a compute list is open).
-		send[base + 0u] = 0.0;
-		send[base + 1u] = 0.0;
-		send[base + 2u] = 0.0;
-		send[base + 3u] = 0.0;
-		send[base + 4u] = 0.0;
-		send[base + 5u] = 0.0;
+		for (uint z = 0u; z < N_SLOTS; ++z) { send[base + z] = 0.0; }
 		if (params.n_plates == 0u) {
 			return;
 		}
@@ -126,7 +123,7 @@ void main() {
 		float lateral = 0.0;
 		for (int d = 0; d < 4; d++) {
 			raw[d] = 0.0;
-			int inb = nbr[base + 1u + uint(d)];
+			int inb = nbr[base + N_LAT0 + uint(d)];
 			if (inb < 0 || !supported(inb)) {
 				continue;    // nothing to land on that way — the slab is buttressed, the flux is blocked
 			}
@@ -158,7 +155,7 @@ void main() {
 		float up_out = 0.0;
 		float excess = max(0.0, load - params.max_mass);
 		if (excess > MIN_MASS) {
-			int up = nbr[base + 5u];
+			int up = nbr[base + N_OUT];
 			if (up >= 0) {
 				up_out = min(excess, max(0.0, params.max_mass - fld[uint(up)]));
 			}
@@ -169,27 +166,26 @@ void main() {
 		float total = lateral * load + up_out;
 		float cap = MAX_OUT_FRAC * load;
 		float scale = (total > cap && total > 0.0) ? (cap / total) : 1.0;
-		send[base + 1u] = load * raw[0] * scale;
-		send[base + 2u] = load * raw[1] * scale;
-		send[base + 3u] = load * raw[2] * scale;
-		send[base + 4u] = load * raw[3] * scale;
-		send[base + 5u] = up_out * scale;
+		for (uint l = 0u; l < N_LATERAL_COUNT; ++l) {
+			send[base + N_LAT0 + l] = load * raw[l] * scale;
+		}
+		send[base + N_OUT] = up_out * scale;
 		return;
 	}
 
 	// ---- PASS 1: GATHER / APPLY IN PLACE ----------------------------------------
 	// Reads only `send` (written in pass 0, untouched here) and writes only its own cell.
-	float own_out = send[base + 0u] + send[base + 1u] + send[base + 2u]
-		+ send[base + 3u] + send[base + 4u] + send[base + 5u];
+	float own_out = 0.0;
+	for (uint z = 0u; z < N_SLOTS; ++z) { own_out += send[base + z]; }
 
 	float inflow = 0.0;
 	int nb;
-	nb = nbr[base + 0u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 5u]; }  // down-neighbour sent UP (5)
-	nb = nbr[base + 5u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 0u]; }  // up-neighbour sent DOWN (0)
-	nb = nbr[base + 1u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 2u]; }  // -a neighbour sent +a (2)
-	nb = nbr[base + 2u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 1u]; }  // +a neighbour sent -a (1)
-	nb = nbr[base + 3u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 4u]; }  // -b neighbour sent +b (4)
-	nb = nbr[base + 4u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 3u]; }  // +b neighbour sent -b (3)
+	// Credit the OPPOSITE slot, `d ^ 1`. Was six unrolled lines pairing 0<->5, 1<->2, 3<->4 — not this
+	// table's pairing, so advected crust was debited into slots nobody read and read twice out of others.
+	for (uint d = 0u; d < N_SLOTS; ++d) {
+		nb = nbr[base + d];
+		if (nb >= 0) { inflow += send[uint(nb) * N_SLOTS + opposite(d)]; }
+	}
 
 	fld[gidx] = max(0.0, fld[gidx] - own_out + inflow);
 }

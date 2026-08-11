@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 // already exists (M3, a constant per-step fraction, which is what a constant Stokes settling velocity looks
 // of the load as of the water. Suspended load does not climb, so slot 5 (radially outward) carries nothing.
 // susp_out = susp_in - own_out + inflow, where inflow reads each neighbour's send slot aimed back at me. What
@@ -39,12 +41,7 @@ void main() {
 		// ---- PASS 0: OUTFLOW ----------------------------------------------------
 		// Self-zero all six slots before any early return, exactly like the other CAs, so the shared `send`
 		// scratch needs no buffer_clear (illegal while a compute list is open).
-		send[base + 0u] = 0.0;
-		send[base + 1u] = 0.0;
-		send[base + 2u] = 0.0;
-		send[base + 3u] = 0.0;
-		send[base + 4u] = 0.0;
-		send[base + 5u] = 0.0;
+		for (uint z = 0u; z < N_SLOTS; ++z) { send[base + z] = 0.0; }
 
 		// Rock carries nothing; the held calm sea has no head, so it receives but never sends.
 		if (params.enabled == 0u || solid[gidx] != 0.0) {
@@ -59,12 +56,12 @@ void main() {
 			return;    // no water in this cell = nothing suspended in anything = nothing to carry
 		}
 
-		//   DOWN (slot 0)      — gravity moves as much as the cell below can still hold (:88), or EVERYTHING
-		//   UP (slot 5)        — nothing: suspended load does not climb.
+		//   DOWN (N_IN)        — gravity moves as much as the cell below can still hold, or EVERYTHING
+		//   UP (N_OUT)         — nothing: suspended load does not climb.
 		float raw[5];
 		float total = 0.0;
 
-		int ib = nbr[base + 0u];
+		int ib = nbr[base + N_IN];
 		raw[0] = 0.0;
 		if (ib >= 0 && solid[ib] == 0.0) {
 			raw[0] = min(w, max(0.0, MAX_MASS - water[uint(ib)]));
@@ -73,7 +70,7 @@ void main() {
 
 		for (int d = 0; d < 4; d++) {
 			raw[d + 1] = 0.0;
-			int inb = nbr[base + 1u + uint(d)];
+			int inb = nbr[base + N_LAT0 + uint(d)];
 			if (inb < 0 || solid[inb] != 0.0) {
 				continue;
 			}
@@ -90,11 +87,10 @@ void main() {
 		// Fraction of the LOAD that leaves = fraction of the WATER that leaves, capped for stability.
 		float out_frac = min(total / w, MAX_OUT_FRAC);
 		float scale = out_frac / total;
-		send[base + 0u] = load * raw[0] * scale;
-		send[base + 1u] = load * raw[1] * scale;
-		send[base + 2u] = load * raw[2] * scale;
-		send[base + 3u] = load * raw[3] * scale;
-		send[base + 4u] = load * raw[4] * scale;
+		send[base + N_IN] = load * raw[0] * scale;
+		for (uint l = 0u; l < N_LATERAL_COUNT; ++l) {
+			send[base + N_LAT0 + l] = load * raw[l + 1u] * scale;
+		}
 		return;
 	}
 
@@ -106,17 +102,17 @@ void main() {
 		return;
 	}
 
-	float own_out = send[base + 0u] + send[base + 1u] + send[base + 2u]
-		+ send[base + 3u] + send[base + 4u] + send[base + 5u];
+	float own_out = 0.0;
+	for (uint z = 0u; z < N_SLOTS; ++z) { own_out += send[base + z]; }
 
 	float inflow = 0.0;
 	int nb;
-	nb = nbr[base + 0u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 5u]; }  // down-neighbour sent UP (5)
-	nb = nbr[base + 5u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 0u]; }  // up-neighbour sent DOWN (0)
-	nb = nbr[base + 1u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 2u]; }  // -a neighbour sent +a (2)
-	nb = nbr[base + 2u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 1u]; }  // +a neighbour sent -a (1)
-	nb = nbr[base + 3u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 4u]; }  // -b neighbour sent +b (4)
-	nb = nbr[base + 4u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 3u]; }  // +b neighbour sent -b (3)
+	// Credit the OPPOSITE slot, `d ^ 1`. These were six unrolled lines pairing 0<->5, 1<->2, 3<->4, which is
+	// not this table's pairing, so load was debited into slots nobody read and read twice out of others.
+	for (uint d = 0u; d < N_SLOTS; ++d) {
+		nb = nbr[base + d];
+		if (nb >= 0) { inflow += send[uint(nb) * N_SLOTS + opposite(d)]; }
+	}
 
 	float value = susp_in[gidx] - own_out + inflow;
 	susp_out[gidx] = max(value, 0.0);

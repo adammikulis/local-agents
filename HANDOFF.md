@@ -96,10 +96,51 @@ table's history. Corrected the same day, once the root cause was found.)* Energy
 stock** against a recorded -3.0%, and `residual/booked` **340** against a recorded 319, is what says the
 old numbers were real measurements of a substrate that then broke.
 
-**WHAT IS STILL OPEN: `mineral_total` -0.422% against a 0.010% allowance — the one remaining violation.**
-That is 40x the allowance and the only substance still failing. It is now a small, localised number rather
-than a runaway, so the per-pass mineral probe (`LA_MINERAL_PROFILE=1`) can name its leg the same way the
-energy probe named this one.
+**AND THE SAME WRONG BELIEF WAS IN TWELVE MORE KERNELS. THERE WAS NO SSOT FOR THE SLOT LAYOUT.**
+Every kernel touching `nbr[]` wrote the layout down from memory and most wrote it down wrong, as
+`0 = down, 1..4 = lateral, 5 = up`. Slot 1 is UP; 2..5 are the laterals. **Twelve kernels read slot 5 as
+"the cell above" and were therefore walking SIDEWAYS around the sphere at constant radius:** the solar
+column (`heat3d_solar`), the aquifer walk and spring free-column test (`soil`), reactions' `GATE_SURFACE`,
+`GATE_OPEN_ABOVE` and `GATE_AIR_ABOVE` and its `overburden()` walk, both buoyancy kernels, `atmos_rain`,
+`fungus_fert`, `tracer_transport` and `wind_step`. **Evaporation's "where liquid water meets air" test was
+looking at a neighbour beside it, not above it.** And three more two-pass gathers — `soil`,
+`erosion_transport`, `plate_advect` — hand-rolled the same wrong reverse map `gravity_flow` had, so the
+aquifer, the suspended-sediment transport and the advecting crust all destroyed and duplicated mass too.
+
+**Fixed by making one:** `kernels3d/neighbours.glsli` (`N_IN/N_OUT/N_A0..N_B1`, `N_LAT0`, `opposite(d)`),
+included by all 14 kernels, with **`scripts/check_neighbour_slots.sh`** in `agent_harness.sh lint` failing
+the build on a bare integer index into `nbr[]`/`send[]`, on any hand-rolled reverse map, and on the GLSL
+constants diverging from `LASphereGrid`. Same shape as `rc_shared.glsli` + `check_heat_capacity_ssot.sh`,
+and for the same reason: every copy read the table correctly and disagreed about what the slots MEANT,
+which no value gate can see. **`LASphereGrid.validate()` also now runs** — it computes exactly this
+contract, it was complete, and nothing called it; a run prints `GRID_INVALID` and `sim_run.sh` exits 6.
+
+**MEASURED AFTER THE SSOT, and it is not uniformly better — read it honestly.** 600 frames, seed 4242:
+
+| substance | gravity_flow fixed | + slot SSOT | note |
+|---|---|---|---|
+| `element_C_total` | -23.82% | **-14.93%** | better |
+| `mineral_total` | -0.418% | -4.04% | worse |
+| `h2o_closed_total` | -10.05% | -16.96% | worse |
+| `o2_total` | -0.022% | **-44.71%** | much worse |
+| `oxidant_all` | — | -19.50% | new violation |
+| energy, share of stock | -3.37% | -4.15% | |
+| `energy_residual / energy_booked` | 209 | **119** | better |
+| `energy_booked` | -2.48e13 | **-5.13e13** | 2x more heat actually attributed |
+| `temp_mean` | — | **112.8 °C** | the column stacks vertically now |
+
+**These numbers are not a regression to revert — they are the first ones measured through correct
+geometry.** `CLAUDE.md`: never revert a correct fix because broken code downstream disagrees with it. The
+oxygen path was being measured through gates that selected the wrong cells; now that they select
+sky-exposed cells, a real leak in it is visible. `energy_booked` doubling and `residual/booked` nearly
+halving is the books closing, not opening.
+
+**WHAT IS STILL OPEN: `o2_total` -44.7% and `oxidant_all` -19.5%, the two new violations, plus
+`mineral_total` -4.04%.** Oxygen is the one to take first — it is the largest, it is newly visible, and the
+per-pass element attribution that would name its leg does not exist yet (the mineral and energy probes do,
+and both named their culprit in one run each).
+
+*(Superseded: `mineral_total` -0.422% as "the one remaining violation".)*
 
 **THE THREE "LIVE BREAKAGES" LISTED HERE BEFORE WERE TWO-THIRDS FALSE.** *(Corrected 2026-08-11 by
 measurement.)*

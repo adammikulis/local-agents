@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 // precomputed INDEX TABLE `nbr[idx*6 + slot]` — slot 5 = outward/UP (above), slot 0 = inward/DOWN (below);
 
 layout(local_size_x = 64) in;
@@ -62,12 +64,12 @@ void main() {
 	float in_below = 0.0;
 
 	// UP (radially outward = slot 5): overpressure we shed into the open cell above.
-	int iu = nbr[base + 5u];
+	int iu = nbr[base + N_OUT];
 	if (iu >= 0 && solid[iu] == 0.0) {
 		out_up = buoy_up(scratch[g]);
 	}
 	// DOWN (radially inward = slot 0): overpressure the open cell below buoys up into us.
-	int ib = nbr[base + 0u];
+	int ib = nbr[base + N_IN];
 	if (ib >= 0 && solid[ib] == 0.0) {
 		in_below = buoy_up(scratch[uint(ib)]);
 	}

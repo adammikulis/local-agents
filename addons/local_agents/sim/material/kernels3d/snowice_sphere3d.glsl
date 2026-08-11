@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 // MaterialReactions3D.gd: FREEZE (liquid water → snow, R21) and MELT (snow → water, R22). The old melt branch
 // neighbour (slot 0) is solid ground. That is where FOG (cool near-ground condensate) sits, so cold humid
 
@@ -48,7 +50,7 @@ void main() {
 		return;                                            // rock is not a snow surface
 	}
 	// GROUND-SURFACE air cell: open, and its inward-radial neighbour (slot 0) is solid ground.
-	int down = nbr[idx * 6u + 0u];
+	int down = nbr[idx * N_SLOTS + N_IN];
 	if (down < 0 || solid[down] == 0.0) {
 		return;                                            // no ground directly below -> not a snow surface
 	}

@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 // `nbr[idx*6 + d]` (slot 0 = inward/down, 1-4 lateral, 5 = outward/up; -1 = boundary). This is the mechanical
 // ===== WHAT THIS KERNEL IS, AND WHAT IT USED TO BE =========================================================
 //      about 100x (2.5 against 0.026 W/m/K). Temperature spreads with DIFFUSIVITY alpha = lambda/(rho*c),
@@ -75,7 +77,7 @@ void main() {
 	float lam_here = lambda_of(idx);
 	float delta = 0.0;
 	for (int d = 0; d < 6; d++) {
-		int nb = nbr[idx * 6u + uint(d)];
+		int nb = nbr[idx * N_SLOTS + uint(d)];
 		if (nb < 0) {
 			// The one boundary that is not empty space: slot 0 has no inward neighbour only at r = 0, the
 			// bottom face of the shell. Bond to the interior's ghost cell with the same expression the loop

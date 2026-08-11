@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 // Units: velocity m/s, k = dt_seconds / cell_metres. Advection is v*dt/dx.
 
 layout(local_size_x = 64) in;
@@ -76,12 +78,12 @@ float raw_out(uint c) {
 	uint b = c * 6u;
 	float t = 0.0;
 	for (int l = 0; l < 4; ++l) {
-		int m = nbr[b + uint(l + 1)];
+		int m = nbr[b + uint(l + int(N_OUT))];
 		if (m >= 0 && solid[m] == 0.0) { t += share(toward_link(c, l)); }
 	}
-	int cu = nbr[b + 5u];
+	int cu = nbr[b + N_OUT];
 	if (cu >= 0 && solid[cu] == 0.0) { t += share(vel_y[c]) + rise_frac(c); }
-	int cd = nbr[b + 0u];
+	int cd = nbr[b + N_IN];
 	if (cd >= 0 && solid[cd] == 0.0) { t += params.diffuse; }
 	t += fall_frac(c);
 	return t;
@@ -111,8 +113,8 @@ void main() {
 	}
 
 	uint base = g * 6u;
-	int nb_d = nbr[base + 0u];
-	int nb_u = nbr[base + 5u];
+	int nb_d = nbr[base + N_IN];
+	int nb_u = nbr[base + N_OUT];
 	bool open_d = (nb_d >= 0) && (solid[nb_d] == 0.0);
 	bool open_u = (nb_u >= 0) && (solid[nb_u] == 0.0);
 
@@ -124,7 +126,7 @@ void main() {
 	float raw = 0.0;
 	float gain = 0.0;
 	for (int l = 0; l < 4; ++l) {
-		int m = nbr[base + uint(l + 1)];
+		int m = nbr[base + uint(l + int(N_OUT))];
 		if (m < 0 || solid[m] != 0.0) {
 			continue;
 		}

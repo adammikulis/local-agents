@@ -89,6 +89,7 @@ func _build_field() -> void:
 	var scale: float = float(_body.radius()) / 250.0
 	field_grid.build(_settings_applier.grid_res_per_face(), _settings_applier.grid_depth(),
 		170.0 * scale, 8.0 * scale, _body.center())
+	_validate_grid(field_grid)
 	_material.setup_sphere(field_grid, _terrain)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
@@ -102,6 +103,24 @@ func _build_field() -> void:
 	_material.set_body(_body)
 	if _ecology.has_method("set_material_field"):
 		_ecology.set_material_field(_material)
+
+
+## THE CONTRACT EVERY GATHER KERNEL DEPENDS ON, CHECKED ONCE AT BUILD. `LASphereGrid.validate()` computes
+## slot-opposite reciprocity — `nbr[c*6+d] == m` implies `nbr[m*6+(d^1)] == c` — and it existed, complete,
+## called by NOBODY. Two bugs in `gravity_flow_sphere3d.glsl` rode on exactly that contract being assumed:
+## a gather from the wrong slot destroyed and duplicated mass (+149% mineral, +47% of the planet's thermal
+## stock), and the outflow pass sent "sideways" flow straight up. A checker nothing runs is not a checker.
+func _validate_grid(grid: RefCounted) -> void:
+	if not grid.has_method("validate"):
+		return
+	var v: Dictionary = grid.validate()
+	LASimReport.gauge("grid_non_reciprocal", float(v.get("non_reciprocal", -1)))
+	LASimReport.gauge("grid_valid", 1.0 if bool(v.get("ok", false)) else 0.0)
+	if not bool(v.get("ok", false)):
+		# Fatal: every flow kernel on this grid moves mass into slots that do not answer back, so nothing the
+		# run reports afterwards is a measurement. sim_run.sh greps for the marker.
+		print("GRID_INVALID=", JSON.stringify(v))
+		push_error("LASphereGrid.validate() failed: %s" % JSON.stringify(v))
 
 
 func _build_system() -> void:

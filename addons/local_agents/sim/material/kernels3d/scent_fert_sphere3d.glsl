@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 // field: one invocation per surface cell (dispatch over surf_count). The box kernel blurred toward its 4 lateral
 
 layout(local_size_x = 64) in;
@@ -30,7 +32,7 @@ void main() {
 	float acc = 0.0;
 	int links = 0;
 	for (int d = 1; d < 5; d++) {
-		int nb = nbr[cell * 6u + uint(d)];
+		int nb = nbr[cell * N_SLOTS + uint(d)];
 		if (nb >= 0) {
 			acc += FERT_BLUR * fert_in[uint(nb)];
 			links += 1;

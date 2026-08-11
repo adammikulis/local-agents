@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 // CUBED-SPHERE GENERIC REACTION ENGINE (Phase B3 §3). ONE data-driven kernel that dissolves a pile of
 // bespoke "clean same-cell" reaction kernels (gas sky-exchange/vent, fungus decompose, …) into a single
 // per-cell loop over an array of Reaction RECORDS uploaded as a read-only SSBO (authored in
@@ -292,7 +294,7 @@ float light_at(uint i) {
 // The FIRST regolith cell beneath an open cell, or -1. Race-free for writes: the inward-neighbour mapping is
 // injective, so no two reacting cells share one, and the column below it still belongs to root_soil's walk.
 int top_regolith(uint i) {
-	int c = nbr[i * 6u + 0u];
+	int c = nbr[i * N_SLOTS + N_IN];
 	if (c < 0 || regolith[c] == 0.0) {
 		return -1;
 	}
@@ -302,7 +304,7 @@ int top_regolith(uint i) {
 
 float root_soil(uint i) {
 	float sum = 0.0;
-	int c = nbr[i * 6u + 0u];
+	int c = nbr[i * N_SLOTS + N_IN];
 	for (int k = 0; k < REGOLITH_CELLS; k++) {
 		if (c < 0 || regolith[c] == 0.0) {
 			break;
@@ -311,7 +313,7 @@ float root_soil(uint i) {
 		if (solid[c] == 0.0) {
 			break;                          // an OPEN aquifer cell terminates the walk (see RACE-FREEDOM above)
 		}
-		c = nbr[uint(c) * 6u + 0u];
+		c = nbr[uint(c) * N_SLOTS + N_IN];
 	}
 	return sum;
 }
@@ -332,7 +334,7 @@ void root_soil_draw(uint i, float amount) {
 		return;
 	}
 	float f = min(amount / total, 1.0);
-	int c = nbr[i * 6u + 0u];
+	int c = nbr[i * N_SLOTS + N_IN];
 	for (int k = 0; k < REGOLITH_CELLS; k++) {
 		if (c < 0 || regolith[c] == 0.0) {
 			break;
@@ -341,7 +343,7 @@ void root_soil_draw(uint i, float amount) {
 		if (solid[c] == 0.0) {
 			break;
 		}
-		c = nbr[uint(c) * 6u + 0u];
+		c = nbr[uint(c) * N_SLOTS + N_IN];
 	}
 }
 
@@ -360,7 +362,7 @@ void root_soil_draw(uint i, float amount) {
 // overburden sum of order 4 — under a percent, and not a systematic direction.
 float overburden(uint i) {
 	float m = 0.0;
-	int c = nbr[i * 6u + 5u];
+	int c = nbr[i * N_SLOTS + N_OUT];
 	for (int k = 0; k < OVERBURDEN_MAX_CELLS; k++) {
 		if (c < 0) {
 			break;
@@ -372,17 +374,17 @@ float overburden(uint i) {
 		// porosity[] is 0 outside regolith, so this is unchanged for bedrock.
 		m += rock_fill[uint(c)] * (1.0 - clamp(porosity[uint(c)], 0.0, 1.0)) * ROCK_DENSITY
 			+ sediment[uint(c)] * SEDIMENT_DENSITY;
-		c = nbr[uint(c) * 6u + 5u];
+		c = nbr[uint(c) * N_SLOTS + N_OUT];
 	}
 	return m * params.overburden_pa;
 }
 
 // The bedrock of the cell directly BENEATH this open one — the BEDROCK_BELOW slot. Returns 0 when there is no
 // inward neighbour or it is not rock, so a record that forgets GATE_NEAR_GROUND simply gets nothing rather
-// than reaching into open air. Race-free because nbr[c*6+0] == c-1 is a bijection within a column: each bed
+// than reaching into open air. Race-free because nbr[c*6+ int(N_IN)] == c-1 is a bijection within a column: each bed
 // cell is the down-neighbour of exactly one open cell (the same argument erosion_pickup_sphere3d.glsl uses).
 float bedrock_below(uint i) {
-	int d = nbr[i * 6u + 0u];
+	int d = nbr[i * N_SLOTS + N_IN];
 	if (d < 0 || solid[d] == 0.0) {
 		return 0.0;
 	}
@@ -390,7 +392,7 @@ float bedrock_below(uint i) {
 }
 
 void bedrock_below_add(uint i, float v) {
-	int d = nbr[i * 6u + 0u];
+	int d = nbr[i * N_SLOTS + N_IN];
 	if (d < 0 || solid[d] == 0.0) {
 		return;
 	}
@@ -473,14 +475,14 @@ bool gate_ok(int mask, uint i) {
 	}
 	if ((mask & GATE_SURFACE) != 0) {
 		// SKY-EXPOSED surface = outermost open cell (outward-radial neighbour is space or rock). gas_sky:50-51.
-		int up = nbr[i * 6u + 5u];
+		int up = nbr[i * N_SLOTS + N_OUT];
 		bool is_surface = (up < 0) || (solid[up] != 0.0);
 		if (!is_surface) {
 			return false;
 		}
 	}
 	if ((mask & GATE_OPEN_ABOVE) != 0) {
-		int au = nbr[i * 6u + 5u];
+		int au = nbr[i * N_SLOTS + N_OUT];
 		bool open_above = (au < 0) || (solid[au] == 0.0);
 		if (!open_above) {
 			return false;
@@ -496,7 +498,7 @@ bool gate_ok(int mask, uint i) {
 		// This is where a plant physically is, where snow deposits, and the surface the altitude lapse cools —
 		// the same `ground_hug` set heat3d_solar_sphere3d already distinguishes. It is NOT the same set as
 		// GATE_SURFACE, which on a shell is the TOP OF THE ATMOSPHERE (outward neighbour is space).
-		int dn = nbr[i * 6u + 0u];
+		int dn = nbr[i * N_SLOTS + N_IN];
 		if (dn < 0 || solid[dn] == 0.0) {
 			return false;
 		}
@@ -508,8 +510,8 @@ bool gate_ok(int mask, uint i) {
 	}
 	if ((mask & GATE_AIR_ABOVE) != 0) {
 		// FREE SURFACE: the outward-radial neighbour must be AIR — open rock-free and not itself drowned.
-		// At the outward boundary (slot 5 == -1) the cell faces open space, which is air enough.
-		int au = nbr[i * 6u + 5u];
+		// At the outward boundary (N_OUT == -1) the cell faces open space, which is air enough.
+		int au = nbr[i * N_SLOTS + N_OUT];
 		if (au >= 0 && (solid[au] != 0.0 || water[au] >= DROWNED_WATER)) {
 			return false;
 		}

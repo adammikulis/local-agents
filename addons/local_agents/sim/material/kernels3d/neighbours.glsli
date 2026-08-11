@@ -1,0 +1,49 @@
+// =====================================================================================================
+// THE ONE DEFINITION OF THE NEIGHBOUR-SLOT LAYOUT. `#include "neighbours.glsli"`.
+//
+// WHY THIS FILE EXISTS. The layout was written from memory in every kernel that touches `nbr[]`, and most
+// of them wrote it down WRONG — as `0 = down, 1..4 = lateral, 5 = up`. The real table is built by
+// LASphereGrid as `neighbours[c*6 + N_IN|N_OUT|N_A0+lateral_slot]`, so slot 1 is UP and slots 2..5 are the
+// four laterals. Twelve kernels read slot 5 as "the cell above" and were walking SIDEWAYS around the sphere
+// at constant radius: the solar column, the aquifer walk, reactions' air-above test, both buoyancy kernels,
+// tracer transport and the wind.
+//
+// It also cost conservation. A two-pass gather writes outflow to `send[me*6 + slot]` and must credit inflow
+// from `send[neighbour*6 + opposite(slot)]`, and the table is reciprocal in `d ^ 1` for ALL THREE pairs.
+// Kernels that hand-rolled `0<->5, 1<->2, 3<->4` instead debited send slots no cell ever read (mass
+// destroyed) and read others twice (mass duplicated). In gravity_flow that was +149% mineral and +47% of
+// the planet's whole thermal stock, created from nothing.
+//
+// So: never write a slot number. Use these names, and `opposite()` for the reverse link.
+// `scripts/check_neighbour_slots.sh` fails the build on a bare integer index into `nbr[]` or `send[]`.
+
+#ifndef LA_NEIGHBOURS_GLSLI
+#define LA_NEIGHBOURS_GLSLI
+
+// Radial pair. Cells are contiguous by radius within a column (c = surface*depth + r), so N_IN is c-1.
+const uint N_IN  = 0u;    // inward  / DOWN, toward the core; -1 at the shell floor
+const uint N_OUT = 1u;    // outward / UP, toward space;      -1 at the shell top
+
+// The four laterals, as TWO RECIPROCAL PAIRS rather than compass directions. On the cubed sphere no choice
+// of per-face axes makes the seams slot-opposite (see LASphereGrid's header — it is a 2-factorisation, and
+// labelling a ring family "the a-axis" globally requires 2-colouring a triangle), so pair A / pair B is the
+// contract and "±a / ±b" is only true in a face interior.
+const uint N_A0  = 2u;
+const uint N_A1  = 3u;
+const uint N_B0  = 4u;
+const uint N_B1  = 5u;
+
+// First lateral slot, so a loop over the four laterals is `for (l = 0; l < 4; ++l) nbr[base + N_LAT0 + l]`.
+// `link_arc` and `link_tan` are indexed by that same l — the table is filled as
+// `neighbours[c*6 + N_A0 + lateral_slot[...]]`, so lateral index l IS slot N_LAT0 + l.
+const uint N_LAT0  = 2u;
+const uint N_LATERAL_COUNT = 4u;
+
+const uint N_SLOTS = 6u;
+
+// The slot in the NEIGHBOUR that points back at me. LASphereGrid guarantees
+// `nbr[c*6+d] == m` implies `nbr[m*6+(d^1)] == c`, for the radial pair and both lateral pairs alike, and
+// LASphereGrid.validate() counts any link that breaks it.
+uint opposite(uint d) { return d ^ 1u; }
+
+#endif

@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 // Gravity-driven mass redistribution over the neighbour table, for any flowing material.
 // Replaces water_sphere3d, lava_flow_sphere3d and slump_sphere3d, which were one kernel three times.
 //
@@ -73,12 +75,12 @@ void main() {
 		}
 
 		// DOWN
-		int ib = nbr[base + 0u];
+		int ib = nbr[base + N_IN];
 		if (ib >= 0 && solid[ib] == 0.0) {
 			float flow = stable_below(remaining + mass_in[ib]) - mass_in[ib];
 			flow = clamp(flow, 0.0, min(params.max_flow, remaining));
 			if (flow > params.min_flow) {
-				send[base + 0u] = flow;
+				send[base + N_IN] = flow;
 				remaining -= flow;
 			}
 		}
@@ -96,7 +98,7 @@ void main() {
 			if (remaining < params.min_mass) {
 				break;
 			}
-			int inb = nbr[base + 2u + uint(d)];
+			int inb = nbr[base + N_A0 + uint(d)];
 			if (inb < 0 || solid[inb] != 0.0) {
 				continue;
 			}
@@ -112,7 +114,7 @@ void main() {
 			if (movable > params.min_flow) {
 				float lflow = clamp(movable * params.lateral_frac, 0.0, min(params.max_flow, remaining));
 				if (lflow > params.min_flow) {
-					send[base + 2u + uint(d)] = lflow;
+					send[base + N_A0 + uint(d)] = lflow;
 					remaining -= lflow;
 				}
 			}
@@ -121,12 +123,12 @@ void main() {
 		// UP, only when over-full — slot 1 is N_OUT (outward/up). It was slot 5, which is a LATERAL, so the
 		// overflow went sideways while the repose loop pushed mass through slot 1, i.e. UPWARD.
 		if (remaining > MAX_MASS) {
-			int iu = nbr[base + 1u];
+			int iu = nbr[base + N_OUT];
 			if (iu >= 0 && solid[iu] == 0.0) {
 				float uflow = remaining - stable_below(remaining + mass_in[iu]);
 				uflow = clamp(uflow, 0.0, min(params.max_flow, remaining));
 				if (uflow > params.min_flow) {
-					send[base + 1u] = uflow;
+					send[base + N_OUT] = uflow;
 					remaining -= uflow;
 				}
 			}
@@ -155,7 +157,7 @@ void main() {
 		// The neighbour's send slot aimed back at us. The table is RECIPROCAL IN THE OPPOSITE SLOT `d ^ 1`
 		// for all three pairs — LASphereGrid slots: 0/1 radial in/out, 2/3 lateral A, 4/5 lateral B.
 		uint rev = d ^ 1u;
-		float f = send[uint(m) * 6u + rev];
+		float f = send[uint(m) * N_SLOTS + rev];
 		if (f > 0.0) {
 			inflow += f;
 			inflow_heat += f * temp[m];

@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 
 layout(local_size_x = 64) in;
 
@@ -106,7 +108,7 @@ void main() {
 		m_col += a;
 		uint nb = c * 6u;
 		for (int l = 0; l < 4; ++l) {
-			int m = nbr[nb + uint(l + 1)];
+			int m = nbr[nb + uint(l + int(N_OUT))];
 			if (m < 0 || solid[m] != 0.0) {
 				continue;
 			}

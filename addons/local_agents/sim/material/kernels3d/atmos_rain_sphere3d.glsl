@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 // cell sums the rain aimed AT it — its own rain when it has no open cell DOWN (inward, slot 0), plus the
 // rain from the cell directly ABOVE (outward, slot 5) when that cell drains down into this open cell.
 //   "down/below/ground" → INWARD radial neighbour = slot 0;  "up/above" → OUTWARD = slot 5.
@@ -38,7 +40,7 @@ void main() {
 	// core/bottom (box iy==0); a solid inward neighbour is the box "solid directly below".
 	float r_self = rain[g];
 	if (r_self > 0.0) {
-		int below = nbr[base + 0];
+		int below = nbr[base + int(N_IN)];
 		bool self_target = (below < 0) || (solid[below] != 0.0);
 		if (self_target) {
 			add += r_self;
@@ -47,7 +49,7 @@ void main() {
 
 	// FROM ABOVE: the OUTWARD cell (slot 5) rains DOWN into this (open) cell — its target = idx because idx
 	// is non-solid. (If idx were solid the above cell would rain into itself; handled by the guard above.)
-	int above = nbr[base + 5];
+	int above = nbr[base + int(N_OUT)];
 	if (above >= 0) {
 		float r_above = rain[above];
 		if (r_above > 0.0) {
