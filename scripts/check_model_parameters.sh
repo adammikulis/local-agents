@@ -140,6 +140,7 @@ awk -v REG="$REG_INPUT" -v ROOT="$REPO_ROOT/" -v EMIT="$EMIT" '
       next
     }
     printf "FAIL %s:%d  %s = %s is neither bound to LAPhysical/LASubstances, nor derived from other constants, nor declared in docs/MODEL_PARAMETERS.md.\n", rel(FILENAME), FNR, name, val
+    if (val ~ /^-?[0-9]+$/) printf "      (if this is a TAG rather than a quantity — a mode, a slot, a bitflag — make it an `enum`. The registry is for numbers somebody CHOSE.)\n"
     errors++
   }
 
