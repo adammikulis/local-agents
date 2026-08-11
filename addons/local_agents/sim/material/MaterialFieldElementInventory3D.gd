@@ -55,13 +55,17 @@ func report(step_index: int) -> Dictionary:
 	if _f._gpu != null and _f._gpu.has_method("take_probe"):
 		legs = _f._gpu.take_probe()
 		_f._gpu.request_probe(LEGS)
-	var co2: PackedFloat32Array = legs.get("co2", _f._co2)
-	var o2: PackedFloat32Array = legs.get("o2", _f._o2)
-	var det: PackedFloat32Array = legs.get("detritus", _f._detritus)
-	var bio: PackedFloat32Array = legs.get("biomass", _f._biomass)
-	var fert: PackedFloat32Array = legs.get("fert", _f._fert)
-	var fung: PackedFloat32Array = legs.get("fungus", _f._fungus)
-	var fuel: PackedFloat32Array = legs.get("fuel", _f._fuel)
+	# NO MIRROR FALLBACK. `legs.get(name, mirror)` substituted a CPU mirror whenever the probe leg had not
+	# arrived, and a mirror's freshness depends on which OTHER consumer last called request_channel — so this
+	# gauge read the observer. An absent leg is absent; the totals are refused below rather than computed
+	# from a stale array that looks like a measurement.
+	var co2: PackedFloat32Array = legs.get("co2", PackedFloat32Array())
+	var o2: PackedFloat32Array = legs.get("o2", PackedFloat32Array())
+	var det: PackedFloat32Array = legs.get("detritus", PackedFloat32Array())
+	var bio: PackedFloat32Array = legs.get("biomass", PackedFloat32Array())
+	var fert: PackedFloat32Array = legs.get("fert", PackedFloat32Array())
+	var fung: PackedFloat32Array = legs.get("fungus", PackedFloat32Array())
+	var fuel: PackedFloat32Array = legs.get("fuel", PackedFloat32Array())
 	var has_co2: bool = co2.size() == cc
 	var has_o2: bool = o2.size() == cc
 	var has_det: bool = det.size() == cc
@@ -69,6 +73,18 @@ func report(step_index: int) -> Dictionary:
 	var has_fert: bool = fert.size() == cc
 	var has_fung: bool = fung.size() == cc
 	var has_fuel: bool = fuel.size() == cc
+	# A total summed from a partial leg set is not a total. Refuse it, name what is missing, and let the
+	# reader see "unmeasured" instead of a number that is quietly short by whatever did not arrive.
+	var missing: PackedStringArray = PackedStringArray()
+	for pair in [["co2", has_co2], ["o2", has_o2], ["detritus", has_det], ["biomass", has_bio],
+			["fert", has_fert], ["fungus", has_fung], ["fuel", has_fuel]]:
+		if not bool(pair[1]):
+			missing.append(String(pair[0]))
+	if missing.size() > 0:
+		out["mass_live"] = {"co2": has_co2, "o2": has_o2, "detritus": has_det, "biomass": has_bio,
+			"fert": has_fert, "fungus": has_fung, "fuel": has_fuel}
+		out["mass_missing"] = missing
+		return out
 
 	var co2_open: float = 0.0
 	var co2_all: float = 0.0

@@ -58,19 +58,19 @@ func _compute() -> Dictionary:
 		var want: PackedStringArray = PackedStringArray(["pressure"])
 		want.append_array(LAHeatCapacity.channels())
 		_f._gpu.request_probe(want)
-	var pressure: PackedFloat32Array = legs.get("pressure", _f._pressure)
-	var rock_fill: PackedFloat32Array = legs.get("rock_fill", _f._rock_fill)
+	var pressure: PackedFloat32Array = legs.get("pressure", PackedFloat32Array())
+	var rock_fill: PackedFloat32Array = legs.get("rock_fill", PackedFloat32Array())
 	# ONE capacity model, shared with the stock this module's output is differenced against. See the note at
 	# the `rc` assignment below for what the two-copy version cost.
 	var _rc_channels: Dictionary = {
-		"rock_fill": rock_fill, "lava": legs.get("lava", _f._lava),
+		"rock_fill": rock_fill, "lava": legs.get("lava", PackedFloat32Array()),
 		"sediment": _f._sediment, "susp": _f._susp, "dust": legs.get("dust", PackedFloat32Array()),
 		"carbonate": legs.get("carbonate", PackedFloat32Array()),
 		"silica": legs.get("silica", PackedFloat32Array()),
 		"water": _f._water, "soil": _f._soil, "snow": _f._snow, "moisture": _f._moisture,
 		"porosity": _f._porosity,
-		"fuel": legs.get("fuel", _f._fuel), "biomass": _f._biomass,
-		"detritus": legs.get("detritus", _f._detritus),
+		"fuel": legs.get("fuel", PackedFloat32Array()), "biomass": legs.get("biomass", PackedFloat32Array()),
+		"detritus": legs.get("detritus", PackedFloat32Array()),
 		"fungus": legs.get("fungus", PackedFloat32Array()),
 	}
 	if solid.size() != cc or temp.size() != cc:
