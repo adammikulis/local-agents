@@ -61,6 +61,8 @@ const RADIOGENIC_W_PER_KG: float = 5.0e-12
 # --- ENERGY BUDGET ----------------------------------------------------------------------------------------
 const SOLAR_CONSTANT_W_M2: float = 1361.0
 const STEFAN_BOLTZMANN: float = 5.670374419e-8
+## Newton's constant, m^3 kg^-1 s^-2 (CODATA 2018).
+const GRAVITATIONAL_CONSTANT: float = 6.67430e-11
 const KELVIN_OFFSET: float = 273.15
 
 # Mean geothermal heat flux out of Earth's surface, against ~340 W/m² of mean absorbed sunlight — a ratio

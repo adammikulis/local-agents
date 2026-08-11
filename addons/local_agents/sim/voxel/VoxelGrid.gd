@@ -23,14 +23,10 @@ extends RefCounted
 ##
 ## (Explicit types only, no ':=' inferred typing.)
 
-const SLOTS: int = 6
+## Face tags, not quantities. Ordered so the opposite of d is d ^ 1.
+enum { S_NEG_X, S_POS_X, S_NEG_Y, S_POS_Y, S_NEG_Z, S_POS_Z }
 
-const S_NEG_X: int = 0
-const S_POS_X: int = 1
-const S_NEG_Y: int = 2
-const S_POS_Y: int = 3
-const S_NEG_Z: int = 4
-const S_POS_Z: int = 5
+const SLOTS: int = S_POS_Z + 1
 
 ## Slot -> unit step in cell indices. Order matches the constants above, so `d ^ 1` is the reverse.
 const SLOT_STEP: Array[Vector3i] = [

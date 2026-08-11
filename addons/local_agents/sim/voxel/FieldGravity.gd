@@ -23,8 +23,8 @@ extends RefCounted
 ##
 ## (Explicit types only, no ':=' inferred typing.)
 
-## Newton's constant, m^3 kg^-1 s^-2 (CODATA 2018). A measured property of the universe.
-const G_SI: float = 6.67430e-11
+## Newton's constant, m^3 kg^-1 s^-2. Bound to the SSOT, not a second copy.
+const G_SI: float = LAPhysical.GRAVITATIONAL_CONSTANT
 
 ## THE SOLVE IS ENTIRELY IN SI. G is in m^3 kg^-1 s^-2, so every length here is METRES and the grid's
 ## model units are converted once, at setup. Mixing the two silently gives a potential wrong by the cube
