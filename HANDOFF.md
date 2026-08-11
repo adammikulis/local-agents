@@ -90,6 +90,39 @@ created heat on every buoyant transfer; `sea_level`, declared and never assigned
 gradient collapsed to one permeability planet-wide and cloud base sat inside the mantle; and the five-plane
 `scent` channel, two of whose planes had no emitter anywhere in the tree.
 
+## THE CONSERVATION GATE WAS BLIND, AND THE VIOLATION IT NOW REPORTS IS PROBABLY THE INSTRUMENT
+
+**Measured 2026-08-10, first windowed runs since the substrate work.**
+
+`LAMaterialFieldConservation3D.check()` guarded its violation test with `if elapsed < REFERENCE_STEPS or
+_audited: continue`. `_audited` latches at the first sample past the 600-step horizon, so **the gate
+evaluated exactly once and then went blind for the rest of the run.** A 600-frame run at `--fast=8`
+reaches field_step 37712 — sixty times the horizon — and reported `conservation_failed: false` while the
+current sample read `element_C_total` 11.09 against a debt of 0.28. The `or _audited` was redundant:
+`not _violations.has(key)` on the next line already gives one report per substance. It is deleted.
+
+**With the gate seeing, h2o breaches on BOTH trees, so it predates this session:**
+
+| tree | breach | baseline -> now |
+|---|---|---|
+| `54f6e58` (pre-session, gate fix only) | +69.8% at step 1244 | 3711.52 -> 6303.99 |
+| this branch | +157.5% at step 908 | 4049.55 -> 10427.83 |
+
+**BUT THE PER-PASS PROBE FLATLY DISAGREES, and it is the better instrument.** `LA_H2O_BUDGET=1` reads
+the device at the drain, per pass, and says `residual_all` is ~0.0001 EVERY step — every pass conserves
+water to one part in ten thousand — while the total FALLS: 5335 -> 4989 -> 4246 -> 4104 -> 4030 -> 3978.
+Water drains from `water` (3458 -> 1447) into `soil` (1876 -> 2530); `plate_advect` and `solid_derive`
+cancel to the digit (-1.9999 / +1.9999).
+
+Both cannot be true. The difference is the SUMMING RULE: the probe sums the device, while
+`h2o_closed_total` adds four legs through four different masks — `soil_total` mask-free,
+`water_total`/`snow_total` open-cells-only, `moisture_total` on `solid != 0` (moisture INSIDE ROCK).
+`solid_cells` moves all run (31978 -> 31636), so every cell crossing the solidity threshold shifts mass
+between differently-masked legs and the total moves with no water going anywhere.
+
+**So: do not go hunting for a water source yet.** Merge the h2o-mask track (one inclusion rule for all
+four legs) and re-measure. If the breach survives a unified mask, it is real and the hunt starts then.
+
 **WHAT IS BROKEN RIGHT NOW, AT THE TOP OF THE QUEUE:**
 1. **`--bare` CHANGES THE PHYSICS.** Same seed, same frames: `o2_total` 37125.09 with the presentation layer,
    **36641.69 without** — 1.3% apart, while h2o and carbon match to the digit. Introduced by `a1919d0`.
