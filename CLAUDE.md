@@ -1,5 +1,120 @@
 # CLAUDE.md
 
+## RULE ZERO — REALISM IS THE FIRST GOAL. ASK "IS THIS HOW THE WORLD WORKS?" BEFORE ANYTHING ELSE.
+
+**This outranks every other rule in this file.** Before you write, review, or accept any model, constant,
+coupling or measurement, ask the physical question — *does this correspond to how the real world actually
+works?* Not "does the code run", not "does the test pass", not "does the number look reasonable". Those are
+all downstream. A simulation that runs perfectly and does not match reality is broken.
+
+**Every serious defect found on 2026-08-03 fails that one question, and every one of them was caught by the
+maintainer rather than by an agent:**
+- **Water froze at 12.5 °C** (five files, three values) because the planet could not get cold, so a previous
+  pass moved the freezing point of water instead of fixing the planet.
+- **The planet's core was 1300 °C** — an *erupting basalt* temperature, about a quarter of a real iron core
+  (~5200 °C) — because a hotter one baked the surface.
+- **Every creature had identical thermal physiology** (`WARM_COMFORT 28 / COOL_COMFORT 8 / LETHAL_COLD -18`,
+  module consts): a whale, a desert beetle and an arctic fox, the same. No species config, no heritable gene.
+- **Volcanoes waited for rabbits.** The ambient disaster director would not start its clock until a creature
+  had spawned, so geology was gated on the biosphere.
+- **The deep ocean sat at 10 °C — below its own freezing point — without freezing**, saved only by a 26 °C
+  thermostat overriding the temperature field.
+- **"The planet can't go below 0 °C"** was concluded from a *global* `temp_min`, when freezing is local:
+  poles, summits, night side, and aloft (where snow actually forms) all freeze independently.
+
+**How to apply, in order:**
+1. **Name the real-world referent.** What physical thing is this a model OF? If you cannot say, that is the
+   finding. Cite the real value or mechanism.
+2. **Check the coupling against reality.** Systems that are independent in the world must be independent in
+   the code, in BOTH directions. Geology does not consult biology; biology does not schedule earthquakes.
+3. **Check the scale.** A core is hotter than lava. An ocean is colder than magma. A pole is colder than an
+   equator. If a number is off by 4x from the real thing, it is wrong even if it runs.
+4. **Check that entities that differ in reality differ in code** — species, materials, biomes. One constant
+   shared across genuinely different things is a modelling error, not a simplification.
+5. **Check the measurement is the right shape.** A global mean cannot answer a local question; one sample
+   cannot answer "how extreme"; a scalar cannot show structure.
+6. **When reality and convenience conflict, reality wins.** If the sim must be wrong for the numbers to look
+   right, fix the sim. Never bend a physical fact to a broken model — see the PHYSICAL CONSTANT rule below.
+
+### EVERY CONSERVATION VIOLATION IS ADDRESSED OR EXEMPTED. THOSE ARE THE ONLY TWO OUTCOMES.
+
+**Maintainer's standing directive, and it is a rule about PHYSICS, not about scope.** Anything that violates
+conservation of matter or energy must be **addressed** — fixed — or **exempted**. Exemption is the
+maintainer's to grant and nobody else's. There is no third outcome.
+
+**"It is out of scope" IS NOT AN EXEMPTION.** Neither is "that is 0.5 work", "not this track", "a different
+subsystem owns it", "it predates me", or "it is recorded in `HANDOFF.md`". Those are scheduling statements,
+and **scope is a separate axis from physics.** A violation does not become acceptable because the file it
+lives in is scheduled for a later release. If you catch yourself routing a conservation violation into a
+backlog, you are exempting it on the maintainer's behalf, which you may not do.
+
+This does not conflict with "fix it AND report it" above. FIXING needs no permission; that is the job. What
+needs permission is any path that ends with the violation still live — including deferring it, including
+filing it, including deciding it belongs to someone else.
+
+**This wording is the maintainer's correction of a weaker version I wrote**, which said violations need
+"explicit approval before you proceed". That framing let scope back in through the side door: within one turn
+of writing it I fenced an agent's contract to a single creature-layer violation and left two more parked as
+"0.5", which is precisely the move the rule exists to forbid. Addressed or exempted. Nothing else.
+
+**How this was learned.** The substrate creates matter from nothing, and nobody ever asked whether that was
+acceptable — it was inherited, described in a tracker as "minting", repeated in agent contracts, and treated
+as a background condition rather than a decision. The plan built on top of it was to ADD ANOTHER SOURCE. At no
+point was the maintainer asked "is it alright that this violates conservation of matter", by anyone, despite
+realism being the stated first goal of the entire project. The failure was not choosing badly. It was never
+presenting the choice.
+
+**So, in practice:**
+- When you find a physics violation, SURFACE IT AS A DECISION, not as a line in a report. Name the physical
+  law, say what the code does instead, and say what fixing it would cost. Then wait.
+- "It was already like that" is not consent. Neither is a tracker entry, a code comment, or a previous
+  agent's report. Only the maintainer's answer is consent.
+- If you are deferring a violation because you are mid-task on something else, that IS the decision that
+  needs approval. Say which violation you are leaving live and for how long.
+- A euphemism is not a disclosure. "Minting", "not conserving", "drift", "prescriber", "stand-in", "interim"
+  — if the plain-language version is "this creates matter from nothing" or "this makes heat appear", use the
+  plain-language version when you surface it.
+
+### RULE ZERO POINTS AT EVERYTHING, AND AT THE ENGINE MOST OF ALL. NOTHING HAS TO NOMINATE A TARGET.
+
+**Unless something is written here as an explicit exception, Rule Zero applies to it.** It is not a checklist
+you run against the items a document happens to list. If you find yourself reasoning "nothing pointed me
+there", you have already failed it — that sentence describes waiting to be told, which is the opposite of the
+rule.
+
+**And it applies HARDEST to the engine — the substrate, the reaction table, the integrator, the conservation
+machinery — not to the constants those things carry.** A wrong constant is one lie. A wrong ENGINE is a
+PERMISSION: it licenses every record ever written against it, in the past and in the future, and no quantity
+of correctly-sourced constants redeems it. Constants are the cheapest thing to audit and the least valuable.
+
+**The case that proves it, and it is the worst defect found in this project so far: THE SUBSTRATE CREATES
+MATTER FROM NOTHING, BY CONSTRUCTION.** The DEFS reaction engine is a rate table, not a chemistry —
+`rec()` takes reactants and products as independent lists with hand-written coefficients and nothing relates
+them; `RELAX_TARGET` has no reactant at all, so only its product credit runs; and there is no load-time
+validation anywhere, only comments asserting conservation. Every carbon atom that has ever existed in this
+simulation was conjured by one record. An agent read `RELAX_TARGET`'s own definition — *"signed; no reactant;
+product = driver"* — QUOTED IT IN A PLAN, and did not stop. A reaction with no reactant is matter from
+nothing. It then planned to fix a nitrogen shortage by **adding another source**, and the maintainer caught it.
+
+**Two habits follow, and they are cheap:**
+- **Translate the euphemism before you accept the claim.** That defect was recorded here for weeks as
+  "minting", which makes creating matter sound like an accounting discrepancy — something a better ledger
+  catches. Written as "the simulation creates carbon atoms from nothing" it is unmissable. If a phrase lets
+  you think about a physics violation without picturing the physics, restate it and re-read your plan.
+- **Distrust FRAMINGS, not just facts.** Verifying that a cited file exists is easy and this repo does it
+  well. The expensive errors live in the sentence that told you what KIND of problem you have. A tracker,
+  a task description, and a prior agent's report are all claims. So is this file.
+
+**Do this UNPROMPTED, on every file you open — including files you only opened to read.** Every item above
+was visible in code an agent had already read. Surfacing something is not reviewing it. If you notice a
+reality violation while doing something else, **FIX IT *AND* REPORT IT that turn — not one or the other.**
+"Or" is an invitation to file a note and move on, which is the lazy route and the one taken by default.
+Reporting without fixing leaves the defect in the code; fixing without reporting hides it from the
+maintainer. Do both. Do not route around it because it is not your current task — routing around it is the
+failure mode, and it is the most common one.
+
+*(Moved here 2026-08-11. It opens by saying "This outranks every other rule in this file" and it sat at line 591, two thirds of the way down, behind five hundred lines of process. A file whose layout contradicts its own stated priority teaches the wrong order to anyone who skims it — and skimming is the normal case.)*
+
 # RULE 1 — DELETE IT. DO NOT PRESERVE IT. THIS OUTRANKS EVERYTHING BELOW.
 
 **If it is wrong, delete it.** Not behind a flag, a mode, a default, an alias, a pad, or a fallback. A switch
@@ -9,6 +124,45 @@ compatibility" here — there are no downstream consumers.
 **Ask whether the thing exists in the real world. If it does not, there is nothing to preserve.** Seas are
 not static. Mass does not move without its heat. A gas does not ignore the wind. Water does not vanish when
 it reaches the ocean. When the answer is "reality has no such thing", delete it — do not parameterise it.
+
+# RULE 2 — YOU PRESERVE NUMBERS, NOT CODE. THAT IS THE ONE THAT KEEPS GETTING PAST RULE 1.
+
+**Rule 1 is obeyed on files and violated on values.** An agent will delete a whole kernel and then carry a
+calibrated constant forward untouched, because deleting a file feels like progress and changing a number
+feels like cheating. The three things actually protected here are always the same:
+
+- **calibrated constants** — tolerances, ceilings, allowances, "measured X" values;
+- **the measurement configuration** — which flags a test run uses, what a baseline was taken with;
+- **comparability with past runs**, which is the real motive: a preserved ceiling preserves the meaning of
+  every number already reported against it. **The instinct is not attachment to the code. It is attachment
+  to one's own previous output still being interpretable.**
+
+**A MEASURED VALUE IS A FACT ABOUT A RUN THAT NO LONGER EXISTS.** The run is gone, the substrate changed,
+and the number is a fossil. It is not a bar, and "it was measured" is not provenance — provenance is *what
+it was measured against, and is that thing still there*.
+
+**THE TELLS, and every one of them is real, from 2026-08-11, written by me and thought to be rigour:**
+- *"a unit conversion, not a re-tuning — nothing was loosened"*, about six ceilings whose every underlying
+  run was already known unreadable. Preserving them read as discipline; it was the defect.
+- *"we can't default to `--bare` because it changes the numbers"* — about numbers already known to be wrong.
+  **The numbers being wrong is the reason to iterate faster, not slower.**
+- Any sentence containing *previously*, *still*, *parity*, *unchanged*, *so the comparison holds*, *so the
+  baseline stays valid*. That clause is the sound of a fossil being defended.
+
+**AND THE DEFERENCE FAILURE, which is the same mechanism pointed at the maintainer.** He said "never
+maintain compat with something you KNOW is wrong" and "you have carte blanche" — and the `--bare` refusal
+happened anyway. It was not defiance. It was a REASON, manufactured in the moment, for why an explicit
+instruction did not apply to this case. **If you catch yourself constructing an argument for why an
+instruction should not apply here, that argument IS the defect.** Do the thing. There is no case where a
+number you already know is wrong is worth defending against an instruction to change it.
+
+**WHAT TO DO INSTEAD, mechanically:**
+1. An allowance is **zero unless derived**. A conserved substance drifts at zero; the only tolerance a
+   ledger is entitled to is arithmetic noise, and that is computed from the format and the cell count, not
+   chosen. `LAMaterialFieldConservation3D.noise_floor()` is the worked example.
+2. When a subsystem changes, every calibrated number downstream of it is **invalid until re-measured** —
+   not "still roughly right". Say it is invalid; do not carry it.
+3. Preserve *questions*, never *answers*. "What was this measuring?" survives a rewrite. "0.28" does not.
 
 # YOU MAY NOT VIOLATE PHYSICS WITHOUT EXPLICIT PERMISSION. ASK. EVERY TIME.
 
@@ -577,128 +731,28 @@ rediscover.
 
 ## HOW GOOD IS THE PHYSICS? `PHYSICS_RUBRIC.md` — and the score is a number, not a judgement.
 
-Six criteria, 0-4, scored on every landing with a dated row appended. `scripts/physics_score.sh` COMPUTES
-criteria 1 (matter conserved, in moles), 2 (energy booked — the residual, not the drift) and 5 (how much the
-seed still asserts) straight out of `SIM_REPORT`; 3, 4 and 6 are audit counts and are hand-entered, so they
-are the ones to distrust. It exists because the person scoring the work is the person who did it — and the
-very first hand-total was wrong by one, in the hand-entered half.
+**TEN criteria, 0-4, ALL COMPUTED. Run `scripts/agent_harness.sh score`; never hand-enter a row.**
+*(Corrected 2026-08-11. This said "Six criteria" and that criteria 3, 4 and 6 "are audit counts and are
+hand-entered, so they are the ones to distrust". They were right to be distrusted and they are gone: 3 and
+4 now come from `docs/MODEL_PARAMETERS.md`, which is already a ratcheted census of every number that is
+neither bound nor derived, and 6 from probe coverage. The proof arrived immediately — on a landing that
+rebuilt the instruments I would have hand-entered criterion 6 as a 3, and the computed answer is 2.)*
 
-**Opening score 7 / 24 (2026-08-09).** Read it before planning substrate work: it says which criterion is
-binding, and it records two hard couplings — seed minimality cannot pass 2 until energy is booked, and
-matter conservation is gated on per-pass attribution existing.
+Four criteria were added the same day because six could not see the failures this project actually has:
+**7 momentum** (matter has ledgers, energy has one, momentum has none), **8 emergence** (the north star, and
+the only criterion that goes UP by deleting files), **9 determinism** (same seed, same planet) and
+**10 observer independence** (looking at it must not change it). 9 and 10 need comparison runs, and the
+script takes them itself — a score that quietly skips its expensive half is the hand-entered problem
+wearing a script.
 
-## RULE ZERO — REALISM IS THE FIRST GOAL. ASK "IS THIS HOW THE WORLD WORKS?" BEFORE ANYTHING ELSE.
+**Score 10 / 40 (2026-08-11).** Read it before planning substrate work: it says which criterion is binding.
+Three of its rows are things nothing was watching — **two runs at one seed differ by 0.41%**, `--bare`
+differs by **87%** on `energy_stock`, and there is no momentum ledger at all.
 
-**This outranks every other rule in this file.** Before you write, review, or accept any model, constant,
-coupling or measurement, ask the physical question — *does this correspond to how the real world actually
-works?* Not "does the code run", not "does the test pass", not "does the number look reasonable". Those are
-all downstream. A simulation that runs perfectly and does not match reality is broken.
-
-**Every serious defect found on 2026-08-03 fails that one question, and every one of them was caught by the
-maintainer rather than by an agent:**
-- **Water froze at 12.5 °C** (five files, three values) because the planet could not get cold, so a previous
-  pass moved the freezing point of water instead of fixing the planet.
-- **The planet's core was 1300 °C** — an *erupting basalt* temperature, about a quarter of a real iron core
-  (~5200 °C) — because a hotter one baked the surface.
-- **Every creature had identical thermal physiology** (`WARM_COMFORT 28 / COOL_COMFORT 8 / LETHAL_COLD -18`,
-  module consts): a whale, a desert beetle and an arctic fox, the same. No species config, no heritable gene.
-- **Volcanoes waited for rabbits.** The ambient disaster director would not start its clock until a creature
-  had spawned, so geology was gated on the biosphere.
-- **The deep ocean sat at 10 °C — below its own freezing point — without freezing**, saved only by a 26 °C
-  thermostat overriding the temperature field.
-- **"The planet can't go below 0 °C"** was concluded from a *global* `temp_min`, when freezing is local:
-  poles, summits, night side, and aloft (where snow actually forms) all freeze independently.
-
-**How to apply, in order:**
-1. **Name the real-world referent.** What physical thing is this a model OF? If you cannot say, that is the
-   finding. Cite the real value or mechanism.
-2. **Check the coupling against reality.** Systems that are independent in the world must be independent in
-   the code, in BOTH directions. Geology does not consult biology; biology does not schedule earthquakes.
-3. **Check the scale.** A core is hotter than lava. An ocean is colder than magma. A pole is colder than an
-   equator. If a number is off by 4x from the real thing, it is wrong even if it runs.
-4. **Check that entities that differ in reality differ in code** — species, materials, biomes. One constant
-   shared across genuinely different things is a modelling error, not a simplification.
-5. **Check the measurement is the right shape.** A global mean cannot answer a local question; one sample
-   cannot answer "how extreme"; a scalar cannot show structure.
-6. **When reality and convenience conflict, reality wins.** If the sim must be wrong for the numbers to look
-   right, fix the sim. Never bend a physical fact to a broken model — see the PHYSICAL CONSTANT rule below.
-
-### EVERY CONSERVATION VIOLATION IS ADDRESSED OR EXEMPTED. THOSE ARE THE ONLY TWO OUTCOMES.
-
-**Maintainer's standing directive, and it is a rule about PHYSICS, not about scope.** Anything that violates
-conservation of matter or energy must be **addressed** — fixed — or **exempted**. Exemption is the
-maintainer's to grant and nobody else's. There is no third outcome.
-
-**"It is out of scope" IS NOT AN EXEMPTION.** Neither is "that is 0.5 work", "not this track", "a different
-subsystem owns it", "it predates me", or "it is recorded in `HANDOFF.md`". Those are scheduling statements,
-and **scope is a separate axis from physics.** A violation does not become acceptable because the file it
-lives in is scheduled for a later release. If you catch yourself routing a conservation violation into a
-backlog, you are exempting it on the maintainer's behalf, which you may not do.
-
-This does not conflict with "fix it AND report it" above. FIXING needs no permission; that is the job. What
-needs permission is any path that ends with the violation still live — including deferring it, including
-filing it, including deciding it belongs to someone else.
-
-**This wording is the maintainer's correction of a weaker version I wrote**, which said violations need
-"explicit approval before you proceed". That framing let scope back in through the side door: within one turn
-of writing it I fenced an agent's contract to a single creature-layer violation and left two more parked as
-"0.5", which is precisely the move the rule exists to forbid. Addressed or exempted. Nothing else.
-
-**How this was learned.** The substrate creates matter from nothing, and nobody ever asked whether that was
-acceptable — it was inherited, described in a tracker as "minting", repeated in agent contracts, and treated
-as a background condition rather than a decision. The plan built on top of it was to ADD ANOTHER SOURCE. At no
-point was the maintainer asked "is it alright that this violates conservation of matter", by anyone, despite
-realism being the stated first goal of the entire project. The failure was not choosing badly. It was never
-presenting the choice.
-
-**So, in practice:**
-- When you find a physics violation, SURFACE IT AS A DECISION, not as a line in a report. Name the physical
-  law, say what the code does instead, and say what fixing it would cost. Then wait.
-- "It was already like that" is not consent. Neither is a tracker entry, a code comment, or a previous
-  agent's report. Only the maintainer's answer is consent.
-- If you are deferring a violation because you are mid-task on something else, that IS the decision that
-  needs approval. Say which violation you are leaving live and for how long.
-- A euphemism is not a disclosure. "Minting", "not conserving", "drift", "prescriber", "stand-in", "interim"
-  — if the plain-language version is "this creates matter from nothing" or "this makes heat appear", use the
-  plain-language version when you surface it.
-
-### RULE ZERO POINTS AT EVERYTHING, AND AT THE ENGINE MOST OF ALL. NOTHING HAS TO NOMINATE A TARGET.
-
-**Unless something is written here as an explicit exception, Rule Zero applies to it.** It is not a checklist
-you run against the items a document happens to list. If you find yourself reasoning "nothing pointed me
-there", you have already failed it — that sentence describes waiting to be told, which is the opposite of the
-rule.
-
-**And it applies HARDEST to the engine — the substrate, the reaction table, the integrator, the conservation
-machinery — not to the constants those things carry.** A wrong constant is one lie. A wrong ENGINE is a
-PERMISSION: it licenses every record ever written against it, in the past and in the future, and no quantity
-of correctly-sourced constants redeems it. Constants are the cheapest thing to audit and the least valuable.
-
-**The case that proves it, and it is the worst defect found in this project so far: THE SUBSTRATE CREATES
-MATTER FROM NOTHING, BY CONSTRUCTION.** The DEFS reaction engine is a rate table, not a chemistry —
-`rec()` takes reactants and products as independent lists with hand-written coefficients and nothing relates
-them; `RELAX_TARGET` has no reactant at all, so only its product credit runs; and there is no load-time
-validation anywhere, only comments asserting conservation. Every carbon atom that has ever existed in this
-simulation was conjured by one record. An agent read `RELAX_TARGET`'s own definition — *"signed; no reactant;
-product = driver"* — QUOTED IT IN A PLAN, and did not stop. A reaction with no reactant is matter from
-nothing. It then planned to fix a nitrogen shortage by **adding another source**, and the maintainer caught it.
-
-**Two habits follow, and they are cheap:**
-- **Translate the euphemism before you accept the claim.** That defect was recorded here for weeks as
-  "minting", which makes creating matter sound like an accounting discrepancy — something a better ledger
-  catches. Written as "the simulation creates carbon atoms from nothing" it is unmissable. If a phrase lets
-  you think about a physics violation without picturing the physics, restate it and re-read your plan.
-- **Distrust FRAMINGS, not just facts.** Verifying that a cited file exists is easy and this repo does it
-  well. The expensive errors live in the sentence that told you what KIND of problem you have. A tracker,
-  a task description, and a prior agent's report are all claims. So is this file.
-
-**Do this UNPROMPTED, on every file you open — including files you only opened to read.** Every item above
-was visible in code an agent had already read. Surfacing something is not reviewing it. If you notice a
-reality violation while doing something else, **FIX IT *AND* REPORT IT that turn — not one or the other.**
-"Or" is an invitation to file a note and move on, which is the lazy route and the one taken by default.
-Reporting without fixing leaves the defect in the code; fixing without reporting hides it from the
-maintainer. Do both. Do not route around it because it is not your current task — routing around it is the
-failure mode, and it is the most common one.
+**A CRITERION THAT OMITS A QUANTITY CANNOT SEE A DEFECT IN IT.** Criterion 10 first scored on the element
+totals alone and read 3.83%; including `energy_stock` took the SAME substrate to 87.13%. That is this
+rubric's own argument for computing rather than judging, turned on the rubric. Do not narrow a probe to the
+quantities you expect to be fine.
 
 ## Guiding design principle — Emergent-Everything (north star)
 

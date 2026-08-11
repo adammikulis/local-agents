@@ -5,29 +5,37 @@ extends RefCounted
 ## the project's standard verification horizon.
 const REFERENCE_STEPS: int = 600
 
+## Machine epsilon for the IEEE-754 binary32 the GPU buffers carry, written as the computation rather than
+## its value: 2^-24, the gap between 1.0 and the next representable float32. A property of the format.
+const FLOAT32_EPSILON: float = 1.0 / 16777216.0
 
-## THE DEBT IS A RATE, NOT A TOTAL, AND THAT IS THE WHOLE POINT.
+## The only tolerance a conservation ledger is entitled to, and it is DERIVED rather than picked. Summing N
+## float32 values accumulates relative round-off of order sqrt(N)·eps, so the floor depends on how many cells
+## there are — 1.6e-5 at 69120 cells. Writing a single constant here would have been a number I chose, and
+## the model-parameters gate said so the moment I tried.
+static func noise_floor(cell_count: int) -> float:
+	return sqrt(float(maxi(cell_count, 1))) * FLOAT32_EPSILON
+
+
+## A CONSERVED SUBSTANCE DRIFTS AT ZERO. THE ONLY HONEST CEILING IS FLOAT NOISE.
 ##
-## These were ceilings on the RELATIVE TOTAL drift, calibrated at REFERENCE_STEPS. A substance with any
-## steady leak breaches a fixed relative ceiling EVENTUALLY, so the verdict depended on how long the run
-## happened to be — measured 2026-08-11: at step 723-7770 every one of the six breached, on a tree where the
-## 600-step audit passed. A measurement whose answer is decided by how long you looked is the same defect
-## as the one-shot audit it replaced, pointing the other way.
+## These were six per-substance allowances, each carried forward from a measured run — and every one of
+## those runs is now known to be unreadable. They were taken with flat-summed totals over cells that differ
+## in volume by up to 8.8x, before `element_C_mol` was in moles, on a substrate whose `energy_stock` moves
+## 87% depending on whether anyone is watching and whose two runs at ONE SEED differ by 0.41%.
 ##
-## Per STEP, the question is run-length independent: a real leak holds its rate, and a startup transient
-## that settles shows a rate that FALLS as the horizon grows. `conservation_rate_trend` below reports which
-## of the two each substance is doing, because the ceiling alone cannot tell them apart.
+## When the debts were reshaped from totals to rates on 2026-08-11 the values were preserved deliberately,
+## described as "a unit conversion, not a re-tuning — nothing was loosened". That was the wrong instinct
+## dressed as rigour: it protected six numbers whose provenance had already been invalidated. A ceiling
+## measured through a broken instrument is not a bar, it is a licence to leak up to it.
 ##
-## The numbers are the previous totals divided by REFERENCE_STEPS. That is a unit conversion, not a
-## re-tuning: each says exactly what it said before AT the calibration horizon, and now says it at every
-## horizon. Nothing was loosened to make a run pass.
+## So there is one number, and it is float noise. Conservation means the total does not change. Everything
+## breaches this today; that is the correct reading, not a reason to raise it. RAISING ANY OF THESE
+## REQUIRES THE MAINTAINER, and a measurement taken after the floor holds — determinism, observer
+## independence and a physics-clock horizon — because until then no run can justify a number.
 const DEBT_PER_STEP: Dictionary = {
-	"element_C_total": 0.28 / float(REFERENCE_STEPS),
-	"h2o_closed_total": 0.20 / float(REFERENCE_STEPS),
-	"o2_total": 0.055 / float(REFERENCE_STEPS),
-	"oxidant_all": 0.045 / float(REFERENCE_STEPS),
-	"nitrogen_all": 0.0062 / float(REFERENCE_STEPS),
-	"mineral_total": 0.00002 / float(REFERENCE_STEPS),
+	"element_C_total": 0.0, "h2o_closed_total": 0.0, "o2_total": 0.0,
+	"oxidant_all": 0.0, "nitrogen_all": 0.0, "mineral_total": 0.0,
 }
 
 ## reasoning: the rates it replaced were FITTED — each picked by running the sim and keeping the value whose
@@ -108,7 +116,11 @@ func check(d: Dictionary) -> Dictionary:
 		# the `not _violations.has(key)` below, which is what makes it one line per substance.
 		if elapsed < REFERENCE_STEPS:
 			continue
-		if rate > float(DEBT_PER_STEP[key]) and not _violations.has(key):
+		# A zero entry means "no allowance beyond arithmetic": use the derived float floor for THIS grid.
+		var ceiling: float = float(DEBT_PER_STEP[key])
+		if ceiling <= 0.0:
+			ceiling = noise_floor(_f._cell_count if _f != null else 0)
+		if rate > ceiling and not _violations.has(key):
 			_violations.append(key)
 			fresh.append(key)
 			# One line per substance, the first time it breaches. A marker rather than a push_error so the
@@ -116,7 +128,7 @@ func check(d: Dictionary) -> Dictionary:
 			print("CONSERVATION_VIOLATION=", JSON.stringify({
 				"substance": key, "first": f, "now": float(now),
 				"rel_drift": snappedf(rel, 1e-6), "rel_drift_per_step": rate,
-				"allowed_per_step": float(DEBT_PER_STEP[key]), "at_steps": elapsed,
+				"allowed_per_step": ceiling, "at_steps": elapsed,
 				"seal_step": _f._seal.seal_step(),
 			}))
 	if elapsed >= REFERENCE_STEPS:
@@ -145,7 +157,10 @@ func check(d: Dictionary) -> Dictionary:
 	# it, so a run says both what happened and how bad it got.
 	var worst_over: Dictionary = {}
 	for key in _worst:
-		if float(_worst[key]) / float(maxi(elapsed, 1)) > float(DEBT_PER_STEP.get(key, INF)):
+		var w_ceil: float = float(DEBT_PER_STEP.get(key, 0.0))
+		if w_ceil <= 0.0:
+			w_ceil = noise_floor(_f._cell_count if _f != null else 0)
+		if float(_worst[key]) / float(maxi(elapsed, 1)) > w_ceil:
 			worst_over[key] = snappedf(float(_worst[key]), 1e-6)
 	out["conservation_worst_over_debt"] = worst_over
 	return out
