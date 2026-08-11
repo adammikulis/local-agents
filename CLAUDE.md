@@ -131,9 +131,17 @@ work forward.
   standard because another session/agent running git ops (checkout/reset/merge) on the shared
   checkout has corrupted and wiped untracked in-progress work here before — an isolated worktree
   makes your files immune to another writer's branch switches.
-- The compiled GDExtension `bin/` is a gitignored build artifact absent from a fresh worktree —
-  symlink it from the primary checkout so the extension loads:
-  `ln -s <primary>/addons/local_agents/gdextensions/localagents/bin <worktree>/addons/local_agents/gdextensions/localagents/bin`
+- **A WORKTREE NOW REPAIRS ITSELF, so this is a description rather than a chore.**
+  `scripts/agent_harness.sh` runs `scripts/ensure_worktree_ready.sh` before every command: it symlinks the
+  gitignored `bin/` from the primary checkout and runs `--import` if any `.glsl` has no compiled resource.
+  Idempotent and silent when there is nothing to do; **exit 2, never a silent pass**, if the extension has
+  not been built or godot is absent. *(Added 2026-08-11. The instruction to use `scripts/new_worktree.sh`
+  had been here for as long as this section existed and could not cover the case that actually bit: the
+  **Workflow tool creates worktrees itself**, so no instruction to an agent reaches that path. Measured on a
+  seven-agent fan-out — every worktree came up with no `bin/` and no `.godot/`, and gates that take seconds
+  took THIRTEEN CPU-MINUTES each; one agent watched another burn 14 minutes on a single check. A bare
+  worktree now passes full lint in 20 seconds.)*
+  `scripts/new_worktree.sh` is still the right way to MAKE one — it does the same work up front.
 - When a feature is verified, merge it into the current dev branch, then prune: `git worktree remove <dir>`
   and `git branch -d feature/<name>` (delete the pushed remote branch too once merged). At release, the dev
   branch merges to `main` and is tagged.

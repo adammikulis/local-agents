@@ -80,8 +80,25 @@ if [[ -z "$cmd" || "$cmd" == "-h" || "$cmd" == "--help" ]]; then
 fi
 shift || true
 
+# --- A LINKED WORKTREE REPAIRS ITSELF HERE, BEFORE ANY COMMAND RUNS ----------------------------------
+# `git worktree add` gives you the source and none of the build state: no `bin/` symlink, no imported
+# kernels, no `.godot/`. Each degrades QUIETLY — an unimported `.glsl` loads as null, the GPU field is
+# silently dead, and SIM_REPORT still prints a full set of plausible numbers. Measured 2026-08-11 across a
+# seven-agent fan-out: gates that take seconds took thirteen CPU-MINUTES each in unprepared worktrees.
+#
+# CLAUDE.md has pointed at `scripts/new_worktree.sh` for as long as that section has existed, and it is
+# still the right way to MAKE one. But the Workflow tool creates worktrees itself, so no instruction can
+# cover that path — and an instruction is what failed. Every command routes through here instead. It is a
+# few stat calls and silent when there is nothing to do; it exits 2 rather than let a broken tree run.
+if [[ -x "$SCRIPT_DIR/ensure_worktree_ready.sh" ]]; then
+  if ! "$SCRIPT_DIR/ensure_worktree_ready.sh"; then
+    echo "AGENT_HARNESS_RESULT={\"command\":\"$cmd\",\"status\":\"fail\",\"exit_code\":2,\"reason\":\"worktree not usable\"}"
+    exit 2
+  fi
+fi
+
 case "$cmd" in
-  fast|all|bounded|single|smoke|extension|lint|demo|dropin|sim) ;;
+  fast|all|bounded|single|smoke|extension|lint|demo|dropin|sim|score) ;;
   *)
     echo "agent_harness: unknown command '$cmd'" >&2
     usage >&2
