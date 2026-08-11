@@ -30,6 +30,7 @@ var _island_radius: float = ISLAND_RADIUS
 # sets it to "planet", where "up" is radial (pos-_center).normalized(), the surface is a sphere of radius
 # ~_planet_radius, and the sea is a shell at _sea_radius. sdf_at/is_solid/carve_sphere/fill_* stay world-space.
 var _shape: String = "island"
+var _gen_opts: Dictionary = {}             # the dict build_planet handed LASpherePlanetGenerator.build()
 var _center: Vector3 = Vector3.ZERO
 var _planet_radius: float = 0.0
 var _planet_relief: float = 0.0
@@ -76,7 +77,7 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	_planet_relief = float(opts.get("relief", 46.0))
 
 	var pg: RefCounted = PlanetGenScript.new()
-	var gen: VoxelGeneratorGraph = pg.build({
+	var gen_opts: Dictionary = {
 		"radius": float(opts.get("radius", 250.0)),
 		"sea_radius": opts.get("sea_radius", float(opts.get("radius", 250.0))),
 		"ocean_bias": float(opts.get("ocean_bias", 7.0)),
@@ -96,7 +97,8 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 		"cave_depth_fade": float(opts.get("cave_depth_fade", 24.0)),
 		"octaves": int(opts.get("octaves", 3)),
 		"seed": int(opts.get("seed", 1337)),
-	})
+	}
+	var gen: VoxelGeneratorGraph = pg.build(gen_opts)
 	_planet_radius = pg.radius()
 	_sea_radius = pg.sea_radius()
 
@@ -127,11 +129,18 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	terrain.full_load_mode_enabled = true
 	parent.add_child(terrain)
 	_terrain = terrain
+	_gen_opts = gen_opts
 
 
 ## The VoxelLodTerrain node (null before build_planet()).
 func terrain_node() -> Node:
 	return _terrain
+
+
+## The generator options this planet's SDF was built from. Empty before build_planet(). Every input the
+## generated terrain depends on is in here, so a cache over that terrain keys on it.
+func generator_options() -> Dictionary:
+	return _gen_opts.duplicate()
 
 
 ## Set a uniform on the terrain's triplanar shader material (e.g. the temperature texture that makes
@@ -255,7 +264,9 @@ func fill_rock(world_pos: Vector3, size: float, normal: Vector3) -> void:
 	var right: Vector3 = up.cross(ref).normalized()
 	var fwd: Vector3 = right.cross(up).normalized()
 	var b: Basis = Basis(right, up, fwd)
-	b = b.rotated(up, randf() * TAU)                    # random spin so no two rocks align (no grid look)
+	# Spin from the seeded "planet" stream, not Godot's global RNG: the global one is not reproducible from
+	# the sim seed, and a per-domain stream cannot be perturbed by unrelated draw counts.
+	b = b.rotated(up, LASimRng.for_domain("planet").randf() * TAU)
 	b = b.scaled(Vector3(size, size * 0.55, size))      # flatter than tall → a crust, not a boulder
 	vt.set_channel(VoxelBuffer.CHANNEL_SDF)
 	vt.set_mode(VoxelTool.MODE_ADD)
