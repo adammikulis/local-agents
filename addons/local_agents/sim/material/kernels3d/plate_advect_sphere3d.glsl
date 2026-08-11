@@ -12,6 +12,7 @@ layout(set = 0, binding = 1, std430) restrict buffer Send { float send[]; };    
 layout(set = 0, binding = 2, std430) restrict readonly buffer Radial { float radial[]; }; // per-cell outward unit vec, flat c*3+{0,1,2}
 layout(set = 0, binding = 3, std430) restrict readonly buffer Pos { float pos[]; };       // per-cell world position, flat c*3+{0,1,2}
 layout(set = 0, binding = 4, std430) restrict readonly buffer Neigh { int nbr[]; };       // idx*6 + slot
+layout(set = 0, binding = 17, std430) restrict readonly buffer LinkPartner { int partner[]; };
 // PLATE TABLE, 8 floats per plate: seed.xyz (unit direction of the plate's Voronoi centre), rate (signed
 // angular speed, rad per simulated second), pole.xyz (unit Euler axis), pad. Uploaded by the driver each step
 layout(set = 0, binding = 5, std430) restrict readonly buffer Plates { float plate[]; };
@@ -181,8 +182,8 @@ void main() {
 	// Credit the OPPOSITE slot, `d ^ 1`. Was six unrolled lines pairing 0<->5, 1<->2, 3<->4 — not this
 	// table's pairing, so advected crust was debited into slots nobody read and read twice out of others.
 	for (uint d = 0u; d < N_SLOTS; ++d) {
-		nb = nbr[base + d];
-		if (nb >= 0) { inflow += send[uint(nb) * N_SLOTS + opposite(d)]; }
+		int pi = partner[base + d];
+		if (pi >= 0) { inflow += send[uint(pi)]; }
 	}
 
 	fld[gidx] = max(0.0, fld[gidx] - own_out + inflow);

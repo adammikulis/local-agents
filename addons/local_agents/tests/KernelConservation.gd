@@ -111,10 +111,12 @@ func _check_two_pass(path: String, label: String, pc_base: PackedByteArray) -> v
 	var b_nbr: RID = _rd.storage_buffer_create(_grid.neighbours.to_byte_array().size(),
 		_grid.neighbours.to_byte_array())
 	var b_larc: RID = _buf(_grid.link_arc)
+	var b_part: RID = _rd.storage_buffer_create(_grid.link_partner.to_byte_array().size(),
+		_grid.link_partner.to_byte_array())
 
 	var groups: int = int(ceil(float(_cc) / 64.0))
 	for pass_id in 2:
-		var uset: RID = _uset(shader, _binds(label, b_in, b_out, b_send, b_solid, b_temp, b_nbr, b_larc))
+		var uset: RID = _uset(shader, _binds(label, b_in, b_out, b_send, b_solid, b_temp, b_nbr, b_larc, b_part))
 		var pc: PackedByteArray = pc_base.duplicate()
 		pc.encode_u32(4, pass_id)
 		var cl: int = _rd.compute_list_begin()
@@ -192,11 +194,13 @@ func _check_tracer(wind_m_s: float, with_solid: bool, tag: String) -> void:
 
 ## erosion_transport carries a suspended LOAD on flowing water, so its bindings differ from gravity_flow's.
 func _binds(label: String, b_in: RID, b_out: RID, b_send: RID, b_solid: RID, b_temp: RID,
-		b_nbr: RID, b_larc: RID) -> Array:
+		b_nbr: RID, b_larc: RID, b_part: RID) -> Array:
 	if label == "erosion_transport":
 		# 0=susp_in 1=susp_out 2=water 3=solid 5=send 15=nbr
-		return [[0, b_in], [1, b_out], [2, b_temp], [3, b_solid], [5, b_send], [15, b_nbr]]
-	return [[0, b_in], [1, b_out], [2, b_send], [3, b_solid], [5, b_temp], [15, b_nbr], [16, b_larc]]
+		return [[0, b_in], [1, b_out], [2, b_temp], [3, b_solid], [5, b_send], [15, b_nbr],
+			[17, b_part]]
+	return [[0, b_in], [1, b_out], [2, b_send], [3, b_solid], [5, b_temp], [15, b_nbr], [16, b_larc],
+		[17, b_part]]
 
 
 func _uset(shader: RID, binds: Array) -> RID:

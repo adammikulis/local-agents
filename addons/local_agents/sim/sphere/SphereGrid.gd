@@ -105,6 +105,11 @@ var center: Vector3 = Vector3.ZERO
 var _dir: PackedVector3Array = PackedVector3Array()        # surf_count unit surface directions
 var surf_nbr: PackedInt32Array = PackedInt32Array()        # surf_count*4 : [-a,+a,-b,+b] neighbour surf index
 var neighbours: PackedInt32Array = PackedInt32Array()      # cell_count*6 : the full per-cell table (for kernels)
+# cell_count*6 : the FLAT index of the slot in my neighbour that points back at me, or -1 at a boundary.
+# A two-pass gather reads `send[link_partner[base + d]]` — no opposite-slot arithmetic anywhere, so the
+# reciprocity bug that hit four kernels cannot be written. Built from `neighbours` itself, so it cannot
+# disagree with it.
+var link_partner: PackedInt32Array = PackedInt32Array()
 
 var _back: PackedInt32Array = PackedInt32Array()           # surf_count*4 : partner's geometric slot pointing back
 var lateral_slot: PackedInt32Array = PackedInt32Array()    # surf_count*4 : geometric slot -> lateral pair slot 0..3
@@ -190,6 +195,26 @@ func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p
 			neighbours[c * 6 + N_OUT] = (c + 1) if r < depth - 1 else -1
 			for g in 4:
 				neighbours[c * 6 + N_A0 + lateral_slot[s * 4 + g]] = surf_nbr[s * 4 + g] * depth + r
+	_build_link_partner()
+
+
+## Resolve each link to the flat slot index that answers it. Derived, never assumed: it searches the
+## neighbour's own six slots for the one pointing back, so a table that is not reciprocal yields -1 here and
+## `validate()` reports it rather than a kernel silently reading someone else's flux.
+func _build_link_partner() -> void:
+	link_partner.resize(cell_count * 6)
+	for c in cell_count:
+		for d in 6:
+			var m: int = neighbours[c * 6 + d]
+			if m < 0:
+				link_partner[c * 6 + d] = -1
+				continue
+			var found: int = -1
+			for e in 6:
+				if neighbours[m * 6 + e] == c:
+					found = m * 6 + e
+					break
+			link_partner[c * 6 + d] = found
 
 
 ## The surf cell on any OTHER face whose direction is nearest to the off-edge step direction on face `f`.

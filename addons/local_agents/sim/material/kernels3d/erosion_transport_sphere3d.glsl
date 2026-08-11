@@ -13,6 +13,7 @@ layout(set = 0, binding = 2, std430) restrict readonly buffer Water { float wate
 layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 5, std430) restrict buffer Send { float send[]; };                     // idx*6 + dir (shared scratch)
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };             // idx*6 + slot
+layout(set = 0, binding = 17, std430) restrict readonly buffer LinkPartner { int partner[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -102,8 +103,8 @@ void main() {
 	int nb;
 	// Credit the OPPOSITE slot, `d ^ 1`. These were six unrolled lines pairing 0<->5, 1<->2, 3<->4, which is
 	for (uint d = 0u; d < N_SLOTS; ++d) {
-		nb = nbr[base + d];
-		if (nb >= 0) { inflow += send[uint(nb) * N_SLOTS + opposite(d)]; }
+		int pi = partner[base + d];
+		if (pi >= 0) { inflow += send[uint(pi)]; }
 	}
 
 	float value = susp_in[gidx] - own_out + inflow;

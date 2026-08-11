@@ -29,6 +29,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var solid_rid: RID = bufs.get("solid", RID())
 	var send_rid: RID = bufs.get("send", RID())
 	var nbr_rid: RID = bufs.get("nbr", RID())
+	var partner_rid: RID = bufs.get("link_partner", RID())
 	var regolith_rid: RID = bufs.get("regolith", RID())
 	var grain_rid: RID = bufs.get("grain", RID())
 	var water_pair: Array = bufs.get("water", [RID(), RID()])
@@ -49,7 +50,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[8, grain_rid],            # Grain diameter (m) — Kozeny-Carman input, with the Athy porosity profile
 			[9, dbg_rid],              # SoilDbg — per-leg budget probe (LAMaterialSphereGPU3D.SOIL_DBG_SLOTS)
 			[11, bufs["porosity"]],    # Porosity — phi, published for every other consumer of rock_fill
-			[15, nbr_rid],             # Neigh table
+			[15, nbr_rid], [17, partner_rid],             # Neigh table
 		])
 
 

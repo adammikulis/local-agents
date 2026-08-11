@@ -39,6 +39,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var solid_rid: RID = bufs.get("solid", RID())
 	var nbr_rid: RID = bufs.get("nbr", RID())
 	var larc_rid: RID = bufs.get("link_arc", RID())
+	var partner_rid: RID = bufs.get("link_partner", RID())
 	var temp_pair: Array = bufs.get("temp", [RID(), RID()])
 
 	_sets = []
@@ -50,7 +51,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			var pair: Array = bufs.get(String(MATERIALS[mi]["channel"]), [RID(), RID()])
 			_sets[mi][p] = _build_set(_flow_shader, [
 				[0, pair[p]], [1, pair[back]], [2, _send], [3, solid_rid],
-				[5, temp_pair[p]], [15, nbr_rid], [16, larc_rid],
+				[5, temp_pair[p]], [15, nbr_rid], [16, larc_rid], [17, partner_rid],
 			])
 
 

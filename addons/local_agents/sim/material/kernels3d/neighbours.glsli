@@ -1,5 +1,5 @@
-// The one definition of the neighbour-slot layout. Held equal to LASphereGrid by
-// scripts/check_neighbour_slots.sh, which also bans bare integer indices into nbr[]/send[].
+// The one definition of the neighbour-slot layout, held equal to LASphereGrid by
+// scripts/check_neighbour_slots.sh. Reverse links come from `link_partner`, not from arithmetic.
 
 #ifndef LA_NEIGHBOURS_GLSLI
 #define LA_NEIGHBOURS_GLSLI
@@ -14,7 +14,5 @@ const uint N_B1  = 5u;
 const uint N_LAT0 = 2u;            // lateral index l is slot N_LAT0 + l; link_arc/link_tan use the same l
 const uint N_LATERAL_COUNT = 4u;
 const uint N_SLOTS = 6u;
-
-uint opposite(uint d) { return d ^ 1u; }
 
 #endif

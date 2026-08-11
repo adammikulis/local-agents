@@ -129,6 +129,9 @@ func setup(field) -> void:
 	_bufs["pos"] = _make_vec3_flat(func(c: int) -> Vector3: return _grid.cell_world_pos(c))
 	var ltan_bytes: PackedByteArray = _grid.link_tan.to_byte_array()
 	_bufs["link_tan"] = _rd.storage_buffer_create(ltan_bytes.size(), ltan_bytes)
+	# The slot that answers each link. A gather indexes this instead of computing `d ^ 1`.
+	var partner_bytes: PackedByteArray = _grid.link_partner.to_byte_array()
+	_bufs["link_partner"] = _rd.storage_buffer_create(partner_bytes.size(), partner_bytes)
 	# Angular separation per lateral link — the lateral RUN a slope test needs (see LASphereGrid.link_arc).
 	var larc_bytes: PackedByteArray = _grid.link_arc.to_byte_array()
 	_bufs["link_arc"] = _rd.storage_buffer_create(larc_bytes.size(), larc_bytes)

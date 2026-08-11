@@ -33,17 +33,19 @@ fail=0
 
 # 1. No bare integer slot index into the neighbour or send tables.
 bare=$(grep -nE '\b(nbr|send)\[[^]]*[0-9]u?\]' "$K"/*.glsl 2>/dev/null \
-       | grep -vE 'N_IN|N_OUT|N_A0|N_A1|N_B0|N_B1|N_SLOTS|N_LAT0|N_LATERAL_COUNT|opposite' || true)
+       | grep -vE 'N_IN|N_OUT|N_A0|N_A1|N_B0|N_B1|N_SLOTS|N_LAT0|N_LATERAL_COUNT' || true)
 if [ -n "$bare" ]; then
   echo "check_neighbour_slots: BARE SLOT INDEX — use the names from neighbours.glsli, never a number." >&2
   echo "$bare" >&2
   fail=1
 fi
 
-# 2. No kernel may re-derive the reverse link. `opposite()` is the only reverse map.
-rolled=$(grep -nE '\?\s*5u\s*:|\?\s*0u\s*:.*\^|== 5u\) \? 0u' "$K"/*.glsl 2>/dev/null || true)
+# 2. NO KERNEL COMPUTES A REVERSE LINK AT ALL. LASphereGrid resolves it into `link_partner` by searching
+# the neighbour's own slots, so a gather is `send[partner[base + d]]` — a lookup, not arithmetic. Four
+# kernels got the arithmetic wrong and a fifth got it wrong while being fixed.
+rolled=$(grep -nE '\?\s*5u\s*:|== 5u\) \? 0u|opposite\(|N_SLOTS \+ \(d \^|\^ 1u\)\]' "$K"/*.glsl 2>/dev/null || true)
 if [ -n "$rolled" ]; then
-  echo "check_neighbour_slots: HAND-ROLLED REVERSE MAP — the only reverse link is opposite(d) = d ^ 1." >&2
+  echo "check_neighbour_slots: A KERNEL COMPUTES ITS OWN REVERSE LINK. Use link_partner[base + d]." >&2
   echo "$rolled" >&2
   fail=1
 fi
@@ -65,4 +67,4 @@ if [ "$fail" -ne 0 ]; then
   echo "check_neighbour_slots: FAILED." >&2
   exit 1
 fi
-echo "Neighbour-slot SSOT gate passed (one layout, opposite(d) = d ^ 1, GLSL == LASphereGrid)."
+echo "Neighbour-slot SSOT gate passed (one layout, reverse links via link_partner, GLSL == LASphereGrid)."

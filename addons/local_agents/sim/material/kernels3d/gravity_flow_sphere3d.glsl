@@ -14,7 +14,8 @@ layout(set = 0, binding = 2, std430) restrict buffer Send { float send[]; };    
 layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 5, std430) restrict buffer Temp { float temp[]; };            // in place
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };    // idx*6 + slot
-layout(set = 0, binding = 16, std430) restrict readonly buffer LinkArc { float larc[]; };  // column*4 + slot
+layout(set = 0, binding = 16, std430) restrict readonly buffer LinkArc { float larc[]; };
+layout(set = 0, binding = 17, std430) restrict readonly buffer LinkPartner { int partner[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -140,10 +141,10 @@ void main() {
 		if (m < 0 || solid[m] != 0.0) {
 			continue;
 		}
-		// The neighbour's send slot aimed back at us. The table is RECIPROCAL IN THE OPPOSITE SLOT `d ^ 1`
-		// for all three pairs — LASphereGrid slots: 0/1 radial in/out, 2/3 lateral A, 4/5 lateral B.
-		uint rev = d ^ 1u;
-		float f = send[uint(m) * N_SLOTS + rev];
+		// The slot that answers this link, resolved by LASphereGrid rather than computed here.
+		int pi = partner[base + d];
+		if (pi < 0) { continue; }
+		float f = send[uint(pi)];
 		if (f > 0.0) {
 			inflow += f;
 			inflow_heat += f * temp[m];

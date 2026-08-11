@@ -18,6 +18,7 @@ layout(set = 0, binding = 8, std430) restrict readonly buffer Grain { float grai
 layout(set = 0, binding = 9, std430) restrict buffer SoilDbg { float dbg[]; };              // per-leg budget probe
 layout(set = 0, binding = 11, std430) restrict buffer Porosity { float porosity[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
+layout(set = 0, binding = 17, std430) restrict readonly buffer LinkPartner { int partner[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -310,7 +311,9 @@ void main() {
 	for (uint d = 0u; d < N_SLOTS; ++d) {
 		nb = nbr[base + d];
 		if (nb < 0) { continue; }
-		sflow = send[uint(nb) * N_SLOTS + opposite(d)];
+		int pi = partner[base + d];
+		if (pi < 0) { continue; }
+		sflow = send[uint(pi)];
 		inflow += sflow;
 		if (regolith[nb] != 0.0) {
 			from_reg += sflow;

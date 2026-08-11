@@ -86,9 +86,17 @@ order is the order.
 
 ## D. Transport and geometry
 
-- [ ] **Four kernels are the same two-pass send/gather** — `gravity_flow`, `soil`, `erosion_transport`,
-      `plate_advect` — with different flow rules. All four carried the same reciprocity bug. One operator
-      with per-material rules makes that class unrepresentable, the way the slot SSOT already does.
+- [x] **No kernel computes a reverse link any more.** `LASphereGrid` resolves each one into `link_partner`
+      by SEARCHING the neighbour's own six slots for the one pointing back, so a gather is
+      `send[partner[base + d]]` — a lookup, not arithmetic. Four kernels got that arithmetic wrong and a
+      fifth got it wrong while being fixed; now it cannot be written. `opposite()` is deleted and
+      `check_neighbour_slots.sh` fails the build on any kernel that computes a reverse link. Verified by
+      `check_kernel_conservation.sh`: 8 checks still pass.
+- [ ] **The four gathers are still four kernels.** `gravity_flow`, `soil`, `erosion_transport` and
+      `plate_advect` remain separate with different flow rules. The bug CLASS is now closed by the table
+      above, so this is de-duplication rather than correctness — worth doing, no longer urgent.
+- [ ] **`sediment_total` is ~0** (0.05 before this work, 0.0 after) where it used to read in the hundreds.
+      Downstream of E1 most likely, but unconfirmed; re-check once E1 is closed.
 - [ ] **Two mass transfers still move temperature without moving heat**: the regolith→regolith Darcy leg
       (`soil_sphere3d.glsl:51`) and sediment slump.
 - [ ] **The grid cannot resolve its own aquifer.** Four regolith cells span 10.8 km against the 2 km
