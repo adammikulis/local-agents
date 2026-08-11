@@ -181,7 +181,9 @@ func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = V
 		_peak_inflight = _p_mass.size()
 
 
-func _process(delta: float) -> void:
+# Ballistic parcels carry mass + heat and deposit both back into the field, so the arc integrates on the
+# FIXED physics tick — on the render clock, where a parcel lands depends on the framerate.
+func _physics_process(delta: float) -> void:
 	if _p_mass.size() == 0:
 		if _multimesh != null and _multimesh.visible_instance_count != 0:
 			_multimesh.visible_instance_count = 0

@@ -3,7 +3,9 @@ extends Node
 
 ## The solar system's MOTION, integrated through the one N-body rule in LAGravity. The simulation stays centred
 ## on the planet (the field/terrain never move, zero risk), but the planet carries a real orbital STATE — its
-## separation from the star, position + velocity — that is advanced every frame. That state drives:
+## separation from the star, position + velocity — advanced on the PHYSICS tick, in lockstep with the field
+## (LAVoxelWorld._physics_process), so the sun's motion per unit of chemistry is framerate-independent.
+## That state drives:
 ##   • the STAR's actual scene position (it is placed AT the orbital distance, not at a decorative one);
 ##   • the sun's direction across the sky (the terminator);
 ##   • SEASONS: the tilted spin axis vs the orbit plane makes the sub-solar latitude swing over a year;
@@ -155,7 +157,8 @@ func tide_offset() -> float:
 
 
 ## Advance the orbit + moon and push the derived sun direction / position / insolation into the scene. Called
-## from the world's process BEFORE the sky-cycle update (so the sun-shine direction is fresh when the sky reads it).
+## from LAVoxelWorld._physics_process BEFORE the sky-cycle update, so the sun-shine direction is fresh when
+## the sky reads it. `delta` must be the fixed physics delta — never a render delta.
 func update(delta: float) -> void:
 	if _body == null or _sky_ctrl == null:
 		return

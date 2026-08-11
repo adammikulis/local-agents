@@ -4,8 +4,9 @@ class_name LAVoxelWorld
 # From-scratch simulation root built entirely in code on the Zylann godot_voxel GDExtension. This is a THIN
 # COMPOSITION ROOT: it instantiates + wires the scene's services and hands each cross-cutting concern to a
 # focused controller — sky/sun (LAVoxelSkyController), initial spawning (LAVoxelSpawnController), CLI/demo
-# input (LAVoxelInputController), and debug views (LAVoxelDebugWiring). The per-frame _process keeps only
-# the planet spin, the delegating ticks, and the screenshot/fps harness probe.
+# input (LAVoxelInputController), and debug views (LAVoxelDebugWiring). _physics_process advances
+# everything that feeds the field (orbit, sky, sun geometry, planet spin, wind); _process keeps only
+# presentation, the diagnostic samplers and the screenshot/fps harness probe.
 # (Explicit types only — project rule: no ':=' inferred typing.)
 
 const CameraRigScript: GDScript = preload("res://addons/local_agents/game/VoxelCameraRig.gd")
@@ -609,33 +610,34 @@ func _ready() -> void:
 		_time_control.set_timeline(timeline)
 
 
-func _process(delta: float) -> void:
-	_frame += 1
-	# Track the physics-tick cost every frame so SimReport's max = the heavy STEP-FRAME spike.
-	LASimReport.gauge("physics_ms", Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
+# Everything that feeds the physics runs here, on the fixed tick, in lockstep with the material field
+# (LAMaterialField3D._physics_process). Nothing in this body may move to _process: the sun direction, the
+# insolation magnitude, the planet's spin phase and the prevailing wind are all inputs to the field, so
+# advancing them on the render clock makes the chemistry depend on the framerate.
+func _physics_process(delta: float) -> void:
 	# Advance the orbit BEFORE the sky so the sun-shine direction + insolation are fresh when the sky reads them.
 	if _orbits != null:
 		_orbits.update(delta)
-	_sky_ctrl.update(delta)
-	# Publish the REAL sun geometry to the ecology, so night is a place on the sphere rather than a global
-	# clock. (Was `set_time_of_day(_sky_ctrl.time_of_day())` — and that clock is frozen in planet mode, so
-	# is_night() answered false for every creature for the entire run. See LAEcologyService.is_night_at.)
+	if _sky_ctrl != null:
+		_sky_ctrl.update(delta)
+	# Sun geometry for the ecology: night is a place on the sphere, not a global clock.
 	if _ecology != null and _ecology.has_method("set_sun") and _body != null:
 		var centre: Vector3 = _body.center()
 		var star: Node3D = _sky_ctrl.star() if _sky_ctrl != null else null
 		if star != null:
 			_ecology.set_sun((star.global_position - centre).normalized(), centre)
-	_update_music_mood()
-	# Planet axial SPIN — the body (its terrain + actors are children) turns as ONE moving frame while the
-	# camera stays in the system frame, so day/night sweeps across the surface. Starts after life is placed so
-	# spawn stays deterministic. FROZEN during the seabed-volcano capstone so the world-fixed field and the
-	# spinning terrain SDF stay aligned (else a long accretion would smear the cone into an arc).
-	# Spin is ON by default now. It was gated behind `not _input.manual_rotate()`, and manual_rotate() is
-	# `not (_auto_spin or _geosync)` with both false, so the planet only ever turned if the player pressed K.
-	# It was disabled because the world-fixed field drifted against the spinning terrain; the field is
-	# body-local now (LAMaterialField3D.set_body), so there is nothing left to hide.
+	# Planet axial spin: the body (terrain + actors are children) turns as one moving frame while the camera
+	# stays in the system frame, so day/night sweeps across the surface. rad/s.
 	if _body != null and _spawn.is_spawned() and _terrain.is_planet():
 		_body.rotate(PLANET_SPIN_AXIS.normalized(), PLANET_SPIN_RATE * delta)
+	_push_environment()
+
+
+func _process(delta: float) -> void:
+	_frame += 1
+	# Track the physics-tick cost every frame so SimReport's max = the heavy STEP-FRAME spike.
+	LASimReport.gauge("physics_ms", Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
+	_update_music_mood()
 	# Spawn the starting ecology once terrain has streamed + collided at the surface.
 	_spawn.try_spawn(_input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
 	# World is ready → fade out the "Generating planet" overlay (once).
@@ -645,7 +647,6 @@ func _process(delta: float) -> void:
 	_interaction.update_hand(delta)
 	_interaction.update_selection_ring()
 	_brush.update_brush_ring()
-	_push_environment()
 	# Sample the night gauges PERIODICALLY, not once at report time. Sampled once, night_frac's min and max
 	# are the same number and the gauge cannot show whether the terminator moves — which is the exact
 	# failure mode it exists to catch, since the old global day/night clock read a constant 0.3 forever.
@@ -848,8 +849,7 @@ func _ensure_streamer_host() -> bool:
 func _push_environment() -> void:
 	if _weather == null:
 		return
-	# Feed the emergent wind field its prevailing (large-scale) input; local circulation emerges on top.
-	# Scent now rides this same wind INSIDE the field — no external scent wiring needed.
+	# Prevailing (large-scale) wind input; local circulation emerges per-cell on top.
 	if _material != null and _material.has_method("set_wind"):
 		if _input.force_wind() != 0.0:
 			_material.set_wind(Vector2(_input.force_wind(), 0.0))

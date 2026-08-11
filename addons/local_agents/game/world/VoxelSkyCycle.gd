@@ -232,34 +232,26 @@ func set_shadows(on: bool) -> void:
 		_sun.shadow_enabled = on
 
 
-# Advance the clock + drive all sky lighting from it. VoxelWorld calls this each frame.
-func update(delta: float) -> void:
-	_update_day_night(delta)
+# Drive all sky lighting from the world clock. VoxelWorld calls this from _physics_process.
+func update(_delta: float) -> void:
+	_update_day_night()
 
 
-## Read the day and lunar phase off the world's elapsed time. Both are the same number of elapsed days,
-## wrapped at different periods, plus the seeds this world opened at — so the two can never drift apart and
-## neither is a second copy of "how long has this been running".
-##
-## The fallback integrates locally when there is no clock in the tree, which is not a shim: LAVoxelSkyCycle
-## is usable on its own (a scene with a sky and no simulation), and a sky with no world behind it still has
-## to get light and dark. When a clock IS present it is the only source, and pause / --fast reach the sky
-## through it for free.
-func _advance_clocks(delta: float) -> void:
+## Day and lunar phase, both read off LASimClock's elapsed days and wrapped at their own periods. There is
+## no local integrator here: elapsed time has one owner, and it advances on the physics tick.
+func _advance_clocks() -> void:
 	var clock: LASimClock = LASimClock.active()
 	if clock == null:
-		_time_of_day = fposmod(_time_of_day + delta / DAY_LENGTH, 1.0)
-		_lunar_phase = fposmod(_lunar_phase + delta / (DAY_LENGTH * LUNAR_DAYS), 1.0)
 		return
 	var days: float = clock.days_elapsed()
 	_time_of_day = fposmod(_tod_seed + days, 1.0)
 	_lunar_phase = fposmod(_lunar_seed + days / LUNAR_DAYS, 1.0)
 
 
-# Advance the clock and drive all sky lighting from it, dimmed by weather rain.
+# Read the world clock and drive all sky lighting from it, dimmed by weather rain.
 # Emergent day arc: sun elevation is a sine of the time of day; everything (light
 # energy, warm horizon at dawn/dusk, ambient floor at night) follows from that one value.
-func _update_day_night(delta: float) -> void:
+func _update_day_night() -> void:
 	if _sun == null:
 		return
 	# PLANET-FROM-SPACE: fixed star sun + low ambient + dark sky; day/night is the planet's SPIN (it turns
@@ -279,7 +271,7 @@ func _update_day_night(delta: float) -> void:
 			_water.set_sky_tint(Color(1.0, 1.0, 1.0) * (0.55 + 0.45 * pstorm))
 		_apply_surface_atmosphere()
 		return
-	_advance_clocks(delta)
+	_advance_clocks()
 	# Sun elevation: -1 (midnight) .. +1 (noon), zero at dawn (.25) and dusk (.75).
 	var elev: float = sin((_time_of_day - 0.25) * TAU)
 	var daylight: float = clampf(elev, 0.0, 1.0)
@@ -345,7 +337,7 @@ func _update_day_night(delta: float) -> void:
 		_water.set_sky_tint(cloud_tint)
 	# NOTE: the material field is NOT fed rain/daylight here — it reads the sun node directly and
 	# derives its own heating/weather. This day/night code only owns the sky + sun transform/energy.
-	# The ecology clock is fed from VoxelWorld._process via time_of_day() (kept decoupled here).
+	# The ecology's sun geometry is fed from VoxelWorld._physics_process (kept decoupled here).
 
 
 ## Altitude-aware atmosphere for planet mode: blend the environment from the stark dark space look (pulled out)

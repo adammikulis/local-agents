@@ -60,7 +60,8 @@ func setup(ecology, terrain, actors_root: Node3D) -> void:
 		_baseline = _ceiling                 # an explicit ceiling overrides the auto-baseline entirely
 
 
-func _process(delta: float) -> void:
+# _smite seeds a flood into the field, so the cooldown/check cadence runs on the FIXED physics tick.
+func _physics_process(delta: float) -> void:
 	if not _enabled:
 		return
 	if _cooldown > 0.0:

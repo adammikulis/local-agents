@@ -11,8 +11,9 @@ extends Node3D
 #   1) it drifts a slow, GENTLE global surface BREEZE (a cosmetic gust) that VoxelWorld still feeds to the sky /
 #      cloud-drift visual + as the fallback prevailing scalar for the few field edge cells that lack a full local
 #      tangent basis — NOT the planet's prevailing circulation, which is now emergent in the field kernel;
-#   2) it RELAYS the field's emergent rain intensity as `rain()` and integrates a ground `wetness` from it, so the
-#      ScentField's rain-washes-away-scent behaviour keeps working off the real, physical precipitation.
+#   2) it RELAYS the field's emergent rain intensity as `rain()` and integrates a ground `wetness` from it.
+#      `wetness`, `wet()` and `weather_changed` currently have NO consumers — the scent channel that read
+#      them was deleted with the five-plane pack. Delete them or find them a reader.
 # No rain particles here (RainLayer owns the visual); no sun/ambient writes (day/night owns lighting).
 # (Explicit types only — project rule: no ':=' inferred typing.)
 
@@ -38,7 +39,9 @@ func set_field(field) -> void:
 	_field = field
 
 
-func _process(delta: float) -> void:
+# `wind` is pushed into the field as its prevailing input (LAVoxelWorld._push_environment), so the breeze
+# integrates on the FIXED physics tick — on the render clock its lerp rate and gust timer track framerate.
+func _physics_process(delta: float) -> void:
 	# Cosmetic surface breeze: a slow, GENTLE global gust for the sky/cloud-drift visual + the field's edge-cell
 	# fallback. The planet's real banded prevailing circulation is emergent per-cell in wind_step_sphere3d.glsl, so
 	# this stays weak on purpose (it must not overpower the field's own latitude bands through the fallback path).
