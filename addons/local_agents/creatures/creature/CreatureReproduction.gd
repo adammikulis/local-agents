@@ -128,10 +128,13 @@ static func tick(c, delta: float) -> void:
 		_give_birth(c)
 
 
-## What this pregnancy will cost the mother in total: the newborn's whole live mass times the overhead of
-## building it. Derived from the species' measured body mass, so a whale pays for a whale and an ant for an ant.
+## What this pregnancy will cost the mother: the NEWBORN's live mass times the overhead of building it.
+## A newborn is born at LACreatureLifeStage.NEWBORN_SCALE of adult length, so it is that cubed of adult
+## mass. Using the adult mass made every birth cost more than the mother's entire body, drawn through her
+## gut, her reserve and then structural tissue that could never regrow.
 static func gestation_cost(c) -> float:
-	return LACreatureBodyMass.live_mass(c.config) * GESTATION_OVERHEAD
+	var s: float = LACreatureLifeStage.NEWBORN_SCALE
+	return LACreatureBodyMass.live_mass(c.config) * s * s * s * GESTATION_OVERHEAD
 
 
 ## True once this creature could start a pregnancy RIGHT NOW: mature, not already pregnant, off cooldown,

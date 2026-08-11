@@ -134,8 +134,11 @@ static func ingest(c, biomass: float, _profile: Dictionary = {}) -> void:
 static func tick(c, delta: float) -> void:
 	if c == null or c.gut <= 0.0 or delta <= 0.0:
 		return
-	if c.energy >= c.max_energy * FULL_FRAC:
-		return                                       # sated: hold the gut, buffer the surplus (no matter lost)
+	# A sated animal with tissue still to build keeps digesting, into STRUCTURE rather than reserve. That is
+	# what growth is funded by, and it uses the satiety test already defined here rather than a new threshold.
+	var growing: bool = LACreatureBodyMass.growth_deficit(c) > 0.0
+	if c.energy >= c.max_energy * FULL_FRAC and not growing:
+		return                                       # sated and grown: hold the gut, buffer it (no matter lost)
 	# LA_EVO_FAST compresses digestion throughput by the SAME factor as the metabolic burn (CreatureMetabolism),
 	# so energy recovery keeps pace with the faster burn — a bite refills proportionally faster and the population
 	# doesn't starve at high fast-factors. The minf cap keeps it bounded/conserved (never digest more than held).
@@ -153,7 +156,10 @@ static func tick(c, delta: float) -> void:
 	var room: float = maxf(0.0, float(c.max_energy) - float(c.energy))
 	var absorbed: float = minf(to_energy, room)
 	c.energy += absorbed
-	c.gut += to_energy - absorbed
+	# What the reserve had no room for builds tissue, up to what this body still owes its age. Both legs are
+	# transfers out of the same digested mass, so the conservation line below is unchanged.
+	var built: float = LACreatureBodyMass.grow(c, to_energy - absorbed)
+	c.gut += to_energy - absorbed - built
 	c.gut_waste += digested - to_energy              # matter conserved: digested == energy gained + waste
 
 

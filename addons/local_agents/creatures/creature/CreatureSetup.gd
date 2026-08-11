@@ -102,7 +102,8 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 		# Spread founders across juvenile→young-adult (not up to old age): enough to desync the first maturation
 		# wave, but WITHOUT front-loading old-age deaths by seeding founders already near the end of their lives
 		# (which threw the initial cohort straight into a die-off). A standing age structure of the young + prime.
-		c.age = randf() * c.maturity_age * 1.8
+		c.age = LASimRng.shared().randf() * c.maturity_age * 1.8
+	LACreatureBodyMass.size_to_age(c)
 	# SEX: ~50/50 at birth via the seeded sim RNG (reproducible; not a heritable trait). A config override
 	# ("sex": "male"/"female") is honoured for tests/set-pieces.
 	if config.has("sex"):
