@@ -10,12 +10,13 @@ extends Node
 ##     godot --headless --path . <scene>.tscn -- --run-frames=120
 ##     godot --path . <scene>.tscn -- --shoot=shot.png --shoot-frames=90
 ##
-## Before this node existed every demo hand-rolled the same twenty lines. Scan
-## `OS.get_cmdline_user_args()` for `--run-frames=`, count frames in `_process`, print a
-## `MARKER={...}` line, quit: five near-identical copies. Two of them called the game's `AppExit`
-## autoload, which a library-only install is told not to register, so those "showcase" demos failed
-## to parse for exactly the audience they were written for. This node owns the job once and resolves
-## the exit path at run time, so it behaves the same with or without that autoload.
+## Two clocks, because there are two questions. `run_frames` ends the run and is a SIMULATION horizon:
+## with `count_physics_frames` it counts physics ticks, whose delta is fixed, so N is always the same
+## simulated time on any machine. `shoot_frames` fires the screenshot and always counts render frames,
+## because a screenshot's subject is the drawn image.
+##
+## The exit path resolves at run time, so it behaves the same with or without the game's `AppExit`
+## autoload (a library-only install is told not to register it).
 ##
 ## The report source only ever answers questions. It never reads the command line itself.
 ##
@@ -38,12 +39,13 @@ const ARG_SHOOT_FRAMES: String = "--shoot-frames="
 ## Frames to run before printing the report and quitting. 0 = never auto-quit (normal interactive play).
 ## The command line overrides this: `-- --run-frames=N`.
 @export_range(0, 100000, 1, "suffix:frames") var run_frames: int = 0
-## Count physics frames instead of render frames.
+## Count physics ticks instead of render frames for `run_frames`.
 ##
-## Turn this on for anything measuring a simulation. Physics ticks are fixed-rate while render frames
-## are not, so a run ended after N render frames contains a machine-dependent number of simulation
-## steps, which is why the field demo's temperatures moved by 2x between machines and made a useless
-## regression signal. Leave it off for UI demos, where "frames" means frames drawn.
+## A physics tick carries a fixed delta, so N ticks is always the same simulated time. A render frame
+## does not, so N render frames is a machine-dependent amount of simulation. On for anything measuring
+## a simulation; off for UI demos, where "frames" means frames drawn.
+##
+## `shoot_frames` is unaffected — a screenshot's subject is the drawn frame, so it always counts those.
 @export var count_physics_frames: bool = false
 
 ## Node queried for the report payload. It must expose `demo_report() -> Dictionary`.
@@ -71,7 +73,8 @@ const ARG_SHOOT_FRAMES: String = "--shoot-frames="
 ## `get_tree().quit()`. Keeps the addon usable in projects that do not register that autoload.
 @export var use_app_exit: bool = true
 
-var _frame: int = 0
+var _frame: int = 0          # run-length counter: physics ticks when count_physics_frames, else render frames
+var _render_frame: int = 0   # render frames only; drives shoot_frames
 var _done: bool = false
 
 
@@ -81,35 +84,42 @@ func _ready() -> void:
 		report_source = get_parent()
 	if report_source != null and report_source.has_method("demo_harness_configured"):
 		report_source.call("demo_harness_configured", run_frames, shoot_path)
-	# Nothing to count when neither mode is armed — stay off the per-frame path entirely.
-	set_process(run_frames > 0 or shoot_path != "")
+	# Nothing to count when neither mode is armed — stay off the per-frame paths entirely.
+	set_process(shoot_path != "" or (run_frames > 0 and not count_physics_frames))
+	set_physics_process(run_frames > 0 and count_physics_frames)
 
 
-## Frames counted so far. Equals `run_frames` at the moment the report is emitted.
+## Run-length frames counted so far. Equals `run_frames` at the moment the report is emitted.
 func frames_elapsed() -> int:
 	return _frame
 
 
+## Render frames counted so far. The clock `shoot_frames` is measured on.
+func render_frames_elapsed() -> int:
+	return _render_frame
+
+
 func _physics_process(_delta: float) -> void:
 	if count_physics_frames:
-		_tick()
+		_tick_run()
 
 
 func _process(_delta: float) -> void:
-	if not count_physics_frames:
-		_tick()
-
-
-func _tick() -> void:
-	if _done:
-		return
-	_frame += 1
+	_render_frame += 1
 	# Screenshot first: a scene given both flags is being photographed, not measured.
-	if shoot_path != "" and _frame >= shoot_frames:
+	if not _done and shoot_path != "" and _render_frame >= shoot_frames:
 		_done = true
 		_capture(shoot_path)
 		_quit(0)
 		return
+	if not count_physics_frames:
+		_tick_run()
+
+
+func _tick_run() -> void:
+	if _done:
+		return
+	_frame += 1
 	if run_frames > 0 and _frame >= run_frames:
 		_done = true
 		emit_report()
@@ -189,11 +199,9 @@ func _quit(code: int) -> void:
 
 ## The one place `--run-frames=N` is read. Returns `fallback` when the flag is absent.
 ##
-## This is static and public because the game scene cannot use this node: `game/VoxelWorld.tscn` needs
-## `--perf-frames`, `--bench` timelines and framerate uncapping that live in VoxelInputController, so
-## it parses the command line itself. It was also re-implementing this flag, which is how one spelling
-## becomes two that drift. It calls this instead now, so the syntax has one owner even though the
-## behaviour has two.
+## Static and public because LAVoxelInputController needs the same number to place its own auto-demo
+## schedule relative to the end of the run. It calls this rather than re-parsing the flag, so one
+## spelling cannot become two.
 static func parse_run_frames(fallback: int = 0) -> int:
 	for arg_v in OS.get_cmdline_user_args():
 		var arg: String = String(arg_v)

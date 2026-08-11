@@ -5,8 +5,9 @@ class_name LAVoxelWorld
 # COMPOSITION ROOT: it instantiates + wires the scene's services and hands each cross-cutting concern to a
 # focused controller — sky/sun (LAVoxelSkyController), initial spawning (LAVoxelSpawnController), CLI/demo
 # input (LAVoxelInputController), and debug views (LAVoxelDebugWiring). _physics_process advances
-# everything that feeds the field (orbit, sky, sun geometry, planet spin, wind); _process keeps only
-# presentation, the diagnostic samplers and the screenshot/fps harness probe.
+# everything that feeds the field (orbit, sky, sun geometry, planet spin, wind), counts _frame and runs
+# the auto-demo schedule; _process counts _render_frame and keeps presentation, the --shoot schedule and
+# the fps bench.
 # (Explicit types only — project rule: no ':=' inferred typing.)
 
 const CameraRigScript: GDScript = preload("res://addons/local_agents/game/VoxelCameraRig.gd")
@@ -155,7 +156,8 @@ var _mood_timer: int = 0
 var _music_auto_adapt: bool = true      # when false, stop feeding sim mood so manual menu picks stick
 var _audio_ctrl: Node = null            # LAVoxelAudioController — event stings + music-seed salt + UI/milestone helpers
 
-var _frame: int = 0
+var _frame: int = 0          # physics ticks since _ready — the simulation clock the run length is counted on
+var _render_frame: int = 0   # render frames since _ready — the clock --perf-frames and --shoot are counted on
 # Transient landslide diagnostic (read by LAVoxelHarness.emit_smoke_summary at run end).
 var _peak_slump: int = 0                    # most loose-sediment cells slumping at once
 # Rolling FPS probe: averages the last N frames so a windowed --shoot run reports a stable perf number.
@@ -608,6 +610,7 @@ func _ready() -> void:
 # insolation magnitude, the planet's spin phase and the prevailing wind are all inputs to the field, so
 # advancing them on the render clock makes the chemistry depend on the framerate.
 func _physics_process(delta: float) -> void:
+	_frame += 1
 	# Advance the orbit BEFORE the sky so the sun-shine direction + insolation are fresh when the sky reads them.
 	if _orbits != null:
 		_orbits.update(delta)
@@ -625,14 +628,37 @@ func _physics_process(delta: float) -> void:
 		_body.rotate(PLANET_SPIN_AXIS.normalized(), PLANET_SPIN_RATE * delta)
 	_push_environment()
 
+	# Spawn the starting ecology once terrain has streamed + collided at the surface.
+	_spawn.try_spawn(_input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
+	# Sample the night gauges PERIODICALLY, not once at report time. Sampled once, night_frac's min and max
+	# are the same number and the gauge cannot show whether the terminator moves — which is the exact
+	# failure mode it exists to catch, since the old global day/night clock read a constant 0.3 forever.
+	# Sampled every 15 ticks, min/max span the sweep and a frozen sky shows up as min == max.
+	if _spawn.is_spawned() and _frame % 15 == 0:
+		LAVoxelHarness.sample_night(self)
+	if _spawn.is_spawned() and _frame % 15 == 0:
+		_sample_behaviour_peaks()
+	# Landslide diagnostic: most sediment cells slumping at once (throttled — the count is a full grid scan).
+	if _spawn.is_spawned() and _frame % 10 == 0 and _material != null and _material.has_method("slump_count"):
+		_peak_slump = maxi(_peak_slump, _material.slump_count())
+
+	# Auto-demo firing (meteor/volcano/seavolcano/stamp/lightning/storm/hot-spring heat) — CLI-driven only.
+	# These seed matter and heat into the field, so they are scheduled on the same clock the run length is
+	# counted on. The --shoot half of the same schedule ticks in _process (update_render).
+	_input.update_sim(_frame, _spawn.is_spawned())
+
+	# Trajectory samples through a long run. The END of the run is NOT handled here: the
+	# LocalAgentDemoHarness child counts the ticks, calls demo_report() below, prints SIM_REPORT,
+	# emits LA_RUN_COMPLETE and owns the exit, the same contract every demo scene gets.
+	if _input.run_frames() > 0 and _frame % 180 == 0 and _frame < _input.run_frames():
+		LAVoxelHarness.emit_population_trace(self, _frame)
+
 
 func _process(delta: float) -> void:
-	_frame += 1
+	_render_frame += 1
 	# Track the physics-tick cost every frame so SimReport's max = the heavy STEP-FRAME spike.
 	LASimReport.gauge("physics_ms", Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
 	_update_music_mood()
-	# Spawn the starting ecology once terrain has streamed + collided at the surface.
-	_spawn.try_spawn(_input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
 	# World is ready → fade out the "Generating planet" overlay (once).
 	if _gen_screen != null and _spawn.is_spawned():
 		_gen_screen.finish()
@@ -640,32 +666,10 @@ func _process(delta: float) -> void:
 	_interaction.update_hand(delta)
 	_interaction.update_selection_ring()
 	_brush.update_brush_ring()
-	# Sample the night gauges PERIODICALLY, not once at report time. Sampled once, night_frac's min and max
-	# are the same number and the gauge cannot show whether the terminator moves — which is the exact
-	# failure mode it exists to catch, since the old global day/night clock read a constant 0.3 forever.
-	# Sampled every 15 frames, min/max span the sweep and a frozen sky shows up as min == max.
-	if _spawn.is_spawned() and _frame % 15 == 0:
-		LAVoxelHarness.sample_night(self)
-	if _spawn.is_spawned() and _frame % 15 == 0:
-		_sample_behaviour_peaks()
-	# Landslide diagnostic: track the most sediment cells slumping at once (throttled — the count is a full
-	# grid scan). Always sampled so a meteor/volcano/earthquake slump is visible without --cognition-stats.
-	if _spawn.is_spawned() and _frame % 10 == 0 and _material != null and _material.has_method("slump_count"):
-		_peak_slump = maxi(_peak_slump, _material.slump_count())
 
-	# Per-frame auto-demo firing (meteor/volcano/seavolcano/stamp/lightning/storm/select) — CLI-driven only.
-	_input.update(_frame, _spawn.is_spawned())
-
-	# --shoot is the harness child's job too. The FPS_AVG line that used to print just before the
-	# screenshot is gone rather than moved: --perf-frames already emits a strictly better reading over
-	# the same window, with a CPU/GPU render split, and two perf numbers from two code paths is how they
-	# start disagreeing.
-
-	# Trajectory samples through a long run. The END of the run is NOT handled here: the
-	# LocalAgentDemoHarness child counts the frames, calls demo_report() below, prints SIM_REPORT,
-	# emits LA_RUN_COMPLETE and owns the exit, the same contract every demo scene gets.
-	if _input.run_frames() > 0 and _frame % 180 == 0 and _frame < _input.run_frames():
-		LAVoxelHarness.emit_population_trace(self, _frame)
+	# The --shoot half of the auto-demo schedule. The harness child captures on render frame
+	# `--shoot-frames`, so the camera framing that leads up to it counts render frames too.
+	_input.update_render(_render_frame, _spawn.is_spawned())
 
 	# PERF BENCH (--perf-frames=N): average fps + a CPU/GPU render split over the trailing window, then emit one
 	# clean PERF={...} line and quit. Uses Godot's own instrumentation — Performance monitors for the CPU sim
@@ -675,7 +679,7 @@ func _process(delta: float) -> void:
 	if _input.perf_frames() > 0:
 		var pf: int = _input.perf_frames()
 		var window: int = mini(FPS_PROBE_FRAMES, maxi(30, pf / 2))
-		if _frame > pf - window and _frame <= pf:
+		if _render_frame > pf - window and _render_frame <= pf:
 			var vp_rid: RID = get_viewport().get_viewport_rid()
 			# True wall-clock frame time: the _process delta IS the frame period. This is the ground truth that
 			# disambiguates the fps counter (a rolling average that can lag) from the Performance.TIME_PROCESS
@@ -687,7 +691,7 @@ func _process(delta: float) -> void:
 			_proc_ms_accum += Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
 			_phys_ms_accum += Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
 			_fps_count += 1
-		if _frame == pf:
+		if _render_frame == pf:
 			var n: float = maxf(1.0, float(_fps_count))
 			var frame_ms: float = (_frame_dt_accum / n) * 1000.0
 			print("PERF={\"fps\":%.1f,\"frame_ms\":%.2f,\"gpu_ms\":%.2f,\"cpu_render_ms\":%.2f,\"process_ms\":%.2f,\"physics_ms\":%.2f,\"draw_calls\":%d,\"prims_M\":%.2f,\"actors\":%d,\"creatures\":%d,\"nodes\":%d,\"window\":%d}" % [
