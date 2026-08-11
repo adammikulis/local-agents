@@ -26,6 +26,7 @@ static func table() -> Dictionary:
 		"h2o": {
 			"formula": {"H": 2.0, "O": 1.0},
 			"molar_mass": PC.MOLAR_MASS_WATER_KG_MOL,
+			"atomisation_j_mol": PC.ATOMISATION_H2O_J_MOL,
 			"density": PC.WATER_DENSITY_KG_M3,
 			"density_solid": PC.ICE_DENSITY_KG_M3,
 			"specific_heat": PC.WATER_SPECIFIC_HEAT_J_KGK,
@@ -55,12 +56,14 @@ static func table() -> Dictionary:
 		"o2": {
 			"formula": {"O": 2.0},
 			"molar_mass": PC.MOLAR_MASS_O2_KG_MOL,
+			"atomisation_j_mol": PC.ATOMISATION_O2_J_MOL,
 			"density": PC.AMBIENT_O2_DENSITY_KG_M3,
 			"specific_heat": PC.AIR_SPECIFIC_HEAT_J_KGK,
 		},
 		"co2": {
 			"formula": {"C": 1.0, "O": 2.0},
 			"molar_mass": PC.MOLAR_MASS_CO2_KG_MOL,
+			"atomisation_j_mol": PC.ATOMISATION_CO2_J_MOL,
 			"density": PC.AMBIENT_O2_DENSITY_KG_M3 * (PC.MOLAR_MASS_CO2_KG_MOL / PC.MOLAR_MASS_O2_KG_MOL),
 			"specific_heat": PC.AIR_SPECIFIC_HEAT_J_KGK,
 		},
@@ -128,6 +131,8 @@ static func table() -> Dictionary:
 const SOLID: int = 0
 const LIQUID: int = 1
 const GAS: int = 2
+const ATOMS: int = 3
+const PLASMA: int = 4
 
 
 ## were three constants: 2.257e6 (quoted at 100 C) + 3.337e5 fell 2.433e5 J/kg short of a 2.834e6 stated at
@@ -204,6 +209,36 @@ static func boil_c_at(id: String, p_pa: float) -> float:
 
 ## constants with the relation between them written in a comment. Watson correlation:
 ## that is physically ZERO. Watson has the right asymptote — L goes to zero at Tc, because that is what a
+## Ionisation energy per kg, DERIVED from `formula` and the per-element first ionisation energies. One
+## number per element, never one per compound — the same rule the stoichiometry follows.
+static func ionisation_j_kg(id: String) -> float:
+	var s: Dictionary = table().get(id, {})
+	var f: Dictionary = s.get("formula", {})
+	var mm: float = float(s.get("molar_mass", 0.0))
+	if f.is_empty() or mm <= 0.0:
+		return 0.0
+	var ev: Dictionary = {
+		"H": PC.IONISATION_EV_H, "O": PC.IONISATION_EV_O, "C": PC.IONISATION_EV_C,
+		"N": PC.IONISATION_EV_N, "Si": PC.IONISATION_EV_SI, "Ca": PC.IONISATION_EV_CA,
+		"Fe": PC.IONISATION_EV_FE, "Mg": PC.IONISATION_EV_MG, "Al": PC.IONISATION_EV_AL,
+	}
+	var j_mol: float = 0.0
+	for el in f:
+		if not ev.has(el):
+			return 0.0
+		j_mol += float(f[el]) * float(ev[el]) * PC.EV_TO_J_PER_MOL
+	return j_mol / mm
+
+
+## Atomisation enthalpy per kg — the gas -> free atoms rung. Declared per substance because it is a measured
+## quantity and the table carries atom COUNTS, not a bond graph.
+static func dissociation_j_kg(id: String) -> float:
+	var s: Dictionary = table().get(id, {})
+	var j_mol: float = float(s.get("atomisation_j_mol", 0.0))
+	var mm: float = float(s.get("molar_mass", 0.0))
+	return j_mol / mm if (j_mol > 0.0 and mm > 0.0) else 0.0
+
+
 static func latent_vaporisation_at(id: String, t_c: float) -> float:
 	var s: Dictionary = table().get(id, {})
 	var l_ref: float = float(s.get("latent_vaporisation_j_kg", 0.0))
@@ -279,5 +314,45 @@ static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDA
 		return {"t_c": boil, "phase": LIQUID, "melted": 1.0,
 			"vaporised": (h_j_kg - h_boil_start) / l_vap if l_vap > 0.0 else 1.0}
 
-	return {"t_c": boil + (h_j_kg - h_boil_end) / c_gas if c_gas > 0.0 else boil,
-		"phase": GAS, "melted": 1.0, "vaporised": 1.0}
+	# GAS ramp, then the two rungs above it. A molecule breaks into atoms before those atoms ionise, and both
+	# steps are plateaus: temperature stops responding while the bonds, then the electrons, absorb the energy.
+	var l_diss: float = dissociation_j_kg(id)
+	var l_ion: float = ionisation_j_kg(id)
+	var t_diss: float = float(s.get("dissociation_onset_c", PC.DISSOCIATION_ONSET_C))
+	var h_gas_end: float = h_boil_end + c_gas * (t_diss - boil) if c_gas > 0.0 else h_boil_end
+	if h_j_kg <= h_gas_end or l_diss <= 0.0:
+		return {"t_c": boil + (h_j_kg - h_boil_end) / c_gas if c_gas > 0.0 else boil,
+			"phase": GAS, "melted": 1.0, "vaporised": 1.0, "dissociated": 0.0, "ionised": 0.0}
+
+	var h_diss_end: float = h_gas_end + l_diss
+	if h_j_kg < h_diss_end:
+		return {"t_c": t_diss, "phase": GAS, "melted": 1.0, "vaporised": 1.0,
+			"dissociated": (h_j_kg - h_gas_end) / l_diss, "ionised": 0.0}
+
+	# ATOMS: free atoms, still neutral. Monatomic, so the heat capacity is (3/2)R per mole of atoms.
+	var c_atom: float = _monatomic_c_j_kgk(id)
+	var t_ion: float = float(s.get("ionisation_onset_c", PC.IONISATION_ONSET_C))
+	var h_atom_end: float = h_diss_end + c_atom * (t_ion - t_diss) if c_atom > 0.0 else h_diss_end
+	if h_j_kg <= h_atom_end or l_ion <= 0.0:
+		return {"t_c": t_diss + (h_j_kg - h_diss_end) / c_atom if c_atom > 0.0 else t_diss,
+			"phase": ATOMS, "melted": 1.0, "vaporised": 1.0, "dissociated": 1.0, "ionised": 0.0}
+
+	var h_ion_end: float = h_atom_end + l_ion
+	if h_j_kg < h_ion_end:
+		return {"t_c": t_ion, "phase": ATOMS, "melted": 1.0, "vaporised": 1.0,
+			"dissociated": 1.0, "ionised": (h_j_kg - h_atom_end) / l_ion}
+
+	return {"t_c": t_ion + (h_j_kg - h_ion_end) / c_atom if c_atom > 0.0 else t_ion,
+		"phase": PLASMA, "melted": 1.0, "vaporised": 1.0, "dissociated": 1.0, "ionised": 1.0}
+
+
+## Monatomic ideal-gas heat capacity of the dissociated substance, J/kgK: (3/2)R per mole of ATOMS.
+static func _monatomic_c_j_kgk(id: String) -> float:
+	var s: Dictionary = table().get(id, {})
+	var mm: float = float(s.get("molar_mass", 0.0))
+	var atoms: float = 0.0
+	for el in s.get("formula", {}):
+		atoms += float(s["formula"][el])
+	if mm <= 0.0 or atoms <= 0.0:
+		return 0.0
+	return 1.5 * PC.GAS_CONSTANT_J_MOL_K * atoms / mm

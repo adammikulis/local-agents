@@ -260,6 +260,15 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_comment_density.sh ($rc_comments)"
       exit 1
     fi
+    # Gate: phase-from-energy has one definition per side of the GPU boundary. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_enthalpy_ssot.sh"
+    rc_enth=$?
+    set -e
+    if [[ $rc_enth -ne 0 ]]; then
+      echo "LINT_FAIL: check_enthalpy_ssot.sh ($rc_enth)"
+      exit 1
+    fi
     # Gate: no reaction record may create or destroy matter. The DEFS engine took reactants and products as
     # two independent lists of hand-written coefficients with nothing relating them, and one rate model had
     # no reactant at all, so only its product credit ever ran — which is where every carbon atom in this

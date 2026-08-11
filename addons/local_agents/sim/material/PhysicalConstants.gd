@@ -333,6 +333,41 @@ const WATER_CRITICAL_T_C: float = 373.946            # IAPWS-95 critical tempera
 const WATER_CRITICAL_P_PA: float = 2.2064e7          # IAPWS-95 critical pressure, 220.64 bar
 const STANDARD_PRESSURE_PA: float = 101325.0         # one standard atmosphere, the reference boil_c is quoted at
 const WATSON_LATENT_EXPONENT: float = 0.38           # Watson correlation exponent for the latent-heat curve
+
+# --- DISSOCIATION AND IONISATION: the two rungs above `gas` ---------------------------------------------
+# A molecule breaks into atoms before those atoms ionise, and each step costs real energy. Skipping either
+# is a phase change with no latent heat.
+const EV_TO_J_PER_MOL: float = 96485.33              # CODATA Faraday constant, J/(mol*V)
+
+# ATOMISATION enthalpy: gas molecule -> free atoms, J/mol at 298 K. Sum of the bond enthalpies in one
+# molecule, quoted as the measured atomisation rather than per-bond so no bond graph is needed.
+const ATOMISATION_H2O_J_MOL: float = 9.269e5         # 2 x O-H, 926.9 kJ/mol (from dfH of H2O, H, O)
+const ATOMISATION_O2_J_MOL: float = 4.9834e5         # O=O, 498.34 kJ/mol
+const ATOMISATION_CO2_J_MOL: float = 1.5980e6        # 2 x C=O, 1598 kJ/mol
+const ATOMISATION_N2_J_MOL: float = 9.4533e5         # N#N, 945.33 kJ/mol
+const ATOMISATION_CH2O_J_MOL: float = 1.5117e6       # formaldehyde-unit carbohydrate, 2 C-H + C=O
+const ATOMISATION_SIO2_J_MOL: float = 1.8646e6       # 2 x Si-O, 1864.6 kJ/mol
+const ATOMISATION_CACO3_J_MOL: float = 2.8990e6      # CaCO3 -> Ca + C + 3 O
+
+# FIRST IONISATION ENERGY per element, eV (NIST Atomic Spectra Database). A substance derives its own from
+# `formula`, the same way it derives its stoichiometry — one number per element, never one per compound.
+const IONISATION_EV_H: float = 13.598
+const IONISATION_EV_O: float = 13.618
+const IONISATION_EV_C: float = 11.260
+const IONISATION_EV_N: float = 14.534
+const IONISATION_EV_SI: float = 8.152
+const IONISATION_EV_CA: float = 6.113
+const IONISATION_EV_FE: float = 7.902
+const IONISATION_EV_MG: float = 7.646
+const IONISATION_EV_AL: float = 5.986
+
+# ONSET TEMPERATURES FOR THE TWO HIGH RUNGS. DECLARED MODELLING CHOICES, NOT MEASUREMENTS: real thermal
+# dissociation and ionisation are gradual equilibria (Saha), not the sharp plateaus this ladder uses. A
+# plateau at a stated temperature keeps the ENERGY exact — the full bond and ionisation enthalpy is still
+# absorbed — while placing it at a single temperature instead of spreading it over a range.
+# See docs/MODEL_PARAMETERS.md.
+const DISSOCIATION_ONSET_C: float = 2226.85           # 2500 K, where H2O dissociation becomes significant
+const IONISATION_ONSET_C: float = 9726.85             # 10000 K, appreciable thermal ionisation
 # The linear fit, as a CONSTANT rather than a sentence in a comment, so the relation between the two
 # measured latent heats is checkable instead of asserted. Valid 0-100 C; use the Watson form outside it.
 const LATENT_VAPORISATION_SLOPE_J_KGK: float = 2361.0
