@@ -4,10 +4,10 @@ extends CanvasLayer
 ## A full-screen "Generating planet" loading overlay so the player never watches the world ASSEMBLE (terrain
 ## streaming in, the camera arc settling, the initial spawn). It covers everything from launch until the world
 ## reports ready, then fades out. Built entirely in code (no scene asset); owned by VoxelWorld (a one-line
-## add_child in the composition root). The bar crawls toward 90% over the expected load and snaps to 100% the
-## moment the world is actually ready, so it feels responsive and never sits stuck. (Explicit types only.)
+## add_child in the composition root). The bar eases forward over the expected load and snaps full the moment
+## the world is actually ready, so it feels responsive and never sits stuck. (Explicit types only.)
 
-const EXPECTED_LOAD_SEC: float = 6.0      # the bar crawls toward 90% over ~this; real "ready" snaps it to 100
+const EXPECTED_LOAD_SEC: float = 6.0      # time constant of the bar's ease; real readiness snaps it full
 const FADE_SEC: float = 0.6
 
 var _bg: ColorRect = null
@@ -60,7 +60,7 @@ func _process(delta: float) -> void:
 			queue_free()
 		return
 	_t += delta
-	# Ease toward 90% over the expected load; never reach 100 until finish() (real readiness) is called.
+	# Ease asymptotically toward the 90 cap; only finish() (real readiness) fills the bar.
 	_bar.value = 90.0 * (1.0 - exp(-_t / (EXPECTED_LOAD_SEC * 0.5)))
 
 

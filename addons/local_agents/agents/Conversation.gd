@@ -10,10 +10,8 @@ class_name LocalAgentConversation
 ## by an edge named `edge_name`. That growing graph is the conversation's memory: structured state
 ## you can query, save as a `.tres`, or draw.
 ##
-## This was 140 lines living inside AgentConversationDemo, hard-coded to exactly two agents called Ada
-## and Ben with their personas as constants. Personas are not a property here on purpose: give each
-## agent its own voice through its LocalAgentModelProfile system prompt, which is where model
-## behaviour already belongs.
+## Personas are not a property here on purpose: give each agent its own voice through its
+## LocalAgentModelProfile system prompt, which is where model behaviour already belongs.
 ##
 ## With no usable model the node speaks `canned_lines` instead, so the turn-taking and the memory
 ## graph still demonstrate themselves on a machine with nothing installed.

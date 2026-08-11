@@ -122,16 +122,9 @@ static func emit_population_trace(w, frame: int) -> void:
 
 ## Fill the run-scalar gauges and hand back the whole SIM_REPORT payload, WITHOUT printing or quitting.
 ##
-## This used to be emit_smoke_summary(), which filled the gauges, printed, emitted the completion
-## sentinel and requested the quit. That made VoxelWorld the one scene in the repo running its own
-## private copy of the harness contract every demo gets from LocalAgentDemoHarness. The reason given
-## for that was "the flagship needs --perf-frames and --bench, so it cannot use the harness node",
-## which was never true: of 20 command-line flags exactly 3 overlapped, and LASimReport.snapshot()
-## already returned the payload as a Dictionary, which is precisely the shape the harness wants.
-##
-## So the split is: this builds the report, LocalAgentDemoHarness prints it, counts the frames, emits
-## LA_RUN_COMPLETE and owns the exit. --perf-frames and --bench stay in VoxelInputController, because
-## those really are game-specific and always were.
+## The split: this builds the report, LocalAgentDemoHarness prints it, counts the frames, emits
+## LA_RUN_COMPLETE and owns the exit. --perf-frames and --bench stay in VoxelInputController, being
+## game-specific rather than part of the harness contract.
 static func build_report(w) -> Dictionary:
 	_emit_draw_sources(w)
 	LASimReport.gauge("frames", float(w._frame))

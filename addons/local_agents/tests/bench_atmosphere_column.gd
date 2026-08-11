@@ -312,9 +312,9 @@ func _fit_h(a: Dictionary, b: Dictionary) -> float:
 
 
 ## World-space wind at a cell, reconstructed from the local tangent frame exactly the way
-## MaterialFieldQueries3D.wind3_at does (vel_x along tan_a, vel_z along tan_b, vel_y radial). It reads the
-## grid's own frame table — rebuilding the axes from neighbour POSITIONS, as this did before 2026-07-30, does
-## not give the frame the kernel stores momentum in (the slot pairing's orientation flips between cycles).
+## MaterialFieldQueries3D.wind3_at does (vel_x along tan_a, vel_z along tan_b, vel_y radial). It must read
+## the grid's own frame table: axes rebuilt from neighbour POSITIONS are not the frame the kernel stores
+## momentum in, because the slot pairing's orientation flips between cycles.
 func _wind_world(c: int, vx: PackedFloat32Array, vy: PackedFloat32Array,
 		vz: PackedFloat32Array) -> Vector3:
 	return (_grid.cell_radial(c) * vy[c]

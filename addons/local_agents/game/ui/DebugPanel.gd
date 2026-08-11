@@ -128,9 +128,9 @@ func _ready() -> void:
 
 	_add_section("PERF")
 	var shadows: CheckButton = _add_check("Sun shadows", func(on: bool) -> void: perf_toggled.emit("shadows", on))
-	shadows.set_pressed_no_signal(false)             # start OFF (no emit) — the applied quality preset drives the real
+	shadows.set_pressed_no_signal(false)             # start OFF without emitting — the applied quality preset
 	var ssao: CheckButton = _add_check("SSAO", func(on: bool) -> void: perf_toggled.emit("ssao", on))
-	ssao.set_pressed_no_signal(false)                # render state; forcing ON lied about it + its init emit was swallowed → 2 clicks
+	ssao.set_pressed_no_signal(false)                # owns the real render state, so the box only mirrors it
 
 	_add_section("STATS")
 	_add_check("Detailed perf readout", func(on: bool) -> void: perf_overlay_toggled.emit(on))

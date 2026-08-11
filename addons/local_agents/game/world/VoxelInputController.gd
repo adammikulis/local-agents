@@ -36,11 +36,8 @@ var _interaction: Node3D = null
 var _ecology: Node = null
 
 # --- Streamer seeds (read by the world when it builds the streamer host) ---
-# THE STREAMER IS OPT-IN, 2026-08-10. It defaults OFF and `--streamer` turns it on. It used to default ON,
-# so every headless, offscreen, perf and verification run had to remember to pass LA_NO_STREAMER=1 or it
-# would spin up a local llama-server; forgetting cost minutes and perturbed whatever was being measured.
-# A default that every automated caller has to opt OUT of is the wrong default.
-# `--no-streamer` and LA_NO_STREAMER still work and are now redundant belt-and-braces.
+# The streamer is OPT-IN: it defaults OFF and `--streamer` turns it on, so no automated run spins up a
+# local llama-server by accident. `--no-streamer` and LA_NO_STREAMER also force it off.
 var _streamer_enabled: bool = false
 # --bare: physics only. No terrain meshing, no collision baking, no presentation layer. For verification
 # runs whose output is numbers.
@@ -210,16 +207,9 @@ func parse_cmdline() -> void:
 		elif arg.begins_with("--bench-interval="):
 			_bench_interval = maxi(1, int(arg.substr("--bench-interval=".length())))
 		elif arg.begins_with("--seed="):
-			# Seeds BOTH generators, and the second one is new. Godot's GLOBAL RNG covers world-gen and
-			# whatever still calls the free functions; LASimRng is the dedicated sim stream that meteor
-			# directions, the barrage spread and (as of today) plate tectonics draw from.
-			#
-			# LASimRng WAS NEVER SEEDED BY THIS FLAG. Nothing anywhere called LASimRng.reset(), so `shared()`
-			# fell back to LA_SIM_SEED or a compiled-in DEFAULT_SEED, and `--seed=4242` therefore produced the
-			# SAME meteor directions and the SAME barrage spread as `--seed=999`. The comment that stood here
-			# claimed the flag made two runs "produce identical world state and identical disaster outcomes,
-			# not just identical event TIMING". It did not: three runs at --seed=4242 measured 2, 7 and 3
-			# impacts and 2, 4 and 0 eruptions, which is what made every A/B this week cost three repeats.
+			# Seeds BOTH generators. Godot's GLOBAL RNG covers world-gen and whatever still calls the free
+			# functions; LASimRng is the dedicated sim stream that meteor directions, the barrage spread and
+			# plate tectonics draw from. Both must be seeded here or disaster outcomes do not reproduce.
 			var world_seed: int = int(arg.substr("--seed=".length()))
 			seed(world_seed)
 			LASimRng.reset(world_seed)
@@ -788,7 +778,7 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 		_frame_tinted_creature()
 
 	# --frame-hut: swing the camera onto a villager hut with a villager stood beside it, so a
-	# reviewer can read the dwelling's scale against a ~1.8 m human. Set just before the capture.
+	# reviewer can judge the dwelling's scale against the villager. Set just before the capture.
 	if _frame_hut and _shoot_path != "" and not _frame_hut_done and spawned and frame == _shoot_frames - 6:
 		_frame_hut_done = true
 		_frame_villager_hut()
@@ -989,11 +979,6 @@ func set_time_scale(n: int) -> void:
 		_pause_menu.set_time_scale(_fast)
 func auto_select() -> bool: return _auto_select
 func debug_family() -> bool: return _debug_family
-# auto_seavolcano() was here. It had exactly one caller: VoxelWorld's planet-spin line, which froze the
-# planet's rotation for this demo to hide a world-fixed field drifting against a spinning terrain. The field
-# is body-local now, the gate went with 440a86d, and the accretion was re-measured with the planet turning
-# (see Volcano.cone_profile), so nothing asks the question any more. The flag itself stays — it still names
-# the demo. (Deleted 2026-07-30, not "unwired code left unfinished": its removal condition was the gate's.)
 func debug_demo() -> bool: return _debug_demo
 func wind_view() -> bool: return _wind_view
 func debug_field() -> String: return _debug_field

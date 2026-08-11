@@ -54,32 +54,31 @@ const BandChronicleScript: GDScript = preload("res://addons/local_agents/sim/eco
 # emergent river drainage. RELIEF is the cellular amplitude; FEATURE is the cell size (continent wavelength).
 # A BIGGER radius flattens the ground horizon (a moderate village fits the close view with little curvature).
 # RELIEF + FEATURE + OCEAN_BIAS + the field shell (below) all scale with the radius via PLANET_SCALE, so the
-# ocean fraction (~72%), continent count, and field cost (cell_count fixed — just coarser cells) are preserved.
+# ocean fraction, continent count, and field cost (cell_count fixed — just coarser cells) are preserved.
 const PLANET_RADIUS: float = 500.0
-const PLANET_SCALE: float = PLANET_RADIUS / 250.0     # everything below was tuned at radius 250
-const PLANET_RELIEF: float = 28.0 * PLANET_SCALE   # was 46 → gentler, less-mountainous continents (LA_RELIEF overrides)
+const PLANET_SCALE: float = PLANET_RADIUS / 250.0     # the amplitudes below are expressed at radius 250
+const PLANET_RELIEF: float = 28.0 * PLANET_SCALE   # cellular continent amplitude (LA_RELIEF overrides)
 const PLANET_FEATURE: float = 155.0 * PLANET_SCALE
 # OCEAN-heavy world: sea shell at the mean radius and OCEAN_BIAS pushes the whole surface inward, so most of
 # the sphere is below the sea — continents/islands emerge only at the cellular cores, with the sea for the
 # rivers to drain into. Raise OCEAN_BIAS (or SEA_RADIUS) for more water; lower for more land.
 const PLANET_SEA_RADIUS: float = PLANET_RADIUS
-const PLANET_OCEAN_BIAS: float = 3.0 * PLANET_SCALE   # more LAND than pure-Earth (was 6=too-much-ocean): prominent
-                                                      # as the sea (smooth simplex continents are centred ~0, so a
-                                                      # negative bias lifts most of the surface above sea level).
-                                                      # RAISE toward + for more sea. Runtime-tunable: LA_OCEAN_BIAS=<n>.
+const PLANET_OCEAN_BIAS: float = 3.0 * PLANET_SCALE   # smooth simplex continents are centred near 0, so a
+                                                      # negative bias lifts most of the surface above sea level.
+                                                      # RAISE toward + for more sea. LA_OCEAN_BIAS=<n> overrides.
 # BASIN relief: medium-wavelength undulation carved into the flat cellular plateaus so land has CLOSED
 # DEPRESSIONS (lake bowls) — the pools springs/rain/runoff collect into as standing lakes (raise for deeper
 # lakes/more relief; 0 = flat plateaus that only drain to the sea).
-const PLANET_BASIN_RELIEF: float = 12.0 * PLANET_SCALE   # was 20 → shallower undulation (still enough for lake bowls)
+const PLANET_BASIN_RELIEF: float = 12.0 * PLANET_SCALE   # undulation depth; 0 = flat plateaus, no lake bowls
 const PLANET_BASIN_SIZE: float = 130.0 * PLANET_SCALE
 # RIDGES: ridged-multifractal MOUNTAIN layer. Rivers no longer ride this noise — the drainage network is carved
 # into the terrain from the ACTUAL water flow (see MaterialFieldLakes3D river carving), so this layer's only job
 # is gentle mountain extrusions. Kept LOW-amplitude + few octaves so peaks are rolling, not craggy spikes.
-const PLANET_RIDGE_RELIEF: float = 4.0 * PLANET_SCALE   # was 22→9→4: barely-there rolling mountains, not craggy (LA_RIDGE)
+const PLANET_RIDGE_RELIEF: float = 4.0 * PLANET_SCALE   # mountain amplitude (LA_RIDGE overrides)
 const PLANET_RIDGE_SIZE: float = 95.0 * PLANET_SCALE
-const PLANET_RIDGE_OCTAVES: int = 2                     # was 4→3→2; fewer octaves = smoother ridge lines
-# DETAIL: fine high-frequency roughness — the "rough grain". Cut hard (6→3→1) so the surface reads smooth, not gritty.
-const PLANET_DETAIL_RELIEF: float = 1.0 * PLANET_SCALE  # was ~6→3→2 (LA_DETAIL overrides)
+const PLANET_RIDGE_OCTAVES: int = 2                     # fewer octaves = smoother ridge lines
+# DETAIL: fine high-frequency roughness — the "rough grain". Low amplitude so the surface reads smooth.
+const PLANET_DETAIL_RELIEF: float = 1.0 * PLANET_SCALE  # LA_DETAIL overrides
 # CAVES: emergent fractal spaghetti tunnels carved into the SDF underground (see LASpherePlanetGenerator).
 # Two 3D noise iso-surfaces intersect into winding tubes, gated below the surface. Set LA_CAVES=0 to disable.
 const PLANET_CAVE_SIZE: float = 60.0 * PLANET_SCALE      # tunnel wavelength (world units)
@@ -631,9 +630,8 @@ func _physics_process(delta: float) -> void:
 	# Spawn the starting ecology once terrain has streamed + collided at the surface.
 	_spawn.try_spawn(_input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
 	# Sample the night gauges PERIODICALLY, not once at report time. Sampled once, night_frac's min and max
-	# are the same number and the gauge cannot show whether the terminator moves — which is the exact
-	# failure mode it exists to catch, since the old global day/night clock read a constant 0.3 forever.
-	# Sampled every 15 ticks, min/max span the sweep and a frozen sky shows up as min == max.
+	# are the same number and the gauge cannot show whether the terminator moves, which is the failure mode
+	# it exists to catch. Sampled every 15 ticks, min/max span the sweep and a frozen sky shows as min == max.
 	if _spawn.is_spawned() and _frame % 15 == 0:
 		LAVoxelHarness.sample_night(self)
 	if _spawn.is_spawned() and _frame % 15 == 0:
