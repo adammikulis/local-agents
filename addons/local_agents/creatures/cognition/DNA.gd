@@ -73,9 +73,6 @@ const LOCI: Array = [
 	# reach a phenotype. They are `reserved` rather than deleted so the strand LENGTH and every following
 	# locus offset are unchanged.
 	#
-	# BODY MASS is not a locus: the roster spans five milligrams to four hundred kilograms, which a linear
-	# locus cannot represent — it needs a log-scaled one. What IS heritable is `respiratory_capacity` and
-	# `thermogenesis` below, the anatomy and physiology the reaction consumes.
 	["_retired_max_energy", "reserved", 2, 0.0, 1.0],
 	["_retired_thirst_rate", "reserved", 2, 0.0, 1.0],
 	["maturity_age", "gene", 2, 0.0, 120.0],
@@ -128,7 +125,11 @@ const LOCI: Array = [
 	# Claimed from reserved loci, so strand length and every following offset are unchanged.
 	["thermal_optimum_c", "gene", 2, LAPhysical.WATER_FREEZE_C, LAPhysical.PROTEIN_DENATURE_C],
 	["thermal_tolerance", "gene", 2, 0.0, 1.0],
-	["_reserved_4", "reserved", 2, 0.0, 1.0],
+	# ADULT BODY MASS, log10 kilograms. The roster spans 5 mg to 400 kg, which is why this is a LOG locus —
+	# the note above saying a linear one cannot hold it is answered by taking the log rather than by
+	# keeping mass out of the genome. -6..3 spans a microgram to a tonne. Heritable, so a lineage can
+	# actually change size: island dwarfing, Bergmann gigantism and r/K shifts are reachable from here.
+	["log10_adult_mass_kg", "gene", 2, -6.0, 3.0],
 	["_reserved_5", "reserved", 2, 0.0, 1.0],
 	["_reserved_6", "reserved", 2, 0.0, 1.0],
 	["_reserved_7", "reserved", 2, 0.0, 1.0],
@@ -288,6 +289,8 @@ static func from_config(cfg: Dictionary) -> LADNA:
 	g.encode_gene("thermal_optimum_c", float(cfg.get("thermal_optimum_c",
 		(LAPhysical.WATER_FREEZE_C + LAPhysical.PROTEIN_DENATURE_C) * 0.5)))
 	g.encode_gene("thermal_tolerance", float(cfg.get("thermal_tolerance", 1.0)))
+	g.encode_gene("log10_adult_mass_kg",
+		log(maxf(float(cfg.get("mass_kg", LACreatureBodyMass.REFERENCE_MASS_KG)), 1.0e-9)) / log(10.0))
 	g.encode_gene("scent_acuity", float(cfg.get("scent_acuity", 0.5)))
 	g.encode_gene("taste_sensitivity", float(cfg.get("taste_sensitivity", 0.5)))
 	g.encode_gene("constitution", float(cfg.get("constitution", 1.2)))   # healthy immune default; epidemics select it up
@@ -382,6 +385,8 @@ func express() -> Dictionary:
 					out[name] = decode_gene(name)
 			else:
 				out[name] = decode_gene(name)   # new gene: always expressed
+	# Adult mass is carried in the genome as log10 kg and expressed as the linear kg every consumer reads.
+	out["mass_kg"] = pow(10.0, decode_gene("log10_adult_mass_kg"))
 	# Diet expressed from the evolvable carnivory gradient.
 	var carn: float = decode_gene("carnivory")
 	out["diet"] = _diet_bucket(carn)
