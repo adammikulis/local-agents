@@ -318,12 +318,8 @@ func _heavy_block() -> Dictionary:
 	if not _heavy_cache.is_empty() and frame - _heavy_frame < every and not _is_final_frame():
 		return _heavy_cache
 	_heavy_frame = frame
-	# BY NOTHING: a grep for `clim_lat_mean` found the literal that builds it and no consumer anywhere, so the
-	# one gauge that can answer "can it freeze HERE" never reached a single SIM_REPORT. Per the standing rule
-	# that unwired code is a previous session's unfinished job, it is connected rather than left.
 	var d: Dictionary = surface_climate()
-	#   energy — the radiative books. There was NO energy accounting anywhere before this; a radiative sink was
-	#            added on this line of work and nothing could verify it.
+	#   energy — the radiative books.
 	var flux: Dictionary = _energy.report()
 	d.merge(flux)
 	d.merge(_energy_stock.report(_f._gpu._step_index if _f._gpu != null else 0, flux))

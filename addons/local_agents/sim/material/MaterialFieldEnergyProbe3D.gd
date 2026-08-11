@@ -139,7 +139,7 @@ func post_step() -> void:
 	if _in_pair == 2 and not is_nan(_pair_end):
 		# The instrument's other falsifiable number: this step opened where the previous one closed, or the
 		# half-map / parity flip in the header is wrong. Both ends are taken against their own live
-		# composition, so a composition change between steps can no longer masquerade as an error here.
+		# composition, so a composition change between steps cannot masquerade as an error here.
 		out["chain_j"] = _start - _pair_end
 	_pair_end = _prev
 	print("ENERGY_BUDGET=", JSON.stringify(out))

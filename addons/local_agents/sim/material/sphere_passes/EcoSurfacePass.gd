@@ -111,7 +111,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[15, nbr_rid],
 		])
 
-		# Decompose chemistry moved to ReactionsPass → this kernel no longer binds CO2/O2 or writes fert scratch.
+		# Decompose chemistry lives in ReactionsPass.
 		_fungus_set[p] = _build_set(_fungus_shader, [
 			[0, fungus_pair[p]],     # FungIn  = live fungus
 			[1, fungus_pair[back]],  # FungOut = back fungus
@@ -120,7 +120,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[4, _fungus_args],       # ActiveArgs — [3] is the list length
 			[5, temp_pair[p]],       # Temp  (live, read)
 			[6, moisture_pair[p]],   # Moisture = the unified airborne-H₂O channel (live, read)
-			[8, solid_rid],          # Solid   (7 = Fire is gone; the gap is deliberate)
+			[8, solid_rid],          # Solid   (7 is unbound; the gap is deliberate)
 			[15, nbr_rid],
 		])
 

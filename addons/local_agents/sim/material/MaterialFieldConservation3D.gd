@@ -58,8 +58,8 @@ func check(d: Dictionary) -> Dictionary:
 	if _f == null or _f._seal == null or not _f._seal.sealed():
 		out["conservation"] = "seeding"
 		return out
-	# ONE EVALUATION, AT THE REFERENCE HORIZON. See the header for the two statistics this replaced and why
-	# each failed. The worst excursion is still accumulated every sample below; only the VERDICT waits.
+	# ONE EVALUATION, AT THE REFERENCE HORIZON. The worst excursion is accumulated every sample below; only
+	# the VERDICT waits.
 	var elapsed: int = _steps_since_seal()
 	var rows: Dictionary = {}
 	var rates: Dictionary = {}
@@ -86,17 +86,12 @@ func check(d: Dictionary) -> Dictionary:
 		rates[key] = rate
 		# IS IT A LEAK OR A TRANSIENT? A leak holds its rate; a settling transient's rate falls as the horizon
 		# grows. Compared against the rate at the FIRST audited sample, which is the earliest honest one.
-		# Latched at the first audited sample where the substance has ACTUALLY drifted. Latching on the first
-		# audited sample regardless left r0 == 0 for anything still flat at the horizon, and a zero baseline
-		# drops it from the trend entirely — which is what happened to five of the six on the first run.
+		# Latched at the first audited sample where the substance has ACTUALLY drifted.
 		if not _rate_first.has(key) and elapsed >= REFERENCE_STEPS and rate > 0.0:
 			_rate_first[key] = rate
 			_rate_first_at[key] = elapsed
-		# No verdict before the horizon — the run is still accumulating. AFTER it, every sample is checked.
-		# `or _audited` used to sit here too, which made this gate evaluate exactly ONCE and then go blind:
-		# a run 60x past the horizon reported conservation_failed: false while carbon had grown 12x. The
-		# stated reason for it — "the same breach would be re-reported every sample" — is already handled by
-		# the `not _violations.has(key)` below, which is what makes it one line per substance.
+		# No verdict before the horizon — the run is still accumulating. AFTER it, every sample is checked;
+		# `not _violations.has(key)` below is what keeps a breach to one line per substance.
 		if elapsed < REFERENCE_STEPS:
 			continue
 		# A zero entry means "no allowance beyond arithmetic": use the derived float floor for THIS grid.

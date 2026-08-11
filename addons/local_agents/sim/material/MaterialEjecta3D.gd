@@ -3,13 +3,7 @@ extends Node3D
 
 ## WHERE MASS LANDS MAY NOT DEPEND ON WHERE THE CAMERA IS POINTED.
 ##
-## `eject()` used to deposit an off-screen impact's whole mass at the impact point instead of arcing it, and
-## the per-step loop settled any parcel that drifted out of frustum WHEREVER IT HAPPENED TO BE — so the
-## landing point of rock and its heat moved with camera motion during the flight. Mass and energy were
-## conserved; their DISTRIBUTION was not, and headless (no camera) took a third path again.
-##
-## CLAUDE.md endorses activity-LOD by relevance and forbids observer-dependent physics. Both hold: LOD may
-## skip DRAWING, never where matter ends up. Parcels always arc now; the multimesh is still culled.
+## LOD may skip DRAWING, never where matter ends up. Parcels always arc; the multimesh is culled.
 
 ## LAMaterialEjecta3D: THE KEYSTONE momentum/ejecta primitive of the substrate. When a pressure release throws
 

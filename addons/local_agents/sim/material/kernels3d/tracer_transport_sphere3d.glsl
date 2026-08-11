@@ -40,9 +40,8 @@ const float SETTLE_CALM_REF = 6.0;
 const float SETTLE_MIN_RATIO = 0.08;
 const float OUT_MAX = 0.9;
 
-// Speed of cell `c` toward its lateral link `l` (0..3 == neighbour slots 1..4), in that cell's tangent frame.
-// lattice did not carry, which is why O2 had no wind for as long as it was its own kernel. It carries it:
-// `ltan`. The claim was refuted by the file sitting next to it.)*
+// Speed of cell `c` toward its lateral link `l` (0..3 == neighbour slots 1..4), in that cell's tangent frame,
+// projected onto the per-slot world direction the lattice carries in `ltan`.
 float toward_link(uint c, int l) {
 	uint b = ((c / max(params.depth, 1u)) * 4u + uint(l)) * 2u;
 	return vel_x[c] * ltan[b] + vel_z[c] * ltan[b + 1u];

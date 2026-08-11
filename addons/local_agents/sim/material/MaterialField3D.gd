@@ -340,9 +340,7 @@ func _alloc_channels() -> void:
 	_fuel.resize(_cell_count)
 	_fire = PackedFloat32Array()
 	_fire.resize(_cell_count)
-	# THE AIR, seeded once and finite thereafter. Both gases are filled at Earth's measured composition; the
-	# gas loops. (The `.fill` on `_co2` is the whole fix for "the planet had no carbon in its air": the line
-	# reaction record was manufacturing the carbon anyway.)
+	# THE AIR, seeded once and finite thereafter. Both gases are filled at Earth's measured composition.
 	_o2 = PackedFloat32Array()
 	_o2.resize(_cell_count)
 	_o2.fill(O2_AMBIENT)
@@ -817,9 +815,9 @@ func splash(world_pos: Vector3, strength: float) -> void:
 		_inject.splash(world_pos, strength)
 
 
-# --- Ecology back-ref. Fire/combustion (ignite/is_burning/active_fire_count) AND granular landslides
-# (disturb_terrain/slump_count) are now LIVE via their field modules — nothing here is stubbed anymore.
-# _ecology backs fire ash regrowth + actor coupling. ---
+# --- Ecology back-ref. Fire/combustion (ignite/is_burning/active_fire_count) and granular landslides
+# (disturb_terrain/slump_count) are live via their field modules. _ecology backs fire ash regrowth +
+# actor coupling. ---
 func set_ecology(e) -> void:
 	_ecology = e
 

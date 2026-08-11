@@ -51,9 +51,7 @@ const DEFICIT_BELOW_THRESHOLD: int = 4  # x = max(0, threshold - driver) * k  (f
 #   x = k * driver * max(0, 1 - ((driver2 - threshold) / param2)^2)
 const OPTIMUM_BAND: int = 5
 #   x = k * driver * driver2 * exp(-(Ea/R) * (1/T_K - 1/T_ref_K))
-# from the TEMP channel directly rather than through a slot, because Arrhenius is BY DEFINITION about
-# kernel used to evaluate every Arrhenius exponential at min(T, LAPhysical.WATER_BOIL_C), because a reaction
-# WATER that had been baked into the rate law itself. The same constant applied to every future Arrhenius
+# Reads temperature from the TEMP channel directly rather than through a slot.
 const ARRHENIUS: int = 6
 
 # --- Gate bitflags (0 = ungated) -------------------------------------------------------------------------

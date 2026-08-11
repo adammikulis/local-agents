@@ -239,8 +239,7 @@ const DRY_AIR_GAS_CONSTANT_J_KGK: float = GAS_CONSTANT_J_MOL_K / MOLAR_MASS_DRY_
 
 
 ## Atmospheric scale height in METRES at a temperature: H = R_d * T / g, the hydrostatic relation for an
-## isothermal ideal-gas column. A FUNCTION, because H is a function of temperature — storing one number for
-## it is the defect this file has now hit five times.
+## isothermal ideal-gas column. A FUNCTION, because H is a function of temperature.
 static func scale_height_m(t_c: float) -> float:
 	return DRY_AIR_GAS_CONSTANT_J_KGK * maxf(t_c + KELVIN_OFFSET, 1.0) / STANDARD_GRAVITY_M_S2
 

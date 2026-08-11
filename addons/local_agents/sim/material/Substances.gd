@@ -137,16 +137,13 @@ static func latent_sublimation_j_kg(id: String) -> float:
 
 
 ## Moles of substance in one kilogram — the ONLY bridge between what the field stores (mass) and what
-## chemistry counts (atoms). It replaces `LAReactionBalance.mol_per_unit()`, which existed to reconcile two
-## invented denominations that no longer exist.
+## chemistry counts (atoms).
 static func mol_per_kg(id: String) -> float:
 	var m: float = float(table().get(id, {}).get("molar_mass", 0.0))
 	return 1.0 / m if m > 0.0 else 0.0
 
 
-## Atoms per KILOGRAM of a substance, which is what a conservation ledger has to sum. `formula` is per MOLE;
-## forgetting to convert is the defect that let the balance gate compare 8.535 mol/m3 against 55343 as though
-## they were equal.
+## Atoms per KILOGRAM of a substance, which is what a conservation ledger has to sum. `formula` is per MOLE.
 static func atoms_per_kg(id: String) -> Dictionary:
 	var s: Dictionary = table().get(id, {})
 	var per_mol: Dictionary = s.get("formula", {})

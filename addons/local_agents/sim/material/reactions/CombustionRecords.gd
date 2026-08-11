@@ -3,7 +3,7 @@ extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
 ## ===== A SOLID FUEL HAS NO IGNITION POINT ===================================================================
 ## `cellulose.pyrolysis_ea_over_r_k` (230 kJ/mol over R; Antal & Varhegyi 1995, the mid of a measured
-## 200-250 kJ/mol). So combustion is an ARRHENIUS record, and everything the old kernel spelled out falls
+## 200-250 kJ/mol). Combustion is an ARRHENIUS record.
 
 # --- THE RATE CONSTANT ---------------------------------------------------------------------------------------
 const PYROLYSIS_REF_TEMP_K: float = 600.0
