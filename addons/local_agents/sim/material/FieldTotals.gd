@@ -49,6 +49,10 @@ static func substance_kg(grid, arr: PackedFloat32Array, solid: PackedByteArray, 
 	if density <= 0.0:
 		push_error("LAFieldTotals.substance_kg: '%s' has no density in LASubstances" % substance)
 		return 0.0
+	# ISOTROPIC, WHICH THE GRID IS NOT. MaterialFieldGeotherm3D carries an implicit vertical exaggeration of
+	# ~31 (GROUNDWATER_CIRCULATION_M / (REGOLITH_CELLS * cell_size)), so one model unit is not the same
+	# distance radially as laterally and this cube is wrong by that factor. Declaring the two scales
+	# separately is its own track; this line is where the answer lands when it does.
 	var m3_per_unit: float = LAPhysical.METRES_PER_MODEL_UNIT
 	var m3: float = volume_sum(grid, arr, solid, which) * m3_per_unit * m3_per_unit * m3_per_unit
 	return m3 * density

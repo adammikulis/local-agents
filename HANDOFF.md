@@ -59,6 +59,26 @@ exactly (the gnomonic solid-angle closed form; summed cell volumes match the ana
 ppm). **NO KERNEL AND NO LEDGER CONSUMES THEM YET.** That conversion is the next structural job and it must
 land BEFORE energy becomes a channel, or every new kernel re-encodes the flat-cell assumption.
 
+**A PREDICTION, so this is falsifiable rather than a caveat.** If the flat sum is a large part of the
+measured drift, then the substances that "conserve" should be the ones concentrated in a NARROW BAND OF
+RADII, and the ones that "drift" should be the ones spread across the shell — because the error is
+identically zero on a uniform field and 13.2% on a field occupying the outer half. The sealed debts are:
+
+| substance | recorded debt | where it lives |
+|---|---|---|
+| `mineral_total` | 0.00002 | bedrock — one narrow radial band |
+| `nitrogen_all` | 0.0062 | soil + air |
+| `oxidant_all` | 0.045 | air |
+| `o2_total` | 0.055 | air, outer shells |
+| `h2o_closed_total` | 0.20 | ocean, snow, soil AND moisture aloft — the whole radial range |
+| `element_C_total` | 0.28 | air + biomass + carbonate — the whole range |
+
+That ordering is exactly what a volume-weighting bug predicts, and it is four orders of magnitude from
+end to end. It does NOT prove the drifts are all artefact — real leaks certainly exist — but it does mean
+**no drift figure can be interpreted until the totals are volume-weighted**, and when they are, mineral
+should barely move while carbon and h2o should move a lot. If they do not move that way, the hypothesis
+is wrong and the leaks are real; either answer is worth having, and it costs one run to get.
+
 **Consequence for this file: every drift percentage below predates this and has it baked in** — including
 the figures `PHYSICS_RUBRIC.md` criterion 1 is scored on, and the observation that mineral is the one
 substance that conserves (minerals sit in a narrow band of radii, so they suffer least from it).
