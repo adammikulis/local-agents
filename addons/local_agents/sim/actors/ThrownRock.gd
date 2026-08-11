@@ -32,6 +32,9 @@ var _flying: bool = false
 var _elapsed: float = 0.0
 var _start_pos: Vector3 = Vector3.ZERO
 var _initial_distance: float = 0.0
+var _mesh: MeshInstance3D = null
+var _tumble_axis: Vector3 = Vector3.RIGHT      # perpendicular to the throw
+var _tumble_rate: float = 0.0                  # rad/s = v / r, the rolling relation, r = STONE_SIDE * 0.5
 
 func setup(terrain, water = null) -> void:
 	_terrain = terrain
@@ -49,12 +52,8 @@ func setup(terrain, water = null) -> void:
 	var mesh_instance: MeshInstance3D = MeshInstance3D.new()
 	mesh_instance.name = "ThrownRockMesh"
 	mesh_instance.mesh = mesh
-	mesh_instance.rotation = Vector3(
-		randf_range(-0.4, 0.4),
-		randf_range(0.0, TAU),
-		randf_range(-0.4, 0.4)
-	)
 	add_child(mesh_instance)
+	_mesh = mesh_instance
 
 func throw_at(from: Vector3, target: Node3D, speed: float = 22.0, carried_mass: float = -1.0) -> void:
 	# `carried_mass` is the mass of the boulder the thrower actually picked up (LARock.take()'s return). When
@@ -72,6 +71,12 @@ func throw_at(from: Vector3, target: Node3D, speed: float = 22.0, carried_mass: 
 		_initial_distance = maxf(from.distance_to(_target.global_position), 0.001)
 	else:
 		_initial_distance = 0.001
+	# A thrown stone tumbles about an axis across its flight. Both the axis and the rate come from the throw
+	# itself, so no random draw is needed to make one stone differ from the next.
+	var aim: Vector3 = (_target.global_position - from) if is_instance_valid(_target) else Vector3.FORWARD
+	var axis: Vector3 = aim.cross(Vector3.UP)
+	_tumble_axis = axis.normalized() if axis.length() > 0.001 else Vector3.RIGHT
+	_tumble_rate = _speed / (STONE_SIDE * 0.5)
 
 func _physics_process(delta: float) -> void:
 	if not _flying:
@@ -82,6 +87,8 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_elapsed += delta
+	if _mesh != null and _tumble_rate > 0.0:
+		_mesh.global_rotate(_tumble_axis, _tumble_rate * delta)
 
 	var target_pos: Vector3 = _target.global_position
 	var pos: Vector3 = global_position

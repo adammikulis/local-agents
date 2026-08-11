@@ -52,7 +52,7 @@ static func population(w) -> Dictionary:
 		"bee": tree.get_nodes_in_group("species_bee").size(),
 		# Flowers + a running count of pollination visits (bee-activity proxy) — flower spread should track it.
 		"flowers": tree.get_nodes_in_group("species_flower_daisy").size() + tree.get_nodes_in_group("species_flower_clover").size(),
-		"pollinations": LAPlant.pollination_events,
+		"pollinations": LAVegLedger.of(w._material).pollinations,
 		"min_hydration": min_hyd,
 		"drinking": drinkers,
 	}

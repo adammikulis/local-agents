@@ -52,6 +52,9 @@ const SLOW_BUILD_CELLS: int = 250000
 ## Build the world automatically in _ready(). Turn it off to choose the moment yourself by calling
 ## spawn_world() from a script (e.g. after a menu has picked the settings).
 @export var build_on_ready: bool = true: set = _set_build_on_ready
+## This world's seed. Terrain generation and every random draw this node makes derive from it, so two
+## LocalAgentSimWorld nodes in one process with different seeds are independent worlds.
+@export var world_seed: int = 1337
 
 @export_group("Sphere bounds")
 @export_subgroup("Shape")
@@ -126,6 +129,15 @@ var _built: bool = false
 var _spawned: bool = false
 var _ready_ticks: int = 0
 
+# This world's own placement stream, derived from world_seed. Owned here, not shared with any other world.
+var _rng: LASimRng = null
+
+
+func _spawn_rng() -> LASimRng:
+	if _rng == null:
+		_rng = LASimRng.make(world_seed, "simworld_spawn")
+	return _rng
+
 
 ## True when the godot_voxel GDExtension (addons/zylann.voxel/) is present, which is what a SPHERE world
 ## is built out of. A FLAT world does not need it. Safe to call from the editor and from a script.
@@ -195,7 +207,7 @@ func _build_sphere() -> bool:
 		"detail_relief": 1.0 * scale,
 		"caves_enabled": caves_enabled, "cave_size": 60.0 * scale, "cave_threshold": 0.09,
 		"cave_strength": 40.0, "cave_depth_fade": 14.0 * scale,
-		"tides_enabled": tides_enabled, "view_distance": 2000, "seed": 1337,
+		"tides_enabled": tides_enabled, "view_distance": 2000, "seed": world_seed,
 	})
 	_terrain = _body.terrain()
 	_actors_root = _body.actors_root
@@ -285,7 +297,8 @@ func _scatter_flat(counts: Dictionary) -> void:
 		var kind: String = String(kind_v)
 		var n: int = int(counts[kind_v])
 		for i in range(n):
-			var p: Vector3 = Vector3(randf_range(-hx, hx), ground_y + 2.0, randf_range(-hz, hz))
+			var rng: LASimRng = _spawn_rng()
+			var p: Vector3 = Vector3(rng.randf_range(-hx, hx), ground_y + 2.0, rng.randf_range(-hz, hz))
 			_ecology.spawn(kind, p)
 
 
