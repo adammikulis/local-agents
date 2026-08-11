@@ -41,8 +41,6 @@ const float SETTLE_MIN_RATIO = 0.08;
 const float OUT_MAX = 0.9;
 
 // Speed of cell `c` toward its lateral link `l` (0..3 == neighbour slots 1..4), in that cell's tangent frame.
-// lattice did not carry, which is why O2 had no wind for as long as it was its own kernel. It carries it:
-// `ltan`. The claim was refuted by the file sitting next to it.)*
 float toward_link(uint c, int l) {
 	uint b = ((c / max(params.depth, 1u)) * 4u + uint(l)) * 2u;
 	return vel_x[c] * ltan[b] + vel_z[c] * ltan[b + 1u];
@@ -154,7 +152,7 @@ void main() {
 
 	float value = ti * (1.0 - raw * scale_g) + gain;
 
-	// DEPOSIT — this cell's own downward flux that meets SOLID ground (or the floor) settles out here. If the
+	// DEPOSIT — the downward flux that meets solid ground settles in this cell, so no volume change applies.
 	if (params.deposit == 1u && ti > 0.0 && !open_d) {
 		float dep = ti * fall_frac(g) * scale_g;
 		if (dep > 0.0) {
