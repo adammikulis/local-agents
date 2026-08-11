@@ -178,7 +178,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/system/SystemOrbits.gd` | `INSOLATION_MIN` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/system/SystemOrbits.gd` | `INSOLATION_MAX` | 4.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/system/SystemOrbits.gd` | `DUST_OPACITY` | 3.5 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/system/SystemOrbits.gd` | `CLOUD_OPACITY_CAP` | 0.22 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/system/SystemOrbits.gd` | `CLOUD_OPACITY_K` | 0.35 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/system/SystemOrbits.gd` | `KNOCK_GAIN` | 5.9 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/system/SystemOrbits.gd` | `MOON_RADIUS_MULT` | 3.2 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -381,14 +380,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/ecology/EcologyPlants.gd` | `TREE_SEED_FLOOR` | 0.04 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/ecology/EcologyPlants.gd` | `TREE_SEED_SPREAD` | 8.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/ecology/EcologyPlants.gd` | `TREE_SEEDS_PER_TICK` | 10 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/ecology/PopulationGovernor.gd` | `ABS_FLOOR` | 350 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/ecology/PopulationGovernor.gd` | `CEILING_MULT` | 1.6 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/ecology/PopulationGovernor.gd` | `RELIEF` | 0.85 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/ecology/PopulationGovernor.gd` | `CHECK_PERIOD` | 2.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/ecology/PopulationGovernor.gd` | `COOLDOWN` | 9.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/ecology/PopulationGovernor.gd` | `BUCKET_CELL` | 28.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/ecology/PopulationGovernor.gd` | `FLOOD_MIN_RADIUS` | 10.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/ecology/PopulationGovernor.gd` | `FLOOD_PER_HEAD` | 0.9 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/ecology/EcologyAquatic.gd` | `AQUATIC_SAMPLE_TRIES` | 60 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/ecology/EcologySpawner.gd` | `HERD_CLUSTER_SIZE` | 18 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/ecology/EcologySpawner.gd` | `HERD_CLUSTER_SPREAD` | 8.0 | inherited, unreviewed | Stage 2 substrate rewrite |

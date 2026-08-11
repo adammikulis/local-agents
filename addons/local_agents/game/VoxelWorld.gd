@@ -19,7 +19,6 @@ const InteractionScript: GDScript = preload("res://addons/local_agents/game/worl
 const CompanionControllerScript: GDScript = preload("res://addons/local_agents/game/world/CompanionController.gd")
 const SpawnBrushScript: GDScript = preload("res://addons/local_agents/game/world/VoxelSpawnBrush.gd")
 const DisastersScript: GDScript = preload("res://addons/local_agents/game/world/VoxelDisasters.gd")
-const PopulationGovernorScript: GDScript = preload("res://addons/local_agents/sim/ecology/PopulationGovernor.gd")
 const WeatherScript: GDScript = preload("res://addons/local_agents/sim/WeatherSystem.gd")
 const OceanPlaneScript: GDScript = preload("res://addons/local_agents/sim/material/OceanPlane.gd")
 const MaterialField3DScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialField3D.gd")
@@ -491,12 +490,6 @@ func _ready() -> void:
 	# down, injecting the heat pulse + scare itself, and calls back here for the VISUAL/audio bolt only.
 	if _material != null and _material.has_method("set_lightning_visual"):
 		_material.set_lightning_visual(Callable(_disasters, "spawn_lightning"))
-	# Population governor ("smite"): watches the animal count and, when it overflows the frame budget, seeds an
-	# emergent culling flood at the densest herd — the cull emerges from the flood, no scripted deaths. Self-ticks.
-	var governor: Node = PopulationGovernorScript.new()
-	governor.name = "PopulationGovernor"
-	add_child(governor)
-	governor.setup(_ecology, _terrain, _actors_root)
 	# Plate tectonics: drifting plates that CARRY THE CRUST (the field advects rock_fill/sediment with their
 	# velocity) and whose boundaries seed volcanoes/earthquakes (Ring of Fire). Self-ticks.
 	var tectonics: LAPlateTectonics = LAPlateTectonics.new()

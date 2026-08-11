@@ -45,8 +45,7 @@ func setup(terrain: Object, ecology: Object) -> void:
 		_field = _ecology.material_field()
 
 
-# `brush_radius` ties the cloudburst footprint to the caller (the player's spawn brush, or the smite governor's
-# mob size). The rain falls over this footprint; the field's flow CA does the pooling + downhill routing.
+# `brush_radius` is the caller's rain footprint, in metres. The field's flow CA pools + routes it downhill.
 func surge(center: Vector3, brush_radius: float = MIN_RADIUS) -> void:
 	_center = center
 	_radius = maxf(brush_radius * RADIUS_SCALE, MIN_RADIUS)
