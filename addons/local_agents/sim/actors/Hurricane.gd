@@ -133,8 +133,8 @@ func _core_vorticity() -> float:
 	return peak
 
 
-# Direction (world XZ) toward the strongest nearby vorticity — used to re-centre the eye onto the low the
-# field grew if it advects off. Zero when the eye is already sitting on the vortex core (nothing stronger).
+# Direction (world XZ) toward the strongest nearby vorticity; re-centres the eye onto the low the field
+# grew if it advects off. Zero when the eye is already sitting on the vortex core (nothing stronger).
 func _vortex_gradient() -> Vector2:
 	if _field == null or not _field.has_method("vorticity_at"):
 		return Vector2.ZERO

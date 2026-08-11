@@ -39,7 +39,7 @@ var _lines_since_reset: int = 0
 const RESET_EVERY: int = 12
 
 # --- pacing: event-intensity accumulator ---
-# The caster does NOT talk on a timer, and it no longer SCANS the world for events itself — the shared
+# The caster does NOT talk on a timer, and does not SCAN the world for events itself — the shared
 # LAEventTracker is the ONE emergent source, and on_tracked_event() feeds each typed event's intensity in
 # here. Those weights accumulate and DECAY over time. A line only fires when the running intensity trips
 # THRESHOLD (so a volcano or a death sets it off, but a calm biome stays quiet), gated by a minimum cooldown
@@ -73,7 +73,7 @@ var _energy_primed: bool = false         # seed _last_energy on the first sample
 # --- scene sampling ---
 # Behaviour states worth naming in the commentary; each carries a representative animal (species,
 # location, its prey) so the caster can react to "a fox stalking the rabbits down by the water" rather
-# than the old generic "a predator has started stalking prey".
+# than a generic "a predator has started stalking prey".
 const HOT_STATES: Array = ["stalk", "chase", "circle", "panic"]
 var _pop_baseline: float = 0.0         # slow EMA of total population, for the "numbers rising/thinning" narrative
 var _last_sample: Dictionary = {}
@@ -247,9 +247,8 @@ const I_DAYNIGHT: float = 1.0
 
 
 ## Creature-NARRATION detection (deaths/births/extinction/behaviour spikes) — the streamer's own rich,
-## per-species, located beats. FIELD phenomena (eruption/wildfire/flood/storm/lightning/impact) are NOT
-## detected here anymore: they arrive from the shared LAEventTracker via on_tracked_event(), so the crude
-## destruction-spike + raw fire-count scans that used to live here are dissolved (no parallel field scans).
+## per-species, located beats. FIELD phenomena (eruption/wildfire/flood/storm/lightning/impact) are not
+## detected here: they arrive from the shared LAEventTracker via on_tracked_event().
 func _detect_events(prev: Dictionary, cur: Dictionary) -> void:
 	var prev_sp: Dictionary = prev.get("species", {})
 	var cur_sp: Dictionary = cur.get("species", {})
@@ -382,7 +381,7 @@ func _push_event(text: String, intensity: float) -> void:
 ## Consume one FIELD-phenomenon event from the shared LAEventTracker (the ONE emergent source, wired in
 ## VoxelStreamerHost). The tracker already decided WHAT happened and how big it is; the caster just reacts —
 ## feeding the event's own intensity + narratable description into the same pacing queue its creature beats
-## use. This replaces the crude destruction-spike / fire-count scan the director used to run itself.
+## use.
 func on_tracked_event(ev) -> void:
 	if ev == null:
 		return

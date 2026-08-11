@@ -20,12 +20,8 @@ const SCARE_MULT: float = 2.6            # animals flee a wider ring than the ra
 # Seeding rates — cranked well above a Thunderstorm's so a few seconds makes a genuine deluge that pools.
 const VAPOR_PER_SEC: float = 26.0        # total humid air pumped up per second (split over the injection points)
 const VAPOR_INJECT_R: float = 16.0
-# A CLOUDBURST CARRIES NO ENERGY SOURCE. The four constants that used to sit here — SEED_HEAT_PER_SEC = 8.0
-# and SEED_HEAT_R = 18.0 (surface warming), COOL_PER_SEC = 34.0 and COOL_INJECT_R = 34.0 (heat destroyed
-# aloft) — are deleted along with the two injections that used them. The class doc above was already half
-# right and half wrong about itself: the WATER really is conserved (add_vapor is a transfer that debits the
-# footprint's own liquid and soil water), but the HEAT was manufactured at the bottom of the column and
-# annihilated at the top, 8 °C/s in and 34 °C/s out, for the flood's whole life. Nothing paid for either.
+# A CLOUDBURST CARRIES NO ENERGY SOURCE: this seeds water only — no heat is injected or removed. The water
+# is a transfer (add_vapor debits the footprint's own liquid and soil water), not a source.
 const CLOUD_ALOFT: float = 58.0          # height above the ground the moisture is lofted toward (cloud base)
 
 var _terrain: Object = null

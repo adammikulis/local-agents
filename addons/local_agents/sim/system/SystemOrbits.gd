@@ -18,7 +18,7 @@ extends Node
 ##
 ## ONE SYSTEM. There is one G (LAGravity), one star mass (LAStar.mass()), one
 ## planet mass (LAPlanetBody.mass()), and the star is drawn exactly where the orbit says it is. The orbital
-## acceleration is now literally `LAGravity.acceleration_at()` evaluated at the star, so the moon perturbs
+## acceleration is literally `LAGravity.acceleration_at()` evaluated at the star, so the moon perturbs
 ## the planet's year for free and nothing here can drift out of agreement with what a meteor feels.
 ##
 ## THE FRAME IS RELATIVE — see the frame note in LAGravity. The planet does not move; the star does. `_helio_pos`
@@ -26,14 +26,12 @@ extends Node
 ## separation, not an absolute place in space. That is why the orbital equation carries G(M_star + M_planet):
 ## it is relative motion, not motion about a fixed centre.
 ##
-## SCALE — why these numbers and not others. Fix the planet (radius 500, mass 1e6, SURFACE_G 55) and the moon
-## (3.2 planet radii) and the rest is forced, because the star's TIDAL field at the planet depends only on the
-## length of the year: a_tide = 3·(2π/T)²·x. A 200 s year — what the old abstract orbit ran — puts the moon at
-## 0.96 of the planet's Hill radius, i.e. barely bound and shedding. Backing the year off to ~670 s puts the
-## moon at 0.41 Hill, which is comfortable. Kepler then fixes the pair (orbit radius, star mass): 12000 units
-## and 1e7 is the combination that also leaves the star 10x the planet, which is what makes it the primary of
-## the system rather than a third moon. Consequence worth knowing: the visible sun disc is now ~0.6° across
-## (realistic) where it used to be ~5.7°, because it is genuinely ten times farther away than it was drawn.
+## SCALE — the constraint chain these constants satisfy. Fix the planet (radius 500, mass 1e6, SURFACE_G 55)
+## and the moon (3.2 planet radii) and the rest is forced, because the star's TIDAL field at the planet
+## depends only on the length of the year (a_tide = 3·(2π/T)²·x): the year has to be long enough to keep the
+## moon well inside the planet's Hill radius rather than shedding. Kepler then fixes the pair (orbit radius,
+## star mass), and that pair also has to leave the star far more massive than the planet so it is the primary
+## of the system rather than a third moon.
 
 const ORBIT_RADIUS: float = 12000.0       # nominal orbital separation; insolation == 1 here. Kepler + the moon's
                                           # Hill margin pin this against LAStar.DEFAULT_MASS (see SCALE above).

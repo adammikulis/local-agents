@@ -4,17 +4,10 @@ extends Node
 ## The streamer's mouth. One commentary line at a time, serialized so the caster never talks over
 ## itself.
 ##
-## All of the synthesis used to live here: the off-thread python piper probe, the voice download from
-## rhasspy/piper-voices, the wav handling, the DisplayServer fallback. It was the only working speech
-## path in the repo and LocalAgent.speak() could not reach it, so it moved to
-## addons/local_agents/runtime/audio/SpeechEngine.gd and this file is now an adapter over that node, so
-## LocalAgent gets the same three backends the streamer had.
+## Synthesis lives in addons/local_agents/runtime/audio/SpeechEngine.gd; this file is an adapter over that
+## node. set_volume_db() moves the engine's own player, not an audio bus.
 ##
-## One behaviour did change. set_volume_db() used to move the "Voice" bus and do nothing at all in a
-## project that has no such bus. It now moves the engine's own player, which works either way and
-## can never turn Master down on a project that mixes speech into it.
-##
-## Playback still routes to the "Voice" audio bus when the project defines one, so speech volume is
+## Playback routes to the "Voice" audio bus when the project defines one, so speech volume is
 ## independent of music and effects.
 ##
 ## (Explicit types only, project rule: no ':=' inferred typing.)

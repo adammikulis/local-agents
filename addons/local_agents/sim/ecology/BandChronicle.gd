@@ -5,7 +5,7 @@ extends Node
 ##
 ## LACreatureAffiliation decides membership from sustained association and keeps it as a cached integer on
 ## the node, because the flocking and leadership paths read it every frame. That integer is the present
-## tense and nothing else — it cannot say when an animal joined, that it used to run with a different band,
+## tense and nothing else — it cannot say when an animal joined, that it once ran with a different band,
 ## or that the band it left is still out there. This node is the other half: it watches those integers on a
 ## coarse cadence and turns each settled CHANGE into a dated MEMBER_OF record in the backstory store
 ## (LocalAgentBackstoryGraphService), which is the shape that can hold a period rather than a flag.
@@ -20,8 +20,7 @@ extends Node
 ## unaffiliated, not the sole member of a faction, and recording singletons would fill the store with one
 ## faction per creature while telling us nothing.
 ##
-## It also owns the world-time record. LASimClock has the day; set_world_time() is how the store learns it,
-## and until now nothing in the addon called that function at all.
+## It also owns the world-time record. LASimClock has the day; set_world_time() is how the store learns it.
 ## (Explicit types only, no ':=' inferred typing.)
 
 const BackstoryServiceScript: GDScript = preload("res://addons/local_agents/graph/BackstoryGraphService.gd")
@@ -265,7 +264,7 @@ func _ensure_faction(band: int) -> bool:
 
 
 ## Stable within a run. Instance ids do not survive a reload, so a reloaded world starts a fresh chapter of
-## the chronicle rather than continuing the old animals' records — see the note in the return report.
+## the chronicle rather than continuing the previous animals' records — see the note in the return report.
 func _npc_id_for(c) -> String:
 	return "%s_%d" % [String(c.get("species")), int(c.get_instance_id())]
 

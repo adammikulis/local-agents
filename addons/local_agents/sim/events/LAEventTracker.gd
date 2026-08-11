@@ -21,9 +21,9 @@ extends Node
 ##
 ## Big-O / LOD: detection is CHEAP. It samples at a COARSE cadence (1 Hz, not per frame) and computes ONLY
 ## the few scalar aggregates its detectors actually read (lava_total, peak_heat, water_total, wind, bolts),
-## NOT the field's full ~25-scan report() reduction (calling that at frame cadence was measured to halve fps;
-## it is a snapshot-only reduction). That is a handful of O(cells) reductions per second (~sub-ms/frame
-## amortised). Each detector is O(1) threshold/counter/rate arithmetic over the snapshot, so the pass is
+## NOT the field's full report() reduction, which is snapshot-only and must never run at frame cadence.
+## That is a handful of O(cells) reductions per second. Each detector is O(1) threshold/counter/rate
+## arithmetic over the snapshot, so the pass is
 ## O(detectors) per sample. No O(n²), no per-frame full-grid sweep.
 ##
 ## Exposes both a SIGNAL (event_emitted) and a recent_events() query so pull- and push-style consumers both

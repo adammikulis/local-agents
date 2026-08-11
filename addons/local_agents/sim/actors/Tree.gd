@@ -25,10 +25,6 @@ const START_FRACTION: float = 0.35   # freshly planted trees are visible immedia
 
 ## A TREE GROWS AT THE SPEED ITS GROUND FIXES CARBON, NOT AT THE SPEED OF A CLOCK.
 ##
-## What this replaced: `age += delta; _apply_growth()`. An entire trunk and canopy accreted from wall-clock
-## time — the same rate on bare rock, in the dark, at the pole, and in a rich equatorial grove — with no CO₂,
-## light, fertility or soil-water draw anywhere in it.
-##
 ## WHY THIS IS A GATE AND NOT A STOCK, stated because the Plant node next door got the opposite treatment and
 ## the difference is deliberate. A plant's edible RESERVE is CONSUMED: a herbivore eats it and it becomes
 ## animal energy, so it has to be real mass drawn out of the field's biomass channel or the food web mints
@@ -37,11 +33,9 @@ const START_FRACTION: float = 0.35   # freshly planted trees are visible immedia
 ## carbon. So the honest fix here is to make the visual track the chemistry rather than to invent a ledger:
 ## a tree on ground photosynthesis never greened simply stops growing.
 ##
-## The scale is the biomass at the tree's own cell against a reference density. TREE_BIOMASS_FULL is that
-## reference — the local standing crop at which a tree is growing as fast as it can — and it is measured, not
-## picked: `biomass_ground` on a 600-frame baseline is ~6.05 mass units over 4800 lit ground cells, so a
-## typical vegetated cell carries ~1.3e-3. A cell at twice the planetary average is treated as fully
-## productive. Nothing about the tree's appearance enters that number.
+## The scale is the biomass at the tree's own cell against TREE_BIOMASS_FULL: the local standing crop at
+## which a tree grows as fast as it can. A declared modelling choice, listed in docs/MODEL_PARAMETERS.md.
+## Nothing about the tree's appearance enters it.
 const TREE_BIOMASS_FULL: float = 0.0025
 const TREE_GROWTH_FLOOR: float = 0.05   # a trickle even on poor ground, so a sapling on thin soil creeps up
                                         # rather than freezing forever at exactly START_FRACTION
@@ -58,16 +52,10 @@ var config: Dictionary = {}
 func set_material_field(m) -> void:
 	_material = m
 
-## SPECIES ARE DATA, NOT BRANCHES. Everything that differed between an oak and a pine used to be an
-## `if species == "pine"` at five separate sites: trunk height range, canopy colour, which canopy builder to
-## call, and the model id, twice. EMERGENCE.md:178 states the rule directly — "if you're about to write
-## `if species == \"X\"`, ask whether a property could express it" — and one of those five carried a comment
-## claiming it was already "config-driven, no per-species branch in the render path" while being exactly that.
-##
-## A third tree is now a RECORD here rather than an edit to five functions. `canopy` names the FORM, so a new
-## species picks an existing canopy shape instead of needing new geometry code. Anything unlisted falls back
-## to DEFAULT_SPECIES, so an unknown name renders as a plausible broadleaf rather than taking the oak path by
-## the accident of not being "pine".
+## SPECIES ARE DATA, NOT BRANCHES. Trunk height range, canopy colour, canopy form and model id are all
+## fields of a record here, so a third tree is a RECORD rather than an edit to five functions. `canopy` names
+## the FORM, so a new species picks an existing canopy shape instead of needing new geometry code. Anything
+## unlisted falls back to DEFAULT_SPECIES.
 const SPECIES: Dictionary = {
 	"oak": {
 		"height": Vector2(3.0, 5.5),
@@ -451,8 +439,7 @@ func set_vegetation_renderer(r) -> void:
 
 
 # The instanced visual type is the tree's species — a separate MultiMesh per species keeps oak/pine coloured
-# correctly (each has its own recolored prototype). This comment used to claim it was "config-driven, no
-# per-species branch in the render path" while the line beneath it was `species == "pine"`. Now it is true.
+# correctly (each has its own recolored prototype). Read from the species record, no per-species branch.
 func _render_type() -> String:
 	return String(_species_def()["model"])
 

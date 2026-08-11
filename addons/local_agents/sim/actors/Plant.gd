@@ -34,15 +34,9 @@ const BIOMASS_GROWTH_MAX: float = 2.0    # cap on the biomass growth boost
 # survives and REGROWS that reserve. This dissolves overgrazing extinction: a grazed patch shrinks then
 # recovers instead of the plant node vanishing, so a herd can sustain on a pasture the way real grazing does.
 #
-# ===== THE RESERVE IS BIOMASS THE PLANT TOOK OUT OF THE FIELD. IT USED TO BE MADE UP. ======================
+# ===== THE RESERVE IS BIOMASS THE PLANT TOOK OUT OF THE FIELD ==============================================
 #
-# What this replaced: `_food` started at `FOOD_CAPACITY * 0.6` = 27.6 units the instant a plant node was
-# created, and then grew by `FOOD_REGROW * (1 + growth_boost) * delta` toward the cap — up to 32 units per
-# second, per plant, across ~340 plants, out of nothing. `feed()` honestly decremented it, so the drain was
-# real and the source was not. A plant on bare rock regrew exactly as fast as one in a rich meadow, because
-# nothing was ever debited; `growth_boost` READ the field's biomass and never touched it.
-#
-# What it is now: uptake. Photosynthesis is already simulated — it is GPU chemistry (MaterialReactions3D R19)
+# Uptake, not regrowth. Photosynthesis is already simulated — it is GPU chemistry (MaterialReactions3D R19)
 # fixing CO₂ into the field's `biomass` channel wherever there is light, warmth and CO₂ — and this node's
 # tissue IS that biomass. So the plant DRAWS its reserve out of the biomass standing in its own cell
 # (`LAMaterialFieldInject3D.take_biomass`, a device-resolved debit), and a plant on ground the chemistry never
@@ -314,7 +308,7 @@ func _physics_process(delta: float) -> void:
 		return
 	# The field biomass read (biomass_at) only matters WHILE growing — a mature plant's grown_fraction is capped
 	# at 1, so its growth boost is moot. Skipping the per-frame biomass sample once mature drops the dominant
-	# per-plant cost (a whole pasture of settled plants no longer each hit the field every frame). Big-O by relevance.
+	# per-plant cost: a whole pasture of settled plants does not each hit the field every frame. Big-O by relevance.
 	var growing: bool = _grown_fraction() < 1.0
 	# A fully-grown plant has only slow LINEAR timers left (food regrow, seed timer, flower-pollen decay), so
 	# advance it on a coarse STAGGERED cadence with a catch-up delta rather than every frame — hundreds of settled
@@ -390,8 +384,8 @@ func _uptake(want_food: float) -> void:
 
 
 # Growth-speed BOOST from the emergent field biomass at this plant's cell (0 with no field / no local biomass).
-# Photosynthesis is now GPU chemistry (MaterialReactions3D R19); the plant just grows toward where the field has
-# fixed carbon into biomass — fertile, sunlit, CO₂-rich ground. No CPU CO₂/O₂ writes (they were GPU-invisible).
+# Photosynthesis is GPU chemistry (MaterialReactions3D R19); the plant just grows toward where the field has
+# fixed carbon into biomass — fertile, sunlit, CO₂-rich ground. No CPU CO₂/O₂ writes.
 func _biomass_boost() -> float:
 	if _material == null or not _material.has_method("biomass_at"):
 		return 0.0
@@ -420,10 +414,8 @@ func _sync_render() -> void:
 
 
 # Torn out by flowing water: a splash accent where it washed away, then remove it (the renderer slot is
-# released in _exit_tree). THE PLANT'S TISSUE GOES BACK INTO THE GROUND. The comment that used to sit here
-# said "the plant's biomass simply leaves the pasture — no corpse node", which was an accurate description of
-# matter being deleted: the reserve the plant was holding vanished with the node. A washed-out plant is dead
-# organic matter lying wherever the current dropped it, so it is handed to the `detritus` channel, where the
+# released in _exit_tree). THE PLANT'S TISSUE GOES BACK INTO THE GROUND — a washed-out plant is dead organic
+# matter lying wherever the current dropped it, so the reserve is handed to the `detritus` channel, where the
 # decomposer loop (fungus → CO₂ + fertility) picks it up like any other corpse.
 func _uproot() -> void:
 	if _material != null and _material.has_method("splash"):
@@ -436,8 +428,8 @@ func _exit_tree() -> void:
 		_veg.release(RENDER_TYPE, _veg_slot)
 		_veg_slot = -1
 	# Whatever reserve this plant still held returns to the substrate as detritus — however it died (uprooted,
-	# burnt out, culled by the LOD governor, freed at shutdown). Doing it in _exit_tree rather than in _uproot
-	# is deliberate: every path that removes a plant node goes through here, and only one of them was uprooting.
+	# burnt out, culled by the LOD governor, freed at shutdown). It sits in _exit_tree rather than _uproot
+	# because every path that removes a plant node goes through here.
 	if _food > 0.0:
 		var mass: float = _food * BIOMASS_PER_FOOD
 		var led: LAVegLedger = _ledger()

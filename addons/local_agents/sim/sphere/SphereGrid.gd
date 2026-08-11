@@ -4,9 +4,9 @@ extends RefCounted
 ## Cubed-sphere grid + seam-aware NEIGHBOUR TABLE: the planet's substrate geometry (Phase A0 spike).
 ##
 ## 6 gnomonic cube faces, each `res × res` surface cells, extruded into `depth` RADIAL layers (r=0 = innermost
-## core shell, r=depth-1 = outermost/space). This replaces the flat cartesian `idx=(iy*dim_z+iz)*dim_x+ix` +
-## `±1/±dx/±layer` scheme: every field kernel will gather its 6 neighbours by TABLE LOOKUP instead of index
-## arithmetic, so "down" is simply the INWARD radial neighbour on a real sphere, with no box axes and no poles.
+## core shell, r=depth-1 = outermost/space). Every field kernel gathers its 6 neighbours by TABLE LOOKUP
+## instead of index arithmetic, so "down" is simply the INWARD radial neighbour on a real sphere, with no box
+## axes and no poles.
 ##
 ## The only hard part is the cube-face SEAMS (a cell on a face edge's lateral neighbour lives on an ADJACENT
 ## face). We sidestep hand-coding 24 edge transforms + 8 corner cases by building the 2D SURFACE adjacency
@@ -58,7 +58,7 @@ extends RefCounted
 ## continuity. `tan_b = radial × tan_a` makes (a, b, radial) right-handed at every cell unconditionally.
 ## Two derived tables carry the discontinuity so nothing else has to:
 ##   `link_tan` — per lateral slot, the unit direction TOWARD that neighbour written in THIS cell's own (a,b)
-##       components. Kernels no longer assume "slot 2 == +tangent A": they dot with this. It is what makes the
+##       components. Kernels do not assume "slot 2 == +tangent A": they dot with this. It is what makes the
 ##       upwind flux conservative to the face, because both ends of a link evaluate the SAME expression (a cell
 ##       reads its neighbour's direction back at itself from `link_tan[m*4 + (l^1)]`, and slot-opposite
 ##       reciprocity is exactly what guarantees that entry is the reverse of its own).
@@ -120,10 +120,9 @@ var link_rot: PackedFloat32Array = PackedFloat32Array()    # (cos, sin) transpor
 #
 # It exists because a slope is a rise over a RUN, and this grid's run is not its cell size. The radial
 # thickness of a cell is exactly `cell_size`, but the lateral spacing is an arc that grows with radius and
-# shrinks toward a face corner, so on the shipped grid the width/height aspect ranges 1.07 to 4.08. Any kernel
-# comparing a height difference against a tangent — the angle of repose is the one that does — is asserting
-# cells are cubes, and holds sediment at 33 degrees at the shell floor and 10 degrees at the top instead of
-# the 35 the material actually stands at. Stored per SURFACE cell like the other two link tables, because the
+# shrinks toward a face corner. A kernel comparing a height difference against a tangent — the angle of
+# repose is the one that does — must divide the rise by this arc; dividing by `cell_size` asserts cells are
+# cubes and puts the material's repose angle at the wrong slope. Stored per SURFACE cell like the other two link tables, because the
 # angle depends only on the two directions; the radius scaling is the kernel's one multiply.
 var link_arc: PackedFloat32Array = PackedFloat32Array()    # radians between cell centres, per lateral slot
 
@@ -131,7 +130,7 @@ var link_arc: PackedFloat32Array = PackedFloat32Array()    # radians between cel
 # column shares it, because a solid angle is a set of directions and does not depend on radius.
 #
 # THIS GRID'S CELLS ARE NOT THE SAME SIZE. `link_arc` above already records the lateral half of that fact
-# (aspect 1.07 to 4.08 on the shipped grid) and applies it to slope. The other half is VOLUME: a column near
+# and applies it to slope. The other half is VOLUME: a column near
 # a face centre subtends more solid angle than one at a corner, and a cell high in the shell is wider than one
 # at the floor because lateral spacing is an arc that grows with radius. So a sum of per-cell channel values
 # is NOT an amount of anything, and a transport moving a fraction of one cell into a differently-sized one

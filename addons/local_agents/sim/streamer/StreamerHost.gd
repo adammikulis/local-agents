@@ -79,9 +79,9 @@ func setup(world: Node, ecology: Node, material: Node, persona: String, avatar_f
 	_streamer_overlay.set_default_persona(_streamer_persona)
 	_streamer_overlay.set_default_avatar(_streamer_avatar_flavor)
 
-	# A freshly built host always starts hidden + compute-gated: it is now built LAZILY the first time the
-	# player presses the streamer hotkey (VoxelWorld._ensure_streamer_host), and that same press then toggles
-	# it active/shown. Starting inactive here keeps the local LLM + TTS idle until that toggle fires.
+	# A freshly built host always starts hidden + compute-gated: it is built LAZILY on the first press of the
+	# streamer hotkey (VoxelWorld._ensure_streamer_host), and that same press toggles it active/shown.
+	# Starting inactive here keeps the local LLM + TTS idle until that toggle fires.
 	_set_streamer_active(false)
 
 

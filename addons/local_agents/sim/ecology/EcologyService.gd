@@ -41,20 +41,9 @@ var _aquatic: LAEcologyAquatic = null    # non-repro aquatic placement (initial 
 # NIGHT IS A PLACE, NOT A CLOCK. On a sphere lit by a real sun there is no global "time of day": half the
 # world is lit and half is dark at every instant, and which half you are in depends on where you stand.
 #
-# This replaced a global `time_of_day: float = 0.3` plus an `is_night()` that compared it to dusk/dawn
-# thresholds. That scalar was FROZEN AT ITS SEED VALUE FOR THE WHOLE RUN: LAVoxelSkyCycle latches
-# `_planet_mode` permanently and its `_update_day_night()` returns before `_advance_clocks(delta)` is ever
-# reached, because in planet mode day/night is supposed to come from the planet turning under a fixed sun.
-# So `is_night()` answered FALSE forever, and the damage was silent and everywhere:
-#   * diurnal animals never entered a rest period, and nocturnal ones never left one (Creature._rest_period)
-#   * the night sense multiplier (nocturnal 1.4 / diurnal 0.7) never applied to anyone
-#   * the `night` bit in the learned-policy signature was a constant, so half the signature space was
-#     unreachable and every heuristic any creature ever learned was a daytime heuristic
-#   * LACreatureLod's cost model documents "a fraction of the population is always asleep". It was not.
-#
-# The terminator was physical the whole time: LASystemOrbits computes the planet->sun vector, and the field's
-# solar kernel already lights cells with max(0, dot(cell_radial, sun_dir)). This asks the same question the
-# substrate already answers, per creature, and keeps no state that can go stale.
+# The terminator is physical: LASystemOrbits computes the planet->sun vector, and the field's solar kernel
+# lights cells with max(0, dot(cell_radial, sun_dir)). Night here asks the same question the substrate
+# already answers, per creature, and keeps no state that can go stale.
 var _sun_dir: Vector3 = Vector3.ZERO      # unit planet-centre -> sun; zero length = no sun known yet
 var _sun_centre: Vector3 = Vector3.ZERO   # the body the local `up` is measured from
 
@@ -127,7 +116,7 @@ func reset_world() -> void:
 	_pending.clear()
 
 # --- Seismic / shock stimulus (emergent camera shake) ------------------------
-# Ground disturbances now inject into the field's PROPAGATING shock wave (LAMaterialShock3D); the camera
+# Ground disturbances inject into the field's PROPAGATING shock wave (LAMaterialShock3D); the camera
 # reads seismic_energy_at() (→ field.shock_at) and shakes. No local ring — the wave carries it (see below).
 
 
@@ -319,17 +308,10 @@ func vegetation_report() -> Dictionary:
 	}
 
 
-# AN IGNITION SOURCE IS NOT A HEAT SOURCE. This used to be `add_heat(world_pos, 900.0, radius)` — nine
-# hundred degrees over every cell in the radius, from nothing — and its only caller is
-# `VoxelDisasters.gd:245-246`, which fires it at a meteor's impact point the same frame the meteor itself
-# deposits its own energy at that point. So it was a SECOND heat source for one event, on top of the first,
-# and the comment justifying it ("~3x wood's 300 °C ignition temp") was reasoning about a threshold, not about
-# where the energy came from.
-#
-# It is now a no-op that keeps the call site alive: the impactor's kinetic + thermal energy (Meteor.gd
-# `_impact_energy_j`) is the whole heat budget of a strike, and whether it crosses the fuel's ignition
-# temperature is for the substrate to decide. If a future caller genuinely needs to start a fire from a
-# NAMED store — a dropped torch, a magma contact — it should debit that store and call
+# AN IGNITION SOURCE IS NOT A HEAT SOURCE. A no-op that keeps the call site alive: the impactor's kinetic +
+# thermal energy (Meteor.gd `_impact_energy_j`) is the whole heat budget of a strike, and whether it crosses
+# the fuel's ignition temperature is for the substrate to decide. A caller that needs to start a fire from a
+# NAMED store — a dropped torch, a magma contact — debits that store and calls
 # `LAMaterialFieldInject3D.add_heat_energy` with the joules.
 func ignite_area(_world_pos: Vector3, _radius: float) -> void:
 	pass
@@ -375,12 +357,8 @@ func _can_grow_here(placed: Vector3) -> bool:
 # WATERED ground fixes the most). Forests gate on this so groves densify where the chemistry is most productive
 # and stay sparse on cold, dark or dry ground. 0 when no field is wired yet.
 #
-# This used to reach up the radial to the SHELL TOP (`_shell_top_radius`, r = depth-1, ~78 world-units above the
-# terrain) and sample there instead, because R19 photosynthesis was gated GATE_SURFACE and deposited a whole
-# column's biomass into its sky-exposed outermost cell. That was a workaround for a misplaced reaction, and it
-# forced this query to be a per-COLUMN 2.5D lookup: two points on opposite sides of a ridge, or in and out of a
-# valley, read the SAME biomass because they shared a radial. R19 now runs on the ground (GATE_NEAR_GROUND), so
-# the honest reading — the biomass at this point — is also the correct one, and it varies point to point.
+# Sampled at the point itself, not up the radial: R19 photosynthesis runs on the ground (GATE_NEAR_GROUND), so
+# two points on opposite sides of a ridge read their own biomass rather than sharing a column.
 func _biomass_at(pos: Vector3) -> float:
 	if _material == null or not _material.has_method("biomass_at"):
 		return 0.0
@@ -499,7 +477,7 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 			actors_root.add_child(fish)
 			fish.global_position = placed
 			fish.setup(terrain, _material, cfg)
-			# Fish are now living creatures on the SHARED cognition stack — inject the same ecology + slow-brain
+			# Fish are living creatures on the SHARED cognition stack — inject the same ecology + slow-brain
 			# scheduler land creatures get (is_night for the signature, escalation budget for the fast/slow brain).
 			if fish.has_method("set_ecology"):
 				fish.set_ecology(self)
@@ -573,9 +551,9 @@ func _physics_process(delta: float) -> void:
 	LASimReport.gauge("phys_dt", delta)
 	LASimReport.gauge("phys_frames", float(_phys_frames))
 	_process_pending()
-	# Land reproduction is no longer a god-tick: each creature decides to breed for itself
-	# (LACreatureReproduction, courtship + energy-costed gestation) and calls birth_offspring() at term.
-	# Only the aquatic school still runs a population tick below.
+	# Land reproduction is not a god-tick: each creature decides to breed for itself (LACreatureReproduction,
+	# courtship + energy-costed gestation) and calls birth_offspring() at term. Only the aquatic school runs a
+	# population tick below.
 	_seed_timer -= delta
 	if _seed_timer <= 0.0:
 		_seed_timer = 1.5

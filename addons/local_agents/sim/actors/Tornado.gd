@@ -7,8 +7,8 @@ extends Node3D
 ## intensify), COOL / DRY air starves it (strength falls → it DISSIPATES). Nothing about its life is
 ## scripted on a timeline: a tornado that drifts off warm humid ground onto a cold dry ridge withers on
 ## its own; one that tracks along a warm coast keeps spinning. Strength drives the funnel size, the
-## swept footprint, and the vortex wind force. Over ocean it becomes a WATERSPOUT: it lifts moisture
-## into the sky (add_vapor at its base) and kicks up spray (splash). It only READS the field + broadcasts
+## swept footprint, and the vortex wind force. Over ocean it becomes a WATERSPOUT and kicks up spray
+## (splash). It only READS the field + broadcasts
 ## stimuli (scare + a continuous vortex WIND that advects wildlife through the shared field force, never a
 ## teleport-fling); everything else emerges. Built in code, no assets.
 ## (Explicit types only, no ':=' inferred typing.)
@@ -144,25 +144,12 @@ func _fuel() -> float:
 
 
 # A TORNADO DOES NOT HEAT THE PLANET. It is what already-buoyant air does when it is made to spin, and the
-# buoyancy is the sun's, delivered by heat3d_solar_sphere3d hours earlier.
+# buoyancy is the sun's, delivered by heat3d_solar_sphere3d hours earlier. The funnel injects no heat: a
+# vortex is a rearrangement of momentum, and the actor has no energy of its own.
 #
-# This used to inject SEED_HEAT_PER_SEC = 26 °C per second into the air at the funnel's foot, every frame, for
-# the funnel's whole life, out of nothing — re-adding surface warming the solar kernel had already delivered,
-# and (because `add_heat` marked the temperature mirror dirty) rewinding a step of the planet's entire heat
-# budget on every one of those frames to do it. There is no store it could have come from: the actor has no
-# energy of its own, and a vortex is a rearrangement of momentum, not a source of it.
-#
-# DELETED rather than re-sourced. The alternative was to make it a conserving move — take heat from the
-# surrounding ring and concentrate it at the core — but that is a claim that a tornado warms its own centre by
-# cooling its surroundings, which is not what one does either. What actually organises a vortex is the
-# pre-existing thermal and pressure structure of the air, which this substrate already simulates: the funnel
-# should FIND a mesocyclone, not manufacture one. `_vortex_gradient()` below is exactly that read, and it is
-# what the funnel now runs on alone.
-#
-# HONEST CONSEQUENCE, because the deletion has one: with no seed, a tornado only tracks vorticity the field
-# grew on its own. If the substrate's own convection never spins one up, the funnel drifts on noise instead of
-# following a real core. That is a gap in the substrate's convection, not a licence to conjure heat, and it
-# belongs to whoever owns the wind/pressure kernels.
+# What organises a vortex is the pre-existing thermal and pressure structure of the air, which this substrate
+# simulates: the funnel FINDS a mesocyclone rather than manufacturing one. `_vortex_gradient()` below is that
+# read, and the funnel runs on it alone — so it only tracks vorticity the field grew on its own.
 func _seed_low(_delta: float) -> void:
 	pass
 
@@ -243,11 +230,9 @@ func _physics_process(delta: float) -> void:
 			_ecology.broadcast_scare(_base, SCARE_BASE * (0.6 + _strength), minf(1.0, 0.4 + _strength))
 	_sweep_wildlife(delta)
 
-	# WATERSPOUT spray — over open water the funnel kicks up a ring of spray (a cheap ripple). It no longer
-	# SCRIPT-INJECTS vapor (that low, base-level add_vapor condensed and rained puddles on the ground,
-	# especially near the coast). A real waterspout lifting moisture should EMERGE from the wind field's
-	# vortex once the tornado is rebuilt as an emergent low-pressure feature of MaterialField3D — not be
-	# faked by an actor pumping vapor into the air.
+	# WATERSPOUT spray — over open water the funnel kicks up a ring of spray (a cheap ripple), and nothing
+	# else: no vapor is injected. A waterspout lifting moisture must EMERGE from the wind field's vortex, not
+	# be faked by an actor pumping vapor into the air.
 	if _field != null and _field.has_method("is_ocean_at") and _field.is_ocean_at(_base):
 		_splash_cd -= delta
 		if _splash_cd <= 0.0:
