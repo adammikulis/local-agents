@@ -1,0 +1,74 @@
+[gd_scene load_steps=3 format=3 uid="uid://c5t8n1q0tuthl00"]
+
+[ext_resource type="Script" path="res://addons/local_agents/ui/tutorial/TutorialHighlightOverlay.gd" id="1_tutorial"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_callout"]
+content_margin_left = 14.0
+content_margin_top = 14.0
+content_margin_right = 14.0
+content_margin_bottom = 14.0
+bg_color = Color(0.1, 0.11, 0.14, 0.97)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(1, 0.85, 0.28, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+shadow_color = Color(0, 0, 0, 0.5)
+shadow_size = 10
+
+[node name="TutorialHighlightOverlay" type="Control"]
+visible = false
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+z_index = 4096
+script = ExtResource("1_tutorial")
+
+[node name="Callout" type="PanelContainer" parent="."]
+custom_minimum_size = Vector2(240, 0)
+mouse_filter = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_callout")
+
+[node name="VBox" type="VBoxContainer" parent="Callout"]
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="Callout/VBox"]
+theme_override_colors/font_color = Color(1, 0.85, 0.28, 1)
+theme_override_font_sizes/font_size = 18
+
+[node name="Body" type="Label" parent="Callout/VBox"]
+custom_minimum_size = Vector2(332, 0)
+theme_override_colors/font_color = Color(0.92, 0.93, 0.96, 1)
+autowrap_mode = 3
+
+[node name="Progress" type="Label" parent="Callout/VBox"]
+theme_override_colors/font_color = Color(0.6, 0.63, 0.7, 1)
+theme_override_font_sizes/font_size = 12
+
+[node name="Row" type="HBoxContainer" parent="Callout/VBox"]
+theme_override_constants/separation = 8
+
+[node name="DontShow" type="CheckBox" parent="Callout/VBox/Row"]
+theme_override_font_sizes/font_size = 12
+text = "Don't show again"
+
+[node name="Spacer" type="Control" parent="Callout/VBox/Row"]
+size_flags_horizontal = 3
+
+[node name="Back" type="Button" parent="Callout/VBox/Row"]
+text = "Back"
+
+[node name="Skip" type="Button" parent="Callout/VBox/Row"]
+text = "Skip"
+
+[node name="Next" type="Button" parent="Callout/VBox/Row"]
+text = "Next"
+
+[connection signal="toggled" from="Callout/VBox/Row/DontShow" to="." method="_on_dont_show_toggled"]
+[connection signal="pressed" from="Callout/VBox/Row/Back" to="." method="_on_back_pressed"]
+[connection signal="pressed" from="Callout/VBox/Row/Skip" to="." method="_on_skip_pressed"]
+[connection signal="pressed" from="Callout/VBox/Row/Next" to="." method="_on_next_pressed"]

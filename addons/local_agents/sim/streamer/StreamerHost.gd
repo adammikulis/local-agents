@@ -7,8 +7,8 @@ extends Node
 # Dependency-free of the LAVoxelWorld type (dynamic access, no cyclic class reference). (Explicit types
 # only — project rule: no ':=' inferred typing.)
 
-const StreamerOverlayScript: GDScript = preload("res://addons/local_agents/sim/streamer/StreamerOverlay.gd")
-const StreamerAvatarScript: GDScript = preload("res://addons/local_agents/sim/streamer/StreamerAvatar.gd")
+const StreamerOverlayScene: PackedScene = preload("res://addons/local_agents/sim/streamer/StreamerOverlay.tscn")
+const StreamerAvatarScene: PackedScene = preload("res://addons/local_agents/sim/streamer/StreamerAvatar.tscn")
 const StreamerVoiceScript: GDScript = preload("res://addons/local_agents/sim/streamer/StreamerVoice.gd")
 const StreamerDirectorScript: GDScript = preload("res://addons/local_agents/sim/streamer/StreamerDirector.gd")
 const EnergyGraphScript: GDScript = preload("res://addons/local_agents/sim/streamer/SceneEnergyGraph.gd")
@@ -30,11 +30,11 @@ func setup(world: Node, ecology: Node, material: Node, persona: String, avatar_f
 	_streamer_avatar_flavor = avatar_flavor
 
 	# Overlay first (a CanvasLayer), then the live avatar parented under it so its SubViewport draws.
-	_streamer_overlay = StreamerOverlayScript.new()
+	_streamer_overlay = StreamerOverlayScene.instantiate()
 	_streamer_overlay.name = "StreamerOverlay"
 	world.add_child(_streamer_overlay)
 
-	_streamer_avatar = StreamerAvatarScript.new()
+	_streamer_avatar = StreamerAvatarScene.instantiate()
 	_streamer_avatar.name = "StreamerAvatar"
 	_streamer_overlay.add_child(_streamer_avatar)
 	_streamer_avatar.setup(_streamer_avatar_flavor)

@@ -16,39 +16,16 @@ var _inventory: LocalAgentModelInventory = null
 var _store: LocalAgentModelSettingsStore = null
 var _service: LocalAgentModelDownloadService = null
 
-var _list_box: VBoxContainer = null
-var _status: Label = null
+@onready var _list_box: VBoxContainer = %ListBox
+@onready var _status: Label = %StatusLabel
 
 func setup(inventory: LocalAgentModelInventory, store: LocalAgentModelSettingsStore) -> void:
 	_inventory = inventory
 	_store = store
 	_service = ModelDownloadService.new()
-	_build()
-
-func _build() -> void:
-	add_theme_constant_override("separation", 10)
-
-	var intro: Label = Label.new()
-	intro.text = "Models already on this machine. Anything found here can be used in place, with no re-download needed."
-	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	add_child(intro)
-
-	var scroll: ScrollContainer = ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	add_child(scroll)
-
-	_list_box = VBoxContainer.new()
-	_list_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_list_box.add_theme_constant_override("separation", 8)
-	scroll.add_child(_list_box)
-
-	_status = Label.new()
-	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	add_child(_status)
 
 func refresh() -> void:
-	if _list_box == null:
+	if _inventory == null:
 		return
 	for child: Node in _list_box.get_children():
 		child.queue_free()

@@ -1,8 +1,8 @@
 class_name LAStreamerAvatar
 extends Node
 
-## The streamer's face-cam. Owns a persistent SubViewport that renders a rigged character live, so the
-## overlay can show it as a moving portrait via a ViewportTexture (kept alive with UPDATE_ALWAYS).
+## The streamer's face-cam. The SubViewport + portrait camera + key light are StreamerAvatar.tscn; it
+## renders a rigged character live so the overlay can show it as a moving portrait via a ViewportTexture.
 ## The model loops an idle clip; while the voice speaks we layer a bob + sway on the holder so it reads
 ## as "talking". Head accessories (cap / headphones / hair) ride a pivot synced to the model each frame.
 ##
@@ -12,11 +12,9 @@ extends Node
 ##              from idle.fbx, a female skin, a ponytail, and procedural headphones.
 ## (Explicit types only, no ':=' inferred typing.)
 
-const RENDER_SIZE: Vector2i = Vector2i(240, 300)
-
 const HAT_SCENE_PATH: String = "res://addons/local_agents/assets/models/people/accessories/cap.fbx"
 
-var _sv: SubViewport = null
+@onready var _sv: SubViewport = $AvatarViewport
 var _model: Node3D = null
 var _accessory: Node3D = null    # head-mounted extras (cap / headphones); parented to the head bone
 var _head_attach: BoneAttachment3D = null   # Godot node that tracks the skeleton's head bone
@@ -44,38 +42,10 @@ var _next_glance: float = 4.0
 
 func setup(flavor: String = "male") -> void:
 	if DisplayServer.get_name() == "headless":
-		return   # nothing to render in headless
-
-	_sv = SubViewport.new()
-	_sv.name = "AvatarViewport"
-	_sv.size = RENDER_SIZE
-	_sv.transparent_bg = true
-	_sv.own_world_3d = true
-	_sv.msaa_3d = Viewport.MSAA_4X
-	# Render the face-cam every AVATAR_RENDER_EVERY frames (a portrait doesn't need a full own-World3D
-	# scene re-rendered at 60fps) — re-armed to UPDATE_ONCE in _process.
-	_sv.render_target_update_mode = SubViewport.UPDATE_ONCE
-
-	var cam: Camera3D = Camera3D.new()
-	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-	cam.size = 1.15
-	cam.position = Vector3(0.0, 1.42, -1.95)   # straight in front; models face -Z
-	var env: Environment = Environment.new()
-	env.background_mode = Environment.BG_CLEAR_COLOR
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.64, 0.66, 0.72)
-	env.ambient_light_energy = 1.0
-	cam.environment = env
-	_sv.add_child(cam)
-
-	var light: DirectionalLight3D = DirectionalLight3D.new()
-	light.rotation_degrees = Vector3(-35.0, 35.0, 0.0)
-	light.light_energy = 1.3
-	_sv.add_child(light)
-
-	add_child(_sv)
-	cam.look_at(Vector3(0.0, 1.34, 0.0), Vector3.UP)
-
+		# Nothing to render: drop the viewport so get_texture() stays null.
+		_sv.queue_free()
+		_sv = null
+		return
 	_build_flavor(flavor)
 
 

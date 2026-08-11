@@ -51,12 +51,13 @@ signal register_autoload_requested()
 ## Colour of an advisory row (optional feature unavailable).
 @export var advisory_color: Color = Color(0.93, 0.76, 0.35)
 
-var _headline_label: Label = null
-var _next_step_label: Label = null
-var _rows_box: VBoxContainer = null
-var _activate_button: Button = null
-var _detail_label: Label = null
-var _timer: Timer = null
+@onready var _headline_label: Label = %HeadlineLabel
+@onready var _next_step_label: Label = %NextStepLabel
+@onready var _rows_box: VBoxContainer = %RowsBox
+@onready var _recheck_button: Button = %RecheckButton
+@onready var _activate_button: Button = %ActivateButton
+@onready var _detail_label: Label = %DetailLabel
+@onready var _timer: Timer = %RefreshTimer
 # One entry per checklist row: {"spec": Dictionary, "badge": Label, "title": Label, "detail": Label,
 # "button": Button, "container": HBoxContainer}. Built once; refresh only updates text/visibility so
 # a 3-second poll never steals focus from a button mid-click.
@@ -119,10 +120,12 @@ func _row_specs() -> Array:
 # -- Lifecycle ----------------------------------------------------------------
 
 func _ready() -> void:
-    size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    size_flags_vertical = Control.SIZE_EXPAND_FILL
-    custom_minimum_size = Vector2(0, 180)
-    _build_ui()
+    _recheck_button.pressed.connect(refresh)
+    _activate_button.pressed.connect(_on_activate_pressed)
+    _timer.timeout.connect(refresh)
+    # Only meaningful while this checklist IS the whole panel; inside the TabContainer the other tabs
+    # are already there.
+    _activate_button.visible = not (get_parent() is TabContainer)
     _build_rows()
     _apply_refresh_interval()
     refresh()
@@ -131,77 +134,7 @@ func _notification(what: int) -> void:
     if what == NOTIFICATION_VISIBILITY_CHANGED and is_visible_in_tree() and _rows_box != null:
         refresh()
 
-# -- UI -----------------------------------------------------------------------
-
-func _build_ui() -> void:
-    var margin: MarginContainer = MarginContainer.new()
-    margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-    margin.add_theme_constant_override("margin_left", 12)
-    margin.add_theme_constant_override("margin_right", 12)
-    margin.add_theme_constant_override("margin_top", 10)
-    margin.add_theme_constant_override("margin_bottom", 10)
-    add_child(margin)
-
-    var scroll: ScrollContainer = ScrollContainer.new()
-    scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-    scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-    margin.add_child(scroll)
-
-    var column: VBoxContainer = VBoxContainer.new()
-    column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    column.add_theme_constant_override("separation", 8)
-    scroll.add_child(column)
-
-    var header: HBoxContainer = HBoxContainer.new()
-    header.add_theme_constant_override("separation", 8)
-    column.add_child(header)
-
-    _headline_label = Label.new()
-    _headline_label.text = "Local Agents"
-    _headline_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    _headline_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-    header.add_child(_headline_label)
-
-    var recheck: Button = Button.new()
-    recheck.text = "Re-check"
-    recheck.tooltip_text = "Run the setup checks again."
-    recheck.pressed.connect(refresh)
-    header.add_child(recheck)
-
-    _activate_button = Button.new()
-    _activate_button.text = "Activate Local Agents"
-    _activate_button.tooltip_text = "Load the full Local Agents panel (Chat, Downloads, Configuration)."
-    _activate_button.pressed.connect(_on_activate_pressed)
-    # Only meaningful while this checklist IS the whole panel; inside the TabContainer the other tabs
-    # are already there.
-    _activate_button.visible = not (get_parent() is TabContainer)
-    header.add_child(_activate_button)
-
-    _next_step_label = Label.new()
-    _next_step_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-    _next_step_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    column.add_child(_next_step_label)
-
-    column.add_child(HSeparator.new())
-
-    _rows_box = VBoxContainer.new()
-    _rows_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    _rows_box.add_theme_constant_override("separation", 6)
-    column.add_child(_rows_box)
-
-    column.add_child(HSeparator.new())
-
-    _detail_label = Label.new()
-    _detail_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-    _detail_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    _detail_label.add_theme_font_size_override("font_size", 11)
-    column.add_child(_detail_label)
-
-    _timer = Timer.new()
-    _timer.one_shot = false
-    _timer.timeout.connect(refresh)
-    add_child(_timer)
+# -- Rows ---------------------------------------------------------------------
 
 func _build_rows() -> void:
     for spec_variant in _row_specs():

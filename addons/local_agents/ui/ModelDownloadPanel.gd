@@ -25,8 +25,8 @@ signal model_installed(model_id: String, path: String)
 @onready var _rows_box: VBoxContainer = %RowsBox
 @onready var _status_label: Label = %StatusLabel
 @onready var _title_label: Label = %TitleLabel
+@onready var _manager: LAModelDownloadManager = %ModelDownloadManager
 
-var _manager: LAModelDownloadManager = null
 var _rows: Dictionary = {}   # model_id -> Dictionary of that row's controls
 
 # --- Self-harness state ---
@@ -45,9 +45,6 @@ func _ready() -> void:
 		if _run_selftest_if_requested():
 			return
 
-	_manager = ModelDownloadManager.new()
-	_manager.name = "ModelDownloadManager"
-	add_child(_manager)
 	_manager.download_started.connect(_on_download_started)
 	_manager.download_progress.connect(_on_download_progress)
 	_manager.download_finished.connect(_on_download_finished)

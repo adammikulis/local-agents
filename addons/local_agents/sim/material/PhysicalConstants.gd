@@ -329,6 +329,8 @@ const LATENT_HEAT_VAPORISATION_0C_J_KG: float = 2.501e6
 
 # ============================================================================================================
 # The Watson correlation has the right asymptote and is the standard engineering form:
+const WATER_TRIPLE_T_C: float = 0.01                 # IAPWS, 273.16 K exactly by definition
+const WATER_TRIPLE_P_PA: float = 611.657              # IAPWS triple-point pressure
 const WATER_CRITICAL_T_C: float = 373.946            # IAPWS-95 critical temperature, 647.096 K
 const WATER_CRITICAL_P_PA: float = 2.2064e7          # IAPWS-95 critical pressure, 220.64 bar
 const STANDARD_PRESSURE_PA: float = 101325.0         # one standard atmosphere, the reference boil_c is quoted at

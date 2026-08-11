@@ -123,7 +123,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if _rd == null or not _pipe.is_valid() or _n_records <= 0:
 		return
-	var dt: float = float(ctx.get("dt", 0.1))
 	# Same source + same default as ThermalPass.gd:150 — the solar kernel and the reaction engine must see the
 	# IDENTICAL sun, magnitude included (it carries orbit-distance² × atmospheric transmission, so dust dimming
 	# and impact winter suppress photosynthesis directly rather than second-hand through cooling).
@@ -132,8 +131,8 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	pc.resize(32)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, _n_records)
-	pc.encode_float(8, dt)
-	pc.encode_u32(12, 0)   # was `raining`; the global rain gate is deleted (see the kernel's Params note)
+	pc.encode_u32(8, 0)    # was `dt`, uploaded and never read; every rate_k already carries its own timebase
+	pc.encode_u32(12, 0)   # was `raining`; the global rain gate is deleted
 	pc.encode_float(16, sun_dir.x)
 	pc.encode_float(20, sun_dir.y)
 	pc.encode_float(24, sun_dir.z)

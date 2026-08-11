@@ -3,7 +3,7 @@
 [ext_resource type="PackedScene" path="res://addons/local_agents/controllers/ChatController.tscn" id="1"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/editor/DownloadTab.tscn" id="2"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/editor/ConfigurationPanel.tscn" id="3"]
-[ext_resource type="Script" path="res://addons/local_agents/editor/SetupTab.gd" id="4"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/editor/SetupTab.tscn" id="4"]
 
 [node name="LocalAgentPanel" type="Control"]
 anchor_right = 1.0
@@ -17,8 +17,7 @@ margin_top = 4.0
 margin_right = -4.0
 margin_bottom = -4.0
 
-[node name="Setup" type="Control" parent="TabContainer"]
-script = ExtResource("4")
+[node name="Setup" parent="TabContainer" instance=ExtResource("4")]
 
 [node name="Chat" parent="TabContainer" instance=ExtResource("1")]
 

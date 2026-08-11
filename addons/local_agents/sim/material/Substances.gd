@@ -39,6 +39,8 @@ static func table() -> Dictionary:
 			# ABOVE THIS THERE IS NO LIQUID-VAPOUR BOUNDARY. Water is one supercritical phase: no meniscus,
 			# no boiling, and a latent heat of exactly zero. A post-Theia steam envelope sits near here, so
 			# leaving it out does not just misplace the boundary, it asserts one that does not exist.
+			"triple_t_c": PC.WATER_TRIPLE_T_C,
+			"triple_p_pa": PC.WATER_TRIPLE_P_PA,
 			"critical_t_c": PC.WATER_CRITICAL_T_C,
 			"critical_p_pa": PC.WATER_CRITICAL_P_PA,
 			"latent_fusion_j_kg": PC.LATENT_HEAT_FUSION_J_KG,
@@ -136,6 +138,7 @@ const LIQUID: int = 1
 const GAS: int = 2
 const ATOMS: int = 3
 const PLASMA: int = 4
+const SUPERCRITICAL: int = 5
 
 
 ## were three constants: 2.257e6 (quoted at 100 C) + 3.337e5 fell 2.433e5 J/kg short of a 2.834e6 stated at
@@ -168,13 +171,15 @@ static func atoms_per_kg(id: String) -> Dictionary:
 ## SPECIFIC ENTHALPY (J/kg) of a substance at a temperature, measured from its solid at 0 K — the curve whose
 ## flat sections ARE the latent heats. This is the function that makes phase a consequence rather than a
 ## channel: sensible heat through each phase, plus the full latent step at each boundary crossed.
-static func enthalpy_at(id: String, t_c: float) -> float:
+static func enthalpy_at(id: String, t_c: float, p_pa: float = PC.STANDARD_PRESSURE_PA,
+		molality_mol_kg: float = 0.0) -> float:
 	var s: Dictionary = table().get(id, {})
 	var c_sol: float = float(s.get("specific_heat_solid", s.get("specific_heat", 0.0)))
 	var c_liq: float = float(s.get("specific_heat", 0.0))
 	var c_gas: float = float(s.get("specific_heat_gas", c_liq))
-	var melt: float = float(s.get("melt_c", INF))
-	var boil: float = float(s.get("boil_c", INF))
+	# Pressure-dependent, and depressed by any dissolved solute. For water the Clapeyron slope is negative.
+	var melt: float = melt_c_at(id, p_pa, molality_mol_kg)
+	var boil: float = boil_c_at(id, p_pa)
 	var t_k: float = t_c + PC.KELVIN_OFFSET
 	if not is_finite(melt) or t_c <= melt:
 		return c_sol * t_k
@@ -299,6 +304,59 @@ static func ionised_fraction(id: String, t_k: float, p_pa: float) -> float:
 	return ion_atoms / atoms if atoms > 0.0 else 0.0
 
 
+## Melting point at pressure, and depressed by dissolved solute. Clapeyron for the solid-liquid boundary:
+## dT/dP = T dv / dH_fus, with dv = 1/rho_liquid - 1/rho_solid straight out of this table. For water dv is
+## NEGATIVE because ice floats, so ice melts at a LOWER temperature under load — which is why a glacier
+## slides on its own base. Nothing here is a new number.
+##
+## `molality` is mol of dissolved particles per kg of solvent. The cryoscopic constant is DERIVED, not
+## tabulated: K_f = R T_f^2 M / dH_fus,molar, which comes out at 1.859 K kg/mol for water against the
+## measured 1.86. Sea water at ~1.16 mol/kg of ions therefore freezes near -2.2 C.
+static func melt_c_at(id: String, p_pa: float, molality_mol_kg: float = 0.0) -> float:
+	var s: Dictionary = table().get(id, {})
+	var t_ref_c: float = float(s.get("melt_c", INF))
+	if not is_finite(t_ref_c):
+		return INF
+	var rho_l: float = float(s.get("density", 0.0))
+	var rho_s: float = float(s.get("density_solid", rho_l))
+	var l_fus: float = float(s.get("latent_fusion_j_kg", 0.0))
+	var mm: float = float(s.get("molar_mass", 0.0))
+	var t_ref_k: float = t_ref_c + PC.KELVIN_OFFSET
+	var t_c: float = t_ref_c
+	if rho_l > 0.0 and rho_s > 0.0 and l_fus > 0.0:
+		var dv: float = (1.0 / rho_l) - (1.0 / rho_s)
+		var p_ref: float = float(s.get("triple_p_pa", PC.STANDARD_PRESSURE_PA))
+		t_c += (p_pa - p_ref) * t_ref_k * dv / l_fus
+	if molality_mol_kg > 0.0 and l_fus > 0.0 and mm > 0.0:
+		var l_molar: float = l_fus * mm
+		var k_f: float = PC.GAS_CONSTANT_J_MOL_K * t_ref_k * t_ref_k * mm / l_molar
+		t_c -= k_f * molality_mol_kg
+	return t_c
+
+
+## Sublimation pressure at temperature — the solid-vapour boundary, Clausius-Clapeyron anchored on the
+## triple point with the SUBLIMATION enthalpy (fusion + vaporisation, derived, so Hess still closes).
+static func sublimation_p_at(id: String, t_c: float) -> float:
+	var s: Dictionary = table().get(id, {})
+	var t3: float = float(s.get("triple_t_c", INF))
+	var p3: float = float(s.get("triple_p_pa", 0.0))
+	if not is_finite(t3) or p3 <= 0.0:
+		return 0.0
+	var l_sub: float = latent_sublimation_j_kg(id)
+	if l_sub <= 0.0:
+		return 0.0
+	var t3_k: float = t3 + PC.KELVIN_OFFSET
+	var t_k: float = maxf(t_c + PC.KELVIN_OFFSET, 1.0)
+	return p3 * exp(-(l_sub / PC.VAPOUR_GAS_CONST_J_KGK) * (1.0 / t_k - 1.0 / t3_k))
+
+
+## True when this substance has NO liquid phase at this pressure: below the triple-point pressure a solid
+## goes straight to vapour, which is how snow leaves a cold dry summit without ever melting.
+static func sublimes_at(id: String, p_pa: float) -> bool:
+	var p3: float = float(table().get(id, {}).get("triple_p_pa", 0.0))
+	return p3 > 0.0 and p_pa < p3
+
+
 ## Ionisation energy per kg, DERIVED from `formula` and the per-element first ionisation energies. One
 ## number per element, never one per compound — the same rule the stoichiometry follows.
 static func ionisation_j_kg(id: String) -> float:
@@ -358,12 +416,14 @@ static func is_supercritical(id: String, t_c: float, p_pa: float) -> bool:
 	return t_c >= t_crit and p_pa >= p_crit
 
 
-static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDARD_PRESSURE_PA) -> Dictionary:
+static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDARD_PRESSURE_PA,
+		molality_mol_kg: float = 0.0) -> Dictionary:
 	var s: Dictionary = table().get(id, {})
 	var c_sol: float = float(s.get("specific_heat_solid", s.get("specific_heat", 0.0)))
 	var c_liq: float = float(s.get("specific_heat", 0.0))
 	var c_gas: float = float(s.get("specific_heat_gas", c_liq))
-	var melt: float = float(s.get("melt_c", INF))
+	# Pressure-dependent, and depressed by dissolved solute. For water the Clapeyron slope is negative.
+	var melt: float = melt_c_at(id, p_pa, molality_mol_kg)
 	# THE BOUNDARY AT THIS PRESSURE, not the one-atmosphere reference point. See boil_c_at().
 	var boil: float = boil_c_at(id, p_pa)
 	var l_fus: float = float(s.get("latent_fusion_j_kg", 0.0))
@@ -382,6 +442,19 @@ static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDA
 	if h_j_kg <= h_melt_start:
 		return {"t_c": (h_j_kg / c_sol) - PC.KELVIN_OFFSET if c_sol > 0.0 else melt,
 			"phase": SOLID, "melted": 0.0, "vaporised": 0.0}
+
+	# NO LIQUID BELOW THE TRIPLE POINT. Ice on a cold dry summit leaves as vapour without ever melting, so
+	# the plateau it crosses is SUBLIMATION, not fusion, and the next ramp is the gas.
+	if sublimes_at(id, p_pa):
+		var l_sub: float = latent_sublimation_j_kg(id)
+		var h_sub_end: float = h_melt_start + l_sub
+		if h_j_kg < h_sub_end:
+			return {"t_c": melt, "phase": SOLID, "melted": 0.0,
+				"vaporised": (h_j_kg - h_melt_start) / l_sub if l_sub > 0.0 else 1.0,
+				"sublimating": true, "dissociated": 0.0, "ionised": 0.0}
+		return {"t_c": melt + (h_j_kg - h_sub_end) / c_gas if c_gas > 0.0 else melt,
+			"phase": GAS, "melted": 0.0, "vaporised": 1.0, "sublimating": true,
+			"dissociated": 0.0, "ionised": 0.0}
 
 	var h_melt_end: float = h_melt_start + l_fus
 	if h_j_kg < h_melt_end:
@@ -412,6 +485,10 @@ static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDA
 	var a_d: float = dissociated_fraction(id, t_k, p_pa)
 	var a_i: float = ionised_fraction(id, t_k, p_pa)
 	var ph: int = GAS
+	var p_crit: float = float(s.get("critical_p_pa", INF))
+	var t_crit: float = float(s.get("critical_t_c", INF))
+	if is_finite(p_crit) and p_pa >= p_crit and t_gas >= t_crit:
+		ph = SUPERCRITICAL
 	if a_i >= 0.5:
 		ph = PLASMA
 	elif a_d >= 0.5:

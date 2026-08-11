@@ -22,7 +22,7 @@ extends Node
 ##                          HOLDS there so the screenshot shows a callout + spotlight, not the intro card.
 ## (Explicit types only, no ':=' inferred typing.)
 
-const OverlayScript: GDScript = preload("res://addons/local_agents/ui/tutorial/TutorialHighlightOverlay.gd")
+const OverlayScene: PackedScene = preload("res://addons/local_agents/ui/tutorial/TutorialHighlightOverlay.tscn")
 const SequencerScript: GDScript = preload("res://addons/local_agents/ui/tutorial/TutorialSequencer.gd")
 const StepScript: GDScript = preload("res://addons/local_agents/ui/tutorial/TutorialStep.gd")
 
@@ -83,7 +83,7 @@ func _ready() -> void:
 	_layer.name = "TutorialLayer"
 	_layer.layer = 126
 	add_child(_layer)
-	_overlay = OverlayScript.new()
+	_overlay = OverlayScene.instantiate() as LATutorialHighlightOverlay
 	_layer.add_child(_overlay)
 	_seq = SequencerScript.new()
 	_seq.name = "TutorialSequencer"

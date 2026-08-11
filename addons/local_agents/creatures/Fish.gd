@@ -134,6 +134,7 @@ var _wander_timer: float = 0.0
 var _think_phase: int = -1             # per-instance stagger for the throttled swim-intention update
 var _mesh: MeshInstance3D = null
 var _model_root: Node3D = null
+@onready var _body_shape: CollisionShape3D = $BodyShape
 
 
 func setup(_terrain, _mat_field, _config: Dictionary) -> void:
@@ -187,8 +188,6 @@ func setup(_terrain, _mat_field, _config: Dictionary) -> void:
 	# life); the scheduler is injected after setup by the ecology (set_cognition_scheduler), exactly like land.
 	_cognition = LACognition.new()
 
-	collision_layer = 2                # pickable via the same layer-2 query as other actors
-	collision_mask = 0                 # movement is manual
 	_build_body()
 	add_to_group(GROUP_SELECTABLE)
 	add_to_group(GROUP_FISH)
@@ -239,11 +238,7 @@ func _build_body() -> void:
 	if _model_root == null:
 		_build_procedural_body()
 
-	var shape: CollisionShape3D = CollisionShape3D.new()
-	var sph: SphereShape3D = SphereShape3D.new()
-	sph.radius = maxf(size, 0.2)
-	shape.shape = sph
-	add_child(shape)
+	(_body_shape.shape as SphereShape3D).radius = maxf(size, 0.2)
 
 
 func _body_material() -> StandardMaterial3D:

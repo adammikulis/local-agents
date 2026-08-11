@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3 uid="uid://c7lamdlpnl0ui"]
+[gd_scene load_steps=3 format=3 uid="uid://c7lamdlpnl0ui"]
 
 [ext_resource type="Script" path="res://addons/local_agents/ui/ModelDownloadPanel.gd" id="1_panel"]
+[ext_resource type="Script" path="res://addons/local_agents/ui/ModelDownloadManager.gd" id="2_dl"]
 
 [node name="ModelDownloadPanel" type="Control"]
 layout_mode = 3
@@ -10,6 +11,10 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_panel")
+
+[node name="ModelDownloadManager" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("2_dl")
 
 [node name="Background" type="PanelContainer" parent="."]
 layout_mode = 1

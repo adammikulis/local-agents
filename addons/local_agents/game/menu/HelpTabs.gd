@@ -7,6 +7,8 @@ extends RefCounted
 ## reference (LAControlsReference, straight from LAHotkeyRegistry), and Codex is the browsable manual
 ## (LAHelpCodex). Pure static builder. (Explicit types only, no ':=' inferred typing.)
 
+const CodexScene: PackedScene = preload("res://addons/local_agents/game/menu/HelpCodex.tscn")
+
 const ACCENT: Color = Color(0.55, 0.72, 1.0)
 const TEXT: Color = Color(0.90, 0.92, 0.95)
 
@@ -46,7 +48,7 @@ static func build(width: float, height: float, start_tab: String = "overview") -
 
 	var overview: Control = _overview_panel(width, height)
 	var controls: Control = LAControlsReference.build_scroll(width, height)
-	var codex: LAHelpCodex = LAHelpCodex.new()
+	var codex: LAHelpCodex = CodexScene.instantiate()
 	var panels: Array = [overview, controls, codex]
 	for p in panels:
 		(p as Control).set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

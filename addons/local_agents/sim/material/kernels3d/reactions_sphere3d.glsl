@@ -161,7 +161,7 @@ layout(set = 0, binding = 21, std430) restrict readonly buffer Defs { Reaction r
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint n_records;
-	float dt;
+	uint pad_was_dt;      // rate_k carries its own timebase; a kernel-side dt would double-count it
 	// *(Slot 3 held `uint raining` until 2026-08-10 — a GLOBAL boolean that suppressed dust loft over the
 	uint pad_was_raining;
 	float sun_x;    // world-space vector TOWARD the sun; MAGNITUDE carries insolation (same value ThermalPass

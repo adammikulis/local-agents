@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3 uid="uid://bmainmenu0la001"]
+[gd_scene load_steps=3 format=3 uid="uid://bmainmenu0la001"]
 
 [ext_resource type="Script" path="res://addons/local_agents/game/menu/MainMenu.gd" id="1_mainmenu"]
+[ext_resource type="StyleBoxFlat" path="res://addons/local_agents/game/menu/MenuPanel.tres" id="2_panel"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -10,3 +11,105 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_mainmenu")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.02, 0.03, 0.06, 1)
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="Center"]
+layout_mode = 2
+theme_override_styles/panel = ExtResource("2_panel")
+
+[node name="Column" type="VBoxContainer" parent="Center/Panel"]
+custom_minimum_size = Vector2(320, 0)
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Center/Panel/Column"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.72, 1, 1)
+theme_override_font_sizes/font_size = 34
+text = "Local Agents"
+horizontal_alignment = 1
+
+[node name="Caption" type="Label" parent="Center/Panel/Column"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 13
+text = "A living world, simulated locally"
+horizontal_alignment = 1
+
+[node name="Spacer" type="Control" parent="Center/Panel/Column"]
+custom_minimum_size = Vector2(0, 8)
+layout_mode = 2
+
+[node name="NewCampaign" type="Button" parent="Center/Panel/Column"]
+custom_minimum_size = Vector2(300, 46)
+layout_mode = 2
+focus_mode = 2
+text = "New campaign"
+
+[node name="Continue" type="Button" parent="Center/Panel/Column"]
+custom_minimum_size = Vector2(300, 46)
+layout_mode = 2
+focus_mode = 2
+text = "Continue"
+
+[node name="Sandbox" type="Button" parent="Center/Panel/Column"]
+custom_minimum_size = Vector2(300, 46)
+layout_mode = 2
+focus_mode = 2
+tooltip_text = "Free play with no progression gating"
+text = "Sandbox"
+
+[node name="Settings" type="Button" parent="Center/Panel/Column"]
+custom_minimum_size = Vector2(300, 46)
+layout_mode = 2
+focus_mode = 2
+text = "Settings"
+
+[node name="Models" type="Button" parent="Center/Panel/Column"]
+custom_minimum_size = Vector2(300, 46)
+layout_mode = 2
+focus_mode = 2
+tooltip_text = "Download / pick the local LLMs that drive creatures + the streamer"
+text = "Models"
+
+[node name="Examples" type="Button" parent="Center/Panel/Column"]
+custom_minimum_size = Vector2(300, 46)
+layout_mode = 2
+focus_mode = 2
+tooltip_text = "The local-agent library demos: quickstart LLM chat, a thinking creature, a SimWorld planet"
+text = "Examples"
+
+[node name="Help" type="Button" parent="Center/Panel/Column"]
+custom_minimum_size = Vector2(300, 46)
+layout_mode = 2
+focus_mode = 2
+text = "Help"
+
+[node name="Credits" type="Button" parent="Center/Panel/Column"]
+custom_minimum_size = Vector2(300, 46)
+layout_mode = 2
+focus_mode = 2
+text = "Credits"
+
+[node name="Quit" type="Button" parent="Center/Panel/Column"]
+custom_minimum_size = Vector2(300, 46)
+layout_mode = 2
+focus_mode = 2
+text = "Quit"

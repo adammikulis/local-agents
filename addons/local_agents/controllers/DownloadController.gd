@@ -287,11 +287,11 @@ func _populate_model_tree() -> void:
             if first_model_item == null:
                 first_model_item = item
             if not selection_set and (bool(model.get("recommended", false)) or String(model.get("id", "")) == default_id):
-                model_tree.select_item(item, 0)
+                item.select(0)
                 _apply_model_selection(model)
                 selection_set = true
     if not selection_set and first_model_item:
-        model_tree.select_item(first_model_item, 0)
+        first_model_item.select(0)
         var meta: Variant = first_model_item.get_metadata(0)
         if typeof(meta) == TYPE_STRING and String(meta) != "":
             var fallback_model: Dictionary = _model_service.find_model(String(meta))

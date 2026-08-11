@@ -9,7 +9,7 @@ const CreatureScript: GDScript = preload("res://addons/local_agents/creatures/Cr
 const PlantScript: GDScript = preload("res://addons/local_agents/sim/actors/Plant.gd")
 const RockScript: GDScript = preload("res://addons/local_agents/sim/actors/Rock.gd")
 const TreeScript: GDScript = preload("res://addons/local_agents/sim/actors/Tree.gd")
-const FishScript: GDScript = preload("res://addons/local_agents/creatures/Fish.gd")
+const FishScene: PackedScene = preload("res://addons/local_agents/creatures/Fish.tscn")
 const TrackSystemScript: GDScript = preload("res://addons/local_agents/sim/TrackSystem.gd")
 
 const KINDS: Array = ["plant", "rabbit", "fox", "bird", "villager", "fish", "rock", "tree"]
@@ -494,7 +494,7 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 			# authoritative, so re-instance it there rather than dropping it for being momentarily out of the sea.
 			if not force_place and not _is_water_pos(placed):
 				return null
-			var fish: FishScript = FishScript.new()
+			var fish: LAFish = FishScene.instantiate() as LAFish
 			# Join the cognition group so a scene-placed scheduler can find it. The ecology injects its own
 			# scheduler explicitly below; the group is what lets a scheduler the USER dropped in adopt it.
 			fish.add_to_group(COGNITION_GROUP)

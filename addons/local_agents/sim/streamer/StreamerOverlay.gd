@@ -2,10 +2,9 @@ class_name LAStreamerOverlay
 extends CanvasLayer
 
 ## Lower-right "face-cam" overlay for the streamer/commentator: a live 3D avatar portrait, the current
-## commentary caption, an enable checkbox, and a personality picker. Self-contained CanvasLayer built
-## in code (same convention as DebugPanel/SpawnPaletteHud). The PanelContainer's default STOP mouse
-## filter consumes clicks over its rect, so toggling the UI never leaks a world-click (meteor drop)
-## to the sim behind it.
+## commentary caption, an enable checkbox, and a personality picker. The node tree is StreamerOverlay.tscn.
+## The PanelContainer's default STOP mouse filter consumes clicks over its rect, so toggling the UI never
+## leaks a world-click (meteor drop) to the sim behind it.
 ##
 ## Emits `enabled_toggled(on)` and `persona_selected(id)`; the world wires those to the director.
 ## (Explicit types only, no ':=' inferred typing.)
@@ -18,142 +17,28 @@ signal visibility_toggled(on: bool)   # master show/hide — the host gates stre
 const CAPTION_HOLD: float = 8.0   # seconds a line stays bright before dimming
 const FEED_MAX: int = 4           # recent commentary lines kept under the live caption
 
-var _panel: PanelContainer = null
-var _avatar_rect: TextureRect = null
-var _caption: Label = null
-var _feed: VBoxContainer = null
-var _status: Label = null
-var _check: CheckButton = null
-var _persona: OptionButton = null
-var _avatar_pick: OptionButton = null
-var _chip: Button = null           # tiny restore affordance shown while the streamer is hidden
+@onready var _panel: PanelContainer = $StreamerPanel
+@onready var _avatar_rect: TextureRect = $StreamerPanel/VBox/AvatarRect
+@onready var _caption: Label = $StreamerPanel/VBox/Caption
+@onready var _feed: VBoxContainer = $StreamerPanel/VBox/Feed
+@onready var _status: Label = $StreamerPanel/VBox/Status
+@onready var _check: CheckButton = $StreamerPanel/VBox/Controls/Commentary
+@onready var _persona: OptionButton = $StreamerPanel/VBox/Controls/Persona
+@onready var _avatar_pick: OptionButton = $StreamerPanel/VBox/AvatarPick
+@onready var _chip: Button = $Chip   # tiny restore affordance shown while the streamer is hidden
 var _collapsed: bool = false
 
 var _caption_ttl: float = 0.0
 
 
 func _ready() -> void:
-	layer = 90
-	_build_ui()
-
-
-func _build_ui() -> void:
-	_panel = PanelContainer.new()
-	_panel.name = "StreamerPanel"
-	_panel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_panel.offset_right = -14.0
-	_panel.offset_bottom = -14.0
-	_panel.custom_minimum_size = Vector2(268.0, 0.0)
-
-	var style: StyleBoxFlat = StyleBoxFlat.new()
-	style.bg_color = Color(0.07, 0.08, 0.10, 0.88)
-	style.border_color = Color(0.55, 0.20, 0.65, 0.9)   # streamer purple accent
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(10)
-	style.set_content_margin_all(8.0)
-	_panel.add_theme_stylebox_override("panel", style)
-	add_child(_panel)
-
-	var vbox: VBoxContainer = VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
-	_panel.add_child(vbox)
-
-	# --- header: LIVE badge + master Hide button ---
-	var header: HBoxContainer = HBoxContainer.new()
-	header.add_theme_constant_override("separation", 6)
-	vbox.add_child(header)
-
-	var badge: Label = Label.new()
-	badge.text = "● LIVE"
-	badge.add_theme_font_size_override("font_size", 12)
-	badge.add_theme_color_override("font_color", Color(0.95, 0.25, 0.30))
-	badge.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(badge)
-
-	var hide_btn: Button = Button.new()
-	hide_btn.text = "Hide ▾"
-	hide_btn.tooltip_text = "Hide the streamer (C). Stops commentary + voice compute; your choice is remembered."
-	hide_btn.add_theme_font_size_override("font_size", 11)
-	hide_btn.pressed.connect(_on_hide_pressed)
-	header.add_child(hide_btn)
-
-	_avatar_rect = TextureRect.new()
-	_avatar_rect.custom_minimum_size = Vector2(252.0, 210.0)
-	_avatar_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_avatar_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	vbox.add_child(_avatar_rect)
-
-	# --- caption ---
-	_caption = Label.new()
-	_caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_caption.custom_minimum_size = Vector2(252.0, 48.0)
-	_caption.add_theme_font_size_override("font_size", 14)
-	_caption.text = "Warming up the stream…"
-	vbox.add_child(_caption)
-
-	# --- recent-lines feed (rolling history under the live caption) ---
-	_feed = VBoxContainer.new()
-	_feed.add_theme_constant_override("separation", 2)
-	vbox.add_child(_feed)
-	var placeholder: Label = Label.new()
-	placeholder.text = "(waiting for commentary…)"
-	placeholder.add_theme_font_size_override("font_size", 11)
-	placeholder.add_theme_color_override("font_color", Color(0.5, 0.52, 0.58))
-	_feed.add_child(placeholder)
-
-	# --- controls: enable + persona ---
-	var row: HBoxContainer = HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
-	vbox.add_child(row)
-
-	_check = CheckButton.new()
-	_check.text = "Commentary"
-	_check.button_pressed = true
-	_check.add_theme_font_size_override("font_size", 12)
-	_check.toggled.connect(_on_check_toggled)
-	row.add_child(_check)
-
-	_persona = OptionButton.new()
-	_persona.add_theme_font_size_override("font_size", 12)
-	_persona.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# Persona rows are data (LAStreamerPersonas.PRESETS); the id rides on item metadata, which no scene
+	# format stores, so both pickers get their metadata here.
 	for preset in LAStreamerPersonas.PRESETS:
 		_persona.add_item(String(preset.get("label", "")))
 		_persona.set_item_metadata(_persona.item_count - 1, String(preset.get("id", "")))
-	_persona.item_selected.connect(_on_persona_selected)
-	row.add_child(_persona)
-
-	# --- avatar (streamer) picker ---
-	_avatar_pick = OptionButton.new()
-	_avatar_pick.add_theme_font_size_override("font_size", 12)
-	_avatar_pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_avatar_pick.add_item("Ryan (M)")
 	_avatar_pick.set_item_metadata(0, "male")
-	_avatar_pick.add_item("Nova (F)")
 	_avatar_pick.set_item_metadata(1, "female")
-	_avatar_pick.item_selected.connect(_on_avatar_selected)
-	vbox.add_child(_avatar_pick)
-
-	_status = Label.new()
-	_status.add_theme_font_size_override("font_size", 10)
-	_status.add_theme_color_override("font_color", Color(0.6, 0.62, 0.68))
-	_status.text = ""
-	vbox.add_child(_status)
-
-	# --- restore chip (only visible while hidden) ---
-	_chip = Button.new()
-	_chip.text = "▸ Streamer"
-	_chip.tooltip_text = "Show the streamer (C)"
-	_chip.add_theme_font_size_override("font_size", 12)
-	_chip.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_chip.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	_chip.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_chip.offset_right = -14.0
-	_chip.offset_bottom = -14.0
-	_chip.visible = false
-	_chip.pressed.connect(_on_chip_pressed)
-	add_child(_chip)
 
 
 ## Bind the live avatar texture (the avatar node owns the SubViewport and must be in the tree already).
@@ -186,8 +71,11 @@ func _push_feed(text: String) -> void:
 	line.add_theme_color_override("font_color", Color(0.72, 0.66, 0.82))
 	_feed.add_child(line)
 	_feed.move_child(line, 0)                        # newest at top
-	while _feed.get_child_count() > FEED_MAX:         # bounded rolling history (was clearing to a single line)
-		_feed.get_child(_feed.get_child_count() - 1).queue_free()
+	while _feed.get_child_count() > FEED_MAX:         # bounded rolling history
+		# remove_child first: a queue_free'd node stays a child until end of frame, so counting alone loops forever.
+		var oldest: Node = _feed.get_child(_feed.get_child_count() - 1)
+		_feed.remove_child(oldest)
+		oldest.queue_free()
 
 
 # --- master show/hide (host gates streamer compute off when hidden) ------------------------------

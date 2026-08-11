@@ -14,7 +14,7 @@ extends RefCounted
 ## the germination gate, species configs, biomass reads and the kinship graph), so there is exactly one
 ## owner of each. Explicit types only (project rule: no ':=').
 
-const NestScript: GDScript = preload("res://addons/local_agents/sim/actors/Nest.gd")
+const NestScene: PackedScene = preload("res://addons/local_agents/sim/actors/Nest.tscn")
 
 # Founder clustering — a HERDING species starts as a few tight bands, not a planet-wide smear, so local
 # same-species density is high enough that leadership finds followers and durable kin herds form. One
@@ -274,7 +274,7 @@ func _forest_suitability(pos: Vector3) -> float:
 func spawn_nest(site: Vector3, nest_species: String, owner_family: int, in_tree: bool):
 	if _eco.actors_root == null:
 		return null
-	var nest = NestScript.new()
+	var nest: LANest = NestScene.instantiate() as LANest
 	_eco.actors_root.add_child(nest)
 	nest.global_position = site
 	if nest.has_method("setup"):

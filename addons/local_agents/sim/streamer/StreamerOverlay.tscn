@@ -1,0 +1,117 @@
+[gd_scene load_steps=3 format=3 uid="uid://c5t8n1q0strovl0"]
+
+[ext_resource type="Script" path="res://addons/local_agents/sim/streamer/StreamerOverlay.gd" id="1_overlay"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
+content_margin_left = 8.0
+content_margin_top = 8.0
+content_margin_right = 8.0
+content_margin_bottom = 8.0
+bg_color = Color(0.07, 0.08, 0.1, 0.88)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.55, 0.2, 0.65, 0.9)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[node name="StreamerOverlay" type="CanvasLayer"]
+layer = 90
+script = ExtResource("1_overlay")
+
+[node name="StreamerPanel" type="PanelContainer" parent="."]
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_right = -14.0
+offset_bottom = -14.0
+grow_horizontal = 0
+grow_vertical = 0
+custom_minimum_size = Vector2(268, 0)
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+
+[node name="VBox" type="VBoxContainer" parent="StreamerPanel"]
+theme_override_constants/separation = 6
+
+[node name="Header" type="HBoxContainer" parent="StreamerPanel/VBox"]
+theme_override_constants/separation = 6
+
+[node name="Badge" type="Label" parent="StreamerPanel/VBox/Header"]
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.95, 0.25, 0.3, 1)
+theme_override_font_sizes/font_size = 12
+text = "● LIVE"
+
+[node name="HideButton" type="Button" parent="StreamerPanel/VBox/Header"]
+tooltip_text = "Hide the streamer (C). Stops commentary + voice compute; your choice is remembered."
+theme_override_font_sizes/font_size = 11
+text = "Hide ▾"
+
+[node name="AvatarRect" type="TextureRect" parent="StreamerPanel/VBox"]
+custom_minimum_size = Vector2(252, 210)
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Caption" type="Label" parent="StreamerPanel/VBox"]
+custom_minimum_size = Vector2(252, 48)
+theme_override_font_sizes/font_size = 14
+text = "Warming up the stream…"
+autowrap_mode = 3
+
+[node name="Feed" type="VBoxContainer" parent="StreamerPanel/VBox"]
+theme_override_constants/separation = 2
+
+[node name="Placeholder" type="Label" parent="StreamerPanel/VBox/Feed"]
+theme_override_colors/font_color = Color(0.5, 0.52, 0.58, 1)
+theme_override_font_sizes/font_size = 11
+text = "(waiting for commentary…)"
+
+[node name="Controls" type="HBoxContainer" parent="StreamerPanel/VBox"]
+theme_override_constants/separation = 6
+
+[node name="Commentary" type="CheckButton" parent="StreamerPanel/VBox/Controls"]
+theme_override_font_sizes/font_size = 12
+button_pressed = true
+text = "Commentary"
+
+[node name="Persona" type="OptionButton" parent="StreamerPanel/VBox/Controls"]
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 12
+
+[node name="AvatarPick" type="OptionButton" parent="StreamerPanel/VBox"]
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 12
+selected = 0
+item_count = 2
+popup/item_0/text = "Ryan (M)"
+popup/item_0/id = 0
+popup/item_1/text = "Nova (F)"
+popup/item_1/id = 1
+
+[node name="Status" type="Label" parent="StreamerPanel/VBox"]
+theme_override_colors/font_color = Color(0.6, 0.62, 0.68, 1)
+theme_override_font_sizes/font_size = 10
+
+[node name="Chip" type="Button" parent="."]
+visible = false
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_right = -14.0
+offset_bottom = -14.0
+grow_horizontal = 0
+grow_vertical = 0
+tooltip_text = "Show the streamer (C)"
+theme_override_font_sizes/font_size = 12
+text = "▸ Streamer"
+
+[connection signal="pressed" from="StreamerPanel/VBox/Header/HideButton" to="." method="_on_hide_pressed"]
+[connection signal="toggled" from="StreamerPanel/VBox/Controls/Commentary" to="." method="_on_check_toggled"]
+[connection signal="item_selected" from="StreamerPanel/VBox/Controls/Persona" to="." method="_on_persona_selected"]
+[connection signal="item_selected" from="StreamerPanel/VBox/AvatarPick" to="." method="_on_avatar_selected"]
+[connection signal="pressed" from="Chip" to="." method="_on_chip_pressed"]

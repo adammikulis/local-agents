@@ -1,18 +1,9 @@
 class_name LAHelpCodex
 extends Control
 
-## LAHelpCodex: the browsable in-game manual, with a left-hand list of core-mechanic entries and a right-hand
-## detail pane (title + screenshot + a short written mini-guide) for the selected one. Aimed at a player who
-## finished the campaign, stepped away, and wants to re-acquaint from the screen, distinct from the one-time
-## guided tutorial. Self-contained and embeddable: the main-menu Help screen and the in-sim pause overlay both
-## drop one in as a tab. Screenshots live under res://docs/help-img/ and load gracefully (a missing image just
-## shows a caption, never a crash). Content is sentence-case data, with no per-entry code. (Explicit types only.)
-
-const ACCENT: Color = Color(0.55, 0.72, 1.0)
-const TEXT: Color = Color(0.90, 0.92, 0.95)
-const TEXT_DIM: Color = Color(0.62, 0.66, 0.72)
-const PANEL_BG: Color = Color(0.09, 0.11, 0.15, 1.0)
-const BORDER: Color = Color(0.30, 0.36, 0.46, 1.0)
+## The browsable in-game manual: a nav list of entries on the left, a detail pane on the right. Node tree
+## and styling live in HelpCodex.tscn; instantiate that scene, not this script. Embedded as a tab by both
+## the main-menu Help screen and the in-sim pause overlay.
 
 const IMG_DIR: String = "res://docs/help-img/"
 
@@ -56,39 +47,23 @@ const ENTRIES: Array = [
 	},
 ]
 
-var _detail_title: Label = null
-var _detail_image: TextureRect = null
-var _detail_caption: Label = null
-var _detail_body: Label = null
+@onready var _nav: VBoxContainer = $Row/NavScroll/Nav
+@onready var _detail_title: Label = $Row/DetailPanel/Detail/Title
+@onready var _detail_image: TextureRect = $Row/DetailPanel/Detail/Image
+@onready var _detail_caption: Label = $Row/DetailPanel/Detail/Caption
+@onready var _detail_body: Label = $Row/DetailPanel/Detail/BodyScroll/Body
+
 var _nav_group: ButtonGroup = null
 
 
 func _ready() -> void:
-	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_build()
+	_build_nav()
 	if not ENTRIES.is_empty():
 		_show_entry(0)
 
 
-func _build() -> void:
-	var row: HBoxContainer = HBoxContainer.new()
-	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	row.add_theme_constant_override("separation", 14)
-	add_child(row)
-
-	# --- Left: nav list of entry titles (scrollable, exclusive toggle group) ---
-	var nav_scroll: ScrollContainer = ScrollContainer.new()
-	nav_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	nav_scroll.custom_minimum_size = Vector2(210.0, 0.0)
-	nav_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	row.add_child(nav_scroll)
-
-	var nav: VBoxContainer = VBoxContainer.new()
-	nav.add_theme_constant_override("separation", 4)
-	nav.custom_minimum_size = Vector2(198.0, 0.0)
-	nav.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	nav_scroll.add_child(nav)
-
+# One toggle button per ENTRIES row, in an exclusive group.
+func _build_nav() -> void:
 	_nav_group = ButtonGroup.new()
 	for i in ENTRIES.size():
 		var entry: Dictionary = ENTRIES[i]
@@ -100,55 +75,7 @@ func _build() -> void:
 		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		btn.custom_minimum_size = Vector2(0.0, 38.0)
 		btn.pressed.connect(_show_entry.bind(i))
-		nav.add_child(btn)
-
-	# --- Right: detail pane (title, screenshot, body) ---
-	var detail_panel: PanelContainer = PanelContainer.new()
-	var style: StyleBoxFlat = StyleBoxFlat.new()
-	style.bg_color = PANEL_BG
-	style.set_corner_radius_all(8)
-	style.set_border_width_all(1)
-	style.border_color = BORDER
-	style.set_content_margin_all(16.0)
-	detail_panel.add_theme_stylebox_override("panel", style)
-	detail_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	detail_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	row.add_child(detail_panel)
-
-	var detail: VBoxContainer = VBoxContainer.new()
-	detail.add_theme_constant_override("separation", 12)
-	detail_panel.add_child(detail)
-
-	_detail_title = Label.new()
-	_detail_title.add_theme_color_override("font_color", ACCENT)
-	_detail_title.add_theme_font_size_override("font_size", 20)
-	detail.add_child(_detail_title)
-
-	_detail_image = TextureRect.new()
-	_detail_image.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
-	_detail_image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_detail_image.custom_minimum_size = Vector2(0.0, 240.0)
-	_detail_image.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	detail.add_child(_detail_image)
-
-	_detail_caption = Label.new()
-	_detail_caption.add_theme_color_override("font_color", TEXT_DIM)
-	_detail_caption.add_theme_font_size_override("font_size", 11)
-	_detail_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	detail.add_child(_detail_caption)
-
-	var body_scroll: ScrollContainer = ScrollContainer.new()
-	body_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	body_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	detail.add_child(body_scroll)
-
-	_detail_body = Label.new()
-	_detail_body.add_theme_color_override("font_color", TEXT)
-	_detail_body.add_theme_font_size_override("font_size", 14)
-	_detail_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_detail_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body_scroll.add_child(_detail_body)
+		_nav.add_child(btn)
 
 
 func _show_entry(index: int) -> void:

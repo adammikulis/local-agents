@@ -1,16 +1,10 @@
 class_name LACreditsMenu
 extends Control
 
-## LACreditsMenu: a scrollable credits screen reached from the main menu. It leads with the game's
-## creator, then lists the third-party work Local Agents is built on, grouped by category (engine & tools,
-## art, voice, AI models) with each item's license and source URL. A Back button returns to the main menu.
-## Built in code to match the shared menu styling (LAMenuStyle); keyboard-navigable. The content is
-## SELF-CONTAINED (hardcoded below, NOT read/parsed from CREDITS.md / AUTHORS at runtime), so the in-game
-## screen and the repo docs are maintained independently (some overlap is intended). (Explicit types only.)
+## The credits screen. Node tree and styling live in CreditsMenu.tscn; the grouped attributions below
+## are generated into the Groups column at runtime.
 
 const MAIN_MENU_SCENE: String = "res://addons/local_agents/game/menu/MainMenu.tscn"
-
-const CREATED_BY: String = "Adam Mikulis"
 
 ## Grouped credits. Each group has a heading and a list of entries; each entry is name · license · url.
 const CREDIT_GROUPS: Array = [
@@ -48,78 +42,31 @@ const CREDIT_GROUPS: Array = [
 	},
 ]
 
+@onready var _groups: VBoxContainer = $Center/Panel/Column/Scroll/Groups
+@onready var _back_button: Button = $Center/Panel/Column/Back
+
 
 func _ready() -> void:
-	_build_ui()
+	_fill_groups()
+	_back_button.pressed.connect(_on_back)
+	_back_button.grab_focus()
 	add_child(LAMenuShooter.new())
 
 
-func _build_ui() -> void:
-	var bg: ColorRect = ColorRect.new()
-	bg.color = LAMenuStyle.OVERLAY_BG
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bg)
-
-	var center: CenterContainer = CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
-
-	var panel: PanelContainer = PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", LAMenuStyle.panel_style())
-	center.add_child(panel)
-
-	var vbox: VBoxContainer = VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 10)
-	vbox.custom_minimum_size = Vector2(480.0, 0.0)
-	panel.add_child(vbox)
-
-	vbox.add_child(LAMenuStyle.make_title("Credits"))
-
-	# Created-by line up top — the game's creator, above the third-party attributions.
-	var created_heading: Label = Label.new()
-	created_heading.text = "Created by"
-	created_heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	created_heading.add_theme_color_override("font_color", LAMenuStyle.TEXT_DIM)
-	created_heading.add_theme_font_size_override("font_size", 13)
-	vbox.add_child(created_heading)
-
-	var created_name: Label = Label.new()
-	created_name.text = CREATED_BY
-	created_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	created_name.add_theme_color_override("font_color", LAMenuStyle.TEXT)
-	created_name.add_theme_font_size_override("font_size", 22)
-	vbox.add_child(created_name)
-
-	var scroll: ScrollContainer = ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.custom_minimum_size = Vector2(480.0, 420.0)
-	vbox.add_child(scroll)
-
-	var col: VBoxContainer = VBoxContainer.new()
-	col.add_theme_constant_override("separation", 8)
-	col.custom_minimum_size = Vector2(464.0, 0.0)
-	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(col)
-
+func _fill_groups() -> void:
 	for group in CREDIT_GROUPS:
 		var heading: Label = Label.new()
 		heading.text = String(group["title"])
 		heading.add_theme_color_override("font_color", LAMenuStyle.ACCENT)
 		heading.add_theme_font_size_override("font_size", 16)
-		col.add_child(heading)
+		_groups.add_child(heading)
 
 		for entry in group["entries"]:
-			col.add_child(_make_entry(entry))
+			_groups.add_child(_make_entry(entry))
 
 		var gap: Control = Control.new()
 		gap.custom_minimum_size = Vector2(0.0, 6.0)
-		col.add_child(gap)
-
-	var back_button: Button = LAMenuStyle.make_button("Back")
-	back_button.pressed.connect(_on_back)
-	vbox.add_child(back_button)
-	back_button.grab_focus()
+		_groups.add_child(gap)
 
 
 ## One credit row: "Name, License" with the source URL beneath it, dimmed.

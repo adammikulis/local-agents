@@ -21,17 +21,22 @@ order is the order.
       (specific enthalpy × pressure → temperature, phase, fractions), generated from `LASubstances` and
       uploaded, with a gate that the table reproduces the functions to tolerance. This is what real EOS
       codes do; it keeps the GPU cost O(1) per cell.
-- [ ] **Sublimation has no direct path.** The ladder forces solid → liquid → gas, so ice below the triple
-      point melts first instead of subliming. `latent_sublimation_j_kg` exists and is unused by the curve.
-- [ ] **No triple point in the substance table**, so nothing can choose sublimation over melting.
-- [ ] **Melting is not pressure-dependent.** `boil_c_at` does Clausius–Clapeyron; `melt_c` is a flat
-      constant. Fusion has a Clapeyron slope too, and for water it is NEGATIVE — which is why glaciers slide
-      on their own base. The asymmetry is arbitrary.
-- [ ] **Supercritical is not a state.** Above the critical pressure `boil_c_at` correctly gives no plateau,
-      but the result is still labelled liquid or gas and uses `c_gas`. A post-Theia steam envelope sits
-      exactly there, which is Stage 2's target.
-- [ ] **No freezing-point depression.** Sea water freezes near −1.8 °C, not 0 °C. Sea ice is rendered and
-      computed from a pure-water curve.
+- [x] **Sublimation, the triple point, Clapeyron melting and supercritical** — all four land together.
+      `triple_t_c` / `triple_p_pa` (IAPWS) are in the table; below the triple pressure the ladder has NO
+      liquid branch and the plateau it crosses is sublimation, verified at 300 Pa: 93% through the plateau
+      at h = 3.2e6, gas at 3.5e6, never passing through liquid. `melt_c_at` is Clausius–Clapeyron on the
+      solid–liquid boundary, `dT/dP = T Δv / ΔH_fus` with `Δv = 1/ρ_liquid − 1/ρ_solid` straight out of the
+      table — no new constant, and it comes out NEGATIVE for water at −0.0072 K/bar against the measured
+      −0.0074, so a glacier melts under its own load. `sublimation_p_at` is Clausius–Clapeyron anchored on
+      the triple point with the DERIVED sublimation enthalpy: 12.9 Pa at −40 °C against the measured 12.85.
+      Supercritical is its own phase rather than a mislabelled gas.
+- [ ] **Freezing-point depression is implemented but not wired.** `melt_c_at` takes a molality and derives
+      the cryoscopic constant rather than tabulating it — `K_f = R T_f² M / ΔH_fus,molar` gives 1.859 K·kg/mol
+      against the measured 1.86. Two things stop it being live: (a) **there is no salinity channel**, so
+      nothing can say which cells are sea and which are rain, and applying it globally would freeze lakes at
+      −2 °C too; (b) the van 't Hoff law is IDEAL, and real sea water's ions have activity coefficients below
+      1, so 1.16 mol/kg gives −2.16 °C against the measured −1.86. **Decide it:** add a salinity channel, and
+      either accept the ideal law's ~15% or carry an osmotic coefficient.
 - [ ] **Solid polymorphs** — ice I…VII, and olivine → wadsleyite → perovskite with depth. A planet's mantle
       structure IS these transitions, each with its own enthalpy and density jump. Maintainer asked for the
       structure to be built.
@@ -65,8 +70,16 @@ order is the order.
       reactant interact through application order — which is what the `cap_channel` field patches around.
       Evaluate every record against the same starting state, then one scaling if a reactant would go
       negative. Order-independence for free and `cap` deletes itself.
-- [ ] **`params.dt` is uploaded to `reactions_sphere3d.glsl` and never read**, so every reaction rate is
-      per-STEP rather than per-second.
+- [ ] **The reaction table carries TWO different rate units.** *(Corrected 2026-08-11. This said `params.dt`
+      is uploaded and never read "so every reaction rate is per-STEP rather than per-second" — the first half
+      was true and the second half was the wrong diagnosis.)* Evaporation, photosynthesis, respiration,
+      litterfall and decomposition already fold `real_seconds_per_step()` into their own `k`, so they are
+      per-real-second. `FREEZE_RATE`, `MELT_RATE`, `SOLIDIFY_RATE` and `ROCK_MELT_RATE` are flat per-step
+      numbers that are neither derived nor scaled by the clock. Multiplying everything by `dt` in the kernel
+      would therefore DOUBLE-COUNT the first group — which is why the dead `dt` upload was deleted rather
+      than wired up. **Resolves with B1:** those four records are the phase-change relaxations, and once the
+      field stores enthalpy the freezing rate is set by heat removal rather than by a rate constant, so all
+      four delete themselves. Do not re-derive them first.
 - [ ] **Three condition gates are used by no record** — `GATE_SURFACE`, `GATE_OPEN_ABOVE`, `GATE_DAYLIGHT`.
       `GATE_DAYLIGHT` is genuinely redundant (photosynthesis takes light as its rate driver). The other two
       are live machinery nothing calls: wire them in or delete them.
