@@ -4,27 +4,42 @@
 
 layout(local_size_x = 64) in;
 
-layout(set = 0, binding = 1, std430) restrict readonly buffer Lava { float lava[]; };
-layout(set = 0, binding = 2, std430) restrict readonly buffer Solid { float solid[]; };
-layout(set = 0, binding = 4, std430) restrict writeonly buffer ActiveIdx { uint active_idx[]; };
+// No `restrict`: a row that does not use Back/Aux binds an already-bound buffer into those slots.
+layout(set = 0, binding = 1, std430) readonly buffer Prim { float prim[]; };
+layout(set = 0, binding = 2, std430) readonly buffer Solid { float solid[]; };
+layout(set = 0, binding = 3, std430) readonly buffer Back { float back_half[]; };
+layout(set = 0, binding = 4, std430) writeonly buffer ActiveIdx { uint active_idx[]; };
 // Doubles as the dispatch-indirect argument buffer AND the atomic counter. Slots:
 //   [0] groups_x   [1] groups_y (1)   [2] groups_z (1)   -- read by compute_list_dispatch_indirect at offset 0
 //   [3] list_count    -- number of entries written into active_idx; the consumer's loop bound
-layout(set = 0, binding = 5, std430) restrict buffer ActiveArgs { uint active_args[]; };
+layout(set = 0, binding = 5, std430) buffer ActiveArgs { uint active_args[]; };
+layout(set = 0, binding = 6, std430) readonly buffer Aux { float aux[]; };
+layout(set = 0, binding = 15, std430) readonly buffer Neigh { int nbr[]; };   // idx*6 + slot
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint pass_id;      // 0 = reset counters, 1 = append, 2 = publish dispatch args
+	uint flags;        // predicate terms, below
+	float thr;         // prim/back keep threshold
+	float aux_thr;     // aux keep threshold
 	uint pad0;
 	uint pad1;
+	uint pad2;
 } params;
 
-// MUST match lava_phase_sphere3d.glsl's LAVA_MIN_MASS exactly — this predicate stands in for that kernel's
-// own first early-out, so a different constant here would silently change which cells it processes.
-const float LAVA_MIN_MASS = 0.0001;
+// Predicate terms. Bit values, not model parameters; CellListPass.Flag mirrors them.
+#define F_OPEN_ONLY 1u    // reject solid cells
+#define F_INCLUSIVE 2u    // keep on >= thr rather than > thr
+#define F_BACK 4u         // keep when the ping-pong back half is over thr
+#define F_HALO 8u         // keep when any of the six neighbours is over thr
+#define F_AUX 16u         // keep when the aux channel is over aux_thr
 
 shared uint s_list_n;
 shared uint s_list_base;
+
+bool over(float v) {
+	return ((params.flags & F_INCLUSIVE) != 0u) ? (v >= params.thr) : (v > params.thr);
+}
 
 void main() {
 	uint lid = gl_LocalInvocationID.x;
@@ -61,9 +76,23 @@ void main() {
 
 	bool keep = false;
 	if (g < params.cell_count) {
-		// lava_phase's own two final-input early-outs, evaluated here instead of there. This is the whole
-		// predicate: the cell holds molten rock, and it is open space rather than bedrock.
-		keep = (lava[g] >= LAVA_MIN_MASS) && (solid[g] == 0.0);
+		bool hit = over(prim[g]);
+		if (!hit && (params.flags & F_BACK) != 0u) {
+			hit = over(back_half[g]);
+		}
+		if (!hit && (params.flags & F_AUX) != 0u) {
+			hit = aux[g] > params.aux_thr;
+		}
+		if (!hit && (params.flags & F_HALO) != 0u) {
+			uint base = g * 6u;
+			for (int d = 0; d < 6; ++d) {
+				int nb = nbr[base + uint(d)];
+				if (nb >= 0 && over(prim[uint(nb)])) {
+					hit = true;
+				}
+			}
+		}
+		keep = hit && ((params.flags & F_OPEN_ONLY) == 0u || solid[g] == 0.0);
 	}
 
 	uint slot_local = 0u;

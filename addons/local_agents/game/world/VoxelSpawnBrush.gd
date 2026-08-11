@@ -86,12 +86,6 @@ func _meteor_size_scale() -> float:
 	return 0.5 + _brush_radius / 10.0
 
 
-# Map the brush radius to a meteor size multiplier: the default radius (5) leaves the rock at its
-# natural size (1.0) and growing the brush scales the meteor up, so Ctrl + wheel makes a bigger meteor.
-func _meteor_size_scale() -> float:
-	return 0.5 + _brush_radius / 10.0
-
-
 # RMB entry point: resolve the terrain point under the cursor and paint the armed kind there.
 func place_armed(screen_pos: Vector2) -> void:
 	var point: Vector3 = _terrain_point(screen_pos)
