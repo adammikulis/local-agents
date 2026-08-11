@@ -7,20 +7,10 @@
 const int LA_SOLID  = 0;
 const int LA_LIQUID = 1;
 const int LA_GAS    = 2;
-const int LA_ATOMS  = 3;
-const int LA_PLASMA = 4;
 
 const float LA_KELVIN_OFFSET = 273.15;      // LAPhysical.KELVIN_OFFSET
 const float LA_WATSON_EXP    = 0.38;        // LAPhysical.WATSON_LATENT_EXPONENT
 const float LA_VAPOUR_R      = 461.52;       // LAPhysical.VAPOUR_GAS_CONST_J_KGK
-const float LA_R_MOL         = 8.314462618;  // LAPhysical.GAS_CONSTANT_J_MOL_K
-const float LA_EV_J_MOL      = 96485.33;     // LAPhysical.EV_TO_J_PER_MOL
-const float LA_IE_H          = 13.598;       // LAPhysical.IONISATION_EV_H
-const float LA_IE_O          = 13.618;       // LAPhysical.IONISATION_EV_O
-const float LA_DISS_ONSET_C  = 2226.85;      // LAPhysical.DISSOCIATION_ONSET_C
-const float LA_ION_ONSET_C   = 9726.85;      // LAPhysical.IONISATION_ONSET_C
-const float LA_ATOM_H2O_J_MOL = 926900.0;    // LAPhysical.ATOMISATION_H2O_J_MOL
-const float LA_MM_H2O         = 0.018015;    // LAPhysical.MOLAR_MASS_WATER_KG_MOL
 
 struct SubstanceTh {
 	float c_sol;
@@ -34,9 +24,6 @@ struct SubstanceTh {
 	float l_vap_ref_t_c;
 	float crit_t_c;
 	float crit_p_pa;
-	float l_diss;      // atomisation enthalpy per kg
-	float l_ion;       // ionisation energy per kg, summed over the formula
-	float c_atom;      // monatomic (3/2)R per mole of ATOMS, per kg
 };
 
 // LASubstances.table()["h2o"], thermal half. Values are gate-bound to LAPhysical.
@@ -52,12 +39,7 @@ SubstanceTh la_h2o() {
 		2501000.0,    // LATENT_HEAT_VAPORISATION_0C_J_KG
 		0.0,          // WATER_FREEZE_C
 		373.946,      // WATER_CRITICAL_T_C
-		22064000.0,   // WATER_CRITICAL_P_PA
-		// Derived exactly as LASubstances does: atomisation per mole over molar mass, and the formula's
-		// element ionisation energies summed. The expression IS the derivation; only the inputs are bound.
-		LA_ATOM_H2O_J_MOL / LA_MM_H2O,
-		(2.0 * LA_IE_H + 1.0 * LA_IE_O) * LA_EV_J_MOL / LA_MM_H2O,
-		1.5 * LA_R_MOL * 3.0 / LA_MM_H2O
+		22064000.0    // WATER_CRITICAL_P_PA
 	);
 }
 
@@ -110,27 +92,11 @@ vec4 la_enthalpy_to_state(SubstanceTh s, float h_j_kg, float p_pa) {
 		float v = (l_vap > 0.0) ? (h_j_kg - h_boil_start) / l_vap : 1.0;
 		return vec4(boil, float(LA_LIQUID), 1.0, v);
 	}
-	// GAS ramp, then the two rungs above it: molecules break into atoms, then those atoms ionise. Both are
-	// plateaus, so neither latent heat can be skipped.
-	float h_gas_end = (s.c_gas > 0.0) ? h_boil_end + s.c_gas * (LA_DISS_ONSET_C - boil) : h_boil_end;
-	if (h_j_kg <= h_gas_end || s.l_diss <= 0.0) {
-		float t = (s.c_gas > 0.0) ? boil + (h_j_kg - h_boil_end) / s.c_gas : boil;
-		return vec4(t, float(LA_GAS), 1.0, 1.0);
-	}
-	float h_diss_end = h_gas_end + s.l_diss;
-	if (h_j_kg < h_diss_end) { return vec4(LA_DISS_ONSET_C, float(LA_GAS), 1.0, 1.0); }
-
-	float h_atom_end = (s.c_atom > 0.0) ? h_diss_end + s.c_atom * (LA_ION_ONSET_C - LA_DISS_ONSET_C)
-		: h_diss_end;
-	if (h_j_kg <= h_atom_end || s.l_ion <= 0.0) {
-		float t = (s.c_atom > 0.0) ? LA_DISS_ONSET_C + (h_j_kg - h_diss_end) / s.c_atom : LA_DISS_ONSET_C;
-		return vec4(t, float(LA_ATOMS), 1.0, 1.0);
-	}
-	float h_ion_end = h_atom_end + s.l_ion;
-	if (h_j_kg < h_ion_end) { return vec4(LA_ION_ONSET_C, float(LA_ATOMS), 1.0, 1.0); }
-
-	float tp = (s.c_atom > 0.0) ? LA_ION_ONSET_C + (h_j_kg - h_ion_end) / s.c_atom : LA_ION_ONSET_C;
-	return vec4(tp, float(LA_PLASMA), 1.0, 1.0);
+	// GAS. The two rungs ABOVE this — dissociation and ionisation — are equilibria (law of mass action,
+	// Saha), not plateaus, and inverting them needs bisection that is too costly per cell per step. They
+	// live in LASubstances only until the EOS table lands; see docs/PHYSICS_TODO.md.
+	float t = (s.c_gas > 0.0) ? boil + (h_j_kg - h_boil_end) / s.c_gas : boil;
+	return vec4(t, float(LA_GAS), 1.0, 1.0);
 }
 
 // Inverse: specific enthalpy of a fully-liquid (or fully-solid, below melt) cell at temperature t_c.

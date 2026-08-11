@@ -27,6 +27,7 @@ static func table() -> Dictionary:
 			"formula": {"H": 2.0, "O": 1.0},
 			"molar_mass": PC.MOLAR_MASS_WATER_KG_MOL,
 			"atomisation_j_mol": PC.ATOMISATION_H2O_J_MOL,
+			"entropy_gas_j_molk": 188.835,
 			"density": PC.WATER_DENSITY_KG_M3,
 			"density_solid": PC.ICE_DENSITY_KG_M3,
 			"specific_heat": PC.WATER_SPECIFIC_HEAT_J_KGK,
@@ -57,6 +58,7 @@ static func table() -> Dictionary:
 			"formula": {"O": 2.0},
 			"molar_mass": PC.MOLAR_MASS_O2_KG_MOL,
 			"atomisation_j_mol": PC.ATOMISATION_O2_J_MOL,
+			"entropy_gas_j_molk": 205.152,
 			"density": PC.AMBIENT_O2_DENSITY_KG_M3,
 			"specific_heat": PC.AIR_SPECIFIC_HEAT_J_KGK,
 		},
@@ -64,6 +66,7 @@ static func table() -> Dictionary:
 			"formula": {"C": 1.0, "O": 2.0},
 			"molar_mass": PC.MOLAR_MASS_CO2_KG_MOL,
 			"atomisation_j_mol": PC.ATOMISATION_CO2_J_MOL,
+			"entropy_gas_j_molk": 213.785,
 			"density": PC.AMBIENT_O2_DENSITY_KG_M3 * (PC.MOLAR_MASS_CO2_KG_MOL / PC.MOLAR_MASS_O2_KG_MOL),
 			"specific_heat": PC.AIR_SPECIFIC_HEAT_J_KGK,
 		},
@@ -209,6 +212,93 @@ static func boil_c_at(id: String, p_pa: float) -> float:
 
 ## constants with the relation between them written in a comment. Watson correlation:
 ## that is physically ZERO. Watson has the right asymptote — L goes to zero at Tc, because that is what a
+## Per-element data, keyed the way `formula` is. One row per element, never one per compound.
+const ELEMENT_IONISATION_EV: Dictionary = {
+	"H": PC.IONISATION_EV_H, "O": PC.IONISATION_EV_O, "C": PC.IONISATION_EV_C, "N": PC.IONISATION_EV_N,
+	"Si": PC.IONISATION_EV_SI, "Ca": PC.IONISATION_EV_CA, "Fe": PC.IONISATION_EV_FE,
+	"Mg": PC.IONISATION_EV_MG, "Al": PC.IONISATION_EV_AL,
+}
+const ELEMENT_DEGEN: Dictionary = {
+	"H": [PC.DEGEN_H_0, PC.DEGEN_H_1], "O": [PC.DEGEN_O_0, PC.DEGEN_O_1],
+	"C": [PC.DEGEN_C_0, PC.DEGEN_C_1], "N": [PC.DEGEN_N_0, PC.DEGEN_N_1],
+}
+const ELEMENT_ENTROPY_J_MOLK: Dictionary = {
+	"H": PC.ENTROPY_H_ATOM_J_MOLK, "O": PC.ENTROPY_O_ATOM_J_MOLK,
+	"C": PC.ENTROPY_C_ATOM_J_MOLK, "N": PC.ENTROPY_N_ATOM_J_MOLK,
+}
+
+
+## Dissociated fraction at temperature and pressure, from the law of mass action. M <-> v atoms, with
+## dG = dH_atomisation - T dS and dS the free atoms' standard entropies minus the molecule's.
+## No onset temperature: the fraction rises smoothly and is nonzero everywhere, which is what a real
+## equilibrium does.
+static func dissociated_fraction(id: String, t_k: float, p_pa: float) -> float:
+	var s: Dictionary = table().get(id, {})
+	var dh: float = float(s.get("atomisation_j_mol", 0.0))
+	var s_mol: float = float(s.get("entropy_gas_j_molk", 0.0))
+	if dh <= 0.0 or s_mol <= 0.0 or t_k <= 0.0:
+		return 0.0
+	var nu: float = 0.0
+	var s_atoms: float = 0.0
+	for el in s.get("formula", {}):
+		var n: float = float(s["formula"][el])
+		if not ELEMENT_ENTROPY_J_MOLK.has(el):
+			return 0.0
+		nu += n
+		s_atoms += n * float(ELEMENT_ENTROPY_J_MOLK[el])
+	if nu <= 1.0:
+		return 0.0
+	var dg: float = dh - t_k * (s_atoms - s_mol)
+	var ln_k: float = -dg / (PC.GAS_CONSTANT_J_MOL_K * t_k)
+	# Bisect on the extent. K_p(alpha) is monotonic increasing, so a bracket search is exact to tolerance.
+	var pr: float = maxf(p_pa, 1.0) / PC.STANDARD_PRESSURE_PA
+	var lo: float = 0.0
+	var hi: float = 1.0
+	for _i in range(48):
+		var a: float = 0.5 * (lo + hi)
+		var tot: float = 1.0 + (nu - 1.0) * a
+		var x_a: float = nu * a / tot
+		var x_m: float = (1.0 - a) / tot
+		var lhs: float = -1.0e30
+		if x_m > 1.0e-30 and x_a > 1.0e-30:
+			lhs = nu * log(x_a) - log(x_m) + (nu - 1.0) * log(pr)
+		if lhs < ln_k:
+			lo = a
+		else:
+			hi = a
+	return 0.5 * (lo + hi)
+
+
+## Ionised fraction from the SAHA equation, per element and mole-weighted. Single stage: the closed-form
+## root of x^2/(1-x) = S. `n_m3` is the number density of heavy particles, from the ideal gas at the cell.
+static func ionised_fraction(id: String, t_k: float, p_pa: float) -> float:
+	var s: Dictionary = table().get(id, {})
+	var f: Dictionary = s.get("formula", {})
+	if f.is_empty() or t_k <= 0.0:
+		return 0.0
+	var n_m3: float = maxf(p_pa, 1.0) / (PC.BOLTZMANN_J_K * t_k)
+	var kt: float = PC.BOLTZMANN_J_K * t_k
+	# The thermal de Broglie factor, (2 pi m_e k T / h^2)^(3/2).
+	var lam: float = pow(2.0 * PI * PC.ELECTRON_MASS_KG * kt / (PC.PLANCK_J_S * PC.PLANCK_J_S), 1.5)
+	var atoms: float = 0.0
+	var ion_atoms: float = 0.0
+	for el in f:
+		var n: float = float(f[el])
+		atoms += n
+		if not ELEMENT_IONISATION_EV.has(el) or not ELEMENT_DEGEN.has(el):
+			continue
+		var chi: float = float(ELEMENT_IONISATION_EV[el]) * PC.EV_TO_J_PER_MOL / PC.AVOGADRO_PER_MOL
+		var g: Array = ELEMENT_DEGEN[el]
+		var ratio: float = 2.0 * float(g[1]) / maxf(float(g[0]), 1.0)
+		var expo: float = -chi / kt
+		var big: float = ratio * lam * exp(expo) / maxf(n_m3, 1.0)
+		var x: float = 0.0
+		if big > 0.0:
+			x = 0.5 * (-big + sqrt(big * big + 4.0 * big))
+		ion_atoms += n * clampf(x, 0.0, 1.0)
+	return ion_atoms / atoms if atoms > 0.0 else 0.0
+
+
 ## Ionisation energy per kg, DERIVED from `formula` and the per-element first ionisation energies. One
 ## number per element, never one per compound — the same rule the stoichiometry follows.
 static func ionisation_j_kg(id: String) -> float:
@@ -314,36 +404,48 @@ static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDA
 		return {"t_c": boil, "phase": LIQUID, "melted": 1.0,
 			"vaporised": (h_j_kg - h_boil_start) / l_vap if l_vap > 0.0 else 1.0}
 
-	# GAS ramp, then the two rungs above it. A molecule breaks into atoms before those atoms ionise, and both
-	# steps are plateaus: temperature stops responding while the bonds, then the electrons, absorb the energy.
-	var l_diss: float = dissociation_j_kg(id)
-	var l_ion: float = ionisation_j_kg(id)
-	var t_diss: float = float(s.get("dissociation_onset_c", PC.DISSOCIATION_ONSET_C))
-	var h_gas_end: float = h_boil_end + c_gas * (t_diss - boil) if c_gas > 0.0 else h_boil_end
-	if h_j_kg <= h_gas_end or l_diss <= 0.0:
-		return {"t_c": boil + (h_j_kg - h_boil_end) / c_gas if c_gas > 0.0 else boil,
-			"phase": GAS, "melted": 1.0, "vaporised": 1.0, "dissociated": 0.0, "ionised": 0.0}
+	# ABOVE THE BOILING PLATEAU the two high transitions are EQUILIBRIA, not plateaus: the dissociated and
+	# ionised fractions rise smoothly with temperature (law of mass action, Saha). So enthalpy is a
+	# continuous monotonic function of T and the state is found by inverting it.
+	var t_gas: float = _invert_gas_enthalpy(id, h_j_kg, p_pa, boil, h_boil_end, c_gas)
+	var t_k: float = t_gas + PC.KELVIN_OFFSET
+	var a_d: float = dissociated_fraction(id, t_k, p_pa)
+	var a_i: float = ionised_fraction(id, t_k, p_pa)
+	var ph: int = GAS
+	if a_i >= 0.5:
+		ph = PLASMA
+	elif a_d >= 0.5:
+		ph = ATOMS
+	return {"t_c": t_gas, "phase": ph, "melted": 1.0, "vaporised": 1.0,
+		"dissociated": a_d, "ionised": a_i}
 
-	var h_diss_end: float = h_gas_end + l_diss
-	if h_j_kg < h_diss_end:
-		return {"t_c": t_diss, "phase": GAS, "melted": 1.0, "vaporised": 1.0,
-			"dissociated": (h_j_kg - h_gas_end) / l_diss, "ionised": 0.0}
 
-	# ATOMS: free atoms, still neutral. Monatomic, so the heat capacity is (3/2)R per mole of atoms.
-	var c_atom: float = _monatomic_c_j_kgk(id)
-	var t_ion: float = float(s.get("ionisation_onset_c", PC.IONISATION_ONSET_C))
-	var h_atom_end: float = h_diss_end + c_atom * (t_ion - t_diss) if c_atom > 0.0 else h_diss_end
-	if h_j_kg <= h_atom_end or l_ion <= 0.0:
-		return {"t_c": t_diss + (h_j_kg - h_diss_end) / c_atom if c_atom > 0.0 else t_diss,
-			"phase": ATOMS, "melted": 1.0, "vaporised": 1.0, "dissociated": 1.0, "ionised": 0.0}
+## Invert h(T) above the boiling plateau. h rises monotonically with T — sensible heat plus the two
+## equilibrium enthalpies, both of which only increase — so bisection is exact to tolerance and needs no
+## starting guess.
+static func _invert_gas_enthalpy(id: String, h_j_kg: float, p_pa: float, boil: float,
+		h_boil_end: float, c_gas: float) -> float:
+	var lo: float = boil
+	var hi: float = boil + 1.0e5
+	for _i in range(60):
+		var mid: float = 0.5 * (lo + hi)
+		if _gas_enthalpy_at(id, mid, p_pa, boil, h_boil_end, c_gas) < h_j_kg:
+			lo = mid
+		else:
+			hi = mid
+	return 0.5 * (lo + hi)
 
-	var h_ion_end: float = h_atom_end + l_ion
-	if h_j_kg < h_ion_end:
-		return {"t_c": t_ion, "phase": ATOMS, "melted": 1.0, "vaporised": 1.0,
-			"dissociated": 1.0, "ionised": (h_j_kg - h_atom_end) / l_ion}
 
-	return {"t_c": t_ion + (h_j_kg - h_ion_end) / c_atom if c_atom > 0.0 else t_ion,
-		"phase": PLASMA, "melted": 1.0, "vaporised": 1.0, "dissociated": 1.0, "ionised": 1.0}
+## Specific enthalpy at a temperature above boiling: sensible heat of the gas, plus the share of the
+## atomisation and ionisation energies the equilibrium has actually paid for at that temperature.
+static func _gas_enthalpy_at(id: String, t_c: float, p_pa: float, boil: float,
+		h_boil_end: float, c_gas: float) -> float:
+	var t_k: float = t_c + PC.KELVIN_OFFSET
+	var a_d: float = dissociated_fraction(id, t_k, p_pa)
+	var a_i: float = ionised_fraction(id, t_k, p_pa)
+	# Once dissociated the carrier is monatomic, so the sensible term crosses over with the fraction.
+	var c_eff: float = c_gas + (_monatomic_c_j_kgk(id) - c_gas) * a_d
+	return h_boil_end + c_eff * (t_c - boil) + a_d * dissociation_j_kg(id) + a_d * a_i * ionisation_j_kg(id)
 
 
 ## Monatomic ideal-gas heat capacity of the dissociated substance, J/kgK: (3/2)R per mole of ATOMS.

@@ -41,7 +41,7 @@ if bad:
 # THE FORMULA, NOT JUST THE VALUES. Every copy of rc_of read the right constants and put them in four
 # incompatible expressions, which no value gate could see. The plateaus must appear in the same order on
 # both sides: solid ramp, fusion plateau, liquid ramp, vaporisation plateau, gas ramp.
-STEPS = ["h_melt_start", "h_melt_end", "h_boil_start", "h_boil_end", "h_gas_end", "h_diss_end", "h_atom_end", "h_ion_end"]
+STEPS = ["h_melt_start", "h_melt_end", "h_boil_start", "h_boil_end"]
 def order(txt):
     seen = []
     for line in txt.split("\n"):

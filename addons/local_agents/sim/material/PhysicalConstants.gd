@@ -367,7 +367,29 @@ const IONISATION_EV_AL: float = 5.986
 # absorbed — while placing it at a single temperature instead of spreading it over a range.
 # See docs/MODEL_PARAMETERS.md.
 const DISSOCIATION_ONSET_C: float = 2226.85           # 2500 K, where H2O dissociation becomes significant
-const IONISATION_ONSET_C: float = 9726.85             # 10000 K, appreciable thermal ionisation
+# --- SAHA AND LAW OF MASS ACTION: the equilibria the two high rungs actually obey ------------------------
+const PLANCK_J_S: float = 6.62607015e-34             # CODATA, exact
+const BOLTZMANN_J_K: float = 1.380649e-23            # CODATA, exact
+const ELECTRON_MASS_KG: float = 9.1093837015e-31     # CODATA
+const AVOGADRO_PER_MOL: float = 6.02214076e23        # CODATA, exact
+
+# GROUND-STATE ELECTRONIC DEGENERACIES, neutral then singly-ionised (NIST ASD term symbols).
+# Saha carries the ratio 2*g_ion/g_neutral.
+const DEGEN_H_0: float = 2.0     # H  2S(1/2)
+const DEGEN_H_1: float = 1.0     # H+ bare proton
+const DEGEN_O_0: float = 9.0     # O  3P(2)
+const DEGEN_O_1: float = 4.0     # O+ 4S(3/2)
+const DEGEN_C_0: float = 9.0     # C  3P(0)
+const DEGEN_C_1: float = 6.0     # C+ 2P(1/2)
+const DEGEN_N_0: float = 4.0     # N  4S(3/2)
+const DEGEN_N_1: float = 9.0     # N+ 3P(0)
+
+# STANDARD MOLAR ENTROPIES at 298.15 K, 1 bar, J/(mol K) — NIST-JANAF. The dissociation equilibrium needs
+# dG = dH - T dS, and dS comes from these: products (free atoms) minus the reactant molecule.
+const ENTROPY_H_ATOM_J_MOLK: float = 114.717
+const ENTROPY_O_ATOM_J_MOLK: float = 161.058
+const ENTROPY_C_ATOM_J_MOLK: float = 158.100
+const ENTROPY_N_ATOM_J_MOLK: float = 153.301
 # The linear fit, as a CONSTANT rather than a sentence in a comment, so the relation between the two
 # measured latent heats is checkable instead of asserted. Valid 0-100 C; use the Watson form outside it.
 const LATENT_VAPORISATION_SLOPE_J_KGK: float = 2361.0
