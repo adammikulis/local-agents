@@ -85,40 +85,51 @@ func report(step_index: int) -> Dictionary:
 	var fuel_open: float = 0.0
 	var fuel_all: float = 0.0
 	var open_cells: int = 0
+	# VOLUME-WEIGHTED, IN CUBIC METRES, and the unit is not optional here. A channel value says how full a
+	# cell is; the amount of substance is that times the cell's volume, and this grid's cells differ by up
+	# to 8.8x — so summing raw made these totals a function of where in the shell a substance happened to be
+	# sitting, and a gas simply rising changed `carbon_total` with no carbon created or destroyed.
+	#
+	# CUBIC METRES because `_elements_of` multiplies these by LAReactionBalance.mol_per_unit(), which is
+	# density / molar_mass, i.e. MOL PER CUBIC METRE. A dimensionless sum times mol/m^3 is not moles, so
+	# `element_C_mol` — the figure PHYSICS_RUBRIC criterion 1 is scored on — was never in moles.
+	var grid = _f._sphere
+	var have_grid: bool = grid != null and grid.cell_count == cc
 	for c in cc:
 		var is_open: bool = solid[c] == 0
+		var vol: float = LAFieldTotals.cell_volume_m3(grid, c) if have_grid else 1.0
 		if has_co2:
-			var v: float = co2[c]
+			var v: float = co2[c] * vol
 			co2_all += v
 			if is_open:
 				co2_open += v
 		if has_o2:
-			var v2: float = o2[c]
+			var v2: float = o2[c] * vol
 			o2_all += v2
 			if is_open:
 				o2_open += v2
 		if has_det:
-			var v3: float = det[c]
+			var v3: float = det[c] * vol
 			det_all += v3
 			if is_open:
 				det_open += v3
 		if has_bio:
-			var v4: float = bio[c]
+			var v4: float = bio[c] * vol
 			bio_all += v4
 			if is_open:
 				bio_open += v4
 		if has_fert:
-			var v5: float = fert[c]
+			var v5: float = fert[c] * vol
 			fert_all += v5
 			if is_open:
 				fert_open += v5
 		if has_fung:
-			var v6: float = fung[c]
+			var v6: float = fung[c] * vol
 			fung_all += v6
 			if is_open:
 				fung_open += v6
 		if has_fuel:
-			var v7: float = fuel[c]
+			var v7: float = fuel[c] * vol
 			fuel_all += v7
 			if is_open:
 				fuel_open += v7
