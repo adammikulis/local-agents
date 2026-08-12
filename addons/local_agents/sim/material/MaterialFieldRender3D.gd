@@ -23,7 +23,6 @@ var _f = null                              # LAMaterialField3D
 var _camera: Node3D = null
 var _center: Vector3 = Vector3.ZERO
 var _sea_radius: float = 0.0
-var _grid: RefCounted = null
 var _builder: RefCounted = null
 var _mesh: ArrayMesh = null
 var _mat: ShaderMaterial = null
@@ -38,8 +37,6 @@ func setup(field, camera: Node3D, terrain, _sun, center: Vector3, sea_radius: fl
 	_camera = camera
 	_center = center
 	_sea_radius = sea_radius
-	if field.has_method("sphere_grid"):
-		_grid = field.sphere_grid()
 	_builder = MeshBuilderScript.new()
 
 	_mesh = ArrayMesh.new()
@@ -95,7 +92,7 @@ func add_ripple(world_pos: Vector3, strength: float) -> void:
 
 
 func _process(delta: float) -> void:
-	if not _ready or _camera == null or not is_instance_valid(_camera) or _grid == null:
+	if not _ready or _camera == null or not is_instance_valid(_camera) or _f._grid == null:
 		return
 	var cam_pos: Vector3 = _camera.global_position
 	var cam_dist: float = cam_pos.distance_to(_center)
@@ -130,12 +127,9 @@ func _process(delta: float) -> void:
 
 
 func _rebuild(radial: Vector3) -> void:
-	var grid: RefCounted = _grid
-	if _f._water.size() != grid.cell_count:
-		return
 	var inv_xform: Transform3D = global_transform.affine_inverse()
-	var out: Dictionary = _builder.build(grid, _f._water, _f._solid,
-		inv_xform, radial, cos(CAP_ANGLE), _f.RENDER_MIN, MAX_MASS, _sea_radius, _f.SEA_WAVE_EPS)
+	var out: Dictionary = _builder.build(_f, inv_xform, radial, cos(CAP_ANGLE),
+		_f.RENDER_MIN, MAX_MASS, _sea_radius, _f.SEA_WAVE_EPS)
 	if _mesh.get_surface_count() > 0:
 		_mesh.clear_surfaces()
 	if int(out["count"]) == 0 or (out["indices"] as PackedInt32Array).size() == 0:

@@ -2,11 +2,8 @@ class_name LAFieldDensity3D
 extends RefCounted
 
 ## BULK DENSITY PER CELL, kg/m^3 — the source term of the gravity solve.
-##
 
-
-## Channels whose amount is already a volume fraction, paired with the LASubstances id they hold. Built
-## from the channel SSOT so a new channel cannot be invisible to gravity.
+## Volume-fraction channels paired with the LASubstances id they hold, built from the channel SSOT.
 static func _fraction_channels() -> Dictionary:
 	var out: Dictionary = {}
 	var rows: Dictionary = LAChannels.rows()

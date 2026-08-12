@@ -162,37 +162,21 @@ func _table_profile(soil: PackedFloat32Array, regolith: PackedByteArray, cc: int
 	var bands: int = LAMaterialField3D.REGOLITH_CELLS
 	var sat: Array = []
 	var cells: Array = []
-	if regolith.size() != cc or soil.size() < cc or _f._sphere == null:
-		return [sat, cells]
-	var depth: int = int(_f._sphere.depth)
-	if depth <= 0:
+	if regolith.size() != cc or soil.size() < cc or _f._grid == null:
 		return [sat, cells]
 	var sum_d: PackedFloat64Array = PackedFloat64Array()
 	var n_d: PackedInt32Array = PackedInt32Array()
 	sum_d.resize(bands)
 	n_d.resize(bands)
-	var col: int = 0
-	while col * depth < cc:
-		var base: int = col * depth
-		var surf_r: int = -1
-		var r: int = depth - 1
-		while r >= 0:
-			if regolith[base + r] != 0:
-				surf_r = r
-				break
-			r -= 1
-		if surf_r >= 0:
-			r = surf_r
-			while r >= 0:
-				if regolith[base + r] == 0:
-					break                              # the band is contiguous; the first gap ends it
-				var d: int = surf_r - r
-				if d >= bands:
-					break
-				sum_d[d] += soil[base + r]
-				n_d[d] += 1
-				r -= 1
-		col += 1
+	# A regolith cell's band IS its burial depth: the solid cells between it and open air, up the vertical.
+	for c in cc:
+		if regolith[c] == 0:
+			continue
+		var d: int = LAFieldGeometry.burial_steps(_f, c, bands)
+		if d < 0 or d >= bands:
+			continue
+		sum_d[d] += soil[c]
+		n_d[d] += 1
 	# Saturation is soil over the cell's own CAPACITY, and capacity is POROSITY, which closes with burial —
 	# flat SOIL_CAPACITY = 0.6, which both overstated the deep bands' saturation and hid the compaction.)
 	for d in bands:

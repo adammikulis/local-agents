@@ -39,33 +39,19 @@ func _queue():
 	return _f._inject.queue
 
 
+## Steps a foot-level march may take before it is no longer a march to the ground under an animal.
+const GROUND_SEARCH: int = 6
+
+
+## The open cell resting on rock under `world_pos`. Marches along gravity, so which neighbour is "below"
+## is read from g rather than from a slot number.
 func ground_cell(world_pos: Vector3) -> int:
 	if _f == null or _f._cell_count <= 0:
 		return -1
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0:
 		return -1
-	if _f._sphere == null:
-		return c if _f._solid[c] == 0 else -1
-	# Walk radially until we are in open air with rock (or the shell floor) beneath — at most a few steps,
-	# because a standing animal is by construction within a cell or two of the ground.
-	var steps: int = 0
-	while _f._solid[c] != 0 and steps < 6:
-		var up_c: int = _f._sphere.neighbours[c * 6 + 1]     # N_OUT = 1 (radially outward)
-		if up_c < 0:
-			return -1
-		c = up_c
-		steps += 1
-	if _f._solid[c] != 0:
-		return -1
-	steps = 0
-	while steps < 6:
-		var in_c: int = _f._sphere.neighbours[c * 6 + 0]     # N_IN = 0 (radially inward)
-		if in_c < 0 or _f._solid[in_c] != 0:
-			return c                                          # rock (or the floor) beneath: this is the ground cell
-		c = in_c
-		steps += 1
-	return c
+	return LAFieldGeometry.ground(_f, c, GROUND_SEARCH)
 
 
 # --- INTAKE: matter leaving the field and entering a body -------------------------------------------------
@@ -112,11 +98,11 @@ func drink(world_pos: Vector3, want: float) -> float:
 	if c < 0:
 		return 0.0
 	var took: float = _draw(q, "water", _f._water, c, want)
-	if took < want and _f._soil.size() == _f._cell_count and _f._sphere != null:
-		# Groundwater: the permeable shell immediately under the animal's feet.
+	if took < want and _f._soil.size() == _f._cell_count and _f._grid != null:
+		# Groundwater: the permeable ground immediately under the animal's feet.
 		var g: int = ground_cell(world_pos)
 		if g >= 0:
-			var below: int = _f._sphere.neighbours[g * 6 + 0]
+			var below: int = LAFieldGeometry.below(_f, g)
 			if below >= 0:
 				took += _draw(q, "soil", _f._soil, below, want - took)
 	if took > 0.0:

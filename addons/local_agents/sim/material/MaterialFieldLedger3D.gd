@@ -370,22 +370,12 @@ func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int
 	out["energy_book_inject_w_m2"] = cum_inject * inv
 
 
-## The geotherm's scalar flux crosses the innermost solid faces, whose area is the r == 0 inward face.
-func _geo_watts(shell_solid: int, cc: int) -> float:
-	if _f._geotherm == null:
+## The geotherm's scalar flux crosses the deepest solid faces, one cell face each.
+func _geo_watts(shell_solid: int, _cc: int) -> float:
+	if _f._geotherm == null or _f._grid == null:
 		return 0.0
 	var geo_flux: float = float(_f._geotherm.report().get("core_flux_w_m2", 0.0))
-	var depth: int = _f._dim_y
-	var grid = _f._sphere
-	var face_m2: float = 0.0
-	if grid != null and grid.cell_count == cc and depth > 0:
-		var columns: int = int(cc / depth)
-		for s_col in columns:
-			face_m2 += grid.cell_size * grid.cell_size
-		face_m2 = face_m2 / float(maxi(columns, 1))
-	else:
-		face_m2 = pow(float(_f._cell_size), 2.0)
-	return geo_flux * face_m2 * float(shell_solid)
+	return geo_flux * _f._grid.face_area() * float(shell_solid)
 
 
 # --- shared ------------------------------------------------------------------------------------------

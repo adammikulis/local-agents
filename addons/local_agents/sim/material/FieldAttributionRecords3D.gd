@@ -1,12 +1,8 @@
 class_name LAFieldAttributionRecords
 extends RefCounted
 
-## Per-substance data for LAFieldPassAttribution3D. Channels come from LAFieldLedgerRecords; this file adds
-## which pass produces each channel's ping-pong half, and which keys the report publishes.
-
-## Pass after which a PAIR channel's current data sits in the other half. Keyed by channel, because the
-## producer is a property of the channel and not of the substance reading it. SINGLE channels are absent:
-## `read_raw` ignores the half for those.
+## Which pass produces each channel's ping-pong half, and which keys the report publishes. Keyed by CHANNEL;
+## SINGLE channels are absent, and `read_raw` ignores the half for those.
 const PRODUCERS: Dictionary = {
 	"temp": "ThermalPass",
 	"water": "WaterSlumpLavaPass",

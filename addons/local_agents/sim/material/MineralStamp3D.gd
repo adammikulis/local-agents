@@ -75,7 +75,7 @@ func _scan() -> void:
 		if not was_solid and rf >= GROW_THRESHOLD:
 			var wp: Vector3 = _f.cell_world_pos_linear(c)
 			last_grow_before_solid = terrain.is_solid(wp)
-			terrain.fill_rock(wp, size, _f.cell_radial(c))
+			terrain.fill_rock(wp, size, LAFieldGeometry.up(_f, c))
 			last_grow_after_solid = terrain.is_solid(wp)
 			last_grow_pos = wp
 			solid[c] = 1
@@ -126,18 +126,24 @@ func _settle_h2o(bury_src: PackedInt32Array, bury_dst: PackedInt32Array, free_so
 		q.displace("soil", free_soil, "water", free_soil)   # pore water of the melted rock, freed in place
 
 
-## The nearest OPEN neighbour of `c`, preferring the radially OUTWARD one (slot N_OUT) so displaced water rises
+## The nearest OPEN neighbour of `c`, preferring the one UP the local vertical so displaced water rises
 ## rather than being pushed sideways into a hillside. -1 when the cell is fully enclosed by rock.
 func _open_neighbour(c: int, solid: PackedByteArray) -> int:
-	if _f._sphere == null:
+	if _f._grid == null:
 		return -1
-	var nbr: PackedInt32Array = _f._sphere.neighbours
-	# Slot order is LASphereGrid's: 0 = inward, 1 = outward, 2..5 = lateral. Try outward, then lateral, then in.
-	for d in [1, 2, 3, 4, 5, 0]:
-		var nb: int = nbr[c * 6 + d]
+	var hi: int = LAFieldGeometry.above(_f, c)
+	if hi >= 0 and hi < solid.size() and solid[hi] == 0:
+		return hi
+	var nbr: PackedInt32Array = _f._grid.neighbours
+	var down_slot: int = LAFieldGeometry.slot_toward(LAFieldGeometry.down(_f, c))
+	for d in LAVoxelGrid.SLOTS:
+		if d == down_slot or d == LAVoxelGrid.opposite_slot(down_slot):
+			continue
+		var nb: int = nbr[c * LAVoxelGrid.SLOTS + d]
 		if nb >= 0 and nb < solid.size() and solid[nb] == 0:
 			return nb
-	return -1
+	var lo: int = LAFieldGeometry.below(_f, c)
+	return lo if lo >= 0 and lo < solid.size() and solid[lo] == 0 else -1
 
 
 ## TEST HOOK (--stamp-test): raise a void cell's rock_fill to `amount` so the next scan fires a GROW stamp.

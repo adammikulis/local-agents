@@ -69,7 +69,7 @@ func setup(field) -> void:
 ## `swing_samples_per_day` reports what that worked out to, which is the number that says whether the diurnal
 ## range below is resolved or aliased.
 func sample() -> void:
-	if _f == null or _f._sphere == null or _f._cell_count <= 0:
+	if _f == null or _f._grid == null or _f._cell_count <= 0:
 		return
 	if not _sited:
 		var frame: int = int(Engine.get_process_frames())
@@ -113,9 +113,8 @@ func report() -> Dictionary:
 
 func _site_stations() -> void:
 	var cc: int = _f._cell_count
-	var depth: int = int(_f._sphere.depth)
 	var solid: PackedByteArray = _f._solid
-	if depth <= 0 or solid.size() != cc:
+	if solid.size() != cc:
 		return
 	var axis: Vector3 = LAMaterialFieldReport3D.PLANET_SPIN_AXIS.normalized()
 	var counts: PackedInt32Array = PackedInt32Array()
@@ -126,10 +125,10 @@ func _site_stations() -> void:
 		band_of[c] = -1
 		if solid[c] != 0:
 			continue
-		var r: int = c % depth
-		if r <= 0 or solid[c - 1] == 0:
+		var lo: int = LAFieldGeometry.below(_f, c)
+		if lo < 0 or solid[lo] == 0:
 			continue                                     # not ground: no rock beneath
-		var p: Vector3 = _f.cell_world_pos_linear(c) - _f._origin
+		var p: Vector3 = _f.cell_world_pos_linear(c) - _f.centre()
 		var radius: float = p.length()
 		if radius < 0.001:
 			continue
@@ -200,9 +199,8 @@ func _reset_day() -> void:
 
 # --- The day, and the season -------------------------------------------------------------------------------
 
-## Accumulate the sun's swept angle about the spin axis IN THE FIELD'S FRAME (where the planet's rotation is
-## what moves it), and close a day when it completes a turn. Also updates the sub-solar latitude, which is
-## computed in the WORLD frame because there the spin does not enter it at all.
+## Accumulate the sun's swept angle about the spin axis in the FIELD frame and close a day at a full turn.
+## The sub-solar latitude is computed in the WORLD frame, where the spin does not enter it.
 func _advance_day() -> void:
 	var sun_world: Vector3 = Vector3.ZERO
 	if _f._sun_light != null:

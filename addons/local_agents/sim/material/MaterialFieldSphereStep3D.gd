@@ -104,19 +104,21 @@ func _field_cadence() -> int:
 	return clampi(n, 1, FIELD_CADENCE_MAX)
 
 
-## Cubed-sphere per-frame step (Phase B MVP): activate the sphere GPU driver once, then run the fixed-step
-## begin_frame/step/end_frame loop over the *_sphere3d kernels and scatter temp/water back. No box CPU tails.
+## Per-frame step: activate the GPU driver once, then run the fixed-step begin_frame/step/end_frame loop and
+## scatter temp/water back.
 func process(delta: float) -> void:
 	if not _f._ready_sim:
 		if _f._terrain == null or not _f._terrain.has_method("is_solid"):
 			return
-		_f._sample_solidity_sphere()
-		_f._seed_sphere_sea()         # fills the ocean basin with real, flowing water
+		_f.sample_solidity()
+		# Gravity BEFORE anything asks which way is down: every "below"/"above" read is a slot chosen from g.
+		_f.solve_gravity()
+		_f._seed_sea()                # fills the ocean basin with real, flowing water
 		_f._compute_regolith()        # the permeable aquifer band (+ initial water table) for groundwater flow
 		LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins (static water bodies)
 		if _f._geotherm != null:
 			_f._geotherm.arm(LAPhysical.INNER_CORE_C)   # the interior's heat, declared through the seal
-		_f.activate()                 # is_sphere() → picks SphereGPUScript + sets _use_gpu
+		_f.activate()                 # builds the GPU driver + sets _use_gpu
 		_f._ready_sim = true
 		return
 	if not _f._use_gpu:
@@ -153,6 +155,7 @@ func process(delta: float) -> void:
 	# ThermalPass' set_sun_dir kernel (max(0, dot(cell_radial, sun_dir))), not this scalar.
 	var solar: float = 0.6
 	var t_pin: int = Time.get_ticks_usec()
+	_f.solve_gravity()               # g follows the mass; the solver runs on its own cadence
 	_f._step_geotherm()              # finite core reservoir: cool it, and publish its flux for this step
 	LASimReport.gauge("field_pin_ms", float(Time.get_ticks_usec() - t_pin) / 1000.0)
 	var t_begin: int = Time.get_ticks_usec()

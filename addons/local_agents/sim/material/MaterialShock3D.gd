@@ -27,8 +27,8 @@ func emit_shock(world_pos: Vector3, magnitude: float) -> void:
 	var cells: PackedInt32Array = PackedInt32Array([c])
 	var deltas: PackedFloat32Array = PackedFloat32Array([magnitude])
 	_f._shock[c] = _f._shock[c] + magnitude
-	if _f._sphere != null:
-		var nbr: PackedInt32Array = _f._sphere.neighbours
+	if _f._grid != null:
+		var nbr: PackedInt32Array = _f._grid.neighbours
 		var spill: float = magnitude * SEED_NEIGHBOUR_FRACTION
 		for d in range(6):
 			var nb: int = nbr[c * 6 + d]
@@ -51,14 +51,14 @@ func shock_at(world_pos: Vector3) -> float:
 ## Normalised world direction of INCREASING shock (points back toward the blast) — creatures flee down it, the
 ## camera shakes along it. Built from the 6-neighbour amplitude differences. Zero where the field is quiet.
 func shock_gradient(world_pos: Vector3) -> Vector3:
-	if _f._sphere == null or _f._shock.size() != _f._cell_count:
+	if _f._grid == null or _f._shock.size() != _f._cell_count:
 		return Vector3.ZERO
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0:
 		return Vector3.ZERO
 	var pos_c: Vector3 = _f.cell_world_pos_linear(c)
 	var s0: float = _f._shock[c]
-	var nbr: PackedInt32Array = _f._sphere.neighbours
+	var nbr: PackedInt32Array = _f._grid.neighbours
 	var grad: Vector3 = Vector3.ZERO
 	for d in range(6):
 		var nb: int = nbr[c * 6 + d]

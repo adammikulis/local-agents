@@ -58,9 +58,8 @@ func _dispatchable() -> bool:
 
 # --- kernels ---------------------------------------------------------------------------------------------
 
-## Load, compile and pipeline a compute kernel; the returned pipeline RID identifies it everywhere else.
-## RID() on any failure, naming the file and the reason: a kernel that does not compile loads as null and
-## its pass then silently does nothing, which every number downstream inherits.
+## Load, compile and pipeline a compute kernel. RID() on failure, naming the file and the reason: a kernel
+## that does not compile loads as null and its pass then silently does nothing.
 func _kernel(path: String) -> RID:
 	if _rd == null:
 		return RID()
@@ -173,9 +172,8 @@ func _half(bufs: Dictionary, key: String, p: int, back: bool) -> RID:
 
 # --- grid geometry ---------------------------------------------------------------------------------------
 
-## A scalar the driver publishes into ctx before any pass dispatches. When it is absent, 0 and a named
-## error: a missing size is missing, and inventing one silently changes the physics of every gather and
-## every Courant factor that reads it. Reported once per key, not once per step.
+## A scalar the driver publishes into ctx before any pass dispatches. Absent means 0 and a named error, once
+## per key: inventing a size silently changes the physics of every gather that reads it.
 func _ctx_num(ctx: Dictionary, key: String) -> float:
 	if not ctx.has(key):
 		if not _ctx_missing.has(key):

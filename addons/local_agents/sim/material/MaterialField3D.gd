@@ -124,9 +124,8 @@ const ShockScript: GDScript = preload("res://addons/local_agents/sim/material/Ma
 const ChargeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialCharge3D.gd")
 const EjectaScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialEjecta3D.gd")
 # they hold no per-cell state (every one reaches back into this field's arrays), so the field stays the thin
-# facade + step orchestration and each family is independently ownable. Built in _init so every accessor is
-# safe to call before setup_dims/setup_sphere, exactly as the inlined bodies were.
-var _atmos = null                                        # LAMaterialFieldAtmos3D — condensate derivation + aggregates
+# facade + step orchestration and each family is independently ownable.
+var _atmos = null                                     # LAMaterialFieldAtmos3D — condensate derivation + aggregates
 var _ledger = null                                       # LAMaterialFieldLedger3D — conserved H₂O ledger + snow/ice
 var _channels = null                                     # LAMaterialFieldChannels3D — per-cell gas/biomass/phase reads
 var _report_mod = null                                   # LAMaterialFieldReport3D — SIM_REPORT telemetry snapshot
@@ -187,13 +186,14 @@ func dir_to_field(world_dir: Vector3) -> Vector3:
 	return _body_basis_inv * world_dir
 
 
-## A world POINT in the field's frame. Rotation is about the planet centre, so the origin offset comes out
-## first — that is the part a basis-only transform gets wrong.
+## A world POINT in the field's frame. Rotation is about the body centre, so that offset comes out first —
+## that is the part a basis-only transform gets wrong.
 func point_to_field(world_pos: Vector3) -> Vector3:
-	return _origin + _body_basis_inv * (world_pos - _origin)
+	var pivot: Vector3 = centre()
+	return pivot + _body_basis_inv * (world_pos - pivot)
 
 
-## Radius of the sea shell, model units. Everything here is radial; the flat-world `sea_level` world-Y is gone.
+## Radius of the sea shell, model units, measured from `centre()`.
 func sea_radius() -> float:
 	if _terrain != null and _terrain.has_method("sea_radius"):
 		return float(_terrain.sea_radius())
@@ -230,98 +230,55 @@ var _sources: Array = []
 
 # --- Setup ------------------------------------------------------------------
 
-## Sample rock/void for every cell from the terrain SDF (is_solid). Eager version — fine at setup for
-## the dense grid; a budgeted lazy variant can replace it once wired into the frame loop. Skips the
-## per-cell query for cells clearly in open air above the column's surface (cheap win).
-func sample_solidity() -> void:
-	if _terrain == null or not _terrain.has_method("is_solid"):
-		return
-	if _sphere != null:
-		# Cubed-sphere: the authoritative solid mask is filled radially per linear cell (_sample_solidity_sphere,
-		# run on the first sphere step). The box XZ-column sweep below is meaningless here — skip it.
-		return
-	var has_surf: bool = _terrain.has_method("surface_height")
-	for iz in range(_dim_z):
-		for ix in range(_dim_x):
-			var wx: float = _origin.x + float(ix) * _cell_size
-			var wz: float = _origin.z + float(iz) * _cell_size
-			var surf: float = _terrain.surface_height(wx, wz) if has_surf else NAN
-			for iy in range(_dim_y):
-				var wy: float = _origin.y + float(iy) * _cell_size
-				var i: int = _idx(ix, iy, iz)
-				# Well above the surface => open air, no need to query (also handles NAN columns as air).
-				if not is_nan(surf) and wy > surf + _cell_size:
-					_solid[i] = 0
-					continue
-				_solid[i] = 1 if _terrain.is_solid(Vector3(wx, wy, wz)) else 0
-
-
-# --- Setup ------------------------------------------------------------------
-
-# Cubed-sphere substrate (Phase B). When _sphere != null the field is a spherical planet: cells are a flat
-# array of length surf_count*depth gathered via the SphereGrid's 6-neighbour+radial table (down = inward-radial
+## THE ONE GRID: a uniform Cartesian box. Nothing here holds a second index layout.
 var _grid: LAVoxelGrid = null
 ## Gravity, SOLVED from the mass that is there. There is no gravity constant anywhere in this tree.
 var _gravity = null                                      # LAMaterialFieldGravity3D
-var _sphere: RefCounted = null
 
-## True when the field is laid out on a cubed-sphere planet rather than an origin box.
-func is_sphere() -> bool:
-	return _sphere != null
-
-## The SphereGrid backing this field (null in box mode).
-func sphere_grid() -> RefCounted:
-	return _sphere
-
-## CUBED-SPHERE setup (Phase B): lay the field over a LASphereGrid instead of a box. Allocates every channel
-## as a flat array of length `grid.cell_count` (cell = surf*depth + r). Geometry (world↔cell, cell_world_pos,
-## radial, neighbours) routes through the grid; the box path is unaffected.
-func setup_sphere(grid: RefCounted, terrain = null) -> void:
-	_sphere = grid
+## Lay the field over a box centred on a body of `radius`, at `cell_size` resolution.
+func setup_body(centre_pos: Vector3, radius: float, cell_size: float, terrain = null) -> void:
 	if terrain != null:
-		_terrain = terrain      # sphere path's terrain wiring (box uses setup()); needed to activate + sample solidity
-		# The solid-mask cache's key. `_terrain_opts` was declared for this and never assigned, so the guard
-		# at _sample_solidity_sphere was always false and THE CACHE HAD NEVER ONCE BEEN USED — every run paid
-		# the full per-cell is_solid sweep, ~1 s, to recompute a mask that had not changed.
+		_terrain = terrain
 		if terrain.has_method("generator_options"):
-			_terrain_opts = terrain.generator_options()
-	_cell_size = maxf(0.5, grid.cell_size)
-	_origin = grid.center
-	# THE GRID IS THE CARTESIAN BOX. The cubed sphere is kept only for the consumers not yet moved off it.
-	_grid = LAVoxelGrid.new()
-	_grid.build_centred(grid.center, float(grid.core_radius) + float(grid.depth) * float(grid.cell_size),
-		maxf(0.5, grid.cell_size))
-	_cell_count = _grid.cell_count
-	_dim_x = _grid.nx
-	_dim_y = _grid.ny
-	_dim_z = _grid.nz
-	_alloc_channels()
-	# Cubed-sphere per-frame step orchestration (begin/step/end + readback) lives in a focused module.
+			_terrain_opts = terrain.generator_options()   # the solid-mask cache's key
+	var grid: LAVoxelGrid = LAVoxelGrid.new()
+	grid.build_centred(centre_pos, radius, maxf(0.5, cell_size))
+	_adopt(grid)
+	# Per-frame step orchestration (begin/step/end + readback) lives in a focused module.
 	_sphere_step = SphereStepScript.new()
 	_sphere_step.setup(self)
 
-## Lay the field over a UNIFORM CARTESIAN GRID. `_grid` is the one grid; the cubed sphere is being deleted
-## onto it. Indexing, neighbours, cell volume and face area all come from LAVoxelGrid — never recomputed
-## here, and never with a second index layout.
+## Lay the field over an explicit box. Indexing, neighbours, cell volume and face area all come from
+## LAVoxelGrid — never recomputed here, and never with a second index layout.
 func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Vector3) -> void:
-	_sphere = null
-	_grid = LAVoxelGrid.new()
-	_grid.build(dim_x, dim_y, dim_z, cell_size, origin)
-	_dim_x = _grid.nx
-	_dim_y = _grid.ny
-	_dim_z = _grid.nz
-	_cell_size = _grid.cell_size
-	_origin = _grid.origin
-	_cell_count = _grid.cell_count
-	_alloc_channels()
+	var grid: LAVoxelGrid = LAVoxelGrid.new()
+	grid.build(dim_x, dim_y, dim_z, cell_size, origin)
+	_adopt(grid)
 	# The injection facade edits the CPU channel arrays directly; without it add_heat silently no-ops.
 	_inject = InjectScript.new()
 	_inject.setup(self)
+
+func _adopt(grid: LAVoxelGrid) -> void:
+	_grid = grid
+	_dim_x = grid.nx
+	_dim_y = grid.ny
+	_dim_z = grid.nz
+	_cell_size = grid.cell_size
+	_origin = grid.origin
+	_cell_count = grid.cell_count
+	_alloc_channels()
 	_gravity = GravityScript.new()
 	_gravity.setup(self)
 
-## Allocate + seed every per-cell channel for the current `_cell_count`. Shared by setup_dims (box) and
-## setup_sphere (cubed-sphere) — both set _cell_count first, then call this.
+## The body centre — the pivot the grid's rotation turns about, and the origin `sea_radius` is measured from.
+func centre() -> Vector3:
+	return LAFieldGeometry.centre(self)
+
+## Re-solve gravity from the mass that is there. Returns true when a solve actually ran.
+func solve_gravity() -> bool:
+	return _gravity.step() if _gravity != null else false
+
+## Allocate + seed every per-cell channel for the current `_cell_count`.
 func _alloc_channels() -> void:
 	_solid = PackedByteArray()
 	_solid.resize(_cell_count)
@@ -397,52 +354,33 @@ func _alloc_channels() -> void:
 # --- Index helpers ----------------------------------------------------------
 
 func _idx(ix: int, iy: int, iz: int) -> int:
-	return (iy * _dim_z + iz) * _dim_x + ix
+	return _grid.index(ix, iy, iz)
 
 
 func _in_bounds(ix: int, iy: int, iz: int) -> bool:
-	return ix >= 0 and ix < _dim_x and iy >= 0 and iy < _dim_y and iz >= 0 and iz < _dim_z
+	return _grid.in_bounds(ix, iy, iz)
 
 
 func cell_world_pos(ix: int, iy: int, iz: int) -> Vector3:
-	return _origin + Vector3(float(ix), float(iy), float(iz)) * _cell_size
+	return _grid.cell_world_pos(_grid.index(ix, iy, iz))
 
 
-# --- Cubed-sphere linear accessors (Phase B; the world↔cell seam that replaces box _idx/_col_i) ----------
+# --- The world↔cell seam ---------------------------------------------------------------------------------
 
-## World centre of a LINEAR cell index (cubed-sphere mode). Box mode: decode ix,iy,iz then cell_world_pos.
+## World centre of a linear cell index. Body-local -> world: the grid rides the body, so a cell's WORLD
+## position turns with it.
 func cell_world_pos_linear(c: int) -> Vector3:
-	if _sphere != null:
-		# Body-local -> world: the grid rides the planet, so a cell's WORLD position turns with it.
-		return _origin + _body_basis * (_sphere.cell_world_pos(c) - _origin)
-	var layer: int = _dim_x * _dim_z
-	var iy: int = c / layer
-	var rem: int = c - iy * layer
-	var iz: int = rem / _dim_x
-	var ix: int = rem - iz * _dim_x
-	return cell_world_pos(ix, iy, iz)
+	var pivot: Vector3 = centre()
+	return pivot + _body_basis * (_grid.cell_world_pos(c) - pivot)
 
 func cell_size() -> float:
 	return _cell_size
 
 
-## World position → linear cell index (cubed-sphere: nearest gnomonic face+surf+radial layer; -1 if outside
-## the shell). Box mode: clamp each axis and combine. This is the substrate-agnostic world→cell used by queries.
+## World position → linear cell index, -1 outside the box. Every actor hands us a world position (actors are
+## children of the spinning body), so this is where their frame and the grid's are reconciled.
 func world_to_cell(world_pos: Vector3) -> int:
-	if _sphere != null:
-		# World -> body-local. Every actor hands us a world position (actors are children of the spinning
-		# body), so this is where their frame and the grid's are reconciled — once, for all ~49 call sites.
-		return _sphere.world_to_cell(point_to_field(world_pos))
-	var ix: int = clampi(int(round((world_pos.x - _origin.x) / _cell_size)), 0, _dim_x - 1)
-	var iy: int = clampi(int(round((world_pos.y - _origin.y) / _cell_size)), 0, _dim_y - 1)
-	var iz: int = clampi(int(round((world_pos.z - _origin.z) / _cell_size)), 0, _dim_z - 1)
-	return _idx(ix, iy, iz)
-
-## Outward radial unit at a linear cell (cubed-sphere). Box mode: +Y (the flat world's "up").
-func cell_radial(c: int) -> Vector3:
-	if _sphere != null:
-		return _sphere.cell_radial(c)
-	return Vector3.UP
+	return _grid.cell_at(point_to_field(world_pos)) if _grid != null else -1
 
 
 # --- Authoring (tests + terrain sampling) -----------------------------------
@@ -478,9 +416,8 @@ func total_water() -> float:
 
 # --- The 3D water CA --------------------------------------------------------
 
-# Stable amount for the LOWER of two vertically-stacked water cells given their combined mass. Below
-# MAX_MASS all the water sits in the lower cell; above that the excess is compressed upward, letting a
-# tall column press down (pressure) so water in a connected cavern finds a common level.
+# Stable amount for the LOWER of two stacked water cells given their combined mass: the excess over
+# MAX_MASS compresses upward, so water in a connected cavern finds a common level.
 func _stable_below(total_mass: float) -> float:
 	if total_mass <= MAX_MASS:
 		return total_mass
@@ -491,9 +428,7 @@ func _stable_below(total_mass: float) -> float:
 
 # --- World-space queries (delegated to _queries; the 2.5D-compatible API consumers call) --------
 
-# Water presence at a true-3D world point (sphere-native): water in the point's own cell, or the sea/lake
-# shell over the ground beneath it. The dead 2.5D column queries (column_surface_y / surface_y_at / depth_at)
-# were removed with the box path — radial callers read terrain.surface_radius / sea_radius / is_submerged_at.
+# Water in the point's own cell, or the sea/lake shell over the ground beneath it.
 func is_water_at(pos: Vector3) -> bool:
 	return _queries.is_water_at(pos)
 
@@ -511,11 +446,8 @@ func water_force_at(pos: Vector3) -> Vector3:
 ## Begin simulating + rendering (called after setup + sample_solidity + seed_sea). Builds the render
 ## node and starts the throttled step in _physics_process.
 func activate() -> void:
-	if _rock_fill.size() == _cell_count and _solid.size() == _cell_count:
-		for c in _cell_count:
-			_rock_fill[c] = 1.0 if _solid[c] != 0 else 0.0
-	if is_sphere() and SphereGPUScript.available() and not OS.has_environment("LA_FORCE_CPU"):
-		# Cubed-sphere planet: the sphere GPU driver runs the *_sphere3d kernels over the neighbour SSBO.
+	if _grid != null and SphereGPUScript.available() and not OS.has_environment("LA_FORCE_CPU"):
+		# The GPU driver runs the kernels over the grid's neighbour SSBO.
 		_gpu = SphereGPUScript.new()
 		_gpu.setup(self)
 		_use_gpu = true
@@ -544,54 +476,47 @@ func activate() -> void:
 	_ready_sim = true
 
 
-# --- Heat texture (terrain-glow source) — RETIRED with the box path; the cubed-sphere glows via the
-# godot_voxel terrain shader + ocean shell, so these return null/zero (no XZ-column heat texture). ----
-
-## The live terrain-glow texture (R = hottest °C per column). Null on the cubed-sphere.
-func heat_texture() -> Texture2D:
-	return null
-
-func heat_world_min() -> Vector2:
-	return Vector2.ZERO
-
-func heat_world_size() -> Vector2:
-	return Vector2.ZERO
-
-
-## Sphere solid mask: sample the terrain SDF per cell (world pos from the grid). One-time at activation.
-func _sample_solidity_sphere() -> void:
+## Solid mask: sample the terrain SDF per cell (world pos from the grid). One-time at activation.
+func sample_solidity() -> void:
+	if _terrain == null or not _terrain.has_method("is_solid") or _grid == null:
+		return
 	var k: String = ""
 	if not _terrain_opts.is_empty():
-		k = SolidCacheScript.key(_terrain_opts, _cell_count, _dim_y, _sphere.core_radius,
-				_sphere.shell_dr, _origin)
+		k = SolidCacheScript.key(_terrain_opts, _grid)
 		var cached: PackedByteArray = SolidCacheScript.load_mask(k, _cell_count, self)
 		if cached.size() == _cell_count:
 			_solid = cached
+			_seed_rock_fill()
 			return
 	for c in _cell_count:
 		_solid[c] = 1 if _terrain.is_solid(cell_world_pos_linear(c)) else 0
 	if k != "":
 		SolidCacheScript.save_mask(k, _solid)
+	_seed_rock_fill()
 
-func _seed_sphere_sea() -> void:
-	if _sphere == null or _terrain == null or not _terrain.has_method("sea_radius"):
+## Bedrock fraction mirrors the sampled mask, so the gravity solve has mass to read before the first step.
+func _seed_rock_fill() -> void:
+	if _rock_fill.size() != _cell_count or _solid.size() != _cell_count:
+		return
+	for c in _cell_count:
+		_rock_fill[c] = 1.0 if _solid[c] != 0 else 0.0
+
+func _seed_sea() -> void:
+	if _grid == null or _terrain == null or not _terrain.has_method("sea_radius"):
 		return
 	var sea_r: float = _terrain.sea_radius()
 	if sea_r <= 0.0:
 		return
 	var sea_sq: float = sea_r * sea_r
+	var pivot: Vector3 = centre()
 	for c in _cell_count:
 		if _solid[c] != 0:
 			continue
-		if (cell_world_pos_linear(c) - _origin).length_squared() <= sea_sq:
+		if (_grid.cell_world_pos(c) - pivot).length_squared() <= sea_sq:
 			_water[c] = 1.0
 
-## contiguous: cell = surf_col*depth + r, r=depth-1 outermost). Also SEEDS an initial half-full water table so
-## which also owns the grain-size field and the Athy porosity profile the aquifer's Kozeny-Carman
 const REGOLITH_CELLS: int = LAMaterialFieldRegolith3D.REGOLITH_CELLS
-# Athy pore fraction per cell (0 outside regolith). Written on the GPU by soil_sphere3d.glsl and read back
-# on the slow cadence — it is static after the first step, so a coarse mirror is exact, not approximate.
-# Every CPU consumer that converts `rock_fill` from a matrix SATURATION to a mineral VOLUME FRACTION needs it.
+# Athy pore fraction per cell (0 outside regolith), GPU-written and read back on the slow cadence.
 var _porosity: PackedFloat32Array = PackedFloat32Array()
 var _regolith: PackedByteArray = PackedByteArray()
 var _grain: PackedFloat32Array = PackedFloat32Array()    # representative grain diameter (m) per regolith cell
@@ -600,14 +525,7 @@ func _compute_regolith() -> void:
 	_regolith_mod.compute()
 
 
-# `regolith_mask()` and `grain_field()` ARE DELETED. Their docstrings said "uploaded to the GPU soil pass",
-# second path to the same two arrays that nothing took, on a hub already over its size limit.
-
-
-
-## Release the GPU driver's local RenderingDevice while the tree is still up — freeing every RID cleanly so
-## the device reports 0 leaked RIDs. (The `rc=134` MoltenVK `recursive_mutex` abort at NSApplication-terminate
-## Covers both the box and sphere drivers.
+## Release the GPU driver's local RenderingDevice while the tree is still up, so every RID is freed cleanly.
 func _exit_tree() -> void:
 	if _gpu != null and _gpu.has_method("dispose"):
 		_gpu.dispose()
@@ -616,9 +534,6 @@ func _exit_tree() -> void:
 func _physics_process(delta: float) -> void:
 	if LAAblate.off("field"):
 		return
-	# The cubed-sphere is the SOLE substrate: one self-contained GPU step over the *_sphere3d kernels.
-	# The fixed-step begin/step/end loop + readback scatter live in LAMaterialFieldSphereStep3D.
-	# (The retired box grid + its CPU-oracle tails lived here; deleted with the sphere-only cleanup.)
 	if _sphere_step != null:
 		_sphere_step.process(delta)
 
@@ -661,11 +576,7 @@ func fog_at(x: float, z: float) -> float:
 func climate_snapshot() -> Dictionary:
 	return _atmos.climate_snapshot()
 
-## The baked 6-layer RGBA cover texture (null until the first atmosphere refresh) — the water-particle
-## renderer's field bridge. Plus the atmosphere shell radii it needs to place + classify particles.
-func field_cover_texture() -> Texture2DArray:
-	return _atmos.field_cover_texture()
-
+## The atmosphere band radii, measured from `centre()`, that the water-particle renderer places against.
 func atmos_cloud_base_r() -> float:
 	return _atmos.atmos_cloud_base_r()
 
@@ -734,12 +645,7 @@ func updraft_at(pos: Vector3) -> float:
 func wind3_at(x: float, y: float, z: float) -> Vector3:
 	return _queries.wind3_at(x, y, z)
 
-# `grid_dim()` IS DELETED. It existed so "CloudLayer's texture maps 1:1 with the 2.5D field" — there is no
-# CloudLayer and no 2.5D field; both survive only in gravestone comments. Cloud is derived from `moisture`
-# against the saturation curve now and has no grid of its own.
-
-
-# Local injection writes the sphere GPU field buffers via the injection module; the field only forwards.
+# Local injection writes the GPU field buffers via the injection module; the field only forwards.
 ## Raise the temperature at a world point (and within `radius`) — a meteor's molten spike, a fire's heat.
 func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if _inject != null:
@@ -797,10 +703,6 @@ func peak_heat() -> float:
 func hot_cell_count(threshold: float = 60.0) -> int:
 	return _queries.hot_cell_count(threshold)
 
-func lava_peak() -> int:
-	return lava_cell_count()
-
-
 # --- Physical splash droplets (FX; body lives in LAMaterialFieldInject3D) ----
 ## A few short-lived rigidbody droplets flung from a world point — the splash accent disasters call.
 func splash(world_pos: Vector3, strength: float) -> void:
@@ -808,23 +710,11 @@ func splash(world_pos: Vector3, strength: float) -> void:
 		_inject.splash(world_pos, strength)
 
 
-# --- Ecology back-ref. Fire/combustion (ignite/is_burning/active_fire_count) and granular landslides
-# (disturb_terrain/slump_count) are live via their field modules. _ecology backs fire ash regrowth +
-# actor coupling. ---
+# --- Ecology back-ref: fire ash regrowth + actor coupling.
 func set_ecology(e) -> void:
 	_ecology = e
 
-func disturb_terrain(world_pos: Vector3, radius: float, strength: float) -> void:
-	pass
-
-## Cells of loose sediment actively slumping — CPU slump oracle retired; safe default.
-func slump_count() -> int:
-	return 0
-
 # --- Fire / combustion — thin forwarders to LAMaterialFieldQueries3D, which walks the `fire` channel. -------
-
-func ignite(_node) -> void:
-	pass
 
 ## Is the cell under this node currently burning?
 func is_burning(node) -> bool:
