@@ -44,6 +44,7 @@ PASS=1
 awk "BEGIN{exit !(${BIO:-0} > 0)}" || PASS=0    # biomass>0 = GPU field actually ran
 
 VERDICT=$([ "$PASS" -eq 1 ] && echo PASS || echo FAIL)
-echo "[$VERDICT] errors=$ERRORS get_spirv=$SPIRV rc=$RC | fps=${FPS:-?} biomass=${BIO:-DEAD} creatures=${CRE:-?} fire_cells=${FIRE:-?} mineral=${MIN:-?}"
+case "$RC" in 126) RCNOTE="conservation_violation";; 123) RCNOTE="unmeasured";; 0) RCNOTE="";; *) RCNOTE="run_failed";; esac
+echo "[$VERDICT] errors=$ERRORS get_spirv=$SPIRV rc=$RC${RCNOTE:+ ($RCNOTE)} | fps=${FPS:-?} biomass=${BIO:-DEAD} creatures=${CRE:-?} fire_cells=${FIRE:-?} mineral=${MIN:-?}"
 [ "$PASS" -eq 1 ] || echo "  ↳ first errors:" && grep 'SCRIPT ERROR' "$LOG" | grep -v get_spirv | head -3
 exit $([ "$PASS" -eq 1 ] && echo 0 || echo 1)

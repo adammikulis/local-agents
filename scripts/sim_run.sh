@@ -124,7 +124,14 @@ if [ "$WANT_UI" -eq 0 ] && [ -n "${UI_N:-}" ] && [ "$UI_N" -gt 0 ]; then
   [ "$KEEP" -eq 1 ] && echo "sim_run: log kept at $LOG" >&2 || rm -f "$LOG"
   exit 5
 fi
-if [ "$RC" -ne 0 ]; then
+# 126 and 123 are PHYSICS VERDICTS from run_sim_offscreen.sh, not a failed run: the sim completed and the
+# books say a substance was created or could not be measured. Reporting them as "RUN FAILED" is how a real
+# verdict gets read as a broken harness and then muted.
+if [ "$RC" -eq 126 ]; then
+  echo "sim_run: the run completed and CONSERVATION_VIOLATION fired." >&2
+elif [ "$RC" -eq 123 ]; then
+  echo "sim_run: the run completed and a substance was UNMEASURED." >&2
+elif [ "$RC" -ne 0 ]; then
   # Truncate: one line of this log is a 40 KB SIM_REPORT, and dumping it raw buries the actual error.
   echo "sim_run: RUN FAILED, exit ${RC}. Last lines (truncated to 200 chars each):" >&2
   tail -15 "$LOG" | cut -c1-200 >&2
