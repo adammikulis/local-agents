@@ -72,7 +72,7 @@ const GATE_AIR_ABOVE: int = 128       # THE FREE SURFACE — the air/liquid inte
 const TGT_SELF: int = 0               # add into the live/back cell channel
 const TGT_SCRATCH: int = 3            # add into the per-cell scratch buffer (fungus-fert pattern)
 
-const RECORD_BYTES: int = 144         # std430 size of one Reaction (see layout in serialize())
+const RECORD_BYTES: int = 160         # std430 size of one Reaction (see layout in serialize())
 
 
 # --- A RATE LAW'S TEMPERATURE CEILING (ARRHENIUS) ----------------------------------------------------------
@@ -120,6 +120,11 @@ static func serialize(recs: Array) -> PackedByteArray:
 		buf.encode_s32(base + 132, int(rec.get("quench_slot", -1)))
 		buf.encode_float(base + 136, float(rec.get("quench_min", 0.0)))
 		buf.encode_s32(base + 140, 0)
+		# Direction from thermodynamics (LAReactionThermo). q_slot < 0 = no equilibrium, record is one-way.
+		buf.encode_float(base + 144, float(rec.get("dg_h_j_mol", 0.0)))
+		buf.encode_float(base + 148, float(rec.get("dg_s_j_molk", 0.0)))
+		buf.encode_s32(base + 152, int(rec.get("q_slot", -1)))
+		buf.encode_float(base + 156, float(rec.get("q_pa_per_unit_k", 0.0)))
 		for k in range(4):
 			var rs: int = int(reactants[k][0]) if k < reactants.size() else -1
 			var rc: float = float(reactants[k][1]) if k < reactants.size() else 0.0

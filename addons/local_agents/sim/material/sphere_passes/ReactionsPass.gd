@@ -115,8 +115,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			                        # regolith column BENEATH an open cell (SOIL_ROOT), the only place soil exists
 			[25, radial],           # per-cell outward unit vector — the derived LIGHT slot's geometry
 			[27, regolith],         # aquifer permeability mask — root_soil() walks THIS, not `solid`
-			[28, carbonate],        # SINGLE CaCO3 — D1b (the Urey reaction) credits it, D1c debits it
-			[29, silica],           # SINGLE SiO2 — the weathering residue, same two records
+			[28, carbonate],        # SINGLE CaCO3 — the Urey record credits it forward, debits it in reverse
+			[29, silica],           # SINGLE SiO2 — the weathering residue, same record
 		])
 
 

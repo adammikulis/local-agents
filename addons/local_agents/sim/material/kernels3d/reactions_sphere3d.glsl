@@ -80,6 +80,9 @@ const float MAGNUS_C_C = 243.04;         // LAPhysical.MAGNUS_C_C
 const float VAPOUR_R = 461.52;           // LAPhysical.VAPOUR_GAS_CONST_J_KGK
 const float KELVIN_0 = 273.15;           // LAPhysical.KELVIN_OFFSET
 const float RHO_WATER = 997.0;           // LAPhysical.WATER_DENSITY_KG_M3
+const float R_GAS = 8.314462618;         // LAPhysical.GAS_CONSTANT_J_MOL_K
+const float P_STD = 101325.0;            // LAPhysical.STANDARD_PRESSURE_PA
+const float DG_EXP_LIMIT = 60.0;         // exp() argument bound; beyond it the equilibrium bound sets the extent
 
 float sat_mass_frac(float t_c) {
 	float t = max(t_c, -80.0);           // the Magnus fit's pole is at -243.04 C
@@ -89,8 +92,8 @@ float sat_mass_frac(float t_c) {
 #define OVERBURDEN 22  // DERIVED driver: LITHOSTATIC pressure (Pa) of the SOLID column above. See overburden().
 #define BEDROCK_BELOW 23 // DERIVED, WRITABLE: the bedrock of the SOLID cell directly beneath this open one —
                        // the rock a surface process actually attacks. Unique per thread; see bedrock_below().
-#define CARBONATE 24   // CaCO3, bound at 28 — the only place weathered carbon can go (D1b), and the only
-                       // thing D1c can give back to the air. Own-cell stock; nothing advects it.
+#define CARBONATE 24   // CaCO3, bound at 28 — where weathered carbon goes and where it comes back from
+                       // when D1b runs backwards. Own-cell stock; nothing advects it.
 #define SILICA    25   // SiO2, bound at 29 — the weathering residue. Nothing weathers it further.
 
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust (dust_loft parity)
@@ -150,6 +153,11 @@ struct Reaction {
 	int   quench_slot;    // a REACTANT this reaction goes out before exhausting; -1 = none
 	float quench_min;     // ...the amount of it the reaction may not draw below (flammability limit)
 	int   pad2;
+	// --- DIRECTION FROM dG (LAReactionThermo). q_slot < 0 = one-way record, no equilibrium.
+	float dg_h_j_mol;      // standard dH per mole of q_slot's substance
+	float dg_s_j_molk;     // standard dS, same basis
+	int   q_slot;          // the one participant whose activity varies; the rest are pure phases
+	float q_pa_per_unit_k; // partial pressure (Pa) one channel unit of q_slot exerts per kelvin
 };
 
 layout(set = 0, binding = 21, std430) restrict readonly buffer Defs { Reaction recs[]; };
@@ -340,6 +348,31 @@ bool gate_ok(int mask, uint i) {
 	return true;
 }
 
+// dG = dH - T dS + R T ln Q, Q the activity of the one participant whose activity varies (the rest are pure
+// phases at unit activity). Returns the signed direction scale; `x_eq` is the extent that reaches dG = 0.
+float direction_scale(Reaction rc, uint i, out float x_eq) {
+	x_eq = 0.0;
+	float sigma = 0.0;
+	float q_coeff = 0.0;
+	for (int k = 0; k < rc.n_react; k++) {
+		if (rc.react_slot[k] == rc.q_slot) { sigma = -1.0; q_coeff = rc.react_coeff[k]; }
+	}
+	for (int k = 0; k < rc.n_prod; k++) {
+		if (rc.prod_slot[k] == rc.q_slot) { sigma = 1.0; q_coeff = rc.prod_coeff[k]; }
+	}
+	if (sigma == 0.0) {
+		return 1.0;
+	}
+	float t_k = max(temp[i] + KELVIN_0, 1.0);
+	float rt = R_GAS * t_k;
+	float pa_per_unit = max(rc.q_pa_per_unit_k * t_k, 1e-30);
+	float ch = read_ch(rc.q_slot, i);
+	float dg = rc.dg_h_j_mol - t_k * rc.dg_s_j_molk + sigma * rt * log(max(pa_per_unit * ch / P_STD, 1e-30));
+	float a_eq = exp(clamp(sigma * (t_k * rc.dg_s_j_molk - rc.dg_h_j_mol) / rt, -DG_EXP_LIMIT, DG_EXP_LIMIT));
+	x_eq = (a_eq * P_STD / pa_per_unit - ch) / (sigma * max(q_coeff, 1e-6));
+	return 1.0 - exp(clamp(dg / rt, -DG_EXP_LIMIT, DG_EXP_LIMIT));
+}
+
 void main() {
 	uint i = gl_GlobalInvocationID.x;
 	if (i >= params.cell_count) {
@@ -389,19 +422,35 @@ void main() {
 		if (x <= 0.0) {
 			continue;
 		}
-		// Reactant caps: the extent can't drive any reactant (or the aux cap) negative.
-		for (int k = 0; k < rc.n_react; k++) {
-			float coeff = max(rc.react_coeff[k], 1e-6);
-			float avail = read_ch(rc.react_slot[k], i);
-			if (rc.react_slot[k] == rc.quench_slot) {
-				avail = max(0.0, avail - rc.quench_min);
+		// The rate model above is the KINETICS. This is the DIRECTION, and it may be negative.
+		if (rc.q_slot >= 0) {
+			float x_eq = 0.0;
+			x *= direction_scale(rc, i, x_eq);
+			x = (x > 0.0) ? min(x, max(x_eq, 0.0)) : max(x, min(x_eq, 0.0));
+		}
+		if (x > 0.0) {
+			// Reactant caps: the extent can't drive any reactant (or the aux cap) negative.
+			for (int k = 0; k < rc.n_react; k++) {
+				float coeff = max(rc.react_coeff[k], 1e-6);
+				float avail = read_ch(rc.react_slot[k], i);
+				if (rc.react_slot[k] == rc.quench_slot) {
+					avail = max(0.0, avail - rc.quench_min);
+				}
+				x = min(x, avail / coeff);
 			}
-			x = min(x, avail / coeff);
+			if (rc.cap_slot >= 0) {
+				x = min(x, read_ch(rc.cap_slot, i) / max(rc.cap_coeff, 1e-6));
+			}
+		} else {
+			// Running BACKWARDS: the products are what gets debited, so they are what bounds the extent.
+			for (int k = 0; k < rc.n_prod; k++) {
+				if (rc.prod_target[k] == TGT_SCRATCH) {
+					continue;
+				}
+				x = max(x, -read_ch(rc.prod_slot[k], i) / max(rc.prod_coeff[k], 1e-6));
+			}
 		}
-		if (rc.cap_slot >= 0) {
-			x = min(x, read_ch(rc.cap_slot, i) / max(rc.cap_coeff, 1e-6));
-		}
-		if (x <= 0.0) {
+		if (x == 0.0) {
 			continue;
 		}
 		// ATTRIBUTION FOR THE BURNING INSTRUMENT, and it has to happen HERE, inside the loop, against THIS

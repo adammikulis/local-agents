@@ -69,6 +69,7 @@ static func table() -> Dictionary:
 			"molar_mass": PC.MOLAR_MASS_CO2_KG_MOL,
 			"atomisation_j_mol": PC.ATOMISATION_CO2_J_MOL,
 			"entropy_gas_j_molk": 213.785,
+			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_CO2_J_MOL,
 			"density": PC.AMBIENT_O2_DENSITY_KG_M3 * (PC.MOLAR_MASS_CO2_KG_MOL / PC.MOLAR_MASS_O2_KG_MOL),
 			"specific_heat": PC.AIR_SPECIFIC_HEAT_J_KGK,
 		},
@@ -93,6 +94,8 @@ static func table() -> Dictionary:
 		"silicate": {
 			"formula": {"Ca": 1.0, "Si": 1.0, "O": 3.0},
 			"molar_mass": PC.MOLAR_MASS_CASIO3_KG_MOL,
+			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_CASIO3_J_MOL,
+			"entropy_j_molk": PC.ENTROPY_CASIO3_J_MOL_K,
 			"density": PC.ROCK_DENSITY_KG_M3,
 			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
 			"melt_c": PC.BASALT_SOLIDUS_C,
@@ -104,6 +107,8 @@ static func table() -> Dictionary:
 		"silica": {
 			"formula": {"Si": 1.0, "O": 2.0},
 			"molar_mass": PC.MOLAR_MASS_SIO2_KG_MOL,
+			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_SIO2_J_MOL,
+			"entropy_j_molk": PC.ENTROPY_SIO2_J_MOL_K,
 			"density": PC.QUARTZ_DENSITY_KG_M3,
 			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
 			"conductivity": PC.THERMAL_CONDUCT_ROCK_W_MK,
@@ -113,6 +118,8 @@ static func table() -> Dictionary:
 		"carbonate": {
 			"formula": {"Ca": 1.0, "C": 1.0, "O": 3.0},
 			"molar_mass": PC.MOLAR_MASS_CACO3_KG_MOL,
+			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_CACO3_J_MOL,
+			"entropy_j_molk": PC.ENTROPY_CACO3_J_MOL_K,
 			"density": PC.CALCITE_DENSITY_KG_M3,
 			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
 			"conductivity": PC.THERMAL_CONDUCT_ROCK_W_MK,

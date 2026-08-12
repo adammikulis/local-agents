@@ -171,14 +171,16 @@ const MOLAR_MASS_CACO3_KG_MOL: float = 0.1000872     # CaCO3   40.078 + 12.011 +
 const QUARTZ_DENSITY_KG_M3: float = 2650.0           # alpha-quartz, 2.65 g/cm^3
 const CALCITE_DENSITY_KG_M3: float = 2710.0          # calcite, 2.71 g/cm^3
 
-# --- METAMORPHIC DECARBONATION: THE RETURN LEG OF THE CARBON CYCLE ------------------------------------------
-# enthalpies and entropies of the four phases (Robie & Hemingway; CODATA for CO2):
-#   dH = (-1634.9 - 393.51) - (-1207.6 - 910.7) = +89.89 kJ/mol
-#   dS = ( 81.69 + 213.79) - (  91.7 +  41.46) = +162.32 J/mol/K
-#   T_eq = 89890 / 162.32 = 553.8 K = 280.7 C
-const CALCITE_QUARTZ_DECARB_ENTHALPY_J_MOL: float = 89890.0
-const CALCITE_QUARTZ_DECARB_ENTROPY_J_MOL_K: float = 162.32
-const DECARBONATION_TEMP_C: float = 280.7     # 89890 / 162.32 - 273.15
+# --- STANDARD-STATE THERMOCHEMISTRY, 298.15 K and 1 bar (Robie & Hemingway 1995; CODATA for CO2) -------------
+# Formation enthalpy from the elements and standard molar entropy, per substance. A reaction's dG is derived
+# from these over its own stoichiometry — LAReactionThermo — so no reaction carries a direction constant.
+const FORMATION_ENTHALPY_CASIO3_J_MOL: float = -1634900.0   # wollastonite
+const FORMATION_ENTHALPY_SIO2_J_MOL: float = -910700.0      # alpha-quartz
+const FORMATION_ENTHALPY_CACO3_J_MOL: float = -1207600.0    # calcite
+const FORMATION_ENTHALPY_CO2_J_MOL: float = -393510.0
+const ENTROPY_CASIO3_J_MOL_K: float = 81.69
+const ENTROPY_SIO2_J_MOL_K: float = 41.46
+const ENTROPY_CACO3_J_MOL_K: float = 91.7
 
 # --- WATER AND ICE DENSITY: WHY ROCK SHATTERS WHEN IT FREEZES -----------------------------------------------
 # frost weathering. At 0 C and 1 atm liquid water is 999.84 kg/m^3 and ice Ih is 916.7, so a given mass of
