@@ -38,6 +38,7 @@ layout(push_constant, std430) uniform Params {
 	uint column_count;
 	float dt_s;
 	uint depth;
+	float cell_m;
 	uint band_count;
 	float sun_x;        // world-space vector toward the sun; its LENGTH carries relative insolation
 	float sun_y;
@@ -46,7 +47,9 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 #include "rc_shared.glsli"
-#include "shell.glsli"
+#include "march.glsli"
+
+layout(set = 0, binding = 48, std430) restrict readonly buffer Grav { float g_field[]; };
 
 const float STEFAN = 5.670374419e-8;         // LAPhysical.STEFAN_BOLTZMANN
 const float SOLAR_CONSTANT = 1361.0;         // LAPhysical.SOLAR_CONSTANT_W_M2
@@ -139,13 +142,25 @@ void main() {
 		return;
 	}
 	uint depth = params.depth;
-	uint base = s * depth;
+	// The column, marched along -g. It used to be base + r, so a "column" was the memory layout.
+	int col[64];
+	int ncol = 0;
+	{
+		int c = int(s);
+		while (ncol < int(depth) && ncol < 64 && c >= 0) {
+			col[ncol++] = c;
+			vec3 gv = vec3(g_field[uint(c) * 3u], g_field[uint(c) * 3u + 1u], g_field[uint(c) * 3u + 2u]);
+			if (length(gv) <= 0.0) { break; }
+			c = la_step(nbr, uint(c), -normalize(gv));
+		}
+	}
+	if (ncol <= 0) { return; }
 
 	// The surface is the outermost cell of the column that is not free atmosphere: bedrock, a sea top, or
 	// the top of a lava flow. One rule, so a stack of anything condensed radiates from its top face only.
 	int sfc = -1;
 	for (int r = int(depth) - 1; r >= 0; --r) {
-		uint c = base + uint(r);
+		uint c = uint(col[min(r, uint(ncol - 1))]);
 		if (solid[c] != 0.0 || (1.0 - f_air_of(c)) >= SURFACE_FILL_MIN) {
 			sfc = r;
 			break;
@@ -154,7 +169,7 @@ void main() {
 	if (sfc < 0) {
 		return;
 	}
-	uint sc = base + uint(sfc);
+	uint sc = uint(col[min(uint(sfc), uint(ncol - 1))]);
 	int nlay = min(int(depth) - 1 - sfc, MAX_LAYERS);
 
 	// Per layer: the four pressure-weighted mass paths, the temperature slice, and the running net flux.
@@ -170,8 +185,8 @@ void main() {
 	float bl[MAX_LAYERS];
 	for (int j = 0; j < nlay; ++j) {
 		uint r = uint(sfc + 1 + j);
-		uint c = base + r;
-		float dz = shell_dr(r);
+		uint c = uint(col[min(r, uint(ncol - 1))]);
+		float dz = params.cell_m;
 		float t = max(temp[c] + KELVIN, 1.0);
 		tk[j] = t;
 		float f = 0.0;
@@ -194,7 +209,7 @@ void main() {
 	float wet = clamp(water[sc], 0.0, 1.0);
 	float icy = clamp(snow[sc] * ICE_ALBEDO_GAIN, 0.0, 1.0);
 	float leaf_kg_m2 = max(biomass[sc], 0.0) * RHO_CELLULOSE
-		* (shell_dr(uint(sfc))) * FOLIAGE_FRACTION;
+		* (params.cell_m) * FOLIAGE_FRACTION;
 	float veg = 1.0 - exp(-CANOPY_EXTINCTION * (leaf_kg_m2 / LEAF_MASS_PER_AREA));
 	float land = mix(ALBEDO_GROUND, ALBEDO_VEG, veg);
 	float albedo = mix(mix(land, ALBEDO_WATER, wet), ALBEDO_ICE, icy);
@@ -261,10 +276,10 @@ void main() {
 
 	for (int j = 0; j < nlay; ++j) {
 		uint r = uint(sfc + 1 + j);
-		uint c = base + r;
-		float cap = max(rc_of(c) * shell_dr(r), 1.0);
+		uint c = uint(col[min(r, uint(ncol - 1))]);
+		float cap = max(rc_of(c) * params.cell_m, 1.0);
 		temp[c] += net[j] * params.dt_s / cap;
 	}
-	float cap_s = max(rc_of(sc) * shell_dr(uint(sfc)), 1.0);
+	float cap_s = max(rc_of(sc) * params.cell_m, 1.0);
 	temp[sc] += net_s * params.dt_s / cap_s;
 }
