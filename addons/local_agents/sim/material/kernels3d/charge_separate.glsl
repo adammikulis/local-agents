@@ -1,9 +1,7 @@
 #[compute]
 #version 450
 
-// Non-inductive charge SEPARATION. Rebounding graupel-ice collisions in the mixed-phase band leave the
-// two hydrometeors oppositely charged; they then separate because they fall at different speeds.
-// Total charge is unchanged: what one phase gains the other loses.
+// Non-inductive charge separation in the riming band. Net charge is unchanged.
 
 #include "neighbours.glsli"
 

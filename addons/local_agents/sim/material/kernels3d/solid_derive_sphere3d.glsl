@@ -24,8 +24,7 @@ layout(push_constant, std430) uniform Params {
 	uint pad2;
 } params;
 
-// Rheological lock-up is HYSTERETIC: a crystallising melt stops flowing near 0.6 crystals and a solid does
-// not start flowing again until about 0.4. One threshold makes a cell hovering at half melt flip every
+// Rheological lock-up, hysteretic: crystallising stops flow at SOLID_IN, remelting resumes it at SOLID_OUT.
 const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
 const float SOLID_OUT = 0.4;   // LAPhysical.RHEOLOGICAL_MOBILE_CRYSTAL_FRAC
 
