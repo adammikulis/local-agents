@@ -442,8 +442,6 @@ func broadcast_scare(world_pos: Vector3, radius: float, base_intensity: float = 
 	_stimulus.broadcast_scare(world_pos, radius, base_intensity)
 
 
-func apply_wind_force(world_pos: Vector3, radius: float, force_fn: Callable, delta: float = 0.0) -> void:
-	_stimulus.apply_wind_force(world_pos, radius, force_fn, delta)
 
 
 func _physics_process(delta: float) -> void:

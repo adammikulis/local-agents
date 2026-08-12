@@ -199,12 +199,13 @@ func vorticity_at(pos: Vector3) -> float:
 		var m: int = nbr[c * 6 + 2 + l]
 		if m < 0:
 			continue
-		# No parallel transport: on a uniform grid every cell shares one basis, so a neighbour's velocity
-		# is already in this cell's frame. The tangent basis and its transport are deleted.
+		# One basis on a uniform grid, so a neighbour's velocity needs no transport.
 		var v: Vector2 = Vector2(_f._vel_x[m], _f._vel_z[m])
 		var d: Vector2 = Vector2(LAVoxelGrid.SLOT_STEP[2 + l].x, LAVoxelGrid.SLOT_STEP[2 + l].z)
 		curl += 0.5 * (d.x * v.y - d.y * v.x)
-	return curl
+	# Divided by the cell spacing: a curl is 1/s. Without it this returned a velocity whose magnitude
+	# scaled with grid resolution.
+	return curl / maxf(_f._cell_size, 1.0e-6)
 
 
 ## Vertical wind (updraft = outward radial velocity, vel_y) a little above a world point — the convective

@@ -81,20 +81,6 @@ func broadcast_scare(world_pos: Vector3, radius: float, base_intensity: float = 
 		actor.call("add_fear", world_pos, panic_seconds)
 
 
-func apply_wind_force(world_pos: Vector3, radius: float, force_fn: Callable, delta: float = 0.0) -> void:
-	if radius <= 0.0 or not force_fn.is_valid():
-		return
-	var r2: float = radius * radius
-	for actor in get_tree().get_nodes_in_group("creature"):
-		if not is_instance_valid(actor) or not (actor is Node3D):
-			continue
-		if not actor.has_method("apply_field_force"):
-			continue
-		var cpos: Vector3 = (actor as Node3D).global_position
-		if cpos.distance_squared_to(world_pos) > r2:
-			continue
-		var force: Vector3 = force_fn.call(cpos)
-		actor.apply_field_force(force, delta)
 
 
 # Relay an animal call (alarm / distress / forage) to everything in earshot. Omnidirectional: each
