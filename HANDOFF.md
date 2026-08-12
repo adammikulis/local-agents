@@ -38,13 +38,16 @@ it behind a flag, and get the maintainer's permission BEFORE writing any departu
 
 ### State (2026-08-11) — `feature/live-breakages`
 
-**THE TOP ITEM IS `PHYSICS_TODO.md` E1: THE AIRBORNE TRACERS CREATE MASS.** `o2_total` reaches 4.4e17
-against a seeded ~37 000, and `o2_first` — latched at the seal on field_step 2 — is ALREADY 4.67e17, so it
-multiplies by ~1e13 inside two dispatches rather than accumulating. `mineral_total`, which does not ride
-`tracer_transport`, stays sane; that is the tell. It was bisected to `bf710bd`, whose lateral-base
-correction is CORRECT and is not being reverted — it was masking this. E1 records what has been ruled out
-by measurement, what has been ruled out on paper, the one false lead, and the four places left to look.
-Read it there. Do not re-derive it.
+**THE TOP ITEM IS `PHYSICS_TODO.md`: THE BIOSPHERE HAS NEVER RUN.** `fert_total` is 0.0 and always has
+been. Photosynthesis takes fertility as a REACTANT, so its rate is zero by the limiting reagent and it has
+never once fired. Every source of plant-available nitrogen in the tree is downstream of organic matter that
+must already exist — fungal decomposition of detritus, respiration of biomass, combustion of fuel — so
+there is no abiotic entry point and the loop cannot start on a sterile planet. The substance table has no
+N2 at all, though real dry air is 78.08% N2 by mole. This stood invisible for the whole project because
+`MaterialField3D` seeded 1.0 O2 into every open cell; deleting that seed (`ac577abb`) is what exposed it.
+
+**Do not read `photo_ground_cells` as evidence of photosynthesis.** It counts cells where the reaction's
+GATE passes, not where the reaction runs, and it read 4835 in the run that proved the reaction never fires.
 
 **EVERY CONSERVATION FIGURE RECORDED BEFORE TODAY IS DEAD, AND SO IS EVERY ONE RECORDED TODAY.** Three
 things invalidated the recorded numbers in sequence this session, and E1 invalidates what replaced them:
@@ -89,9 +92,17 @@ and `sim_run.sh` exits 6.
 **A KERNEL CAN NOW BE TESTED ON A 4x4x6 GRID INSTEAD OF BISECTED OUT OF A 200-FRAME RUN.**
 `addons/local_agents/tests/KernelConservation.tscn` dispatches one kernel on a real cubed-sphere and asserts
 total mass is unchanged; `scripts/check_kernel_conservation.sh` is the gate (windowed, so it is NOT part of
-the headless lint). 8 checks pass: slot reciprocity, `gravity_flow`, `erosion_transport`, and
-`tracer_transport` under still air, wind, a solid crust and a 160 m/s gale. **So the kernels are proven
-clean and E1 is not in them — do not spend time re-reading them.**
+the headless lint). 14 checks pass: slot reciprocity, `gravity_flow`, `erosion_transport`, and
+`tracer_transport` under still air, wind, a solid crust and a 160 m/s gale.
+
+**THE PHYSICS NO LONGER DEPENDS ON WHERE THE CAMERA HAS BEEN.** `surface_radius()` raycast the PHYSICS
+space, whose collision shapes exist only for chunks a viewer has meshed, so off-camera it returned NAN and
+to every consumer the ground was simply absent — no ocean on the far side, no salinity, no current. It
+reads the voxel DATA now, planet-wide, and `generated_surface_radius` is deleted rather than kept beside
+it (`986f5293`). That coupling was also what made runs irreproducible: ecology's spawn loop retried on NAN,
+so the number of RNG draws depended on how much of the planet had been meshed. Randomness is sealed and
+gated (`check_sim_determinism.sh`), but two runs still differ in the last digits — the remainder is
+`lava_phase_sphere3d.glsl` reading and writing one buffer, recorded in `PHYSICS_TODO.md`.
 
 **Kernel count is 25** (`kernels3d/*_sphere3d.glsl`), down from 32. The floor is about 18; the remaining
 merge candidates are in `PHYSICS_TODO.md` D2.
@@ -108,6 +119,16 @@ Kept rather than deleted, because each one sent real work at a problem that did 
   `bf710bd`'s finding — the shared tracer operator shed its downward flux into solid ground where nothing
   gathered it, so the vapour half of the water cycle drained as fast as it filled.
 - ~~"`dust_total` reads 0"~~ — FALSE. It reads 2106–2300 in every arm measured.
+- ~~"E1: THE AIRBORNE TRACERS CREATE MASS — four places left to look"~~ — CLOSED (`8cdc20bd`). It was not
+  in the kernels at all. `LASphereGrid` uploaded a PERMUTED neighbour layout to the GPU while
+  `link_partner` was built against the unpermuted one, so the two-pass gather read a slot that never
+  answered. `neighbours_kernel_order()` is deleted. Every conservation figure recorded before that commit
+  is dead, including the ones this file used to quote.
+- ~~any `swing_diurnal_c` figure~~ — the instrument was aliased, sampling 2.0 times per rotation with 19
+  alias events. It reads 6.0 samples and 0 alias events since `107b35f9`. The old numbers were not small
+  measurements, they were not measurements.
+- ~~"the planet's oxygen is roughly 37 000"~~ — that was the SEED, 1.0 per open cell, not a product. The
+  true figure is 0.0 and nothing in the simulation has ever produced any.
 - ~~The conservation DEBT TABLE~~ — every row of it is superseded. Re-measured on the unmodified tip
   `54f6e58`, `mineral_total` was **+149%**, not the recorded -0.0064%, and `o2_total` was positive where
   the table recorded -24.71%. The table was not fabricated — it was measured before the kernel collapse and
