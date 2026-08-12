@@ -14,7 +14,7 @@ static func rows() -> Dictionary:
 		"water":       {"buffer": "pair",   "residency": "hot",         "slot": D.WATER,     "substance": "h2o",        "phase": "liquid", "unit": "vf"},
 		"moisture":    {"buffer": "pair",   "residency": "hot",         "slot": D.MOISTURE,  "substance": "h2o",        "phase": "gas",    "unit": "vf"},
 		"snow":        {"buffer": "single", "residency": "hot",         "slot": D.SNOW,      "substance": "h2o",        "phase": "solid",  "unit": "vf"},
-		"soil":        {"buffer": "pair",   "residency": "slow",        "slot": D.SOIL_ROOT, "substance": "h2o",        "phase": "liquid", "unit": "sat"},
+		"soil":        {"buffer": "pair",   "residency": "slow",        "slot": D.SOIL_ROOT, "substance": "h2o",        "phase": "liquid", "unit": "vf"},
 		"lava":        {"buffer": "pair",   "residency": "situational", "slot": D.LAVA,      "substance": "silicate",   "phase": "liquid", "unit": "vf"},
 		"rock_fill":   {"buffer": "single", "residency": "situational", "slot": D.ROCK_FILL, "substance": "silicate",   "phase": "solid",  "unit": "sat"},
 		"sediment":    {"buffer": "pair",   "residency": "slow",        "slot": D.SEDIMENT,  "substance": "silicate",   "phase": "solid",  "unit": "vf"},

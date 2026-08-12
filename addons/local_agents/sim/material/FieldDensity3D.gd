@@ -53,8 +53,8 @@ static func of(mirrors: Dictionary, porosity: PackedFloat32Array, cell_count: in
 			continue
 		var id: String = String(frac[name])
 		var eos: bool = LASubstances.has_eos(id)
-		# The matrix is a saturation of the pore-free share of its cell; every other channel fills freely.
-		var matrix: bool = name == "rock_fill"
+		# A "sat" channel is a saturation of the pore-free share of its cell; a "vf" channel fills freely.
+		var matrix: bool = String(LAChannels.rows().get(name, {}).get("unit", "vf")) == "sat"
 		for c in cell_count:
 			var f: float = arr[c]
 			var p_pa: float = pres[c]
