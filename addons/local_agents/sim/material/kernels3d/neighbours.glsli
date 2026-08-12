@@ -1,20 +1,11 @@
-// The one definition of the neighbour-slot layout, held equal to LASphereGrid by
-// scripts/check_neighbour_slots.sh. Reverse links come from `link_partner`, not from arithmetic.
+// Neighbour-slot layout, held equal to LAVoxelGrid by scripts/check_neighbour_slots.sh.
+// Slots are axis tags, never directions: -X,+X,-Y,+Y,-Z,+Z. Down is -normalize(g), read per cell.
 
 #ifndef LA_NEIGHBOURS_GLSLI
 #define LA_NEIGHBOURS_GLSLI
 
-const uint N_IN  = 0u;    // inward / down; -1 at the shell floor
-const uint N_OUT = 1u;    // outward / up;  -1 at the shell top
-const uint N_A0  = 2u;
-const uint N_A1  = 3u;
-const uint N_B0  = 4u;
-const uint N_B1  = 5u;
-
-const uint N_LAT0 = 2u;            // lateral index l is slot N_LAT0 + l; link_arc/link_tan use the same l
-const uint N_LATERAL_COUNT = 4u;
 const uint N_SLOTS = 6u;
 
-uint opposite_slot(uint d) { return d ^ 1u; }   // my other end of the same axis (across a face: link_partner)
+uint opposite_slot(uint d) { return d ^ 1u; }
 
 #endif
