@@ -27,9 +27,8 @@ enum {
 }
 
 
-## A cell's volume in CUBIC METRES, and its outward radial face in SQUARE METRES. The grid works in model
-## units; anything holding an SI quantity per unit volume or per unit area — a volumetric heat capacity in
-## J/m^3/K, a flux in W/m^2 — has to cross here or it is not in joules or watts whatever it is labelled.
+## A cell's volume in CUBIC METRES and its face in SQUARE METRES. The grid is metres, so these convert
+## nothing; they exist so a caller reads the unit off the name.
 static func cell_volume_m3(grid, c: int) -> float:
 	return grid.cell_volume(c)
 
@@ -60,36 +59,4 @@ static func substance_kg(grid, arr: PackedFloat32Array, solid: PackedByteArray, 
 	if density <= 0.0:
 		push_error("LAFieldTotals.substance_kg: '%s' has no density in LASubstances" % substance)
 		return 0.0
-	# ISOTROPIC, WHICH THE GRID IS NOT. MaterialFieldGeotherm3D carries an implicit vertical exaggeration of
-	# ~31 (GROUNDWATER_CIRCULATION_M / (REGOLITH_CELLS * cell_size)), so one model unit is not the same
-	# distance radially as laterally and this cube is wrong by that factor. Declaring the two scales
-	# separately is its own track; this line is where the answer lands when it does.
 	return volume_sum(grid, arr, solid, which) * density
-
-
-## The raw sum every ledger currently takes — kept ONLY so the two can be compared, never as an answer.
-static func flat_sum(arr: PackedFloat32Array, solid: PackedByteArray, cell_count: int,
-		which: int = CELLS_ALL) -> float:
-	if arr.size() < cell_count:
-		return 0.0
-	var use_mask: bool = which != CELLS_ALL and solid.size() >= cell_count
-	var total: float = 0.0
-	for c in cell_count:
-		if use_mask and (1 if solid[c] != 0 else 0) != which:
-			continue
-		total += arr[c]
-	return total
-
-
-## How wrong the flat sum is for THIS field, as a ratio (flat-equivalent volume over real volume). It is 1.0
-## only when the channel happens to be distributed so the size differences cancel; it is not a constant, which
-## is why the flat sum cannot be corrected with a factor and has to be replaced.
-static func flat_sum_error(grid, arr: PackedFloat32Array, solid: PackedByteArray,
-		which: int = CELLS_ALL) -> float:
-	if grid == null:
-		return 0.0
-	var real: float = volume_sum(grid, arr, solid, which)
-	if real <= 0.0:
-		return 0.0
-	var flat: float = flat_sum(arr, solid, grid.cell_count, which) * grid.uniform_cell_volume()
-	return flat / real

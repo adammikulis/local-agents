@@ -77,22 +77,13 @@ func _init() -> void:
 	var t_lo: float = g2.core_radius
 	var t_hi: float = t_lo + float(g2.depth) * g2.cell_size
 	var shell_m3: float = ((4.0 / 3.0) * PI * (t_hi * t_hi * t_hi - t_lo * t_lo * t_lo)
-		* pow(LAPhysical.METRES_PER_MODEL_UNIT, 3.0))
+		)
 	var want_kg: float = shell_m3 * float(LASubstances.table()["h2o"]["density"])
 	var got_kg: float = LAFieldTotals.substance_kg(g2, ones, no_mask, LAFieldTotals.CELLS_ALL, "h2o")
 	var kg_rel: float = absf(got_kg - want_kg) / want_kg
-	# A field that is NOT uniform is where the flat sum diverges: put the substance only in the outer half,
-	# which is what an atmosphere or an ocean surface actually looks like.
-	var outer: PackedFloat32Array = PackedFloat32Array()
-	outer.resize(g2.cell_count)
-	for c in g2.cell_count:
-		outer[c] = 1.0 if (c % g2.depth) >= (g2.depth / 2) else 0.0
-	var err_uniform: float = LAFieldTotals.flat_sum_error(g2, ones, no_mask, LAFieldTotals.CELLS_ALL)
-	var err_outer: float = LAFieldTotals.flat_sum_error(g2, outer, no_mask, LAFieldTotals.CELLS_ALL)
 	if kg_rel > 1.0e-6:
 		failed += 1
-	print("TOTALS_CHECK={\"kg_rel_err_ppm\":%.4f,\"flat_err_uniform\":%.4f,\"flat_err_outer_half\":%.4f}" % [
-		kg_rel * 1.0e6, err_uniform, err_outer])
+	print("TOTALS_CHECK={\"kg_rel_err_ppm\":%.4f}" % [kg_rel * 1.0e6])
 	print("GRID_GATE={\"cases\":%d,\"failed\":%d}" % [CASES.size(), failed])
 	quit(1 if failed > 0 else 0)
 GD

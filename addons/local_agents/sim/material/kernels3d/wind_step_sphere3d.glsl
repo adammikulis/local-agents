@@ -39,7 +39,6 @@ layout(push_constant, std430) uniform Params {
 
 const float GRAVITY_M_S2 = 9.80665;        // LAPhysical.STANDARD_GRAVITY_M_S2
 const float AIR_DENSITY_KG_M3 = 1.225;     // LAPhysical.AIR_DENSITY_KG_M3
-const float METRES_PER_MODEL_UNIT = 168.6; // LAPhysical.METRES_PER_MODEL_UNIT
 const float AIR_SPECIFIC_HEAT_J_KGK = 1005.0;   // LAPhysical.AIR_SPECIFIC_HEAT_J_KGK
 const float T0_K = 273.15;                 // LAPhysical.KELVIN_OFFSET
 // Dry adiabatic lapse rate, K/m: the rate a rising parcel cools on its own, so only a column steeper than
@@ -84,8 +83,8 @@ void main() {
 	uint shell = g % depth;
 	int s_dn = nbr[base + N_IN];
 	int s_up = nbr[base + N_OUT];
-	float dz_up = shell_d_out(shell) * METRES_PER_MODEL_UNIT;
-	float dz_dn = shell_d_in(shell) * METRES_PER_MODEL_UNIT;
+	float dz_up = shell_d_out(shell);
+	float dz_dn = shell_d_in(shell);
 
 	// The four lateral links: index, direction in THIS cell's tangent frame, the real centre-to-centre run
 	// in metres, and the neighbour's velocity brought into this frame.
@@ -99,7 +98,7 @@ void main() {
 	for (int l = 0; l < 4; ++l) {
 		lat[l] = nbr[base + N_LAT0 + uint(l)];
 		ldir[l] = vec2(ltan[lb + uint(l) * 2u], ltan[lb + uint(l) * 2u + 1u]);
-		lrun[l] = max(larc[ab + uint(l)] * shell_mid(shell) * METRES_PER_MODEL_UNIT, 1.0e-6);
+		lrun[l] = max(larc[ab + uint(l)] * shell_mid(shell), 1.0e-6);
 		lvel[l] = moving(lat[l]) ? nbr_tan(uint(lat[l]), lb + uint(l) * 2u) : vec2(0.0);
 		lvy[l] = moving(lat[l]) ? vel_y[lat[l]] : 0.0;
 	}
@@ -171,7 +170,7 @@ void main() {
 	float mag = sqrt(2.0 * (gr[0][0] * gr[0][0] + gr[1][1] * gr[1][1] + dw_dy * dw_dy
 			+ 2.0 * s_ab * s_ab + 0.5 * dot(dv_dy, dv_dy)));
 	float lat_mean = 0.25 * (lrun[0] + lrun[1] + lrun[2] + lrun[3]);
-	float filter_m = pow(lat_mean * lat_mean * shell_dr(shell) * METRES_PER_MODEL_UNIT, 1.0 / 3.0);
+	float filter_m = pow(lat_mean * lat_mean * shell_dr(shell), 1.0 / 3.0);
 	float nu = SMAGORINSKY_C * SMAGORINSKY_C * filter_m * filter_m * mag;
 
 	// --- MOMENTUM TRANSPORT: upwind advection and that viscosity, as ONE implicit gather --------------
@@ -210,7 +209,7 @@ void main() {
 	// dv/dt = -C_d |v| v / h, C_d the log law at the cell's mid-height over the surface's roughness
 	// length, so it follows from two lengths rather than being chosen.
 	if (!moving(s_dn)) {
-		float h_m = shell_dr(shell) * METRES_PER_MODEL_UNIT;
+		float h_m = shell_dr(shell);
 		float wet = (s_dn >= 0) ? clamp(water[s_dn], 0.0, 1.0) : 0.0;
 		float z0 = mix(Z0_LAND_M, Z0_SEA_M, wet);
 		float ln_r = log(max(0.5 * h_m / z0, 1.0001));

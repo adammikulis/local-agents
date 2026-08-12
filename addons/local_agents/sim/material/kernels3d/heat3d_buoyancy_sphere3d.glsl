@@ -28,7 +28,6 @@ layout(push_constant, std430) uniform Params {
 
 const float GRAVITY_M_S2 = 9.80665;        // LAPhysical.STANDARD_GRAVITY_M_S2
 const float AIR_DENSITY_KG_M3 = 1.225;     // LAPhysical.AIR_DENSITY_KG_M3
-const float METRES_PER_MODEL_UNIT = 168.6; // LAPhysical.METRES_PER_MODEL_UNIT
 
 layout(set = 0, binding = 30, std430) restrict readonly buffer Sediment { float sediment[]; };
 layout(set = 0, binding = 31, std430) restrict readonly buffer Susp { float susp[]; };
@@ -64,12 +63,12 @@ void main() {
 		if (solid[lo] != 0.0 || solid[hi] != 0.0) {
 			continue;
 		}
-		float dz = shell_d_out(r) * METRES_PER_MODEL_UNIT;
+		float dz = shell_d_out(r);
 		float excess = (temp_out[lo] - temp_out[hi]) - lapse_of(lo) * dz;
 		if (excess <= 0.0) {
 			continue;
 		}
-		float m3 = METRES_PER_MODEL_UNIT * METRES_PER_MODEL_UNIT * METRES_PER_MODEL_UNIT;
+		float m3 = 1.0;   // the grid is metres
 		float vol_lo = cell_volume(lo) * m3;
 		float vol_hi = cell_volume(hi) * m3;
 		float c_lo = max(rc_of(lo) * vol_lo, 1e-30);

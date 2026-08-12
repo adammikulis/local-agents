@@ -42,7 +42,6 @@ const float T_MAX_K = 400.0;
 const float H_REF = H_PER_KELVIN * 288.15;   // seed profile scale height, model units
 const float GRAVITY_M_S2 = 9.80665;        // LAPhysical.STANDARD_GRAVITY_M_S2
 const float AIR_DENSITY_KG_M3 = 1.225;     // LAPhysical.AIR_DENSITY_KG_M3
-const float METRES_PER_MODEL_UNIT = 168.6; // LAPhysical.METRES_PER_MODEL_UNIT
 const float DRY_AIR_GAS_CONSTANT_J_KGK = 287.0222603;  // LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK
 const float STANDARD_PRESSURE_PA = 101325.0;        // LAPhysical.STANDARD_PRESSURE_PA
 const float DIFFUSE_FACE = 0.01;
@@ -60,7 +59,7 @@ float toward(uint c, int l, uint depth) {
 
 // Centre-to-centre run of lateral link `l` of cell `c`, metres.
 float link_run_m(uint c, int l, uint depth) {
-	return larc[(c / depth) * 4u + uint(l)] * shell_mid(c % depth) * METRES_PER_MODEL_UNIT;
+	return larc[(c / depth) * 4u + uint(l)] * shell_mid(c % depth);
 }
 
 // Share of cell `c`'s air OFFERED across one face: advection at that face's own Courant number, plus mixing
@@ -201,7 +200,7 @@ void main() {
 			continue;
 		}
 		float a = air_out[c];
-		float dz_m = shell_dr(uint(r)) * METRES_PER_MODEL_UNIT;
+		float dz_m = shell_dr(uint(r));
 		pressure[c] = GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * (above + 0.5 * a * dz_m);
 		above += a * dz_m;
 	}

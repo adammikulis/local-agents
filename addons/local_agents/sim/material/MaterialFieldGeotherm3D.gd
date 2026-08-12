@@ -17,7 +17,7 @@ var _shell_cells: PackedInt32Array = PackedInt32Array()   # r == 0 cells (the sh
 # --- the seeded geotherm -----------------------------------------------------------------------------------
 var _boundary_seed: float = 0.0      # ghost-cell temperature at arming, on the reference geotherm
 var _boundary_c: float = 0.0         # ...and now, scaled by how far the reservoir has cooled
-var _grad_c_per_m: float = 0.0       # reference geotherm gradient, deg C per MODEL unit (see _derive_gradient)
+var _grad_c_per_m: float = 0.0       # the Fourier geotherm, deg C per metre
 var _seeded_cells: int = 0
 
 # --- per-step outputs (published to the GPU and to SIM_REPORT) ---------------------------------------------
@@ -208,7 +208,7 @@ func _seed_profile() -> int:
 	var cell_size: float = float(grid.cell_size)
 	if depth <= 0 or surf_count <= 0 or cell_size <= 0.0:
 		return 0
-	_grad_c_per_m = _derive_gradient(cell_size)
+	_grad_c_per_m = LAPhysical.GEOTHERMAL_GRADIENT_C_PER_M
 	if _grad_c_per_m <= 0.0:
 		return 0
 	var ambient: float = float(_f.INITIAL_TEMP)
@@ -241,11 +241,3 @@ func _seed_profile() -> int:
 	return n
 
 
-## Deg C per MODEL unit. The regolith band stands in for GROUNDWATER_CIRCULATION_M of real crust, so the real
-## Fourier gradient is scaled by the ratio of the two.
-func _derive_gradient(cell_size: float) -> float:
-	var band: float = float(LAMaterialField3D.REGOLITH_CELLS) * cell_size
-	if band <= 0.0:
-		return 0.0
-	var exaggeration: float = LAPhysical.GROUNDWATER_CIRCULATION_M / band
-	return LAPhysical.GEOTHERMAL_GRADIENT_C_PER_M * exaggeration

@@ -51,7 +51,6 @@ layout(push_constant, std430) uniform Params {
 const float STEFAN = 5.670374419e-8;         // LAPhysical.STEFAN_BOLTZMANN
 const float SOLAR_CONSTANT = 1361.0;         // LAPhysical.SOLAR_CONSTANT_W_M2
 const float KELVIN = 273.15;                 // LAPhysical.KELVIN_OFFSET
-const float METRES_PER_MODEL_UNIT = 168.6;   // LAPhysical.METRES_PER_MODEL_UNIT
 const float C2_CM_K = 1.4387768775;          // LAPhysical.PLANCK_C2_CM_K
 const float DIFFUSIVITY = 1.66;              // LAPhysical.TWO_STREAM_DIFFUSIVITY
 const float KAPPA_REF_PA = 1.0e4;            // LAPhysical.ABSORPTION_REF_PRESSURE_PA
@@ -172,7 +171,7 @@ void main() {
 	for (int j = 0; j < nlay; ++j) {
 		uint r = uint(sfc + 1 + j);
 		uint c = base + r;
-		float dz = shell_dr(r) * METRES_PER_MODEL_UNIT;
+		float dz = shell_dr(r);
 		float t = max(temp[c] + KELVIN, 1.0);
 		tk[j] = t;
 		float f = 0.0;
@@ -195,7 +194,7 @@ void main() {
 	float wet = clamp(water[sc], 0.0, 1.0);
 	float icy = clamp(snow[sc] * ICE_ALBEDO_GAIN, 0.0, 1.0);
 	float leaf_kg_m2 = max(biomass[sc], 0.0) * RHO_CELLULOSE
-		* (shell_dr(uint(sfc)) * METRES_PER_MODEL_UNIT) * FOLIAGE_FRACTION;
+		* (shell_dr(uint(sfc))) * FOLIAGE_FRACTION;
 	float veg = 1.0 - exp(-CANOPY_EXTINCTION * (leaf_kg_m2 / LEAF_MASS_PER_AREA));
 	float land = mix(ALBEDO_GROUND, ALBEDO_VEG, veg);
 	float albedo = mix(mix(land, ALBEDO_WATER, wet), ALBEDO_ICE, icy);
@@ -263,9 +262,9 @@ void main() {
 	for (int j = 0; j < nlay; ++j) {
 		uint r = uint(sfc + 1 + j);
 		uint c = base + r;
-		float cap = max(rc_of(c) * shell_dr(r) * METRES_PER_MODEL_UNIT, 1.0);
+		float cap = max(rc_of(c) * shell_dr(r), 1.0);
 		temp[c] += net[j] * params.dt_s / cap;
 	}
-	float cap_s = max(rc_of(sc) * shell_dr(uint(sfc)) * METRES_PER_MODEL_UNIT, 1.0);
+	float cap_s = max(rc_of(sc) * shell_dr(uint(sfc)), 1.0);
 	temp[sc] += net_s * params.dt_s / cap_s;
 }

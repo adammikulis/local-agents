@@ -49,7 +49,6 @@ const float RREA_THRESHOLD_V_M = 2.84e5;                 // LAPhysical.RREA_THRE
 const float AIR_DENSITY_KG_M3 = 1.225;                   // LAPhysical.AIR_DENSITY_KG_M3
 const float DRY_AIR_GAS_CONSTANT_J_KGK = 287.0222603;    // LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK
 const float KELVIN = 273.15;                             // LAPhysical.KELVIN_OFFSET
-const float METRES_PER_MODEL_UNIT = 168.6;               // LAPhysical.METRES_PER_MODEL_UNIT
 
 vec3 cell_pos(uint c) {
 	uint b = c * 3u;
@@ -90,7 +89,7 @@ void main() {
 		for (uint r = 0u; r < depth; ++r) {
 			uint c = base + r;
 			if (solid[c] == 0.0) {
-				sigma += charge[c] * shell_dr(r) * METRES_PER_MODEL_UNIT;
+				sigma += charge[c] * shell_dr(r);
 			}
 		}
 		sigma_col[g] = sigma;
