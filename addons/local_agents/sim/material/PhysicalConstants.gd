@@ -34,10 +34,6 @@ const NIC_CHARGE_RATE_C_M3_S: float = 1.0e-9
 # content above which the riming rate stops climbing.
 const CONVECTIVE_UPDRAFT_M_S: float = 10.0
 const CHARGING_LWC_KG_M3: float = 1.0e-3
-# Air conductivity. Charge relaxes ohmically with time constant eps0/sigma, so these ARE the leak: ~885 s
-# inside cloud (droplets and ice scavenge the small ions that carry the current), ~89 s in clear air.
-const CLOUD_CONDUCTIVITY_S_M: float = 1.0e-14
-const CLEAR_AIR_CONDUCTIVITY_S_M: float = 1.0e-13
 # Relativistic runaway electron avalanche threshold at sea-level air density (Dwyer 2003, GRL 30:2055).
 # Scales with air density, so it is ~5x lower at 10 km than at the ground; conventional 3 MV/m breakdown
 # is never reached in a storm and is not what initiates a flash.
@@ -55,23 +51,12 @@ const BASALT_MELT_VISCOSITY_PA_S: float = 100.0
 # 3:267); n is Einstein's own 2.5 for rigid spheres, not a fitted exponent.
 const EINSTEIN_ROSCOE_EXPONENT: float = 2.5
 
-# --- PLANETARY INTERIOR -----------------------------------------------------------------------------------
-const INNER_CORE_C: float = 5200.0
-const CORE_MANTLE_BOUNDARY_C: float = 3700.0
-const UPPER_MANTLE_C: float = 1300.0
-
 # --- UPPER CRUST ------------------------------------------------------------------------------------------
-# Conductive geotherm. Fourier: dT/dz = q / lambda, from the two measured constants below. One value, in the
-# two units its consumers ask for.
-const GEOTHERMAL_GRADIENT_C_PER_M: float = GEOTHERMAL_FLUX_W_M2 / THERMAL_CONDUCT_ROCK_W_MK
-const GEOTHERMAL_GRADIENT_C_PER_KM: float = GEOTHERMAL_GRADIENT_C_PER_M * 1000.0
-
 const GROUNDWATER_CIRCULATION_M: float = 2000.0
 
 # --- THERMAL TRANSPORT ------------------------------------------------------------------------------------
-# Conductivity lambda (W/m/K) and volumetric heat capacity rho*c (J/m^3/K) for the three materials this
+# Conductivity lambda, W/m/K. Volumetric heat capacity rho*c, J/m^3/K.
 const THERMAL_CONDUCT_ROCK_W_MK: float = 2.5
-const THERMAL_CONDUCT_AIR_W_MK: float = 0.026
 const THERMAL_CONDUCT_WATER_W_MK: float = 0.60
 const ROCK_DENSITY_KG_M3: float = 2900.0
 ## Volumetric thermal expansivity of rock, 1/K. Skinner 1966, GSA Memoir 97, puts rocks at 15-33e-6 /°C;
@@ -81,15 +66,24 @@ const ROCK_VOLUME_EXPANSION_PER_K: float = 1.5e-5
 ## Voigt-Reuss-Hill mineral moduli of 80.1 and 84.1 GPa on two basalt samples.
 const ROCK_BULK_MODULUS_PA: float = 8.0e10
 const ROCK_SPECIFIC_HEAT_J_KGK: float = 840.0
-const VOL_HEAT_CAP_ROCK_J_M3K: float = ROCK_DENSITY_KG_M3 * ROCK_SPECIFIC_HEAT_J_KGK
 const VOL_HEAT_CAP_AIR_J_M3K: float = AIR_DENSITY_KG_M3 * AIR_SPECIFIC_HEAT_J_KGK
 const VOL_HEAT_CAP_WATER_J_M3K: float = WATER_DENSITY_KG_M3 * WATER_SPECIFIC_HEAT_J_KGK
-const THERMAL_DIFFUSIVITY_ROCK_M2_S: float = 1.026e-6    # 2.5 / 2.436e6
-const THERMAL_DIFFUSIVITY_AIR_M2_S: float = 2.192e-5     # 0.026 / 1186
-const THERMAL_DIFFUSIVITY_WATER_M2_S: float = 1.438e-7   # 0.60 / 4.171e6
 
 # --- RADIOGENIC HEATING -----------------------------------------------------------------------------------
-const RADIOGENIC_W_PER_KG: float = 5.0e-12
+# Present-day heat production per kg of the natural element, W/kg. Rybach 1988 (Handbook of Terrestrial
+# Heat-Flow Density Determination): 95.2 pW/kg per ppm U, 25.6 pW/kg per ppm Th, 34.8 pW/kg per % K.
+const HEAT_PRODUCTION_U_W_KG: float = 9.52e-5
+const HEAT_PRODUCTION_TH_W_KG: float = 2.56e-5
+const HEAT_PRODUCTION_K_W_KG: float = 3.48e-9
+# Bulk silicate Earth abundance, kg of element per kg of rock. McDonough & Sun 1995, Chem. Geol. 120:223
+# (U 20.3 ng/g, Th 79.5 ng/g, K 240 ug/g).
+const BSE_U_KG_PER_KG: float = 20.3e-9
+const BSE_TH_KG_PER_KG: float = 79.5e-9
+const BSE_K_KG_PER_KG: float = 240.0e-6
+# Radiogenic power of bulk silicate Earth rock, W/kg. Over the 4.03e24 kg silicate Earth this is ~19 TW.
+const SILICATE_HEAT_PRODUCTION_W_KG: float = BSE_U_KG_PER_KG * HEAT_PRODUCTION_U_W_KG \
+	+ BSE_TH_KG_PER_KG * HEAT_PRODUCTION_TH_W_KG \
+	+ BSE_K_KG_PER_KG * HEAT_PRODUCTION_K_W_KG
 
 # --- ENERGY BUDGET ----------------------------------------------------------------------------------------
 const SOLAR_CONSTANT_W_M2: float = 1361.0
@@ -106,7 +100,6 @@ const GEOTHERMAL_FLUX_W_M2: float = 0.087
 # Greybody optical depth of a sea-level air column, back-derived from Earth's own greenhouse: a 288 K surface
 # against a 255 K effective radiating temperature gives (288/255)^4 = 1.626 = 1 + 0.75*tau.
 const ATMOS_OPTICAL_DEPTH: float = 0.835
-const TWO_STREAM_COEFF: float = 0.75
 
 # --- SURFACE ALBEDO ---------------------------------------------------------------------------------------
 # brightest. (Earth's ~0.30 PLANETARY albedo includes clouds, which this substrate models separately, so the
@@ -120,30 +113,9 @@ const ALBEDO_SNOW_ICE: float = 0.65
 const AMBIENT_O2_DENSITY_KG_M3: float = AIR_DENSITY_KG_M3 * AIR_MOLE_FRAC_O2 \
 	* MOLAR_MASS_O2_KG_MOL / MOLAR_MASS_DRY_AIR_KG_MOL
 
-# --- COMBUSTION -------------------------------------------------------------------------------------------
-# Heat released per kg of O2 consumed, J/kg. Near-constant across hydrocarbon and carbohydrate fuels
-# (Huggett 1980, Fire and Materials 4:61).
-const HEAT_PER_KG_OXYGEN_J: float = 1.31e7
-
-
-# --- GROUNDWATER: PERMEABILITY IS GEOMETRY, NOT A MATERIAL NAME ---------------------------------------------
-# (Freeze & Cherry 1979, Table 2.2): gravel 1e-3..1 m/s, clean sand 1e-5..1e-2, silty sand 1e-7..1e-3,
-const KOZENY_CARMAN_C: float = 180.0
-const WATER_DYNAMIC_VISCOSITY_PA_S: float = 1.002e-3    # liquid water at 20 °C
-const AIR_DYNAMIC_VISCOSITY_PA_S: float = 1.81e-5       # dry air at 15 °C, 1 atm
-
+# --- REGOLITH ---------------------------------------------------------------------------------------------
 const REGOLITH_SURFACE_POROSITY: float = 0.40
 const COMPACTION_LENGTH_M: float = 2500.0
-
-## Terminal settling velocity of a grain in a fluid, m/s (Stokes drag): v = (rho_p - rho_f) g d^2 / 18 mu.
-## Valid only for Reynolds < 1. At GRAIN_D_UPLAND_M in air Re = 1.2, so this is at the edge of validity and
-static func stokes_settling_velocity(grain_d_m: float, fluid_density: float, fluid_viscosity: float,
-		g_m_s2: float) -> float:
-	if fluid_viscosity <= 0.0:
-		return 0.0
-	return (ROCK_DENSITY_KG_M3 - fluid_density) * g_m_s2 * grain_d_m * grain_d_m \
-		/ (18.0 * fluid_viscosity)
-
 
 const GRAIN_D_UPLAND_M: float = 6.0e-5      # 0.06 mm — very fine sand / coarse silt (residual saprolite)
 const GRAIN_D_LOWLAND_M: float = 4.0e-3     # 4 mm — fine gravel (valley-fill alluvium)
@@ -162,11 +134,6 @@ const ANIMAL_TISSUE_DENSITY_KG_M3: float = 1000.0
 
 const PROTEIN_DENATURE_C: float = 45.0
 
-# Heat of combustion of plant matter, J/kg — the carbohydrate value (Atwater, 4 kcal/g).
-const BIOMASS_HEAT_OF_COMBUSTION_J_PER_KG: float = 1.7e7
-
-# Specific heat of animal tissue, J/kg/K.
-const ANIMAL_SPECIFIC_HEAT_J_KGK: float = 3500.0
 # --- UNIVERSAL CONSTANTS ------------------------------------------------------------------------------------
 const PLANET_ANGULAR_VELOCITY_RAD_S: float = 7.2921159e-5   # Earth sidereal rotation, 2*pi/86164.1 s
 ## Coriolis parameter is f = CORIOLIS_TWO_OMEGA_RAD_S * sin(latitude).
@@ -208,17 +175,6 @@ const FORMATION_ENTHALPY_CO2_J_MOL: float = -393510.0
 const ENTROPY_CASIO3_J_MOL_K: float = 81.69
 const ENTROPY_SIO2_J_MOL_K: float = 41.46
 const ENTROPY_CACO3_J_MOL_K: float = 91.7
-const ENTROPY_CO2_J_MOL_K: float = 213.785            # CODATA Key Values, CO2 gas
-
-# --- METAMORPHIC DECARBONATION: CaCO3 + SiO2 -> CaSiO3 + CO2 ------------------------------------------------
-# dH and dS over the reaction's own stoichiometry, from the four standard-state values above; T_eq is where
-# dG = dH - T dS crosses zero, in Celsius.
-const CALCITE_QUARTZ_DECARB_ENTHALPY_J_MOL: float = FORMATION_ENTHALPY_CASIO3_J_MOL \
-	+ FORMATION_ENTHALPY_CO2_J_MOL - FORMATION_ENTHALPY_CACO3_J_MOL - FORMATION_ENTHALPY_SIO2_J_MOL
-const CALCITE_QUARTZ_DECARB_ENTROPY_J_MOL_K: float = ENTROPY_CASIO3_J_MOL_K \
-	+ ENTROPY_CO2_J_MOL_K - ENTROPY_CACO3_J_MOL_K - ENTROPY_SIO2_J_MOL_K
-const DECARBONATION_TEMP_C: float = CALCITE_QUARTZ_DECARB_ENTHALPY_J_MOL \
-	/ CALCITE_QUARTZ_DECARB_ENTROPY_J_MOL_K - KELVIN_OFFSET
 
 # --- WATER AND ICE DENSITY: WHY ROCK SHATTERS WHEN IT FREEZES -----------------------------------------------
 # frost weathering. At 0 C and 1 atm liquid water is 999.84 kg/m^3 and ice Ih is 916.7, so a given mass of
@@ -275,18 +231,9 @@ const DRY_AIR_GAS_CONSTANT_J_KGK: float = GAS_CONSTANT_J_MOL_K / MOLAR_MASS_DRY_
 const AIR_MOLAR_DENSITY_MOL_M3: float = AIR_DENSITY_KG_M3 / MOLAR_MASS_DRY_AIR_KG_MOL
 
 
-## Atmospheric scale height in METRES: H = R_d * T / g, the hydrostatic relation for an isothermal
-## ideal-gas column. It takes BOTH its arguments because H is a function of temperature and of the local
-## gravity, and this planet has no single g -- g is solved from the mass that is there (LAFieldGravity).
-static func scale_height_m(t_c: float, g_m_s2: float) -> float:
-	return DRY_AIR_GAS_CONSTANT_J_KGK * maxf(t_c + KELVIN_OFFSET, 1.0) / maxf(g_m_s2, 1.0e-12)
-
-# ============================================================================================================
-
 # --- ORGANIC MATTER: THE CARBON-TO-NITROGEN RATIO ---------------------------------------------------------
-# (Batjes 1996). 20 is the litter figure this substrate's detritus channel represents.
+# Litter, mol C per mol N (Batjes 1996).
 const LITTER_C_TO_N: float = 20.0
-const SOIL_ORGANIC_C_TO_N: float = 12.0
 # --- SHORTWAVE IS NOT LONGWAVE, AND THE DIFFERENCE *IS* THE GREENHOUSE --------------------------------------
 # Beer-Lambert vertical optical depth for shortwave, from the 78 of 341 W/m^2 Earth's atmosphere absorbs
 # at the top of the atmosphere (Trenberth, Fasullo & Kiehl 2009, BAMS 90:311).
@@ -294,32 +241,8 @@ const ATMOS_SW_OPTICAL_DEPTH: float = 0.2597
 
 const AIR_MASS_HORIZON: float = 38.0
 
-# --- WATER: DENSITY AND THE LATENT HEAT OF VAPORISATION ------------------------------------------------------
-const LATENT_HEAT_VAPORISATION_J_KG: float = 2.257e6
-
-# --- SNOW -----------------------------------------------------------------------------------------------------
-# Settled seasonal snowpack: rho 300 kg/m^3 (fresh fall 50-100, settled 200-400, firn 500+), c 2090 J/kg/K
-# (ice), lambda 0.15 W/m/K (0.05-0.5 with density; 0.15 is the settled-pack value).
-const SNOWPACK_DENSITY_KG_M3: float = 300.0
-const VOL_HEAT_CAP_SNOW_J_M3K: float = WATER_DENSITY_KG_M3 * ICE_SPECIFIC_HEAT_J_KGK
-const VOL_HEAT_CAP_ORGANIC_J_M3K: float = DRY_WOOD_DENSITY_KG_M3 * DRY_WOOD_SPECIFIC_HEAT_J_KGK
-const THERMAL_CONDUCT_SNOW_W_MK: float = 0.15
-
-# --- THE CARRIERS THAT HELD MATTER AND NO HEAT ----------------------------------------------------------------
-const VOL_HEAT_CAP_CARBONATE_J_M3K: float = CALCITE_DENSITY_KG_M3 * CALCITE_SPECIFIC_HEAT_J_KGK
-const VOL_HEAT_CAP_SILICA_J_M3K: float = QUARTZ_DENSITY_KG_M3 * QUARTZ_SPECIFIC_HEAT_J_KGK
-const VOL_HEAT_CAP_VAPOUR_J_M3K: float = WATER_DENSITY_KG_M3 * VAPOUR_SPECIFIC_HEAT_J_KGK
-# ============================================================================================================
-# ============================================================================================================
-
 # --- LIGHTNING --------------------------------------------------------------------------------------------
 const LIGHTNING_FLASH_J: float = 1.0e9
-
-# --- HEAT OF COMBUSTION -----------------------------------------------------------------------------------
-
-# --- CARBON CONTENT OF DRY PLANT MATTER --------------------------------------------------------------------
-const BIOMASS_CARBON_FRACTION: float = 0.47
-# ============================================================================================================
 
 # --- WATER: FUSION AND SUBLIMATION --------------------------------------------------------------------------
 const LATENT_HEAT_FUSION_J_KG: float = 3.337e5
@@ -338,7 +261,7 @@ const BASALT_EMISSIVITY: float = 0.95
 const LIMITING_OXYGEN_CONCENTRATION_FRAC: float = 0.15
 # ============================================================================================================
 
-# --- SPECIFIC HEATS (J/kg/K), the per-mass companions of the VOL_HEAT_CAP_* above ---------------------------
+# --- SPECIFIC HEATS, J/kg/K ---------------------------------------------------------------------------------
 const WATER_SPECIFIC_HEAT_J_KGK: float = 4184.0     # liquid water, 25 C
 const ICE_SPECIFIC_HEAT_J_KGK: float = 2090.0       # ice at 0 C — HALF liquid water's, which is why a snowpack
                                                     # swings temperature so much faster than a lake
@@ -378,9 +301,6 @@ const ATOMISATION_H2O_J_MOL: float = 9.269e5         # 2 x O-H, 926.9 kJ/mol (fr
 const ATOMISATION_O2_J_MOL: float = 4.9834e5         # O=O, 498.34 kJ/mol
 const ATOMISATION_CO2_J_MOL: float = 1.5980e6        # 2 x C=O, 1598 kJ/mol
 const ATOMISATION_N2_J_MOL: float = 9.4533e5         # N#N, 945.33 kJ/mol
-const ATOMISATION_CH2O_J_MOL: float = 1.5117e6       # formaldehyde-unit carbohydrate, 2 C-H + C=O
-const ATOMISATION_SIO2_J_MOL: float = 1.8646e6       # 2 x Si-O, 1864.6 kJ/mol
-const ATOMISATION_CACO3_J_MOL: float = 2.8990e6      # CaCO3 -> Ca + C + 3 O
 
 # FIRST IONISATION ENERGY per element, eV (NIST Atomic Spectra Database). A substance derives its own from
 # `formula`, the same way it derives its stoichiometry — one number per element, never one per compound.
@@ -394,9 +314,6 @@ const IONISATION_EV_FE: float = 7.902
 const IONISATION_EV_MG: float = 7.646
 const IONISATION_EV_AL: float = 5.986
 
-# ONSET TEMPERATURES FOR THE TWO HIGH RUNGS. DECLARED MODELLING CHOICES, NOT MEASUREMENTS: real thermal
-# dissociation and ionisation are gradual equilibria (Saha), not the sharp plateaus this ladder uses. A
-const DISSOCIATION_ONSET_C: float = 2226.85           # 2500 K, where H2O dissociation becomes significant
 # --- SAHA AND LAW OF MASS ACTION: the equilibria the two high rungs actually obey ------------------------
 const PLANCK_J_S: float = 6.62607015e-34             # CODATA, exact
 const BOLTZMANN_J_K: float = 1.380649e-23            # CODATA, exact
@@ -420,10 +337,6 @@ const ENTROPY_H_ATOM_J_MOLK: float = 114.717
 const ENTROPY_O_ATOM_J_MOLK: float = 161.058
 const ENTROPY_C_ATOM_J_MOLK: float = 158.100
 const ENTROPY_N_ATOM_J_MOLK: float = 153.301
-# The linear fit, as a CONSTANT rather than a sentence in a comment, so the relation between the two
-# measured latent heats is checkable instead of asserted. Valid 0-100 C; use the Watson form outside it.
-const LATENT_VAPORISATION_SLOPE_J_KGK: float = 2361.0
-# ============================================================================================================
 
 # Thermal-infrared emissivity of a water surface. Near-blackbody, which is why sea-surface temperature
 # can be measured from orbit at all.
@@ -493,20 +406,6 @@ const COAL_DEHYDRATION_EA_OVER_R_K: float = COAL_DEHYDRATION_EA_J_MOL / GAS_CONS
 const COAL_DECARBOXYLATION_EA_J_MOL: float = 36.0 * KCAL_PER_MOL_TO_J_MOL
 const COAL_DECARBOXYLATION_EA_OVER_R_K: float = COAL_DECARBOXYLATION_EA_J_MOL / GAS_CONSTANT_J_MOL_K
 
-# --- SURFACE MOMENTUM FLUX ---------------------------------------------------------------------------------
-# The log-law wind profile and the two surface roughness lengths it is evaluated against. C_d is DERIVED from
-# them, (VON_KARMAN / ln(z / z0))^2, so a drag coefficient is never a number anybody picks.
-const VON_KARMAN_CONSTANT: float = 0.4              # Garratt 1992, The Atmospheric Boundary Layer, ch. 3
-const ROUGHNESS_LENGTH_SEA_M: float = 2.0e-4        # open sea, Garratt 1992 table 4.1
-const ROUGHNESS_LENGTH_LAND_M: float = 0.03         # open country / grassland, Wieringa 1992 Davenport class 4
-
-# --- SUBGRID MOMENTUM FLUX ---------------------------------------------------------------------------------
-# Smagorinsky (1963) eddy viscosity, nu = (C_s * grid)^2 * |S|. Lilly (1967) derives C_s from the Kolmogorov
-# constant rather than fitting it: C_s = (1/pi) * (3 * C_K / 2)^(-3/4).
-const KOLMOGOROV_CONSTANT: float = 1.6
-const SMAGORINSKY_COEFF: float = 0.1651
-
-# ============================================================================================================
 # --- RADIATIVE TRANSFER -------------------------------------------------------------------------------------
 const SPEED_OF_LIGHT_M_S: float = 299792458.0        # CODATA, exact by definition of the metre
 ## Second radiation constant h*c/k, in cm K, so it pairs with a wavenumber in cm^-1: x = PLANCK_C2_CM_K*nu/T.

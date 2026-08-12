@@ -13,8 +13,9 @@ SDF, heat field, lava, and shock, so they want a design pass with the maintainer
 ## Substrate we already have (the ingredients)
 - **Interior heat — RADIOGENIC, and nothing else.** ~~A finite reservoir seeded at real temperatures
   maintains the geotherm and slowly cools.~~ **That reservoir, its core temperature, the seeded Fourier
-  profile and the boundary flux are deleted.** The rock's own decay (`LAPhysical.RADIOGENIC_W_PER_KG` on the
-  mass each cell holds) is the whole source; conduction carries it and the surface radiates it, and the
+  profile and the boundary flux are deleted.** The rock's own decay (the `silicate` substance's
+  `heat_production_w_kg` on the ROCK mass each cell holds, not the cell's bulk mass — the water, ice and
+  organic matter sharing the cell carry no U, Th or K) is the whole source; conduction carries it and the
   gradient is the outcome. A run covers hours of planet time and radiogenic warming is a megayear process,
   so the observed gradient will read near flat — that is the honest answer, not a reason to seed one back.
 - **Magma / lava** — `_lava`, magma buoyancy (`magma_buoy_sphere3d`), lava flow, phase change (melt/solidify).

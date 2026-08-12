@@ -175,13 +175,10 @@ changes its unit, then the latent-plateau gate.
 - **`AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`**, which is now the
   cited ISA value. It is the unit definition of the `o2`/`co2`/`n2` channels, so correcting it re-scales
   every gas total — a maintainer call, not a merge resolution. The fix is one flat expression.
-- **Five interior constants are now referenced by nothing** — `INNER_CORE_C`, `CORE_MANTLE_BOUNDARY_C`,
-  `UPPER_MANTLE_C`, `GEOTHERMAL_GRADIENT_C_PER_M`, `GEOTHERMAL_GRADIENT_C_PER_KM`. They existed to seed and
-  hold a prescribed geotherm, which is deleted. Delete the values too; `GEOTHERMAL_FLUX_W_M2` stays as the
-  real-Earth figure the emergent surface flux is read against.
-- **`RADIOGENIC_W_PER_KG` carries no citation comment**, and `docs/PHYSICS_AUDIT_2026-08-09.md` says it is
-  the present-day value on a world meant to be young. It is now the only interior heat source, so it needs
-  a source named beside it.
+- **One radiogenic rate covers every rock, and there is only one rock to cover.** `silicate` carries
+  `heat_production_w_kg` from the cited bulk silicate Earth U/Th/K abundance. Continental crust is enriched
+  ~50x over depleted mantle, so a second rock substance with its own abundance is what makes the crust and
+  the mantle differ. The rate is also PRESENT-DAY and this body has no age.
 
 ---
 
