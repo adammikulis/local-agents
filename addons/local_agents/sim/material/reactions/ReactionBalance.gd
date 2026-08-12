@@ -164,6 +164,15 @@ static func check_kernel(recs: Array, labels: PackedStringArray = PackedStringAr
 		return out
 	var src: String = f.get_as_text()
 	f.close()
+	# The slot #defines live in the GENERATED include now, so a gate reading only the kernel sees none of
+	# them and reports every slot missing.
+	for inc in ["generated.glsli"]:
+		var g: FileAccess = FileAccess.open(KERNEL_PATH.get_base_dir() + "/" + inc, FileAccess.READ)
+		if g == null:
+			out.append("CANNOT RUN: %s is unreadable, so the slot enums could not be compared." % inc)
+			return out
+		src += "\n" + g.get_as_text()
+		g.close()
 
 	var names: Dictionary = slot_names()
 	var defines: Dictionary = {}
