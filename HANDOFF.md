@@ -111,8 +111,7 @@ channels that carry heat, because heat is no longer spread across channels:
 **G — the grid. Done.** The kernels run on `LAVoxelGrid`, gravity is solved, the axis gate passes,
 `METRES_PER_MODEL_UNIT` / `PLANET_SCALE` / `SURFACE_G` / the held `STANDARD_GRAVITY_M_S2` are gone, and so
 are `solid_angle`, `cell_vol`, `face_area`, `link_arc`, `link_partner`, the tangent basis and its parallel
-transport, the shell table and the whole of `sim/sphere/`. *Left:* `BiomeTextureBaker` still calls
-`shell_of` on a grid class that no longer exists.
+transport, the shell table and the whole of `sim/sphere/`.
 
 **P — pressure. Done.** `kernels3d/pressure.glsl` marches along -g accumulating the cell's own bulk
 density times the solved `|g|`. It replaced a kernel that gave a buried cell the weight of the AIR column

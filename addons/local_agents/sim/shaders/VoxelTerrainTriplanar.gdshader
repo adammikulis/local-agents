@@ -1,25 +1,15 @@
-// Natural triplanar terrain shader for the from-scratch voxel showcase.
-// Colors by world height + world normal (slope), no UVs, no external textures.
-//   - sand near sea level (y ~= 0)
-//   - grass on gentle low ground
-//   - rock on steep slopes
-//   - snow up high on flatter ground
+// Triplanar terrain shading: albedo from slope + radial altitude, emission from the field's temperature.
 shader_type spatial;
 render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 
 #include "res://addons/local_agents/sim/shaders/generated.gdshaderinc"
 
-uniform float sea_level = 0.0;
-uniform float snow_height = 90.0;
+uniform float sea_level = 0.0;      // world units, relative to planet_sea_radius
+uniform float snow_height = 90.0;   // world units above the sea shell
 
-// --- Spherical planet mode -------------------------------------------------------------------
-// On a sphere, climate must band by RADIAL height-above-sea, not world-Y (else all "snow" piles
-// at the +Y pole). When planet_enabled > 0.5, altitude = length(world_pos - planet_center) -
-// planet_sea_radius, and "up" is the radial direction normalize(world_pos - planet_center).
-// When planet_enabled <= 0.5, behavior is EXACTLY the old flat (world-Y) banding.
+// Up is radial and altitude is height above the sea shell. Set by LARenderLayer from the body.
 uniform vec3 planet_center = vec3(0.0);
 uniform float planet_sea_radius = 0.0;
-uniform float planet_enabled = 0.0;
 
 uniform vec3 sand_color : source_color = vec3(0.76, 0.70, 0.50);
 uniform vec3 grass_color : source_color = vec3(0.33, 0.44, 0.22);
@@ -27,37 +17,12 @@ uniform vec3 grass_dark : source_color = vec3(0.22, 0.32, 0.15);
 uniform vec3 rock_color : source_color = vec3(0.42, 0.40, 0.38);
 uniform vec3 snow_color : source_color = vec3(0.92, 0.94, 0.97);
 
-// --- Radial geology (planet mode): exposed INTERIOR rock (revealed by carving / meteor impacts) grades
-// crust -> mantle -> molten magma by actual RADIUS toward the hot core, and glows from the geothermal
-// gradient. Banded by radius so the natural surface (high radius) is untouched — only dug-out deep rock
-// shows layers. Makes blasting the planet reveal real geology instead of a uniform crust over water. ---
-uniform float planet_mantle_radius = 175.0;   // at/below this radius exposed rock reads as mantle
-uniform float planet_core_radius = 92.0;      // at/below this radius it is molten magma (glows)
-uniform float planet_core_temp = 1300.0;      // core temperature driving the radial incandescence
-uniform vec3 mantle_color : source_color = vec3(0.30, 0.12, 0.09);
-uniform vec3 magma_color : source_color = vec3(0.95, 0.35, 0.05);
-
-// --- Temperature field (baked by LAMaterialField into an R-float texture over world XZ). ---
-// The ground reads the temperature at its position and GLOWS incandescently when hot (a meteor
-// strike, lava, a wildfire) — emergent blackbody radiation, no per-event code. heat_debug flips the
-// whole surface to a temperature heatmap for the debug view.
-uniform sampler2D heat_tex : hint_default_black, filter_linear;
-uniform vec2 heat_world_min = vec2(-300.0, -300.0);
-uniform vec2 heat_world_size = vec2(600.0, 600.0);
+// --- Temperature field: the field's per-cell temperature °C as an R-float 3D texture over the field box.
+// Sampled at the true world position, so a cave floor and the ridge above it read their own temperature.
+uniform sampler3D heat_tex : hint_default_black, filter_linear, repeat_disable;
+uniform vec3 heat_box_min = vec3(0.0);
+uniform vec3 heat_box_size = vec3(1.0);
 uniform float heat_debug = 0.0;      // 0 = normal + incandescence, 1 = temperature heatmap
-
-// --- BIOME COLORATION (Keystone B) — the ground reads by CLIMATE, not altitude alone. LABiomeTextureBaker
-// bakes the field's near-ground moisture + temperature into a 6-layer texel-per-surface-column texture; the
-// shader recovers the texel with the SAME inverse-gnomonic math the water renderer uses. So a dry plateau
-// self-differentiates into savanna/desert and a humid coast into jungle — emergent, no per-place scripting.
-// R = relative humidity (0 arid .. 1 humid), G = warmth (0 tundra-cold .. 1 tropical-hot), B = frost/snow,
-// A = valid flag (0 before the first bake -> FALL BACK to the legacy altitude-only look, never a broken color).
-uniform sampler2DArray biome_tex : filter_linear;
-uniform float biome_enabled = 0.0;
-uniform vec3 desert_color : source_color = vec3(0.80, 0.69, 0.44);   // hot + very dry -> arid sand/desert
-uniform vec3 savanna_color : source_color = vec3(0.60, 0.57, 0.30);  // warm + semi-dry -> dry-grass steppe
-uniform vec3 jungle_color : source_color = vec3(0.16, 0.38, 0.12);   // warm + very wet -> lush deep green
-uniform vec3 tundra_color : source_color = vec3(0.52, 0.53, 0.47);   // cold -> sparse grey-brown / frost
 
 // --- CEL SHADING (toon light) — quantize the sun's diffuse into hard bands + a crisp terminator + a flat
 // toon spec, and a cheap fresnel dark rim as a fake outline (no separate pass). Tunable so the style reads
@@ -91,32 +56,6 @@ vec3 heat_ramp(float t) {
 	return c;
 }
 
-int biome_face_of(vec3 d) {
-	vec3 a = abs(d);
-	if (a.x >= a.y && a.x >= a.z) {
-		return d.x >= 0.0 ? 0 : 1;
-	}
-	if (a.y >= a.z) {
-		return d.y >= 0.0 ? 2 : 3;
-	}
-	return d.z >= 0.0 ? 4 : 5;
-}
-
-// Sample the baked climate texel for the surface column under radial direction `dir`.
-vec4 sample_biome(vec3 dir) {
-	int f = biome_face_of(dir);
-	float denom = dot(dir, FACE_N[f]);
-	if (denom < 0.0001) {
-		return vec4(0.0);
-	}
-	vec3 p = dir / denom;
-	float a = dot(p, FACE_R[f]);
-	float b = dot(p, FACE_U[f]);
-	float u = clamp((a + 1.0) * 0.5, 0.0, 0.99999);
-	float v = clamp((b + 1.0) * 0.5, 0.0, 0.99999);
-	return textureLod(biome_tex, vec3(u, v, float(f)), 0.0);
-}
-
 varying vec3 v_world_pos;
 varying vec3 v_world_normal;
 
@@ -148,20 +87,11 @@ void fragment() {
 	vec3 wp = v_world_pos;
 	vec3 wn = normalize(v_world_normal);
 
-	// Climate basis. Flat world: "up" is +Y and "altitude" is world-Y. Planet: "up" is the radial
-	// outward direction and "altitude" is radial height above the sea-level sphere. Everything that
-	// used to key off world-Y-vs-sea for climate banding keys off `altitude` instead, and slope tests
-	// key off `up_dir`, so bands are correct all over a sphere (beaches at the coast everywhere, snow
-	// on high peaks everywhere) rather than dumped at the pole.
-	vec3 up_dir = vec3(0.0, 1.0, 0.0);
-	float altitude = wp.y;
-	float lat_cold = 0.0; // 0 at equator, 1 at poles (planet mode only)
-	if (planet_enabled > 0.5) {
-		vec3 radial = wp - planet_center;
-		up_dir = normalize(radial);
-		altitude = length(radial) - planet_sea_radius;
-		lat_cold = abs(up_dir.y); // radial up aligns with +Y at the poles
-	}
+	// Climate basis: up is radial, altitude is radial height above the sea shell.
+	vec3 radial = wp - planet_center;
+	vec3 up_dir = normalize(radial);
+	float altitude = length(radial) - planet_sea_radius;
+	float lat_cold = abs(up_dir.y);   // 0 at the equator, 1 at the poles
 
 	float slope = 1.0 - clamp(dot(wn, up_dir), 0.0, 1.0); // 0 flat, 1 vertical
 
@@ -180,33 +110,9 @@ void fragment() {
 	grass = mix(grass, grass * vec3(1.10, 1.06, 0.86), smoothstep(0.55, 0.85, macro) * 0.6);
 	grass = mix(grass, grass_dark * 0.9, smoothstep(0.45, 0.15, macro) * 0.4);
 
-	// BIOME: repaint the vegetated band by the emergent climate (moisture + temperature) so the world reads
-	// as distinct places. Deserts/savanna where the air is dry, jungle where it is warm+wet, tundra where it
-	// is cold — all from the baked field, not per-place code. Falls back to plain grass when the texture is
-	// unbaked (A<=0.5) or in flat/island mode, so the legacy look is preserved exactly.
-	vec3 veg = grass;
-	if (biome_enabled > 0.5 && planet_enabled > 0.5) {
-		vec4 bio = sample_biome(up_dir);
-		if (bio.a > 0.5) {
-			float wet = bio.r;                                  // 0 arid .. 1 humid
-			float warm = clamp(bio.g - 0.55 * lat_cold, 0.0, 1.0); // field warmth, cooled toward the poles
-			float frost = bio.b;
-			// Aridity axis: very dry -> desert, semi-dry -> dry-grass savanna, temperate -> grass, wet -> jungle.
-			vec3 dry = mix(desert_color, savanna_color, smoothstep(0.12, 0.48, wet));
-			vec3 wetv = mix(grass, jungle_color, smoothstep(0.62, 1.0, wet));
-			vec3 climate = mix(dry, wetv, smoothstep(0.34, 0.60, wet));
-			// Cold overrides moisture toward tundra; real snowpack pushes a touch further to frosted ground.
-			climate = mix(climate, tundra_color, smoothstep(0.34, 0.14, warm));
-			climate = mix(climate, tundra_color * 1.12, frost * 0.5);
-			// Keep micro tonal variation so biomes still mottle instead of reading as flat paint.
-			veg = climate * (0.90 + 0.22 * n);
-		}
-	}
-
-	// Beach/sand near sea level, then the (biome-tinted) vegetation above. `altitude` is world-Y (flat) or
-	// radial height-above-sea (planet), so the coastline sits at the right band all around a sphere.
+	// Beach/sand near sea level, then vegetation above. `altitude` is radial height above the sea shell.
 	float beach = smoothstep(sea_level - 2.0, sea_level + 3.5, altitude);
-	vec3 low = mix(sand_color, veg, beach);
+	vec3 low = mix(sand_color, grass, beach);
 
 	// Rock takes over on steep faces, with cooler/warmer strata from the macro noise.
 	float rockf = smoothstep(0.35, 0.62, slope);
@@ -222,23 +128,9 @@ void fragment() {
 		* (1.0 - smoothstep(0.5, 0.8, slope));
 	col = mix(col, snow_color, clamp(snowf, 0.0, 1.0));
 
-	// Radial GEOLOGY (planet): exposed interior rock grades crust -> mantle -> molten magma by actual
-	// radius toward the hot core, and picks up a geothermal glow. The natural surface sits at a high
-	// radius (crust band), so this only reshapes DUG-OUT deep rock — carving/blasting reveals real layers.
-	float radial_temp = 0.0;
-	if (planet_enabled > 0.5) {
-		float r = length(wp - planet_center);
-		float mantle_f = smoothstep(planet_mantle_radius + 45.0, planet_mantle_radius, r);
-		float magma_f = smoothstep(planet_core_radius + 40.0, planet_core_radius, r);
-		col = mix(col, mantle_color * (0.75 + 0.5 * n), mantle_f);
-		col = mix(col, magma_color, magma_f);
-		float depth_f = clamp((planet_sea_radius - r) / max(planet_sea_radius - planet_core_radius, 1.0), 0.0, 1.0);
-		radial_temp = depth_f * depth_f * planet_core_temp;   // squared: glow stays deep, not at the crust
-	}
-
-	// Sample the temperature field at this world XZ.
-	vec2 huv = (wp.xz - heat_world_min) / heat_world_size;
-	float temp = texture(heat_tex, huv).r;
+	// Temperature °C at this world point, read in 3D from the field.
+	vec3 huvw = (wp - heat_box_min) / heat_box_size;
+	float temp = texture(heat_tex, huvw).r;
 
 	// Scorched earth: ground that has been strongly heated — a volcano's flanks and crater, a wildfire
 	// burn, a meteor crater — chars toward dark basalt/ash BEFORE it starts to glow. Driven purely by
@@ -274,11 +166,7 @@ void fragment() {
 		ROUGHNESS = mix(mix(0.92, 0.6, rockf), 0.5, snowf);
 		SPECULAR = 0.5 - 0.3 * (1.0 - rockf) * (1.0 - snowf);
 		METALLIC = 0.0;
-		// Hot ground glows — a meteor crater, lava, or a wildfire front lights the terrain itself. This
-		// SMOOTH (linear-filtered heat field) glow is the main visual of molten lava; the lava surface
-		// mesh on top is a subtler crust, so the flow reads smooth, not as blocky per-cell squares. The
-		// radial geothermal temp adds the deep-rock/magma glow revealed by carving, even with no strike.
-		EMISSION = incandescence(max(temp, radial_temp)) * 3.8;
+		EMISSION = incandescence(temp) * 3.8;
 	}
 }
 

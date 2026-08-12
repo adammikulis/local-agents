@@ -470,9 +470,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd` | `LIT_MIN` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd` | `WET_SPLIT` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd` | `DRY_EPS` | 0.01 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/BiomeTextureBaker.gd` | `WARM_COLD_C` | -25.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/BiomeTextureBaker.gd` | `WARM_HOT_C` | 40.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/BiomeTextureBaker.gd` | `RH_LUSH` | 1.2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialShock3D.gd` | `SHOCK_ACTIVE` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialShock3D.gd` | `SEED_NEIGHBOUR_FRACTION` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldConservation3D.gd` | `REFERENCE_STEPS` | 600 | inherited, unreviewed | Stage 2 substrate rewrite |
