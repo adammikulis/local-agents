@@ -81,6 +81,20 @@ The rule is the credibility; a story attached to it means a reader cannot tell w
 
 Tells: a parenthetical longer than its sentence · any date · a paragraph that would survive deletion.
 
+# RULE 1g — NEVER ASK WHETHER THE SIM MAY BE BROKEN. IT HAS NEVER WORKED. THERE IS NOTHING TO PROTECT.
+
+**Do not ask "should I keep the old path running", "is a long red stretch acceptable", "do you want a
+working sim meanwhile".** The answer is always yes, break it, and three rules already say so: no number
+from this substrate has ever meant anything, temporary breakage on a feature branch is expected, and a red
+gate is the work queue. Asking anyway proves the rules were not read, and it costs DAYS.
+
+**Before `AskUserQuestion`, check whether this file, `HANDOFF.md` or `docs/PHYSICS_TODO.md` already decides
+it. If they do, ACT.** The tool is for what only the maintainer knows — what he wants the world to BE
+like. Never for permission to do the correct thing, never for a choice between correct and cheap, never
+for reassurance.
+
+Delete, fix forward, report what you deleted. Do not check in first.
+
 # RULE 1f — "SO THAT IT COMPILES" AND "SO WE HAVE A BASELINE" ARE NOT REASONS. THEY ARE THE DISEASE.
 
 Green is the only signal cheap to read, so every plan bends toward producing one. That is how a deleted

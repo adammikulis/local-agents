@@ -109,7 +109,6 @@ const SphereGPUScript: GDScript = preload("res://addons/local_agents/sim/materia
 const QueriesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldQueries3D.gd")
 const InjectScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldInject3D.gd")
 const SphereStepScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd")
-const BoxStepScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldBoxStep3D.gd")
 const SurfaceSeedScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd")
 const OrganicScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldOrganic3D.gd")
 var _gpu = null                                          # LAMaterialSphereGPU3D (local RenderingDevice) or null
@@ -120,7 +119,6 @@ var _queries = null                                      # LAMaterialFieldQuerie
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
 var _stamp = null                                        # LAMineralStamp3D — Stage C rock_fill->SDF growth stamp
 var _sphere_step = null                                  # LAMaterialFieldSphereStep3D — cubed-sphere per-frame step loop
-var _box_step = null                                     # LAMaterialFieldBoxStep3D — box-mode CPU thermal step (setup_dims)
 var _surface_seed = null                                 # LAMaterialSurfaceSeed3D — ground-surface fuel + soil detritus seed/refill
 var _organic = null                                      # LAMaterialFieldOrganic3D — the dead pool's C:H:O gauge
 # Substrate-foundation primitive modules (the field only delegates; all logic lives in these). Seams the
@@ -270,6 +268,8 @@ func sample_solidity() -> void:
 # Cubed-sphere substrate (Phase B). When _sphere != null the field is a spherical planet: cells are a flat
 # array of length surf_count*depth gathered via the SphereGrid's 6-neighbour+radial table (down = inward-radial
 # neighbour). The box (_dim_*) path is untouched when _sphere == null. See sphere/SphereGrid.gd.
+## THE GRID. LAVoxelGrid — uniform, Cartesian, the one declaration of what a cell is.
+var _grid: LAVoxelGrid = null
 var _sphere: RefCounted = null
 
 ## True when the field is laid out on a cubed-sphere planet rather than an origin box.
@@ -304,25 +304,23 @@ func setup_sphere(grid: RefCounted, terrain = null) -> void:
 	_sphere_step = SphereStepScript.new()
 	_sphere_step.setup(self)
 
-## Explicit-dimension setup (used by tests / when the caller knows the volume directly).
+## Lay the field over a UNIFORM CARTESIAN GRID. `_grid` is the one grid; the cubed sphere is being deleted
+## onto it. Indexing, neighbours, cell volume and face area all come from LAVoxelGrid — never recomputed
+## here, and never with a second index layout.
 func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Vector3) -> void:
 	_sphere = null
-	_dim_x = maxi(1, dim_x)
-	_dim_y = maxi(1, dim_y)
-	_dim_z = maxi(1, dim_z)
-	_cell_size = maxf(0.5, cell_size)
-	_origin = origin
-	_cell_count = _dim_x * _dim_y * _dim_z
+	_grid = LAVoxelGrid.new()
+	_grid.build(dim_x, dim_y, dim_z, cell_size, origin)
+	_dim_x = _grid.nx
+	_dim_y = _grid.ny
+	_dim_z = _grid.nz
+	_cell_size = _grid.cell_size
+	_origin = _grid.origin
+	_cell_count = _grid.cell_count
 	_alloc_channels()
-	# Box mode never runs activate() (that is the cubed-sphere GPU path), so wire the injection facade here so
-	# add_heat/add_vapor work — it edits the CPU channel arrays directly (box add_heat degrades to the single
-	# world_to_cell). Without this _inject is null and add_heat silently no-ops.
+	# The injection facade edits the CPU channel arrays directly; without it add_heat silently no-ops.
 	_inject = InjectScript.new()
 	_inject.setup(self)
-	# Box mode has no cubed-sphere GPU kernels: a small CPU thermal stepper drives the volume so injected heat
-	# diffuses + rises (the library box-field sandbox). New module + one-line delegation from _physics_process.
-	_box_step = BoxStepScript.new()
-	_box_step.setup(self)
 
 ## Allocate + seed every per-cell channel for the current `_cell_count`. Shared by setup_dims (box) and
 ## setup_sphere (cubed-sphere) — both set _cell_count first, then call this.
@@ -623,11 +621,8 @@ func _physics_process(delta: float) -> void:
 	# The cubed-sphere is the SOLE substrate: one self-contained GPU step over the *_sphere3d kernels.
 	# The fixed-step begin/step/end loop + readback scatter live in LAMaterialFieldSphereStep3D.
 	# (The retired box grid + its CPU-oracle tails lived here; deleted with the sphere-only cleanup.)
-	if is_sphere() and _sphere_step != null:
+	if _sphere_step != null:
 		_sphere_step.process(delta)
-	elif not is_sphere() and _box_step != null:
-		# Box mode (setup_dims): CPU thermal step so an origin-box volume heats/flows without a planet or GPU.
-		_box_step.process(delta)
 
 
 ## Temperature °C at a true-3D world point (a mild default outside the shell). Sphere-native single read.
