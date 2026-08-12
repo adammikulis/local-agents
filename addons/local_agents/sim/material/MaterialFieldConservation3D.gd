@@ -4,43 +4,34 @@ extends RefCounted
 ## Steps past the seal at which the books are audited, and the first sample at which any verdict is given.
 const REFERENCE_STEPS: int = 600
 
-## Machine epsilon for the IEEE-754 binary32 the GPU buffers carry, written as the computation rather than
-## its value: 2^-24, the gap between 1.0 and the next representable float32. A property of the format.
+## Machine epsilon for the IEEE-754 binary32 the GPU buffers carry: 2^-24, the gap between 1.0 and the next
+## representable float32. A property of the format.
 const FLOAT32_EPSILON: float = 1.0 / 16777216.0
 
-## The only tolerance a conservation ledger is entitled to, and it is DERIVED rather than picked. Summing N
-## float32 values accumulates relative round-off of order sqrt(N)·eps, so the floor depends on how many cells
+## Relative round-off of ONE sum of N float32 values, order sqrt(N)*eps. A single-sample magnitude with no
+## time dimension: it is compared against a relative drift, never against a per-step rate.
 static func noise_floor(cell_count: int) -> float:
 	return sqrt(float(maxi(cell_count, 1))) * FLOAT32_EPSILON
 
 
-## Allowed drift per step, per substance. A conserved substance drifts at zero, so the only honest ceiling
-## is float noise. Raising any of these requires the maintainer.
-const DEBT_PER_STEP: Dictionary = {
-	"element_C_total": 0.0, "h2o_closed_total": 0.0, "o2_total": 0.0,
-	"oxidant_all": 0.0, "nitrogen_all": 0.0, "mineral_total": 0.0,
-}
-
-## Baseline key for each gated total. A substance with no sealed baseline is NOT gated — it is reported as
-## unmeasurable, which is the honest answer and is itself worth seeing in a run.
-const BASELINE: Dictionary = {
-	"element_C_total": "element_C_total_first",
-	"h2o_closed_total": "h2o_first",
-	"o2_total": "o2_first",
-	"oxidant_all": "oxidant_first",
-	"nitrogen_all": "nitrogen_first",
-	"mineral_total": "mineral_first",
+## Gated quantity -> the report keys it is read from, and the only declaration of what is gated.
+## `now`/`first`: a CLOSED total, nothing crosses the world boundary, so `now - first` must be zero.
+## `unbooked`/`first`: an OPEN one, and the ledger has already subtracted every booked exchange with space.
+const GATED: Dictionary = {
+	"element_C_total": {"now": "element_C_total", "first": "element_C_total_first"},
+	"h2o_closed_total": {"now": "h2o_closed_total", "first": "h2o_first"},
+	"o2_total": {"now": "o2_total", "first": "o2_first"},
+	"oxidant_all": {"now": "oxidant_all", "first": "oxidant_first"},
+	"nitrogen_all": {"now": "nitrogen_all", "first": "nitrogen_first"},
+	"mineral_total": {"now": "mineral_total", "first": "mineral_first"},
+	"energy_stock": {"unbooked": "energy_residual", "first": "energy_stock_first"},
 }
 
 var _f = null
-var _worst: Dictionary = {}          # substance -> worst relative drift seen this run
+var _worst: Dictionary = {}          # substance -> peak relative excursion since the seal
 var _violations: PackedStringArray = PackedStringArray()
-## The audit happens once, at REFERENCE_STEPS. Without this the same breach re-reports every sample and a
-## reader cannot tell one violation from forty.
+## Latched only when every gated quantity produced a number at or past the horizon.
 var _audited: bool = false
-## Per-substance drift rate at the first audited sample — the baseline the leak/transient trend is read against.
-var _rate_first: Dictionary = {}
-var _rate_first_at: Dictionary = {}   # the step each baseline was taken at, so a trend can be read
 ## CONSERVATION_UNMEASURED printed once, the first sample past the horizon that could not answer.
 var _unmeasured_announced: bool = false
 
@@ -49,67 +40,49 @@ func setup(field) -> void:
 	_f = field
 
 
-## Check every gated substance against its sealed baseline. Prints CONSERVATION_VIOLATION on a breach and
-## CONSERVATION_UNMEASURED when a substance past the horizon could not produce a number.
+## Check every gated quantity against its sealed baseline. Prints CONSERVATION_VIOLATION on a breach and
+## CONSERVATION_UNMEASURED when one past the horizon could not produce a number.
 func check(d: Dictionary) -> Dictionary:
 	var out: Dictionary = {}
 	if _f == null or _f._seal == null or not _f._seal.sealed():
 		out["conservation"] = "seeding"
 		return out
-	# ONE EVALUATION, AT THE REFERENCE HORIZON. The worst excursion is accumulated every sample below; only
-	# the VERDICT waits.
 	var elapsed: int = _steps_since_seal()
+	# One threshold for every row: the round-off of a single float32 sum over this grid.
+	var ceiling: float = noise_floor(_f._cell_count if _f != null else 0)
 	var rows: Dictionary = {}
-	var rates: Dictionary = {}
-	# Substances that could not answer this sample: the leg is null, or its baseline is zero.
 	var unmeasured: PackedStringArray = PackedStringArray()
-	for key in DEBT_PER_STEP:
-		var first_key: String = String(BASELINE.get(key, ""))
-		var now = d.get(key)
-		var first = d.get(first_key)
-		if not (now is float or now is int) or not (first is float or first is int):
+	for key in GATED:
+		var spec: Dictionary = GATED[key]
+		var first = d.get(String(spec["first"]))
+		if not (first is float or first is int) or float(first) == 0.0:
 			rows[key] = "unmeasured"
 			unmeasured.append(key)
 			continue
-		var f: float = float(first)
-		if f == 0.0:
+		var drift = _unbooked(d, spec, float(first))
+		if drift == null:
 			rows[key] = "unmeasured"
 			unmeasured.append(key)
 			continue
-		var rel: float = (float(now) - f) / f
+		var rel: float = float(drift) / absf(float(first))
 		var mag: float = absf(rel)
 		if mag > float(_worst.get(key, 0.0)):
 			_worst[key] = mag
-		rows[key] = snappedf(rel, 1e-6)
-		# The run-length-independent figure. `elapsed` is >= REFERENCE_STEPS at every point a verdict is
-		# given, so this is never divided by a small number.
-		var rate: float = (mag / float(elapsed)) if elapsed > 0 else 0.0
-		rates[key] = rate
-		# IS IT A LEAK OR A TRANSIENT? A leak holds its rate; a settling transient's rate falls as the horizon
-		# grows. Compared against the rate at the FIRST audited sample, which is the earliest honest one.
-		# Latched at the first audited sample where the substance has ACTUALLY drifted.
-		if not _rate_first.has(key) and elapsed >= REFERENCE_STEPS and rate > 0.0:
-			_rate_first[key] = rate
-			_rate_first_at[key] = elapsed
-		# No verdict before the horizon — the run is still accumulating. AFTER it, every sample is checked;
-		# `not _violations.has(key)` below is what keeps a breach to one line per substance.
+		rows[key] = snappedf(rel, 1e-9)
 		if elapsed < REFERENCE_STEPS:
 			continue
-		# A zero entry means "no allowance beyond arithmetic": use the derived float floor for THIS grid.
-		var ceiling: float = float(DEBT_PER_STEP[key])
-		if ceiling <= 0.0:
-			ceiling = noise_floor(_f._cell_count if _f != null else 0)
-		if rate > ceiling and not _violations.has(key):
+		# The PEAK, not the reading of the moment: a quantity that swings out and returns has still broken
+		# conservation, and the peak is never smaller than the current drift.
+		var peak: float = float(_worst[key])
+		if peak > ceiling and not _violations.has(key):
 			_violations.append(key)
-			# One line per substance, the first time it breaches. A marker rather than a push_error so the
-			# offscreen wrapper and CI can both find it without parsing Godot's error stream.
 			print("CONSERVATION_VIOLATION=", JSON.stringify({
-				"substance": key, "first": f, "now": float(now),
-				"rel_drift": snappedf(rel, 1e-6), "rel_drift_per_step": rate,
-				"allowed_per_step": ceiling, "at_steps": elapsed,
+				"substance": key, "first": float(first),
+				"rel_drift": snappedf(rel, 1e-9), "worst_rel_drift": snappedf(peak, 1e-9),
+				"allowed_rel": ceiling, "at_steps": elapsed,
 				"seal_step": _f._seal.seal_step(),
 			}))
-	# A gate that cannot run must not pass: the audit latches only when every substance produced a number.
+	# A gate that cannot run must not pass: the audit latches only when every row produced a number.
 	if elapsed >= REFERENCE_STEPS and unmeasured.is_empty():
 		_audited = true
 	if elapsed >= REFERENCE_STEPS and not unmeasured.is_empty() and not _unmeasured_announced:
@@ -117,44 +90,30 @@ func check(d: Dictionary) -> Dictionary:
 		print("CONSERVATION_UNMEASURED=", JSON.stringify({
 			"substances": unmeasured, "at_steps": elapsed, "seal_step": _f._seal.seal_step()}))
 	out["conservation"] = rows
-	out["conservation_rate"] = rates
-	# Rate NOW over rate at the first audited sample. Below 1 the drift is settling (a transient); at or above
-	# 1 it is holding or accelerating, which is a leak. One number per substance, so a reader can tell the two
-	# apart without comparing runs.
-	var trend: Dictionary = {}
-	for key in rates:
-		var r0: float = float(_rate_first.get(key, 0.0))
-		# A trend needs a horizon long enough to be a comparison rather than noise: at least double the step
-		# the baseline was taken at.
-		if r0 > 0.0 and elapsed >= 2 * int(_rate_first_at.get(key, elapsed)):
-			trend[key] = snappedf(float(rates[key]) / r0, 1e-4)
-	out["conservation_rate_trend"] = trend
+	out["conservation_allowed_rel"] = ceiling
 	out["conservation_audited"] = _audited
 	out["conservation_steps"] = elapsed
 	out["conservation_worst"] = _worst
 	out["conservation_violations"] = _violations
 	out["conservation_unmeasured"] = unmeasured
 	# TWO CAUSES, TWO KEYS. A breach and a gate that could not run are different findings, so neither hides
-	# inside the other. `conservation_failed` is their union — the audit did not pass — and is only readable
-	# beside the two that say which.
+	# inside the other. `conservation_failed` is their union.
 	out["conservation_violated"] = not _violations.is_empty()
 	out["conservation_starved"] = elapsed >= REFERENCE_STEPS and not unmeasured.is_empty()
 	out["conservation_failed"] = bool(out["conservation_violated"]) or bool(out["conservation_starved"])
-	# The PEAK excursion, which is a different question from "where did it end up": a substance that swings
-	# far out and returns has still broken conservation.
-	var worst_over: Dictionary = {}
-	for key in _worst:
-		var w_ceil: float = float(DEBT_PER_STEP.get(key, 0.0))
-		if w_ceil <= 0.0:
-			w_ceil = noise_floor(_f._cell_count if _f != null else 0)
-		if float(_worst[key]) / float(maxi(elapsed, 1)) > w_ceil:
-			worst_over[key] = snappedf(float(_worst[key]), 1e-6)
-	out["conservation_worst_over_debt"] = worst_over
 	return out
 
 
-## Steps elapsed since the books closed. The denominator that makes every figure above a RATE rather than a
-## number that grows with the length of the run.
+## The change since the seal that no booked exchange accounts for, or null when the row cannot answer.
+func _unbooked(d: Dictionary, spec: Dictionary, first: float):
+	if spec.has("unbooked"):
+		var residual = d.get(String(spec["unbooked"]))
+		return float(residual) if (residual is float or residual is int) else null
+	var now = d.get(String(spec["now"]))
+	return (float(now) - first) if (now is float or now is int) else null
+
+
+## Steps elapsed since the books closed.
 func _steps_since_seal() -> int:
 	if _f == null or _f._gpu == null or _f._seal == null:
 		return 0
