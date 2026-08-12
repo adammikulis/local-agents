@@ -169,7 +169,8 @@ const SILICATE_DISSOLUTION_EA_OVER_R_K: float = SILICATE_DISSOLUTION_EA_J_MOL / 
 const LAB_REFERENCE_TEMP_C: float = 25.0
 
 ## Overburden pressure at which loose sediment lithifies, Pa.
-const LITHIFICATION_PRESSURE_PA: float = 5.688e7
+# Effective stress at which quartz pressure solution cements sand. Bjorlykke & Egeberg 1993, AAPG 77:1538.
+const LITHIFICATION_PRESSURE_PA: float = 6.0e7
 ## Bulk density of unconsolidated wet sediment, kg/m^3.
 const SEDIMENT_DENSITY_KG_M3: float = 2000.0
 
