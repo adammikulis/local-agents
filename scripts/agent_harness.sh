@@ -310,6 +310,15 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_sim_determinism.sh ($rc_determinism)"
       lint_failed=$((lint_failed + 1))
     fi
+    # Gate: a branch nobody measures is a reconciliation nobody scheduled. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_branch_integration.sh"
+    rc_branches=$?
+    set -e
+    if [[ $rc_branches -ne 0 ]]; then
+      echo "LINT_FAIL: check_branch_integration.sh ($rc_branches)"
+      lint_failed=$((lint_failed + 1))
+    fi
     # Gate: comment only what is needed to understand that line. Prose cannot be executed, so it rots and
     # then misleads with authority — every false slot-layout claim was a comment. Exit 2 = could not run.
     set +e

@@ -373,3 +373,7 @@ const THERMAL_CONDUCT_CO2_GAS_W_MK: float = 0.01665
 const THERMAL_CONDUCT_CELLULOSE_W_MK: float = 0.40
 # Amorphous carbon / dry soil organic matter. Farouki 1981, CRREL Monograph 81-1.
 const THERMAL_CONDUCT_ORGANIC_W_MK: float = 0.25
+
+# Atmosphere BEFORE life: CO2-N2 in roughly equal parts, mid-range Hadean (Kasting 1993, Science 259:920).
+const PREBIOTIC_MOLE_FRAC_CO2: float = 0.5
+const PREBIOTIC_MOLE_FRAC_N2: float = 0.5

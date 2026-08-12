@@ -34,8 +34,8 @@ var _h2o_vapour: PackedFloat32Array = PackedFloat32Array()   # share that is vap
 const INITIAL_TEMP: float = 15.0
 # Gas channel seeds, mol/m^3.
 const O2_AMBIENT: float = 0.0
-const CO2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.AIR_MOLE_FRAC_CO2
-const N2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.AIR_MOLE_FRAC_N2
+const CO2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_CO2
+const N2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_N2
 const SNOW_PRESENT: float = 1.9e-4
 const ICE_DEPTH: float = 0.5
 const FOG_MAX_TEMP: float = 12.0
