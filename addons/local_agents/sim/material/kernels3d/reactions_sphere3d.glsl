@@ -2,6 +2,20 @@
 #version 450
 
 #include "neighbours.glsli"
+#include "march.glsli"
+
+layout(set = 0, binding = 48, std430) restrict readonly buffer Grav { float g_field[]; };
+
+// The neighbour below / above this cell: down is -normalize(g), never a slot index.
+int la_below(uint c) {
+	vec3 gv = vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
+	return (length(gv) > 0.0) ? la_step(nbr, c, normalize(gv)) : -1;
+}
+
+int la_above(uint c) {
+	vec3 gv = vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
+	return (length(gv) > 0.0) ? la_step(nbr, c, -normalize(gv)) : -1;
+}
 #include "cellvol.glsli"
 
 // GENERIC REACTION ENGINE. One data-driven kernel: every same-cell reaction is a record in the Defs buffer.
@@ -179,7 +193,7 @@ float light_at(uint i) {
 // The FIRST regolith cell beneath an open cell, or -1. The inward-neighbour mapping is injective, so no two
 // reacting cells share one.
 int top_regolith(uint i) {
-	int c = nbr[i * N_SLOTS + N_IN];
+	int c = la_below(i);
 	if (c < 0 || regolith[c] == 0.0) {
 		return -1;
 	}
@@ -189,7 +203,7 @@ int top_regolith(uint i) {
 
 float root_soil(uint i) {
 	float sum = 0.0;
-	int c = nbr[i * N_SLOTS + N_IN];
+	int c = la_below(i);
 	for (int k = 0; k < REGOLITH_CELLS; k++) {
 		if (c < 0 || regolith[c] == 0.0) {
 			break;
@@ -198,7 +212,7 @@ float root_soil(uint i) {
 		if (solid[c] == 0.0) {
 			break;                          // an OPEN aquifer cell terminates the walk (see RACE-FREEDOM above)
 		}
-		c = nbr[uint(c) * N_SLOTS + N_IN];
+		c = la_below(uint(c));
 	}
 	return sum;
 }
@@ -213,7 +227,7 @@ void root_soil_draw(uint i, float amount) {
 		return;
 	}
 	float f = min(amount / total, 1.0);
-	int c = nbr[i * N_SLOTS + N_IN];
+	int c = la_below(i);
 	for (int k = 0; k < REGOLITH_CELLS; k++) {
 		if (c < 0 || regolith[c] == 0.0) {
 			break;
@@ -222,14 +236,14 @@ void root_soil_draw(uint i, float amount) {
 		if (solid[c] == 0.0) {
 			break;
 		}
-		c = nbr[uint(c) * N_SLOTS + N_IN];
+		c = la_below(uint(c));
 	}
 }
 
 // LITHOSTATIC PRESSURE of the column above, in pascals — the OVERBURDEN slot. Walk radially OUTWARD summing
 float overburden(uint i) {
 	float m = 0.0;
-	int c = nbr[i * N_SLOTS + N_OUT];
+	int c = la_above(i);
 	for (int k = 0; k < OVERBURDEN_MAX_CELLS; k++) {
 		if (c < 0) {
 			break;
@@ -237,14 +251,14 @@ float overburden(uint i) {
 		// `rock_fill` is a matrix SATURATION, so the mineral actually present is rock_fill * (1 - phi).
 		m += rock_fill[uint(c)] * (1.0 - clamp(porosity[uint(c)], 0.0, 1.0)) * ROCK_DENSITY
 			+ sediment[uint(c)] * SEDIMENT_DENSITY;
-		c = nbr[uint(c) * N_SLOTS + N_OUT];
+		c = la_above(uint(c));
 	}
 	return m * params.overburden_pa;
 }
 
 // The bedrock of the cell directly BENEATH this open one — the BEDROCK_BELOW slot. Returns 0 when there is no
 float bedrock_below(uint i) {
-	int d = nbr[i * N_SLOTS + N_IN];
+	int d = la_below(i);
 	if (d < 0 || solid[d] == 0.0) {
 		return 0.0;
 	}
@@ -252,7 +266,7 @@ float bedrock_below(uint i) {
 }
 
 void bedrock_below_add(uint i, float v) {
-	int d = nbr[i * N_SLOTS + N_IN];
+	int d = la_below(i);
 	if (d < 0 || solid[d] == 0.0) {
 		return;
 	}
@@ -343,14 +357,14 @@ bool gate_ok(int mask, uint i) {
 	}
 	if ((mask & GATE_NEAR_GROUND) != 0) {
 		// GROUND-HUGGING: an open cell resting directly ON terrain (its INWARD neighbour, is rock).
-		int dn = nbr[i * N_SLOTS + N_IN];
+		int dn = la_below(i);
 		if (dn < 0 || solid[dn] == 0.0) {
 			return false;
 		}
 	}
 	if ((mask & GATE_AIR_ABOVE) != 0) {
 		// FREE SURFACE: the outward-radial neighbour must be AIR — open rock-free and not itself drowned.
-		int au = nbr[i * N_SLOTS + N_OUT];
+		int au = la_above(i);
 		if (au >= 0 && (solid[au] != 0.0 || water[au] >= DROWNED_WATER)) {
 			return false;
 		}
