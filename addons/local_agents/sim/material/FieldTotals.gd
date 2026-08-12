@@ -1,9 +1,9 @@
 class_name LAFieldTotals
 extends RefCounted
 
-## A TOTAL IS A MASS, NOT A COUNT. One place that turns a channel into an amount of matter.
+## Turns a channel into an amount of matter.
 
-## Which cells a sum includes. Tags, not quantities, which is why they are an enum.
+## Which cells a sum includes.
 enum {
 	CELLS_ALL = -1,    # every cell, rock and void alike
 	CELLS_OPEN = 0,    # void cells only (solid == 0)
@@ -11,8 +11,7 @@ enum {
 }
 
 
-## Volume-weighted sum of a channel, in model units cubed. This is the quantity that is conserved when
-## matter moves between cells; the raw sum is not.
+## Volume-weighted sum of a channel, in model units cubed.
 static func volume_sum(grid, arr: PackedFloat32Array, solid: PackedByteArray, which: int = CELLS_ALL) -> float:
 	if grid == null or arr.size() < grid.cell_count:
 		return 0.0
@@ -25,9 +24,7 @@ static func volume_sum(grid, arr: PackedFloat32Array, solid: PackedByteArray, wh
 	return total
 
 
-## Mass of a substance held in a channel, in KILOGRAMS. `substance` is a key in LASubstances.table().
-## The REFERENCE density: this sums a whole grid with no per-cell temperature or pressure in hand, so it
-## answers what the channel units weigh, not what the matter weighs where it sits.
+## Mass of a substance held in a channel, kg, at the substance's reference density.
 static func substance_kg(grid, arr: PackedFloat32Array, solid: PackedByteArray, which: int,
 		substance: String) -> float:
 	var entry: Dictionary = LASubstances.table().get(substance, {})

@@ -13,8 +13,7 @@ const MICROBIOME_DEFAULT: float = 1.0      # carnivore / omnivore / scavenger: n
 const FULL_FRAC: float = 0.999          # at/above this fraction of max_energy the gut holds (satiety)
 
 
-## Size the gut and pick the microbiome from diet, once at spawn (called from LocalAgentCreature.setup after max_energy
-## and diet are known). A herbivore is born with cellulose-fermenting flora; every other diet digests at base.
+## Size the gut and pick the microbiome from diet.
 static func setup(c) -> void:
 	if c == null:
 		return
@@ -59,15 +58,12 @@ static func ingest(c, biomass: float, _profile: Dictionary = {}) -> void:
 	var taken: float = minf(biomass, maxf(0.0, float(c.gut_capacity) - float(c.gut)))
 	if taken <= 0.0:
 		return
-	# Mass-weighted DIGESTIBILITY of what is in the gut. A gut holds a mixture, so a bite of rotten carrion
-	# blends with the fresh grass already in there rather than replacing its yield. This is where the food's
-	# state now acts — on how much energy comes out per unit mass, never on how much mass went in.
+	# Mass-weighted DIGESTIBILITY of what is in the gut.
 	var d: float = LAFood.digestibility(_profile)
 	var held: float = maxf(0.0, float(c.gut))
 	c.gut_digestibility = ((c.gut_digestibility * held) + (d * taken)) / maxf(held + taken, 0.0001)
 	c.gut = held + taken
-	# Let the gut flora learn from this bite (shifts recent_diet toward the food's plant-fraction) — one source of
-	# truth: the same event that buffers the food adapts the microbiome. Guarded (null before setup / on old actors).
+	# Let the gut flora learn from this bite (shifts recent_diet toward the food's plant-fraction).
 	if "gut_microbiome" in c and c.gut_microbiome != null:
 		c.gut_microbiome.note_food(_profile, biomass)
 
@@ -75,14 +71,11 @@ static func ingest(c, biomass: float, _profile: Dictionary = {}) -> void:
 static func tick(c, delta: float) -> void:
 	if c == null or c.gut <= 0.0 or delta <= 0.0:
 		return
-	# A sated animal with tissue still to build keeps digesting, into STRUCTURE rather than reserve. That is
-	# what growth is funded by, and it uses the satiety test already defined here rather than a new threshold.
+	# A sated animal with tissue still to build keeps digesting, into STRUCTURE rather than reserve.
 	var growing: bool = LACreatureBodyMass.growth_deficit(c) > 0.0
 	if c.energy >= c.max_energy * FULL_FRAC and not growing:
 		return                                       # sated and grown: hold the gut, buffer it (no matter lost)
-	# LA_EVO_FAST compresses digestion throughput by the SAME factor as the metabolic burn (CreatureMetabolism),
-	# so energy recovery keeps pace with the faster burn — a bite refills proportionally faster and the population
-	# doesn't starve at high fast-factors. The minf cap keeps it bounded/conserved (never digest more than held).
+	# LA_EVO_FAST compresses digestion throughput by the SAME factor as the metabolic burn (CreatureMetabolism).
 	var digested: float = minf(c.gut, c.gut * DIGEST_RATE * delta * LAAblate.evo_fast())
 	if digested <= 0.0:
 		return
@@ -94,15 +87,13 @@ static func tick(c, delta: float) -> void:
 	var room: float = maxf(0.0, float(c.max_energy) - float(c.energy))
 	var absorbed: float = minf(to_energy, room)
 	c.energy += absorbed
-	# What the reserve had no room for builds tissue, up to what this body still owes its age. Both legs are
-	# transfers out of the same digested mass, so the conservation line below is unchanged.
+	# What the reserve had no room for builds tissue, up to what this body still owes its age.
 	var built: float = LACreatureBodyMass.grow(c, to_energy - absorbed)
 	c.gut += to_energy - absorbed - built
 	c.gut_waste += digested - to_energy              # matter conserved: digested == energy gained + waste
 
 
-## Gut fullness 0..1 — how much of its capacity is buffered right now. Read by the hunger signal and the
-## eating gate so a creature that has just eaten (full gut, still digesting) does not keep foraging.
+## Gut fullness 0..1 — how much of its capacity is buffered right now.
 static func gut_fill(c) -> float:
 	if c == null or c.gut_capacity <= 0.0:
 		return 0.0
@@ -116,8 +107,7 @@ static func hunger(c) -> float:
 	return clampf(deficit * (1.0 - gut_fill(c)), 0.0, 1.0)
 
 
-## Boolean hunger off the near-vestigial hungry_at threshold, now given real meaning: hungry once the hunger
-## signal crosses (1 - hungry_at) — i.e. energy has fallen far enough AND the gut is not buffering a meal.
+## Boolean hunger off the near-vestigial hungry_at threshold, now given real meaning.
 static func is_hungry(c) -> bool:
 	if c == null:
 		return false

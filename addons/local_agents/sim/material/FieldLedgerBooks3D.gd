@@ -1,8 +1,7 @@
 class_name LAFieldLedgerBooks3D
 extends RefCounted
 
-## Per-sample drift and the run-long baseline, for any number of quantities. One implementation, keyed by
-## name — the machinery every conserved substance shares.
+## Per-sample drift and the run-long baseline, keyed by name.
 
 var _f = null
 var _prev_v: Dictionary = {}
@@ -24,8 +23,7 @@ func note_seed(key: String, value: float) -> void:
 		_f._seal.note_seed({key: value})
 
 
-## Drift against the previous sample, per field step. Returns [drift, per_step, steps], or [] when there is
-## no previous sample or no step has passed.
+## Returns [drift, per_step, steps] against the previous sample, or [] when there is none.
 func sample(key: String, value: float, step: int) -> Array:
 	var out: Array = []
 	if _prev_s.has(key):
@@ -39,9 +37,7 @@ func sample(key: String, value: float, step: int) -> Array:
 	return out
 
 
-## Drift against the sealed baseline. Latches on the first call after the seal, seeding the manifest under
-## `seed_key` when that is non-empty. Returns [first, drift, per_step, run_steps, first_step], or [] until
-## the world is sealed.
+## Returns [first, drift, per_step, run_steps, first_step] against the sealed baseline, or [] until sealed.
 func run(key: String, seed_key: String, value: float, step: int) -> Array:
 	if not _first_s.has(key):
 		if not sealed():
@@ -57,8 +53,7 @@ func run(key: String, seed_key: String, value: float, step: int) -> Array:
 	return [f, value - f, per_step, steps, first_step]
 
 
-## The latched baseline for a key, or NAN when it has not latched. For books that need the value without
-## re-latching (the cumulative flux terms, which zero at the same sample).
+## The latched baseline for a key, or NAN when it has not latched.
 func first_of(key: String) -> float:
 	return float(_first_v[key]) if _first_v.has(key) else NAN
 

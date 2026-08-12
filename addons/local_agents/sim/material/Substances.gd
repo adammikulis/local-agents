@@ -245,10 +245,7 @@ static func has_eos(id: String) -> bool:
 		or s.has("expansion_solid_per_k") or s.has("bulk_modulus_solid_pa")
 
 
-## DENSITY AT A TEMPERATURE AND PRESSURE, kg/m^3. `density` in the table is only the reference point.
-## A gas obeys the ideal gas law from its own molar mass; a condensed phase expands with temperature and
-## compresses with pressure about its reference point. `p_pa` is the pressure of THIS substance, so a
-## partial pressure is what a gas mixed with others is asked about.
+## Density at a temperature and pressure, kg/m^3. `p_pa` is the partial pressure of THIS substance.
 static func density(id: String, t_c: float, p_pa: float) -> float:
 	var s: Dictionary = table().get(id, {})
 	if s.is_empty():

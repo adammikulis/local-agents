@@ -1,8 +1,7 @@
 class_name LAVegLedger
 extends RefCounted
 
-## Per-world vegetation accounting. One ledger per world, resolved from that world's LAMaterialField3D
-## instance, so two worlds stepping in one process never add into each other's totals.
+## Per-world vegetation accounting, one ledger per LAMaterialField3D instance.
 
 var food_held: float = 0.0        # mass standing in live plant nodes' reserves
 var food_drawn: float = 0.0       # cumulative mass taken out of the field's biomass channel
@@ -10,14 +9,12 @@ var food_returned: float = 0.0    # cumulative mass handed back as detritus
 var seed_cost: float = 0.0        # cumulative parent reserve spent on germination
 var pollinations: int = 0         # flower visits
 
-# Pollinator proximity index for this world's flowers, rebuilt at most once per physics frame.
 var pollinator_index: LASpatialIndex = LASpatialIndex.new()
 
 static var _by_world: Dictionary = {}
 
 
-## The ledger belonging to the world that owns `field` (its LAMaterialField3D). Key 0 covers a world with
-## no field (headless demos), which is still separate from every field-backed world.
+## The ledger belonging to the world that owns `field`; key 0 is a world with no field.
 static func of(field: Object) -> LAVegLedger:
 	var key: int = field.get_instance_id() if field != null else 0
 	if not _by_world.has(key):

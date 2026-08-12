@@ -1,26 +1,15 @@
 @tool
 extends RefCounted
 
-## The enthalpy curve has two halves and they must be one curve. enthalpy_at() takes a temperature to a
-## specific enthalpy, enthalpy_to_state() takes it back; a substance heated and then read must report the
-## temperature it was given, on every rung and at every pressure. When the halves disagree, energy silently
-## changes value on a round trip through the field.
-##
-## PLATEAUS ARE ONE-WAY BY CONSTRUCTION: a whole range of enthalpy maps to one temperature, so h -> T -> h
-## cannot hold there. What is asserted instead is T -> h -> T (which does hold, enthalpy_at returning the
-## plateau's lower end) plus the plateau's two ENDPOINTS both reading the plateau temperature.
+## T -> h -> T through enthalpy_at() and enthalpy_to_state(), on every rung and at every pressure.
 
 const S: GDScript = preload("res://addons/local_agents/sim/material/Substances.gd")
 const PC: GDScript = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
 
-## Kelvin. The round trip is exact arithmetic apart from _invert_gas_enthalpy's bisection, which halves a
-## 1e5 K bracket 60 times (~1e-13 K), and double round-off on ~1e8 J/kg (~1e-11 K). This sits seven orders
-## above both and eight below the smallest real defect: mixing up the two latent-heat sources moves the gas
-## ramp by ~140 K at one atmosphere.
+## Round-trip tolerance, kelvin.
 const TOL_K: float = 1.0e-6
 
-## Murphy & Koop 2005, ice saturation. The frost point at 1 mbar is near -20.3 C. The 2 K band is the error
-## of integrating Clausius-Clapeyron with a temperature-independent latent heat over 20 K, not a fudge.
+## Murphy & Koop 2005, ice saturation.
 const FROST_POINT_AT_100PA_C: float = -20.3
 const FROST_POINT_TOL_C: float = 2.0
 
@@ -29,8 +18,7 @@ const P_BELOW_TRIPLE: float = 100.0
 const P_ABOVE_CRITICAL: float = 5.0e7
 
 
-## Every rung of the ladder at this pressure, plus a point either side of every boundary so a branch that
-## fires one rung early or late cannot hide between samples.
+## Every rung of the ladder at this pressure, plus a point either side of every boundary.
 func _sweep_points(id: String, p_pa: float) -> Array[float]:
 	var out: Array[float] = []
 	var melt: float = S.melt_c_at(id, p_pa)
@@ -43,7 +31,6 @@ func _sweep_points(id: String, p_pa: float) -> Array[float]:
 		return out
 	for d in [-200.0, -1.0, 0.0, 1.0]:
 		out.append(melt + float(d))
-	# INSIDE THE MELTING INTERVAL, where a mixture of minerals is part crystal and part melt.
 	var liquidus: float = S.liquidus_c_at(id, p_pa)
 	if liquidus > melt:
 		out.append_array([0.5 * (melt + liquidus), liquidus - 1.0, liquidus, liquidus + 1.0]
@@ -84,9 +71,7 @@ func _check_sweep(id: String, p_pa: float, label: String) -> bool:
 	return ok
 
 
-## A plateau absorbs its latent heat with the temperature pinned. Both ends must read the plateau
-## temperature, and the far end must be exactly the latent heat above the near one — a plateau of the wrong
-## width is a phase change that skips part of its latent heat.
+## Both ends of a plateau read its temperature, and its width is the latent heat.
 func _check_plateau(id: String, p_pa: float, t_plateau: float, latent: float, label: String) -> bool:
 	if latent <= 0.0:
 		push_error("%s at %s has no latent heat, so there is no plateau to cross." % [id, label])
@@ -112,10 +97,7 @@ func _check_plateau(id: String, p_pa: float, t_plateau: float, latent: float, la
 	return ok
 
 
-## A MIXTURE OF MINERALS MELTS OVER AN INTERVAL, temperature rising through the mush as the crystals go.
-## The two ends must read the solidus and the liquidus, the melt fraction must run 0 -> 1 across them, and
-## the enthalpy the interval costs is the latent heat plus the liquid's sensible heat over its width — the
-## lever rule, which is what makes a zero-width interval collapse to a plateau.
+## Solidus to liquidus: ends read the boundaries, melt fraction runs 0 -> 1, cost is the lever rule.
 func _check_interval(id: String, p_pa: float, label: String) -> bool:
 	var solidus: float = S.melt_c_at(id, p_pa)
 	var liquidus: float = S.liquidus_c_at(id, p_pa)
@@ -150,9 +132,7 @@ func _check_interval(id: String, p_pa: float, label: String) -> bool:
 	return ok
 
 
-## THE GPU HALF HAS TO COMPILE. Both headers are libraries no kernel has adopted, so glslang never sees
-## them and a syntax error would sit there until the day something includes them. enthalpy_selftest.glsl
-## includes both; its SPIR-V carries the compile error, and this reads it.
+## enthalpy.glsli and mixture_enthalpy.glsli compile, read off enthalpy_selftest.glsl's SPIR-V.
 func _check_glsl_compiles() -> bool:
 	var path: String = "res://addons/local_agents/sim/material/kernels3d/enthalpy_selftest.glsl"
 	var f: RDShaderFile = load(path)
@@ -169,13 +149,9 @@ func _check_glsl_compiles() -> bool:
 func run_test(_tree: SceneTree) -> bool:
 	var ok: bool = _check_glsl_compiles()
 
-	# WATER, the full ladder: solid ramp, fusion plateau, liquid ramp, boiling plateau, dissociating gas.
 	ok = _check_sweep("h2o", P_ATM, "1 atm") and ok
-	# BELOW THE TRIPLE POINT there is no liquid at all: solid ramp, sublimation plateau, gas.
 	ok = _check_sweep("h2o", P_BELOW_TRIPLE, "100 Pa") and ok
-	# ABOVE THE CRITICAL PRESSURE the boiling plateau has zero width and must not be charged.
 	ok = _check_sweep("h2o", P_ABOVE_CRITICAL, "500 bar") and ok
-	# SILICATE never boils on this planet, so the liquid ramp has no upper end.
 	ok = _check_sweep("silicate", P_ATM, "1 atm") and ok
 	ok = _check_sweep("silicate", P_ABOVE_CRITICAL, "500 bar") and ok
 
@@ -186,12 +162,9 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _check_plateau("h2o", P_ATM, boil_h2o, S.latent_vaporisation_at("h2o", boil_h2o), "boiling") and ok
 	var t_sub: float = S.sublimation_c_at("h2o", P_BELOW_TRIPLE)
 	ok = _check_plateau("h2o", P_BELOW_TRIPLE, t_sub, S.latent_sublimation_j_kg("h2o"), "sublimation") and ok
-	# ROCK IS A MIXTURE OF MINERALS: solidus to liquidus, not a point. Water is the degenerate case above.
 	ok = _check_interval("silicate", P_ATM, "1 atm") and ok
 	ok = _check_interval("silicate", P_ABOVE_CRITICAL, "500 bar") and ok
 
-	# THE FROST POINT IS A MEASURED CURVE, not whatever the fusion line extrapolates to. Ice below the
-	# triple-point pressure leaves at its own temperature; reading the melting point here put it at 0 C.
 	print("FROST_POINT={\"p_pa\":%.1f,\"t_c\":%.3f,\"published_c\":%.1f}"
 		% [P_BELOW_TRIPLE, t_sub, FROST_POINT_AT_100PA_C])
 	if absf(t_sub - FROST_POINT_AT_100PA_C) > FROST_POINT_TOL_C:
@@ -199,7 +172,6 @@ func run_test(_tree: SceneTree) -> bool:
 			% [t_sub, FROST_POINT_AT_100PA_C] + "boundary is not the one reality has.")
 		ok = false
 
-	# NO LIQUID BELOW THE TRIPLE POINT, on either half of the curve: the solid's only exit is the vapour.
 	var h_warm: float = S.enthalpy_at("h2o", t_sub + 50.0, P_BELOW_TRIPLE)
 	var st: Dictionary = S.enthalpy_to_state("h2o", h_warm, P_BELOW_TRIPLE)
 	if int(st["phase"]) != int(S.GAS) or float(st["melted"]) != 0.0:
@@ -207,8 +179,6 @@ func run_test(_tree: SceneTree) -> bool:
 			% [t_sub + 50.0, int(st["phase"]), float(st["melted"])] + "must go straight to vapour.")
 		ok = false
 
-	# ABOVE THE CRITICAL PRESSURE there is no vaporisation plateau to charge. Two temperatures a degree
-	# apart across the (absent) boundary may differ only by sensible heat.
 	var t_crit: float = float(S.table()["h2o"]["critical_t_c"])
 	var h_lo: float = S.enthalpy_at("h2o", t_crit - 0.5, P_ABOVE_CRITICAL)
 	var h_hi: float = S.enthalpy_at("h2o", t_crit + 0.5, P_ABOVE_CRITICAL)

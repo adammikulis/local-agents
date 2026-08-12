@@ -11,8 +11,7 @@ const MomentumLedgerScript: GDScript = preload("res://addons/local_agents/sim/ma
 const SealScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSeal3D.gd")
 const ConservationScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldConservation3D.gd")
 
-## Process frames between recomputes of the O(cells) instrument block. These gauges are GDScript walks over
-## every cell and cost far more than the field step they measure. `LA_GAUGE_EVERY` overrides.
+## Process frames between recomputes of the O(cells) instrument block.
 const HEAVY_EVERY_FRAMES: int = 64
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
@@ -21,8 +20,7 @@ var _energy = null                                       # LAMaterialFieldEnergy
 var _extremes = null                                     # LAMaterialFieldExtremes3D — min/max-ever register
 var _swing = null                                        # LAMaterialFieldClimateSwing3D — diurnal + seasonal range
 var _momentum = null                             # LAMaterialFieldMomentumLedger3D — Σ m*v stock + its books
-# The cross-book carbon baseline, latched at the seal. Lives here rather than in either ledger because it is
-# the SUM of the two, and neither of them can see the other.
+# The cross-book carbon baseline, latched at the seal.
 var _first_element_c: float = NAN
 var _first_element_c_step: int = -1
 var _conservation = null                         # LAMaterialFieldConservation3D — the law, enforced
@@ -47,8 +45,7 @@ func setup(field) -> void:
 	_seal.setup(field)
 	_conservation = ConservationScript.new()
 	_conservation.setup(field)
-	# The field holds the seal so anything outside this report path can ask it — the injection queue has to
-	# know whether a mint is seeding or a violation, and it does not go through the report.
+	# The field holds the seal so anything outside this report path can ask it.
 	field._seal = _seal
 
 
@@ -58,9 +55,7 @@ const ALT_BAND_SPAN: float = 8.0                # world units per altitude band
 const CLIMATE_MAX_CELLS: int = 200000
 const PLANET_SPIN_AXIS: Vector3 = LAPlanetBody.SPIN_AXIS
 
-# Running extremes across the whole run — never reset by a snapshot, so the coldest instant is not lost
-# between samples. `_coldest_ever` is the answer to "how low does ANY cell ever get", which is the question
-# that should have been asked before anyone moved water's freezing point.
+# Running extremes across the whole run.
 var _coldest_ever: float = 1.0e20
 var _coldest_ever_alt: float = 0.0
 var _coldest_ever_lat: float = 0.0
@@ -95,8 +90,7 @@ func surface_climate() -> Dictionary:
 	var water_frozen: int = 0
 	var water_cells: int = 0
 	var water_coldest: float = 1.0e20
-	# Strided so the scan stays bounded on a big grid; the stride is over CELLS, not columns, because the
-	# Cartesian box has none.
+	# Strided so the scan stays bounded on a big grid.
 	var stride: int = maxi(1, _f._cell_count / CLIMATE_MAX_CELLS)
 	var c: int = 0
 	while c < _f._cell_count:
@@ -119,8 +113,7 @@ func surface_climate() -> Dictionary:
 				_coldest_ever = t
 				_coldest_ever_alt = snappedf(alt, 0.1)
 				_coldest_ever_lat = snappedf(lat, 0.1)
-		# ALTITUDE profile over every open cell — this is where an equatorial summit and the cold upper air
-		# both show up, and neither is visible in a latitude-only or ground-only scan.
+		# ALTITUDE profile over every open cell.
 		var ab: int = clampi(int(maxf(alt, 0.0) / ALT_BAND_SPAN), 0, ALT_BANDS - 1)
 		alt_n[ab] += 1
 		if t < alt_min[ab]:
@@ -167,14 +160,12 @@ func surface_climate() -> Dictionary:
 		"clim_coldest_ever": snappedf(_coldest_ever if _coldest_ever < 1.0e19 else 0.0, 0.1),
 		"clim_coldest_ever_at": {"alt": _coldest_ever_alt, "lat": _coldest_ever_lat},
 		"clim_ground_coldest_ever": snappedf(_ground_coldest_ever if _ground_coldest_ever < 1.0e19 else 0.0, 0.1),
-		# Sub-zero populations, split: snow forms from the AIR one, so a zero there means no snow can fall
-		# however cold the ground is.
+		# Sub-zero populations, split.
 		"clim_ground_frozen": ground_frozen,
 		"clim_ground_cells": ground_n,
 		"clim_air_frozen": air_frozen,
 		"clim_air_cells": air_n,
-		# Cells that actually HOLD liquid water, and how many of those are below freezing. A large
-		# `clim_ground_frozen` with a zero here means the cold ground is dry and no ice can form on it.
+		# Cells that actually HOLD liquid water, and how many of those are below freezing.
 		"clim_water_cells": water_cells,
 		"clim_water_frozen": water_frozen,
 		"clim_water_coldest": snappedf(water_coldest if water_coldest < 1.0e19 else 0.0, 0.1),
@@ -215,8 +206,7 @@ func report() -> Dictionary:
 		_seal_announced = true
 		print("WORLD_SEALED=", JSON.stringify(_seal.report()))
 	var q: LAMaterialFieldQueries3D = _f._queries
-	# `lava` and `fire` are demand-gated, so each of these blocks carries a provenance flag: `molten_live` /
-	# `fire_live` false means the channel did not arrive and the zeros beside it measure nothing.
+	# `lava` and `fire` are demand-gated, so each of these blocks carries a provenance flag.
 	var molten: Dictionary = q.molten_counts()
 	var fire: Dictionary = q.fire_stats()
 	var r: Dictionary = {
@@ -236,8 +226,7 @@ func report() -> Dictionary:
 		"biomass_total": _f.biomass_total(),
 		"fire_peak": fire.get("fire_peak", 0.0), "fire_cells": fire.get("fire_cells", 0),
 		"fire_live": fire.get("fire_live", false),
-		# Conserved totals are NOT listed here. LAMaterialFieldLedger3D publishes them in `_heavy_block()`, and
-		# `Dictionary.merge` does not overwrite — a key here would shadow the ledger with a CPU-mirror value.
+		# Conserved totals are NOT listed here.
 		"enclosed_void": q.enclosed_void_cells(),
 		"enclosed_void5": q.enclosed_void_cells(5),
 		"rock_grows": (_f._stamp.grows if _f._stamp != null else 0), "rock_shrinks": (_f._stamp.shrinks if _f._stamp != null else 0),
@@ -252,19 +241,16 @@ func report() -> Dictionary:
 	# sea_ice_cells / sea_ice_temp / open_sea_cells / open_sea_temp — one walk, medians.
 	r.merge(q.sea_surface_stats())
 	r.merge(q.rock_radial_profile())
-	# geo_radiogenic_w is the rock's own decay power; geo_grad_c_per_m is the gradient that produced, measured
-	# rather than set. The bins above cannot show the gradient, and the gradient cannot show where the heat is.
+	# geo_radiogenic_w is the rock's own decay power.
 	r.merge(_f.geotherm_report())
 	r.merge(q.hot_spring_stats())
 	r.merge(q.lava_shell_diag())
 	var heavy: Dictionary = _heavy_block()
 	r.merge(heavy)
-	# The station network is read EVERY call, unlike the block above: it is 48 array reads, and the diurnal
-	# range it measures is precisely the thing a coarse cadence destroys.
+	# The station network is read EVERY call, unlike the block above.
 	_swing.sample()
 	r.merge(_swing.report())
-	# Registering a scalar is one line. Keep them here, at the one place that already holds every aggregate,
-	# so adding the next one does not need a new plumbing decision.
+	# Registering a scalar is one line.
 	_extremes.track("open_cold", float(temps.get("temp_min", 0.0)))
 	_extremes.track("open_hot", float(temps.get("temp_max", 0.0)))
 	_track_if_measured(r, "h2o_total", "h2o_total")
@@ -279,16 +265,14 @@ func report() -> Dictionary:
 	return r
 
 
-## Track an extreme only when the ledger actually measured it. A refused total is null, and folding that in
-## as a zero would put a low-water record into the register that no run ever reached.
+## Track an extreme only when the ledger actually measured it.
 func _track_if_measured(r: Dictionary, key: String, register: String) -> void:
 	var v = r.get(key)
 	if v is float or v is int:
 		_extremes.track(register, float(v))
 
 
-## True on the last STEP of a --run-frames run, so the closing report is always freshly computed. The run
-## length is physics ticks; how many frames were drawn is not a fact about the simulation.
+## True on the last STEP of a --run-frames run, so the closing report is always freshly computed.
 func _is_final_frame() -> bool:
 	var want: int = int(Engine.get_meta("la_run_frames", 0))
 	return want > 0 and Engine.get_physics_frames() >= want - 1
@@ -309,31 +293,24 @@ func _heavy_block() -> Dictionary:
 	var flux: Dictionary = _energy.report()
 	d.merge(flux)
 	var step: int = _f._gpu._step_index if _f._gpu != null else 0
-	#   momentum — Σ m*v over the air, the third conserved quantity of mechanics. Books the pressure gradient,
-	#            Coriolis and buoyancy; `momentum_unbooked` names the terms it cannot reach.
+	# momentum — Σ m*v over the air, the third conserved quantity of mechanics.
 	d.merge(_momentum.report(step))
-	#   the conservation ledger — H2O, mineral, the element inventory and the thermal stock, all from ONE
-	#            probe read and ONE volume-weighted walk.
 	if _f._ledger != null:
 		d.merge(_f._ledger.report(step, flux))
-	# BOTH SIDES MASK-FREE. `element_C` is the open-cell sum; `lith_element_C` is the whole-grid one, so adding
-	# that pair read carbon that moved into a solid cell as carbon destroyed.
+	# BOTH SIDES MASK-FREE. `element_C` is the open-cell sum.
 	if d.has("element_C_all") and d.has("lith_element_C"):
 		var c_total: float = float(d["element_C_all"]) + float(d["lith_element_C"])
 		d["element_C_total"] = snappedf(c_total, 0.01)
 		if _seal != null and _seal.sealed():
 			var step_now: int = int(_f._gpu._step_index) if _f._gpu != null else 0
-			# The baseline latches only when BOTH sides of the sum are LIVE — measured from the drain probe this
-			# sample, not merely present as an array. A baseline taken through a leg that had not arrived reads
-			# near zero and every later sample then looks like carbon appearing from nothing.
+			# The baseline latches only when BOTH sides of the sum are LIVE.
 			var c_live: bool = _all_live(d.get("mass_live", {})) and _all_live(d.get("mineral_live", {}))
 			d["element_C_first_live"] = c_live
 			if is_nan(_first_element_c) and c_live:
 				_first_element_c = c_total
 				_first_element_c_step = step_now
 				_seal.note_seed({"element_C_mol": c_total})
-			# No baseline, no baseline-derived keys. An absent `element_C_total_first` makes the conservation
-			# gate report `element_C_total` unmeasured; a NAN one would be checked against and silently pass.
+			# No baseline, no baseline-derived keys.
 			if not is_nan(_first_element_c):
 				d["element_C_total_first"] = snappedf(_first_element_c, 0.01)
 				d["element_C_total_drift"] = snappedf(c_total - _first_element_c, 0.01)
@@ -346,8 +323,7 @@ func _heavy_block() -> Dictionary:
 	return d
 
 
-## True when a ledger `live` map is non-empty and every leg in it arrived from the drain probe. `has_x` (the
-## array is the right length) and `live_x` (measured this sample) are different questions; this asks the second.
+## True when a ledger `live` map is non-empty and every leg in it arrived from the drain probe.
 func _all_live(m: Dictionary) -> bool:
 	if m.is_empty():
 		return false

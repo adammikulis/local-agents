@@ -1,8 +1,7 @@
 class_name LAFieldPhenomena
 extends RefCounted
 
-## Reads the field's own mirrors and names what is already in them. Writes nothing, requests no channel,
-## and creates none of the state it reports.
+## Reads the field's own mirrors and names what is already in them.
 
 ## Lava mass per cell the readback can resolve above zero. One declaration, shared with the molten gauge.
 const MELT_PRESENT: float = LAMaterialFieldQueries3D.MOLTEN_MIN
@@ -16,8 +15,7 @@ func setup(field) -> void:
 	_f = field
 
 
-## `eruptions` / `cyclones` are world positions with the readings that named them. `*_live` says whether the
-## channels each needs arrived on the last drain: false means UNMEASURED, which is not an empty list.
+## `eruptions` / `cyclones` are world positions with the readings that named them.
 func observe() -> Dictionary:
 	var step: int = _f._gpu._step_index if _f != null and _f._gpu != null else -1
 	if step >= 0 and step == _step and not _obs.is_empty():
@@ -43,8 +41,7 @@ func _live(name: String) -> bool:
 	return got is PackedFloat32Array and got.size() == _f._cell_count
 
 
-## Melt standing in an open cell is melt that reached the surface. Reported once per vent: the cell holding
-## more than every neighbour, so one lava body is one site.
+## Melt standing in an open cell is melt that reached the surface.
 func _eruptions() -> Array:
 	var out: Array = []
 	var grid: LAVoxelGrid = _f._grid
@@ -65,9 +62,7 @@ func _eruptions() -> Array:
 	return out
 
 
-## A cyclone is a closed low with a warm core and rotating air. Taken at the bottom of an air column, where
-## a surface low lives, and decided by three comparisons against that cell's own horizontal surroundings:
-## lower pressure, higher temperature, and more spin about the local vertical. No constant separates them.
+## A cyclone is a closed low with a warm core and rotating air.
 func _cyclones() -> Array:
 	var out: Array = []
 	var grid: LAVoxelGrid = _f._grid
@@ -117,10 +112,7 @@ func _spin(c: int) -> float:
 	return LAFieldGeometry.curl(_f, c).dot(LAFieldGeometry.up(_f, c))
 
 
-## Four cells one cell out in the TANGENT PLANE at `c`, so every one sits at the same distance from the
-## body centre to within cell^2/2r. A grid-axis step does not: the axis nearest the local vertical is up to
-## 54.7 deg off it, so a sideways step there changes altitude by up to 0.58 cells, and a pressure minimum
-## found that way is topography rather than weather.
+## Four cells one cell out in the TANGENT PLANE at `c`.
 func _horizontal(c: int) -> PackedInt32Array:
 	var out: PackedInt32Array = PackedInt32Array()
 	var up: Vector3 = LAFieldGeometry.up(_f, c)

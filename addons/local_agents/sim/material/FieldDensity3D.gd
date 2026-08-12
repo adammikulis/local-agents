@@ -15,23 +15,14 @@ static func _fraction_channels() -> Dictionary:
 	return out
 
 
-## Kilograms one unit of a channel of `id` carries, at a cell's own temperature and pressure. A substance
-## with an equation of state is held here as a VOLUME FRACTION, so this is its density and it responds to
-## both. A substance without one — the gases, the organic element stocks — is held as a molar amount whose
-## kilograms per unit is a fixed conversion: a gas answers temperature and pressure by changing how much of
-## it is in the cell, never by changing what a mole of it weighs.
+## Kilograms one unit of a channel of `id` carries at a cell's temperature and pressure.
 static func _kg_per_unit(id: String, eos: bool, t_c: float, p_pa: float) -> float:
 	if eos:
 		return LASubstances.density(id, t_c, p_pa)
 	return float(LASubstances.table().get(id, {}).get("density", 0.0))
 
 
-## Bulk density per cell, kg/m^3. `mirrors` maps channel name -> its per-cell array; missing channels
-## contribute nothing, because a channel that is not resident is not mass that is somewhere else.
-##
-## TEMPERATURE AND PRESSURE ARE REQUIRED, and a cell without them weighs nothing here. Both decide which
-## phase a substance is in and how much room its mass takes; neither may be invented, and a density read
-## off a temperature nobody measured would be a fiction the gravity solve could not tell from a fact.
+## Bulk density per cell, kg/m^3. `mirrors` maps channel name -> per-cell array; temp and pressure required.
 static func of(mirrors: Dictionary, porosity: PackedFloat32Array, cell_count: int) -> PackedFloat32Array:
 	var out: PackedFloat32Array = PackedFloat32Array()
 	out.resize(cell_count)

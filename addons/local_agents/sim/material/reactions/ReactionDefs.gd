@@ -1,16 +1,13 @@
 class_name LAReactionDefs
 extends RefCounted
 
-## the product targets, and the record authoring + std430 serialisation. It holds no records itself.
+## Channel slots, rate models, gates, product targets and std430 record serialisation.
 
-# --- Channel slot enum -------------------------------------------------------------------------------------
+# --- Channel slot enum
 const TEMP: int = 0
-# H2O — ONE channel for the substance in every phase. Solid / liquid / vapour are DERIVED per cell from the
-# enthalpy ladder, so no record may move mass between phases.
 const H2O: int = 1
 const O2: int = 3
 const CO2: int = 4
-# DETRITUS (LAReactionBalance.SLOT_SUBSTANCE maps all four to `cellulose`). CombustionRecords.gd oxidises it.
 const FUEL: int = 5
 const FIRE: int = 6
 const DETRITUS: int = 7
@@ -18,80 +15,49 @@ const FUNGUS: int = 8
 const FERT: int = 9
 const LAVA: int = 10
 const BIOMASS: int = 11
-# MINERAL phases (rock unification): ONE conserved mineral substance, phase = state. loose SEDIMENT, airborne
-# DUST, waterborne SUSP are channels; loft/settle are same-cell mass TRANSFERS between them (records below).
 const SEDIMENT: int = 13
 const DUST: int = 14
 const SUSP: int = 15
-const WINDSPEED: int = 16             # DERIVED driver only: speed TANGENTIAL to the local vertical, m/s
-# BEDROCK (rock unification Stage B): fractional bedrock mineral mass. `solid` is DERIVED (rock_fill >= 0.5). Molten
-# LAVA and bedrock ROCK_FILL are the SAME mineral substance — M5 solidify + M6 melt are conserving own-cell transfers.
-const ROCK_FILL: int = 17
-const LIGHT: int = 18                 # DERIVED driver only; never a product/reactant target
+const WINDSPEED: int = 16             # derived driver only: speed tangential to the local vertical, m/s
+const ROCK_FILL: int = 17             # fractional bedrock mineral mass
+const LIGHT: int = 18                 # derived driver only
 const SOIL_ROOT: int = 19
-# DERIVED driver only: the saturation amount at this cell's temperature minus the vapour it actually holds,
-# both as a volume fraction of the cell. Positive = unsaturated air.
-const VAPOUR_DEFICIT: int = 20
-# SOIL_TOP is the shallow DRYING FRONT: the pore water of the first regolith cell beneath an open cell. Roots reach
-# the whole rooting column (SOIL_ROOT above); evaporation does not, because vapour has to diffuse out through
-# the pores and the water below the surface layer is simply out of reach. DERIVED, WRITABLE.
-const SOIL_TOP: int = 21
+const VAPOUR_DEFICIT: int = 20        # derived driver only: saturation minus held vapour, volume fraction
+const SOIL_TOP: int = 21              # derived, writable: pore water of the first regolith cell below
 const OVERBURDEN: int = 22
 const BEDROCK_BELOW: int = 23
-const CARBONATE: int = 24             # CaCO3 — where weathered carbon goes, and the only place it can go
-const SILICA: int = 25                # SiO2 — the weathering residue; nothing weathers it further
-const N2: int = 26                    # dinitrogen, 78.084% of the air by mole — the planet's nitrogen reservoir
-# DISCHARGE is the electrostatic energy (J/m^3) a lightning return stroke released in this cell THIS step,
-# stamped by LAMaterialFieldInject3D.deplete_charge. DRIVER ONLY — it is energy, not matter, so it is in
-# LAReactionBalance.driver_only() and may never be a reactant or a product.
-const DISCHARGE: int = 27
-# DEAD ORGANIC MATTER IS THREE STOCKS, NOT ONE FORMULA. DETRITUS and FUEL carry its CARBON; ORG_H and ORG_O
-# carry the hydrogen and oxygen bound in that same pool. All three hold LASubstances.ORGANIC_MOL_PER_M3 moles
-const ORG_H: int = DISCHARGE + 1
-const ORG_O: int = ORG_H + 1
-const ORG_C: int = ORG_O + 1          # DERIVED driver only: DETRITUS + FUEL, the pool the ratios divide by
-# DERIVED driver only: the LIQUID share of the cell's h2o. A solvent is liquid water, not ice and not vapour.
-const H2O_LIQUID: int = ORG_C + 1
-# NOTE: the slot enum and the kernel's BINDING numbers alias only up to 26. Bindings 24/25/26 are already
-# convenience, never a contract; `check_kernel()` verifies the #define VALUES, which is the thing that matters.
+const CARBONATE: int = 24             # CaCO3
+const SILICA: int = 25                # SiO2
+const N2: int = 26
+const DISCHARGE: int = 27             # driver only: lightning energy released this step, J/m^3
+const ORG_H: int = DISCHARGE + 1      # hydrogen bound in the dead organic pool
+const ORG_O: int = ORG_H + 1          # oxygen bound in the dead organic pool
+const ORG_C: int = ORG_O + 1          # derived driver only: DETRITUS + FUEL
+const H2O_LIQUID: int = ORG_C + 1     # derived driver only: liquid share of the cell's h2o
 
-# --- Rate models (extent x per cell) ---------------------------------------------------------------------
+# --- Rate models
 const RM_CONST_FRAC: int = 0             # x = k * driver
 const RM_BILINEAR: int = 1               # x = k * driver * driver2
-const RM_EXCESS_OVER_THRESHOLD: int = 2  # x = max(0, driver - threshold) * k   (fires when driver is ABOVE threshold)
-const RM_DEFICIT_BELOW_THRESHOLD: int = 4  # x = max(0, threshold - driver) * k  (fires when driver is BELOW threshold)
-#   x = k * driver * max(0, 1 - ((driver2 - threshold) / param2)^2)
-const RM_OPTIMUM_BAND: int = 5
-#   x = k * driver * driver2 * exp(-(Ea/R) * (1/T_K - 1/T_ref_K))
-# Reads temperature from the TEMP channel directly rather than through a slot.
-const RM_ARRHENIUS: int = 6
-# TWO RESISTANCES IN SERIES across an interface: conductance g = driver2 / (1 + param2 * driver2), so
-#   x = k * driver * driver2 / (1 + param2 * driver2)
-const RM_RESISTANCE_SERIES: int = 7
+const RM_EXCESS_OVER_THRESHOLD: int = 2  # x = max(0, driver - threshold) * k
+const RM_DEFICIT_BELOW_THRESHOLD: int = 4  # x = max(0, threshold - driver) * k
+const RM_OPTIMUM_BAND: int = 5           # x = k * driver * max(0, 1 - ((driver2 - threshold) / param2)^2)
+const RM_ARRHENIUS: int = 6              # x = k * driver * driver2 * exp(-(Ea/R) * (1/T_K - 1/T_ref_K))
+const RM_RESISTANCE_SERIES: int = 7      # x = k * driver * driver2 / (1 + param2 * driver2)
 
-# --- Gate bitflags (0 = ungated) -------------------------------------------------------------------------
-                                      # TOP OF THE ATMOSPHERE — correct for sky gas exchange, wrong for ground.
-const GATE_NEAR_GROUND: int = 4       # GROUND-HUGGING open cell (INWARD nbr is rock) — where a plant, a snowpack
-const GATE_DRY: int = 16              # cell water <= WET_MAX_LOFT (dry surface) — sand only lofts when not wet
-# parity with the deleted dust_loft kernel, and redundant with GATE_DRY which tests the cell's own
-# water.)*
-const GATE_FREEZING: int = 32         # cell temp below LAPhysical.WATER_FREEZE_C. Deposition needs it: the
-                                      # condensate driver says HOW MUCH water is out of solution, not which
-                                      # phase it lands in, and above 0 C that condensate is rain, not snow.
-const GATE_AIR_ABOVE: int = 128       # THE FREE SURFACE — the air/liquid interface. True when the OUTWARD radial
-                                      # `static` cells that are deliberately never simulated (MaterialField3D
-                                      # ._seed_sphere_sea), so per-cell chemistry there is meaningless.
-const GATE_BURIED: int = GATE_AIR_ABOVE * 2   # ALSO runs in SOLID cells. Everything else is open-cell only;
-                                      # coalification is not, because buried organic matter is inside rock.
+# --- Gate bitflags
+const GATE_NEAR_GROUND: int = 4       # open cell whose inward neighbour is rock
+const GATE_DRY: int = 16              # cell water <= WET_MAX_LOFT
+const GATE_FREEZING: int = 32         # cell temp below LAPhysical.WATER_FREEZE_C
+const GATE_AIR_ABOVE: int = 128       # outward radial neighbour is air
+const GATE_BURIED: int = GATE_AIR_ABOVE * 2   # also runs in solid cells
 
-# --- Product targets -------------------------------------------------------------------------------------
+# --- Product targets
 const TGT_SELF: int = 0               # add into the live/back cell channel
-const TGT_SCRATCH: int = 3            # add into the per-cell scratch buffer (fungus-fert pattern)
+const TGT_SCRATCH: int = 3            # add into the per-cell scratch buffer
 
-# --- Record layout ---------------------------------------------------------------------------------------
-const RECORD_BYTES: int = 240         # std430 size of one Reaction (see layout in serialize())
+# --- Record layout
+const RECORD_BYTES: int = 240         # std430 size of one Reaction
 
-# --- THE ONE LENGTH SCALE A RECORD MAY NEED ----------------------------------------------------------------
 static var cell_size_m: float = 16.0
 
 
@@ -119,8 +85,7 @@ static func comp_parts(entry: Array, is_product: bool) -> Vector2:
 	return Vector2(h, o)
 
 
-## Serialize the records into a std430 SSBO byte buffer. Layout per Reaction (144 bytes, 16-aligned):
-## scalars and scalar arrays, so std430's array stride is the struct size and 144 is already 16-aligned.
+## Serialize the records into a std430 SSBO byte buffer, RECORD_BYTES per record.
 static func serialize(recs: Array) -> PackedByteArray:
 	var buf: PackedByteArray = PackedByteArray()
 	buf.resize(recs.size() * RECORD_BYTES)
@@ -145,7 +110,7 @@ static func serialize(recs: Array) -> PackedByteArray:
 		buf.encode_s32(base + 132, int(rec.get("quench_slot", -1)))
 		buf.encode_float(base + 136, float(rec.get("quench_min", 0.0)))
 		buf.encode_s32(base + 140, 0)
-		# Direction from thermodynamics (LAReactionThermo). q_slot < 0 = no equilibrium, record is one-way.
+		# q_slot < 0 = no equilibrium, record is one-way.
 		buf.encode_float(base + 144, float(rec.get("dg_h_j_mol", 0.0)))
 		buf.encode_float(base + 148, float(rec.get("dg_s_j_molk", 0.0)))
 		buf.encode_s32(base + 152, int(rec.get("q_slot", -1)))
@@ -166,8 +131,7 @@ static func serialize(recs: Array) -> PackedByteArray:
 			buf.encode_s32(base + 80 + k * 4, ps)
 			buf.encode_float(base + 96 + k * 4, pc)
 			buf.encode_s32(base + 112 + k * 4, pt)
-		# The composition-scaled halves of every coefficient (see comp_parts): 160 reactant-h, 176 reactant-o,
-		# 192 product-h, 208 product-o, then the two enthalpy scalings. Zero everywhere = a constant record.
+		# Composition-scaled coefficient halves: 160 reactant-h, 176 reactant-o, 192/208 product.
 		for k in range(4):
 			var rp: Vector2 = comp_parts(reactants[k], false) if k < reactants.size() else Vector2.ZERO
 			buf.encode_float(base + 160 + k * 4, rp.x)

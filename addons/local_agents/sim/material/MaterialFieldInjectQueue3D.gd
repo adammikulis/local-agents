@@ -3,28 +3,21 @@ extends RefCounted
 
 ## LAMaterialFieldInjectQueue3D: the PENDING-DEVICE-EDIT queue and the H₂O injection LEDGER.
 
-## A per-cell amount this large means "take everything that is there" — move_field_sparse clamps the take to
-## the live source value, so the caller gets an exact drain without knowing what the device holds.
+## A per-cell amount this large means "take everything that is there".
 const DRAIN_ALL: float = 1.0e30
 
 const MINERAL_CHANNELS: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust"]
 
 const BIOTIC_CHANNELS: PackedStringArray = ["biomass", "o2", "co2", "detritus", "fuel", "org_h", "org_o"]
 
-# The dead organic pool's CARBON channels. Everything a living body hands back is fresh CH2O, so a credit into
-# one of these has to credit the pool's hydrogen and oxygen stocks in the same breath — otherwise the returned
-# matter reads as pure carbon and the composition the reaction engine divides by is a lie.
+# The dead organic pool's CARBON channels.
 const DEAD_POOL_CARBON: PackedStringArray = ["detritus", "fuel"]
 
 # --- cumulative H₂O injection ledger (SIM_REPORT gauges) ---------------------------------------------------
-var demand: float = 0.0        # mass transfers ASKED their sources for. Before this fix the same figure was
-                               # created out of nothing every time, so it doubles as the old mint rate.
-var offered: float = 0.0       # mass the CPU-side scan BELIEVED its sources held. Splitting this out of
-                               # `moved` is what separates "the footprint really is dry" (offered ~ 0) from
-                               # "the scan found sources but the device disagreed" (offered > 0, moved 0) —
-                               # two very different bugs that look identical in a shortfall figure alone.
+var demand: float = 0.0        # mass transfers asked their sources for
+var offered: float = 0.0       # mass the CPU-side scan believed its sources held
 var moved: float = 0.0         # mass actually transferred (source debited, sink credited — closed)
-var minted: float = 0.0        # mass added with NO source at all (a flood surge). Honest, not hidden.
+var minted: float = 0.0        # mass added with no source at all
 var buried: float = 0.0        # mass discarded because a cell turned solid with nowhere to displace it to
 var displaced: float = 0.0     # mass a solidifying/melting cell handed to a neighbour instead of stranding
 
@@ -40,14 +33,11 @@ var biotic_minted: float = 0.0
 var mineral_minted: float = 0.0    # SOURCE: mineral added with NO debit anywhere in the field. Only `add()`
                                    # reaches it — deposit_sediment and the stamp's debug_deposit.
 
-# AUDIT (LA_INJECT_AUDIT=1): |CPU mirror total - live device total| at flush time — the mass a mirror upload
-# would write away. Off by default; it costs a full-grid sum.
+# AUDIT (LA_INJECT_AUDIT=1): |CPU mirror total - live device total| at flush time.
 var rewind_peak: float = 0.0
 var rewind_last: float = 0.0
 
-## Per-cell edits that actually reached a device primitive. An edit queued but never flushed is invisible in
-## every other counter here — the totals only ever grow from what `flush` applied — so without this a lost
-## queue looks exactly like a queue whose sources were all empty.
+## Per-cell edits that actually reached a device primitive.
 var flushed_cells: int = 0
 var add_cells: int = 0         # ...of which belonged to `add` ops, so a credit that returned nothing is
                                # distinguishable from a credit that was never queued
@@ -94,9 +84,7 @@ func note_demand(want: float) -> void:
 		demand += want
 
 
-## Queue a CONSERVING transfer: take up to `amounts[i]` (a fraction of the SOURCE cell) out of `src` at
-## `src_cells[i]` and credit the same MASS into `dst` at `dst_cells[i]`. The debit is resolved against the live
-## source on device, so the two sides are equal by construction however stale the mirror it was planned against.
+## Queue a CONSERVING transfer.
 func transfer(src: String, src_cells: PackedInt32Array, amounts: PackedFloat32Array,
 		dst: String, dst_cells: PackedInt32Array, dst_ceiling: float = INF) -> void:
 	if src_cells.size() == 0 or src_cells.size() != amounts.size() or src_cells.size() != dst_cells.size():
@@ -113,8 +101,7 @@ func transfer(src: String, src_cells: PackedInt32Array, amounts: PackedFloat32Ar
 	_merge("t|%s|%s|%f" % [src, dst, dst_ceiling], "transfer", src, dst, src_cells, amounts, dst_cells, dst_ceiling)
 
 
-## Queue a DISPLACEMENT: empty `src_cells[i]` of `channel` into `dst_cells[i]` of `dst_channel`. Used when a
-## cell stops being able to hold what is in it (rock grows over water, rock melts and frees its pore water).
+## Queue a DISPLACEMENT: empty `src_cells[i]` of `channel` into `dst_cells[i]` of `dst_channel`.
 func displace(channel: String, src_cells: PackedInt32Array, dst_channel: String, dst_cells: PackedInt32Array) -> void:
 	if src_cells.size() == 0 or src_cells.size() != dst_cells.size():
 		return
@@ -124,8 +111,7 @@ func displace(channel: String, src_cells: PackedInt32Array, dst_channel: String,
 	_merge("d|%s|%s" % [channel, dst_channel], "displace", channel, dst_channel, src_cells, amounts, dst_cells, INF)
 
 
-## Queue a DISCARD: empty `cells` of `channel` with nowhere for the mass to go. The amount actually removed is
-## added to `buried` so the loss appears in SIM_REPORT — the ledger stays closed because the residual is named.
+## Queue a DISCARD: empty `cells` of `channel` with nowhere for the mass to go.
 func discard(channel: String, cells: PackedInt32Array) -> void:
 	if cells.size() == 0:
 		return
@@ -135,8 +121,7 @@ func discard(channel: String, cells: PackedInt32Array) -> void:
 	_merge("x|%s" % channel, "discard", channel, channel, cells, deltas, cells, INF)
 
 
-## Queue a SOURCELESS add — mass that genuinely comes from outside the field (a scripted flood surge, a debug
-## rain key). Counted in `minted` precisely because it is not conserved; nothing here hides it.
+## Queue a SOURCELESS add.
 func add(channel: String, cells: PackedInt32Array, deltas: PackedFloat32Array, ceiling: float = INF) -> void:
 	if cells.size() == 0 or cells.size() != deltas.size():
 		return
@@ -144,8 +129,7 @@ func add(channel: String, cells: PackedInt32Array, deltas: PackedFloat32Array, c
 	fresh_companions(channel, cells, deltas)
 
 
-## Credit the hydrogen and oxygen that came in with a fresh-litter carbon credit. A no-op for every other
-## channel, and it cannot recurse: org_h and org_o are not dead-pool carbon.
+## Credit the hydrogen and oxygen that came in with a fresh-litter carbon credit.
 func fresh_companions(channel: String, cells: PackedInt32Array, amounts: PackedFloat32Array) -> void:
 	if not DEAD_POOL_CARBON.has(channel):
 		return
@@ -160,8 +144,7 @@ func fresh_companions(channel: String, cells: PackedInt32Array, amounts: PackedF
 	add("org_o", cells, o)
 
 
-## Apply every queued edit to the LIVE device buffers and fold the results into the ledger. Call between the
-## driver's drain and its dispatch (the GPU is idle there) — LAMaterialFieldSphereStep3D does exactly that.
+## Apply every queued edit to the LIVE device buffers and fold the results into the ledger.
 func flush(gpu) -> void:
 	if gpu == null or _ops.is_empty():
 		return
@@ -204,7 +187,6 @@ func _ratio(s: int, d: int) -> float:
 
 
 ## Apply one transfer/displace op to the live device buffers; returns the debit, in SOURCE-cell fractions.
-## The credit is the debit times _ratio(), so matter is conserved across cells of different volume. Every take
 func _move(gpu, op: Dictionary) -> float:
 	var src: String = String(op["src"])
 	var dst: String = String(op["dst"])
@@ -267,9 +249,7 @@ func audit_rewind(gpu, channel: String, mirror: PackedFloat32Array) -> void:
 		rewind_peak = rewind_last
 
 
-## The ledger, as SIM_REPORT gauges. `h2o_inject_demand` is what storms asked for and, before this fix, simply
-## created; `h2o_inject_moved` is what the planet actually supplied; `h2o_inject_short` is the difference and
-## is the honest measure of a storm running on a dry footprint.
+## The ledger, as SIM_REPORT gauges.
 func report() -> Dictionary:
 	return {
 		"h2o_inject_demand": snappedf(demand, 0.01),
@@ -284,7 +264,6 @@ func report() -> Dictionary:
 		"mineral_inject_moved": snappedf(mineral_moved, 0.01),
 		"mineral_inject_minted": snappedf(mineral_minted, 0.01),
 		# BIOTIC — what living bodies took out of the field and put back (see BIOTIC_CHANNELS).
-		# `biotic_inject_short` is grass an animal bit at that the device did not actually hold.
 		"biotic_inject_offered": snappedf(biotic_offered, 0.01),
 		"biotic_inject_moved": snappedf(biotic_moved, 0.01),
 		"biotic_inject_short": snappedf(maxf(0.0, biotic_offered - biotic_moved), 0.01),

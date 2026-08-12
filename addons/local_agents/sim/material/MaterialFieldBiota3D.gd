@@ -11,8 +11,7 @@ var _f = null                            # back-reference to the owning LAMateri
 static var _resp_j_per_unit: float = -1.0   # cached: J released per channel unit of O2 respired
 
 
-## Joules of oxidation heat per CHANNEL UNIT of O2 consumed, from the substance table's formation
-## enthalpies: C + O2 -> CO2. Hess's law, so no rate and no fitted constant.
+## Joules of oxidation heat per CHANNEL UNIT of O2 consumed, from the substance table's formation enthalpies.
 static func _respiration_j_per_o2_unit() -> float:
 	if _resp_j_per_unit >= 0.0:
 		return _resp_j_per_unit
@@ -68,8 +67,7 @@ func _queue():
 const GROUND_SEARCH: int = 6
 
 
-## The open cell resting on rock under `world_pos`. Marches along gravity, so which neighbour is "below"
-## is read from g rather than from a slot number.
+## The open cell resting on rock under `world_pos`.
 func ground_cell(world_pos: Vector3) -> int:
 	if _f == null or _f._cell_count <= 0:
 		return -1
@@ -111,8 +109,7 @@ func graze(world_pos: Vector3, want: float) -> float:
 	return take
 
 
-## water first (a lake, a river, the sea); failing that the groundwater the animal is standing on, which is
-## what a real animal at a seep or a dug well gets. Returns 0 on dry ground, so thirst is a real pressure.
+## Take up to `want` H2O out of the world at `world_pos`, surface water first.
 func drink(world_pos: Vector3, want: float) -> float:
 	if want <= 0.0:
 		return 0.0
@@ -136,9 +133,7 @@ func drink(world_pos: Vector3, want: float) -> float:
 	return took
 
 
-## One channel, one cell, up to `want`, planned against `mirror` and resolved on device. The mirror is
-## decremented for the same reason grazing decrements it: several animals may drink the same puddle in one
-## frame, and the second one must see what the first one left.
+## One channel, one cell, up to `want`, planned against `mirror` and resolved on device.
 func _draw(q, channel: String, mirror: PackedFloat32Array, c: int, want: float) -> float:
 	if want <= 0.0 or mirror.size() != _f._cell_count or c < 0:
 		return 0.0
@@ -170,17 +165,14 @@ func respire(head_pos: Vector3, mass: float) -> float:
 	if got <= 0.0:
 		return 0.0
 	_f._o2[c] = have - got
-	# O₂ is DEBITED (dst -1: the substrate's oxygen convention counts free molecular O₂ only, and the oxygen
-	# bound into the CO₂ below is deliberately not tracked — see LAMaterialFieldLedger3D's convention note).
+	# O₂ is debited with dst -1: it leaves the field.
 	q.transfer("o2", PackedInt32Array([c]), PackedFloat32Array([got]), "o2", PackedInt32Array([-1]))
-	# CO₂ is CREDITED with no field debit, because its carbon came out of the body. `biota_carbon` falls by the
-	# same number, which is what keeps the carbon books closed across the body/field boundary.
+	# CO₂ is CREDITED with no field debit, because its carbon came out of the body.
 	q.add("co2", PackedInt32Array([c]), PackedFloat32Array([got]))
 	o2_in += got
 	co2_out += got
 	exchanges += 2
-	# Respiration heat, by Hess's law over the same formation enthalpies the reaction table uses: the joules
-	# are the oxidation's, not a rate of their own.
+	# Respiration heat, by Hess's law over the same formation enthalpies the reaction table uses.
 	var j: float = got * _respiration_j_per_o2_unit() * _cell_m3(c)
 	if j > 0.0 and _f.has_method("add_heat_energy"):
 		_f.add_heat_energy(head_pos, j, HEAT_RADIUS)
@@ -204,9 +196,7 @@ func litter(world_pos: Vector3, mass: float) -> void:
 	exchanges += 1
 
 
-## TRANSPIRE. Body water leaving as vapour — breath, sweat, the water in urine. Credited to `moisture` (the
-## atmosphere's conserved airborne H₂O) at the animal's own cell, out of the body's own hydration. The animal
-## drank it from the field through `drink`, so over a life the two legs close.
+## TRANSPIRE. Body water leaving as vapour — breath, sweat, the water in urine.
 func transpire(world_pos: Vector3, mass: float) -> void:
 	if mass <= 0.0:
 		return
@@ -223,9 +213,7 @@ func transpire(world_pos: Vector3, mass: float) -> void:
 	exchanges += 1
 
 
-## Body mass taken from a NODE rather than from a field channel (a plant eaten, a carcass bitten, a kill). Pure
-## accounting: the mass moves node → body without touching the substrate, and counting it here is what lets a
-## reader tell a biosphere feeding on field grass apart from one feeding on actor nodes.
+## Body mass taken from a NODE rather than from a field channel (a plant eaten, a carcass bitten, a kill).
 func note_node_intake(mass: float) -> void:
 	if mass > 0.0:
 		node_intake += mass
@@ -241,9 +229,7 @@ func note_spawn(mass: float, founder: bool) -> void:
 		spawn_runtime += mass
 
 
-## Carbon standing in living bodies and undecomposed carcasses right now: what spawned into the world, plus
-## everything bodies have taken out of the field and off nodes, less everything they have put back. Add it to
-## `carbon_total` and the biosphere's books close across the body/field boundary.
+## Carbon standing in living bodies and undecomposed carcasses right now.
 func biota_carbon() -> float:
 	return spawn_mass + graze_taken + node_intake - co2_out - detritus_out
 
@@ -253,13 +239,10 @@ func report() -> Dictionary:
 		"biota_carbon": snappedf(biota_carbon(), 0.01),
 		"biota_graze_asked": snappedf(graze_asked, 0.01),
 		"biota_graze_taken": snappedf(graze_taken, 0.01),
-		# What the pasture could not supply. A large figure beside a small `biota_graze_taken` is the honest
-		# statement "the planet has no standing crop", NOT a broken debit.
+		# What the pasture could not supply.
 		"biota_graze_short": snappedf(maxf(0.0, graze_asked - graze_taken), 0.01),
 		"biota_node_intake": snappedf(node_intake, 0.01),
-		# Body mass that arrived by SPAWNING. The founding split is an initial condition; anything in
-		# `biota_spawn_runtime` after the founding wave is animals being made out of nothing at runtime (a
-		# birth is NOT counted there — the mother pays for it).
+		# Body mass that arrived by SPAWNING. The founding split is an initial condition.
 		"biota_spawn_mass": snappedf(spawn_mass, 0.01),
 		"biota_spawn_founder": snappedf(spawn_founder, 0.01),
 		"biota_spawn_runtime": snappedf(spawn_runtime, 0.01),

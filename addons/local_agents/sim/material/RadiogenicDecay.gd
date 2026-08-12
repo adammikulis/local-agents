@@ -1,9 +1,6 @@
 class_name LARadiogenicDecay
 extends RefCounted
 
-## The four nuclides that heat a rocky planet's interior. Each decays on its own half-life, so the heat
-## FALLS and the mix shifts; the parent is consumed, so the heat comes out of a finite store.
-
 const PC: GDScript = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
 
 ## nuclide -> [kg of nuclide per kg of rock TODAY, half-life years, decay energy J per decay, molar mass].
@@ -20,8 +17,7 @@ static func nuclides() -> Dictionary:
 	}
 
 
-## Watts per kilogram of rock, `years` after the present epoch. Negative years reach into the past, where
-## the short-lived nuclides dominate: this is why a young planet runs hot.
+## Watts per kilogram of rock, `years` after the present epoch; negative reaches into the past.
 static func heat_production_w_kg_at(years: float) -> float:
 	var w: float = 0.0
 	for row in nuclides().values():
@@ -37,14 +33,12 @@ static func remaining_kg_per_kg(nuclide: String, years: float) -> float:
 	return float(row[0]) * pow(2.0, -years / float(row[1]))
 
 
-## Kilograms of parent nuclide consumed per kilogram of rock over `dt_years` ending at `years`. The mass
-## leaves as stable daughter plus the mass-energy carried off, which is what the heat IS.
+## Kilograms of parent nuclide consumed per kilogram of rock over `dt_years` ending at `years`.
 static func consumed_kg_per_kg(nuclide: String, years: float, dt_years: float) -> float:
 	return maxf(0.0, remaining_kg_per_kg(nuclide, years) - remaining_kg_per_kg(nuclide, years + dt_years))
 
 
-## Present-epoch watts per kg of rock from one nuclide: its decay constant times its atom count times the
-## energy each decay releases.
+## Present-epoch watts per kg of rock from one nuclide.
 static func _w_per_kg(kg_per_kg: float, half_life_years: float, j_per_decay: float,
 		molar_mass: float) -> float:
 	if half_life_years <= 0.0 or molar_mass <= 0.0:

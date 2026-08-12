@@ -1,8 +1,7 @@
 class_name LAFieldGeometry
 extends RefCounted
 
-## DIRECTION ON A UNIFORM CARTESIAN GRID. A neighbour slot is an axis tag, so which neighbour is BELOW a
-## cell is read from the solved gravity there and never from a slot number.
+## Direction on the uniform Cartesian grid: which neighbour is below a cell comes from solved gravity.
 
 ## The slot whose unit step points most nearly along `dir`; -1 when `dir` is zero.
 static func slot_toward(dir: Vector3) -> int:
@@ -18,15 +17,14 @@ static func slot_toward(dir: Vector3) -> int:
 	return LAVoxelGrid.S_NEG_Z if dir.z < 0.0 else LAVoxelGrid.S_POS_Z
 
 
-## Unit vector gravity pulls along at `c`. ZERO where no mass has been solved for, which is the honest
-## answer: nothing has measured a direction there.
+## Unit vector gravity pulls along at `c`; zero where no mass has been solved for.
 static func down(field, c: int) -> Vector3:
 	if field == null or field._gravity == null:
 		return Vector3.ZERO
 	return field._gravity.down_at(c)
 
 
-## The local vertical, pointing away from the mass — what the cubed sphere called `cell_radial`.
+## The local vertical, pointing away from the mass.
 static func up(field, c: int) -> Vector3:
 	return -down(field, c)
 
@@ -77,8 +75,7 @@ static func ground(field, c: int, limit: int) -> int:
 	return at
 
 
-## Solid cells between `c` and open air, marching up. -1 when the march leaves the box still in rock, which
-## is how a cell deeper than `limit` and a cell outside the box read the same: not near a surface.
+## Solid cells between `c` and open air, marching up; -1 when the march leaves the box still in rock.
 static func burial_steps(field, c: int, limit: int) -> int:
 	var solid: PackedByteArray = field._solid
 	var at: int = c
@@ -92,8 +89,7 @@ static func burial_steps(field, c: int, limit: int) -> int:
 	return -1
 
 
-## Geometric centre of the box, model units. `setup_body` builds the box around the body, so this is the
-## body's centre and the pivot its rotation turns about.
+## Geometric centre of the box, model units.
 static func centre(field) -> Vector3:
 	var grid: LAVoxelGrid = field._grid if field != null else null
 	if grid == null:
@@ -101,7 +97,7 @@ static func centre(field) -> Vector3:
 	return grid.origin + 0.5 * grid.cell_size * Vector3(grid.nx, grid.ny, grid.nz)
 
 
-## Distance of a cell's centre from the body centre, model units — the coordinate `sea_radius` is quoted in.
+## Distance of a cell's centre from the body centre, model units.
 static func radius_of(field, c: int) -> float:
 	if field == null or field._grid == null:
 		return 0.0
@@ -142,7 +138,7 @@ static func velocity(field, c: int) -> Vector3:
 	return Vector3(field._vel_x[c], field._vel_y[c], field._vel_z[c])
 
 
-## The body's spin axis expressed in the FIELD frame. The one place that answers it.
+## The body's spin axis in the field frame.
 static func spin_axis(field) -> Vector3:
 	if field._body != null and field._body.has_method("spin_axis"):
 		var v: Vector3 = field.dir_to_field(field._body.spin_axis())

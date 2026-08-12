@@ -16,8 +16,7 @@ const PHYS_LOD_CHARACTERISTIC_DISTANCE: float = 40.0
 const PHYS_STRIDE_MAX: int = 12     # far-side creatures update at most every 12th frame
 static var _phys_lod_off: bool = OS.has_environment("LA_NO_PHYS_LOD")   # A/B knob: force the binary tiers
 
-# Camera position, fetched once per physics frame and shared by every creature (a single
-# get_camera_3d() lookup, not one per creature). INF when there is no active camera.
+# Camera position.
 static var _cam_frame: int = -1
 static var _cam_pos: Vector3 = Vector3(INF, INF, INF)
 
@@ -26,7 +25,6 @@ static var _ai_tick_scale: float = 1.0
 
 
 ## The active camera's world position, cached for the whole population for this physics frame.
-## Vector3(INF, INF, INF) when there is no camera (callers treat that as "relevance undefined").
 static func camera_pos(c) -> Vector3:
 	var f: int = int(Engine.get_physics_frames())
 	if f != _cam_frame:
@@ -51,9 +49,7 @@ static func think_stride(c) -> int:
 	return maxi(1, int(round(float(base_think_stride(c)) * ai_tick_scale())))
 
 
-## How often THIS creature runs the discretionary think cascade, in physics frames. Sleep is cheapest,
-## then distance-graded for idle/discretionary states; time-critical states (fleeing, hunting, drinking)
-## stay at the full near rate at any distance so an off-screen chase or a drink never stalls.
+## How often THIS creature runs the discretionary think cascade, in physics frames.
 static func base_think_stride(c) -> int:
 	var state: String = String(c.state)
 	if state == "sleep" or state == "roost" or state == "nesting" or state == "rest":
@@ -66,8 +62,7 @@ static func base_think_stride(c) -> int:
 	var cam: Vector3 = camera_pos(c)
 	if is_inf(cam.x):
 		return THINK_STRIDE
-	# Continuous relevance-driven ramp — no distance branch anywhere: stride grows smoothly from
-	# THINK_STRIDE, capped at FAR_THINK_STRIDE.
+	# Continuous relevance-driven ramp.
 	var d: float = sqrt(c.global_position.distance_squared_to(cam))
 	var relevance: float = LALodStride.relevance_from_distance(d, THINK_LOD_CHARACTERISTIC_DISTANCE)
 	return LALodStride.stride_for(relevance, FAR_THINK_STRIDE, THINK_STRIDE)

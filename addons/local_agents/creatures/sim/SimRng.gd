@@ -30,7 +30,6 @@ func trace_report() -> Dictionary:
 	return {"draws": draws, "tags": _tags.duplicate()}
 
 
-## Seed the generator (alias of set_seed, kept for the setup(seed) convention other services use).
 func setup(seed: int) -> void:
 	set_seed(seed)
 
@@ -42,19 +41,16 @@ func set_seed(seed: int) -> void:
 	_tags.clear()
 
 
-## Uniform float in [0, 1).
 func randf() -> float:
 	_count()
 	return _rng.randf()
 
 
-## Uniform float in [a, b].
 func randf_range(a: float, b: float) -> float:
 	_count()
 	return _rng.randf_range(a, b)
 
 
-## Uniform integer in [a, b] inclusive.
 func randi_range(a: int, b: int) -> int:
 	_count()
 	return _rng.randi_range(a, b)
@@ -72,7 +68,6 @@ func randfn(mean: float = 0.0, deviation: float = 1.0) -> float:
 	return _rng.randfn(mean, deviation)
 
 
-## A direction vector with each component in [-1, 1).
 func rand_dir() -> Vector3:
 	_count()
 	return Vector3(_rng.randf() * 2.0 - 1.0, _rng.randf() * 2.0 - 1.0, _rng.randf() * 2.0 - 1.0)
@@ -101,7 +96,6 @@ static func shared() -> LASimRng:
 	return _shared
 
 
-## Install an explicitly-constructed generator as the shared one (tests / a chosen world seed).
 static func install(rng: LASimRng) -> void:
 	_shared = rng
 
@@ -114,14 +108,12 @@ static func reset(seed: int) -> void:
 		(_domains[k] as LASimRng).set_seed(derive(seed, String(k)))
 
 
-# Per-domain streams: one generator per domain, seeded from the world seed and the domain name, so one
-# domain's draw count cannot move another's cursor.
+# Per-domain streams.
 static var _world_seed: int = DEFAULT_SEED
 static var _domains: Dictionary = {}
 
 
-# FNV-1a over the domain name, mixed with the world seed. Deterministic across runs and platforms (no
-# String.hash(), whose value is not guaranteed stable), and well-separated for short names.
+# FNV-1a over the domain name, mixed with the world seed.
 static func derive(seed: int, domain: String) -> int:
 	var h: int = 1469598103934665603
 	for i in domain.length():
@@ -137,8 +129,7 @@ static func make(world_seed: int, domain: String) -> LASimRng:
 	return r
 
 
-## A process-wide stream for one domain — "planet", "life", "actors", …
-## scripts/check_determinism.sh diffs the per-domain draw counts of two runs at one seed.
+## A process-wide stream for one domain.
 static func for_domain(domain: String) -> LASimRng:
 	if not _domains.has(domain):
 		var r: LASimRng = LASimRng.new()
@@ -148,7 +139,6 @@ static func for_domain(domain: String) -> LASimRng:
 
 
 ## Per-domain trace snapshot (LA_RNG_TRACE): draw count AND the per-caller breakdown, per stream.
-## A bare count names the stream that diverged but not the subsystem inside it, which is the question.
 static func domain_trace() -> Dictionary:
 	var out: Dictionary = {}
 	for k in _domains:

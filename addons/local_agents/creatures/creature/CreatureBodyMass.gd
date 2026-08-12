@@ -24,8 +24,7 @@ static func reserve(config: Dictionary) -> float:
 	return live_mass(config) * RESERVE_FRAC
 
 
-## Non-labile tissue: bone, muscle, organ. What is left of a body once the reserve is spent, and what a
-## carcass still weighs.
+## Non-labile tissue: bone, muscle, organ.
 static func structural(config: Dictionary) -> float:
 	return live_mass(config) * (1.0 - RESERVE_FRAC)
 
@@ -34,8 +33,7 @@ static func hydration_capacity(config: Dictionary) -> float:
 	return live_mass(config) * LETHAL_WATER_DEFICIT_FRAC
 
 
-## Water turnover per second: a multiple of aerobic capacity, since respiratory water leaves across the same
-## gas-exchange surface the oxygen crosses.
+## Water turnover per second.
 const WATER_PER_CAPACITY: float = 1.5
 static func thirst_rate(c) -> float:
 	return WATER_PER_CAPACITY * LACreatureRespiration.capacity_rate(c)
@@ -57,8 +55,7 @@ static func note_spawn(c, from_genome: bool) -> void:
 	c._material.note_biota_spawn(body_mass(c), int(Engine.get_physics_frames()) <= FOUNDING_FRAMES)
 
 
-## Overwrite the mass-derived fields on a freshly-configured creature. Called from LACreatureSetup after
-## species/genome expression.
+## Overwrite the mass-derived fields on a freshly-configured creature.
 static func apply(c, config: Dictionary) -> void:
 	c.mass_kg = mass_kg(config)
 	c.structural_mass = structural(config)
@@ -67,8 +64,7 @@ static func apply(c, config: Dictionary) -> void:
 	c.energy = c.max_energy
 	c.max_hydration = hydration_capacity(config)
 	c.hydration = c.max_hydration
-	# These two read the CREATURE (they need its expressed `respiratory_capacity` gene as well as its mass), so
-	# they are set after `mass_kg` is on the body rather than off the config dictionary.
+	# These two read the CREATURE (they need its expressed `respiratory_capacity` gene as well as its mass).
 	c.thirst_rate = thirst_rate(c)
 	c.bite_rate = bite_rate(c)
 	c.food_value = body_mass(c)
@@ -97,8 +93,7 @@ static func draw(c, want: float) -> float:
 	return taken
 
 
-## Mass as a fraction of the adult body, from the age-driven growth curve. Mass goes as the CUBE of the
-## linear scale at fixed tissue density, so this is geometry rather than a second curve anybody chose.
+## Mass as a fraction of the adult body, from the age-driven growth curve.
 static func growth_mass_fraction(c) -> float:
 	var s: float = LACreatureLifeStage.growth_scale(c)
 	return s * s * s
@@ -114,17 +109,14 @@ static func growth_deficit(c) -> float:
 	return maxf(0.0, growth_target_structural(c) - float(c.structural_mass))
 
 
-## Put `amount` of digested mass into structural tissue, returning what was used. The caller has already
-## taken it out of the gut, so this is a transfer and body_mass is unchanged by it.
+## Put `amount` of digested mass into structural tissue, returning what was used.
 static func grow(c, amount: float) -> float:
 	var used: float = minf(maxf(amount, 0.0), growth_deficit(c))
 	c.structural_mass += used
 	return used
 
 
-## Size a newborn to its age. `apply` runs before CreatureSetup assigns `age`, so the age-dependent part
-## cannot live there; this is called once the age is on the body. A founder spawned aged-in reads
-## fraction 1.0 and is unchanged.
+## Size a newborn to its age.
 static func size_to_age(c) -> void:
 	var f: float = growth_mass_fraction(c)
 	c.structural_mass = structural(c.config) * f
@@ -135,7 +127,6 @@ static func size_to_age(c) -> void:
 	c.food_value = body_mass(c)
 
 
-## Keep `food_value` in step with what the body actually weighs, so a starved animal is worth less to a
-## predator than a fat one. One assignment per creature per frame; called from the metabolism tick.
+## Keep `food_value` in step with what the body actually weighs.
 static func tick(c) -> void:
 	c.food_value = body_mass(c)

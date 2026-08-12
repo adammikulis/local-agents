@@ -21,8 +21,7 @@ var _water: Node = null                                  # kept so a live settin
 var _bound: bool = false
 
 
-## Resolve the active settings from the GameMode autoload (or persisted defaults when it is absent, e.g. a
-## direct-scene test). Call this FIRST, before the field/spawn build reads the grid/actor queries.
+## Resolve the active settings from the GameMode autoload, or persisted defaults when it is absent.
 func read_settings() -> void:
 	var gm: Node = get_node_or_null("/root/GameMode")
 	if gm != null and gm.get("settings") != null:
@@ -98,14 +97,12 @@ func render_opts() -> Dictionary:
 	}
 
 
-## Plant / foliage density scale (Graphics). Default 1.0 leaves the ecosystem balance untouched; the spawn
-## controller multiplies its base plant count by this. GPU-side detail, not creature population.
+## Plant / foliage density scale (Graphics).
 func vegetation_scale() -> float:
 	return clampf(settings().vegetation_density, 0.1, 2.0)
 
 
-## Camera far-plane budget in metres (Graphics). Published for the camera rig; also returned here so a
-## consumer can query it directly.
+## Camera far-plane budget in metres (Graphics).
 func draw_distance() -> float:
 	return maxf(1000.0, settings().draw_distance)
 
@@ -125,9 +122,7 @@ func field_cadence() -> int:
 	return clampi(settings().field_cadence, 1, 60)
 
 
-## Publish the graphics + simulation knobs that are consumed by systems this module does not own, as Engine
-## metadata globals (a single well-known seam) so those systems read the player's choice without this module
-## reaching into their code. Called on boot and re-called when settings are re-applied mid-game.
+## Publish the graphics + simulation knobs that are consumed by systems this module does not own.
 func publish_globals() -> void:
 	Engine.set_meta("la_vegetation_scale", vegetation_scale())
 	Engine.set_meta("la_draw_distance", draw_distance())
@@ -137,8 +132,7 @@ func publish_globals() -> void:
 	Engine.set_meta("la_effects_scale", particle_scale())   # quality-scaled effects budget (ejecta pool, …)
 
 
-## Wire the live systems once they exist (called near the end of VoxelWorld._ready). Applies the particle
-## density and subscribes to GameMode.settings_applied so a mid-game Save re-applies the live knobs.
+## Wire the live systems once they exist (called near the end of VoxelWorld._ready).
 func bind(world: Node, terrain, water: Node) -> void:
 	_world = world
 	_terrain = terrain
@@ -163,8 +157,6 @@ func _on_settings_applied(new_settings: LAGameSettings) -> void:
 	if new_settings != null:
 		_settings = new_settings
 	publish_globals()
-	# Push the live-adjustable effects density so a mid-game Graphics change (e.g. from the pause menu) shows
-	# up immediately in the rain/spray particle budget. Grid resolution + shadow maps are build-time only and
-	# take effect on the next world load — the pause settings panel says so.
+	# Push the live-adjustable effects density so a mid-game Graphics change reaches the systems.
 	if _water != null and is_instance_valid(_water) and _water.has_method("set_density_scale"):
 		_water.set_density_scale(particle_scale())
