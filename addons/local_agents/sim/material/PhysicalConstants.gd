@@ -42,12 +42,18 @@ const CLEAR_AIR_CONDUCTIVITY_S_M: float = 1.0e-13
 # Scales with air density, so it is ~5x lower at 10 km than at the ground; conventional 3 MV/m breakdown
 # is never reached in a storm and is not what initiates a flash.
 const RREA_THRESHOLD_V_M: float = 2.84e5
-# Horizontal extent a return stroke neutralises (Rakov & Uman 2003, ch. 3).
-const LIGHTNING_NEUTRALISED_RADIUS_M: float = 3000.0
+# Conductivity of a return-stroke channel, S/m (Rakov & Uman 2003, ch. 12). Eighteen orders above the air
+# it replaces: past RREA_THRESHOLD_V_M the dielectric is a conductor.
+const LIGHTNING_CHANNEL_CONDUCTIVITY_S_M: float = 1.0e4
 
 # --- ROCK / MAGMA -----------------------------------------------------------------------------------------
 const BASALT_LIQUIDUS_C: float = 1200.0
 const BASALT_SOLIDUS_C: float = 1000.0
+# Crystal-free basaltic melt at its liquidus, Pa s (Giordano, Russell & Dingwell 2008, EPSL 271:123).
+const BASALT_MELT_VISCOSITY_PA_S: float = 100.0
+# Einstein-Roscoe suspension viscosity, mu = mu_melt * (1 - phi/phi_max)^-n (Roscoe 1952, Br J Appl Phys
+# 3:267); n is Einstein's own 2.5 for rigid spheres, not a fitted exponent.
+const EINSTEIN_ROSCOE_EXPONENT: float = 2.5
 
 # --- PLANETARY INTERIOR -----------------------------------------------------------------------------------
 const INNER_CORE_C: float = 5200.0
@@ -339,6 +345,10 @@ const ICE_SPECIFIC_HEAT_J_KGK: float = 2090.0       # ice at 0 C — HALF liquid
 const VAPOUR_SPECIFIC_HEAT_J_KGK: float = 1996.0    # water vapour at constant pressure, 100 C
 const AIR_SPECIFIC_HEAT_J_KGK: float = 1005.0       # dry air at constant pressure, 300 K
 const AIR_DENSITY_KG_M3: float = 1.225            # ISA sea level: 101325 Pa, 15 C, dry
+## Specific heat of dry air at constant VOLUME, by Mayer's relation cv = cp - R.
+const AIR_SPECIFIC_HEAT_CV_J_KGK: float = AIR_SPECIFIC_HEAT_J_KGK - DRY_AIR_GAS_CONSTANT_J_KGK
+## Ratio of specific heats. It is what makes the speed of sound sqrt(gamma * R * T), not sqrt(R * T).
+const AIR_ADIABATIC_INDEX: float = AIR_SPECIFIC_HEAT_J_KGK / AIR_SPECIFIC_HEAT_CV_J_KGK
 # The two non-silicate mineral species, so `carbonate` and `silica` can carry heat like every other channel
 # that holds matter. Densities were already here (CALCITE / QUARTZ); these are the missing c's.
 const CALCITE_SPECIFIC_HEAT_J_KGK: float = 820.0    # CaCO3, calcite, 25 C (0.82 kJ/kg/K)
@@ -415,9 +425,8 @@ const ENTROPY_N_ATOM_J_MOLK: float = 153.301
 const LATENT_VAPORISATION_SLOPE_J_KGK: float = 2361.0
 # ============================================================================================================
 
-# --- EMISSIVITY -----------------------------------------------------------------------------------------------
-# Thermal-infrared emissivity of a water surface. Near-blackbody, which is why the ocean radiates so
-# efficiently and why sea-surface temperature can be measured from orbit at all.
+# Thermal-infrared emissivity of a water surface. Near-blackbody, which is why sea-surface temperature
+# can be measured from orbit at all.
 const EMISSIVITY_WATER: float = 0.96
 
 # --- DRY WOOD / CELLULOSIC FUEL -------------------------------------------------------------------------------
@@ -522,9 +531,7 @@ const CO2_GAS_CONST_J_KGK: float = GAS_CONSTANT_J_MOL_K / MOLAR_MASS_CO2_KG_MOL
 const SOLAR_EFFECTIVE_TEMPERATURE_K: float = 5772.0
 
 
-# --- MAGMA RHEOLOGY: WHEN A MELT STOPS FLOWING -------------------------------------------------------------
-# The rheological critical melt fraction. A crystallising magma's viscosity climbs by orders of magnitude as
-# the crystal framework touches, near 0.6 crystals, and a solid does not remobilise until melt is back to
-# about 0.4 (Marsh 1981; Vigneresse, Barbey & Cuney 1996). The gap is real hysteresis, not a numerical guard.
+# Rheological critical melt fraction: the framework locks near 0.6 crystals and does not remobilise until
+# melt is back to 0.4 (Marsh 1981; Vigneresse, Barbey & Cuney 1996). Real hysteresis, not a guard.
 const RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC: float = 0.6
 const RHEOLOGICAL_MOBILE_CRYSTAL_FRAC: float = 0.4

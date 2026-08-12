@@ -133,11 +133,10 @@ changes its unit, then the latent-plateau gate.
 
 ## THE SEAMS — do these when their file is free
 
-- **Two constants still held equal by a comment**, because `heat3d_solar_sphere3d.glsl` was being rewritten
-  by another lane when the rest were unified: `MaterialFieldEnergyBudget3D.K_SURFACE_FILL_MIN` /
-  `K_ICE_ALBEDO_GAIN` against that kernel's `SURFACE_FILL_MIN` / `ICE_ALBEDO_GAIN`. Move the declaration
-  into the GDScript, emit it from `scripts/gen_shared_constants.py`, and `#include "generated.glsli"` in the
-  kernel. `check_generated_constants.sh` then holds them equal.
+- ~~Two constants held equal by a comment against `heat3d_solar_sphere3d.glsl`.~~ **FALSE now**: that
+  kernel is deleted and the RADIATE row has no `SURFACE_FILL_MIN` or `ICE_ALBEDO_GAIN` to match.
+  `MaterialFieldEnergyBudget3D.K_SURFACE_FILL_MIN` / `K_ICE_ALBEDO_GAIN` are the only copies left and are
+  matched by nothing — delete them with the CPU column oracle they serve.
 - **A binding registry.** SSBO binding numbers have no owner: a bare integer in GLSL `layout(binding = N)`
   and a second bare integer in one of fourteen near-identical uniform-set builders, held equal by nothing.
   Two lanes once claimed the same number. `reactions_sphere3d.glsl` is the sole kernel binding 30–33 to

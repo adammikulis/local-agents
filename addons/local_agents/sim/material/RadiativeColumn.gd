@@ -2,7 +2,7 @@ class_name LARadiativeColumn
 extends RefCounted
 
 ## Two-stream band radiative transfer over one radial column. CPU counterpart of
-## kernels3d/heat3d_solar_sphere3d.glsl — same bands, same paths, same sweeps.
+## the RADIATE row of kernels3d/transport.glsl — same bands, same paths.
 
 const Bands: GDScript = preload("res://addons/local_agents/sim/material/AbsorptionBands.gd")
 

@@ -1,8 +1,8 @@
 class_name LAMaterialCharge3D
 extends RefCounted
 
-## Bolt visuals and telemetry. Initiation, neutralisation, the discharge stamp and the heat all happen in
-## charge_breakdown_sphere3d.glsl; this reads the strike list the kernel published and nothing more.
+## A DETECTOR. The charge relaxes in the OHMIC transport row and nothing here makes a flash happen; this
+## names one where the column field has passed the runaway threshold the local air density sets.
 
 var _f = null
 var _visual: Callable = Callable()
@@ -21,21 +21,12 @@ func set_visual(cb: Callable) -> void:
 
 ## Run once per step after the readback. Reads only; it must never write the field or wake a channel.
 func post_step() -> void:
-	if _f._gpu == null or not _f._gpu.has_method("strikes"):
-		return
-	_refresh_peaks()
-	var struck: PackedInt32Array = _f._gpu.strikes()
-	for c in struck:
-		if c < 0 or c >= _f._cell_count:
-			continue
-		_bolts += 1
-		if _visual.is_valid():
-			_visual.call(_f.cell_world_pos_linear(c))
+	_scan()
 
 
-## Peak charge density, and the peak column field that decides breakdown. Both come off the mirror the drain
-## already delivered, so neither changes residency.
-func _refresh_peaks() -> void:
+## Peak charge density, the peak column field, and where that field is over threshold. All off the mirror
+## the drain already delivered, so none of it changes residency.
+func _scan() -> void:
 	_charge_peak = 0.0
 	_e_peak = 0.0
 	if _f._charge.size() != _f._cell_count or _f._grid == null:
@@ -57,9 +48,14 @@ func _refresh_peaks() -> void:
 		while at >= 0 and _f._solid[at] == 0:
 			sigma += _f._charge[at] * dz
 			at = LAFieldGeometry.above(_f, at)
-		var e: float = sigma / eps0
+		var e: float = absf(sigma) / eps0
 		if e > _e_peak:
 			_e_peak = e
+		if e < LAPhysical.RREA_THRESHOLD_V_M:
+			continue
+		_bolts += 1
+		if _visual.is_valid():
+			_visual.call(_f.cell_world_pos_linear(c))
 
 
 func bolts_fired() -> int:

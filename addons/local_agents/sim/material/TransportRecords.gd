@@ -6,86 +6,82 @@ extends RefCounted
 ## What drives a record across a face. Matches the MODE_* constants in transport.glsl.
 enum { POTENTIAL, ADVECT, BOTH, DIFFUSE, CONVECT, CONDUCT, RADIATE }
 
+## The transport law that sets a row's mobility from the cell's own state. Matches LAW_* in transport.glsl.
+enum Law { NONE, SHALLOW, FILM, DARCY, EDDY, SOUND, OHMIC, PGF }
 
-## `mobility`: fraction of the driving imbalance crossing a face per step. Bounded by stability.
+## The fluid a row moves THROUGH, whose density and viscosity its law reads.
+enum Fluid { VACUUM, WATER, AIR }
+
+## Per-row switches, packed into the kernel's `flags`. Matches the TF_* constants in transport.glsl.
+enum Flag { SIGNED = 1, SETTLE = 2, STAMP = 4, DRIVEN = 8 }
+
+
+## No row carries a mobility: every one names a law, and the law is evaluated per cell on measured
+## properties. `settle` adds the grain's own terminal velocity to the fluid velocity that advects it.
 static func rows() -> Array:
 	return [
-		{"channel": "water", "substance": "h2o", "mode": POTENTIAL,
-			"mobility": 0.5, "repose_tan": 0.0, "resist": ""},
+		{"channel": "water", "substance": "h2o", "mode": POTENTIAL, "law": Law.SHALLOW},
 
-		# Pore water: the matrix resists it, so rock_fill is the resistance term.
-		{"channel": "soil", "substance": "h2o", "mode": POTENTIAL,
-			"mobility": 0.25, "repose_tan": 0.0, "resist": "rock_fill"},
+		{"channel": "soil", "substance": "h2o", "mode": POTENTIAL, "law": Law.DARCY,
+			"fluid": Fluid.WATER, "resist": "rock_fill"},
 
-		# Loose grains hold a slope to the angle of repose.
-		{"channel": "sediment", "substance": "silicate", "mode": POTENTIAL,
-			"mobility": 0.25, "repose_tan": LAPhysical.REPOSE_TAN_DRY_GRANULAR, "resist": ""},
+		{"channel": "sediment", "substance": "silicate", "mode": POTENTIAL, "law": Law.SHALLOW,
+			"repose_tan": LAPhysical.REPOSE_TAN_DRY_GRANULAR},
 
-		# Suspended load goes where its water goes.
 		{"channel": "susp", "substance": "silicate", "mode": ADVECT,
-			"mobility": 0.0, "repose_tan": 0.0, "resist": ""},
+			"fluid": Fluid.WATER, "settle": true},
+		{"channel": "dust", "substance": "silicate", "mode": ADVECT,
+			"fluid": Fluid.AIR, "settle": true},
 
-		# Wind-carried, settling under gravity.
-		{"channel": "dust", "substance": "silicate", "mode": BOTH,
-			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
+		{"channel": "lava", "substance": "silicate", "mode": POTENTIAL, "law": Law.FILM},
 
-		{"channel": "lava", "substance": "silicate", "mode": POTENTIAL,
-			"mobility": 0.125, "repose_tan": 0.0, "resist": ""},
+		{"channel": "moisture", "substance": "h2o", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},
+		{"channel": "o2", "substance": "o2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},
+		{"channel": "co2", "substance": "co2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},
+		{"channel": "n2", "substance": "n2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},
 
-		# Wind-borne and falling: the two together are what gives an atmosphere a scale height.
-		{"channel": "moisture", "substance": "h2o", "mode": BOTH,
-			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
-		{"channel": "o2", "substance": "o2", "mode": BOTH,
-			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
-		{"channel": "co2", "substance": "co2", "mode": BOTH,
-			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
-		{"channel": "n2", "substance": "n2", "mode": BOTH,
-			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
+		# Spores ride the wind; the settling arm needs a spore diameter no table here declares.
+		{"channel": "fungus", "substance": "cellulose", "mode": ADVECT, "fluid": Fluid.AIR},
 
-		# Spores travel on the wind. Mycelial extension is centimetres per day and rounds to zero at one
-		# cell per step, so dispersal is the only mechanism left at this grid scale. `mobility` is the
-		# SETTLING arm and is unset: it needs a spore diameter no table here declares.
-		{"channel": "fungus", "substance": "cellulose", "mode": BOTH,
-			"mobility": 0.0, "repose_tan": 0.0, "resist": ""},
+		{"channel": "fert", "substance": "fixed_n", "mode": DIFFUSE, "law": Law.DARCY,
+			"fluid": Fluid.WATER},
 
-		# Soil nutrient spreads through the ground rather than falling through it.
-		{"channel": "fert", "substance": "fixed_n", "mode": DIFFUSE,
-			"mobility": 0.1, "repose_tan": 0.0, "resist": ""},
+		{"channel": "shock", "substance": "", "mode": DIFFUSE, "law": Law.SOUND, "fluid": Fluid.AIR},
 
-		# A pressure wave spreads from where it was released.
-		{"channel": "shock", "substance": "", "mode": DIFFUSE,
-			"mobility": 0.25, "repose_tan": 0.0, "resist": ""},
+		# Lightning is not a mechanism: it is sigma/eps0 relaxation once sigma stops being a dielectric.
+		{"channel": "charge", "substance": "", "mode": DIFFUSE, "law": Law.OHMIC, "fluid": Fluid.AIR,
+			"aux": "moisture", "stamp": "discharge"},
 
-		# Convective overturning: enthalpy crosses a face once the pair is steeper than the adiabat.
-		{"channel": "h_j_m3", "substance": "", "mode": CONVECT,
-			"mobility": 0.5, "repose_tan": 0.0, "resist": ""},
+		{"channel": "h_j_m3", "substance": "", "mode": CONVECT, "law": Law.EDDY, "fluid": Fluid.AIR},
 
-		# Conduction: enthalpy down the temperature gradient, at the interface conductivity.
 		{"channel": "h_j_m3", "substance": "", "mode": CONDUCT,
-			"mobility": 1.0, "repose_tan": 0.0, "resist": "", "drive": "temp", "cond": "conductivity"},
+			"drive": "temp", "aux": "conductivity"},
 
-		# Radiative exchange across an exposed face. Hot rock cools this way, not by conduction to air.
-		{"channel": "h_j_m3", "substance": "", "mode": RADIATE,
-			"mobility": 1.0, "repose_tan": 0.0, "resist": "", "drive": "temp", "cond": "emissivity"},
+		{"channel": "h_j_m3", "substance": "", "mode": RADIATE},
 
-		# MOMENTUM, one row per component. It runs down the PRESSURE gradient, which is the
-		# pressure-gradient force written as a flux, and it is conserved because transport moves it.
-		# Velocity is derived: v = mom / (rho * V).
-		{"channel": "mom_x", "substance": "", "mode": POTENTIAL,
-			"mobility": 0.5, "repose_tan": 0.0, "resist": "", "drive": "pressure"},
-		{"channel": "mom_y", "substance": "", "mode": POTENTIAL,
-			"mobility": 0.5, "repose_tan": 0.0, "resist": "", "drive": "pressure"},
-		{"channel": "mom_z", "substance": "", "mode": POTENTIAL,
-			"mobility": 0.5, "repose_tan": 0.0, "resist": "", "drive": "pressure"},
+		{"channel": "mom_x", "substance": "", "mode": POTENTIAL, "law": Law.PGF,
+			"drive": "pressure", "signed": true},
+		{"channel": "mom_y", "substance": "", "mode": POTENTIAL, "law": Law.PGF,
+			"drive": "pressure", "signed": true},
+		{"channel": "mom_z", "substance": "", "mode": POTENTIAL, "law": Law.PGF,
+			"drive": "pressure", "signed": true},
 
-		# Eddy viscosity: momentum diffusing down its own gradient.
-		{"channel": "mom_x", "substance": "", "mode": DIFFUSE,
-			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
-		{"channel": "mom_y", "substance": "", "mode": DIFFUSE,
-			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
-		{"channel": "mom_z", "substance": "", "mode": DIFFUSE,
-			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
+		{"channel": "mom_x", "substance": "", "mode": DIFFUSE, "law": Law.EDDY,
+			"fluid": Fluid.AIR, "signed": true},
+		{"channel": "mom_y", "substance": "", "mode": DIFFUSE, "law": Law.EDDY,
+			"fluid": Fluid.AIR, "signed": true},
+		{"channel": "mom_z", "substance": "", "mode": DIFFUSE, "law": Law.EDDY,
+			"fluid": Fluid.AIR, "signed": true},
 	]
+
+
+## Density and dynamic viscosity of one Fluid, kg/m^3 and Pa s.
+static func fluid_properties(fluid: int) -> Vector2:
+	if fluid == Fluid.WATER:
+		return Vector2(LAPhysical.WATER_DENSITY_KG_M3, LAPhysical.WATER_DYNAMIC_VISCOSITY_PA_S)
+	if fluid == Fluid.AIR:
+		return Vector2(LAPhysical.AIR_DENSITY_KG_M3, LAPhysical.AIR_DYNAMIC_VISCOSITY_PA_S)
+	return Vector2.ZERO
 
 
 ## Channels this table moves. Absent = does not travel (carbonate and silica are locked in their rock).

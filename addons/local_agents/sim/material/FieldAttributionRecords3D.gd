@@ -4,7 +4,7 @@ extends RefCounted
 ## Which pass produces each channel's ping-pong half, and which keys the report publishes. Keyed by CHANNEL;
 ## SINGLE channels are absent, and `read_raw` ignores the half for those.
 const PRODUCERS: Dictionary = {
-	"temp": "ThermalPass",
+	"temp": "TransportPass",
 	"water": "TransportPass",
 	"lava": "TransportPass",
 	"sediment": "TransportPass",

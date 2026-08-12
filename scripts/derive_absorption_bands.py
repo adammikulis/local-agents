@@ -348,7 +348,7 @@ static func solar_weight(b: int) -> float:
 
 
 ## The GPU upload. Header, band edges, temperature slices, solar weights, then five coefficients per
-## (temperature, band), then the Planck cumulative table. heat3d_solar_sphere3d.glsl reads this layout.
+## (temperature, band), then the Planck cumulative table. transport.glsl's RADIATE row reads this layout.
 static func packed() -> PackedFloat32Array:
 \tif not _packed.is_empty():
 \t\treturn _packed

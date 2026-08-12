@@ -9,7 +9,7 @@ const RadScript: GDScript = preload("res://addons/local_agents/sim/material/Radi
 ## Columns solved per report. 64 spread over the sphere holds the scan near ten milliseconds.
 const SAMPLE_COLUMNS: int = 64
 ## Condensed fraction at which a cell stops being free atmosphere. Mirrors SURFACE_FILL_MIN in
-## kernels3d/heat3d_solar_sphere3d.glsl.
+## the RADIATE row of kernels3d/transport.glsl.
 const K_SURFACE_FILL_MIN: float = 0.5
 const K_ICE_ALBEDO_GAIN: float = 40.0      # mirrors ICE_ALBEDO_GAIN in the kernel
 

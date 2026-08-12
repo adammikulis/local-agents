@@ -134,6 +134,28 @@ def transport_modes():
     return list(enumerate(names))
 
 
+def transport_flags():
+    """LATransportRecords' Flag enum: the per-row switches the kernel unpacks."""
+    m = re.search(r"^enum Flag \{ ([^}]+) \}", read(TRANSPORT_RECORDS), re.M)
+    if not m:
+        raise Missing("TransportRecords.gd declares no `enum Flag`")
+    out = [(n, int(v)) for n, v in re.findall(r"([A-Z][A-Z0-9_]*)\s*=\s*(\d+)", m.group(1))]
+    if not out:
+        raise Missing("TransportRecords.gd's `enum Flag` is empty")
+    return out
+
+
+def transport_laws():
+    """LATransportRecords' Law enum: which transport law sets a row's mobility."""
+    m = re.search(r"^enum Law \{ ([A-Z, ]+) \}", read(TRANSPORT_RECORDS), re.M)
+    if not m:
+        raise Missing("TransportRecords.gd declares no `enum Law`")
+    names = [n.strip() for n in m.group(1).split(",") if n.strip()]
+    if not names:
+        raise Missing("TransportRecords.gd's `enum Law` is empty")
+    return list(enumerate(names))
+
+
 def face_frames():
     return FACE_FRAMES
 
@@ -153,6 +175,14 @@ def glsli_text():
     lines.append("// TransportRecords.gd mode enum")
     for value, name in transport_modes():
         lines.append("#define MODE_%s %du" % (name, value))
+    lines.append("")
+    lines.append("// TransportRecords.gd Law enum")
+    for value, name in transport_laws():
+        lines.append("#define LAW_%s %du" % (name, value))
+    lines.append("")
+    lines.append("// TransportRecords.gd Flag enum")
+    for name, value in transport_flags():
+        lines.append("#define TF_%s %du" % (name, value))
     lines.append("")
     lines.append("// MaterialFieldRegolith3D.gd, reactions/ReactionThermo.gd")
     lines.append("#define REGOLITH_CELLS %d" % const_int(REGOLITH, "REGOLITH_CELLS"))
