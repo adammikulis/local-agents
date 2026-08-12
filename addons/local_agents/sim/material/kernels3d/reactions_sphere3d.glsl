@@ -92,13 +92,17 @@ const float RHO_WATER = 997.0;           // LAPhysical.WATER_DENSITY_KG_M3
 const float R_GAS = 8.314462618;         // LAPhysical.GAS_CONSTANT_J_MOL_K
 const float P_STD = 101325.0;            // LAPhysical.STANDARD_PRESSURE_PA
 
-float sat_mass_frac(float t_c) {
+// Saturation vapour, mol/m^3 — the channel's unit. LAPhysical.saturation_vapour_mol_m3 is the twin.
+// It used to divide by RHO_WATER, giving a fraction of a cell full of LIQUID water, so this differenced
+// against `moisture` in the channel's own unit was wrong by the molar density of water.
+float sat_vapour_mol_m3(float t_c) {
 	float t = max(t_c, -80.0);           // the Magnus fit's pole is at -243.04 C
 	float e_sat = MAGNUS_A_PA * exp(MAGNUS_B * t / (t + MAGNUS_C_C));
-	return (e_sat / (VAPOUR_R * max(t + KELVIN_0, 1.0))) / RHO_WATER;
+	return e_sat / (GAS_CONSTANT_J_MOL_K * max(t + KELVIN_0, 1.0));
 }
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust
 #define OVERBURDEN_MAX_CELLS 12  // outward cells the lithostatic column walk sums over
+const float GAS_CONSTANT_J_MOL_K = 8.314462618;   // LAPhysical.GAS_CONSTANT_J_MOL_K
 const float ROCK_DENSITY = 2900.0;      // LAPhysical.ROCK_DENSITY_KG_M3 — basalt / crustal rock
 const float SEDIMENT_DENSITY = 2000.0;  // LAPhysical.SEDIMENT_DENSITY_KG_M3 — unconsolidated wet sediment
 
@@ -277,7 +281,7 @@ float read_ch(int slot, uint i) {
 	if (slot == ROCK_FILL) return rock_fill[i];
 	if (slot == LIGHT)     return light_at(i);
 	if (slot == SOIL_ROOT) return root_soil(i);
-	if (slot == VAPOUR_DEFICIT) return sat_mass_frac(temp[i]) - moisture[i];
+	if (slot == VAPOUR_DEFICIT) return sat_vapour_mol_m3(temp[i]) - moisture[i];
 	if (slot == SOIL_TOP) { int c = top_regolith(i); return (c < 0) ? 0.0 : soil[uint(c)] * vol_ratio(uint(c), i); }
 	if (slot == OVERBURDEN) return overburden(i);
 	if (slot == BEDROCK_BELOW) return bedrock_below(i);
