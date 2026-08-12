@@ -29,8 +29,8 @@ static func driver_only() -> PackedInt32Array:
 static func slot_substance() -> Dictionary: return LAChannels.slot_substance()
 
 
-## Atoms per CHANNEL UNIT for each slot — `LASubstances` composition scaled by what one unit of that channel
-## weighs. The gate counts atoms; this is the only place a channel unit is converted into them.
+## Atoms per MOLE of each slot's substance, straight from `LASubstances.formula`. A channel amount is moles,
+## so this needs no scaling and there is no channel unit left to convert.
 static func composition() -> Dictionary:
 	var out: Dictionary = {}
 	var tbl: Dictionary = LASubstances.table()
@@ -39,27 +39,6 @@ static func composition() -> Dictionary:
 		var id: String = String(subs[slot])
 		out[int(slot)] = tbl.get(id, {}).get("formula", {}).duplicate()
 	return out
-
-
-static func mol_per_unit() -> Dictionary:
-	var out: Dictionary = {}
-	var tbl: Dictionary = LASubstances.table()
-	var subs: Dictionary = slot_substance()
-	for slot in subs:
-		var sub: Dictionary = tbl.get(String(subs[slot]), {})
-		var m: float = float(sub.get("molar_mass", 0.0))
-		out[int(slot)] = (float(sub.get("density", 0.0)) / m) if m > 0.0 else 0.0
-	return out
-
-
-
-static func unit_ratio(slot: int, ref_slot: int) -> float:
-	var mpu: Dictionary = mol_per_unit()
-	var to: float = float(mpu.get(slot, 0.0))
-	var from: float = float(mpu.get(ref_slot, 0.0))
-	if to <= 0.0 or from <= 0.0:
-		return 1.0
-	return from / to
 
 
 ## The stored channels the inventory sums, mapped to the slot whose composition they carry. SOIL_ROOT is
@@ -104,7 +83,6 @@ static func check_records(recs: Array, labels: PackedStringArray = PackedStringA
 	var comp: Dictionary = composition()
 	var names: Dictionary = slot_names()
 	var drivers: PackedInt32Array = driver_only()
-	var mpu: Dictionary = mol_per_unit()
 	for r in range(recs.size()):
 		var rec: Dictionary = recs[r]
 		var label: String = String(labels[r]) if r < labels.size() else "record[%d]" % r
@@ -144,7 +122,7 @@ static func check_records(recs: Array, labels: PackedStringArray = PackedStringA
 					continue
 				var parts: Dictionary = comp[slot]
 				for p in 3:
-					var moles: float = float(coeffs[p]) * float(mpu.get(slot, 1.0))
+					var moles: float = float(coeffs[p])
 					var sp: Dictionary = sums[p]
 					var sc: Dictionary = scales[p]
 					for sub in parts:

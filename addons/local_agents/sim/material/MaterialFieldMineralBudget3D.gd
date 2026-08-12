@@ -186,7 +186,6 @@ func report(step_index: int) -> Dictionary:
 	out["carbonate_open"] = snappedf(carb_open, 0.0001)
 	out["silica_open"] = snappedf(silica_open, 0.0001)
 	out["carbonate_cells"] = carb_cells
-	var mpu: Dictionary = BalanceScript.mol_per_unit()
 	var by_channel: Dictionary = {
 		"rock_fill": rock_all, "lava": lava_all, "sediment": sed_all, "susp": susp_all, "dust": dust_all,
 		"carbonate": carb_all, "silica": silica_all,
@@ -194,8 +193,7 @@ func report(step_index: int) -> Dictionary:
 	var lith: Dictionary = {}
 	for ch in BalanceScript.lithosphere_channels():
 		var parts: Dictionary = BalanceScript.channel_elements(ch)
-		var moles: float = float(by_channel.get(ch, 0.0)) * float(
-			mpu.get(int(BalanceScript.inventory_channels().get(ch, -1)), 1.0))
+		var moles: float = float(by_channel.get(ch, 0.0))
 		for el in parts:
 			lith[el] = float(lith.get(el, 0.0)) + moles * float(parts[el])
 	for el in lith:

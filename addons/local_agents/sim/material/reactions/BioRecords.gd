@@ -35,7 +35,7 @@ const PHOTO_T_WIDTH: float = (LAPhysical.PROTEIN_DENATURE_C - LAPhysical.WATER_F
 
 
 ## Kilograms of a substance in ONE unit of a channel that holds it — the channel unit IS the substance's
-## condensed density (LAReactionBalance.mol_per_unit), so this is that density, read from the one table.
+## condensed density, read from the one table.
 static func _density(id: String) -> float:
 	return float(LASubstances.table().get(id, {}).get("density", 0.0))
 
@@ -46,7 +46,7 @@ static func _dt() -> float:
 
 
 ##     x = PHOTO_RATE * LIGHT * band(TEMP)
-##     PHOTO_RATE = (eps / M_C) * f_PAR * S0 * dt / (H * mol_per_unit(CO2))
+##     PHOTO_RATE = (eps / M_C) * f_PAR * S0 * dt / H
 static func _photo_k() -> float:
 	var mol_c: float = LAPhysical.MOLAR_MASS_CARBON_KG_MOL
 	var h: float = maxf(cell_size_m, 0.001)
@@ -95,39 +95,32 @@ static func _decompose_k() -> float:
 
 ## The records this domain contributes to the live table (see LAMaterialReactions3D).
 static func records() -> Array:
-	var o2_per_org: float = LAReactionBalance.unit_ratio(O2, DETRITUS)
-	var co2_per_org: float = LAReactionBalance.unit_ratio(CO2, DETRITUS)
-	var w_per_org: float = LAReactionBalance.unit_ratio(MOISTURE, DETRITUS)
-	var fert_per_org: float = LAReactionBalance.unit_ratio(FERT, DETRITUS)
-	var o2_per_co2: float = LAReactionBalance.unit_ratio(O2, CO2)
-	var soil_per_co2: float = LAReactionBalance.unit_ratio(SOIL_ROOT, CO2)
-	var org_per_co2: float = LAReactionBalance.unit_ratio(BIOMASS, CO2)
-	var fert_per_co2: float = LAReactionBalance.unit_ratio(FERT, CO2)
 	var organic_n: float = float(LAReactionBalance.composition()[DETRITUS]["N"])
-	# TRANSPIRED WATER per unit of CO2 fixed, in water-channel units: a measured molar ratio put through the
-	# same unit bridge as everything else. 400 mol H2O per mol C is 0.0617 here.
-	var transpired: float = TRANSPIRATION_MOL_H2O_PER_MOL_C * soil_per_co2
+	# Transpired water per CO2 fixed. Channel amounts are MOLES, so a measured molar ratio is the
+	# coefficient -- it used to be multiplied by a unit bridge, which is how 400 mol H2O per mol C
+	# appeared in this file as 0.0617.
+	var transpired: float = TRANSPIRATION_MOL_H2O_PER_MOL_C
 	return [
 		# x = DECOMPOSE_RATE * fungus * detritus, in moles of the pool's CARBON. The rest of the stoichiometry
 		# is the cell's own composition: CH_yO_z + (1 + y/4 - z/2) O2 -> CO2 + (y/2) H2O, so rotting peat draws
 		# less oxygen and yields less water than rotting leaf litter, out of ONE record.
 		rec(BILINEAR, _decompose_k(), FUNGUS,
 			[[DETRITUS, 1.0], [ORG_H, 0.0, 1.0, 0.0], [ORG_O, 0.0, 0.0, 1.0],
-				[O2, o2_per_org, 0.25 * o2_per_org, -0.5 * o2_per_org]],
-			[[CO2, co2_per_org, TGT_SELF],
-				[MOISTURE, 0.0, TGT_SELF, 0.5 * w_per_org, 0.0],
-				[FERT, organic_n * fert_per_org, TGT_SCRATCH]],
+				[O2, 1.0, 0.25, -0.5]],
+			[[CO2, 1.0, TGT_SELF],
+				[MOISTURE, 0.0, TGT_SELF, 0.5, 0.0],
+				[FERT, organic_n, TGT_SCRATCH]],
 			0, 0.0, DETRITUS),
 
 		rec(OPTIMUM_BAND, _photo_k(), LIGHT,
-			[[CO2, 1.0], [SOIL_ROOT, soil_per_co2 + transpired], [FERT, organic_n * fert_per_co2]],
-			[[O2, o2_per_co2, TGT_SELF], [BIOMASS, org_per_co2, TGT_SELF],
+			[[CO2, 1.0], [SOIL_ROOT, 1.0 + transpired], [FERT, organic_n]],
+			[[O2, 1.0, TGT_SELF], [BIOMASS, 1.0, TGT_SELF],
 				[MOISTURE, transpired, TGT_SELF]],
 			GATE_NEAR_GROUND, PHOTO_T_OPT, TEMP, PHOTO_T_WIDTH),
 
-		rec(BILINEAR, _resp_k(), BIOMASS, [[BIOMASS, 1.0], [O2, o2_per_org]],
-			[[CO2, co2_per_org, TGT_SELF], [MOISTURE, w_per_org, TGT_SELF],
-				[FERT, organic_n * fert_per_org, TGT_SELF]],
+		rec(BILINEAR, _resp_k(), BIOMASS, [[BIOMASS, 1.0], [O2, 1.0]],
+			[[CO2, 1.0, TGT_SELF], [MOISTURE, 1.0, TGT_SELF],
+				[FERT, organic_n, TGT_SELF]],
 			0, 0.0, O2),
 
 		# LITTERFALL. Living tissue is CH2O, so shed biomass enters the dead pool at H:C 2, O:C 1 — the fresh

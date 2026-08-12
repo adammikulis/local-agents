@@ -13,7 +13,6 @@ const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/
 ## channel unit of `q_slot` exerts per kelvin. Empty when a participant has no standard-state data.
 static func equilibrium_terms(rec: Dictionary, q_slot: int) -> Dictionary:
 	var tbl: Dictionary = LASubstances.table()
-	var mpu: Dictionary = BalanceScript.mol_per_unit()
 	var subs: Dictionary = BalanceScript.slot_substance()
 	var dh: float = 0.0
 	var ds: float = 0.0
@@ -26,7 +25,7 @@ static func equilibrium_terms(rec: Dictionary, q_slot: int) -> Dictionary:
 			var entropy: float = float(s.get("entropy_j_molk", s.get("entropy_gas_j_molk", 0.0)))
 			if not s.has("formation_enthalpy_j_mol") or entropy <= 0.0:
 				return {}
-			var moles: float = float(entry[1]) * float(mpu.get(slot, 0.0))
+			var moles: float = float(entry[1])
 			dh += sgn * moles * float(s["formation_enthalpy_j_mol"])
 			ds += sgn * moles * entropy
 			if slot == q_slot:
@@ -43,7 +42,7 @@ static func equilibrium_terms(rec: Dictionary, q_slot: int) -> Dictionary:
 		"dg_s_j_molk": ds / absf(q_mol),
 		"q_slot": q_slot,
 		"q_pa_per_unit_k": (density / molar_mass) * PC.GAS_CONSTANT_J_MOL_K,
-		# Heat per unit of extent, positive exothermic — the same dH, undivided. mol_per_unit is mol/m3, so
+		# Heat per unit of extent, positive exothermic — the same dH, undivided. An extent is moles, so
 		# this is already J per m3 of cell.
 		"enthalpy_j_m3": -dh,
 	}

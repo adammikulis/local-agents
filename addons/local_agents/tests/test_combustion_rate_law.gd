@@ -52,10 +52,9 @@ func _organic_kg_m3(hc: float, oc: float) -> float:
 		+ hc * LAPhysical.MOLAR_MASS_HYDROGEN_KG_MOL + oc * LAPhysical.MOLAR_MASS_OXYGEN_KG_MOL)
 
 
-## Moles of substance in one unit of a channel — the conversion the balance gate applies, so the ratios below
-## are compared as a chemist writes them and not as two arbitrary channel scales.
-func _mol(slot: int) -> float:
-	return float(LAReactionBalance.mol_per_unit().get(slot, 0.0))
+## A channel amount IS moles, so a record's coefficient is already the stoichiometry a chemist writes.
+func _mol(_slot: int) -> float:
+	return 1.0
 
 
 func run_test(_tree: SceneTree) -> bool:

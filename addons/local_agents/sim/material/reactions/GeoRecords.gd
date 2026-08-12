@@ -49,16 +49,13 @@ static func _coal_enthalpy_j_m3(mol_c: float, mol_h: float, mol_o: float) -> flo
 
 ## The records this domain contributes to the live table (see LAMaterialReactions3D).
 static func records() -> Array:
-	var w_per_org_o: float = LAReactionBalance.unit_ratio(MOISTURE, ORG_O)
-	var co2_per_org_c: float = LAReactionBalance.unit_ratio(CO2, DETRITUS)
-	var fert_per_org_c: float = LAReactionBalance.unit_ratio(FERT, DETRITUS)
 	var organic_n: float = float(LAReactionBalance.composition()[DETRITUS]["N"])
 	return [
 		# DEHYDRATION, the lowest-activation-energy leg: 2 H + O leave as water. It is the fast one, so the
 		# pool's path across the van Krevelen plane runs toward the origin — toward carbon.
 		rec(ARRHENIUS, _rate_k(LAPhysical.COAL_DEHYDRATION_EA_OVER_R_K), ORG_O,
 			[[ORG_H, 2.0], [ORG_O, 1.0]],
-			[[MOISTURE, w_per_org_o, TGT_SELF]],
+			[[MOISTURE, 1.0, TGT_SELF]],
 			GATE_BURIED, LAPhysical.COAL_DEHYDRATION_EA_OVER_R_K, -1,
 			LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET,
 			-1, 0.0, 0.0, _coal_enthalpy_j_m3(0.0, 2.0, 1.0)),
@@ -68,7 +65,7 @@ static func records() -> Array:
 		# O:C fall from the H:C fall instead of walking one straight line.
 		rec(ARRHENIUS, _rate_k(LAPhysical.COAL_DECARBOXYLATION_EA_OVER_R_K), DETRITUS,
 			[[DETRITUS, 1.0], [ORG_O, 2.0]],
-			[[CO2, co2_per_org_c, TGT_SELF], [FERT, organic_n * fert_per_org_c, TGT_SELF]],
+			[[CO2, 1.0, TGT_SELF], [FERT, organic_n, TGT_SELF]],
 			GATE_BURIED, LAPhysical.COAL_DECARBOXYLATION_EA_OVER_R_K, -1,
 			LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET,
 			-1, 0.0, 0.0, _coal_enthalpy_j_m3(1.0, 0.0, 2.0)),
@@ -86,9 +83,9 @@ static func records() -> Array:
 		# REVERSIBLE. CaSiO3 + CO2 <-> CaCO3 + SiO2 is ONE reaction; decarbonation is this record running
 		# backwards, and which way it goes is dG(T, p_CO2), not a threshold. CO2 is the one varying activity.
 		LAReactionThermo.reversible(rec(ARRHENIUS, DISSOLUTION_K, WATER,
-			[[BEDROCK_BELOW, 1.0], [CO2, LAReactionBalance.unit_ratio(CO2, BEDROCK_BELOW)]],
-			[[CARBONATE, LAReactionBalance.unit_ratio(CARBONATE, BEDROCK_BELOW), TGT_SELF],
-				[SILICA, LAReactionBalance.unit_ratio(SILICA, BEDROCK_BELOW), TGT_SELF]],
+			[[BEDROCK_BELOW, 1.0], [CO2, 1.0]],
+			[[CARBONATE, 1.0, TGT_SELF],
+				[SILICA, 1.0, TGT_SELF]],
 			GATE_NEAR_GROUND, LAPhysical.SILICATE_DISSOLUTION_EA_OVER_R_K, CO2,
 			LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET,
 			-1, 0.0, LAPhysical.WATER_BOIL_C + LAPhysical.KELVIN_OFFSET), CO2),

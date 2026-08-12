@@ -43,14 +43,13 @@ static func all_legs() -> PackedStringArray:
 
 
 ## Moles of each element held by a set of channel amounts, from the same declaration the load-time reaction
-## balance gate checks every record against. Amounts are in cubic metres of channel; mol_per_unit is mol/m^3.
+## balance gate checks every record against. A channel amount IS moles, so nothing is converted here.
 static func elements_of(by_channel: Dictionary) -> Dictionary:
-	var mpu: Dictionary = BalanceScript.mol_per_unit()
 	var slots: Dictionary = BalanceScript.INVENTORY_CHANNELS
 	var out: Dictionary = {}
 	for ch in by_channel:
 		var parts: Dictionary = BalanceScript.channel_elements(ch)
-		var moles: float = float(by_channel[ch]) * float(mpu.get(int(slots.get(ch, -1)), 1.0))
+		var moles: float = float(by_channel[ch])
 		for el in parts:
 			out[el] = float(out.get(el, 0.0)) + moles * float(parts[el])
 	return out

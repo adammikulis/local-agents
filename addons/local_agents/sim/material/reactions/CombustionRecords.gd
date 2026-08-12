@@ -35,10 +35,6 @@ static func _enthalpy_parts() -> Vector3:
 static func records() -> Array:
 	# Per unit of FUEL, which is LASubstances.ORGANIC_MOL_PER_M3 moles of the dead pool's CARBON. Everything
 	# else is the cell's own composition: CH_yO_z + (1 + y/4 - z/2) O2 -> CO2 + (y/2) H2O.
-	var o2_per_fuel: float = LAReactionBalance.unit_ratio(O2, FUEL)
-	var co2_per_fuel: float = LAReactionBalance.unit_ratio(CO2, FUEL)
-	var w_per_fuel: float = LAReactionBalance.unit_ratio(MOISTURE, FUEL)
-	var fert_per_fuel: float = LAReactionBalance.unit_ratio(FERT, FUEL)
 	# Nitrogen per mole of CH2O, read off the composition table rather than restated, so this record cannot
 	# disagree with the gate about what litter is made of. It is MOLAR; LITTER_C_TO_N is a ratio of MASSES.
 	var organic_n: float = float(LAReactionBalance.composition()[FUEL]["N"])
@@ -46,10 +42,10 @@ static func records() -> Array:
 	return [
 		rec(ARRHENIUS, _rate_k(), FUEL,
 			[[FUEL, 1.0], [ORG_H, 0.0, 1.0, 0.0], [ORG_O, 0.0, 0.0, 1.0],
-				[O2, o2_per_fuel, 0.25 * o2_per_fuel, -0.5 * o2_per_fuel]],
-			[[CO2, co2_per_fuel, TGT_SELF],
-				[MOISTURE, 0.0, TGT_SELF, 0.5 * w_per_fuel, 0.0],
-				[FERT, organic_n * fert_per_fuel, TGT_SELF]],
+				[O2, 1.0, 0.25, -0.5]],
+			[[CO2, 1.0, TGT_SELF],
+				[MOISTURE, 0.0, TGT_SELF, 0.5 * 1.0, 0.0],
+				[FERT, organic_n, TGT_SELF]],
 			0, LAPhysical.CELLULOSE_PYROLYSIS_EA_OVER_R_K, O2, PYROLYSIS_REF_TEMP_K,
 			-1, 0.0, 0.0, dh.x, O2, OXYGEN_QUENCH, dh.y, dh.z),
 	]

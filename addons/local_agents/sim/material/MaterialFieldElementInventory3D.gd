@@ -314,12 +314,11 @@ func report(step_index: int) -> Dictionary:
 ## LAReactionBalance declaration the load-time balance gate checks every record against. The one conversion:
 ## LAMaterialFieldElementProbe3D attributes per-pass element movement with this exact function.
 static func elements_of(by_channel: Dictionary) -> Dictionary:
-	var mpu: Dictionary = BalanceScript.mol_per_unit()
 	var slots: Dictionary = BalanceScript.inventory_channels()
 	var elements: Dictionary = {}
 	for ch in by_channel:
 		var parts: Dictionary = BalanceScript.channel_elements(ch)
-		var moles: float = float(by_channel[ch]) * float(mpu.get(int(slots.get(ch, -1)), 1.0))
+		var moles: float = float(by_channel[ch])
 		for el in parts:
 			elements[el] = float(elements.get(el, 0.0)) + moles * float(parts[el])
 	return elements
