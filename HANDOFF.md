@@ -32,6 +32,15 @@ from a caller list and from a red gate were not in front of anyone. They are in 
 **Everything is on `feature/enthalpy`.** The branch does not parse and there is one reason left:
 `LAHeatCapacity` is deleted and the field still stores `temp`. That conversion is task 7 below.
 
+**`check_physical_constants.sh` is red on ONE line, on purpose.** `AMBIENT_O2_DENSITY_KG_M3` is now derived
+from the air density and mole fractions this file already declares rather than stored a second time and 4%
+adrift; `CO2_UNIT_DENSITY_KG_M3` moved with it, and `kernels3d/heat3d_solar_sphere3d.glsl` carries a
+hand-copied `RHO_CO2_UNIT` that must be set to the authority's value. Clearing it is one literal.
+
+**`LATransportRecords` and `LAFieldTotals` have no GDScript caller.** `max_fill` feeds a `transport.glsl`
+push constant nothing fills; `substance_kg` is reached only from `scripts/check_sphere_grid.sh`. Wire or
+delete — say which.
+
 **The grid migration is most of the way through.** The Cartesian box is what the kernels run on:
 `MaterialSphereGPU3D` takes an `LAVoxelGrid`, gravity is the solved Poisson field read per cell, and
 `check_no_privileged_axis.sh` passes — no slot means "up", no column is an array stride, and the radial
