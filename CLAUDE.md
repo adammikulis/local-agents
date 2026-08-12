@@ -1042,3 +1042,18 @@ failure mode, and it is the most common one.
   bare form this file bans above — two concurrent scans SEGFAULT, measured six crashes in three minutes. The
   ban was 400 lines away from the instruction that violated it, and this is the end of the file, where a
   skimming agent lands.)*
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `adammikulis/local-agents`, driven by the `gh` CLI. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
