@@ -337,6 +337,16 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_enthalpy_ssot.sh ($rc_enth)"
       exit 1
     fi
+    # Gate: the GLSL/gdshader copies of a GDScript fact are generated from it, never held equal by a
+    # comment. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_generated_constants.sh"
+    rc_gencon=$?
+    set -e
+    if [[ $rc_gencon -ne 0 ]]; then
+      echo "LINT_FAIL: check_generated_constants.sh ($rc_gencon)"
+      exit 1
+    fi
     # Gate: a per-m^3/m^2 quantity must never meet a raw cell size — field lengths are MODEL units.
     set +e
     # Gate: the world has two phases. Creation is legal while seeding and a violation after the seal, and a

@@ -14,7 +14,7 @@ var queue: LAMaterialFieldHeatQueue3D = QueueScript.new()
 # empty — a storm sitting on the sea must not open a hole in it.
 const EVAP_KEEP_LIQUID: float = 0.1      # liquid below this is not available to a storm (film left behind)
 const EVAP_TAKE_FRAC: float = 0.5        # fraction of a source cell's AVAILABLE contents one injection may lift
-const SOIL_SEARCH_SHELLS: int = 4        # permeable shells to search inward for the water table (= REGOLITH_CELLS)
+const SOIL_SEARCH_SHELLS: int = LAMaterialFieldRegolith3D.REGOLITH_CELLS   # the permeable band is the aquifer
 
 const EXCAVATED_DUST_FRAC: float = 0.25
 

@@ -379,7 +379,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/events/LAEventTracker.gd` | `RECENT_MAX` | 32 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `EVAP_KEEP_LIQUID` | 0.1 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `EVAP_TAKE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `SOIL_SEARCH_SHELLS` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `EXCAVATED_DUST_FRAC` | 0.25 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `CRATER_WATCH_MAX` | 256 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `ORGANIC_TAKE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
@@ -437,7 +436,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd` | `LITTER_FROM_BIOMASS` | 0.20 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd` | `REFILL_EVERY` | 40 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd` | `FUEL_REQUEST_LEAD` | 20 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `SOIL_DBG_SLOTS` | 21 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `ACTIVE_ARGS_SLOTS` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `ARG_SLOT_LIST_COUNT` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `PLATE_STRIDE` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |

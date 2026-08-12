@@ -77,7 +77,7 @@ static func equilibrium_activity(terms: Dictionary, sigma: float, t_k: float) ->
 	return exp(sigma * (maxf(t_k, 1.0) * float(terms["dg_s_j_molk"]) - float(terms["dg_h_j_mol"])) / rt)
 
 
-## exp() argument bound. Matches DG_EXP_LIMIT in reactions_sphere3d.glsl.
+## exp() argument bound. The kernel's copy is generated from this constant.
 const EXP_LIMIT: float = 60.0
 
 

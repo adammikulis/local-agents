@@ -3,7 +3,7 @@ extends RefCounted
 
 ## the product targets, and the record authoring + std430 serialisation. It holds no records itself.
 
-# --- Channel slot enum (MUST match the #defines in reactions_sphere3d.glsl) --------------------------------
+# --- Channel slot enum -------------------------------------------------------------------------------------
 const TEMP: int = 0
 const WATER: int = 1
 const MOISTURE: int = 2
@@ -83,13 +83,8 @@ const GATE_BURIED: int = GATE_AIR_ABOVE * 2   # ALSO runs in SOLID cells. Everyt
 const TGT_SELF: int = 0               # add into the live/back cell channel
 const TGT_SCRATCH: int = 3            # add into the per-cell scratch buffer (fungus-fert pattern)
 
+# --- Record layout ---------------------------------------------------------------------------------------
 const RECORD_BYTES: int = 240         # std430 size of one Reaction (see layout in serialize())
-
-# --- A COEFFICIENT THAT IS A FUNCTION OF THE CELL'S OWN COMPOSITION ----------------------------------------
-# Burning CH_yO_z takes (1 + y/4 - z/2) moles of O2 and yields y/2 of water per mole of carbon. Those are not
-
-
-# --- A RATE LAW'S TEMPERATURE CEILING (ARRHENIUS) ----------------------------------------------------------
 
 # --- THE ONE LENGTH SCALE A RECORD MAY NEED ----------------------------------------------------------------
 static var cell_size_m: float = 16.0

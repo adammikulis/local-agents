@@ -28,7 +28,6 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/FireDustPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/EcoSurfacePass.gd"]
 
-const SOIL_DBG_SLOTS: int = 21
 # Slots in the `active_args` buffer (see setup()). 0-2 are the uvec3 dispatch-indirect argument; 3 is the
 # compacted list length a compacted kernel uses as its loop bound. 8 rather than 4 purely for 32-byte alignment.
 const ACTIVE_ARGS_SLOTS: int = 8
@@ -118,7 +117,7 @@ func setup(field) -> void:
 	# Per-slot enthalpy flux beside `send`: the donor writes mass * its own temperature, the receiver gathers
 	# it. Reading a neighbour's temp in the apply pass would read a value another thread is writing.
 	_bufs["heat_send"] = _new_f(_cc * 6)
-	_bufs["soil_dbg"] = _new_f(_cc * SOIL_DBG_SLOTS)     # per-leg groundwater budget probe (see SOIL_DBG_SLOTS)
+	_bufs["soil_dbg"] = _new_f(_cc * LAMaterialFieldSoilBudget3D.SLOTS)   # per-leg groundwater budget probe
 	# Per list: the compacted cell indices, plus a buffer that is BOTH the uvec3 dispatch-indirect argument
 	# (slots 0-2) and the atomic list-length counter (slot 3).
 	for lname in ACTIVE_LISTS:

@@ -14,9 +14,9 @@ const FAR_ALT: float = 130.0               # above this altitude (world units ov
 const MAX_MASS: float = 1.0                # water kernel's MAX_MASS (a full cell) — for the sub-cell height fraction
 const REBUILD_PERIOD: float = 0.22         # ~4.5 Hz geometry rebuild (stale a couple frames is imperceptible)
 const RECENTER_DOT: float = 0.999          # rebuild early if the camera radial rotates past this (recentre the cap)
-const RIPPLE_MAX: int = 16                 # must match VoxelWater.gdshader RIPPLE_MAX
-const RIPPLE_SPEED: float = 9.0            # matches the shader (for age-out)
-const RIPPLE_DECAY: float = 0.7            # matches the shader
+const RIPPLE_MAX: int = 16                 # ring-buffer length; the shader's copy is generated
+const RIPPLE_SPEED: float = 9.0            # ring expansion (world units / s)
+const RIPPLE_DECAY: float = 0.7            # amplitude e-fold time (1/s)
 const WIND_SCALE: float = 6.0              # field.wind() magnitude → shader wind_strength (0..2)
 
 var _f = null                              # LAMaterialField3D
@@ -53,6 +53,8 @@ func setup(field, camera: Node3D, terrain, _sun, center: Vector3, sea_radius: fl
 	_mat.set_shader_parameter("flow_scale", 1.0)
 	_mat.set_shader_parameter("depth_influence", 0.7)        # deep sea + reasonably solid lakes; shoreline foam on
 	_mat.set_shader_parameter("base_alpha", 0.80)
+	_mat.set_shader_parameter("ripple_speed", RIPPLE_SPEED)
+	_mat.set_shader_parameter("ripple_decay", RIPPLE_DECAY)
 	material_override = _mat
 
 	# Ring the surface whenever anything splashes (meteor / tornado / fish / thrown rock / flood / plant).

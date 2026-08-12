@@ -11,6 +11,8 @@
 shader_type spatial;
 render_mode specular_schlick_ggx, diffuse_burley, cull_back;
 
+#include "res://addons/local_agents/sim/shaders/generated.gdshaderinc"
+
 // Palette — the deep-sea end of VoxelWater.gdshader so the shell and the near-cap surface read as one sea.
 uniform vec3 deep_color : source_color = vec3(0.01, 0.11, 0.30);      // deep ocean blue
 uniform vec3 shallow_color : source_color = vec3(0.05, 0.30, 0.46);   // wave-crest / shoulder tint
@@ -32,12 +34,6 @@ uniform sampler2DArray sea_ice_tex : filter_linear;
 uniform float sea_ice_enabled = 0.0;
 uniform vec3 sea_ice_color : source_color = vec3(0.90, 0.94, 0.97);   // pale polar ice / pack-ice white
 uniform float sea_ice_edge = 0.06;                                    // coverage where ice starts to show (soft cap rim)
-
-// SphereGrid cube-face frames — MUST match sphere/SphereGrid.gd (and WaterParticles.gdshader) so the texel
-// selection is identical to the CPU bake's inverse-gnomonic mapping.
-const vec3 FACE_N[6] = vec3[6](vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0));
-const vec3 FACE_R[6] = vec3[6](vec3(0.0, 0.0, -1.0), vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0));
-const vec3 FACE_U[6] = vec3[6](vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, -1.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0));
 
 int face_of(vec3 d) {
 	vec3 a = abs(d);
