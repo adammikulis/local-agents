@@ -6,7 +6,7 @@ extends RefCounted
 ## (Explicit types only, no ':=' inferred typing.)
 
 ## What drives a record across a face. Matches the MODE_* constants in transport.glsl.
-enum { POTENTIAL, ADVECT, BOTH, DIFFUSE }
+enum { POTENTIAL, ADVECT, BOTH, DIFFUSE, CONVECT }
 
 
 ## `mobility`: fraction of the driving imbalance crossing a face per step. Bounded by stability.
@@ -51,6 +51,10 @@ static func rows() -> Array:
 		# A pressure wave spreads from where it was released.
 		{"channel": "shock", "substance": "", "mode": DIFFUSE,
 			"mobility": 0.25, "repose_tan": 0.0, "resist": ""},
+
+		# Convective overturning: enthalpy crosses a face once the pair is steeper than the adiabat.
+		{"channel": "h_j_m3", "substance": "", "mode": CONVECT,
+			"mobility": 0.5, "repose_tan": 0.0, "resist": ""},
 	]
 
 

@@ -36,6 +36,7 @@ layout(push_constant, std430) uniform Params {
 	float min_amount;     // below this a cell is empty and does not donate
 	float density;        // kg/m^3 of the substance this record carries
 	float max_fill;       // the amount at which a cell is full
+	float lapse_k_per_m;  // MODE_CONVECT: the adiabat this pair must exceed before it overturns
 } params;
 
 // Matches LATransportRecords mode enum.
@@ -43,6 +44,7 @@ const uint MODE_POTENTIAL = 0u;
 const uint MODE_ADVECT    = 1u;
 const uint MODE_BOTH      = 2u;
 const uint MODE_DIFFUSE   = 3u;
+const uint MODE_CONVECT   = 4u;   // enthalpy, thresholded by the adiabatic lapse
 
 vec3 g_at(uint c) {
 	return vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
@@ -110,9 +112,21 @@ void main() {
 			if (drop <= 0.0) {
 				continue;
 			}
-			// Angle of repose: the run is one cell, so a head threshold is a slope.
+			// A THRESHOLD GRADIENT. Granular material holds a slope up to its angle of repose; a column of
+			// gas holds a temperature gradient up to its adiabat. Same construct, one cell of run either way.
 			if (params.repose_tan > 0.0) {
 				drop -= params.repose_tan * params.cell_m;
+				if (drop <= 0.0) {
+					continue;
+				}
+			}
+			if (params.mode == MODE_CONVECT) {
+				vec3 gv = g_at(gidx);
+				float up = dot(-normalize(gv + vec3(1.0e-30)), face_normal(d));
+				if (up >= 0.0) {
+					continue;   // convection lifts; the sinking half is the neighbour's own pass
+				}
+				drop -= params.lapse_k_per_m * params.cell_m * (-up);
 				if (drop <= 0.0) {
 					continue;
 				}

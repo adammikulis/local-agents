@@ -1,0 +1,34 @@
+// Walk cell to cell along a world direction. Replaces the radial shell walk.
+// Requires: `int nbr[]` (cell*6 + slot) and `float cell_m` in scope.
+
+#ifndef LA_MARCH_GLSLI
+#define LA_MARCH_GLSLI
+
+// Slot whose outward normal is closest to `dir`. -1 if dir is zero.
+int la_slot_toward(vec3 dir) {
+	float m = max(max(abs(dir.x), abs(dir.y)), abs(dir.z));
+	if (m <= 0.0) {
+		return -1;
+	}
+	if (abs(dir.x) == m) { return dir.x > 0.0 ? 1 : 0; }
+	if (abs(dir.y) == m) { return dir.y > 0.0 ? 3 : 2; }
+	return dir.z > 0.0 ? 5 : 4;
+}
+
+// Next cell along `dir`, or -1 at the boundary.
+int la_step(int nbr[], uint c, vec3 dir) {
+	int d = la_slot_toward(dir);
+	if (d < 0) {
+		return -1;
+	}
+	return nbr[c * 6u + uint(d)];
+}
+
+// Path length through one cell along `dir`, metres. A ray crossing a cube off-axis travels further than
+// its edge, which is what gives a low sun its longer optical path.
+float la_step_len(vec3 dir, float cell_m) {
+	float m = max(max(abs(dir.x), abs(dir.y)), abs(dir.z));
+	return (m > 0.0) ? cell_m * length(dir) / m : cell_m;
+}
+
+#endif
