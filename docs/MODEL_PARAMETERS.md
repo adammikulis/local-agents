@@ -519,16 +519,17 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd` | `MOISTURE_DIFFUSE` | 0.035 | transport tuning, chosen not derived | Stage 2: derive from the transport law, or delete with the kernel merge |
 | `addons/local_agents/sim/material/sphere_passes/WaterSlumpLavaPass.gd` | `MIN_FLOW` | 0.01 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/sphere_passes/WaterSlumpLavaPass.gd` | `MIN_MASS` | 0.0001 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldLakes3D.gd` | `RIVER_ACCUM_MIN` | 6 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/MaterialFieldLakes3D.gd` | `RIVER_MAX_DEPTH_CELLS` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldLakes3D.gd` | `RIVER_CARVE_MAX` | 6000 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldRegolith3D.gd` | `REGOLITH_CELLS` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldRegolith3D.gd` | `INITIAL_TABLE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/material/WaterSurfaceMesh.gd` | `N_A1` | 1 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/WaterSurfaceMesh.gd` | `N_B1` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/WaterSurfaceMesh.gd` | `N_A0` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/WaterSurfaceMesh.gd` | `N_B0` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/WaterSurfaceMesh.gd` | `SEA_BIAS` | 0.4 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `PROFILE_BINS` | 16 | a diagnostic's resolution, not a physical quantity | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `ALOFT_CELLS` | 2.0 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `UPDRAFT_SAMPLE_M` | 40.0 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `CLOUD_BASE_ALT` | 62.0 | a renderer band radius, not a measured cloud base | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `FOG_TOP_ALT` | 16.0 | a renderer band radius, not a measured fog top | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `FOG_LO_ALT` | 0.0 | a renderer band radius, not a measured fog base | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `GROUND_SEARCH` | 6 | a march bound, not a physical quantity | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `HEAD_REACH` | 4 | a march bound, not a physical quantity | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `GRAZE_RESIDUAL` | 0.02 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `BITE_TAKE_FRAC` | 0.35 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `HEAT_C_PER_MASS` | 0.02 | inherited, unreviewed | Stage 2 substrate rewrite |

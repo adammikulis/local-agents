@@ -12,10 +12,9 @@ const GENERATOR_SRC: PackedStringArray = [
 ]
 
 
-## Hash of everything the mask depends on. `opts` is LAVoxelTerrainService.generator_options(); `shell_dr` is
-## the per-shell radial thickness. Returns "" when a generator source cannot be read.
-static func key(opts: Dictionary, cell_count: int, depth: int, core_radius: float,
-		shell_dr: PackedFloat32Array, origin: Vector3) -> String:
+## Hash of everything the mask depends on: the terrain generator's inputs and the grid's own geometry.
+## Returns "" when a generator source cannot be read.
+static func key(opts: Dictionary, grid: LAVoxelGrid) -> String:
 	var parts: PackedStringArray = PackedStringArray()
 	var names: Array = opts.keys()
 	names.sort()
@@ -24,12 +23,9 @@ static func key(opts: Dictionary, cell_count: int, depth: int, core_radius: floa
 		if String(k) == "view_distance":
 			continue
 		parts.append("%s=%s" % [String(k), str(opts[k])])
-	parts.append("cells=%d" % cell_count)
-	parts.append("depth=%d" % depth)
-	parts.append("core=%.6f" % core_radius)
-	for r in shell_dr.size():
-		parts.append("dr%d=%.6f" % [r, shell_dr[r]])
-	parts.append("origin=%.4f,%.4f,%.4f" % [origin.x, origin.y, origin.z])
+	parts.append("dims=%d,%d,%d" % [grid.nx, grid.ny, grid.nz])
+	parts.append("cell=%.6f" % grid.cell_size)
+	parts.append("origin=%.4f,%.4f,%.4f" % [grid.origin.x, grid.origin.y, grid.origin.z])
 	for src_path in GENERATOR_SRC:
 		var src: FileAccess = FileAccess.open(src_path, FileAccess.READ)
 		if src == null:

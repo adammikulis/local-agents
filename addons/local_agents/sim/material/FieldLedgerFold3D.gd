@@ -79,20 +79,16 @@ func amounts(ch: Dictionary, solid: PackedByteArray, temp: PackedFloat32Array,
 	if cell_size <= 0.0:
 		return out
 
-	# Cell volumes in cubic metres, once. Channel values are intensive; the amount is value * volume, and this
-	# grid's cells differ in volume across the shell.
-	var grid = _f._sphere
-	var have_grid: bool = grid != null and grid.cell_count == cc
+	# Cell volumes in cubic metres, once. Channel values are intensive; the amount is value * volume. One
+	# uniform grid, so one volume.
 	var uniform_m3: float = pow(cell_size, 3.0)
 	var vol: PackedFloat64Array = PackedFloat64Array()
 	vol.resize(cc)
-	var vol_total_m3: float = 0.0
+	vol.fill(uniform_m3)
+	var vol_total_m3: float = uniform_m3 * float(cc)
 	var open_cells: int = 0
 	var solid_cells: int = 0
 	for c in cc:
-		var v: float = LAFieldTotals.cell_volume_m3(grid, c) if have_grid else uniform_m3
-		vol[c] = v
-		vol_total_m3 += v
 		if solid[c] == 0:
 			open_cells += 1
 		else:
@@ -196,16 +192,18 @@ func _energy(out: Dictionary, ch: Dictionary, temp: PackedFloat32Array, solid: P
 	if not have_prev:
 		_prev_rc.resize(cc)
 		_prev_tk.resize(cc)
-	var depth: int = _f._dim_y
 	var stock: float = 0.0
 	var cap_j_k: float = 0.0
 	var d_heat_j: float = 0.0
 	var d_cap_j: float = 0.0
+	# Faces the geotherm's flux crosses: the DEEPEST rock, where nothing solid lies further down the vertical.
 	var shell_solid: int = 0
 	for c in cc:
 		var rc: float = rc_all[c]
-		if solid[c] != 0 and c % depth == 0:
-			shell_solid += 1
+		if solid[c] != 0:
+			var lo: int = LAFieldGeometry.below(_f, c)
+			if lo < 0 or solid[lo] == 0:
+				shell_solid += 1
 		var tk: float = temp[c] + LAPhysical.KELVIN_OFFSET
 		stock += rc * tk * vol[c]
 		cap_j_k += rc * vol[c]

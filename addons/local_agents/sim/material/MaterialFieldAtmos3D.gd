@@ -6,12 +6,15 @@ const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/
 ## Atmosphere queries derived from the one `moisture` channel of LAMaterialField3D.
 ## vapor = min(moisture, sat(T)); condensate = max(0, moisture - sat(T)), split fog/cloud by temperature.
 
-const CoverBakerScript: GDScript = preload("res://addons/local_agents/sim/material/CoverTextureBaker.gd")
-# Rain threshold: AtmospherePass owns it; the report proxy and the cover bake read the same number.
+# Rain threshold: AtmospherePass owns it; the report proxy reads the same number.
 const AtmospherePassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd")
 
+# Altitudes above the sea surface, model units, at which the renderer places its particle bands.
+const CLOUD_BASE_ALT: float = 62.0
+const FOG_TOP_ALT: float = 16.0
+const FOG_LO_ALT: float = 0.0
+
 var _f = null                                            # back-reference to the owning LAMaterialField3D
-var _cover_baker = null                                  # LACoverTextureBaker — bakes the render cover texture
 
 
 func setup(field) -> void:
@@ -88,25 +91,6 @@ func refresh_aggregates() -> void:
 	_f._fog_cover_c = float(fog_n) * inv
 	_f._precip_c = clampf(float(precip_n) * inv * 40.0, 0.0, 1.0)
 	_f._moisture_total_c = total
-	# Fold the render cover-texture bake into this same ~10Hz condensate pass (the water-particle renderer
-	# samples it per particle). Cheap: one extra O(cell_count) reduction over the CPU readback we already have.
-	if _f._sphere != null:
-		_ensure_cover_baker()
-		if _cover_baker != null:
-			_cover_baker.bake(_f._moisture, _f._temp, _f._snow, _f._solid, _f._cell_count)
-
-
-## Lazily build the cover-texture baker (sphere only). Callable before the first bake so the renderer can
-## read the atmosphere band radii at setup.
-func _ensure_cover_baker() -> void:
-	if _cover_baker != null or _f._sphere == null:
-		return
-	if _f._terrain == null or not _f._terrain.has_method("sea_radius"):
-		push_error("LAMaterialFieldAtmos3D: sphere field has no terrain sea_radius — cover baker not built")
-		return
-	var sea_r: float = _f._terrain.sea_radius()
-	_cover_baker = CoverBakerScript.new()
-	_cover_baker.setup(_f._sphere, sea_r, LAMaterialField3D.FOG_MAX_TEMP, AtmospherePassScript.rain_threshold())
 
 
 func climate_snapshot() -> Dictionary:
@@ -118,30 +102,24 @@ func climate_snapshot() -> Dictionary:
 	}
 
 
-## The baked 6-layer RGBA cover texture (null until the first atmosphere refresh) — the water-particle
-## renderer's field bridge. Plus the atmosphere shell radii it needs to place + classify particles.
-func field_cover_texture() -> Texture2DArray:
-	return _cover_baker.texture() if _cover_baker != null else null
-
-
+## The atmosphere band radii the water-particle renderer places against, measured from the body centre. Each
+## is declared exactly once, here.
 func atmos_cloud_base_r() -> float:
-	_ensure_cover_baker()
-	return _cover_baker.cloud_base_r() if _cover_baker != null else _f.sea_radius() + 62.0
+	return _f.sea_radius() + CLOUD_BASE_ALT
 
 
 func atmos_fog_top_r() -> float:
-	_ensure_cover_baker()
-	return _cover_baker.fog_top_r() if _cover_baker != null else _f.sea_radius() + 16.0
+	return _f.sea_radius() + FOG_TOP_ALT
 
 
 func atmos_fog_lo_r() -> float:
-	_ensure_cover_baker()
-	return _cover_baker.fog_lo_r() if _cover_baker != null else _f.sea_radius()
+	return _f.sea_radius() + FOG_LO_ALT
 
 
+## The outermost radius the grid holds: half the box, so no particle is placed where there are no cells.
 func atmos_outer_r() -> float:
-	_ensure_cover_baker()
-	return _cover_baker.outer_r() if _cover_baker != null else 330.0
+	var grid: LAVoxelGrid = _f._grid
+	return 0.5 * float(grid.max_span()) * grid.cell_size if grid != null else 0.0
 
 
 func avg_cloud_cover() -> float:

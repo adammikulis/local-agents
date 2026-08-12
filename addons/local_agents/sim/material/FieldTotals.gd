@@ -2,25 +2,13 @@ class_name LAFieldTotals
 extends RefCounted
 
 ## A TOTAL IS A MASS, NOT A COUNT. One place that turns a channel into an amount of matter.
-##
 
-## Which cells a sum includes. An enum, not three int consts: these are TAGS, and the model-parameters
-## gate is right to treat a bare `const NAME: int = 1` as a quantity somebody chose.
+## Which cells a sum includes. Tags, not quantities, which is why they are an enum.
 enum {
 	CELLS_ALL = -1,    # every cell, rock and void alike
 	CELLS_OPEN = 0,    # void cells only (solid == 0)
 	CELLS_SOLID = 1,   # rock cells only (solid != 0)
 }
-
-
-## A cell's volume in CUBIC METRES and its face in SQUARE METRES. The grid is metres, so these convert
-## nothing; they exist so a caller reads the unit off the name.
-static func cell_volume_m3(grid, c: int) -> float:
-	return grid.cell_volume(c)
-
-
-static func face_area_outward_m2(grid, c: int) -> float:
-	return grid.cell_size * grid.cell_size
 
 
 ## Volume-weighted sum of a channel, in model units cubed. This is the quantity that is conserved when

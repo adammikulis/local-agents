@@ -2,32 +2,24 @@ class_name LAMaterialFieldCellVolume3D
 extends RefCounted
 
 ## Volume of every cell, m^3. A channel value is a FILL FRACTION of the cell that holds it, so the matter in
-## a channel is channel*volume and a bare sum over cells is not proportional to matter. On the cubed sphere
+## a channel is channel*volume and a bare sum over cells is not proportional to matter.
 static var _cache: Dictionary = {}
 
+## The grid is the ONE owner of cell volume; this caches its table so a per-frame gauge does not rebuild it.
 static func of(field) -> PackedFloat32Array:
-	if field == null:
+	if field == null or field._grid == null:
 		return PackedFloat32Array()
 	var cc: int = int(field._cell_count)
 	if cc <= 0:
 		return PackedFloat32Array()
-	var grid: RefCounted = field.sphere_grid()
 	# Keyed on the GRID too: a rebuild at the same cell count is a different table.
-	var key: String = "%d:%d" % [field.get_instance_id(), grid.get_instance_id() if grid != null else 0]
+	var key: String = "%d:%d" % [field.get_instance_id(), field._grid.get_instance_id()]
 	var hit = _cache.get(key)
 	if hit is PackedFloat32Array and hit.size() == cc:
 		return hit
-	var out: PackedFloat32Array = PackedFloat32Array()
-	out.resize(cc)
-	if grid != null:
-		var model: PackedFloat32Array = grid.cell_volumes()
-		if model.size() != cc:
-			return PackedFloat32Array()
-		for i in cc:
-			out[i] = model[i]
-	else:
-		var side: float = float(field.cell_size())
-		out.fill(side * side * side)
+	var out: PackedFloat32Array = field._grid.cell_volumes()
+	if out.size() != cc:
+		return PackedFloat32Array()
 	_cache[key] = out
 	return out
 

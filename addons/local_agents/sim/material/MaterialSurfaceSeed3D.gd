@@ -25,12 +25,9 @@ func setup(field) -> void:
 	LASimReport.register(Callable(self, "report"))
 
 
-## cell whose inward-radial neighbour, slot 0, is solid rock — i.e. soil and litter sitting on the ground).
+## Litter lies on the GROUND: an open cell whose neighbour one step DOWN the local vertical is solid rock.
 func seed_initial() -> void:
-	if _f == null or _f._sphere == null or _f._fuel.size() != _f._cell_count:
-		return
-	var nbr: PackedInt32Array = _f._sphere.neighbours
-	if nbr.size() < _f._cell_count * 6:
+	if _f == null or _f._grid == null or _f._fuel.size() != _f._cell_count:
 		return
 	var has_detritus: bool = _f._detritus.size() == _f._cell_count
 	var has_org: bool = _f._org_h.size() == _f._cell_count and _f._org_o.size() == _f._cell_count
@@ -38,8 +35,8 @@ func seed_initial() -> void:
 	for c in _f._cell_count:
 		if _f._solid[c] != 0:
 			continue
-		var down: int = nbr[c * 6 + 0]
-		if down >= 0 and _f._solid[down] != 0:
+		var under: int = LAFieldGeometry.below(_f, c)
+		if under >= 0 and _f._solid[under] != 0:
 			_f._fuel[c] = fuel_share
 			_seeded_fuel += fuel_share
 			if has_detritus:

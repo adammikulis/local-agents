@@ -1,12 +1,10 @@
 class_name LAMaterialFieldLakes3D
 extends RefCounted
 
-## Runs a PRIORITY-FLOOD depression fill (Barnes et al.) over the surface columns: starting from the sea, it
-
-## Fill the field's enclosed land basins with static lake water. Reads/writes the field's packed arrays directly
-## (the same access the query/inject/step sibling modules use).
+## PRIORITY-FLOOD depression fill (Barnes et al.) over the open cells, in true 3D: a basin holds water up to
+## the lowest height any escape route to the ocean has to climb over.
 func seed(field) -> void:
-	var grid: RefCounted = field._sphere
+	var grid: LAVoxelGrid = field._grid
 	if grid == null or field._solid.size() != field._cell_count:
 		return
 	if field._terrain == null or not field._terrain.has_method("sea_radius"):
@@ -14,181 +12,75 @@ func seed(field) -> void:
 	var sea_r: float = field._terrain.sea_radius()
 	if sea_r <= 0.0:
 		return
-	var sc: int = int(grid.surf_count)
-	var depth: int = int(grid.depth)
-	var mid: PackedFloat32Array = grid.shell_mid
-	var face: PackedFloat32Array = grid.shell_face
-	var surf_nbr: PackedInt32Array = grid.surf_nbr
+	var cc: int = field._cell_count
 	var solid: PackedByteArray = field._solid
+	var nbr: PackedInt32Array = grid.neighbours
+	var cell: float = grid.cell_size
 
-	# Ground shell per column: eground = the shell index of the ground SURFACE (top of the outermost solid cell).
-	# surfr = that outermost solid r (-1 = an all-open column, i.e. deep ocean over no floor → treat as outlet).
-	var eground: PackedInt32Array = PackedInt32Array()
-	eground.resize(sc)
-	var surfr: PackedInt32Array = PackedInt32Array()
-	surfr.resize(sc)
-	for s in range(sc):
-		var base: int = s * depth
-		var sr: int = -1
-		for r in range(depth - 1, -1, -1):
-			if solid[base + r] != 0:
-				sr = r
-				break
-		surfr[s] = sr
-		eground[s] = (sr + 1) if sr >= 0 else 0
-	var sea_shell: int = clampi(grid.face_of(sea_r), 0, depth)
-
-	# PRIORITY-FLOOD (integer buckets). W[s] = the water level (spill shell) of s's basin; INF = unreached.
-	var inf: int = depth + 2
-	var w: PackedInt32Array = PackedInt32Array()
-	w.resize(sc)
-	w.fill(inf)
-	var done: PackedByteArray = PackedByteArray()
-	done.resize(sc)
-	done.fill(0)
+	# Height above the body centre, bucketed at cell resolution — the flood's priority key.
+	var height: PackedFloat32Array = PackedFloat32Array()
+	height.resize(cc)
+	var bins: int = grid.max_span() + 2
+	for c in cc:
+		height[c] = LAFieldGeometry.radius_of(field, c)
 	var buckets: Array = []
-	for i in range(depth + 2):
+	for _b in bins:
 		buckets.append(PackedInt32Array())
-	# Outlets: every ocean column (ground at/below sea) holds water at sea level and drains freely.
-	for s in range(sc):
-		if eground[s] <= sea_shell:
-			w[s] = sea_shell
-			buckets[sea_shell].push_back(s)
-	# Process buckets low→high; a cell finalises at its spill level, then raises its neighbours to at least that.
-	for level in range(0, depth + 1):
+
+	var level: PackedFloat32Array = PackedFloat32Array()
+	level.resize(cc)
+	level.fill(INF)
+	var done: PackedByteArray = PackedByteArray()
+	done.resize(cc)
+
+	# OUTLETS: an open cell at or below the sea surface drains to the ocean, and one on the box face drains
+	# out of the world. Both start the flood at their own height.
+	for c in cc:
+		if solid[c] != 0:
+			continue
+		var edge: bool = false
+		for d in LAVoxelGrid.SLOTS:
+			if nbr[c * LAVoxelGrid.SLOTS + d] < 0:
+				edge = true
+				break
+		if not edge and height[c] > sea_r:
+			continue
+		level[c] = maxf(height[c], sea_r)
+		buckets[_bin_of(level[c], sea_r, cell, bins)].push_back(c)
+
+	# Process low -> high: a cell finalises at the level it spills over, and raises its neighbours to at least
+	# that. The first time a cell is popped it holds the lowest spill level any route out of it has.
+	for b in bins:
 		var qi: int = 0
-		while qi < buckets[level].size():
-			var c: int = buckets[level][qi]
+		while qi < buckets[b].size():
+			var c: int = buckets[b][qi]
 			qi += 1
 			if done[c] != 0:
 				continue
 			done[c] = 1
-			for slot in range(4):
-				var n: int = surf_nbr[c * 4 + slot]
-				if n < 0 or done[n] != 0:
+			var here: float = level[c]
+			for d in LAVoxelGrid.SLOTS:
+				var n: int = nbr[c * LAVoxelGrid.SLOTS + d]
+				if n < 0 or done[n] != 0 or solid[n] != 0:
 					continue
-				var neww: int = maxi(eground[n], level)      # to leave the basin, water must climb to `level`
-				if neww < w[n]:
-					w[n] = neww
-					buckets[neww].push_back(n)
+				var lv: float = maxf(height[n], here)
+				if lv < level[n]:
+					level[n] = lv
+					buckets[_bin_of(lv, sea_r, cell, bins)].push_back(n)
 
-	# Fill: a land column whose basin spill level rose above its own ground is underwater up to that level.
+	# Fill: a cell whose basin's spill level stands above the cell itself is under water.
 	var lake_cells: int = 0
-	for s in range(sc):
-		if surfr[s] < 0 or eground[s] <= sea_shell:
-			continue                                          # ocean / already static sea
-		var wsurf: int = w[s]
-		if wsurf >= inf or wsurf <= eground[s]:
-			continue                                          # drains to the sea → no standing lake
-		var base2: int = s * depth
-		for r in range(surfr[s] + 1, mini(wsurf, depth)):     # open cells between ground and the water surface
-			var c2: int = base2 + r
-			if field._solid[c2] == 0 and field._water[c2] <= 0.0:
-				field._water[c2] = 1.0
-				lake_cells += 1
-	var river_cells: int = _seed_rivers(field, grid, sea_r, sc, depth, surf_nbr)
+	for c in cc:
+		if solid[c] != 0 or done[c] == 0 or height[c] <= sea_r:
+			continue                                       # rock, unreached, or already static sea
+		if level[c] <= height[c] or field._water[c] > 0.0:
+			continue
+		field._water[c] = 1.0
+		lake_cells += 1
 	if OS.has_environment("LA_WATER_DEBUG"):
-		print("LAKES_SEEDED={cells:%d, rivers:%d}" % [lake_cells, river_cells])
+		print("LAKES_SEEDED={cells:%d}" % lake_cells)
 
 
-const RIVER_ACCUM_MIN: int = 6           # upstream cells before a channel carries a visible river
-const RIVER_MAX_DEPTH_CELLS: int = 2     # deepest a big trunk river incises (cells below the valley floor)
-const RIVER_CARVE_MAX: int = 6000        # safety cap on channel carves (bounds the one-time world-gen cost)
-
-func _seed_rivers(field, grid: RefCounted, sea_r: float, sc: int, depth: int,
-		surf_nbr: PackedInt32Array) -> int:
-	var terrain = field._terrain
-	if terrain == null or not terrain.has_method("sdf_at") or not terrain.has_method("carve_sphere"):
-		return 0
-	var center: Vector3 = grid.center
-	var solid: PackedByteArray = field._solid
-	var mid: PackedFloat32Array = grid.shell_mid
-	var face: PackedFloat32Array = grid.shell_face
-	# CONTINUOUS surface elevation + ground shell per column.
-	var elev: PackedFloat32Array = PackedFloat32Array()
-	elev.resize(sc)
-	var eground: PackedInt32Array = PackedInt32Array()
-	eground.resize(sc)
-	var is_land: PackedByteArray = PackedByteArray()
-	is_land.resize(sc)
-	for s in range(sc):
-		var base: int = s * depth
-		var sr: int = -1
-		for r in range(depth - 1, -1, -1):
-			if solid[base + r] != 0:
-				sr = r
-				break
-		eground[s] = (sr + 1) if sr >= 0 else 0
-		if sr < 0:
-			is_land[s] = 0
-			elev[s] = -1.0e9
-			continue
-		var dir: Vector3 = grid.surf_dir(s)
-		var r_lo: float = mid[sr]
-		var r_hi: float = mid[mini(sr + 1, depth - 1)]
-		var d_lo: float = terrain.sdf_at(center + dir * r_lo)
-		var d_hi: float = terrain.sdf_at(center + dir * r_hi)
-		var e: float = face[sr + 1]
-		if d_hi > d_lo:
-			e = clampf(r_lo + (-d_lo) / (d_hi - d_lo) * (r_hi - r_lo), r_lo, r_hi)
-		elev[s] = e
-		is_land[s] = 1 if e > sea_r else 0
-	# Steepest descent + upstream-area accumulation (process high→low).
-	var downstream: PackedInt32Array = PackedInt32Array()
-	downstream.resize(sc)
-	downstream.fill(-1)
-	var order: Array = []
-	for s in range(sc):
-		if is_land[s] == 0:
-			continue
-		var lowest: int = -1
-		var lowest_e: float = elev[s]
-		for slot in range(4):
-			var n: int = surf_nbr[s * 4 + slot]
-			if n >= 0 and elev[n] < lowest_e:
-				lowest_e = elev[n]
-				lowest = n
-		downstream[s] = lowest
-		order.append(s)
-	order.sort_custom(func(a: int, b: int) -> bool: return elev[a] > elev[b])
-	var accum: PackedInt32Array = PackedInt32Array()
-	accum.resize(sc)
-	accum.fill(0)
-	for s in order:
-		accum[s] += 1
-		var d: int = downstream[s]
-		if d >= 0 and is_land[d] == 1:
-			accum[d] += accum[s]
-	var center2: Vector3 = grid.center
-	var count: int = 0
-	var carved: int = 0
-	for s in order:
-		if accum[s] < RIVER_ACCUM_MIN:
-			continue
-		var mag: int = clampi(int(log(float(accum[s])) / log(4.0)), 1, RIVER_MAX_DEPTH_CELLS)
-		var base2: int = s * depth
-		var top: int = eground[s] - 1                            # shell of the top solid cell (the valley floor)
-		if top < 0:
-			continue
-		if carved < RIVER_CARVE_MAX:
-			# Bite the top `mag` shells out of the ground with a small sphere at the surface point; overlapping
-			# spheres down the channel trace one continuous incised valley. Radius grows with the incision depth.
-			var cdir: Vector3 = grid.surf_dir(s)
-			var dr_top: float = grid.shell_dr[top]
-			terrain.carve_sphere(center2 + cdir * elev[s], dr_top * (0.5 + 0.7 * float(mag)))
-			carved += 1
-			for j in range(mag):                                 # keep the field's solidity consistent with the carve
-				var rc: int = top - j
-				if rc >= 0:
-					field._solid[base2 + rc] = 0
-		# Fill the carved notch: cells eground-mag .. eground-1.
-		var lo: int = maxi(0, eground[s] - mag)
-		var hi: int = eground[s]
-		for r in range(lo, mini(hi, depth)):
-			var c: int = base2 + r
-			if field._solid[c] == 0 and field._water[c] <= 0.0:
-				field._water[c] = 1.0
-				count += 1
-	if OS.has_environment("LA_WATER_DEBUG"):
-		print("RIVER_CARVE={filled:%d, carved:%d, cap:%d}" % [count, carved, RIVER_CARVE_MAX])
-	return count
+## Bucket index of a level, quantised at one cell. Levels below the sea land in bucket 0.
+func _bin_of(lv: float, sea_r: float, cell: float, bins: int) -> int:
+	return clampi(int((lv - sea_r) / maxf(cell, 1.0e-6)), 0, bins - 1)

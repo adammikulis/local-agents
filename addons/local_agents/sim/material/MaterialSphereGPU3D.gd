@@ -199,13 +199,13 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 	# The SOLVED gravity, for the handful of scalar laws a pass evaluates once. A per-cell law reads the
 	# g field itself; nothing anywhere reads a gravity constant, because there is not one.
 	_ctx["g_m_s2"] = _field._gravity.mean_g() if _field._gravity != null else 0.0
-	# LATERAL cell spacing. It is the mean radial thickness only because nothing measures the real arc yet;
-	# the true run is `link_arc * shell_mid`, which varies 1.07-4.08 across a face. Named so the two stop
-	# sharing a symbol — the radial half now comes from the shell table, this one does not.
+	# LATERAL cell spacing. One uniform grid: every axis has the same spacing as every other.
 	_ctx["lat_size"] = _grid.cell_size
 	# March bound: a column cannot be longer than the box.
 	_ctx["depth"] = _grid.max_span()
-	_ctx["sea_radius"] = _field.sphere_grid().core_radius   # placeholder; overridden by set_sea_radius
+	# The real sea surface arrives through set_sea_radius each step; until it does there is no sea to read.
+	if not _ctx.has("sea_radius"):
+		_ctx["sea_radius"] = 0.0
 	_ctx["max_mass"] = _field.MAX_MASS                      # a full cell of one phase — PlateAdvectPass uplifts the surplus
 	if not _ctx.has("sun_dir"):
 		_ctx["sun_dir"] = Vector3(0, 1, 0)

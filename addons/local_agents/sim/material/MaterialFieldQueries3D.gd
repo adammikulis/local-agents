@@ -43,9 +43,7 @@ func _cell_at(pos: Vector3) -> int:
 
 # --- Water queries -----------------------------------------------------------
 
-## True where there is drinkable water at a world point: water in the cell the point sits in (a river, a
-## rain puddle, a pool it stands in) OR the sea/lake shell over the ground beneath it (a creature at the
-## shoreline above the water film). Sphere-native — no XZ column. False outside the shell / before readback.
+## True where there is drinkable water at a world point. False outside the box / before readback.
 func is_water_at(pos: Vector3) -> bool:
 	if _f._water.size() != _f._cell_count:
 		return false
@@ -81,49 +79,52 @@ func temp_at(pos: Vector3) -> float:
 
 # --- Diagnostics -------------------------------------------------------------
 
+## Radial bins the rock temperature profile is reduced into, between the centre and the outermost rock.
+const PROFILE_BINS: int = 16
+
+
+## Mean rock temperature against distance from the body centre, plus the SKIN: the outermost rock cell of
+## every column, found by asking which cells have open air one step up the local vertical.
 func rock_radial_profile() -> Dictionary:
-	if not _f.is_sphere() or _f._dim_y <= 0 or _f._temp.size() != _f._cell_count:
+	if _f._grid == null or _f._temp.size() != _f._cell_count or _f._solid.size() != _f._cell_count:
 		return {}
-	var depth: int = _f._dim_y
-	var shell_sum: PackedFloat32Array = PackedFloat32Array()
-	var shell_n: PackedInt32Array = PackedInt32Array()
-	shell_sum.resize(depth)
-	shell_n.resize(depth)
-	for c in range(_f._cell_count):
-		if _f._solid[c] == 0:
-			continue
-		var r: int = c % depth
-		shell_sum[r] += _f._temp[c]
-		shell_n[r] += 1
-	var core: float = _shell_mean(shell_sum, shell_n, 0)
-	var q25: float = _shell_mean(shell_sum, shell_n, int(round(float(depth) * 0.25)))
-	var mid: float = _shell_mean(shell_sum, shell_n, depth / 2)
-	var q75: float = _shell_mean(shell_sum, shell_n, int(round(float(depth) * 0.75)))
-	var top: int = depth - 1
-	while top > 0 and shell_n[top] == 0:
-		top -= 1
-	var surf_rock: float = _shell_mean(shell_sum, shell_n, top)
+	var outer: float = 0.0
+	for c in _f._cell_count:
+		if _f._solid[c] != 0:
+			outer = maxf(outer, LAFieldGeometry.radius_of(_f, c))
+	if outer <= 0.0:
+		return {}
+	var bin_sum: PackedFloat32Array = PackedFloat32Array()
+	var bin_n: PackedInt32Array = PackedInt32Array()
+	bin_sum.resize(PROFILE_BINS)
+	bin_n.resize(PROFILE_BINS)
 	var skin_sum: float = 0.0
 	var skin_n: int = 0
-	for s in range(_f._cell_count / depth):
-		var base: int = s * depth
-		for r in range(depth - 1, -1, -1):
-			if _f._solid[base + r] != 0:
-				skin_sum += _f._temp[base + r]
-				skin_n += 1
-				break
+	for c in _f._cell_count:
+		if _f._solid[c] == 0:
+			continue
+		var b: int = clampi(int(LAFieldGeometry.radius_of(_f, c) / outer * float(PROFILE_BINS)), 0, PROFILE_BINS - 1)
+		bin_sum[b] += _f._temp[c]
+		bin_n[b] += 1
+		var hi: int = LAFieldGeometry.above(_f, c)
+		if hi >= 0 and _f._solid[hi] == 0:
+			skin_sum += _f._temp[c]
+			skin_n += 1
 	return {
-		"rock_core_c": core, "rock_q25_c": q25, "rock_mid_c": mid,
-		"rock_q75_c": q75, "rock_surf_c": surf_rock,
+		"rock_core_c": _bin_mean(bin_sum, bin_n, 0),
+		"rock_q25_c": _bin_mean(bin_sum, bin_n, PROFILE_BINS / 4),
+		"rock_mid_c": _bin_mean(bin_sum, bin_n, PROFILE_BINS / 2),
+		"rock_q75_c": _bin_mean(bin_sum, bin_n, PROFILE_BINS * 3 / 4),
+		"rock_surf_c": _bin_mean(bin_sum, bin_n, PROFILE_BINS - 1),
 		"rock_skin_c": (skin_sum / float(skin_n)) if skin_n > 0 else 0.0,
 		"rock_skin_cells": skin_n,
 	}
 
 
-func _shell_mean(shell_sum: PackedFloat32Array, shell_n: PackedInt32Array, r: int) -> float:
-	if r < 0 or r >= shell_n.size() or shell_n[r] == 0:
+func _bin_mean(bin_sum: PackedFloat32Array, bin_n: PackedInt32Array, b: int) -> float:
+	if b < 0 or b >= bin_n.size() or bin_n[b] == 0:
 		return 0.0
-	return shell_sum[r] / float(shell_n[r])
+	return bin_sum[b] / float(bin_n[b])
 
 
 func hot_spring_stats() -> Dictionary:
@@ -182,59 +183,56 @@ func hot_cell_count(threshold: float = 60.0) -> int:
 
 # --- Storm queries (read the emergent wind field; storm actors track the vortex they seed) -----------
 
+## Cells above a point the vortex is measured at — a storm's rotation is aloft, not in the ground layer.
+const ALOFT_CELLS: float = 2.0
+## Metres above a point the convective updraft is measured at: the cloud base, not the surface layer.
+const UPDRAFT_SAMPLE_M: float = 40.0
+
+
+## Air SPIN about the LOCAL VERTICAL at a world point, 1/s. The vertical is -down, read from gravity; the
+## spin is the curl of the velocity field projected onto it.
 func vorticity_at(pos: Vector3) -> float:
-	if _f._sphere == null or _f._vel_x.size() != _f._cell_count or _f._vel_z.size() != _f._cell_count:
+	if _f._grid == null or _f._vel_x.size() != _f._cell_count:
 		return 0.0
-	var radial: Vector3 = pos - _f._origin
-	var aloft: Vector3 = pos
-	if radial.length_squared() > 1.0e-6:
-		aloft = pos + radial.normalized() * (2.0 * _f._cell_size)
-	var c: int = _f.world_to_cell(aloft)
-	if c < 0 or c >= _f._cell_count:
+	var c: int = _f.world_to_cell(pos)
+	if c < 0:
 		return 0.0
-	var grid: LASphereGrid = _f._sphere
-	var nbr: PackedInt32Array = grid.neighbours
-	var curl: float = 0.0
-	for l in 4:
-		var m: int = nbr[c * 6 + 2 + l]
-		if m < 0:
-			continue
-		# One basis on a uniform grid, so a neighbour's velocity needs no transport.
-		var v: Vector2 = Vector2(_f._vel_x[m], _f._vel_z[m])
-		var d: Vector2 = Vector2(LAVoxelGrid.SLOT_STEP[2 + l].x, LAVoxelGrid.SLOT_STEP[2 + l].z)
-		curl += 0.5 * (d.x * v.y - d.y * v.x)
-	# Divided by the cell spacing: a curl is 1/s. Without it this returned a velocity whose magnitude
-	# scaled with grid resolution.
-	return curl / maxf(_f._cell_size, 1.0e-6)
+	var up: Vector3 = LAFieldGeometry.up(_f, c)
+	if up == Vector3.ZERO:
+		return 0.0
+	var aloft: int = _f.world_to_cell(pos + up * (ALOFT_CELLS * _f._cell_size))
+	if aloft < 0:
+		return 0.0
+	return LAFieldGeometry.curl(_f, aloft).dot(LAFieldGeometry.up(_f, aloft))
 
 
-## Vertical wind (updraft = outward radial velocity, vel_y) a little above a world point — the convective
-## lift feeding a thunderstorm cell. Sampled ~40 units aloft along the radial so it reads the cloud-base
-## lift, not the ground layer. Single 3D sample; returns 0.0 outside the shell or before readback.
+## Convective lift a little above a world point — the velocity component along the local vertical, m/s.
 func updraft_at(pos: Vector3) -> float:
-	if _f._sphere == null or _f._vel_y.size() != _f._cell_count:
+	if _f._grid == null or _f._vel_y.size() != _f._cell_count:
 		return 0.0
-	var radial: Vector3 = pos - _f._origin
-	var aloft: Vector3 = pos
-	if radial.length_squared() > 1.0e-6:
-		aloft = pos + radial.normalized() * 40.0
-	var c: int = _f.world_to_cell(aloft)
-	return _f._vel_y[c] if c >= 0 else 0.0
+	var c: int = _f.world_to_cell(pos)
+	if c < 0:
+		return 0.0
+	var up: Vector3 = LAFieldGeometry.up(_f, c)
+	if up == Vector3.ZERO:
+		return 0.0
+	var aloft: int = _f.world_to_cell(pos + up * UPDRAFT_SAMPLE_M)
+	if aloft < 0:
+		return 0.0
+	return LAFieldGeometry.velocity(_f, aloft).dot(LAFieldGeometry.up(_f, aloft))
 
 
 # --- Emergent WIND as a real momentum/force (read back from the GPU velocity field) ------------------
 
-## Full LOCAL 3D wind velocity (world-space) at a world point. Vector3.ZERO outside the shell / before readback.
+## Full 3D wind velocity at a world point, m/s. The velocity channels are the grid's own axes, so there is
+## no basis to rotate through. Vector3.ZERO outside the box / before readback.
 func wind3_at(x: float, y: float, z: float) -> Vector3:
-	if _f._sphere == null or _f._vel_x.size() != _f._cell_count:
+	if _f._grid == null or _f._vel_x.size() != _f._cell_count:
 		return Vector3.ZERO
 	var c: int = _f.world_to_cell(Vector3(x, y, z))
-	if c < 0 or c >= _f._cell_count:
+	if c < 0:
 		return Vector3.ZERO
-	var grid: LASphereGrid = _f._sphere
-	return (_f.cell_radial(c) * _f._vel_y[c]
-			+ grid.tangent_a(c) * _f._vel_x[c]
-			+ grid.tangent_b(c) * _f._vel_z[c])
+	return LAFieldGeometry.velocity(_f, c)
 
 
 ## LOCAL horizontal wind at a world point, as world XZ — the tangential drift a storm cell rides. Sampled
@@ -247,19 +245,17 @@ func wind_at(world_pos: Vector3) -> Vector2:
 ## Domain-average horizontal wind magnitude/direction (ocean swell / HUD). Strided sample (every STRIDE-th
 ## cell) so it stays O(cells/STRIDE), never a full per-call grid sweep.
 func wind() -> Vector2:
-	if _f._sphere == null or _f._vel_x.size() != _f._cell_count:
+	if _f._grid == null or _f._vel_x.size() != _f._cell_count:
 		return Vector2.ZERO
 	const STRIDE: int = 97
 	var sx: float = 0.0
 	var sz: float = 0.0
 	var n: int = 0
-	var grid: LASphereGrid = _f._sphere
 	var c: int = 0
 	while c < _f._cell_count:
 		if _f._solid[c] == 0:
-			var v: Vector3 = grid.tangent_a(c) * _f._vel_x[c] + grid.tangent_b(c) * _f._vel_z[c]
-			sx += v.x
-			sz += v.z
+			sx += _f._vel_x[c]
+			sz += _f._vel_z[c]
 			n += 1
 		c += STRIDE
 	if n == 0:
@@ -267,12 +263,10 @@ func wind() -> Vector2:
 	return Vector2(sx / float(n), sz / float(n))
 
 
-# --- MINERAL: airborne dust opacity + the molten phase ------------------------------------------------
-# The mineral conservation totals (rock_fill/sediment/susp/dust/mineral) live in
-# LAMaterialFieldMineralBudget3D — one probe-read pass, both masks, and the drift.
+# --- MINERAL: dust opacity + the molten phase. Totals live in LAMaterialFieldMineralBudget3D. -----------
 
-## Volume-mean airborne dust — the opacity LASystemOrbits turns into insolation. A PHYSICAL consumer of the
-## dust mirror, not a gauge, so it keeps its own channel resident.
+## Volume-mean airborne dust — the opacity LASystemOrbits turns into insolation. A physical consumer, so it
+## keeps its own channel resident.
 func avg_atmos_dust() -> float:
 	if _f._cell_count <= 0:
 		return 0.0
@@ -342,11 +336,9 @@ func rock_cells() -> int:
 	return n
 
 
-# --- Combustion FIRE diagnostics -----------------------------------------------------------------------
-# The fuel totals live in LAMaterialFieldElementInventory3D: `fuel_all` mask-free, `fuel_open_total` masked.
+# --- Combustion FIRE diagnostics. Fuel totals live in LAMaterialFieldElementInventory3D. ----------------
 
-## Peak burning intensity, burning-cell count, and `fire_live`: whether the demand-gated `fire` readback
-## landed on the last drain. One walk, cached per field step.
+## Peak intensity, burning-cell count, and whether the demand-gated `fire` readback landed on the last drain.
 func fire_stats() -> Dictionary:
 	var step: int = _f._gpu._step_index if _f._gpu != null else -1
 	if step >= 0 and step == _fire_step:
@@ -389,9 +381,9 @@ const TUBE_LAVA_NEAR_ZERO: float = 0.05
 func enclosed_void_cells(min_solid_nbr: int = 4) -> int:
 	if not _mirror_live("lava"):
 		return 0
-	if _f._sphere == null or _f._solid.size() != _f._cell_count or _f._lava.size() != _f._cell_count:
+	if _f._grid == null or _f._solid.size() != _f._cell_count or _f._lava.size() != _f._cell_count:
 		return 0
-	var nbr: PackedInt32Array = _f._sphere.neighbours
+	var nbr: PackedInt32Array = _f._grid.neighbours
 	if nbr.size() != _f._cell_count * 6:
 		return 0
 	var n: int = 0
@@ -433,31 +425,29 @@ func fertility_peak() -> float:
 
 # --- SEA SURFACE — the free water surface, frozen and open ---------------------------------------------
 
-## True when cell `c` holds water and the cell just outward is open and dry — the free water surface, where
-## ice forms. Testing `_solid[c + 1] == 0` alone admits every open cell not capped by rock: the whole ocean
-## column and the whole atmosphere.
-func _is_sea_surface(c: int, depth: int) -> bool:
+## True when cell `c` holds water and the cell one step UP the local vertical is open and DRY — the free
+## water surface, where ice forms. The dryness above is what makes it a surface, not a mid-column cell.
+func _is_sea_surface(c: int) -> bool:
 	if _f._solid[c] != 0 or _f._water[c] < _f.MIN_MASS:
 		return false
-	var r: int = c % depth
-	if r == depth - 1:
-		return true                                   # outermost shell — open sky above
-	return _f._solid[c + 1] == 0 and _f._water[c + 1] < _f.MIN_MASS
+	var hi: int = LAFieldGeometry.above(_f, c)
+	if hi < 0:
+		return true                                   # the march left the box — open sky above
+	return _f._solid[hi] == 0 and _f._water[hi] < _f.MIN_MASS
 
 ## Frozen extent and the MEDIAN temperature of the frozen and open halves of the sea surface, in one walk.
 ## Median, not mean: a handful of undersea-vent cells at hundreds of °C moves a mean and cannot move a
 ## median, so no cell has to be excluded to keep the number readable.
 func sea_surface_stats() -> Dictionary:
 	var out: Dictionary = {"sea_ice_cells": 0, "sea_ice_temp": 0.0, "open_sea_cells": 0, "open_sea_temp": 0.0}
-	if not _f.is_sphere() or _f._dim_y <= 0:
+	if _f._grid == null:
 		return out
 	if _f._snow.size() != _f._cell_count or _f._temp.size() != _f._cell_count or _f._water.size() != _f._cell_count:
 		return out
-	var depth: int = _f._dim_y
 	var frozen: PackedFloat32Array = PackedFloat32Array()
 	var open: PackedFloat32Array = PackedFloat32Array()
 	for c in _f._cell_count:
-		if not _is_sea_surface(c, depth):
+		if not _is_sea_surface(c):
 			continue
 		if _f._snow[c] > _f.SNOW_PRESENT:
 			frozen.append(_f._temp[c])
@@ -482,9 +472,9 @@ func _median(v: PackedFloat32Array) -> float:
 func lava_shell_diag() -> Dictionary:
 	if not _mirror_live("lava"):
 		return {"lava_hot": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
-	if _f._sphere == null or _f._solid.size() != _f._cell_count or _f._lava.size() != _f._cell_count:
+	if _f._grid == null or _f._solid.size() != _f._cell_count or _f._lava.size() != _f._cell_count:
 		return {"lava_hot": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
-	var nbr: PackedInt32Array = _f._sphere.neighbours
+	var nbr: PackedInt32Array = _f._grid.neighbours
 	if nbr.size() != _f._cell_count * 6:
 		return {"lava_hot": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
 	var hot: int = 0

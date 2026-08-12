@@ -23,7 +23,7 @@ func sun_dir() -> Vector3:
 
 func report() -> Dictionary:
 	var out: Dictionary = _blank()
-	if _f._sphere == null or _f._cell_count <= 0:
+	if _f._grid == null or _f._cell_count <= 0:
 		return out
 	var cc: int = _f._cell_count
 	var solid: PackedByteArray = _f._solid
@@ -40,14 +40,10 @@ func report() -> Dictionary:
 	var has_co2: bool = co2.size() == cc
 	var has_fert: bool = fert.size() == cc
 	var has_temp: bool = temp.size() == cc
-	var depth: int = int(_f._sphere.depth)
 	var reg: int = LAMaterialField3D.REGOLITH_CELLS
-	if depth <= 0:
-		return out
 	var sun: Vector3 = sun_dir()
 
-	# Column layout is c = surf_index * depth + r (MaterialField3D._compute_regolith), so the inward
-	# neighbour is c-1 (r>0) and the outward neighbour is c+1 (r<depth-1). No neighbour table needed.
+	# Up and down are read from gravity per cell, so "the cell beneath" is a march, never an index step.
 	var col_vals: PackedFloat32Array = PackedFloat32Array()
 	var col_bio: PackedFloat32Array = PackedFloat32Array()   # parallel to col_vals — biomass of the SAME cell
 	var light_vals: PackedFloat32Array = PackedFloat32Array()
@@ -80,19 +76,20 @@ func report() -> Dictionary:
 	for c in cc:
 		if solid[c] != 0:
 			continue                                     # rock, and the static sea reservoir, are not plant ground
-		var r: int = c % depth
-		if (r >= depth - 1) or (solid[c + 1] != 0):      # sky skin: no open cell outward
+		var hi: int = LAFieldGeometry.above(_f, c)
+		if hi < 0 or solid[hi] != 0:                     # sky skin: no open cell above
 			sky_n += 1
 			bio_sky += biomass[c]
-		if r <= 0 or solid[c - 1] == 0:
+		var lo: int = LAFieldGeometry.below(_f, c)
+		if lo < 0 or solid[lo] == 0:
 			continue                                     # not GROUND skin — no rock beneath, so no roots
 		ground_n += 1
 		bio_ground += biomass[c]
 		var col: float = 0.0
 		if has_soil and has_reg:
+			var rc: int = lo
 			for d in reg:
-				var rc: int = c - 1 - d
-				if r - 1 - d < 0 or regolith[rc] == 0:
+				if rc < 0 or regolith[rc] == 0:
 					break
 				col += soil[rc]
 				dsum[d] += soil[rc]
@@ -100,9 +97,10 @@ func report() -> Dictionary:
 					open_n += 1
 					open_soil += soil[rc]
 					break
+				rc = LAFieldGeometry.below(_f, rc)
 		col_vals.append(col)
 		col_bio.append(biomass[c])
-		var light: float = maxf(0.0, _f.cell_radial(c).dot(sun))
+		var light: float = maxf(0.0, LAFieldGeometry.up(_f, c).dot(sun))
 		light_vals.append(light)
 		light_sum += light
 		if has_temp:

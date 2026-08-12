@@ -63,13 +63,10 @@ static func _group(ch: Dictionary, names: PackedStringArray, c: int) -> float:
 
 func _compute() -> Dictionary:
 	var out: Dictionary = _blank()
-	if _f == null or _f._sphere == null or _f._cell_count <= 0:
+	if _f == null or _f._grid == null or _f._cell_count <= 0:
 		return out
 	var t0: int = Time.get_ticks_usec()
 	var cc: int = _f._cell_count
-	var depth: int = int(_f._sphere.depth)
-	if depth <= 0:
-		return out
 	var solid: PackedByteArray = _f._solid
 	var temp: PackedFloat32Array = _f._temp
 	if solid.size() != cc or temp.size() != cc:
@@ -105,9 +102,22 @@ func _compute() -> Dictionary:
 	var has_co2: bool = co2.size() == cc
 	var has_moisture: bool = moisture.size() == cc
 	var sun: Vector3 = sun_field_dir()
-	var shells: PackedFloat32Array = _f._sphere.shell_dr
+	# One uniform cell, so every layer is one cell thick and every outward face is the same area.
+	var dz: float = _f._grid.cell_size
+	var face_m2: float = _f._grid.face_area()
+	var span: int = _f._grid.max_span()
 
-	var columns: int = cc / depth
+	# The surfaces this planet has: a cell that is condensed matter with free atmosphere one step UP.
+	var surfaces: PackedInt32Array = PackedInt32Array()
+	for c in cc:
+		var hi: int = LAFieldGeometry.above(_f, c)
+		if hi < 0 or solid[hi] != 0:
+			continue                                   # nothing above, or rock: not a sky-facing surface
+		if _condensed(ch, hi) >= K_SURFACE_FILL_MIN:
+			continue                                   # the cell above is condensed matter too
+		if solid[c] != 0 or _condensed(ch, c) >= K_SURFACE_FILL_MIN:
+			surfaces.append(c)
+	var columns: int = surfaces.size()
 	if columns <= 0:
 		return out
 	var stride: int = maxi(1, columns / SAMPLE_COLUMNS)
@@ -129,36 +139,25 @@ func _compute() -> Dictionary:
 	var t_cool_sum: float = 0.0
 	var emit_magma: float = 0.0
 	var dt_real: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
-	# Watts, and the area they cross. The column's exchange with space crosses the outward face of its
-	# outermost cell, whose area varies across the grid as the cell volumes do — so each column's W/m^2 is
-	# multiplied by its OWN face area rather than by one nominal cell face.
+	# Watts, and the area they cross: each column exchanges with space across one cell face.
 	var abs_w: float = 0.0
 	var emit_w: float = 0.0
 	var face_m2_total: float = 0.0
 
 	var s: int = 0
 	while s < columns:
-		var base: int = s * depth
-		var sfc: int = -1
-		for r in range(depth - 1, -1, -1):
-			if solid[base + r] != 0 or _condensed(ch, base + r) >= K_SURFACE_FILL_MIN:
-				sfc = r
-				break
-		if sfc < 0:
-			s += stride
-			continue
-		var sc: int = base + sfc
-		var nlay: int = depth - 1 - sfc
+		var sc: int = surfaces[s]
 		var t_k: PackedFloat32Array = PackedFloat32Array()
 		var p_pa: PackedFloat32Array = PackedFloat32Array()
 		var u_co2: PackedFloat32Array = PackedFloat32Array()
 		var u_h2o: PackedFloat32Array = PackedFloat32Array()
 		var p_co2: PackedFloat32Array = PackedFloat32Array()
 		var p_h2o: PackedFloat32Array = PackedFloat32Array()
-		for j in nlay:
-			var r2: int = sfc + 1 + j
-			var c: int = base + r2
-			var dz: float = float(shells[r2])
+		# The atmosphere over this surface: march UP the local vertical until the march leaves the box.
+		var c: int = LAFieldGeometry.above(_f, sc)
+		var layers: int = 0
+		while c >= 0 and layers < span:
+			layers += 1
 			var tk: float = maxf(temp[c] + LAPhysical.KELVIN_OFFSET, 1.0)
 			var rho_v: float = (maxf(moisture[c], 0.0) if has_moisture else 0.0) \
 				* LAPhysical.WATER_DENSITY_KG_M3
@@ -170,19 +169,20 @@ func _compute() -> Dictionary:
 			u_h2o.append(rho_v * dz)
 			p_co2.append(RadScript.partial_pressure_pa(rho_c, tk, LAPhysical.CO2_GAS_CONST_J_KGK))
 			p_h2o.append(RadScript.partial_pressure_pa(rho_v, tk, LAPhysical.VAPOUR_GAS_CONST_J_KGK))
+			c = LAFieldGeometry.above(_f, c)
 
 		var wet: float = clampf(water[sc], 0.0, 1.0) if water.size() == cc else 0.0
 		var icy: float = clampf((snow[sc] if snow.size() == cc else 0.0) * K_ICE_ALBEDO_GAIN, 0.0, 1.0)
 		var veg: float = 0.0
 		if biomass.size() == cc:
 			var leaf: float = maxf(biomass[sc], 0.0) * LAPhysical.DRY_WOOD_DENSITY_KG_M3 \
-				* float(shells[sfc]) * LAPhysical.FOLIAGE_FRACTION_OF_PLANT_MASS
+				* dz * LAPhysical.FOLIAGE_FRACTION_OF_PLANT_MASS
 			veg = 1.0 - exp(-LAPhysical.CANOPY_EXTINCTION_COEFF * (leaf / LAPhysical.LEAF_MASS_PER_AREA_KG_M2))
 		var land: float = lerpf(LAPhysical.ALBEDO_BARE_GROUND, LAPhysical.ALBEDO_VEGETATION, veg)
 		var albedo: float = lerpf(lerpf(land, LAPhysical.ALBEDO_OCEAN, wet), LAPhysical.ALBEDO_SNOW_ICE, icy)
 		var emis: float = lerpf(lerpf(LAPhysical.BASALT_EMISSIVITY, LAPhysical.EMISSIVITY_WATER, wet),
 			LAPhysical.EMISSIVITY_SNOW, icy)
-		var coz: float = _f.cell_radial(base).dot(sun.normalized()) if sun.length() > 1.0e-6 else 0.0
+		var coz: float = LAFieldGeometry.up(_f, sc).dot(sun.normalized()) if sun.length() > 1.0e-6 else 0.0
 		var s_toa: float = LAPhysical.SOLAR_CONSTANT_W_M2 * sun.length() * maxf(coz, 0.0)
 		var mu: float = maxf(coz, 1.0 / LAPhysical.AIR_MASS_HORIZON)
 		var t_s: float = maxf(temp[sc] + LAPhysical.KELVIN_OFFSET, 1.0)
@@ -193,7 +193,6 @@ func _compute() -> Dictionary:
 		var col_emit: float = float(res["olr"])
 		absorbed_total += col_abs
 		emitted_total += col_emit
-		var face_m2: float = LAFieldTotals.face_area_outward_m2(_f._sphere, base + depth - 1)
 		face_m2_total += face_m2
 		abs_w += col_abs * face_m2
 		emit_w += col_emit * face_m2
@@ -202,7 +201,7 @@ func _compute() -> Dictionary:
 		albedo_sum += albedo
 		emis_sum += emis
 		t_sum += temp[sc]
-		var cap: float = maxf(LAHeatCapacity.cell(ch, sc) * float(shells[sfc]), 1.0)
+		var cap: float = maxf(LAHeatCapacity.cell(ch, sc) * dz, 1.0)
 		cap_sum += cap
 		var d_t: float = float(res["net_surface"]) * dt_real / cap
 		dt_sum += d_t

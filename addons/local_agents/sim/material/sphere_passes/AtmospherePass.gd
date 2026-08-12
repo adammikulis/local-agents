@@ -115,8 +115,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 # --- helpers ------------------------------------------------------------------
 
 # PRECIP push constant: {uint cell_count, float rain_threshold, float rain_rate, uint pad} (16 bytes). Both
-# floats are DERIVED above (Kessler autoconversion against the substrate's own clock and the real air/water
-# densities) rather than declared in the kernel, so there is exactly one copy of each and nothing to drift.
+# floats are derived above, not declared in the kernel, so there is one copy of each.
 func _pc_precip(cc: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)

@@ -34,7 +34,7 @@ signal splashed(world_pos: Vector3, strength: float)
 func setup(field) -> void:
 	_f = field
 	# The grid the queue sizes cross-cell transfers in mass with. Without it flush() drops every op.
-	queue.setup(field._sphere)
+	queue.setup(field._grid)
 	# Terrain-destruction telemetry as a registered provider (the LASimReport.register plugin seam), so the
 	# crater proof is polled at snapshot time — when `_rock_fill` holds the freshest readback — instead of
 	# being scanned every frame.
@@ -131,7 +131,6 @@ func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	var want: float = amount * float(open_n)
 	queue.note_demand(want)
 
-	var depth: int = _f._sphere.depth if _f._sphere != null else 1
 	var have_soil: bool = _f._soil.size() == _f._cell_count and _f._regolith.size() == _f._cell_count
 	var wet_cells: PackedInt32Array = PackedInt32Array()
 	var wet_take: PackedFloat32Array = PackedFloat32Array()
@@ -141,31 +140,24 @@ func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	var soil_take: PackedFloat32Array = PackedFloat32Array()
 	var soil_dst: PackedInt32Array = PackedInt32Array()
 	var soil_offer: float = 0.0
+	# The storm lifts from the free liquid surface under each cell of its footprint: march DOWN the local
+	# vertical to the ground, and the last wet open cell on the way is the surface it evaporates from.
 	var seen: Dictionary = {}
 	for c in cells:
-		var col: int = c / depth                          # cell = surf_col*depth + radial layer
-		if seen.has(col):
+		var ground: int = LAFieldGeometry.ground(_f, c, _f._grid.max_span())
+		if ground < 0 or seen.has(ground):
 			continue
-		seen[col] = true
-		var base: int = col * depth
-		var ground_r: int = -1                            # outermost SOLID shell = this column's ground surface
-		for r in range(depth - 1, -1, -1):
-			if _f._solid[base + r] != 0:
-				ground_r = r
-				break
-		# The exposed liquid surface: the outermost open cell above the ground that still holds water (sea, lake,
-		# river, puddle), and the air cell directly above it, which is where lifted moisture belongs.
+		seen[ground] = true
+		# The exposed liquid surface, and the air cell directly above it, which is where lifted moisture goes.
 		var top_water: int = -1
-		for r in range(ground_r + 1, depth):
-			if _f._solid[base + r] != 0:
-				break
-			if _f._water[base + r] > EVAP_KEEP_LIQUID:
-				top_water = base + r
-		var air: int = -1
-		if top_water >= 0 and (top_water % depth) < depth - 1 and _f._solid[top_water + 1] == 0:
-			air = top_water + 1
-		elif ground_r >= 0 and ground_r < depth - 1 and _f._solid[base + ground_r + 1] == 0:
-			air = base + ground_r + 1
+		var at: int = ground
+		while at >= 0 and _f._solid[at] == 0:
+			if _f._water[at] > EVAP_KEEP_LIQUID:
+				top_water = at
+			at = LAFieldGeometry.above(_f, at)
+		var air: int = LAFieldGeometry.above(_f, top_water) if top_water >= 0 else ground
+		if air >= 0 and _f._solid[air] != 0:
+			air = -1
 		if top_water >= 0:
 			var avail: float = (_f._water[top_water] - EVAP_KEEP_LIQUID) * EVAP_TAKE_FRAC
 			if avail > 0.0:
@@ -173,19 +165,20 @@ func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 				wet_take.append(avail)
 				wet_dst.append(air if air >= 0 else top_water)
 				wet_offer += avail
-		elif have_soil and air >= 0 and ground_r >= 0:
-			for d in range(SOIL_SEARCH_SHELLS):
-				var sc: int = base + ground_r - d
-				if sc < base or _f._regolith[sc] == 0:
+		elif have_soil and air >= 0:
+			# The water table: the permeable cells immediately under the ground.
+			var sc: int = LAFieldGeometry.below(_f, ground)
+			for _d in range(SOIL_SEARCH_SHELLS):
+				if sc < 0 or _f._regolith[sc] == 0:
 					break
 				var av: float = _f._soil[sc] * EVAP_TAKE_FRAC
-				if av <= 0.0:
-					continue
-				soil_cells.append(sc)
-				soil_take.append(av)
-				soil_dst.append(air)
-				soil_offer += av
-				break
+				if av > 0.0:
+					soil_cells.append(sc)
+					soil_take.append(av)
+					soil_dst.append(air)
+					soil_offer += av
+					break
+				sc = LAFieldGeometry.below(_f, sc)
 	# Scale both pools down together when the footprint holds more than the storm wants, so a wet storm takes
 	# exactly its demand spread across its sources instead of stripping every one of them.
 	var offer: float = wet_offer + soil_offer
@@ -260,18 +253,18 @@ func _scaled(arr: PackedFloat32Array, k: float) -> PackedFloat32Array:
 	return out
 
 ## Gather the linear cell indices within `radius` world-units of `world_pos` (the centre cell always included).
-## Bounded neighbour-BFS over the sphere grid's precomputed 6-neighbour table — O(k) in the bubble, never the
-## whole grid. radius <= 0 (or no sphere grid) collapses to the single centre cell.
+## Bounded neighbour-BFS over the grid's precomputed 6-neighbour table — O(k) in the bubble, never the whole
+## grid. radius <= 0 (or no grid) collapses to the single centre cell.
 func _cells_within(world_pos: Vector3, radius: float) -> PackedInt32Array:
 	var out: PackedInt32Array = PackedInt32Array()
 	var c0: int = _f.world_to_cell(world_pos)
 	if c0 < 0 or c0 >= _f._cell_count:
 		return out
 	out.append(c0)
-	if radius <= 0.0 or _f._sphere == null:
+	if radius <= 0.0 or _f._grid == null:
 		return out
 	var r2: float = radius * radius
-	var nbr: PackedInt32Array = _f._sphere.neighbours
+	var nbr: PackedInt32Array = _f._grid.neighbours
 	var seen: Dictionary = {c0: true}
 	var frontier: PackedInt32Array = PackedInt32Array([c0])
 	# Cap the walk so a huge radius can't run away; the bubble is small by design.
@@ -313,13 +306,13 @@ func heat_to_reach(world_pos: Vector3, target_c: float, radius: float = 0.0) -> 
 func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
 	if amount <= 0.0 or _f._water.size() != _f._cell_count or not _device_ready():
 		return
-	var center_r: float = (center - _f._origin).length()
+	var center_r: float = (center - _f.centre()).length()
 	var cells: PackedInt32Array = _cells_within(center, radius)
 	var fill_cells: PackedInt32Array = PackedInt32Array()
 	for c in cells:
 		if _f._solid[c] != 0:
 			continue
-		if (_f.cell_world_pos_linear(c) - _f._origin).length() <= center_r + _f._cell_size:
+		if (_f.cell_world_pos_linear(c) - _f.centre()).length() <= center_r + _f._cell_size:
 			fill_cells.append(c)
 	if fill_cells.size() == 0:
 		return
@@ -394,7 +387,7 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 		to_dust.append(_f.MAX_MASS * EXCAVATED_DUST_FRAC)
 		_crater_mass += _f.MAX_MASS
 		if sea_r > 0.0 \
-				and (_f.cell_world_pos_linear(c) - _f._origin).length() < sea_r:
+				and (_f.cell_world_pos_linear(c) - _f.centre()).length() < sea_r:
 			sea_cells.append(c)
 	if sea_cells.size() > 0:
 		_flood_from_sea(sea_cells)
@@ -421,9 +414,9 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 
 ## SINK: water_sphere3d.glsl skips any cell whose `static` flag is set when it gathers outflow, so a static sea
 func _flood_from_sea(cells: PackedInt32Array) -> void:
-	if _f._sphere == null or _f._water.size() != _f._cell_count:
+	if _f._grid == null or _f._water.size() != _f._cell_count:
 		return
-	var nbr: PackedInt32Array = _f._sphere.neighbours
+	var nbr: PackedInt32Array = _f._grid.neighbours
 	var solid: PackedByteArray = _f._solid
 	var srcs: PackedInt32Array = PackedInt32Array()
 	var dsts: PackedInt32Array = PackedInt32Array()
@@ -444,14 +437,14 @@ func _flood_from_sea(cells: PackedInt32Array) -> void:
 
 
 func _nearest_water(from: int, rings: int) -> int:
-	var nbr: PackedInt32Array = _f._sphere.neighbours
+	var nbr: PackedInt32Array = _f._grid.neighbours
 	var solid: PackedByteArray = _f._solid
 	var seen: Dictionary = {from: true}
 	var frontier: PackedInt32Array = PackedInt32Array([from])
 	for _ring in range(rings):
 		var next: PackedInt32Array = PackedInt32Array()
 		for c in frontier:
-			for d in [1, 2, 3, 4, 5, 0]:
+			for d in LAVoxelGrid.SLOTS:
 				var nb: int = nbr[c * 6 + d]
 				if nb < 0 or nb >= _f._cell_count or seen.has(nb):
 					continue
@@ -480,7 +473,7 @@ func crater_report() -> Dictionary:
 			rock_now += _f._rock_fill[c]
 			if _f._rock_fill[c] < 0.5:
 				open_now += 1
-			if sea_r > 0.0 and (_f.cell_world_pos_linear(c) - _f._origin).length() < sea_r:
+			if sea_r > 0.0 and (_f.cell_world_pos_linear(c) - _f.centre()).length() < sea_r:
 				below_sea += 1
 			if has_water:
 				water += _f._water[c]

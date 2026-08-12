@@ -61,12 +61,13 @@ func armed_temp() -> float:
 	return _armed_temp
 
 
-## Radius of the un-simulated interior, in metres. LASphereGrid answers in model units.
+## Radius of the un-simulated interior: the distance from the body centre to the deepest rock the grid holds.
+## A box that reaches the centre leaves nothing outside the simulation, and this reads 0 — which is the
+## honest statement that there is no separate reservoir, not a value to invent.
+var _core_radius: float = 0.0
+
 func _core_radius_m() -> float:
-	var grid: RefCounted = _f.sphere_grid() if _f != null else null
-	if grid == null:
-		return 0.0
-	return maxf(0.0, float(grid.core_radius))
+	return _core_radius
 
 
 ## Reservoir heat capacity, J/K: the interior's volume times rock's volumetric heat capacity.
@@ -93,15 +94,12 @@ func draw_heat_j(joules: float, floor_c: float) -> float:
 
 
 func step() -> void:
-	if _core_temp <= 0.0 or not _f.is_sphere() or _f._dim_y <= 0:
+	if _core_temp <= 0.0 or _f._grid == null:
 		return
 	if _shell_cells.is_empty():
 		return
-	var grid: RefCounted = _f.sphere_grid()
-	if grid == null:
-		return
-	# The flux crosses the INNERMOST shell's own face, so its thickness is that shell's, not the mean.
-	var dr0: float = float(grid.shell_dr[0])
+	# The flux crosses one cell face, so the conduction length is one cell.
+	var dr0: float = _f._grid.cell_size
 	if dr0 <= 0.0:
 		return
 
@@ -185,58 +183,55 @@ func report() -> Dictionary:
 
 # --- one-time geometry -------------------------------------------------------------------------------------
 
+## The reservoir's boundary face: the DEEPEST rock the grid holds — every solid cell with nothing solid one
+## step further down the local vertical. Its distance from the body centre is what the reservoir stands under.
 func _build() -> void:
-	if not _shell_cells.is_empty():
+	if not _shell_cells.is_empty() or _f._grid == null or _f._solid.size() != _f._cell_count:
 		return
-	var grid: RefCounted = _f.sphere_grid()
-	if grid == null:
-		return
-	var dr0: float = float(grid.shell_dr[0]) if int(grid.depth) > 0 else 0.0
-	if dr0 <= 0.0 or float(grid.core_radius) <= 0.0:
-		return
+	var r_sum: float = 0.0
 	for c: int in _f._cell_count:
-		if c % _f._dim_y == 0:
-			_shell_cells.append(c)
+		if _f._solid[c] == 0:
+			continue
+		var lo: int = LAFieldGeometry.below(_f, c)
+		if lo >= 0 and _f._solid[lo] != 0:
+			continue
+		_shell_cells.append(c)
+		r_sum += LAFieldGeometry.radius_of(_f, c)
+	if _shell_cells.is_empty():
+		return
+	_core_radius = maxf(0.0, r_sum / float(_shell_cells.size()) - 0.5 * _f._grid.cell_size)
 
 
+## Seed the Fourier geotherm: every rock cell starts at ambient plus the gradient times its burial depth,
+## measured by marching UP the local vertical until the march reaches open air.
 func _seed_profile() -> int:
-	var grid: RefCounted = _f.sphere_grid()
-	if grid == null or _f._solid.size() != _f._cell_count or _f._temp.size() != _f._cell_count:
-		return 0
-	var depth: int = int(grid.depth)
-	var surf_count: int = int(grid.surf_count)
-	var cell_size: float = float(grid.cell_size)
-	if depth <= 0 or surf_count <= 0 or cell_size <= 0.0:
+	if _f._grid == null or _f._solid.size() != _f._cell_count or _f._temp.size() != _f._cell_count:
 		return 0
 	_grad_c_per_m = LAPhysical.GEOTHERMAL_GRADIENT_C_PER_M
 	if _grad_c_per_m <= 0.0:
 		return 0
+	var cell_size: float = _f._grid.cell_size
+	var span: int = _f._grid.max_span()
 	var ambient: float = float(_f.INITIAL_TEMP)
 	var n: int = 0
 	var base_sum: float = 0.0
 	var base_n: int = 0
-	for s: int in range(surf_count):
-		var base: int = s * depth
-		var surf_r: int = -1
-		for r: int in range(depth - 1, -1, -1):
-			if _f._solid[base + r] != 0:
-				surf_r = r
-				break
-		if surf_r < 0:
-			continue                                   # an all-open column (open ocean over no floor)
-		for r: int in range(0, surf_r + 1):
-			var c: int = base + r
-			if _f._solid[c] == 0:
-				continue
-			# Depth of this cell's CENTRE below the top face of the column's outermost rock cell.
-			var t: float = ambient + _grad_c_per_m * (float(grid.shell_face[surf_r + 1]) - float(grid.shell_mid[r]))
-			_f._temp[c] = t
-			n += 1
-			if r == 0:
-				base_sum += t
-				base_n += 1
-	_boundary_seed = ((base_sum / float(base_n)) if base_n > 0 else ambient) \
-		+ _grad_c_per_m * float(grid.shell_dr[0])
+	var deepest: Dictionary = {}
+	for c: int in _shell_cells:
+		deepest[c] = true
+	for c: int in _f._cell_count:
+		if _f._solid[c] == 0:
+			continue
+		var shells: int = LAFieldGeometry.burial_steps(_f, c, span)
+		if shells < 0:
+			continue                                   # the march never reached air: not under a surface
+		var t: float = ambient + _grad_c_per_m * (float(shells) + 0.5) * cell_size
+		_f._temp[c] = t
+		n += 1
+		if deepest.has(c):
+			base_sum += t
+			base_n += 1
+	_boundary_seed = ((base_sum / float(base_n)) if base_n > 0 else ambient) + _grad_c_per_m * cell_size
 	_boundary_c = _boundary_seed
 	return n
 

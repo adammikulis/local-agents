@@ -70,7 +70,7 @@ var _ground_coldest_ever: float = 1.0e20
 func surface_climate() -> Dictionary:
 	var solid: PackedByteArray = _f._solid
 	var temp: PackedFloat32Array = _f._temp
-	if solid.size() != _f._cell_count or temp.size() != _f._cell_count or _f._sphere == null:
+	if solid.size() != _f._cell_count or temp.size() != _f._cell_count or _f._grid == null:
 		return {}
 	var t_scan: int = Time.get_ticks_usec()
 	var axis: Vector3 = (_f.spin_axis() if _f.has_method("spin_axis") else PLANET_SPIN_AXIS).normalized()
@@ -84,7 +84,6 @@ func surface_climate() -> Dictionary:
 		lat_min[b] = 1.0e20
 	for b in ALT_BANDS:
 		alt_min[b] = 1.0e20
-	var depth: int = _f._dim_y
 	var ground_frozen: int = 0
 	var ground_n: int = 0
 	var air_frozen: int = 0
@@ -96,66 +95,59 @@ func surface_climate() -> Dictionary:
 	var water_frozen: int = 0
 	var water_cells: int = 0
 	var water_coldest: float = 1.0e20
-	var grid = _f._sphere
-	var shell_mid: PackedFloat32Array = grid.shell_mid     # depth cell-centre radii
-	var limit: int = mini(_f._cell_count, CLIMATE_MAX_CELLS)
-	var columns: int = limit / depth
-	# Per-r radius and altitude band, computed once for the whole grid.
-	var r_alt: PackedFloat32Array = PackedFloat32Array()
-	var r_ab: PackedInt32Array = PackedInt32Array()
-	r_alt.resize(depth)
-	r_ab.resize(depth)
-	for r in depth:
-		var radius: float = shell_mid[r]
-		var alt_r: float = radius - sea_r
-		r_alt[r] = alt_r
-		r_ab[r] = clampi(int(maxf(alt_r, 0.0) / ALT_BAND_SPAN), 0, ALT_BANDS - 1)
-	for s in columns:
-		var base: int = s * depth
-		var wdir: Vector3 = _f._body_basis * _f.cell_radial(base)
+	# Strided so the scan stays bounded on a big grid; the stride is over CELLS, not columns, because the
+	# Cartesian box has none.
+	var stride: int = maxi(1, _f._cell_count / CLIMATE_MAX_CELLS)
+	var c: int = 0
+	while c < _f._cell_count:
+		var cell: int = c
+		c += stride
+		if solid[cell] != 0:
+			continue
+		var up: Vector3 = LAFieldGeometry.up(_f, cell)
+		if up == Vector3.ZERO:
+			continue
+		# Latitude from the LOCAL VERTICAL against the spin axis; altitude from the body centre.
+		var wdir: Vector3 = _f._body_basis * up
 		var lat: float = absf(rad_to_deg(asin(clampf(wdir.dot(axis), -1.0, 1.0))))
 		var band: int = clampi(int(lat / (90.0 / float(CLIMATE_BANDS))), 0, CLIMATE_BANDS - 1)
-		for r in depth:
-			var c: int = base + r
-			if solid[c] != 0:
-				continue
-			var t: float = temp[c]
-			var alt: float = r_alt[r]
-			if t < coldest:
-				coldest = t
-				if t < _coldest_ever:
-					_coldest_ever = t
-					_coldest_ever_alt = snappedf(alt, 0.1)
-					_coldest_ever_lat = snappedf(lat, 0.1)
-			# ALTITUDE profile over every open cell — this is where an equatorial summit and the cold upper air
-			# both show up, and neither is visible in a latitude-only or ground-only scan.
-			var ab: int = r_ab[r]
-			alt_n[ab] += 1
-			if t < alt_min[ab]:
-				alt_min[ab] = t
-			if has_water and water[c] > LAMaterialField3D.MIN_MASS:
-				water_cells += 1
-				if t < LAPhysical.WATER_FREEZE_C:
-					water_frozen += 1
-				if t < water_coldest:
-					water_coldest = t
-			# GROUND-HUGGING (inward neighbour is rock) vs ALOFT — the two distinct freezing populations.
-			var is_ground: bool = r > 0 and solid[c - 1] != 0
-			if is_ground:
-				lat_sum[band] += t
-				lat_n[band] += 1
-				if t < lat_min[band]:
-					lat_min[band] = t
-				ground_n += 1
-				if t < LAPhysical.WATER_FREEZE_C:
-					ground_frozen += 1
-				if t < ground_coldest:
-					ground_coldest = t
-					_ground_coldest_ever = minf(_ground_coldest_ever, t)
-			else:
-				air_n += 1
-				if t < LAPhysical.WATER_FREEZE_C:
-					air_frozen += 1
+		var alt: float = LAFieldGeometry.radius_of(_f, cell) - sea_r
+		var t: float = temp[cell]
+		if t < coldest:
+			coldest = t
+			if t < _coldest_ever:
+				_coldest_ever = t
+				_coldest_ever_alt = snappedf(alt, 0.1)
+				_coldest_ever_lat = snappedf(lat, 0.1)
+		# ALTITUDE profile over every open cell — this is where an equatorial summit and the cold upper air
+		# both show up, and neither is visible in a latitude-only or ground-only scan.
+		var ab: int = clampi(int(maxf(alt, 0.0) / ALT_BAND_SPAN), 0, ALT_BANDS - 1)
+		alt_n[ab] += 1
+		if t < alt_min[ab]:
+			alt_min[ab] = t
+		if has_water and water[cell] > LAMaterialField3D.MIN_MASS:
+			water_cells += 1
+			if t < LAPhysical.WATER_FREEZE_C:
+				water_frozen += 1
+			if t < water_coldest:
+				water_coldest = t
+		# GROUND-HUGGING (the cell one step DOWN is rock) vs ALOFT — two distinct freezing populations.
+		var lo: int = LAFieldGeometry.below(_f, cell)
+		if lo >= 0 and solid[lo] != 0:
+			lat_sum[band] += t
+			lat_n[band] += 1
+			if t < lat_min[band]:
+				lat_min[band] = t
+			ground_n += 1
+			if t < LAPhysical.WATER_FREEZE_C:
+				ground_frozen += 1
+			if t < ground_coldest:
+				ground_coldest = t
+				_ground_coldest_ever = minf(_ground_coldest_ever, t)
+		else:
+			air_n += 1
+			if t < LAPhysical.WATER_FREEZE_C:
+				air_frozen += 1
 	var means: Array = []
 	var lmins: Array = []
 	for b in CLIMATE_BANDS:

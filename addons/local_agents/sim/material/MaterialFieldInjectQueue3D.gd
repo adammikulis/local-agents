@@ -40,9 +40,8 @@ var biotic_minted: float = 0.0
 var mineral_minted: float = 0.0    # SOURCE: mineral added with NO debit anywhere in the field. Only `add()`
                                    # reaches it — deposit_sediment and the stamp's debug_deposit.
 
-# AUDIT (LA_INJECT_AUDIT=1): |CPU mirror total - live device total| for a channel at flush time. That gap IS
-# the mass the old set_field-from-the-mirror upload would have written away, so a nonzero reading here is a
-# direct measurement of the staleness this queue removes. Off by default — it costs a full-grid sum.
+# AUDIT (LA_INJECT_AUDIT=1): |CPU mirror total - live device total| at flush time — the mass a mirror upload
+# would write away. Off by default; it costs a full-grid sum.
 var rewind_peak: float = 0.0
 var rewind_last: float = 0.0
 

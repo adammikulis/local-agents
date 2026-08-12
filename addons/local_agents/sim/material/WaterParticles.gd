@@ -1,8 +1,7 @@
 class_name LAWaterParticles
 extends GPUParticles3D
 
-## LAWaterParticles: the ONE atmosphere visual for the planet, a single GPUParticles3D whose custom
-## Bridge: the field bakes a 6-layer RGBA cover texture (one texel per SphereGrid surface cell) at ~10Hz;
+## LAWaterParticles: the ONE atmosphere visual for the planet, a single GPUParticles3D.
 
 const PROC_SHADER: String = "res://addons/local_agents/sim/shaders/WaterParticles.gdshader"
 const DRAW_SHADER: String = "res://addons/local_agents/sim/shaders/WaterParticlesDraw.gdshader"
@@ -19,7 +18,6 @@ var _prevailing: Vector3 = Vector3(0.15, 1.0, 0.0)
 var _pm: ShaderMaterial = null             # process material
 var _dm: ShaderMaterial = null             # draw material
 var _sky_tint: Color = Color(1.0, 1.0, 1.0)
-var _tex_bound: bool = false
 
 
 func setup(field, camera: Node3D, sun: DirectionalLight3D, center: Vector3, sea_radius: float) -> void:
@@ -39,7 +37,7 @@ func setup(field, camera: Node3D, sun: DirectionalLight3D, center: Vector3, sea_
 	draw_order = GPUParticles3D.DRAW_ORDER_VIEW_DEPTH
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
-	var outer: float = _field.atmos_outer_r() if _field.has_method("atmos_outer_r") else (sea_radius + 82.0)
+	var outer: float = _field.atmos_outer_r()
 	visibility_aabb = AABB(_center - Vector3.ONE * outer, Vector3.ONE * (outer * 2.0))
 
 	var quad: QuadMesh = QuadMesh.new()
@@ -57,9 +55,9 @@ func setup(field, camera: Node3D, sun: DirectionalLight3D, center: Vector3, sea_
 	_pm.set_shader_parameter("planet_center", _center)
 	_pm.set_shader_parameter("cap_cos", cos(CAP_ANGLE))
 	_pm.set_shader_parameter("sea_radius", _sea_radius)
-	_pm.set_shader_parameter("cloud_base_r", _field.atmos_cloud_base_r() if _field.has_method("atmos_cloud_base_r") else _sea_radius + 8.0)
-	_pm.set_shader_parameter("fog_top_r", _field.atmos_fog_top_r() if _field.has_method("atmos_fog_top_r") else _sea_radius + 16.0)
-	_pm.set_shader_parameter("fog_lo_r", _field.atmos_fog_lo_r() if _field.has_method("atmos_fog_lo_r") else _sea_radius - 6.0)
+	_pm.set_shader_parameter("cloud_base_r", _field.atmos_cloud_base_r())
+	_pm.set_shader_parameter("fog_top_r", _field.atmos_fog_top_r())
+	_pm.set_shader_parameter("fog_lo_r", _field.atmos_fog_lo_r())
 	_pm.set_shader_parameter("outer_r", outer)
 	_pm.set_shader_parameter("prevailing", _prevailing)
 	emitting = true
@@ -91,9 +89,3 @@ func _process(_delta: float) -> void:
 	if _sun != null and is_instance_valid(_sun):
 		var sd: Vector3 = _sun.global_transform.basis.z
 		_pm.set_shader_parameter("sun_dir", sd)
-	# The cover texture is created on the field's first atmos refresh; bind it once (it updates in place).
-	if not _tex_bound and _field != null and _field.has_method("field_cover_texture"):
-		var tx = _field.field_cover_texture()
-		if tx != null:
-			_pm.set_shader_parameter("field_tex", tx)
-			_tex_bound = true
