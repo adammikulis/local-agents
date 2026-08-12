@@ -1,35 +1,6 @@
 @tool
 extends RefCounted
 
-## Headless self-check for the speech path, so a regression in LocalAgent.speak() is visible without a
-## windowed run and without a person listening.
-##
-## Run it with:
-##
-##     scripts/run_single_test.sh test_speech_engine.gd --timeout=60
-##
-## Three things are asserted on every machine, because they need no backend at all:
-##
-## 1. two engines in one process never hand out the same output wav (an agent and the streamer each
-##    own one),
-## 2. an explicit speak() while a queued line is in flight still leaves exactly one speaking_finished
-##    per speaking_started,
-## 3. backend_name() answers with one of its four documented values, and LocalAgentAgentSpeech
-##    reports the same one.
-##
-## The fourth, that speak_blocking actually writes a wav, needs a Piper voice model and either a piper
-## binary or a Python interpreter that can import piper. When neither is present the check prints the
-## reason and passes, so a machine with no piper install does not fail the build.
-##
-## The run is headless, so nothing is audible and nothing is played. What it proves is that a wav was
-## written and that the signal contract held.
-##
-## run_single_test.gd calls run_test synchronously, so this file never awaits a frame. Where the
-## engine would finish a line on a deferred call, the check invokes that call itself with the same
-## argument the engine deferred, which is the point of the assertion anyway: a completion belonging
-## to a line that was already cut off has to do nothing.
-##
-## (Explicit types only, project rule: no ':=' inferred typing.)
 
 const SpeechEngineScript: GDScript = preload("res://addons/local_agents/runtime/audio/SpeechEngine.gd")
 const AgentSpeechScript: GDScript = preload("res://addons/local_agents/agents/AgentSpeech.gd")

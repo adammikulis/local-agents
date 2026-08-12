@@ -1,6 +1,8 @@
 class_name LAMaterialFieldChannels3D
 extends RefCounted
 
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
 ## LAMaterialFieldChannels3D: the per-cell CHANNEL accessors of LAMaterialField3D (the atmospheric gases,
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
@@ -217,15 +219,7 @@ func biomass_at(x: float, y: float, z: float) -> float:
 ## Total living biomass over every open cell — the emergent-growth spot check (should rise then plateau, not
 ## explode; bounded by the CO₂ budget + respiration). Fed into SIM_REPORT.
 func biomass_total() -> float:
-	if _f._biomass.size() != _f._cell_count or _f._cell_count <= 0:
-		return 0.0
-	var solid: PackedByteArray = _f._solid
-	var biomass: PackedFloat32Array = _f._biomass
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		if solid[c] == 0:
-			sum += biomass[c]
-	return sum
+	return CellVolScript.weighted(_f._biomass, CellVolScript.of(_f), _f._solid, true)
 
 
 

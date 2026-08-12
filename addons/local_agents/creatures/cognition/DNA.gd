@@ -1,51 +1,12 @@
 class_name LADNA
 extends RefCounted
 
-## A creature's heritable makeup as a LITERAL DNA SEQUENCE: a strand of 2-bit symbols (four bases,
-## A/C/G/T ≡ 0..3), grouped four-to-a-codon (one byte, 0..255), against a FIXED locus table that assigns each
-## gene a span of codons. A gene's numeric value is DECODED from its codons (combined big-endian, normalised
-## to the gene's [min, max]); an offspring is a genuine RECOMBINATION + point-mutation of two parent strands,
-## so drift, blending and (through non-coding SPACER regions between genes) pleiotropy and frameshift room
-## all fall out of sequence operations rather than per-trait arithmetic. This is the heredity substrate 0.4
-## builds on: chemical-affinity priors, an evolvable diet gradient, personality, and metabolism genes all
-## ride the one strand.
-##
-## Three parts to an individual:
-##   * strand:     the codon sequence, holding the quantitative genes (speed…flock_weight), the NEW heritable content
-##                 (carnivory diet-gradient, neophobia/boldness personality, basal/active metabolism-rate,
-##                 scent/taste senses), a regulatory 'cue_priors' region (born-in chemical valences like
-##                 innate blood-wariness for the coming affinity system), plus non-coding spacers + a block of
-##                 RESERVED spare loci so future genes never invalidate an already-saved genome (forward-compat).
-##   * instincts:  a SMALL set of genetically-baked reaction priors (signature_key:int -> {action, weight}).
-##                 Unlike quantitative genes these have arbitrary keys, so they live beside the strand as a
-##                 Dictionary. They change only slowly: by crossover, forgetting, and rare "canalization" of a
-##                 habit a lineage has relied on for generations (the Baldwin effect).
-##   * base_config: species identity (colour, preys_on, flees_from, flags…), carried verbatim and never mutated.
-##                 DIET is the one exception: it is not carried here but expressed from the evolvable
-##                 `carnivory` gradient (bucketed herbivore/omnivore/carnivore) so it can blend and evolve
-##                 while predation targets (preys_on) stay identity.
-##
-## COMPATIBILITY SEAM: express() decodes to the trait Dictionary LocalAgentCreature.setup() consumes. It
-## overrides a gene only when the species config actually set it, and adds the new keys on top.
-##
-## DETERMINISM: every stochastic draw (crossover points, mutations, canalization) goes through an injected
-## LASimRng (never a bare randf()), so a run reproduces from its seed.
-##
-## (Explicit types only, no ':=' inferred typing.)
 
-# Bump when the on-strand layout changes in a way a loader must know about. Saved genomes stamp this; the
-# RESERVED block means adding genes (claiming reserved loci) need NOT bump it — old saves still decode.
 const GENOME_FORMAT_VERSION: int = 1
 
 const SYMBOLS_PER_CODON: int = 4       # four 2-bit bases per codon → one byte (0..255) of resolution
 const SYMBOL_MAX: int = 3              # a base is 0..3 (A/C/G/T)
 
-# The legacy quantitative genes LocalAgentCreature.setup() consumes. Kept as the canonical list so callers
-# can enumerate them and so express() reproduces the SAME-named floats. (Plain Array — a PackedStringArray
-# constructor is not a constant expression.)
-## There is no `metabolism` gene: a body's burn rate is its gas-exchange surface times the local oxygen times
-## the temperature band (LACreatureRespiration). `size` encodes it, because area is size². `max_energy` and
-## `thirst_rate` are likewise derived from the species' measured body mass (LACreatureBodyMass).
 const GENE_KEYS: Array = [
 	"speed", "size", "sense_radius", "eye_fov",
 	"maturity_age", "throw_range", "cruise_height",
@@ -56,23 +17,11 @@ const GENE_KEYS: Array = [
 # innate attraction, drives caution/appetite before anything is learned).
 const CUE_KEYS: Array = ["blood_wariness", "water_affinity", "carrion_appetite"]
 
-# THE FIXED LOCUS TABLE, in strand order. Each row: [name, kind, codons, min, max].
-#   kind "gene"     — a quantitative gene decoded to out[name] (legacy genes gated by whether the species set
-#                     them; NEW genes always expressed).
-#   kind "cue"      — a regulatory locus decoded into the cue_priors dict.
-#   kind "spacer"   — non-coding DNA between regions: recombination/pleiotropy room + where indels are absorbed.
-#   kind "reserved" — spare loci a future gene claims WITHOUT changing strand length (forward-compat).
 const LOCI: Array = [
 	["speed", "gene", 2, 0.0, 30.0],
 	["size", "gene", 2, 0.0, 8.0],
 	["sense_radius", "gene", 2, 0.0, 80.0],
 	["eye_fov", "gene", 2, 0.0, 360.0],
-	# TWO LOCI RESERVED. `max_energy` and `thirst_rate` are not species data: LACreatureBodyMass derives the
-	# reserve from the species' measured mass and the water turnover from the body's gas-exchange surface. A
-	# legacy gene expresses only when the species config sets its key, and neither key is set, so neither can
-	# reach a phenotype. They are `reserved` rather than deleted so the strand LENGTH and every following
-	# locus offset are unchanged.
-	#
 	["_retired_max_energy", "reserved", 2, 0.0, 1.0],
 	["_retired_thirst_rate", "reserved", 2, 0.0, 1.0],
 	["maturity_age", "gene", 2, 0.0, 120.0],
@@ -88,16 +37,6 @@ const LOCI: Array = [
 	["carnivory", "gene", 1, 0.0, 1.0],
 	["neophobia", "gene", 1, 0.0, 1.0],
 	["boldness", "gene", 1, 0.0, 1.0],
-	# RESPIRATORY CAPACITY and THERMOGENESIS are the anatomy and physiology the reaction reads
-	# (LACreatureRespiration): how much gas-exchange surface the body packs into its area, and how hard it
-	# raises oxygen throughput when it falls below its own enzyme optimum.
-	#
-	# THERMOGENESIS IS WHERE ENDOTHERM AND ECTOTHERM LIVE, and it is a continuum with no flag anywhere. At 0 the
-	# cold-drive term vanishes identically: body temperature tracks ambient, metabolic rate rides the
-	# temperature band up and down with the weather, and the animal goes torpid in the cold — an ectotherm, by
-	# arithmetic rather than by a branch. High values buy a stable warm body and pay for it in oxygen and fuel.
-	# Because it is an ordinary heritable locus under ordinary selection, which strategy pays on THIS planet is
-	# something the run decides, not something a species table asserts.
 	["respiratory_capacity", "gene", 1, 0.25, 2.5],
 	["thermogenesis", "gene", 1, 0.0, 1.0],
 	["scent_acuity", "gene", 1, 0.0, 1.0],
@@ -111,11 +50,6 @@ const LOCI: Array = [
 	# mutable, so an epidemic SELECTS for it: plague survivors pass on higher constitution and the population
 	# evolves disease resistance. Claimed from a reserved locus, so the strand length is unchanged.
 	["constitution", "gene", 2, 0.3, 2.5],
-	# DISPLAY — heritable ornament/brightness (read by LAAppraisal). Expressed strongly in males, faintly in
-	# females. An HONEST signal: maintaining a bright display costs energy every tick (LACreatureMetabolism) and
-	# dulls with poor health/age, so only genuinely fit males stay bright. Females CHOOSE the brightest,
-	# highest-dominance males (LACreatureReproduction) → the gene is under sexual selection and a lineage visibly
-	# brightens over generations. Claimed from a reserved locus, so the strand length is unchanged.
 	["display", "gene", 2, 0.0, 1.0],
 	# THERMAL NICHE — where this genome's enzymes work best, and how wide a range they tolerate. Heritable,
 	# so an ice cap or a hot spring selects the optimum toward itself and a seasonal band selects for width.
@@ -164,8 +98,6 @@ var instincts: Dictionary = {}             # signature_key:int -> {action:String
 var generation: int = 0
 
 
-# --- LAYOUT ------------------------------------------------------------------------------------------------
-
 ## Build (once) and return the locus map. Assigns each row a start codon so gene ranges are fixed offsets.
 static func _layout() -> Dictionary:
 	if _layout_built:
@@ -199,8 +131,6 @@ static func total_codons() -> int:
 static func locus_list() -> Array:
 	return LOCI.duplicate(true)
 
-
-# --- CODON READ / WRITE ------------------------------------------------------------------------------------
 
 static func _codon_byte(s: PackedByteArray, codon_index: int) -> int:
 	var b: int = codon_index * SYMBOLS_PER_CODON
@@ -248,14 +178,6 @@ func encode_gene(name: String, value: float) -> void:
 		LADNA._set_codon_byte(strand, start + c, (ival >> shift) & 0xFF)
 
 
-# --- CONSTRUCTION ------------------------------------------------------------------------------------------
-
-## Build the ancestral genome for a species from its static config template. Legacy genes are encoded from
-## the template's numbers (and marked coded so express() overrides only those the species actually set).
-## The new genes are seeded to sensible born-in values: carnivory from the
-## species diet (so gen-0 expresses the same diet, evolvably), personality/senses/metabolism-rate and
-## the cue priors to config-or-neutral defaults. Instincts start empty — gen-0 animals rely on baked reflexes,
-## the slow brain, and watching kin.
 static func from_config(cfg: Dictionary) -> LADNA:
 	var g: LADNA = LADNA.new()
 	g.base_config = cfg.duplicate(true)
@@ -303,23 +225,11 @@ static func from_config(cfg: Dictionary) -> LADNA:
 	return g
 
 
-## STANDING GENETIC VARIATION for a founding population: scatter every quantitative locus by a small fraction
-## around the species template, so the founders of a species are individuals rather than CLONES.
-##
-## WHY NOT JUST CALL mutate(). That was tried and it is the wrong operator here, for a measurable reason. A
-## point mutation flips one 2-bit base, and in the high base of a codon that moves the decoded value by up to
-## 192/255 of the locus's ENTIRE declared range — for `size`, declared 0..8, a single hit is a body-size change
-## of several metres. Mutation is a rare, large, mostly-fatal event; standing variation within a wild
-## population is a small continuous scatter about the mean, and they are not the same operator.
-##
-## Body size in a real wild population varies by a few per cent to a fifth about the species mean, so a small
-## fractional jitter is both the honest model and the safe one. Applied through the seeded LASimRng, so a run
-## still reproduces exactly from its seed.
 const FOUNDER_VARIATION: float = 0.08     # +/- fraction applied to each quantitative locus at founding
 
 func seed_variation(rng: LASimRng, frac: float = FOUNDER_VARIATION) -> LADNA:
 	if rng == null:
-		rng = LASimRng.shared()
+		rng = LASimRng.for_domain("life")
 	for row in LOCI:
 		var kind: String = String(row[1])
 		if kind != "gene" and kind != "cue":
@@ -364,12 +274,6 @@ static func _carnivory_from_diet(diet: String) -> float:
 			return 0.1
 
 
-# --- EXPRESSION --------------------------------------------------------------------------------------------
-
-## The config dict LocalAgentCreature.setup() consumes: identity from base_config, decoded genes overlaid. Legacy
-## genes override only where the species set them; the new genes + the diet gradient + the cue_priors dict
-## are added on top. DIET is expressed from the carnivory gradient (bucketed), so it is heritable/evolvable
-## while base_config stays immutable.
 func express() -> Dictionary:
 	var out: Dictionary = base_config.duplicate(true)
 	var cue_priors: Dictionary = {}
@@ -403,13 +307,11 @@ static func _diet_bucket(carnivory: float) -> String:
 	return "carnivore"
 
 
-# --- BALDWIN INSTINCTS -------------------------------------------------------------------------------------
-
 ## The Baldwin effect: rarely, a behaviour a creature has ingrained for its whole life sinks into the germline
 ## as an instinct prior its offspring may be born with — NOT wholesale thought copying, only the deepest,
 ## most consistently-rewarded habits, and only sometimes. Stochastic draw goes through the shared LASimRng.
 func maybe_canalize(policy: Dictionary) -> void:
-	var rng: LASimRng = LASimRng.shared()
+	var rng: LASimRng = LASimRng.for_domain("life")
 	for key in policy.keys():
 		var entry = policy[key]
 		if typeof(entry) != TYPE_DICTIONARY:
@@ -433,14 +335,12 @@ func _prune_instincts() -> void:
 	instincts = kept
 
 
-# --- RECOMBINATION + MUTATION ------------------------------------------------------------------------------
-
 ## Sexual reproduction: a genuine sequence RECOMBINATION of two parent strands — 1 or 2 crossover points
 ## splice the literal symbol arrays (a cut can fall mid-gene, so genes blend), and the few genetic instincts
 ## are unioned (higher confidence wins). All stochastic draws go through the injected LASimRng.
 static func crossover(a: LADNA, b: LADNA, rng: LASimRng) -> LADNA:
 	if rng == null:
-		rng = LASimRng.shared()
+		rng = LASimRng.for_domain("life")
 	var g: LADNA = LADNA.new()
 	g.base_config = a.base_config.duplicate(true)
 	g.coded_genes = a.coded_genes.duplicate(true)
@@ -494,7 +394,7 @@ static func _splice(a: PackedByteArray, b: PackedByteArray, rng: LASimRng) -> Pa
 ## shifts a coding locus), plus rare forgetting of a baked instinct. All draws go through the injected LASimRng.
 func mutate(rng: LASimRng, rate: float = DEFAULT_MUTATION_RATE) -> LADNA:
 	if rng == null:
-		rng = LASimRng.shared()
+		rng = LASimRng.for_domain("life")
 	var codons: int = LADNA.total_codons()
 	for c in range(codons):
 		if rng.randf() < rate:
@@ -535,8 +435,6 @@ func _indel_in_spacer(rng: LASimRng) -> void:
 			strand[start + i] = strand[start + i + 1]
 		strand[start + count - 1] = new_base
 
-
-# --- SAVE / LOAD -------------------------------------------------------------------------------------------
 
 ## Serialize to a plain-data dict a save can persist (LAGameSave stores it via binary store_var, so the
 ## PackedByteArray strand round-trips natively). The format version + reserved strand loci mean a future

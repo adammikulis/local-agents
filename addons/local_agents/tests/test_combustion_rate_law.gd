@@ -1,45 +1,16 @@
 @tool
 extends RefCounted
 
-## COMBUSTION IS CHEMISTRY, NOT A STATE MACHINE — and there is no ignition temperature anywhere in it.
-##
-## WHAT THIS REPLACES. `fire_sphere3d.glsl` was a standalone kernel with a hand-rolled state machine:
-## `IGNITE_TEMP` (one global ignition temperature applied to every combustible cell on the planet),
-## FIRE_START, FIRE_MIN, FIRE_GROW, a stored `fire` intensity and a bespoke radiant-spread gather. Because no
-## RECORD described it, `scripts/check_reaction_balance.sh` could not see it, and it destroyed the hydrogen,
-## the oxygen and the nitrogen of everything it burned for as long as it shipped. Both defects were found by
-## a person reading the file.
-##
-## WHY THIS TEST EXISTS AT ALL, stated plainly: combustion is UNREACHABLE in a run today. Five arms measured
-## at 600 frames (--planet-only, --no-fauna, and --no-fauna with --auto-lightning / --auto-meteor /
-## --auto-volcano) all report `fires` 0, partly because `MaterialField3D.ignite()` and
-## `EcologyService.ignite_area()` are deliberate no-ops. So a SIM_REPORT cannot prove the chemistry, and this
-## does instead: it evaluates the live record with the kernel's own arithmetic and asserts the physics.
-##
-##   1. NO IGNITION POINT. The rate is Arrhenius on cellulose's measured pyrolysis activation energy, so it is
-##      smooth, positive everywhere and spans twenty orders of magnitude across the range a planet reaches.
-##      There is no temperature at which it switches on, and the test asserts there is no step in it.
-##   2. IT RUNS AWAY. Q10 near the pyrolysis regime must be enormous (the definition of a thermal runaway),
-##      and cold ground must be so slow that a cell's fuel outlives the planet.
-##   3. THE STOICHIOMETRY IS THE REACTION. Per unit burned: 1 CO2 and 1 H2O per carbon, one O2 consumed per
-##      CO2 made, and the fuel's own nitrogen conserved into the ash — checked in MOLES, not channel units.
-##   4. THE OXYGEN QUENCH. Below the limiting oxygen concentration the reaction does not proceed at all,
-##      however hot the cell is — a flame in a sealed room goes out with most of the oxygen still in it.
-##   5. A DAMP CELL RESISTS LIGHTING with no wet-cell gate: the water is in the heat capacity, so the same
-##      reaction warms it two orders of magnitude less.
-##
-## WHAT IT IS AND IS NOT. A CPU oracle of `reactions_sphere3d.glsl`'s arithmetic over the records
-## LACombustionRecords actually publishes — not a GPU measurement. Its value is that it fails if anyone
-## re-introduces a threshold, unbalances the reaction, or drifts the rate constant away from the activation
-## energy it is quoted with.
-## (Explicit types only, project rule: no ':=' inferred typing.)
 
 const CombustionScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/CombustionRecords.gd")
 const DefsScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 
 # The condition the sweep is evaluated at: a cell holding litter, in ambient air.
 const FUEL_AT_CELL: float = 0.02          # the ground-surface fuel seed's order of magnitude
-const O2_AMBIENT: float = 1.0             # one unit of `o2` IS a cell of ambient air, by definition
+## The rate law is tested in AIR. The planet no longer seeds free oxygen — it is a product of life — so
+## this cannot borrow the world's seed without testing combustion in a vacuum.
+const O2_IN_AIR: float = 1.0
+const O2_IN_AIR: float = 1.0             # one unit of `o2` IS a cell of ambient air, by definition
 
 
 ## The extent, evaluated exactly as reactions_sphere3d.glsl does: the ARRHENIUS rate, then the reactant caps
@@ -65,11 +36,20 @@ func _extent(rec: Dictionary, t_c: float, fuel: float, o2: float) -> float:
 	return maxf(x, 0.0)
 
 
-func _coeff(rec: Dictionary, side: String, slot: int) -> float:
+## Coefficient at a composition: base + h*(H:C) + o*(O:C). Quoted at fresh CH2O litter, (2, 1).
+func _coeff(rec: Dictionary, side: String, slot: int, hc: float = 2.0, oc: float = 1.0) -> float:
+	var is_prod: bool = side == "products"
 	for e in rec.get(side, []):
 		if int(e[0]) == slot:
-			return float(e[1])
+			var parts: Vector2 = DefsScript.comp_parts(e, is_prod)
+			return float(e[1]) + parts.x * hc + parts.y * oc
 	return 0.0
+
+
+## kg/m3 in one unit of the dead organic pool at a molar H:C and O:C. Divides J/m3 into J/kg of fuel.
+func _organic_kg_m3(hc: float, oc: float) -> float:
+	return LASubstances.ORGANIC_MOL_PER_M3 * (LAPhysical.MOLAR_MASS_CARBON_KG_MOL
+		+ hc * LAPhysical.MOLAR_MASS_HYDROGEN_KG_MOL + oc * LAPhysical.MOLAR_MASS_OXYGEN_KG_MOL)
 
 
 ## Moles of substance in one unit of a channel — the conversion the balance gate applies, so the ratios below
@@ -96,7 +76,9 @@ func run_test(_tree: SceneTree) -> bool:
 	var co2_per_fuel: float = _coeff(burn, "products", DefsScript.CO2)
 	var w_per_fuel: float = _coeff(burn, "products", DefsScript.MOISTURE)
 	var n_per_fuel: float = _coeff(burn, "products", DefsScript.FERT)
-	var enthalpy: float = float(burn.get("enthalpy_j_m3", 0.0))
+	# The heat of combustion, dotted with fresh CH2O litter's composition.
+	var enthalpy: float = float(burn.get("enthalpy_j_m3", 0.0)) \
+		+ 2.0 * float(burn.get("enthalpy_h_j_m3", 0.0)) + 1.0 * float(burn.get("enthalpy_o_j_m3", 0.0))
 	var quench: float = float(burn.get("quench_min", 0.0))
 
 	print("COMBUSTION_RECORD={\"rate_k\":%s,\"ea_over_r_k\":%.1f,\"t_ref_k\":%.1f,\"t_ceiling_k\":%.1f,"
@@ -107,14 +89,13 @@ func run_test(_tree: SceneTree) -> bool:
 		+ "\"enthalpy_j_m3\":%s,\"o2_quench\":%.3f}"
 		% [String.num_scientific(enthalpy), quench])
 
-	# --- 1. NO IGNITION POINT: a smooth curve with no step in it, positive everywhere ------------------------
 	var temps: PackedFloat64Array = PackedFloat64Array(
 		[-20.0, 0.0, 27.0, 100.0, 200.0, 227.0, 300.0, 327.0, 400.0, 427.0, 500.0, 800.0])
-	print("COMBUSTION_RATE_LAW={\"note\":\"extent per step at fuel %.3f, o2 %.2f\"}" % [FUEL_AT_CELL, O2_AMBIENT])
+	print("COMBUSTION_RATE_LAW={\"note\":\"extent per step at fuel %.3f, o2 %.2f\"}" % [FUEL_AT_CELL, O2_IN_AIR])
 	var prev: float = -1.0
 	var prev_t: float = 0.0
 	for t in temps:
-		var x: float = _extent(burn, t, FUEL_AT_CELL, O2_AMBIENT)
+		var x: float = _extent(burn, t, FUEL_AT_CELL, O2_IN_AIR)
 		print("  T=%7.1f C   extent=%s   fuel_frac=%s" % [
 			t, String.num_scientific(x), String.num_scientific(x / FUEL_AT_CELL)])
 		if x <= 0.0:
@@ -128,13 +109,8 @@ func run_test(_tree: SceneTree) -> bool:
 		prev = x
 		prev_t = t
 
-	# --- 2. IT RUNS AWAY, AND COLD GROUND DOES NOT SMOULDER --------------------------------------------------
-	# Q10 across the pyrolysis regime is the signature of a thermal runaway. From Ea/R = 27664 K, the factor
-	# between 300 C and 310 C is exp(27664*(1/573.15 - 1/583.15)) = 2.3, and between 27 C and 37 C it is 20.
-	# The RANGE is what matters: this reaction spans twenty orders of magnitude over a planet's temperatures,
-	# which is why it needs no switch.
-	var cold: float = _extent(burn, 27.0, FUEL_AT_CELL, O2_AMBIENT)
-	var hot: float = _extent(burn, 427.0, FUEL_AT_CELL, O2_AMBIENT)
+	var cold: float = _extent(burn, 27.0, FUEL_AT_CELL, O2_IN_AIR)
+	var hot: float = _extent(burn, 427.0, FUEL_AT_CELL, O2_IN_AIR)
 	if hot / maxf(cold, 1.0e-300) < 1.0e12:
 		push_error("combustion at 427 C is only %s times its rate at 27 C. A pyrolysis activation energy of "
 			% String.num_scientific(hot / maxf(cold, 1.0e-300))
@@ -149,7 +125,7 @@ func run_test(_tree: SceneTree) -> bool:
 	# ...and in the flaming regime the extent must be reactant-limited, not rate-limited — the cell burns
 	# everything it can reach in one step. That is the runaway having happened. What it CAN reach is the
 	# oxygen above the quench floor, not all of it.
-	var reachable: float = minf(FUEL_AT_CELL, (O2_AMBIENT - quench) / o2_per_fuel)
+	var reachable: float = minf(FUEL_AT_CELL, (O2_IN_AIR - quench) / o2_per_fuel)
 	if hot < reachable * 0.999:
 		push_error("at 427 C combustion is still rate-limited (%s against a reactant cap of %s). "
 			% [String.num_scientific(hot), String.num_scientific(reachable)]
@@ -194,8 +170,8 @@ func run_test(_tree: SceneTree) -> bool:
 	# THE FLOOR MUST BIND WITHIN THE STEP, not only on the next one. A cell with a full charge of ambient air
 	# may burn only the oxygen ABOVE the flammability limit — the difference between a flame landing at a real
 	# wildfire's temperature and one reaching the full stoichiometric adiabatic rise.
-	var burned: float = _extent(burn, 800.0, FUEL_AT_CELL, O2_AMBIENT)
-	var o2_left: float = O2_AMBIENT - burned * o2_per_fuel
+	var burned: float = _extent(burn, 800.0, FUEL_AT_CELL, O2_IN_AIR)
+	var o2_left: float = O2_IN_AIR - burned * o2_per_fuel
 	print("  a full charge of ambient air at 800 C burns %s fuel and leaves o2 %.4f (quench %.4f)"
 		% [String.num_scientific(burned), o2_left, quench])
 	if o2_left < quench - 1.0e-6:
@@ -219,12 +195,25 @@ func run_test(_tree: SceneTree) -> bool:
 			% (d_dry / maxf(d_wet, 1.0e-9)) + "the heat of the same volume of air; if that ratio is gone, so "
 			+ "is the reason wet fuel does not light.")
 		ok = false
-	# And the enthalpy itself is the measured one: the oxygen this record consumes times Huggett's figure.
-	var want_enthalpy: float = o2_per_fuel * LAPhysical.AMBIENT_O2_DENSITY_KG_M3 * LAPhysical.HEAT_PER_KG_OXYGEN_J
-	if absf(enthalpy - want_enthalpy) > 1.0e-6 * want_enthalpy:
-		push_error("combustion's enthalpy is %s J/m3 per unit, expected %s = (the O2 it consumes) x "
+	# Channiwala & Parikh's per-element heating values dotted with CH2O, read through LASubstances.
+	var want_enthalpy: float = LASubstances.ORGANIC_MOL_PER_M3 * (LASubstances.organic_energy_j_mol("C")
+		+ 2.0 * LASubstances.organic_energy_j_mol("H") + 1.0 * LASubstances.organic_energy_j_mol("O"))
+	if absf(enthalpy - want_enthalpy) > 1.0e-6 * absf(want_enthalpy):
+		push_error("combustion's enthalpy at fresh CH2O is %s J/m3 per unit, expected %s = the cell's C:H:O "
 			% [String.num_scientific(enthalpy), String.num_scientific(want_enthalpy)]
-			+ "LAPhysical.HEAT_PER_KG_OXYGEN_J.")
+			+ "dotted with LASubstances.organic_energy_j_mol.")
+		ok = false
+	# Energy density must rise with rank. Anthracite is H:C 0.3, O:C 0.02.
+	var coal_enthalpy: float = float(burn.get("enthalpy_j_m3", 0.0)) \
+		+ 0.3 * float(burn.get("enthalpy_h_j_m3", 0.0)) + 0.02 * float(burn.get("enthalpy_o_j_m3", 0.0))
+	var fresh_mjkg: float = enthalpy / _organic_kg_m3(2.0, 1.0) / 1.0e6
+	var coal_mjkg: float = coal_enthalpy / _organic_kg_m3(0.3, 0.02) / 1.0e6
+	print("  heat of combustion: fresh CH2O litter %.2f MJ/kg, anthracite %.2f MJ/kg" % [fresh_mjkg, coal_mjkg])
+	if coal_mjkg <= fresh_mjkg:
+		push_error("coalified organic matter releases %.2f MJ/kg against fresh litter's %.2f. Driving out H "
+			% [coal_mjkg, fresh_mjkg]
+			+ "and O raises the energy density of what is left; if it does not here, the record is not "
+			+ "reading the cell's composition at all.")
 		ok = false
 
 	if ok:

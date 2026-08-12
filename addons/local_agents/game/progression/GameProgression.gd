@@ -1,24 +1,6 @@
 class_name LAGameProgression
 extends Node
 
-## LAGameProgression: the campaign progression spine. The player starts CONSTRAINED (camera locked near the
-## surface, most spawns hidden, the solar-system view unavailable) and earns EXISTING capabilities by meeting
-## objectives, ending with the solar-system overview as the capstone unlock. It invents no new powers and no
-## bespoke trackers: every objective is a cheap read on a cadence from the sim's own telemetry
-## (LASimReport.snapshot(): population, cognition, herd gauges, phenomenon events), and every reward is an
-## existing capability (camera zoom ceiling, view mode, spawn-palette entry) it simply GATES.
-##
-## Data-driven ladder: `_stages` is a list of LAProgressionStage records (objective metric + threshold +
-## unlock set), evaluated by ONE generic function. Adding a stage is a new record, not a new branch.
-##
-## Modes (read from the GameMode autoload):
-##   - CAMPAIGN, gating on:  begin at the baseline unlock set, complete stages to earn the rest.
-##   - SANDBOX,  gating off: everything unlocked from the start (the same game, no ladder).
-##
-## Access: gating consumers (the camera rig, the view-controls cluster, the spawn palette) QUERY this via the
-## static singleton `LAGameProgression.active()` and listen to `capability_unlocked` / `objective_completed`.
-## When no instance exists (isolated tests, tools), the static fallbacks report everything unlocked so nothing
-## is gated off by accident. Wired into VoxelWorld with one add_child line. (Explicit types only.)
 
 signal capability_unlocked(id: String)
 signal objective_completed(id: String)
@@ -33,10 +15,6 @@ const CHECK_INTERVAL: float = 0.5
 ## Sandbox / no-cap sentinel for the zoom-ceiling query — the camera min()s it against its own hard maximum.
 const ZOOM_MULT_UNBOUNDED: float = 999.0
 
-# Capabilities and zoom ceiling handed to the player before any objective is met (campaign). Sandbox ignores
-# these and unlocks the full set. Baseline = plants + trees, the close orbit + fly views, camera near surface.
-# Campaign opens LOCKED at the close ground view (== VoxelCameraRig.CAMPAIGN_START_DISTANCE_MULT): the player
-# starts face-to-face with the rabbit herd and cannot pull back out until a stage unlock raises the ceiling.
 const BASELINE_ZOOM_MULT: float = 1.2
 const BASELINE_UNLOCKS: PackedStringArray = [
 	"spawn_plant", "spawn_tree", "view_orbit", "view_fly",
@@ -50,9 +28,6 @@ const ALL_SPAWN_KINDS: PackedStringArray = [
 const ALL_VIEWS: PackedStringArray = [
 	"view_orbit", "view_fly", "view_geosync", "view_solar",
 ]
-# Non-spawn, non-view player abilities that are gated the same way. "grab" is the Black & White hand
-# (click-to-carry / throw). Deliberately withheld at the start so the player first learns to shape the world
-# by SPAWNING; it is earned once they've grown a living world (granted by the 'thriving' stage below).
 const ALL_ABILITIES: PackedStringArray = ["grab"]
 
 static var _active: LAGameProgression = null
@@ -98,9 +73,6 @@ func _ready() -> void:
 		_unlock_everything()
 	else:
 		_apply_baseline()
-		# Only RESUME saved progression when actually loading a save (a pending load slot). A genuinely NEW
-		# campaign (start_campaign cleared the slot) stays at BASELINE — otherwise it inherits the previous
-		# campaign's unlocks/stage from the shared global progression.cfg and boots with the gating bypassed.
 		if gm != null and String(gm.pending_load_slot) != "":
 			load_from_disk()
 	LASimReport.register(Callable(self, "report"))
@@ -121,17 +93,8 @@ func _game_mode() -> Object:
 	return tree.root.get_node_or_null("GameMode")
 
 
-# --- The ladder (data, not logic) -------------------------------------------------------------------------
-# Each rung: an objective read from live telemetry, the capabilities it grants, and the zoom ceiling it opens.
-# Chosen so every metric genuinely starts below its threshold and climbs from the sim's own dynamics — a herd
-# forming, the population growing, a bloodline breeding to a third generation, a disaster striking — so the
-# capabilities are earned, not handed over at spawn. Thresholds are tunable data; behaviour is generic.
 func _build_ladder() -> void:
 	_stages = [
-		# Plant vegetation: the player's first act. Needs PLAYER action (baseline spawn_plant/tree are unlocked
-		# from the start), so — unlike a herd metric that a fresh population satisfies instantly — it can't
-		# auto-complete. Reaching the target opens rabbits (which then have food). Pairs with a sparse curated
-		# start area (few initial plants) so `plants` genuinely starts below the threshold.
 		_stage("plant_life", "Plant vegetation so rabbits can feed", "plants", 30.0, 0.0,
 			PackedStringArray(["spawn_rabbit", "spawn_fox", "spawn_fish"]), 2.4),
 		# A thriving world: total living creatures grow past the founding stock (needs births beyond the initial spawn).
@@ -179,8 +142,6 @@ func _unlock_everything() -> void:
 	_zoom_mult = ZOOM_MULT_UNBOUNDED
 	_current = _stages.size()
 
-
-# --- Queries (gating consumers call these) ----------------------------------------------------------------
 
 ## True when capability `cap` is available. Sandbox and the null-instance fallback report everything unlocked.
 func is_unlocked(cap: String) -> bool:
@@ -232,8 +193,6 @@ func current_progress() -> Dictionary:
 		"value": value, "threshold": stage.threshold, "ratio": clampf(value / denom, 0.0, 1.0), "done": false,
 	}
 
-
-# --- Objective evaluation (cadence, not per-frame) --------------------------------------------------------
 
 func _process(delta: float) -> void:
 	if _sandbox or _current >= _stages.size():
@@ -291,8 +250,6 @@ func _read_metric(snapshot: Dictionary, path: String) -> float:
 		return float(cursor)
 	return 0.0
 
-
-# --- Persistence ------------------------------------------------------------------------------------------
 
 ## Snapshot of the progression for the save interface (mode + stage + unlocked set + zoom ceiling).
 func serialize() -> Dictionary:

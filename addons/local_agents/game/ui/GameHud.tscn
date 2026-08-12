@@ -1,0 +1,252 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/ui/GameHud.gd" id="1_gamehud"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 0.0
+content_margin_bottom = 0.0
+bg_color = Color(0.086, 0.098, 0.129, 0.94)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.24, 0.27, 0.33, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+shadow_color = Color(0, 0, 0, 0.35)
+shadow_size = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_sandbox"]
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 0.0
+content_margin_bottom = 0.0
+bg_color = Color(0.086, 0.098, 0.129, 0.72)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.24, 0.27, 0.33, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+shadow_color = Color(0, 0, 0, 0.35)
+shadow_size = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_barbg"]
+bg_color = Color(0.129, 0.145, 0.184, 0.96)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.24, 0.27, 0.33, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_barfill"]
+bg_color = Color(0.33, 0.7, 0.98, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[node name="GameHud" type="CanvasLayer"]
+layer = 96
+script = ExtResource("1_gamehud")
+
+[node name="GameHudRoot" type="Control" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="Objective" type="PanelContainer" parent="GameHudRoot"]
+custom_minimum_size = Vector2(300, 0)
+layout_mode = 1
+anchor_left = 0.5
+anchor_right = 0.5
+offset_top = 104.0
+grow_horizontal = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+
+[node name="Margin" type="MarginContainer" parent="GameHudRoot/Objective"]
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 12
+
+[node name="Col" type="VBoxContainer" parent="GameHudRoot/Objective/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Header" type="HBoxContainer" parent="GameHudRoot/Objective/Margin/Col"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Caption" type="Label" parent="GameHudRoot/Objective/Margin/Col/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.33, 0.7, 0.98, 1)
+theme_override_font_sizes/font_size = 12
+text = "Objective"
+
+[node name="Stage" type="Label" parent="GameHudRoot/Objective/Margin/Col/Header"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 12
+text = "Stage 1 / 4"
+horizontal_alignment = 2
+
+[node name="Title" type="Label" parent="GameHudRoot/Objective/Margin/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.98, 0.99, 1, 1)
+theme_override_font_sizes/font_size = 17
+text = "…"
+horizontal_alignment = 1
+
+[node name="BarRow" type="HBoxContainer" parent="GameHudRoot/Objective/Margin/Col"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Bar" type="ProgressBar" parent="GameHudRoot/Objective/Margin/Col/BarRow"]
+custom_minimum_size = Vector2(240, 10)
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_styles/background = SubResource("StyleBoxFlat_barbg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_barfill")
+max_value = 1.0
+value = 0.0
+show_percentage = false
+
+[node name="Value" type="Label" parent="GameHudRoot/Objective/Margin/Col/BarRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 13
+text = "0 / 0"
+
+[node name="SandboxTag" type="PanelContainer" parent="GameHudRoot"]
+visible = false
+layout_mode = 1
+anchor_left = 0.5
+anchor_right = 0.5
+offset_top = 104.0
+grow_horizontal = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_sandbox")
+
+[node name="Margin" type="MarginContainer" parent="GameHudRoot/SandboxTag"]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 6
+
+[node name="Label" type="Label" parent="GameHudRoot/SandboxTag/Margin"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 13
+text = "Sandbox"
+
+[node name="Summary" type="PanelContainer" parent="GameHudRoot"]
+custom_minimum_size = Vector2(180, 0)
+layout_mode = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_right = -12.0
+offset_top = 168.0
+grow_horizontal = 0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+
+[node name="Margin" type="MarginContainer" parent="GameHudRoot/Summary"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 12
+
+[node name="Col" type="VBoxContainer" parent="GameHudRoot/Summary/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Caption" type="Label" parent="GameHudRoot/Summary/Margin/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.33, 0.7, 0.98, 1)
+theme_override_font_sizes/font_size = 12
+text = "Planet"
+
+[node name="PopulationRow" type="HBoxContainer" parent="GameHudRoot/Summary/Margin/Col"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="Key" type="Label" parent="GameHudRoot/Summary/Margin/Col/PopulationRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 14
+text = "Population"
+
+[node name="Value" type="Label" parent="GameHudRoot/Summary/Margin/Col/PopulationRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.98, 0.99, 1, 1)
+theme_override_font_sizes/font_size = 14
+text = "0"
+horizontal_alignment = 2
+
+[node name="BiomassRow" type="HBoxContainer" parent="GameHudRoot/Summary/Margin/Col"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="Key" type="Label" parent="GameHudRoot/Summary/Margin/Col/BiomassRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 14
+text = "Biomass"
+
+[node name="Value" type="Label" parent="GameHudRoot/Summary/Margin/Col/BiomassRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.98, 0.99, 1, 1)
+theme_override_font_sizes/font_size = 14
+text = "0"
+horizontal_alignment = 2
+
+[node name="BloodlineRow" type="HBoxContainer" parent="GameHudRoot/Summary/Margin/Col"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="Key" type="Label" parent="GameHudRoot/Summary/Margin/Col/BloodlineRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 14
+text = "Bloodline"
+
+[node name="Value" type="Label" parent="GameHudRoot/Summary/Margin/Col/BloodlineRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.98, 0.99, 1, 1)
+theme_override_font_sizes/font_size = 14
+text = "0"
+horizontal_alignment = 2
+
+[node name="Toasts" type="VBoxContainer" parent="GameHudRoot"]
+layout_mode = 1
+anchor_left = 0.5
+anchor_right = 0.5
+offset_top = 210.0
+grow_horizontal = 2
+mouse_filter = 2
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="RefreshTimer" type="Timer" parent="."]
+wait_time = 0.5
+autostart = true

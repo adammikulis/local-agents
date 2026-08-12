@@ -1,16 +1,6 @@
 class_name LASeaIceShaderController
 extends Node
 
-## Owns the emergent sea-ice texture and feeds it to the ocean shell (VoxelWaterSphere.gdshader) so frozen
-## sea reads WHITE from orbit, with polar caps in the cold hemisphere / at the poles and open blue sea in the warm
-## tropics. The ice itself is NOT simulated here: it is the conserved `_snow` channel the generic freeze
-## reaction accumulates on cold static-sea cells (and thaws where warm). All baking lives in the
-## LASeaIceTextureBaker MODULE; this controller is the thin driver + shader glue (VoxelWorld / MaterialField3D
-## / OceanPlane stay extract-only). Sphere-only; a no-op on the flat island (no cubed-sphere sea).
-##
-## Cheap: rebakes on a ~2 Hz cadence off the field's live CPU readback (one O(surf_count) reduction) and pushes
-## ONE small texture the shell samples in place. Disable with the LA_NO_SEAICE env var (open blue sea, no caps)
-## for A/B comparison or a warm-planet look. (Explicit types only, no ':=' inferred typing.)
 
 const SeaIceBakerScript: GDScript = preload("res://addons/local_agents/sim/material/SeaIceTextureBaker.gd")
 

@@ -5,8 +5,8 @@ extends RefCounted
 var _res: int = 0
 var _depth: int = 0
 var _surf: int = 0
-var _core: float = 0.0
-var _cell: float = 0.0
+var _shell_mid: PackedFloat32Array = PackedFloat32Array()   # depth cell-centre radii
+var _shell_face: PackedFloat32Array = PackedFloat32Array()  # depth+1 boundary radii
 var _sea: float = 0.0
 var _cloud_base: float = 0.0
 var _cloud_scan_lo: float = 0.0
@@ -29,8 +29,8 @@ func setup(grid: RefCounted, sea_r: float, fog_max_temp: float, rain_thresh: flo
 	_res = grid.res
 	_depth = grid.depth
 	_surf = grid.surf_count
-	_core = grid.core_radius
-	_cell = grid.cell_size
+	_shell_mid = grid.shell_mid
+	_shell_face = grid.shell_face
 	_sea = sea_r
 	_cloud_base = sea_r + 8.0        # renderer places cloud particles from here up
 	_cloud_scan_lo = sea_r - 8.0     # cloud reduction scans the whole column above ~surface
@@ -64,7 +64,7 @@ func sea_r() -> float:
 	return _sea
 
 func outer_r() -> float:
-	return _core + float(_depth) * _cell
+	return _shell_face[_depth]
 
 
 ## Reduce the field's per-cell condensate over each surface column, then pack the 6-layer texture.
@@ -83,7 +83,7 @@ func bake(moisture: PackedFloat32Array, temp: PackedFloat32Array, snow: PackedFl
 			continue
 		var s: int = i / depth
 		var r: int = i - s * depth
-		var radius: float = _core + (float(r) + 0.5) * _cell
+		var radius: float = _shell_mid[r]
 		var t: float = temp[i]
 		if radius >= _fog_lo and radius <= _fog_hi and t < _smin[s]:
 			_smin[s] = t

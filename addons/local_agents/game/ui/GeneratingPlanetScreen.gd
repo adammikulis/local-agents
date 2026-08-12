@@ -1,11 +1,6 @@
 class_name LAGeneratingPlanetScreen
 extends CanvasLayer
 
-## A full-screen "Generating planet" loading overlay so the player never watches the world ASSEMBLE (terrain
-## streaming in, the camera arc settling, the initial spawn). It covers everything from launch until the world
-## reports ready, then fades out. Built entirely in code (no scene asset); owned by VoxelWorld (a one-line
-## add_child in the composition root). The bar eases forward over the expected load and snaps full the moment
-## the world is actually ready, so it feels responsive and never sits stuck. (Explicit types only.)
 
 const EXPECTED_LOAD_SEC: float = 6.0      # time constant of the bar's ease; real readiness snaps it full
 const FADE_SEC: float = 0.6

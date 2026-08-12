@@ -1,13 +1,7 @@
 class_name LASimReportSources
 extends RefCounted
 
-## Telemetry providers for LASimReport: pull population + cognition aggregates from the live tree at snapshot
-## time (registered once in VoxelWorld, so these scans run only when a report is taken, not per frame). Static
-## + dependency-free of the concrete node types (dynamic access). Each subsystem owns its slice of
-## SIM_REPORT. (Explicit types only.)
 
-
-## Live population / hydration snapshot.
 static func population(w) -> Dictionary:
 	var tree: SceneTree = w.get_tree()
 	var creatures: Array = tree.get_nodes_in_group("creature")
@@ -113,24 +107,7 @@ static func cognition(w) -> Dictionary:
 	for gk in REPORTED_GENES:
 		gene_sum[gk] = 0.0
 	var gene_pop: int = 0
-	# Allometry instrument. Per species: body mass, the realised oxidation rate the substrate granted
-	# (LACreatureRespiration._resp_rate, after the oxygen Liebig cap and the temperature band), and body
-	# temperature. The exponent is fitted across species by ordinary least squares on log(rate) against
-	# log(mass), so the scaling law is an OUTPUT of the run — no exponent is typed in anywhere. A body with
-	# one exchange surface and no vasculature gives Rubner's surface law, 2/3; Kleiber's 3/4 needs a
-	# branching transport network with size-invariant terminal units (West, Brown & Enquist 1997). If a
-	# future change makes the fit tautological, delete the gauge rather than let it measure its own input.
-	# Minimum individuals per species admitted to the capacity fit. Low enough to keep the small end of the
-	# roster in, which is what gives the fit its mass lever arm.
 	const METAB_FIT_MIN_N: int = 3
-	# ALLELE SPLIT — does a gene actually DRIVE anything? For each of the two respiratory loci, creatures are
-	# bucketed by whether they carry an above- or below-median allele, and each bucket reports the metabolic
-	# rate NORMALISED BY mass^(2/3). That normalisation is the point: raw rate is dominated by body size, so
-	# dividing by the surface-scaling term leaves the gene's own contribution visible. If a locus is dead —
-	# which is exactly what `basal_metabolism` and `active_metabolism` were — its two buckets read the same.
-	# The split is the population MEDIAN of each locus, not a fixed constant: a fixed threshold puts the entire
-	# population in one bucket whenever the locus has not drifted past it, which reports "no effect" for a gene
-	# that simply has not varied yet. Collected here, bucketed after the loop.
 	var resp_vals: Array = []
 	var thermo_vals: Array = []
 	var norm_vals: Array = []
@@ -160,10 +137,6 @@ static func cognition(w) -> Dictionary:
 				aversions += 1
 		if bool(c.get("is_male")):
 			males += 1
-		# Same O(N) pass — no extra population scan (big-O discipline).
-		# LAFish shares the cognition stack but is a separate class with its own energy path and no body-temp /
-		# respiration state, so it has no `_resp_rate` to report. Skip it rather than fake a zero, which would
-		# drag the fitted exponent toward nothing.
 		var sp: String = String(c.get("species"))
 		if sp != "" and c.get("_resp_rate") != null:
 			n_by_sp[sp] = int(n_by_sp.get(sp, 0)) + 1
@@ -175,8 +148,6 @@ static func cognition(w) -> Dictionary:
 			var cm: float = LACreatureRespiration.body_mass(c)
 			resp_vals.append(float(c.get("respiratory_capacity")))
 			thermo_vals.append(float(c.get("thermogenesis")))
-			# Normalise the aerobic CAPACITY, not the realised rate: capacity is what the gene acts on, while a
-			# realised rate also carries whether this animal was asleep, fleeing or starving.
 			norm_vals.append(float(c.get("_resp_capacity")) / maxf(pow(cm, 2.0 / 3.0), 1e-6))
 			btemp_vals.append(float(c.get("body_temp")))
 		anim_stride_sum += int(c.get("_anim_stride"))
@@ -199,10 +170,6 @@ static func cognition(w) -> Dictionary:
 	if gene_pop > 0:
 		for gk in REPORTED_GENES:
 			genes[gk] = snappedf(gene_sum[gk] / float(gene_pop), 0.001)
-	# Fit log(rate) = a + b*log(mass) across the species present. `b` IS the emergent metabolic scaling
-	# exponent: 1.0 would mean rate tracks mass (no allometry at all, which is what this simulation did before
-	# — a fox and a mouse burned the same), 2/3 is Rubner's surface law, 3/4 is Kleiber's. Species with a dead
-	# or unmeasured rate are skipped so a torpid outlier cannot fake a slope.
 	var metab: Dictionary = {}
 	var sx: float = 0.0
 	var sy: float = 0.0
@@ -258,14 +225,6 @@ static func cognition(w) -> Dictionary:
 	}
 
 
-## Split the population at a locus's MEDIAN and report what each half's metabolism looks like. Returns the
-## two bucket means plus the ratio between them, which is the number that answers "does this gene do
-## anything": 1.00 means the locus is inert, anything else means it reaches behaviour.
-##
-## `norm_rate` is the metabolic rate divided by mass^(2/3) — body size divided out, so what is left is the
-## allele's own contribution rather than the fact that big animals burn more. This is the measurement
-## `basal_metabolism` and `active_metabolism` would have failed for their entire existence: they were declared,
-## encoded, expressed, and read by nothing, so their two halves were bound to be identical.
 static func _allele_split(gene: Array, norm: Array, btemp: Array) -> Dictionary:
 	var n: int = gene.size()
 	if n < 4:

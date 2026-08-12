@@ -1,32 +1,12 @@
 extends Control
 class_name LADemoLauncher
 
-## The friendly front door: every demo, simplest first, each with an Open button.
-##
-## The list is not in this file. It is scanned from `examples/demos/*.tres`, one LocalAgentDemoEntry
-## per demo, following the `creatures/species/*.json` precedent. Drop a resource in the directory and
-## a row appears, so adding a demo needs no GDScript edit. Each entry holds a `res://` path
-## rather than a PackedScene, so painting the menu costs one file check per row instead of loading
-## every demo scene. A renamed scene is caught by scripts/check_demo_catalog.sh, which fails the
-## build rather than leaving a button labelled "Missing".
-##
-## Rows are still built in code, deliberately: their number and their enabled or disabled state
-## depend on what is installed on this machine, which a .tscn cannot express. The scene owns the
-## shell (title, subtitle, status label, scroll, %ListBox) and this script owns only the dynamic
-## part.
-##
-## (Explicit types only. The project rule bans ':=' inferred typing.)
 
 const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
 
 ## Every .tres directly in here is a catalogue entry. scripts/check_demo_catalog.sh keeps it honest.
 const CATALOG_DIR: String = "res://addons/local_agents/examples/demos"
 
-## Pass this after `--` to print the catalogue as JSON and quit, instead of sitting there as a UI:
-##   godot --headless addons/local_agents/examples/DemoLauncher.tscn -- --catalog-report
-## A launcher cannot be clicked headless, so this is how a run proves the rows really were built and
-## which ones this machine can actually open. scripts/check_demo_catalog.sh answers the static half
-## of the same question (is the catalogue well-formed) by reading the .tres files as text.
 const REPORT_FLAG: String = "--catalog-report"
 
 @export_group("Row colours")
@@ -98,10 +78,6 @@ static func gate_reason(entry: LocalAgentDemoEntry, state: Dictionary) -> String
 		var blockers: PackedStringArray = state["blockers"]
 		if blockers.is_empty():
 			return ""
-		# BLOCK_MODEL_NOT_LOADED is not a reason to stop anyone opening a demo. The weights are on
-		# disk and the demo loads them itself. It is also only ever the last blocker: check() appends
-		# it in the `elif` arm of the model test, after the extension and autoload checks, so any
-		# genuinely hard blocker is blockers[0] and `next_step` is already the right sentence for it.
 		if blockers[0] == Status.BLOCK_MODEL_NOT_LOADED:
 			return ""
 		return String(state["next_step"])

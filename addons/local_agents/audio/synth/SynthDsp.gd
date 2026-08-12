@@ -2,16 +2,9 @@
 extends RefCounted
 class_name LocalAgentSynthDsp
 
-## Pure, stateless DSP primitives for procedural audio synthesis.
-##
-## Everything here operates on mono float buffers (`PackedFloat32Array`, samples in
-## roughly [-1, 1]) so it is trivially unit-testable without audio hardware. Higher
-## layers (SynthVoice / SfxBank / MusicDirector) compose these into cached
-## `AudioStreamWAV` resources. No node, no engine state, no global RNG.
 
 const TAU_F := TAU
 
-# --- Oscillators (phase is a running value in turns; only the fractional part matters) ---
 
 static func osc_sine(phase: float) -> float:
 	return sin(phase * TAU_F)
@@ -63,7 +56,6 @@ static func render_osc(
 		phase += freq * inv_sr
 	return out
 
-# --- Noise ---
 
 ## White noise buffer driven by a caller-owned seeded RNG (keeps determinism).
 static func render_white_noise(n_samples: int, rng: RandomNumberGenerator) -> PackedFloat32Array:
@@ -100,7 +92,6 @@ static func render_pink_noise(n_samples: int, rng: RandomNumberGenerator) -> Pac
 		out[i] = pink * 0.11
 	return out
 
-# --- Envelope ---
 
 ## Build an ADSR gain curve of `n_samples`. `sustain` is the sustain level (0..1);
 ## attack/decay/release are seconds. The sustain segment fills whatever time is left
@@ -142,7 +133,6 @@ static func adsr_envelope(
 		env[i] = clampf(g, 0.0, 1.0)
 	return env
 
-# --- Biquad filters (RBJ cookbook) ---
 
 ## Process `buffer` in place through a biquad given raw (un-normalized) coefficients.
 static func _biquad_process(
@@ -201,7 +191,6 @@ static func apply_filter(buffer: PackedFloat32Array, sample_rate: int, filter_ty
 		_:
 			pass
 
-# --- Buffer utilities ---
 
 ## In-place per-sample multiply by a same-length gain curve (e.g. an envelope).
 static func apply_gain_curve(buffer: PackedFloat32Array, curve: PackedFloat32Array) -> void:
@@ -242,7 +231,6 @@ static func rms(buffer: PackedFloat32Array) -> float:
 		acc += buffer[i] * buffer[i]
 	return sqrt(acc / float(buffer.size()))
 
-# --- PCM export ---
 
 ## Convert a mono float buffer to a 16-bit PCM `AudioStreamWAV`. When `loop` is
 ## true the whole buffer loops forward (used for sustained music drones).

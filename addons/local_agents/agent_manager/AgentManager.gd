@@ -57,8 +57,6 @@ func _ensure_config_list() -> void:
         config_list = ResourceLoader.load(CONFIG_LIST_SEED_PATH)
         seeded_from_default = true
     if config_list == null:
-        # An existing user file that will not load. Falling through to a blank list would silently
-        # discard every saved model and inference config, so copy it aside and warn.
         if had_user_file:
             var salvage_path: String = "%s.unreadable" % USER_CONFIG_LIST_PATH
             if DirAccess.copy_absolute(
@@ -107,16 +105,6 @@ func apply_model_config(params: LocalAgentModelProfile) -> void:
         _save_config_list()
         emit_signal("configs_updated")
 
-# A model profile carries LOAD-time knobs (context window, threads, GPU layers, system prompt)
-# rather than agent behaviour, so it goes in the agent's `load_options` slot.
-#
-# It deliberately does NOT go in `inference_options`: Agent.configure(null, preset) REPLACES that
-# Dictionary wholesale, and both callers apply the profile BEFORE the inference config, so every
-# profile value was being dropped the moment a sampling preset was applied. Two separate slots make
-# the ordering irrelevant instead of load-bearing.
-#
-# NOTE: profile.model_path is NOT injected here — which weights load is owned by
-# LocalAgentStatus.resolve_model_path(), and ensure_running() takes the path as its own argument.
 func _apply_model_profile(params: LocalAgentModelProfile) -> void:
     if agent == null or params == null:
         return

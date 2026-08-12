@@ -1,16 +1,6 @@
 class_name LASimSettingsSection
 extends RefCounted
 
-## LASimSettingsSection: the SIMULATION / AI (CPU-bound) category of the settings screen, kept SEPARATE
-## from the GPU graphics category so a player can raise world detail without paying GPU cost, or vice versa.
-## It draws its own four-step overall preset row (Low / Medium / High / Ultra) plus the individual CPU knobs
-## those presets map to: creature population budget, AI/cognition tick rate, LLM call cadence and field
-## update cadence. Picking a preset sets every knob; nudging any individual knob re-derives the preset
-## (falling to "Custom" when the knobs do not match). Every control carries a tooltip naming what it
-## affects and that the cost is on the CPU. Numeric knobs show a live value readout.
-##
-## It edits an LAGameSettings in place and calls `on_changed` after every edit. Built from LASettingsWidgets
-## so it shares the menu's control styling. (Explicit types only, no ':=' inferred typing.)
 
 const CUSTOM_LABEL: String = "Custom (individual settings)"
 
@@ -51,7 +41,6 @@ func build(col: VBoxContainer) -> void:
 	_preset_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	col.add_child(_preset_caption)
 
-	# --- Individual CPU knobs ---
 	var pop: Dictionary = LASettingsWidgets.add_slider(col, "Population budget",
 		"Maximum concurrent creatures. Every creature runs cognition and movement. CPU cost: high.",
 		20.0, 480.0, 10.0, float(_settings.actor_budget), Callable(self, "_fmt_int"), Callable(self, "_on_pop"))

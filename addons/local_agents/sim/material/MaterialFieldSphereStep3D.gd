@@ -3,54 +3,43 @@ extends RefCounted
 
 ## LAMaterialFieldSphereStep3D: the cubed-sphere per-frame STEP ORCHESTRATION of LAMaterialField3D,
 
-# Sim-clock seconds banked per field step (accumulator cadence, not simulated time).
+# Fixed-step cadence — mirrors the field's own constants so the loop is self-contained.
 const STEP_DT: float = 1.0 / 10.0
 const MAX_STEPS_PER_FRAME: int = 2
 const FIELD_CADENCE_MAX: int = 60                       # clamp for the published Sim knob (avoid absurd skips)
 
-# Simulated seconds ONE field step represents. Fixed quantum; declared in docs/MODEL_PARAMETERS.md.
-# Every derived rate in the substrate scales by this and by nothing else — the day length is DERIVED from it
-# below, not an input to it. Gated by scripts/check_step_quantum.sh.
-const SIM_SECONDS_PER_STEP: float = 43.2
-
-## Simulated seconds one field step represents.
+## Real seconds ONE field step represents.
 static func real_seconds_per_step() -> float:
-	return SIM_SECONDS_PER_STEP
-
-
-## Simulated seconds per sim-clock second.
-static func real_seconds_per_sim_second() -> float:
-	return SIM_SECONDS_PER_STEP / STEP_DT
-
-
-## Planet rotation period, seconds.
-static func rotation_period_s() -> float:
-	return TAU / LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S
-
-
-## Field steps in one rotation. Rises when the planet spins slower; the per-step chemistry does not move.
-static func steps_per_rotation() -> float:
-	return rotation_period_s() / SIM_SECONDS_PER_STEP
-
-
-## Sim-clock seconds in one rotation. The sim clock's day is this and nothing else.
-static func day_length_sim_seconds() -> float:
-	return steps_per_rotation() * STEP_DT
+	return STEP_DT * LASimClock.REAL_SECONDS_PER_SIM_SECOND
 
 const LakesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLakes3D.gd")
 const SoilBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd")
+const H2OBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldH2OBudget3D.gd")
 const MineralProfileScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd")
-const AttributionScript: GDScript = preload("res://addons/local_agents/sim/material/FieldPassAttribution3D.gd")
+const MineralProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProbe3D.gd")
+const EnergyProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyProbe3D.gd")
+const ElementProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldElementProbe3D.gd")
 
 var _f = null                                          # back-reference to the owning LAMaterialField3D
 var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
 # Per-leg groundwater budget probe (LA_SOIL_BUDGET). Owned here rather than on the field because it is a
 # STEP diagnostic: it needs a hook that fires once per GPU step, which is this loop and nowhere else.
 var _soil_budget = null
+# Per-pass H₂O budget probe (LA_H2O_BUDGET). Owned here for the same reason as the soil budget: it needs a hook
+# on BOTH sides of the GPU step (pre_step arms the driver's between-pass probe, post_step prints), and this loop
+# is the only place that has one.
+var _h2o_budget = null
 var _mineral_profile = null
-# Per-pass attribution for one conserved substance. Owned here for the same reason as the soil budget: it
-# needs a hook on BOTH sides of the GPU step, and this loop is the only place that has one.
-var _attribution = null
+# Per-pass MINERAL budget probe (LA_MINERAL_BUDGET) — the same instrument for the five rock phases. It uses the
+# driver's ONE `set_step_probe` slot, so it and the H₂O probe are mutually exclusive; setup() warns and keeps
+# this one when both variables are present, rather than letting one silently take every checkpoint.
+var _mineral_probe = null
+var _energy_probe = null
+# LA_ELEMENT_BUDGET=<element>: per-pass attribution for an element, in moles.
+var _element_probe = null
+# LA_PASS_PROBE=<channel>: totals one channel after every pass for the first few steps. Lowest precedence of
+# the step-probe contenders, so it never displaces a ledger someone armed deliberately.
+var _pass_probe = null
 
 var _sim_s: float = 0.0
 var _offer_s: float = 0.0
@@ -61,23 +50,38 @@ func _armed(name: String) -> bool:
 
 
 func setup(field) -> void:
+	_pass_probe = load("res://addons/local_agents/sim/material/MaterialFieldPassProbe3D.gd").new()
+	_pass_probe.setup(field)
 	_f = field
 	if _armed("LA_SOIL_BUDGET"):
 		_soil_budget = SoilBudgetScript.new()
 		_soil_budget.setup(field)
-	# The driver has exactly ONE `set_step_probe` slot and three substances want it. Arming two would give one
-	# of them every checkpoint and the other none, silently, so this picks by the records' declared precedence
-	# and says which one it ran.
+	# THE DRIVER HAS EXACTLY ONE `set_step_probe` SLOT and four probes want it. Arming two would give one of
+	# them every checkpoint and the other none, silently, so this picks by a DECLARED precedence and says which
+	# one it kept.
+	var slot_order: Array = [
+		["LA_MINERAL_BUDGET", MineralProbeScript],
+		["LA_H2O_BUDGET", H2OBudgetScript],
+		["LA_ENERGY_BUDGET", EnergyProbeScript],
+		["LA_ELEMENT_BUDGET", ElementProbeScript]]
 	var slot_armed: PackedStringArray = PackedStringArray()
-	for name in LAFieldAttributionRecords.ORDER:
-		if _armed(name):
-			slot_armed.append(name)
+	for entry in slot_order:
+		if _armed(entry[0]):
+			slot_armed.append(entry[0])
 	if slot_armed.size() > 1:
 		push_warning("%s all set — they share the driver's single step probe. Running %s only; unset it to "
 			% [", ".join(slot_armed), slot_armed[0]] + "get one of the others.")
 	if slot_armed.size() > 0:
-		_attribution = AttributionScript.new()
-		_attribution.setup(field, LAFieldAttributionRecords.of(slot_armed[0]))
+		for entry in slot_order:
+			if entry[0] != slot_armed[0]:
+				continue
+			var probe_obj = entry[1].new()
+			probe_obj.setup(field)
+			match entry[0]:
+				"LA_MINERAL_BUDGET": _mineral_probe = probe_obj
+				"LA_H2O_BUDGET": _h2o_budget = probe_obj
+				"LA_ENERGY_BUDGET": _energy_probe = probe_obj
+				"LA_ELEMENT_BUDGET": _element_probe = probe_obj
 	if _armed("LA_MINERAL_PROFILE"):
 		_mineral_profile = MineralProfileScript.new()
 		_mineral_profile.setup(field)
@@ -100,6 +104,8 @@ func process(delta: float) -> void:
 		_f._seed_sphere_sea()         # fills the ocean basin with real, flowing water
 		_f._compute_regolith()        # the permeable aquifer band (+ initial water table) for groundwater flow
 		LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins (static water bodies)
+		if _f._geotherm != null:
+			_f._geotherm.arm(LAPhysical.INNER_CORE_C)   # the interior's heat, declared through the seal
 		_f.activate()                 # is_sphere() → picks SphereGPUScript + sets _use_gpu
 		_f._ready_sim = true
 		return
@@ -154,15 +160,37 @@ func process(delta: float) -> void:
 		_f._gpu.set_spin_axis(_f.dir_to_field(_f._body.spin_axis() if _f._body.has_method("spin_axis") else Vector3.UP))
 	if _f._terrain != null and _f._terrain.has_method("sea_radius") and _f._gpu.has_method("set_sea_radius"):
 		_f._gpu.set_sea_radius(_f._terrain.sea_radius())
-	# Bootstrap fuel + detritus: the ONLY whole-mirror uploads left, and seed_field refuses them past step 0.
-	# Every other channel's CPU edits (shock, charge, scent, rock_fill) are queued sparse ops now — see the
-	# seed_field header for why a mirror upload at step time is observer-dependent rather than merely stale.
-	if _f._fuel_dirty and _f._gpu.has_method("seed_field"):
-		_f._gpu.seed_field("fuel", _f._fuel)
+	if _f._lava_dirty and _f._gpu.has_method("set_field"):
+		_f._gpu.set_field("lava", _f._lava)
+		_f._lava_dirty = false
+	if _f._rock_fill_dirty and _f._gpu.has_method("set_field"):
+		_f._gpu.set_field("rock_fill", _f._rock_fill)
+		_f._rock_fill_dirty = false
+	# Substrate-foundation local injections (dirty-gated, mirror lava): emit_shock/add_charge/add_vapor
+	# edited the CPU channel this frame → push it into the GPU before the step so the kernel evolves it.
+	if _f._shock_dirty and _f._gpu.has_method("set_field"):
+		_f._gpu.set_field("shock", _f._shock)
+		_f._shock_dirty = false
+	# Scent is a 5-plane packed channel; deposit() seeded a plane on the CPU this frame → push it before the step.
+	if _f._scent_dirty and _f._gpu.has_method("set_field"):
+		_f._gpu.set_field("scent", _f._scent)
+		_f._scent_dirty = false
+	# Combustion fuel seeded/refilled on the CPU (surface seed module) → push it into the GPU fuel buffer so the
+	# fire kernel (which gates on fuel > 0) can ignite + consume it. Dirty-gated: else fuel stays GPU-resident.
+	if _f._fuel_dirty and _f._gpu.has_method("set_field"):
+		_f._gpu.set_field("fuel", _f._fuel)
 		_f._fuel_dirty = false
+	# One-shot: push the initial soil detritus seed into the GPU before the first step so the decomposer has
+	# substrate from frame 0. Cleared immediately so the GPU-evolved detritus (respiration/decompose) is never clobbered.
 	if _f._detritus_seed_dirty and _f._gpu.has_method("seed_field"):
-		_f._gpu.seed_field("detritus", _f._detritus)
+		_f._gpu.seed_field("detritus", _f._detritus, _f._seal)
 		_f._detritus_seed_dirty = false
+	# ...and the C:H:O of that seeded litter, in the same one-shot. Seeding carbon without its hydrogen and
+	# oxygen would start every cell at the anthracite end of the spectrum instead of the fresh end.
+	if _f._organic_seed_dirty and _f._gpu.has_method("seed_field"):
+		_f._gpu.seed_field("org_h", _f._org_h, _f._seal)
+		_f._gpu.seed_field("org_o", _f._org_o, _f._seal)
+		_f._organic_seed_dirty = false
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		if OS.has_environment("LA_INJECT_AUDIT"):
 			# Diagnostic: how far the CPU mirror has drifted from the live buffer right now == exactly the mass
@@ -170,17 +198,30 @@ func process(delta: float) -> void:
 			_f._inject.queue.audit_rewind(_f._gpu, "moisture", _f._moisture)
 		_f._inject.queue.flush(_f._gpu)
 	var t_step: int = Time.get_ticks_usec()
+	# At most one budget probe is ever non-null (setup() enforces it), so this stays one branch, not a nest.
+	# Untyped like every other duck-typed module handle in this file.
+	var probe = _h2o_budget if _h2o_budget != null else _mineral_probe
+	if probe == null:
+		probe = _energy_probe
+	if probe == null:
+		probe = _element_probe
+	if probe == null and _pass_probe != null and _pass_probe.armed():
+		probe = _pass_probe
 	for i in steps:
-		if _attribution != null:
-			_attribution.pre_step()   # arm/disarm the driver's between-pass probe for THIS step
+		if probe != null:
+			probe.pre_step()          # arm/disarm the driver's between-pass probe for THIS step
 			_f._gpu.step()
-			_attribution.post_step()  # print the per-pass budget (no-op on unsampled steps)
+			probe.post_step()         # print the per-pass budget (no-op on unsampled steps)
 		else:
 			_f._gpu.step()
 	LASimReport.gauge("field_dispatch_ms", float(Time.get_ticks_usec() - t_step) / 1000.0)
 	var res: Dictionary = _f._gpu.end_frame()
 	var t_post: int = Time.get_ticks_usec()
 	_apply_readback(res)
+	# Seal on the field clock, never the report clock: poll() both closes the books and latches every
+	# conservation baseline on that step, so no baseline depends on the 64-frame gauge cadence.
+	if _f._seal != null and _f._gpu.has_method("take_probe"):
+		_f._seal.poll(_f._gpu.take_probe())
 	# Surface seed module: coarse-cadence refill of fuel from the freshly read-back biomass (marks _fuel_dirty).
 	if _f._surface_seed != null:
 		_f._surface_seed.post_readback()
@@ -223,11 +264,13 @@ func _apply_readback(res: Dictionary) -> void:
 	# velocity field (wind3_at/wind_at read a real force instead of ZERO).
 	if res.has("shock") and res["shock"].size() == n: _f._shock = res["shock"]
 	if res.has("charge") and res["charge"].size() == n: _f._charge = res["charge"]
+	# Scent is the 5-plane packed buffer (SCENT_CHANNELS * n) — scatter it back so senses smell live gradients.
+	if res.has("scent") and res["scent"].size() == LAMaterialField3D.SCENT_CHANNELS * n: _f._scent = res["scent"]
 	if res.has("vel_x") and res["vel_x"].size() == n: _f._vel_x = res["vel_x"]
 	if res.has("vel_y") and res["vel_y"].size() == n: _f._vel_y = res["vel_y"]
 	if res.has("vel_z") and res["vel_z"].size() == n: _f._vel_z = res["vel_z"]
 	# Hydrostatic column pressure — demand-gated (LAMaterialFieldEnergyBudget3D requests it to mirror the solar
 	if res.has("pressure") and res["pressure"].size() == n: _f._pressure = res["pressure"]
-	# Decomposer loop channels — demand-gated (LAMaterialFieldLedger3D requests them for the carbon
+	# Decomposer loop channels — demand-gated (LAMaterialFieldElementInventory3D requests them for the carbon
 	if res.has("detritus") and res["detritus"].size() == n: _f._detritus = res["detritus"]
 	if res.has("fungus") and res["fungus"].size() == n: _f._fungus = res["fungus"]

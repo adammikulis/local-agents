@@ -1,13 +1,7 @@
 class_name LACreatureSenses
 extends RefCounted
 
-## Perception queries for LocalAgentCreature, factored out of the main brain. All functions are
-## static and take the creature `c`. They read its senses (sense_radius, night _sense_mult,
-## size, injected _scent, preys_on) and scan the scene groups. Kept dependency-free of the
-## LocalAgentCreature type (dynamic access + inlined group names/constants) so there is no cyclic
-## class reference. (Explicit types only, no ':=' inferred typing.)
 
-# Mirrors LocalAgentCreature.PREDATOR_SIZE_RATIO — flee hunters at least this many times my size.
 const PREDATOR_SIZE_RATIO: float = 1.2
 
 # One spatial hash shared by every creature's sense queries; lazily built and rebuilt at most once per
@@ -81,11 +75,6 @@ static func nearest_larger_predator(c, pos: Vector3) -> Node3D:
 	return best
 
 
-## Nearest edible plant (group "plant") within forage range — the herbivore food-seek target, mirroring
-## nearest_rock / nearest_of. Filters to plants edible RIGHT NOW (a grazed-down plant recovers before it is
-## worth the trip, per Plant.is_edible), so a hungry grazer heads for real food. Uses the shared O(N) spatial
-## index (no O(n²) scan). Returns null if none in range. This is what lets a herbivore REACH the plants around
-## it instead of only eating what it randomly bumps into (the fix for herbivores starving amid full pastures).
 static func nearest_plant(c, pos: Vector3) -> Node3D:
 	var best: Node3D = null
 	var best_d: float = c.sense_radius * 2.5

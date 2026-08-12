@@ -1,10 +1,6 @@
 class_name LAStreamerPersonas
 extends RefCounted
 
-## Selectable personality system prompts for the corner streamer/commentator. Pure data: the director
-## picks ONE entry's `system` string per LLM request and appends the shared formatting RULES. Adding a
-## personality is adding a row here, never a branch elsewhere (config-over-code, per emergent-everything).
-## (Explicit types only, no ':=' inferred typing.)
 
 const DEFAULT_ID: String = "hype"
 

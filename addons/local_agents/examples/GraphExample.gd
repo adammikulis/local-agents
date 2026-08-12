@@ -1,20 +1,7 @@
 extends Node
 class_name LAGraphExample
 
-## Prints the contents of a LocalAgentGraph into a Label, so you can see what a graph resource holds.
-##
-## The graph itself is not built here. It is a sub-resource of GraphExample.tscn: select the root
-## node, open Graph in the inspector, and the four nodes and two edges are right there to edit. That
-## is the point. A graph is data you author, not code you run.
-##
-## Nothing in this file writes to a resource — res:// is read-only in an exported build.
-##
-## Needs no model and no runtime, because a graph is plain data.
-##
-## (Explicit types only. The project rule bans ':=' inferred typing.)
 
-## The graph to display. Authored as a sub-resource inside this scene. Point it at a .tres instead if
-## you want one graph shared between scenes.
 @export var graph: LocalAgentGraph = null
 
 @onready var _output_label: Label = %OutputLabel

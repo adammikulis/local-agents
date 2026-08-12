@@ -33,6 +33,7 @@ func seed_initial() -> void:
 	if nbr.size() < _f._cell_count * 6:
 		return
 	var has_detritus: bool = _f._detritus.size() == _f._cell_count
+	var has_org: bool = _f._org_h.size() == _f._cell_count and _f._org_o.size() == _f._cell_count
 	var fuel_share: float = BASELINE_DETRITUS * LITTER_FLAMMABLE_FRAC
 	for c in _f._cell_count:
 		if _f._solid[c] != 0:
@@ -43,8 +44,14 @@ func seed_initial() -> void:
 			_seeded_fuel += fuel_share
 			if has_detritus:
 				_f._detritus[c] = maxf(_f._detritus[c], BASELINE_DETRITUS)
+			# Seeded litter is FRESH: CH2O, so 2 H and 1 O per carbon over the whole dead pool in this cell.
+			if has_org:
+				var pool: float = _f._fuel[c] + (_f._detritus[c] if has_detritus else 0.0)
+				_f._org_h[c] = pool * LASubstances.fresh_litter_per_carbon("H")
+				_f._org_o[c] = pool * LASubstances.fresh_litter_per_carbon("O")
 	_f._fuel_dirty = true
 	_f._detritus_seed_dirty = has_detritus
+	_f._organic_seed_dirty = has_org
 
 
 func post_readback() -> void:

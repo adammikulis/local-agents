@@ -1,0 +1,47 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/ui/DebugPanel.gd" id="1_debugpanel"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_debugpanel"]
+content_margin_left = 8.0
+content_margin_top = 8.0
+content_margin_right = 8.0
+content_margin_bottom = 8.0
+bg_color = Color(0.08, 0.09, 0.11, 0.82)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[node name="DebugPanel" type="CanvasLayer"]
+layer = 50
+script = ExtResource("1_debugpanel")
+
+[node name="Panel" type="PanelContainer" parent="."]
+custom_minimum_size = Vector2(172, 0)
+offset_left = 10.0
+offset_top = 120.0
+offset_right = 10.0
+offset_bottom = 120.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_debugpanel")
+
+[node name="Col" type="VBoxContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="Header" type="Button" parent="Panel/Col"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "▾  DEBUG"
+flat = true
+alignment = 0
+
+[node name="Scroll" type="ScrollContainer" parent="Panel/Col"]
+custom_minimum_size = Vector2(0, 460)
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="Body" type="VBoxContainer" parent="Panel/Col/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2

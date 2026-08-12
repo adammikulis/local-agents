@@ -20,9 +20,31 @@ const MAGNUS_C_C: float = 243.04
 # Turns that pressure into a DENSITY through the ideal gas law: rho_v = e / (R_v * T_K).
 const VAPOUR_GAS_CONST_J_KGK: float = 461.52
 
-# --- THUNDERSTORM CHARGE SEPARATION -----------------------------------------------------------------------
+# --- ELECTROSTATICS ---------------------------------------------------------------------------------------
+const VACUUM_PERMITTIVITY_F_M: float = 8.8541878128e-12   # CODATA eps0
+
+# --- THUNDERSTORM CHARGE SEPARATION -------------------------------------------------------------------------
+# Non-inductive graupel/ice riming charges only between these two temperatures (Takahashi 1978,
+# Saunders & Peck 1998); outside the band the sign reverses or the mechanism stops.
 const CHARGE_ZONE_WARM_C: float = -10.0
 const CHARGE_ZONE_COLD_C: float = -25.0
+# Volumetric charge separation rate in the mixed-phase zone at full drive, C/m^3/s. Lab-constrained NIC
+# parameterisations put the charging zone at 0.1-1 nC/m^3/s; this is the top of that range.
+const NIC_CHARGE_RATE_C_M3_S: float = 1.0e-9
+# The two drivers the rate saturates against: a mature convective updraft, and the cloud liquid water
+# content above which the riming rate stops climbing.
+const CONVECTIVE_UPDRAFT_M_S: float = 10.0
+const CHARGING_LWC_KG_M3: float = 1.0e-3
+# Air conductivity. Charge relaxes ohmically with time constant eps0/sigma, so these ARE the leak: ~885 s
+# inside cloud (droplets and ice scavenge the small ions that carry the current), ~89 s in clear air.
+const CLOUD_CONDUCTIVITY_S_M: float = 1.0e-14
+const CLEAR_AIR_CONDUCTIVITY_S_M: float = 1.0e-13
+# Relativistic runaway electron avalanche threshold at sea-level air density (Dwyer 2003, GRL 30:2055).
+# Scales with air density, so it is ~5x lower at 10 km than at the ground; conventional 3 MV/m breakdown
+# is never reached in a storm and is not what initiates a flash.
+const RREA_THRESHOLD_V_M: float = 2.84e5
+# Horizontal extent a return stroke neutralises (Rakov & Uman 2003, ch. 3).
+const LIGHTNING_NEUTRALISED_RADIUS_M: float = 3000.0
 
 # --- ROCK / MAGMA -----------------------------------------------------------------------------------------
 const BASALT_LIQUIDUS_C: float = 1200.0
@@ -82,14 +104,14 @@ const ALBEDO_OCEAN: float = 0.06
 const ALBEDO_BARE_GROUND: float = 0.15
 const ALBEDO_SNOW_ICE: float = 0.65
 
-# --- COMBUSTION -------------------------------------------------------------------------------------------
-
-# BURN_TEMP = 640 — every burning cell on the planet was HELD at one temperature, so a fire in a swamp and a
-const HEAT_PER_KG_OXYGEN_J: float = 1.31e7
-
-# 1.18 kg/m³ — the same density VOL_HEAT_CAP_AIR_J_M3K above is built from, so the two agree by construction.
+# O2 mass fraction of dry air, and the O2 mass density of ambient air, kg/m^3.
 const AIR_O2_MASS_FRACTION: float = 0.2314
 const AMBIENT_O2_DENSITY_KG_M3: float = 0.2731
+
+# --- COMBUSTION -------------------------------------------------------------------------------------------
+# Heat released per kg of O2 consumed, J/kg. Near-constant across hydrocarbon and carbohydrate fuels
+# (Huggett 1980, Fire and Materials 4:61).
+const HEAT_PER_KG_OXYGEN_J: float = 1.31e7
 
 
 # --- GROUNDWATER: PERMEABILITY IS GEOMETRY, NOT A MATERIAL NAME ---------------------------------------------
@@ -139,12 +161,10 @@ const ANIMAL_TISSUE_DENSITY_KG_M3: float = 1000.0
 
 const PROTEIN_DENATURE_C: float = 45.0
 
-# of combustion: carbohydrate 16.7 MJ/kg (Atwater, 4 kcal/g), cellulose 17.5, dry cellulosic fuel 18-19
-# (higher because of lignin), fat 39, protein 17. 17 MJ/kg is the carbohydrate value and the one the
-# material is; the 1 MJ/kg difference is inside the measurement spread for plant matter either way.
+# Heat of combustion of plant matter, J/kg — the carbohydrate value (Atwater, 4 kcal/g).
 const BIOMASS_HEAT_OF_COMBUSTION_J_PER_KG: float = 1.7e7
 
-# Specific heat of animal tissue, mostly water; J/kg/K against water's 4184.
+# Specific heat of animal tissue, J/kg/K.
 const ANIMAL_SPECIFIC_HEAT_J_KGK: float = 3500.0
 # --- UNIVERSAL CONSTANTS ------------------------------------------------------------------------------------
 const STANDARD_GRAVITY_M_S2: float = 9.80665        # CGPM-defined standard gravity
@@ -174,14 +194,27 @@ const MOLAR_MASS_CACO3_KG_MOL: float = 0.1000872     # CaCO3   40.078 + 12.011 +
 const QUARTZ_DENSITY_KG_M3: float = 2650.0           # alpha-quartz, 2.65 g/cm^3
 const CALCITE_DENSITY_KG_M3: float = 2710.0          # calcite, 2.71 g/cm^3
 
-# --- METAMORPHIC DECARBONATION: THE RETURN LEG OF THE CARBON CYCLE ------------------------------------------
-# enthalpies and entropies of the four phases (Robie & Hemingway; CODATA for CO2):
-#   dH = (-1634.9 - 393.51) - (-1207.6 - 910.7) = +89.89 kJ/mol
-#   dS = ( 81.69 + 213.79) - (  91.7 +  41.46) = +162.32 J/mol/K
-#   T_eq = 89890 / 162.32 = 553.8 K = 280.7 C
-const CALCITE_QUARTZ_DECARB_ENTHALPY_J_MOL: float = 89890.0
-const CALCITE_QUARTZ_DECARB_ENTROPY_J_MOL_K: float = 162.32
-const DECARBONATION_TEMP_C: float = 280.7     # 89890 / 162.32 - 273.15
+# --- STANDARD-STATE THERMOCHEMISTRY, 298.15 K and 1 bar (Robie & Hemingway 1995; CODATA for CO2) -------------
+# Formation enthalpy from the elements and standard molar entropy, per substance. A reaction's dG is derived
+# from these over its own stoichiometry — LAReactionThermo — so no reaction carries a direction constant.
+const FORMATION_ENTHALPY_CASIO3_J_MOL: float = -1634900.0   # wollastonite
+const FORMATION_ENTHALPY_SIO2_J_MOL: float = -910700.0      # alpha-quartz
+const FORMATION_ENTHALPY_CACO3_J_MOL: float = -1207600.0    # calcite
+const FORMATION_ENTHALPY_CO2_J_MOL: float = -393510.0
+const ENTROPY_CASIO3_J_MOL_K: float = 81.69
+const ENTROPY_SIO2_J_MOL_K: float = 41.46
+const ENTROPY_CACO3_J_MOL_K: float = 91.7
+const ENTROPY_CO2_J_MOL_K: float = 213.785            # CODATA Key Values, CO2 gas
+
+# --- METAMORPHIC DECARBONATION: CaCO3 + SiO2 -> CaSiO3 + CO2 ------------------------------------------------
+# dH and dS over the reaction's own stoichiometry, from the four standard-state values above; T_eq is where
+# dG = dH - T dS crosses zero, in Celsius.
+const CALCITE_QUARTZ_DECARB_ENTHALPY_J_MOL: float = FORMATION_ENTHALPY_CASIO3_J_MOL \
+	+ FORMATION_ENTHALPY_CO2_J_MOL - FORMATION_ENTHALPY_CACO3_J_MOL - FORMATION_ENTHALPY_SIO2_J_MOL
+const CALCITE_QUARTZ_DECARB_ENTROPY_J_MOL_K: float = ENTROPY_CASIO3_J_MOL_K \
+	+ ENTROPY_CO2_J_MOL_K - ENTROPY_CACO3_J_MOL_K - ENTROPY_SIO2_J_MOL_K
+const DECARBONATION_TEMP_C: float = CALCITE_QUARTZ_DECARB_ENTHALPY_J_MOL \
+	/ CALCITE_QUARTZ_DECARB_ENTROPY_J_MOL_K - KELVIN_OFFSET
 
 # --- WATER AND ICE DENSITY: WHY ROCK SHATTERS WHEN IT FREEZES -----------------------------------------------
 # frost weathering. At 0 C and 1 atm liquid water is 999.84 kg/m^3 and ice Ih is 916.7, so a given mass of
@@ -322,7 +355,7 @@ const VAPOUR_SPECIFIC_HEAT_J_KGK: float = 1996.0    # water vapour at constant p
 const AIR_SPECIFIC_HEAT_J_KGK: float = 1005.0       # dry air at constant pressure, 300 K
 # `VOL_HEAT_CAP_AIR_J_M3K = 1186.0 # 1.18 * 1005` carried it in a comment, and AMBIENT_O2_DENSITY_KG_M3's
 # 0.2731 is 0.2314 * 1.18 folded into a literal. One name now, and both are products of it.
-const AIR_DENSITY_KG_M3: float = 1.18
+const AIR_DENSITY_KG_M3: float = 1.225            # ISA sea level: 101325 Pa, 15 C, dry
 # The two non-silicate mineral species, so `carbonate` and `silica` can carry heat like every other channel
 # that holds matter. Densities were already here (CALCITE / QUARTZ); these are the missing c's.
 const CALCITE_SPECIFIC_HEAT_J_KGK: float = 820.0    # CaCO3, calcite, 25 C (0.82 kJ/kg/K)
@@ -334,10 +367,69 @@ const LATENT_HEAT_VAPORISATION_0C_J_KG: float = 2.501e6
 
 # ============================================================================================================
 # The Watson correlation has the right asymptote and is the standard engineering form:
+const WATER_TRIPLE_T_C: float = 0.01                 # IAPWS, 273.16 K exactly by definition
+const WATER_TRIPLE_P_PA: float = 611.657              # IAPWS triple-point pressure
 const WATER_CRITICAL_T_C: float = 373.946            # IAPWS-95 critical temperature, 647.096 K
 const WATER_CRITICAL_P_PA: float = 2.2064e7          # IAPWS-95 critical pressure, 220.64 bar
 const STANDARD_PRESSURE_PA: float = 101325.0         # one standard atmosphere, the reference boil_c is quoted at
 const WATSON_LATENT_EXPONENT: float = 0.38           # Watson correlation exponent for the latent-heat curve
+
+# --- DISSOCIATION AND IONISATION: the two rungs above `gas` ---------------------------------------------
+# A molecule breaks into atoms before those atoms ionise, and each step costs real energy. Skipping either
+# is a phase change with no latent heat.
+const EV_TO_J_PER_MOL: float = 96485.33              # CODATA Faraday constant, J/(mol*V)
+
+# ATOMISATION enthalpy: gas molecule -> free atoms, J/mol at 298 K. Sum of the bond enthalpies in one
+# molecule, quoted as the measured atomisation rather than per-bond so no bond graph is needed.
+const ATOMISATION_H2O_J_MOL: float = 9.269e5         # 2 x O-H, 926.9 kJ/mol (from dfH of H2O, H, O)
+const ATOMISATION_O2_J_MOL: float = 4.9834e5         # O=O, 498.34 kJ/mol
+const ATOMISATION_CO2_J_MOL: float = 1.5980e6        # 2 x C=O, 1598 kJ/mol
+const ATOMISATION_N2_J_MOL: float = 9.4533e5         # N#N, 945.33 kJ/mol
+const ATOMISATION_CH2O_J_MOL: float = 1.5117e6       # formaldehyde-unit carbohydrate, 2 C-H + C=O
+const ATOMISATION_SIO2_J_MOL: float = 1.8646e6       # 2 x Si-O, 1864.6 kJ/mol
+const ATOMISATION_CACO3_J_MOL: float = 2.8990e6      # CaCO3 -> Ca + C + 3 O
+
+# FIRST IONISATION ENERGY per element, eV (NIST Atomic Spectra Database). A substance derives its own from
+# `formula`, the same way it derives its stoichiometry — one number per element, never one per compound.
+const IONISATION_EV_H: float = 13.598
+const IONISATION_EV_O: float = 13.618
+const IONISATION_EV_C: float = 11.260
+const IONISATION_EV_N: float = 14.534
+const IONISATION_EV_SI: float = 8.152
+const IONISATION_EV_CA: float = 6.113
+const IONISATION_EV_FE: float = 7.902
+const IONISATION_EV_MG: float = 7.646
+const IONISATION_EV_AL: float = 5.986
+
+# ONSET TEMPERATURES FOR THE TWO HIGH RUNGS. DECLARED MODELLING CHOICES, NOT MEASUREMENTS: real thermal
+# dissociation and ionisation are gradual equilibria (Saha), not the sharp plateaus this ladder uses. A
+# plateau at a stated temperature keeps the ENERGY exact — the full bond and ionisation enthalpy is still
+# absorbed — while placing it at a single temperature instead of spreading it over a range.
+# See docs/MODEL_PARAMETERS.md.
+const DISSOCIATION_ONSET_C: float = 2226.85           # 2500 K, where H2O dissociation becomes significant
+# --- SAHA AND LAW OF MASS ACTION: the equilibria the two high rungs actually obey ------------------------
+const PLANCK_J_S: float = 6.62607015e-34             # CODATA, exact
+const BOLTZMANN_J_K: float = 1.380649e-23            # CODATA, exact
+const ELECTRON_MASS_KG: float = 9.1093837015e-31     # CODATA
+const AVOGADRO_PER_MOL: float = 6.02214076e23        # CODATA, exact
+
+# GROUND-STATE ELECTRONIC DEGENERACIES, neutral then singly-ionised (NIST ASD term symbols).
+# Saha carries the ratio 2*g_ion/g_neutral.
+const DEGEN_H_0: float = 2.0     # H  2S(1/2)
+const DEGEN_H_1: float = 1.0     # H+ bare proton
+const DEGEN_O_0: float = 9.0     # O  3P(2)
+const DEGEN_O_1: float = 4.0     # O+ 4S(3/2)
+const DEGEN_C_0: float = 9.0     # C  3P(0)
+const DEGEN_C_1: float = 6.0     # C+ 2P(1/2)
+const DEGEN_N_0: float = 4.0     # N  4S(3/2)
+const DEGEN_N_1: float = 9.0     # N+ 3P(0)
+
+# STANDARD MOLAR ENTROPIES at 298.15 K, 1 bar, J/(mol K) — NIST-JANAF. The dissociation equilibrium needs
+# dG = dH - T dS, and dS comes from these: products (free atoms) minus the reactant molecule.
+const ENTROPY_H_ATOM_J_MOLK: float = 114.717
+const ENTROPY_O_ATOM_J_MOLK: float = 161.058
+const ENTROPY_C_ATOM_J_MOLK: float = 158.100
+const ENTROPY_N_ATOM_J_MOLK: float = 153.301
 # The linear fit, as a CONSTANT rather than a sentence in a comment, so the relation between the two
 # measured latent heats is checkable instead of asserted. Valid 0-100 C; use the Watson form outside it.
 const LATENT_VAPORISATION_SLOPE_J_KGK: float = 2361.0
@@ -373,3 +465,87 @@ const FOLIAGE_FRACTION_OF_PLANT_MASS: float = 0.03
 
 const CANOPY_EXTINCTION_COEFF: float = 0.5
 
+# --- DINITROGEN -----------------------------------------------------------------------------------------
+# N2 is 78.084% of dry air by mole and was absent from the substance table entirely. Every value below is
+# from the NIST Chemistry WebBook (nitrogen, CAS 7727-37-9) unless another source is named.
+const N2_BOIL_C: float = -195.795                    # normal boiling point 77.355 K
+const N2_TRIPLE_T_C: float = -210.0                  # triple point 63.15 K
+const N2_TRIPLE_P_PA: float = 12520.0                # triple-point pressure 12.52 kPa
+const N2_CRITICAL_T_C: float = -146.958              # critical point 126.192 K
+const N2_CRITICAL_P_PA: float = 3.3958e6             # critical pressure 3.3958 MPa
+const VAP_ENTHALPY_N2_J_MOL: float = 5577.0          # dHvap at 77.355 K
+const FUS_ENTHALPY_N2_J_MOL: float = 710.0           # dHfus at the triple point (CRC Handbook, 97th ed.)
+const LATENT_HEAT_VAPORISATION_N2_J_KG: float = VAP_ENTHALPY_N2_J_MOL / MOLAR_MASS_N2_KG_MOL
+const LATENT_HEAT_FUSION_N2_J_KG: float = FUS_ENTHALPY_N2_J_MOL / MOLAR_MASS_N2_KG_MOL
+const MOLAR_HEAT_CAP_N2_GAS_J_MOLK: float = 29.124   # cp of the gas at 298.15 K, 1 bar
+const N2_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_N2_GAS_J_MOLK / MOLAR_MASS_N2_KG_MOL
+const N2_LIQUID_SPECIFIC_HEAT_J_KGK: float = 2042.0  # cp of the saturated liquid at 77.355 K
+const THERMAL_CONDUCT_N2_GAS_W_MK: float = 0.02583   # gas at 300 K, 1 bar
+const ENTROPY_N2_GAS_J_MOLK: float = 191.609         # standard molar entropy, CODATA Key Values
+
+# --- LIGHTNING NITROGEN FIXATION ------------------------------------------------------------------------
+# Schumann & Huntrieser 2007 (Atmos. Chem. Phys. 7:3823) put the global lightning NOx source at 5 Tg(N)/yr
+# (range 2-8) and quote a best estimate of 250 mol NO per flash; Christian et al. 2003 (JGR 108:4005,
+# OTD/LIS) give the global flash rate of 44 s^-1, and 5e12 g/yr / 14.0067 g/mol / (44 * SECONDS_PER_YEAR)
+# returns 257 mol N per flash, so the two are the same number. Per JOULE it is that divided by the energy
+# of one flash.
+const LIGHTNING_N_FIXED_MOL_PER_FLASH: float = 250.0
+const LIGHTNING_N_FIXED_MOL_PER_J: float = LIGHTNING_N_FIXED_MOL_PER_FLASH / LIGHTNING_FLASH_J
+
+
+# --- THE ATOMS ORGANIC MATTER IS MADE OF ------------------------------------------------------------------
+# Atomic, not molecular: the dead organic pool is stored as element stocks (LASubstances organic_c/h/o) so
+# its C:H:O ratio is per-cell state. IUPAC 2021 standard atomic weights, g/mol -> kg/mol.
+const MOLAR_MASS_HYDROGEN_KG_MOL: float = 0.00100794   # H
+const MOLAR_MASS_OXYGEN_KG_MOL: float = 0.0159994      # O
+
+# --- COALIFICATION KINETICS -------------------------------------------------------------------------------
+# Burial heats organic matter and it loses H2O, then CO2, then CH4, drifting toward carbon. Sweeney & Burnham
+# 1990 (AAPG Bulletin 74:1559, EASY%Ro) model vitrinite maturation as parallel first-order reactions with one
+# frequency factor of 1e13 /s and a distribution of activation energies over 34-72 kcal/mol in 2 kcal steps.
+# The two values below are the two LOWEST members of that grid, assigned to the two products this substrate
+# has a channel for. Collapsing a distribution to one activation energy per product is a modelling choice,
+# not a measurement; it goes when a distributed-activation-energy solver exists.
+const VITRINITE_FREQUENCY_FACTOR_PER_S: float = 1.0e13
+const KCAL_PER_MOL_TO_J_MOL: float = 4184.0
+const COAL_DEHYDRATION_EA_J_MOL: float = 34.0 * KCAL_PER_MOL_TO_J_MOL
+const COAL_DEHYDRATION_EA_OVER_R_K: float = COAL_DEHYDRATION_EA_J_MOL / GAS_CONSTANT_J_MOL_K
+const COAL_DECARBOXYLATION_EA_J_MOL: float = 36.0 * KCAL_PER_MOL_TO_J_MOL
+const COAL_DECARBOXYLATION_EA_OVER_R_K: float = COAL_DECARBOXYLATION_EA_J_MOL / GAS_CONSTANT_J_MOL_K
+
+# --- SURFACE MOMENTUM FLUX ---------------------------------------------------------------------------------
+# The log-law wind profile and the two surface roughness lengths it is evaluated against. C_d is DERIVED from
+# them, (VON_KARMAN / ln(z / z0))^2, so a drag coefficient is never a number anybody picks.
+const VON_KARMAN_CONSTANT: float = 0.4              # Garratt 1992, The Atmospheric Boundary Layer, ch. 3
+const ROUGHNESS_LENGTH_SEA_M: float = 2.0e-4        # open sea, Garratt 1992 table 4.1
+const ROUGHNESS_LENGTH_LAND_M: float = 0.03         # open country / grassland, Wieringa 1992 Davenport class 4
+
+# --- SUBGRID MOMENTUM FLUX ---------------------------------------------------------------------------------
+# Smagorinsky (1963) eddy viscosity, nu = (C_s * grid)^2 * |S|. Lilly (1967) derives C_s from the Kolmogorov
+# constant rather than fitting it: C_s = (1/pi) * (3 * C_K / 2)^(-3/4).
+const KOLMOGOROV_CONSTANT: float = 1.6
+const SMAGORINSKY_COEFF: float = 0.1651
+
+# ============================================================================================================
+# --- RADIATIVE TRANSFER -------------------------------------------------------------------------------------
+const SPEED_OF_LIGHT_M_S: float = 299792458.0        # CODATA, exact by definition of the metre
+## Second radiation constant h*c/k, in cm K, so it pairs with a wavenumber in cm^-1: x = PLANCK_C2_CM_K*nu/T.
+const PLANCK_C2_CM_K: float = PLANCK_J_S * SPEED_OF_LIGHT_M_S / BOLTZMANN_J_K * 100.0
+## Diffusivity factor: the secant of the effective slant angle a hemispheric flux takes through a plane
+## layer. Elsasser (1942); the standard two-stream value, reproduced in Goody & Yung ch. 2.
+const TWO_STREAM_DIFFUSIVITY: float = 1.66
+## Pressure the absorption coefficients in LAAbsorptionBands are stated at. Pierrehumbert, Principles of
+## Planetary Climate section 4.4.7 adopts 100 mb, 260 K, air-broadened as the standard state.
+const ABSORPTION_REF_PRESSURE_PA: float = 1.0e4
+## Density one unit of the `co2` channel carries. The gas channels are defined so that one unit is the same
+## MOLAR concentration as one unit of `o2`, so this is that concentration expressed as a CO2 mass.
+const CO2_UNIT_DENSITY_KG_M3: float = AMBIENT_O2_DENSITY_KG_M3 * MOLAR_MASS_CO2_KG_MOL / MOLAR_MASS_O2_KG_MOL
+## Thermal-infrared emissivity of snow and ice. Near-blackbody: Warren (1982, Rev. Geophys. 20:67) and
+## Dozier & Warren (1982) put broadband 8-14 um emissivity of snow at 0.98-0.99.
+const EMISSIVITY_SNOW: float = 0.99
+## Specific gas constant of CO2 = universal R / molar mass. Turns a CO2 mass density into its partial
+## pressure, which is what broadens the CO2-CO2 collision-induced absorption.
+const CO2_GAS_CONST_J_KGK: float = GAS_CONSTANT_J_MOL_K / MOLAR_MASS_CO2_KG_MOL
+## Solar effective temperature, K. IAU 2015 Resolution B3 nominal solar luminosity and radius give
+## 5772 K. Used as the blackbody whose spectrum splits the solar constant across absorption bands.
+const SOLAR_EFFECTIVE_TEMPERATURE_K: float = 5772.0

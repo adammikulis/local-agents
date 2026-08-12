@@ -2,19 +2,6 @@
 extends RefCounted
 class_name LocalAgentModelInventory
 
-# On-disk GGUF model discovery.
-#
-# Scans the places a player already keeps GGUF models so the game reuses them instead of forcing a
-# redundant download:
-#   - the local user models dir (LocalAgentRuntimePaths.MODELS_USER_ROOT),
-#   - the Hugging Face hub cache ($HF_HUB_CACHE, else $HF_HOME/hub, else ~/.cache/huggingface/hub),
-#   - any extra folders the player points us at (persisted by LocalAgentModelSettingsStore).
-#
-# Every hit is returned as a plain Dictionary row {path, filename, size_bytes, source, source_label}
-# so the UI never has to know how the file was found. Matching a shipped-catalog model to a file on
-# disk is by filename (the catalog filenames are unique, e.g. Qwen3-4B-Instruct-2507-Q4_K_M.gguf), so
-# a model already sitting in the HF cache shows as "Installed (found in HF cache)" rather than a
-# redundant download button.
 
 const RuntimePaths: GDScript = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 
@@ -32,7 +19,6 @@ const SOURCE_LABELS: Dictionary = {
 # Guard rail so a mis-pointed folder cannot send us walking an entire home directory.
 const MAX_SCAN_DEPTH: int = 8
 
-# -- Cache-root resolution ----------------------------------------------------
 
 # Returns the Hugging Face hub cache directory the CLI/hub library would use, honoring the standard
 # env vars, or "" when none of the candidates exist on disk. Never creates anything.
@@ -52,7 +38,6 @@ static func hf_hub_cache_dir() -> String:
 			return default_hub
 	return ""
 
-# -- Scanning -----------------------------------------------------------------
 
 # Scans every known location and returns a de-duplicated list of GGUF rows. Extra_folders and
 # hf_override are the player-configured paths (may be empty); absent paths are skipped silently so an
@@ -130,7 +115,6 @@ func _append_file(full_path: String, filename: String, source: String, rows: Arr
 		"source_label": String(SOURCE_LABELS.get(source, source)),
 	})
 
-# -- Self-test ----------------------------------------------------------------
 
 # Headless proof of HF-cache detection: builds a throwaway fake cache with the canonical
 # models--org--name/snapshots/<rev>/<file>.gguf layout plus a stray non-gguf, scans it, and asserts

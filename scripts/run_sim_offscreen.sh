@@ -53,11 +53,36 @@ EXIT_GRACE="${LA_EXIT_GRACE:-10}"
 DONE_RE="${LA_DONE_RE:-^LA_RUN_COMPLETE=}"
 
 FRONT_BID="$(osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true' 2>/dev/null)"
+
+# --- WHERE THE WINDOW GOES ---------------------------------------------------
+# Far right of the SECONDARY display, so a run is watchable without covering the primary. The geometry is
+# read at launch rather than hardcoded: `bounds of window of desktop` returns the union of every display, so
+# its right edge is the right edge of the rightmost monitor whatever the arrangement. Falls back to
+# off-screen if AppleScript answers nothing (headless CI, no window server).
+_res="${LA_RES:-640x400}"
+_w="${_res%%x*}"
+_h="${_res##*x}"
+_bounds="$(osascript -e 'tell application "Finder" to get bounds of window of desktop' 2>/dev/null | tr -d ' ')"
+if [ -n "$_bounds" ]; then
+  _right="$(printf '%s' "$_bounds" | cut -d, -f3)"
+  _bottom="$(printf '%s' "$_bounds" | cut -d, -f4)"
+  # Primary spans 0..primary_w; anything beyond it is the secondary. Land the window against the far right
+  # edge, inset by its own width, and below the menu bar so the title bar stays grabbable.
+  _x=$(( _right - _w ))
+  _y=40
+  # If the desktop is a single display, keep the old off-view behaviour rather than covering the user's screen.
+  if [ "$_right" -le 3441 ]; then
+    _x=-10000; _y=-10000
+  fi
+  DEFAULT_WIN_POS="${_x},${_y}"
+else
+  DEFAULT_WIN_POS="-10000,-10000"
+fi
 # Fully off-view to the upper-left. The negative X must exceed the WINDOW WIDTH so the right edge also clears
 # the screen: at a 1080p test res (1920 px wide) -2400 left only -480 of slack, so a wide window still poked out
 # on the left. -10000 clears any width, and matches the in-code reposition (VoxelWorld sends the window to
 # -8000,-8000), so neither the initial paint nor the reposition shows.
-WIN_POS="${LA_WIN_POS:--10000,-10000}"
+WIN_POS="${LA_WIN_POS:-$DEFAULT_WIN_POS}"
 RENDER_DRIVER="${LA_RENDER_DRIVER:-metal}"
 
 # --- STALE-SHADER GUARD ------------------------------------------------------
@@ -78,6 +103,27 @@ RENDER_DRIVER="${LA_RENDER_DRIVER:-metal}"
 # FAIL, DO NOT AUTO-FIX: a measurement wrapper that quietly mutates the import cache is exactly the hidden
 # side effect this project bans on authoritative paths. Name what is stale and how to fix it.
 # LA_SKIP_SHADER_CHECK=1 bypasses, for a tree that is meant to be unimported.
+
+# Godot writes the source hash it compiled from into a .md5 beside each resource. That is the FACT; an mtime
+# is a proxy, and a checkout or an identical rewrite moves it without changing the content — `--import` then
+# has nothing to do, so the warning cannot be cleared and the only way out is the blanket bypass. Returning
+# false (no record, no md5 tool) leaves the mtime verdict standing: a missing tool never relaxes the gate.
+_shader_hash_matches() {
+  src_f="$1"
+  rec_f="$2"
+  [ -f "$rec_f" ] || return 1
+  want_h="$(sed -n 's/^source_md5="\(.*\)"$/\1/p' "$rec_f" | head -1)"
+  [ -n "$want_h" ] || return 1
+  if command -v md5sum >/dev/null 2>&1; then
+    have_h="$(md5sum "$src_f" | cut -d' ' -f1)"
+  elif command -v md5 >/dev/null 2>&1; then
+    have_h="$(md5 -q "$src_f")"
+  else
+    return 1
+  fi
+  [ "$want_h" = "$have_h" ]
+}
+
 if [ "${LA_SKIP_SHADER_CHECK:-0}" != "1" ]; then
   proj="."
   prev=""
@@ -91,25 +137,16 @@ if [ "${LA_SKIP_SHADER_CHECK:-0}" != "1" ]; then
     while IFS= read -r src; do
       base="$(basename "$src")"
       newest="$(ls -t "$proj"/.godot/imported/"$base"-*.res 2>/dev/null | head -1)"
-      # CONTENT, NOT MTIME. Godot decides whether to reimport by comparing the source's md5 against the
-      # `source_md5` it recorded beside the artifact, so that is the authoritative comparison. An mtime
-      # test disagrees with it after any git operation that rewrites the working tree — a merge touches
-      # files whose content is unchanged — and then the guard refuses a tree Godot considers current,
-      # `--import` correctly does nothing, and the only way forward looks like LA_SKIP_SHADER_CHECK=1.
-      # A gate that cries wolf gets bypassed, and this one's bypass is the dangerous one.
-      md5f="${newest%.res}.md5"
-      recorded=""
-      [ -f "$md5f" ] && recorded="$(sed -n 's/^source_md5="\(.*\)"$/\1/p' "$md5f")"
-      actual=""
-      if command -v md5 >/dev/null 2>&1; then actual="$(md5 -q "$src")"
-      elif command -v md5sum >/dev/null 2>&1; then actual="$(md5sum "$src" | cut -d' ' -f1)"; fi
-      # No compiled resource AT ALL is the worse case: load() returns null and the pass is silently dead.
+      # CONTENT, NOT MTIME. Godot reimports by comparing the source md5 against the `source_md5` recorded
+      # beside the artifact, so that comparison is authoritative and _shader_hash_matches owns it. An mtime
+      # test disagrees with it after any git operation that rewrites the working tree, and a gate that
+      # cries wolf gets bypassed.
       if [ -z "$newest" ]; then
-        stale=1
-      elif [ -n "$recorded" ] && [ -n "$actual" ]; then
-        [ "$recorded" = "$actual" ] && stale=0 || stale=1
+        stale=1                                   # no resource at all: load() returns null, pass is dead
+      elif _shader_hash_matches "$src" "${newest%.res}.md5"; then
+        stale=0
       elif [ "$src" -nt "$newest" ]; then
-        stale=1                                   # no hash available either side: fall back to mtime
+        stale=1                                   # no record or no md5 tool: the mtime verdict stands
       else
         stale=0
       fi
@@ -168,7 +205,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-godot --rendering-driver "$RENDER_DRIVER" --position "$WIN_POS" --resolution "${LA_RES:-640x400}" \
+LA_WIN_POS="$WIN_POS" godot --rendering-driver "$RENDER_DRIVER" --position "$WIN_POS" --resolution "${LA_RES:-640x400}" \
   "${LOG_ARGS[@]}" "$@" &
 GODOT_PID=$!
 

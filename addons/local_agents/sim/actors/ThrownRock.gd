@@ -1,9 +1,6 @@
 class_name LAThrownRock
 extends Node3D
 
-## A rock in flight. Steers toward a moving target with a mild ballistic arc,
-## strikes (kills) the target on proximity, spawns a brief impact puff, and
-## cleans itself up. Robust against null/invalid targets and terrain.
 
 const HIT_RADIUS: float = 1.3
 const MAX_LIFETIME: float = 4.0
@@ -11,16 +8,6 @@ const ARC_HEIGHT: float = 1.5
 # The stone's own size, so its mass is its geometry rather than a number. Matches the visual BoxMesh below.
 const STONE_SIDE: float = 0.35
 
-## A THROWN ROCK IS STILL A ROCK WHEN IT LANDS. Every exit from this node — a hit, a splash, a lifetime cull,
-## a lost target — called `queue_free()` and the stone stopped existing. `LARock.take()` had already freed the
-## boulder it came from, so the pair deleted a rock's worth of mineral every time a villager hunted.
-## The substrate never held a loose rock (it is a scene node, not a `rock_fill` cell), which is exactly why
-## nothing noticed: `mineral_total` could see neither the world-gen creation nor this destruction.
-## Now the stone deposits its mass into the field's `sediment` channel wherever it comes to rest — loose
-## broken stone on the ground, which the slump and erosion kernels then move downhill like any other debris.
-## It is booked as `mineral_inject_minted`, honestly: the mass really is entering the field from outside it,
-## because the boulder it came from was outside too. Closing that last gap needs `LARock.take()`'s return
-## value plumbed into `throw_at` at CreatureThink.gd:122/147, which is another track's file.
 var mineral_mass: float = -1.0                  # < 0 = derive from STONE_SIDE on first use
 var _deposited: bool = false
 
@@ -32,9 +19,6 @@ var _flying: bool = false
 var _elapsed: float = 0.0
 var _start_pos: Vector3 = Vector3.ZERO
 var _initial_distance: float = 0.0
-var _mesh: MeshInstance3D = null
-var _tumble_axis: Vector3 = Vector3.RIGHT      # perpendicular to the throw
-var _tumble_rate: float = 0.0                  # rad/s = v / r, the rolling relation, r = STONE_SIDE * 0.5
 
 func setup(terrain, water = null) -> void:
 	_terrain = terrain
@@ -52,8 +36,13 @@ func setup(terrain, water = null) -> void:
 	var mesh_instance: MeshInstance3D = MeshInstance3D.new()
 	mesh_instance.name = "ThrownRockMesh"
 	mesh_instance.mesh = mesh
+	var rng: LASimRng = LASimRng.shared()
+	mesh_instance.rotation = Vector3(
+		rng.randf_range(-0.4, 0.4),
+		rng.randf_range(0.0, TAU),
+		rng.randf_range(-0.4, 0.4)
+	)
 	add_child(mesh_instance)
-	_mesh = mesh_instance
 
 func throw_at(from: Vector3, target: Node3D, speed: float = 22.0, carried_mass: float = -1.0) -> void:
 	# `carried_mass` is the mass of the boulder the thrower actually picked up (LARock.take()'s return). When
@@ -71,12 +60,6 @@ func throw_at(from: Vector3, target: Node3D, speed: float = 22.0, carried_mass: 
 		_initial_distance = maxf(from.distance_to(_target.global_position), 0.001)
 	else:
 		_initial_distance = 0.001
-	# A thrown stone tumbles about an axis across its flight. Both the axis and the rate come from the throw
-	# itself, so no random draw is needed to make one stone differ from the next.
-	var aim: Vector3 = (_target.global_position - from) if is_instance_valid(_target) else Vector3.FORWARD
-	var axis: Vector3 = aim.cross(Vector3.UP)
-	_tumble_axis = axis.normalized() if axis.length() > 0.001 else Vector3.RIGHT
-	_tumble_rate = _speed / (STONE_SIDE * 0.5)
 
 func _physics_process(delta: float) -> void:
 	if not _flying:
@@ -87,8 +70,6 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_elapsed += delta
-	if _mesh != null and _tumble_rate > 0.0:
-		_mesh.global_rotate(_tumble_axis, _tumble_rate * delta)
 
 	var target_pos: Vector3 = _target.global_position
 	var pos: Vector3 = global_position

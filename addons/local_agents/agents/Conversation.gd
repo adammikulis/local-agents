@@ -3,25 +3,7 @@
 extends Node
 class_name LocalAgentConversation
 
-## N LocalAgent nodes taking turns talking to each other, the addon's plural name made real.
-##
-## Drop this node in, drag your agents into `agents`, type a `topic`, and press play. Each utterance
-## is appended to the transcript and recorded as a node in `memory_graph`, chained to the previous one
-## by an edge named `edge_name`. That growing graph is the conversation's memory: structured state
-## you can query, save as a `.tres`, or draw.
-##
-## Personas are not a property here on purpose: give each agent its own voice through its
-## LocalAgentModelProfile system prompt, which is where model behaviour already belongs.
-##
-## With no usable model the node speaks `canned_lines` instead, so the turn-taking and the memory
-## graph still demonstrate themselves on a machine with nothing installed.
-##
-## Generation runs through `think_async`, so a turn never blocks the frame. The line arrives on
-## `turn_taken` when the model is done.
-##
-## (Explicit types only. Project rule: no ':=' inferred typing.)
 
-## Emitted once per completed utterance, after it has been recorded in the transcript and the graph.
 signal turn_taken(speaker: String, text: String)
 ## Emitted when `max_turns` has been reached. Never emitted when `max_turns` is 0.
 signal conversation_finished()

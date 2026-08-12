@@ -1,47 +1,18 @@
 extends Control
 class_name LAModelManagerPanel
 
-# In-game model manager: one panel, four tabs.
-#
-#   Download            - the existing curated downloader (ModelDownloadPanel), embedded as-is.
-#   Installed / detected - models already on disk (local folder + HF cache + custom folders).
-#   Add your own        - browse to a .gguf, pull by HF repo id, or add scan locations.
-#   Inference settings  - context length / sampling / GPU layers / system prompt / per-role models.
-#
-# Everything reuses existing pieces: LAModelDownloadManager + catalog for downloads,
-# LocalAgentModelInventory for detection, LocalAgentModelSettingsStore (backed by
-# LocalAgentInferenceParams) for persisted config. No sim/field files are touched.
-#
-# Public API:
-#   open()                  -> show + refresh every tab
-#   close()                 -> hide
-#   settings_store()        -> LocalAgentModelSettingsStore (live)
-#   inventory()             -> LocalAgentModelInventory
-#   active_model_path()     -> String  (the player's chosen model, or "")
-#   inference_options()     -> Dictionary  (ready for LlamaServerManager.ensure_running)
-#   model_for_role(role)    -> String
-#
-# Self-harness (standalone scene only):
-#   --model-manager-selftest        run store + inventory round-trip, print MODEL_MANAGER_SELFTEST, quit
-#   --shoot=<png> [--shoot-frames=N] [--shoot-tab=I]   off-screen screenshot of tab I
-#   --fake-hf-cache=<dir>           point detection at a fake HF cache (detection proof)
-#   --demo-register=<path.gguf>     register a custom model before the shot (BYO proof)
-
-const ModelDownloadPanelScene: PackedScene = preload("res://addons/local_agents/ui/ModelDownloadPanel.tscn")
-const DetectedTab: GDScript = preload("res://addons/local_agents/ui/DetectedModelsTab.gd")
-const AddYourOwnTab: GDScript = preload("res://addons/local_agents/ui/AddYourOwnTab.gd")
-const InferenceTab: GDScript = preload("res://addons/local_agents/ui/InferenceSettingsTab.gd")
 
 signal active_model_changed(path: String)
 
 var _store: LocalAgentModelSettingsStore = null
 var _inventory: LocalAgentModelInventory = null
 
-var _tabs: TabContainer = null
-var _active_label: Label = null
-var _detected_tab: LADetectedModelsTab = null
-var _add_tab: LAAddYourOwnTab = null
-var _inference_tab: LAInferenceSettingsTab = null
+@onready var _tabs: TabContainer = %Tabs
+@onready var _active_label: Label = %ActiveLabel
+# Quoted paths: the tab titles are the node names, and they contain spaces.
+@onready var _detected_tab: LADetectedModelsTab = $"Background/Margin/Body/Tabs/Installed _ detected"
+@onready var _add_tab: LAAddYourOwnTab = $"Background/Margin/Body/Tabs/Add your own"
+@onready var _inference_tab: LAInferenceSettingsTab = $"Background/Margin/Body/Tabs/Inference settings"
 
 # Self-harness state.
 var _shoot_path: String = ""
@@ -56,6 +27,11 @@ func _ready() -> void:
 	if is_scene_root:
 		_parse_cmdline()
 
+	# A TabContainer titles each tab with its node NAME, and Node.set_name strips "/", so the second tab has
+	# always read "Installed _ detected". Titles are set here because they are not node names.
+	var tabs: TabContainer = $Background/Margin/Body/Tabs
+	tabs.set_tab_title(tabs.get_tab_idx_from_control(_detected_tab), "Installed / detected")
+
 	_store = LocalAgentModelSettingsStore.new()
 	_store.load()
 	_inventory = LocalAgentModelInventory.new()
@@ -65,7 +41,7 @@ func _ready() -> void:
 	if is_scene_root and _demo_register != "":
 		_store.register_model(_demo_register, "My local model")
 
-	_build()
+	_wire()
 	refresh()
 
 	if is_scene_root and (_shoot_path != "" or OS.has_environment("LA_OFFSCREEN")):
@@ -75,65 +51,14 @@ func _ready() -> void:
 			_tabs.current_tab = _shoot_tab
 		set_process(true)
 
-func _build() -> void:
-	var bg: PanelContainer = PanelContainer.new()
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
-
-	var margin: MarginContainer = MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 20)
-	margin.add_theme_constant_override("margin_right", 20)
-	margin.add_theme_constant_override("margin_top", 16)
-	margin.add_theme_constant_override("margin_bottom", 16)
-	bg.add_child(margin)
-
-	var body: VBoxContainer = VBoxContainer.new()
-	body.add_theme_constant_override("separation", 10)
-	margin.add_child(body)
-
-	var header: HBoxContainer = HBoxContainer.new()
-	header.add_theme_constant_override("separation", 12)
-	body.add_child(header)
-	var title: Label = Label.new()
-	title.text = "Models"
-	title.add_theme_font_size_override("font_size", 22)
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(title)
-	_active_label = Label.new()
-	header.add_child(_active_label)
-
-	_tabs = TabContainer.new()
-	_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body.add_child(_tabs)
-
-	# 1. Download (existing panel embedded).
-	var download_panel: Control = ModelDownloadPanelScene.instantiate()
-	download_panel.name = "Download"
-	_tabs.add_child(download_panel)
-
-	# 2. Installed / detected.
-	_detected_tab = DetectedTab.new()
-	_detected_tab.name = "Installed / detected"
-	_tabs.add_child(_detected_tab)
+func _wire() -> void:
 	_detected_tab.setup(_inventory, _store)
 	_detected_tab.active_model_changed.connect(_on_active_model_changed)
-
-	# 3. Add your own.
-	_add_tab = AddYourOwnTab.new()
-	_add_tab.name = "Add your own"
-	_tabs.add_child(_add_tab)
 	_add_tab.setup(_store)
 	_add_tab.active_model_changed.connect(_on_active_model_changed)
 	_add_tab.registry_changed.connect(_on_registry_changed)
-
-	# 4. Inference settings.
-	_inference_tab = InferenceTab.new()
-	_inference_tab.name = "Inference settings"
-	_tabs.add_child(_inference_tab)
 	_inference_tab.setup(_store, _inventory)
 
-# -- Public API ---------------------------------------------------------------
 
 func open() -> void:
 	visible = true
@@ -184,7 +109,6 @@ func _on_registry_changed() -> void:
 	if _inference_tab != null:
 		_inference_tab.refresh()
 
-# -- Self-harness -------------------------------------------------------------
 
 var _fake_hf_cache: String = ""
 var _demo_register: String = ""

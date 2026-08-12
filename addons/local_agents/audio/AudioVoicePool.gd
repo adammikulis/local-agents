@@ -2,12 +2,6 @@
 extends Node3D
 class_name LAAudioVoicePool
 
-## A fixed pool of reusable audio players with round-robin voice stealing and
-## per-key cooldown rate limiting, so a burst of simultaneous events (e.g. many
-## debris contacts in one frame) can't machine-gun the mixer.
-##
-## Positional events use pooled `AudioStreamPlayer3D` (spatialized); non-positional
-## events (UI, music-adjacent one-shots) use pooled `AudioStreamPlayer`.
 
 const DEFAULT_POSITIONAL := 12
 const DEFAULT_NONPOSITIONAL := 6

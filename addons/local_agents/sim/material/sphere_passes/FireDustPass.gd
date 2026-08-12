@@ -24,9 +24,9 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable():
 		return
-	var cell_size: float = _ctx_cell_size(ctx)
-	var pc: PackedByteArray = Tracer.push_constant(cc, _ctx_depth(ctx), Tracer.courant(cell_size),
-			Tracer.dust_settle_v(), Tracer.EDDY_DIFFUSE, true, _ctx_core_radius(ctx), cell_size)
+	var lat_size: float = _ctx_num(ctx, "lat_size")
+	var pc: PackedByteArray = Tracer.push_constant(cc, _ctx_depth(ctx), Tracer.courant(lat_size),
+			Tracer.dust_settle_v(), Tracer.EDDY_DIFFUSE, true, lat_size)
 	rd.compute_list_bind_compute_pipeline(cl, _transport_pipe)
 	rd.compute_list_bind_uniform_set(cl, _transport_set[parity], 0)
 	rd.compute_list_set_push_constant(cl, pc, pc.size())

@@ -1,19 +1,6 @@
 class_name LAPlant
 extends StaticBody3D
 
-# A plant: grows over time (scale), is edible, and periodically drops a seed the
-# EcologyService uses to seed neighbouring plants. StaticBody3D so it is pickable
-# on collision_layer 2.
-#
-# Config shape (see LAEcologyService):
-#   {
-#     "species":     String,   # e.g. "plant" / "grass" / "shrub"
-#     "color":       Color,    # foliage albedo
-#     "grow_time":   float,    # seconds to reach full size
-#     "max_scale":   float,    # full-grown scale multiplier
-#     "seed_period": float,    # seconds between seed readiness (once mature)
-#     "edible":      bool,     # can herbivores eat it
-#   }
 
 const GROUP_SELECTABLE: String = "selectable"
 const GROUP_PLANT: String = "plant"
@@ -22,41 +9,9 @@ var terrain = null                       # LAVoxelTerrainService (injected)
 var _material = null                      # LAMaterialField3D — the shared field (biomass-growth coupling)
 var config: Dictionary = {}
 
-# --- Growth coupling to the emergent BIOMASS field. Photosynthesis itself (CO₂ + light → biomass + O₂) is no
-# longer CPU actor code: it is dissolved into MaterialReactions3D records R19/R20 and runs on the GPU across the
-# whole field. This visual plant node simply grows FASTER where the field has grown biomass (fertile, sunlit,
-# CO₂-rich ground) — a field→node read, so a plant downwind of a fire where CO₂ settled shoots up, emergent.
 const BIOMASS_GROWTH_GAIN: float = 4.0   # growth-speed multiplier per unit local field biomass
 const BIOMASS_GROWTH_MAX: float = 2.0    # cap on the biomass growth boost
 
-# RENEWABLE PASTURE — a plant is a living food source, not a single-use item. A herbivore takes a BITE
-# (feed(), like a scavenger biting a carcass) which draws down the plant's edible reserve; the plant
-# survives and REGROWS that reserve. This dissolves overgrazing extinction: a grazed patch shrinks then
-# recovers instead of the plant node vanishing, so a herd can sustain on a pasture the way real grazing does.
-#
-# ===== THE RESERVE IS BIOMASS THE PLANT TOOK OUT OF THE FIELD ==============================================
-#
-# Uptake, not regrowth. Photosynthesis is already simulated — it is GPU chemistry (MaterialReactions3D R19)
-# fixing CO₂ into the field's `biomass` channel wherever there is light, warmth and CO₂ — and this node's
-# tissue IS that biomass. So the plant DRAWS its reserve out of the biomass standing in its own cell
-# (`LAMaterialFieldInject3D.take_biomass`, a device-resolved debit), and a plant on ground the chemistry never
-# greened gets nothing. Grazing then removes that mass from the biosphere for real, and an uprooted plant
-# hands what is left back as detritus instead of deleting it.
-#
-# ===== THE TWO LEDGERS ARE IN DIFFERENT UNITS, AND THE CONVERSION HAS TO BE PINNED ON SOMETHING ============
-#
-# The field's `biomass` is a MASS in the substrate's units (MAX_MASS = one full cell). The plant's reserve is
-# in the FOOD-ENERGY units the creature side runs on (a bite fills a gut, a gut digests to energy). They are
-# not the same quantity and there is no physical constant relating them — the creature's energy scale is a
-# game abstraction with no kilogram behind it — so the conversion is a MODEL PARAMETER and it lives here,
-# next to the model that uses it, rather than in LAPhysical.
-#
-# WHAT IT IS PINNED ON: what a plant node MEANS. A plant node stands for one plant's worth of the vegetation
-# the field carries, so a full-grown one's reserve is one node's share of the planet's standing crop, and the
-# ratio is that share divided by FOOD_CAPACITY.
-#
-# It is a unit definition, not a fitted constant. A 1:1 assumption is wrong: "biomass units == energy units"
-# holds inside a creature's gut and says nothing about the field.
 const BIOMASS_PER_FOOD: float = 1.8e-4
 const FOOD_CAPACITY: float = 46.0        # ceiling on the reserve a full-grown plant may hold (food-energy units)
 const FOOD_UPTAKE_RATE: float = 8.0      # food-energy/second the plant may draw from its cell's standing
@@ -65,11 +20,9 @@ const FOOD_UPTAKE_RATE: float = 8.0      # food-energy/second the plant may draw
 const FOOD_MIN_EDIBLE: float = 5.0       # below this the plant is grazed-down and not worth targeting (recovers)
 var _food: float = 0.0                   # current edible reserve — earned from the field, never granted
 
-# Mass held/drawn/returned by plant nodes is booked in this world's LAVegLedger, in the FIELD's own mass
-# units, so it reads straight against `carbon_biomass`. Mass drawn out of the `biomass` channel leaves the
-# substrate's carbon ledger (`carbon_total` sums the field's co2 + biomass + detritus only), so without it a
-# conserving draw would read as carbon destroyed. Published by LAEcologyService.vegetation_report.
-var _led: LAVegLedger = null
+static var food_held_total: float = 0.0      # mass currently standing in every live plant node's reserve
+static var food_drawn_total: float = 0.0     # cumulative mass drawn out of the field into plant tissue
+static var food_returned_total: float = 0.0  # cumulative mass handed back to the field as detritus
 
 var species: String = "plant"
 var color: Color = Color(0.30, 0.65, 0.22)
@@ -78,27 +31,12 @@ var max_scale: float = 1.0
 var seed_period: float = 8.0
 var edible: bool = true
 
-# TOXICITY — a data-driven [0,1] property, NOT a plant subtype. A toxic plant feeds like any other (it is still
-# edible carbs), but a bite of it POISONS the grazer (HP loss in the eating path) and the bite carries its
-# toxicity in food_profile() so the chemical-affinity system mints an AVERSIVE taste cue. So creatures LEARN
-# which vegetation is poison and steer off it — no "if species == nightshade" anywhere; the value does it.
-# 0 == wholesome (the vast majority of vegetation); >0 == toxic strength.
 var toxic: float = 0.0
 
-# ROOTING — the water-current magnitude this plant's roots withstand before flowing water TEARS IT OUT. A
-# data-driven property (config `root_strength`); when unset it scales with the plant's mature size (bigger
-# plant, deeper roots), so grass + flowers wash away in a flood/river first and a big shrub holds far longer.
-# Trees set their own (much higher) value. This is the plant half of "moving water sweeps weakly-rooted life."
 const ROOT_BASE: float = 1.5
 const ROOT_PER_SCALE: float = 3.0
 var root_strength: float = 3.0
 
-# --- Flowers + pollination mutualism. A plant flagged `flower` carries a richer NECTAR reserve (so foraging
-# pollinators prefer it via the shared food-value ranking) and is POLLINATED by visits: every bite (feed(),
-# whose dominant flower visitor is the bee) deposits decaying pollen, and the more recent pollen a flower
-# holds the FASTER its seed timer runs — so a well-visited flower spreads far sooner than a neglected one.
-# Flower spread RATE therefore TRACKS pollinator activity — more bees → more visits → faster seeding → more
-# flowers + nectar. Pure emergence, config + this node only (no per-species code, no Creature/Cognition edit). ---
 var flower: bool = false
 var nectar: float = FOOD_CAPACITY          # edible reserve cap of a full-grown flower (config "nectar")
 var _pollination: float = 0.0              # decaying pollen load; each visit adds POLLINATE_PER_VISIT
@@ -106,15 +44,12 @@ const POLLINATE_PER_VISIT: float = 1.0     # pollen deposited by one flower visi
 const POLLINATE_DECAY: float = 0.10        # pollen lost per second (a flower must be re-visited to stay pollinated)
 const POLLINATE_MAX: float = 4.0           # cap on the pollen load (bounded)
 const POLLINATE_SEED_BOOST: float = 7.0    # a fully-pollinated flower seeds this many × faster than an un-visited one
-# PROXIMITY pollination: a pollinator flying NEAR a bloom carries pollen to it, so a flower is pollinated by
-# pollinator PRESENCE (not only by being eaten — the creature AI has no food-seeking, so eating a specific
-# flower is rare). Which species pollinate is a small data list of nectar-foragers (not a behaviour branch);
-# the shared 3D spatial hash makes each flower's check O(local), rebuilt once per frame per group, and a
-# flower only scans on a slow cadence. This is what makes flower spread TRACK bee/butterfly activity.
+static var pollination_events: int = 0     # global running count of flower visits (SIM_REPORT bee-activity proxy)
 const POLLINATOR_SPECIES: Array = ["bee", "butterfly"]
 const POLLEN_RADIUS: float = 10.0          # a pollinator within this range deposits pollen (bees cruise ~5 m up, so
                                            # this reaches a bee/butterfly passing overhead, not only one landed alongside)
 const POLLEN_SCAN_PERIOD: float = 0.5      # seconds between a flower's cheap pollinator-proximity checks
+static var _pollinator_index: LASpatialIndex = LASpatialIndex.new()
 var _pollen_scan_t: float = 0.0
 
 var age: float = 0.0
@@ -146,8 +81,8 @@ func setup(_terrain, _config: Dictionary) -> void:
 	nectar = float(config.get("nectar", FOOD_CAPACITY))
 	# Root strength: explicit config, else scaled from mature size (already read above) so bigger plants hold on.
 	root_strength = maxf(0.2, float(config.get("root_strength", ROOT_BASE + ROOT_PER_SCALE * max_scale)))
-	# A seedling holds nothing: it takes its tissue out of the ground it stands on (see _uptake).
 	_food = 0.0
+	food_held_total += _food * BIOMASS_PER_FOOD
 
 	collision_layer = 2
 	collision_mask = 0
@@ -289,14 +224,6 @@ func _build_flower_body() -> void:
 ## LAEcologyService at spawn, exactly like creatures get set_material_field.
 func set_material_field(m) -> void:
 	_material = m
-	_led = LAVegLedger.of(_material)   # this plant books into ITS world's ledger, not a process-wide total
-
-
-# This world's vegetation ledger, resolved from the injected field.
-func _ledger() -> LAVegLedger:
-	if _led == null:
-		_led = LAVegLedger.of(_material)
-	return _led
 
 
 const PLANT_SETTLE_STRIDE: int = 24   # a settled plant runs its body ~every 24 frames (catch-up dt) — Big-O by relevance
@@ -306,9 +233,6 @@ var _settle_phase: int = -1
 func _physics_process(delta: float) -> void:
 	if LAAblate.off("plants"):
 		return
-	# The field biomass read (biomass_at) only matters WHILE growing — a mature plant's grown_fraction is capped
-	# at 1, so its growth boost is moot. Skipping the per-frame biomass sample once mature drops the dominant
-	# per-plant cost: a whole pasture of settled plants does not each hit the field every frame. Big-O by relevance.
 	var growing: bool = _grown_fraction() < 1.0
 	# A fully-grown plant has only slow LINEAR timers left (food regrow, seed timer, flower-pollen decay), so
 	# advance it on a coarse STAGGERED cadence with a catch-up delta rather than every frame — hundreds of settled
@@ -321,10 +245,6 @@ func _physics_process(delta: float) -> void:
 			return
 		delta = _settle_accum
 		_settle_accum = 0.0
-	# UPROOTING: moving water tears out a plant whose roots can't hold. Cheap dry early-out (is_water_at is one
-	# cell lookup) so a dry pasture pays nothing; only a flooded plant samples the current and compares it to its
-	# root strength. The same downhill current that sweeps animals uproots weakly-rooted vegetation — grass +
-	# flowers wash out first, deep-rooted plants hold. An uprooted plant dies in place (swept debris).
 	if _material != null and _material.has_method("is_water_at") and _material.is_water_at(global_position):
 		if _material.has_method("water_force_at") and _material.water_force_at(global_position).length() > root_strength:
 			_uproot()
@@ -364,11 +284,6 @@ func _physics_process(delta: float) -> void:
 			_seed_ready = true
 
 
-# Draw up to `want_food` units of edible reserve out of the standing biomass in this plant's own cell. The
-# field is debited on device for exactly the mass it hands over, so nothing is created; where the cell is bare
-# the call returns 0 and the plant simply does not build a reserve. `want_food` is in FOOD-ENERGY units and
-# the field deals in MASS, so BIOMASS_PER_FOOD is applied on the way in and taken back off on the way out —
-# the plant is credited only what the planet actually gave up.
 func _uptake(want_food: float) -> void:
 	if want_food <= 0.0:
 		return
@@ -378,14 +293,10 @@ func _uptake(want_food: float) -> void:
 	if got_mass <= 0.0:
 		return
 	_food += got_mass / BIOMASS_PER_FOOD
-	var led: LAVegLedger = _ledger()
-	led.food_held += got_mass
-	led.food_drawn += got_mass
+	food_held_total += got_mass
+	food_drawn_total += got_mass
 
 
-# Growth-speed BOOST from the emergent field biomass at this plant's cell (0 with no field / no local biomass).
-# Photosynthesis is GPU chemistry (MaterialReactions3D R19); the plant just grows toward where the field has
-# fixed carbon into biomass — fertile, sunlit, CO₂-rich ground. No CPU CO₂/O₂ writes.
 func _biomass_boost() -> float:
 	if _material == null or not _material.has_method("biomass_at"):
 		return 0.0
@@ -413,10 +324,6 @@ func _sync_render() -> void:
 	_veg.set_xform(RENDER_TYPE, _veg_slot, Transform3D(b, transform.origin))
 
 
-# Torn out by flowing water: a splash accent where it washed away, then remove it (the renderer slot is
-# released in _exit_tree). THE PLANT'S TISSUE GOES BACK INTO THE GROUND — a washed-out plant is dead organic
-# matter lying wherever the current dropped it, so the reserve is handed to the `detritus` channel, where the
-# decomposer loop (fungus → CO₂ + fertility) picks it up like any other corpse.
 func _uproot() -> void:
 	if _material != null and _material.has_method("splash"):
 		_material.splash(global_position, 1.2)
@@ -427,16 +334,12 @@ func _exit_tree() -> void:
 	if _veg_slot >= 0 and _veg != null:
 		_veg.release(RENDER_TYPE, _veg_slot)
 		_veg_slot = -1
-	# Whatever reserve this plant still held returns to the substrate as detritus — however it died (uprooted,
-	# burnt out, culled by the LOD governor, freed at shutdown). It sits in _exit_tree rather than _uproot
-	# because every path that removes a plant node goes through here.
 	if _food > 0.0:
 		var mass: float = _food * BIOMASS_PER_FOOD
-		var led: LAVegLedger = _ledger()
-		led.food_held = maxf(0.0, led.food_held - mass)
+		food_held_total = maxf(0.0, food_held_total - mass)
 		if _material != null and _material._inject != null and _material._inject.has_method("return_detritus"):
 			_material._inject.return_detritus(global_position, mass)
-			led.food_returned += mass
+			food_returned_total += mass
 		_food = 0.0
 
 
@@ -452,14 +355,13 @@ func _pollinate_from_nearby() -> void:
 	var groups: Array = []
 	for sp in POLLINATOR_SPECIES:
 		groups.append("species_" + String(sp))
-	var led: LAVegLedger = _ledger()
-	led.pollinator_index.rebuild_if_stale(tree, Engine.get_physics_frames(), groups)
+	_pollinator_index.rebuild_if_stale(tree, Engine.get_physics_frames(), groups)
 	var pos: Vector3 = global_position
 	for g in groups:
-		for cand in led.pollinator_index.query(String(g), pos, POLLEN_RADIUS):
+		for cand in _pollinator_index.query(String(g), pos, POLLEN_RADIUS):
 			if cand != null and is_instance_valid(cand) and pos.distance_to((cand as Node3D).global_position) <= POLLEN_RADIUS:
 				_pollination = minf(POLLINATE_MAX, _pollination + POLLINATE_PER_VISIT)
-				led.pollinations += 1
+				pollination_events += 1
 				return
 
 
@@ -472,7 +374,6 @@ func is_flower() -> bool:
 	return flower
 
 
-# --- seeding API used by LAEcologyService ---
 func has_seed() -> bool:
 	return _seed_ready
 
@@ -483,21 +384,13 @@ func consume() -> void:
 	_seed_timer = seed_period
 
 
-# Put mass INTO this plant's reserve that came out of another plant's — the seedling receiving the mass its
-# parent spent on the seed, or a parent taking its investment back when there was nowhere to germinate. This
-# is the credit half of `feed()`'s debit, and it exists so germination is a MOVE between two nodes rather
-# than a new plant appearing with a full larder. It is not a source: the only caller pays first.
 func credit_reserve(amount: float) -> void:
 	if amount <= 0.0:
 		return
 	_food += amount
-	_ledger().food_held += amount * BIOMASS_PER_FOOD
+	food_held_total += amount * BIOMASS_PER_FOOD
 
 
-## What ONE unit of this node's `food_profile().value` weighs in the field's mass units. A plant keeps its
-## reserve in food-energy units (it converts on both sides of its own uptake, see `_uptake`), so an eater has
-## to convert too or its bite credits five thousand times what the plant lost. Declared as a method rather
-## than assumed, because a carcass's meat is already a mass and its factor is 1.
 func food_mass_per_unit() -> float:
 	return BIOMASS_PER_FOOD
 
@@ -506,19 +399,15 @@ func is_edible() -> bool:
 	return edible and _food >= FOOD_MIN_EDIBLE   # grazed-down plants recover before they're worth eating again
 
 
-# A herbivore takes a BITE (the same renewable-food contract a scavenger uses on a carcass): draw the bite
-# from the edible reserve, shrink the plant a touch, and return the energy actually removed. The plant is
-# NOT consumed — it regrows the reserve over time, so a pasture sustains a herd instead of vanishing.
 func feed(amount: float) -> float:
 	var take: float = clampf(amount, 0.0, _food)
 	_food -= take
-	var led: LAVegLedger = _ledger()
-	led.food_held = maxf(0.0, led.food_held - take * BIOMASS_PER_FOOD)
+	food_held_total = maxf(0.0, food_held_total - take * BIOMASS_PER_FOOD)
 	# A visit to a flower deposits pollen (POLLINATION): the visitor — bees dominate flower visits — carries
 	# pollen between blooms, so a fed-on flower becomes/stays seed-ready. This is the mutualism, no scripting.
 	if flower and take > 0.0:
 		_pollination = minf(POLLINATE_MAX, _pollination + POLLINATE_PER_VISIT)
-		led.pollinations += 1
+		pollination_events += 1
 	return take
 
 

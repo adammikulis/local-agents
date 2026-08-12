@@ -1,0 +1,90 @@
+[gd_scene load_steps=3 format=3 uid="uid://bhelpcodex0la006"]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/menu/HelpCodex.gd" id="1_codex"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_detail"]
+content_margin_left = 16.0
+content_margin_top = 16.0
+content_margin_right = 16.0
+content_margin_bottom = 16.0
+bg_color = Color(0.09, 0.11, 0.15, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.3, 0.36, 0.46, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[node name="HelpCodex" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_codex")
+
+[node name="Row" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 14
+
+[node name="NavScroll" type="ScrollContainer" parent="Row"]
+custom_minimum_size = Vector2(210, 0)
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Nav" type="VBoxContainer" parent="Row/NavScroll"]
+custom_minimum_size = Vector2(198, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="DetailPanel" type="PanelContainer" parent="Row"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("StyleBoxFlat_detail")
+
+[node name="Detail" type="VBoxContainer" parent="Row/DetailPanel"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Row/DetailPanel/Detail"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.72, 1, 1)
+theme_override_font_sizes/font_size = 20
+
+[node name="Image" type="TextureRect" parent="Row/DetailPanel/Detail"]
+custom_minimum_size = Vector2(0, 240)
+layout_mode = 2
+size_flags_horizontal = 3
+expand_mode = 3
+stretch_mode = 5
+
+[node name="Caption" type="Label" parent="Row/DetailPanel/Detail"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 11
+horizontal_alignment = 1
+
+[node name="BodyScroll" type="ScrollContainer" parent="Row/DetailPanel/Detail"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Body" type="Label" parent="Row/DetailPanel/Detail/BodyScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
+theme_override_font_sizes/font_size = 14
+autowrap_mode = 3

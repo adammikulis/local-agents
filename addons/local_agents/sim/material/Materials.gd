@@ -23,92 +23,65 @@ const PHASE_GRANULAR: int = 1     # piles; collapses toward repose angle when di
 const PHASE_LIQUID: int = 2       # flows to lower surface head
 const PHASE_GAS: int = 3          # diffuses + rises by buoyancy; carries heat (convection)
 
-## Sentinel: no thermal transition on this end.
-const NONE: int = -1
-
 const DEFS: Array = [
 	{   # AIR
 		"name": "air", "phase": PHASE_GAS, "density": 0.0012, "flow": 0.0,
 		"heat_capacity": 1.0, "buoyancy": 0.0, "repose": 0.0,
-		"cold_to": NONE, "cold_temp": 0.0, "hot_to": NONE, "hot_temp": 0.0,
-		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(0.7, 0.8, 0.9, 0.0),
 	},
 	{   # WATER
 		"name": "water", "phase": PHASE_LIQUID, "density": 1.0, "flow": 0.25,
 		"heat_capacity": 4.2, "buoyancy": 0.0, "repose": 0.0,
-		"cold_to": ICE, "cold_temp": 0.0, "hot_to": STEAM, "hot_temp": 100.0,
-		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(0.16, 0.46, 0.68, 0.55),
 	},
 	{   # ICE
 		"name": "ice", "phase": PHASE_SOLID, "density": 0.92, "flow": 0.0,
 		"heat_capacity": 2.1, "buoyancy": 0.0, "repose": 0.0,
-		"cold_to": NONE, "cold_temp": 0.0, "hot_to": WATER, "hot_temp": 0.0,
-		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(0.75, 0.88, 0.95, 0.85),
 	},
 	{   # STEAM
 		"name": "steam", "phase": PHASE_GAS, "density": 0.0006, "flow": 0.0,
 		"heat_capacity": 2.0, "buoyancy": 1.4, "repose": 0.0,
-		"cold_to": WATER, "cold_temp": 99.0, "hot_to": NONE, "hot_temp": 0.0,
-		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(0.85, 0.88, 0.92, 0.35),
 	},
 	{   # ROCK  (solid phase == voxel SDF; listed so lava can solidify back to it)
 		"name": "rock", "phase": PHASE_SOLID, "density": 2.6, "flow": 0.0,
 		"heat_capacity": 0.8, "buoyancy": 0.0, "repose": 0.0,
-		"cold_to": NONE, "cold_temp": 0.0, "hot_to": LAVA, "hot_temp": 1200.0,
-		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(0.42, 0.4, 0.4, 1.0),
 	},
 	{   # DIRT (granular soil; slides in landslides)
 		"name": "dirt", "phase": PHASE_GRANULAR, "density": 1.5, "flow": 0.0,
 		"heat_capacity": 0.9, "buoyancy": 0.0, "repose": 0.8,
-		"cold_to": NONE, "cold_temp": 0.0, "hot_to": NONE, "hot_temp": 0.0,
-		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(0.40, 0.28, 0.18, 1.0),
 	},
 	{   # SAND (looser granular; lower repose)
 		"name": "sand", "phase": PHASE_GRANULAR, "density": 1.6, "flow": 0.0,
 		"heat_capacity": 0.8, "buoyancy": 0.0, "repose": 0.6,
-		"cold_to": NONE, "cold_temp": 0.0, "hot_to": NONE, "hot_temp": 0.0,
-		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(0.80, 0.74, 0.55, 1.0),
 	},
 	{   # LAVA (hot, slow-creeping liquid; solidifies to rock when it cools)
 		"name": "lava", "phase": PHASE_LIQUID, "density": 2.4, "flow": 0.04,
 		"heat_capacity": 1.0, "buoyancy": 0.0, "repose": 0.0,
-		"cold_to": ROCK, "cold_temp": 800.0, "hot_to": NONE, "hot_temp": 0.0,
-		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(1.0, 0.42, 0.08, 1.0),
 	},
 	{   # ASH (light granular residue of fire)
 		"name": "ash", "phase": PHASE_GRANULAR, "density": 0.6, "flow": 0.0,
 		"heat_capacity": 0.7, "buoyancy": 0.0, "repose": 0.4,
-		"cold_to": NONE, "cold_temp": 0.0, "hot_to": NONE, "hot_temp": 0.0,
-		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(0.28, 0.26, 0.25, 1.0),
 	},
 	{   # SMOKE (hot combustion gas; rises and carries heat — convection)
 		"name": "smoke", "phase": PHASE_GAS, "density": 0.0007, "flow": 0.0,
 		"heat_capacity": 1.6, "buoyancy": 1.1, "repose": 0.0,
-		"cold_to": NONE, "cold_temp": 0.0, "hot_to": NONE, "hot_temp": 0.0,
-		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(0.2, 0.2, 0.22, 0.5),
 	},
 	{   # WOOD (vegetation fuel; combusts to ash)
 		"name": "wood", "phase": PHASE_SOLID, "density": 0.7, "flow": 0.0,
 		"heat_capacity": 1.8, "buoyancy": 0.0, "repose": 0.0,
-		"cold_to": NONE, "cold_temp": 0.0, "hot_to": NONE, "hot_temp": 0.0,
-		"flammable": true, "ignite_temp": 300.0, "burns_to": ASH,
 		"color": Color(0.36, 0.25, 0.14, 1.0),
 	},
 	{   # SNOW (frozen precipitation; melts to water)
 		"name": "snow", "phase": PHASE_GRANULAR, "density": 0.3, "flow": 0.0,
 		"heat_capacity": 2.0, "buoyancy": 0.0, "repose": 0.5,
-		"cold_to": NONE, "cold_temp": 0.0, "hot_to": WATER, "hot_temp": 0.0,
-		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(0.92, 0.95, 0.98, 1.0),
 	},
 ]
@@ -147,30 +120,6 @@ static func repose(id: int) -> float:
 
 static func color(id: int) -> Color:
 	return def(id).get("color", Color.WHITE)
-
-
-static func is_flammable(id: int) -> bool:
-	return bool(def(id).get("flammable", false))
-
-
-static func ignite_temp(id: int) -> float:
-	return float(def(id).get("ignite_temp", 0.0))
-
-
-static func burns_to(id: int) -> int:
-	return int(def(id).get("burns_to", NONE))
-
-
-## The material `id` becomes when its cell temperature crosses a threshold, or NONE.
-## Returns {to: int, temp: float, hot: bool} describing the nearest transition, or {to: NONE}.
-static func cold_transition(id: int) -> Dictionary:
-	var d: Dictionary = def(id)
-	return {"to": int(d.get("cold_to", NONE)), "temp": float(d.get("cold_temp", 0.0))}
-
-
-static func hot_transition(id: int) -> Dictionary:
-	var d: Dictionary = def(id)
-	return {"to": int(d.get("hot_to", NONE)), "temp": float(d.get("hot_temp", 0.0))}
 
 
 ## Ids of the materials that are MOBILE (stored per-cell in the field's flat arrays).

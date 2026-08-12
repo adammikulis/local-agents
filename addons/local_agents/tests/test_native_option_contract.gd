@@ -1,40 +1,6 @@
 @tool
 extends RefCounted
 
-## The GDScript <-> native option contract: every knob the inspector shows must survive both hops to
-## the runtime that actually reads it.
-##
-## The most repeated defect in this addon was a DEAD EXPORT - a property declared, documented and
-## plumbed through GDScript that nothing on the far side ever reads. Four shipped that way
-## (system_prompt, max_actions_per_tick, db_path, model_profile.threads) and only a live model run
-## disproved the first. Nothing tested it. This does, in two hops:
-##
-##   HOP 1  export -> option key.  Every editor-exported property of LocalAgentModelProfile and
-##          LocalAgentInferenceParams must appear in that resource's to_options() output, under its
-##          own name or under a declared alias. A knob added to the inspector and never plumbed into
-##          to_options() fails here.
-##
-##   HOP 2  option key -> consumer.  Every key to_options() emits must be looked up in the native
-##          runtime source (addons/local_agents/gdextensions/localagents/src/). A key nothing looks
-##          up is DEAD: the user sets it, the runtime never sees it.
-##
-## Seven keys are natively unconsumed TODAY, so hop 2 would fail on a healthy tree. They are listed
-## in KNOWN_UNCONSUMED with a reason, and the list is CHECKED rather than trusted:
-##   - a KNOWN_UNCONSUMED key that the native source HAS started reading fails the test (stale entry
-##     -> delete it), so the list cannot silently rot;
-##   - a key documented as GDSCRIPT_CONSUMED must actually be looked up somewhere in the addon's
-##     GDScript, and a key documented as RESERVED must be looked up NOWHERE.
-## The point of the list is that the NEXT dead key is a test failure rather than a discovery.
-##
-## What counts as "looked up" is deliberately narrow - reads only, so that WRITING a key
-## (`opts["system_prompt"] = system_prompt`, which is exactly what the dead system_prompt export
-## does) is never mistaken for consuming it:
-##   <ident>.has("<key>")   <ident>.get("<key>"   <ident>.get_or_add("<key>"
-## plus, in the native source only, the request-body helper `copy_if_present("<key>", ...)` whose
-## body is `if (options.has(option_key)) { payload[payload_key] = options[option_key]; }`
-## (AgentRuntime.cpp, the lambda declared just above the copy_if_present block).
-##
-## (Explicit types only - project rule: no ':=' inferred typing.)
 
 const NATIVE_SRC_DIR: String = "res://addons/local_agents/gdextensions/localagents/src/"
 const ADDON_ROOT: String = "res://addons/local_agents/"
@@ -44,22 +10,6 @@ const NATIVE_SRC_SUFFIXES: Array[String] = [".cpp", ".h", ".hpp"]
 const GDSCRIPT_CONSUMED: String = "gdscript"   # the addon's GDScript reads it; the native runtime does not
 const RESERVED: String = "reserved"            # nothing reads it anywhere; kept for a documented reason
 
-## Option keys the native runtime does NOT read today. Every entry is deliberate; adding one is how
-## you declare a knob reserved, and the test refuses to let an entry outlive its reason.
-##
-##   threads                  - the in-process runtime picks its own thread count; this value is only
-##                              passed to the managed llama-server process (LlamaServerManager).
-##   system_prompt            - RESERVED. The runtime keeps ONE system_prompt_ on the shared
-##                              AgentRuntime singleton, so a per-agent prompt cannot travel in the
-##                              options at all; LocalAgent puts it at history[0] instead (see
-##                              LocalAgentAgentHistory.apply_system_prompt). The key is still emitted
-##                              because a profile may legitimately describe one.
-##   chat_template            - RESERVED. Overriding the GGUF's baked-in template is not wired to any
-##                              backend yet; the profile carries the value so scenes do not lose it.
-##   server_autostart         - llama-server process lifecycle, owned by LocalAgentAgentServer.
-##   server_shutdown_on_exit  - llama-server process lifecycle, owned by LocalAgentAgentServer.
-##   server_start_timeout_ms  - llama-server process lifecycle, owned by LlamaServerManager.
-##   server_ready_timeout_ms  - llama-server process lifecycle, owned by LlamaServerManager.
 const KNOWN_UNCONSUMED: Dictionary = {
 	"threads": GDSCRIPT_CONSUMED,
 	"system_prompt": RESERVED,
@@ -79,13 +29,6 @@ const PARAMS_ALIASES: Dictionary = {
 	"server_slot": "id_slot",
 	"server_cache_prompt": "cache_prompt",
 }
-## Exports that are NOT options, with the reason each one is exempt.
-##   profile_name / inference_config_name - cosmetic labels, shown in preset lists only.
-##   model_path                           - argument 1 of AgentRuntime.load_model(model_path, options),
-##                                          not a member of `options`. Asserted below against the
-##                                          runtime's own binding metadata.
-##   extra_options                        - the merge escape hatch; its CONTENTS become keys, it is
-##                                          never a key itself.
 const PROFILE_NON_OPTION: Array[String] = ["profile_name", "model_path"]
 const PARAMS_NON_OPTION: Array[String] = ["inference_config_name", "extra_options"]
 
@@ -137,8 +80,6 @@ func run_test(_tree: SceneTree) -> bool:
 	return false
 
 
-# --- hop 1: export -> option key -------------------------------------------------------------------
-
 func _check_exports_reach_options(label: String, res: Resource, options: Dictionary, aliases: Dictionary, non_option: Array[String]) -> void:
 	var exports: Array[String] = _exported_property_names(res)
 	if exports.is_empty():
@@ -158,8 +99,6 @@ func _check_exports_reach_options(label: String, res: Resource, options: Diction
 		if not exports.has(exempt):
 			_fail("%s non-option export '%s' no longer exists. Delete the entry." % [label, exempt])
 
-
-# --- hop 2: option key -> consumer -----------------------------------------------------------------
 
 func _check_key_consumed(key: String, native_src: String, gdscript_src: String) -> void:
 	var native: bool = _is_looked_up(native_src, key, true)
@@ -211,8 +150,6 @@ func _check_load_model_binding() -> void:
 	if not found:
 		_fail("AgentRuntime exposes no load_model method.")
 
-
-# --- helpers ---------------------------------------------------------------------------------------
 
 # Every conditional branch of to_options() is forced open, so the emitted set is the FULL surface
 # rather than whatever a default-constructed resource happens to send. extra_options stays empty on

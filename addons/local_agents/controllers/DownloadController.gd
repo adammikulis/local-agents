@@ -2,16 +2,6 @@
 extends Control
 class_name LADownloadController
 
-## The editor Downloads tab: pick a model from the shipped catalog, fetch it, and watch the log.
-##
-## There is exactly one downloader in this addon: `LAModelDownloadManager` (pure GDScript, HTTPRequest,
-## streams to a `.part` file and promotes it only after the size verifies), the same one the in-game
-## panel uses. Nothing on the model path needs the native binary.
-##
-## The worker Thread survives only for the shell script job (voices / build dependencies via
-## fetch_dependencies.sh). The model path is signal-driven and needs no thread at all.
-##
-## (Explicit types only. Project rule: no ':=' inferred typing.)
 
 const FETCH_SCRIPT: String = "res://addons/local_agents/gdextensions/localagents/scripts/fetch_dependencies.sh"
 const MODEL_SERVICE: GDScript = preload("res://addons/local_agents/controllers/ModelDownloadService.gd")
@@ -57,7 +47,6 @@ func _exit_tree() -> void:
         _worker.wait_to_finish()
         _worker = null
 
-# -- Public actions (wired from DownloadTab.tscn) ------------------------------
 
 ## Dependencies + voices first, then the selected (or recommended) model.
 func download_all() -> void:
@@ -92,7 +81,6 @@ func refresh_models() -> void:
     _populate_model_tree()
     _set_running_state(false, "Catalog refreshed")
 
-# -- Model download (LAModelDownloadManager) ---------------------------
 
 func _ensure_downloader() -> void:
     if _downloader != null:
@@ -180,7 +168,6 @@ func _on_model_download_finished(_model_id: String, ok: bool, path: String, erro
         _set_running_state(false, "Failed %s (%s)" % [label, error])
     _active_model_label = ""
 
-# -- Shell script job (voices / build dependencies) ----------------------------
 
 func _start_script_job(args: PackedStringArray, status: String) -> void:
     if _is_busy():
@@ -235,7 +222,6 @@ func _is_busy() -> bool:
         return true
     return _downloader != null and _downloader.is_downloading()
 
-# -- Log -----------------------------------------------------------------------
 
 func _log(line: String) -> void:
     if output_log:
@@ -248,7 +234,6 @@ func _reset_output() -> void:
         output_log.append_text("-------------------------\n")
         output_log.append_text("Models stream straight to user://local_agents/models; voices and build dependencies use fetch_dependencies.sh.\n\n")
 
-# -- Model catalog tree --------------------------------------------------------
 
 func _populate_model_tree() -> void:
     if not model_tree:
@@ -284,11 +269,11 @@ func _populate_model_tree() -> void:
             if first_model_item == null:
                 first_model_item = item
             if not selection_set and (bool(model.get("recommended", false)) or String(model.get("id", "")) == default_id):
-                model_tree.select_item(item, 0)
+                item.select(0)
                 _apply_model_selection(model)
                 selection_set = true
     if not selection_set and first_model_item:
-        model_tree.select_item(first_model_item, 0)
+        first_model_item.select(0)
         var meta: Variant = first_model_item.get_metadata(0)
         if typeof(meta) == TYPE_STRING and String(meta) != "":
             var fallback_model: Dictionary = _model_service.find_model(String(meta))
@@ -377,7 +362,6 @@ func _on_model_tree_item_activated() -> void:
     if typeof(model_id_variant) == TYPE_STRING and String(model_id_variant) != "":
         download_models_only()
 
-# -- Button state --------------------------------------------------------------
 
 func _set_running_state(running: bool, label: String) -> void:
     if status_label:

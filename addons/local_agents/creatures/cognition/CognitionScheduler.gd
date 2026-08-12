@@ -2,40 +2,12 @@
 class_name LocalAgentCognitionScheduler
 extends Node
 
-## The shared "slow brain" throttle. Every creature's LACognition escalates rare/uncertain
-## situations here; this one node decides (for the WHOLE world at once) whether there is budget to
-## resolve another deliberation right now, resolves it OFF the physics frame, and writes a training
-## trace for the auto-finetune loop. It is deliberately the only place that talks to the model server
-## so the global concurrency/rate caps are honoured no matter how many creatures escalate at once.
-##
-## Two backends resolve an escalation into one LAActionRegistry action:
-##   1. The shared LLMClient: a LocalAgentLlmClient (a LocalAgent behind an async seam), owned by
-##      LocalAgentLlmService. request() runs the native function-calling think OFF the frame and hands
-##      back the chosen tool call. Used when a service/client is available and we are inside the tree.
-##      This is the SAME LocalAgent the standalone agent + streamer use: one server, one model, one
-##      config (no more private HTTPRequest client here).
-##   2. Heuristic teacher: a synchronous rule-of-thumb resolved from the signature+context, but its
-##      callback is DEFERRED so it too never blocks. This is the offline fallback AND the "teacher"
-##      that keeps generating training traces when no model is loaded.
-##
-## Either way the result is fed back via `cognition.apply_llm_result(key, action)` (success) or
-## `cognition.on_llm_failed()` (failure/timeout), and on success appended as one JSONL trace line.
-##
-## NO-CODE USE: drop this node into a scene next to a LocalAgentLlmService, pick that service in
-## `llm_service`, and every creature in `adopt_group` is wired to it on ready, including creatures
-## spawned later. That is the whole hookup; no script is involved.
-##
-## (Explicit types only, no ':=' inferred typing.)
 
 const DEFAULT_TRACE_PATH: String = "user://functiongemma_traces.jsonl"
 const SCAN_LIMIT: int = 40                 # per-group cap when gathering escalation context
 const PREDATOR_SIZE_RATIO: float = 1.2     # a "predator" must be at least this much bigger than me
 const ACTIVITY_PRUNE_AT: int = 256         # prune expired activity entries once the map grows past this
 
-## Emitted ONCE per scheduler, the first time an escalation falls back to the heuristic teacher instead
-## of the model. `reason` is a sentence naming the cause and the fix. It is a signal rather than a print
-## because the fallback is correct behaviour that fires per-creature per-second, and logging every one
-## would flood the console. Connect it to a HUD line if you want it surfaced.
 signal degraded(reason: String)
 
 
@@ -56,17 +28,6 @@ signal degraded(reason: String)
 ## answers them all, so this is the knob that stops a thousand creatures queueing behind each other.
 @export_range(1, 16, 1) var max_in_flight: int = 2
 
-## Ceiling on how many escalations per SIMULATED second are accepted world-wide. Escalations over the
-## ceiling are dropped, and those creatures keep the action their fast brain already picked.
-##
-## SIMULATED, not wall-clock: the window counts physics frames, so how many creatures get to think is a
-## property of the simulation and not of how fast the machine runs. A wall-clock window is non-deterministic
-## in a seeded run even under `--fixed-fps`, which fixes the delta handed to `_process` and not the clock.
-##
-## The model server is still protected, by `max_in_flight` above — a concurrency cap is what a server
-## actually cares about, and it is unaffected by this. The one trade: under `--fast=N` the sim second passes
-## N times faster in real time, so escalations arrive N times faster in wall-clock. That is correct for a
-## simulation budget, and `max_in_flight` remains the binding constraint on the server.
 @export_range(0.1, 60.0, 0.1, "suffix:/sim-s") var max_requests_per_second: float = 4.0
 
 ## How long the "thinking"/"queued" highlight stays on a creature after its consult resolves, so a
@@ -79,10 +40,6 @@ signal degraded(reason: String)
 ## who chose it). This is the dataset the auto-finetune loop trains on. Off writes nothing.
 @export var write_traces: bool = true
 
-## Folder the trace file is written into. "user://" is the per-project writable folder, which is the
-## right place for it, because res:// is read-only in an exported game.
-## Left a plain String rather than @export_dir: that picker is res://-scoped and cannot browse to
-## user://, so it could not express this property's own default.
 @export var trace_dir: String = "user://"
 
 ## Name of the trace file inside the folder above. Lines are appended, never overwritten.
@@ -96,15 +53,10 @@ signal degraded(reason: String)
 @export var adopt_group: StringName = &"la_creatures"
 
 
-# --- configuration (set via setup) ---
-# The shared LLMClient (a LocalAgentLlmClient owned by LocalAgentLlmService), injected by setup(). When
-# null the scheduler asks `llm_service` for one; when that is null too, every escalation resolves with
-# the built-in heuristic teacher (the offline path). One client, one server, one model.
 var _llm_client = null
 var _trace_path_override: String = ""      # setup({"trace_path": ...}) wins over the exports above
 var _degraded_reported: bool = false       # `degraded` is emitted at most once
 
-# --- live budget / stats ---
 var _in_flight: int = 0
 var _total_calls: int = 0
 var _llm_calls: int = 0
@@ -114,10 +66,6 @@ var _recent_frames: Array = []             # accept PHYSICS-FRAME numbers within
                                            # (rate limiting). Frames, not milliseconds, so the budget is a
                                            # property of the simulation and a seeded run reproduces.
 
-# --- live "who is consulting the slow brain" set (drives the player's thinking/queued highlight + select) ---
-# _in_flight_ids: exact set of creatures whose escalation is being resolved RIGHT NOW (added on accept,
-# removed on finish). _activity: instance_id -> {kind:"thinking"|"queued", until:msec} — the lingered
-# display window so a one-frame teacher consult still shows. is_thinking/is_queued read both.
 var _in_flight_ids: Dictionary = {}
 var _activity: Dictionary = {}
 
@@ -166,14 +114,6 @@ func _adopt_existing() -> void:
 		_try_adopt(node)
 
 
-# node_added fires for EVERY node in the scene, so the check is cheap and the work is deferred.
-#
-# Deferred ALWAYS, including for a node already in the group. node_added fires during add_child,
-# which is before the spawner calls setup(). Creature.set_cognition_scheduler() is
-# `if _cognition != null: _cognition.set_scheduler(s)`, and _cognition is not built until setup()
-# runs — so adopting at add_child time is a SILENT no-op and the creature ends up with no scheduler
-# at all. Deferring also covers the other direction, where a spawner calls add_to_group() after
-# add_child().
 func _on_node_added(node: Node) -> void:
 	if adopt_group == &"" or node == null:
 		return
@@ -284,13 +224,6 @@ func request(creature, cognition, sig: Dictionary, innate_action: String) -> boo
 	return true
 
 
-## Global budget gate: cap concurrent in-flight resolutions AND escalations per simulated second. Records
-## the accept frame when it lets one through.
-##
-## THE WINDOW IS COUNTED IN PHYSICS FRAMES, NOT MILLISECONDS. See `max_requests_per_second` for why: a gate
-## that decides how much work happens must count sim time, or the run stops being reproducible. One
-## simulated second is `physics_ticks_per_second` frames, so the configured rate keeps its meaning exactly
-## at normal speed and becomes per-sim-second under a time scale.
 func _accept() -> bool:
 	if _in_flight >= max_in_flight:
 		return false
@@ -304,8 +237,6 @@ func _accept() -> bool:
 	_recent_frames.append(now)
 	return true
 
-
-# --- shared-LLMClient backend (function-calling) --------------------------------------------------
 
 ## Dispatch one escalation through the shared LocalAgentLlmClient. FunctionGemmaClient shapes the
 ## messages; the client supplies transport + tools + tool_choice and delivers the native result async.
@@ -323,11 +254,6 @@ func _dispatch_llm(job: Dictionary) -> bool:
 	return true
 
 
-## Async result from the shared client: the native think Dictionary ({ok, text, tool_calls?, response?}).
-## FunctionGemmaClient reads the chosen action out of it (native tool-call first, then a content scan). If
-## the model itself was unavailable (ok:false — server down, model not loaded) we DEGRADE to the heuristic
-## teacher so a broken/offline model never breaks cognition; a model that answered but chose no valid
-## action still reports failure (the creature keeps its fast-path pick).
 func _on_llm_result(result: Dictionary, job: Dictionary) -> void:
 	if not bool(result.get("ok", false)):
 		_resolve_teacher(job)
@@ -335,8 +261,6 @@ func _on_llm_result(result: Dictionary, job: Dictionary) -> void:
 	var action: String = LAFunctionGemmaClient.parse_action_from_result(result)
 	_finish(job, action, "llm")
 
-
-# --- heuristic teacher backend --------------------------------------------------------------------
 
 func _resolve_teacher(job: Dictionary) -> void:
 	_teacher_calls += 1
@@ -369,8 +293,6 @@ func _teacher_action(sig: Dictionary, context: Dictionary) -> String:
 	return "wander"
 
 
-# --- shared resolution / feedback -----------------------------------------------------------------
-
 func _finish(job: Dictionary, action: String, source: String) -> void:
 	_in_flight = maxi(0, _in_flight - 1)
 	# Resolved: drop the exact in-flight mark but keep a lingering "thinking" glow so a fast (single-frame)
@@ -391,8 +313,6 @@ func _finish(job: Dictionary, action: String, source: String) -> void:
 		if cognition != null and is_instance_valid(cognition):
 			cognition.on_llm_failed()
 
-
-# --- rich context gathering (rare, escalation-time only) ------------------------------------------
 
 ## Scan the world (bounded, vision-gated) for what matters to a survival decision. Only called when a
 ## creature actually escalates, so the O(groups) scan cost is acceptable.
@@ -485,8 +405,6 @@ func _scan_group_visible(creature, tree: SceneTree, group: String) -> bool:
 	return false
 
 
-# --- trace logging (fixed schema — the finetune exporter reads this) ------------------------------
-
 func _write_trace(job: Dictionary, action: String, source: String) -> void:
 	var trace_path: String = _resolve_trace_path()
 	if trace_path == "":
@@ -531,8 +449,6 @@ func _action_name_list() -> Array:
 	return names
 
 
-# --- live consult set (player highlight + select-by-predicate) ------------------------------------
-
 ## Is this creature consulting the slow brain right now (or within the brief display linger)? Exact while
 ## the escalation is in flight (_in_flight_ids), then lingers highlight_linger_ms so a one-frame teacher
 ## consult is still visible. O(1).
@@ -576,8 +492,6 @@ func _maybe_prune() -> void:
 		if now >= int((_activity[k] as Dictionary).get("until", 0)):
 			_activity.erase(k)
 
-
-# --- introspection --------------------------------------------------------------------------------
 
 func stats() -> Dictionary:
 	return {

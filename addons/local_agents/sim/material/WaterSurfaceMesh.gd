@@ -15,8 +15,9 @@ func build(grid: RefCounted, water: PackedFloat32Array, solid: PackedByteArray,
 		inv_xform: Transform3D, cam_radial: Vector3, cap_cos: float,
 		render_min: float, max_mass: float, sea_radius: float, sea_wave_eps: float) -> Dictionary:
 	var depth: int = grid.depth
-	var core_radius: float = grid.core_radius
 	var cell_size: float = grid.cell_size
+	var shell_face: PackedFloat32Array = grid.shell_face   # depth+1 boundary radii
+	var shell_dr: PackedFloat32Array = grid.shell_dr       # per-shell radial thickness
 	var center: Vector3 = grid.center
 	var sc: int = grid.surf_count
 	var surf_nbr: PackedInt32Array = grid.surf_nbr
@@ -47,8 +48,8 @@ func build(grid: RefCounted, water: PackedFloat32Array, solid: PackedByteArray,
 				break                                    # hit ground before any water → dry column
 				# surface); at sea level = the calm SEA, drawn here across the near cap and biased just OUTWARD of
 				# the cheap ocean sphere so it occludes it (waves/foam/ripples near the player, sphere far away).
-				if core_radius + float(r + 1) * cell_size > sea_radius + sea_wave_eps:
-					r_top = core_radius + float(r + 1) * cell_size
+				if shell_face[r + 1] > sea_radius + sea_wave_eps:
+					r_top = shell_face[r + 1]
 					salinity = 0.0
 				else:
 					r_top = sea_radius + SEA_BIAS
@@ -57,7 +58,7 @@ func build(grid: RefCounted, water: PackedFloat32Array, solid: PackedByteArray,
 				break
 			if water[c] >= render_min:
 				# dynamic FRESH water (river / spring / flood): sub-cell height → smooth shoreline
-				r_top = core_radius + (float(r) + clampf(water[c] / max_mass, 0.0, 1.0)) * cell_size
+				r_top = shell_face[r] + clampf(water[c] / max_mass, 0.0, 1.0) * shell_dr[r]
 				salinity = 0.0
 				found = true
 				break
@@ -95,7 +96,7 @@ func build(grid: RefCounted, water: PackedFloat32Array, solid: PackedByteArray,
 		# facets, so zero it for salt cells; the sea's look is swell + shoreline foam, not gradient whitewater.
 		var steep: float = 0.0
 		if sal[s] < 0.5:
-			steep = clampf(flow_world.length() / cell_size, 0.0, 1.0)
+			steep = clampf(flow_world.length() / cell_size, 0.0, 1.0)   # lateral run, normalised by the mean radial thickness
 		var flow_local: Vector3 = inv_xform.basis * flow_world
 		var fl: Vector2 = Vector2(flow_local.x, flow_local.z)
 		if sal[s] >= 0.5 or fl.length() <= 1.0e-4:

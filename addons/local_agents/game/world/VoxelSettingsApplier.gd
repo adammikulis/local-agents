@@ -1,30 +1,7 @@
 class_name LAVoxelSettingsApplier
 extends Node
 
-## LAVoxelSettingsApplier: the ONE bridge from the front-end LAGameSettings (carried on the GameMode
-## autoload) into the live simulation. VoxelWorld stays a thin composition root; this module owns the
-## whole "apply the player's settings" concern so no application logic accretes into the hub.
-##
-## It reads GameMode.settings on boot and resolves them into concrete sim knobs:
-##   • quality → grid_resolution : the cubed-sphere field's per-face cell resolution (build-time, read
-##     BEFORE the field is built) so a Low preset runs a smaller grid on weak GPUs.
-##   • quality → actor_budget    : a spawn-count scale the initial-spawn controller multiplies its base
-##     counts by (fewer actors on Low, more on High).
-##   • quality → effects_level   : a particle-density scale pushed to the atmosphere particle system.
-##   • difficulty → disaster_frequency : the cadence of an AMBIENT natural-events director that SEEDS the
-##     existing VoxelDisasters casts (storm / tornado / hurricane / volcano) as RARE special events. It
-##     invents no new physics. The disaster actors are seeds/markers/visuals and the field carries the
-##     phenomena; this only decides how often a seed is dropped, scaled by the difficulty. Lightning is NOT
-##     seeded here, because it is fully emergent from the field's charge physics under a real storm.
-##   • difficulty → climate_harshness : biases WHICH disaster the director seeds (mild → storm seed;
-##     extreme → volcano / hurricane / tornado).
-##
-## Grid resolution + spawn counts can only take effect at world build, so VoxelWorld/SpawnController QUERY
-## the resolved values here before building; audio volumes are applied by LAVoxelAudioController; cadence
-## and effects apply live and re-apply on GameMode.settings_applied. (Explicit types only, no ':=' inferred typing.)
 
-## Quality grid_resolution (48/96/128) maps to the field's per-face cell resolution. Medium (96) keeps the
-## historical 32 cells/face, so 96/3 == 32 is the pivot; Low → 16, High → ~43.
 const GRID_RES_DIVISOR: float = 3.0
 const GRID_FACE_MIN: int = 8
 const GRID_FACE_MAX: int = 64
@@ -35,14 +12,6 @@ const BASELINE_ACTOR_BUDGET: float = 120.0
 const SPAWN_SCALE_MIN: float = 0.15
 const SPAWN_SCALE_MAX: float = 4.0
 
-## Ambient-disaster cadence: mean seconds between seeded events, interpolated by disaster_frequency
-## (0..1). These are RARE SPECIAL EVENTS, not a firehose — historically it is disease / starvation /
-## drought / exposure / predation that pressures a population, NOT catastrophes, so the ambient director
-## only sprinkles the occasional tornado / hurricane / volcano and lets the ECOLOGY be the real attrition.
-## Ordinary weather (rain → charge → LIGHTNING) is fully EMERGENT in the field's water cycle and needs no
-## director seed, so the director never seeds a bolt. At frequency 1 a catastrophe is seeded
-## roughly every DISASTER_INTERVAL_FAST s, at ~0 every DISASTER_INTERVAL_SLOW s (effectively never in a
-## normal run); below DISASTER_FREQ_OFF the director is disabled entirely (a calm world).
 const DISASTER_INTERVAL_FAST: float = 180.0
 const DISASTER_INTERVAL_SLOW: float = 2400.0
 const DISASTER_FREQ_OFF: float = 0.03
@@ -76,11 +45,6 @@ func read_settings() -> void:
 	publish_globals()
 
 
-## `--smoke` (VoxelInputController sets the `la_smoke` Engine meta before this runs): force the MINIMAL config
-## for a fast parse+run check — the smallest grid + fewest actors + effects/FX off + a calm world. Reuses the
-## existing Potato-graphics + Low-sim presets (no parallel config path) on a DUPLICATE so the persisted resource
-## is never mutated. Streamer-off is handled by the input controller; the ambient disaster director stays off
-## because disaster_frequency drops below DISASTER_FREQ_OFF.
 func _apply_smoke_overrides() -> void:
 	if not (Engine.has_meta("la_smoke") and bool(Engine.get_meta("la_smoke"))):
 		return
@@ -91,11 +55,6 @@ func _apply_smoke_overrides() -> void:
 	_settings = smoke
 
 
-## `--quality=<name>` (potato/low/medium/high/ultra): force a NAMED graphics preset on a DUPLICATE settings
-## resource (never mutates the persisted user resource), for reproducible perf comparisons at a known,
-## documented grid_resolution across runs/branches. Unknown names are ignored (keep whatever --smoke or the
-## persisted settings already resolved) rather than silently falling back to a default that could be
-## mistaken for the requested one.
 func _apply_quality_override() -> void:
 	if not Engine.has_meta("la_quality"):
 		return
@@ -118,8 +77,6 @@ func settings() -> LAGameSettings:
 		read_settings()
 	return _settings
 
-
-# --- Build-time queries (VoxelWorld / SpawnController read these before building) ---
 
 ## Cubed-sphere per-face cell resolution from the quality grid_resolution budget.
 func grid_res_per_face() -> int:
@@ -147,13 +104,6 @@ func particle_scale() -> float:
 			return 0.65
 
 
-## Resolved RENDER-QUALITY flags for the heavy full-screen / fill-rate effects, now read from the INDIVIDUAL
-## graphics knobs (each is its own control in the Graphics settings section) rather than one bundled level.
-## Profiling showed these — NOT the actor count — dominate the default frame time: an alpha-blended
-## planet-filling ocean shell (~40 ms of transparent overdraw at 720p), SSAO + HDR glow (full-screen post
-## passes that scale with resolution), and PSSM sun shadows (a second scene pass). So the DEFAULT (Medium)
-## preset leaves them OFF for a playable frame-rate and only High/Ultra turn them on. Consumed by
-## LAVoxelSkyCycle (env/sun) + LAOceanPlane at build time.
 func render_opts() -> Dictionary:
 	var s: LAGameSettings = settings()
 	return {
@@ -176,10 +126,6 @@ func vegetation_scale() -> float:
 func draw_distance() -> float:
 	return maxf(1000.0, settings().draw_distance)
 
-
-# --- Simulation / AI (CPU) resolved knobs. These are consumed by systems owned elsewhere (creature
-# cognition, the LLM director, the field step), so the applier PUBLISHES them as Engine metadata globals the
-# owning systems read, keeping this module free of their code. The queries below also expose them directly. ---
 
 ## Creatures re-decide every N frames (larger = cheaper CPU).
 func ai_tick_frames() -> int:
@@ -207,8 +153,6 @@ func publish_globals() -> void:
 	Engine.set_meta("la_field_cadence", field_cadence())
 	Engine.set_meta("la_effects_scale", particle_scale())   # quality-scaled effects budget (ejecta pool, …)
 
-
-# --- Live binding (cadence + effects + re-apply) ---
 
 ## Wire the live systems once they exist (called near the end of VoxelWorld._ready). Applies the particle
 ## density, arms the ambient-disaster cadence, and subscribes to GameMode.settings_applied so a mid-game
@@ -257,17 +201,9 @@ func _recompute_disaster_cadence() -> void:
 	_disaster_accum = 0.0
 
 
-# --- Ambient-disaster cadence (the difficulty director) ---
-
-# The ambient director seeds storms/tornadoes/hurricanes/volcanoes into the field, so its cadence runs on
-# the FIXED physics tick — the same clock the field steps on.
-func _physics_process(delta: float) -> void:
+func _process(delta: float) -> void:
 	if not _bound or not _ambient_enabled or _disasters == null:
 		return
-	# GEOLOGY DOES NOT WAIT FOR RABBITS. The gate asks "is the world built yet", so a seed does not land
-	# mid-terrain generation, via the spawn controller's life-independent `is_spawned()` (true once terrain
-	# has meshed and the initial build ran, whatever it did or did not populate). It must never consult the
-	# creature population.
 	if get_tree() == null or _world == null:
 		return
 	if _world.has_method("world_ready") and not bool(_world.world_ready()):
@@ -300,10 +236,6 @@ func _seed_ambient_disaster() -> void:
 	print("AMBIENT_DISASTER={type:%s, climate:%.2f, interval:%.1f}" % [kind, settings().climate_harshness, _disaster_interval])
 
 
-## Weighted pick: mild climates lean to a storm seed (which just intensifies the emergent water cycle so
-## its own charge physics can fire lightning), harsh climates open up the destructive events. There is no
-## "lightning" kind — bolts are emergent from field charge, never seeded directly. Config over branches —
-## a new event kind is one row. Seeded via LASimRng so placement/timing reproduce from LA_SIM_SEED.
 func _pick_disaster_kind(climate: float) -> String:
 	var weights: Dictionary = {
 		"thunderstorm": 2.0,

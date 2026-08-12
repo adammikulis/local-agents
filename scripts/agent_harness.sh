@@ -121,8 +121,7 @@ LOG_FILE="$LOG_DIR/agent_harness_${cmd}_$(date +%s).log"
 child=()
 case "$cmd" in
   sim)
-    # No shift here: line 81 already consumed the subcommand. A second one ate the first argument, so
-    # `sim --frames 600` reached sim_run.sh as a bare `600` and `sim --raw` ran the default arm silently.
+    # The subcommand is consumed above; a second shift here would eat the first argument.
     "$(dirname "${BASH_SOURCE[0]}")/sim_run.sh" "$@"
     exit $?
     ;;
@@ -277,6 +276,147 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_heat_capacity_ssot.sh ($rc_heatcap)"
       exit 1
     fi
+    # Gate: ONE definition of the 6-slot neighbour layout. It was written from memory in every kernel that
+    # touches nbr[], and most wrote it down wrong — twelve read slot 5 as "the cell above" when slot 5 is a
+    # LATERAL and up is slot 1, so the solar column, the aquifer walk, reactions' air-above gates, both
+    # buoyancy kernels, tracer transport and the wind were all walking sideways at constant radius. Four
+    # gathers hand-rolled the reverse map instead of `d ^ 1` and duplicated and destroyed mass with it.
+    # Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_neighbour_slots.sh"
+    rc_nbrslots=$?
+    set -e
+    if [[ $rc_nbrslots -ne 0 ]]; then
+      echo "LINT_FAIL: check_neighbour_slots.sh ($rc_nbrslots)"
+      exit 1
+    fi
+    # Gate: the packed radial shell table the kernels read must match the order LASphereGrid writes it in.
+    # Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_shell_table.sh"
+    rc_shelltable=$?
+    set -e
+    if [[ $rc_shelltable -ne 0 ]]; then
+      echo "LINT_FAIL: check_shell_table.sh ($rc_shelltable)"
+      exit 1
+    fi
+    # Gate: the per-face area table. How much crosses a wall is proportional to that wall's area, and on a
+    # cubed sphere no two faces of a cell have the same one. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_face_area.sh"
+    rc_facearea=$?
+    set -e
+    if [[ $rc_facearea -ne 0 ]]; then
+      echo "LINT_FAIL: check_face_area.sh ($rc_facearea)"
+      exit 1
+    fi
+    # Gate: no engine-global RNG in a simulation path. A global randf() is seeded from the OS, so the run
+    # cannot be reproduced; on a shared stream it also shifts every other subsystem's draws. Exit 2 = could
+    # not run.
+    set +e
+    "$SCRIPT_DIR/check_sim_determinism.sh"
+    rc_determinism=$?
+    set -e
+    if [[ $rc_determinism -ne 0 ]]; then
+      echo "LINT_FAIL: check_sim_determinism.sh ($rc_determinism)"
+      exit 1
+    fi
+    # Gate: comment only what is needed to understand that line. Prose cannot be executed, so it rots and
+    # then misleads with authority — every false slot-layout claim was a comment. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_comment_density.sh"
+    rc_comments=$?
+    set -e
+    if [[ $rc_comments -ne 0 ]]; then
+      echo "LINT_FAIL: check_comment_density.sh ($rc_comments)"
+      exit 1
+    fi
+    # Same gate over first-party GDScript. sim/material is excluded: its kernels are covered by the call
+    # above and its GDScript passes are the field hub's own scope. Exit 2 = could not run.
+    set +e
+    EXCLUDE_RE='/sim/material/|/thirdparty/' "$SCRIPT_DIR/check_comment_density.sh" "$REPO_ROOT/addons/local_agents"
+    rc_comments_gd=$?
+    set -e
+    if [[ $rc_comments_gd -ne 0 ]]; then
+      echo "LINT_FAIL: check_comment_density.sh (gdscript) ($rc_comments_gd)"
+      exit 1
+    fi
+    # Gate: phase-from-energy has one definition per side of the GPU boundary. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_enthalpy_ssot.sh"
+    rc_enth=$?
+    set -e
+    if [[ $rc_enth -ne 0 ]]; then
+      echo "LINT_FAIL: check_enthalpy_ssot.sh ($rc_enth)"
+      exit 1
+    fi
+    # Gate: a per-m^3/m^2 quantity must never meet a raw cell size — field lengths are MODEL units.
+    set +e
+    "$SCRIPT_DIR/check_model_unit_volume.sh"
+    rc_muv=$?
+    set -e
+    if [[ $rc_muv -ne 0 ]]; then
+      echo "LINT_FAIL: check_model_unit_volume.sh ($rc_muv)"
+      exit 1
+    fi
+    # Gate: the world has two phases. Creation is legal while seeding and a violation after the seal, and a
+    # whole-mirror upload cannot say what it changed, so it can create matter with no ledger noticing.
+    set +e
+    "$SCRIPT_DIR/check_seed_phase.sh"
+    rc_seed=$?
+    set -e
+    if [[ $rc_seed -ne 0 ]]; then
+      echo "LINT_FAIL: check_seed_phase.sh ($rc_seed)"
+      exit 1
+    fi
+    # Gate: no reaction record may create or destroy matter. The DEFS engine took reactants and products as
+    # two independent lists of hand-written coefficients with nothing relating them, and one rate model had
+    # no reactant at all, so only its product credit ever ran — which is where every carbon atom in this
+    # simulation came from. Conservation was asserted in comments and enforced nowhere; this is the
+    # enforcement. Exit 2 means the gate could not run.
+    set +e
+    "$SCRIPT_DIR/check_reaction_balance.sh"
+    rc_balance=$?
+    set -e
+    if [[ $rc_balance -ne 0 ]]; then
+      echo "LINT_FAIL: check_reaction_balance.sh ($rc_balance)"
+      exit 1
+    fi
+    # Gate: the render clock does not drive the simulation. The field steps on a fixed physics accumulator;
+    # the master clock and the orbit advanced in _process, so the sun moved a framerate-dependent distance
+    # across the sky per unit of chemistry. Static check — no run required. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_framerate_independence.sh"
+    rc_framerate=$?
+    set -e
+    if [[ $rc_framerate -ne 0 ]]; then
+      echo "LINT_FAIL: check_framerate_independence.sh ($rc_framerate)"
+      exit 1
+    fi
+    # Gate: every script in the REAL tree parses. An editor scan does not check this — it emits twenty
+    # progress lines and nothing about any script — so a broken pass module let the sim run to
+    # completion and print a full SIM_REPORT with a whole transport CA silently missing. The sweep
+    # existed but ran only inside check_library_only.sh, which deletes game/ before scanning, so game/
+    # (54 scripts) was force-parsed by nothing at all. Exit 2 means the gate could not run.
+    set +e
+    "$SCRIPT_DIR/check_parse_all.sh"
+    rc_parseall=$?
+    set -e
+    if [[ $rc_parseall -ne 0 ]]; then
+      echo "LINT_FAIL: check_parse_all.sh ($rc_parseall)"
+      exit 1
+    fi
+    # Gate: the addon still parses with the game deleted. docs/USAGE.md promises this; nothing
+    # enforced it, and it had already rotted once. Distinct from the sweep above: that one asks whether
+    # the tree parses, this one asks whether the LIBRARY HALF parses on its own.
+    set +e
+    "$SCRIPT_DIR/check_library_only.sh"
+    rc_libonly=$?
+    set -e
+    if [[ $rc_libonly -ne 0 ]]; then
+      echo "LINT_FAIL: check_library_only.sh ($rc_libonly)"
+      exit 1
+    fi
     # Gate: a field step is a fixed quantum of simulated time. real_seconds_per_step() used to divide by
     # LASimClock.DAY_LENGTH, a game-feel knob, and every derived rate in the substrate multiplies by that
     # function — so the day length silently rescaled evaporation, pyrolysis, decomposition, photosynthesis,
@@ -372,54 +512,6 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_renergy -ne 0 ]]; then
       echo "LINT_FAIL: check_reaction_energy.sh ($rc_renergy)"
-      exit 1
-    fi
-    # Gate: no reaction record may create or destroy matter. The DEFS engine took reactants and products as
-    # two independent lists of hand-written coefficients with nothing relating them, and one rate model had
-    # no reactant at all, so only its product credit ever ran — which is where every carbon atom in this
-    # simulation came from. Conservation was asserted in comments and enforced nowhere; this is the
-    # enforcement. Exit 2 means the gate could not run.
-    set +e
-    "$SCRIPT_DIR/check_reaction_balance.sh"
-    rc_balance=$?
-    set -e
-    if [[ $rc_balance -ne 0 ]]; then
-      echo "LINT_FAIL: check_reaction_balance.sh ($rc_balance)"
-      exit 1
-    fi
-    # Gate: the render clock does not drive the simulation. The field steps on a fixed physics accumulator;
-    # the master clock and the orbit advanced in _process, so the sun moved a framerate-dependent distance
-    # across the sky per unit of chemistry. Static check — no run required. Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_framerate_independence.sh"
-    rc_framerate=$?
-    set -e
-    if [[ $rc_framerate -ne 0 ]]; then
-      echo "LINT_FAIL: check_framerate_independence.sh ($rc_framerate)"
-      exit 1
-    fi
-    # Gate: every script in the REAL tree parses. An editor scan does not check this — it emits twenty
-    # progress lines and nothing about any script — so a broken pass module let the sim run to
-    # completion and print a full SIM_REPORT with a whole transport CA silently missing. The sweep
-    # existed but ran only inside check_library_only.sh, which deletes game/ before scanning, so game/
-    # (54 scripts) was force-parsed by nothing at all. Exit 2 means the gate could not run.
-    set +e
-    "$SCRIPT_DIR/check_parse_all.sh"
-    rc_parseall=$?
-    set -e
-    if [[ $rc_parseall -ne 0 ]]; then
-      echo "LINT_FAIL: check_parse_all.sh ($rc_parseall)"
-      exit 1
-    fi
-    # Gate: the addon still parses with the game deleted. docs/USAGE.md promises this; nothing
-    # enforced it, and it had already rotted once. Distinct from the sweep above: that one asks whether
-    # the tree parses, this one asks whether the LIBRARY HALF parses on its own.
-    set +e
-    "$SCRIPT_DIR/check_library_only.sh"
-    rc_libonly=$?
-    set -e
-    if [[ $rc_libonly -ne 0 ]]; then
-      echo "LINT_FAIL: check_library_only.sh ($rc_libonly)"
       exit 1
     fi
     echo "All lint gates passed (file length gates at soft 1300 / hard 1500; policy markers are advisory)."

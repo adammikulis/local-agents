@@ -25,7 +25,7 @@ func setup(field) -> void:
 	_f = field
 
 
-## Wake the scan: called when the CPU edits the mineral field (add_lava, a debug deposit) so the next
+## Wake the scan: called when the CPU edits the mineral field (a debug deposit) so the next
 ## scans catch the resulting 0.5-crossings, then idle again once the flurry settles. rock_fill is
 ## demand-gated (SITUATIONAL_CHANNELS), so also wake ITS readback -- mirrors add_heat waking "fire".
 func arm() -> void:

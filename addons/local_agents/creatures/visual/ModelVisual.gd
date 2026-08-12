@@ -1,13 +1,7 @@
 class_name LAModelVisual
 extends RefCounted
 
-## Shared helper that turns a model file (imported glTF/GLB -> PackedScene) into a live child
-## Node3D for any actor: instanced, uniformly scaled to a target height, optionally flat-tinted,
-## and (when the model ships a rig) animated by movement. Rigless models get a lightweight
-## procedural bob so they still read as alive. Nothing here branches on species; callers pass a
-## row from LAActorModels, keeping the visual path config-driven per the emergent-everything rule.
 
-# Loaded PackedScenes are cached so spawning 100 rabbits parses the GLB once.
 static var _scene_cache: Dictionary = {}
 
 
@@ -22,10 +16,6 @@ static func _load_scene(path: String) -> PackedScene:
 	return ps
 
 
-## Instance `model_path`, scale it so its height == `target_height`, anchor it vertically
-## ("center" like a capsule, or "base" so its feet sit at the node origin), rotate by `yaw_deg`
-## to correct the model's forward, and flat-tint it if `tint.a > 0`. Returns the model root
-## (ready to add_child), or null if the model can't be loaded.
 static func build(model_path: String, target_height: float, anchor: String, yaw_deg: float, tint: Color) -> Node3D:
 	var scene: PackedScene = _load_scene(model_path)
 	if scene == null:
@@ -88,10 +78,6 @@ static func animate(model: Node3D, anim: AnimationPlayer, anims: Dictionary, spe
 		model.position.y = lerpf(model.position.y, base_y, clampf(delta * 8.0, 0.0, 1.0))
 
 
-### Override per-surface albedo by material-name substring. Kenney's Nature Kit bakes flat colors
-## into baseColorFactor that gamma-shift to cyan in Godot; this recolours the foliage/wood surfaces
-## to sane values while leaving the rest untouched. `overrides` maps a lowercase name substring
-## (e.g. "leafs", "grass", "wood", "bark") -> Color.
 static func recolor(root: Node, overrides: Dictionary) -> void:
 	if overrides.is_empty():
 		return

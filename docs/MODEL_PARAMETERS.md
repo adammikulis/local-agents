@@ -15,11 +15,30 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 588**
+**MAX_DECLARED: 558**   <!-- raised from 556 for the band radiative model: eight declared resolutions and thresholds in, one ghost row (lava_phase_sphere3d.glsl) out. -->
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
 the progress. It may shrink. It may not grow.
+
+## The radial shell profile is a modelling choice with no number in it
+
+`LASphereGrid` used to give every radial shell one thickness, the scalar `cell_size`. It now carries a
+per-shell table and `build()` takes an optional profile; `cell_size` is the MEAN of that table and equals
+every shell's thickness only when `shells_uniform` is true.
+
+**The default is uniform, and it is bit-identical to the scalar grid.** Grading changes vertical resolution
+everywhere, so it is opt-in through `LA_SHELL_PROFILE`, read by `LASphereGridProfiles.from_env`.
+
+`LA_SHELL_PROFILE=surface_focus` is the one worked alternative. It carries no chosen constant: the thin
+shells are `GROUNDWATER_CIRCULATION_M / REGOLITH_CELLS` thick, which is the depth one aquifer shell has to
+stand for if the grid is to resolve its own groundwater, and the growth ratio away from that band is solved
+for by bisection so the column still spans `depth * cell_size` and the shell reaches the same radii. Its
+bisection bracket and iteration count are locals, not constants — they are a root-finder's business, not
+the planet's.
+
+Which profile the planet ships with is not decided here. `from_env` returning an empty table is the
+statement that nobody has decided yet.
 
 ## Opening state, 2026-08-10
 
@@ -31,15 +50,29 @@ the number is now visible and counted, and the ceiling stops a 614th arriving un
 
 ## Modelling choices that live in the authority file
 
-`PhysicalConstants.gd` is excluded from the scan because it is the authority for properties of matter. Two
-of its constants are not properties of matter and are therefore declared here instead. Both should
+`PhysicalConstants.gd` is excluded from the scan because it is the authority for properties of matter. The
+constants below are not properties of matter and are therefore declared here instead. All of them should
 eventually move out of that file, because a modelling choice sitting among measured constants is
 camouflaged by its neighbours.
+
+The three electrification rows are one modelling choice with three numbers in it. Non-inductive charging is
+a collision process between graupel and ice crystals, and its rate is set by their number concentrations,
+sizes and fall speeds. This substrate carries none of those — it has a cloud water fill fraction, a
+temperature and a vertical wind — so the microphysical rate cannot be derived here. What is used instead is
+the observed BULK separation rate in an active charging zone, saturated against the two drivers the field
+does have. The arithmetic that anchors it: a flash neutralises about 25 C, an active cell flashes about
+every 20 s, and its mixed-phase zone is roughly 2.4e11 m^3, which needs 5e-12 C/m^3/s averaged over the
+whole zone. Charging is concentrated in a small part of that volume, so the local peak is orders higher,
+and 1 nC/m^3/s is the top of the lab-constrained range.
 
 | file | constant | value | why it is not physics | what deletes it |
 |---|---|---|---|---|
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `METRES_PER_MODEL_UNIT` | 168.6 | grid resolution, the way a weather model picks its mesh. Derived in commit `3bf94ac` from ten cells spanning three scale heights, cross-checked against the fitted `H_PER_KELVIN` it replaced and agreeing to 0.04%. It is credible, and it is still a choice. | never fully: a discretised model has a mesh. It must stop being derived through a biogenic modern-Earth air composition. *(Corrected 2026-08-10: this row used to also demand "it must become an anisotropic pair (horizontal and vertical)". That is not available on this grid — the field is laid on a cubed sphere where the radial stack and the lateral arc are the same coordinate, and `LASphereGrid.cell_volume` returns `solid_angle * (ro^3 - ri^3) / 3`, a model-unit volume that becomes m³ only under one scale factor cubed. A separate vertical metre would make the grid's own volumes and face areas wrong. The instruction had already produced one: `MaterialFieldGeotherm3D._derive_gradient` carried an undeclared vertical factor of 31.25 = `GROUNDWATER_CIRCULATION_M / (REGOLITH_CELLS * cell_size)`, applied to the seeded gradient and omitted from the flux in the same file.)* |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `AIR_MASS_HORIZON` | 38.0 | empirical airmass cutoff at the horizon, an approximation to the Chapman function, not a measured quantity | use the Chapman function, or cite the approximation and its error |
+| `addons/local_agents/sim/material/PhysicalConstants.gd` | `NIC_CHARGE_RATE_C_M3_S` | 1.0e-9 | bulk stand-in for a collision process whose microphysics this grid cannot resolve; the top of the lab-constrained 0.1-1 nC/m^3/s range | hydrometeor size distributions in the substrate, at which point the rate is computed rather than chosen |
+| `addons/local_agents/sim/material/PhysicalConstants.gd` | `CONVECTIVE_UPDRAFT_M_S` | 10.0 | the updraft at which the charging rate is taken to saturate; observed mature-cell updrafts span 5-25 m/s and one had to be picked | same as above: with real collision kinetics the updraft enters through fall speed, not through a reference value |
+| `addons/local_agents/sim/material/PhysicalConstants.gd` | `CHARGING_LWC_KG_M3` | 1.0e-3 | the cloud liquid water content at which the riming rate is taken to saturate; lab rates climb over 0.1-2 g/m^3 | same as above |
+| `addons/local_agents/sim/material/PhysicalConstants.gd` | `LIGHTNING_NEUTRALISED_RADIUS_M` | 3000.0 | the horizontal extent a return stroke drains. Observed at a few km, but the real extent is set by where the channel propagates, which this model does not simulate | a leader propagation model, or a discharge that follows the field gradient rather than a sphere |
 
 ## Known wrong, already scheduled
 
@@ -50,7 +83,6 @@ registry does not read as if everything in it is merely unreviewed.
 |---|---|---|---|---|
 | `addons/local_agents/sim/material/kernels3d/magma_buoy_sphere3d.glsl` | `BUOY_FRAC` | 0.55 | buoyancy as a fitted fraction, where `wind_step_sphere3d.glsl:115-123` states the same Archimedean law as Boussinesq `g·dT/T` with units | Stage 2: one buoyancy law, derived, for energy, mass and momentum alike |
 | `addons/local_agents/sim/material/kernels3d/magma_buoy_sphere3d.glsl` | `K_P` | 0.6 | buoyancy as a fitted fraction, where `wind_step_sphere3d.glsl:115-123` states the same Archimedean law as Boussinesq `g·dT/T` with units | Stage 2: one buoyancy law, derived, for energy, mass and momentum alike |
-| `addons/local_agents/sim/material/kernels3d/heat3d_buoyancy_sphere3d.glsl` | `BUOYANCY` | 0.18 | the same, for the energy leg | as above |
 | `addons/local_agents/sim/material/kernels3d/solid_derive_sphere3d.glsl` | `SOLID_THRESHOLD` | 0.5 | defines `solid` for every kernel in the tree, and is written unnamed three more times in `plate_advect_sphere3d.glsl:63,70,74` | Stage 2: one definition, in a shared include |
 | `addons/local_agents/sim/material/kernels3d/wind_pressure_sphere3d.glsl` | `H_REF` | `H_PER_KELVIN * 288.15` | derived, so the gate passes it, but 288.15 K is the ISA standard temperature: modern Earth, unbound, and wrong for a Hadean seed | Stage 3: scale height from the local mixture |
 
@@ -60,15 +92,6 @@ registry does not read as if everything in it is merely unreviewed.
 |---|---|---|---|---|
 | `addons/local_agents/sim/material/kernels3d/gravity_flow_sphere3d.glsl` | `MAX_MASS` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/gravity_flow_sphere3d.glsl` | `MAX_COMPRESS` | 0.02 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/charge_accum_sphere3d.glsl` | `CHARGE_GAIN` | 8.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/charge_accum_sphere3d.glsl` | `CHARGE_LEAK` | 0.05 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/charge_accum_sphere3d.glsl` | `CHARGE_LEAK_QUIET` | 0.4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/charge_accum_sphere3d.glsl` | `UPDRAFT_MIN` | 0.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/kernels3d/lava_phase_sphere3d.glsl` | `LAVA_MIN_MASS` | 0.0001 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/sphere_passes/CellListPass.gd` | `LAVA_MIN_MASS` | 0.0001 | the compactor's lava row must equal `lava_phase_sphere3d.glsl`'s own floor, which that kernel no longer rechecks | lava_phase rechecks its own floor, or the floor is derived from a melt fraction |
-| `addons/local_agents/sim/material/kernels3d/lava_phase_sphere3d.glsl` | `MAX_DT_PER_STEP` | 5.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/lava_phase_sphere3d.glsl` | `MAX_SUBSTEPS` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/heat3d_buoyancy_sphere3d.glsl` | `BUOYANCY` | 0.18 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/tracer_transport_sphere3d.glsl` | `SETTLE_CALM_REF` | 6.0 | transport tuning, chosen not derived | Stage 2: derive from the transport law, or delete with the kernel merge |
 | `addons/local_agents/sim/material/kernels3d/tracer_transport_sphere3d.glsl` | `SETTLE_MIN_RATIO` | 0.08 | transport tuning, chosen not derived | Stage 2: derive from the transport law, or delete with the kernel merge |
 | `addons/local_agents/sim/material/kernels3d/tracer_transport_sphere3d.glsl` | `OUT_MAX` | 0.9 | transport tuning, chosen not derived | Stage 2: derive from the transport law, or delete with the kernel merge |
@@ -85,13 +108,8 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/kernels3d/fungus_sphere3d.glsl` | `SPREAD` | 0.02 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/fungus_sphere3d.glsl` | `DECAY` | 0.02 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/fungus_sphere3d.glsl` | `DRY_DECAY` | 0.06 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/fert_sphere3d.glsl` | `FERT_DECAY` | 0.0015 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/fert_sphere3d.glsl` | `FERT_RAIN_LEACH` | 0.02 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/fert_sphere3d.glsl` | `FERT_BLUR` | 0.04 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/wind_pressure_sphere3d.glsl` | `T_MIN_K` | 180.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/wind_pressure_sphere3d.glsl` | `T_MAX_K` | 400.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/wind_pressure_sphere3d.glsl` | `AIR_DENS_REF` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/wind_pressure_sphere3d.glsl` | `MAX_FACE_SHARE` | 0.2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/wind_pressure_sphere3d.glsl` | `DIFFUSE_FACE` | 0.01 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/erosion_transport_sphere3d.glsl` | `MAX_MASS` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/erosion_transport_sphere3d.glsl` | `LATERAL_SHARE` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -99,14 +117,10 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/kernels3d/erosion_transport_sphere3d.glsl` | `MIN_SUSP` | 1.0e-6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/erosion_transport_sphere3d.glsl` | `MAX_OUT_FRAC` | 0.9 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/kernels3d/solid_derive_sphere3d.glsl` | `SOLID_THRESHOLD` | 0.5 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/kernels3d/shock_sphere3d.glsl` | `SPREAD` | 0.15 | per-step k, so the wave speed is one cell per step at any dt | the maintainer says what `shock` is; then a medium wave speed replaces it |
-| `addons/local_agents/sim/material/kernels3d/shock_sphere3d.glsl` | `LOSS` | 0.25 | per-step k on a dimensionless intensity that is on no ledger; anelastic attenuation needs a Q and a frequency, and neither exists in `LAPhysical` | the maintainer says what `shock` is; then the attenuation is derived or the channel goes |
+| `addons/local_agents/sim/material/kernels3d/shock_sphere3d.glsl` | `SPREAD` | 0.15 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/kernels3d/shock_sphere3d.glsl` | `LOSS` | 0.25 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/plate_advect_sphere3d.glsl` | `MAX_OUT_FRAC` | 0.9 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/kernels3d/plate_advect_sphere3d.glsl` | `MIN_MASS` | 1.0e-6 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/wind_step_sphere3d.glsl` | `AIR_FLOOR` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/kernels3d/wind_step_sphere3d.glsl` | `DAMP_SURFACE` | 0.08 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/wind_step_sphere3d.glsl` | `DAMP_FREE` | 0.010 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/wind_step_sphere3d.glsl` | `BL_HEIGHT` | 40.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/wind_step_sphere3d.glsl` | `OROG_LIFT` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/erosion_pickup_sphere3d.glsl` | `WATER_MIN` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/kernels3d/erosion_pickup_sphere3d.glsl` | `STREAM_K` | 0.25 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -118,11 +132,15 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/kernels3d/magma_buoy_sphere3d.glsl` | `K_P` | 0.6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/magma_buoy_sphere3d.glsl` | `MAX_UP_FLOW` | 0.4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/magma_buoy_sphere3d.glsl` | `MIN_OP` | 0.0001 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/heat3d_solar_sphere3d.glsl` | `MAX_DT_PER_STEP` | 5.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/heat3d_solar_sphere3d.glsl` | `MAX_SUBSTEPS` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/heat3d_solar_sphere3d.glsl` | `ICE_ALBEDO_GAIN` | 40.0 | radiative property not in the authority | add to PhysicalConstants.gd with a citation |
-| `addons/local_agents/sim/material/kernels3d/heat3d_solar_sphere3d.glsl` | `WATER_SURFACE_MIN` | 0.5 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/kernels3d/heat3d_solar_sphere3d.glsl` | `MAX_COLUMN_WALK` | 64 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/kernels3d/heat3d_solar_sphere3d.glsl` | `SURFACE_FILL_MIN` | 0.5 | a cell is part solid and part air, so "is this the surface" has no sharp answer at this resolution | a sub-cell surface height, so the radiating face has a position instead of a cell |
+| `addons/local_agents/sim/material/kernels3d/heat3d_solar_sphere3d.glsl` | `MAX_LAYERS` | 24 | bound on the per-thread arrays the column sweep needs; the shipped grid is 20 shells deep | a grid deeper than 24 shells, which needs this raised or the sweep restructured |
+| `addons/local_agents/sim/material/AbsorptionBands.gd` | `BAND_COUNT` | 109 | spectral resolution of the absorption table, chosen so the 667 cm^-1 CO2 band is resolved at 10 cm^-1 | it is measured against the CO2-doubling forcing in tests/test_radiative_transfer.gd; raise it if that test drifts off 3.7 W/m^2 |
+| `addons/local_agents/sim/material/AbsorptionBands.gd` | `TEMP_COUNT` | 9 | temperature resolution of the absorption table, 150-1000 K | a hot-band regime the slices cannot interpolate, which the Venus arm of the radiative test would catch |
+| `addons/local_agents/sim/material/AbsorptionBands.gd` | `CDF_COUNT` | 1024 | sample count of the Planck cumulative table the GPU reads instead of summing the series | a GPU that can afford the series inline |
+| `addons/local_agents/sim/material/AbsorptionBands.gd` | `CDF_XMAX` | 50.0 | upper limit of x = c2*nu/T in that table; above it the fraction of blackbody power is below 1e-9 | a body cold enough that x = 50 falls inside its emission, i.e. below about 30 K |
+| `addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd` | `SAMPLE_COLUMNS` | 64 | how many columns the gauge solves per report; a sampling rate, not a physical quantity | the kernel writing its own per-column fluxes back, so the gauge reads them instead of recomputing |
+| `addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd` | `K_SURFACE_FILL_MIN` | 0.5 | mirrors SURFACE_FILL_MIN in heat3d_solar_sphere3d.glsl | whatever deletes the kernel's copy |
 | `addons/local_agents/sim/material/kernels3d/soil_sphere3d.glsl` | `REG_CELLS` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/soil_sphere3d.glsl` | `MAX_MASS` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/soil_sphere3d.glsl` | `MAX_FLOW_FRAC` | 0.35 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
@@ -147,7 +165,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/PlateTectonics.gd` | `CONVERGE_MIN` | 0.25 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/PlateTectonics.gd` | `GEOLOGIC_TIME_ACCELERATION` | 3.0e5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/PlateTectonics.gd` | `VOLCANO_CHANCE_CONVERGENT` | 0.3 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/SimClock.gd` | `DAY_LENGTH` | 200.0 | a literal where a consequence belongs. The day is the planet's rotation period expressed in sim-clock seconds, which `LAMaterialFieldSphereStep3D.day_length_sim_seconds()` now computes from `PLANET_ANGULAR_VELOCITY_RAD_S` and the step quantum: 199.454, not 200. No rate reads it any more (`scripts/check_step_quantum.sh`), so what is left is a calendar and a sky. | replace the literal with `LAMaterialFieldSphereStep3D.day_length_sim_seconds()`, and point `game/world/VoxelSkyCycle.gd` at the same function |
+| `addons/local_agents/sim/SimClock.gd` | `REAL_SECONDS_PER_SIM_SECOND` | 432.0 | time compression: real seconds that one sim-clock second stands for. A real planet has no such number, and this is now the only one the timebase asserts — the rotation itself is `LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S`, and `DAY_LENGTH` (199.454 sim s), `SPIN_RAD_PER_SIM_S` (0.0315019 rad/sim s) and `LAMaterialFieldSphereStep3D.real_seconds_per_step()` (43.2 real s) are all derived from that pair. It is not only a viewing speed: `real_seconds_per_step()` is every transport kernel's `params.dt`, so this number sets every rate in the substrate and every kernel's Courant number. | a substep budget that decouples the field's `dt` from the presentation clock, so this number sets how fast the player watches and no kernel `dt` reads it |
 | `addons/local_agents/sim/SimClock.gd` | `DAYS_PER_SEASON` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_OUTPUT_SDF` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_ADD` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -279,9 +297,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/actors/Flood.gd` | `CLOUD_ALOFT` | 58.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Volcano.gd` | `SCARE_INTERVAL` | 2.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Volcano.gd` | `SCARE_RADIUS` | 55.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Volcano.gd` | `SUPPLY_PER_SEC` | 16.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Volcano.gd` | `SUPPLY_INTERVAL` | 0.05 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Volcano.gd` | `VENT_DISC` | 0.10 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Volcano.gd` | `ERUPT_SEISMIC` | 3.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Volcano.gd` | `PROFILE_AZIMUTHS` | 24 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Volcano.gd` | `PROFILE_RINGS` | 14 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
@@ -398,17 +413,16 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `CRATER_WATCH_MAX` | 256 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `ORGANIC_TAKE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/MaterialFieldSolidCache3D.gd` | `SPOT_CELLS` | 256 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `SWEEP_PROBE` | 6.0 | tangent-plane sample distance for the terrain gradient the invented drag law uses | deleted with `water_force_at`, which must read the real velocity field and use 0.5*rho*C_d*A*v^2 |
+| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `SWEEP_STRENGTH` | 9.0 | "tune vs flood feel" — an invented drag coefficient on (depth x slope), ignoring the substrate's own velocity field | same: real drag needs C_d and a reference area per creature, which are the maintainer's to supply |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `SALT_FULL_DEPTH` | 22.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `BRACKISH_FLOOR` | 0.35 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `DUST_PRESENT` | 0.001 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `MOLTEN_MIN` | 0.0001 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `FIRE_PRESENT` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `SWEEP_PROBE` | 6.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `SWEEP_STRENGTH` | 9.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `SWEEP_MIN_WATER` | 0.12 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `STRIDE` | 97 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `TUBE_LAVA_NEAR_ZERO` | 0.05 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `OPEN_SEA_TEMP_CAP` | 100.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd` | `SLOTS` | 21 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd` | `DARCY_SENT` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd` | `SPRING_SENT` | 1 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -434,7 +448,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd` | `SAMPLE_EVERY` | 50 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd` | `MAX_STEPS_PER_FRAME` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd` | `FIELD_CADENCE_MAX` | 60 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd` | `SIM_SECONDS_PER_STEP` | 43.2 | the substrate's time quantum: how much simulated time one field step advances. Nothing in physics fixes it — it is the integrator's resolution, the way a weather model picks its timestep. It is the value the whole substrate was already stepping at (it was `STEP_DT * 86400 / DAY_LENGTH`), kept so no reaction rate changes meaning in the commit that stops it being a function of a game-feel knob. Unreviewed as a magnitude. | derive it from the explicit-kernel stability limit — the smallest of the thermal diffusion number and the transport CFL at the shipped grid — so the step is set by what the kernels can integrate rather than declared |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `STATIONS_PER_BAND` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `LONG_DAYS` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `SITE_RETRY_FRAMES` | 60 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -461,18 +474,10 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `CHANNEL_HOLD_DRAINS` | 20 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `SLOW_READBACK_EVERY` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `DRAIN_ALL` | -1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialCharge3D.gd` | `BREAKDOWN` | 8.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialCharge3D.gd` | `RESIDUAL_AFTER_BOLT` | 0.1 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialCharge3D.gd` | `DEPLETE_R` | 22.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialCharge3D.gd` | `MAX_BOLTS_PER_STEP` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialCharge3D.gd` | `PROBE_STRIDE` | 64 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialCharge3D.gd` | `PROBE_GATE` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialCharge3D.gd` | `FULL_SCAN_EVERY` | 20 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd` | `SAMPLE_EVERY` | 100 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd` | `SUSP_ACTIVE` | 0.001 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `FREEZE_RATE` | 0.05 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `MELT_RATE` | 0.05 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `DEPOSIT_RATE` | 0.10 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SOLIDIFY_RATE` | 0.02 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `ROCK_MELT_RATE` | 0.02 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `VAPOUR_TRANSFER_COEFF` | 1.2e-3 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -510,16 +515,15 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `BEDROCK_BELOW` | 23 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `CARBONATE` | 24 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `SILICA` | 25 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `N2` | 26 | channel-slot TAG, not a quantity: it names the dinitrogen buffer the kernel binds | the slot block becomes a GDScript `enum` mirrored into the kernel, which is what this gate asks of every tag here |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `DISCHARGE` | 27 | channel-slot TAG, not a quantity: it names the lightning discharge stamp | same as `N2` above |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `CONST_FRAC` | 0 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `BILINEAR` | 1 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `EXCESS_OVER_THRESHOLD` | 2 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `DEFICIT_BELOW_THRESHOLD` | 4 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `OPTIMUM_BAND` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `ARRHENIUS` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_OPEN_ABOVE` | 1 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_SURFACE` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_NEAR_GROUND` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_DAYLIGHT` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_DRY` | 16 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_AIR_ABOVE` | 128 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TGT_SELF` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -539,8 +543,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/ReactionBalance.gd` | `TOL` | 1.0e-6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd` | `DRAIN_ALL` | 1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/sphere_passes/GasWindPass.gd` | `DEFAULT_BUOY` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/sphere_passes/TracerTransport.gd` | `SETTLE_V_PER_CONTRAST` | 0.05 | transport tuning, chosen not derived; one declaration for every tracer | Stage 2: derive from the transport law, or delete with the kernel merge |
-| `addons/local_agents/sim/material/sphere_passes/TracerTransport.gd` | `EDDY_DIFFUSE` | 0.02 | transport tuning, chosen not derived; one declaration for every tracer | Stage 2: derive from the transport law, or delete with the kernel merge |
 | `addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd` | `AUTOCONVERSION_RATE_PER_S` | 1.0e-3 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd` | `CLOUD_WATER_CRIT_KG_KG` | 0.5e-3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd` | `MOISTURE_DIFFUSE` | 0.035 | transport tuning, chosen not derived | Stage 2: derive from the transport law, or delete with the kernel merge |
@@ -570,12 +572,9 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `MAX_LIFETIME` | 12.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `LAND_HEAT_R` | 8.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd` | `K_ICE_ALBEDO_GAIN` | 40.0 | radiative property not in the authority | add to PhysicalConstants.gd with a citation |
-| `addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd` | `K_MAX_DT_PER_STEP` | 5.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd` | `K_WATER_SURFACE_MIN` | 0.5 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/SeaIceTextureBaker.gd` | `ICE_GAIN` | 6.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `FUNGUS_PRESENT` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `DETRITUS_PRESENT` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/FieldPassAttribution3D.gd` | `SAMPLE_EVERY` | 50 | diagnostic cadence: a sample checkpoints between every pass, so it is not free. Not derived, not cited — a cost choice | an active-cell probe that costs nothing to leave armed every step |
 | `addons/local_agents/sim/material/WaterParticles.gd` | `MAX_PARTICLES` | 12000 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/WaterParticles.gd` | `LIFETIME` | 7.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/WaterParticles.gd` | `CAP_ANGLE` | 1.4 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -638,4 +637,4 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/Materials.gd` | `PHASE_GRANULAR` | 1 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/Materials.gd` | `PHASE_LIQUID` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/Materials.gd` | `PHASE_GAS` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/Materials.gd` | `NONE` | -1 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/MaterialFieldPassProbe3D.gd` | `DEFAULT_STEPS` | 3 | how many steps `LA_PASS_PROBE` samples before it disarms; a diagnostic default, not a property of the world | delete when the probe is cheap enough to leave armed for a whole run |

@@ -1,15 +1,9 @@
 class_name LAVoxelInputController
 extends Node
 
-const PauseMenuScript: GDScript = preload("res://addons/local_agents/game/world/VoxelPauseMenu.gd")
+const PauseMenuScene: PackedScene = preload("res://addons/local_agents/game/world/VoxelPauseMenu.tscn")
 const ViewControlsScript: GDScript = preload("res://addons/local_agents/game/world/VoxelViewControls.gd")
 
-## --bench=<name> timelines: frame -> deterministic action, fired once each via _bench_fire(). Add a new
-## named Array here (and a case in _bench_fire()'s match) for a new scripted scenario; "frame" is an
-## absolute PHYSICS-TICK number, the same unit --run-frames counts (pair it comfortably past the last one
-## so the final SIM_REPORT still sees the effects). "readback" exercises the field-readback-cost-relevant substrate systems (fire/fuel,
-## lava/rock_fill, storm-charge) at fixed points so field_dispatch_ms/field_readback_ms are comparable
-## before/after a change instead of depending on organic random-world timing.
 const BENCH_TIMELINES: Dictionary = {
 	"readback": [
 		{"frame": 100, "action": "lightning"},
@@ -18,14 +12,7 @@ const BENCH_TIMELINES: Dictionary = {
 	],
 }
 
-## LAVoxelInputController — owns the CLI-arg parsing + all the harness/demo flag state, the per-frame
-## auto-demo firing (meteor/volcano/seavolcano/stamp-test/lightning/storm/select), and is the host point
-## for an in-game pause (Esc) menu. Factored out of LAVoxelWorld so the "input / Esc menu" concern is one
-## file. parse_cmdline() runs first (its seeds feed the sky), then bind() wires the scene refs the demo
-## hooks fire through, then update_sim() is ticked each physics tick and update_render() each render
-## frame — exactly one of them runs the schedule, see both. (Explicit types only, no ':=' inferred typing.)
 
-# --- Scene refs the demo hooks fire through (wired via bind()) ---
 var _terrain = null
 var _camera: Camera3D = null
 var _body: Node3D = null
@@ -35,17 +22,12 @@ var _disasters: Node = null
 var _interaction: Node3D = null
 var _ecology: Node = null
 
-# --- Streamer seeds (read by the world when it builds the streamer host) ---
-# The streamer is OPT-IN: it defaults OFF and `--streamer` turns it on, so no automated run spins up a
-# local llama-server by accident. `--no-streamer` and LA_NO_STREAMER also force it off.
 var _streamer_enabled: bool = false
-# --bare: physics only. No terrain meshing, no collision baking, no presentation layer. For verification
-# runs whose output is numbers.
-var _bare: bool = false
+var _ui: bool = false
+var _render: bool = false
 var _streamer_persona: String = "hype"
 var _streamer_avatar_flavor: String = "male"
 
-# --- Sky clock seeds (parsed here; the world threads them into the sky controller) ---
 var _time_of_day: float = 0.30
 var _lunar_phase: float = 0.15
 
@@ -55,7 +37,6 @@ var _shoot_frames: int = 150
 var _run_frames: int = 0
 var _perf_frames: int = 0               # --perf-frames=N: GPU-timed fps bench (see parse_cmdline + VoxelWorld._process)
 var _smoke: bool = false                # --smoke: boot the MINIMAL (Potato/Low) config for fast parse+run checks
-var _force_wind: float = 0.0            # --wind=<x>: force a constant eastward wind (verification)
 var _cognition_stats: bool = false      # --cognition-stats: print fast/slow brain + genetics metrics
 var _auto_meteor: bool = false
 var _auto_barrage: bool = false          # --auto-barrage: rain a volley of large meteors (deep carve / fracture test)
@@ -68,7 +49,6 @@ var _wind_view: bool = false            # --wind-view: enable ONLY the emergent 
 var _debug_field: String = ""           # --debug-field=<channel>: pre-enable a substrate heatmap (biomass/lava/…)
 var _debug_rivers: bool = false          # --debug-rivers: highlight the drainage network (where rivers should run)
 var _debug_behaviors: String = ""       # --debug-behaviors[=a,b]: pre-enable behavior-state highlights (default foraging+hunting)
-# --- local-LLM slow-brain control/verification flags ---
 var _llm_highlight: bool = false        # --llm-highlight: pre-enable the thinking/queued tints + report live counts
 var _llm_off: String = ""               # --llm-off[=all|species]: mid-run, disable the slow brain for a group (fallback proof)
 var _llm_off_applied: bool = false
@@ -79,10 +59,6 @@ var _llm_report_frame: int = 0          # throttles the periodic LLM_HIGHLIGHT c
 var _auto_volcano: bool = false
 var _auto_volcano_fired: bool = false
 var _hotspring_test: bool = false        # --hotspring-test: sustained SHALLOW heat source in the regolith + surface
-                                         # rain recharge at one site — the boundary conditions of a geothermal field
-                                         # (a magma body under a wet aquifer). The hot spring itself is NOT scripted:
-                                         # it must EMERGE from the aquifer up-seep carrying the rock's heat to the
-                                         # surface (the coupling under test). Verification aid, like --auto-volcano.
 var _auto_seavolcano: bool = false
 var _auto_seavolcano_fired: bool = false
 var _seavolcano: Node = null
@@ -111,25 +87,14 @@ var _stamp_test_reported: bool = false
 var _stamp_test_target: Vector3 = Vector3.ZERO
 var _stamp_test_deposit_frame: int = 0
 
-# --- Scripted perf benchmark: --bench=<name> fires a NAMED, deterministic event timeline (same disaster
-# calls as the --auto-* flags above, just at chosen frames instead of "near the end") and, every
-# --bench-interval frames, prints one BENCH_SNAPSHOT={...} line of field/telemetry gauges. The point is
-# reproducibility: the SAME launch line run before/after a code change hits the same events at the same
-# frames, so snapshots are a real apples-to-apples diff instead of comparing two runs of divergent organic
-# world state. See BENCH_TIMELINES below for the available names + BenchNote in the class doc.
 var _bench_name: String = ""
 var _bench_interval: int = 0
 var _bench_fired: Dictionary = {}   # timeline index (int) -> true, once its action has fired
 var _seed_explicit: bool = false    # true once --seed= was parsed, so the --bench default below doesn't override it
 const DEFAULT_BENCH_SEED: int = 424242   # applied automatically for --bench= runs unless --seed= overrides it
 
-# --- Esc pause menu (this controller is its documented host point) ---
 var _pause_menu: LAVoxelPauseMenu = null
 
-# --- Camera / view control state (this controller owns the camera-mode system) ---
-# Default = drag-to-rotate only: auto-spin OFF and geosync OFF, so the world only turns when the player drags
-# (playtest feedback #3). VoxelWorld gates its spin line on manual_rotate(); the planet spins when EITHER the
-# auto-spin option is on OR geosync is active (geosync needs the spin to be meaningful).
 var _auto_spin: bool = false     # ORBIT-mode "planet rotates in front of you" option
 var _geosync: bool = false       # GEOSYNC: camera rides the planet's rotating frame, locked over one region
 var _fly: bool = false           # FLY: planet-aware free-flight drone (WASD + hold-drag look + radial up/down)
@@ -152,10 +117,9 @@ var _start_mode_applied: bool = false
 
 
 func parse_cmdline() -> void:
-	# Build the Esc pause menu up front so it exists before any input arrives.
-	_pause_menu = PauseMenuScript.new()
-	_pause_menu.name = "PauseMenu"
-	add_child(_pause_menu)
+	# PARSING ONLY. This node builds no UI: it runs in every run, including runs with no presentation layer,
+	# and the Esc menu + view-controls bar it used to construct here are Controls. LAPresentation calls
+	# build_ui() when there is a screen to put them on.
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--shoot="):
 			_shoot_path = arg.substr("--shoot=".length())
@@ -182,16 +146,6 @@ func parse_cmdline() -> void:
 			_streamer_enabled = false
 			Engine.set_meta("la_smoke", true)
 		elif arg == "--planet-only" or arg == "--no-fauna":
-			# TEST THE PLANET WITHOUT PAYING FOR THE BIOSPHERE. Same Engine-meta-to-reader pattern as --smoke:
-			# one flag, read by LAAblate.life_mode(), honoured at the SPAWN sites so nothing is even built.
-			#   --no-fauna     animals off, vegetation KEPT — the carbon cycle stays intact (R19 photosynthesis
-			#                  makes the biomass/O2/CO2), so the planet is chemically the same one, just cheaper.
-			#                  Use this for climate and hydrology work.
-			#   --planet-only  vegetation off too: pure geophysics. Fastest, and the only mode that can be fully
-			#                  deterministic, because actors inject into the field (a splash perturbs the charge
-			#                  channel, which is why bolt counts vary run to run) and here there are none.
-			# Turning life back ON is simply omitting the flag — there is nothing to undo, and the shipped game
-			# never sees either path.
 			Engine.set_meta("la_life_mode",
 				LAAblate.LIFE_PLANET_ONLY if arg == "--planet-only" else LAAblate.LIFE_NO_FAUNA)
 			_streamer_enabled = false          # nothing alive to commentate on
@@ -207,9 +161,6 @@ func parse_cmdline() -> void:
 		elif arg.begins_with("--bench-interval="):
 			_bench_interval = maxi(1, int(arg.substr("--bench-interval=".length())))
 		elif arg.begins_with("--seed="):
-			# Seeds BOTH generators. Godot's GLOBAL RNG covers world-gen and whatever still calls the free
-			# functions; LASimRng is the dedicated sim stream that meteor directions, the barrage spread and
-			# plate tectonics draw from. Both must be seeded here or disaster outcomes do not reproduce.
 			var world_seed: int = int(arg.substr("--seed=".length()))
 			seed(world_seed)
 			LASimRng.reset(world_seed)
@@ -218,8 +169,6 @@ func parse_cmdline() -> void:
 			_time_of_day = clampf(float(arg.substr("--time=".length())), 0.0, 1.0)
 		elif arg.begins_with("--lunar="):
 			_lunar_phase = clampf(float(arg.substr("--lunar=".length())), 0.0, 1.0)
-		elif arg.begins_with("--wind="):
-			_force_wind = float(arg.substr("--wind=".length()))
 		elif arg == "--debug-demo":
 			_debug_demo = true
 		elif arg == "--wind-view":
@@ -251,8 +200,10 @@ func parse_cmdline() -> void:
 			_auto_volcano = true
 		elif arg == "--auto-seavolcano":
 			_auto_seavolcano = true
-		elif arg == "--bare":
-			_bare = true
+		elif arg == "--ui":
+			_ui = true
+		elif arg == "--render":
+			_render = true
 		elif arg == "--streamer":
 			_streamer_enabled = true
 		elif arg == "--no-streamer":
@@ -315,10 +266,6 @@ func parse_cmdline() -> void:
 	# to also pass --seed= just to get a comparable result.
 	if _bench_name != "" and not _seed_explicit:
 		seed(DEFAULT_BENCH_SEED)
-	# Apply the fast-forward multiplier through the pause menu's single setter (shared with the in-menu speed
-	# buttons). Clamped there; N=1 leaves the engine clock untouched.
-	if _pause_menu != null:
-		_pause_menu.set_time_scale(_fast)
 
 
 ## Esc opens the pause menu (pausing the sim); G toggles geosync, F toggles fly, P toggles the solar-system
@@ -501,7 +448,16 @@ func bind(terrain, camera: Camera3D, body: Node3D, star: Node3D, material: Node,
 	# Wire the planet body so the camera's GEOSYNC mode can read its rotating frame (keeps VoxelWorld untouched).
 	if _camera != null and _camera.has_method("set_geosync_body"):
 		_camera.set_geosync_body(_body)
-	# Build the on-screen view-controls cluster: [Planet | Solar System] · [Free | Geosync] · [Auto-spin].
+	_refresh_view_controls()
+
+
+## Build this controller's on-screen surfaces: the Esc pause menu and the
+## [Planet | Solar System] · [Free | Geosync] · [Auto-spin] cluster. Called ONLY by LAPresentation, so a run
+## without --ui has neither. Every reader of _pause_menu / _view_controls null-guards.
+func build_ui() -> void:
+	_pause_menu = PauseMenuScene.instantiate() as LAVoxelPauseMenu
+	_pause_menu.name = "PauseMenu"
+	add_child(_pause_menu)
 	_view_controls = ViewControlsScript.new()
 	_view_controls.name = "ViewControls"
 	add_child(_view_controls)
@@ -555,30 +511,22 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 			_disasters.fire_barrage()
 			_auto_barrage_fired = true
 
-	# Auto-volcano demo/test: raise a volcano near origin that ERUPTS IMMEDIATELY (force_erupt), frame
-	# the camera on it, and fire it ~560 frames (~5s) before the screenshot.
+	# Auto-volcano demo/test: mark a site, move interior heat into the rock beneath it, and let the substrate
+	# decide whether anything melts, rises or breaks out.
 	if _auto_volcano and not _auto_volcano_fired and spawned:
 		var vtrigger: int = 350 if _shoot_path != "" else maxi(_run_frames - 600, 60)
 		if frame >= vtrigger:
 			var vsite: Vector3 = _terrain.surface_point(Vector3(0.2, 1.0, 0.2).normalized()) if _terrain.has_method("surface_point") else Vector3(NAN, NAN, NAN)
 			if not is_nan(vsite.x):
-				var vc: Node = _disasters.spawn_volcano(vsite)
-				if vc != null and vc.has_method("force_erupt"):
-					vc.force_erupt()
+				_disasters.spawn_volcano(vsite)
+				_seed_hot_pocket(vsite)
 				if _camera != null and _camera.has_method("frame_vista"):
 					_camera.frame_vista(vsite)
 				_auto_volcano_fired = true
 
-	# --hotspring-test: sustain the boundary conditions of a geothermal field at ONE land site — a SHALLOW heat
-	# source buried in the regolith (a magma body) + rain recharge on the surface above it. Both are physical
-	# boundary conditions (a hot rock body; rain), NOT a spring: whether hot water reaches the surface is left to
-	# the substrate (aquifer up-seep + the soil pass's donor-rock carry-heat). The heat is injected 2.5 cells DOWN
-	# so it lands in the rock, never in the open cells above the surface, so surface water can only warm via the
-	# groundwater it up-seeps — isolating the coupling under test. Modest per-frame heat balances conduction losses
-	# to hold a hot (bounded) rock body rather than a runaway.
 	if _hotspring_test and spawned and frame >= 90 and frame <= 620:
 		var hfield = _ecology.material_field() if (_ecology != null and _ecology.has_method("material_field")) else null
-		if hfield != null and hfield.has_method("add_heat") and hfield.has_method("add_water_pooled") \
+		if hfield != null and hfield.has_method("add_water_pooled") \
 				and _terrain != null and _terrain.has_method("surface_point") and hfield.has_method("sphere_grid"):
 			var hdir: Vector3 = Vector3(0.2, 1.0, 0.2).normalized()
 			var hsurf: Vector3 = _terrain.surface_point(hdir)
@@ -586,7 +534,7 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 			if not is_nan(hsurf.x) and hgrid != null:
 				var cs: float = float(hgrid.cell_size)
 				var hbelow: Vector3 = hsurf - hdir * (cs * 1.6)   # in the regolith just under the surface (the up-seep shell)
-				hfield.add_heat(hbelow, 6.0, cs * 1.2)            # sustained shallow magma-body heat (bounded steady state ~= core)
+				_seed_hot_pocket(hbelow)                          # shallow interior heat, drawn out of the finite store
 				hfield.add_water_pooled(hsurf, 0.5, cs * 3.5)     # DIFFUSE rain recharge — saturates the aquifer AROUND the
 				                                                  # vent without dumping cold water on the exact up-seep cell
 
@@ -598,11 +546,6 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 		_seavolcano = sv[0]
 		_seavolcano_vent = sv[1]
 		if _seavolcano != null and _camera != null:
-			# A lit close-up: sit on the sunward side, above the sea surface over the vent, looking down at where the
-			# island emerges. Orbit-mode _process won't override a manual transform, so this framing holds.
-			# --farview keeps the same sunward framing but backs the standoff off, because the close-up cannot
-			# answer the question the capstone exists to answer: whether the deposits piled at ONE SPOT or walked
-			# into an arc is a shape spanning far more of the surface than 46 units of standoff can show.
 			var standoff: float = 8.0 if _farview else 1.0
 			var vdir: Vector3 = (_seavolcano_vent - _body.center()).normalized()
 			var sea_pt: Vector3 = _body.center() + vdir * (_terrain.sea_radius() + 2.0)
@@ -612,10 +555,6 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 		_auto_seavolcano_fired = true
 		var floor_r: float = (_seavolcano_vent - _body.center()).length() if _seavolcano != null else 0.0
 		print("SEAVOLCANO_SEED={vent:%v, floor_r:%.1f, sea_r:%.1f}" % [_seavolcano_vent, floor_r, _terrain.sea_radius()])
-	# Periodic island-growth proof: the vent column's surface radius rising toward/above sea_radius IS the
-	# emergent island, and the vent's own cone_profile() says whether the material piled at ONE SPOT or walked.
-	# Asked of THIS node, not read from a report key: a run has several vents alive at once (the ambient
-	# director and LAPlateTectonics seed their own) and only the caller knows which one is the capstone.
 	if _auto_seavolcano and _seavolcano != null and frame % 150 == 0:
 		var vd: Vector3 = (_seavolcano.global_position - _body.center()).normalized()
 		var vr: float = _terrain.surface_radius(vd)
@@ -623,7 +562,7 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 		var shape: Dictionary = _seavolcano.cone_profile()
 		print("SEAVOLCANO={frame:%d, vent_r:%.2f, sea_r:%.2f, above_sea:%s, supplied:%.0f, rise:%.2f, breach:%.2f, smear:%.2f, drift:%.4f, span:%.4f, cover:%d/%d}" % [
 			frame, (vr if not is_nan(vr) else -1.0), sea_r2,
-			str((not is_nan(vr)) and vr > sea_r2), _seavolcano.total_supplied,
+			str((not is_nan(vr)) and vr > sea_r2), 0.0,
 			shape["rise"], shape["breach"], shape["smear"], shape["drift"], shape["span"],
 			shape["cover"], shape["samples"]])
 
@@ -753,10 +692,6 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 			print("PAUSE_HELP_OK resolved=", overlay != null and is_instance_valid(overlay))
 			_help_shot_done = true
 
-	# Auto-select demo: frame a real creature close-up and run the REAL selection path so the
-	# thought-inspector panel populates. We select the node DIRECTLY (select_node) rather than a
-	# center-screen raycast, so it's deterministic at any camera scale (orbit framing can't make the
-	# ray miss). Prefers an actively-behaving creature so the shot shows a live decision.
 	if _auto_select and not _auto_select_done and spawned and frame == _shoot_frames - 40:
 		var pick: Node3D = _pick_showcase_creature()
 		if pick != null:
@@ -769,10 +704,6 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 			print("SELECT_RESULT selected=", sel != null, " ring_visible=", _interaction.selection_ring_visible(), " title=", title)
 		_auto_select_done = true
 
-	# Behavior-tint debug screenshot: swoop the camera down onto a creature that is actually in a tinted
-	# state (foraging/hunting/…), so the green/red highlight fills the frame instead of being a sub-pixel
-	# speck at whole-planet framing. In orbit mode _process leaves a manual transform in place (no per-frame
-	# rebuild), so this framing holds for the capture.
 	if _debug_behaviors != "" and _shoot_path != "" and not _cam_creature_done and spawned and frame == _shoot_frames - 6:
 		_cam_creature_done = true
 		_frame_tinted_creature()
@@ -783,10 +714,6 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 		_frame_hut_done = true
 		_frame_villager_hut()
 
-	# --debug-family: force a REAL family through the ecology (two founders breed; one child dies) so the
-	# kinship graph holds >=2 generations + a mate bond + a dead kin, then select a parent so the family-tree
-	# inspector (opened by VoxelDebugWiring) draws a deterministic tree for the screenshot. All reads/edits go
-	# through the real reproduction + death paths — the panel itself only reads the graph.
 	if _debug_family and spawned and _ecology != null:
 		if not _debug_family_seeded and frame >= 40:
 			if _ecology.has_method("debug_seed_family"):
@@ -814,7 +741,6 @@ func _tick_llm(frame: int, spawned: bool) -> void:
 		return
 	var sched = _ecology.cognition_scheduler() if (_ecology != null and _ecology.has_method("cognition_scheduler")) else null
 
-	# --llm-highlight: periodic live count of who is thinking/queued (the tints are enabled via _debug_behaviors).
 	if _llm_highlight and sched != null and frame - _llm_report_frame >= 150:
 		_llm_report_frame = frame
 		var think_n: int = LALLMControl.count(get_tree(), "thinking", sched)
@@ -844,7 +770,6 @@ func _tick_llm(frame: int, spawned: bool) -> void:
 				print("LLM_OFF_AFTER={slow_brain_calls_after:%d, delta_after_disable:%d, frame:%d}" % [
 					after, after - _llm_off_calls_before, frame])
 
-	# --llm-select: late in the run, select every creature thinking/queued through the real predicate path.
 	if _llm_select and not _llm_select_done and _interaction != null and sched != null:
 		var sel_trigger: int = (_shoot_frames - 30) if _shoot_path != "" else maxi(_run_frames - 30, 60)
 		if frame >= sel_trigger:
@@ -953,9 +878,9 @@ func _frame_villager_hut() -> void:
 	_camera.look_at(focus, up)
 
 
-# --- Flag accessors (read by the world composition root) ---------------------
 func streamer_enabled() -> bool: return _streamer_enabled
-func bare() -> bool: return _bare
+func ui() -> bool: return _ui
+func render() -> bool: return _render
 func streamer_persona() -> String: return _streamer_persona
 func streamer_avatar_flavor() -> String: return _streamer_avatar_flavor
 func time_of_day_seed() -> float: return _time_of_day
@@ -965,7 +890,6 @@ func shoot_frames() -> int: return _shoot_frames
 func run_frames() -> int: return _run_frames
 func perf_frames() -> int: return _perf_frames
 func smoke() -> bool: return _smoke
-func force_wind() -> float: return _force_wind
 func overview() -> bool: return _overview
 func farview() -> bool: return _farview
 func auto_meteor() -> bool: return _auto_meteor
@@ -1008,9 +932,8 @@ func _bench_fire(frame: int) -> void:
 				if _disasters != null and _terrain != null and _terrain.has_method("surface_point"):
 					var vsite: Vector3 = _terrain.surface_point(Vector3(0.2, 1.0, 0.2).normalized())
 					if not is_nan(vsite.x):
-						var vc: Node = _disasters.spawn_volcano(vsite)
-						if vc != null and vc.has_method("force_erupt"):
-							vc.force_erupt()
+						_disasters.spawn_volcano(vsite)
+						_seed_hot_pocket(vsite)
 			"thunderstorm", "tornado", "hurricane":
 				if _disasters != null and _disasters.has_method("fire_auto_storm"):
 					_disasters.fire_auto_storm(action)
@@ -1022,12 +945,6 @@ func _bench_fire(frame: int) -> void:
 		print("BENCH_EVENT={frame:%d, action:\"%s\"}" % [frame, action])
 
 
-## Print one BENCH_SNAPSHOT line of field/telemetry gauges at the current frame. Mixes TIMING gauges
-## (fps/field_dispatch_ms/field_readback_ms/field_ms -- noisy if this machine is running other GPU work
-## concurrently; read these as directional, not precise) with COUNT/STATE gauges (lava_list_cells,
-## fire_cells, lava_total, charge_peak, bolts, co2_avg, fuel_total, rock_fill_total,
-## mineral_total, h2o_total, creatures -- deterministic given the same --bench timeline fired the same
-## events at the same frames, so THESE are the primary signal for a before/after diff).
 func _bench_snapshot(frame: int) -> void:
 	var snap: Dictionary = LASimReport.snapshot()
 	var g: Dictionary = snap.get("gauges", {})
@@ -1038,12 +955,29 @@ func _bench_snapshot(frame: int) -> void:
 	var lava_list_cells: float = float(g.get("lava_list_cells", {}).get("cur", 0.0))
 	print(("BENCH_SNAPSHOT={frame:%d, fps:%.1f, field_dispatch_ms:%.3f, field_readback_ms:%.3f, field_ms:%.3f, " +
 		"lava_list_cells:%d, fire_cells:%d, lava_total:%.1f, charge_peak:%.3f, bolts:%d, " +
-		"co2_avg:%.4f, fuel_total:%.1f, rock_fill_total:%.1f, mineral_total:%.1f, h2o_total:%.1f, creatures:%d}") % [
+		"co2_avg:%.4f, fuel_all:%.1f, rock_fill_total:%.1f, mineral_total:%.1f, h2o_total:%.1f, creatures:%d}") % [
 		frame, fps, dispatch_ms, readback_ms, field_ms,
 		int(lava_list_cells),
 		int(snap.get("fire_cells", 0)), float(snap.get("lava_total", 0.0)),
 		float(snap.get("charge_peak", 0.0)), int(snap.get("bolts", 0)),
-		float(snap.get("co2_avg", 0.0)), float(snap.get("fuel_total", 0.0)),
+		float(snap.get("co2_avg", 0.0)), float(snap.get("fuel_all", 0.0)),
 		float(snap.get("rock_fill_total", 0.0)), float(snap.get("mineral_total", 0.0)),
 		float(snap.get("h2o_total", 0.0)), int(snap.get("creatures", 0)),
 	])
+
+
+## Move heat OUT of the interior store and INTO the rock a few shells under `site`. A transfer, not a source:
+## the reservoir loses exactly what the rock gains, and it refuses once it is too cold to drive one.
+func _seed_hot_pocket(site: Vector3) -> void:
+	var f = _ecology.material_field() if (_ecology != null and _ecology.has_method("material_field")) else null
+	if f == null or _body == null or f.get("_inject") == null or f.get("_geotherm") == null:
+		return
+	var grid = f.sphere_grid() if f.has_method("sphere_grid") else null
+	if grid == null:
+		return
+	var dir: Vector3 = (site - _body.center()).normalized()
+	var cs: float = float(grid.cell_size)
+	var deep: Vector3 = site - dir * (cs * 3.0)
+	var r: float = cs * 2.0
+	var need: float = f._inject.heat_to_reach(deep, LAPhysical.BASALT_LIQUIDUS_C, r)
+	f._inject.add_heat_energy(deep, f._geotherm.draw_heat_j(need, LAPhysical.BASALT_LIQUIDUS_C), r)

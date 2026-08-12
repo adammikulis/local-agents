@@ -1,23 +1,9 @@
 @tool
 extends EditorPlugin
 
-## The Local Agents editor plugin.
-##
-## Enabling the plugin does three things:
-##   1. registers the `AgentManager` autoload (required by every LocalAgent node),
-##   2. publishes every `LocalAgentSettings` spec into Project Settings as a typed, hinted row,
-##   3. adds the bottom panel, whose first tab is a first-run checklist.
-##
-## None of that needs the native extension, and the panel is never gated on a successful extension
-## load — the Setup and Downloads tabs are where a failed load gets fixed.
-##
-## No custom node types are registered here. Every node script in this addon declares a `class_name`,
-## so Godot already lists it in Create Node.
-##
-## (Explicit types only — project rule: no ':=' inferred typing.)
 
 const PANEL_SCENE: PackedScene = preload("res://addons/local_agents/editor/LocalAgentPanel.tscn")
-const SETUP_TAB_SCRIPT: GDScript = preload("res://addons/local_agents/editor/SetupTab.gd")
+const SETUP_TAB_SCENE: PackedScene = preload("res://addons/local_agents/editor/SetupTab.tscn")
 const CHOICE_INSPECTOR_SCRIPT: GDScript = preload("res://addons/local_agents/editor/ChoiceInspectorPlugin.gd")
 const EXTENSION_LOADER: GDScript = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const SETTINGS: GDScript = preload("res://addons/local_agents/runtime/Settings.gd")
@@ -80,7 +66,6 @@ func make_visible(visible: bool) -> void:
     if _panel_instance:
         _panel_instance.visible = visible
 
-# -- Project configuration ----------------------------------------------------
 
 ## Publish every LocalAgentSettings spec so Project Settings renders it as a typed row (file picker,
 ## enum, checkbox) instead of the user hand-editing project.godot. Existing values are never
@@ -118,14 +103,13 @@ func _register_autoload() -> void:
     add_autoload_singleton(AUTOLOAD_NAME, AUTOLOAD_PATH)
     _autoload_registered = true
 
-# -- Bottom panel -------------------------------------------------------------
 
 ## The panel that exists before (and without) activation: the Setup checklist. It renders with no
 ## native binary, which is the entire point — it is what tells you how to get one.
 func _create_setup_panel() -> void:
     if _panel_instance:
         return
-    var setup: Control = SETUP_TAB_SCRIPT.new()
+    var setup: Control = SETUP_TAB_SCENE.instantiate()
     setup.name = "LocalAgentSetup"
     setup.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     setup.size_flags_vertical = Control.SIZE_EXPAND_FILL

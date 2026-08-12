@@ -1,11 +1,14 @@
 class_name LAMaterialFieldAtmos3D
 extends RefCounted
 
-## LAMaterialFieldAtmos3D: atmosphere queries derived from the one `moisture` channel of LAMaterialField3D.
-## vapor = min(moisture, sat(T)); condensate = max(0, moisture - sat(T)), split fog/cloud by temperature.
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
+## LAMaterialFieldAtmos3D: the ATMOSPHERE derivation of LAMaterialField3D, factored out of the extract-only
+## vapor = min(moisture, sat(T)), condensed = max(0, moisture - sat(T)), and the condensed part reads as fog
 
 const CoverBakerScript: GDScript = preload("res://addons/local_agents/sim/material/CoverTextureBaker.gd")
-# Rain threshold: AtmospherePass owns it; the report proxy and the cover bake read the same number.
+# The precipitation threshold has ONE owner (Kessler autoconversion, derived from real air/water densities);
+# the report's precip proxy and the render cover bake must read the same number the kernel rains at.
 const AtmospherePassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd")
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
@@ -16,7 +19,8 @@ func setup(field) -> void:
 	_f = field
 
 
-## Saturation mass fraction at temperature `t` °C. Clausius-Clapeyron, owned by LAPhysical.
+## Saturation humidity at temperature `t` — the dewpoint moisture is read against, and the ONE thing that
+## decides how much water this planet's air can hold. Clausius-Clapeyron, owned by LAPhysical and shared with
 func _sat(t: float) -> float:
 	return LAPhysical.saturation_mass_fraction(t)
 
@@ -44,12 +48,14 @@ func fog_at(x: float, z: float) -> float:
 	return _condensed_at(c) if _f._temp[c] < LAMaterialField3D.FOG_MAX_TEMP else 0.0
 
 
-## Recompute the condensate aggregates + the mask-free moisture_total in one grid pass. Fog/cloud split by
-## temperature: below FOG_MAX_TEMP = fog, above = cloud. Report/visual metrics.
+## Recompute all condensate aggregates in a single grid pass. The fog/cloud split is a temperature proxy
+## (cool, T<FOG_MAX_TEMP = fog; warmer = cloud) for the kernel's slot-0 near-ground test, which is not
+## replicated on the CPU — these are report/visual metrics only.
 func refresh_aggregates() -> void:
 	_f._atmos_dirty = false
 	# Local (copy-on-write, read-only) handles for the hot loop — same buffers, no per-cell property lookup.
 	var cell_count: int = _f._cell_count
+	var solid: PackedByteArray = _f._solid
 	var moisture: PackedFloat32Array = _f._moisture
 	var temp: PackedFloat32Array = _f._temp
 	var rain_threshold: float = AtmospherePassScript.rain_threshold()
@@ -58,11 +64,16 @@ func refresh_aggregates() -> void:
 	var cloud_n: int = 0
 	var fog_n: int = 0
 	var precip_n: int = 0
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if vol.size() != cell_count:
+		return
 	var total: float = 0.0
 	for i in range(cell_count):
 		var aw: float = moisture[i]
-		total += aw
-		if aw <= 0.0:
+		# MASK-FREE: this is the airborne leg of the conserved h2o_total, so vapour in a cell the derived solid
+		# flag now covers is still counted. The cloud/fog/precip COUNTS below are open-cell extents and stay masked.
+		total += aw * vol[i]
+		if solid[i] != 0:
 			continue
 		var cond: float = aw - _sat(temp[i])
 		if cond <= 0.0:
@@ -118,17 +129,17 @@ func field_cover_texture() -> Texture2DArray:
 
 func atmos_cloud_base_r() -> float:
 	_ensure_cover_baker()
-	return _cover_baker.cloud_base_r() if _cover_baker != null else _f.sea_radius() + 62.0
+	return _cover_baker.cloud_base_r() if _cover_baker != null else _f.sea_level + 62.0
 
 
 func atmos_fog_top_r() -> float:
 	_ensure_cover_baker()
-	return _cover_baker.fog_top_r() if _cover_baker != null else _f.sea_radius() + 16.0
+	return _cover_baker.fog_top_r() if _cover_baker != null else _f.sea_level + 16.0
 
 
 func atmos_fog_lo_r() -> float:
 	_ensure_cover_baker()
-	return _cover_baker.fog_lo_r() if _cover_baker != null else _f.sea_radius()
+	return _cover_baker.fog_lo_r() if _cover_baker != null else _f.sea_level
 
 
 func atmos_outer_r() -> float:
@@ -148,24 +159,24 @@ func avg_fog_cover() -> float:
 	return _f._fog_cover_c
 
 
-## Precipitation proxy 0..1 — cells whose condensate is over the rain threshold, as a fraction of ALL cells,
-## rescaled by a fitted gain and clamped (see refresh_aggregates).
+## Domain precipitation proxy 0..1 — fraction of open cells whose condensate is over the rain threshold.
 func precipitation() -> float:
 	if _f._atmos_dirty:
 		refresh_aggregates()
 	return _f._precip_c
 
 
-## Airborne leg of h2o_total — every cell, no residency mask (LAMaterialFieldLedger3D's one inclusion rule).
-## Channel units. Accumulated in refresh_aggregates' single grid pass and cached: a cache read, not a scan.
+## Total suspended atmospheric water mass — the AIRBORNE leg of the conserved H₂O ledger (`h2o_total`), summed
+## over every OPEN cell per the one inclusion rule documented in LAMaterialFieldLedger3D's header. Computed in
+## refresh_aggregates' single grid pass and cached, so this is a cache read, not a scan.
 func moisture_total() -> float:
 	if _f._atmos_dirty:
 		refresh_aggregates()
 	return _f._moisture_total_c
 
 
-## Count of cells whose derived condensate (moisture over saturation) is at/above CONDENSE_COVER_MIN and
-## warmer than FOG_MAX_TEMP. Cached with the other atmosphere aggregates, not recomputed per call.
+## Count of OPEN cells carrying derived condensate (moisture over saturation) at/above CONDENSE_COVER_MIN.
+## Cached with the other atmosphere aggregates (recomputed once per field readback, not per call).
 func cloud_cell_count() -> int:
 	if _f._atmos_dirty:
 		refresh_aggregates()
@@ -175,11 +186,11 @@ func cloud_cell_count() -> int:
 # CloudLayer sheets — the water-particle renderer samples the baked cover texture instead. cloud_base_y/
 # fog_base_y survive as the near-ground radii the derived point queries (cloud_at/fog_at) sample at.
 func cloud_base_y() -> float:
-	return _f.sea_radius() + 62.0
+	return _f.sea_level + 62.0
 
 
 func fog_base_y() -> float:
-	return _f.sea_radius() + 6.0
+	return _f.sea_level + 6.0
 
 
 ## Relative humidity 0..1 near the ground at a world XZ column = vapor / sat(T) = min(moisture, sat)/sat.

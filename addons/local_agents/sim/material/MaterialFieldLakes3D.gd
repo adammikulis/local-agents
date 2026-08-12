@@ -16,8 +16,8 @@ func seed(field) -> void:
 		return
 	var sc: int = int(grid.surf_count)
 	var depth: int = int(grid.depth)
-	var core_r: float = float(grid.core_radius)
-	var cs: float = float(grid.cell_size)
+	var mid: PackedFloat32Array = grid.shell_mid
+	var face: PackedFloat32Array = grid.shell_face
 	var surf_nbr: PackedInt32Array = grid.surf_nbr
 	var solid: PackedByteArray = field._solid
 
@@ -36,7 +36,7 @@ func seed(field) -> void:
 				break
 		surfr[s] = sr
 		eground[s] = (sr + 1) if sr >= 0 else 0
-	var sea_shell: int = clampi(int(round((sea_r - core_r) / cs)), 0, depth)
+	var sea_shell: int = clampi(grid.face_of(sea_r), 0, depth)
 
 	# PRIORITY-FLOOD (integer buckets). W[s] = the water level (spill shell) of s's basin; INF = unreached.
 	var inf: int = depth + 2
@@ -86,7 +86,7 @@ func seed(field) -> void:
 			if field._solid[c2] == 0 and field._water[c2] <= 0.0:
 				field._water[c2] = 1.0
 				lake_cells += 1
-	var river_cells: int = _seed_rivers(field, grid, sea_r, core_r, cs, sc, depth, surf_nbr)
+	var river_cells: int = _seed_rivers(field, grid, sea_r, sc, depth, surf_nbr)
 	if OS.has_environment("LA_WATER_DEBUG"):
 		print("LAKES_SEEDED={cells:%d, rivers:%d}" % [lake_cells, river_cells])
 
@@ -95,12 +95,15 @@ const RIVER_ACCUM_MIN: int = 6           # upstream cells before a channel carri
 const RIVER_MAX_DEPTH_CELLS: int = 2     # deepest a big trunk river incises (cells below the valley floor)
 const RIVER_CARVE_MAX: int = 6000        # safety cap on channel carves (bounds the one-time world-gen cost)
 
-func _seed_rivers(field, grid: RefCounted, sea_r: float, core_r: float, cs: float, sc: int, depth: int, surf_nbr: PackedInt32Array) -> int:
+func _seed_rivers(field, grid: RefCounted, sea_r: float, sc: int, depth: int,
+		surf_nbr: PackedInt32Array) -> int:
 	var terrain = field._terrain
 	if terrain == null or not terrain.has_method("sdf_at"):
 		return 0
 	var center: Vector3 = grid.center
 	var solid: PackedByteArray = field._solid
+	var mid: PackedFloat32Array = grid.shell_mid
+	var face: PackedFloat32Array = grid.shell_face
 	# CONTINUOUS surface elevation + ground shell per column.
 	var elev: PackedFloat32Array = PackedFloat32Array()
 	elev.resize(sc)
@@ -121,11 +124,11 @@ func _seed_rivers(field, grid: RefCounted, sea_r: float, core_r: float, cs: floa
 			elev[s] = -1.0e9
 			continue
 		var dir: Vector3 = grid.surf_dir(s)
-		var r_lo: float = core_r + (float(sr) + 0.5) * cs
-		var r_hi: float = core_r + (float(sr) + 1.5) * cs
+		var r_lo: float = mid[sr]
+		var r_hi: float = mid[mini(sr + 1, depth - 1)]
 		var d_lo: float = terrain.sdf_at(center + dir * r_lo)
 		var d_hi: float = terrain.sdf_at(center + dir * r_hi)
-		var e: float = core_r + float(sr + 1) * cs
+		var e: float = face[sr + 1]
 		if d_hi > d_lo:
 			e = clampf(r_lo + (-d_lo) / (d_hi - d_lo) * (r_hi - r_lo), r_lo, r_hi)
 		elev[s] = e
@@ -172,7 +175,8 @@ func _seed_rivers(field, grid: RefCounted, sea_r: float, core_r: float, cs: floa
 			# Bite the top `mag` shells out of the ground with a small sphere at the surface point; overlapping
 			# spheres down the channel trace one continuous incised valley. Radius grows with the incision depth.
 			var cdir: Vector3 = grid.surf_dir(s)
-			terrain.carve_sphere(center2 + cdir * elev[s], cs * (0.5 + 0.7 * float(mag)))
+			var dr_top: float = grid.shell_dr[top]
+			terrain.carve_sphere(center2 + cdir * elev[s], dr_top * (0.5 + 0.7 * float(mag)))
 			carved += 1
 			for j in range(mag):                                 # keep the field's solidity consistent with the carve
 				var rc: int = top - j

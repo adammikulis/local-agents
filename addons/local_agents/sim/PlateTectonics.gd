@@ -1,18 +1,6 @@
 class_name LAPlateTectonics
 extends Node
 
-## FAKED plate tectonics (the maintainer OK'd faking this one, because true geodynamics is research-grade). The sphere
-## is partitioned into N drifting PLATES: a Voronoi partition over random seed directions, each plate slowly
-## rotating about its own Euler pole. The plates themselves are scripted, but the GEOLOGY at their boundaries
-## EMERGES from the relative-motion kinematics. There is no per-event scripting, just: sample points near plate
-## boundaries on a slow cadence, classify the boundary from the two plates' relative velocity, and seed the
-## fitting disaster (which is itself an emergent field seed):
-##   • CONVERGENT (plates closing) → an arc VOLCANO (subduction melt) + often an EARTHQUAKE.
-##   • TRANSFORM (plates grinding past) → an EARTHQUAKE (the fault ruptures).
-##   • DIVERGENT (plates pulling apart) → occasionally a rift VENT (volcano).
-## As the plates drift, the boundaries migrate, so the Ring of Fire slowly moves. Owned by VoxelWorld (one-line
-## add_child); self-ticks on a geological cadence so it's a slow drumbeat, never disaster spam. LA_NO_TECTONICS
-## disables it. Explicit types only (no ':=').
 
 const PLATE_COUNT: int = 9
 const EVENT_PERIOD: float = 7.0          # seconds between tectonic events (a slow geological drumbeat — not disaster spam)
@@ -20,28 +8,14 @@ const SAMPLES_PER_EVENT: int = 10        # boundary points sampled per event; th
 const BOUNDARY_PROBE: float = 0.06       # angular half-width (radians) for detecting a nearby plate boundary
 const CONVERGE_MIN: float = 0.25         # |relative-normal velocity| fraction above which it's convergent/divergent
 
-# Plate speed is derived from LAPhysical.PLATE_SPEED_MIN/MAX_MM_PER_YEAR through this body's radius and the
-# field's step quantum; each plate draws its own speed between those two endpoints. The acceleration below is
-# a declared modelling choice, listed in docs/MODEL_PARAMETERS.md, and every rate here is the real rate times
-# it.
 const GEOLOGIC_TIME_ACCELERATION: float = 3.0e5
 
-## Angular speed (radians per sim-clock second) of a plate moving `speed_mm_yr` at the surface of a body of
-## radius `radius`, with geologic time accelerated. Horizontal world units are read as metres. Chain:
-## mm/yr -> m per simulated second -> rad per simulated second -> rad per sim-clock second (the field's fixed
-## step quantum) -> times the acceleration above.
 static func drift_rate(speed_mm_yr: float, radius: float) -> float:
 	var m_per_real_s: float = (speed_mm_yr * 0.001) / LAPhysical.SECONDS_PER_YEAR
 	var rad_per_real_s: float = m_per_real_s / maxf(radius, 1.0)
-	var real_s_per_sim_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_sim_second()
-	return rad_per_real_s * real_s_per_sim_s * GEOLOGIC_TIME_ACCELERATION
-# Probability of an arc volcano at a convergent margin (else a quake). A rarity roll standing in for missing
-# physics: melt should emerge from crustal thinning plus the geotherm, with no boundary classifier at all.
+	return rad_per_real_s * LASimClock.REAL_SECONDS_PER_SIM_SECOND * GEOLOGIC_TIME_ACCELERATION
 const VOLCANO_CHANCE_CONVERGENT: float = 0.3
 
-# A divergent margin always vents — a spreading ridge erupts along its whole length, it is not a lottery. The
-# throttle is the drumbeat: one event per EVENT_PERIOD, best-scoring candidate only, and divergent margins
-# score lowest (speed * 0.4 against a transform's speed).
 
 var _terrain = null                      # LAVoxelTerrainService (planet_center/radius, surface_point, sea_radius)
 var _disasters = null                    # LAVoxelDisasters (spawn_volcano / spawn_earthquake)
@@ -78,17 +52,18 @@ func setup(terrain, disasters, field = null) -> void:
 	_table.resize(PLATE_COUNT * 8)
 
 
-## The tectonic drumbeat runs on the physics clock, never the render clock, so a seeded run is reproducible.
 func _physics_process(delta: float) -> void:
 	if not _enabled or _terrain == null or _disasters == null:
 		return
 	if not _terrain.has_method("surface_point") or not _terrain.has_method("planet_center"):
 		return
-	# Drift: rotate each plate seed about its Euler pole, so the Voronoi boundaries migrate.
+	# DRIFT: rotate each plate seed about its Euler pole every frame, so the Voronoi boundaries MIGRATE over time
+	# and the Ring of Fire slowly moves (was frozen — the seeds were set once in setup and never integrated).
 	for i in range(_seeds.size()):
 		_seeds[i] = (_seeds[i] as Vector3).rotated((_poles[i] as Vector3).normalized(), float(_rates[i]) * delta)
-	# Hand the plates to the substrate: rotating the seeds moves the boundaries, carrying rock_fill and
-	# sediment at the same velocity moves the crust.
+	# AND HAND THE PLATES TO THE SUBSTRATE, which is the half that did not exist. Rotating the seeds moves the
+	# BOUNDARIES; carrying rock_fill and sediment with the same velocity moves the CRUST. Without this the Ring
+	# of Fire swept across continents that never moved, which is not plate tectonics — it is a moving label.
 	_push_plates()
 	_cd -= delta
 	if _cd > 0.0:
@@ -136,10 +111,6 @@ func _fire_boundary_event() -> void:
 	if is_nan(point.x):
 		return
 	if best_kind == "convergent":
-		# Quakes are the routine signature of a convergent margin; a full arc VOLCANO is the rare, dramatic
-		# event. It is kept rare because the field has no radiative sink yet, so sustained volcanic heat
-		# accumulates with nowhere to go — see the constant's own comment for why that is a stand-in awaiting
-		# `feature/energy-balance`, and for the measurement that decides when this roll can be deleted.
 		_disasters.spawn_earthquake(point)
 		if LASimRng.for_domain("planet").randf() < VOLCANO_CHANCE_CONVERGENT:
 			_disasters.spawn_volcano(point)
@@ -149,10 +120,6 @@ func _fire_boundary_event() -> void:
 		_disasters.spawn_volcano(point)                   # a rift vent: the lid is being pulled apart HERE
 
 
-## Pack the live plate kinematics and hand them to the field, whose PlateAdvectPass carries rock_fill and
-## sediment with the velocity they imply. PLATE_STRIDE floats per plate — seed.xyz, rate, pole.xyz, pad —
-## matching plate_advect_sphere3d.glsl. Rebuilt each frame into ONE reused array (no per-frame allocation);
-## the seeds are what changed, and they change every frame.
 func _push_plates() -> void:
 	if _field == null or not _field.has_method("set_plate_motion"):
 		return

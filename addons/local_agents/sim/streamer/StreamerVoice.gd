@@ -1,18 +1,7 @@
 class_name LAStreamerVoice
 extends Node
 
-## The streamer's mouth. One commentary line at a time, serialized so the caster never talks over
-## itself.
-##
-## Synthesis lives in addons/local_agents/runtime/audio/SpeechEngine.gd; this file is an adapter over that
-## node. set_volume_db() moves the engine's own player, not an audio bus.
-##
-## Playback routes to the "Voice" audio bus when the project defines one, so speech volume is
-## independent of music and effects.
-##
-## (Explicit types only, project rule: no ':=' inferred typing.)
 
-## The streamer has started a line. `text` is that line.
 signal speaking_started(text: String)
 
 ## The streamer's line is over. It drives the avatar's talk animation back to closed, and exactly one
@@ -39,15 +28,11 @@ func setup(options: Dictionary = {}) -> void:
 	})
 
 
-## Switch the streamer's voice by gender, "male" or "female". Downloads that voice if it is not
-## already on disk, and the lines spoken while it downloads use the system voice.
 func set_gender(gender: String) -> void:
 	if _engine != null:
 		_engine.set_gender(gender)
 
 
-## Mute or unmute the streamer. Muting stops the current line and ends its beat, so an avatar
-## listening for `speaking_finished` closes its mouth instead of holding it open.
 func set_enabled(on: bool) -> void:
 	if _engine != null:
 		_engine.set_enabled(on)
@@ -64,8 +49,6 @@ func is_speaking() -> bool:
 	return _engine != null and _engine.is_speaking()
 
 
-## Queue a line. A backlog keeps only the freshest lines, so commentary stays in sync with the sim
-## rather than narrating the distant past.
 func speak(text: String) -> void:
 	if _engine != null:
 		_engine.speak(text)

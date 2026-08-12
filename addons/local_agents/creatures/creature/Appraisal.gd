@@ -1,21 +1,7 @@
 class_name LAAppraisal
 extends RefCounted
 
-## LAAppraisal: the ONE valuator. "What is this worth to me right now?" is the single question behind
-## dominance contests, mate choice, and (as they migrate here) food/threat assessment. Keeping it in one
-## place means those decisions share one honest, phenotype-driven scoring rule instead of three bespoke ones.
-##
-## EMERGENT-EVERYTHING: nothing here is per-species. A creature's DOMINANCE is a weighted sum of its real,
-## observable phenotype: size, condition, age/experience, and (in males) ornamental DISPLAY. The
-## weights are supplied by species CONFIG (`dominance_traits`), not code. Wolves weight size, deer/birds weight
-## display, villagers weight age+experience: same function, different config. Rank is never assigned; it
-## falls out of who out-scores whom, and mate choice falls out of females valuing the same signal.
-##
-## Static + dependency-free of the LocalAgentCreature type (dynamic `.get()` access), like the other LocalAgentCreature*
-## helpers. (Explicit types only, no ':=' inferred typing.)
 
-# Default dominance weights — a well-rounded contender: biggest · best-conditioned · eldest/most-experienced,
-# with display neutral by default (species that court on ornament raise it via `dominance_traits`).
 const DEFAULT_WEIGHTS: Dictionary = {
 	"maturity": 1.0,     # age relative to maturity — elders out-rank (village elder >> young adult)
 	"size": 1.2,         # body size — the raw physical-dominance axis
@@ -52,9 +38,6 @@ static func _display_gene(c) -> float:
 	return 0.0
 
 
-## The HONEST signal actually shown: the display gene damped by condition (health × energy fraction) and by
-## sex (males full, females faint). A sick, starving, or ageing male cannot hold a bright display, so a bright
-## one is a truthful advertisement of fitness — that is what makes it worth choosing.
 static func effective_display(c) -> float:
 	var gene: float = _display_gene(c)
 	if gene <= 0.0:
@@ -75,23 +58,11 @@ static func display_upkeep(c, delta: float) -> float:
 	var gene: float = _display_gene(c)
 	if gene <= 0.0:
 		return 0.0
-	# The cost is a MULTIPLE OF THE ANIMAL'S OWN MAINTENANCE REQUIREMENT (LACreatureRespiration), never a flat
-	# rate: an honest signal costs the same SHARE of the bearer's budget whatever it weighs, which is what
-	# makes it comparable between suitors and why the handicap principle works at every body size. Quadratic
-	# in the gene, so a very bright signal is disproportionately costly and stays honest at the top of range.
 	return LACreatureRespiration.maintenance_rate(c) * DISPLAY_UPKEEP_OVER_MAINTENANCE * gene * gene * delta
 
 const DISPLAY_UPKEEP_OVER_MAINTENANCE: float = 0.9
 
 
-## VIGOR is `energy / max_energy`, spanning 0..1. Its divide-by-zero guard is an epsilon, never a
-## plausible-looking value: a floor large enough to replace a small animal's whole reserve would pin every
-## creature's vigor near zero and flatten mate choice and dominance to noise.
-
-
-## DOMINANCE — how much this creature would win a contest / out-rank a rival. A weighted sum of live phenotype;
-## higher = more fit to lead and more attractive as a mate. Cheap reads only (no scans), so it is safe to call
-## in the leadership + mate-seek loops. A species that sets `dominance_traits.display` folds the ornament in.
 static func dominance(c) -> float:
 	var w: Dictionary = _weights(c)
 	var maturity: float = clampf(float(c.get("age")) / maxf(float(c.get("maturity_age")), 0.001), 0.0, MATURITY_CAP)
@@ -108,11 +79,6 @@ static func dominance(c) -> float:
 		+ float(w.get("display", 0.0)) * effective_display(c)
 
 
-## MATE VALUE — how attractive `target` is as a mate to `chooser`, distance-discounted. Sexual selection runs
-## on this: a female picks the highest-valued male in range, so dominance + honest display propagate. The
-## chooser's own dominance-weights decide how much ornament vs raw size/condition matters to her (co-evolving
-## preference and trait). Distance is a mild tie-breaker so she does not cross the whole range for a marginally
-## better suitor.
 static func mate_value(chooser, target, distance: float, seek_radius: float) -> float:
 	var w: Dictionary = _weights(chooser)
 	var quality: float = dominance(target) + float(w.get("display", 0.0)) * effective_display(target)

@@ -1,13 +1,6 @@
 class_name LAFamilyTreePanel
 extends CanvasLayer
 
-## FAMILY-TREE INSPECTOR: a pure READER over the permanent kinship graph (LAKinshipGraph). When a creature is
-## selected and the "Family tree" debug view is on, it walks that graph from the selected creature. Ancestors
-## go up (parents → grandparents, capped) and descendants down (offspring, capped), with mate(s) alongside, and it
-## draws a simple 2D node-link diagram: boxes = individuals (species + short id), lines = parent/child, a
-## distinct dashed style = mate bonds, the selected creature highlighted as the root. Alive kin are tinted by
-## species; dead / carcass / freed kin are greyed so a lineage stays legible after relatives die. Rebuilds ONLY
-## on select (not per frame). Click a box to re-root the tree on that individual. (Explicit types only, no ':=' inferred typing.)
 
 const MAX_GEN_UP: int = 4          # ancestor generations walked above the root
 const MAX_GEN_DOWN: int = 4        # descendant generations walked below the root
@@ -93,8 +86,6 @@ func set_root(node: Node) -> void:
 		_root_cid = 0
 	_rebuild()
 
-
-# --- graph walk + layout (on select only) ------------------------------------------------------------------
 
 func _rebuild() -> void:
 	_nodes = []
@@ -207,8 +198,6 @@ func _layout() -> void:
 	if _canvas != null:
 		_canvas.custom_minimum_size = Vector2(content_w, content_h)
 
-
-# --- drawing -----------------------------------------------------------------------------------------------
 
 func _draw_tree() -> void:
 	if _canvas == null:

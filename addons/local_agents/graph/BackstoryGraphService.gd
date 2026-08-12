@@ -58,8 +58,6 @@ func _exit_tree() -> void:
     if bool(_embedding_options.get("server_shutdown_on_exit", false)):
         _embedding_server_manager.stop_managed()
 
-## Point the store at a database file. HONOURED WHENEVER IT IS CALLED: if the graph is already open on a
-## different path it is closed and reopened here, rather than the request being dropped.
 func set_database_path(path: String) -> void:
     var previous: String = _resolved_database_path()
     _database_path_override = path.strip_edges()

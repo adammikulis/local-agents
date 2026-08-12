@@ -1,30 +1,20 @@
 class_name LAMaterialEjecta3D
 extends Node3D
 
-## WHERE MASS LANDS MAY NOT DEPEND ON WHERE THE CAMERA IS POINTED.
-##
-## LOD may skip DRAWING, never where matter ends up. Parcels always arc; the multimesh is culled.
-
 ## LAMaterialEjecta3D: THE KEYSTONE momentum/ejecta primitive of the substrate. When a pressure release throws
 
 const PARCELS_PER_EJECT: int = 6
-# Speed = clamp(sqrt(2·energy/mass)·GAIN) — a ballistic launch speed from the release energy. The max is kept
-# modest so a parcel's arc completes in a couple of seconds (visible + it re-deposits within a short run).
+# Ballistic launch speed from the release energy: clamp(sqrt(2*energy/mass)*GAIN).
 const SPEED_GAIN: float = 1.0
 const SPEED_MIN: float = 6.0
 const SPEED_MAX: float = 30.0
 # Sideways spread of the spray around the launch direction (radians of cone half-angle).
 const CONE: float = 0.5
-# ABSOLUTE ceiling on simultaneous in-flight parcels — the MultiMesh allocation and the hard cap any quality
-# preset can reach (Ultra). The LIVE budget (_budget) is quality-scaled down from this; a runaway can never
-# accumulate unbounded work/draws regardless of how many impacts fire.
+# Ceiling on simultaneous in-flight parcels (the MultiMesh allocation); _budget is quality-scaled from it.
 const BUDGET_CEIL: int = 256
-# Floor so even the lowest preset still shows a little ejecta rather than none.
 const BUDGET_FLOOR: int = 48
-# Distance (world units) beyond which a parcel is FAR and settles immediately (skips the arc). ~1.8× a default
-# planet radius: embers this far from the camera are sub-pixel, so arcing them is wasted work + draws.
-# Safety lifetime — a parcel that never lands (numerical edge) is culled after this many seconds.
-const MAX_LIFETIME: float = 12.0
+const EJECTA_LOD_RADIUS: float = 450.0     # beyond this from the camera a parcel settles without arcing
+const MAX_LIFETIME: float = 12.0           # s; a parcel that never lands is culled
 const LAND_HEAT_R: float = 8.0
 
 var _f = null                                            # owning LAMaterialField3D
@@ -37,6 +27,7 @@ var _p_mass: PackedFloat32Array = PackedFloat32Array()   # carried mineral mass
 var _p_launch_r: PackedFloat32Array = PackedFloat32Array()  # launch radius (landing test)
 var _p_age: PackedFloat32Array = PackedFloat32Array()
 var _p_risen: PackedByteArray = PackedByteArray()        # 1 once the parcel has climbed above launch radius
+var _p_src: PackedInt32Array = PackedInt32Array()        # cell the parcel was thrown out of (the debit site)
 var _deposited: float = 0.0                              # cumulative mass deposited (diagnostic)
 var _ejected: float = 0.0                                # cumulative mass handed to eject() (diagnostic)
 var _impact_energy_j: float = 0.0                        # cumulative landing kinetic energy given to the field
@@ -44,6 +35,8 @@ var _peak_inflight: int = 0                              # high-water mark of li
 
 # Active camera, cached once per render frame (a single get_camera_3d() lookup shared by every parcel, not one
 # per parcel — mirrors LocalAgentCreature._camera_pos).
+var _cam_frame: int = -1
+var _cam: Camera3D = null
 
 var _mm: MultiMeshInstance3D = null
 var _multimesh: MultiMesh = null
@@ -107,6 +100,170 @@ func _build_visual() -> void:
 	_mm.multimesh = _multimesh
 	_mm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_mm)
+
+
+# Active camera cached once per render frame (headless → null; then all parcels keep the default arc, still
+# bounded by the budget). Mirrors the Fish/Creature shared-lookup pattern.
+func _camera() -> Camera3D:
+	var f: int = int(Engine.get_frames_drawn())
+	if f != _cam_frame:
+		_cam_frame = f
+		var vp: Viewport = get_viewport()
+		_cam = vp.get_camera_3d() if vp != null else null
+	return _cam
+
+
+# Should a parcel at `pos` stay AIRBORNE (arc) rather than settle immediately? Only if it is near the camera
+# AND inside its view frustum — the compute bubble tracks what the player can see. No camera (headless) → yes
+# (keep the arc; still budget-bounded). This is the activity-LOD gate shared by eject() and the per-frame step.
+func _airborne_visible(cam: Camera3D, pos: Vector3) -> bool:
+	if cam == null or not is_instance_valid(cam):
+		return true
+	if cam.global_position.distance_squared_to(pos) > EJECTA_LOD_RADIUS * EJECTA_LOD_RADIUS:
+		return false
+	return cam.is_position_in_frustum(pos)
+
+
+func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = Vector3.ZERO) -> void:
+	if _f == null or mass <= 0.0 or energy <= 0.0 or is_nan(world_pos.x):
+		return
+	_budget = _resolve_budget()                          # live re-read (mid-game settings re-apply)
+	var cam: Camera3D = _camera()
+	var per_mass: float = mass / float(PARCELS_PER_EJECT)
+	# A parcel deposited without flying still carries the energy it was thrown with.
+	var base_speed: float = clampf(sqrt(2.0 * energy / mass) * SPEED_GAIN, SPEED_MIN, SPEED_MAX)
+	# An off-screen impact spawns no arcing parcels — deposit its whole mass in one shot.
+	var src: int = _f.world_to_cell(world_pos)
+	if not _airborne_visible(cam, world_pos):
+		_ejected += mass
+		_deposit(src, world_pos, mass, base_speed)
+		return
+	var radial: Vector3 = world_pos - _center
+	if radial.length_squared() < 1.0e-6:
+		radial = Vector3.UP
+	radial = radial.normalized()
+	var launch_dir: Vector3 = (radial + dir_bias).normalized() if (radial + dir_bias).length_squared() > 1.0e-6 else radial
+	var launch_r: float = (world_pos - _center).length()
+	# Build a tangent basis for the spray cone.
+	var tan_a: Vector3 = launch_dir.cross(Vector3.UP)
+	if tan_a.length_squared() < 1.0e-6:
+		tan_a = launch_dir.cross(Vector3.RIGHT)
+	tan_a = tan_a.normalized()
+	var tan_b: Vector3 = launch_dir.cross(tan_a).normalized()
+	for i in range(PARCELS_PER_EJECT):
+		# At the cap, deposit this share immediately so the live count plateaus at _budget.
+		if _p_mass.size() >= _budget:
+			_ejected += per_mass
+			_deposit(src, world_pos, per_mass, base_speed)
+			continue
+		var rng: LASimRng = LASimRng.shared()
+		var ang: float = rng.randf() * TAU
+		var spread: float = rng.randf() * CONE
+		var dir: Vector3 = (launch_dir * cos(spread) + (tan_a * cos(ang) + tan_b * sin(ang)) * sin(spread)).normalized()
+		var speed: float = base_speed * rng.randf_range(0.7, 1.15)
+		_p_pos.append(world_pos)
+		_p_vel.append(dir * speed)
+		_p_mass.append(per_mass)
+		_p_launch_r.append(launch_r)
+		_p_age.append(0.0)
+		_p_risen.append(0)
+		_p_src.append(src)
+		_ejected += per_mass
+	if _p_mass.size() > _peak_inflight:
+		_peak_inflight = _p_mass.size()
+
+
+func _process(delta: float) -> void:
+	if _p_mass.size() == 0:
+		if _multimesh != null and _multimesh.visible_instance_count != 0:
+			_multimesh.visible_instance_count = 0
+		return
+	var dt: float = minf(delta, 0.05)                     # clamp to keep the arc stable under a frame spike
+	var cam: Camera3D = _camera()
+	var i: int = _p_mass.size() - 1
+	while i >= 0:
+		var pos: Vector3 = _p_pos[i]
+		# A parcel off-screen settles now, skipping the invisible arc.
+		if not _airborne_visible(cam, pos):
+			_deposit(_p_src[i], pos, _p_mass[i], (_p_vel[i] as Vector3).length())
+			_remove_parcel(i)
+			i -= 1
+			continue
+		var vel: Vector3 = _p_vel[i]
+		var radial: Vector3 = pos - _center
+		var r: float = radial.length()
+		var r_hat: Vector3 = radial / r if r > 1.0e-6 else Vector3.UP
+		# The N-body field, not a local constant: the same call the meteor's coast uses, so a parcel arcs
+		# under the planet, gets bent by the moon on a close pass, and feels the star's tide out at range.
+		vel += LAGravity.acceleration_at(get_tree(), pos) * dt
+		pos += vel * dt
+		var age: float = _p_age[i] + dt
+		var r_now: float = (pos - _center).length()
+		if r_now > _p_launch_r[i] + 1.0:
+			_p_risen[i] = 1
+		var descending: bool = vel.dot(r_hat) < 0.0
+		var landed: bool = (_p_risen[i] == 1 and descending and r_now <= _p_launch_r[i]) or age > MAX_LIFETIME
+		if landed:
+			_deposit(_p_src[i], pos, _p_mass[i], vel.length())
+			_remove_parcel(i)
+		else:
+			_p_pos[i] = pos
+			_p_vel[i] = vel
+			_p_age[i] = age
+		i -= 1
+	_refresh_visual()
+
+
+## Kilograms in one mass unit at `cell`. The answer is an absolute mass, so the volume is m^3 and per-cell:
+## a model-unit cube would be METRES_PER_MODEL_UNIT^3 too small.
+func _mass_unit_kg(cell: int) -> float:
+	if _f == null:
+		return 0.0
+	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
+	if cell < 0 or cell >= vol.size():
+		return 0.0
+	var max_mass: float = maxf(float(_f.MAX_MASS), 0.0001)
+	return LAPhysical.ROCK_DENSITY_KG_M3 * vol[cell] / max_mass
+
+
+## A parcel lands: the debris it carried out of `src` arrives here, and its kinetic energy arrives as heat.
+## Impact ejecta is pulverised rock, so it lands as `sediment` — nothing here asserts that it is molten.
+func _deposit(src: int, pos: Vector3, mass: float, speed: float) -> void:
+	_deposited += mass
+	if _f._inject != null:
+		_f._inject.land_ejecta(src, pos, mass)
+	if _f._inject != null and speed > 0.0:
+		var joules: float = 0.5 * mass * _mass_unit_kg(_f.world_to_cell(pos)) * speed * speed
+		_impact_energy_j += joules
+		_f._inject.add_heat_energy(pos, joules, LAND_HEAT_R)
+
+
+func _remove_parcel(i: int) -> void:
+	var last: int = _p_mass.size() - 1
+	_p_pos[i] = _p_pos[last]
+	_p_vel[i] = _p_vel[last]
+	_p_mass[i] = _p_mass[last]
+	_p_launch_r[i] = _p_launch_r[last]
+	_p_age[i] = _p_age[last]
+	_p_risen[i] = _p_risen[last]
+	_p_src[i] = _p_src[last]
+	_p_pos.remove_at(last)
+	_p_vel.remove_at(last)
+	_p_mass.remove_at(last)
+	_p_launch_r.remove_at(last)
+	_p_age.remove_at(last)
+	_p_risen.remove_at(last)
+	_p_src.remove_at(last)
+
+
+func _refresh_visual() -> void:
+	if _multimesh == null:
+		return
+	var n: int = mini(_p_mass.size(), BUDGET_CEIL)
+	for i in range(n):
+		var t: Transform3D = Transform3D(Basis(), _p_pos[i])
+		_multimesh.set_instance_transform(i, t)
+	_multimesh.visible_instance_count = n
 
 
 # --- Diagnostics -------------------------------------------------------------

@@ -1,12 +1,6 @@
 class_name LAVoxelInteraction
 extends Node3D
 
-# Input + selection + the player's "hand" (Black & White) for the voxel world, factored out of the root.
-# Owns: LMB click-to-select / hold-to-carry / release-to-drop-or-throw, Tab/Shift+Tab selection cycling,
-# palette hotkeys, and the selection highlight ring. RMB painting is delegated to the spawn brush; the
-# V/T/M view toggles are delegated back to the world. This node defines _unhandled_input so Godot routes
-# input straight here. Dependency-free of the LAVoxelWorld type (dynamic access, no cyclic class
-# reference). (Explicit types only — project rule: no ':=' inferred typing.)
 
 const GRAB_MOVE_THRESHOLD: float = 6.0       # px of motion that turns a click into a carry
 const GRAB_HOLD_MSEC: int = 220              # or this long held still commits to a carry
@@ -125,11 +119,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _game_hud != null and _game_hud.has_method("toggle_visible"):
 			_game_hud.toggle_visible()
 		return
-	# COMPANION taming + commands (LACreatureBond / LACompanionController). B feeds/pets the selected creature
-	# (repeat to build the bond → tame it); once bonded it obeys a standing command: J come, L stay, N follow,
-	# O free. Y jump-selects the nearest existing companion (reuses select_by_predicate). Events are consumed so
-	# they never double-trigger another handler; all routed to the companion controller so command state + the
-	# player beacon live in one thin owner, not here. (Keys chosen to avoid the camera controller's G/F/P/K.)
 	if event is InputEventKey and event.pressed and not event.echo:
 		var ck: int = (event as InputEventKey).keycode
 		if ck == KEY_B:
@@ -420,11 +409,6 @@ func select_node(node: Node) -> void:
 	_set_selected(node)
 
 
-## Select-by-predicate: over every creature, gather those matching `predicate` (Callable(Node) -> bool),
-## select the NEAREST match through the normal single-selection path (ring + inspector + thought panel
-## light up on it), focus the camera on it, and return the total match count. The whole matching SET is
-## what a companion highlight (e.g. the LLM thinking/queued tint) is already dyeing; this hands the player
-## a concrete entry point into it. Returns 0 (and clears nothing) when nothing matches.
 func select_by_predicate(predicate: Callable) -> int:
 	var found: Array = []
 	for n in get_tree().get_nodes_in_group("creature"):

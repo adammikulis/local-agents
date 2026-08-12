@@ -2,29 +2,7 @@
 extends RefCounted
 class_name LocalAgentBackstoryFactionOps
 
-## Faction / membership operations the store was missing.
-##
-## LocalAgentBackstoryGraphService could already OPEN a dated membership — upsert_faction() plus
-## add_relationship(..., "MEMBER_OF", from_day, to_day, ...) — and read the open ones back through
-## get_backstory_context(), which applies the from_day/to_day window. It could not CLOSE one, and it could
-## not read a membership that had already ended, so "which band did this animal belong to before it left"
-## had no answer and a life could only ever accumulate memberships.
-##
-## Closing an edge is done by rewriting it, because NetworkGraph binds add_edge / remove_edge / get_edges
-## and no edge-update call (see NetworkGraph.cpp _bind_methods). get_edges returns each row's `id`, so a
-## close is: copy the row's data with `to_day` stamped, add the copy, drop the original. Both calls are
-## synchronous against the same SQLite handle.
-##
-## These live in the ops layer next to their siblings rather than as new bodies on the service, which stays
-## a thin facade of forwarders. (Explicit types only, no ':=' inferred typing.)
 
-
-## Stamp `to_day` on every OPEN (to_day == -1) relationship of `relationship_type` from `source_npc_id` to
-## `target_entity_id`, ending it. Returns {ok, closed: <count>}; closing nothing is a success, not an error,
-## because "leave whatever you were in" is the caller's ordinary first step whether or not it was in one.
-##
-## Matching is on the edge data's stored `target_id` string rather than on a resolved node, so a membership
-## can still be closed after the faction node itself has been removed.
 static func close_relationship(svc, source_npc_id: String, target_entity_id: String, relationship_type: String, to_day: int) -> Dictionary:
 	if source_npc_id.strip_edges() == "":
 		return svc._error("invalid_npc_id", "source_npc_id must be non-empty")

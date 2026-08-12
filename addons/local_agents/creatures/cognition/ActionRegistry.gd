@@ -1,24 +1,7 @@
 class_name LAActionRegistry
 extends RefCounted
 
-## The single source of truth for the discrete "function calls" a creature can perform.
-##
-## This one registry is consumed three ways:
-##   1. Fast tier (System 1): the set of action names its heuristic policy chooses among.
-##   2. Slow tier (System 2): the `tools` list declared to FunctionGemma, and the label space
-##      its returned function call must fall within.
-##   3. Auto-finetune: the tool schemas emitted into every training example, so the dataset's
-##      labels are exactly "the function calls we have in our program."
-##
-## The registry owns only the *schemas / names* (data). The *executors* that turn a chosen
-## action into a heading/effect live on LocalAgentCreature (`_execute_action`) because they need creature
-## internals. Keeping the two apart lets the fast policy, the LLM, and the dataset all agree on a
-## vocabulary without any of them depending on movement code.
-##
-## (Explicit types only, no ':=' inferred typing.)
 
-# Canonical action vocabulary. Order is stable so a policy/genome can index by it.
-# (A plain Array literal — a PackedStringArray(...) constructor is not a constant expression.)
 const ACTIONS: Array = [
 	"flee", "hunt", "throw_rock", "scavenge", "graze",
 	"drink", "seek_water", "flock", "wander", "rest", "migrate", "investigate",
@@ -65,9 +48,6 @@ static func index_of(name: String) -> int:
 	return ACTIONS.find(name)
 
 
-## OpenAI-style tool specs handed to the llama-server (`--jinja`) path as the `tools` option.
-## The FunctionGemma chat template renders these into its `<start_function_declaration>` blocks
-## and parses the model's `<start_function_call>` back into a `tool_calls` array for us.
 static func tool_specs() -> Array:
 	var specs: Array = []
 	for name in ACTIONS:

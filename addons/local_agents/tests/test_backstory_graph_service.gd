@@ -55,12 +55,6 @@ func run_test(tree: SceneTree) -> bool:
         add_memory_result.get("ok", false),
         "Failed to add memory"
     )
-    # add_memory() returns ok as soon as the graph write lands, and reports the embedding separately
-    # under "embedding", so the outer ok alone does not prove semantic recall works.
-    #
-    # It stays non-fatal on purpose: embeddings need a llama-server started with --embeddings, and
-    # requiring one would make the graph suite unrunnable on a machine that has no server. So the
-    # outcome is REPORTED rather than swallowed, and the run says which of the two things it proved.
     var embedding_result: Dictionary = add_memory_result.get("embedding", {}) as Dictionary
     if embedding_result.is_empty():
         push_warning("Backstory: add_memory returned no embedding block, so indexing did not run at all.")
@@ -209,7 +203,6 @@ func run_test(tree: SceneTree) -> bool:
     var ritual_history: Dictionary = service.get_ritual_history_for_site("site_spring", 16, 8)
     ok = ok and _assert(ritual_history.get("ritual_events", []).size() >= 1, "Ritual history missing recorded event")
 
-    # A LATE set_database_path must actually redirect the store. Assert on WHERE THE ROWS LANDED.
     ok = ok and _assert(_check_late_database_switch(tree), "a late set_database_path did not redirect the store")
 
     service.clear_backstory_space()

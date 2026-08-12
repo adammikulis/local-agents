@@ -1,10 +1,9 @@
 #[compute]
 #version 450
 
-// `nbr[idx*6 + d]` (slot 0 = inward/down, 1-4 lateral, 5 = outward/up; -1 = boundary). This is the mechanical
-// Finite-volume heat conduction between neighbouring cells. The geothermal flux is supplied by
-// LAMaterialFieldGeotherm3D from a finite reservoir that cools as it supplies, and enters at slot 0's
-// missing neighbour (slot 0 has no neighbour only at r = 0) through the same expression as every real face.
+#include "neighbours.glsli"
+
+// `nbr[idx*6 + d]` — slots are defined in neighbours.glsli; -1 = boundary. This is the mechanical
 
 layout(local_size_x = 64) in;
 
@@ -13,13 +12,10 @@ layout(set = 0, binding = 1, std430) restrict writeonly buffer TempOut { float t
 layout(set = 0, binding = 2, std430) restrict readonly buffer Neigh { int nbr[]; };
 layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float solid[]; };
 // What the cell is MADE OF, so it conducts and stores heat as that rather than as air. This is the ocean's
-// thermal inertia — the same mix heat3d_solar_sphere3d.glsl uses for its areal capacity — reaching conduction,
-// did not, so two kernels in the same pass disagreed about how much heat the same cell holds.)*
 layout(set = 0, binding = 4, std430) restrict readonly buffer Snow { float snow[]; };
 layout(set = 0, binding = 5, std430) restrict readonly buffer Water { float water[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer RockFill { float rock_fill[]; };
 // CARRIERS THIS KERNEL DOES NOT USE ITSELF, bound because rc_shared.glsli needs every one of them.
-// Leaving one out is exactly the divergence that file exists to end.
 layout(set = 0, binding = 20, std430) restrict readonly buffer Lava { float lava[]; };
 layout(set = 0, binding = 21, std430) restrict readonly buffer Fuel { float fuel[]; };
 layout(set = 0, binding = 22, std430) restrict readonly buffer Biomass { float biomass[]; };
@@ -28,12 +24,14 @@ layout(set = 0, binding = 23, std430) restrict readonly buffer Detritus { float 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	float core_boundary_c;
-	float dt_over_dx2;
-	uint pad2;
+	float dt_s;
+	uint depth;
+	float lat_dx;      // lateral centre-to-centre run; the radial runs come from the shell table
 } params;
 
+#include "shell.glsli"
+
 // Conductivities (W/m/K) and volumetric heat capacities (J/m^3/K). GLSL cannot read GDScript, so these are
-// copies; scripts/check_physical_constants.sh holds them equal to the authority.
 const float LAMBDA_ROCK  = 2.5;      // LAPhysical.THERMAL_CONDUCT_ROCK_W_MK
 const float LAMBDA_AIR   = 0.026;    // LAPhysical.THERMAL_CONDUCT_AIR_W_MK
 const float LAMBDA_WATER = 0.60;     // LAPhysical.THERMAL_CONDUCT_WATER_W_MK
@@ -70,25 +68,27 @@ void main() {
 	float rc_here = rc_of(idx);
 	float lam_here = lambda_of(idx);
 	float delta = 0.0;
+	uint r = idx % max(params.depth, 1u);
+	float lat_dx2 = params.dt_s / max(params.lat_dx * params.lat_dx, 1e-12);
 	for (int d = 0; d < 6; d++) {
-		int nb = nbr[idx * 6u + uint(d)];
+		uint slot = uint(d);
+		bool radial = (slot == N_IN) || (slot == N_OUT);
+		float run = radial ? shell_run(r, slot) : params.lat_dx;
+		float dt_over_dx2 = radial ? (params.dt_s / max(run * run, 1e-12)) : lat_dx2;
+		int nb = nbr[idx * N_SLOTS + slot];
 		if (nb < 0) {
-			// The one boundary that is not empty space: slot 0 has no inward neighbour only at r = 0, the
-			// bottom face of the shell. Bond to the interior's ghost cell with the same expression the loop
-			// uses below — it is rock, so its half of the interface conductivity is LAMBDA_ROCK.
-			if (d == 0 && params.core_boundary_c > 0.0) {
+			// The one boundary that is not empty space: the radial neighbour has no inward neighbour only at r = 0, the
+			if (slot == N_IN && params.core_boundary_c > 0.0) {
 				float lam_core = 2.0 * lam_here * LAMBDA_ROCK / max(lam_here + LAMBDA_ROCK, 1e-12);
-				delta += (lam_core * params.dt_over_dx2 / rc_here) * (params.core_boundary_c - here);
+				delta += (lam_core * dt_over_dx2 / rc_here) * (params.core_boundary_c - here);
 			}
 			continue;
 		}
 		// Two half-cells in SERIES across the bond, so the interface conductivity is their harmonic mean —
-		// a rock/air face is throttled by the air side, which is what makes soil under snow stay warm.
 		float lam_nb = lambda_of(uint(nb));
 		float lam_i = 2.0 * lam_here * lam_nb / max(lam_here + lam_nb, 1e-12);
 		// dT_here = lambda_i * (T_nb - T_here) * dt / (rho*c_here * dx^2). The receiving cell's OWN capacity
-		// divides, which is the asymmetry that lets hot rock warm the air above it without cooling much.
-		delta += (lam_i * params.dt_over_dx2 / rc_here) * (temp_in[nb] - here);
+		delta += (lam_i * dt_over_dx2 / rc_here) * (temp_in[nb] - here);
 	}
 	temp_out[idx] = here + delta;
 }

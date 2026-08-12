@@ -1,11 +1,6 @@
 class_name LACreatureThink
 extends RefCounted
 
-## Diet-driven decision routines for LocalAgentCreature (prey / predator / bird / scavenger), plus the cognition
-## action-vocabulary bridge, factored out of the main brain. Each entry point returns a desired heading
-## and sets the creature's `state`; unified eating, ranged hunting, "watch the vultures" public-information
-## cues, and the innate→action dispatch all live here. Static + dynamic access on the passed creature (no
-## cyclic class reference). (Explicit types only, no ':=' inferred typing.)
 
 const COMPANION_FOLLOW_DIST: float = 4.0   # a "follow" companion closes to this range, then heels/holds
 
@@ -25,7 +20,6 @@ static func _resolve_thrown_rock() -> GDScript:
 	return _thrown_rock_script
 
 
-# --- prey behavior: flee predators (dominates), else forage (seek + eat plants), else wander + flock ---
 static func think_prey(c, pos: Vector3, fallback: Vector3) -> Vector3:
 	var threat: Node3D = LACreatureSenses.nearest_of(c, pos, c.flees_from)
 	if threat != null:
@@ -40,10 +34,6 @@ static func think_prey(c, pos: Vector3, fallback: Vector3) -> Vector3:
 	return fallback + LACreatureFlocking.steer(c, pos, true)
 
 
-# DIRECTED GRAZING for a plant-eater. Eat a plant within reach; else — if hungry — steer toward the nearest
-# SENSED edible plant (the exact "locate the food and move to it" rule a predator uses to chase prey), which the
-# tangent-projection in Creature turns into surface movement; else wander + flock. Emergent (no per-species
-# code): one seek-and-eat drive, gated by the hunger signal.
 static func forage_graze(c, pos: Vector3, fallback: Vector3) -> Vector3:
 	if _try_eat_plant(c, pos):
 		c.state = "eat"
@@ -59,7 +49,6 @@ static func forage_graze(c, pos: Vector3, fallback: Vector3) -> Vector3:
 	return fallback + LACreatureFlocking.steer(c, pos, true)
 
 
-# --- predator behavior: scavenge, hunt prey (throw or bite), track scent, else flock ---
 static func think_predator(c, pos: Vector3, fallback: Vector3) -> Vector3:
 	# Scavenge carrion whenever not near-full (omnivores/humans eat anything they can).
 	if c.energy < c.max_energy * 0.95 and _try_scavenge(c, pos):
@@ -145,12 +134,6 @@ static func _throw_rock_at(c, prey: Node3D) -> void:
 	rock.throw_at(c.global_position + Vector3(0, c.size, 0), prey, 26.0)
 
 
-## THE MEAL COMES OUT OF THE PREY'S BODY, AND THE CARCASS IS WHAT IS LEFT.
-##
-## The bite is DRAWN from the prey (`LACreatureBodyMass.draw`, which spends gut then reserve then tissue
-## and can never return more than the animal holds), and the prey dies with the remainder still on it, which
-## `LACreatureRagdoll._become_carcass` reads as the carrion a scavenger can strip. Predator gain + carcass ==
-## the prey's live mass, by construction.
 static func _kill_and_eat(c, prey: Node3D) -> void:
 	var prey_profile: Dictionary = prey.food_profile() if prey != null and prey.has_method("food_profile") else {}
 	# How much of the body one feeding bout can take: bounded by the predator's own gut room and its bite rate,
@@ -173,7 +156,9 @@ static func _kill_and_eat(c, prey: Node3D) -> void:
 			prey.queue_free()
 		return
 	LACreatureDigestion.ingest(c, meat, prey_profile)
-	# The prey's body water moves with its flesh: debited from the prey, never credited from nothing.
+	# THE PREY'S BODY WATER comes with its flesh. A carnivore in the field usually does not need to drink,
+	# because meat is about 70% water — and this leg conserves exactly, since it is transferred out of the
+	# animal that was carrying it rather than credited from nothing.
 	_transfer_prey_water(c, prey, meat)
 	LAAudioDirector.emit(c.get_tree(), "chomp", c.global_position)
 	c._emit_call("forage")                     # a kill call: kin nearby learn to hunt this situation
@@ -209,11 +194,6 @@ static func _try_scavenge(c, pos: Vector3) -> bool:
 	return _try_eat_food(c, pos)
 
 
-# UNIFIED EATING: scan nearby food (anything exposing food_profile — plants, carcasses, …) and eat the
-# best item my diet will forage. Herbivores take carbs, carnivores/scavengers take meat, omnivores both;
-# energy gained scales with the food's STATE (a rotten carcass is worth half, cooked more). One rule for
-# every diet and every food source — living prey is the one thing not eaten here (it must be hunted first,
-# which turns it into a carcass = dead meat).
 static func _try_eat_food(c, pos: Vector3) -> bool:
 	# Sated when energy is high OR the gut is already packed with a meal being digested — a starving-but-full
 	# creature stops foraging and lets its gut work (energy climbs as it digests) instead of over-eating.
@@ -248,16 +228,7 @@ static func _try_eat_food(c, pos: Vector3) -> bool:
 		return false
 	var profile: Dictionary = best.food_profile()
 	var gained: float = 0.0
-	# THE BITE IS BOUNDED BY THE MOUTH AND BY WHAT IS THERE — and it is MASS, never a multiplied value. State
-	# changes DIGESTIBILITY, applied where the gut extracts energy, so what leaves the food is exactly what
-	# enters the animal.
 	var bite: float = maxf(float(c.bite_rate), 1.0e-9)
-	# A FOOD NODE MAY KEEP ITS OWN UNIT, AND THE CONVERSION HAS TO BE APPLIED OR THE BITE MINTS MATTER. A
-	# carcass's `_carrion` is already in the field's mass units, so its factor is 1. A plant's reserve is in
-	# FOOD-ENERGY units and `LAPlant.BIOMASS_PER_FOOD` is what a unit of it weighs — the plant itself applies
-	# that factor on both sides of its own uptake. Without the conversion here, `feed(bite)` would ask a plant
-	# for a mass and credit the food-units it got back AS a mass. `food_mass_per_unit` is the node's own
-	# declaration of its unit; anything that does not declare one is already speaking mass.
 	var per_unit: float = 1.0
 	if best.has_method("food_mass_per_unit"):
 		per_unit = maxf(float(best.call("food_mass_per_unit")), 1.0e-12)
@@ -266,7 +237,8 @@ static func _try_eat_food(c, pos: Vector3) -> bool:
 		gained = float(best.call("feed", bite / per_unit)) * per_unit           # a bite of a carcass or a plant
 	else:
 		# A whole food node with no partial-bite contract: take what the mouth can hold and free it once it has
-		# actually been stripped.
+		# actually been stripped. It used to credit the node's FULL value in one frame however small the animal,
+		# so an ant swallowed a shrub whole.
 		gained = minf(bite, value_mass)
 		if gained >= value_mass - 1.0e-9:
 			(best as Node3D).queue_free()
@@ -326,8 +298,8 @@ static func think_scavenger(c, pos: Vector3, _delta: float) -> Vector3:
 	var to_flat: Vector3 = Vector3.ZERO
 	if carcass != null:
 		to_flat = Vector3(carcass.global_position.x - pos.x, 0.0, carcass.global_position.z - pos.z)
-	elif c._material != null and c._material.has_method("airborne_gradient"):
-		var d: Vector3 = c._material.airborne_gradient("co2", pos)
+	elif c._material != null and c._material.has_method("scent_gradient"):
+		var d: Vector3 = c._material.scent_gradient(pos, LAScentChannels.SCENT_FOOD)
 		if d != Vector3.ZERO:
 			to_flat = Vector3(d.x, 0.0, d.z)
 	if to_flat != Vector3.ZERO:
@@ -350,11 +322,6 @@ static func think_scavenger(c, pos: Vector3, _delta: float) -> Vector3:
 	return c._heading + LACreatureBird.steer(c, pos)
 
 
-# EMERGENT public information. Look at the other animals I can perceive; each is a possible cue to a
-# resource, keyed generically by its "species:state" (nothing names vultures or circling). Head for the
-# cue my experience rates highest — and, when nothing is proven, occasionally investigate an UNKNOWN cue
-# out of curiosity so associations can be discovered in the first place. Flying animals are perceptible
-# far off against the open sky, which is exactly why a wheeling flock reads at range.
 static func _best_learned_cue(c, pos: Vector3) -> Dictionary:
 	if c._cognition == null:
 		return {}
@@ -387,15 +354,11 @@ static func _best_learned_cue(c, pos: Vector3) -> Dictionary:
 			unknown_dir = dir.normalized()
 	if best_key != "":
 		return {"key": best_key, "dir": best_dir}
-	if unknown_key != "" and randf() < 0.03:     # curiosity: try an unproven cue to learn from it
+	if unknown_key != "" and LASimRng.for_domain("life").randf() < 0.03:     # curiosity: try an unproven cue to learn from it
 		return {"key": unknown_key, "dir": unknown_dir}
 	return {}
 
 
-# Learn from a meal in two ways: credit the cue I was deliberately chasing, AND — Pavlovian — associate
-# whatever signs happen to be present with the food. Signs that RELIABLY accompany food (scavengers
-# circling overhead, animals feeding) accrue value across many meals; incidental noise washes out. This is
-# how "circling vultures mean a carcass" is DISCOVERED, never coded.
 static func _reinforce_cue_success(c) -> void:
 	if c._cognition == null:
 		return
@@ -425,8 +388,8 @@ static func _carrion_cue(c, pos: Vector3) -> Vector3:
 		var d: Vector3 = Vector3(flyer.global_position.x - pos.x, 0.0, flyer.global_position.z - pos.z)
 		if d.length() > 0.001:
 			return d.normalized()
-	if c._material != null and c._material.has_method("airborne_gradient"):
-		var s: Vector3 = c._material.airborne_gradient("co2", pos)
+	if c._material != null and c._material.has_method("scent_gradient"):
+		var s: Vector3 = c._material.scent_gradient(pos, LAScentChannels.SCENT_FOOD)
 		if s != Vector3.ZERO:
 			return Vector3(s.x, 0.0, s.z).normalized()
 	if c._cue_cd > 0.0:
@@ -472,10 +435,6 @@ static func state_to_action(c, s: String) -> String:
 			return "wander"
 
 
-# Clamp a leader's action to one a FOLLOWER `f` can meaningfully perform before it adopts it. Followers are
-# same-species as their leader (so diets normally match), but this guards mixed/edge configs: a non-hunter
-# handed "hunt"/"throw_rock" forages instead, and a herbivore handed "scavenge" grazes. execute_action also
-# degrades gracefully (a herbivore sent to hunt finds no prey → wanders), so this is belt-and-suspenders.
 static func _adoptable_action(action: String, f) -> String:
 	match action:
 		"hunt", "throw_rock":
@@ -512,7 +471,8 @@ static func execute_action(c, action: String, pos: Vector3, delta: float) -> Dic
 			return {"heading": c._heading + LACreatureFlocking.steer(c, pos, not c.can_fly), "state": "flock", "speed": c.speed}
 		"drink":
 			# Routed through the ONE drinking path (LACreatureThirst.drink) so this refill debits the puddle
-			# too.
+			# too. It used to be a second copy of the rate constant that refilled hydration with no water cell
+			# touched anywhere — two callers, both of which forgot the debit.
 			if c._material != null and c._material.has_method("is_water_at") and c._material.is_water_at(pos):
 				LACreatureThirst.drink(c, pos, delta)
 				return {"heading": c._heading, "state": "drink", "speed": 0.0}
@@ -527,17 +487,19 @@ static func execute_action(c, action: String, pos: Vector3, delta: float) -> Dic
 		"migrate":
 			if c._migrate_dir == Vector3.ZERO:
 				var cards: Array = [Vector3.FORWARD, Vector3.BACK, Vector3.LEFT, Vector3.RIGHT]
-				c._migrate_dir = cards[randi() % cards.size()]
+				c._migrate_dir = cards[LASimRng.for_domain("life").randi() % cards.size()]
 			return {"heading": c._migrate_dir, "state": "migrate", "speed": c.speed}
 		"flee":
-			# A follower that ADOPTED its leader's flee (Creature._physics_process) must actually move: sprint
-			# away from the nearest larger predator if one is sensed, else reverse the current heading.
+			# A follower that ADOPTED its leader's flee (Creature._physics_process) must actually move — this
+			# used to fall through to the no-op default and keep wandering toward the danger. Sprint away from
+			# the nearest larger predator if one is sensed, else reverse the current heading.
 			var away: Vector3 = -c._heading
 			var pred = LACreatureSenses.nearest_larger_predator(c, pos)
 			if pred != null and is_instance_valid(pred) and (pos - pred.global_position).length() > 0.001:
 				away = pos - pred.global_position
 			if away.length() < 0.001:
-				away = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0)
+				var rng: LASimRng = LASimRng.for_domain("life")
+				away = Vector3(rng.randf() * 2.0 - 1.0, 0.0, rng.randf() * 2.0 - 1.0)
 			return {"heading": away.normalized(), "state": "flee", "speed": c.speed * 1.5}
 		"wander":
 			return {"heading": c._heading, "state": "wander", "speed": c.speed}

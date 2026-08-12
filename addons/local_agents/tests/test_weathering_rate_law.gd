@@ -1,29 +1,6 @@
 @tool
 extends RefCounted
 
-## WEATHERING MUST NOT GET FASTER AS THE PLANET GETS COLDER.
-##
-## The record this replaces computed `rate = max(0, 20 - T) * 0.004` and called it weathering. Two things were
-## wrong and both are checkable: the 20 was justified in its own comment by "the sim's actual open-cell
-## temperature range", which is the tell CLAUDE.md names for a fitted constant, and the SIGN was backwards for
-## both real mechanisms. It rose without bound as temperature fell — 0.152 of the bedrock per step at -18 C.
-##
-## This walks the live records over a temperature sweep and asserts the shape of each mechanism against the
-## physics it is supposed to be:
-##
-##   1. CHEMICAL DISSOLUTION is Arrhenius, so it must rise MONOTONICALLY with temperature and it must roughly
-##      DOUBLE per +10 C near room temperature (the consequence of a 60 kJ/mol activation energy).
-##   2. FROST SHATTERING must be ZERO above freezing (no ice forms) and must peak in a BAND near 0 C rather
-##      than at the cold extreme — because the damage is done by pore water TURNING to ice, and ground that
-##      never thaws has no liquid water left to freeze. That is modelled here the way the substrate does it:
-##      the extent is capped by the liquid water present, and below freezing the liquid is being consumed.
-##   3. NEITHER may exceed the old law's runaway at the cold end.
-##
-## WHAT THIS IS AND IS NOT. It evaluates the RATE MODELS the same way reactions_sphere3d.glsl does, over the
-## records LAGeoRecords actually publishes — so it is a CPU oracle of the kernel's arithmetic, not a GPU
-## measurement, and it is stated as such. Its value is that it fails if anyone re-fits the temperature law,
-## which is the failure that actually happened.
-## (Explicit types only, project rule: no ':=' inferred typing.)
 
 const GeoScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/GeoRecords.gd")
 const DefsScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
@@ -80,10 +57,6 @@ func _rock_removed(rec: Dictionary, t_c: float) -> float:
 	return 0.0
 
 
-## Integrate a CLOSED parcel of H2O through `steps` of a diurnal temperature swing about `mean_c`, running the
-## substrate's own phase kinetics (R21 freeze / R22 melt, LAPhaseRecords) alongside the frost record, and
-## return the cumulative bedrock removed. Closed on purpose: the same water freezes and thaws over and over,
-## which is exactly what makes cycling ground weather and permanently frozen ground stop.
 func _integrate_frost(rec: Dictionary, mean_c: float, swing_c: float, steps: int) -> float:
 	var water: float = 0.2
 	var snow: float = 0.0
@@ -177,16 +150,6 @@ func run_test(_tree: SceneTree) -> bool:
 			+ "so it must plateau; a rise means the cap is not binding and the law is the old runaway again.")
 		ok = false
 
-	# 2b. THE FREEZE-THAW BAND, which is the claim that actually matters and which the instantaneous rate
-	# CANNOT show. Frost damage per step is a flat plateau below freezing, because the pore-water cap binds at
-	# every sub-zero temperature. The peak near 0 C is a property of the TIME INTEGRAL: the damage is done by
-	# water TURNING to ice, so a cell has to thaw before it can freeze again. Ground held at -40 C freezes its
-	# pore water once and then has none left; ground held at +20 C never freezes any; ground whose temperature
-	# CYCLES ACROSS ZERO thaws and refreezes every day and is worked on every time.
-	#
-	# So this integrates a closed parcel of H2O through a diurnal swing, using the substrate's own R21/R22
-	# freeze-melt kinetics beside the frost record, and reports cumulative bedrock removed. Nothing here counts
-	# cycles or knows what a freeze-thaw band is — the shape falls out of the water being a reactant.
 	var swing: float = 8.0
 	var means: PackedFloat64Array = PackedFloat64Array([-40.0, -20.0, -10.0, -5.0, 0.0, 5.0, 20.0])
 	var damage: Dictionary = {}

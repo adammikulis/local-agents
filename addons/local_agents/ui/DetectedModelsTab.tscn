@@ -1,0 +1,28 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/ui/DetectedModelsTab.gd" id="1_tab"]
+
+[node name="DetectedModelsTab" type="VBoxContainer"]
+theme_override_constants/separation = 10
+script = ExtResource("1_tab")
+
+[node name="IntroLabel" type="Label" parent="."]
+layout_mode = 2
+text = "Models already on this machine. Anything found here can be used in place, with no re-download needed."
+autowrap_mode = 3
+
+[node name="Scroll" type="ScrollContainer" parent="."]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="ListBox" type="VBoxContainer" parent="Scroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="StatusLabel" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3

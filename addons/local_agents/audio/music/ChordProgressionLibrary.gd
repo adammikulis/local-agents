@@ -2,19 +2,11 @@
 extends RefCounted
 class_name LocalAgentChordProgressionLibrary
 
-## A catalog of well-known chord progressions as Roman-numeral token lists, each
-## annotated with a song that famously uses it, the tonality it lives in, and a
-## short "feel" tag. A user or LLM agent can enumerate these, pick one by name, and
-## MusicDirector will resolve it into the chosen key via RomanNumeral.
-##
-## Roman numerals are anchored to the tonic's major scale; minor-key progressions
-## use flats (i, bIII, iv, v/V, bVI, bVII) so both tonalities share one notation.
 
 const Roman := preload("res://addons/local_agents/audio/music/RomanNumeral.gd")
 
 # name -> { chords:[tokens], key:"major"|"minor", example:String, feel:String }
 const CATALOG := {
-	# ---- Pop / rock staples ----
 	"I–V–vi–IV": {
 		"chords": ["I", "V", "vi", "IV"], "key": "major",
 		"example": "Journey – \"Don't Stop Believin'\"", "feel": "anthemic pop",
@@ -52,7 +44,6 @@ const CATALOG := {
 		"example": "The Ronettes – \"Be My Baby\"", "feel": "wall-of-sound",
 	},
 
-	# ---- Doo-wop / jazz turnarounds ----
 	"I–vi–ii–V": {
 		"chords": ["Imaj7", "vi7", "ii7", "V7"], "key": "major",
 		"example": "Rodgers & Hart – \"Blue Moon\"", "feel": "jazzy turnaround",
@@ -70,7 +61,6 @@ const CATALOG := {
 		"example": "Kosma – \"Autumn Leaves\"", "feel": "minor jazz cadence",
 	},
 
-	# ---- Classical / baroque ----
 	"Pachelbel I–V–vi–iii–IV–I–IV–V": {
 		"chords": ["I", "V", "vi", "iii", "IV", "I", "IV", "V"], "key": "major",
 		"example": "Pachelbel – \"Canon in D\"", "feel": "baroque, cyclic",
@@ -84,7 +74,6 @@ const CATALOG := {
 		"example": "Ray Charles – \"Hit the Road Jack\"", "feel": "Spanish/Phrygian descent",
 	},
 
-	# ---- Minor / epic ----
 	"i–bVI–bIII–bVII": {
 		"chords": ["i", "bVI", "bIII", "bVII"], "key": "minor",
 		"example": "Iggy Pop – \"The Passenger\"", "feel": "driving minor",
@@ -110,7 +99,6 @@ const CATALOG := {
 		"example": "Gloria Gaynor – \"I Will Survive\" (minor circle of fifths)", "feel": "cascading",
 	},
 
-	# ---- Modal / cinematic ----
 	"Lydian I–II": {
 		"chords": ["Imaj7", "II"], "key": "major",
 		"example": "Fleetwood Mac – \"Dreams\"", "feel": "floating (lydian)",
@@ -124,7 +112,6 @@ const CATALOG := {
 		"example": "The Beatles – \"Norwegian Wood\" feel", "feel": "folk-modal",
 	},
 
-	# ---- J-pop / anime ----
 	"Royal Road IV–V–iii–vi": {
 		"chords": ["IVmaj7", "V7", "iii7", "vi"], "key": "major",
 		"example": "Common J-pop / anime \"Royal Road\" (e.g. YOASOBI)", "feel": "emotional J-pop",
@@ -134,7 +121,6 @@ const CATALOG := {
 		"example": "Tetsuya Komuro-style J-pop", "feel": "uplift resolve",
 	},
 
-	# ---- Blues ----
 	"12-bar blues": {
 		"chords": ["I7", "I7", "I7", "I7", "IV7", "IV7", "I7", "I7", "V7", "IV7", "I7", "V7"], "key": "major",
 		"example": "Chuck Berry – \"Johnny B. Goode\"", "feel": "shuffle blues",
@@ -144,7 +130,6 @@ const CATALOG := {
 		"example": "B.B. King – \"The Thrill Is Gone\"", "feel": "slow minor blues",
 	},
 
-	# ---- Advanced ----
 	"Coltrane cycle (major thirds)": {
 		"chords": ["Imaj7", "bIII7", "bVImaj7", "VII7", "IIImaj7", "V7"], "key": "major",
 		"example": "John Coltrane – \"Giant Steps\"", "feel": "advanced jazz, key-shifting",
@@ -154,7 +139,6 @@ const CATALOG := {
 		"example": "\"Five Foot Two, Eyes of Blue\"", "feel": "ragtime brightness",
 	},
 
-	# ---- Ambient loops (few chords, slow) ----
 	"Ambient Imaj7–vi7": {
 		"chords": ["Imaj7", "vi7"], "key": "major",
 		"example": "Brian Eno-style ambient", "feel": "calm, drifting",

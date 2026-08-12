@@ -20,18 +20,13 @@ const NON_SLOT_CONSTS: PackedStringArray = [
 
 ## energy: a reaction that releases or absorbs heat needs an enthalpy term, which is a different mechanism
 static func driver_only() -> PackedInt32Array:
-	return PackedInt32Array([DefsScript.TEMP, DefsScript.WINDSPEED, DefsScript.LIGHT, DefsScript.FIRE])
+	return PackedInt32Array([DefsScript.TEMP, DefsScript.WINDSPEED, DefsScript.LIGHT, DefsScript.FIRE,
+		DefsScript.DISCHARGE, DefsScript.ORG_C])
 
 
 
-const SLOT_SUBSTANCE: Dictionary = {
-	1: "h2o", 2: "h2o", 12: "h2o", 19: "h2o", 21: "h2o",        # WATER MOISTURE SNOW SOIL_ROOT SOIL_TOP
-	3: "o2", 4: "co2",
-	11: "cellulose", 7: "cellulose", 8: "cellulose", 5: "cellulose",  # BIOMASS DETRITUS FUNGUS FUEL
-	9: "fixed_n",                                                 # FERT
-	10: "silicate", 17: "silicate", 23: "silicate", 13: "silicate", 14: "silicate", 15: "silicate",
-	24: "carbonate", 25: "silica",
-}
+## Views of LAChannels, the one declaration of what a channel is.
+static func slot_substance() -> Dictionary: return LAChannels.slot_substance()
 
 
 ## Atoms per CHANNEL UNIT for each slot — `LASubstances` composition scaled by what one unit of that channel
@@ -39,8 +34,9 @@ const SLOT_SUBSTANCE: Dictionary = {
 static func composition() -> Dictionary:
 	var out: Dictionary = {}
 	var tbl: Dictionary = LASubstances.table()
-	for slot in SLOT_SUBSTANCE:
-		var id: String = String(SLOT_SUBSTANCE[slot])
+	var subs: Dictionary = slot_substance()
+	for slot in subs:
+		var id: String = String(subs[slot])
 		out[int(slot)] = tbl.get(id, {}).get("formula", {}).duplicate()
 	return out
 
@@ -48,8 +44,9 @@ static func composition() -> Dictionary:
 static func mol_per_unit() -> Dictionary:
 	var out: Dictionary = {}
 	var tbl: Dictionary = LASubstances.table()
-	for slot in SLOT_SUBSTANCE:
-		var sub: Dictionary = tbl.get(String(SLOT_SUBSTANCE[slot]), {})
+	var subs: Dictionary = slot_substance()
+	for slot in subs:
+		var sub: Dictionary = tbl.get(String(subs[slot]), {})
 		var m: float = float(sub.get("molar_mass", 0.0))
 		out[int(slot)] = (float(sub.get("density", 0.0)) / m) if m > 0.0 else 0.0
 	return out
@@ -68,23 +65,15 @@ static func unit_ratio(slot: int, ref_slot: int) -> float:
 ## The stored channels the inventory sums, mapped to the slot whose composition they carry. SOIL_ROOT is
 ## deliberately absent: it is a DERIVED VIEW of the `soil` channel (the regolith column beneath an open
 ## cell), so counting both would count the same water twice.
-const INVENTORY_CHANNELS: Dictionary = {
-	"water": 1, "moisture": 2, "snow": 12, "soil": 1,
-	"o2": 3, "co2": 4,
-	"biomass": 11, "detritus": 7, "fungus": 8, "fuel": 5, "fert": 9,
-	"lava": 10, "rock_fill": 17, "sediment": 13, "dust": 14, "susp": 15,
-	"carbonate": 24, "silica": 25,
-}
+static func inventory_channels() -> Dictionary: return LAChannels.inventory_channels()
 
 
-const LITHOSPHERE_CHANNELS: PackedStringArray = [
-	"rock_fill", "lava", "sediment", "susp", "dust", "carbonate", "silica",
-]
+static func lithosphere_channels() -> PackedStringArray: return LAChannels.lithosphere_channels()
 
 
 ## Elements a unit of `channel` contains. Empty for a channel that carries no matter.
 static func channel_elements(channel: String) -> Dictionary:
-	var slot: int = int(INVENTORY_CHANNELS.get(channel, -1))
+	var slot: int = int(inventory_channels().get(channel, -1))
 	if slot < 0:
 		return {}
 	return composition().get(slot, {})
@@ -128,13 +117,18 @@ static func check_records(recs: Array, labels: PackedStringArray = PackedStringA
 			out.append("%s: NO REACTANT — this record creates matter from nothing. " % label
 				+ "Every product must come out of something the record debits.")
 
-		var sums: Dictionary = {}
+		# THREE INDEPENDENT BALANCE EQUATIONS, not one. A coefficient is base + h*(H:C) + o*(O:C), and the
+		# record has to conserve for EVERY composition, so each part must balance on its own.
+		var sums: Array = [{}, {}, {}]
+		var scales: Array = [{}, {}, {}]
 		var bad_slot: bool = false
 		for side in ["reactants", "products"]:
 			var sgn: float = -1.0 if side == "reactants" else 1.0
+			var is_prod: bool = side == "products"
 			for entry in rec.get(side, []):
 				var slot: int = int(entry[0])
-				var coeff: float = float(entry[1])
+				var parts_v: Vector2 = DefsScript.comp_parts(entry, is_prod)
+				var coeffs: Array = [float(entry[1]), parts_v.x, parts_v.y]
 				if drivers.has(slot):
 					out.append("%s: %s is a DRIVER, not a substance — it cannot be a %s. " % [
 						label, _name_of(slot, names), "reactant" if sgn < 0.0 else "product"]
@@ -149,29 +143,32 @@ static func check_records(recs: Array, labels: PackedStringArray = PackedStringA
 					bad_slot = true
 					continue
 				var parts: Dictionary = comp[slot]
-				var moles: float = coeff * float(mpu.get(slot, 1.0))
-				for sub in parts:
-					sums[sub] = float(sums.get(sub, 0.0)) + sgn * moles * float(parts[sub])
+				for p in 3:
+					var moles: float = float(coeffs[p]) * float(mpu.get(slot, 1.0))
+					var sp: Dictionary = sums[p]
+					var sc: Dictionary = scales[p]
+					for sub in parts:
+						sp[sub] = float(sp.get(sub, 0.0)) + sgn * moles * float(parts[sub])
+						sc[sub] = float(sc.get(sub, 0.0)) + absf(moles * float(parts[sub]))
 		if bad_slot:
 			continue
 		# lumped mineral mass on one side and atoms on the other, and its own comment named its removal
 		# condition: "the day the mineral phases carry real species compositions". They do. Ca and Si are
 		# ordinary columns in the sums below now, so the Urey reaction is checked the same way respiration is.)
-		for sub in sums:
-			var net: float = float(sums[sub])
-			var scale: float = 0.0
-			for side2 in ["reactants", "products"]:
-				for e2 in rec.get(side2, []):
-					var s2: int = int(e2[0])
-					if comp.has(s2) and comp[s2].has(sub):
-						scale += absf(float(e2[1]) * float(mpu.get(s2, 1.0)) * float(comp[s2][sub]))
-			if absf(net) > TOL * maxf(scale, 1.0):
+		var part_names: PackedStringArray = PackedStringArray(["", " (the H:C-scaled part of)", " (the O:C-scaled part of)"])
+		for p in 3:
+			var sump: Dictionary = sums[p]
+			var scalep: Dictionary = scales[p]
+			for sub in sump:
+				var net: float = float(sump[sub])
+				if absf(net) <= TOL * maxf(float(scalep.get(sub, 0.0)), 1.0):
+					continue
 				var verb: String = "CREATES" if net > 0.0 else "DESTROYS"
 				# `%s` on a String.num, not a `%g` — GDScript's format has no `g` conversion and silently
 				# emits the unformatted template when it meets one, which is how this gate's first firing
 				# printed a message full of literal `%s`.
-				out.append("%s: this record %s %s units of %s per unit of extent " % [
-					label, verb, String.num(absf(net), 8), sub]
+				out.append("%s:%s this record %s %s units of %s per unit of extent " % [
+					label, part_names[p], verb, String.num(absf(net), 8), sub]
 					+ "(products minus reactants). Products must balance reactants in every substance.")
 	return out
 

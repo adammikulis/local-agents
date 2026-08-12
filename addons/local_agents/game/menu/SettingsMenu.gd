@@ -1,31 +1,14 @@
 class_name LASettingsMenu
 extends Control
 
-## LASettingsMenu: the settings screen. It edits the live LAGameSettings held on the GameMode autoload, in
-## four groups, keeping the two performance categories SEPARATE:
-##   - Difficulty       : a Peaceful / Normal / Harsh preset row (seeds the two knobs below) plus the two
-##                        continuous sliders: disaster frequency and climate harshness (gameplay, not perf).
-##   - Graphics (GPU)   : a Potato / Low / Medium / High / Ultra preset row plus the individual GPU knobs for
-##                        field resolution, effects density, shadows, ambient occlusion, glow, ocean quality,
-##                        fog, vegetation density and draw distance. Owned by LAGraphicsSettingsSection.
-##   - Simulation / AI  : a SEPARATE Low / Medium / High / Ultra preset row plus the CPU knobs for population
-##                        budget, AI tick rate, LLM cadence and field cadence. Owned by LASimSettingsSection.
-##   - Audio            : master / music / sfx volume sliders (linear 0..1).
-##
-## "Save" persists the resource to user:// (ConfigFile) AND calls GameMode.apply(settings) to broadcast it on
-## the settings_applied signal, and LAVoxelSettingsApplier consumes that to push the knobs into the field / spawn
-## / render systems. "Back" returns to the main menu. Built in code to match the shared menu styling
-## (LAMenuStyle) and the shared control builders (LASettingsWidgets); keyboard-navigable. (Explicit types
-## only, no ':=' inferred typing.)
 
 const MAIN_MENU_SCENE: String = "res://addons/local_agents/game/menu/MainMenu.tscn"
-const ModelManagerPanelScript: GDScript = preload("res://addons/local_agents/ui/ModelManagerPanel.gd")
+const ModelManagerPanelScene: PackedScene = preload("res://addons/local_agents/ui/ModelManagerPanel.tscn")
 
 var _settings: LAGameSettings = null
 
 var _difficulty_group: ButtonGroup = null
 var _difficulty_buttons: Dictionary = {}   # Difficulty enum -> Button
-var _status_label: Label = null
 
 var _disaster_slider: HSlider = null
 var _disaster_value: Label = null
@@ -42,8 +25,12 @@ var _sim: LASimSettingsSection = null
 
 var _suppress: bool = false
 
-
-var _scroll: ScrollContainer = null
+@onready var _scroll: ScrollContainer = $Center/Panel/Scroll
+@onready var _sections: VBoxContainer = $Center/Panel/Scroll/Column/Sections
+@onready var _save_button: Button = $Center/Panel/Scroll/Column/Actions/Save
+@onready var _models_button: Button = $Center/Panel/Scroll/Column/Actions/Models
+@onready var _back_button: Button = $Center/Panel/Scroll/Column/Actions/Back
+@onready var _status_label: Label = $Center/Panel/Scroll/Column/Status
 
 
 func _ready() -> void:
@@ -51,18 +38,22 @@ func _ready() -> void:
 	if _settings == null:
 		_settings = LAGameSettings.load_or_default()
 		GameMode.settings = _settings
-	_build_ui()
-	# Screenshot verification: grow the scroll viewport so the whole (normally scrolling) settings list —
-	# both performance categories — renders into one tall frame for --shoot. Inert in normal play.
+	_build_sections()
+	_save_button.pressed.connect(_on_save)
+	_models_button.pressed.connect(_on_models)
+	_back_button.pressed.connect(_on_back)
+	_refresh_difficulty()
+	_save_button.grab_focus()
+
+	# Screenshot verification: grow the scroll viewport so the whole settings list renders into one tall
+	# frame for --shoot. Inert in normal play.
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	if args.has("--shoot") or _has_prefix(args, "--shoot="):
-		if _scroll != null:
-			_scroll.custom_minimum_size = Vector2(500.0, 1520.0)
+		_scroll.custom_minimum_size = Vector2(500.0, 1520.0)
 	if args.has("--dump-tooltips"):
 		call_deferred("_dump_tooltips")
 	if args.has("--demo-custom"):
-		# Verification: move one numeric slider in each performance category so the shot shows the preset
-		# flip to "Custom" (drives the real value_changed handler, exactly as a player drag would).
+		# Drive the real value_changed handler in each performance category, exactly as a player drag would.
 		if _graphics != null:
 			_graphics.demo_nudge()
 		if _sim != null:
@@ -70,114 +61,51 @@ func _ready() -> void:
 	add_child(LAMenuShooter.new())
 
 
-func _build_ui() -> void:
-	var bg: ColorRect = ColorRect.new()
-	bg.color = LAMenuStyle.OVERLAY_BG
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bg)
-
-	var center: CenterContainer = CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
-
-	var panel: PanelContainer = PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", LAMenuStyle.panel_style())
-	center.add_child(panel)
-
-	_scroll = ScrollContainer.new()
-	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_scroll.custom_minimum_size = Vector2(500.0, 620.0)
-	panel.add_child(_scroll)
-
-	var vbox: VBoxContainer = VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 10)
-	vbox.custom_minimum_size = Vector2(480.0, 0.0)
-	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_scroll.add_child(vbox)
-
-	vbox.add_child(LAMenuStyle.make_title("Settings"))
-
-	# --- Difficulty ---
-	LASettingsWidgets.add_header(vbox, "Difficulty")
+func _build_sections() -> void:
+	LASettingsWidgets.add_header(_sections, "Difficulty")
 	_difficulty_group = ButtonGroup.new()
-	var diff_row: HBoxContainer = LASettingsWidgets.add_row(vbox)
+	var diff_row: HBoxContainer = LASettingsWidgets.add_row(_sections)
 	_add_difficulty(diff_row, LAGameSettings.Difficulty.PEACEFUL, "Peaceful", "Rare, mild disasters and a gentle climate. Gameplay difficulty.")
 	_add_difficulty(diff_row, LAGameSettings.Difficulty.NORMAL, "Normal", "A balanced cadence of disasters and climate swings. Gameplay difficulty.")
 	_add_difficulty(diff_row, LAGameSettings.Difficulty.HARSH, "Harsh", "Frequent, severe disasters and an extreme climate. Gameplay difficulty.")
 
-	var dis: Dictionary = LASettingsWidgets.add_slider(vbox, "Disaster frequency",
+	var dis: Dictionary = LASettingsWidgets.add_slider(_sections, "Disaster frequency",
 		"How often ambient natural disasters are seeded into the world. Gameplay, not performance.",
 		0.0, 1.0, 0.01, _settings.disaster_frequency, Callable(self, "_fmt_percent"), Callable(self, "_on_disaster_changed"))
 	_disaster_slider = dis["slider"]
 	_disaster_value = dis["value"]
-	var cli: Dictionary = LASettingsWidgets.add_slider(vbox, "Climate harshness",
+	var cli: Dictionary = LASettingsWidgets.add_slider(_sections, "Climate harshness",
 		"How extreme the climate swings and which disasters lean in. Gameplay, not performance.",
 		0.0, 1.0, 0.01, _settings.climate_harshness, Callable(self, "_fmt_percent"), Callable(self, "_on_climate_changed"))
 	_climate_slider = cli["slider"]
 	_climate_value = cli["value"]
 
-	# --- Graphics (GPU) ---
 	_graphics = LAGraphicsSettingsSection.new()
 	_graphics.setup(_settings, Callable(self, "_on_section_changed"))
-	_graphics.build(vbox)
+	_graphics.build(_sections)
 
-	# --- Simulation / AI (CPU) ---
 	_sim = LASimSettingsSection.new()
 	_sim.setup(_settings, Callable(self, "_on_section_changed"))
-	_sim.build(vbox)
+	_sim.build(_sections)
 
-	# --- Audio ---
-	LASettingsWidgets.add_header(vbox, "Audio")
-	var mv: Dictionary = LASettingsWidgets.add_slider(vbox, "Master volume",
+	LASettingsWidgets.add_header(_sections, "Audio")
+	var mv: Dictionary = LASettingsWidgets.add_slider(_sections, "Master volume",
 		"Overall output level.", 0.0, 1.0, 0.01, _settings.master_volume, Callable(self, "_fmt_percent"), Callable(self, "_on_master_changed"))
 	_master_value = mv["value"]
-	var muv: Dictionary = LASettingsWidgets.add_slider(vbox, "Music volume",
+	var muv: Dictionary = LASettingsWidgets.add_slider(_sections, "Music volume",
 		"Generative music level.", 0.0, 1.0, 0.01, _settings.music_volume, Callable(self, "_fmt_percent"), Callable(self, "_on_music_changed"))
 	_music_value = muv["value"]
-	var sv: Dictionary = LASettingsWidgets.add_slider(vbox, "Sfx volume",
+	var sv: Dictionary = LASettingsWidgets.add_slider(_sections, "Sfx volume",
 		"Procedural sound-effects level.", 0.0, 1.0, 0.01, _settings.sfx_volume, Callable(self, "_fmt_percent"), Callable(self, "_on_sfx_changed"))
 	_sfx_value = sv["value"]
 
-	# --- Controls ---
-	LASettingsWidgets.add_header(vbox, "Controls")
-	_invert_x_option = LASettingsWidgets.add_option(vbox, "Invert rotate X",
+	LASettingsWidgets.add_header(_sections, "Controls")
+	_invert_x_option = LASettingsWidgets.add_option(_sections, "Invert rotate X",
 		"Flip the horizontal drag direction when rotating the planet.",
 		["Off", "On"], 1 if _settings.invert_rotate_x else 0, Callable(self, "_on_invert_x"))
-	_invert_y_option = LASettingsWidgets.add_option(vbox, "Invert rotate Y",
+	_invert_y_option = LASettingsWidgets.add_option(_sections, "Invert rotate Y",
 		"Flip the vertical drag direction when rotating the planet.",
 		["Off", "On"], 1 if _settings.invert_rotate_y else 0, Callable(self, "_on_invert_y"))
-
-	# --- Actions ---
-	var spacer: Control = Control.new()
-	spacer.custom_minimum_size = Vector2(0.0, 8.0)
-	vbox.add_child(spacer)
-
-	var actions: HBoxContainer = LASettingsWidgets.add_row(vbox)
-	var save_button: Button = LAMenuStyle.make_button("Save")
-	save_button.custom_minimum_size = Vector2(0.0, 44.0)
-	save_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	save_button.pressed.connect(_on_save)
-	actions.add_child(save_button)
-
-	var models_button: Button = LAMenuStyle.make_button("Models")
-	models_button.custom_minimum_size = Vector2(0.0, 44.0)
-	models_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	models_button.tooltip_text = "Download / pick the local LLMs that drive creatures + the streamer"
-	models_button.pressed.connect(_on_models)
-	actions.add_child(models_button)
-
-	var back_button: Button = LAMenuStyle.make_button("Back")
-	back_button.custom_minimum_size = Vector2(0.0, 44.0)
-	back_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	back_button.pressed.connect(_on_back)
-	actions.add_child(back_button)
-
-	_status_label = LAMenuStyle.make_caption("")
-	vbox.add_child(_status_label)
-
-	_refresh_difficulty()
-	save_button.grab_focus()
 
 
 # ---------------------------------------------------------------------------
@@ -192,8 +120,7 @@ func _on_difficulty(preset: int) -> void:
 
 
 func _on_section_changed() -> void:
-	if _status_label != null:
-		_status_label.text = "Unsaved changes."
+	_status_label.text = "Unsaved changes."
 
 
 func _on_disaster_changed(value: float) -> void:
@@ -245,8 +172,7 @@ func _on_save() -> void:
 	# Broadcast on the application interface — LAVoxelSettingsApplier pushes the knobs into the sim.
 	GameMode.apply(_settings)
 	print("SETTINGS_SAVED ok=%s %s" % [str(err == OK), _settings.summary()])
-	if _status_label != null:
-		_status_label.text = "Saved." if err == OK else "Save failed (err %d)." % err
+	_status_label.text = "Saved." if err == OK else "Save failed (err %d)." % err
 
 
 func _on_back() -> void:
@@ -255,14 +181,14 @@ func _on_back() -> void:
 		push_error("SettingsMenu: failed to return to main menu (err=%d)" % err)
 
 
-## Open the in-game model manager as a full-screen overlay (no scene switch — Close frees it).
+## Open the model manager as a full-screen overlay; Close frees it.
 func _on_models() -> void:
 	var overlay: Control = Control.new()
 	overlay.name = "ModelManagerOverlay"
 	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(overlay)
 
-	var panel: Control = ModelManagerPanelScript.new()
+	var panel: Control = ModelManagerPanelScene.instantiate()
 	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(panel)
 	panel.open()
@@ -282,8 +208,6 @@ func _on_models() -> void:
 # Refresh helpers
 # ---------------------------------------------------------------------------
 
-# Push the difficulty + audio values onto their controls without re-firing the change handlers. The two
-# section objects own their own refresh.
 func _refresh_difficulty() -> void:
 	_suppress = true
 	for preset in _difficulty_buttons:
@@ -310,8 +234,8 @@ func _has_prefix(args: PackedStringArray, prefix: String) -> bool:
 	return false
 
 
-# Verification aid: walk the built tree and print every control that carries a hover tooltip, so a headless
-# run can prove each setting has a per-setting tooltip. Then quit. Triggered by `--dump-tooltips`.
+# Verification aid: print every control that carries a hover tooltip, then quit. Triggered by
+# `--dump-tooltips`.
 func _dump_tooltips() -> void:
 	var seen: Dictionary = {}
 	var count: int = _walk_tooltips(self, seen)

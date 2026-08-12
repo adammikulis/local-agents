@@ -1,23 +1,6 @@
 @tool
 extends RefCounted
 
-## An in-place transfer must survive being coalesced.
-##
-## Callers are entitled to pass one cell array as both source and destination — that is how you say "this
-## rock becomes sediment right where it stands", and `MaterialFieldInject3D.resample_terrain` says exactly
-## that when a meteor excavates bedrock. But `PackedInt32Array` is copy-on-write, so storing one array in two
-## of the op's dictionary slots left both slots reading a SHARED buffer, and `_merge` then appended into it
-## twice: the cell lists grew by two edits per merge while `amounts` grew by one.
-##
-## That matters because `move_field_sparse` early-returns 0.0 unless `src_cells.size() == amounts.size()`.
-## So every COALESCED mineral transfer was silently dropped, and coalescing is the common case the moment two
-## excavations land between flushes, which is what a barrage is. Measured before the fix on a live barrage:
-## 99/99/99 cells in, 268/169/268 out.
-##
-## The assertion is on the SIZES AGREEING, not on any call reporting ok — nothing reported anything. The
-## queue accepted the edit, the device call quietly returned zero, and the only visible symptom was mineral
-## that never arrived.
-## (Explicit types only, project rule: no ':=' inferred typing.)
 
 const QueueScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd")
 

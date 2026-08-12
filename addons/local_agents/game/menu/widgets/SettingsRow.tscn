@@ -1,0 +1,4 @@
+[gd_scene format=3 uid="uid://bswrow0la008"]
+
+[node name="SettingsRow" type="HBoxContainer"]
+theme_override_constants/separation = 8

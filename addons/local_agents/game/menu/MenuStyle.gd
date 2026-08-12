@@ -1,27 +1,18 @@
 class_name LAMenuStyle
 extends RefCounted
 
-## LAMenuStyle: shared look for the front-end menus (main / settings / help), so all three read as one
-## system and match the in-sim pause menu / view-controls palette (the same deep-blue panel + light-blue
-## accent). Pure static builders; no state. Keeps each menu script free of duplicated stylebox setup.
-## (Explicit types only, no ':=' inferred typing.)
 
 const OVERLAY_BG: Color = Color(0.02, 0.03, 0.06, 1.0)
-const PANEL_BG: Color = Color(0.06, 0.08, 0.12, 0.96)
 const ACCENT: Color = Color(0.55, 0.72, 1.0)
 const TEXT: Color = Color(0.90, 0.92, 0.95)
 const TEXT_DIM: Color = Color(0.62, 0.66, 0.72)
 
+const PANEL_STYLE: StyleBoxFlat = preload("res://addons/local_agents/game/menu/MenuPanel.tres")
+
 
 ## The bordered deep-blue panel used behind every menu's content (matches the pause menu).
 static func panel_style() -> StyleBoxFlat:
-	var style: StyleBoxFlat = StyleBoxFlat.new()
-	style.bg_color = PANEL_BG
-	style.set_corner_radius_all(10)
-	style.set_border_width_all(2)
-	style.border_color = ACCENT
-	style.set_content_margin_all(28.0)
-	return style
+	return PANEL_STYLE
 
 
 ## A large accent title label, centre-aligned.

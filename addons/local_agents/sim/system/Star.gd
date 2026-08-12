@@ -1,23 +1,8 @@
 class_name LAStar
 extends Node3D
 
-## The system's star in the SOLAR-SYSTEM-FIRST spine: a POSITIONED body (not a global sun_dir) that is at once
-## the light source, the GRAVITY source, and the driver of every body's per-cell solar terminator. A body's
-## sun direction is `normalize(star_pos - body_center)` and its insolation falls off as `1/dist²`. One planet
-## today, N tomorrow, same rule. (Explicit types only, no ':=' inferred typing.)
-##
-## IT IS A REAL GRAVITY BODY. It joins the `gravity_body` group and exposes the same center()/mass()/radius()
-## contract as LAPlanetBody and LAMoon, so LAGravity sums it like anything else and the planet's own orbit is
-## integrated from THIS mass.
-##
-## MASS is set relative to the planet, not in isolation: DEFAULT_MASS is 10x LAPlanetBody's default 1e6, which
-## is what makes it the primary of the system rather than a third moon. It is NOT the calibration body — see
-## LAGravity.reference_body(): SURFACE_G is calibrated against the planet you stand on, never against this.
 
 const DEFAULT_MASS: float = 1.0e7        # 10x the planet's 1e6 — the star has to dominate to be a star
-# Physical body radius, world units. Its one behavioural use is LAMeteor's escape test, which frees a rock
-# once it is further than 30 radii from whichever body dominates there, i.e. once it has left the planet's
-# sphere of influence rather than merely coasting sunward.
 const DEFAULT_RADIUS: float = 250.0
 
 var _light: DirectionalLight3D = null       # for a single close body, a directional light reads as "the sun"
@@ -39,7 +24,7 @@ func setup(opts: Dictionary = {}) -> void:
 	_light.light_energy = _base_energy
 	_light.shadow_enabled = true
 	add_child(_light)
-	_aim_at(Vector3.ZERO)
+	aim_at(Vector3.ZERO)
 
 	# Join the N-body group only once the position above is real. Registering in _ready() would put a mass
 	# this large at the world origin — on top of the planet — for the window between add_child and setup.
@@ -49,9 +34,6 @@ func setup(opts: Dictionary = {}) -> void:
 func mass() -> float:
 	return _mass
 
-## Physical radius of the star — the softening/escape scale. It also feeds the G calibration whenever
-## `LAGravity.reference_body()` falls back to this body, which it does until one body declares
-## `is_gravity_reference()`.
 func radius() -> float:
 	return _radius
 
@@ -72,8 +54,7 @@ func insolation_at(body_center: Vector3) -> float:
 	var dist: float = maxf(1.0, global_position.distance_to(body_center))
 	return _base_energy * (_ref_distance * _ref_distance) / (dist * dist)
 
-## Point the directional light from the star toward a target (the primary body) so shading matches the geometry.
-func _aim_at(target: Vector3) -> void:
+func aim_at(target: Vector3) -> void:
 	if _light == null:
 		return
 	var to: Vector3 = target - global_position

@@ -1,0 +1,175 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/ui/InferenceSettingsTab.gd" id="1_tab"]
+
+[node name="InferenceSettingsTab" type="VBoxContainer"]
+theme_override_constants/separation = 8
+script = ExtResource("1_tab")
+
+[node name="Scroll" type="ScrollContainer" parent="."]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Body" type="VBoxContainer" parent="Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="SamplingHeading" type="Label" parent="Scroll/Body"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Sampling"
+
+[node name="SamplingGrid" type="GridContainer" parent="Scroll/Body"]
+layout_mode = 2
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 6
+columns = 2
+
+[node name="TemperatureLabel" type="Label" parent="Scroll/Body/SamplingGrid"]
+layout_mode = 2
+text = "Temperature"
+
+[node name="TemperatureSpin" type="SpinBox" parent="Scroll/Body/SamplingGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 2.0
+step = 0.01
+
+[node name="TopPLabel" type="Label" parent="Scroll/Body/SamplingGrid"]
+layout_mode = 2
+text = "Top-p"
+
+[node name="TopPSpin" type="SpinBox" parent="Scroll/Body/SamplingGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 1.0
+step = 0.01
+
+[node name="TopKLabel" type="Label" parent="Scroll/Body/SamplingGrid"]
+layout_mode = 2
+text = "Top-k"
+
+[node name="TopKSpin" type="SpinBox" parent="Scroll/Body/SamplingGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 500.0
+rounded = true
+
+[node name="RepeatPenaltyLabel" type="Label" parent="Scroll/Body/SamplingGrid"]
+layout_mode = 2
+text = "Repeat penalty"
+
+[node name="RepeatPenaltySpin" type="SpinBox" parent="Scroll/Body/SamplingGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 2.0
+step = 0.01
+
+[node name="MaxTokensLabel" type="Label" parent="Scroll/Body/SamplingGrid"]
+layout_mode = 2
+text = "Max tokens"
+
+[node name="MaxTokensSpin" type="SpinBox" parent="Scroll/Body/SamplingGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 1.0
+max_value = 32768.0
+rounded = true
+
+[node name="SeedLabel" type="Label" parent="Scroll/Body/SamplingGrid"]
+layout_mode = 2
+text = "Seed (-1 = random)"
+
+[node name="SeedSpin" type="SpinBox" parent="Scroll/Body/SamplingGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = -1.0
+max_value = 2147483647.0
+rounded = true
+
+[node name="ModelLoadHeading" type="Label" parent="Scroll/Body"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Model load"
+
+[node name="ModelLoadGrid" type="GridContainer" parent="Scroll/Body"]
+layout_mode = 2
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 6
+columns = 2
+
+[node name="NCtxLabel" type="Label" parent="Scroll/Body/ModelLoadGrid"]
+layout_mode = 2
+text = "Context length (n_ctx)"
+
+[node name="NCtxSpin" type="SpinBox" parent="Scroll/Body/ModelLoadGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 256.0
+max_value = 131072.0
+step = 256.0
+rounded = true
+
+[node name="ThreadsLabel" type="Label" parent="Scroll/Body/ModelLoadGrid"]
+layout_mode = 2
+text = "Threads (0 = auto)"
+
+[node name="ThreadsSpin" type="SpinBox" parent="Scroll/Body/ModelLoadGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 256.0
+rounded = true
+
+[node name="NGpuLayersLabel" type="Label" parent="Scroll/Body/ModelLoadGrid"]
+layout_mode = 2
+text = "GPU layers (n_gpu_layers)"
+
+[node name="NGpuLayersSpin" type="SpinBox" parent="Scroll/Body/ModelLoadGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 200.0
+rounded = true
+
+[node name="SystemPromptHeading" type="Label" parent="Scroll/Body"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "System prompt"
+
+[node name="SystemPromptEdit" type="TextEdit" parent="Scroll/Body"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 90)
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Optional system prompt applied to cognition/streamer prompts."
+
+[node name="RoleHeading" type="Label" parent="Scroll/Body"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Model per role"
+
+[node name="RoleGrid" type="GridContainer" parent="Scroll/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 6
+columns = 2
+
+[node name="SaveButton" type="Button" parent="Scroll/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Save settings"
+
+[node name="StatusLabel" type="Label" parent="Scroll/Body"]
+unique_name_in_owner = true
+layout_mode = 2

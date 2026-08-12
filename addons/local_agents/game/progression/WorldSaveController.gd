@@ -1,18 +1,6 @@
 class_name LAWorldSaveController
 extends Node
 
-## LAWorldSaveController: the live save/load orchestrator wired into VoxelWorld (one add_child + setup line;
-## the composition root stays extract-only). It:
-##   * on boot, reads GameMode.take_pending_load_slot(); if a slot was requested (menu → Continue), it loads
-##     that slot: progression/mode are applied at once, the default initial spawn is SUPPRESSED, and the heavy
-##     FIELD + ACTORS restore is deferred until the field's GPU driver has activated (a few frames in).
-##   * exposes quick_save() (the pause-menu "Save game" entry) which snapshots the whole world to the current
-##     slot through LAWorldSaveState + LAGameSave.
-##
-## The gather/apply logic lives in LAWorldSaveState (actors/kinship/progression) and LAMaterialFieldSnapshot3D
-## (field); this node only sequences them against boot timing + the current slot. A static active() lets the
-## deep pause menu reach the one controller without threading a reference through the input stack.
-## (Explicit types only, no ':=' inferred typing.)
 
 const StateScript: GDScript = preload("res://addons/local_agents/game/progression/WorldSaveState.gd")
 const FieldSnapshotScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSnapshot3D.gd")
@@ -253,16 +241,6 @@ func save_to_slot(slot: String) -> int:
 	return err
 
 
-# --- Timeline snapshots (in-memory rewind/fork; no disk) -----------------------------------------------------
-# A snapshot is exactly the whole-world state dict StateScript.capture() builds — the same blob quick_save
-# writes, just held in RAM by the timeline ring instead of a file. Restore wipes the live world and re-applies
-# it in place, reusing the deferred field-ready restore machinery.
-
-## Capture the whole world to an in-memory dict (no file). Requires the field to be ready (else returns {}).
-## Timeline snapshots default to ACTORS-ONLY: the multi-MB GPU field (water/heat/chemistry — the bulk of a
-## snapshot) is dropped so the rewind ring stays small. A rewind then restores the LIFE (population, genes,
-## cognition, kinship) faithfully while the environment keeps flowing — behavioural, NOT bit-parity, in the
-## repo's perf-over-parity spirit. LA_SNAPSHOT_FIELD=1 keeps the full field for a heavier, fuller rewind.
 func capture_snapshot() -> Dictionary:
 	if _world == null or _world._material == null:
 		return {}

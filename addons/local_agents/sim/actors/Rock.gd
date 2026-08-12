@@ -1,20 +1,9 @@
 class_name LARock
 extends StaticBody3D
 
-## A loose ambient rock lying on the terrain. Villagers pick these up
-## (via take()) and throw them to hunt animals. Selectable/pickable through
-## a layer-2 physics query, matching the other selectable actors.
 
 var _terrain: Object = null
 
-## THE ROCK'S OWN MINERAL MASS, in the substrate's units, so it can be handed on instead of deleted.
-##
-## A loose rock is a scene node, not a `rock_fill` cell, so the substrate's `mineral_total` does not hold it.
-##
-## The mass is derived from the boulder's own geometry and basalt's density, converted into the substrate's
-## mass units the same way LAMaterialEjecta3D does (MAX_MASS is one full cell of rock), so a thrown rock
-## lands as a real amount of `sediment` — loose broken stone on the ground, which is what a thrown rock is —
-## and the slump/erosion kernels move it downhill like any other debris.
 var mineral_mass: float = 0.0
 var _radius: float = 0.5
 
@@ -26,9 +15,8 @@ func setup(terrain) -> void:
 	add_to_group("rock")
 	add_to_group("selectable")
 
-	# _radius sets mineral_mass below. "actors": placement-gated, so this draw count is not reproducible.
-	var rng: LASimRng = LASimRng.for_domain("actors")
-	var size: float = 0.45 + rng.randf() * 0.4  # ~0.45-0.85 units
+	var rng: LASimRng = LASimRng.shared()
+	var size: float = 0.45 + rng.randf() * 0.4   # units
 	_radius = size
 
 	# Natural irregular boulder (not a cube).

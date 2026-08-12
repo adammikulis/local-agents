@@ -1,7 +1,7 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 ## Surface ecology: fertility diffusion, the fungus mat and its fertility release, and the shock CA.
-## nbr is the int32 cc*6 neighbour table on binding 15 (slot 0 = inward/down .. slot 5 = outward/up).
+## nbr is the int32 cc*N_SLOTS neighbour table on binding 15; slot names come from kernels3d/neighbours.glsli.
 
 const KDIR: String = "res://addons/local_agents/sim/material/kernels3d/"
 const FERT_PATH: String = KDIR + "fert_sphere3d.glsl"
@@ -69,6 +69,13 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	var detritus_rid: RID = _single(bufs, "detritus")
 	# Per-cell fertility scratch: written by ReactionsPass' decompose record, reduced by fungus_fert.
 	var fungus_fert_rid: RID = _single(bufs, "fungus_fert")
+	# The dead pool's other carbon stock plus its hydrogen and oxygen. Mycelium eating litter takes the
+	# litter's own C:H:O and dead mycelium hands back CH2O, so all three move with the carbon.
+	var fuel_rid: RID = _single(bufs, "fuel")
+	var org_h_rid: RID = _single(bufs, "org_h")
+	var org_o_rid: RID = _single(bufs, "org_o")
+	# Per-cell volume — fert, fungus and fungus_fert all include kernels3d/cellvol.glsli (binding 40).
+	var cell_vol_rid: RID = _single(bufs, "cell_vol")
 
 	var fert_pair: Array = _pair(bufs, "fert")
 	var fungus_pair: Array = _pair(bufs, "fungus")
@@ -85,19 +92,24 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			[0, fert_pair[p]],       # FertIn  = live fertility
 			[1, fert_pair[back]],    # FertOut = back fertility (fungus_fert then adds into THIS)
 			[15, nbr_rid],
+			[40, cell_vol_rid],
 		])
 
 		# Decompose chemistry lives in ReactionsPass.
 		_fungus_set[p] = _uset(_fungus_pipe, [
 			[0, fungus_pair[p]],     # FungIn  = live fungus
 			[1, fungus_pair[back]],  # FungOut = back fungus
-			[2, detritus_rid],       # Detritus (SINGLE, read-only — decompose record owns the debit)
+			[2, detritus_rid],       # Detritus (SINGLE) — the dead pool's carbon, moved in place
 			[3, fungus_idx],         # ActiveIdx  — compacted cell list
 			[4, _fungus_args],       # ActiveArgs — [3] is the list length
 			[5, temp_pair[p]],       # Temp  (live, read)
 			[6, moisture_pair[p]],   # Moisture = the unified airborne-H₂O channel (live, read)
 			[8, solid_rid],          # Solid   (7 is unbound; the gap is deliberate)
+			[9, fuel_rid],           # SINGLE — the pool's other carbon stock; composition divides by both
 			[15, nbr_rid],
+			[32, org_h_rid],         # SINGLE — organic hydrogen, same bindings reactions_sphere3d uses
+			[33, org_o_rid],         # SINGLE — organic oxygen
+			[40, cell_vol_rid],
 		])
 
 		_fungus_fert_set[p] = _uset(_fungus_fert_pipe, [
@@ -105,6 +117,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			[1, fert_pair[back]],    # Fert = fert's output (fert[back]), added into in place
 			[2, solid_rid],          # Solid
 			[15, nbr_rid],
+			[40, cell_vol_rid],
 		])
 
 		_shock_set[p] = _uset(_shock_pipe, [
@@ -172,8 +185,10 @@ func _pc_precip16(cc: int, precip: float) -> PackedByteArray:
 	return b
 
 
-## Push: {uint cell_count, pad,pad,pad, float precip, pad,pad,pad} — 32 bytes (fungus).
+## Push: {uint cell_count, pad,pad,pad, float precip, float fresh_h_per_c, float fresh_o_per_c, pad}
+## — 32 bytes (fungus). The two ratios are fungal tissue's own C:H:O, read from the substance table.
 func _pc_precip32(cc: int, precip: float) -> PackedByteArray:
 	var b: PackedByteArray = PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
-	b.append_array(PackedFloat32Array([precip, 0.0, 0.0, 0.0]).to_byte_array())
+	b.append_array(PackedFloat32Array([precip, LASubstances.fresh_litter_per_carbon("H"),
+		LASubstances.fresh_litter_per_carbon("O"), 0.0]).to_byte_array())
 	return b

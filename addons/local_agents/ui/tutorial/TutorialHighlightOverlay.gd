@@ -1,14 +1,6 @@
 class_name LATutorialHighlightOverlay
 extends Control
 
-## Full-screen guided-tutorial overlay: dims the whole viewport, cuts a bright "spotlight" hole around a
-## target rectangle, outlines it, points an arrow at it, and floats a text callout (title + body +
-## Back / Skip / Next buttons + a "don't show again" checkbox) beside it. The spotlight animates smoothly
-## between targets and degrades gracefully when a target is momentarily null or off-screen (it just dims
-## and centers the callout). Purely presentational: it owns no step logic. An LATutorialSequencer drives
-## it via show_step()/finish() and listens to its button signals. Reusable and game-agnostic. It builds
-## its own child widgets in code, so no companion .tscn is needed.
-## (Explicit types only. No ':=' inferred typing.)
 
 signal next_pressed
 signal back_pressed
@@ -22,7 +14,6 @@ const CORNER: float = 10.0                    # spotlight corner radius
 const FADE_SPEED: float = 6.0                 # dim alpha units/sec
 const RECT_LERP: float = 14.0                 # spotlight rect chase speed (higher = snappier)
 const PULSE_HZ: float = 1.4                   # outline pulse frequency
-const CALLOUT_MAX_W: float = 360.0
 const CALLOUT_MARGIN: float = 24.0            # keep-on-screen inset for the callout
 const ARROW_SIZE: float = 14.0
 
@@ -34,89 +25,30 @@ var _dim_alpha: float = 0.0                   # 0..1 fade envelope
 var _fading_out: bool = false
 var _pulse_t: float = 0.0
 
-var _callout: PanelContainer = null
-var _title_label: Label = null
-var _body_label: Label = null
-var _progress_label: Label = null
-var _dont_show_check: CheckBox = null
-var _back_btn: Button = null
-var _skip_btn: Button = null
-var _next_btn: Button = null
+@onready var _callout: PanelContainer = $Callout
+@onready var _title_label: Label = $Callout/VBox/Title
+@onready var _body_label: Label = $Callout/VBox/Body
+@onready var _progress_label: Label = $Callout/VBox/Progress
+@onready var _dont_show_check: CheckBox = $Callout/VBox/Row/DontShow
+@onready var _back_btn: Button = $Callout/VBox/Row/Back
+@onready var _skip_btn: Button = $Callout/VBox/Row/Skip
+@onready var _next_btn: Button = $Callout/VBox/Row/Next
 
 
-func _ready() -> void:
-	# Full-rect, and mouse-transparent overall so the highlighted control underneath still receives clicks;
-	# only the callout's own widgets (STOP) intercept input. IGNORE lets child controls still be hit-tested.
-	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	z_index = 4096
-	_build_callout()
-	visible = false
+func _on_dont_show_toggled(on: bool) -> void:
+	dont_show_toggled.emit(on)
 
 
-func _build_callout() -> void:
-	_callout = PanelContainer.new()
-	_callout.mouse_filter = Control.MOUSE_FILTER_STOP
-	_callout.custom_minimum_size = Vector2(240.0, 0.0)
-	var style: StyleBoxFlat = StyleBoxFlat.new()
-	style.bg_color = Color(0.10, 0.11, 0.14, 0.97)
-	style.border_color = OUTLINE_COLOR
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(10)
-	style.set_content_margin_all(14)
-	style.shadow_color = Color(0, 0, 0, 0.5)
-	style.shadow_size = 10
-	_callout.add_theme_stylebox_override("panel", style)
-	add_child(_callout)
+func _on_back_pressed() -> void:
+	back_pressed.emit()
 
-	var vb: VBoxContainer = VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
-	_callout.add_child(vb)
 
-	_title_label = Label.new()
-	_title_label.add_theme_font_size_override("font_size", 18)
-	_title_label.add_theme_color_override("font_color", OUTLINE_COLOR)
-	vb.add_child(_title_label)
+func _on_skip_pressed() -> void:
+	skip_pressed.emit()
 
-	_body_label = Label.new()
-	_body_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_body_label.custom_minimum_size = Vector2(CALLOUT_MAX_W - 28.0, 0.0)
-	_body_label.add_theme_color_override("font_color", Color(0.92, 0.93, 0.96))
-	vb.add_child(_body_label)
 
-	_progress_label = Label.new()
-	_progress_label.add_theme_font_size_override("font_size", 12)
-	_progress_label.add_theme_color_override("font_color", Color(0.6, 0.63, 0.7))
-	vb.add_child(_progress_label)
-
-	var row: HBoxContainer = HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	vb.add_child(row)
-
-	_dont_show_check = CheckBox.new()
-	_dont_show_check.text = "Don't show again"
-	_dont_show_check.add_theme_font_size_override("font_size", 12)
-	_dont_show_check.toggled.connect(func(on: bool) -> void: dont_show_toggled.emit(on))
-	row.add_child(_dont_show_check)
-
-	var spacer: Control = Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(spacer)
-
-	_back_btn = Button.new()
-	_back_btn.text = "Back"
-	_back_btn.pressed.connect(func() -> void: back_pressed.emit())
-	row.add_child(_back_btn)
-
-	_skip_btn = Button.new()
-	_skip_btn.text = "Skip"
-	_skip_btn.pressed.connect(func() -> void: skip_pressed.emit())
-	row.add_child(_skip_btn)
-
-	_next_btn = Button.new()
-	_next_btn.text = "Next"
-	_next_btn.pressed.connect(func() -> void: next_pressed.emit())
-	row.add_child(_next_btn)
+func _on_next_pressed() -> void:
+	next_pressed.emit()
 
 
 ## Show a step. `target_rect` is the spotlight (ignored if `has_target` is false). `next_visible` hides the

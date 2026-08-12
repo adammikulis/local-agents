@@ -8,9 +8,6 @@ const BITE_TAKE_FRAC: float = 0.35       # share of the reachable crop one anima
 const HEAT_C_PER_MASS: float = 0.02
 const HEAT_RADIUS: float = 0.0           # the animal's own cell only; body heat does not teleport
 
-static func disabled() -> bool:
-	return OS.get_environment("LA_NO_BIOTA_DEBIT") != ""
-
 var _f = null                            # back-reference to the owning LAMaterialField3D
 
 # --- the biotic ledger (published into SIM_REPORT through the LASimReport.register seam) --------------------
@@ -76,10 +73,6 @@ func ground_cell(world_pos: Vector3) -> int:
 func graze(world_pos: Vector3, want: float) -> float:
 	if want <= 0.0:
 		return 0.0
-	if disabled():
-		graze_asked += want
-		graze_taken += want              # the control arm: food out of nothing
-		return want
 	var q = _queue()
 	if q == null:
 		return 0.0
@@ -112,9 +105,6 @@ func graze(world_pos: Vector3, want: float) -> float:
 func drink(world_pos: Vector3, want: float) -> float:
 	if want <= 0.0:
 		return 0.0
-	if disabled():
-		water_in += want                 # the control arm: water the lake never lost
-		return want
 	var q = _queue()
 	if q == null:
 		return 0.0
@@ -155,8 +145,6 @@ func _draw(q, channel: String, mirror: PackedFloat32Array, c: int, want: float) 
 func respire(head_pos: Vector3, mass: float) -> float:
 	if mass <= 0.0:
 		return 0.0
-	if disabled():
-		return mass                      # the control arm: energy burned into nowhere, no O₂, no CO₂, no heat
 	var q = _queue()
 	if q == null:
 		return 0.0
@@ -171,7 +159,7 @@ func respire(head_pos: Vector3, mass: float) -> float:
 		return 0.0
 	_f._o2[c] = have - got
 	# O₂ is DEBITED (dst -1: the substrate's oxygen convention counts free molecular O₂ only, and the oxygen
-	# bound into the CO₂ below is deliberately not tracked — see LAMaterialFieldLedger3D's convention note).
+	# bound into the CO₂ below is deliberately not tracked — see LAMaterialFieldElementInventory3D's convention note).
 	q.transfer("o2", PackedInt32Array([c]), PackedFloat32Array([got]), "o2", PackedInt32Array([-1]))
 	# CO₂ is CREDITED with no field debit, because its carbon came out of the body. `biota_carbon` falls by the
 	# same number, which is what keeps the carbon books closed across the body/field boundary.
@@ -186,8 +174,8 @@ func respire(head_pos: Vector3, mass: float) -> float:
 
 
 func litter(world_pos: Vector3, mass: float) -> void:
-	if mass <= 0.0 or disabled():
-		return                           # the control arm: the body's mass simply disappears
+	if mass <= 0.0:
+		return
 	var q = _queue()
 	if q == null:
 		return
@@ -205,8 +193,8 @@ func litter(world_pos: Vector3, mass: float) -> void:
 ## atmosphere's conserved airborne H₂O) at the animal's own cell, out of the body's own hydration. The animal
 ## drank it from the field through `drink`, so over a life the two legs close.
 func transpire(world_pos: Vector3, mass: float) -> void:
-	if mass <= 0.0 or disabled():
-		return                           # the control arm: sweat that never reaches the air
+	if mass <= 0.0:
+		return
 	var q = _queue()
 	if q == null:
 		return
@@ -268,5 +256,4 @@ func report() -> Dictionary:
 		"biota_heat": snappedf(heat_out, 0.01),
 		# Per-cell device edits this seam queued. Zero with animals alive means the seam is DEAD — which is the
 		"biota_exchanges": exchanges,
-		"biota_enabled": 0.0 if disabled() else 1.0,
 	}

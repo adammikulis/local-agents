@@ -2,14 +2,6 @@
 extends RefCounted
 class_name LocalAgentStatus
 
-## The ONE answer to "is Local Agents ready, and if not, what do I do about it?"
-##
-## `check()` returns a fixed-shape Dictionary: the keys below are ALWAYS present, so a caller never
-## has to branch on absence. `blockers` is ordered by fix order (you cannot load a model without the
-## extension), which is what lets `next_step()` be a single sentence and lets a UI render a checklist
-## without knowing anything about the runtime.
-##
-## (Explicit types only — project rule: no ':=' inferred typing.)
 
 const ExtensionLoader: GDScript = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const RuntimePaths: GDScript = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
@@ -33,18 +25,6 @@ const BLOCK_MODEL_NOT_LOADED: String = "model_not_loaded"
 const WARN_SPEECH_MISSING: String = "speech_runtime_missing"
 const WARN_VOXEL_MISSING: String = "voxel_backend_missing"
 
-# Which warnings are bad enough to knock the headline down to DEGRADED.
-#
-# Speech is: Piper ships with the addon, so a missing speech runtime means the addon's own install is
-# incomplete and say() will not work. The voxel backend is NOT: addons/zylann.voxel/ is an optional
-# third-party dependency that only LocalAgentSimWorld in SPHERE mode needs, and most consumers install
-# this addon to talk to a model and will never want it. Folding it into `level` made a fully working
-# chat install report "ready, 1 optional feature(s) unavailable" permanently, which is noise.
-#
-# WARN_VOXEL_MISSING is still reported in `warnings`, so a node that genuinely needs the backend
-# surfaces it through warnings_for_state(state, needs) — which is the right place for a need only the
-# node knows about.
-# A plain Array, not PackedStringArray(...): a constructor call is not a constant expression.
 const LEVEL_WARNINGS: Array = [WARN_SPEECH_MISSING]
 
 const _FIX: Dictionary = {
@@ -135,15 +115,6 @@ static var _resident_path: String = ""
 static var _load_lock: Mutex = Mutex.new()
 
 
-## THE one place a model is loaded.
-##
-## AgentRuntime::load_model always unload_model_locked()s and reloads from disk (AgentRuntime.cpp:1845)
-## — it never short-circuits on an already-resident path — so callers must not invoke it
-## speculatively, and "what is resident" has to be tracked. Tracking it in more than one place is
-## how an agent ends up silently generating on someone else's weights: a per-node cache went stale
-## the moment any other path loaded a model, and there were five such paths.
-##
-## Returns true when `path` is resident afterwards.
 static func load_model(path: String, options: Dictionary = {}) -> bool:
 	if path == "":
 		return false
@@ -282,15 +253,10 @@ static func _model_loaded() -> bool:
 	return bool(runtime.call("is_model_loaded"))
 
 
-## Can this install actually say something out loud, by any route. Speech runs through SpeechEngine,
-## which tries the piper binary, then the piper Python module, then the system voice.
 static func _speech_ok() -> bool:
 	return SpeechEngine.speech_available(RuntimePaths.runtime_dir())
 
 
-# In the EDITOR, check the project setting rather than the scene tree: a non-@tool autoload script
-# (AgentManager.gd is not @tool) is never instantiated into the editor's root, so has_node() reports
-# false even when the autoload is correctly registered.
 static func _autoload_present() -> bool:
 	if Engine.is_editor_hint():
 		return ProjectSettings.has_setting("autoload/AgentManager")

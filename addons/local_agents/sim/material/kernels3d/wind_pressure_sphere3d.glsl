@@ -1,6 +1,7 @@
 #[compute]
 #version 450
-#include "nbr_shared.glsli"
+
+#include "neighbours.glsli"
 
 
 layout(local_size_x = 64) in;
@@ -13,49 +14,80 @@ layout(set = 0, binding = 4, std430) restrict writeonly buffer PressureOut { flo
 layout(set = 0, binding = 5, std430) restrict readonly buffer VelX { float vel_x[]; };   // along the cell's tan_a
 layout(set = 0, binding = 6, std430) restrict readonly buffer VelZ { float vel_z[]; };   // along the cell's tan_b
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };     // idx*6 + slot
-// Per-column tangent-frame table (LASphereGrid.link_tan): ((cell/depth)*4 + l)*2 is the unit direction toward
-// the lateral slot l+1 neighbour, in that cell's OWN (tan_a, tan_b) axes. See wind_step_sphere3d for why the
-// frame is a separate table from the neighbour slots.
+// LASphereGrid.link_tan: ((cell/depth)*4 + l)*2 is the unit direction toward the lateral slot N_LAT0+l
+// neighbour, in that cell's own (tan_a, tan_b) axes.
 layout(set = 0, binding = 16, std430) restrict readonly buffer LinkTan { float ltan[]; };
+layout(set = 0, binding = 17, std430) restrict readonly buffer LinkPartner { int partner[]; };
+// LASphereGrid.link_arc: (cell/depth)*4 + l, radians between the two cell centres.
+layout(set = 0, binding = 41, std430) restrict readonly buffer LinkArc { float larc[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint surf_count;     // number of COLUMNS = cell_count / depth (this kernel's thread count)
 	uint depth;          // radial shells per column
-	float core_radius;   // inner radius of shell 0
-	float cell_size;     // radial cell height, and the lateral spacing used for the CFL number
-	float sea_radius;    // sea shell radius — the atmosphere's floor over ocean
-	float dt;            // STEP_DT
+	float sea_radius;    // sea shell radius, model units — the atmosphere's floor over ocean
+	float dt;            // seconds
 	uint step_index;     // 0 => seed the standard atmosphere (the channel starts at all-zero)
 	uint pad0;
+	uint pad1;
+	uint pad2;
 } params;
 
-// --- air/pressure model -------------------------------------------------------------------------------
-// LAPhysical.SCALE_HEIGHT_PER_K_MODEL = DRY_AIR_GAS_CONSTANT_J_KGK / (STANDARD_GRAVITY_M_S2 *
+#include "shell.glsli"
+#include "cellvol.glsli"
+
 const float H_PER_KELVIN = 0.1735950488;   // LAPhysical.SCALE_HEIGHT_PER_K_MODEL
-const float T0_K = 273.15;         // LAPhysical.KELVIN_OFFSET — the field stores celsius
+const float T0_K = 273.15;         // LAPhysical.KELVIN_OFFSET
 const float T_MIN_K = 180.0;       // scale-height guard: keeps H positive and finite next to lava/ice
 const float T_MAX_K = 400.0;
-const float H_REF = H_PER_KELVIN * 288.15;   // seed profile scale height (~50)
-const float AIR_DENS_REF = 1.0;    // air mass in a sea-level cell of the seeded standard atmosphere
+const float H_REF = H_PER_KELVIN * 288.15;   // seed profile scale height, model units
 const float GRAVITY_M_S2 = 9.80665;        // LAPhysical.STANDARD_GRAVITY_M_S2
-const float AIR_DENSITY_KG_M3 = 1.18;      // LAPhysical.AIR_DENSITY_KG_M3
+const float AIR_DENSITY_KG_M3 = 1.225;     // LAPhysical.AIR_DENSITY_KG_M3
 const float METRES_PER_MODEL_UNIT = 168.6; // LAPhysical.METRES_PER_MODEL_UNIT
-const float MAX_FACE_SHARE = 0.2;
+const float DRY_AIR_GAS_CONSTANT_J_KGK = 287.0222603;  // LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK
+const float STANDARD_PRESSURE_PA = 101325.0;        // LAPhysical.STANDARD_PRESSURE_PA
 const float DIFFUSE_FACE = 0.01;
 
-// Fraction of a level's air crossing one face toward a neighbour it is moving at `toward` (>=0).
-float face_share(float toward, float cfl) {
-	return DIFFUSE_FACE + min(max(toward, 0.0) * cfl, MAX_FACE_SHARE);
+// Is this cell part of the atmosphere? A PER-CELL test, so the two ends of a face always agree.
+bool is_air(uint c, uint depth) {
+	return solid[c] == 0.0 && shell_mid(c % depth) >= params.sea_radius;
 }
 
+// Speed of cell `c` toward its lateral link `l`, m/s.
 float toward(uint c, int l, uint depth) {
 	uint b = ((c / depth) * 4u + uint(l)) * 2u;
 	return vel_x[c] * ltan[b] + vel_z[c] * ltan[b + 1u];
 }
 
-// Is shell r of this column part of the free atmosphere? Caller walks inward and stops at the first false.
-bool is_air(uint c, float radius) {
-	return solid[c] == 0.0 && radius >= params.sea_radius;
+// Centre-to-centre run of lateral link `l` of cell `c`, metres.
+float link_run_m(uint c, int l, uint depth) {
+	return larc[(c / depth) * 4u + uint(l)] * shell_mid(c % depth) * METRES_PER_MODEL_UNIT;
+}
+
+// Share of cell `c`'s air OFFERED across one face: advection at that face's own Courant number, plus mixing
+// across the volume the pair share. A function of the donor and the face alone, so both ends agree on it.
+float face_share(uint c, int l, uint depth) {
+	int m = nbr[c * 6u + N_LAT0 + uint(l)];
+	if (m < 0 || !is_air(uint(m), depth)) {
+		return 0.0;
+	}
+	float run = max(link_run_m(c, l, depth), 1.0e-6);
+	float adv = max(toward(c, l, depth), 0.0) * params.dt / run;
+	float diff = DIFFUSE_FACE * min(cell_volume(c), cell_volume(uint(m))) / max(cell_volume(c), 1.0e-30);
+	return adv + diff;
+}
+
+float offered_share(uint c, uint depth) {
+	float t = 0.0;
+	for (int l = 0; l < 4; ++l) {
+		t += face_share(c, l, depth);
+	}
+	return t;
+}
+
+// Fraction of a cell's air that leaves in dt. A cell draining at a constant rate empties exponentially, so
+// the total approaches 1 without ever reaching it and no face needs a cap.
+float leaving(float offered) {
+	return 1.0 - exp(-offered);
 }
 
 void main() {
@@ -66,19 +98,27 @@ void main() {
 	uint depth = params.depth;
 	uint base = s * depth;
 
-	// --- WALK 1: find the atmosphere — the contiguous non-solid, at-or-above-sea run down from the top. ---
-	int r_top = int(depth) - 1;
-	int r_bot = int(depth);          // depth => empty atmosphere
-	for (int r = r_top; r >= 0; --r) {
-		float radius = params.core_radius + (float(r) + 0.5) * params.cell_size;
-		if (!is_air(base + uint(r), radius)) {
-			break;
+	// --- WALK 1: the column's air cells, their hydrostatic weights, and the volume-weighted sum. ---
+	float w = 1.0;
+	float sum_wv = 0.0;
+	int prev = -1;
+	uint r_bot = depth;
+	for (uint r = 0u; r < depth; ++r) {
+		uint c = base + r;
+		if (!is_air(c, depth)) {
+			continue;
 		}
-		r_bot = r;
+		if (prev < 0) {
+			r_bot = r;
+		} else {
+			float t_mid = 0.5 * (temp[c] + temp[uint(prev)]) + T0_K;
+			float h_scale = H_PER_KELVIN * clamp(t_mid, T_MIN_K, T_MAX_K);
+			w *= exp(-(shell_mid(r) - shell_mid(uint(prev) % depth)) / h_scale);
+		}
+		sum_wv += w * cell_volume(c);
+		prev = int(c);
 	}
-	if (r_bot > r_top) {
-		// No atmosphere over this column (fully buried). Zero the air and leave a neutral pressure so any
-		// stray reader sees a flat field rather than garbage. Pass B never reads solid cells' pressure.
+	if (prev < 0) {
 		for (uint r = 0u; r < depth; ++r) {
 			air_out[base + r] = 0.0;
 			pressure[base + r] = 0.0;
@@ -86,72 +126,83 @@ void main() {
 		return;
 	}
 
-	// --- WALK 2: hydrostatic weights. w is a running product; sum it now, recompute it identically later. ---
-	float w = 1.0;
-	float sum_w = 1.0;
-	for (int r = r_bot + 1; r <= r_top; ++r) {
-		float t_mid = 0.5 * (temp[base + uint(r)] + temp[base + uint(r - 1)]) + T0_K;
-		float h_scale = H_PER_KELVIN * clamp(t_mid, T_MIN_K, T_MAX_K);
-		w *= exp(-params.cell_size / h_scale);
-		sum_w += w;
-	}
-
-	// --- WALK 3: current column mass, and the vertically-integrated upwind mass flux through the 4 faces. ---
-	float cfl = params.dt / params.cell_size;
+	// --- WALK 2: column mass and the lateral exchange, in ABSOLUTE amounts (fraction * volume). ---
+	// Both ends of a face read the DONOR's share, so the debit and the credit are one number.
 	float m_col = 0.0;
 	float flux_out = 0.0;
 	float flux_in = 0.0;
-	for (int r = r_bot; r <= r_top; ++r) {
-		uint c = base + uint(r);
+	for (uint r = 0u; r < depth; ++r) {
+		uint c = base + r;
+		if (!is_air(c, depth)) {
+			continue;
+		}
 		float a = air_in[c];
-		m_col += a;
-		uint nb = c * 6u;
+		float vc = cell_volume(c);
+		m_col += a * vc;
+		float sc = offered_share(c, depth);
+		float scale_c = (sc > 0.0) ? leaving(sc) / sc : 0.0;
 		for (int l = 0; l < 4; ++l) {
-			int m = nbr[nb + uint(l + 1)];
-			if (m < 0 || solid[m] != 0.0) {
+			int m = nbr[c * 6u + N_LAT0 + uint(l)];
+			int pi = partner[c * 6u + N_LAT0 + uint(l)];
+			if (m < 0 || pi < 0 || !is_air(uint(m), depth)) {
 				continue;
 			}
-			flux_out += a * face_share(toward(c, l, depth), cfl);
-			flux_in += air_in[m] * face_share(toward(uint(m), int(opposite_link(uint(l))), depth), cfl);
+			int el = int(uint(pi) % N_SLOTS) - int(N_LAT0);
+			if (el < 0) {
+				continue;
+			}
+			flux_out += a * vc * scale_c * face_share(c, l, depth);
+			float sm = offered_share(uint(m), depth);
+			if (sm > 0.0) {
+				flux_in += air_in[m] * cell_volume(uint(m)) * (leaving(sm) / sm)
+					* face_share(uint(m), el, depth);
+			}
 		}
 	}
 
-	// --- New column mass. Step 0 seeds the standard atmosphere (the channel is allocated all-zero). ---
-	// The seed integrates the reference profile from THIS column's own floor, so a column whose ground stands
-	// high starts with less air above it — mountain tops begin at low pressure, for the right reason.
+	// --- New column mass. Step 0 seeds it from the EQUATION OF STATE: the standard atmosphere's pressure at
+	// this column's floor, over R_d T there. ---
 	float m_new;
 	if (params.step_index == 0u) {
-		float z_bot = params.core_radius + (float(r_bot) + 0.5) * params.cell_size;
-		m_new = AIR_DENS_REF * exp(-(z_bot - params.sea_radius) / H_REF) * sum_w;
+		float t_bot_k = clamp(temp[base + r_bot] + T0_K, T_MIN_K, T_MAX_K);
+		float p_floor = STANDARD_PRESSURE_PA * exp(-(shell_mid(r_bot) - params.sea_radius) / H_REF);
+		float rho_floor = p_floor / (DRY_AIR_GAS_CONSTANT_J_KGK * t_bot_k);
+		m_new = (rho_floor / AIR_DENSITY_KG_M3) * sum_wv;
 	} else {
-		m_new = max(m_col + flux_in - flux_out, 0.0);
+		m_new = m_col + flux_in - flux_out;
 	}
 
-	// --- WALK 4: settle that mass onto the hydrostatic profile (exactly conserving m_new). ---
+	// --- WALK 3: settle that mass onto the hydrostatic profile, conserving m_new. ---
 	w = 1.0;
-	float inv_sum = 1.0 / max(sum_w, 1.0e-6);
-	air_out[base + uint(r_bot)] = m_new * w * inv_sum;
-	for (int r = r_bot + 1; r <= r_top; ++r) {
-		float t_mid = 0.5 * (temp[base + uint(r)] + temp[base + uint(r - 1)]) + T0_K;
-		float h_scale = H_PER_KELVIN * clamp(t_mid, T_MIN_K, T_MAX_K);
-		w *= exp(-params.cell_size / h_scale);
-		air_out[base + uint(r)] = m_new * w * inv_sum;
+	prev = -1;
+	float inv_sum = 1.0 / max(sum_wv, 1.0e-30);
+	for (uint r = 0u; r < depth; ++r) {
+		uint c = base + r;
+		if (!is_air(c, depth)) {
+			continue;
+		}
+		if (prev >= 0) {
+			float t_mid = 0.5 * (temp[c] + temp[uint(prev)]) + T0_K;
+			float h_scale = H_PER_KELVIN * clamp(t_mid, T_MIN_K, T_MAX_K);
+			w *= exp(-(shell_mid(r) - shell_mid(uint(prev) % depth)) / h_scale);
+		}
+		air_out[c] = m_new * w * inv_sum;
+		prev = int(c);
 	}
 
-	// --- WALK 5: pressure = weight of the air above, integrated inward from space. ---
+	// --- WALK 4: pressure = weight of the air above, integrated inward from space, pascals. A cell holding
+	// no air carries the weight of the air standing over it. ---
 	float above = 0.0;
-	for (int r = r_top; r >= r_bot; --r) {
-		float a = air_out[base + uint(r)];
-		// PASCALS: g * rho_air * (cell height in metres) * (air-units above, plus half this cell's own).
-		pressure[base + uint(r)] = GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * (params.cell_size * METRES_PER_MODEL_UNIT)
-			* (above + 0.5 * a);
-		above += a;
-	}
-	// Everything below the atmosphere (rock, ocean interior, caves) holds no air and carries the column's
-	// surface pressure, so the horizontal field stays continuous across the sea floor.
-	float p_surf = GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * (params.cell_size * METRES_PER_MODEL_UNIT) * above;
-	for (int r = r_bot - 1; r >= 0; --r) {
-		air_out[base + uint(r)] = 0.0;
-		pressure[base + uint(r)] = p_surf;
+	for (int r = int(depth) - 1; r >= 0; --r) {
+		uint c = base + uint(r);
+		if (!is_air(c, depth)) {
+			air_out[c] = 0.0;
+			pressure[c] = GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * above;
+			continue;
+		}
+		float a = air_out[c];
+		float dz_m = shell_dr(uint(r)) * METRES_PER_MODEL_UNIT;
+		pressure[c] = GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * (above + 0.5 * a * dz_m);
+		above += a * dz_m;
 	}
 }

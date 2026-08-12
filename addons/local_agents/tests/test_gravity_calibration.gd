@@ -1,23 +1,6 @@
 @tool
 extends RefCounted
 
-## Surface gravity must not depend on which body registered first.
-##
-## LAGravity calibrates one constant G so that |a| == SURFACE_G at the reference body's surface, and caches
-## it. `reference_body()` prefers whichever body declares `is_gravity_reference()` — the planet you stand on
-## — and falls back to MAX MASS while nothing has declared yet. The star outweighs the planet ten to one by
-## design, so those two rules disagree during boot, in the window after the star has registered and before
-## the planet has.
-##
-## The cache must revalidate that the remembered body is still the REFERENCE body, not merely still alive:
-## a gravity query inside that window would otherwise latch G to the star for the life of the process, with
-## nothing logged and no error raised. Nothing in the shipped boot opens the window — VoxelWorld registers
-## the star, then the planet, inside one `_ready()` with no query between them — which is why this needs a
-## test rather than a comment: it holds only because of the order two unrelated lines run in.
-##
-## The assertion is on the RECOVERED acceleration, not on any call reporting ok: a mis-calibrated G still
-## returns a perfectly valid float.
-## (Explicit types only, project rule: no ':=' inferred typing.)
 
 const STAR_MASS: float = 1.0e7
 const STAR_RADIUS: float = 250.0

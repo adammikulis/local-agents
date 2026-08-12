@@ -1,10 +1,8 @@
 #[compute]
 #version 450
 
-// `shock` is a DIMENSIONLESS intensity, not energy. Its seed magnitude is set by the emitting actor, it is
-// on no conservation ledger, and its only consumers are the panic gradient, the camera shake and the impact
-// counter. SPREAD and LOSS below are per STEP, not per second, so both the propagation speed and the decay
-// scale with the step rate rather than with simulated time.
+#include "neighbours.glsli"
+
 
 layout(local_size_x = 64) in;
 
@@ -45,7 +43,7 @@ void main() {
 	// contributions → self-weight below is 1 - 6*SPREAD.
 	float nsum = 0.0;
 	for (int d = 0; d < 6; d++) {
-		int nb = nbr[g * 6u + uint(d)];
+		int nb = nbr[g * N_SLOTS + uint(d)];
 		nsum += (nb >= 0 && solid[nb] == 0.0) ? shock_in[nb] : s0;
 	}
 	float keep = 1.0 - LOSS;

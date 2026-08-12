@@ -1,22 +1,7 @@
 class_name LACreatureLeadership
 extends RefCounted
 
-## Emergent LOCAL leadership for LocalAgentCreature, factored out like LACreatureFlocking, static + dependency-
-## free of the LocalAgentCreature type (dynamic access).
-##
-## EMERGENT-EVERYTHING: no appointment, no registry, no scripted succession. Each creature independently
-## computes whether it is the top-ranked SAME-SPECIES individual within its own radius (then it is a
-## LEADER and self-decides), or else finds its local top (its LEADER) and adopts that leader's DECISION
-## (the single canonical action symbol), so the heavy "what to do" assessment (senses scans + cognition
-## escalation + LLM) runs ONCE per local leader and the followers reuse it, pathing themselves. The map
-## therefore has MANY leaders, one per local cluster; a spreading herd fissions into new local leaders.
-##
-## Leadership is CONTESTED + SELF-HEALING: rank is built from live age/size/energy/experience, so a
-## starving/ageing/dying/departing leader loses rank and is displaced (see Creature._elect_leader, where
-## the per-species `leader_loyalty` margin tunes how sticky an incumbent is: humans cling → dynasties,
-## animals near-meritocratic → the biggest/oldest/best-fed leads). (Explicit types only, no ':=' inferred typing.)
 
-# Rank weights — a "well-rounded alpha": elder + biggest + best-fed + most-experienced. Tunable.
 const W_MATURITY: float = 1.0     # age relative to maturity — the DOMINANT axis (a village elder far out-ranks
                                   # a young adult), so keep a wide cap (below) or command tiers can't form.
 const W_SIZE: float = 1.2         # body size (dominance; matches the sim's size-ranked predator fear)
@@ -26,21 +11,10 @@ const MATURITY_CAP: float = 6.0   # elders keep gaining rank up to 6× maturity 
                                   # command trees have distinct rungs (a tiny spread collapses every tier flat).
 
 
-## A creature's emergent leadership rank — CHEAP reads only, no scans. Higher = more fit to lead. Delegates to
-## the shared valuator (LAAppraisal.dominance) so rank and mate choice run on ONE phenotype-scoring rule: with
-## default weights it is a well-rounded-alpha ranking, and a species that courts on ornament
-## (dominance_traits.display) leads on it too. The W_* / MATURITY_CAP consts above are the documented default
-## weights (mirrored in LAAppraisal.DEFAULT_WEIGHTS).
 static func leader_score(c) -> float:
 	return LAAppraisal.dominance(c)
 
 
-## The local leader for `c`: the highest-ranked SAME-SPECIES creature within `radius` (bare distance, NO
-## vision cone — leadership is proximity-based). Returns null when `c` itself is the local maximum (c IS a
-## leader → it self-decides). The returned node is always STRICTLY higher-ranked than c (and is itself
-## nobody's follower in its own radius, so it runs full cognition) → no adopt-chains, no blind-leading-the-
-## blind. Reuses the shared frame-stamped spatial index (one rebuild per group per frame). Exact-score
-## ties are broken by the larger get_instance_id() so ordering is deterministic (no flip-flop at loyalty 0).
 static func local_leader(c, pos: Vector3, radius: float):
 	var idx = LACreatureSenses._fresh_index(c, ["species_" + String(c.species)])
 	var cands: Array = idx.query("species_" + String(c.species), pos, radius)
@@ -65,11 +39,6 @@ static func local_leader(c, pos: Vector3, radius: float):
 	return best   # null ⇒ c is the local leader
 
 
-## Would making `cand` the leader of `follower` create a cycle? Ranks change over time and elections are
-## staggered, so two creatures whose ranks cross between their election frames can briefly each out-rank the
-## other and point at each other (A→B while B→A) — a cycle with no root, where nobody runs real cognition.
-## Walk cand's existing _leader chain (cheap, capped): if `follower` is already up-chain of cand, attaching
-## would close a loop, so reject. Keeps the forest a proper tree (every chain terminates at a root leader).
 static func would_cycle(follower, cand, max_hops: int) -> bool:
 	var node = cand
 	var hops: int = 0
@@ -81,17 +50,6 @@ static func would_cycle(follower, cand, max_hops: int) -> bool:
 	return false
 
 
-## Immediate SUPERIOR for `c` (the `command`-mode tree builder): the NEAREST same-species creature that
-## out-ranks c by more than `loyalty`, within `radius`. Unlike local_leader (which returns the local MAX and
-## so builds a flat star), this returns c's DIRECT manager — so repeated attachment forms a multi-LEVEL tree:
-## a grunt reports to a nearby lieutenant, who reports to the huntmaster, who (being the local max, with no
-## higher-ranked neighbour) reports to nobody. Nearest-not-highest is what gives the tree its depth. Returns
-## null when no same-species creature out-ranks c here (c is a local root / top of its cluster). Distance
-## ties broken by the larger instance_id for determinism.
-## Rank-scaled span-of-control: how far a candidate manager S can reach down to a subordinate whose rank is
-## `sub_score`. The bigger S out-ranks the subordinate, the farther it reaches — so a huntmaster's span covers
-## the whole band while a lieutenant's covers only its immediate few. This is what makes tiers form spatially:
-## a grunt attaches to a NEARBY lieutenant (tight span) before the distant huntmaster (wide span) captures it.
 const REACH_BASE: float = 0.35    # a barely-superior manager reaches only ~a third of the base radius
 const REACH_GAIN: float = 0.25    # ...plus this much of the base radius per point of rank it leads by
 const REACH_MAX_MULT: float = 2.0 # cap: even the huntmaster's span is bounded (keeps the tree local + query cheap)
@@ -126,20 +84,10 @@ static func local_superior(c, pos: Vector3, radius: float, loyalty: float):
 	return best   # null ⇒ no in-span superior nearby ⇒ c is a local root
 
 
-## Nearest mature same-species creature sharing c's LINEAGE within `radius` — c's parent / family elder.
-## Offspring inherit a founder's family_id (see EcologyService), so same family_id == same bloodline; a
-## founder with no kin nearby just gets null. Used so juveniles of `family`/`command`-mode species follow
-## their family's adult (who in turn follows the pack leader), forming the natural juvenile→parent→pack tree
-## without any explicit parent pointer. A juvenile follows its PARENT, which is descent, so this is the
-## lineage query and stays one — see nearest_band_adult below for the affiliation counterpart.
-## Skips the dead/carried/dying. Distance ties broken by the larger instance_id.
 static func nearest_lineage_adult(c, pos: Vector3, radius: float):
 	return _nearest_adult(c, pos, radius, LACreatureAffiliation.lineage_of(c), true)
 
 
-## Nearest mature same-species creature in c's BAND within `radius` — whoever it currently runs with, which
-## is not necessarily blood. This is what a lost herd animal homes toward (LACreatureFlocking._band_regroup):
-## a strayed rabbit rejoins the warren it belongs to now, not the litter it was born into.
 static func nearest_band_adult(c, pos: Vector3, radius: float):
 	return _nearest_adult(c, pos, radius, LACreatureAffiliation.band_of(c), false)
 
@@ -172,21 +120,8 @@ static func _nearest_adult(c, pos: Vector3, radius: float, group: int, by_lineag
 	return best   # null ⇒ nobody of that group nearby (orphan / founder / newly exiled) ⇒ fall back to rank/self
 
 
-# ============================================================================================================
-# ELECTION STATE-MACHINE — moved here from Creature.gd so ALL leadership logic lives in this one module (the
-# creature just calls maybe_elect each physics frame). Functions take the creature `c` by dynamic access, like
-# the queries above. Roles set on c: `_leader` (immediate manager, or null if root) + `_is_leader` (true at a
-# tree root). Throttled by c._leader_elect_cd.
-# ============================================================================================================
 const LEADER_ELECT_STRIDE: int = 45        # re-run the (cheap, throttled) local election ~every 0.75 s
 const LEADER_RADIUS_MULT: float = 3.0      # leadership neighbourhood = flock_radius × this. Wider than the
-                                           # flocking/vision radius on purpose: an alpha's SOCIAL pull reaches
-                                           # farther than one body-length of steering, so a band holds one
-                                           # leader as it spreads to graze instead of fissioning into many.
-# LEASH: a follower keeps its (still-valid) leader while within this × the leadership radius, even after it
-# has drifted past `radius` — it regroups back (CreatureFlocking regroup pull) instead of self-promoting to a
-# leader-of-one. Only a truly gone leader (dead/carried/beyond-leash) or a genuinely higher-ranked local
-# challenger triggers re-election. This is what stops the "everyone is a leader of one" churn on the sphere.
 const LEASH_MULT: float = 4.0
 
 
@@ -206,10 +141,6 @@ static func disabled() -> bool:
 	return _off == 1
 
 
-## Per-frame leadership gate for creature `c`: (throttled) decide whether c leads or follows. c participates if
-## it herds OR its species is parent-following (family/command) — the latter lets a solitary species' juveniles
-## follow a parent while its adults stay independent. Non-participants (and the A/B kill-switch) are always
-## their own leader. Called every physics frame from Creature._physics_process.
 static func maybe_elect(c, pos: Vector3) -> void:
 	if disabled() or not (c.herd or c.hierarchy == "family" or c.hierarchy == "command"):
 		c._leader = null
@@ -255,10 +186,6 @@ static func elect_flat(c, pos: Vector3, radius: float) -> void:
 		top = c                                           # attaching would close a loop → treat c as root
 	# The incumbent leader over c: itself while it leads, else the creature it currently follows.
 	if not c._is_leader:
-		# Sticky: keep the current leader while it is still a live, free creature AND within the LEASH (a
-		# generous multiple of `radius`). A drift past `radius` does not demote — the follower regroups
-		# back toward its leader/kin (CreatureFlocking) rather than becoming a leader-of-one. Only a truly gone
-		# leader (dead/carried/beyond-leash) forces the immediate self-heal below.
 		var leash: float = radius * LEASH_MULT
 		var leader_ok: bool = _leader_valid(c._leader) \
 				and pos.distance_squared_to(c._leader.global_position) <= leash * leash
@@ -279,10 +206,6 @@ static func elect_flat(c, pos: Vector3, radius: float) -> void:
 		c._is_leader = (top == c)
 
 
-## Multi-level ("command") election: attach to c's immediate SUPERIOR (nearest higher-rank in span), so the
-## tree gains depth — grunt→lieutenant→huntmaster. c CLINGS to its current boss while they stay a valid
-## superior (in reach + still out-rank c past its loyalty); it re-picks only when the boss falls below it,
-## dies, or leaves — then attaches to the nearest remaining superior, or becomes a root if none.
 static func elect_superior(c, pos: Vector3, radius: float) -> void:
 	if _leader_valid(c._leader):
 		# Still a valid boss if it out-ranks c past c's loyalty and is within the LEASH (same generous reach

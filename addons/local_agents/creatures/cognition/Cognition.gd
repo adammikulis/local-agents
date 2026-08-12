@@ -1,28 +1,6 @@
 class_name LACognition
 extends RefCounted
 
-## The per-creature "brain" that sits on top of the innate cascade. Each tick a creature reports the
-## action its innate rules picked plus its cheap situation signature; this object decides whether a
-## *learned heuristic* should override that choice, reinforces the previous choice by how the
-## creature has fared since, and (rarely, when uncertain) escalates to the slow brain
-## (FunctionGemma) via the shared scheduler.
-##
-## Thinking fast and slow:
-##   * Fast (this class, every tick): a dictionary lookup + a weighted comparison. No LLM.
-##   * Slow (scheduler, budgeted/async): FunctionGemma picks an action for a novel/uncertain
-##     signature; the result is written back as a high-confidence heuristic so the next time that
-##     signature recurs it is handled by the fast path. A creature escalates less as it ages.
-##
-## How discretionary behaviour spreads (NOT by inheriting a parent's thoughts):
-##   * SOCIAL learning: the main channel. A creature copies confident heuristics from same-species
-##     animals it can SEE (vision cone), weighted by relatedness (family/kin strongest). Habits
-##     diffuse through a herd the way flocking already does (imitation).
-##   * GENETIC priors: a small baked instinct set from the genome (see LADNA), evolving slowly.
-##   * Survival reflexes (flee/panic/thirst) are innate in the cascade and never learned/overridden.
-##
-## policy: signature_key:int -> {action:String, weight:float}
-##
-## (Explicit types only, no ':=' inferred typing.)
 
 const CONFIDENCE_THRESHOLD: float = 1.0    # a learned entry must reach this to override the innate rules
 const START_WEIGHT: float = 0.4            # confidence of a freshly self-observed heuristic
@@ -31,54 +9,22 @@ const MAX_WEIGHT: float = 6.0
 const MIN_WEIGHT: float = -2.0
 const LEARN_RATE: float = 0.6
 
-# --- multi-sense reward valence (Half A) --------------------------------------------------------
-# The reinforcement reward is a general valence SUM, not just "did I eat/drink". Energy + hydration
-# gains stay primary (the appetitive drive); on top of that we SUBTRACT the discomfort/pain the last
-# action brought — HP lost, a spike of fear (predator proximity), running low on breath in my medium
-# (drowning/suffocation), or sitting outside my temperature comfort band. So a creature learns to
-# avoid predators, cold, and water the SAME way it already learned to seek food: whatever action
-# preceded pain earns a negative weight and stops being chosen. Weights are tunable; no per-species code.
 const W_DAMAGE: float = 6.0                # aversion per unit of fractional HP lost since the last decision
 const W_FEAR: float = 0.25                 # aversion per unit rise in the panic/fear level (predator dread)
 const W_O2: float = 1.0                    # aversion for being fully out of breath in my medium (suffocating)
 const W_TEMP: float = 1.0                  # aversion at a temperature where metabolism stops entirely (freezing
-                                           # or protein denaturation). _comfort_deviation is a bounded 0..1
-                                           # shortfall of the body's own reaction rate.
+                                           # or protein denaturation). Was 0.03 per °C outside a comfort band;
+                                           # _comfort_deviation is now a bounded 0..1 shortfall of the body's
+                                           # own reaction rate, so the weight is on the same scale as W_O2.
 const TERM_CAP: float = 1.0                # clamp on each individual aversive term so one sense can't dominate
 
-# --- drive-modulated risk tolerance (Half B) ----------------------------------------------------
-# Each learned entry also remembers how much that action HURT (its aversive magnitude) separate from its
-# net worth, so a driven creature can knowingly discount that pain. RISK_RETAIN fades the memory when the
-# action stops hurting; RISK_TOLERANCE is how much of the (drive-scaled) remembered pain is added back to
-# the entry's effective weight at decision time — a starving/parched creature discounts discomfort and
-# attempts the risky-but-rewarding action; a sated one applies the full aversion and refuses it.
 const RISK_RETAIN: float = 0.7             # how much remembered pain carries frame-to-frame (rest decays)
 const RISK_MAX: float = 2.0               # ceiling on remembered pain per entry
 const RISK_TOLERANCE: float = 1.3          # how strongly hunger/thirst buys back an aversive action
-# Drive can revive an action learned as merely UNCOMFORTABLE-but-survivable (weight above this floor), never
-# one learned as reliably LETHAL: an action that keeps killing the creature drives its weight down to
-# MIN_WEIGHT and stays refused even while starving, so "wade into cold water for food" is discountable but
-# "walk into what drowns/suffocates me" is not. This keeps lethal aversions as non-negotiable as a reflex.
 const RISK_REVIVE_FLOOR: float = -1.0
 
-# --- learned-lethal veto (Half C) ---------------------------------------------------------------
-# Drive-discount (Half B) lets a creature knowingly attempt a merely-UNCOMFORTABLE action. Half C is the
-# harder line: an action whose learned weight for THIS situation has been driven to/below the lethal floor
-# is RELIABLY lethal (repeated harm — self-experienced or socially absorbed — pushed it there, and drive can
-# never revive it). Such an action is not merely discounted, it is VETOED: even when the innate cascade picks
-# it, the creature refuses and redirects to a safe alternative, so learning actively pulls avoidable deaths
-# below the innate baseline. The weight itself IS the accumulated experience — from START_WEIGHT it takes
-# several bad outcomes to cross this floor — so no separate experience counter is needed. VETO_WEIGHT reuses
-# the lethal floor exactly (an action drive can't revive is the same action the mind won't execute). Reflexes
-# (flee) return before decide() reaches the veto and are NEVER vetoed — survival stays non-negotiable.
 const VETO_WEIGHT: float = RISK_REVIVE_FLOOR
 const SAFE_FALLBACK_ACTION: String = "wander"   # the always-available benign roam a veto redirects to
-# A confident AVERSION is shared socially once its weight has gone clearly net-negative — past the positive
-# START_WEIGHT prior and beyond a single fluke (~two harmful outcomes). Fear spreads EARLIER than a positive
-# habit does (which needs the full +CONFIDENCE_THRESHOLD): an alarmed kin warns the group after a couple of
-# near-deaths rather than only once utterly certain, so the herd banks collective dread and reaches the veto
-# floor together — "the group avoids it without each dying first." One-trial-ish fear contagion is realistic
-# and is what makes learning actually cut deaths; the VETO itself still demands the full lethal floor.
 const AVERSION_SHARE: float = -0.6
 
 # Social learning: how much one sighting of a confident neighbour shifts my confidence, by relatedness.
@@ -104,7 +50,7 @@ var _last_hydration: float = -1.0
 var _last_health: float = -1.0            # HP at the last decision — a drop since = damage taken (aversive)
 var _last_fear: float = 0.0               # panic/fear level at the last decision — a rise since = dread (aversive)
 var _last_o2: float = 1.0                 # breath fraction (0..1) at the last decision — low = suffocating
-var _last_temp: float = NAN              # ambient °C at the last decision; NAN until one has been sensed
+var _last_temp: float = 15.0             # ambient °C at the last decision — outside comfort band = discomfort
 var _last_veto: bool = false             # did the last decide() REFUSE a learned-lethal action? (Creature reads this to retreat)
 var _last_was_fallback: bool = false     # was _last_action a veto REDIRECT (not a free choice)? gates the durability guard
 
@@ -114,19 +60,9 @@ var decisions: int = 0
 var lessons: int = 0                       # heuristics acquired socially
 var vetoes: int = 0                        # times this brain REFUSED a learned-lethal action (Half C, surfaced to harness)
 
-# Introspection for the thought inspector. These SURFACE the real decision — they do NOT run any model.
-#   _last_choice : the most recent fast-path pick (every decide) + how it was reached.
-#   _last_ask    : the most recent slow-brain resolution written back by the shared scheduler, tagged
-#                  with its source ("llm" = the local FunctionGemma model chose it; "teacher" = the
-#                  offline heuristic teacher). This is the natural-language "thought" the panel stars.
 var _last_choice: Dictionary = {}          # {action, how, e, h, w, n}   how: reflex|habit|instinct
 var _last_ask: Dictionary = {}             # {action, source, e, h, w, n}   source: llm|teacher
 
-# Bounded history of DISTINCT decisions (the thought-inspector panel's "stream" — what actually made this
-# creature do what it did, over time, not just the current instant). A ring buffer, not a full log: capped
-# at HISTORY_CAP and only appended when the action or WHO decided it actually changes, so a creature holding
-# one behaviour for many ticks doesn't spam the stream with repeats — the log reads as a sequence of real
-# transitions. Each entry: {ts (msec), kind: "fast"|"llm"|"teacher", action, how, e, h}.
 const HISTORY_CAP: int = 40
 var _history: Array = []
 
@@ -186,11 +122,6 @@ func decide(c, innate_action: String, sig: Dictionary, delta: float) -> String:
 	var learned = policy.get(key, null)
 	var chosen: String = innate_action
 	if learned != null:
-		# RISK TOLERANCE (Half B): the entry's remembered pain (`risk`) is discounted by how urgently this
-		# creature is driven (hunger/thirst), then added back to its net weight. A well-fed animal sees the
-		# full aversion (weight stays sub-threshold → it refuses the risky action); a starving/parched one
-		# discounts the pain, tipping the same action over the threshold → it attempts the risky-but-rewarding
-		# move (wade into cold water to reach food). Reflexes never reach here — they returned above.
 		var w: float = float((learned as Dictionary).get("weight", 0.0))
 		var risk: float = float((learned as Dictionary).get("risk", 0.0))
 		var eff: float = w
@@ -205,11 +136,6 @@ func decide(c, innate_action: String, sig: Dictionary, delta: float) -> String:
 	elif _should_escalate(c, null):
 		_escalate(c, sig, innate_action)
 
-	# LEARNED-LETHAL VETO (Half C): see _apply_veto — refuse the innate action if it is learned reliably lethal
-	# here. Only the innate action can reach _apply_veto already sub-floor: a learned override had to clear
-	# CONFIDENCE_THRESHOLD (positive) to be chosen, and the risk-revive guard above never adds risk to a
-	# sub-floor weight — so an overridden (rewarding) action and a vetoed (lethal) one are mutually exclusive,
-	# and a safe/positive action is NEVER vetoed.
 	chosen = _apply_veto(chosen, innate_action, learned)
 
 	_record_choice(chosen, "habit" if chosen != innate_action else "instinct", sig)
@@ -217,14 +143,6 @@ func decide(c, innate_action: String, sig: Dictionary, delta: float) -> String:
 	return chosen
 
 
-## CHEAP per-creature learning + self-veto — run by EVERY creature each think tick, LEADERS AND FOLLOWERS.
-## A follower ADOPTS its leader's chosen action symbol (the expensive senses scan + slow-brain LLM assessment
-## that decides WHAT to do stays leader-only in decide()); this method makes the follower still LEARN from its
-## own life: it reinforces THIS creature's own policy from how ITS own welfare changed since last tick, and
-## refuses the adopted action if THIS creature's own experience proves it reliably lethal here (the veto),
-## redirecting to a safe fallback. O(1): one cheap sense snapshot + dict lookups — no neighbour scan, no LLM
-## escalation. Reflex actions are returned unchanged and never vetoed (survival stays non-negotiable). Returns
-## the action to actually take (the adopted action, or the safe fallback when vetoed).
 func learn_and_veto(c, action: String, sig: Dictionary, delta: float) -> String:
 	_last_veto = false
 	if LAActionRegistry.is_reflex(action):
@@ -246,11 +164,6 @@ func learn_and_veto(c, action: String, sig: Dictionary, delta: float) -> String:
 	return chosen
 
 
-## Learned-lethal VETO (Half C), shared by decide() and learn_and_veto(). If the action about to be taken is
-## the innate/adopted one AND this creature has learned it is reliably lethal in this situation (weight at/
-## below the lethal floor), refuse it and redirect to a safe alternative; sets _last_veto and counts the veto.
-## The redirect always yields a valid, benign action (never a freeze/no-op). Reflexes never reach here (they
-## return before either caller reaches the veto). Creature.gd additionally steers the body AWAY on a veto.
 func _apply_veto(chosen: String, innate_action: String, learned) -> String:
 	if chosen == innate_action and learned != null \
 			and String((learned as Dictionary).get("action", "")) == innate_action \
@@ -290,14 +203,9 @@ func _record_choice(action: String, how: String, sig: Dictionary) -> void:
 ## called once per decision, which is already throttled — no per-frame or neighbour scan. Returns
 ## {health, fear, o2, temp}: HP, the panic/fear level, the breath fraction in-medium, and ambient °C.
 func _sample_senses(c) -> Dictionary:
-	return LACognizerAdapter.senses(c)
+	return LACognizerAdapter.senses(c, _last_temp)
 
 
-## Reward the last action by how the creature's WHOLE welfare changed since (Half A). Energy + hydration
-## gains are the primary appetitive drive; on top we subtract the discomfort it brought — HP lost, a rise
-## in fear, running out of breath, or sitting outside the comfort band — so the animal learns to avoid
-## predators/cold/drowning exactly as it learns to eat. The aversive magnitude is ALSO stored per entry
-## (`risk`) so Half B's decision can discount it by drive. `senses` is the fresh snapshot from decide().
 func _reinforce(c, senses: Dictionary) -> void:
 	if _last_key < 0 or _last_action == "":
 		return
@@ -325,15 +233,11 @@ func _reinforce(c, senses: Dictionary) -> void:
 	var breath_frac: float = minf(_last_o2, float(senses.get("o2", 1.0)))
 	aversive += clampf((1.0 - breath_frac) * W_O2, 0.0, TERM_CAP)
 	# Temperature: the worst deviation outside the comfort band across the interval (cold snap / heat).
-	var dev: float = maxf(_comfort_deviation(_last_temp, c), _comfort_deviation(float(senses.get("temp", _last_temp)), c))
+	var dev: float = maxf(_comfort_deviation(_last_temp), _comfort_deviation(float(senses.get("temp", _last_temp))))
 	aversive += clampf(dev * W_TEMP, 0.0, TERM_CAP)
 
 	var reward: float = clampf(appetitive - aversive, -1.0, 1.0)
 	var entry = policy.get(_last_key, null)
-	# DURABILITY of the learned-lethal veto: after a veto, _last_action is the SAFE FALLBACK we were redirected to
-	# (not a freely-chosen action). If the stored entry is a lethal-floor aversion (weight <= VETO_WEIGHT) for a
-	# DIFFERENT action, do NOT overwrite it with a fresh "fallback is fine here" record — that erased the aversion
-	# after a single veto and let the creature walk straight back into the lethal action next tick. Keep the floor.
 	if entry != null and String((entry as Dictionary).get("action", "")) != _last_action \
 			and _last_was_fallback \
 			and float((entry as Dictionary).get("weight", 0.0)) <= VETO_WEIGHT:
@@ -348,16 +252,8 @@ func _reinforce(c, senses: Dictionary) -> void:
 	(entry as Dictionary)["risk"] = clampf(prev_risk * RISK_RETAIN + aversive, 0.0, RISK_MAX)
 
 
-# How much a temperature `t` (°C) hurts, expressed as how far the body's own respiration reaction falls short
-# of its best rate there: 0 at the optimum, 1 where the reaction stops entirely (cell water freezing at one end,
-# protein denaturation at the other). Reads LACreatureRespiration's band directly, so the discomfort the body
-# actually suffers and the aversion the mind learns are the SAME curve and cannot drift apart.
-#
-# The signal is bounded and smooth, so a mind can grade a mild chill against a lethal one.
-func _comfort_deviation(t: float, c) -> float:
-	if is_nan(t):
-		return 0.0                       # never sensed an ambient: no discomfort to feel
-	return 1.0 - LACreatureRespiration.temp_band(t, c)
+func _comfort_deviation(t: float) -> float:
+	return 1.0 - LACreatureRespiration.temp_band(t)
 
 
 # Drive urgency in [0,1]: how hard hunger OR thirst is pushing this creature right now (fractional deficit).
@@ -392,20 +288,11 @@ func _escalate(c, sig: Dictionary, innate_action: String) -> void:
 	if not _sched.request(c, self, sig, innate_action):
 		return
 	_pending = true
-	# The slow-brain re-consult cooldown is the player's Sim/AI cadence knob (`la_llm_cadence`, seconds,
-	# published by LAVoxelSettingsApplier). A missing/zero global falls back to the historical 6 s. Read
-	# live each escalation so a mid-game settings re-apply retunes it — shorter cadence → the slow brain
-	# runs more often (heavier CPU), longer → rarer.
 	var cad: float = float(Engine.get_meta("la_llm_cadence", 0.0)) if Engine.has_meta("la_llm_cadence") else 0.0
 	_cooldown = cad if cad > 0.0 else 6.0
 	escalations += 1
 
 
-## Called back by the scheduler when the slow brain resolves an escalation for `key`. Trusted enough to
-## override immediately (seeded above the confidence threshold), then tuned by reinforcement. `source`
-## records WHO decided ("llm" = the local FunctionGemma model; "teacher" = the offline heuristic) and
-## `sig` carries the situation so the thought inspector can phrase the decision — pure surfacing, no
-## second model path.
 func apply_llm_result(key: int, action: String, source: String = "llm", sig: Dictionary = {}) -> void:
 	_pending = false
 	if not LAActionRegistry.is_valid(action):
@@ -422,8 +309,6 @@ func apply_llm_result(key: int, action: String, source: String = "llm", sig: Dic
 func on_llm_failed() -> void:
 	_pending = false
 
-
-# --- thought-inspector introspection (read-only; surfaces the real decision, never calls a model) ---
 
 func last_choice() -> Dictionary:
 	return _last_choice
@@ -444,11 +329,6 @@ func was_vetoed() -> bool:
 	return _last_veto
 
 
-## Pick a safe action to take instead of one learned to be reliably lethal in this situation. It NEVER returns
-## the lethal action and NEVER returns a null/no-op — there is always the benign roam so a vetoed creature
-## keeps moving (no freeze/refuse-to-act). The policy stores one action per situation-key (the lethal one
-## here), so there is no rival learned action to promote; the roam is the safe default, and once the creature
-## survives on it the ordinary reward loop reinforces the roam INTO a positive learned override for next time.
 func _safe_fallback(lethal_action: String) -> String:
 	if lethal_action != SAFE_FALLBACK_ACTION:
 		return SAFE_FALLBACK_ACTION
@@ -464,7 +344,7 @@ func observe(c, delta: float) -> void:
 	_observe_cd -= delta
 	if _observe_cd > 0.0:
 		return
-	_observe_cd = LASimRng.shared().randf_range(1.5, 3.0)
+	_observe_cd = LASimRng.for_domain("life").randf_range(1.5, 3.0)
 	var seen: int = 0
 	for m in LACognizerAdapter.neighbours(c):
 		if seen >= OBSERVE_MAX_NEIGHBOURS:
@@ -485,10 +365,6 @@ func observe(c, delta: float) -> void:
 			if demo_w >= CONFIDENCE_THRESHOLD:
 				_absorb_observation(int(key), String((e as Dictionary).get("action", "")), rel, demo_w)
 			elif demo_w <= AVERSION_SHARE:
-				# SOCIAL AVERSION SPREAD (Half D): a kin that learned "this situation = death" (a reliably-lethal,
-				# confident negative) transmits that FEAR through the SAME vision-gated imitation path that spreads
-				# positive habits, so the group avoids the hazard without each member dying to discover it. Mirror
-				# of _absorb_observation: it deepens the observer's aversion toward the SAME feared action/key.
 				_absorb_aversion(int(key), String((e as Dictionary).get("action", "")), rel, demo_w)
 		# Also inherit their confident CUE associations — this is how "watch the vultures" spreads
 		# culturally: a youngster copies which signs mean food from the elders it grows up watching.
@@ -504,9 +380,6 @@ func observe(c, delta: float) -> void:
 				cue_values[ck] = clampf(cue_value(String(ck)) - closs, CUE_MIN, CUE_MAX)
 
 
-# Situational learning rate: you learn a thing FASTER the more sure the animal you're watching is —
-# a confident demonstrator is proof it's "correct", worth far more than fumbling it yourself. Scales
-# ~1x at the confidence threshold up to ~3x for a fully-ingrained expert.
 func _confidence_mult(demo_weight: float) -> float:
 	var t: float = clampf((demo_weight - CONFIDENCE_THRESHOLD) / maxf(0.001, MAX_WEIGHT - CONFIDENCE_THRESHOLD), 0.0, 1.0)
 	return 1.0 + t * 2.0
@@ -534,12 +407,6 @@ func _absorb_observation(key: int, action: String, rel: float, demo_weight: floa
 			(entry as Dictionary)["weight"] = w
 
 
-# SOCIAL AVERSION SPREAD (Half D): the negative twin of _absorb_observation. Watching a kin that is CONFIDENT
-# an action is lethal (a strong negative weight) deepens my OWN aversion to that same action in that same
-# situation, weighted by relatedness and their certainty — so a learned fear diffuses through a herd exactly
-# as a learned habit does, and kin avoid the hazard without each dying first. If I already favour a DIFFERENT
-# action for this situation I keep it (I already avoid their feared move); otherwise I plant/deepen the fear so
-# my veto fires next time the innate cascade would walk me into it. Never touches reflexes (they never reach here).
 func _absorb_aversion(key: int, action: String, rel: float, demo_weight: float) -> void:
 	if not LAActionRegistry.is_valid(action):
 		return
@@ -563,13 +430,6 @@ func learn_from_sound(c, action: String, rel: float) -> void:
 	_absorb_observation(int(sig.get("key", -1)), action, rel, 2.0)
 
 
-# --- learned CUE associations (emergent "watch the vultures", nothing hardcoded) -------------------
-# A creature treats other animals as cues to resources. cue_values maps a generic cue key (e.g. the
-# observed animal's "species:state") to a learned worth. The creature is NEVER told which cue means
-# food — it discovers it: investigate a cue, and if food follows, the cue's value is reinforced; if
-# not, it decays. Useful associations (like circling scavengers → a carcass) emerge and, via observe(),
-# spread to kin. This is the same reward machinery as the rest of cognition, one level up (about the
-# world's signs rather than one's own actions).
 const CUE_LEARN_RATE: float = 0.5
 const CUE_MAX: float = 4.0
 const CUE_MIN: float = -2.0

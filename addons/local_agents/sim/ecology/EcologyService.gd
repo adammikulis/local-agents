@@ -1,27 +1,18 @@
 class_name LAEcologyService
 extends Node
 
-# Drives the living world: spawning, predator-prey population dynamics, breeding
-# with population caps, herd cohesion (delegated to creatures), and plant seeding.
-# Every actor is placed on the terrain surface via LAVoxelTerrainService.
 
 const CreatureScript: GDScript = preload("res://addons/local_agents/creatures/Creature.gd")
 const PlantScript: GDScript = preload("res://addons/local_agents/sim/actors/Plant.gd")
 const RockScript: GDScript = preload("res://addons/local_agents/sim/actors/Rock.gd")
 const TreeScript: GDScript = preload("res://addons/local_agents/sim/actors/Tree.gd")
-const FishScript: GDScript = preload("res://addons/local_agents/creatures/Fish.gd")
+const FishScene: PackedScene = preload("res://addons/local_agents/creatures/Fish.tscn")
 const TrackSystemScript: GDScript = preload("res://addons/local_agents/sim/TrackSystem.gd")
 
 const KINDS: Array = ["plant", "rabbit", "fox", "bird", "villager", "fish", "rock", "tree"]
 
-# Every creature/fish this service spawns joins this group, which is the default `adopt_group` of
-# LocalAgentCognitionScheduler. That is what lets a scheduler dropped into a scene from the inspector
-# wire itself to the whole population with no code (this service also injects its own directly).
 const COGNITION_GROUP: StringName = &"la_creatures"
 
-# A LIVING sea: scale every aquatic species' starting count AND its population cap by this factor so the
-# ocean/lakes teem instead of trickling. Data files stay the single source of the per-species ratios; this
-# is the one owned dial that makes the water busy without editing eight species files.
 const AQUATIC_STOCK_MULT: float = 2.6
 
 var terrain = null                       # LAVoxelTerrainService
@@ -38,12 +29,6 @@ var _breeding: LAEcologyBreeding = null  # reproduction/population dynamics (lan
 var _plants: LAEcologyPlants = null      # vegetation seeding (plant spread + forest succession)
 var _aquatic: LAEcologyAquatic = null    # non-repro aquatic placement (initial stock + depth-band sampler)
 
-# NIGHT IS A PLACE, NOT A CLOCK. On a sphere lit by a real sun there is no global "time of day": half the
-# world is lit and half is dark at every instant, and which half you are in depends on where you stand.
-#
-# The terminator is physical: LASystemOrbits computes the planet->sun vector, and the field's solar kernel
-# lights cells with max(0, dot(cell_radial, sun_dir)). Night here asks the same question the substrate
-# already answers, per creature, and keeps no state that can go stale.
 var _sun_dir: Vector3 = Vector3.ZERO      # unit planet-centre -> sun; zero length = no sun known yet
 var _sun_centre: Vector3 = Vector3.ZERO   # the body the local `up` is measured from
 
@@ -71,20 +56,12 @@ var _pending: Array = []
 var _seed_timer: float = 0.0
 var _fish_timer: float = 0.0
 var _tree_timer: float = 0.0             # forest succession: groves densify on biomass-rich ground
-# THE ACTOR-SIDE CLOCK, published so the world's two halves can be compared instead of argued about. Every
-# node in the tree (this service, every creature, every plant) is handed the full physics delta; the
-# substrate is handed the same delta and keeps only what its own step ceiling allows. A clock mismatch shows
-# up as `eco_sim_s` here running ahead of `field_sim_s` (LAMaterialFieldSphereStep3D).
 var _eco_s: float = 0.0
 var _phys_frames: int = 0
 var _aquatic_kinds_cache: Array = []     # aquatic species ids (config aquatic:true), indexed once
 var _aquatic_indexed: bool = false
 var _land_kinds_cache: Array = []        # land creature species ids (has diet, not aquatic), indexed once
 var _land_indexed: bool = false
-# Permanent kinship graph backing every creature's family_id. A family is a connected component; family_id is
-# its stable label. Founder clusters allocate a fresh label (LAKinshipGraph.new_family) and offspring inherit
-# their parent's component at birth — bonds are recorded once, never rewritten. Updated only on the
-# founding/birth/death events (never per frame); kin recognition reads the cheap family_id, not the graph.
 var _kinship: LAKinshipGraph = LAKinshipGraph.new()
 
 
@@ -93,11 +70,6 @@ func kinship() -> LAKinshipGraph:
 	return _kinship
 
 
-## Wipe the live population + registries back to the fresh-but-initialized state, so a saved snapshot can be
-## restored IN PLACE (no scene reload) — used by the timeline rewind/fork. Frees every actor node (creatures,
-## fish, vegetation, rocks, nests, disaster markers — all carry GROUP_SELECTABLE) and resets the kinship graph;
-## vegetation actors release their renderer slots on _exit_tree, so the batched MultiMesh recycles them. The
-## field is restored separately by the caller. Lazy species-kind caches are left (immutable, config-derived).
 func reset_world() -> void:
 	if actors_root == null:
 		return
@@ -115,12 +87,7 @@ func reset_world() -> void:
 	# Drop any queued spawn work so it can't spawn into the restored world.
 	_pending.clear()
 
-# --- Seismic / shock stimulus (emergent camera shake) ------------------------
-# Ground disturbances inject into the field's PROPAGATING shock wave (LAMaterialShock3D); the camera
-# reads seismic_energy_at() (→ field.shock_at) and shakes. No local ring — the wave carries it (see below).
 
-
-# --- species / plant configs ------------------------------------------------
 func _species_config(kind: String) -> Dictionary:
 	# Species stats live in per-type DATA files under data/species/<class>/<kind>.json, kept OUT of
 	# this business logic so a creature can be retuned by editing one small file (see LASpeciesLibrary).
@@ -141,10 +108,6 @@ func _aquatic_kinds() -> Array:
 	return _aquatic_kinds_cache
 
 
-# Every LAND creature species (has a `diet`, not flagged aquatic) — the set the population-dynamics breeding
-# loop drives. Indexed once from the species library so a NEW land species (its JSON dropped in) breeds and
-# recovers automatically, with no hardcoded roster to edit. Aquatic species are stocked separately (below);
-# plants/rocks/trees have no `diet` and are excluded.
 func _land_kinds() -> Array:
 	if _land_indexed:
 		return _land_kinds_cache
@@ -205,28 +168,17 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 	_plants.setup(self)
 	_aquatic = LAEcologyAquatic.new()
 	_aquatic.setup(self)
-	# The biosphere's OFF-FIELD carbon, as a registered SIM_REPORT source. Mass a plant node draws out of the
-	# field's `biomass` channel into its own tissue leaves the substrate's carbon ledger (`carbon_total` sums
-	# co2 + biomass + detritus in the FIELD only), so without these gauges a perfectly conserving draw would
-	# read as carbon destroyed and a leak would be indistinguishable from ordinary uptake.
 	LASimReport.register(Callable(self, "vegetation_report"))
 	_tracks = TrackSystemScript.new()
 	_tracks.name = "TrackSystem"
 	add_child(_tracks)
 	_tracks.setup(terrain)
-	# Shared System-2 slow brain (FunctionGemma) with a global call budget; creatures escalate to
-	# it rarely and asynchronously. Loaded by path + guarded so the sim still runs on pure fast
-	# heuristics + social learning if the scheduler script or model is unavailable.
 	var sched_script: GDScript = load("res://addons/local_agents/creatures/cognition/CognitionScheduler.gd")
 	if sched_script != null:
 		_cognition_sched = sched_script.new()
 		_cognition_sched.name = "CognitionScheduler"
 		add_child(_cognition_sched)
 		if _cognition_sched.has_method("setup"):
-			# Route the slow brain through the shared LocalAgentLlmService (set by VoxelWorld via
-			# set_llm_service before this setup runs). When it is null or reports itself offline — no
-			# model installed, or the service is switched off — the scheduler falls back to the built-in
-			# heuristic teacher for every escalation.
 			_cognition_sched.setup({"llm_service": _llm_service})
 
 
@@ -288,16 +240,6 @@ func set_llm_service(service) -> void:
 	_llm_service = service
 
 
-## SIM_REPORT source: where the biosphere's carbon is when it is not in the field.
-##
-##   veg_food_held    — reserve standing in live plant nodes right now. Add it to `carbon_biomass` for the
-##                      planet's real standing crop.
-##   veg_food_drawn   — cumulative mass plant nodes have taken OUT of the field's biomass channel.
-##   veg_food_returned— cumulative mass handed BACK as detritus when a plant node was removed.
-##   veg_seed_cost    — cumulative parent reserve spent on germination (a seedling is built from its parent).
-##
-## `drawn - returned - (what herbivores ate)` is what is currently standing in plant tissue, so `held` and the
-## other three are the closure check: held should never exceed drawn, and returned should never exceed drawn.
 func vegetation_report() -> Dictionary:
 	var led: LAVegLedger = LAVegLedger.of(_material)
 	return {
@@ -308,27 +250,14 @@ func vegetation_report() -> Dictionary:
 	}
 
 
-# AN IGNITION SOURCE IS NOT A HEAT SOURCE. A no-op that keeps the call site alive: the impactor's kinetic +
-# thermal energy (Meteor.gd `_impact_energy_j`) is the whole heat budget of a strike, and whether it crosses
-# the fuel's ignition temperature is for the substrate to decide. A caller that needs to start a fire from a
-# NAMED store — a dropped torch, a magma contact — debits that store and calls
-# `LAMaterialFieldInject3D.add_heat_energy` with the joules.
 func ignite_area(_world_pos: Vector3, _radius: float) -> void:
 	pass
 
 
-# Emergent growth CONDITION (not a hardcoded elevation): a seed only takes where the ground is warm enough
-# and not under snow. Because the temperature field cools with altitude (LAPSE) and snow forms on the cold
-# summits, this makes the treeline + the bare snow cap EMERGE from the climate — a warm coast forests over,
-# frozen peaks stay bare, and the line MOVES if the climate warms/cools. GROW_MIN_TEMP is the germination
-# threshold (a property of vegetation, tunable), read against the field — never an elevation number.
 const GROW_MIN_TEMP: float = 7.5          # °C below which the ground is too cold for a seed to germinate
 const GROW_SNOW_MAX: float = 0.02         # snowpack depth above which the ground is snow-covered (no germination)
 
 
-# The SKY-EXPOSED open cell one voxel ABOVE a ground point (offset outward along the radial). Biomass,
-# snow and near-surface temperature live in that open surface cell, NOT in the solid cell a base-anchored
-# actor's exact position maps to — so every climate read below samples here to get the real values.
 const SURFACE_PROBE_UP: float = 6.0     # a little over one 5-unit field cell, into the open surface layer
 func _air_point(pos: Vector3) -> Vector3:
 	if terrain != null and terrain.has_method("up_at"):
@@ -338,10 +267,6 @@ func _air_point(pos: Vector3) -> Vector3:
 	return pos + Vector3.UP * SURFACE_PROBE_UP
 
 
-# Can vegetation take root at `placed`? Reads the field CONDITIONS (temperature + snow cover) in the TRUE
-# 3D sky-exposed surface cell (three-d-always — the 2.5D x,z form returns safe defaults on a sphere and never
-# gates), so the treeline is emergent: warm snow-free ground greens over, frozen/snow-capped poles stay bare
-# and the line MOVES with the climate. True when there is no material field wired yet (boot spawns aren't blocked).
 func _can_grow_here(placed: Vector3) -> bool:
 	if _material == null:
 		return true
@@ -353,12 +278,6 @@ func _can_grow_here(placed: Vector3) -> bool:
 	return true
 
 
-# Living BIOMASS at a surface point — the emergent photosynthesis product right there (lit, warm, CO₂-rich,
-# WATERED ground fixes the most). Forests gate on this so groves densify where the chemistry is most productive
-# and stay sparse on cold, dark or dry ground. 0 when no field is wired yet.
-#
-# Sampled at the point itself, not up the radial: R19 photosynthesis runs on the ground (GATE_NEAR_GROUND), so
-# two points on opposite sides of a ridge read their own biomass rather than sharing a column.
 func _biomass_at(pos: Vector3) -> float:
 	if _material == null or not _material.has_method("biomass_at"):
 		return 0.0
@@ -376,12 +295,6 @@ func spawn_initial(counts: Dictionary) -> void:
 	_spawner.spawn_initial(counts)
 
 
-## SAVE-RESTORE instancing: place an actor at an EXACT saved transform (no surface projection / no water-body
-## gate — a saved creature already lived there, so its transform is authoritative). Reuses the normal
-## _instance_actor path (so a creature still gets its body, cognition scheduler, material field wiring and the
-## tree_exited→kinship.forget hook), then stamps the full saved transform over the placement position. Kinship
-## membership is reconstructed separately by the world-save restore (grouped by family), so `family_id` is set
-## on the node here but NOT registered as a founder cluster. Returns the node, or null if the kind is unknown.
 func restore_actor(kind: String, xform: Transform3D, genome = null, family_id: int = -1) -> Node:
 	var node: Node = _instance_actor(kind, xform.origin, genome, -1, true)
 	if node != null and node is Node3D:
@@ -399,9 +312,10 @@ func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
 	return _spawner._tangent_offset_point(anchor, u, v)
 
 
-# Orient a spawned static actor (tree/plant/rock) so its local +Y points along the radial up at its
-# position — otherwise everything would stand parallel to world +Y and lean over as you round the
-# globe. Preserves the node's current scale.
+func _surface_radius(dir: Vector3) -> float:
+	return _spawner._surface_radius(dir)
+
+
 func _orient_to_surface(node: Node3D, pos: Vector3) -> void:
 	if node == null:
 		return
@@ -465,12 +379,9 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 		# Aquatic species (config aquatic:true) are all driven by the ONE LAFish script — a fish, turtle,
 		# crab or whale differ only by config (salinity/depth band, body, speed). They exist only in water.
 		if bool(cfg.get("aquatic", false)):
-			# force_place (save-restore) skips the water gate: the fish already lived at this exact point (a
-			# basking turtle/crab hauled onto the beach, or a swimmer at the waterline) — its transform is
-			# authoritative, so re-instance it there rather than dropping it for being momentarily out of the sea.
 			if not force_place and not _is_water_pos(placed):
 				return null
-			var fish: FishScript = FishScript.new()
+			var fish: LAFish = FishScene.instantiate() as LAFish
 			# Join the cognition group so a scene-placed scheduler can find it. The ecology injects its own
 			# scheduler explicitly below; the group is what lets a scheduler the USER dropped in adopt it.
 			fish.add_to_group(COGNITION_GROUP)
@@ -501,9 +412,6 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 			creature.set_material_field(_material)
 		if creature.has_method("set_cognition_scheduler"):
 			creature.set_cognition_scheduler(_cognition_sched)
-		# Back family_id with the kinship graph. Founder-cluster members (family_id >= 0) join their shared
-		# family component; an offspring already carries its inherited label (registered at the breeding site).
-		# On removal (death), the creature forgets itself so the graph stays bounded (event-driven, O(degree)).
 		var cid: int = int(creature.get_instance_id())
 		if family_id >= 0:
 			_kinship.add_member(family_id, cid)
@@ -516,7 +424,7 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 
 
 func _tree_config() -> Dictionary:
-	var pine: bool = LASimRng.shared().randf() < 0.4
+	var pine: bool = LASimRng.for_domain("life").randf() < 0.4
 	return {"species": "pine" if pine else "oak"}
 
 
@@ -551,9 +459,6 @@ func _physics_process(delta: float) -> void:
 	LASimReport.gauge("phys_dt", delta)
 	LASimReport.gauge("phys_frames", float(_phys_frames))
 	_process_pending()
-	# Land reproduction is not a god-tick: each creature decides to breed for itself (LACreatureReproduction,
-	# courtship + energy-costed gestation) and calls birth_offspring() at term. Only the aquatic school runs a
-	# population tick below.
 	_seed_timer -= delta
 	if _seed_timer <= 0.0:
 		_seed_timer = 1.5
@@ -591,10 +496,6 @@ func _process_pending() -> void:
 # Land + aquatic reproduction/population dynamics live in LAEcologyBreeding; _physics_process forwards its
 # breed/aquatic-breed ticks there. debug_seed_family below reuses the module's genome + nest helpers.
 
-# HARNESS AID (--debug-family): deterministically produce a small family through the REAL reproduction path so
-# the family-tree inspector has something to draw. Finds the first species with >=2 mature adults, breeds that
-# pair twice (recording parent->child + the mate bond through the shared breeding helpers), then kills one child so a
-# dead/greyed kin appears in the lineage. Returns a parent to root the tree on (null if no mature pair exists).
 func debug_seed_family() -> Node:
 	for kind in ["rabbit", "fox", "bird", "villager", "vulture"]:
 		var adults: Array = []
@@ -607,7 +508,7 @@ func debug_seed_family() -> Node:
 		var pb: Node3D = adults[1] as Node3D
 		var kids: Array = []
 		for i in range(2):
-			var placed = _place_on_surface(_tangent_offset_point(pa.global_position, LASimRng.shared().randf_range(-2.0, 2.0), LASimRng.shared().randf_range(-2.0, 2.0)))
+			var placed = _place_on_surface(_tangent_offset_point(pa.global_position, LASimRng.for_domain("life").randf_range(-2.0, 2.0), LASimRng.for_domain("life").randf_range(-2.0, 2.0)))
 			if placed == null:
 				continue
 			var child = _instance_actor(kind, placed, _breeding._breed_genome(pa, pb))
@@ -623,10 +524,6 @@ func debug_seed_family() -> Node:
 	return null
 
 
-# Per-creature reproduction (LACreatureReproduction) forwarders — the DECISION to breed lives on the
-# individual, but the pop_cap ceiling check and the offspring heredity/lineage machinery stay in
-# LAEcologyBreeding (one owner). A gestating creature calls birth_offspring() at term; a courting one gates
-# conception on can_species_breed() so a species never conceives past its cap.
 func can_species_breed(kind: String) -> bool:
 	return _breeding.species_below_cap(kind)
 
@@ -654,9 +551,6 @@ func seed_plant_at(world_pos: Vector3) -> void:
 	spawn("plant", world_pos)
 
 
-# Initial aquatic stock + the depth-band sampler live in LAEcologyAquatic; these stay as thin forwarders:
-# stock_initial_aquatic is the public call the spawn controller makes once the sea level is locked, and
-# _random_aquatic_point is reused by the aquatic-breeding tick (LAEcologyBreeding) through this hub.
 func stock_initial_aquatic() -> void:
 	_aquatic.stock_initial_aquatic()
 

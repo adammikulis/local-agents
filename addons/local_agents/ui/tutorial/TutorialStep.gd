@@ -1,12 +1,7 @@
 class_name LocalAgentTutorialStep
 extends Resource
 
-## One step in a guided tutorial: the instruction text, what on screen it points at, and the condition
-## that advances to the next step. Pure data: a typed Resource so steps can be authored in the inspector
-## or built in code, then handed to an LATutorialSequencer. Game-agnostic: nothing here knows about the
-## voxel sim or any particular scene. (Explicit types only. No ':=' inferred typing.)
 
-## What the step's highlight points at.
 enum TargetKind {
 	NONE,     ## no spotlight, just a centered callout (intro / outro text)
 	CONTROL,  ## a Control node resolved from `control_path` relative to the sequencer's target root

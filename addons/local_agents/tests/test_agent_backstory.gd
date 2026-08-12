@@ -1,19 +1,6 @@
 @tool
 extends RefCounted
 
-## Proves a LocalAgent with a backstory service attached actually remembers what was said to it.
-##
-## This is a wiring test, not a store test. test_backstory_graph_service.gd already covers the store.
-## What broke here, and what this exists to catch, is the connection between them: the first version
-## recorded every line successfully, returned ok from every call, and recalled NOTHING, because the
-## recall reader looked for row keys named `memories`/`results`/`rows` and the one that carries recent
-## memories is called `candidates`. Every signal was green and the feature did nothing, which is the
-## same shape as the dead `system_prompt` export. So the assertion is on the recalled TEXT, not on any
-## call reporting success.
-##
-## Runs with no model and no llama-server. Semantic recall needs embeddings and is expected to be
-## unavailable here, which is precisely why the fallback path is what gets asserted.
-## (Explicit types only, project rule: no ':=' inferred typing.)
 
 const AgentScript: GDScript = preload("res://addons/local_agents/agents/Agent.gd")
 const SvcScript: GDScript = preload("res://addons/local_agents/graph/BackstoryGraphService.gd")
@@ -35,9 +22,6 @@ func run_test(tree: SceneTree) -> bool:
 		push_error("NetworkGraph class missing after extension init.")
 		return false
 
-	# Set the path BEFORE add_child so no default handle is ever opened: _ready() opens the graph, and this
-	# test's two clear_backstory_space() calls must land on its own file, never the player's shared
-	# user://local_agents/network.sqlite3.
 	var svc: Node = SvcScript.new()
 	svc.set_database_path(DB_PATH)
 	tree.get_root().add_child(svc)

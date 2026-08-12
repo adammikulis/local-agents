@@ -1,11 +1,6 @@
 class_name LALightningStrike
 extends Node3D
 
-## A lightning bolt: VISUAL/AUDIO ONLY. The physics (charge buildup, breakdown, the heat pulse that
-## ignites wildfire via combustion, and the scare broadcast) now live in the field's emergent CHARGE
-## process (LAMaterialCharge3D); the field injects the heat + broadcasts the scare itself, then fires
-## this bolt via a callback. So this node just draws the jagged flash and plays the thunder, then
-## self-frees. (Explicit types only, no ':=' inferred typing.)
 
 const STRIKE_HEIGHT: float = 130.0        # bolt drawn from this high down to the point
 const FLASH_ENERGY: float = 34.0

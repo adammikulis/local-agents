@@ -1,24 +1,8 @@
 class_name LAVoxelTimeControl
 extends CanvasLayer
 
-## Player time-dilation controls: the keys and the on-screen readout. PRESENTATION ONLY — the playback rate
-## itself is LASimTimeScale, a plain node, and this forwards to it. Runs PROCESS_MODE_ALWAYS so the keys and
-## the HUD keep working while the tree is paused (that is what lets Space un-pause).
-##
-## Keys:  Space = pause / play toggle · , = slower · . = faster · Home = reset to 1×.
-## REVERSE + timeline FORK plug in here later (the snapshot ring-buffer): reverse becomes another speed state
-## driven by restoring snapshots, and this stays the one place the HUD + rate live. This module is the
-## It forwards to LASimTimeScale and mirrors its speed_changed signal for the HUD and the snapshot layer.
 
-const SPEEDS: Array[float] = LASimTimeScale.SPEEDS
-
-signal speed_changed(paused: bool, speed: float)
-
-## The live widget, for the pause menu and the trailer director to find. It is not the rate's owner;
-## LASimTimeScale.active() is.
-static var _active: LAVoxelTimeControl = null
-
-var _rate: LASimTimeScale = null    # the authority; this node only reads and drives it
+var _authority: LASimTimeAuthority = null
 var _camera: Node = null           # optional — to yield Space to the fly-drone's lift control
 var _timeline: Node = null         # optional — LAVoxelTimeline (reverse/fork via the snapshot ring)
 var _reversing: bool = false       # mirror of the timeline's reverse state, for the HUD
@@ -33,38 +17,16 @@ func _init() -> void:
 
 
 func _ready() -> void:
-	_active = self
-	_rate = LASimTimeScale.active()
-	if _rate == null:
-		push_error("LAVoxelTimeControl: no LASimTimeScale in the tree — the rate has no owner.")
-	else:
-		_rate.speed_changed.connect(_on_rate_changed)
 	_build_hud()
 	_update_hud()
 
 
-func _on_rate_changed(paused: bool, speed: float) -> void:
+## Bind the clock this panel displays and drives. Without it the keys are inert.
+func set_authority(authority: LASimTimeAuthority) -> void:
+	_authority = authority
+	if _authority != null and not _authority.speed_changed.is_connected(_on_speed_changed):
+		_authority.speed_changed.connect(_on_speed_changed)
 	_update_hud()
-	speed_changed.emit(paused, speed)
-
-
-func _exit_tree() -> void:
-	if _active == self:
-		_active = null
-
-
-## The live time control, or null before the world has built one.
-static func active() -> LAVoxelTimeControl:
-	return _active
-
-
-## Set the speed from a raw multiplier, snapped to the nearest supported SPEED. THIS is the entry point for
-## every non-key speed change (the `--fast=N` command line, the pause menu's speed row, the trailer director).
-##
-## Forwards to LASimTimeScale, which is the single owner of Engine.time_scale.
-func set_multiplier(mult: float) -> void:
-	if _rate != null:
-		_rate.set_multiplier(mult)
 
 
 ## Optional: the camera rig, so Space pauses only when NOT flying the drone (fly uses Space for lift).
@@ -81,7 +43,11 @@ func set_timeline(timeline: Node) -> void:
 		_timeline.achievement.connect(_on_achievement)
 
 
-## Pop a tongue-in-cheek time-travel "achievement" toast (from the timeline's rewind-count milestones), fading it.
+func _on_speed_changed(_paused: bool, _speed: float) -> void:
+	_update_hud()
+
+
+## Pop a time-travel "achievement" toast (from the timeline's rewind-count milestones), fading it.
 func _on_achievement(title: String, body: String) -> void:
 	if _toast == null:
 		return
@@ -137,7 +103,7 @@ func _build_hud() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not (event is InputEventKey):
+	if _authority == null or not (event is InputEventKey):
 		return
 	var key: InputEventKey = event
 	if not key.pressed or key.echo:
@@ -147,15 +113,17 @@ func _unhandled_input(event: InputEvent) -> void:
 			# Yield to the fly-drone (Space = lift) when flying, so time-pause never fights it.
 			if _camera != null and _camera.has_method("is_fly") and _camera.is_fly():
 				return
-			toggle_pause()
+			_exit_reverse()
+			_authority.toggle_pause()
 		KEY_PERIOD:
-			faster()
+			_exit_reverse()
+			_authority.faster()
 		KEY_COMMA:
-			slower()
+			_exit_reverse()
+			_authority.slower()
 		KEY_HOME:
 			_exit_reverse()
-			if _rate != null:
-				_rate.set_multiplier(1.0)
+			_authority.reset_speed()
 		KEY_J:
 			# Reverse-scrub toggle (snapshot rewind). Forking happens when a forward action resumes from here.
 			if _timeline != null and _timeline.has_method("toggle_reverse"):
@@ -165,39 +133,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 
-func toggle_pause() -> void:
-	_exit_reverse()
-	if _rate != null:
-		_rate.toggle_pause()
-
-
-func play() -> void:
-	_exit_reverse()
-	if _rate != null:
-		_rate.play()
-
-
-func faster() -> void:
-	_exit_reverse()
-	if _rate != null:
-		_rate.faster()
-
-
-func slower() -> void:
-	_exit_reverse()
-	if _rate != null:
-		_rate.slower()
-
-
-func is_paused() -> bool:
-	return _rate.is_paused() if _rate != null else false
-
-
-## The effective playback rate the sim is running at (0 while paused). Read by the HUD + the snapshot layer.
-func current_speed() -> float:
-	return _rate.current_speed() if _rate != null else 0.0
-
-
 func _update_hud(rev_count: int = -1) -> void:
 	if _label == null:
 		return
@@ -205,9 +140,13 @@ func _update_hud(rev_count: int = -1) -> void:
 		# Explicit: rewind is approximate — it restores the LIFE, not the environment (perf-over-parity).
 		var tail: String = "" if rev_count < 0 else ("  ·  %d left" % rev_count)
 		_label.text = "◀◀  REWIND  (life reverts · world keeps flowing)%s" % tail
-	elif is_paused():
+		return
+	if _authority == null:
+		_label.text = ""
+		return
+	if _authority.is_paused():
 		_label.text = "‖  PAUSED"
-	else:
-		var s: float = current_speed()
-		var num: String = ("%.2f" % s).rstrip("0").rstrip(".") if s < 1.0 else str(int(round(s)))
-		_label.text = ("▶  %s×" % num) if s >= 1.0 else ("◗  %s×" % num)
+		return
+	var s: float = _authority.current_speed()
+	var num: String = ("%.2f" % s).rstrip("0").rstrip(".") if s < 1.0 else str(int(round(s)))
+	_label.text = ("▶  %s×" % num) if s >= 1.0 else ("◗  %s×" % num)

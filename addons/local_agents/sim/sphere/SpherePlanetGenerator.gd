@@ -1,28 +1,7 @@
 class_name LASpherePlanetGenerator
 extends RefCounted
 
-## Builds the NATIVE compiled voxel-graph generator for a spherical planet (Phase A1 terrain crux).
-##
-## The planet is one SDF built from a solid ball minus a relief field:
-##   sdf(p) = (length(p) - radius) - relief(p) + ocean_bias
-##   surface radius = radius + relief(p) - ocean_bias   (zero-crossing)
-##
-## RELIEF is dominated by CELLULAR (Worley/Voronoi) noise, return type CELL_VALUE: each Voronoi cell gets its
-## own random elevation, so the planet breaks into DISTINCT continents + islands (the cells) separated by the
-## sea, with sharp coastlines along the cell borders. This is a cell-structured world, not a smooth fBm dome where
-## everything sheets radially the same. (CELL_VALUE is the only cellular return type with a well-spread
-## distribution here; DISTANCE / DISTANCE_2_SUB come back cramped-negative → an all-ocean planet.) A
-## low-amplitude fBm detail layer breaks up each plateau into hills + valleys, so runoff finds channels and
-## rivers drain to the coast emergently. (Beaches + eroded coasts are a 0.5 job, see the bake-the-planet task.)
-##
-## OCEAN_BIAS pushes the whole surface inward so most of the sphere sits BELOW the sea shell: an ocean world
-## with continents/islands at the cellular cores, the sea for rivers to reach. Raise ocean_bias / raise
-## sea_radius for more water; lower for more land.
-##
-## Everything runs in the native VoxelGeneratorGraph (compiled, SIMD), with NO per-voxel GDScript (native/Big-O
-## mandate). godot_voxel's VoxelLodTerrain gives distance-LOD for free. (Explicit types only, no ':=' inferred typing.)
 
-# VoxelGraphFunction NODE_* type ids (from this build's ClassDB):
 const T_OUTPUT_SDF: int = 4
 const T_ADD: int = 5
 const T_SUBTRACT: int = 6
@@ -47,17 +26,6 @@ func sea_radius() -> float:
 	return _sea_radius
 
 
-## Build + compile the generator. opts (all optional):
-##   radius        — mean planet sphere (world units)
-##   sea_radius    — ocean shell radius (default == radius, so the mean surface sits at the coastline)
-##   ocean_bias    — inward push of the surface; bigger => more of the planet is ocean (default 34)
-##   relief        — cellular (continent) amplitude, world units (default 46)
-##   detail_relief — fBm roughness amplitude, world units (default 6)
-##   feature_size  — cellular cell size / continent wavelength (default 155)
-##   detail_size   — fBm detail wavelength (default 44)
-##   jitter        — cellular jitter 0..1 (1 => most organic cells; default 1.0)
-##   octaves, seed — fBm/cellular fractal octaves + noise seed
-## Returns the compiled VoxelGeneratorGraph (pushes an error + returns a still-usable graph on compile fail).
 func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	_radius = float(opts.get("radius", 250.0))
 	_sea_radius = float(opts.get("sea_radius", _radius))
@@ -74,30 +42,15 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	# CELL_VALUE relief is flat-topped, so without this land drains monotonically to the sea and nothing pools).
 	var basin_relief: float = float(opts.get("basin_relief", 0.0))
 	var basin_size: float = float(opts.get("basin_size", 130.0))
-	# RIDGES: a RIDGED-fractal layer — branching sharp ridge lines with VALLEYS between them. This is the classic
-	# river-valley noise: it carves a dendritic valley network into the smooth continents so drainage concentrates
-	# into long branching rivers (fBm alone gives only broad slopes). Amplitude kept modest (not a spiky world).
 	var ridge_relief: float = float(opts.get("ridge_relief", 0.0))
 	var ridge_size: float = float(opts.get("ridge_size", 90.0))
 	var ridge_octaves: int = maxi(1, int(opts.get("ridge_octaves", 4)))
-	# CAVES: emergent fractal "spaghetti" tunnels carved into the SDF underground. NOT a dedicated cave system
-	# — just two more 3D noise layers whose iso-surface intersection is a winding tube, thresholded and gated to
-	# open air below the surface (see the cave block below). Knobs (all overridable; caves_enabled=false or the
-	# LA_CAVES=0 env → no cave nodes at all, so the SDF is byte-identical to the pre-cave planet):
-	#   cave_size       — tunnel noise wavelength (world units; bigger => longer, wider-spaced tunnels)
-	#   cave_threshold  — how near the two iso-surfaces must sit to open a tube (bigger => fatter tunnels)
-	#   cave_strength   — void-SDF scale (wall sharpness; must clear 0 to open — 0 disables)
-	#   cave_depth_fade — minimum depth below the surface before tunnels open (keeps the surface intact)
 	var caves_enabled: bool = bool(opts.get("caves_enabled", true))
 	var cave_size: float = maxf(1.0, float(opts.get("cave_size", 70.0)))
 	var cave_threshold: float = float(opts.get("cave_threshold", 0.08))
 	var cave_strength: float = float(opts.get("cave_strength", 40.0))
 	var cave_depth_fade: float = maxf(0.0, float(opts.get("cave_depth_fade", 24.0)))
 
-	# CONTINENTS: smooth SIMPLEX fBm (was cellular CELL_VALUE — its flat-topped plateaus + sharp cliff borders
-	# FRAGMENTED drainage so rivers stayed short). A rolling continental field has large-scale SLOPES water can
-	# run down for a long way → long rivers from the high interior to the coast. Low octave count keeps the shape
-	# broad (few big landmasses / one large sea) rather than noisy.
 	var cont: ZN_FastNoiseLite = ZN_FastNoiseLite.new()
 	cont.noise_type = ZN_FastNoiseLite.TYPE_OPEN_SIMPLEX_2S
 	cont.seed = seed_val
@@ -199,17 +152,8 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	fn.add_connection(core, 0, biased, 0)
 	fn.set_node_default_input(biased, 1, ocean_bias)
 
-	# --- CAVES: carve winding tunnels into the SDF below the surface (emergent, config-driven) ---
-	# `biased` is the surface SDF (=0 at the surface, <0 solid inside, >0 air outside). We build a VOID term
-	# that is POSITIVE only inside a tunnel and combine with max(base, void): max pushes the field toward air
-	# wherever the void term is positive, so tunnels open; everywhere else the void term stays negative and the
-	# base rock is preserved (max keeps its sign, so no new surface appears). A DEPTH GATE forces the void
-	# strongly negative near/above the surface so tunnels can never shred the surface into swiss-cheese holes.
 	var final_node: int = biased
 	if caves_enabled and cave_strength > 0.0:
-		# Two INDEPENDENT 3D simplex-fBm fields. A single |noise| < eps carves 2D SHEET caves (the noise's
-		# zero-set is a surface); the INTERSECTION of two such near-zero sets is a 1D-ish winding curve, i.e.
-		# connected TUBE tunnels — the effect we want. Modest octaves keep the per-voxel SDF eval cheap.
 		var cave1: ZN_FastNoiseLite = ZN_FastNoiseLite.new()
 		cave1.noise_type = ZN_FastNoiseLite.TYPE_OPEN_SIMPLEX_2S
 		cave1.seed = seed_val + 101

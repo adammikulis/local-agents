@@ -1,0 +1,108 @@
+// The one GPU definition of phase-from-energy. GDScript twin: LASubstances.enthalpy_to_state /
+// boil_c_at / latent_vaporisation_at, held equal by scripts/check_enthalpy_ssot.sh.
+
+#ifndef LA_ENTHALPY_GLSLI
+#define LA_ENTHALPY_GLSLI
+
+const int LA_SOLID  = 0;
+const int LA_LIQUID = 1;
+const int LA_GAS    = 2;
+
+const float LA_KELVIN_OFFSET = 273.15;      // LAPhysical.KELVIN_OFFSET
+const float LA_WATSON_EXP    = 0.38;        // LAPhysical.WATSON_LATENT_EXPONENT
+const float LA_VAPOUR_R      = 461.52;       // LAPhysical.VAPOUR_GAS_CONST_J_KGK
+
+struct SubstanceTh {
+	float c_sol;
+	float c_liq;
+	float c_gas;
+	float melt_c;
+	float boil_ref_c;
+	float boil_ref_p;
+	float l_fus;
+	float l_vap_ref;
+	float l_vap_ref_t_c;
+	float crit_t_c;
+	float crit_p_pa;
+};
+
+// LASubstances.table()["h2o"], thermal half. Values are gate-bound to LAPhysical.
+SubstanceTh la_h2o() {
+	return SubstanceTh(
+		2090.0,       // ICE_SPECIFIC_HEAT_J_KGK
+		4184.0,       // WATER_SPECIFIC_HEAT_J_KGK
+		1996.0,       // VAPOUR_SPECIFIC_HEAT_J_KGK
+		0.0,          // WATER_FREEZE_C
+		100.0,        // WATER_BOIL_C
+		101325.0,     // STANDARD_PRESSURE_PA
+		333700.0,     // LATENT_HEAT_FUSION_J_KG
+		2501000.0,    // LATENT_HEAT_VAPORISATION_0C_J_KG
+		0.0,          // WATER_FREEZE_C
+		373.946,      // WATER_CRITICAL_T_C
+		22064000.0    // WATER_CRITICAL_P_PA
+	);
+}
+
+// Watson: the vaporisation enthalpy falls to zero at the critical point.
+float la_latent_vaporisation_at(SubstanceTh s, float t_c) {
+	if (s.l_vap_ref <= 0.0) { return 0.0; }
+	if (t_c >= s.crit_t_c) { return 0.0; }
+	float span_ref = s.crit_t_c - s.l_vap_ref_t_c;
+	if (span_ref <= 0.0) { return s.l_vap_ref; }
+	return s.l_vap_ref * pow((s.crit_t_c - t_c) / span_ref, LA_WATSON_EXP);
+}
+
+// Clausius-Clapeyron, integrated. Above the critical pressure there is no boundary: return the critical
+// temperature, so a supercritical cell has no plateau to cross.
+float la_boil_c_at(SubstanceTh s, float p_pa) {
+	if (p_pa >= s.crit_p_pa) { return s.crit_t_c; }
+	float p = max(p_pa, 1.0);
+	float t_ref_k = s.boil_ref_c + LA_KELVIN_OFFSET;
+	float l = la_latent_vaporisation_at(s, s.boil_ref_c);
+	if (l <= 0.0) { return s.boil_ref_c; }
+	float inv_t = 1.0 / t_ref_k - (LA_VAPOUR_R / l) * log(p / s.boil_ref_p);
+	if (inv_t <= 0.0) { return s.crit_t_c; }
+	return (1.0 / inv_t) - LA_KELVIN_OFFSET;
+}
+
+// Temperature and phase from SPECIFIC enthalpy. Returns (t_c, phase, melted, vaporised).
+// A plateau is a stretch where temperature stops responding, so latent heat is structural: there is no
+// boundary for a kernel to skip.
+vec4 la_enthalpy_to_state(SubstanceTh s, float h_j_kg, float p_pa) {
+	float boil = la_boil_c_at(s, p_pa);
+	float l_vap = la_latent_vaporisation_at(s, boil);
+
+	float h_melt_start = s.c_sol * (s.melt_c + LA_KELVIN_OFFSET);
+	if (h_j_kg <= h_melt_start) {
+		float t = (s.c_sol > 0.0) ? (h_j_kg / s.c_sol) - LA_KELVIN_OFFSET : s.melt_c;
+		return vec4(t, float(LA_SOLID), 0.0, 0.0);
+	}
+	float h_melt_end = h_melt_start + s.l_fus;
+	if (h_j_kg < h_melt_end) {
+		float m = (s.l_fus > 0.0) ? (h_j_kg - h_melt_start) / s.l_fus : 1.0;
+		return vec4(s.melt_c, float(LA_SOLID), m, 0.0);
+	}
+	float h_boil_start = h_melt_end + s.c_liq * (boil - s.melt_c);
+	if (h_j_kg <= h_boil_start) {
+		float t = (s.c_liq > 0.0) ? s.melt_c + (h_j_kg - h_melt_end) / s.c_liq : s.melt_c;
+		return vec4(t, float(LA_LIQUID), 1.0, 0.0);
+	}
+	float h_boil_end = h_boil_start + l_vap;
+	if (h_j_kg < h_boil_end) {
+		float v = (l_vap > 0.0) ? (h_j_kg - h_boil_start) / l_vap : 1.0;
+		return vec4(boil, float(LA_LIQUID), 1.0, v);
+	}
+	// GAS. The two rungs ABOVE this — dissociation and ionisation — are equilibria (law of mass action,
+	// Saha), not plateaus, and inverting them needs bisection that is too costly per cell per step. They
+	// live in LASubstances only until the EOS table lands; see docs/PHYSICS_TODO.md.
+	float t = (s.c_gas > 0.0) ? boil + (h_j_kg - h_boil_end) / s.c_gas : boil;
+	return vec4(t, float(LA_GAS), 1.0, 1.0);
+}
+
+// Inverse: specific enthalpy of a fully-liquid (or fully-solid, below melt) cell at temperature t_c.
+float la_state_to_enthalpy(SubstanceTh s, float t_c) {
+	if (t_c <= s.melt_c) { return s.c_sol * (t_c + LA_KELVIN_OFFSET); }
+	return s.c_sol * (s.melt_c + LA_KELVIN_OFFSET) + s.l_fus + s.c_liq * (t_c - s.melt_c);
+}
+
+#endif

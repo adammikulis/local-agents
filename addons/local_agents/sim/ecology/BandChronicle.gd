@@ -1,27 +1,6 @@
 class_name LABandChronicle
 extends Node
 
-## Writes the world's SOCIAL HISTORY down: which band each animal belongs to, from which day to which day.
-##
-## LACreatureAffiliation decides membership from sustained association and keeps it as a cached integer on
-## the node, because the flocking and leadership paths read it every frame. That integer is the present
-## tense and nothing else — it cannot say when an animal joined, that it once ran with a different band,
-## or that the band it left is still out there. This node is the other half: it watches those integers on a
-## coarse cadence and turns each settled CHANGE into a dated MEMBER_OF record in the backstory store
-## (LocalAgentBackstoryGraphService), which is the shape that can hold a period rather than a flag.
-##
-## The division is the point. Per frame: one cached integer compare, here and in the creature. Per
-## membership EVENT (join, leave, dissolve, die): one bounded set of store writes. The store is never on
-## the per-frame path.
-##
-## SETTLED, not momentary. Label propagation is at its noisiest in the first seconds after a herd spawns,
-## and none of that churn is history — it is the rule converging. So a change is only written once the new
-## band has been held for DWELL_SECONDS, and a band of ONE is not written at all: an animal on its own is
-## unaffiliated, not the sole member of a faction, and recording singletons would fill the store with one
-## faction per creature while telling us nothing.
-##
-## It also owns the world-time record. LASimClock has the day; set_world_time() is how the store learns it.
-## (Explicit types only, no ':=' inferred typing.)
 
 const BackstoryServiceScript: GDScript = preload("res://addons/local_agents/graph/BackstoryGraphService.gd")
 
@@ -52,9 +31,6 @@ var _npc_ensured: Dictionary = {}      # cid -> true once upsert_npc has run for
 var _faction_ensured: Dictionary = {}  # band -> true once upsert_faction has run for it
 
 
-## The chronicle's OWN database, never the shared one. `LocalAgentBackstoryGraphService` defaults to
-## `user://local_agents/network.sqlite3`, where a game's conversations and an agent's long memory live; a
-## chronicle opening that file would mix throwaway creature rows into the player's actual data.
 const CHRONICLE_DB_PATH: String = "user://local_agents/chronicle.sqlite3"
 
 
@@ -68,11 +44,6 @@ func _ready() -> void:
 		# Path BEFORE add_child: _ready() is what opens the database.
 		_service.set_database_path(CHRONICLE_DB_PATH)
 		add_child(_service)
-		# ONE WORLD'S HISTORY, not every world ever run. npc ids here are derived from Godot instance ids,
-		# which are not stable across runs and are actively reused, so last run's rows can never be matched
-		# to this run's creatures — keeping them would be an unbounded append of records nothing can read.
-		# A band's history is meaningful within the world that grew it, so the chronicle is world-scoped.
-		# (An injected service via set_service() is the caller's to manage: not repathed, not cleared.)
 		_service.clear_backstory_space()
 	_enable()
 	var clock: LASimClock = LASimClock.active()
@@ -170,10 +141,6 @@ func _scan() -> void:
 		var band: int = int(c.get("band_id"))
 		# A band of one is not a faction — an animal on its own is simply unaffiliated (0).
 		var target: int = band if int(counts.get(band, 0)) > 1 else 0
-		# Dwell is measured on the TARGET, not on the raw band. A band of two whose other member wanders off
-		# becomes a band of one without this creature's own integer changing at all, and that is exactly as
-		# much a settling artefact as a relabel is — timing it from the band alone would let one animal's
-		# churn write and rewrite its neighbour's record with no debounce at all.
 		if int(_seen.get(cid, -1)) != target:
 			_seen[cid] = target
 			_since[cid] = _now

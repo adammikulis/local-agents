@@ -1,0 +1,85 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/editor/SetupTab.gd" id="1_setup"]
+
+[node name="SetupTab" type="Control"]
+custom_minimum_size = Vector2(0, 180)
+layout_mode = 3
+anchors_preset = 0
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("1_setup")
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 10
+
+[node name="Scroll" type="ScrollContainer" parent="Margin"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Column" type="VBoxContainer" parent="Margin/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Header" type="HBoxContainer" parent="Margin/Scroll/Column"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="HeadlineLabel" type="Label" parent="Margin/Scroll/Column/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Local Agents"
+autowrap_mode = 3
+
+[node name="RecheckButton" type="Button" parent="Margin/Scroll/Column/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Run the setup checks again."
+text = "Re-check"
+
+[node name="ActivateButton" type="Button" parent="Margin/Scroll/Column/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Load the full Local Agents panel (Chat, Downloads, Configuration)."
+text = "Activate Local Agents"
+
+[node name="NextStepLabel" type="Label" parent="Margin/Scroll/Column"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+autowrap_mode = 3
+
+[node name="HeaderSeparator" type="HSeparator" parent="Margin/Scroll/Column"]
+layout_mode = 2
+
+[node name="RowsBox" type="VBoxContainer" parent="Margin/Scroll/Column"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="DetailSeparator" type="HSeparator" parent="Margin/Scroll/Column"]
+layout_mode = 2
+
+[node name="DetailLabel" type="Label" parent="Margin/Scroll/Column"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 11
+autowrap_mode = 3
+
+[node name="RefreshTimer" type="Timer" parent="."]
+unique_name_in_owner = true

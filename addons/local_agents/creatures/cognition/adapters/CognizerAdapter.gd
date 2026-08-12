@@ -1,27 +1,6 @@
 class_name LACognizerAdapter
 extends RefCounted
 
-## Duck-typed read facade between the per-creature brain (LACognition) and whatever ACTOR is cognizing.
-## LACognition talks ONLY through this adapter (it never names an LocalAgentCreature field directly), so the
-## brain is decoupled from any single actor implementation: LocalAgentCreature today, and any other actor (e.g.
-## an aquatic swimmer) that exposes the same duck-typed surface tomorrow reuses LACognition unchanged.
-## Adding a new kind of cognizer = provide these properties, not patch the brain.
-##
-## The cognizer surface LACognition depends on (all READ-ONLY, since the brain never mutates the actor here):
-##   drives  : energy/max_energy, hydration/max_hydration, health/max_health
-##   body    : global_position; breath_capacity + _breath (breath fraction); _panic_timer (fear);
-##             _material (temp probe). These private welfare senses are encapsulated by senses()
-##   control : llm_enabled (slow-brain opt-out)
-##   social  : species, family_id; the scene-tree neighbour scan + each neighbour's get_cognition()
-##
-## family_id here means LINEAGE and only lineage. Imitation is weighted by RELATEDNESS — you copy a
-## relative harder than a stranger — which is a fact about descent, so it reads the immutable bloodline
-## label rather than `band_id` (who the animal currently runs with, which changes; see
-## LACreatureAffiliation). These were one integer until the two meanings were split apart.
-##
-## Static accessors so nothing is allocated per decision, because this stays on the hot think path.
-## (Explicit types only, no ':=' inferred typing.)
-
 
 static func energy(c) -> float:
 	return c.energy
@@ -59,22 +38,18 @@ static func species(c) -> String:
 	return String(c.species)
 
 
-## Cognizer `c`'s LINEAGE label (see the header). Not its band.
 static func family_id(c) -> int:
 	return int(c.family_id)
 
 
-## Full welfare-sense snapshot for reinforcement: {health, fear, o2, temp}. Encapsulates the actor's
-## PRIVATE breath/panic/material coupling so LACognition need not know the field names. `temp` is absent
-## from the returned dictionary when the actor has no material field: there is no ambient to sense.
-static func senses(c) -> Dictionary:
+static func senses(c, temp_fallback: float) -> Dictionary:
 	var o2: float = 1.0
 	if c.breath_capacity > 0.0:
 		o2 = clampf(c._breath / c.breath_capacity, 0.0, 1.0)
-	var out: Dictionary = {"health": c.health, "fear": c._panic_timer, "o2": o2}
-	if c._material != null:
-		out["temp"] = float(c._material.temp_at(c.global_position))
-	return out
+	var temp: float = temp_fallback
+	if c._material != null and c._material.has_method("temp_at"):
+		temp = c._material.temp_at(c.global_position)
+	return {"health": c.health, "fear": c._panic_timer, "o2": o2, "temp": temp}
 
 
 ## Same-species neighbours in the scene tree (the social-learning scan pool). The group-naming convention
@@ -83,8 +58,6 @@ static func neighbours(c) -> Array:
 	return c.get_tree().get_nodes_in_group("species_" + String(c.species))
 
 
-## Whether cognizer `c` can currently SEE node `m` (vision-gated social learning). Wraps LAVision so the
-## brain depends on the adapter, not on the actor+vision pair directly.
 static func sees(c, m) -> bool:
 	return LAVision.sees_node(c, m)
 

@@ -1,12 +1,6 @@
 class_name LAMoon
 extends Node3D
 
-## A moon: a light gravity body in a REAL orbit about the planet, integrated by LASystemOrbits through the same
-## LAGravity sum as everything else. It joins the `gravity_body` group so meteors feel it and can slingshot
-## around it, and it draws a simple grey cratered sphere. It has NO terrain/field sim of its own (a second full
-## body is the 0.4 multi-planet migration), so meteors don't crater it. Explicit types; no ':='.
-##
-## Its period falls out of sqrt(a³/G(M_planet + M_moon)) like any other orbit; nothing sets a month directly.
 
 const RADIUS: float = 42.0
 const MASS: float = 8.0e4          # model units: enough to bend a passing meteor, never enough to dominate

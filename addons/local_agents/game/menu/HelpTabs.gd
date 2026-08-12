@@ -1,11 +1,8 @@
 class_name LAHelpTabs
 extends RefCounted
 
-## LAHelpTabs: the shared help hub, a segmented [Overview | Controls | Codex] switcher over three panels,
-## returned as one Control so BOTH the main-menu Help screen and the in-sim pause-menu overlay show the exact
-## same reference, from one place. Overview is a short orientation blurb, Controls is the auto-generated key
-## reference (LAControlsReference, straight from LAHotkeyRegistry), and Codex is the browsable manual
-## (LAHelpCodex). Pure static builder. (Explicit types only, no ':=' inferred typing.)
+
+const CodexScene: PackedScene = preload("res://addons/local_agents/game/menu/HelpCodex.tscn")
 
 const ACCENT: Color = Color(0.55, 0.72, 1.0)
 const TEXT: Color = Color(0.90, 0.92, 0.95)
@@ -33,20 +30,18 @@ static func build(width: float, height: float, start_tab: String = "overview") -
 	col.add_theme_constant_override("separation", 12)
 	col.custom_minimum_size = Vector2(width, 0.0)
 
-	# --- Segment switcher row ---
 	var seg_row: HBoxContainer = HBoxContainer.new()
 	seg_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	seg_row.add_theme_constant_override("separation", 6)
 	col.add_child(seg_row)
 
-	# --- Content area holding all three panels; only one visible at a time ---
 	var content: Control = Control.new()
 	content.custom_minimum_size = Vector2(width, height)
 	col.add_child(content)
 
 	var overview: Control = _overview_panel(width, height)
 	var controls: Control = LAControlsReference.build_scroll(width, height)
-	var codex: LAHelpCodex = LAHelpCodex.new()
+	var codex: LAHelpCodex = CodexScene.instantiate()
 	var panels: Array = [overview, controls, codex]
 	for p in panels:
 		(p as Control).set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

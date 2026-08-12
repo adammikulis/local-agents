@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" path="res://addons/local_agents/examples/TutorialDemo.gd" id="1_demo"]
 [ext_resource type="Script" path="res://addons/local_agents/ui/tutorial/TutorialStep.gd" id="2_step"]
-[ext_resource type="Script" path="res://addons/local_agents/ui/tutorial/TutorialHighlightOverlay.gd" id="3_overlay"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/ui/tutorial/TutorialHighlightOverlay.tscn" id="3_overlay"]
 [ext_resource type="Script" path="res://addons/local_agents/ui/tutorial/TutorialSequencer.gd" id="4_sequencer"]
 [ext_resource type="Script" path="res://addons/local_agents/runtime/DemoHarness.gd" id="5_harness"]
 
@@ -109,15 +109,8 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Open help (not part of the tour)"
 
-[node name="HighlightOverlay" type="Control" parent="."]
+[node name="HighlightOverlay" parent="." instance=ExtResource("3_overlay")]
 unique_name_in_owner = true
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-mouse_filter = 2
-script = ExtResource("3_overlay")
 
 [node name="TutorialSequencer" type="Node" parent="."]
 unique_name_in_owner = true

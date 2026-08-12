@@ -1,21 +1,5 @@
 extends SceneTree
 
-## ATMOSPHERE BENCH — measures the two wind kernels in isolation, on the REAL cubed-sphere grid at the real
-## planet dimensions, with an analytic (and therefore exactly repeatable) temperature field. This is the
-## instrument for the two questions the full sim answers only noisily, because a sim run's spread is dominated
-## by how many impacts and eruptions it happened to draw:
-##
-##   1. Does pressure fall with height, and with what scale height? (mean pressure per radial shell, all 20)
-##   2. Is there a jet — a mid-latitude zonal wind maximum ALOFT, stronger than the surface wind beneath it?
-##      (zonal wind binned by latitude band x radial shell)
-##
-## It also A/B's the deleted latitude-band cosine by re-adding it on the CPU side, so "with and without
-## BASE_WIND" is a controlled comparison rather than a diff against a differently-seeded sim run.
-##
-## Needs a real GPU: headless has no local RenderingDevice (verified — create_local_rendering_device() returns
-## null under --headless), so run it through the offscreen wrapper:
-##   LA_RUN_TIMEOUT=180 scripts/run_sim_offscreen.sh --path . --script res://addons/local_agents/tests/bench_atmosphere_column.gd
-## Env: LA_BENCH_STEPS (default 400), LA_BENCH_RES (cells per cube face, default 24 = the shipped grid).
 
 const PRESSURE_PATH: String = "res://addons/local_agents/sim/material/kernels3d/wind_pressure_sphere3d.glsl"
 const WIND_PATH: String = "res://addons/local_agents/sim/material/kernels3d/wind_step_sphere3d.glsl"
@@ -92,8 +76,6 @@ func _done(code: int) -> void:
 	quit(code)
 
 
-# --- buffers ------------------------------------------------------------------------------------------
-
 func _new_f(n: int) -> RID:
 	var z: PackedFloat32Array = PackedFloat32Array()
 	z.resize(n)
@@ -104,7 +86,7 @@ func _alloc() -> void:
 	_bufs["air"] = [_new_f(_cc), _new_f(_cc)]
 	for k: String in ["temp", "solid", "pressure", "vel_x", "vel_y", "vel_z"]:
 		_bufs[k] = _new_f(_cc)
-	var nbr_bytes: PackedByteArray = _grid.neighbours_kernel_order().to_byte_array()
+	var nbr_bytes: PackedByteArray = _grid.neighbours.to_byte_array()
 	_bufs["nbr"] = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	var rad: PackedFloat32Array = PackedFloat32Array()
 	rad.resize(_cc * 3)
@@ -146,8 +128,6 @@ func _reset_state() -> void:
 	for i in 2:
 		_rd.buffer_update(_bufs["air"][i], 0, zero.size() * 4, zero.to_byte_array())
 
-
-# --- kernels ------------------------------------------------------------------------------------------
 
 func _compile(path: String) -> RID:
 	var sf: RDShaderFile = load(path)
@@ -263,8 +243,6 @@ func _apply_base_wind(base: float) -> void:
 	_rd.buffer_update(_bufs["vel_z"], 0, vz.size() * 4, vz.to_byte_array())
 
 
-# --- measurement --------------------------------------------------------------------------------------
-
 ## Mean pressure over the ATMOSPHERIC cells of each radial shell (shells below the sea shell hold no air and
 ## carry their column's surface pressure, so they are reported separately as the "surface" row).
 func _shell_pressure() -> Array:
@@ -310,10 +288,6 @@ func _fit_h(a: Dictionary, b: Dictionary) -> float:
 	return -(float(b["height"]) - float(a["height"])) / log(float(b["p_mean"]) / float(a["p_mean"]))
 
 
-## World-space wind at a cell, reconstructed from the local tangent frame exactly the way
-## MaterialFieldQueries3D.wind3_at does (vel_x along tan_a, vel_z along tan_b, vel_y radial). It must read
-## the grid's own frame table: axes rebuilt from neighbour POSITIONS are not the frame the kernel stores
-## momentum in, because the slot pairing's orientation flips between cycles.
 func _wind_world(c: int, vx: PackedFloat32Array, vy: PackedFloat32Array,
 		vz: PackedFloat32Array) -> Vector3:
 	return (_grid.cell_radial(c) * vy[c]

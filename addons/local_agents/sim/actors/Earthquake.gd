@@ -1,16 +1,6 @@
 class_name LAEarthquake
 extends Node3D
 
-## An earthquake is NOT a scripted burst. It is a SEED that releases stress ONCE at the epicentre and then
-## lets the substrate do everything. On rupture it emits a single seismic/stress wave into the shared field
-## (broadcast_seismic → LAMaterialShock3D.emit_shock); that PROPAGATING wave IS the ground disturbance, and
-## it radiates outward, is muffled behind ridges, shakes the CAMERA (which reads seismic_energy_at → shock_at)
-## and panics wildlife (creatures read the shock gradient), all with zero earthquake code. One onset
-## broadcast_scare seeds the felt terror. The node then just lives a beat and frees; the wave lives in the
-## field, not here.
-##
-## "Shaking", "fissures", "landslides", "panic" are just words for what the one propagating wave does. There
-## is no pulse timer and no scatter loop. (Explicit types only, no ':=' inferred typing.)
 
 const DURATION: float = 3.0                 # brief node lifetime; the wave outlives it in the field
 const SCARE_RADIUS: float = 130.0

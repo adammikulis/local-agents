@@ -40,6 +40,18 @@ const OVERBURDEN: int = 22
 const BEDROCK_BELOW: int = 23
 const CARBONATE: int = 24             # CaCO3 — where weathered carbon goes, and the only place it can go
 const SILICA: int = 25                # SiO2 — the weathering residue; nothing weathers it further
+const N2: int = 26                    # dinitrogen, 78.084% of the air by mole — the planet's nitrogen reservoir
+# DISCHARGE is the electrostatic energy (J/m^3) a lightning return stroke released in this cell THIS step,
+# stamped by LAMaterialFieldInject3D.deplete_charge. DRIVER ONLY — it is energy, not matter, so it is in
+# LAReactionBalance.driver_only() and may never be a reactant or a product.
+const DISCHARGE: int = 27
+# DEAD ORGANIC MATTER IS THREE STOCKS, NOT ONE FORMULA. DETRITUS and FUEL carry its CARBON; ORG_H and ORG_O
+# carry the hydrogen and oxygen bound in that same pool. All three hold LASubstances.ORGANIC_MOL_PER_M3 moles
+# per channel unit, so ORG_H/ORG_C is the molar H:C and ORG_O/ORG_C the molar O:C. Fresh CH2O litter is
+# (1, 2, 1); coalification drives H and O out and the ratios fall toward carbon.
+const ORG_H: int = DISCHARGE + 1
+const ORG_O: int = ORG_H + 1
+const ORG_C: int = ORG_O + 1          # DERIVED driver only: DETRITUS + FUEL, the pool the ratios divide by
 # NOTE: the slot enum and the kernel's BINDING numbers alias only up to 26. Bindings 24/25/26 are already
 # convenience, never a contract; `check_kernel()` verifies the #define VALUES, which is the thing that matters.
 
@@ -55,12 +67,8 @@ const OPTIMUM_BAND: int = 5
 const ARRHENIUS: int = 6
 
 # --- Gate bitflags (0 = ungated) -------------------------------------------------------------------------
-const GATE_OPEN_ABOVE: int = 1
-const GATE_SURFACE: int = 2           # OUTERMOST open cell (outward nbr is space/rock). On a shell that is the
                                       # TOP OF THE ATMOSPHERE — correct for sky gas exchange, wrong for ground.
 const GATE_NEAR_GROUND: int = 4       # GROUND-HUGGING open cell (INWARD nbr is rock) — where a plant, a snowpack
-                                      # and the altitude lapse all actually are. Distinct set from GATE_SURFACE.
-const GATE_DAYLIGHT: int = 8          # insolation above DAYLIGHT_MIN (the lit hemisphere). NO RECORD USES THIS,
 const GATE_DRY: int = 16              # cell water <= WET_MAX_LOFT (dry surface) — sand only lofts when not wet
 # parity with the deleted dust_loft kernel, and redundant with GATE_DRY which tests the cell's own
 # water.)*
@@ -72,12 +80,23 @@ const GATE_FREEZING: int = 32         # cell temp below LAPhysical.WATER_FREEZE_
 const GATE_AIR_ABOVE: int = 128       # THE FREE SURFACE — the air/liquid interface. True when the OUTWARD radial
                                       # `static` cells that are deliberately never simulated (MaterialField3D
                                       # ._seed_sphere_sea), so per-cell chemistry there is meaningless.
+const GATE_BURIED: int = GATE_AIR_ABOVE * 2   # ALSO runs in SOLID cells. Everything else is open-cell only;
+                                      # coalification is not, because buried organic matter is inside rock.
 
 # --- Product targets -------------------------------------------------------------------------------------
 const TGT_SELF: int = 0               # add into the live/back cell channel
 const TGT_SCRATCH: int = 3            # add into the per-cell scratch buffer (fungus-fert pattern)
 
-const RECORD_BYTES: int = 144         # std430 size of one Reaction (see layout in serialize())
+const RECORD_BYTES: int = 240         # std430 size of one Reaction (see layout in serialize())
+
+# --- A COEFFICIENT THAT IS A FUNCTION OF THE CELL'S OWN COMPOSITION ----------------------------------------
+# Burning CH_yO_z takes (1 + y/4 - z/2) moles of O2 and yields y/2 of water per mole of carbon. Those are not
+# constants, they are the cell's composition, so every stoichiometric coefficient here is a polynomial
+#     coeff = base + h * (ORG_H / ORG_C) + o * (ORG_O / ORG_C)
+# evaluated per cell in the kernel. A reactant entry is [slot, base] or [slot, base, h, o]; a product entry is
+# [slot, base, target] or [slot, base, target, h, o]. Balance must hold IDENTICALLY in y and z, so the gate
+# checks the base, h and o parts as three independent balance equations — which is what makes a
+# composition-dependent record conserve by construction instead of by inspection.
 
 
 # --- A RATE LAW'S TEMPERATURE CEILING (ARRHENIUS) ----------------------------------------------------------
@@ -89,14 +108,25 @@ static var cell_size_m: float = 16.0
 static func rec(rate_model: int, rate_k: float, driver_slot: int, reactants: Array, products: Array,
 		gate_mask: int = 0, threshold: float = 0.0, driver2_slot: int = -1, param2: float = 0.0,
 		cap_slot: int = -1, cap_coeff: float = 0.0, t_ceiling_k: float = 0.0,
-		enthalpy_j_m3: float = 0.0, quench_slot: int = -1, quench_min: float = 0.0) -> Dictionary:
+		enthalpy_j_m3: float = 0.0, quench_slot: int = -1, quench_min: float = 0.0,
+		enthalpy_h_j_m3: float = 0.0, enthalpy_o_j_m3: float = 0.0) -> Dictionary:
 	return {
 		"rate_model": rate_model, "rate_k": rate_k, "threshold": threshold, "gate_mask": gate_mask,
 		"driver_slot": driver_slot, "driver2_slot": driver2_slot, "param2": param2,
 		"cap_slot": cap_slot, "cap_coeff": cap_coeff, "t_ceiling_k": t_ceiling_k,
 		"enthalpy_j_m3": enthalpy_j_m3, "quench_slot": quench_slot, "quench_min": quench_min,
+		"enthalpy_h_j_m3": enthalpy_h_j_m3, "enthalpy_o_j_m3": enthalpy_o_j_m3,
 		"reactants": reactants, "products": products,
 	}
+
+
+## The composition-scaled parts of one participant's coefficient. Reactant entries are [slot, base, h, o];
+## product entries are [slot, base, target, h, o]; both fall back to 0 when the entry is the short form.
+static func comp_parts(entry: Array, is_product: bool) -> Vector2:
+	var at: int = 3 if is_product else 2
+	var h: float = float(entry[at]) if entry.size() > at else 0.0
+	var o: float = float(entry[at + 1]) if entry.size() > at + 1 else 0.0
+	return Vector2(h, o)
 
 
 ## Serialize the records into a std430 SSBO byte buffer. Layout per Reaction (144 bytes, 16-aligned):
@@ -125,6 +155,11 @@ static func serialize(recs: Array) -> PackedByteArray:
 		buf.encode_s32(base + 132, int(rec.get("quench_slot", -1)))
 		buf.encode_float(base + 136, float(rec.get("quench_min", 0.0)))
 		buf.encode_s32(base + 140, 0)
+		# Direction from thermodynamics (LAReactionThermo). q_slot < 0 = no equilibrium, record is one-way.
+		buf.encode_float(base + 144, float(rec.get("dg_h_j_mol", 0.0)))
+		buf.encode_float(base + 148, float(rec.get("dg_s_j_molk", 0.0)))
+		buf.encode_s32(base + 152, int(rec.get("q_slot", -1)))
+		buf.encode_float(base + 156, float(rec.get("q_pa_per_unit_k", 0.0)))
 		for k in range(4):
 			var rs: int = int(reactants[k][0]) if k < reactants.size() else -1
 			var rc: float = float(reactants[k][1]) if k < reactants.size() else 0.0
@@ -141,4 +176,17 @@ static func serialize(recs: Array) -> PackedByteArray:
 			buf.encode_s32(base + 80 + k * 4, ps)
 			buf.encode_float(base + 96 + k * 4, pc)
 			buf.encode_s32(base + 112 + k * 4, pt)
+		# The composition-scaled halves of every coefficient (see comp_parts): 160 reactant-h, 176 reactant-o,
+		# 192 product-h, 208 product-o, then the two enthalpy scalings. Zero everywhere = a constant record.
+		for k in range(4):
+			var rp: Vector2 = comp_parts(reactants[k], false) if k < reactants.size() else Vector2.ZERO
+			buf.encode_float(base + 160 + k * 4, rp.x)
+			buf.encode_float(base + 176 + k * 4, rp.y)
+			var pp: Vector2 = comp_parts(products[k], true) if k < products.size() else Vector2.ZERO
+			buf.encode_float(base + 192 + k * 4, pp.x)
+			buf.encode_float(base + 208 + k * 4, pp.y)
+		buf.encode_float(base + 224, float(rec.get("enthalpy_h_j_m3", 0.0)))
+		buf.encode_float(base + 228, float(rec.get("enthalpy_o_j_m3", 0.0)))
+		buf.encode_s32(base + 232, 0)
+		buf.encode_s32(base + 236, 0)
 	return buf

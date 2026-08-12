@@ -2,17 +2,12 @@
 extends Resource
 class_name LASynthVoiceParams
 
-## Typed parameters describing one synthesized voice/sound. Fully inspector-editable
-## and serializable, so presets can live as `.tres` files or be built in code. A
-## `SynthVoice` turns this into a mono float buffer; `SynthDsp.to_audio_stream_wav`
-## turns that into a cached `AudioStreamWAV`.
 
 enum Waveform { SINE, SAW, SQUARE, TRIANGLE }
 enum FilterType { NONE, LOWPASS, HIGHPASS, BANDPASS }
 enum NoiseType { WHITE, PINK }
 
 @export_group("Tone")
-## Tonal oscillator waveform (ignored when noise_mix == 1.0).
 @export var waveform: Waveform = Waveform.SINE
 ## Starting pitch in Hz.
 @export var frequency: float = 220.0
@@ -26,7 +21,6 @@ enum NoiseType { WHITE, PINK }
 @export_range(0.0, 1.0, 0.01) var amplitude: float = 0.9
 
 @export_group("Noise")
-## Blend between tonal oscillator (0.0) and noise (1.0). Naturalistic impacts sit high.
 @export_range(0.0, 1.0, 0.01) var noise_mix: float = 0.0
 @export var noise_type: NoiseType = NoiseType.PINK
 
@@ -42,7 +36,6 @@ enum NoiseType { WHITE, PINK }
 @export_range(0.1, 12.0, 0.1) var filter_q: float = 0.707
 
 @export_group("Determinism")
-## Seed for any noise in this voice. Fixed seed → identical render (testable).
 @export var seed: int = 0
 
 ## Convenience constructor for code-defined presets.
