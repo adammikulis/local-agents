@@ -46,7 +46,8 @@ const ICE_DEPTH: float = 0.5              # ~8 m water equivalent = a real glaci
 const FOG_MAX_TEMP: float = 12.0
 # Condensate at which a cell counts as covered, mol/m^3: 5e-5 kg/m^3 of condensed H2O over its molar mass.
 const CONDENSE_COVER_MIN: float = 5.0e-5 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
-var _temp: PackedFloat32Array = PackedFloat32Array()     # temperature °C per cell (rock + void)
+var _h: PackedFloat32Array = PackedFloat32Array()        # THE STATE: enthalpy J/m^3 per cell
+var _temp: PackedFloat32Array = PackedFloat32Array()     # DERIVED °C, rewritten by StateDerivePass each step
 # ONE conserved atmospheric-water channel: total water suspended in a cell's air (Phase 2a — collapses the
 # old vapor/cloud/fog trio). vapor = min(moisture, sat(T)); condensed = max(0, moisture − sat(T)); the
 # condensed part reads as fog (cool + near ground) or cloud (else) — all DERIVED, nothing else stores it.
@@ -285,6 +286,8 @@ func _alloc_channels() -> void:
 	_water.resize(_cell_count)
 	_wnext = PackedFloat32Array()
 	_wnext.resize(_cell_count)
+	_h = PackedFloat32Array()
+	_h.resize(_cell_count)
 	_temp = PackedFloat32Array()
 	_temp.resize(_cell_count)
 	_temp.fill(INITIAL_TEMP)
@@ -445,6 +448,8 @@ func water_force_at(pos: Vector3) -> Vector3:
 ## Begin simulating + rendering (called after setup + sample_solidity + seed_sea). Builds the render
 ## node and starts the throttled step in _physics_process.
 func activate() -> void:
+	# The state the device is seeded FROM, so it is filled before the driver reads it.
+	LAFieldEnthalpySeed.seed(self, INITIAL_TEMP)
 	if _grid != null and SphereGPUScript.available() and not OS.has_environment("LA_FORCE_CPU"):
 		# The GPU driver runs the kernels over the grid's neighbour SSBO.
 		_gpu = SphereGPUScript.new()

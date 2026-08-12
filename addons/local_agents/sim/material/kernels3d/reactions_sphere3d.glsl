@@ -12,7 +12,8 @@ layout(set = 0, binding = 48, std430) restrict readonly buffer Grav { float g_fi
 layout(local_size_x = 64) in;
 
 // --- Reactable channels (binding == slot for the resolved ones; see read_ch/add_ch) -----------------------
-layout(set = 0, binding = 0, std430) restrict buffer Temp     { float temp[]; };
+layout(set = 0, binding = 0, std430) restrict readonly buffer Temp { float temp[]; };  // derived, C
+layout(set = 0, binding = 19, std430) restrict buffer Enthalpy { float h[]; };          // the state, J/m^3
 layout(set = 0, binding = 1, std430) restrict buffer Water    { float water[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Moisture { float moisture[]; };
 layout(set = 0, binding = 3, std430) restrict buffer O2       { float o2[]; };
@@ -293,8 +294,7 @@ float read_ch(int slot, uint i) {
 // Add v to a channel slot (own cell). Mass channels clamp at 0. LIGHT and unbound slots are geometry, not
 // matter, and no-op here. SOIL_ROOT, SOIL_TOP and BEDROCK_BELOW write into the neighbouring cell they name.
 void add_ch(int slot, uint i, float v) {
-	if      (slot == TEMP)     { temp[i]     += v; }
-	else if (slot == WATER)    { water[i]     = max(0.0, water[i] + v); }
+	if      (slot == WATER)    { water[i]     = max(0.0, water[i] + v); }
 	else if (slot == MOISTURE) { moisture[i] += v; }
 	else if (slot == O2)       { o2[i]        = max(0.0, o2[i] + v); }
 	else if (slot == CO2)      { co2[i]       = max(0.0, co2[i] + v); }
@@ -493,12 +493,10 @@ void main() {
 			o2_burn += max(0.0, o2_pre_rec - o2[i]);
 		}
 
-		// THE ENTHALPY, and it is an ENERGY rather than a mass coefficient for a reason: how hot a cell gets
+		// Enthalpy is the state, so a reaction's heat is added straight to it. J/m^3.
 		float dh = rc.enthalpy_j_m3 + rc.enthalpy_h_j_m3 * comp_h + rc.enthalpy_o_j_m3 * comp_o;
 		if (dh != 0.0) {
-			// Enthalpy is the state, so a reaction's heat is added directly. It used to divide by a mixture heat
-	// capacity with a floor of 1.0, which let a near-empty cell absorb an unbounded temperature.
-	h[i] += dh * x;
+			h[i] += dh * x;
 		}
 	}
 

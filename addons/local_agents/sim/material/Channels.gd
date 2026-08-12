@@ -3,45 +3,57 @@ extends RefCounted
 
 ## THE ONE DECLARATION OF WHAT A CHANNEL IS.
 ##
+## `phase` is the state of matter the channel holds — "solid", "liquid", "gas", or "" when it holds no
+## substance. `unit` is what the stored number means: "vf" a volume fraction of the whole cell,
+## "sat" a saturation of the pore space (multiply by 1 - porosity for a volume fraction), "" not an
+## amount of matter at all.
 static func rows() -> Dictionary:
 	var D: GDScript = load("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 	return {
-		"temp":        {"buffer": "pair",   "residency": "hot",         "slot": D.TEMP,      "substance": "",           "heat": ""},
-		"water":       {"buffer": "pair",   "residency": "hot",         "slot": D.WATER,     "substance": "h2o",        "heat": "WATER_LIQUID"},
-		"moisture":    {"buffer": "pair",   "residency": "hot",         "slot": D.MOISTURE,  "substance": "h2o",        "heat": "WATER_VAPOUR"},
-		"snow":        {"buffer": "single", "residency": "hot",         "slot": D.SNOW,      "substance": "h2o",        "heat": "WATER_SOLID"},
-		"soil":        {"buffer": "pair",   "residency": "slow",        "slot": D.SOIL_ROOT, "substance": "h2o",        "heat": "WATER_LIQUID"},
-		"lava":        {"buffer": "pair",   "residency": "situational", "slot": D.LAVA,      "substance": "silicate",   "heat": "SILICATE"},
-		"rock_fill":   {"buffer": "single", "residency": "situational", "slot": D.ROCK_FILL, "substance": "silicate",   "heat": "MATRIX"},
-		"sediment":    {"buffer": "pair",   "residency": "slow",        "slot": D.SEDIMENT,  "substance": "silicate",   "heat": "SILICATE"},
-		"susp":        {"buffer": "pair",   "residency": "slow",        "slot": D.SUSP,      "substance": "silicate",   "heat": "SILICATE"},
-		"dust":        {"buffer": "pair",   "residency": "situational", "slot": D.DUST,      "substance": "silicate",   "heat": "SILICATE"},
-		"carbonate":   {"buffer": "single", "residency": "hot",         "slot": D.CARBONATE, "substance": "carbonate",  "heat": "CARBONATE"},
-		"silica":      {"buffer": "single", "residency": "hot",         "slot": D.SILICA,    "substance": "silica",     "heat": "SILICA"},
-		"o2":          {"buffer": "pair",   "residency": "hot",         "slot": D.O2,        "substance": "o2",         "heat": ""},
-		"co2":         {"buffer": "pair",   "residency": "situational", "slot": D.CO2,       "substance": "co2",        "heat": ""},
-		"n2":          {"buffer": "pair",   "residency": "hot",         "slot": D.N2,        "substance": "n2",         "heat": ""},
-		"biomass":     {"buffer": "single", "residency": "slow",        "slot": D.BIOMASS,   "substance": "cellulose",  "heat": "ORGANIC"},
-		"fungus":      {"buffer": "single", "residency": "situational", "slot": D.FUNGUS,    "substance": "cellulose",  "heat": "ORGANIC"},
-		"detritus":    {"buffer": "single", "residency": "situational", "slot": D.DETRITUS,  "substance": "organic_c",  "heat": "ORGANIC"},
-		"fuel":        {"buffer": "single", "residency": "situational", "slot": D.FUEL,      "substance": "organic_c",  "heat": "ORGANIC"},
-		"org_h":       {"buffer": "single", "residency": "situational", "slot": D.ORG_H,     "substance": "organic_h",  "heat": ""},
-		"org_o":       {"buffer": "single", "residency": "situational", "slot": D.ORG_O,     "substance": "organic_o",  "heat": ""},
-		"fert":        {"buffer": "pair",   "residency": "slow",        "slot": D.FERT,      "substance": "fixed_n",    "heat": ""},
-		"fire":        {"buffer": "pair",   "residency": "situational", "slot": D.FIRE,      "substance": "",           "heat": ""},
-		"charge":      {"buffer": "single", "residency": "hot",         "slot": -1,          "substance": "",           "heat": ""},
-		"discharge":   {"buffer": "single", "residency": "hot",         "slot": D.DISCHARGE, "substance": "",           "heat": ""},
-		"shock":       {"buffer": "pair",   "residency": "situational", "slot": -1,          "substance": "",           "heat": ""},
-		"air":         {"buffer": "pair",   "residency": "hot",         "slot": -1,          "substance": "",           "heat": ""},
-		"pressure":    {"buffer": "single", "residency": "situational", "slot": -1,          "substance": "",           "heat": ""},
-		"vel_x":       {"buffer": "single", "residency": "hot",         "slot": -1,          "substance": "",           "heat": ""},
-		"vel_y":       {"buffer": "single", "residency": "hot",         "slot": -1,          "substance": "",           "heat": ""},
-		"vel_z":       {"buffer": "single", "residency": "hot",         "slot": -1,          "substance": "",           "heat": ""},
-		"fungus_fert": {"buffer": "single", "residency": "hot",         "slot": -1,          "substance": "",           "heat": ""},
-		"porosity":    {"buffer": "single", "residency": "slow",        "slot": -1,          "substance": "",           "heat": ""},
-		"solid":       {"buffer": "single", "residency": "static",      "slot": -1,          "substance": "",           "heat": ""},
-		"regolith":    {"buffer": "single", "residency": "static",      "slot": -1,          "substance": "",           "heat": ""},
-		"grain":       {"buffer": "single", "residency": "static",      "slot": -1,          "substance": "",           "heat": ""},
+		"h_j_m3":      {"buffer": "pair",   "residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": ""},
+		"water":       {"buffer": "pair",   "residency": "hot",         "slot": D.WATER,     "substance": "h2o",        "phase": "liquid", "unit": "vf"},
+		"moisture":    {"buffer": "pair",   "residency": "hot",         "slot": D.MOISTURE,  "substance": "h2o",        "phase": "gas",    "unit": "vf"},
+		"snow":        {"buffer": "single", "residency": "hot",         "slot": D.SNOW,      "substance": "h2o",        "phase": "solid",  "unit": "vf"},
+		"soil":        {"buffer": "pair",   "residency": "slow",        "slot": D.SOIL_ROOT, "substance": "h2o",        "phase": "liquid", "unit": "sat"},
+		"lava":        {"buffer": "pair",   "residency": "situational", "slot": D.LAVA,      "substance": "silicate",   "phase": "liquid", "unit": "vf"},
+		"rock_fill":   {"buffer": "single", "residency": "situational", "slot": D.ROCK_FILL, "substance": "silicate",   "phase": "solid",  "unit": "sat"},
+		"sediment":    {"buffer": "pair",   "residency": "slow",        "slot": D.SEDIMENT,  "substance": "silicate",   "phase": "solid",  "unit": "vf"},
+		"susp":        {"buffer": "pair",   "residency": "slow",        "slot": D.SUSP,      "substance": "silicate",   "phase": "solid",  "unit": "vf"},
+		"dust":        {"buffer": "pair",   "residency": "situational", "slot": D.DUST,      "substance": "silicate",   "phase": "solid",  "unit": "vf"},
+		"carbonate":   {"buffer": "single", "residency": "hot",         "slot": D.CARBONATE, "substance": "carbonate",  "phase": "solid",  "unit": "vf"},
+		"silica":      {"buffer": "single", "residency": "hot",         "slot": D.SILICA,    "substance": "silica",     "phase": "solid",  "unit": "vf"},
+		"o2":          {"buffer": "pair",   "residency": "hot",         "slot": D.O2,        "substance": "o2",         "phase": "gas",    "unit": "vf"},
+		"co2":         {"buffer": "pair",   "residency": "situational", "slot": D.CO2,       "substance": "co2",        "phase": "gas",    "unit": "vf"},
+		"n2":          {"buffer": "pair",   "residency": "hot",         "slot": D.N2,        "substance": "n2",         "phase": "gas",    "unit": "vf"},
+		"biomass":     {"buffer": "single", "residency": "slow",        "slot": D.BIOMASS,   "substance": "cellulose",  "phase": "solid",  "unit": "vf"},
+		"fungus":      {"buffer": "single", "residency": "situational", "slot": D.FUNGUS,    "substance": "cellulose",  "phase": "solid",  "unit": "vf"},
+		"detritus":    {"buffer": "single", "residency": "situational", "slot": D.DETRITUS,  "substance": "organic_c",  "phase": "solid",  "unit": "vf"},
+		"fuel":        {"buffer": "single", "residency": "situational", "slot": D.FUEL,      "substance": "organic_c",  "phase": "solid",  "unit": "vf"},
+		"org_h":       {"buffer": "single", "residency": "situational", "slot": D.ORG_H,     "substance": "organic_h",  "phase": "solid",  "unit": "vf"},
+		"org_o":       {"buffer": "single", "residency": "situational", "slot": D.ORG_O,     "substance": "organic_o",  "phase": "solid",  "unit": "vf"},
+		"fert":        {"buffer": "pair",   "residency": "slow",        "slot": D.FERT,      "substance": "fixed_n",    "phase": "solid",  "unit": "vf"},
+		"fire":        {"buffer": "pair",   "residency": "situational", "slot": D.FIRE,      "substance": "",           "phase": "",       "unit": ""},
+		"charge":      {"buffer": "single", "residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": ""},
+		"discharge":   {"buffer": "single", "residency": "hot",         "slot": D.DISCHARGE, "substance": "",           "phase": "",       "unit": ""},
+		"shock":       {"buffer": "pair",   "residency": "situational", "slot": -1,          "substance": "",           "phase": "",       "unit": ""},
+		"air":         {"buffer": "pair",   "residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": ""},
+		"pressure":    {"buffer": "single", "residency": "situational", "slot": -1,          "substance": "",           "phase": "",       "unit": ""},
+		"vel_x":       {"buffer": "single", "residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": ""},
+		"vel_y":       {"buffer": "single", "residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": ""},
+		"vel_z":       {"buffer": "single", "residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": ""},
+		"fungus_fert": {"buffer": "single", "residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": ""},
+		"porosity":    {"buffer": "single", "residency": "slow",        "slot": -1,          "substance": "",           "phase": "",       "unit": ""},
+		"solid":       {"buffer": "single", "residency": "static",      "slot": -1,          "substance": "",           "phase": "",       "unit": ""},
+		"regolith":    {"buffer": "single", "residency": "static",      "slot": -1,          "substance": "",           "phase": "",       "unit": ""},
+		"grain":       {"buffer": "single", "residency": "static",      "slot": -1,          "substance": "",           "phase": "",       "unit": ""},
+	}
+
+
+## Buffers that hold no state: a pass recomputes each from the channels every step, so they are never
+## seeded, never read back as truth and never conserved. Name -> the law that produces it.
+static func derived_buffers() -> Dictionary:
+	return {
+		"temp": "the mixture's enthalpy ladder inverted at this cell's pressure",
 	}
 
 
@@ -50,6 +62,7 @@ static func rows() -> Dictionary:
 static func derived_slots() -> Dictionary:
 	var D: GDScript = load("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 	return {
+		D.TEMP:            {"from": "the enthalpy ladder inverted over the cell mixture", "substance": ""},
 		D.WINDSPEED:       {"from": "sqrt(vel_x^2 + vel_z^2)", "substance": ""},
 		D.LIGHT:           {"from": "insolation at this cell", "substance": ""},
 		D.SOIL_ROOT:       {"from": "soil over the whole rooting column", "substance": "h2o"},
@@ -126,6 +139,27 @@ static func lithosphere_channels() -> PackedStringArray:
 	return out
 
 
-## Channels in one LAHeatCapacity group.
-static func heat_group(group: String) -> PackedStringArray:
-	return _by("heat", group)
+## Channels holding matter in a condensed phase, paired with what their number means. Keyed by channel:
+## {"substance": id, "unit": "vf" | "sat"}. A "sat" channel is a share of the pore space, so a volume
+## fraction of the cell is its value times 1 - porosity.
+static func condensed_channels() -> Dictionary:
+	var out: Dictionary = {}
+	var tbl: Dictionary = rows()
+	for name in tbl:
+		var sub: String = String(tbl[name].get("substance", ""))
+		var ph: String = String(tbl[name].get("phase", ""))
+		if sub == "" or ph == "" or ph == "gas":
+			continue
+		out[String(name)] = {"substance": sub, "unit": String(tbl[name].get("unit", "vf"))}
+	return out
+
+
+## Channels holding `substance` in phase `phase` ("solid" / "liquid" / "gas").
+static func phase_channels(substance: String, phase: String) -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	var tbl: Dictionary = rows()
+	for name in tbl:
+		if String(tbl[name].get("substance", "")) == substance \
+				and String(tbl[name].get("phase", "")) == phase:
+			out.append(String(name))
+	return out

@@ -108,7 +108,7 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 			[11, amount if drive == "" else _half(bufs, drive, p, false)],
 			[12, _one if aux == "" else _half(bufs, aux, p, false)],
 			[13, _single(bufs, "charge")], [14, _send_q],
-			[15, _half(bufs, "temp", p, false)],
+			[15, _single(bufs, "temp")],
 			[16, _single(bufs, "pressure")],
 			[17, _single(bufs, "porosity")],
 			[18, _single(bufs, "grain")],

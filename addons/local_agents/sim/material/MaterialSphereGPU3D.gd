@@ -91,6 +91,9 @@ func setup(field) -> void:
 		_bufs[name] = [_new_f(_cc), _new_f(_cc)]
 	for name in single_channels():
 		_bufs[name] = _new_f(_cc)
+	# Derived: recomputed from the channels every step, so never seeded and never restored.
+	for name in LAChannels.derived_buffers():
+		_bufs[name] = _new_f(_cc)
 	# Per list: the compacted cell indices, plus a buffer that is BOTH the uvec3 dispatch-indirect argument
 	# (slots 0-2) and the atomic list-length counter (slot 3).
 	for lname in ACTIVE_LISTS:
@@ -112,7 +115,7 @@ func setup(field) -> void:
 	var vol_bytes: PackedByteArray = _grid.cell_volumes().to_byte_array()
 	_bufs["cell_vol"] = _rd.storage_buffer_create(vol_bytes.size(), vol_bytes)
 
-	_seed("temp", field._temp)
+	_seed("h_j_m3", field._h)
 	_seed("o2", field._o2)
 	_seed("co2", field._co2)            # the atmosphere's carbon — finite, at Earth's measured mole fraction
 	_seed("n2", field._n2)              # the atmosphere's nitrogen — finite, at Earth's measured mole fraction
@@ -146,10 +149,10 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	# inter-frame CPU work) and read its channels into `_cached`. Must happen before the temp/water uploads below,
 	# which write the same live buffers the step wrote. This is the CPU↔GPU overlap that hides the field step cost.
 	_drain_pending()
-	# The only CPU writer of _temp is injection (add_heat / meteors / lava), which marks it dirty.
-	if _temp_dirty:
-		_upload_f(_live("temp"), temp)
-		_temp_dirty = false
+	# The only CPU writer of _h is injection (meteors / lava / geotherm), which marks it dirty.
+	if _h_dirty:
+		_upload_f(_live("h_j_m3"), h)
+		_h_dirty = false
 	# water is only CPU-modified by injection (add_water / lakes seed), never per-step; after the readback the CPU
 	# copy already equals the GPU's evolved water, so re-uploading it every step is redundant. Gate it on a dirty
 	# flag the injectors set.
@@ -374,8 +377,12 @@ func _gpu_gauge_key(pass_index: int) -> String:
 
 func _read_channels(read_slow: bool) -> Dictionary:
 	var out: Dictionary = _empty_result()
-	for k in ["temp", "water", "moisture", "o2"]:
+	for k in ["h_j_m3", "water", "moisture", "o2"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
+	# Derived: a single buffer StateDerivePass rewrote this step, not a conserved half.
+	for k in LAChannels.derived_buffers():
+		if _bufs.has(k):
+			out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
 	# snow (SINGLE) — read every physics frame per living carcass (decomposition/permafrost gating), not just
 	# render/debug, so it stays hot even though most consumers are periodic.
 	if _bufs.has("snow"):
@@ -463,8 +470,8 @@ func seed_field(name: String, arr, seal) -> void:
 			return
 	if _audit_mirror and arr is PackedFloat32Array:
 		_audit_mirror_upload(name, arr)
-	if name == "temp":
-		_temp_dirty = true      # keep the gated begin_frame upload in step with a whole-mirror seed
+	if name == "h_j_m3":
+		_h_dirty = true         # keep the gated begin_frame upload in step with a whole-mirror seed
 	var b = _bufs[name]
 	if b is Array:
 		if arr.size() == _cc:   # every PAIR channel is one plane of cell_count
@@ -750,7 +757,7 @@ func _zeros(n: int) -> PackedByteArray:
 
 func _empty_result() -> Dictionary:
 	return {
-		"temp": PackedFloat32Array(), "water": PackedFloat32Array(),
+		"h_j_m3": PackedFloat32Array(), "temp": PackedFloat32Array(), "water": PackedFloat32Array(),
 		"moisture": PackedFloat32Array(), "lava": PackedFloat32Array(),
 		"fire": PackedFloat32Array(), "fuel": PackedFloat32Array(),
 		"sediment": PackedFloat32Array(), "o2": PackedFloat32Array(),

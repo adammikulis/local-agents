@@ -48,103 +48,74 @@ func _device_ready() -> bool:
 	return _f != null and _f._gpu != null and _f._gpu.has_method("move_field_sparse")
 
 
-# --- Local field injection (add_heat / add_vapor) ------------------------------------------------
-
-func _rc_channels() -> Dictionary:
-	return {
-		"rock_fill": _f._rock_fill, "lava": _f._lava, "sediment": _f._sediment, "susp": _f._susp,
-		"dust": _f._dust, "water": _f._water, "soil": _f._soil, "snow": _f._snow,
-		"moisture": _f._moisture, "fuel": _f._fuel, "biomass": _f._biomass,
-		"detritus": _f._detritus, "fungus": _f._fungus, "porosity": _f._porosity,
-	}
-
+# --- Local field injection (add_heat_energy / add_vapor) -----------------------------------------
 
 func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float:
-	if joules == 0.0 or _f._temp.size() != _f._cell_count:
+	if joules == 0.0 or _f._h.size() != _f._cell_count:
 		return 0.0
 	return _inject_energy(_cells_within(world_pos, radius), joules)
 
 
-## Spread `joules` over `cells` as the temperature rise their combined heat capacity gives. Returns that
-## rise in deg C. LAHeatCapacity.cell is J/m^3/K, so the volume it multiplies is m^3 and per-cell.
+## Spread `joules` over `cells` as a uniform rise in enthalpy DENSITY, so each cell takes the share its own
+## volume buys. Returns the J/m^3 added. Temperature is what the ladder later reads off it.
 func _inject_energy(cells: PackedInt32Array, joules: float) -> float:
 	if cells.size() == 0:
 		return 0.0
-	var ch: Dictionary = _rc_channels()
 	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
 	if vol.size() != _f._cell_count:
 		return 0.0
-	var total_cap: float = 0.0
+	var total_vol: float = 0.0
 	for c in cells:
-		total_cap += LAHeatCapacity.cell(ch, c) * vol[c]
-	if total_cap <= 0.0:
+		total_vol += vol[c]
+	if total_vol <= 0.0:
 		return 0.0
-	var delta_c: float = joules / total_cap
+	var dh: float = joules / total_vol
 	queue.note_energy(joules)
-	_apply_temp(cells, delta_c)
-	return delta_c
+	_apply_h(cells, dh)
+	return dh
 
 
-## Add PER-CELL joules: `cells[i]` gets `joules[i]`, turned into degrees by that cell's own heat capacity.
-## A source spread over cells that differ has to be booked cell by cell; one shared rise would move energy
-## between them. Returns the joules that reached a cell with capacity.
+## Add PER-CELL joules: `cells[i]` gets `joules[i]`, as that cell's own enthalpy density. A source spread
+## over cells that differ has to be booked cell by cell. Returns the joules that landed.
 func add_heat_per_cell(cells: PackedInt32Array, joules: PackedFloat32Array) -> float:
 	if cells.size() == 0 or cells.size() != joules.size():
 		return 0.0
 	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
 	if vol.size() != _f._cell_count:
 		return 0.0
-	var ch: Dictionary = _rc_channels()
 	var hit: PackedInt32Array = PackedInt32Array()
 	var deltas: PackedFloat32Array = PackedFloat32Array()
 	var total: float = 0.0
 	for i in cells.size():
 		var c: int = cells[i]
-		if c < 0 or c >= _f._cell_count:
-			continue
-		var cap: float = LAHeatCapacity.cell(ch, c) * vol[c]
-		if cap <= 0.0:
+		if c < 0 or c >= _f._cell_count or vol[c] <= 0.0:
 			continue
 		hit.append(c)
-		deltas.append(joules[i] / cap)
+		deltas.append(joules[i] / vol[c])
 		total += joules[i]
 	if hit.size() == 0:
 		return 0.0
 	queue.note_energy(total)
 	if not _device_ready():
 		for i in hit.size():
-			_f._temp[hit[i]] = _f._temp[hit[i]] + deltas[i]
+			_f._h[hit[i]] = _f._h[hit[i]] + deltas[i]
 		return total
-	queue.queue_temp(hit, deltas)
+	queue.queue_h(hit, deltas)
 	return total
 
 
-## Raise a temperature with no store behind it. This CREATES energy, so it is legal only while the world is
-## seeding; after the seal the seal refuses it and counts the attempt.
-func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
-	if amount == 0.0 or _f._temp.size() != _f._cell_count:
-		return
-	var cells: PackedInt32Array = _cells_within(world_pos, radius)
-	if cells.size() == 0:
-		return
-	var dc: float = absf(amount) * float(cells.size())
-	if _f._seal != null and not _f._seal.note_creation("add_heat_dc", dc):
-		return
-	_apply_temp(cells, amount)
-
-
-func _apply_temp(cells: PackedInt32Array, delta_c: float) -> void:
+func _apply_h(cells: PackedInt32Array, dh: float) -> void:
 	if not _device_ready():
 		# The box/CPU reference field has no device and nothing flushes the queue there, so the mirror IS the
-		# field — write it, exactly as this function always did.
+		# field.
 		for c in cells:
-			_f._temp[c] = _f._temp[c] + delta_c
+			_f._h[c] = _f._h[c] + dh
 		return
 	var deltas: PackedFloat32Array = PackedFloat32Array()
 	deltas.resize(cells.size())
-	deltas.fill(delta_c)
-	queue.queue_temp(cells, deltas)
-	if delta_c > 0.0 and _f._gpu != null:
+	deltas.fill(dh)
+	queue.queue_h(cells, deltas)
+	if dh > 0.0 and _f._gpu != null:
 		_f._gpu.request_channel("fire")
 
 func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:

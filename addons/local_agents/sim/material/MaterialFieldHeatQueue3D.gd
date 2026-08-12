@@ -15,7 +15,7 @@ var heat_energy_j: float = 0.0     # ENERGY handed to add_heat_energy, in joules
 var heat_unsourced_dc: float = 0.0 # always 0: sourceless heat is refused by the seal now, and what it refused
                                    # is counted in `creation_after_seal`. LAMaterialFieldEnergyLedger3D still
                                    # reads this; the term is dead and that file's owner should drop it.
-var heat_applied_dc: float = 0.0   # DEGREES the device actually applied (summed over cells), both forms.
+var heat_applied_j_m3: float = 0.0 # ENTHALPY DENSITY the device actually applied, summed over cells.
 var heat_cells: int = 0            # per-cell temperature edits that reached the device.
 
 
@@ -66,9 +66,9 @@ func carbon_return(channel: String, cells: PackedInt32Array, deltas: PackedFloat
 	_c_merge("cr|%s" % channel, channel, cells, deltas, "", PackedInt32Array(), INF)
 
 
-## Queue a per-cell temperature edit. `cells[i]` gets `deltas[i]` °C, applied to the LIVE device buffer at the
-## next flush — never written to the CPU mirror, which the readback owns.
-func queue_temp(cells: PackedInt32Array, deltas: PackedFloat32Array) -> void:
+## Queue a per-cell ENTHALPY edit. `cells[i]` gets `deltas[i]` J/m^3, applied to the LIVE device buffer at
+## the next flush — never written to the CPU mirror, which the readback owns.
+func queue_h(cells: PackedInt32Array, deltas: PackedFloat32Array) -> void:
 	if cells.size() == 0 or cells.size() != deltas.size():
 		return
 	_t_cells.append_array(cells)
@@ -87,7 +87,7 @@ func is_empty() -> bool:
 func flush(gpu) -> void:
 	if gpu != null and _t_cells.size() > 0:
 		heat_cells += _t_cells.size()
-		heat_applied_dc += gpu.add_field_sparse("temp", _t_cells, _t_deltas)
+		heat_applied_j_m3 += gpu.add_field_sparse("h_j_m3", _t_cells, _t_deltas)
 		_t_cells = PackedInt32Array()
 		_t_deltas = PackedFloat32Array()
 	if gpu != null and not _c_ops.is_empty():
@@ -139,7 +139,7 @@ func _credit_companions(gpu, channel: String, cells: PackedInt32Array, amounts: 
 func report() -> Dictionary:
 	var out: Dictionary = super()
 	out["heat_inject_j"] = snappedf(heat_energy_j, 0.01)
-	out["heat_inject_applied_dc"] = snappedf(heat_applied_dc, 0.01)
+	out["heat_inject_applied_j_m3"] = snappedf(heat_applied_j_m3, 0.01)
 	out["heat_inject_cells"] = heat_cells
 	out["carbon_inject_offered"] = snappedf(carbon_offered, 0.0001)
 	out["carbon_inject_moved"] = snappedf(carbon_moved, 0.0001)

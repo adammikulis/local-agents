@@ -18,7 +18,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	for p in 2:
 		_sets[p] = _uset(_pipe, [
 			[0, _single(bufs, "charge")],
-			[1, _half(bufs, "temp", p, false)],
+			[1, _single(bufs, "temp")],
 			[2, _half(bufs, "moisture", p, false)],
 			[3, _single(bufs, "nbr")],
 			[4, _single(bufs, "gravity")],

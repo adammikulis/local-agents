@@ -5,10 +5,35 @@ extends RefCounted
 const GRAZE_RESIDUAL: float = 0.02       # standing crop per cell a mouth cannot reach (regrowth stays possible)
 const BITE_TAKE_FRAC: float = 0.35       # share of the reachable crop one animal's bite may take in a frame
 
-const HEAT_C_PER_MASS: float = 0.02
 const HEAT_RADIUS: float = 0.0           # the animal's own cell only; body heat does not teleport
 
 var _f = null                            # back-reference to the owning LAMaterialField3D
+static var _resp_j_per_unit: float = -1.0   # cached: J released per channel unit of O2 respired
+
+
+## Joules of oxidation heat per CHANNEL UNIT of O2 consumed, from the substance table's formation
+## enthalpies: C + O2 -> CO2. Hess's law, so no rate and no fitted constant.
+static func _respiration_j_per_o2_unit() -> float:
+	if _resp_j_per_unit >= 0.0:
+		return _resp_j_per_unit
+	var tbl: Dictionary = LASubstances.table()
+	var c_h: float = float(tbl.get("organic_c", {}).get("formation_enthalpy_j_mol", 0.0))
+	var o2_h: float = float(tbl.get("o2", {}).get("formation_enthalpy_j_mol", 0.0))
+	var co2_h: float = float(tbl.get("co2", {}).get("formation_enthalpy_j_mol", 0.0))
+	var o2_mm: float = float(tbl.get("o2", {}).get("molar_mass", 0.0))
+	var o2_rho: float = float(tbl.get("o2", {}).get("density", 0.0))
+	if o2_mm <= 0.0 or o2_rho <= 0.0:
+		push_error("LAMaterialFieldBiota3D: o2 has no molar mass or unit density, so respiration heat is unknown.")
+		_resp_j_per_unit = 0.0
+		return 0.0
+	_resp_j_per_unit = maxf(0.0, -(co2_h - c_h - o2_h)) * (o2_rho / o2_mm)
+	return _resp_j_per_unit
+
+
+## Cubic metres of cell `c`.
+func _cell_m3(c: int) -> float:
+	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
+	return vol[c] if c >= 0 and c < vol.size() else 0.0
 
 # --- the biotic ledger (published into SIM_REPORT through the LASimReport.register seam) --------------------
 var graze_asked: float = 0.0             # standing crop animals bit at
@@ -19,7 +44,7 @@ var co2_out: float = 0.0                 # CO₂ their respiration put back (== 
 var detritus_out: float = 0.0            # body mass returned to the soil as litter (feces, carcass, carrion)
 var water_in: float = 0.0                # H₂O drunk out of the field
 var water_out: float = 0.0               # H₂O breathed/sweated/passed back into it
-var heat_out: float = 0.0                # °C·cells of metabolic heat handed to the temperature field
+var heat_out: float = 0.0                # JOULES of respiration heat handed to the field
 var spawn_mass: float = 0.0              # body mass that entered the world by SPAWNING rather than by eating
 var spawn_founder: float = 0.0           # ...of which the founding population (an initial condition)
 var spawn_runtime: float = 0.0           # ...of which spawned after the founding wave — matter made at runtime
@@ -153,9 +178,12 @@ func respire(head_pos: Vector3, mass: float) -> float:
 	o2_in += got
 	co2_out += got
 	exchanges += 2
-	if HEAT_C_PER_MASS > 0.0 and _f.has_method("add_heat"):
-		_f.add_heat(head_pos, got * HEAT_C_PER_MASS, HEAT_RADIUS)
-		heat_out += got * HEAT_C_PER_MASS
+	# Respiration heat, by Hess's law over the same formation enthalpies the reaction table uses: the joules
+	# are the oxidation's, not a rate of their own.
+	var j: float = got * _respiration_j_per_o2_unit() * _cell_m3(c)
+	if j > 0.0 and _f.has_method("add_heat_energy"):
+		_f.add_heat_energy(head_pos, j, HEAT_RADIUS)
+		heat_out += j
 	return got
 
 

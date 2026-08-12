@@ -38,27 +38,22 @@ func sun_field_dir() -> Vector3:
 	return _f.dir_to_field(_f._sun_light.global_transform.basis.z * insol)
 
 
-## Volume fraction of cell `c` that is NOT condensed matter. Same groups LAHeatCapacity.cell mixes.
+## Volume fraction of cell `c` that IS condensed matter — solid and liquid, never gas. A "sat" channel is
+## a share of the pore space, so it enters as its value times 1 - porosity.
 static func _condensed(ch: Dictionary, c: int) -> float:
 	var phi: float = 0.0
 	var pa = ch.get("porosity")
 	if pa is PackedFloat32Array and c < pa.size():
 		phi = clampf(pa[c], 0.0, 1.0)
-	var total: float = _group(ch, LAHeatCapacity.matrix(), c) * (1.0 - phi)
-	for g in [LAHeatCapacity.silicate(), LAHeatCapacity.carbonate(), LAHeatCapacity.silica(),
-			LAHeatCapacity.water_liquid(), LAHeatCapacity.water_solid(),
-			LAHeatCapacity.water_vapour(), LAHeatCapacity.organic()]:
-		total += _group(ch, g, c)
+	var total: float = 0.0
+	var want: Dictionary = LAChannels.condensed_channels()
+	for name in want:
+		var a = ch.get(name)
+		if not (a is PackedFloat32Array) or c >= a.size():
+			continue
+		var v: float = clampf(a[c], 0.0, 1.0)
+		total += v * (1.0 - phi) if String(want[name].get("unit", "vf")) == "sat" else v
 	return clampf(total, 0.0, 1.0)
-
-
-static func _group(ch: Dictionary, names: PackedStringArray, c: int) -> float:
-	var s: float = 0.0
-	for n in names:
-		var a = ch.get(n)
-		if a is PackedFloat32Array and c < a.size():
-			s += clampf(a[c], 0.0, 1.0)
-	return s
 
 
 func _compute() -> Dictionary:
@@ -75,7 +70,7 @@ func _compute() -> Dictionary:
 	if _f._gpu != null and _f._gpu.has_method("take_probe"):
 		legs = _f._gpu.take_probe()
 		var want: PackedStringArray = PackedStringArray(["pressure", "co2"])
-		want.append_array(LAHeatCapacity.channels())
+		want.append_array(PackedStringArray(LAChannels.condensed_channels().keys()))
 		_f._gpu.request_probe(want)
 	# NO MIRROR FALLBACK on a demand-gated channel: an absent leg stays absent, so `has_pressure`/`has_co2`
 	# below read false rather than reporting a stale mirror as a measurement.
@@ -128,10 +123,9 @@ func _compute() -> Dictionary:
 	var sw_surface: float = 0.0
 	var albedo_sum: float = 0.0
 	var emis_sum: float = 0.0
-	var cap_sum: float = 0.0
 	var t_sum: float = 0.0
-	var dt_sum: float = 0.0
-	var dt_abs_max: float = 0.0
+	var dh_sum: float = 0.0
+	var dh_abs_max: float = 0.0
 	var lit_cells: int = 0
 	var cells_cool: int = 0
 	var abs_cool: float = 0.0
@@ -201,11 +195,10 @@ func _compute() -> Dictionary:
 		albedo_sum += albedo
 		emis_sum += emis
 		t_sum += temp[sc]
-		var cap: float = maxf(LAHeatCapacity.cell(ch, sc) * dz, 1.0)
-		cap_sum += cap
-		var d_t: float = float(res["net_surface"]) * dt_real / cap
-		dt_sum += d_t
-		dt_abs_max = maxf(dt_abs_max, absf(d_t))
+		# net_surface is W/m^2 into a layer dz thick, so the enthalpy density it moves is J/m^3.
+		var d_h: float = float(res["net_surface"]) * dt_real / dz
+		dh_sum += d_h
+		dh_abs_max = maxf(dh_abs_max, absf(d_h))
 		if s_toa > 0.0:
 			lit_cells += 1
 		if temp[sc] < LAPhysical.BASALT_SOLIDUS_C:
@@ -263,10 +256,9 @@ func _compute() -> Dictionary:
 	out["energy_lit_frac"] = float(lit_cells) / fn
 	out["energy_albedo_mean"] = albedo_sum / fn
 	out["energy_emissivity_mean"] = emis_sum / fn
-	out["energy_cap_mean"] = cap_sum / fn
 	out["energy_surf_temp_mean"] = t_sum / fn
-	out["energy_dt_mean"] = dt_sum / fn
-	out["energy_dt_absmax"] = dt_abs_max
+	out["energy_dh_mean_j_m3"] = dh_sum / fn
+	out["energy_dh_absmax_j_m3"] = dh_abs_max
 	# THE CLIMATE HALF — the same books over the sub-solidus surface only. Read these for anything about
 	# whether the planet is warming, cooling or in balance; the totals above are dominated by open lava.
 	var fc: float = float(maxi(cells_cool, 1))
@@ -297,8 +289,8 @@ func _blank() -> Dictionary:
 		"energy_absorbed_mean": 0.0, "energy_emitted_mean": 0.0,
 		"energy_cells": 0, "energy_sample_columns": 0,
 		"energy_lit_cells": 0, "energy_lit_frac": 0.0,
-		"energy_albedo_mean": 0.0, "energy_emissivity_mean": 0.0, "energy_cap_mean": 0.0,
-		"energy_surf_temp_mean": 0.0, "energy_dt_mean": 0.0, "energy_dt_absmax": 0.0,
+		"energy_albedo_mean": 0.0, "energy_emissivity_mean": 0.0,
+		"energy_surf_temp_mean": 0.0, "energy_dh_mean_j_m3": 0.0, "energy_dh_absmax_j_m3": 0.0,
 		"energy_abs_cool": 0.0, "energy_emit_cool": 0.0, "energy_net_cool": 0.0,
 		"energy_imbalance_cool": 0.0, "energy_temp_cool_mean": 0.0, "energy_cells_cool": 0,
 		"energy_emit_magma": 0.0, "energy_magma_share": 0.0,

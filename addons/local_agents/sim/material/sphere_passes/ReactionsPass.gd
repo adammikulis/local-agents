@@ -39,7 +39,8 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	_n_records = recs.size()
 	var defs_ssbo: RID = _storage_buffer(defs_script.serialize(recs))
 
-	var temp: Array = _pair(bufs, "temp")
+	var temp: RID = _single(bufs, "temp")        # derived C, read-only
+	var h: Array = _pair(bufs, "h_j_m3")         # the state, J/m^3
 	var water: Array = _pair(bufs, "water")
 	var moisture: Array = _pair(bufs, "moisture")
 	var o2: Array = _pair(bufs, "o2")
@@ -82,7 +83,8 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	for p in 2:
 		var back: int = 1 - p
 		_set[p] = _uset(_pipe, [
-			[0, temp[back]],        # settled temp
+			[0, temp],
+			[19, h[back]],          # the settled half, the one this pass adds reaction heat to
 			[1, water[back]],       # settled water
 			[2, moisture[back]],    # settled moisture
 			[3, o2[back]],          # o2 transport output — edited in place (sky refill / decompose draw)
