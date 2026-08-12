@@ -167,20 +167,13 @@ func _crust(out: Dictionary, ch: Dictionary, cc: int, step_index: int, sealed: b
 
 ## The thermal stock, in joules: the enthalpy the cells hold. `h` is J/m^3, so the stock is h * volume and
 ## there is nothing to reconstruct.
-func _energy(out: Dictionary, h: PackedFloat32Array, solid: PackedByteArray,
+func _energy(out: Dictionary, h: PackedFloat32Array, _solid: PackedByteArray,
 		vol: PackedFloat64Array, cc: int) -> void:
 	if h.size() != cc:
 		out["energy_missing"] = PackedStringArray(["h_j_m3"])
 		return
 	out["energy_missing"] = PackedStringArray()
 	var stock: float = 0.0
-	# Faces the geotherm's flux crosses: the DEEPEST rock, where nothing solid lies further down the vertical.
-	var shell_solid: int = 0
 	for c in cc:
-		if solid[c] != 0:
-			var lo: int = LAFieldGeometry.below(_f, c)
-			if lo < 0 or solid[lo] == 0:
-				shell_solid += 1
 		stock += h[c] * vol[c]
 	out["energy_stock"] = stock
-	out["energy_shell_solid"] = shell_solid

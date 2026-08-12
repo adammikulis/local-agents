@@ -16,7 +16,6 @@ var _samples: int = 0
 # booked terms span the same window.
 var _cum_solar: float = 0.0
 var _cum_lw: float = 0.0
-var _cum_geo: float = 0.0
 var _first_inject_j: float = 0.0
 var _first_unsourced_dc: float = 0.0
 # Last published block, for the consumers that ask the field for one scalar outside the report path.
@@ -284,13 +283,11 @@ func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int
 		return
 	var stock: float = float(f["energy_stock"])
 	out["energy_stock"] = stock
-	out["energy_geo_shell_cells"] = f["energy_shell_solid"]
 
 	# Booked rates, in watts. LAMaterialFieldEnergyBudget3D sums each cell's flux against that cell's own
 	# outward face area in square metres, so these arrive as watts and need no conversion.
 	var solar_w: float = float(flux.get("energy_absorbed_w", 0.0))
 	var lw_w: float = float(flux.get("energy_emitted_w", 0.0))
-	var geo_w: float = _geo_watts(int(f["energy_shell_solid"]), int(f["cells"]))
 	var inject_j: float = 0.0
 	var unsourced_dc: float = 0.0
 	if _f._inject != null and _f._inject.queue != null:
@@ -313,7 +310,6 @@ func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int
 	if not was_latched:
 		_cum_solar = 0.0
 		_cum_lw = 0.0
-		_cum_geo = 0.0
 		_first_inject_j = inject_j
 		_first_unsourced_dc = unsourced_dc
 	elif steps > 0:
@@ -322,7 +318,6 @@ func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int
 		var window_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step() * float(steps)
 		_cum_solar += solar_w * window_s
 		_cum_lw += lw_w * window_s
-		_cum_geo += geo_w * window_s
 	out["energy_unsourced_dc"] = unsourced_dc - _first_unsourced_dc
 	var run_steps: int = int(r[3])
 	out["energy_run_steps"] = run_steps
@@ -330,7 +325,7 @@ func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int
 		return
 	var run_drift: float = float(r[1])
 	var cum_inject: float = inject_j - _first_inject_j
-	var booked: float = _cum_solar - _cum_lw + _cum_geo + cum_inject
+	var booked: float = _cum_solar - _cum_lw + cum_inject
 	out["energy_run_drift"] = run_drift
 	out["energy_run_drift_per_step"] = run_drift / float(run_steps)
 	out["energy_booked"] = booked
@@ -348,16 +343,7 @@ func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int
 	out["energy_residual_w_m2"] = (run_drift - booked) * inv
 	out["energy_book_solar_w_m2"] = _cum_solar * inv
 	out["energy_book_lw_w_m2"] = _cum_lw * inv
-	out["energy_book_geo_w_m2"] = _cum_geo * inv
 	out["energy_book_inject_w_m2"] = cum_inject * inv
-
-
-## The geotherm's scalar flux crosses the deepest solid faces, one cell face each.
-func _geo_watts(shell_solid: int, _cc: int) -> float:
-	if _f._geotherm == null or _f._grid == null:
-		return 0.0
-	var geo_flux: float = float(_f._geotherm.report().get("core_flux_w_m2", 0.0))
-	return geo_flux * _f._grid.face_area() * float(shell_solid)
 
 
 # --- shared ------------------------------------------------------------------------------------------

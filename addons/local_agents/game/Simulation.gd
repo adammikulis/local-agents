@@ -105,7 +105,7 @@ func _build_geology_and_life() -> void:
 
 	_governor.setup(_ecology, _terrain, _actors_root)
 
-	_tectonics.setup(_terrain, _disasters, _material)
+	_tectonics.setup(_terrain, _disasters)
 
 	_spawn.setup(self, _body, _terrain, _ecology, null, _material, null, _disasters)
 	_spawn.set_spawn_scale(_settings_applier.spawn_scale())

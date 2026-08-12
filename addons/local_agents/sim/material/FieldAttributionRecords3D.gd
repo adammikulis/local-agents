@@ -5,7 +5,6 @@ extends RefCounted
 ## SINGLE channels are absent, and `read_raw` ignores the half for those.
 const PRODUCERS: Dictionary = {
 	"temp": "ThermalPass",
-<<<<<<< HEAD
 	"water": "TransportPass",
 	"lava": "TransportPass",
 	"sediment": "TransportPass",
@@ -19,16 +18,6 @@ const PRODUCERS: Dictionary = {
 	"fert": "TransportPass",
 	"shock": "TransportPass",
 	"fungus": "FungusPass",
-=======
-	"water": "WaterSlumpLavaPass",
-	"lava": "WaterSlumpLavaPass",
-	"sediment": "WaterSlumpLavaPass",
-	"susp": "ErosionPickupPass",
-	"dust": "FireDustPass",
-	"soil": "SoilPass",
-	"moisture": "AtmospherePass",
-	"fungus": "ReactionsPass",
->>>>>>> worktree-agent-ae18d3bf4ba96c0e0
 }
 
 ## Passes that bind no writable temp buffer. A heat leg above the readback resolution on one of these

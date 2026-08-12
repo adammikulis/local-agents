@@ -25,12 +25,6 @@ const ARG_SLOT_LIST_COUNT: int = 3
 # Compacted active-cell lists: label -> [index buffer key, dispatch-indirect args key]. Each label publishes
 # a `<label>_list_cells` gauge.
 const ACTIVE_LISTS: Dictionary = {
-<<<<<<< HEAD
-	"fungus": ["active_idx_fungus", "active_args_fungus"],
-=======
-	"lava": ["active_idx", "active_args"],
-	"shock": ["active_idx_shock", "active_args_shock"],
->>>>>>> worktree-agent-ae18d3bf4ba96c0e0
 }
 
 static func available() -> bool:
@@ -184,6 +178,7 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	if _gravity_dirty:
 		_upload_gravity()
 		_gravity_dirty = false
+	_ctx["dt"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()   # simulated seconds, not the cadence
 	_ctx["cell_size"] = _grid.cell_size
 	# The SOLVED gravity, for the handful of scalar laws a pass evaluates once. A per-cell law reads the
 	# g field itself; nothing anywhere reads a gravity constant, because there is not one.
@@ -196,9 +191,6 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array) -> void:
 func set_sun_dir(v: Vector3) -> void:
 	_ctx["sun_dir"] = v if v.length() > 0.001 else Vector3(0, 1, 0)
 
-
-func set_core_boundary_c(v: float) -> void:
-	_ctx["core_boundary_c"] = v
 
 
 ## Mark the CPU temp mirror dirty so the next begin_frame re-uploads it.

@@ -106,7 +106,7 @@ const SurfaceSeedScript: GDScript = preload("res://addons/local_agents/sim/mater
 const OrganicScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldOrganic3D.gd")
 var _gpu = null                                          # LAMaterialSphereGPU3D (local RenderingDevice) or null
 var _use_gpu: bool = false
-var _geotherm = null                                     # LAMaterialFieldGeotherm3D — the internal heat source
+var _geotherm = null                                     # LAMaterialFieldGeotherm3D — radiogenic heat in the rock
 # Read-only query accessors + the write-side injection facade (factored out; see those files).
 var _queries = null                                      # LAMaterialFieldQueries3D
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
@@ -616,13 +616,6 @@ func relative_humidity_at(x: float, z: float) -> float:
 func dewpoint_at(x: float, z: float) -> float:
 	return _atmos.dewpoint_at(x, z)
 
-## The drifting PLATES, pushed in by LAPlateTectonics (which owns the kinematics) and consumed by the GPU
-## driver's PlateAdvectPass, which carries rock_fill and sediment with the velocity they imply. Pure
-## delegation: the field holds no plate state and does no plate work.
-func set_plate_motion(table: PackedFloat32Array) -> void:
-	if _gpu != null and _gpu.has_method("set_plates"):
-		_gpu.set_plates(table)
-
 ## Domain-average horizontal wind (ocean swell / HUD) — a coarse mean of the read-back GPU velocity field.
 func wind() -> Vector2:
 	return _queries.wind()
@@ -747,7 +740,7 @@ func _step_geotherm() -> void:
 	_geotherm.step()
 
 
-## The geothermal reservoir's telemetry, merged into the field report by LAMaterialFieldReport3D.
+## Radiogenic power and the observed gradient, merged into the field report by LAMaterialFieldReport3D.
 func geotherm_report() -> Dictionary:
 	return _geotherm.report()
 

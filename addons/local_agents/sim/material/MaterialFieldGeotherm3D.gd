@@ -1,238 +1,113 @@
 class_name LAMaterialFieldGeotherm3D
 extends RefCounted
 
-## LAMaterialFieldGeotherm3D: the planet's internal heat — a seeded geotherm plus the finite reservoir that
-## feeds it, and that volcanic vents draw on.
+## Radiogenic heat, and the gradient it is observed to produce. Rock warms itself; conduction carries it and
+## the surface radiates it. Nothing here writes a temperature profile.
 
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
-# --- reservoir state ---------------------------------------------------------------------------------------
-var _core_temp: float = 0.0          # THE state variable, deg C: the convecting interior. Falls.
-var _armed_temp: float = 0.0         # what it was seeded at, kept to report the fall and to scale the boundary
-var _drawn_j: float = 0.0            # joules drawn out of it by draw_heat_j, cumulative
-var _refusals: int = 0               # draws the store was too cold to pay for
-var _shell_cells: PackedInt32Array = PackedInt32Array()   # r == 0 cells (the shell's bottom face)
+# The source table: rock cells and the watts each one's own mass decays at. Rebuilt from the mass table the
+# gravity solve publishes, on that solve's cadence, because there is one mass table and it has one owner.
+var _cells: PackedInt32Array = PackedInt32Array()
+var _watts_of: PackedFloat32Array = PackedFloat32Array()
+var _watts: float = 0.0
+var _built_at: int = -1
 
-# --- the seeded geotherm -----------------------------------------------------------------------------------
-var _boundary_seed: float = 0.0      # ghost-cell temperature at arming, on the reference geotherm
-var _boundary_c: float = 0.0         # ...and now, scaled by how far the reservoir has cooled
-var _grad_c_per_m: float = 0.0       # the Fourier geotherm, deg C per metre
-var _seeded_cells: int = 0
-
-# --- per-step outputs (published to the GPU and to SIM_REPORT) ---------------------------------------------
-var _flux_dt: float = 0.0            # degrees this step's boundary flux adds to ONE r == 0 cell (ledger only)
-var _flux_w_m2: float = 0.0          # the flux itself, in W/m^2, so it can be read against LAPhysical
-var _shell_c: float = 0.0            # mean temperature of the r == 0 face — the flux's other input
-var _flux_min: float = 0.0
-var _flux_max: float = 0.0
-var _shell_min: float = 0.0
-var _shell_max: float = 0.0
-var _steps: int = 0
+var _banked_s: float = 0.0                               # real seconds since the last deposit
+var _applied_j: float = 0.0                              # joules the field accepted, cumulative
 
 
 func setup(field) -> void:
 	_f = field
 
 
-func arm(temp: float) -> void:
-	if temp <= _core_temp:
-		return
-	_build()
-	# SEEDING: the interior's heat is handed to a planet that does not have it yet, so it is declared. After
-	# the seal this store may only be drawn DOWN — see draw_heat_j.
-	if _f != null and _f._seal != null:
-		if not _f._seal.note_creation("geotherm_core_heat_j", temp * heat_capacity_j_per_k()):
-			return
-	_core_temp = temp
-	_armed_temp = temp
-	_seeded_cells = _seed_profile()
-	if _seeded_cells > 0 and _f._gpu != null and _f._gpu.has_method("mark_temp_dirty"):
-		_f._gpu.mark_temp_dirty()          # the CPU mirror just changed under the gated begin_frame upload
-
-
-## The reservoir's CURRENT temperature — a state variable that falls, not a constant.
-func core_temp() -> float:
-	return _core_temp
-
-
-## What it was seeded at.
-func armed_temp() -> float:
-	return _armed_temp
-
-
-## Radius of the un-simulated interior: the distance from the body centre to the deepest rock the grid holds.
-## A box that reaches the centre leaves nothing outside the simulation, and this reads 0 — which is the
-## honest statement that there is no separate reservoir, not a value to invent.
-var _core_radius: float = 0.0
-
-func _core_radius_m() -> float:
-	return _core_radius
-
-
-## Reservoir heat capacity, J/K: the interior's volume times rock's volumetric heat capacity.
-func heat_capacity_j_per_k() -> float:
-	var r: float = _core_radius_m()
-	return (4.0 / 3.0) * PI * r * r * r * LAHeatCapacity.pure_rock()
-
-
-## Take `joules` out of the reservoir. It grants no more than what it holds above `floor_c`: a store at that
-## temperature cannot drive a transfer to it. Returns the joules actually granted.
-func draw_heat_j(joules: float, floor_c: float) -> float:
-	var cap: float = heat_capacity_j_per_k()
-	if joules <= 0.0:
-		return 0.0
-	if cap <= 0.0 or _core_temp <= floor_c:
-		_refusals += 1
-		return 0.0
-	var grant: float = minf(joules, (_core_temp - floor_c) * cap)
-	_core_temp -= grant / cap
-	_drawn_j += grant
-	if _armed_temp > 0.0:
-		_boundary_c = _boundary_seed * (_core_temp / _armed_temp)
-	return grant
+## Radiogenic power the modelled rock produces, W. The energy books read this and nothing else.
+func watts() -> float:
+	return _watts
 
 
 func step() -> void:
-	if _core_temp <= 0.0 or _f._grid == null:
+	_banked_s += LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	if not _rebuild():
 		return
-	if _shell_cells.is_empty():
+	if _cells.is_empty() or _f._inject == null or _banked_s <= 0.0:
 		return
-	# The flux crosses one cell face, so the conduction length is one cell.
-	var dr0: float = _f._grid.cell_size
-	if dr0 <= 0.0:
-		return
+	var joules: PackedFloat32Array = PackedFloat32Array()
+	joules.resize(_cells.size())
+	for i in _cells.size():
+		joules[i] = _watts_of[i] * _banked_s
+	_applied_j += _f._inject.add_heat_per_cell(_cells, joules)
+	_banked_s = 0.0
 
-	var shell_sum: float = 0.0
-	var shell_n: int = 0
-	var has_solid: bool = _f._solid.size() == _f._cell_count
-	for c: int in _shell_cells:
-		if has_solid and _f._solid[c] == 0:
+
+## Rebuild the source table when the gravity solve has published a new density. True on a rebuild.
+func _rebuild() -> bool:
+	var g = _f._gravity if _f != null else null
+	if g == null or not g.has_method("solves"):
+		return false
+	var n: int = int(g.solves())
+	if n == _built_at:
+		return false
+	var cc: int = int(_f._cell_count)
+	var rho: PackedFloat32Array = g.density()
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if cc <= 0 or rho.size() != cc or vol.size() != cc or _f._solid.size() != cc:
+		return false
+	_built_at = n
+	_cells = PackedInt32Array()
+	_watts_of = PackedFloat32Array()
+	_watts = 0.0
+	for c in cc:
+		if _f._solid[c] == 0:
+			continue                                     # decay happens in rock, not in air or open water
+		var w: float = rho[c] * vol[c] * LAPhysical.RADIOGENIC_W_PER_KG
+		if w <= 0.0:
 			continue
-		shell_sum += _f._temp[c]
-		shell_n += 1
-	if shell_n <= 0:
-		return
-	_shell_c = shell_sum / float(shell_n)
-
-	var dt: float = real_seconds_per_step()
-	_flux_w_m2 = LAPhysical.THERMAL_CONDUCT_ROCK_W_MK * (_boundary_c - _shell_c) / dr0
-	_flux_dt = _flux_w_m2 * dt / (LAHeatCapacity.pure_rock() * dr0)
-
-	# The reservoir pays for it, over the fraction of its surface that is in contact with rock.
-	var r_m: float = _core_radius_m()
-	var area: float = 4.0 * PI * r_m * r_m * float(shell_n) / float(_shell_cells.size())
-	var cap: float = heat_capacity_j_per_k()
-	if cap > 0.0:
-		_core_temp -= _flux_w_m2 * area * dt / cap
-	# Radioactive decay pays a little back — the term that keeps a real planet's interior hot for 4.5 Gyr.
-	_core_temp += (LAPhysical.RADIOGENIC_W_PER_KG / LAPhysical.ROCK_SPECIFIC_HEAT_J_KGK) * dt
-	# The interior convects, so its whole adiabat rises and falls together: the ghost cell at the top of it
-	# carries the same fractional change as the bulk.
-	if _armed_temp > 0.0:
-		_boundary_c = _boundary_seed * (_core_temp / _armed_temp)
-	_steps += 1
-	if _steps == 1:
-		_flux_min = _flux_w_m2
-		_flux_max = _flux_w_m2
-		_shell_min = _shell_c
-		_shell_max = _shell_c
-	else:
-		_flux_min = minf(_flux_min, _flux_w_m2)
-		_flux_max = maxf(_flux_max, _flux_w_m2)
-		_shell_min = minf(_shell_min, _shell_c)
-		_shell_max = maxf(_shell_max, _shell_c)
-
-	if _f._gpu != null and _f._gpu.has_method("set_core_boundary_c"):
-		_f._gpu.set_core_boundary_c(_boundary_c)
-
-
-## Real seconds one field step represents — the field's ONE clock, owned by the module that owns STEP_DT.
-## kernel disagreed with both. One derivation, four readers.
-func real_seconds_per_step() -> float:
-	return LAMaterialFieldSphereStep3D.real_seconds_per_step()
+		_cells.append(c)
+		_watts_of.append(w)
+		_watts += w
+	return true
 
 
 func report() -> Dictionary:
-	if _armed_temp <= 0.0:
-		return {}
-	var fall: float = _armed_temp - _core_temp
-	var per_k: float = (fall / float(_steps)) * 1000.0 if _steps > 0 else 0.0
-	return {
-		"core_res_c": _core_temp,
-		"core_res_armed_c": _armed_temp,
-		"core_res_fall_c": fall,
-		"core_drawn_j": _drawn_j,
-		"core_heat_cap_j_k": heat_capacity_j_per_k(),
-		"core_heat_stock_j": _core_temp * heat_capacity_j_per_k(),
-		"core_heat_seed_j": _armed_temp * heat_capacity_j_per_k(),
-		"core_draw_refused": _refusals,
-		"core_cool_k_per_kstep": per_k,
-		"core_flux_w_m2": _flux_w_m2,
-		"core_flux_dt": _flux_dt,
-		"core_boundary_c": _boundary_c,
-		"core_shell_c": _shell_c,
-		"core_flux_min_w_m2": _flux_min,
-		"core_flux_max_w_m2": _flux_max,
-		"core_shell_min_c": _shell_min,
-		"core_shell_max_c": _shell_max,
-		"core_grad_c_per_m": _grad_c_per_m,
-		"core_seeded_cells": _seeded_cells,
+	var out: Dictionary = {
+		"geo_radiogenic_w": _watts,
+		"geo_radiogenic_cells": _cells.size(),
+		"geo_radiogenic_j": _applied_j,
 	}
+	out.merge(_gradient())
+	return out
 
 
-# --- one-time geometry -------------------------------------------------------------------------------------
-
-## The reservoir's boundary face: the DEEPEST rock the grid holds — every solid cell with nothing solid one
-## step further down the local vertical. Its distance from the body centre is what the reservoir stands under.
-func _build() -> void:
-	if not _shell_cells.is_empty() or _f._grid == null or _f._solid.size() != _f._cell_count:
-		return
-	var r_sum: float = 0.0
-	for c: int in _f._cell_count:
-		if _f._solid[c] == 0:
-			continue
-		var lo: int = LAFieldGeometry.below(_f, c)
-		if lo >= 0 and _f._solid[lo] != 0:
-			continue
-		_shell_cells.append(c)
-		r_sum += LAFieldGeometry.radius_of(_f, c)
-	if _shell_cells.is_empty():
-		return
-	_core_radius = maxf(0.0, r_sum / float(_shell_cells.size()) - 0.5 * _f._grid.cell_size)
-
-
-## Seed the Fourier geotherm: every rock cell starts at ambient plus the gradient times its burial depth,
-## measured by marching UP the local vertical until the march reaches open air.
-func _seed_profile() -> int:
-	if _f._grid == null or _f._solid.size() != _f._cell_count or _f._temp.size() != _f._cell_count:
-		return 0
-	_grad_c_per_m = LAPhysical.GEOTHERMAL_GRADIENT_C_PER_M
-	if _grad_c_per_m <= 0.0:
-		return 0
-	var cell_size: float = _f._grid.cell_size
-	var span: int = _f._grid.max_span()
-	var ambient: float = float(_f.INITIAL_TEMP)
+## THE DETECTOR. Radial temperature gradient across each rock cell and the rock one step outward, deg C per
+## metre, over the cells that have one. An imposed geotherm would read the seeded value here; an emergent one
+## reads whatever the source and the losses left.
+func _gradient() -> Dictionary:
+	var out: Dictionary = {"geo_grad_c_per_m": 0.0, "geo_grad_max_c_per_m": 0.0, "geo_grad_pairs": 0}
+	var cc: int = int(_f._cell_count) if _f != null else 0
+	if cc <= 0 or _f._temp.size() != cc or _f._solid.size() != cc:
+		return out
+	var sum: float = 0.0
+	var mx: float = 0.0
 	var n: int = 0
-	var base_sum: float = 0.0
-	var base_n: int = 0
-	var deepest: Dictionary = {}
-	for c: int in _shell_cells:
-		deepest[c] = true
-	for c: int in _f._cell_count:
+	for c in cc:
 		if _f._solid[c] == 0:
 			continue
-		var shells: int = LAFieldGeometry.burial_steps(_f, c, span)
-		if shells < 0:
-			continue                                   # the march never reached air: not under a surface
-		var t: float = ambient + _grad_c_per_m * (float(shells) + 0.5) * cell_size
-		_f._temp[c] = t
+		var hi: int = LAFieldGeometry.above(_f, c)
+		if hi < 0 or _f._solid[hi] == 0:
+			continue
+		var dr: float = LAFieldGeometry.radius_of(_f, hi) - LAFieldGeometry.radius_of(_f, c)
+		if dr <= 0.0:
+			continue
+		var grad: float = (_f._temp[c] - _f._temp[hi]) / dr
+		sum += grad
+		mx = maxf(mx, grad)
 		n += 1
-		if deepest.has(c):
-			base_sum += t
-			base_n += 1
-	_boundary_seed = ((base_sum / float(base_n)) if base_n > 0 else ambient) + _grad_c_per_m * cell_size
-	_boundary_c = _boundary_seed
-	return n
-
-
+	if n == 0:
+		return out
+	out["geo_grad_c_per_m"] = sum / float(n)
+	out["geo_grad_max_c_per_m"] = mx
+	out["geo_grad_pairs"] = n
+	return out

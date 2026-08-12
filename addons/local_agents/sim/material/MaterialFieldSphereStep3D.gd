@@ -109,8 +109,6 @@ func process(delta: float) -> void:
 		_f._seed_sea()                # fills the ocean basin with real, flowing water
 		_f._compute_regolith()        # the permeable aquifer band (+ initial water table) for groundwater flow
 		LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins (static water bodies)
-		if _f._geotherm != null:
-			_f._geotherm.arm(LAPhysical.INNER_CORE_C)   # the interior's heat, declared through the seal
 		_f.activate()                 # builds the GPU driver + sets _use_gpu
 		_f._ready_sim = true
 		return
@@ -145,11 +143,11 @@ func process(delta: float) -> void:
 		return
 	var t0: int = Time.get_ticks_usec()
 	var t_pin: int = Time.get_ticks_usec()
-	# g follows the mass; the solver runs on its own cadence, and every kernel that asks which way is down
-	# reads the solved field, so a solve is what makes the device's copy stale.
+	# g follows the mass, and every kernel asking which way is down reads the solved field, so a solve is
+	# what makes the device's copy stale.
 	if _f.solve_gravity():
 		_f._gpu.mark_gravity_dirty()
-	_f._step_geotherm()              # finite core reservoir: cool it, and publish its flux for this step
+	_f._step_geotherm()              # radiogenic decay: hand the rock the joules its own mass produced
 	LASimReport.gauge("field_pin_ms", float(Time.get_ticks_usec() - t_pin) / 1000.0)
 	var t_begin: int = Time.get_ticks_usec()
 	_f._gpu.begin_frame(_f._temp, _f._water)   # drains prev step (sync+readback) + uploads

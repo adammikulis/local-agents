@@ -19,19 +19,16 @@ const VOLCANO_CHANCE_CONVERGENT: float = 0.3
 
 var _terrain = null                      # LAVoxelTerrainService (planet_center/radius, surface_point, sea_radius)
 var _disasters = null                    # LAVoxelDisasters (spawn_volcano / spawn_earthquake)
-var _field = null                        # LAMaterialField3D — the substrate the crust is carried in
 
 var _seeds: Array = []                   # Array[Vector3] plate seed directions (unit)
 var _poles: Array = []                   # Array[Vector3] Euler rotation axis per plate (unit)
 var _rates: Array = []                   # Array[float] angular speed per plate (rad per simulated second, signed)
 var _cd: float = EVENT_PERIOD
-var _table: PackedFloat32Array = PackedFloat32Array()   # the packed plate table pushed to the field each frame
 
 
-func setup(terrain, disasters, field = null) -> void:
+func setup(terrain, disasters) -> void:
 	_terrain = terrain
 	_disasters = disasters
-	_field = field
 	# Plate speeds come from the REAL observed range, one draw per plate, so the fast plates and the slow ones
 	# differ the way Earth's do. The radius is the body's own, so the same real speeds give the right angular
 	# rate on any size of planet.
@@ -47,7 +44,6 @@ func setup(terrain, disasters, field = null) -> void:
 			LAPhysical.PLATE_SPEED_MIN_MM_PER_YEAR, LAPhysical.PLATE_SPEED_MAX_MM_PER_YEAR)
 		var r: float = drift_rate(mm_yr, radius)
 		_rates.append(r if LASimRng.for_domain("planet").randf() < 0.5 else -r)
-	_table.resize(PLATE_COUNT * 8)
 
 
 func _physics_process(delta: float) -> void:
@@ -58,9 +54,6 @@ func _physics_process(delta: float) -> void:
 	# Drift: rotate each plate seed about its Euler pole, so the Voronoi boundaries migrate.
 	for i in range(_seeds.size()):
 		_seeds[i] = (_seeds[i] as Vector3).rotated((_poles[i] as Vector3).normalized(), float(_rates[i]) * delta)
-	# Hand the plates to the substrate: rotating the seeds moves the boundaries, carrying rock_fill and
-	# sediment at the same velocity moves the crust.
-	_push_plates()
 	_cd -= delta
 	if _cd > 0.0:
 		return
@@ -114,26 +107,6 @@ func _fire_boundary_event() -> void:
 		_disasters.spawn_earthquake(point)                # the fault ruptures
 	else:
 		_disasters.spawn_volcano(point)                   # a rift vent: the lid is being pulled apart HERE
-
-
-func _push_plates() -> void:
-	if _field == null or not _field.has_method("set_plate_motion"):
-		return
-	if _table.size() != _seeds.size() * 8:
-		_table.resize(_seeds.size() * 8)
-	for i in range(_seeds.size()):
-		var s: Vector3 = (_seeds[i] as Vector3).normalized()
-		var p: Vector3 = (_poles[i] as Vector3).normalized()
-		var b: int = i * 8
-		_table[b + 0] = s.x
-		_table[b + 1] = s.y
-		_table[b + 2] = s.z
-		_table[b + 3] = float(_rates[i])
-		_table[b + 4] = p.x
-		_table[b + 5] = p.y
-		_table[b + 6] = p.z
-		_table[b + 7] = 0.0
-	_field.set_plate_motion(_table)
 
 
 # Which plate a unit direction belongs to: the nearest seed by angle (Voronoi on the sphere).

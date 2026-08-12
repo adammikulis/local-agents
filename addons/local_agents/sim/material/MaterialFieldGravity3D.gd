@@ -13,6 +13,7 @@ const SWEEPS: int = 8
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 var _solver: LAFieldGravity = null
 var _steps: int = 0
+var _solves: int = 0
 var _density: PackedFloat32Array = PackedFloat32Array()
 
 
@@ -45,7 +46,18 @@ func step() -> bool:
 		return false
 	_density = DensityScript.of(_mirrors(), _f._porosity, _f._cell_count)
 	_solver.solve(_density, SWEEPS)
+	_solves += 1
 	return true
+
+
+## Bulk density per cell, kg/m^3, as of the last solve. Empty until one has run.
+func density() -> PackedFloat32Array:
+	return _density
+
+
+## Solves completed. A consumer of `density()` rebuilds what it derived when this changes.
+func solves() -> int:
+	return _solves
 
 
 ## Gravitational acceleration at a cell, m/s^2. Zero before the first solve, which is the honest answer:
