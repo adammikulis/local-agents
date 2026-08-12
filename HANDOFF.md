@@ -71,6 +71,18 @@ coefficient is stoichiometry rather than a density ratio between two invented un
 
 ---
 
+## THE ONE REGRESSION, AND IT IS THE NEXT JOB
+
+`kernels3d/pressure.glsl` marches EVERY cell up its whole column: the loop bound is the grid depth, so
+it is O(cells x depth) per step where the kernel it replaced was O(cells). A 5-frame run completes; a
+60-frame run does not finish in fifteen minutes. Not hung — this.
+
+The fix is a column prefix scan, which is what the physics already says: the pressure at a cell is the
+pressure of the cell above plus the weight of one step. One thread per gravity-aligned column, walking
+DOWN once and writing every cell on the way, is O(cells) and computes the same integral once instead of
+depth times. The columns follow -g per cell, not a grid axis, so they must be enumerated from the
+field's own top cells. The gas term stays per-cell; only the condensed overburden accumulates.
+
 ## FOUND BY DOING IT — each had silently disabled a whole subsystem
 
 Ten in one day. Every one was invisible: the file existed, compiled, and passed every gate that named it.
