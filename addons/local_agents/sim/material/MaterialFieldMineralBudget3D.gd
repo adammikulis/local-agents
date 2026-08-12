@@ -11,9 +11,7 @@ var _f = null                                # back-reference to the owning LAMa
 var _prev_total: float = NAN
 var _prev_step: int = -1
 
-# FIRST sample, and the run-long drift measured against it. The per-sample drift is one short window and so is
-# a sample, not a trend: it catches whatever eruption happened to be venting. The run-long figure divides the
-# WHOLE change by the WHOLE number of steps, which is the number to quote for "does this substance mint".
+# Totals at the seal step, and the run-long drift measured against them.
 var _first_total: float = NAN
 var _first_src: float = 0.0
 var _first_step: int = -1
@@ -22,13 +20,9 @@ var _samples: int = 0
 var _first_ca: float = NAN
 var _first_si: float = NAN
 
-# BASELINE BEDROCK, latched at the same sample the run-long drift baseline is, and the reference `crust_moved`
-# measures displacement against. One extra full-grid float array (276 KB at the shipped resolution) and one
-# extra accumulator inside the walk this module already does — no second scan.
+# Bedrock at the seal, the reference `crust_moved` measures displacement against.
 var _rock_ref: PackedFloat32Array = PackedFloat32Array()
 var _rock_ref_step: int = -1
-
-const BASELINE_SKIP_SAMPLES: int = 2
 
 const LEGS: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust", "carbonate", "silica"]
 
@@ -36,6 +30,9 @@ const LEGS: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust"
 ## table the load-time reaction gate checks every record against, so the instrument and the check cannot
 ## disagree. See LAMaterialFieldElementInventory3D for why this book is kept separate from the atmospheric one.
 const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionBalance.gd")
+
+## The one provenance predicate, shared with the seal and the element book.
+const SealScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSeal3D.gd")
 
 
 func setup(field) -> void:
@@ -67,6 +64,7 @@ func report(step_index: int) -> Dictionary:
 	# no `_f._carbonate` to fall back to and an absent probe leg reads as absent rather than as a stale zero.
 	var carb: PackedFloat32Array = legs.get("carbonate", PackedFloat32Array())
 	var silica: PackedFloat32Array = legs.get("silica", PackedFloat32Array())
+	# SUMMABLE — the array is the right length, whatever it came from. Says nothing about provenance.
 	var has_carb: bool = carb.size() == cc
 	var has_silica: bool = silica.size() == cc
 	var has_rock: bool = rock.size() == cc
@@ -74,6 +72,15 @@ func report(step_index: int) -> Dictionary:
 	var has_sed: bool = sed.size() == cc
 	var has_susp: bool = susp.size() == cc
 	var has_dust: bool = dust.size() == cc
+	# MEASURED — the probe delivered it, or the readback refreshes it. A mirror fallback on a demand-gated
+	# channel is a stale number, so it is summed above and reported dead here.
+	var live_rock: bool = has_rock and SealScript.channel_live(_f, "rock_fill", legs, cc)
+	var live_lava: bool = has_lava and SealScript.channel_live(_f, "lava", legs, cc)
+	var live_sed: bool = has_sed and SealScript.channel_live(_f, "sediment", legs, cc)
+	var live_susp: bool = has_susp and SealScript.channel_live(_f, "susp", legs, cc)
+	var live_dust: bool = has_dust and SealScript.channel_live(_f, "dust", legs, cc)
+	var live_carb: bool = has_carb and SealScript.channel_live(_f, "carbonate", legs, cc)
+	var live_silica: bool = has_silica and SealScript.channel_live(_f, "silica", legs, cc)
 
 	var rock_all: float = 0.0
 	var rock_open: float = 0.0
@@ -156,25 +163,22 @@ func report(step_index: int) -> Dictionary:
 	out["sediment_total"] = snappedf(sed_all, 0.01)
 	out["susp_total"] = snappedf(susp_all, 0.01)
 	out["dust_total"] = snappedf(dust_all, 0.01)
-	# before/after of the inclusion fix is readable straight off a single run, not only across two builds.
 	out["dust_open_total"] = snappedf(dust_open, 0.01)
-	# SIM_REPORT's `dust_cells`, counted here because this pass already walks the channel. It was
-	# `LAMaterialField3D.dust_cell_count() { return 0 }` — a gauge that could only ever print zero. The
-	# stop-gap replacement (`LAMaterialFieldQueries3D.dust_cell_count()`, a real body with no caller) was
+	# Cells holding airborne dust, counted here because this pass already walks the channel.
 	out["dust_cells"] = dusty_cells
 	out["rock_cells"] = solid_cells
-	# LA_NO_PLATE_ADVECT=1 rather than by reading it alone. `crust_moved_ref_step` says which step the baseline
+	# `crust_moved_ref_step` says which step the bedrock reference was taken on.
 	if has_ref:
 		out["crust_moved"] = snappedf(crust_moved * 0.5, 0.01)
 		out["crust_moved_ref_step"] = _rock_ref_step
-	elif has_rock and _samples >= BASELINE_SKIP_SAMPLES:
+	elif live_rock and _at_seal(step_index):
 		_rock_ref = rock.duplicate()
 		_rock_ref_step = step_index
 	# PROVENANCE. A leg whose mirror never arrived reads as a flat zero, which is indistinguishable from a
 	# phase that genuinely holds nothing — and, worse, a frozen mirror reads as perfect conservation.
 	out["mineral_live"] = {
-		"rock_fill": has_rock, "lava": has_lava, "sediment": has_sed,
-		"susp": has_susp, "dust": has_dust, "carbonate": has_carb, "silica": has_silica,
+		"rock_fill": live_rock, "lava": live_lava, "sediment": live_sed,
+		"susp": live_susp, "dust": live_dust, "carbonate": live_carb, "silica": live_silica,
 	}
 	# --- THE TWO NON-SILICATE SPECIES, AND THE LITHOSPHERE'S ELEMENT BOOK ------------------------------------
 	out["carbonate_total"] = snappedf(carb_all, 0.0001)
@@ -188,10 +192,10 @@ func report(step_index: int) -> Dictionary:
 		"carbonate": carb_all, "silica": silica_all,
 	}
 	var lith: Dictionary = {}
-	for ch in BalanceScript.LITHOSPHERE_CHANNELS:
+	for ch in BalanceScript.lithosphere_channels():
 		var parts: Dictionary = BalanceScript.channel_elements(ch)
 		var moles: float = float(by_channel.get(ch, 0.0)) * float(
-			mpu.get(int(BalanceScript.INVENTORY_CHANNELS.get(ch, -1)), 1.0))
+			mpu.get(int(BalanceScript.inventory_channels().get(ch, -1)), 1.0))
 		for el in parts:
 			lith[el] = float(lith.get(el, 0.0)) + moles * float(parts[el])
 	for el in lith:
@@ -214,19 +218,13 @@ func report(step_index: int) -> Dictionary:
 	if steps > 0 or _prev_step < 0:
 		_prev_total = total
 		_prev_step = step_index
-	# RUN-LONG DRIFT — the headline conservation figure, and its source-corrected twin.
-	#
-	# THE BASELINE LATCHES ONLY WHEN EVERY LEG OF THE TOTAL IS GENUINELY PRESENT. The condition used to be
-	# `_sealed()` alone, while the comment here claimed the mirrors had arrived — and they had not: a
-	# demand-gated leg falls back to its CPU mirror, an absent mirror reads as a flat zero, so the baseline
-	# latched low and the channel arriving later read as rock being CREATED. Measured after the seal moved onto
-	# the field step: mineral_first 32084 against 34095 at the same horizon, +6.3% of "growth" that was the
-	# gauge, not the planet. `mineral_first_live` publishes the decision so a zero baseline is visible rather
-	# than silent.
+	# RUN-LONG DRIFT — the headline conservation figure, and its source-corrected twin. The baseline latches
+	# only when every leg of the total is genuinely present; `mineral_first_live` publishes that decision.
 	_samples += 1
-	var legs_live: bool = has_rock and has_lava and has_sed and has_susp and has_dust and has_carb and has_silica
+	var legs_live: bool = live_rock and live_lava and live_sed and live_susp and live_dust \
+		and live_carb and live_silica
 	out["mineral_first_live"] = legs_live
-	if _first_step < 0 and _sealed() and legs_live:
+	if _first_step < 0 and _at_seal(step_index) and legs_live:
 		_first_total = total
 		_note_seed("mineral", total)
 		_first_src = src
@@ -272,11 +270,10 @@ func _blank() -> Dictionary:
 	}
 
 
-## True once LAMaterialFieldSeal3D has closed the books. Before it, this module publishes totals but latches
-## no baseline and reports no run-drift — because until the world is sealed the only thing a drift gauge can
-## measure is the planet being assembled.
-func _sealed() -> bool:
-	return _f != null and _f._seal != null and _f._seal.sealed()
+## True only on the step LAMaterialFieldSeal3D latched the books. The seal drives one sample there; a sample
+## on any other step cannot take a baseline, so a late one is impossible rather than merely unlikely.
+func _at_seal(step_index: int) -> bool:
+	return _f != null and _f._seal != null and step_index == _f._seal.baseline_step()
 
 
 func _note_seed(key: String, value: float) -> void:

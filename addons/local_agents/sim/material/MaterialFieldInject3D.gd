@@ -18,62 +18,21 @@ const SOIL_SEARCH_SHELLS: int = 4        # permeable shells to search inward for
 
 const EXCAVATED_DUST_FRAC: float = 0.25
 
-# CRATER TELEMETRY (published through the SIM_REPORT provider registered in setup()). `_crater_watch` keeps the
-# cells the most recent excavation opened so the report can re-read their LIVE rock_fill: that is the DEVICE-side
-# proof the substrate agrees the ground is gone, as opposed to "carve_sphere was called".
+# CRATER TELEMETRY: cells the most recent excavation opened, re-read live at report time.
 const CRATER_WATCH_MAX: int = 256
 var _crater_watch: PackedInt32Array = PackedInt32Array()
 var _crater_seen: Dictionary = {}        # cell -> true, so overlapping craters do not watch a cell twice
 var _crater_opened: int = 0              # cumulative cells this run whose derived solidity went rock -> void
-var _crater_mass: float = 0.0            # cumulative bedrock mass ASKED of rock_fill; the matching credit the
-                                         # device actually accepted is `mineral_inject_moved`, and the two must
-                                         # counter and could never have matched — see MaterialFieldInjectQueue3D's
+var _crater_mass: float = 0.0            # cumulative bedrock mass ASKED of rock_fill
 var _crater_sea: int = 0                 # cumulative opened cells that were under the water line and flooded
 
-# THE MANTLE RESERVOIR — the finite store every volcanic vent draws on. Lazily sized on first eruption
-# (the sphere grid is not built when this module is constructed); -1 means "not yet sized".
-var _mantle_reserve: float = -1.0
-var _mantle_drawn: float = 0.0           # cumulative mass erupted out of it this run
-var _mantle_dry_calls: int = 0           # eruption attempts refused because the reservoir was empty
 var _flood_unsourced: int = 0            # below-sea crater cells left DRY because no live water was in reach
-
-# THE LIGHTNING DISCHARGE STAMP — charge units this step's return strokes drained, per cell. It is the
-# DISCHARGE reaction driver (LAReactionDefs), consumed by the reaction kernel in the step that uploads it and
-# cleared immediately after, so a struck cell fixes nitrogen once per strike rather than for ever.
-var _discharge: PackedFloat32Array = PackedFloat32Array()
-var _discharge_dirty: bool = false       # a strike wrote the stamp; upload it next step
-var _discharge_clear: bool = false       # the stamp was uploaded; upload the zeroed mirror once more
 
 signal splashed(world_pos: Vector3, strength: float)
 
 
-func _mantle_capacity() -> float:
-	if _f == null or _f._sphere == null:
-		return 0.0
-	var core_r: float = float(_f._sphere.core_radius)
-	var side: float = maxf(float(_f._cell_size), 0.001)
-	if core_r <= 0.0:
-		return 0.0
-	return (4.0 / 3.0) * PI * core_r * core_r * core_r / (side * side * side) * _f.MAX_MASS
-
-
-## SIM_REPORT provider for the mantle: capacity, what is left, what has been drawn, and how many eruption
-## attempts were refused for want of it.
-func mantle_report() -> Dictionary:
-	var cap: float = _mantle_capacity()
-	var left: float = _mantle_reserve if _mantle_reserve >= 0.0 else cap
-	return {
-		"mantle_capacity": snappedf(cap, 0.01),
-		"mantle_reserve": snappedf(left, 0.01),
-		"mantle_drawn": snappedf(_mantle_drawn, 0.01),
-		"mantle_spent_frac": snappedf(_mantle_drawn / maxf(cap, 0.0001), 0.000001),
-		"mantle_dry_calls": _mantle_dry_calls,
-	}
-
-
 func setup(field) -> void:
 	_f = field
-	LASimReport.register(mantle_report)
 	# Terrain-destruction telemetry as a registered provider (the LASimReport.register plugin seam), so the
 	# crater proof is polled at snapshot time — when `_rock_fill` holds the freshest readback — instead of
 	# being scanned every frame.
@@ -87,7 +46,7 @@ func _device_ready() -> bool:
 	return _f != null and _f._gpu != null and _f._gpu.has_method("move_field_sparse")
 
 
-# --- Local field injection (add_heat / add_vapor / add_charge) --------------------------------------
+# --- Local field injection (add_heat / add_vapor) ------------------------------------------------
 
 func _rc_channels() -> Dictionary:
 	return {
@@ -101,13 +60,15 @@ func _rc_channels() -> Dictionary:
 func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float:
 	if joules == 0.0 or _f._temp.size() != _f._cell_count:
 		return 0.0
-	var cells: PackedInt32Array = _cells_within(world_pos, radius)
+	return _inject_energy(_cells_within(world_pos, radius), joules)
+
+
+## Spread `joules` over `cells` as the temperature rise their combined heat capacity gives. Returns that
+## rise in deg C. LAHeatCapacity.cell is J/m^3/K, so the volume it multiplies is m^3 and per-cell.
+func _inject_energy(cells: PackedInt32Array, joules: float) -> float:
 	if cells.size() == 0:
 		return 0.0
-	# Build the carrier table ONCE, not once per cell — it is the same dictionary of the same mirrors for
-	# every cell in the bubble, and a meteor's bubble is thousands of them.
 	var ch: Dictionary = _rc_channels()
-	# LAHeatCapacity.cell is J/m^3/K, so the volume it multiplies is m^3 and per-cell, not one model-unit cube.
 	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
 	if vol.size() != _f._cell_count:
 		return 0.0
@@ -122,13 +83,17 @@ func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> 
 	return delta_c
 
 
+## Raise a temperature with no store behind it. This CREATES energy, so it is legal only while the world is
+## seeding; after the seal the seal refuses it and counts the attempt.
 func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if amount == 0.0 or _f._temp.size() != _f._cell_count:
 		return
 	var cells: PackedInt32Array = _cells_within(world_pos, radius)
 	if cells.size() == 0:
 		return
-	queue.note_unsourced(absf(amount) * float(cells.size()))
+	var dc: float = absf(amount) * float(cells.size())
+	if _f._seal != null and not _f._seal.note_creation("add_heat_dc", dc):
+		return
 	_apply_temp(cells, amount)
 
 
@@ -145,40 +110,6 @@ func _apply_temp(cells: PackedInt32Array, delta_c: float) -> void:
 	queue.queue_temp(cells, deltas)
 	if delta_c > 0.0 and _f._gpu != null:
 		_f._gpu.request_channel("fire")
-
-func add_lava(world_pos: Vector3, amount: float) -> void:
-	if _f == null or amount <= 0.0:
-		return
-	if _f._rock_fill.size() != _f._cell_count or _f._lava.size() != _f._cell_count:
-		return
-	if _f._gpu != null:
-		_f._gpu.request_channel("lava")          # an active vent → keep the lava readback hot
-		_f._gpu.request_channel("rock_fill")     # ...and the bedrock mirror this walk locates the vent with
-	var c: int = _f.world_to_cell(world_pos)
-	if c < 0 or c >= _f._cell_count:
-		return
-	# A vent sits on OPEN ground, so the erupting lava is bedrock melted from just BENEATH it: walk radially
-	# inward (lower index = toward the core within the same column) to the first bedrock cell and melt THAT
-	# (it then rises by magma buoyancy).
-	var depth: int = _f._sphere.depth if _f._sphere != null else 1
-	var base: int = c - (c % depth)              # radial index 0 of this surface column (the core-side cell)
-	var cell: int = c
-	while cell >= base and _f._rock_fill[cell] <= 0.0:
-		cell -= 1
-	if cell < base:
-		return                                   # whole column void (no bedrock to erupt) — nothing to do
-	if not _device_ready():
-		# NO DEVICE (the box/CPU reference oracle): nothing flushes the queue there and the mirrors ARE the
-		# substrate, so the direct edit is the correct write — the same split resample_terrain makes.
-		var a: float = minf(amount, _f._rock_fill[cell])
-		if a <= 0.0:
-			return
-		_f._rock_fill[cell] -= a
-		_f._lava[cell] += a
-		return
-	var src: PackedInt32Array = PackedInt32Array([cell])
-	queue.transfer("rock_fill", src, PackedFloat32Array([amount]), "lava", src)
-
 
 func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if amount <= 0.0 or _f._moisture.size() != _f._cell_count or _f._water.size() != _f._cell_count:
@@ -282,6 +213,20 @@ func take_biomass(world_pos: Vector3, want: float) -> float:
 	return take
 
 
+## Impact ejecta landing: debris the parcel carried out of `src_cell` arrives at `world_pos`. One conserving
+## move of one channel between two cells — the flight is latency, not a source of matter.
+func land_ejecta(src_cell: int, world_pos: Vector3, mass: float) -> void:
+	if mass <= 0.0 or src_cell < 0 or src_cell >= _f._cell_count or not _device_ready():
+		return
+	if _f._sediment.size() != _f._cell_count:
+		return
+	var dst: int = _f.world_to_cell(world_pos)
+	if dst < 0 or dst >= _f._cell_count:
+		return
+	queue.transfer("sediment", PackedInt32Array([src_cell]), PackedFloat32Array([mass]),
+		"sediment", PackedInt32Array([dst]))
+
+
 func deposit_sediment(world_pos: Vector3, amount: float) -> void:
 	if amount <= 0.0 or _f._sediment.size() != _f._cell_count or not _device_ready():
 		return
@@ -311,59 +256,6 @@ func _scaled(arr: PackedFloat32Array, k: float) -> PackedFloat32Array:
 	for i in arr.size():
 		out[i] = arr[i] * k
 	return out
-
-## Inject electrification charge into the air cell at `world_pos` (and within `radius`) — an explicit charge
-## seed (a storm's charge source, or an ionising impact). The charge channel is GPU-resident + evolves in
-## place, so mark it dirty for the sphere-step re-upload; the charge module then reads it back + may break down.
-func add_charge(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
-	if amount <= 0.0 or _f._charge.size() != _f._cell_count:
-		return
-	var cells: PackedInt32Array = _cells_within(world_pos, radius)
-	for c in cells:
-		if _f._solid[c] == 0:
-			_f._charge[c] = maxf(0.0, _f._charge[c] + amount)
-	_f._charge_dirty = true
-	_f._charge_woke = true                                # wake the breakdown scan — a small injected blob can
-	                                                      # slip between the strided probe's samples otherwise
-
-
-func deplete_charge(world_pos: Vector3, radius: float, residual: float) -> float:
-	if _f._charge.size() != _f._cell_count:
-		return 0.0
-	if _discharge.size() != _f._cell_count:
-		_discharge = PackedFloat32Array()
-		_discharge.resize(_f._cell_count)
-	var cells: PackedInt32Array = _cells_within(world_pos, radius)
-	var drained: float = 0.0
-	for c in cells:
-		if _f._charge[c] > residual:
-			var q: float = _f._charge[c] - residual
-			drained += q
-			_discharge[c] += q
-			_f._charge[c] = residual
-	if drained > 0.0:
-		_discharge_dirty = true
-	_f._charge_dirty = true
-	return drained
-
-
-## Push the discharge stamp to the GPU and consume it. Called once per field step by the sphere driver: the
-## reaction kernel reads it in the same step, and the following step uploads the zeroed mirror so no cell
-## keeps fixing nitrogen after its strike is over.
-func flush_discharge() -> void:
-	if _f == null or _f._gpu == null or not _f._gpu.has_method("set_field"):
-		return
-	if _discharge.size() != _f._cell_count:
-		return
-	if _discharge_dirty:
-		_f._gpu.set_field("discharge", _discharge)
-		_discharge.fill(0.0)
-		_discharge_dirty = false
-		_discharge_clear = true
-	elif _discharge_clear:
-		_f._gpu.set_field("discharge", _discharge)
-		_discharge_clear = false
-
 
 ## Gather the linear cell indices within `radius` world-units of `world_pos` (the centre cell always included).
 ## Bounded neighbour-BFS over the sphere grid's precomputed 6-neighbour table — O(k) in the bubble, never the
@@ -399,51 +291,19 @@ func _cells_within(world_pos: Vector3, radius: float) -> PackedInt32Array:
 
 # --- Injection API (disasters/flood call these) -----------------------------
 
-func erupt_source(world_pos: Vector3, amount: float) -> float:
-	if amount <= 0.0 or _f._lava.size() != _f._cell_count or _f._rock_fill.size() != _f._cell_count:
+## Joules needed to bring the cells within `radius` of `world_pos` up to `target_c`. A physical quantity a
+## caller pairs with a real store — nothing here decides where the heat comes from.
+func heat_to_reach(world_pos: Vector3, target_c: float, radius: float = 0.0) -> float:
+	if _f == null or _f._temp.size() != _f._cell_count:
 		return 0.0
-	if _mantle_reserve < 0.0:
-		_mantle_reserve = _mantle_capacity()
-	if _mantle_reserve <= 0.0:
-		_mantle_dry_calls += 1
-		return 0.0                                    # the mantle this planet was born with is spent
-	amount = minf(amount, _mantle_reserve)
-	var cell0: int = _f.world_to_cell(world_pos)
-	if cell0 < 0 or cell0 >= _f._cell_count:
+	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
+	if vol.size() != _f._cell_count:
 		return 0.0
-	var c: int = cell0
-	var depth: int = _f._sphere.depth if _f._sphere != null else 1
-	var col_base: int = c - (c % depth)               # radial layer 0 (core side) of this surface column
-	var col_top: int = col_base + depth - 1           # outermost radial layer (sky side)
-	# Walk OUTWARD to the first OPEN cell (bedrock rock_fill < 0.5) — the water cell just above the current surface,
-	# the growing front. Erupt the mantle lava THERE so it emerges INTO the sea (or air, once breached) and quenches.
-	var cell: int = c
-	while cell <= col_top and _f._rock_fill[cell] >= 0.5:
-		cell += 1
-	if cell > col_top:
-		return 0.0                                    # column solid to the grid's outer edge — nowhere to erupt
-	# WHERE THE MAGMA COMES FROM: the deepest bedrock still left in this column, walking OUTWARD from the
-	# core-side end. Deep rather than shallow on purpose — that is the mantle end of the column, and melting it
-	# leaves its void far below the seabed instead of undermining the cone the vent is building.
-	var chamber: int = col_base
-	while chamber <= col_top and _f._rock_fill[chamber] <= 0.0:
-		chamber += 1
-	if chamber >= cell:
-		return 0.0                                    # no bedrock below the vent left to melt — the chamber is spent
-	queue.transfer("rock_fill", PackedInt32Array([chamber]), PackedFloat32Array([amount]),
-		"lava", PackedInt32Array([cell]))
-	# The mantle's own budget is a SECOND, independent ledger (its capacity is the core's volume, not this
-	# column's bedrock), so decrementing it here does not double-debit the transfer above: one says which
-	# matter moved, the other says how much of the planet's original mantle has now been spent.
-	_mantle_reserve -= amount
-	_mantle_drawn += amount
-	# The CPU mirror still has readers — this function's own size guard, lava_total() for SIM_REPORT, and the
-	# eruption event detector — so keep its readback hot while a vent is active, exactly as add_lava does.
-	if _f._gpu != null:
-		_f._gpu.request_channel("lava")
-	if _f._stamp != null:
-		_f._stamp.arm()                               # wake the SDF stamp — the quenched lava will cross rock_fill 0.5
-	return amount
+	var ch: Dictionary = _rc_channels()
+	var j: float = 0.0
+	for c in _cells_within(world_pos, radius):
+		j += LAHeatCapacity.cell(ch, c) * vol[c] * maxf(0.0, target_c - _f._temp[c])
+	return j
 
 
 ## Flood pool-fill: add water only where the ground is at/below the centre column's ground, so a surge

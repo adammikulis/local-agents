@@ -20,9 +20,7 @@ const GASES: Array = [
 ]
 const CHARGE_ACCUM_PATH: String = "res://addons/local_agents/sim/material/kernels3d/charge_accum_sphere3d.glsl"
 
-# --- default constants used when a scalar is not supplied in ctx (NOTE any default picked) -------------------
-# pascals and pass B computes a real m/s^2 acceleration, integrating either of them against a game-second
-const DEFAULT_DT: float = 0.1          # fallback only; converted to real seconds below
+# The step is REAL seconds from LAMaterialFieldSphereStep3D, never ctx["dt"], so there is no dt default here.
 const DEFAULT_BUOY: float = 1.0        # buoyancy enabled (1) when ctx has no "buoy"
 
 var _rd: RenderingDevice = null
@@ -90,8 +88,15 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# Per-column tangent-frame table: the direction of each lateral link in the cell's OWN (tan_a, tan_b) axes.
 	# The wind kernels store momentum in that frame, so they read directions from here, never from slot order.
 	var ltan: RID = bufs["link_tan"]
+	# Angular separation per lateral link. Times the shell radius it is the real centre-to-centre run, which
+	# is what the pressure gradient and the advective Courant factor divide by.
+	var larc: RID = bufs["link_arc"]
+	# (cos, sin) into the neighbour's tangent axes. Momentum is a VECTOR, so carrying it across a lateral link
+	# means rotating it; the scalar transports do not need this table and do not bind it.
+	var lrot: RID = bufs["link_rot"]
 	var shell: RID = bufs["shell"]
 	var cvol: RID = bufs["cell_vol"]
+	var water: Array = bufs["water"]   # PAIR — the surface under the lowest air cell, for its roughness
 
 	_gas_sets = []
 	for _gi in GASES.size():
@@ -101,11 +106,12 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# wind_pressure: 0=AirIn(live), 1=AirOut(back), 2=TempIn(live), 3=Solid, 4=PressureOut, 5=VelX, 6=VelZ, 15=Neigh
 		_wp_set[p] = _uset(_wp_shader, [[0, air[p]], [1, air[back]], [2, temp[p]], [3, solid],
 				[4, pressure], [5, vx], [6, vz], [15, nbr], [17, partner_rid], [16, ltan],
-				[39, shell]])
-		# wind_step: 0=PressureIn, 1=TempIn(live), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 6=AirIn(back), 14=Radial, 15=Neigh
+				[41, larc], [39, shell], [40, cvol]])
+		# wind_step: 0=PressureIn, 1=TempIn(live), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 6=AirIn(back), 7=Water(back),
+		# 14=Radial, 15=Neigh, 41=LinkArc, 43=LinkRot.
 		_ws_set[p] = _uset(_ws_shader, [[0, pressure], [1, temp[p]], [2, solid], [3, vx], [4, vy], [5, vz],
-				[6, air[back]], [14, radial], [15, nbr], [17, partner_rid], [16, ltan],
-				[39, shell]])
+				[6, air[back]], [7, water[back]], [14, radial], [15, nbr], [17, partner_rid], [16, ltan],
+				[41, larc], [43, lrot], [39, shell]])
 		# gas_transport, one set per gas: 0=GasIn(live), 1=GasOut(back), 2=Solid, 3/4/5=Vel, 15=Neigh, 16=LinkTan.
 		for gi in GASES.size():
 			var ch: Array = bufs[String(GASES[gi]["channel"])]
@@ -145,10 +151,9 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	_col_groups = int(ceil(float(_columns) / 64.0))
 
 	var pc_cc: PackedByteArray = _pc_cellcount(cc, depth)       # {cell_count, depth, pad, pad}
-	var pc_wp: PackedByteArray = _pc_windpressure(_columns, depth, lat_size,
-			float(ctx.get("cell_size", 1.0)), float(ctx.get("sea_radius", 0.0)), dt, step_index)
-	var pc_ws: PackedByteArray = _pc_windstep(cc, dt, buoy_on, spin, depth, lat_size,
-			float(ctx.get("sea_radius", 0.0)))
+	var pc_wp: PackedByteArray = _pc_windpressure(_columns, depth,
+			float(ctx.get("sea_radius", 0.0)), dt, step_index)
+	var pc_ws: PackedByteArray = _pc_windstep(cc, dt, buoy_on, spin, depth)
 	var pc_ch: PackedByteArray = _pc_charge(cc, dt)
 
 	rd.compute_list_bind_compute_pipeline(cl, _wp_pipe)
@@ -254,28 +259,28 @@ func _pc_tracer(cc: int, depth: int, k: float, lat_ref: float, settle_v: float, 
 func _pc_cellcount(cc: int, depth: int) -> PackedByteArray:
 	return PackedInt32Array([cc, depth, 0, 0]).to_byte_array()
 
-# Params { uint surf_count; uint depth; float lat_size; float dr_ref; float sea_radius; float dt;
-#          uint step_index; uint pad0; } — wind_pressure (the per-COLUMN air/hydrostatic kernel).
-# step_index == 0 tells the kernel to seed the standard atmosphere; the air channel is allocated all-zero.
-func _pc_windpressure(columns: int, depth: int, lat_size: float, dr_ref: float,
-		sea_radius: float, dt: float, step_index: int) -> PackedByteArray:
+# Params { uint surf_count; uint depth; float sea_radius; float dt; uint step_index; uint pad0..2; } —
+# wind_pressure (the per-COLUMN air/hydrostatic kernel). The lateral run comes from `link_arc` per link, so
+# there is no scalar spacing here. step_index == 0 seeds the standard atmosphere into an all-zero channel.
+func _pc_windpressure(columns: int, depth: int, sea_radius: float, dt: float,
+		step_index: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(32)
 	pc.encode_u32(0, columns)
 	pc.encode_u32(4, depth)
-	pc.encode_float(8, lat_size)
-	pc.encode_float(12, dr_ref)
-	pc.encode_float(16, sea_radius)
-	pc.encode_float(20, dt)
-	pc.encode_u32(24, step_index)
+	pc.encode_float(8, sea_radius)
+	pc.encode_float(12, dt)
+	pc.encode_u32(16, step_index)
+	pc.encode_u32(20, 0)
+	pc.encode_u32(24, 0)
 	pc.encode_u32(28, 0)
 	return pc
 
 
-func _pc_windstep(cc: int, dt: float, buoy: int, spin: Vector3,
-		depth: int, lat_size: float, sea_radius: float) -> PackedByteArray:
+# Params { uint cell_count; float dt; uint buoy; vec3 spin; uint depth; uint pad0; }
+func _pc_windstep(cc: int, dt: float, buoy: int, spin: Vector3, depth: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(36)
+	pc.resize(32)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, dt)
 	pc.encode_u32(8, buoy)
@@ -283,8 +288,7 @@ func _pc_windstep(cc: int, dt: float, buoy: int, spin: Vector3,
 	pc.encode_float(16, spin.y)
 	pc.encode_float(20, spin.z)
 	pc.encode_u32(24, depth)
-	pc.encode_float(28, lat_size)
-	pc.encode_float(32, sea_radius)
+	pc.encode_u32(28, 0)
 	return pc
 
 # Params { uint cell_count; float dt; uint pad0; float pad1; } — charge_accum.

@@ -8,14 +8,33 @@
 
 layout(local_size_x = 64) in;
 
-layout(set = 0, binding = 0, std430) restrict readonly buffer MassIn { float mass_in[]; };
+// mass_in is one of the carriers below, so it is bound twice and may not be `restrict`.
+layout(set = 0, binding = 0, std430) readonly buffer MassIn { float mass_in[]; };
 layout(set = 0, binding = 1, std430) restrict writeonly buffer MassOut { float mass_out[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Send { float send[]; };            // idx*6 + dir
 layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float solid[]; };
+layout(set = 0, binding = 4, std430) restrict buffer SendH { float send_h[]; };         // idx*6 + dir, J per m3 of DONOR volume
 layout(set = 0, binding = 5, std430) restrict buffer Temp { float temp[]; };            // in place
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };    // idx*6 + slot
 layout(set = 0, binding = 16, std430) restrict readonly buffer LinkArc { float larc[]; };
 layout(set = 0, binding = 17, std430) restrict readonly buffer LinkPartner { int partner[]; };
+// Carriers this kernel does not use itself, bound because rc_shared.glsli needs every one of them.
+layout(set = 0, binding = 7, std430) readonly buffer Water { float water[]; };
+layout(set = 0, binding = 18, std430) readonly buffer RockFill { float rock_fill[]; };
+layout(set = 0, binding = 19, std430) readonly buffer Snow { float snow[]; };
+layout(set = 0, binding = 20, std430) readonly buffer Lava { float lava[]; };
+layout(set = 0, binding = 21, std430) readonly buffer Fuel { float fuel[]; };
+layout(set = 0, binding = 22, std430) readonly buffer Biomass { float biomass[]; };
+layout(set = 0, binding = 23, std430) readonly buffer Detritus { float detritus[]; };
+layout(set = 0, binding = 30, std430) readonly buffer Sediment { float sediment[]; };
+layout(set = 0, binding = 31, std430) readonly buffer Susp { float susp[]; };
+layout(set = 0, binding = 32, std430) readonly buffer Dust { float dust[]; };
+layout(set = 0, binding = 33, std430) readonly buffer Carbonate { float carbonate[]; };
+layout(set = 0, binding = 34, std430) readonly buffer Silica { float silica[]; };
+layout(set = 0, binding = 35, std430) readonly buffer Soil { float soil[]; };
+layout(set = 0, binding = 36, std430) readonly buffer Moisture { float moisture[]; };
+layout(set = 0, binding = 37, std430) readonly buffer Fungus { float fungus[]; };
+layout(set = 0, binding = 38, std430) readonly buffer Porosity { float porosity[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -26,10 +45,12 @@ layout(push_constant, std430) uniform Params {
 	float min_mass;
 	float lateral_frac;
 	float repose_tan;     // 0 = level out freely
+	float rc_gain;        // cell heat capacity gained per unit fill of THIS material, J/m3K (LAHeatCapacity)
 } params;
 
 #include "shell.glsli"
 #include "cellvol.glsli"
+#include "rc_shared.glsli"
 
 const float MAX_MASS = 1.0;
 const float MAX_COMPRESS = 0.02;
@@ -55,6 +76,7 @@ void main() {
 	if (params.pass_id == 0u) {
 		for (uint d = 0u; d < 6u; ++d) {
 			send[base + d] = 0.0;
+			send_h[base + d] = 0.0;
 		}
 		if (solid[gidx] != 0.0) {
 			return;
@@ -67,10 +89,14 @@ void main() {
 		// DOWN
 		int ib = nbr[base + N_IN];
 		if (ib >= 0 && solid[ib] == 0.0) {
-			float flow = stable_below(remaining + mass_in[ib]) - mass_in[ib];
+			// The stack rule is about how full the LOWER cell gets, so it is evaluated in the lower cell's
+			// fill units and the answer converted back into mine.
+			float mine_there = remaining * vol_ratio(gidx, uint(ib));
+			float flow = (stable_below(mine_there + mass_in[ib]) - mass_in[ib]) * vol_ratio(uint(ib), gidx);
 			flow = clamp(flow, 0.0, min(params.max_flow, remaining));
 			if (flow > params.min_flow) {
 				send[base + N_IN] = flow;
+				send_h[base + N_IN] = flow * params.rc_gain * temp[gidx];
 				remaining -= flow;
 			}
 		}
@@ -104,6 +130,7 @@ void main() {
 				float lflow = clamp(movable * params.lateral_frac, 0.0, min(params.max_flow, remaining));
 				if (lflow > params.min_flow) {
 					send[base + N_A0 + uint(d)] = lflow;
+					send_h[base + N_A0 + uint(d)] = lflow * params.rc_gain * temp[gidx];
 					remaining -= lflow;
 				}
 			}
@@ -113,10 +140,14 @@ void main() {
 		if (remaining > MAX_MASS) {
 			int iu = nbr[base + N_OUT];
 			if (iu >= 0 && solid[iu] == 0.0) {
-				float uflow = remaining - stable_below(remaining + mass_in[iu]);
+				// This cell is the lower of the pair, so the rule runs in MY fill units and the cell above
+				// converts into them.
+				float theirs_here = mass_in[iu] * vol_ratio(uint(iu), gidx);
+				float uflow = remaining - stable_below(remaining + theirs_here);
 				uflow = clamp(uflow, 0.0, min(params.max_flow, remaining));
 				if (uflow > params.min_flow) {
 					send[base + N_OUT] = uflow;
+					send_h[base + N_OUT] = uflow * params.rc_gain * temp[gidx];
 					remaining -= uflow;
 				}
 			}
@@ -135,8 +166,10 @@ void main() {
 		own_out += send[base + d];
 	}
 
+	// Capacity of everything already in this cell, before this step's material moved.
+	float rc_here = rc_of(gidx);
 	float inflow = 0.0;
-	float inflow_heat = 0.0;
+	float gain_h = 0.0;                    // arriving enthalpy, J per m3 of THIS cell's volume
 	for (uint d = 0u; d < 6u; ++d) {
 		int m = nbr[base + d];
 		if (m < 0 || solid[m] != 0.0) {
@@ -146,19 +179,20 @@ void main() {
 		int pi = partner[base + d];
 		if (pi < 0) { continue; }
 		// The donor's fill fraction is over ITS cell volume; carry the same matter into mine.
-		float f = send[uint(pi)] * vol_ratio(uint(m), gidx);
-		if (f > 0.0) {
-			inflow += f;
-			inflow_heat += f * temp[m];
-		}
+		float vr = vol_ratio(uint(m), gidx);
+		inflow += send[uint(pi)] * vr;
+		gain_h += send_h[uint(pi)] * vr;
 	}
 
-	float kept = mass_in[gidx] - own_out;
-	float total = kept + inflow;
-	mass_out[gidx] = total;
+	mass_out[gidx] = mass_in[gidx] - own_out + inflow;
 
-	// Mass-weighted enthalpy mix. A cell that receives nothing keeps its temperature exactly.
-	if (inflow > 0.0 && total > 0.0) {
-		temp[gidx] = (kept * temp[gidx] + inflow_heat) / total;
+	// The matter that left carried its enthalpy out and the matter that arrived brought its own in. Weights
+	// are heat capacities, not masses: the rest of the cell holds heat too, and a mass-weighted mix ignores
+	// it. A cell that receives nothing keeps its temperature exactly.
+	float kept_c = rc_here - own_out * params.rc_gain;
+	float gain_c = inflow * params.rc_gain;
+	float denom = kept_c + gain_c;
+	if (gain_c > 0.0 && denom > 0.0) {
+		temp[gidx] = (kept_c * temp[gidx] + gain_h) / denom;
 	}
 }

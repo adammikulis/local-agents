@@ -13,6 +13,20 @@ extends RefCounted
 
 const PC = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
 
+## Moles of ELEMENT in one channel unit of any organic stock — one number for organic_c, organic_h and
+## organic_o, so organic_h/organic_c is the molar H:C ratio with no conversion. mol/m3.
+const ORGANIC_MOL_PER_M3: float = PC.DRY_WOOD_DENSITY_KG_M3 / PC.MOLAR_MASS_CH2O_UNIT_KG_MOL
+
+## HIGHER heating value per kg of each element in a solid fuel — Channiwala & Parikh 2002, Fuel 81:1051-1063,
+## "A unified correlation for estimating HHV of solid, liquid and gaseous fuels", eq. 1:
+##   HHV [MJ/kg] = 0.3491 C + 1.1783 H + 0.1005 S - 0.1034 O - 0.0151 N - 0.0211 A   (mass %)
+## It is LINEAR in element mass, which is what lets one heat of combustion cover the whole peat-to-anthracite
+## spectrum without a table: the record's enthalpy is this dotted with the cell's own C:H:O.
+const HHV_PER_KG_C_J: float = 0.3491e8
+const HHV_PER_KG_H_J: float = 1.1783e8
+const HHV_PER_KG_O_J: float = -0.1034e8
+const HHV_PER_KG_N_J: float = -0.0151e8
+
 
 ##   molar_mass       kg/mol. The one bridge between the mass this table stores and the moles chemistry uses.
 ##   density          kg/m3 of the CONDENSED phase, for turning a mass into a volume fraction of a cell.
@@ -99,16 +113,36 @@ static func table() -> Dictionary:
 		},
 
 		# --- ORGANIC MATTER ---------------------------------------------------------------------------------
+		# DEAD organic matter is THREE element stocks, not one formula. Its C:H:O ratio is per-cell state:
+		# organic_h / organic_c is the molar H:C, organic_o / organic_c the molar O:C (all three carry the
+		# same moles per channel unit, ORGANIC_MOL_PER_M3, so the quotient IS the ratio). Fresh CH2O litter
+		# is c=1, h=2, o=1; coalification drives h and o down and nothing has to change channel.
+		"organic_c": {
+			"formula": {"C": 1.0,
+				"N": (PC.MOLAR_MASS_CARBON_KG_MOL / PC.LITTER_C_TO_N) / PC.MOLAR_MASS_NITROGEN_KG_MOL},
+			"molar_mass": PC.MOLAR_MASS_CARBON_KG_MOL,
+			"density": ORGANIC_MOL_PER_M3 * PC.MOLAR_MASS_CARBON_KG_MOL,
+			"specific_heat": PC.DRY_WOOD_SPECIFIC_HEAT_J_KGK,
+			"albedo": PC.ALBEDO_VEGETATION,
+		},
+		"organic_h": {
+			"formula": {"H": 1.0},
+			"molar_mass": PC.MOLAR_MASS_HYDROGEN_KG_MOL,
+			"density": ORGANIC_MOL_PER_M3 * PC.MOLAR_MASS_HYDROGEN_KG_MOL,
+			"specific_heat": PC.DRY_WOOD_SPECIFIC_HEAT_J_KGK,
+		},
+		"organic_o": {
+			"formula": {"O": 1.0},
+			"molar_mass": PC.MOLAR_MASS_OXYGEN_KG_MOL,
+			"density": ORGANIC_MOL_PER_M3 * PC.MOLAR_MASS_OXYGEN_KG_MOL,
+			"specific_heat": PC.DRY_WOOD_SPECIFIC_HEAT_J_KGK,
+		},
 		"cellulose": {
 			"formula": {"C": 1.0, "H": 2.0, "O": 1.0,
 				"N": (PC.MOLAR_MASS_CARBON_KG_MOL / PC.LITTER_C_TO_N) / PC.MOLAR_MASS_NITROGEN_KG_MOL},
 			"molar_mass": PC.MOLAR_MASS_CH2O_UNIT_KG_MOL,
 			"density": PC.DRY_WOOD_DENSITY_KG_M3,
 			"specific_heat": PC.DRY_WOOD_SPECIFIC_HEAT_J_KGK,
-			# PER KG OF FUEL. This held HEAT_PER_KG_OXYGEN_J, which is Huggett's constant — joules per kg of OXYGEN
-			# PhysicalConstants 160 lines from the wrong one. Unread so far, which is the only reason the fire
-			# path and the metabolism path have not yet disagreed about the energy content of one molecule.
-			"heat_of_combustion_j_kg": PC.BIOMASS_HEAT_OF_COMBUSTION_J_PER_KG,
 			"pyrolysis_ea_over_r_k": PC.CELLULOSE_PYROLYSIS_EA_OVER_R_K,
 			"albedo": PC.ALBEDO_VEGETATION,
 		},
@@ -161,6 +195,34 @@ static func table() -> Dictionary:
 			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
 		},
 	}
+
+
+## Moles of one element per mole of CARBON in FRESH litter — the composition a living plant sheds, read off
+## the cellulose entry so a credit into the dead pool cannot disagree with the table about what litter is.
+static func fresh_litter_per_carbon(element: String) -> float:
+	var f: Dictionary = table()["cellulose"]["formula"]
+	var c: float = float(f.get("C", 0.0))
+	if c <= 0.0:
+		return 0.0
+	return float(f.get(element, 0.0)) / c
+
+
+## Heat released by fully oxidising ONE MOLE of one element of the dead organic pool, J/mol, with the water
+## leaving as VAPOUR (that is where the MOISTURE channel puts it, so the latent heat is not available and the
+## hydrogen term is the LOWER heating value). Dotted with a cell's C:H:O this IS its heat of combustion, so no
+## fuel carries its own. Nitrogen rides on the carbon backbone at the litter C:N ratio.
+static func organic_energy_j_mol(element: String) -> float:
+	if element == "C":
+		var n_per_c: float = float(table()["organic_c"]["formula"]["N"])
+		return HHV_PER_KG_C_J * PC.MOLAR_MASS_CARBON_KG_MOL \
+			+ n_per_c * HHV_PER_KG_N_J * PC.MOLAR_MASS_NITROGEN_KG_MOL
+	if element == "H":
+		var water_per_h: float = PC.MOLAR_MASS_WATER_KG_MOL / (2.0 * PC.MOLAR_MASS_HYDROGEN_KG_MOL)
+		var lhv: float = HHV_PER_KG_H_J - water_per_h * latent_vaporisation_at("h2o", PC.LAB_REFERENCE_TEMP_C)
+		return lhv * PC.MOLAR_MASS_HYDROGEN_KG_MOL
+	if element == "O":
+		return HHV_PER_KG_O_J * PC.MOLAR_MASS_OXYGEN_KG_MOL
+	return 0.0
 
 
 ## SOLID / LIQUID / GAS, derived — never stored.

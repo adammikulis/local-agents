@@ -1,6 +1,6 @@
 
 // Volumetric heat capacities, J/m3K. Bound to the authority and checked by scripts/check_physical_constants.sh,
-const float RC_AIR       = 1185.9;     // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
+const float RC_AIR       = 1231.125;   // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
 const float RC_ROCK      = 2.436e6;    // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
 const float RC_WATER     = 4171448.0;  // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
 const float RC_SNOW      = 2083730.0;  // LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K
@@ -9,8 +9,8 @@ const float RC_VAPOUR    = 1990012.0;  // LAPhysical.VOL_HEAT_CAP_VAPOUR_J_M3K
 const float RC_CARBONATE = 2222200.0;  // LAPhysical.VOL_HEAT_CAP_CARBONATE_J_M3K
 const float RC_SILICA    = 1961000.0;  // LAPhysical.VOL_HEAT_CAP_SILICA_J_M3K
 
-// What one cell of matter can store per kelvin, as a volume-fraction mix of everything that is in it.
-float rc_of(uint i) {
+// Volume fraction of a cell that is air. One definition, because rc_of and the adiabat both need it.
+float f_air_of(uint i) {
 	// `rock_fill` IS A SATURATION OF THE CELL'S ROCK MATRIX, NOT A VOLUME FRACTION OF MINERAL, and reading
 	float f_rock  = clamp(rock_fill[i] * (1.0 - clamp(porosity[i], 0.0, 1.0))
 		+ lava[i] + sediment[i] + susp[i] + dust[i], 0.0, 1.0);
@@ -21,7 +21,20 @@ float rc_of(uint i) {
 	float f_vap   = clamp(moisture[i], 0.0, 1.0);
 	float f_org   = clamp(fuel[i] + biomass[i] + detritus[i] + fungus[i], 0.0, 1.0);
 	// Air fills whatever is left. It cannot go negative: the fractions are each clamped to [0,1] and their
-	float f_air   = max(0.0, 1.0 - f_rock - f_carb - f_sil - f_water - f_snow - f_vap - f_org);
+	return max(0.0, 1.0 - f_rock - f_carb - f_sil - f_water - f_snow - f_vap - f_org);
+}
+
+// What one cell of matter can store per kelvin, as a volume-fraction mix of everything that is in it.
+float rc_of(uint i) {
+	float f_rock  = clamp(rock_fill[i] * (1.0 - clamp(porosity[i], 0.0, 1.0))
+		+ lava[i] + sediment[i] + susp[i] + dust[i], 0.0, 1.0);
+	float f_carb  = clamp(carbonate[i], 0.0, 1.0);
+	float f_sil   = clamp(silica[i], 0.0, 1.0);
+	float f_water = clamp(water[i] + soil[i], 0.0, 1.0);
+	float f_snow  = clamp(snow[i], 0.0, 1.0);
+	float f_vap   = clamp(moisture[i], 0.0, 1.0);
+	float f_org   = clamp(fuel[i] + biomass[i] + detritus[i] + fungus[i], 0.0, 1.0);
+	float f_air   = f_air_of(i);
 	return RC_AIR * f_air
 		+ RC_ROCK * f_rock
 		+ RC_CARBONATE * f_carb

@@ -144,12 +144,20 @@ func _ready() -> void:
 
 # Non-interactive verification/screenshot runs shove the OS window WAY off-screen the instant we start, so
 # agent/CI runs that render on a real display path never pop a visible window in front of the user.
+func _window_pos_from_env() -> Vector2i:
+	var raw: String = OS.get_environment("LA_WIN_POS")
+	var parts: PackedStringArray = raw.split(",")
+	if parts.size() == 2 and parts[0].strip_edges().is_valid_int() and parts[1].strip_edges().is_valid_int():
+		return Vector2i(int(parts[0]), int(parts[1]))
+	return Vector2i(-8000, -8000)
+
+
 func _apply_window_mode() -> void:
 	var offscreen: bool = _input.run_frames() > 0 or _input.perf_frames() > 0 \
 		or _input.shoot_path() != "" or OS.has_environment("LA_OFFSCREEN")
 	if not offscreen or DisplayServer.get_name() == "headless":
 		return
-	DisplayServer.window_set_position(Vector2i(-8000, -8000))
+	DisplayServer.window_set_position(_window_pos_from_env())
 	# The perf bench ALWAYS uncaps: vsync would clamp the reading to the monitor rate and hide both the true
 	# frame cost and any headroom. Per-viewport render-time measurement on so the CPU/GPU split is real.
 	if _input.perf_frames() > 0:

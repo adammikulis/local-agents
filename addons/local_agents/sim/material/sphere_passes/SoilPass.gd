@@ -3,13 +3,24 @@ extends RefCounted
 
 const SOIL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/soil_sphere3d.glsl"
 
+## Channels rc_shared.glsli reads that this kernel does not already bind, with the binding each arrives on.
+## The half is the one settled where SoilPass sits in the dispatch order: BACK for a producer that has run
+## this step, LIVE for one that has not.
+const RC_BACK_BINDS: Dictionary = {"lava": 20, "sediment": 30, "susp": 31, "moisture": 36}
+const RC_LIVE_BINDS: Dictionary = {"dust": 32, "fungus": 37}
+const RC_SINGLE_BINDS: Dictionary = {"rock_fill": 18, "snow": 19, "fuel": 21, "biomass": 22,
+	"detritus": 23, "carbonate": 33, "silica": 34}
+
 var _rd: RenderingDevice = null
 var _shader: RID = RID()
 var _pipe: RID = RID()
 var _set: Array = [RID(), RID()]        # one uniform set per parity p in [0, 1]
+## Enthalpy scratch, one slot per cell face, written by pass 0 and gathered by pass 1. A receiver cannot read
+## its donor's temperature instead: pass 1 writes temp, so that read races the write.
+var _send_h: RID = RID()
 
 
-func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
+func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	_rd = rd
 	if _rd == null:
 		push_error("SoilPass: null RenderingDevice")
@@ -38,12 +49,15 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var soil_pair: Array = bufs.get("soil", [RID(), RID()])
 	var temp_pair: Array = bufs.get("temp", [RID(), RID()])
 	var dbg_rid: RID = bufs.get("soil_dbg", RID())
+	var zeros: PackedByteArray = _zeros(cc * 6).to_byte_array()
+	_send_h = _rd.storage_buffer_create(zeros.size(), zeros)
 
 	for p in 2:
 		var back: int = 1 - p
-		_set[p] = _build_set(_shader, [
+		var entries: Array = [
 			[0, water_pair[back]],     # Water  = settled back water (read-modify-write)
 			[1, solid_rid],            # Solid
+			[2, _send_h],              # Enthalpy scratch, paired slot-for-slot with Send
 			[3, send_rid],             # Send scratch
 			[4, soil_pair[p]],         # SoilIn  = live soil (last step's output)
 			[5, soil_pair[back]],      # SoilOut = back soil (this step's output)
@@ -54,7 +68,16 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[11, bufs["porosity"]],    # Porosity — phi, published for every other consumer of rock_fill
 			[15, nbr_rid], [17, partner_rid], [39, shell_rid],   # Neigh + shell tables
 			[40, cvol_rid],            # Per-cell volume (kernels3d/cellvol.glsli)
-		])
+		]
+		for name: String in RC_BACK_BINDS:
+			var bp: Array = bufs.get(name, [RID(), RID()])
+			entries.append([int(RC_BACK_BINDS[name]), bp[back]])
+		for name: String in RC_LIVE_BINDS:
+			var lp: Array = bufs.get(name, [RID(), RID()])
+			entries.append([int(RC_LIVE_BINDS[name]), lp[p]])
+		for name: String in RC_SINGLE_BINDS:
+			entries.append([int(RC_SINGLE_BINDS[name]), bufs.get(name, RID())])
+		_set[p] = _build_set(_shader, entries)
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
@@ -86,12 +109,18 @@ func dispose(rd: RenderingDevice) -> void:
 		if r is RID and r.is_valid():
 			rd.free_rid(r)
 	_set = [RID(), RID()]
-	if _pipe.is_valid():
-		rd.free_rid(_pipe)
-	if _shader.is_valid():
-		rd.free_rid(_shader)
+	for r: RID in [_pipe, _shader, _send_h]:
+		if r.is_valid():
+			rd.free_rid(r)
 	_pipe = RID()
 	_shader = RID()
+	_send_h = RID()
+
+
+static func _zeros(n: int) -> PackedFloat32Array:
+	var a: PackedFloat32Array = PackedFloat32Array()
+	a.resize(n)
+	return a
 
 
 func _build_set(shader: RID, entries: Array) -> RID:

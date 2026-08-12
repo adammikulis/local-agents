@@ -81,7 +81,7 @@ func spawn_volcano(point: Vector3) -> Node:
 	var v: Node = VolcanoScript.new()
 	_actors_root.add_child(v)
 	v.setup(_terrain, _ecology)
-	v.erupt_at(point)
+	v.place_at(point)
 	return v
 
 

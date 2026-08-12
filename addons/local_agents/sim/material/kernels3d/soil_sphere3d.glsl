@@ -9,8 +9,9 @@ layout(local_size_x = 64) in;
 
 layout(set = 0, binding = 0, std430) restrict buffer Water { float water[]; };            // settled surface water (in place)
 layout(set = 0, binding = 1, std430) restrict readonly buffer Solid { float solid[]; };
+layout(set = 0, binding = 2, std430) restrict buffer SendH { float send_h[]; };             // idx*6 + dir, J per m3 of DONOR volume
 layout(set = 0, binding = 3, std430) restrict buffer Send { float send[]; };                // idx*6 + dir (shared scratch)
-layout(set = 0, binding = 4, std430) restrict readonly buffer SoilIn { float soil_in[]; };  // live soil (last step)
+layout(set = 0, binding = 4, std430) restrict readonly buffer SoilIn { float soil[]; };     // live soil (last step)
 layout(set = 0, binding = 5, std430) restrict writeonly buffer SoilOut { float soil_out[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer Regolith { float regolith[]; }; // 1 = permeable aquifer rock
 layout(set = 0, binding = 7, std430) restrict buffer Temp { float temp[]; };                // POST-thermal temp, carry-heat in place
@@ -19,6 +20,20 @@ layout(set = 0, binding = 9, std430) restrict buffer SoilDbg { float dbg[]; };  
 layout(set = 0, binding = 11, std430) restrict buffer Porosity { float porosity[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
 layout(set = 0, binding = 17, std430) restrict readonly buffer LinkPartner { int partner[]; };
+// Carriers this kernel does not use itself, bound because rc_shared.glsli needs every one of them.
+layout(set = 0, binding = 18, std430) restrict readonly buffer RockFill { float rock_fill[]; };
+layout(set = 0, binding = 19, std430) restrict readonly buffer Snow { float snow[]; };
+layout(set = 0, binding = 20, std430) restrict readonly buffer Lava { float lava[]; };
+layout(set = 0, binding = 21, std430) restrict readonly buffer Fuel { float fuel[]; };
+layout(set = 0, binding = 22, std430) restrict readonly buffer Biomass { float biomass[]; };
+layout(set = 0, binding = 23, std430) restrict readonly buffer Detritus { float detritus[]; };
+layout(set = 0, binding = 30, std430) restrict readonly buffer Sediment { float sediment[]; };
+layout(set = 0, binding = 31, std430) restrict readonly buffer Susp { float susp[]; };
+layout(set = 0, binding = 32, std430) restrict readonly buffer Dust { float dust[]; };
+layout(set = 0, binding = 33, std430) restrict readonly buffer Carbonate { float carbonate[]; };
+layout(set = 0, binding = 34, std430) restrict readonly buffer Silica { float silica[]; };
+layout(set = 0, binding = 36, std430) restrict readonly buffer Moisture { float moisture[]; };
+layout(set = 0, binding = 37, std430) restrict readonly buffer Fungus { float fungus[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -50,13 +65,11 @@ const float SURFACE_POROSITY = 0.40;       // LAPhysical.REGOLITH_SURFACE_POROSI
 const float COMPACTION_LEN_M = 2500.0;     // LAPhysical.COMPACTION_LENGTH_M
 const int REG_CELLS = 4;                   // MUST match MaterialField3D.REGOLITH_CELLS
 
-const float RC_AIR   = 1185.9;    // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
-const float RC_ROCK  = 2.436e6;   // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
-const float RC_WATER = 4171448.0; // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
+#include "rc_shared.glsli"
 
-float reg_heat_cap(float phi, float s) {
-	return (1.0 - phi) * RC_ROCK + s * RC_WATER + max(0.0, phi - s) * RC_AIR;
-}
+// Cell heat capacity gained per unit fill of arriving water, J/m3K: the water's own capacity less the air
+// it displaces, since rc_of() fills the unoccupied fraction with air.
+const float WATER_RC_GAIN = RC_WATER - RC_AIR;
 
 const float MAX_MASS = 1.0;           // surface water a cell holds before it is "full" (MUST match MaterialField3D
                                       // + water_sphere3d.glsl). An outlet at or above this can take no more, which
@@ -153,8 +166,7 @@ void main() {
 
 	if (params.pass_id == 0u) {
 		// ---- PASS 0: compute transfers into `send` (self-zero all 6 slots first) --------------------------
-		send[base + N_IN] = 0.0; send[base + N_OUT] = 0.0; send[base + N_A0] = 0.0;
-		send[base + N_A1] = 0.0; send[base + N_B0] = 0.0; send[base + N_B1] = 0.0;
+		for (uint z = 0u; z < N_SLOTS; ++z) { send[base + z] = 0.0; send_h[base + z] = 0.0; }
 		// Probe: zero the SENT legs before any early return, exactly as `send` is zeroed — an inert cell then
 		// truthfully reports sending nothing.
 		dbg[dbase + DBG_DARCY_SENT] = 0.0; dbg[dbase + DBG_SPRING_SENT] = 0.0;
@@ -170,7 +182,7 @@ void main() {
 
 		if (is_regolith) {
 			// GROUNDWATER: flow to lower-head regolith neighbours (Darcy) + DAYLIGHT into open neighbours (springs).
-			float s = soil_in[g];
+			float s = soil[g];
 			if (s <= 0.0) {
 				return;
 			}
@@ -192,12 +204,14 @@ void main() {
 				if (regolith[n] != 0.0) {
 					// Darcy: flow toward lower head (elevation + table). Gravity is baked into the elevation term.
 					float n_cap = porosity_of(n);
-					float nh = head_of(n, soil_in[n], n_cap);
+					float nh = head_of(n, soil[n], n_cap);
 					float dh = my_head - nh;
 					if (dh > 0.0) {
 						float grad = dh / max(run_to(my_r, uint(d)), 1e-6);
 						// UPSTREAM weighting: the DONOR's rock is the one the water has to move through.
-						float flow = min(my_conduct * kr * grad, max(0.0, n_cap - soil_in[n]));
+						// The neighbour's headroom is in ITS fill units; convert to mine before capping.
+						float head_room = max(0.0, n_cap - soil[n]) * vol_ratio(uint(n), g);
+						float flow = min(my_conduct * kr * grad, head_room);
 						if (flow > 0.0) {
 							want[d] = flow;
 							leg[d] = LEG_DARCY;
@@ -211,7 +225,7 @@ void main() {
 					if (exf_head > 0.0) {
 						// remaining = MAX_FLOW_FRAC*s <= 0.21 and min() picked the stability cap EVERY time.
 						float exf = my_conduct * kr * (exf_head / run_to(my_r, uint(d)));
-						exf = min(exf, max(0.0, MAX_MASS - water[n]));
+						exf = min(exf, max(0.0, MAX_MASS - water[n]) * vol_ratio(uint(n), g));
 						if (exf > 0.0) {
 							want[d] = exf;
 							leg[d] = LEG_SPRING;
@@ -226,7 +240,8 @@ void main() {
 				int up = nbr[base + N_OUT];
 				if (up >= 0 && solid[up] == 0.0) {
 					// open cell through N_OUT — two legs sharing one outlet must share its capacity, which the
-					seep_want = min(surplus * SEEP_RATE, max(0.0, MAX_MASS - water[up] - want[N_OUT]));
+					seep_want = min(surplus * SEEP_RATE,
+						max(0.0, (MAX_MASS - water[up]) * vol_ratio(uint(up), g) - want[N_OUT]));
 					total_want += seep_want;
 				}
 			}
@@ -242,6 +257,9 @@ void main() {
 					continue;
 				}
 				send[base + uint(d)] = f;
+				// Written beside its own send, never in a later loop: an early return between the two drops
+				// the heat while the mass still moves.
+				send_h[base + uint(d)] = f * WATER_RC_GAIN * temp[g];
 				if (leg[d] == LEG_DARCY) {
 					dbg[dbase + DBG_DARCY_SENT] += f;
 					continue;
@@ -267,6 +285,7 @@ void main() {
 			float seep = seep_want * scale;
 			if (seep > 0.0) {
 				send[base + N_OUT] += seep;                  // += : the radial neighbour may already carry a scaled spring flow
+				send_h[base + N_OUT] += seep * WATER_RC_GAIN * temp[g];
 				dbg[dbase + DBG_SEEP_SENT] += seep;
 			}
 			return;
@@ -283,19 +302,17 @@ void main() {
 				return;                                    // no aquifer directly below to soak into
 			}
 			float ib_cap = porosity_of(ib);
-			float wet = clamp(soil_in[ib] / max(ib_cap, 1e-6), 0.0, 1.0);
+			float wet = clamp(soil[ib] / max(ib_cap, 1e-6), 0.0, 1.0);
 			if (wet >= 1.0) {
 				return;                                    // saturated below → it all runs off (flash flood)
 			}
 			float wetting = mix(DRY_CRUST, 1.0, smoothstep(0.0, WET_KNEE, wet));
 			float cap_rate = INFIL_RATE * wetting * (1.0 - wet);
-			float infil = min(w, min(cap_rate, ib_cap - soil_in[ib]));
+			float infil = min(w, min(cap_rate, (ib_cap - soil[ib]) * vol_ratio(uint(ib), g)));
 			if (infil > 0.0) {
 				send[base + N_IN] = infil;
+				send_h[base + N_IN] = infil * WATER_RC_GAIN * temp[g];
 				dbg[dbase + DBG_INFIL_SENT] = infil;
-				float c_in = infil * RC_WATER;
-				float c_rock = reg_heat_cap(ib_cap, soil_in[ib]);
-				temp[ib] = (c_rock * temp[ib] + c_in * temp[g]) / (c_rock + c_in);
 			}
 		}
 		return;
@@ -305,8 +322,9 @@ void main() {
 	float own_out = send[base + N_IN] + send[base + N_OUT] + send[base + N_A0]
 		+ send[base + N_A1] + send[base + N_B0] + send[base + N_B1];
 	float inflow = 0.0;
-	float hot_flux = 0.0;
-	float hot_mass = 0.0;
+	float gain_h = 0.0;                        // arriving enthalpy, J per m3 of THIS cell's volume
+	// Capacity of everything already here, before this step's water moved. Read before water[g] is written.
+	float rc_here = rc_of(g);
 	// Probe: the same gather, split by DONOR TYPE, so "what regolith sent" can be compared against "what
 	// arrived". from_reg = inflow whose donor is a regolith cell (Darcy, or a spring landing in open water);
 	float from_reg = 0.0;
@@ -319,11 +337,12 @@ void main() {
 		if (nb < 0) { continue; }
 		int pi = partner[base + d];
 		if (pi < 0) { continue; }
-		sflow = send[uint(pi)] * vol_ratio(uint(nb), g);
+		float vr = vol_ratio(uint(nb), g);
+		sflow = send[uint(pi)] * vr;
 		inflow += sflow;
+		gain_h += send_h[uint(pi)] * vr;
 		if (regolith[nb] != 0.0) {
 			from_reg += sflow;
-			if (sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; }
 		} else {
 			from_open += sflow;
 		}
@@ -339,10 +358,10 @@ void main() {
 
 	if (regolith[g] != 0.0) {
 		// Regolith: gains groundwater from higher-head neighbours + infiltration from above; loses outflow.
-		float raw = soil_in[g] - own_out + inflow;
+		float raw = soil[g] - own_out + inflow;
 		float applied = max(0.0, raw);        // keep it in a local: SoilOut is `writeonly`, it cannot be read back
 		soil_out[g] = applied;
-		dbg[dbase + DBG_REG_IN] = soil_in[g];
+		dbg[dbase + DBG_REG_IN] = soil[g];
 		dbg[dbase + DBG_REG_OUT] = applied;
 		dbg[dbase + DBG_OWN_OUT] = own_out;
 		dbg[dbase + DBG_DARCY_RECV] = from_reg;
@@ -355,22 +374,22 @@ void main() {
 		dbg[dbase + DBG_OPEN_CLAMP_GAIN] = applied_w - raw_w;
 		dbg[dbase + DBG_SPRING_RECV] = from_reg;
 		dbg[dbase + DBG_OPEN_FROM_OPEN] = from_open;
-		dbg[dbase + DBG_OPEN_DROP] = soil_in[g];     // overwritten with 0 on the next line — a sink if nonzero
+		dbg[dbase + DBG_OPEN_DROP] = soil[g];     // overwritten with 0 on the next line — a sink if nonzero
 		soil_out[g] = 0.0;
-		// scripted: which springs are hot falls out of the head gradient meeting the geothermal heat field.
-		if (hot_mass > 0.0) {
-			float donor_t = hot_flux / hot_mass;
-			// arrived. `water[g]` is read raw — the CA is compressible, so it can exceed one cell — and the air
-			// share is whatever volume that leaves, floored at zero.
-			float w_here = max(0.0, water[g] - hot_mass);
-			float c_here = w_here * RC_WATER + max(0.0, 1.0 - w_here) * RC_AIR;
-			float c_in = hot_mass * RC_WATER;
-			temp[g] = (c_here * temp[g] + c_in * donor_t) / (c_here + c_in);
-		}
 	} else {
-		soil_out[g] = soil_in[g];                          // impermeable bedrock: inert
+		soil_out[g] = soil[g];                          // impermeable bedrock: inert
 		// ...and INERT means it drops `inflow` on the floor. Nothing ever sends to bedrock on purpose (Darcy
 		// targets regolith, springs target open, infiltration targets a regolith floor), so a nonzero reading
 		dbg[dbase + DBG_BEDROCK_IN] = inflow;
+		return;                                         // it took no mass, so it takes no heat either
+	}
+
+	// The water that left carried its enthalpy out with it and the water that arrived brought its own in.
+	// Weights are heat capacities: what is still here, and what the arrival adds. J/m3K on both sides.
+	float kept_c = rc_here - own_out * WATER_RC_GAIN;
+	float gain_c = inflow * WATER_RC_GAIN;
+	float denom = kept_c + gain_c;
+	if (gain_c > 0.0 && denom > 0.0) {
+		temp[g] = (kept_c * temp[g] + gain_h) / denom;
 	}
 }

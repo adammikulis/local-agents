@@ -69,10 +69,12 @@ func refresh_aggregates() -> void:
 		return
 	var total: float = 0.0
 	for i in range(cell_count):
+		var aw: float = moisture[i]
+		# MASK-FREE: this is the airborne leg of the conserved h2o_total, so vapour in a cell the derived solid
+		# flag now covers is still counted. The cloud/fog/precip COUNTS below are open-cell extents and stay masked.
+		total += aw * vol[i]
 		if solid[i] != 0:
 			continue
-		var aw: float = moisture[i]
-		total += aw * vol[i]
 		var cond: float = aw - _sat(temp[i])
 		if cond <= 0.0:
 			continue

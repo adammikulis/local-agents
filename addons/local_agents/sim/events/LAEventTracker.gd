@@ -40,7 +40,6 @@ func setup(world: Node) -> void:
 func _build_registry() -> void:
 	_detectors = [
 		# Eruption: molten-rock (lava) total ramps up from ~0 as a vent supplies it, and stays up. Escalates
-		# as the supply builds. This is the primary live geological signal on the sphere path (add_lava).
 		_threshold("eruption", "lava_total", "cross_up", 0.5, 0.1, 12.0, 0.02,
 			"a volcano is erupting — molten lava is pouring out"),
 		# Wildfire: the ecology fire count rising off zero (fire ignited and is spreading).

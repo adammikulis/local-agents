@@ -18,6 +18,7 @@ const H2OBudgetScript: GDScript = preload("res://addons/local_agents/sim/materia
 const MineralProfileScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd")
 const MineralProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProbe3D.gd")
 const EnergyProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyProbe3D.gd")
+const ElementProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldElementProbe3D.gd")
 
 var _f = null                                          # back-reference to the owning LAMaterialField3D
 var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
@@ -34,6 +35,8 @@ var _mineral_profile = null
 # this one when both variables are present, rather than letting one silently take every checkpoint.
 var _mineral_probe = null
 var _energy_probe = null
+# LA_ELEMENT_BUDGET=<element>: per-pass attribution for an element, in moles.
+var _element_probe = null
 # LA_PASS_PROBE=<channel>: totals one channel after every pass for the first few steps. Lowest precedence of
 # the step-probe contenders, so it never displaces a ledger someone armed deliberately.
 var _pass_probe = null
@@ -53,13 +56,14 @@ func setup(field) -> void:
 	if _armed("LA_SOIL_BUDGET"):
 		_soil_budget = SoilBudgetScript.new()
 		_soil_budget.setup(field)
-	# THE DRIVER HAS EXACTLY ONE `set_step_probe` SLOT and three probes want it. Arming two would give one of
-	# them every checkpoint and the other none, silently, so this picks by a DECLARED precedence and names
-	# shape into one that hides which probe actually ran.)*
+	# THE DRIVER HAS EXACTLY ONE `set_step_probe` SLOT and four probes want it. Arming two would give one of
+	# them every checkpoint and the other none, silently, so this picks by a DECLARED precedence and says which
+	# one it kept.
 	var slot_order: Array = [
 		["LA_MINERAL_BUDGET", MineralProbeScript],
 		["LA_H2O_BUDGET", H2OBudgetScript],
-		["LA_ENERGY_BUDGET", EnergyProbeScript]]
+		["LA_ENERGY_BUDGET", EnergyProbeScript],
+		["LA_ELEMENT_BUDGET", ElementProbeScript]]
 	var slot_armed: PackedStringArray = PackedStringArray()
 	for entry in slot_order:
 		if _armed(entry[0]):
@@ -77,6 +81,7 @@ func setup(field) -> void:
 				"LA_MINERAL_BUDGET": _mineral_probe = probe_obj
 				"LA_H2O_BUDGET": _h2o_budget = probe_obj
 				"LA_ENERGY_BUDGET": _energy_probe = probe_obj
+				"LA_ELEMENT_BUDGET": _element_probe = probe_obj
 	if _armed("LA_MINERAL_PROFILE"):
 		_mineral_profile = MineralProfileScript.new()
 		_mineral_profile.setup(field)
@@ -99,6 +104,8 @@ func process(delta: float) -> void:
 		_f._seed_sphere_sea()         # fills the ocean basin with real, flowing water
 		_f._compute_regolith()        # the permeable aquifer band (+ initial water table) for groundwater flow
 		LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins (static water bodies)
+		if _f._geotherm != null:
+			_f._geotherm.arm(LAPhysical.INNER_CORE_C)   # the interior's heat, declared through the seal
 		_f.activate()                 # is_sphere() → picks SphereGPUScript + sets _use_gpu
 		_f._ready_sim = true
 		return
@@ -164,13 +171,6 @@ func process(delta: float) -> void:
 	if _f._shock_dirty and _f._gpu.has_method("set_field"):
 		_f._gpu.set_field("shock", _f._shock)
 		_f._shock_dirty = false
-	if _f._charge_dirty and _f._gpu.has_method("set_field"):
-		_f._gpu.set_field("charge", _f._charge)
-		_f._charge_dirty = false
-	# The lightning discharge stamp the bolts wrote after the last step — the DISCHARGE reaction driver.
-	# Uploaded here so this step's reaction kernel sees it, and cleared by the same call.
-	if _f._inject != null:
-		_f._inject.flush_discharge()
 	# Scent is a 5-plane packed channel; deposit() seeded a plane on the CPU this frame → push it before the step.
 	if _f._scent_dirty and _f._gpu.has_method("set_field"):
 		_f._gpu.set_field("scent", _f._scent)
@@ -182,9 +182,15 @@ func process(delta: float) -> void:
 		_f._fuel_dirty = false
 	# One-shot: push the initial soil detritus seed into the GPU before the first step so the decomposer has
 	# substrate from frame 0. Cleared immediately so the GPU-evolved detritus (respiration/decompose) is never clobbered.
-	if _f._detritus_seed_dirty and _f._gpu.has_method("set_field"):
-		_f._gpu.set_field("detritus", _f._detritus)
+	if _f._detritus_seed_dirty and _f._gpu.has_method("seed_field"):
+		_f._gpu.seed_field("detritus", _f._detritus, _f._seal)
 		_f._detritus_seed_dirty = false
+	# ...and the C:H:O of that seeded litter, in the same one-shot. Seeding carbon without its hydrogen and
+	# oxygen would start every cell at the anthracite end of the spectrum instead of the fresh end.
+	if _f._organic_seed_dirty and _f._gpu.has_method("seed_field"):
+		_f._gpu.seed_field("org_h", _f._org_h, _f._seal)
+		_f._gpu.seed_field("org_o", _f._org_o, _f._seal)
+		_f._organic_seed_dirty = false
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		if OS.has_environment("LA_INJECT_AUDIT"):
 			# Diagnostic: how far the CPU mirror has drifted from the live buffer right now == exactly the mass
@@ -197,6 +203,8 @@ func process(delta: float) -> void:
 	var probe = _h2o_budget if _h2o_budget != null else _mineral_probe
 	if probe == null:
 		probe = _energy_probe
+	if probe == null:
+		probe = _element_probe
 	if probe == null and _pass_probe != null and _pass_probe.armed():
 		probe = _pass_probe
 	for i in steps:
@@ -210,13 +218,8 @@ func process(delta: float) -> void:
 	var res: Dictionary = _f._gpu.end_frame()
 	var t_post: int = Time.get_ticks_usec()
 	_apply_readback(res)
-	# SEAL ON THE FIELD CLOCK, NOT THE REPORT CLOCK. The world seal is where every conservation baseline
-	# latches, and poll() used to be called only from MaterialFieldReport3D.report(), which runs on the
-	# 64-frame gauge cadence — so each probe round cost 64 frames, and whether a channel counted as live
-	# depended on whether some RENDERER happened to have made its mirror resident. Measured: the seal landed
-	# at field_step 9 with the render layer up and 265 without it, which latched every baseline at the end of
-	# the run and made all four drift gauges read a trivial 0.000%. The rate of a physical process may not
-	# depend on where the camera is pointed.
+	# Seal on the field clock, never the report clock: poll() both closes the books and latches every
+	# conservation baseline on that step, so no baseline depends on the 64-frame gauge cadence.
 	if _f._seal != null and _f._gpu.has_method("take_probe"):
 		_f._seal.poll(_f._gpu.take_probe())
 	# Surface seed module: coarse-cadence refill of fuel from the freshly read-back biomass (marks _fuel_dirty).

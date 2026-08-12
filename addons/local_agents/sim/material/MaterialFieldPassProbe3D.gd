@@ -1,10 +1,10 @@
 class_name LAMaterialFieldPassProbe3D
 extends RefCounted
 
-## Totals ONE channel after EVERY pass, for the first few steps. `LA_PASS_PROBE=o2`.
-##
-## The mineral and energy probes each named their culprit in a single run, but each is bespoke to its own
-## ledger. This one takes a channel name, so any runaway can be attributed without writing a new probe.
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
+## Totals ONE channel after EVERY pass, for the first few steps. `LA_PASS_PROBE=o2`. Volume-weighted: a
+## channel value is a fill FRACTION, so a bare buffer sum moves when transport conserves matter.
 
 const DEFAULT_STEPS: int = 3
 
@@ -43,7 +43,7 @@ func post_step() -> void:
 
 
 func _on_pass(pass_index: int, pass_name: String) -> void:
-	var halves: Dictionary = _f._gpu.channel_totals_now(_channel)
+	var halves: Dictionary = _halves()
 	if halves.is_empty():
 		return
 	print("PASS_PROBE=", JSON.stringify({
@@ -51,4 +51,26 @@ func _on_pass(pass_index: int, pass_name: String) -> void:
 		"channel": _channel, "halves": halves}))
 
 
-
+## Mask-free matter in each half of the channel, right now. SINGLE channels have one buffer; a PAIR's back
+## half is what the pass that just ran wrote, so both are reported and the reader picks.
+func _halves() -> Dictionary:
+	var gpu = _f._gpu
+	var cc: int = _f._cell_count
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if gpu == null or vol.size() != cc:
+		return {}
+	var empty: PackedByteArray = PackedByteArray()
+	if gpu.single_channels().has(_channel):
+		var one: PackedFloat32Array = gpu.read_raw(_channel, 0)
+		if one.size() != cc:
+			return {}
+		return {"single": CellVolScript.weighted(one, vol, empty, false)}
+	var p: int = gpu.probe_phase()
+	var live: PackedFloat32Array = gpu.read_raw(_channel, p)
+	var back: PackedFloat32Array = gpu.read_raw(_channel, 1 - p)
+	if live.size() != cc or back.size() != cc:
+		return {}
+	return {
+		"live": CellVolScript.weighted(live, vol, empty, false),
+		"back": CellVolScript.weighted(back, vol, empty, false),
+	}

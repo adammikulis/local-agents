@@ -313,10 +313,6 @@ func _on_impact() -> void:
 		if field != null and field.has_method("eject"):
 			var up: Vector3 = (_impact_point - field._origin).normalized() if "_origin" in field else Vector3.UP
 			field.eject(_impact_point, 0.4 * _size, 900.0 * _size, up * 0.6)
-			# Hypervelocity impact IONISES the air above the crater — a charge seed the field's breakdown then
-			# discharges as a bolt (the same charge→bolt primitive a storm feeds; here from impact plasma).
-			if field.has_method("add_charge"):
-				field.add_charge(_impact_point + up * 20.0, minf(4.0 + _size * 2.5, 9.0), r)
 	# Shake the ground: steep terrain in the blast radius slumps downhill under gravity (a meteor into
 	# a mountainside triggers a slide — pure material physics, no landslide code).
 	if _ecology != null and _ecology.has_method("disturb_ground"):

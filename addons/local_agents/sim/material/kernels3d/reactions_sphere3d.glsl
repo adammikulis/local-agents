@@ -49,6 +49,10 @@ layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float 
 layout(set = 0, binding = 30, std430) restrict buffer N2Buf { float n2[]; };              // dinitrogen, 78% of the air
 // Charge (channel units) a lightning return stroke drained from this cell this step. DRIVER ONLY.
 layout(set = 0, binding = 31, std430) restrict readonly buffer Discharge { float discharge[]; };
+// The hydrogen and oxygen bound in the DEAD organic pool whose carbon is detritus + fuel. Same moles per
+// channel unit as the carbon, so org_h/org_c is the molar H:C and org_o/org_c the molar O:C.
+layout(set = 0, binding = 32, std430) restrict buffer OrgH { float org_h[]; };
+layout(set = 0, binding = 33, std430) restrict buffer OrgO { float org_o[]; };
 
 // Slot enum — MUST match MaterialReactions3D.gd.
 #define TEMP     0
@@ -100,7 +104,10 @@ float sat_mass_frac(float t_c) {
                        // when D1b runs backwards. Own-cell stock; nothing advects it.
 #define SILICA    25   // SiO2, bound at 29 — the weathering residue. Nothing weathers it further.
 #define N2        26   // dinitrogen, bound at 30 — the nitrogen reservoir lightning fixation draws on
-#define DISCHARGE 27   // DERIVED driver only, bound at 31 — charge units this cell's return stroke drained
+#define DISCHARGE 27   // DERIVED driver only, bound at 31 — J/m^3 this cell's return stroke released
+#define ORG_H     28   // hydrogen bound in the dead organic pool, bound at 32
+#define ORG_O     29   // oxygen bound in the dead organic pool, bound at 33
+#define ORG_C     30   // DERIVED driver only: detritus + fuel, the carbon the two ratios divide by
 
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust (dust_loft parity)
 #define REGOLITH_CELLS 4    // rooting depth = the permeable regolith band (MUST match MaterialField3D.REGOLITH_CELLS)
@@ -128,6 +135,7 @@ const float O2_FLAMMABILITY_LIMIT = LOC_MOLE_FRAC / AIR_O2_MOLE_FRAC_K;
 #define GATE_NEAR_GROUND 4
 #define GATE_DRY         16   // cell is DRY (water <= WET_MAX_LOFT) — sand only lofts when not wet
                               // water=1 and is deliberately not simulated) — real per-cell chemistry only
+#define GATE_BURIED      256  // ALSO runs in SOLID cells — buried organic matter is inside rock by definition
 #define GATE_AIR_ABOVE   128  // THE FREE SURFACE: the outward neighbour is air (not rock, not drowned). A
                               // submerged cell has no air touching it and cannot evaporate. See ReactionDefs.
 
@@ -164,6 +172,15 @@ struct Reaction {
 	float dg_s_j_molk;     // standard dS, same basis
 	int   q_slot;          // the one participant whose activity varies; the rest are pure phases
 	float q_pa_per_unit_k; // partial pressure (Pa) one channel unit of q_slot exerts per kelvin
+	// --- COMPOSITION-SCALED COEFFICIENTS. coeff = base + h*(org_h/org_c) + o*(org_o/org_c), per cell.
+	float react_h[4];
+	float react_o[4];
+	float prod_h[4];
+	float prod_o[4];
+	float enthalpy_h_j_m3;
+	float enthalpy_o_j_m3;
+	int   pad3;
+	int   pad4;
 };
 
 layout(set = 0, binding = 21, std430) restrict readonly buffer Defs { Reaction recs[]; };
@@ -302,6 +319,9 @@ float read_ch(int slot, uint i) {
 	if (slot == SILICA)    return silica[i];
 	if (slot == N2)        return n2[i];
 	if (slot == DISCHARGE) return discharge[i];
+	if (slot == ORG_H)     return org_h[i];
+	if (slot == ORG_O)     return org_o[i];
+	if (slot == ORG_C)     return detritus[i] + fuel[i];
 	return 0.0;
 }
 
@@ -328,6 +348,8 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == CARBONATE) { carbonate[i] = max(0.0, carbonate[i] + v); } // D1b credits, D1c debits
 	else if (slot == SILICA)    { silica[i]    = max(0.0, silica[i]    + v); }
 	else if (slot == N2)        { n2[i]        = max(0.0, n2[i]        + v); }
+	else if (slot == ORG_H)     { org_h[i]     = max(0.0, org_h[i]     + v); }
+	else if (slot == ORG_O)     { org_o[i]     = max(0.0, org_o[i]     + v); }
 }
 
 // Gate helpers reuse the exact neighbour tests proven in the dissolved kernels.
@@ -382,6 +404,15 @@ float direction_scale(Reaction rc, uint i, out float x_eq) {
 	return 1.0 - exp(clamp(dg / rt, -DG_EXP_LIMIT, DG_EXP_LIMIT));
 }
 
+// The effective coefficient of one participant in THIS cell: base plus the composition-scaled parts.
+float react_coeff_at(Reaction rc, int k, float ch, float co) {
+	return rc.react_coeff[k] + rc.react_h[k] * ch + rc.react_o[k] * co;
+}
+
+float prod_coeff_at(Reaction rc, int k, float ch, float co) {
+	return rc.prod_coeff[k] + rc.prod_h[k] * ch + rc.prod_o[k] * co;
+}
+
 void main() {
 	uint i = gl_GlobalInvocationID.x;
 	if (i >= params.cell_count) {
@@ -389,16 +420,22 @@ void main() {
 	}
 	scratch[i] = 0.0;                       // reset per-cell SCRATCH each step (replaces fungus kernel's fert reset)
 	fire[i] = 0.0;                          // the burning INSTRUMENT — assigned from this step's fuel loss below
-	if (solid[i] != 0.0) {
-		return;                             // reactions run in OPEN cells only
-	}
+	bool buried = (solid[i] != 0.0);        // only GATE_BURIED records run in rock; everything else is open-cell
+	// THE CELL'S OWN ORGANIC COMPOSITION: molar H:C and O:C of the dead pool. Every stoichiometric coefficient
+	// and every enthalpy below is a polynomial in these two, so one channel carries peat through to anthracite.
+	float org_c = detritus[i] + fuel[i];
+	float comp_h = (org_c > 1e-9) ? org_h[i] / org_c : 0.0;
+	float comp_o = (org_c > 1e-9) ? org_o[i] / org_c : 0.0;
 	float fuel_before = fuel[i];            // combustion is fuel's only sink
 	float o2_before = o2[i];                // the cell's USABLE-oxygen denominator for the fire instrument
 	float o2_burn = 0.0;                    // ...and its NUMERATOR: oxygen drawn by COMBUSTION alone, summed below
 
 	for (uint r = 0u; r < params.n_records; r++) {
 		Reaction rc = recs[r];
-		if (!gate_ok(rc.gate_mask, i)) {
+		if (buried && (rc.gate_mask & GATE_BURIED) == 0) {
+			continue;
+		}
+		if (!buried && !gate_ok(rc.gate_mask, i)) {
 			continue;
 		}
 		float drv = read_ch(rc.driver_slot, i);
@@ -440,7 +477,7 @@ void main() {
 		if (x > 0.0) {
 			// Reactant caps: the extent can't drive any reactant (or the aux cap) negative.
 			for (int k = 0; k < rc.n_react; k++) {
-				float coeff = max(rc.react_coeff[k], 1e-6);
+				float coeff = max(react_coeff_at(rc, k, comp_h, comp_o), 1e-6);
 				float avail = read_ch(rc.react_slot[k], i);
 				if (rc.react_slot[k] == rc.quench_slot) {
 					avail = max(0.0, avail - rc.quench_min);
@@ -456,7 +493,7 @@ void main() {
 				if (rc.prod_target[k] == TGT_SCRATCH) {
 					continue;
 				}
-				x = max(x, -read_ch(rc.prod_slot[k], i) / max(rc.prod_coeff[k], 1e-6));
+				x = max(x, -read_ch(rc.prod_slot[k], i) / max(prod_coeff_at(rc, k, comp_h, comp_o), 1e-6));
 			}
 		}
 		if (x == 0.0) {
@@ -467,14 +504,14 @@ void main() {
 		float o2_pre_rec = is_combustion ? o2[i] : 0.0;
 
 		for (int k = 0; k < rc.n_react; k++) {
-			add_ch(rc.react_slot[k], i, -rc.react_coeff[k] * x);
+			add_ch(rc.react_slot[k], i, -react_coeff_at(rc, k, comp_h, comp_o) * x);
 		}
 
 		for (int k = 0; k < rc.n_prod; k++) {
 			if (rc.prod_target[k] == TGT_SCRATCH) {
-				scratch[i] += rc.prod_coeff[k] * x;
+				scratch[i] += prod_coeff_at(rc, k, comp_h, comp_o) * x;
 			} else {
-				add_ch(rc.prod_slot[k], i, rc.prod_coeff[k] * x);
+				add_ch(rc.prod_slot[k], i, prod_coeff_at(rc, k, comp_h, comp_o) * x);
 			}
 		}
 
@@ -483,8 +520,9 @@ void main() {
 		}
 
 		// THE ENTHALPY, and it is an ENERGY rather than a mass coefficient for a reason: how hot a cell gets
-		if (rc.enthalpy_j_m3 != 0.0) {
-			temp[i] += rc.enthalpy_j_m3 * x / max(rc_of(i), 1.0);
+		float dh = rc.enthalpy_j_m3 + rc.enthalpy_h_j_m3 * comp_h + rc.enthalpy_o_j_m3 * comp_o;
+		if (dh != 0.0) {
+			temp[i] += dh * x / max(rc_of(i), 1.0);
 		}
 	}
 

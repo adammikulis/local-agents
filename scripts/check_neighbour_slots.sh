@@ -45,8 +45,16 @@ fi
 # kernels got the arithmetic wrong and a fifth got it wrong while being fixed.
 # `opposite_slot()` in neighbours.glsli is the one named accessor for a cell's OWN opposite slot; ad-hoc
 # arithmetic anywhere else is banned.
-rolled=$(grep -nE '\?\s*5u\s*:|== 5u\) \? 0u|N_SLOTS \+ \(d \^|\^ 1u\)\]' "$K"/*.glsl 2>/dev/null \
-         | grep -v 'opposite_slot(' || true)
+# The pattern used to require the exact text `^ 1u)]`, so `toward(uint(m), l ^ 1, depth)` in
+# wind_pressure_sphere3d.glsl passed the gate for as long as both existed. It matches ANY xor-with-one
+# outside a comment now, which is the whole family; comments are stripped so `m/s^2` is not a hit.
+rolled=$(awk '
+  { line = $0
+    sub(/\/\/.*$/, "", line)
+    if (line ~ /opposite_slot\(/) next
+    if (line ~ /\^[ \t]*1[uU]?([^0-9.]|$)/ || line ~ /\?[ \t]*5u[ \t]*:/ || line ~ /==[ \t]*5u\)[ \t]*\?[ \t]*0u/)
+      printf "%s:%d:%s\n", FILENAME, FNR, $0
+  }' "$K"/*.glsl 2>/dev/null || true)
 if [ -n "$rolled" ]; then
   echo "check_neighbour_slots: A KERNEL COMPUTES ITS OWN REVERSE LINK. Use link_partner[base + d]." >&2
   echo "$rolled" >&2

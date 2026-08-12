@@ -29,9 +29,51 @@ const LITH_RATE_PER_PA: float = 1.0e-9   # per-step k on x = max(0, P - P_lith) 
                                          # burial is 14.2 MPa, so it lithifies ~1.4 % of its sediment per step.
 
 
+# --- COALIFICATION: BURIAL DRIVES ORGANIC MATTER TOWARD CARBON ---------------------------------------------
+# Peat, lignite, coal and oil are not fuels this substrate has to name. They are one dead organic pool losing
+# H and O as it is buried and heated, and what is left is the C:H:O ratio the two records below leave behind.
+# Both are Arrhenius on the pool's own element stocks; `_rate_k` puts the frequency factor on the field clock.
+static func _rate_k(ea_over_r_k: float) -> float:
+	var t_ref: float = LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET
+	return LAPhysical.VITRINITE_FREQUENCY_FACTOR_PER_S \
+		* LAMaterialFieldSphereStep3D.real_seconds_per_step() * exp(-ea_over_r_k / t_ref)
+
+
+## Heat released per unit of extent, per m3 of cell, when the pool loses these moles of each element: the
+## chemical energy it no longer holds (LASubstances.organic_energy_j_mol) has to go somewhere, and it goes to
+## the cell. Coalification comes out exothermic, which is why coal seams self-heat.
+static func _coal_enthalpy_j_m3(mol_c: float, mol_h: float, mol_o: float) -> float:
+	return LASubstances.ORGANIC_MOL_PER_M3 * (mol_c * LASubstances.organic_energy_j_mol("C")
+		+ mol_h * LASubstances.organic_energy_j_mol("H")
+		+ mol_o * LASubstances.organic_energy_j_mol("O"))
+
+
 ## The records this domain contributes to the live table (see LAMaterialReactions3D).
 static func records() -> Array:
+	var w_per_org_o: float = LAReactionBalance.unit_ratio(MOISTURE, ORG_O)
+	var co2_per_org_c: float = LAReactionBalance.unit_ratio(CO2, DETRITUS)
+	var fert_per_org_c: float = LAReactionBalance.unit_ratio(FERT, DETRITUS)
+	var organic_n: float = float(LAReactionBalance.composition()[DETRITUS]["N"])
 	return [
+		# DEHYDRATION, the lowest-activation-energy leg: 2 H + O leave as water. It is the fast one, so the
+		# pool's path across the van Krevelen plane runs toward the origin — toward carbon.
+		rec(ARRHENIUS, _rate_k(LAPhysical.COAL_DEHYDRATION_EA_OVER_R_K), ORG_O,
+			[[ORG_H, 2.0], [ORG_O, 1.0]],
+			[[MOISTURE, w_per_org_o, TGT_SELF]],
+			GATE_BURIED, LAPhysical.COAL_DEHYDRATION_EA_OVER_R_K, -1,
+			LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET,
+			-1, 0.0, 0.0, _coal_enthalpy_j_m3(0.0, 2.0, 1.0)),
+
+		# DECARBOXYLATION: a carbon and two oxygens leave as CO2, taking the backbone's nitrogen with them.
+		# It strips oxygen twice as fast per unit of extent as dehydration does, which is what separates the
+		# O:C fall from the H:C fall instead of walking one straight line.
+		rec(ARRHENIUS, _rate_k(LAPhysical.COAL_DECARBOXYLATION_EA_OVER_R_K), DETRITUS,
+			[[DETRITUS, 1.0], [ORG_O, 2.0]],
+			[[CO2, co2_per_org_c, TGT_SELF], [FERT, organic_n * fert_per_org_c, TGT_SELF]],
+			GATE_BURIED, LAPhysical.COAL_DECARBOXYLATION_EA_OVER_R_K, -1,
+			LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET,
+			-1, 0.0, 0.0, _coal_enthalpy_j_m3(1.0, 0.0, 2.0)),
+
 		rec(EXCESS_OVER_THRESHOLD, LOFT_RATE, WINDSPEED, [[SEDIMENT, 1.0]], [[DUST, 1.0, TGT_SELF]],
 			GATE_DRY, LOFT_WIND),
 

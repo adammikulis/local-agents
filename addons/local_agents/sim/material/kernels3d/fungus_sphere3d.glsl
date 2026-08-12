@@ -10,6 +10,11 @@ layout(local_size_x = 64) in;
 layout(set = 0, binding = 0, std430) restrict readonly buffer FungIn  { float fung_in[]; };
 layout(set = 0, binding = 1, std430) restrict writeonly buffer FungOut { float fung_out[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Detritus { float detritus[]; };
+// The dead pool's hydrogen and oxygen. Mycelium eating litter takes the litter's OWN C:H:O; mycelium dying
+// hands back fungal tissue, which is CH2O. Without these two the exchange would move carbon on its own.
+layout(set = 0, binding = 3, std430) restrict buffer OrgH { float org_h[]; };
+layout(set = 0, binding = 4, std430) restrict buffer OrgO { float org_o[]; };
+layout(set = 0, binding = 9, std430) restrict readonly buffer Fuel { float fuel[]; };
 layout(set = 0, binding = 5, std430) restrict readonly buffer Temp  { float temp[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer Vapor { float vapor[]; };
 // remaining bindings keep their numbers so no other kernel or pass has to move.
@@ -22,8 +27,8 @@ layout(push_constant, std430) uniform Params {
 	uint pad1;
 	uint pad2;
 	float precip;
-	float pad3;
-	float pad4;
+	float fresh_h_per_c;   // moles of H per mole of C in fungal tissue (CH2O)
+	float fresh_o_per_c;
 	float pad5;
 } params;
 
@@ -79,6 +84,10 @@ void main() {
 
 	float d = detritus[i];
 	float g = fung_in[i];
+	// The dead pool's own composition, over the carbon it holds in BOTH its stocks.
+	float pool = d + fuel[i];
+	float comp_h = (pool > 1e-9) ? org_h[i] / pool : params.fresh_h_per_c;
+	float comp_o = (pool > 1e-9) ? org_o[i] / pool : params.fresh_o_per_c;
 	// Moisture: air humidity + active rain + the dampness of the rotting matter itself.
 	float moist = VAPOR_MOIST * vapor[i] + RAIN_MOIST * params.precip + DETRITUS_DAMP * clamp(d, 0.0, 1.0);
 	float t = temp[i];
@@ -88,6 +97,8 @@ void main() {
 	bool favourable = d > DETRITUS_MIN && !scorched && !frozen && !dry;
 	float gnew = g;
 	float det_delta = 0.0;      // net change to THIS cell's detritus; applied once at the end.
+	float grown_c = 0.0;        // carbon the mycelium took OUT of the dead pool
+	float died_c = 0.0;         // ...and carbon dead mycelium handed back to it
 
 	if (favourable) {
 		float mfac = clamp(moist / MOIST_REF, 0.0, 1.0);
@@ -96,6 +107,7 @@ void main() {
 		float grown = min(min(want, headroom), max(0.0, d));
 		gnew += grown;
 		det_delta -= grown;
+		grown_c = grown;
 	}
 
 	if (spreads_at(i)) {
@@ -114,7 +126,11 @@ void main() {
 	float died = ((scorched || frozen || dry || d <= DETRITUS_MIN) ? DRY_DECAY : DECAY) * max(0.0, gnew);
 	gnew -= died;
 	det_delta += died;
+	died_c = died;
 
 	detritus[i] = max(0.0, d + det_delta);
+	// grown carbon left the pool with its own H and O; died carbon arrives as CH2O.
+	org_h[i] = max(0.0, org_h[i] - grown_c * comp_h + died_c * params.fresh_h_per_c);
+	org_o[i] = max(0.0, org_o[i] - grown_c * comp_o + died_c * params.fresh_o_per_c);
 	fung_out[i] = max(0.0, gnew);
 }

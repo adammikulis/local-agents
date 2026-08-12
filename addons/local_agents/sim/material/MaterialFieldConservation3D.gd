@@ -2,8 +2,8 @@ class_name LAMaterialFieldConservation3D
 extends RefCounted
 
 
+## Relative run-long drift each substance is allowed before CONSERVATION_VIOLATION fires. Measured, not fitted.
 const DEBT: Dictionary = {
-	# temporary: these are ONE run each, and the substrate under them changed enough that the sealed baselines
 	"element_C_total": 0.28,      # measured -0.240
 	"h2o_closed_total": 0.20,     # measured -0.169
 	"o2_total": 0.055,            # measured -0.041 (was -0.903 three commits ago)
@@ -11,8 +11,6 @@ const DEBT: Dictionary = {
 	"nitrogen_all": 0.0062,       # measured -0.0049
 	"mineral_total": 0.00002,     # measured -0.000006 — still the bar for everything else
 }
-
-## reasoning: the rates it replaced were FITTED — each picked by running the sim and keeping the value whose
 
 ## Steps past the seal at which the books are audited, once. 600 is the project's standard verification
 ## horizon (a 600-frame run at --fast=8 is ~760 steps, so this lands comfortably inside one).
@@ -35,15 +33,15 @@ var _violations: PackedStringArray = PackedStringArray()
 ## The audit happens once, at REFERENCE_STEPS. Without this the same breach re-reports every sample and a
 ## reader cannot tell one violation from forty.
 var _audited: bool = false
+## CONSERVATION_UNMEASURED printed once, the first sample past the horizon that could not answer.
+var _unmeasured_announced: bool = false
 
 
 func setup(field) -> void:
 	_f = field
 
 
-## Check every gated substance against its sealed baseline. Returns the report block; prints a marker when a
-## substance exceeds its recorded debt, in the same shape as STALE_SHADERS so a run can be checked
-## mechanically by grepping one string rather than by a human reading a table.
+## Check every gated substance against its sealed baseline. Prints CONSERVATION_VIOLATION on a breach.
 func check(d: Dictionary) -> Dictionary:
 	var out: Dictionary = {}
 	if _f == null or _f._seal == null or not _f._seal.sealed():
@@ -54,16 +52,19 @@ func check(d: Dictionary) -> Dictionary:
 	var elapsed: int = _steps_since_seal()
 	var rows: Dictionary = {}
 	var fresh: PackedStringArray = PackedStringArray()
+	var unmeasured: PackedStringArray = PackedStringArray()
 	for key in DEBT:
 		var first_key: String = String(BASELINE.get(key, ""))
 		var now = d.get(key)
 		var first = d.get(first_key)
 		if not (now is float or now is int) or not (first is float or first is int):
 			rows[key] = "unmeasured"
+			unmeasured.append(key)
 			continue
 		var f: float = float(first)
 		if f == 0.0:
 			rows[key] = "unmeasured"
+			unmeasured.append(key)
 			continue
 		var rel: float = (float(now) - f) / f
 		var mag: float = absf(rel)
@@ -84,15 +85,22 @@ func check(d: Dictionary) -> Dictionary:
 				"rel_drift": snappedf(rel, 1e-6), "allowed": float(DEBT[key]), "at_steps": elapsed,
 				"seal_step": _f._seal.seal_step(),
 			}))
-	if elapsed >= REFERENCE_STEPS:
+	# A gate that cannot run must not pass: the audit latches only when every substance produced a number.
+	if elapsed >= REFERENCE_STEPS and unmeasured.is_empty():
 		_audited = true
+	if elapsed >= REFERENCE_STEPS and not unmeasured.is_empty() and not _unmeasured_announced:
+		_unmeasured_announced = true
+		print("CONSERVATION_UNMEASURED=", JSON.stringify({
+			"substances": unmeasured, "at_steps": elapsed, "seal_step": _f._seal.seal_step()}))
 	out["conservation"] = rows
 	out["conservation_audited"] = _audited
 	out["conservation_steps"] = elapsed
 	out["conservation_worst"] = _worst
 	out["conservation_violations"] = _violations
-	# "seeding" above is the only way to avoid answering, and it stops being available once the world seals.
-	out["conservation_failed"] = not _violations.is_empty()
+	out["conservation_unmeasured"] = unmeasured
+	# Past the horizon an unmeasured substance is a failure of the instrument, and reads as one.
+	out["conservation_failed"] = (not _violations.is_empty()) \
+		or (elapsed >= REFERENCE_STEPS and not unmeasured.is_empty())
 	return out
 
 

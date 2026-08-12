@@ -42,9 +42,12 @@ var shell_vol: PackedFloat32Array = PackedFloat32Array()     # depth   : cell vo
 
 # A cubed-sphere cell does not subtend a fixed solid angle: gnomonic cells shrink toward a face corner.
 var surf_omega: PackedFloat32Array = PackedFloat32Array()    # surf_count : cell solid angle, steradians
+# surf_count*4, indexed (surf*4 + lateral_slot) — arc subtended by that side of the cell, radians.
+var surf_gamma: PackedFloat32Array = PackedFloat32Array()
 
 var _dir: PackedVector3Array = PackedVector3Array()        # surf_count unit surface directions
 var _cell_vol: PackedFloat32Array = PackedFloat32Array()   # cell_count : omega*shell_vol, model units^3
+var _face_area: PackedFloat32Array = PackedFloat32Array()  # cell_count*6 : model units^2, slot order
 var surf_nbr: PackedInt32Array = PackedInt32Array()        # surf_count*4 : [-a,+a,-b,+b] neighbour surf index
 var neighbours: PackedInt32Array = PackedInt32Array()      # cell_count*6 : the full per-cell table (for kernels)
 var link_partner: PackedInt32Array = PackedInt32Array()
@@ -117,6 +120,7 @@ func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p
 	# 3b) The TANGENT FRAME. A different question from the pairing, so a different table.
 	_build_tangent_basis()
 	_build_link_frames()
+	_build_face_areas()
 
 	# 4) Full per-cell 6-neighbour table (radial ± arithmetic + lateral via the reciprocal pairing, same layer).
 	neighbours.resize(cell_count * 6)
@@ -197,6 +201,114 @@ func _build_omega() -> void:
 ## channels are fill fractions, so a conserved substance is the sum of channel*volume, never the bare sum.
 func cell_volumes() -> PackedFloat32Array:
 	return _cell_vol
+
+
+## The four corner directions of surface cell `s`, in (a,b) order: (a0,b0), (a1,b0), (a0,b1), (a1,b1).
+func surf_corners(s: int) -> PackedVector3Array:
+	var per_face: int = res * res
+	var f: int = s / per_face
+	var i: int = (s % per_face) / res
+	var j: int = s % res
+	var a0: float = float(i) / float(res) * 2.0 - 1.0
+	var a1: float = float(i + 1) / float(res) * 2.0 - 1.0
+	var b0: float = float(j) / float(res) * 2.0 - 1.0
+	var b1: float = float(j + 1) / float(res) * 2.0 - 1.0
+	return PackedVector3Array([_dir_at(f, a0, b0), _dir_at(f, a1, b0),
+		_dir_at(f, a0, b1), _dir_at(f, a1, b1)])
+
+
+## Area of every cell face, model units^2, flat `cell*6 + slot` (kernels3d/facearea.glsli, binding 42). Radial
+## face = omega*r_face^2. A gnomonic edge is a great-circle arc, so its lateral face is planar through the
+## centre: gamma*(r_hi^2 - r_lo^2)/2. All six slots, including the two with no neighbour.
+func _build_face_areas() -> void:
+	surf_gamma.resize(surf_count * 4)
+	surf_gamma.fill(0.0)
+	for s in surf_count:
+		var k: PackedVector3Array = surf_corners(s)
+		# Geometric slot order S_A0, S_A1, S_B0, S_B1: the edges a=a0, a=a1, b=b0, b=b1.
+		var edge: PackedFloat32Array = PackedFloat32Array([
+			k[0].angle_to(k[2]), k[1].angle_to(k[3]), k[0].angle_to(k[1]), k[2].angle_to(k[3])])
+		for g in 4:
+			var l: int = lateral_slot[s * 4 + g]
+			if l >= 0 and l < 4:
+				surf_gamma[s * 4 + l] = edge[g]
+	_face_area.resize(cell_count * 6)
+	for s in surf_count:
+		var om: float = surf_omega[s]
+		for r in depth:
+			var c: int = s * depth + r
+			var lo: float = shell_face[r]
+			var hi: float = shell_face[r + 1]
+			_face_area[c * 6 + N_IN] = om * lo * lo
+			_face_area[c * 6 + N_OUT] = om * hi * hi
+			var band: float = (hi * hi - lo * lo) * 0.5
+			for l in 4:
+				_face_area[c * 6 + N_A0 + l] = surf_gamma[s * 4 + l] * band
+
+
+func face_areas() -> PackedFloat32Array:
+	return _face_area
+
+
+## Face-area self-check: a shared face equal from both ends (partner slot looked up, never computed), a
+## shell's radial faces summing to 4*pi*r^2, and V = (A_out*r_hi - A_in*r_lo)/3 reproducing `cell_volumes()`.
+## Lateral faces drop out of that last identity — their planes hold the centre.
+func validate_face_areas() -> Dictionary:
+	if _face_area.size() != cell_count * 6:
+		return {"ok": false, "sized": false, "reciprocity_rel": INF, "shell_close_rel": INF,
+			"volume_rel": INF, "area_min": 0.0}
+	var recip: float = 0.0
+	var area_min: float = INF
+	for c in cell_count:
+		for d in 6:
+			var a: float = _face_area[c * 6 + d]
+			area_min = minf(area_min, a)
+			var p: int = link_partner[c * 6 + d]
+			if p < 0:
+				continue
+			recip = maxf(recip, absf(a - _face_area[p]) / maxf(absf(a), 1e-30))
+	var shell_rel: float = 0.0
+	for r in depth:
+		var in_sum: float = 0.0
+		var out_sum: float = 0.0
+		for s in surf_count:
+			var c2: int = s * depth + r
+			in_sum += _face_area[c2 * 6 + N_IN]
+			out_sum += _face_area[c2 * 6 + N_OUT]
+		var want_out: float = 4.0 * PI * shell_face[r + 1] * shell_face[r + 1]
+		var want_in: float = 4.0 * PI * shell_face[r] * shell_face[r]
+		shell_rel = maxf(shell_rel, absf(out_sum - want_out) / maxf(want_out, 1e-30))
+		if want_in > 0.0:
+			shell_rel = maxf(shell_rel, absf(in_sum - want_in) / want_in)
+	var vol_rel: float = 0.0
+	for s in surf_count:
+		for r in depth:
+			var c3: int = s * depth + r
+			var v: float = (_face_area[c3 * 6 + N_OUT] * shell_face[r + 1]
+				- _face_area[c3 * 6 + N_IN] * shell_face[r]) / 3.0
+			vol_rel = maxf(vol_rel, absf(v - _cell_vol[c3]) / maxf(_cell_vol[c3], 1e-30))
+	return {
+		"ok": recip < 1e-5 and shell_rel < 1e-5 and vol_rel < 1e-4 and area_min > 0.0,
+		"sized": true, "reciprocity_rel": recip, "shell_close_rel": shell_rel,
+		"volume_rel": vol_rel, "area_min": area_min,
+	}
+
+
+## Is the corner set the lateral arcs are measured between this cell's OWN quad, in (a,b) order? Corner 0->1
+## must run along `tan_a` and 0->2 along `tan_b` (a sign), and the quad must surround the cell centre
+## (`centre_rel` is that offset in units of the cell's own angular size, so 1 is a whole cell away).
+func validate_corners() -> Dictionary:
+	var bad_axis: int = 0
+	var centre_rel: float = 0.0
+	for s in surf_count:
+		var k: PackedVector3Array = surf_corners(s)
+		var ea: Vector3 = k[1] - k[0]
+		var eb: Vector3 = k[2] - k[0]
+		if ea.dot(tan_a[s]) <= absf(ea.dot(tan_b[s])) or eb.dot(tan_b[s]) <= absf(eb.dot(tan_a[s])):
+			bad_axis += 1
+		var mid: Vector3 = (k[0] + k[1] + k[2] + k[3]).normalized()
+		centre_rel = maxf(centre_rel, mid.angle_to(_dir[s]) / sqrt(maxf(surf_omega[s], 1e-30)))
+	return {"axis_violations": bad_axis, "centre_rel": centre_rel}
 
 
 ## Thinnest (`want_max` false) or thickest shell in the table.

@@ -1,17 +1,28 @@
 extends RefCounted
 
-## all: erosion pickup scoured bedrock into `susp` and credited it to the scouring cell, and M3 SETTLE put it
+## Advects the suspended mineral load on the flowing water, carrying its enthalpy with it.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/erosion_transport_sphere3d.glsl"
+
+## Channels rc_shared.glsli reads, with the binding each arrives on. The half is the one settled where this
+## pass sits in the dispatch order: BACK for a producer that has already run this step, LIVE for one that
+## has not.
+const RC_BACK_BINDS: Dictionary = {"water": 7, "lava": 20, "sediment": 30, "soil": 35, "moisture": 36}
+const RC_LIVE_BINDS: Dictionary = {"susp": 31, "dust": 32, "fungus": 37}
+const RC_SINGLE_BINDS: Dictionary = {"rock_fill": 18, "snow": 19, "fuel": 21, "biomass": 22,
+	"detritus": 23, "carbonate": 33, "silica": 34, "porosity": 38}
 
 var _rd: RenderingDevice = null
 var _shader: RID = RID()
 var _pipe: RID = RID()
 var _set: Array = [RID(), RID()]        # one uniform set per ping-pong parity
 var _enabled: int = 1
+## Enthalpy scratch, one slot per cell face, written by pass 0 and gathered by pass 1. A receiver cannot read
+## its donor's temperature instead: pass 1 writes temp, so that read races the write.
+var _send_h: RID = RID()
 
 
-func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
+func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	_rd = rd
 	if _rd == null:
 		push_error("ErosionTransportPass: null RenderingDevice")
@@ -36,19 +47,32 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var cvol_rid: RID = bufs.get("cell_vol", RID())
 	var water_pair: Array = bufs.get("water", [RID(), RID()])
 	var susp_pair: Array = bufs.get("susp", [RID(), RID()])
+	var temp_pair: Array = bufs.get("temp", [RID(), RID()])
+	var zeros: PackedByteArray = _zeros(cc * 6).to_byte_array()
+	_send_h = _rd.storage_buffer_create(zeros.size(), zeros)
 
 	for p in 2:
 		var back: int = 1 - p
-		_set[p] = _build_set(_shader, [
+		var entries: Array = [
 			[0, susp_pair[p]],       # SuspIn  = live susp
 			[1, susp_pair[back]],    # SuspOut = back susp (fully written)
-			[2, water_pair[p]],      # Water   = LIVE half: the pre-step head the water CA actually flowed on
-			                         # (nothing after the CA writes this half; see the kernel header)
+			[2, water_pair[p]],      # FlowHead = LIVE half: the pre-step head the water CA flowed on
 			[3, solid_rid],          # Solid
+			[4, _send_h],            # Enthalpy scratch, paired slot-for-slot with Send
 			[5, send_rid],           # Shared outflow scratch (self-zeroed by pass 0)
+			[6, temp_pair[back]],    # Temp = POST-thermal temp (BACK, rw)
 			[15, nbr_rid], [17, partner_rid],           # Neigh table
 			[40, cvol_rid],                             # Per-cell volume
-		])
+		]
+		for name: String in RC_BACK_BINDS:
+			var bp: Array = bufs.get(name, [RID(), RID()])
+			entries.append([int(RC_BACK_BINDS[name]), bp[back]])
+		for name: String in RC_LIVE_BINDS:
+			var lp: Array = bufs.get(name, [RID(), RID()])
+			entries.append([int(RC_LIVE_BINDS[name]), lp[p]])
+		for name: String in RC_SINGLE_BINDS:
+			entries.append([int(RC_SINGLE_BINDS[name]), bufs.get(name, RID())])
+		_set[p] = _build_set(_shader, entries)
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: int, groups: int) -> void:
@@ -78,12 +102,18 @@ func dispose(rd: RenderingDevice) -> void:
 		if s is RID and s.is_valid():
 			rd.free_rid(s)
 	_set = [RID(), RID()]
-	if _pipe.is_valid():
-		rd.free_rid(_pipe)
-		_pipe = RID()
-	if _shader.is_valid():
-		rd.free_rid(_shader)
-		_shader = RID()
+	for r: RID in [_pipe, _shader, _send_h]:
+		if r.is_valid():
+			rd.free_rid(r)
+	_pipe = RID()
+	_shader = RID()
+	_send_h = RID()
+
+
+static func _zeros(n: int) -> PackedFloat32Array:
+	var a: PackedFloat32Array = PackedFloat32Array()
+	a.resize(n)
+	return a
 
 
 func _build_set(shader: RID, entries: Array) -> RID:

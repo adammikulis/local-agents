@@ -152,10 +152,18 @@ order is the order.
       accelerating. Respiration and decomposition consume O2; photosynthesis is its only source. Belongs
       with the dG work in section C.
 
-- [ ] **The atmosphere is leaking.** `air` declines steadily — 9220 to 5730 over 25 steps, ~1.5%/step —
-      rather than growing like the tracers riding in it. Measured with `LA_PASS_PROBE=air`. A planet that
-      loses its atmosphere at that rate has none left in a geological run, and it is a separate defect from
-      the tracer runaway above (opposite sign, different channel).
+- [x] **~~The atmosphere is leaking~~ — THE CLAIM WAS AN INSTRUMENT ARTIFACT, AND THE REAL DEFECT WAS
+      INVISIBLE TO IT.** *(Struck 2026-08-12.)* This said `air` declines 9220 to 5730 over 25 steps, about
+      1.5% per step, measured with `LA_PASS_PROBE=air`. **It does not reproduce.** Before any fix the probe
+      read 9573.176 to 9573.183 over 40 steps — flat to seven figures. And it could never have shown the
+      defect: `LA_PASS_PROBE` sums BARE FILL FRACTIONS, which a kernel moving fill fractions conserves by
+      construction. The quantity that was genuinely not conserved is the volume-weighted total, and no probe
+      in the tree measured it. There WAS a real air defect — `wind_pressure_sphere3d.glsl` moved raw
+      fractions between cells of different volume and re-settled each column conserving the sum of fractions
+      rather than the mass — and it is fixed and gated (`wind_air`, mutation-tested on three grids). A third
+      defect was found beside it: the exchange was asymmetric, donating across any face whose far cell was
+      non-solid while only gathering within its own column's atmosphere, so a cell under a rock overhang was
+      a one-way sink.
 
 - [ ] **The wind is supersonic and always has been** — 160 m/s after the lateral fix, 425 before, against a
       real jet stream of ~70 m/s. `MAX_WIND` was deleted on purpose (wind speed is an output), so this is the
@@ -216,29 +224,65 @@ The N2 substance, the atmospheric seed and the lightning fixation record all exi
 (stamping `discharge = 1.0` for one run drives `fert_total` off zero and the element balance holds). What
 does not work is the trigger.
 
-- [ ] **The charge channel cannot reach breakdown.** `charge_accum_sphere3d.glsl` carries `CHARGE_GAIN 8.0`,
-      `CHARGE_LEAK 0.05`, `CHARGE_LEAK_QUIET 0.4` against `MaterialCharge3D.BREAKDOWN 8.0` — all
-      dimensionless, none derived. 593 steps produce `charge_peak` 1.97e-12, twelve orders short, and 0
-      bolts. Real electrification is derivable and self-consistent: charge density in C/m3 from the
-      non-inductive graupel-ice mechanism, breakdown from Gauss's law as `E = rho * L / eps0` (1 nC/m3 over
-      1 km gives 113 kV/m, which lands inside the observed 150-400 kV/m initiation range). Give the channel
-      real units; the gain follows from published flash charge transfer and recovery time.
-- [ ] **Impact ionisation can never fire either.** `Meteor.gd:318` injects at most `min(4 + size*2.5, 9.0)`
-      charge; the GPU then applies `CHARGE_LEAK_QUIET 0.4` BEFORE `MaterialCharge3D.post_step()` scans, so
-      9.0 becomes 5.4 against a breakdown of 8.0. The comment beside it says a bolt follows. It cannot.
-      19 impacts in a 600-frame run produced 0 bolts.
-- [ ] **`MaterialFieldInject3D.add_heat_energy` creates energy by a factor of about 4.8e6.** It divides
-      joules by `LAHeatCapacity.cell() * _cell_size^3` where `_cell_size` is MODEL units (~8), not metres
-      (~1349). Every joule-based injection — lightning, meteors, lava — raises temperature by
-      `METRES_PER_MODEL_UNIT^3` too much. **This is a conservation violation and it is fixed, not deferred.**
-      It was left live on the reasoning that the correct volume makes a bolt raise its cells by ~3e-4 C and
-      so deletes lightning-ignited wildfire. That reasoning is backwards under this repo's own rule: a
-      correct fix is never withheld because broken code downstream disagrees with it. Fix the volume; if
-      wildfire ignition then needs a sub-grid channel mechanism, that is a separate piece of work, and its
-      absence is honest where a 4.8e6 energy source is not.
+- [x] **The charge channel has real units.** It is a charge DENSITY in C/m^3. The gain is the
+      non-inductive graupel/ice rate saturated against updraft, cloud liquid water content and the
+      -10/-25 C riming band; the leak is ohmic relaxation, `tau = eps0 / sigma`, with in-cloud and
+      clear-air conductivities rather than two invented bleed fractions. Initiation is Gauss's law on the
+      radial column, `E = sigma / eps0`, against the relativistic runaway threshold
+      `2.84e5 V/m * rho_air / rho_sea` (Dwyer 2003), with air density from the ideal gas law on the
+      pressure and temperature the field already carries — so the threshold falls with altitude for free
+      and conventional 3 MV/m breakdown, which a storm never reaches, is not what is tested.
+      `BREAKDOWN`, `RESIDUAL_AFTER_BOLT`, `J_PER_CHARGE`, `MAX_BOLTS_PER_STEP`, `PROBE_STRIDE`,
+      `PROBE_GATE` and `FULL_SCAN_EVERY` are all deleted: the per-step bolt cap was a band-aid, and the
+      strided probe was a sampling heuristic that the exact column integral replaces at the same cost.
+      The energy a flash releases is now the electrostatic energy it destroys, `0.5 * eps0 * E^2` over the
+      volume it neutralises, so the heat it hands the temperature field is paid for by a store.
+      The `DISCHARGE` reaction driver is J/m^3 and the fixation constant is `LIGHTNING_N_FIXED_MOL_PER_J`
+      with no cell volume in it.
+- [x] **Impact ionisation is DELETED, not fixed.** `Meteor.gd` injected `min(4 + size*2.5, 9.0)` charge in
+      units that meant nothing, for a mechanism nobody derived. Impact and volcanic plumes DO electrify —
+      it is triboelectric and fractoemission charging of ash — but no coulomb figure for it was derivable
+      here, and inventing one dressed as physics is worse than its absence. **What it wants:** the `dust`
+      channel already carries the ash, so plume charging belongs as a general rule on dust concentration
+      and velocity shear, which would give volcanic lightning the same way. That is real work, not a
+      constant.
+- [x] **`MaterialFieldInject3D.add_heat_energy` no longer creates energy by 4.8e6.** Fixed in `e0ea4717`
+      along with four other sites where a MODEL-unit length met a per-m^3 or per-m^2 constant.
+      `scripts/check_model_unit_volume.sh` gates the class.
 - [ ] **No lightning rate can bootstrap a biosphere inside a 200-frame run, and none should be made to.**
       One flash fixes ~250 mol N (Schumann & Huntrieser 2007), and 5 Tg N/yr against a ~125 Pg N soil pool
       is 4e-5 per year — the same 25 000-year timescale it has on Earth. Either the fast-forward time scale
       carries it, or an initial soil-N stock is declared as a genuine initial condition of a 4.5-Gyr-old
       planet by the same argument that justifies seeding N2. **That is the maintainer's call and is not
       taken here.**
+
+## The planet has no cold, and the headline water total is masked (found 2026-08-12)
+
+- [x] **The atmosphere had no lapse rate, so nowhere on the planet was below 5.4 C.**
+      `heat3d_buoyancy_sphere3d.glsl` moved heat up whenever a cell was warmer than the one above it, with a
+      hand-picked `BUOYANCY = 0.18` and no reference to pressure or gravity. That drives a column
+      ISOTHERMAL. Real convection drives it to the ADIABAT: a parcel rising by dz expands against falling
+      pressure and cools by gamma*dz, so a lapse shallower than gamma is already stable. Measured before the
+      fix, 200 frames seed 4242 `--full`: `temp_min` 5.42 C — the coldest cell at any altitude, any latitude,
+      night side included — against `temp_ground_p50` 16.4. grep found no lapse rate, no adiabatic term and
+      no potential temperature anywhere in the live substrate; the only one in the tree was synthesised
+      inside `tests/bench_atmosphere_column.gd`. It is dry convective adjustment (Manabe & Strickler 1964)
+      now, one thread per radial column, sweeping upward and mixing each superadiabatic pair to neutral at
+      constant enthalpy. `BUOYANCY` is DELETED and nothing replaced it: the pair solve
+      `q = ((T_lo - T_hi) - gamma*dz) / (1/C_lo + 1/C_hi)` has no free rate. `gamma` is derived per cell as
+      `f_air * rho_air * g / rc_cell`, which is exactly `g/c_p` for a cell of pure air and ~0 for one full of
+      water or rock — the stated approximation, because a condensed phase's adiabat needs a thermal
+      expansion coefficient the substance table does not carry (real error in sea water: 0.15 K/km).
+      After: `temp_min` -18.7 C. The -10/-25 C graupel riming band is reachable for the first time.
+
+- [ ] **`h2o_total` and the H2O budget probe are two totals for one substance and they disagree by 23%.**
+      One run, 200 frames, seed 4242, `--full`. `LA_H2O_BUDGET` closes with `residual_all` exactly 0.0 on
+      every sample and reports total H2O flat at 3.0488e14 from step 1 to step 257 — water moved out of
+      `water` (1.891e14 -> 1.661e14) and into `soil` (1.158e14 -> 1.388e14), which is infiltration, not
+      loss. `SIM_REPORT`'s `h2o_total` reads 2.341e14 and its drift line reads -22.6%. The parts line up
+      except one: the probe's water is 1.661e14 and the ledger's `water_total()` is 9.451e13.
+      `LAMaterialFieldLedger3D.water_total()` and `snow_total()` pass `mask_open = true` while
+      `soil_total()` passes false, so the planet's headline conservation number counts liquid water only
+      where `solid == 0`. **Burial is not loss** — the same defect already found on `fuel_total`, on the
+      substance the conservation gate is built around. Until it is fixed, no h2o drift figure means
+      anything, including every one recorded today.

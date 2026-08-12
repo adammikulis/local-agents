@@ -1,7 +1,7 @@
 class_name LAMaterialFieldReport3D
 extends RefCounted
 
-## LAMaterialFieldReport3D: the central-telemetry snapshot of LAMaterialField3D, factored out of the
+## The central-telemetry snapshot of LAMaterialField3D.
 
 const PhotoStatsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd")
 const EnergyBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd")
@@ -237,29 +237,29 @@ func report() -> Dictionary:
 		_seal_announced = true
 		print("WORLD_SEALED=", JSON.stringify(_seal.report()))
 	var q: LAMaterialFieldQueries3D = _f._queries
+	# `lava` and `fire` are demand-gated, so each of these blocks carries a provenance flag: `molten_live` /
+	# `fire_live` false means the channel did not arrive and the zeros beside it measure nothing.
+	var molten: Dictionary = q.molten_counts()
+	var fire: Dictionary = q.fire_stats()
 	var r: Dictionary = {
 		"wet_cells": _f.wet_cell_count(), "heat_peak": _f.peak_heat(), "heat_cells": _f.hot_cell_count(),
-		"lava_cells": _f.lava_peak(), "cloud_cells": _f.cloud_cell_count(), "cloud_cover": _f.avg_cloud_cover(),
+		"cloud_cells": _f.cloud_cell_count(), "cloud_cover": _f.avg_cloud_cover(),
 		"fog_cover": _f.avg_fog_cover(), "moisture_total": _f.moisture_total(),
 		"wind": _f.wind().length(), "scent_cells": _f.scent_cell_count(),
-		"fertility_peak": _f.fertility_peak(), "magma_cells": _f.magma_cell_count(),
-		# Molten rock standing in OPEN cells — an eruption, by what the word means. `magma_erupting()` already
-		# reads the same cached walk `magma_cells` and `lava_cells` above have already paid for.
-		"magma_erupting": _f.magma_erupting(),
+		"fertility_peak": _f.fertility_peak(),
+		"lava_cells": molten.get("lava_cells", 0), "magma_cells": molten.get("magma_cells", 0),
+		"magma_erupting": q.magma_erupting(),
+		"molten_live": molten.get("molten_live", false),
 		"erosion_cells": _f.erosion_cell_count(), "snow_cells": _f.snow_cell_count(), "ice_cells": _f.ice_cell_count(),
-		"sea_ice_cells": q.sea_ice_cell_count(), "sea_ice_temp": q.sea_ice_temp_avg(), "open_sea_temp": q.open_sea_temp_avg(),
-		# (`dust_cells` moved into the mineral budget's single pass — it already walks the dust channel, so
-		# counting there is free, where a call here would have added an O(cells) walk to the per-frame path.)
 		"charge_peak": _f.charge_peak(), "bolts": _f.bolts_fired(),
 		"shock_cells": _f.shock_cell_count(), "o2_min": _f.o2_min_open(), "o2_avg": _f.o2_avg(),
 		"co2_peak": _f.co2_peak(), "co2_avg": _f.co2_avg(),
 		"biomass_total": _f.biomass_total(),
-		"fuel_total": q.fuel_total(), "fire_peak": q.fire_peak(), "fire_cells": q.fire_cells(),
+		# Fuel totals come from the element inventory: `fuel_all` mask-free, `fuel_open_total` masked.
+		"fire_peak": fire.get("fire_peak", 0.0), "fire_cells": fire.get("fire_cells", 0),
+		"fire_live": fire.get("fire_live", false),
 		"h2o_total": _f.h2o_total(), "water_total": _f.water_total(), "snow_total": _f.snow_total(), "soil_total": _f.soil_total(),
 		"snow_line_temp": _f.snow_line_temp(),
-		# and cost ELEVEN O(cells) walks per report call — `mineral_total()` re-walks the grid five times and
-		# the five individual getters walked it five more. LAMaterialFieldMineralBudget3D produces all of them,
-		# both masks, and the drift they never had, in ONE pass behind `_heavy_block()`'s cadence gate.
 		"enclosed_void": q.enclosed_void_cells(),
 		"enclosed_void5": q.enclosed_void_cells(5),
 		"rock_grows": (_f._stamp.grows if _f._stamp != null else 0), "rock_shrinks": (_f._stamp.shrinks if _f._stamp != null else 0),
@@ -271,8 +271,9 @@ func report() -> Dictionary:
 	r.merge(temps)
 	r.merge(_photo.report())
 	# DECOMPOSER extent + intensity (fungus_peak/_cells, detritus_peak/_cells). One grid pass for all four.
-	# half of the carbon loop published nothing but zeros while fungus_total beside it read real values.
 	r.merge(_f.decomposer_stats())
+	# sea_ice_cells / sea_ice_temp / open_sea_cells / open_sea_temp — one walk, medians.
+	r.merge(q.sea_surface_stats())
 	r.merge(q.rock_radial_profile())
 	# The geothermal RESERVOIR, which rock_radial_profile above cannot show: rock_core_c is the innermost
 	# simulated shell, and the reservoir is the unsimulated interior underneath it. core_res_c is the state
@@ -301,19 +302,9 @@ func report() -> Dictionary:
 	# It reads what every ledger has published, so it must run after all of them.
 	if _conservation != null:
 		r.merge(_conservation.check(r))
-
-	# One-off comparison: what the CPU mirror holds against what the GPU buffer holds, for the same channel.
-	# They must be equal; if they are not, every ledger reading the mirror is reporting fiction.
-	if _f._gpu != null and _f._gpu.has_method("channel_totals_now"):
-		var m: float = 0.0
-		for v in _f._o2:
-			m += v
-		var g: Dictionary = _f._gpu.channel_totals_now("o2")
-		r["o2_mirror_sum"] = snappedf(m, 0.01)
-		r["o2_gpu_live"] = snappedf(float(g.get("live", NAN)), 0.01)
-		r["o2_gpu_back"] = snappedf(float(g.get("back", NAN)), 0.01)
-		r["o2_mirror_size"] = _f._o2.size()
-		r["o2_cell_count"] = _f._cell_count
+	# A mirror-vs-device o2 comparison stood here and called `channel_totals_now`, which is two
+	# `buffer_get_data` calls on the report path. That is a device read outside the drain, and it changes the
+	# run it is measuring. The read-only probe (`request_probe`/`take_probe`) reads at the drain instead.
 	return r
 
 
@@ -333,24 +324,20 @@ func _heavy_block() -> Dictionary:
 	if not _heavy_cache.is_empty() and frame - _heavy_frame < every and not _is_final_frame():
 		return _heavy_cache
 	_heavy_frame = frame
-	# BY NOTHING: a grep for `clim_lat_mean` found the literal that builds it and no consumer anywhere, so the
-	# one gauge that can answer "can it freeze HERE" never reached a single SIM_REPORT. Per the standing rule
-	# that unwired code is a previous session's unfinished job, it is connected rather than left.
+	# latitude/altitude temperature structure
 	var d: Dictionary = surface_climate()
-	#   energy — the radiative books. There was NO energy accounting anywhere before this; a radiative sink was
-	#            added on this line of work and nothing could verify it.
+	# radiative flux, then the rho*c*V*T stock and its residual
 	var flux: Dictionary = _energy.report()
 	d.merge(flux)
 	d.merge(_energy_stock.report(_f._gpu._step_index if _f._gpu != null else 0, flux))
-	#   mass   — conservation ledgers for carbon, oxygen, fertility and biomass, on the H₂O ledger's pattern.
-	#            Every substance here that had a ledger conserved; every substance without one minted.
+	# carbon / oxygen / nitrogen / fertility / biomass / fuel, both masks
 	d.merge(_mass.report(_f._gpu._step_index if _f._gpu != null else 0))
-	#   mineral — the five-phase rock ledger. Publishes the same six absolutes this block replaced (so nothing
-	#            downstream lost a key) PLUS the drift, the source-corrected net rate, and both masks. It is a
-	#            NET REDUCTION in work here: one pass instead of the eleven the ungated block above ran.
+	# the five mineral phases, both masks, and the drift
 	d.merge(_mineral.report(_f._gpu._step_index if _f._gpu != null else 0))
-	if d.has("element_C") and d.has("lith_element_C"):
-		var c_total: float = float(d["element_C"]) + float(d["lith_element_C"])
+	# BOTH SIDES MASK-FREE. `element_C` is the OPEN-cell sum while `lith_element_C` is the whole-grid one, so
+	# adding them read carbon that moved into a solid cell as carbon destroyed.
+	if d.has("element_C_all") and d.has("lith_element_C"):
+		var c_total: float = float(d["element_C_all"]) + float(d["lith_element_C"])
 		d["element_C_total"] = snappedf(c_total, 0.01)
 		if _seal != null and _seal.sealed():
 			var step_now: int = int(_f._gpu._step_index) if _f._gpu != null else 0

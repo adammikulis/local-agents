@@ -5,14 +5,6 @@ extends Node3D
 const SCARE_INTERVAL: float = 2.0
 const SCARE_RADIUS: float = 55.0
 
-# Sustained supply: molten mantle mineral erupted at the vent each SECOND while active. Generous — the supply must
-# out-pace the underwater quench + lateral flow so the cone keeps accreting upward and breaches within a demo run.
-const SUPPLY_PER_SEC: float = 16.0
-const SUPPLY_INTERVAL: float = 0.05        # deposit cadence (s); many small deposits pile in one cell past MAX_MASS
-# A vent is a DISC, not a 1-cell needle: scatter each deposit across a small angular disc around the vent radial so
-# the erupted rock piles into a BROAD island cone instead of a single-column spire racing to the grid ceiling.
-const VENT_DISC: float = 0.10              # angular radius of the vent disc (rad); ~ a handful of columns wide
-
 # Seismic tremor emitted while supplying (camera shake / felt seismic EMERGES from the shared field, not here).
 const ERUPT_SEISMIC: float = 3.0
 
@@ -25,15 +17,12 @@ const BASELINE_DELAY: float = 1.5          # s after seeding before the baseline
 var _terrain: Object = null
 var _ecology: Object = null
 var _field: Object = null
-var _inject: Object = null                  # the field's injection module (owns erupt_source; keeps the field small)
 var _center: Vector3 = Vector3.ZERO         # planet centre (radial reference)
 var _submerged_seed: bool = false           # true when seeded on the seabed (drives the "island" telemetry)
 
-var _supply_cd: float = 0.0
 var _scare_cd: float = 0.0
 var _tremor_cd: float = 0.0
 var _active: bool = true
-var _rng: RandomNumberGenerator = RandomNumberGenerator.new()   # seeded → a REPRODUCIBLE island (deterministic demo)
 
 var _glow: OmniLight3D = null
 var _picker: StaticBody3D = null
@@ -48,12 +37,10 @@ var _baseline_cd: float = -1.0              # >0 = counting down to the baseline
 # Telemetry (read by --auto-seavolcano proof + the inspector): the vent's fixed radial + running deposit ledger.
 var vent_dir_world: Vector3 = Vector3.UP    # snapshot of the vent radial at seed (world space, pre-spin)
 var seed_surface_radius: float = 0.0        # surface radius at the vent when seeded (the "before" sea floor)
-var total_supplied: float = 0.0             # Σ lava mass actually injected (conservation cross-check)
 
 
 func _ready() -> void:
 	add_to_group("selectable")
-	_rng.seed = LASimRng.shared().randi()   # seeded from the sim stream so the island reproduces from LA_SIM_SEED
 
 
 func setup(terrain: Object, ecology: Object) -> void:
@@ -61,16 +48,14 @@ func setup(terrain: Object, ecology: Object) -> void:
 	_ecology = ecology
 	if _ecology != null and _ecology.has_method("material_field"):
 		_field = _ecology.material_field()
-	if _field != null:
-		_inject = _field.get("_inject")     # reach the injection module (erupt_source lives there, not in the field)
 	if _terrain != null and _terrain.has_method("planet_center"):
 		_center = _terrain.planet_center()
 
 
-## Seed the vent at a world `point` on the terrain surface (land or seabed). Stores the vent's radial and the
-## initial surface radius; a seabed seed (below the sea shell) is what builds an island. The node is parented under
-## the spinning body, so its global_position rides the terrain — supply tracks this one spot.
-func erupt_at(point: Vector3) -> void:
+## Place the marker at a world `point` on the terrain surface (land or seabed) and record the radial plus the
+## surface radius there, so cone_profile can measure what the substrate later builds. This node does not move
+## matter or heat: it is a marker, a light and a telemetry probe.
+func place_at(point: Vector3) -> void:
 	global_position = point
 	vent_dir_world = (point - _center).normalized()
 	if _terrain != null and _terrain.has_method("surface_radius"):
@@ -119,7 +104,7 @@ func _capture_baseline() -> void:
 
 func cone_profile() -> Dictionary:
 	var out: Dictionary = {"rise": 0.0, "breach": 0.0, "smear": 0.0, "drift": 0.0, "span": 0.0,
-		"cover": 0, "samples": 0, "supplied": total_supplied, "seabed": seed_surface_radius}
+		"cover": 0, "samples": 0, "seabed": seed_surface_radius}
 	if _terrain == null or not _terrain.has_method("surface_radius") or _base_dirs.is_empty():
 		return out
 	var bas: Basis = global_transform.basis        # body-local dir -> world, at the planet's CURRENT rotation
@@ -176,17 +161,10 @@ func cone_profile() -> Dictionary:
 	return out
 
 
-## Legacy demo hook: a quick pulse of lava at the vent right now (kept so --auto-volcano still shows molten output
-## immediately). The sustained supply below does the real work.
-func force_erupt() -> void:
-	_deposit(2.0)
-
-
 func get_inspector_payload() -> Dictionary:
 	var lines: Array = []
 	lines.append("Kind: %s vent" % ("SEABED" if _submerged_seed else "subaerial"))
 	lines.append("Vent radius: %.1f (sea %.1f)" % [_current_surface_radius(), _sea_radius()])
-	lines.append("Lava supplied: %.0f" % total_supplied)
 	if _submerged_seed:
 		var breached: bool = _current_surface_radius() > _sea_radius()
 		lines.append("Island: %s" % ("BREACHED SURFACE" if breached else "building underwater"))
@@ -217,32 +195,6 @@ func _vent_dir_now() -> Vector3:
 	return vent_dir_world
 
 
-func _deposit(amount: float) -> void:
-	if _inject == null or not _inject.has_method("erupt_source"):
-		return
-	# Scatter the deposit across the vent disc: a random direction within VENT_DISC of the vent radial (uniform on the
-	# tangent disc) so the pile broadens into an island cone. Build a tangent frame around the vent radial.
-	var d: Vector3 = _vent_dir_now()
-	var t1: Vector3 = d.cross(Vector3.UP)
-	if t1.length() < 0.01:
-		t1 = d.cross(Vector3.RIGHT)
-	t1 = t1.normalized()
-	var t2: Vector3 = d.cross(t1).normalized()
-	var ang: float = _rng.randf() * TAU
-	# CENTRE-WEIGHTED radius (no sqrt → density peaks at the vent): the centre column leads and reliably breaches,
-	# and the disc's outer draws fill in around it so the pile reads as one island rather than a lone needle.
-	var rad: float = _rng.randf() * _rng.randf() * VENT_DISC
-	var dir: Vector3 = (d + (t1 * cos(ang) + t2 * sin(ang)) * rad).normalized()
-	# Deposit at THIS column's current surface, so the lava enters the open water at that column's own front.
-	var sr: float = _current_surface_radius()
-	if _terrain != null and _terrain.has_method("surface_radius"):
-		var s: float = _terrain.surface_radius(dir)
-		if not is_nan(s):
-			sr = s
-	var top: Vector3 = _center + dir * sr
-	total_supplied += _inject.erupt_source(top, amount)
-
-
 func _physics_process(delta: float) -> void:
 	if not _active:
 		return
@@ -251,14 +203,7 @@ func _physics_process(delta: float) -> void:
 		_baseline_cd -= delta
 		if _baseline_cd <= 0.0:
 			_capture_baseline()
-	# SUSTAINED SUPPLY — the one authored action. Many small deposits per second pile lava in the vent column past
-	# MAX_MASS so magma buoyancy lifts it; the rest (quench, solidify, stamp, island) is pure emergent substrate.
-	_supply_cd -= delta
-	while _supply_cd <= 0.0:
-		_supply_cd += SUPPLY_INTERVAL
-		_deposit(SUPPLY_PER_SEC * SUPPLY_INTERVAL)
-
-	# Emergent felt seismic (camera shake reads the field), throttled so a continuous tremor reads as overlapping pulses.
+	# Felt seismic (camera shake reads the field), throttled so a continuous tremor reads as overlapping pulses.
 	_tremor_cd -= delta
 	if _tremor_cd <= 0.0:
 		_tremor_cd = 0.15

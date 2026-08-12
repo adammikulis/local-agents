@@ -494,23 +494,22 @@ func update(frame: int, spawned: bool) -> void:
 			_disasters.fire_barrage()
 			_auto_barrage_fired = true
 
-	# Auto-volcano demo/test: raise a volcano near origin that ERUPTS IMMEDIATELY (force_erupt), frame
-	# the camera on it, and fire it ~560 frames (~5s) before the screenshot.
+	# Auto-volcano demo/test: mark a site, move interior heat into the rock beneath it, and let the substrate
+	# decide whether anything melts, rises or breaks out.
 	if _auto_volcano and not _auto_volcano_fired and spawned:
 		var vtrigger: int = 350 if _shoot_path != "" else maxi(_run_frames - 600, 60)
 		if frame >= vtrigger:
 			var vsite: Vector3 = _terrain.surface_point(Vector3(0.2, 1.0, 0.2).normalized()) if _terrain.has_method("surface_point") else Vector3(NAN, NAN, NAN)
 			if not is_nan(vsite.x):
-				var vc: Node = _disasters.spawn_volcano(vsite)
-				if vc != null and vc.has_method("force_erupt"):
-					vc.force_erupt()
+				_disasters.spawn_volcano(vsite)
+				_seed_hot_pocket(vsite)
 				if _camera != null and _camera.has_method("frame_vista"):
 					_camera.frame_vista(vsite)
 				_auto_volcano_fired = true
 
 	if _hotspring_test and spawned and frame >= 90 and frame <= 620:
 		var hfield = _ecology.material_field() if (_ecology != null and _ecology.has_method("material_field")) else null
-		if hfield != null and hfield.has_method("add_heat") and hfield.has_method("add_water_pooled") \
+		if hfield != null and hfield.has_method("add_water_pooled") \
 				and _terrain != null and _terrain.has_method("surface_point") and hfield.has_method("sphere_grid"):
 			var hdir: Vector3 = Vector3(0.2, 1.0, 0.2).normalized()
 			var hsurf: Vector3 = _terrain.surface_point(hdir)
@@ -518,7 +517,7 @@ func update(frame: int, spawned: bool) -> void:
 			if not is_nan(hsurf.x) and hgrid != null:
 				var cs: float = float(hgrid.cell_size)
 				var hbelow: Vector3 = hsurf - hdir * (cs * 1.6)   # in the regolith just under the surface (the up-seep shell)
-				hfield.add_heat(hbelow, 6.0, cs * 1.2)            # sustained shallow magma-body heat (bounded steady state ~= core)
+				_seed_hot_pocket(hbelow)                          # shallow interior heat, drawn out of the finite store
 				hfield.add_water_pooled(hsurf, 0.5, cs * 3.5)     # DIFFUSE rain recharge — saturates the aquifer AROUND the
 				                                                  # vent without dumping cold water on the exact up-seep cell
 
@@ -546,7 +545,7 @@ func update(frame: int, spawned: bool) -> void:
 		var shape: Dictionary = _seavolcano.cone_profile()
 		print("SEAVOLCANO={frame:%d, vent_r:%.2f, sea_r:%.2f, above_sea:%s, supplied:%.0f, rise:%.2f, breach:%.2f, smear:%.2f, drift:%.4f, span:%.4f, cover:%d/%d}" % [
 			frame, (vr if not is_nan(vr) else -1.0), sea_r2,
-			str((not is_nan(vr)) and vr > sea_r2), _seavolcano.total_supplied,
+			str((not is_nan(vr)) and vr > sea_r2), 0.0,
 			shape["rise"], shape["breach"], shape["smear"], shape["drift"], shape["span"],
 			shape["cover"], shape["samples"]])
 
@@ -916,9 +915,8 @@ func _bench_fire(frame: int) -> void:
 				if _disasters != null and _terrain != null and _terrain.has_method("surface_point"):
 					var vsite: Vector3 = _terrain.surface_point(Vector3(0.2, 1.0, 0.2).normalized())
 					if not is_nan(vsite.x):
-						var vc: Node = _disasters.spawn_volcano(vsite)
-						if vc != null and vc.has_method("force_erupt"):
-							vc.force_erupt()
+						_disasters.spawn_volcano(vsite)
+						_seed_hot_pocket(vsite)
 			"thunderstorm", "tornado", "hurricane":
 				if _disasters != null and _disasters.has_method("fire_auto_storm"):
 					_disasters.fire_auto_storm(action)
@@ -940,12 +938,29 @@ func _bench_snapshot(frame: int) -> void:
 	var lava_list_cells: float = float(g.get("lava_list_cells", {}).get("cur", 0.0))
 	print(("BENCH_SNAPSHOT={frame:%d, fps:%.1f, field_dispatch_ms:%.3f, field_readback_ms:%.3f, field_ms:%.3f, " +
 		"lava_list_cells:%d, fire_cells:%d, lava_total:%.1f, charge_peak:%.3f, bolts:%d, " +
-		"co2_avg:%.4f, fuel_total:%.1f, rock_fill_total:%.1f, mineral_total:%.1f, h2o_total:%.1f, creatures:%d}") % [
+		"co2_avg:%.4f, fuel_all:%.1f, rock_fill_total:%.1f, mineral_total:%.1f, h2o_total:%.1f, creatures:%d}") % [
 		frame, fps, dispatch_ms, readback_ms, field_ms,
 		int(lava_list_cells),
 		int(snap.get("fire_cells", 0)), float(snap.get("lava_total", 0.0)),
 		float(snap.get("charge_peak", 0.0)), int(snap.get("bolts", 0)),
-		float(snap.get("co2_avg", 0.0)), float(snap.get("fuel_total", 0.0)),
+		float(snap.get("co2_avg", 0.0)), float(snap.get("fuel_all", 0.0)),
 		float(snap.get("rock_fill_total", 0.0)), float(snap.get("mineral_total", 0.0)),
 		float(snap.get("h2o_total", 0.0)), int(snap.get("creatures", 0)),
 	])
+
+
+## Move heat OUT of the interior store and INTO the rock a few shells under `site`. A transfer, not a source:
+## the reservoir loses exactly what the rock gains, and it refuses once it is too cold to drive one.
+func _seed_hot_pocket(site: Vector3) -> void:
+	var f = _ecology.material_field() if (_ecology != null and _ecology.has_method("material_field")) else null
+	if f == null or _body == null or f.get("_inject") == null or f.get("_geotherm") == null:
+		return
+	var grid = f.sphere_grid() if f.has_method("sphere_grid") else null
+	if grid == null:
+		return
+	var dir: Vector3 = (site - _body.center()).normalized()
+	var cs: float = float(grid.cell_size)
+	var deep: Vector3 = site - dir * (cs * 3.0)
+	var r: float = cs * 2.0
+	var need: float = f._inject.heat_to_reach(deep, LAPhysical.BASALT_LIQUIDUS_C, r)
+	f._inject.add_heat_energy(deep, f._geotherm.draw_heat_j(need, LAPhysical.BASALT_LIQUIDUS_C), r)

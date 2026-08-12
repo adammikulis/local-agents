@@ -113,8 +113,6 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 		var herd_dir: Vector3 = _campaign_herd_dir()
 		if herd_dir != Vector3.ZERO:
 			_camera.orient_toward(herd_dir)
-	if _material.has_method("add_magma_source"):
-		_material.add_magma_source(_body.center(), LAPhysical.INNER_CORE_C, 0.6)
 	_seed_diseases()
 	_spawned_initial = true
 	if _hud != null:

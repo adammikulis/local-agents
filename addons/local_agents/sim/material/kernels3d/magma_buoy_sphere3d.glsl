@@ -11,6 +11,7 @@ layout(local_size_x = 64) in;
 layout(set = 0, binding = 0, std430) restrict buffer Lava { float lava[]; };       // lava[back] (rw)
 layout(set = 0, binding = 1, std430) restrict buffer Scratch { float scratch[]; }; // stable snapshot
 layout(set = 0, binding = 2, std430) restrict buffer Temp { float temp[]; };       // temp[back] (carry-heat)
+layout(set = 0, binding = 41, std430) restrict buffer TempSnap { float temp_snap[]; };  // stable snapshot
 layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };  // idx*6 + slot
 
@@ -50,6 +51,7 @@ void main() {
 
 	if (params.pass_id == 0u) {
 		scratch[g] = lava[g];
+		temp_snap[g] = temp[g];
 		return;
 	}
 
@@ -74,8 +76,9 @@ void main() {
 	}
 	lava[g] = base_mass - out_up + in_below;
 
-	// MOLTEN_FLOOR = 950 C, then written into this cell if it was cooler — so a cell receiving buoyed magma was
+	// Carry-heat: mass-weighted mix of this cell and what buoyed up into it. Both temperatures come from
+	// the pass-0 snapshot, so the result does not depend on which cell the GPU scheduled first.
 	if (in_below > 0.0 && ib >= 0) {
-		temp[g] = (MAX_MASS * temp[g] + in_below * temp[uint(ib)]) / (MAX_MASS + in_below);
+		temp[g] = (MAX_MASS * temp_snap[g] + in_below * temp_snap[uint(ib)]) / (MAX_MASS + in_below);
 	}
 }

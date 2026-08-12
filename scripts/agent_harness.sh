@@ -100,7 +100,6 @@ LOG_FILE="$LOG_DIR/agent_harness_${cmd}_$(date +%s).log"
 child=()
 case "$cmd" in
   sim)
-    shift
     "$(dirname "${BASH_SOURCE[0]}")/sim_run.sh" "$@"
     exit $?
     ;;
@@ -260,6 +259,16 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_shell_table.sh ($rc_shelltable)"
       exit 1
     fi
+    # Gate: the per-face area table. How much crosses a wall is proportional to that wall's area, and on a
+    # cubed sphere no two faces of a cell have the same one. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_face_area.sh"
+    rc_facearea=$?
+    set -e
+    if [[ $rc_facearea -ne 0 ]]; then
+      echo "LINT_FAIL: check_face_area.sh ($rc_facearea)"
+      exit 1
+    fi
     # Gate: no engine-global RNG in a simulation path. A global randf() is seeded from the OS, so the run
     # cannot be reproduced; on a shared stream it also shifts every other subsystem's draws. Exit 2 = could
     # not run.
@@ -307,6 +316,16 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_muv -ne 0 ]]; then
       echo "LINT_FAIL: check_model_unit_volume.sh ($rc_muv)"
+      exit 1
+    fi
+    # Gate: the world has two phases. Creation is legal while seeding and a violation after the seal, and a
+    # whole-mirror upload cannot say what it changed, so it can create matter with no ledger noticing.
+    set +e
+    "$SCRIPT_DIR/check_seed_phase.sh"
+    rc_seed=$?
+    set -e
+    if [[ $rc_seed -ne 0 ]]; then
+      echo "LINT_FAIL: check_seed_phase.sh ($rc_seed)"
       exit 1
     fi
     # Gate: no reaction record may create or destroy matter. The DEFS engine took reactants and products as

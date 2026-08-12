@@ -36,11 +36,20 @@ func _extent(rec: Dictionary, t_c: float, fuel: float, o2: float) -> float:
 	return maxf(x, 0.0)
 
 
-func _coeff(rec: Dictionary, side: String, slot: int) -> float:
+## Coefficient at a composition: base + h*(H:C) + o*(O:C). Quoted at fresh CH2O litter, (2, 1).
+func _coeff(rec: Dictionary, side: String, slot: int, hc: float = 2.0, oc: float = 1.0) -> float:
+	var is_prod: bool = side == "products"
 	for e in rec.get(side, []):
 		if int(e[0]) == slot:
-			return float(e[1])
+			var parts: Vector2 = DefsScript.comp_parts(e, is_prod)
+			return float(e[1]) + parts.x * hc + parts.y * oc
 	return 0.0
+
+
+## kg/m3 in one unit of the dead organic pool at a molar H:C and O:C. Divides J/m3 into J/kg of fuel.
+func _organic_kg_m3(hc: float, oc: float) -> float:
+	return LASubstances.ORGANIC_MOL_PER_M3 * (LAPhysical.MOLAR_MASS_CARBON_KG_MOL
+		+ hc * LAPhysical.MOLAR_MASS_HYDROGEN_KG_MOL + oc * LAPhysical.MOLAR_MASS_OXYGEN_KG_MOL)
 
 
 ## Moles of substance in one unit of a channel — the conversion the balance gate applies, so the ratios below
@@ -67,7 +76,9 @@ func run_test(_tree: SceneTree) -> bool:
 	var co2_per_fuel: float = _coeff(burn, "products", DefsScript.CO2)
 	var w_per_fuel: float = _coeff(burn, "products", DefsScript.MOISTURE)
 	var n_per_fuel: float = _coeff(burn, "products", DefsScript.FERT)
-	var enthalpy: float = float(burn.get("enthalpy_j_m3", 0.0))
+	# The heat of combustion, dotted with fresh CH2O litter's composition.
+	var enthalpy: float = float(burn.get("enthalpy_j_m3", 0.0)) \
+		+ 2.0 * float(burn.get("enthalpy_h_j_m3", 0.0)) + 1.0 * float(burn.get("enthalpy_o_j_m3", 0.0))
 	var quench: float = float(burn.get("quench_min", 0.0))
 
 	print("COMBUSTION_RECORD={\"rate_k\":%s,\"ea_over_r_k\":%.1f,\"t_ref_k\":%.1f,\"t_ceiling_k\":%.1f,"
@@ -184,12 +195,25 @@ func run_test(_tree: SceneTree) -> bool:
 			% (d_dry / maxf(d_wet, 1.0e-9)) + "the heat of the same volume of air; if that ratio is gone, so "
 			+ "is the reason wet fuel does not light.")
 		ok = false
-	# And the enthalpy itself is the measured one: the oxygen this record consumes times Huggett's figure.
-	var want_enthalpy: float = o2_per_fuel * LAPhysical.AMBIENT_O2_DENSITY_KG_M3 * LAPhysical.HEAT_PER_KG_OXYGEN_J
-	if absf(enthalpy - want_enthalpy) > 1.0e-6 * want_enthalpy:
-		push_error("combustion's enthalpy is %s J/m3 per unit, expected %s = (the O2 it consumes) x "
+	# Channiwala & Parikh's per-element heating values dotted with CH2O, read through LASubstances.
+	var want_enthalpy: float = LASubstances.ORGANIC_MOL_PER_M3 * (LASubstances.organic_energy_j_mol("C")
+		+ 2.0 * LASubstances.organic_energy_j_mol("H") + 1.0 * LASubstances.organic_energy_j_mol("O"))
+	if absf(enthalpy - want_enthalpy) > 1.0e-6 * absf(want_enthalpy):
+		push_error("combustion's enthalpy at fresh CH2O is %s J/m3 per unit, expected %s = the cell's C:H:O "
 			% [String.num_scientific(enthalpy), String.num_scientific(want_enthalpy)]
-			+ "LAPhysical.HEAT_PER_KG_OXYGEN_J.")
+			+ "dotted with LASubstances.organic_energy_j_mol.")
+		ok = false
+	# Energy density must rise with rank. Anthracite is H:C 0.3, O:C 0.02.
+	var coal_enthalpy: float = float(burn.get("enthalpy_j_m3", 0.0)) \
+		+ 0.3 * float(burn.get("enthalpy_h_j_m3", 0.0)) + 0.02 * float(burn.get("enthalpy_o_j_m3", 0.0))
+	var fresh_mjkg: float = enthalpy / _organic_kg_m3(2.0, 1.0) / 1.0e6
+	var coal_mjkg: float = coal_enthalpy / _organic_kg_m3(0.3, 0.02) / 1.0e6
+	print("  heat of combustion: fresh CH2O litter %.2f MJ/kg, anthracite %.2f MJ/kg" % [fresh_mjkg, coal_mjkg])
+	if coal_mjkg <= fresh_mjkg:
+		push_error("coalified organic matter releases %.2f MJ/kg against fresh litter's %.2f. Driving out H "
+			% [coal_mjkg, fresh_mjkg]
+			+ "and O raises the energy density of what is left; if it does not here, the record is not "
+			+ "reading the cell's composition at all.")
 		ok = false
 
 	if ok:

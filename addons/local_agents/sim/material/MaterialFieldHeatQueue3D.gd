@@ -12,7 +12,9 @@ var heat_energy_j: float = 0.0     # ENERGY handed to add_heat_energy, in joules
                                    # to come from somewhere: a bolt's electrostatic store, an impactor's
                                    # kinetic energy, a landing parcel's. It is booked here so a source that
                                    # stops being debited shows up as a rising figure with no matching debit.
-var heat_unsourced_dc: float = 0.0 # DEGREES asked for by the raw `add_heat(pos, °C)` form, which names no
+var heat_unsourced_dc: float = 0.0 # always 0: sourceless heat is refused by the seal now, and what it refused
+                                   # is counted in `creation_after_seal`. LAMaterialFieldEnergyLedger3D still
+                                   # reads this; the term is dead and that file's owner should drop it.
 var heat_applied_dc: float = 0.0   # DEGREES the device actually applied (summed over cells), both forms.
 var heat_cells: int = 0            # per-cell temperature edits that reached the device.
 
@@ -78,11 +80,6 @@ func note_energy(joules: float) -> void:
 	heat_energy_j += joules
 
 
-## Book DEGREES demanded by the raw, sourceless `add_heat` form.
-func note_unsourced(degrees_times_cells: float) -> void:
-	heat_unsourced_dc += degrees_times_cells
-
-
 func is_empty() -> bool:
 	return _t_cells.size() == 0 and _c_ops.is_empty() and super()
 
@@ -96,20 +93,52 @@ func flush(gpu) -> void:
 	if gpu != null and not _c_ops.is_empty():
 		for op in _c_ops:
 			carbon_cells += (op["src_cells"] as PackedInt32Array).size()
-			if String(op["dst"]).is_empty():
-				carbon_returned += gpu.add_field_sparse(op["src"], op["src_cells"], op["amounts"])
+			var to_pool: bool = String(op["dst"]).is_empty()
+			var applied: float = 0.0
+			if to_pool:
+				applied = gpu.add_field_sparse(op["src"], op["src_cells"], op["amounts"])
+				carbon_returned += applied
 			else:
-				carbon_moved += gpu.move_field_sparse(op["src"], op["src_cells"], op["amounts"],
+				applied = gpu.move_field_sparse(op["src"], op["src_cells"], op["amounts"],
 					op["dst"], op["dst_cells"], float(op["ceiling"]))
+				carbon_moved += applied
+			_credit_companions(gpu, String(op["src"]) if to_pool else String(op["dst"]),
+				op["src_cells"] if to_pool else op["dst_cells"], op["amounts"], applied)
 	_c_ops.clear()
 	_c_index.clear()
 	super(gpu)
 
 
+## Credit the hydrogen and oxygen that travelled with a carbon edit into the dead organic pool, scaled by
+## what the DEVICE actually applied. The request is a plan and the return value is the fact: crediting the
+## plan is how a source-limited transfer would hand the pool H and O with no carbon under them.
+func _credit_companions(gpu, channel: String, cells: PackedInt32Array, amounts: PackedFloat32Array,
+		applied: float) -> void:
+	if not DEAD_POOL_CARBON.has(channel) or applied <= 0.0:
+		return
+	var requested: float = 0.0
+	var landed: PackedInt32Array = PackedInt32Array()
+	var landed_amounts: PackedFloat32Array = PackedFloat32Array()
+	for i in cells.size():
+		if cells[i] < 0:
+			continue
+		landed.append(cells[i])
+		landed_amounts.append(amounts[i])
+		requested += amounts[i]
+	if landed.size() == 0 or requested <= 0.0:
+		return
+	var f: float = minf(applied / requested, 1.0)
+	for e in [["org_h", LASubstances.fresh_litter_per_carbon("H")],
+			["org_o", LASubstances.fresh_litter_per_carbon("O")]]:
+		var deltas: PackedFloat32Array = PackedFloat32Array()
+		for v in landed_amounts:
+			deltas.append(v * f * float(e[1]))
+		gpu.add_field_sparse(String(e[0]), landed, deltas)
+
+
 func report() -> Dictionary:
 	var out: Dictionary = super()
 	out["heat_inject_j"] = snappedf(heat_energy_j, 0.01)
-	out["heat_inject_unsourced_dc"] = snappedf(heat_unsourced_dc, 0.01)
 	out["heat_inject_applied_dc"] = snappedf(heat_applied_dc, 0.01)
 	out["heat_inject_cells"] = heat_cells
 	out["carbon_inject_offered"] = snappedf(carbon_offered, 0.0001)

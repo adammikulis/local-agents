@@ -24,15 +24,6 @@ static var food_held_total: float = 0.0      # mass currently standing in every 
 static var food_drawn_total: float = 0.0     # cumulative mass drawn out of the field into plant tissue
 static var food_returned_total: float = 0.0  # cumulative mass handed back to the field as detritus
 
-# THE CONTROL (LA_MINT_PLANT_FOOD=1). Restores the old behaviour exactly — a full 0.6 reserve at birth and
-# `FOOD_UPTAKE_RATE`/s of regrowth with no debit anywhere — so the fix can be switched OFF and the aggregates
-# compared. A conservation fix that cannot be disabled cannot be shown to be doing anything.
-static var _mint_food: int = -1
-static func mint_food() -> bool:
-	if _mint_food < 0:
-		_mint_food = 1 if OS.has_environment("LA_MINT_PLANT_FOOD") else 0
-	return _mint_food == 1
-
 var species: String = "plant"
 var color: Color = Color(0.30, 0.65, 0.22)
 var grow_time: float = 12.0
@@ -90,7 +81,7 @@ func setup(_terrain, _config: Dictionary) -> void:
 	nectar = float(config.get("nectar", FOOD_CAPACITY))
 	# Root strength: explicit config, else scaled from mature size (already read above) so bigger plants hold on.
 	root_strength = maxf(0.2, float(config.get("root_strength", ROOT_BASE + ROOT_PER_SCALE * max_scale)))
-	_food = _food_capacity() * 0.6 if mint_food() else 0.0
+	_food = 0.0
 	food_held_total += _food * BIOMASS_PER_FOOD
 
 	collision_layer = 2
@@ -295,11 +286,6 @@ func _physics_process(delta: float) -> void:
 
 func _uptake(want_food: float) -> void:
 	if want_food <= 0.0:
-		return
-	if mint_food():
-		# CONTROL PATH (LA_MINT_PLANT_FOOD=1): the old behaviour, food from nowhere, for the A/B.
-		_food += want_food
-		food_held_total += want_food * BIOMASS_PER_FOOD
 		return
 	if _material == null or _material._inject == null or not _material._inject.has_method("take_biomass"):
 		return

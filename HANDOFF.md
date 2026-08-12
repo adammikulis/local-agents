@@ -36,78 +36,81 @@ it behind a flag, and get the maintainer's permission BEFORE writing any departu
 
 `sorting.py` at repo root is the maintainer's, untracked — leave it.
 
-### State (2026-08-11) — `feature/live-breakages`
+### State (2026-08-12) — `feature/live-breakages`
 
-**THE TOP ITEM IS `PHYSICS_TODO.md`: THE BIOSPHERE HAS NEVER RUN.** `fert_total` is 0.0 and always has
-been. Photosynthesis takes fertility as a REACTANT, so its rate is zero by the limiting reagent and it has
-never once fired. Every source of plant-available nitrogen in the tree is downstream of organic matter that
-must already exist — fungal decomposition of detritus, respiration of biomass, combustion of fuel — so
-there is no abiotic entry point and the loop cannot start on a sterile planet. The substance table has no
-N2 at all, though real dry air is 78.08% N2 by mole. This stood invisible for the whole project because
-`MaterialField3D` seeded 1.0 O2 into every open cell; deleting that seed (`ac577abb`) is what exposed it.
+**THE TOP ITEM IS THE UNIT SYSTEM. THE SIMULATION IS NOT IN SI AND THE METRE WAS FITTED.**
+`LAPhysical.METRES_PER_MODEL_UNIT = 168.6` is not derived — it is `R_d · 288.0 K / g / 50` to four parts in
+a million. The 288.0 is the ISA standard SURFACE TEMPERATURE, so the length of a metre is defined in terms
+of a temperature this project says must be an OUTPUT; and `R_d` comes from dry-air molar mass, built from
+`AIR_MOLE_FRAC_O2 = 0.20946`, so the metre also depends on two billion years of photosynthesis. The prose
+beside it claims "ten cells spanning three scale heights", which computes to 158.06 at the current grid, not
+168.6. **The cost:** `PLANET_RADIUS = 500.0` model units is 84.3 km against Earth's 6371 km, while
+`STANDARD_GRAVITY_M_S2 = 9.80665` is held — implying 75x Earth's mean density. The geometry and the physics
+describe two different bodies, so gravity, hydrostatic pressure, the geotherm, Coriolis and the orbit cannot
+all be right at once. **And there are TWO GRAVITIES:** `LAGravity.SURFACE_G = 55.0` ("matches old feel") for
+actors and orbits, `STANDARD_GRAVITY_M_S2` for the field. Nothing reconciles them.
 
-**Do not read `photo_ground_cells` as evidence of photosynthesis.** It counts cells where the reaction's
-GATE passes, not where the reaction runs, and it read 4835 in the run that proved the reaction never fires.
+**THE ORDER IS FORCED: SI → one owner for the field state → pressure in every cell → enthalpy → moles.**
+Phase depends on pressure and every pressure is `g · rho · length`, so migrating what a cell STORES while the
+metre is fitted evaluates the phase ladder at pressures wrong by an unbounded factor — and it will not fail
+loudly, it will produce a planet. The full plan, with a collision map, per-stage binary acceptance tests and
+twelve named traps, is the migration plan produced 2026-08-12; its load-bearing correction is that **the EOS
+table is NOT a prerequisite** — the inversion actually needed is the MIXTURE solve, and it is closed-form
+(four breakpoints on this planet: water melt and boil, basalt solidus and liquidus), an O(4) sorted walk
+that is cheaper than the `rc_of` it replaces.
 
-**EVERY CONSERVATION FIGURE RECORDED BEFORE TODAY IS DEAD, AND SO IS EVERY ONE RECORDED TODAY.** Three
-things invalidated the recorded numbers in sequence this session, and E1 invalidates what replaced them:
-- the seal used to latch late (see below), so the baselines were taken near the end of the run;
-- `gravity_flow_sphere3d.glsl` gathered from the wrong neighbour slot, destroying and duplicating mass
-  (`34808ee`), and its outflow pass pushed mass UPWARD (`7a257ec`);
-- twelve more kernels had the same wrong belief about the slot layout and were walking sideways around the
-  sphere at constant radius (`1433765`).
-Do not quote a drift percentage from this file, from a commit message, or from a comment. Measure it.
+**NOTHING ON THE PLANET REACHES 224 °C, SO ROCK CANNOT MELT.** `temp_max` 223.6 against basalt's 1200 °C
+liquidus. Earlier readings of 810 and 1106 were artefacts of two defects now removed: the vent relabelled
+bedrock as "lava" with no temperature change while the solidify leg froze it straight back and released
+latent heat the melt leg never charged — a round trip CREATING the heat of fusion once per cycle — and
+`MaterialFieldGeotherm3D` computed its boundary flux with a MODEL-unit length against per-metre constants,
+168.6x twice over. Both phase legs now carry `GATE_BURIED` (both, or melt at depth is a one-way ratchet).
+The open question is whether the geotherm delivers the right heat to the crust at all.
 
-**THE SEAL NO LONGER DEPENDS ON WHO IS LOOKING.** `LAMaterialFieldSeal3D.poll()` used to be called only
-from `MaterialFieldReport3D.report()` on the 64-frame gauge cadence, and a demand-gated channel counted as
-live only if some RENDERER had already made its mirror resident. The seal landed at `field_step` 9 with the
-render layer up and 265 without it, which latched every conservation baseline near the end of the run and
-made the drift gauges read a trivial 0.000% — a gate that always passes. `poll()` now runs on the field
-step, right after the readback (`MaterialFieldSphereStep3D.gd:224`); both arms seal at step 2.
+**`o2_total` RUNS AWAY: +1.3% at 60 frames, +77668% at 200, +363665% in another 200.** That is a growth
+rate, not drift — the shape of a linear operator applied to its own output. It also contradicts
+`PHYSICS_TODO`, which records oxygen FALLING by half and blames chemistry; that was measured through the
+bare-fill-fraction pass probe, which is structurally incapable of seeing a volume-weighted transport defect.
 
-**THE SIM, THE CAMERA AND THE UI ARE THREE SCENES, AND `--bare` IS DELETED.**
+**THE WORLD NOW HAS TWO PHASES IN CODE, NOT JUST IN INTENT (RULE 1c).** Matter and energy may be CREATED
+while SEEDING and only MOVED or TRANSFORMED once SEALED. `LAMaterialFieldSeal3D.creation_allowed()` /
+`note_creation()` decide it, `world_created` records what the planet was handed, `creation_after_seal` must
+read empty, and `scripts/check_seed_phase.sh` (in `lint`) fails on a creation-class write that never asks and
+on any whole-mirror `set_field()` upload. Two conservation violations reachable by environment variable —
+`LA_MINT_PLANT_FOOD` and `LA_NO_BIOTA_DEBIT` — are deleted.
 
-| scene | flag | contents |
-|---|---|---|
-| `game/Simulation.tscn` | always | planet, field, star, ecology, geology, telemetry, persistence |
-| `game/RenderLayer.tscn` | `--render` | `Camera3D` + the spatial nodes that draw the world |
-| `game/UiLayer.tscn` | `--ui` | `Control`/`CanvasLayer` menus and panels + their input; implies `--render` |
+**THERE IS ONE DECLARATION OF WHAT A CHANNEL IS: `sim/material/Channels.gd`.** It was written down seven
+times; the GPU's PAIR/SINGLE/SITUATIONAL/SLOW lists, `LAHeatCapacity`'s eight groups and
+`LAReactionBalance`'s `SLOT_SUBSTANCE` / `INVENTORY_CHANNELS` / `LITHOSPHERE_CHANNELS` are all views of it
+now, verified equal to the old lists before the switch. It immediately exposed two gaps: `org_h`/`org_o` were
+allocated privately by `ReactionsPass._ensure()` and were invisible to the readback, to residency and to the
+seal; and a DERIVED slot can still be matter (`SOIL_TOP` is water, `BEDROCK_BELOW` is silicate).
 
-A camera is not UI. Two nodes were doing both jobs and both were load-bearing physics: `LAVoxelTimeControl`
-was a `CanvasLayer` that owned `Engine.time_scale` (split — `LASimTimeAuthority` is a plain Node and owns
-the clock), and the sun the field integrates was a light owned by the sky VISUAL cycle (`LAStar` carries
-the direction and the `insolation` meta now and re-aims as it orbits). `--wind=` went with `--bare`, along
-with the dead prescribed-wind chain behind it. **Use `--render` when you need to SEE a run; do not reach
-for `--ui`.** `SIM_REPORT` publishes `ui_nodes` and `sim_run.sh` exits 5 when a run without `--ui` has any.
+### Claims struck 2026-08-12 — do not re-derive these
 
-**ONE SSOT FOR THE NEIGHBOUR TABLE, AND REVERSE LINKS ARE NO LONGER COMPUTED.** `kernels3d/neighbours.glsli`
-holds the slot layout (`N_IN`, `N_OUT`, `N_A0..N_B1`, `N_LAT0`) and every kernel includes it; no kernel
-indexes `nbr[]`/`send[]` with a bare number. `LASphereGrid` resolves each reverse link into
-`link_partner[c*6 + d]` by SEARCHING the neighbour's own six slots (`sim/sphere/SphereGrid.gd:204`), so a
-two-pass gather is `send[partner[base + d]]` — a lookup, not arithmetic. **`opposite()` is deleted** and
-`scripts/check_neighbour_slots.sh` fails the build on any kernel that computes a reverse link.
-`LASphereGrid.validate()` runs (it was complete and nothing called it); a bad table prints `GRID_INVALID`
-and `sim_run.sh` exits 6.
+- ~~"the atmosphere is leaking, `air` declines ~1.5%/step"~~ — **does not reproduce, and the instrument was
+  blind to the real defect.** Before any fix the probe read 9573.176 → 9573.183 over 40 steps, flat to seven
+  figures. `LA_PASS_PROBE` sums BARE FILL FRACTIONS, which a fraction-moving kernel conserves by
+  construction; the quantity that was genuinely not conserved is the volume-weighted total and no probe
+  measured it. There WAS a real air defect (raw fractions moved between cells of different volume, and each
+  column re-settled conserving the sum of fractions rather than the mass) and it is fixed and gated.
+- ~~"`molten_counts` / `fire_peak` / `fuel_total` are the instruments that lie"~~ — all three CLOSED.
+  `molten_live` and `fire_live` carry provenance; `fuel_total` was deleted rather than unmasked, because
+  `MaterialFieldElementInventory3D` already published the honest pair.
+- ~~"`h2o_total` loses 22.6%"~~ — that was BURIAL. Three of its four legs were masked on `solid`. The honest
+  drift is about +0.75%, a real source.
+- ~~"the Darcy leg and sediment slump move temperature without moving heat"~~ — they moved NEITHER. Both
+  carry enthalpy now, with per-kernel energy checks mutation-tested red in four separate ways.
+- ~~"`mineral_total` is roughly conserved"~~ — it read ~0 because TWO ERRORS CANCELLED. Erosion pickup
+  turned 1 unit of `rock_fill` into 1 unit of `susp`, creating mineral from nothing at 67% of the flux at
+  40% porosity, and the gauge summed `rock_fill` bare and made the identical error on the other side.
+- ~~"`erupt_source` injects mantle lava with no debit, booked as `mineral_minted`"~~ — false; it used the
+  conserving queue, and `mineral_inject_minted` was always 0 from it.
+- ~~"`enthalpy.glsli` is the GPU side of the phase ladder"~~ — it is included by ZERO kernels. It is correct
+  dead code held equal to a live thing by a gate.
+- ~~"`check_model_parameters.sh` is enforced"~~ — `CLAUDE.md` says so and **nothing calls it**.
 
-**A KERNEL CAN NOW BE TESTED ON A 4x4x6 GRID INSTEAD OF BISECTED OUT OF A 200-FRAME RUN.**
-`addons/local_agents/tests/KernelConservation.tscn` dispatches one kernel on a real cubed-sphere and asserts
-total mass is unchanged; `scripts/check_kernel_conservation.sh` is the gate (windowed, so it is NOT part of
-the headless lint). 14 checks pass: slot reciprocity, `gravity_flow`, `erosion_transport`, and
-`tracer_transport` under still air, wind, a solid crust and a 160 m/s gale.
-
-**THE PHYSICS NO LONGER DEPENDS ON WHERE THE CAMERA HAS BEEN.** `surface_radius()` raycast the PHYSICS
-space, whose collision shapes exist only for chunks a viewer has meshed, so off-camera it returned NAN and
-to every consumer the ground was simply absent — no ocean on the far side, no salinity, no current. It
-reads the voxel DATA now, planet-wide, and `generated_surface_radius` is deleted rather than kept beside
-it (`986f5293`). That coupling was also what made runs irreproducible: ecology's spawn loop retried on NAN,
-so the number of RNG draws depended on how much of the planet had been meshed. Randomness is sealed and
-gated (`check_sim_determinism.sh`), but two runs still differ in the last digits — the remainder is
-`lava_phase_sphere3d.glsl` reading and writing one buffer, recorded in `PHYSICS_TODO.md`.
-
-**Kernel count is 25** (`kernels3d/*_sphere3d.glsl`), down from 32. The floor is about 18; the remaining
-merge candidates are in `PHYSICS_TODO.md` D2.
-
-### Claims struck this session — do not re-derive these
+### Claims struck earlier — do not re-derive these
 
 Kept rather than deleted, because each one sent real work at a problem that did not exist.
 
@@ -234,85 +237,99 @@ calling the manifest the whole scoreboard.
 
 ## INSTRUMENTS THAT LIE
 
-These are gauge defects, not physics defects, which is why they are here and not in `PHYSICS_TODO.md`.
+All three entries that stood here are CLOSED and deleted: `molten_counts()` and `fire_peak()` now carry
+provenance flags (`molten_live`, `fire_live`) so a zero says which zero it is, and `fuel_total` is gone
+rather than unmasked — `MaterialFieldElementInventory3D` already published `fuel_all` and `fuel_open_total`
+correctly, and a third key for the same number is what produced the false finding.
 
-1. **`molten_counts()` CAN REPORT ZERO FROM A STALE MIRROR WITH NO PROVENANCE FLAG.**
-   `MaterialFieldQueries3D.molten_counts()` (`:388`) reads the `lava` and `solid` mirrors, and `lava` is
-   demand-gated (`MaterialSphereGPU3D.SITUATIONAL_CHANNELS`, `:75`), so between eruptions the gauge cannot
-   tell "no lava" from "the channel never arrived" — exactly what `mass_live` exists to prevent for the
-   element inventory. `magma_cell_count()` (`:408`) and `magma_erupting()` (`:418`) delegate to it and
-   inherit it. **Deciding it:** give `molten_counts()` the same provenance flag and read it on a run with
-   no eruption.
-2. **`fire_peak` READS 0.0 AND NOBODY KNOWS WHICH ZERO IT IS.** `fire` is also situational, and
-   `MaterialFieldQueries3D.fire_peak()` (`:470`) has no provenance flag — the same defect on a different
-   channel. A gauge that cannot distinguish "nothing burned" from "the channel never arrived" cannot verify
-   any change to combustion, which is precisely what it is asked to do.
-3. **`fuel_total()` IS THE LAST MASKED CONSERVATION TOTAL.** `MaterialFieldQueries3D.fuel_total()` (`:460`)
-   gates on `solid[c] == 0`, and it is what `SIM_REPORT` publishes as `fuel_total`
-   (`MaterialFieldReport3D.gd:271`) — so the number a reader sees is the masked one while the mask-free twin
-   sits in another module under another name (`MaterialFieldElementInventory3D` publishes `fuel_all` beside
-   `fuel_open_total`, `:145-146`). This already produced one false finding: fuel "falling from 216 to ~152"
-   was read as combustion, and `fuel_all` says the seeded 216 is all still there — ~61 units of it went
-   under the solid mask. Burial is not loss. **Deciding it:** publish the twin beside it, or make
-   `fuel_total` the unmasked one and rename the masked reader. The other `solid[c] == 0` gates in that file
-   are shell-mean, flow and fertility diagnostics — not conservation gauges, and correctly masked.
+What replaced them, and it is worse than any of the three:
 
----
+1. **`mass_live` CAN NEVER READ FALSE.** `MaterialFieldElementInventory3D` computes `has_fuel` from
+   `legs.get("fuel", _f._fuel).size() == cell_count`, and `_f._fuel` is sized once in `_alloc_channels()`
+   and never shrinks — so every leg reports live whether the probe delivered or not.
+   `MaterialFieldMineralBudget3D` has the same bug. The root cause is that `request_probe` is ONE-SHOT:
+   `MaterialSphereGPU3D` clears `_probe`, refills it from `_probe_want` alone, then empties `_probe_want`,
+   so two consumers on different cadences starve each other. That is why every ledger carries a mirror
+   fallback, and the fallback is what silences the flag. **The trap:** removing a fallback before fixing
+   the root drops a phase out of `mineral_total`, which the conservation gate keys on at 2e-5, and fires
+   `CONSERVATION_VIOLATION` for a provenance reason.
+
+2. **`salinity_at()` models a mechanism reality does not have.** Salinity is computed from BASIN DEPTH
+   (`SALT_FULL_DEPTH`, `BRACKISH_FLOOR`). Real ocean salinity is a conserved solute at ~35 g/kg and is
+   very nearly uniform with depth. It needs a salt substance and a channel.
+
+3. **`water_force_at()` is an invented drag law.** `downhill * 9.0 * depth * slope`, with the 9.0
+   commented "tune vs flood feel" and a depth floor that invents a current in a cell that reads dry. It
+   takes flow DIRECTION from the terrain gradient while the substrate carries a real velocity field the
+   function never reads. Real drag is `0.5 * rho * C_d * A * v^2`.
 
 ## DO THIS NEXT — the staged plan
 
-Each stage has its own verification. Do not merge stages. **The physics items inside each stage live in
-`docs/PHYSICS_TODO.md`; what is below is the sequencing and the acceptance test.**
+**The order below is FORCED, not preferred.** Each stage's acceptance test is a binary event, never a drift
+percentage. Do not merge stages, and do not start one before its predecessor's test passes.
 
-**STAGE 1 — stop the sim creating matter and energy.** The balance gate, the element inventory, the
-composition table, the seal, the conservation gate and the per-kernel conservation harness all exist. What
-is left is `PHYSICS_TODO.md` section E, and **E1 is the whole of it right now** — no other conservation
-number can be interpreted while a tracer multiplies its channel by 1e13 in two dispatches. After E1:
-per-pass attribution for ELEMENTS (E5), which is the instrument that turns "carbon moved" into "this
-reaction moved it". Mineral and energy each have a probe and each named its culprit in a single run.
+**PHASE 0 — the seams, serialized, one owner, no fan-out.** You cannot parallelize a refactor of the file
+everything shares. Freeze a commit first and re-derive the collision map against it; the map made on
+2026-08-12 was taken against a tree nine lanes were writing and three of its citations rotted mid-read.
+- `Channels.gd` is **done** — the channel SSOT exists and the seven old lists are views of it.
+- Split `MaterialSphereGPU3D.gd` (815 lines) into device / residency / pass-runner. Fifteen of nineteen
+  migration units route through it; it is the bottleneck that collapses every fan-out to a queue.
+- Extract `MaterialField3D`'s ~34 mirror arrays into their own file. Three migrations re-type them and one
+  deletes them.
+- **Wire `check_model_parameters.sh` into `lint`. IT HAS NEVER RUN** — `CLAUDE.md` asserts it as enforcement
+  and nothing calls it. 556 declared rows have never been checked against the tree.
+- Split the conservation VERDICT from the provenance verdict: a run that cannot measure a substance must
+  print `CONSERVATION_UNMEASURED` and exit with a code that is **not** 126. Without this, every ownership
+  stage risks being read as a physics regression and reverted.
+- **There is no declaration of which SSBO binding belongs to what.** Two lanes both claimed 42 on
+  2026-08-12. Make the binding registry an SSOT alongside the channel one.
 
-Energy is NOT gated and must not be — sunlight enters and longwave leaves, so what has to go to zero is
-`energy_residual`, not the change in stock. **Read the total, not the rate times a step count:**
-`energy_run_drift` is published as an absolute, and the ledger's own clock (`energy_run_steps`) is not the
-field's. The work queue is the unbooked terms the ledger names in its own header
-(`MaterialFieldEnergyLedger3D.gd`) — read it there rather than copying it here, because it cites the exact
-line of each leak.
+**STAGE 1 — SI.** Lengths, positions and the grid in metres; the planet at its real radius; ONE scale, at
+the presentation layer only, the same split already made for the clock and for render/UI.
+`METRES_PER_MODEL_UNIT` is deleted, not re-derived, and `scripts/check_model_unit_volume.sh` — a gate whose
+entire subject is the unit — deletes with it. ~39 conversion call sites, two already-dead helpers, both
+scaling modules' scaling halves, and `PLANET_SCALE` with its nine dependants.
+- **Acceptance:** `grep -rn METRES_PER_MODEL_UNIT addons/local_agents/sim addons/local_agents/game` returns
+  nothing and lint is still green.
+- **The real engineering problem is fp32, and it is smaller than it looks.** 0.5 m at Earth radius is 1.3e-6
+  of a cell, so the field does not care. It matters in exactly two places: `cell_volume`'s difference of
+  cubes loses catastrophic precision (fix is algebraic — `dr·(r_out² + r_out·r_in + r_in²)`), and absolute
+  heliocentric positions must stay in GDScript doubles and never reach an SSBO.
+- **Separate decision, the maintainer's:** whether the planet becomes Earth-sized or stays a declared small
+  body. Deleting the unit does not choose. Do not block Stage 1 on the answer.
 
-**STAGE 2 — seed a primordial planet.** Post-magma-ocean Hadean, ~4.4 Ga: hot surface, thick CO₂/N₂
-atmosphere, water still largely steam, **no free O₂** (it is a product of life), no biosphere. **Oceans must
-CONDENSE, not be placed.** Delete `INITIAL_TEMP = 15.0` and every "partway" seed. Source and cite the
-composition, and name the era. **Uninhabitable for a whole run is an acceptable result.** `6ad2417` on
-`feature/conservation` (one commit off `0.4-dev`, tagged WIP and explicitly droppable) is a start on this.
-The pressure-dependent `boil_c_at` is the other half: at 100 bar water boils at 306 °C, and a magma-ocean
-planet condenses its ocean when the surface passes ~300 °C, so a model waiting for a flat 100 °C waits
-forever and the failure reads as "the physics does not work".
+**STAGE 2 — one owner for the field state.** `request_probe` becomes a standing subscription; `take_probe`
+clears what it hands out; the mirror fallbacks come out; `set_field` is deleted and every CPU→device edit
+goes through the sparse queue, which books what it moved.
+- **Acceptance:** `MIRROR_REWIND` cannot print, because its emitter no longer exists. Force one probe leg
+  absent and `mass_live` reads **false** — today it can never read false.
+- **Ordering is forced:** the subscription lands before the fallbacks come out, or a starved probe drops a
+  phase out of `mineral_total` and fires `CONSERVATION_VIOLATION` for a provenance reason.
 
-**STAGE 3 — does it cool, and where does it settle?** Run 4000–6000 frames; watch `temp_ground_p50` for an
-asymptote and `snow_cells` for an ice-albedo runaway. **Do not tune the solar constant** — 1361 W/m² is a
-measured fact. Note the conservation gate audits ONCE at a fixed horizon past the seal, so a 4000-frame run
-gets one early audit and then runs 3400 more frames ungated. If Stage 3 is where a leak shows up, that
-horizon is the thing to revisit. *(This stage used to open with "kill the ocean thermostat first". The
-thermostat was already dead when that was written, and following it costs a session on a non-problem.)*
+**STAGE 3 — pressure in every cell.** `wind_pressure` writes one flat surface pressure into everything below
+the atmosphere, so a 4 km ocean cell and a mantle cell both read ~1e5 Pa. Harmless while temperature is
+stored; **decisive once enthalpy is**, because it selects the phase. Half the machinery exists —
+`reactions_sphere3d.glsl` already computes `overburden()`.
+- **Acceptance:** pressure is monotonically non-decreasing inward down every column, and a cell 4 km below
+  the sea reads ≥ 4e7 Pa. Both fail today.
 
-**STAGE 4 — oceans condense.** Verify the sequence *happens*: cooling past the condensation point rains the
-atmosphere out. Success is the event occurring, not a number looking right. The CO₂ half of this stage
-landed — silicate weathering is the Urey reaction (`GeoRecords.gd` D1b, CaSiO₃ + CO₂ → CaCO₃ + SiO₂). Two
-things it left open, both now `PHYSICS_TODO.md` items: the return leg D1c never fires because metamorphic
-decarbonation needs 280.7 °C and the hottest cell reaches ~256 °C, so the sink is one-way and CO₂ declines
-forever (C1); and this planet's atmosphere is only a few cells deep over every weathering cell, so its CO₂
-reservoir is thin relative to the reacting surface. Neither is fixed by moving a rate constant.
+**STAGE 4 — enthalpy is the state.** Add `h_j_m3`, build the closed-form mixture inverter, derive `temp` and
+phase from `(h, composition, p)`, and make `temp` read-only everywhere.
+- **Acceptance:** seed a column of liquid water at +2 °C, remove heat at a constant rate, and `temp` must
+  PIN at 0.0 for exactly `m·L_fus / rate` steps. That is latent heat becoming structural, and it cannot be
+  faked with a rate constant.
+- **`rc_of` coming out is the acceptance test for the whole stage, not a step in it.** If it cannot come
+  out, the root is not fixed — say so rather than restoring it.
+- **Rename the buffer in the same commit that changes its unit.** `temp` → `h_j_m3`. An unconverted kernel
+  then fails to COMPILE, which is the only mid-flight honesty that costs nothing.
 
-**STAGE 5 — the geological bake (`--geotime`).** Run the planet forward through geological time and freeze
-the result as the start state. This is what makes habitability an output. Needs a real stopping condition
-(temperature asymptote, oceans condensed, atmosphere stable). The snapshot path exists; `--geotime` does
-not. Two things it will trip over, both verified 2026-08-08: in-memory snapshots DROP the GPU field unless
-`LA_SNAPSHOT_FIELD` is set (`WorldSaveController.gd`), so a bake wants the disk path; and a restored field
-is pinned to `grid_res_per_face` × `grid_depth`, i.e. to the quality preset, because
-`MaterialFieldSnapshot3D.restore()` refuses a cell-count mismatch outright.
-
-Life is not a stage. It is what stage 5 hands to 0.5.
-
----
+**STAGE 5 — the unit is moles.** Channel amounts become mol/cell; `mol_per_unit` and `unit_ratio` delete;
+one applicator evaluates every record against the same starting state so `cap_slot` deletes too.
+- **Acceptance:** permute the record order and `element_C_total` is bit-identical.
+- **DO NOT read "conserve elements, derive species" literally.** Deriving species by equilibrium would
+  return zero biomass and a CO₂ atmosphere and look like a clean conservation result — a living cell is not
+  at chemical equilibrium. The defect named is the UNIT, not the choice of species as state. Gate
+  `biomass_total > 0` in a `--full` arm so nobody implements the sentence.
 
 ## HOW GOOD IS IT? — `PHYSICS_RUBRIC.md`
 

@@ -109,7 +109,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_fungus_set[p] = _build_set(_fungus_shader, [
 			[0, fungus_pair[p]],     # FungIn  = live fungus
 			[1, fungus_pair[back]],  # FungOut = back fungus
-			[2, detritus_rid],       # Detritus (SINGLE, read-only — decompose record owns the debit)
+			[2, detritus_rid],       # Detritus (SINGLE) — the dead pool's carbon
+			[3, _single(bufs, "org_h")],   # ...and its hydrogen and oxygen, moved with it
+			[4, _single(bufs, "org_o")],
+			[9, _single(bufs, "fuel")],    # the pool's other carbon stock — the composition divides by both
 			[5, temp_pair[p]],       # Temp  (live, read)
 			[6, moisture_pair[p]],   # Moisture = the unified airborne-H₂O channel (live, read)
 			[8, solid_rid],          # Solid   (7 = Fire is gone; the gap is deliberate)
@@ -288,8 +291,10 @@ func _pc_precip16(cc: int, precip: float) -> PackedByteArray:
 	return b
 
 
-## Push: {uint cell_count, pad,pad,pad, float precip, pad,pad,pad} — 32 bytes (fungus, snowice).
+## Push: {uint cell_count, pad,pad,pad, float precip, float fresh_h_per_c, float fresh_o_per_c, pad}
+## — 32 bytes (fungus, snowice). The two ratios are fungal tissue's own C:H:O, read from the substance table.
 func _pc_precip32(cc: int, precip: float) -> PackedByteArray:
 	var b: PackedByteArray = PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
-	b.append_array(PackedFloat32Array([precip, 0.0, 0.0, 0.0]).to_byte_array())
+	b.append_array(PackedFloat32Array([precip, LASubstances.fresh_litter_per_carbon("H"),
+		LASubstances.fresh_litter_per_carbon("O"), 0.0]).to_byte_array())
 	return b

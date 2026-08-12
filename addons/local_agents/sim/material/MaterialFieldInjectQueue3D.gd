@@ -9,7 +9,12 @@ const DRAIN_ALL: float = 1.0e30
 
 const MINERAL_CHANNELS: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust"]
 
-const BIOTIC_CHANNELS: PackedStringArray = ["biomass", "o2", "co2", "detritus", "fuel"]
+const BIOTIC_CHANNELS: PackedStringArray = ["biomass", "o2", "co2", "detritus", "fuel", "org_h", "org_o"]
+
+# The dead organic pool's CARBON channels. Everything a living body hands back is fresh CH2O, so a credit into
+# one of these has to credit the pool's hydrogen and oxygen stocks in the same breath — otherwise the returned
+# matter reads as pure carbon and the composition the reaction engine divides by is a lie.
+const DEAD_POOL_CARBON: PackedStringArray = ["detritus", "fuel"]
 
 # --- cumulative H₂O injection ledger (SIM_REPORT gauges) ---------------------------------------------------
 var demand: float = 0.0        # mass transfers ASKED their sources for. Before this fix the same figure was
@@ -128,6 +133,23 @@ func add(channel: String, cells: PackedInt32Array, deltas: PackedFloat32Array, c
 	if cells.size() == 0 or cells.size() != deltas.size():
 		return
 	_merge("a|%s|%f" % [channel, ceiling], "add", channel, channel, cells, deltas, cells, ceiling)
+	fresh_companions(channel, cells, deltas)
+
+
+## Credit the hydrogen and oxygen that came in with a fresh-litter carbon credit. A no-op for every other
+## channel, and it cannot recurse: org_h and org_o are not dead-pool carbon.
+func fresh_companions(channel: String, cells: PackedInt32Array, amounts: PackedFloat32Array) -> void:
+	if not DEAD_POOL_CARBON.has(channel):
+		return
+	var h_per_c: float = LASubstances.fresh_litter_per_carbon("H")
+	var o_per_c: float = LASubstances.fresh_litter_per_carbon("O")
+	var h: PackedFloat32Array = PackedFloat32Array()
+	var o: PackedFloat32Array = PackedFloat32Array()
+	for v in amounts:
+		h.append(v * h_per_c)
+		o.append(v * o_per_c)
+	add("org_h", cells, h)
+	add("org_o", cells, o)
 
 
 ## Apply every queued edit to the LIVE device buffers and fold the results into the ledger. Call between the

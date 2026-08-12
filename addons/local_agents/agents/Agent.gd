@@ -102,15 +102,6 @@ const AgentBackstory: GDScript = preload("res://addons/local_agents/agents/Agent
             agent_node.tick_interval = tick_interval
         _refresh_warnings()
 
-## Reserved. Forwarded to the native agent node, which stores it and does not yet act on it: a tick
-## emits exactly one action today, so there is nothing to cap. Kept so scenes do not lose the value
-## when the native side grows multi-action plans.
-@export_range(1, 32, 1) var max_actions_per_tick: int = 4:
-    set(value):
-        max_actions_per_tick = value
-        if agent_node != null and is_instance_valid(agent_node):
-            agent_node.max_actions_per_tick = max_actions_per_tick
-
 @export_group("Memory")
 
 ## Knowledge graph this agent writes its conversation into: every message it is given and every reply
@@ -491,7 +482,6 @@ func _sync_agent_node_properties() -> void:
     _apply_model_path()
     agent_node.tick_enabled = tick_enabled
     agent_node.tick_interval = tick_interval
-    agent_node.max_actions_per_tick = max_actions_per_tick
     if db_path != "":
         agent_node.db_path = db_path
     if voice != "":

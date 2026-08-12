@@ -2,18 +2,12 @@ class_name LAMaterialSphereGPU3D
 extends RefCounted
 
 
-const PAIR_CHANNELS: PackedStringArray = [
-	"temp", "water", "moisture", "lava", "sediment", "fire", "dust",
-	"o2", "co2", "n2", "shock", "fungus", "susp", "fert", "soil", "air"]
-const SINGLE_CHANNELS: PackedStringArray = [
-	"solid", "fuel", "charge", "discharge", "detritus", "biomass", "pressure",
-	"vel_x", "vel_y", "vel_z", "fungus_fert", "snow", "rock_fill",
-	"carbonate", "silica",
-	"porosity",
-	"regolith",     # aquifer permeability mask (1 = groundwater-bearing rock) — static; seeded once
-	"grain"]        # representative grain diameter in METRES per regolith cell — static; seeded once. The
-	                # aquifer kernel turns it into hydraulic conductivity through Kozeny-Carman, so K varies
-	                # over four orders of magnitude across the planet instead of being one number.
+## Views of LAChannels, the one declaration of what a channel is.
+static func pair_channels() -> PackedStringArray: return LAChannels.pair_channels()
+static func single_channels() -> PackedStringArray: return LAChannels.single_channels()
+static func situational_channels() -> PackedStringArray: return LAChannels.situational_channels()
+static func slow_channels() -> PackedStringArray: return LAChannels.slow_channels()
+
 
 # Data-flow dispatch order (see the PING-PONG PHASE note above). WaterSlumpLava MUST precede Thermal
 # (Thermal reads water/lava from "back" + consumes the lava carry-heat left in "live" temp); Atmosphere/
@@ -25,6 +19,7 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/LavaCellListPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ThermalPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/GasWindPass.gd",
+	"res://addons/local_agents/sim/material/sphere_passes/ChargeBreakdownPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/SoilPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ErosionTransportPass.gd",
@@ -72,8 +67,6 @@ var _pending: bool = false          # a step() submit is in flight, not yet sync
 var _cached: Dictionary = {}        # channels read back from the last drained step (what end_frame returns)
 var _slow_gate: int = 0             # cadence counter for the slow (ledger/baker) channel readback set
 
-const SITUATIONAL_CHANNELS: Array = ["lava", "fire", "dust", "shock", "co2", "fuel", "rock_fill",
-	"pressure", "detritus", "fungus"]
 const CHANNEL_HOLD_DRAINS: int = 20     # stay hot ~20 drains past the last request so intermittent queries don't thrash
 var _channel_hold: Dictionary = {}      # channel name -> drain index it stays hot through
 var _drain_count: int = 0               # monotonic drain counter the holds are measured against
@@ -92,7 +85,6 @@ var _temp_dirty: bool = true
 # every-frame world queries) — a direct cut of ~6 of 21 blocking readbacks on the other frames. Between reads the
 # CPU array keeps its prior value (the _apply_readback scatter is res.has()-guarded), which the consumers tolerate.
 const SLOW_READBACK_EVERY: int = 4
-const SLOW_CHANNELS: PackedStringArray = ["sediment", "susp", "fert", "soil", "biomass", "porosity"]
 
 # BETWEEN-PASS PROBE (LA_H2O_BUDGET diagnostics only; armed per step by LAMaterialFieldH2OBudget3D, left
 # invalid otherwise). When valid, step() runs the checkpointed path below instead of the normal one-submit
@@ -110,14 +102,21 @@ func setup(field) -> void:
 		return
 	_groups = int(ceil(float(_cc) / 64.0))
 
-	for name in PAIR_CHANNELS:
+	for name in pair_channels():
 		_bufs[name] = [_new_f(_cc), _new_f(_cc)]
 	_bufs["scent"] = [_new_f(_cc * SCENT_PLANES), _new_f(_cc * SCENT_PLANES)]
-	for name in SINGLE_CHANNELS:
+	for name in single_channels():
 		_bufs[name] = _new_f(_cc)
 	_bufs["send"] = _new_f(_cc * 6)
 	_bufs["soil_dbg"] = _new_f(_cc * SOIL_DBG_SLOTS)     # per-leg groundwater budget probe (see SOIL_DBG_SLOTS)
 	# BOTH the uvec3 dispatch-indirect argument (slots 0-2) and the atomic list-length counter (slot 3) — one
+	# Lightning: the strike list its column scan appends to, its dispatch/counter slots, and the
+	# column-integrated charge per surface column (C/m^2).
+	_bufs["strike_idx"] = _new_u32(_cc)
+	_bufs["strike_args"] = _rd.storage_buffer_create(
+		ACTIVE_ARGS_SLOTS * 4, _zeros(ACTIVE_ARGS_SLOTS),
+		RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
+	_bufs["sigma_col"] = _new_f(maxi(_cc / maxi(int(_grid.depth), 1), 1))
 	_bufs["active_idx"] = _new_u32(_cc)
 	_bufs["active_args"] = _rd.storage_buffer_create(
 		ACTIVE_ARGS_SLOTS * 4, _zeros(ACTIVE_ARGS_SLOTS),
@@ -135,6 +134,10 @@ func setup(field) -> void:
 	# Angular separation per lateral link — the lateral RUN a slope test needs (see LASphereGrid.link_arc).
 	var larc_bytes: PackedByteArray = _grid.link_arc.to_byte_array()
 	_bufs["link_arc"] = _rd.storage_buffer_create(larc_bytes.size(), larc_bytes)
+	# (cos, sin) carrying MY tangent axes into the neighbour's. A VECTOR crossing a lateral link is rotated by
+	# it; a scalar is not. Momentum advection is the first consumer, which is why it now reaches the GPU.
+	var lrot_bytes: PackedByteArray = _grid.link_rot.to_byte_array()
+	_bufs["link_rot"] = _rd.storage_buffer_create(lrot_bytes.size(), lrot_bytes)
 	# Per-shell radial geometry: thickness, centre radius, centre-to-centre runs. See kernels3d/shell.glsli.
 	var shell_bytes: PackedByteArray = _grid.shell_table().to_byte_array()
 	_bufs["shell"] = _rd.storage_buffer_create(shell_bytes.size(), shell_bytes)
@@ -142,6 +145,10 @@ func setup(field) -> void:
 	# two cells is scaled by their volume ratio.
 	var cvol_bytes: PackedByteArray = _grid.cell_volumes().to_byte_array()
 	_bufs["cell_vol"] = _rd.storage_buffer_create(cvol_bytes.size(), cvol_bytes)
+	# Per-face area, model units^2, flat cell*6 + slot. See kernels3d/facearea.glsli: a conductive or
+	# diffusive flux scales with the area of the wall it crosses, and on a cubed sphere that varies per cell.
+	var farea_bytes: PackedByteArray = _grid.face_areas().to_byte_array()
+	_bufs["face_area"] = _rd.storage_buffer_create(farea_bytes.size(), farea_bytes)
 	_bufs["plates"] = _rd.storage_buffer_create(MAX_PLATES * PLATE_STRIDE * 4,
 		_zeros(MAX_PLATES * PLATE_STRIDE))
 
@@ -288,7 +295,7 @@ func channel_total_now(name: String) -> float:
 func channel_totals_now(name: String) -> Dictionary:
 	if not _bufs.has(name):
 		return {}
-	if name in SINGLE_CHANNELS:
+	if name in single_channels():
 		return {"single": channel_total_half(name, 0)}
 	return {"live": channel_total_half(name, _phase), "back": channel_total_half(name, 1 - _phase)}
 
@@ -424,6 +431,20 @@ func _read_active_list_counts() -> void:
 	LASimReport.gauge("lava_list_cells", float(slots[ARG_SLOT_LIST_COUNT]))
 
 
+## Cells where a flash initiated this step, read at the drain. Visual/telemetry only — the neutralisation,
+## the discharge stamp and the heat were all done on the device.
+func strikes() -> PackedInt32Array:
+	if not _bufs.has("strike_args") or not _bufs.has("strike_idx"):
+		return PackedInt32Array()
+	var raw: PackedByteArray = _rd.buffer_get_data(_bufs["strike_args"])
+	if raw.size() < ACTIVE_ARGS_SLOTS * 4:
+		return PackedInt32Array()
+	var n: int = mini(raw.to_int32_array()[ARG_SLOT_LIST_COUNT], _cc)
+	if n <= 0:
+		return PackedInt32Array()
+	return _rd.buffer_get_data(_bufs["strike_idx"], 0, n * 4).to_int32_array()
+
+
 ## "ThermalPass" -> "thermal"; a short, gauge-key-safe name (strip the "Pass" suffix, snake_case the rest).
 func _gpu_gauge_key(pass_index: int) -> String:
 	var n: String = _pass_names[pass_index]
@@ -449,10 +470,10 @@ func _read_channels(read_slow: bool) -> Dictionary:
 	for k in ["vel_x", "vel_y", "vel_z", "charge"]:
 		if _bufs.has(k):
 			out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
-	for k in SITUATIONAL_CHANNELS:
+	for k in situational_channels():
 		if not _bufs.has(k) or int(_channel_hold.get(k, -1)) < _drain_count:
 			continue
-		var src: RID = _bufs[k] if k in SINGLE_CHANNELS else _live(k)
+		var src: RID = _bufs[k] if k in single_channels() else _live(k)
 		out[k] = _rd.buffer_get_data(src).to_float32_array()
 	# SLOW — ledger/baker channels, read only on the coarse cadence. PAIR channels (sediment/susp/fert/soil) from
 	# the live half; single channel (biomass) direct.
@@ -504,6 +525,20 @@ func _audit_mirror_upload(name: String, arr) -> void:
 		lt += live[i]
 		mt += arr[i]
 	print("MIRROR_REWIND={\"channel\":\"%s\",\"live\":%.4f,\"mirror\":%.4f,\"delta\":%.4f}" % [name, lt, mt, mt - lt])
+
+
+## SEEDING ONLY. Hands the device a whole channel while the world is being built — the seed sea, the
+## geotherm, the initial litter. After LAMaterialFieldSeal3D.sealed() this is a hard error: a whole-channel
+## write cannot say what it changed, so after the seal it is indistinguishable from creating matter.
+func seed_field(name: String, arr, seal) -> void:
+	if seal != null and seal.has_method("note_creation"):
+		var total: float = 0.0
+		if arr is PackedFloat32Array:
+			for v in arr:
+				total += float(v)
+		if not seal.note_creation("seed_" + name, total):
+			return
+	set_field(name, arr)
 
 
 func set_field(name: String, arr) -> void:
@@ -662,10 +697,10 @@ func snapshot_channels() -> Dictionary:
 	if _rd == null:
 		return out
 	_flush_pending()        # a step submit may be in flight (async pipeline) — sync before reading the buffers
-	for name in PAIR_CHANNELS:
+	for name in pair_channels():
 		out[name] = _rd.buffer_get_data(_live(name)).to_float32_array()
 	out["scent"] = _rd.buffer_get_data(_bufs["scent"][_phase]).to_float32_array()
-	for name in SINGLE_CHANNELS:
+	for name in single_channels():
 		out[name] = _rd.buffer_get_data(_bufs[name]).to_float32_array()
 	return out
 

@@ -8,36 +8,20 @@ extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 ## oxic one from O2 (Zel'dovich). A cell here is a kilometre and holds one temperature, so an Arrhenius law
 ## on the cell mean cannot represent it — evaluated at 300 K with the Zel'dovich Ea/R of 38370 K it returns
 ## exactly zero. The measurable closure is the published YIELD PER UNIT OF DISCHARGE ENERGY, which is what
-## this record uses, driven by the charge the return stroke actually drained from the cell.
+## this record uses, driven by the electrostatic energy the return stroke released in the cell.
 ##
 ## `fixed_n` is declared as the bare element N (LASubstances), so the record that balances is N2 -> 2 N.
 ## The oxygen that ends up in nitrate is not in the books on either side, which is the substance table's
 ## own stated model of soil nitrogen, not a licence taken here. Nothing is created or destroyed.
 
 
-## Moles of N fixed per unit of charge drained. J_PER_CHARGE is LIGHTNING_FLASH_J / BREAKDOWN, so a full
-## breakdown IS one flash by the charge module's own definition and the flash energy cancels:
-##     mol N per charge unit = LIGHTNING_N_FIXED_MOL_PER_FLASH / BREAKDOWN
-static func _mol_n_per_charge() -> float:
-	var breakdown: float = maxf(LAMaterialCharge3D.BREAKDOWN, 1.0e-6)
-	return LAPhysical.LIGHTNING_N_FIXED_MOL_PER_FLASH / breakdown
-
-
-## Cell volume in cubic metres. The driver is an absolute per-cell quantity and a rate model works in
-## concentration, so this is the one conversion between them.
-static func _cell_volume_m3() -> float:
-	var h: float = maxf(cell_size_m, 0.001)
-	return h * h * h
-
-
-## x = LIGHTNING_FIX_RATE * discharge, in N2 channel units.
-##     LIGHTNING_FIX_RATE = (mol N per charge unit) / (2 * mol_per_unit(N2) * cell volume)
+## x = LIGHTNING_FIX_RATE * discharge, in N2 channel units. The DISCHARGE driver is J/m^3, so no cell
+## volume enters: (mol N / J) * (J / m^3) / (2 * mol N2 per unit per m^3) is already a channel amount.
 static func _fix_k() -> float:
 	var mpu_n2: float = float(LAReactionBalance.mol_per_unit().get(N2, 0.0))
-	var vol: float = _cell_volume_m3()
-	if mpu_n2 <= 0.0 or vol <= 0.0:
+	if mpu_n2 <= 0.0:
 		return 0.0
-	return _mol_n_per_charge() / (2.0 * mpu_n2 * vol)
+	return LAPhysical.LIGHTNING_N_FIXED_MOL_PER_J / (2.0 * mpu_n2)
 
 
 static func records() -> Array:

@@ -14,7 +14,7 @@ const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/
 static func equilibrium_terms(rec: Dictionary, q_slot: int) -> Dictionary:
 	var tbl: Dictionary = LASubstances.table()
 	var mpu: Dictionary = BalanceScript.mol_per_unit()
-	var subs: Dictionary = BalanceScript.SLOT_SUBSTANCE
+	var subs: Dictionary = BalanceScript.slot_substance()
 	var dh: float = 0.0
 	var ds: float = 0.0
 	var q_mol: float = 0.0

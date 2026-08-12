@@ -28,7 +28,7 @@ func setup(field) -> void:
 	_f = field
 
 
-## Wake the scan: called when the CPU edits the mineral field (add_lava, a debug deposit) so the next
+## Wake the scan: called when the CPU edits the mineral field (a debug deposit) so the next
 ## scans catch the resulting 0.5-crossings, then idle again once the flurry settles. rock_fill is
 ## demand-gated (SITUATIONAL_CHANNELS), so also wake ITS readback -- mirrors add_heat waking "fire".
 func arm() -> void:
@@ -146,7 +146,7 @@ func _open_neighbour(c: int, solid: PackedByteArray) -> int:
 
 ## TEST HOOK (--stamp-test proof): force a void cell's rock_fill fractional-solid so the next scan fires a
 ## GROW stamp — the deterministic proof that a rock_fill 0.5-crossing physically grows terrain. The edit is
-## dirty-gated so it round-trips through the GPU like add_lava. Not used in normal play.
+## dirty-gated so it round-trips through the GPU. Not used in normal play.
 func debug_deposit(world_pos: Vector3, amount: float) -> void:
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0 or c >= _f._cell_count or _f._rock_fill.size() != _f._cell_count:

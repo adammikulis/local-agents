@@ -82,6 +82,11 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# kernel edits in place. `discharge` is the CPU lightning stamp — read-only, single, driver only.
 	var n2: Array = _pair(bufs, "n2")
 	var discharge: RID = _single(bufs, "discharge")
+	# The dead organic pool's HYDROGEN and OXYGEN. Registered into the shared buffer table so injection,
+	# seeding and `request_probe` resolve them by name like any other channel; the device owns them from that
+	# point on and frees them with the rest, so this pass must not.
+	var org_h: RID = _ensure(bufs, "org_h", cc)
+	var org_o: RID = _ensure(bufs, "org_o", cc)
 
 	for p in 2:
 		var back: int = 1 - p
@@ -124,6 +129,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[29, silica],           # SINGLE SiO2 — the weathering residue, same record
 				[30, n2[back]],         # dinitrogen — lightning fixation debits it
 				[31, discharge],        # SINGLE — the lightning discharge stamp, driver only
+				[32, org_h],            # SINGLE — organic hydrogen; ORG_H/ORG_C is the cell's molar H:C
+				[33, org_o],            # SINGLE — organic oxygen; ORG_O/ORG_C is the cell's molar O:C
 		])
 
 
@@ -186,6 +193,18 @@ func _uset(shader: RID, entries: Array) -> RID:
 		u.add_id(e[1])
 		uniforms.append(u)
 	return _rd.uniform_set_create(uniforms, shader, 0)
+
+
+## Get a SINGLE buffer, creating it zero-filled and registering it in the shared table if it is not there.
+func _ensure(bufs: Dictionary, key: String, cc: int) -> RID:
+	var have: RID = _single(bufs, key)
+	if have.is_valid():
+		return have
+	var zeros: PackedFloat32Array = PackedFloat32Array()
+	zeros.resize(cc)
+	var rid: RID = _rd.storage_buffer_create(cc * 4, zeros.to_byte_array())
+	bufs[key] = rid
+	return rid
 
 
 func _single(bufs: Dictionary, key: String) -> RID:

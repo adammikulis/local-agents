@@ -8,12 +8,11 @@ const RAIN_PATH: String = "res://addons/local_agents/sim/material/kernels3d/atmo
 # --- PRECIPITATION IS A MICROPHYSICAL PROCESS, NOT A CEILING -----------------------------------------------
 const AUTOCONVERSION_RATE_PER_S: float = 1.0e-3    # Kessler (1969) k_auto
 const CLOUD_WATER_CRIT_KG_KG: float = 0.5e-3       # Kessler (1969) q_crit, cloud-water mixing ratio
-const AIR_DENSITY_KG_M3: float = 1.225             # ISA sea level, 15 °C
 
 
 ## The autoconversion threshold in the field's own unit (fraction of a cell full of liquid water).
 static func rain_threshold() -> float:
-	return CLOUD_WATER_CRIT_KG_KG * AIR_DENSITY_KG_M3 / LAPhysical.WATER_DENSITY_KG_M3
+	return CLOUD_WATER_CRIT_KG_KG * LAPhysical.AIR_DENSITY_KG_M3 / LAPhysical.WATER_DENSITY_KG_M3
 
 
 ## Fraction of the supercritical cloud water shed as rain in ONE field step. Kessler's rate is per SECOND, and
