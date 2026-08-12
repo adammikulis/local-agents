@@ -65,7 +65,7 @@ PRESENTATION_ALLOW = {
     f"{SIM}/streamer/StreamerDirector.gd": "commentary pacing for the LLM/TTS caster, writes no world state",
     f"{SIM}/streamer/StreamerAvatar.gd": "avatar animation",
     f"{SIM}/streamer/StreamerOverlay.gd": "overlay layout and animation",
-    f"{SIM}/actors/LightningStrike.gd": "flash fade and node lifetime; the field charge is injected in setup",
+    f"{SIM}/actors/LightningStrike.gd": "flash fade and node lifetime; it writes no world state",
     f"{SIM}/actors/Earthquake.gd": "node lifetime; the seismic and scare broadcasts fire in setup",
     f"{SIM}/ecology/BandChronicle.gd": "historian: writes dated records to the backstory store, not the field",
     f"{SIM}/events/LAEventTracker.gd": "instrument: samples the report and emits events, mutates nothing",
