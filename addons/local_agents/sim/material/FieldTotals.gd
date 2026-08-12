@@ -26,6 +26,8 @@ static func volume_sum(grid, arr: PackedFloat32Array, solid: PackedByteArray, wh
 
 
 ## Mass of a substance held in a channel, in KILOGRAMS. `substance` is a key in LASubstances.table().
+## The REFERENCE density: this sums a whole grid with no per-cell temperature or pressure in hand, so it
+## answers what the channel units weigh, not what the matter weighs where it sits.
 static func substance_kg(grid, arr: PackedFloat32Array, solid: PackedByteArray, which: int,
 		substance: String) -> float:
 	var entry: Dictionary = LASubstances.table().get(substance, {})

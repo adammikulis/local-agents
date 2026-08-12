@@ -32,8 +32,8 @@ const PHOTO_T_OPT: float = (LAPhysical.PROTEIN_DENATURE_C + LAPhysical.WATER_FRE
 const PHOTO_T_WIDTH: float = (LAPhysical.PROTEIN_DENATURE_C - LAPhysical.WATER_FREEZE_C) * 0.5
 
 
-## Kilograms of a substance in ONE unit of a channel that holds it — the channel unit IS the substance's
-## condensed density, read from the one table.
+## Kilograms of a substance in ONE unit of a channel that holds it — a fixed unit conversion, which is why
+## it reads the table's REFERENCE value rather than LASubstances.density() at a cell.
 static func _density(id: String) -> float:
 	return float(LASubstances.table().get(id, {}).get("density", 0.0))
 

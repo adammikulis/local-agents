@@ -37,6 +37,29 @@ order is the order.
       −2 °C too; (b) the van 't Hoff law is IDEAL, and real sea water's ions have activity coefficients below
       1, so 1.16 mol/kg gives −2.16 °C against the measured −1.86. **Decide it:** add a salinity channel, and
       either accept the ideal law's ~15% or carry an osmotic coefficient.
+- [ ] **Density is rho(T, p) on the CPU only, and water has no 4 °C maximum.**
+      `LASubstances.density(id, t_c, p_pa)` gives a gas the ideal gas law and a condensed phase a linear
+      expansivity with a bulk modulus, all cited. Three gaps: (a) `kernels3d/enthalpy.glsli` has no twin, so
+      every kernel still multiplies by a scalar; (b) a LINEAR expansivity cannot produce water's density
+      maximum near 4 °C, which is why deep water sits at 4 °C and why a lake freezes from the top — Kell
+      1975, J. Chem. Eng. Data 20:97, is the measured relation and it needs a second EOS shape in the table;
+      (c) `carbonate` has an expansivity and no bulk modulus, and `cellulose` has neither.
+- [ ] **Molten silicate weighs the same as solid silicate, so magma buoyancy is only thermal.** The table
+      gives `silicate` ONE density for crystals and melt, so the fusion volume change — the larger half of
+      why a melt rises — is absent; only thermal expansion is left. Adding `density_solid` for silicate also
+      moves `melt_c_at`'s Clapeyron slope off zero, which is real (decompression melting) and which
+      `enthalpy.glsli` must move with or the two phase curves are no longer one curve.
+- [ ] **`o2` and `co2` carry no phase boundaries, so nothing can say they are gases.** `density()` falls
+      back to their declared reference for want of a boiling point, triple point and critical point, all of
+      which `n2` and `h2o` already carry. Adding them changes those substances' phase ladder, so the GLSL
+      twin moves at the same time.
+- [ ] **The `moisture` channel holds vapour and is priced as a condensed phase.** `LAFieldDensity3D` asks
+      `density("h2o", ...)`, which reads liquid at surface conditions, for every h2o channel including the
+      vapour one. The channel's unit is declared in `LAChannels`, not here.
+- [ ] **The momentum ledger's atmosphere weighs the same at every altitude.** `LAMaterialFieldMomentumLedger3D`
+      makes cell mass `air * AIR_DENSITY_KG_M3 * V`, a fixed ISA sea-level conversion, and its buoyancy leg is
+      the ideal-gas Boussinesq `a = g dT/T` gated on `d_t > 0.0`, so cold air never sinks. Both need the `air`
+      channel's unit, which is defined in the wind kernels.
 - [ ] **Solid polymorphs** — ice I…VII, and olivine → wadsleyite → perovskite with depth. A planet's mantle
       structure IS these transitions, each with its own enthalpy and density jump. Maintainer asked for the
       structure to be built.

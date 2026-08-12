@@ -34,6 +34,8 @@ static func equilibrium_terms(rec: Dictionary, q_slot: int) -> Dictionary:
 		return {}
 	var q_sub: Dictionary = tbl.get(String(subs.get(q_slot, "")), {})
 	var molar_mass: float = float(q_sub.get("molar_mass", 0.0))
+	# The REFERENCE density: this turns an EXTENT into moles, and an extent is one channel unit whose
+	# kilograms is the unit's definition — a fixed conversion, not a density evaluated at a cell.
 	var density: float = float(q_sub.get("density", 0.0))
 	if molar_mass <= 0.0 or density <= 0.0:
 		return {}

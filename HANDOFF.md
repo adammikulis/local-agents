@@ -32,19 +32,21 @@ from a caller list and from a red gate were not in front of anyone. They are in 
 **Everything is on `feature/enthalpy`.** The branch does not parse and there is one reason left:
 `LAHeatCapacity` is deleted and the field still stores `temp`. That conversion is task 7 below.
 
-<<<<<<< HEAD
 **The grid migration is done.** The Cartesian box is the only grid: `MaterialSphereGPU3D` takes an
 `LAVoxelGrid`, gravity is the solved Poisson field read per cell, and `check_no_privileged_axis.sh` passes
 — no slot means "up", no column is an array stride. `sim/sphere/` is deleted, and with it the seam-repair
 graph matching, the tangent basis and its parallel transport, the radial shell stack and `link_partner`.
 The grid is METRES, because the gravity solve is SI.
-=======
-**The grid migration is most of the way through.** The Cartesian box is what the kernels run on:
-`MaterialSphereGPU3D` takes an `LAVoxelGrid`, gravity is the solved Poisson field read per cell, and
-`check_no_privileged_axis.sh` passes — no slot means "up", no column is an array stride, and the radial
-shell table is deleted. `LASphereGrid` survives only for the bakers, the input controller and the charge
-readback, and is deleted when those move.
->>>>>>> worktree-agent-ac124a56857625145
+
+**`check_physical_constants.sh` is red on ONE line, on purpose.** `AMBIENT_O2_DENSITY_KG_M3` is now derived
+from the air density and mole fractions this file already declares rather than stored a second time and 4%
+adrift; `CO2_UNIT_DENSITY_KG_M3` moved with it, and `kernels3d/heat3d_solar_sphere3d.glsl` carries a
+hand-copied `RHO_CO2_UNIT` that must be set to the authority's value. Clearing it is one literal.
+
+**`LATransportRecords` and `LAFieldTotals` have no GDScript caller.** `max_fill` feeds a `transport.glsl`
+push constant nothing fills; `substance_kg` is reached only from `scripts/check_sphere_grid.sh`. Wire or
+delete — say which.
+
 
 **Kernels: 24 to 10.** One `transport.glsl` plus a record table absorbed the seven gathers, then diffusion,
 convection, conduction, radiation and momentum. What made them look different was the coordinate system:
@@ -109,14 +111,8 @@ channels that carry heat, because heat is no longer spread across channels:
 **G — the grid. Done.** The kernels run on `LAVoxelGrid`, gravity is solved, the axis gate passes,
 `METRES_PER_MODEL_UNIT` / `PLANET_SCALE` / `SURFACE_G` / the held `STANDARD_GRAVITY_M_S2` are gone, and so
 are `solid_angle`, `cell_vol`, `face_area`, `link_arc`, `link_partner`, the tangent basis and its parallel
-<<<<<<< HEAD
-transport, the shell table and the whole of `sim/sphere/`. *Left:* the geotherm, the bakers and the charge
-readback still call shell-stack methods (`shell_of`, `cell_radial`) that the box does not have.
-=======
-transport, and the shell table. *Left:* the bakers, input controller and charge readback still hold
-`LASphereGrid`; when they move it deletes wholesale, taking the `_seed_families` / `_repair_pairs` /
-`_augment_once` seam-repair graph matching with it.
->>>>>>> worktree-agent-ac124a56857625145
+transport, the shell table and the whole of `sim/sphere/`. *Left:* `BiomeTextureBaker` still calls
+`shell_of` on a grid class that no longer exists.
 
 **P — pressure. Done.** `kernels3d/pressure.glsl` marches along -g accumulating the cell's own bulk
 density times the solved `|g|`. It replaced a kernel that gave a buried cell the weight of the AIR column
