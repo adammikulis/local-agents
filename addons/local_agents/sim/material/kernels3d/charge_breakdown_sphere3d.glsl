@@ -132,7 +132,8 @@ void main() {
 	}
 
 	// ---- pass 2: neutralise ------------------------------------------------------------------------
-	if (g >= params.cell_count || solid[g] != 0.0 || charge[g] <= 0.0) {
+	// A flash NEUTRALISES: the two oppositely charged regions cancel each other. It does not delete
+	if (g >= params.cell_count || solid[g] != 0.0 || charge[g] == 0.0) {
 		return;
 	}
 	uint n = min(strike_args[3], params.cell_count);
@@ -154,6 +155,12 @@ void main() {
 	}
 	float e = sigma_col[g / depth] / VACUUM_PERMITTIVITY_F_M;
 	float u = 0.5 * VACUUM_PERMITTIVITY_F_M * e * e;   // J/m^3 the field held here
+	// The channel runs along -g; the opposite charge sits at its other end. Give it there.
+	vec3 gv = g_at(g);
+	int other = (length(gv) > 0.0) ? la_step(nbr, g, (charge[g] > 0.0) ? normalize(gv) : -normalize(gv)) : -1;
+	if (other >= 0) {
+		charge[uint(other)] += charge[g];
+	}
 	charge[g] = 0.0;
 	discharge[g] += u;
 	temp[g] += u / max(rc_of(g), 1.0);

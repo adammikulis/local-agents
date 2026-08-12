@@ -198,7 +198,9 @@ void main() {
 		gained_h += send_h[nb * 6u + (d ^ 1u)];
 		gained_q += send_q[nb * 6u + (d ^ 1u)];
 	}
-	amount[gidx] = max(amount[gidx] - lost + gained, 0.0);
+	// No floor. Pass 0 clamps every outflow to what the cell holds, so a negative here is a defect
+	// and clamping it up would create the mass it is short of.
+	amount[gidx] = amount[gidx] - lost + gained;
 	h[gidx] = h[gidx] - lost_h + gained_h;
 	charge[gidx] = charge[gidx] - lost_q + gained_q;
 }

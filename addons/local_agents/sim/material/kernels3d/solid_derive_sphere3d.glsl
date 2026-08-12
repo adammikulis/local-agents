@@ -16,6 +16,8 @@ layout(set = 0, binding = 7, std430) restrict buffer Snow { float snow[]; };
 layout(set = 0, binding = 8, std430) restrict buffer Soil { float soil[]; };
 layout(set = 0, binding = 9, std430) restrict buffer Regolith { float regolith[]; };
 layout(set = 0, binding = 10, std430) restrict buffer Grain { float grain[]; };
+// rock_fill is a saturation, so converting a volume fraction into it needs the cell's solid share.
+layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -39,11 +41,12 @@ void main() {
 	bool was = solid[g] != 0.0;
 	bool now = was ? (rf >= SOLID_OUT) : (rf >= SOLID_IN);
 	if (now) {
-		// LITHIFY the loose phases into the bedrock they are now inside. Own-cell, mass-for-mass, so the
-		// mineral ledger (which sums rock_fill + lava + sediment + susp + dust) does not move.
+		// LITHIFY the loose phases into the bedrock they are now inside. rock_fill is a SATURATION -- the
+		// pore-free share -- while sediment, susp and dust are volume fractions, so the loose material has
 		float loose = sediment[g] + susp[g] + dust[g];
 		if (loose > 0.0) {
-			rock_fill[g] = rf + loose;
+			float solid_share = max(1.0 - clamp(porosity[g], 0.0, 1.0), 1.0e-6);
+			rock_fill[g] = rf + loose / solid_share;
 			sediment[g] = 0.0;
 			susp[g] = 0.0;
 			dust[g] = 0.0;
