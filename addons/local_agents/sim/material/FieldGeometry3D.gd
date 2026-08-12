@@ -140,3 +140,12 @@ static func velocity(field, c: int) -> Vector3:
 	if field._vel_x.size() != field._cell_count:
 		return Vector3.ZERO
 	return Vector3(field._vel_x[c], field._vel_y[c], field._vel_z[c])
+
+
+## The body's spin axis expressed in the FIELD frame. The one place that answers it.
+static func spin_axis(field) -> Vector3:
+	if field._body != null and field._body.has_method("spin_axis"):
+		var v: Vector3 = field.dir_to_field(field._body.spin_axis())
+		if v.length() > 0.001:
+			return v.normalized()
+	return Vector3.ZERO

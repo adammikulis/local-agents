@@ -63,7 +63,7 @@ func report(step_index: int) -> Dictionary:
 	var nbr: PackedInt32Array = grid.neighbours
 	var cell_m: float = float(_f._cell_size)
 	var v_m3: float = grid.cell_volume()
-	var spin: Vector3 = _spin_axis()
+	var spin: Vector3 = LAFieldGeometry.spin_axis(_f)
 	var rho0: float = LAPhysical.AIR_DENSITY_KG_M3
 	var g_acc: float = _f._gravity.mean_g() if _f._gravity != null else 0.0
 	var two_omega: float = LAPhysical.CORIOLIS_TWO_OMEGA_RAD_S
@@ -167,15 +167,6 @@ func report(step_index: int) -> Dictionary:
 	out["momentum_book_buoyancy"] = _vec(_cum_buo)
 	out["momentum_scan_ms"] = snappedf(float(Time.get_ticks_usec() - t0) / 1000.0, 0.01)
 	return out
-
-
-## Planet spin axis in the FIELD frame — the same vector GasWindPass hands the kernel as `spin_*`.
-func _spin_axis() -> Vector3:
-	if _f._body != null and _f._body.has_method("spin_axis") and _f.has_method("dir_to_field"):
-		var v: Vector3 = _f.dir_to_field(_f._body.spin_axis())
-		if v.length() > 0.001:
-			return v.normalized()
-	return Vector3.UP
 
 
 func _vec(v: Vector3) -> Array:

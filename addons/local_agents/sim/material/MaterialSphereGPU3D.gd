@@ -14,6 +14,8 @@ static func slow_channels() -> PackedStringArray: return LAChannels.slow_channel
 const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/SolidDerivePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd",
+	"res://addons/local_agents/sim/material/sphere_passes/PressurePass.gd",
+	"res://addons/local_agents/sim/material/sphere_passes/RotatingFramePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ChargeSeparatePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd"]
@@ -175,6 +177,8 @@ func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	_ctx["g_m_s2"] = _field._gravity.mean_g() if _field._gravity != null else 0.0
 	# March bound: a column cannot be longer than the box.
 	_ctx["depth"] = _grid.max_span()
+	_ctx["centre"] = _grid.center()      # the spin axis passes through it
+	_ctx["spin"] = LAFieldGeometry.spin_axis(_field)
 
 ## World-space vector toward the sun; its LENGTH is the relative insolation. Absent = no sun, which is
 ## dark, not a default direction: an axis chosen here would decide where noon is.

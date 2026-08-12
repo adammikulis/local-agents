@@ -45,6 +45,11 @@ layout(set = 0, binding = 28, std430) restrict writeonly buffer VelX { float vel
 layout(set = 0, binding = 29, std430) restrict writeonly buffer VelY { float vel_y[]; };
 layout(set = 0, binding = 30, std430) restrict writeonly buffer VelZ { float vel_z[]; };
 
+// What the pressure kernel needs and this pass already computes: the cell's gas in mol/m^3 and the
+// density of its CONDENSED matter alone, kg/m^3.
+layout(set = 0, binding = 31, std430) restrict writeonly buffer GasMol { float n_gas_m3[]; };
+layout(set = 0, binding = 32, std430) restrict writeonly buffer RhoCond { float rho_cond[]; };
+
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint pad0;
@@ -130,6 +135,7 @@ void main() {
 	float mass[LA_MIX_MAX] = float[LA_MIX_MAX](0.0, 0.0, 0.0, 0.0);
 	float mc = 0.0;          // sum of m*c over the sensible-heat substances, J/K
 	float n_gas_mol = 0.0;   // moles of non-condensable gas: the Dalton denominator of the vapour split
+	float m_gas = 0.0;       // kg of that same gas, so the condensed density needs no mean molar mass
 
 	for (int i = 0; i < CHANNEL_SLOTS; ++i) {
 		float f = max(channel_at(i, g), 0.0);
@@ -146,10 +152,17 @@ void main() {
 		if (entry == E_SENSIBLE) {
 			mc += m * props[base + PROP_C];
 		}
-		n_gas_mol += m * props[base + PROP_MOL_PER_KG];
+		float mol_per_kg = props[base + PROP_MOL_PER_KG];
+		n_gas_mol += m * mol_per_kg;
+		if (mol_per_kg > 0.0) {
+			m_gas += m;
+		}
 	}
 
 	float total = mass[E_H2O] + mass[E_SILICATE] + mass[E_SENSIBLE];
+	float inv_vol = (vol > 0.0) ? 1.0 / vol : 0.0;
+	n_gas_m3[g] = n_gas_mol * inv_vol;
+	rho_cond[g] = max(total - m_gas, 0.0) * inv_vol;
 	if (total <= 0.0) {
 		temp[g] = -LA_KELVIN_OFFSET;   // no matter, so no temperature
 		vel_x[g] = 0.0;
