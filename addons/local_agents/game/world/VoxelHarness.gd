@@ -61,7 +61,7 @@ static func emit_population_trace(w, frame: int) -> void:
 	var t_pole: float = 0.0
 	if mat != null and mat.has_method("temp_at") and w._body != null:
 		var ctr: Vector3 = w._body.center()
-		var axis: Vector3 = Vector3(0.40, 0.92, 0.0).normalized()   # PLANET_SPIN_AXIS
+		var axis: Vector3 = LAPlanetBody.SPIN_AXIS.normalized()
 		var surf_r: float = 250.0
 		var trees0: Array = tree.get_nodes_in_group("tree")
 		if trees0.size() > 0 and is_instance_valid(trees0[0]) and trees0[0] is Node3D:

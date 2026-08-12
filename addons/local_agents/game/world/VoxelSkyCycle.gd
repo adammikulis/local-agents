@@ -43,10 +43,6 @@ var _weather: Node = null
 var _material: Node = null
 var _water: Node = null      # LAWaterParticles — the day/night colour tint is pushed to it each frame
 
-# Seconds per full day. Read from LASimClock, which OWNS elapsed time: this node draws the sun arc and the
-# moon phase, and a rendering node is the wrong owner for the world's history (see LASimClock's header). It
-# used to integrate its own `_time_of_day`, which wrapped at 1.0 and so could never say what day it was.
-const DAY_LENGTH: float = LASimClock.DAY_LENGTH
 const LUNAR_DAYS: float = 8.0               # in-game days per full new->full->new cycle
 const SUN_ENERGY_NOON: float = 1.45
 const AMBIENT_DAY: float = 0.62
@@ -196,8 +192,8 @@ func update(delta: float) -> void:
 func _advance_clocks(delta: float) -> void:
 	var clock: LASimClock = LASimClock.active()
 	if clock == null:
-		_time_of_day = fposmod(_time_of_day + delta / DAY_LENGTH, 1.0)
-		_lunar_phase = fposmod(_lunar_phase + delta / (DAY_LENGTH * LUNAR_DAYS), 1.0)
+		_time_of_day = fposmod(_time_of_day + delta / LASimClock.DAY_LENGTH, 1.0)
+		_lunar_phase = fposmod(_lunar_phase + delta / (LASimClock.DAY_LENGTH * LUNAR_DAYS), 1.0)
 		return
 	var days: float = clock.days_elapsed()
 	_time_of_day = fposmod(_tod_seed + days, 1.0)

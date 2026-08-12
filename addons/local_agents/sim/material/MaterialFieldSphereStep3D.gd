@@ -8,16 +8,9 @@ const STEP_DT: float = 1.0 / 10.0
 const MAX_STEPS_PER_FRAME: int = 2
 const FIELD_CADENCE_MAX: int = 60                       # clamp for the published Sim knob (avoid absurd skips)
 
-# --- THE FIELD'S ONE CLOCK ---------------------------------------------------------------------------------
-# STEP_DT = 0.1 over model-unit capacities: a factor of 432 between two halves of one energy budget. Neither
-const REAL_SECONDS_PER_DAY: float = 86400.0
-
-## Real seconds ONE field step represents — derived from the sim clock, never typed. See the block above.
+## Real seconds ONE field step represents.
 static func real_seconds_per_step() -> float:
-	var day: float = float(LASimClock.DAY_LENGTH)
-	if day <= 0.0:
-		return 0.0
-	return STEP_DT * (REAL_SECONDS_PER_DAY / day)
+	return STEP_DT * LASimClock.REAL_SECONDS_PER_SIM_SECOND
 
 const LakesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLakes3D.gd")
 const SoilBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd")

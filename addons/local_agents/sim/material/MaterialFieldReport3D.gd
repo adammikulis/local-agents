@@ -67,7 +67,7 @@ const CLIMATE_BANDS: int = 6                    # 15° per band from equator to 
 const ALT_BANDS: int = 4                        # ground / low / mid / high, by altitude above the sea shell
 const ALT_BAND_SPAN: float = 8.0                # world units per altitude band
 const CLIMATE_MAX_CELLS: int = 200000
-const PLANET_SPIN_AXIS: Vector3 = Vector3(0.40, 0.92, 0.0)
+const PLANET_SPIN_AXIS: Vector3 = LAPlanetBody.SPIN_AXIS
 
 # Running extremes across the whole run — never reset by a snapshot, so the coldest instant is not lost
 # between samples. `_coldest_ever` is the answer to "how low does ANY cell ever get", which is the question
@@ -108,8 +108,7 @@ func surface_climate() -> Dictionary:
 	var water_cells: int = 0
 	var water_coldest: float = 1.0e20
 	var grid = _f._sphere
-	var core_r: float = float(grid.core_radius)
-	var cell_sz: float = float(grid.cell_size)
+	var shell_mid: PackedFloat32Array = grid.shell_mid     # depth cell-centre radii
 	var limit: int = mini(_f._cell_count, CLIMATE_MAX_CELLS)
 	var columns: int = limit / depth
 	# Per-r radius and altitude band, computed once for the whole grid.
@@ -118,7 +117,7 @@ func surface_climate() -> Dictionary:
 	r_alt.resize(depth)
 	r_ab.resize(depth)
 	for r in depth:
-		var radius: float = core_r + (float(r) + 0.5) * cell_sz
+		var radius: float = shell_mid[r]
 		var alt_r: float = radius - sea_r
 		r_alt[r] = alt_r
 		r_ab[r] = clampi(int(maxf(alt_r, 0.0) / ALT_BAND_SPAN), 0, ALT_BANDS - 1)

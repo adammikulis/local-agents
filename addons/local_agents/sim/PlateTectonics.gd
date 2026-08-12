@@ -13,8 +13,7 @@ const GEOLOGIC_TIME_ACCELERATION: float = 3.0e5
 static func drift_rate(speed_mm_yr: float, radius: float) -> float:
 	var m_per_real_s: float = (speed_mm_yr * 0.001) / LAPhysical.SECONDS_PER_YEAR
 	var rad_per_real_s: float = m_per_real_s / maxf(radius, 1.0)
-	var real_s_per_sim_s: float = LAMaterialFieldSphereStep3D.REAL_SECONDS_PER_DAY / maxf(LASimClock.DAY_LENGTH, 1.0)
-	return rad_per_real_s * real_s_per_sim_s * GEOLOGIC_TIME_ACCELERATION
+	return rad_per_real_s * LASimClock.REAL_SECONDS_PER_SIM_SECOND * GEOLOGIC_TIME_ACCELERATION
 const VOLCANO_CHANCE_CONVERGENT: float = 0.3
 
 

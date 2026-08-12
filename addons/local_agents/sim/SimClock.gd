@@ -2,7 +2,10 @@ class_name LASimClock
 extends Node
 
 
-const DAY_LENGTH: float = 200.0
+const REAL_SECONDS_PER_SIM_SECOND: float = 432.0
+# Rotation period, sim-clock seconds.
+const DAY_LENGTH: float = TAU / (LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S * REAL_SECONDS_PER_SIM_SECOND)
+const SPIN_RAD_PER_SIM_S: float = TAU / DAY_LENGTH
 
 const DAYS_PER_SEASON: int = 4
 const SEASONS: Array[String] = ["spring", "summer", "autumn", "winter"]

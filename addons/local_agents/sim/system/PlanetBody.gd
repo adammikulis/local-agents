@@ -3,10 +3,10 @@ extends Node3D
 
 
 const TerrainServiceScript: GDScript = preload("res://addons/local_agents/sim/terrain/VoxelTerrainService.gd")
+const SPIN_AXIS: Vector3 = Vector3(0.40, 0.92, 0.0)   # world space, 23.5 deg obliquity
 
 var _terrain: RefCounted = null            # LAVoxelTerrainService (owns the VoxelLodTerrain child)
 var actors_root: Node3D = null
-var _spin_axis: Vector3 = Vector3.UP        # world-space rotation axis; set by the world that spins us
 var _mass: float = 1.0e6
 var _atmosphere_height: float = 60.0       # shell thickness above the surface (frame-handoff boundary)
 
@@ -36,12 +36,8 @@ func mass() -> float:
 func is_gravity_reference() -> bool:
 	return true
 
-func set_spin_axis(axis: Vector3) -> void:
-	_spin_axis = axis.normalized() if axis.length() > 0.001 else Vector3.UP
-
-
 func spin_axis() -> Vector3:
-	return _spin_axis
+	return SPIN_AXIS.normalized()
 
 
 func center() -> Vector3:
@@ -51,7 +47,6 @@ func center() -> Vector3:
 func radius() -> float:
 	return _terrain.planet_radius() if _terrain != null else 0.0
 
-## Radius of the spherical sea shell.
 func sea_radius() -> float:
 	return _terrain.sea_radius() if _terrain != null else 0.0
 

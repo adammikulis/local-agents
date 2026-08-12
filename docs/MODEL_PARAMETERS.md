@@ -21,6 +21,25 @@ The gate fails if the table grows past that ceiling. To add a number, derive it,
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
 the progress. It may shrink. It may not grow.
 
+## The radial shell profile is a modelling choice with no number in it
+
+`LASphereGrid` used to give every radial shell one thickness, the scalar `cell_size`. It now carries a
+per-shell table and `build()` takes an optional profile; `cell_size` is the MEAN of that table and equals
+every shell's thickness only when `shells_uniform` is true.
+
+**The default is uniform, and it is bit-identical to the scalar grid.** Grading changes vertical resolution
+everywhere, so it is opt-in through `LA_SHELL_PROFILE`, read by `LASphereGridProfiles.from_env`.
+
+`LA_SHELL_PROFILE=surface_focus` is the one worked alternative. It carries no chosen constant: the thin
+shells are `GROUNDWATER_CIRCULATION_M / REGOLITH_CELLS` thick, which is the depth one aquifer shell has to
+stand for if the grid is to resolve its own groundwater, and the growth ratio away from that band is solved
+for by bisection so the column still spans `depth * cell_size` and the shell reaches the same radii. Its
+bisection bracket and iteration count are locals, not constants — they are a root-finder's business, not
+the planet's.
+
+Which profile the planet ships with is not decided here. `from_env` returning an empty table is the
+statement that nobody has decided yet.
+
 ## Opening state, 2026-08-10
 
 690 literal constants scanned across the kernels and `addons/local_agents/sim/**`. 77 are bound to the
@@ -143,7 +162,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/PlateTectonics.gd` | `CONVERGE_MIN` | 0.25 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/PlateTectonics.gd` | `GEOLOGIC_TIME_ACCELERATION` | 3.0e5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/PlateTectonics.gd` | `VOLCANO_CHANCE_CONVERGENT` | 0.3 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/SimClock.gd` | `DAY_LENGTH` | 200.0 | a literal where a consequence belongs. The day is the planet's rotation period expressed in sim-clock seconds, which `LAMaterialFieldSphereStep3D.day_length_sim_seconds()` now computes from `PLANET_ANGULAR_VELOCITY_RAD_S` and the step quantum: 199.454, not 200. No rate reads it any more (`scripts/check_step_quantum.sh`), so what is left is a calendar and a sky. | replace the literal with `LAMaterialFieldSphereStep3D.day_length_sim_seconds()`, and point `game/world/VoxelSkyCycle.gd` at the same function |
+| `addons/local_agents/sim/SimClock.gd` | `REAL_SECONDS_PER_SIM_SECOND` | 432.0 | time compression: real seconds that one sim-clock second stands for. A real planet has no such number, and this is now the only one the timebase asserts — the rotation itself is `LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S`, and `DAY_LENGTH` (199.454 sim s), `SPIN_RAD_PER_SIM_S` (0.0315019 rad/sim s) and `LAMaterialFieldSphereStep3D.real_seconds_per_step()` (43.2 real s) are all derived from that pair. It is not only a viewing speed: `real_seconds_per_step()` is every transport kernel's `params.dt`, so this number sets every rate in the substrate and every kernel's Courant number. | a substep budget that decouples the field's `dt` from the presentation clock, so this number sets how fast the player watches and no kernel `dt` reads it |
 | `addons/local_agents/sim/SimClock.gd` | `DAYS_PER_SEASON` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_OUTPUT_SDF` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_ADD` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |

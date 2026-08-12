@@ -31,8 +31,6 @@ const PLANET_CAVE_SIZE: float = 60.0 * PLANET_SCALE      # tunnel wavelength (wo
 const PLANET_CAVE_THRESHOLD: float = 0.09                # near-zero band => tunnel fatness (scale-free)
 const PLANET_CAVE_STRENGTH: float = 40.0                 # void-SDF wall sharpness (0 disables)
 const PLANET_CAVE_DEPTH_FADE: float = 14.0 * PLANET_SCALE
-const PLANET_SPIN_RATE: float = 0.10        # rad/s axial spin — day/night sweep
-const PLANET_SPIN_AXIS: Vector3 = Vector3(0.40, 0.92, 0.0)   # ~23.5° obliquity vs the orbit plane → seasons
 
 const FPS_PROBE_FRAMES: int = 150
 
@@ -115,9 +113,7 @@ func _ready() -> void:
 
 	_sim = SimulationScene.instantiate()
 	add_child(_sim)
-	_sim.set_spin_rate(PLANET_SPIN_RATE)
-	_sim.build({"planet": _planet_opts(), "fast_multiplier": _input.fast_multiplier(),
-		"spin_axis": PLANET_SPIN_AXIS})
+	_sim.build({"planet": _planet_opts(), "fast_multiplier": _input.fast_multiplier()})
 	_material = _sim.material_field()
 	_ecology = _sim.ecology()
 	_body = _sim.body()
