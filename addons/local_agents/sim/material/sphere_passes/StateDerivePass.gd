@@ -23,12 +23,13 @@ const PHASE_BUFFERS: PackedStringArray = ["h2o_solid", "h2o_liquid", "h2o_vapour
 const PHASE_BINDING_BASE: int = 31
 
 ## props row layout — state_derive.glsl PROP_*.
-const PROP_STRIDE: int = 5
+const PROP_STRIDE: int = 6
 const PROP_RHO: int = 0
 const PROP_C: int = 1
 const PROP_MOL_PER_KG: int = 2
 const PROP_ENTRY: int = 3
 const PROP_SAT: int = 4
+const PROP_LAMBDA: int = 5
 
 ## Mixture entries — state_derive.glsl E_*.
 const E_H2O: int = 0
@@ -65,7 +66,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	for name: String in CHANNELS:
 		if not _half(bufs, name, 0, false).is_valid():
 			missing.append(name)
-	for name: String in ["h_j_m3", "pressure", "temp", "porosity", "cell_vol",
+	for name: String in ["h_j_m3", "pressure", "temp", "porosity", "cell_vol", "conductivity",
 			"mom_x", "mom_y", "mom_z", "vel_x", "vel_y", "vel_z"]:
 		if not _half(bufs, name, 0, false).is_valid():
 			missing.append(name)
@@ -94,6 +95,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		entries.append([28, _single(bufs, "vel_x")])
 		entries.append([29, _single(bufs, "vel_y")])
 		entries.append([30, _single(bufs, "vel_z")])
+		entries.append([33, _single(bufs, "conductivity")])
 		entries.append([38, _single(bufs, "porosity")])
 		entries.append([40, _single(bufs, "cell_vol")])
 		for k in PHASE_BUFFERS.size():
@@ -175,7 +177,13 @@ func _props() -> PackedFloat32Array:
 				push_error("StateDerivePass: LASubstances has no molar mass for the gas \"%s\"." % id)
 				return PackedFloat32Array()
 			mol_per_kg = 1.0 / m
+		var lambda_w_mk: float = float(s.get("conductivity", 0.0))
+		if lambda_w_mk <= 0.0:
+			push_error("StateDerivePass: LASubstances gives \"%s\" no conductivity, so channel %s "
+				% [id, name] + "would carry mass that conducts no heat.")
+			return PackedFloat32Array()
 		var base: int = i * PROP_STRIDE
+		out[base + PROP_LAMBDA] = lambda_w_mk
 		out[base + PROP_RHO] = rho
 		out[base + PROP_C] = c
 		out[base + PROP_MOL_PER_KG] = mol_per_kg

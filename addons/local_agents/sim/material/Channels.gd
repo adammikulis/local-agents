@@ -54,6 +54,7 @@ static func derived_buffers() -> Dictionary:
 		"pressure": "the gas's own nRT plus the weight of the condensed column above",
 		"n_gas_m3": "moles of non-condensable gas per cubic metre of cell",
 		"rho_cond": "density of the cell's condensed matter alone",
+		"conductivity": "volume-weighted thermal conductivity of what the cell holds",
 		"solid": "rock_fill past the lock-up threshold",
 		"fire": "the share of a cell's usable oxygen that combustion consumed this step",
 		"discharge": "stamped where the field exceeded the local breakdown strength",

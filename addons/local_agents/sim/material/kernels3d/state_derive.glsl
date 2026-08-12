@@ -51,6 +51,7 @@ layout(set = 0, binding = 30, std430) restrict writeonly buffer VelZ { float vel
 // density of its CONDENSED matter alone, kg/m^3.
 layout(set = 0, binding = 31, std430) restrict writeonly buffer GasMol { float n_gas_m3[]; };
 layout(set = 0, binding = 32, std430) restrict writeonly buffer RhoCond { float rho_cond[]; };
+layout(set = 0, binding = 33, std430) restrict writeonly buffer Cond { float conductivity[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -62,12 +63,13 @@ layout(push_constant, std430) uniform Params {
 const int CHANNEL_SLOTS = 18;      // StateDerivePass.KERNEL_CHANNEL_SLOTS
 
 // One row of `props` per channel, built from LASubstances by StateDerivePass.
-const int PROP_STRIDE = 5;         // StateDerivePass.PROP_STRIDE
+const int PROP_STRIDE = 6;         // StateDerivePass.PROP_STRIDE
 const int PROP_RHO = 0;            // kg/m^3 that one unit of fill carries
 const int PROP_C = 1;              // J/kg/K, sensible-heat entry only
 const int PROP_MOL_PER_KG = 2;     // mol/kg, non-condensable gases only
 const int PROP_ENTRY = 3;          // which mixture entry the substance belongs to
-const int PROP_SAT = 4;            // 1 = saturation of the pore-free share, not a cell volume fraction
+const int PROP_SAT = 4;
+const int PROP_LAMBDA = 5;    // W/m/K            // 1 = saturation of the pore-free share, not a cell volume fraction
 
 // Mixture entries. Two substances carry a phase ladder; everything else is linear in T, so one entry with
 // the summed mass and c = sum(m*c)/sum(m) reproduces sum(m_i*c_i*T) exactly.
@@ -135,6 +137,8 @@ void main() {
 	float mc = 0.0;          // sum of m*c over the sensible-heat substances, J/K
 	float n_gas_mol = 0.0;   // moles of non-condensable gas: the Dalton denominator of the vapour split
 	float m_gas = 0.0;       // kg of that same gas, so the condensed density needs no mean molar mass
+	float v_lambda = 0.0;    // volume-weighted conductivity, W/m/K
+	float v_used = 0.0;
 
 	for (int i = 0; i < CHANNEL_SLOTS; ++i) {
 		float f = max(channel_at(i, g), 0.0);
@@ -151,6 +155,8 @@ void main() {
 		if (entry == E_SENSIBLE) {
 			mc += m * props[base + PROP_C];
 		}
+		v_lambda += f * props[base + PROP_LAMBDA];
+		v_used += f;
 		float mol_per_kg = props[base + PROP_MOL_PER_KG];
 		n_gas_mol += m * mol_per_kg;
 		if (mol_per_kg > 0.0) {
@@ -160,6 +166,8 @@ void main() {
 
 	float total = mass[E_H2O] + mass[E_SILICATE] + mass[E_SENSIBLE];
 	float inv_vol = (vol > 0.0) ? 1.0 / vol : 0.0;
+	// Parallel mixing rule: the fluxes through each constituent add. An empty cell conducts nothing.
+	conductivity[g] = (v_used > 0.0) ? v_lambda / v_used : 0.0;
 	n_gas_m3[g] = n_gas_mol * inv_vol;
 	rho_cond[g] = max(total - m_gas, 0.0) * inv_vol;
 	if (total <= 0.0) {

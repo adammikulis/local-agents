@@ -466,3 +466,14 @@ const SMAGORINSKY_COEFF: float = (1.0 / PI) * pow(1.5 * KOLMOGOROV_CONSTANT, -0.
 # Gringel, Rosen & Hofmann 1986, in The Earth's Electrical Environment (NAS), fair-weather profile.
 const CLOUD_CONDUCTIVITY_S_M: float = 1.0e-14
 const CLEAR_AIR_CONDUCTIVITY_S_M: float = 1.0e-13
+
+# Thermal conductivity lambda, W/m/K, at 300 K and 1 bar for the gases. Lemmon & Jacobsen 2004,
+# Int. J. Thermophys. 25:21 (O2); Huber et al. 2016, J. Phys. Chem. Ref. Data 45:013102 (CO2).
+const THERMAL_CONDUCT_O2_GAS_W_MK: float = 0.02658
+const THERMAL_CONDUCT_CO2_GAS_W_MK: float = 0.01665
+# Dry cell-wall material along the grain. Wood is a cellular solid, so a real board conducts less than
+# this by its porosity; the substrate carries that porosity separately. Sonderegger et al. 2011,
+# Holzforschung 65:369.
+const THERMAL_CONDUCT_CELLULOSE_W_MK: float = 0.40
+# Amorphous carbon / dry soil organic matter. Farouki 1981, CRREL Monograph 81-1.
+const THERMAL_CONDUCT_ORGANIC_W_MK: float = 0.25

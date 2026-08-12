@@ -98,6 +98,7 @@ static func _build_table() -> Dictionary:
 			"entropy_gas_j_molk": ENTROPY_O2_GAS_J_MOLK,
 			"density": PC.AMBIENT_O2_DENSITY_KG_M3,
 			"specific_heat": PC.AIR_SPECIFIC_HEAT_J_KGK,
+			"conductivity": PC.THERMAL_CONDUCT_O2_GAS_W_MK,
 		},
 		"co2": {
 			"formula": {"C": 1.0, "O": 2.0},
@@ -107,6 +108,7 @@ static func _build_table() -> Dictionary:
 			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_CO2_J_MOL,
 			"density": PC.AMBIENT_O2_DENSITY_KG_M3 * (PC.MOLAR_MASS_CO2_KG_MOL / PC.MOLAR_MASS_O2_KG_MOL),
 			"specific_heat": PC.AIR_SPECIFIC_HEAT_J_KGK,
+			"conductivity": PC.THERMAL_CONDUCT_CO2_GAS_W_MK,
 		},
 
 		# --- ORGANIC MATTER ---------------------------------------------------------------------------------
@@ -117,18 +119,21 @@ static func _build_table() -> Dictionary:
 			"density": ORGANIC_MOL_PER_M3 * PC.MOLAR_MASS_CARBON_KG_MOL,
 			"specific_heat": PC.DRY_WOOD_SPECIFIC_HEAT_J_KGK,
 			"albedo": PC.ALBEDO_VEGETATION,
+			"conductivity": PC.THERMAL_CONDUCT_ORGANIC_W_MK,
 		},
 		"organic_h": {
 			"formula": {"H": 1.0},
 			"molar_mass": PC.MOLAR_MASS_HYDROGEN_KG_MOL,
 			"density": ORGANIC_MOL_PER_M3 * PC.MOLAR_MASS_HYDROGEN_KG_MOL,
 			"specific_heat": PC.DRY_WOOD_SPECIFIC_HEAT_J_KGK,
+			"conductivity": PC.THERMAL_CONDUCT_ORGANIC_W_MK,
 		},
 		"organic_o": {
 			"formula": {"O": 1.0},
 			"molar_mass": PC.MOLAR_MASS_OXYGEN_KG_MOL,
 			"density": ORGANIC_MOL_PER_M3 * PC.MOLAR_MASS_OXYGEN_KG_MOL,
 			"specific_heat": PC.DRY_WOOD_SPECIFIC_HEAT_J_KGK,
+			"conductivity": PC.THERMAL_CONDUCT_ORGANIC_W_MK,
 		},
 		"cellulose": {
 			"formula": {"C": 1.0, "H": 2.0, "O": 1.0,
@@ -138,6 +143,7 @@ static func _build_table() -> Dictionary:
 			"specific_heat": PC.DRY_WOOD_SPECIFIC_HEAT_J_KGK,
 			"pyrolysis_ea_over_r_k": PC.CELLULOSE_PYROLYSIS_EA_OVER_R_K,
 			"albedo": PC.ALBEDO_VEGETATION,
+			"conductivity": PC.THERMAL_CONDUCT_CELLULOSE_W_MK,
 		},
 
 		# --- MINERALS ---------------------------------------------------------------------------------------
@@ -192,6 +198,7 @@ static func _build_table() -> Dictionary:
 			"molar_mass": PC.MOLAR_MASS_NITROGEN_KG_MOL,
 			"density": PC.ROCK_DENSITY_KG_M3,
 			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
+			"conductivity": PC.THERMAL_CONDUCT_ROCK_W_MK,
 		},
 	}
 
