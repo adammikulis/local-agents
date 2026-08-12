@@ -30,9 +30,6 @@ them the report body is `{}`:
 #### Exports, group Headless run
 - `run_frames` (int, default `0`, range 0 to 100000, suffix frames). Frames to run before printing the report and quitting. 0 never
   auto-quits. `-- --run-frames=N` overrides it.
-- `count_physics_frames` (bool, default `false`). Count physics frames instead of render frames. Turn it on for anything measuring a
-  simulation: physics ticks are fixed-rate while render frames are not, so a run ended after N render frames contains a
-  machine-dependent number of simulation steps.
 - `report_source` (Node, default `null`). Empty uses the parent, so dropping the harness under a scene root works.
 - `report_prefix` (String, default `"DEMO"`).
 - `report_suffix` (String, default `"_REPORT"`). The default prints `PREFIX_REPORT={...}`. Clear it to print a bare `PREFIX={...}`.

@@ -326,25 +326,16 @@ func _test_demo_harness_frame_mode(tree: SceneTree) -> void:
 	host.name = "HarnessHost"
 	tree.root.add_child(host)
 
-	var physics_harness: LocalAgentDemoHarness = _make_harness(host, true)
+	# A run length is PHYSICS ticks and there is no other option: render frames must never advance it.
+	var harness: LocalAgentDemoHarness = _make_harness(host)
 	for i in range(5):
-		physics_harness._process(0.016)
-	if physics_harness.frames_elapsed() != 0:
-		_fail("count_physics_frames is on, but %d render frames were counted." % physics_harness.frames_elapsed())
+		harness._process(0.016)
+	if harness.frames_elapsed() != 0:
+		_fail("render frames advanced the run length by %d." % harness.frames_elapsed())
 	for i in range(3):
-		physics_harness._physics_process(0.016)
-	if physics_harness.frames_elapsed() != 3:
-		_fail("count_physics_frames is on, but 3 physics frames counted as %d." % physics_harness.frames_elapsed())
-
-	var render_harness: LocalAgentDemoHarness = _make_harness(host, false)
-	for i in range(5):
-		render_harness._physics_process(0.016)
-	if render_harness.frames_elapsed() != 0:
-		_fail("count_physics_frames is off, but %d physics frames were counted." % render_harness.frames_elapsed())
-	for i in range(3):
-		render_harness._process(0.016)
-	if render_harness.frames_elapsed() != 3:
-		_fail("count_physics_frames is off, but 3 render frames counted as %d." % render_harness.frames_elapsed())
+		harness._physics_process(0.016)
+	if harness.frames_elapsed() != 3:
+		_fail("3 physics ticks counted as %d." % harness.frames_elapsed())
 
 	tree.root.remove_child(host)
 	host.free()
@@ -352,11 +343,10 @@ func _test_demo_harness_frame_mode(tree: SceneTree) -> void:
 
 # run_frames is set AFTER add_child on purpose: _ready() parses the command line, and a harness armed
 # with a small run_frames would quit the whole test process the moment it ticked.
-func _make_harness(host: Node, physics: bool) -> LocalAgentDemoHarness:
+func _make_harness(host: Node) -> LocalAgentDemoHarness:
 	var harness: LocalAgentDemoHarness = LocalAgentDemoHarness.new()
 	harness.report_source = host
 	host.add_child(harness)
-	harness.count_physics_frames = physics
 	harness.run_frames = 1000000
 	harness.shoot_path = ""
 	return harness

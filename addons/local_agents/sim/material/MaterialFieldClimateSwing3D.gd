@@ -72,7 +72,7 @@ func sample() -> void:
 	if _f == null or _f._grid == null or _f._cell_count <= 0:
 		return
 	if not _sited:
-		var frame: int = int(Engine.get_process_frames())
+		var frame: int = int(Engine.get_physics_frames())
 		if frame - _site_frame < SITE_RETRY_FRAMES:
 			return
 		_site_frame = frame

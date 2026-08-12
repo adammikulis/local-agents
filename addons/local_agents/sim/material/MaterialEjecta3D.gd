@@ -13,7 +13,7 @@ const SPEED_MAX: float = 30.0
 const CONE: float = 0.5
 # Ceiling on simultaneous in-flight parcels, and the MultiMesh allocation. Fixed: it bounds the work, so it
 # may not vary with a setting or a viewpoint.
-const BUDGET_CEIL: int = 256
+const DRAW_CEIL: int = 256          # multimesh instances. Presentation: it may not reach the physics.
 const DRAW_FLOOR: int = 48
 const MAX_LIFETIME: float = 12.0           # s; a parcel that never lands is culled
 const LAND_HEAT_R: float = 8.0
@@ -44,18 +44,17 @@ func setup(field) -> void:
 	LASimReport.register(Callable(self, "report"))
 
 
-## How many parcels are DRAWN: BUDGET_CEIL scaled by the published effects scale, floored. Presentation only —
-## every live parcel is integrated regardless.
+## How many parcels are DRAWN: DRAW_CEIL scaled by the published effects scale, floored. Presentation only —
+## every live parcel is integrated regardless, and how many are drawn may not reach the arc.
 func _draw_cap() -> int:
 	var scale: float = float(Engine.get_meta("la_effects_scale", 0.65)) if Engine.has_meta("la_effects_scale") else 0.65
-	return clampi(int(round(float(BUDGET_CEIL) * clampf(scale, 0.0, 1.0))), DRAW_FLOOR, BUDGET_CEIL)
+	return clampi(int(round(float(DRAW_CEIL) * clampf(scale, 0.0, 1.0))), DRAW_FLOOR, DRAW_CEIL)
 
 
-## Ejecta aggregates for SIM_REPORT: launched must track deposited, and in-flight must plateau at BUDGET_CEIL.
+## Ejecta aggregates for SIM_REPORT: launched must track deposited.
 func report() -> Dictionary:
 	return {
 		"ejecta_inflight": _p_mass.size(),
-		"ejecta_budget": BUDGET_CEIL,
 		"ejecta_peak": _peak_inflight,
 		"ejecta_launched": _ejected,
 		"ejecta_deposited": _deposited,
@@ -84,7 +83,7 @@ func _build_visual() -> void:
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mesh.material = mat
 	_multimesh.mesh = mesh
-	_multimesh.instance_count = BUDGET_CEIL
+	_multimesh.instance_count = DRAW_CEIL
 	_multimesh.visible_instance_count = 0
 	_mm = MultiMeshInstance3D.new()
 	_mm.name = "EjectaEmbers"
@@ -113,11 +112,6 @@ func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = V
 	tan_a = tan_a.normalized()
 	var tan_b: Vector3 = launch_dir.cross(tan_a).normalized()
 	for i in range(PARCELS_PER_EJECT):
-		# At the cap, deposit this share immediately so the live count plateaus at BUDGET_CEIL.
-		if _p_mass.size() >= BUDGET_CEIL:
-			_ejected += per_mass
-			_deposit(src, world_pos, per_mass, base_speed)
-			continue
 		var rng: LASimRng = LASimRng.shared()
 		var ang: float = rng.randf() * TAU
 		var spread: float = rng.randf() * CONE

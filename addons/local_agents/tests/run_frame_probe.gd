@@ -154,7 +154,6 @@ func _probe_physics_frames() -> void:
 	var harness: LocalAgentDemoHarness = LocalAgentDemoHarness.new()
 	harness.report_source = host
 	host.add_child(harness)
-	harness.count_physics_frames = true
 	harness.run_frames = 1000000        # armed but never reached, so it never quits this process
 	harness.shoot_path = ""
 

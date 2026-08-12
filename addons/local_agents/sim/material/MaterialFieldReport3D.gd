@@ -29,7 +29,7 @@ var _conservation = null                         # LAMaterialFieldConservation3D
 var _seal = null                                 # LAMaterialFieldSeal3D — SEEDING -> SEALED, the line the books start at
 var _seal_announced: bool = false                # WORLD_SEALED printed once, from the step-driven phase
 var _heavy_cache: Dictionary = {}                        # last computed instrument block
-var _heavy_frame: int = -1_000_000                       # process frame it was computed on
+var _heavy_frame: int = -1_000_000                       # physics tick it was computed on
 
 
 func setup(field) -> void:
@@ -287,14 +287,15 @@ func _track_if_measured(r: Dictionary, key: String, register: String) -> void:
 		_extremes.track(register, float(v))
 
 
-## True on the last frame of a --run-frames run, so the closing report is always freshly computed.
+## True on the last STEP of a --run-frames run, so the closing report is always freshly computed. The run
+## length is physics ticks; how many frames were drawn is not a fact about the simulation.
 func _is_final_frame() -> bool:
 	var want: int = int(Engine.get_meta("la_run_frames", 0))
-	return want > 0 and Engine.get_frames_drawn() >= want - 1
+	return want > 0 and Engine.get_physics_frames() >= want - 1
 
 
 func _heavy_block() -> Dictionary:
-	var frame: int = int(Engine.get_process_frames())
+	var frame: int = int(Engine.get_physics_frames())
 	var every: int = HEAVY_EVERY_FRAMES
 	var ov: String = OS.get_environment("LA_GAUGE_EVERY")
 	if ov != "":

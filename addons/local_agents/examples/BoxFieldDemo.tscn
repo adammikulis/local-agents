@@ -30,6 +30,5 @@ transform = Transform3D(0.8775826, 0, -0.4794255, -0.3755469, 0.62161, -0.687434
 
 [node name="DemoHarness" type="Node" parent="." node_paths=PackedStringArray("report_source")]
 script = ExtResource("2_harness")
-count_physics_frames = true
 report_source = NodePath("../FieldBox")
 report_prefix = "BOX_FIELD"
