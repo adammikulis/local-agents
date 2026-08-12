@@ -73,19 +73,30 @@ coefficient is stoichiometry rather than a density ratio between two invented un
 
 ## FOUND BY DOING IT — each had silently disabled a whole subsystem
 
-These were invisible: the file existed, compiled, and passed every gate that mentioned it.
+Ten in one day. Every one was invisible: the file existed, compiled, and passed every gate that named it.
 
 - **`pressure.glsl` had no pass and was dispatched by nobody.** The buffer held zero, so every phase
-  boundary the ladder evaluates was read at VACUUM. Fixed, and gas now answers with p = nRT rather than
-  the weight of a column it does not have.
-- **The reaction engine had never run.** Its uniform set bound a `radial` buffer nothing created, so the
-  set was invalid every step and every reaction record in the tree was dead.
-- **`porosity` was written by nothing**, so Kozeny-Carman over phi = 0 meant groundwater had never moved.
-- **`MODE_CONDUCT` named a `conductivity` buffer nobody created**, so heat had never conducted.
-- **Coriolis was booked by a LEDGER and never applied** — no rotation term in the momentum equation at all.
-- **`pinned` never fired on the GPU**: a phase boundary compared for float equality contracted differently
-  at each call site in float32, while the float64 GDScript twin latched correctly.
+  boundary the ladder evaluates was read at VACUUM. Gas now answers with p = nRT.
+- **The reaction engine had never run.** Its uniform set bound a `radial` buffer nothing created, so
+  every reaction record in the tree was dead.
+- **`porosity` was written by nothing**, so Kozeny-Carman over phi = 0 meant groundwater never moved.
+- **`MODE_CONDUCT` named a `conductivity` buffer nobody created**, so heat never conducted.
+- **The momentum rows named `mom_x/y/z` while the table declared `vel_x/y/z`**, so every momentum row
+  push_errored out and the momentum equation never ran.
+- **Coriolis was booked by a LEDGER and never applied.**
+- **`pinned` never fired on the GPU**: a phase boundary compared for float equality contracted
+  differently at each call site in float32, while the float64 GDScript twin latched correctly.
+- **`state_derive.glsl` declared bindings 31/32/33 TWICE**, so pressure computed the lithostatic column
+  from the liquid-water fraction. Both sides compiled and the merge was clean.
+- **`LAReactionDefs.cell_size_m` defaulted to 16.0** behind a `maxf(..., 0.001)`, so an unset cell height
+  invented its own layer of air for every per-area flux.
 - **A render budget decided where ejecta landed**, and a run's length defaulted to RENDER frames.
+
+Four gates now watch for these classes: `check_declared_and_dispatched.sh` (a kernel with no pass, a
+buffer with no writer — NOT in lint until CellListPass is wired), `check_binding_collisions.sh`,
+`check_branch_integration.sh`, and the repaired `check_shaders_compile.sh`, which used to read green
+against stale SPIR-V because Godot does not re-import a `.glsl` when its `.glsli` changes.
+
 
 ## WHAT IS LEFT
 
