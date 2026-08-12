@@ -263,73 +263,169 @@ What replaced them, and it is worse than any of the three:
    takes flow DIRECTION from the terrain gradient while the substrate carries a real velocity field the
    function never reads. Real drag is `0.5 * rho * C_d * A * v^2`.
 
-## DO THIS NEXT — the staged plan
+## DO THIS NEXT — in priority order
 
-**The order below is FORCED, not preferred.** Each stage's acceptance test is a binary event, never a drift
-percentage. Do not merge stages, and do not start one before its predecessor's test passes.
+**The order is FORCED, not preferred.** Every acceptance test below is a binary event, never a drift
+percentage. Do not start a stage before its predecessor's test passes. The deconfliction map for fanning
+out is the section after this one — read it before launching anything.
 
-**PHASE 0 — the seams, serialized, one owner, no fan-out.** You cannot parallelize a refactor of the file
-everything shares. Freeze a commit first and re-derive the collision map against it; the map made on
-2026-08-12 was taken against a tree nine lanes were writing and three of its citations rotted mid-read.
-- `Channels.gd` is **done** — the channel SSOT exists and the seven old lists are views of it.
-- Split `MaterialSphereGPU3D.gd` (815 lines) into device / residency / pass-runner. Fifteen of nineteen
-  migration units route through it; it is the bottleneck that collapses every fan-out to a queue.
-- Extract `MaterialField3D`'s ~34 mirror arrays into their own file. Three migrations re-type them and one
-  deletes them.
-- **Wire `check_model_parameters.sh` into `lint`. IT HAS NEVER RUN** — `CLAUDE.md` asserts it as enforcement
-  and nothing calls it. 556 declared rows have never been checked against the tree.
-- Split the conservation VERDICT from the provenance verdict: a run that cannot measure a substance must
-  print `CONSERVATION_UNMEASURED` and exit with a code that is **not** 126. Without this, every ownership
-  stage risks being read as a physics regression and reverted.
-- **There is no declaration of which SSBO binding belongs to what.** Two lanes both claimed 42 on
-  2026-08-12. Make the binding registry an SSOT alongside the channel one.
+---
 
-**STAGE 1 — SI.** Lengths, positions and the grid in metres; the planet at its real radius; ONE scale, at
-the presentation layer only, the same split already made for the clock and for render/UI.
-`METRES_PER_MODEL_UNIT` is deleted, not re-derived, and `scripts/check_model_unit_volume.sh` — a gate whose
-entire subject is the unit — deletes with it. ~39 conversion call sites, two already-dead helpers, both
-scaling modules' scaling halves, and `PLANET_SCALE` with its nine dependants.
+### P0 — THE SEAMS. Serialized, ONE owner, no fan-out. Everything else queues behind this.
+
+You cannot parallelize a refactor of the file everything shares. **Freeze a commit first** and re-derive the
+collision map against it.
+
+| # | Do | Acceptance (binary) |
+|---|---|---|
+| P0.1 | ~~Channel SSOT~~ **DONE** — `sim/material/Channels.gd`; the GPU's four lists, `LAHeatCapacity`'s eight groups and `LAReactionBalance`'s three tables are views of it | delete a channel from `Channels.gd` → the balance gate and the kernel `#define` cross-check both go red |
+| P0.2 | Split `MaterialSphereGPU3D.gd` (815 lines) into device / residency / pass-runner | lint green, `sim --frames 200` reaches `LA_RUN_COMPLETE` with 0 engine errors |
+| P0.3 | Extract `MaterialField3D`'s ~34 mirror arrays into their own file | same |
+| P0.4 | **Wire `check_model_parameters.sh` into `lint`. IT HAS NEVER RUN.** `CLAUDE.md` asserts it as enforcement and nothing calls it; 556 declared rows have never met the tree | add an undeclared kernel constant → lint fails. Expect ~56 real violations on first wiring; that is the finding |
+| P0.5 | Split the conservation VERDICT from the provenance verdict | starve one probe leg → `CONSERVATION_UNMEASURED` and an exit code that is **not** 126 |
+| P0.6 | **Nobody owns SSBO binding numbers.** Two lanes both claimed 42 on 2026-08-12 | a binding registry beside the channel one, gated |
+
+---
+
+### P1 — SI. The metre is fitted and the planet is 84 km wide with Earth gravity.
+
+`METRES_PER_MODEL_UNIT` deleted, not re-derived. ONE scale, at the presentation layer only.
+~39 conversion sites, two dead helpers, both scaling modules' scaling halves, `PLANET_SCALE` and its nine
+dependants, and `check_model_unit_volume.sh` — a gate whose entire subject is the unit — all go.
+
 - **Acceptance:** `grep -rn METRES_PER_MODEL_UNIT addons/local_agents/sim addons/local_agents/game` returns
-  nothing and lint is still green.
-- **The real engineering problem is fp32, and it is smaller than it looks.** 0.5 m at Earth radius is 1.3e-6
-  of a cell, so the field does not care. It matters in exactly two places: `cell_volume`'s difference of
-  cubes loses catastrophic precision (fix is algebraic — `dr·(r_out² + r_out·r_in + r_in²)`), and absolute
-  heliocentric positions must stay in GDScript doubles and never reach an SSBO.
-- **Separate decision, the maintainer's:** whether the planet becomes Earth-sized or stays a declared small
-  body. Deleting the unit does not choose. Do not block Stage 1 on the answer.
+  nothing, and lint is still green.
+- **fp32 is smaller than it looks.** 0.5 m at Earth radius is 1.3e-6 of a cell. It matters in exactly two
+  places: `cell_volume`'s difference of cubes (fix is algebraic — `dr·(r_out² + r_out·r_in + r_in²)`), and
+  absolute heliocentric positions, which stay in GDScript doubles and never reach an SSBO.
+- **Also here: there are TWO GRAVITIES.** `LAGravity.SURFACE_G = 55.0` ("matches old feel") and
+  `STANDARD_GRAVITY_M_S2`. They die together.
+- **Maintainer's call, does NOT block this stage:** Earth-sized, or a declared small body with `g = GM/R²`.
 
-**STAGE 2 — one owner for the field state.** `request_probe` becomes a standing subscription; `take_probe`
-clears what it hands out; the mirror fallbacks come out; `set_field` is deleted and every CPU→device edit
-goes through the sparse queue, which books what it moved.
-- **Acceptance:** `MIRROR_REWIND` cannot print, because its emitter no longer exists. Force one probe leg
-  absent and `mass_live` reads **false** — today it can never read false.
-- **Ordering is forced:** the subscription lands before the fallbacks come out, or a starved probe drops a
+---
+
+### P2 — ONE OWNER FOR THE FIELD STATE.
+
+`request_probe` becomes a standing subscription; `take_probe` clears what it hands out; mirror fallbacks come
+out; `set_field` is deleted and every CPU→device edit goes through the sparse queue, which books what it
+moved. **Five whole-mirror uploads remain and `check_seed_phase.sh` holds them as a shrink-only ratchet —
+each one converted lowers `MAX_MIRROR_UPLOADS` in the same commit.**
+
+- **Acceptance:** `MIRROR_REWIND` cannot print, because its emitter no longer exists. Force a probe leg
+  absent → `mass_live` reads **false**; today it can never read false.
+- **Ordering is forced:** the subscription lands BEFORE the fallbacks come out, or a starved probe drops a
   phase out of `mineral_total` and fires `CONSERVATION_VIOLATION` for a provenance reason.
 
-**STAGE 3 — pressure in every cell.** `wind_pressure` writes one flat surface pressure into everything below
-the atmosphere, so a 4 km ocean cell and a mantle cell both read ~1e5 Pa. Harmless while temperature is
-stored; **decisive once enthalpy is**, because it selects the phase. Half the machinery exists —
-`reactions_sphere3d.glsl` already computes `overburden()`.
+---
+
+### P3 — PRESSURE IN EVERY CELL.
+
+`wind_pressure` writes one flat surface pressure into everything below the atmosphere, so a 4 km ocean cell
+and a mantle cell both read ~1e5 Pa. Harmless while temperature is stored; **decisive once enthalpy is,
+because it selects the phase.** Half the machinery exists — `reactions_sphere3d.glsl` has `overburden()`.
+
 - **Acceptance:** pressure is monotonically non-decreasing inward down every column, and a cell 4 km below
   the sea reads ≥ 4e7 Pa. Both fail today.
 
-**STAGE 4 — enthalpy is the state.** Add `h_j_m3`, build the closed-form mixture inverter, derive `temp` and
-phase from `(h, composition, p)`, and make `temp` read-only everywhere.
+---
+
+### P4 — ENTHALPY IS THE STATE. The largest single item; everything in the reaction engine gets easier after.
+
+Add `h_j_m3`, build the closed-form mixture inverter, derive `temp` and phase, make `temp` read-only.
+**The EOS table is NOT a prerequisite** — the inversion needed is the MIXTURE solve and it is closed-form:
+four breakpoints on this planet (water melt/boil, basalt solidus/liquidus), an O(4) sorted walk, cheaper
+than the `rc_of` it replaces.
+
 - **Acceptance:** seed a column of liquid water at +2 °C, remove heat at a constant rate, and `temp` must
-  PIN at 0.0 for exactly `m·L_fus / rate` steps. That is latent heat becoming structural, and it cannot be
-  faked with a rate constant.
+  **pin at 0.0** for exactly `m·L_fus / rate` steps. Latent heat becoming structural cannot be faked.
 - **`rc_of` coming out is the acceptance test for the whole stage, not a step in it.** If it cannot come
   out, the root is not fixed — say so rather than restoring it.
-- **Rename the buffer in the same commit that changes its unit.** `temp` → `h_j_m3`. An unconverted kernel
-  then fails to COMPILE, which is the only mid-flight honesty that costs nothing.
+- **Rename the buffer in the same commit that changes its unit** (`temp` → `h_j_m3`), so an unconverted
+  kernel fails to COMPILE. That is the only mid-flight honesty that costs nothing.
+- Deletes: `PhaseRecords.gd` entire, `snowice_sphere3d.glsl` entire, `atmos_precip`'s condensation branch,
+  `rc_shared.glsli`, `HeatCapacity.gd`, its SSOT gate, 8 constants, and the `water`/`moisture`/`snow` and
+  `rock_fill`/`lava` channel pairs.
 
-**STAGE 5 — the unit is moles.** Channel amounts become mol/cell; `mol_per_unit` and `unit_ratio` delete;
-one applicator evaluates every record against the same starting state so `cap_slot` deletes too.
+---
+
+### P5 — THE UNIT IS MOLES.
+
+Channel amounts become mol/cell; `mol_per_unit` and `unit_ratio` delete; one applicator evaluates every
+record against the same starting state, so `cap_slot` deletes too.
+
 - **Acceptance:** permute the record order and `element_C_total` is bit-identical.
-- **DO NOT read "conserve elements, derive species" literally.** Deriving species by equilibrium would
-  return zero biomass and a CO₂ atmosphere and look like a clean conservation result — a living cell is not
-  at chemical equilibrium. The defect named is the UNIT, not the choice of species as state. Gate
-  `biomass_total > 0` in a `--full` arm so nobody implements the sentence.
+- **DO NOT read "conserve elements, derive species" literally.** Deriving species by equilibrium returns
+  zero biomass and a CO₂ atmosphere and looks like a clean conservation result — a living cell is not at
+  chemical equilibrium. The defect named is the UNIT. Gate `biomass_total > 0` in a `--full` arm.
+
+---
+
+### LIVE DEFECTS — fix whenever their file is free; none block the stages above
+
+1. **`o2_total` runs away: +3.5e6% over 600 frames.** A growth rate, not drift.
+2. **Nothing reaches 224 °C, so rock cannot melt** (liquidus is 1200). Is the geotherm delivering heat?
+3. **`EcoSurfacePass` destroys carbon** — and `fungus_fert` credits `fert`, which carries no carbon, so
+   that conversion destroys it by construction.
+4. **`fuel` never moves** — identical to 14 digits over 247 steps, ~28% of the planet's carbon.
+5. **`MaterialFieldEnergyLedger3D.gd:148`** computes `face = cell_size²` in model units — off by ~28 400.
+6. **Two kernels do phase changes with zero latent heat** (`snowice`, `atmos_precip`) — resolves in P4.
+7. **Six phenomenon actors pump their own ingredients in** — they become detectors. Blocked on 6.
+8. **`rock_fill` has two definitions**; the mineral ledger holds the wrong one.
+
+## HOW TO FAN OUT — the deconfliction map
+
+**EVERY FILE-EDITING SUBAGENT GETS `isolation: "worktree"`. NO EXCEPTIONS, NO THRESHOLD.** Nine lanes were
+run in one shared tree on 2026-08-12; four of them lost their acceptance runs to each other, two claimed the
+same SSBO binding, and the planning agent watched its own citations rot mid-read. "Trivial" is a property of
+the DIFF, never of how much typing you did — launching an agent is one tool call and thousands of lines.
+
+**The order is: split the bottleneck, THEN fan out.** A unit is only safe to parallelise when it has exactly
+one owner file. Below, ● = must edit, ○ = reads only.
+
+### The five bottlenecks — every migration routes through these, so they are P0 and they are serial
+
+| File | Why it collapses a fan-out |
+|---|---|
+| `MaterialSphereGPU3D.gd` (815 lines) | buffers, ping-pong, upload/download, residency, the probe, the pass list, dispatch, `set_field`. **15 of 19 migration units edit it.** Split into device / residency / pass-runner. |
+| `MaterialField3D.gd` (1070) | declares the ~34 mirror arrays that three migrations re-type and one deletes. Extract the state. |
+| `reactions_sphere3d.glsl` (497) | one kernel, cannot be split by channel. Owner-locked for all of P4's channel collapse and all of P5. |
+| `MaterialFieldSphereStep3D.gd` | the 5 remaining whole-mirror uploads, the seeding block, `_apply_readback`. |
+| `PhysicalConstants.gd` | every stage adds and removes constants. **Append-only for agents**, and the expression parser has NO parentheses — write `a * b / c` flat or the gate fails. |
+
+`Channels.gd` **was** the sixth and is now fixed — the seven declaration sites are views of it.
+
+### What can genuinely run in parallel, once P0 lands
+
+| Wave | Units | One owner each | Safe because |
+|---|---|---|---|
+| **P1 SI** | 3 | GDScript call sites · the 6 kernels carrying the literal · grid geometry (`SphereGrid`, `CellVolume3D`, `FaceArea3D`, `cellvol/facearea.glsli`) | disjoint file sets |
+| **P2 ownership** | 3, but ORDERED | subscription → fallbacks → `set_field` | ordering forced by the conservation gate (see P2) |
+| **P3 pressure** | 1 | `wind_pressure_sphere3d.glsl` + a new overburden kernel | ‖ all of P2, disjoint |
+| **P4 transport** | **9, the widest wave** | `gravity_flow` · `soil` · `tracer_transport` · `erosion_transport` · `erosion_pickup` · `plate_advect` · `atmos_rain` · `magma_buoy` · `wind_pressure` | one kernel + its pass each, after the `h` channel exists |
+| **P4 thermal** | 4 | `heat_sphere3d` · `heat3d_solar` · `heat3d_buoyancy` · (lava_phase is deleted) | ‖ the transport wave |
+| **P5 records** | 4 | `BioRecords` · `GeoRecords` · `CombustionRecords` · `LightningRecords` | after the applicator lands |
+
+### What can NEVER be fanned out
+
+- Anything touching a bottleneck before P0 splits it.
+- **P4's channel collapse** — one owner across 13+13 kernels, `ReactionDefs`, `reactions_sphere3d.glsl` and
+  `MaterialField3D`. The single largest indivisible unit in the plan.
+- **P5's unit change** — same reason, over `Channels.gd` + the reaction kernel.
+- Documentation. Two rounds maximum, then take it in-house; measured 2026-07-29, four doc fan-outs cost
+  28 agents and ~3.4M tokens while the eight defects the coordinator then fixed by hand took ten tool calls.
+
+### The contract each agent gets
+
+Goal · the exact files to add/change/**delete** · the shared interface it must honour · a **binary**
+acceptance gate (exact command, pass condition, "commit only if it passes, else report") · and the standing
+instruction to **mutation-test every gate it writes**, because this repo has shipped gates that could only
+pass. Tell it to cite identifiers, not line numbers. Tell it that "another lane owns that file" is never a
+reason — if it needs a file, it says so and the coordinator sequences it.
+
+**The coordinator integrates.** Worktree agents commit to their own branch; merging, conflict resolution and
+the editor-scan/lint gate stay the main thread's. Check `git log <base>..<branch>` before merging — an
+isolated agent can branch off a stale commit; salvage with cherry-pick (right base) or
+`git diff | git apply --3way` (wrong base).
 
 ## HOW GOOD IS IT? — `PHYSICS_RUBRIC.md`
 
