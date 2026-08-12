@@ -8,9 +8,9 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/pl
 ## Channels rc_shared.glsli reads that this kernel does not already bind, with the binding each arrives on.
 ## This pass runs first in the step, so every pair is read at its LIVE half.
 const RC_PAIR_BINDS: Dictionary = {"lava": 20, "sediment": 30, "susp": 31, "dust": 32, "soil": 35,
-	"moisture": 36, "fungus": 37}
+	"moisture": 36}
 const RC_SINGLE_BINDS: Dictionary = {"snow": 19, "fuel": 21, "biomass": 22, "detritus": 23,
-	"carbonate": 33, "silica": 34, "porosity": 38}
+	"carbonate": 33, "silica": 34, "porosity": 38, "fungus": 37}
 
 var _pipe: RID = RID()
 var _set_rock: Array = [RID(), RID()]   # rock_fill is SINGLE, but the fluid passes bind water (a pair)

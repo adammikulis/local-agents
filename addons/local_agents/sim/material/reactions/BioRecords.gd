@@ -1,14 +1,6 @@
 class_name LABioRecords
 extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
-## ==============================================================================================
-## ==============================================================================================
-## O2. Cellulose has a density now (dry wood, 500 kg/m3), one unit of it is 16652 mol/m3 against O2's
-
-# These are global fluxes and stocks, not properties of a material, so they live here beside the records
-# that use them rather than in LASubstances — the same place LAPhaseRecords keeps its bulk transfer
-# coefficient and its 7 m/s mean ocean wind. Each is one published number with its source named.
-
 # PHOTOSYNTHESIS — Monteith's light-use efficiency (Monteith 1972, 1977): fixed carbon is proportional to
 # proportionality. MODIS MOD17 carries eps_max by biome from 0.68 (grassland) to 1.26 (evergreen
 # needleleaf) g C per MJ of absorbed PAR (Running et al. 2004; Heinsch et al. 2003). 1.0 is the middle.
@@ -28,7 +20,13 @@ const GLOBAL_PLANT_CARBON_PG_C: float = 450.0       # Bar-On, Phillips & Milo 20
 # for the WHOLE dead-organic pool is its heterotrophic respiration over its stock:
 const SOIL_HETEROTROPHIC_RESP_PG_C_PER_YEAR: float = 54.0   # Bond-Lamberts & Thomson 2010; Hashimoto 2015
 const SOIL_ORGANIC_CARBON_PG_C: float = 1500.0              # Batjes 1996, soil organic C to 1 m
-const SOIL_MICROBIAL_C_KG_PER_M2: float = 0.128
+const SOIL_MICROBIAL_C_KG_PER_M2: float = 0.128             # Serna-Chavez et al. 2013: 16.7 Pg C
+const ICE_FREE_LAND_AREA_M2: float = 1.30e14                # the area the global stocks above spread over
+const PG_TO_KG: float = 1.0e12
+
+# CARBON-USE EFFICIENCY — the share of the carbon a decomposer assimilates that becomes its own tissue
+# rather than CO2. Sinsabaugh et al. 2013 (Ecol. Lett.); Manzoni et al. 2012 (New Phytol.).
+const MICROBIAL_CUE: float = 0.3
 
 const PHOTO_T_OPT: float = (LAPhysical.PROTEIN_DENATURE_C + LAPhysical.WATER_FREEZE_C) * 0.5
 const PHOTO_T_WIDTH: float = (LAPhysical.PROTEIN_DENATURE_C - LAPhysical.WATER_FREEZE_C) * 0.5
@@ -81,14 +79,24 @@ static func _decomposer_reference() -> float:
 	return ch2o_kg_m2 / (h * rho)
 
 
-## DECOMPOSE_RATE — Olson's first-order decay constant, per unit of decomposer.
-##     k = Rh / SOC = 54 / 1500 = 0.036 per year   (mean residence time 28 years)
+## DECOMPOSE_RATE — Olson's first-order decay constant, per unit of decomposer. Rh is the RESPIRED share
+## of what the decomposers take up, so the GROSS uptake this record's extent measures is Rh / (1 - CUE).
 static func _decompose_k() -> float:
 	var k_per_year: float = SOIL_HETEROTROPHIC_RESP_PG_C_PER_YEAR / SOIL_ORGANIC_CARBON_PG_C
 	var ref: float = _decomposer_reference()
-	if ref <= 0.0:
+	if ref <= 0.0 or MICROBIAL_CUE >= 1.0:
 		return 0.0
-	return (k_per_year * _dt() / LAPhysical.SECONDS_PER_YEAR) / ref
+	return (k_per_year * _dt() / LAPhysical.SECONDS_PER_YEAR) / ((1.0 - MICROBIAL_CUE) * ref)
+
+
+## DIE-BACK — the first-order loss that holds the decomposer stock at the steady state where growth
+## (CUE times gross uptake) equals death: k = CUE/(1 - CUE) * Rh / MBC, both stocks per square metre.
+static func _dieback_k() -> float:
+	if MICROBIAL_CUE >= 1.0 or SOIL_MICROBIAL_C_KG_PER_M2 <= 0.0:
+		return 0.0
+	var rh: float = SOIL_HETEROTROPHIC_RESP_PG_C_PER_YEAR * PG_TO_KG / ICE_FREE_LAND_AREA_M2
+	var per_year: float = (MICROBIAL_CUE / (1.0 - MICROBIAL_CUE)) * rh / SOIL_MICROBIAL_C_KG_PER_M2
+	return per_year * _dt() / LAPhysical.SECONDS_PER_YEAR
 
 
 ## The records this domain contributes to the live table (see LAMaterialReactions3D).
@@ -98,17 +106,24 @@ static func records() -> Array:
 	# coefficient -- it used to be multiplied by a unit bridge, which is how 400 mol H2O per mol C
 	# appeared in this file as 0.0617.
 	var transpired: float = TRANSPIRATION_MOL_H2O_PER_MOL_C
+	var cue: float = MICROBIAL_CUE
 	return [
-		# x = DECOMPOSE_RATE * fungus * detritus, in moles of the pool's CARBON. The rest of the stoichiometry
-		# is the cell's own composition: CH_yO_z + (1 + y/4 - z/2) O2 -> CO2 + (y/2) H2O, so rotting peat draws
-		# less oxygen and yields less water than rotting leaf litter, out of ONE record.
+		# x = DECOMPOSE_RATE * fungus * detritus, in moles of the pool's CARBON TAKEN UP. CUE of that carbon
+		# becomes mycelium and the rest is respired, so growth is not a rate of its own. The remaining
+		# stoichiometry is the cell's own composition, which is why rotting peat draws less oxygen than litter.
 		rec(BILINEAR, _decompose_k(), FUNGUS,
 			[[DETRITUS, 1.0], [ORG_H, 0.0, 1.0, 0.0], [ORG_O, 0.0, 0.0, 1.0],
-				[O2, 1.0, 0.25, -0.5]],
-			[[CO2, 1.0, TGT_SELF],
-				[MOISTURE, 0.0, TGT_SELF, 0.5, 0.0],
-				[FERT, organic_n, TGT_SCRATCH]],
+				[O2, 1.0 - cue, 0.25, -0.5]],
+			[[FUNGUS, cue, TGT_SELF],
+				[CO2, 1.0 - cue, TGT_SELF],
+				[MOISTURE, -cue, TGT_SELF, 0.5, 0.0],
+				[FERT, organic_n * (1.0 - cue), TGT_SCRATCH]],
 			0, 0.0, DETRITUS),
+
+		# DIE-BACK. Dead mycelium is CH2O, so it re-enters the dead pool at the same fresh H:C 2, O:C 1 that
+		# LITTERFALL credits. First-order death plus CUE-coupled growth is what makes the colony self-limiting.
+		rec(CONST_FRAC, _dieback_k(), FUNGUS, [[FUNGUS, 1.0]],
+			[[DETRITUS, 1.0, TGT_SELF], [ORG_H, 2.0, TGT_SELF], [ORG_O, 1.0, TGT_SELF]], 0),
 
 		rec(OPTIMUM_BAND, _photo_k(), LIGHT,
 			[[CO2, 1.0], [SOIL_ROOT, 1.0 + transpired], [FERT, organic_n]],

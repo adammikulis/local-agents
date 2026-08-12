@@ -7,8 +7,8 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/er
 ## Channels rc_shared.glsli reads that this kernel does not already bind, with the binding each arrives on.
 ## The half is the one settled where this pass sits in the dispatch order.
 const RC_BACK_BINDS: Dictionary = {"lava": 20, "sediment": 30, "soil": 35, "moisture": 36}
-const RC_LIVE_BINDS: Dictionary = {"dust": 32, "fungus": 37}
-const RC_SINGLE_BINDS: Dictionary = {"snow": 19, "fuel": 21, "biomass": 22, "detritus": 23,
+const RC_LIVE_BINDS: Dictionary = {"dust": 32}
+const RC_SINGLE_BINDS: Dictionary = {"fungus": 37, "snow": 19, "fuel": 21, "biomass": 22, "detritus": 23,
 	"carbonate": 33, "silica": 34, "porosity": 38}
 
 var _pipe: RID = RID()

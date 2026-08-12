@@ -9,8 +9,8 @@ const SOIL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/soil
 ## The half is the one settled where SoilPass sits in the dispatch order: BACK for a producer that has run
 ## this step, LIVE for one that has not.
 const RC_BACK_BINDS: Dictionary = {"lava": 20, "sediment": 30, "susp": 31, "moisture": 36}
-const RC_LIVE_BINDS: Dictionary = {"dust": 32, "fungus": 37}
-const RC_SINGLE_BINDS: Dictionary = {"rock_fill": 18, "snow": 19, "fuel": 21, "biomass": 22,
+const RC_LIVE_BINDS: Dictionary = {"dust": 32}
+const RC_SINGLE_BINDS: Dictionary = {"fungus": 37, "rock_fill": 18, "snow": 19, "fuel": 21, "biomass": 22,
 	"detritus": 23, "carbonate": 33, "silica": 34}
 
 var _pipe: RID = RID()

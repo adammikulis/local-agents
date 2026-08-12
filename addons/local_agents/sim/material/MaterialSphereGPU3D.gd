@@ -37,7 +37,6 @@ const ARG_SLOT_LIST_COUNT: int = 3
 const ACTIVE_LISTS: Dictionary = {
 	"lava": ["active_idx", "active_args"],
 	"shock": ["active_idx_shock", "active_args_shock"],
-	"fungus": ["active_idx_fungus", "active_args_fungus"],
 }
 # Plate table layout, shared with plate_advect_sphere3d.glsl: per plate, seed.xyz + rate + pole.xyz + pad.
 # MAX_PLATES is only the buffer ceiling; the live count travels in ctx["n_plates"].

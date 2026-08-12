@@ -16,7 +16,7 @@ const PRODUCERS: Dictionary = {
 	"water": "WaterSlumpLavaPass", "sediment": "WaterSlumpLavaPass", "lava": "WaterSlumpLavaPass",
 	"moisture": "AtmospherePass", "soil": "SoilPass", "susp": "ErosionTransportPass",
 	"o2": "GasWindPass", "co2": "GasWindPass", "n2": "GasWindPass",
-	"dust": "FireDustPass", "fert": "EcoSurfacePass", "fungus": "EcoSurfacePass",
+	"dust": "FireDustPass", "fert": "EcoSurfacePass", "fungus": "ReactionsPass",
 }
 
 var _f = null

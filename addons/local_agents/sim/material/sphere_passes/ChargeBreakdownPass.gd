@@ -42,7 +42,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[20, bufs["lava"][back]], [21, bufs["fuel"]], [22, bufs["biomass"]],
 			[23, bufs["detritus"]], [30, bufs["sediment"][p]], [31, bufs["susp"][p]],
 			[32, bufs["dust"][p]], [33, bufs["carbonate"]], [34, bufs["silica"]],
-			[35, bufs["soil"][p]], [36, bufs["moisture"][p]], [37, bufs["fungus"][p]],
+			[35, bufs["soil"][p]], [36, bufs["moisture"][p]], [37, bufs["fungus"]],
 			[38, bufs["porosity"]], [39, bufs["shell"]]])
 
 

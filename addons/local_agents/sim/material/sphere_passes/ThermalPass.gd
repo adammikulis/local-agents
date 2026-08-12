@@ -80,7 +80,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		var shared_carriers: Array = [
 			[30, _pair(bufs, "sediment")[p]], [31, _pair(bufs, "susp")[p]], [32, _pair(bufs, "dust")[p]],
 			[33, _single(bufs, "carbonate")], [34, _single(bufs, "silica")], [35, _pair(bufs, "soil")[p]],
-			[36, _pair(bufs, "moisture")[p]], [37, _pair(bufs, "fungus")[p]],
+			[36, _pair(bufs, "moisture")[p]], [37, _single(bufs, "fungus")],
 			[38, _single(bufs, "porosity")]]
 
 		_conduct_set[p] = _uset(_conduct_pipe, [

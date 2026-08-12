@@ -9,8 +9,8 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/er
 ## pass sits in the dispatch order: BACK for a producer that has already run this step, LIVE for one that
 ## has not.
 const RC_BACK_BINDS: Dictionary = {"water": 7, "lava": 20, "sediment": 30, "soil": 35, "moisture": 36}
-const RC_LIVE_BINDS: Dictionary = {"susp": 31, "dust": 32, "fungus": 37}
-const RC_SINGLE_BINDS: Dictionary = {"rock_fill": 18, "snow": 19, "fuel": 21, "biomass": 22,
+const RC_LIVE_BINDS: Dictionary = {"susp": 31, "dust": 32}
+const RC_SINGLE_BINDS: Dictionary = {"fungus": 37, "rock_fill": 18, "snow": 19, "fuel": 21, "biomass": 22,
 	"detritus": 23, "carbonate": 33, "silica": 34, "porosity": 38}
 
 var _pipe: RID = RID()

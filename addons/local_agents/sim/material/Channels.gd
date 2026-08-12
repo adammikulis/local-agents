@@ -22,7 +22,7 @@ static func rows() -> Dictionary:
 		"co2":         {"buffer": "pair",   "residency": "situational", "slot": D.CO2,       "substance": "co2",        "heat": ""},
 		"n2":          {"buffer": "pair",   "residency": "hot",         "slot": D.N2,        "substance": "n2",         "heat": ""},
 		"biomass":     {"buffer": "single", "residency": "slow",        "slot": D.BIOMASS,   "substance": "cellulose",  "heat": "ORGANIC"},
-		"fungus":      {"buffer": "pair",   "residency": "situational", "slot": D.FUNGUS,    "substance": "cellulose",  "heat": "ORGANIC"},
+		"fungus":      {"buffer": "single", "residency": "situational", "slot": D.FUNGUS,    "substance": "cellulose",  "heat": "ORGANIC"},
 		"detritus":    {"buffer": "single", "residency": "situational", "slot": D.DETRITUS,  "substance": "organic_c",  "heat": "ORGANIC"},
 		"fuel":        {"buffer": "single", "residency": "situational", "slot": D.FUEL,      "substance": "organic_c",  "heat": "ORGANIC"},
 		"org_h":       {"buffer": "single", "residency": "situational", "slot": D.ORG_H,     "substance": "organic_h",  "heat": ""},

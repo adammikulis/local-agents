@@ -12,7 +12,7 @@ const PRODUCERS: Dictionary = {
 	"dust": "FireDustPass",
 	"soil": "SoilPass",
 	"moisture": "AtmospherePass",
-	"fungus": "EcoSurfacePass",
+	"fungus": "ReactionsPass",
 }
 
 ## Passes that bind no writable temp buffer. A heat leg above the readback resolution on one of these

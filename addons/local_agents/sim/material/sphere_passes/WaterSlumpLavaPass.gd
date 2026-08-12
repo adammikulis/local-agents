@@ -18,11 +18,10 @@ const MIN_MASS: float = 0.0001
 
 ## Every channel rc_shared.glsli reads, paired with the kernel binding it arrives on.
 const RC_PAIR_BINDS: Dictionary = {
-	"water": 7, "lava": 20, "sediment": 30, "susp": 31, "dust": 32, "soil": 35, "moisture": 36,
-	"fungus": 37}
+	"water": 7, "lava": 20, "sediment": 30, "susp": 31, "dust": 32, "soil": 35, "moisture": 36}
 const RC_SINGLE_BINDS: Dictionary = {
 	"rock_fill": 18, "snow": 19, "fuel": 21, "biomass": 22, "detritus": 23, "carbonate": 33,
-	"silica": 34, "porosity": 38}
+	"silica": 34, "porosity": 38, "fungus": 37}
 
 ## Argument index of each LAHeatCapacity.mix group.
 const MIX_SLOT: Dictionary = {"silicate": 0, "carbonate": 1, "silica": 2, "water": 3, "snow": 4,

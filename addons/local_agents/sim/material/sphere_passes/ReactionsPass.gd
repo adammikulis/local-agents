@@ -44,7 +44,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	var moisture: Array = _pair(bufs, "moisture")
 	var o2: Array = _pair(bufs, "o2")
 	var co2: Array = _pair(bufs, "co2")
-	var fungus: Array = _pair(bufs, "fungus")
+	var fungus: RID = _single(bufs, "fungus")
 	var fert: Array = _pair(bufs, "fert")
 	var detritus: RID = _single(bufs, "detritus")
 	var biomass: RID = _single(bufs, "biomass")
@@ -93,7 +93,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 			                        # o2/co2 are: the authoritative readback reads the back half after the
 			                        # phase flip, so a write to LIVE would be discarded.
 			[7, detritus],          # SINGLE — decompose debits in place / respiration credits in place
-			[8, fungus[p]],         # LIVE — decompose driver (read-only; producer runs later)
+			[8, fungus],            # SINGLE — decompose drives on it and both bio records write it
 			[9, fert[p]],           # LIVE — nutrient-uptake reactant, debited in place (producer runs later)
 			[10, solid],
 			[11, biomass],          # SINGLE — photosynthesis grows it, respiration/decay oxidises it
