@@ -6,9 +6,7 @@ extends RefCounted
 const WATER_FREEZE_C: float = 0.0
 const WATER_MELT_C: float = 0.0
 const WATER_BOIL_C: float = 100.0
-# Liquid water at 25 °C. It is the denominator of every "how much of a cell is water" figure in this
-# substrate: the field stores water as a FILL FRACTION (1.0 = a cell full of liquid), so any real density
-# has to be divided by this to become a channel value. Same number the volumetric heat capacity below uses.
+# Liquid water at 25 °C.
 const WATER_DENSITY_KG_M3: float = 997.0
 
 # --- WATER VAPOUR: THE SATURATION CURVE ---------------------------------------------------------------------
@@ -104,8 +102,7 @@ const ALBEDO_OCEAN: float = 0.06
 const ALBEDO_BARE_GROUND: float = 0.15
 const ALBEDO_SNOW_ICE: float = 0.65
 
-# O2 mass fraction of dry air, and the O2 mass density of ambient air, kg/m^3.
-const AIR_O2_MASS_FRACTION: float = 0.2314
+# O2 mass in a cubic metre of ambient air, kg/m^3.
 const AMBIENT_O2_DENSITY_KG_M3: float = 0.2731
 
 # --- COMBUSTION -------------------------------------------------------------------------------------------
@@ -140,11 +137,11 @@ const GRAIN_D_LOWLAND_M: float = 4.0e-3     # 4 mm — fine gravel (valley-fill 
 const REPOSE_TAN_DRY_GRANULAR: float = 0.70
 
 
-static func saturation_mass_fraction(t_c: float) -> float:
+## Saturation vapour concentration, mol/m^3: Magnus e_sat put through the ideal gas law, n = e / (R T).
+static func saturation_vapour_mol_m3(t_c: float) -> float:
 	var t: float = maxf(t_c, -80.0)    # the Magnus fit is stated over -40..+50 and its pole is at -243.04 °C
 	var e_sat: float = MAGNUS_A_PA * exp(MAGNUS_B * t / (t + MAGNUS_C_C))
-	var rho_v: float = e_sat / (VAPOUR_GAS_CONST_J_KGK * maxf(t + KELVIN_OFFSET, 1.0))
-	return rho_v / WATER_DENSITY_KG_M3
+	return e_sat / (GAS_CONSTANT_J_MOL_K * maxf(t + KELVIN_OFFSET, 1.0))
 # --- LIVING TISSUE ----------------------------------------------------------------------------------------
 # muscle ~1060, fat ~920, whole-body ~1010 kg/m³. 1000 is the honest round value and it is why an animal
 const ANIMAL_TISSUE_DENSITY_KG_M3: float = 1000.0
@@ -164,8 +161,6 @@ const GAS_CONSTANT_J_MOL_K: float = 8.314462618     # CODATA molar gas constant 
 const SECONDS_PER_YEAR: float = 3.15576e7           # Julian year, 365.25 days
 
 # --- MOLAR MASSES (IUPAC 2021 standard atomic weights) ------------------------------------------------------
-# `o2` is the O₂ in a cell of ambient air (8.5 mol/m³) and one unit of `water` is a cell FULL of liquid water
-# (55343 mol/m³), a factor of 6484. Converting between a channel unit and moles is the missing step, and it
 const MOLAR_MASS_WATER_KG_MOL: float = 0.018015     # H₂O
 const MOLAR_MASS_N2_KG_MOL: float = 0.0280134       # N₂
 const MOLAR_MASS_AR_KG_MOL: float = 0.0399480       # Ar
@@ -251,6 +246,9 @@ const MOLAR_MASS_DRY_AIR_KG_MOL: float = \
 	+ AIR_MOLE_FRAC_AR * MOLAR_MASS_AR_KG_MOL \
 	+ AIR_MOLE_FRAC_CO2 * MOLAR_MASS_CO2_KG_MOL
 const DRY_AIR_GAS_CONSTANT_J_KGK: float = GAS_CONSTANT_J_MOL_K / MOLAR_MASS_DRY_AIR_KG_MOL
+## Molar density of air at ISA sea level, mol/m^3: n = rho / M. Multiply by a mole fraction above for the
+## concentration of one of its gases, which is what a gas channel carries.
+const AIR_MOLAR_DENSITY_MOL_M3: float = AIR_DENSITY_KG_M3 / MOLAR_MASS_DRY_AIR_KG_MOL
 
 
 ## Atmospheric scale height in METRES: H = R_d * T / g, the hydrostatic relation for an isothermal
@@ -259,10 +257,6 @@ const DRY_AIR_GAS_CONSTANT_J_KGK: float = GAS_CONSTANT_J_MOL_K / MOLAR_MASS_DRY_
 static func scale_height_m(t_c: float, g_m_s2: float) -> float:
 	return DRY_AIR_GAS_CONSTANT_J_KGK * maxf(t_c + KELVIN_OFFSET, 1.0) / maxf(g_m_s2, 1.0e-12)
 
-
-## Weight of a column of air, Pa. `cell_size_m` is metres because the grid is metres.
-static func air_units_to_pascals(column_air_units: float, cell_size_m: float, g_m_s2: float) -> float:
-	return g_m_s2 * AIR_DENSITY_KG_M3 * cell_size_m * column_air_units
 # ============================================================================================================
 
 # --- ORGANIC MATTER: THE CARBON-TO-NITROGEN RATIO ---------------------------------------------------------
@@ -326,8 +320,6 @@ const ICE_SPECIFIC_HEAT_J_KGK: float = 2090.0       # ice at 0 C — HALF liquid
                                                     # swings temperature so much faster than a lake
 const VAPOUR_SPECIFIC_HEAT_J_KGK: float = 1996.0    # water vapour at constant pressure, 100 C
 const AIR_SPECIFIC_HEAT_J_KGK: float = 1005.0       # dry air at constant pressure, 300 K
-# `VOL_HEAT_CAP_AIR_J_M3K = 1186.0 # 1.18 * 1005` carried it in a comment, and AMBIENT_O2_DENSITY_KG_M3's
-# 0.2731 is 0.2314 * 1.18 folded into a literal. One name now, and both are products of it.
 const AIR_DENSITY_KG_M3: float = 1.225            # ISA sea level: 101325 Pa, 15 C, dry
 # The two non-silicate mineral species, so `carbonate` and `silica` can carry heat like every other channel
 # that holds matter. Densities were already here (CALCITE / QUARTZ); these are the missing c's.

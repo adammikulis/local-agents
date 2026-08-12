@@ -1,6 +1,9 @@
 class_name LACoverTextureBaker
 extends RefCounted
 
+## Condensate that packs to a full cover byte, mol/m^3: the cloud liquid water content of LAPhysical
+## over water's molar mass.
+const COVER_FULL_MOL_M3: float = LAPhysical.CHARGING_LWC_KG_M3 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
 
 var _res: int = 0
 var _depth: int = 0
@@ -13,7 +16,7 @@ var _cloud_scan_lo: float = 0.0
 var _fog_lo: float = 0.0
 var _fog_hi: float = 0.0
 var _fog_max_temp: float = 12.0
-var _rain_thresh: float = 6.14e-7   # Kessler autoconversion threshold; LAPhaseRecords.rain_threshold() is the authority
+var _rain_thresh: float = 0.0       # set by setup() from the autoconversion threshold, mol/m^3
 
 # Per-surface-column reductions (reused each bake).
 var _sc: PackedFloat32Array = PackedFloat32Array()      # cloud density
@@ -89,7 +92,7 @@ func bake(moisture: PackedFloat32Array, temp: PackedFloat32Array, snow: PackedFl
 			_smin[s] = t
 		if has_snow and snow[i] > _ssnow[s]:
 			_ssnow[s] = snow[i]
-		var cond: float = moisture[i] - LAPhysical.saturation_mass_fraction(t)
+		var cond: float = moisture[i] - LAPhysical.saturation_vapour_mol_m3(t)
 		if cond <= 0.0:
 			continue
 		# Cloud = the column's condensate ALOFT (altitude split, not temperature — on a planet the
@@ -99,9 +102,8 @@ func bake(moisture: PackedFloat32Array, temp: PackedFloat32Array, snow: PackedFl
 			_sc[s] = cond
 		if radius >= _fog_lo and radius <= _fog_hi and t < _fog_max_temp and cond > _sf[s]:
 			_sf[s] = cond
-		# Render precip: show falling streaks under the wettest columns (a render threshold below the sim's
-		# rain-shed threshold, so gentle precip is visible — the phase is still field-gated, not scripted).
-		if cond > 0.2 and cond > _sp[s]:
+		# Render precip: streaks under columns whose condensate is over the autoconversion threshold.
+		if cond > _rain_thresh and cond > _sp[s]:
 			_sp[s] = cond
 	_pack()
 
@@ -120,9 +122,9 @@ func _pack() -> void:
 			var i: int = k / res
 			var j: int = k - i * res
 			var bi: int = (j * res + i) * 4
-			bytes[bi + 0] = int(clamp(_sc[s], 0.0, 1.0) * 255.0)
-			bytes[bi + 1] = int(clamp(_sf[s], 0.0, 1.0) * 255.0)
-			bytes[bi + 2] = int(clamp(_sp[s], 0.0, 1.0) * 255.0)
+			bytes[bi + 0] = int(clamp(_sc[s] / COVER_FULL_MOL_M3, 0.0, 1.0) * 255.0)
+			bytes[bi + 1] = int(clamp(_sf[s] / COVER_FULL_MOL_M3, 0.0, 1.0) * 255.0)
+			bytes[bi + 2] = int(clamp(_sp[s] / COVER_FULL_MOL_M3, 0.0, 1.0) * 255.0)
 			var cold: float = clamp((4.0 - _smin[s]) / 8.0, 0.0, 1.0)
 			cold = maxf(cold, clamp(_ssnow[s] * 3.0, 0.0, 1.0))
 			bytes[bi + 3] = int(cold * 255.0)

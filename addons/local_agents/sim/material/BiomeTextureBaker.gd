@@ -64,9 +64,7 @@ func bake(moisture: PackedFloat32Array, temp: PackedFloat32Array, snow: PackedFl
 			cell = base + mini(surf_r + 1, depth - 1)
 		_cell_of[s] = cell
 		var t: float = temp[cell]
-		# Saturation is now the real Clausius-Clapeyron value (~2e-5 at 22 C), so the old 1e-4 floor on the
-		# denominator would have sat BELOW it at every temperature and pinned relative humidity near zero.
-		var sat: float = LAPhysical.saturation_mass_fraction(t)
+		var sat: float = LAPhysical.saturation_vapour_mol_m3(t)
 		var rh: float = moisture[cell] / maxf(sat, 1.0e-12)
 		_rh[s] = rh
 		if surf_r >= land_r_min:
