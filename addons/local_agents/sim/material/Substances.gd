@@ -23,6 +23,7 @@ const ENTROPY_CO2_GAS_J_MOLK: float = 213.785
 
 ##   molar_mass       kg/mol. The one bridge between the mass this table stores and the moles chemistry uses.
 ##   density          kg/m3 of the CONDENSED phase, for turning a mass into a volume fraction of a cell.
+##   heat_production_w_kg  W/kg of the substance from the decay of the U, Th and K it contains.
 static func table() -> Dictionary:
 	return {
 		# --- WATER ------------------------------------------------------------------------------------------
@@ -128,6 +129,7 @@ static func table() -> Dictionary:
 			"molar_mass": PC.MOLAR_MASS_CASIO3_KG_MOL,
 			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_CASIO3_J_MOL,
 			"entropy_j_molk": PC.ENTROPY_CASIO3_J_MOL_K,
+			"heat_production_w_kg": PC.SILICATE_HEAT_PRODUCTION_W_KG,
 			"density": PC.ROCK_DENSITY_KG_M3,
 			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
 			"melt_c": PC.BASALT_SOLIDUS_C,
@@ -143,7 +145,7 @@ static func table() -> Dictionary:
 			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_SIO2_J_MOL,
 			"entropy_j_molk": PC.ENTROPY_SIO2_J_MOL_K,
 			"density": PC.QUARTZ_DENSITY_KG_M3,
-			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
+			"specific_heat": PC.QUARTZ_SPECIFIC_HEAT_J_KGK,
 			"conductivity": PC.THERMAL_CONDUCT_ROCK_W_MK,
 			"emissivity": PC.BASALT_EMISSIVITY,
 			"albedo": PC.ALBEDO_BARE_GROUND,
@@ -154,7 +156,7 @@ static func table() -> Dictionary:
 			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_CACO3_J_MOL,
 			"entropy_j_molk": PC.ENTROPY_CACO3_J_MOL_K,
 			"density": PC.CALCITE_DENSITY_KG_M3,
-			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
+			"specific_heat": PC.CALCITE_SPECIFIC_HEAT_J_KGK,
 			"conductivity": PC.THERMAL_CONDUCT_ROCK_W_MK,
 			"emissivity": PC.BASALT_EMISSIVITY,
 			"albedo": PC.ALBEDO_BARE_GROUND,

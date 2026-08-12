@@ -42,7 +42,9 @@ func step() -> void:
 	_banked_s = 0.0
 
 
-## Rebuild the source table when the gravity solve has published a new density. True on a rebuild.
+## Rebuild the source table on the gravity solve's cadence. True on a rebuild. The decaying mass is the
+## ROCK in the cell — its fill fraction less its pore space, times the silicate density — not the cell's
+## bulk mass, because the water, ice and organic matter sharing the cell carry no U, Th or K.
 func _rebuild() -> bool:
 	var g = _f._gravity if _f != null else null
 	if g == null or not g.has_method("solves"):
@@ -51,18 +53,22 @@ func _rebuild() -> bool:
 	if n == _built_at:
 		return false
 	var cc: int = int(_f._cell_count)
-	var rho: PackedFloat32Array = g.density()
 	var vol: PackedFloat32Array = CellVolScript.of(_f)
-	if cc <= 0 or rho.size() != cc or vol.size() != cc or _f._solid.size() != cc:
+	if cc <= 0 or vol.size() != cc or _f._rock_fill.size() != cc:
 		return false
+	var rock: Dictionary = LASubstances.table().get("silicate", {})
+	var rho_rock: float = float(rock.get("density", 0.0))
+	var w_per_kg: float = float(rock.get("heat_production_w_kg", 0.0))
+	if rho_rock <= 0.0 or w_per_kg <= 0.0:
+		return false
+	var has_phi: bool = _f._porosity.size() == cc
 	_built_at = n
 	_cells = PackedInt32Array()
 	_watts_of = PackedFloat32Array()
 	_watts = 0.0
 	for c in cc:
-		if _f._solid[c] == 0:
-			continue                                     # decay happens in rock, not in air or open water
-		var w: float = rho[c] * vol[c] * LAPhysical.RADIOGENIC_W_PER_KG
+		var solid_share: float = _f._rock_fill[c] * (1.0 - (_f._porosity[c] if has_phi else 0.0))
+		var w: float = solid_share * rho_rock * vol[c] * w_per_kg
 		if w <= 0.0:
 			continue
 		_cells.append(c)
