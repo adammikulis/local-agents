@@ -387,7 +387,7 @@ func _geo_watts(shell_solid: int, cc: int) -> float:
 	if grid != null and grid.cell_count == cc and depth > 0:
 		var columns: int = int(cc / depth)
 		for s_col in columns:
-			face_m2 += grid.face_area_inward(s_col * depth)
+			face_m2 += grid.cell_size * grid.cell_size
 		face_m2 = face_m2 / float(maxi(columns, 1))
 	else:
 		face_m2 = pow(float(_f._cell_size), 2.0)

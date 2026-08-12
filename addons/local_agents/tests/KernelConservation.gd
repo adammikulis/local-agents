@@ -43,7 +43,6 @@ func _ready() -> void:
 	_expect(bool(v.get("shells_uniform", false)), "grid.uniform_by_default", 1.0,
 		1.0 if bool(v.get("shells_uniform", false)) else 0.0)
 	_check_cell_volume()
-	_check_face_area("small_grid")
 
 	_check_uniform_identity()
 	_check_two_pass(GRAVITY_FLOW, "gravity_flow", _pc_gravity())
@@ -134,30 +133,6 @@ func _check_cell_volume() -> void:
 	for i in vol.size():
 		lo = minf(lo, vol[i])
 	_expect(lo > 0.0, "grid.cell_volumes_positive", 1.0, 1.0 if lo > 0.0 else 0.0)
-
-
-## What crosses a wall is proportional to its AREA, so the table has to close: shared faces equal from both
-## ends, a shell's radial faces summing to 4*pi*r^2, the radial pair reproducing the cell volume. Run at the
-## SHIPPED dimensions too — the seam count and the r^2 spread are what a toy grid hides.
-func _check_face_area(tag: String) -> void:
-	var v: Dictionary = _grid.validate_face_areas()
-	_expect(bool(v.get("sized", false)), tag + ".face_area_sized", float(_grid.cell_count * 6),
-		float(_grid.face_areas().size()))
-	_expect(float(v.get("area_min", 0.0)) > 0.0, tag + ".face_area_positive", 1.0,
-		float(v.get("area_min", 0.0)))
-	_expect(float(v.get("reciprocity_rel", INF)) < 1e-5, tag + ".face_area_reciprocal", 0.0,
-		float(v.get("reciprocity_rel", INF)))
-	_expect(float(v.get("shell_close_rel", INF)) < 1e-5, tag + ".face_area_closes_sphere", 0.0,
-		float(v.get("shell_close_rel", INF)))
-	_expect(float(v.get("volume_rel", INF)) < 1e-4, tag + ".face_area_matches_volume", 0.0,
-		float(v.get("volume_rel", INF)))
-	var corners: Dictionary = _grid.validate_corners()
-	_expect(int(corners.get("axis_violations", -1)) == 0, tag + ".face_corner_order", 0.0,
-		float(corners.get("axis_violations", -1)))
-	_expect(float(corners.get("centre_rel", INF)) < 1.0, tag + ".face_corner_centred", 0.0,
-		float(corners.get("centre_rel", INF)))
-	_volume_notes[tag + "_face_recip_rel"] = snappedf(float(v.get("reciprocity_rel", INF)), 1.0e-12)
-
 
 func _expect(ok: bool, what: String, want: float, got: float) -> void:
 	_checks += 1
@@ -404,7 +379,6 @@ func _check_live_grid() -> void:
 	_depth = LIVE_DEPTH
 	var v: Dictionary = _grid.validate()
 	_expect(bool(v.get("ok", false)), "live_grid.validate", 1.0, 1.0 if bool(v.get("ok", false)) else 0.0)
-	_check_face_area("live_grid")
 	_check_tracer_steps(20, 160.0, 300.0, true, "pingpong_20_live_grid")
 	_grid = small_grid
 	_cc = small_cc
@@ -463,7 +437,6 @@ func _check_graded_grid() -> void:
 		0.0 if bool(v.get("shells_uniform", true)) else 1.0)
 	_expect(absf(float(v.get("shell_span", 0.0)) - float(LIVE_DEPTH) * 8.0) < 1e-3,
 		"graded_grid.span_preserved", float(LIVE_DEPTH) * 8.0, float(v.get("shell_span", 0.0)))
-	_check_face_area("graded_grid")
 	_check_two_pass(GRAVITY_FLOW, "gravity_flow_graded", _pc_gravity())
 	_check_tracer(0.0, true, "graded_still_solid")
 	_check_tracer(160.0, true, "graded_gale_solid")

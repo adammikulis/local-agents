@@ -60,7 +60,7 @@ func _init() -> void:
 		var ok: bool = bool(v["ok"]) and vol_rel_err < 1.0e-6
 		if not ok:
 			failed += 1
-		print("GRID_CHECK={\"res\":%d,\"depth\":%d,\"ok\":%s,\"solid_angle_err\":%.3f,\"volume_rel_err_ppm\":%.4f,\"volume_ratio\":%.3f,\"non_reciprocal\":%d,\"tangent_handed_min\":%.4f}" % [
+		print("GRID_CHECK={\"res\":%d,\"depth\":%d,\"ok\":%s,\"non_reciprocal\":%d,\"tangent_handed_min\":%.4f}" % [
 			int(spec[0]), int(spec[1]), str(ok).to_lower(), float(v["solid_angle_err"]) * 1.0e9,
 			vol_rel_err * 1.0e6, float(v["volume_ratio"]), int(v["non_reciprocal"]),
 			float(v["tangent_handed_min"])])

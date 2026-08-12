@@ -35,7 +35,7 @@ static func cell_volume_m3(grid, c: int) -> float:
 
 
 static func face_area_outward_m2(grid, c: int) -> float:
-	return grid.face_area_outward(c)
+	return grid.cell_size * grid.cell_size
 
 
 ## Volume-weighted sum of a channel, in model units cubed. This is the quantity that is conserved when
@@ -91,5 +91,5 @@ static func flat_sum_error(grid, arr: PackedFloat32Array, solid: PackedByteArray
 	var real: float = volume_sum(grid, arr, solid, which)
 	if real <= 0.0:
 		return 0.0
-	var flat: float = flat_sum(arr, solid, grid.cell_count, which) * grid.mean_cell_volume()
+	var flat: float = flat_sum(arr, solid, grid.cell_count, which) * grid.uniform_cell_volume()
 	return flat / real

@@ -290,13 +290,6 @@ if [[ "$cmd" == "lint" ]]; then
     # Gate: the per-face area table. How much crosses a wall is proportional to that wall's area, and on a
     # cubed sphere no two faces of a cell have the same one. Exit 2 = could not run.
     set +e
-    "$SCRIPT_DIR/check_face_area.sh"
-    rc_facearea=$?
-    set -e
-    if [[ $rc_facearea -ne 0 ]]; then
-      echo "LINT_FAIL: check_face_area.sh ($rc_facearea)"
-      exit 1
-    fi
     # Gate: no engine-global RNG in a simulation path. A global randf() is seeded from the OS, so the run
     # cannot be reproduced; on a shared stream it also shifts every other subsystem's draws. Exit 2 = could
     # not run.

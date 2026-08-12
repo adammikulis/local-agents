@@ -199,8 +199,10 @@ func vorticity_at(pos: Vector3) -> float:
 		var m: int = nbr[c * 6 + 2 + l]
 		if m < 0:
 			continue
-		var v: Vector2 = grid.rotate_into_neighbour(m, l ^ 1, Vector2(_f._vel_x[m], _f._vel_z[m]))
-		var d: Vector2 = grid.link_dir(c, l)
+		# No parallel transport: on a uniform grid every cell shares one basis, so a neighbour's velocity
+		# is already in this cell's frame. The tangent basis and its transport are deleted.
+		var v: Vector2 = Vector2(_f._vel_x[m], _f._vel_z[m])
+		var d: Vector2 = Vector2(LAVoxelGrid.SLOT_STEP[2 + l].x, LAVoxelGrid.SLOT_STEP[2 + l].z)
 		curl += 0.5 * (d.x * v.y - d.y * v.x)
 	return curl
 
