@@ -22,8 +22,20 @@ const ENTROPY_CO2_GAS_J_MOLK: float = 213.785
 
 
 ##   molar_mass       kg/mol. The one bridge between the mass this table stores and the moles chemistry uses.
-##   density          kg/m3 of the CONDENSED phase, for turning a mass into a volume fraction of a cell.
+##   density          kg/m3, a REFERENCE value at `density_ref_t_c` and STANDARD_PRESSURE_PA — not the
+##                    density, which is density(id, t_c, p_pa) and varies with both.
+static var _table_cache: Dictionary = {}
+
+
+## The one table. Cached because it is read per cell and per substance on hot paths, and it is built
+## entirely from constants; no caller writes to it.
 static func table() -> Dictionary:
+	if _table_cache.is_empty():
+		_table_cache = _build_table()
+	return _table_cache
+
+
+static func _build_table() -> Dictionary:
 	return {
 		# --- WATER ------------------------------------------------------------------------------------------
 		"h2o": {
@@ -32,7 +44,13 @@ static func table() -> Dictionary:
 			"atomisation_j_mol": PC.ATOMISATION_H2O_J_MOL,
 			"entropy_gas_j_molk": ENTROPY_H2O_GAS_J_MOLK,
 			"density": PC.WATER_DENSITY_KG_M3,
+			"density_ref_t_c": PC.LAB_REFERENCE_TEMP_C,
+			"expansion_per_k": PC.WATER_VOLUME_EXPANSION_PER_K,
+			"bulk_modulus_pa": PC.WATER_BULK_MODULUS_PA,
 			"density_solid": PC.ICE_DENSITY_KG_M3,
+			"density_solid_ref_t_c": PC.WATER_FREEZE_C,
+			"expansion_solid_per_k": PC.ICE_VOLUME_EXPANSION_PER_K,
+			"bulk_modulus_solid_pa": PC.ICE_BULK_MODULUS_PA,
 			"specific_heat": PC.WATER_SPECIFIC_HEAT_J_KGK,
 			"specific_heat_solid": PC.ICE_SPECIFIC_HEAT_J_KGK,
 			"specific_heat_gas": PC.VAPOUR_SPECIFIC_HEAT_J_KGK,
@@ -129,6 +147,9 @@ static func table() -> Dictionary:
 			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_CASIO3_J_MOL,
 			"entropy_j_molk": PC.ENTROPY_CASIO3_J_MOL_K,
 			"density": PC.ROCK_DENSITY_KG_M3,
+			"density_ref_t_c": PC.LAB_REFERENCE_TEMP_C,
+			"expansion_per_k": PC.ROCK_VOLUME_EXPANSION_PER_K,
+			"bulk_modulus_pa": PC.ROCK_BULK_MODULUS_PA,
 			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
 			"melt_c": PC.BASALT_SOLIDUS_C,
 			"liquidus_c": PC.BASALT_LIQUIDUS_C,
@@ -143,6 +164,9 @@ static func table() -> Dictionary:
 			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_SIO2_J_MOL,
 			"entropy_j_molk": PC.ENTROPY_SIO2_J_MOL_K,
 			"density": PC.QUARTZ_DENSITY_KG_M3,
+			"density_ref_t_c": PC.LAB_REFERENCE_TEMP_C,
+			"expansion_per_k": PC.QUARTZ_VOLUME_EXPANSION_PER_K,
+			"bulk_modulus_pa": PC.QUARTZ_BULK_MODULUS_PA,
 			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
 			"conductivity": PC.THERMAL_CONDUCT_ROCK_W_MK,
 			"emissivity": PC.BASALT_EMISSIVITY,
@@ -154,6 +178,8 @@ static func table() -> Dictionary:
 			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_CACO3_J_MOL,
 			"entropy_j_molk": PC.ENTROPY_CACO3_J_MOL_K,
 			"density": PC.CALCITE_DENSITY_KG_M3,
+			"density_ref_t_c": PC.LAB_REFERENCE_TEMP_C,
+			"expansion_per_k": PC.CALCITE_VOLUME_EXPANSION_PER_K,
 			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
 			"conductivity": PC.THERMAL_CONDUCT_ROCK_W_MK,
 			"emissivity": PC.BASALT_EMISSIVITY,
@@ -209,6 +235,75 @@ const SUPERCRITICAL: int = 5
 static func latent_sublimation_j_kg(id: String) -> float:
 	var s: Dictionary = table().get(id, {})
 	return float(s.get("latent_fusion_j_kg", 0.0)) + float(s.get("latent_vaporisation_j_kg", 0.0))
+
+
+## True when this row carries an equation of state — a thermal expansivity, a bulk modulus, or both. A row
+## without one has that dependence UNMEASURED here, not zero, and reports its reference value unchanged.
+static func has_eos(id: String) -> bool:
+	var s: Dictionary = table().get(id, {})
+	return s.has("expansion_per_k") or s.has("bulk_modulus_pa") \
+		or s.has("expansion_solid_per_k") or s.has("bulk_modulus_solid_pa")
+
+
+## DENSITY AT A TEMPERATURE AND PRESSURE, kg/m^3. `density` in the table is only the reference point.
+## A gas obeys the ideal gas law from its own molar mass; a condensed phase expands with temperature and
+## compresses with pressure about its reference point. `p_pa` is the pressure of THIS substance, so a
+## partial pressure is what a gas mixed with others is asked about.
+static func density(id: String, t_c: float, p_pa: float) -> float:
+	var s: Dictionary = table().get(id, {})
+	if s.is_empty():
+		return 0.0
+	if _is_gas_at(s, id, t_c, p_pa):
+		var mm: float = float(s.get("molar_mass", 0.0))
+		var t_k: float = t_c + PC.KELVIN_OFFSET
+		if mm <= 0.0 or t_k <= 0.0 or p_pa <= 0.0:
+			return 0.0
+		return p_pa * mm / (PC.GAS_CONSTANT_J_MOL_K * t_k)
+
+	var rho_liq: float = float(s.get("density", 0.0))
+	var v_liq: float = _specific_volume(rho_liq, float(s.get("density_ref_t_c", PC.LAB_REFERENCE_TEMP_C)),
+		float(s.get("expansion_per_k", 0.0)), float(s.get("bulk_modulus_pa", 0.0)), t_c, p_pa)
+	if not s.has("density_solid"):
+		return 1.0 / v_liq if v_liq > 0.0 else 0.0
+	var v_sol: float = _specific_volume(float(s["density_solid"]),
+		float(s.get("density_solid_ref_t_c", PC.LAB_REFERENCE_TEMP_C)),
+		float(s.get("expansion_solid_per_k", 0.0)), float(s.get("bulk_modulus_solid_pa", 0.0)), t_c, p_pa)
+	# Across the melting interval both phases are present and VOLUMES add, so the specific volumes mix by
+	# the melt fraction. Outside it one end of the lever carries everything.
+	var solidus: float = melt_c_at(id, p_pa)
+	if not is_finite(solidus):
+		return 1.0 / v_sol if v_sol > 0.0 else 0.0
+	var liquidus: float = liquidus_c_at(id, p_pa)
+	var phi: float = 1.0
+	if t_c <= solidus:
+		phi = 0.0
+	elif t_c < liquidus:
+		phi = (t_c - solidus) / (liquidus - solidus)
+	var v: float = (1.0 - phi) * v_sol + phi * v_liq
+	return 1.0 / v if v > 0.0 else 0.0
+
+
+## Specific volume of a condensed phase, m^3/kg: the reference volume opened up by thermal expansion and
+## squeezed by pressure. A coefficient the table does not carry leaves its term out.
+static func _specific_volume(rho_ref: float, t_ref_c: float, alpha_per_k: float, bulk_pa: float,
+		t_c: float, p_pa: float) -> float:
+	if rho_ref <= 0.0:
+		return 0.0
+	var v: float = (1.0 + alpha_per_k * (t_c - t_ref_c)) / rho_ref
+	if bulk_pa > 0.0 and p_pa > 0.0:
+		v *= 1.0 - (p_pa - PC.STANDARD_PRESSURE_PA) / bulk_pa
+	return maxf(v, 0.0)
+
+
+## Gaseous at these conditions? The table's own vapour boundary decides — the frost point below the triple
+## pressure, the boiling point above it. A row carrying neither boundary nor an EOS has no phase data at
+## all, and the honest answer is that its declared reference value is all this table knows.
+static func _is_gas_at(s: Dictionary, id: String, t_c: float, p_pa: float) -> bool:
+	if not is_finite(float(s.get("boil_c", INF))):
+		return false
+	if sublimes_at(id, p_pa):
+		return t_c > sublimation_c_at(id, p_pa)
+	return t_c > boil_c_at(id, p_pa)
 
 
 ## Moles of substance in one kilogram — the ONLY bridge between what the field stores (mass) and what
@@ -418,6 +513,8 @@ static func melt_c_at(id: String, p_pa: float, molality_mol_kg: float = 0.0) -> 
 	var t_ref_c: float = float(s.get("melt_c", INF))
 	if not is_finite(t_ref_c):
 		return INF
+	# THE REFERENCE densities, not density() at (t, p): this is a rung of the phase ladder, and enthalpy.glsli
+	# carries the same two constants and has no EOS to call. One curve, or the two sides are not one curve.
 	var rho_l: float = float(s.get("density", 0.0))
 	var rho_s: float = float(s.get("density_solid", rho_l))
 	var l_fus: float = float(s.get("latent_fusion_j_kg", 0.0))

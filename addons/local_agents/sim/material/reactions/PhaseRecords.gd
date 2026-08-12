@@ -82,6 +82,8 @@ static func records() -> Array:
 
 ## LATENT HEAT PER UNIT OF EXTENT, J/m3, derived from LASubstances. SIGN: POSITIVE IS EXOTHERMIC —
 ## an absorbing leg (evaporation, sublimation, melting) passes the negated value.
+## `density` is the REFERENCE value on purpose: an extent is one CHANNEL UNIT, and the kilograms a unit
+## carries is the unit's definition, not a density that may move under it.
 static func _latent_fusion_j_m3() -> float:
 	var t: Dictionary = LASubstances.table().get("h2o", {})
 	return float(t.get("density", 0.0)) * float(t.get("latent_fusion_j_kg", 0.0))

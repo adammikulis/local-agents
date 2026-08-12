@@ -23,6 +23,7 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_enthalpy_roundtrip.gd",
 	"res://addons/local_agents/tests/test_latent_plateau.gd",
 	"res://addons/local_agents/tests/test_mixture_enthalpy.gd",
+	"res://addons/local_agents/tests/test_density_eos.gd",
 ]
 
 const INTEGRATION_TESTS: Array[String] = []

@@ -8,6 +8,11 @@ const WATER_MELT_C: float = 0.0
 const WATER_BOIL_C: float = 100.0
 # Liquid water at 25 °C.
 const WATER_DENSITY_KG_M3: float = 997.0
+## Volumetric thermal expansivity of liquid water at 25 °C, 1/K (Kell 1975, J. Chem. Eng. Data 20:97).
+const WATER_VOLUME_EXPANSION_PER_K: float = 2.57e-4
+## Isothermal compressibility of liquid water at 25 °C, 1/Pa (Kell 1975), and its reciprocal.
+const WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA: float = 4.525e-10
+const WATER_BULK_MODULUS_PA: float = 1.0 / WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA
 
 # --- WATER VAPOUR: THE SATURATION CURVE ---------------------------------------------------------------------
 # Specific gas constant of water vapour = universal R (8314.46 J/kmol/K) / molar mass (18.015 kg/kmol).
@@ -63,6 +68,12 @@ const THERMAL_CONDUCT_ROCK_W_MK: float = 2.5
 const THERMAL_CONDUCT_AIR_W_MK: float = 0.026
 const THERMAL_CONDUCT_WATER_W_MK: float = 0.60
 const ROCK_DENSITY_KG_M3: float = 2900.0
+## Volumetric thermal expansivity of rock, 1/K. Skinner 1966, GSA Memoir 97, puts rocks at 15-33e-6 /°C;
+## basalt carries no quartz (3.3e-5, Fei 1995) and sits at the low end of that span.
+const ROCK_VOLUME_EXPANSION_PER_K: float = 1.5e-5
+## Isothermal bulk modulus of the basalt mineral matrix, Pa. Adam & Otheim 2013, JGR Solid Earth 118, give
+## Voigt-Reuss-Hill mineral moduli of 80.1 and 84.1 GPa on two basalt samples.
+const ROCK_BULK_MODULUS_PA: float = 8.0e10
 const ROCK_SPECIFIC_HEAT_J_KGK: float = 840.0
 const VOL_HEAT_CAP_ROCK_J_M3K: float = ROCK_DENSITY_KG_M3 * ROCK_SPECIFIC_HEAT_J_KGK
 const VOL_HEAT_CAP_AIR_J_M3K: float = AIR_DENSITY_KG_M3 * AIR_SPECIFIC_HEAT_J_KGK
@@ -98,7 +109,6 @@ const ALBEDO_OCEAN: float = 0.06
 const ALBEDO_BARE_GROUND: float = 0.15
 const ALBEDO_SNOW_ICE: float = 0.65
 
-# O2 mass in a cubic metre of ambient air, kg/m^3.
 const AMBIENT_O2_DENSITY_KG_M3: float = 0.2731
 
 # --- COMBUSTION -------------------------------------------------------------------------------------------
@@ -172,6 +182,12 @@ const MOLAR_MASS_SIO2_KG_MOL: float = 0.0600838      # SiO2    28.085 + 2*15.999
 const MOLAR_MASS_CACO3_KG_MOL: float = 0.1000872     # CaCO3   40.078 + 12.011 + 3*15.9994
 const QUARTZ_DENSITY_KG_M3: float = 2650.0           # alpha-quartz, 2.65 g/cm^3
 const CALCITE_DENSITY_KG_M3: float = 2710.0          # calcite, 2.71 g/cm^3
+## Volumetric thermal expansivity at 300 K, 1/K (Fei 1995, AGU Reference Shelf 2:29).
+const QUARTZ_VOLUME_EXPANSION_PER_K: float = 3.3e-5
+const CALCITE_VOLUME_EXPANSION_PER_K: float = 1.4e-5
+## Adiabatic bulk modulus of alpha-quartz, Pa (Bass 1995, AGU Reference Shelf 2:45). Calcite has no
+## companion here: the single-crystal C_ij are published but no aggregate modulus was found to cite.
+const QUARTZ_BULK_MODULUS_PA: float = 3.78e10
 
 # --- STANDARD-STATE THERMOCHEMISTRY, 298.15 K and 1 bar (Robie & Hemingway 1995; CODATA for CO2) -------------
 # Formation enthalpy from the elements and standard molar entropy, per substance. A reaction's dG is derived
@@ -200,6 +216,10 @@ const DECARBONATION_TEMP_C: float = CALCITE_QUARTZ_DECARB_ENTHALPY_J_MOL \
 const WATER_DENSITY_0C_KG_M3: float = 999.84
 const ICE_DENSITY_KG_M3: float = 916.7
 const ICE_FREEZE_EXPANSION: float = 0.0907          # 999.84/916.7 - 1
+## Volumetric thermal expansivity of ice Ih near 265 K, 1/K (Röttger et al. 1994, Acta Cryst B50:644).
+const ICE_VOLUME_EXPANSION_PER_K: float = 1.6e-4
+## Isothermal bulk modulus of ice Ih at 273 K, Pa (Neumeier 2018, J. Phys. Chem. Ref. Data 47:033101).
+const ICE_BULK_MODULUS_PA: float = 8.4e9
 
 const ROCK_POROSITY_NEAR_SURFACE: float = 0.05
 
