@@ -19,7 +19,8 @@ var _cc: int = 0
 var _depth: int = DEPTH
 var _failures: Array = []
 var _checks: int = 0
-## Per-arm volume-weighted drift, in percent. REPORTED, never asserted — see `_note_volume`.
+## Per-arm volume-weighted drift, in percent — the same quantity the assertions gate on, published so the
+## magnitude is visible rather than only pass/fail.
 var _volume_notes: Dictionary = {}
 
 
@@ -37,6 +38,7 @@ func _ready() -> void:
 	_expect(bool(v.get("ok", false)), "grid.validate", 1.0, 1.0 if bool(v.get("ok", false)) else 0.0)
 	_expect(bool(v.get("shells_uniform", false)), "grid.uniform_by_default", 1.0,
 		1.0 if bool(v.get("shells_uniform", false)) else 0.0)
+	_check_cell_volume()
 
 	_check_uniform_identity()
 	_check_two_pass(GRAVITY_FLOW, "gravity_flow", _pc_gravity())
@@ -92,20 +94,29 @@ func _read(rid: RID) -> PackedFloat32Array:
 	return _rd.buffer_get_data(rid).to_float32_array()
 
 
-func _sum(a: PackedFloat32Array, solid: PackedFloat32Array) -> float:
-	var t: float = 0.0
-	for i in a.size():
-		t += a[i]
-	return t
+## The channels are fill fractions, so MATTER is the sum of channel*volume. That is the only total worth
+## asserting: the bare sum is conserved by an operator that moves the wrong amount of matter.
+func _sum(a: PackedFloat32Array) -> float:
+	return _volume_weighted(a)
 
 
-## The kernels conserve the raw fill-fraction sum by construction. Weighted by each cell's own volume the
-## same transfer moves a different amount of matter than it delivers, because a radial neighbour is a
-## different size. That is a physics decision, not a kernel bug, so it is recorded rather than failed.
 func _note_volume(label: String, before_arr: PackedFloat32Array, after_arr: PackedFloat32Array) -> void:
 	var b: float = _volume_weighted(before_arr)
 	var a: float = _volume_weighted(after_arr)
 	_volume_notes[label] = snappedf(100.0 * (a - b) / maxf(absf(b), 1e-9), 0.0001)
+
+
+## The solid angles must close the sphere, or every volume derived from them is wrong by the same factor.
+func _check_cell_volume() -> void:
+	var v: Dictionary = _grid.validate()
+	var omega: float = float(v.get("omega_total", 0.0))
+	_expect(absf(omega - TAU * 2.0) < 1e-4, "grid.omega_closes_sphere", TAU * 2.0, omega)
+	var vol: PackedFloat32Array = _grid.cell_volumes()
+	_expect(vol.size() == _cc, "grid.cell_volumes_sized", float(_cc), float(vol.size()))
+	var lo: float = INF
+	for i in vol.size():
+		lo = minf(lo, vol[i])
+	_expect(lo > 0.0, "grid.cell_volumes_positive", 1.0, 1.0 if lo > 0.0 else 0.0)
 
 
 func _expect(ok: bool, what: String, want: float, got: float) -> void:
@@ -125,7 +136,7 @@ func _check_two_pass(path: String, label: String, pc_base: PackedByteArray) -> v
 	var pipe: RID = _rd.compute_pipeline_create(shader)
 	var mass: PackedFloat32Array = _seed_mass()
 	var solid: PackedFloat32Array = _zeros(_cc)
-	var before: float = _sum(mass, solid)
+	var before: float = _sum(mass)
 
 	var b_in: RID = _buf(mass)
 	var b_out: RID = _buf(_zeros(_cc))
@@ -154,9 +165,9 @@ func _check_two_pass(path: String, label: String, pc_base: PackedByteArray) -> v
 		_rd.sync()
 
 	var out_arr: PackedFloat32Array = _read(b_out)
-	var after: float = _sum(out_arr, solid)
+	var after: float = _sum(out_arr)
 	var rel: float = absf(after - before) / maxf(before, 1e-9)
-	_expect(rel <= TOLERANCE, label + ".mass_conserved", before, after)
+	_expect(rel <= TOLERANCE, label + ".matter_conserved", before, after)
 	_note_volume(label, mass, out_arr)
 
 
@@ -175,7 +186,7 @@ func _check_tracer(wind_m_s: float, with_solid: bool, tag: String, vy_m_s: float
 		for c in _cc:
 			if (c % _depth) < 2:
 				solid[c] = 1.0
-	var before: float = _sum(mass, solid)
+	var before: float = _sum(mass)
 
 	var b_in: RID = _buf(mass)
 	var b_out: RID = _buf(_zeros(_cc))
@@ -210,7 +221,7 @@ func _check_tracer(wind_m_s: float, with_solid: bool, tag: String, vy_m_s: float
 		_grid.link_partner.to_byte_array())
 	var uset: RID = _uset(shader, [[0, b_in], [1, b_out], [2, b_dep], [3, b_solid],
 		[4, b_vx], [5, b_vy], [6, b_vz], [15, b_nbr], [16, b_ltan], [17, b_part2],
-		[39, _shell_buf()]])
+		[39, _shell_buf()], [40, _cvol_buf()]])
 	var groups: int = int(ceil(float(_cc) / 64.0))
 	var cl: int = _rd.compute_list_begin()
 	_rd.compute_list_bind_compute_pipeline(cl, pipe)
@@ -222,9 +233,9 @@ func _check_tracer(wind_m_s: float, with_solid: bool, tag: String, vy_m_s: float
 	_rd.sync()
 
 	var out_arr: PackedFloat32Array = _read(b_out)
-	var after: float = _sum(out_arr, solid)
+	var after: float = _sum(out_arr)
 	var rel: float = absf(after - before) / maxf(before, 1e-9)
-	_expect(rel <= TOLERANCE, "tracer_transport.mass_conserved." + tag, before, after)
+	_expect(rel <= TOLERANCE, "tracer_transport.matter_conserved." + tag, before, after)
 	_note_volume(tag, mass, out_arr)
 
 
@@ -234,9 +245,9 @@ func _binds(label: String, b_in: RID, b_out: RID, b_send: RID, b_solid: RID, b_t
 	if label == "erosion_transport":
 		# 0=susp_in 1=susp_out 2=water 3=solid 5=send 15=nbr
 		return [[0, b_in], [1, b_out], [2, b_temp], [3, b_solid], [5, b_send], [15, b_nbr],
-			[17, b_part]]
+			[17, b_part], [40, _cvol_buf()]]
 	return [[0, b_in], [1, b_out], [2, b_send], [3, b_solid], [5, b_temp], [15, b_nbr], [16, b_larc],
-		[17, b_part], [39, _shell_buf()]]
+		[17, b_part], [39, _shell_buf()], [40, _cvol_buf()]]
 
 
 ## Run the operator N times, alternating in/out the way the driver's ping-pong does, and check the total
@@ -253,7 +264,7 @@ func _check_tracer_steps(n: int, wind_m_s: float, vy_m_s: float, with_solid: boo
 		for c in _cc:
 			if (c % _depth) < 2:
 				solid[c] = 1.0
-	var before: float = _sum(mass, solid)
+	var before: float = _sum(mass)
 
 	var half: Array = [_buf(mass), _buf(_zeros(_cc))]
 	var b_dep: RID = _buf(_zeros(_cc))
@@ -272,6 +283,7 @@ func _check_tracer_steps(n: int, wind_m_s: float, vy_m_s: float, with_solid: boo
 	var b_part: RID = _rd.storage_buffer_create(_grid.link_partner.to_byte_array().size(),
 		_grid.link_partner.to_byte_array())
 	var b_shell: RID = _shell_buf()
+	var b_cvol: RID = _cvol_buf()
 
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(36)
@@ -290,7 +302,8 @@ func _check_tracer_steps(n: int, wind_m_s: float, vy_m_s: float, with_solid: boo
 	for step in n:
 		var back: int = 1 - live
 		var uset: RID = _uset(shader, [[0, half[live]], [1, half[back]], [2, b_dep], [3, b_solid],
-			[4, b_vx], [5, b_vy], [6, b_vz], [15, b_nbr], [16, b_ltan], [17, b_part], [39, b_shell]])
+			[4, b_vx], [5, b_vy], [6, b_vz], [15, b_nbr], [16, b_ltan], [17, b_part], [39, b_shell],
+			[40, b_cvol]])
 		var cl: int = _rd.compute_list_begin()
 		_rd.compute_list_bind_compute_pipeline(cl, pipe)
 		_rd.compute_list_bind_uniform_set(cl, uset, 0)
@@ -299,7 +312,7 @@ func _check_tracer_steps(n: int, wind_m_s: float, vy_m_s: float, with_solid: boo
 		_rd.compute_list_end()
 		_rd.submit()
 		_rd.sync()
-		var now: float = _sum(_read(half[back]), solid)
+		var now: float = _sum(_read(half[back]))
 		var rel: float = absf(now - before) / maxf(before, 1e-9)
 		if rel > TOLERANCE:
 			_checks += 1
@@ -350,9 +363,13 @@ func _shell_buf() -> RID:
 	return _buf(_grid.shell_table())
 
 
+## Per-cell volume as the kernels see it. Rebuilt per grid, for the same reason as the shell table.
+func _cvol_buf() -> RID:
+	return _buf(_grid.cell_volumes())
+
+
 ## GRADED SHELLS. A gather that conserves at constant spacing can still leak when the radial runs differ, so
-## every transport arm is re-run on a profile whose thickest shell is 4x its thinnest. It also reports the
-## VOLUME-WEIGHTED total: the channels are fill fractions, so a conserved fraction is not conserved matter.
+## every transport arm is re-run on a profile whose thickest shell is 4x its thinnest.
 func _check_graded_grid() -> void:
 	var small_grid: RefCounted = _grid
 	var small_cc: int = _cc
@@ -384,13 +401,12 @@ func _check_graded_grid() -> void:
 	_depth = small_depth
 
 
-## Sum of the channel weighted by each cell's own volume. The kernels conserve the UNWEIGHTED sum; this is
-## what a conserved substance would have to hold, and the gap between them is reported, never asserted.
+## Sum of the channel weighted by each cell's own volume — the amount of matter present.
 func _volume_weighted(a: PackedFloat32Array) -> float:
 	var t: float = 0.0
-	var vol: PackedFloat32Array = _grid.shell_vol
+	var vol: PackedFloat32Array = _grid.cell_volumes()
 	for i in a.size():
-		t += a[i] * vol[i % _depth]
+		t += a[i] * vol[i]
 	return t
 
 

@@ -2,6 +2,7 @@
 #version 450
 
 #include "neighbours.glsli"
+#include "cellvol.glsli"
 
 // already exists (M3, a constant per-step fraction, which is what a constant Stokes settling velocity looks
 
@@ -104,7 +105,8 @@ void main() {
 	// Credit the OPPOSITE slot, `d ^ 1`. These were six unrolled lines pairing 0<->5, 1<->2, 3<->4, which is
 	for (uint d = 0u; d < N_SLOTS; ++d) {
 		int pi = partner[base + d];
-		if (pi >= 0) { inflow += send[uint(pi)]; }
+		nb = nbr[base + d];
+		if (pi >= 0 && nb >= 0) { inflow += send[uint(pi)] * vol_ratio(uint(nb), gidx); }
 	}
 
 	float value = susp_in[gidx] - own_out + inflow;

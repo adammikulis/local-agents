@@ -21,13 +21,14 @@ const NON_SLOT_CONSTS: PackedStringArray = [
 
 ## energy: a reaction that releases or absorbs heat needs an enthalpy term, which is a different mechanism
 static func driver_only() -> PackedInt32Array:
-	return PackedInt32Array([DefsScript.TEMP, DefsScript.WINDSPEED, DefsScript.LIGHT, DefsScript.FIRE])
+	return PackedInt32Array([DefsScript.TEMP, DefsScript.WINDSPEED, DefsScript.LIGHT, DefsScript.FIRE,
+		DefsScript.DISCHARGE])
 
 
 
 const SLOT_SUBSTANCE: Dictionary = {
 	1: "h2o", 2: "h2o", 12: "h2o", 19: "h2o", 21: "h2o",        # WATER MOISTURE SNOW SOIL_ROOT SOIL_TOP
-	3: "o2", 4: "co2",
+	3: "o2", 4: "co2", 26: "n2",
 	11: "cellulose", 7: "cellulose", 8: "cellulose", 5: "cellulose",  # BIOMASS DETRITUS FUNGUS FUEL
 	9: "fixed_n",                                                 # FERT
 	10: "silicate", 17: "silicate", 23: "silicate", 13: "silicate", 14: "silicate", 15: "silicate",
@@ -71,7 +72,7 @@ static func unit_ratio(slot: int, ref_slot: int) -> float:
 ## cell), so counting both would count the same water twice.
 const INVENTORY_CHANNELS: Dictionary = {
 	"water": 1, "moisture": 2, "snow": 12, "soil": 1,
-	"o2": 3, "co2": 4,
+	"o2": 3, "co2": 4, "n2": 26,
 	"biomass": 11, "detritus": 7, "fungus": 8, "fuel": 5, "fert": 9,
 	"lava": 10, "rock_fill": 17, "sediment": 13, "dust": 14, "susp": 15,
 	"carbonate": 24, "silica": 25,

@@ -41,6 +41,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var larc_rid: RID = bufs.get("link_arc", RID())
 	var partner_rid: RID = bufs.get("link_partner", RID())
 	var shell_rid: RID = bufs.get("shell", RID())
+	var cvol_rid: RID = bufs.get("cell_vol", RID())
 	var temp_pair: Array = bufs.get("temp", [RID(), RID()])
 
 	_sets = []
@@ -53,7 +54,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			_sets[mi][p] = _build_set(_flow_shader, [
 				[0, pair[p]], [1, pair[back]], [2, _send], [3, solid_rid],
 				[5, temp_pair[p]], [15, nbr_rid], [16, larc_rid], [17, partner_rid],
-				[39, shell_rid],
+				[39, shell_rid], [40, cvol_rid],
 			])
 
 

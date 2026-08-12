@@ -128,7 +128,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			+ shared_carriers)
 		# magma: 0 = lava (BACK, rw), 1 = scratch (private), 2 = temp (BACK, carry-heat), 3 = solid, 15 = nbr.
 		_magma_set[p] = _make_set(rd, _magma_shader, [
-			[0, lava_back], [1, _scratch], [2, temp_back], [3, solid], [15, nbr]])
+			[0, lava_back], [1, _scratch], [2, temp_back], [3, solid], [15, nbr],
+			[40, bufs["cell_vol"]]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:

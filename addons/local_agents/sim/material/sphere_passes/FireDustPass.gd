@@ -43,6 +43,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	# dust kernels read link directions from here rather than assuming a slot is an axis.
 	var ltan: RID = bufs["link_tan"]
 	var shell: RID = bufs["shell"]
+	var cvol: RID = bufs["cell_vol"]
 
 	var sediment: Array = bufs["sediment"]
 	var dust: Array = bufs["dust"]
@@ -54,7 +55,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 		_transport_set[p] = _build_set(rd, _transport_shader, [
 			[0, dust[p]], [1, dust[back]], [2, sediment[back]], [3, solid],
 			[4, vel_x], [5, vel_y], [6, vel_z], [15, nbr], [17, partner_rid], [16, ltan],
-			[39, shell]])
+			[39, shell], [40, cvol]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:

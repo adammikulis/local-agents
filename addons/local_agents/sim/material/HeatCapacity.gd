@@ -98,9 +98,9 @@ static func field(ch: Dictionary, cell_count: int) -> PackedFloat64Array:
 	return out
 
 
-## The field's total heat capacity BY SUBSTANCE, J/m3K summed over cells (multiply by the cell volume for
-## J/K). This lives here rather than in the ledger because it is the same model read a different way: a
-static func legs(ch: Dictionary, cell_count: int) -> Dictionary:
+## The field's total heat capacity BY SUBSTANCE, J/K: each cell's fill fraction times its own volume, so a
+## graded or gnomonically distorted grid is counted correctly. Same model as `field()`, read a different way:
+static func legs(ch: Dictionary, cell_count: int, vol: PackedFloat32Array) -> Dictionary:
 	var phi_a = ch.get("porosity")
 	var have_phi: bool = phi_a is PackedFloat32Array and phi_a.size() >= cell_count
 	var groups: Array = [["silicate", SILICATE, LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K],
@@ -120,20 +120,23 @@ static func legs(ch: Dictionary, cell_count: int) -> Dictionary:
 		if ma is PackedFloat32Array and ma.size() >= cell_count:
 			for c in cell_count:
 				var phi: float = clampf(phi_a[c], 0.0, 1.0) if have_phi else 0.0
-				matrix_acc += clampf(ma[c], 0.0, 1.0) * (1.0 - phi)
+				matrix_acc += clampf(ma[c], 0.0, 1.0) * (1.0 - phi) * vol[c]
 	for g in groups:
 		var acc: float = 0.0
 		for name in g[1]:
 			var a = ch.get(name)
 			if a is PackedFloat32Array and a.size() >= cell_count:
 				for c in cell_count:
-					acc += clampf(a[c], 0.0, 1.0)
+					acc += clampf(a[c], 0.0, 1.0) * vol[c]
 		if g[0] == "silicate":
 			acc += matrix_acc
 		out[g[0]] = acc * g[2]
 		occupied += acc
-	# Air is the remainder of the grid, floored at zero per cell the same way `mix` floors it.
-	out["air"] = maxf(0.0, float(cell_count) - occupied) * LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
+	# Air is the remainder of the grid VOLUME, floored at zero the same way `mix` floors it per cell.
+	var span: float = 0.0
+	for c in cell_count:
+		span += vol[c]
+	out["air"] = maxf(0.0, span - occupied) * LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
 	return out
 
 

@@ -56,6 +56,30 @@ static func table() -> Dictionary:
 
 		# --- THE ATMOSPHERE'S GASES -------------------------------------------------------------------------
 		# Stored as masses like everything else. Their ratios in the seeded air are mole fractions of a
+		# `density` for a GAS is the mass of it in a cubic metre of ambient air, not its condensed density —
+		# that is what makes one channel unit "the N2 in a cell of air", the same convention o2 and co2 use.
+		# `density_solid` is therefore omitted: with an ambient-air density the Clapeyron slope in melt_c_at()
+		# would be meaningless, and omitting it makes the slope exactly zero instead of wrong.
+		"n2": {
+			"formula": {"N": 2.0},
+			"molar_mass": PC.MOLAR_MASS_N2_KG_MOL,
+			"atomisation_j_mol": PC.ATOMISATION_N2_J_MOL,
+			"entropy_gas_j_molk": PC.ENTROPY_N2_GAS_J_MOLK,
+			"density": PC.AMBIENT_O2_DENSITY_KG_M3 * (PC.MOLAR_MASS_N2_KG_MOL / PC.MOLAR_MASS_O2_KG_MOL),
+			"specific_heat": PC.N2_LIQUID_SPECIFIC_HEAT_J_KGK,
+			"specific_heat_gas": PC.N2_GAS_SPECIFIC_HEAT_J_KGK,
+			"melt_c": PC.N2_TRIPLE_T_C,
+			"boil_c": PC.N2_BOIL_C,
+			"boil_ref_p_pa": PC.STANDARD_PRESSURE_PA,
+			"triple_t_c": PC.N2_TRIPLE_T_C,
+			"triple_p_pa": PC.N2_TRIPLE_P_PA,
+			"critical_t_c": PC.N2_CRITICAL_T_C,
+			"critical_p_pa": PC.N2_CRITICAL_P_PA,
+			"latent_fusion_j_kg": PC.LATENT_HEAT_FUSION_N2_J_KG,
+			"latent_vaporisation_j_kg": PC.LATENT_HEAT_VAPORISATION_N2_J_KG,
+			"latent_vaporisation_ref_t_c": PC.N2_BOIL_C,
+			"conductivity": PC.THERMAL_CONDUCT_N2_GAS_W_MK,
+		},
 		"o2": {
 			"formula": {"O": 2.0},
 			"molar_mass": PC.MOLAR_MASS_O2_KG_MOL,

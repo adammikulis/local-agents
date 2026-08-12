@@ -43,6 +43,9 @@ const AIR_CELL_UNIT: float = 1.0
 # no longer derives from O2, or zeroing oxygen would silently take the carbon with it.
 const O2_AMBIENT: float = 0.0
 const CO2_AMBIENT: float = AIR_CELL_UNIT * (LAPhysical.AIR_MOLE_FRAC_CO2 / LAPhysical.AIR_MOLE_FRAC_O2)
+# N2 IS NOT A PRODUCT OF LIFE. It is what a degassed rocky planet's atmosphere is mostly made of, and it is
+# the reservoir lightning fixation draws on. Same mole-ratio convention as CO2 above.
+const N2_AMBIENT: float = AIR_CELL_UNIT * (LAPhysical.AIR_MOLE_FRAC_N2 / LAPhysical.AIR_MOLE_FRAC_O2)
 # ICE_DEPTH = a thick pack that reads as glacial ice (the deep end of the same channel — no separate ice buffer).
 const SNOW_PRESENT: float = 1.9e-4
 const ICE_DEPTH: float = 0.5              # ~8 m water equivalent = a real glacial thickness, not a snowfall
@@ -75,6 +78,7 @@ var _fire: PackedFloat32Array = PackedFloat32Array()     # burning intensity per
 var _o2: PackedFloat32Array = PackedFloat32Array()       # atmospheric oxygen level per cell (1.0 = ambient)
 # --- Emergent CARBON DIOXIDE (LAMaterialGas3D, second channel): a per-cell CO₂ level seeded to a trace ~0.
 var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ level per cell (0 = clean air)
+var _n2: PackedFloat32Array = PackedFloat32Array()       # atmospheric N₂ per cell (seed N2_AMBIENT)
 # --- Emergent DECOMPOSER loop (kernels3d/fungus_sphere3d.glsl + the decompose reaction record; the old
 # --- SOIL WATER / water table (LASoilPass / soil_sphere3d): water held in the REGOLITH band, the top few
 var _soil: PackedFloat32Array = PackedFloat32Array()     # water stored in the ground per cell (0 = bone dry)
@@ -358,6 +362,9 @@ func _alloc_channels() -> void:
 	_co2 = PackedFloat32Array()
 	_co2.resize(_cell_count)
 	_co2.fill(CO2_AMBIENT)
+	_n2 = PackedFloat32Array()
+	_n2.resize(_cell_count)
+	_n2.fill(N2_AMBIENT)
 	# Detritus + fungus start empty; carcasses/ash deposit detritus, fungus grows on it (decomposer loop).
 	_detritus = PackedFloat32Array()
 	_detritus.resize(_cell_count)

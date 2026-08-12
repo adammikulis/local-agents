@@ -72,6 +72,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var vel_y_rid: RID = _single(bufs, "vel_y")
 	var ltan_rid: RID = _single(bufs, "link_tan")
 	var shell_rid: RID = _single(bufs, "shell")
+	var cvol_rid: RID = _single(bufs, "cell_vol")
 	var detritus_rid: RID = _single(bufs, "detritus")
 	var fungus_fert_rid: RID = _single(bufs, "fungus_fert")  # per-cell fertility scratch (written by ReactionsPass' decompose record, reduced by fungus_fert)
 
@@ -95,13 +96,13 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_scent_transport_set[p] = _build_set(_scent_transport_shader, [
 			[0, scent_pair[p]], [1, scent_pair[back]], [2, scent_pair[back]], [3, solid_rid],
 			[4, vel_x_rid], [5, vel_y_rid], [6, vel_z_rid], [15, nbr_rid], [17, partner_rid], [16, ltan_rid],
-			[39, shell_rid],
+			[39, shell_rid], [40, cvol_rid],
 		])
 
 		_scent_fert_set[p] = _build_set(_scent_fert_shader, [
 			[0, fert_pair[p]],       # FertIn  = live fertility
 			[1, fert_pair[back]],    # FertOut = back fertility (fungus_fert then adds into THIS)
-			[15, nbr_rid], [17, partner_rid],
+			[15, nbr_rid], [17, partner_rid], [40, cvol_rid],
 		])
 
 		# Decompose chemistry moved to ReactionsPass → this kernel no longer binds CO2/O2 or writes fert scratch.
@@ -112,14 +113,14 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[5, temp_pair[p]],       # Temp  (live, read)
 			[6, moisture_pair[p]],   # Moisture = the unified airborne-H₂O channel (live, read)
 			[8, solid_rid],          # Solid   (7 = Fire is gone; the gap is deliberate)
-			[15, nbr_rid], [17, partner_rid],
+			[15, nbr_rid], [17, partner_rid], [40, cvol_rid],
 		])
 
 		_fungus_fert_set[p] = _build_set(_fungus_fert_shader, [
 			[0, fungus_fert_rid],    # FertCell = the per-cell scratch fungus just wrote
 			[1, fert_pair[back]],    # Fert = scent_fert's output (fert[back]), added into in place
 			[2, solid_rid],          # Solid
-			[15, nbr_rid], [17, partner_rid],
+			[15, nbr_rid], [17, partner_rid], [40, cvol_rid],
 		])
 
 		# Snow DEPOSITION (snowfall): freeze the CONDENSED moisture on cold ground → snow, mass-conserving. Reads

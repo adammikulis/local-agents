@@ -1,6 +1,8 @@
 class_name LAMaterialFieldQueries3D
 extends RefCounted
 
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
 ## LAMaterialFieldQueries3D: the READ-ONLY query accessors of the dense 3D MaterialField3D, factored
 
 # Salinity banding (depth-of-sea proxy) — own copies of the field's constants so fish behave identically.
@@ -108,10 +110,7 @@ func water_force_at(pos: Vector3) -> Vector3:
 
 
 func total_water() -> float:
-	var s: float = 0.0
-	for i in range(_f._cell_count):
-		s += _f._water[i]
-	return s
+	return CellVolScript.weighted(_f._water, CellVolScript.of(_f), _f._solid, false)
 
 
 # --- Temperature query -------------------------------------------------------
@@ -347,20 +346,10 @@ func wind() -> Vector2:
 # --- MINERAL conservation ledger (rock unification) — ONE conserved mineral, phases summed in one mass unit ----
 
 func sediment_total() -> float:
-	if _f._sediment.size() != _f._cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		sum += _f._sediment[c]
-	return sum
+	return CellVolScript.weighted(_f._sediment, CellVolScript.of(_f), _f._solid, false)
 
 func dust_total() -> float:
-	if _f._dust.size() != _f._cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		sum += _f._dust[c]
-	return sum
+	return CellVolScript.weighted(_f._dust, CellVolScript.of(_f), _f._solid, false)
 
 func avg_atmos_dust() -> float:
 	if _f._cell_count <= 0:
@@ -368,7 +357,12 @@ func avg_atmos_dust() -> float:
 	# Impact winter is a real consumer of the dust mirror, so it keeps its own channel hot. Without this the
 	if _f._gpu != null and _f._gpu.has_method("request_channel"):
 		_f._gpu.request_channel("dust")
-	return dust_total() / float(_f._cell_count)
+	# VOLUME-weighted mean: dust_total is now matter, so the divisor is the volume it is spread through.
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	var span: float = 0.0
+	for c in vol.size():
+		span += vol[c]
+	return dust_total() / span if span > 0.0 else 0.0
 
 
 
@@ -377,12 +371,7 @@ func avg_atmos_dust() -> float:
 ## can inject lava into a still-solid vent and lava lingers the instant a cell crosses to derived-solid; excluding
 ## those would leak the ledger. Lava physically exists wherever its mass is, regardless of the derived `solid` flag.
 func lava_total() -> float:
-	if _f._lava.size() != _f._cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		sum += _f._lava[c]
-	return sum
+	return CellVolScript.weighted(_f._lava, CellVolScript.of(_f), _f._solid, false)
 
 
 func molten_counts() -> Dictionary:
@@ -431,23 +420,13 @@ func rock_cells() -> int:
 ## the initial value == the old rock_cells() baseline), then conservingly traded with lava by M5 solidify (lava→rock),
 ## M6 melt and add_lava (rock→lava). Replaces the binary quantum so the solid boundary conserves continuously.
 func rock_fill_total() -> float:
-	if _f._rock_fill.size() != _f._cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		sum += _f._rock_fill[c]
-	return sum
+	return CellVolScript.weighted(_f._rock_fill, CellVolScript.of(_f), _f._solid, false)
 
 ## Waterborne SUSPENDED sediment over open cells — the "suspended" mineral phase. LIVE as of Stage D: erosion
 ## pickup scours bedrock into it and M3 SETTLE drops it back to loose sediment, so it now carries real transient
 ## mass mid-transport and MUST be counted or the ledger under-reports (rock_fill dropped, susp uncounted).
 func susp_total() -> float:
-	if _f._susp.size() != _f._cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		sum += _f._susp[c]
-	return sum
+	return CellVolScript.weighted(_f._susp, CellVolScript.of(_f), _f._solid, false)
 
 func mineral_total() -> float:
 	return rock_fill_total() + lava_total() + sediment_total() + dust_total() + susp_total()
@@ -458,13 +437,7 @@ func mineral_total() -> float:
 ## Total flammable fuel mass over every open cell — >0 once seeded; DROPS as a fire burns it to ash, recovers
 ## as biomass regrows it (the fuel seed module's refill). The spot check that combustion has fuel to ignite.
 func fuel_total() -> float:
-	if _f._fuel.size() != _f._cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		if _f._solid[c] == 0:
-			sum += _f._fuel[c]
-	return sum
+	return CellVolScript.weighted(_f._fuel, CellVolScript.of(_f), _f._solid, true)
 
 ## Peak burning intensity over the field (0 = nothing on fire; up to ~1 for a raging cell). >0 proves ignition.
 func fire_peak() -> float:

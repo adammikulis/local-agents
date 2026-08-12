@@ -523,6 +523,8 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `BEDROCK_BELOW` | 23 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `CARBONATE` | 24 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `SILICA` | 25 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `N2` | 26 | channel-slot TAG, not a quantity: it names the dinitrogen buffer the kernel binds | the slot block becomes a GDScript `enum` mirrored into the kernel, which is what this gate asks of every tag here |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `DISCHARGE` | 27 | channel-slot TAG, not a quantity: it names the lightning discharge stamp | same as `N2` above |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `CONST_FRAC` | 0 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `BILINEAR` | 1 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `EXCESS_OVER_THRESHOLD` | 2 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |

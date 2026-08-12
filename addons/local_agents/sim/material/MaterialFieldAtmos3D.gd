@@ -1,6 +1,8 @@
 class_name LAMaterialFieldAtmos3D
 extends RefCounted
 
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
 ## LAMaterialFieldAtmos3D: the ATMOSPHERE derivation of LAMaterialField3D, factored out of the extract-only
 ## vapor = min(moisture, sat(T)), condensed = max(0, moisture - sat(T)), and the condensed part reads as fog
 
@@ -62,12 +64,15 @@ func refresh_aggregates() -> void:
 	var cloud_n: int = 0
 	var fog_n: int = 0
 	var precip_n: int = 0
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if vol.size() != cell_count:
+		return
 	var total: float = 0.0
 	for i in range(cell_count):
 		if solid[i] != 0:
 			continue
 		var aw: float = moisture[i]
-		total += aw
+		total += aw * vol[i]
 		var cond: float = aw - _sat(temp[i])
 		if cond <= 0.0:
 			continue

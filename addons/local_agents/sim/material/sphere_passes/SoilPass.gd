@@ -30,6 +30,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var send_rid: RID = bufs.get("send", RID())
 	var nbr_rid: RID = bufs.get("nbr", RID())
 	var shell_rid: RID = bufs.get("shell", RID())
+	var cvol_rid: RID = bufs.get("cell_vol", RID())
 	var partner_rid: RID = bufs.get("link_partner", RID())
 	var regolith_rid: RID = bufs.get("regolith", RID())
 	var grain_rid: RID = bufs.get("grain", RID())
@@ -52,6 +53,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[9, dbg_rid],              # SoilDbg — per-leg budget probe (LAMaterialSphereGPU3D.SOIL_DBG_SLOTS)
 			[11, bufs["porosity"]],    # Porosity — phi, published for every other consumer of rock_fill
 			[15, nbr_rid], [17, partner_rid], [39, shell_rid],   # Neigh + shell tables
+			[40, cvol_rid],            # Per-cell volume (kernels3d/cellvol.glsli)
 		])
 
 

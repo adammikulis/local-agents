@@ -429,3 +429,30 @@ const FOLIAGE_FRACTION_OF_PLANT_MASS: float = 0.03
 
 const CANOPY_EXTINCTION_COEFF: float = 0.5
 
+# --- DINITROGEN -----------------------------------------------------------------------------------------
+# N2 is 78.084% of dry air by mole and was absent from the substance table entirely. Every value below is
+# from the NIST Chemistry WebBook (nitrogen, CAS 7727-37-9) unless another source is named.
+const N2_BOIL_C: float = -195.795                    # normal boiling point 77.355 K
+const N2_TRIPLE_T_C: float = -210.0                  # triple point 63.15 K
+const N2_TRIPLE_P_PA: float = 12520.0                # triple-point pressure 12.52 kPa
+const N2_CRITICAL_T_C: float = -146.958              # critical point 126.192 K
+const N2_CRITICAL_P_PA: float = 3.3958e6             # critical pressure 3.3958 MPa
+const VAP_ENTHALPY_N2_J_MOL: float = 5577.0          # dHvap at 77.355 K
+const FUS_ENTHALPY_N2_J_MOL: float = 710.0           # dHfus at the triple point (CRC Handbook, 97th ed.)
+const LATENT_HEAT_VAPORISATION_N2_J_KG: float = VAP_ENTHALPY_N2_J_MOL / MOLAR_MASS_N2_KG_MOL
+const LATENT_HEAT_FUSION_N2_J_KG: float = FUS_ENTHALPY_N2_J_MOL / MOLAR_MASS_N2_KG_MOL
+const MOLAR_HEAT_CAP_N2_GAS_J_MOLK: float = 29.124   # cp of the gas at 298.15 K, 1 bar
+const N2_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_N2_GAS_J_MOLK / MOLAR_MASS_N2_KG_MOL
+const N2_LIQUID_SPECIFIC_HEAT_J_KGK: float = 2042.0  # cp of the saturated liquid at 77.355 K
+const THERMAL_CONDUCT_N2_GAS_W_MK: float = 0.02583   # gas at 300 K, 1 bar
+const ENTROPY_N2_GAS_J_MOLK: float = 191.609         # standard molar entropy, CODATA Key Values
+
+# --- LIGHTNING NITROGEN FIXATION ------------------------------------------------------------------------
+# Schumann & Huntrieser 2007 (Atmos. Chem. Phys. 7:3823) put the global lightning NOx source at 5 Tg(N)/yr
+# (range 2-8) and quote a best estimate of 250 mol NO per flash; Christian et al. 2003 (JGR 108:4005,
+# OTD/LIS) give the global flash rate of 44 s^-1, and 5e12 g/yr / 14.0067 g/mol / (44 * SECONDS_PER_YEAR)
+# returns 257 mol N per flash, so the two are the same number. Per JOULE it is that divided by the energy
+# of one flash.
+const LIGHTNING_N_FIXED_MOL_PER_FLASH: float = 250.0
+const LIGHTNING_N_FIXED_MOL_PER_J: float = LIGHTNING_N_FIXED_MOL_PER_FLASH / LIGHTNING_FLASH_J
+

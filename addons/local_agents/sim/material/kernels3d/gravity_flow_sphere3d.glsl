@@ -29,6 +29,7 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 #include "shell.glsli"
+#include "cellvol.glsli"
 
 const float MAX_MASS = 1.0;
 const float MAX_COMPRESS = 0.02;
@@ -144,7 +145,8 @@ void main() {
 		// The slot that answers this link, resolved by LASphereGrid rather than computed here.
 		int pi = partner[base + d];
 		if (pi < 0) { continue; }
-		float f = send[uint(pi)];
+		// The donor's fill fraction is over ITS cell volume; carry the same matter into mine.
+		float f = send[uint(pi)] * vol_ratio(uint(m), gidx);
 		if (f > 0.0) {
 			inflow += f;
 			inflow_heat += f * temp[m];

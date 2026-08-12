@@ -33,6 +33,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var pos_rid: RID = bufs.get("pos", RID())
 	var nbr_rid: RID = bufs.get("nbr", RID())
 	var shell_rid: RID = bufs.get("shell", RID())
+	var cvol_rid: RID = bufs.get("cell_vol", RID())
 	var partner_rid: RID = bufs.get("link_partner", RID())
 	var plates_rid: RID = bufs.get("plates", RID())
 	var rock_rid: RID = bufs.get("rock_fill", RID())
@@ -45,11 +46,11 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	for p in 2:
 		_set_rock[p] = _build_set([
 			[0, rock_rid], [1, send_rid], [2, radial_rid], [3, pos_rid], [4, nbr_rid], [17, partner_rid],
-			[39, shell_rid], [5, plates_rid],
+			[39, shell_rid], [40, cvol_rid], [5, plates_rid],
 			[6, water_pair[p]], [7, rock_rid]])
 		_set_sed[p] = _build_set([
 			[0, sed_pair[p]], [1, send_rid], [2, radial_rid], [3, pos_rid], [4, nbr_rid], [17, partner_rid],
-			[39, shell_rid], [5, plates_rid],
+			[39, shell_rid], [40, cvol_rid], [5, plates_rid],
 			[6, water_pair[p]], [7, rock_rid]])
 
 

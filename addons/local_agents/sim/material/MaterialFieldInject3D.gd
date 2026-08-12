@@ -37,6 +37,13 @@ var _mantle_drawn: float = 0.0           # cumulative mass erupted out of it thi
 var _mantle_dry_calls: int = 0           # eruption attempts refused because the reservoir was empty
 var _flood_unsourced: int = 0            # below-sea crater cells left DRY because no live water was in reach
 
+# THE LIGHTNING DISCHARGE STAMP — charge units this step's return strokes drained, per cell. It is the
+# DISCHARGE reaction driver (LAReactionDefs), consumed by the reaction kernel in the step that uploads it and
+# cleared immediately after, so a struck cell fixes nitrogen once per strike rather than for ever.
+var _discharge: PackedFloat32Array = PackedFloat32Array()
+var _discharge_dirty: bool = false       # a strike wrote the stamp; upload it next step
+var _discharge_clear: bool = false       # the stamp was uploaded; upload the zeroed mirror once more
+
 signal splashed(world_pos: Vector3, strength: float)
 
 
@@ -328,14 +335,39 @@ func add_charge(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 func deplete_charge(world_pos: Vector3, radius: float, residual: float) -> float:
 	if _f._charge.size() != _f._cell_count:
 		return 0.0
+	if _discharge.size() != _f._cell_count:
+		_discharge = PackedFloat32Array()
+		_discharge.resize(_f._cell_count)
 	var cells: PackedInt32Array = _cells_within(world_pos, radius)
 	var drained: float = 0.0
 	for c in cells:
 		if _f._charge[c] > residual:
-			drained += _f._charge[c] - residual
+			var q: float = _f._charge[c] - residual
+			drained += q
+			_discharge[c] += q
 			_f._charge[c] = residual
+	if drained > 0.0:
+		_discharge_dirty = true
 	_f._charge_dirty = true
 	return drained
+
+
+## Push the discharge stamp to the GPU and consume it. Called once per field step by the sphere driver: the
+## reaction kernel reads it in the same step, and the following step uploads the zeroed mirror so no cell
+## keeps fixing nitrogen after its strike is over.
+func flush_discharge() -> void:
+	if _f == null or _f._gpu == null or not _f._gpu.has_method("set_field"):
+		return
+	if _discharge.size() != _f._cell_count:
+		return
+	if _discharge_dirty:
+		_f._gpu.set_field("discharge", _discharge)
+		_discharge.fill(0.0)
+		_discharge_dirty = false
+		_discharge_clear = true
+	elif _discharge_clear:
+		_f._gpu.set_field("discharge", _discharge)
+		_discharge_clear = false
 
 
 ## Gather the linear cell indices within `radius` world-units of `world_pos` (the centre cell always included).

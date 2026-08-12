@@ -2,6 +2,7 @@
 #version 450
 
 #include "neighbours.glsli"
+#include "cellvol.glsli"
 
 // CUBED-SPHERE GENERIC REACTION ENGINE (Phase B3 §3). ONE data-driven kernel that dissolves a pile of
 
@@ -45,6 +46,9 @@ layout(set = 0, binding = 28, std430) restrict buffer Carbonate { float carbonat
 layout(set = 0, binding = 29, std430) restrict buffer Silica { float silica[]; };        // SiO2 — the residue
 // Athy pore fraction (0 outside regolith). Declared HERE, with the other buffers, and not beside the
 layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
+layout(set = 0, binding = 30, std430) restrict buffer N2Buf { float n2[]; };              // dinitrogen, 78% of the air
+// Charge (channel units) a lightning return stroke drained from this cell this step. DRIVER ONLY.
+layout(set = 0, binding = 31, std430) restrict readonly buffer Discharge { float discharge[]; };
 
 // Slot enum — MUST match MaterialReactions3D.gd.
 #define TEMP     0
@@ -95,6 +99,8 @@ float sat_mass_frac(float t_c) {
 #define CARBONATE 24   // CaCO3, bound at 28 — where weathered carbon goes and where it comes back from
                        // when D1b runs backwards. Own-cell stock; nothing advects it.
 #define SILICA    25   // SiO2, bound at 29 — the weathering residue. Nothing weathers it further.
+#define N2        26   // dinitrogen, bound at 30 — the nitrogen reservoir lightning fixation draws on
+#define DISCHARGE 27   // DERIVED driver only, bound at 31 — charge units this cell's return stroke drained
 
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust (dust_loft parity)
 #define REGOLITH_CELLS 4    // rooting depth = the permeable regolith band (MUST match MaterialField3D.REGOLITH_CELLS)
@@ -199,7 +205,7 @@ float root_soil(uint i) {
 		if (c < 0 || regolith[c] == 0.0) {
 			break;
 		}
-		sum += soil[uint(c)];
+		sum += soil[uint(c)] * vol_ratio(uint(c), i);
 		if (solid[c] == 0.0) {
 			break;                          // an OPEN aquifer cell terminates the walk (see RACE-FREEDOM above)
 		}
@@ -253,7 +259,7 @@ float bedrock_below(uint i) {
 	if (d < 0 || solid[d] == 0.0) {
 		return 0.0;
 	}
-	return rock_fill[uint(d)];
+	return rock_fill[uint(d)] * vol_ratio(uint(d), i);
 }
 
 void bedrock_below_add(uint i, float v) {
@@ -261,7 +267,7 @@ void bedrock_below_add(uint i, float v) {
 	if (d < 0 || solid[d] == 0.0) {
 		return;
 	}
-	rock_fill[uint(d)] = max(0.0, rock_fill[uint(d)] + v);
+	rock_fill[uint(d)] = max(0.0, rock_fill[uint(d)] + v * vol_ratio(i, uint(d)));
 }
 
 // See the RC_* block above. Air, rock (bedrock plus whatever is molten) and liquid water by volume fraction.
@@ -289,11 +295,13 @@ float read_ch(int slot, uint i) {
 	if (slot == LIGHT)     return light_at(i);
 	if (slot == SOIL_ROOT) return root_soil(i);
 	if (slot == VAPOUR_DEFICIT) return sat_mass_frac(temp[i]) - moisture[i];
-	if (slot == SOIL_TOP) { int c = top_regolith(i); return (c < 0) ? 0.0 : soil[uint(c)]; }
+	if (slot == SOIL_TOP) { int c = top_regolith(i); return (c < 0) ? 0.0 : soil[uint(c)] * vol_ratio(uint(c), i); }
 	if (slot == OVERBURDEN) return overburden(i);
 	if (slot == BEDROCK_BELOW) return bedrock_below(i);
 	if (slot == CARBONATE) return carbonate[i];
 	if (slot == SILICA)    return silica[i];
+	if (slot == N2)        return n2[i];
+	if (slot == DISCHARGE) return discharge[i];
 	return 0.0;
 }
 
@@ -315,10 +323,11 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == LAVA)     { lava[i]      = max(0.0, lava[i]     + v); }
 	else if (slot == ROCK_FILL) { rock_fill[i] = max(0.0, rock_fill[i] + v); }  // may exceed 1.0 (accreted rock); clamp only at 0
 	else if (slot == SOIL_ROOT) { root_soil_draw(i, -v); }                     // roots draw water OUT of the column (v < 0)
-	else if (slot == SOIL_TOP)  { int c = top_regolith(i); if (c >= 0) { soil[uint(c)] = max(0.0, soil[uint(c)] + v); } }
+	else if (slot == SOIL_TOP)  { int c = top_regolith(i); if (c >= 0) { soil[uint(c)] = max(0.0, soil[uint(c)] + v * vol_ratio(i, uint(c))); } }
 	else if (slot == BEDROCK_BELOW) { bedrock_below_add(i, v); }               // weathering eats the outcrop it stands on
 	else if (slot == CARBONATE) { carbonate[i] = max(0.0, carbonate[i] + v); } // D1b credits, D1c debits
 	else if (slot == SILICA)    { silica[i]    = max(0.0, silica[i]    + v); }
+	else if (slot == N2)        { n2[i]        = max(0.0, n2[i]        + v); }
 }
 
 // Gate helpers reuse the exact neighbour tests proven in the dissolved kernels.

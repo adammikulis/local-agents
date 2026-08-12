@@ -4,9 +4,9 @@ extends RefCounted
 
 const PAIR_CHANNELS: PackedStringArray = [
 	"temp", "water", "moisture", "lava", "sediment", "fire", "dust",
-	"o2", "co2", "shock", "fungus", "susp", "fert", "soil", "air"]
+	"o2", "co2", "n2", "shock", "fungus", "susp", "fert", "soil", "air"]
 const SINGLE_CHANNELS: PackedStringArray = [
-	"solid", "fuel", "charge", "detritus", "biomass", "pressure",
+	"solid", "fuel", "charge", "discharge", "detritus", "biomass", "pressure",
 	"vel_x", "vel_y", "vel_z", "fungus_fert", "snow", "rock_fill",
 	"carbonate", "silica",
 	"porosity",
@@ -138,12 +138,17 @@ func setup(field) -> void:
 	# Per-shell radial geometry: thickness, centre radius, centre-to-centre runs. See kernels3d/shell.glsli.
 	var shell_bytes: PackedByteArray = _grid.shell_table().to_byte_array()
 	_bufs["shell"] = _rd.storage_buffer_create(shell_bytes.size(), shell_bytes)
+	# Per-cell volume. See kernels3d/cellvol.glsli: a channel is a fill fraction, so every transfer between
+	# two cells is scaled by their volume ratio.
+	var cvol_bytes: PackedByteArray = _grid.cell_volumes().to_byte_array()
+	_bufs["cell_vol"] = _rd.storage_buffer_create(cvol_bytes.size(), cvol_bytes)
 	_bufs["plates"] = _rd.storage_buffer_create(MAX_PLATES * PLATE_STRIDE * 4,
 		_zeros(MAX_PLATES * PLATE_STRIDE))
 
 	_seed("temp", field._temp)
 	_seed("o2", field._o2)
 	_seed("co2", field._co2)            # the atmosphere's carbon — finite, at Earth's measured mole fraction
+	_seed("n2", field._n2)              # the atmosphere's nitrogen — finite, at Earth's measured mole fraction
 	_seed("soil", field._soil)          # initial water table (regolith primed by _compute_regolith)
 	_seed_solid()
 	_seed_rock_fill()
@@ -152,9 +157,12 @@ func setup(field) -> void:
 	# The reaction table's flux-derived rates (evaporation and its kin) turn a real per-square-metre flux into a
 	# per-cell extent, which needs the cell HEIGHT. The table is baked once, so it gets the SURFACE shell's
 	# thickness — the shell those fluxes cross — not the column mean.
+	# `shell_dr` and `cell_size` are MODEL units — the same units LASphereGrid was built in — so they convert
+	# through METRES_PER_MODEL_UNIT, exactly as GasWindPass.dispatch converts `lat_size` for its Courant
+	# factor. Assigning them raw made every flux-derived rate in the reaction table wrong by that factor.
 	var surf_shell: int = _grid.shell_of(field.sea_level)
-	LAReactionDefs.cell_size_m = float(_grid.shell_dr[surf_shell]) if surf_shell >= 0 \
-		else float(_grid.cell_size)
+	var surf_dr: float = float(_grid.shell_dr[surf_shell]) if surf_shell >= 0 else float(_grid.cell_size)
+	LAReactionDefs.cell_size_m = surf_dr * LAPhysical.METRES_PER_MODEL_UNIT
 
 	# Load + set up the pass modules (skip any that fail to load — WIP-tolerant).
 	for path in PASS_SCRIPTS:
@@ -576,6 +584,12 @@ func move_field_sparse(src: String, src_cells: PackedInt32Array, amounts: Packed
 	var darr: PackedFloat32Array = PackedFloat32Array() if same else _rd.buffer_get_data(dbuf).to_float32_array()
 	if sarr.size() < _cc or (not same and darr.size() < _cc):
 		return 0.0
+	# A channel value is a fill fraction, so moving the same number between two cells of different volume
+	# moves a different amount of matter than it delivers. See kernels3d/cellvol.glsli.
+	var vol: PackedFloat32Array = _grid.cell_volumes() if _grid != null else PackedFloat32Array()
+	if vol.size() != _cc:
+		push_error("move_field_sparse: no per-cell volume table")
+		return 0.0
 	var moved: float = 0.0
 	var slo: int = _cc
 	var shi: int = -1
@@ -588,10 +602,12 @@ func move_field_sparse(src: String, src_cells: PackedInt32Array, amounts: Packed
 		var take: float = minf(maxf(amounts[i], 0.0), sarr[sc])
 		var dc: int = dst_cells[i]
 		var live_dst: bool = dc >= 0 and dc < _cc
+		var ratio: float = 1.0
 		if live_dst:
+			ratio = vol[sc] / maxf(vol[dc], 1e-30)
 			# Honour the destination's own ceiling by taking only what it can hold (never spill mass).
 			var held: float = sarr[dc] if same else darr[dc]
-			take = minf(take, maxf(0.0, dst_ceiling - held))
+			take = minf(take, maxf(0.0, dst_ceiling - held) / maxf(ratio, 1e-30))
 		if take <= 0.0:
 			continue
 		sarr[sc] -= take
@@ -599,11 +615,11 @@ func move_field_sparse(src: String, src_cells: PackedInt32Array, amounts: Packed
 		shi = maxi(shi, sc)
 		if live_dst:
 			if same:
-				sarr[dc] += take
+				sarr[dc] += take * ratio
 				slo = mini(slo, dc)
 				shi = maxi(shi, dc)
 			else:
-				darr[dc] += take
+				darr[dc] += take * ratio
 				dlo = mini(dlo, dc)
 				dhi = maxi(dhi, dc)
 		moved += take

@@ -2,6 +2,7 @@
 #version 450
 
 #include "neighbours.glsli"
+#include "cellvol.glsli"
 
 // field: one invocation per surface cell (dispatch over surf_count). The box kernel blurred toward its 4 lateral
 
@@ -18,8 +19,7 @@ layout(push_constant, std430) uniform Params {
 	float precip;
 } params;
 
-const float FERT_DECAY = 0.0015;
-const float FERT_RAIN_LEACH = 0.02;
+// Lateral TRANSFER fraction per link. The neighbour table is reciprocal, so this conserves.
 const float FERT_BLUR = 0.04;
 
 void main() {
@@ -27,18 +27,17 @@ void main() {
 	if (cell >= params.cell_count) {
 		return;
 	}
-	float leach = FERT_DECAY + params.precip * FERT_RAIN_LEACH;
 	float here = fert_in[cell];
 	float acc = 0.0;
 	int links = 0;
-	for (int d = 1; d < 5; d++) {
-		int nb = nbr[cell * N_SLOTS + uint(d)];
+	for (uint d = 0u; d < N_LATERAL_COUNT; ++d) {
+		int nb = nbr[cell * N_SLOTS + N_LAT0 + d];
 		if (nb >= 0) {
-			acc += FERT_BLUR * fert_in[uint(nb)];
+			acc += FERT_BLUR * fert_in[uint(nb)] * vol_ratio(uint(nb), cell);
 			links += 1;
 		}
 	}
 	acc += here * (1.0 - FERT_BLUR * float(links));
 
-	fert_out[cell] = max(0.0, acc * (1.0 - leach));
+	fert_out[cell] = max(0.0, acc);
 }

@@ -209,3 +209,36 @@ order is the order.
       order is also scrambled by the `atomicAdd` compaction in `cell_list_lava_sphere3d.glsl:63,69`, which is
       why two identical runs still differ in the last digits after the RNG was sealed. Needs the same
       ping-pong PAIR treatment every other transport kernel already has.
+
+## Lightning is structurally dead, so the abiotic nitrogen source has no trigger (2026-08-11)
+
+The N2 substance, the atmospheric seed and the lightning fixation record all exist and are verified working
+(stamping `discharge = 1.0` for one run drives `fert_total` off zero and the element balance holds). What
+does not work is the trigger.
+
+- [ ] **The charge channel cannot reach breakdown.** `charge_accum_sphere3d.glsl` carries `CHARGE_GAIN 8.0`,
+      `CHARGE_LEAK 0.05`, `CHARGE_LEAK_QUIET 0.4` against `MaterialCharge3D.BREAKDOWN 8.0` — all
+      dimensionless, none derived. 593 steps produce `charge_peak` 1.97e-12, twelve orders short, and 0
+      bolts. Real electrification is derivable and self-consistent: charge density in C/m3 from the
+      non-inductive graupel-ice mechanism, breakdown from Gauss's law as `E = rho * L / eps0` (1 nC/m3 over
+      1 km gives 113 kV/m, which lands inside the observed 150-400 kV/m initiation range). Give the channel
+      real units; the gain follows from published flash charge transfer and recovery time.
+- [ ] **Impact ionisation can never fire either.** `Meteor.gd:318` injects at most `min(4 + size*2.5, 9.0)`
+      charge; the GPU then applies `CHARGE_LEAK_QUIET 0.4` BEFORE `MaterialCharge3D.post_step()` scans, so
+      9.0 becomes 5.4 against a breakdown of 8.0. The comment beside it says a bolt follows. It cannot.
+      19 impacts in a 600-frame run produced 0 bolts.
+- [ ] **`MaterialFieldInject3D.add_heat_energy` creates energy by a factor of about 4.8e6.** It divides
+      joules by `LAHeatCapacity.cell() * _cell_size^3` where `_cell_size` is MODEL units (~8), not metres
+      (~1349). Every joule-based injection — lightning, meteors, lava — raises temperature by
+      `METRES_PER_MODEL_UNIT^3` too much. **This is a conservation violation and it is fixed, not deferred.**
+      It was left live on the reasoning that the correct volume makes a bolt raise its cells by ~3e-4 C and
+      so deletes lightning-ignited wildfire. That reasoning is backwards under this repo's own rule: a
+      correct fix is never withheld because broken code downstream disagrees with it. Fix the volume; if
+      wildfire ignition then needs a sub-grid channel mechanism, that is a separate piece of work, and its
+      absence is honest where a 4.8e6 energy source is not.
+- [ ] **No lightning rate can bootstrap a biosphere inside a 200-frame run, and none should be made to.**
+      One flash fixes ~250 mol N (Schumann & Huntrieser 2007), and 5 Tg N/yr against a ~125 Pg N soil pool
+      is 4e-5 per year — the same 25 000-year timescale it has on Earth. Either the fast-forward time scale
+      carries it, or an initial soil-N stock is declared as a genuine initial condition of a 4.5-Gyr-old
+      planet by the same argument that justifies seeding N2. **That is the maintainer's call and is not
+      taken here.**

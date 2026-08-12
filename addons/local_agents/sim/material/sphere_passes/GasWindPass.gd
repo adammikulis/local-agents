@@ -14,6 +14,9 @@ const EDDY_DIFFUSE: float = 0.02
 const GASES: Array = [
 	{"channel": "o2", "contrast": 0.10460},    # O2  31.998 vs dry air 28.968
 	{"channel": "co2", "contrast": 0.51927},   # CO2 44.010 vs dry air 28.968
+	# N2 is LIGHTER than dry air (28.013 vs 28.968), so its contrast is negative and it rises.
+	{"channel": "n2", "contrast": (LAPhysical.MOLAR_MASS_N2_KG_MOL - LAPhysical.MOLAR_MASS_DRY_AIR_KG_MOL)
+		/ LAPhysical.MOLAR_MASS_DRY_AIR_KG_MOL},
 ]
 const CHARGE_ACCUM_PATH: String = "res://addons/local_agents/sim/material/kernels3d/charge_accum_sphere3d.glsl"
 
@@ -88,6 +91,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# The wind kernels store momentum in that frame, so they read directions from here, never from slot order.
 	var ltan: RID = bufs["link_tan"]
 	var shell: RID = bufs["shell"]
+	var cvol: RID = bufs["cell_vol"]
 
 	_gas_sets = []
 	for _gi in GASES.size():
@@ -110,7 +114,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			# Binding one buffer to both is undefined behaviour whether or not the second is written.
 			_gas_sets[gi][p] = _uset(_gas_shader, [[0, ch[p]], [1, ch[back]], [2, _dump], [3, solid],
 					[4, vx], [5, vy], [6, vz], [15, nbr], [17, partner_rid], [16, ltan],
-					[39, shell]])
+					[39, shell], [40, cvol]])
 		# charge_accum: 0=Charge(single, in place), 1=TempIn(live), 2=CloudIn(live), 3=VelY, 4=Solid.
 		#  slower clock than a near one. Deleted — see MaterialSphereGPU3D.gd's header note.)
 		_ch_set[p] = _uset(_ch_shader, [[0, charge], [1, temp[p]], [2, cloud[p]], [3, vy], [4, solid]])

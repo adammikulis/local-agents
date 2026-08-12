@@ -2,6 +2,7 @@
 #version 450
 
 #include "neighbours.glsli"
+#include "cellvol.glsli"
 
 // cell sums the rain aimed AT it — its own rain when it has no open cell DOWN, plus the
 
@@ -48,7 +49,7 @@ void main() {
 	if (above >= 0) {
 		float r_above = rain[above];
 		if (r_above > 0.0) {
-			add += r_above;
+			add += r_above * vol_ratio(uint(above), g);
 		}
 	}
 

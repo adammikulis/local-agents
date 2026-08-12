@@ -1,6 +1,8 @@
 class_name LAMaterialFieldEnergyLedger3D
 extends RefCounted
 
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
 ## ~11 W/m² of a ~150 W/m² gap, and it WARMED 15 °C → 30 °C over a run the radiative books say should have
 ## cooled 47 °C. About 140 W/m² enters from terms nothing books. This is the gauge that can see them.
 ##   energy_stock = Σ over EVERY cell, rock and void, of  rc(cell) * cell_size³ * (T + 273.15)   [joules]
@@ -113,26 +115,30 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	}
 	var rc_all: PackedFloat64Array = LAHeatCapacity.field(ch, cc)
 	var cap_live: Dictionary = LAHeatCapacity.live_map(ch, cc)
+	# Each cell carries its OWN volume: rc is J/m3K, so the stock is rc*T*volume summed cell by cell.
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if vol.size() != cc:
+		return out
 	for c in cc:
 		var rc: float = rc_all[c]
 		if solid[c] != 0 and c % depth == 0:
 			shell_solid += 1
 		var tk: float = temp[c] + LAPhysical.KELVIN_OFFSET
-		rc_sum_t += rc * tk
+		var w: float = vol[c]
+		rc_sum_t += rc * tk * w
 		if have_prev:
-			d_heat += _prev_rc[c] * (tk - _prev_tk[c])
-			d_cap += (rc - _prev_rc[c]) * tk
+			d_heat += _prev_rc[c] * (tk - _prev_tk[c]) * w
+			d_cap += (rc - _prev_rc[c]) * tk * w
 		_prev_rc[c] = rc
 		_prev_tk[c] = tk
 
-	var volume: float = cell_size * cell_size * cell_size
-	var stock: float = rc_sum_t * volume
-	var d_heat_j: float = d_heat * volume
-	var d_cap_j: float = d_cap * volume
-	var cap_raw: Dictionary = LAHeatCapacity.legs(ch, cc)
+	var stock: float = rc_sum_t
+	var d_heat_j: float = d_heat
+	var d_cap_j: float = d_cap
+	var cap_raw: Dictionary = LAHeatCapacity.legs(ch, cc, vol)
 	var cap_legs: Dictionary = {}
 	for k in cap_raw:
-		cap_legs[k] = snappedf(float(cap_raw[k]) * volume, 1.0)
+		cap_legs[k] = snappedf(float(cap_raw[k]), 1.0)
 	out["energy_stock"] = stock
 	out["energy_stock_cells"] = cc
 	# Every channel the capacity mix reads, and whether it actually arrived. Built by LAHeatCapacity from the

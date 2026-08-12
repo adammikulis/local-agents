@@ -40,7 +40,11 @@ var shell_d_out: PackedFloat32Array = PackedFloat32Array()   # depth   : centre-
 var shell_d_in: PackedFloat32Array = PackedFloat32Array()    # depth   : centre-to-centre run to r-1
 var shell_vol: PackedFloat32Array = PackedFloat32Array()     # depth   : cell volume per unit solid angle
 
+# A cubed-sphere cell does not subtend a fixed solid angle: gnomonic cells shrink toward a face corner.
+var surf_omega: PackedFloat32Array = PackedFloat32Array()    # surf_count : cell solid angle, steradians
+
 var _dir: PackedVector3Array = PackedVector3Array()        # surf_count unit surface directions
+var _cell_vol: PackedFloat32Array = PackedFloat32Array()   # cell_count : omega*shell_vol, model units^3
 var surf_nbr: PackedInt32Array = PackedInt32Array()        # surf_count*4 : [-a,+a,-b,+b] neighbour surf index
 var neighbours: PackedInt32Array = PackedInt32Array()      # cell_count*6 : the full per-cell table (for kernels)
 var link_partner: PackedInt32Array = PackedInt32Array()
@@ -89,6 +93,7 @@ func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p
 			for j in res:
 				var b: float = (float(j) + 0.5) / float(res) * 2.0 - 1.0
 				_dir[_surf_idx(f, i, j)] = _dir_at(f, a, b)
+	_build_omega()
 
 	# 2) Surface adjacency: in-face is direct; off-edge is the nearest surface cell on ANOTHER face to the
 	#    direction one step past the edge. Closed sphere → every cell has exactly 4 valid neighbours.
@@ -163,6 +168,35 @@ func _build_shells(p_shell_dr: PackedFloat32Array) -> void:
 		var lo: float = shell_face[r]
 		var hi: float = shell_face[r + 1]
 		shell_vol[r] = (hi * hi * hi - lo * lo * lo) / 3.0
+
+
+## Solid angle subtended by the gnomonic quad [-1,1]^2 corner (a, b), Van Oosterom & Strackee.
+func _omega_corner(a: float, b: float) -> float:
+	return atan2(a * b, sqrt(1.0 + a * a + b * b))
+
+
+## Exact per-cell solid angle, and the cell volumes that follow from it. Sums to 4*pi over the six faces.
+func _build_omega() -> void:
+	surf_omega.resize(surf_count)
+	for f in FACES:
+		for i in res:
+			var a0: float = float(i) / float(res) * 2.0 - 1.0
+			var a1: float = float(i + 1) / float(res) * 2.0 - 1.0
+			for j in res:
+				var b0: float = float(j) / float(res) * 2.0 - 1.0
+				var b1: float = float(j + 1) / float(res) * 2.0 - 1.0
+				surf_omega[_surf_idx(f, i, j)] = _omega_corner(a1, b1) - _omega_corner(a0, b1) \
+					- _omega_corner(a1, b0) + _omega_corner(a0, b0)
+	_cell_vol.resize(cell_count)
+	for s in surf_count:
+		for r in depth:
+			_cell_vol[s * depth + r] = surf_omega[s] * shell_vol[r]
+
+
+## Volume of every cell, model units^3, as the kernels read it (kernels3d/cellvol.glsli, binding 40). The
+## channels are fill fractions, so a conserved substance is the sum of channel*volume, never the bare sum.
+func cell_volumes() -> PackedFloat32Array:
+	return _cell_vol
 
 
 ## Thinnest (`want_max` false) or thickest shell in the table.
@@ -663,6 +697,13 @@ func validate() -> Dictionary:
 	var face_handed_min: float = 2.0
 	for f in FACES:
 		face_handed_min = minf(face_handed_min, _FACE_R[f].cross(_FACE_U[f]).dot(_FACE_N[f]))
+	var omega_total: float = 0.0
+	var omega_min: float = INF
+	var omega_max: float = 0.0
+	for s in surf_count:
+		omega_total += surf_omega[s]
+		omega_min = minf(omega_min, surf_omega[s])
+		omega_max = maxf(omega_max, surf_omega[s])
 	if handed_min < 0.999:
 		errors += 1
 	return {
@@ -674,4 +715,5 @@ func validate() -> Dictionary:
 		"shell_dr_min": _dr_extreme(false), "shell_dr_max": _dr_extreme(true),
 		"min_adj_dot": min_dot, "max_adj_dot": max_dot,
 		"tangent_handed_min": handed_min, "face_handed_min": face_handed_min,
+		"omega_total": omega_total, "omega_min": omega_min, "omega_max": omega_max,
 	}

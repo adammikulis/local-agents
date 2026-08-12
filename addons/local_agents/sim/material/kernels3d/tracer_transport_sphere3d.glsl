@@ -33,6 +33,7 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 #include "shell.glsli"
+#include "cellvol.glsli"
 
 // Courant factor across the radial face in slot `d`: k_lat rescaled by that face's own run.
 float k_rad(uint c, uint d) {
@@ -146,13 +147,14 @@ void main() {
 		if (pi < 0) { continue; }
 		int el = int(uint(pi) % N_SLOTS) - int(N_LAT0);
 		if (el < 0) { continue; }
-		gain += tracer_in[params.offset + uint(m)] * share(toward_link(uint(m), el)) * out_scale(uint(m));
+		gain += tracer_in[params.offset + uint(m)] * share(toward_link(uint(m), el)) * out_scale(uint(m))
+			* vol_ratio(uint(m), g);
 	}
 
 	// Vertical inflow: the cell below blowing UP into us (advection + mixing), and the cell above sending its
 	// whole downward flux — its settling plus the mixing share.
-	if (open_d) { gain += tracer_in[params.offset + uint(nb_d)] * (share_rad(uint(nb_d), N_OUT, vel_y[nb_d]) + rise_frac(uint(nb_d))) * out_scale(uint(nb_d)); }
-	if (open_u) { gain += tracer_in[params.offset + uint(nb_u)] * (fall_frac(uint(nb_u)) + params.diffuse) * out_scale(uint(nb_u)); }
+	if (open_d) { gain += tracer_in[params.offset + uint(nb_d)] * (share_rad(uint(nb_d), N_OUT, vel_y[nb_d]) + rise_frac(uint(nb_d))) * out_scale(uint(nb_d)) * vol_ratio(uint(nb_d), g); }
+	if (open_u) { gain += tracer_in[params.offset + uint(nb_u)] * (fall_frac(uint(nb_u)) + params.diffuse) * out_scale(uint(nb_u)) * vol_ratio(uint(nb_u), g); }
 
 	float value = ti * (1.0 - raw * scale_g) + gain;
 

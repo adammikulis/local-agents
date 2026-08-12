@@ -7,6 +7,7 @@ const RECORD_MODULES: PackedStringArray = [
 	"res://addons/local_agents/sim/material/reactions/PhaseRecords.gd",
 	"res://addons/local_agents/sim/material/reactions/GeoRecords.gd",
 	"res://addons/local_agents/sim/material/reactions/CombustionRecords.gd",
+	"res://addons/local_agents/sim/material/reactions/LightningRecords.gd",
 ]
 
 const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionBalance.gd")

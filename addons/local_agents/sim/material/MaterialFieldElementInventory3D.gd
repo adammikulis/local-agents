@@ -1,10 +1,12 @@
 class_name LAMaterialFieldElementInventory3D
 extends RefCounted
 
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
 ##   carbon_total = co2 + biomass + detritus.
 
 ## Every channel this ledger sums, read as ONE read-only device sample (see `report()`).
-const LEGS: PackedStringArray = ["co2", "o2", "detritus", "biomass", "fert", "fungus", "fuel"]
+const LEGS: PackedStringArray = ["co2", "o2", "detritus", "biomass", "fert", "fungus", "fuel", "n2"]
 
 ## The one declaration of what each channel is MADE OF, shared with the load-time reaction balance gate.
 const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionBalance.gd")
@@ -62,6 +64,8 @@ func report(step_index: int) -> Dictionary:
 	var fert: PackedFloat32Array = legs.get("fert", _f._fert)
 	var fung: PackedFloat32Array = legs.get("fungus", _f._fungus)
 	var fuel: PackedFloat32Array = legs.get("fuel", _f._fuel)
+	var n2: PackedFloat32Array = legs.get("n2", _f._n2)
+	var has_n2: bool = n2.size() == cc
 	var has_co2: bool = co2.size() == cc
 	var has_o2: bool = o2.size() == cc
 	var has_det: bool = det.size() == cc
@@ -84,44 +88,55 @@ func report(step_index: int) -> Dictionary:
 	var fung_all: float = 0.0
 	var fuel_open: float = 0.0
 	var fuel_all: float = 0.0
+	var n2_open: float = 0.0
+	var n2_all: float = 0.0
 	var open_cells: int = 0
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if vol.size() != cc:
+		return out
 	for c in cc:
 		var is_open: bool = solid[c] == 0
+		var w: float = vol[c]
 		if has_co2:
-			var v: float = co2[c]
+			var v: float = co2[c] * w
 			co2_all += v
 			if is_open:
 				co2_open += v
 		if has_o2:
-			var v2: float = o2[c]
+			var v2: float = o2[c] * w
 			o2_all += v2
 			if is_open:
 				o2_open += v2
 		if has_det:
-			var v3: float = det[c]
+			var v3: float = det[c] * w
 			det_all += v3
 			if is_open:
 				det_open += v3
 		if has_bio:
-			var v4: float = bio[c]
+			var v4: float = bio[c] * w
 			bio_all += v4
 			if is_open:
 				bio_open += v4
 		if has_fert:
-			var v5: float = fert[c]
+			var v5: float = fert[c] * w
 			fert_all += v5
 			if is_open:
 				fert_open += v5
 		if has_fung:
-			var v6: float = fung[c]
+			var v6: float = fung[c] * w
 			fung_all += v6
 			if is_open:
 				fung_open += v6
 		if has_fuel:
-			var v7: float = fuel[c]
+			var v7: float = fuel[c] * w
 			fuel_all += v7
 			if is_open:
 				fuel_open += v7
+		if has_n2:
+			var v8: float = n2[c] * w
+			n2_all += v8
+			if is_open:
+				n2_open += v8
 		if is_open:
 			open_cells += 1
 
@@ -135,8 +150,14 @@ func report(step_index: int) -> Dictionary:
 	out["carbon_detritus"] = snappedf(det_open, 0.01)
 	out["o2_total"] = snappedf(o2_open, 0.01)
 	out["o2_all"] = snappedf(o2_all, 0.01)
-	out["fert_total"] = snappedf(fert_open, 0.01)
-	out["fert_all"] = snappedf(fert_all, 0.01)
+	# NOT SNAPPED. One unit of FERT is a cell packed solid with elemental N at rock density, so a real soil
+	# nitrogen stock is ~1e-7 units per cell and a 0.01 quantum could only ever print 0.00 — a gauge whose
+	# resolution is five orders of magnitude coarser than the quantity it measures cannot answer the question
+	# it is asked. Same for the drift and the baseline below.
+	out["fert_total"] = fert_open
+	out["fert_all"] = fert_all
+	out["n2_total"] = snappedf(n2_open, 0.01)
+	out["n2_all"] = snappedf(n2_all, 0.01)
 	out["biomass_open_total"] = snappedf(bio_open, 0.01)
 	# MEMO LINES — carbon-bearing but outside the reaction table's closed triangle (see the header). Both carry
 	# mask-free counterpart, which is what made `nitrogen_total` unable to tell burial from destruction.
@@ -149,7 +170,7 @@ func report(step_index: int) -> Dictionary:
 	# indistinguishable from a substance that genuinely is not there. This says which is which.
 	out["mass_live"] = {
 		"co2": has_co2, "o2": has_o2, "detritus": has_det, "biomass": has_bio,
-		"fert": has_fert, "fungus": has_fung, "fuel": has_fuel,
+		"fert": has_fert, "fungus": has_fung, "fuel": has_fuel, "n2": has_n2,
 	}
 
 	# DRIFT — the whole point. Per FIELD STEP, against the previous sample.
@@ -163,8 +184,8 @@ func report(step_index: int) -> Dictionary:
 			out["o2_drift"] = snappedf(o2_open - _prev_o2, 0.01)
 			out["o2_drift_per_step"] = snappedf((o2_open - _prev_o2) * inv, 0.0001)
 		if not is_nan(_prev_fert):
-			out["fert_drift"] = snappedf(fert_open - _prev_fert, 0.01)
-			out["fert_drift_per_step"] = snappedf((fert_open - _prev_fert) * inv, 0.0001)
+			out["fert_drift"] = fert_open - _prev_fert
+			out["fert_drift_per_step"] = (fert_open - _prev_fert) * inv
 		if not is_nan(_prev_biomass):
 			out["biomass_drift"] = snappedf(bio_open - _prev_biomass, 0.01)
 			out["biomass_drift_per_step"] = snappedf((bio_open - _prev_biomass) * inv, 0.0001)
@@ -184,11 +205,11 @@ func report(step_index: int) -> Dictionary:
 	var carbon_closed_all: float = carbon_all + fung_all + fuel_all
 	var open_by_channel: Dictionary = {
 		"co2": co2_open, "o2": o2_open, "detritus": det_open, "biomass": bio_open,
-		"fert": fert_open, "fungus": fung_open, "fuel": fuel_open,
+		"fert": fert_open, "fungus": fung_open, "fuel": fuel_open, "n2": n2_open,
 	}
 	var all_by_channel: Dictionary = {
 		"co2": co2_all, "o2": o2_all, "detritus": det_all, "biomass": bio_all,
-		"fert": fert_all, "fungus": fung_all, "fuel": fuel_all,
+		"fert": fert_all, "fungus": fung_all, "fuel": fuel_all, "n2": n2_all,
 	}
 	var elements: Dictionary = _elements_of(open_by_channel)
 	for el in elements:
@@ -196,8 +217,12 @@ func report(step_index: int) -> Dictionary:
 	var elements_all: Dictionary = _elements_of(all_by_channel)
 	for el_a in elements_all:
 		out["element_" + String(el_a) + "_all"] = snappedf(float(elements_all[el_a]), 0.01)
-	var nitrogen: float = fert_open + (bio_open + det_open + fung_open + fuel_open) / LAPhysical.LITTER_C_TO_N
-	var nitrogen_all: float = fert_all + (bio_all + det_all + fung_all + fuel_all) / LAPhysical.LITTER_C_TO_N
+	# STRAIGHT OFF THE ELEMENT SUMS. This used to be `fert + (bio+det+fung+fuel)/LITTER_C_TO_N`, which divided
+	# CHANNEL UNITS by a carbon-to-nitrogen MASS ratio and so was neither moles nor kilograms: it weighted
+	# organic N against fertility 13.5x too heavily, while the composition table beside it already carries
+	# cellulose's N per unit. Two gauges for one quantity, and the wrong one was the gated one.
+	var nitrogen: float = float(elements.get("N", 0.0))
+	var nitrogen_all: float = float(elements_all.get("N", 0.0))
 	out["oxidant_total"] = snappedf(oxidant, 0.01)
 	out["oxidant_all"] = snappedf(oxidant_all, 0.01)
 	out["carbon_closed_total"] = snappedf(carbon_closed, 0.01)
@@ -230,10 +255,9 @@ func report(step_index: int) -> Dictionary:
 		if _first_fert_step < 0 and _sealed():
 			_first_fert = fert_open
 			_first_fert_step = step_index
-		out["fert_first"] = snappedf(_first_fert, 0.01)
+		out["fert_first"] = _first_fert
 		if step_index > _first_fert_step:
-			out["fert_run_drift_per_step"] = snappedf(
-				(fert_open - _first_fert) / float(step_index - _first_fert_step), 0.0001)
+			out["fert_run_drift_per_step"] = (fert_open - _first_fert) / float(step_index - _first_fert_step)
 	if has_bio:
 		if _first_biomass_step < 0 and _sealed():
 			_first_biomass = bio_open
@@ -262,7 +286,7 @@ func report(step_index: int) -> Dictionary:
 		if step_index > _first_closed_step:
 			out["carbon_closed_run_drift_per_step"] = snappedf(
 				(carbon_closed_all - _first_closed) / float(step_index - _first_closed_step), 0.0001)
-	if has_fert and has_bio and has_det and has_fung and has_fuel:
+	if has_fert and has_bio and has_det and has_fung and has_fuel and has_n2:
 		if _first_nitrogen_step < 0 and _sealed():
 			_first_nitrogen = nitrogen_all
 			_first_nitrogen_step = step_index
@@ -299,6 +323,7 @@ func _blank() -> Dictionary:
 		"fert_total": 0.0, "fert_all": 0.0, "fert_drift": 0.0, "fert_drift_per_step": 0.0,
 		"biomass_open_total": 0.0, "biomass_drift": 0.0, "biomass_drift_per_step": 0.0,
 		"fungus_total": 0.0, "fungus_all": 0.0, "fuel_open_total": 0.0, "fuel_all": 0.0,
+		"n2_total": 0.0, "n2_all": 0.0,
 		"mass_open_cells": 0, "mass_drift_steps": 0, "mass_run_steps": 0, "mass_scan_ms": 0.0,
 		"carbon_first": 0.0, "o2_first": 0.0, "fert_first": 0.0, "biomass_first": 0.0,
 		"carbon_run_drift_per_step": 0.0, "o2_run_drift_per_step": 0.0,

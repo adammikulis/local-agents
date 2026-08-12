@@ -85,6 +85,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# reads link directions from here instead of assuming a slot is an axis (see wind_step_sphere3d).
 	var ltan: RID = bufs["link_tan"]
 	var shell: RID = bufs["shell"]
+	var cvol: RID = bufs["cell_vol"]
 
 	for p in 2:
 		var back: int = 1 - p
@@ -93,7 +94,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_transport_set[p] = _mkset(rd, _transport_shader, [
 			[0, moisture[p]], [1, _moist_buf], [2, _moist_buf], [3, solid],
 			[4, vel_x], [5, vel_y], [6, vel_z], [15, nbr], [17, partner_rid], [16, ltan],
-			[39, shell]])
+			[39, shell], [40, cvol]])
 
 		# PRECIP — atmos_precip_sphere3d.glsl: 0=moisture in(post-transport scratch), 1=temp(back), 2=solid,
 		# 3=moisture out(back), 4=rain scratch.
@@ -104,7 +105,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# 4=STATIC (rain over the sea vanishes into the infinite reservoir, not
 		# parked in undrained static-cell water — the fix for the unbounded h2o climb), 15=nbr.
 		_rain_set[p] = _mkset(rd, _rain_shader, [
-			[0, _rain_buf], [1, solid], [2, water[back]], [15, nbr], [17, partner_rid]])
+			[0, _rain_buf], [1, solid], [2, water[back]], [15, nbr], [17, partner_rid],
+			[40, cvol]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:

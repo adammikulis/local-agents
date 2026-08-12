@@ -167,6 +167,10 @@ func process(delta: float) -> void:
 	if _f._charge_dirty and _f._gpu.has_method("set_field"):
 		_f._gpu.set_field("charge", _f._charge)
 		_f._charge_dirty = false
+	# The lightning discharge stamp the bolts wrote after the last step — the DISCHARGE reaction driver.
+	# Uploaded here so this step's reaction kernel sees it, and cleared by the same call.
+	if _f._inject != null:
+		_f._inject.flush_discharge()
 	# Scent is a 5-plane packed channel; deposit() seeded a plane on the CPU this frame → push it before the step.
 	if _f._scent_dirty and _f._gpu.has_method("set_field"):
 		_f._gpu.set_field("scent", _f._scent)

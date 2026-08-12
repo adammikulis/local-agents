@@ -1,6 +1,8 @@
 class_name LAMaterialFieldMineralBudget3D
 extends RefCounted
 
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
 
 var _f = null                                # back-reference to the owning LAMaterialField3D
 
@@ -92,53 +94,57 @@ func report(step_index: int) -> Dictionary:
 	var solid_cells: int = 0
 	var crust_moved: float = 0.0
 	var has_ref: bool = _rock_ref.size() == cc
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if vol.size() != cc:
+		return out
 	for c in cc:
 		var is_open: bool = solid[c] == 0
+		var w: float = vol[c]
 		if not is_open:
 			solid_cells += 1
 		if has_rock:
 			var v0: float = rock[c]
-			rock_all += v0
+			rock_all += v0 * w
 			if is_open:
-				rock_open += v0
+				rock_open += v0 * w
 			if has_ref:
-				crust_moved += absf(v0 - _rock_ref[c])
+				crust_moved += absf(v0 - _rock_ref[c]) * w
 		if has_lava:
 			var v1: float = lava[c]
-			lava_all += v1
+			lava_all += v1 * w
 			if is_open:
-				lava_open += v1
+				lava_open += v1 * w
 		if has_sed:
 			var v2: float = sed[c]
-			sed_all += v2
+			sed_all += v2 * w
 			if is_open:
-				sed_open += v2
+				sed_open += v2 * w
 		if has_susp:
 			var v3: float = susp[c]
-			susp_all += v3
+			susp_all += v3 * w
 			if is_open:
-				susp_open += v3
+				susp_open += v3 * w
 		if has_dust:
 			var v4: float = dust[c]
-			dust_all += v4
+			dust_all += v4 * w
 			if is_open:
-				dust_open += v4
+				dust_open += v4 * w
 			if v4 > LAMaterialFieldQueries3D.DUST_PRESENT:
 				dusty_cells += 1
 		if has_carb:
 			var v5: float = carb[c]
-			carb_all += v5
+			carb_all += v5 * w
 			if is_open:
-				carb_open += v5
+				carb_open += v5 * w
 			# CARBONATE-BEARING CELLS. A total alone cannot say whether the sink ran weakly everywhere or hard
 			# in a few places, and "where does the weathering happen" is the question a carbon sink raises.
 			if v5 > 0.0:
 				carb_cells += 1
 		if has_silica:
 			var v6: float = silica[c]
-			silica_all += v6
+			silica_all += v6 * w
 			if is_open:
-				silica_open += v6
+				silica_open += v6 * w
 
 	var total: float = rock_all + lava_all + sed_all + susp_all + dust_all
 	var open_total: float = rock_open + lava_open + sed_open + susp_open + dust_open

@@ -1,6 +1,8 @@
 class_name LAMaterialFieldH2OBudget3D
 extends RefCounted
 
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
 ## LAMaterialFieldH2OBudget3D: a PER-PASS mass budget for the whole conserved H₂O ledger, so a water drain has
 
 ## Field steps between sampled PAIRS. Every 50 puts a line either side of the horizons the dynamic-sea water
@@ -162,12 +164,16 @@ func _totals() -> Array:
 	var n: int = cc
 	if water.size() < n or moisture.size() < n or soil.size() < n or snow.size() < n:
 		return [0.0, 0.0, {}, {}]
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if vol.size() != n:
+		return [0.0, 0.0, {}, {}]
 	for c in n:
 		var is_open: bool = (not has_solid) or solid[c] == 0.0
-		var wv: float = water[c]
-		var mv: float = moisture[c]
-		var sv: float = snow[c]
-		var gv: float = soil[c]
+		var w: float = vol[c]
+		var wv: float = water[c] * w
+		var mv: float = moisture[c] * w
+		var sv: float = snow[c] * w
+		var gv: float = soil[c] * w
 		w_all += wv
 		m_all += mv
 		s_all += sv

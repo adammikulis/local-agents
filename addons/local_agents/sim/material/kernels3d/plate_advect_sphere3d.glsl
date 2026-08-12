@@ -32,6 +32,7 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 #include "shell.glsli"
+#include "cellvol.glsli"
 
 const float MAX_OUT_FRAC = 0.9;      // never empty a cell in one step (the gather stays exact either way)
 const float MIN_MASS     = 1.0e-6;   // don't bother moving a numerically empty cell
@@ -89,7 +90,7 @@ void main() {
 		// ENTOMBED: the cell went solid, the water CA skips solid cells, and the mass sat there unreachable.
 		float out_w = evicted(gidx);
 		int dn = nbr[base + N_IN];
-		float in_w = (dn >= 0) ? evicted(uint(dn)) : 0.0;
+		float in_w = (dn >= 0) ? evicted(uint(dn)) * vol_ratio(uint(dn), gidx) : 0.0;
 		water[gidx] = max(0.0, water[gidx] - out_w + in_w);
 		return;
 	}
@@ -140,9 +141,7 @@ void main() {
 			float face = load;
 			float down = fld[uint(inb)] - load;                 // gradient ahead of the front
 			if (abs(down) > 1.0e-9) {
-				// The opposite lateral slot is this axis's other direction: 1<->2, 3<->4.
-				int opp = int(1u + (uint(d) ^ 1u));
-				int iup = nbr[base + uint(opp)];
+				int iup = nbr[base + opposite_slot(N_LAT0 + uint(d))];
 				float behind = (iup >= 0) ? (load - fld[uint(iup)]) : 0.0;
 				float r = behind / down;
 				float psi = clamp(r, 0.0, 1.0);                 // minmod
@@ -184,7 +183,8 @@ void main() {
 	// table's pairing, so advected crust was debited into slots nobody read and read twice out of others.
 	for (uint d = 0u; d < N_SLOTS; ++d) {
 		int pi = partner[base + d];
-		if (pi >= 0) { inflow += send[uint(pi)]; }
+		nb = nbr[base + d];
+		if (pi >= 0 && nb >= 0) { inflow += send[uint(pi)] * vol_ratio(uint(nb), gidx); }
 	}
 
 	fld[gidx] = max(0.0, fld[gidx] - own_out + inflow);

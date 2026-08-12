@@ -2,6 +2,7 @@
 #version 450
 
 #include "neighbours.glsli"
+#include "cellvol.glsli"
 
 // SURFACE cell own its radial line, walk the line INWARD via the radial neighbour summing fert_cell, and deposit the total
 // (solid == 0) whose OUTWARD-radial neighbour is -1 (space boundary) or solid. That is the local
@@ -45,7 +46,7 @@ void main() {
 		if (j < 0) {
 			break;
 		}
-		sum += fert_cell[uint(j)];
+		sum += fert_cell[uint(j)] * vol_ratio(uint(j), idx);
 		int below = nbr[uint(j) * N_SLOTS + N_IN];
 		if (ground < 0 && solid[j] == 0.0 && below >= 0 && solid[below] != 0.0) {
 			ground = j;                    // topmost ground-hugging open cell on this line
@@ -53,5 +54,5 @@ void main() {
 		j = below;
 	}
 	int target = (ground >= 0) ? ground : int(idx);
-	fert[uint(target)] += sum;
+	fert[uint(target)] += sum * vol_ratio(idx, uint(target));
 }

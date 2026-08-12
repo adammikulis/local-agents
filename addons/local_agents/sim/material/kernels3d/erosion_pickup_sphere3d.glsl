@@ -2,6 +2,7 @@
 #version 450
 
 #include "neighbours.glsli"
+#include "cellvol.glsli"
 
 // RACE-FREEDOM: a cell i scours ONLY its radial-DOWN neighbour's bedrock. By the neighbour table's
 
@@ -81,5 +82,5 @@ void main() {
 	}
 
 	rock_fill[uint(ib)] = rock_fill[uint(ib)] - scour;   // debit the bed (unique target per thread)
-	susp[gidx] = susp[gidx] + scour;                     // credit own-cell suspension (conserving transfer)
+	susp[gidx] = susp[gidx] + scour * vol_ratio(uint(ib), gidx);
 }

@@ -2,6 +2,7 @@
 #version 450
 
 #include "neighbours.glsli"
+#include "cellvol.glsli"
 
 
 layout(local_size_x = 64) in;
@@ -103,7 +104,7 @@ void main() {
 	for (int dd = 0; dd < 6; dd++) {
 		int nb = nbr[i * N_SLOTS + uint(dd)];
 		if (nb >= 0 && solid[nb] == 0.0 && spreads_at(uint(nb))) {
-			gnew += SPREAD * fung_in[uint(nb)];
+			gnew += SPREAD * fung_in[uint(nb)] * vol_ratio(uint(nb), i);
 		}
 	}
 

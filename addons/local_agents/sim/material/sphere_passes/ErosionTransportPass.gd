@@ -33,6 +33,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var send_rid: RID = bufs.get("send", RID())
 	var nbr_rid: RID = bufs.get("nbr", RID())
 	var partner_rid: RID = bufs.get("link_partner", RID())
+	var cvol_rid: RID = bufs.get("cell_vol", RID())
 	var water_pair: Array = bufs.get("water", [RID(), RID()])
 	var susp_pair: Array = bufs.get("susp", [RID(), RID()])
 
@@ -46,6 +47,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[3, solid_rid],          # Solid
 			[5, send_rid],           # Shared outflow scratch (self-zeroed by pass 0)
 			[15, nbr_rid], [17, partner_rid],           # Neigh table
+			[40, cvol_rid],                             # Per-cell volume
 		])
 
 

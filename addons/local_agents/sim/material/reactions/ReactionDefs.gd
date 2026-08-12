@@ -42,6 +42,11 @@ const OVERBURDEN: int = 22
 const BEDROCK_BELOW: int = 23
 const CARBONATE: int = 24             # CaCO3 — where weathered carbon goes, and the only place it can go
 const SILICA: int = 25                # SiO2 — the weathering residue; nothing weathers it further
+const N2: int = 26                    # dinitrogen, 78.084% of the air by mole — the planet's nitrogen reservoir
+# DISCHARGE is the charge (channel units) a lightning return stroke drained from this cell THIS step, stamped
+# by LAMaterialFieldInject3D.deplete_charge. DRIVER ONLY — it is energy, not matter, so it is in
+# LAReactionBalance.driver_only() and may never be a reactant or a product.
+const DISCHARGE: int = 27
 # NOTE: the slot enum and the kernel's BINDING numbers alias only up to 26. Bindings 24/25/26 are already
 # convenience, never a contract; `check_kernel()` verifies the #define VALUES, which is the thing that matters.
 

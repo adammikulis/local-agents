@@ -1,6 +1,8 @@
 class_name LAMaterialFieldLedger3D
 extends RefCounted
 
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
 ## LAMaterialFieldLedger3D: the conserved H₂O LEDGER of LAMaterialField3D (plus the snow/ice diagnostics it
 ## modules: it holds no state of its own and reaches into the owning field `_f` for the shared channels.
 
@@ -57,27 +59,11 @@ func ice_cell_count() -> int:
 ## Total frozen H₂O over the field (one leg of the conserved h2o_total). Inclusion rule: every OPEN cell,
 ## static ones included — snow on sea ice is real snow.
 func snow_total() -> float:
-	if _f._snow.size() != _f._cell_count:
-		return 0.0
-	var solid: PackedByteArray = _f._solid
-	var snow: PackedFloat32Array = _f._snow
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		if solid[c] == 0:
-			sum += snow[c]
-	return sum
+	return CellVolScript.weighted(_f._snow, CellVolScript.of(_f), _f._solid, true)
 
 
 func water_total() -> float:
-	if _f._water.size() != _f._cell_count:
-		return 0.0
-	var solid: PackedByteArray = _f._solid
-	var water: PackedFloat32Array = _f._water
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		if solid[c] == 0:
-			sum += water[c]
-	return sum
+	return CellVolScript.weighted(_f._water, CellVolScript.of(_f), _f._solid, true)
 
 
 func soil_total() -> float:
@@ -96,13 +82,7 @@ func h2o_total() -> float:
 
 
 func regolith_soil_total() -> float:
-	if _f._soil.size() != _f._cell_count:
-		return 0.0
-	var soil: PackedFloat32Array = _f._soil
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		sum += soil[c]
-	return sum
+	return CellVolScript.weighted(_f._soil, CellVolScript.of(_f), _f._solid, false)
 
 
 func stranded_soil_total() -> float:
@@ -111,11 +91,14 @@ func stranded_soil_total() -> float:
 	var regolith: PackedByteArray = _f._regolith
 	var solid: PackedByteArray = _f._solid
 	var soil: PackedFloat32Array = _f._soil
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if vol.size() != _f._cell_count:
+		return 0.0
 	var sum: float = 0.0
 	var n: int = 0
 	for c in _f._cell_count:
 		if regolith[c] != 0 and solid[c] == 0:
-			sum += soil[c]
+			sum += soil[c] * vol[c]
 			n += 1
 	_stranded_cells = n
 	return sum

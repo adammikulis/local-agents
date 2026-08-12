@@ -2,6 +2,7 @@
 #version 450
 
 #include "neighbours.glsli"
+#include "cellvol.glsli"
 
 // precomputed INDEX TABLE `nbr[idx*6 + slot]` — N_OUT = UP (above), N_IN = DOWN (below);
 
@@ -69,7 +70,7 @@ void main() {
 	// DOWN: overpressure the open cell below buoys up into us.
 	int ib = nbr[base + N_IN];
 	if (ib >= 0 && solid[ib] == 0.0) {
-		in_below = buoy_up(scratch[uint(ib)]);
+		in_below = buoy_up(scratch[uint(ib)]) * vol_ratio(uint(ib), g);
 	}
 	lava[g] = base_mass - out_up + in_below;
 

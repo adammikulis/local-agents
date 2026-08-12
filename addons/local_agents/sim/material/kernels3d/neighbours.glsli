@@ -15,4 +15,6 @@ const uint N_LAT0 = 2u;            // lateral index l is slot N_LAT0 + l; link_a
 const uint N_LATERAL_COUNT = 4u;
 const uint N_SLOTS = 6u;
 
+uint opposite_slot(uint d) { return d ^ 1u; }   // my other end of the same axis (across a face: link_partner)
+
 #endif

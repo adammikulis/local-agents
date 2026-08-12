@@ -33,6 +33,7 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 #include "shell.glsli"
+#include "cellvol.glsli"
 
 // Run to the neighbour in slot `d`: its own radial thickness radially, the lateral spacing sideways.
 float run_to(uint r, uint d) {
@@ -246,8 +247,8 @@ void main() {
 					continue;
 				}
 				dbg[dbase + DBG_SPRING_SENT] += f;
-				if (d == 0) { dbg[dbase + DBG_SPRING_DOWN] += f; }
-				else if (d == 5) { dbg[dbase + DBG_SPRING_UP] += f; }
+				if (d == int(N_IN)) { dbg[dbase + DBG_SPRING_DOWN] += f; }
+				else if (d == int(N_OUT)) { dbg[dbase + DBG_SPRING_UP] += f; }
 				else { dbg[dbase + DBG_SPRING_LAT] += f; }
 				int n = nbr[base + uint(d)];
 				if (water[n] >= 0.5) { dbg[dbase + DBG_SPRING_WET] += f; }
@@ -265,7 +266,7 @@ void main() {
 			}
 			float seep = seep_want * scale;
 			if (seep > 0.0) {
-				send[base + N_B1] += seep;                   // += : the radial neighbour may already carry a scaled spring flow
+				send[base + N_OUT] += seep;                  // += : the radial neighbour may already carry a scaled spring flow
 				dbg[dbase + DBG_SEEP_SENT] += seep;
 			}
 			return;
@@ -318,7 +319,7 @@ void main() {
 		if (nb < 0) { continue; }
 		int pi = partner[base + d];
 		if (pi < 0) { continue; }
-		sflow = send[uint(pi)];
+		sflow = send[uint(pi)] * vol_ratio(uint(nb), g);
 		inflow += sflow;
 		if (regolith[nb] != 0.0) {
 			from_reg += sflow;

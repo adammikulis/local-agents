@@ -28,6 +28,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var solid_rid: RID = bufs.get("solid", RID())
 	var rock_rid: RID = bufs.get("rock_fill", RID())
 	var nbr_rid: RID = bufs.get("nbr", RID())
+	var cvol_rid: RID = bufs.get("cell_vol", RID())
 	var water_pair: Array = bufs.get("water", [RID(), RID()])
 	var susp_pair: Array = bufs.get("susp", [RID(), RID()])
 
@@ -41,6 +42,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[3, rock_rid],           # RockFill (SINGLE, scoured in place)
 			[4, susp_pair[back]],    # Susp = back susp (advected load; += scour, own-cell)
 			[15, nbr_rid],           # Neigh table
+			[40, cvol_rid],          # Per-cell volume
 		])
 
 

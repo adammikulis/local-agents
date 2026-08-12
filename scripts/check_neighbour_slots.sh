@@ -43,7 +43,10 @@ fi
 # 2. NO KERNEL COMPUTES A REVERSE LINK AT ALL. LASphereGrid resolves it into `link_partner` by searching
 # the neighbour's own slots, so a gather is `send[partner[base + d]]` — a lookup, not arithmetic. Four
 # kernels got the arithmetic wrong and a fifth got it wrong while being fixed.
-rolled=$(grep -nE '\?\s*5u\s*:|== 5u\) \? 0u|opposite\(|N_SLOTS \+ \(d \^|\^ 1u\)\]' "$K"/*.glsl 2>/dev/null || true)
+# `opposite_slot()` in neighbours.glsli is the one named accessor for a cell's OWN opposite slot; ad-hoc
+# arithmetic anywhere else is banned.
+rolled=$(grep -nE '\?\s*5u\s*:|== 5u\) \? 0u|N_SLOTS \+ \(d \^|\^ 1u\)\]' "$K"/*.glsl 2>/dev/null \
+         | grep -v 'opposite_slot(' || true)
 if [ -n "$rolled" ]; then
   echo "check_neighbour_slots: A KERNEL COMPUTES ITS OWN REVERSE LINK. Use link_partner[base + d]." >&2
   echo "$rolled" >&2

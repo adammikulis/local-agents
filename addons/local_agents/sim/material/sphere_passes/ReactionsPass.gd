@@ -78,6 +78,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# and this kernel is their only reader and only writer, so there is no producer to ping-pong against.
 	var carbonate: RID = _single(bufs, "carbonate")
 	var silica: RID = _single(bufs, "silica")
+	# N2 is an advected tracer like o2/co2 (GasWindPass), so the BACK half is the transport output this
+	# kernel edits in place. `discharge` is the CPU lightning stamp — read-only, single, driver only.
+	var n2: Array = _pair(bufs, "n2")
+	var discharge: RID = _single(bufs, "discharge")
 
 	for p in 2:
 		var back: int = 1 - p
@@ -112,11 +116,14 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[21, _defs_ssbo],
 			[24, soil[back]],       # settled water table (SoilPass output) — R19's transpiration draws from the
 			[38, bufs["porosity"]],  # phi — rc_of and the overburden walk convert rock_fill with it
+			[40, bufs["cell_vol"]],  # per-cell volume (kernels3d/cellvol.glsli)
 			                        # regolith column BENEATH an open cell (SOIL_ROOT), the only place soil exists
 			[25, radial],           # per-cell outward unit vector — the derived LIGHT slot's geometry
 			[27, regolith],         # aquifer permeability mask — root_soil() walks THIS, not `solid`
 			[28, carbonate],        # SINGLE CaCO3 — the Urey record credits it forward, debits it in reverse
 			[29, silica],           # SINGLE SiO2 — the weathering residue, same record
+				[30, n2[back]],         # dinitrogen — lightning fixation debits it
+				[31, discharge],        # SINGLE — the lightning discharge stamp, driver only
 		])
 
 
