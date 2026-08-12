@@ -223,12 +223,16 @@ func _process(delta: float) -> void:
 	_refresh_visual()
 
 
-func _mass_unit_kg() -> float:
+## Kilograms in one mass unit at `cell`. The answer is an absolute mass, so the volume is m^3 and per-cell:
+## a model-unit cube would be METRES_PER_MODEL_UNIT^3 too small.
+func _mass_unit_kg(cell: int) -> float:
 	if _f == null:
 		return 0.0
-	var side: float = maxf(float(_f._cell_size), 0.001)
+	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
+	if cell < 0 or cell >= vol.size():
+		return 0.0
 	var max_mass: float = maxf(float(_f.MAX_MASS), 0.0001)
-	return LAPhysical.ROCK_DENSITY_KG_M3 * side * side * side / max_mass
+	return LAPhysical.ROCK_DENSITY_KG_M3 * vol[cell] / max_mass
 
 
 func _deposit(pos: Vector3, mass: float, speed: float) -> void:
@@ -236,7 +240,7 @@ func _deposit(pos: Vector3, mass: float, speed: float) -> void:
 	if _f.has_method("add_lava"):
 		_f.add_lava(pos, mass)
 	if _f._inject != null and speed > 0.0:
-		var joules: float = 0.5 * mass * _mass_unit_kg() * speed * speed
+		var joules: float = 0.5 * mass * _mass_unit_kg(_f.world_to_cell(pos)) * speed * speed
 		_impact_energy_j += joules
 		_f._inject.add_heat_energy(pos, joules, LAND_HEAT_R)
 

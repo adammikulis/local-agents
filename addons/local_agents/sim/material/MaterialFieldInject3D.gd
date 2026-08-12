@@ -89,13 +89,6 @@ func _device_ready() -> bool:
 
 # --- Local field injection (add_heat / add_vapor / add_charge) --------------------------------------
 
-## (J/m²/K), because the solar kernel applies a surface FLUX to a surface cell, and their formula is
-func _cell_heat_capacity(cell: int) -> float:
-	var side: float = maxf(float(_f._cell_size), 0.001)
-	var volume: float = side * side * side
-	return LAHeatCapacity.cell(_rc_channels(), cell) * volume
-
-
 func _rc_channels() -> Dictionary:
 	return {
 		"rock_fill": _f._rock_fill, "lava": _f._lava, "sediment": _f._sediment, "susp": _f._susp,
@@ -114,11 +107,13 @@ func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> 
 	# Build the carrier table ONCE, not once per cell — it is the same dictionary of the same mirrors for
 	# every cell in the bubble, and a meteor's bubble is thousands of them.
 	var ch: Dictionary = _rc_channels()
-	var side: float = maxf(float(_f._cell_size), 0.001)
-	var volume: float = side * side * side
+	# LAHeatCapacity.cell is J/m^3/K, so the volume it multiplies is m^3 and per-cell, not one model-unit cube.
+	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
+	if vol.size() != _f._cell_count:
+		return 0.0
 	var total_cap: float = 0.0
 	for c in cells:
-		total_cap += LAHeatCapacity.cell(ch, c) * volume
+		total_cap += LAHeatCapacity.cell(ch, c) * vol[c]
 	if total_cap <= 0.0:
 		return 0.0
 	var delta_c: float = joules / total_cap

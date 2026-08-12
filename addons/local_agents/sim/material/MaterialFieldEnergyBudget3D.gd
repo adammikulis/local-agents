@@ -114,6 +114,8 @@ func _compute() -> Dictionary:
 	var cells_bedrock: int = 0
 	var albedo_sum_surface: float = 0.0
 	var cell_size: float = float(_f._cell_size)
+	# rho*c and kg/m3 need a length in METRES; the field's cell size is model units.
+	var cell_m: float = cell_size * LAPhysical.METRES_PER_MODEL_UNIT
 	if cell_size <= 0.0:
 		return out
 
@@ -182,7 +184,7 @@ func _compute() -> Dictionary:
 			var veg: float = 0.0
 			if has_biomass:
 				var leaf_kg_m2: float = maxf(biomass[c], 0.0) * LAPhysical.DRY_WOOD_DENSITY_KG_M3 \
-					* cell_size * LAPhysical.FOLIAGE_FRACTION_OF_PLANT_MASS
+					* cell_m * LAPhysical.FOLIAGE_FRACTION_OF_PLANT_MASS
 				veg = 1.0 - exp(-LAPhysical.CANOPY_EXTINCTION_COEFF * (leaf_kg_m2 / LAPhysical.LEAF_MASS_PER_AREA_KG_M2))
 			# glsl:412-413 — ice/snow reflect, open water absorbs nearly everything, bare ground between, and a
 			# canopy is darker than the ground it stands on.
@@ -190,7 +192,7 @@ func _compute() -> Dictionary:
 			var albedo: float = lerpf(lerpf(land, LAPhysical.ALBEDO_OCEAN, wet), LAPhysical.ALBEDO_SNOW_ICE, icy)
 			# hold 3.41e6 J/m3K while split 0.5/0.5 held 4.87e6, a 43% jump for no change of mass — and it
 			var rc: float = LAHeatCapacity.cell(_rc_channels, c)
-			var cap: float = maxf(rc * cell_size, 1.0)
+			var cap: float = maxf(rc * cell_m, 1.0)
 			# Provenance only — this reports whether the greenhouse came from a live pressure readback. The
 			# radiative terms below use `p_beam`, the COLUMN's value, because both cells must share it.
 			var p_col: float = pressure[c] if has_pressure else 0.0

@@ -300,6 +300,15 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_enthalpy_ssot.sh ($rc_enth)"
       exit 1
     fi
+    # Gate: a per-m^3/m^2 quantity must never meet a raw cell size — field lengths are MODEL units.
+    set +e
+    "$SCRIPT_DIR/check_model_unit_volume.sh"
+    rc_muv=$?
+    set -e
+    if [[ $rc_muv -ne 0 ]]; then
+      echo "LINT_FAIL: check_model_unit_volume.sh ($rc_muv)"
+      exit 1
+    fi
     # Gate: no reaction record may create or destroy matter. The DEFS engine took reactants and products as
     # two independent lists of hand-written coefficients with nothing relating them, and one rate model had
     # no reactant at all, so only its product credit ever ran — which is where every carbon atom in this

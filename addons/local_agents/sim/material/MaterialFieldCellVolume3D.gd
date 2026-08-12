@@ -1,10 +1,16 @@
 class_name LAMaterialFieldCellVolume3D
 extends RefCounted
 
-## Volume of every cell, model units^3. A channel value is a FILL FRACTION of the cell that holds it, so the
-## matter in a channel is channel*volume and a bare sum over cells is not proportional to matter. On the
-## cubed sphere cells differ radially (volume goes as r^2 dr) and laterally (a gnomonic cell shrinks toward a
-## face corner by up to 4.7x at res 24). The box field is uniform, so every entry is side^3 there.
+## Volume of every cell, m^3. A channel value is a FILL FRACTION of the cell that holds it, so the matter in
+## a channel is channel*volume and a bare sum over cells is not proportional to matter. On the cubed sphere
+## cells differ radially (volume goes as r^2 dr) and laterally (a gnomonic cell shrinks toward a face corner
+## by up to 4.7x at res 24). The box field is uniform, so every entry is side^3 there.
+## `LASphereGrid` is geometry and answers in model units; this is the physics accessor and answers in metres,
+## because every consumer multiplies it by a per-m^3 quantity (J/m^3/K, mol/m^3).
+## Never scale LASphereGrid's own table in place — it is a live member the GPU reads, and one rescale per
+## call compounds to +INF in six.
+static var _cache: Dictionary = {}
+
 static func of(field) -> PackedFloat32Array:
 	if field == null:
 		return PackedFloat32Array()
@@ -12,12 +18,24 @@ static func of(field) -> PackedFloat32Array:
 	if cc <= 0:
 		return PackedFloat32Array()
 	var grid: RefCounted = field.sphere_grid()
-	if grid != null:
-		return grid.cell_volumes()
-	var side: float = float(field.cell_size())
+	# Keyed on the GRID too: a rebuild at the same cell count is a different table.
+	var key: String = "%d:%d" % [field.get_instance_id(), grid.get_instance_id() if grid != null else 0]
+	var hit = _cache.get(key)
+	if hit is PackedFloat32Array and hit.size() == cc:
+		return hit
+	var m3: float = pow(LAPhysical.METRES_PER_MODEL_UNIT, 3.0)
 	var out: PackedFloat32Array = PackedFloat32Array()
 	out.resize(cc)
-	out.fill(side * side * side)
+	if grid != null:
+		var model: PackedFloat32Array = grid.cell_volumes()
+		if model.size() != cc:
+			return PackedFloat32Array()
+		for i in cc:
+			out[i] = model[i] * m3
+	else:
+		var side: float = float(field.cell_size())
+		out.fill(side * side * side * m3)
+	_cache[key] = out
 	return out
 
 
