@@ -23,6 +23,9 @@ layout(set = 0, binding = 7, std430) restrict readonly buffer VelZ { float vel_z
 // Per-face scratch, cell*6 + slot.
 layout(set = 0, binding = 8, std430) restrict buffer Send   { float send[]; };
 layout(set = 0, binding = 9, std430) restrict buffer SendH  { float send_h[]; };
+// Charge rides the mass, exactly as enthalpy does: it is carried, never created by a move.
+layout(set = 0, binding = 13, std430) restrict buffer Charge { float charge[]; };
+layout(set = 0, binding = 14, std430) restrict buffer SendQ  { float send_q[]; };
 // Flow resistance 0..1 per cell.
 layout(set = 0, binding = 10, std430) restrict readonly buffer Resist { float resist[]; };
 // What the flux runs down. Bound to `amount` when a record has no separate potential.
@@ -85,6 +88,7 @@ void main() {
 		for (uint d = 0u; d < 6u; ++d) {
 			send[base + d] = 0.0;
 			send_h[base + d] = 0.0;
+			send_q[base + d] = 0.0;
 		}
 		if (solid[gidx] != 0.0) {
 			return;
@@ -95,6 +99,7 @@ void main() {
 		}
 		// Enthalpy per unit, J: mass carries its heat.
 		float h_per_unit = (amount[gidx] > 0.0) ? h[gidx] / amount[gidx] : 0.0;
+		float q_per_unit = (amount[gidx] > 0.0) ? charge[gidx] / amount[gidx] : 0.0;
 		float open = 1.0 - clamp(resist[gidx], 0.0, 1.0);
 		if (open <= 0.0) {
 			return;
@@ -167,6 +172,7 @@ void main() {
 			}
 			send[base + d] = flow;
 			send_h[base + d] = flow * h_per_unit;
+			send_q[base + d] = flow * q_per_unit;
 			remaining -= flow;
 		}
 		return;
@@ -175,11 +181,14 @@ void main() {
 	// Pass 1: gather.
 	float gained = 0.0;
 	float gained_h = 0.0;
+	float gained_q = 0.0;
 	float lost = 0.0;
 	float lost_h = 0.0;
+	float lost_q = 0.0;
 	for (uint d = 0u; d < 6u; ++d) {
 		lost += send[base + d];
 		lost_h += send_h[base + d];
+		lost_q += send_q[base + d];
 		int inb = nbr[base + d];
 		if (inb < 0) {
 			continue;
@@ -187,7 +196,9 @@ void main() {
 		uint nb = uint(inb);
 		gained += send[nb * 6u + (d ^ 1u)];
 		gained_h += send_h[nb * 6u + (d ^ 1u)];
+		gained_q += send_q[nb * 6u + (d ^ 1u)];
 	}
 	amount[gidx] = max(amount[gidx] - lost + gained, 0.0);
 	h[gidx] = h[gidx] - lost_h + gained_h;
+	charge[gidx] = charge[gidx] - lost_q + gained_q;
 }
