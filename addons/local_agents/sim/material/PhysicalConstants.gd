@@ -502,3 +502,11 @@ const CO2_GAS_CONST_J_KGK: float = GAS_CONSTANT_J_MOL_K / MOLAR_MASS_CO2_KG_MOL
 ## Solar effective temperature, K. IAU 2015 Resolution B3 nominal solar luminosity and radius give
 ## 5772 K. Used as the blackbody whose spectrum splits the solar constant across absorption bands.
 const SOLAR_EFFECTIVE_TEMPERATURE_K: float = 5772.0
+
+
+# --- MAGMA RHEOLOGY: WHEN A MELT STOPS FLOWING -------------------------------------------------------------
+# The rheological critical melt fraction. A crystallising magma's viscosity climbs by orders of magnitude as
+# the crystal framework touches, near 0.6 crystals, and a solid does not remobilise until melt is back to
+# about 0.4 (Marsh 1981; Vigneresse, Barbey & Cuney 1996). The gap is real hysteresis, not a numerical guard.
+const RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC: float = 0.6
+const RHEOLOGICAL_MOBILE_CRYSTAL_FRAC: float = 0.4

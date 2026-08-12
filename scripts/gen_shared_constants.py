@@ -15,6 +15,7 @@ SIM = os.path.join(ROOT, "addons", "local_agents", "sim")
 REACTION_DEFS = os.path.join(SIM, "material", "reactions", "ReactionDefs.gd")
 REACTION_THERMO = os.path.join(SIM, "material", "reactions", "ReactionThermo.gd")
 CELL_LIST_PASS = os.path.join(SIM, "material", "sphere_passes", "CellListPass.gd")
+TRANSPORT_RECORDS = os.path.join(ROOT, "addons/local_agents/sim/material/TransportRecords.gd")
 REGOLITH = os.path.join(SIM, "material", "MaterialFieldRegolith3D.gd")
 RENDER = os.path.join(SIM, "material", "MaterialFieldRender3D.gd")
 SPHERE_GRID = os.path.join(SIM, "sphere", "SphereGrid.gd")
@@ -115,6 +116,17 @@ def cell_list_flags():
     return out
 
 
+def transport_modes():
+    """LATransportRecords' mode enum, which transport.glsl must not restate."""
+    m = re.search(r"^enum \{ ([A-Z, ]+) \}", read(TRANSPORT_RECORDS), re.M)
+    if not m:
+        raise Missing("TransportRecords.gd declares no mode enum")
+    names = [n.strip() for n in m.group(1).split(",") if n.strip()]
+    if not names:
+        raise Missing("TransportRecords.gd's mode enum is empty")
+    return list(enumerate(names))
+
+
 def face_frames():
     text = read(SPHERE_GRID)
     frames = []
@@ -140,6 +152,10 @@ def glsli_text():
     lines.append("// sphere_passes/CellListPass.gd Flag")
     for name, value in cell_list_flags():
         lines.append("#define F_%s %du" % (name, value))
+    lines.append("")
+    lines.append("// TransportRecords.gd mode enum")
+    for value, name in transport_modes():
+        lines.append("#define MODE_%s %du" % (name, value))
     lines.append("")
     lines.append("// MaterialFieldRegolith3D.gd, reactions/ReactionThermo.gd")
     lines.append("#define REGOLITH_CELLS %d" % const_int(REGOLITH, "REGOLITH_CELLS"))

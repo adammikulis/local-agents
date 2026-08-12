@@ -6,6 +6,7 @@
 // Opposite of slot d is d ^ 1.
 
 #include "neighbours.glsli"
+#include "generated.glsli"
 
 layout(local_size_x = 64) in;
 
@@ -43,14 +44,6 @@ layout(push_constant, std430) uniform Params {
 	float lapse_k_per_m;  // MODE_CONVECT: the adiabat this pair must exceed before it overturns
 } params;
 
-// Matches LATransportRecords mode enum.
-const uint MODE_POTENTIAL = 0u;
-const uint MODE_ADVECT    = 1u;
-const uint MODE_BOTH      = 2u;
-const uint MODE_DIFFUSE   = 3u;
-const uint MODE_CONVECT   = 4u;   // enthalpy, thresholded by the adiabatic lapse
-const uint MODE_CONDUCT   = 5u;   // enthalpy down a temperature gradient
-const uint MODE_RADIATE   = 6u;   // enthalpy across a face as sigma*eps*(T^4 - Tn^4)
 
 vec3 g_at(uint c) {
 	return vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);

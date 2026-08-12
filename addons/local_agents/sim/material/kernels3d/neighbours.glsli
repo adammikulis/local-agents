@@ -4,7 +4,7 @@
 #ifndef LA_NEIGHBOURS_GLSLI
 #define LA_NEIGHBOURS_GLSLI
 
-const uint N_SLOTS = 6u;
+const uint N_SLOTS = 6u;   // LAVoxelGrid.SLOTS — a box has six faces
 
 uint opposite_slot(uint d) { return d ^ 1u; }
 

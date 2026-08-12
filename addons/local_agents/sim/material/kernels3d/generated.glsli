@@ -56,6 +56,15 @@
 #define F_HALO 8u
 #define F_AUX 16u
 
+// TransportRecords.gd mode enum
+#define MODE_POTENTIAL 0u
+#define MODE_ADVECT 1u
+#define MODE_BOTH 2u
+#define MODE_DIFFUSE 3u
+#define MODE_CONVECT 4u
+#define MODE_CONDUCT 5u
+#define MODE_RADIATE 6u
+
 // MaterialFieldRegolith3D.gd, reactions/ReactionThermo.gd
 #define REGOLITH_CELLS 4
 const float EXP_LIMIT = 60.0;

@@ -27,8 +27,8 @@ layout(push_constant, std430) uniform Params {
 
 // Rheological lock-up is HYSTERETIC: a crystallising melt stops flowing near 0.6 crystals and a solid does
 // not start flowing again until about 0.4. One threshold makes a cell hovering at half melt flip every
-const float SOLID_IN = 0.6;
-const float SOLID_OUT = 0.4;
+const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
+const float SOLID_OUT = 0.4;   // LAPhysical.RHEOLOGICAL_MOBILE_CRYSTAL_FRAC
 
 void main() {
 	uint g = gl_GlobalInvocationID.x;
