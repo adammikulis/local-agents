@@ -549,3 +549,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/Materials.gd` | `PHASE_LIQUID` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/Materials.gd` | `PHASE_GAS` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldPassProbe3D.gd` | `DEFAULT_STEPS` | 3 | how many steps `LA_PASS_PROBE` samples before it disarms; a diagnostic default, not a property of the world | delete when the probe is cheap enough to leave armed for a whole run |
+| `addons/local_agents/sim/material/MaterialFieldGravity3D.gd` | `SOLVE_EVERY` | 8 | how often the Poisson solve re-runs; mass moves slowly next to a step and the solve warm-starts | the residual between solves is published and stops being reported as small |
+| `addons/local_agents/sim/material/MaterialFieldGravity3D.gd` | `SWEEPS` | 8 | red-black Gauss-Seidel sweeps per solve; a convergence budget, not a property of gravity | the solve reports a residual under the float floor at fewer sweeps |
+| `addons/local_agents/sim/material/kernels3d/neighbours.glsli` | `N_SLOTS` | 6 | faces of a cube; it is geometry, not a choice | never — a box has six faces |
+| `addons/local_agents/sim/material/kernels3d/generated.glsli` | `EXP_LIMIT` | 60.0 | generated from ReactionThermo.EXP_LIMIT; the exponent bound where exp() overflows float32 | deleted with its source row |
