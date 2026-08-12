@@ -24,7 +24,6 @@ const ENTROPY_CO2_GAS_J_MOLK: float = 213.785
 ##   molar_mass       kg/mol. The one bridge between the mass this table stores and the moles chemistry uses.
 ##   density          kg/m3, a REFERENCE value at `density_ref_t_c` and STANDARD_PRESSURE_PA — not the
 ##                    density, which is density(id, t_c, p_pa) and varies with both.
-##   heat_production_w_kg  W/kg of the substance from the decay of the U, Th and K it contains.
 static var _table_cache: Dictionary = {}
 
 
@@ -147,7 +146,6 @@ static func _build_table() -> Dictionary:
 			"molar_mass": PC.MOLAR_MASS_CASIO3_KG_MOL,
 			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_CASIO3_J_MOL,
 			"entropy_j_molk": PC.ENTROPY_CASIO3_J_MOL_K,
-			"heat_production_w_kg": PC.SILICATE_HEAT_PRODUCTION_W_KG,
 			"density": PC.ROCK_DENSITY_KG_M3,
 			"density_ref_t_c": PC.LAB_REFERENCE_TEMP_C,
 			"expansion_per_k": PC.ROCK_VOLUME_EXPANSION_PER_K,

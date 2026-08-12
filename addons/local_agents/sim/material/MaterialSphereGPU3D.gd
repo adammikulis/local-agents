@@ -62,7 +62,7 @@ var _probe_step: int = -1
 # Re-uploaded only when a CPU writer marks them, never per step.
 var _solid_dirty: bool = true
 var _water_dirty: bool = true
-var _temp_dirty: bool = true
+var _h_dirty: bool = true
 # Set whenever the Poisson solver actually re-solved; g changes only then.
 var _gravity_dirty: bool = false
 
@@ -142,7 +142,7 @@ func setup(field) -> void:
 			_pass_names.append(path.get_file().get_basename())   # e.g. "TransportPass" — timestamp label
 
 
-func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array) -> void:
+func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	if _rd == null:
 		return
 	# Drain the previous frame's in-flight step FIRST: sync it (usually already done — the GPU ran it during the
@@ -182,9 +182,9 @@ func set_sun_dir(v: Vector3) -> void:
 
 
 
-## Mark the CPU temp mirror dirty so the next begin_frame re-uploads it.
-func mark_temp_dirty() -> void:
-	_temp_dirty = true
+## Mark the CPU enthalpy mirror dirty so the next begin_frame re-uploads it.
+func mark_h_dirty() -> void:
+	_h_dirty = true
 
 
 ## The Poisson solver re-solved — hand the device the new g on the next begin_frame.

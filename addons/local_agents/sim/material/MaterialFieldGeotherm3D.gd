@@ -58,7 +58,8 @@ func _rebuild() -> bool:
 		return false
 	var rock: Dictionary = LASubstances.table().get("silicate", {})
 	var rho_rock: float = float(rock.get("density", 0.0))
-	var w_per_kg: float = float(rock.get("heat_production_w_kg", 0.0))
+	# The rate FALLS: the nuclides are a finite store, so this is what is left at the current epoch.
+	var w_per_kg: float = LARadiogenicDecay.heat_production_w_kg_at(_epoch_years())
 	if rho_rock <= 0.0 or w_per_kg <= 0.0:
 		return false
 	var has_phi: bool = _f._porosity.size() == cc
@@ -117,3 +118,12 @@ func _gradient() -> Dictionary:
 	out["geo_grad_max_c_per_m"] = mx
 	out["geo_grad_pairs"] = n
 	return out
+
+
+## Years since the epoch the nuclide abundances are quoted at. The sim clock runs in simulated seconds,
+## which the geologic time scale stretches.
+func _epoch_years() -> float:
+	var clock = LASimClock.active()
+	if clock == null:
+		return 0.0
+	return clock.elapsed() * LASimClock.REAL_SECONDS_PER_SIM_SECOND / LAPhysical.SECONDS_PER_YEAR

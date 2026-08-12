@@ -70,20 +70,33 @@ const VOL_HEAT_CAP_AIR_J_M3K: float = AIR_DENSITY_KG_M3 * AIR_SPECIFIC_HEAT_J_KG
 const VOL_HEAT_CAP_WATER_J_M3K: float = WATER_DENSITY_KG_M3 * WATER_SPECIFIC_HEAT_J_KGK
 
 # --- RADIOGENIC HEATING -----------------------------------------------------------------------------------
-# Present-day heat production per kg of the natural element, W/kg. Rybach 1988 (Handbook of Terrestrial
-# Heat-Flow Density Determination): 95.2 pW/kg per ppm U, 25.6 pW/kg per ppm Th, 34.8 pW/kg per % K.
-const HEAT_PRODUCTION_U_W_KG: float = 9.52e-5
-const HEAT_PRODUCTION_TH_W_KG: float = 2.56e-5
-const HEAT_PRODUCTION_K_W_KG: float = 3.48e-9
 # Bulk silicate Earth abundance, kg of element per kg of rock. McDonough & Sun 1995, Chem. Geol. 120:223
 # (U 20.3 ng/g, Th 79.5 ng/g, K 240 ug/g).
 const BSE_U_KG_PER_KG: float = 20.3e-9
 const BSE_TH_KG_PER_KG: float = 79.5e-9
 const BSE_K_KG_PER_KG: float = 240.0e-6
-# Radiogenic power of bulk silicate Earth rock, W/kg. Over the 4.03e24 kg silicate Earth this is ~19 TW.
-const SILICATE_HEAT_PRODUCTION_W_KG: float = BSE_U_KG_PER_KG * HEAT_PRODUCTION_U_W_KG \
-	+ BSE_TH_KG_PER_KG * HEAT_PRODUCTION_TH_W_KG \
-	+ BSE_K_KG_PER_KG * HEAT_PRODUCTION_K_W_KG
+# The four nuclides that produce essentially all of it. Half-lives, years — Audi et al. 2003, Nucl. Phys.
+# A729:3 (NUBASE). Decay energy per decay, MeV, summed over each chain to its stable daughter and NET of
+# the neutrino energy that escapes the planet — Ruedas 2017, Geochem. Geophys. Geosyst. 18:3530.
+const HALF_LIFE_U238_YEARS: float = 4.468e9
+const HALF_LIFE_U235_YEARS: float = 7.04e8
+const HALF_LIFE_TH232_YEARS: float = 1.405e10
+const HALF_LIFE_K40_YEARS: float = 1.248e9
+const DECAY_ENERGY_U238_MEV: float = 47.31
+const DECAY_ENERGY_U235_MEV: float = 44.63
+const DECAY_ENERGY_TH232_MEV: float = 40.29
+const DECAY_ENERGY_K40_MEV: float = 0.6485
+# Present-day isotopic abundance of the natural element, kg of nuclide per kg of element. Uranium and
+# potassium — Meija et al. 2016, Pure Appl. Chem. 88:293 (IUPAC). Thorium is monoisotopic.
+const ISOTOPE_FRAC_U238: float = 0.992742
+const ISOTOPE_FRAC_U235: float = 0.007204
+const ISOTOPE_FRAC_TH232: float = 1.0
+const ISOTOPE_FRAC_K40: float = 1.17e-4
+const MOLAR_MASS_U238_KG_MOL: float = 0.238051
+const MOLAR_MASS_U235_KG_MOL: float = 0.235044
+const MOLAR_MASS_TH232_KG_MOL: float = 0.232038
+const MOLAR_MASS_K40_KG_MOL: float = 0.0399640
+const MEV_J: float = 1.602176634e-13            # CODATA 2018, exact from the elementary charge
 
 # --- ENERGY BUDGET ----------------------------------------------------------------------------------------
 const SOLAR_CONSTANT_W_M2: float = 1361.0
@@ -434,3 +447,16 @@ const SOLAR_EFFECTIVE_TEMPERATURE_K: float = 5772.0
 # melt is back to 0.4 (Marsh 1981; Vigneresse, Barbey & Cuney 1996). Real hysteresis, not a guard.
 const RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC: float = 0.6
 const RHEOLOGICAL_MOBILE_CRYSTAL_FRAC: float = 0.4
+
+# --- VISCOSITY AND SUBGRID MOMENTUM FLUX ---------------------------------------------------------------
+# Dynamic viscosity: the transport laws divide by it, so a mobility is a material property rather than a
+# dial. Kestin, Sokolov & Wakeham 1978, J. Phys. Chem. Ref. Data 7:941 (water); Kadoya, Matsunaga &
+# Nagashima 1985, ibid. 14:947 (air).
+const WATER_DYNAMIC_VISCOSITY_PA_S: float = 1.002e-3    # liquid water at 20 C
+const AIR_DYNAMIC_VISCOSITY_PA_S: float = 1.81e-5       # dry air at 15 C, 1 atm
+# Kozeny-Carman shape factor for packed beds. Carman 1937, Trans. Inst. Chem. Eng. 15:150.
+const KOZENY_CARMAN_C: float = 180.0
+# Smagorinsky 1963 eddy viscosity, nu = (C_s * grid)^2 * |S|. Lilly 1967 DERIVES C_s from the Kolmogorov
+# constant rather than fitting it: C_s = (1/pi) * (3 * C_K / 2)^(-3/4).
+const KOLMOGOROV_CONSTANT: float = 1.6
+const SMAGORINSKY_COEFF: float = (1.0 / PI) * pow(1.5 * KOLMOGOROV_CONSTANT, -0.75)
