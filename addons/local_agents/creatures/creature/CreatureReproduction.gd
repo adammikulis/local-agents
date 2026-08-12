@@ -6,8 +6,7 @@ const MIN_ENERGY_FRAC: float = 0.55     # energy, as a fraction of max, a bearer
 const GESTATION_SECONDS: float = 12.0   # seconds a bearer carries a pregnancy before giving birth
 ## The mother pays the newborn's live mass times the overhead below. She resorbs the pregnancy if she cannot.
 const GESTATION_OVERHEAD: float = 1.35  # mother's cost / newborn's mass — placenta, remodelling, the work of
-                                        # building tissue is never free (mammalian reproductive efficiency
-                                        # measures out around 0.7-0.8, i.e. an overhead near 1.3)
+                                        # building tissue is never free (mammalian reproductive efficiency measures out around 0.7-0.8, i.e.
 const RESORB_FRACTION: float = 0.5      # of the mass already invested, this much is recovered on resorption;
                                         # the rest has already been spent building tissue and is respired
 const POST_BIRTH_COOLDOWN: float = 8.0      # seconds a bearer must recover (refeed) before conceiving again — shortened from
@@ -33,9 +32,7 @@ static func tick(c, delta: float) -> void:
 	var due: float = total * (delta / maxf(gest_dur, 0.0001))
 	var paid: float = LACreatureBodyMass.draw(c, due)
 	c._gestation_paid += paid
-	# RELATIVE tolerance, not an absolute one. A `due - 0.0001` epsilon is meaningless against an insect's
-	# per-frame instalment (order 1e-8 once physiology is derived from real body mass) — the test could never
-	# fire, so resorption would never happen for anything smaller than a person.
+	# RELATIVE tolerance, not an absolute one.
 	if paid < due * 0.999:
 		c.energy += c._gestation_paid * RESORB_FRACTION
 		if c._material != null and c._material.has_method("respire_at"):
@@ -52,26 +49,20 @@ static func tick(c, delta: float) -> void:
 		_give_birth(c)
 
 
-## What this pregnancy costs the mother: the newborn's live mass times the overhead. A newborn is
-## LACreatureLifeStage.NEWBORN_SCALE of adult length, so NEWBORN_SCALE cubed of adult mass.
+## What this pregnancy costs the mother: the newborn's live mass times the overhead.
 static func gestation_cost(c) -> float:
 	var s: float = LACreatureLifeStage.NEWBORN_SCALE
 	return LACreatureBodyMass.live_mass(c.config) * s * s * s * GESTATION_OVERHEAD
 
 
-## True once this creature could start a pregnancy RIGHT NOW: mature, not already pregnant, off cooldown,
-## well-fed, AND its species is still below its pop_cap (the soft ceiling). Used by the seeker to gate its
-## own courtship — the O(n) cap check happens once here per seeker, never per candidate.
+## True once this creature could start a pregnancy RIGHT NOW.
 static func ready_to_breed(c) -> bool:
-	# Only FEMALES initiate: the female is the bearer (she gestates + births) and the chooser. Males court but
-	# never start a pregnancy, so the courtship loop runs from the female side and picks the best available male.
+	# Only FEMALES initiate: the female is the bearer (she gestates + births) and the chooser.
 	if bool(c.get("is_male")):
 		return false
 	if not _is_fertile(c):
 		return false
-	# LOCAL density ceiling: a creature in a neighbourhood already at its carrying density does not breed, so a
-	# region settles at carrying capacity instead of overshooting then ageing out together. Counted once per
-	# seeker here (O(k), reusing the mate-seek frame index) — never per candidate. Opt-in per species.
+	# LOCAL density ceiling.
 	var carry: float = _carrying_density(c)
 	if carry > 0.0 and float(_local_conspecifics(c, c.global_position)) >= carry:
 		return false
@@ -80,8 +71,7 @@ static func ready_to_breed(c) -> bool:
 	return bool(c._ecology.can_species_breed(c.species))
 
 
-## Per-species LOCAL carrying capacity: the conspecific count (within breed_density_radius) at/above which this
-## creature stops breeding. 0/absent = the density rule is OFF for this species (energy + pop_cap regulate it).
+## Per-species LOCAL carrying capacity.
 static func _carrying_density(c) -> float:
 	return float(c.config.get("breed_carrying_density", 0.0))
 
@@ -91,8 +81,7 @@ static func _density_radius(c) -> float:
 	return float(c.config.get("breed_density_radius", DEFAULT_DENSITY_RADIUS))
 
 
-## Count of live same-species OTHERS within breed_density_radius of `pos` — the local conspecific density. Reuses
-## the frame-stamped spatial index (the same species group the mate-seek queries), so it is O(k), not an O(n) scan.
+## Count of live same-species OTHERS within breed_density_radius of `pos` — the local conspecific density.
 static func _local_conspecifics(c, pos: Vector3) -> int:
 	var radius: float = _density_radius(c)
 	var sp: String = "species_" + String(c.species)
@@ -132,8 +121,7 @@ static func _is_fertile(c) -> bool:
 	return c.energy >= c.max_energy * need
 
 
-## Cascade gate: should this creature spend a think-frame steering toward a mate? (Just ready_to_breed —
-## kept as a named predicate so the call site in Creature.gd reads clearly, mirroring nesting's should_seek_nest.)
+## Cascade gate: should this creature spend a think-frame steering toward a mate?
 static func should_seek_mate(c) -> bool:
 	return ready_to_breed(c)
 

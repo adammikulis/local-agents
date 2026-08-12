@@ -1,9 +1,7 @@
 class_name LAReactionThermo
 extends RefCounted
 
-## Reaction DIRECTION from Gibbs free energy. dG = dH - T dS + R T ln Q, with dH and dS derived from the
-## substance table over the record's own stoichiometry. A record's rate model stays the KINETICS; this is
-## only which way it runs, and how close to equilibrium it is.
+## Reaction direction from dG = dH - T dS + R T ln Q, over a record's own stoichiometry.
 
 const PC = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
 const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionBalance.gd")
@@ -34,8 +32,6 @@ static func equilibrium_terms(rec: Dictionary, q_slot: int) -> Dictionary:
 		return {}
 	var q_sub: Dictionary = tbl.get(String(subs.get(q_slot, "")), {})
 	var molar_mass: float = float(q_sub.get("molar_mass", 0.0))
-	# The REFERENCE density: this turns an EXTENT into moles, and an extent is one channel unit whose
-	# kilograms is the unit's definition — a fixed conversion, not a density evaluated at a cell.
 	var density: float = float(q_sub.get("density", 0.0))
 	if molar_mass <= 0.0 or density <= 0.0:
 		return {}
@@ -44,15 +40,12 @@ static func equilibrium_terms(rec: Dictionary, q_slot: int) -> Dictionary:
 		"dg_s_j_molk": ds / absf(q_mol),
 		"q_slot": q_slot,
 		"q_pa_per_unit_k": (density / molar_mass) * PC.GAS_CONSTANT_J_MOL_K,
-		# Heat per unit of extent, positive exothermic — the same dH, undivided. An extent is moles, so
-		# this is already J per m3 of cell.
+		# Heat per unit extent, J/m3, positive exothermic.
 		"enthalpy_j_m3": -dh,
 	}
 
 
-## `rec` with its direction taken from thermodynamics instead of a threshold: the kernel scales the kinetic
-## extent by 1 - exp(dG/RT) and runs the record BACKWARDS where that is negative. `q_slot` names the one
-## participant whose activity varies — a gas; every condensed participant is a pure phase at unit activity.
+## `rec` with equilibrium terms merged in; `q_slot` names the one participant whose activity varies.
 static func reversible(rec: Dictionary, q_slot: int) -> Dictionary:
 	var terms: Dictionary = equilibrium_terms(rec, q_slot)
 	if terms.is_empty():
@@ -72,8 +65,7 @@ static func reversible(rec: Dictionary, q_slot: int) -> Dictionary:
 	return out
 
 
-## Activity of `q_slot` at which dG = 0, i.e. the equilibrium the record relaxes to. The CPU counterpart of
-## the kernel's equilibrium bound; tests read it, the kernel recomputes it per cell.
+## Activity of `q_slot` at which dG = 0.
 static func equilibrium_activity(terms: Dictionary, sigma: float, t_k: float) -> float:
 	var rt: float = PC.GAS_CONSTANT_J_MOL_K * maxf(t_k, 1.0)
 	return exp(sigma * (maxf(t_k, 1.0) * float(terms["dg_s_j_molk"]) - float(terms["dg_h_j_mol"])) / rt)
@@ -83,8 +75,7 @@ static func equilibrium_activity(terms: Dictionary, sigma: float, t_k: float) ->
 const EXP_LIMIT: float = 60.0
 
 
-## +1 when `q_slot` is a product of `rec`, -1 when it is a reactant, 0 when it is neither. The kernel reads
-## the same two lists to get the same answer.
+## +1 when `q_slot` is a product of `rec`, -1 when it is a reactant, 0 when it is neither.
 static func quotient_sign(rec: Dictionary) -> float:
 	var q_slot: int = int(rec.get("q_slot", -1))
 	for entry in rec.get("reactants", []):
@@ -96,14 +87,12 @@ static func quotient_sign(rec: Dictionary) -> float:
 	return 0.0
 
 
-## Activity of `q_slot` — its partial pressure over the standard pressure — at a channel amount and a
-## temperature. Ideal gas: p = (rho/M) * ch * R * T.
+## Activity of `q_slot`: partial pressure over standard pressure, p = (rho/M) * ch * R * T.
 static func activity_of(terms: Dictionary, channel_amount: float, t_k: float) -> float:
 	return float(terms["q_pa_per_unit_k"]) * channel_amount * maxf(t_k, 1.0) / PC.STANDARD_PRESSURE_PA
 
 
-## The signed scale the kernel applies to the kinetic extent: 1 - exp(dG/RT). Positive runs the record
-## forward, negative runs it backwards, zero is equilibrium.
+## Signed scale on the kinetic extent, 1 - exp(dG/RT); negative runs the record backwards.
 static func direction_factor(terms: Dictionary, sigma: float, t_k: float, activity: float) -> float:
 	var rt: float = PC.GAS_CONSTANT_J_MOL_K * maxf(t_k, 1.0)
 	var dg: float = float(terms["dg_h_j_mol"]) - maxf(t_k, 1.0) * float(terms["dg_s_j_molk"]) \
@@ -111,8 +100,7 @@ static func direction_factor(terms: Dictionary, sigma: float, t_k: float, activi
 	return 1.0 - exp(clampf(dg / rt, -EXP_LIMIT, EXP_LIMIT))
 
 
-## Temperature at which dG = 0 for a given activity of `q_slot`. This is what a threshold constant used to
-## assert; it is a function of composition, which is why one number could never be right.
+## Temperature, K, at which dG = 0 for a given activity of `q_slot`.
 static func equilibrium_temperature_k(terms: Dictionary, sigma: float, activity: float) -> float:
 	var denom: float = float(terms["dg_s_j_molk"]) \
 		- sigma * PC.GAS_CONSTANT_J_MOL_K * log(maxf(activity, 1.0e-30))

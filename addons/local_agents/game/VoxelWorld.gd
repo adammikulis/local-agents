@@ -9,20 +9,16 @@ const UiLayerScene: PackedScene = preload("res://addons/local_agents/game/UiLaye
 const StreamerHostScript: GDScript = preload("res://addons/local_agents/sim/streamer/StreamerHost.gd")
 
 # THE BODY THIS WORLD IS SEEDED WITH. Every length below is METRES, because the grid is metres.
-#
 const PLANET_RADIUS: float = 2.4397e6
 const PLANET_RELIEF: float = 9.4e3                # peak-to-trough continental relief; LA_RELIEF overrides
 const PLANET_FEATURE: float = 5.2e4               # continental wavelength
-# OCEAN-heavy world: sea shell at the mean radius; OCEAN_BIAS pushes the surface inward, so most of the
-# sphere is below the sea and continents emerge at the cellular cores. Runtime-tunable: LA_OCEAN_BIAS=<n>.
+# OCEAN-heavy world: sea shell at the mean radius.
 const PLANET_SEA_RADIUS: float = PLANET_RADIUS
 const PLANET_OCEAN_BIAS: float = 1.0e3
-# BASIN relief: medium-wavelength undulation carved into the cellular plateaus so land has CLOSED
-# DEPRESSIONS (lake bowls) for springs/rain/runoff to collect in.
+# BASIN relief.
 const PLANET_BASIN_RELIEF: float = 4.0e3
 const PLANET_BASIN_SIZE: float = 4.4e4
-# RIDGES: ridged-multifractal mountain layer. Rivers do not ride this noise — the drainage network is carved
-# from the ACTUAL water flow — so its only job is gentle mountain extrusions.
+# RIDGES: ridged-multifractal mountain layer.
 const PLANET_RIDGE_RELIEF: float = 1.35e3               # LA_RIDGE overrides
 const PLANET_RIDGE_SIZE: float = 3.2e4
 const PLANET_RIDGE_OCTAVES: int = 2
@@ -41,9 +37,7 @@ var _render: LARenderLayer = null
 var _ui: LAUiLayer = null
 var _streamer_host: Node = null
 
-# Forwarded sim/presentation refs. External readers (LAVoxelHarness, the debug wiring, the save controller)
-# reach the world for these by name, so they stay members rather than accessors. `_sky_ctrl` and
-# `_progression` are null without --ui and every reader already null-guards them.
+# Forwarded sim/presentation refs.
 var _material: Node = null
 var _ecology: Node = null
 var _body: Node3D = null
@@ -144,8 +138,7 @@ func _ready() -> void:
 	_begin_trailer_shot()
 
 
-# Non-interactive verification/screenshot runs shove the OS window WAY off-screen the instant we start, so
-# agent/CI runs that render on a real display path never pop a visible window in front of the user.
+# Non-interactive verification/screenshot runs shove the OS window WAY off-screen the instant we start.
 func _window_pos_from_env() -> Vector2i:
 	var raw: String = OS.get_environment("LA_WIN_POS")
 	var parts: PackedStringArray = raw.split(",")
@@ -160,8 +153,7 @@ func _apply_window_mode() -> void:
 	if not offscreen or DisplayServer.get_name() == "headless":
 		return
 	DisplayServer.window_set_position(_window_pos_from_env())
-	# The perf bench ALWAYS uncaps: vsync would clamp the reading to the monitor rate and hide both the true
-	# frame cost and any headroom. Per-viewport render-time measurement on so the CPU/GPU split is real.
+	# The perf bench ALWAYS uncaps.
 	if _input.perf_frames() > 0:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		Engine.max_fps = 0
@@ -171,8 +163,7 @@ func _apply_window_mode() -> void:
 		Engine.max_fps = 0
 
 
-# Cinematic trailer capture (--trailer-shot=NAME): a scene-scripter drives a scripted camera + timed events
-# and auto-quits. Presentation-only — there is nothing to film without it.
+# Cinematic trailer capture (--trailer-shot=NAME).
 func _begin_trailer_shot() -> void:
 	if _input.trailer_shot() == "" or _render == null:
 		return
@@ -193,25 +184,20 @@ func _begin_trailer_shot() -> void:
 	director.begin(self, _camera, _sim.meteor_impacts(), _input, _body, null, _input.trailer_shot())
 
 
-# Everything that feeds the field runs on the fixed tick, in lockstep with LAMaterialField3D. The sun
-# direction, the insolation, the planet's spin phase and the demo hooks that seed matter are all field
-# inputs, so on the render clock the chemistry would depend on the framerate.
+# Everything that feeds the field runs on the fixed tick.
 func _physics_process(delta: float) -> void:
 	_frame += 1
 	_sim.step(delta, _input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
-	# Sample the night gauges PERIODICALLY, not once at report time: sampled once, night_frac's min and max
-	# are the same number and the gauge cannot show whether the terminator moves.
+	# Sample the night gauges PERIODICALLY, not once at report time.
 	if _sim.is_spawned() and _frame % 15 == 0:
 		LAVoxelHarness.sample_night(self)
 		_sample_behaviour_peaks()
 	# Landslide diagnostic: most sediment cells slumping at once (throttled — the count is a full grid scan).
 	if _sim.is_spawned() and _frame % 10 == 0 and _material != null and _material.has_method("slump_count"):
 		_peak_slump = maxi(_peak_slump, _material.slump_count())
-	# Auto-demo firing on the SIMULATION clock: every trigger is expressed relative to --run-frames, which
-	# the harness counts in physics ticks.
+	# Auto-demo firing on the SIMULATION clock.
 	_input.update_sim(_frame, _sim.is_spawned())
-	# Trajectory samples through a long run. The END of the run belongs to the DemoHarness child, which
-	# counts frames, calls demo_report(), prints SIM_REPORT, emits LA_RUN_COMPLETE and owns the exit.
+	# Trajectory samples through a long run.
 	if _input.run_frames() > 0 and _frame % 180 == 0 and _frame < _input.run_frames():
 		LAVoxelHarness.emit_population_trace(self, _frame)
 
@@ -225,8 +211,7 @@ func _process(delta: float) -> void:
 	if _ui != null:
 		_ui.step(delta)
 	_update_music_mood()
-	# The --shoot half of the same schedule, on the RENDER clock: the harness captures on render frame
-	# --shoot-frames.
+	# The --shoot half of the same schedule, on the RENDER clock.
 	_input.update_render(_render_frame, _sim.is_spawned())
 	_perf_probe(delta)
 
@@ -238,8 +223,7 @@ func _perf_probe(delta: float) -> void:
 	var window: int = mini(FPS_PROBE_FRAMES, maxi(30, pf / 2))
 	if _render_frame > pf - window and _render_frame <= pf:
 		var vp_rid: RID = get_viewport().get_viewport_rid()
-		# The _process delta IS the frame period — the ground truth that disambiguates the fps counter (a
-		# rolling average that can lag) from TIME_PROCESS (which includes the stall waiting on the GPU).
+		# The _process delta IS the frame period.
 		_frame_dt_accum += delta
 		_fps_accum += Engine.get_frames_per_second()
 		_gpu_ms_accum += RenderingServer.viewport_get_measured_render_time_gpu(vp_rid)
@@ -263,9 +247,7 @@ func _perf_probe(delta: float) -> void:
 	LAAppExit.request(self, 0)
 
 
-## The LocalAgentDemoHarness contract. The harness child calls this on its final frame and prints the result
-## as SIM_REPORT={...}. Field, population and cognition arrive through their registered LASimReport
-## providers, deaths through events, behaviour peaks through gauges, so nothing needs listing here.
+## The LocalAgentDemoHarness contract.
 func demo_report() -> Dictionary:
 	var report: Dictionary = LAVoxelHarness.build_report(self)
 	report["ui_nodes"] = _count_ui_nodes(get_tree().root)
@@ -350,8 +332,7 @@ func _on_music_auto_adapt_changed(on: bool) -> void:
 		_hud.set_status("Music auto-adapt: %s" % ("on" if on else "off, manual control"))
 
 
-# --- controller callbacks: the interaction/brush/impact controllers forward the few bits of root-owned
-# state (music mood, harness latch, debug view toggles) back through these. ---
+# --- controller callbacks.
 
 # Spike the music's destruction mood (meteors/volcanoes/lightning). Decays each frame in _update_music_mood.
 func set_destruction(intensity: float) -> void:
@@ -376,8 +357,7 @@ func toggle_temp_view() -> void:
 		_debug.toggle_temp_view()
 
 
-# C key: build the streamer on first use (lazy — the local LLM + TTS stay unloaded until asked for), then
-# hide/show it, gating its compute off/on.
+# C key: build the streamer on first use.
 func toggle_streamer() -> void:
 	if not _ensure_streamer_host():
 		return
@@ -385,8 +365,7 @@ func toggle_streamer() -> void:
 		_streamer_host.toggle_streamer()
 
 
-# Returns false when the streamer is disabled for this run (--no-streamer / LA_NO_STREAMER), so a headless /
-# perf / no-LLM run never spins one up. The freshly built host starts hidden + compute-gated.
+# Returns false when the streamer is disabled for this run (--no-streamer / LA_NO_STREAMER).
 func _ensure_streamer_host() -> bool:
 	if _streamer_host != null:
 		return true

@@ -13,8 +13,7 @@ const GENE_KEYS: Array = [
 	"flock_cohesion", "flock_alignment", "flock_separation", "flock_radius", "flock_weight",
 ]
 
-# The regulatory cue-prior loci → born-in chemical valences the affinity system reads (a positive value =
-# innate attraction, drives caution/appetite before anything is learned).
+# Regulatory cue-prior loci: born-in chemical valences the affinity system reads.
 const CUE_KEYS: Array = ["blood_wariness", "water_affinity", "carrion_appetite"]
 
 const LOCI: Array = [
@@ -46,23 +45,13 @@ const LOCI: Array = [
 	["water_affinity", "cue", 1, 0.0, 1.0],
 	["carrion_appetite", "cue", 1, 0.0, 1.0],
 	["_spacer_d", "spacer", 2, 0.0, 0.0],
-	# Immune CONSTITUTION — how well the animal fights off infection (read by LACreatureDisease). Heritable +
-	# mutable, so an epidemic SELECTS for it: plague survivors pass on higher constitution and the population
-	# evolves disease resistance. Claimed from a reserved locus, so the strand length is unchanged.
+	# Immune CONSTITUTION — how well the animal fights off infection (read by LACreatureDisease).
 	["constitution", "gene", 2, 0.3, 2.5],
 	["display", "gene", 2, 0.0, 1.0],
-	# THERMAL NICHE — where this genome's enzymes work best, and how wide a range they tolerate. Heritable,
-	# so an ice cap or a hot spring selects the optimum toward itself and a seasonal band selects for width.
-	# Both envelopes are LAPhysical's rather than anybody's: an optimum may sit anywhere liquid water and
-	# intact protein overlap, and tolerance is a FRACTION of that envelope's half-range, not a °C somebody
-	# picked. Tolerance 0 is a legal genome that cannot function at any temperature and dies at once.
-	# Claimed from reserved loci, so strand length and every following offset are unchanged.
+	# THERMAL NICHE — where this genome's enzymes work best, and how wide a range they tolerate.
 	["thermal_optimum_c", "gene", 2, LAPhysical.WATER_FREEZE_C, LAPhysical.PROTEIN_DENATURE_C],
 	["thermal_tolerance", "gene", 2, 0.0, 1.0],
-	# ADULT BODY MASS, log10 kilograms. The roster spans 5 mg to 400 kg, which is why this is a LOG locus —
-	# the note above saying a linear one cannot hold it is answered by taking the log rather than by
-	# keeping mass out of the genome. -6..3 spans a microgram to a tonne. Heritable, so a lineage can
-	# actually change size: island dwarfing, Bergmann gigantism and r/K shifts are reachable from here.
+	# ADULT BODY MASS, log10 kilograms.
 	["log10_adult_mass_kg", "gene", 2, -6.0, 3.0],
 	["_reserved_5", "reserved", 2, 0.0, 1.0],
 	["_reserved_6", "reserved", 2, 0.0, 1.0],
@@ -73,8 +62,7 @@ const LOCI: Array = [
 const DIET_HERBIVORE_MAX: float = 0.34
 const DIET_OMNIVORE_MAX: float = 0.66
 
-# Baldwin instincts are deliberately few — instinct is expensive to encode; real genomes bake only the most
-# vital reactions and leave the rest to learning.
+# Baldwin instincts are deliberately few.
 const MAX_INSTINCTS: int = 5
 const CANALIZE_MIN_WEIGHT: float = 5.0     # only a lifelong, near-max-confidence habit may assimilate
 const CANALIZE_CHANCE: float = 0.06        # and even then only rarely per breeding
@@ -182,8 +170,7 @@ static func from_config(cfg: Dictionary) -> LADNA:
 	var g: LADNA = LADNA.new()
 	g.base_config = cfg.duplicate(true)
 	g.strand = LADNA._blank_strand()
-	# Legacy quantitative genes: encode the ones the species set; leave the rest at neutral (mid-range) and
-	# ungated so express() won't override an absent gene.
+	# Legacy quantitative genes: encode the ones the species set.
 	for k in GENE_KEYS:
 		if cfg.has(k):
 			g.encode_gene(k, float(cfg[k]))
@@ -199,15 +186,9 @@ static func from_config(cfg: Dictionary) -> LADNA:
 	g.encode_gene("neophobia", float(cfg.get("neophobia", 0.5)))
 	g.encode_gene("boldness", float(cfg.get("boldness", 0.5)))
 	g.encode_gene("respiratory_capacity", float(cfg.get("respiratory_capacity", 1.0)))
-	# Ancestral thermogenesis: a species that says nothing starts ECTOTHERMIC (0.0), which is both the ancestral
-	# condition in life's actual history and the honest default — endothermy is the derived, expensive trait and
-	# a lineage should have to be given it or evolve it. Birds and mammals declare it; everything else does not.
+	# Ancestral thermogenesis.
 	g.encode_gene("thermogenesis", float(cfg.get("thermogenesis", 0.0)))
-	# Ancestral thermal niche: a genome that declares nothing is an unspecialised GENERALIST — its optimum sits
-	# at the middle of the envelope and it spans all of it (tolerance 1.0). That is the least assertive prior
-	# available, not a comfort range anybody measured: it claims no adaptation and lets the planet narrow the
-	# lineage. A zero here would be a genome that cannot function at any temperature, which is a legal genome
-	# but a terrible default, and _blank_strand() is zero-filled, so both loci MUST be encoded explicitly.
+	# Ancestral thermal niche: a genome that declares nothing is an unspecialised GENERALIST.
 	g.encode_gene("thermal_optimum_c", float(cfg.get("thermal_optimum_c",
 		(LAPhysical.WATER_FREEZE_C + LAPhysical.PROTEIN_DENATURE_C) * 0.5)))
 	g.encode_gene("thermal_tolerance", float(cfg.get("thermal_tolerance", 1.0)))
@@ -307,9 +288,7 @@ static func _diet_bucket(carnivory: float) -> String:
 	return "carnivore"
 
 
-## The Baldwin effect: rarely, a behaviour a creature has ingrained for its whole life sinks into the germline
-## as an instinct prior its offspring may be born with — NOT wholesale thought copying, only the deepest,
-## most consistently-rewarded habits, and only sometimes. Stochastic draw goes through the shared LASimRng.
+## The Baldwin effect.
 func maybe_canalize(policy: Dictionary) -> void:
 	var rng: LASimRng = LASimRng.for_domain("life")
 	for key in policy.keys():
@@ -335,9 +314,7 @@ func _prune_instincts() -> void:
 	instincts = kept
 
 
-## Sexual reproduction: a genuine sequence RECOMBINATION of two parent strands — 1 or 2 crossover points
-## splice the literal symbol arrays (a cut can fall mid-gene, so genes blend), and the few genetic instincts
-## are unioned (higher confidence wins). All stochastic draws go through the injected LASimRng.
+## Sexual reproduction: a genuine sequence RECOMBINATION of two parent strands.
 static func crossover(a: LADNA, b: LADNA, rng: LASimRng) -> LADNA:
 	if rng == null:
 		rng = LASimRng.for_domain("life")
@@ -389,9 +366,7 @@ static func _splice(a: PackedByteArray, b: PackedByteArray, rng: LASimRng) -> Pa
 	return out
 
 
-## Point mutations on the strand: each codon has `rate` probability of one of its four bases flipping to a
-## different base, plus a rare length-neutral indel absorbed inside a non-coding spacer (so it never frame-
-## shifts a coding locus), plus rare forgetting of a baked instinct. All draws go through the injected LASimRng.
+## Point mutations on the strand.
 func mutate(rng: LASimRng, rate: float = DEFAULT_MUTATION_RATE) -> LADNA:
 	if rng == null:
 		rng = LASimRng.for_domain("life")
@@ -412,9 +387,7 @@ func mutate(rng: LASimRng, rate: float = DEFAULT_MUTATION_RATE) -> LADNA:
 	return self
 
 
-## A length-neutral indel contained to a non-coding spacer: shift the spacer's symbols one place (insertion =
-## right, dropping the tail base and admitting a new base at the head; deletion = the mirror), so the event is a
-## genuine insertion/deletion of a base within junk DNA without disturbing the fixed coding loci downstream.
+## A length-neutral indel contained to a non-coding spacer.
 func _indel_in_spacer(rng: LASimRng) -> void:
 	LADNA._layout()
 	if _spacers.is_empty():
@@ -436,9 +409,7 @@ func _indel_in_spacer(rng: LASimRng) -> void:
 		strand[start + count - 1] = new_base
 
 
-## Serialize to a plain-data dict a save can persist (LAGameSave stores it via binary store_var, so the
-## PackedByteArray strand round-trips natively). The format version + reserved strand loci mean a future
-## build reads this back even after new genes are added.
+## Serialize to a plain-data dict a save can persist.
 func snapshot() -> Dictionary:
 	return {
 		"version": GENOME_FORMAT_VERSION,
@@ -450,8 +421,7 @@ func snapshot() -> Dictionary:
 	}
 
 
-## Reconstruct a genome from snapshot() data (forward-compatible: a short/legacy strand is padded to the
-## current fixed length, so older saves still decode; unknown extra data is ignored).
+## Reconstruct a genome from snapshot() data.
 static func restore(d: Dictionary) -> LADNA:
 	var g: LADNA = LADNA.new()
 	if d == null or d.is_empty():

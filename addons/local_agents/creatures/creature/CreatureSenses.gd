@@ -4,9 +4,7 @@ extends RefCounted
 
 const PREDATOR_SIZE_RATIO: float = 1.2
 
-# One spatial hash shared by every creature's sense queries; lazily built and rebuilt at most once per
-# physics frame per group (see LASpatialIndex). The first sense call of a frame that needs a group pays
-# the rebuild; every other creature reuses it, so a group scan is O(n) rather than O(n²).
+# One spatial hash shared by every creature's sense queries.
 static var _index: LASpatialIndex = null
 
 
@@ -18,8 +16,7 @@ static func _fresh_index(c, groups: Array) -> LASpatialIndex:
 	return _index
 
 
-## Every live creature within `radius` of `c` (itself excluded) — a proximity query over the shared frame index
-## (NOT vision-gated: disease/contagion doesn't need line of sight). Reused by LACreatureDisease shedding.
+## Every live creature within `radius` of `c` (itself excluded).
 static func creatures_within(c, radius: float) -> Array:
 	var out: Array = []
 	for cand in _fresh_index(c, ["creature"]).query("creature", c.global_position, radius):
@@ -28,8 +25,7 @@ static func creatures_within(c, radius: float) -> Array:
 	return out
 
 
-## Nearest live member of any species in `species_list` the creature can SEE (inside its FOV cone
-## and eye range, per LAVision — so a hunter must face prey, and binocular eyes reach farther).
+## Nearest live member of any species in `species_list` inside the creature's FOV cone and eye range.
 static func nearest_of(c, pos: Vector3, species_list) -> Node3D:
 	var groups: Array = []
 	for sp in species_list:
@@ -54,7 +50,6 @@ static func nearest_of(c, pos: Vector3, species_list) -> Node3D:
 
 
 ## Emergent threat detection: nearest VISIBLE creature that HUNTS and is meaningfully LARGER than me.
-## Panoramic prey spot threats from almost any angle; a predator can be ambushed from its blind spot.
 static func nearest_larger_predator(c, pos: Vector3) -> Node3D:
 	var best: Node3D = null
 	var best_d: float = LAVision.effective_range(c)
@@ -104,8 +99,7 @@ static func nearest_rock(c, pos: Vector3) -> Node3D:
 	return best
 
 
-## Nearest carcass (group "carrion") the creature can SEE (FOV cone). Used by aerial scavengers to
-## spot a kill and by ground scavengers reading the scene directly.
+## Nearest carcass (group "carrion") the creature can SEE (FOV cone).
 static func nearest_visible_carrion(c, pos: Vector3) -> Node3D:
 	var best: Node3D = null
 	var best_d: float = LAVision.effective_range(c) * 1.5   # carcasses are large, spotted a bit farther
@@ -122,8 +116,7 @@ static func nearest_visible_carrion(c, pos: Vector3) -> Node3D:
 	return best
 
 
-## Nearest VISIBLE creature (in `group`) whose `state` is one of `states`. This is how a ground
-## scavenger reads a circling/soaring vulture as a pointer to a carcass — public information, general.
+## Nearest VISIBLE creature (in `group`) whose `state` is one of `states`.
 static func nearest_visible_in_state(c, pos: Vector3, group: String, states) -> Node3D:
 	var best: Node3D = null
 	var best_d: float = LAVision.effective_range(c) * 1.5
@@ -142,10 +135,7 @@ static func nearest_visible_in_state(c, pos: Vector3, group: String, states) -> 
 	return best
 
 
-## Direction UP the CO₂ gradient, or ZERO if the air is uniform (predator tracking). There is no prey-scent
-## channel: animals exhale CO₂ and carrion decomposes into it, so dense ground reads as a CO₂ plume drifting on
-## the real wind. Tracking a host by its CO₂ is what mosquitoes and ticks actually do. Vision still picks the
-## individual target; this only says which way smells of life.
+## Direction UP the CO₂ gradient, or ZERO if the air is uniform (predator tracking).
 static func follow_prey_scent(c, pos: Vector3) -> Vector3:
 	if c._material == null or not c._material.has_method("airborne_gradient") or c.preys_on.is_empty():
 		return Vector3.ZERO

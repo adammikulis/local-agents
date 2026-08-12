@@ -14,8 +14,7 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 		c.config = c._genome.express()
 	else:
 		c.config = config_arg.duplicate(true)
-		# Standing genetic variation: from_config() encodes the species template exactly, so founders would
-		# otherwise be clones with zero variance at every locus. See LADNA.seed_variation.
+		# Standing genetic variation.
 		c._genome = LADNA.from_config(c.config).seed_variation(LASimRng.for_domain("life"))
 		c.config = c._genome.express()
 	var config: Dictionary = c.config
@@ -56,8 +55,7 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.max_age = float(config.get("max_age", maxf(c.maturity_age * 5.0, 60.0)))
 	c.max_age *= 1.0 + LASimRng.for_domain("life").randf_range(-LIFESPAN_VARIANCE, LIFESPAN_VARIANCE)
 	if genome_arg == null:
-		# Founders spread over juvenile→young-adult, so the first maturation wave is desynchronised without
-		# seeding anyone near old age.
+		# Founders spread over juvenile→young-adult.
 		c.age = LASimRng.for_domain("life").randf() * c.maturity_age * 1.8
 	LACreatureBodyMass.size_to_age(c)
 	if config.has("sex"):
@@ -75,8 +73,7 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.hearing_range = float(config.get("hearing_range", c.sense_radius * 1.5))
 	c.family_id = int(config.get("family_id", c.get_instance_id()))
 	LACreatureAffiliation.setup(c)
-	# Nesting is general and config-driven: ANY species that actually nests/shelters sets nests:true
-	# (birds roost in trees, mammals/snakes burrow or den) — no per-species branch here.
+	# Nesting is general and config-driven.
 	c.nests = bool(config.get("nests", c.nests))
 	c.nest_habitat = String(config.get("nest_habitat", "tree" if c.can_fly else "ground"))
 	c.llm_enabled = bool(config.get("llm_enabled", c.llm_enabled))   # export is the default; config may override
@@ -98,8 +95,7 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	if c._heading == Vector3.ZERO:
 		c._heading = Vector3.FORWARD
 
-	# The fast/slow brain: born with the genome's baked instinct priors; learns the rest by living
-	# and by watching kin. The shared slow-brain scheduler is injected separately (set_cognition_scheduler).
+	# The fast/slow brain: born with the genome's baked instinct priors.
 	c._cognition = LACognition.new()
 	c._cognition.seed_from_genome(c._genome)
 	LACreatureChemSense.seed_priors(c)
@@ -109,12 +105,10 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.disease.setup(c, config)
 	c.gut_microbiome = LACreatureMicrobiome.new()
 	c.gut_microbiome.setup(c, config)
-	# Per-creature tameness/companion state (owned off this monolith). A wild creature starts untamed;
-	# friendly interaction (feeding/petting, calm proximity to the hand) raises the bond — see LACreatureBond.
+	# Per-creature tameness/companion state (owned off this monolith).
 	c.bond = LACreatureBond.new()
 	c.bond.setup(c, config)
-	# Per-creature ageing/senescence state (owned off this monolith). Captures this individual's youthful
-	# speed/max_energy baselines NOW (after config/genome expression) so age can grade them down later.
+	# Per-creature ageing/senescence state (owned off this monolith).
 	c.senescence = LACreatureSenescence.new()
 	c.senescence.setup(c)
 	LACreatureBodyMass.note_spawn(c, genome_arg != null)

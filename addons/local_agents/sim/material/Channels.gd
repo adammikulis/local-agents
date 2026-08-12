@@ -1,12 +1,9 @@
 class_name LAChannels
 extends RefCounted
 
-## THE ONE DECLARATION OF WHAT A CHANNEL IS.
-##
-## `phase` is the state of matter the channel holds — "solid", "liquid", "gas", or "" when the channel's
-## phase is DERIVED from its enthalpy rather than stored. `unit` is what the stored number means: "vf" a
-## volume fraction of the whole cell, "sat" a saturation of the pore space (multiply by 1 - porosity for a
-## volume fraction), "" not an amount of matter at all.
+## The one declaration of what a channel is. `phase` is "solid" / "liquid" / "gas", or "" when derived
+## from enthalpy. `unit` is "vf" (volume fraction of the cell), "sat" (saturation of the pore space,
+## times 1 - porosity for a volume fraction), or "" for not an amount of matter.
 static func rows() -> Dictionary:
 	var D: GDScript = load("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 	return {
@@ -40,8 +37,7 @@ static func rows() -> Dictionary:
 	}
 
 
-## Buffers that hold no state: a pass recomputes each from the channels every step, so they are never
-## seeded, never read back as truth and never conserved. Name -> the law that produces it.
+## Buffers a pass recomputes from the channels every step. Name -> the law that produces it.
 static func derived_buffers() -> Dictionary:
 	return {
 		"temp": "the mixture's enthalpy ladder inverted at this cell's pressure",
@@ -61,8 +57,7 @@ static func derived_buffers() -> Dictionary:
 	}
 
 
-## Reaction slots that no channel backs: the kernel derives them from other state each step. A driver here
-## may never be a reactant or a product, which is what LAReactionBalance.driver_only() enforces.
+## Reaction slots that no channel backs; the kernel derives them from other state each step.
 static func derived_slots() -> Dictionary:
 	var D: GDScript = load("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 	return {
@@ -114,8 +109,7 @@ static func inventory_channels() -> Dictionary:
 	return out
 
 
-## Reaction slot -> LASubstances id, for every slot whose contents are matter. A DERIVED slot can still be
-## matter — SOIL_TOP is water and BEDROCK_BELOW is silicate — and the balance gate has to count it.
+## Reaction slot -> LASubstances id, for every slot whose contents are matter, derived slots included.
 static func slot_substance() -> Dictionary:
 	var out: Dictionary = {}
 	var tbl: Dictionary = rows()
@@ -143,10 +137,7 @@ static func lithosphere_channels() -> PackedStringArray:
 	return out
 
 
-## Channels whose matter enters the cell mixture BY MASS, paired with what their number means. Keyed by
-## channel: {"substance": id, "unit": "vf" | "sat"}. A "sat" channel is a share of the pore space, so a
-## volume fraction of the cell is its value times 1 - porosity. A channel declared "gas" is excluded: it is
-## the non-condensable denominator of the saturation split, counted in moles instead.
+## Channels entering the cell mixture by mass: name -> {"substance": id, "unit": "vf" | "sat"}. Gas excluded.
 static func mixture_channels() -> Dictionary:
 	var out: Dictionary = {}
 	var tbl: Dictionary = rows()

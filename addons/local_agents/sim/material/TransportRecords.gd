@@ -16,14 +16,9 @@ enum Fluid { VACUUM, WATER, AIR }
 enum Flag { SIGNED = 1, SETTLE = 2, STAMP = 4, DRIVEN = 8, FRACTION = 16 }
 
 
-## No row carries a mobility: every one names a law, and the law is evaluated per cell on measured
-## properties. `settle` adds the grain's own terminal velocity to the fluid velocity that advects it.
-## `frac` names a DERIVED share of the channel this row moves — the phase whose law it is.
+## `settle` adds the grain's terminal velocity to the advecting fluid; `frac` is the derived share moved.
 static func rows() -> Array:
 	return [
-		# H2O IS ONE CHANNEL AND ITS PHASES TRAVEL DIFFERENTLY. Free liquid runs downhill, pore water
-		# percolates, vapour goes with the wind, and the solid share has no row: ice does not flow at this
-		# grid's timescale, so it leaves a cell by melting.
 		{"channel": "h2o", "substance": "h2o", "mode": POTENTIAL, "law": Law.SHALLOW,
 			"frac": "h2o_liquid"},
 
@@ -47,7 +42,6 @@ static func rows() -> Array:
 		{"channel": "co2", "substance": "co2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},
 		{"channel": "n2", "substance": "n2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},
 
-		# Spores ride the wind; the settling arm needs a spore diameter no table here declares.
 		{"channel": "fungus", "substance": "cellulose", "mode": ADVECT, "fluid": Fluid.AIR},
 
 		{"channel": "fert", "substance": "fixed_n", "mode": DIFFUSE, "law": Law.DARCY,
@@ -55,7 +49,6 @@ static func rows() -> Array:
 
 		{"channel": "shock", "substance": "", "mode": DIFFUSE, "law": Law.SOUND, "fluid": Fluid.AIR},
 
-		# Lightning is not a mechanism: it is sigma/eps0 relaxation once sigma stops being a dielectric.
 		{"channel": "charge", "substance": "", "mode": DIFFUSE, "law": Law.OHMIC, "fluid": Fluid.AIR,
 			"stamp": "discharge"},
 
@@ -91,7 +84,7 @@ static func fluid_properties(fluid: int) -> Vector2:
 	return Vector2.ZERO
 
 
-## Channels this table moves. Absent = does not travel (carbonate and silica are locked in their rock).
+## Channels this table moves; absent means it does not travel.
 static func channels() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
 	for r in rows():

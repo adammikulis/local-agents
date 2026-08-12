@@ -1,11 +1,7 @@
 @tool
 extends RefCounted
 
-## A CELL of rock and water and air has ONE temperature, and the inverter has to find it from the cell's
-## total energy. What is asserted: the round trip T -> H -> T; that the fusion jump pins the temperature and
-## reports where in the jump the energy sits; that a mixture's answer is bracketed by what each substance
-## alone would read; and that non-condensable gas removes the boiling plateau, because with air present the
-## water leaves progressively instead of all at one temperature.
+## One temperature for a cell of rock, water and air: T -> H -> T, fusion jump, and the saturation split.
 
 const M: GDScript = preload("res://addons/local_agents/sim/material/MixtureEnthalpy.gd")
 const S: GDScript = preload("res://addons/local_agents/sim/material/Substances.gd")
@@ -14,8 +10,7 @@ const PC: GDScript = preload("res://addons/local_agents/sim/material/PhysicalCon
 const TOL_K: float = 1.0e-6
 const P_ATM: float = 101325.0
 
-## Moles of dry air in a cubic metre at 1 atm and 15 C, straight out of the ideal gas law. The cell this
-## stands for is one voxel of rock, water and air.
+## Moles of dry air in a cubic metre at 1 atm and 15 C.
 const AIR_MOL: float = PC.STANDARD_PRESSURE_PA / (PC.GAS_CONSTANT_J_MOL_K * (15.0 + PC.KELVIN_OFFSET))
 
 
@@ -40,14 +35,13 @@ func run_test(_tree: SceneTree) -> bool:
 	var dry_rock: Dictionary = {"silicate": 2000.0}
 	var puddle: Dictionary = {"h2o": 10.0}
 
-	# EVERY RUNG, with air present and without: cold rock, ice, the mush, magma, the boiling range.
+	# Every rung, with air present and without.
 	for t in [-40.0, -0.5, 20.0, 90.0, 150.0, 900.0, 1050.0, 1100.0, 1199.0, 1400.0]:
 		ok = _round_trip(wet_rock, AIR_MOL, float(t), "wet rock in air at %.1f C" % t) and ok
 		ok = _round_trip(wet_rock, 0.0, float(t), "wet rock, no gas, at %.1f C" % t) and ok
 		ok = _round_trip(dry_rock, AIR_MOL, float(t), "dry rock at %.1f C" % t) and ok
 
-	# THE FUSION JUMP PINS THE TEMPERATURE. Ice at 0 C takes its whole latent heat before it warms, so half
-	# that energy must read 0 C with the melt half done.
+	# The fusion jump pins the temperature; half the latent heat is half melted.
 	var melt: float = S.melt_c_at("h2o", P_ATM)
 	var h_bottom: float = M.enthalpy_at(puddle, 0.0, melt, P_ATM)
 	var jump: float = float(M.jump_at(puddle, 0.0, melt, P_ATM)["total"])
@@ -66,8 +60,7 @@ func run_test(_tree: SceneTree) -> bool:
 			% float(mid["melted"]["h2o"]))
 		ok = false
 
-	# A MIXTURE IS NOT ITS BIGGEST COMPONENT. Wet rock given the energy dry rock would need must come out
-	# COLDER, because the water took a share of it.
+	# Wet rock on dry rock's energy comes out colder.
 	var t_probe: float = 300.0
 	var h_dry: float = M.enthalpy_at(dry_rock, AIR_MOL, t_probe, P_ATM)
 	var t_wet: float = float(M.state(wet_rock, AIR_MOL, h_dry, P_ATM)["t_c"])
@@ -76,8 +69,7 @@ func run_test(_tree: SceneTree) -> bool:
 			% t_wet + "rock at %.2f C. The water absorbed nothing." % t_probe)
 		ok = false
 
-	# NON-CONDENSABLE GAS REMOVES THE BOILING PLATEAU. With air in the cell the water leaves across a range
-	# as its saturation pressure climbs; with no gas at all the plateau is the full latent heat.
+	# Non-condensable gas removes the boiling plateau.
 	var boil: float = S.boil_c_at("h2o", P_ATM)
 	var jump_air: float = float(M.jump_at(puddle, AIR_MOL, boil, P_ATM)["total"])
 	var jump_vac: float = float(M.jump_at(puddle, 0.0, boil, P_ATM)["total"])
@@ -91,7 +83,7 @@ func run_test(_tree: SceneTree) -> bool:
 			% [String.num_scientific(jump_vac), String.num_scientific(want_vac)])
 		ok = false
 
-	# THE SATURATION SPLIT IS REAL BELOW BOILING. A puddle in air at 20 C is not entirely liquid.
+	# A puddle in air at 20 C is not entirely liquid.
 	var warm: Dictionary = M.state(puddle, AIR_MOL, M.enthalpy_at(puddle, AIR_MOL, 20.0, P_ATM), P_ATM)
 	var f_v: float = float(warm["vaporised"]["h2o"])
 	print("MIXTURE_SPLIT={\"t_c\":%.3f,\"vapour_frac\":%s}" % [float(warm["t_c"]),

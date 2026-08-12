@@ -1,8 +1,7 @@
 class_name LAMaterialFieldGravity3D
 extends RefCounted
 
-## THE FIELD'S GRAVITY. Owns the Poisson solve and the density that sources it, so the field itself stays
-## a facade and nothing else in the tree declares what g is.
+## The Poisson gravity solve and the bulk density that sources it.
 
 const GravityScript: GDScript = preload("res://addons/local_agents/sim/voxel/FieldGravity.gd")
 const DensityScript: GDScript = preload("res://addons/local_agents/sim/material/FieldDensity3D.gd")
@@ -10,7 +9,7 @@ const DensityScript: GDScript = preload("res://addons/local_agents/sim/material/
 const SOLVE_EVERY: int = 8
 const SWEEPS: int = 8
 
-var _f = null                                            # back-reference to the owning LAMaterialField3D
+var _f = null
 var _solver: LAFieldGravity = null
 var _steps: int = 0
 var _solves: int = 0
@@ -25,8 +24,7 @@ func setup(field) -> void:
 	_solver.setup(field._grid)
 
 
-## Channel name -> its per-cell mirror. The field names every mirror `_<channel>`, so this is built from
-## the channel SSOT rather than a second hand-written list that could fall behind it.
+## Channel name -> its per-cell mirror, plus the derived buffers the equation of state needs.
 func _mirrors() -> Dictionary:
 	var out: Dictionary = {}
 	var rows: Dictionary = LAChannels.rows()
@@ -34,8 +32,6 @@ func _mirrors() -> Dictionary:
 		var arr = _f.get("_" + String(name))
 		if arr is PackedFloat32Array:
 			out[String(name)] = arr
-	# The equation of state needs the cell's temperature and pressure, and both are DERIVED, so neither is
-	# a row. Without them every cell's density was pushed as an error and gravity never followed the mass.
 	for name in LAChannels.derived_buffers():
 		var d = _f.get("_" + String(name))
 		if d is PackedFloat32Array:
@@ -61,13 +57,12 @@ func density() -> PackedFloat32Array:
 	return _density
 
 
-## Solves completed. A consumer of `density()` rebuilds what it derived when this changes.
+## Solves completed.
 func solves() -> int:
 	return _solves
 
 
-## Gravitational acceleration at a cell, m/s^2. Zero before the first solve, which is the honest answer:
-## no mass has been measured yet.
+## Gravitational acceleration at a cell, m/s^2; zero before the first solve.
 func g_at(c: int) -> Vector3:
 	if _solver == null or c < 0 or c >= _solver.gx.size():
 		return Vector3.ZERO
@@ -81,8 +76,7 @@ func down_at(c: int) -> Vector3:
 	return _solver.down_at(c)
 
 
-## Mean |g| over cells where gravity is non-zero, m/s^2. For the handful of SCALAR laws evaluated once per
-## pass rather than per cell -- a settling velocity, an overburden scale. A per-cell law reads g_at.
+## Mean |g| over cells where gravity is non-zero, m/s^2.
 func mean_g() -> float:
 	if _solver == null:
 		return 0.0

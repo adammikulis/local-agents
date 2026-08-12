@@ -1,7 +1,7 @@
 class_name LAMaterialFieldSphereStep3D
 extends RefCounted
 
-## LAMaterialFieldSphereStep3D: the cubed-sphere per-frame STEP ORCHESTRATION of LAMaterialField3D,
+## Per-frame step orchestration of LAMaterialField3D.
 
 # Sim-clock seconds banked per field step (accumulator cadence, not simulated time).
 const STEP_DT: float = 1.0 / 10.0
@@ -44,8 +44,7 @@ const PassProbeScript: GDScript = preload("res://addons/local_agents/sim/materia
 var _f = null                                          # back-reference to the owning LAMaterialField3D
 var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
 var _mineral_profile = null
-# The driver's ONE between-pass probe. Owned here for the same reason as the soil budget: it needs a hook on
-# BOTH sides of the GPU step, and this loop is the only place that has one. setup() picks exactly one.
+# The driver's ONE between-pass probe.
 var _probe = null
 
 var _sim_s: float = 0.0
@@ -64,9 +63,7 @@ func setup(field) -> void:
 	_probe = _pick_probe(field)
 
 
-## The driver has exactly ONE `set_step_probe` slot. Arming two would give one of them every checkpoint and
-## the other none, silently, so this picks by a declared precedence and says which one it kept:
-## LAFieldAttributionRecords.ORDER (the conserved-substance budgets), then LA_ELEMENT_BUDGET, then LA_PASS_PROBE.
+## The driver has exactly ONE `set_step_probe` slot.
 func _pick_probe(field):
 	var armed: PackedStringArray = PackedStringArray()
 	for name in LAFieldAttributionRecords.ORDER:
@@ -97,8 +94,7 @@ func _field_cadence() -> int:
 	return clampi(n, 1, FIELD_CADENCE_MAX)
 
 
-## Per-frame step: activate the GPU driver once, then run the fixed-step begin_frame/step/end_frame loop and
-## scatter temp/water back.
+## Per-frame step.
 func process(delta: float) -> void:
 	if not _f._ready_sim:
 		if _f._terrain == null or not _f._terrain.has_method("is_solid"):
@@ -116,15 +112,12 @@ func process(delta: float) -> void:
 		return
 	# Refresh the body rotation FIRST: everything below that converts a position or a direction reads it.
 	_f.sync_body_frame()
-	# Bank the frame's dt EVERY frame (even ones we skip), clamped so a high cadence can't let the accumulator
-	# run away into a huge catch-up spike after a long skip (excess banked time is dropped → the field simply
-	# evolves slower at a slow cadence, the intended perf trade; buffers stay consistent).
+	# Bank the frame's dt EVERY frame (even ones we skip).
 	_f._step_accum += delta
 	_offer_s += delta
 	LASimReport.gauge("field_offer_s", _offer_s)
 	_f._step_accum = minf(_f._step_accum, STEP_DT * float(MAX_STEPS_PER_FRAME + 1))
-	# Cadence gate: only run the GPU begin/step/end loop every N frames (N = la_field_cadence). At N == 1 this
-	# reduces to the historical every-frame path (the gate never trips).
+	# Cadence gate: only run the GPU begin/step/end loop every N frames (N = la_field_cadence).
 	var cadence: int = _field_cadence()
 	_frame_gate += 1
 	if _frame_gate < cadence:
@@ -143,8 +136,7 @@ func process(delta: float) -> void:
 		return
 	var t0: int = Time.get_ticks_usec()
 	var t_pin: int = Time.get_ticks_usec()
-	# g follows the mass, and every kernel asking which way is down reads the solved field, so a solve is
-	# what makes the device's copy stale.
+	# g follows the mass, and every kernel asking which way is down reads the solved field.
 	if _f.solve_gravity():
 		_f._gpu.mark_gravity_dirty()
 	_f._step_geotherm()              # radiogenic decay: hand the rock the joules its own mass produced
@@ -153,15 +145,11 @@ func process(delta: float) -> void:
 	_f._gpu.begin_frame(_f._h, _f._h2o)      # drains prev step (sync+readback) + uploads
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
-	# sun_dir points from the planet toward the star; its LENGTH carries the relative insolation.
 	if _f._sun_light != null and _f._gpu.has_method("set_sun_dir"):
-		# The MAGNITUDE of sun_dir carries INSOLATION (orbit-distance² × atmospheric transmission), stamped on the
-		# sun by LASystemOrbits. The solar kernel's max(0, dot(cell_radial, sun_dir)) then scales intensity with the
-		# direction — nearer the sun bakes, farther freezes, airborne dust dims it → impact winter. Default 1.0.
+		# The MAGNITUDE of sun_dir carries INSOLATION (orbit-distance² × atmospheric transmission).
 		var insol: float = float(_f._sun_light.get_meta("insolation", 1.0))
 		_f._gpu.set_sun_dir(_f.dir_to_field(_f._sun_light.global_transform.basis.z * insol))
-	# The world-gen seeds, declared through the seal. seed_field refuses a whole-mirror upload past step 0;
-	# every step-time CPU edit is a sparse queue op below.
+	# The world-gen seeds, declared through the seal.
 	if _f._fuel_dirty and _f._gpu.has_method("seed_field"):
 		_f._gpu.seed_field("fuel", _f._fuel, _f._seal)
 		_f._fuel_dirty = false
@@ -175,8 +163,7 @@ func process(delta: float) -> void:
 		_f._organic_seed_dirty = false
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		if OS.has_environment("LA_INJECT_AUDIT"):
-			# Diagnostic: how far the CPU mirror has drifted from the live buffer right now == exactly the mass
-			# the old mirror-upload would have written away on this frame.
+			# Diagnostic.
 			_f._inject.queue.audit_rewind(_f._gpu, "h2o", _f._h2o)
 		_f._inject.queue.flush(_f._gpu)
 	var t_step: int = Time.get_ticks_usec()
@@ -191,8 +178,7 @@ func process(delta: float) -> void:
 	var res: Dictionary = _f._gpu.end_frame()
 	var t_post: int = Time.get_ticks_usec()
 	_apply_readback(res)
-	# Seal on the field clock, never the report clock: poll() both closes the books and latches every
-	# conservation baseline on that step, so no baseline depends on the 64-frame gauge cadence.
+	# Seal on the field clock, never the report clock.
 	if _f._seal != null and _f._gpu.has_method("take_probe"):
 		_f._seal.poll(_f._gpu.take_probe())
 	# Surface seed module: coarse-cadence biomass -> fuel litter transfer, queued sparse.
@@ -233,15 +219,12 @@ func _apply_readback(res: Dictionary) -> void:
 	if res.has("susp") and res["susp"].size() == n: _f._susp = res["susp"]   # erosion pickup phase → mineral ledger
 
 	if res.has("rock_fill") and res["rock_fill"].size() == n: _f._rock_fill = res["rock_fill"]
-	# Substrate-foundation channels: shock (tremor/impact), charge (bolt breakdown), and the emergent WIND
-	# velocity field (wind3_at/wind_at read a real force instead of ZERO).
+	# Substrate-foundation channels.
 	if res.has("shock") and res["shock"].size() == n: _f._shock = res["shock"]
 	if res.has("charge") and res["charge"].size() == n: _f._charge = res["charge"]
 	if res.has("vel_x") and res["vel_x"].size() == n: _f._vel_x = res["vel_x"]
 	if res.has("vel_y") and res["vel_y"].size() == n: _f._vel_y = res["vel_y"]
 	if res.has("vel_z") and res["vel_z"].size() == n: _f._vel_z = res["vel_z"]
-	# Hydrostatic column pressure — demand-gated (LAMaterialFieldEnergyBudget3D requests it to mirror the solar
 	if res.has("pressure") and res["pressure"].size() == n: _f._pressure = res["pressure"]
-	# Decomposer loop channels — demand-gated (LAMaterialFieldLedger3D requests them for the carbon
 	if res.has("detritus") and res["detritus"].size() == n: _f._detritus = res["detritus"]
 	if res.has("fungus") and res["fungus"].size() == n: _f._fungus = res["fungus"]

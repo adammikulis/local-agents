@@ -6,15 +6,14 @@ const DefsScript: GDScript = preload("res://addons/local_agents/sim/material/rea
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reactions_sphere3d.glsl"
 
-## Relative tolerance on a substance sum. Coefficients are authored as float literals and several are derived
-## (1.0 / LITTER_C_TO_N), so an exact compare would fail on representation alone.
+## Relative tolerance on a substance sum.
 const TOL: float = 1.0e-6
 
 ## Constants of LAReactionDefs that are not channel slots and carry no namespace prefix.
 const NON_SLOT_CONSTS: PackedStringArray = ["RECORD_BYTES"]
 
 
-## energy: a reaction that releases or absorbs heat needs an enthalpy term, which is a different mechanism
+## Slots that may only drive a record, never be a reactant or a product.
 static func driver_only() -> PackedInt32Array:
 	return PackedInt32Array([DefsScript.TEMP, DefsScript.WINDSPEED, DefsScript.LIGHT, DefsScript.FIRE,
 		DefsScript.DISCHARGE, DefsScript.ORG_C])
@@ -25,8 +24,7 @@ static func driver_only() -> PackedInt32Array:
 static func slot_substance() -> Dictionary: return LAChannels.slot_substance()
 
 
-## Atoms per MOLE of each slot's substance, straight from `LASubstances.formula`. A channel amount is moles,
-## so this needs no scaling and there is no channel unit left to convert.
+## Atoms per mole of each slot's substance, from `LASubstances.formula`.
 static func composition() -> Dictionary:
 	var out: Dictionary = {}
 	var tbl: Dictionary = LASubstances.table()
@@ -37,9 +35,7 @@ static func composition() -> Dictionary:
 	return out
 
 
-## The stored channels the inventory sums, mapped to the slot whose composition they carry. SOIL_ROOT is
-## deliberately absent: it is a DERIVED VIEW of the `soil` channel (the regolith column beneath an open
-## cell), so counting both would count the same water twice.
+## The stored channels the inventory sums, mapped to the slot whose composition they carry.
 static func inventory_channels() -> Dictionary: return LAChannels.inventory_channels()
 
 
@@ -54,15 +50,13 @@ static func channel_elements(channel: String) -> Dictionary:
 	return composition().get(slot, {})
 
 
-## Slot number -> the constant NAME that declares it, read off LAReactionDefs so it cannot drift from the
-## numbers it names.
+## Slot number -> the LAReactionDefs constant name that declares it.
 static func slot_names() -> Dictionary:
 	var out: Dictionary = {}
 	var consts: Dictionary = DefsScript.get_script_constant_map()
 	for key in consts:
 		var cname: String = String(key)
-		# A slot id is what is LEFT once the namespaced constants are removed. Adding a rate model or a gate
-		# can no longer silently shadow a slot, which it has done twice.
+		# A slot id is what is left once the namespaced constants are removed.
 		if cname.begins_with("GATE_") or cname.begins_with("TGT_") or cname.begins_with("RM_") \
 				or NON_SLOT_CONSTS.has(cname):
 			continue
@@ -88,14 +82,11 @@ static func check_records(recs: Array, labels: PackedStringArray = PackedStringA
 		var reactants: Array = rec.get("reactants", [])
 		var products: Array = rec.get("products", [])
 
-		# A record with no reactants but real products is matter from nothing, and it deserves to be said in
-		# those words rather than to surface as five separate substance sums. This is the RELAX_TARGET shape.
 		if reactants.is_empty() and not products.is_empty():
 			out.append("%s: NO REACTANT — this record creates matter from nothing. " % label
 				+ "Every product must come out of something the record debits.")
 
-		# THREE INDEPENDENT BALANCE EQUATIONS, not one. A coefficient is base + h*(H:C) + o*(O:C), and the
-		# record has to conserve for EVERY composition, so each part must balance on its own.
+		# A coefficient is base + h*(H:C) + o*(O:C); each part balances on its own.
 		var sums: Array = [{}, {}, {}]
 		var scales: Array = [{}, {}, {}]
 		var bad_slot: bool = false
@@ -129,9 +120,6 @@ static func check_records(recs: Array, labels: PackedStringArray = PackedStringA
 						sc[sub] = float(sc.get(sub, 0.0)) + absf(moles * float(parts[sub]))
 		if bad_slot:
 			continue
-		# lumped mineral mass on one side and atoms on the other, and its own comment named its removal
-		# condition: "the day the mineral phases carry real species compositions". They do. Ca and Si are
-		# ordinary columns in the sums below now, so the Urey reaction is checked the same way respiration is.)
 		var part_names: PackedStringArray = PackedStringArray(["", " (the H:C-scaled part of)", " (the O:C-scaled part of)"])
 		for p in 3:
 			var sump: Dictionary = sums[p]
@@ -141,30 +129,24 @@ static func check_records(recs: Array, labels: PackedStringArray = PackedStringA
 				if absf(net) <= TOL * maxf(float(scalep.get(sub, 0.0)), 1.0):
 					continue
 				var verb: String = "CREATES" if net > 0.0 else "DESTROYS"
-				# `%s` on a String.num, not a `%g` — GDScript's format has no `g` conversion and silently
-				# emits the unformatted template when it meets one, which is how this gate's first firing
-				# printed a message full of literal `%s`.
+				# `%s` on a String.num: GDScript's format has no `g` conversion.
 				out.append("%s:%s this record %s %s units of %s per unit of extent " % [
 					label, part_names[p], verb, String.num(absf(net), 8), sub]
 					+ "(products minus reactants). Products must balance reactants in every substance.")
 	return out
 
 
-## Cross-check the GDScript slot enum against the kernel's `#define`s and its read_ch/add_ch ladders, and
-## verify every slot the live records reference is actually resolvable there.
+## Cross-check the slot enum against the kernel's `#define`s and its read_ch/add_ch ladders.
 static func check_kernel(recs: Array, labels: PackedStringArray = PackedStringArray()) -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
 	var f: FileAccess = FileAccess.open(KERNEL_PATH, FileAccess.READ)
 	if f == null:
-		# A gate that cannot run must FAIL, never pass. This repo has already shipped three checks that
-		# reported success while examining zero files.
 		out.append("CANNOT RUN: %s is unreadable, so the enum/kernel cross-check examined nothing."
 			% KERNEL_PATH)
 		return out
 	var src: String = f.get_as_text()
 	f.close()
-	# The slot #defines live in the GENERATED include now, so a gate reading only the kernel sees none of
-	# them and reports every slot missing.
+	# The slot #defines live in the generated include, not the kernel.
 	for inc in ["generated.glsli"]:
 		var g: FileAccess = FileAccess.open(KERNEL_PATH.get_base_dir() + "/" + inc, FileAccess.READ)
 		if g == null:
@@ -239,8 +221,7 @@ static func _ladder_slots(src: String, header: String) -> Dictionary:
 	return out
 
 
-## Everything, in the order a reader wants it: substance balance first (the physics), then the enum/kernel
-## cross-check (the plumbing that would make even a balanced record a lie).
+## Substance balance followed by the enum/kernel cross-check.
 static func check_all(recs: Array, labels: PackedStringArray = PackedStringArray()) -> PackedStringArray:
 	var out: PackedStringArray = check_records(recs, labels)
 	out.append_array(check_kernel(recs, labels))

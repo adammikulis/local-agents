@@ -4,8 +4,7 @@ extends RefCounted
 
 enum Phase { SEEDING = 0, SEALED = 1 }
 
-## Every channel a conservation baseline reads. The seal waits for all of them, so the baselines it latches
-## are measurements rather than mirrors that had not arrived.
+## Every channel a conservation baseline reads.
 static func required_channels() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
 	for name in ["h_j_m3", "porosity", "co2", "o2", "fert", "n2"]:
@@ -37,14 +36,11 @@ func sealed() -> bool:
 
 
 ## THE TWO PHASES OF THE WORLD, and the only place the boundary is decided.
-##
 func creation_allowed() -> bool:
 	return _phase == Phase.SEEDING
 
 
-## Declare an act that CREATES matter or energy. Returns true only while seeding; after the seal it refuses,
-## errors, and counts the attempt into `creation_after_seal`. A caller that ignores the return value has
-## written the violation anyway, which is what `scripts/check_seed_phase.sh` exists to catch.
+## Declare an act that CREATES matter or energy.
 func note_creation(what: String, amount: float) -> bool:
 	if _phase == Phase.SEEDING:
 		_created[what] = float(_created.get(what, 0.0)) + amount
@@ -74,8 +70,7 @@ func seal_restored(step_index: int) -> void:
 	_origin = "restored"
 
 
-## Called once per field step, right after the readback. Seals when every required channel is live and
-## latches every baseline on that step. True on the latching step.
+## Called once per field step, right after the readback.
 func poll(legs: Dictionary) -> bool:
 	if _latched:
 		return false
@@ -101,8 +96,7 @@ func poll(legs: Dictionary) -> bool:
 	return true
 
 
-## One instrument pass on the sealing step, so every ledger's `*_first` is the state at the seal. The gauge
-## cache is dropped first, else the 64-frame cadence returns a pre-seal block.
+## One instrument pass on the sealing step, so every ledger's `*_first` is the state at the seal.
 func _latch_baselines() -> void:
 	_latched = true
 	_baseline_step = _step_index()
@@ -122,7 +116,6 @@ func note_seed(totals: Dictionary) -> void:
 
 
 ## True when this sample's `name` is a MEASUREMENT: the probe delivered it, or the readback refreshes it.
-## The one provenance predicate — every ledger's `*_live` map calls this.
 static func channel_live(field, name: String, legs: Dictionary, cc: int) -> bool:
 	var probe = legs.get(name)
 	if probe is PackedFloat32Array and probe.size() >= cc:
@@ -133,8 +126,7 @@ static func channel_live(field, name: String, legs: Dictionary, cc: int) -> bool
 	return mirror is PackedFloat32Array and mirror.size() >= cc
 
 
-## Channels whose CPU mirror is not a measurement: carbonate/silica have none, n2 has one the readback never
-## refreshes, and the demand-gated set is stale until requested. These must come from the probe.
+## Channels whose CPU mirror is not a measurement.
 static func gated(field, name: String) -> bool:
 	if name == "carbonate" or name == "silica" or name == "n2":
 		return true
@@ -157,8 +149,7 @@ func report() -> Dictionary:
 		"world_seed": _manifest,
 		# Declared creations during the seeding phase, per kind. Legitimate: the world had nothing yet.
 		"world_created": _created,
-		# Creations REFUSED after the seal, per kind. Any non-empty value is a conservation violation that
-		# reached a call site; the refusal stopped the write, not the defect.
+		# Creations REFUSED after the seal, per kind.
 		"creation_after_seal": _refused,
 	}
 

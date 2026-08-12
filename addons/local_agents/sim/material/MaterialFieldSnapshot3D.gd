@@ -1,10 +1,9 @@
 class_name LAMaterialFieldSnapshot3D
 extends RefCounted
 
-## LAMaterialFieldSnapshot3D: save/restore of the ONE material field's heavy per-cell state, factored out of
+## Save/restore of the material field's per-cell state.
 
-# Channel name -> the field's CPU mirror array property. A channel with no CPU mirror still round-trips on
-# the GPU via restore_channels().
+# Channel name -> the field's CPU mirror array property.
 const CPU_MIRROR: Dictionary = {
 	"h_j_m3": "_h", "h2o": "_h2o", "lava": "_lava", "fire": "_fire",
 	"o2": "_o2", "co2": "_co2", "biomass": "_biomass", "dust": "_dust",
@@ -14,15 +13,12 @@ const CPU_MIRROR: Dictionary = {
 }
 
 
-## True once the field has activated its GPU driver — restore must wait for this (the driver is built lazily,
-## a few frames after boot, once the terrain SDF is streamable). Save can also read it to fail gracefully.
+## True once the field has activated its GPU driver.
 static func is_ready(field) -> bool:
 	return field != null and field._use_gpu and field._gpu != null and field._gpu.has_method("snapshot_channels")
 
 
-## Capture the field's heavy state into a plain-data dict: cell_count (a grid-shape guard on restore) + every
-## GPU channel. Empty dict when the GPU driver is not up (headless / not-yet-activated) — the caller treats an
-## empty field block as "no field to restore" rather than crashing.
+## cell_count plus every GPU channel; empty when the GPU driver is not up.
 static func capture(field) -> Dictionary:
 	if not is_ready(field):
 		return {}
@@ -32,9 +28,7 @@ static func capture(field) -> Dictionary:
 	}
 
 
-## Restore a capture() dict: upload the channels back to the GPU and re-seed the field's CPU mirror arrays.
-## Returns false (a no-op) when the field is not ready or the grid shape differs (a save from another grid
-## resolution) — the caller keeps the freshly-booted field instead of a corrupt half-restore.
+## Upload a capture() dict back to the GPU and re-seed the CPU mirrors; false on a shape mismatch.
 static func restore(field, data: Dictionary) -> bool:
 	if not is_ready(field) or data.is_empty():
 		return false
@@ -53,6 +47,5 @@ static func restore(field, data: Dictionary) -> bool:
 		var arr: PackedFloat32Array = channels[key]
 		if arr.size() == field._cell_count:
 			field.set(CPU_MIRROR[key], arr)
-	# The atmosphere aggregate cache reads _h2o/_temp — invalidate it so the next query recomputes.
 	field._atmos_dirty = true
 	return true

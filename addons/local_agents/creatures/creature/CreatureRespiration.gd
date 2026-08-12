@@ -32,8 +32,7 @@ static func band_width_c(c) -> float:
 	return clampf(float(c.get("thermal_tolerance")), 0.0, 1.0) * envelope_half_c()
 
 
-## The reaction-rate factor at body temperature `t` for THIS creature — 1.0 at its optimum, 0 at the edges
-## of what it tolerates. Zero tolerance means the genome cannot function at any temperature.
+## The reaction-rate factor at body temperature `t` for THIS creature.
 static func temp_band(t: float, c) -> float:
 	var w: float = band_width_c(c)
 	if w <= 0.0:
@@ -42,14 +41,12 @@ static func temp_band(t: float, c) -> float:
 	return maxf(0.0, 1.0 - d * d)
 
 
-## Body mass in KILOGRAMS — the species' measured mass, carried on the creature as `mass_kg` by
-## LACreatureBodyMass.apply. Not derived from `size`.
+## Body mass in KILOGRAMS.
 static func body_mass(c) -> float:
 	return maxf(float(c.get("mass_kg")), 1.0e-7)
 
 
-## The body's characteristic linear dimension, in metres: the cube root of the volume its measured mass
-## occupies at tissue density.
+## The body's characteristic linear dimension, in metres.
 static func body_length(m_kg: float) -> float:
 	return pow(maxf(m_kg, 1.0e-9) / LAPhysical.ANIMAL_TISSUE_DENSITY_KG_M3, 1.0 / 3.0)
 
@@ -63,14 +60,12 @@ static func capacity_rate(c) -> float:
 	return RESP_K * exchange_area(c)
 
 
-## The floor this body has to produce every second just to stay alive, in the field's mass units. Proportional
-## to LIVING TISSUE, which is where LACreatureBodyMass's one kilogram→mass-unit conversion enters the rate law.
+## The floor this body has to produce every second just to stay alive, in the field's mass units.
 static func maintenance_rate(c) -> float:
 	return MAINTENANCE_K * LACreatureBodyMass.TISSUE_PER_KG * body_mass(c)
 
 
-## Advance body temperature, then run the oxidation. Returns true if the creature died.
-## `pos` is the body position; `head` is where it breathes (the caller already computes it for tick_breath).
+## Advance body temperature, then run the oxidation.
 static func tick(c, pos: Vector3, delta: float) -> bool:
 	if delta <= 0.0:
 		return false
@@ -101,12 +96,10 @@ static func tick(c, pos: Vector3, delta: float) -> bool:
 		if o2 < LACreatureMetabolism.BREATHE_MIN_O2 and float(c._breath) > 0.0:
 			o2 = LAMaterialField3D.O2_AMBIENT   # drawing on the held breath
 	var capacity: float = RESP_K * area * gain * O2_UPTAKE_K * o2 * band * delta * evo
-	# What it actually burns. Exertion above 1 is a sprint, and exceeding the aerobic capacity is correct there
-	# — that excess is anaerobic, which is exactly what the muscle-lactate rule in LACreatureMetabolism models.
+	# What it actually burns.
 	var want: float = capacity * exertion
 	want = minf(want, maxf(float(c.energy), 0.0))          # cannot oxidise fuel that is not there
-	# Hand the transaction to the substrate: it applies the same aerobic Liebig cap the kernel applies and
-	# books O₂ → CO₂ + detritus into this cell. What comes back is what the local air could support.
+	# Hand the transaction to the substrate.
 	var extent: float = want
 	if c._material != null:
 		extent = c._material.respire_at(pos, want)
@@ -119,8 +112,7 @@ static func tick(c, pos: Vector3, delta: float) -> bool:
 
 	var need: float = maintenance_rate(c) * delta * evo
 	if capacity < need and need > 0.0:
-		# The shortfall as a FRACTION of the requirement (0 = met, 1 = producing nothing at all), so the damage
-		# is on the animal's own scale at every body mass — see DEFICIT_HP_FRAC.
+		# The shortfall as a FRACTION of the requirement (0 = met, 1 = producing nothing at all).
 		var shortfall: float = clampf((need - capacity) / need, 0.0, 1.0)
 		c.health -= shortfall * DEFICIT_HP_FRAC * float(c.max_health) * delta * evo
 		if c.health <= 0.0:
@@ -146,8 +138,7 @@ static func deficit_cause(c, o2: float) -> String:
 	if float(c.body_temp) <= LAPhysical.WATER_FREEZE_C:
 		return "hypothermia"
 	if o2 <= 0.01:
-		# A lung-breather that has run out of oxygen while submerged drowned; anything else (a gill in air, a
-		# body in smoke or foul air) suffocated.
+		# A lung-breather that has run out of oxygen while submerged drowned.
 		if c._material != null and c.breathes != "water":
 			var up: Vector3 = c.terrain.up_at(c.global_position) if c.terrain != null and c.terrain.has_method("up_at") else Vector3.UP
 			if c._material.is_submerged_at(c.global_position.x + up.x * c.size,

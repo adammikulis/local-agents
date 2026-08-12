@@ -17,10 +17,7 @@ func _fail(msg: String) -> bool:
 	return false
 
 
-## Steps the plateau should last, from the MEASURED enthalpy of fusion of water: 333.7 kJ/kg at 0 C
-## (CRC Handbook). Deliberately NOT read from LASubstances -- taking the expectation from the same table
-## the code reads makes the test compare the model against itself, and it passes with the latent heat
-## deleted.
+## Enthalpy of fusion of water, J/kg (CRC Handbook). Not read from LASubstances, which the code reads.
 const MEASURED_L_FUS_J_KG: float = 333700.0
 
 func _expected_steps() -> float:
@@ -66,9 +63,7 @@ func run_test(_tree: SceneTree) -> bool:
 		return _fail("plateau lasted %d steps, expected %s (rel %s)"
 			% [pinned, String.num(want, 2), String.num(rel, 4)])
 
-	# A ZERO LATENT HEAT MUST NOT PIN. Not a mutation of the code — a substance with no fusion enthalpy is
-	# the degenerate case the same expression has to handle, and if it pins anyway the pin is not the
-	# latent heat.
+	# A substance with no fusion enthalpy crossed must not pin.
 	var dry: Dictionary = {"silicate": 1.0}
 	var h_dry: float = Mix.enthalpy_at(dry, 0.0, 1500.0, p)
 	var t_prev: float = 1500.0

@@ -1,16 +1,14 @@
 class_name LAMaterialFieldRegolith3D
 extends RefCounted
 
-## LAMaterialFieldRegolith3D: the AQUIFER ROCK of LAMaterialField3D — which cells are permeable and how
-## porous they are. There is no material-type table anywhere and there should never be one.
+## Which cells are permeable regolith and how porous they are.
 
-## Rooting / aquifer band: the top REGOLITH_CELLS solid shells of each column are permeable; below is bedrock.
+## Solid shells below the ground surface that are permeable.
 const REGOLITH_CELLS: int = 4
-## Regolith starts half-saturated so springs flow from the start — a planet has an existing aquifer, which
-## then self-maintains through rain and snowmelt recharge.
+## Initial saturation of the regolith pore space.
 const INITIAL_TABLE_FRAC: float = 0.5
 
-var _f = null                                            # back-reference to the owning LAMaterialField3D
+var _f = null
 
 
 func setup(field) -> void:
@@ -21,17 +19,13 @@ static func shell_metres() -> float:
 	return LAPhysical.GROUNDWATER_CIRCULATION_M / float(REGOLITH_CELLS)
 
 
-## Porosity at a burial depth of `shells` regolith cells below the ground surface (0 = the surface shell).
-## Athy (1930) exponential compaction. This is BOTH the cell's saturated water capacity and the phi that
-## Kozeny-Carman turns into permeability — because they are the same physical quantity.
+## Athy (1930) porosity at a burial depth of `shells` regolith cells below the surface.
 static func porosity_at(shells: int) -> float:
 	var z: float = (float(shells) + 0.5) * shell_metres()
 	return LAPhysical.REGOLITH_SURFACE_POROSITY * exp(-z / LAPhysical.COMPACTION_LENGTH_M)
 
 
-## Compute the permeability mask, the grain-size field and the initial water table. A cell is regolith when
-## it is rock and fewer than REGOLITH_CELLS solid cells lie between it and open air UP the local vertical;
-## that burial count is also its Athy compaction depth. No columns, no shell index.
+## Compute the permeability mask, the grain-size field and the initial water table.
 func compute() -> void:
 	if _f._grid == null or _f._solid.size() != _f._cell_count:
 		return
@@ -46,8 +40,6 @@ func compute() -> void:
 		_f._h2o = PackedFloat32Array()
 		_f._h2o.resize(cell_count)
 	var sea_r: float = _f.sea_radius()
-	# The elevation band the grain-size gradient is read over: from the sea shell up to the highest ground
-	# this planet actually has, so a flatter or steeper world still spans the same range of materials.
 	var burial: PackedInt32Array = PackedInt32Array()
 	burial.resize(cell_count)
 	var highest: float = sea_r
@@ -63,14 +55,11 @@ func compute() -> void:
 	for c in cell_count:
 		var shells: int = burial[c]
 		if shells < 0:
-			continue                                      # void, or buried deeper than the aquifer band
-		# Basins and sea floor get valley-fill alluvium, summits get residual saprolite.
+			continue
 		var height: float = clampf((LAFieldGeometry.radius_of(_f, c) - sea_r) / relief, 0.0, 1.0)
 		var phi: float = porosity_at(shells)
 		_f._regolith[c] = 1
 		_f._grain[c] = LAPhysical.GRAIN_D_LOWLAND_M * pow(
 			LAPhysical.GRAIN_D_UPLAND_M / LAPhysical.GRAIN_D_LOWLAND_M, height)
-		# ONE quantity, written ONCE: the cell's pore fraction is both its saturated water capacity and the
-		# phi Kozeny-Carman turns into permeability.
 		_f._porosity[c] = phi
 		_f._h2o[c] = phi * INITIAL_TABLE_FRAC                    # prime the water table

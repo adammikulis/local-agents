@@ -18,8 +18,6 @@ func set_space_mode(shine_dir: Vector3) -> void:
 		return
 	_sun_shine = shine_dir.normalized()
 	_planet_mode = true
-	# The environment (space-dark vs surface-blue) is now driven EVERY frame by the altitude blend in
-	# _apply_surface_atmosphere(), so this only latches the mode + sun direction — no hard env set to fight it.
 var _moon: DirectionalLight3D = null         # cool moonlight; energy tracks the lunar phase
 var _sky_shader_mat: ShaderMaterial = null   # VoxelSky.gdshader: stars + phase-shaded moon disc
 var _env: Environment = null
@@ -27,17 +25,13 @@ var _world_ref: Node3D = null                # source of the active camera (for 
 var _want_fog: bool = true                   # effective fog toggle (quality preset + NOFOG), applied near surface
 var _time_of_day: float = 0.30              # start just after dawn (dawn = .25) so the sun is already
                                             # up and climbing — the world reads as a lit morning
-# Lunar cycle: derived from the same elapsed time, on a longer period. Starts at a waxing crescent so the
-# very first night already has some moonlight rather than a black new moon.
+# Lunar cycle: derived from the same elapsed time, on a longer period.
 var _lunar_phase: float = 0.15              # 0=new, 0.25=first quarter, 0.5=full, 0.75=last quarter
 # Where on the day/lunar cycle this world STARTED. Both phases are now the world's elapsed time plus these
-# offsets, rather than two floats this node integrates separately: "what time the world opens at" is a
-# presentation choice and stays here, while how much time has passed belongs to LASimClock.
 var _tod_seed: float = 0.30
 var _lunar_seed: float = 0.15
 
-# Scene refs read each frame by the cycle (weather rain dims the sky; the field's cloud cover
-# overcasts; the cloud/fog sheets are tinted with the sky). Bound after those systems are created.
+# Scene refs read each frame by the cycle (weather rain dims the sky; the field's cloud cover overcasts.
 var _weather: Node = null
 var _material: Node = null
 var _water: Node = null      # LAWaterParticles — the day/night colour tint is pushed to it each frame
@@ -51,8 +45,7 @@ const MOON_AMBIENT: float = 0.14            # extra ambient fill at a full-moon 
 const MOON_COLOR: Color = Color(0.55, 0.66, 0.95)
 const SKY_TOP_DAY: Color = Color(0.36, 0.56, 0.86)
 const SKY_TOP_NIGHT: Color = Color(0.02, 0.03, 0.11)
-# Pale, near-white horizon so the surround reads cloudlike; the ground band and haze are
-# matched to this every frame (see _update_day_night) so there is no false horizon line.
+# Pale, near-white horizon so the surround reads cloudlike.
 const SKY_HORIZON_DAY: Color = Color(0.86, 0.90, 0.94)
 const SKY_HORIZON_NIGHT: Color = Color(0.05, 0.06, 0.15)
 const SKY_HORIZON_DUSK: Color = Color(0.92, 0.48, 0.24)
@@ -188,8 +181,7 @@ func update(_delta: float) -> void:
 	_update_day_night()
 
 
-## Day and lunar phase read off LASimClock's elapsed days, each wrapped at its own period. No local
-## integrator: elapsed time has one owner.
+## Day and lunar phase read off LASimClock's elapsed days, each wrapped at its own period.
 func _advance_clocks() -> void:
 	var clock: LASimClock = LASimClock.active()
 	if clock == null:
@@ -203,8 +195,7 @@ func _advance_clocks() -> void:
 func _update_day_night() -> void:
 	if _sun == null:
 		return
-	# PLANET-FROM-SPACE: fixed star sun + low ambient + dark sky; day/night is the planet's SPIN (it turns
-	# under the fixed sun). No clock advance / sun arc. Weather + cloud still dim the light.
+	# PLANET-FROM-SPACE: fixed star sun + low ambient + dark sky.
 	if _planet_mode:
 		var pstorm: float = 1.0
 		if _weather != null:
@@ -214,8 +205,7 @@ func _update_day_night() -> void:
 		var pup: Vector3 = Vector3.UP if absf(_sun_shine.dot(Vector3.UP)) < 0.98 else Vector3.RIGHT
 		_sun.look_at_from_position(Vector3.ZERO, _sun_shine, pup)   # light travels along _sun_shine
 		_sun.light_energy = SUN_ENERGY_NOON * pstorm
-		# The water-particle renderer's day/night comes from per-particle sun shading; keep its colour wash
-		# neutral-white, only dimmed by storm/overcast so a heavy sky greys the clouds.
+		# The water-particle renderer's day/night comes from per-particle sun shading.
 		if _water != null and _water.has_method("set_sky_tint"):
 			_water.set_sky_tint(Color(1.0, 1.0, 1.0) * (0.55 + 0.45 * pstorm))
 		_apply_surface_atmosphere()
@@ -242,8 +232,7 @@ func _update_day_night() -> void:
 	var warm: float = clampf(1.0 - elev * 2.5, 0.0, 1.0) * clampf(daylight * 6.0, 0.0, 1.0)
 	_sun.light_color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.6, 0.32), warm * 0.8)
 
-	# Illuminated fraction is a cosine of the lunar phase (0 at new, 1 at full), which _advance_clocks has
-	# already read off the same elapsed time. The moon arcs opposite the sun (up through the night).
+	# Illuminated fraction is a cosine of the lunar phase (0 at new, 1 at full).
 	var moon_illum: float = (1.0 - cos(_lunar_phase * TAU)) * 0.5
 	var moonup: float = clampf(-elev, 0.0, 1.0)
 	if _moon != null:
@@ -257,12 +246,10 @@ func _update_day_night() -> void:
 		var horizon: Color = SKY_HORIZON_DAY.lerp(SKY_HORIZON_NIGHT, night)
 		horizon = horizon.lerp(SKY_HORIZON_DUSK, warm * 0.7)
 		_sky_shader_mat.set_shader_parameter("sky_horizon_color", horizon)
-		# Darken the ground band at night too, else the static ground horizon reads as a bright
-		# pale strip against the dark night sky.
+		# Darken the ground band at night too.
 		_sky_shader_mat.set_shader_parameter("night", night)
 		_sky_shader_mat.set_shader_parameter("moon_phase", _lunar_phase)
-		# Sun/moon directions drive the discs directly (basis.z of a DirectionalLight3D points
-		# back toward the light, i.e. where it sits in the sky).
+		# Sun/moon directions drive the discs directly (basis.z of a DirectionalLight3D points back toward the light.
 		_sky_shader_mat.set_shader_parameter("sun_dir", _sun.global_transform.basis.z)
 		_sky_shader_mat.set_shader_parameter("sun_energy", _sun.light_energy)
 		_sky_shader_mat.set_shader_parameter("sun_color", _sun.light_color)
@@ -272,14 +259,12 @@ func _update_day_night() -> void:
 		# Dark night floor, lifted softly on bright-moon nights so full moons are navigable.
 		_env.ambient_light_energy = lerpf(AMBIENT_NIGHT, AMBIENT_DAY, daylight) * storm \
 			+ moon_illum * night * MOON_AMBIENT * storm
-		# Keep the distance fog matched to the current horizon so far terrain and the
-		# ocean melt into the same color the sky shows there (warm at dusk, dark at night).
+		# Keep the distance fog matched to the current horizon colour.
 		var fog_col: Color = SKY_HORIZON_DAY.lerp(SKY_HORIZON_NIGHT, night)
 		fog_col = fog_col.lerp(SKY_HORIZON_DUSK, warm * 0.7)
 		_env.fog_light_color = fog_col
 
 	# Tint the water-particle renderer with the sky: white by day, dusk-orange near sunset, dark at night.
-	# (Per-particle sun-terminator brightness is handled in-shader; this is the overall colour wash.)
 	var cloud_tint: Color = Color(1.0, 1.0, 1.0).lerp(Color(0.10, 0.12, 0.18), night)
 	cloud_tint = cloud_tint.lerp(Color(1.0, 0.55, 0.30), warm * 0.6)
 	if _water != null and _water.has_method("set_sky_tint"):
@@ -287,8 +272,7 @@ func _update_day_night() -> void:
 	# This owns the sky and the sun transform/energy only. The field reads the star's light itself.
 
 
-## Altitude-aware atmosphere for planet mode: blend the environment from the stark dark space look (pulled out)
-## to a bright blue daytime sky with sky-sourced ambient + fog (down among the creatures), driven by the orbit
+## Altitude-aware atmosphere for planet mode.
 func _apply_surface_atmosphere() -> void:
 	if _env == null:
 		return
@@ -304,8 +288,7 @@ func _apply_surface_atmosphere() -> void:
 	_env.fog_density = FOG_DENSITY_SURFACE * t if _want_fog else 0.0
 
 
-## The active orbit camera's surface_blend() (0 space → 1 ground), or 0 if there is no such camera (headless, or
-## a non-orbit camera) so the environment safely defaults to the space look.
+## The active orbit camera's surface_blend(), 0 in space to 1 at the ground; 0 when there is no camera.
 func _surface_blend() -> float:
 	if _world_ref == null:
 		return 0.0

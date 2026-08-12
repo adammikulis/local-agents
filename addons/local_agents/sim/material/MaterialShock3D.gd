@@ -1,23 +1,21 @@
 class_name LAMaterialShock3D
 extends RefCounted
 
-## LAMaterialShock3D: the SHOCK / seismic-sound channel of LAMaterialField3D, factored into its own module
+## The shock / seismic-sound channel of LAMaterialField3D.
 
-# A cell whose shock amplitude is over this reads as "actively shaking" (shock_cell_count, tremor gates).
+# Amplitude above which a cell reads as actively shaking.
 const SHOCK_ACTIVE: float = 0.05
-# Seed spill into the immediate neighbour ring so the wave front starts a cell wide (a point seed on a coarse
-# grid barely propagates before the loss term eats it). Fraction of the seed magnitude given to each neighbour.
+# Fraction of a seed's magnitude given to each of the 6 neighbours.
 const SEED_NEIGHBOUR_FRACTION: float = 0.5
 
-var _f = null                                            # back-reference to the owning LAMaterialField3D
+var _f = null
 
 
 func setup(field) -> void:
 	_f = field
 
 
-## Inject a shock/sound wave of `magnitude` at a world point — an explosion, thunder-clap, meteor impact,
-## eruption blast, or stampede. Queues a sparse ADD on the centre cell + its neighbour ring; the kernel radiates
+## Queue a sparse shock ADD of `magnitude` on the cell at `world_pos` and its neighbour ring.
 func emit_shock(world_pos: Vector3, magnitude: float) -> void:
 	if magnitude <= 0.0 or _f._shock.size() != _f._cell_count:
 		return
@@ -48,8 +46,7 @@ func shock_at(world_pos: Vector3) -> float:
 	return _f._shock[c] if c >= 0 else 0.0
 
 
-## Normalised world direction of INCREASING shock (points back toward the blast) — creatures flee down it, the
-## camera shakes along it. Built from the 6-neighbour amplitude differences. Zero where the field is quiet.
+## Normalised world direction of increasing shock, from the 6-neighbour differences; zero where quiet.
 func shock_gradient(world_pos: Vector3) -> Vector3:
 	if _f._grid == null or _f._shock.size() != _f._cell_count:
 		return Vector3.ZERO
@@ -73,8 +70,7 @@ func shock_gradient(world_pos: Vector3) -> Vector3:
 	return grad.normalized()
 
 
-## Count of open cells actively shaking (amplitude over SHOCK_ACTIVE) — the impact/tremor diagnostic fed into
-## SIM_REPORT and the event tracker's impact detector. O(cells), but polled only at snapshot time (not per frame).
+## Count of open cells whose amplitude is over SHOCK_ACTIVE.
 func shock_cell_count() -> int:
 	if _f._shock.size() != _f._cell_count:
 		return 0

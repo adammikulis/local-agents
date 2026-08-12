@@ -4,10 +4,8 @@ extends RefCounted
 const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
 
 ## Atmosphere queries derived from the one `moisture` channel of LAMaterialField3D.
-## vapor = min(moisture, sat(T)); condensate = max(0, moisture - sat(T)), split fog/cloud by temperature.
 
 # Kessler (1969) q_crit: the cloud-water mixing ratio above which drops start collecting each other.
-# Declared in docs/MODEL_PARAMETERS.md.
 const CLOUD_WATER_CRIT_KG_KG: float = 0.5e-3
 
 # Altitudes above the sea surface, model units, at which the renderer places its particle bands.
@@ -27,8 +25,7 @@ static func rain_threshold() -> float:
 	return CLOUD_WATER_CRIT_KG_KG * LAPhysical.AIR_DENSITY_KG_M3 / LAPhysical.WATER_DENSITY_KG_M3
 
 
-## SATURATION AMOUNT at `t` °C and `p` Pa, in the h2o channel's own unit — a volume fraction of a cell full
-## of liquid water. The same Clausius-Clapeyron the enthalpy ladder inverts.
+## SATURATION AMOUNT at `t` °C and `p` Pa, in the h2o channel's own unit.
 func _sat(t: float, p_pa: float) -> float:
 	var e: float = LAMixtureEnthalpy.vapour_p_at("h2o", t, p_pa)
 	if e <= 0.0:
@@ -64,8 +61,7 @@ func fog_at(x: float, z: float) -> float:
 	return _condensed_at(c) if _f._temp[c] < LAMaterialField3D.FOG_MAX_TEMP else 0.0
 
 
-## Recompute the condensate aggregates + the mask-free moisture_total in one grid pass. Fog/cloud split by
-## temperature: below FOG_MAX_TEMP = fog, above = cloud. Report/visual metrics.
+## Recompute the condensate aggregates + the mask-free moisture_total in one grid pass.
 func refresh_aggregates() -> void:
 	_f._atmos_dirty = false
 	# Local (copy-on-write, read-only) handles for the hot loop — same buffers, no per-cell property lookup.
@@ -85,8 +81,7 @@ func refresh_aggregates() -> void:
 	var total: float = 0.0
 	for i in range(cell_count):
 		var aw: float = moisture[i]
-		# Mask-free, mol: airborne H2O counts every cell, because vapour in a cell the derived solid flag now
-		# covers has moved, not vanished. The cloud/fog/precip counts below are open-cell extents and stay masked.
+		# Mask-free, mol.
 		total += aw * vol[i]
 		if solid[i] != 0:
 			continue
@@ -118,8 +113,7 @@ func climate_snapshot() -> Dictionary:
 	}
 
 
-## The atmosphere band radii the water-particle renderer places against, measured from the body centre. Each
-## is declared exactly once, here.
+## The atmosphere band radii the water-particle renderer places against, measured from the body centre.
 func atmos_cloud_base_r() -> float:
 	return _f.sea_radius() + CLOUD_BASE_ALT
 
@@ -150,32 +144,28 @@ func avg_fog_cover() -> float:
 	return _f._fog_cover_c
 
 
-## Precipitation proxy 0..1 — cells whose condensate is over the rain threshold, as a fraction of ALL cells,
-## rescaled by a fitted gain and clamped (see refresh_aggregates).
+## Precipitation proxy 0..1.
 func precipitation() -> float:
 	if _f._atmos_dirty:
 		refresh_aggregates()
 	return _f._precip_c
 
 
-## Airborne H2O over every cell, no residency mask, in moles. Accumulated in refresh_aggregates' single grid
-## pass and cached: a cache read, not a scan.
+## Airborne H2O over every cell, no residency mask, in moles.
 func vapour_total() -> float:
 	if _f._atmos_dirty:
 		refresh_aggregates()
 	return _f._vapour_total_c
 
 
-## Count of cells whose derived condensate (moisture over saturation) is at/above CONDENSE_COVER_MIN and
-## warmer than FOG_MAX_TEMP. Cached with the other atmosphere aggregates, not recomputed per call.
+## Count of cells whose derived condensate is at or above CONDENSE_COVER_MIN.
 func cloud_cell_count() -> int:
 	if _f._atmos_dirty:
 		refresh_aggregates()
 	return _f._cloud_cells_c
 
 
-# CloudLayer sheets — the water-particle renderer samples the baked cover texture instead. cloud_base_y/
-# fog_base_y survive as the near-ground radii the derived point queries (cloud_at/fog_at) sample at.
+# CloudLayer sheets — the water-particle renderer samples the baked cover texture instead.
 func cloud_base_y() -> float:
 	return _f.sea_radius() + 62.0
 
@@ -195,8 +185,7 @@ func relative_humidity_at(x: float, z: float) -> float:
 	return clampf(_f._queries.vapour_at(c) / s, 0.0, 1.0)
 
 
-## Dewpoint °C near the ground at a world XZ column — the temperature at which the cell's moisture would
-## saturate (invert sat(T)). NAN if unresolved or bone dry.
+## Dewpoint °C near the ground at a world XZ column.
 func dewpoint_at(x: float, z: float) -> float:
 	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
 	if c < 0 or _f._solid[c] != 0 or _f._queries.vapour_at(c) <= 0.0:
