@@ -13,7 +13,7 @@ var _cloud_scan_lo: float = 0.0
 var _fog_lo: float = 0.0
 var _fog_hi: float = 0.0
 var _fog_max_temp: float = 12.0
-var _rain_thresh: float = 6.14e-7   # Kessler autoconversion threshold; AtmospherePass.rain_threshold() is the authority
+var _rain_thresh: float = 6.14e-7   # Kessler autoconversion threshold; LAPhaseRecords.rain_threshold() is the authority
 
 # Per-surface-column reductions (reused each bake).
 var _sc: PackedFloat32Array = PackedFloat32Array()      # cloud density

@@ -9,7 +9,6 @@ const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/
 const CoverBakerScript: GDScript = preload("res://addons/local_agents/sim/material/CoverTextureBaker.gd")
 # The precipitation threshold has ONE owner (Kessler autoconversion, derived from real air/water densities);
 # the report's precip proxy and the render cover bake must read the same number the kernel rains at.
-const AtmospherePassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd")
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 var _cover_baker = null                                  # LACoverTextureBaker — bakes the render cover texture
@@ -58,7 +57,7 @@ func refresh_aggregates() -> void:
 	var solid: PackedByteArray = _f._solid
 	var moisture: PackedFloat32Array = _f._moisture
 	var temp: PackedFloat32Array = _f._temp
-	var rain_threshold: float = AtmospherePassScript.rain_threshold()
+	var rain_threshold: float = LAPhaseRecords.rain_threshold()
 	var cover_min: float = LAMaterialField3D.CONDENSE_COVER_MIN
 	var fog_max_temp: float = LAMaterialField3D.FOG_MAX_TEMP
 	var cloud_n: int = 0
@@ -109,7 +108,7 @@ func _ensure_cover_baker() -> void:
 		return
 	var sea_r: float = _f._terrain.sea_radius()
 	_cover_baker = CoverBakerScript.new()
-	_cover_baker.setup(_f._sphere, sea_r, LAMaterialField3D.FOG_MAX_TEMP, AtmospherePassScript.rain_threshold())
+	_cover_baker.setup(_f._sphere, sea_r, LAMaterialField3D.FOG_MAX_TEMP, LAPhaseRecords.rain_threshold())
 
 
 func climate_snapshot() -> Dictionary:
