@@ -270,6 +270,13 @@ if [[ "$cmd" == "lint" ]]; then
     # gathers hand-rolled the reverse map instead of `d ^ 1` and duplicated and destroyed mass with it.
     # Exit 2 = could not run.
     set +e
+    "$SCRIPT_DIR/check_kernel_paths.sh"
+    rc_kpaths=$?
+    if [ "$rc_kpaths" -ne 0 ]; then
+      echo "LINT_FAIL: check_kernel_paths.sh ($rc_kpaths)"
+      fail=1
+    fi
+
     "$SCRIPT_DIR/check_no_privileged_axis.sh"
     rc_axis=$?
     if [ "$rc_axis" -ne 0 ]; then
