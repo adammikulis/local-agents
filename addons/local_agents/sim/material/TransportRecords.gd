@@ -63,6 +63,24 @@ static func rows() -> Array:
 		# Radiative exchange across an exposed face. Hot rock cools this way, not by conduction to air.
 		{"channel": "h_j_m3", "substance": "", "mode": RADIATE,
 			"mobility": 1.0, "repose_tan": 0.0, "resist": "", "drive": "temp", "cond": "emissivity"},
+
+		# MOMENTUM, one row per component. It runs down the PRESSURE gradient, which is the
+		# pressure-gradient force written as a flux, and it is conserved because transport moves it.
+		# Velocity is derived: v = mom / (rho * V).
+		{"channel": "mom_x", "substance": "", "mode": POTENTIAL,
+			"mobility": 0.5, "repose_tan": 0.0, "resist": "", "drive": "pressure"},
+		{"channel": "mom_y", "substance": "", "mode": POTENTIAL,
+			"mobility": 0.5, "repose_tan": 0.0, "resist": "", "drive": "pressure"},
+		{"channel": "mom_z", "substance": "", "mode": POTENTIAL,
+			"mobility": 0.5, "repose_tan": 0.0, "resist": "", "drive": "pressure"},
+
+		# Eddy viscosity: momentum diffusing down its own gradient.
+		{"channel": "mom_x", "substance": "", "mode": DIFFUSE,
+			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
+		{"channel": "mom_y", "substance": "", "mode": DIFFUSE,
+			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
+		{"channel": "mom_z", "substance": "", "mode": DIFFUSE,
+			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
 	]
 
 

@@ -239,12 +239,6 @@ static func atoms_per_kg(id: String) -> Dictionary:
 
 ## SPECIFIC ENTHALPY (J/kg) of a substance at a temperature, referenced to its solid at 0 K — the curve whose
 ## flat sections ARE the latent heats. This is the function that makes phase a consequence rather than a
-## channel: sensible heat through each phase, plus the full latent step at each boundary crossed.
-##
-## THE INVERSE OF enthalpy_to_state(), rung for rung, and the only reason a temperature survives a trip
-## through energy and back. Every boundary and every latent heat is read from the same helper the inverse
-## reads it from, so neither side can be moved alone. On a plateau this returns the plateau's LOWER end,
-## which is the one temperature-to-enthalpy answer that inverts.
 static func enthalpy_at(id: String, t_c: float, p_pa: float = PC.STANDARD_PRESSURE_PA,
 		molality_mol_kg: float = 0.0) -> float:
 	var s: Dictionary = table().get(id, {})
@@ -595,8 +589,6 @@ static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDA
 
 ## ABOVE A CONDENSATION PLATEAU the two high transitions are EQUILIBRIA, not plateaus: the dissociated and
 ## ionised fractions rise smoothly with temperature (law of mass action, Saha). Enthalpy is therefore a
-## continuous monotonic function of T and the state is found by inverting it. `ref_t_c` is the plateau's
-## temperature and `h_ref` its top, so boiling and sublimation share one tail.
 static func _gas_state(id: String, h_j_kg: float, p_pa: float, ref_t_c: float, h_ref: float,
 		c_gas: float, melted: float) -> Dictionary:
 	var s: Dictionary = table().get(id, {})
