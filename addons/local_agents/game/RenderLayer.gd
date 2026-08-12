@@ -15,6 +15,7 @@ var _render_opts: Dictionary = {}
 @onready var _ocean: Node = $OceanPlane
 @onready var _water: Node = $WaterParticles
 @onready var _water_surface: Node = $WaterSurface
+@onready var _heat_tex: LAHeatFieldTexture = $HeatFieldTexture
 
 
 func build(world: Node, sim: LASimulation, input: LAVoxelInputController) -> void:
@@ -79,11 +80,11 @@ func _build_world_visuals() -> void:
 	if _sim.orbits() != null:
 		_sim.orbits().set_tide_targets(_ocean, _water_surface, body.sea_radius())
 
-	# HOT GROUND GLOWS (craters, lava, wildfire fronts) — emergent incandescence from the live temp texture.
-	if terrain.has_method("set_shader_param") and material.has_method("heat_texture"):
-		terrain.set_shader_param("heat_tex", material.heat_texture())
-		terrain.set_shader_param("heat_world_min", material.heat_world_min())
-		terrain.set_shader_param("heat_world_size", material.heat_world_size())
+	# The terrain shader's climate basis: up is radial, altitude is height above the sea shell.
+	terrain.set_shader_param("planet_center", body.center())
+	terrain.set_shader_param("planet_sea_radius", body.sea_radius())
+	# Hot ground glows — the live per-cell temperature as a 3D texture over the field box.
+	_heat_tex.setup(material, terrain)
 
 	# Effects density onto the atmosphere particles.
 	_sim.settings_applier().bind(_world, terrain, _water)
