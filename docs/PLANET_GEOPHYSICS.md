@@ -34,7 +34,7 @@ SDF, heat field, lava, and shock, so they want a design pass with the maintainer
   K = K_sat·k_r(S_e) and hold water against gravity below the residual saturation — that is field capacity,
   and it is why a real root zone is the wettest part of a profile after rain. Both fixed: the water table is
   surface-following (saturation ramp 1:65 → 1:2.3), lateral discharge exceeds downward percolation, and
-  `hotspring_cells` reads 281–401 against 0–2 with the geotherm disarmed. Conductivity is now computed from
+  hot springs discharge at the surface. Conductivity is now computed from
   per-cell porosity and grain size (Kozeny-Carman) rather than one number for all regolith.
 - **N-body gravity + bodies** — `LAGravity`, `LAPlanetBody`, a moon, orbits (moving-frame). Test-particle pull.
 
