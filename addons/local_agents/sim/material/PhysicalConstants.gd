@@ -10,10 +10,6 @@ const WATER_BOIL_C: float = 100.0
 const WATER_DENSITY_KG_M3: float = 997.0
 
 # --- WATER VAPOUR: THE SATURATION CURVE ---------------------------------------------------------------------
-# The curve itself is Clausius-Clapeyron. The closed form used is the AUGUST-ROCHE-MAGNUS approximation with
-const MAGNUS_A_PA: float = 610.94
-const MAGNUS_B: float = 17.625
-const MAGNUS_C_C: float = 243.04
 # Specific gas constant of water vapour = universal R (8314.46 J/kmol/K) / molar mass (18.015 kg/kmol).
 # Turns that pressure into a DENSITY through the ideal gas law: rho_v = e / (R_v * T_K).
 const VAPOUR_GAS_CONST_J_KGK: float = 461.52
@@ -139,9 +135,8 @@ const REPOSE_TAN_DRY_GRANULAR: float = 0.70
 
 ## Saturation vapour concentration, mol/m^3: Magnus e_sat put through the ideal gas law, n = e / (R T).
 static func saturation_vapour_mol_m3(t_c: float) -> float:
-	var t: float = maxf(t_c, -80.0)    # the Magnus fit is stated over -40..+50 and its pole is at -243.04 °C
-	var e_sat: float = MAGNUS_A_PA * exp(MAGNUS_B * t / (t + MAGNUS_C_C))
-	return e_sat / (GAS_CONSTANT_J_MOL_K * maxf(t + KELVIN_OFFSET, 1.0))
+	var e_sat: float = LASubstances.saturation_p_at("h2o", t_c)
+	return e_sat / (GAS_CONSTANT_J_MOL_K * maxf(t_c + KELVIN_OFFSET, 1.0))
 # --- LIVING TISSUE ----------------------------------------------------------------------------------------
 # muscle ~1060, fat ~920, whole-body ~1010 kg/m³. 1000 is the honest round value and it is why an animal
 const ANIMAL_TISSUE_DENSITY_KG_M3: float = 1000.0

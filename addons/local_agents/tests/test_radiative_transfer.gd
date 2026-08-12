@@ -118,8 +118,7 @@ func _earth(ppmv: float) -> Dictionary:
 		return ppmv * 1.0e-6 * LAPhysical.MOLAR_MASS_CO2_KG_MOL / LAPhysical.MOLAR_MASS_DRY_AIR_KG_MOL
 	var q_h2o: Callable = func(p: float, t: float) -> float:
 		var tc: float = t - LAPhysical.KELVIN_OFFSET
-		var e_sat: float = LAPhysical.MAGNUS_A_PA * exp(LAPhysical.MAGNUS_B * tc
-			/ (tc + LAPhysical.MAGNUS_C_C))
+		var e_sat: float = LASubstances.saturation_p_at("h2o", tc)
 		var x: float = minf(EARTH_RH * e_sat / maxf(p, 1.0), 1.0)
 		return x * LAPhysical.MOLAR_MASS_WATER_KG_MOL / LAPhysical.MOLAR_MASS_DRY_AIR_KG_MOL
 	return _solve(_column(EARTH_SURFACE_PA, EARTH_G_M_S2, t_of_p, q_co2, q_h2o),

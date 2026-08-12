@@ -209,5 +209,5 @@ func dewpoint_at(x: float, z: float) -> float:
 		return NAN
 	var e: float = _f._moisture[c] * LAPhysical.GAS_CONSTANT_J_MOL_K \
 		* (_f._temp[c] + LAPhysical.KELVIN_OFFSET)
-	var ln_ratio: float = log(maxf(e / LAPhysical.MAGNUS_A_PA, 1.0e-12))
-	return LAPhysical.MAGNUS_C_C * ln_ratio / maxf(LAPhysical.MAGNUS_B - ln_ratio, 1.0e-6)
+	# The dewpoint is the boiling point at the vapour's own partial pressure: one curve, inverted.
+	return LASubstances.boil_c_at("h2o", e)

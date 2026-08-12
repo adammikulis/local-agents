@@ -78,14 +78,12 @@ layout(set = 0, binding = 33, std430) restrict buffer OrgO { float org_o[]; };
 
 // Below the buffer blocks: the slot names collide with the O2/CO2 block names above.
 #include "generated.glsli"
+#include "enthalpy.glsli"
 
 // --- THE PHASE RULE ----------------------------------------------------------------------------------------
 // Saturation vapour pressure at the cell's temperature, in the field's own unit (a fraction of a cell full
 // of liquid water). August-Roche-Magnus, Alduchov & Eskridge (1996) coefficients, then the ideal gas law.
 const float WATER_FREEZE_C = 0.0;        // LAPhysical.WATER_FREEZE_C — GATE_FREEZING's boundary
-const float MAGNUS_A_PA = 610.94;        // LAPhysical.MAGNUS_A_PA
-const float MAGNUS_B = 17.625;           // LAPhysical.MAGNUS_B
-const float MAGNUS_C_C = 243.04;         // LAPhysical.MAGNUS_C_C
 const float VAPOUR_R = 461.52;           // LAPhysical.VAPOUR_GAS_CONST_J_KGK
 const float KELVIN_0 = 273.15;           // LAPhysical.KELVIN_OFFSET
 const float RHO_WATER = 997.0;           // LAPhysical.WATER_DENSITY_KG_M3
@@ -96,9 +94,8 @@ const float P_STD = 101325.0;            // LAPhysical.STANDARD_PRESSURE_PA
 // It used to divide by RHO_WATER, giving a fraction of a cell full of LIQUID water, so this differenced
 // against `moisture` in the channel's own unit was wrong by the molar density of water.
 float sat_vapour_mol_m3(float t_c) {
-	float t = max(t_c, -80.0);           // the Magnus fit's pole is at -243.04 C
-	float e_sat = MAGNUS_A_PA * exp(MAGNUS_B * t / (t + MAGNUS_C_C));
-	return e_sat / (GAS_CONSTANT_J_MOL_K * max(t + KELVIN_0, 1.0));
+	float e_sat = la_saturation_p_at(la_h2o(), t_c);
+	return e_sat / (GAS_CONSTANT_J_MOL_K * max(t_c + KELVIN_0, 1.0));
 }
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust
 #define OVERBURDEN_MAX_CELLS 12  // outward cells the lithostatic column walk sums over
