@@ -36,23 +36,17 @@ var _wnext: PackedFloat32Array = PackedFloat32Array()    # double buffer for the
 
 # --- Shared 3D field state used by the concern modules (heat / atmosphere / lava). Every cell (rock OR
 const INITIAL_TEMP: float = 15.0
-# One cell's worth of air. The channel unit is historically "the O2 in a cell of modern air", which is
-# itself a leftover of seeding oxygen; Stage 2's Hadean seed retires it.
-const AIR_CELL_UNIT: float = 1.0
-# FREE OXYGEN IS A PRODUCT OF LIFE. Seeding it asserted two billion years of photosynthesis before frame 1.
-# It starts at zero and has to be earned. CO2 keeps its value — that one is volcanic, not biological — but
-# no longer derives from O2, or zeroing oxygen would silently take the carbon with it.
+# Gas channel seeds, mol/m^3: air's molar density times each gas's mole fraction.
+# FREE OXYGEN IS A PRODUCT OF LIFE. It starts at zero and has to be earned.
 const O2_AMBIENT: float = 0.0
-const CO2_AMBIENT: float = AIR_CELL_UNIT * (LAPhysical.AIR_MOLE_FRAC_CO2 / LAPhysical.AIR_MOLE_FRAC_O2)
-# N2 IS NOT A PRODUCT OF LIFE. It is what a degassed rocky planet's atmosphere is mostly made of, and it is
-# the reservoir lightning fixation draws on. Same mole-ratio convention as CO2 above.
-const N2_AMBIENT: float = AIR_CELL_UNIT * (LAPhysical.AIR_MOLE_FRAC_N2 / LAPhysical.AIR_MOLE_FRAC_O2)
+const CO2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.AIR_MOLE_FRAC_CO2
+const N2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.AIR_MOLE_FRAC_N2
 # ICE_DEPTH = a thick pack that reads as glacial ice (the deep end of the same channel — no separate ice buffer).
 const SNOW_PRESENT: float = 1.9e-4
 const ICE_DEPTH: float = 0.5              # ~8 m water equivalent = a real glacial thickness, not a snowfall
 const FOG_MAX_TEMP: float = 12.0
-# Condensate fraction at which a cell counts as covered: 5e-5 kg/m³ over water's 997 kg/m³.
-const CONDENSE_COVER_MIN: float = 5.0e-8
+# Condensate at which a cell counts as covered, mol/m^3: 5e-5 kg/m^3 of condensed H2O over its molar mass.
+const CONDENSE_COVER_MIN: float = 5.0e-5 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
 var _temp: PackedFloat32Array = PackedFloat32Array()     # temperature °C per cell (rock + void)
 # ONE conserved atmospheric-water channel: total water suspended in a cell's air (Phase 2a — collapses the
 # old vapor/cloud/fog trio). vapor = min(moisture, sat(T)); condensed = max(0, moisture − sat(T)); the
@@ -68,11 +62,9 @@ var _lava: PackedFloat32Array = PackedFloat32Array()     # lava mass per cell (a
 # --- Emergent FIRE / COMBUSTION (LAMaterialCombustion3D): a FUEL channel (flammable vegetation mass seeded
 var _fuel: PackedFloat32Array = PackedFloat32Array()     # flammable fuel mass per cell (vegetation)
 var _fire: PackedFloat32Array = PackedFloat32Array()     # burning intensity per cell (0 = not burning)
-# --- Emergent ATMOSPHERIC OXYGEN (LAMaterialGas3D): a per-cell O₂ level, seeded to O2_AMBIENT in every OPEN
-var _o2: PackedFloat32Array = PackedFloat32Array()       # atmospheric oxygen level per cell (1.0 = ambient)
-# --- Emergent CARBON DIOXIDE (LAMaterialGas3D, second channel): a per-cell CO₂ level seeded to a trace ~0.
-var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ level per cell (0 = clean air)
-var _n2: PackedFloat32Array = PackedFloat32Array()       # atmospheric N₂ per cell (seed N2_AMBIENT)
+var _o2: PackedFloat32Array = PackedFloat32Array()       # atmospheric O₂ per cell, mol/m^3
+var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ per cell, mol/m^3
+var _n2: PackedFloat32Array = PackedFloat32Array()       # atmospheric N₂ per cell, mol/m^3
 # --- Emergent DECOMPOSER loop (kernels3d/fungus_sphere3d.glsl + the decompose reaction record; the old
 # --- SOIL WATER / water table (LASoilPass / soil_sphere3d): water held in the REGOLITH band, the top few
 var _soil: PackedFloat32Array = PackedFloat32Array()     # water stored in the ground per cell (0 = bone dry)
@@ -355,7 +347,7 @@ func _alloc_channels() -> void:
 	_fuel.resize(_cell_count)
 	_fire = PackedFloat32Array()
 	_fire.resize(_cell_count)
-	# THE AIR, seeded once and finite thereafter. Both gases are filled at Earth's measured composition.
+	# THE AIR, seeded once and finite thereafter, in mol/m^3.
 	_o2 = PackedFloat32Array()
 	_o2.resize(_cell_count)
 	_o2.fill(O2_AMBIENT)

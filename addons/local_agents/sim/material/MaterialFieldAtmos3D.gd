@@ -18,9 +18,9 @@ func setup(field) -> void:
 	_f = field
 
 
-## Saturation mass fraction at temperature `t` °C. Clausius-Clapeyron, owned by LAPhysical.
+## Saturation vapour concentration at `t` °C, mol/m^3. Clausius-Clapeyron, owned by LAPhysical.
 func _sat(t: float) -> float:
-	return LAPhysical.saturation_mass_fraction(t)
+	return LAPhysical.saturation_vapour_mol_m3(t)
 
 
 ## Suspended condensate (liquid/ice) at a linear cell = the moisture over saturation. 0 for solid/oob cells.
@@ -67,7 +67,7 @@ func refresh_aggregates() -> void:
 	var total: float = 0.0
 	for i in range(cell_count):
 		var aw: float = moisture[i]
-		# Mask-free, m^3: airborne H2O counts every cell, because vapour in a cell the derived solid flag now
+		# Mask-free, mol: airborne H2O counts every cell, because vapour in a cell the derived solid flag now
 		# covers has moved, not vanished. The cloud/fog/precip counts below are open-cell extents and stay masked.
 		total += aw * vol[i]
 		if solid[i] != 0:
@@ -164,8 +164,8 @@ func precipitation() -> float:
 	return _f._precip_c
 
 
-## Airborne H2O over every cell, no residency mask. Cubic metres, the same units the ledger's `h2o_vapour_total`
-## carries. Accumulated in refresh_aggregates' single grid pass and cached: a cache read, not a scan.
+## Airborne H2O over every cell, no residency mask, in moles. Accumulated in refresh_aggregates' single grid
+## pass and cached: a cache read, not a scan.
 func moisture_total() -> float:
 	if _f._atmos_dirty:
 		refresh_aggregates()
@@ -207,7 +207,7 @@ func dewpoint_at(x: float, z: float) -> float:
 	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
 	if c < 0 or _f._solid[c] != 0 or _f._moisture[c] <= 0.0:
 		return NAN
-	var e: float = _f._moisture[c] * LAPhysical.WATER_DENSITY_KG_M3 * LAPhysical.VAPOUR_GAS_CONST_J_KGK \
+	var e: float = _f._moisture[c] * LAPhysical.GAS_CONSTANT_J_MOL_K \
 		* (_f._temp[c] + LAPhysical.KELVIN_OFFSET)
 	var ln_ratio: float = log(maxf(e / LAPhysical.MAGNUS_A_PA, 1.0e-12))
 	return LAPhysical.MAGNUS_C_C * ln_ratio / maxf(LAPhysical.MAGNUS_B - ln_ratio, 1.0e-6)
