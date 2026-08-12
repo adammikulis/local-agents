@@ -24,7 +24,7 @@ func observe() -> Dictionary:
 		return _obs
 	_step = step
 	var vel_ok: bool = _f != null and _f._vel_x.size() == _f._cell_count
-	var melt_ok: bool = _live("lava")
+	var melt_ok: bool = _live("silicate")
 	var low_ok: bool = _live("pressure") and vel_ok and _f._temp.size() == _f._cell_count
 	_obs = {
 		"eruptions": _eruptions() if melt_ok else [],
@@ -48,20 +48,20 @@ func _live(name: String) -> bool:
 func _eruptions() -> Array:
 	var out: Array = []
 	var grid: LAVoxelGrid = _f._grid
-	if grid == null or _f._lava.size() != _f._cell_count or _f._solid.size() != _f._cell_count:
+	if grid == null or _f._silicate_melt.size() != _f._cell_count or _f._solid.size() != _f._cell_count:
 		return out
 	for c in _f._cell_count:
-		if _f._solid[c] != 0 or _f._lava[c] < MELT_PRESENT:
+		if _f._solid[c] != 0 or _f._queries.melt_at(c) < MELT_PRESENT:
 			continue
 		var peak: bool = true
 		var base: int = c * LAVoxelGrid.SLOTS
 		for d in LAVoxelGrid.SLOTS:
 			var n: int = grid.neighbours[base + d]
-			if n >= 0 and _f._lava[n] > _f._lava[c]:
+			if n >= 0 and _f._queries.melt_at(n) > _f._queries.melt_at(c):
 				peak = false
 				break
 		if peak:
-			out.append({"pos": grid.cell_world_pos(c), "melt": _f._lava[c], "temp_c": _f._temp[c] if _f._temp.size() == _f._cell_count else 0.0})
+			out.append({"pos": grid.cell_world_pos(c), "melt": _f._queries.melt_at(c), "temp_c": _f._temp[c] if _f._temp.size() == _f._cell_count else 0.0})
 	return out
 
 

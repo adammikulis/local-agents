@@ -16,17 +16,10 @@ const FIRE: int = 6
 const DETRITUS: int = 7
 const FUNGUS: int = 8
 const FERT: int = 9
-const LAVA: int = 10
+# SILICATE — ONE channel; melt and suspended shares are DERIVED, so no record moves mass between them.
+const SILICATE: int = 10
 const BIOMASS: int = 11
-# MINERAL phases (rock unification): ONE conserved mineral substance, phase = state. loose SEDIMENT, airborne
-# DUST, waterborne SUSP are channels; loft/settle are same-cell mass TRANSFERS between them (records below).
-const SEDIMENT: int = 13
-const DUST: int = 14
-const SUSP: int = 15
 const WINDSPEED: int = 16             # DERIVED driver only: speed TANGENTIAL to the local vertical, m/s
-# BEDROCK (rock unification Stage B): fractional bedrock mineral mass. `solid` is DERIVED (rock_fill >= 0.5). Molten
-# LAVA and bedrock ROCK_FILL are the SAME mineral substance — M5 solidify + M6 melt are conserving own-cell transfers.
-const ROCK_FILL: int = 17
 const LIGHT: int = 18                 # DERIVED driver only; never a product/reactant target
 const SOIL_ROOT: int = 19
 # DERIVED driver only: the saturation amount at this cell's temperature minus the vapour it actually holds,
@@ -36,7 +29,6 @@ const VAPOUR_DEFICIT: int = 20
 # the whole rooting column (SOIL_ROOT above); evaporation does not, because vapour has to diffuse out through
 # the pores and the water below the surface layer is simply out of reach. DERIVED, WRITABLE.
 const SOIL_TOP: int = 21
-const OVERBURDEN: int = 22
 const BEDROCK_BELOW: int = 23
 const CARBONATE: int = 24             # CaCO3 — where weathered carbon goes, and the only place it can go
 const SILICA: int = 25                # SiO2 — the weathering residue; nothing weathers it further
@@ -72,9 +64,6 @@ const RM_RESISTANCE_SERIES: int = 7
 # --- Gate bitflags (0 = ungated) -------------------------------------------------------------------------
                                       # TOP OF THE ATMOSPHERE — correct for sky gas exchange, wrong for ground.
 const GATE_NEAR_GROUND: int = 4       # GROUND-HUGGING open cell (INWARD nbr is rock) — where a plant, a snowpack
-const GATE_DRY: int = 16              # cell water <= WET_MAX_LOFT (dry surface) — sand only lofts when not wet
-# parity with the deleted dust_loft kernel, and redundant with GATE_DRY which tests the cell's own
-# water.)*
 const GATE_FREEZING: int = 32         # cell temp below LAPhysical.WATER_FREEZE_C. Deposition needs it: the
                                       # condensate driver says HOW MUCH water is out of solution, not which
                                       # phase it lands in, and above 0 C that condensate is rain, not snow.

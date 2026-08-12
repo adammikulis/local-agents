@@ -46,14 +46,17 @@ layout(set = 0, binding = 20, std430) restrict readonly buffer H2OBuf       { fl
 layout(set = 0, binding = 21, std430) restrict readonly buffer RadTable { float rad_table[]; };
 layout(set = 0, binding = 22, std430) restrict readonly buffer H2OSolidBuf  { float h2o_solid[]; };
 layout(set = 0, binding = 23, std430) restrict readonly buffer H2OLiquidBuf { float h2o_liquid[]; };
-layout(set = 0, binding = 24, std430) restrict readonly buffer RockFillBuf { float rock_fill[]; };
+layout(set = 0, binding = 24, std430) restrict readonly buffer SilicateBuf { float silicate[]; };
 layout(set = 0, binding = 25, std430) restrict readonly buffer BiomassBuf  { float biomass[]; };
-layout(set = 0, binding = 26, std430) restrict readonly buffer LavaBuf     { float lava[]; };
+layout(set = 0, binding = 26, std430) restrict readonly buffer SilicateMeltBuf { float silicate_melt[]; };
 // Where a row that dissipates writes what it dissipated, J/m^3. Bound to `send_q` when it does not.
 layout(set = 0, binding = 27, std430) restrict buffer Stamp { float stamp[]; };
 layout(set = 0, binding = 28, std430) restrict readonly buffer H2OVapourBuf { float h2o_vapour[]; };
 // TF_FRACTION rows move only this share of `amount` — the phase whose law this row is. 0..1.
 layout(set = 0, binding = 29, std430) restrict readonly buffer FracBuf { float frac[]; };
+// Consolidated share of the cell's silicate. A TF_DILUTE row rescales it when matter arrives, because what
+// arrives is loose and cement is a share of a total that just grew.
+layout(set = 0, binding = 30, std430) restrict buffer CementBuf { float cement[]; };
 
 #include "march.glsli"
 
@@ -148,14 +151,14 @@ float h2o_gas(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_vapour[c], 0.0, 1
 // Volume fraction of the cell that is condensed, so a beam meets it geometrically.
 float condensed_frac(uint c) {
 	float f = solid[c] != 0.0 ? 1.0 : 0.0;
-	f += max(rock_fill[c], 0.0) + h2o_water(c) + h2o_ice(c) + max(lava[c], 0.0);
+	f += max(silicate[c], 0.0) + h2o_water(c) + h2o_ice(c);
 	return clamp(f, 0.0, 1.0);
 }
 
 // --- MOBILITY: one law per row, every term a measured property ---------------------------------------
 
-// Resolved-strain eddy viscosity, m^2/s: Smagorinsky nu_t = (C_s * dx)^2 * |S| plus the molecular floor.
-float eddy_viscosity(uint c) {
+// Magnitude of the resolved strain-rate tensor, 1/s: |S| = sqrt(2 S_ij S_ij).
+float strain_rate(uint c) {
 	uint base = c * N_SLOTS;
 	mat3 grad = mat3(0.0);
 	for (uint a = 0u; a < 3u; ++a) {
@@ -176,16 +179,20 @@ float eddy_viscosity(uint c) {
 			s2 += 2.0 * sij * sij;
 		}
 	}
+	return sqrt(s2);
+}
+
+// Smagorinsky eddy viscosity, m^2/s: nu_t = (C_s dx)^2 |S| plus the row fluid's molecular floor.
+float eddy_viscosity(uint c) {
 	float mixing = SMAGORINSKY_COEFF * params.cell_m;
 	float nu_mol = params.fluid_rho > 0.0 ? params.fluid_visc / params.fluid_rho : 0.0;
-	return nu_mol + mixing * mixing * sqrt(s2);
+	return nu_mol + mixing * mixing * strain_rate(c);
 }
 
 // Einstein-Roscoe: the melt's own viscosity times the crystal framework it is carrying, Pa s. The crystal
-// fraction is where the cell sits between the solidus and the liquidus.
+// fraction is what the enthalpy ladder derived, not a second reading of the temperature.
 float melt_viscosity(uint c) {
-	float f_melt = clamp((temp[c] - BASALT_SOLIDUS_C) / (BASALT_LIQUIDUS_C - BASALT_SOLIDUS_C), 0.0, 1.0);
-	float crystal = 1.0 - f_melt;
+	float crystal = 1.0 - clamp(silicate_melt[c], 0.0, 1.0);
 	float r = clamp(crystal / LOCKUP_CRYSTAL_FRAC, 0.0, 0.9999);
 	return MELT_VISC * pow(1.0 - r, -ROSCOE_N);
 }
@@ -290,12 +297,13 @@ float darcy_mobility(uint a, uint b) {
 		/ (r * max(params.fluid_visc, 1.0e-30) * params.cell_m);
 }
 
-// Terminal settling velocity of the row's grain in the row's fluid, m/s (Stokes drag).
+// Terminal settling velocity of the row's grain in the row's fluid, m/s (Stokes drag: the buoyant weight
+// balanced by 3 pi mu d w). The cell's own grain field wins; the row carries a seed for cells without one.
 float settling_speed(uint c) {
 	if ((params.flags & TF_SETTLE) == 0u) {
 		return 0.0;
 	}
-	float d = params.grain_d;
+	float d = grain[c] > 0.0 ? grain[c] : params.grain_d;
 	float mu = max(params.fluid_visc, 1.0e-30);
 	return max(params.density - params.fluid_rho, 0.0) * length(g_at(c)) * d * d / (18.0 * mu);
 }
@@ -394,7 +402,7 @@ float longwave_emissivity(uint c) {
 	}
 	float wet = h2o_water(c);
 	float icy = h2o_ice(c);
-	float dry = max(rock_fill[c], 0.0) + max(lava[c], 0.0) + (solid[c] != 0.0 ? 1.0 : 0.0);
+	float dry = max(silicate[c], 0.0) + (solid[c] != 0.0 ? 1.0 : 0.0);
 	float mass = wet + icy + dry;
 	if (mass <= 0.0) {
 		return clamp(eps, 0.0, 1.0);
@@ -409,7 +417,7 @@ float shortwave_albedo(uint c) {
 	float wet = h2o_water(c);
 	float icy = h2o_ice(c);
 	float veg = max(biomass[c], 0.0);
-	float dry = max(rock_fill[c], 0.0) + max(lava[c], 0.0) + (solid[c] != 0.0 ? 1.0 : 0.0);
+	float dry = max(silicate[c], 0.0) + (solid[c] != 0.0 ? 1.0 : 0.0);
 	float mass = wet + icy + veg + dry;
 	if (mass <= 0.0) {
 		return 0.0;
@@ -624,7 +632,13 @@ void main() {
 	}
 	// No floor. Pass 0 clamps every outflow to what the cell holds, so a negative here is a defect
 	// and clamping it up would create the mass it is short of.
-	amount[gidx] = amount[gidx] - lost + gained;
+	float was = amount[gidx];
+	amount[gidx] = was - lost + gained;
+	// The cemented AMOUNT cannot change by transport — rock does not flow, and what arrives is loose — so
+	// the cemented SHARE falls by exactly the ratio the total grew.
+	if ((params.flags & TF_DILUTE) != 0u && amount[gidx] > was && was > 0.0) {
+		cement[gidx] = clamp(cement[gidx] * was / amount[gidx], 0.0, 1.0);
+	}
 	h[gidx] = h[gidx] - lost_h + gained_h;
 	charge[gidx] = charge[gidx] - lost_q + gained_q;
 	if ((params.flags & TF_STAMP) != 0u) {

@@ -181,10 +181,9 @@ func _insolation() -> float:
 ## Atmospheric transmission (0..1): airborne dust + cloud block sunlight (a meteor volley → impact winter).
 func _compute_transmission() -> float:
 	var dust_op: float = 0.0
-	# DUST — unbounded (impact winter can go dark). `avg_atmos_dust()` requests the demand-gated `dust`
-	# readback itself, which is what keeps this mechanism alive without a diagnostic having to be running.
-	if _material != null and _material.has_method("avg_atmos_dust"):
-		dust_op = float(_material.avg_atmos_dust())
+	# AIRBORNE MINERAL — unbounded, so an impact winter can go dark.
+	if _material != null and _material.has_method("avg_airborne_mineral"):
+		dust_op = float(_material.avg_airborne_mineral())
 	var cloud_op: float = 0.0
 	if _material != null and _material.has_method("avg_cloud_cover"):
 		cloud_op = float(_material.avg_cloud_cover()) * CLOUD_OPACITY_K

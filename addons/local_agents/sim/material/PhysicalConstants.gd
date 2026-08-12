@@ -216,10 +216,9 @@ const LAB_REFERENCE_TEMP_C: float = 25.0
 # --- LITHIFICATION: A PRESSURE, NOT A DEPTH -----------------------------------------------------------------
 #     P = ROCK_DENSITY_KG_M3 * g * GROUNDWATER_CIRCULATION_M
 const LITHIFICATION_PRESSURE_PA: float = 5.688e7
-# Bulk density of unconsolidated wet sediment (sand and mud), kg/m^3; range 1600-2200. Lower than rock
-# because sediment is a grain framework with water in the pores, so a sediment pile has to be thicker
-# than a rock pile to reach the same overburden pressure.
-const SEDIMENT_DENSITY_KG_M3: float = 2000.0
+# Per step per Pa of pressure above the threshold, the share of a cell's uncemented silicate that
+# consolidates. Inherited, unreviewed — docs/MODEL_PARAMETERS.md.
+const LITHIFICATION_RATE_PER_PA: float = 1.0e-9
 
 # --- PLATE MOTION -------------------------------------------------------------------------------------------
 const PLATE_SPEED_MIN_MM_PER_YEAR: float = 10.0

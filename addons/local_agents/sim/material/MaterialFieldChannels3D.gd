@@ -31,7 +31,6 @@ func _airborne_mirror(substance: String) -> PackedFloat32Array:
 		"co2": return _f._co2
 		"o2": return _f._o2
 		"moisture": return _f._queries._vapour_mirror()
-		"dust": return _f._dust
 	return PackedFloat32Array()
 
 
@@ -142,16 +141,15 @@ func o2_avg() -> float:
 	return sum / float(n) if n > 0 else LAMaterialField3D.O2_AMBIENT
 
 
-# --- Airborne DUST (the mineral ledger's "airborne" phase) ---------------------------------------------
+# --- Airborne MINERAL: the share of a cell's silicate the air is holding up ----------------------------
 
-## Airborne wind-lofted dust at a world point. `dust` is demand-gated, so the query wakes its readback.
-func dust_at(x: float, y: float, z: float) -> float:
-	if _f._gpu != null:
-		_f._gpu.request_channel("dust")
-	if _f._grid != null and _f._dust.size() == _f._cell_count:
-		var c: int = _f.world_to_cell(Vector3(x, y, z))
-		return _f._dust[c] if c >= 0 else 0.0
-	return 0.0
+## Volume fraction of the cell that is wind-borne mineral: the amount times its derived airborne share.
+func airborne_mineral_at(x: float, y: float, z: float) -> float:
+	if _f._grid == null or _f._silicate.size() != _f._cell_count \
+			or _f._silicate_susp_air.size() != _f._cell_count:
+		return 0.0
+	var c: int = _f.world_to_cell(Vector3(x, y, z))
+	return _f._silicate[c] * clampf(_f._silicate_susp_air[c], 0.0, 1.0) if c >= 0 else 0.0
 
 
 # --- Emergent CARBON DIOXIDE (second gas channel): CO₂ level at a point + build-up diagnostics ---------
@@ -213,22 +211,23 @@ func biomass_total() -> float:
 
 
 
-# Per-cell debug readers for the phase channels (mirror biomass_at/co2_at): molten mineral, bedrock
-# fraction, and pre-lightning electrification. Pure reads for the DebugPanel field-view heatmaps.
-func lava_at(x: float, y: float, z: float) -> float:
-	if _f._grid != null:
-		if _f._gpu != null:
-			_f._gpu.request_channel("lava")   # keep lava readback hot while something queries it
-		var c: int = _f.world_to_cell(Vector3(x, y, z))
-		return _f._lava[c] if (c >= 0 and _f._lava.size() == _f._cell_count) else 0.0
-	return 0.0
+# Per-cell debug readers, pure reads for the DebugPanel field-view heatmaps.
+
+## Volume fraction of the cell that is molten mineral: the amount times its derived melt share.
+func melt_at(x: float, y: float, z: float) -> float:
+	if _f._grid == null or _f._silicate.size() != _f._cell_count \
+			or _f._silicate_melt.size() != _f._cell_count:
+		return 0.0
+	var c: int = _f.world_to_cell(Vector3(x, y, z))
+	return _f._silicate[c] * clampf(_f._silicate_melt[c], 0.0, 1.0) if c >= 0 else 0.0
 
 
-func rock_fill_at(x: float, y: float, z: float) -> float:
-	if _f._grid != null:
-		var c: int = _f.world_to_cell(Vector3(x, y, z))
-		return _f._rock_fill[c] if (c >= 0 and _f._rock_fill.size() == _f._cell_count) else 0.0
-	return 0.0
+## Volume fraction of the cell that is mineral, in any state.
+func silicate_at(x: float, y: float, z: float) -> float:
+	if _f._grid == null or _f._silicate.size() != _f._cell_count:
+		return 0.0
+	var c: int = _f.world_to_cell(Vector3(x, y, z))
+	return _f._silicate[c] if c >= 0 else 0.0
 
 
 func charge_at(x: float, y: float, z: float) -> float:

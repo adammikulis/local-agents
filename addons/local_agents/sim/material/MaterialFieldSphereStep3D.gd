@@ -202,7 +202,7 @@ func process(delta: float) -> void:
 	if _f._charge_mod != null:
 		_f._charge_mod.post_step()
 	if _f._stamp != null:
-		_f._stamp.maybe_scan()                       # Stage C: stamp rock_fill 0.5-crossings into the SDF (gated)
+		_f._stamp.maybe_scan()                       # stamp solid-flag crossings into the SDF (gated)
 	LASimReport.gauge("field_post_ms", float(Time.get_ticks_usec() - t_post) / 1000.0)   # scatter + CPU post-passes
 	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
 	LASimReport.event("field_step")   # telemetry: GPU field runs/run — a slower cadence lowers this (and the avg field_ms)
@@ -220,7 +220,7 @@ func _apply_readback(res: Dictionary) -> void:
 	if res.has("h2o_liquid") and res["h2o_liquid"].size() == n: _f._h2o_liquid = res["h2o_liquid"]
 	if res.has("h2o_vapour") and res["h2o_vapour"].size() == n: _f._h2o_vapour = res["h2o_vapour"]
 	_f._atmos_dirty = true          # new h2o/temp → invalidate the cached condensate aggregates
-	if res.has("lava") and res["lava"].size() == n: _f._lava = res["lava"]
+	if res.has("silicate") and res["silicate"].size() == n: _f._silicate = res["silicate"]
 	if res.has("porosity") and res["porosity"].size() == n: _f._porosity = res["porosity"]
 	if res.has("fire") and res["fire"].size() == n: _f._fire = res["fire"]
 	if res.has("fuel") and res["fuel"].size() == n: _f._fuel = res["fuel"]
@@ -228,11 +228,14 @@ func _apply_readback(res: Dictionary) -> void:
 	if res.has("o2") and res["o2"].size() == n: _f._o2 = res["o2"]
 	if res.has("co2") and res["co2"].size() == n: _f._co2 = res["co2"]
 	if res.has("biomass") and res["biomass"].size() == n: _f._biomass = res["biomass"]
-	if res.has("dust") and res["dust"].size() == n: _f._dust = res["dust"]
-	if res.has("sediment") and res["sediment"].size() == n: _f._sediment = res["sediment"]
-	if res.has("susp") and res["susp"].size() == n: _f._susp = res["susp"]   # erosion pickup phase → mineral ledger
 
-	if res.has("rock_fill") and res["rock_fill"].size() == n: _f._rock_fill = res["rock_fill"]
+	if res.has("cement") and res["cement"].size() == n: _f._cement = res["cement"]
+	if res.has("silicate_melt") and res["silicate_melt"].size() == n: _f._silicate_melt = res["silicate_melt"]
+	if res.has("silicate_bed") and res["silicate_bed"].size() == n: _f._silicate_bed = res["silicate_bed"]
+	if res.has("silicate_susp_air") and res["silicate_susp_air"].size() == n:
+		_f._silicate_susp_air = res["silicate_susp_air"]
+	if res.has("silicate_susp_water") and res["silicate_susp_water"].size() == n:
+		_f._silicate_susp_water = res["silicate_susp_water"]
 	# Substrate-foundation channels: shock (tremor/impact), charge (bolt breakdown), and the emergent WIND
 	# velocity field (wind3_at/wind_at read a real force instead of ZERO).
 	if res.has("shock") and res["shock"].size() == n: _f._shock = res["shock"]

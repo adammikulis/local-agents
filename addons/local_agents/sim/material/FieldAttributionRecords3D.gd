@@ -6,10 +6,7 @@ extends RefCounted
 const PRODUCERS: Dictionary = {
 	"temp": "TransportPass",
 	"h2o": "TransportPass",
-	"lava": "TransportPass",
-	"sediment": "TransportPass",
-	"susp": "TransportPass",
-	"dust": "TransportPass",
+	"silicate": "TransportPass",
 	"o2": "TransportPass",
 	"co2": "TransportPass",
 	"n2": "TransportPass",

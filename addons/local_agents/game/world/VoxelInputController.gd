@@ -828,13 +828,13 @@ func _bench_snapshot(frame: int) -> void:
 	var field_ms: float = float(g.get("field_ms", {}).get("cur", 0.0))
 	var lava_list_cells: float = float(g.get("lava_list_cells", {}).get("cur", 0.0))
 	print(("BENCH_SNAPSHOT={frame:%d, fps:%.1f, field_dispatch_ms:%.3f, field_readback_ms:%.3f, field_ms:%.3f, " +
-		"lava_list_cells:%d, fire_cells:%d, lava_total:%.1f, charge_peak:%.3f, bolts:%d, " +
-		"co2_avg:%.4f, fuel_all:%.1f, rock_fill_total:%.1f, mineral_total:%.1f, h2o_total:%.1f, creatures:%d}") % [
+		"lava_list_cells:%d, fire_cells:%d, melt_total:%.1f, charge_peak:%.3f, bolts:%d, " +
+		"co2_avg:%.4f, fuel_all:%.1f, silicate_total:%.1f, mineral_total:%.1f, h2o_total:%.1f, creatures:%d}") % [
 		frame, fps, dispatch_ms, readback_ms, field_ms,
 		int(lava_list_cells),
-		int(snap.get("fire_cells", 0)), float(snap.get("lava_total", 0.0)),
+		int(snap.get("fire_cells", 0)), float(snap.get("melt_total", 0.0)),
 		float(snap.get("charge_peak", 0.0)), int(snap.get("bolts", 0)),
 		float(snap.get("co2_avg", 0.0)), float(snap.get("fuel_all", 0.0)),
-		float(snap.get("rock_fill_total", 0.0)), float(snap.get("mineral_total", 0.0)),
+		float(snap.get("silicate_total", 0.0)), float(snap.get("mineral_total", 0.0)),
 		float(snap.get("h2o_total", 0.0)), int(snap.get("creatures", 0)),
 	])

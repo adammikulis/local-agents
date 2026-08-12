@@ -6,13 +6,6 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reactions_sphere3d.glsl"
 const REACTIONS_SCRIPT: String = "res://addons/local_agents/sim/material/MaterialReactions3D.gd"
 
-## Lithostatic pressure added per unit of overlying rock, Pa. Takes the local gravity: a pressure is
-## rho*g*h and this planet has no single g.
-static func overburden_pa_per_unit(g_m_s2: float) -> float:
-	var cells: int = maxi(int(LAMaterialField3D.REGOLITH_CELLS), 1)
-	var metres_per_cell: float = LAPhysical.GROUNDWATER_CIRCULATION_M / float(cells)
-	return g_m_s2 * metres_per_cell
-
 var _pipe: RID = RID()
 var _n_records: int = 0
 var _set: Array = [RID(), RID()]        # one uniform set per ping-pong parity
@@ -32,7 +25,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	var recs: Array = defs_script.records()
 	if recs.is_empty():
 		push_error("ReactionsPass: the reaction table is EMPTY. Every same-cell reaction (photosynthesis, "
-			+ "respiration, decompose, freeze/melt, lava solidify, weathering, lithification) is disabled. "
+			+ "respiration, decompose, evaporation, weathering) is disabled. "
 			+ "This is a load failure, not a valid configuration — check the record modules in "
 			+ "material/reactions/ and run scripts/editor_scan.sh.")
 		return
@@ -51,14 +44,10 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	var solid: RID = _single(bufs, "solid")
 	var nbr: RID = _single(bufs, "nbr")
 	var scratch: RID = _scratch(cc)         # reaction product target, consumed in the same step
-	var sediment: Array = _pair(bufs, "sediment")
-	var dust: Array = _pair(bufs, "dust")
-	var susp: Array = _pair(bufs, "susp")
 	var vel_x: RID = _single(bufs, "vel_x")
 	var vel_y: RID = _single(bufs, "vel_y")
 	var vel_z: RID = _single(bufs, "vel_z")
-	var lava: Array = _pair(bufs, "lava")
-	var rock_fill: RID = _single(bufs, "rock_fill")
+	var silicate: Array = _pair(bufs, "silicate")
 	var regolith: RID = _single(bufs, "regolith")   # aquifer mask — the column SOIL_ROOT walks
 	# `fire` is a PAIR but is NOT a channel: the kernel assigns it as the fraction of this cell's usable
 	# oxygen that combustion consumed, so the gauges have something true to read. No physics reads it.
@@ -100,17 +89,13 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			[9, fert[p]],           # LIVE — nutrient-uptake reactant, debited in place (producer runs later)
 			[10, solid],
 			[11, biomass],          # SINGLE — photosynthesis grows it, respiration/decay oxidises it
-			[13, sediment[back]],   # loose regolith — loft debits it
-			[14, dust[p]],          # airborne dust — loft credits it
 			[15, nbr],
-			[16, susp[back]],       # waterborne suspended sediment — settle debits it
 			[17, vel_x],            # SINGLE — WINDSPEED reads the flow tangential to the local vertical
 			[18, vel_z],
 			[26, vel_y],
 			[20, scratch],          # fungus-fert SCRATCH product target
 			[21, defs_ssbo],
-			[22, lava[back]],       # molten rock — solidify debits, melt credits
-			[23, rock_fill],        # SINGLE fractional bedrock — solidify credits it, melt debits it
+			[22, silicate[back]],   # ONE mineral amount — weathering debits it, nothing else writes it
 			[27, regolith],         # aquifer permeability mask — root_soil() walks THIS, not `solid`
 			[28, carbonate],        # SINGLE CaCO3 — the Urey record credits it forward, debits it in reverse
 			[29, silica],           # SINGLE SiO2 — the weathering residue, same record
@@ -122,7 +107,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			[35, h2o_liquid],       # DERIVED share — liquid, free or in pores
 			[36, h2o_vapour],       # DERIVED share — vapour
 			[37, pressure],         # Pa — the saturation curve and the ladder both read it
-			[38, porosity],         # phi — the overburden walk converts rock_fill with it
+			[38, porosity],         # phi — the pore fraction the aquifer walk reads
 			[40, cell_vol],         # per-cell volume (kernels3d/cellvol.glsli)
 			[48, gravity],          # the SOLVED g: every "above"/"below" and the light angle read it
 		])
@@ -132,8 +117,8 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	if not _dispatchable() or _n_records <= 0:
 		return
 	# The solar kernel and the reaction engine must see the IDENTICAL sun, magnitude included: it carries
-	# orbit-distance² × atmospheric transmission, so dust dimming suppresses photosynthesis directly rather
-	# than second-hand through cooling.
+	# orbit-distance squared times atmospheric transmission, so what dims the sky suppresses photosynthesis
+	# directly rather than second-hand through cooling.
 	var sun_dir: Vector3 = ctx.get("sun_dir", Vector3(0.0, 1.0, 0.0))
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(32)
@@ -144,7 +129,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	pc.encode_float(16, sun_dir.x)
 	pc.encode_float(20, sun_dir.y)
 	pc.encode_float(24, sun_dir.z)
-	pc.encode_float(28, overburden_pa_per_unit(float(ctx.get("g_m_s2", 0.0))))
+	pc.encode_u32(28, 0)   # pad2
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, _set[parity], 0)
 	rd.compute_list_set_push_constant(cl, pc, pc.size())

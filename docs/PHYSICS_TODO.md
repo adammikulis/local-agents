@@ -85,7 +85,8 @@ order is the order.
 
 
 - [ ] **The field stores temperature, not energy.** Phase is therefore a set of CHANNELS (`water` /
-      `moisture` / `snow` are one substance; `rock_fill` / `lava` are another) and a phase change is a
+      `moisture` / `snow` were one substance; `rock_fill` / `lava` / `sediment` / `susp` / `dust` another —
+      both now collapsed) and a phase change is a
       REACTION RECORD with latent heat attached by hand. Store enthalpy per cell, derive temperature and
       phase, and 7 of the 18 records plus the snow-deposition and rain-condensation legs delete themselves.
       **This is the largest single item and everything in C gets easier after it.**
@@ -112,7 +113,8 @@ order is the order.
       is uploaded and never read "so every reaction rate is per-STEP rather than per-second" — the first half
       was true and the second half was the wrong diagnosis.)* Evaporation, photosynthesis, respiration,
       litterfall and decomposition already fold `real_seconds_per_step()` into their own `k`, so they are
-      per-real-second. `FREEZE_RATE`, `MELT_RATE`, `SOLIDIFY_RATE` and `ROCK_MELT_RATE` are flat per-step
+      per-real-second. (`FREEZE_RATE`, `MELT_RATE`, `SOLIDIFY_RATE` and `ROCK_MELT_RATE` are gone: phase
+      is derived from enthalpy, so a plateau is energy-limited rather than rate-limited.) The rest are flat per-step
       numbers that are neither derived nor scaled by the clock. Multiplying everything by `dt` in the kernel
       would therefore DOUBLE-COUNT the first group — which is why the dead `dt` upload was deleted rather
       than wired up. **Resolves with B1:** those four records are the phase-change relaxations, and once the
@@ -131,7 +133,8 @@ order is the order.
 - [ ] **The four gathers are still four kernels.** `gravity_flow`, `soil`, `erosion_transport` and
       `plate_advect` remain separate with different flow rules. The bug CLASS is now closed by the table
       above, so this is de-duplication rather than correctness — worth doing, no longer urgent.
-- [ ] **`sediment_total` is ~0** (0.05 before this work, 0.0 after) where it used to read in the hundreds.
+- [ ] ~~**`sediment_total` is ~0**~~ — STRUCK: the gauge no longer exists. Loose mineral is now a derived
+      share of `silicate`, reported as `silicate_total` with `silicate_bed` / `silicate_susp_water`.
       Downstream of E1 most likely, but unconfirmed; re-check once E1 is closed.
 - [ ] **Two mass transfers still move temperature without moving heat**: the regolith→regolith Darcy leg
       (`soil_sphere3d.glsl:51`) and sediment slump.

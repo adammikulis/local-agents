@@ -7,8 +7,8 @@ extends RefCounted
 var _f = null
 
 # Baseline bedrock, and the step it was latched at.
-var _rock_ref: PackedFloat32Array = PackedFloat32Array()
-var _rock_ref_step: int = -1
+var _silicate_ref: PackedFloat32Array = PackedFloat32Array()
+var _silicate_ref_step: int = -1
 
 
 func setup(field) -> void:
@@ -115,13 +115,6 @@ func amounts(ch: Dictionary, solid: PackedByteArray, temp: PackedFloat32Array,
 ## Threshold counts and the snow-line mean. These compare a per-cell FRACTION against a fraction threshold,
 ## so they stay UNWEIGHTED — multiplying one side by a volume would move the threshold per cell.
 func _count_presence(out: Dictionary, ch: Dictionary, temp: PackedFloat32Array, cc: int) -> void:
-	var dust: PackedFloat32Array = ch.get("dust", PackedFloat32Array())
-	if dust.size() == cc:
-		var n_dust: int = 0
-		for c in cc:
-			if dust[c] > LAMaterialFieldQueries3D.DUST_PRESENT:
-				n_dust += 1
-		out["dust_cells"] = n_dust
 	var carb: PackedFloat32Array = ch.get("carbonate", PackedFloat32Array())
 	if carb.size() == cc:
 		var n_carb: int = 0
@@ -129,6 +122,14 @@ func _count_presence(out: Dictionary, ch: Dictionary, temp: PackedFloat32Array, 
 			if carb[c] > 0.0:
 				n_carb += 1
 		out["carbonate_cells"] = n_carb
+	var sil: PackedFloat32Array = ch.get("silicate", PackedFloat32Array())
+	var air: PackedFloat32Array = ch.get("silicate_susp_air", PackedFloat32Array())
+	if sil.size() == cc and air.size() == cc:
+		var n_air: int = 0
+		for c in cc:
+			if maxf(sil[c], 0.0) * clampf(air[c], 0.0, 1.0) > LAMaterialFieldQueries3D.AIRBORNE_PRESENT:
+				n_air += 1
+		out["airborne_cells"] = n_air
 	# The frozen share of the one h2o channel: the ladder's own solid fraction, not a separate stock.
 	var h2o: PackedFloat32Array = ch.get("h2o", PackedFloat32Array())
 	var fs: PackedFloat32Array = ch.get("h2o_solid", PackedFloat32Array())
@@ -148,20 +149,26 @@ func _count_presence(out: Dictionary, ch: Dictionary, temp: PackedFloat32Array, 
 		out["snow_line_temp"] = (t_sum / float(n_snow)) if n_snow > 0 else 0.0
 
 
-## How far rock_fill has travelled since the books closed, as a fraction. Churn, not matter, so UNWEIGHTED.
+## How far the CRUST has travelled since the books closed, as a fraction. Consolidated rock only: loose
+## grains blowing about are sediment transport, not continental drift. Churn, not matter, so UNWEIGHTED.
 func _crust(out: Dictionary, ch: Dictionary, cc: int, step_index: int, sealed: bool) -> void:
-	var rock: PackedFloat32Array = ch.get("rock_fill", PackedFloat32Array())
-	if rock.size() != cc:
+	var sil_raw: PackedFloat32Array = ch.get("silicate", PackedFloat32Array())
+	var cem: PackedFloat32Array = ch.get("cement", PackedFloat32Array())
+	if sil_raw.size() != cc or cem.size() != cc:
 		return
-	if _rock_ref.size() == cc:
+	var sil: PackedFloat32Array = PackedFloat32Array()
+	sil.resize(cc)
+	for c in cc:
+		sil[c] = maxf(sil_raw[c], 0.0) * clampf(cem[c], 0.0, 1.0)
+	if _silicate_ref.size() == cc:
 		var moved: float = 0.0
 		for c in cc:
-			moved += absf(rock[c] - _rock_ref[c])
+			moved += absf(sil[c] - _silicate_ref[c])
 		out["crust_moved"] = moved * 0.5
-		out["crust_ref_step"] = _rock_ref_step
+		out["crust_ref_step"] = _silicate_ref_step
 	elif sealed:
-		_rock_ref = rock.duplicate()
-		_rock_ref_step = step_index
+		_silicate_ref = sil.duplicate()
+		_silicate_ref_step = step_index
 
 
 ## The thermal stock, in joules: the enthalpy the cells hold. `h` is J/m^3, so the stock is h * volume and

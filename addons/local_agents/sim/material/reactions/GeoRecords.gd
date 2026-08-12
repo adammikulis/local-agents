@@ -2,19 +2,9 @@ class_name LAGeoRecords
 extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
 
-# --- MINERAL phase transfers (rock unification Stage A) — same-cell, conserving, own-cell writes only -------
-const LOFT_WIND: float = 6.0             # horizontal wind speed a dry surface must exceed to loft sand
-const LOFT_RATE: float = 0.003           # sediment lofted per step per unit wind OVER the threshold
-# every open cell, still or racing, which is what a constant Stokes settling velocity looks like on a fixed
-# timestep: how fast a grain falls to the bed is a property of the GRAIN, not of the flow. What varies is how
-const SUSP_SETTLE_RATE: float = 0.05     # per-step fraction of suspended sediment that settles out
-
 # --- D1b THE UREY REACTION, BOTH WAYS: CaSiO3 + CO2 <-> CaCO3 + SiO2 --------------------------------------
 # THE RATE LAW is Arrhenius, first order in the solvent (the LIQUID share of h2o) and first order
 const DISSOLUTION_K: float = 2.0e-5
-
-# --- D2 LITHIFICATION (loose SEDIMENT → bedrock) -----------------------------------------------------------
-const LITH_RATE_PER_PA: float = 1.0e-9   # per-step k on x = max(0, P - P_lith) * k
 
 
 # --- COALIFICATION: BURIAL DRIVES ORGANIC MATTER TOWARD CARBON ---------------------------------------------
@@ -57,11 +47,6 @@ static func records() -> Array:
 			LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET,
 			-1, 0.0, 0.0, _coal_enthalpy_j_m3(1.0, 0.0, 2.0)),
 
-		rec(RM_EXCESS_OVER_THRESHOLD, LOFT_RATE, WINDSPEED, [[SEDIMENT, 1.0]], [[DUST, 1.0, TGT_SELF]],
-			GATE_DRY, LOFT_WIND),
-
-		rec(RM_CONST_FRAC, SUSP_SETTLE_RATE, SUSP, [[SUSP, 1.0]], [[SEDIMENT, 1.0, TGT_SELF]], 0),
-
 		# REVERSIBLE. CaSiO3 + CO2 <-> CaCO3 + SiO2 is ONE reaction; decarbonation is this record running
 		# backwards, and which way it goes is dG(T, p_CO2), not a threshold. CO2 is the one varying activity.
 		LAReactionThermo.reversible(rec(RM_ARRHENIUS, DISSOLUTION_K, H2O_LIQUID,
@@ -71,8 +56,4 @@ static func records() -> Array:
 			GATE_NEAR_GROUND, LAPhysical.SILICATE_DISSOLUTION_EA_OVER_R_K, CO2,
 			LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET,
 			-1, 0.0, LAPhysical.WATER_BOIL_C + LAPhysical.KELVIN_OFFSET), CO2),
-
-		# x = max(0, P - LITHIFICATION_PRESSURE_PA) * LITH_RATE_PER_PA, capped by the SEDIMENT present →
-		rec(RM_EXCESS_OVER_THRESHOLD, LITH_RATE_PER_PA, OVERBURDEN, [[SEDIMENT, 1.0]],
-			[[ROCK_FILL, 1.0, TGT_SELF]], 0, LAPhysical.LITHIFICATION_PRESSURE_PA),
 	]

@@ -11,7 +11,7 @@ const RECENT_MAX: int = 32            # ring-buffer of the latest events a consu
 
 var _world: Node = null
 var _material = null                  # LAMaterialField3D — the shared substrate; source of the field aggregates
-var _queries = null                   # LAMaterialFieldQueries3D — the field's read accessors (lava_total lives here)
+var _queries = null                   # LAMaterialFieldQueries3D — the field's read accessors
 var _ecology = null                   # LAEcologyService — source of the fire count
 var _detectors: Array = []            # ordered registry of LAEventDetector plugins
 var _prev: Dictionary = {}            # previous snapshot (detectors read prev -> cur deltas)
@@ -28,7 +28,7 @@ func setup(world: Node) -> void:
 	_material = world.get("_material")
 	_ecology = world.get("_ecology")
 	if _material != null:
-		_queries = _material.get("_queries")   # the read-accessor object (lava_total lives here, not on the hub)
+		_queries = _material.get("_queries")   # the read-accessor object, not the hub
 	_build_registry()
 	LASimReport.register(Callable(self, "report"))
 	_log_dormant_detectors()
@@ -40,7 +40,7 @@ func setup(world: Node) -> void:
 func _build_registry() -> void:
 	_detectors = [
 		# Eruption: molten-rock (lava) total ramps up from ~0 as a vent supplies it, and stays up. Escalates
-		_threshold("eruption", "lava_total", "cross_up", 0.5, 0.1, 12.0, 0.02,
+		_threshold("eruption", "melt_total", "cross_up", 0.5, 0.1, 12.0, 0.02,
 			"a volcano is erupting — molten lava is pouring out"),
 		# Wildfire: the ecology fire count rising off zero (fire ignited and is spreading).
 		_threshold("wildfire", "fires", "cross_up", 0.5, 0.5, 7.0, 1.5,
@@ -115,8 +115,8 @@ func _snapshot() -> Dictionary:
 			snap["bolts"] = _material.bolts_fired()
 		if _material.has_method("shock_cell_count"):
 			snap["shock_cells"] = _material.shock_cell_count()
-	if _queries != null and _queries.has_method("lava_total"):
-		snap["lava_total"] = _queries.lava_total()
+	if _queries != null and _queries.has_method("melt_total"):
+		snap["melt_total"] = _queries.melt_total()
 	snap["fires"] = _fire_count()
 	return snap
 

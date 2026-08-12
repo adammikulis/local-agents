@@ -88,8 +88,13 @@ channels that carry heat, because heat is no longer spread across channels:
 | the `heat` column in `Channels.gd` and `heat_group()` | deleted |
 
 **Also deletes:** `rc_shared.glsli` (done), `HeatCapacity.gd` (done), its SSOT gate (done), and the
-`rock_fill`/`lava` channel pair — one substance.
+`rock_fill`/`lava` channel pair (done — see below).
 
+- ~~the `lava`/`rock_fill`/`sediment`/`susp`/`dust` channels~~ — DONE. Five channels for one substance are
+  one `silicate` amount plus `cement`. The melt share is the lever rule off the enthalpy ladder
+  (`silicate_melt`); the suspended shares are the fluid's shear against the grain's Stokes fall speed
+  (`silicate_susp_water` / `silicate_susp_air` / `silicate_bed`, from `grain_state.glsl`). `solidify`,
+  `rock melt`, `loft`, `settle` and the lithification record are gone with their rate constants.
 - ~~the `water`/`moisture`/`snow` channel pair~~ — DONE. `water`, `moisture`, `snow` and `soil` are one `h2o`
   channel; solid / liquid / vapour are derived per cell by `state_derive.glsl` off the same ladder and the
   same saturation curve, and published as `h2o_solid` / `h2o_liquid` / `h2o_vapour`.
@@ -197,8 +202,8 @@ changes its unit, then the latent-plateau gate.
 - **`_bufs["face_area"]` is bound by zero passes and `facearea.glsli` is included by zero kernels.**
   Binding 42 is reserved-but-unconsumed — the surviving artefact of the two-lanes-one-number incident.
 - **`_wnext` is dead** — a declaration and two allocation lines; no element is ever read or written.
-  **`_susp` is never allocated at all** (`_porosity` is now seeded from Athy compaction, `_snow` is gone), so on a CPU-only run every consumer's
-  size guard silently skips them.
+  (`_susp` is gone with the silicate collapse; `_porosity` is now seeded from Athy compaction.) On a
+  CPU-only run every consumer's size guard silently skips them.
 - **`_charge_woke` is written in two places and read nowhere.** The compute-bubble early-out it exists for
   was never wired.
 - **`CreatureLod`'s `LA_NO_PHYS_LOD`** keeps a superseded LOD tier reachable — `MID_LOD_D2` and `FAR_LOD_D2`

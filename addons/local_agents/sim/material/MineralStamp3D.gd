@@ -2,13 +2,15 @@ class_name LAMineralStamp3D
 extends RefCounted
 
 
-const GROW_THRESHOLD: float = 0.55       # hysteresis high: void->solid only once rock_fill rises past this
-const SHRINK_THRESHOLD: float = 0.45     # hysteresis low: solid->void only once rock_fill falls below this
+# The rheological lock-up the GPU's own `solid` derive uses. One declaration, so the SDF cannot disagree
+# with the field about which cells are rock.
+const GROW_THRESHOLD: float = LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
+const SHRINK_THRESHOLD: float = LAPhysical.RHEOLOGICAL_MOBILE_CRYSTAL_FRAC
 const SCAN_EVERY: int = 4                # throttle: at most one crossing scan per this many active frames
 const ACTIVE_WINDOW: int = 32            # frames to keep scanning after the last edit / found crossing
 const STAMP_BUDGET: int = 96             # max SDF edits emitted per scan (bounds the per-frame remesh burst)
 
-var _f = null                            # owning LAMaterialField3D (read its _rock_fill/_solid + geometry)
+var _f = null                            # owning LAMaterialField3D (reads its mineral mirrors + geometry)
 var _window: int = 0                     # frames left in the active scan window (0 = idle, no per-frame cost)
 var _tick: int = 0                       # cadence counter toward SCAN_EVERY
 
@@ -25,20 +27,15 @@ func setup(field) -> void:
 	_f = field
 
 
-## Wake the scan: called when the CPU edits the mineral field (a debug deposit) so the next
-## scans catch the resulting 0.5-crossings, then idle again once the flurry settles. rock_fill is
-## demand-gated (SITUATIONAL_CHANNELS), so also wake ITS readback -- mirrors add_heat waking "fire".
+## Wake the scan: called when the CPU edits the mineral field so the next scans catch the resulting
+## lock-up crossings, then idle again once the flurry settles.
 func arm() -> void:
 	_window = ACTIVE_WINDOW
-	if _f != null and _f._gpu != null:
-		_f._gpu.request_channel("rock_fill")
 
 
 func maybe_scan() -> void:
 	if _window <= 0:
 		return
-	if _f != null and _f._gpu != null and _f._gpu.has_method("request_channel"):
-		_f._gpu.request_channel("rock_fill")
 	_window -= 1
 	_tick += 1
 	if _tick < SCAN_EVERY:
@@ -47,17 +44,17 @@ func maybe_scan() -> void:
 	_scan()
 
 
-# Scan for rock_fill cells that crossed 0.5 (with hysteresis) vs the last-stamped `_solid` cache and emit a
-# GROW/SHRINK SDF edit for each, up to STAMP_BUDGET. O(cell_count) but gated to the active window + cadence,
-# so most frames pay nothing; measured cost is reported via last_scan_ms.
+# Scan for cells whose CEMENTED mineral fraction crossed the lock-up band vs the last-stamped `_solid`
+# cache and emit a GROW/SHRINK SDF edit for each, up to STAMP_BUDGET. Gated to the active window + cadence.
 func _scan() -> void:
 	var terrain = _f._terrain
 	if terrain == null or not terrain.has_method("fill_rock") or not terrain.has_method("carve_sphere"):
 		return
 	var n: int = _f._cell_count
-	var rock: PackedFloat32Array = _f._rock_fill
+	var sil: PackedFloat32Array = _f._silicate
+	var cem: PackedFloat32Array = _f._cement
 	var solid: PackedByteArray = _f._solid
-	if rock.size() != n or solid.size() != n:
+	if sil.size() != n or cem.size() != n or solid.size() != n:
 		return
 	var t0: int = Time.get_ticks_usec()
 	var size: float = _f._cell_size * 0.7          # SDF edit extent ~ one cell (fill_rock scales by this)
@@ -70,7 +67,7 @@ func _scan() -> void:
 		if budget <= 0:
 			break
 		var was_solid: bool = solid[c] != 0
-		var rf: float = rock[c]
+		var rf: float = maxf(sil[c], 0.0) * clampf(cem[c], 0.0, 1.0)
 		if not was_solid and rf >= GROW_THRESHOLD:
 			var wp: Vector3 = _f.cell_world_pos_linear(c)
 			last_grow_before_solid = terrain.is_solid(wp)
@@ -143,15 +140,17 @@ func _open_neighbour(c: int, solid: PackedByteArray) -> int:
 	return lo if lo >= 0 and lo < solid.size() and solid[lo] == 0 else -1
 
 
-## TEST HOOK (--stamp-test): raise a void cell's rock_fill to `amount` so the next scan fires a GROW stamp.
-## The gain is a sourceless add and is booked as mineral_minted. Not used in normal play.
+## TEST HOOK (--stamp-test): raise a void cell's mineral to `amount` as consolidated rock, so the next scan
+## fires a GROW stamp. The gain is a sourceless add and is booked as mineral_minted. Not used in normal play.
 func debug_deposit(world_pos: Vector3, amount: float) -> void:
 	var c: int = _f.world_to_cell(world_pos)
-	if c < 0 or c >= _f._cell_count or _f._rock_fill.size() != _f._cell_count:
+	if c < 0 or c >= _f._cell_count or _f._silicate.size() != _f._cell_count:
 		return
 	var want: float = clampf(amount, 0.0, 1.0)
-	var gain: float = want - _f._rock_fill[c]
-	_f._rock_fill[c] = maxf(_f._rock_fill[c], want)
+	var gain: float = want - _f._silicate[c]
+	_f._silicate[c] = maxf(_f._silicate[c], want)
 	if gain > 0.0 and _f._inject != null:
-		_f._inject.queue.add("rock_fill", PackedInt32Array([c]), PackedFloat32Array([gain]), want)
+		_f._inject.queue.add("silicate", PackedInt32Array([c]), PackedFloat32Array([gain]), want)
+		if _f._gpu != null:
+			_f._gpu.add_field_sparse("cement", PackedInt32Array([c]), PackedFloat32Array([1.0]), 1.0)
 	arm()

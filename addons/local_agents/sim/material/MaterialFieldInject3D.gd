@@ -16,14 +16,13 @@ const EVAP_KEEP_LIQUID: float = 0.1      # liquid below this is not available to
 const EVAP_TAKE_FRAC: float = 0.5        # fraction of a source cell's AVAILABLE contents one injection may lift
 const SOIL_SEARCH_SHELLS: int = LAMaterialFieldRegolith3D.REGOLITH_CELLS   # the permeable band is the aquifer
 
-const EXCAVATED_DUST_FRAC: float = 0.25
 
 # CRATER TELEMETRY: cells the most recent excavation opened, re-read live at report time.
 const CRATER_WATCH_MAX: int = 256
 var _crater_watch: PackedInt32Array = PackedInt32Array()
 var _crater_seen: Dictionary = {}        # cell -> true, so overlapping craters do not watch a cell twice
 var _crater_opened: int = 0              # cumulative cells this run whose derived solidity went rock -> void
-var _crater_mass: float = 0.0            # cumulative bedrock mass ASKED of rock_fill
+var _crater_mass: float = 0.0            # cumulative mineral volume fraction excavation uncemented
 var _crater_sea: int = 0                 # cumulative opened cells that were under the water line and flooded
 
 var _flood_unsourced: int = 0            # below-sea crater cells left DRY because no live water was in reach
@@ -36,7 +35,7 @@ func setup(field) -> void:
 	# The grid the queue sizes cross-cell transfers in mass with. Without it flush() drops every op.
 	queue.setup(field._grid)
 	# Terrain-destruction telemetry as a registered provider (the LASimReport.register plugin seam), so the
-	# crater proof is polled at snapshot time — when `_rock_fill` holds the freshest readback — instead of
+	# crater proof is polled at snapshot time, when the mirrors hold the freshest readback, instead of
 	# being scanned every frame.
 	LASimReport.register(crater_report)
 
@@ -220,22 +219,36 @@ func take_biomass(world_pos: Vector3, want: float) -> float:
 func land_ejecta(src_cell: int, world_pos: Vector3, mass: float) -> void:
 	if mass <= 0.0 or src_cell < 0 or src_cell >= _f._cell_count or not _device_ready():
 		return
-	if _f._sediment.size() != _f._cell_count:
+	if _f._silicate.size() != _f._cell_count:
 		return
 	var dst: int = _f.world_to_cell(world_pos)
 	if dst < 0 or dst >= _f._cell_count:
 		return
-	queue.transfer("sediment", PackedInt32Array([src_cell]), PackedFloat32Array([mass]),
-		"sediment", PackedInt32Array([dst]))
+	queue.transfer("silicate", PackedInt32Array([src_cell]), PackedFloat32Array([mass]),
+		"silicate", PackedInt32Array([dst]))
+	_uncement(PackedInt32Array([dst]))
 
 
+## Loose mineral arriving at a point. What lands is grains, so the cell's consolidated share goes with it.
 func deposit_sediment(world_pos: Vector3, amount: float) -> void:
-	if amount <= 0.0 or _f._sediment.size() != _f._cell_count or not _device_ready():
+	if amount <= 0.0 or _f._silicate.size() != _f._cell_count or not _device_ready():
 		return
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0 or c >= _f._cell_count:
 		return
-	queue.add("sediment", PackedInt32Array([c]), PackedFloat32Array([amount]))
+	queue.add("silicate", PackedInt32Array([c]), PackedFloat32Array([amount]))
+	_uncement(PackedInt32Array([c]))
+
+
+## Drain the consolidated share of these cells to zero. `cement` is a fraction, not matter, so this moves
+## nothing and mints nothing — it records that the rock fabric is gone.
+func _uncement(cells: PackedInt32Array) -> void:
+	if _f._gpu == null or cells.size() == 0:
+		return
+	var drain: PackedFloat32Array = PackedFloat32Array()
+	drain.resize(cells.size())
+	drain.fill(LAMaterialSphereGPU3D.DRAIN_ALL)
+	_f._gpu.add_field_sparse("cement", cells, drain)
 
 
 ## Hand mass an actor was holding back to the field as DEAD ORGANIC MATTER at `world_pos` — an uprooted plant,
@@ -339,26 +352,23 @@ func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
 func resample_terrain(world_pos: Vector3, radius: float) -> void:
 	if _f == null or _f._terrain == null or not _f._terrain.has_method("is_solid"):
 		return
-	if _f._solid.size() != _f._cell_count or _f._rock_fill.size() != _f._cell_count:
+	if _f._solid.size() != _f._cell_count or _f._silicate.size() != _f._cell_count:
 		return
 	var cells: PackedInt32Array = _cells_within(world_pos, radius)
 	if cells.size() == 0:
 		return
-	# NO DEVICE (the box/CPU field, i.e. the headless reference oracle). There is no rock_fill channel evolving
-	# on a GPU to be authoritative there and nothing ever flushes the queue, so `_solid` IS the mask and the
-	# direct re-sample is the correct write — which is what this function always did.
+	# NO DEVICE (the box/CPU field, the headless reference oracle). Nothing evolves on a GPU to be
+	# authoritative there and nothing flushes the queue, so `_solid` IS the mask.
 	if not _device_ready():
 		var mask: PackedByteArray = _f._solid
 		for c in cells:
 			mask[c] = 1 if _f._terrain.is_solid(_f.cell_world_pos_linear(c)) else 0
 		_f._solid = mask
 		return
-	var rock: PackedFloat32Array = _f._rock_fill
+	var rock: PackedFloat32Array = _f._silicate
 	var solid: PackedByteArray = _f._solid
 	var src: PackedInt32Array = PackedInt32Array()
-	var to_sediment: PackedFloat32Array = PackedFloat32Array()
-	var to_dust: PackedFloat32Array = PackedFloat32Array()
-	var was_rock: PackedInt32Array = PackedInt32Array()   # cells the field held as DERIVED-SOLID bedrock (rock_fill
+	var was_rock: PackedInt32Array = PackedInt32Array()   # cells the field held as derived-solid bedrock
 	var sea_cells: PackedInt32Array = PackedInt32Array()
 	var sea_r: float = 0.0
 	if _f._terrain.has_method("sea_radius"):
@@ -369,15 +379,12 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 		var rf: float = rock[c]
 		if rf <= 0.0 and solid[c] == 0:
 			continue                                   # already void in the substrate — nothing was excavated
-		if rf >= 0.5:
+		if solid[c] != 0:
 			was_rock.append(c)                         # this cell is the claim: derived-solid rock -> open
-		# Ask for a WHOLE cell, split by the material fraction. move_field_sparse clamps each take to the live
-		# bedrock, so over-asking against a stale mirror cannot mint — it just yields less. The two legs sum to
-		# MAX_MASS, so together they drain the cell however much was really in it.
+		# EXCAVATION MOVES NO MASS. The rock is pulverised where it stands, so what changes is the fabric:
+		# the cell keeps its mineral and loses its cement, and the loose grains leave by transport.
 		src.append(c)
-		to_sediment.append(_f.MAX_MASS * (1.0 - EXCAVATED_DUST_FRAC))
-		to_dust.append(_f.MAX_MASS * EXCAVATED_DUST_FRAC)
-		_crater_mass += _f.MAX_MASS
+		_crater_mass += rf
 		if sea_r > 0.0 \
 				and (_f.cell_world_pos_linear(c) - _f.centre()).length() < sea_r:
 			sea_cells.append(c)
@@ -386,9 +393,7 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 		_crater_sea += sea_cells.size()
 	if src.size() == 0:
 		return
-	# THE MOVE: bedrock out, loose phases in, resolved together on device.
-	queue.transfer("rock_fill", src, to_sediment, "sediment", src)
-	queue.transfer("rock_fill", src, to_dust, "dust", src)
+	_uncement(src)
 	_crater_opened += was_rock.size()
 	for c in was_rock:
 		if _crater_watch.size() >= CRATER_WATCH_MAX:
@@ -397,11 +402,7 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 			continue
 		_crater_seen[c] = true
 		_crater_watch.append(c)
-	if _f._gpu != null:
-		# Wake the demand-gated readbacks, or the change is invisible: on a calm planet nothing requests
-		# rock_fill or dust, so their CPU mirrors (and every gauge computed from them) simply stop updating.
-		_f._gpu.request_channel("rock_fill")
-		_f._gpu.request_channel("dust")
+
 
 
 ## SINK: water_sphere3d.glsl skips any cell whose `static` flag is set when it gathers outflow, so a static sea
@@ -456,14 +457,14 @@ func crater_report() -> Dictionary:
 	var rock_now: float = 0.0
 	var water: float = 0.0
 	var watch: int = _crater_watch.size()
-	if _f != null and watch > 0 and _f._rock_fill.size() == _f._cell_count:
+	if _f != null and watch > 0 and _f._cement.size() == _f._cell_count:
 		var sea_r: float = 0.0
 		if _f._terrain != null and _f._terrain.has_method("sea_radius"):
 			sea_r = float(_f._terrain.sea_radius())
 		var has_water: bool = _f._h2o.size() == _f._cell_count
 		for c in _crater_watch:
-			rock_now += _f._rock_fill[c]
-			if _f._rock_fill[c] < 0.5:
+			rock_now += _f._cement[c]
+			if _f._solid.size() == _f._cell_count and _f._solid[c] == 0:
 				open_now += 1
 			if sea_r > 0.0 and (_f.cell_world_pos_linear(c) - _f.centre()).length() < sea_r:
 				below_sea += 1

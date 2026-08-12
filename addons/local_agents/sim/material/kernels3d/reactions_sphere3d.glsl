@@ -28,16 +28,11 @@ layout(set = 0, binding = 7, std430) restrict buffer Detritus { float detritus[]
 layout(set = 0, binding = 8, std430) restrict buffer Fungus { float fungus[]; };       // decomposer biomass: the decompose record credits it at CUE, the die-back record debits it
 layout(set = 0, binding = 9, std430) restrict buffer Fert { float fert[]; };           // soil nutrient (decompose mineralises into it, uptake debits it)
 layout(set = 0, binding = 11, std430) restrict buffer Biomass { float biomass[]; };    // living plant matter (photosynthesis grows it, respiration/decay oxidizes it)
-// --- MINERAL phases (rock unification): loose sediment, airborne dust, waterborne suspension. Loft (M4) moves
-layout(set = 0, binding = 13, std430) restrict buffer Sediment { float sediment[]; };  // loose granular regolith
-layout(set = 0, binding = 14, std430) restrict buffer Dust { float dust[]; };           // airborne wind-lofted dust
-layout(set = 0, binding = 16, std430) restrict buffer Susp { float susp[]; };           // waterborne suspended sediment
 layout(set = 0, binding = 17, std430) restrict readonly buffer VelX { float vel_x[]; };
 layout(set = 0, binding = 18, std430) restrict readonly buffer VelZ { float vel_z[]; };
 layout(set = 0, binding = 26, std430) restrict readonly buffer VelY { float vel_y[]; };
-// --- BEDROCK phase (rock unification Stage B): molten LAVA <-> fractional bedrock ROCK_FILL are the SAME mineral.
-layout(set = 0, binding = 22, std430) restrict buffer Lava { float lava[]; };            // molten rock (mass/cell)
-layout(set = 0, binding = 23, std430) restrict buffer RockFill { float rock_fill[]; };   // fractional bedrock mass (solid iff >= 0.5)
+// ONE MINERAL AMOUNT. Melt, suspension and cementation are derived or stored beside it, never here.
+layout(set = 0, binding = 22, std430) restrict buffer Silicate { float silicate[]; };  // CaSiO3, volume fraction
 // --- THE DERIVED PHASE OF H2O, three shares of h2o[] summing to 1 (state_derive.glsl).
 layout(set = 0, binding = 34, std430) restrict readonly buffer H2OSolid  { float h2o_solid[]; };
 layout(set = 0, binding = 35, std430) restrict readonly buffer H2OLiquid { float h2o_liquid[]; };
@@ -67,11 +62,7 @@ layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float 
 // Urey reaction CaSiO3 + CO2 <-> CaCO3 + SiO2 has two products that are not, so each gets a channel.
 layout(set = 0, binding = 28, std430) restrict buffer Carbonate { float carbonate[]; };  // CaCO3 — the carbon sink
 layout(set = 0, binding = 29, std430) restrict buffer Silica { float silica[]; };        // SiO2 — the residue
-// Athy pore fraction, 0 outside regolith.
-// below, because `overburden()` uses it above that point and GLSL requires declaration before use.
-layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
-// BINDINGS 30-33 IN THIS KERNEL ARE NOT THE 30-33 OF EVERY OTHER KERNEL. Elsewhere they are
-// sediment/susp/dust/carbonate; here they are the four below, and sediment/dust/susp/carbonate/silica are at
+// BINDINGS 30-33 IN THIS KERNEL ARE NOT THE 30-33 OF EVERY OTHER KERNEL.
 layout(set = 0, binding = 30, std430) restrict buffer N2Buf { float n2[]; };              // dinitrogen, 78% of the air
 // Charge (channel units) a lightning return stroke drained from this cell this step. DRIVER ONLY.
 layout(set = 0, binding = 31, std430) restrict readonly buffer Discharge { float discharge[]; };
@@ -123,11 +114,6 @@ float wind_speed(uint i) {
 	vec3 up = normalize(-gv);
 	return length(v - up * dot(v, up));
 }
-#define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust
-#define OVERBURDEN_MAX_CELLS 12  // outward cells the lithostatic column walk sums over
-const float ROCK_DENSITY = 2900.0;      // LAPhysical.ROCK_DENSITY_KG_M3 — basalt / crustal rock
-const float SEDIMENT_DENSITY = 2000.0;  // LAPhysical.SEDIMENT_DENSITY_KG_M3 — unconsolidated wet sediment
-
 // Flammability limit as a fraction of ambient air: the limiting oxygen concentration over air's own mole
 // fraction of O2.
 const float LOC_MOLE_FRAC = 0.15;          // LAPhysical.LIMITING_OXYGEN_CONCENTRATION_FRAC
@@ -185,9 +171,7 @@ layout(push_constant, std430) uniform Params {
 	float sun_x;    // world-space vector TOWARD the sun; MAGNITUDE carries insolation (the same value
 	float sun_y;    // transport.glsl's RADIATE row takes, so light and heat come from ONE quantity)
 	float sun_z;
-	// Pascals of lithostatic pressure per unit of (mass x density) in the column above — g times the model
-	// metres one cell represents. ReactionsPass derives it from the field's own vertical scale.
-	float overburden_pa;
+	uint pad2;
 } params;
 
 // REAL per-cell insolation — the LIGHT slot. Identical to the solar kernel's term, so the terminator that
@@ -264,29 +248,13 @@ void root_soil_draw(uint i, float amount) {
 	}
 }
 
-// LITHOSTATIC PRESSURE of the column above, in pascals — the OVERBURDEN slot. Walk radially OUTWARD summing
-float overburden(uint i) {
-	float m = 0.0;
-	int c = la_above(i);
-	for (int k = 0; k < OVERBURDEN_MAX_CELLS; k++) {
-		if (c < 0) {
-			break;
-		}
-		// `rock_fill` is a matrix SATURATION, so the mineral actually present is rock_fill * (1 - phi).
-		m += rock_fill[uint(c)] * (1.0 - clamp(porosity[uint(c)], 0.0, 1.0)) * ROCK_DENSITY
-			+ sediment[uint(c)] * SEDIMENT_DENSITY;
-		c = la_above(uint(c));
-	}
-	return m * params.overburden_pa;
-}
-
 // The bedrock of the cell directly BENEATH this open one — the BEDROCK_BELOW slot. Returns 0 when there is no
 float bedrock_below(uint i) {
 	int d = la_below(i);
 	if (d < 0 || solid[d] == 0.0) {
 		return 0.0;
 	}
-	return rock_fill[uint(d)] * vol_ratio(uint(d), i);
+	return silicate[uint(d)] * vol_ratio(uint(d), i);
 }
 
 void bedrock_below_add(uint i, float v) {
@@ -294,7 +262,7 @@ void bedrock_below_add(uint i, float v) {
 	if (d < 0 || solid[d] == 0.0) {
 		return;
 	}
-	rock_fill[uint(d)] = max(0.0, rock_fill[uint(d)] + v * vol_ratio(i, uint(d)));
+	silicate[uint(d)] = max(0.0, silicate[uint(d)] + v * vol_ratio(i, uint(d)));
 }
 
 
@@ -309,17 +277,12 @@ float read_ch(int slot, uint i) {
 	if (slot == FUNGUS)   return fungus[i];
 	if (slot == FERT)     return fert[i];
 	if (slot == BIOMASS)  return biomass[i];
-	if (slot == SEDIMENT) return sediment[i];
-	if (slot == DUST)     return dust[i];
-	if (slot == SUSP)     return susp[i];
 	if (slot == WINDSPEED) return wind_speed(i);
-	if (slot == LAVA)     return lava[i];
-	if (slot == ROCK_FILL) return rock_fill[i];
+	if (slot == SILICATE) return silicate[i];
 	if (slot == LIGHT)     return light_at(i);
 	if (slot == SOIL_ROOT) return root_soil(i);
 	if (slot == VAPOUR_DEFICIT) return sat_vapour_vf(temp[i], max(pressure[i], 0.0)) - h2o_vap(i);
 	if (slot == SOIL_TOP) { int c = top_regolith(i); return (c < 0) ? 0.0 : h2o_liq(uint(c)) * vol_ratio(uint(c), i); }
-	if (slot == OVERBURDEN) return overburden(i);
 	if (slot == BEDROCK_BELOW) return bedrock_below(i);
 	if (slot == CARBONATE) return carbonate[i];
 	if (slot == SILICA)    return silica[i];
@@ -343,11 +306,7 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == FUNGUS)   { fungus[i]    = max(0.0, fungus[i]   + v); }
 	else if (slot == FERT)     { fert[i]      = max(0.0, fert[i] + v); }
 	else if (slot == BIOMASS)  { biomass[i]   = max(0.0, biomass[i]  + v); }
-	else if (slot == SEDIMENT) { sediment[i]  = max(0.0, sediment[i] + v); }
-	else if (slot == DUST)     { dust[i]      = max(0.0, dust[i]     + v); }
-	else if (slot == SUSP)     { susp[i]      = max(0.0, susp[i]     + v); }
-	else if (slot == LAVA)     { lava[i]      = max(0.0, lava[i]     + v); }
-	else if (slot == ROCK_FILL) { rock_fill[i] = max(0.0, rock_fill[i] + v); }  // may exceed 1.0 (accreted rock); clamp only at 0
+	else if (slot == SILICATE) { silicate[i]  = max(0.0, silicate[i] + v); }
 	else if (slot == SOIL_ROOT) { root_soil_draw(i, -v); }                     // roots draw water OUT of the column (v < 0)
 	else if (slot == SOIL_TOP)  {
 		int c = top_regolith(i);
@@ -370,11 +329,6 @@ void add_ch(int slot, uint i, float v) {
 bool gate_ok(int mask, uint i) {
 	if (mask == 0) {
 		return true;
-	}
-	if ((mask & GATE_DRY) != 0) {
-		if (h2o_liq(i) > WET_MAX_LOFT) {
-			return false;                   // wet sand / puddle never lofts (dust_loft:53 parity)
-		}
 	}
 	if ((mask & GATE_FREEZING) != 0) {
 		if (temp[i] >= WATER_FREEZE_C) {
