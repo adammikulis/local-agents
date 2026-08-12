@@ -1,9 +1,6 @@
 class_name LASubstances
 extends RefCounted
 
-## ============================================================================================================
-## ============================================================================================================
-
 const PC = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
 
 ## Moles of ELEMENT in one channel unit of any organic stock — one number for organic_c, organic_h and
@@ -17,19 +14,23 @@ const HHV_PER_KG_H_J: float = 1.1783e8
 const HHV_PER_KG_O_J: float = -0.1034e8
 const HHV_PER_KG_N_J: float = -0.0151e8
 
+## Standard molar entropy of the GAS, J/mol/K (CODATA / NIST-JANAF, 298.15 K, 1 bar). A property of the
+## substance, so it lives here rather than in LAPhysical.
+const ENTROPY_H2O_GAS_J_MOLK: float = 188.835
+const ENTROPY_O2_GAS_J_MOLK: float = 205.152
+const ENTROPY_CO2_GAS_J_MOLK: float = 213.785
+
 
 ##   molar_mass       kg/mol. The one bridge between the mass this table stores and the moles chemistry uses.
 ##   density          kg/m3 of the CONDENSED phase, for turning a mass into a volume fraction of a cell.
 static func table() -> Dictionary:
 	return {
 		# --- WATER ------------------------------------------------------------------------------------------
-		# right — by Hess's law it is fusion plus vaporisation at the same temperature, and stating it
-		# separately is what let the three disagree by 2.433e5 J/kg. `latent_sublimation` is a function below,
 		"h2o": {
 			"formula": {"H": 2.0, "O": 1.0},
 			"molar_mass": PC.MOLAR_MASS_WATER_KG_MOL,
 			"atomisation_j_mol": PC.ATOMISATION_H2O_J_MOL,
-			"entropy_gas_j_molk": 188.835,
+			"entropy_gas_j_molk": ENTROPY_H2O_GAS_J_MOLK,
 			"density": PC.WATER_DENSITY_KG_M3,
 			"density_solid": PC.ICE_DENSITY_KG_M3,
 			"specific_heat": PC.WATER_SPECIFIC_HEAT_J_KGK,
@@ -38,16 +39,11 @@ static func table() -> Dictionary:
 			"melt_c": PC.WATER_FREEZE_C,
 			"boil_c": PC.WATER_BOIL_C,
 			"boil_ref_p_pa": PC.STANDARD_PRESSURE_PA,
-			# ABOVE THIS THERE IS NO LIQUID-VAPOUR BOUNDARY. Water is one supercritical phase: no meniscus,
-			# no boiling, and a latent heat of exactly zero. A post-Theia steam envelope sits near here, so
-			# leaving it out does not just misplace the boundary, it asserts one that does not exist.
 			"triple_t_c": PC.WATER_TRIPLE_T_C,
 			"triple_p_pa": PC.WATER_TRIPLE_P_PA,
 			"critical_t_c": PC.WATER_CRITICAL_T_C,
 			"critical_p_pa": PC.WATER_CRITICAL_P_PA,
 			"latent_fusion_j_kg": PC.LATENT_HEAT_FUSION_J_KG,
-			# Quoted at 0 C. It is a FUNCTION of temperature — `latent_vaporisation_at()` — and this entry is
-			# the anchor, not the value to use at an arbitrary temperature.
 			"latent_vaporisation_j_kg": PC.LATENT_HEAT_VAPORISATION_0C_J_KG,
 			"latent_vaporisation_ref_t_c": PC.WATER_FREEZE_C,
 			"conductivity": PC.THERMAL_CONDUCT_WATER_W_MK,
@@ -57,7 +53,6 @@ static func table() -> Dictionary:
 		},
 
 		# --- THE ATMOSPHERE'S GASES -------------------------------------------------------------------------
-		# Stored as masses like everything else. Their ratios in the seeded air are mole fractions of a
 		"n2": {
 			"formula": {"N": 2.0},
 			"molar_mass": PC.MOLAR_MASS_N2_KG_MOL,
@@ -82,7 +77,7 @@ static func table() -> Dictionary:
 			"formula": {"O": 2.0},
 			"molar_mass": PC.MOLAR_MASS_O2_KG_MOL,
 			"atomisation_j_mol": PC.ATOMISATION_O2_J_MOL,
-			"entropy_gas_j_molk": 205.152,
+			"entropy_gas_j_molk": ENTROPY_O2_GAS_J_MOLK,
 			"density": PC.AMBIENT_O2_DENSITY_KG_M3,
 			"specific_heat": PC.AIR_SPECIFIC_HEAT_J_KGK,
 		},
@@ -90,14 +85,13 @@ static func table() -> Dictionary:
 			"formula": {"C": 1.0, "O": 2.0},
 			"molar_mass": PC.MOLAR_MASS_CO2_KG_MOL,
 			"atomisation_j_mol": PC.ATOMISATION_CO2_J_MOL,
-			"entropy_gas_j_molk": 213.785,
+			"entropy_gas_j_molk": ENTROPY_CO2_GAS_J_MOLK,
 			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_CO2_J_MOL,
 			"density": PC.AMBIENT_O2_DENSITY_KG_M3 * (PC.MOLAR_MASS_CO2_KG_MOL / PC.MOLAR_MASS_O2_KG_MOL),
 			"specific_heat": PC.AIR_SPECIFIC_HEAT_J_KGK,
 		},
 
 		# --- ORGANIC MATTER ---------------------------------------------------------------------------------
-		# DEAD organic matter is THREE element stocks, not one formula. Its C:H:O ratio is per-cell state:
 		"organic_c": {
 			"formula": {"C": 1.0,
 				"N": (PC.MOLAR_MASS_CARBON_KG_MOL / PC.LITTER_C_TO_N) / PC.MOLAR_MASS_NITROGEN_KG_MOL},
@@ -129,7 +123,6 @@ static func table() -> Dictionary:
 		},
 
 		# --- MINERALS ---------------------------------------------------------------------------------------
-		# are the standard proxies every carbon-cycle model uses (Walker, Hays & Kasting 1981).
 		"silicate": {
 			"formula": {"Ca": 1.0, "Si": 1.0, "O": 3.0},
 			"molar_mass": PC.MOLAR_MASS_CASIO3_KG_MOL,
@@ -138,6 +131,7 @@ static func table() -> Dictionary:
 			"density": PC.ROCK_DENSITY_KG_M3,
 			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
 			"melt_c": PC.BASALT_SOLIDUS_C,
+			"liquidus_c": PC.BASALT_LIQUIDUS_C,
 			"latent_fusion_j_kg": PC.BASALT_LATENT_HEAT_CRYSTALLISATION_J_KG,
 			"conductivity": PC.THERMAL_CONDUCT_ROCK_W_MK,
 			"emissivity": PC.BASALT_EMISSIVITY,
@@ -167,8 +161,6 @@ static func table() -> Dictionary:
 		},
 
 		# --- MINERAL NITROGEN -------------------------------------------------------------------------------
-		# Plant-available N in the soil. Modelled as the element because this substrate has no nitrate,
-		# ammonium or N2 channel to distinguish, and saying so is more honest than implying a molecule.
 		"fixed_n": {
 			"formula": {"N": 1.0},
 			"molar_mass": PC.MOLAR_MASS_NITROGEN_KG_MOL,
@@ -237,8 +229,8 @@ static func atoms_per_kg(id: String) -> Dictionary:
 	return out
 
 
-## SPECIFIC ENTHALPY (J/kg) of a substance at a temperature, referenced to its solid at 0 K — the curve whose
-## flat sections ARE the latent heats. This is the function that makes phase a consequence rather than a
+## SPECIFIC ENTHALPY (J/kg) at a temperature, referenced to the solid at 0 K. The inverse of
+## enthalpy_to_state(), rung for rung; on a ZERO-WIDTH plateau it returns the LOWER end.
 static func enthalpy_at(id: String, t_c: float, p_pa: float = PC.STANDARD_PRESSURE_PA,
 		molality_mol_kg: float = 0.0) -> float:
 	var s: Dictionary = table().get(id, {})
@@ -254,8 +246,7 @@ static func enthalpy_at(id: String, t_c: float, p_pa: float = PC.STANDARD_PRESSU
 		var c: float = c_sol if c_sol > 0.0 else c_liq
 		return c * t_k
 
-	# NO LIQUID BELOW THE TRIPLE POINT. The solid's only exit is the vapour, across the SUBLIMATION plateau
-	# at the frost point, and the ramp above it is the gas.
+	# NO LIQUID BELOW THE TRIPLE POINT. The plateau crossed is SUBLIMATION at the frost point.
 	if sublimes_at(id, p_pa):
 		var t_sub: float = sublimation_c_at(id, p_pa)
 		if t_c <= t_sub:
@@ -265,17 +256,42 @@ static func enthalpy_at(id: String, t_c: float, p_pa: float = PC.STANDARD_PRESSU
 
 	if t_c <= melt:
 		return c_sol * t_k
-	var h: float = c_sol * (melt + PC.KELVIN_OFFSET) + float(s.get("latent_fusion_j_kg", 0.0))
+	var liquidus: float = liquidus_c_at(id, p_pa, molality_mol_kg)
+	var l_fus: float = float(s.get("latent_fusion_j_kg", 0.0))
+	var h_start: float = c_sol * (melt + PC.KELVIN_OFFSET)
+	var h_end: float = h_start + l_fus + c_liq * (liquidus - melt)
+	if t_c < liquidus:
+		# Lever rule across the mush: solid and liquid enthalpies weighted by the melt fraction.
+		var x: float = t_c - melt
+		var phi: float = x / (liquidus - melt)
+		return h_start + c_sol * x + phi * (l_fus + (c_liq - c_sol) * x)
 	if not is_finite(boil) or t_c <= boil:
-		return h + c_liq * (t_c - melt)
-	# THE LATENT HEAT AT THE BOUNDARY, not the table's reference value: the plateau shortens with pressure
-	# and is exactly zero at the critical point.
-	h += c_liq * (boil - melt) + latent_vaporisation_at(id, boil)
-	# Above the plateau the atomisation and ionisation energies are paid by equilibrium, not in one step.
-	return _gas_enthalpy_at(id, t_c, p_pa, boil, h, c_gas)
+		return h_end + c_liq * (t_c - liquidus)
+	# THE LATENT HEAT AT THE BOUNDARY, not the table's reference value: the plateau is zero at the critical
+	# point. Above it the atomisation and ionisation energies are paid by equilibrium, not in one step.
+	var h_top: float = h_end + c_liq * (boil - liquidus) + latent_vaporisation_at(id, boil)
+	return _gas_enthalpy_at(id, t_c, p_pa, boil, h_top, c_gas)
 
 
-## THE BOILING POINT AT A GIVEN PRESSURE. Clausius-Clapeyron, integrated with the latent heat taken as
+## ln p = A - B/T, with B fixed by the TWO measured points the table carries — the triple point and the
+## normal boiling point — so both are reproduced exactly and B * R_v is the MEAN latent heat over the
+## interval. One anchor is not enough: it puts water at 0 C near 900 Pa against a measured 611.
+static func _clapeyron_b(id: String) -> float:
+	var s: Dictionary = table().get(id, {})
+	var t2_c: float = float(s.get("boil_c", INF))
+	if not is_finite(t2_c):
+		return 0.0
+	var p2: float = float(s.get("boil_ref_p_pa", PC.STANDARD_PRESSURE_PA))
+	var t1_c: float = float(s.get("triple_t_c", INF))
+	var p1: float = float(s.get("triple_p_pa", 0.0))
+	if is_finite(t1_c) and p1 > 0.0 and p2 > 0.0 and absf(t1_c - t2_c) > 0.0:
+		var inv: float = 1.0 / (t1_c + PC.KELVIN_OFFSET) - 1.0 / (t2_c + PC.KELVIN_OFFSET)
+		if absf(inv) > 0.0:
+			return log(p2 / p1) / inv
+	return latent_vaporisation_at(id, t2_c) / PC.VAPOUR_GAS_CONST_J_KGK
+
+
+## THE BOILING POINT AT A GIVEN PRESSURE — the boundary curve solved for temperature.
 static func boil_c_at(id: String, p_pa: float) -> float:
 	var s: Dictionary = table().get(id, {})
 	var t_ref_c: float = float(s.get("boil_c", INF))
@@ -288,11 +304,10 @@ static func boil_c_at(id: String, p_pa: float) -> float:
 		return t_crit
 	var p: float = maxf(p_pa, 1.0)
 	var t_ref_k: float = t_ref_c + PC.KELVIN_OFFSET
-	# The latent heat at the REFERENCE point, which is what the integrated form is anchored on.
-	var l: float = latent_vaporisation_at(id, t_ref_c)
-	if l <= 0.0:
+	var b: float = _clapeyron_b(id)
+	if b <= 0.0:
 		return t_ref_c
-	var inv_t: float = 1.0 / t_ref_k - (PC.VAPOUR_GAS_CONST_J_KGK / l) * log(p / p_ref)
+	var inv_t: float = 1.0 / t_ref_k - log(p / p_ref) / b
 	if inv_t <= 0.0:
 		return t_crit if is_finite(t_crit) else t_ref_c
 	var t_c: float = 1.0 / inv_t - PC.KELVIN_OFFSET
@@ -420,6 +435,39 @@ static func melt_c_at(id: String, p_pa: float, molality_mol_kg: float = 0.0) -> 
 	return t_c
 
 
+## THE LIQUIDUS AT PRESSURE — the temperature the last crystal goes. Water is the degenerate case where it
+## meets the solidus. DECISION, not a law: the interval keeps its width, both ends on one Clapeyron slope.
+static func liquidus_c_at(id: String, p_pa: float, molality_mol_kg: float = 0.0) -> float:
+	var s: Dictionary = table().get(id, {})
+	var solidus: float = melt_c_at(id, p_pa, molality_mol_kg)
+	if not is_finite(solidus):
+		return INF
+	var t_sol: float = float(s.get("melt_c", INF))
+	var t_liq: float = float(s.get("liquidus_c", t_sol))
+	if not is_finite(t_sol) or not is_finite(t_liq):
+		return solidus
+	return solidus + maxf(t_liq - t_sol, 0.0)
+
+
+## THE LIQUID-VAPOUR BOUNDARY READ AS A PRESSURE — boil_c_at() inverted, so one curve answers from either
+## end and the plateau's temperature cannot disagree with the latent heat charged to cross it.
+static func saturation_p_at(id: String, t_c: float) -> float:
+	var s: Dictionary = table().get(id, {})
+	var t_ref_c: float = float(s.get("boil_c", INF))
+	if not is_finite(t_ref_c):
+		return 0.0
+	var b: float = _clapeyron_b(id)
+	if b <= 0.0:
+		return 0.0
+	var t_crit: float = float(s.get("critical_t_c", INF))
+	if is_finite(t_crit) and t_c >= t_crit:
+		return float(s.get("critical_p_pa", 0.0))
+	var p_ref: float = float(s.get("boil_ref_p_pa", PC.STANDARD_PRESSURE_PA))
+	var t_k: float = maxf(t_c + PC.KELVIN_OFFSET, 1.0)
+	var t_ref_k: float = t_ref_c + PC.KELVIN_OFFSET
+	return p_ref * exp(-b * (1.0 / t_k - 1.0 / t_ref_k))
+
+
 ## Sublimation pressure at temperature — the solid-vapour boundary, Clausius-Clapeyron anchored on the
 ## triple point with the SUBLIMATION enthalpy (fusion + vaporisation, derived, so Hess still closes).
 static func sublimation_p_at(id: String, t_c: float) -> float:
@@ -525,6 +573,7 @@ static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDA
 	var c_gas: float = float(s.get("specific_heat_gas", c_liq))
 	# Pressure-dependent, and depressed by dissolved solute. For water the Clapeyron slope is negative.
 	var melt: float = melt_c_at(id, p_pa, molality_mol_kg)
+	var liquidus: float = liquidus_c_at(id, p_pa, molality_mol_kg)
 	# THE BOUNDARY AT THIS PRESSURE, not the one-atmosphere reference point. See boil_c_at().
 	var boil: float = boil_c_at(id, p_pa)
 	var l_fus: float = float(s.get("latent_fusion_j_kg", 0.0))
@@ -563,20 +612,25 @@ static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDA
 		return {"t_c": (h_j_kg / c_sol) - PC.KELVIN_OFFSET if c_sol > 0.0 else melt,
 			"phase": SOLID, "melted": 0.0, "vaporised": 0.0}
 
-	var h_melt_end: float = h_melt_start + l_fus
+	var h_melt_end: float = h_melt_start + l_fus + c_liq * (liquidus - melt)
 	if h_j_kg < h_melt_end:
-		# ON the melting plateau: temperature is pinned at the boundary while the latent heat goes in. This
-		# is why a lake holds near 0 C for weeks as it freezes.
-		return {"t_c": melt, "phase": SOLID,
-			"melted": (h_j_kg - h_melt_start) / l_fus if l_fus > 0.0 else 1.0, "vaporised": 0.0}
+		# IN THE MUSH: temperature RISES through the melting interval as the crystals go. The quadratic is
+		# the lever rule solved for the melt fraction; a zero-width interval leaves phi = dh / l_fus and the
+		# temperature pinned, which is why a lake holds near 0 C for weeks as it freezes.
+		var dh: float = h_j_kg - h_melt_start
+		var dt: float = liquidus - melt
+		var a2: float = (c_liq - c_sol) * dt
+		var a1: float = c_sol * dt + l_fus
+		var phi: float = 2.0 * dh / (a1 + sqrt(a1 * a1 + 4.0 * a2 * dh))
+		return {"t_c": melt + phi * dt, "phase": SOLID, "melted": phi, "vaporised": 0.0}
 
 	if not is_finite(boil):
-		return {"t_c": melt + (h_j_kg - h_melt_end) / c_liq if c_liq > 0.0 else melt,
+		return {"t_c": liquidus + (h_j_kg - h_melt_end) / c_liq if c_liq > 0.0 else liquidus,
 			"phase": LIQUID, "melted": 1.0, "vaporised": 0.0}
 
-	var h_boil_start: float = h_melt_end + c_liq * (boil - melt)
+	var h_boil_start: float = h_melt_end + c_liq * (boil - liquidus)
 	if h_j_kg <= h_boil_start:
-		return {"t_c": melt + (h_j_kg - h_melt_end) / c_liq if c_liq > 0.0 else melt,
+		return {"t_c": liquidus + (h_j_kg - h_melt_end) / c_liq if c_liq > 0.0 else liquidus,
 			"phase": LIQUID, "melted": 1.0, "vaporised": 0.0}
 
 	var h_boil_end: float = h_boil_start + l_vap
@@ -587,8 +641,9 @@ static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDA
 	return _gas_state(id, h_j_kg, p_pa, boil, h_boil_end, c_gas, 1.0)
 
 
-## ABOVE A CONDENSATION PLATEAU the two high transitions are EQUILIBRIA, not plateaus: the dissociated and
-## ionised fractions rise smoothly with temperature (law of mass action, Saha). Enthalpy is therefore a
+## ABOVE A CONDENSATION PLATEAU the two high transitions are EQUILIBRIA, not plateaus (law of mass action,
+## Saha), so enthalpy stays continuous and monotonic and the state is found by inverting it. `ref_t_c` is
+## the plateau's temperature and `h_ref` its top, so boiling and sublimation share one tail.
 static func _gas_state(id: String, h_j_kg: float, p_pa: float, ref_t_c: float, h_ref: float,
 		c_gas: float, melted: float) -> Dictionary:
 	var s: Dictionary = table().get(id, {})

@@ -43,6 +43,11 @@ func _sweep_points(id: String, p_pa: float) -> Array[float]:
 		return out
 	for d in [-200.0, -1.0, 0.0, 1.0]:
 		out.append(melt + float(d))
+	# INSIDE THE MELTING INTERVAL, where a mixture of minerals is part crystal and part melt.
+	var liquidus: float = S.liquidus_c_at(id, p_pa)
+	if liquidus > melt:
+		out.append_array([0.5 * (melt + liquidus), liquidus - 1.0, liquidus, liquidus + 1.0]
+			as Array[float])
 	var boil: float = S.boil_c_at(id, p_pa)
 	if not is_finite(boil):
 		out.append_array([melt + 500.0, melt + 2000.0] as Array[float])
@@ -107,8 +112,62 @@ func _check_plateau(id: String, p_pa: float, t_plateau: float, latent: float, la
 	return ok
 
 
-func run_test(_tree: SceneTree) -> bool:
+## A MIXTURE OF MINERALS MELTS OVER AN INTERVAL, temperature rising through the mush as the crystals go.
+## The two ends must read the solidus and the liquidus, the melt fraction must run 0 -> 1 across them, and
+## the enthalpy the interval costs is the latent heat plus the liquid's sensible heat over its width — the
+## lever rule, which is what makes a zero-width interval collapse to a plateau.
+func _check_interval(id: String, p_pa: float, label: String) -> bool:
+	var solidus: float = S.melt_c_at(id, p_pa)
+	var liquidus: float = S.liquidus_c_at(id, p_pa)
+	if liquidus <= solidus:
+		push_error("%s at %s melts at a point, not over an interval." % [id, label])
+		return false
 	var ok: bool = true
+	var h_sol: float = S.enthalpy_at(id, solidus, p_pa)
+	var h_liq: float = S.enthalpy_at(id, liquidus, p_pa)
+	var c_liq: float = float(S.table()[id]["specific_heat"])
+	var l_fus: float = float(S.table()[id]["latent_fusion_j_kg"])
+	var want: float = l_fus + c_liq * (liquidus - solidus)
+	if absf((h_liq - h_sol) - want) > 1.0e-6 * want:
+		push_error("%s %s: crossing the mush costs %s J/kg, not the %s the lever rule says."
+			% [id, label, String.num_scientific(h_liq - h_sol), String.num_scientific(want)])
+		ok = false
+	var prev: float = solidus - 1.0
+	for f in [0.0, 0.25, 0.5, 0.75, 1.0]:
+		var st: Dictionary = S.enthalpy_to_state(id, h_sol + float(f) * (h_liq - h_sol), p_pa)
+		var t: float = float(st["t_c"])
+		if t <= prev:
+			push_error("%s %s: temperature stopped rising through the mush at %.4f C." % [id, label, t])
+			ok = false
+		prev = t
+		if t < solidus - TOL_K or t > liquidus + TOL_K:
+			push_error("%s %s: the mush reached %.4f C, outside %.1f..%.1f C."
+				% [id, label, t, solidus, liquidus])
+			ok = false
+		if float(st["melted"]) < -TOL_K or float(st["melted"]) > 1.0 + TOL_K:
+			push_error("%s %s: melt fraction %.4f is not a fraction." % [id, label, float(st["melted"])])
+			ok = false
+	return ok
+
+
+## THE GPU HALF HAS TO COMPILE. Both headers are libraries no kernel has adopted, so glslang never sees
+## them and a syntax error would sit there until the day something includes them. enthalpy_selftest.glsl
+## includes both; its SPIR-V carries the compile error, and this reads it.
+func _check_glsl_compiles() -> bool:
+	var path: String = "res://addons/local_agents/sim/material/kernels3d/enthalpy_selftest.glsl"
+	var f: RDShaderFile = load(path)
+	if f == null:
+		push_error("%s did not load. The GPU half of the enthalpy curve is unverified." % path)
+		return false
+	var err: String = f.get_spirv().compile_error_compute
+	if err != "":
+		push_error("enthalpy.glsli / mixture_enthalpy.glsli do not compile:\n%s" % err)
+		return false
+	return true
+
+
+func run_test(_tree: SceneTree) -> bool:
+	var ok: bool = _check_glsl_compiles()
 
 	# WATER, the full ladder: solid ramp, fusion plateau, liquid ramp, boiling plateau, dissociating gas.
 	ok = _check_sweep("h2o", P_ATM, "1 atm") and ok
@@ -127,8 +186,9 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _check_plateau("h2o", P_ATM, boil_h2o, S.latent_vaporisation_at("h2o", boil_h2o), "boiling") and ok
 	var t_sub: float = S.sublimation_c_at("h2o", P_BELOW_TRIPLE)
 	ok = _check_plateau("h2o", P_BELOW_TRIPLE, t_sub, S.latent_sublimation_j_kg("h2o"), "sublimation") and ok
-	ok = _check_plateau("silicate", P_ATM, S.melt_c_at("silicate", P_ATM),
-		float(S.table()["silicate"]["latent_fusion_j_kg"]), "fusion") and ok
+	# ROCK IS A MIXTURE OF MINERALS: solidus to liquidus, not a point. Water is the degenerate case above.
+	ok = _check_interval("silicate", P_ATM, "1 atm") and ok
+	ok = _check_interval("silicate", P_ABOVE_CRITICAL, "500 bar") and ok
 
 	# THE FROST POINT IS A MEASURED CURVE, not whatever the fusion line extrapolates to. Ice below the
 	# triple-point pressure leaves at its own temperature; reading the melting point here put it at 0 C.

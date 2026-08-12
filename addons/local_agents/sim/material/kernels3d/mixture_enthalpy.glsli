@@ -1,0 +1,211 @@
+// A CELL IS NOT A SUBSTANCE: rock, water and air at ONE temperature. GDScript twin: LAMixtureEnthalpy,
+// held equal by scripts/check_enthalpy_ssot.sh.
+
+#ifndef LA_MIXTURE_ENTHALPY_GLSLI
+#define LA_MIXTURE_ENTHALPY_GLSLI
+
+// enthalpy.glsli must be included FIRST: a nested #include inside a .glsli is not expanded.
+#ifndef LA_ENTHALPY_GLSLI
+#error "include enthalpy.glsli before mixture_enthalpy.glsli"
+#endif
+
+#define LA_MIX_MAX 4
+
+// The temperature the last condensed phase leaves at: the frost point below the triple-point pressure,
+// the boiling point above it. `has` is false when the substance has no vapour boundary at all.
+float la_mix_vapour_boundary_c(SubstanceTh s, float p_pa, out bool has) {
+	has = s.has_boil;
+	if (!has) { return 0.0; }
+	if (la_sublimes_at(s, p_pa)) { return la_sublimation_c_at(s, p_pa); }
+	return la_boil_c_at(s, p_pa);
+}
+
+// The vapour pressure of the phase actually present: sublimation while the condensate is solid, saturation
+// once it is liquid. Both are the SAME integrated Clausius-Clapeyron this table's latent heat anchors.
+float la_mix_vapour_p_at(SubstanceTh s, float t_c, float p_pa, float molality_mol_kg) {
+	float melt = la_melt_c_at(s, p_pa, molality_mol_kg);
+	if (la_sublimes_at(s, p_pa) || (s.has_melt && t_c < melt)) {
+		return la_sublimation_p_at(s, t_c);
+	}
+	return la_saturation_p_at(s, t_c);
+}
+
+float la_mix_latent_out(SubstanceTh s, float t_c, float p_pa, float molality_mol_kg) {
+	float melt = la_melt_c_at(s, p_pa, molality_mol_kg);
+	if (la_sublimes_at(s, p_pa) || (s.has_melt && t_c < melt)) { return la_latent_sublimation(s); }
+	return la_latent_vaporisation_at(s, t_c);
+}
+
+// THE SATURATION SPLIT, by Dalton at the cell's TOTAL pressure: n_v / n_gas = p_v / (p - p_v). When p_v
+// reaches p there is no room for anything else and the condensate is gone — that is what boiling IS.
+float la_mix_vapour_fraction(SubstanceTh s, float t_c, float p_pa, float m_kg, float n_gas_mol,
+		float molality_mol_kg) {
+	if (m_kg <= 0.0 || p_pa <= 0.0) { return 0.0; }
+	bool has = false;
+	float vap_t = la_mix_vapour_boundary_c(s, p_pa, has);
+	if (!has) { return 0.0; }
+	// STRICTLY above: at the boundary itself the Dalton form decides, so the value stays the LOWER end
+	// of any jump there.
+	if (t_c > vap_t) { return 1.0; }
+	if (n_gas_mol <= 0.0) { return 0.0; }
+	float p_v = la_mix_vapour_p_at(s, t_c, p_pa, molality_mol_kg);
+	if (p_v <= 0.0) { return 0.0; }
+	if (p_v >= p_pa) { return 1.0; }
+	if (s.molar_mass <= 0.0) { return 0.0; }
+	return min(n_gas_mol * p_v / (p_pa - p_v) * s.molar_mass / m_kg, 1.0);
+}
+
+// Specific enthalpy of one substance AS IT SITS IN THIS CELL. Above the vapour boundary the substance's own
+// curve already carries the latent heat.
+float la_mix_specific_enthalpy(SubstanceTh s, float t_c, float p_pa, float m_kg, float n_gas_mol,
+		float molality_mol_kg) {
+	float h = la_state_to_enthalpy(s, t_c, p_pa, molality_mol_kg);
+	bool has = false;
+	float vap_t = la_mix_vapour_boundary_c(s, p_pa, has);
+	if (!has || t_c > vap_t) { return h; }
+	float f_v = la_mix_vapour_fraction(s, t_c, p_pa, m_kg, n_gas_mol, molality_mol_kg);
+	if (f_v <= 0.0) { return h; }
+	return h + f_v * la_mix_latent_out(s, t_c, p_pa, molality_mol_kg);
+}
+
+float la_mix_enthalpy_at(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, float t_c,
+		float p_pa, float n_gas_mol, float molality_mol_kg) {
+	float h = 0.0;
+	for (int i = 0; i < LA_MIX_MAX; ++i) {
+		if (i >= n) { break; }
+		if (mass[i] > 0.0) {
+			h += mass[i] * la_mix_specific_enthalpy(subs[i], t_c, p_pa, mass[i], n_gas_mol,
+				molality_mol_kg);
+		}
+	}
+	return h;
+}
+
+// Every phase boundary of every substance present, ascending. Insertion sort: the list is at most four
+// entries per substance and the walk needs them in the order a warming cell crosses them.
+int la_mix_breakpoints(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, float p_pa,
+		float molality_mol_kg, out float pts[4 * LA_MIX_MAX]) {
+	int count = 0;
+	for (int i = 0; i < LA_MIX_MAX; ++i) {
+		if (i >= n) { break; }
+		if (mass[i] <= 0.0) { continue; }
+		bool has = false;
+		float cand[3] = float[3](
+			subs[i].has_melt ? la_melt_c_at(subs[i], p_pa, molality_mol_kg) : 0.0,
+			subs[i].has_melt ? la_liquidus_c_at(subs[i], p_pa, molality_mol_kg) : 0.0,
+			la_mix_vapour_boundary_c(subs[i], p_pa, has));
+		bool live[3] = bool[3](subs[i].has_melt, subs[i].has_melt, has);
+		for (int k = 0; k < 3; ++k) {
+			if (!live[k] || count >= 4 * LA_MIX_MAX) { continue; }
+			bool dup = false;
+			for (int j = 0; j < count; ++j) { if (pts[j] == cand[k]) { dup = true; } }
+			if (!dup) { pts[count++] = cand[k]; }
+		}
+	}
+	for (int i = 1; i < count; ++i) {
+		float v = pts[i];
+		int j = i - 1;
+		for (; j >= 0 && pts[j] > v; --j) { pts[j + 1] = pts[j]; }
+		pts[j + 1] = v;
+	}
+	return count;
+}
+
+// The height of the discontinuity at a boundary, J. The boiling step vanishes when non-condensable gas is
+// present: the vapour share reaches one smoothly as the saturation pressure climbs to the cell's.
+float la_mix_jump_at(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, float t_b, float p_pa,
+		float n_gas_mol, float molality_mol_kg) {
+	float total = 0.0;
+	for (int i = 0; i < LA_MIX_MAX; ++i) {
+		if (i >= n) { break; }
+		if (mass[i] <= 0.0) { continue; }
+		SubstanceTh s = subs[i];
+		float solidus = la_melt_c_at(s, p_pa, molality_mol_kg);
+		float liquidus = la_liquidus_c_at(s, p_pa, molality_mol_kg);
+		if (s.has_melt && solidus == t_b && liquidus == t_b) {
+			float f_v = la_mix_vapour_fraction(s, t_b, p_pa, mass[i], n_gas_mol, molality_mol_kg);
+			total += mass[i] * (1.0 - f_v) * s.l_fus;
+		}
+		bool has = false;
+		float vap_t = la_mix_vapour_boundary_c(s, p_pa, has);
+		if (has && vap_t == t_b && n_gas_mol <= 0.0) {
+			total += mass[i] * la_mix_latent_out(s, t_b, p_pa, molality_mol_kg);
+		}
+	}
+	return total;
+}
+
+// Illinois false position over a bracket the boundary walk already proved. Exact in one step where the
+// segment is linear; the halving stops an end sticking where the saturation split makes it curve.
+float la_mix_solve(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, float h_total_j,
+		float p_pa, float n_gas_mol, float molality_mol_kg, float lo, float hi) {
+	float a = lo;
+	float b = hi;
+	float f_a = la_mix_enthalpy_at(subs, mass, n, a, p_pa, n_gas_mol, molality_mol_kg) - h_total_j;
+	float f_b = la_mix_enthalpy_at(subs, mass, n, b, p_pa, n_gas_mol, molality_mol_kg) - h_total_j;
+	float t = a;
+	for (int i = 0; i < 24; ++i) {
+		float denom = f_b - f_a;
+		t = abs(denom) > 0.0 ? a - f_a * (b - a) / denom : 0.5 * (a + b);
+		t = clamp(t, a, b);
+		float f_t = la_mix_enthalpy_at(subs, mass, n, t, p_pa, n_gas_mol, molality_mol_kg) - h_total_j;
+		if (f_t > 0.0) {
+			b = t;
+			f_b = f_t;
+			f_a *= 0.5;
+		} else {
+			a = t;
+			f_a = f_t;
+			f_b *= 0.5;
+		}
+	}
+	return t;
+}
+
+// THE CELL'S TEMPERATURE from its total enthalpy. `pinned` reports that the enthalpy landed inside a jump,
+// and `progress` where in that jump it sits.
+float la_mix_state(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, float h_total_j,
+		float p_pa, float n_gas_mol, float molality_mol_kg, out bool pinned, out float progress) {
+	pinned = false;
+	progress = 0.0;
+	float pts[4 * LA_MIX_MAX];
+	int count = la_mix_breakpoints(subs, mass, n, p_pa, molality_mol_kg, pts);
+	float lo = -LA_KELVIN_OFFSET;
+	if (h_total_j <= la_mix_enthalpy_at(subs, mass, n, lo, p_pa, n_gas_mol, molality_mol_kg)) {
+		return lo;
+	}
+	float hi = lo;
+	bool bracketed = false;
+	for (int i = 0; i < 4 * LA_MIX_MAX; ++i) {
+		if (i >= count) { break; }
+		float t_b = pts[i];
+		if (t_b <= lo) { continue; }
+		float h_b = la_mix_enthalpy_at(subs, mass, n, t_b, p_pa, n_gas_mol, molality_mol_kg);
+		if (h_total_j <= h_b) {
+			hi = t_b;
+			bracketed = true;
+			break;
+		}
+		float jump = la_mix_jump_at(subs, mass, n, t_b, p_pa, n_gas_mol, molality_mol_kg);
+		if (h_total_j < h_b + jump) {
+			pinned = true;
+			progress = jump > 0.0 ? (h_total_j - h_b) / jump : 0.0;
+			return t_b;
+		}
+		lo = t_b;
+	}
+	if (!bracketed) {
+		// Past the last boundary the curve only rises, so doubling the span always finds the far end.
+		float span = 100.0;
+		for (int i = 0; i < 64; ++i) {
+			hi = lo + span;
+			if (la_mix_enthalpy_at(subs, mass, n, hi, p_pa, n_gas_mol, molality_mol_kg) >= h_total_j) {
+				break;
+			}
+			span *= 2.0;
+		}
+	}
+	return la_mix_solve(subs, mass, n, h_total_j, p_pa, n_gas_mol, molality_mol_kg, lo, hi);
+}
+
+#endif

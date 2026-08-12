@@ -183,12 +183,13 @@ if [[ "$cmd" == "lint" ]]; then
     # copy examined ZERO files because ripgrep is not installed on the runner, so it passed vacuously on
     # every push. Three different numbers, none of them enforced. One number now, gating in both places.
     set +e
+    lint_failed=0
     "$SCRIPT_DIR/check_max_file_length.sh"
     rc_len=$?
     set -e
     if [[ $rc_len -ne 0 ]]; then
       echo "LINT_FAIL: check_max_file_length.sh ($rc_len)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Advisory: policy/plan marker drift never gates.
     "$SCRIPT_DIR/check_policy_plan_markers.sh"
@@ -198,7 +199,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_gate -ne 0 ]]; then
       echo "LINT_FAIL: check_no_direct_refcounted_invocation.sh ($rc_gate)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: no inferred typing (:=) in the enforced directories.
     set +e
@@ -207,7 +208,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_typing -ne 0 ]]; then
       echo "LINT_FAIL: check_no_inferred_typing.sh ($rc_typing)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: no @tool script writing serialised state in the editor. Two independently written nodes
     # shipped that bug (silently editing the user's .tscn) before this existed.
@@ -217,7 +218,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_tool -ne 0 ]]; then
       echo "LINT_FAIL: check_tool_safety.sh ($rc_tool)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: the demo catalogue matches the demos on disk (no orphan entry, no unlisted demo).
     set +e
@@ -226,7 +227,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_catalog -ne 0 ]]; then
       echo "LINT_FAIL: check_demo_catalog.sh ($rc_catalog)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: only real public API reaches a creation dialog under the LocalAgent prefix. README tells
     # users to type "LocalAgent" into Add Node to find the addon's nodes, and that was returning about
@@ -237,7 +238,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_surface -ne 0 ]]; then
       echo "LINT_FAIL: check_public_surface.sh ($rc_surface)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: the GLSL kernels' copies of physical constants equal LAPhysical. A compute shader cannot
     # import a GDScript constant, so every kernel hand-copies the value — which is exactly how the
@@ -249,7 +250,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_physical -ne 0 ]]; then
       echo "LINT_FAIL: check_physical_constants.sh ($rc_physical)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: every number is derived, bound, or written down in docs/MODEL_PARAMETERS.md. The gate above asks
     # whether a copy equals the authority; it cannot ask whether the thing should be a number at all. Scans
@@ -261,7 +262,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_modelparams -ne 0 ]]; then
       echo "LINT_FAIL: check_model_parameters.sh ($rc_modelparams)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: ONE definition of the 6-slot neighbour layout. It was written from memory in every kernel that
     # touches nbr[], and most wrote it down wrong — twelve read slot 5 as "the cell above" when slot 5 is a
@@ -289,7 +290,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_nbrslots -ne 0 ]]; then
       echo "LINT_FAIL: check_neighbour_slots.sh ($rc_nbrslots)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: the packed radial shell table the kernels read must match the order LASphereGrid writes it in.
     # Exit 2 = could not run.
@@ -299,7 +300,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_shelltable -ne 0 ]]; then
       echo "LINT_FAIL: check_shell_table.sh ($rc_shelltable)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: the per-face area table. How much crosses a wall is proportional to that wall's area, and on a
     # cubed sphere no two faces of a cell have the same one. Exit 2 = could not run.
@@ -313,7 +314,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_determinism -ne 0 ]]; then
       echo "LINT_FAIL: check_sim_determinism.sh ($rc_determinism)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: comment only what is needed to understand that line. Prose cannot be executed, so it rots and
     # then misleads with authority — every false slot-layout claim was a comment. Exit 2 = could not run.
@@ -323,7 +324,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_comments -ne 0 ]]; then
       echo "LINT_FAIL: check_comment_density.sh ($rc_comments)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Same gate over first-party GDScript. sim/material is excluded: its kernels are covered by the call
     # above and its GDScript passes are the field hub's own scope. Exit 2 = could not run.
@@ -333,7 +334,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_comments_gd -ne 0 ]]; then
       echo "LINT_FAIL: check_comment_density.sh (gdscript) ($rc_comments_gd)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: phase-from-energy has one definition per side of the GPU boundary. Exit 2 = could not run.
     set +e
@@ -342,7 +343,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_enth -ne 0 ]]; then
       echo "LINT_FAIL: check_enthalpy_ssot.sh ($rc_enth)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: the GLSL/gdshader copies of a GDScript fact are generated from it, never held equal by a
     # comment. Exit 2 = could not run.
@@ -352,7 +353,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_gencon -ne 0 ]]; then
       echo "LINT_FAIL: check_generated_constants.sh ($rc_gencon)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: a per-m^3/m^2 quantity must never meet a raw cell size — field lengths are MODEL units.
     set +e
@@ -364,7 +365,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_seed -ne 0 ]]; then
       echo "LINT_FAIL: check_seed_phase.sh ($rc_seed)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: no reaction record may create or destroy matter. The DEFS engine took reactants and products as
     # two independent lists of hand-written coefficients with nothing relating them, and one rate model had
@@ -377,7 +378,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_balance -ne 0 ]]; then
       echo "LINT_FAIL: check_reaction_balance.sh ($rc_balance)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: the render clock does not drive the simulation. The field steps on a fixed physics accumulator;
     # the master clock and the orbit advanced in _process, so the sun moved a framerate-dependent distance
@@ -388,7 +389,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_framerate -ne 0 ]]; then
       echo "LINT_FAIL: check_framerate_independence.sh ($rc_framerate)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: every script in the REAL tree parses. An editor scan does not check this — it emits twenty
     # progress lines and nothing about any script — so a broken pass module let the sim run to
@@ -401,7 +402,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_parseall -ne 0 ]]; then
       echo "LINT_FAIL: check_parse_all.sh ($rc_parseall)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: the addon still parses with the game deleted. docs/USAGE.md promises this; nothing
     # enforced it, and it had already rotted once. Distinct from the sweep above: that one asks whether
@@ -412,7 +413,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_libonly -ne 0 ]]; then
       echo "LINT_FAIL: check_library_only.sh ($rc_libonly)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: a field step is a fixed quantum of simulated time. real_seconds_per_step() used to divide by
     # LASimClock.DAY_LENGTH, a game-feel knob, and every derived rate in the substrate multiplies by that
@@ -424,7 +425,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_stepq -ne 0 ]]; then
       echo "LINT_FAIL: check_step_quantum.sh ($rc_stepq)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: the cubed-sphere geometry closes, and it publishes how uneven it is. LASphereGrid.validate()
     # existed and NOTHING called it, so its closure, symmetry, reciprocity and tangent-handedness checks had
@@ -437,7 +438,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_cc -ne 0 ]]; then
       echo "LINT_FAIL: check_comment_claims.sh ($rc_cc)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: a missing measurement is missing. A `.get(key, mirror)` default makes a gauge read whichever
     # other consumer last called request_channel. Exit 2 = could not run.
@@ -447,7 +448,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_fallback -ne 0 ]]; then
       echo "LINT_FAIL: check_no_silent_fallback.sh ($rc_fallback)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: the same defect in duck-type form — a has_method() probe on the substrate standing a literal in
     # for a reading it could not take. Exit 2 = could not run.
@@ -457,7 +458,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_invented -ne 0 ]]; then
       echo "LINT_FAIL: check_no_invented_fallback.sh ($rc_invented)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # These four were WRITTEN AND NEVER WIRED, so they only ran when somebody remembered to. A gate that
     # is not in `lint` is not a gate — CI runs this exact command.
@@ -468,7 +469,7 @@ if [[ "$cmd" == "lint" ]]; then
       set -e
       if [[ $rc_g -ne 0 ]]; then
         echo "LINT_FAIL: $g.sh ($rc_g)"
-        exit 1
+        lint_failed=$((lint_failed + 1))
       fi
     done
     set +e
@@ -477,7 +478,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_grid -ne 0 ]]; then
       echo "LINT_FAIL: check_sphere_grid.sh ($rc_grid)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: every compute kernel compiles. `godot --import` ACCEPTS a .glsl containing an undeclared symbol
     # without complaint; the failure appears at runtime as `get_spirv on a null value`, and what that looks
@@ -488,7 +489,7 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_shaders -ne 0 ]]; then
       echo "LINT_FAIL: check_shaders_compile.sh ($rc_shaders)"
-      exit 1
+      lint_failed=$((lint_failed + 1))
     fi
     # Gate: a phase-change loop may not be an energy source. check_reaction_balance proves records balance in
     # ATOMS and says nothing about enthalpy, so a wrong sign or a missing latent heat shipped silently — as it
@@ -500,6 +501,12 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_renergy -ne 0 ]]; then
       echo "LINT_FAIL: check_reaction_energy.sh ($rc_renergy)"
+      lint_failed=$((lint_failed + 1))
+    fi
+    # EVERY GATE RUNS. Fail-fast meant one red gate hid every gate after it, so on a branch that is
+    # deliberately red most of the tree went unobserved and a real regression could ride in behind it.
+    if [[ $lint_failed -gt 0 ]]; then
+      echo "LINT_SUMMARY: $lint_failed gate(s) failed. Every gate ran; the list above is complete."
       exit 1
     fi
     echo "All lint gates passed (file length gates at soft 1300 / hard 1500; policy markers are advisory)."
