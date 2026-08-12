@@ -8,11 +8,11 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/ce
 
 enum Pass { RESET = 0, APPEND = 1, ARGS = 2 }
 enum Half { LIVE = 0, BACK = 1 }
-## Predicate terms; mirrors cell_list_sphere3d.glsl's #defines.
+## Predicate terms; the kernel's F_* defines are generated from this enum.
 enum Flag { OPEN_ONLY = 1, INCLUSIVE = 2, BACK = 4, HALO = 8, AUX = 16 }
 
-# lava_phase_sphere3d.glsl reads the list without rechecking its own floor, so this must equal that kernel's
-# LAVA_MIN_MASS. Declared in docs/MODEL_PARAMETERS.md.
+# The threshold that builds the list; lava_phase_sphere3d.glsl takes it as a push constant.
+# Declared in docs/MODEL_PARAMETERS.md.
 const LAVA_MIN_MASS: float = 0.0001
 
 ## Row keys: label · idx/args driver buffer keys · prim channel + half · back/aux/halo terms · thresholds.

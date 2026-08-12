@@ -76,8 +76,8 @@ layout(set = 0, binding = 31, std430) restrict readonly buffer Discharge { float
 layout(set = 0, binding = 32, std430) restrict buffer OrgH { float org_h[]; };
 layout(set = 0, binding = 33, std430) restrict buffer OrgO { float org_o[]; };
 
-// Slot enum — MUST match MaterialReactions3D.gd.
-#define TEMP     0
+// Below the buffer blocks: the slot names collide with the O2/CO2 block names above.
+#include "generated.glsli"
 
 // --- THE PHASE RULE ----------------------------------------------------------------------------------------
 // Saturation vapour pressure at the cell's temperature, in the field's own unit (a fraction of a cell full
@@ -91,23 +91,16 @@ const float KELVIN_0 = 273.15;           // LAPhysical.KELVIN_OFFSET
 const float RHO_WATER = 997.0;           // LAPhysical.WATER_DENSITY_KG_M3
 const float R_GAS = 8.314462618;         // LAPhysical.GAS_CONSTANT_J_MOL_K
 const float P_STD = 101325.0;            // LAPhysical.STANDARD_PRESSURE_PA
-const float DG_EXP_LIMIT = 60.0;         // exp() argument bound; beyond it the equilibrium bound sets the extent
 
 float sat_mass_frac(float t_c) {
 	float t = max(t_c, -80.0);           // the Magnus fit's pole is at -243.04 C
 	float e_sat = MAGNUS_A_PA * exp(MAGNUS_B * t / (t + MAGNUS_C_C));
 	return (e_sat / (VAPOUR_R * max(t + KELVIN_0, 1.0))) / RHO_WATER;
 }
-#define OVERBURDEN 22  // DERIVED driver: LITHOSTATIC pressure (Pa) of the SOLID column above. See overburden().
-#define BEDROCK_BELOW 23 // DERIVED, WRITABLE: the bedrock of the SOLID cell directly beneath this open one —
-
-#define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust (dust_loft parity)
-#define REGOLITH_CELLS 4    // rooting depth = the permeable regolith band (MUST match MaterialField3D.REGOLITH_CELLS)
+#define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust
+#define OVERBURDEN_MAX_CELLS 12  // outward cells the lithostatic column walk sums over
 const float ROCK_DENSITY = 2900.0;      // LAPhysical.ROCK_DENSITY_KG_M3 — basalt / crustal rock
 const float SEDIMENT_DENSITY = 2000.0;  // LAPhysical.SEDIMENT_DENSITY_KG_M3 — unconsolidated wet sediment
-
-// --- A CELL'S VOLUMETRIC HEAT CAPACITY [J/m3/K] ------------------------------------------------------------
-// What an enthalpy of reaction is divided by to become a temperature change. The one definition lives in
 
 // Flammability limit as a fraction of ambient air: the limiting oxygen concentration over air's own mole
 // fraction of O2.
@@ -115,16 +108,7 @@ const float LOC_MOLE_FRAC = 0.15;          // LAPhysical.LIMITING_OXYGEN_CONCENT
 const float AIR_O2_MOLE_FRAC_K = 0.20946;  // LAPhysical.AIR_MOLE_FRAC_O2
 const float O2_FLAMMABILITY_LIMIT = LOC_MOLE_FRAC / AIR_O2_MOLE_FRAC_K;
 
-#define CONST_FRAC             0
-#define BILINEAR               1
-
-#define GATE_NEAR_GROUND 4
-#define GATE_DRY         16   // cell is DRY (water <= WET_MAX_LOFT) — sand only lofts when not wet
-
 #define DROWNED_WATER 0.5     // half a cell of standing water in the neighbour above = no free surface here
-
-#define TGT_SELF    0
-#define TGT_SCRATCH 3
 
 struct Reaction {
 	int   rate_model;
@@ -186,9 +170,6 @@ float light_at(uint i) {
 	vec3 cell_radial = vec3(radial[rb + 0u], radial[rb + 1u], radial[rb + 2u]);
 	return max(0.0, dot(cell_radial, vec3(params.sun_x, params.sun_y, params.sun_z)));
 }
-
-// ROOTING-COLUMN water. `soil` lives in REGOLITH cells, so an open cell's plant-available water is the soil
-// summed over the permeable column beneath it: walk inward while the cell is REGOLITH, at most
 
 // The FIRST regolith cell beneath an open cell, or -1. The inward-neighbour mapping is injective, so no two
 // reacting cells share one.
@@ -273,7 +254,6 @@ void bedrock_below_add(uint i, float v) {
 	rock_fill[uint(d)] = max(0.0, rock_fill[uint(d)] + v * vol_ratio(i, uint(d)));
 }
 
-// See the RC_* block above. Air, rock (bedrock plus whatever is molten) and liquid water by volume fraction.
 #include "rc_shared.glsli"
 
 // Resolve a channel slot to its per-cell value. Unbound slots read 0 (a record must not reference them).
@@ -392,9 +372,9 @@ float direction_scale(Reaction rc, uint i, out float x_eq) {
 	float pa_per_unit = max(rc.q_pa_per_unit_k * t_k, 1e-30);
 	float ch = read_ch(rc.q_slot, i);
 	float dg = rc.dg_h_j_mol - t_k * rc.dg_s_j_molk + sigma * rt * log(max(pa_per_unit * ch / P_STD, 1e-30));
-	float a_eq = exp(clamp(sigma * (t_k * rc.dg_s_j_molk - rc.dg_h_j_mol) / rt, -DG_EXP_LIMIT, DG_EXP_LIMIT));
+	float a_eq = exp(clamp(sigma * (t_k * rc.dg_s_j_molk - rc.dg_h_j_mol) / rt, -EXP_LIMIT, EXP_LIMIT));
 	x_eq = (a_eq * P_STD / pa_per_unit - ch) / (sigma * max(q_coeff, 1e-6));
-	return 1.0 - exp(clamp(dg / rt, -DG_EXP_LIMIT, DG_EXP_LIMIT));
+	return 1.0 - exp(clamp(dg / rt, -EXP_LIMIT, EXP_LIMIT));
 }
 
 // The effective coefficient of one participant in THIS cell: base plus the composition-scaled parts.

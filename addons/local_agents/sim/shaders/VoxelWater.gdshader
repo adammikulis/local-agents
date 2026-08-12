@@ -17,7 +17,7 @@
 shader_type spatial;
 render_mode cull_disabled, specular_schlick_ggx, diffuse_burley, depth_draw_always;
 
-const int RIPPLE_MAX = 16;
+#include "res://addons/local_agents/sim/shaders/generated.gdshaderinc"
 
 // --- Salinity-driven palette (0 fresh → 1 salt). shallow/deep are the near-surface + deep-body tints. ---
 uniform vec3 fresh_shallow : source_color = vec3(0.14, 0.50, 0.46);   // clear green-teal river shallows
@@ -45,11 +45,11 @@ uniform float ripple_detail = 0.35;   // fine fragment normal sparkle
 // --- Impact ripples (ring buffer, aged on the CPU, uploaded each frame) ---
 uniform vec4 ripples[RIPPLE_MAX];     // (centre.x, centre.z, age_seconds, strength)
 uniform int ripple_count = 0;
-uniform float ripple_speed = 9.0;     // ring expansion speed (world units / s)
+uniform float ripple_speed;           // ring expansion speed (world units / s); set from RIPPLE_SPEED
 uniform float ripple_amp = 0.9;       // crest height per unit strength
 uniform float ripple_freq = 0.9;      // radial wavenumber
 uniform float ripple_width = 3.2;     // crest thickness (world units)
-uniform float ripple_decay = 0.7;     // amplitude e-fold time (1/s)
+uniform float ripple_decay;           // amplitude e-fold time (1/s); set from RIPPLE_DECAY
 
 // --- CA flow (freshwater mesh only; ocean leaves flow_scale = 0) ---
 uniform float flow_scale : hint_range(0.0, 1.0) = 0.0;   // 1 = use vertex COLOR flow, 0 = world scroll
@@ -65,18 +65,14 @@ uniform sampler2DArray sea_ice_tex : filter_linear;
 uniform float sea_ice_enabled = 0.0;
 uniform vec3 sea_ice_color : source_color = vec3(0.90, 0.94, 0.97);
 uniform float sea_ice_edge = 0.06;
-const vec3 ICE_FACE_N[6] = vec3[6](vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0));
-const vec3 ICE_FACE_R[6] = vec3[6](vec3(0.0, 0.0, -1.0), vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0));
-const vec3 ICE_FACE_U[6] = vec3[6](vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, -1.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0));
-
 float sea_ice_at(vec3 dir) {
 	vec3 a = abs(dir);
 	int f = (a.x >= a.y && a.x >= a.z) ? (dir.x >= 0.0 ? 0 : 1) : ((a.y >= a.z) ? (dir.y >= 0.0 ? 2 : 3) : (dir.z >= 0.0 ? 4 : 5));
-	float denom = dot(dir, ICE_FACE_N[f]);
+	float denom = dot(dir, FACE_N[f]);
 	if (denom < 0.0001) { return 0.0; }
 	vec3 p = dir / denom;
-	float u = clamp((dot(p, ICE_FACE_R[f]) + 1.0) * 0.5, 0.0, 0.99999);
-	float v = clamp((dot(p, ICE_FACE_U[f]) + 1.0) * 0.5, 0.0, 0.99999);
+	float u = clamp((dot(p, FACE_R[f]) + 1.0) * 0.5, 0.0, 0.99999);
+	float v = clamp((dot(p, FACE_U[f]) + 1.0) * 0.5, 0.0, 0.99999);
 	return textureLod(sea_ice_tex, vec3(u, v, float(f)), 0.0).r;
 }
 

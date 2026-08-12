@@ -5,7 +5,7 @@ const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/
 
 ## LAMaterialFieldSoilBudget3D: a per-LEG mass budget for the groundwater channel, so a soil drain has to name
 
-# MUST match soil_sphere3d.glsl's DBG_* defines and LAMaterialSphereGPU3D.SOIL_DBG_SLOTS.
+# Leg count of the soil_dbg probe buffer; MaterialSphereGPU3D allocates against it.
 const SLOTS: int = 21
 const DARCY_SENT: int = 0
 const SPRING_SENT: int = 1

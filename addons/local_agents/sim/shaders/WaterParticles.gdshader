@@ -1,6 +1,8 @@
 shader_type particles;
 render_mode disable_velocity;
 
+#include "res://addons/local_agents/sim/shaders/generated.gdshaderinc"
+
 // PROCESS shader for LAWaterParticles — ONE particle system that renders whichever PHASE the field's
 // water is in. Per particle it samples the field-cover texture (6-layer RGBA, one texel per SphereGrid
 // surface cell) by normalize(pos - planet_center), classifies its phase from the sampled channels + its
@@ -33,12 +35,6 @@ const float SNOW_SCALE = 3.2;
 const float CLOUD_SPEED = 2.2;
 const float RAIN_SPEED = 34.0;
 const float SNOW_SPEED = 6.0;
-
-// SphereGrid cube-face frames (must match sphere/SphereGrid.gd _FACE_N/_FACE_R/_FACE_U so the texel
-// selection here is IDENTICAL to grid.world_to_cell — no cubemap-winding guesswork).
-const vec3 FACE_N[6] = vec3[6](vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0));
-const vec3 FACE_R[6] = vec3[6](vec3(0.0, 0.0, -1.0), vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0));
-const vec3 FACE_U[6] = vec3[6](vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, -1.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0));
 
 uint hash_u(uint x) {
 	x ^= x >> 16u;

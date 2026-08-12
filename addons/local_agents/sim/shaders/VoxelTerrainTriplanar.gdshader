@@ -7,6 +7,8 @@
 shader_type spatial;
 render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 
+#include "res://addons/local_agents/sim/shaders/generated.gdshaderinc"
+
 uniform float sea_level = 0.0;
 uniform float snow_height = 90.0;
 
@@ -89,12 +91,6 @@ vec3 heat_ramp(float t) {
 	return c;
 }
 
-// SphereGrid cube-face frames — MUST match sphere/SphereGrid.gd _FACE_N/_FACE_R/_FACE_U (and
-// WaterParticles.gdshader) so the biome texel selection is IDENTICAL to grid.world_to_cell.
-const vec3 BFACE_N[6] = vec3[6](vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0));
-const vec3 BFACE_R[6] = vec3[6](vec3(0.0, 0.0, -1.0), vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0));
-const vec3 BFACE_U[6] = vec3[6](vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, -1.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0));
-
 int biome_face_of(vec3 d) {
 	vec3 a = abs(d);
 	if (a.x >= a.y && a.x >= a.z) {
@@ -109,13 +105,13 @@ int biome_face_of(vec3 d) {
 // Sample the baked climate texel for the surface column under radial direction `dir`.
 vec4 sample_biome(vec3 dir) {
 	int f = biome_face_of(dir);
-	float denom = dot(dir, BFACE_N[f]);
+	float denom = dot(dir, FACE_N[f]);
 	if (denom < 0.0001) {
 		return vec4(0.0);
 	}
 	vec3 p = dir / denom;
-	float a = dot(p, BFACE_R[f]);
-	float b = dot(p, BFACE_U[f]);
+	float a = dot(p, FACE_R[f]);
+	float b = dot(p, FACE_U[f]);
 	float u = clamp((a + 1.0) * 0.5, 0.0, 0.99999);
 	float v = clamp((b + 1.0) * 0.5, 0.0, 0.99999);
 	return textureLod(biome_tex, vec3(u, v, float(f)), 0.0);

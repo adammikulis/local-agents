@@ -1,7 +1,6 @@
 #[compute]
 #version 450
 
-
 layout(local_size_x = 64) in;
 
 // No `restrict`: a row that does not use Back/Aux binds an already-bound buffer into those slots.
@@ -27,8 +26,8 @@ layout(push_constant, std430) uniform Params {
 	uint pad2;
 } params;
 
-// Predicate terms. Bit values, not model parameters; CellListPass.Flag mirrors them.
-#define F_OPEN_ONLY 1u    // reject solid cells
+// Below the buffer blocks, so a future block name cannot collide with a generated slot name.
+#include "generated.glsli"
 
 shared uint s_list_n;
 shared uint s_list_base;
