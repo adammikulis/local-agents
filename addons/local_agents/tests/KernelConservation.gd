@@ -19,6 +19,8 @@ var _cc: int = 0
 var _depth: int = DEPTH
 var _failures: Array = []
 var _checks: int = 0
+## Per-arm volume-weighted drift, in percent. REPORTED, never asserted — see `_note_volume`.
+var _volume_notes: Dictionary = {}
 
 
 func _ready() -> void:
@@ -33,7 +35,10 @@ func _ready() -> void:
 
 	var v: Dictionary = _grid.validate()
 	_expect(bool(v.get("ok", false)), "grid.validate", 1.0, 1.0 if bool(v.get("ok", false)) else 0.0)
+	_expect(bool(v.get("shells_uniform", false)), "grid.uniform_by_default", 1.0,
+		1.0 if bool(v.get("shells_uniform", false)) else 0.0)
 
+	_check_uniform_identity()
 	_check_two_pass(GRAVITY_FLOW, "gravity_flow", _pc_gravity())
 	_check_two_pass(EROSION, "erosion_transport", _pc_erosion())
 	_check_tracer(0.0, false, "still")
@@ -53,9 +58,11 @@ func _ready() -> void:
 	# that compounds, and the live runaway takes 12 steps to become visible.
 	_check_tracer_steps(20, 160.0, 300.0, true, "pingpong_20")
 	_check_live_grid()
+	_check_graded_grid()
 
 	print("KERNEL_CONSERVATION=", JSON.stringify({
-		"ok": _failures.is_empty(), "checks": _checks, "failures": _failures}))
+		"ok": _failures.is_empty(), "checks": _checks, "failures": _failures,
+		"volume_weighted_drift_pct": _volume_notes}))
 	_rd.free()
 	LAAppExit.request(self, 0 if _failures.is_empty() else 1)
 
@@ -90,6 +97,15 @@ func _sum(a: PackedFloat32Array, solid: PackedFloat32Array) -> float:
 	for i in a.size():
 		t += a[i]
 	return t
+
+
+## The kernels conserve the raw fill-fraction sum by construction. Weighted by each cell's own volume the
+## same transfer moves a different amount of matter than it delivers, because a radial neighbour is a
+## different size. That is a physics decision, not a kernel bug, so it is recorded rather than failed.
+func _note_volume(label: String, before_arr: PackedFloat32Array, after_arr: PackedFloat32Array) -> void:
+	var b: float = _volume_weighted(before_arr)
+	var a: float = _volume_weighted(after_arr)
+	_volume_notes[label] = snappedf(100.0 * (a - b) / maxf(absf(b), 1e-9), 0.0001)
 
 
 func _expect(ok: bool, what: String, want: float, got: float) -> void:
@@ -137,9 +153,11 @@ func _check_two_pass(path: String, label: String, pc_base: PackedByteArray) -> v
 		_rd.submit()
 		_rd.sync()
 
-	var after: float = _sum(_read(b_out), solid)
+	var out_arr: PackedFloat32Array = _read(b_out)
+	var after: float = _sum(out_arr, solid)
 	var rel: float = absf(after - before) / maxf(before, 1e-9)
 	_expect(rel <= TOLERANCE, label + ".mass_conserved", before, after)
+	_note_volume(label, mass, out_arr)
 
 
 ## The tracer operator is a SINGLE pass: out = in - own_out + gain. Same contract, one dispatch.
@@ -177,20 +195,22 @@ func _check_tracer(wind_m_s: float, with_solid: bool, tag: String, vy_m_s: float
 	var b_ltan: RID = _buf(_grid.link_tan)
 
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(32)
+	pc.resize(36)
 	pc.encode_u32(0, _cc)
 	pc.encode_u32(4, _depth)
-	pc.encode_float(8, 0.05)        # k, the Courant factor
+	pc.encode_float(8, 0.05)        # k_lat, the lateral Courant factor
 	pc.encode_float(12, 0.0)        # settle_v: still, so the only motion is diffusion
 	pc.encode_float(16, 0.05)       # diffuse
 	pc.encode_u32(20, 0)            # deposit off — a gas
 	pc.encode_u32(24, 0)            # offset
 	pc.encode_float(28, 0.0)        # decay 0: a conserved tracer
+	pc.encode_float(32, 8.0)        # lat_ref: the spacing k_lat was divided by
 
 	var b_part2: RID = _rd.storage_buffer_create(_grid.link_partner.to_byte_array().size(),
 		_grid.link_partner.to_byte_array())
 	var uset: RID = _uset(shader, [[0, b_in], [1, b_out], [2, b_dep], [3, b_solid],
-		[4, b_vx], [5, b_vy], [6, b_vz], [15, b_nbr], [16, b_ltan], [17, b_part2]])
+		[4, b_vx], [5, b_vy], [6, b_vz], [15, b_nbr], [16, b_ltan], [17, b_part2],
+		[39, _shell_buf()]])
 	var groups: int = int(ceil(float(_cc) / 64.0))
 	var cl: int = _rd.compute_list_begin()
 	_rd.compute_list_bind_compute_pipeline(cl, pipe)
@@ -201,9 +221,11 @@ func _check_tracer(wind_m_s: float, with_solid: bool, tag: String, vy_m_s: float
 	_rd.submit()
 	_rd.sync()
 
-	var after: float = _sum(_read(b_out), solid)
+	var out_arr: PackedFloat32Array = _read(b_out)
+	var after: float = _sum(out_arr, solid)
 	var rel: float = absf(after - before) / maxf(before, 1e-9)
 	_expect(rel <= TOLERANCE, "tracer_transport.mass_conserved." + tag, before, after)
+	_note_volume(tag, mass, out_arr)
 
 
 ## erosion_transport carries a suspended LOAD on flowing water, so its bindings differ from gravity_flow's.
@@ -214,7 +236,7 @@ func _binds(label: String, b_in: RID, b_out: RID, b_send: RID, b_solid: RID, b_t
 		return [[0, b_in], [1, b_out], [2, b_temp], [3, b_solid], [5, b_send], [15, b_nbr],
 			[17, b_part]]
 	return [[0, b_in], [1, b_out], [2, b_send], [3, b_solid], [5, b_temp], [15, b_nbr], [16, b_larc],
-		[17, b_part]]
+		[17, b_part], [39, _shell_buf()]]
 
 
 ## Run the operator N times, alternating in/out the way the driver's ping-pong does, and check the total
@@ -249,9 +271,10 @@ func _check_tracer_steps(n: int, wind_m_s: float, vy_m_s: float, with_solid: boo
 	var b_ltan: RID = _buf(_grid.link_tan)
 	var b_part: RID = _rd.storage_buffer_create(_grid.link_partner.to_byte_array().size(),
 		_grid.link_partner.to_byte_array())
+	var b_shell: RID = _shell_buf()
 
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(32)
+	pc.resize(36)
 	pc.encode_u32(0, _cc)
 	pc.encode_u32(4, _depth)
 	pc.encode_float(8, 0.032)       # the live Courant factor
@@ -260,13 +283,14 @@ func _check_tracer_steps(n: int, wind_m_s: float, vy_m_s: float, with_solid: boo
 	pc.encode_u32(20, 0)
 	pc.encode_u32(24, 0)
 	pc.encode_float(28, 0.0)
+	pc.encode_float(32, 8.0)
 
 	var groups: int = int(ceil(float(_cc) / 64.0))
 	var live: int = 0
 	for step in n:
 		var back: int = 1 - live
 		var uset: RID = _uset(shader, [[0, half[live]], [1, half[back]], [2, b_dep], [3, b_solid],
-			[4, b_vx], [5, b_vy], [6, b_vz], [15, b_nbr], [16, b_ltan], [17, b_part]])
+			[4, b_vx], [5, b_vy], [6, b_vz], [15, b_nbr], [16, b_ltan], [17, b_part], [39, b_shell]])
 		var cl: int = _rd.compute_list_begin()
 		_rd.compute_list_bind_compute_pipeline(cl, pipe)
 		_rd.compute_list_bind_uniform_set(cl, uset, 0)
@@ -302,6 +326,74 @@ func _check_live_grid() -> void:
 	_depth = DEPTH
 
 
+## A uniform build must reproduce the scalar grid EXACTLY, or every number recorded before the shell table
+## existed is incomparable with every number after it. Checked in float32, which is what the GPU reads.
+func _check_uniform_identity() -> void:
+	var core_r: float = float(_grid.core_radius)
+	var cs: float = float(_grid.cell_size)
+	var bad_mid: int = 0
+	var bad_dr: int = 0
+	for r in int(_grid.depth):
+		var want_mid: PackedFloat32Array = PackedFloat32Array([core_r + (float(r) + 0.5) * cs])
+		if _grid.shell_mid[r] != want_mid[0]:
+			bad_mid += 1
+		if _grid.shell_dr[r] != cs or _grid.shell_d_in[r] != cs or _grid.shell_d_out[r] != cs:
+			bad_dr += 1
+	_expect(bad_mid == 0, "uniform.shell_mid_identical", 0.0, float(bad_mid))
+	_expect(bad_dr == 0, "uniform.shell_dr_identical", 0.0, float(bad_dr))
+	var span: float = float(_grid.shell_span())
+	_expect(span == float(_grid.depth) * cs, "uniform.span_identical", float(_grid.depth) * cs, span)
+
+
+## The shell table as the kernels see it. Rebuilt per grid, because `_grid` is swapped by the live/graded arms.
+func _shell_buf() -> RID:
+	return _buf(_grid.shell_table())
+
+
+## GRADED SHELLS. A gather that conserves at constant spacing can still leak when the radial runs differ, so
+## every transport arm is re-run on a profile whose thickest shell is 4x its thinnest. It also reports the
+## VOLUME-WEIGHTED total: the channels are fill fractions, so a conserved fraction is not conserved matter.
+func _check_graded_grid() -> void:
+	var small_grid: RefCounted = _grid
+	var small_cc: int = _cc
+	var small_depth: int = _depth
+	var profile: PackedFloat32Array = LASphereGridProfiles.surface_focus(LIVE_DEPTH, 8.0, LIVE_DEPTH / 2)
+	_expect(profile.size() == LIVE_DEPTH, "graded_grid.profile_built", float(LIVE_DEPTH),
+		float(profile.size()))
+	if profile.size() != LIVE_DEPTH:
+		_grid = small_grid
+		return
+	_grid = LASphereGrid.new()
+	_grid.build(LIVE_RES, LIVE_DEPTH, 170.0, 8.0, Vector3.ZERO, profile)
+	_cc = _grid.cell_count
+	_depth = LIVE_DEPTH
+	var v: Dictionary = _grid.validate()
+	_expect(bool(v.get("ok", false)), "graded_grid.validate", 1.0,
+		1.0 if bool(v.get("ok", false)) else 0.0)
+	_expect(not bool(v.get("shells_uniform", true)), "graded_grid.is_graded", 1.0,
+		0.0 if bool(v.get("shells_uniform", true)) else 1.0)
+	_expect(absf(float(v.get("shell_span", 0.0)) - float(LIVE_DEPTH) * 8.0) < 1e-3,
+		"graded_grid.span_preserved", float(LIVE_DEPTH) * 8.0, float(v.get("shell_span", 0.0)))
+	_check_two_pass(GRAVITY_FLOW, "gravity_flow_graded", _pc_gravity())
+	_check_tracer(0.0, true, "graded_still_solid")
+	_check_tracer(160.0, true, "graded_gale_solid")
+	_check_tracer(0.0, true, "graded_updraft_solid", 300.0)
+	_check_tracer_steps(20, 160.0, 300.0, true, "graded_pingpong_20")
+	_grid = small_grid
+	_cc = small_cc
+	_depth = small_depth
+
+
+## Sum of the channel weighted by each cell's own volume. The kernels conserve the UNWEIGHTED sum; this is
+## what a conserved substance would have to hold, and the gap between them is reported, never asserted.
+func _volume_weighted(a: PackedFloat32Array) -> float:
+	var t: float = 0.0
+	var vol: PackedFloat32Array = _grid.shell_vol
+	for i in a.size():
+		t += a[i] * vol[i % _depth]
+	return t
+
+
 func _uset(shader: RID, binds: Array) -> RID:
 	var us: Array = []
 	for b in binds:
@@ -315,17 +407,15 @@ func _uset(shader: RID, binds: Array) -> RID:
 
 func _pc_gravity() -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(40)
+	pc.resize(32)
 	pc.encode_u32(0, _cc)
 	pc.encode_u32(4, 0)
-	pc.encode_u32(8, DEPTH)
-	pc.encode_float(12, 100.0)      # core_radius
-	pc.encode_float(16, 8.0)        # cell_size
-	pc.encode_float(20, 0.25)       # max_flow
-	pc.encode_float(24, 1e-5)       # min_flow
-	pc.encode_float(28, 1e-4)       # min_mass
-	pc.encode_float(32, 0.25)       # lateral_frac
-	pc.encode_float(36, 0.0)        # repose_tan: level out freely
+	pc.encode_u32(8, _depth)
+	pc.encode_float(12, 0.25)       # max_flow
+	pc.encode_float(16, 1e-5)       # min_flow
+	pc.encode_float(20, 1e-4)       # min_mass
+	pc.encode_float(24, 0.25)       # lateral_frac
+	pc.encode_float(28, 0.0)        # repose_tan: level out freely
 	return pc
 
 

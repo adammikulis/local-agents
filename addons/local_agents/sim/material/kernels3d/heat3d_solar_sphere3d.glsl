@@ -28,7 +28,7 @@ layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	// clock: `const float STEP_DT = 0.1`, the SIMULATED step, while heat_sphere3d.glsl in the same pass ran on
 	float dt_s;
-	float cell_size;
+	uint depth;
 	uint pad2;
 	float sun_x;        // world-space unit vector pointing TOWARD the sun (magnitude carries insolation)
 	float sun_y;
@@ -63,6 +63,7 @@ layout(set = 0, binding = 36, std430) restrict readonly buffer Moisture { float 
 layout(set = 0, binding = 37, std430) restrict readonly buffer Fungus { float fungus[]; };
 layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
 #include "rc_shared.glsli"
+#include "shell.glsli"
 // ===== GREENHOUSE — emissivity from the overlying air mass ========================================
 const float P_REF = 101325.0;        // LAPhysical.STANDARD_PRESSURE_PA — pass A writes real pascals now
 const float TAU_SEA = 0.835;         // LAPhysical.ATMOS_OPTICAL_DEPTH — LONGWAVE depth of a sea-level column
@@ -151,14 +152,14 @@ void main() {
 		float wet = clamp(water[idx], 0.0, 1.0);
 		float icy = clamp(snow[idx] * ICE_ALBEDO_GAIN, 0.0, 1.0);
 		// CANOPY COVER, from the leaf area this cell's standing biomass carries. See the VEGETATION block.
-		float leaf_kg_m2 = max(biomass[idx], 0.0) * RHO_CELLULOSE * params.cell_size * FOLIAGE_FRACTION;
+		float leaf_kg_m2 = max(biomass[idx], 0.0) * RHO_CELLULOSE * shell_dr(idx % max(params.depth, 1u)) * FOLIAGE_FRACTION;
 		float lai = leaf_kg_m2 / LEAF_MASS_PER_AREA;
 		float veg = 1.0 - exp(-CANOPY_EXTINCTION * lai);
 		float land = mix(ALBEDO_GROUND, ALBEDO_VEG, veg);
 		float albedo = mix(mix(land, ALBEDO_WATER, wet), ALBEDO_ICE, icy);
 
 		// HEAT CAPACITY per cell: the volumetric heat capacity of what the cell holds, times the cell's own
-		float cap = max(rc_of(idx) * params.cell_size, 1.0);
+		float cap = max(rc_of(idx) * shell_dr(idx % max(params.depth, 1u)), 1.0);
 
 		// ===== THE COLUMN'S TWO CELLS, AND THE ONE AIR MASS BETWEEN THEM ===============================
 		float p_col = pressure[idx];

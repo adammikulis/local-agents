@@ -31,9 +31,12 @@ layout(push_constant, std430) uniform Params {
 	uint cell_count;   // only a defensive bound on the id read out of active_idx
 	// speak of, because a relax rate needs neither. A FLUX does: it is W/m^2, and turning it into a
 	float dt_s;
-	float cell_size;
+	uint depth;
 	uint pad2;
 } params;
+
+#include "neighbours.glsli"
+#include "shell.glsli"
 
 layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
 #include "rc_shared.glsli"
@@ -67,7 +70,7 @@ void main() {
 
 	float f_lava = clamp(lava[g], 0.0, 1.0);
 	// upstream: heat3d_cool_sphere3d.glsl charges the latent heat of vaporisation against the seawater such a
-	float cap = max(rc_of(g) * params.cell_size, 1.0);
+	float cap = max(rc_of(g) * shell_dr(g % max(params.depth, 1u)), 1.0);
 
 	// The neighbour table is `cell*6 + slot`; the slot names are in neighbours.glsli.
 	uint base = g * 6u;

@@ -68,8 +68,9 @@ func step() -> void:
 	var grid: RefCounted = _f.sphere_grid()
 	if grid == null:
 		return
-	var cell_size: float = float(grid.cell_size)
-	if cell_size <= 0.0:
+	# The flux crosses the INNERMOST shell's own face, so its thickness is that shell's, not the mean.
+	var dr0: float = float(grid.shell_dr[0])
+	if dr0 <= 0.0:
 		return
 
 	var shell_sum: float = 0.0
@@ -86,8 +87,8 @@ func step() -> void:
 
 	# seeded profile this is exactly lambda * the geotherm's gradient, 2.5 * 1.875 = 4.69 W/m^2. That is 54x
 	# mean (2.5 * 0.06 = 0.15 W/m^2 against 0.087). 0.15 * 31.25 / 0.087 = 54. Nothing else is in it.
-	_flux_w_m2 = LAPhysical.THERMAL_CONDUCT_ROCK_W_MK * (_boundary_c - _shell_c) / cell_size
-	_flux_dt = _flux_w_m2 * real_seconds_per_step() / (LAHeatCapacity.pure_rock() * cell_size)
+	_flux_w_m2 = LAPhysical.THERMAL_CONDUCT_ROCK_W_MK * (_boundary_c - _shell_c) / dr0
+	_flux_dt = _flux_w_m2 * real_seconds_per_step() / (LAHeatCapacity.pure_rock() * dr0)
 
 	# The reservoir pays for it. (The cubed-sphere's r = 0 cells are not exactly dx^2 in area — summed they
 	# come to about 8% more than 4*pi*core_radius^2 at res 32, the gnomonic area distortion — so the debit is
@@ -154,11 +155,11 @@ func _build() -> void:
 	var grid: RefCounted = _f.sphere_grid()
 	if grid == null:
 		return
-	var cell_size: float = float(grid.cell_size)
+	var dr0: float = float(grid.shell_dr[0]) if int(grid.depth) > 0 else 0.0
 	var core_r: float = float(grid.core_radius)
-	if cell_size <= 0.0 or core_r <= 0.0:
+	if dr0 <= 0.0 or core_r <= 0.0:
 		return
-	_cell_equiv = (4.0 / 3.0) * PI * core_r * core_r * core_r / (cell_size * cell_size * cell_size)
+	_cell_equiv = (4.0 / 3.0) * PI * core_r * core_r * core_r / (dr0 * dr0 * dr0)
 	for c: int in _f._cell_count:
 		if c % _f._dim_y == 0:
 			_shell_cells.append(c)
@@ -194,13 +195,14 @@ func _seed_profile() -> int:
 			if _f._solid[c] == 0:
 				continue
 			# Depth of this cell's CENTRE below the top face of the column's outermost rock cell.
-			var t: float = ambient + _grad_c_per_m * (float(surf_r - r) + 0.5) * cell_size
+			var t: float = ambient + _grad_c_per_m * (float(grid.shell_face[surf_r + 1]) - float(grid.shell_mid[r]))
 			_f._temp[c] = t
 			n += 1
 			if r == 0:
 				base_sum += t
 				base_n += 1
-	_boundary_seed = ((base_sum / float(base_n)) if base_n > 0 else ambient) + _grad_c_per_m * cell_size
+	_boundary_seed = ((base_sum / float(base_n)) if base_n > 0 else ambient) \
+		+ _grad_c_per_m * float(grid.shell_dr[0])
 	_boundary_c = _boundary_seed
 	return n
 

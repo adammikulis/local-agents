@@ -27,10 +27,11 @@ layout(push_constant, std430) uniform Params {
 	float spin_y;
 	float spin_z;
 	uint depth;          // radial shells per column — gives this cell's shell as (g % depth), hence its altitude
-	float core_radius;   // inner radius of shell 0
-	float cell_size;
+	float lat_size;      // LATERAL spacing — the run of the pressure gradient below
 	float sea_radius;    // altitude datum for the boundary layer
 } params;
+
+#include "shell.glsli"
 
 const float AIR_FLOOR = 0.02;       // density floor in AIR UNITS: caps the 1/rho gain at 50x (top-of-atmosphere)
 // REAL UNITS, 2026-08-10. Pass A now writes `pressure` in PASCALS, so the gradient is Pa per model unit and
@@ -84,13 +85,13 @@ void main() {
 
 	// ALTITUDE, straight from the cell index: SphereGrid packs a column contiguously as c = s*depth + r, so the
 	float shell = float(g % depth);
-	float altitude = (params.core_radius + (shell + 0.5) * params.cell_size) - params.sea_radius;
+	float altitude = shell_mid(g % depth) - params.sea_radius;
 	// Boundary layer: full surface drag at the ground, decaying to DAMP_FREE aloft (see the constants above).
 	float bl = exp(-max(altitude, 0.0) / BL_HEIGHT);
 	float damp = DAMP_FREE + (DAMP_SURFACE - DAMP_FREE) * bl;
 
 	// (1/rho) grad(p) IN REAL UNITS: grad is Pa per model unit, so per METRE it is grad / cell_m; rho is
-	float cell_m = params.cell_size * METRES_PER_MODEL_UNIT;
+	float cell_m = params.lat_size * METRES_PER_MODEL_UNIT;
 	float rho = AIR_DENSITY_KG_M3 * max(air[g], AIR_FLOOR);
 	float inv_rho_dx = 1.0 / (rho * cell_m);
 	float nvx = vel_x[g] - gx * inv_rho_dx * params.dt;

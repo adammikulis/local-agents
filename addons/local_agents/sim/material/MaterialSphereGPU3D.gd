@@ -135,6 +135,9 @@ func setup(field) -> void:
 	# Angular separation per lateral link — the lateral RUN a slope test needs (see LASphereGrid.link_arc).
 	var larc_bytes: PackedByteArray = _grid.link_arc.to_byte_array()
 	_bufs["link_arc"] = _rd.storage_buffer_create(larc_bytes.size(), larc_bytes)
+	# Per-shell radial geometry: thickness, centre radius, centre-to-centre runs. See kernels3d/shell.glsli.
+	var shell_bytes: PackedByteArray = _grid.shell_table().to_byte_array()
+	_bufs["shell"] = _rd.storage_buffer_create(shell_bytes.size(), shell_bytes)
 	_bufs["plates"] = _rd.storage_buffer_create(MAX_PLATES * PLATE_STRIDE * 4,
 		_zeros(MAX_PLATES * PLATE_STRIDE))
 
@@ -147,9 +150,11 @@ func setup(field) -> void:
 	_seed_regolith()                    # aquifer permeability mask + grain-size field (static)
 
 	# The reaction table's flux-derived rates (evaporation and its kin) turn a real per-square-metre flux into a
-	# per-cell extent, which needs the cell HEIGHT. This is the one place that knows the grid and runs before
-	# ReactionsPass.setup() builds the table.
-	LAReactionDefs.cell_size_m = float(_grid.cell_size)
+	# per-cell extent, which needs the cell HEIGHT. The table is baked once, so it gets the SURFACE shell's
+	# thickness — the shell those fluxes cross — not the column mean.
+	var surf_shell: int = _grid.shell_of(field.sea_level)
+	LAReactionDefs.cell_size_m = float(_grid.shell_dr[surf_shell]) if surf_shell >= 0 \
+		else float(_grid.cell_size)
 
 	# Load + set up the pass modules (skip any that fail to load — WIP-tolerant).
 	for path in PASS_SCRIPTS:
@@ -192,6 +197,10 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 	_ctx["wind"] = wind
 	_ctx["dt"] = 0.1
 	_ctx["cell_size"] = _grid.cell_size
+	# LATERAL cell spacing. It is the mean radial thickness only because nothing measures the real arc yet;
+	# the true run is `link_arc * shell_mid`, which varies 1.07-4.08 across a face. Named so the two stop
+	# sharing a symbol — the radial half now comes from the shell table, this one does not.
+	_ctx["lat_size"] = _grid.cell_size
 	_ctx["core_radius"] = _grid.core_radius     # groundwater aquifer needs the shell geometry for cell elevation
 	_ctx["depth"] = _grid.depth
 	_ctx["sea_radius"] = _field.sphere_grid().core_radius   # placeholder; overridden by set_sea_radius

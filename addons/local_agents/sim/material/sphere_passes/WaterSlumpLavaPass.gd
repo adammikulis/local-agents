@@ -40,6 +40,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var nbr_rid: RID = bufs.get("nbr", RID())
 	var larc_rid: RID = bufs.get("link_arc", RID())
 	var partner_rid: RID = bufs.get("link_partner", RID())
+	var shell_rid: RID = bufs.get("shell", RID())
 	var temp_pair: Array = bufs.get("temp", [RID(), RID()])
 
 	_sets = []
@@ -52,6 +53,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			_sets[mi][p] = _build_set(_flow_shader, [
 				[0, pair[p]], [1, pair[back]], [2, _send], [3, solid_rid],
 				[5, temp_pair[p]], [15, nbr_rid], [16, larc_rid], [17, partner_rid],
+				[39, shell_rid],
 			])
 
 
@@ -59,10 +61,8 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	if _rd == null:
 		return
 	var depth: int = maxi(int(ctx.get("depth", 1)), 1)
-	var core_radius: float = float(ctx.get("core_radius", 0.0))
-	var cell_size: float = float(ctx.get("cell_size", 1.0))
 	for mi in MATERIALS.size():
-		_two_pass(rd, cl, _sets[mi][parity], cc, groups, MATERIALS[mi], depth, core_radius, cell_size)
+		_two_pass(rd, cl, _sets[mi][parity], cc, groups, MATERIALS[mi], depth)
 
 
 func dispose(rd: RenderingDevice) -> void:
@@ -83,31 +83,28 @@ func dispose(rd: RenderingDevice) -> void:
 # --- helpers ------------------------------------------------------------------
 
 func _two_pass(rd: RenderingDevice, cl: int, uset: RID, cc: int, groups: int, mat: Dictionary,
-		depth: int, core_radius: float, cell_size: float) -> void:
+		depth: int) -> void:
 	for pass_id in 2:
 		rd.compute_list_bind_compute_pipeline(cl, _flow_pipe)
 		rd.compute_list_bind_uniform_set(cl, uset, 0)
-		var pc: PackedByteArray = _pc(cc, pass_id, mat, depth, core_radius, cell_size)
+		var pc: PackedByteArray = _pc(cc, pass_id, mat, depth)
 		rd.compute_list_set_push_constant(cl, pc, pc.size())
 		rd.compute_list_dispatch(cl, groups, 1, 1)
 		rd.compute_list_add_barrier(cl)
 
 
-## { cell_count, pass_id, depth, core_radius, cell_size, max_flow, min_flow, min_mass, lateral, repose }
-func _pc(cc: int, pass_id: int, mat: Dictionary, depth: int, core_radius: float,
-		cell_size: float) -> PackedByteArray:
+## { cell_count, pass_id, depth, max_flow, min_flow, min_mass, lateral, repose }
+func _pc(cc: int, pass_id: int, mat: Dictionary, depth: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(40)
+	pc.resize(32)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, depth)
-	pc.encode_float(12, core_radius)
-	pc.encode_float(16, cell_size)
-	pc.encode_float(20, float(mat["max_flow"]))
-	pc.encode_float(24, MIN_FLOW)
-	pc.encode_float(28, MIN_MASS)
-	pc.encode_float(32, float(mat["lateral"]))
-	pc.encode_float(36, float(mat["repose"]))
+	pc.encode_float(12, float(mat["max_flow"]))
+	pc.encode_float(16, MIN_FLOW)
+	pc.encode_float(20, MIN_MASS)
+	pc.encode_float(24, float(mat["lateral"]))
+	pc.encode_float(28, float(mat["repose"]))
 	return pc
 
 

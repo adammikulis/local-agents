@@ -21,13 +21,15 @@ layout(set = 0, binding = 16, std430) restrict readonly buffer LinkTan { float l
 layout(push_constant, std430) uniform Params {
 	uint surf_count;     // number of COLUMNS = cell_count / depth (this kernel's thread count)
 	uint depth;          // radial shells per column
-	float core_radius;   // inner radius of shell 0
-	float cell_size;     // radial cell height, and the lateral spacing used for the CFL number
+	float lat_size;      // LATERAL spacing, for the CFL number only
+	float dr_ref;        // reference radial thickness the column weights below are relative to
 	float sea_radius;    // sea shell radius — the atmosphere's floor over ocean
 	float dt;            // STEP_DT
 	uint step_index;     // 0 => seed the standard atmosphere (the channel starts at all-zero)
 	uint pad0;
 } params;
+
+#include "shell.glsli"
 
 // --- air/pressure model -------------------------------------------------------------------------------
 // LAPhysical.SCALE_HEIGHT_PER_K_MODEL = DRY_AIR_GAS_CONSTANT_J_KGK / (STANDARD_GRAVITY_M_S2 *
@@ -70,7 +72,7 @@ void main() {
 	int r_top = int(depth) - 1;
 	int r_bot = int(depth);          // depth => empty atmosphere
 	for (int r = r_top; r >= 0; --r) {
-		float radius = params.core_radius + (float(r) + 0.5) * params.cell_size;
+		float radius = shell_mid(uint(r));
 		if (!is_air(base + uint(r), radius)) {
 			break;
 		}
@@ -92,12 +94,12 @@ void main() {
 	for (int r = r_bot + 1; r <= r_top; ++r) {
 		float t_mid = 0.5 * (temp[base + uint(r)] + temp[base + uint(r - 1)]) + T0_K;
 		float h_scale = H_PER_KELVIN * clamp(t_mid, T_MIN_K, T_MAX_K);
-		w *= exp(-params.cell_size / h_scale);
+		w *= exp(-shell_d_in(uint(r)) / h_scale);
 		sum_w += w;
 	}
 
 	// --- WALK 3: current column mass, and the vertically-integrated upwind mass flux through the 4 faces. ---
-	float cfl = params.dt / params.cell_size;
+	float cfl = params.dt / params.lat_size;
 	float m_col = 0.0;
 	float flux_out = 0.0;
 	float flux_in = 0.0;
@@ -120,7 +122,7 @@ void main() {
 	// The seed integrates the reference profile from THIS column's own floor, so a column whose ground stands
 	float m_new;
 	if (params.step_index == 0u) {
-		float z_bot = params.core_radius + (float(r_bot) + 0.5) * params.cell_size;
+		float z_bot = shell_mid(uint(r_bot));
 		m_new = AIR_DENS_REF * exp(-(z_bot - params.sea_radius) / H_REF) * sum_w;
 	} else {
 		m_new = max(m_col + flux_in - flux_out, 0.0);
@@ -133,7 +135,7 @@ void main() {
 	for (int r = r_bot + 1; r <= r_top; ++r) {
 		float t_mid = 0.5 * (temp[base + uint(r)] + temp[base + uint(r - 1)]) + T0_K;
 		float h_scale = H_PER_KELVIN * clamp(t_mid, T_MIN_K, T_MAX_K);
-		w *= exp(-params.cell_size / h_scale);
+		w *= exp(-shell_d_in(uint(r)) / h_scale);
 		air_out[base + uint(r)] = m_new * w * inv_sum;
 	}
 
@@ -142,13 +144,14 @@ void main() {
 	for (int r = r_top; r >= r_bot; --r) {
 		float a = air_out[base + uint(r)];
 		// PASCALS: g * rho_air * (cell height in metres) * (air-units above, plus half this cell's own).
-		pressure[base + uint(r)] = GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * (params.cell_size * METRES_PER_MODEL_UNIT)
-			* (above + 0.5 * a);
-		above += a;
+		float wr = shell_dr(uint(r)) / params.dr_ref;
+		pressure[base + uint(r)] = GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * (params.dr_ref * METRES_PER_MODEL_UNIT)
+			* (above + 0.5 * a * wr);
+		above += a * wr;
 	}
 	// Everything below the atmosphere (rock, ocean interior, caves) holds no air and carries the column's
 	// surface pressure, so the horizontal field stays continuous across the sea floor.
-	float p_surf = GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * (params.cell_size * METRES_PER_MODEL_UNIT) * above;
+	float p_surf = GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * (params.dr_ref * METRES_PER_MODEL_UNIT) * above;
 	for (int r = r_bot - 1; r >= 0; --r) {
 		air_out[base + uint(r)] = 0.0;
 		pressure[base + uint(r)] = p_surf;

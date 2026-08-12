@@ -25,10 +25,20 @@ const _FACE_U: Array[Vector3] = [Vector3(0,1,0), Vector3(0,1,0), Vector3(0,0,-1)
 var res: int = 0
 var depth: int = 0
 var core_radius: float = 0.0
-var cell_size: float = 0.0
+var cell_size: float = 0.0       # MEAN radial thickness; equals every shell's only when `shells_uniform`
 var surf_count: int = 0          # FACES*res*res
 var cell_count: int = 0          # surf_count*depth
 var center: Vector3 = Vector3.ZERO
+
+# RADIAL SHELL TABLE. `cell_size` is one number for the whole column; these are per shell, so the grid can be
+# graded (thin near the surface, thick aloft and at depth) without every consumer assuming a constant step.
+var shells_uniform: bool = true
+var shell_dr: PackedFloat32Array = PackedFloat32Array()      # depth   : radial thickness of shell r
+var shell_mid: PackedFloat32Array = PackedFloat32Array()     # depth   : radius of shell r's centre
+var shell_face: PackedFloat32Array = PackedFloat32Array()    # depth+1 : shell boundary radii, inward first
+var shell_d_out: PackedFloat32Array = PackedFloat32Array()   # depth   : centre-to-centre run to r+1
+var shell_d_in: PackedFloat32Array = PackedFloat32Array()    # depth   : centre-to-centre run to r-1
+var shell_vol: PackedFloat32Array = PackedFloat32Array()     # depth   : cell volume per unit solid angle
 
 var _dir: PackedVector3Array = PackedVector3Array()        # surf_count unit surface directions
 var surf_nbr: PackedInt32Array = PackedInt32Array()        # surf_count*4 : [-a,+a,-b,+b] neighbour surf index
@@ -58,8 +68,10 @@ func _surf_idx(f: int, i: int, j: int) -> int:
 	return (f * res + i) * res + j
 
 
-## Build the grid + tables. res = cells per face edge, depth = radial layers.
-func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p_center: Vector3 = Vector3.ZERO) -> void:
+## Build the grid + tables. res = cells per face edge, depth = radial layers. `p_shell_dr`, when it carries
+## exactly `p_depth` positive entries, grades the shells and `p_cell_size` becomes their mean.
+func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p_center: Vector3 = Vector3.ZERO,
+		p_shell_dr: PackedFloat32Array = PackedFloat32Array()) -> void:
 	res = p_res
 	depth = p_depth
 	core_radius = p_core_radius
@@ -67,6 +79,7 @@ func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p
 	center = p_center
 	surf_count = FACES * res * res
 	cell_count = surf_count * depth
+	_build_shells(p_shell_dr)
 
 	# 1) Surface directions (cell CENTRES).
 	_dir.resize(surf_count)
@@ -110,6 +123,104 @@ func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p
 			for g in 4:
 				neighbours[c * 6 + N_A0 + lateral_slot[s * 4 + g]] = surf_nbr[s * 4 + g] * depth + r
 	_build_link_partner()
+
+
+## The radial tables. An empty or wrong-length profile is the UNIFORM grid, and its centres are formed by the
+## same expression the kernels used before this table existed, so a uniform build reproduces them exactly.
+func _build_shells(p_shell_dr: PackedFloat32Array) -> void:
+	shells_uniform = p_shell_dr.size() != depth
+	if not shells_uniform:
+		for r in depth:
+			if p_shell_dr[r] <= 0.0:
+				shells_uniform = true
+				break
+	shell_dr.resize(depth)
+	shell_mid.resize(depth)
+	shell_face.resize(depth + 1)
+	shell_d_out.resize(depth)
+	shell_d_in.resize(depth)
+	shell_vol.resize(depth)
+	shell_face[0] = core_radius
+	if shells_uniform:
+		for r in depth:
+			shell_dr[r] = cell_size
+			shell_mid[r] = core_radius + (float(r) + 0.5) * cell_size
+			shell_face[r + 1] = core_radius + float(r + 1) * cell_size
+			shell_d_out[r] = cell_size
+			shell_d_in[r] = cell_size
+	else:
+		var span: float = 0.0
+		for r in depth:
+			shell_dr[r] = p_shell_dr[r]
+			shell_face[r + 1] = shell_face[r] + p_shell_dr[r]
+			shell_mid[r] = shell_face[r] + p_shell_dr[r] * 0.5
+			span += p_shell_dr[r]
+		cell_size = span / float(depth)
+	for r in depth:
+		if not shells_uniform:
+			shell_d_out[r] = (shell_mid[r + 1] - shell_mid[r]) if r < depth - 1 else shell_dr[r]
+			shell_d_in[r] = (shell_mid[r] - shell_mid[r - 1]) if r > 0 else shell_dr[r]
+		var lo: float = shell_face[r]
+		var hi: float = shell_face[r + 1]
+		shell_vol[r] = (hi * hi * hi - lo * lo * lo) / 3.0
+
+
+## Thinnest (`want_max` false) or thickest shell in the table.
+func _dr_extreme(want_max: bool) -> float:
+	if depth <= 0:
+		return 0.0
+	var best: float = shell_dr[0]
+	for r in depth:
+		best = maxf(best, shell_dr[r]) if want_max else minf(best, shell_dr[r])
+	return best
+
+
+## Total radial span of the shell, from the core boundary to space.
+func shell_span() -> float:
+	return shell_face[depth] - core_radius if depth > 0 else 0.0
+
+
+## Radial layer containing `radius`, or -1 outside the shell. Boundary search, so it answers a graded profile
+## and a uniform one the same way.
+func shell_of(radius: float) -> int:
+	if depth <= 0 or radius < shell_face[0] or radius >= shell_face[depth]:
+		return -1
+	var lo: int = 0
+	var hi: int = depth - 1
+	while lo < hi:
+		var mid: int = (lo + hi + 1) / 2
+		if radius >= shell_face[mid]:
+			lo = mid
+		else:
+			hi = mid - 1
+	return lo
+
+
+## Nearest shell BOUNDARY index to `radius`, 0..depth. A different question from `shell_of`, which answers
+## which cell contains the radius; a water LEVEL is a face, a cell index is not.
+func face_of(radius: float) -> int:
+	if depth <= 0:
+		return 0
+	var best: int = 0
+	var best_d: float = absf(shell_face[0] - radius)
+	for i in range(1, depth + 1):
+		var d: float = absf(shell_face[i] - radius)
+		if d < best_d:
+			best_d = d
+			best = i
+	return best
+
+
+## The shell table flattened for the GPU: `SHELL_STRIDE` floats per shell, in `shell.glsli`'s field order.
+func shell_table() -> PackedFloat32Array:
+	var out: PackedFloat32Array = PackedFloat32Array()
+	out.resize(depth * 4)
+	for r in depth:
+		out[r * 4 + 0] = shell_dr[r]
+		out[r * 4 + 1] = shell_mid[r]
+		out[r * 4 + 2] = shell_d_out[r]
+		out[r * 4 + 3] = shell_d_in[r]
+	return out
 
 
 ## Resolve each link to the flat slot index that answers it. Derived, never assumed: it searches the
@@ -467,23 +578,23 @@ func surf_dir(s: int) -> Vector3:
 func cell_world_pos(c: int) -> Vector3:
 	var s: int = c / depth
 	var r: int = c % depth
-	return center + _dir[s] * (core_radius + (float(r) + 0.5) * cell_size)
+	return center + _dir[s] * shell_mid[r]
 
 ## Outward radial unit at a cell (its surface direction) — used by the GPU for per-cell solar + gravity.
 func cell_radial(c: int) -> Vector3:
 	return _dir[c / depth]
 
 
-## WORLD → nearest cell (the cubed-sphere replacement for the box grid's `_col_i`/`_idx`). O(1): inverse
-## gnomonic picks the face by the dominant axis, projects to face-local (a,b) → (i,j); the radius picks the
-## radial layer. Returns -1 if the point is outside the shell [core_radius, core_radius+depth*cell_size].
+## WORLD → nearest cell (the cubed-sphere replacement for the box grid's `_col_i`/`_idx`). Inverse gnomonic
+## picks the face by the dominant axis, projects to face-local (a,b) → (i,j); `shell_of` picks the radial
+## layer. Returns -1 if the point is outside the shell.
 func world_to_cell(world_pos: Vector3) -> int:
 	var rel: Vector3 = world_pos - center
 	var radius: float = rel.length()
 	if radius < 0.0001:
 		return -1
-	var rr: int = int(floor((radius - core_radius) / cell_size))
-	if rr < 0 or rr >= depth:
+	var rr: int = shell_of(radius)
+	if rr < 0:
 		return -1
 	var dir: Vector3 = rel / radius
 	var f: int = _face_of(dir)
@@ -559,6 +670,8 @@ func validate() -> Dictionary:
 		"closed": closed, "symmetric": symmetric, "errors": errors,
 		"reciprocal": non_recip == 0, "non_reciprocal": non_recip, "lateral_bends": lateral_bends,
 		"surf_count": surf_count, "cell_count": cell_count,
+		"shells_uniform": shells_uniform, "shell_span": shell_span(),
+		"shell_dr_min": _dr_extreme(false), "shell_dr_max": _dr_extreme(true),
 		"min_adj_dot": min_dot, "max_adj_dot": max_dot,
 		"tangent_handed_min": handed_min, "face_handed_min": face_handed_min,
 	}

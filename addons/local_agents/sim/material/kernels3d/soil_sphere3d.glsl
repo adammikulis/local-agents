@@ -25,13 +25,19 @@ layout(push_constant, std430) uniform Params {
 	uint pass_id;      // 0 = compute transfers → send, 1 = apply
 	uint depth;        // radial shells per column (cell = col*depth + r)
 	uint pad0;
-	float core_radius;
-	float cell_size;
+	float lat_size;    // LATERAL run between column centres; the radial runs come from the shell table
 	float shell_m;     // REAL metres one regolith shell stands for (LAPhysical.GROUNDWATER_CIRCULATION_M /
 	                   // REGOLITH_CELLS) — the same subsurface scale LAMaterialFieldGeotherm3D derives its
 	                   // gradient from, so the aquifer and the geotherm measure depth in one set of metres.
 	float step_s;      // REAL seconds one field step stands for (LAMaterialFieldSphereStep3D)
 } params;
+
+#include "shell.glsli"
+
+// Run to the neighbour in slot `d`: its own radial thickness radially, the lateral spacing sideways.
+float run_to(uint r, uint d) {
+	return ((d == N_IN) || (d == N_OUT)) ? shell_run(r, d) : params.lat_size;
+}
 
 // --- PERMEABILITY IS PORE GEOMETRY, NOT A NUMBER SOMEBODY PICKED -------------------------------------------
 // a real flux — conduct = K * step_seconds / shell_metres — it means K = 4.05 m/s, which is twenty-six times
@@ -129,9 +135,9 @@ const uint DBG_SLOTS = 21u;
 #define DBG_SPRING_FREECOL 19u // exf into an outlet with >= 3 open cells above it (sea / lake / deep water)
 
 float head_of(int c, float s, float cap) {
-	int r = c % int(params.depth);
-	float elev = params.core_radius + (float(r) + 0.5) * params.cell_size;
-	float table = clamp(s / max(cap, 1e-6), 0.0, 1.0) * params.cell_size;   // water-table height inside the cell
+	uint r = uint(c) % params.depth;
+	float elev = shell_mid(r);
+	float table = clamp(s / max(cap, 1e-6), 0.0, 1.0) * shell_dr(r);   // water-table height inside the cell
 	return elev + table;
 }
 
@@ -167,6 +173,7 @@ void main() {
 			if (s <= 0.0) {
 				return;
 			}
+			uint my_r = g % params.depth;
 			float my_cap = porosity_of(idx);
 			float my_conduct = conduct_of(idx, my_cap);
 			float my_head = head_of(idx, s, my_cap);
@@ -187,7 +194,7 @@ void main() {
 					float nh = head_of(n, soil_in[n], n_cap);
 					float dh = my_head - nh;
 					if (dh > 0.0) {
-						float grad = dh / max(params.cell_size, 1e-6);
+						float grad = dh / max(run_to(my_r, uint(d)), 1e-6);
 						// UPSTREAM weighting: the DONOR's rock is the one the water has to move through.
 						float flow = min(my_conduct * kr * grad, max(0.0, n_cap - soil_in[n]));
 						if (flow > 0.0) {
@@ -197,14 +204,12 @@ void main() {
 						}
 					}
 				} else if (solid[n] == 0.0) {
-					int nr = n % int(params.depth);
-					float open_floor = params.core_radius + (float(nr) + 0.5) * params.cell_size;
-					float open_elev = open_floor + water[n] * params.cell_size;
+					uint nr = uint(n) % params.depth;
+					float open_elev = shell_mid(nr) + water[n] * shell_dr(nr);
 					float exf_head = my_head - open_elev;
 					if (exf_head > 0.0) {
 						// remaining = MAX_FLOW_FRAC*s <= 0.21 and min() picked the stability cap EVERY time.
-						float exf = my_conduct * kr * (exf_head / params.cell_size);
-						//     exf_head = table + (1 - w)*cell_size >= table > 0
+						float exf = my_conduct * kr * (exf_head / run_to(my_r, uint(d)));
 						exf = min(exf, max(0.0, MAX_MASS - water[n]));
 						if (exf > 0.0) {
 							want[d] = exf;

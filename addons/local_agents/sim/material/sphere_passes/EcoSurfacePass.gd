@@ -71,6 +71,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var vel_z_rid: RID = _single(bufs, "vel_z")
 	var vel_y_rid: RID = _single(bufs, "vel_y")
 	var ltan_rid: RID = _single(bufs, "link_tan")
+	var shell_rid: RID = _single(bufs, "shell")
 	var detritus_rid: RID = _single(bufs, "detritus")
 	var fungus_fert_rid: RID = _single(bufs, "fungus_fert")  # per-cell fertility scratch (written by ReactionsPass' decompose record, reduced by fungus_fert)
 
@@ -94,6 +95,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_scent_transport_set[p] = _build_set(_scent_transport_shader, [
 			[0, scent_pair[p]], [1, scent_pair[back]], [2, scent_pair[back]], [3, solid_rid],
 			[4, vel_x_rid], [5, vel_y_rid], [6, vel_z_rid], [15, nbr_rid], [17, partner_rid], [16, ltan_rid],
+			[39, shell_rid],
 		])
 
 		_scent_fert_set[p] = _build_set(_scent_fert_shader, [
@@ -144,13 +146,14 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 		return
 	var precip: float = float(ctx.get("precip", 0.0))
 	var depth: int = maxi(int(ctx.get("depth", 1)), 1)
-	var cell_m: float = float(ctx.get("cell_size", 1.0)) * LAPhysical.METRES_PER_MODEL_UNIT
+	var lat_size: float = float(ctx.get("lat_size", 1.0))
+	var cell_m: float = lat_size * LAPhysical.METRES_PER_MODEL_UNIT
 	var k_courant: float = LAMaterialFieldSphereStep3D.real_seconds_per_step() / cell_m if cell_m != 0.0 else 0.0
 
 	# Order: scent_transport -> scent_fert -> fungus -> fungus_fert -> snowice -> shock.
 	for ch in SCENT_DECAY.size():
 		_run(rd, cl, _scent_transport_pipe, _scent_transport_set[parity],
-				_pc_tracer(cc, depth, k_courant, 0.0, SCENT_DIFFUSE,
+				_pc_tracer(cc, depth, k_courant, lat_size, 0.0, SCENT_DIFFUSE,
 						cc * ch, float(SCENT_DECAY[ch]) + precip * SCENT_RAIN_WASH), groups)
 	_run(rd, cl, _scent_fert_pipe, _scent_fert_set[parity], _pc_precip16(cc, precip), groups)
 	_run(rd, cl, _fungus_pipe, _fungus_set[parity], _pc_precip32(cc, precip), groups)
@@ -196,10 +199,10 @@ func dispose(rd: RenderingDevice) -> void:
 
 
 # tracer_transport push: { cell_count, depth, k, settle_v, diffuse, deposit, offset, decay }.
-func _pc_tracer(cc: int, depth: int, k: float, settle_v: float, diffuse: float,
+func _pc_tracer(cc: int, depth: int, k: float, lat_ref: float, settle_v: float, diffuse: float,
 		offset: int, decay: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(32)
+	pc.resize(36)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, depth)
 	pc.encode_float(8, k)
@@ -208,6 +211,7 @@ func _pc_tracer(cc: int, depth: int, k: float, settle_v: float, diffuse: float,
 	pc.encode_u32(20, 0)
 	pc.encode_u32(24, offset)
 	pc.encode_float(28, decay)
+	pc.encode_float(32, lat_ref)
 	return pc
 
 

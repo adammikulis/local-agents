@@ -32,6 +32,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var radial_rid: RID = bufs.get("radial", RID())
 	var pos_rid: RID = bufs.get("pos", RID())
 	var nbr_rid: RID = bufs.get("nbr", RID())
+	var shell_rid: RID = bufs.get("shell", RID())
 	var partner_rid: RID = bufs.get("link_partner", RID())
 	var plates_rid: RID = bufs.get("plates", RID())
 	var rock_rid: RID = bufs.get("rock_fill", RID())
@@ -43,10 +44,12 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var water_pair: Array = bufs.get("water", [RID(), RID()])
 	for p in 2:
 		_set_rock[p] = _build_set([
-			[0, rock_rid], [1, send_rid], [2, radial_rid], [3, pos_rid], [4, nbr_rid], [17, partner_rid], [5, plates_rid],
+			[0, rock_rid], [1, send_rid], [2, radial_rid], [3, pos_rid], [4, nbr_rid], [17, partner_rid],
+			[39, shell_rid], [5, plates_rid],
 			[6, water_pair[p]], [7, rock_rid]])
 		_set_sed[p] = _build_set([
-			[0, sed_pair[p]], [1, send_rid], [2, radial_rid], [3, pos_rid], [4, nbr_rid], [17, partner_rid], [5, plates_rid],
+			[0, sed_pair[p]], [1, send_rid], [2, radial_rid], [3, pos_rid], [4, nbr_rid], [17, partner_rid],
+			[39, shell_rid], [5, plates_rid],
 			[6, water_pair[p]], [7, rock_rid]])
 
 
@@ -66,7 +69,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	if n_plates > 0 and rock_set.is_valid():
 		rd.compute_list_bind_compute_pipeline(cl, _pipe)
 		rd.compute_list_bind_uniform_set(cl, rock_set, 0)
-		rd.compute_list_set_push_constant(cl, _push(ctx, cc, 2, n_plates), 32)
+		rd.compute_list_set_push_constant(cl, _push(ctx, cc, 2, n_plates), 28)
 		rd.compute_list_dispatch(cl, groups, 1, 1)
 		rd.compute_list_add_barrier(cl)
 
@@ -99,22 +102,21 @@ func _carry(rd: RenderingDevice, cl: int, uset: RID, ctx: Dictionary, cc: int, g
 	for pass_id in 2:
 		rd.compute_list_bind_compute_pipeline(cl, _pipe)
 		rd.compute_list_bind_uniform_set(cl, uset, 0)
-		rd.compute_list_set_push_constant(cl, _push(ctx, cc, pass_id, n_plates), 32)
+		rd.compute_list_set_push_constant(cl, _push(ctx, cc, pass_id, n_plates), 28)
 		rd.compute_list_dispatch(cl, groups, 1, 1)
 		rd.compute_list_add_barrier(cl)
 
 
 func _push(ctx: Dictionary, cc: int, pass_id: int, n_plates: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(32)
+	pc.resize(28)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, maxi(n_plates, 0))
 	pc.encode_u32(12, maxi(int(ctx.get("depth", 1)), 1))
 	pc.encode_float(16, float(ctx.get("dt", 0.1)))
-	pc.encode_float(20, float(ctx.get("cell_size", 1.0)))
-	pc.encode_float(24, float(ctx.get("core_radius", 0.0)))
-	pc.encode_float(28, float(ctx.get("max_mass", 1.0)))
+	pc.encode_float(20, float(ctx.get("lat_size", 1.0)))
+	pc.encode_float(24, float(ctx.get("max_mass", 1.0)))
 	return pc
 
 

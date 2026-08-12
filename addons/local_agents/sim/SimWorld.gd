@@ -150,7 +150,11 @@ func _build_sphere() -> bool:
 	_material.name = "MaterialField"
 	add_child(_material)
 	var grid: RefCounted = SphereGridScript.new()
-	grid.build(grid_res, grid_depth, 170.0 * scale, 8.0 * scale, _body.center())
+	var core_r: float = 170.0 * scale
+	var mean_dr: float = 8.0 * scale
+	var surf_shell: int = clampi(int((_terrain.sea_radius() - core_r) / mean_dr), 0, grid_depth - 1)
+	grid.build(grid_res, grid_depth, core_r, mean_dr, _body.center(),
+		LASphereGridProfiles.from_env(grid_depth, mean_dr, surf_shell))
 	_material.setup_sphere(grid, _terrain)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
@@ -220,7 +224,8 @@ func _scatter_flat(counts: Dictionary) -> void:
 		var kind: String = String(kind_v)
 		var n: int = int(counts[kind_v])
 		for i in range(n):
-			var p: Vector3 = Vector3(randf_range(-hx, hx), ground_y + 2.0, randf_range(-hz, hz))
+			var rng: LASimRng = LASimRng.for_domain("life")
+			var p: Vector3 = Vector3(rng.randf_range(-hx, hx), ground_y + 2.0, rng.randf_range(-hz, hz))
 			_ecology.spawn(kind, p)
 
 

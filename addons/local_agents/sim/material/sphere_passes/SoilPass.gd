@@ -29,6 +29,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var solid_rid: RID = bufs.get("solid", RID())
 	var send_rid: RID = bufs.get("send", RID())
 	var nbr_rid: RID = bufs.get("nbr", RID())
+	var shell_rid: RID = bufs.get("shell", RID())
 	var partner_rid: RID = bufs.get("link_partner", RID())
 	var regolith_rid: RID = bufs.get("regolith", RID())
 	var grain_rid: RID = bufs.get("grain", RID())
@@ -50,7 +51,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[8, grain_rid],            # Grain diameter (m) — Kozeny-Carman input, with the Athy porosity profile
 			[9, dbg_rid],              # SoilDbg — per-leg budget probe (LAMaterialSphereGPU3D.SOIL_DBG_SLOTS)
 			[11, bufs["porosity"]],    # Porosity — phi, published for every other consumer of rock_fill
-			[15, nbr_rid], [17, partner_rid],             # Neigh table
+			[15, nbr_rid], [17, partner_rid], [39, shell_rid],   # Neigh + shell tables
 		])
 
 
@@ -59,19 +60,18 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 		return                                  # no device, or the kernel failed to compile (setup push_error'd)
 	var uset: RID = _set[parity]
 	var depth: int = int(ctx.get("depth", 20))
-	var core_r: float = float(ctx.get("core_radius", 170.0))
-	var cell_size: float = float(ctx.get("cell_size", 8.0))
+	var lat_size: float = float(ctx.get("lat_size", 8.0))
 	# PASS 0 — compute groundwater/infiltration/exfiltration transfers into `send`.
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, uset, 0)
-	var pc0: PackedByteArray = _pc(cc, 0, depth, core_r, cell_size)
+	var pc0: PackedByteArray = _pc(cc, 0, depth, lat_size)
 	rd.compute_list_set_push_constant(cl, pc0, pc0.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)
 	# PASS 1 — apply.
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, uset, 0)
-	var pc1: PackedByteArray = _pc(cc, 1, depth, core_r, cell_size)
+	var pc1: PackedByteArray = _pc(cc, 1, depth, lat_size)
 	rd.compute_list_set_push_constant(cl, pc1, pc1.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)
@@ -103,11 +103,10 @@ func _build_set(shader: RID, entries: Array) -> RID:
 	return _rd.uniform_set_create(uniforms, shader, 0)
 
 
-func _pc(cc: int, pass_id: int, depth: int, core_r: float, cell_size: float) -> PackedByteArray:
-	# std430 push constant: 4x uint (cell_count, pass_id, depth, pad) then 4x float (core_radius, cell_size,
-	# conductivity in m/s from pore geometry and land it in the substrate's per-step cell-fill unit. Both are
+## std430: 4x uint (cell_count, pass_id, depth, pad) then 3x float (lat_size, shell_m, step_s).
+func _pc(cc: int, pass_id: int, depth: int, lat_size: float) -> PackedByteArray:
 	var out: PackedByteArray = PackedInt32Array([cc, pass_id, depth, 0]).to_byte_array()
-	out.append_array(PackedFloat32Array([core_r, cell_size,
+	out.append_array(PackedFloat32Array([lat_size,
 		LAMaterialFieldRegolith3D.shell_metres(),
 		LAMaterialFieldSphereStep3D.real_seconds_per_step()]).to_byte_array())
 	return out

@@ -21,14 +21,14 @@ layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint pass_id;         // 0 = outflow, 1 = inflow/apply
 	uint depth;           // radial shells per column
-	float core_radius;    // shell floor; cell radius = core_radius + (layer + 0.5) * cell_size
-	float cell_size;      // radial thickness, and the RISE one unit of mass represents
 	float max_flow;
 	float min_flow;
 	float min_mass;
 	float lateral_frac;
 	float repose_tan;     // 0 = level out freely
 } params;
+
+#include "shell.glsli"
 
 const float MAX_MASS = 1.0;
 const float MAX_COMPRESS = 0.02;
@@ -81,7 +81,7 @@ void main() {
 		// `link_arc[column*4 + l]` for N_LAT0 + l, because the table is filled as
 		uint column = gidx / max(params.depth, 1u);
 		uint layer = gidx % max(params.depth, 1u);
-		float radius = params.core_radius + (float(layer) + 0.5) * params.cell_size;
+		float radius = shell_mid(layer);
 		for (int d = 0; d < 4; d++) {
 			if (remaining < params.min_mass) {
 				break;
@@ -96,7 +96,7 @@ void main() {
 			float movable = diff;
 			if (params.repose_tan > 0.0) {
 				float run = larc[column * 4u + uint(d)] * radius;
-				float thresh = params.repose_tan * run / max(params.cell_size, 1e-6);
+				float thresh = params.repose_tan * run / max(shell_dr(layer), 1e-6);
 				movable = diff - thresh;
 			}
 			if (movable > params.min_flow) {

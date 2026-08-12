@@ -3,7 +3,7 @@
 
 #include "neighbours.glsli"
 
-// r = c % depth and R = core_radius + (r + 0.5) * cell_size, with no per-cell lookup. Advection is DONOR-CELL
+// r = c % depth and R = shell_mid(r), with no per-cell lookup. Advection is DONOR-CELL
 
 layout(local_size_x = 64) in;
 
@@ -27,10 +27,11 @@ layout(push_constant, std430) uniform Params {
 	uint n_plates;     // 0 disables the whole pass (pass 0 sends nothing, pass 1 is then an exact no-op)
 	uint depth;        // radial layers per column — gives a cell its radius from its own index
 	float dt;
-	float cell_size;
-	float core_radius;
+	float lat_size;    // LATERAL spacing, for the Courant number only
 	float max_mass;    // a full cell of one phase (LAMaterialField3D.MAX_MASS); the surplus above it is uplifted
 } params;
+
+#include "shell.glsli"
 
 const float MAX_OUT_FRAC = 0.9;      // never empty a cell in one step (the gather stays exact either way)
 const float MIN_MASS     = 1.0e-6;   // don't bother moving a numerically empty cell
@@ -110,7 +111,7 @@ void main() {
 
 		// This cell's plate velocity: v = omega x r, with r from the cell's own radial layer.
 		vec3 rad = cell_radial(gidx);
-		float R = params.core_radius + (float(gidx % params.depth) + 0.5) * params.cell_size;
+		float R = shell_mid(gidx % params.depth);
 		int k = plate_of(rad);
 		vec3 omega = vec3(plate[uint(k) * 8u + 4u], plate[uint(k) * 8u + 5u], plate[uint(k) * 8u + 6u])
 			* plate[uint(k) * 8u + 3u];
@@ -135,7 +136,7 @@ void main() {
 			if (u <= 0.0) {
 				continue;
 			}
-			float courant = u * params.dt / max(params.cell_size, 1.0e-6);
+			float courant = u * params.dt / max(params.lat_size, 1.0e-6);
 			float face = load;
 			float down = fld[uint(inb)] - load;                 // gradient ahead of the front
 			if (abs(down) > 1.0e-9) {

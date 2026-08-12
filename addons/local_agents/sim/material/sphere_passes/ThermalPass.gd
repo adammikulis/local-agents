@@ -78,6 +78,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# Compacted active-cell list for the lava_phase leg (built by LavaCellListPass earlier in the same step).
 	var active_idx: RID = bufs["active_idx"]
 	var active_args: RID = bufs["active_args"]
+	var shell: RID = bufs["shell"]
 	_active_args = active_args
 
 	for p in 2:
@@ -96,7 +97,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_conduct_set[p] = _make_set(rd, _conduct_shader, [
 			[0, temp_live], [1, _cond_scratch], [2, nbr], [3, solid],
 			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]],
-			[20, lava_back], [21, bufs["fuel"]], [22, bufs["biomass"]], [23, bufs["detritus"]]]
+			[39, shell], [20, lava_back], [21, bufs["fuel"]], [22, bufs["biomass"]],
+			[23, bufs["detritus"]]]
 			+ shared_carriers)
 		_copy_set[p] = _make_set(rd, _copy_shader, [
 			[0, _cond_scratch], [1, temp_live]])
@@ -104,7 +106,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_solar_set[p] = _make_set(rd, _solar_shader, [
 			[0, temp_live], [1, solid], [3, pos],
 			[4, bufs["snow"]], [5, water_back], [6, bufs["rock_fill"]], [7, bufs["pressure"]],
-			[8, _cond_scratch], [14, radial], [15, nbr], [27, bufs["biomass"]],
+			[8, _cond_scratch], [14, radial], [15, nbr], [39, shell], [27, bufs["biomass"]],
 			# 20/21/23 = lava / fuel / detritus for rc_shared.glsli (biomass is already bound at 27 for albedo).
 			[20, lava_back], [21, bufs["fuel"]], [23, bufs["detritus"]]]
 			+ shared_carriers)
@@ -120,7 +122,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# sea floor cooled as if it were surrounded by air instead of by the 4.17e6 J/m3K of the ocean.
 		_lava_phase_set[p] = _make_set(rd, _lava_phase_shader, [
 			[0, lava_back], [1, temp_back], [2, solid],
-			[4, active_idx], [5, active_args], [15, nbr],
+			[4, active_idx], [5, active_args], [15, nbr], [39, shell],
 			[6, bufs["rock_fill"]], [7, water_back], [21, bufs["fuel"]], [22, bufs["biomass"]],
 			[23, bufs["detritus"]], [24, bufs["snow"]]]
 			+ shared_carriers)
@@ -132,13 +134,11 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	var sun_dir: Vector3 = ctx.get("sun_dir", Vector3(0.0, 1.0, 0.0))
 	var sea_radius: float = float(ctx.get("sea_radius", 0.0))
-	var cell_size: float = float(ctx.get("cell_size", 0.0))
-	var dt_over_dx2: float = 0.0
-	if cell_size > 0.0:
-		dt_over_dx2 = _real_seconds_per_step() / (cell_size * cell_size)
+	var depth: int = maxi(int(ctx.get("depth", 1)), 1)
+	var lat_dx: float = float(ctx.get("lat_size", 0.0))
 	var core_boundary_c: float = float(ctx.get("core_boundary_c", 0.0))
 
-	var cond_pc: PackedByteArray = _conduct_pc(cc, core_boundary_c, dt_over_dx2)
+	var cond_pc: PackedByteArray = _conduct_pc(cc, core_boundary_c, _real_seconds_per_step(), depth, lat_dx)
 	rd.compute_list_bind_compute_pipeline(cl, _conduct_pipe)
 	rd.compute_list_bind_uniform_set(cl, _conduct_set[parity], 0)
 	rd.compute_list_set_push_constant(cl, cond_pc, cond_pc.size())
@@ -146,14 +146,15 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	rd.compute_list_add_barrier(cl)          # conducted temp (scratch) visible to the copy-back
 	rd.compute_list_bind_compute_pipeline(cl, _copy_pipe)
 	rd.compute_list_bind_uniform_set(cl, _copy_set[parity], 0)
-	rd.compute_list_set_push_constant(cl, cond_pc, cond_pc.size())
+	var copy_pc: PackedByteArray = _count_pc(cc)
+	rd.compute_list_set_push_constant(cl, copy_pc, copy_pc.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # temp LIVE now carries conduction, feeds solar
 
 	# 1. SOLAR — the terminator, in-place on temp LIVE.
 	rd.compute_list_bind_compute_pipeline(cl, _solar_pipe)
 	rd.compute_list_bind_uniform_set(cl, _solar_set[parity], 0)
-	var solar_pc: PackedByteArray = _solar_pc(cc, sun_dir, sea_radius, _real_seconds_per_step(), cell_size)
+	var solar_pc: PackedByteArray = _solar_pc(cc, sun_dir, sea_radius, _real_seconds_per_step(), depth)
 	rd.compute_list_set_push_constant(cl, solar_pc, solar_pc.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # solar output (temp LIVE) visible to the buoyancy gather
@@ -169,7 +170,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 
 	rd.compute_list_bind_compute_pipeline(cl, _lava_phase_pipe)
 	rd.compute_list_bind_uniform_set(cl, _lava_phase_set[parity], 0)
-	var phase_pc: PackedByteArray = _lava_phase_pc(cc, _real_seconds_per_step(), cell_size)
+	var phase_pc: PackedByteArray = _lava_phase_pc(cc, _real_seconds_per_step(), depth)
 	rd.compute_list_set_push_constant(cl, phase_pc, phase_pc.size())
 	rd.compute_list_dispatch_indirect(cl, _active_args, 0)
 	rd.compute_list_add_barrier(cl)          # post-phase lava/temp visible to the magma snapshot
@@ -247,12 +248,12 @@ func _make_set(rd: RenderingDevice, shader: RID, pairs: Array) -> RID:
 	return rd.uniform_set_create(uniforms, shader, 0)
 
 
-func _solar_pc(cc: int, sun_dir: Vector3, sea_radius: float, dt_s: float, cell_size: float) -> PackedByteArray:
+func _solar_pc(cc: int, sun_dir: Vector3, sea_radius: float, dt_s: float, depth: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(32)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, dt_s)
-	pc.encode_float(8, cell_size)
+	pc.encode_u32(8, depth)
 	pc.encode_u32(12, 0)
 	pc.encode_float(16, sun_dir.x)
 	pc.encode_float(20, sun_dir.y)
@@ -263,13 +264,15 @@ func _solar_pc(cc: int, sun_dir: Vector3, sea_radius: float, dt_s: float, cell_s
 
 
 
-func _conduct_pc(cc: int, core_boundary_c: float, dt_over_dx2: float) -> PackedByteArray:
+func _conduct_pc(cc: int, core_boundary_c: float, dt_s: float, depth: int,
+		lat_dx: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(16)
+	pc.resize(20)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, core_boundary_c)
-	pc.encode_float(8, dt_over_dx2)
-	pc.encode_u32(12, 0)
+	pc.encode_float(8, dt_s)
+	pc.encode_u32(12, depth)
+	pc.encode_float(16, lat_dx)
 	return pc
 
 
@@ -291,12 +294,12 @@ func _count_pc(cc: int) -> PackedByteArray:
 
 
 # exposed faces, which is a FLUX in W/m^2, so turning it into a temperature needs the step's real seconds and
-func _lava_phase_pc(cc: int, dt_s: float, cell_size: float) -> PackedByteArray:
+func _lava_phase_pc(cc: int, dt_s: float, depth: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, dt_s)
-	pc.encode_float(8, cell_size)
+	pc.encode_u32(8, depth)
 	pc.encode_u32(12, 0)
 	return pc
 

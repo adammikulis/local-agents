@@ -15,8 +15,7 @@ const RH_LUSH: float = 1.2           # relative humidity that reads fully lush/j
 var _res: int = 0
 var _depth: int = 0
 var _surf: int = 0
-var _core: float = 0.0
-var _cell: float = 0.0
+var _grid: RefCounted = null
 var _sea: float = 0.0
 
 var _imgs: Array = []
@@ -29,8 +28,7 @@ func setup(grid: RefCounted, sea_r: float) -> void:
 	_res = grid.res
 	_depth = grid.depth
 	_surf = grid.surf_count
-	_core = grid.core_radius
-	_cell = grid.cell_size
+	_grid = grid
 	_sea = sea_r
 	_imgs = []
 	for f in range(6):
@@ -51,13 +49,13 @@ func bake(moisture: PackedFloat32Array, temp: PackedFloat32Array, snow: PackedFl
 	var res: int = _res
 	var rr2: int = res * res
 	# Radial layer nearest the sea shell — the fallback climate cell for an all-void (ocean/sky) column.
-	var sea_r_layer: int = clampi(int((_sea - _core) / _cell), 0, depth - 1)
+	var sea_r_layer: int = clampi(_grid.shell_of(_sea), 0, depth - 1)
 
 	_cell_of.resize(_surf)
 	_rh.resize(_surf)
 	var rh_sum: float = 0.0
 	var land_n: int = 0
-	var land_r_min: int = clampi(int((_sea - _core) / _cell), 0, depth - 1)
+	var land_r_min: int = clampi(_grid.shell_of(_sea), 0, depth - 1)
 	for s in range(_surf):
 		var base: int = s * depth
 		var surf_r: int = -1

@@ -24,9 +24,12 @@ layout(set = 0, binding = 23, std430) restrict readonly buffer Detritus { float 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	float core_boundary_c;
-	float dt_over_dx2;
-	uint pad2;
+	float dt_s;
+	uint depth;
+	float lat_dx;      // lateral centre-to-centre run; the radial runs come from the shell table
 } params;
+
+#include "shell.glsli"
 
 // Conductivities (W/m/K) and volumetric heat capacities (J/m^3/K). GLSL cannot read GDScript, so these are
 const float LAMBDA_ROCK  = 2.5;      // LAPhysical.THERMAL_CONDUCT_ROCK_W_MK
@@ -65,13 +68,19 @@ void main() {
 	float rc_here = rc_of(idx);
 	float lam_here = lambda_of(idx);
 	float delta = 0.0;
+	uint r = idx % max(params.depth, 1u);
+	float lat_dx2 = params.dt_s / max(params.lat_dx * params.lat_dx, 1e-12);
 	for (int d = 0; d < 6; d++) {
-		int nb = nbr[idx * N_SLOTS + uint(d)];
+		uint slot = uint(d);
+		bool radial = (slot == N_IN) || (slot == N_OUT);
+		float run = radial ? shell_run(r, slot) : params.lat_dx;
+		float dt_over_dx2 = radial ? (params.dt_s / max(run * run, 1e-12)) : lat_dx2;
+		int nb = nbr[idx * N_SLOTS + slot];
 		if (nb < 0) {
 			// The one boundary that is not empty space: the radial neighbour has no inward neighbour only at r = 0, the
-			if (d == 0 && params.core_boundary_c > 0.0) {
+			if (slot == N_IN && params.core_boundary_c > 0.0) {
 				float lam_core = 2.0 * lam_here * LAMBDA_ROCK / max(lam_here + LAMBDA_ROCK, 1e-12);
-				delta += (lam_core * params.dt_over_dx2 / rc_here) * (params.core_boundary_c - here);
+				delta += (lam_core * dt_over_dx2 / rc_here) * (params.core_boundary_c - here);
 			}
 			continue;
 		}
@@ -79,7 +88,7 @@ void main() {
 		float lam_nb = lambda_of(uint(nb));
 		float lam_i = 2.0 * lam_here * lam_nb / max(lam_here + lam_nb, 1e-12);
 		// dT_here = lambda_i * (T_nb - T_here) * dt / (rho*c_here * dx^2). The receiving cell's OWN capacity
-		delta += (lam_i * params.dt_over_dx2 / rc_here) * (temp_in[nb] - here);
+		delta += (lam_i * dt_over_dx2 / rc_here) * (temp_in[nb] - here);
 	}
 	temp_out[idx] = here + delta;
 }

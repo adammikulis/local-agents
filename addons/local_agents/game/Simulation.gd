@@ -25,11 +25,10 @@ const STAR_POSITION: Vector3 = Vector3(900.0, 320.0, 620.0)
 
 var _terrain = null
 var _actors_root: Node3D = null
-var _spin_rate: float = 0.10
 
 
 ## Wire the world. `opts` carries the planet's shape (LAVoxelWorld's PLANET_* constants) and the
-## cmdline-derived knobs the sim needs: fast_multiplier, spin_axis.
+## cmdline-derived knobs the sim needs: fast_multiplier.
 func build(opts: Dictionary) -> void:
 	_settings_applier.read_settings()
 
@@ -41,7 +40,6 @@ func build(opts: Dictionary) -> void:
 	_body.setup(opts.get("planet", {}))
 	_terrain = _body.terrain()
 	_actors_root = _body.actors_root
-	_body.set_spin_axis(Vector3(opts.get("spin_axis", Vector3.UP)).normalized())
 	# Data-only viewer: godot_voxel streams only around a VoxelViewer, and the field samples that SDF, so
 	# streaming must not depend on the camera.
 	_terrain_viewer.global_position = _body.center()
@@ -69,8 +67,13 @@ func build(opts: Dictionary) -> void:
 func _build_field() -> void:
 	var field_grid: RefCounted = LASphereGrid.new()
 	var scale: float = float(_body.radius()) / 250.0
-	field_grid.build(_settings_applier.grid_res_per_face(), _settings_applier.grid_depth(),
-		170.0 * scale, 8.0 * scale, _body.center())
+	var depth: int = _settings_applier.grid_depth()
+	var core_r: float = 170.0 * scale
+	var mean_dr: float = 8.0 * scale
+	# Surface shell = the one holding the sea, so a graded profile puts its fine cells where the ground is.
+	var surf_shell: int = clampi(int((_terrain.sea_radius() - core_r) / mean_dr), 0, depth - 1)
+	field_grid.build(_settings_applier.grid_res_per_face(), depth, core_r, mean_dr, _body.center(),
+		LASphereGridProfiles.from_env(depth, mean_dr, surf_shell))
 	_validate_grid(field_grid)
 	_material.setup_sphere(field_grid, _terrain)
 	if _material.has_method("sample_solidity"):
@@ -136,12 +139,8 @@ func step(delta: float, overview: bool, farview: bool, auto_meteor: bool, auto_s
 		var centre: Vector3 = _body.center()
 		_ecology.set_sun((_star.global_position - centre).normalized(), centre)
 	if _spawn.is_spawned() and _terrain.is_planet():
-		_body.rotate(_body.spin_axis(), _spin_rate * delta)
+		_body.rotate(_body.spin_axis(), LASimClock.SPIN_RAD_PER_SIM_S * delta)
 	_spawn.try_spawn(overview, farview, auto_meteor, auto_select)
-
-
-func set_spin_rate(rate: float) -> void:
-	_spin_rate = rate
 
 
 func settings_applier() -> LAVoxelSettingsApplier: return _settings_applier
