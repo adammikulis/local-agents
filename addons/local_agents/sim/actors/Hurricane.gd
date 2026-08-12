@@ -2,14 +2,7 @@ class_name LAHurricane
 extends Node3D
 
 
-const LIFETIME_MAX: float = 150.0         # a hurricane is long-lived; ocean fuel keeps it going within this
-const STRENGTH_START: float = 0.5
-const STRENGTH_MAX: float = 1.8
-const DISSIPATE_STRENGTH: float = 0.14
-const SPINUP_TIME: float = 22.0           # slow genesis: grace while Coriolis spins the warm-ocean low up
-const VORT_TO_STRENGTH: float = 0.55      # K: |vorticity| → strength; tuned so a well-fed vortex saturates STRENGTH_MAX
-const STRENGTH_RATE: float = 0.1          # smoothing of strength toward the field-read target
-const WARM_OCEAN_TEMP: float = 16.0       # sea at least this warm counts as fuel (gates the SEEDING)
+const WARM_OCEAN_TEMP: float = 26.5       # °C sea-surface temperature below which tropical cyclogenesis does not occur (Palmén 1948; Gray 1968)
 
 const VORTEX_STEER: float = 0.4
 const VORTEX_PROBE: float = 60.0
@@ -17,17 +10,13 @@ const VORTEX_PROBE: float = 60.0
 const EYE_RADIUS: float = 26.0
 const OUTER_RADIUS: float = 150.0
 const EYEWALL_POINTS: int = 12            # moisture-pump points around the eyewall ring
-const VAPOR_PER_SEC: float = 9.0          # total vapor/s at full strength (spread over the eyewall points)
+const VAPOR_PER_SEC: float = 9.0          # total vapor/s over a fully warm-ocean eyewall (spread over the points)
 const VAPOR_INJECT_R: float = 20.0
 
 const TRACK_SPEED: float = 7.0            # base forward crawl (world u/s)
 const WIND_STEER: float = 0.5
-const PLAY_HALF_EXTENT: float = 290.0
 
 const SPIN_SPEED: float = 1.4             # visual + swirl rotation (rad/s)
-const WIND_FORCE: float = 14.0            # tangential wind speed (world u/s) at strength 1, advecting creatures
-const WIND_INWARD_FRAC: float = 0.15      # slight inward spiral (fraction of the tangential wind)
-const WIND_LIFT_FRAC: float = 0.25        # updraft lift (fraction of the tangential wind)
 const SCARE_INTERVAL: float = 0.8
 
 var _terrain: Object = null
@@ -36,7 +25,6 @@ var _field: Object = null
 
 var _center: Vector3 = Vector3.ZERO
 var _heading: Vector2 = Vector2(1.0, 0.0)
-var _strength: float = STRENGTH_START
 var _age: float = 0.0
 var _spin: float = 0.0
 var _scare_cd: float = 0.0
@@ -67,12 +55,13 @@ func begin(point: Vector3) -> void:
 
 func get_inspector_payload() -> Dictionary:
 	var lines: Array = []
-	var frac: float = _warm_ocean_fraction()
-	lines.append("Status: %s" % ("intensifying (warm sea)" if frac > 0.5 else "weakening (landfall)"))
-	lines.append("Strength: %.0f%%" % (_strength / STRENGTH_MAX * 100.0))
-	lines.append("Spin (vorticity): %.2f" % _core_vorticity())
-	lines.append("Warm-ocean fuel: %.0f%%" % (frac * 100.0))
-	lines.append("Age: %.0fs / %.0fs" % [_age, LIFETIME_MAX])
+	var core: float = _core_vorticity()
+	var ambient: float = _ambient_vorticity()
+	lines.append("Status: %s" % ("vortex (core spins faster than its surroundings)" if core > ambient else "no vortex"))
+	lines.append("Core |curl|: %.4f u/s" % core)
+	lines.append("Surrounding |curl|: %.4f u/s" % ambient)
+	lines.append("Eyewall over %.1f °C sea: %.0f%%" % [WARM_OCEAN_TEMP, _warm_ocean_fraction() * 100.0])
+	lines.append("Age: %.0fs" % _age)
 	return {"title": "Hurricane", "lines": lines}
 
 
@@ -96,22 +85,26 @@ func _warm_ocean_fraction() -> float:
 	return float(warm_ocean) / float(maxi(1, total))
 
 
-# The peak vertical vorticity (air SPIN) of the mesocyclone — sampled at the centre + around the eyewall
-# ring so a broad rotating low reads high even though the eye itself is calm. This is what the seeded
-# warm-ocean low grows via Coriolis, and what the storm's strength now READS.
+# |curl| of the horizontal wind at the eye. Inside the eye and eyewall the flow is near solid-body
+# rotation, so this is where a cyclone's relative vorticity is largest — the eye is calm in WIND, not in spin.
 func _core_vorticity() -> float:
 	if _field == null or not _field.has_method("vorticity_at"):
 		return 0.0
-	var peak: float = absf(_field.vorticity_at(_center))
-	var ring_r: float = (EYE_RADIUS + OUTER_RADIUS) * 0.5
+	return absf(_field.vorticity_at(_center))
+
+
+# Mean |curl| of the air surrounding the storm, sampled on a ring at OUTER_RADIUS. The environment the
+# core is compared against; no constant separates them, only the two readings.
+func _ambient_vorticity() -> float:
+	if _field == null or not _field.has_method("vorticity_at"):
+		return 0.0
+	var total: float = 0.0
 	for i in range(EYEWALL_POINTS):
 		var a: float = TAU * float(i) / float(EYEWALL_POINTS)
-		var px: float = _center.x + cos(a) * ring_r
-		var pz: float = _center.z + sin(a) * ring_r
-		var v: float = absf(_field.vorticity_at(Vector3(px, _center.y, pz)))
-		if v > peak:
-			peak = v
-	return peak
+		var px: float = _center.x + cos(a) * OUTER_RADIUS
+		var pz: float = _center.z + sin(a) * OUTER_RADIUS
+		total += absf(_field.vorticity_at(Vector3(px, _center.y, pz)))
+	return total / float(EYEWALL_POINTS)
 
 
 # Direction (world XZ) toward the strongest nearby vorticity; re-centres the eye onto the low the field
@@ -137,27 +130,23 @@ func _vortex_gradient() -> Vector2:
 func _physics_process(delta: float) -> void:
 	_age += delta
 	_spin += SPIN_SPEED * delta
-	if _age >= LIFETIME_MAX:
-		queue_free()          # age out even when the field is unavailable (was leaking forever if _field == null)
-		return
 	if _field == null:
+		push_error("Hurricane has no material field: there is no atmosphere to read a vortex from.")
+		queue_free()
 		return
 
-	# GENESIS FUEL still emerges from a field read — the fraction of the eyewall over WARM OCEAN — but it
-	# now GATES the SEEDING (below) rather than scripting strength: over warm sea the actor pumps the low
-	# that grows the vortex; over land it stops feeding, so the vortex spins down and the storm falls apart.
+	# The storm exists while the eye out-spins the air around it. Two field reads, no threshold between
+	# them: when the low fills, the core stops standing out and there is no cyclone left to be.
+	var core: float = _core_vorticity()
+	var ambient: float = _ambient_vorticity()
+	if core != 0.0 or ambient != 0.0:      # both exactly zero = no velocity readback yet, which decides nothing
+		if core <= ambient:
+			_dissipate()
+			return
+
+	# The fraction of the eyewall standing over sea at or above the cyclogenesis SST. It gates the SEEDING:
+	# over warm sea the actor pumps the low, over land or cool water it stops feeding.
 	var frac: float = _warm_ocean_fraction()
-
-	# STRENGTH — no scripted intensify/decay: it READS the emergent vertical vorticity of the mesocyclone the
-	# seeded low grew (peak over the core + eyewall). A well-fed warm-ocean vortex reads high |vorticity| →
-	# full strength; after landfall the seeding stops, the spin decays, |vorticity| falls, and it dies.
-	_strength = lerpf(_strength, VORT_TO_STRENGTH * _core_vorticity(), STRENGTH_RATE)
-	if _age < SPINUP_TIME:
-		_strength = maxf(_strength, STRENGTH_START)   # hold visible while the warm-ocean low spins up
-	_strength = clampf(_strength, 0.0, STRENGTH_MAX)
-	if _age >= LIFETIME_MAX or (_age >= SPINUP_TIME and _strength <= DISSIPATE_STRENGTH):
-		_dissipate()
-		return
 
 	# TRACK — a slow forward crawl, gently steered by the LOCAL wind at the eye's own position AND biased
 	# toward the strongest nearby vorticity so the eye tracks the low the field grew (re-centres if it drifts).
@@ -179,15 +168,13 @@ func _physics_process(delta: float) -> void:
 
 	_pump_eyewall(frac, delta)
 	_stir_wildlife(delta)
-	_update_fx()
 
 
 func _pump_eyewall(fuel: float, delta: float) -> void:
 	if fuel <= 0.0:
 		return
 	var ring_r: float = (EYE_RADIUS + OUTER_RADIUS) * 0.5
-	var drive: float = maxf(_strength, STRENGTH_START) * fuel   # keep a seeding floor during spin-up
-	var per_point: float = VAPOR_PER_SEC * drive * delta / float(EYEWALL_POINTS)
+	var per_point: float = VAPOR_PER_SEC * fuel * delta / float(EYEWALL_POINTS)
 	for i in range(EYEWALL_POINTS):
 		var a: float = TAU * float(i) / float(EYEWALL_POINTS) + _spin
 		var px: float = _center.x + cos(a) * ring_r
@@ -201,31 +188,14 @@ func _pump_eyewall(fuel: float, delta: float) -> void:
 			_field.add_vapor(Vector3(px, gy + 3.0, pz), per_point, VAPOR_INJECT_R)
 
 
+# The storm no longer pushes creatures. Every creature already rides the field's own wind every frame
+# (CreatureFieldForces reads wind3_at), so a second, actor-synthesised swirl was the same wind counted twice.
 func _stir_wildlife(delta: float) -> void:
 	_scare_cd -= delta
 	if _scare_cd <= 0.0:
 		_scare_cd = SCARE_INTERVAL
 		if _ecology != null and _ecology.has_method("broadcast_scare"):
-			_ecology.broadcast_scare(_center, OUTER_RADIUS, minf(1.0, 0.3 + _strength * 0.5))
-	if _strength <= DISSIPATE_STRENGTH:
-		return
-	if _ecology != null and _ecology.has_method("apply_wind_force"):
-		_ecology.apply_wind_force(_center, OUTER_RADIUS, _wind_force_at, delta)
-
-
-# The cyclonic wind velocity (world u/s) at a world point — the force `apply_wind_force` samples per
-# creature. Calm eye (zero inside EYE_RADIUS); a tangential swirl that curls slightly inward and lifts,
-# falling off toward the outer edge, scaled by the storm's emergent strength.
-func _wind_force_at(pos: Vector3) -> Vector3:
-	var to: Vector3 = pos - _center
-	to.y = 0.0
-	var d: float = to.length()
-	if d < EYE_RADIUS or d < 0.001:
-		return Vector3.ZERO                                   # the eye is calm
-	var out_dir: Vector3 = to / d
-	var tangent: Vector3 = Vector3(-out_dir.z, 0.0, out_dir.x)
-	var mag: float = WIND_FORCE * _strength * clampf(1.0 - d / OUTER_RADIUS, 0.2, 1.0)
-	return tangent * mag - out_dir * (mag * WIND_INWARD_FRAC) + Vector3.UP * (mag * WIND_LIFT_FRAC)
+			_ecology.broadcast_scare(_center, OUTER_RADIUS, 1.0)
 
 
 func _dissipate() -> void:
@@ -300,8 +270,3 @@ func _build_fx() -> void:
 		_picker.position = Vector3(0.0, 30.0, 0.0)
 		_picker.add_child(col)
 		add_child(_picker)
-
-
-func _update_fx() -> void:
-	if _spiral != null:
-		_spiral.amount_ratio = clampf(0.25 + 0.75 * (_strength / STRENGTH_MAX), 0.1, 1.0)

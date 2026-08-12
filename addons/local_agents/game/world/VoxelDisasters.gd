@@ -124,8 +124,8 @@ func spawn_sea_volcano(sun_dir: Vector3 = Vector3.ZERO) -> Array:
 	return [v, vent]
 
 
-## A persistent tornado touches down at `point`. Its strength then lives or dies on the local warm/humid
-## air it finds (see Tornado.gd) — this only births it.
+## A tornado touches down at `point`. It survives only while the field shows its foot out-spinning the air
+## around it (see Tornado.gd) — this only births it.
 func spawn_tornado(point: Vector3) -> Node:
 	var t: Node = TornadoScript.new()
 	_actors_root.add_child(t)
@@ -201,7 +201,6 @@ func _find_ocean_point() -> Vector3:
 func spawn_lightning(point: Vector3) -> void:
 	var b: Node = LightningScript.new()
 	_actors_root.add_child(b)
-	b.setup(_terrain, _ecology)
 	b.strike(point)
 	if _audio != null:
 		_audio.play_sfx("thunder", point)

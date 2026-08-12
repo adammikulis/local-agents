@@ -237,32 +237,18 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/streamer/StreamerOverlay.gd` | `CAPTION_HOLD` | 8.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/streamer/StreamerOverlay.gd` | `FEED_MAX` | 4 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/actors/HeatGlow.gd` | `GLOW_MIN` | 400.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `LIFETIME_MAX` | 55.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `STRENGTH_START` | 0.45 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `STRENGTH_MAX` | 1.6 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `DISSIPATE_STRENGTH` | 0.12 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `SPINUP_TIME` | 9.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `VORT_TO_STRENGTH` | 0.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `STRENGTH_RATE` | 0.1 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/actors/Tornado.gd` | `VORTEX_FOLLOW` | 8.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tornado.gd` | `VORTEX_PROBE` | 26.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tornado.gd` | `WIND_FOLLOW` | 0.9 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tornado.gd` | `WANDER_SPEED` | 3.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `PLAY_HALF_EXTENT` | 285.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tornado.gd` | `SCARE_BASE` | 40.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tornado.gd` | `SCARE_INTERVAL` | 0.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `VORTEX_RADIUS_BASE` | 20.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `VORTEX_WIND` | 16.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `VORTEX_TANGENT_GAIN` | 1.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `VORTEX_INWARD_GAIN` | 0.6 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `VORTEX_LIFT_GAIN` | 0.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tornado.gd` | `FUNNEL_HEIGHT` | 62.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tornado.gd` | `FUNNEL_TOP_R` | 20.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tornado.gd` | `FUNNEL_BASE_R` | 1.4 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tornado.gd` | `FUNNEL_CORE_FRAC` | 0.52 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/actors/Tornado.gd` | `SPIN_SPEED` | 7.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tornado.gd` | `SWAY_SPEED` | 1.3 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `SPOUT_VAPOR_PER_SEC` | 0.9 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tornado.gd` | `SPOUT_SPLASH_INTERVAL` | 0.18 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `SPAWN_HEIGHT` | 140.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `START_SPEED` | 70.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
@@ -309,10 +295,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/actors/Thunderstorm.gd` | `RADIUS` | 62.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Thunderstorm.gd` | `VAPOR_PER_SEC` | 5.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Thunderstorm.gd` | `VAPOR_INJECT_R` | 14.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Thunderstorm.gd` | `STRENGTH_MAX` | 1.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/actors/Thunderstorm.gd` | `UPDRAFT_TO_STRENGTH` | 0.3 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Thunderstorm.gd` | `STRENGTH_RATE` | 0.1 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/actors/Thunderstorm.gd` | `DISSIPATE_STRENGTH` | 0.12 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Thunderstorm.gd` | `LIFT_FOLLOW` | 5.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Thunderstorm.gd` | `LIFT_PROBE` | 40.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Thunderstorm.gd` | `WIND_DRIFT` | 0.7 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
@@ -323,14 +305,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/actors/Tree.gd` | `TOPPLE_TIME` | 1.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tree.gd` | `TOPPLE_ANGLE` | 1.483529 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tree.gd` | `TREE_SETTLE_STRIDE` | 30 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `LIFETIME_MAX` | 150.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `STRENGTH_START` | 0.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `STRENGTH_MAX` | 1.8 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `DISSIPATE_STRENGTH` | 0.14 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `SPINUP_TIME` | 22.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `VORT_TO_STRENGTH` | 0.55 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `STRENGTH_RATE` | 0.1 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `WARM_OCEAN_TEMP` | 16.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
+| `addons/local_agents/sim/actors/Hurricane.gd` | `WARM_OCEAN_TEMP` | 26.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Hurricane.gd` | `VORTEX_STEER` | 0.4 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Hurricane.gd` | `VORTEX_PROBE` | 60.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Hurricane.gd` | `EYE_RADIUS` | 26.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
@@ -340,11 +315,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/actors/Hurricane.gd` | `VAPOR_INJECT_R` | 20.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Hurricane.gd` | `TRACK_SPEED` | 7.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Hurricane.gd` | `WIND_STEER` | 0.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `PLAY_HALF_EXTENT` | 290.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Hurricane.gd` | `SPIN_SPEED` | 1.4 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `WIND_FORCE` | 14.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `WIND_INWARD_FRAC` | 0.15 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `WIND_LIFT_FRAC` | 0.25 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/actors/Hurricane.gd` | `SCARE_INTERVAL` | 0.8 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Earthquake.gd` | `DURATION` | 3.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Earthquake.gd` | `SCARE_RADIUS` | 130.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |

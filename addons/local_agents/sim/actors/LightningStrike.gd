@@ -9,20 +9,16 @@ const SEGMENTS: int = 14
 
 var _flash: OmniLight3D = null
 var _age: float = 0.0
-var _terrain: Object = null
-
-
-## Kept for call-shape compatibility — VoxelDisasters still calls setup(terrain, ecology). The physics
-## those args fed now lives in the field's CHARGE process; terrain is retained only so the bolt can
-## resolve radial ("up") at the strike point on a spherical planet.
-func setup(terrain: Object, _ecology: Object) -> void:
-	_terrain = terrain
 
 
 ## Strike the ground at `point`: draw the bolt, flash, and thunder. No physics — that emerges in the field.
 func strike(point: Vector3) -> void:
 	global_position = Vector3.ZERO
 	var up: Vector3 = _up_at(point)
+	if up == Vector3.ZERO:
+		push_error("LightningStrike: no gravity body at the strike point, so there is no radial up to draw the bolt along.")
+		queue_free()
+		return
 	_build_bolt(point, up)
 	_flash = OmniLight3D.new()
 	_flash.light_color = Color(0.85, 0.9, 1.0)
@@ -76,14 +72,12 @@ func _build_bolt(point: Vector3, up: Vector3) -> void:
 	add_child(mi)
 
 
-# Radial "up" at `pos` on the spherical planet: the dominant gravity body's outward normal, falling
-# back to the terrain's own normal, then world +Y. Mirrors the idiom in Meteor._up_at / Creature.
+# Radial "up" at `pos`: the outward normal of the dominant gravity body. Vector3.ZERO when there is no
+# such body — with no gravity there is no vertical, and world +Y would be an invented one.
 func _up_at(pos: Vector3) -> Vector3:
 	var b: Object = LAGravity.dominant_body(get_tree(), pos) if is_inside_tree() else null
 	if b != null and b.has_method("center"):
 		var r: Vector3 = pos - (b.center() as Vector3)
 		if r.length() > 0.001:
 			return r.normalized()
-	if _terrain != null and _terrain.has_method("up_at"):
-		return _terrain.up_at(pos)
-	return Vector3.UP
+	return Vector3.ZERO
