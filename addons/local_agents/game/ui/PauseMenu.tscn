@@ -1,6 +1,6 @@
 [gd_scene load_steps=4 format=3]
 
-[ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelPauseMenu.gd" id="1_pausemenu"]
+[ext_resource type="Script" path="res://addons/local_agents/game/ui/PauseMenu.gd" id="1_pausemenu"]
 [ext_resource type="Script" path="res://addons/local_agents/game/world/PauseSettingsPanel.gd" id="2_pausesettings"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_pausepanel"]

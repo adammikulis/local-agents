@@ -1,10 +1,10 @@
-class_name LAVoxelPauseMenu
+class_name LAPauseMenu
 extends CanvasLayer
 
 
 const SPEEDS: Array[int] = [1, 2, 4, 8, 16]
 
-const HelpOverlayScript: GDScript = preload("res://addons/local_agents/game/world/PauseHelpOverlay.gd")
+const HelpOverlayScript: GDScript = preload("res://addons/local_agents/game/ui/PauseHelpOverlay.gd")
 
 @onready var _speed_row: HBoxContainer = $Center/Panel/VBox/SpeedRow
 @onready var _save_status: Label = $Center/Panel/VBox/SaveStatus
@@ -83,7 +83,7 @@ func _on_speed_pressed(n: int) -> void:
 func set_time_scale(n: int) -> void:
 	var ctrl: LASimTimeAuthority = LASimTimeAuthority.active()
 	if ctrl == null:
-		push_error("LAVoxelPauseMenu: no LASimTimeAuthority in the scene — speed cannot be set.")
+		push_error("LAPauseMenu: no LASimTimeAuthority in the scene — speed cannot be set.")
 		return
 	ctrl.set_multiplier(float(clampi(n, 1, SPEEDS[SPEEDS.size() - 1])))
 

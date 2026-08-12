@@ -170,12 +170,6 @@ func _build_neighbours() -> void:
 					neighbours[base + d] = index(ax, ay, az) if in_bounds(ax, ay, az) else -1
 
 
-## The neighbour table as the kernels consume it. There is no permutation: the build order IS the
-## kernel order. The method is kept so call sites read the same and so the absence is explicit.
-func neighbours_kernel_order() -> PackedInt32Array:
-	return neighbours
-
-
 ## Structural self-check. Every claim here is one the cubed-sphere grid had to work to earn.
 func validate() -> Dictionary:
 	var reciprocal: int = 0

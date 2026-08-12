@@ -3,10 +3,9 @@
 
 // Radiative cooling of molten cells, as a CROSS-CELL EXCHANGE. Two dispatches of this one shader:
 //   mode 0 — over the compacted lava list. Cools each molten cell and writes the joules it shed into
-//            rad_dep, indexed by the RECEIVER (nb*6 + opposite_slot), so every slot has one writer.
+//            rad_dep at the slot link_partner names, so every slot has exactly one writer.
 //   mode 1 — over every cell. Adds the joules aimed at this cell to its temperature and clears the slots.
-// Neighbour reads use the precomputed INDEX TABLE nbr[idx*6 + d] (slot 0 = inward/down, 1-4 lateral,
-// 5 = outward).
+// Slot names come from neighbours.glsli; the reverse link is a link_partner lookup, never computed.
 
 layout(local_size_x = 64) in;
 
@@ -18,6 +17,8 @@ layout(set = 0, binding = 3, std430) restrict buffer RadDep { float rad_dep[]; }
 layout(set = 0, binding = 4, std430) restrict readonly buffer ActiveIdx { uint active_idx[]; };
 layout(set = 0, binding = 5, std430) restrict readonly buffer ActiveArgs { uint active_args[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };   // idx*6 + slot
+// The answering slot on the far side of each link, resolved by LASphereGrid. idx*6 + slot -> nb*6 + reverse.
+layout(set = 0, binding = 17, std430) restrict readonly buffer LinkPartner { int partner[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer RockFill { float rock_fill[]; };
 layout(set = 0, binding = 7, std430) restrict readonly buffer Water { float water[]; };
 layout(set = 0, binding = 21, std430) restrict readonly buffer Fuel { float fuel[]; };
@@ -42,7 +43,7 @@ layout(push_constant, std430) uniform Params {
 
 layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
 #include "rc_shared.glsli"
-#include "nbr_shared.glsli"
+#include "neighbours.glsli"
 
 // --- MODEL PARAMETERS -------------------------------------------------------------------------------------
 const float LAVA_MIN_MASS = 0.0001;
@@ -95,7 +96,7 @@ void emit() {
 	for (uint i = 0u; i < 6u; i++) {
 		int nb = nbr[base + i];
 		if (nb < 0) {
-			if (i == 0u) {
+			if (i == N_IN) {
 				continue;   // the core, not space
 			}
 			tn_c[nf] = 0.0;
@@ -114,7 +115,7 @@ void emit() {
 		lw_in += BASALT_EMIS * STEFAN * tn * tn * tn * tn;
 		tn_c[nf] = temp[nb];
 		cap_n[nf] = cap_of(uint(nb));
-		dst[nf] = int(uint(nb) * 6u + opposite_slot(i));
+		dst[nf] = partner[base + i];
 		nf++;
 	}
 	if (nf == 0) {

@@ -112,11 +112,12 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			[23, _single(bufs, "detritus")]]
 			+ shared_carriers)
 		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid, 3 = the
-		# receiver-indexed radiative deposit, 4 = the compacted active list, 5 = its args, 15 = nbr, and
-		# the carriers rc_shared.glsli needs.
+		# receiver-indexed radiative deposit, 4 = the compacted active list, 5 = its args, 15 = nbr,
+		# 17 = the reverse-link table, and the carriers rc_shared.glsli needs.
 		_lava_phase_set[p] = _uset(_lava_phase_pipe, [
 			[0, lava_back], [1, temp_back], [2, solid], [3, _rad_dep],
 			[4, active_idx], [5, _active_args], [15, nbr],
+			[17, _single(bufs, "link_partner")],
 			[6, _single(bufs, "rock_fill")], [7, water_back], [21, _single(bufs, "fuel")],
 			[22, _single(bufs, "biomass")], [23, _single(bufs, "detritus")], [24, _single(bufs, "snow")]]
 			+ shared_carriers)

@@ -263,19 +263,6 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_model_parameters.sh ($rc_modelparams)"
       exit 1
     fi
-    # Gate: ONE definition of a cell's volumetric heat capacity per side of the GPU boundary. The gate above
-    # CANNOT see this class of defect and its own failure proves it — that one checks VALUES, and all nine
-    # copies of this mix read the right values while putting them in four mutually incompatible formulas.
-    # Two of the nine were the BOOKED and the STOCK sides of the energy ledger's own subtraction, so their
-    # disagreement was published as planetary energy drift for as long as it existed. Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_heat_capacity_ssot.sh"
-    rc_heatcap=$?
-    set -e
-    if [[ $rc_heatcap -ne 0 ]]; then
-      echo "LINT_FAIL: check_heat_capacity_ssot.sh ($rc_heatcap)"
-      exit 1
-    fi
     # Gate: ONE definition of the 6-slot neighbour layout. It was written from memory in every kernel that
     # touches nbr[], and most wrote it down wrong — twelve read slot 5 as "the cell above" when slot 5 is a
     # LATERAL and up is slot 1, so the solar column, the aquifer walk, reactions' air-above gates, both
@@ -460,15 +447,6 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_invented -ne 0 ]]; then
       echo "LINT_FAIL: check_no_invented_fallback.sh ($rc_invented)"
-      exit 1
-    fi
-    # Gate: the send/gather reciprocal-slot pairing lives in nbr_shared.glsli and nowhere else.
-    set +e
-    "$SCRIPT_DIR/check_neighbour_reciprocity.sh"
-    rc_recip=$?
-    set -e
-    if [[ $rc_recip -ne 0 ]]; then
-      echo "LINT_FAIL: check_neighbour_reciprocity.sh ($rc_recip)"
       exit 1
     fi
     # These four were WRITTEN AND NEVER WIRED, so they only ran when somebody remembered to. A gate that

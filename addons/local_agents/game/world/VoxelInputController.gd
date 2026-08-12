@@ -1,7 +1,7 @@
 class_name LAVoxelInputController
 extends Node
 
-const PauseMenuScene: PackedScene = preload("res://addons/local_agents/game/world/VoxelPauseMenu.tscn")
+const PauseMenuScene: PackedScene = preload("res://addons/local_agents/game/ui/PauseMenu.tscn")
 const ViewControlsScript: GDScript = preload("res://addons/local_agents/game/world/VoxelViewControls.gd")
 
 const BENCH_TIMELINES: Dictionary = {
@@ -93,7 +93,7 @@ var _bench_fired: Dictionary = {}   # timeline index (int) -> true, once its act
 var _seed_explicit: bool = false    # true once --seed= was parsed, so the --bench default below doesn't override it
 const DEFAULT_BENCH_SEED: int = 424242   # applied automatically for --bench= runs unless --seed= overrides it
 
-var _pause_menu: LAVoxelPauseMenu = null
+var _pause_menu: LAPauseMenu = null
 
 var _auto_spin: bool = false     # ORBIT-mode "planet rotates in front of you" option
 var _geosync: bool = false       # GEOSYNC: camera rides the planet's rotating frame, locked over one region
@@ -455,7 +455,7 @@ func bind(terrain, camera: Camera3D, body: Node3D, star: Node3D, material: Node,
 ## [Planet | Solar System] · [Free | Geosync] · [Auto-spin] cluster. Called ONLY by LAPresentation, so a run
 ## without --ui has neither. Every reader of _pause_menu / _view_controls null-guards.
 func build_ui() -> void:
-	_pause_menu = PauseMenuScene.instantiate() as LAVoxelPauseMenu
+	_pause_menu = PauseMenuScene.instantiate() as LAPauseMenu
 	_pause_menu.name = "PauseMenu"
 	add_child(_pause_menu)
 	_view_controls = ViewControlsScript.new()
