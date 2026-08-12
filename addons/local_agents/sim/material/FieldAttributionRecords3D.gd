@@ -5,21 +5,24 @@ extends RefCounted
 ## SINGLE channels are absent, and `read_raw` ignores the half for those.
 const PRODUCERS: Dictionary = {
 	"temp": "ThermalPass",
-	"water": "WaterSlumpLavaPass",
-	"lava": "WaterSlumpLavaPass",
-	"sediment": "WaterSlumpLavaPass",
-	"susp": "ErosionPickupPass",
-	"dust": "FireDustPass",
-	"soil": "SoilPass",
-	"moisture": "AtmospherePass",
-	"fungus": "EcoSurfacePass",
+	"water": "TransportPass",
+	"lava": "TransportPass",
+	"sediment": "TransportPass",
+	"susp": "TransportPass",
+	"dust": "TransportPass",
+	"soil": "TransportPass",
+	"moisture": "TransportPass",
+	"o2": "TransportPass",
+	"co2": "TransportPass",
+	"n2": "TransportPass",
+	"fert": "TransportPass",
+	"shock": "TransportPass",
+	"fungus": "FungusPass",
 }
 
 ## Passes that bind no writable temp buffer. A heat leg above the readback resolution on one of these
 ## falsifies the instrument rather than the planet.
-const SILENT_HEAT_PASSES: PackedStringArray = [
-	"plate_advect", "solid_derive", "lava_cell_list", "gas_wind", "atmosphere",
-	"erosion_transport", "erosion_pickup", "fire_dust", "eco_surface"]
+const SILENT_HEAT_PASSES: PackedStringArray = ["solid_derive", "fungus"]
 
 ## One report row per tracked scalar. `scalar` names the sampled quantity; the rest name the published keys.
 ## `residual_of` lists the scalars whose leg sums are subtracted from this row's step delta; it defaults to

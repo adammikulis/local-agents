@@ -70,8 +70,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	# and this kernel is their only reader and only writer, so there is no producer to ping-pong against.
 	var carbonate: RID = _single(bufs, "carbonate")
 	var silica: RID = _single(bufs, "silica")
-	# N2 is an advected tracer like o2/co2 (GasWindPass), so the BACK half is the transport output this
-	# kernel edits in place. `discharge` is the lightning stamp — read-only, single, driver only.
+	# `discharge` is the lightning stamp — read-only, single, driver only.
 	var n2: Array = _pair(bufs, "n2")
 	var discharge: RID = _single(bufs, "discharge")
 	# The dead organic pool's hydrogen and oxygen. Registered channels (LAChannels), so the driver owns them.
@@ -83,9 +82,9 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	for p in 2:
 		var back: int = 1 - p
 		_set[p] = _uset(_pipe, [
-			[0, temp[back]],        # settled temp (Thermal output)
-			[1, water[back]],       # settled water (Atmosphere/WaterSlump output)
-			[2, moisture[back]],    # settled moisture (Atmosphere output)
+			[0, temp[back]],        # settled temp
+			[1, water[back]],       # settled water
+			[2, moisture[back]],    # settled moisture
 			[3, o2[back]],          # o2 transport output — edited in place (sky refill / decompose draw)
 			[4, co2[back]],         # co2 transport output — edited in place (sky vent / decompose emit)
 			[5, fuel],              # SINGLE — combustion debits it (its only sink in the whole tree)
@@ -98,19 +97,17 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 			[10, solid],
 			[11, biomass],          # SINGLE — photosynthesis grows it, respiration/decay oxidises it
 			[12, snow],             # SINGLE — freeze/deposition credit it, melt debits it; same H₂O as water
-			[13, sediment[back]],   # loose regolith — loft debits it; the buffer FireDust transport uses
-			[14, dust[p]],          # airborne dust (LIVE) — loft credits it here so transport advects it now
+			[13, sediment[back]],   # loose regolith — loft debits it
+			[14, dust[p]],          # airborne dust — loft credits it
 			[15, nbr],
-			[16, susp[back]],       # waterborne suspended sediment — settle debits it. ErosionTransport wrote
-			                        # this half and ErosionPickup added this step's scour.
+			[16, susp[back]],       # waterborne suspended sediment — settle debits it
 			[17, vel_x],            # SINGLE — WINDSPEED driver leg (sqrt(vel_x²+vel_z²))
 			[18, vel_z],            # SINGLE — WINDSPEED driver leg
 			[20, scratch],          # fungus-fert SCRATCH product target
 			[21, defs_ssbo],
-			[22, lava[back]],       # molten rock (settled by Thermal into BACK) — solidify debits, melt credits
+			[22, lava[back]],       # molten rock — solidify debits, melt credits
 			[23, rock_fill],        # SINGLE fractional bedrock — solidify credits it, melt debits it
-			[24, soil[back]],       # settled water table (SoilPass output) — transpiration draws from the
-			                        # regolith column BENEATH an open cell (SOIL_ROOT)
+			[24, soil[back]],       # settled water table — transpiration draws the regolith column (SOIL_ROOT)
 			[25, radial],           # per-cell outward unit vector — the derived LIGHT slot's geometry
 			[27, regolith],         # aquifer permeability mask — root_soil() walks THIS, not `solid`
 			[28, carbonate],        # SINGLE CaCO3 — the Urey record credits it forward, debits it in reverse
