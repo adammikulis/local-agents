@@ -156,6 +156,18 @@ clean result; a living cell is not at chemical equilibrium. The defect named is 
   row like every other, or it is deleted outright. It cannot stay half-present.
 - **`_read_channels`'s SLOW block hardcodes its channel list**, so `slow_channels()` is a view nothing
   consumes and `porosity` never gets its coarse readback.
+- **`CLAUDE.md` is over the soft length limit** now that the missing rules are in, and
+  `tests/KernelConservation.gd` is too. Neither is at the hard limit. The rules section is the part of
+  `CLAUDE.md` that must stay; the process sections below Rule Zero are the candidates to move out.
+- **Two parallel cell-volume subsystems both survived** — `FieldTotals.gd` + `kernels3d/cell_geom.glsli`
+  against `MaterialFieldCellVolume3D` + `MaterialFieldFaceArea3D` + `kernels3d/cellvol.glsli`. `SphereGrid`
+  serves both APIs off one table so nothing is broken today, but one of them has to die, and the grid
+  migration is when.
+- **`AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`**, which is now the
+  cited ISA value. It is the unit definition of the `o2`/`co2`/`n2` channels, so correcting it re-scales
+  every gas total — a maintainer call, not a merge resolution. The fix is one flat expression.
+- **`GEOTHERMAL_GRADIENT_C_PER_KM` was uncited and about twice the real continental geotherm.** It is a unit
+  restatement of the Fourier-derived value now, which changes the seeded geotherm.
 
 ---
 
