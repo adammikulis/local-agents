@@ -278,6 +278,13 @@ if [[ "$cmd" == "lint" ]]; then
       fail=1
     fi
 
+    "$SCRIPT_DIR/check_no_stored_derived.sh"
+    rc_derived=$?
+    if [ "$rc_derived" -ne 0 ]; then
+      echo "LINT_FAIL: check_no_stored_derived.sh ($rc_derived)"
+      lint_failed=$((lint_failed + 1))
+    fi
+
     "$SCRIPT_DIR/check_no_privileged_axis.sh"
     rc_axis=$?
     if [ "$rc_axis" -ne 0 ]; then
