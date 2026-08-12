@@ -50,7 +50,18 @@ if [ -n "$rolled" ]; then
   fail=1
 fi
 
-# 3. The GLSL constants must equal LASphereGrid's.
+# 3. THE GPU MUST GET THE SSOT TABLE ITSELF, NOT A PERMUTED COPY. `neighbours_kernel_order()` reordered it to
+# the pre-SSOT layout (0=down, 1..4=lateral, 5=up) on the way to every SSBO, so slot 1 was a lateral where the
+# kernels read UP and link_partner indexed an order the table no longer had. o2 grew 2.4x per step from it.
+permuted=$(grep -rnE 'nbr_bytes[^=]*=|kernel_order' --include='*.gd' "$ROOT/addons" 2>/dev/null \
+           | grep -v '\.neighbours\.to_byte_array()' || true)
+if [ -n "$permuted" ]; then
+  echo "check_neighbour_slots: THE NEIGHBOUR SSBO IS NOT LASphereGrid.neighbours. Upload the table itself." >&2
+  echo "$permuted" >&2
+  fail=1
+fi
+
+# 4. The GLSL constants must equal LASphereGrid's.
 for pair in "N_IN:N_IN" "N_OUT:N_OUT" "N_A0:N_A0" "N_A1:N_A1" "N_B0:N_B0" "N_B1:N_B1"; do
   g="${pair%%:*}"; d="${pair##*:}"
   gv=$(grep -oE "^const uint $g\s*=\s*([0-9]+)u" "$SSOT" | grep -oE '[0-9]+' | head -1)

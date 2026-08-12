@@ -80,8 +80,10 @@ float raw_out(uint c) {
 	int cu = nbr[b + N_OUT];
 	if (cu >= 0 && solid[cu] == 0.0) { t += share(vel_y[c]) + rise_frac(c); }
 	int cd = nbr[b + N_IN];
-	if (cd >= 0 && solid[cd] == 0.0) { t += params.diffuse; }
-	t += fall_frac(c);
+	bool open_below = (cd >= 0) && (solid[cd] == 0.0);
+	if (open_below) { t += params.diffuse; }
+	// Down-flux leaves only where something receives it: an open cell below, or a deposit channel.
+	if (open_below || params.deposit == 1u) { t += fall_frac(c); }
 	return t;
 }
 

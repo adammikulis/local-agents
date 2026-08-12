@@ -8,11 +8,15 @@ const EROSION: String = "res://addons/local_agents/sim/material/kernels3d/erosio
 
 const RES_PER_FACE: int = 4
 const DEPTH: int = 6
+# The shipped planet: VoxelSettingsApplier.grid_res_per_face() at the default budget, GRID_DEPTH.
+const LIVE_RES: int = 24
+const LIVE_DEPTH: int = 20
 const TOLERANCE: float = 1e-4      # relative; float32 over a few thousand cells
 
 var _rd: RenderingDevice = null
 var _grid: RefCounted = null
 var _cc: int = 0
+var _depth: int = DEPTH
 var _failures: Array = []
 var _checks: int = 0
 
@@ -40,6 +44,15 @@ func _ready() -> void:
 	_check_tracer(3.0, true, "wind_solid")
 	# The live field runs at 160 m/s, which is what the operator actually sees.
 	_check_tracer(160.0, true, "gale_solid")
+	# The live field carries a huge VERTICAL velocity, and the vertical terms are the asymmetric ones — the
+	# up flux is gated on an open cell above, the down flux is not. Every case above left vel_y at zero.
+	_check_tracer(0.0, true, "updraft_solid", 300.0)
+	_check_tracer(0.0, false, "updraft_open", 300.0)
+	_check_tracer(0.0, true, "downdraft_solid", -300.0)
+	# The sim runs the operator MANY times, ping-ponging the two halves. One dispatch cannot show a defect
+	# that compounds, and the live runaway takes 12 steps to become visible.
+	_check_tracer_steps(20, 160.0, 300.0, true, "pingpong_20")
+	_check_live_grid()
 
 	print("KERNEL_CONSERVATION=", JSON.stringify({
 		"ok": _failures.is_empty(), "checks": _checks, "failures": _failures}))
@@ -130,7 +143,7 @@ func _check_two_pass(path: String, label: String, pc_base: PackedByteArray) -> v
 
 
 ## The tracer operator is a SINGLE pass: out = in - own_out + gain. Same contract, one dispatch.
-func _check_tracer(wind_m_s: float, with_solid: bool, tag: String) -> void:
+func _check_tracer(wind_m_s: float, with_solid: bool, tag: String, vy_m_s: float = 0.0) -> void:
 	var sf = load(TRACER)
 	if sf == null:
 		_failures.append({"check": "tracer_transport", "reason": "kernel did not load"})
@@ -142,7 +155,7 @@ func _check_tracer(wind_m_s: float, with_solid: bool, tag: String) -> void:
 	if with_solid:
 		# Rock at the bottom of every column, like a crust: the inward shells of each column.
 		for c in _cc:
-			if (c % DEPTH) < 2:
+			if (c % _depth) < 2:
 				solid[c] = 1.0
 	var before: float = _sum(mass, solid)
 
@@ -154,7 +167,10 @@ func _check_tracer(wind_m_s: float, with_solid: bool, tag: String) -> void:
 	for i in _cc:
 		wind[i] = wind_m_s * (1.0 if (i % 3) == 0 else 0.4)
 	var b_vx: RID = _buf(wind)
-	var b_vy: RID = _buf(_zeros(_cc))
+	var vyf: PackedFloat32Array = _zeros(_cc)
+	for i in _cc:
+		vyf[i] = vy_m_s * (1.0 if (i % 2) == 0 else 0.55)
+	var b_vy: RID = _buf(vyf)
 	var b_vz: RID = _buf(wind)
 	var b_nbr: RID = _rd.storage_buffer_create(_grid.neighbours.to_byte_array().size(),
 		_grid.neighbours.to_byte_array())
@@ -163,7 +179,7 @@ func _check_tracer(wind_m_s: float, with_solid: bool, tag: String) -> void:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(32)
 	pc.encode_u32(0, _cc)
-	pc.encode_u32(4, DEPTH)
+	pc.encode_u32(4, _depth)
 	pc.encode_float(8, 0.05)        # k, the Courant factor
 	pc.encode_float(12, 0.0)        # settle_v: still, so the only motion is diffusion
 	pc.encode_float(16, 0.05)       # diffuse
@@ -199,6 +215,91 @@ func _binds(label: String, b_in: RID, b_out: RID, b_send: RID, b_solid: RID, b_t
 			[17, b_part]]
 	return [[0, b_in], [1, b_out], [2, b_send], [3, b_solid], [5, b_temp], [15, b_nbr], [16, b_larc],
 		[17, b_part]]
+
+
+## Run the operator N times, alternating in/out the way the driver's ping-pong does, and check the total
+## after each. Reports the FIRST step that diverges, because a compounding defect is invisible in one.
+func _check_tracer_steps(n: int, wind_m_s: float, vy_m_s: float, with_solid: bool, tag: String) -> void:
+	var sf = load(TRACER)
+	if sf == null:
+		_failures.append({"check": tag, "reason": "kernel did not load"}); return
+	var shader: RID = _rd.shader_create_from_spirv(sf.get_spirv())
+	var pipe: RID = _rd.compute_pipeline_create(shader)
+	var mass: PackedFloat32Array = _seed_mass()
+	var solid: PackedFloat32Array = _zeros(_cc)
+	if with_solid:
+		for c in _cc:
+			if (c % _depth) < 2:
+				solid[c] = 1.0
+	var before: float = _sum(mass, solid)
+
+	var half: Array = [_buf(mass), _buf(_zeros(_cc))]
+	var b_dep: RID = _buf(_zeros(_cc))
+	var b_solid: RID = _buf(solid)
+	var wind: PackedFloat32Array = _zeros(_cc)
+	var vyf: PackedFloat32Array = _zeros(_cc)
+	for i in _cc:
+		wind[i] = wind_m_s * (1.0 if (i % 3) == 0 else 0.4)
+		vyf[i] = vy_m_s * (1.0 if (i % 2) == 0 else 0.55)
+	var b_vx: RID = _buf(wind)
+	var b_vy: RID = _buf(vyf)
+	var b_vz: RID = _buf(wind)
+	var b_nbr: RID = _rd.storage_buffer_create(_grid.neighbours.to_byte_array().size(),
+		_grid.neighbours.to_byte_array())
+	var b_ltan: RID = _buf(_grid.link_tan)
+	var b_part: RID = _rd.storage_buffer_create(_grid.link_partner.to_byte_array().size(),
+		_grid.link_partner.to_byte_array())
+
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(32)
+	pc.encode_u32(0, _cc)
+	pc.encode_u32(4, _depth)
+	pc.encode_float(8, 0.032)       # the live Courant factor
+	pc.encode_float(12, 0.0052)     # o2's settling velocity
+	pc.encode_float(16, 0.02)
+	pc.encode_u32(20, 0)
+	pc.encode_u32(24, 0)
+	pc.encode_float(28, 0.0)
+
+	var groups: int = int(ceil(float(_cc) / 64.0))
+	var live: int = 0
+	for step in n:
+		var back: int = 1 - live
+		var uset: RID = _uset(shader, [[0, half[live]], [1, half[back]], [2, b_dep], [3, b_solid],
+			[4, b_vx], [5, b_vy], [6, b_vz], [15, b_nbr], [16, b_ltan], [17, b_part]])
+		var cl: int = _rd.compute_list_begin()
+		_rd.compute_list_bind_compute_pipeline(cl, pipe)
+		_rd.compute_list_bind_uniform_set(cl, uset, 0)
+		_rd.compute_list_set_push_constant(cl, pc, pc.size())
+		_rd.compute_list_dispatch(cl, groups, 1, 1)
+		_rd.compute_list_end()
+		_rd.submit()
+		_rd.sync()
+		var now: float = _sum(_read(half[back]), solid)
+		var rel: float = absf(now - before) / maxf(before, 1e-9)
+		if rel > TOLERANCE:
+			_checks += 1
+			_failures.append({"check": tag, "first_bad_step": step, "want": before, "got": now})
+			return
+		live = back
+	_expect(true, tag, before, before)
+
+
+## The same ping-pong at the SHIPPED planet's dimensions. The 4x4x6 grid has 8 bent seam links; the live one
+## has 48, and a defect that only shows at the live seam count is invisible on the small grid.
+func _check_live_grid() -> void:
+	var small_grid: RefCounted = _grid
+	var small_cc: int = _cc
+	_grid = LASphereGrid.new()
+	_grid.build(LIVE_RES, LIVE_DEPTH, 170.0, 8.0, Vector3.ZERO)
+	_cc = _grid.cell_count
+	_depth = LIVE_DEPTH
+	var v: Dictionary = _grid.validate()
+	_expect(bool(v.get("ok", false)), "live_grid.validate", 1.0, 1.0 if bool(v.get("ok", false)) else 0.0)
+	_check_tracer_steps(20, 160.0, 300.0, true, "pingpong_20_live_grid")
+	_grid = small_grid
+	_cc = small_cc
+	_depth = DEPTH
 
 
 func _uset(shader: RID, binds: Array) -> RID:

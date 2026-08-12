@@ -86,7 +86,7 @@ func _alloc() -> void:
 	_bufs["air"] = [_new_f(_cc), _new_f(_cc)]
 	for k: String in ["temp", "solid", "pressure", "vel_x", "vel_y", "vel_z"]:
 		_bufs[k] = _new_f(_cc)
-	var nbr_bytes: PackedByteArray = _grid.neighbours_kernel_order().to_byte_array()
+	var nbr_bytes: PackedByteArray = _grid.neighbours.to_byte_array()
 	_bufs["nbr"] = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	var rad: PackedFloat32Array = PackedFloat32Array()
 	rad.resize(_cc * 3)

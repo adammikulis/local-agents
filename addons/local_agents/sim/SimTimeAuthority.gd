@@ -3,14 +3,18 @@ extends Node
 
 
 const SPEEDS: Array[float] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0]
-const PLAY_IDX: int = 2   # 1.0×
+
+## Real time, found in the list rather than written down beside it — an index that can disagree with the
+## array it indexes is a defect waiting for someone to reorder SPEEDS.
+static func play_index() -> int:
+	return maxi(SPEEDS.find(1.0), 0)
 
 signal speed_changed(paused: bool, speed: float)
 
 ## The live authority, so anything changing speed goes through the node that owns Engine.time_scale.
 static var _active: LASimTimeAuthority = null
 
-var _idx: int = PLAY_IDX
+var _idx: int = play_index()
 var _paused: bool = false
 
 
@@ -35,7 +39,7 @@ static func active() -> LASimTimeAuthority:
 ## Set the speed from a raw multiplier, snapped to the nearest supported SPEED. The entry point for every
 ## non-key speed change (`--fast=N`, the pause menu's speed row, the trailer director).
 func set_multiplier(mult: float) -> void:
-	var best: int = PLAY_IDX
+	var best: int = play_index()
 	var best_delta: float = INF
 	for i in range(SPEEDS.size()):
 		var d: float = absf(SPEEDS[i] - mult)
@@ -71,7 +75,7 @@ func slower() -> void:
 
 ## Back to 1× (Home).
 func reset_speed() -> void:
-	_idx = PLAY_IDX
+	_idx = play_index()
 	_paused = false
 	_apply()
 

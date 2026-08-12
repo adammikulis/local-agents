@@ -511,20 +511,6 @@ func _face_of(dir: Vector3) -> int:
 	return 4 if dir.z >= 0.0 else 5
 
 
-func neighbours_kernel_order() -> PackedInt32Array:
-	var out: PackedInt32Array = PackedInt32Array()
-	out.resize(cell_count * 6)
-	for c in cell_count:
-		var b: int = c * 6
-		out[b + 0] = neighbours[b + N_IN]
-		out[b + 1] = neighbours[b + N_A0]
-		out[b + 2] = neighbours[b + N_A1]
-		out[b + 3] = neighbours[b + N_B0]
-		out[b + 4] = neighbours[b + N_B1]
-		out[b + 5] = neighbours[b + N_OUT]
-	return out
-
-
 func validate() -> Dictionary:
 	var errors: int = 0
 	var closed: bool = true

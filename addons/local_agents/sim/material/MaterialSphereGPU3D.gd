@@ -122,8 +122,8 @@ func setup(field) -> void:
 	_bufs["active_args"] = _rd.storage_buffer_create(
 		ACTIVE_ARGS_SLOTS * 4, _zeros(ACTIVE_ARGS_SLOTS),
 		RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
-	# Sphere geometry SSBOs: neighbour table (int32, kernel slot order), radial + position (flat float3).
-	var nbr_bytes: PackedByteArray = _grid.neighbours_kernel_order().to_byte_array()
+	# Sphere geometry SSBOs: neighbour table (int32, LASphereGrid slot order), radial + position (flat float3).
+	var nbr_bytes: PackedByteArray = _grid.neighbours.to_byte_array()
 	_bufs["nbr"] = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	_bufs["radial"] = _make_vec3_flat(func(c: int) -> Vector3: return _grid.cell_radial(c))
 	_bufs["pos"] = _make_vec3_flat(func(c: int) -> Vector3: return _grid.cell_world_pos(c))

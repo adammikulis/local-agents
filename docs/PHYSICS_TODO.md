@@ -105,25 +105,42 @@ order is the order.
 
 ## E. Conservation, open
 
-- [ ] **`o2` ALONE STILL RUNS AWAY, AND IT IS LOCALISED TO ONE PASS AND ONE STEP.** `LA_PASS_PROBE=o2`
-      names it exactly: sane for 11 steps (69 120 decaying ~0.7%/step), then from **step 12** `GasWindPass`
-      multiplies it by ~2.4x EVERY step — 7.9e4, 1.9e5, 4.4e5, ... 1e16. Nothing else touches the channel.
+- [x] **The airborne runaway is CLOSED, and it was two layouts for one table.** `LASphereGrid` had a
+      `neighbours_kernel_order()` that uploaded a PERMUTED copy of the neighbour table to the GPU — the
+      pre-SSOT layout, `below, lateral x4, above` — while `link_partner` was uploaded in the real order. So
+      every kernel asking for "the cell above" got a lateral, and the two tables disagreed with EACH OTHER.
+      For a link-exchange gather that is fatal: the receiver computed its gain from a different link than
+      the sender debited, and a linear operator applied to its own output compounds the surplus ~2.4x per
+      step once the wind spins up around step 12. Deleted; there is one layout, and
+      `check_neighbour_slots.sh` check 3 now fails the build if the SSBO comes from anything but
+      `.neighbours` (mutation-tested both ways).
 
-      **Already fixed and no longer suspects.** `tracer_transport` computed its lateral reverse index as
-      `l ^ 1`, which is right only where the cubed-sphere seam is not bent; it uses `link_partner` now. That
-      alone took `element_C_total` from 2.44e17 to **1.53e7** and `mineral_total` to **31 977**, both sane,
-      and `h2o` from 1.05e11 to 4.49e9. So the seam WAS one real bug — just not the whole of this one.
+      `o2` 2.29e15 -> **35 446** · `moisture` 4.47e9 -> **0.215** · `h2o` 2.23e8 -> **5 299** ·
+      `conservation_failed` **False**.
 
-      **The discriminator to start from:** `co2` rides the SAME kernel, the same pass and the same dispatch
-      loop as `o2`, differing only in `contrast` (0.10460 vs 0.51927, i.e. settling velocity) — and co2 does
-      not run away. So the fault is o2-specific, not the shared operator. Look at what is different: the
-      settle_v magnitude, and o2's second writer (photosynthesis in ReactionsPass, which the probe shows
-      touching it only slightly).
+      **The lesson is about the TEST, not the kernel.** `KernelConservation.gd` uploaded `_grid.neighbours`
+      directly — the correct order — so it was testing the kernel against a table the sim never sent it, and
+      reported 12/12 clean while the sim exploded. A harness that builds its own inputs proves the kernel
+      correct and says nothing about the system. It now also runs at the SHIPPED planet's dimensions
+      (24/face x 20 shells, 69 120 cells, 48 bent seam links against the small grid's 8).
 
-      **Do not re-check, all measured:** the kernels conserve in isolation (`check_kernel_conservation.sh`,
-      8/8 including a 160 m/s gale on a solid crust); the CPU mirror equals the GPU buffer exactly, so this
-      is not a readback or residency problem; the checkpointed and normal step paths give the SAME result,
-      so it is not pass ordering or sync; `restrict` aliasing on the deposit binding is removed.
+- [ ] **THE DRIFT READOUT IS BLIND, and that is a gate that always passes.** Every ledger latches its
+      `*_first` baseline on the first heavy REPORT after the seal, not at the seal. Heavy reports run on the
+      64-frame gauge cadence, so a run shorter than 64 frames takes its baseline at the CLOSING sample and
+      the `--- drift vs sealed baseline ---` block reads `+0.000%` no matter what happened — `o2` halved
+      from 69 120 to 35 446 over 60 frames and the drift line read zero. Even at 600 frames the baseline is
+      latched ~step 64 rather than at the seal (step 2). **Fix:** the ledgers must sample AT the seal, which
+      is what LAMaterialFieldSeal3D was built for and what its own note claims already happens.
+
+- [ ] **`o2` falls by half over 60 frames, and it is now entirely CHEMISTRY.** With transport conservative,
+      `LA_PASS_PROBE=o2` shows GasWindPass exactly flat every step and ReactionsPass removing ~25/step,
+      accelerating. Respiration and decomposition consume O2; photosynthesis is its only source. Belongs
+      with the dG work in section C.
+
+- [ ] **The atmosphere is leaking.** `air` declines steadily — 9220 to 5730 over 25 steps, ~1.5%/step —
+      rather than growing like the tracers riding in it. Measured with `LA_PASS_PROBE=air`. A planet that
+      loses its atmosphere at that rate has none left in a geological run, and it is a separate defect from
+      the tracer runaway above (opposite sign, different channel).
 
 - [ ] **The wind is supersonic and always has been** — 160 m/s after the lateral fix, 425 before, against a
       real jet stream of ~70 m/s. `MAX_WIND` was deleted on purpose (wind speed is an output), so this is the
