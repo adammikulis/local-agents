@@ -70,7 +70,7 @@ its own from the universal rules?* If it needs its own `*Volcano.gd`, `_is_erupt
 
 ## The substrate is chemistry — substances, phases, reactions (the 0.3 framing)
 
-The one shared field (`LAMaterialField3D`, laid over the cubed-sphere `LASphereGrid`) is not a bag of
+The one shared field (`LAMaterialField3D`, laid over the uniform Cartesian `LAVoxelGrid`) is not a bag of
 named channels; it is a set of **conserved chemical substances**, and the same three ideas describe all
 of it:
 

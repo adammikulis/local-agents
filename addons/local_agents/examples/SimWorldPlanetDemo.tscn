@@ -12,11 +12,8 @@ unique_name_in_owner = true
 script = ExtResource("2_simworld")
 world_type = 0
 build_on_ready = true
-radius = 180.0
-ocean_bias = 3.0
 caves_enabled = true
 grid_res = 16
-grid_depth = 20
 sun_enabled = true
 auto_spawn = true
 initial_counts = Dictionary[String, int]({
@@ -28,8 +25,9 @@ initial_counts = Dictionary[String, int]({
 forest_clusters = 6
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 468)
-far = 4000.0
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 7300000)
+near = 1000.0
+far = 20000000.0
 current = true
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]

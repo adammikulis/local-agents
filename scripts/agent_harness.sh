@@ -292,19 +292,6 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_neighbour_slots.sh ($rc_nbrslots)"
       lint_failed=$((lint_failed + 1))
     fi
-    # Gate: the packed radial shell table the kernels read must match the order LASphereGrid writes it in.
-    # Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_shell_table.sh"
-    rc_shelltable=$?
-    set -e
-    if [[ $rc_shelltable -ne 0 ]]; then
-      echo "LINT_FAIL: check_shell_table.sh ($rc_shelltable)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: the per-face area table. How much crosses a wall is proportional to that wall's area, and on a
-    # cubed sphere no two faces of a cell have the same one. Exit 2 = could not run.
-    set +e
     # Gate: no engine-global RNG in a simulation path. A global randf() is seeded from the OS, so the run
     # cannot be reproduced; on a shared stream it also shifts every other subsystem's draws. Exit 2 = could
     # not run.
@@ -427,9 +414,6 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_step_quantum.sh ($rc_stepq)"
       lint_failed=$((lint_failed + 1))
     fi
-    # Gate: the cubed-sphere geometry closes, and it publishes how uneven it is. LASphereGrid.validate()
-    # existed and NOTHING called it, so its closure, symmetry, reciprocity and tangent-handedness checks had
-    # never once run. It also asserts summed cell volumes equal the analytic shell. Exit 2 = could not run.
     # Gate: a source comment may not carry a measurement or a date. A contract stays true; a measurement is
     # true for one commit. Ratcheted in docs/COMMENT_CLAIMS_CEILING.
     set +e
@@ -472,14 +456,6 @@ if [[ "$cmd" == "lint" ]]; then
         lint_failed=$((lint_failed + 1))
       fi
     done
-    set +e
-    "$SCRIPT_DIR/check_sphere_grid.sh"
-    rc_grid=$?
-    set -e
-    if [[ $rc_grid -ne 0 ]]; then
-      echo "LINT_FAIL: check_sphere_grid.sh ($rc_grid)"
-      lint_failed=$((lint_failed + 1))
-    fi
     # Gate: every compute kernel compiles. `godot --import` ACCEPTS a .glsl containing an undeclared symbol
     # without complaint; the failure appears at runtime as `get_spirv on a null value`, and what that looks
     # like from outside is a full, plausible SIM_REPORT with one pass silently not running. Needs no GPU.

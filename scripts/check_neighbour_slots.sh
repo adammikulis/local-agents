@@ -1,23 +1,14 @@
 #!/usr/bin/env bash
 # ONE DEFINITION OF THE NEIGHBOUR-SLOT LAYOUT, ENFORCED.
 #
-# WHY IT EXISTS. The 6-slot layout was written from memory in every kernel that touches `nbr[]`, and most of
-# them wrote it down WRONG — as `0 = down, 1..4 = lateral, 5 = up`. LASphereGrid builds it as
-# `neighbours[c*6 + N_IN|N_OUT|N_A0+lateral_slot]`, so slot 1 is UP and 2..5 are the four laterals.
+# The 6-slot layout was written from memory in every kernel that touches `nbr[]`, and most of them wrote it
+# down wrong. LAVoxelGrid is the one declaration: six axis tags -X,+X,-Y,+Y,-Z,+Z, ordered so the reverse of
+# slot d is d ^ 1. A slot is a face of the box and never a direction — down is -normalize(g), read per cell.
 #
-# Twelve kernels read slot 5 as "the cell above" and were walking SIDEWAYS around the sphere at constant
-# radius: the solar column, the aquifer walk, reactions' GATE_SURFACE / GATE_OPEN_ABOVE / GATE_AIR_ABOVE,
-# both buoyancy kernels, tracer transport and the wind. Four two-pass gathers (gravity_flow, soil,
-# erosion_transport, plate_advect) hand-rolled the reverse map as `0<->5, 1<->2, 3<->4` instead of `d ^ 1`,
-# so they debited send slots no cell ever read (mass destroyed) and read others twice (mass duplicated).
-# In gravity_flow alone that was +149% mineral and +47% of the planet's whole thermal stock, from nothing.
-#
-# Same shape as check_heat_capacity_ssot.sh: a gate on the STRUCTURE, not the values. Every copy read the
-# table correctly; they disagreed about what the slots MEANT, which no value gate can see.
-#
-# It asks two structural questions:
-#   1. Does any kernel index nbr[] or send[] with a bare integer instead of the named slot constants?
-#   2. Are the GLSL constants still equal to LASphereGrid's?
+# It asks three structural questions:
+#   1. Does any kernel name a slot by a bare integer instead of looping or using the SSOT accessor?
+#   2. Is the GLSL slot count still equal to LAVoxelGrid's?
+#   3. Is the GLSL reverse-link function still the same function as LAVoxelGrid.opposite_slot?
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh" 2>/dev/null || true
@@ -25,68 +16,51 @@ command -v require_tool >/dev/null 2>&1 && require_tool rg
 
 K="$ROOT/addons/local_agents/sim/material/kernels3d"
 SSOT="$K/neighbours.glsli"
-GRID="$ROOT/addons/local_agents/sim/sphere/SphereGrid.gd"
+GRID="$ROOT/addons/local_agents/sim/voxel/VoxelGrid.gd"
 fail=0
 
 [ -f "$SSOT" ] || { echo "check_neighbour_slots: MISSING $SSOT — the SSOT include is gone." >&2; exit 2; }
 [ -f "$GRID" ] || { echo "check_neighbour_slots: MISSING $GRID." >&2; exit 2; }
 
-# 1. No bare integer slot index into the neighbour or send tables.
-bare=$(grep -nE '\b(nbr|send)\[[^]]*[0-9]u?\]' "$K"/*.glsl 2>/dev/null \
-       | grep -vE 'N_IN|N_OUT|N_A0|N_A1|N_B0|N_B1|N_SLOTS|N_LAT0|N_LATERAL_COUNT' || true)
+# 1. No bare integer slot index. `nbr[base + 5u]` is a kernel asserting slot 5 means something; on a box the
+# slots are axis tags, so a kernel either loops over all six or asks for the reverse of the one it holds.
+bare=$(grep -nE '\b(nbr|send|send_h|send_q)\[[^]]*[+-][[:space:]]*[0-9]+u?[[:space:]]*\]' "$K"/*.glsl "$K"/*.glsli 2>/dev/null || true)
 if [ -n "$bare" ]; then
-  echo "check_neighbour_slots: BARE SLOT INDEX — use the names from neighbours.glsli, never a number." >&2
+  echo "check_neighbour_slots: BARE SLOT INDEX — a slot is an axis tag, never a named direction." >&2
   echo "$bare" >&2
   fail=1
 fi
 
-# 2. NO KERNEL COMPUTES A REVERSE LINK AT ALL. LASphereGrid resolves it into `link_partner` by searching
-# the neighbour's own slots, so a gather is `send[partner[base + d]]` — a lookup, not arithmetic. Four
-# kernels got the arithmetic wrong and a fifth got it wrong while being fixed.
-# `opposite_slot()` in neighbours.glsli is the one named accessor for a cell's OWN opposite slot; ad-hoc
-# arithmetic anywhere else is banned.
-# The pattern used to require the exact text `^ 1u)]`, so `toward(uint(m), l ^ 1, depth)` in
-# wind_pressure_sphere3d.glsl passed the gate for as long as both existed. It matches ANY xor-with-one
-# outside a comment now, which is the whole family; comments are stripped so `m/s^2` is not a hit.
-rolled=$(awk '
-  { line = $0
-    sub(/\/\/.*$/, "", line)
-    if (line ~ /opposite_slot\(/) next
-    if (line ~ /\^[ \t]*1[uU]?([^0-9.]|$)/ || line ~ /\?[ \t]*5u[ \t]*:/ || line ~ /==[ \t]*5u\)[ \t]*\?[ \t]*0u/)
-      printf "%s:%d:%s\n", FILENAME, FNR, $0
-  }' "$K"/*.glsl 2>/dev/null || true)
-if [ -n "$rolled" ]; then
-  echo "check_neighbour_slots: A KERNEL COMPUTES ITS OWN REVERSE LINK. Use link_partner[base + d]." >&2
-  echo "$rolled" >&2
+# 2. The slot count must equal the number of steps LAVoxelGrid actually builds neighbours for.
+gv=$(grep -oE '^const uint N_SLOTS[[:space:]]*=[[:space:]]*[0-9]+u' "$SSOT" | grep -oE '[0-9]+' | head -1)
+dv=$(awk '/^const SLOT_STEP/ { on = 1; next } on && /^\]/ { exit } on { n += gsub(/Vector3i\(/, "") } END { print n + 0 }' "$GRID")
+if [ -z "$gv" ] || [ "$dv" -eq 0 ]; then
+  echo "check_neighbour_slots: could not read the slot count (glsl='$gv' gd='$dv')." >&2
+  fail=1
+elif [ "$gv" != "$dv" ]; then
+  echo "check_neighbour_slots: SLOT COUNT DIVERGED — neighbours.glsli=$gv, VoxelGrid.gd SLOT_STEP=$dv." >&2
   fail=1
 fi
 
-# 3. THE GPU MUST GET THE SSOT TABLE ITSELF, NOT A PERMUTED COPY. `neighbours_kernel_order()` reordered it to
-# the pre-SSOT layout (0=down, 1..4=lateral, 5=up) on the way to every SSBO, so slot 1 was a lateral where the
-# kernels read UP and link_partner indexed an order the table no longer had. o2 grew 2.4x per step from it.
+# 3. The reverse link is the bit flip in both copies, or neither. When these disagree a gather debits a slot
+# no cell reads and credits one twice, which is mass created and destroyed in the same step.
+grep -qE 'uint opposite_slot\(uint d\)[[:space:]]*\{[[:space:]]*return d \^ 1u;[[:space:]]*\}' "$SSOT" || {
+  echo "check_neighbour_slots: neighbours.glsli opposite_slot is not \`d ^ 1u\`." >&2; fail=1; }
+grep -qE '^[[:space:]]*return d \^ 1[[:space:]]*$' "$GRID" || {
+  echo "check_neighbour_slots: LAVoxelGrid.opposite_slot is not \`d ^ 1\`." >&2; fail=1; }
+
+# 4. THE GPU MUST GET THE SSOT TABLE ITSELF, NOT A PERMUTED COPY. A reorder on the way to the SSBO put a
+# lateral where the kernels read UP, and link_partner then indexed an order the table no longer had.
 permuted=$(grep -rnE 'nbr_bytes[^=]*=|kernel_order' --include='*.gd' "$ROOT/addons" 2>/dev/null \
            | grep -v '\.neighbours\.to_byte_array()' || true)
 if [ -n "$permuted" ]; then
-  echo "check_neighbour_slots: THE NEIGHBOUR SSBO IS NOT LASphereGrid.neighbours. Upload the table itself." >&2
+  echo "check_neighbour_slots: THE NEIGHBOUR SSBO IS NOT LAVoxelGrid.neighbours. Upload the table itself." >&2
   echo "$permuted" >&2
   fail=1
 fi
-
-# 4. The GLSL constants must equal LASphereGrid's.
-for pair in "N_IN:N_IN" "N_OUT:N_OUT" "N_A0:N_A0" "N_A1:N_A1" "N_B0:N_B0" "N_B1:N_B1"; do
-  g="${pair%%:*}"; d="${pair##*:}"
-  gv=$(grep -oE "^const uint $g\s*=\s*([0-9]+)u" "$SSOT" | grep -oE '[0-9]+' | head -1)
-  dv=$(grep -oE "^const $d: int = ([0-9]+)" "$GRID" | grep -oE '[0-9]+' | head -1)
-  if [ -z "$gv" ] || [ -z "$dv" ]; then
-    echo "check_neighbour_slots: could not read $g (glsl='$gv' gd='$dv')." >&2; fail=1; continue
-  fi
-  if [ "$gv" != "$dv" ]; then
-    echo "check_neighbour_slots: $g DIVERGED — neighbours.glsli=$gv, SphereGrid.gd=$dv." >&2; fail=1
-  fi
-done
 
 if [ "$fail" -ne 0 ]; then
   echo "check_neighbour_slots: FAILED." >&2
   exit 1
 fi
-echo "Neighbour-slot SSOT gate passed (one layout, reverse links via link_partner, GLSL == LASphereGrid)."
+echo "Neighbour-slot SSOT gate passed (six axis tags, reverse = d ^ 1, GLSL == LAVoxelGrid)."

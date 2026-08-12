@@ -246,9 +246,8 @@ not, and keeps working in a project that never installed it. Asking for SPHERE w
   builds no ocean shell.
 
 #### Exports, group Sphere bounds, subgroup Field grid
-- `grid_res` (int, default `20`, range 8 to 64, suffix cells). Field cells along one edge of each of the six cube faces. Doubling it
-  quadruples the grid.
-- `grid_depth` (int, default `20`, range 8 to 32, suffix layers). Radial layers from the innermost crust layer out to space.
+- `grid_res` (int, default `20`, range 8 to 64, suffix cells). Field cells along one edge of the box. Doubling it multiplies the
+  grid by eight.
 
 #### Exports, group Sphere bounds, subgroup Lighting
 - `sun_enabled` (bool, default `true`). Add a fixed DirectionalLight3D so the field's solar pass has a real sun. SPHERE only.
@@ -290,7 +289,7 @@ idempotent, and refuses with an error for SPHERE without godot_voxel and for a n
 the founding population now, bypassing the auto gate. A SPHERE spawn otherwise waits for the top-of-planet patch to mesh and
 collide, plus a few settle ticks.
 
-`planned_cell_count()` is `6 * grid_res * grid_res * grid_depth` for SPHERE, and the extent divided by the cell size on each axis
+`planned_cell_count()` is `grid_res ** 3` for SPHERE, and the extent divided by the cell size on each axis
 for FLAT, so a host can size a world before building it. It returns 0 when the settings cannot produce a grid. The five accessors
 return null until `spawn_world()` succeeds, and `terrain()` is duck-typed: a voxel terrain service for SPHERE, a flat ground adapter
 for FLAT.

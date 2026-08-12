@@ -18,7 +18,14 @@ CELL_LIST_PASS = os.path.join(SIM, "material", "sphere_passes", "CellListPass.gd
 TRANSPORT_RECORDS = os.path.join(ROOT, "addons/local_agents/sim/material/TransportRecords.gd")
 REGOLITH = os.path.join(SIM, "material", "MaterialFieldRegolith3D.gd")
 RENDER = os.path.join(SIM, "material", "MaterialFieldRender3D.gd")
-SPHERE_GRID = os.path.join(SIM, "sphere", "SphereGrid.gd")
+
+# Outward normal and the two in-plane axes of each face of an axis-aligned cube, order [+X,-X,+Y,-Y,+Z,-Z].
+# Pure cube geometry, declared once here and emitted into the shader include; no GDScript reads it.
+FACE_FRAMES = [
+    ("FACE_N", [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]),
+    ("FACE_R", [(0, 0, -1), (0, 0, 1), (1, 0, 0), (1, 0, 0), (1, 0, 0), (-1, 0, 0)]),
+    ("FACE_U", [(0, 1, 0), (0, 1, 0), (0, 0, -1), (0, 0, 1), (0, 1, 0), (0, 1, 0)]),
+]
 
 GLSLI_OUT = os.path.join(SIM, "material", "kernels3d", "generated.glsli")
 SHADERINC_OUT = os.path.join(SIM, "shaders", "generated.gdshaderinc")
@@ -128,17 +135,7 @@ def transport_modes():
 
 
 def face_frames():
-    text = read(SPHERE_GRID)
-    frames = []
-    for name in ("_FACE_N", "_FACE_R", "_FACE_U"):
-        m = re.search(r"^const %s: Array\[Vector3\] = \[(.+)\]$" % name, text, re.M)
-        if not m:
-            raise Missing("SphereGrid.gd declares no `const %s`" % name)
-        vecs = re.findall(r"Vector3\(([-0-9.]+),\s*([-0-9.]+),\s*([-0-9.]+)\)", m.group(1))
-        if len(vecs) != 6:
-            raise Missing("SphereGrid.gd's %s is not six vectors" % name)
-        frames.append((name.lstrip("_"), vecs))
-    return frames
+    return FACE_FRAMES
 
 
 def glsli_text():
@@ -169,7 +166,7 @@ def fmt(value):
 
 
 def shaderinc_text():
-    lines = [BANNER, "", "// sphere/SphereGrid.gd cube-face frames; material/MaterialFieldRender3D.gd"]
+    lines = [BANNER, "", "// cube-face frames; material/MaterialFieldRender3D.gd"]
     for name, vecs in face_frames():
         cells = ", ".join("vec3(%s)" % ", ".join(fmt(float(c)) for c in v) for v in vecs)
         lines.append("const vec3 %s[6] = vec3[6](%s);" % (name, cells))

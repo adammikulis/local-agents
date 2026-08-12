@@ -101,12 +101,10 @@ order is the order.
 
 ## D. Transport and geometry
 
-- [x] **No kernel computes a reverse link any more.** `LASphereGrid` resolves each one into `link_partner`
-      by SEARCHING the neighbour's own six slots for the one pointing back, so a gather is
-      `send[partner[base + d]]` — a lookup, not arithmetic. Four kernels got that arithmetic wrong and a
-      fifth got it wrong while being fixed; now it cannot be written. `opposite()` is deleted and
-      `check_neighbour_slots.sh` fails the build on any kernel that computes a reverse link. Verified by
-      `check_kernel_conservation.sh`: 8 checks still pass.
+- [x] **The reverse link is arithmetic again, and now it is the RIGHT arithmetic.** `LAVoxelGrid` orders
+      the six axis tags so the reverse of `d` is `d ^ 1`, and `link_partner` — a searched table that existed
+      because a cubed-sphere seam could bend a link — is deleted with the seam. `check_neighbour_slots.sh`
+      holds `neighbours.glsli` equal to `LAVoxelGrid`: same slot count, same reverse function.
 - [ ] **The four gathers are still four kernels.** `gravity_flow`, `soil`, `erosion_transport` and
       `plate_advect` remain separate with different flow rules. The bug CLASS is now closed by the table
       above, so this is de-duplication rather than correctness — worth doing, no longer urgent.
@@ -120,7 +118,7 @@ order is the order.
 
 ## E. Conservation, open
 
-- [x] **The airborne runaway is CLOSED, and it was two layouts for one table.** `LASphereGrid` had a
+- [x] **The airborne runaway is CLOSED, and it was two layouts for one table.** The cubed-sphere grid had a
       `neighbours_kernel_order()` that uploaded a PERMUTED copy of the neighbour table to the GPU — the
       pre-SSOT layout, `below, lateral x4, above` — while `link_partner` was uploaded in the real order. So
       every kernel asking for "the cell above" got a lateral, and the two tables disagreed with EACH OTHER.
@@ -133,11 +131,10 @@ order is the order.
       `o2` 2.29e15 -> **35 446** · `moisture` 4.47e9 -> **0.215** · `h2o` 2.23e8 -> **5 299** ·
       `conservation_failed` **False**.
 
-      **The lesson is about the TEST, not the kernel.** `KernelConservation.gd` uploaded `_grid.neighbours`
+      **The lesson is about the TEST, not the kernel.** The kernel harness uploaded `_grid.neighbours`
       directly — the correct order — so it was testing the kernel against a table the sim never sent it, and
-      reported 12/12 clean while the sim exploded. A harness that builds its own inputs proves the kernel
-      correct and says nothing about the system. It now also runs at the SHIPPED planet's dimensions
-      (24/face x 20 shells, 69 120 cells, 48 bent seam links against the small grid's 8).
+      reported clean while the sim exploded. A harness that builds its own inputs proves the kernel correct
+      and says nothing about the system.
 
 - [ ] **THE DRIFT READOUT IS BLIND, and that is a gate that always passes.** Every ledger latches its
       `*_first` baseline on the first heavy REPORT after the seal, not at the seal. Heavy reports run on the
@@ -266,7 +263,7 @@ does not work is the trigger.
       fix, 200 frames seed 4242 `--full`: `temp_min` 5.42 C — the coldest cell at any altitude, any latitude,
       night side included — against `temp_ground_p50` 16.4. grep found no lapse rate, no adiabatic term and
       no potential temperature anywhere in the live substrate; the only one in the tree was synthesised
-      inside `tests/bench_atmosphere_column.gd`. It is dry convective adjustment (Manabe & Strickler 1964)
+      inside a bench that built its own atmosphere. It is dry convective adjustment (Manabe & Strickler 1964)
       now, one thread per radial column, sweeping upward and mixing each superadiabatic pair to neutral at
       constant enthalpy. `BUOYANCY` is DELETED and nothing replaced it: the pair solve
       `q = ((T_lo - T_hi) - gamma*dz) / (1/C_lo + 1/C_hi)` has no free rate. `gamma` is derived per cell as
