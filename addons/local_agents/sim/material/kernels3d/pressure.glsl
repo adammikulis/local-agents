@@ -1,11 +1,7 @@
 #[compute]
 #version 450
 
-// Pressure at every cell. A GAS answers with its equation of state, p = nRT: heat it and it pushes
-// harder, so a warm core makes a low and converging wind builds a high. CONDENSED matter is nearly
-// incompressible and instead transmits the load, so it adds the weight of the condensed column above.
-// The atmosphere's own hydrostatic profile is not added here -- it emerges, because gravity is what
-// puts more gas in the cells nearer the ground.
+// p = nRT of this cell's gas, plus the weight of the condensed column above it, marched along -g.
 
 #include "neighbours.glsli"
 
@@ -55,7 +51,6 @@ void main() {
 		acc += rho_cond[n] * length(g_at(n)) * la_step_len(up, params.cell_m);
 		c = n;
 	}
-	// Half this cell's own condensed weight: the reading is at its centre, not its top face.
 	vec3 gh = g_at(gidx);
 	acc += 0.5 * rho_cond[gidx] * length(gh) * params.cell_m;
 	float t_k = max(temp[gidx] + params.kelvin_0, 0.0);

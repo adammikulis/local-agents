@@ -110,10 +110,13 @@ awk -v REG="$REG_INPUT" -v ROOT="$REPO_ROOT/" -v EMIT="$EMIT" '
 
     if (decl !~ /(^|[ \t])const[ \t]/) next
 
+    # A MODEL PARAMETER IS A MEASURED QUANTITY, so only float and vec are in scope. An int in a kernel
+    # is a buffer stride, an array offset or an enum ordinal -- layout, which the generated header owns
+    # and scripts/check_generated_constants.sh gates.
     # GLSL:  const float NAME = value;      GDScript:  const NAME: float = value
-    if (match(decl, /const[ \t]+(float|int|uint|vec[234])[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) {
+    if (match(decl, /const[ \t]+(float|vec[234])[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) {
       seg = substr(decl, RSTART, RLENGTH); nf = split(seg, p, /[ \t]+/); name = p[nf]
-    } else if (match(decl, /const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*:[ \t]*(float|int)/)) {
+    } else if (match(decl, /const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*:[ \t]*float/)) {
       seg = substr(decl, RSTART, RLENGTH); sub(/^.*const[ \t]+/, "", seg); sub(/[ \t]*:.*$/, "", seg); name = seg
     } else next
 

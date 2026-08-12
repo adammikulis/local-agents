@@ -1,5 +1,3 @@
-// Neighbour-slot layout, held equal to LAVoxelGrid by scripts/check_neighbour_slots.sh.
-// Slots are axis tags, never directions: -X,+X,-Y,+Y,-Z,+Z. Down is -normalize(g), read per cell.
 
 #ifndef LA_NEIGHBOURS_GLSLI
 #define LA_NEIGHBOURS_GLSLI

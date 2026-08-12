@@ -1,10 +1,7 @@
 #[compute]
 #version 450
 
-// The frame terms. The field's axes are body-local and the body spins, so this IS a rotating frame and
-// matter in it feels Coriolis and centrifugal. Coriolis does no work -- it turns momentum without
-// changing its magnitude, which is what makes a cyclone turn one way in one hemisphere and the other
-// way in the other.
+// Rotating-frame terms on momentum: Coriolis -2w x v and centrifugal -w x (w x r), per unit volume.
 
 layout(local_size_x = 64) in;
 
@@ -39,7 +36,6 @@ void main() {
 	if (dot(omega, omega) <= 0.0) {
 		return;
 	}
-	// Momentum density is rho * v, so the force per unit volume needs the mass that is actually here.
 	float rho = rho_cond[g] + n_gas_m3[g] * params.gas_kg_mol;
 	if (rho <= 0.0) {
 		return;
@@ -47,7 +43,6 @@ void main() {
 	vec3 v = vec3(vel_x[g], vel_y[g], vel_z[g]);
 	vec3 r = vec3(pos[g * 3u], pos[g * 3u + 1u], pos[g * 3u + 2u])
 		- vec3(params.centre_x, params.centre_y, params.centre_z);
-	// Coriolis -2 w x v, centrifugal -w x (w x r). Both per unit volume, so both scale with rho.
 	vec3 a = -2.0 * cross(omega, v) - cross(omega, cross(omega, r));
 	vec3 dp = a * rho * params.dt_s;
 	mom_x[g] += dp.x;
