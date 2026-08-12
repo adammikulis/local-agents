@@ -32,11 +32,11 @@ from a caller list and from a red gate were not in front of anyone. They are in 
 **Everything is on `feature/enthalpy`.** The branch does not parse and there is one reason left:
 `LAHeatCapacity` is deleted and the field still stores `temp`. That conversion is task 7 below.
 
-**The grid migration is most of the way through.** The Cartesian box is what the kernels run on:
-`MaterialSphereGPU3D` takes an `LAVoxelGrid`, gravity is the solved Poisson field read per cell, and
-`check_no_privileged_axis.sh` passes — no slot means "up", no column is an array stride, and the radial
-shell table is deleted. `LASphereGrid` survives only for the geotherm, the bakers, the input controller
-and the charge readback, and is deleted when those move.
+**The grid migration is done.** The Cartesian box is the only grid: `MaterialSphereGPU3D` takes an
+`LAVoxelGrid`, gravity is the solved Poisson field read per cell, and `check_no_privileged_axis.sh` passes
+— no slot means "up", no column is an array stride. `sim/sphere/` is deleted, and with it the seam-repair
+graph matching, the tangent basis and its parallel transport, the radial shell stack and `link_partner`.
+The grid is METRES, because the gravity solve is SI.
 
 **Kernels: 24 to 10.** One `transport.glsl` plus a record table absorbed the seven gathers, then diffusion,
 convection, conduction, radiation and momentum. What made them look different was the coordinate system:
@@ -99,12 +99,11 @@ channels that carry heat, because heat is no longer spread across channels:
 
 ## WHAT IS LEFT
 
-**G — the grid. Nearly done.** The kernels run on `LAVoxelGrid`, gravity is solved, the axis gate passes,
+**G — the grid. Done.** The kernels run on `LAVoxelGrid`, gravity is solved, the axis gate passes,
 `METRES_PER_MODEL_UNIT` / `PLANET_SCALE` / `SURFACE_G` / the held `STANDARD_GRAVITY_M_S2` are gone, and so
 are `solid_angle`, `cell_vol`, `face_area`, `link_arc`, `link_partner`, the tangent basis and its parallel
-transport, and the shell table. *Left:* the geotherm, bakers, input controller and charge readback still
-hold `LASphereGrid`; when they move it deletes wholesale, taking the `_seed_families` / `_repair_pairs` /
-`_augment_once` seam-repair graph matching with it.
+transport, the shell table and the whole of `sim/sphere/`. *Left:* the geotherm, the bakers and the charge
+readback still call shell-stack methods (`shell_of`, `cell_radial`) that the box does not have.
 
 **P — pressure. Done.** `kernels3d/pressure.glsl` marches along -g accumulating the cell's own bulk
 density times the solved `|g|`. It replaced a kernel that gave a buried cell the weight of the AIR column
@@ -162,11 +161,9 @@ changes its unit, then the latent-plateau gate.
   row like every other, or it is deleted outright. It cannot stay half-present.
 - **`_read_channels`'s SLOW block hardcodes its channel list**, so `slow_channels()` is a view nothing
   consumes and `porosity` never gets its coarse readback.
-- **`tests/KernelConservation.gd` is over the soft length limit.** Not at the hard limit yet.
 - **Two parallel cell-volume subsystems both survived** — `FieldTotals.gd` + `kernels3d/cell_geom.glsli`
-  against `MaterialFieldCellVolume3D` + `MaterialFieldFaceArea3D` + `kernels3d/cellvol.glsli`. `SphereGrid`
-  serves both APIs off one table so nothing is broken today, but one of them has to die, and the grid
-  migration is when.
+  against `MaterialFieldCellVolume3D` + `MaterialFieldFaceArea3D` + `kernels3d/cellvol.glsli`. On a uniform
+  box every cell has one volume, so one of them is pure ceremony. One has to die.
 - **`AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`**, which is now the
   cited ISA value. It is the unit definition of the `o2`/`co2`/`n2` channels, so correcting it re-scales
   every gas total — a maintainer call, not a merge resolution. The fix is one flat expression.
@@ -276,7 +273,7 @@ and three reporting success on zero files for months.
 
 *(The most dangerous list here, because work AVOIDS what is on it. An entry that stops being true comes OFF.)*
 
-- the neighbour / tangent / lateral-slot tables and `link_partner` — `sim/sphere/SphereGrid.gd`, gated by
+- the six-slot neighbour table, axis tags with `d ^ 1` as the reverse — `sim/voxel/VoxelGrid.gd`, gated by
   `check_neighbour_slots.sh` and by `validate()` at runtime;
 - the DEFS record engine's std430 layout — `reactions/ReactionDefs.gd`;
 - reaction DIRECTION from Gibbs free energy, and Saha ionisation with law-of-mass-action dissociation;
@@ -309,8 +306,7 @@ grid is the prerequisite and it is now the trunk.
   `neighbours.glsli` / `enthalpy.glsli` · `MaterialReactions3D` + `material/reactions/` ·
   `material/Substances.gd` (the SSOT for matter) · `material/PhysicalConstants.gd` (append-only for agents;
   its expression parser has NO parentheses).
-- **The grids:** `sim/sphere/SphereGrid.gd` (live) · `sim/voxel/VoxelGrid.gd` + `LAFieldGravity` (the trunk,
-  consumed by nothing yet).
+- **The grid:** `sim/voxel/VoxelGrid.gd` + `LAFieldGravity`. There is no second one.
 - **The books:** `MaterialFieldSeal3D.gd` · `MaterialFieldConservation3D.gd` · `FieldLedgerFold3D.gd` and
   `MaterialFieldLedger3D.gd` (one ledger, mask-free totals with open-cell twins).
 - **Composition root:** `game/VoxelWorld.gd` (**extract-only**) + `game/world/*`; three layer scenes,

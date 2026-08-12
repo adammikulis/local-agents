@@ -8,7 +8,7 @@ const DIR: String = "user://la_solid_cache"
 const SPOT_CELLS: int = 256
 const GENERATOR_SRC: PackedStringArray = [
 	"res://addons/local_agents/sim/terrain/VoxelTerrainService.gd",
-	"res://addons/local_agents/sim/sphere/SpherePlanetGenerator.gd",
+	"res://addons/local_agents/sim/terrain/SpherePlanetGenerator.gd",
 ]
 
 

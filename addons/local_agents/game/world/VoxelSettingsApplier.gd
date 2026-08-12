@@ -3,9 +3,8 @@ extends Node
 
 
 const GRID_RES_DIVISOR: float = 3.0
-const GRID_FACE_MIN: int = 8
-const GRID_FACE_MAX: int = 64
-const GRID_DEPTH: int = 20                 # radial shell depth (kept constant so the shell spans the same band)
+const GRID_EDGE_MIN: int = 8
+const GRID_EDGE_MAX: int = 64
 
 ## actor_budget that maps to spawn_scale == 1.0 (the Medium preset). Low (48) → 0.4, High (240) → 2.0.
 const BASELINE_ACTOR_BUDGET: float = 120.0
@@ -78,14 +77,9 @@ func settings() -> LAGameSettings:
 	return _settings
 
 
-## Cubed-sphere per-face cell resolution from the quality grid_resolution budget.
-func grid_res_per_face() -> int:
-	return clampi(int(round(float(settings().grid_resolution) / GRID_RES_DIVISOR)), GRID_FACE_MIN, GRID_FACE_MAX)
-
-
-## Radial shell depth (constant for now — resolution scales laterally only).
-func grid_depth() -> int:
-	return GRID_DEPTH
+## Field cells along one edge of the box, from the quality grid_resolution budget.
+func grid_cells_per_edge() -> int:
+	return clampi(int(round(float(settings().grid_resolution) / GRID_RES_DIVISOR)), GRID_EDGE_MIN, GRID_EDGE_MAX)
 
 
 ## Multiplier the initial-spawn controller applies to its base actor counts.
@@ -172,8 +166,8 @@ func bind(world: Node, disasters: Node, terrain, water: Node) -> void:
 			gm.settings_applied.connect(cb)
 	_bound = true
 	var ro: Dictionary = render_opts()
-	print("SETTINGS_APPLIED={grid_res:%d, grid_face:%d, grid_depth:%d, effects:%d, actor_budget:%d, spawn_scale:%.2f, particle:%.2f, ssao:%s, glow:%s, shadows:%s, ocean_transparent:%s, fog:%s, veg:%.2f, draw:%.0f, ai_tick:%d, llm_cadence:%.1f, field_cadence:%d, disaster_freq:%.2f, disaster_interval:%.1f, climate:%.2f, ambient:%s}" % [
-		settings().grid_resolution, grid_res_per_face(), grid_depth(), int(settings().effects_level),
+	print("SETTINGS_APPLIED={grid_res:%d, grid_edge:%d, effects:%d, actor_budget:%d, spawn_scale:%.2f, particle:%.2f, ssao:%s, glow:%s, shadows:%s, ocean_transparent:%s, fog:%s, veg:%.2f, draw:%.0f, ai_tick:%d, llm_cadence:%.1f, field_cadence:%d, disaster_freq:%.2f, disaster_interval:%.1f, climate:%.2f, ambient:%s}" % [
+		settings().grid_resolution, grid_cells_per_edge(), int(settings().effects_level),
 		settings().actor_budget, spawn_scale(), particle_scale(),
 		str(ro["ssao"]), str(ro["glow"]), str(ro["sun_shadows"]), str(ro["ocean_transparent"]), str(ro["fog"]),
 		vegetation_scale(), draw_distance(), ai_tick_frames(), llm_cadence(), field_cadence(),

@@ -452,10 +452,10 @@ plus a camera, a light and a harness, and its script contains no world-building 
 
 | export | mode | meaning |
 | --- | --- | --- |
-| `world_type` | both | `SPHERE` (cubed-sphere planet) or `FLAT` (ground plane plus a box field) |
+| `world_type` | both | `SPHERE` (planet in a box field) or `FLAT` (ground plane plus a box field) |
 | `build_on_ready` | both | build automatically, or call `spawn_world()` yourself |
 | `radius`, `ocean_bias`, `caves_enabled`, `tides_enabled` | SPHERE | planet shape and toggles |
-| `grid_res`, `grid_depth` | SPHERE | field grid resolution and layer count |
+| `grid_res` | SPHERE | field cells along one edge of the box |
 | `sun_enabled` | SPHERE | build the child sun that drives the field's solar pass |
 | `flat_extent`, `flat_cell_size`, `ground_y` | FLAT | box extent, field cell size, floor height |
 | `auto_spawn`, `initial_counts` | both | founding population |

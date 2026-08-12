@@ -15,30 +15,18 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 469**   <!-- lowered: 58 ghost rows dropped, naming files or constants the kernel collapse deleted. -->
+**MAX_DECLARED: 473**   <!-- the grid's slot and face tags went with it; SimWorld's ten terrain lengths were
+inline literals scaled by a Node3D transform and are now named metre constants the registry can see. -->
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
 the progress. It may shrink. It may not grow.
 
-## The radial shell profile is a modelling choice with no number in it
+## The grid has one length in it, and it is metres
 
-`LASphereGrid` used to give every radial shell one thickness, the scalar `cell_size`. It now carries a
-per-shell table and `build()` takes an optional profile; `cell_size` is the MEAN of that table and equals
-every shell's thickness only when `shells_uniform` is true.
-
-**The default is uniform, and it is bit-identical to the scalar grid.** Grading changes vertical resolution
-everywhere, so it is opt-in through `LA_SHELL_PROFILE`, read by `LASphereGridProfiles.from_env`.
-
-`LA_SHELL_PROFILE=surface_focus` is the one worked alternative. It carries no chosen constant: the thin
-shells are `GROUNDWATER_CIRCULATION_M / REGOLITH_CELLS` thick, which is the depth one aquifer shell has to
-stand for if the grid is to resolve its own groundwater, and the growth ratio away from that band is solved
-for by bisection so the column still spans `depth * cell_size` and the shell reaches the same radii. Its
-bisection bracket and iteration count are locals, not constants — they are a root-finder's business, not
-the planet's.
-
-Which profile the planet ships with is not decided here. `from_env` returning an empty table is the
-statement that nobody has decided yet.
+`LAVoxelGrid.cell_size` is the edge of a cube, the same along every axis and at every cell. `LAFieldGravity`
+solves Poisson in SI over that grid, so the cell edge is metres and there is no conversion factor anywhere
+between the grid and the physics.
 
 ## Opening state, 2026-08-10
 
@@ -110,6 +98,16 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/mesh/VegetationRenderer.gd` | `_CHUNK` | 256 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/mesh/VegetationRenderer.gd` | `_INITIAL_CAP` | 512 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/SimWorld.gd` | `SLOW_BUILD_CELLS` | 250000 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/SimWorld.gd` | `MODELLED_ATMOSPHERE_HEIGHT_M` | 1.0e5 | modelling extent: how much air the box holds | a body that declares its own atmosphere mass |
+| `addons/local_agents/sim/SimWorld.gd` | `RELIEF_M` | 9.4e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
+| `addons/local_agents/sim/SimWorld.gd` | `FEATURE_M` | 5.2e4 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
+| `addons/local_agents/sim/SimWorld.gd` | `BASIN_RELIEF_M` | 4.0e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
+| `addons/local_agents/sim/SimWorld.gd` | `BASIN_SIZE_M` | 4.4e4 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
+| `addons/local_agents/sim/SimWorld.gd` | `RIDGE_RELIEF_M` | 1.35e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
+| `addons/local_agents/sim/SimWorld.gd` | `RIDGE_SIZE_M` | 3.2e4 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
+| `addons/local_agents/sim/SimWorld.gd` | `DETAIL_RELIEF_M` | 3.4e2 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
+| `addons/local_agents/sim/SimWorld.gd` | `CAVE_SIZE_M` | 2.0e4 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
+| `addons/local_agents/sim/SimWorld.gd` | `CAVE_DEPTH_FADE_M` | 4.7e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
 | `addons/local_agents/sim/PlateTectonics.gd` | `PLATE_COUNT` | 9 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/PlateTectonics.gd` | `EVENT_PERIOD` | 7.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/PlateTectonics.gd` | `SAMPLES_PER_EVENT` | 10 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -119,26 +117,15 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/PlateTectonics.gd` | `VOLCANO_CHANCE_CONVERGENT` | 0.3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/SimClock.gd` | `REAL_SECONDS_PER_SIM_SECOND` | 432.0 | time compression: real seconds that one sim-clock second stands for. A real planet has no such number, and this is now the only one the timebase asserts — the rotation itself is `LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S`, and `DAY_LENGTH` (199.454 sim s), `SPIN_RAD_PER_SIM_S` (0.0315019 rad/sim s) and `LAMaterialFieldSphereStep3D.real_seconds_per_step()` (43.2 real s) are all derived from that pair. It is not only a viewing speed: `real_seconds_per_step()` is every transport kernel's `params.dt`, so this number sets every rate in the substrate and every kernel's Courant number. | a substep budget that decouples the field's `dt` from the presentation clock, so this number sets how fast the player watches and no kernel `dt` reads it |
 | `addons/local_agents/sim/SimClock.gd` | `DAYS_PER_SEASON` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_OUTPUT_SDF` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_ADD` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_SUBTRACT` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_MULTIPLY` | 7 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_ABS` | 11 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_MIN` | 16 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_MAX` | 17 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_SDF_SPHERE` | 32 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SpherePlanetGenerator.gd` | `T_FAST_NOISE_3D` | 40 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SphereGrid.gd` | `FACES` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SphereGrid.gd` | `N_IN` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SphereGrid.gd` | `N_OUT` | 1 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SphereGrid.gd` | `N_A0` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SphereGrid.gd` | `N_A1` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SphereGrid.gd` | `N_B0` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SphereGrid.gd` | `N_B1` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SphereGrid.gd` | `S_A0` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SphereGrid.gd` | `S_A1` | 1 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SphereGrid.gd` | `S_B0` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/sphere/SphereGrid.gd` | `S_B1` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_OUTPUT_SDF` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_ADD` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_SUBTRACT` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MULTIPLY` | 7 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_ABS` | 11 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MIN` | 16 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MAX` | 17 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_SDF_SPHERE` | 32 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_FAST_NOISE_3D` | 40 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/SimReportSources.gd` | `METAB_FIT_MIN_N` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/system/Gravity.gd` | `SOFTENING` | 4.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/system/Moon.gd` | `RADIUS` | 42.0 | inherited, unreviewed | Stage 2 substrate rewrite |

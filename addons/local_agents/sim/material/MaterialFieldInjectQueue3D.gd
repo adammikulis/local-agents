@@ -55,12 +55,11 @@ var add_cells: int = 0         # ...of which belonged to `add` ops, so a credit 
 var _ops: Array = []
 var _index: Dictionary = {}    # op signature -> slot in _ops, so same-signature edits COALESCE (see _merge)
 
-# The grid whose cell volumes size every cross-cell transfer. A channel value is a FRACTION of a cell and
-# cells on this grid differ in volume by up to 3.5x radially, so a credit equal to the debit is not equal mass.
+# The grid whose cell volumes size every cross-cell transfer. A channel value is a FRACTION of a cell.
 var _grid = null
 
 
-## `grid` is the LASphereGrid the field is laid over. Called by LAMaterialFieldInject3D.setup.
+## `grid` is the LAVoxelGrid the field is laid over. Called by LAMaterialFieldInject3D.setup.
 func setup(grid) -> void:
 	_grid = grid
 

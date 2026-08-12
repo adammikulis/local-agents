@@ -80,10 +80,8 @@ volcano dissolved into physics: a seabed vent now builds an island on its own.
 
 ### Planet
 
-- **Cubed-sphere is the sole substrate.** The field now lives on a gnomonic cubed-sphere grid
-  (`LASphereGrid`) with a precomputed seam/neighbour table; every kernel gathers neighbours across
-  cube-face seams on-device. The origin-centered box grid, its GPU driver, and its CPU-oracle
-  modules were deleted — there is no flat/2.5D world any more.
+- **The cubed-sphere grid was the sole substrate for 0.3.** It has since been deleted in favour of the
+  uniform Cartesian box, so this entry describes a shape the tree no longer has.
 - **Emergent, verified planet physics:** star-lit solar terminator (per-cell
   `dot(cell_radial, sun_dir)`), geothermal core + heat conduction, a full
   sea → evaporation → cloud → rain water cycle, an emergent snow line, and the closed carbon/oxygen

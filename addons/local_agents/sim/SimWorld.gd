@@ -6,17 +6,30 @@ extends Node3D
 
 enum WorldType { SPHERE, FLAT }
 
-const SphereGridScript: GDScript = preload("res://addons/local_agents/sim/sphere/SphereGrid.gd")
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialField3D.gd")
 const EcologyServiceScript: GDScript = preload("res://addons/local_agents/sim/ecology/EcologyService.gd")
 const FlatTerrainScript: GDScript = preload("res://addons/local_agents/creatures/terrain/adapters/FlatGroundTerrain.gd")
 
 const PLANET_BODY_PATH: String = "res://addons/local_agents/sim/system/PlanetBody.gd"
 
-# Field cells past which a build is slow enough to be worth warning about in the inspector. Chosen as a
-# round number well above the defaults (SPHERE default = 6*20*20*20 = 48,000 cells).
+# Field cells past which a build is slow enough to be worth warning about in the inspector.
 const SLOW_BUILD_CELLS: int = 250000
 
+# Height of the air column above the mean surface the field box encloses, metres. Earth's homosphere ends
+# near the 100 km turbopause; above it the remaining mass is negligible against the crust in the same box.
+const MODELLED_ATMOSPHERE_HEIGHT_M: float = 1.0e5
+
+# The body's shape, METRES, because the grid and the gravity solve are SI. Terrestrial continental relief
+# and its wavelength; basins, ridges and cave tunnels are the same lengths one order down.
+const RELIEF_M: float = 9.4e3
+const FEATURE_M: float = 5.2e4
+const BASIN_RELIEF_M: float = 4.0e3
+const BASIN_SIZE_M: float = 4.4e4
+const RIDGE_RELIEF_M: float = 1.35e3
+const RIDGE_SIZE_M: float = 3.2e4
+const DETAIL_RELIEF_M: float = 3.4e2
+const CAVE_SIZE_M: float = 2.0e4
+const CAVE_DEPTH_FADE_M: float = 4.7e3
 
 @export_group("World")
 @export var world_type: WorldType = WorldType.SPHERE: set = _set_world_type
@@ -38,11 +51,9 @@ const SLOW_BUILD_CELLS: int = 250000
 @export var tides_enabled: bool = false
 
 @export_subgroup("Field grid")
-## Field cells along one edge of each of the 6 cube faces. The shell holds 6 x res x res x depth cells
-## in total, so this is the dominant cost knob: doubling it quadruples the grid.
+## Field cells along one edge of the box. The box holds res^3 cells, so this is the dominant cost knob:
+## doubling it multiplies the grid by eight.
 @export_range(8, 64, 1, "suffix:cells") var grid_res: int = 20: set = _set_grid_res
-## Radial layers in the field shell, from the innermost crust layer out to space.
-@export_range(8, 32, 1, "suffix:layers") var grid_depth: int = 20: set = _set_grid_depth
 
 @export_subgroup("Lighting")
 @export var sun_enabled: bool = true
@@ -142,12 +153,12 @@ func _build_sphere() -> bool:
 	add_child(_body)
 	_body.setup({
 		"radius": radius, "sea_radius": radius, "ocean_bias": ocean_bias,
-		"relief": 28.0 * scale, "feature_size": 155.0 * scale,
-		"basin_relief": 12.0 * scale, "basin_size": 130.0 * scale,
-		"ridge_relief": 4.0 * scale, "ridge_size": 95.0 * scale, "ridge_octaves": 2,
-		"detail_relief": 1.0 * scale,
-		"caves_enabled": caves_enabled, "cave_size": 60.0 * scale, "cave_threshold": 0.09,
-		"cave_strength": 40.0, "cave_depth_fade": 14.0 * scale,
+		"relief": RELIEF_M, "feature_size": FEATURE_M,
+		"basin_relief": BASIN_RELIEF_M, "basin_size": BASIN_SIZE_M,
+		"ridge_relief": RIDGE_RELIEF_M, "ridge_size": RIDGE_SIZE_M, "ridge_octaves": 2,
+		"detail_relief": DETAIL_RELIEF_M,
+		"caves_enabled": caves_enabled, "cave_size": CAVE_SIZE_M, "cave_threshold": 0.09,
+		"cave_strength": 40.0, "cave_depth_fade": CAVE_DEPTH_FADE_M,
 		"tides_enabled": tides_enabled, "view_distance": 2000, "seed": world_seed,
 	})
 	_terrain = _body.terrain()
@@ -158,17 +169,12 @@ func _build_sphere() -> bool:
 		_sun.name = "Sun"
 		_sun.rotation = Vector3(-0.9, 0.4, 0.0)
 		add_child(_sun)
-	# Cubed-sphere field shell enclosing the planet (crust + atmosphere), scaled with the radius.
+	# Cartesian box enclosing the planet and the air above it. METRES: the gravity solve is SI.
 	_material = MaterialFieldScript.new()
 	_material.name = "MaterialField"
 	add_child(_material)
-	var grid: RefCounted = SphereGridScript.new()
-	var mean_dr: float = LASimulation.MODELLED_SPAN_M / float(maxi(grid_depth, 1))
-	var core_r: float = radius - LASimulation.MODELLED_CRUST_DEPTH_M
-	var surf_shell: int = clampi(int((_terrain.sea_radius() - core_r) / mean_dr), 0, grid_depth - 1)
-	grid.build(grid_res, grid_depth, core_r, mean_dr, _body.center(),
-		LASphereGridProfiles.from_env(grid_depth, mean_dr, surf_shell))
-	_material.setup_sphere(grid, _terrain)
+	var extent_m: float = radius + MODELLED_ATMOSPHERE_HEIGHT_M
+	_material.setup_body(_body.center(), extent_m, 2.0 * extent_m / float(maxi(grid_res, 1)), _terrain)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
 	if _sun != null and _material.has_method("set_sun"):
@@ -254,13 +260,13 @@ func _get_configuration_warnings() -> PackedStringArray:
 		out.append("Auto Spawn is on but Build On Ready is off, so no world exists to spawn into until something calls spawn_world() from a script.")
 	var cells: int = planned_cell_count()
 	if cells > SLOW_BUILD_CELLS:
-		out.append("These settings ask for %d field cells. Past roughly %d the world takes a while to build and holds a lot of memory. Lower Field Grid res/depth (Sphere) or raise Flat Cell Size." % [cells, SLOW_BUILD_CELLS])
+		out.append("These settings ask for %d field cells. Past roughly %d the world takes a while to build and holds a lot of memory. Lower Field Grid res (Sphere) or raise Flat Cell Size." % [cells, SLOW_BUILD_CELLS])
 	return out
 
 
 func planned_cell_count() -> int:
 	if world_type == WorldType.SPHERE:
-		return 6 * grid_res * grid_res * grid_depth
+		return grid_res * grid_res * grid_res
 	if flat_cell_size <= 0.0:
 		return 0
 	var dx: int = maxi(1, int(round(flat_extent.x / flat_cell_size)))
@@ -286,11 +292,6 @@ func _set_build_on_ready(value: bool) -> void:
 
 func _set_grid_res(value: int) -> void:
 	grid_res = value
-	_refresh_warnings()
-
-
-func _set_grid_depth(value: int) -> void:
-	grid_depth = value
 	_refresh_warnings()
 
 
