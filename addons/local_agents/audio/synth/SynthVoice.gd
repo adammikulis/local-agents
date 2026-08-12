@@ -2,20 +2,11 @@
 extends RefCounted
 class_name LocalAgentSynthVoice
 
-## Swappable synthesis backend interface.
-##
-## A voice turns a `LASynthVoiceParams` into a mono float buffer
-## (samples ~[-1, 1]). The default backend is `GdScriptSynthVoice`; a native /
-## GodotSynth-backed voice can be dropped in later without touching SfxBank,
-## MusicDirector, or AudioDirector, because they only depend on this interface.
-##
-## Subclasses MUST override `render`. `render_to_stream` is provided for free.
 
 const SynthDsp := preload("res://addons/local_agents/audio/synth/SynthDsp.gd")
 
 const DEFAULT_SAMPLE_RATE := 44100
 
-## Return a mono float buffer for `params`. Base implementation is silence.
 func render(_params: LASynthVoiceParams, _sample_rate: int) -> PackedFloat32Array:
 	push_error("NATIVE_REQUIRED: SynthVoice.render must be overridden by a concrete backend")
 	return PackedFloat32Array()

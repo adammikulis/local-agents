@@ -10,6 +10,86 @@ compatibility" here — there are no downstream consumers.
 not static. Mass does not move without its heat. A gas does not ignore the wind. Water does not vanish when
 it reaches the ocean. When the answer is "reality has no such thing", delete it — do not parameterise it.
 
+# RULE 1b — NO BASELINE HERE HAS EVER BEEN VALID. STOP REPORTING WHETHER A NUMBER GOT BETTER OR WORSE.
+
+**Nothing in this repository has ever worked, so no recorded number measures anything.** A figure taken
+through a broken kernel is not a measurement — it is the interaction of whichever defects were live that
+day. Two such figures differenced is a difference between two fictions. **Twelve kernels read the neighbour
+table's slot 5 as "the cell above" when slot 5 is a LATERAL**, so the solar column, the aquifer walk,
+evaporation's air-above test, both buoyancy kernels and the wind were all walking sideways around the sphere
+at constant radius. Every number ever written down predates anyone knowing that.
+
+**So: do not present before/after tables, and do not frame work as an improvement over a baseline.** Report
+what the CODE does versus what REALITY does, and whether they match. `o2_total -44.7%` is not "a number got
+worse" — it is "is the oxygen path correct?", and that is answered by READING it, not by running arms.
+
+**Two concrete harms, both incurred here:**
+- It invites *"this got worse, should we revert?"*, which for a correct fix is never a real question and is
+  the exact move Rule 1 forbids.
+- It is the instinct that fits the model to its output — water freezing at 12.5 °C, a 1300 °C core, the
+  fitted biological rates. Making the number look right instead of making the code right.
+
+**Numbers become evidence only when every known bug is fixed.** Until then the deliverable is a defect
+named and removed. This composes with the rule below about not A/B-ing a substrate you have already
+convicted: that says the measurement is worthless; this says reporting it is actively harmful.
+
+*(Written 2026-08-11, in the maintainer's words: "IDGAF if the numbers are better or worse... not one
+effing time have I mentioned the numbers being better or worse", "A BROKEN NUMBER IS NOT A VALID MARK OF
+COMPARISON. NONE OF THIS HAS EVER WORKED SO NO BASELINE NUMBERS HAVE ANY MEANING." Said after an agent
+spent most of a session producing control-vs-branch comparison tables while twelve kernels were walking
+sideways.)*
+
+# RULE 1c — THE WORLD HAS TWO PHASES. CREATION IS LEGAL IN ONE OF THEM AND ONLY ONE.
+
+**SEEDING.** The world is being built. Matter and energy may be **created**, because the planet does not have
+them yet — the seed sea, the geotherm, the atmosphere's initial composition, a restored bake. Every such act
+is declared through `LAMaterialFieldSeal3D.note_creation()` and lands in `world_seed`, which is the scoreboard
+of what the substrate was TOLD rather than worked out. Progress is entries being DELETED from it.
+
+**SEALED.** The world exists. Matter and energy may only be **moved or transformed**. Creating either is a
+violation — not a modelling choice, not a stopgap, and not something a flag, a mode or an environment
+variable may re-enable. `LAMaterialFieldSeal3D.sealed()` is the boundary and there is no other.
+
+**The boundary is enforced, not described.** `creation_allowed()` answers it; `note_creation(what, amount)`
+returns false after the seal, errors, and counts the attempt into `creation_after_seal`, which `SIM_REPORT`
+publishes and which must read empty. `scripts/check_seed_phase.sh` fails the build on a creation-class write
+that never asks, and on any whole-mirror `set_field()` upload — because an upload that cannot say what it
+changed can create matter with no ledger noticing, and does.
+
+**Two switches that re-enabled creation after the seal were deleted on 2026-08-12** — `LA_MINT_PLANT_FOOD`
+("food from nowhere") and `LA_NO_BIOTA_DEBIT` (grazing that took food out of nothing, drinking the lake never
+lost, respiration with no O2 or CO2, litter and sweat that vanished). Both were kept as A/B control arms. A
+conservation violation reachable by environment variable is the same defect with a switch on it.
+
+# RULE 1d — "A CAN'T HAPPEN BECAUSE B" IS ONLY ALLOWED WHEN B IS AN UPSTREAM BUG YOU CANNOT FIX.
+
+**If B is our code, the sentence is not finished. It must continue: "AND THIS IS HOW I AM FIXING IT."**
+
+*(Maintainer, 2026-08-12, verbatim: "IF YOU FIND YOURSELF SAYING THAT 'A CAN'T HAPPEN BECAUSE B' IT BETTER BE
+A REAL UPSTREAM BUG THAT WE CANNOT FIX. IF IT'S OUR CODE, IT BETTER BE FOLLOWED WITH 'AND THIS IS HOW
+I AM FIXING IT'." And: "nothing is 'choosing the architecture' for you. You wrote every bit of code." And:
+"EVERY TIME YOU CLING TO TECH DEBT TO MATCH THE OLD SYSTEM WE CHURN AND WASTE A MILLION TOKENS".)*
+
+**Every constraint in this repo is a past decision, not physics.** There are no downstream consumers. Stating
+one as though it were a fact about the world, and stopping there, is how a defect survives another session —
+and the next session pays for it twice, once to rediscover it and once to undo the work built on top.
+
+**The tells, every one of them produced in a single session:**
+- **"another lane owns that file"** — that is scheduling. Coordinate, or take the file.
+- **"the dual-ownership problem chose the architecture for me"** — a per-cell field CA was written in
+  GDScript because it was less work, and the existing layout was then blamed for it.
+- **"sourcing real absorption coefficients is a blocker"** — it was a research task. The values are published.
+- **"wiring this gate in would block every lane"** — lint was already red and every lane had handled that
+  correctly. The cost was invented to avoid the work.
+- **Pre-authoring an escape hatch** — asking an agent to "say whether you believe it" instead of making the
+  hard case a blocking gate. A caveat where a gate belongs is a plan to ship the defect.
+
+**And never keep something because it matches what was there.** The original never worked, so "feel",
+"parity", "familiar", "legacy", and "so the existing tuning still sees familiar numbers" are not reasons —
+they are the reason the defect is still here. Deleted on 2026-08-12 for exactly this: `LA_MINT_PLANT_FOOD`
+and `LA_NO_BIOTA_DEBIT`, two conservation violations reachable by environment variable and kept as "A/B
+control arms".
+
 # YOU MAY NOT VIOLATE PHYSICS WITHOUT EXPLICIT PERMISSION. ASK. EVERY TIME.
 
 **Any departure from real physics requires the maintainer's explicit consent, obtained BEFORE you write it.**
@@ -48,7 +128,7 @@ it does not, delete it. Measured numbers belong in gates, never in comments.
 
 *(Written 2026-08-10, in the maintainer's words: "STOP CLINGING TO BROKEN CODE", "IF YOU KNOW IT'S WRONG RIP
 IT OUT", "I never wanted a static sea... I said over and over again I don't want one", "NO HUMAN PROGRAMMER
-DOES THE SHIT THAT YOU DO". Every one of those followed an agent adding a flag instead of a deletion.)*
+DOES WHAT YOU DO". Every one of those followed an agent adding a flag instead of a deletion.)*
 
 ---
 
@@ -116,6 +196,34 @@ work forward.
   is the ONE place its name is written; everywhere else says "the current dev branch" so a version bump
   changes only this line). `main` is downstream — it holds the shipped release (currently **0.3.1**, tagged
   `v0.3.1`). Do **not** commit feature work directly to `main`.
+- **EVERY SUBAGENT THAT EDITS FILES GETS ITS OWN WORKTREE. PASS `isolation: "worktree"` ON THE AGENT CALL.
+  THIS IS NOT A JUDGEMENT CALL AND THERE IS NO THRESHOLD.** One agent or nine, one file or fifty — if it
+  writes, it is isolated. A read-only agent may share the tree, and must be told to cite identifiers rather
+  than line numbers, because other lanes will move them under it.
+  - **"TRIVIAL" IS A PROPERTY OF THE CHANGE, NOT OF HOW MUCH TYPING YOU DID.** This is the exact misreading
+    that produced the failure below: launching an agent is one tool call, so it FELT trivial — while the
+    change was thousands of lines across dozens of files, including a rewritten momentum equation and a
+    three-way split of organic matter with its balance checker. Measure the diff, never your own effort.
+  - **WORK YOU DELEGATE IS STILL YOUR CHANGE.** Nine agents making non-trivial changes is nine non-trivial
+    changes. The failure mode is not deciding wrongly — it is never deciding, because the flag simply does
+    not get passed.
+  - **The two stated exemptions are the opposite of a fan-out.** The rule below exempts "trivial single-file
+    edits (docs)" and "when you have confirmed you are the sole writer". Launching concurrent writers is the
+    precise inverse of the second one, so a fan-out can never qualify.
+  - **What it costs, measured 2026-08-12 when nine lanes were run in ONE shared tree.** Every lane reported
+    it independently and none of them could fix it: the planning agent found `Substances.gd` had grown 38
+    lines between two of its own commands and three of its `file:line` citations had rotted before it
+    finished; the wind lane lost BOTH acceptance runs to another lane's missing preload; the element-probe
+    lane lost three runs to a 36-byte push constant meeting a 32-byte kernel and watched `check_parse_all`
+    flip red and green repeatedly; the erosion lane's clean 200-frame runs were invalidated the same way.
+    Four lanes' verification, thrown away, plus every lane spending tokens reporting "lint is red on files
+    I do not own".
+  - **And it manufactures the excuse for the NEXT failure.** Once the lanes collide, "another lane owns
+    that file" starts appearing as a reason not to do work — which is RULE 1d, caused by this.
+  - **The coordinator still integrates.** Worktree agents commit to their own branch; merging, conflict
+    resolution and the editor-scan/verify gate stay the main thread's job. Check `git log <base>..<branch>`
+    before merging — an isolated agent can branch off a stale commit; salvage with cherry-pick (right base)
+    or `git diff | git apply --3way` (wrong base).
 - **Do every non-trivial change in a dedicated git worktree branched off the current dev branch**, not in
   the primary checkout, and **make it with `scripts/new_worktree.sh`, not by hand**:
   `scripts/new_worktree.sh <feature>`
@@ -704,6 +812,26 @@ failure mode, and it is the most common one.
   constants scale — it is to ask *"what universal rule (pressure/temp/phase/momentum/gravity/reaction) makes
   this HAPPEN?"*, push that rule into the substrate, and **delete the special-case system.** Disaster actors
   are SEEDS / markers / visuals only. **Success is measured in special-case code DELETED, not features added.**
+- **A NAMED PHENOMENON IS A DETECTOR, NEVER A CAUSE.** *(Maintainer, 2026-08-12: "if it is a named
+  phenomena, it belongs in a detector that alerts us 'an eruption is happening', not a `cause_eruption()`
+  type of method. 'a hurricane is happening' based on measuring winds and whatnot.")* This is the
+  constructive half of dissolve-don't-patch: the rule above says delete the special-case system, and this
+  says what replaces it. **The substrate produces state; a detector OBSERVES that state and names it.** An
+  eruption is the observation that buoyant melt overcame its overburden and reached the surface. A hurricane
+  is the observation of a warm-core cyclone in the wind and pressure fields. Neither is a thing anyone calls.
+  - **The seam already exists and is good** — `sim/events/LAEventDetector.gd` and `LAThresholdDetector.gd`
+    read snapshot keys with cross-up / increment / rate modes, hysteresis, escalation and a `signal_live()`
+    that tells a dormant signal from a dead channel; `LAEventTracker` consumes them. **Adding a phenomenon
+    is a detector record, not a system.**
+  - **The tell is a verb in a function name**: `erupt_source`, `force_erupt`, `_pump_cloudburst`,
+    `_pump_eyewall`, `broadcast_seismic(QUAKE_MAGNITUDE)`, `spawn_lightning`. Anything that MAKES the
+    phenomenon happen by injecting its ingredients is the defect, however well-shaped the injection is.
+  - **The one legitimate exception is a genuine external cause.** A meteor is a real body arriving from
+    outside the system, so `Meteor.gd` is correct: the arrival is an event and the crater, shock and ejecta
+    are consequences. Weather, volcanism and earthquakes all arise from the planet's own state and have no
+    such excuse.
+  - **When the detector reads nothing, that is the finding.** If storms have to be pumped, it is because the
+    physics that would make them cannot run — and the answer is to fix that physics, not to keep the pump.
 - **Behavior must emerge from simple local rules interacting — never from hardcoded, scripted, or
   centrally-directed per-case logic.** Prefer a general rule that many agents evaluate locally over a
   special case for a specific pair, species, or scenario.
@@ -771,9 +899,9 @@ failure mode, and it is the most common one.
   whole set, THEN run once. This composes with the rule below about not A/B-ing a baseline you have already
   convicted: a run is for confirming a finished thing works, not for narrating progress.
 - **IF YOU KNOW IT IS WRONG, RIP IT OUT. DO NOT TEST IT, DO NOT MEASURE IT, DO NOT REVERT TO IT.**
-  *(Maintainer, 2026-08-10, verbatim: "GET RID OF ALL THE BAD SHIT", "STOP RUNNING TESTS ON CODE YOU KNOW IS
+  *(Maintainer, 2026-08-10, verbatim: "GET RID OF ALL THE BAD CODE", "STOP RUNNING TESTS ON CODE YOU KNOW IS
   WRONG", "IF YOU KNOW IT'S WRONG RIP IT OUT", and — asked whether a fix that made carbon worse against a
-  broken substrate should be reverted — **"NO FUCKING NEVER"**.)* This is the standing rule and it outranks
+  broken substrate should be reverted — **"NO, NEVER"**.)* This is the standing rule and it outranks
   every measurement discipline in this file, because those disciplines exist to tell you what is true about
   a substrate you BELIEVE, and they are worthless pointed at one you have already convicted.
   - **The moment you can name the defect, its removal is the task.** Not after the A/B, not after the

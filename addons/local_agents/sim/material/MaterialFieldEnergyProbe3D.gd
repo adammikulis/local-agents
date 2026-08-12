@@ -1,6 +1,8 @@
 class_name LAMaterialFieldEnergyProbe3D
 extends RefCounted
 
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
 ## LAMaterialFieldEnergyProbe3D: a PER-PASS heat budget, so the planet's energy drift has to NAME THE PASS
 ## `cap_j_k` fell 3.81733e14 -> 3.80969e14 J/K; times ~288 K that is -2.204e14, the "error" to four digits.
 
@@ -38,7 +40,6 @@ var _gate: int = SAMPLE_EVERY - 1
 var _in_pair: int = 0              # 0 = not sampling, 1 = first of the pair, 2 = second
 
 var _done: Dictionary = {}         # pass name -> true, once it has run this step (drives the half-map)
-var _volume: float = 0.0           # one cell, m3
 var _rc_prev: PackedFloat64Array = PackedFloat64Array()
 var _t_prev: PackedFloat64Array = PackedFloat64Array()
 var _prev: float = 0.0             # stock in joules at the previous checkpoint
@@ -153,8 +154,9 @@ func _sample(opening: bool) -> Array:
 	var gpu = _f._gpu
 	var cc: int = _f._cell_count
 	var phase: int = gpu.probe_phase()
-	var side: float = maxf(float(_f._cell_size), 0.001)
-	_volume = side * side * side
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if vol.size() != cc:
+		return [0.0, 0.0]
 
 	var ch: Dictionary = {}
 	for name in LAHeatCapacity.channels():
@@ -174,17 +176,18 @@ func _sample(opening: bool) -> Array:
 	for c in cc:
 		var rc: float = rc_now[c]
 		var tk: float = temp[c] + LAPhysical.KELVIN_OFFSET
+		var w: float = vol[c]
 		t_now[c] = tk
-		stock += rc * tk
-		cap += rc
+		stock += rc * tk * w
+		cap += rc * w
 		if have_prev:
-			heat += _rc_prev[c] * (tk - _t_prev[c])
-			capacity += tk * (rc - _rc_prev[c])
+			heat += _rc_prev[c] * (tk - _t_prev[c]) * w
+			capacity += tk * (rc - _rc_prev[c]) * w
 	_rc_prev = rc_now
 	_t_prev = t_now
-	_prev = stock * _volume
-	_cap_now = cap * _volume
-	return [heat * _volume, capacity * _volume]
+	_prev = stock
+	_cap_now = cap
+	return [heat, capacity]
 
 
 ## Read one channel at the half that is current given which passes have already run this step.

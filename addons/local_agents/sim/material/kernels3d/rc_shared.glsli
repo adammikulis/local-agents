@@ -1,103 +1,17 @@
-// =====================================================================================================
-// THE ONE DEFINITION OF A CELL'S VOLUMETRIC HEAT CAPACITY. `#include "rc_shared.glsli"`.
-//
-// WHY THIS FILE EXISTS. `rc_of` was written FIVE times in FOUR MUTUALLY INCOMPATIBLE versions, and the
-// same cell therefore had a different heat capacity depending on which kernel was asking:
-//
-//     kernel                    rock  water  snow  lava  organic   solid early-return
-//     heat3d_cool                 y     y      -     y       -            y
-//     heat_sphere3d               y     y      y     -       -            y
-//     heat3d_solar (rc_of_cell)   y     y      y     -       -            y
-//     heat3d_buoyancy             y     y      y     -       -            y
-//     reactions                   y     y      -     y       y            -
-//
-// A snowy cell was mostly air to the cooling kernel. A lava-filled cell was air to three of the five. A
-// cell of wood was air to all four heat kernels. Energy is rc * T * V, so when one kernel deposits heat
-// against one capacity and another removes it against a different one, ENERGY IS CREATED OR DESTROYED ON
-// EVERY EXCHANGE. That is the drift LAMaterialFieldEnergyLedger3D measures, and its own unbooked item 11
-// understated it: that note says "the same expression stands in all three", and it was neither the same
-// expression nor only three.
-//
-// The RC_* values were never the problem — every copy was correctly bound to LAPhysical and the
-// physical-constants gate passed on all of them. THE COMPOSITION diverged, which no value gate can see.
-// That is the general lesson: a gate on constants does not gate the FORMULA they sit in.
-//
-// THERE IS NO `solid` EARLY-RETURN HERE, AND ITS ABSENCE IS THE SECOND FIX. Every copy above except the
-// reactions one returned RC_ROCK whole for a solid cell, and `solid` is `rock_fill >= 0.5`. So one unit of
-// bedrock split 0.4/0.6 across two cells held 0.4*RC + RC = 3.41e6 J/m3K, and split 0.5/0.5 held
-// 2*RC = 4.87e6 — a 43% jump in stored heat for NO CHANGE OF MASS, on a planet that crosses that threshold
-// thousands of times a run (rock_grows 5611 / rock_shrinks 6056 / crust_moved 3926 on the baseline).
-// Capacity is a continuous function of the matter present now, so the step is gone. A cell that really is
-// full rock still returns RC_ROCK, because f_rock reaches 1.0 on its own.
-//
-// ===== IT COUNTED SEVEN CARRIERS OUT OF FIFTEEN, AND THE MISSING EIGHT WERE THE BIGGER LEAK ===============
-// *(2026-08-09. The first version of this file unified FIVE copies of rc_of into one definition, which was
-// right and is why the table above exists. But all five copies had been wrong in the SAME further way, so
-// unifying them could not reveal it: they counted rock_fill, lava, water, snow, fuel, biomass and detritus,
-// and the substrate has about eighteen channels that hold matter. `soil`, `sediment`, `susp`, `dust`,
-// `moisture`, `fungus`, `carbonate` and `silica` were thermally invisible, so EVERY GRAM THAT CROSSED INTO
-// ONE OF THEM DELETED ITS OWN HEAT CAPACITY.)*
-//
-// MEASURED by LAMaterialFieldEnergyProbe3D, which was built to answer exactly this and reports a per-pass
-// split of the stock into a HEAT leg (rc*dT) and a CAPACITY leg (T*drc):
-//     the capacity leg is -6.64e14 J against a heat leg of -3.14e14 — the unmodelled carriers are TWICE
-//     everything the temperature kernels do put together;
-//     `erosion_pickup` reads -9.79e14 WHILE WRITING NO TEMPERATURE AT ALL. That pass scours bedrock into
-//     suspended load. `rock_fill` was counted, `susp` was not, so the rock's thermal mass ceased to exist at
-//     the instant it entered the river.
-// HANDOFF item 10 calls `soil` "the one the gauge found". It is the largest of EIGHT.
-//
-// THE GROUPING IS BY SUBSTANCE, WHICH IS THE ONLY GROUPING THAT CANNOT DRIFT. A channel is not a material;
-// it is a place a material can be. Five channels hold silicate, four hold H2O in three phases, four hold
-// cellulose. Write the mix by substance and a new channel joins the group it belongs to instead of needing
-// its own constant.
-//
-// CONTRACT FOR AN INCLUDING KERNEL. This is a TEXTUAL include, so it binds by NAME, not by binding number
-// (the numbers legitimately differ per kernel). The includer MUST declare readable buffers named exactly:
-//     silicate : rock_fill[]  lava[]  sediment[]  susp[]  dust[]   + porosity[]
-//     minerals : carbonate[]  silica[]
-//     H2O      : water[]  soil[]  snow[]  moisture[]
-//     organic  : fuel[]  biomass[]  detritus[]  fungus[]
-// If your kernel does not need one of those for its own physics it still binds it, because leaving a
-// carrier out is exactly the divergence this file exists to end. Add the binding; do not fork the function.
-// =====================================================================================================
 
 // Volumetric heat capacities, J/m3K. Bound to the authority and checked by scripts/check_physical_constants.sh,
-// which scans .glsli as well as .glsl precisely so moving these here did not move them out of the gate.
-// AIR and WATER gained digits when the authority stopped storing them as pre-rounded products (1186.0 was
-// 1.18*1005 = 1185.9; 4.171e6 was 997*4184 = 4171448), so these are not new values, they are the same two
-// facts no longer rounded on the way in.
-const float RC_AIR       = 1185.9;     // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
+const float RC_AIR       = 1231.125;   // LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
 const float RC_ROCK      = 2.436e6;    // LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K
 const float RC_WATER     = 4171448.0;  // LAPhysical.VOL_HEAT_CAP_WATER_J_M3K
-// WAS 6.27e5 AND WRONG BY 3.32x — it multiplied a settled-snowpack density (300 kg/m3) by a channel that is
-// measured in WATER EQUIVALENT (LAMaterialField3D.ICE_DEPTH 0.5 == "~8 m water equivalent"; R21 freezes
-// water 1:1 into snow; h2o_total sums them 1:1). One unit of `snow` is 997 kg of H2O that happens to be ice,
-// so the density is liquid water's and the specific heat is ice's. See LAPhysical for the full note.
 const float RC_SNOW      = 2083730.0;  // LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K
 const float RC_ORGANIC   = 7.5e5;      // LAPhysical.VOL_HEAT_CAP_ORGANIC_J_M3K
-// `moisture` is water-equivalent for the same reason `snow` is, so this is 997 * vapour's c, not a vapour
-// density times a vapour c.
 const float RC_VAPOUR    = 1990012.0;  // LAPhysical.VOL_HEAT_CAP_VAPOUR_J_M3K
 const float RC_CARBONATE = 2222200.0;  // LAPhysical.VOL_HEAT_CAP_CARBONATE_J_M3K
 const float RC_SILICA    = 1961000.0;  // LAPhysical.VOL_HEAT_CAP_SILICA_J_M3K
 
-// What one cell of matter can store per kelvin, as a volume-fraction mix of everything that is in it.
-// Molten rock is rock: lava is the same mineral as rock_fill, in a different phase, and its capacity does
-// not change enough at this granularity to model separately (LAPhysical carries one figure for both). The
-// loose phases are the same mineral again — the mineral ledger and every 1:1 transfer between them declare
-// rock_fill / lava / sediment / susp / dust ONE substance, so they share one rho*c. Groundwater is liquid
-// water sitting in pore space, so `soil` is WATER; it is not a substance of its own and must not get a
-// constant of its own.
-float rc_of(uint i) {
+// Volume fraction of a cell that is air. One definition, because rc_of and the adiabat both need it.
+float f_air_of(uint i) {
 	// `rock_fill` IS A SATURATION OF THE CELL'S ROCK MATRIX, NOT A VOLUME FRACTION OF MINERAL, and reading
-	// it as the latter is what made a full surface regolith cell claim 1.362 cell-volumes of matter: 1.0 of
-	// "rock" plus the 0.36 of `soil` standing in pores that the 1.0 was already pretending were rock.
-	// A regolith cell at phi 0.36 is 0.64 mineral + 0.36 pore, and the pore is `soil` (water) plus air.
-	// porosity[] is 0 outside regolith, so this reduces to `rock_fill` for bedrock with no branch.
-	// The loose phases are already volume fractions and carry no matrix of their own, so phi is not applied
-	// to them. Checked against soil_sphere3d.glsl's reg_heat_cap, which is the same expression written out:
-	// 0.64*2.436e6 + 0.36*4.171e6 = 3.06e6, where the un-corrected form gave 3.94e6, a 29% overcount.
 	float f_rock  = clamp(rock_fill[i] * (1.0 - clamp(porosity[i], 0.0, 1.0))
 		+ lava[i] + sediment[i] + susp[i] + dust[i], 0.0, 1.0);
 	float f_carb  = clamp(carbonate[i], 0.0, 1.0);
@@ -107,9 +21,20 @@ float rc_of(uint i) {
 	float f_vap   = clamp(moisture[i], 0.0, 1.0);
 	float f_org   = clamp(fuel[i] + biomass[i] + detritus[i] + fungus[i], 0.0, 1.0);
 	// Air fills whatever is left. It cannot go negative: the fractions are each clamped to [0,1] and their
-	// sum is allowed to exceed 1 (an over-full cell is a substrate defect, not this function's to hide), in
-	// which case the cell is simply all condensed matter and holds no air.
-	float f_air   = max(0.0, 1.0 - f_rock - f_carb - f_sil - f_water - f_snow - f_vap - f_org);
+	return max(0.0, 1.0 - f_rock - f_carb - f_sil - f_water - f_snow - f_vap - f_org);
+}
+
+// What one cell of matter can store per kelvin, as a volume-fraction mix of everything that is in it.
+float rc_of(uint i) {
+	float f_rock  = clamp(rock_fill[i] * (1.0 - clamp(porosity[i], 0.0, 1.0))
+		+ lava[i] + sediment[i] + susp[i] + dust[i], 0.0, 1.0);
+	float f_carb  = clamp(carbonate[i], 0.0, 1.0);
+	float f_sil   = clamp(silica[i], 0.0, 1.0);
+	float f_water = clamp(water[i] + soil[i], 0.0, 1.0);
+	float f_snow  = clamp(snow[i], 0.0, 1.0);
+	float f_vap   = clamp(moisture[i], 0.0, 1.0);
+	float f_org   = clamp(fuel[i] + biomass[i] + detritus[i] + fungus[i], 0.0, 1.0);
+	float f_air   = f_air_of(i);
 	return RC_AIR * f_air
 		+ RC_ROCK * f_rock
 		+ RC_CARBONATE * f_carb

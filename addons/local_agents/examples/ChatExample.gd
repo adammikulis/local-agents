@@ -1,16 +1,5 @@
 extends Node
 
-## The sidebar navigation for the full chat example: which panel is showing, and the tip that goes
-## with it. That is all this scene needs a script for.
-##
-## The chat itself is the ChatController scene. The model and sampling editors are the ModelConfig
-## and InferenceConfig scenes. The readiness readout is the SetupStatus label (LocalAgentStatusLabel),
-## which polls LocalAgentStatus on its own timer. None of those are built or refreshed here.
-##
-## Every sidebar button is connected in ChatExample.tscn from the Node dock, and the scene is saved
-## already showing the Chat panel, so there is nothing left for a _ready() to do.
-##
-## (Explicit types only. The project rule bans ':=' inferred typing.)
 
 @onready var chat_controller: LAChatController = %ChatController
 @onready var inference_config: LAInferenceConfig = %InferenceConfig
@@ -42,7 +31,5 @@ func _on_download_models_button_pressed() -> void:
     download_hint_label.text = "[b]Downloads[/b]\nOpen the editor bottom panel: [i]Local Agents -> Downloads[/i], fetch a model, then return to Chat and press [i]Load Model[/i]."
 
 
-# Connected in the scene to ExitButton.pressed. A [connection] block names a method, so the quit
-# needs one instead of the lambda this used to connect in code.
 func _on_exit_button_pressed() -> void:
     get_tree().quit()

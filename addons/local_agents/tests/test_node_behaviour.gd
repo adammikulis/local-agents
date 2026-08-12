@@ -1,39 +1,12 @@
 @tool
 extends RefCounted
 
-## The node behaviours that actually broke, pinned down with real nodes in a real SceneTree.
-##
-## ~380 lines of scheduler/service plus the spawner, the chat panel and the field box shipped with no
-## tests at all, and two real bugs went out with them: a model loaded through a ONE-argument call to a
-## TWO-argument binding, and an adoption path that was a silent no-op. Everything here is one of those
-## defects turned into an assertion:
-##
-##   1. LocalAgentStatus.load_model calls the runtime with (model_path, options) - two arguments - and
-##      its resident-path bookkeeping never goes stale.
-##   2. LocalAgent.system_prompt lands as a system message at history[0], is mirrored into the native
-##      node's own history (which is what AgentNode::think reads), and reaches the merged request.
-##   3. load_options survives a configure() that replaces inference_options. This regressed once.
-##   4. LocalAgentCreatureSpawner produces the requested counts and places them around ground_y.
-##   5. LocalAgentDemoHarness counts PHYSICS frames when count_physics_frames is on, and render frames
-##      when it is off.
-##
-## The frame-timing half of the scheduler and harness behaviour needs real engine frames, which a
-## synchronous run_test() cannot pump - it lives in test_node_frames.gd / run_frame_probe.gd.
-##
-## Two stand-ins are used, both for the same reason: to observe an argument list without a 4 GB GGUF
-## on disk. Neither substitutes a PASS for a failure - if the real thing is missing the test fails.
-##
-## (Explicit types only - project rule: no ':=' inferred typing.)
 
 const AgentStatusScript: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
 const AgentScript: GDScript = preload("res://addons/local_agents/agents/Agent.gd")
 const RUNTIME_SINGLETON: String = "AgentRuntime"
 
 
-## Stands in for the AgentRuntime singleton. load_model() declares BOTH parameters as required, with
-## no defaults, so a one-argument call - the shipped bug - raises "too few arguments" and returns
-## null, which LocalAgentStatus.load_model turns into false. That is what makes assertion 1 real
-## rather than a source grep.
 class StubRuntime extends Object:
 	var load_calls: Array = []
 	var next_result: bool = true
@@ -48,13 +21,6 @@ class StubRuntime extends Object:
 		return loaded
 
 
-## Stands in for the native AgentNode so think() can run end to end with no model on disk. It records
-## the options dictionary it is handed (the merged request) and the history LocalAgent mirrors across.
-##
-## The seven properties mirror AgentNode's published surface exactly (AgentNode.cpp's ADD_PROPERTY
-## block: tick_enabled, tick_interval, max_actions_per_tick, db_path, voice, default_model_path,
-## runtime_directory). LocalAgent writes all of them onto its node, so a stand-in missing any of them
-## turns a clean run into a wall of "invalid assignment" errors.
 class StubAgentNode extends Object:
 	var tick_enabled: bool = false
 	var tick_interval: float = 1.0
@@ -99,8 +65,6 @@ func run_test(tree: SceneTree) -> bool:
 		push_error(line)
 	return false
 
-
-# --- 1. LocalAgentStatus.load_model ---------------------------------------------------------------
 
 func _test_status_load_model() -> void:
 	var had_real: bool = Engine.has_singleton(RUNTIME_SINGLETON)
@@ -200,8 +164,6 @@ func _assert_load_model_contract(stub: StubRuntime) -> void:
 		_fail("Could not reset the tracked resident path; it is still '%s'." % AgentStatusScript.resident_model_path())
 
 
-# --- 2. LocalAgent.system_prompt ------------------------------------------------------------------
-
 func _test_agent_system_prompt(tree: SceneTree) -> void:
 	var wanted: String = "You are a terse dockside guide."
 	var agent: Node = AgentScript.new()
@@ -258,8 +220,6 @@ func _test_agent_system_prompt(tree: SceneTree) -> void:
 	stub.free()
 
 
-# --- 3. configure() must not drop load_options ----------------------------------------------------
-
 func _test_configure_keeps_load_options(tree: SceneTree) -> void:
 	var agent: Node = AgentScript.new()
 	agent.name = "ConfigureAgent"
@@ -306,8 +266,6 @@ func _test_configure_keeps_load_options(tree: SceneTree) -> void:
 	agent.free()
 	stub.free()
 
-
-# --- 4. LocalAgentCreatureSpawner -----------------------------------------------------------------
 
 func _test_creature_spawner(tree: SceneTree) -> void:
 	var spawner: LocalAgentCreatureSpawner = LocalAgentCreatureSpawner.new()
@@ -359,8 +317,6 @@ func _test_creature_spawner(tree: SceneTree) -> void:
 	tree.root.remove_child(spawner)
 	spawner.free()
 
-
-# --- 5. LocalAgentDemoHarness frame mode ----------------------------------------------------------
 
 # Which callback is routed into the counter is asserted by invoking them directly, so the answer does
 # not depend on how many render frames the machine happened to draw. That real frames actually reach

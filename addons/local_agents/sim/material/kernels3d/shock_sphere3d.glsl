@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 
 layout(local_size_x = 64) in;
 
@@ -33,7 +35,7 @@ void main() {
 	// side of the wall. Always six contributions → self-weight below is 1 - 6*SPREAD.
 	float nsum = 0.0;
 	for (int d = 0; d < 6; d++) {
-		int nb = nbr[g * 6u + uint(d)];
+		int nb = nbr[g * N_SLOTS + uint(d)];
 		nsum += (nb >= 0 && solid[nb] == 0.0) ? shock_in[nb] : s0;
 	}
 	float keep = 1.0 - LOSS;

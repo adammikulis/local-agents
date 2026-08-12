@@ -1,37 +1,7 @@
 class_name LAAgentBackstory
 extends RefCounted
 
-## Gives a LocalAgent a long memory, by connecting it to LocalAgentBackstoryGraphService.
-##
-## Why this exists. The addon shipped two memory stores. `LocalAgentGraph` is 87 lines of
-## add_node/add_edge that the agent already writes every turn into, and it forgets nothing and recalls
-## nothing: there is no query in it that answers "what does this character remember about that". The
-## other is `graph/BackstoryGraphService.gd`, 1955 lines over nine files, SQLite-backed, with
-## relationship state, dream and thought memories, oral-knowledge lineage, world-truth versus per-NPC
-## belief, contradiction detection, and vector search over memory embeddings. It was complete, it had a
-## passing test, and NOTHING in the addon called it. The README's "SQLite-backed graph store with
-## vector search for agent memory" was describing the one nobody could reach.
-##
-## So this is the wire, not a new system. It is a separate module rather than more lines in Agent.gd
-## for the same reason AgentHistory, AgentSpeech and AgentJobs are: the agent stays a thin surface over
-## a handful of concerns it delegates to.
-##
-## The two directions:
-##   - WRITE. Every user line and every model reply is ingested as a memory against `npc_id`, on top of
-##     the ordinary `memory_graph` recording, which is untouched. Both can be on at once; they answer
-##     different questions.
-##   - READ. Before a prompt goes to the model, recall the memories most relevant to it and hand them
-##     back as context. Semantic search first, because that is the point of storing embeddings. If the
-##     embedding backend is not up (it needs llama-server started with --embeddings) it falls back to
-##     the most recent and most important memories, which needs no server at all.
-##
-## Nothing here is required. An agent with no `backstory` assigned behaves exactly as before.
-##
-## (Explicit types only, project rule: no ':=' inferred typing.)
 
-## How many recalled memories to put in front of a prompt. Small on purpose: this text is prepended to
-## every request, so it is paid for in tokens on every turn, and a long wall of half-relevant memory
-## makes replies worse rather than better.
 const DEFAULT_RECALL_LIMIT: int = 6
 
 ## Written into the memory's importance field. Conversation lines are ordinary events, so they sit
@@ -60,12 +30,6 @@ func is_active() -> bool:
 	return _service != null and _npc_id != "" and _service.has_method("add_memory")
 
 
-## Record one conversation line as a memory. Safe to call when nothing is attached.
-##
-## The memory id is built from this agent's own counter rather than from the message, because
-## ingest_conversation_message_as_memory() falls back to `msg_-1` for any message with no `id` field,
-## and the agent's history entries do not carry one. Two lines both landing on `msg_-1` would upsert
-## over each other and the agent would remember exactly one thing.
 func record(role: String, content: String, world_day: int = -1) -> void:
 	if not is_active() or content.strip_edges() == "":
 		return
@@ -78,10 +42,6 @@ func record(role: String, content: String, world_day: int = -1) -> void:
 	_warn_once_on_failure(result, "record a memory")
 
 
-## The memories most worth putting in front of `prompt`, newest last, as plain sentences.
-##
-## Returns "" when nothing is attached, nothing is remembered, or the store cannot answer. A caller
-## should treat "" as "no context", never as an error.
 func recall(prompt: String, limit: int = DEFAULT_RECALL_LIMIT) -> String:
 	if not is_active() or limit <= 0:
 		return ""
@@ -111,10 +71,6 @@ func _recent_recall(limit: int) -> PackedStringArray:
 	return _summaries_from(result)
 
 
-## Row keys used by BackstoryMemoryStateOps, read out of it rather than guessed: `candidates` from
-## get_memory_recall_candidates (:329), `results` from search_memory_embeddings (:410), `memories` from
-## get_backstory_context (:280). I originally invented three plausible names, none of which was
-## `candidates`, and the wiring silently recalled nothing while every call returned ok.
 const ROW_KEYS: Array = ["candidates", "results", "memories"]
 
 

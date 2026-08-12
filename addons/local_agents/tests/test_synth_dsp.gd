@@ -1,9 +1,6 @@
 @tool
 extends RefCounted
 
-## Unit tests for the procedural-audio DSP core, the default synth voice, the SFX
-## bank, and the voice pool. All headless-safe (renders into in-memory buffers;
-## asserts on buffer contents, never on audible output).
 
 const SynthDsp := preload("res://addons/local_agents/audio/synth/SynthDsp.gd")
 const GdScriptSynthVoice := preload("res://addons/local_agents/audio/synth/GdScriptSynthVoice.gd")

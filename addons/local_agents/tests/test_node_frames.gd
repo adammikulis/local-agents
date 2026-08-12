@@ -1,19 +1,6 @@
 @tool
 extends RefCounted
 
-## Runs run_frame_probe.gd and reports what it found.
-##
-## The behaviours it covers - the cognition scheduler's DEFERRED adoption and the demo harness's
-## physics-frame counting - only exist across engine frames, and a RefCounted test cannot pump them:
-## the shared runner calls run_test() synchronously and never awaits, so an awaiting run_test() would
-## suspend and be read as a pass. The probe therefore runs as its own SceneTree in a child process and
-## this module reports its verdict, which keeps the whole thing inside the canonical runner.
-##
-## One child process, all frame-dependent assertions - the launch is the expensive part, so it is paid
-## once. That is also why this test is registered in the deterministic lane only and not in the fast
-## sweep.
-##
-## (Explicit types only - project rule: no ':=' inferred typing.)
 
 const PROBE_SCRIPT: String = "res://addons/local_agents/tests/run_frame_probe.gd"
 const MARKER: String = "FRAME_PROBE="

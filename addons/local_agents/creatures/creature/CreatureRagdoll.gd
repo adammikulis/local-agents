@@ -1,47 +1,12 @@
 class_name LACreatureRagdoll
 extends RefCounted
 
-## The creature's "physics shadow" (HL2-style) + its become-a-carcass-in-place death.
-##
-## A living LocalAgentCreature is a kinematic CharacterBody3D driven by AI. This module lets a real
-## RigidBody3D (a single capsule, the SHADOW) occasionally OVERRIDE that: on any impulse
-## (meteor blast, explosion, a lethal blow) the shadow is released, tumbles under real physics,
-## and the visible creature simply reads the shadow's transform each frame (its model rides along,
-## never swapped, never reparented). When the shadow settles:
-##   * alive  -> the creature stands back up and resumes its AI (a survivable fling);
-##   * dead   -> the creature STAYS as a carcass where it fell and rots green->black in place.
-##
-## So there is no separate corpse node and no model hand-off: the creature IS the carcass. It just
-## changes groups (leaves its species/creature groups, joins carrion/corpse) and starts decaying.
-## Static + dependency-free of concrete types (explicit types only, no ':=').
 
-## A CARCASS WEIGHS WHAT THE ANIMAL WEIGHED. There is no per-size nutrition constant any more.
-##
-## What this replaces: `_become_carcass` did `c._carrion = maxf(c.size, 0.05) * NUTRITION_PER_SIZE` — it
-## conjured a carcass out of a SIZE NUMBER at the instant of death, because the living body was never a mass
-## account at all. Decomposition then fed 100% of that invented mass into `deposit_detritus`, which lands in
-## the `detritus` channel that `LAMaterialFieldElementInventory3D` counts inside `carbon_total`. So every death
-## injected carbon into a ledger the project claims is conserved, and a starved animal that had burned its
-## whole reserve left exactly as much meat as a fat one.
-##
-## Now `_carrion` is `LACreatureBodyMass.body_mass(c)` at the moment of death: structural tissue plus whatever
-## reserve and gut contents were left. An animal that starved to death is worth almost nothing to a scavenger,
-## which is both correct and a real pressure on the scavenger guild.
 const SETTLE_SPEED: float = 0.35          # below this lin+ang speed the shadow counts as resting
 const SETTLE_HOLD: float = 0.4            # seconds it must stay slow before we call it settled
 const MAX_RAGDOLL_TIME: float = 1.0       # hard cap on the tumble before we force-settle (see tick())
 const SHADOW_MASK: int = 1                # collide with the terrain (static body on layer 1) only
 
-# --- Emergent decomposition (no timer) --------------------------------------------------------------
-# A carcass is just a lump of organic BIOMASS (c._carrion). While the animal lived, its own gut microbes were
-# held in check; death ends that suppression and they OVERGROW, consuming the body from within. The microbe
-# bloom is autocatalytic — the more biomass already converted, the bigger it gets — so we read it straight off
-# how much biomass is already gone (MICROBE_SEED = the suppressed load that blooms), with NO scalar stored on
-# the living creature (that + digestion benefit + soil bacteria is a separate creature-side follow-up). The
-# bloom RATE is gated by the field's local warmth × moisture, so warm+wet rots fast and cold+dry near-stalls →
-# permafrost mummification emerges for free. What the microbes consume is handed to the substrate's existing
-# decomposer loop as detritus (deposit_detritus → fungus/decompose → soil fertility + CO₂). The carcass is
-# freed once its biomass is fully returned to soil, so the count SELF-BOUNDS (no despawn timer).
 const MICROBE_SEED: float = 0.2           # suppressed microbe load at death; blooms as the body is consumed
 const DECOMP_RATE_PER_SEC: float = 0.35   # fraction of biomass the full bloom converts per second at warm+wet
 const COLD_STALL_C: float = -2.0          # at/below this the bloom stalls to MUMMIFY_FLOOR (frozen preservation)
@@ -91,13 +56,14 @@ static func launch(c, impulse: Vector3, lethal: bool) -> void:
 	shadow.global_transform = c.global_transform
 
 	# The push. A tiny impulse still gets a topple nudge so the body lies down.
+	var rng: LASimRng = LASimRng.for_domain("life")
 	var push: Vector3 = impulse
 	if push.length() < 0.5:
-		var axis: Vector3 = Vector3(randf_range(-1.0, 1.0), 0.4, randf_range(-1.0, 1.0))
+		var axis: Vector3 = Vector3(rng.randf_range(-1.0, 1.0), 0.4, rng.randf_range(-1.0, 1.0))
 		push = axis.normalized() * (c.size * 2.5 + 1.5)
 	shadow.apply_central_impulse(push)
 	shadow.apply_torque_impulse(Vector3(
-		randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)
+		rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0)
 	) * (push.length() * 0.25 + 1.0))
 
 	c._shadow = shadow
@@ -121,11 +87,6 @@ static func tick(c, delta: float) -> void:
 		c._settle_t += delta
 	else:
 		c._settle_t = 0.0
-	# Settle when the tumble rests OR after MAX_RAGDOLL_TIME. The hard cap is essential on a planet: the shadow
-	# falls under world-down (-Y) gravity, not the radial "down", so it never actually comes to rest on the
-	# spherical surface — without the cap every dead body would ragdoll forever as an ACTIVE RigidBody3D, and
-	# they pile up until physics (and fps) collapse. The cap dismisses the expensive shadow promptly and
-	# re-seats the body radially (via ground_point) as a static, decomposing carcass.
 	if c._settle_t >= SETTLE_HOLD or c._decay_age >= MAX_RAGDOLL_TIME:
 		_on_settled(c)
 
@@ -208,13 +169,6 @@ static func _forget_carcass(c) -> void:
 	LASimReport.gauge("carcasses", float(_carcasses.size()))   # telemetry: live carcass count (bounded by the cap)
 
 
-# Force a capped-out carcass to vanish now: RETURN WHAT IS LEFT OF IT TO THE SOIL, drop any lingering physics
-# shadow, and free the body node.
-#
-# It used to just `queue_free()`, so hitting MAX_CARCASSES deleted a whole body — every gram of it — out of the
-# world. The cap is a performance backstop against a pathological pileup (a mass die-off in permafrost, where
-# everything mummifies instead of rotting); it is not a licence to destroy matter. Handing the remainder
-# straight to the decomposer loop is the same thing decomposition would have done, only faster.
 static func _despawn_carcass(c) -> void:
 	if not is_instance_valid(c):
 		return
@@ -225,11 +179,6 @@ static func _despawn_carcass(c) -> void:
 	c.queue_free()
 
 
-# Decompose in place: the microbe bloom (gated by field warmth+moisture) eats the carcass biomass and hands
-# it to the substrate's decomposer loop; the body washes green->black + shrinks in step with how much biomass
-# is gone, then vanishes once fully returned to soil. The carcass also advertises FOOD scent emergently —
-# LAMaterialScent3D scans the "carrion" group each step and lays FOOD from `_carrion`, so scavengers home in
-# on it (rides the wind + washes in rain for free), and any diet=scavenger creature can bite via feed().
 static func decay_tick(c, delta: float) -> void:
 	c._decay_age += delta
 	var initial: float = maxf(float(c._carrion_initial), 0.0001)
@@ -240,10 +189,6 @@ static func decay_tick(c, delta: float) -> void:
 	var consumed_frac: float = clampf(1.0 - c._carrion / initial, 0.0, 1.0)
 	# Autocatalytic microbe bloom: a suppressed seed at death that grows toward full as the body is converted.
 	var microbes: float = MICROBE_SEED + consumed_frac * (1.0 - MICROBE_SEED)
-	# DEATH→SOIL: the bloom eats biomass at a warmth×moisture-gated rate and hands the consumed matter to the
-	# field's existing detritus→fungus/decompose→CO₂+fertility loop (deposit_detritus). Warm+wet = rapid
-	# putrefaction; cold+dry = near-stall (mummification). Scavenger bites (feed) reduce _carrion too and so
-	# compose in — an eaten carcass both shrinks and decomposes faster (more converted ⇒ bigger bloom).
 	var consumed: float = minf(initial * DECOMP_RATE_PER_SEC * microbes * _decomp_env(c) * delta, c._carrion)
 	if consumed > 0.0:
 		c._carrion -= consumed
@@ -261,10 +206,6 @@ static func decay_tick(c, delta: float) -> void:
 		c.queue_free()
 
 
-# The local decomposition rate factor: warmth × moisture, read from the field at the carcass cell. Warmth
-# (the field TEMPERATURE, a cheap cell read) is the primary spatial driver: warm ground → rapid rot; a frozen
-# peak → ~MUMMIFY_FLOOR (a carcass lingers — permafrost preservation, emergent, no per-biome branch). Moisture
-# is coarse for now (dry land, halved further under snow) — a fuller soil-wetness read is a field-side follow-up.
 static func _decomp_env(c) -> float:
 	if c._material == null:
 		return DRY_MOISTURE
@@ -316,8 +257,6 @@ static func _freeze_animations(node) -> void:
 	for child in node.get_children():
 		_freeze_animations(child)
 
-
-# --- carcass food contract (the creature forwards these once it is a carcass) --------------------
 
 # A scavenger takes a bite; returns the energy actually removed (clamped to what remains). When the
 # carcass is used up it shrinks to gone next frame by jumping decay to the shrink phase.

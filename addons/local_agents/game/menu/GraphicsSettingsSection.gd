@@ -1,16 +1,6 @@
 class_name LAGraphicsSettingsSection
 extends RefCounted
 
-## LAGraphicsSettingsSection: the GRAPHICS (GPU-bound) category of the settings screen. It draws a five-step
-## overall preset row (Potato / Low / Medium / High / Ultra) plus the individual GPU knobs those presets map
-## to: field/render resolution, effects/particle density, shadow quality, ambient occlusion, bloom/glow,
-## ocean water quality, atmospheric fog, vegetation density and draw distance. Picking an overall preset sets
-## every knob; nudging any individual knob re-derives the preset (falling to "Custom" when the knobs no
-## longer match a named preset). Every control carries a tooltip naming what it affects and that the cost is
-## on the GPU. Numeric knobs show a live value readout.
-##
-## It edits an LAGameSettings in place and calls `on_changed` after every edit so the host menu can mark the
-## screen dirty. Built from LASettingsWidgets so it shares the menu's control styling. (Explicit types only.)
 
 const CUSTOM_LABEL: String = "Custom (individual settings)"
 
@@ -56,7 +46,6 @@ func build(col: VBoxContainer) -> void:
 	_preset_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	col.add_child(_preset_caption)
 
-	# --- Individual GPU knobs ---
 	var grid: Dictionary = LASettingsWidgets.add_slider(col, "Field resolution",
 		"Field / render grid cells per axis, the single biggest GPU cost (per-cell compute + readback). GPU cost: very high.",
 		24.0, 192.0, 12.0, float(_settings.grid_resolution), Callable(self, "_fmt_int"), Callable(self, "_on_grid"))
@@ -192,10 +181,6 @@ func _notify() -> void:
 	if _on_changed.is_valid():
 		_on_changed.call()
 
-
-# ---------------------------------------------------------------------------
-# Refresh
-# ---------------------------------------------------------------------------
 
 ## Push every settings value onto its control without re-firing the handlers, then reflect the preset.
 func refresh() -> void:

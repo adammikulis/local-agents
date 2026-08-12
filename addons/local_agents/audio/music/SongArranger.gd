@@ -2,14 +2,7 @@
 extends RefCounted
 class_name LocalAgentSongArranger
 
-## Drives long-form song structure so music evolves instead of looping four chords
-## forever. Walks a section form (intro → verse → chorus → … → outro) and, at each
-## section boundary, emits a descriptor that MusicDirector applies: section length,
-## intensity, an optional key modulation, an optional mode change, an optional time
-## signature change, and a tempo scale. Each full pass through the form applies a
-## fresh modulation so repeats never sound identical. Seeded/pure → testable.
 
-# Ordered section labels for one song cycle.
 const FORM := ["intro", "verse", "chorus", "verse", "chorus", "bridge", "chorus", "outro"]
 
 # Per-label intensity + behavior profile.
@@ -21,8 +14,6 @@ const PROFILE := {
 	"outro":  {"bars": 4, "energy": 0.28, "density": 0.30, "register": 0, "contrast": false},
 }
 
-# Common modulations (semitones): up a fifth, up a whole step, down a third, up a
-# half step ("truck-driver" gear change), relative shifts.
 const MODULATIONS := [7, 2, -3, 1, 5, -5, 3]
 
 # Time signatures worth visiting (beats per bar). Weighted toward 4.

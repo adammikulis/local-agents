@@ -1,13 +1,8 @@
 class_name LAMaterialFieldGeotherm3D
 extends RefCounted
 
-## LAMaterialFieldGeotherm3D: the planet's internal heat. A geotherm SEEDED as an initial condition, plus a
-## Rock's thermal diffusivity is LAPhysical.THERMAL_DIFFUSIVITY_ROCK_M2_S = 1.026e-6 m^2/s. A thermal front
-## LAPhysical.GROUNDWATER_CIRCULATION_M = 2 km. So
-##     exaggeration  = GROUNDWATER_CIRCULATION_M / (REGOLITH_CELLS * cell_size) = 2000 / 64 = 31.25
-## thing: its measured 0.087 W/m^2 (LAPhysical.GEOTHERMAL_FLUX_W_M2) is ~27x what pure conduction through
-## flux was a constant by construction: 2.5 * (5200 - 15) / 340 = 38.125 W/m^2 in every run, to the last
-## draws. It was a clock, not a coupling. It was also inert: 38 W/m^2 into a 16 m rock cell is 4.2e-5 C per
+## LAMaterialFieldGeotherm3D: the planet's internal heat — a seeded geotherm plus the finite reservoir that
+## feeds it, and that volcanic vents draw on.
 
 
 const DISARM_ENV: String = "LA_NO_GEOTHERM"
@@ -18,7 +13,8 @@ var _f = null                                            # back-reference to the
 # --- reservoir state ---------------------------------------------------------------------------------------
 var _core_temp: float = 0.0          # THE state variable, deg C: the convecting interior. Falls. 0 = disarmed.
 var _armed_temp: float = 0.0         # what it was seeded at, kept to report the fall and to scale the boundary
-var _cell_equiv: float = 0.0         # reservoir thermal mass, in units of ONE grid cell's (see _build)
+var _drawn_j: float = 0.0            # joules drawn out of it by draw_heat_j, cumulative
+var _refusals: int = 0               # draws the store was too cold to pay for
 var _shell_cells: PackedInt32Array = PackedInt32Array()   # r == 0 cells (the shell's bottom face)
 
 # --- the seeded geotherm -----------------------------------------------------------------------------------
@@ -47,9 +43,14 @@ func arm(temp: float) -> void:
 		return
 	if temp <= _core_temp:
 		return
+	_build()
+	# SEEDING: the interior's heat is handed to a planet that does not have it yet, so it is declared. After
+	# the seal this store may only be drawn DOWN — see draw_heat_j.
+	if _f != null and _f._seal != null:
+		if not _f._seal.note_creation("geotherm_core_heat_j", temp * heat_capacity_j_per_k()):
+			return
 	_core_temp = temp
 	_armed_temp = temp
-	_build()
 	_seeded_cells = _seed_profile()
 	if _seeded_cells > 0 and _f._gpu != null and _f._gpu.has_method("mark_temp_dirty"):
 		_f._gpu.mark_temp_dirty()          # the CPU mirror just changed under the gated begin_frame upload
@@ -60,6 +61,42 @@ func core_temp() -> float:
 	return _core_temp
 
 
+## What it was seeded at.
+func armed_temp() -> float:
+	return _armed_temp
+
+
+## Radius of the un-simulated interior, in metres. LASphereGrid answers in model units.
+func _core_radius_m() -> float:
+	var grid: RefCounted = _f.sphere_grid() if _f != null else null
+	if grid == null:
+		return 0.0
+	return maxf(0.0, float(grid.core_radius)) * LAPhysical.METRES_PER_MODEL_UNIT
+
+
+## Reservoir heat capacity, J/K: the interior's volume times rock's volumetric heat capacity.
+func heat_capacity_j_per_k() -> float:
+	var r: float = _core_radius_m()
+	return (4.0 / 3.0) * PI * r * r * r * LAHeatCapacity.pure_rock()
+
+
+## Take `joules` out of the reservoir. It grants no more than what it holds above `floor_c`: a store at that
+## temperature cannot drive a transfer to it. Returns the joules actually granted.
+func draw_heat_j(joules: float, floor_c: float) -> float:
+	var cap: float = heat_capacity_j_per_k()
+	if joules <= 0.0:
+		return 0.0
+	if cap <= 0.0 or _core_temp <= floor_c:
+		_refusals += 1
+		return 0.0
+	var grant: float = minf(joules, (_core_temp - floor_c) * cap)
+	_core_temp -= grant / cap
+	_drawn_j += grant
+	if _armed_temp > 0.0:
+		_boundary_c = _boundary_seed * (_core_temp / _armed_temp)
+	return grant
+
+
 func step() -> void:
 	if _core_temp <= 0.0 or not _f.is_sphere() or _f._dim_y <= 0:
 		return
@@ -68,8 +105,9 @@ func step() -> void:
 	var grid: RefCounted = _f.sphere_grid()
 	if grid == null:
 		return
-	var cell_size: float = float(grid.cell_size)
-	if cell_size <= 0.0:
+	# The flux crosses the INNERMOST shell's own face, so its thickness is that shell's, not the mean.
+	var dr0: float = float(grid.shell_dr[0]) * LAPhysical.METRES_PER_MODEL_UNIT
+	if dr0 <= 0.0:
 		return
 
 	var shell_sum: float = 0.0
@@ -84,19 +122,18 @@ func step() -> void:
 		return
 	_shell_c = shell_sum / float(shell_n)
 
-	# seeded profile this is exactly lambda * the geotherm's gradient, 2.5 * 1.875 = 4.69 W/m^2. That is 54x
-	# mean (2.5 * 0.06 = 0.15 W/m^2 against 0.087). 0.15 * 31.25 / 0.087 = 54. Nothing else is in it.
-	_flux_w_m2 = LAPhysical.THERMAL_CONDUCT_ROCK_W_MK * (_boundary_c - _shell_c) / cell_size
-	_flux_dt = _flux_w_m2 * real_seconds_per_step() / (LAHeatCapacity.pure_rock() * cell_size)
+	var dt: float = real_seconds_per_step()
+	_flux_w_m2 = LAPhysical.THERMAL_CONDUCT_ROCK_W_MK * (_boundary_c - _shell_c) / dr0
+	_flux_dt = _flux_w_m2 * dt / (LAHeatCapacity.pure_rock() * dr0)
 
-	# The reservoir pays for it. (The cubed-sphere's r = 0 cells are not exactly dx^2 in area — summed they
-	# come to about 8% more than 4*pi*core_radius^2 at res 32, the gnomonic area distortion — so the debit is
-	# that much conservative. It is a discretisation error of the grid, not of this model.)
-	_core_temp -= _flux_dt * float(shell_n) / _cell_equiv
-	# ...and radioactive decay pays a little back. This is the term that keeps a real planet's interior hot
-	# for 4.5 Gyr, and at this body's size it is utterly negligible against the loss — which is exactly why
-	# asteroids are cold rock and planets are not. It is here because it is real, not because it is visible.
-	_core_temp += (LAPhysical.RADIOGENIC_W_PER_KG / LAPhysical.ROCK_SPECIFIC_HEAT_J_KGK) * real_seconds_per_step()
+	# The reservoir pays for it, over the fraction of its surface that is in contact with rock.
+	var r_m: float = _core_radius_m()
+	var area: float = 4.0 * PI * r_m * r_m * float(shell_n) / float(_shell_cells.size())
+	var cap: float = heat_capacity_j_per_k()
+	if cap > 0.0:
+		_core_temp -= _flux_w_m2 * area * dt / cap
+	# Radioactive decay pays a little back — the term that keeps a real planet's interior hot for 4.5 Gyr.
+	_core_temp += (LAPhysical.RADIOGENIC_W_PER_KG / LAPhysical.ROCK_SPECIFIC_HEAT_J_KGK) * dt
 	# The interior convects, so its whole adiabat rises and falls together: the ghost cell at the top of it
 	# carries the same fractional change as the bulk.
 	if _armed_temp > 0.0:
@@ -132,6 +169,11 @@ func report() -> Dictionary:
 		"core_res_c": _core_temp,
 		"core_res_armed_c": _armed_temp,
 		"core_res_fall_c": fall,
+		"core_drawn_j": _drawn_j,
+		"core_heat_cap_j_k": heat_capacity_j_per_k(),
+		"core_heat_stock_j": _core_temp * heat_capacity_j_per_k(),
+		"core_heat_seed_j": _armed_temp * heat_capacity_j_per_k(),
+		"core_draw_refused": _refusals,
 		"core_cool_k_per_kstep": per_k,
 		"core_flux_w_m2": _flux_w_m2,
 		"core_flux_dt": _flux_dt,
@@ -154,11 +196,9 @@ func _build() -> void:
 	var grid: RefCounted = _f.sphere_grid()
 	if grid == null:
 		return
-	var cell_size: float = float(grid.cell_size)
-	var core_r: float = float(grid.core_radius)
-	if cell_size <= 0.0 or core_r <= 0.0:
+	var dr0: float = float(grid.shell_dr[0]) if int(grid.depth) > 0 else 0.0
+	if dr0 <= 0.0 or float(grid.core_radius) <= 0.0:
 		return
-	_cell_equiv = (4.0 / 3.0) * PI * core_r * core_r * core_r / (cell_size * cell_size * cell_size)
 	for c: int in _f._cell_count:
 		if c % _f._dim_y == 0:
 			_shell_cells.append(c)
@@ -194,13 +234,14 @@ func _seed_profile() -> int:
 			if _f._solid[c] == 0:
 				continue
 			# Depth of this cell's CENTRE below the top face of the column's outermost rock cell.
-			var t: float = ambient + _grad_c_per_m * (float(surf_r - r) + 0.5) * cell_size
+			var t: float = ambient + _grad_c_per_m * (float(grid.shell_face[surf_r + 1]) - float(grid.shell_mid[r]))
 			_f._temp[c] = t
 			n += 1
 			if r == 0:
 				base_sum += t
 				base_n += 1
-	_boundary_seed = ((base_sum / float(base_n)) if base_n > 0 else ambient) + _grad_c_per_m * cell_size
+	_boundary_seed = ((base_sum / float(base_n)) if base_n > 0 else ambient) \
+		+ _grad_c_per_m * float(grid.shell_dr[0])
 	_boundary_c = _boundary_seed
 	return n
 

@@ -1,17 +1,7 @@
 class_name LASituationSignature
 extends RefCounted
 
-## Turns a creature's current inner/outer state into a small discrete key. That key is what the
-## fast policy (System 1) looks up, what a learned heuristic is filed under, and what an escalation
-## trace records. It MUST stay cheap (it is computed every tick for every creature), so it reads
-## only O(1) scalar state (energy, hydration, one water probe, the shared day/night flag) and never
-## scans neighbour groups. The richer, expensive context (who is nearby / in view) is gathered only
-## on the rare escalation path and handed to the LLM in its prompt.
-##
-## (Explicit types only, no ':=' inferred typing.)
 
-# Bucket boundaries (fractions of max). Coarse on purpose: fewer buckets = faster convergence of
-# learned heuristics and a smaller genome to inherit.
 const ENERGY_BUCKETS: int = 4      # starving / low / ok / full
 const HYDRATION_BUCKETS: int = 3   # parched / thirsty / ok
 
@@ -34,10 +24,6 @@ static func hydration_bucket(frac: float) -> int:
 	return 2
 
 
-## Compute the signature for `c`. Returns a Dictionary:
-##   key   : int  — packed, the fast-path lookup key
-##   text  : String — stable human-readable form (prompts, traces, dataset)
-##   e/h/w/n : the raw feature components (for feedback + prompt building)
 static func compute(c) -> Dictionary:
 	# Reads are DUCK-TYPED via Object.get (returns null for a missing property, never errors) so an aquatic
 	# actor that lacks a land-only field (e.g. a fish with no hydration) still computes a valid signature. For a

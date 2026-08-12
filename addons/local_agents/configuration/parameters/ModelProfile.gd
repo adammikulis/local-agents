@@ -1,18 +1,6 @@
 extends Resource
 class_name LocalAgentModelProfile
 
-## Design-time description of one local model: which `.gguf` file to load, and how to load it.
-##
-## This is the schema half of the model configuration. Save a `.tres` next to your project, pick
-## the file in the inspector, and the runtime reads it. It deliberately holds only load-time knobs
-## (file, context window, threads, GPU offload, prompts). Per-agent behaviour (voice, database
-## path, tick rate) belongs on the LocalAgent node itself, and sampling knobs (temperature, top_p,
-## penalties) belong on LocalAgentInferenceParams. Keeping the three apart means one model profile
-## can be shared by every agent in a scene.
-##
-## `to_options()` emits the Dictionary the llama runtime consumes, so a profile can be handed
-## straight to LocalAgentLlamaServerManager.ensure_running() or merged into an agent's inference
-## options. Zero-valued knobs are omitted so the runtime keeps its own default for them.
 
 @export_group("Model")
 
@@ -48,11 +36,6 @@ class_name LocalAgentModelProfile
 ## ships a broken or missing template. Leave blank otherwise.
 @export_multiline var chat_template: String = ""
 
-## Emits the load-time options Dictionary for the llama runtime.
-##
-## Keys match what LocalAgentLlamaServerManager reads: `context_size`, `threads`, `n_gpu_layers`,
-## plus `system_prompt` / `chat_template` for whichever cognition path wants them. Zero and blank
-## values are omitted rather than sent as 0, so the runtime keeps its own default for that knob.
 func to_options() -> Dictionary:
     var opts: Dictionary = {}
     if context_size > 0:

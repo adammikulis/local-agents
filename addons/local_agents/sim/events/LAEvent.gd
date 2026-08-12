@@ -1,15 +1,6 @@
 class_name LAEvent
 extends Resource
 
-## One discrete PHENOMENON EVENT emitted by LAEventTracker: a typed record that something crossed a
-## threshold in the shared field/substrate ("eruption", "wildfire", "flood", "storm", "lightning",
-## "impact", "death", "birth", "extinction", a behaviour spike). It is derived purely from field/ecology
-## state, never authored by a scripted disaster actor. The streamer commentary, SIM_REPORT telemetry, and
-## (later) the dissolved disaster actors' visuals all consume THESE instead of scanning the world
-## themselves. One emergent source, many consumers.
-##
-## Typed Resource rather than a loose Dictionary so consumers get a stable, self-documenting shape.
-## (Explicit types only, no ':=' inferred typing.)
 
 ## Phenomenon kind, e.g. "eruption", "wildfire", "flood", "storm", "lightning", "impact", "death",
 ## "birth", "extinction", "stampede", "chase", "stalk", "circle". Detectors own their own type strings.

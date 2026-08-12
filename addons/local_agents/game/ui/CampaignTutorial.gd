@@ -1,28 +1,8 @@
 class_name LACampaignTutorial
 extends Node
 
-## LACampaignTutorial: the first-run campaign intro. It scripts the guided tour that teaches the core
-## caretaker loop the moment a player starts a CAMPAIGN, built ENTIRELY on the reusable tutorial system
-## (LATutorialSequencer + LATutorialHighlightOverlay + LocalAgentTutorialStep). This file owns NO tutorial
-## mechanics. It only authors a data-defined step list, resolves each step's highlight target to a live
-## Control, and hands the list to the sequencer. Wired into VoxelWorld with one add_child + setup line.
-##
-## Rules it honours:
-##   - CAMPAIGN ONLY: never runs in Sandbox (queries the progression's mode).
-##   - FIRST RUN ONLY: keyed to the sequencer's persisted "seen" flag (user://tutorial_state.cfg); once
-##     finished OR skipped it marks itself done, so a second campaign launch skips straight past it.
-##   - SKIPPABLE: the overlay's Skip button ends it (and marks it seen).
-##   - Keys come from LAHotkeyRegistry (the one source of truth), never hardcoded, so the copy always
-##     names the real bindings.
-##
-## Verification hooks (parsed from the shared -- user args, matching the repo convention):
-##   --tutorial-auto        walk every step to the end by pressing Next on a cooldown (proves stepping;
-##                          prints TUTORIAL_STEP=<i> per step and TUTORIAL_DONE on finish).
-##   --shoot=<png>          (VoxelWorld owns the capture). The tutorial advances to a spotlight step and
-##                          HOLDS there so the screenshot shows a callout + spotlight, not the intro card.
-## (Explicit types only, no ':=' inferred typing.)
 
-const OverlayScript: GDScript = preload("res://addons/local_agents/ui/tutorial/TutorialHighlightOverlay.gd")
+const OverlayScene: PackedScene = preload("res://addons/local_agents/ui/tutorial/TutorialHighlightOverlay.tscn")
 const SequencerScript: GDScript = preload("res://addons/local_agents/ui/tutorial/TutorialSequencer.gd")
 const StepScript: GDScript = preload("res://addons/local_agents/ui/tutorial/TutorialStep.gd")
 
@@ -83,7 +63,7 @@ func _ready() -> void:
 	_layer.name = "TutorialLayer"
 	_layer.layer = 126
 	add_child(_layer)
-	_overlay = OverlayScript.new()
+	_overlay = OverlayScene.instantiate() as LATutorialHighlightOverlay
 	_layer.add_child(_overlay)
 	_seq = SequencerScript.new()
 	_seq.name = "TutorialSequencer"
@@ -101,8 +81,6 @@ func _parse_args() -> void:
 		elif arg.begins_with("--shoot="):
 			_shoot = true
 
-
-# --- Gate + start ------------------------------------------------------------------------------------------
 
 ## True only when we should run: campaign mode (never sandbox) AND not already seen this profile.
 func _should_run() -> bool:
@@ -161,8 +139,6 @@ func _drive() -> void:
 	_overlay.next_pressed.emit()
 	_cool = DRIVE_COOLDOWN
 
-
-# --- The scripted tour (data, not logic) -------------------------------------------------------------------
 
 func _build_steps() -> Array[LocalAgentTutorialStep]:
 	var steps: Array[LocalAgentTutorialStep] = []
@@ -228,8 +204,6 @@ func _build_steps() -> Array[LocalAgentTutorialStep]:
 	return steps
 
 
-# --- Step / advance callbacks ------------------------------------------------------------------------------
-
 func _on_step_changed(index: int, _step: LocalAgentTutorialStep) -> void:
 	print("TUTORIAL_STEP=%d" % index)
 	if index == STEP_SPAWN:
@@ -250,10 +224,6 @@ func _on_finished(completed: bool) -> void:
 func _placed_something() -> bool:
 	return _population() > _spawn_baseline
 
-
-# --- Target resolution -------------------------------------------------------------------------------------
-# Each step points at a live Control via a path computed from the scene root, so it resolves through whatever
-# CanvasLayer owns the widget. Nodes that are momentarily absent yield an empty path (the overlay just dims).
 
 func _control_step(control: Control, body: String, heading: String) -> LocalAgentTutorialStep:
 	var step: LocalAgentTutorialStep = StepScript.new()
@@ -303,8 +273,6 @@ func _first_of_class(root: Node, klass: String) -> Control:
 			return found
 	return null
 
-
-# --- Small helpers -----------------------------------------------------------------------------------------
 
 func _population() -> int:
 	var tree: SceneTree = get_tree()

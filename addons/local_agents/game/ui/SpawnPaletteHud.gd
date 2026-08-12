@@ -1,26 +1,18 @@
 class_name LASpawnPaletteHud
 extends CanvasLayer
 
-## In-code HUD for the voxel simulation: a bottom-center spawn palette, a right-side
-## inspector panel, and a top status bar. The Control tree and Theme are built in _ready().
-## The palette buttons are icon-only emoji glyphs rendered with a small bundled emoji font
-## (addons/local_agents/assets/fonts/emoji.ttf, a subset of Noto Color Emoji); everything
-## else uses the engine default font and procedurally-drawn styleboxes/icons.
 
 signal spawn_selected(kind: String)
 ## Re-exposed from the audio menu; VoxelWorld listens to gate its live mood feed.
 signal music_auto_adapt_changed(on: bool)
 
-const AudioMenuPanelScript: GDScript = preload("res://addons/local_agents/game/ui/AudioMenuPanel.gd")
 const EMOJI_FONT_PATH: String = "res://addons/local_agents/assets/fonts/emoji.ttf"
 
-# Spawn-button thumbnails: each life/prop button shows a small isometric render of the actual
-# model it spawns (built once at startup into an off-screen SubViewport). Disaster buttons have
-# no representative model, so they keep their emoji glyph.
+# Off-screen isometric render size for a spawn button's model thumbnail, in pixels.
 const THUMB_PX: int = 64
 
 # The palette is split into two visible clusters. Order within each drives the number hotkeys
-# (LIFE -> 1..7, DISASTER -> Shift+1..5); KINDS is kept as the flat union for lookups/back-compat.
+# (LIFE -> 1..8, DISASTER -> Shift+1..8); KINDS is the flat union for lookups.
 const LIFE_KINDS: PackedStringArray = [
 	"plant", "tree", "rabbit", "fox", "bird", "vulture", "villager", "fish",
 ]
@@ -51,30 +43,26 @@ const KIND_LABELS: Dictionary = {
 	"hurricane": "Hurricane",
 }
 
-# Emoji glyph per kind (self-colored by the emoji font). Literal UTF-8 glyphs -- trivially
-# tunable: swap a glyph here and add its codepoint to the pyftsubset build in assets/fonts/.
+# Emoji glyph per kind, self-colored by the emoji font. Swapping a glyph needs its codepoint added to the
+# pyftsubset build in assets/fonts/.
 const KIND_SYMBOLS: Dictionary = {
-	"plant": "🌱",      # seedling
-	"tree": "🌲",       # evergreen (forest brush)
-	"rabbit": "🐇",     # rabbit
-	"fox": "🦊",        # fox
-	"bird": "🐦",       # bird
-	"vulture": "🦅",    # eagle (stands in for vulture)
-	"villager": "🧑",   # person
-	"fish": "🐟",       # fish
-	"meteor": "☄",      # comet
-	"volcano": "🌋",    # volcano
-	"lightning": "⚡",   # high voltage
-	"earthquake": "🏚", # derelict house (shaken ground)
-	"flood": "🌊",      # water wave
-	"tornado": "🌪",    # tornado
-	"thunderstorm": "⛈", # cloud with lightning + rain
-	"hurricane": "🌀",  # cyclone
+	"plant": "🌱",
+	"tree": "🌲",
+	"rabbit": "🐇",
+	"fox": "🦊",
+	"bird": "🐦",
+	"vulture": "🦅",
+	"villager": "🧑",
+	"fish": "🐟",
+	"meteor": "☄",
+	"volcano": "🌋",
+	"lightning": "⚡",
+	"earthquake": "🏚",
+	"flood": "🌊",
+	"tornado": "🌪",
+	"thunderstorm": "⛈",
+	"hurricane": "🌀",
 }
-
-# The per-kind keyboard hint ("1".."8" / "⇧1"..) is derived from the shared LAHotkeyRegistry so the
-# on-screen badge, the tooltip, and the input router never drift — the registry reads THIS file's kind
-# lists, so the palette ordering is the single source that drives the digit assignments.
 
 # Palette / theme colors (cohesive dark theme).
 const COL_BG: Color = Color(0.086, 0.098, 0.129, 0.94)
@@ -86,53 +74,51 @@ const COL_TEXT: Color = Color(0.90, 0.92, 0.95, 1.0)
 const COL_TEXT_DIM: Color = Color(0.62, 0.66, 0.72, 1.0)
 const COL_TEXT_HEADING: Color = Color(0.98, 0.99, 1.0, 1.0)
 
+@onready var _root: Control = $HudRoot
+@onready var _status_panel: PanelContainer = $HudRoot/StatusBar
+@onready var _inspector_panel: PanelContainer = $HudRoot/Inspector
+@onready var _palette_panel: PanelContainer = $HudRoot/SpawnPalette
+@onready var _audio_holder: PanelContainer = $HudRoot/AudioToggle
+@onready var _status_label: Label = $HudRoot/StatusBar/Margin/Row/Status
+@onready var _readout_label: Label = $HudRoot/StatusBar/Margin/Row/Readout
+@onready var _inspector_title: Label = $HudRoot/Inspector/Margin/Col/Title
+@onready var _inspector_lines: VBoxContainer = $HudRoot/Inspector/Margin/Col/Lines
+@onready var _select_button: Button = $HudRoot/SpawnPalette/Margin/Row/SelectBtn
+@onready var _life_cluster: HBoxContainer = $HudRoot/SpawnPalette/Margin/Row/LifeCluster
+@onready var _disaster_cluster: HBoxContainer = $HudRoot/SpawnPalette/Margin/Row/DisasterCluster
+@onready var _audio_panel: LAAudioMenuPanel = $HudRoot/AudioMenu
+@onready var _audio_button: Button = $HudRoot/AudioToggle/Margin/AudioButton
+
 var _armed_kind: String = ""
 
 var _theme: Theme
 var _emoji_font: FontFile
 var _palette_group: ButtonGroup
 var _kind_buttons: Dictionary = {}       # kind -> Button, so thumbnails can be filled in async
-var _kind_badges: Dictionary = {}        # kind -> Label, the small hotkey-number badge (dimmed when locked)
+var _kind_badges: Dictionary = {}        # kind -> Label, the hotkey-number badge (dimmed when locked)
 
-var _status_panel: PanelContainer
-var _inspector_panel: PanelContainer
-var _palette_panel: PanelContainer
-
-var _status_label: Label
-var _readout_label: Label
-var _perf_detail: bool = false      # DEBUG-panel "Detailed perf": expands the FPS readout to frame/field/phys ms + draws
-var _inspector_title: Label
-var _inspector_lines: VBoxContainer
-
-var _audio_panel: LAAudioMenuPanel
-var _audio_button: Button
-
+var _perf_detail: bool = false      # DEBUG-panel "Detailed perf": expands the FPS readout
 var _ui_panels: Array[Control] = []
 
 
 func _ready() -> void:
-	layer = 100
 	_emoji_font = _load_emoji_font()
 	_theme = _build_theme()
+	_root.theme = _theme
 
-	# Root fills the screen but ignores mouse so empty areas fall through to the 3D scene.
-	var root: Control = Control.new()
-	root.name = "HudRoot"
-	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.theme = _theme
-	add_child(root)
+	_select_button.icon = _make_cursor_icon()
+	_select_button.pressed.connect(_on_select_pressed)
+	_audio_button.toggled.connect(_on_audio_button_toggled)
+	_audio_panel.auto_adapt_changed.connect(_on_audio_auto_adapt_changed)
 
-	_build_status_bar(root)
-	_build_inspector(root)
-	_build_palette(root)
-	_build_audio_menu(root)
+	_build_palette_buttons()
+	_ui_panels = [_status_panel, _inspector_panel, _palette_panel, _audio_panel, _audio_holder]
 
 	clear_inspector()
 	set_status("Ready")
 	set_process(true)
 
-	# Reveal palette entries as their spawn capabilities are earned (campaign). No-op when no progression exists.
+	# Reveal palette entries as their spawn capabilities are earned (campaign). No-op with no progression.
 	var prog: LAGameProgression = LAGameProgression.active()
 	if prog != null:
 		prog.capability_unlocked.connect(func(_id: String) -> void: _refresh_palette_locks())
@@ -259,115 +245,17 @@ func toggle_audio_menu() -> void:
 
 
 # ---------------------------------------------------------------------------
-# Construction
+# Palette buttons (one per kind, from the kind lists)
 # ---------------------------------------------------------------------------
 
-func _build_status_bar(root: Control) -> void:
-	_status_panel = PanelContainer.new()
-	_status_panel.name = "StatusBar"
-	_status_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	_status_panel.offset_left = 12.0
-	_status_panel.offset_right = -12.0
-	_status_panel.offset_top = 12.0
-	_status_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	root.add_child(_status_panel)
-
-	var margin: MarginContainer = _make_margin(14, 8)
-	_status_panel.add_child(margin)
-
-	var row: HBoxContainer = HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	margin.add_child(row)
-
-	var badge: Label = Label.new()
-	badge.text = "VOXEL SIM"
-	badge.add_theme_color_override("font_color", COL_ACCENT)
-	badge.add_theme_font_size_override("font_size", 14)
-	row.add_child(badge)
-
-	_status_label = Label.new()
-	_status_label.text = "Ready"
-	_status_label.add_theme_color_override("font_color", COL_TEXT)
-	_status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(_status_label)
-
-	_readout_label = Label.new()
-	_readout_label.text = "0 FPS   |   0 entities"
-	_readout_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_readout_label.add_theme_color_override("font_color", COL_TEXT_DIM)
-	row.add_child(_readout_label)
-
-	_ui_panels.append(_status_panel)
-
-
-func _build_inspector(root: Control) -> void:
-	_inspector_panel = PanelContainer.new()
-	_inspector_panel.name = "Inspector"
-	_inspector_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	_inspector_panel.offset_right = -12.0
-	_inspector_panel.offset_top = 60.0
-	_inspector_panel.offset_left = -292.0
-	_inspector_panel.custom_minimum_size = Vector2(280.0, 0.0)
-	_inspector_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	root.add_child(_inspector_panel)
-
-	var margin: MarginContainer = _make_margin(16, 14)
-	_inspector_panel.add_child(margin)
-
-	var col: VBoxContainer = VBoxContainer.new()
-	col.add_theme_constant_override("separation", 8)
-	margin.add_child(col)
-
-	_inspector_title = Label.new()
-	_inspector_title.text = "Inspector"
-	_inspector_title.add_theme_color_override("font_color", COL_TEXT_HEADING)
-	_inspector_title.add_theme_font_size_override("font_size", 17)
-	col.add_child(_inspector_title)
-
-	var rule: Control = _make_rule()
-	col.add_child(rule)
-
-	_inspector_lines = VBoxContainer.new()
-	_inspector_lines.add_theme_constant_override("separation", 4)
-	col.add_child(_inspector_lines)
-
-	_ui_panels.append(_inspector_panel)
-
-
-func _build_palette(root: Control) -> void:
+func _build_palette_buttons() -> void:
 	_palette_group = ButtonGroup.new()
 	_palette_group.allow_unpress = true
 
-	_palette_panel = PanelContainer.new()
-	_palette_panel.name = "SpawnPalette"
-	_palette_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	_palette_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_palette_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_palette_panel.offset_bottom = -18.0
-	_palette_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	root.add_child(_palette_panel)
-
-	var margin: MarginContainer = _make_margin(12, 10)
-	_palette_panel.add_child(margin)
-
-	var row: HBoxContainer = HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	margin.add_child(row)
-
-	# Cursor / select button (disarms the palette). Icon-only crosshair; Esc also triggers it.
-	var select_btn: Button = Button.new()
-	select_btn.tooltip_text = "Select  (Esc)\nCursor mode: click entities to inspect"
-	select_btn.icon = _make_cursor_icon()
-	select_btn.custom_minimum_size = Vector2(52.0, 56.0)
-	select_btn.focus_mode = Control.FOCUS_NONE
-	select_btn.pressed.connect(_on_select_pressed)
-	row.add_child(select_btn)
-
-	# Two visible clusters, each captioned: Life | Disasters.
-	row.add_child(_make_cluster(_palette_group, "LIFE", LIFE_KINDS))
-	row.add_child(_make_cluster(_palette_group, "DISASTERS", DISASTER_KINDS))
-
-	_ui_panels.append(_palette_panel)
+	for kind in LIFE_KINDS:
+		_life_cluster.add_child(_make_kind_button(_palette_group, kind))
+	for kind in DISASTER_KINDS:
+		_disaster_cluster.add_child(_make_kind_button(_palette_group, kind))
 
 	# Diagnostic: confirm a palette button carries its registry-keyed name+hotkey tooltip (one-time log).
 	var sample: Button = _kind_buttons.get("rabbit", null)
@@ -377,26 +265,6 @@ func _build_palette(root: Control) -> void:
 	# Swap the life/prop buttons' emoji glyphs for isometric renders of their actual models
 	# (async: renders into an off-screen SubViewport over the next few frames).
 	_generate_thumbnails()
-
-
-## A captioned cluster: a leading VSeparator, a small dim caption label, then one icon-only
-## toggle button per kind (all sharing the palette's exclusive ButtonGroup).
-func _make_cluster(group: ButtonGroup, caption: String, kinds: PackedStringArray) -> HBoxContainer:
-	var cluster: HBoxContainer = HBoxContainer.new()
-	cluster.add_theme_constant_override("separation", 6)
-
-	cluster.add_child(VSeparator.new())
-
-	var cap: Label = Label.new()
-	cap.text = caption
-	cap.add_theme_color_override("font_color", COL_TEXT_DIM)
-	cap.add_theme_font_size_override("font_size", 11)
-	cap.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	cluster.add_child(cap)
-
-	for kind in kinds:
-		cluster.add_child(_make_kind_button(group, kind))
-	return cluster
 
 
 ## An icon-only spawn button: the kind's emoji glyph (bundled emoji font), a name+hotkey
@@ -422,16 +290,15 @@ func _make_kind_button(group: ButtonGroup, kind: String) -> Button:
 	btn.custom_minimum_size = Vector2(52.0, 56.0)
 	btn.set_meta("kind", kind)
 	btn.toggled.connect(_on_palette_toggled)
-	# Campaign gating: hide-by-disable the entries the player has not earned yet (sandbox / no progression = all on).
+	# Campaign gating: disable the entries the player has not earned yet (sandbox / no progression = all on).
 	btn.disabled = not LAGameProgression.spawn_unlocked(kind)
 	_kind_buttons[kind] = btn
 	_attach_hotkey_badge(btn, kind)
 	return btn
 
 
-## Draw the small hotkey number ("1".."8" / "⇧1"..) in the top-left corner of a palette button so the
-## digit-select shortcut is discoverable at a glance. The badge is a child Label (unaffected by the later
-## emoji->thumbnail icon swap) and is dimmed when the entry is locked. No key -> no badge.
+## Draw the hotkey number ("1".."8" / "⇧1"..) in a palette button's top-left corner. A child Label, so the
+## later emoji->thumbnail icon swap does not touch it. No key -> no badge.
 func _attach_hotkey_badge(btn: Button, kind: String) -> void:
 	var hotkey: String = LAHotkeyRegistry.spawn_label(kind)
 	if hotkey.is_empty():
@@ -449,7 +316,7 @@ func _attach_hotkey_badge(btn: Button, kind: String) -> void:
 	_style_hotkey_badge(kind)
 
 
-## Colour a badge for the entry's lock state: bright accent when unlocked, dimmed/greyed when locked.
+## Colour a badge for the entry's lock state: bright accent when unlocked, dimmed when locked.
 func _style_hotkey_badge(kind: String) -> void:
 	var badge: Label = _kind_badges.get(kind, null)
 	if badge == null or not is_instance_valid(badge):
@@ -458,45 +325,14 @@ func _style_hotkey_badge(kind: String) -> void:
 	badge.add_theme_color_override("font_color", COL_ACCENT if unlocked else Color(COL_TEXT_DIM.r, COL_TEXT_DIM.g, COL_TEXT_DIM.b, 0.35))
 
 
-## Re-enable each palette entry whose spawn capability is now unlocked (campaign). Wired to the progression's
-## capability_unlocked signal; a no-op when no progression instance exists.
+## Re-enable each palette entry whose spawn capability is now unlocked (campaign). Wired to the
+## progression's capability_unlocked signal; a no-op when no progression instance exists.
 func _refresh_palette_locks() -> void:
 	for kind in _kind_buttons:
 		var btn: Button = _kind_buttons[kind]
 		if btn != null and is_instance_valid(btn):
 			btn.disabled = not LAGameProgression.spawn_unlocked(String(kind))
 		_style_hotkey_badge(String(kind))
-
-
-func _build_audio_menu(root: Control) -> void:
-	# The menu panel itself (hidden until toggled).
-	_audio_panel = AudioMenuPanelScript.new()
-	_audio_panel.name = "AudioMenu"
-	root.add_child(_audio_panel)
-	_audio_panel.auto_adapt_changed.connect(_on_audio_auto_adapt_changed)
-	_ui_panels.append(_audio_panel)
-
-	# A small toggle button anchored top-left, below the status bar.
-	var holder: PanelContainer = PanelContainer.new()
-	holder.name = "AudioToggle"
-	holder.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
-	holder.offset_left = 12.0
-	holder.offset_top = 60.0
-	holder.mouse_filter = Control.MOUSE_FILTER_STOP
-	root.add_child(holder)
-
-	var margin: MarginContainer = _make_margin(6, 4)
-	holder.add_child(margin)
-
-	_audio_button = Button.new()
-	_audio_button.text = "♪ Audio"
-	_audio_button.tooltip_text = "Audio & music menu (M)"
-	_audio_button.toggle_mode = true
-	_audio_button.focus_mode = Control.FOCUS_NONE
-	_audio_button.toggled.connect(_on_audio_button_toggled)
-	margin.add_child(_audio_button)
-
-	_ui_panels.append(holder)
 
 
 # ---------------------------------------------------------------------------
@@ -510,6 +346,7 @@ func _on_audio_button_toggled(pressed_state: bool) -> void:
 
 func _on_audio_auto_adapt_changed(on: bool) -> void:
 	music_auto_adapt_changed.emit(on)
+
 
 func _on_palette_toggled(_pressed_state: bool) -> void:
 	var pressed_btn: BaseButton = _palette_group.get_pressed_button()
@@ -536,13 +373,8 @@ func _on_select_pressed() -> void:
 		spawn_selected.emit("")
 
 
-# ---------------------------------------------------------------------------
-# Theme + widget helpers
-# ---------------------------------------------------------------------------
-
-## Load the bundled emoji subset for the palette symbols. Uses load_dynamic_font so it works
-## straight from the raw .ttf with no editor import step. Returns null on any failure, and the
-## palette then falls back to text labels so a button is never blank.
+## Load the bundled emoji subset for the palette symbols. load_dynamic_font works straight from the raw
+## .ttf with no editor import step. Returns null on any failure, and the palette falls back to text labels.
 func _load_emoji_font() -> FontFile:
 	if not FileAccess.file_exists(EMOJI_FONT_PATH):
 		push_warning("SpawnPaletteHud: emoji font missing at %s -- palette falls back to text." % EMOJI_FONT_PATH)
@@ -593,7 +425,6 @@ func _build_theme() -> Theme:
 	sep_sb.vertical = true
 	t.set_stylebox("separator", "VSeparator", sep_sb)
 
-	# --- Controls used by the audio menu (OptionButton, HSlider, CheckButton, etc.) ---
 	# OptionButton reuses the Button styleboxes plus a styled dropdown popup.
 	t.set_stylebox("normal", "OptionButton", btn_normal)
 	t.set_stylebox("hover", "OptionButton", btn_hover)
@@ -631,7 +462,7 @@ func _build_theme() -> Theme:
 	t.set_icon("grabber_highlight", "HSlider", grabber)
 	t.set_icon("grabber_disabled", "HSlider", grabber)
 
-	# CheckButton (toggle switch) — text color; keep default engine on/off icons.
+	# CheckButton keeps the default engine on/off icons.
 	t.set_color("font_color", "CheckButton", COL_TEXT)
 	t.set_color("font_hover_color", "CheckButton", COL_TEXT_HEADING)
 	t.set_font_size("font_size", "CheckButton", 13)
@@ -641,7 +472,6 @@ func _build_theme() -> Theme:
 	t.set_stylebox("pressed", "CheckButton", transparent)
 	t.set_stylebox("focus", "CheckButton", transparent)
 
-	# ScrollContainer / GridContainer inherit sensible defaults; give the scrollbar a subtle grabber.
 	var scroll_grabber: StyleBoxFlat = StyleBoxFlat.new()
 	scroll_grabber.bg_color = COL_BORDER
 	scroll_grabber.set_corner_radius_all(3)
@@ -694,23 +524,6 @@ func _button_stylebox(bg: Color, border: Color) -> StyleBoxFlat:
 	return sb
 
 
-func _make_margin(h: int, v: int) -> MarginContainer:
-	var m: MarginContainer = MarginContainer.new()
-	m.add_theme_constant_override("margin_left", h)
-	m.add_theme_constant_override("margin_right", h)
-	m.add_theme_constant_override("margin_top", v)
-	m.add_theme_constant_override("margin_bottom", v)
-	return m
-
-
-func _make_rule() -> Control:
-	var r: ColorRect = ColorRect.new()
-	r.color = COL_BORDER
-	r.custom_minimum_size = Vector2(0.0, 1.0)
-	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	return r
-
-
 func _make_line_label(text: String, color: Color) -> Label:
 	var l: Label = Label.new()
 	l.text = text
@@ -729,17 +542,13 @@ func _clear_children(node: Node) -> void:
 		node.remove_child(child)
 
 
-# ---------------------------------------------------------------------------
-# Model thumbnails (isometric off-screen render per spawnable model)
-# ---------------------------------------------------------------------------
-
 # The "tree" button spawns a mixed forest; show the oak as its representative render.
 func _thumb_model_id(kind: String) -> String:
 	return "tree_oak" if kind == "tree" else kind
 
 
 # Render each life/prop button's model to an isometric thumbnail and swap it in for the emoji.
-# Runs across frames (SubViewport needs a draw); no-ops gracefully in headless (blank readback).
+# Runs across frames (SubViewport needs a draw); no-ops in headless (blank readback).
 func _generate_thumbnails() -> void:
 	# Off-screen 3D rendering needs a real display server; headless keeps the emoji glyphs.
 	if DisplayServer.get_name() == "headless":

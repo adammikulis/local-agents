@@ -1,0 +1,19 @@
+[gd_scene format=3 uid="uid://bswoption0la011"]
+
+[node name="OptionRow" type="VBoxContainer"]
+size_flags_horizontal = 3
+theme_override_constants/separation = 10
+
+[node name="Row" type="HBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="Caption" type="Label" parent="Row"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 13
+
+[node name="Option" type="OptionButton" parent="Row"]
+custom_minimum_size = Vector2(150, 32)
+layout_mode = 2
+focus_mode = 2

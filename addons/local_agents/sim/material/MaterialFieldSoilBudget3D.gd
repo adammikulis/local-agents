@@ -1,6 +1,8 @@
 class_name LAMaterialFieldSoilBudget3D
 extends RefCounted
 
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
 ## LAMaterialFieldSoilBudget3D: a per-LEG mass budget for the groundwater channel, so a soil drain has to name
 
 # MUST match soil_sphere3d.glsl's DBG_* defines and LAMaterialSphereGPU3D.SOIL_DBG_SLOTS.
@@ -70,16 +72,20 @@ func sample() -> Dictionary:
 
 	var profile: Array = _table_profile(soil, regolith, cc)
 
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if vol.size() != cc:
+		return {}
 	var leg: PackedFloat64Array = PackedFloat64Array()
 	leg.resize(SLOTS)
 	for c in cc:
 		var base: int = c * SLOTS
+		var w: float = vol[c]
 		for k in SLOTS:
-			leg[k] += dbg[base + k]
+			leg[k] += dbg[base + k] * w
 	var final_soil: float = 0.0
 	var reg_cells: int = 0
 	for c in cc:
-		final_soil += soil[c]
+		final_soil += soil[c] * vol[c]
 		if not has_reg or regolith[c] != 0:
 			reg_cells += 1
 

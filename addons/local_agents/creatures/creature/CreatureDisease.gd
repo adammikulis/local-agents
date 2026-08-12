@@ -1,22 +1,7 @@
 class_name LACreatureDisease
 extends RefCounted
 
-## LACreatureDisease: the per-creature DISEASE / IMMUNE state, owned as an instance on each creature
-## (`creature.disease`) so all of it lives HERE, off the Creature monolith. Transmission calls infect(); the
-## creature's _physics_process delegates to tick(); the immune system, strain progression, symptoms, recovery
-## and immunity all live in this module. Creature.gd only holds `var disease` + one setup + one tick call.
-##
-## Config-over-cases (project rule): a disease is a DATA record (a strain in LADiseaseLibrary), never an
-## `if strain == "X"` branch. A creature carries a SET of active infections (strain_id → {load, age}) and a set
-## of acquired immunities (strain_id → level); progression, the immune fight, symptom expression, recovery and
-## immunity all read the strain record generically, so a new plague dropped into data/diseases/ composes in for
-## free. An infection: incubates silently, then turns symptomatic + infectious; the load grows by the strain's
-## virulence and is fought down by the immune system (innate constitution + acquired immunity); while
-## symptomatic it drains energy, damages HP, runs a fever, and sheds to nearby hosts; clearing it grants lasting
-## immunity, and enough HP damage KILLS. Emergent: outbreaks sweep herds, cull the weak, and leave immune
-## survivors so the population rebounds resistant. (Explicit types only, no ':=' inferred typing.)
 
-# Active infections: strain_id -> {"load": float 0..~1, "age": float secs since infection, "sympt": bool}.
 var loads: Dictionary = {}
 # Acquired immunity: strain_id -> level 0..1 (survivors resist re-infection + fight faster). Wanes very slowly.
 var immunity: Dictionary = {}
@@ -29,10 +14,6 @@ const IMMUNITY_WANE: float = 0.002        # immunity lost per second (slow — s
 const SHED_PERIOD: float = 0.5            # seconds between shedding passes (transmission is throttled, not per-frame)
 const INFECTIOUS_LOAD: float = 0.12       # min symptomatic load to shed to others
 const MAX_LOAD: float = 1.2
-## Extra energy a fever burns per degree of `rec["fever"]`, per unit load, per second. A fever is a raised
-## metabolic rate: roughly +10-13% of basal per °C of core-temperature elevation in a mammal. This is the
-## conversion from a strain's declared fever into the fuel that produces it — the heat that reaches the field
-## is then exactly the heat that mass released, instead of a number added to the temperature channel for free.
 const FEVER_DRAIN_PER_DEGREE: float = 0.12
 
 var _shed_cd: float = 0.0
@@ -47,9 +28,6 @@ func setup(_creature, config: Dictionary) -> void:
 	host_class = String(config.get("host_class", "mammals"))
 
 
-## External infection hook — expose to `dose` of `strain_id` (transmission / a seed / a pest vector calls this).
-## Acquired immunity blunts the dose; an unknown or host-incompatible strain is ignored. A fresh infection
-## starts incubating (age 0).
 func infect(strain_id: String, dose: float) -> void:
 	if dose <= 0.0:
 		return
@@ -66,9 +44,6 @@ func infect(strain_id: String, dose: float) -> void:
 		loads[strain_id] = {"load": eff, "age": 0.0, "sympt": false}
 
 
-## Advance every active infection this frame: incubate → progress vs the immune system → express symptoms
-## (energy drain, HP damage, fever) → recover-with-immunity or DIE. Also sheds to nearby hosts on a throttle.
-## Returns true if the creature died of disease (the caller then returns, like the metabolism death gate).
 func tick(creature, delta: float) -> bool:
 	# Immunity wanes slowly whether or not sick.
 	if not immunity.is_empty():
@@ -104,21 +79,12 @@ func tick(creature, delta: float) -> bool:
 			# the field — emergent overheat + a warm-body cue). Movement lethargy emerges from the energy drain.
 			creature.energy = maxf(0.0, creature.energy - float(rec["drain"]) * load * delta)
 			creature.health -= float(rec["lethality"]) * load * delta
-			# A FEVER'S HEAT IS THE ENERGY THE FEVER BURNED. `add_heat(pos, fever * load * delta, 2.0)` used
-			# to push raw degrees into the temperature field with no source anywhere — the `rec["drain"]` two
-			# lines above is a separate, unrelated constant, so the warmth was simply invented. A fever IS a
-			# raised metabolic rate, and the fuel it burns is where its heat comes from. So a strain's `fever`
-			# now buys an EXTRA DRAIN, and that mass goes through the same respiration path every other joule
-			# takes — O₂ in, CO₂ out, and the heat delivered to the cell by LAMaterialFieldBiota3D.
 			var fever: float = float(rec["fever"])
 			var fever_burn: float = fever * FEVER_DRAIN_PER_DEGREE * load * delta
 			if fever_burn > 0.0:
 				creature.energy = maxf(0.0, creature.energy - fever_burn)
 				if creature._material != null and creature._material.has_method("respire_at"):
 					creature._material.respire_at(pos, fever_burn)
-			# Lethargy: a sick animal is WINDED — feed muscle lactate so the existing lactate speed-cap slows it.
-			# A slowed, weak animal is easier PREY, so predators preferentially cull the sick → the population is
-			# selected for constitution. No new movement hook — the lactate→speed machinery already does the rest.
 			var slow: float = float(rec["slow"])
 			if slow > 0.0:
 				creature.lactate = minf(1.0, float(creature.lactate) + slow * load * delta)

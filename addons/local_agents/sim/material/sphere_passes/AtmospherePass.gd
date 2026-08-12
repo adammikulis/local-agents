@@ -8,12 +8,11 @@ const RAIN_PATH: String = "res://addons/local_agents/sim/material/kernels3d/atmo
 # --- PRECIPITATION IS A MICROPHYSICAL PROCESS, NOT A CEILING -----------------------------------------------
 const AUTOCONVERSION_RATE_PER_S: float = 1.0e-3    # Kessler (1969) k_auto
 const CLOUD_WATER_CRIT_KG_KG: float = 0.5e-3       # Kessler (1969) q_crit, cloud-water mixing ratio
-const AIR_DENSITY_KG_M3: float = 1.225             # ISA sea level, 15 °C
 
 
 ## The autoconversion threshold in the field's own unit (fraction of a cell full of liquid water).
 static func rain_threshold() -> float:
-	return CLOUD_WATER_CRIT_KG_KG * AIR_DENSITY_KG_M3 / LAPhysical.WATER_DENSITY_KG_M3
+	return CLOUD_WATER_CRIT_KG_KG * LAPhysical.AIR_DENSITY_KG_M3 / LAPhysical.WATER_DENSITY_KG_M3
 
 
 ## Fraction of the supercritical cloud water shed as rain in ONE field step. Kessler's rate is per SECOND, and
@@ -80,9 +79,12 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var vel_y: RID = bufs["vel_y"]
 	var vel_z: RID = bufs["vel_z"]
 	var nbr: RID = bufs["nbr"]
+	var partner_rid: RID = bufs.get("link_partner", RID())
 	# Per-column tangent-frame table — the horizontal wind is stored in each cell's own frame, so transport
 	# reads link directions from here instead of assuming a slot is an axis (see wind_step_sphere3d).
 	var ltan: RID = bufs["link_tan"]
+	var shell: RID = bufs["shell"]
+	var cvol: RID = bufs["cell_vol"]
 
 	for p in 2:
 		var back: int = 1 - p
@@ -90,7 +92,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# tracer_transport: 0=in(live), 1=out(private scratch), 2=deposit(unused, bound to the scratch),
 		_transport_set[p] = _mkset(rd, _transport_shader, [
 			[0, moisture[p]], [1, _moist_buf], [2, _moist_buf], [3, solid],
-			[4, vel_x], [5, vel_y], [6, vel_z], [15, nbr], [16, ltan]])
+			[4, vel_x], [5, vel_y], [6, vel_z], [15, nbr], [17, partner_rid], [16, ltan],
+			[39, shell], [40, cvol]])
 
 		# PRECIP — atmos_precip_sphere3d.glsl: 0=moisture in(post-transport scratch), 1=temp(back), 2=solid,
 		# 3=moisture out(back), 4=rain scratch.
@@ -101,20 +104,22 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# 4=STATIC (rain over the sea vanishes into the infinite reservoir, not
 		# parked in undrained static-cell water — the fix for the unbounded h2o climb), 15=nbr.
 		_rain_set[p] = _mkset(rd, _rain_shader, [
-			[0, _rain_buf], [1, solid], [2, water[back]], [15, nbr]])
+			[0, _rain_buf], [1, solid], [2, water[back]], [15, nbr], [17, partner_rid],
+			[40, cvol]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	var dt: float = float(ctx.get("dt", DEFAULT_DT))
-	var cell_size: float = float(ctx.get("cell_size", DEFAULT_CELL_SIZE))
+	var lat_size: float = float(ctx.get("lat_size", DEFAULT_CELL_SIZE))
 
 	# STAGE 1 — TRANSPORT: moisture[live] --(weak diffuse / vel_y updraft advection / horizontal wind)-->
 	# the private scratch (one conservative pass). vel_y advection is what CLUMPS the field into cloud masses.
 	rd.compute_list_bind_compute_pipeline(cl, _transport_pipe)
 	rd.compute_list_bind_uniform_set(cl, _transport_set[parity], 0)
 	rd.compute_list_set_push_constant(cl, _pc_transport(cc, maxi(int(ctx.get("depth", 1)), 1),
-			LAMaterialFieldSphereStep3D.real_seconds_per_step() / (cell_size * LAPhysical.METRES_PER_MODEL_UNIT),
-			SETTLE_V_PER_CONTRAST * MOISTURE_CONTRAST, MOISTURE_DIFFUSE), 32)
+			LAMaterialFieldSphereStep3D.real_seconds_per_step() / (lat_size * LAPhysical.METRES_PER_MODEL_UNIT),
+			lat_size,
+			SETTLE_V_PER_CONTRAST * MOISTURE_CONTRAST, MOISTURE_DIFFUSE), 36)
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # post-transport scratch visible to precip
 
@@ -196,12 +201,11 @@ func _pc_precip(cc: int) -> PackedByteArray:
 	return pc
 
 
-# transport Params: {uint cell_count, float diffuse_frac, float wdt_y, float wdt, uint depth, 3x pad} (32 bytes).
-# `depth` turns a cell index into its radial COLUMN, which is how the per-column link-direction table is indexed.
-# tracer_transport push: { cell_count, depth, k, settle_v, diffuse, deposit, offset, decay }.
-func _pc_transport(cc: int, depth: int, k: float, settle_v: float, diffuse: float) -> PackedByteArray:
+# tracer_transport push: { cell_count, depth, k_lat, settle_v, diffuse, deposit, offset, decay, lat_ref }.
+func _pc_transport(cc: int, depth: int, k: float, lat_ref: float, settle_v: float,
+		diffuse: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(32)
+	pc.resize(36)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, depth)
 	pc.encode_float(8, k)
@@ -210,6 +214,7 @@ func _pc_transport(cc: int, depth: int, k: float, settle_v: float, diffuse: floa
 	pc.encode_u32(20, 0)
 	pc.encode_u32(24, 0)
 	pc.encode_float(28, 0.0)
+	pc.encode_float(32, lat_ref)
 	return pc
 
 

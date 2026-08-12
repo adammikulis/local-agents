@@ -108,11 +108,14 @@ static func records() -> Array:
 	# same unit bridge as everything else. 400 mol H2O per mol C is 0.0617 here.
 	var transpired: float = TRANSPIRATION_MOL_H2O_PER_MOL_C * soil_per_co2
 	return [
-		# BILINEAR: x = DECOMPOSE_RATE * fungus * detritus, capped by the detritus and O2 present — the
+		# x = DECOMPOSE_RATE * fungus * detritus, in moles of the pool's CARBON. The rest of the stoichiometry
+		# is the cell's own composition: CH_yO_z + (1 + y/4 - z/2) O2 -> CO2 + (y/2) H2O, so rotting peat draws
+		# less oxygen and yields less water than rotting leaf litter, out of ONE record.
 		rec(BILINEAR, _decompose_k(), FUNGUS,
-			[[DETRITUS, 1.0], [O2, o2_per_org]],
+			[[DETRITUS, 1.0], [ORG_H, 0.0, 1.0, 0.0], [ORG_O, 0.0, 0.0, 1.0],
+				[O2, o2_per_org, 0.25 * o2_per_org, -0.5 * o2_per_org]],
 			[[CO2, co2_per_org, TGT_SELF],
-				[MOISTURE, w_per_org, TGT_SELF],
+				[MOISTURE, 0.0, TGT_SELF, 0.5 * w_per_org, 0.0],
 				[FERT, organic_n * fert_per_org, TGT_SCRATCH]],
 			0, 0.0, DETRITUS),
 
@@ -127,5 +130,8 @@ static func records() -> Array:
 				[FERT, organic_n * fert_per_org, TGT_SELF]],
 			0, 0.0, O2),
 
-		rec(CONST_FRAC, _litterfall_k(), BIOMASS, [[BIOMASS, 1.0]], [[DETRITUS, 1.0, TGT_SELF]], 0),
+		# LITTERFALL. Living tissue is CH2O, so shed biomass enters the dead pool at H:C 2, O:C 1 — the fresh
+		# end of the spectrum. Every record after this one only takes H and O away.
+		rec(CONST_FRAC, _litterfall_k(), BIOMASS, [[BIOMASS, 1.0]],
+			[[DETRITUS, 1.0, TGT_SELF], [ORG_H, 2.0, TGT_SELF], [ORG_O, 1.0, TGT_SELF]], 0),
 	]

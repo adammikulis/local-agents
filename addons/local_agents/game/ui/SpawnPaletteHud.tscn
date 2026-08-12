@@ -1,0 +1,161 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/ui/SpawnPaletteHud.gd" id="1_spawnpalette"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/ui/AudioMenuPanel.tscn" id="2_audiomenu"]
+
+[node name="SpawnPaletteHud" type="CanvasLayer"]
+layer = 100
+script = ExtResource("1_spawnpalette")
+
+[node name="HudRoot" type="Control" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="StatusBar" type="PanelContainer" parent="HudRoot"]
+layout_mode = 1
+anchor_right = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+
+[node name="Margin" type="MarginContainer" parent="HudRoot/StatusBar"]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 8
+
+[node name="Row" type="HBoxContainer" parent="HudRoot/StatusBar/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Badge" type="Label" parent="HudRoot/StatusBar/Margin/Row"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.33, 0.7, 0.98, 1)
+theme_override_font_sizes/font_size = 14
+text = "VOXEL SIM"
+
+[node name="Status" type="Label" parent="HudRoot/StatusBar/Margin/Row"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
+text = "Ready"
+
+[node name="Readout" type="Label" parent="HudRoot/StatusBar/Margin/Row"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+text = "0 FPS   |   0 entities"
+horizontal_alignment = 2
+
+[node name="Inspector" type="PanelContainer" parent="HudRoot"]
+custom_minimum_size = Vector2(280, 0)
+layout_mode = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -292.0
+offset_top = 60.0
+offset_right = -12.0
+
+[node name="Margin" type="MarginContainer" parent="HudRoot/Inspector"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 14
+
+[node name="Col" type="VBoxContainer" parent="HudRoot/Inspector/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="HudRoot/Inspector/Margin/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.98, 0.99, 1, 1)
+theme_override_font_sizes/font_size = 17
+text = "Inspector"
+
+[node name="Rule" type="ColorRect" parent="HudRoot/Inspector/Margin/Col"]
+custom_minimum_size = Vector2(0, 1)
+layout_mode = 2
+size_flags_horizontal = 3
+color = Color(0.24, 0.27, 0.33, 1)
+
+[node name="Lines" type="VBoxContainer" parent="HudRoot/Inspector/Margin/Col"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="SpawnPalette" type="PanelContainer" parent="HudRoot"]
+layout_mode = 1
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_bottom = -18.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="Margin" type="MarginContainer" parent="HudRoot/SpawnPalette"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 10
+
+[node name="Row" type="HBoxContainer" parent="HudRoot/SpawnPalette/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SelectBtn" type="Button" parent="HudRoot/SpawnPalette/Margin/Row"]
+custom_minimum_size = Vector2(52, 56)
+layout_mode = 2
+focus_mode = 0
+tooltip_text = "Select  (Esc)\nCursor mode: click entities to inspect"
+
+[node name="LifeCluster" type="HBoxContainer" parent="HudRoot/SpawnPalette/Margin/Row"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Sep" type="VSeparator" parent="HudRoot/SpawnPalette/Margin/Row/LifeCluster"]
+layout_mode = 2
+
+[node name="Caption" type="Label" parent="HudRoot/SpawnPalette/Margin/Row/LifeCluster"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 11
+text = "LIFE"
+vertical_alignment = 1
+
+[node name="DisasterCluster" type="HBoxContainer" parent="HudRoot/SpawnPalette/Margin/Row"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Sep" type="VSeparator" parent="HudRoot/SpawnPalette/Margin/Row/DisasterCluster"]
+layout_mode = 2
+
+[node name="Caption" type="Label" parent="HudRoot/SpawnPalette/Margin/Row/DisasterCluster"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 11
+text = "DISASTERS"
+vertical_alignment = 1
+
+[node name="AudioMenu" parent="HudRoot" instance=ExtResource("2_audiomenu")]
+
+[node name="AudioToggle" type="PanelContainer" parent="HudRoot"]
+layout_mode = 1
+offset_left = 12.0
+offset_top = 60.0
+
+[node name="Margin" type="MarginContainer" parent="HudRoot/AudioToggle"]
+layout_mode = 2
+theme_override_constants/margin_left = 6
+theme_override_constants/margin_top = 4
+theme_override_constants/margin_right = 6
+theme_override_constants/margin_bottom = 4
+
+[node name="AudioButton" type="Button" parent="HudRoot/AudioToggle/Margin"]
+layout_mode = 2
+focus_mode = 0
+tooltip_text = "Audio & music menu (M)"
+toggle_mode = true
+text = "♪ Audio"

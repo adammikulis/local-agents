@@ -1,0 +1,131 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/ui/AddYourOwnTab.gd" id="1_tab"]
+[ext_resource type="Script" path="res://addons/local_agents/ui/ModelDownloadManager.gd" id="2_dl"]
+
+[node name="AddYourOwnTab" type="VBoxContainer"]
+theme_override_constants/separation = 12
+script = ExtResource("1_tab")
+
+[node name="CustomDownloadManager" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("2_dl")
+
+[node name="LocalFileHeading" type="Label" parent="."]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Use a model file you already have"
+
+[node name="BrowseRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="BrowseButton" type="Button" parent="BrowseRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Browse for .gguf…"
+
+[node name="BrowseHint" type="Label" parent="BrowseRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Registers a local GGUF as a selectable model."
+
+[node name="BrowseDialog" type="FileDialog" parent="."]
+unique_name_in_owner = true
+visible = false
+file_mode = 0
+access = 2
+filters = PackedStringArray("*.gguf ; GGUF models")
+use_native_dialog = false
+
+[node name="RepoHeading" type="Label" parent="."]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Download by Hugging Face repo"
+
+[node name="RepoRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RepoEdit" type="LineEdit" parent="RepoRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "org/repo (e.g. unsloth/Qwen3-4B-Instruct-2507-GGUF)"
+
+[node name="FileEdit" type="LineEdit" parent="RepoRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "filename.gguf"
+
+[node name="DownloadButton" type="Button" parent="RepoRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Download"
+
+[node name="DownloadStatus" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+
+[node name="RegisteredHeading" type="Label" parent="."]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Your registered models"
+
+[node name="RegisteredBox" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="LocationsHeading" type="Label" parent="."]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Where to look for models"
+
+[node name="HfRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="HfLabel" type="Label" parent="HfRow"]
+layout_mode = 2
+text = "HF cache:"
+
+[node name="HfEdit" type="LineEdit" parent="HfRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "auto (HF_HUB_CACHE / HF_HOME / ~/.cache/huggingface/hub)"
+
+[node name="HfSaveButton" type="Button" parent="HfRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Save"
+
+[node name="FolderRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="AddFolderButton" type="Button" parent="FolderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Add models folder…"
+
+[node name="FolderHint" type="Label" parent="FolderRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Extra folders are scanned on the Installed / detected tab."
+
+[node name="FolderDialog" type="FileDialog" parent="."]
+unique_name_in_owner = true
+visible = false
+file_mode = 2
+access = 2
+use_native_dialog = false
+
+[node name="FoldersBox" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 4

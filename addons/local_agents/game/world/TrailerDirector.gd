@@ -1,16 +1,6 @@
 class_name LATrailerDirector
 extends Node
 
-## SCENE SCRIPTER for capturing trailer/marketing shots deterministically (docs/TRAILER.md). One shot per run:
-##   scripts/capture_trailer.sh <shot>    (drives Godot movie-maker → H.264 mp4 in trailers/)
-##
-## A shot is TWO tracks: a keyframed CAMERA PATH ({f,pos,look} world-space, interpolated + eased each frame) and
-## timed EVENTS ({f,do,arg}: spawn a disaster, fling a meteor, fast-forward). The director takes over the
-## camera (freezes the RTS rig + drives its Transform3D directly, for precise cinematic moves the game modes can't
-## give) and hides ALL UI, then auto-quits. Arc per your brief: OPEN CLOSE on chaos (you don't know it's a
-## planet), BACK OUT as the chaos grows, END on the whole planet + sun with a meteor sweeping in from the side
-## opposite the sun. `fast N` beats time-lapse the presim so a shot lines up to the state it needs.
-## (Explicit types; no ':=' .)
 
 const FPS: float = 60.0
 

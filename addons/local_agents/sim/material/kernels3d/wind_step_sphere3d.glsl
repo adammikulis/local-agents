@@ -1,12 +1,8 @@
 #[compute]
 #version 450
 
-// structurally identical. Box idx±offset → INDEX TABLE nbr[idx*6 + d] (slot 0 = inward/radial-DOWN,
-//     OUTWARD neighbour (slot 5) as the "cell above" (box used +layer). This keeps buoyancy AND the charge
-//   * BUOYANCY guard — box required a cell above (iy < dy-1); here it requires slot 5 >= 0 (an outward neighbour
-//     On the sphere a cell is "on edge" iff any of its 4 lateral neighbours is a boundary (slot 1-4 == -1);
-//     face interior that is exactly the old "zero vel_x against slot 2/1, vel_z against slot 4/3"; near a
-//     against slot 5 (outward) / slot 0 (inward), which are genuinely the radial directions.
+#include "neighbours.glsli"
+
 
 layout(local_size_x = 64) in;
 
@@ -14,51 +10,69 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer PressureIn { float
 layout(set = 0, binding = 1, std430) restrict readonly buffer TempIn { float temp[]; };
 layout(set = 0, binding = 2, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer AirIn { float air[]; };   // pass A's fresh air mass
+layout(set = 0, binding = 7, std430) restrict readonly buffer WaterIn { float water[]; };  // surface roughness
 layout(set = 0, binding = 3, std430) restrict buffer VelX { float vel_x[]; };   // along the cell's tan_a
 layout(set = 0, binding = 4, std430) restrict buffer VelY { float vel_y[]; };   // OUTWARD-RADIAL (up) (slots 0/5)
 layout(set = 0, binding = 5, std430) restrict buffer VelZ { float vel_z[]; };   // along the cell's tan_b
 layout(set = 0, binding = 14, std430) restrict readonly buffer Radial { float radial[]; }; // per-cell outward unit vec, flat c*3+{0,1,2}
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };   // idx*6 + slot
-// TANGENT-FRAME table (LASphereGrid.link_tan), per SURFACE column: ((g/depth)*4 + l)*2 + {0,1} is the unit
-// direction toward the lateral slot l+1 neighbour, in THIS cell's own (tan_a, tan_b) components.
+// LASphereGrid.link_tan, per SURFACE column: ((g/depth)*4 + l)*2 + {0,1} is the unit direction toward the
+// lateral slot l neighbour in this cell's own (tan_a, tan_b) axes.
 layout(set = 0, binding = 16, std430) restrict readonly buffer LinkTan { float ltan[]; };
+// LASphereGrid.link_arc: (g/depth)*4 + l, radians between the two cell centres.
+layout(set = 0, binding = 41, std430) restrict readonly buffer LinkArc { float larc[]; };
+// LASphereGrid.link_rot: ((g/depth)*4 + l)*2, the (cos, sin) carrying MY axes into the neighbour's.
+layout(set = 0, binding = 43, std430) restrict readonly buffer LinkRot { float lrot[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	float dt;         // STEP_DT
+	float dt;         // seconds
 	uint buoy;        // 1 = buoyancy enabled (MaterialWind3D._enable_buoyancy)
 	float spin_x;     // planet SPIN AXIS (north pole) in the field frame — latitude + banded-flow reference
 	float spin_y;
 	float spin_z;
-	uint depth;          // radial shells per column — gives this cell's shell as (g % depth), hence its altitude
-	float core_radius;   // inner radius of shell 0
-	float cell_size;
-	float sea_radius;    // altitude datum for the boundary layer
+	uint depth;       // radial shells per column — gives this cell's shell as (g % depth)
+	uint pad0;
 } params;
 
-const float AIR_FLOOR = 0.02;       // density floor in AIR UNITS: caps the 1/rho gain at 50x (top-of-atmosphere)
-// REAL UNITS, 2026-08-10. Pass A now writes `pressure` in PASCALS, so the gradient is Pa per model unit and
-// must be divided by the metres one cell spans; rho is a real kg/m3; and the acceleration that comes out is
-// m/s^2 instead of a number whose units nobody could state.
+#include "shell.glsli"
+
 const float GRAVITY_M_S2 = 9.80665;        // LAPhysical.STANDARD_GRAVITY_M_S2
-const float AIR_DENSITY_KG_M3 = 1.18;      // LAPhysical.AIR_DENSITY_KG_M3
+const float AIR_DENSITY_KG_M3 = 1.225;     // LAPhysical.AIR_DENSITY_KG_M3
 const float METRES_PER_MODEL_UNIT = 168.6; // LAPhysical.METRES_PER_MODEL_UNIT
-const float DAMP_SURFACE = 0.08;    // linear drag fraction removed per step at the ground (the old DAMP)
-const float DAMP_FREE = 0.010;      // residual drag in the free atmosphere
-const float BL_HEIGHT = 40.0;       // boundary-layer e-folding height, world units (2.5 cells)
-// Velocity magnitude clamp, in METRES PER SECOND now that the acceleration is real. 110 m/s is above the
-// fastest sustained jet-stream cores measured on Earth (~100 m/s) and below anything physical, so it is a
-// no statable dimension, sized against a pressure field that was itself arbitrary.)*
-// Coriolis parameter f = 2*omega*sin(lat), rad/s.
+const float AIR_SPECIFIC_HEAT_J_KGK = 1005.0;   // LAPhysical.AIR_SPECIFIC_HEAT_J_KGK
+const float T0_K = 273.15;                 // LAPhysical.KELVIN_OFFSET
+// Dry adiabatic lapse rate, K/m: the rate a rising parcel cools on its own, so only a column steeper than
+// this is convectively unstable.
+const float GAMMA_DRY_K_PER_M = GRAVITY_M_S2 / AIR_SPECIFIC_HEAT_J_KGK;
 const float TWO_OMEGA = 1.45842318e-4;   // LAPhysical.CORIOLIS_TWO_OMEGA_RAD_S
+const float VON_KARMAN = 0.4;            // LAPhysical.VON_KARMAN_CONSTANT
+const float Z0_SEA_M = 2.0e-4;           // LAPhysical.ROUGHNESS_LENGTH_SEA_M
+const float Z0_LAND_M = 0.03;            // LAPhysical.ROUGHNESS_LENGTH_LAND_M
+const float SMAGORINSKY_C = 0.1651;      // LAPhysical.SMAGORINSKY_COEFF
 const float OROG_LIFT = 0.5;        // fraction of horizontal momentum blocked by rising terrain that becomes UPLIFT
+
+// A cell carries wind only where it carries air.
+bool moving(int c) {
+	return c >= 0 && solid[c] == 0.0 && air[c] > 0.0;
+}
+
+// The neighbour's tangential velocity read in MY axes. link_rot carries mine into theirs, so the inverse
+// rotation brings theirs back.
+vec2 nbr_tan(uint m, uint rb) {
+	float cs = lrot[rb];
+	float sn = lrot[rb + 1u];
+	return vec2(vel_x[m] * cs + vel_z[m] * sn, -vel_x[m] * sn + vel_z[m] * cs);
+}
 
 void main() {
 	uint g = gl_GlobalInvocationID.x;
 	if (g >= params.cell_count) {
 		return;
 	}
-	if (solid[g] != 0.0) {
+	// Rock has no wind, and neither has a cell holding no air: the ocean interior and the sub-surface carry
+	// their column's surface pressure for the radiation kernels, not an air mass that can be accelerated.
+	if (solid[g] != 0.0 || air[g] <= 0.0) {
 		vel_x[g] = 0.0;
 		vel_y[g] = 0.0;
 		vel_z[g] = 0.0;
@@ -67,58 +81,55 @@ void main() {
 
 	uint base = g * 6u;
 	uint depth = max(params.depth, 1u);
-	int s_dn = nbr[base + 0u];   // radial DOWN
-	int s_up = nbr[base + 5u];   // radial UP (outward)
+	uint shell = g % depth;
+	int s_dn = nbr[base + N_IN];
+	int s_up = nbr[base + N_OUT];
+	float dz_up = shell_d_out(shell) * METRES_PER_MODEL_UNIT;
+	float dz_dn = shell_d_in(shell) * METRES_PER_MODEL_UNIT;
 
-	// The four lateral links, each as an index and a direction in THIS cell's tangent frame.
+	// The four lateral links: index, direction in THIS cell's tangent frame, the real centre-to-centre run
+	// in metres, and the neighbour's velocity brought into this frame.
 	uint lb = (g / depth) * 8u;
+	uint ab = (g / depth) * 4u;
 	int lat[4];
 	vec2 ldir[4];
+	float lrun[4];
+	vec2 lvel[4];
+	float lvy[4];
 	for (int l = 0; l < 4; ++l) {
-		lat[l] = nbr[base + uint(l + 1)];
+		lat[l] = nbr[base + N_LAT0 + uint(l)];
 		ldir[l] = vec2(ltan[lb + uint(l) * 2u], ltan[lb + uint(l) * 2u + 1u]);
+		lrun[l] = max(larc[ab + uint(l)] * shell_mid(shell) * METRES_PER_MODEL_UNIT, 1.0e-6);
+		lvel[l] = moving(lat[l]) ? nbr_tan(uint(lat[l]), lb + uint(l) * 2u) : vec2(0.0);
+		lvy[l] = moving(lat[l]) ? vel_y[lat[l]] : 0.0;
 	}
 
+	vec2 v0 = vec2(vel_x[g], vel_z[g]);
+	float w0 = vel_y[g];
 	float p0c = pressure[g];
 
-	// PRESSURE GRADIENT as a real tangent vector: 0.5 * sum (p_n - p_c) * dir_n over the four lateral links.
-	// A solid/boundary neighbour reflects (contributes p0c, hence nothing). In a face interior the four dirs
+	// PRESSURE GRADIENT as a real tangent vector, Pa per METRE: 0.5 * sum (p_n - p_c)/run * dir_n over the
+	// four lateral links. A link whose far end holds no air carries no air-pressure difference.
 	vec2 grad = vec2(0.0);
 	for (int l = 0; l < 4; ++l) {
-		int m = lat[l];
-		float pn = (m >= 0 && solid[m] == 0.0) ? pressure[m] : p0c;
-		grad += (0.5 * (pn - p0c)) * ldir[l];
+		if (!moving(lat[l])) {
+			continue;
+		}
+		grad += (0.5 * (pressure[lat[l]] - p0c) / lrun[l]) * ldir[l];
 	}
-	float gx = grad.x;
-	float gz = grad.y;
 
-	// ALTITUDE, straight from the cell index: SphereGrid packs a column contiguously as c = s*depth + r, so the
-	// radial shell is g % depth and its centre radius follows from the shell geometry. No position buffer needed.
-	float shell = float(g % depth);
-	float altitude = (params.core_radius + (shell + 0.5) * params.cell_size) - params.sea_radius;
-	// Boundary layer: full surface drag at the ground, decaying to DAMP_FREE aloft (see the constants above).
-	float bl = exp(-max(altitude, 0.0) / BL_HEIGHT);
-	float damp = DAMP_FREE + (DAMP_SURFACE - DAMP_FREE) * bl;
+	// (1/rho) grad(p), m/s^2. rho is the air the cell actually holds.
+	float rho = AIR_DENSITY_KG_M3 * air[g];
+	vec2 vh = v0 - grad / rho * params.dt;
+	float nvy = w0;
 
-	// (1/rho) grad(p) IN REAL UNITS: grad is Pa per model unit, so per METRE it is grad / cell_m; rho is
-	// kg/m3 from this cell's own air mass. The result is m/s^2 and params.dt is REAL SECONDS, so velocity
-	// comes out in m/s.
-	float cell_m = params.cell_size * METRES_PER_MODEL_UNIT;
-	float rho = AIR_DENSITY_KG_M3 * max(air[g], AIR_FLOOR);
-	float inv_rho_dx = 1.0 / (rho * cell_m);
-	float nvx = vel_x[g] - gx * inv_rho_dx * params.dt;
-	float nvz = vel_z[g] - gz * inv_rho_dx * params.dt;
-	float nvy = vel_y[g];
-
-	// BUOYANCY (radial-up wind): a hot cell under a cooler open cell rises. Uses the OUTWARD neighbour (slot 5)
-	// as the cell above. Subsumes VAPOR_RISE.
-	if (params.buoy == 1u && s_up >= 0 && solid[s_up] == 0.0) {
-		float inv = temp[g] - temp[s_up];
-		if (inv > 0.0) {
-			// Boussinesq buoyancy: a = g * dT / T. No cap — a runaway here means the momentum equation is
-			// wrong, and hiding it behind a clamp is how it stays wrong.
-			float t_here_k = temp[g] + 273.15;
-			nvy += GRAVITY_M_S2 * (inv / max(t_here_k, 1.0)) * params.dt;
+	// BUOYANCY (radial-up wind): a column steeper than the dry adiabat is unstable and overturns. Comparing
+	// the two temperatures alone made every normally-stratified cell rise, because a colder cell above is
+	// the ordinary state of an atmosphere.
+	if (params.buoy == 1u && moving(s_up)) {
+		float excess = (temp[g] - temp[s_up]) - GAMMA_DRY_K_PER_M * dz_up;
+		if (excess > 0.0) {
+			nvy += GRAVITY_M_S2 * (excess / max(temp[g] + T0_K, 1.0)) * params.dt;
 		}
 	}
 
@@ -129,18 +140,87 @@ void main() {
 	float slen = length(spin_axis);
 	spin_axis = slen > 1e-5 ? spin_axis / slen : vec3(0.0, 1.0, 0.0);
 	float sinlat = clamp(dot(cell_radial, spin_axis), -1.0, 1.0);
+	vh = vec2(vh.x + TWO_OMEGA * sinlat * vh.y * params.dt,
+			vh.y - TWO_OMEGA * sinlat * vh.x * params.dt);
 
-	float rvx = nvx + TWO_OMEGA * sinlat * nvz * params.dt;
-	float rvz = nvz - TWO_OMEGA * sinlat * nvx * params.dt;
-	nvx = rvx;
-	nvz = rvz;
+	// --- DEFORMATION -> SUBGRID VISCOSITY ------------------------------------------------------------
+	// Smagorinsky: nu = (C_s * filter)^2 * |S|, |S| = sqrt(2 S_ij S_ij). The lateral gradient uses the same
+	// construction as the pressure gradient, which is exact for a linear field on this stencil.
+	mat2 gr = mat2(0.0);
+	for (int l = 0; l < 4; ++l) {
+		if (!moving(lat[l])) {
+			continue;
+		}
+		vec2 dv = (lvel[l] - v0) * (0.5 / lrun[l]);
+		gr[0][0] += dv.x * ldir[l].x;
+		gr[1][0] += dv.x * ldir[l].y;
+		gr[0][1] += dv.y * ldir[l].x;
+		gr[1][1] += dv.y * ldir[l].y;
+	}
+	vec2 dv_dy = vec2(0.0);
+	float dw_dy = 0.0;
+	if (moving(s_up) && moving(s_dn)) {
+		dv_dy = (vec2(vel_x[s_up], vel_z[s_up]) - vec2(vel_x[s_dn], vel_z[s_dn])) / (dz_up + dz_dn);
+		dw_dy = (vel_y[s_up] - vel_y[s_dn]) / (dz_up + dz_dn);
+	} else if (moving(s_up)) {
+		dv_dy = (vec2(vel_x[s_up], vel_z[s_up]) - v0) / dz_up;
+		dw_dy = (vel_y[s_up] - w0) / dz_up;
+	} else if (moving(s_dn)) {
+		dv_dy = (v0 - vec2(vel_x[s_dn], vel_z[s_dn])) / dz_dn;
+		dw_dy = (w0 - vel_y[s_dn]) / dz_dn;
+	}
+	float s_ab = 0.5 * (gr[1][0] + gr[0][1]);
+	float mag = sqrt(2.0 * (gr[0][0] * gr[0][0] + gr[1][1] * gr[1][1] + dw_dy * dw_dy
+			+ 2.0 * s_ab * s_ab + 0.5 * dot(dv_dy, dv_dy)));
+	float lat_mean = 0.25 * (lrun[0] + lrun[1] + lrun[2] + lrun[3]);
+	float filter_m = pow(lat_mean * lat_mean * shell_dr(shell) * METRES_PER_MODEL_UNIT, 1.0 / 3.0);
+	float nu = SMAGORINSKY_C * SMAGORINSKY_C * filter_m * filter_m * mag;
 
-	nvx *= (1.0 - damp);
-	nvy *= (1.0 - DAMP_SURFACE);
-	nvz *= (1.0 - damp);
+	// --- MOMENTUM TRANSPORT: upwind advection and that viscosity, as ONE implicit gather --------------
+	// v = (v + sum w_k v_k) / (1 + sum w_k) is backward Euler for both terms at once. It is a convex
+	// combination of the cell and its neighbours, so it is bounded at any wind speed and needs no cap.
+	float wsum = 0.0;
+	vec2 vacc = vec2(0.0);
+	float wacc = 0.0;
+	for (int l = 0; l < 4; ++l) {
+		if (!moving(lat[l])) {
+			continue;
+		}
+		float inflow = max(-dot(vh, ldir[l]), 0.0);
+		float wk = (inflow / lrun[l] + nu / (lrun[l] * lrun[l])) * params.dt;
+		wsum += wk;
+		vacc += wk * lvel[l];
+		wacc += wk * lvy[l];
+	}
+	if (moving(s_dn)) {
+		float wk = (max(nvy, 0.0) / dz_dn + nu / (dz_dn * dz_dn)) * params.dt;
+		wsum += wk;
+		vacc += wk * vec2(vel_x[s_dn], vel_z[s_dn]);
+		wacc += wk * vel_y[s_dn];
+	}
+	if (moving(s_up)) {
+		float wk = (max(-nvy, 0.0) / dz_up + nu / (dz_up * dz_up)) * params.dt;
+		wsum += wk;
+		vacc += wk * vec2(vel_x[s_up], vel_z[s_up]);
+		wacc += wk * vel_y[s_up];
+	}
+	float inv = 1.0 / (1.0 + wsum);
+	vh = (vh + vacc) * inv;
+	nvy = (nvy + wacc) * inv;
+
+	// --- SURFACE STRESS: bulk drag in the cell that touches the ground, over that cell's thickness ---
+	// dv/dt = -C_d |v| v / h, C_d the log law at the cell's mid-height over the surface's roughness
+	// length, so it follows from two lengths rather than being chosen.
+	if (!moving(s_dn)) {
+		float h_m = shell_dr(shell) * METRES_PER_MODEL_UNIT;
+		float wet = (s_dn >= 0) ? clamp(water[s_dn], 0.0, 1.0) : 0.0;
+		float z0 = mix(Z0_LAND_M, Z0_SEA_M, wet);
+		float ln_r = log(max(0.5 * h_m / z0, 1.0001));
+		float cd = (VON_KARMAN / ln_r) * (VON_KARMAN / ln_r);
+		vh *= 1.0 / (1.0 + cd * length(vh) / h_m * params.dt);
+	}
 
 	float blocked = 0.0;
-	vec2 vh = vec2(nvx, nvz);
 	for (int l = 0; l < 4; ++l) {
 		int m = lat[l];
 		if (m >= 0 && solid[m] == 0.0) {
@@ -152,8 +232,6 @@ void main() {
 			blocked += into;
 		}
 	}
-	nvx = vh.x;
-	nvz = vh.y;
 	if (blocked > 0.0 && s_up >= 0 && solid[s_up] == 0.0) {
 		nvy += blocked * OROG_LIFT;   // windward uplift over the ridge
 	}
@@ -163,7 +241,7 @@ void main() {
 		nvy = 0.0;
 	}
 
-	vel_x[g] = nvx;
+	vel_x[g] = vh.x;
 	vel_y[g] = nvy;
-	vel_z[g] = nvz;
+	vel_z[g] = vh.y;
 }

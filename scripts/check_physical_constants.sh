@@ -201,6 +201,23 @@ awk '
   }
 ' <(sed -e :a -e '/\\$/N; s/\\\n//; ta' "$AUTHORITY") > "$AUTH_MAP"
 
+# A CONSTANT THE PARSER CANNOT RESOLVE MUST NOT VANISH SILENTLY. The expression grammar has no parentheses,
+# so `A * (B / C)` dropped CO2_UNIT_DENSITY_KG_M3 out of the map and every kernel copy of it became
+# unbindable — reported as "the authority does not define it", which is false and sends the reader hunting
+# for a typo. Third instance of this shape; the header above records the first two.
+unresolved="$(sed -e :a -e '/\\$/N; s/\\\n//; ta' "$AUTHORITY" \
+  | grep -E '^const [A-Z][A-Z0-9_]*: *float *=' \
+  | sed -E 's/#.*$//' \
+  | grep -F '(' | sed -E 's/^const ([A-Z0-9_]+).*/\1/' || true)"
+if [ -n "$unresolved" ]; then
+  echo "check_physical_constants: FAILED — the authority declares a constant the expression parser cannot read" >&2
+  echo "$unresolved" | sed 's/^/  /' >&2
+  echo "  The grammar is a flat chain of + - * / over names and numbers, with NO parentheses. Rewrite the" >&2
+  echo "  declaration flat, or teach the parser. A constant it cannot read is absent from the authority map," >&2
+  echo "  and every kernel that binds to it then fails with a misleading message." >&2
+  exit 1
+fi
+
 auth_count="$(wc -l < "$AUTH_MAP" | tr -d ' ')"
 if [[ "$auth_count" -eq 0 ]]; then
   echo "ERROR: parsed ZERO constants out of the authority file $AUTHORITY." >&2

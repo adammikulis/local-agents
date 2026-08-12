@@ -1,17 +1,6 @@
 extends Node
 
-## What the orb does when an action fires, and nothing else.
-##
-## Every connection this demo needs is in AgentActionsDemo.tscn, made in the Node dock: the agent's
-## `action_requested`, each button's `pressed` (the colour buttons bind their own word), and the chat
-## panel's `reply_received`. Nothing here looks a node up by name or wires a signal in `_ready()`.
-##
-## The vocabulary below is the whole contract with the model: it may name one of these colours and
-## may say "pulse". Add a row in the inspector and that colour becomes sayable, with no code change.
-##
-## (Explicit types only. The project rule bans ':=' inferred typing.)
 
-## The words the agent may name, and the colour each one paints the orb.
 @export var color_words: Dictionary[String, Color] = {}
 
 ## The orb's colour before anything happens, and what "reset" returns it to.
@@ -39,9 +28,6 @@ func _on_agent_action_requested(action: String, params: Dictionary) -> void:
 			_caption.text = "Orb colour: neutral"
 
 
-# Ask the agent to act, so a button press travels the same road the model's reply does:
-# enqueue_action -> action_requested -> the handler above. With no native runtime there is no
-# round trip to make, so the handler is called directly and the buttons still work.
 func _request(action: String, params: Dictionary) -> void:
 	if _agent.is_runtime_ready():
 		_agent.enqueue_action(action, params)

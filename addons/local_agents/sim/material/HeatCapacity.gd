@@ -2,22 +2,22 @@ class_name LAHeatCapacity
 extends RefCounted
 
 
-const MATRIX: PackedStringArray = ["rock_fill"]
+static func matrix() -> PackedStringArray: return LAChannels.heat_group("MATRIX")
 ## The loose silicate phases. These ARE volume fractions already and carry no matrix of their own, so phi
 ## does not apply to them.
-const SILICATE: PackedStringArray = ["lava", "sediment", "susp", "dust"]
-const WATER_LIQUID: PackedStringArray = ["water", "soil"]
-const WATER_SOLID: PackedStringArray = ["snow"]
-const WATER_VAPOUR: PackedStringArray = ["moisture"]
-const ORGANIC: PackedStringArray = ["fuel", "biomass", "detritus", "fungus"]
-const CARBONATE: PackedStringArray = ["carbonate"]
-const SILICA: PackedStringArray = ["silica"]
+static func silicate() -> PackedStringArray: return LAChannels.heat_group("SILICATE")
+static func water_liquid() -> PackedStringArray: return LAChannels.heat_group("WATER_LIQUID")
+static func water_solid() -> PackedStringArray: return LAChannels.heat_group("WATER_SOLID")
+static func water_vapour() -> PackedStringArray: return LAChannels.heat_group("WATER_VAPOUR")
+static func organic() -> PackedStringArray: return LAChannels.heat_group("ORGANIC")
+static func carbonate() -> PackedStringArray: return LAChannels.heat_group("CARBONATE")
+static func silica() -> PackedStringArray: return LAChannels.heat_group("SILICA")
 
 ## Every channel this model reads, in one list, so a caller can ask for exactly the right set (e.g. as a
 ## `request_probe` leg list) without restating it.
 static func channels() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
-	for g in [MATRIX, SILICATE, CARBONATE, SILICA, WATER_LIQUID, WATER_SOLID, WATER_VAPOUR, ORGANIC]:
+	for g in [matrix(), silicate(), carbonate(), silica(), water_liquid(), water_solid(), water_vapour(), organic()]:
 		for name in g:
 			out.append(name)
 	return out
@@ -56,20 +56,20 @@ static func cell(ch: Dictionary, c: int) -> float:
 	var pa = ch.get("porosity")
 	if pa is PackedFloat32Array and c < pa.size():
 		phi = clampf(pa[c], 0.0, 1.0)
-	var silicate: float = _sum(ch, MATRIX, c) * (1.0 - phi) + _sum(ch, SILICATE, c)
-	return mix(silicate, _sum(ch, CARBONATE, c), _sum(ch, SILICA, c),
-		_sum(ch, WATER_LIQUID, c), _sum(ch, WATER_SOLID, c), _sum(ch, WATER_VAPOUR, c),
-		_sum(ch, ORGANIC, c))
+	var sil: float = _sum(ch, matrix(), c) * (1.0 - phi) + _sum(ch, silicate(), c)
+	return mix(sil, _sum(ch, carbonate(), c), _sum(ch, silica(), c),
+		_sum(ch, water_liquid(), c), _sum(ch, water_solid(), c), _sum(ch, water_vapour(), c),
+		_sum(ch, organic(), c))
 
 
 ## ~5e8 J/checkpoint on LAMaterialFieldEnergyProbe3D's readings — enough to make nine passes that write no
 static func field(ch: Dictionary, cell_count: int) -> PackedFloat64Array:
-	var groups: Array = [SILICATE, CARBONATE, SILICA, WATER_LIQUID, WATER_SOLID, WATER_VAPOUR, ORGANIC]
-	var matrix: Array = []
-	for name in MATRIX:
+	var groups: Array = [silicate(), carbonate(), silica(), water_liquid(), water_solid(), water_vapour(), organic()]
+	var matrix_arrays: Array = []
+	for name in matrix():
 		var ma = ch.get(name)
 		if ma is PackedFloat32Array and ma.size() >= cell_count:
-			matrix.append(ma)
+			matrix_arrays.append(ma)
 	var phi_a = ch.get("porosity")
 	var have_phi: bool = phi_a is PackedFloat32Array and phi_a.size() >= cell_count
 	var live: Array = []
@@ -92,48 +92,51 @@ static func field(ch: Dictionary, cell_count: int) -> PackedFloat64Array:
 		# The matrix channel converts from saturation to mineral volume fraction before it joins the mix.
 		var phi: float = clampf(phi_a[c], 0.0, 1.0) if have_phi else 0.0
 		var m: float = 0.0
-		for a in matrix:
+		for a in matrix_arrays:
 			m += a[c]
 		out[c] = mix(m * (1.0 - phi) + f[0], f[1], f[2], f[3], f[4], f[5], f[6])
 	return out
 
 
-## The field's total heat capacity BY SUBSTANCE, J/m3K summed over cells (multiply by the cell volume for
-## J/K). This lives here rather than in the ledger because it is the same model read a different way: a
-static func legs(ch: Dictionary, cell_count: int) -> Dictionary:
+## The field's total heat capacity BY SUBSTANCE, J/K: each cell's fill fraction times its own volume, so a
+## graded or gnomonically distorted grid is counted correctly. Same model as `field()`, read a different way:
+static func legs(ch: Dictionary, cell_count: int, vol: PackedFloat32Array) -> Dictionary:
 	var phi_a = ch.get("porosity")
 	var have_phi: bool = phi_a is PackedFloat32Array and phi_a.size() >= cell_count
-	var groups: Array = [["silicate", SILICATE, LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K],
-		["carbonate", CARBONATE, LAPhysical.VOL_HEAT_CAP_CARBONATE_J_M3K],
-		["silica", SILICA, LAPhysical.VOL_HEAT_CAP_SILICA_J_M3K],
-		["water", WATER_LIQUID, LAPhysical.VOL_HEAT_CAP_WATER_J_M3K],
-		["snow", WATER_SOLID, LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K],
-		["vapour", WATER_VAPOUR, LAPhysical.VOL_HEAT_CAP_VAPOUR_J_M3K],
-		["organic", ORGANIC, LAPhysical.VOL_HEAT_CAP_ORGANIC_J_M3K]]
+	var groups: Array = [["silicate", silicate(), LAPhysical.VOL_HEAT_CAP_ROCK_J_M3K],
+		["carbonate", carbonate(), LAPhysical.VOL_HEAT_CAP_CARBONATE_J_M3K],
+		["silica", silica(), LAPhysical.VOL_HEAT_CAP_SILICA_J_M3K],
+		["water", water_liquid(), LAPhysical.VOL_HEAT_CAP_WATER_J_M3K],
+		["snow", water_solid(), LAPhysical.VOL_HEAT_CAP_SNOW_J_M3K],
+		["vapour", water_vapour(), LAPhysical.VOL_HEAT_CAP_VAPOUR_J_M3K],
+		["organic", organic(), LAPhysical.VOL_HEAT_CAP_ORGANIC_J_M3K]]
 	var out: Dictionary = {}
 	var occupied: float = 0.0
 	# The matrix channel first, converted from saturation to mineral volume fraction, then folded into the
 	# silicate leg it belongs to — one substance, one leg.
 	var matrix_acc: float = 0.0
-	for name in MATRIX:
+	for name in matrix():
 		var ma = ch.get(name)
 		if ma is PackedFloat32Array and ma.size() >= cell_count:
 			for c in cell_count:
 				var phi: float = clampf(phi_a[c], 0.0, 1.0) if have_phi else 0.0
-				matrix_acc += clampf(ma[c], 0.0, 1.0) * (1.0 - phi)
+				matrix_acc += clampf(ma[c], 0.0, 1.0) * (1.0 - phi) * vol[c]
 	for g in groups:
 		var acc: float = 0.0
 		for name in g[1]:
 			var a = ch.get(name)
 			if a is PackedFloat32Array and a.size() >= cell_count:
 				for c in cell_count:
-					acc += clampf(a[c], 0.0, 1.0)
+					acc += clampf(a[c], 0.0, 1.0) * vol[c]
 		if g[0] == "silicate":
 			acc += matrix_acc
 		out[g[0]] = acc * g[2]
 		occupied += acc
-	# Air is the remainder of the grid, floored at zero per cell the same way `mix` floors it.
-	out["air"] = maxf(0.0, float(cell_count) - occupied) * LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
+	# Air is the remainder of the grid VOLUME, floored at zero the same way `mix` floors it per cell.
+	var span: float = 0.0
+	for c in cell_count:
+		span += vol[c]
+	out["air"] = maxf(0.0, span - occupied) * LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
 	return out
 
 

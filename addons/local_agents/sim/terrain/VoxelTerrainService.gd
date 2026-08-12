@@ -1,34 +1,20 @@
 class_name LAVoxelTerrainService
 extends RefCounted
 
-## Terrain foundation for the from-scratch voxel simulation showcase.
-## Wraps a native VoxelLodTerrain (Transvoxel + heightmap noise) and exposes the
-## build/query/destruction API defined in the build contract. Everyone else CALLS this.
-##
-## This IS the SPHERE implementation of the duck-typed TERRAIN contract that actors read `terrain` through,
-## the same method surface LAFlatGroundTerrain provides for a flat world (its class doc lists the contract in
-## full). A Creature/actor names none of these as "the sphere": it calls up_at / planet_center / sea_radius /
-## surface_point(dir) / surface_radius(dir) / ground_point(pos) / altitude_at(pos) / is_planet / is_ready_at /
-## raycast_terrain / carve_sphere, and either adapter answers. Keep the two in shape-lockstep when either grows.
 
 const SHADER_PATH: String = "res://addons/local_agents/sim/shaders/VoxelTerrainTriplanar.gdshader"
 const PlanetGenScript: GDScript = preload("res://addons/local_agents/sim/sphere/SpherePlanetGenerator.gd")
 
-# --- Sea + cave-placement reference (world units). The planet's own terrain SDF comes from the sphere
-# generator; these remain as the default sea surface and the land radius that carve_caves uses to place
-# cave mouths. (Explicit types only — no ':=' inferred typing.)
 const ISLAND_RADIUS: float = 180.0        # land core radius (world units) — used to place caves
 const SEA_LEVEL_Y: float = 6.0            # world Y of the sea surface (default sea level)
 
 var _terrain: VoxelLodTerrain = null
+var _generator: VoxelGeneratorGraph = null   # the planet's SDF, queryable before anything is meshed
 var _viewer: VoxelViewer = null
 var _query_tool: VoxelTool = null          # cached SDF sampler for is_solid / sdf_at (the 3D-field rock test)
 var _sea_level: float = SEA_LEVEL_Y
 var _island_radius: float = ISLAND_RADIUS
 
-# --- Planet shape (spherical world). `_shape` is "island" only as the pre-build placeholder; build_planet
-# sets it to "planet", where "up" is radial (pos-_center).normalized(), the surface is a sphere of radius
-# ~_planet_radius, and the sea is a shell at _sea_radius. sdf_at/is_solid/carve_sphere/fill_* stay world-space.
 var _shape: String = "island"
 var _center: Vector3 = Vector3.ZERO
 var _planet_radius: float = 0.0
@@ -64,10 +50,6 @@ func sea_level() -> float:
 func island_radius() -> float:
 	return _island_radius
 
-## Build a SPHERICAL PLANET as a child of `parent` (radial up, magma-core-ready).
-## opts: radius, sea_radius, relief, feature_size, octaves, seed, center, lod_count, lod_distance,
-## view_distance. The terrain SDF comes from the native LASpherePlanetGenerator; sphere-enclosing bounds
-## keep the whole body resident so off-camera edits (impacts, eruptions) apply anywhere.
 func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	if _terrain != null:
 		return
@@ -99,6 +81,7 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	})
 	_planet_radius = pg.radius()
 	_sea_radius = pg.sea_radius()
+	_generator = gen
 
 	var mesher: VoxelMesherTransvoxel = VoxelMesherTransvoxel.new()
 	mesher.texturing_mode = 0
@@ -140,9 +123,6 @@ func set_shader_param(param: String, value) -> void:
 	if _terrain != null and _terrain.material is ShaderMaterial:
 		(_terrain.material as ShaderMaterial).set_shader_parameter(param, value)
 
-## Add a VoxelViewer under `camera` so terrain streams/meshes/collides around it.
-## `visuals` false keeps SDF data generation (which the field's solid mask needs) but skips meshing and
-## collision baking — the whole planet, for a run that only reads numbers.
 func attach_viewer(camera: Node3D, visuals: bool = true) -> void:
 	if camera == null:
 		return
@@ -174,11 +154,6 @@ func _edit_sphere(world_pos: Vector3, radius: float, mode: int) -> void:
 	vt.do_sphere(_terrain.to_local(world_pos), radius)
 
 
-# --- Solidity query (the 3D field's rock/void test) --------------------------
-
-# Cached SDF sampler bound to the terrain. get_voxel_f_interpolated reads the EDITED voxel data (so a
-# carved cave/tube reads as void), which is exactly what the 3D MaterialField needs to know where fluids
-# can occupy space vs where solid rock blocks them.
 func _query_voxel_tool() -> VoxelTool:
 	if _query_tool == null and _terrain != null:
 		_query_tool = _terrain.get_voxel_tool()
@@ -198,15 +173,10 @@ func sdf_at(pos: Vector3) -> float:
 	return vt.get_voxel_f_interpolated(_terrain.to_local(pos))
 
 
-## True where solid rock fills a world point — the primitive the 3D field uses to know rock vs void
-## (open air, an underground cavern, a lava tube). Solid = SDF < 0.
 func is_solid(pos: Vector3) -> bool:
 	return sdf_at(pos) < 0.0
 
 
-## Add a FLAT SDF box (world-space AABB centred at world_pos, given half extents). Used to build
-## flat-topped deposits — e.g. solidifying lava layers that tile into a continuous rocky surface,
-## instead of the rounded blobs a sphere leaves.
 func fill_box(world_pos: Vector3, half_extents: Vector3) -> void:
 	if _terrain == null:
 		return
@@ -255,7 +225,7 @@ func fill_rock(world_pos: Vector3, size: float, normal: Vector3) -> void:
 	var right: Vector3 = up.cross(ref).normalized()
 	var fwd: Vector3 = right.cross(up).normalized()
 	var b: Basis = Basis(right, up, fwd)
-	b = b.rotated(up, randf() * TAU)                    # random spin so no two rocks align (no grid look)
+	b = b.rotated(up, LASimRng.shared().randf() * TAU)   # spin so no two rocks align
 	b = b.scaled(Vector3(size, size * 0.55, size))      # flatter than tall → a crust, not a boulder
 	vt.set_channel(VoxelBuffer.CHANNEL_SDF)
 	vt.set_mode(VoxelTool.MODE_ADD)
@@ -282,25 +252,46 @@ func raycast_terrain(from: Vector3, dir: Vector3, max_distance: float) -> Dictio
 		return miss
 	return {"hit": true, "position": hit.position, "normal": hit.normal}
 
-## The solid surface point directly beneath/above a WORLD point — re-seat it onto the ground along its own
-## radial (centre→pos). NAN-vector if that patch is unmeshed. Replaces the old downward surface_height cast,
-## which only hit at the +Y pole (a straight-down ray misses everywhere else on a sphere). Callers that want
-## the local ground altitude use altitude_at(pos); those re-seating onto the surface use this.
 func ground_point(pos: Vector3) -> Vector3:
 	return surface_point(pos - _center)
 
-## PLANET: world radius (distance from centre) of the solid surface along direction `dir`, via an inward
-## radial physics ray from above the surface toward the core. NAN if that patch is unmeshed / the ray misses.
+## PLANET: world radius (distance from centre) of the solid surface along direction `dir`. Reads the voxel
+## DATA, so runtime craters and carved tubes count, and falls back to the generator where no data block is
+## resident. Does not depend on which chunks a viewer has meshed. NAN only when there is no terrain.
 func surface_radius(dir: Vector3) -> float:
 	var d: Vector3 = dir.normalized()
 	var top: float = _planet_radius + _planet_relief + 60.0
-	var from: Vector3 = _center + d * top
-	var res: Dictionary = raycast_terrain(from, -d, top)      # cast inward toward the core
-	if not res["hit"]:
-		return NAN
-	return (res["position"] - _center).length()
+	var vt: VoxelTool = _query_voxel_tool()
+	if vt != null and _terrain != null:
+		var from_w: Vector3 = _center + d * top
+		var from_l: Vector3 = _terrain.to_local(from_w)
+		var dir_l: Vector3 = (_terrain.to_local(from_w - d) - from_l).normalized()
+		var span: float = top - maxf(_planet_radius - _planet_relief - 60.0, 1.0)
+		var hit: VoxelRaycastResult = vt.raycast(from_l, dir_l, span)
+		if hit != null:
+			return (_terrain.to_global(from_l + dir_l * hit.distance) - _center).length()
+	return _generated_surface_radius(d)
 
-## PLANET: the world-space surface point along `dir` (centre + dir * surface_radius). NAN-vector if unmeshed.
+# Bracket the SDF crossing with a metre sweep, then refine across that bracket at 5 cm.
+const GEN_RAY_STRIDE: float = 1.0
+const GEN_RAY_REFINE: float = 0.05
+
+func _generated_surface_radius(dir: Vector3) -> float:
+	if _generator == null or _shape != "planet":
+		return NAN
+	var d: Vector3 = dir.normalized()
+	var r_top: float = _planet_radius + _planet_relief + 60.0
+	var r_bot: float = maxf(_planet_radius - _planet_relief - 60.0, 1.0)
+	var coarse: float = _generator.raycast_sdf_approx(_center + d * r_top, _center + d * r_bot, GEN_RAY_STRIDE)
+	if coarse < 0.0:
+		return NAN
+	var r_hit: float = r_top - coarse
+	var r_a: float = minf(r_hit + GEN_RAY_STRIDE, r_top)
+	var r_b: float = maxf(r_hit - GEN_RAY_STRIDE, r_bot)
+	var fine: float = _generator.raycast_sdf_approx(_center + d * r_a, _center + d * r_b, GEN_RAY_REFINE)
+	return r_hit if fine < 0.0 else r_a - fine
+
+## PLANET: the world-space surface point along `dir` (centre + dir * surface_radius).
 func surface_point(dir: Vector3) -> Vector3:
 	var r: float = surface_radius(dir)
 	if is_nan(r):

@@ -20,8 +20,8 @@ const GENERATOR_SRC: String = "res://addons/local_agents/sim/terrain/VoxelTerrai
 
 
 ## Hash of everything the mask depends on. `opts` is the dictionary handed to PlanetBody.setup().
-static func key(opts: Dictionary, cell_count: int, depth: int, core_radius: float, cell_size: float,
-		origin: Vector3) -> String:
+static func key(opts: Dictionary, cell_count: int, depth: int, core_radius: float,
+		shell_dr: PackedFloat32Array, origin: Vector3) -> String:
 	var parts: PackedStringArray = PackedStringArray()
 	var names: Array = opts.keys()
 	names.sort()
@@ -33,7 +33,8 @@ static func key(opts: Dictionary, cell_count: int, depth: int, core_radius: floa
 	parts.append("cells=%d" % cell_count)
 	parts.append("depth=%d" % depth)
 	parts.append("core=%.6f" % core_radius)
-	parts.append("cell=%.6f" % cell_size)
+	for r in shell_dr.size():
+		parts.append("dr%d=%.6f" % [r, shell_dr[r]])
 	parts.append("origin=%.4f,%.4f,%.4f" % [origin.x, origin.y, origin.z])
 	var src: FileAccess = FileAccess.open(GENERATOR_SRC, FileAccess.READ)
 	if src != null:

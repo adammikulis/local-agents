@@ -1,82 +1,19 @@
 class_name LASystemOrbits
 extends Node
 
-## The solar system's MOTION, integrated through the one N-body rule in LAGravity. The simulation stays centred
-## on the planet (the field/terrain never move, zero risk), but the planet carries a real orbital STATE — its
-## separation from the star, position + velocity — that is advanced every frame. That state drives:
-##   • the STAR's actual scene position (it is placed AT the orbital distance, not at a decorative one);
-##   • the sun's direction across the sky (the terminator);
-##   • SEASONS: the tilted spin axis vs the orbit plane makes the sub-solar latitude swing over a year;
-##   • INSOLATION intensity = (nominal/dist)^2 × atmospheric transmission (dust/cloud), fed to the field as the
-##     MAGNITUDE of sun_dir (the solar kernel does target = AMBIENT + SOLAR_WARMTH·max(0,dot(radial,sun_dir))),
-##     so nearer sun bakes, farther freezes, and airborne debris dims the sun → impact winter, all emergent.
-## A meteor impact transfers MOMENTUM into the orbital velocity (`apply_impulse`), so a big enough strike (or a
-## volley) drops the planet onto a decaying orbit into the sun, or past escape velocity out of the system.
-## Explicit types; no ':='.
-##
-## ONE SYSTEM (unified 2026-07-30). Three constants used to describe three different, mutually inconsistent
-## suns: `SUN_MU = 1e6` drove the orbit in abstract units, `SUN_SCENE_DISTANCE = 1200` drew the disc somewhere
-## unrelated, and `PLANET_MASS_EFF = 6e5` was an invented planet mass for impulses that did not match the
-## planet's actual 1e6. All three are gone. There is one G (LAGravity), one star mass (LAStar.mass()), one
-## planet mass (LAPlanetBody.mass()), and the star is drawn exactly where the orbit says it is. The orbital
-## acceleration is now literally `LAGravity.acceleration_at()` evaluated at the star, so the moon perturbs
-## the planet's year for free and nothing here can drift out of agreement with what a meteor feels.
-##
-## THE FRAME IS RELATIVE — see the frame note in LAGravity. The planet does not move; the star does. `_helio_pos`
-## is the planet MINUS the star, so the star is drawn at `planet_centre - _helio_pos` and "the orbit" means the
-## separation, not an absolute place in space. That is why the orbital equation carries G(M_star + M_planet):
-## it is relative motion, not motion about a fixed centre.
-##
-## SCALE — why these numbers and not others. Fix the planet (radius 500, mass 1e6, SURFACE_G 55) and the moon
-## (3.2 planet radii) and the rest is forced, because the star's TIDAL field at the planet depends only on the
-## length of the year: a_tide = 3·(2π/T)²·x. A 200 s year — what the old abstract orbit ran — puts the moon at
-## 0.96 of the planet's Hill radius, i.e. barely bound and shedding. Backing the year off to ~670 s puts the
-## moon at 0.41 Hill, which is comfortable. Kepler then fixes the pair (orbit radius, star mass): 12000 units
-## and 1e7 is the combination that also leaves the star 10x the planet, which is what makes it the primary of
-## the system rather than a third moon. Consequence worth knowing: the visible sun disc is now ~0.6° across
-## (realistic) where it used to be ~5.7°, because it is genuinely ten times farther away than it was drawn.
 
 const ORBIT_RADIUS: float = 12000.0       # nominal orbital separation; insolation == 1 here. Kepler + the moon's
                                           # Hill margin pin this against LAStar.DEFAULT_MASS (see SCALE above).
 const INSOLATION_MIN: float = 0.02        # never fully zero (numeric floor)
 const INSOLATION_MAX: float = 4.0         # cap the bake so the field can't NaN
 const DUST_OPACITY: float = 3.5           # how strongly atmospheric dust/cloud blocks the sun (impact winter)
-# CLOUD attenuation is BOUNDED, and THIS CAP IS A STAND-IN FOR THE MISSING HALF OF A FEEDBACK. It used to be
-# described here as a design feature, "guaranteeing a temperate insolation floor no overcast can breach", and
-# that framing hid what it is.
-#
-# The failure it was written for was real: the cloud->insolation link was unbounded, so as cover climbed
-# transmission collapsed, the surface cooled, colder air made MORE cloud, and the world froze. But a runaway
-# in one direction means the OPPOSING term is absent, and it was — nothing in this simulation radiated heat
-# to space, so there was no sigma*eps*T^4 weakening as the surface cooled to arrest the slide. Capping the
-# input suppresses the symptom and leaves the cause.
-#
-# That sink now exists on `feature/energy-balance` (dT = (absorbed - sigma*eps*T^4)*dt/C, with an albedo term
-# that also closes the ice-albedo loop this cap was partly faking). REMOVING THIS CAP IS THAT BRANCH'S
-# ACCEPTANCE TEST, per the standing rule that a band-aid comes out to prove its root is fixed — and if the
-# snowball returns, the honest move is to report that the sink is not closing, not to quietly restore the
-# clamp. Do NOT delete it before then: on this branch there is still nothing to stop the runaway.
-#
-# DUST is deliberately NOT capped here (it is added separately below) — a meteor volley's impact winter must
-# still be able to go dark, and that is a transient with its own decay rather than a self-reinforcing loop.
 const CLOUD_OPACITY_CAP: float = 0.22     # max opacity clouds alone may add (transmission floor ~1/(1+3.5*0.22)=0.56)
 const CLOUD_OPACITY_K: float = 0.35       # per-unit-cover cloud opacity (pre-cap)
-# The one admitted exaggeration left in this file: a 400-mass rock genuinely cannot move a 1e6 planet, so the
-# knock is scaled up to keep impacts consequential. 5.9 is not a taste value — it reproduces the pre-unification
-# response EXACTLY. The old code divided the impulse by an invented PLANET_MASS_EFF of 6e5 against an orbital
-# speed of 31.6; the real divisor is the planet's real mass 1e6 and the real orbital speed is 112.3, so the same
-# impulse needs 112.3/31.6 × 1e6/6e5 = 5.9x to shift the orbit by the same FRACTION of its velocity.
 const KNOCK_GAIN: float = 5.9
 
-# Moon: a real orbit about the planet, integrated through LAGravity like everything else. Its period is NOT a
-# constant here any more — it falls out of the separation and the masses (~104 s at 3.2 planet radii).
 const MOON_RADIUS_MULT: float = 3.2       # orbit radius = planet_radius * this
 const MOON_INCLINATION: float = 0.28      # radians the moon plane is tipped from the planet equator
 
-# Tides: the moon's pull raises the sea toward it and on the antipode, so the shell radius swings as the moon
-# orbits. A justified fake — nearly free: sea_radius = base + TIDE_AMP·cos(2·moon_angle) (two bulges per orbit).
-# The ocean shell (LAOceanPlane) and the near-cap surface (LAMaterialFieldRender3D) both read the tided radius,
-# so the shoreline advances/recedes with no per-cell simulation.
 const TIDE_AMP: float = 4.0               # peak sea-level swing (world units) — ~0.8% of the 500u planet radius
 
 var _body: Node3D = null                  # LAPlanetBody (the planet — orbit reference + scene centre)
@@ -88,9 +25,6 @@ var _ocean = null                         # LAOceanPlane — the sea shell (tide
 var _sea_surface = null                   # LAMaterialFieldRender3D — near-cap surface (tided via set_sea_radius)
 var _sea_base_radius: float = 0.0         # un-tided sea radius (base the tide swings around)
 
-# Orbital state of the planet RELATIVE TO THE STAR (planet minus star). The orbit plane maps to world XZ,
-# normal = world Y. The star is drawn at `centre - _helio_pos`, so this one state is both the physics and
-# the placement — they cannot disagree.
 var _helio_pos: Vector3 = Vector3(ORBIT_RADIUS, 0.0, 0.0)
 var _helio_vel: Vector3 = Vector3.ZERO
 # Moon state, likewise relative to the planet centre (the world-frame origin).
@@ -101,25 +35,15 @@ var _atmos_t: float = 1.0                 # cached atmospheric transmission (dus
 var _tick: int = 0
 
 
-func setup(body: Node3D, sky_ctrl: Node, material) -> void:
+func setup(body: Node3D, star: Node3D, material) -> void:
 	_body = body
-	_sky_ctrl = sky_ctrl
 	_material = material
-	_star = sky_ctrl.star() if sky_ctrl != null and sky_ctrl.has_method("star") else null
+	_star = star
 	_helio_pos = Vector3(ORBIT_RADIUS, 0.0, 0.0)
 	_seed_circular()
-	# Place the star NOW, not on the first update: it is a 1e7 mass and it enters the gravity group during
-	# LAStar.setup(), so leaving it at its authored placeholder position for a frame would be a real, wrong
-	# pull on anything already falling.
 	_publish_bodies()
 
 
-## Wire the moon and seed its orbit: a prograde orbit at MOON_RADIUS_MULT planet radii, tipped by
-## MOON_INCLINATION. The speed is MEASURED, not derived from a two-body formula — place the moon, ask
-## LAGravity what the summed field actually is there, and take v = sqrt(a_inward · r). That is the same
-## circular-speed rule a player-fired meteor gets, and it means the seed already accounts for the star's tide
-## at the moon's distance instead of being corrected for it afterwards. Called after setup(), once the
-## planet's radius is known.
 func set_moon(moon: Node3D) -> void:
 	_moon = moon
 	if _moon == null:
@@ -135,8 +59,6 @@ func set_moon(moon: Node3D) -> void:
 	_publish_bodies()
 
 
-# Circular orbital velocity for the current separation, perpendicular to it in the world-XZ orbit plane.
-# Split out because the moon arrives after setup() and its mass is part of what swings around the star.
 func _seed_circular() -> void:
 	_helio_vel = Vector3(0.0, 0.0, sqrt(_system_mu() / maxf(_helio_pos.length(), 1.0)))
 
@@ -154,10 +76,15 @@ func tide_offset() -> float:
 	return TIDE_AMP * cos(2.0 * _moon_angle)
 
 
+## Optional presentation sink: the sky cycle, told which way the sun shines each frame. Absent without --ui.
+func set_sky_controller(sky_ctrl: Node) -> void:
+	_sky_ctrl = sky_ctrl
+
+
 ## Advance the orbit + moon and push the derived sun direction / position / insolation into the scene. Called
 ## from the world's process BEFORE the sky-cycle update (so the sun-shine direction is fresh when the sky reads it).
 func update(delta: float) -> void:
-	if _body == null or _sky_ctrl == null:
+	if _body == null:
 		return
 	# Publish state → integrate → derive. Publishing FIRST means both integrators (and any meteor stepping
 	# this frame) read one consistent set of body positions out of the gravity group.
@@ -171,19 +98,15 @@ func update(delta: float) -> void:
 		_atmos_t = _compute_transmission()
 
 	var centre: Vector3 = _body.center()
-	if _sky_ctrl.has_method("enter_space_mode"):
+	# Presentation only — the sky cycle's own light/environment. Absent in a run with no presentation layer.
+	if _sky_ctrl != null and _sky_ctrl.has_method("enter_space_mode"):
 		_sky_ctrl.enter_space_mode(centre)
 
-	# Insolation = inverse-square of the orbital distance × atmospheric transmission (dust/cloud block the sun).
-	# Stamp it on the sky sun as metadata; the field step multiplies sun_dir by it so intensity rides direction.
-	var sun_light = _sky_ctrl.sun() if _sky_ctrl.has_method("sun") else null
-	if sun_light != null:
-		sun_light.set_meta("insolation", _insolation())
+	if _star != null and _star.light() != null:
+		_star.light().set_meta("insolation", _insolation())
 
 	_update_tide()
 
-
-# --- State → scene -----------------------------------------------------------
 
 # Offset of the planet-moon barycentre from the planet, in the world (planet-centred) frame. The pair swings
 # about this point every month; it is the barycentre, not the planet, that traces the yearly ellipse.
@@ -205,28 +128,15 @@ func _publish_bodies() -> void:
 	var centre: Vector3 = _body.center()
 	if _star != null:
 		_star.global_position = centre + _barycentre() - _helio_pos
+		# Re-aim after moving: the light's basis is the field's sun direction, and setup() aimed it once from
+		# the star's ORIGINAL position, so without this the solar term drifts as the orbit advances.
+		if _star.has_method("aim_at"):
+			_star.aim_at(centre)
 	if _moon != null:
 		_moon.global_position = centre + _moon_pos
-		# The tide wants a phase, and the moon's real position is where that phase now comes from: the
-		# projection of its separation onto the equatorial plane. At seed this reads 0, matching the angle
-		# the old driven-cosine moon started at.
 		_moon_angle = atan2(_moon_pos.z, _moon_pos.x)
 
 
-# --- Integration -------------------------------------------------------------
-
-## Advance the orbital separation under the SAME summed field a meteor feels. `acceleration_at` evaluated at
-## the star (excluding the star's own direct pull) is the star's acceleration relative to the planet, and it
-## already contains the star→planet term, the planet→star term (as the frame's indirect correction) and the
-## moon's pull, so not one line of this is a constant typed into this file.
-##
-## Measured against the BARYCENTRE, not the planet. The planet swings toward the moon once a month; LAGravity
-## reports that swing because it is real — a meteor genuinely feels the ground accelerate under it — but what
-## traces a Kepler ellipse about the star is the planet-moon pair's centre of mass. Integrating the monthly
-## wobble as though it were orbital motion pumps the year into an ellipse: measured 2026-07-30, the planetocentric
-## form drove the orbit from 12000 to 15812 units in 700 s, e = 0.14, swinging insolation 1.00 down to 0.57 with
-## nothing but the moon to cause it. With the planet pinned at the world origin, the barycentre's acceleration
-## is just the moon's, weighted by the moon's share of the pair's mass — two lines, and the drift is gone.
 func _integrate_orbit(delta: float) -> void:
 	if _star == null:
 		return
@@ -242,9 +152,6 @@ func _integrate_orbit(delta: float) -> void:
 	_helio_pos += _helio_vel * delta
 
 
-## Advance the moon the same way: its acceleration is the summed field at its own position, minus its own
-## direct pull. What is left is G(M_planet + M_moon) toward the planet plus the star's tide — a real orbit
-## that can be perturbed and can perturb back.
 func _integrate_moon(delta: float) -> void:
 	if _moon == null:
 		return
@@ -253,11 +160,6 @@ func _integrate_moon(delta: float) -> void:
 	_moon_pos += _moon_vel * delta
 
 
-# --- Derived quantities ------------------------------------------------------
-
-# G(M_star + M_planet + M_moon): the relative-motion parameter for the separation between the star and the
-# planet-moon pair's barycentre — not a mu about a fixed centre, and not the planet's mass alone, because it
-# is the whole pair that swings around the star.
 func _system_mu() -> float:
 	var tree: SceneTree = get_tree()
 	if tree == null:
@@ -288,17 +190,12 @@ func _compute_transmission() -> float:
 	if _material != null and _material.has_method("avg_cloud_cover"):
 		cloud_op = minf(float(_material.avg_cloud_cover()) * CLOUD_OPACITY_K, CLOUD_OPACITY_CAP)
 	var t: float = 1.0 / (1.0 + DUST_OPACITY * maxf(dust_op + cloud_op, 0.0))
-	# IMPACT WINTER IS AN EVENT, NOT A LEVEL, so a single end-of-run scalar cannot show it. These are gauges
-	# (cur/min/max over the run) because the thing worth knowing is HOW DARK IT GOT and for how long, and
-	# `insolation` — the only number published before — is an instantaneous sample of a spiky quantity.
 	LASimReport.gauge("atmos_dust_opacity", dust_op)
 	LASimReport.gauge("atmos_cloud_opacity", cloud_op)
 	LASimReport.gauge("atmos_transmission", t)
 	return t
 
 
-# The moon drags the tide: raise/lower the sea shell (and the near-cap surface) around the base radius so the
-# shoreline advances/recedes as the moon orbits. Both sinks read the SAME offset → they stay in step.
 func _update_tide() -> void:
 	if _moon == null:
 		return
@@ -309,11 +206,6 @@ func _update_tide() -> void:
 		_sea_surface.set_sea_radius(_sea_base_radius + offset)
 
 
-# --- Stimuli + telemetry -----------------------------------------------------
-
-## Momentum transfer from a meteor strike: Δv = impulse × KNOCK_GAIN / the planet's REAL mass, added to the
-## orbital velocity. A large/fast rock (or a volley) accumulates enough Δv to destabilise the orbit — into the
-## sun, or out of the system. `world_impulse` is the meteor's momentum vector (mass × velocity) at impact.
 func apply_impulse(world_impulse: Vector3) -> void:
 	var m: float = float(_body.mass()) if _body != null and _body.has_method("mass") else 0.0
 	_helio_vel += world_impulse * (KNOCK_GAIN / maxf(m, 1.0))

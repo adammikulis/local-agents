@@ -3,31 +3,6 @@
 class_name LocalAgentSimWorld
 extends Node3D
 
-## LocalAgentSimWorld: the ONE-node facade for a self-contained ecosystem sim. Drop it in, pick a `world_type`
-## (SPHERE planet or FLAT box), set its bounds, and call spawn_world() (or let it auto-run on _ready). It
-## COMPOSES the existing controllers behind a tiny export surface, and it does NOT reimplement their logic:
-##   - SPHERE : LAPlanetBody.setup({radius,…}) → its LAVoxelTerrainService → LAMaterialField3D.setup_sphere
-##              over a LASphereGrid shell; ecology places life ON the sphere; a sun drives the field.
-##   - FLAT   : an LAFlatGroundTerrain plane + LAMaterialField3D.setup_dims (an origin box volume); ecology
-##              scatters life across the flat extent.
-## Both share LAEcologyService.setup() (spawning, population dynamics, breeding) and the creature/agent
-## nodes. This keeps the composition-root wiring OUT of the game shell (VoxelWorld) so a library user gets a
-## planet or a flat sandbox in one node, with no HUD/camera/disaster/save machinery.
-##
-## godot_voxel IS OPTIONAL, AND THIS FILE IS WHERE THAT IS ENFORCED. SPHERE is built out of the
-## zylann.voxel GDExtension; FLAT is not, and must keep working in a project that never installed it.
-## That means nothing at the top of this file may reach LAPlanetBody / LAVoxelTerrainService. Those
-## declare VoxelLodTerrain / VoxelTool / VoxelBuffer typed members, which do not resolve without the
-## extension, and a top-level `preload` of them fails the WHOLE class, FLAT mode included. So the planet
-## script is `load`ed at runtime inside the SPHERE path only, and asking for SPHERE without the
-## extension is a hard, named failure (see spawn_world()).
-##
-## The heavy hubs stay untouched: LocalAgentSimWorld only INSTANTIATES + WIRES controllers (composition root), it adds
-## no behaviour to LAMaterialField3D / VoxelWorld. (Explicit types only, no ':=' inferred typing.)
-##
-## @tool so the inspector can warn about a misconfigured world before you press play; every lifecycle
-## callback below therefore early-outs on Engine.is_editor_hint() so dropping the node in a scene never
-## starts building a planet inside the editor.
 
 enum WorldType { SPHERE, FLAT }
 
@@ -36,7 +11,6 @@ const MaterialFieldScript: GDScript = preload("res://addons/local_agents/sim/mat
 const EcologyServiceScript: GDScript = preload("res://addons/local_agents/sim/ecology/EcologyService.gd")
 const FlatTerrainScript: GDScript = preload("res://addons/local_agents/creatures/terrain/adapters/FlatGroundTerrain.gd")
 
-# NOT a preload: see the class docs above. Resolved with load() inside _build_sphere().
 const PLANET_BODY_PATH: String = "res://addons/local_agents/sim/system/PlanetBody.gd"
 
 # Field cells past which a build is slow enough to be worth warning about in the inspector. Chosen as a
@@ -45,9 +19,6 @@ const SLOW_BUILD_CELLS: int = 250000
 
 
 @export_group("World")
-## Which substrate this node builds. SPHERE grows a cubed-sphere planet and NEEDS the godot_voxel
-## GDExtension (addons/zylann.voxel/) installed; FLAT builds a ground plane plus a box field volume and
-## needs nothing beyond this addon. Everything below splits on this choice.
 @export var world_type: WorldType = WorldType.SPHERE: set = _set_world_type
 ## Build the world automatically in _ready(). Turn it off to choose the moment yourself by calling
 ## spawn_world() from a script (e.g. after a menu has picked the settings).
@@ -55,18 +26,10 @@ const SLOW_BUILD_CELLS: int = 250000
 
 @export_group("Sphere bounds")
 @export_subgroup("Shape")
-## Mean solid radius of the planet, in world units. Relief, feature size and the field shell are all
-## scaled from this. The numbers were tuned at 250, so 500 gives the same-looking planet twice as big.
 @export_range(25.0, 2000.0, 1.0, "or_greater", "suffix:m") var radius: float = 250.0
-## How far the whole surface is pushed inward, in world units, before relief is added, so a larger
-## number means more ocean, not more land (negative pushes outward for a drier planet). 0 puts the mean
-## surface exactly on the sea shell.
 @export_range(-30.0, 60.0, 0.1, "or_less", "or_greater", "suffix:m") var ocean_bias: float = 3.0
 ## Carve winding cave tunnels into the crust while the terrain generates.
 @export var caves_enabled: bool = true
-## Passed straight through to the planet body as "tides_enabled". Nothing reads it yet. This facade
-## builds no ocean shell, so today it only rides along in the setup dictionary. Exported anyway so the
-## property does not appear-and-move when an ocean controller lands.
 @export var tides_enabled: bool = false
 
 @export_subgroup("Field grid")
@@ -77,17 +40,9 @@ const SLOW_BUILD_CELLS: int = 250000
 @export_range(8, 32, 1, "suffix:layers") var grid_depth: int = 20: set = _set_grid_depth
 
 @export_subgroup("Lighting")
-## Add a fixed DirectionalLight3D so the field's solar/thermal pass has a real sun to heat the surface
-## (which is what ends up driving plant growth). SPHERE only. The FLAT build adds no light of its own.
-## Turn it off when your scene already lights the world.
 @export var sun_enabled: bool = true
 
 @export_group("Flat bounds")
-# @export_custom rather than @export_range: the range annotation rejects a Vector3 outright ("requires a
-# variable of type float…"), but the inspector's Vector3 editor does read a PROPERTY_HINT_RANGE hint
-# string, so this still gets bounded per-axis spinboxes with the unit suffix.
-## Size of the flat world's box field volume, in world units: width (x) by height (y) by depth (z). The
-## box is centred horizontally on this node's origin, with its floor at Ground Y.
 @export_custom(PROPERTY_HINT_RANGE, "1,2000,1,or_greater,suffix:m") var flat_extent: Vector3 = Vector3(120.0, 40.0, 120.0): set = _set_flat_extent
 ## Edge length of one field cell, in world units. Must be greater than 0: the build divides the extent
 ## by it to get the cell counts per axis. Smaller = finer simulation and many more cells.
@@ -99,13 +54,6 @@ const SLOW_BUILD_CELLS: int = 250000
 ## Spawn the starting ecology automatically, as soon as the world is built and its ground is queryable.
 ## Turn it off to pick the moment yourself with spawn_life().
 @export var auto_spawn: bool = true: set = _set_auto_spawn
-## How many of each kind to found the world with, as {kind: count}. Left empty, DEFAULT_COUNTS is used.
-## Keys are the ecology's built-in kinds: "plant", "rabbit", "fox", "bird", "villager", "fish", "rock",
-## "tree". Any species id shipped under creatures/species/ works too (e.g. "mouse", "trout", "butterfly").
-## An unknown key spawns nothing.
-## Typed so the inspector gives you String keys and int values. From code, assign it directly
-## (`world.initial_counts = {"rabbit": 3}` converts fine); `set("initial_counts", {...})` with an
-## untyped literal is silently dropped, so pass a typed local if you must go through set().
 @export var initial_counts: Dictionary[String, int] = {}
 ## Forest seed clusters scattered across the world at start. SPHERE only: a FLAT world gets its plants
 ## from initial_counts instead.
@@ -143,10 +91,6 @@ func _ready() -> void:
 		spawn_world()
 
 
-## Build the chosen substrate + ecology. Idempotent (a second call is a no-op). After this, life spawns
-## either automatically (auto_spawn) via the per-frame ready-gate, or when you call spawn_life() yourself.
-## Asking for SPHERE without godot_voxel, or FLAT with a non-positive cell size, builds NOTHING and pushes
-## a named error — the repo convention is an explicit typed failure over silent degradation.
 func spawn_world() -> void:
 	if _built:
 		return
@@ -174,11 +118,7 @@ func spawn_world() -> void:
 		_ecology.set_material_field(_material)
 
 
-# --- SPHERE substrate --------------------------------------------------------------------------
 func _build_sphere() -> bool:
-	# load(), not preload(): PLANET_BODY_PATH pulls in LAVoxelTerrainService, whose VoxelLodTerrain /
-	# VoxelTool / VoxelBuffer typed members do not resolve without addons/zylann.voxel/. Reaching it from
-	# the top of this file made that failure take the whole class — and FLAT mode — down with it.
 	var script_res: GDScript = load(PLANET_BODY_PATH)
 	if script_res == null:
 		push_error("VOXEL_BACKEND_REQUIRED: LocalAgentSimWorld could not load %s. That script needs the godot_voxel GDExtension (addons/zylann.voxel/); install it, or set world_type to FLAT." % PLANET_BODY_PATH)
@@ -210,7 +150,11 @@ func _build_sphere() -> bool:
 	_material.name = "MaterialField"
 	add_child(_material)
 	var grid: RefCounted = SphereGridScript.new()
-	grid.build(grid_res, grid_depth, 170.0 * scale, 8.0 * scale, _body.center())
+	var core_r: float = 170.0 * scale
+	var mean_dr: float = 8.0 * scale
+	var surf_shell: int = clampi(int((_terrain.sea_radius() - core_r) / mean_dr), 0, grid_depth - 1)
+	grid.build(grid_res, grid_depth, core_r, mean_dr, _body.center(),
+		LASphereGridProfiles.from_env(grid_depth, mean_dr, surf_shell))
 	_material.setup_sphere(grid, _terrain)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
@@ -219,7 +163,6 @@ func _build_sphere() -> bool:
 	return true
 
 
-# --- FLAT substrate ----------------------------------------------------------------------------
 func _build_flat() -> bool:
 	_terrain = FlatTerrainScript.new(ground_y)
 	_actors_root = Node3D.new()
@@ -238,7 +181,6 @@ func _build_flat() -> bool:
 	return true
 
 
-# --- Spawning ----------------------------------------------------------------------------------
 func _process(_delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
@@ -275,9 +217,6 @@ func _try_spawn_life() -> void:
 	spawn_life()
 
 
-# FLAT scatter: place each kind at random points within the flat extent, just above the ground plane, via the
-# ecology's public spawn() (which projects onto the flat terrain). Bounded to the extent — the sphere random
-# sampler is unsuitable for a plane, so a plane world scatters flat here instead.
 func _scatter_flat(counts: Dictionary) -> void:
 	var hx: float = 0.45 * flat_extent.x
 	var hz: float = 0.45 * flat_extent.z
@@ -285,11 +224,11 @@ func _scatter_flat(counts: Dictionary) -> void:
 		var kind: String = String(kind_v)
 		var n: int = int(counts[kind_v])
 		for i in range(n):
-			var p: Vector3 = Vector3(randf_range(-hx, hx), ground_y + 2.0, randf_range(-hz, hz))
+			var rng: LASimRng = LASimRng.for_domain("life")
+			var p: Vector3 = Vector3(rng.randf_range(-hx, hx), ground_y + 2.0, rng.randf_range(-hz, hz))
 			_ecology.spawn(kind, p)
 
 
-# --- Inspector warnings --------------------------------------------------------------------------
 func _get_configuration_warnings() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
 	if world_type == WorldType.SPHERE and not has_voxel_backend():
@@ -306,9 +245,6 @@ func _get_configuration_warnings() -> PackedStringArray:
 	return out
 
 
-## Field cells the current settings would allocate, so a host can size a world before building it.
-## SPHERE: 6 cube faces x grid_res^2 surface cells x grid_depth radial layers (LASphereGrid.cell_count).
-## FLAT: the extent divided by the cell size on each axis. 0 when the settings cannot produce a grid.
 func planned_cell_count() -> int:
 	if world_type == WorldType.SPHERE:
 		return 6 * grid_res * grid_res * grid_depth
@@ -320,10 +256,6 @@ func planned_cell_count() -> int:
 	return dx * dy * dz
 
 
-# The editor does not poll _get_configuration_warnings(); it re-reads them when a node asks it to. Every
-# export those warnings depend on routes its setter through here. These are `set = _method` rather than
-# inline `set(value):` blocks because an inline setter's parameter cannot carry a type annotation, and
-# this project requires explicit types on every parameter.
 func _refresh_warnings() -> void:
 	if Engine.is_editor_hint():
 		update_configuration_warnings()
@@ -375,8 +307,6 @@ func terrain() -> Variant: return _terrain
 func planet_body() -> Variant: return _body
 ## Parent node every spawned creature is added under.
 func actors_root() -> Node3D: return _actors_root
-## True once spawn_world() has actually built a substrate. Stays false when the build was refused
-## (SPHERE without godot_voxel, or a non-positive Flat Cell Size), so a host can react to that.
 func has_built() -> bool: return _built
 ## True once the founding population has been placed, by auto_spawn or by a spawn_life() call.
 func has_spawned() -> bool: return _spawned

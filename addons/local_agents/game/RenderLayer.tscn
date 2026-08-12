@@ -1,0 +1,42 @@
+[gd_scene load_steps=11 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/RenderLayer.gd" id="1_renderlayer"]
+[ext_resource type="Script" path="res://addons/local_agents/game/VoxelCameraRig.gd" id="2_voxelcamerarig"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelSkyController.gd" id="3_voxelskycontroller"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/mesh/VegetationRenderer.gd" id="4_vegetationrenderer"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/WeatherSystem.gd" id="5_weathersystem"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/material/OceanPlane.gd" id="6_oceanplane"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/material/WaterParticles.gd" id="7_waterparticles"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/material/MaterialFieldRender3D.gd" id="8_materialfieldrender3d"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/BiomeShaderController.gd" id="9_biomeshadercontroller"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/SeaIceShaderController.gd" id="10_seaiceshadercontroller"]
+
+[node name="RenderLayer" type="Node3D"]
+script = ExtResource("1_renderlayer")
+
+[node name="CameraRig" type="Camera3D" parent="."]
+script = ExtResource("2_voxelcamerarig")
+
+[node name="SkyController" type="Node" parent="."]
+script = ExtResource("3_voxelskycontroller")
+
+[node name="VegetationRenderer" type="Node3D" parent="."]
+script = ExtResource("4_vegetationrenderer")
+
+[node name="Weather" type="Node3D" parent="."]
+script = ExtResource("5_weathersystem")
+
+[node name="OceanPlane" type="MeshInstance3D" parent="."]
+script = ExtResource("6_oceanplane")
+
+[node name="WaterParticles" type="GPUParticles3D" parent="."]
+script = ExtResource("7_waterparticles")
+
+[node name="WaterSurface" type="MeshInstance3D" parent="."]
+script = ExtResource("8_materialfieldrender3d")
+
+[node name="BiomeShader" type="Node" parent="."]
+script = ExtResource("9_biomeshadercontroller")
+
+[node name="SeaIceShader" type="Node" parent="."]
+script = ExtResource("10_seaiceshadercontroller")

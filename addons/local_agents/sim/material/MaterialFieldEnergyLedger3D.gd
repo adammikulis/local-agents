@@ -1,18 +1,9 @@
 class_name LAMaterialFieldEnergyLedger3D
 extends RefCounted
 
-## ~11 W/m² of a ~150 W/m² gap, and it WARMED 15 °C → 30 °C over a run the radiative books say should have
-## cooled 47 °C. About 140 W/m² enters from terms nothing books. This is the gauge that can see them.
-##   energy_stock = Σ over EVERY cell, rock and void, of  rc(cell) * cell_size³ * (T + 273.15)   [joules]
-##     `energy_emitted` (its :294-321), which are sums of per-cell fluxes in W/m², so a face area of
-## capacity by carrier and the water leg falls from 5.5171e13 to 1.852e13 J/K — 66.4%, and to three figures
-## (1.708e10 J/K each) leaving the `water` channel for `soil`, which carries no capacity: 2146 * 4.171e6 *
-## — 51764 W/m², against 240 W/m² of longwave. Two unbooked sinks exist only in that arm and this gauge cannot
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
 
-## Samples to discard before latching the run-long BASELINE. The drain probe lands one drain after it is
-## armed, so the FIRST sample reads a possibly-stale rock_fill mirror; and the report path can fire before the
-## field has stepped at all, which would book world-gen's settling as drift. `energy_first_step` publishes
-const BASELINE_SKIP_SAMPLES: int = 2
+## energy_stock = Σ over every cell, rock and void, of rc(cell) * cell_volume * (T + 273.15), in joules.
 
 const LEGS: PackedStringArray = ["rock_fill", "lava", "fuel", "dust", "detritus", "fungus",
 	"carbonate", "silica"]
@@ -113,26 +104,30 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	}
 	var rc_all: PackedFloat64Array = LAHeatCapacity.field(ch, cc)
 	var cap_live: Dictionary = LAHeatCapacity.live_map(ch, cc)
+	# Each cell carries its OWN volume: rc is J/m3K, so the stock is rc*T*volume summed cell by cell.
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if vol.size() != cc:
+		return out
 	for c in cc:
 		var rc: float = rc_all[c]
 		if solid[c] != 0 and c % depth == 0:
 			shell_solid += 1
 		var tk: float = temp[c] + LAPhysical.KELVIN_OFFSET
-		rc_sum_t += rc * tk
+		var w: float = vol[c]
+		rc_sum_t += rc * tk * w
 		if have_prev:
-			d_heat += _prev_rc[c] * (tk - _prev_tk[c])
-			d_cap += (rc - _prev_rc[c]) * tk
+			d_heat += _prev_rc[c] * (tk - _prev_tk[c]) * w
+			d_cap += (rc - _prev_rc[c]) * tk * w
 		_prev_rc[c] = rc
 		_prev_tk[c] = tk
 
-	var volume: float = cell_size * cell_size * cell_size
-	var stock: float = rc_sum_t * volume
-	var d_heat_j: float = d_heat * volume
-	var d_cap_j: float = d_cap * volume
-	var cap_raw: Dictionary = LAHeatCapacity.legs(ch, cc)
+	var stock: float = rc_sum_t
+	var d_heat_j: float = d_heat
+	var d_cap_j: float = d_cap
+	var cap_raw: Dictionary = LAHeatCapacity.legs(ch, cc, vol)
 	var cap_legs: Dictionary = {}
 	for k in cap_raw:
-		cap_legs[k] = snappedf(float(cap_raw[k]) * volume, 1.0)
+		cap_legs[k] = snappedf(float(cap_raw[k]), 1.0)
 	out["energy_stock"] = stock
 	out["energy_stock_cells"] = cc
 	# Every channel the capacity mix reads, and whether it actually arrived. Built by LAHeatCapacity from the
@@ -178,7 +173,7 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	# exactly the same window; accumulation starts at the sample AFTER the latch.
 	_samples += 1
 	var latched: bool = false
-	if _first_step < 0 and _sealed() and have_prev:
+	if _first_step < 0 and _at_seal(step_index):
 		_first_stock = stock
 		_note_seed("energy_j", stock)
 		_first_step = step_index
@@ -223,7 +218,6 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	# rather than physics.
 	out["energy_split_close"] = (_cum_heat + _cum_cap) - run_drift
 
-	# (262.3) and against the ~140 W/m² this planet gains from terms nothing books. The denominator is the
 	var ref_cells: int = int(flux.get("energy_cells", 0))
 	var area: float = float(ref_cells) * face
 	out["energy_ref_area_m2"] = area
@@ -265,11 +259,10 @@ func _blank() -> Dictionary:
 	}
 
 
-## True once LAMaterialFieldSeal3D has closed the books. Before it, this module publishes totals but latches
-## no baseline and reports no run-drift — because until the world is sealed the only thing a drift gauge can
-## measure is the planet being assembled.
-func _sealed() -> bool:
-	return _f != null and _f._seal != null and _f._seal.sealed()
+## True only on the step LAMaterialFieldSeal3D latched the books. The seal drives one sample there; a sample
+## on any other step cannot take a baseline, so a late one is impossible rather than merely unlikely.
+func _at_seal(step_index: int) -> bool:
+	return _f != null and _f._seal != null and step_index == _f._seal.baseline_step()
 
 
 func _note_seed(key: String, value: float) -> void:

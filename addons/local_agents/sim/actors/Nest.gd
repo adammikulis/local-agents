@@ -1,24 +1,10 @@
 class_name LANest
 extends Node3D
 
-## A creature's home site. The shelter varies by species so each kind of animal
-## builds its own recognisable home: a bird weaves a twig cup up in a tree, a
-## rabbit digs a burrow, a fox digs a larger den, a villager raises a hut, and
-## anything else gets a generic earthen mound. A nest tracks the young raised
-## there and slowly falls into disrepair when its owners stop visiting -- unused
-## nests eventually rot away.
-##
-## Built entirely in code, no external assets, no dependency on other project
-## scripts. Robust against a null terrain and guards against double queue_free.
 
 const IDLE_TIMEOUT: float = 120.0        # seconds of neglect before the nest rots away
 const DISREPAIR_START: float = 60.0      # idle seconds after which condition visibly degrades
 
-## Declarative dimensions/colours for the human (villager) dwelling, in metres. Kept as data — a
-## per-species dwelling "config entry" — so the hut form is config rather than magic numbers buried
-## in the builder, and another humanoid species can be given its own dwelling by adding a spec here.
-## Sized against a ~1.8 m villager: cylinder walls a standing person fits inside, under an
-## overhanging conical thatch roof. Wall diameter ~2.7 m, eaves ~3.2 m, peak ~2.85 m tall.
 const HUT_SPEC: Dictionary = {
 	"wall_radius": 1.35,                          # walls ~2.7 m across
 	"wall_height": 1.7,                           # taller than a standing villager's shoulders
@@ -38,7 +24,8 @@ var _age: float = 0.0                     # total lifetime, only ever grows
 var _idle: float = 0.0                    # seconds since the last touch()
 var _dead: bool = false
 
-var _mesh_root: MeshInstance3D = null
+@onready var _mesh_root: MeshInstance3D = $NestMesh
+@onready var _picker_shape: CollisionShape3D = $NestPicker/NestPickerShape
 
 
 func setup(from_terrain, from_species: String, from_owner_family: int, from_in_tree: bool) -> void:
@@ -71,17 +58,13 @@ func setup(from_terrain, from_species: String, from_owner_family: int, from_in_t
 		_snap_to_terrain()
 		_orient_radial()
 
-	# A layer-2 pick collider so the player's selection raycast (VoxelWorld
-	# ._select_at, which collides with bodies) can hit the shelter. Added after
-	# the mesh is built so it is sized to match the shelter that was chosen.
-	_add_picker()
+	# Sized after the mesh is built so it matches the shelter that was chosen.
+	_size_picker()
 
 
-## Add the pick-only physics body used for selection. It sits on collision
-## layer 2 (the pick layer) with mask 0 so it never participates in the
-## simulation's physics -- it exists purely for the click raycast. The sphere
-## is sized/centred to roughly cover the built shelter's visual extents.
-func _add_picker() -> void:
+## Size and centre the pick-only sphere (layer 2, mask 0) so it roughly covers
+## the built shelter's visual extents.
+func _size_picker() -> void:
 	var pick_radius: float = 0.6
 	var pick_center_y: float = 0.12
 	if in_tree:
@@ -105,19 +88,8 @@ func _add_picker() -> void:
 				pick_radius = 0.60
 				pick_center_y = 0.12
 
-	var body: StaticBody3D = StaticBody3D.new()
-	body.name = "NestPicker"
-	body.collision_layer = 2
-	body.collision_mask = 0
-
-	var shape: SphereShape3D = SphereShape3D.new()
-	shape.radius = pick_radius
-	var collision: CollisionShape3D = CollisionShape3D.new()
-	collision.name = "NestPickerShape"
-	collision.shape = shape
-	collision.position = Vector3(0.0, pick_center_y, 0.0)
-	body.add_child(collision)
-	add_child(body)
+	(_picker_shape.shape as SphereShape3D).radius = pick_radius
+	_picker_shape.position = Vector3(0.0, pick_center_y, 0.0)
 
 
 ## Human-readable shelter name for the given species (used in the inspector).
@@ -141,10 +113,6 @@ func _shelter_name() -> String:
 ## short cylinders (the woven twigs) around a darker cone hollow. Sits at the
 ## caller-provided roost height (Y is left untouched).
 func _build_twig_cup() -> void:
-	_mesh_root = MeshInstance3D.new()
-	_mesh_root.name = "NestMesh"
-	add_child(_mesh_root)
-
 	var twig_mat: StandardMaterial3D = StandardMaterial3D.new()
 	twig_mat.albedo_color = Color(0.36, 0.24, 0.13)      # dry twig brown
 	twig_mat.roughness = 1.0
@@ -170,6 +138,7 @@ func _build_twig_cup() -> void:
 	# A ring of short cylinders around the rim -- the woven twigs.
 	var twig_count: int = 9
 	var ring_radius: float = 0.24
+	var rng: LASimRng = LASimRng.for_domain("life")
 	for i in range(twig_count):
 		var frac: float = float(i) / float(twig_count)
 		var angle: float = frac * TAU
@@ -186,9 +155,9 @@ func _build_twig_cup() -> void:
 		# Tip each twig slightly outward and give it a little random lean so the
 		# rim reads as roughly woven rather than a clean geometric ring.
 		twig.rotation = Vector3(
-			randf_range(-0.35, 0.35),
+			rng.randf_range(-0.35, 0.35),
 			angle,
-			0.5 + randf_range(-0.2, 0.2)
+			0.5 + rng.randf_range(-0.2, 0.2)
 		)
 		_mesh_root.add_child(twig)
 
@@ -210,15 +179,7 @@ func _build_earthen_mound() -> void:
 	_build_mound(0.55, 0.40, Color(0.30, 0.22, 0.14), true, 0.18)
 
 
-## Shared builder for the earthen-dome shelters (burrow / den / generic mound).
-## `radius`/`flatten` size the flattened dome; `earth_color` tints it; when
-## `with_entrance` is set a darker entrance hollow of `hole_radius` is dug into
-## the front so the shelter reads as an occupied burrow.
 func _build_mound(radius: float, flatten: float, earth_color: Color, with_entrance: bool, hole_radius: float) -> void:
-	_mesh_root = MeshInstance3D.new()
-	_mesh_root.name = "NestMesh"
-	add_child(_mesh_root)
-
 	var earth_mat: StandardMaterial3D = StandardMaterial3D.new()
 	earth_mat.albedo_color = earth_color
 	earth_mat.roughness = 1.0
@@ -255,15 +216,7 @@ func _build_mound(radius: float, flatten: float, earth_color: Color, with_entran
 	_mesh_root.add_child(hole)
 
 
-## A human dwelling: a round mud/clay hut — a wide cylinder body under a conical
-## thatch roof — sized (from HUT_SPEC) so a ~1.8 m villager stands comfortably
-## beside and could step through it, rather than the old ankle-high stub. Earthy
-## matte materials (no metal) and a dark doorway hollow so it reads as a home.
 func _build_hut() -> void:
-	_mesh_root = MeshInstance3D.new()
-	_mesh_root.name = "NestMesh"
-	add_child(_mesh_root)
-
 	var wall_radius: float = HUT_SPEC["wall_radius"]
 	var wall_height: float = HUT_SPEC["wall_height"]
 	var roof_radius: float = HUT_SPEC["roof_radius"]

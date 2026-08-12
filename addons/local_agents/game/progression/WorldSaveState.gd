@@ -1,36 +1,10 @@
 class_name LAWorldSaveState
 extends RefCounted
 
-## LAWorldSaveState: gathers the LIVING WORLD into a plain-data Dictionary a save can persist, and applies
-## such a Dictionary back onto a freshly-booted world. It owns the per-actor + kinship + progression
-## serialization; the heavy FIELD blob is delegated to LAMaterialFieldSnapshot3D and the disk I/O to
-## LAGameSave. Kept out of the extract-only VoxelWorld/MaterialField hubs (a focused module the save
-## controller calls).
-##
-## WHAT A SAVE HOLDS:
-##   * field:        every GPU field channel (water/heat/moisture/rock_fill/lava/o2/co2/biomass/snow/…).
-##   * creatures:    species, transform, age, energy/hydration/health/breath, family_id, leadership role,
-##                   llm_enabled, the heritable genome (LADNA strand + base_config/instincts/generation), and the
-##                   LEARNED cognition (policy + cue_values) so a reloaded animal keeps what it learned.
-##   * fish:         species, transform, age, health, breath, family_id (aquatic actors are outside the
-##                   kinship GRAPH, but they do carry the lineage label the shared cognition stack weights
-##                   imitation by, and it used to be dropped on every reload).
-##   * clock:        the world's elapsed time (LASimClock), so a reloaded world keeps its day count and the
-##                   dated records already written against it stay in the past.
-##   * vegetation:   plant/tree/rock kind + transform (ambient scatter; re-instanced in place).
-##   * kinship:      each creature's family GROUP + the directed lineage edges, remapped to stable save
-##                   indices so the graph rebuilds correctly under the new instance ids a reload assigns.
-##   * progression:  LAGameProgression.serialize() (mode/stage/unlocks/zoom ceiling).
-##
-## RESTORE rebuilds deterministically: instance each actor at its saved transform (bypassing surface
-## projection), re-apply scalar state + cognition, then reconstruct kinship by grouping creatures by their
-## saved family and replaying the directed edges through a save-index→live-cid map. (Explicit types only, no ':=' inferred typing.)
 
 const DNAScript: GDScript = preload("res://addons/local_agents/creatures/cognition/DNA.gd")
 const FieldSnapshotScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSnapshot3D.gd")
 
-
-# --- CAPTURE ------------------------------------------------------------------------------------------------
 
 ## Gather the whole world into a save dict. `field` may be a not-yet-ready field (its block comes back empty
 ## and restore simply keeps the booted field). Cheap-ish: a few group scans + one GPU field readback.
@@ -115,17 +89,6 @@ static func _capture_fish(f) -> Dictionary:
 		"age": float(f.age),
 		"health": float(f.health),
 		"breath": float(f._breath),
-		# LAFish carries the same lineage label land creatures do (Fish.gd:110) and the shared cognition
-		# stack weights imitation by it (Cognition.gd:476), so persisting it keeps a reload from handing a
-		# fish a fresh instance id that some unrelated fish might later be compared against.
-		#
-		# It does NOT restore fish kinship, and an earlier version of this comment claimed it did ("every
-		# reload silently reset every fish to being related to no other fish"). Every fish is already its
-		# own family in every world: `EcologyService._instance_actor` returns inside its
-		# `if bool(cfg.get("aquatic", false))` branch BEFORE the line that would put a family id into the
-		# config, so `Fish.setup` always falls through to `get_instance_id()`. The grouping reproduced here
-		# is the empty one. Real fish shoal kinship would need the aquatic spawn path to assign families in
-		# the first place; that is a separate change, and this field is ready for it when it lands.
 		"family_id": int(f.family_id),
 	}
 
@@ -137,10 +100,6 @@ static func _family_group(ecology, cid: int) -> int:
 	return graph.family_of(cid) if graph != null else cid
 
 
-# True when the creature is a REGISTERED member of the kinship graph (a founder-cluster member or a bred
-# offspring), i.e. its family label differs from its own id. An unregistered solitary creature resolves to its
-# own id. This lets restore reproduce family_count() exactly: a registered family with a single living member is
-# still one component, so it must be re-registered even though its group has size 1.
 static func _family_registered(ecology, cid: int) -> bool:
 	var graph = ecology.kinship() if ecology != null and ecology.has_method("kinship") else null
 	return graph != null and graph.family_of(cid) != cid
@@ -174,8 +133,6 @@ static func _remap_edge_dict(src: Dictionary, cid_to_index: Dictionary) -> Dicti
 			out[int(cid_to_index[int(k)])] = mapped
 	return out
 
-
-# --- APPLY --------------------------------------------------------------------------------------------------
 
 ## Re-instance every saved actor and rebuild kinship. Progression is applied separately (before this, by the
 ## controller) since it does not depend on the field/actors being up. Returns the number of creatures restored.

@@ -1,27 +1,8 @@
 class_name LAVoxelTimeControl
 extends CanvasLayer
 
-## Player time-dilation controls (perf-first: event-driven, zero per-frame cost). The single authoritative
-## owner of the sim's playback rate (pause, slow-motion, real-time, and fast-forward), applied via
-## Engine.time_scale (speed) and get_tree().paused (hard pause). Runs PROCESS_MODE_ALWAYS so the keys and the
-## HUD keep working while the tree is paused (that is what lets Space un-pause).
-##
-## Keys:  Space = pause / play toggle · , = slower · . = faster · Home = reset to 1×.
-## REVERSE + timeline FORK plug in here later (the snapshot ring-buffer): reverse becomes another speed state
-## driven by restoring snapshots, and this stays the one place the HUD + rate live. This module is the
-## speed/pause half; it exposes current_speed()/is_paused() + a speed_changed signal for that next layer.
 
-const SPEEDS: Array[float] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0]
-const PLAY_IDX: int = 2   # 1.0×
-
-signal speed_changed(paused: bool, speed: float)
-
-## THE one live time control, so anything wanting to change speed goes through the node that OWNS
-## Engine.time_scale instead of writing it directly and being silently overwritten (see set_multiplier).
-static var _active: LAVoxelTimeControl = null
-
-var _idx: int = PLAY_IDX
-var _paused: bool = false
+var _authority: LASimTimeAuthority = null
 var _camera: Node = null           # optional — to yield Space to the fly-drone's lift control
 var _timeline: Node = null         # optional — LAVoxelTimeline (reverse/fork via the snapshot ring)
 var _reversing: bool = false       # mirror of the timeline's reverse state, for the HUD
@@ -36,45 +17,16 @@ func _init() -> void:
 
 
 func _ready() -> void:
-	_active = self
 	_build_hud()
-	_apply()
+	_update_hud()
 
 
-func _exit_tree() -> void:
-	if _active == self:
-		_active = null
-
-
-## The live time control, or null before the world has built one.
-static func active() -> LAVoxelTimeControl:
-	return _active
-
-
-## Set the speed from a raw multiplier, snapped to the nearest supported SPEED. THIS is the entry point for
-## every non-key speed change (the `--fast=N` command line, the pause menu's speed row, the trailer director).
-##
-## Why it has to funnel here, measured 2026-07-29: `Engine.time_scale` had TWO owners. `--fast=N` was applied
-## during VoxelWorld's parse_cmdline() (VoxelWorld.gd:177) by writing Engine.time_scale through the pause
-## menu, and then this node was created ~114 lines later (:291) and its _ready() -> _apply() reset
-## Engine.time_scale to SPEEDS[PLAY_IDX], i.e. 1.0. So `--fast` silently did nothing: a probe under
-## `--fast=8` read back time_scale 1.000 with delta exactly 1/60. The one thing that appeared to work,
-## max_physics_steps_per_frame reading 8, was a coincidence — both paths compute 8 at their own multiplier.
-##
-## The cost of that was not just a dead flag. CLAUDE.md, HANDOFF.md and the run wrappers all tell agents to
-## use `--fast=N` to compress slow-emergent time for verification, so every measurement taken "at --fast=4"
-## was really taken at 1x over a shorter horizon than its author believed.
-func set_multiplier(mult: float) -> void:
-	var best: int = PLAY_IDX
-	var best_delta: float = INF
-	for i in range(SPEEDS.size()):
-		var d: float = absf(SPEEDS[i] - mult)
-		if d < best_delta:
-			best_delta = d
-			best = i
-	_idx = best
-	_paused = false
-	_apply()
+## Bind the clock this panel displays and drives. Without it the keys are inert.
+func set_authority(authority: LASimTimeAuthority) -> void:
+	_authority = authority
+	if _authority != null and not _authority.speed_changed.is_connected(_on_speed_changed):
+		_authority.speed_changed.connect(_on_speed_changed)
+	_update_hud()
 
 
 ## Optional: the camera rig, so Space pauses only when NOT flying the drone (fly uses Space for lift).
@@ -91,7 +43,11 @@ func set_timeline(timeline: Node) -> void:
 		_timeline.achievement.connect(_on_achievement)
 
 
-## Pop a tongue-in-cheek time-travel "achievement" toast (from the timeline's rewind-count milestones), fading it.
+func _on_speed_changed(_paused: bool, _speed: float) -> void:
+	_update_hud()
+
+
+## Pop a time-travel "achievement" toast (from the timeline's rewind-count milestones), fading it.
 func _on_achievement(title: String, body: String) -> void:
 	if _toast == null:
 		return
@@ -147,7 +103,7 @@ func _build_hud() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not (event is InputEventKey):
+	if _authority == null or not (event is InputEventKey):
 		return
 	var key: InputEventKey = event
 	if not key.pressed or key.echo:
@@ -157,16 +113,17 @@ func _unhandled_input(event: InputEvent) -> void:
 			# Yield to the fly-drone (Space = lift) when flying, so time-pause never fights it.
 			if _camera != null and _camera.has_method("is_fly") and _camera.is_fly():
 				return
-			toggle_pause()
+			_exit_reverse()
+			_authority.toggle_pause()
 		KEY_PERIOD:
-			faster()
+			_exit_reverse()
+			_authority.faster()
 		KEY_COMMA:
-			slower()
+			_exit_reverse()
+			_authority.slower()
 		KEY_HOME:
 			_exit_reverse()
-			_idx = PLAY_IDX
-			_paused = false
-			_apply()
+			_authority.reset_speed()
 		KEY_J:
 			# Reverse-scrub toggle (snapshot rewind). Forking happens when a forward action resumes from here.
 			if _timeline != null and _timeline.has_method("toggle_reverse"):
@@ -176,76 +133,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 
-func toggle_pause() -> void:
-	_exit_reverse()
-	_paused = not _paused
-	_apply()
-
-
-func play() -> void:
-	_exit_reverse()
-	_paused = false
-	_apply()
-
-
-func faster() -> void:
-	_exit_reverse()
-	_paused = false
-	_idx = mini(_idx + 1, SPEEDS.size() - 1)
-	_apply()
-
-
-func slower() -> void:
-	_exit_reverse()
-	_paused = false
-	_idx = maxi(_idx - 1, 0)
-	_apply()
-
-
-func is_paused() -> bool:
-	return _paused
-
-
-## The effective playback rate the sim is running at (0 while paused). Read by the HUD + the snapshot layer.
-func current_speed() -> float:
-	return 0.0 if _paused else SPEEDS[_idx]
-
-
-func _apply() -> void:
-	get_tree().paused = _paused
-	if not _paused:
-		Engine.time_scale = SPEEDS[_idx]
-		# Ticks a single RENDERED frame may run. SCALED BY THE SPEED ON PURPOSE, and the old one-line reason
-		# ("let physics keep up when fast-forwarding — more sub-steps per frame at high scale") was wrong
-		# about the mechanism, which cost a wrong diagnosis downstream. `time_scale` ALREADY multiplies the
-		# delta each tick carries, so physics never needed extra sub-steps to keep up. What this line
-		# actually buys is THROUGHPUT: rendering one frame of this world costs far more than one physics
-		# tick, so packing more ticks into each rendered frame amortises the render and gets more simulated
-		# seconds per WALL second, which is the number a verification run cares about.
-		#
-		# THE COST, and it is the thing that produced a false bug report — sim-time per RENDERED frame
-		# becomes QUADRATIC in the multiplier (cap 8*s ticks, each carrying s/60 seconds, so 8*s²/60).
-		# Measured 2026-07-30, simulated seconds advanced per rendered frame:
-		#     --fast=1  0.0995      --fast=2  0.533      --fast=4  1.98      --fast=8  5.28
-		# a 53x spread across an 8x speed range. So `--run-frames=N` is NOT a fixed horizon: the same 150
-		# frames reach 0.4 sim days at --fast=2 and about 1.5 at --fast=4. That is the whole of "at
-		# --fast>=4 the population dies" — the two runs were compared at equal FRAMES, so the faster one
-		# was read four sim-days deeper into its own history. At equal SIMULATED TIME the population does
-		# not collapse at all: three runs each at 80 sim-seconds ended with 146-174 creatures at --fast=2
-		# and 193-200 at --fast=4. (The --fast=4 runs also drew far fewer ambient disasters over the same
-		# simulated time, 0-1 impacts against 4-12, which flatters them; the two are not a like-for-like
-		# world. Either way nothing starves.)
-		#
-		# A constant cap of 8 was measured as the alternative and rejected. It does make the horizon linear
-		# (sim-time per frame lands on exactly 8*delta: 0.261 / 0.533 / 1.064 at --fast 2/4/8) but it costs
-		# 54-56% of the throughput at --fast=4 and --fast=8 (80 sim-seconds in 69s and 38s of wall time,
-		# against 31s and 17s here) and buys only 1->3 fps, which is unwatchable either way. Speed here is
-		# worth more than a horizon you can correct by reading `field_sim_s` out of the report.
-		Engine.max_physics_steps_per_frame = maxi(8, int(ceil(SPEEDS[_idx])) * 8)
-	_update_hud()
-	speed_changed.emit(_paused, current_speed())
-
-
 func _update_hud(rev_count: int = -1) -> void:
 	if _label == null:
 		return
@@ -253,9 +140,13 @@ func _update_hud(rev_count: int = -1) -> void:
 		# Explicit: rewind is approximate — it restores the LIFE, not the environment (perf-over-parity).
 		var tail: String = "" if rev_count < 0 else ("  ·  %d left" % rev_count)
 		_label.text = "◀◀  REWIND  (life reverts · world keeps flowing)%s" % tail
-	elif _paused:
+		return
+	if _authority == null:
+		_label.text = ""
+		return
+	if _authority.is_paused():
 		_label.text = "‖  PAUSED"
-	else:
-		var s: float = SPEEDS[_idx]
-		var num: String = ("%.2f" % s).rstrip("0").rstrip(".") if s < 1.0 else str(int(round(s)))
-		_label.text = ("▶  %s×" % num) if s >= 1.0 else ("◗  %s×" % num)
+		return
+	var s: float = _authority.current_speed()
+	var num: String = ("%.2f" % s).rstrip("0").rstrip(".") if s < 1.0 else str(int(round(s)))
+	_label.text = ("▶  %s×" % num) if s >= 1.0 else ("◗  %s×" % num)

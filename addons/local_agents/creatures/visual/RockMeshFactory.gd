@@ -1,10 +1,6 @@
 class_name LARockMesh
 extends RefCounted
 
-# Shared factory for natural, irregular boulder meshes (NOT cubes). Used by ambient
-# rocks, thrown rocks, and meteor debris so all stone in the world reads as real rock.
-# A lat/long sphere is displaced per-vertex by 3D noise and squashed, then given flat
-# (faceted) normals for a chiselled low-poly boulder look.
 
 static func make(radius: float, seed_val: int, jitter: float = 0.42, rings: int = 7, segs: int = 9) -> ArrayMesh:
 	var n: FastNoiseLite = FastNoiseLite.new()

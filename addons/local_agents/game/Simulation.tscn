@@ -1,0 +1,80 @@
+[gd_scene load_steps=20 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/Simulation.gd" id="1_simulation"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelSettingsApplier.gd" id="2_voxelsettingsapplier"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/SimClock.gd" id="3_simclock"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/SimTimeAuthority.gd" id="4_simtimeauthority"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/system/Star.gd" id="5_star"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/system/PlanetBody.gd" id="6_planetbody"]
+[ext_resource type="Script" path="res://addons/local_agents/agents/LlmService.gd" id="7_llmservice"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/ecology/EcologyService.gd" id="8_ecologyservice"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/material/MaterialField3D.gd" id="9_materialfield3d"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/events/LAEventTracker.gd" id="10_laeventtracker"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/system/Moon.gd" id="11_moon"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/system/SystemOrbits.gd" id="12_systemorbits"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelDisasters.gd" id="13_voxeldisasters"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/ecology/PopulationGovernor.gd" id="14_populationgovernor"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/PlateTectonics.gd" id="15_platetectonics"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelSpawnController.gd" id="16_voxelspawncontroller"]
+[ext_resource type="Script" path="res://addons/local_agents/game/progression/WorldSaveController.gd" id="17_worldsavecontroller"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/ecology/BandChronicle.gd" id="18_bandchronicle"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelTimeline.gd" id="19_voxeltimeline"]
+
+[node name="Simulation" type="Node3D"]
+script = ExtResource("1_simulation")
+
+[node name="SettingsApplier" type="Node" parent="."]
+script = ExtResource("2_voxelsettingsapplier")
+
+[node name="SimClock" type="Node" parent="."]
+script = ExtResource("3_simclock")
+
+[node name="TimeAuthority" type="Node" parent="."]
+script = ExtResource("4_simtimeauthority")
+
+[node name="Star" type="Node3D" parent="."]
+script = ExtResource("5_star")
+
+[node name="PlanetBody" type="Node3D" parent="."]
+script = ExtResource("6_planetbody")
+
+[node name="TerrainViewer" type="Node3D" parent="."]
+
+[node name="LlmService" type="Node" parent="."]
+script = ExtResource("7_llmservice")
+
+[node name="Ecology" type="Node" parent="."]
+script = ExtResource("8_ecologyservice")
+
+[node name="MaterialField" type="Node3D" parent="."]
+script = ExtResource("9_materialfield3d")
+
+[node name="EventTracker" type="Node" parent="."]
+script = ExtResource("10_laeventtracker")
+
+[node name="Moon" type="Node3D" parent="."]
+script = ExtResource("11_moon")
+
+[node name="SystemOrbits" type="Node" parent="."]
+script = ExtResource("12_systemorbits")
+
+[node name="Disasters" type="Node" parent="."]
+script = ExtResource("13_voxeldisasters")
+
+[node name="PopulationGovernor" type="Node" parent="."]
+script = ExtResource("14_populationgovernor")
+
+[node name="PlateTectonics" type="Node" parent="."]
+script = ExtResource("15_platetectonics")
+
+[node name="SpawnController" type="Node" parent="."]
+script = ExtResource("16_voxelspawncontroller")
+
+[node name="WorldSaveController" type="Node" parent="."]
+script = ExtResource("17_worldsavecontroller")
+
+[node name="BandChronicle" type="Node" parent="."]
+script = ExtResource("18_bandchronicle")
+
+[node name="Timeline" type="Node" parent="."]
+script = ExtResource("19_voxeltimeline")

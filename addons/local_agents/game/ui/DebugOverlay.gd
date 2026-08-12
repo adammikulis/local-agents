@@ -1,11 +1,6 @@
 class_name LADebugOverlay
 extends MeshInstance3D
 
-## World-space DEBUG GIZMOS drawn as a single ImmediateMesh, redrawn each frame from live scene state
-## and toggled by the DebugPanel (via VoxelWorld). It can HIGHLIGHT every instance of a type (a colored
-## beam + base cross over each member of a group, drawn through terrain so they're easy to find), draw
-## each creature's INTENDED PATH (a ray along its steering heading), and show the WIND as a grid of
-## arrows. Purely presentational: it reads groups/positions and owns no sim state. (Explicit types only.)
 
 const BEAM_HEIGHT: float = 16.0            # tall beam so highlighted objects are visible far off
 const BEAM_THICK: float = 0.09             # offset used to fake line thickness (4 parallel beams)
@@ -217,10 +212,6 @@ func _draw_wind() -> void:
 			_line(tip, tip - dir * (arrow * 0.32) - side * (arrow * 0.18), col)
 
 
-# The emergent SCENT field as a grid of markers above the ground: each cell samples all channels, and
-# where any scent is present draws a vertical tick (height = intensity) + a short arrow up the DOMINANT
-# channel's gradient, tinted by that channel (prey/predator/blood/food/alarm). This replaces the old marker
-# MMI view — it shows scent riding the wind + pooling in valleys, off the same field creatures read.
 func _draw_scent() -> void:
 	if _field == null or not _field.has_method("scent_at"):
 		return
@@ -250,11 +241,6 @@ func _draw_scent() -> void:
 				_line(base, base + g.normalized() * (step * 0.35), col)
 
 
-# The active FIELD CHANNEL as a heatmap over the planet surface: a lat/long grid of directions, each
-# projected to the real ground (terrain.surface_point) and drawn as a colored radial spike whose height
-# and colour encode the sampled channel (biomass, gas, snow, lava, charge, …). Camera-facing hemisphere
-# only (back-side dirs are culled) so it stays cheap. This is the temperature-heatmap idea (sample a
-# channel → colour ramp) generalized to every substrate channel, off the field's public per-cell queries.
 func _draw_field_channel() -> void:
 	if _field == null or _terrain == null or not _terrain.has_method("surface_point"):
 		return

@@ -1,10 +1,11 @@
 #[compute]
 #version 450
 
-// SURFACE cell own its radial line, walk the line INWARD via nbr slot 0 summing fert_cell, and deposit the total
-// (solid == 0) whose OUTWARD-radial neighbour (nbr slot 5) is -1 (space boundary) or solid. That is the local
-// landing-set form of "walk slot 5 outward until -1 or rock". From it we walk INWARD (slot 0) to the sphere
-// centre (until slot 0 == -1), summing fert_cell of every cell on the line (solid cells contribute the 0 that
+#include "neighbours.glsli"
+#include "cellvol.glsli"
+
+// SURFACE cell own its radial line, walk the line INWARD via the radial neighbour summing fert_cell, and deposit the total
+// (solid == 0) whose OUTWARD-radial neighbour is -1 (space boundary) or solid. That is the local
 
 layout(local_size_x = 64) in;
 
@@ -30,28 +31,28 @@ void main() {
 	}
 	// The radial line is OWNED by its outermost open cell (outward-radial neighbour is space or rock), which is
 	// the unique, race-free representative for the whole line — one owner per line, exactly as before.
-	int up = nbr[idx * 6u + 5u];
+	int up = nbr[idx * N_SLOTS + N_OUT];
 	bool is_surface = (up < 0) || (solid[up] != 0.0);
 	if (!is_surface) {
 		return;
 	}
-	// Reduce the RADIAL column: walk inward (slot 0) from the owner to the centre, summing fert_cell — and on
+	// Reduce the RADIAL column: walk inward from the owner to the centre, summing fert_cell — and on
 	// the way down remember the GROUND, the first open cell that has rock directly beneath it.
 	float sum = fert_cell[idx];
-	int ground = (nbr[idx * 6u + 0u] >= 0 && solid[nbr[idx * 6u + 0u]] != 0.0) ? int(idx) : -1;
-	int j = nbr[idx * 6u + 0u];
+	int ground = (nbr[idx * N_SLOTS + N_IN] >= 0 && solid[nbr[idx * N_SLOTS + N_IN]] != 0.0) ? int(idx) : -1;
+	int j = nbr[idx * N_SLOTS + N_IN];
 	// Guard the walk against a malformed table with a cell_count cap (a radial line cannot exceed the grid).
 	for (uint step = 0u; step < params.cell_count; step++) {
 		if (j < 0) {
 			break;
 		}
-		sum += fert_cell[uint(j)];
-		int below = nbr[uint(j) * 6u + 0u];
+		sum += fert_cell[uint(j)] * vol_ratio(uint(j), idx);
+		int below = nbr[uint(j) * N_SLOTS + N_IN];
 		if (ground < 0 && solid[j] == 0.0 && below >= 0 && solid[below] != 0.0) {
 			ground = j;                    // topmost ground-hugging open cell on this line
 		}
 		j = below;
 	}
 	int target = (ground >= 0) ? ground : int(idx);
-	fert[uint(target)] += sum;
+	fert[uint(target)] += sum * vol_ratio(idx, uint(target));
 }

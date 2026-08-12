@@ -1,18 +1,7 @@
 class_name LACreatureFlocking
 extends RefCounted
 
-## Same-kind flocking / imitation steering for LocalAgentCreature, factored out of the main brain.
-## Shared by ALL species: cohesion (toward local centre), alignment (match average heading,
-## "do what others like me do") and separation (avoid crowding), weighted by the creature's
-## per-species flock_* config. `flatten` zeroes Y for ground creatures. Static + dependency-free
-## of the LocalAgentCreature type. (Explicit types only, no ':=' inferred typing.)
-##
-## Leadership is UNIFIED into flocking: every neighbour's pull on the group heading/centre is
-## scaled by its _influence() (how urgent/committed/senior it is), so the first animals to bolt
-## informally "lead" the herd's direction, and a formal rank leader is just a high-influence node
-## (no separate leader-bias term). When all are calm the influences are ~equal → ordinary flocking.
 
-# Urgency bonus for a neighbour committed to a directional, high-stakes state.
 const URGENCY_FLEE: float = 5.0     # fleeing/panicking → dominates the herd heading (informal leader)
 const URGENCY_ACTIVE: float = 1.5   # chase/stalk/throw/seek/drink → committed & directional, moderate pull
 # Standing bonus for a formal rank leader (folds LACreatureLeadership into the weighting).
@@ -44,12 +33,6 @@ static func _influence(m) -> float:
 # regrouping dominates idle wander and a strayed animal (or a drifting sub-group) closes the gap back.
 const REGROUP_GAIN: float = 2.2
 
-## O(1) tether pulling a FOLLOWER back toward its leader whenever the leader has drifted beyond flock_radius.
-## Tethers not just a lone wanderer but a COHESIVE SUB-GROUP that has drifted away together (it has local
-## mates, so it is not "isolated", yet without this it would keep drifting until it passed the leadership
-## leash and splintered off its own leader). Zero while the leader is within flock_radius (ordinary cohesion
-## covers that); grows with the overshoot so the farther a member strays the harder it is reeled in. The
-## leader pointer is a cached result of the range-based election (never sight), so this needs no query.
 static func _leader_tether(c, pos: Vector3, flatten: bool) -> Vector3:
 	if c._leader == null or not is_instance_valid(c._leader):
 		return Vector3.ZERO
@@ -64,22 +47,6 @@ static func _leader_tether(c, pos: Vector3, flatten: bool) -> Vector3:
 	return to_home.normalized() * gain
 
 
-## Regroup pull for a truly LOST herd creature — alone (no mate in flock_radius) AND with no valid leader.
-## Homes toward the nearest adult of ITS OWN BAND, recognised by an OMNIDIRECTIONAL smell/sound RANGE sense
-## (a bounded spatial-hash query, never a vision cone). Runs only in this rare case, so the query stays off
-## the common path — Big-O flat.
-##
-## Band FIRST, bloodline as the fallback. This used to read family_id alone, which meant a strayed animal
-## could only ever be pulled back toward blood relatives — the reason an animal could not leave one warren
-## for another and still belong anywhere. What a lost herd animal actually wants is whoever it has been
-## running with (LACreatureAffiliation).
-##
-## But band-only was a REGRESSION, measured over 160 real regroup calls: the band query found nobody where
-## the lineage query found a relative in 37 of 39 disagreements, so a fifth of lost animals got no homing
-## pull at all where they previously got one. Only ~1% actually homed to a non-relative. A band is a finer
-## partition of a family here, so "my band is out of earshot" does not mean "I have nobody" — it usually
-## means the band has scattered and blood is the wider circle still within range. Prefer the band, fall
-## back to lineage, and only a genuine loner (neither in range) pulls nowhere.
 static func _band_regroup(c, pos: Vector3, flatten: bool) -> Vector3:
 	var reach: float = maxf(c.flock_radius * LACreatureLeadership.LEASH_MULT, c.hearing_range)
 	var kin = LACreatureLeadership.nearest_band_adult(c, pos, reach)
@@ -135,9 +102,6 @@ static func steer(c, pos: Vector3, flatten: bool) -> Vector3:
 			out += align.normalized() * c.flock_alignment
 		if separation.length() > 0.001:
 			out += separation.normalized() * c.flock_separation
-	# Reel a strayed FOLLOWER back to its leader (O(1)) whenever it has drifted beyond flock_radius — applies
-	# whether or not local mates are near, so a drifting sub-group is caught before it passes the leadership
-	# leash and splinters into a new leader-of-few. Composes with the sticky-leadership leash.
 	out += _leader_tether(c, pos, flatten)
 	# A truly lost herd creature (alone AND leaderless) homes toward its nearest band-mate by range sense.
 	if c.herd and wsum <= 0.0 and (c._leader == null or not is_instance_valid(c._leader)):

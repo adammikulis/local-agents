@@ -1,18 +1,5 @@
 extends Node
 
-## LAGameMode: the autoload that carries the launch choice ACROSS the change_scene_to_file boundary
-## from the main menu into the sim (a scene switch tears down the old tree, so a static/autoload is the
-## only thing that survives). It holds two things the sim reads on boot:
-##   - `mode`:      CAMPAIGN (progression gating ON) vs SANDBOX (gating OFF). The progression system,
-##                  once it exists, reads `is_campaign()` to decide whether to gate content.
-##   - `settings`:  the active LAGameSettings the player configured (or the persisted defaults).
-##
-## APPLICATION INTERFACE (the sim consumes this later, not wired here): call `apply(settings)` to set
-## the active settings and broadcast `settings_applied(settings)`. A future VoxelWorld pass connects to
-## that signal (or just reads `GameMode.settings` in _ready) and pushes the values into the field/spawn/
-## disaster systems. This autoload only STORES and BROADCASTS; it never touches simulation code.
-##
-## Registered as the `GameMode` autoload in project.godot. (Explicit types only, no ':=' inferred typing.)
 
 enum Mode { CAMPAIGN, SANDBOX }
 
@@ -25,9 +12,6 @@ signal mode_changed(mode: int)
 var mode: int = Mode.SANDBOX
 var settings: LAGameSettings = null
 
-## Slot the next sim launch should LOAD from ("" = start a fresh world). Set by the main menu's Continue and
-## read once by the sim's save controller on boot (then cleared), the same carry-across-scene mechanism as
-## `mode`/`settings`. A scene change tears down the tree, so this autoload is the only place it can ride.
 var pending_load_slot: String = ""
 
 
@@ -49,17 +33,12 @@ func _ready() -> void:
 	# Load the persisted settings once so any scene (menu or sim) can read GameMode.settings.
 	if settings == null:
 		settings = LAGameSettings.load_or_default()
-	# When the sim scene is booted DIRECTLY (headless harness / dev shortcut, no main menu), honour the
-	# mode arg here — autoloads ready before the main scene, so the progression system sees the right mode.
-	# The main-menu path sets the mode explicitly and passes no such arg, so this never fights it.
 	for arg in OS.get_cmdline_user_args():
 		if arg == "--campaign":
 			mode = Mode.CAMPAIGN
 		elif arg == "--sandbox":
 			mode = Mode.SANDBOX
 		elif arg.begins_with("--load-slot="):
-			# A save is always a campaign world; arm the pending load HERE (before the main scene's progression
-			# system readies) so it boots in campaign mode and the save controller resumes the slot.
 			mode = Mode.CAMPAIGN
 			pending_load_slot = arg.substr("--load-slot=".length())
 
@@ -90,7 +69,6 @@ func mode_name() -> String:
 	return "campaign" if mode == Mode.CAMPAIGN else "sandbox"
 
 
-## Store the active settings and broadcast them for the sim to apply. The single application entry point.
 func apply(new_settings: LAGameSettings) -> void:
 	if new_settings != null:
 		settings = new_settings

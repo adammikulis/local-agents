@@ -1,31 +1,6 @@
 @tool
 extends SceneTree
 
-## Frame-timing probe for the nodes whose behaviour only exists ACROSS engine frames.
-##
-## It is a SceneTree runner (the same form as run_all_tests.gd / run_single_test.gd), not a
-## RefCounted test module, because it has to `await process_frame` / `await physics_frame`. A
-## RefCounted test's run_test() is called synchronously by the shared runner, which does not await -
-## an awaiting run_test() would suspend and the runner would read its suspended state as a PASS. So
-## the frame-dependent assertions live here and test_node_frames.gd runs this in a child process and
-## reads the result line.
-##
-## Do not invoke this by hand as part of a suite: test_node_frames.gd owns it, and that goes through
-## the canonical runner like every other test.
-##
-## What it proves:
-##   1. LocalAgentCognitionScheduler adopts nodes ALREADY in adopt_group when it enters the tree.
-##   2. It adopts a node added to adopt_group AFTER add_child, and does so on the DEFERRED path.
-##      node_added fires during add_child, which is before a spawner calls setup(); adopting there is
-##      a silent no-op because the creature's cognition does not exist yet. So the probe asserts both
-##      halves: NOT adopted synchronously, and adopted once the frame flushes.
-##   3. The same thing with REAL creatures from a LocalAgentCreatureSpawner - the exact ordering the
-##      no-op bug shipped under.
-##   4. LocalAgentDemoHarness actually counts real physics frames when count_physics_frames is on.
-##
-## Prints one line, FRAME_PROBE={...}, and exits non-zero on failure.
-##
-## (Explicit types only - project rule: no ':=' inferred typing.)
 
 const MARKER: String = "FRAME_PROBE"
 const GROUP_LATE: StringName = &"la_frame_probe_late"

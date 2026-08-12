@@ -2,19 +2,6 @@
 extends EditorInspectorPlugin
 class_name LAChoiceInspectorPlugin
 
-## Turns the addon's free-text String properties into pick-lists in the inspector.
-##
-## Several properties are really "one of a known set": a species id, a Piper voice, an installed
-## .gguf. They stay plain `String` in code, because the set is discovered from files on disk and
-## because blank has to remain a legal value (a species enum, for instance, cannot offer an empty
-## option at all: `@export_enum("", ...)` is a parse error). So the choices are supplied here instead.
-##
-## This is a registry, not a pile of branches: adding a dropdown is one row in PROVIDERS, never a
-## `_validate_property` override on a hub file. That matters because the obvious place to put a
-## species dropdown, `creatures/Creature.gd`, is ~1393 lines against a 1500-line hard gate.
-##
-## It degrades cleanly: with the plugin disabled every property is an ordinary String field, exactly
-## as before. Nothing at runtime depends on this.
 
 const SPECIES_ROOT: String = "res://addons/local_agents/creatures/species"
 const VOICES_ROOT: String = "res://addons/local_agents/voices"
@@ -43,8 +30,6 @@ func _parse_property(_object: Object, type: Variant.Type, name: String, _hint: P
 	return true
 
 
-# --- providers ----------------------------------------------------------------------------------
-
 ## Species ids are the basenames of creatures/species/<class>/<id>.json.
 func _species_ids() -> PackedStringArray:
 	return _collect_basenames(SPECIES_ROOT, ["json"], true)
@@ -67,8 +52,6 @@ func _installed_models() -> PackedStringArray:
 			out.append(path)
 	return out
 
-
-# --- shared file scan ---------------------------------------------------------------------------
 
 func _collect_basenames(root: String, extensions: Array, recurse: bool) -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
@@ -99,10 +82,6 @@ func _scan_into(dir_path: String, extensions: Array, recurse: bool, out: PackedS
 	dir.list_dir_end()
 
 
-## The editor widget: a dropdown of discovered values beside a text field that stays authoritative.
-## Keeping the LineEdit means a value the scan did not find (a path outside the project, a species
-## added at runtime, or blank for "use the default") is still typeable. A bare OptionButton would
-## quietly make those unrepresentable.
 class LocalAgentChoiceProperty extends EditorProperty:
 	var _choices: PackedStringArray
 	var _picker: OptionButton

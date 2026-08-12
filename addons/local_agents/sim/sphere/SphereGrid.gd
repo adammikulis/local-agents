@@ -1,73 +1,6 @@
 class_name LASphereGrid
 extends RefCounted
 
-## Cubed-sphere grid + seam-aware NEIGHBOUR TABLE: the planet's substrate geometry (Phase A0 spike).
-##
-## 6 gnomonic cube faces, each `res × res` surface cells, extruded into `depth` RADIAL layers (r=0 = innermost
-## core shell, r=depth-1 = outermost/space). This replaces the flat cartesian `idx=(iy*dim_z+iz)*dim_x+ix` +
-## `±1/±dx/±layer` scheme: every field kernel will gather its 6 neighbours by TABLE LOOKUP instead of index
-## arithmetic, so "down" is simply the INWARD radial neighbour on a real sphere, with no box axes and no poles.
-##
-## The only hard part is the cube-face SEAMS (a cell on a face edge's lateral neighbour lives on an ADJACENT
-## face). We sidestep hand-coding 24 edge transforms + 8 corner cases by building the 2D SURFACE adjacency
-## GEOMETRICALLY: step just past the edge in local coords, project to a sphere direction, and match the nearest
-## surface cell on another face. Radial neighbours are then trivial arithmetic. (Explicit types only, no ':=' inferred typing.)
-##
-## SLOT-OPPOSITE RECIPROCITY (the contract the kernels actually depend on)
-## ----------------------------------------------------------------------
-## Every 2-pass gather kernel (`soil_/water_/slump_/lava_flow_sphere3d.glsl`) writes its outflow to
-## `send[me*6 + slot]` and credits its inflow from `send[neighbour*6 + OPPOSITE(slot)]`. That is only
-## mass-conserving if the table is RECIPROCAL IN THE OPPOSITE SLOT: `nbr[c*6+d] == m  ⟹  nbr[m*6+(d^1)] == c`.
-## Merely "A lists B somewhere" is not enough — a link placed in the wrong slot debits a send slot that NO cell
-## reads (mass destroyed) and makes some other slot get read twice (mass duplicated).
-##
-## The raw geometric stitch does NOT satisfy that, and no choice of per-face axes can fix it. Measured on the
-## unrepaired table at res 24: 288 of 576 directed cross-face links per radial layer land in a non-opposite
-## slot — 4 of the 12 cube edges have their local (a,b) axes ROTATED across the seam (a face-0 `+b` link is the
-## partner's `+a` link) and 2 more have them REFLECTED (both sides say `+b`). The rotation is irreducible: with
-## the grid lines kept straight, each face is crossed by exactly two of the three great-ring families (X-, Y-,
-## Z-rings), so labelling a family "the a-axis" globally requires 2-colouring a triangle. It cannot be done.
-##
-## The fix is to stop treating the four lateral slots as fixed compass directions and treat them as two
-## RECIPROCAL PAIRS: partition each cell's 4 lateral links into pair A (slots N_A0/N_A1) and pair B
-## (N_B0/N_B1) such that every link sits in the opposite slot at both ends. That partition is a 2-factorisation
-## of the 4-regular surface adjacency graph, which always exists (Petersen). We seed it from the geometry — so
-## in the interior of every face pair A really is the ±a axis and pair B the ±b axis, exactly as before — and
-## REPAIR only the seams where the geometry contradicts itself, by BENDING the affected line at a handful of
-## cells near the four rotated cube edges. Those bends are the topological branch cuts the 8 cube corners
-## demand, and there are O(res) of them, not O(res²): `lateral_bends` measures 2·res at even `res` and 6·res at
-## odd (an odd seam column cannot pair off internally, so its leftover cell routes a longer path) — at res 24
-## that is 48 bent links out of 6912. `surf_nbr` keeps its literal geometric meaning (WaterSurfaceMesh and
-## MaterialFieldLakes3D build quads and drainage from it), so only the 6-slot `neighbours` table is permuted.
-##
-## THE TANGENT BASIS IS A SEPARATE TABLE, AND IT HAS TO BE (2026-07-30)
-## -------------------------------------------------------------------
-## The four lateral slots were doing a second job they cannot do: standing in for the TANGENT FRAME the wind
-## kernel stores momentum in (`vel_x` along "the slot 1/2 axis", `vel_z` along "the slot 3/4 axis"). Coriolis
-## rotates that pair, so it needs the frame to be consistently HANDED; the gather kernels need the slots to be
-## slot-opposite RECIPROCAL. **Both cannot hold in one table, and that is topology, not a bug.** The pairing's
-## two link families form closed cycles on the sphere; where two cycles cross, the handedness sign is the
-## transverse intersection sign of two closed curves, and on a sphere every closed curve bounds, so that signed
-## count is exactly 0. Measured at res 16/24/32: every crossing pair carries BOTH signs and every pair sums to
-## zero. A 50/50 split is the FLOOR, not an accident (measured 1732 right / 1724 left at res 24). Worse than a
-## sign flip: cycle ORIENTATION is the convention momentum is stored in, so adjacent cells on different cycles
-## disagreed about which way "tangent A" points on 17.45/17.13/16.99% of links at res 16/24/32 — an INTERIOR
-## defect growing as O(res²), where the pre-repair face-local axes could only disagree across a seam (O(res)).
-##
-## So the frame gets its own table and the pairing is left alone. `tan_a`/`tan_b` are built from the FACE-LOCAL
-## geometric axes, which are right-handed on all six faces by construction (`cross(_FACE_R, _FACE_U)·_FACE_N`
-## == +1 for every f) and merely DISCONTINUOUS at the seams — and Coriolis needs the handedness, not the
-## continuity. `tan_b = radial × tan_a` makes (a, b, radial) right-handed at every cell unconditionally.
-## Two derived tables carry the discontinuity so nothing else has to:
-##   `link_tan` — per lateral slot, the unit direction TOWARD that neighbour written in THIS cell's own (a,b)
-##       components. Kernels no longer assume "slot 2 == +tangent A": they dot with this. It is what makes the
-##       upwind flux conservative to the face, because both ends of a link evaluate the SAME expression (a cell
-##       reads its neighbour's direction back at itself from `link_tan[m*4 + (l^1)]`, and slot-opposite
-##       reciprocity is exactly what guarantees that entry is the reverse of its own).
-##   `link_rot` — per lateral slot, the (cos, sin) that PARALLEL-TRANSPORTS a vector's (a,b) components out of
-##       this cell's frame and into the neighbour's. Anything that moves a VECTOR across a seam must apply it;
-##       a SCALAR is unaffected. (Vorticity is the in-tree consumer: a curl differences neighbour VELOCITIES,
-##       which are meaningless until they are expressed in one frame.)
 
 const FACES: int = 6
 # Per-cell neighbour slots (flat table = cell*6 + slot). OPPOSITE SLOT IS `d ^ 1` for all three pairs.
@@ -85,11 +18,6 @@ const S_A1: int = 1    # +a lateral
 const S_B0: int = 2    # -b lateral
 const S_B1: int = 3    # +b lateral
 
-# Cube-face bases: (normal, right=+a axis, up=+b axis). The seams are stitched by nearest-direction match, so
-# any consistent per-face frame tiles the sphere correctly — but the frame is ALSO what `tan_a`/`tan_b` are
-# seeded from, and there handedness matters: `cross(_FACE_R[f], _FACE_U[f]) · _FACE_N[f]` is +1 on all six
-# faces, which is why the per-cell tangent basis below comes out uniformly right-handed. `validate()` reports
-# it as `face_handed_min` rather than leaving it as a comment nobody re-checks.
 const _FACE_N: Array[Vector3] = [Vector3(1,0,0), Vector3(-1,0,0), Vector3(0,1,0), Vector3(0,-1,0), Vector3(0,0,1), Vector3(0,0,-1)]
 const _FACE_R: Array[Vector3] = [Vector3(0,0,-1), Vector3(0,0,1), Vector3(1,0,0), Vector3(1,0,0), Vector3(1,0,0), Vector3(-1,0,0)]
 const _FACE_U: Array[Vector3] = [Vector3(0,1,0), Vector3(0,1,0), Vector3(0,0,-1), Vector3(0,0,1), Vector3(0,1,0), Vector3(0,1,0)]
@@ -97,36 +25,44 @@ const _FACE_U: Array[Vector3] = [Vector3(0,1,0), Vector3(0,1,0), Vector3(0,0,-1)
 var res: int = 0
 var depth: int = 0
 var core_radius: float = 0.0
-var cell_size: float = 0.0
+var cell_size: float = 0.0       # MEAN radial thickness; equals every shell's only when `shells_uniform`
 var surf_count: int = 0          # FACES*res*res
 var cell_count: int = 0          # surf_count*depth
 var center: Vector3 = Vector3.ZERO
 
+# RADIAL SHELL TABLE. `cell_size` is one number for the whole column; these are per shell, so the grid can be
+# graded (thin near the surface, thick aloft and at depth) without every consumer assuming a constant step.
+var shells_uniform: bool = true
+var shell_dr: PackedFloat32Array = PackedFloat32Array()      # depth   : radial thickness of shell r
+var shell_mid: PackedFloat32Array = PackedFloat32Array()     # depth   : radius of shell r's centre
+var shell_face: PackedFloat32Array = PackedFloat32Array()    # depth+1 : shell boundary radii, inward first
+var shell_d_out: PackedFloat32Array = PackedFloat32Array()   # depth   : centre-to-centre run to r+1
+var shell_d_in: PackedFloat32Array = PackedFloat32Array()    # depth   : centre-to-centre run to r-1
+var shell_vol: PackedFloat32Array = PackedFloat32Array()     # depth   : cell volume per unit solid angle
+
+# A cubed-sphere cell does not subtend a fixed solid angle: gnomonic cells shrink toward a face corner.
+var surf_omega: PackedFloat32Array = PackedFloat32Array()    # surf_count : cell solid angle, steradians
+# surf_count*4, indexed (surf*4 + lateral_slot) — arc subtended by that side of the cell, radians.
+var surf_gamma: PackedFloat32Array = PackedFloat32Array()
+
 var _dir: PackedVector3Array = PackedVector3Array()        # surf_count unit surface directions
+var _cell_vol: PackedFloat32Array = PackedFloat32Array()   # cell_count : omega*shell_vol, model units^3
+var _face_area: PackedFloat32Array = PackedFloat32Array()  # cell_count*6 : model units^2, slot order
 var surf_nbr: PackedInt32Array = PackedInt32Array()        # surf_count*4 : [-a,+a,-b,+b] neighbour surf index
 var neighbours: PackedInt32Array = PackedInt32Array()      # cell_count*6 : the full per-cell table (for kernels)
+var link_partner: PackedInt32Array = PackedInt32Array()
 
 var _back: PackedInt32Array = PackedInt32Array()           # surf_count*4 : partner's geometric slot pointing back
 var lateral_slot: PackedInt32Array = PackedInt32Array()    # surf_count*4 : geometric slot -> lateral pair slot 0..3
 var lateral_bends: int = 0       # links whose pair had to be bent away from the geometric axis (seam repair)
 
-# TANGENT FRAME — its own table, independent of the lateral slots (see the header). Indexed by SURFACE cell:
+# TANGENT FRAME — its own table, independent of the lateral slots. Indexed by SURFACE cell:
 # every radial layer of a column shares one frame, because the frame is a direction, not a position.
 var tan_a: PackedVector3Array = PackedVector3Array()       # surf_count : unit tangent axis A (face +a, projected)
 var tan_b: PackedVector3Array = PackedVector3Array()       # surf_count : unit tangent axis B = radial x tan_a
 # surf_count*4*2, indexed (surf*4 + lateral_slot)*2 — LATERAL SLOT ORDER, i.e. kernel slots 1..4 are l = 0..3.
 var link_tan: PackedFloat32Array = PackedFloat32Array()    # unit direction toward that neighbour, in MY (a,b)
 var link_rot: PackedFloat32Array = PackedFloat32Array()    # (cos, sin) transporting MY (a,b) into the NEIGHBOUR's
-# ANGULAR separation to each lateral neighbour, radians, one per surface cell per lateral slot. Multiply by a
-# cell's RADIUS to get the arc distance between the two cell centres — the lateral RUN of that link.
-#
-# It exists because a slope is a rise over a RUN, and this grid's run is not its cell size. The radial
-# thickness of a cell is exactly `cell_size`, but the lateral spacing is an arc that grows with radius and
-# shrinks toward a face corner, so on the shipped grid the width/height aspect ranges 1.07 to 4.08. Any kernel
-# comparing a height difference against a tangent — the angle of repose is the one that does — is asserting
-# cells are cubes, and holds sediment at 33 degrees at the shell floor and 10 degrees at the top instead of
-# the 35 the material actually stands at. Stored per SURFACE cell like the other two link tables, because the
-# angle depends only on the two directions; the radius scaling is the kernel's one multiply.
 var link_arc: PackedFloat32Array = PackedFloat32Array()    # radians between cell centres, per lateral slot
 
 
@@ -139,8 +75,10 @@ func _surf_idx(f: int, i: int, j: int) -> int:
 	return (f * res + i) * res + j
 
 
-## Build the grid + tables. res = cells per face edge, depth = radial layers.
-func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p_center: Vector3 = Vector3.ZERO) -> void:
+## Build the grid + tables. res = cells per face edge, depth = radial layers. `p_shell_dr`, when it carries
+## exactly `p_depth` positive entries, grades the shells and `p_cell_size` becomes their mean.
+func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p_center: Vector3 = Vector3.ZERO,
+		p_shell_dr: PackedFloat32Array = PackedFloat32Array()) -> void:
 	res = p_res
 	depth = p_depth
 	core_radius = p_core_radius
@@ -148,6 +86,7 @@ func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p
 	center = p_center
 	surf_count = FACES * res * res
 	cell_count = surf_count * depth
+	_build_shells(p_shell_dr)
 
 	# 1) Surface directions (cell CENTRES).
 	_dir.resize(surf_count)
@@ -157,6 +96,7 @@ func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p
 			for j in res:
 				var b: float = (float(j) + 0.5) / float(res) * 2.0 - 1.0
 				_dir[_surf_idx(f, i, j)] = _dir_at(f, a, b)
+	_build_omega()
 
 	# 2) Surface adjacency: in-face is direct; off-edge is the nearest surface cell on ANOTHER face to the
 	#    direction one step past the edge. Closed sphere → every cell has exactly 4 valid neighbours.
@@ -173,13 +113,14 @@ func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p
 				surf_nbr[s * 4 + S_B0] = _surf_idx(f, i, j - 1) if j > 0 else _seam(f, a, b - step)
 				surf_nbr[s * 4 + S_B1] = _surf_idx(f, i, j + 1) if j < res - 1 else _seam(f, a, b + step)
 
-	# 3) Turn that geometric adjacency into a SLOT-OPPOSITE-RECIPROCAL lateral pairing (see the header).
+	# 3) Turn that geometric adjacency into a SLOT-OPPOSITE-RECIPROCAL lateral pairing.
 	_build_back_slots()
 	_build_lateral_slots()
 
-	# 3b) The TANGENT FRAME. A different question from the pairing, so a different table (see the header).
+	# 3b) The TANGENT FRAME. A different question from the pairing, so a different table.
 	_build_tangent_basis()
 	_build_link_frames()
+	_build_face_areas()
 
 	# 4) Full per-cell 6-neighbour table (radial ± arithmetic + lateral via the reciprocal pairing, same layer).
 	neighbours.resize(cell_count * 6)
@@ -190,6 +131,261 @@ func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p
 			neighbours[c * 6 + N_OUT] = (c + 1) if r < depth - 1 else -1
 			for g in 4:
 				neighbours[c * 6 + N_A0 + lateral_slot[s * 4 + g]] = surf_nbr[s * 4 + g] * depth + r
+	_build_link_partner()
+
+
+## The radial tables. An empty or wrong-length profile is the UNIFORM grid, and its centres are formed by the
+## same expression the kernels used before this table existed, so a uniform build reproduces them exactly.
+func _build_shells(p_shell_dr: PackedFloat32Array) -> void:
+	shells_uniform = p_shell_dr.size() != depth
+	if not shells_uniform:
+		for r in depth:
+			if p_shell_dr[r] <= 0.0:
+				shells_uniform = true
+				break
+	shell_dr.resize(depth)
+	shell_mid.resize(depth)
+	shell_face.resize(depth + 1)
+	shell_d_out.resize(depth)
+	shell_d_in.resize(depth)
+	shell_vol.resize(depth)
+	shell_face[0] = core_radius
+	if shells_uniform:
+		for r in depth:
+			shell_dr[r] = cell_size
+			shell_mid[r] = core_radius + (float(r) + 0.5) * cell_size
+			shell_face[r + 1] = core_radius + float(r + 1) * cell_size
+			shell_d_out[r] = cell_size
+			shell_d_in[r] = cell_size
+	else:
+		var span: float = 0.0
+		for r in depth:
+			shell_dr[r] = p_shell_dr[r]
+			shell_face[r + 1] = shell_face[r] + p_shell_dr[r]
+			shell_mid[r] = shell_face[r] + p_shell_dr[r] * 0.5
+			span += p_shell_dr[r]
+		cell_size = span / float(depth)
+	for r in depth:
+		if not shells_uniform:
+			shell_d_out[r] = (shell_mid[r + 1] - shell_mid[r]) if r < depth - 1 else shell_dr[r]
+			shell_d_in[r] = (shell_mid[r] - shell_mid[r - 1]) if r > 0 else shell_dr[r]
+		var lo: float = shell_face[r]
+		var hi: float = shell_face[r + 1]
+		shell_vol[r] = (hi * hi * hi - lo * lo * lo) / 3.0
+
+
+## Solid angle subtended by the gnomonic quad [-1,1]^2 corner (a, b), Van Oosterom & Strackee.
+func _omega_corner(a: float, b: float) -> float:
+	return atan2(a * b, sqrt(1.0 + a * a + b * b))
+
+
+## Exact per-cell solid angle, and the cell volumes that follow from it. Sums to 4*pi over the six faces.
+func _build_omega() -> void:
+	surf_omega.resize(surf_count)
+	for f in FACES:
+		for i in res:
+			var a0: float = float(i) / float(res) * 2.0 - 1.0
+			var a1: float = float(i + 1) / float(res) * 2.0 - 1.0
+			for j in res:
+				var b0: float = float(j) / float(res) * 2.0 - 1.0
+				var b1: float = float(j + 1) / float(res) * 2.0 - 1.0
+				surf_omega[_surf_idx(f, i, j)] = _omega_corner(a1, b1) - _omega_corner(a0, b1) \
+					- _omega_corner(a1, b0) + _omega_corner(a0, b0)
+	_cell_vol.resize(cell_count)
+	for s in surf_count:
+		for r in depth:
+			_cell_vol[s * depth + r] = surf_omega[s] * shell_vol[r]
+
+
+## Volume of every cell, model units^3, as the kernels read it (kernels3d/cellvol.glsli, binding 40). The
+## channels are fill fractions, so a conserved substance is the sum of channel*volume, never the bare sum.
+func cell_volumes() -> PackedFloat32Array:
+	return _cell_vol
+
+
+## The four corner directions of surface cell `s`, in (a,b) order: (a0,b0), (a1,b0), (a0,b1), (a1,b1).
+func surf_corners(s: int) -> PackedVector3Array:
+	var per_face: int = res * res
+	var f: int = s / per_face
+	var i: int = (s % per_face) / res
+	var j: int = s % res
+	var a0: float = float(i) / float(res) * 2.0 - 1.0
+	var a1: float = float(i + 1) / float(res) * 2.0 - 1.0
+	var b0: float = float(j) / float(res) * 2.0 - 1.0
+	var b1: float = float(j + 1) / float(res) * 2.0 - 1.0
+	return PackedVector3Array([_dir_at(f, a0, b0), _dir_at(f, a1, b0),
+		_dir_at(f, a0, b1), _dir_at(f, a1, b1)])
+
+
+## Area of every cell face, model units^2, flat `cell*6 + slot` (kernels3d/facearea.glsli, binding 42). Radial
+## face = omega*r_face^2. A gnomonic edge is a great-circle arc, so its lateral face is planar through the
+## centre: gamma*(r_hi^2 - r_lo^2)/2. All six slots, including the two with no neighbour.
+func _build_face_areas() -> void:
+	surf_gamma.resize(surf_count * 4)
+	surf_gamma.fill(0.0)
+	for s in surf_count:
+		var k: PackedVector3Array = surf_corners(s)
+		# Geometric slot order S_A0, S_A1, S_B0, S_B1: the edges a=a0, a=a1, b=b0, b=b1.
+		var edge: PackedFloat32Array = PackedFloat32Array([
+			k[0].angle_to(k[2]), k[1].angle_to(k[3]), k[0].angle_to(k[1]), k[2].angle_to(k[3])])
+		for g in 4:
+			var l: int = lateral_slot[s * 4 + g]
+			if l >= 0 and l < 4:
+				surf_gamma[s * 4 + l] = edge[g]
+	_face_area.resize(cell_count * 6)
+	for s in surf_count:
+		var om: float = surf_omega[s]
+		for r in depth:
+			var c: int = s * depth + r
+			var lo: float = shell_face[r]
+			var hi: float = shell_face[r + 1]
+			_face_area[c * 6 + N_IN] = om * lo * lo
+			_face_area[c * 6 + N_OUT] = om * hi * hi
+			var band: float = (hi * hi - lo * lo) * 0.5
+			for l in 4:
+				_face_area[c * 6 + N_A0 + l] = surf_gamma[s * 4 + l] * band
+
+
+func face_areas() -> PackedFloat32Array:
+	return _face_area
+
+
+## Face-area self-check: a shared face equal from both ends (partner slot looked up, never computed), a
+## shell's radial faces summing to 4*pi*r^2, and V = (A_out*r_hi - A_in*r_lo)/3 reproducing `cell_volumes()`.
+## Lateral faces drop out of that last identity — their planes hold the centre.
+func validate_face_areas() -> Dictionary:
+	if _face_area.size() != cell_count * 6:
+		return {"ok": false, "sized": false, "reciprocity_rel": INF, "shell_close_rel": INF,
+			"volume_rel": INF, "area_min": 0.0}
+	var recip: float = 0.0
+	var area_min: float = INF
+	for c in cell_count:
+		for d in 6:
+			var a: float = _face_area[c * 6 + d]
+			area_min = minf(area_min, a)
+			var p: int = link_partner[c * 6 + d]
+			if p < 0:
+				continue
+			recip = maxf(recip, absf(a - _face_area[p]) / maxf(absf(a), 1e-30))
+	var shell_rel: float = 0.0
+	for r in depth:
+		var in_sum: float = 0.0
+		var out_sum: float = 0.0
+		for s in surf_count:
+			var c2: int = s * depth + r
+			in_sum += _face_area[c2 * 6 + N_IN]
+			out_sum += _face_area[c2 * 6 + N_OUT]
+		var want_out: float = 4.0 * PI * shell_face[r + 1] * shell_face[r + 1]
+		var want_in: float = 4.0 * PI * shell_face[r] * shell_face[r]
+		shell_rel = maxf(shell_rel, absf(out_sum - want_out) / maxf(want_out, 1e-30))
+		if want_in > 0.0:
+			shell_rel = maxf(shell_rel, absf(in_sum - want_in) / want_in)
+	var vol_rel: float = 0.0
+	for s in surf_count:
+		for r in depth:
+			var c3: int = s * depth + r
+			var v: float = (_face_area[c3 * 6 + N_OUT] * shell_face[r + 1]
+				- _face_area[c3 * 6 + N_IN] * shell_face[r]) / 3.0
+			vol_rel = maxf(vol_rel, absf(v - _cell_vol[c3]) / maxf(_cell_vol[c3], 1e-30))
+	return {
+		"ok": recip < 1e-5 and shell_rel < 1e-5 and vol_rel < 1e-4 and area_min > 0.0,
+		"sized": true, "reciprocity_rel": recip, "shell_close_rel": shell_rel,
+		"volume_rel": vol_rel, "area_min": area_min,
+	}
+
+
+## Is the corner set the lateral arcs are measured between this cell's OWN quad, in (a,b) order? Corner 0->1
+## must run along `tan_a` and 0->2 along `tan_b` (a sign), and the quad must surround the cell centre
+## (`centre_rel` is that offset in units of the cell's own angular size, so 1 is a whole cell away).
+func validate_corners() -> Dictionary:
+	var bad_axis: int = 0
+	var centre_rel: float = 0.0
+	for s in surf_count:
+		var k: PackedVector3Array = surf_corners(s)
+		var ea: Vector3 = k[1] - k[0]
+		var eb: Vector3 = k[2] - k[0]
+		if ea.dot(tan_a[s]) <= absf(ea.dot(tan_b[s])) or eb.dot(tan_b[s]) <= absf(eb.dot(tan_a[s])):
+			bad_axis += 1
+		var mid: Vector3 = (k[0] + k[1] + k[2] + k[3]).normalized()
+		centre_rel = maxf(centre_rel, mid.angle_to(_dir[s]) / sqrt(maxf(surf_omega[s], 1e-30)))
+	return {"axis_violations": bad_axis, "centre_rel": centre_rel}
+
+
+## Thinnest (`want_max` false) or thickest shell in the table.
+func _dr_extreme(want_max: bool) -> float:
+	if depth <= 0:
+		return 0.0
+	var best: float = shell_dr[0]
+	for r in depth:
+		best = maxf(best, shell_dr[r]) if want_max else minf(best, shell_dr[r])
+	return best
+
+
+## Total radial span of the shell, from the core boundary to space.
+func shell_span() -> float:
+	return shell_face[depth] - core_radius if depth > 0 else 0.0
+
+
+## Radial layer containing `radius`, or -1 outside the shell. Boundary search, so it answers a graded profile
+## and a uniform one the same way.
+func shell_of(radius: float) -> int:
+	if depth <= 0 or radius < shell_face[0] or radius >= shell_face[depth]:
+		return -1
+	var lo: int = 0
+	var hi: int = depth - 1
+	while lo < hi:
+		var mid: int = (lo + hi + 1) / 2
+		if radius >= shell_face[mid]:
+			lo = mid
+		else:
+			hi = mid - 1
+	return lo
+
+
+## Nearest shell BOUNDARY index to `radius`, 0..depth. A different question from `shell_of`, which answers
+## which cell contains the radius; a water LEVEL is a face, a cell index is not.
+func face_of(radius: float) -> int:
+	if depth <= 0:
+		return 0
+	var best: int = 0
+	var best_d: float = absf(shell_face[0] - radius)
+	for i in range(1, depth + 1):
+		var d: float = absf(shell_face[i] - radius)
+		if d < best_d:
+			best_d = d
+			best = i
+	return best
+
+
+## The shell table flattened for the GPU: `SHELL_STRIDE` floats per shell, in `shell.glsli`'s field order.
+func shell_table() -> PackedFloat32Array:
+	var out: PackedFloat32Array = PackedFloat32Array()
+	out.resize(depth * 4)
+	for r in depth:
+		out[r * 4 + 0] = shell_dr[r]
+		out[r * 4 + 1] = shell_mid[r]
+		out[r * 4 + 2] = shell_d_out[r]
+		out[r * 4 + 3] = shell_d_in[r]
+	return out
+
+
+## Resolve each link to the flat slot index that answers it. Derived, never assumed: it searches the
+## neighbour's own six slots for the one pointing back, so a table that is not reciprocal yields -1 here and
+## `validate()` reports it rather than a kernel silently reading someone else's flux.
+func _build_link_partner() -> void:
+	link_partner.resize(cell_count * 6)
+	for c in cell_count:
+		for d in 6:
+			var m: int = neighbours[c * 6 + d]
+			if m < 0:
+				link_partner[c * 6 + d] = -1
+				continue
+			var found: int = -1
+			for e in 6:
+				if neighbours[m * 6 + e] == c:
+					found = m * 6 + e
+					break
+			link_partner[c * 6 + d] = found
 
 
 ## The surf cell on any OTHER face whose direction is nearest to the off-edge step direction on face `f`.
@@ -206,10 +402,6 @@ func _seam(f: int, a_local: float, b_local: float) -> int:
 			best = k
 	return best
 
-
-# ---------------------------------------------------------------------------------------------------------
-# Reciprocal lateral pairing. Seeded from the geometry, repaired only where the geometry contradicts itself.
-# ---------------------------------------------------------------------------------------------------------
 
 ## For every surface link (s, geometric slot g), the slot the PARTNER uses to point back at s. -1 if the stitch
 ## failed to produce a mutual link (should never happen on a closed sphere; `validate().symmetric` reports it).
@@ -298,10 +490,6 @@ func _repair_pairs(fam: PackedInt32Array) -> int:
 	return flips
 
 
-## Stage 2 — general alternating-path repair, needed when the seam column has ODD length (odd `res`), where
-## pairing cells off along the column always strands one. Walks an alternating path (remove an A link, add an
-## A link, remove, …) from an unbalanced cell to another one: every cell in the MIDDLE of such a path loses and
-## gains one A link, so only the two ENDS change, and both change toward balance.
 func _repair_augment(fam: PackedInt32Array) -> int:
 	var flips: int = 0
 	var rounds: int = 0
@@ -440,10 +628,6 @@ func _build_lateral_slots() -> void:
 # TANGENT FRAME + per-link direction/rotation. Built from the FACE geometry, never from the lateral slots.
 # ---------------------------------------------------------------------------------------------------------
 
-## Per-cell orthonormal tangent frame. `tan_a` is the face's +a axis projected into the cell's tangent plane —
-## on a cube face `|_FACE_R · dir|` never exceeds 1/sqrt(3), so the projection can never degenerate. `tan_b` is
-## then `radial × tan_a`, which forces `tan_a × tan_b == radial` at EVERY cell: the frame is right-handed by
-## construction, on all six faces, with no dependence on how the lateral links happened to be paired or walked.
 func _build_tangent_basis() -> void:
 	tan_a.resize(surf_count)
 	tan_b.resize(surf_count)
@@ -467,10 +651,6 @@ func _transport(v: Vector3, n_from: Vector3, n_to: Vector3) -> Vector3:
 	return v.rotated(axis / alen, atan2(alen, n_from.dot(n_to)))
 
 
-## For every lateral link: the direction toward the neighbour in MY frame, and the rotation into ITS frame.
-## Indexed by LATERAL SLOT (`lateral_slot`, i.e. kernel slots 1..4 as l = 0..3) so a kernel that has a slot in
-## hand can read them without a second indirection. Both are functions of the two cells' directions only, so
-## they are identical for every radial layer of a column and stored once per SURFACE cell.
 func _build_link_frames() -> void:
 	link_tan.resize(surf_count * 8)
 	link_rot.resize(surf_count * 8)
@@ -544,23 +724,23 @@ func surf_dir(s: int) -> Vector3:
 func cell_world_pos(c: int) -> Vector3:
 	var s: int = c / depth
 	var r: int = c % depth
-	return center + _dir[s] * (core_radius + (float(r) + 0.5) * cell_size)
+	return center + _dir[s] * shell_mid[r]
 
 ## Outward radial unit at a cell (its surface direction) — used by the GPU for per-cell solar + gravity.
 func cell_radial(c: int) -> Vector3:
 	return _dir[c / depth]
 
 
-## WORLD → nearest cell (the cubed-sphere replacement for the box grid's `_col_i`/`_idx`). O(1): inverse
-## gnomonic picks the face by the dominant axis, projects to face-local (a,b) → (i,j); the radius picks the
-## radial layer. Returns -1 if the point is outside the shell [core_radius, core_radius+depth*cell_size].
+## WORLD → nearest cell (the cubed-sphere replacement for the box grid's `_col_i`/`_idx`). Inverse gnomonic
+## picks the face by the dominant axis, projects to face-local (a,b) → (i,j); `shell_of` picks the radial
+## layer. Returns -1 if the point is outside the shell.
 func world_to_cell(world_pos: Vector3) -> int:
 	var rel: Vector3 = world_pos - center
 	var radius: float = rel.length()
 	if radius < 0.0001:
 		return -1
-	var rr: int = int(floor((radius - core_radius) / cell_size))
-	if rr < 0 or rr >= depth:
+	var rr: int = shell_of(radius)
+	if rr < 0:
 		return -1
 	var dir: Vector3 = rel / radius
 	var f: int = _face_of(dir)
@@ -588,38 +768,6 @@ func _face_of(dir: Vector3) -> int:
 	return 4 if dir.z >= 0.0 else 5
 
 
-## Neighbour table packed in the GPU KERNEL slot order (matches the water/lava/slump send convention):
-## slot 0=inward/down, 1-4=lateral, 5=outward/up. (Internal table order is [IN,OUT,A0,A1,B0,B1].) The kernels'
-## opposite pairs (0↔5, 1↔2, 3↔4) map exactly onto the internal `d ^ 1` pairs, so the reciprocity guaranteed by
-## `validate().reciprocal` carries over to this packing unchanged.
-func neighbours_kernel_order() -> PackedInt32Array:
-	var out: PackedInt32Array = PackedInt32Array()
-	out.resize(cell_count * 6)
-	for c in cell_count:
-		var b: int = c * 6
-		out[b + 0] = neighbours[b + N_IN]
-		out[b + 1] = neighbours[b + N_A0]
-		out[b + 2] = neighbours[b + N_A1]
-		out[b + 3] = neighbours[b + N_B0]
-		out[b + 4] = neighbours[b + N_B1]
-		out[b + 5] = neighbours[b + N_OUT]
-	return out
-
-
-## Self-validation of the seam table. Returns {ok, reciprocal, non_reciprocal, symmetric, closed, min_dot,
-## max_dot, lateral_bends, errors}.
-##
-## reciprocal = SLOT-OPPOSITE reciprocity over the full cell table: `nbr[c*6+d] == m ⟹ nbr[m*6+(d^1)] == c`.
-## This is the real contract — every 2-pass gather kernel credits its inflow from `send[m*6 + OPPOSITE(d)]`, so
-## a link sitting in any other slot destroys mass at that seam (the send slot is written and never read) and
-## duplicates it at another (read twice). Reciprocity implies BOTH of those counts are zero, because it makes
-## `(c,d) ↦ (m,d^1)` an involution on the valid links: every written send slot has exactly one reader.
-##
-## symmetric = the weaker set-level property (A lists B ⟹ B lists A SOMEWHERE). It is kept because it isolates
-## a genuine stitch failure from a mere slot-assignment failure, but on its own it proves nothing about mass —
-## it was true, and reported ok, throughout the years this table was silently leaking at 1.4% of its links.
-## closed = every surface neighbour index is in range. min/max_dot = alignment of adjacent cell directions
-## (near 1.0 everywhere = a smooth, seam-free surface). `ok` requires ALL of closed, symmetric and reciprocal.
 func validate() -> Dictionary:
 	var errors: int = 0
 	var closed: bool = true
@@ -655,16 +803,19 @@ func validate() -> Dictionary:
 			if neighbours[m * 6 + (d2 ^ 1)] != c:
 				non_recip += 1
 	errors += non_recip
-	# TANGENT FRAME (a separate table, and a separate contract — see the header). `handed_min` is the worst
-	# `(tan_a × tan_b) · radial` over every cell: it must be +1, because Coriolis rotates that pair and a cell
-	# where it is -1 deflects backwards. `face_handed_min` is the same test on the six raw face bases, checked
-	# rather than asserted, since the per-cell frame inherits its sign from them.
 	var handed_min: float = 2.0
 	for s in surf_count:
 		handed_min = minf(handed_min, tan_a[s].cross(tan_b[s]).dot(_dir[s]))
 	var face_handed_min: float = 2.0
 	for f in FACES:
 		face_handed_min = minf(face_handed_min, _FACE_R[f].cross(_FACE_U[f]).dot(_FACE_N[f]))
+	var omega_total: float = 0.0
+	var omega_min: float = INF
+	var omega_max: float = 0.0
+	for s in surf_count:
+		omega_total += surf_omega[s]
+		omega_min = minf(omega_min, surf_omega[s])
+		omega_max = maxf(omega_max, surf_omega[s])
 	if handed_min < 0.999:
 		errors += 1
 	return {
@@ -672,6 +823,9 @@ func validate() -> Dictionary:
 		"closed": closed, "symmetric": symmetric, "errors": errors,
 		"reciprocal": non_recip == 0, "non_reciprocal": non_recip, "lateral_bends": lateral_bends,
 		"surf_count": surf_count, "cell_count": cell_count,
+		"shells_uniform": shells_uniform, "shell_span": shell_span(),
+		"shell_dr_min": _dr_extreme(false), "shell_dr_max": _dr_extreme(true),
 		"min_adj_dot": min_dot, "max_adj_dot": max_dot,
 		"tangent_handed_min": handed_min, "face_handed_min": face_handed_min,
+		"omega_total": omega_total, "omega_min": omega_min, "omega_max": omega_max,
 	}

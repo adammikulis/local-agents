@@ -1,0 +1,127 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelPauseMenu.gd" id="1_pausemenu"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/PauseSettingsPanel.gd" id="2_pausesettings"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_pausepanel"]
+content_margin_left = 28.0
+content_margin_top = 28.0
+content_margin_right = 28.0
+content_margin_bottom = 28.0
+bg_color = Color(0.06, 0.08, 0.12, 0.96)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.55, 0.72, 1, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[node name="PauseMenu" type="CanvasLayer"]
+process_mode = 3
+visible = false
+layer = 128
+script = ExtResource("1_pausemenu")
+
+[node name="Dim" type="ColorRect" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0, 0, 0.02, 0.62)
+
+[node name="Center" type="CenterContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="Panel" type="PanelContainer" parent="Center"]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_pausepanel")
+
+[node name="VBox" type="VBoxContainer" parent="Center/Panel"]
+custom_minimum_size = Vector2(280, 0)
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="Center/Panel/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.72, 1, 1)
+theme_override_font_sizes/font_size = 32
+text = "Paused"
+horizontal_alignment = 1
+
+[node name="Resume" type="Button" parent="Center/Panel/VBox"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Resume game"
+
+[node name="Settings" type="VBoxContainer" parent="Center/Panel/VBox"]
+layout_mode = 2
+script = ExtResource("2_pausesettings")
+
+[node name="Sep" type="HSeparator" parent="Center/Panel/VBox"]
+layout_mode = 2
+
+[node name="SpeedLabel" type="Label" parent="Center/Panel/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.8, 0.9, 1)
+text = "Time speed"
+horizontal_alignment = 1
+
+[node name="SpeedRow" type="HBoxContainer" parent="Center/Panel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+alignment = 1
+
+[node name="Speed1" type="Button" parent="Center/Panel/VBox/SpeedRow"]
+custom_minimum_size = Vector2(44, 34)
+layout_mode = 2
+toggle_mode = true
+button_pressed = true
+text = "1x"
+
+[node name="Speed2" type="Button" parent="Center/Panel/VBox/SpeedRow"]
+custom_minimum_size = Vector2(44, 34)
+layout_mode = 2
+toggle_mode = true
+text = "2x"
+
+[node name="Speed4" type="Button" parent="Center/Panel/VBox/SpeedRow"]
+custom_minimum_size = Vector2(44, 34)
+layout_mode = 2
+toggle_mode = true
+text = "4x"
+
+[node name="Speed8" type="Button" parent="Center/Panel/VBox/SpeedRow"]
+custom_minimum_size = Vector2(44, 34)
+layout_mode = 2
+toggle_mode = true
+text = "8x"
+
+[node name="Speed16" type="Button" parent="Center/Panel/VBox/SpeedRow"]
+custom_minimum_size = Vector2(44, 34)
+layout_mode = 2
+toggle_mode = true
+text = "16x"
+
+[node name="Save" type="Button" parent="Center/Panel/VBox"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Save game"
+
+[node name="SaveStatus" type="Label" parent="Center/Panel/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.85, 0.7, 1)
+theme_override_font_sizes/font_size = 13
+horizontal_alignment = 1
+
+[node name="Help" type="Button" parent="Center/Panel/VBox"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Controls & help"
+
+[node name="Quit" type="Button" parent="Center/Panel/VBox"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Quit game"

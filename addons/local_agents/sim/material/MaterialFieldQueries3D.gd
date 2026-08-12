@@ -1,25 +1,41 @@
 class_name LAMaterialFieldQueries3D
 extends RefCounted
 
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
 ## LAMaterialFieldQueries3D: the READ-ONLY query accessors of the dense 3D MaterialField3D, factored
 
-# Salinity banding (depth-of-sea proxy) — own copies of the field's constants so fish behave identically.
+# Basin depth (world units) mapped to a 0..1 salinity band. NOT a simulated solute.
 const SALT_FULL_DEPTH: float = 22.0
 const BRACKISH_FLOOR: float = 0.35
-# activity_sphere3d.glsl:95", which made a gauge's reporting floor look like a copy of a substrate rule bound
-const DUST_PRESENT: float = 0.001
-const MOLTEN_MIN: float = 0.0001
+const DUST_PRESENT: float = 0.001      # gauge floor: airborne dust mass per cell
+const MOLTEN_MIN: float = 0.0001       # gauge floor: lava mass per cell
+const FIRE_PRESENT: float = 0.02       # gauge floor: fraction of a cell's usable O2 burned this step
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
-const FIRE_PRESENT: float = 0.02
 var _molten_step: int = -1
 var _molten_magma: int = 0
 var _molten_lava: int = 0
+var _molten_live: bool = false
+var _fire_step: int = -1
+var _fire_max: float = 0.0
+var _fire_count: int = 0
+var _fire_live: bool = false
 
 
 func setup(field) -> void:
 	_f = field
+
+
+## True when `name`'s readback landed on the most recent GPU drain, so the CPU mirror is current. A
+## demand-gated channel (LAMaterialSphereGPU3D.SITUATIONAL_CHANNELS) is absent from any drain nobody asked
+## for, and its mirror then holds a stale or never-written zero.
+func _mirror_live(name: String) -> bool:
+	if _f == null or _f._gpu == null:
+		return false
+	var got = _f._gpu._cached.get(name, null)
+	return got is PackedFloat32Array and got.size() == _f._cell_count
 
 
 # --- Cell resolver (world -> linear cell) ------------------------------------
@@ -108,10 +124,7 @@ func water_force_at(pos: Vector3) -> Vector3:
 
 
 func total_water() -> float:
-	var s: float = 0.0
-	for i in range(_f._cell_count):
-		s += _f._water[i]
-	return s
+	return CellVolScript.weighted(_f._water, CellVolScript.of(_f), _f._solid, false)
 
 
 # --- Temperature query -------------------------------------------------------
@@ -299,7 +312,6 @@ func updraft_at(pos: Vector3) -> float:
 
 
 # --- Emergent WIND as a real momentum/force (read back from the GPU velocity field) ------------------
-# [IN, OUT, A0, A1, B0, B1], not the kernel packing [in, -a, +a, -b, +b, out] those indices assumed, so slot 1
 
 ## Full LOCAL 3D wind velocity (world-space) at a world point. Vector3.ZERO outside the shell / before readback.
 func wind3_at(x: float, y: float, z: float) -> Vector3:
@@ -344,56 +356,47 @@ func wind() -> Vector2:
 	return Vector2(sx / float(n), sz / float(n))
 
 
-# --- MINERAL conservation ledger (rock unification) — ONE conserved mineral, phases summed in one mass unit ----
+# --- MINERAL: airborne dust opacity + the molten phase ------------------------------------------------
+# The mineral conservation totals (rock_fill/sediment/susp/dust/mineral) live in
+# LAMaterialFieldMineralBudget3D — one probe-read pass, both masks, and the drift.
 
-func sediment_total() -> float:
-	if _f._sediment.size() != _f._cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		sum += _f._sediment[c]
-	return sum
-
-func dust_total() -> float:
-	if _f._dust.size() != _f._cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		sum += _f._dust[c]
-	return sum
-
+## Volume-mean airborne dust — the opacity LASystemOrbits turns into insolation. A PHYSICAL consumer of the
+## dust mirror, not a gauge, so it keeps its own channel resident.
 func avg_atmos_dust() -> float:
 	if _f._cell_count <= 0:
 		return 0.0
-	# Impact winter is a real consumer of the dust mirror, so it keeps its own channel hot. Without this the
 	if _f._gpu != null and _f._gpu.has_method("request_channel"):
 		_f._gpu.request_channel("dust")
-	return dust_total() / float(_f._cell_count)
-
-
-
-
-## Molten rock (lava) over ALL cells — the "molten" phase. Summed everywhere (not just open cells) because add_lava
-## can inject lava into a still-solid vent and lava lingers the instant a cell crosses to derived-solid; excluding
-## those would leak the ledger. Lava physically exists wherever its mass is, regardless of the derived `solid` flag.
-func lava_total() -> float:
-	if _f._lava.size() != _f._cell_count:
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if vol.size() != _f._cell_count or _f._dust.size() != _f._cell_count:
 		return 0.0
-	var sum: float = 0.0
+	var mass: float = 0.0
+	var span: float = 0.0
 	for c in _f._cell_count:
-		sum += _f._lava[c]
-	return sum
+		var w: float = vol[c]
+		mass += _f._dust[c] * w
+		span += w
+	return mass / span if span > 0.0 else 0.0
 
 
+## Molten rock (lava) over ALL cells — mask-free: add_lava injects into a still-solid vent, and lava lingers
+## the instant a cell crosses to derived-solid, so an open-only sum would drop mass that physically exists.
+func lava_total() -> float:
+	return CellVolScript.weighted(_f._lava, CellVolScript.of(_f), _f._solid, false)
+
+
+## magma_cells / lava_cells, plus `molten_live`: whether the demand-gated `lava` readback landed on the last
+## drain. Without it a zero here cannot be told from a channel that never arrived.
 func molten_counts() -> Dictionary:
 	var step: int = _f._gpu._step_index if _f._gpu != null else -1
 	if step >= 0 and step == _molten_step:
-		return {"magma_cells": _molten_magma, "lava_cells": _molten_lava}
+		return {"magma_cells": _molten_magma, "lava_cells": _molten_lava, "molten_live": _molten_live}
 	_molten_magma = 0
 	_molten_lava = 0
 	_molten_step = step
-	if _f._lava.size() != _f._cell_count or _f._solid.size() != _f._cell_count:
-		return {"magma_cells": 0, "lava_cells": 0}
+	_molten_live = _mirror_live("lava")
+	if not _molten_live or _f._lava.size() != _f._cell_count or _f._solid.size() != _f._cell_count:
+		return {"magma_cells": 0, "lava_cells": 0, "molten_live": _molten_live}
 	for c in _f._cell_count:
 		if _f._lava[c] < MOLTEN_MIN:
 			continue
@@ -401,7 +404,7 @@ func molten_counts() -> Dictionary:
 			_molten_magma += 1          # confined by rock — magma
 		else:
 			_molten_lava += 1           # out in the open — lava
-	return {"magma_cells": _molten_magma, "lava_cells": _molten_lava}
+	return {"magma_cells": _molten_magma, "lava_cells": _molten_lava, "molten_live": _molten_live}
 
 
 ## Cells holding melt that has NOT reached open ground — magma.
@@ -418,8 +421,8 @@ func lava_cell_count() -> int:
 func magma_erupting() -> bool:
 	return int(molten_counts()["lava_cells"]) > 0
 
-## Derived-solid (bedrock) cell count — a display/diagnostic (cells whose derived solid flag is set). NOT the mineral
-## mass baseline anymore: Stage B made bedrock a FRACTIONAL channel (rock_fill), so the mass baseline is rock_fill_total().
+## Derived-solid (bedrock) cell count — cells whose derived solid flag is set. Not a mass: bedrock is the
+## fractional `rock_fill` channel, whose mass total LAMaterialFieldMineralBudget3D publishes.
 func rock_cells() -> int:
 	var n: int = 0
 	for c in _f._cell_count:
@@ -427,68 +430,41 @@ func rock_cells() -> int:
 			n += 1
 	return n
 
-## Fractional BEDROCK mineral mass over ALL cells — the authoritative "bedrock" phase. Seeded 1.0 per solid cell (so
-## the initial value == the old rock_cells() baseline), then conservingly traded with lava by M5 solidify (lava→rock),
-## M6 melt and add_lava (rock→lava). Replaces the binary quantum so the solid boundary conserves continuously.
-func rock_fill_total() -> float:
-	if _f._rock_fill.size() != _f._cell_count:
-		return 0.0
-	var sum: float = 0.0
+
+# --- Combustion FIRE diagnostics -----------------------------------------------------------------------
+# The fuel totals live in LAMaterialFieldElementInventory3D: `fuel_all` mask-free, `fuel_open_total` masked.
+
+## Peak burning intensity, burning-cell count, and `fire_live`: whether the demand-gated `fire` readback
+## landed on the last drain. One walk, cached per field step.
+func fire_stats() -> Dictionary:
+	var step: int = _f._gpu._step_index if _f._gpu != null else -1
+	if step >= 0 and step == _fire_step:
+		return {"fire_peak": _fire_max, "fire_cells": _fire_count, "fire_live": _fire_live}
+	_fire_step = step
+	_fire_max = 0.0
+	_fire_count = 0
+	_fire_live = _mirror_live("fire")
+	if not _fire_live or _f._fire.size() != _f._cell_count:
+		return {"fire_peak": 0.0, "fire_cells": 0, "fire_live": _fire_live}
 	for c in _f._cell_count:
-		sum += _f._rock_fill[c]
-	return sum
-
-## Waterborne SUSPENDED sediment over open cells — the "suspended" mineral phase. LIVE as of Stage D: erosion
-## pickup scours bedrock into it and M3 SETTLE drops it back to loose sediment, so it now carries real transient
-## mass mid-transport and MUST be counted or the ledger under-reports (rock_fill dropped, susp uncounted).
-func susp_total() -> float:
-	if _f._susp.size() != _f._cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		sum += _f._susp[c]
-	return sum
-
-func mineral_total() -> float:
-	return rock_fill_total() + lava_total() + sediment_total() + dust_total() + susp_total()
+		var v: float = _f._fire[c]
+		if v > _fire_max:
+			_fire_max = v
+		if v > FIRE_PRESENT:
+			_fire_count += 1
+	return {"fire_peak": _fire_max, "fire_cells": _fire_count, "fire_live": _fire_live}
 
 
-# --- Combustion FUEL / FIRE diagnostics (read the seeded + GPU-consumed fuel channel and the fire channel) ----
-
-## Total flammable fuel mass over every open cell — >0 once seeded; DROPS as a fire burns it to ash, recovers
-## as biomass regrows it (the fuel seed module's refill). The spot check that combustion has fuel to ignite.
-func fuel_total() -> float:
-	if _f._fuel.size() != _f._cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		if _f._solid[c] == 0:
-			sum += _f._fuel[c]
-	return sum
-
-## Peak burning intensity over the field (0 = nothing on fire; up to ~1 for a raging cell). >0 proves ignition.
 func fire_peak() -> float:
-	if _f._fire.size() != _f._cell_count:
-		return 0.0
-	var m: float = 0.0
-	for c in _f._cell_count:
-		if _f._fire[c] > m:
-			m = _f._fire[c]
-	return m
+	return float(fire_stats()["fire_peak"])
 
-## Count of cells currently burning (fire intensity over the kernel's FIRE_MIN ignition floor).
+
 func fire_cells() -> int:
-	if _f._fire.size() != _f._cell_count:
-		return 0
-	var n: int = 0
-	for c in _f._cell_count:
-		if _f._fire[c] > FIRE_PRESENT:
-			n += 1
-	return n
+	return int(fire_stats()["fire_cells"])
 
 
 func is_burning(node) -> bool:
-	if node == null or _f._fire.size() != _f._cell_count:
+	if node == null or not _mirror_live("fire") or _f._fire.size() != _f._cell_count:
 		return false
 	var c: int = _f.world_to_cell(node.global_position)
 	return c >= 0 and _f._fire[c] > FIRE_PRESENT
@@ -497,7 +473,11 @@ func is_burning(node) -> bool:
 # --- LAVA-TUBE / HOLLOW signature -------------------------------------------
 const TUBE_LAVA_NEAR_ZERO: float = 0.05
 
+## Open cells walled in by rock and NOT still lava-filled — a drained tube. Reads `lava`, so it returns 0
+## when that channel did not arrive; `molten_live` in the same report says which zero this is.
 func enclosed_void_cells(min_solid_nbr: int = 4) -> int:
+	if not _mirror_live("lava"):
+		return 0
 	if _f._sphere == null or _f._solid.size() != _f._cell_count or _f._lava.size() != _f._cell_count:
 		return 0
 	var nbr: PackedInt32Array = _f._sphere.neighbours
@@ -540,63 +520,63 @@ func fertility_peak() -> float:
 	return m
 
 
-# --- SEA ICE — emergent frozen sea surface (polar caps / winter sea ice) --------------------------------------
+# --- SEA SURFACE — the free water surface, frozen and open ---------------------------------------------
 
-## True if linear cell `c` is the topmost layer of the static sea (the freezable sea surface).
+## True when cell `c` holds water and the cell just outward is open and dry — the free water surface, where
+## ice forms. Testing `_solid[c + 1] == 0` alone admits every open cell not capped by rock: the whole ocean
+## column and the whole atmosphere.
 func _is_sea_surface(c: int, depth: int) -> bool:
-	if _f._solid[c] != 0:
+	if _f._solid[c] != 0 or _f._water[c] < _f.MIN_MASS:
 		return false
 	var r: int = c % depth
 	if r == depth - 1:
-		return true                                   # outermost shell — nothing above it
-	return _f._solid[c + 1] == 0                      # the cell just outward is air → this is the surface
+		return true                                   # outermost shell — open sky above
+	return _f._solid[c + 1] == 0 and _f._water[c + 1] < _f.MIN_MASS
 
-## Count of sea-surface cells frozen over (snow/ice depth past SNOW_PRESENT) — the emergent sea-ice extent.
-func sea_ice_cell_count() -> int:
-	if not _f.is_sphere() or _f._dim_y <= 0 or _f._snow.size() != _f._cell_count:
-		return 0
+## Frozen extent and the MEDIAN temperature of the frozen and open halves of the sea surface, in one walk.
+## Median, not mean: a handful of undersea-vent cells at hundreds of °C moves a mean and cannot move a
+## median, so no cell has to be excluded to keep the number readable.
+func sea_surface_stats() -> Dictionary:
+	var out: Dictionary = {"sea_ice_cells": 0, "sea_ice_temp": 0.0, "open_sea_cells": 0, "open_sea_temp": 0.0}
+	if not _f.is_sphere() or _f._dim_y <= 0:
+		return out
+	if _f._snow.size() != _f._cell_count or _f._temp.size() != _f._cell_count or _f._water.size() != _f._cell_count:
+		return out
 	var depth: int = _f._dim_y
-	var n: int = 0
+	var frozen: PackedFloat32Array = PackedFloat32Array()
+	var open: PackedFloat32Array = PackedFloat32Array()
 	for c in _f._cell_count:
-		if _is_sea_surface(c, depth) and _f._snow[c] > _f.SNOW_PRESENT:
-			n += 1
-	return n
+		if not _is_sea_surface(c, depth):
+			continue
+		if _f._snow[c] > _f.SNOW_PRESENT:
+			frozen.append(_f._temp[c])
+		else:
+			open.append(_f._temp[c])
+	out["sea_ice_cells"] = frozen.size()
+	out["sea_ice_temp"] = _median(frozen)
+	out["open_sea_cells"] = open.size()
+	out["open_sea_temp"] = _median(open)
+	return out
 
-## Mean temperature of the FROZEN sea-surface cells — should read below the freeze threshold (proves cold-driven).
-func sea_ice_temp_avg() -> float:
-	if not _f.is_sphere() or _f._dim_y <= 0 or _f._snow.size() != _f._cell_count:
+
+func _median(v: PackedFloat32Array) -> float:
+	if v.is_empty():
 		return 0.0
-	var depth: int = _f._dim_y
-	var sum: float = 0.0
-	var n: int = 0
-	for c in _f._cell_count:
-		if _is_sea_surface(c, depth) and _f._snow[c] > _f.SNOW_PRESENT:
-			sum += _f._temp[c]
-			n += 1
-	return sum / float(n) if n > 0 else 0.0
+	v.sort()
+	return snappedf(v[v.size() / 2], 0.1)
 
-## Mean temperature of the OPEN (unfrozen) sea-surface cells — should read ABOVE the frozen mean (warm sea stays
-## liquid). Together with sea_ice_temp_avg this shows ice tracks temperature, not latitude. Excludes lava/geothermal
-## anomalies (a handful of undersea-vent cells at hundreds of °C would otherwise swamp the mean).
-const OPEN_SEA_TEMP_CAP: float = 100.0   # ignore boiling-hot vent cells — not representative open water
-func open_sea_temp_avg() -> float:
-	if not _f.is_sphere() or _f._dim_y <= 0 or _f._snow.size() != _f._cell_count:
-		return 0.0
-	var depth: int = _f._dim_y
-	var sum: float = 0.0
-	var n: int = 0
-	for c in _f._cell_count:
-		if _is_sea_surface(c, depth) and _f._snow[c] <= _f.SNOW_PRESENT and _f._temp[c] < OPEN_SEA_TEMP_CAP:
-			sum += _f._temp[c]
-			n += 1
-	return sum / float(n) if n > 0 else 0.0
+
+## Lava body/rind split. Reads `lava`, so it returns zeros when that channel did not arrive; `molten_live`
+## in the same report says which zero this is.
 func lava_shell_diag() -> Dictionary:
+	if not _mirror_live("lava"):
+		return {"lava_hot": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
 	if _f._sphere == null or _f._solid.size() != _f._cell_count or _f._lava.size() != _f._cell_count:
-		return {"lava_live": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
+		return {"lava_hot": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
 	var nbr: PackedInt32Array = _f._sphere.neighbours
 	if nbr.size() != _f._cell_count * 6:
-		return {"lava_live": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
-	var live: int = 0
+		return {"lava_hot": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
+	var hot: int = 0
 	var interior: int = 0
 	var rind: int = 0
 	var int_sum: float = 0.0
@@ -607,11 +587,11 @@ func lava_shell_diag() -> Dictionary:
 		var lv: float = _f._lava[c]
 		if lv > maxmass and _f._solid[c] == 0:
 			maxmass = lv
-		if _f._solid[c] != 0 or lv < 0.001 or _f._temp[c] < 800.0:
+		if _f._solid[c] != 0 or lv < 0.001 or _f._temp[c] < LAPhysical.BASALT_SOLIDUS_C:
 			continue
 		if lv >= 0.5:
 			thick += 1
-		live += 1
+		hot += 1
 		var base: int = c * 6
 		var exposed: int = 0
 		for d in range(6):
@@ -621,7 +601,7 @@ func lava_shell_diag() -> Dictionary:
 				continue
 			if _f._solid[nb] != 0:
 				continue
-			if _f._lava[nb] < TUBE_LAVA_NEAR_ZERO or _f._temp[nb] < 800.0:
+			if _f._lava[nb] < TUBE_LAVA_NEAR_ZERO or _f._temp[nb] < LAPhysical.BASALT_SOLIDUS_C:
 				exposed += 1
 		if exposed == 0:
 			interior += 1
@@ -630,7 +610,7 @@ func lava_shell_diag() -> Dictionary:
 			rind += 1
 			rind_sum += _f._temp[c]
 	return {
-		"lava_live": live, "lava_interior": interior, "lava_rind": rind,
+		"lava_hot": hot, "lava_interior": interior, "lava_rind": rind,
 		"lava_thick": thick, "lava_maxmass": snappedf(maxmass, 0.001),
 		"lava_int_c": snappedf(int_sum / float(max(1, interior)), 0.1),
 		"lava_rind_c": snappedf(rind_sum / float(max(1, rind)), 0.1),

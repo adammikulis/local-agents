@@ -1,29 +1,7 @@
 class_name LACreatureSetup
 extends RefCounted
 
-## Spawn-time CONFIGURATION of a LocalAgentCreature: the whole "express the genome/species config onto this
-## individual" pass, factored out of the main brain. LocalAgentCreature.setup() is now a one-line forwarder
-## into apply().
-##
-## What it does, in order:
-##   * resolve the terrain dependency (flat-ground adapter when no voxel planet is injected);
-##   * express the GENOME if one was passed (a bred/evolved offspring), else build an ancestral genome from
-##     the species template so EVERY creature has heritable genes;
-##   * copy the config keys onto the live traits, with the per-individual jitter that DESYNCS a cohort
-##     (maturity, lifespan, founder age spread) and the ~50/50 sex draw on the seeded sim RNG;
-##   * build the body + groups + starting heading;
-##   * construct the per-creature sub-state modules (cognition, chem-sense priors, digestion, disease,
-##     microbiome, bond, senescence), each of which owns its own state off the monolith.
-##
-## Static + dynamic field access on the passed creature, like the other Creature* modules, so there is no cyclic class
-## reference. (Explicit types only, no ':=' inferred typing.)
 
-# COHORT DESYNC: every individual gets its OWN maturity/lifespan, jittered around the species value, so a
-# generation doesn't mature, breed and die in lockstep. Without this, founders (all spawned at age 0 with an
-# identical species maturity_age) came of age together, bred in one pulse, then that whole cohort aged out
-# together — a synchronized boom-bust (the ~frame-360 peak then crash, and the old-age death spike). The spread
-# smears each of those events over a window, so births/deaths overlap generations and the population oscillates
-# gently around carrying capacity instead of pulsing. randf is on the run's seeded RNG → reproducible.
 const MATURITY_VARIANCE: float = 0.45    # ±fraction on per-individual maturity_age
 const LIFESPAN_VARIANCE: float = 0.45    # ±fraction on per-individual max_age — WIDE, so even a big single-
                                          # generation boom (an overshoot cohort) ages out over a LONG spread of
@@ -32,26 +10,13 @@ const LIFESPAN_VARIANCE: float = 0.45    # ±fraction on per-individual max_age 
 
 
 static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
-	# Terrain is the only hard dependency for the movement path. With no voxel planet injected (a standalone
-	# creature on a plain floor), default to the FLAT-ground adapter so up_at/surface_point/ground_point/etc.
-	# resolve against y=0 instead of null-derefing. VoxelWorld still injects LAVoxelTerrainService (the sphere
-	# adapter) for the planet path; both honour the same duck-typed terrain contract (see LAFlatGroundTerrain).
 	c.terrain = terrain_arg if terrain_arg != null else LAFlatGroundTerrain.new()
-	# Genome drives the config: an offspring/evolved creature is passed a genome and we express it;
-	# otherwise we build an ancestral genome from the species template so EVERY creature has
-	# heritable genes (and per-individual variation once bred).
 	if genome_arg != null:
 		c._genome = genome_arg
 		c.config = c._genome.express()
 	else:
 		c.config = config_arg.duplicate(true)
-		# STANDING GENETIC VARIATION. from_config() encodes the species template exactly, so without this every
-		# founder of a species is a genetic CLONE of every other — variance exactly zero at every locus. A
-		# population with no standing variation cannot be selected on at all; it must wait for mutations to
-		# arise before evolution can begin, which is not how a real founding population works, and it left
-		# several loci unmeasurable because their "high" and "low" halves were literally the same animal.
-		# See LADNA.seed_variation for why this is a small scatter and NOT a round of point mutation.
-		c._genome = LADNA.from_config(c.config).seed_variation(LASimRng.shared())
+		c._genome = LADNA.from_config(c.config).seed_variation(LASimRng.for_domain("life"))
 		c.config = c._genome.express()
 	var config: Dictionary = c.config
 	c.species = String(config.get("species", c.species))
@@ -63,10 +28,7 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.cruise_height = float(config.get("cruise_height", c.cruise_height))
 	c.sense_radius = float(config.get("sense_radius", c.sense_radius))
 	c.maturity_age = float(config.get("maturity_age", c.maturity_age))
-	# COHORT DESYNC (see MATURITY_VARIANCE): per-individual jitter so a generation doesn't come of age in
-	# lockstep. Applied to the founder template AND to bred offspring (extra non-heritable phenotype spread on
-	# top of the genome's own maturity gene) — both need breaking up. max_age is jittered separately below.
-	c.maturity_age *= 1.0 + randf_range(-MATURITY_VARIANCE, MATURITY_VARIANCE)
+	c.maturity_age *= 1.0 + LASimRng.for_domain("life").randf_range(-MATURITY_VARIANCE, MATURITY_VARIANCE)
 	c.preys_on = PackedStringArray(config.get("preys_on", PackedStringArray()))
 	c.flees_from = PackedStringArray(config.get("flees_from", PackedStringArray()))
 	c.herd = bool(config.get("herd", c.herd))
@@ -87,35 +49,15 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.breath_capacity = float(config.get("breath_capacity", c.breath_capacity))
 	c._breath = c.breath_capacity
 	c.breathes = String(config.get("breathes", c.breathes))
-	# ONE MEASURED BODY MASS DRIVES THE LEDGER, and every physiological RATE comes off the body's surface.
-	# This sets mass_kg / structural_mass / max_energy / max_hydration / thirst_rate / bite_rate / food_value,
-	# which used to be a scatter of independently hand-fitted per-species numbers agreeing neither with each
-	# other nor with biology (a fox and a mouse both carried `"metabolism": 1.7` at 260x the difference in
-	# mass). See LACreatureBodyMass for which constants are facts and which is the one unit conversion.
 	LACreatureBodyMass.apply(c, config)
 	c.max_age = float(config.get("max_age", maxf(c.maturity_age * 5.0, 60.0)))
-	# COHORT DESYNC: independent lifespan jitter so an age-matched cohort doesn't die of old age all at once
-	# (the old-age death spike). max_age is not a heritable gene (it tracks maturity_age*5), so this is the only
-	# spread it gets — apply it per individual.
-	c.max_age *= 1.0 + randf_range(-LIFESPAN_VARIANCE, LIFESPAN_VARIANCE)
-	# FOUNDER AGE SPREAD: the starting population is placed all at once. If every founder began at age 0 they
-	# would all cross maturity together and breed in one pulse (the initial boom that then busts). Seed founders
-	# across a range of ages — a natural standing age structure of juveniles through adults — so births spread out
-	# from frame one. Bred offspring (genome passed) are TRUE newborns (age 0); only the initial cohort is spread.
+	c.max_age *= 1.0 + LASimRng.for_domain("life").randf_range(-LIFESPAN_VARIANCE, LIFESPAN_VARIANCE)
 	if genome_arg == null:
-		# Spread founders across juvenile→young-adult (not up to old age): enough to desync the first maturation
-		# wave, but WITHOUT front-loading old-age deaths by seeding founders already near the end of their lives
-		# (which threw the initial cohort straight into a die-off). A standing age structure of the young + prime.
-		c.age = randf() * c.maturity_age * 1.8
-	# SEX: ~50/50 at birth via the seeded sim RNG (reproducible; not a heritable trait). A config override
-	# ("sex": "male"/"female") is honoured for tests/set-pieces.
+		c.age = LASimRng.for_domain("life").randf() * c.maturity_age * 1.8
 	if config.has("sex"):
 		c.is_male = String(config.get("sex", "")) == "male"
 	else:
-		c.is_male = LASimRng.shared().randf() < 0.5
-	# ORNAMENT TINT: warm a displaying male's base colour by his display gene so brighter males are visibly
-	# brighter. Static (set once from the gene) — as sexual selection raises the lineage's mean display gene the
-	# whole population visibly warms over generations, without a per-frame tint that would fight the debug tints.
+		c.is_male = LASimRng.for_domain("life").randf() < 0.5
 	var display_gene: float = clampf(float(config.get("display", 0.0)), 0.0, 1.0)
 	if c.is_male and display_gene > 0.01:
 		c.color = c.color.lerp(Color(1.0, 0.72, 0.28), 0.6 * display_gene)
@@ -126,25 +68,18 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.eye_fov = float(config.get("eye_fov", c.eye_fov))
 	c.hearing_range = float(config.get("hearing_range", c.sense_radius * 1.5))
 	c.family_id = int(config.get("family_id", c.get_instance_id()))
-	# AFFILIATION starts as a band of ONE and is not configurable: which animals run together is something
-	# the world works out from who keeps company with whom (LACreatureAffiliation), not something a spawn
-	# decides. Stamping a band here would only rename the family id this line sets one above.
 	LACreatureAffiliation.setup(c)
 	# Nesting is general and config-driven: ANY species that actually nests/shelters sets nests:true
 	# (birds roost in trees, mammals/snakes burrow or den) — no per-species branch here.
 	c.nests = bool(config.get("nests", c.nests))
 	c.nest_habitat = String(config.get("nest_habitat", "tree" if c.can_fly else "ground"))
 	c.llm_enabled = bool(config.get("llm_enabled", c.llm_enabled))   # export is the default; config may override
-	# BODY TEMPERATURE starts at the reaction's own optimum rather than at ambient: a newborn is warm from its
-	# mother/egg and from its own chemistry, and starting it at the local air temperature would put every
-	# animal spawned on a cold night straight into a metabolic deficit before it had drawn a breath. Newton
-	# cooling then carries it to wherever its thermogenesis and its surroundings actually put it, within one
-	# thermal time constant (moments for a beetle, minutes for a whale).
 	c.body_temp = LACreatureRespiration.band_optimum_c()
 	c._target_altitude = c.cruise_height
 	c.state = "cruise" if c.can_fly else "wander"
-	c._poop_cd = randf_range(20.0, 45.0)
-	c._call_cd = randf_range(0.0, 2.0)
+	var rng: LASimRng = LASimRng.for_domain("life")
+	c._poop_cd = rng.randf_range(20.0, 45.0)
+	c._call_cd = rng.randf_range(0.0, 2.0)
 
 	c.collision_layer = 2
 	c.collision_mask = 0                  # movement is manual; picked via layer-2 query
@@ -152,7 +87,7 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.add_to_group(c.GROUP_SELECTABLE)
 	c.add_to_group(c._species_group(c.species))
 	c.add_to_group(c.GROUP_CREATURE)
-	c._heading = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0).normalized()
+	c._heading = Vector3(rng.randf() * 2.0 - 1.0, 0.0, rng.randf() * 2.0 - 1.0).normalized()
 	if c._heading == Vector3.ZERO:
 		c._heading = Vector3.FORWARD
 
@@ -160,17 +95,11 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	# and by watching kin. The shared slow-brain scheduler is injected separately (set_cognition_scheduler).
 	c._cognition = LACognition.new()
 	c._cognition.seed_from_genome(c._genome)
-	# Born-in chemical instincts: the genome's cue priors become starting scent valences (a blood-wary
-	# lineage is born avoiding the blood scent, a carrion-hungry one drawn to the food scent). Lifetime
-	# smell/taste learning refines them and observe() spreads them to kin — see LACreatureChemSense.
 	LACreatureChemSense.seed_priors(c)
 	# Size the gut from max energy and pick the microbiome from diet (herbivores ferment plant matter).
 	LACreatureDigestion.setup(c)
 	c.disease = LACreatureDisease.new()      # per-creature disease/immune state (owned off this monolith)
 	c.disease.setup(c, config)
-	# Gut flora, seeded from diet (herbivores born plant-fermenting); it ADAPTS to what the animal actually eats
-	# and modulates digestive yield (see LACreatureMicrobiome + LACreatureDigestion). Dynamicises the old static
-	# `microbiome` scalar. Owned off this monolith.
 	c.gut_microbiome = LACreatureMicrobiome.new()
 	c.gut_microbiome.setup(c, config)
 	# Per-creature tameness/companion state (owned off this monolith). A wild creature starts untamed;
@@ -181,8 +110,4 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	# speed/max_energy baselines NOW (after config/genome expression) so age can grade them down later.
 	c.senescence = LACreatureSenescence.new()
 	c.senescence.setup(c)
-	# A BODY APPEARED. Register its mass with the field's biota ledger so matter that entered the world by
-	# spawning is counted where a reader can see it, instead of showing up later as an unexplained carbon
-	# surplus when the animal dies and rots into the soil. A BIRTH (genome passed) is excluded: the mother was
-	# already debited the newborn's whole mass, so counting it again would double it.
 	LACreatureBodyMass.note_spawn(c, genome_arg != null)

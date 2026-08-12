@@ -1,6 +1,8 @@
 class_name LAMaterialFieldMineralProbe3D
 extends RefCounted
 
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
 ## LAMaterialFieldMineralProbe3D: a PER-PASS mass budget for the whole conserved MINERAL ledger, so a rock leak
 
 
@@ -164,13 +166,17 @@ func _totals() -> Array:
 	var d_all: float = 0.0
 	var d_open: float = 0.0
 	var solid_cells: int = 0
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if vol.size() != cc:
+		return [0.0, 0.0, {}]
 	for c in cc:
 		var is_open: bool = (not has_solid) or solid[c] == 0.0
-		var rv: float = rock[c]
-		var lv: float = lava[c]
-		var sv: float = sed[c]
-		var uv: float = susp[c]
-		var dv: float = dust[c]
+		var w: float = vol[c]
+		var rv: float = rock[c] * w
+		var lv: float = lava[c] * w
+		var sv: float = sed[c] * w
+		var uv: float = susp[c] * w
+		var dv: float = dust[c] * w
 		r_all += rv
 		l_all += lv
 		s_all += sv

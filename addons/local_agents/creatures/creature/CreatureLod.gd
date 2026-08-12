@@ -1,46 +1,15 @@
 class_name LACreatureLod
 extends RefCounted
 
-## Decision + physics-rate LEVEL OF DETAIL for LocalAgentCreature ("do less by relevance"), factored out of
-## the main brain so the cadence policy lives in one owner file.
-##
-## Two related throttles live here:
-##   * think stride: how often the creature runs the DISCRETIONARY cognition cascade. Sleep is cheapest,
-##     followers coast on an adopted action, time-critical states (flee/hunt/drink) stay at the full near
-##     rate at any distance, and everything else grades smoothly with camera relevance (LALodStride).
-##   * physics-rate gate: how often the whole _physics_process body runs at all, with an accumulated
-##     catch-up dt so metabolism/aging/movement distance stay correct however sparse the update (a far
-##     creature simply advances several frames of motion at once, invisible at range).
-##
-## Every-frame work (metabolism, thirst, temperature, ageing, death, movement) is unaffected in substance:
-## the catch-up dt keeps its integrated result the same. This spreads cost automatically, because a fraction of
-## the population is always asleep (diurnal by night / nocturnal by day, staggered) and most animals are
-## off-screen.
-##
-## The shared camera position and the global AI-tick multiplier are cached ONCE PER PHYSICS FRAME here and
-## reused by the whole population (one get_camera_3d() / one Engine meta read per frame, not one per
-## creature). Static + dynamic field access on the passed creature, like the other Creature* modules.
-## (Explicit types only, no ':=' inferred typing.)
 
 const THINK_STRIDE: int = 3                # decide every N physics frames (movement stays every-frame)
 const FAR_THINK_STRIDE: int = 30           # far/off-screen discretionary thinking cap (~2 Hz)
 const SLEEP_THINK_STRIDE: int = 30         # asleep/resting: no decisions to make — heaviest throttle
 const MID_LOD_D2: float = 4900.0           # physics-LOD's legacy A/B tier boundary (LA_NO_PHYS_LOD only)
-# The distance at which camera-relevance has fallen to 0.5 (LALodStride.relevance_from_distance): stride
-# grows smoothly from THINK_STRIDE (the floor even up close — decisions never need 60 Hz resolution) up
-# to FAR_THINK_STRIDE, with no cutoff anywhere. One number, no separate rate+cap pair to keep in sync.
 const THINK_LOD_CHARACTERISTIC_DISTANCE: float = 90.0
-# A `herd` creature that is NOT the local top-ranked same-species individual becomes a FOLLOWER: it ADOPTS
-# its leader's decision (the canonical action) and coasts on it, so it skips the whole expensive think_* +
-# cognition assessment and ticks slowly. Only the few local leaders pay the heavy "what to do" cost.
-# Reflexes (flee/thirst) + all pathing stay per-individual.
 const FOLLOWER_THINK_STRIDE: int = 18      # a follower re-decides rarely (~3 Hz) — it coasts on the adopted action
 
 const FAR_LOD_D2: float = 40000.0   # legacy binary-tier A/B baseline only (LA_NO_PHYS_LOD)
-# PHYSICS-RATE LOD: the whole _physics_process (movement + physiology + think) runs on a stride derived
-# from camera relevance (LALodStride) — near-view creatures update near every frame (smooth motion), the
-# far-side population a couple times a second, smoothly in between with no cutoff. Same principle + shape
-# as the animation-framerate LOD (LACreatureAnim).
 const PHYS_LOD_CHARACTERISTIC_DISTANCE: float = 40.0
 const PHYS_STRIDE_MAX: int = 12     # far-side creatures update at most every 12th frame
 static var _phys_lod_off: bool = OS.has_environment("LA_NO_PHYS_LOD")   # A/B knob: force the old binary tiers
@@ -50,13 +19,6 @@ static var _phys_lod_off: bool = OS.has_environment("LA_NO_PHYS_LOD")   # A/B kn
 static var _cam_frame: int = -1
 static var _cam_pos: Vector3 = Vector3(INF, INF, INF)
 
-# Global AI-tick multiplier resolved from the Sim/AI setting `la_ai_tick_frames` (published by
-# LAVoxelSettingsApplier as an Engine metadata global). Baseline is THINK_STRIDE (3) — the Medium default
-# (3) leaves every stride unchanged; a higher setting stretches all strides so the population re-decides
-# less often (cheaper CPU), a lower one tightens them. Cached once per physics frame (ONE meta read shared
-# by the whole population, mirroring camera_pos) and clamped so creatures never freeze (min stride 1
-# enforced at the call site) nor thrash. Re-read live each frame, so a mid-game settings re-apply takes
-# effect immediately (LAVoxelSettingsApplier.publish_globals rewrites the meta on GameMode.settings_applied).
 static var _ai_scale_frame: int = -1
 static var _ai_tick_scale: float = 1.0
 
@@ -97,9 +59,6 @@ static func base_think_stride(c) -> int:
 	if state == "flee" or state == "panic" or state == "chase" or state == "stalk" \
 			or state == "throw" or state == "seek" or state == "drink":
 		return THINK_STRIDE
-	# A follower (anyone with a valid leader — herd member, squad grunt, or a parent-following juvenile)
-	# coasts on its adopted action and re-decides rarely; its leader pays the heavy "what to do" cost.
-	# Time-critical states above already opted out, so a fleeing/drinking follower is never throttled.
 	if c._leader != null and is_instance_valid(c._leader):
 		return FOLLOWER_THINK_STRIDE
 	var cam: Vector3 = camera_pos(c)
@@ -112,10 +71,6 @@ static func base_think_stride(c) -> int:
 	return LALodStride.stride_for(relevance, FAR_THINK_STRIDE, THINK_STRIDE)
 
 
-## Compute-bubble LOD gate for the whole _physics_process body. Returns the dt this frame's update should
-## integrate (the ACCUMULATED catch-up delta when the creature is running on a stride), or -1.0 when this
-## is not the creature's update frame and the caller must return immediately. An acute event (_force_think
-## from a scare/damage) always runs live; with no camera the relevance is undefined so we run at full rate.
 static func phys_gate(c, delta: float) -> float:
 	if c._force_think:
 		return delta

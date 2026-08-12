@@ -1,13 +1,5 @@
 extends CanvasLayer
 
-## LAVoxelViewControls: the small on-screen view-controls cluster the input controller hosts:
-##   [Planet | Solar System]   ·   [Orbit | Geosync | Fly]   ·   [Auto-spin]
-## Planet/Solar switches the camera between the close planet orbit and the pulled-back solar-system overview
-## (planet + visible sun); Orbit/Geosync/Fly switches the camera mode (camera fixed in world · riding the
-## planet's spin locked over one region · free-flight drone); Auto-spin is the orbit-mode "planet turns in
-## front of you" option. Buttons call straight back into the host (LAVoxelInputController); refresh() mirrors
-## the host state. Anchored top-centre, below the status bar, clear of the left DEBUG panel and right Inspector.
-## (Explicit types only, no ':=' inferred typing.)
 
 const PANEL_BG: Color = Color(0.05, 0.07, 0.11, 0.9)
 const ACCENT: Color = Color(0.55, 0.72, 1.0)

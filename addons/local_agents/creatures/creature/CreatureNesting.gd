@@ -1,14 +1,7 @@
 class_name LACreatureNesting
 extends RefCounted
 
-## Home-site behaviour for LocalAgentCreature, factored out of the main brain. General across species:
-## flyers roost/breed in the treetops, ground species shelter in a burrow near where they stand.
-## All functions are static and take the creature `c`, reading its fields dynamically so this stays
-## dependency-free of the LocalAgentCreature type (no cyclic class reference). These helpers only DECIDE and
-## STEER. They never spawn the Nest actor or mutate `c`; the caller owns `c.nest_pos`/`c.has_nest`
-## and the actual spawn. (Explicit types only, no ':=' inferred typing.)
 
-# How far above a tree's own position a flyer roosts (treetop clearance, metres).
 const TREETOP_RISE: float = 5.0
 # Extra lift for a ground burrow's stored Y so it sits just proud of the surface.
 const GROUND_RISE: float = 0.5
@@ -16,10 +9,6 @@ const GROUND_RISE: float = 0.5
 const GROUND_SCATTER: float = 4.0
 
 
-## True when the creature should head home NOW. It must nest at all, AND either it is its OFF-hours
-## (diurnal animals rest at night, nocturnal ones by day — from the `nocturnal` flag + the shared
-## clock, no per-species schedule) so it sleeps at the shelter, OR it is a mature, well-fed adult
-## ready to breed at the nest.
 static func should_seek_nest(c) -> bool:
 	if not c.nests:
 		return false
@@ -31,9 +20,6 @@ static func should_seek_nest(c) -> bool:
 	return breeding_ready
 
 
-## Pick a home world position. Flyers roost above the nearest visible/near TREE (elevated to roughly
-## treetop); ground species shelter in a sheltered spot just off `pos`. Returns a Vector3 with a
-## sensible Y. Falls back to `pos` when no tree / invalid terrain.
 static func choose_site(c, pos: Vector3) -> Vector3:
 	var habitat: String = String(c.nest_habitat)
 	if habitat == "":
@@ -52,8 +38,9 @@ static func choose_site(c, pos: Vector3) -> Vector3:
 			return tp + up * TREETOP_RISE
 		return pos
 	# Ground/burrow species: a small sheltered offset from where it stands, pinned radially to the surface.
-	var ox: float = (randf() * 2.0 - 1.0) * GROUND_SCATTER
-	var oz: float = (randf() * 2.0 - 1.0) * GROUND_SCATTER
+	var rng: LASimRng = LASimRng.for_domain("life")
+	var ox: float = (rng.randf() * 2.0 - 1.0) * GROUND_SCATTER
+	var oz: float = (rng.randf() * 2.0 - 1.0) * GROUND_SCATTER
 	var site: Vector3 = Vector3(pos.x + ox, pos.y, pos.z + oz)
 	var gp: Vector3 = c.terrain.ground_point(site) if c.terrain.has_method("ground_point") else Vector3(NAN, NAN, NAN)
 	if is_nan(gp.x):

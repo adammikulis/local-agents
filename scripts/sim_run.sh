@@ -25,7 +25,8 @@
 #   --raw          print the whole SIM_REPORT as formatted JSON instead of a key list
 #   --keep         keep the log file and print its path
 #
-# EXIT CODES: 0 clean · 3 stale shaders · 4 the run logged engine errors (numbers withheld) · 124 never
+# EXIT CODES: 0 clean · 3 stale shaders · 4 the run logged engine errors (numbers withheld) · 5 a UI node
+#             was built without --ui · 124 never
 # reported · 125 hung after reporting · 126 CONSERVATION_VIOLATION.
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -94,6 +95,29 @@ if grep -q '^CONSERVATION_VIOLATION=' "$LOG" 2>/dev/null; then
   echo "=== CONSERVATION_VIOLATION ===" >&2
   grep '^CONSERVATION_VIOLATION=' "$LOG" >&2
 fi
+
+# NO UI IN A SIMULATION RUN. This arm never passes --ui, so any Control / CanvasLayer in the tree is a
+# presentation node that leaked into the physics-only path. That has happened twice: the sim clock lived in
+# a CanvasLayer owning Engine.time_scale, and the CLI parser built the Esc menu + the view-controls bar.
+# Behavioural, so a UI node added anywhere in future trips it without anyone remembering a rule.
+# THE NEIGHBOUR TABLE IS THE CONTRACT EVERY FLOW KERNEL RIDES ON. If slot-opposite reciprocity fails, mass
+# moves into slots that never answer back and no number in the run is a measurement.
+if grep -q '^GRID_INVALID=' "$LOG" 2>/dev/null; then
+  echo "sim_run: GRID_INVALID — the sphere neighbour table is not slot-opposite reciprocal." >&2
+  grep '^GRID_INVALID=' "$LOG" | head -1 >&2
+  [ "$KEEP" -eq 1 ] && echo "sim_run: log kept at $LOG" >&2 || rm -f "$LOG"
+  exit 6
+fi
+
+WANT_UI=0
+for a in "${ARGS[@]}"; do [ "$a" = "--ui" ] && WANT_UI=1; done
+UI_N=$(grep -oE '"ui_nodes":[0-9]+' "$LOG" 2>/dev/null | tail -1 | cut -d: -f2)
+if [ "$WANT_UI" -eq 0 ] && [ -n "${UI_N:-}" ] && [ "$UI_N" -gt 0 ]; then
+  echo "sim_run: ${UI_N} UI NODE(S) BUILT IN A RUN WITH NO --ui. The presentation layer leaked into the" >&2
+  echo "         simulation path — find what built a Control/CanvasLayer and move it into Presentation.gd." >&2
+  [ "$KEEP" -eq 1 ] && echo "sim_run: log kept at $LOG" >&2 || rm -f "$LOG"
+  exit 5
+fi
 if [ "$RC" -ne 0 ]; then
   # Truncate: one line of this log is a 40 KB SIM_REPORT, and dumping it raw buries the actual error.
   echo "sim_run: RUN FAILED, exit ${RC}. Last lines (truncated to 200 chars each):" >&2
@@ -132,17 +156,28 @@ d = json.loads(line.strip()[len("SIM_REPORT="):])
 if os.environ.get("RAW") == "1":
     print(json.dumps(d, indent=2, sort_keys=True))
     raise SystemExit(0)
+# Gauges live under a nested "gauges" key, so a flat lookup reported <ABSENT> for every one of them —
+# `field_sim_s`, which the measurement rules tell people to compare runs on, could never print.
+def _lookup(rep, key):
+    if key in rep:
+        return rep[key]
+    for sub in ("gauges", "events"):
+        block = rep.get(sub)
+        if isinstance(block, dict) and key in block:
+            return block[key]
+    return "<ABSENT>"
+
 for k in os.environ["REPORT_KEYS"].split(","):
     k = k.strip()
     if not k:
         continue
-    print(f"{k:26} = {d.get(k, '<ABSENT>')}")
+    print(f"{k:26} = {_lookup(d, k)}")
 # DRIFT, SPELLED OUT. A `_first`/`_total` pair is the whole point of the seal, and computing the ratio by
 # hand every time is how a sign error survives (carbon read +1261% for a whole session against a true -10.7%).
 print("--- drift vs sealed baseline ---")
 for now_k, first_k in [("o2_total","o2_first"), ("mineral_total","mineral_first"),
                        ("h2o_total","h2o_first"), ("element_C_total","element_C_total_first")]:
-    a, b = d.get(now_k), d.get(first_k)
+    a, b = _lookup(d, now_k), _lookup(d, first_k)
     if isinstance(a,(int,float)) and isinstance(b,(int,float)) and b:
         print(f"{now_k:26} = {100.0*(a-b)/b:+8.3f}%")
 PY

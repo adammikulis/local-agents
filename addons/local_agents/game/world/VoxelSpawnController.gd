@@ -1,20 +1,7 @@
 class_name LAVoxelSpawnController
 extends Node
 
-## LAVoxelSpawnController owns the INITIAL ecology/actor spawning: the "terrain ready" gate, the starting
-## counts, forest/rock population, aquatic stocking, the geothermal core seed, and the persistent river
-## springs (seed_water). Factored out of LAVoxelWorld so the "more actors / forests" concern is one file.
-## The world composition root ticks try_spawn() each frame until the surface has meshed. (Explicit types.)
 
-# A visibly BUSY world: land herbivores forage the emergent forests, predators/scavengers scale with the
-# prey/carrion base, birds fill the sky. Far actors self-throttle via the creatures' distance-graded think
-# LOD (Creature._think_stride), so a populous world stays playable — raise counts, don't cap the world small.
-# Predator↔prey ratio: foxes ≈ rabbits/5, vultures track the bird/carrion base. The mix is a PYRAMID —
-# lots of vegetation + small herbivores (rabbit, mouse) + mid consumers (bird, swallow insectivore), fewer
-# predators (fox) / scavengers (vulture). The aquatic web base (bug/shrimp) is stocked separately, in water.
-# The LAND-invertebrate base — cheap/numerous insects (beetle/ant/grasshopper ground herbivores; butterfly/
-# fly/bee flyers) — broadens the web bottom and feeds the birds; flowers + a shrub add vegetation variety and
-# the nectar bees pollinate. All are ordinary config species (diet/plant data files); no special spawn code.
 const INITIAL_COUNTS: Dictionary = {
 	"plant": 260, "shrub": 28, "flower_daisy": 36, "flower_clover": 26,
 	# TOXIC vegetation is a deliberate MINORITY (nightshade/deathcap) among the wholesome majority above — enough
@@ -29,16 +16,8 @@ const INITIAL_COUNTS: Dictionary = {
 # toxic plants all ride it too (they are ordinary config vegetation; only their `toxic` data value differs).
 const VEG_KINDS: Array = ["plant", "shrub", "flower_daisy", "flower_clover", "nightshade", "deathcap"]
 const ROCK_COUNT: int = 60
-# Many forest SEEDS scattered onto the best (warm/fertile) ground; groves then DENSIFY emergently over the
-# run wherever photosynthesis has built biomass (see LAEcologyService._tick_tree_seeding), thinning at the
-# cold/snowy poles where the treeline gate blocks germination. Forests are a consequence of the chemistry.
 const FOREST_CLUSTERS: int = 16
 
-# CAMPAIGN start drops the player right in with a single RABBIT HERD and nothing else living — no plants, no
-# trees (rabbit ≤ HERD_CLUSTER_SIZE ⇒ exactly one founder cluster, so the herd is all in one place), so the
-# player opens face-to-face with the animals they are responsible for and grows the vegetation/world from a
-# clean slate (every plant/population objective genuinely begins below its threshold). Sandbox keeps the full
-# founding ecology (INITIAL_COUNTS above). Data-driven — tune these counts, no spawner rewrite.
 const CAMPAIGN_INITIAL_COUNTS: Dictionary = {
 	"rabbit": 12,
 }
@@ -72,6 +51,13 @@ func setup(world: Node, body: Node3D, terrain, ecology: Node, camera: Camera3D, 
 	_disasters = disasters
 
 
+## Camera + HUD are PRESENTATION — the opening camera framing and the status line. Both stay null without
+## --ui; where life is placed is physics and does not consult either.
+func set_presentation(camera: Camera3D, hud: CanvasLayer) -> void:
+	_camera = camera
+	_hud = hud
+
+
 func is_spawned() -> bool:
 	return _spawned_initial
 
@@ -89,10 +75,6 @@ func set_spawn_scale(scale: float) -> void:
 	_spawn_scale = maxf(0.05, scale)
 
 
-## Spawn the starting ecology once terrain has streamed + collided at the surface. Idempotent — returns
-## immediately once spawned. Called each frame from the world's _process. The planet is the SOLE world, so
-## the old flat-island branch (caves, flat spring seeding, scripted volcano, vista framing) is gone — the
-## unused view-mode params are kept only for the world's fixed call signature.
 func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select: bool) -> void:
 	if _spawned_initial or _body == null:
 		return
@@ -104,19 +86,12 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 	if _ready_wait_ticks <= 6:
 		return
 	LASimReport.reset()
-	# Radial world: ecology places life ON the sphere (surface_point spawn), fish in the sea shell; the
-	# orbit camera frames the body; the planet centre is pinned hot for the radial geothermal gradient.
-	# LIFE MODE (--no-fauna / --planet-only): skip BUILDING the biosphere, not merely ticking it. Actors are
-	# most of the frame cost and all of the field perturbation, so a planet test should not pay for either.
-	# Rocks still populate under --no-fauna because they are terrain, not life.
 	var no_fauna: bool = LAAblate.fauna_off()
 	var no_flora: bool = LAAblate.flora_off()
 	if no_fauna or no_flora:
 		print("LIFE_MODE={mode:%s, fauna:%s, flora:%s}" % [
 			LAAblate.life_mode(), str(not no_fauna), str(not no_flora)])
 	if _is_campaign():
-		# Ground-level start: one rabbit herd and nothing else living — no plants/trees (the player grows the
-		# vegetation) and no aquatic stocking (fish are a locked spawn). The camera opens ON the herd below.
 		if not no_fauna:
 			_ecology.spawn_initial(CAMPAIGN_INITIAL_COUNTS)
 		_ecology.populate_environment(CAMPAIGN_ROCK_COUNT, 0 if no_flora else CAMPAIGN_FOREST_CLUSTERS)
@@ -129,40 +104,21 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 		_ecology.populate_environment(ROCK_COUNT, clusters)
 		if not no_fauna and _ecology.has_method("stock_initial_aquatic"):
 			_ecology.stock_initial_aquatic()
-	if _camera.has_method("set_orbit_target"):
+	# Framing is presentation: null without --ui, and where life was placed is already decided above.
+	if _camera != null and _camera.has_method("set_orbit_target"):
 		_camera.set_orbit_target(_body.center(), _body.radius())
 	# CAMPAIGN opens looking AT the herd: aim the orbit camera at the rabbit cluster (the close approach arc then
 	# frames them at eye level). orient_toward clears the deferred sunnyside so the herd aim wins.
-	if _is_campaign() and _camera.has_method("orient_toward"):
+	if _camera != null and _is_campaign() and _camera.has_method("orient_toward"):
 		var herd_dir: Vector3 = _campaign_herd_dir()
 		if herd_dir != Vector3.ZERO:
 			_camera.orient_toward(herd_dir)
-	if _material.has_method("add_magma_source"):
-		# SEED the planet's interior heat at a real inner-core temperature, and with it the crustal geotherm
-		# above it. This used to read a literal 1300.0, which is LAPhysical.UPPER_MANTLE_C — an ERUPTING
-		# BASALT temperature, about a quarter of a real core's, chosen because a hotter one baked the surface.
-		# It baked the surface because the boundary was a TEMPERATURE that no amount of radiating to space
-		# could cool, held by a pair of fitted conductivities. Both are gone: the reservoir is finite and
-		# cools as it supplies (LAMaterialFieldGeotherm3D), and it reaches the world through a conduction bond
-		# at the base of the crust, which is small exactly as Earth's 0.087 W/m^2 is small against 340 W/m^2
-		# of sunlight. So the real value can now be used, and the surface temperature is an output.
-		#
-		# This value is the CONVECTING INTERIOR's, not the crust's: the geotherm the module seeds through the
-		# rock is anchored on LAPhysical.MOHO_TEMP_C, because the base of the simulated shell is the base of a
-		# crust rather than the centre of a planet. `LA_NO_GEOTHERM=1` disarms the whole thing (the control
-		# arm for every geotherm gate).
-		_material.add_magma_source(_body.center(), LAPhysical.INNER_CORE_C, 0.6)
 	_seed_diseases()
 	_spawned_initial = true
 	if _hud != null:
 		_hud.set_status("World ready. Spawn things, click to inspect, press V for scent.")
 
 
-# Seed a few PATIENT-ZERO infections so outbreaks are part of the living world (they then spread, cull, and
-# leave immune survivors — all emergent from LACreatureDisease). Sandbox seeds a handful; campaign seeds none
-# by default (the player's small starter herd grows disease-free until a pest/contact introduces it). Override
-# with LA_DISEASE_SEED=N (0 disables — e.g. for a clean perf run). Each seed infects a random creature with a
-# random strain the strain library knows; host-incompatible picks are simply shrugged off by infect().
 const DISEASE_SEED_SANDBOX: int = 3
 
 func _seed_diseases() -> void:
@@ -190,16 +146,11 @@ func _seed_diseases() -> void:
 	print("DISEASE_SEED={seeded:%d, strains:%d}" % [seeded, strains.size()])
 
 
-## True in CAMPAIGN mode (progression gating on) — the initial spawn is sparse so the player grows the world.
-## Sandbox, or no progression instance at all (isolated tools/tests), keeps the full founding ecology.
 func _is_campaign() -> bool:
 	var prog: LAGameProgression = LAGameProgression.active()
 	return prog != null and not prog.is_sandbox()
 
 
-## Average world direction (planet centre → creatures) of the freshly-spawned campaign herd, so the camera can
-## open looking straight at it. Reads the "creature" group the rabbits joined on spawn; ZERO if none placed yet
-## (e.g. a founder site that meshed late and queued) — the caller then just keeps the default framing.
 func _campaign_herd_dir() -> Vector3:
 	if _body == null:
 		return Vector3.ZERO
@@ -215,10 +166,6 @@ func _campaign_herd_dir() -> Vector3:
 	return sum.normalized()
 
 
-## Graphics vegetation-density knob (la_vegetation_scale, published by LAVoxelSettingsApplier from the
-## Graphics settings). Default/missing → 1.0 (untouched ecosystem balance). Only the "plant" spawn count and
-## the forest-cluster seeding read this; creature counts are governed solely by the actor budget. Read once
-## at spawn time (initial spawning is a one-shot gate).
 func _vegetation_scale() -> float:
 	var v: float = float(Engine.get_meta("la_vegetation_scale", 1.0)) if Engine.has_meta("la_vegetation_scale") else 1.0
 	return clampf(v, 0.1, 2.0)

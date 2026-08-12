@@ -1,15 +1,6 @@
 class_name LAFish
 extends CharacterBody3D
 
-## A material-bound aquatic animal. It lives inside the shared material field (LAMaterialField): it
-## swims just under the surface, loosely schools with its OWN species, and turns back whenever its
-## next step would leave water OR enter water outside its tolerated salinity / depth band. Nothing
-## scripts where it goes. It simply stays in cells that match its config band, so freshwater fish keep
-## to lakes/rivers, salt species keep to the open sea, brackish species hug the coast and river mouths,
-## and schools form and follow wherever the matching water actually is. All differentiation is CONFIG
-## (salinity_min/max, depth_min/max, size, speed, body shape, basks). One general rule, no per-species
-## branches. Drives EVERY aquatic species (fish variants, turtle, crab, whale, jellyfish); every one
-## works with no external asset via a procedural fallback body. (Explicit types only, no ':=' inferred typing.)
 
 const GROUP_SELECTABLE: String = "selectable"
 const GROUP_FISH: String = "fish"
@@ -52,11 +43,6 @@ var basks: bool = false               # can haul out to rest on the beach (turtl
 var _bask_timer: float = 0.0          # >0 while resting on the beach
 var _bask_cd: float = 0.0             # cooldown before the next haul-out
 
-# --- Foraging (config-driven, same idea as LocalAgentCreature's preys_on): a swimmer with a non-empty preys_on is
-# an insectivore/planktivore — it steers toward the nearest edible prey in its own sense radius and eats it
-# on contact, giving the aquatic food web a real bottom (fish → bugs/shrimp → the algae/biomass base). An
-# empty preys_on (whales aside) leaves the pure config-band swimmer behaviour unchanged. No per-species
-# branch: WHAT a swimmer eats is entirely the `preys_on` list in its data file. ---
 var diet: String = ""                 # informational ("insectivore"/"filter_feeder"/…); behaviour keys off preys_on
 var preys_on: PackedStringArray = PackedStringArray()   # species this swimmer forages (e.g. ["bug","shrimp"])
 const FORAGE_WEIGHT: float = 1.1      # how hard the prey-attraction pulls vs. wander/schooling
@@ -69,29 +55,15 @@ static var _forage_index: LASpatialIndex = LASpatialIndex.new()
 var health: float = 12.0
 var max_health: float = 12.0
 
-# --- Breathing (config-driven, same 3D submersion read as land animals): "water" = GILLS (breathe underwater,
-# suffocate in air — a beached fish); "air" = LUNGS (an aquatic air-breather like a whale/turtle: lives in the
-# water but must SURFACE to breathe, diving down while it holds its reserve and drowning if it runs out). No
-# hardcoded per-species behavior — the dive/surface cycle emerges from `breathes` + the breath reserve. ---
 var breathes: String = "water"
 var breath_capacity: float = 12.0     # seconds of held breath (out of medium); big lungs (whale) = long dives
 var dive_depth: float = 0.0           # air-breathers forage this far down, then rise to breathe (0 = use submerge)
 var _breath: float = 12.0
 const BREATH_REFILL: float = 25.0     # breath reserve refilled per sec while in the breathing medium
 
-# --- energy / hunger (0.4: a fish is a LIVING creature with a metabolism, like a land animal). Energy drains
-# every frame and is refilled by eating prey; a forager that empties its reserve starves. Hunger (energy below
-# hungry_at) is what makes a swimmer break off schooling to forage — the SAME drive land creatures run on.
-# The base of the web (grazers/filter feeders — an EMPTY preys_on) is sustained by ambient biomass and never
-# starves, so seeding those populations (bug/shrimp/turtle/crab/jellyfish) behaves exactly as before. ---
 var energy: float = 60.0
 var max_energy: float = 60.0
 var metabolism: float = 0.5           # THIS FRAME's realised burn (aerobic capacity x the temperature band)
-# --- BODY MASS + THE SAME RESPIRATION A LAND ANIMAL RUNS ON ----------------------------------------------
-# A swimmer is the same physics: a MEASURED body mass (LACreatureBodyMass) sets the account, and the burn is
-# what its gas-exchange surface can oxidise at the water's temperature (LACreatureRespiration). There is no
-# `thermal_strategy` here and no Q10 table — a fish's body temperature IS the water's, so its rate simply
-# rides the reaction's own temperature band, which is what being an ectotherm consists of.
 var mass_kg: float = 0.05             # real body mass in kilograms (species data)
 var structural_mass: float = 0.0      # non-labile tissue; what a sunken body still weighs
 var respiratory_capacity: float = 1.0 # gill surface packed into the body's area (the land animals' gene)
@@ -113,10 +85,6 @@ var flees_from: PackedStringArray = PackedStringArray()
 var _panic_timer: float = 0.0         # >0 while fleeing felt/seen danger (feeds the cognition fear reward)
 var _panic_source: Vector3 = Vector3.ZERO
 
-# --- shared cognition (REUSES the land stack: LACognition + LASituationSignature + LAActionRegistry). A fish
-# runs the same fast/slow brain — it picks from the shared action vocabulary, learns from how its own welfare
-# changes, and (rarely) escalates to the shared slow-brain scheduler. The fields below satisfy the stack's
-# duck-typed reads so NO fish branch is needed inside cognition itself. ---
 var _cognition = null                 # LACognition (per-fish learned policy + slow-brain hook)
 var _ecology = null                   # LAEcologyService (is_night, injected via set_ecology)
 var _material = null                  # LAMaterialField alias for cognition's is_water_at/temp_at reads
@@ -134,6 +102,7 @@ var _wander_timer: float = 0.0
 var _think_phase: int = -1             # per-instance stagger for the throttled swim-intention update
 var _mesh: MeshInstance3D = null
 var _model_root: Node3D = null
+@onready var _body_shape: CollisionShape3D = $BodyShape
 
 
 func setup(_terrain, _mat_field, _config: Dictionary) -> void:
@@ -187,14 +156,13 @@ func setup(_terrain, _mat_field, _config: Dictionary) -> void:
 	# life); the scheduler is injected after setup by the ecology (set_cognition_scheduler), exactly like land.
 	_cognition = LACognition.new()
 
-	collision_layer = 2                # pickable via the same layer-2 query as other actors
-	collision_mask = 0                 # movement is manual
 	_build_body()
 	add_to_group(GROUP_SELECTABLE)
 	add_to_group(GROUP_FISH)
 	add_to_group(SPECIES_GROUP)
 	add_to_group("species_%s" % species)     # per-species group so stocking caps count each kind
-	_heading = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0).normalized()
+	var rng: LASimRng = LASimRng.for_domain("life")
+	_heading = Vector3(rng.randf() * 2.0 - 1.0, 0.0, rng.randf() * 2.0 - 1.0).normalized()
 	if _heading == Vector3.ZERO:
 		_heading = Vector3.FORWARD
 	# A BODY APPEARED: register its mass with the field's biota ledger (swimmers are always spawner-made —
@@ -204,7 +172,6 @@ func setup(_terrain, _mat_field, _config: Dictionary) -> void:
 			int(Engine.get_physics_frames()) <= LACreatureBodyMass.FOUNDING_FRAMES)
 
 
-# --- shared cognition wiring (mirrors LocalAgentCreature so the ecology injects the same way) ---------------
 func set_ecology(e) -> void:
 	_ecology = e
 
@@ -239,11 +206,7 @@ func _build_body() -> void:
 	if _model_root == null:
 		_build_procedural_body()
 
-	var shape: CollisionShape3D = CollisionShape3D.new()
-	var sph: SphereShape3D = SphereShape3D.new()
-	sph.radius = maxf(size, 0.2)
-	shape.shape = sph
-	add_child(shape)
+	(_body_shape.shape as SphereShape3D).radius = maxf(size, 0.2)
 
 
 func _body_material() -> StandardMaterial3D:
@@ -458,10 +421,6 @@ func _build_shrimp_body() -> void:
 	add_child(tail)
 
 
-# Build the display model from the config model row (if any) and start its (looping) swim clip. A
-# swimmer is always swimming, so there is no per-frame animation logic — just play once at spawn. When
-# a variant reuses a shared mesh (finned fish share fish.glb), its config colour is passed as a flat
-# tint so trout / reef fish / mullet still read as distinct.
 func _build_model() -> void:
 	if model_id.is_empty():
 		return
@@ -483,12 +442,6 @@ func _build_model() -> void:
 			anim.play(clip)
 
 
-# A thrown rock / bite killed me, or I aged out. THE BODY SINKS AND ROTS; it is not deleted.
-#
-# `die()` used to free the node with no carcass and no litter, so every dead swimmer took its whole mass out of
-# the world. A fish has no ragdoll carcass node (it is not worth one), but the matter still has to go
-# somewhere: whatever is left of the body after a predator's bite is handed straight to the field's decomposer
-# loop as detritus at the spot it died, which is what a sinking body does.
 func die(_cause: String = "", _impulse: Vector3 = Vector3.ZERO) -> void:
 	# `_impulse` is accepted (and ignored) so a meteor's die(cause, impulse) call doesn't crash on fish.
 	if _dying:
@@ -577,19 +530,6 @@ func _physics_process(delta: float) -> void:
 		return
 
 	var pos: Vector3 = global_position
-	# METABOLISM — EVERY SWIMMER, EVERY FRAME, INCLUDING A BASKING ONE. (The basking early-return used to sit
-	# above this, so a hauled-out turtle skipped the whole energy budget as well; resting is cheaper than
-	# swimming, it is not free.) It used to be gated on `if not preys_on.is_empty()`, so a
-	# swimmer with an empty prey list (bug, shrimp, jellyfish, turtle, crab — about 56 individuals in a default
-	# sandbox) NEVER BURNED A JOULE and could never starve: locomotion with no fuel. The comment rationalised it
-	# as "grazes ambient biomass", but no graze happened anywhere in this file — nothing was consumed and
-	# nothing was produced. Those animals now do BOTH halves for real: they burn like everything else, and they
-	# crop the field's actual `biomass` in their own cell through the same seam a land grazer uses.
-	#
-	# The burn is thermal too. A fish is an ECTOTHERM: its body temperature is the water's, so its rate is the
-	# reaction's own temperature band read at the water it is in — zero at the freezing point of cell water and
-	# zero at protein denaturation, both measured properties of matter (LAPhysical). Cold water genuinely slows
-	# a fish's metabolism instead of costing it energy, and past either edge the chemistry stops and it dies.
 	var water_c: float = 20.0
 	if material != null and material.has_method("temp_at"):
 		water_c = float(material.temp_at(pos))
@@ -607,15 +547,6 @@ func _physics_process(delta: float) -> void:
 		# mechanism, not two rules with two thresholds.
 		die("hyperthermia" if water_c > LACreatureRespiration.band_optimum_c() else "hypothermia")
 		return
-	# GRAZE: a filter feeder or a grazer strains the standing crop out of the water at its own cell. Same call,
-	# same debit, same shortfall accounting as a rabbit cropping grass — a whale and a rabbit are one rule, and
-	# `LACreatureDigestion.DIETS_THAT_GRAZE` is the one place that says which diets do it.
-	#
-	# GATED ON DIET, NOT ON AN EMPTY PREY LIST. Keying it on `preys_on.is_empty()` inferred the feeding mode
-	# from an accident of the data: the whale declares `"diet": "filter_feeder"` AND `"preys_on": ["shrimp"]`,
-	# so a non-empty list meant the largest animal on the planet never filtered anything — while its Kleiber
-	# burn made it, with the villagers, 44% of the whole fauna's metabolic demand. A species says what it eats;
-	# the code must not deduce that from a different field.
 	if LACreatureDigestion.DIETS_THAT_GRAZE.has(diet) and material != null and material.has_method("graze_biomass"):
 		var room: float = maxf(0.0, max_energy - energy)
 		if room > 0.0:
@@ -634,10 +565,6 @@ func _physics_process(delta: float) -> void:
 	# Local "up": radial on a planet, +Y on the flat island. Used for every up-reference below.
 	var up: Vector3 = terrain.up_at(pos) if terrain != null else Vector3.UP
 
-	# BREATHE YOUR MEDIUM (same 3D head-cell read as land animals). GILLS ("water") breathe underwater and
-	# suffocate in air; LUNGS ("air") breathe at the surface and drown if their reserve runs out underwater.
-	# Basking species (handled above) are exempt while hauled out. The "head" is one body-radius up.
-	# Submerged = the top of the body stays below the spherical sea shell.
 	var body_r: float = pos.distance_to(terrain.planet_center())
 	var submerged: bool = (terrain.sea_radius() - (body_r + size)) > 0.0
 	var in_medium: bool = submerged if breathes == "water" else not submerged
@@ -679,19 +606,15 @@ func _physics_process(delta: float) -> void:
 			look_at(look, up)
 
 
-# The fish's decision each think-frame — REUSES the shared cognition (LACognition + LASituationSignature +
-# LAActionRegistry). It builds the innate choice from its drives (flee a predator > forage when hungry > school),
-# lets the fast/slow brain confirm/override + learn from how its own welfare changed, then turns the chosen
-# action into a swim steer. Schooling still contributes cohesion under forage/wander so a school stays coherent
-# even while foraging — emergent from local mates, not scripted. Returns the (un-flattened) desired heading.
 func _decide_heading(pos: Vector3, up: Vector3, delta: float) -> Vector3:
 	_panic_timer = maxf(0.0, _panic_timer - delta)
 	var desired: Vector3 = _heading
 	_wander_timer -= delta
 	if _wander_timer <= 0.0:
-		_wander_timer = randf_range(1.0, 2.5)
+		var rng: LASimRng = LASimRng.for_domain("life")
+		_wander_timer = rng.randf_range(1.0, 2.5)
 		# Isotropic 3D jitter; the tangent-plane projection by the caller keeps it in the swim plane.
-		var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0) * 0.7
+		var jitter: Vector3 = Vector3(rng.randf() * 2.0 - 1.0, rng.randf() * 2.0 - 1.0, rng.randf() * 2.0 - 1.0) * 0.7
 		desired = _heading + jitter
 
 	var threat: Node3D = _nearest_threat(pos)
@@ -746,10 +669,6 @@ func _nearest_threat(pos: Vector3) -> Node3D:
 	return best
 
 
-# Loose schooling with nearby SAME-SPECIES swimmers: cohesion + alignment (same shared idea as creature
-# flocking). Scanning the PER-SPECIES group ("species_<kind>") — not the shared "aquatic life" group — keeps
-# this O(own-species²) instead of O(all-aquatic²): a school only ever considers its own kind, so a big sea
-# (many species) never makes each fish sweep every other swimmer. (Same result the species filter gave.)
 func _school_steer(pos: Vector3, up: Vector3) -> Vector3:
 	var mates: Array = get_tree().get_nodes_in_group("species_%s" % species)
 	var center: Vector3 = Vector3.ZERO
@@ -783,10 +702,6 @@ func _school_steer(pos: Vector3, up: Vector3) -> Vector3:
 	return steer * SCHOOL_WEIGHT
 
 
-# FORAGING: steer toward the nearest edible prey (config `preys_on`) inside the sense radius, and EAT it on
-# contact. The aquatic mirror of a land predator's hunt — eating removes the prey (bounding its numbers) AND
-# transfers its food_value into this fish's energy (see _eat_prey), so a hungry swimmer actually refuels by
-# feeding. Returns a tangent-plane steer toward the prey (ZERO when there is none, or right after eating one).
 func _forage_steer(pos: Vector3, up: Vector3) -> Vector3:
 	var prey: Node3D = _nearest_prey(pos)
 	if prey == null:
@@ -823,13 +738,6 @@ func _nearest_prey(pos: Vector3) -> Node3D:
 	return best
 
 
-# Consume a prey actor: DRAW mass out of its body into mine, then kill it. Whatever the mouth could not take
-# stays on the body and sinks as litter through the prey's own death path.
-#
-# What this replaces: it read `prey.food_value` and credited the WHOLE of it at 100% efficiency, capped at
-# `max_energy` — so the surplus above the cap was discarded outright, the prey's body was never debited (it was
-# freed whole a line later), and a small fish could gain more than a large prey ever contained. Nothing
-# balanced on either side of the bite.
 func _eat_prey(prey: Node3D) -> void:
 	if prey == null or not is_instance_valid(prey):
 		return
@@ -864,19 +772,13 @@ func _eff_submerge() -> float:
 	return eff_submerge
 
 
-# --- PLANET (radial) swimming --------------------------------------------------
-# The spherical analogue of the flat step logic above: the fish swims tangentially inside the WATER SHELL
-# (between the solid surface_radius floor and the sea_radius surface), riding `submerge` below the sea
-# shell exactly as the flat fish rides `submerge` below the sea plane. Sets global_position; returns true
-# only when a basking species hauled out (so the caller returns for this frame). Same steer/correct/hold
-# structure as flat — only the coordinate frame differs.
 func _swim_planet(pos: Vector3, candidate: Vector3, step_len: float, up: Vector3) -> bool:
 	var center: Vector3 = terrain.planet_center()
 	var sea: float = terrain.sea_radius()
 	var next_pos: Vector3 = pos + candidate * step_len
 	var next_dir: Vector3 = (next_pos - center).normalized()
 	if not _habitable_dir(next_dir):
-		if basks and _bask_cd <= 0.0 and randf() < BASK_CHANCE and _try_bask_planet(next_dir):
+		if basks and _bask_cd <= 0.0 and LASimRng.for_domain("life").randf() < BASK_CHANCE and _try_bask_planet(next_dir):
 			return true
 		var back: Vector3 = _find_habitable_dir_planet(pos, up)
 		if back != Vector3.ZERO:
@@ -902,10 +804,6 @@ func _swim_planet(pos: Vector3, candidate: Vector3, step_len: float, up: Vector3
 	var sr: float = terrain.surface_radius(next_dir)
 	if not is_nan(sr):
 		target_r = maxf(target_r, sr + size)               # never sink through the solid floor
-	# Gills must NEVER be lifted above the sea shell: keep a water-breather's top (target_r + size) a margin
-	# below the surface even where the floor clamp above would otherwise push it up into air. That air-clamp
-	# in thin shoreline water is exactly what suffocates gill fish in the shallows. Air-breathers are exempt —
-	# their eff_submerge deliberately breaches the surface so they can breathe (whale/turtle/bug).
 	if breathes == "water":
 		target_r = minf(target_r, sea - size - GILL_SUBMERGE_MARGIN)
 	global_position = center + next_dir * target_r
@@ -921,10 +819,6 @@ func _habitable_dir(dir: Vector3) -> bool:
 	var sea: float = terrain.sea_radius()
 	if sr >= sea:
 		return false                     # dry land above the waterline
-	# Gill (water) breathers need a column deep enough to hold the whole body under the surface; thin
-	# shoreline water would clamp them up into air and suffocate them, so it is NOT habitable for gills and
-	# the correction steers them back toward deeper water. Air-breathers surface to breathe, so any water
-	# shell is fine for them — their habitability stays plain shell-presence.
 	if breathes == "water" and (sea - sr) < size * 2.0:
 		return false
 	return true

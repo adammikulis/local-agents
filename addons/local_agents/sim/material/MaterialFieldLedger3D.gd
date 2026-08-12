@@ -1,16 +1,17 @@
 class_name LAMaterialFieldLedger3D
 extends RefCounted
 
-## LAMaterialFieldLedger3D: the conserved H₂O LEDGER of LAMaterialField3D (plus the snow/ice diagnostics it
-## modules: it holds no state of its own and reaches into the owning field `_f` for the shared channels.
+const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+
+## LAMaterialFieldLedger3D: the conserved H₂O ledger of LAMaterialField3D, plus the snow/ice extent
+## diagnostics. Reaches into the owning field `_f` for the shared channels.
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
 var _stranded_cells: int = 0    # set by stranded_soil_total(); reported beside it
 var _prev_h2o: float = NAN
 var _prev_step: int = -1
-# Run-level anchor: the first sample this run, so drift can be amortised over the whole horizon instead of
-# only the gap between two consecutive samples. Same shape as LAMaterialFieldElementInventory3D's `_first_*` set.
+# Run-level anchor: the total at the seal step, so drift is measured over the whole horizon.
 var _first_h2o: float = NAN
 var _first_step: int = -1
 
@@ -54,55 +55,27 @@ func ice_cell_count() -> int:
 	return n
 
 
-## Total frozen H₂O over the field (one leg of the conserved h2o_total). Inclusion rule: every OPEN cell,
-## static ones included — snow on sea ice is real snow.
+# Every leg of h2o_total is mask-free: water that infiltrates a cell the derived solid flag then covers has
+# moved, not vanished, and an open-only sum books that move as destruction.
+
+## Frozen H₂O over every cell — one leg of the conserved h2o_total.
 func snow_total() -> float:
-	if _f._snow.size() != _f._cell_count:
-		return 0.0
-	var solid: PackedByteArray = _f._solid
-	var snow: PackedFloat32Array = _f._snow
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		if solid[c] == 0:
-			sum += snow[c]
-	return sum
+	return CellVolScript.weighted(_f._snow, CellVolScript.of(_f), _f._solid, false)
 
 
+## Liquid H₂O over every cell — one leg of the conserved h2o_total.
 func water_total() -> float:
-	if _f._water.size() != _f._cell_count:
-		return 0.0
-	var solid: PackedByteArray = _f._solid
-	var water: PackedFloat32Array = _f._water
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		if solid[c] == 0:
-			sum += water[c]
-	return sum
+	return CellVolScript.weighted(_f._water, CellVolScript.of(_f), _f._solid, false)
 
 
+## Groundwater over every cell — one leg of the conserved h2o_total.
 func soil_total() -> float:
-	return regolith_soil_total()
+	return CellVolScript.weighted(_f._soil, CellVolScript.of(_f), _f._solid, false)
 
 
+## Liquid + airborne + frozen + groundwater. Every leg mask-free, so burial reads as burial.
 func h2o_total() -> float:
 	return water_total() + _f.moisture_total() + snow_total() + soil_total()
-
-
-
-
-## How many cells are held static. Sizes the dynamic-sea change: these are the cells that start being
-## simulated, and they are ALREADY being dispatched every step (every kernel runs the full grid and the
-## static ones early-out), so this counts new physics work, not new dispatches.
-
-
-func regolith_soil_total() -> float:
-	if _f._soil.size() != _f._cell_count:
-		return 0.0
-	var soil: PackedFloat32Array = _f._soil
-	var sum: float = 0.0
-	for c in _f._cell_count:
-		sum += soil[c]
-	return sum
 
 
 func stranded_soil_total() -> float:
@@ -111,11 +84,14 @@ func stranded_soil_total() -> float:
 	var regolith: PackedByteArray = _f._regolith
 	var solid: PackedByteArray = _f._solid
 	var soil: PackedFloat32Array = _f._soil
+	var vol: PackedFloat32Array = CellVolScript.of(_f)
+	if vol.size() != _f._cell_count:
+		return 0.0
 	var sum: float = 0.0
 	var n: int = 0
 	for c in _f._cell_count:
 		if regolith[c] != 0 and solid[c] == 0:
-			sum += soil[c]
+			sum += soil[c] * vol[c]
 			n += 1
 	_stranded_cells = n
 	return sum
@@ -130,13 +106,13 @@ func conservation_report(step_index: int) -> Dictionary:
 		per_step = drift / float(step_index - _prev_step)
 	_prev_h2o = h2o
 	_prev_step = step_index
-	if _first_step < 0 and _sealed():
+	if _first_step < 0 and _at_seal(step_index):
 		_first_h2o = h2o
 		_note_seed("h2o", h2o)
 		_first_step = step_index
 	var run_steps: int = step_index - _first_step
 	var out: Dictionary = {
-		"h2o_dynamic_total": snappedf(h2o, 0.01),
+		# The key LAMaterialFieldConservation3D gates on.
 		"h2o_closed_total": snappedf(h2o, 0.01),
 		"h2o_drift": snappedf(drift, 0.01),
 		"h2o_drift_per_step": snappedf(per_step, 0.001),
@@ -167,11 +143,10 @@ func snow_line_temp() -> float:
 	return sum / float(n) if n > 0 else 0.0
 
 
-## True once LAMaterialFieldSeal3D has closed the books. Before it, this module publishes totals but latches
-## no baseline and reports no run-drift — because until the world is sealed the only thing a drift gauge can
-## measure is the planet being assembled.
-func _sealed() -> bool:
-	return _f != null and _f._seal != null and _f._seal.sealed()
+## True only on the step LAMaterialFieldSeal3D latched the books. The seal drives one sample there; a sample
+## on any other step cannot take a baseline, so a late one is impossible rather than merely unlikely.
+func _at_seal(step_index: int) -> bool:
+	return _f != null and _f._seal != null and step_index == _f._seal.baseline_step()
 
 
 func _note_seed(key: String, value: float) -> void:

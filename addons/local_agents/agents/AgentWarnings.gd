@@ -2,21 +2,6 @@
 extends RefCounted
 class_name LocalAgentAgentWarnings
 
-## The editor-side "why will this agent not work?" check behind LocalAgent's configuration warnings.
-##
-## It lives beside Agent.gd instead of inside it so the node keeps a one-line
-## `_get_configuration_warnings()`, and so the wording can be reworked without touching the file that
-## runs inference.
-##
-## LocalAgentStatus.warnings_for() answers the project-wide conditions: the native extension, the
-## AgentManager autoload, whether any model resolves, and whether the Piper speech runtime is
-## installed. This file only adds the checks that depend on this node's own properties, and never
-## reimplements the shared probe.
-##
-## `agent` is typed `Node` rather than `LocalAgent`, and its properties are read through `get()`,
-## because Agent.gd preloads this script: naming its class here would be a cyclic reference.
-##
-## (Explicit types only. Project rule: no ':=' inferred typing.)
 
 const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
 const RuntimePaths: GDScript = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
@@ -30,8 +15,6 @@ static func check(agent: Node) -> PackedStringArray:
         return out
     var named_model: String = named_model_path(agent)
     var speaks: bool = bool(agent.get("speak_responses"))
-    # Ask the shared probe about the project-wide model ONLY when this node names none of its own —
-    # an agent pointed at its own .gguf is not broken just because the project default is unset.
     out.append_array(Status.warnings_for({
         "extension": true,
         "autoload": true,
@@ -42,9 +25,6 @@ static func check(agent: Node) -> PackedStringArray:
         out.append("This agent's model file is not there:\n%s\nPick an installed .gguf, or clear the field to fall back to the project default." % named_model)
     if speaks:
         out.append_array(_speech_warnings(agent))
-    # AgentNode::_process returns early when tick_interval <= 0 (AgentNode.cpp:56), so this
-    # combination is an agent that never acts — not, as this warning previously claimed, one that
-    # acts every frame.
     if bool(agent.get("tick_enabled")) and float(agent.get("tick_interval")) <= 0.0:
         out.append("Tick Enabled is on but Tick Interval is 0, so this agent will never act. Set an interval in seconds (1.0 is a reasonable start).")
     return out

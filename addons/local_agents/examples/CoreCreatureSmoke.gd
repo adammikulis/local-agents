@@ -1,28 +1,6 @@
 extends Node3D
 
-## Core smoke test. It proves the creature and behaviour stack runs with the game deleted. This is a
-## pass/fail gate, not a showcase: it exits non-zero when the creature is missing or has fallen off
-## the ground plane, so CI notices.
-##
-## The scene is the test, and it is deliberately the simplest thing that can work. That is the
-## drop-in path a library user takes first:
-##   - Creature is a plain Creature.tscn instance, dragged in and dropped 2 m above the floor, with
-##     Standalone Species set to "rabbit" in the inspector. Nothing configures it. Creature.tscn ships
-##     with Standalone On Ready ticked, so it reads its species file, attaches a flat-ground terrain
-##     adapter at Ground Y and starts running its fast brain by itself. That "it just works" is exactly
-##     what this smoke exists to check.
-##   - Floor is an ordinary StaticBody3D so a dropped body has something to rest on.
-##   - DemoHarness owns the run: Run Frames 60, and a bare CORE_SMOKE={...} marker (Report Suffix is
-##     cleared) because that is the marker this scene has always printed. `-- --run-frames=N` overrides.
-##
-## It references only core classes. There is no MaterialField, no planet, no ecology and no game
-## autoload, so it stays runnable after the whole voxel game is removed.
-##
-## Run: godot --headless --path . addons/local_agents/examples/CoreCreatureSmoke.tscn -- --run-frames=120
-## (Explicit types only. The project rule bans ':=' inferred typing.)
 
-## How far the creature may sit from the ground plane and still count as standing. Generous on purpose:
-## the test is "did it snap to the floor", not "did it hold a pose".
 const STAND_TOLERANCE_M: float = 5.0
 
 @onready var _creature: LocalAgentCreature = %Creature as LocalAgentCreature

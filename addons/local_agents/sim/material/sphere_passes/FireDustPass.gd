@@ -34,6 +34,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 
 	# --- Shared buffers ---------------------------------------------------------------------------
 	var nbr: RID = bufs["nbr"]
+	var partner_rid: RID = bufs.get("link_partner", RID())
 	var solid: RID = bufs["solid"]
 	var vel_x: RID = bufs["vel_x"]
 	var vel_y: RID = bufs["vel_y"]
@@ -41,6 +42,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	# Per-column tangent-frame table — the wind that carries dust is stored in each cell's own frame, so both
 	# dust kernels read link directions from here rather than assuming a slot is an axis.
 	var ltan: RID = bufs["link_tan"]
+	var shell: RID = bufs["shell"]
+	var cvol: RID = bufs["cell_vol"]
 
 	var sediment: Array = bufs["sediment"]
 	var dust: Array = bufs["dust"]
@@ -51,7 +54,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 
 		_transport_set[p] = _build_set(rd, _transport_shader, [
 			[0, dust[p]], [1, dust[back]], [2, sediment[back]], [3, solid],
-			[4, vel_x], [5, vel_y], [6, vel_z], [15, nbr], [16, ltan]])
+			[4, vel_x], [5, vel_y], [6, vel_z], [15, nbr], [17, partner_rid], [16, ltan],
+			[39, shell], [40, cvol]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
@@ -59,10 +63,11 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	# real_seconds_per_step() rather than the 0.1 GAME seconds ctx["dt"] carries. Dividing by a model-unit
 	# cell size would be 168.6x too large.
 	var dt: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
-	var cell_m: float = float(ctx.get("cell_size", DEFAULT_CELL_SIZE)) * LAPhysical.METRES_PER_MODEL_UNIT
+	var lat_size: float = float(ctx.get("lat_size", DEFAULT_CELL_SIZE))
+	var cell_m: float = lat_size * LAPhysical.METRES_PER_MODEL_UNIT
 	var k: float = dt / cell_m if cell_m != 0.0 else 0.0
 
-	var pc_k: PackedByteArray = _pc_tracer(cc, maxi(int(ctx.get("depth", 1)), 1), k)
+	var pc_k: PackedByteArray = _pc_tracer(cc, maxi(int(ctx.get("depth", 1)), 1), k, lat_size)
 
 	# DUST TRANSPORT — gather advect/diffuse/settle: dust[live] -> dust[back], deposit into sediment[back].
 	rd.compute_list_bind_compute_pipeline(cl, _transport_pipe)
@@ -105,9 +110,9 @@ func _u(binding: int, buf: RID) -> RDUniform:
 	u.add_id(buf)
 	return u
 
-func _pc_tracer(cc: int, depth: int, k: float) -> PackedByteArray:
+func _pc_tracer(cc: int, depth: int, k: float, lat_ref: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(32)
+	pc.resize(36)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, depth)
 	pc.encode_float(8, k)
@@ -116,4 +121,5 @@ func _pc_tracer(cc: int, depth: int, k: float) -> PackedByteArray:
 	pc.encode_u32(20, 1)
 	pc.encode_u32(24, 0)
 	pc.encode_u32(28, 0)
+	pc.encode_float(32, lat_ref)
 	return pc

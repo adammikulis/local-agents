@@ -1,19 +1,7 @@
 class_name LATornado
 extends Node3D
 
-## A PERSISTENT tornado. It lives for tens of seconds, WANDERS driven by the atmosphere's wind, and its
-## strength EMERGES from what it feeds on: each step it reads the LOCAL temperature + relative humidity
-## (and whether it stands over ocean) at its base. WARM + HUMID air feeds it (strength climbs → it can
-## intensify), COOL / DRY air starves it (strength falls → it DISSIPATES). Nothing about its life is
-## scripted on a timeline: a tornado that drifts off warm humid ground onto a cold dry ridge withers on
-## its own; one that tracks along a warm coast keeps spinning. Strength drives the funnel size, the
-## swept footprint, and the vortex wind force. Over ocean it becomes a WATERSPOUT: it lifts moisture
-## into the sky (add_vapor at its base) and kicks up spray (splash). It only READS the field + broadcasts
-## stimuli (scare + a continuous vortex WIND that advects wildlife through the shared field force, never a
-## teleport-fling); everything else emerges. Built in code, no assets.
-## (Explicit types only, no ':=' inferred typing.)
 
-# --- Lifecycle ---------------------------------------------------------------
 const LIFETIME_MAX: float = 55.0          # hard cap: even a well-fed twister eventually spins down
 const STRENGTH_START: float = 0.45
 const STRENGTH_MAX: float = 1.6
@@ -26,34 +14,21 @@ const STRENGTH_RATE: float = 0.1          # smoothing of strength toward the fie
 # (SEED_HEAT_PER_SEC = 26.0 °C/s and SEED_HEAT_R = 12.0 deleted 2026-08-03 — see `_seed_low` below for why a
 # tornado is not allowed to manufacture the buoyancy it rides on.)
 
-# --- Track the vortex the field grew (+ wind + per-index noise so many twisters don't move in lockstep) ---
 const VORTEX_FOLLOW: float = 8.0          # base drifts toward the strongest nearby vorticity (the real mesocyclone)
 const VORTEX_PROBE: float = 26.0          # radius at which vorticity is sampled to find the vortex-core direction
 const WIND_FOLLOW: float = 0.9            # fraction of the atmosphere wind the base drifts with
 const WANDER_SPEED: float = 3.0           # amplitude of the residual noise wander (world u/s)
 const PLAY_HALF_EXTENT: float = 285.0     # keep the base inside the island play area
 
-# --- Effect radii / forces (all scale with strength) -------------------------
 const SCARE_BASE: float = 40.0            # continuous panic radius at strength 1
 const SCARE_INTERVAL: float = 0.5
 
-# --- Vortex wind (the twister's field force on wildlife) ---------------------
-# The funnel does NOT teleport-fling animals; it broadcasts a CONTINUOUS wind force over its footprint
-# (EcologyStimulus.apply_wind_force → CreatureFieldForces advects each creature every frame). The force
-# at a point is the classic vortex shape: mostly TANGENTIAL (swirl caught in the spin), some INWARD
-# (suction toward the core), a little LIFT (sucked up the funnel — the surface re-seat undoes most of it
-# so animals stay grounded and RECOVER once the twister passes). Speed rises toward the centre and with
-# strength; strength already emerges from the field's vorticity, so this whole force tracks the real vortex.
 const VORTEX_RADIUS_BASE: float = 20.0    # swept footprint radius at strength 1
 const VORTEX_WIND: float = 16.0           # peak wind speed (world u/s) at strength 1
 const VORTEX_TANGENT_GAIN: float = 1.0    # swirl (dominant → animals ORBIT the funnel rather than collapse in)
 const VORTEX_INWARD_GAIN: float = 0.6     # suction toward the core
 const VORTEX_LIFT_GAIN: float = 0.5       # updraft component
 
-# --- Funnel geometry ---------------------------------------------------------
-# A real tornado is WIDE up in the cloud and tapers to a narrow foot, with a downwind LEAN and a slow
-# sway. We build it as an outer dusty sheath + a darker denser inner core (both tapered cones), pivoted
-# at the FOOT so it leans/sways from the ground the way a real funnel does.
 const FUNNEL_HEIGHT: float = 62.0         # wide top up near cloud base, narrow foot on the ground
 const FUNNEL_TOP_R: float = 20.0          # top radius at strength 1 (wide — up in the wall cloud)
 const FUNNEL_BASE_R: float = 1.4          # foot radius at strength 1 (narrow touchdown)
@@ -63,7 +38,6 @@ const LEAN_MAX: float = deg_to_rad(16.0)  # how far the top leans downwind at fu
 const SWAY_AMPL: float = deg_to_rad(4.5)  # gentle side-to-side sway of the funnel
 const SWAY_SPEED: float = 1.3             # sway oscillation rate
 
-# --- Waterspout moisture lift ------------------------------------------------
 const SPOUT_VAPOR_PER_SEC: float = 0.9    # vapor injected/s at the base over ocean (feeds cloud→rain)
 const SPOUT_SPLASH_INTERVAL: float = 0.18
 
@@ -144,26 +118,6 @@ func _fuel() -> float:
 	return clampf(0.5 * warm + 0.55 * humid + 0.22 * ocean, 0.0, 1.0)
 
 
-# A TORNADO DOES NOT HEAT THE PLANET. It is what already-buoyant air does when it is made to spin, and the
-# buoyancy is the sun's, delivered by heat3d_solar_sphere3d hours earlier.
-#
-# This used to inject SEED_HEAT_PER_SEC = 26 °C per second into the air at the funnel's foot, every frame, for
-# the funnel's whole life, out of nothing — re-adding surface warming the solar kernel had already delivered,
-# and (because `add_heat` marked the temperature mirror dirty) rewinding a step of the planet's entire heat
-# budget on every one of those frames to do it. There is no store it could have come from: the actor has no
-# energy of its own, and a vortex is a rearrangement of momentum, not a source of it.
-#
-# DELETED rather than re-sourced. The alternative was to make it a conserving move — take heat from the
-# surrounding ring and concentrate it at the core — but that is a claim that a tornado warms its own centre by
-# cooling its surroundings, which is not what one does either. What actually organises a vortex is the
-# pre-existing thermal and pressure structure of the air, which this substrate already simulates: the funnel
-# should FIND a mesocyclone, not manufacture one. `_vortex_gradient()` below is exactly that read, and it is
-# what the funnel now runs on alone.
-#
-# HONEST CONSEQUENCE, because the deletion has one: with no seed, a tornado only tracks vorticity the field
-# grew on its own. If the substrate's own convection never spins one up, the funnel drifts on noise instead of
-# following a real core. That is a gap in the substrate's convection, not a licence to conjure heat, and it
-# belongs to whoever owns the wind/pressure kernels.
 func _seed_low(_delta: float) -> void:
 	pass
 
@@ -244,11 +198,6 @@ func _physics_process(delta: float) -> void:
 			_ecology.broadcast_scare(_base, SCARE_BASE * (0.6 + _strength), minf(1.0, 0.4 + _strength))
 	_sweep_wildlife(delta)
 
-	# WATERSPOUT spray — over open water the funnel kicks up a ring of spray (a cheap ripple). It no longer
-	# SCRIPT-INJECTS vapor (that low, base-level add_vapor condensed and rained puddles on the ground,
-	# especially near the coast). A real waterspout lifting moisture should EMERGE from the wind field's
-	# vortex once the tornado is rebuilt as an emergent low-pressure feature of MaterialField3D — not be
-	# faked by an actor pumping vapor into the air.
 	if _field != null and _field.has_method("is_ocean_at") and _field.is_ocean_at(_base):
 		_splash_cd -= delta
 		if _splash_cd <= 0.0:
@@ -257,10 +206,6 @@ func _physics_process(delta: float) -> void:
 				_field.splash(_base, 1.0 + _strength)
 
 
-# SWEEP nearby animals: broadcast a CONTINUOUS vortex wind over the strength-scaled footprint. Each frame
-# EcologyStimulus.apply_wind_force asks _vortex_force_at() for the wind at every creature in range and advects
-# it through the shared field force — so animals are caught in the swirl and drawn toward the funnel over time
-# (emergent, recoverable) instead of being teleport-flung. No creature.throw(), no per-species branch.
 func _sweep_wildlife(delta: float) -> void:
 	if _ecology == null or not _ecology.has_method("apply_wind_force"):
 		return
@@ -297,8 +242,6 @@ func _dissipate() -> void:
 		_ecology.broadcast_scare(_base, SCARE_BASE * 0.5, 0.3)
 	queue_free()
 
-
-# --- Visuals -----------------------------------------------------------------
 
 # Dust-colored fade for the debris motes: transparent → tan → transparent over each mote's life, so
 # they read as a soft dust cloud that swirls up and dissolves rather than hard flecks popping in/out.

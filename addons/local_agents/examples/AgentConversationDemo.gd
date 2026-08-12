@@ -1,19 +1,5 @@
 extends Node
 
-## This demo's own presentation, and nothing else.
-##
-## The cast, the topic, the prompting, the turn-taking and the memory graph all live on the
-## LocalAgentConversation node in AgentConversationDemo.tscn. Select it in the editor to change any
-## of them. The Next button calls its next_turn() straight from the Node dock, with no code.
-##
-## What is left here is what this scene chose to show: heading the transcript with the topic,
-## painting each utterance into it, and reporting how far the memory has grown. Your game would
-## draw it differently.
-##
-## The topic is read back off the Conversation node instead of being repeated here, so retyping it
-## in the inspector retitles the transcript too.
-##
-## (Explicit types only. The project rule bans ':=' inferred typing.)
 
 @onready var _conversation: LocalAgentConversation = %Conversation
 @onready var _transcript: RichTextLabel = %Transcript
@@ -33,8 +19,6 @@ func _on_conversation_turn_taken(speaker: String, text: String) -> void:
 	_refresh_memory()
 
 
-# Connected in the scene to ResetButton.pressed. reset() empties the graph in place; the transcript
-# is this scene's own, so it clears that too and puts the topic line back at the top.
 func _on_reset_button_pressed() -> void:
 	_conversation.reset()
 	_transcript.clear()

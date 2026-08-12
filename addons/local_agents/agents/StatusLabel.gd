@@ -3,21 +3,7 @@
 extends Label
 class_name LocalAgentStatusLabel
 
-## A Label that answers "is Local Agents working?" without anyone writing a line of code.
-##
-## Drop it anywhere in a scene. It polls `LocalAgentStatus` and shows the headline, tinted green when
-## everything is ready, yellow when something optional is missing (a Piper voice, the voxel backend)
-## and red when generation cannot happen at all. With `show_next_step` on it also prints the one
-## sentence that fixes the topmost problem, so a player or a designer is never left guessing.
-##
-## Marked @tool so the label previews the real status while you are building the scene. The polling
-## timer only exists at run time, so nothing ticks inside the editor.
-##
-## (Explicit types only. Project rule: no ':=' inferred typing.)
 
-## Emitted when the level or the headline changes. Connect it in the Node dock to show a "Fix setup"
-## button only while something is wrong. `level` matches LocalAgentStatus.Level (0 READY, 1 DEGRADED,
-## 2 BLOCKED).
 signal status_changed(level: int, headline: String)
 
 const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
@@ -55,10 +41,6 @@ var _last_headline: String = ""
 
 
 func _ready() -> void:
-    # Editor: do nothing at all. refresh() assigns `text` and calls add_theme_color_override(),
-    # and BOTH are serialised Label properties — painting the live status here would overwrite
-    # whatever the scene author typed and bake the runtime state into their .tscn on the next save.
-    # A placeholder is a much smaller lie than silently editing someone's scene.
     if Engine.is_editor_hint():
         return
     _timer = Timer.new()

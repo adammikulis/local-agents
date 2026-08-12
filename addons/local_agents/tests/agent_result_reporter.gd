@@ -1,13 +1,6 @@
 @tool
 extends RefCounted
 
-# Emits a single machine-parseable line that scripts/agent_harness.sh and other
-# tooling can grep to learn a harness run's outcome without scraping free text.
-# Reporting-only helper: owns no simulation authority and takes no fallback path.
-#
-# Line format:
-#   AGENT_TEST_RESULT={"suite":..,"status":"pass|fail","passed":N,"failed":M,
-#                      "duration_s":..,"failures":[{"name":..,"reason":..}]}
 
 const MARKER := "AGENT_TEST_RESULT"
 

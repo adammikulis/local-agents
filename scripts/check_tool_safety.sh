@@ -99,6 +99,11 @@ addons/local_agents/configuration/ui/ModelConfig.gd
 # Editor-dock UI: configuration/ui/InferenceConfig.tscn is instanced inside
 # editor/ConfigurationPanel.tscn, which is itself a tab of editor/LocalAgentPanel.tscn.
 addons/local_agents/configuration/ui/InferenceConfig.gd
+# Editor-dock UI: plugin.gd instantiates editor/SetupTab.tscn as the bottom panel before activation,
+# and it is also the Setup tab of editor/LocalAgentPanel.tscn. It has no run-time caller at all, so
+# Engine.is_editor_hint() is true on every path it has and an early return would leave the checklist
+# blank in the one place it exists.
+addons/local_agents/editor/SetupTab.gd
 ENTRIES
 )
 

@@ -1,18 +1,7 @@
 class_name LAFunctionGemmaClient
 extends RefCounted
 
-## Stateless helpers that translate a creature's situation into a FunctionGemma (llama.cpp
-## llama-server, launched with `--jinja`) chat-completions request and translate the reply back into
-## one of our discrete action names. Nothing here holds state or touches the scene. It is pure data
-## shaping, so it is trivial to unit-test and equally usable by the auto-finetune exporter.
-##
-## The server parses the model's `<start_function_call>` into an OpenAI-style
-## `choices[].message.tool_calls[]`, so the happy path is simply reading the first tool call's name.
-## We keep a content-scanning fallback for servers/templates that emit the call inline as text.
-##
-## (Explicit types only, no ':=' inferred typing.)
 
-# Coarse human labels for the discrete signature buckets (see LASituationSignature).
 const ENERGY_WORDS: Array = ["starving", "low", "adequate", "full"]
 const HYDRATION_WORDS: Array = ["parched", "thirsty", "hydrated"]
 
@@ -72,10 +61,6 @@ static func build_messages(sig: Dictionary, context: Dictionary) -> Array:
 	]
 
 
-## Read the chosen action out of a native LocalAgent.think result Dictionary
-## ({ok, text, tool_calls?, response?, …}). Prefers the structured native `tool_calls` (llama-server
-## function-calling), then the full chat-completions `response`, then a content scan of `text`. Returns
-## "" when no valid known action is present.
 static func parse_action_from_result(result: Dictionary) -> String:
 	if result.is_empty():
 		return ""

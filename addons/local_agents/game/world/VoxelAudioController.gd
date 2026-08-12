@@ -1,27 +1,9 @@
 class_name LAVoxelAudioController
 extends Node
 
-## Game-feel audio wiring for the voxel sim: presentation only, reacts to the sim, never drives it.
-##
-## This is thin WIRING over the existing procedural-audio subsystem (LAAudioDirector +
-## MusicDirector + SfxBank). It does NOT synthesize anything itself; it only:
-##   1. salts the generative-music seed so each play session's bed evolves differently (the world
-##      stays deterministic, because the music seed is INDEPENDENT of the sim world seed);
-##   2. subscribes to the emergent phenomenon-event tracker (LAEventTracker.event_emitted) and fires
-##      one SFX STING per field phenomenon (eruption / wildfire / flood / storm / lightning / impact),
-##      so field-derived events sound off even when no scripted disaster actor is present;
-##   3. exposes reusable UI-sound + milestone-chime helpers the HUD/menus can call.
-##
-## Audibility is gated by the existing per-aspect bus mixer (audio starts muted; the player unmutes in
-## the audio menu). This controller only WIRES the sources. It never force-unmutes. It degrades to
-## silence + a warning if the audio director or event tracker is unavailable (e.g. headless: no audio
-## device). No hard failure. (Explicit types only, no ':=' inferred typing.)
 
 const AUDIO_GROUP: String = "local_agents_audio"
 
-## Field-phenomenon type (from LAEventTracker) -> SFX preset key (from SynthPresets.sfx_presets()).
-## Config over `if type == X`: a new phenomenon adds one row, not a branch. Unknown types fall back to
-## FALLBACK_STING so a newly-added detector is still audible.
 const PHENOMENON_STINGS: Dictionary = {
 	"eruption": "volcano_rumble",   # deep molten-rock rumble as lava supply builds
 	"wildfire": "fire",             # crackle of a spreading fire front
@@ -72,8 +54,6 @@ func setup(world: Node) -> void:
 		print("AUDIO_CONTROLLER={ready:true, stings:%d, event_tracker:false}" % PHENOMENON_STINGS.size())
 
 
-# --- Audio settings (bus volumes + on/off) --------------------------------------------------------
-
 ## Aspect bus -> the LAGameSettings volume field driving it. Master/Music/Sfx come straight from the
 ## player's sliders; Voice + Ui ride the master level (no separate slider). Config over a branch.
 const BUS_VOLUME_FIELDS: Dictionary = {
@@ -84,10 +64,6 @@ const BUS_VOLUME_FIELDS: Dictionary = {
 	"Ui": "master_volume",
 }
 
-## Apply the player's audio settings to the mixer and flip audio ON by default for the shipped game.
-## Reconciles the old /root/GameSettings expectation with the real source (GameMode.settings — the typed
-## LAGameSettings the front-end configures). A dev can silence everything with env LA_NO_AUDIO or the
-## `--no-audio` launch arg (kept for headless/perf A-B runs); otherwise each bus takes its slider level.
 func _apply_audio_settings() -> void:
 	var settings: LAGameSettings = _game_settings()
 	var audio_off: bool = _audio_disabled()
@@ -124,12 +100,6 @@ func _game_settings() -> LAGameSettings:
 	return null
 
 
-## True when audio should start silent. Default: audio ON for any interactive launch — pressing Play in
-## the editor, a debug build, or the exported release game all have sound. Automated test runs stay silent
-## because they go through run_sim_offscreen.sh / smoke_check, which export `LA_NO_AUDIO=1` (handled by the
-## explicit override below); and a bare `--headless` run has no audio device, so it stays silent too.
-## Explicit override either way: `LA_NO_AUDIO=1` / `--no-audio` force silent; `LA_NO_AUDIO=0` / `--audio`
-## force audio on. The player's in-game volume/mute settings still apply on top of this default.
 func _audio_disabled() -> bool:
 	if OS.has_environment("LA_NO_AUDIO"):
 		return OS.get_environment("LA_NO_AUDIO") != "0"
@@ -141,13 +111,6 @@ func _audio_disabled() -> bool:
 	return DisplayServer.get_name() == "headless"
 
 
-# --- Music bed ------------------------------------------------------------------------------------
-
-## Salt the generative-music seed for per-session variety. Precedence:
-##   1. explicit override (env LA_MUSIC_SEED, or a GameSettings.music_seed if that autoload exists) —
-##      for reproducible trailer/screenshot captures;
-##   2. otherwise a fresh OS-entropy salt (randomize()), independent of the sim world seed.
-## Feeds the salted value to the existing engine via reseed_music — never rebuilds the engine.
 func _salt_music_seed() -> void:
 	if _audio == null or not _audio.has_method("reseed_music"):
 		return
@@ -179,8 +142,6 @@ func _resolve_music_seed() -> int:
 	return int(rng.randi())
 
 
-# --- Event stings ---------------------------------------------------------------------------------
-
 ## One SFX accent per emergent field phenomenon. Positional when the event carries a locus, else a flat
 ## cue. Volume scales gently with the event's intensity. Rate-limited per type. Cheap: O(1) dict lookup.
 func _on_phenomenon_event(event) -> void:
@@ -199,13 +160,9 @@ func _on_phenomenon_event(event) -> void:
 	var locus: Variant = null
 	if event.position is Vector3 and (event.position as Vector3) != Vector3.ZERO:
 		locus = event.position
-	# Fire the sting. `played` is false when SFX is muted/disabled at the bus (the default until the
-	# player enables audio) — the REACTION still logs so the wiring is observable in a verification run.
 	var played: bool = bool(_audio.play_sfx(key, locus, vol_db))
 	print("AUDIO_STING={type:%s, sfx:%s, intensity:%.1f, played:%s}" % [kind, key, float(event.intensity), str(played)])
 
-
-# --- Reusable helpers (HUD / menus call these) ----------------------------------------------------
 
 ## Positive milestone / objective / unlock chime. HUD calls this on an achievement; safe no-op if audio
 ## is unavailable. Non-positional (a UI cue).

@@ -47,8 +47,7 @@ func compute() -> void:
 		_f._soil.resize(cell_count)
 	var surf_count: int = int(_f._sphere.surf_count)
 	var depth: int = int(_f._sphere.depth)
-	var core_r: float = float(_f._sphere.core_radius)
-	var cell_size: float = float(_f._sphere.cell_size)
+	var mid: PackedFloat32Array = _f._sphere.shell_mid
 	var sea_r: float = _f.sea_level
 	# The elevation band the grain-size gradient is read over: from the sea shell up to the highest ground
 	# this planet actually has. Derived from the terrain rather than assumed, so a flatter or steeper world
@@ -58,11 +57,11 @@ func compute() -> void:
 		var base: int = s * depth
 		for r in range(depth - 1, -1, -1):
 			if _f._solid[base + r] != 0:
-				var e: float = core_r + (float(r) + 0.5) * cell_size
+				var e: float = mid[r]
 				if e > highest:
 					highest = e
 				break
-	var relief: float = maxf(highest - sea_r, cell_size)
+	var relief: float = maxf(highest - sea_r, float(_f._sphere.cell_size))
 
 	for s in range(surf_count):
 		var base: int = s * depth
@@ -74,7 +73,7 @@ func compute() -> void:
 		if surf_r < 0:
 			continue                                      # an all-open column (deep ocean over no floor)
 		# relief: basins and sea floor get valley-fill alluvium, summits get residual saprolite. Log, not
-		var elev: float = core_r + (float(surf_r) + 0.5) * cell_size
+		var elev: float = mid[surf_r]
 		var height: float = clampf((elev - sea_r) / relief, 0.0, 1.0)
 		var d_grain: float = LAPhysical.GRAIN_D_LOWLAND_M * pow(
 			LAPhysical.GRAIN_D_UPLAND_M / LAPhysical.GRAIN_D_LOWLAND_M, height)

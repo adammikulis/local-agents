@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+
 // Units: velocity m/s, k = dt_seconds / cell_metres. Advection is v*dt/dx.
 
 layout(local_size_x = 64) in;
@@ -9,7 +11,6 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer TracerIn  { float 
 layout(set = 0, binding = 1, std430) restrict writeonly buffer TracerOut { float tracer_out[]; };
 // Where settled material lands, for a tracer that HAS a settled phase (dust -> sediment). A tracer with
 // `deposit == 0` never writes here; the caller still binds something, and binds the tracer's own buffer if it
-// has nothing better.
 layout(set = 0, binding = 2, std430) restrict buffer Deposit { float deposit_ch[]; };
 layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 4, std430) restrict readonly buffer VelX { float vel_x[]; };
@@ -17,17 +18,27 @@ layout(set = 0, binding = 5, std430) restrict readonly buffer VelY { float vel_y
 layout(set = 0, binding = 6, std430) restrict readonly buffer VelZ { float vel_z[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh   { int nbr[]; };      // idx*6 + slot
 layout(set = 0, binding = 16, std430) restrict readonly buffer LinkTan { float ltan[]; };   // per-column dirs
+layout(set = 0, binding = 17, std430) restrict readonly buffer LinkPartner { int partner[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint depth;           // radial shells per column — turns a cell index into its column for `ltan`
-	float k;              // dt / cell_size, the Courant factor. REAL seconds over REAL model units.
+	float k_lat;          // dt / LATERAL spacing, the lateral Courant factor. Real seconds over model units.
 	float settle_v;       // still-air settling velocity, m/s. Signed: >0 sinks, <0 rises.
 	float diffuse;        // symmetric eddy-mixing share per open neighbour
 	uint deposit;         // 1 = settled material becomes `deposit_ch`; 0 = the tracer is held in place
 	uint offset;          // index base: channel-packed tracers (scent) pass ch*cell_count, others 0
 	float decay;          // per-step fractional loss, 0 for a conserved tracer
+	float lat_ref;        // the LATERAL spacing `k_lat` was divided by, in model units
 } params;
+
+#include "shell.glsli"
+#include "cellvol.glsli"
+
+// Courant factor across the radial face in slot `d`: k_lat rescaled by that face's own run.
+float k_rad(uint c, uint d) {
+	return params.k_lat * (params.lat_ref / max(shell_run(c % max(params.depth, 1u), d), 1e-9));
+}
 
 // Wind speed at which settling is fully suppressed, m/s.
 const float SETTLE_CALM_REF = 6.0;
@@ -35,55 +46,58 @@ const float SETTLE_CALM_REF = 6.0;
 const float SETTLE_MIN_RATIO = 0.08;
 const float OUT_MAX = 0.9;
 
-// Speed of cell `c` toward its lateral link `l` (0..3 == neighbour slots 1..4), in that cell's tangent frame.
+// Speed of cell `c` toward its lateral link `l` (0..3, i.e. neighbour slots N_LAT0+l), in its tangent frame.
 // lattice did not carry, which is why O2 had no wind for as long as it was its own kernel. It carries it:
-// `ltan`. The claim was refuted by the file sitting next to it.)*
 float toward_link(uint c, int l) {
 	uint b = ((c / max(params.depth, 1u)) * 4u + uint(l)) * 2u;
 	return vel_x[c] * ltan[b] + vel_z[c] * ltan[b + 1u];
 }
 
 float share(float toward) {
-	return max(0.0, toward) * params.k + params.diffuse;
+	return max(0.0, toward) * params.k_lat + params.diffuse;
+}
+
+// Advective share across radial slot `d`.
+float share_rad(uint c, uint d, float toward) {
+	return max(0.0, toward) * k_rad(c, d) + params.diffuse;
 }
 
 // Downward flux share: gravitational settling suppressed by wind, plus any downdraft carrying it faster.
 // Signed settling share of cell `i`: still-air settling velocity suppressed by wind, times the Courant
-// factor. POSITIVE sinks, NEGATIVE rises. Callers split it across the two vertical faces — a share is an
-// outflow fraction and can never be negative, so a rising tracer must be added to the UP face rather than
-// subtracted from the DOWN one.
-float settle_share(uint i) {
+float settle_share(uint i, uint d) {
 	float vxi = vel_x[i];
 	float vyi = vel_y[i];
 	float vzi = vel_z[i];
 	float speed = sqrt(vxi * vxi + vyi * vyi + vzi * vzi);
 	float calm = clamp(1.0 - speed / SETTLE_CALM_REF, 0.0, 1.0);
 	float lo = params.settle_v * SETTLE_MIN_RATIO;
-	return (lo + (params.settle_v - lo) * calm) * params.k;
+	return (lo + (params.settle_v - lo) * calm) * k_rad(i, d);
 }
 
 // Downward share: the sinking half of `settle_share`, plus any downdraft carrying the tracer with it.
 float fall_frac(uint i) {
-	return max(0.0, -vel_y[i]) * params.k + max(0.0, settle_share(i));
+	return max(0.0, -vel_y[i]) * k_rad(i, N_IN) + max(0.0, settle_share(i, N_IN));
 }
 
 // Upward share from buoyancy: the rising half. Zero for anything denser than air.
 float rise_frac(uint i) {
-	return max(0.0, -settle_share(i));
+	return max(0.0, -settle_share(i, N_OUT));
 }
 
 float raw_out(uint c) {
 	uint b = c * 6u;
 	float t = 0.0;
 	for (int l = 0; l < 4; ++l) {
-		int m = nbr[b + uint(l + 1)];
+		int m = nbr[b + N_LAT0 + uint(l)];
 		if (m >= 0 && solid[m] == 0.0) { t += share(toward_link(c, l)); }
 	}
-	int cu = nbr[b + 5u];
-	if (cu >= 0 && solid[cu] == 0.0) { t += share(vel_y[c]) + rise_frac(c); }
-	int cd = nbr[b + 0u];
-	if (cd >= 0 && solid[cd] == 0.0) { t += params.diffuse; }
-	t += fall_frac(c);
+	int cu = nbr[b + N_OUT];
+	if (cu >= 0 && solid[cu] == 0.0) { t += share_rad(c, N_OUT, vel_y[c]) + rise_frac(c); }
+	int cd = nbr[b + N_IN];
+	bool open_below = (cd >= 0) && (solid[cd] == 0.0);
+	if (open_below) { t += params.diffuse; }
+	// Down-flux leaves only where something receives it: an open cell below, or a deposit channel.
+	if (open_below || params.deposit == 1u) { t += fall_frac(c); }
 	return t;
 }
 
@@ -111,8 +125,8 @@ void main() {
 	}
 
 	uint base = g * 6u;
-	int nb_d = nbr[base + 0u];
-	int nb_u = nbr[base + 5u];
+	int nb_d = nbr[base + N_IN];
+	int nb_u = nbr[base + N_OUT];
 	bool open_d = (nb_d >= 0) && (solid[nb_d] == 0.0);
 	bool open_u = (nb_u >= 0) && (solid[nb_u] == 0.0);
 
@@ -120,25 +134,27 @@ void main() {
 
 	// EXCHANGE — every share this cell sends is scaled by scale_g, and every neighbour gathers that SAME
 	// scaled share off its own reverse link, so the flux across a face is one number both ends agree on and
-	// the operator is conservative to the face. Nothing is added outside the scaling.
-	float raw = 0.0;
+	float raw = raw_out(g);
 	float gain = 0.0;
 	for (int l = 0; l < 4; ++l) {
-		int m = nbr[base + uint(l + 1)];
+		int m = nbr[base + N_LAT0 + uint(l)];
 		if (m < 0 || solid[m] != 0.0) {
 			continue;
 		}
-		raw += share(toward_link(g, l));
-		gain += tracer_in[params.offset + uint(m)] * share(toward_link(uint(m), l ^ 1)) * out_scale(uint(m));
+		// The donor's OWN lateral index for the link back to me, from the table. `l ^ 1` is right only where
+		// the seam is not bent, and the few bent links made the gather double-count — which compounds.
+		int pi = partner[base + N_LAT0 + uint(l)];
+		if (pi < 0) { continue; }
+		int el = int(uint(pi) % N_SLOTS) - int(N_LAT0);
+		if (el < 0) { continue; }
+		gain += tracer_in[params.offset + uint(m)] * share(toward_link(uint(m), el)) * out_scale(uint(m))
+			* vol_ratio(uint(m), g);
 	}
-	if (open_u) { raw += share(vel_y[g]) + rise_frac(g); }
-	if (open_d) { raw += params.diffuse; }   // the settling half of the downward face is fall_frac, below
-	raw += fall_frac(g);
 
 	// Vertical inflow: the cell below blowing UP into us (advection + mixing), and the cell above sending its
 	// whole downward flux — its settling plus the mixing share.
-	if (open_d) { gain += tracer_in[params.offset + uint(nb_d)] * (share(vel_y[nb_d]) + rise_frac(uint(nb_d))) * out_scale(uint(nb_d)); }
-	if (open_u) { gain += tracer_in[params.offset + uint(nb_u)] * (fall_frac(uint(nb_u)) + params.diffuse) * out_scale(uint(nb_u)); }
+	if (open_d) { gain += tracer_in[params.offset + uint(nb_d)] * (share_rad(uint(nb_d), N_OUT, vel_y[nb_d]) + rise_frac(uint(nb_d))) * out_scale(uint(nb_d)) * vol_ratio(uint(nb_d), g); }
+	if (open_u) { gain += tracer_in[params.offset + uint(nb_u)] * (fall_frac(uint(nb_u)) + params.diffuse) * out_scale(uint(nb_u)) * vol_ratio(uint(nb_u), g); }
 
 	float value = ti * (1.0 - raw * scale_g) + gain;
 

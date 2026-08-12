@@ -35,8 +35,17 @@ var _wnext: PackedFloat32Array = PackedFloat32Array()    # double buffer for the
 
 # --- Shared 3D field state used by the concern modules (heat / atmosphere / lava). Every cell (rock OR
 const INITIAL_TEMP: float = 15.0
-const O2_AMBIENT: float = 1.0
-const CO2_AMBIENT: float = O2_AMBIENT * (LAPhysical.AIR_MOLE_FRAC_CO2 / LAPhysical.AIR_MOLE_FRAC_O2)
+# One cell's worth of air. The channel unit is historically "the O2 in a cell of modern air", which is
+# itself a leftover of seeding oxygen; Stage 2's Hadean seed retires it.
+const AIR_CELL_UNIT: float = 1.0
+# FREE OXYGEN IS A PRODUCT OF LIFE. Seeding it asserted two billion years of photosynthesis before frame 1.
+# It starts at zero and has to be earned. CO2 keeps its value — that one is volcanic, not biological — but
+# no longer derives from O2, or zeroing oxygen would silently take the carbon with it.
+const O2_AMBIENT: float = 0.0
+const CO2_AMBIENT: float = AIR_CELL_UNIT * (LAPhysical.AIR_MOLE_FRAC_CO2 / LAPhysical.AIR_MOLE_FRAC_O2)
+# N2 IS NOT A PRODUCT OF LIFE. It is what a degassed rocky planet's atmosphere is mostly made of, and it is
+# the reservoir lightning fixation draws on. Same mole-ratio convention as CO2 above.
+const N2_AMBIENT: float = AIR_CELL_UNIT * (LAPhysical.AIR_MOLE_FRAC_N2 / LAPhysical.AIR_MOLE_FRAC_O2)
 # ICE_DEPTH = a thick pack that reads as glacial ice (the deep end of the same channel — no separate ice buffer).
 const SNOW_PRESENT: float = 1.9e-4
 const ICE_DEPTH: float = 0.5              # ~8 m water equivalent = a real glacial thickness, not a snowfall
@@ -59,7 +68,7 @@ var _moisture: PackedFloat32Array = PackedFloat32Array()
 # GPU-owned (never re-uploaded); read back each frame for snow_cell_count/ice_cell_count/snow_depth_at + h2o_total.
 var _snow: PackedFloat32Array = PackedFloat32Array()
 # Fractional BEDROCK mineral mass per cell (Stage B). `solid` is DERIVED from it on the GPU (solid iff >= 0.5).
-# GPU-owned + GPU-evolved (M5/M6 records); the CPU edits it only on add_lava (dirty-gated upload).
+# GPU-owned + GPU-evolved (M5/M6 records).
 var _rock_fill: PackedFloat32Array = PackedFloat32Array()
 var _lava: PackedFloat32Array = PackedFloat32Array()     # lava mass per cell (a hot, viscous liquid)
 # --- Emergent FIRE / COMBUSTION (LAMaterialCombustion3D): a FUEL channel (flammable vegetation mass seeded
@@ -69,10 +78,15 @@ var _fire: PackedFloat32Array = PackedFloat32Array()     # burning intensity per
 var _o2: PackedFloat32Array = PackedFloat32Array()       # atmospheric oxygen level per cell (1.0 = ambient)
 # --- Emergent CARBON DIOXIDE (LAMaterialGas3D, second channel): a per-cell CO₂ level seeded to a trace ~0.
 var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ level per cell (0 = clean air)
+var _n2: PackedFloat32Array = PackedFloat32Array()       # atmospheric N₂ per cell (seed N2_AMBIENT)
 # --- Emergent DECOMPOSER loop (kernels3d/fungus_sphere3d.glsl + the decompose reaction record; the old
 # --- SOIL WATER / water table (LASoilPass / soil_sphere3d): water held in the REGOLITH band, the top few
 var _soil: PackedFloat32Array = PackedFloat32Array()     # water stored in the ground per cell (0 = bone dry)
 var _detritus: PackedFloat32Array = PackedFloat32Array() # dead decomposable organic matter per cell (0 = none)
+# The hydrogen and oxygen bound in the dead organic pool (detritus + fuel). org_h/(detritus+fuel) is the cell's
+# molar H:C, org_o/(...) its O:C — GPU-owned, seeded here at fresh CH2O and driven down by coalification.
+var _org_h: PackedFloat32Array = PackedFloat32Array()
+var _org_o: PackedFloat32Array = PackedFloat32Array()
 var _fungus: PackedFloat32Array = PackedFloat32Array()   # fungal biomass density per cell (0 = none; high = mushrooms)
 # Soil FERTILITY per cell — the decomposer loop's output (detritus → fungus → CO₂ + fertility). GPU-owned PAIR
 # channel (scent_fert blur/leach + fungus_fert deposit); read back each frame for fertility_at/fertility_peak.
@@ -107,6 +121,7 @@ const InjectScript: GDScript = preload("res://addons/local_agents/sim/material/M
 const SphereStepScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd")
 const BoxStepScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldBoxStep3D.gd")
 const SurfaceSeedScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd")
+const OrganicScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldOrganic3D.gd")
 var _gpu = null                                          # LAMaterialSphereGPU3D (local RenderingDevice) or null
 var _use_gpu: bool = false
 var _geotherm = null                                     # LAMaterialFieldGeotherm3D — the internal heat source
@@ -117,6 +132,7 @@ var _stamp = null                                        # LAMineralStamp3D — 
 var _sphere_step = null                                  # LAMaterialFieldSphereStep3D — cubed-sphere per-frame step loop
 var _box_step = null                                     # LAMaterialFieldBoxStep3D — box-mode CPU thermal step (setup_dims)
 var _surface_seed = null                                 # LAMaterialSurfaceSeed3D — ground-surface fuel + soil detritus seed/refill
+var _organic = null                                      # LAMaterialFieldOrganic3D — the dead pool's C:H:O gauge
 # Substrate-foundation primitive modules (the field only delegates; all logic lives in these). Seams the
 # per-actor dissolution agents fill: shock (Earthquake/Meteor), charge→bolt (Thunderstorm), ejecta (bombs/debris).
 var _shock_mod = null                                    # LAMaterialShock3D — shock channel + emit/readback
@@ -216,13 +232,12 @@ const SLOW_READ_EVERY: int = 3           # render-only GPU readback cadence for 
 var _heat_tex_tick: int = 0
 var _slow_read_tick: int = 0
 var _lava_dirty: bool = false
-var _rock_fill_dirty: bool = false       # add_lava debited bedrock on the CPU → re-upload rock_fill this step
+var _rock_fill_dirty: bool = false       # the CPU edited bedrock → re-upload rock_fill this step
 var _shock_dirty: bool = false           # emit_shock seeded shock on the CPU → re-upload shock this step
 var _scent_dirty: bool = false           # deposit() seeded scent on the CPU → re-upload the 5-plane scent this step
-var _charge_dirty: bool = false          # add_charge seeded charge on the CPU → re-upload charge this step
-var _charge_woke: bool = false           # a charge injection woke the breakdown scan (stimulus = compute bubble)
 var _fuel_dirty: bool = false            # fuel seed/refill edited the CPU channel → re-upload fuel this step
 var _detritus_seed_dirty: bool = false   # one-shot: initial soil detritus seeded → upload once before the first step
+var _organic_seed_dirty: bool = false    # one-shot: the seeded litter's C:H:O pushed once, with the detritus seed
 # Lazy solidity sampling: the field is created before the terrain has finished streaming, so it samples
 # rock/void a budget of columns per frame and self-activates (seed sea + build modules) once complete —
 # exactly how the old field lazily sampled heights. No blocking, no external init calls.
@@ -352,9 +367,16 @@ func _alloc_channels() -> void:
 	_co2 = PackedFloat32Array()
 	_co2.resize(_cell_count)
 	_co2.fill(CO2_AMBIENT)
+	_n2 = PackedFloat32Array()
+	_n2.resize(_cell_count)
+	_n2.fill(N2_AMBIENT)
 	# Detritus + fungus start empty; carcasses/ash deposit detritus, fungus grows on it (decomposer loop).
 	_detritus = PackedFloat32Array()
 	_detritus.resize(_cell_count)
+	_org_h = PackedFloat32Array()
+	_org_h.resize(_cell_count)
+	_org_o = PackedFloat32Array()
+	_org_o.resize(_cell_count)
 	_fungus = PackedFloat32Array()
 	_fungus.resize(_cell_count)
 	# Soil fertility (decomposer output) starts barren; the GPU decomposer grows it where detritus rots.
@@ -519,6 +541,8 @@ func activate() -> void:
 	_surface_seed = SurfaceSeedScript.new()
 	_surface_seed.setup(self)
 	_surface_seed.seed_initial()
+	_organic = OrganicScript.new()
+	_organic.setup(self)
 	# Stage C: the sparse, event-driven rock_fill 0.5-crossing -> SDF terrain-growth stamp (idle until armed).
 	_stamp = MineralStampScript.new()
 	_stamp.setup(self)
@@ -556,7 +580,7 @@ func _sample_solidity_sphere() -> void:
 	var k: String = ""
 	if not _terrain_opts.is_empty():
 		k = SolidCacheScript.key(_terrain_opts, _cell_count, _dim_y, _sphere.core_radius,
-				_cell_size, _origin)
+				_sphere.shell_dr, _origin)
 		var cached: PackedByteArray = SolidCacheScript.load_mask(k, _cell_count, self)
 		if cached.size() == _cell_count:
 			_solid = cached
@@ -701,14 +725,9 @@ func relative_humidity_at(x: float, z: float) -> float:
 func dewpoint_at(x: float, z: float) -> float:
 	return _atmos.dewpoint_at(x, z)
 
-## Prevailing (large-scale) wind input. The emergent wind now lives on the GPU; forward it to the driver.
-func set_wind(w: Vector2) -> void:
-	if _gpu != null and _gpu.has_method("set_prevailing"):
-		_gpu.set_prevailing(w)
-
 ## The drifting PLATES, pushed in by LAPlateTectonics (which owns the kinematics) and consumed by the GPU
 ## driver's PlateAdvectPass, which carries rock_fill and sediment with the velocity they imply. Pure
-## delegation, like set_wind above: the field holds no plate state and does no plate work.
+## delegation: the field holds no plate state and does no plate work.
 func set_plate_motion(table: PackedFloat32Array) -> void:
 	if _gpu != null and _gpu.has_method("set_plates"):
 		_gpu.set_plates(table)
@@ -742,33 +761,17 @@ func grid_half_extent() -> float:
 	return _half_extent
 
 
-# Heat + lava injection + diagnostics. Local injection (add_heat/add_vapor/add_charge/add_lava) is REAL — it
-# writes the sphere GPU field buffers via the injection module; the field only forwards.
+# Local injection writes the sphere GPU field buffers via the injection module; the field only forwards.
 ## Raise the temperature at a world point (and within `radius`) — a meteor's molten spike, a fire's heat.
 func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if _inject != null:
 		_inject.add_heat(world_pos, amount, radius)
-
-## A vent erupting: bedrock beneath it melts to lava. Conserving, and the body lives in the injection module
-## because it has to be a SPARSE DEVICE transfer rather than a mirror edit — see LAMaterialFieldInject3D.add_lava.
-func add_lava(world_pos: Vector3, amount: float) -> void:
-	if amount <= 0.0 or _rock_fill.size() != _cell_count or _lava.size() != _cell_count:
-		return
-	if _inject != null:
-		_inject.add_lava(world_pos, amount)
-	if _stamp != null:
-		_stamp.arm()                              # wake the SDF stamp — the erupted lava will cool + cross 0.5
 
 ## Inject airborne water vapor (humidity) at a world point (+`radius`) — a storm's moisture source. Real (module).
 func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if _inject != null:
 		_inject.add_vapor(world_pos, amount, radius)
 
-
-## Inject electrification charge at a world point (+`radius`) — an explicit charge seed. Real (module, dirty-gated).
-func add_charge(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
-	if _inject != null:
-		_inject.add_charge(world_pos, amount, radius)
 
 ## Launch ejected matter (mass + heat) from a world point — the shared momentum/ejecta primitive (volcano
 ## bombs, meteor debris, geyser blasts). Arcs under radial gravity + re-deposits on landing. See the module.
@@ -901,10 +904,6 @@ func fertility_peak() -> float:
 # --- Emergent-process forwarders (magma volcano / erosion / snow-ice / dust / charge lightning / shock).
 # CPU oracles retired; these channels are not yet read back from the sphere GPU driver, so the emitters are
 # no-ops and the diagnostics return safe defaults until their sphere readback lands.
-func add_magma_source(world_pos: Vector3, temp: float, rate: float) -> void:
-	_geotherm.arm(temp)
-
-
 ## Advance the geothermal reservoir one field step: recompute the conductive flux across its boundary, debit
 ## it by exactly that, credit radiogenic decay, and publish the boundary temperature to the GPU. The model
 ## lives in LAMaterialFieldGeotherm3D.

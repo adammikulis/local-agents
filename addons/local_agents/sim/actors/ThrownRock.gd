@@ -1,9 +1,6 @@
 class_name LAThrownRock
 extends Node3D
 
-## A rock in flight. Steers toward a moving target with a mild ballistic arc,
-## strikes (kills) the target on proximity, spawns a brief impact puff, and
-## cleans itself up. Robust against null/invalid targets and terrain.
 
 const HIT_RADIUS: float = 1.3
 const MAX_LIFETIME: float = 4.0
@@ -11,16 +8,6 @@ const ARC_HEIGHT: float = 1.5
 # The stone's own size, so its mass is its geometry rather than a number. Matches the visual BoxMesh below.
 const STONE_SIDE: float = 0.35
 
-## A THROWN ROCK IS STILL A ROCK WHEN IT LANDS. Every exit from this node — a hit, a splash, a lifetime cull,
-## a lost target — called `queue_free()` and the stone stopped existing. `LARock.take()` had already freed the
-## boulder it came from, so the pair deleted a rock's worth of mineral every time a villager hunted.
-## The substrate never held a loose rock (it is a scene node, not a `rock_fill` cell), which is exactly why
-## nothing noticed: `mineral_total` could see neither the world-gen creation nor this destruction.
-## Now the stone deposits its mass into the field's `sediment` channel wherever it comes to rest — loose
-## broken stone on the ground, which the slump and erosion kernels then move downhill like any other debris.
-## It is booked as `mineral_inject_minted`, honestly: the mass really is entering the field from outside it,
-## because the boulder it came from was outside too. Closing that last gap needs `LARock.take()`'s return
-## value plumbed into `throw_at` at CreatureThink.gd:122/147, which is another track's file.
 var mineral_mass: float = -1.0                  # < 0 = derive from STONE_SIDE on first use
 var _deposited: bool = false
 
@@ -49,10 +36,11 @@ func setup(terrain, water = null) -> void:
 	var mesh_instance: MeshInstance3D = MeshInstance3D.new()
 	mesh_instance.name = "ThrownRockMesh"
 	mesh_instance.mesh = mesh
+	var rng: LASimRng = LASimRng.shared()
 	mesh_instance.rotation = Vector3(
-		randf_range(-0.4, 0.4),
-		randf_range(0.0, TAU),
-		randf_range(-0.4, 0.4)
+		rng.randf_range(-0.4, 0.4),
+		rng.randf_range(0.0, TAU),
+		rng.randf_range(-0.4, 0.4)
 	)
 	add_child(mesh_instance)
 

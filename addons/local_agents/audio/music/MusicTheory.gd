@@ -2,18 +2,8 @@
 extends RefCounted
 class_name LocalAgentMusicTheory
 
-## Pure, stateless music-theory library: scales/modes, diatonic chord construction,
-## and note naming. No engine state, no RNG. Trivially unit-testable and shared by
-## the progression planner and the music director.
-##
-## A "mode" is an ordered array of semitone offsets from the root within one octave.
-## Chords are built by stacking scale thirds (mode-aware), so e.g. a triad on a
-## Phrygian-dominant tonic comes out correctly without hardcoding qualities.
-
-# --- Scale / mode catalog (semitones from root) ---------------------------------
 
 const MODES := {
-	# --- Diatonic (major-scale) modes ---
 	"ionian": [0, 2, 4, 5, 7, 9, 11],           # major
 	"dorian": [0, 2, 3, 5, 7, 9, 10],
 	"phrygian": [0, 1, 3, 5, 7, 8, 10],
@@ -22,7 +12,6 @@ const MODES := {
 	"aeolian": [0, 2, 3, 5, 7, 8, 10],           # natural minor
 	"locrian": [0, 1, 3, 5, 6, 8, 10],
 
-	# --- Harmonic-minor modes (incl. the requested Phrygian dominant) ---
 	"harmonic_minor": [0, 2, 3, 5, 7, 8, 11],
 	"locrian_nat6": [0, 1, 3, 5, 6, 9, 10],
 	"ionian_aug": [0, 2, 4, 5, 8, 9, 11],
@@ -31,7 +20,6 @@ const MODES := {
 	"lydian_sharp2": [0, 3, 4, 6, 7, 9, 11],
 	"altered_bb7": [0, 1, 3, 4, 6, 8, 9],        # ultralocrian
 
-	# --- Melodic-minor modes ---
 	"melodic_minor": [0, 2, 3, 5, 7, 9, 11],
 	"dorian_b2": [0, 1, 3, 5, 7, 9, 10],
 	"lydian_augmented": [0, 2, 4, 6, 8, 9, 11],
@@ -40,14 +28,12 @@ const MODES := {
 	"locrian_nat2": [0, 2, 3, 5, 6, 8, 10],
 	"altered": [0, 1, 3, 4, 6, 8, 10],           # super locrian
 
-	# --- Symmetric ---
 	"whole_tone": [0, 2, 4, 6, 8, 10],
 	"octatonic_hw": [0, 1, 3, 4, 6, 7, 9, 10],
 	"octatonic_wh": [0, 2, 3, 5, 6, 8, 9, 11],
 	"augmented": [0, 3, 4, 7, 8, 11],
 	"chromatic": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
 
-	# --- Pentatonic / hexatonic / blues ---
 	"major_pentatonic": [0, 2, 4, 7, 9],
 	"minor_pentatonic": [0, 3, 5, 7, 10],
 	"blues": [0, 3, 5, 6, 7, 10],
@@ -56,7 +42,6 @@ const MODES := {
 	"in_sen": [0, 1, 5, 7, 10],
 	"iwato": [0, 1, 5, 6, 10],
 
-	# --- Exotic / "world" heptatonics ---
 	"hungarian_minor": [0, 2, 3, 6, 7, 8, 11],
 	"double_harmonic": [0, 1, 4, 5, 7, 8, 11],   # byzantine
 	"neapolitan_minor": [0, 1, 3, 5, 7, 8, 11],
@@ -67,7 +52,6 @@ const MODES := {
 
 const NOTE_NAMES := ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
-# --- Queries --------------------------------------------------------------------
 
 static func mode_names() -> Array:
 	return MODES.keys()
@@ -106,7 +90,6 @@ static func snap_to_mode(midi: int, root_midi: int, mode: String) -> int:
 			return midi - d
 	return midi
 
-# --- Chords ---------------------------------------------------------------------
 
 ## Build a chord by stacking scale-thirds from `degree`. `size` = number of notes
 ## (3 = triad, 4 = seventh, 5 = ninth). Returns absolute MIDI notes, ascending.
@@ -137,7 +120,6 @@ static func triad_quality(chord: Array) -> String:
 		return "sus4"
 	return "alt"
 
-# --- Naming / conversion --------------------------------------------------------
 
 static func midi_to_hz(midi: int) -> float:
 	return 440.0 * pow(2.0, (float(midi) - 69.0) / 12.0)

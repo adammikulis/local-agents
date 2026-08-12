@@ -1,14 +1,7 @@
 class_name LAVoxelHarness
 extends RefCounted
 
-# Headless run-frames reporter for the voxel world, factored out of the root's _process so VoxelWorld
-# stays a thin composition root. Reads live world state at the end of a `-- --run-frames=N` run, prints
-# the SMOKE_SUMMARY (and optional cognition stats) the harness scrapes, then quits. Dependency-free of
-# the LAVoxelWorld type (dynamic access, no cyclic class reference). (Explicit types only — no ':=' .)
 
-
-# Emit the end-of-run diagnostics for the given world `w` and quit the tree. Called once, at
-# _frame == _run_frames, from LAVoxelWorld._process.
 static func _count_meshes(n: Node) -> int:
 	var c: int = 0
 	if n is MeshInstance3D and (n as MeshInstance3D).visible and (n as MeshInstance3D).mesh != null:
@@ -22,10 +15,6 @@ static func _count_meshes(n: Node) -> int:
 # population arc (and WHY it moves — which death causes dominate) is visible over time, not just at the end.
 # One line the balance harness scrapes: POP_TRACE={frame, per-species counts, plants/trees, temp, deaths-so-far}.
 static func emit_population_trace(w, frame: int) -> void:
-	# RNG DIVERGENCE PROBE (LA_RNG_TRACE=1): the shared seeded stream's draw count, broken down by the
-	# subsystem that drew it. Diff two runs' RNG_TRACE lines to find the first frame they differ and which
-	# tag moved — that names the subsystem drawing a frame-count-dependent number of times and shifting the
-	# stream position for everyone downstream of it.
 	if LASimRng.trace_enabled:
 		var rep: Dictionary = LASimRng.shared().trace_report()
 		print("RNG_TRACE={\"frame\":%d,\"draws\":%d,\"domains\":%s,\"tags\":%s}" % [
@@ -68,16 +57,11 @@ static func emit_population_trace(w, frame: int) -> void:
 				surf_max = maxf(surf_max, t)
 				surf_n += 1
 	var surf_mean: float = surf_sum / float(surf_n) if surf_n > 0 else 0.0
-	# CLIMATE STRUCTURE readout — snow/ice cover + cold-pole proof, so a long run shows the thermal STRUCTURE
-	# (not just a mean) settling: snow_cells + sea_ice persist at the poles while the habitable band stays temperate.
-	# LATITUDE-FIXED ground truth: sample the field temp at fixed equatorial + polar surface points (independent of
-	# where trees happen to be), so a real climate STRUCTURE (warm equator, cold pole) is visible and can't be
-	# confused with a moving tree-probe. Surface radius is read from a live tree's distance to the planet centre.
 	var t_eq: float = 0.0
 	var t_pole: float = 0.0
 	if mat != null and mat.has_method("temp_at") and w._body != null:
 		var ctr: Vector3 = w._body.center()
-		var axis: Vector3 = Vector3(0.40, 0.92, 0.0).normalized()   # PLANET_SPIN_AXIS
+		var axis: Vector3 = LAPlanetBody.SPIN_AXIS.normalized()
 		var surf_r: float = 250.0
 		var trees0: Array = tree.get_nodes_in_group("tree")
 		if trees0.size() > 0 and is_instance_valid(trees0[0]) and trees0[0] is Node3D:
@@ -120,18 +104,6 @@ static func emit_population_trace(w, frame: int) -> void:
 	print("POP_TRACE={\"frame\":%d,\"counts\":%s,\"temp_mean\":%.1f,\"surf_mean\":%.1f,\"surf_max\":%.1f,\"t_eq\":%.1f,\"t_pole\":%.1f,\"rab_e\":%.2f,\"rab_gut\":%.2f,\"rab_bio\":%.4f,\"t_min\":%.1f,\"t_max\":%.1f,\"snow\":%d,\"ice\":%d,\"sea_ice\":%d,\"cloud_cover\":%.3f,\"sea_t\":%.1f,\"charge_peak\":%.2f,\"bolts\":%d,\"moisture\":%.0f,\"cloud_cells\":%d,\"deaths\":%s}" % [frame, JSON.stringify(counts), temp_mean, surf_mean, surf_max, t_eq, t_pole, rab_e, rab_g, rab_b, t_min, t_max, snow_c, ice_c, sea_ice, cloud_cover, open_sea_t, charge_peak, bolts, rain, clouds, JSON.stringify(deaths)])
 
 
-## Fill the run-scalar gauges and hand back the whole SIM_REPORT payload, WITHOUT printing or quitting.
-##
-## This used to be emit_smoke_summary(), which filled the gauges, printed, emitted the completion
-## sentinel and requested the quit. That made VoxelWorld the one scene in the repo running its own
-## private copy of the harness contract every demo gets from LocalAgentDemoHarness. The reason given
-## for that was "the flagship needs --perf-frames and --bench, so it cannot use the harness node",
-## which was never true: of 20 command-line flags exactly 3 overlapped, and LASimReport.snapshot()
-## already returned the payload as a Dictionary, which is precisely the shape the harness wants.
-##
-## So the split is: this builds the report, LocalAgentDemoHarness prints it, counts the frames, emits
-## LA_RUN_COMPLETE and owns the exit. --perf-frames and --bench stay in VoxelInputController, because
-## those really are game-specific and always were.
 static func build_report(w) -> Dictionary:
 	_emit_draw_sources(w)
 	LASimReport.gauge("frames", float(w._frame))
@@ -163,18 +135,6 @@ static func _emit_draw_sources(w) -> void:
 		print("DRAW_SOURCES={%s}" % ", ".join(parts))
 
 
-## How much of the living population is on the DARK side, and how many of those that puts off-shift.
-##
-## This gauge exists because the thing it measures was silently broken and nothing caught it. Night used to
-## come from a global `time_of_day` scalar that is frozen at its seed value in planet mode (LAVoxelSkyCycle
-## returns before advancing its clock there), so every creature read "day" for the entire run: diurnal
-## animals never rested, nocturnal ones never woke, and the `night` bit in the learned-policy signature was
-## a constant that made half the signature space unreachable. A frozen scalar is indistinguishable from a
-## working one until something plots it.
-##
-## Read it like this: on a lit sphere `night_frac` should sit near 0.5 and sweep as the terminator moves.
-## A hard 0.0 or 1.0 means it is stuck again. `resting_frac` is the population actually off-shift, which is
-## the premise LACreatureLod's cost model rests on ("a fraction of the population is always asleep").
 static func sample_night(w) -> void:
 	var eco = w._ecology
 	if eco == null or not eco.has_method("is_night_at"):

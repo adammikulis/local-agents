@@ -11,9 +11,9 @@ const FREEZE_RATE: float = 0.05          # per-step k on the below-threshold liq
 const MELT_RATE: float = 0.05            # per-step k on the above-threshold snow-melt extent
 
 # --- BEDROCK phase transfers (rock unification Stage B) — molten LAVA <-> fractional bedrock ROCK_FILL ------------
-const SOLIDIFY_TEMP: float = 800.0       # lava below this (°C) has cooled through the solidus → freezes to bedrock
+const SOLIDIFY_TEMP: float = LAPhysical.BASALT_SOLIDUS_C   # 1000 °C — lava below the solidus freezes to bedrock
 const SOLIDIFY_RATE: float = 0.02        # per-step k on x = max(0, SOLIDIFY_TEMP - temp) * k (capped by lava)
-const ROCK_MELT_TEMP: float = 1200.0     # open-cell rock hotter than this (°C, above the lava emplace temp) melts
+const ROCK_MELT_TEMP: float = LAPhysical.BASALT_LIQUIDUS_C # 1200 °C — bedrock above the liquidus is fully molten
 const ROCK_MELT_RATE: float = 0.02       # per-step k on x = max(0, temp - ROCK_MELT_TEMP) * k (capped by rock_fill)
 
 # --- H₂O EVAPORATION: ONE RULE, WHEREVER LIQUID WATER MEETS AIR --------------------------------------------
@@ -64,11 +64,15 @@ static func records() -> Array:
 		rec(EXCESS_OVER_THRESHOLD, MELT_RATE, TEMP, [[SNOW, 1.0]], [[WATER, 1.0, TGT_SELF]], 0, MELT_TEMP,
 			-1, 0.0, -1, 0.0, 0.0, -_latent_fusion_j_m3()),
 
+		# Rock melts and freezes INSIDE rock. `solid` is derived from rock_fill, so an open-cell-only gate
+		# gave the melt leg no reachable domain at all and left the freeze leg running on its own — a vent
+		# that relabelled bedrock as lava had its latent heat released by the freeze and never charged by
+		# the melt, creating it once per cycle. Both legs are GATE_BURIED, or melt at depth is a ratchet.
 		rec(DEFICIT_BELOW_THRESHOLD, SOLIDIFY_RATE, TEMP, [[LAVA, 1.0]], [[ROCK_FILL, 1.0, TGT_SELF]],
-			0, SOLIDIFY_TEMP, -1, 0.0, -1, 0.0, 0.0, _latent_rock_j_m3()),
+			GATE_BURIED, SOLIDIFY_TEMP, -1, 0.0, -1, 0.0, 0.0, _latent_rock_j_m3()),
 
 		rec(EXCESS_OVER_THRESHOLD, ROCK_MELT_RATE, TEMP, [[ROCK_FILL, 1.0]], [[LAVA, 1.0, TGT_SELF]],
-			0, ROCK_MELT_TEMP, -1, 0.0, -1, 0.0, 0.0, -_latent_rock_j_m3()),
+			GATE_BURIED, ROCK_MELT_TEMP, -1, 0.0, -1, 0.0, 0.0, -_latent_rock_j_m3()),
 	]
 
 

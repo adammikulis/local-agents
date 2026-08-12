@@ -1,26 +1,9 @@
 @tool
 extends EditorPlugin
 
-## The Local Agents editor plugin.
-##
-## Enabling the plugin has to be ENOUGH. It does three things a third-party project used to have to
-## do by hand:
-##   1. registers the `AgentManager` autoload (required by every LocalAgent node),
-##   2. publishes every `LocalAgentSettings` spec into Project Settings as a typed, hinted row,
-##   3. adds the bottom panel, whose first tab is a first-run checklist.
-##
-## None of that needs the native extension. Gating the panel on a successful extension load was the
-## bug: the Setup tab and the Downloads tab are exactly where you go to FIX a failed load, so hiding
-## them behind it made the addon unrecoverable from the editor.
-##
-## No custom node types are registered here. Every node script in this addon declares a `class_name`,
-## so Godot already lists it in Create Node; registering an editor-side alias on top of that put a
-## second, generically-iconed copy of Agent / LocalAgent3D / Creature / Sim World in the dialog.
-##
-## (Explicit types only — project rule: no ':=' inferred typing.)
 
 const PANEL_SCENE: PackedScene = preload("res://addons/local_agents/editor/LocalAgentPanel.tscn")
-const SETUP_TAB_SCRIPT: GDScript = preload("res://addons/local_agents/editor/SetupTab.gd")
+const SETUP_TAB_SCENE: PackedScene = preload("res://addons/local_agents/editor/SetupTab.tscn")
 const CHOICE_INSPECTOR_SCRIPT: GDScript = preload("res://addons/local_agents/editor/ChoiceInspectorPlugin.gd")
 const EXTENSION_LOADER: GDScript = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const SETTINGS: GDScript = preload("res://addons/local_agents/runtime/Settings.gd")
@@ -83,7 +66,6 @@ func make_visible(visible: bool) -> void:
     if _panel_instance:
         _panel_instance.visible = visible
 
-# -- Project configuration ----------------------------------------------------
 
 ## Publish every LocalAgentSettings spec so Project Settings renders it as a typed row (file picker,
 ## enum, checkbox) instead of the user hand-editing project.godot. Existing values are never
@@ -121,14 +103,13 @@ func _register_autoload() -> void:
     add_autoload_singleton(AUTOLOAD_NAME, AUTOLOAD_PATH)
     _autoload_registered = true
 
-# -- Bottom panel -------------------------------------------------------------
 
 ## The panel that exists before (and without) activation: the Setup checklist. It renders with no
 ## native binary, which is the entire point — it is what tells you how to get one.
 func _create_setup_panel() -> void:
     if _panel_instance:
         return
-    var setup: Control = SETUP_TAB_SCRIPT.new()
+    var setup: Control = SETUP_TAB_SCENE.instantiate()
     setup.name = "LocalAgentSetup"
     setup.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     setup.size_flags_vertical = Control.SIZE_EXPAND_FILL

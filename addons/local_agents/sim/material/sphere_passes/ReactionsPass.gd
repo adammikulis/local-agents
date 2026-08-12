@@ -78,6 +78,15 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# and this kernel is their only reader and only writer, so there is no producer to ping-pong against.
 	var carbonate: RID = _single(bufs, "carbonate")
 	var silica: RID = _single(bufs, "silica")
+	# N2 is an advected tracer like o2/co2 (GasWindPass), so the BACK half is the transport output this
+	# kernel edits in place. `discharge` is the CPU lightning stamp — read-only, single, driver only.
+	var n2: Array = _pair(bufs, "n2")
+	var discharge: RID = _single(bufs, "discharge")
+	# The dead organic pool's HYDROGEN and OXYGEN. Registered into the shared buffer table so injection,
+	# seeding and `request_probe` resolve them by name like any other channel; the device owns them from that
+	# point on and frees them with the rest, so this pass must not.
+	var org_h: RID = _ensure(bufs, "org_h", cc)
+	var org_o: RID = _ensure(bufs, "org_o", cc)
 
 	for p in 2:
 		var back: int = 1 - p
@@ -112,18 +121,22 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[21, _defs_ssbo],
 			[24, soil[back]],       # settled water table (SoilPass output) — R19's transpiration draws from the
 			[38, bufs["porosity"]],  # phi — rc_of and the overburden walk convert rock_fill with it
+			[40, bufs["cell_vol"]],  # per-cell volume (kernels3d/cellvol.glsli)
 			                        # regolith column BENEATH an open cell (SOIL_ROOT), the only place soil exists
 			[25, radial],           # per-cell outward unit vector — the derived LIGHT slot's geometry
 			[27, regolith],         # aquifer permeability mask — root_soil() walks THIS, not `solid`
-			[28, carbonate],        # SINGLE CaCO3 — D1b (the Urey reaction) credits it, D1c debits it
-			[29, silica],           # SINGLE SiO2 — the weathering residue, same two records
+			[28, carbonate],        # SINGLE CaCO3 — the Urey record credits it forward, debits it in reverse
+			[29, silica],           # SINGLE SiO2 — the weathering residue, same record
+				[30, n2[back]],         # dinitrogen — lightning fixation debits it
+				[31, discharge],        # SINGLE — the lightning discharge stamp, driver only
+				[32, org_h],            # SINGLE — organic hydrogen; ORG_H/ORG_C is the cell's molar H:C
+				[33, org_o],            # SINGLE — organic oxygen; ORG_O/ORG_C is the cell's molar O:C
 		])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if _rd == null or not _pipe.is_valid() or _n_records <= 0:
 		return
-	var dt: float = float(ctx.get("dt", 0.1))
 	# Same source + same default as ThermalPass.gd:150 — the solar kernel and the reaction engine must see the
 	# IDENTICAL sun, magnitude included (it carries orbit-distance² × atmospheric transmission, so dust dimming
 	# and impact winter suppress photosynthesis directly rather than second-hand through cooling).
@@ -132,8 +145,8 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	pc.resize(32)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, _n_records)
-	pc.encode_float(8, dt)
-	pc.encode_u32(12, 0)   # was `raining`; the global rain gate is deleted (see the kernel's Params note)
+	pc.encode_u32(8, 0)    # was `dt`, uploaded and never read; every rate_k already carries its own timebase
+	pc.encode_u32(12, 0)   # was `raining`; the global rain gate is deleted
 	pc.encode_float(16, sun_dir.x)
 	pc.encode_float(20, sun_dir.y)
 	pc.encode_float(24, sun_dir.z)
@@ -180,6 +193,18 @@ func _uset(shader: RID, entries: Array) -> RID:
 		u.add_id(e[1])
 		uniforms.append(u)
 	return _rd.uniform_set_create(uniforms, shader, 0)
+
+
+## Get a SINGLE buffer, creating it zero-filled and registering it in the shared table if it is not there.
+func _ensure(bufs: Dictionary, key: String, cc: int) -> RID:
+	var have: RID = _single(bufs, key)
+	if have.is_valid():
+		return have
+	var zeros: PackedFloat32Array = PackedFloat32Array()
+	zeros.resize(cc)
+	var rid: RID = _rd.storage_buffer_create(cc * 4, zeros.to_byte_array())
+	bufs[key] = rid
+	return rid
 
 
 func _single(bufs: Dictionary, key: String) -> RID:

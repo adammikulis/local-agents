@@ -66,10 +66,13 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# --- Resolve the shared SINGLE buffers once ------------------------------------
 	var solid_rid: RID = _single(bufs, "solid")
 	var nbr_rid: RID = _single(bufs, "nbr")
+	var partner_rid: RID = bufs.get("link_partner", RID())
 	var vel_x_rid: RID = _single(bufs, "vel_x")
 	var vel_z_rid: RID = _single(bufs, "vel_z")
 	var vel_y_rid: RID = _single(bufs, "vel_y")
 	var ltan_rid: RID = _single(bufs, "link_tan")
+	var shell_rid: RID = _single(bufs, "shell")
+	var cvol_rid: RID = _single(bufs, "cell_vol")
 	var detritus_rid: RID = _single(bufs, "detritus")
 	var fungus_fert_rid: RID = _single(bufs, "fungus_fert")  # per-cell fertility scratch (written by ReactionsPass' decompose record, reduced by fungus_fert)
 
@@ -92,31 +95,35 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# tracer_transport, one dispatch per scent channel via the `offset` push field.
 		_scent_transport_set[p] = _build_set(_scent_transport_shader, [
 			[0, scent_pair[p]], [1, scent_pair[back]], [2, scent_pair[back]], [3, solid_rid],
-			[4, vel_x_rid], [5, vel_y_rid], [6, vel_z_rid], [15, nbr_rid], [16, ltan_rid],
+			[4, vel_x_rid], [5, vel_y_rid], [6, vel_z_rid], [15, nbr_rid], [17, partner_rid], [16, ltan_rid],
+			[39, shell_rid], [40, cvol_rid],
 		])
 
 		_scent_fert_set[p] = _build_set(_scent_fert_shader, [
 			[0, fert_pair[p]],       # FertIn  = live fertility
 			[1, fert_pair[back]],    # FertOut = back fertility (fungus_fert then adds into THIS)
-			[15, nbr_rid],
+			[15, nbr_rid], [17, partner_rid], [40, cvol_rid],
 		])
 
 		# Decompose chemistry moved to ReactionsPass → this kernel no longer binds CO2/O2 or writes fert scratch.
 		_fungus_set[p] = _build_set(_fungus_shader, [
 			[0, fungus_pair[p]],     # FungIn  = live fungus
 			[1, fungus_pair[back]],  # FungOut = back fungus
-			[2, detritus_rid],       # Detritus (SINGLE, read-only — decompose record owns the debit)
+			[2, detritus_rid],       # Detritus (SINGLE) — the dead pool's carbon
+			[3, _single(bufs, "org_h")],   # ...and its hydrogen and oxygen, moved with it
+			[4, _single(bufs, "org_o")],
+			[9, _single(bufs, "fuel")],    # the pool's other carbon stock — the composition divides by both
 			[5, temp_pair[p]],       # Temp  (live, read)
 			[6, moisture_pair[p]],   # Moisture = the unified airborne-H₂O channel (live, read)
 			[8, solid_rid],          # Solid   (7 = Fire is gone; the gap is deliberate)
-			[15, nbr_rid],
+			[15, nbr_rid], [17, partner_rid], [40, cvol_rid],
 		])
 
 		_fungus_fert_set[p] = _build_set(_fungus_fert_shader, [
 			[0, fungus_fert_rid],    # FertCell = the per-cell scratch fungus just wrote
 			[1, fert_pair[back]],    # Fert = scent_fert's output (fert[back]), added into in place
 			[2, solid_rid],          # Solid
-			[15, nbr_rid],
+			[15, nbr_rid], [17, partner_rid], [40, cvol_rid],
 		])
 
 		# Snow DEPOSITION (snowfall): freeze the CONDENSED moisture on cold ground → snow, mass-conserving. Reads
@@ -127,14 +134,14 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[1, temp_pair[back]],    # Temp (settled, read)
 			[2, moisture_pair[back]],# Moisture (settled, debited in place — the frozen-out condensate)
 			[3, solid_rid],          # Solid
-			[15, nbr_rid],
+			[15, nbr_rid], [17, partner_rid],
 		])
 
 		_shock_set[p] = _build_set(_shock_shader, [
 			[0, shock_pair[p]],      # ShockIn  = live shock
 			[1, shock_pair[back]],   # ShockOut = back shock
 			[2, solid_rid],          # Solid
-			[15, nbr_rid],
+			[15, nbr_rid], [17, partner_rid],
 		])
 
 
@@ -143,13 +150,14 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 		return
 	var precip: float = float(ctx.get("precip", 0.0))
 	var depth: int = maxi(int(ctx.get("depth", 1)), 1)
-	var cell_m: float = float(ctx.get("cell_size", 1.0)) * LAPhysical.METRES_PER_MODEL_UNIT
+	var lat_size: float = float(ctx.get("lat_size", 1.0))
+	var cell_m: float = lat_size * LAPhysical.METRES_PER_MODEL_UNIT
 	var k_courant: float = LAMaterialFieldSphereStep3D.real_seconds_per_step() / cell_m if cell_m != 0.0 else 0.0
 
 	# Order: scent_transport -> scent_fert -> fungus -> fungus_fert -> snowice -> shock.
 	for ch in SCENT_DECAY.size():
 		_run(rd, cl, _scent_transport_pipe, _scent_transport_set[parity],
-				_pc_tracer(cc, depth, k_courant, 0.0, SCENT_DIFFUSE,
+				_pc_tracer(cc, depth, k_courant, lat_size, 0.0, SCENT_DIFFUSE,
 						cc * ch, float(SCENT_DECAY[ch]) + precip * SCENT_RAIN_WASH), groups)
 	_run(rd, cl, _scent_fert_pipe, _scent_fert_set[parity], _pc_precip16(cc, precip), groups)
 	_run(rd, cl, _fungus_pipe, _fungus_set[parity], _pc_precip32(cc, precip), groups)
@@ -195,10 +203,10 @@ func dispose(rd: RenderingDevice) -> void:
 
 
 # tracer_transport push: { cell_count, depth, k, settle_v, diffuse, deposit, offset, decay }.
-func _pc_tracer(cc: int, depth: int, k: float, settle_v: float, diffuse: float,
+func _pc_tracer(cc: int, depth: int, k: float, lat_ref: float, settle_v: float, diffuse: float,
 		offset: int, decay: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(32)
+	pc.resize(36)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, depth)
 	pc.encode_float(8, k)
@@ -207,6 +215,7 @@ func _pc_tracer(cc: int, depth: int, k: float, settle_v: float, diffuse: float,
 	pc.encode_u32(20, 0)
 	pc.encode_u32(24, offset)
 	pc.encode_float(28, decay)
+	pc.encode_float(32, lat_ref)
 	return pc
 
 
@@ -282,8 +291,10 @@ func _pc_precip16(cc: int, precip: float) -> PackedByteArray:
 	return b
 
 
-## Push: {uint cell_count, pad,pad,pad, float precip, pad,pad,pad} — 32 bytes (fungus, snowice).
+## Push: {uint cell_count, pad,pad,pad, float precip, float fresh_h_per_c, float fresh_o_per_c, pad}
+## — 32 bytes (fungus, snowice). The two ratios are fungal tissue's own C:H:O, read from the substance table.
 func _pc_precip32(cc: int, precip: float) -> PackedByteArray:
 	var b: PackedByteArray = PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
-	b.append_array(PackedFloat32Array([precip, 0.0, 0.0, 0.0]).to_byte_array())
+	b.append_array(PackedFloat32Array([precip, LASubstances.fresh_litter_per_carbon("H"),
+		LASubstances.fresh_litter_per_carbon("O"), 0.0]).to_byte_array())
 	return b

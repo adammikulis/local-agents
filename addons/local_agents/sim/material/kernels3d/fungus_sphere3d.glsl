@@ -1,12 +1,20 @@
 #[compute]
 #version 450
 
+#include "neighbours.glsli"
+#include "cellvol.glsli"
+
 
 layout(local_size_x = 64) in;
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer FungIn  { float fung_in[]; };
 layout(set = 0, binding = 1, std430) restrict writeonly buffer FungOut { float fung_out[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Detritus { float detritus[]; };
+// The dead pool's hydrogen and oxygen. Mycelium eating litter takes the litter's OWN C:H:O; mycelium dying
+// hands back fungal tissue, which is CH2O. Without these two the exchange would move carbon on its own.
+layout(set = 0, binding = 3, std430) restrict buffer OrgH { float org_h[]; };
+layout(set = 0, binding = 4, std430) restrict buffer OrgO { float org_o[]; };
+layout(set = 0, binding = 9, std430) restrict readonly buffer Fuel { float fuel[]; };
 layout(set = 0, binding = 5, std430) restrict readonly buffer Temp  { float temp[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer Vapor { float vapor[]; };
 // remaining bindings keep their numbers so no other kernel or pass has to move.
@@ -19,8 +27,8 @@ layout(push_constant, std430) uniform Params {
 	uint pad1;
 	uint pad2;
 	float precip;
-	float pad3;
-	float pad4;
+	float fresh_h_per_c;   // moles of H per mole of C in fungal tissue (CH2O)
+	float fresh_o_per_c;
 	float pad5;
 } params;
 
@@ -28,7 +36,6 @@ layout(push_constant, std430) uniform Params {
 const float DETRITUS_MIN = 0.05;
 // FUNGUS_MIN is not read by this kernel — its consumer is LAMaterialFieldChannels3D.FUNGUS_PRESENT, the
 // "this cell has a live colony" threshold the SIM_REPORT fungus_cells gauge counts against. Kept here so the
-// gauge and the physics agree on what a colony is by construction.
 const float FUNGUS_MIN = 0.02;
 const float FUNGUS_MAX = 3.0;
 const float MOIST_MIN = 0.02;
@@ -41,7 +48,6 @@ const float DETRITUS_DAMP = 0.15;
 const float TEMP_WARM = 42.0;
 // Growth stops when the water in and around the mycelium turns to ice, so this IS the freezing point of
 // water and is bound to the authority rather than left free. It is exactly the kind of constant that was
-// once moved to 12.5 in five files because the planet could not get cold; the annotation makes that fail.
 const float TEMP_COLD = 0.0;    // LAPhysical.WATER_FREEZE_C
 // FIRE: THIS KERNEL NO LONGER READS IT, AND `const float FIRE_MIN = 0.02;` IS DELETED WITH THE TWO TESTS
 const float GROW_RATE = 0.06;
@@ -78,6 +84,10 @@ void main() {
 
 	float d = detritus[i];
 	float g = fung_in[i];
+	// The dead pool's own composition, over the carbon it holds in BOTH its stocks.
+	float pool = d + fuel[i];
+	float comp_h = (pool > 1e-9) ? org_h[i] / pool : params.fresh_h_per_c;
+	float comp_o = (pool > 1e-9) ? org_o[i] / pool : params.fresh_o_per_c;
 	// Moisture: air humidity + active rain + the dampness of the rotting matter itself.
 	float moist = VAPOR_MOIST * vapor[i] + RAIN_MOIST * params.precip + DETRITUS_DAMP * clamp(d, 0.0, 1.0);
 	float t = temp[i];
@@ -87,6 +97,8 @@ void main() {
 	bool favourable = d > DETRITUS_MIN && !scorched && !frozen && !dry;
 	float gnew = g;
 	float det_delta = 0.0;      // net change to THIS cell's detritus; applied once at the end.
+	float grown_c = 0.0;        // carbon the mycelium took OUT of the dead pool
+	float died_c = 0.0;         // ...and carbon dead mycelium handed back to it
 
 	if (favourable) {
 		float mfac = clamp(moist / MOIST_REF, 0.0, 1.0);
@@ -95,26 +107,30 @@ void main() {
 		float grown = min(min(want, headroom), max(0.0, d));
 		gnew += grown;
 		det_delta -= grown;
+		grown_c = grown;
 	}
 
 	if (spreads_at(i)) {
 		gnew -= SPREAD * float(open_neighbours(i)) * g;
 	}
 	for (int dd = 0; dd < 6; dd++) {
-		int nb = nbr[i * 6u + uint(dd)];
+		int nb = nbr[i * N_SLOTS + uint(dd)];
 		if (nb >= 0 && solid[nb] == 0.0 && spreads_at(uint(nb))) {
-			gnew += SPREAD * fung_in[uint(nb)];
+			gnew += SPREAD * fung_in[uint(nb)] * vol_ratio(uint(nb), i);
 		}
 	}
 
 
 	// 3) DEATH / DECAY — dies back fast where hot/frozen/dry or the food is exhausted. DEAD MYCELIUM IS
 	// DESTROYED the dead fungus outright, with no product anywhere — which is why the decay leg leaked in the
-	// opposite direction to the growth leg.
 	float died = ((scorched || frozen || dry || d <= DETRITUS_MIN) ? DRY_DECAY : DECAY) * max(0.0, gnew);
 	gnew -= died;
 	det_delta += died;
+	died_c = died;
 
 	detritus[i] = max(0.0, d + det_delta);
+	// grown carbon left the pool with its own H and O; died carbon arrives as CH2O.
+	org_h[i] = max(0.0, org_h[i] - grown_c * comp_h + died_c * params.fresh_h_per_c);
+	org_o[i] = max(0.0, org_o[i] - grown_c * comp_o + died_c * params.fresh_o_per_c);
 	fung_out[i] = max(0.0, gnew);
 }

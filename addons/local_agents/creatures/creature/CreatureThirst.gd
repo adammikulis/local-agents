@@ -1,28 +1,11 @@
 class_name LACreatureThirst
 extends RefCounted
 
-## Thirst / water-seeking drive for LocalAgentCreature, factored out of the main brain. Emergent watering holes:
-## nothing scripts where animals gather. They simply drink from, or walk toward, the nearest wet cell of
-## the shared water field, so they cluster wherever water actually pools. Static + dynamic access on the
-## passed creature so there is no cyclic class reference. (Explicit types only, no ':=' inferred typing.)
 
-## Drinking rate as a multiple of the animal's own water turnover: a thirsty animal refills far faster than it
-## loses, but a big animal drinks more per second than a small one, from the mass scaling in
-## `LACreatureBodyMass.thirst_rate` rather than from a constant. It was a flat 45.0/sec for every creature —
-## more than a mouse's entire body water per second, and a trickle to a whale.
 const DRINK_OVER_TURNOVER: float = 60.0
 const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupts other drives
 
 
-## Thirst drive. Returns "" (not thirsty enough / no water known), "drink" (standing at water — refill in
-## place) or "seek" (head toward the nearest water via the creature's _water_dir_cache).
-##
-## DRINKING NOW EMPTIES THE PUDDLE. `is_water_at` is a PREDICATE — it answers "is this cell wet" and takes
-## nothing — so hydration used to be refilled from a lake that never went down, while the loss side drained it
-## into nowhere. Both legs are real now: the intake is debited out of the field's `water` (or, failing surface
-## water, the groundwater underfoot) through LAMaterialFieldBiota3D, and the loss returns as vapour in
-## LACreatureMetabolism.tick. H₂O is the substance this project holds up as its worked example of a closed
-## ledger, and animals were outside it.
 static func handle_thirst(c, pos: Vector3, delta: float) -> String:
 	if c._material == null or not c._material.has_method("is_water_at"):
 		return ""
@@ -40,10 +23,6 @@ static func handle_thirst(c, pos: Vector3, delta: float) -> String:
 	return ""
 
 
-## THE ONE DRINKING PATH. Takes water OUT of the world at `pos` and puts exactly that much into the body.
-## Every caller that refills hydration goes through here — the thirst drive above and the `drink` action in
-## LACreatureThink — so there is one place where the debit can be missed, instead of two that both forgot.
-## Returns what the animal actually got; a puddle that has been drunk dry gives nothing.
 static func drink(c, pos: Vector3, delta: float) -> float:
 	if c == null or delta <= 0.0:
 		return 0.0

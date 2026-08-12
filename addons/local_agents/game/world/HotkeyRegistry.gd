@@ -1,18 +1,7 @@
 class_name LAHotkeyRegistry
 extends RefCounted
 
-## LAHotkeyRegistry: the ONE source of truth for the voxel sim's keyboard shortcuts. It is pure DATA:
-## a static catalog of {key, action, label, category} records plus the digit-select policy the spawn
-## palette and its handler both read from, so the on-screen hint, the input router, and a future
-## controls-reference screen all describe the same bindings and can never drift.
-##
-## Nothing here executes a shortcut. The existing owners still do that (LAVoxelInputController for the
-## camera modes / pause, LAVoxelInteraction for selection + palette + brush + overlays, the HUD for its
-## own toggles). This registry only NAMES the bindings and derives the spawn-palette digit assignments
-## from the palette's own kind lists (LASpawnPaletteHud.LIFE_KINDS / DISASTER_KINDS), so adding a spawn
-## entry re-labels its hotkey automatically. (Explicit types only, no ':=' inferred typing.)
 
-# Category labels (sentence case) used to group the catalog for the controls-reference screen.
 const CAT_LIFE: String = "Spawn life"
 const CAT_DISASTER: String = "Spawn disasters"
 const CAT_SELECTION: String = "Selection"
@@ -32,7 +21,6 @@ const SHIFT_GLYPH: String = "⇧"
 static func hotkey_map() -> Array:
 	var rows: Array = []
 
-	# --- Spawn palette digit-select (derived from the palette's own kind ordering) ---
 	var life: PackedStringArray = LASpawnPaletteHud.LIFE_KINDS
 	for i in life.size():
 		var kind: String = life[i]
@@ -42,27 +30,22 @@ static func hotkey_map() -> Array:
 		var dkind: String = dis[j]
 		rows.append(_row("Shift+%d" % (j + 1), "arm_" + dkind, "Arm %s" % _kind_label(dkind), CAT_DISASTER))
 
-	# --- Selection / cursor ---
 	rows.append(_row("Esc", "select_cursor", "Cursor / select mode (and pause menu)", CAT_SELECTION))
 	rows.append(_row("Tab", "select_next", "Cycle selection forward", CAT_SELECTION))
 	rows.append(_row("Shift+Tab", "select_prev", "Cycle selection back", CAT_SELECTION))
 
-	# --- Camera & view (owned by LAVoxelInputController) ---
 	rows.append(_row("G", "view_geosync", "Toggle geosync camera", CAT_VIEW))
 	rows.append(_row("F", "view_fly", "Toggle fly mode", CAT_VIEW))
 	rows.append(_row("P", "view_solar", "Toggle solar-system view", CAT_VIEW))
 	rows.append(_row("K", "view_auto_spin", "Toggle planet auto-spin", CAT_VIEW))
 
-	# --- Field overlays ---
 	rows.append(_row("V", "overlay_scent", "Toggle scent overlay", CAT_OVERLAY))
 	rows.append(_row("T", "overlay_temp", "Toggle temperature heatmap", CAT_OVERLAY))
 
-	# --- Spawn brush ---
 	rows.append(_row("[", "brush_shrink", "Shrink spawn brush", CAT_BRUSH))
 	rows.append(_row("]", "brush_grow", "Grow spawn brush", CAT_BRUSH))
 	rows.append(_row("Ctrl + Wheel", "brush_size", "Resize spawn brush", CAT_BRUSH))
 
-	# --- Companion / pet (owned by LAVoxelInteraction; act on the selected creature) ---
 	rows.append(_row("B", "companion_feed", "Feed / pet the selected creature (tame it)", CAT_COMPANION))
 	rows.append(_row("Y", "companion_select", "Set the selected creature as your companion", CAT_COMPANION))
 	rows.append(_row("J", "companion_come", "Command: come", CAT_COMPANION))
@@ -70,7 +53,6 @@ static func hotkey_map() -> Array:
 	rows.append(_row("N", "companion_follow", "Command: follow", CAT_COMPANION))
 	rows.append(_row("O", "companion_free", "Command: free (roam)", CAT_COMPANION))
 
-	# --- Interface ---
 	rows.append(_row("M", "audio_menu", "Toggle audio & music menu", CAT_INTERFACE))
 	rows.append(_row("C", "streamer_toggle", "Show / hide streamer overlay", CAT_INTERFACE))
 	rows.append(_row("H", "hud_toggle", "Show / hide HUD", CAT_INTERFACE))

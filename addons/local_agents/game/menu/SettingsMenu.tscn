@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3 uid="uid://bsettings0la002"]
+[gd_scene load_steps=3 format=3 uid="uid://bsettings0la002"]
 
 [ext_resource type="Script" path="res://addons/local_agents/game/menu/SettingsMenu.gd" id="1_settings"]
+[ext_resource type="StyleBoxFlat" path="res://addons/local_agents/game/menu/MenuPanel.tres" id="2_panel"]
 
 [node name="SettingsMenu" type="Control"]
 layout_mode = 3
@@ -10,3 +11,84 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_settings")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.02, 0.03, 0.06, 1)
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="Center"]
+layout_mode = 2
+theme_override_styles/panel = ExtResource("2_panel")
+
+[node name="Scroll" type="ScrollContainer" parent="Center/Panel"]
+custom_minimum_size = Vector2(500, 620)
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="Column" type="VBoxContainer" parent="Center/Panel/Scroll"]
+custom_minimum_size = Vector2(480, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="Center/Panel/Scroll/Column"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.72, 1, 1)
+theme_override_font_sizes/font_size = 34
+text = "Settings"
+horizontal_alignment = 1
+
+[node name="Sections" type="VBoxContainer" parent="Center/Panel/Scroll/Column"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 10
+
+[node name="Spacer" type="Control" parent="Center/Panel/Scroll/Column"]
+custom_minimum_size = Vector2(0, 8)
+layout_mode = 2
+
+[node name="Actions" type="HBoxContainer" parent="Center/Panel/Scroll/Column"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Save" type="Button" parent="Center/Panel/Scroll/Column/Actions"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 2
+text = "Save"
+
+[node name="Models" type="Button" parent="Center/Panel/Scroll/Column/Actions"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 2
+tooltip_text = "Download / pick the local LLMs that drive creatures + the streamer"
+text = "Models"
+
+[node name="Back" type="Button" parent="Center/Panel/Scroll/Column/Actions"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 2
+text = "Back"
+
+[node name="Status" type="Label" parent="Center/Panel/Scroll/Column"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_override_font_sizes/font_size = 13
+horizontal_alignment = 1

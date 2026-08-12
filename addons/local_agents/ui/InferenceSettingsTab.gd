@@ -1,100 +1,44 @@
 extends VBoxContainer
 class_name LAInferenceSettingsTab
 
-# "Inference settings" tab of the model manager.
-#
-# Surfaces a generous set of the fields on the reused LocalAgentInferenceParams resource plus the
-# model-load knobs (context length, threads, GPU layers) and a system prompt. Also lets the player
-# pick which model drives each sim role (streamer / creature cognition / embedding), or leave a role
-# on the single active model. Everything writes straight into the shared store and persists on Save.
 
 var _store: LocalAgentModelSettingsStore = null
 var _inventory: LocalAgentModelInventory = null
 
-var _n_ctx: SpinBox = null
-var _temperature: SpinBox = null
-var _top_p: SpinBox = null
-var _top_k: SpinBox = null
-var _repeat_penalty: SpinBox = null
-var _max_tokens: SpinBox = null
-var _threads: SpinBox = null
-var _n_gpu_layers: SpinBox = null
-var _seed: SpinBox = null
-var _system_prompt: TextEdit = null
+@onready var _n_ctx: SpinBox = %NCtxSpin
+@onready var _temperature: SpinBox = %TemperatureSpin
+@onready var _top_p: SpinBox = %TopPSpin
+@onready var _top_k: SpinBox = %TopKSpin
+@onready var _repeat_penalty: SpinBox = %RepeatPenaltySpin
+@onready var _max_tokens: SpinBox = %MaxTokensSpin
+@onready var _threads: SpinBox = %ThreadsSpin
+@onready var _n_gpu_layers: SpinBox = %NGpuLayersSpin
+@onready var _seed: SpinBox = %SeedSpin
+@onready var _system_prompt: TextEdit = %SystemPromptEdit
+@onready var _role_grid: GridContainer = %RoleGrid
+@onready var _save_button: Button = %SaveButton
+@onready var _status: Label = %StatusLabel
+
 var _role_options: Dictionary = {}   # role -> OptionButton
-var _status: Label = null
+
+func _ready() -> void:
+	_save_button.pressed.connect(_on_save_pressed)
+	_build_role_rows()
 
 func setup(store: LocalAgentModelSettingsStore, inventory: LocalAgentModelInventory) -> void:
 	_store = store
 	_inventory = inventory
-	_build()
 
-func _build() -> void:
-	add_theme_constant_override("separation", 8)
-
-	var scroll: ScrollContainer = ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	add_child(scroll)
-
-	var body: VBoxContainer = VBoxContainer.new()
-	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body.add_theme_constant_override("separation", 8)
-	scroll.add_child(body)
-
-	_add_heading(body, "Sampling")
-	var grid: GridContainer = GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 16)
-	grid.add_theme_constant_override("v_separation", 6)
-	body.add_child(grid)
-
-	_temperature = _add_spin(grid, "Temperature", 0.0, 2.0, 0.01, false)
-	_top_p = _add_spin(grid, "Top-p", 0.0, 1.0, 0.01, false)
-	_top_k = _add_spin(grid, "Top-k", 0.0, 500.0, 1.0, true)
-	_repeat_penalty = _add_spin(grid, "Repeat penalty", 0.0, 2.0, 0.01, false)
-	_max_tokens = _add_spin(grid, "Max tokens", 1.0, 32768.0, 1.0, true)
-	_seed = _add_spin(grid, "Seed (-1 = random)", -1.0, 2147483647.0, 1.0, true)
-
-	_add_heading(body, "Model load")
-	var grid2: GridContainer = GridContainer.new()
-	grid2.columns = 2
-	grid2.add_theme_constant_override("h_separation", 16)
-	grid2.add_theme_constant_override("v_separation", 6)
-	body.add_child(grid2)
-	_n_ctx = _add_spin(grid2, "Context length (n_ctx)", 256.0, 131072.0, 256.0, true)
-	_threads = _add_spin(grid2, "Threads (0 = auto)", 0.0, 256.0, 1.0, true)
-	_n_gpu_layers = _add_spin(grid2, "GPU layers (n_gpu_layers)", 0.0, 200.0, 1.0, true)
-
-	_add_heading(body, "System prompt")
-	_system_prompt = TextEdit.new()
-	_system_prompt.custom_minimum_size = Vector2(0, 90)
-	_system_prompt.placeholder_text = "Optional system prompt applied to cognition/streamer prompts."
-	_system_prompt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body.add_child(_system_prompt)
-
-	_add_heading(body, "Model per role")
-	var role_grid: GridContainer = GridContainer.new()
-	role_grid.columns = 2
-	role_grid.add_theme_constant_override("h_separation", 16)
-	role_grid.add_theme_constant_override("v_separation", 6)
-	body.add_child(role_grid)
+# One row per entry in LocalAgentModelSettingsStore.ROLES, so a new role is a new record there.
+func _build_role_rows() -> void:
 	for role: String in LocalAgentModelSettingsStore.ROLES:
 		var label: Label = Label.new()
 		label.text = String(LocalAgentModelSettingsStore.ROLE_LABELS.get(role, role))
-		role_grid.add_child(label)
+		_role_grid.add_child(label)
 		var option: OptionButton = OptionButton.new()
 		option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		role_grid.add_child(option)
+		_role_grid.add_child(option)
 		_role_options[role] = option
-
-	var save_button: Button = Button.new()
-	save_button.text = "Save settings"
-	save_button.pressed.connect(_on_save_pressed)
-	body.add_child(save_button)
-
-	_status = Label.new()
-	body.add_child(_status)
 
 func refresh() -> void:
 	if _store == null:
@@ -146,25 +90,6 @@ func _available_models() -> Array:
 				seen[path2] = true
 				out.append({"label": String(row.get("filename", path2.get_file())), "path": path2})
 	return out
-
-func _add_heading(parent: Control, text: String) -> void:
-	var label: Label = Label.new()
-	label.text = text
-	label.add_theme_font_size_override("font_size", 16)
-	parent.add_child(label)
-
-func _add_spin(grid: GridContainer, label_text: String, min_v: float, max_v: float, step: float, whole: bool) -> SpinBox:
-	var label: Label = Label.new()
-	label.text = label_text
-	grid.add_child(label)
-	var spin: SpinBox = SpinBox.new()
-	spin.min_value = min_v
-	spin.max_value = max_v
-	spin.step = step
-	spin.rounded = whole
-	spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	grid.add_child(spin)
-	return spin
 
 func _on_save_pressed() -> void:
 	if _store == null:

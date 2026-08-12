@@ -1,0 +1,15 @@
+#ifndef LA_CELLVOL_GLSLI
+#define LA_CELLVOL_GLSLI
+
+layout(set = 0, binding = 40, std430) restrict readonly buffer CellVol { float cell_vol[]; };  // model units^3
+
+float cell_volume(uint c) {
+	return cell_vol[c];
+}
+
+// Donor fill fraction -> receiver fill fraction, carrying the same matter across the face.
+float vol_ratio(uint donor, uint receiver) {
+	return cell_vol[donor] / max(cell_vol[receiver], 1e-30);
+}
+
+#endif

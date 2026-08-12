@@ -1,0 +1,20 @@
+[gd_scene load_steps=3 format=3 uid="uid://c5t8n1q0nest000"]
+
+[ext_resource type="Script" path="res://addons/local_agents/sim/actors/Nest.gd" id="1_nest"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_pick"]
+resource_local_to_scene = true
+radius = 0.6
+
+[node name="Nest" type="Node3D"]
+script = ExtResource("1_nest")
+
+[node name="NestMesh" type="MeshInstance3D" parent="."]
+
+[node name="NestPicker" type="StaticBody3D" parent="."]
+collision_layer = 2
+collision_mask = 0
+
+[node name="NestPickerShape" type="CollisionShape3D" parent="NestPicker"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.12, 0)
+shape = SubResource("SphereShape3D_pick")

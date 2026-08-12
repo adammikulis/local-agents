@@ -1,26 +1,7 @@
-# @tool so the EDITOR Downloads tab can drive this same downloader. Without it Godot refuses to give
-# the node a script instance inside the editor, and the plugin would have needed a second, parallel
-# downloader — which is exactly the duplication this file replaced.
 @tool
 extends Node
 class_name LAModelDownloadManager
 
-# Model download manager, shared by the in-game panel and the editor Downloads tab.
-#
-# Fetches a GGUF model straight from its source into user://local_agents/models using an async
-# HTTPRequest node (never blocks the main thread). It reuses the shipped model catalog
-# (LocalAgentModelDownloadService + res://addons/local_agents/models/catalog.json) so runtime and
-# editor agree on repos/sizes, and reuses LocalAgentRuntimePaths for the models directory.
-#
-# Speed/ETA are smoothed with an exponential moving average so the "~2m left" readout does not
-# jitter with every network hiccup:  smoothed = alpha*inst + (1 - alpha)*smoothed  (sampled ~1 Hz).
-#
-# Resume note: HTTPRequest streams to disk via download_file (the only sane path for multi-GB files
-# — buffering a whole model in RAM is not acceptable), and download_file truncates its target, so a
-# byte-range append/resume is out of scope. "Graceful" here means the installed model is never
-# corrupted by a partial transfer: bytes land in a <name>.part file and are only promoted to the
-# final path after the size is verified, so a failed/cancelled download leaves the real model
-# untouched and a retry simply starts the .part over.
 
 const ModelDownloadService: GDScript = preload("res://addons/local_agents/controllers/ModelDownloadService.gd")
 const RuntimePaths: GDScript = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
@@ -62,7 +43,6 @@ var _last_received: int = 0
 func _ready() -> void:
 	set_process(false)
 
-# -- Catalog ------------------------------------------------------------------
 
 # Returns the curated model rows, each enriched with runtime paths + a display string. Missing
 # catalog ids are skipped rather than faked, so a stripped catalog simply shows fewer rows.
@@ -105,7 +85,6 @@ func display_line(model: Dictionary) -> String:
 	parts.append(size_pretty)
 	return "%s  ·  %s" % [head, "  ·  ".join(parts)]
 
-# -- Installed detection ------------------------------------------------------
 
 func is_model_installed(model_id: String) -> bool:
 	return installed_path(model_id) != ""
@@ -139,7 +118,6 @@ static func file_matches_size(path: String, expected_bytes: int, tolerance: floa
 		return true
 	return float(actual) >= float(expected_bytes) * tolerance
 
-# -- Download -----------------------------------------------------------------
 
 func is_downloading() -> bool:
 	return _active_id != ""
@@ -192,10 +170,6 @@ func start_download(model_id: String) -> bool:
 	download_started.emit(model_id, _active_total)
 	return true
 
-# Bring-your-own: download an arbitrary GGUF straight from a Hugging Face repo (no catalog entry
-# needed). Saves under user://local_agents/models/custom/<filename>. The model_id reported through the
-# signals is a synthetic "custom:<repo>/<filename>" so a listening panel can track it like any row.
-# Returns false if busy / inputs invalid / the request cannot start.
 func start_download_custom(repo_id: String, filename: String, revision: String = "main") -> bool:
 	if is_downloading():
 		return false
@@ -335,7 +309,6 @@ func _reset_active() -> void:
 func _emit_finished(model_id: String, ok: bool, path: String, error: String) -> void:
 	download_finished.emit(model_id, ok, path, error)
 
-# -- Pure helpers (unit-testable) --------------------------------------------
 
 static func ema_step(prev_smoothed: float, instantaneous: float, alpha: float) -> float:
 	return alpha * instantaneous + (1.0 - alpha) * prev_smoothed
@@ -376,7 +349,6 @@ static func format_speed(bytes_per_sec: float) -> String:
 		return "--"
 	return "%s/s" % format_bytes(int(bytes_per_sec))
 
-# -- Self-test ----------------------------------------------------------------
 
 # Headless verification of the EMA smoothing + the size-based installed detection. Simulates a noisy
 # byte stream (bursts and a stall) and asserts the smoothed speed tracks the trend without chasing

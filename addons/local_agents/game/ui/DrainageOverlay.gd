@@ -1,14 +1,6 @@
 class_name LADrainageOverlay
 extends MeshInstance3D
 
-## DEBUG: highlight the DRAINAGE NETWORK, the "gouges in the ground" where rivers should run. On an
-## ocean-heavy planet the channels are hard to spot, so this draws bright cyan spikes along the land's
-## flow paths, computed by standard hydrology: fill the depressions (priority-flood), point every land
-## column downhill (steepest descent on the filled surface), then accumulate upstream area. Cells with
-## a lot of upstream area are the trunk channels (taller/brighter here), the thin ones are headwater
-## creeks. Static terrain → computed ONCE on first toggle, drawn through terrain/water (no depth test) so
-## you can always see where the water is meant to collect. Toggle with the debug key / --debug-rivers.
-## (Explicit types only, no ':=' inferred typing.)
 
 const RIVER_ACCUM_MIN: int = 5         # upstream cells before a column counts as a visible channel
 const SPIKE_BASE: float = 5.0          # shortest channel spike (world units)
@@ -67,9 +59,7 @@ func _rebuild() -> void:
 		print("DRAINAGE_MAXACCUM=%d" % max_accum)
 	if max_accum < RIVER_ACCUM_MIN:
 		return
-	var depth: int = int(grid.depth)
-	var core_r: float = float(grid.core_radius)
-	var cs: float = float(grid.cell_size)
+	var shell_face: PackedFloat32Array = grid.shell_face     # depth+1 boundary radii
 	var sc: int = int(grid.surf_count)
 	_im.clear_surfaces()
 	_im.surface_begin(Mesh.PRIMITIVE_LINES)
@@ -79,7 +69,7 @@ func _rebuild() -> void:
 		if a < RIVER_ACCUM_MIN:
 			continue
 		var dir: Vector3 = grid.surf_dir(s)
-		var base_r: float = core_r + float(eground[s]) * cs      # top of the ground surface
+		var base_r: float = shell_face[eground[s]]                # top of the ground surface
 		var base: Vector3 = dir * base_r                          # BODY-LOCAL (this node rides the planet spin)
 		var mag: float = clampf(log(float(a)) / log(2.0), 1.0, 10.0)
 		var h: float = minf(SPIKE_BASE + mag * SPIKE_PER_LOG, SPIKE_MAX)
@@ -118,7 +108,8 @@ func _flow_accumulation(grid: RefCounted) -> Dictionary:
 	var sc: int = int(grid.surf_count)
 	var depth: int = int(grid.depth)
 	var core_r: float = float(grid.core_radius)
-	var cs: float = float(grid.cell_size)
+	var shell_face: PackedFloat32Array = grid.shell_face     # depth+1 boundary radii
+	var shell_mid: PackedFloat32Array = grid.shell_mid       # depth cell-centre radii
 	var center: Vector3 = grid.center
 	var surf_nbr: PackedInt32Array = grid.surf_nbr
 	var solid: PackedByteArray = _field._solid
@@ -146,12 +137,12 @@ func _flow_accumulation(grid: RefCounted) -> Dictionary:
 			elev[s] = -1.0e9
 			continue
 		var dir: Vector3 = grid.surf_dir(s)
-		var e: float = core_r + float(sr + 1) * cs               # quantised ground top (fallback)
-		if has_sdf:
+		var e: float = shell_face[sr + 1]                        # quantised ground top (fallback)
+		if has_sdf and sr + 1 < depth:
 			# Linear-interpolate the SDF zero-crossing between the ground cell centre (solid, sdf<0) and the
 			# cell-above centre (air, sdf>0) → the true sub-cell surface radius.
-			var r_lo: float = core_r + (float(sr) + 0.5) * cs
-			var r_hi: float = core_r + (float(sr) + 1.5) * cs
+			var r_lo: float = shell_mid[sr]
+			var r_hi: float = shell_mid[sr + 1]
 			var d_lo: float = terrain.sdf_at(center + dir * r_lo)
 			var d_hi: float = terrain.sdf_at(center + dir * r_hi)
 			if d_hi > d_lo:

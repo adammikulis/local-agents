@@ -55,16 +55,6 @@ func run_test(tree: SceneTree) -> bool:
         add_memory_result.get("ok", false),
         "Failed to add memory"
     )
-    # add_memory() returns ok as soon as the graph write lands, and reports the embedding separately
-    # under "embedding". This test used to check only the outer ok, so it printed
-    # "BackstoryGraphService tests passed" on a run whose console also carried
-    # `AgentRuntime::embed_text - http_status_error: 501`. That is a soft pass over a real failure,
-    # which this repo forbids. Semantic recall is the whole point of storing an embedding, so a
-    # silent 501 means search_memory_embeddings() is quietly answering from nothing.
-    #
-    # It stays non-fatal on purpose: embeddings need a llama-server started with --embeddings, and
-    # requiring one would make the graph suite unrunnable on a machine that has no server. So the
-    # outcome is REPORTED rather than swallowed, and the run says which of the two things it proved.
     var embedding_result: Dictionary = add_memory_result.get("embedding", {}) as Dictionary
     if embedding_result.is_empty():
         push_warning("Backstory: add_memory returned no embedding block, so indexing did not run at all.")
@@ -213,10 +203,6 @@ func run_test(tree: SceneTree) -> bool:
     var ritual_history: Dictionary = service.get_ritual_history_for_site("site_spring", 16, 8)
     ok = ok and _assert(ritual_history.get("ritual_events", []).size() >= 1, "Ritual history missing recorded event")
 
-    # A LATE set_database_path must actually redirect the store. It used to be dropped with a warning once
-    # _ready() had opened the graph, so a caller one line too late kept writing to the shared default
-    # database while every call still returned ok — test_agent_backstory.gd did exactly that and wiped the
-    # player's real backstory space on every run while reporting PASS. Assert on WHERE THE ROWS LANDED.
     ok = ok and _assert(_check_late_database_switch(tree), "a late set_database_path did not redirect the store")
 
     service.clear_backstory_space()

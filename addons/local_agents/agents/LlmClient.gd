@@ -1,18 +1,6 @@
 extends RefCounted
 class_name LocalAgentLlmClient
 
-## The one seam that lets any consumer treat a LocalAgent as a plain async LLM endpoint. It wraps a
-## single LocalAgent's think_async(): request() builds the native options (messages + optional tool
-## specs + backend/server), fires one async think, and routes the single think_completed back to the
-## caller's on_done. This is what collapses the three forked chat-completions clients into one path.
-## A creature's slow brain and the streamer's commentator now run through the same LocalAgent.
-##
-## Single-in-flight per client: a second request while one is running is rejected (returns false), so
-## the caller (the slow-brain scheduler's global budget, the streamer's pending-request gate) decides
-## what to do next. It can fall back to the heuristic teacher, skip the beat, and so on. That keeps
-## one shared server honest without a queue.
-##
-## (Explicit types only. Project rule: no ':=' inferred typing.)
 
 var _agent: Node = null                 # a LocalAgent (agents/Agent.gd)
 var _defaults: Dictionary = {}          # standing opts: backend / server_base_url / server_model_path / sampling
@@ -37,14 +25,6 @@ func is_busy() -> bool:
 	return _busy
 
 
-## Fire one async chat/tool request.
-##   messages : OpenAI-style [{role,content}] array (the native path reads opts.messages directly).
-##   tools    : function specs (may be empty); when present the model is forced to call exactly one
-##              (tool_choice defaults to "required").
-##   opts     : per-call overrides merged over the standing defaults (temperature, max_tokens, …).
-##   on_done  : called on the main thread with the native think result Dictionary
-##              ({ok, text, tool_calls?, response?, …}).
-## Returns false immediately if the agent is unavailable or a request is already in flight.
 func request(messages: Array, tools: Array, opts: Dictionary, on_done: Callable) -> bool:
 	if not is_available() or _busy:
 		return false

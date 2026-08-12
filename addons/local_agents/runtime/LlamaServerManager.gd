@@ -9,11 +9,6 @@ var _managed_base_url: String = ""
 var _managed_model_path: String = ""
 var _managed_runtime_dir: String = ""
 var _last_startup_report: Dictionary = {}
-# Negative cache: once an ensure attempt fails with no managed server up, remember it so the next calls
-# short-circuit instead of each re-paying the probe/spawn. This is what lets a creature/demo with no model
-# ready degrade to its fast policy INSTANTLY on every subsequent frame instead of stalling repeatedly.
-# Cleared whenever a server is successfully found/started. Re-probed after a cooldown so a server that comes
-# up later is still picked up.
 var _unavailable_until_ms: int = -1
 const UNAVAILABLE_COOLDOWN_MS: int = 3000
 # Quick single-shot connect budget for the "is a server ALREADY running?" probe — long enough for a local
@@ -275,10 +270,6 @@ func _is_server_ready(host: String, port: int, timeout_ms: int) -> bool:
         OS.delay_msec(120)
     return false
 
-# Single-shot readiness probe with a SHORT connect budget: one /health + /v1/models attempt, no retry spin.
-# Used for the "is a server already running?" question so a miss returns in ~QUICK_PROBE_CONNECT_MS instead of
-# the ~1200 ms the retry loop used to cost — the difference between a drop-in agent stalling at startup and
-# degrading to fast policy instantly.
 func _probe_server_ready(host: String, port: int) -> bool:
     if _http_get_ready(host, port, "/health", QUICK_PROBE_CONNECT_MS):
         return true

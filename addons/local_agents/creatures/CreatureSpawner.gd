@@ -3,37 +3,16 @@
 class_name LocalAgentCreatureSpawner
 extends Node3D
 
-## Drop this node into a scene, type how many of each species you want, press play: you get a population of
-## standalone LocalAgentCreatures scattered around it, optionally standing on a floor it builds for you. It is
-## the no-code form of the spawn loop every demo used to write by hand (instantiate Creature.tscn, position it,
-## call setup_standalone, repeat). See examples/ThinkingCreatureDemo.gd for that loop in GDScript.
-##
-## The creatures it makes are STANDALONE ones: a flat-ground terrain adapter at `ground_y`, no MaterialField,
-## no ecology, no planet, just their pure fast/reinforced brain. Assign `cognition_scheduler` and turn on
-## `llm_enabled` to also let them escalate to a language model.
-##
-## @tool is here only for the inspector warnings; _ready returns immediately in the editor, so a spawner in an
-## open scene never populates it. Call spawn() yourself from an editor script if you want that.
-##
-## (Explicit types only, no ':=' inferred typing.)
 
 const CreatureScene: PackedScene = preload("res://addons/local_agents/creatures/Creature.tscn")
 
 @export_group("Population")
-## Species id -> how many to spawn, e.g. {"rabbit": 5, "fox": 1}. Ids are the file names under
-## creatures/species/**/<id>.json. A blank id is not valid here. Name a species.
-## Typed so the inspector gives you String keys and int values instead of a free-for-all. From code,
-## assign it directly (`spawner.counts = {"rabbit": 5}` converts fine); `set("counts", {...})` with
-## an untyped literal is silently dropped, so pass a typed local if you must go through set().
 @export var counts: Dictionary[String, int] = {"rabbit": 5}:
 	set(value):
 		counts = value
 		_refresh_warnings()
 
 @export_group("Placement")
-## Full width/height/depth in METRES of the box creatures are scattered inside, centred on this node.
-## Leave Y at 0 to keep everything on the ground plane; the creatures snap to the ground either way.
-## (No range hint, because Godot 4.7 rejects @export_range on Vector3 and only accepts float-ish types.)
 @export var area_extent: Vector3 = Vector3(16.0, 0.0, 16.0):
 	set(value):
 		area_extent = value
@@ -146,16 +125,10 @@ func _ordered_kinds() -> Array:
 	return kinds
 
 
-# A plain visible + collidable square floor at ground_y. A StaticBody3D so a thrown rock or a toppled body
-# has something to rest on; the creatures themselves snap to ground_y through their flat terrain adapter.
 func _build_floor() -> void:
 	var body: StaticBody3D = StaticBody3D.new()
 	body.name = "SpawnerFloor"
 	add_child(body)
-	# ground_y is an ABSOLUTE world height — that is how _scatter_point() and the creatures' flat
-	# terrain adapter both read it. Setting `position` here would treat it as an offset from the
-	# spawner instead, so the floor drifted away from the creatures the moment the spawner was not
-	# sitting at world Y 0. Place it in the same space they use.
 	body.global_position = Vector3(global_position.x, ground_y, global_position.z)
 	var vis: MeshInstance3D = MeshInstance3D.new()
 	var plane: PlaneMesh = PlaneMesh.new()

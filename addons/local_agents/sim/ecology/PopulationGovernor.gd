@@ -1,28 +1,9 @@
 class_name LAPopulationGovernor
 extends Node
 
-## The population governor: the "smite" cap that keeps the living world inside the frame-rate budget.
-## Too many minds is too much compute (every creature thinks, senses, digests), so when the animal count
-## climbs past a ceiling the governor seeds an emergent culling FLOOD at the DENSEST cluster of animals.
-##
-## It does NOT kill anyone directly. It pours water where life is thickest; drowning (non-flyers caught in
-## deep water), panic, and dispersal to high ground all EMERGE from the flood's own water CA, the same seed
-## the player's flood brush uses. Old-testament by design: when the world overflows its budget, the waters
-## rise over the crowded lowlands and thin the herd back to a playable number, while birds and animals on
-## high ground survive. No per-species logic, no scripted deaths: one ceiling, one seed, physics does the rest.
-##
-## Config over cases (project rule): a single ceiling + hysteresis band drives it; a denser cluster floods a
-## wider footprint because that is where the cull is needed. Big-O: the census + density peak are one O(n)
-## bucket pass on a slow cadence, never per-frame per-pair. Owned by VoxelWorld (a one-line add_child); it
-## self-ticks and reaches the ecology service for the flood seed. Explicit types only (no ':=').
 
 const FloodScript: GDScript = preload("res://addons/local_agents/sim/actors/Flood.gd")
 
-# The ceiling is the compute budget expressed as a head-count. Above ABS_FLOOR the world is genuinely
-# crowded (frame-rate territory); a world that FOUNDED large (sandbox) tolerates growth to CEILING_MULT of
-# its founding population before the waters come. The effective ceiling is the max of the two, so campaign
-# (12 founders, the player nurturing growth) is never smited until the count is genuinely large, while a
-# teeming sandbox smites proportional to what it started with. Override with LA_POP_CEILING for tuning/tests.
 const ABS_FLOOR: int = 350
 const CEILING_MULT: float = 1.6
 # Hysteresis: once smited, hold off until the count falls back under ceiling*RELIEF before considering another
@@ -104,10 +85,6 @@ func _smite(count: int) -> void:
 var _last_mob: int = 0
 var _cluster_center: Vector3 = Vector3.ZERO
 
-# Find the fullest BUCKET_CELL-sized cell of animals; stash its centroid in `_cluster_center` and its head
-# count in `_last_mob`. Returns false if there are no animals. One O(n) pass: hash each animal to a cell,
-# accumulate a running centroid + count per cell, keep the fullest. No pairwise distances — the grid IS the
-# neighbour structure (Big-O mandate: linear, not the quadratic all-pairs density it replaces).
 func _densest_cluster() -> bool:
 	var animals: Array = get_tree().get_nodes_in_group("creature")
 	var sums: Dictionary = {}     # cell_key -> Vector3 position sum
