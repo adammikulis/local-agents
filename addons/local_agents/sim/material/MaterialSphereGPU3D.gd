@@ -102,7 +102,7 @@ var _step_probe: Callable = Callable()
 
 func setup(field) -> void:
 	_field = field
-	_grid = field.sphere_grid()
+	_grid = field._grid
 	_cc = field._cell_count
 	_rd = RenderingServer.create_local_rendering_device()
 	if _rd == null:
@@ -133,7 +133,7 @@ func setup(field) -> void:
 	_bufs["strike_args"] = _rd.storage_buffer_create(
 		ACTIVE_ARGS_SLOTS * 4, _zeros(ACTIVE_ARGS_SLOTS),
 		RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
-	_bufs["sigma_col"] = _new_f(maxi(_cc / maxi(int(_grid.depth), 1), 1))
+	_bufs["sigma_col"] = _new_f(_cc)
 	# GRID GEOMETRY, and on a uniform Cartesian grid there are only two pieces of it. The neighbour table,
 	# whose slot order is the grid's (`d ^ 1` is the opposite, checked by scripts/check_neighbour_slots.sh),
 	var nbr_bytes: PackedByteArray = _grid.neighbours.to_byte_array()
@@ -153,8 +153,7 @@ func setup(field) -> void:
 
 	# The reaction table's flux-derived rates need the cell HEIGHT in METRES. The table is baked once, so it
 	# gets the thickness of the shell holding the sea surface, converted from model units.
-	var surf_shell: int = _grid.shell_of(field.sea_radius())
-	var surf_dr: float = float(_grid.shell_dr[surf_shell]) if surf_shell >= 0 else float(_grid.cell_size)
+	var surf_dr: float = float(_grid.cell_size)
 	LAReactionDefs.cell_size_m = surf_dr
 
 	# Load + set up the pass modules (skip any that fail to load — WIP-tolerant).
@@ -204,8 +203,8 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 	# the true run is `link_arc * shell_mid`, which varies 1.07-4.08 across a face. Named so the two stop
 	# sharing a symbol — the radial half now comes from the shell table, this one does not.
 	_ctx["lat_size"] = _grid.cell_size
-	_ctx["core_radius"] = _grid.core_radius     # groundwater aquifer needs the shell geometry for cell elevation
-	_ctx["depth"] = _grid.depth
+	# March bound: a column cannot be longer than the box.
+	_ctx["depth"] = _grid.max_span()
 	_ctx["sea_radius"] = _field.sphere_grid().core_radius   # placeholder; overridden by set_sea_radius
 	_ctx["max_mass"] = _field.MAX_MASS                      # a full cell of one phase — PlateAdvectPass uplifts the surplus
 	if not _ctx.has("sun_dir"):

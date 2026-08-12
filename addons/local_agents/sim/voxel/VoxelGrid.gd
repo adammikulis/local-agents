@@ -67,6 +67,19 @@ func cell_at(p: Vector3) -> int:
 
 ## Volume in model units cubed. Constant — the argument exists so callers read the same shape as before
 ## and so a future non-uniform grid has a seam, not because it varies.
+## Every cell's volume, m^3. One value repeated: that is what uniform means.
+func cell_volumes() -> PackedFloat32Array:
+	var out: PackedFloat32Array = PackedFloat32Array()
+	out.resize(cell_count)
+	out.fill(cell_volume())
+	return out
+
+
+## Longest march a column can take before it leaves the box.
+func max_span() -> int:
+	return maxi(maxi(nx, ny), nz)
+
+
 func cell_volume(_c: int = 0) -> float:
 	return cell_size * cell_size * cell_size
 

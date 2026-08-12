@@ -287,11 +287,14 @@ func setup_sphere(grid: RefCounted, terrain = null) -> void:
 			_terrain_opts = terrain.generator_options()
 	_cell_size = maxf(0.5, grid.cell_size)
 	_origin = grid.center
-	_cell_count = grid.cell_count
-	# Keep _dim_* nominally sane (some diagnostics read them); real indexing goes through the grid.
-	_dim_x = grid.surf_count
-	_dim_y = grid.depth
-	_dim_z = 1
+	# THE GRID IS THE CARTESIAN BOX. The cubed sphere is kept only for the consumers not yet moved off it.
+	_grid = LAVoxelGrid.new()
+	_grid.build_centred(grid.center, float(grid.core_radius) + float(grid.depth) * float(grid.cell_size),
+		maxf(0.5, grid.cell_size))
+	_cell_count = _grid.cell_count
+	_dim_x = _grid.nx
+	_dim_y = _grid.ny
+	_dim_z = _grid.nz
 	_alloc_channels()
 	# Cubed-sphere per-frame step orchestration (begin/step/end + readback) lives in a focused module.
 	_sphere_step = SphereStepScript.new()
