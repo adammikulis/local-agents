@@ -35,8 +35,8 @@ layout(set = 0, binding = 5, std430) restrict buffer Fuel     { float fuel[]; };
 // FIRE — an INSTRUMENT, not a channel and not a reactable slot. Assigned at the bottom of main().
 layout(set = 0, binding = 6, std430) restrict buffer Fire     { float fire[]; };
 layout(set = 0, binding = 7, std430) restrict buffer Detritus { float detritus[]; };
-layout(set = 0, binding = 8, std430) restrict readonly buffer Fungus { float fungus[]; };
-layout(set = 0, binding = 9, std430) restrict buffer Fert { float fert[]; };           // soil nutrient (R15 fungus-decompose + creature excretion feed it; R19 uptake now debits it — LIVE half, its diffuse/leach producer runs later this step, same convention as Fungus above)
+layout(set = 0, binding = 8, std430) restrict buffer Fungus { float fungus[]; };       // decomposer biomass: the decompose record credits it at CUE, the die-back record debits it
+layout(set = 0, binding = 9, std430) restrict buffer Fert { float fert[]; };           // soil nutrient (decompose mineralises into it, uptake debits it)
 layout(set = 0, binding = 11, std430) restrict buffer Biomass { float biomass[]; };    // living plant matter (photosynthesis grows it, respiration/decay oxidizes it)
 layout(set = 0, binding = 12, std430) restrict buffer Snow { float snow[]; };          // frozen H₂O (freeze credits it, melt debits it) — SAME substance as water/moisture
 // --- MINERAL phases (rock unification): loose sediment, airborne dust, waterborne suspension. Loft (M4) moves
@@ -292,9 +292,8 @@ float read_ch(int slot, uint i) {
 	return 0.0;
 }
 
-// Add v to a channel slot (own cell). Mass channels clamp at 0. FUNGUS/LIGHT/unbound slots are not writable
-// as SELF (fungus is produced by its own kernel, LIGHT is geometry) and no-op here. SOIL_ROOT, SOIL_TOP and
-// BEDROCK_BELOW write into the neighbouring cell they name; see the RACE-FREEDOM note above.
+// Add v to a channel slot (own cell). Mass channels clamp at 0. LIGHT and unbound slots are geometry, not
+// matter, and no-op here. SOIL_ROOT, SOIL_TOP and BEDROCK_BELOW write into the neighbouring cell they name.
 void add_ch(int slot, uint i, float v) {
 	if      (slot == TEMP)     { temp[i]     += v; }
 	else if (slot == WATER)    { water[i]     = max(0.0, water[i] + v); }
@@ -303,6 +302,7 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == CO2)      { co2[i]       = max(0.0, co2[i] + v); }
 	else if (slot == FUEL)     { fuel[i]      = max(0.0, fuel[i]     + v); }   // combustion is fuel's only sink
 	else if (slot == DETRITUS) { detritus[i]  = max(0.0, detritus[i] + v); }
+	else if (slot == FUNGUS)   { fungus[i]    = max(0.0, fungus[i]   + v); }
 	else if (slot == FERT)     { fert[i]      = max(0.0, fert[i] + v); }
 	else if (slot == BIOMASS)  { biomass[i]   = max(0.0, biomass[i]  + v); }
 	else if (slot == SNOW)     { snow[i]      = max(0.0, snow[i]     + v); }
@@ -392,7 +392,7 @@ void main() {
 	if (i >= params.cell_count) {
 		return;
 	}
-	scratch[i] = 0.0;                       // reset per-cell SCRATCH each step (replaces fungus kernel's fert reset)
+	scratch[i] = 0.0;                       // reset the per-cell SCRATCH product target each step
 	fire[i] = 0.0;                          // the burning INSTRUMENT — assigned from this step's fuel loss below
 	bool buried = (solid[i] != 0.0);        // only GATE_BURIED records run in rock; everything else is open-cell
 	// THE CELL'S OWN ORGANIC COMPOSITION: molar H:C and O:C of the dead pool. Every stoichiometric coefficient

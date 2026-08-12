@@ -29,6 +29,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		push_error("ChargeBreakdownPass: no \"vel_up\" buffer, so no charge is ever separated.")
 
 	for p in 2:
+<<<<<<< HEAD
 		if lifted:
 			_sep_set[p] = _uset(_sep_pipe, [
 				[0, _single(bufs, "charge")],
@@ -52,6 +53,19 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 			[34, _single(bufs, "silica")], [35, _half(bufs, "soil", p, false)],
 			[36, _half(bufs, "moisture", p, false)], [37, _half(bufs, "fungus", p, false)],
 			[38, _single(bufs, "porosity")]])
+=======
+		var back: int = 1 - p
+		_sets[p] = _build_set(rd, _shader, [
+			[0, bufs["charge"]], [1, bufs["solid"]], [2, bufs["temp"][p]], [3, bufs["pos"]],
+			[7, bufs["pressure"]], [43, bufs["discharge"]],
+			[44, bufs["strike_idx"]], [45, bufs["strike_args"]], [46, bufs["sigma_col"]],
+			[4, bufs["snow"]], [5, bufs["water"][back]], [6, bufs["rock_fill"]],
+			[20, bufs["lava"][back]], [21, bufs["fuel"]], [22, bufs["biomass"]],
+			[23, bufs["detritus"]], [30, bufs["sediment"][p]], [31, bufs["susp"][p]],
+			[32, bufs["dust"][p]], [33, bufs["carbonate"]], [34, bufs["silica"]],
+			[35, bufs["soil"][p]], [36, bufs["moisture"][p]], [37, bufs["fungus"]],
+			[38, bufs["porosity"]], [39, bufs["shell"]]])
+>>>>>>> worktree-agent-ae18d3bf4ba96c0e0
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:

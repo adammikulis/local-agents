@@ -65,7 +65,7 @@ var _fire: PackedFloat32Array = PackedFloat32Array()     # burning intensity per
 var _o2: PackedFloat32Array = PackedFloat32Array()       # atmospheric O₂ per cell, mol/m^3
 var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ per cell, mol/m^3
 var _n2: PackedFloat32Array = PackedFloat32Array()       # atmospheric N₂ per cell, mol/m^3
-# --- Emergent DECOMPOSER loop (kernels3d/fungus_sphere3d.glsl + the decompose reaction record; the old
+# --- Emergent DECOMPOSER loop (the decompose and die-back records in LABioRecords)
 # --- SOIL WATER / water table (LASoilPass / soil_sphere3d): water held in the REGOLITH band, the top few
 var _soil: PackedFloat32Array = PackedFloat32Array()     # water stored in the ground per cell (0 = bone dry)
 var _detritus: PackedFloat32Array = PackedFloat32Array() # dead decomposable organic matter per cell (0 = none)

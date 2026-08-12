@@ -2,8 +2,6 @@ class_name LATransportRecords
 extends RefCounted
 
 ## What moves, and by what rule. transport.glsl runs every row through one gather.
-##
-## (Explicit types only, no ':=' inferred typing.)
 
 ## What drives a record across a face. Matches the MODE_* constants in transport.glsl.
 enum { POTENTIAL, ADVECT, BOTH, DIFFUSE, CONVECT, CONDUCT, RADIATE }
@@ -43,6 +41,12 @@ static func rows() -> Array:
 			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
 		{"channel": "n2", "substance": "n2", "mode": BOTH,
 			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
+
+		# Spores travel on the wind. Mycelial extension is centimetres per day and rounds to zero at one
+		# cell per step, so dispersal is the only mechanism left at this grid scale. `mobility` is the
+		# SETTLING arm and is unset: it needs a spore diameter no table here declares.
+		{"channel": "fungus", "substance": "cellulose", "mode": BOTH,
+			"mobility": 0.0, "repose_tan": 0.0, "resist": ""},
 
 		# Soil nutrient spreads through the ground rather than falling through it.
 		{"channel": "fert", "substance": "fixed_n", "mode": DIFFUSE,

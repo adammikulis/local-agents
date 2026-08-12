@@ -239,8 +239,10 @@ func charge_at(x: float, y: float, z: float) -> float:
 
 # --- Emergent DECOMPOSER loop: detritus (dead matter) → fungus → CO₂ + soil fertility -----------------
 
-const FUNGUS_PRESENT: float = 0.02        # == fungus_sphere3d.glsl FUNGUS_MIN
-const DETRITUS_PRESENT: float = 0.05      # == fungus_sphere3d.glsl DETRITUS_MIN
+# Counting thresholds for the fungus_cells / detritus_cells gauges. Channel units; gauge-only, and no
+# physics reads them — the decompose and die-back records are bilinear and first-order all the way to zero.
+const FUNGUS_PRESENT: float = 0.02
+const DETRITUS_PRESENT: float = 0.05
 
 
 func fungus_at(x: float, y: float, z: float) -> float:

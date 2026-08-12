@@ -10,6 +10,18 @@ const InventoryScript: GDScript = preload("res://addons/local_agents/sim/materia
 ## Field steps between sampled PAIRS. `LA_ELEMENT_BUDGET_EVERY` overrides.
 const SAMPLE_EVERY: int = 50
 
+<<<<<<< HEAD
+=======
+## The pass that flips each PAIR channel's live half; a checkpoint after it reads `back`. Channels absent
+## here are SINGLE, or are only edited in place by a later pass. Read off the passes' own bindings.
+const PRODUCERS: Dictionary = {
+	"water": "WaterSlumpLavaPass", "sediment": "WaterSlumpLavaPass", "lava": "WaterSlumpLavaPass",
+	"moisture": "AtmospherePass", "soil": "SoilPass", "susp": "ErosionTransportPass",
+	"o2": "GasWindPass", "co2": "GasWindPass", "n2": "GasWindPass",
+	"dust": "FireDustPass", "fert": "EcoSurfacePass", "fungus": "ReactionsPass",
+}
+
+>>>>>>> worktree-agent-ae18d3bf4ba96c0e0
 var _f = null
 var _elements: PackedStringArray = PackedStringArray()
 var _channels: PackedStringArray = PackedStringArray()

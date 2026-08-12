@@ -2,7 +2,6 @@ class_name LALightningRecords
 extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
 ## Lightning nitrogen fixation — the planet's only abiotic route from atmospheric N2 to plant-available N.
-##
 
 
 ## x = LIGHTNING_FIX_RATE * discharge, in N2 channel units. The DISCHARGE driver is J/m^3, so no cell

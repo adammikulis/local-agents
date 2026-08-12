@@ -26,7 +26,12 @@ const ARG_SLOT_LIST_COUNT: int = 3
 # Compacted active-cell lists: label -> [index buffer key, dispatch-indirect args key]. Each label publishes
 # a `<label>_list_cells` gauge.
 const ACTIVE_LISTS: Dictionary = {
+<<<<<<< HEAD
 	"fungus": ["active_idx_fungus", "active_args_fungus"],
+=======
+	"lava": ["active_idx", "active_args"],
+	"shock": ["active_idx_shock", "active_args_shock"],
+>>>>>>> worktree-agent-ae18d3bf4ba96c0e0
 }
 
 static func available() -> bool:
