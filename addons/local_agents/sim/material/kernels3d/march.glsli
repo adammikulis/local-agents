@@ -1,8 +1,10 @@
 // Walk cell to cell along a world direction. Replaces the radial shell walk.
-// Requires: `int nbr[]` (cell*6 + slot) and `float cell_m` in scope.
+// Requires neighbours.glsli, plus `int nbr[]` (cell*N_SLOTS + slot) in scope.
 
 #ifndef LA_MARCH_GLSLI
 #define LA_MARCH_GLSLI
+
+#include "neighbours.glsli"
 
 // Slot whose outward normal is closest to `dir`. -1 if dir is zero.
 int la_slot_toward(vec3 dir) {
@@ -21,7 +23,7 @@ int la_step(int nbr[], uint c, vec3 dir) {
 	if (d < 0) {
 		return -1;
 	}
-	return nbr[c * 6u + uint(d)];
+	return nbr[c * N_SLOTS + uint(d)];
 }
 
 // Path length through one cell along `dir`, metres. A ray crossing a cube off-axis travels further than

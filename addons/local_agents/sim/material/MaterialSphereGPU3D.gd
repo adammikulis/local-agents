@@ -16,8 +16,7 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ThermalPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ChargeBreakdownPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/FungusPass.gd"]
+	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd"]
 
 # Slots in the `active_args` buffer (see setup()). 0-2 are the uvec3 dispatch-indirect argument; 3 is the
 # compacted list length a compacted kernel uses as its loop bound. 8 rather than 4 purely for 32-byte alignment.

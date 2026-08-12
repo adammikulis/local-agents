@@ -82,10 +82,10 @@ void main() {
 	if (gidx >= params.cell_count) {
 		return;
 	}
-	uint base = gidx * 6u;
+	uint base = gidx * N_SLOTS;
 
 	if (params.pass_id == 0u) {
-		for (uint d = 0u; d < 6u; ++d) {
+		for (uint d = 0u; d < N_SLOTS; ++d) {
 			send[base + d] = 0.0;
 			send_h[base + d] = 0.0;
 			send_q[base + d] = 0.0;
@@ -105,7 +105,7 @@ void main() {
 			return;
 		}
 
-		for (uint d = 0u; d < 6u && remaining >= params.min_amount; ++d) {
+		for (uint d = 0u; d < N_SLOTS && remaining >= params.min_amount; ++d) {
 			int inb = nbr[base + d];
 			if (inb < 0 || solid[inb] != 0.0) {
 				continue;
@@ -185,7 +185,7 @@ void main() {
 	float lost = 0.0;
 	float lost_h = 0.0;
 	float lost_q = 0.0;
-	for (uint d = 0u; d < 6u; ++d) {
+	for (uint d = 0u; d < N_SLOTS; ++d) {
 		lost += send[base + d];
 		lost_h += send_h[base + d];
 		lost_q += send_q[base + d];
@@ -194,9 +194,9 @@ void main() {
 			continue;
 		}
 		uint nb = uint(inb);
-		gained += send[nb * 6u + (d ^ 1u)];
-		gained_h += send_h[nb * 6u + (d ^ 1u)];
-		gained_q += send_q[nb * 6u + (d ^ 1u)];
+		gained += send[nb * N_SLOTS + (d ^ 1u)];
+		gained_h += send_h[nb * N_SLOTS + (d ^ 1u)];
+		gained_q += send_q[nb * N_SLOTS + (d ^ 1u)];
 	}
 	// No floor. Pass 0 clamps every outflow to what the cell holds, so a negative here is a defect
 	// and clamping it up would create the mass it is short of.
