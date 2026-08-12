@@ -6,7 +6,7 @@ extends RefCounted
 ## (Explicit types only, no ':=' inferred typing.)
 
 ## What drives a record across a face. Matches the MODE_* constants in transport.glsl.
-enum { POTENTIAL, ADVECT, BOTH, DIFFUSE, CONVECT }
+enum { POTENTIAL, ADVECT, BOTH, DIFFUSE, CONVECT, CONDUCT, RADIATE }
 
 
 ## `mobility`: fraction of the driving imbalance crossing a face per step. Bounded by stability.
@@ -55,6 +55,14 @@ static func rows() -> Array:
 		# Convective overturning: enthalpy crosses a face once the pair is steeper than the adiabat.
 		{"channel": "h_j_m3", "substance": "", "mode": CONVECT,
 			"mobility": 0.5, "repose_tan": 0.0, "resist": ""},
+
+		# Conduction: enthalpy down the temperature gradient, at the interface conductivity.
+		{"channel": "h_j_m3", "substance": "", "mode": CONDUCT,
+			"mobility": 1.0, "repose_tan": 0.0, "resist": "", "drive": "temp", "cond": "conductivity"},
+
+		# Radiative exchange across an exposed face. Hot rock cools this way, not by conduction to air.
+		{"channel": "h_j_m3", "substance": "", "mode": RADIATE,
+			"mobility": 1.0, "repose_tan": 0.0, "resist": "", "drive": "temp", "cond": "emissivity"},
 	]
 
 

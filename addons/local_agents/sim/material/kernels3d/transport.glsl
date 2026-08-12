@@ -24,6 +24,10 @@ layout(set = 0, binding = 8, std430) restrict buffer Send   { float send[]; };
 layout(set = 0, binding = 9, std430) restrict buffer SendH  { float send_h[]; };
 // Flow resistance 0..1 per cell.
 layout(set = 0, binding = 10, std430) restrict readonly buffer Resist { float resist[]; };
+// What the flux runs down. Bound to `amount` when a record has no separate potential.
+layout(set = 0, binding = 11, std430) restrict readonly buffer Drive { float drive[]; };
+// Per-cell mobility field: conductivity for MODE_CONDUCT, 1.0 otherwise.
+layout(set = 0, binding = 12, std430) restrict readonly buffer Cond { float cond[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -45,6 +49,8 @@ const uint MODE_ADVECT    = 1u;
 const uint MODE_BOTH      = 2u;
 const uint MODE_DIFFUSE   = 3u;
 const uint MODE_CONVECT   = 4u;   // enthalpy, thresholded by the adiabatic lapse
+const uint MODE_CONDUCT   = 5u;   // enthalpy down a temperature gradient
+const uint MODE_RADIATE   = 6u;   // enthalpy across a face as sigma*eps*(T^4 - Tn^4)
 
 vec3 g_at(uint c) {
 	return vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
@@ -64,8 +70,8 @@ vec3 face_normal(uint d) {
 // Driving potential across face d, metres of head. MODE_DIFFUSE drops the gravity term: a diffusing
 // quantity runs down its own gradient and does not fall.
 float potential(uint c, uint d, float amt) {
-	if (params.mode == MODE_DIFFUSE) {
-		return amt * params.cell_m;
+	if (params.mode == MODE_DIFFUSE || params.mode == MODE_CONDUCT || params.mode == MODE_RADIATE) {
+		return drive[c] * params.cell_m;
 	}
 	vec3 gv = g_at(c);
 	float gmag = length(gv);
@@ -132,6 +138,25 @@ void main() {
 				}
 			}
 			float flow = drop * params.mobility * open / params.cell_m;
+			if (params.mode == MODE_RADIATE) {
+				// Stefan-Boltzmann across the face. `cond` carries emissivity, `drive` the temperature.
+				float tk = drive[gidx] + 273.15;
+				float tn = drive[nb] + 273.15;
+				float e = 0.5 * (cond[gidx] + cond[nb]);
+				flow = e * 5.670374419e-8 * (tk * tk * tk * tk - tn * tn * tn * tn) * params.dt_s
+					/ params.cell_m;
+				if (flow <= 0.0) {
+					continue;
+				}
+			}
+			if (params.mode == MODE_CONDUCT) {
+				// Two half-cells in series across the bond, so the interface conductivity is the harmonic
+				// mean. dh = lambda_i * (T_nb - T_here) * dt / dx^2, with no capacity: h IS the state.
+				float a = cond[gidx];
+				float b = cond[nb];
+				float lam = 2.0 * a * b / max(a + b, 1.0e-12);
+				flow = drop * lam * params.dt_s / (params.cell_m * params.cell_m);
+			}
 
 			if (params.mode == MODE_ADVECT || params.mode == MODE_BOTH) {
 				// Outgoing advective flux; the neighbour's pass handles the other direction.
