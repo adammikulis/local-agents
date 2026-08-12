@@ -30,8 +30,12 @@ var _dim_z: int = 0
 var _cell_count: int = 0
 
 var _solid: PackedByteArray = PackedByteArray()          # 1 = rock (holds no fluid), 0 = void (air/water)
-var _water: PackedFloat32Array = PackedFloat32Array()    # water mass per cell (can exceed 1 under pressure)
-var _wnext: PackedFloat32Array = PackedFloat32Array()    # double buffer for the water step
+# ONE H2O CHANNEL, every phase. Volume fraction of the cell. Which phase it is in is DERIVED per cell from
+# its enthalpy by state_derive.glsl and mirrored back into the three share arrays below.
+var _h2o: PackedFloat32Array = PackedFloat32Array()
+var _h2o_solid: PackedFloat32Array = PackedFloat32Array()    # share of _h2o that is ice
+var _h2o_liquid: PackedFloat32Array = PackedFloat32Array()   # share that is liquid, free or in pores
+var _h2o_vapour: PackedFloat32Array = PackedFloat32Array()   # share that is vapour
 
 # --- Shared 3D field state used by the concern modules (heat / atmosphere / lava). Every cell (rock OR
 const INITIAL_TEMP: float = 15.0
@@ -48,13 +52,6 @@ const FOG_MAX_TEMP: float = 12.0
 const CONDENSE_COVER_MIN: float = 5.0e-5 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
 var _h: PackedFloat32Array = PackedFloat32Array()        # THE STATE: enthalpy J/m^3 per cell
 var _temp: PackedFloat32Array = PackedFloat32Array()     # DERIVED °C, rewritten by StateDerivePass each step
-# ONE conserved atmospheric-water channel: total water suspended in a cell's air (Phase 2a — collapses the
-# old vapor/cloud/fog trio). vapor = min(moisture, sat(T)); condensed = max(0, moisture − sat(T)); the
-# condensed part reads as fog (cool + near ground) or cloud (else) — all DERIVED, nothing else stores it.
-var _moisture: PackedFloat32Array = PackedFloat32Array()
-# Frozen H₂O per cell (snowpack depth) — the SAME conserved substance as _water/_moisture, just the cold phase.
-# GPU-owned (never re-uploaded); the CPU mirror serves snow_depth_at. The ledger reads the drain probe.
-var _snow: PackedFloat32Array = PackedFloat32Array()
 # Fractional BEDROCK mineral mass per cell (Stage B). `solid` is DERIVED from it on the GPU (solid iff >= 0.5).
 # GPU-owned + GPU-evolved (M5/M6 records).
 var _rock_fill: PackedFloat32Array = PackedFloat32Array()
@@ -66,8 +63,6 @@ var _o2: PackedFloat32Array = PackedFloat32Array()       # atmospheric O₂ per 
 var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ per cell, mol/m^3
 var _n2: PackedFloat32Array = PackedFloat32Array()       # atmospheric N₂ per cell, mol/m^3
 # --- Emergent DECOMPOSER loop (the decompose and die-back records in LABioRecords)
-# --- SOIL WATER / water table (LASoilPass / soil_sphere3d): water held in the REGOLITH band, the top few
-var _soil: PackedFloat32Array = PackedFloat32Array()     # water stored in the ground per cell (0 = bone dry)
 var _detritus: PackedFloat32Array = PackedFloat32Array() # dead decomposable organic matter per cell (0 = none)
 # The hydrogen and oxygen bound in the dead organic pool (detritus + fuel). org_h/(detritus+fuel) is the cell's
 # molar H:C, org_o/(...) its O:C — GPU-owned, seeded here at fresh CH2O and driven down by coalification.
@@ -280,24 +275,21 @@ func solve_gravity() -> bool:
 func _alloc_channels() -> void:
 	_solid = PackedByteArray()
 	_solid.resize(_cell_count)
-	_water = PackedFloat32Array()
-	_water.resize(_cell_count)
-	_wnext = PackedFloat32Array()
-	_wnext.resize(_cell_count)
+	_h2o = PackedFloat32Array()
+	_h2o.resize(_cell_count)
+	_h2o_solid = PackedFloat32Array()
+	_h2o_solid.resize(_cell_count)
+	_h2o_liquid = PackedFloat32Array()
+	_h2o_liquid.resize(_cell_count)
+	_h2o_vapour = PackedFloat32Array()
+	_h2o_vapour.resize(_cell_count)
 	_h = PackedFloat32Array()
 	_h.resize(_cell_count)
 	_temp = PackedFloat32Array()
 	_temp.resize(_cell_count)
 	_temp.fill(INITIAL_TEMP)
-	_moisture = PackedFloat32Array()
-	_moisture.resize(_cell_count)
-	# Dead: `moisture` was never in MaterialSphereGPU3D's GPU seed list, so the device buffer started at zero
-	_moisture.fill(0.0)
 	_lava = PackedFloat32Array()
 	_lava.resize(_cell_count)
-	# Soil water reservoir (water table): starts BONE DRY (0) everywhere; rain/rivers wet it over the run.
-	_soil = PackedFloat32Array()
-	_soil.resize(_cell_count)
 	# Bedrock mineral fraction: seeded from the solid mask on activate (mirrors _solid), GPU-owned thereafter.
 	_rock_fill = PackedFloat32Array()
 	_rock_fill.resize(_cell_count)
@@ -402,8 +394,8 @@ func add_water_cell(ix: int, iy: int, iz: int, amount: float) -> void:
 	var i: int = _idx(ix, iy, iz)
 	if _solid[i] != 0:
 		return
-	_water[i] = maxf(0.0, _water[i] + amount)
-	if _gpu != null: _gpu.mark_water_dirty()   # CPU water edit → re-upload it next begin_frame
+	_h2o[i] = maxf(0.0, _h2o[i] + amount)
+	if _gpu != null: _gpu.mark_water_dirty()   # CPU h2o edit → re-upload it next begin_frame
 
 
 func water_at_cell(ix: int, iy: int, iz: int) -> float:
@@ -515,7 +507,7 @@ func _seed_sea() -> void:
 		if _solid[c] != 0:
 			continue
 		if (_grid.cell_world_pos(c) - pivot).length_squared() <= sea_sq:
-			_water[c] = 1.0
+			_h2o[c] = 1.0
 
 const REGOLITH_CELLS: int = LAMaterialFieldRegolith3D.REGOLITH_CELLS
 # Athy pore fraction per cell (0 outside regolith), GPU-written and read back on the slow cadence.
@@ -561,7 +553,7 @@ var _cloud_cover_c: float = 0.0
 var _fog_cover_c: float = 0.0
 var _cloud_cells_c: int = 0
 var _precip_c: float = 0.0
-var _moisture_total_c: float = 0.0
+var _vapour_total_c: float = 0.0
 
 ## Cloud density at a world XZ column (0 if unresolved). Cloud = the condensate that is NOT ground fog.
 func cloud_at(x: float, z: float) -> float:
@@ -603,8 +595,8 @@ func precipitation() -> float:
 	return _atmos.precipitation()
 
 ## Total suspended atmospheric water mass (mass-conservation spot check; used by the SIM_REPORT).
-func moisture_total() -> float:
-	return _atmos.moisture_total()
+func vapour_total() -> float:
+	return _atmos.vapour_total()
 
 
 ## Relative humidity 0..1 near the ground at a world XZ column = vapor / sat(T) = min(moisture, sat)/sat.
@@ -763,9 +755,6 @@ func snow_depth_at(pos: Vector3) -> float:
 ## The planet's whole conserved H₂O budget in cubic metres, as LAMaterialFieldLedger3D last measured it.
 func h2o_total() -> float:
 	return _ledger.total("h2o_total")
-## Liquid surface water in cubic metres, as LAMaterialFieldLedger3D last measured it.
-func water_total() -> float:
-	return _ledger.total("water_total")
 ## Airborne dust at a world point. Forwards to the channel module; self-wakes the demand-gated `dust`
 ## readback the way co2_at does.
 func dust_at(x: float, y: float, z: float) -> float:

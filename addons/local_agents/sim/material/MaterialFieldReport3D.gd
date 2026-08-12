@@ -90,7 +90,7 @@ func surface_climate() -> Dictionary:
 	var air_n: int = 0
 	var coldest: float = 1.0e20        # coldest OPEN cell anywhere this snapshot (ground or aloft)
 	var ground_coldest: float = 1.0e20
-	var water: PackedFloat32Array = _f._water
+	var water: PackedFloat32Array = _f._queries._liquid_mirror()
 	var has_water: bool = water.size() == _f._cell_count
 	var water_frozen: int = 0
 	var water_cells: int = 0
@@ -222,7 +222,7 @@ func report() -> Dictionary:
 	var r: Dictionary = {
 		"wet_cells": _f.wet_cell_count(), "heat_peak": _f.peak_heat(), "heat_cells": _f.hot_cell_count(),
 		"cloud_cells": _f.cloud_cell_count(), "cloud_cover": _f.avg_cloud_cover(),
-		"fog_cover": _f.avg_fog_cover(), "moisture_total": _f.moisture_total(),
+		"fog_cover": _f.avg_fog_cover(), "vapour_total": _f.vapour_total(),
 		"wind": _f.wind().length(),
 		"fertility_peak": _f.fertility_peak(),
 		# Molten rock standing in open cells is an eruption. All three come from one cached walk.

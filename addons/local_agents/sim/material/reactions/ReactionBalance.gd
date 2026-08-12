@@ -10,12 +10,8 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/re
 ## (1.0 / LITTER_C_TO_N), so an exact compare would fail on representation alone.
 const TOL: float = 1.0e-6
 
-## value as FIRE, and it is declared LATER in the file, so `slot_names()` resolved slot 6 to "ARRHENIUS" and
-## #define, and any message about slot 6 named a rate model rather than a channel.
-const NON_SLOT_CONSTS: PackedStringArray = [
-	"CONST_FRAC", "BILINEAR", "EXCESS_OVER_THRESHOLD", "DEFICIT_BELOW_THRESHOLD", "OPTIMUM_BAND",
-	"ARRHENIUS", "RECORD_BYTES",
-]
+## Constants of LAReactionDefs that are not channel slots and carry no namespace prefix.
+const NON_SLOT_CONSTS: PackedStringArray = ["RECORD_BYTES"]
 
 
 ## energy: a reaction that releases or absorbs heat needs an enthalpy term, which is a different mechanism
@@ -65,7 +61,10 @@ static func slot_names() -> Dictionary:
 	var consts: Dictionary = DefsScript.get_script_constant_map()
 	for key in consts:
 		var cname: String = String(key)
-		if cname.begins_with("GATE_") or cname.begins_with("TGT_") or NON_SLOT_CONSTS.has(cname):
+		# A slot id is what is LEFT once the namespaced constants are removed. Adding a rate model or a gate
+		# can no longer silently shadow a slot, which it has done twice.
+		if cname.begins_with("GATE_") or cname.begins_with("TGT_") or cname.begins_with("RM_") \
+				or NON_SLOT_CONSTS.has(cname):
 			continue
 		var value: Variant = consts[key]
 		if typeof(value) == TYPE_INT:

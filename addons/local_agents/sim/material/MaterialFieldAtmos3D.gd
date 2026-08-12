@@ -27,16 +27,25 @@ static func rain_threshold() -> float:
 	return CLOUD_WATER_CRIT_KG_KG * LAPhysical.AIR_DENSITY_KG_M3 / LAPhysical.WATER_DENSITY_KG_M3
 
 
-## Saturation vapour concentration at `t` °C, mol/m^3. Clausius-Clapeyron, owned by LAPhysical.
-func _sat(t: float) -> float:
-	return LAPhysical.saturation_vapour_mol_m3(t)
+## SATURATION AMOUNT at `t` °C and `p` Pa, in the h2o channel's own unit — a volume fraction of a cell full
+## of liquid water. The same Clausius-Clapeyron the enthalpy ladder inverts.
+func _sat(t: float, p_pa: float) -> float:
+	var e: float = LAMixtureEnthalpy.vapour_p_at("h2o", t, p_pa)
+	if e <= 0.0:
+		return 0.0
+	var entry: Dictionary = LASubstances.table().get("h2o", {})
+	var mm: float = float(entry.get("molar_mass", 0.0))
+	var rho: float = float(entry.get("density", 0.0))
+	if mm <= 0.0 or rho <= 0.0:
+		return 0.0
+	return e * mm / (LAPhysical.GAS_CONSTANT_J_MOL_K * maxf(t + LAPhysical.KELVIN_OFFSET, 1.0) * rho)
 
 
-## Suspended condensate (liquid/ice) at a linear cell = the moisture over saturation. 0 for solid/oob cells.
+## Suspended condensate (liquid + ice) at a linear cell, from the shares the ladder derived. 0 in rock.
 func _condensed_at(cell: int) -> float:
 	if cell < 0 or cell >= _f._cell_count or _f._solid[cell] != 0:
 		return 0.0
-	return maxf(0.0, _f._moisture[cell] - _sat(_f._temp[cell]))
+	return _f._queries.liquid_at(cell) + _f._queries.ice_at(cell)
 
 
 ## Cloud density at a world XZ column (0 if unresolved). Cloud = the condensate that is NOT ground fog.
@@ -62,7 +71,7 @@ func refresh_aggregates() -> void:
 	# Local (copy-on-write, read-only) handles for the hot loop — same buffers, no per-cell property lookup.
 	var cell_count: int = _f._cell_count
 	var solid: PackedByteArray = _f._solid
-	var moisture: PackedFloat32Array = _f._moisture
+	var moisture: PackedFloat32Array = _f._queries._vapour_mirror()
 	var temp: PackedFloat32Array = _f._temp
 	var rain_threshold: float = rain_threshold()
 	var cover_min: float = LAMaterialField3D.CONDENSE_COVER_MIN
@@ -81,7 +90,7 @@ func refresh_aggregates() -> void:
 		total += aw * vol[i]
 		if solid[i] != 0:
 			continue
-		var cond: float = aw - _sat(temp[i])
+		var cond: float = _condensed_at(i)
 		if cond <= 0.0:
 			continue
 		if cond > rain_threshold:
@@ -96,14 +105,15 @@ func refresh_aggregates() -> void:
 	_f._cloud_cover_c = float(cloud_n) * inv
 	_f._fog_cover_c = float(fog_n) * inv
 	_f._precip_c = clampf(float(precip_n) * inv * 40.0, 0.0, 1.0)
-	_f._moisture_total_c = total
+	_f._vapour_total_c = total
 
 
 func climate_snapshot() -> Dictionary:
-	if _f._cell_count <= 0 or _f._moisture.size() != _f._cell_count or _f._temp.size() != _f._cell_count:
+	if _f._cell_count <= 0 or _f._h2o.size() != _f._cell_count or _f._temp.size() != _f._cell_count:
 		return {}
 	return {
-		"moisture": _f._moisture, "temp": _f._temp, "snow": _f._snow,
+		"moisture": _f._queries._vapour_mirror(), "temp": _f._temp,
+		"snow": _f._queries._ice_mirror(),
 		"solid": _f._solid, "cell_count": _f._cell_count,
 	}
 
@@ -150,10 +160,10 @@ func precipitation() -> float:
 
 ## Airborne H2O over every cell, no residency mask, in moles. Accumulated in refresh_aggregates' single grid
 ## pass and cached: a cache read, not a scan.
-func moisture_total() -> float:
+func vapour_total() -> float:
 	if _f._atmos_dirty:
 		refresh_aggregates()
-	return _f._moisture_total_c
+	return _f._vapour_total_c
 
 
 ## Count of cells whose derived condensate (moisture over saturation) is at/above CONDENSE_COVER_MIN and
@@ -179,19 +189,32 @@ func relative_humidity_at(x: float, z: float) -> float:
 	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
 	if c < 0 or _f._solid[c] != 0:
 		return 0.0
-	var s: float = _sat(_f._temp[c])
+	var s: float = _sat(_f._temp[c], _cell_p(c))
 	if s <= 0.0:
 		return 0.0
-	return clampf(_f._moisture[c] / s, 0.0, 1.0)
+	return clampf(_f._queries.vapour_at(c) / s, 0.0, 1.0)
 
 
 ## Dewpoint °C near the ground at a world XZ column — the temperature at which the cell's moisture would
 ## saturate (invert sat(T)). NAN if unresolved or bone dry.
 func dewpoint_at(x: float, z: float) -> float:
 	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
-	if c < 0 or _f._solid[c] != 0 or _f._moisture[c] <= 0.0:
+	if c < 0 or _f._solid[c] != 0 or _f._queries.vapour_at(c) <= 0.0:
 		return NAN
-	var e: float = _f._moisture[c] * LAPhysical.GAS_CONSTANT_J_MOL_K \
+	var entry: Dictionary = LASubstances.table().get("h2o", {})
+	var mm: float = float(entry.get("molar_mass", 0.0))
+	var rho: float = float(entry.get("density", 0.0))
+	if mm <= 0.0 or rho <= 0.0:
+		return NAN
+	# Partial pressure of the vapour the cell holds: n/V = vf * rho / M, then e = (n/V) R T.
+	var e: float = _f._queries.vapour_at(c) * rho / mm * LAPhysical.GAS_CONSTANT_J_MOL_K \
 		* (_f._temp[c] + LAPhysical.KELVIN_OFFSET)
 	# The dewpoint is the boiling point at the vapour's own partial pressure: one curve, inverted.
 	return LASubstances.boil_c_at("h2o", e)
+
+
+## The cell's own air pressure, Pa. Missing means unresolved, and the caller gets zero rather than a guess.
+func _cell_p(c: int) -> float:
+	if c < 0 or _f._pressure.size() != _f._cell_count:
+		return 0.0
+	return maxf(_f._pressure[c], 0.0)

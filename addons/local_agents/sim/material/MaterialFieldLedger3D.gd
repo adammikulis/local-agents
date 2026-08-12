@@ -75,10 +75,6 @@ func _publish_h2o(out: Dictionary, f: Dictionary, step: int) -> void:
 		out["h2o_closed_total"] = null
 		return
 	var all: Dictionary = f["all"]
-	out["water_total"] = snappedf(float(all["water"]), 0.01)
-	out["snow_total"] = snappedf(float(all["snow"]), 0.01)
-	out["soil_total"] = snappedf(float(all["soil"]), 0.01)
-	out["h2o_vapour_total"] = snappedf(float(all["moisture"]), 0.01)
 	var h2o: float = LAFieldLedgerRecords.sum_of(all, LAFieldLedgerRecords.H2O)
 	out["h2o_total"] = snappedf(h2o, 0.01)
 	out["h2o_closed_total"] = snappedf(h2o, 0.01)

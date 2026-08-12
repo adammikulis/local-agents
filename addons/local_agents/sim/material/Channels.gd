@@ -3,18 +3,15 @@ extends RefCounted
 
 ## THE ONE DECLARATION OF WHAT A CHANNEL IS.
 ##
-## `phase` is the state of matter the channel holds — "solid", "liquid", "gas", or "" when it holds no
-## substance. `unit` is what the stored number means: "vf" a volume fraction of the whole cell,
-## "sat" a saturation of the pore space (multiply by 1 - porosity for a volume fraction), "" not an
-## amount of matter at all.
+## `phase` is the state of matter the channel holds — "solid", "liquid", "gas", or "" when the channel's
+## phase is DERIVED from its enthalpy rather than stored. `unit` is what the stored number means: "vf" a
+## volume fraction of the whole cell, "sat" a saturation of the pore space (multiply by 1 - porosity for a
+## volume fraction), "" not an amount of matter at all.
 static func rows() -> Dictionary:
 	var D: GDScript = load("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 	return {
 		"h_j_m3":      {"buffer": "pair",   "residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
-		"water":       {"buffer": "pair",   "residency": "hot",         "slot": D.WATER,     "substance": "h2o",        "phase": "liquid", "unit": "vf", "kind": "state"},
-		"moisture":    {"buffer": "pair",   "residency": "hot",         "slot": D.MOISTURE,  "substance": "h2o",        "phase": "gas",    "unit": "vf", "kind": "state"},
-		"snow":        {"buffer": "single", "residency": "hot",         "slot": D.SNOW,      "substance": "h2o",        "phase": "solid",  "unit": "vf", "kind": "state"},
-		"soil":        {"buffer": "pair",   "residency": "slow",        "slot": D.SOIL_ROOT, "substance": "h2o",        "phase": "liquid", "unit": "vf", "kind": "state"},
+		"h2o":         {"buffer": "pair",   "residency": "hot",         "slot": D.H2O,       "substance": "h2o",        "phase": "",       "unit": "vf", "kind": "state"},
 		"lava":        {"buffer": "pair",   "residency": "situational", "slot": D.LAVA,      "substance": "silicate",   "phase": "liquid", "unit": "vf", "kind": "state"},
 		"rock_fill":   {"buffer": "single", "residency": "situational", "slot": D.ROCK_FILL, "substance": "silicate",   "phase": "solid",  "unit": "sat", "kind": "state"},
 		"sediment":    {"buffer": "pair",   "residency": "slow",        "slot": D.SEDIMENT,  "substance": "silicate",   "phase": "solid",  "unit": "vf", "kind": "state"},
@@ -48,6 +45,9 @@ static func rows() -> Dictionary:
 static func derived_buffers() -> Dictionary:
 	return {
 		"temp": "the mixture's enthalpy ladder inverted at this cell's pressure",
+		"h2o_solid": "share of this cell's h2o the ladder leaves below the melting point at this pressure",
+		"h2o_liquid": "share of this cell's h2o that is condensed and above the melting point",
+		"h2o_vapour": "share of this cell's h2o the saturation curve puts in the gas at this cell's pressure",
 		"vel_x": "mom_x divided by the cell's mass",
 		"vel_y": "mom_y divided by the cell's mass",
 		"vel_z": "mom_z divided by the cell's mass",
@@ -64,11 +64,11 @@ static func derived_slots() -> Dictionary:
 	var D: GDScript = load("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 	return {
 		D.TEMP:            {"from": "the enthalpy ladder inverted over the cell mixture", "substance": ""},
-		D.WINDSPEED:       {"from": "sqrt(vel_x^2 + vel_z^2), and velocity is momentum over mass", "substance": ""},
+		D.WINDSPEED:       {"from": "the flow tangential to -g, and velocity is momentum over mass", "substance": ""},
 		D.LIGHT:           {"from": "insolation at this cell", "substance": ""},
-		D.SOIL_ROOT:       {"from": "soil over the whole rooting column", "substance": "h2o"},
-		D.VAPOUR_DEFICIT:  {"from": "sat(T) - moisture", "substance": ""},
-		D.SOIL_TOP:        {"from": "soil of the first regolith cell below an open one", "substance": "h2o"},
+		D.SOIL_ROOT:       {"from": "pore water over the whole rooting column", "substance": "h2o"},
+		D.VAPOUR_DEFICIT:  {"from": "sat(T) - the cell's own h2o vapour", "substance": ""},
+		D.SOIL_TOP:        {"from": "pore water of the first regolith cell below an open one", "substance": "h2o"},
 		D.OVERBURDEN:      {"from": "lithostatic pressure of the solid column above", "substance": ""},
 		D.BEDROCK_BELOW:   {"from": "rock_fill of the inward neighbour", "substance": "silicate"},
 		D.ORG_C:           {"from": "detritus + fuel", "substance": ""},
@@ -140,27 +140,16 @@ static func lithosphere_channels() -> PackedStringArray:
 	return out
 
 
-## Channels holding matter in a condensed phase, paired with what their number means. Keyed by channel:
-## {"substance": id, "unit": "vf" | "sat"}. A "sat" channel is a share of the pore space, so a volume
-## fraction of the cell is its value times 1 - porosity.
-static func condensed_channels() -> Dictionary:
+## Channels whose matter enters the cell mixture BY MASS, paired with what their number means. Keyed by
+## channel: {"substance": id, "unit": "vf" | "sat"}. A "sat" channel is a share of the pore space, so a
+## volume fraction of the cell is its value times 1 - porosity. A channel declared "gas" is excluded: it is
+## the non-condensable denominator of the saturation split, counted in moles instead.
+static func mixture_channels() -> Dictionary:
 	var out: Dictionary = {}
 	var tbl: Dictionary = rows()
 	for name in tbl:
 		var sub: String = String(tbl[name].get("substance", ""))
-		var ph: String = String(tbl[name].get("phase", ""))
-		if sub == "" or ph == "" or ph == "gas":
+		if sub == "" or String(tbl[name].get("phase", "")) == "gas":
 			continue
 		out[String(name)] = {"substance": sub, "unit": String(tbl[name].get("unit", "vf"))}
-	return out
-
-
-## Channels holding `substance` in phase `phase` ("solid" / "liquid" / "gas").
-static func phase_channels(substance: String, phase: String) -> PackedStringArray:
-	var out: PackedStringArray = PackedStringArray()
-	var tbl: Dictionary = rows()
-	for name in tbl:
-		if String(tbl[name].get("substance", "")) == substance \
-				and String(tbl[name].get("phase", "")) == phase:
-			out.append(String(name))
 	return out

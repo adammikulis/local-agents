@@ -150,7 +150,7 @@ func process(delta: float) -> void:
 	_f._step_geotherm()              # radiogenic decay: hand the rock the joules its own mass produced
 	LASimReport.gauge("field_pin_ms", float(Time.get_ticks_usec() - t_pin) / 1000.0)
 	var t_begin: int = Time.get_ticks_usec()
-	_f._gpu.begin_frame(_f._h, _f._water)      # drains prev step (sync+readback) + uploads
+	_f._gpu.begin_frame(_f._h, _f._h2o)      # drains prev step (sync+readback) + uploads
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
 	# sun_dir points from the planet toward the star; its LENGTH carries the relative insolation.
@@ -177,7 +177,7 @@ func process(delta: float) -> void:
 		if OS.has_environment("LA_INJECT_AUDIT"):
 			# Diagnostic: how far the CPU mirror has drifted from the live buffer right now == exactly the mass
 			# the old mirror-upload would have written away on this frame.
-			_f._inject.queue.audit_rewind(_f._gpu, "moisture", _f._moisture)
+			_f._inject.queue.audit_rewind(_f._gpu, "h2o", _f._h2o)
 		_f._inject.queue.flush(_f._gpu)
 	var t_step: int = Time.get_ticks_usec()
 	for i in steps:
@@ -214,9 +214,12 @@ func _apply_readback(res: Dictionary) -> void:
 	var n: int = _f._cell_count
 	if res.has("h_j_m3") and res["h_j_m3"].size() == n: _f._h = res["h_j_m3"]
 	if res.has("temp") and res["temp"].size() == n: _f._temp = res["temp"]
-	if res.has("water") and res["water"].size() == n: _f._water = res["water"]
-	if res.has("moisture") and res["moisture"].size() == n: _f._moisture = res["moisture"]
-	_f._atmos_dirty = true          # new moisture/temp → invalidate the cached condensate aggregates
+	if res.has("h2o") and res["h2o"].size() == n: _f._h2o = res["h2o"]
+	# The three DERIVED shares: recomputed by StateDerivePass every step, never conserved, never uploaded.
+	if res.has("h2o_solid") and res["h2o_solid"].size() == n: _f._h2o_solid = res["h2o_solid"]
+	if res.has("h2o_liquid") and res["h2o_liquid"].size() == n: _f._h2o_liquid = res["h2o_liquid"]
+	if res.has("h2o_vapour") and res["h2o_vapour"].size() == n: _f._h2o_vapour = res["h2o_vapour"]
+	_f._atmos_dirty = true          # new h2o/temp → invalidate the cached condensate aggregates
 	if res.has("lava") and res["lava"].size() == n: _f._lava = res["lava"]
 	if res.has("porosity") and res["porosity"].size() == n: _f._porosity = res["porosity"]
 	if res.has("fire") and res["fire"].size() == n: _f._fire = res["fire"]
@@ -225,12 +228,10 @@ func _apply_readback(res: Dictionary) -> void:
 	if res.has("o2") and res["o2"].size() == n: _f._o2 = res["o2"]
 	if res.has("co2") and res["co2"].size() == n: _f._co2 = res["co2"]
 	if res.has("biomass") and res["biomass"].size() == n: _f._biomass = res["biomass"]
-	if res.has("snow") and res["snow"].size() == n: _f._snow = res["snow"]
 	if res.has("dust") and res["dust"].size() == n: _f._dust = res["dust"]
 	if res.has("sediment") and res["sediment"].size() == n: _f._sediment = res["sediment"]
 	if res.has("susp") and res["susp"].size() == n: _f._susp = res["susp"]   # erosion pickup phase → mineral ledger
 
-	if res.has("soil") and res["soil"].size() == n: _f._soil = res["soil"]        # water-table reservoir readback
 	if res.has("rock_fill") and res["rock_fill"].size() == n: _f._rock_fill = res["rock_fill"]
 	# Substrate-foundation channels: shock (tremor/impact), charge (bolt breakdown), and the emergent WIND
 	# velocity field (wind3_at/wind_at read a real force instead of ZERO).

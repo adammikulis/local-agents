@@ -15,7 +15,7 @@ func build(field, inv_xform: Transform3D, cam_radial: Vector3, cap_cos: float,
 	var colors: PackedColorArray = PackedColorArray()
 	var indices: PackedInt32Array = PackedInt32Array()
 	var grid: LAVoxelGrid = field._grid
-	var water: PackedFloat32Array = field._water
+	var water: PackedFloat32Array = field._queries._liquid_mirror()
 	var solid: PackedByteArray = field._solid
 	var out: Dictionary = {"verts": verts, "normals": normals, "colors": colors,
 		"indices": indices, "count": 0}

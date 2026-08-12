@@ -13,17 +13,25 @@ enum Law { NONE, SHALLOW, FILM, DARCY, EDDY, SOUND, OHMIC, PGF }
 enum Fluid { VACUUM, WATER, AIR }
 
 ## Per-row switches, packed into the kernel's `flags`. Matches the TF_* constants in transport.glsl.
-enum Flag { SIGNED = 1, SETTLE = 2, STAMP = 4, DRIVEN = 8 }
+enum Flag { SIGNED = 1, SETTLE = 2, STAMP = 4, DRIVEN = 8, FRACTION = 16 }
 
 
 ## No row carries a mobility: every one names a law, and the law is evaluated per cell on measured
 ## properties. `settle` adds the grain's own terminal velocity to the fluid velocity that advects it.
+## `frac` names a DERIVED share of the channel this row moves — the phase whose law it is.
 static func rows() -> Array:
 	return [
-		{"channel": "water", "substance": "h2o", "mode": POTENTIAL, "law": Law.SHALLOW},
+		# H2O IS ONE CHANNEL AND ITS PHASES TRAVEL DIFFERENTLY. Free liquid runs downhill, pore water
+		# percolates, vapour goes with the wind, and the solid share has no row: ice does not flow at this
+		# grid's timescale, so it leaves a cell by melting.
+		{"channel": "h2o", "substance": "h2o", "mode": POTENTIAL, "law": Law.SHALLOW,
+			"frac": "h2o_liquid"},
 
-		{"channel": "soil", "substance": "h2o", "mode": POTENTIAL, "law": Law.DARCY,
-			"fluid": Fluid.WATER, "resist": "rock_fill"},
+		{"channel": "h2o", "substance": "h2o", "mode": POTENTIAL, "law": Law.DARCY,
+			"fluid": Fluid.WATER, "frac": "h2o_liquid"},
+
+		{"channel": "h2o", "substance": "h2o", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"frac": "h2o_vapour"},
 
 		{"channel": "sediment", "substance": "silicate", "mode": POTENTIAL, "law": Law.SHALLOW,
 			"repose_tan": LAPhysical.REPOSE_TAN_DRY_GRANULAR},
@@ -35,7 +43,6 @@ static func rows() -> Array:
 
 		{"channel": "lava", "substance": "silicate", "mode": POTENTIAL, "law": Law.FILM},
 
-		{"channel": "moisture", "substance": "h2o", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},
 		{"channel": "o2", "substance": "o2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},
 		{"channel": "co2", "substance": "co2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},
 		{"channel": "n2", "substance": "n2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},
@@ -50,7 +57,7 @@ static func rows() -> Array:
 
 		# Lightning is not a mechanism: it is sigma/eps0 relaxation once sigma stops being a dielectric.
 		{"channel": "charge", "substance": "", "mode": DIFFUSE, "law": Law.OHMIC, "fluid": Fluid.AIR,
-			"aux": "moisture", "stamp": "discharge"},
+			"stamp": "discharge"},
 
 		{"channel": "h_j_m3", "substance": "", "mode": CONVECT, "law": Law.EDDY, "fluid": Fluid.AIR},
 

@@ -46,7 +46,7 @@ static func _condensed(ch: Dictionary, c: int) -> float:
 	if pa is PackedFloat32Array and c < pa.size():
 		phi = clampf(pa[c], 0.0, 1.0)
 	var total: float = 0.0
-	var want: Dictionary = LAChannels.condensed_channels()
+	var want: Dictionary = LAChannels.mixture_channels()
 	for name in want:
 		var a = ch.get(name)
 		if not (a is PackedFloat32Array) or c >= a.size():
@@ -70,7 +70,7 @@ func _compute() -> Dictionary:
 	if _f._gpu != null and _f._gpu.has_method("take_probe"):
 		legs = _f._gpu.take_probe()
 		var want: PackedStringArray = PackedStringArray(["pressure", "co2"])
-		want.append_array(PackedStringArray(LAChannels.condensed_channels().keys()))
+		want.append_array(PackedStringArray(LAChannels.mixture_channels().keys()))
 		_f._gpu.request_probe(want)
 	# NO MIRROR FALLBACK on a demand-gated channel: an absent leg stays absent, so `has_pressure`/`has_co2`
 	# below read false rather than reporting a stale mirror as a measurement.
@@ -83,16 +83,16 @@ func _compute() -> Dictionary:
 		"sediment": _f._sediment, "susp": _f._susp, "dust": legs.get("dust", PackedFloat32Array()),
 		"carbonate": legs.get("carbonate", PackedFloat32Array()),
 		"silica": legs.get("silica", PackedFloat32Array()),
-		"water": _f._water, "soil": _f._soil, "snow": _f._snow, "moisture": _f._moisture,
+		"h2o": _f._h2o,
 		"porosity": _f._porosity,
 		"fuel": legs.get("fuel", PackedFloat32Array()), "biomass": legs.get("biomass", PackedFloat32Array()),
 		"detritus": legs.get("detritus", PackedFloat32Array()),
 		"fungus": legs.get("fungus", PackedFloat32Array()),
 	}
-	var water: PackedFloat32Array = _f._water
-	var snow: PackedFloat32Array = _f._snow
+	var water: PackedFloat32Array = _f._queries._liquid_mirror()
+	var snow: PackedFloat32Array = _f._queries._ice_mirror()
 	var biomass: PackedFloat32Array = _f._biomass
-	var moisture: PackedFloat32Array = _f._moisture
+	var moisture: PackedFloat32Array = _f._queries._vapour_mirror()
 	var has_pressure: bool = pressure.size() == cc
 	var has_co2: bool = co2.size() == cc
 	var has_moisture: bool = moisture.size() == cc

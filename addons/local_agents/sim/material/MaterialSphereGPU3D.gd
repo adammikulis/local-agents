@@ -120,7 +120,8 @@ func setup(field) -> void:
 	_seed("o2", field._o2)
 	_seed("co2", field._co2)            # the atmosphere's carbon — finite, at Earth's measured mole fraction
 	_seed("n2", field._n2)              # the atmosphere's nitrogen — finite, at Earth's measured mole fraction
-	_seed("soil", field._soil)          # initial water table (regolith primed by _compute_regolith)
+	_seed("h2o", field._h2o)            # the ocean basin + the primed water table
+	_seed("porosity", field._porosity)  # Athy pore fraction: the ONE phi permeability and capacity both read
 	_seed_solid()
 	_seed_rock_fill()
 	_seed_regolith()                    # aquifer permeability mask + grain-size field (static)
@@ -158,7 +159,7 @@ func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	# copy already equals the GPU's evolved water, so re-uploading it every step is redundant. Gate it on a dirty
 	# flag the injectors set.
 	if _water_dirty:
-		_upload_f(_live("water"), water)
+		_upload_f(_live("h2o"), water)
 		_water_dirty = false
 	# solid + static masks change only on an SDF edit (volcano stamp, terrain edit) — NOT per step. _seed_solid
 	# rebuilt + uploaded BOTH full-grid buffers every frame; gate it so it only fires when the CPU mask changed.
@@ -378,16 +379,12 @@ func _gpu_gauge_key(pass_index: int) -> String:
 
 func _read_channels(read_slow: bool) -> Dictionary:
 	var out: Dictionary = _empty_result()
-	for k in ["h_j_m3", "water", "moisture", "o2"]:
+	for k in ["h_j_m3", "h2o", "o2"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
 	# Derived: a single buffer StateDerivePass rewrote this step, not a conserved half.
 	for k in LAChannels.derived_buffers():
 		if _bufs.has(k):
 			out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
-	# snow (SINGLE) — read every physics frame per living carcass (decomposition/permafrost gating), not just
-	# render/debug, so it stays hot even though most consumers are periodic.
-	if _bufs.has("snow"):
-		out["snow"] = _rd.buffer_get_data(_bufs["snow"]).to_float32_array()
 	# Emergent WIND velocity (SINGLE, in-place) — wind3_at/wind_at expose a real force field that EVERY creature
 	# samples per frame (LACreatureFieldForces), so it stays always-hot. CHARGE (breakdown→bolt firing) also has
 	# a per-frame consumer with NO CPU-side trigger event to hook a request_channel() call to, so it stays hot too.
@@ -402,7 +399,7 @@ func _read_channels(read_slow: bool) -> Dictionary:
 	# SLOW — ledger/baker channels, read only on the coarse cadence. PAIR channels (sediment/susp/fert/soil) from
 	# the live half; single channel (biomass) direct.
 	if read_slow:
-		for k in ["sediment", "susp", "fert", "soil"]:
+		for k in ["sediment", "susp", "fert"]:
 			out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
 		if _bufs.has("biomass"):
 			out["biomass"] = _rd.buffer_get_data(_bufs["biomass"]).to_float32_array()
@@ -690,12 +687,18 @@ func _make_vec3_flat(getter: Callable) -> RID:
 	var b: PackedByteArray = f.to_byte_array()
 	return _rd.storage_buffer_create(b.size(), b)
 
+## Seed a channel from its CPU mirror. A SINGLE channel is one buffer; a PAIR is two halves, and both start
+## equal or the first step reads whichever half it was handed as empty.
 func _seed(name: String, arr: PackedFloat32Array) -> void:
-	if _bufs.has(name) and arr.size() == _cc:
-		var b = _bufs[name]
-		var bytes: PackedByteArray = arr.to_byte_array()
+	if not _bufs.has(name) or arr.size() != _cc:
+		return
+	var b = _bufs[name]
+	var bytes: PackedByteArray = arr.to_byte_array()
+	if b is Array:
 		_rd.buffer_update(b[0], 0, bytes.size(), bytes)
 		_rd.buffer_update(b[1], 0, bytes.size(), bytes)
+	else:
+		_rd.buffer_update(b, 0, bytes.size(), bytes)
 
 func _seed_solid() -> void:
 	var f: PackedFloat32Array = PackedFloat32Array()
@@ -758,14 +761,15 @@ func _zeros(n: int) -> PackedByteArray:
 
 func _empty_result() -> Dictionary:
 	return {
-		"h_j_m3": PackedFloat32Array(), "temp": PackedFloat32Array(), "water": PackedFloat32Array(),
-		"moisture": PackedFloat32Array(), "lava": PackedFloat32Array(),
+		"h_j_m3": PackedFloat32Array(), "temp": PackedFloat32Array(), "h2o": PackedFloat32Array(),
+		"h2o_solid": PackedFloat32Array(), "h2o_liquid": PackedFloat32Array(),
+		"h2o_vapour": PackedFloat32Array(), "lava": PackedFloat32Array(),
 		"fire": PackedFloat32Array(), "fuel": PackedFloat32Array(),
 		"sediment": PackedFloat32Array(), "o2": PackedFloat32Array(),
 		"co2": PackedFloat32Array(), "charge": PackedFloat32Array(),
 		"fert": PackedFloat32Array(),
 		"detritus": PackedFloat32Array(), "shock": PackedFloat32Array(),
-		"dust": PackedFloat32Array(), "snow": PackedFloat32Array(),
+		"dust": PackedFloat32Array(),
 		"susp": PackedFloat32Array(), "biomass": PackedFloat32Array(),
-		"rock_fill": PackedFloat32Array(), "soil": PackedFloat32Array(),
+		"rock_fill": PackedFloat32Array(),
 	}

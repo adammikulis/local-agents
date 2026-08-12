@@ -119,7 +119,7 @@ func _apply_h(cells: PackedInt32Array, dh: float) -> void:
 		_f._gpu.request_channel("fire")
 
 func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
-	if amount <= 0.0 or _f._moisture.size() != _f._cell_count or _f._water.size() != _f._cell_count:
+	if amount <= 0.0 or _f._h2o.size() != _f._cell_count:
 		return
 	if not _device_ready():
 		return
@@ -136,7 +136,7 @@ func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	var want: float = amount * float(open_n)
 	queue.note_demand(want)
 
-	var have_soil: bool = _f._soil.size() == _f._cell_count and _f._regolith.size() == _f._cell_count
+	var have_soil: bool = _f._regolith.size() == _f._cell_count
 	var wet_cells: PackedInt32Array = PackedInt32Array()
 	var wet_take: PackedFloat32Array = PackedFloat32Array()
 	var wet_dst: PackedInt32Array = PackedInt32Array()
@@ -157,14 +157,14 @@ func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 		var top_water: int = -1
 		var at: int = ground
 		while at >= 0 and _f._solid[at] == 0:
-			if _f._water[at] > EVAP_KEEP_LIQUID:
+			if _f._queries.liquid_at(at) > EVAP_KEEP_LIQUID:
 				top_water = at
 			at = LAFieldGeometry.above(_f, at)
 		var air: int = LAFieldGeometry.above(_f, top_water) if top_water >= 0 else ground
 		if air >= 0 and _f._solid[air] != 0:
 			air = -1
 		if top_water >= 0:
-			var avail: float = (_f._water[top_water] - EVAP_KEEP_LIQUID) * EVAP_TAKE_FRAC
+			var avail: float = (_f._queries.liquid_at(top_water) - EVAP_KEEP_LIQUID) * EVAP_TAKE_FRAC
 			if avail > 0.0:
 				wet_cells.append(top_water)
 				wet_take.append(avail)
@@ -176,7 +176,7 @@ func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 			for _d in range(SOIL_SEARCH_SHELLS):
 				if sc < 0 or _f._regolith[sc] == 0:
 					break
-				var av: float = _f._soil[sc] * EVAP_TAKE_FRAC
+				var av: float = _f._queries.liquid_at(sc) * EVAP_TAKE_FRAC
 				if av > 0.0:
 					soil_cells.append(sc)
 					soil_take.append(av)
@@ -191,8 +191,10 @@ func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 		var k: float = want / offer
 		wet_take = _scaled(wet_take, k)
 		soil_take = _scaled(soil_take, k)
-	queue.transfer("water", wet_cells, wet_take, "moisture", wet_dst)
-	queue.transfer("soil", soil_cells, soil_take, "moisture", soil_dst)
+	# ONE channel: the lift is a MOVE of h2o from the surface into the air above it. Which phase it is in at
+	# either end is what the enthalpy ladder says, not what this call names.
+	queue.transfer("h2o", wet_cells, wet_take, "h2o", wet_dst)
+	queue.transfer("h2o", soil_cells, soil_take, "h2o", soil_dst)
 
 
 # --- Organic matter: the seam between the field's carbon channels and the actors ----------------------------
@@ -294,7 +296,7 @@ func _cells_within(world_pos: Vector3, radius: float) -> PackedInt32Array:
 ## Flood pool-fill: add water only where the ground is at/below the centre column's ground, so a surge
 ## fills the basin and runs downhill (never climbs a hillside). 3D analogue of the 2.5D add_water_pooled.
 func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
-	if amount <= 0.0 or _f._water.size() != _f._cell_count or not _device_ready():
+	if amount <= 0.0 or _f._h2o.size() != _f._cell_count or not _device_ready():
 		return
 	var center_r: float = (center - _f.centre()).length()
 	var cells: PackedInt32Array = _cells_within(center, radius)
@@ -313,14 +315,14 @@ func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
 	var src_cells: PackedInt32Array = PackedInt32Array()
 	var takes: PackedFloat32Array = PackedFloat32Array()
 	var dsts: PackedInt32Array = PackedInt32Array()
-	var have_moisture: bool = _f._moisture.size() == _f._cell_count
+	var have_moisture: bool = _f._h2o.size() == _f._cell_count
 	var i: int = 0
 	var offer: float = 0.0
 	if have_moisture:
 		for c in cells:
-			if _f._solid[c] != 0 or _f._moisture[c] <= 0.0:
+			if _f._solid[c] != 0 or _f._queries.vapour_at(c) <= 0.0:
 				continue
-			var av: float = _f._moisture[c] * EVAP_TAKE_FRAC
+			var av: float = _f._queries.vapour_at(c) * EVAP_TAKE_FRAC
 			if av <= 0.0:
 				continue
 			src_cells.append(c)
@@ -331,7 +333,7 @@ func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
 	var want: float = amount * float(fill_cells.size())
 	if offer > want and offer > 0.0:
 		takes = _scaled(takes, want / offer)
-	queue.transfer("moisture", src_cells, takes, "water", dsts, _f.MAX_MASS)
+	queue.transfer("h2o", src_cells, takes, "h2o", dsts, _f.MAX_MASS)
 
 
 func resample_terrain(world_pos: Vector3, radius: float) -> void:
@@ -404,7 +406,7 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 
 ## SINK: water_sphere3d.glsl skips any cell whose `static` flag is set when it gathers outflow, so a static sea
 func _flood_from_sea(cells: PackedInt32Array) -> void:
-	if _f._grid == null or _f._water.size() != _f._cell_count:
+	if _f._grid == null or _f._h2o.size() != _f._cell_count:
 		return
 	var nbr: PackedInt32Array = _f._grid.neighbours
 	var solid: PackedByteArray = _f._solid
@@ -421,7 +423,7 @@ func _flood_from_sea(cells: PackedInt32Array) -> void:
 		else:
 			unsourced += 1
 	if srcs.size() > 0:
-		queue.transfer("water", srcs, amounts, "water", dsts, _f.MAX_MASS)
+		queue.transfer("h2o", srcs, amounts, "h2o", dsts, _f.MAX_MASS)
 	if unsourced > 0:
 		_flood_unsourced += unsourced
 
@@ -441,7 +443,7 @@ func _nearest_water(from: int, rings: int) -> int:
 				seen[nb] = true
 				if solid[nb] != 0:
 					continue
-				if _f._water[nb] >= _f.MAX_MASS * 0.5:
+				if _f._queries.liquid_at(nb) >= _f.MAX_MASS * 0.5:
 					return nb
 				next.append(nb)
 		frontier = next
@@ -458,7 +460,7 @@ func crater_report() -> Dictionary:
 		var sea_r: float = 0.0
 		if _f._terrain != null and _f._terrain.has_method("sea_radius"):
 			sea_r = float(_f._terrain.sea_radius())
-		var has_water: bool = _f._water.size() == _f._cell_count
+		var has_water: bool = _f._h2o.size() == _f._cell_count
 		for c in _crater_watch:
 			rock_now += _f._rock_fill[c]
 			if _f._rock_fill[c] < 0.5:
@@ -466,7 +468,7 @@ func crater_report() -> Dictionary:
 			if sea_r > 0.0 and (_f.cell_world_pos_linear(c) - _f.centre()).length() < sea_r:
 				below_sea += 1
 			if has_water:
-				water += _f._water[c]
+				water += _f._queries.liquid_at(c)
 	return {
 		"crater_cells": _crater_opened,
 		"crater_mass": snappedf(_crater_mass, 0.01),

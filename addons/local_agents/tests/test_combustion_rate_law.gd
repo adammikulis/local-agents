@@ -13,7 +13,7 @@ const O2_IN_AIR: float = 1.0
 const O2_IN_AIR: float = 1.0             # one unit of `o2` IS a cell of ambient air, by definition
 
 
-## The extent, evaluated exactly as reactions_sphere3d.glsl does: the ARRHENIUS rate, then the reactant caps
+## The extent, evaluated exactly as reactions_sphere3d.glsl does: the RM_ARRHENIUS rate, then the reactant caps
 ## with the quench floor subtracted from the quenched species. A `t_ceiling_k` of zero on the record means
 ## no ceiling, as in the kernel.
 func _extent(rec: Dictionary, t_c: float, fuel: float, o2: float) -> float:
@@ -64,8 +64,8 @@ func run_test(_tree: SceneTree) -> bool:
 			% recs.size())
 		return false
 	var burn: Dictionary = recs[0]
-	if int(burn.get("rate_model", -1)) != DefsScript.ARRHENIUS:
-		push_error("combustion is not an ARRHENIUS record. A solid fuel has no ignition point — it pyrolyses "
+	if int(burn.get("rate_model", -1)) != DefsScript.RM_ARRHENIUS:
+		push_error("combustion is not an RM_ARRHENIUS record. A solid fuel has no ignition point — it pyrolyses "
 			+ "at a rate rising exponentially with temperature — so any threshold model here is the state "
 			+ "machine coming back.")
 		return false

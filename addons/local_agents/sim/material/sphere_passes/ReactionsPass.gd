@@ -41,15 +41,13 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 
 	var temp: RID = _single(bufs, "temp")        # derived C, read-only
 	var h: Array = _pair(bufs, "h_j_m3")         # the state, J/m^3
-	var water: Array = _pair(bufs, "water")
-	var moisture: Array = _pair(bufs, "moisture")
+	var h2o: Array = _pair(bufs, "h2o")
 	var o2: Array = _pair(bufs, "o2")
 	var co2: Array = _pair(bufs, "co2")
 	var fungus: RID = _single(bufs, "fungus")
 	var fert: Array = _pair(bufs, "fert")
 	var detritus: RID = _single(bufs, "detritus")
 	var biomass: RID = _single(bufs, "biomass")
-	var snow: RID = _single(bufs, "snow")
 	var solid: RID = _single(bufs, "solid")
 	var nbr: RID = _single(bufs, "nbr")
 	var scratch: RID = _scratch(cc)         # reaction product target, consumed in the same step
@@ -57,11 +55,10 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	var dust: Array = _pair(bufs, "dust")
 	var susp: Array = _pair(bufs, "susp")
 	var vel_x: RID = _single(bufs, "vel_x")
+	var vel_y: RID = _single(bufs, "vel_y")
 	var vel_z: RID = _single(bufs, "vel_z")
 	var lava: Array = _pair(bufs, "lava")
 	var rock_fill: RID = _single(bufs, "rock_fill")
-	var soil: Array = _pair(bufs, "soil")
-	var radial: RID = _single(bufs, "radial")
 	var regolith: RID = _single(bufs, "regolith")   # aquifer mask — the column SOIL_ROOT walks
 	# `fire` is a PAIR but is NOT a channel: the kernel assigns it as the fraction of this cell's usable
 	# oxygen that combustion consumed, so the gauges have something true to read. No physics reads it.
@@ -79,14 +76,19 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	var org_o: RID = _single(bufs, "org_o")
 	var porosity: RID = _single(bufs, "porosity")
 	var cell_vol: RID = _single(bufs, "cell_vol")
+	var pressure: RID = _single(bufs, "pressure")
+	var gravity: RID = _single(bufs, "gravity")
+	# The h2o phase shares state_derive.glsl publishes. No record moves mass between them.
+	var h2o_solid: RID = _single(bufs, "h2o_solid")
+	var h2o_liquid: RID = _single(bufs, "h2o_liquid")
+	var h2o_vapour: RID = _single(bufs, "h2o_vapour")
 
 	for p in 2:
 		var back: int = 1 - p
 		_set[p] = _uset(_pipe, [
 			[0, temp],
 			[19, h[back]],          # the settled half, the one this pass adds reaction heat to
-			[1, water[back]],       # settled water
-			[2, moisture[back]],    # settled moisture
+			[1, h2o[back]],         # settled h2o — ONE channel, every phase
 			[3, o2[back]],          # o2 transport output — edited in place (sky refill / decompose draw)
 			[4, co2[back]],         # co2 transport output — edited in place (sky vent / decompose emit)
 			[5, fuel],              # SINGLE — combustion debits it (its only sink in the whole tree)
@@ -98,19 +100,17 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			[9, fert[p]],           # LIVE — nutrient-uptake reactant, debited in place (producer runs later)
 			[10, solid],
 			[11, biomass],          # SINGLE — photosynthesis grows it, respiration/decay oxidises it
-			[12, snow],             # SINGLE — freeze/deposition credit it, melt debits it; same H₂O as water
 			[13, sediment[back]],   # loose regolith — loft debits it
 			[14, dust[p]],          # airborne dust — loft credits it
 			[15, nbr],
 			[16, susp[back]],       # waterborne suspended sediment — settle debits it
-			[17, vel_x],            # SINGLE — WINDSPEED driver leg (sqrt(vel_x²+vel_z²))
-			[18, vel_z],            # SINGLE — WINDSPEED driver leg
+			[17, vel_x],            # SINGLE — WINDSPEED reads the flow tangential to the local vertical
+			[18, vel_z],
+			[26, vel_y],
 			[20, scratch],          # fungus-fert SCRATCH product target
 			[21, defs_ssbo],
 			[22, lava[back]],       # molten rock — solidify debits, melt credits
 			[23, rock_fill],        # SINGLE fractional bedrock — solidify credits it, melt debits it
-			[24, soil[back]],       # settled water table — transpiration draws the regolith column (SOIL_ROOT)
-			[25, radial],           # per-cell outward unit vector — the derived LIGHT slot's geometry
 			[27, regolith],         # aquifer permeability mask — root_soil() walks THIS, not `solid`
 			[28, carbonate],        # SINGLE CaCO3 — the Urey record credits it forward, debits it in reverse
 			[29, silica],           # SINGLE SiO2 — the weathering residue, same record
@@ -118,8 +118,13 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			[31, discharge],        # SINGLE — the lightning discharge stamp, driver only
 			[32, org_h],            # SINGLE — organic hydrogen; ORG_H/ORG_C is the cell's molar H:C
 			[33, org_o],            # SINGLE — organic oxygen; ORG_O/ORG_C is the cell's molar O:C
+			[34, h2o_solid],        # DERIVED share — ice
+			[35, h2o_liquid],       # DERIVED share — liquid, free or in pores
+			[36, h2o_vapour],       # DERIVED share — vapour
+			[37, pressure],         # Pa — the saturation curve and the ladder both read it
 			[38, porosity],         # phi — the overburden walk converts rock_fill with it
 			[40, cell_vol],         # per-cell volume (kernels3d/cellvol.glsli)
+			[48, gravity],          # the SOLVED g: every "above"/"below" and the light angle read it
 		])
 
 

@@ -238,7 +238,7 @@ order is the order.
       N2 entry — the most abundant component of the atmosphere is absent. Lightning fires
       (`phenomena_kinds` carries `lightning`) and fixes nothing.
 - [ ] **Detritus cannot rot.** 612.34 carbon sits in 4574 detritus cells while `fungus_cells` is 1 of 69120,
-      and decomposition is BILINEAR in fungus x detritus, so the only live FERT source is off everywhere but
+      and decomposition is RM_BILINEAR in fungus x detritus, so the only live FERT source is off everywhere but
       one cell. Carbon is stranded, not cycling.
 - [ ] **`fuel_seeded` is 216.0** — fuel is an input where it should be a product of vegetation.
 - [ ] **`lava_phase_sphere3d.glsl` reads and writes one buffer.** It writes `temp[g]` while reading

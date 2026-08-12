@@ -122,14 +122,15 @@ func drink(world_pos: Vector3, want: float) -> float:
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0:
 		return 0.0
-	var took: float = _draw(q, "water", _f._water, c, want)
-	if took < want and _f._soil.size() == _f._cell_count and _f._grid != null:
+	var liquid: PackedFloat32Array = _f._queries._liquid_mirror()
+	var took: float = _draw(q, "h2o", liquid, c, want)
+	if took < want and liquid.size() == _f._cell_count and _f._grid != null:
 		# Groundwater: the permeable ground immediately under the animal's feet.
 		var g: int = ground_cell(world_pos)
 		if g >= 0:
 			var below: int = LAFieldGeometry.below(_f, g)
 			if below >= 0:
-				took += _draw(q, "soil", _f._soil, below, want - took)
+				took += _draw(q, "h2o", liquid, below, want - took)
 	if took > 0.0:
 		water_in += took
 	return took
@@ -212,12 +213,12 @@ func transpire(world_pos: Vector3, mass: float) -> void:
 	var q = _queue()
 	if q == null:
 		return
-	if _f._moisture.size() != _f._cell_count:
+	if _f._h2o.size() != _f._cell_count:
 		return
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0 or _f._solid[c] != 0:
 		return
-	q.add("moisture", PackedInt32Array([c]), PackedFloat32Array([mass]))
+	q.add("h2o", PackedInt32Array([c]), PackedFloat32Array([mass]))
 	water_out += mass
 	exchanges += 1
 

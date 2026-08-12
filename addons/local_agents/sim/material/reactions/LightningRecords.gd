@@ -17,7 +17,7 @@ static func records() -> Array:
 		# TGT_SCRATCH, not TGT_SELF: the strike happens aloft and nitrate reaches the ground in precipitation.
 		# The scratch buffer is the substrate's existing column-deposit path — fungus_fert_sphere3d.glsl sums
 		# each radial line and credits the ground-hugging open cell, which is where a root is.
-		rec(CONST_FRAC, _fix_k(), DISCHARGE,
+		rec(RM_CONST_FRAC, _fix_k(), DISCHARGE,
 			[[N2, 1.0]],
 			[[FERT, fert_per_n2, TGT_SCRATCH]]),
 	]

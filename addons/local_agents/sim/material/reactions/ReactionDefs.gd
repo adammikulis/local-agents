@@ -5,8 +5,9 @@ extends RefCounted
 
 # --- Channel slot enum -------------------------------------------------------------------------------------
 const TEMP: int = 0
-const WATER: int = 1
-const MOISTURE: int = 2
+# H2O — ONE channel for the substance in every phase. Solid / liquid / vapour are DERIVED per cell from the
+# enthalpy ladder, so no record may move mass between phases.
+const H2O: int = 1
 const O2: int = 3
 const CO2: int = 4
 # DETRITUS (LAReactionBalance.SLOT_SUBSTANCE maps all four to `cellulose`). CombustionRecords.gd oxidises it.
@@ -17,22 +18,21 @@ const FUNGUS: int = 8
 const FERT: int = 9
 const LAVA: int = 10
 const BIOMASS: int = 11
-const SNOW: int = 12                  # frozen H₂O (snowpack/ice) — the same conserved substance as WATER + MOISTURE
 # MINERAL phases (rock unification): ONE conserved mineral substance, phase = state. loose SEDIMENT, airborne
 # DUST, waterborne SUSP are channels; loft/settle are same-cell mass TRANSFERS between them (records below).
 const SEDIMENT: int = 13
 const DUST: int = 14
 const SUSP: int = 15
-const WINDSPEED: int = 16             # DERIVED driver only (sqrt(vel_x²+vel_z²)); never a product/reactant
+const WINDSPEED: int = 16             # DERIVED driver only: speed TANGENTIAL to the local vertical, m/s
 # BEDROCK (rock unification Stage B): fractional bedrock mineral mass. `solid` is DERIVED (rock_fill >= 0.5). Molten
 # LAVA and bedrock ROCK_FILL are the SAME mineral substance — M5 solidify + M6 melt are conserving own-cell transfers.
 const ROCK_FILL: int = 17
 const LIGHT: int = 18                 # DERIVED driver only; never a product/reactant target
 const SOIL_ROOT: int = 19
-# air holds: `sat(T) - moisture`, where sat is LAPhysical.saturation_mass_fraction — the Clausius-Clapeyron
-# phase: positive means the air is unsaturated and liquid in contact with it evaporates; negative means the
+# DERIVED driver only: the saturation amount at this cell's temperature minus the vapour it actually holds,
+# both as a volume fraction of the cell. Positive = unsaturated air.
 const VAPOUR_DEFICIT: int = 20
-# SOIL_TOP is the shallow DRYING FRONT: the soil of the first regolith cell beneath an open cell. Roots reach
+# SOIL_TOP is the shallow DRYING FRONT: the pore water of the first regolith cell beneath an open cell. Roots reach
 # the whole rooting column (SOIL_ROOT above); evaporation does not, because vapour has to diffuse out through
 # the pores and the water below the surface layer is simply out of reach. DERIVED, WRITABLE.
 const SOIL_TOP: int = 21
@@ -50,19 +50,24 @@ const DISCHARGE: int = 27
 const ORG_H: int = DISCHARGE + 1
 const ORG_O: int = ORG_H + 1
 const ORG_C: int = ORG_O + 1          # DERIVED driver only: DETRITUS + FUEL, the pool the ratios divide by
+# DERIVED driver only: the LIQUID share of the cell's h2o. A solvent is liquid water, not ice and not vapour.
+const H2O_LIQUID: int = ORG_C + 1
 # NOTE: the slot enum and the kernel's BINDING numbers alias only up to 26. Bindings 24/25/26 are already
 # convenience, never a contract; `check_kernel()` verifies the #define VALUES, which is the thing that matters.
 
 # --- Rate models (extent x per cell) ---------------------------------------------------------------------
-const CONST_FRAC: int = 0             # x = k * driver
-const BILINEAR: int = 1               # x = k * driver * driver2
-const EXCESS_OVER_THRESHOLD: int = 2  # x = max(0, driver - threshold) * k   (fires when driver is ABOVE threshold)
-const DEFICIT_BELOW_THRESHOLD: int = 4  # x = max(0, threshold - driver) * k  (fires when driver is BELOW threshold)
+const RM_CONST_FRAC: int = 0             # x = k * driver
+const RM_BILINEAR: int = 1               # x = k * driver * driver2
+const RM_EXCESS_OVER_THRESHOLD: int = 2  # x = max(0, driver - threshold) * k   (fires when driver is ABOVE threshold)
+const RM_DEFICIT_BELOW_THRESHOLD: int = 4  # x = max(0, threshold - driver) * k  (fires when driver is BELOW threshold)
 #   x = k * driver * max(0, 1 - ((driver2 - threshold) / param2)^2)
-const OPTIMUM_BAND: int = 5
+const RM_OPTIMUM_BAND: int = 5
 #   x = k * driver * driver2 * exp(-(Ea/R) * (1/T_K - 1/T_ref_K))
 # Reads temperature from the TEMP channel directly rather than through a slot.
-const ARRHENIUS: int = 6
+const RM_ARRHENIUS: int = 6
+# TWO RESISTANCES IN SERIES across an interface: conductance g = driver2 / (1 + param2 * driver2), so
+#   x = k * driver * driver2 / (1 + param2 * driver2)
+const RM_RESISTANCE_SERIES: int = 7
 
 # --- Gate bitflags (0 = ungated) -------------------------------------------------------------------------
                                       # TOP OF THE ATMOSPHERE — correct for sky gas exchange, wrong for ground.
@@ -124,7 +129,7 @@ static func serialize(recs: Array) -> PackedByteArray:
 		var base: int = r * RECORD_BYTES
 		var reactants: Array = rec.get("reactants", [])
 		var products: Array = rec.get("products", [])
-		buf.encode_s32(base + 0, int(rec.get("rate_model", CONST_FRAC)))
+		buf.encode_s32(base + 0, int(rec.get("rate_model", RM_CONST_FRAC)))
 		buf.encode_float(base + 4, float(rec.get("rate_k", 0.0)))
 		buf.encode_float(base + 8, float(rec.get("threshold", 0.0)))
 		buf.encode_s32(base + 12, int(rec.get("gate_mask", 0)))

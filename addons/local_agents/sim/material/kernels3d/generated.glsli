@@ -5,8 +5,7 @@
 
 // reactions/ReactionDefs.gd
 #define TEMP 0
-#define WATER 1
-#define MOISTURE 2
+#define H2O 1
 #define O2 3
 #define CO2 4
 #define FUEL 5
@@ -16,7 +15,6 @@
 #define FERT 9
 #define LAVA 10
 #define BIOMASS 11
-#define SNOW 12
 #define SEDIMENT 13
 #define DUST 14
 #define SUSP 15
@@ -35,12 +33,14 @@
 #define ORG_H 28
 #define ORG_O 29
 #define ORG_C 30
-#define CONST_FRAC 0
-#define BILINEAR 1
-#define EXCESS_OVER_THRESHOLD 2
-#define DEFICIT_BELOW_THRESHOLD 4
-#define OPTIMUM_BAND 5
-#define ARRHENIUS 6
+#define H2O_LIQUID 31
+#define RM_CONST_FRAC 0
+#define RM_BILINEAR 1
+#define RM_EXCESS_OVER_THRESHOLD 2
+#define RM_DEFICIT_BELOW_THRESHOLD 4
+#define RM_OPTIMUM_BAND 5
+#define RM_ARRHENIUS 6
+#define RM_RESISTANCE_SERIES 7
 #define GATE_NEAR_GROUND 4
 #define GATE_DRY 16
 #define GATE_FREEZING 32
@@ -80,6 +80,7 @@
 #define TF_SETTLE 2u
 #define TF_STAMP 4u
 #define TF_DRIVEN 8u
+#define TF_FRACTION 16u
 
 // MaterialFieldRegolith3D.gd, reactions/ReactionThermo.gd
 #define REGOLITH_CELLS 4

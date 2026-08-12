@@ -163,7 +163,7 @@ float la_clapeyron_b(SubstanceTh s) {
 
 // THE BOILING POINT AT A GIVEN PRESSURE. Above the critical pressure there is no boundary: return the
 // critical temperature, so a supercritical cell has no plateau to cross.
-float la_boil_c_at(SubstanceTh s, float p_pa) {
+precise float la_boil_c_at(SubstanceTh s, float p_pa) {
 	if (!s.has_boil) { return 0.0; }
 	if (p_pa >= s.crit_p_pa) { return s.crit_t_c; }
 	float p = max(p_pa, 1.0);
@@ -197,7 +197,7 @@ float la_sublimation_p_at(SubstanceTh s, float t_c) {
 
 // The FROST POINT: la_sublimation_p_at inverted. Below the triple-point pressure the solid leaves here,
 // not at the melting point.
-float la_sublimation_c_at(SubstanceTh s, float p_pa) {
+precise float la_sublimation_c_at(SubstanceTh s, float p_pa) {
 	float l_sub = la_latent_sublimation(s);
 	if (s.triple_p_pa <= 0.0) { return 0.0; }
 	if (l_sub <= 0.0) { return s.triple_t_c; }
@@ -213,10 +213,10 @@ bool la_sublimes_at(SubstanceTh s, float p_pa) {
 }
 
 // Clapeyron for the solid-liquid boundary, plus freezing-point depression by dissolved solute.
-float la_melt_c_at(SubstanceTh s, float p_pa, float molality_mol_kg) {
+precise float la_melt_c_at(SubstanceTh s, float p_pa, float molality_mol_kg) {
 	if (!s.has_melt) { return 0.0; }
-	float t_ref_k = s.melt_c + LA_KELVIN_OFFSET;
-	float t_c = s.melt_c;
+	precise float t_ref_k = s.melt_c + LA_KELVIN_OFFSET;
+	precise float t_c = s.melt_c;
 	if (s.rho_liq > 0.0 && s.rho_sol > 0.0 && s.l_fus > 0.0) {
 		float dv = (1.0 / s.rho_liq) - (1.0 / s.rho_sol);
 		float p_ref = s.triple_p_pa > 0.0 ? s.triple_p_pa : LA_P_STD;
@@ -230,8 +230,9 @@ float la_melt_c_at(SubstanceTh s, float p_pa, float molality_mol_kg) {
 }
 
 // The LIQUIDUS at pressure. The interval keeps its width: both boundaries ride the same Clapeyron slope.
-float la_liquidus_c_at(SubstanceTh s, float p_pa, float molality_mol_kg) {
-	return la_melt_c_at(s, p_pa, molality_mol_kg) + max(s.liquidus_c - s.melt_c, 0.0);
+precise float la_liquidus_c_at(SubstanceTh s, float p_pa, float molality_mol_kg) {
+	precise float t = la_melt_c_at(s, p_pa, molality_mol_kg) + max(s.liquidus_c - s.melt_c, 0.0);
+	return t;
 }
 
 // Ionisation energy per kg, summed over the free atoms the molecule carries.

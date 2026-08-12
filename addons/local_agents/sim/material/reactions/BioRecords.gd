@@ -55,7 +55,7 @@ static func _photo_k() -> float:
 		* LAPhysical.SOLAR_CONSTANT_W_M2 * _dt() / (h * mpu_co2)
 
 
-## x = RESP_RATE * biomass * o2 is BILINEAR, so the constant is quoted per unit of O2 — and one unit of O2
+## x = RESP_RATE * biomass * o2 is RM_BILINEAR, so the constant is quoted per unit of O2 — and one unit of O2
 static func _resp_k() -> float:
 	var per_year: float = (GLOBAL_GPP_PG_C_PER_YEAR - GLOBAL_NPP_PG_C_PER_YEAR) / GLOBAL_PLANT_CARBON_PG_C
 	return per_year * _dt() / LAPhysical.SECONDS_PER_YEAR
@@ -111,33 +111,33 @@ static func records() -> Array:
 		# x = DECOMPOSE_RATE * fungus * detritus, in moles of the pool's CARBON TAKEN UP. CUE of that carbon
 		# becomes mycelium and the rest is respired, so growth is not a rate of its own. The remaining
 		# stoichiometry is the cell's own composition, which is why rotting peat draws less oxygen than litter.
-		rec(BILINEAR, _decompose_k(), FUNGUS,
+		rec(RM_BILINEAR, _decompose_k(), FUNGUS,
 			[[DETRITUS, 1.0], [ORG_H, 0.0, 1.0, 0.0], [ORG_O, 0.0, 0.0, 1.0],
 				[O2, 1.0 - cue, 0.25, -0.5]],
 			[[FUNGUS, cue, TGT_SELF],
 				[CO2, 1.0 - cue, TGT_SELF],
-				[MOISTURE, -cue, TGT_SELF, 0.5, 0.0],
+				[H2O, -cue, TGT_SELF, 0.5, 0.0],
 				[FERT, organic_n * (1.0 - cue), TGT_SCRATCH]],
 			0, 0.0, DETRITUS),
 
 		# DIE-BACK. Dead mycelium is CH2O, so it re-enters the dead pool at the same fresh H:C 2, O:C 1 that
 		# LITTERFALL credits. First-order death plus CUE-coupled growth is what makes the colony self-limiting.
-		rec(CONST_FRAC, _dieback_k(), FUNGUS, [[FUNGUS, 1.0]],
+		rec(RM_CONST_FRAC, _dieback_k(), FUNGUS, [[FUNGUS, 1.0]],
 			[[DETRITUS, 1.0, TGT_SELF], [ORG_H, 2.0, TGT_SELF], [ORG_O, 1.0, TGT_SELF]], 0),
 
-		rec(OPTIMUM_BAND, _photo_k(), LIGHT,
+		rec(RM_OPTIMUM_BAND, _photo_k(), LIGHT,
 			[[CO2, 1.0], [SOIL_ROOT, 1.0 + transpired], [FERT, organic_n]],
 			[[O2, 1.0, TGT_SELF], [BIOMASS, 1.0, TGT_SELF],
-				[MOISTURE, transpired, TGT_SELF]],
+				[H2O, transpired, TGT_SELF]],
 			GATE_NEAR_GROUND, PHOTO_T_OPT, TEMP, PHOTO_T_WIDTH),
 
-		rec(BILINEAR, _resp_k(), BIOMASS, [[BIOMASS, 1.0], [O2, 1.0]],
-			[[CO2, 1.0, TGT_SELF], [MOISTURE, 1.0, TGT_SELF],
+		rec(RM_BILINEAR, _resp_k(), BIOMASS, [[BIOMASS, 1.0], [O2, 1.0]],
+			[[CO2, 1.0, TGT_SELF], [H2O, 1.0, TGT_SELF],
 				[FERT, organic_n, TGT_SELF]],
 			0, 0.0, O2),
 
 		# LITTERFALL. Living tissue is CH2O, so shed biomass enters the dead pool at H:C 2, O:C 1 — the fresh
 		# end of the spectrum. Every record after this one only takes H and O away.
-		rec(CONST_FRAC, _litterfall_k(), BIOMASS, [[BIOMASS, 1.0]],
+		rec(RM_CONST_FRAC, _litterfall_k(), BIOMASS, [[BIOMASS, 1.0]],
 			[[DETRITUS, 1.0, TGT_SELF], [ORG_H, 2.0, TGT_SELF], [ORG_O, 1.0, TGT_SELF]], 0),
 	]

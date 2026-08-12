@@ -14,8 +14,9 @@ layout(local_size_x = 64) in;
 // --- Reactable channels (binding == slot for the resolved ones; see read_ch/add_ch) -----------------------
 layout(set = 0, binding = 0, std430) restrict readonly buffer Temp { float temp[]; };  // derived, C
 layout(set = 0, binding = 19, std430) restrict buffer Enthalpy { float h[]; };          // the state, J/m^3
-layout(set = 0, binding = 1, std430) restrict buffer Water    { float water[]; };
-layout(set = 0, binding = 2, std430) restrict buffer Moisture { float moisture[]; };
+// ONE H2O CHANNEL. Solid / liquid / vapour are DERIVED shares of it (bindings 34-36), so no record here
+// may move mass between phases: a phase change is what the enthalpy ladder already says happened.
+layout(set = 0, binding = 1, std430) restrict buffer H2OBuf   { float h2o[]; };
 layout(set = 0, binding = 3, std430) restrict buffer O2       { float o2[]; };
 layout(set = 0, binding = 4, std430) restrict buffer CO2      { float co2[]; };
 // FUEL — cured cellulosic litter, the SAME substance as biomass and detritus. Combustion is a record
@@ -27,19 +28,22 @@ layout(set = 0, binding = 7, std430) restrict buffer Detritus { float detritus[]
 layout(set = 0, binding = 8, std430) restrict buffer Fungus { float fungus[]; };       // decomposer biomass: the decompose record credits it at CUE, the die-back record debits it
 layout(set = 0, binding = 9, std430) restrict buffer Fert { float fert[]; };           // soil nutrient (decompose mineralises into it, uptake debits it)
 layout(set = 0, binding = 11, std430) restrict buffer Biomass { float biomass[]; };    // living plant matter (photosynthesis grows it, respiration/decay oxidizes it)
-layout(set = 0, binding = 12, std430) restrict buffer Snow { float snow[]; };          // frozen H₂O (freeze credits it, melt debits it) — SAME substance as water/moisture
 // --- MINERAL phases (rock unification): loose sediment, airborne dust, waterborne suspension. Loft (M4) moves
 layout(set = 0, binding = 13, std430) restrict buffer Sediment { float sediment[]; };  // loose granular regolith
 layout(set = 0, binding = 14, std430) restrict buffer Dust { float dust[]; };           // airborne wind-lofted dust
 layout(set = 0, binding = 16, std430) restrict buffer Susp { float susp[]; };           // waterborne suspended sediment
-layout(set = 0, binding = 17, std430) restrict readonly buffer VelX { float vel_x[]; }; // horizontal wind (WINDSPEED driver)
+layout(set = 0, binding = 17, std430) restrict readonly buffer VelX { float vel_x[]; };
 layout(set = 0, binding = 18, std430) restrict readonly buffer VelZ { float vel_z[]; };
+layout(set = 0, binding = 26, std430) restrict readonly buffer VelY { float vel_y[]; };
 // --- BEDROCK phase (rock unification Stage B): molten LAVA <-> fractional bedrock ROCK_FILL are the SAME mineral.
 layout(set = 0, binding = 22, std430) restrict buffer Lava { float lava[]; };            // molten rock (mass/cell)
 layout(set = 0, binding = 23, std430) restrict buffer RockFill { float rock_fill[]; };   // fractional bedrock mass (solid iff >= 0.5)
-// --- SUBSURFACE WATER: the aquifer the roots drink from. `soil` is non-zero ONLY in REGOLITH cells, so a
-// plant's water is read and debited through the SOIL_ROOT slot below, never at the reacting cell itself.
-layout(set = 0, binding = 24, std430) restrict buffer Soil { float soil[]; };
+// --- THE DERIVED PHASE OF H2O, three shares of h2o[] summing to 1 (state_derive.glsl).
+layout(set = 0, binding = 34, std430) restrict readonly buffer H2OSolid  { float h2o_solid[]; };
+layout(set = 0, binding = 35, std430) restrict readonly buffer H2OLiquid { float h2o_liquid[]; };
+layout(set = 0, binding = 36, std430) restrict readonly buffer H2OVapour { float h2o_vapour[]; };
+// Cell pressure, Pa — the saturation curve and the enthalpy ladder both need it.
+layout(set = 0, binding = 37, std430) restrict readonly buffer PressureBuf { float pressure[]; };
 // --- Gate inputs + scratch product target + the record table ----------------------------------------------
 layout(set = 0, binding = 10, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };        // idx*6 + slot
@@ -56,7 +60,6 @@ int la_above(uint c) {
 	return (length(gv) > 0.0) ? la_step(c, -normalize(gv)) : -1;
 }
 layout(set = 0, binding = 20, std430) restrict buffer Scratch { float scratch[]; };         // SCRATCH product target (fungus_fert)
-layout(set = 0, binding = 25, std430) restrict readonly buffer Radial { float radial[]; };  // per-cell outward unit vec, flat c*3+{0,1,2}
 // AQUIFER PERMEABILITY MASK (1 = groundwater-bearing regolith). The mask root_soil() walks — soil lives
 // here, not "wherever the rock is solid": an eroded or carved regolith cell is open AND still an aquifer.
 layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float regolith[]; };
@@ -80,23 +83,45 @@ layout(set = 0, binding = 33, std430) restrict buffer OrgO { float org_o[]; };
 // Below the buffer blocks: the slot names collide with the O2/CO2 block names above.
 #include "generated.glsli"
 #include "enthalpy.glsli"
+#include "mixture_enthalpy.glsli"
 
 // --- THE PHASE RULE ----------------------------------------------------------------------------------------
-// Saturation vapour pressure at the cell's temperature, in the field's own unit (a fraction of a cell full
-// of liquid water). August-Roche-Magnus, Alduchov & Eskridge (1996) coefficients, then the ideal gas law.
 const float WATER_FREEZE_C = 0.0;        // LAPhysical.WATER_FREEZE_C — GATE_FREEZING's boundary
-const float VAPOUR_R = 461.52;           // LAPhysical.VAPOUR_GAS_CONST_J_KGK
 const float KELVIN_0 = 273.15;           // LAPhysical.KELVIN_OFFSET
 const float RHO_WATER = 997.0;           // LAPhysical.WATER_DENSITY_KG_M3
 const float R_GAS = 8.314462618;         // LAPhysical.GAS_CONSTANT_J_MOL_K
 const float P_STD = 101325.0;            // LAPhysical.STANDARD_PRESSURE_PA
 
-// Saturation vapour, mol/m^3 — the channel's unit. LAPhysical.saturation_vapour_mol_m3 is the twin.
-// It used to divide by RHO_WATER, giving a fraction of a cell full of LIQUID water, so this differenced
-// against `moisture` in the channel's own unit was wrong by the molar density of water.
-float sat_vapour_mol_m3(float t_c) {
-	float e_sat = la_saturation_p_at(la_h2o(), t_c);
-	return e_sat / (R_GAS * max(t_c + KELVIN_0, 1.0));
+// The cell's h2o split by the shares the ladder derived, in the channel's own unit (volume fraction).
+float h2o_liq(uint i) { return max(h2o[i], 0.0) * clamp(h2o_liquid[i], 0.0, 1.0); }
+float h2o_ice(uint i) { return max(h2o[i], 0.0) * clamp(h2o_solid[i], 0.0, 1.0); }
+float h2o_vap(uint i) { return max(h2o[i], 0.0) * clamp(h2o_vapour[i], 0.0, 1.0); }
+
+// SATURATION AMOUNT in the channel's unit, off the SAME curve the ladder inverts: sublimation pressure
+// while the condensate is ice, saturation pressure once it is liquid.
+float sat_vapour_vf(float t_c, float p_pa) {
+	SubstanceTh w = la_h2o();
+	float e_sat = la_mix_vapour_p_at(w, t_c, p_pa, 0.0);
+	if (e_sat <= 0.0) {
+		return 0.0;
+	}
+	return e_sat * w.molar_mass / (R_GAS * max(t_c + KELVIN_0, 1.0) * RHO_WATER);
+}
+
+// Specific enthalpy of the h2o sitting in cell `c`, J/kg, read straight off the ladder at its own state.
+float h2o_specific_j_kg(uint c) {
+	return la_state_to_enthalpy(la_h2o(), temp[c], max(pressure[c], 0.0), 0.0);
+}
+
+// WIND is the flow TANGENTIAL to the local vertical, m/s. No axis of the grid is special: down is -g.
+float wind_speed(uint i) {
+	vec3 v = vec3(vel_x[i], vel_y[i], vel_z[i]);
+	vec3 gv = vec3(g_field[i * 3u], g_field[i * 3u + 1u], g_field[i * 3u + 2u]);
+	if (length(gv) <= 0.0) {
+		return length(v);
+	}
+	vec3 up = normalize(-gv);
+	return length(v - up * dot(v, up));
 }
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust
 #define OVERBURDEN_MAX_CELLS 12  // outward cells the lithostatic column walk sums over
@@ -122,8 +147,8 @@ struct Reaction {
 	float cap_coeff;
 	int   n_react;
 	int   n_prod;
-	float param2;      // second rate-model scalar (OPTIMUM_BAND: the half-width of the band around `threshold`)
-	float t_ceiling_k; // ARRHENIUS: absolute T above which the law stops applying (its phase is gone). 0 = none.
+	float param2;      // second rate-model scalar (RM_OPTIMUM_BAND: the half-width of the band around `threshold`)
+	float t_ceiling_k; // RM_ARRHENIUS: absolute T above which the law stops applying (its phase is gone). 0 = none.
 	int   react_slot[4];
 	float react_coeff[4];
 	int   prod_slot[4];
@@ -167,9 +192,12 @@ layout(push_constant, std430) uniform Params {
 
 // REAL per-cell insolation — the LIGHT slot. Identical to the solar kernel's term, so the terminator that
 float light_at(uint i) {
-	uint rb = i * 3u;
-	vec3 cell_radial = vec3(radial[rb + 0u], radial[rb + 1u], radial[rb + 2u]);
-	return max(0.0, dot(cell_radial, vec3(params.sun_x, params.sun_y, params.sun_z)));
+	// OUTWARD is up, and up is -g. There is no second declaration of which way that is.
+	vec3 gv = vec3(g_field[i * 3u], g_field[i * 3u + 1u], g_field[i * 3u + 2u]);
+	if (length(gv) <= 0.0) {
+		return 0.0;
+	}
+	return max(0.0, dot(normalize(-gv), vec3(params.sun_x, params.sun_y, params.sun_z)));
 }
 
 // The FIRST regolith cell beneath an open cell, or -1. The inward-neighbour mapping is injective, so no two
@@ -190,13 +218,25 @@ float root_soil(uint i) {
 		if (c < 0 || regolith[c] == 0.0) {
 			break;
 		}
-		sum += soil[uint(c)] * vol_ratio(uint(c), i);
+		sum += h2o_liq(uint(c)) * vol_ratio(uint(c), i);
 		if (solid[c] == 0.0) {
 			break;                          // an OPEN aquifer cell terminates the walk (see RACE-FREEDOM above)
 		}
 		c = la_below(uint(c));
 	}
 	return sum;
+}
+
+// MASS DOES NOT MOVE WITHOUT ITS HEAT. `v_c` is the change to cell `c` in c's own units; the joules it
+// carried there go to cell `i`. The destination's ladder then decides what phase those joules buy, so the
+// latent heat is the difference between the two phases' enthalpies and no record declares it.
+void h2o_carry(uint c, uint i, float v_c) {
+	if (v_c == 0.0) {
+		return;
+	}
+	float j = v_c * RHO_WATER * h2o_specific_j_kg(c);
+	h[c] += j;
+	h[i] -= j * vol_ratio(c, i);
 }
 
 // Draw `amount` of water out of the rooting column, taken from each cell in proportion to what it holds (roots
@@ -214,7 +254,9 @@ void root_soil_draw(uint i, float amount) {
 		if (c < 0 || regolith[c] == 0.0) {
 			break;
 		}
-		soil[uint(c)] = max(0.0, soil[uint(c)] * (1.0 - f));
+		float took = h2o_liq(uint(c)) * f;
+		h2o[uint(c)] = max(0.0, h2o[uint(c)] - took);
+		h2o_carry(uint(c), i, -took);
 		if (solid[c] == 0.0) {
 			break;
 		}
@@ -259,8 +301,7 @@ void bedrock_below_add(uint i, float v) {
 // Resolve a channel slot to its per-cell value. Unbound slots read 0 (a record must not reference them).
 float read_ch(int slot, uint i) {
 	if (slot == TEMP)     return temp[i];
-	if (slot == WATER)    return water[i];
-	if (slot == MOISTURE) return moisture[i];
+	if (slot == H2O)      return h2o[i];
 	if (slot == O2)       return o2[i];
 	if (slot == CO2)      return co2[i];
 	if (slot == FUEL)     return fuel[i];
@@ -268,17 +309,16 @@ float read_ch(int slot, uint i) {
 	if (slot == FUNGUS)   return fungus[i];
 	if (slot == FERT)     return fert[i];
 	if (slot == BIOMASS)  return biomass[i];
-	if (slot == SNOW)     return snow[i];
 	if (slot == SEDIMENT) return sediment[i];
 	if (slot == DUST)     return dust[i];
 	if (slot == SUSP)     return susp[i];
-	if (slot == WINDSPEED) return sqrt(vel_x[i] * vel_x[i] + vel_z[i] * vel_z[i]);
+	if (slot == WINDSPEED) return wind_speed(i);
 	if (slot == LAVA)     return lava[i];
 	if (slot == ROCK_FILL) return rock_fill[i];
 	if (slot == LIGHT)     return light_at(i);
 	if (slot == SOIL_ROOT) return root_soil(i);
-	if (slot == VAPOUR_DEFICIT) return sat_vapour_mol_m3(temp[i]) - moisture[i];
-	if (slot == SOIL_TOP) { int c = top_regolith(i); return (c < 0) ? 0.0 : soil[uint(c)] * vol_ratio(uint(c), i); }
+	if (slot == VAPOUR_DEFICIT) return sat_vapour_vf(temp[i], max(pressure[i], 0.0)) - h2o_vap(i);
+	if (slot == SOIL_TOP) { int c = top_regolith(i); return (c < 0) ? 0.0 : h2o_liq(uint(c)) * vol_ratio(uint(c), i); }
 	if (slot == OVERBURDEN) return overburden(i);
 	if (slot == BEDROCK_BELOW) return bedrock_below(i);
 	if (slot == CARBONATE) return carbonate[i];
@@ -288,14 +328,14 @@ float read_ch(int slot, uint i) {
 	if (slot == ORG_H)     return org_h[i];
 	if (slot == ORG_O)     return org_o[i];
 	if (slot == ORG_C)     return detritus[i] + fuel[i];
+	if (slot == H2O_LIQUID) return h2o_liq(i);
 	return 0.0;
 }
 
 // Add v to a channel slot (own cell). Mass channels clamp at 0. LIGHT and unbound slots are geometry, not
 // matter, and no-op here. SOIL_ROOT, SOIL_TOP and BEDROCK_BELOW write into the neighbouring cell they name.
 void add_ch(int slot, uint i, float v) {
-	if      (slot == WATER)    { water[i]     = max(0.0, water[i] + v); }
-	else if (slot == MOISTURE) { moisture[i] += v; }
+	if      (slot == H2O)      { h2o[i]       = max(0.0, h2o[i] + v); }
 	else if (slot == O2)       { o2[i]        = max(0.0, o2[i] + v); }
 	else if (slot == CO2)      { co2[i]       = max(0.0, co2[i] + v); }
 	else if (slot == FUEL)     { fuel[i]      = max(0.0, fuel[i]     + v); }   // combustion is fuel's only sink
@@ -303,14 +343,21 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == FUNGUS)   { fungus[i]    = max(0.0, fungus[i]   + v); }
 	else if (slot == FERT)     { fert[i]      = max(0.0, fert[i] + v); }
 	else if (slot == BIOMASS)  { biomass[i]   = max(0.0, biomass[i]  + v); }
-	else if (slot == SNOW)     { snow[i]      = max(0.0, snow[i]     + v); }
 	else if (slot == SEDIMENT) { sediment[i]  = max(0.0, sediment[i] + v); }
 	else if (slot == DUST)     { dust[i]      = max(0.0, dust[i]     + v); }
 	else if (slot == SUSP)     { susp[i]      = max(0.0, susp[i]     + v); }
 	else if (slot == LAVA)     { lava[i]      = max(0.0, lava[i]     + v); }
 	else if (slot == ROCK_FILL) { rock_fill[i] = max(0.0, rock_fill[i] + v); }  // may exceed 1.0 (accreted rock); clamp only at 0
 	else if (slot == SOIL_ROOT) { root_soil_draw(i, -v); }                     // roots draw water OUT of the column (v < 0)
-	else if (slot == SOIL_TOP)  { int c = top_regolith(i); if (c >= 0) { soil[uint(c)] = max(0.0, soil[uint(c)] + v * vol_ratio(i, uint(c))); } }
+	else if (slot == SOIL_TOP)  {
+		int c = top_regolith(i);
+		if (c >= 0) {
+			float dv = v * vol_ratio(i, uint(c));
+			dv = max(dv, -h2o_liq(uint(c)));                                  // only the PORE WATER may leave
+			h2o[uint(c)] = max(0.0, h2o[uint(c)] + dv);
+			h2o_carry(uint(c), i, dv);
+		}
+	}
 	else if (slot == BEDROCK_BELOW) { bedrock_below_add(i, v); }               // weathering eats the outcrop it stands on
 	else if (slot == CARBONATE) { carbonate[i] = max(0.0, carbonate[i] + v); } // D1b credits, D1c debits
 	else if (slot == SILICA)    { silica[i]    = max(0.0, silica[i]    + v); }
@@ -325,7 +372,7 @@ bool gate_ok(int mask, uint i) {
 		return true;
 	}
 	if ((mask & GATE_DRY) != 0) {
-		if (water[i] > WET_MAX_LOFT) {
+		if (h2o_liq(i) > WET_MAX_LOFT) {
 			return false;                   // wet sand / puddle never lofts (dust_loft:53 parity)
 		}
 	}
@@ -344,7 +391,7 @@ bool gate_ok(int mask, uint i) {
 	if ((mask & GATE_AIR_ABOVE) != 0) {
 		// FREE SURFACE: the outward-radial neighbour must be AIR — open rock-free and not itself drowned.
 		int au = la_above(i);
-		if (au >= 0 && (solid[au] != 0.0 || water[au] >= DROWNED_WATER)) {
+		if (au >= 0 && (solid[au] != 0.0 || h2o_liq(uint(au)) >= DROWNED_WATER)) {
 			return false;
 		}
 	}
@@ -412,20 +459,20 @@ void main() {
 		}
 		float drv = read_ch(rc.driver_slot, i);
 		float x = 0.0;
-		if (rc.rate_model == CONST_FRAC) {
+		if (rc.rate_model == RM_CONST_FRAC) {
 			x = rc.rate_k * drv;
-		} else if (rc.rate_model == BILINEAR) {
+		} else if (rc.rate_model == RM_BILINEAR) {
 			x = rc.rate_k * drv * read_ch(rc.driver2_slot, i);
-		} else if (rc.rate_model == EXCESS_OVER_THRESHOLD) {
+		} else if (rc.rate_model == RM_EXCESS_OVER_THRESHOLD) {
 			x = max(0.0, drv - rc.threshold) * rc.rate_k;
-		} else if (rc.rate_model == DEFICIT_BELOW_THRESHOLD) {
+		} else if (rc.rate_model == RM_DEFICIT_BELOW_THRESHOLD) {
 			x = max(0.0, rc.threshold - drv) * rc.rate_k;   // mirror of EXCESS: fires when driver < threshold
-		} else if (rc.rate_model == OPTIMUM_BAND) {
+		} else if (rc.rate_model == RM_OPTIMUM_BAND) {
 			// A rate that PEAKS in the middle and falls off BOTH ways: proportional to `driver`, modulated by a
 			float v = read_ch(rc.driver2_slot, i);
 			float t = (v - rc.threshold) / max(rc.param2, 1e-6);
 			x = rc.rate_k * drv * max(0.0, 1.0 - t * t);
-		} else if (rc.rate_model == ARRHENIUS) {
+		} else if (rc.rate_model == RM_ARRHENIUS) {
 			// The temperature law of chemistry: activation energy in `threshold` (Ea/R, kelvin), referenced
 			// to `param2` (the temperature k is quoted at). First order in `driver`, and in `driver2` when it
 			float conc2 = (rc.driver2_slot >= 0) ? read_ch(rc.driver2_slot, i) : 1.0;
@@ -435,6 +482,11 @@ void main() {
 			}
 			float t_ref = max(rc.param2, 1.0);
 			x = rc.rate_k * drv * conc2 * exp(-rc.threshold * (1.0 / max(t_k, 1.0) - 1.0 / t_ref));
+		} else if (rc.rate_model == RM_RESISTANCE_SERIES) {
+			// An interfacial flux through two resistances in series. `driver2` is the conductance of the
+			// first (a wind speed), `param2` the second expressed against it, so the flux saturates.
+			float u = max(read_ch(rc.driver2_slot, i), 0.0);
+			x = rc.rate_k * drv * u / (1.0 + rc.param2 * u);
 		}
 		// An UNKNOWN rate model yields x = 0 and the record does nothing.
 

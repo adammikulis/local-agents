@@ -5,13 +5,11 @@ extends RefCounted
 ## SINGLE channels are absent, and `read_raw` ignores the half for those.
 const PRODUCERS: Dictionary = {
 	"temp": "TransportPass",
-	"water": "TransportPass",
+	"h2o": "TransportPass",
 	"lava": "TransportPass",
 	"sediment": "TransportPass",
 	"susp": "TransportPass",
 	"dust": "TransportPass",
-	"soil": "TransportPass",
-	"moisture": "TransportPass",
 	"o2": "TransportPass",
 	"co2": "TransportPass",
 	"n2": "TransportPass",

@@ -235,6 +235,24 @@ GODOT_BEST_PRACTICES (Godot/runtime/engine). What stays in HANDOFF.md is live re
 
 ## Error Log / Preventative Patterns
 
+### 2026-08-12 — editing a `.glsli` does not re-import the `.glsl` that includes it
+
+Godot's importer keys on the md5 of the `.glsl` source, and an `#include`d `.glsli` is not part of it.
+`godot --headless --path . --import` therefore rebuilds nothing after a `.glsli` edit, `touch`ing the `.glsl`
+does not help either, and the run executes the OLD SPIR-V while the source reads as changed. A mutation test
+against `enthalpy.glsli` returned the unmutated answer twice before this was spotted.
+**After editing a `.glsli`, delete the imported artefacts and re-import:**
+`rm -f .godot/imported/*.glsl-*.res .godot/imported/*.glsl-*.md5 && godot --headless --path . --import`
+
+### 2026-08-12 — a phase boundary compared for float equality across two call sites
+
+`la_mix_state` finds the breakpoint, `la_mix_jump_at` re-derives it, and `la_state_to_enthalpy` re-derives it
+again; all three compared with `==`. In float32 the compiler contracted the same expression differently at
+each site, so the boundary missed by an ULP, the latent plateau was stepped over rather than held, and
+`pinned` never fired on the GPU while the float64 GDScript twin pinned correctly — a divergence
+`check_enthalpy_ssot.sh` cannot see, because it compares constants and not evaluated boundaries.
+**A value that will be compared for equality at more than one call site is `precise`.**
+
 ### 2026-08-10 — a gauge that cannot report its own failure hid 1.24 million errors for a session
 
 `scripts/sim_run.sh` printed the SIM_REPORT keys and grepped only for `get_spirv`. A run emitting

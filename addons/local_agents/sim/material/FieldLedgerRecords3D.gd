@@ -5,8 +5,9 @@ extends RefCounted
 
 const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionBalance.gd")
 
-## Every H2O phase. One inclusion rule for all four: every cell, no residency mask.
-const H2O: PackedStringArray = ["water", "snow", "soil", "moisture"]
+## The planet's water. ONE channel: every phase of H2O is the same stock, and which phase a cell's share
+## is in is derived from its enthalpy, not stored. Every cell, no residency mask.
+const H2O: PackedStringArray = ["h2o"]
 
 ## The lithosphere. `MINERAL_SUM` is the conserved total; carbonate and silica are memo lines outside it.
 const MINERAL: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust", "carbonate", "silica"]
@@ -43,7 +44,6 @@ static func all_legs() -> PackedStringArray:
 ## Moles of each element held by a set of channel amounts, from the same declaration the load-time reaction
 ## balance gate checks every record against. A channel amount IS moles, so nothing is converted here.
 static func elements_of(by_channel: Dictionary) -> Dictionary:
-	var slots: Dictionary = BalanceScript.INVENTORY_CHANNELS
 	var out: Dictionary = {}
 	for ch in by_channel:
 		var parts: Dictionary = BalanceScript.channel_elements(ch)
@@ -56,7 +56,7 @@ static func elements_of(by_channel: Dictionary) -> Dictionary:
 ## The same book restricted to the lithosphere channels.
 static func lith_elements(by_channel: Dictionary) -> Dictionary:
 	var only: Dictionary = {}
-	for ch in BalanceScript.LITHOSPHERE_CHANNELS:
+	for ch in BalanceScript.lithosphere_channels():
 		only[ch] = float(by_channel.get(ch, 0.0))
 	return elements_of(only)
 

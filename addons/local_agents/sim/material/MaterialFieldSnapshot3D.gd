@@ -6,8 +6,8 @@ extends RefCounted
 # Channel name -> the field's CPU mirror array property. A channel with no CPU mirror still round-trips on
 # the GPU via restore_channels().
 const CPU_MIRROR: Dictionary = {
-	"h_j_m3": "_h", "water": "_water", "moisture": "_moisture", "lava": "_lava", "fire": "_fire",
-	"o2": "_o2", "co2": "_co2", "biomass": "_biomass", "snow": "_snow", "dust": "_dust",
+	"h_j_m3": "_h", "h2o": "_h2o", "lava": "_lava", "fire": "_fire",
+	"o2": "_o2", "co2": "_co2", "biomass": "_biomass", "dust": "_dust",
 	"sediment": "_sediment", "rock_fill": "_rock_fill", "shock": "_shock", "charge": "_charge",
 	"vel_x": "_vel_x", "vel_y": "_vel_y", "vel_z": "_vel_z", "fuel": "_fuel", "fungus": "_fungus",
 	"detritus": "_detritus", "pressure": "_pressure",
@@ -53,6 +53,6 @@ static func restore(field, data: Dictionary) -> bool:
 		var arr: PackedFloat32Array = channels[key]
 		if arr.size() == field._cell_count:
 			field.set(CPU_MIRROR[key], arr)
-	# The atmosphere aggregate cache reads _moisture/_temp — invalidate it so the next query recomputes.
+	# The atmosphere aggregate cache reads _h2o/_temp — invalidate it so the next query recomputes.
 	field._atmos_dirty = true
 	return true

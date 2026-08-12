@@ -107,8 +107,8 @@ func _sample(dt: float) -> void:
 func _snapshot() -> Dictionary:
 	var snap: Dictionary = {}
 	if _material != null:
-		if _material.has_method("water_total"):
-			snap["water_total"] = _material.water_total()
+		if _material.has_method("total_water"):
+			snap["water_total"] = _material.total_water()
 		if _material.has_method("wind"):
 			snap["wind"] = (_material.wind() as Vector2).length()
 		if _material.has_method("bolts_fired"):

@@ -11,7 +11,8 @@ var _sets: Array = [RID(), RID()]
 
 func _setup(bufs: Dictionary, _cc: int) -> void:
 	_pipe = _kernel(SEPARATE_PATH)
-	for k in ["charge", "temp", "moisture", "nbr", "gravity", "vel_x", "vel_y", "vel_z"]:
+	for k in ["charge", "temp", "h2o", "h2o_liquid", "h2o_solid", "nbr", "gravity",
+			"vel_x", "vel_y", "vel_z"]:
 		if not bufs.has(k):
 			push_error("ChargeSeparatePass: no \"%s\" buffer, so no charge is ever separated." % k)
 			return
@@ -19,12 +20,14 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		_sets[p] = _uset(_pipe, [
 			[0, _single(bufs, "charge")],
 			[1, _single(bufs, "temp")],
-			[2, _half(bufs, "moisture", p, false)],
+			[2, _half(bufs, "h2o", p, false)],
 			[3, _single(bufs, "nbr")],
 			[4, _single(bufs, "gravity")],
 			[5, _single(bufs, "vel_x")],
 			[6, _single(bufs, "vel_y")],
-			[7, _single(bufs, "vel_z")]])
+			[7, _single(bufs, "vel_z")],
+			[8, _single(bufs, "h2o_liquid")],
+			[9, _single(bufs, "h2o_solid")]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: int, groups: int) -> void:
@@ -39,7 +42,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: i
 
 
 # Params { uint cell_count; float dt_s; float rate_c_m3_s; float zone_warm_c; float zone_cold_c;
-#          float updraft_ref; float lwc_ref; uint pad0; } — 32 bytes.
+#          float updraft_ref; float lwc_ref; float rho_water; } — 32 bytes.
 func _pc(cc: int, dt_s: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(32)
@@ -50,5 +53,5 @@ func _pc(cc: int, dt_s: float) -> PackedByteArray:
 	pc.encode_float(16, LAPhysical.CHARGE_ZONE_COLD_C)
 	pc.encode_float(20, LAPhysical.CONVECTIVE_UPDRAFT_M_S)
 	pc.encode_float(24, LAPhysical.CHARGING_LWC_KG_M3)
-	pc.encode_u32(28, 0)
+	pc.encode_float(28, LAPhysical.WATER_DENSITY_KG_M3)
 	return pc

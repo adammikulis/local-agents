@@ -123,7 +123,7 @@ one step. Order is R15 → R19 → R20 → … → R26.
   report `fires 0`; the repo attributes this to temperature and a no-op `ignite()`. **Respiration is a
   sufficient cause on its own.**
 - **R19 photosynthesis is CO₂-capped, not light-limited** — the cap is 5× tighter than the rate law, so the
-  OPTIMUM_BAND law is inoperative except at night. It strips 100% of a cell's CO₂ every step; real leaves
+  RM_OPTIMUM_BAND law is inoperative except at night. It strips 100% of a cell's CO₂ every step; real leaves
   have a compensation point below which assimilation goes negative.
 
 **Physics: competing sinks share a substrate in proportion to their instantaneous rates.** Evaluate every
@@ -136,10 +136,10 @@ Same rate model, driver, threshold, constant and 1:1 water→snow leg (`PhaseRec
 individually, so the gate is silent.
 
 ### C3. Rate models: only one is a real law
-`ARRHENIUS` is correct (two-point form, first-order mass action). `CONST_FRAC` and `BILINEAR` are mass
-action **only when the driver is the reactant**, which is often not the case. `EXCESS_OVER_THRESHOLD` /
-`DEFICIT_BELOW_THRESHOLD` are rectified linear ramps standing in for degree-day melt, saltation (real flux
-is **cubic** in shear velocity), and a solid-state reaction that should be Arrhenius. `OPTIMUM_BAND` is a
+`RM_ARRHENIUS` is correct (two-point form, first-order mass action). `RM_CONST_FRAC` and `RM_BILINEAR` are mass
+action **only when the driver is the reactant**, which is often not the case. `RM_EXCESS_OVER_THRESHOLD` /
+`RM_DEFICIT_BELOW_THRESHOLD` are rectified linear ramps standing in for degree-day melt, saltation (real flux
+is **cubic** in shear velocity), and a solid-state reaction that should be Arrhenius. `RM_OPTIMUM_BAND` is a
 made-up clipped parabola; the real photosynthesis temperature response is asymmetric (a denaturation limb).
 
 **Missing entirely:** Michaelis–Menten (needed by R15, R20), Q₁₀ on decomposition and respiration — so

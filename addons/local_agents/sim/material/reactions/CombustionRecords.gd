@@ -2,7 +2,7 @@ class_name LACombustionRecords
 extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
 ## A solid fuel has no ignition point: `cellulose.pyrolysis_ea_over_r_k` is 230 kJ/mol over R (Antal &
-## Varhegyi 1995, the mid of a measured 200-250 kJ/mol), and combustion is an ARRHENIUS record.
+## Varhegyi 1995, the mid of a measured 200-250 kJ/mol), and combustion is an RM_ARRHENIUS record.
 
 const PYROLYSIS_REF_TEMP_K: float = 600.0
 
@@ -36,11 +36,11 @@ static func records() -> Array:
 	var organic_n: float = float(LAReactionBalance.composition()[FUEL]["N"])
 	var dh: Vector3 = _enthalpy_parts()
 	return [
-		rec(ARRHENIUS, _rate_k(), FUEL,
+		rec(RM_ARRHENIUS, _rate_k(), FUEL,
 			[[FUEL, 1.0], [ORG_H, 0.0, 1.0, 0.0], [ORG_O, 0.0, 0.0, 1.0],
 				[O2, 1.0, 0.25, -0.5]],
 			[[CO2, 1.0, TGT_SELF],
-				[MOISTURE, 0.0, TGT_SELF, 0.5 * 1.0, 0.0],
+				[H2O, 0.0, TGT_SELF, 0.5 * 1.0, 0.0],
 				[FERT, organic_n, TGT_SELF]],
 			0, LAPhysical.CELLULOSE_PYROLYSIS_EA_OVER_R_K, O2, PYROLYSIS_REF_TEMP_K,
 			-1, 0.0, 0.0, dh.x, O2, OXYGEN_QUENCH, dh.y, dh.z),

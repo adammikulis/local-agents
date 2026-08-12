@@ -66,7 +66,6 @@ func _scan() -> void:
 	# H₂O the solidity change has to account for (see _settle_h2o). Gathered here, queued once at the end.
 	var bury_src: PackedInt32Array = PackedInt32Array()
 	var bury_dst: PackedInt32Array = PackedInt32Array()
-	var free_soil: PackedInt32Array = PackedInt32Array()
 	for c in range(n):
 		if budget <= 0:
 			break
@@ -87,12 +86,11 @@ func _scan() -> void:
 		elif was_solid and rf <= SHRINK_THRESHOLD:
 			terrain.carve_sphere(_f.cell_world_pos_linear(c), size)
 			solid[c] = 0
-			free_soil.append(c)
 			shrinks += 1
 			found += 1
 			budget -= 1
 	_f._solid = solid                              # PackedByteArray is COW — write the updated mask back
-	_settle_h2o(bury_src, bury_dst, free_soil)
+	_settle_h2o(bury_src, bury_dst)
 	last_scan_ms = float(Time.get_ticks_usec() - t0) / 1000.0
 	if found > 0:
 		_window = ACTIVE_WINDOW                     # sustained activity keeps the scan awake
@@ -103,7 +101,9 @@ func _scan() -> void:
 		print("STAMP_SCAN={ms:%.3f, found:%d, cells:%d}" % [last_scan_ms, found, n])
 
 
-func _settle_h2o(bury_src: PackedInt32Array, bury_dst: PackedInt32Array, free_soil: PackedInt32Array) -> void:
+## Rock CLOSING over a cell has to put that cell's h2o somewhere. Rock OPENING does not: the water was
+## already there, and free or in a pore is a fact about the cell, not about the water.
+func _settle_h2o(bury_src: PackedInt32Array, bury_dst: PackedInt32Array) -> void:
 	if _f == null or _f._inject == null or _f._gpu == null:
 		return
 	var q = _f._inject.queue
@@ -117,13 +117,10 @@ func _settle_h2o(bury_src: PackedInt32Array, bury_dst: PackedInt32Array, free_so
 				keep_dst.append(bury_dst[i])
 			else:
 				lost.append(bury_src[i])
-		for ch in ["water", "snow", "moisture"]:
-			if keep_src.size() > 0:
-				q.displace(ch, keep_src, ch, keep_dst)
-			if lost.size() > 0:
-				q.discard(ch, lost)
-	if free_soil.size() > 0:
-		q.displace("soil", free_soil, "water", free_soil)   # pore water of the melted rock, freed in place
+		if keep_src.size() > 0:
+			q.displace("h2o", keep_src, "h2o", keep_dst)
+		if lost.size() > 0:
+			q.discard("h2o", lost)
 
 
 ## The nearest OPEN neighbour of `c`, preferring the one UP the local vertical so displaced water rises

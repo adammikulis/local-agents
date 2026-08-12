@@ -40,9 +40,11 @@ func compute() -> void:
 	_f._regolith.resize(cell_count)                        # 0 = bedrock/void, 1 = permeable regolith
 	_f._grain = PackedFloat32Array()
 	_f._grain.resize(cell_count)                           # representative grain diameter, metres
-	if _f._soil.size() != cell_count:
-		_f._soil = PackedFloat32Array()
-		_f._soil.resize(cell_count)
+	_f._porosity = PackedFloat32Array()
+	_f._porosity.resize(cell_count)                        # Athy pore fraction, 0 outside the regolith band
+	if _f._h2o.size() != cell_count:
+		_f._h2o = PackedFloat32Array()
+		_f._h2o.resize(cell_count)
 	var sea_r: float = _f.sea_radius()
 	# The elevation band the grain-size gradient is read over: from the sea shell up to the highest ground
 	# this planet actually has, so a flatter or steeper world still spans the same range of materials.
@@ -64,7 +66,11 @@ func compute() -> void:
 			continue                                      # void, or buried deeper than the aquifer band
 		# Basins and sea floor get valley-fill alluvium, summits get residual saprolite.
 		var height: float = clampf((LAFieldGeometry.radius_of(_f, c) - sea_r) / relief, 0.0, 1.0)
+		var phi: float = porosity_at(shells)
 		_f._regolith[c] = 1
 		_f._grain[c] = LAPhysical.GRAIN_D_LOWLAND_M * pow(
 			LAPhysical.GRAIN_D_UPLAND_M / LAPhysical.GRAIN_D_LOWLAND_M, height)
-		_f._soil[c] = porosity_at(shells) * INITIAL_TABLE_FRAC   # prime the water table
+		# ONE quantity, written ONCE: the cell's pore fraction is both its saturated water capacity and the
+		# phi Kozeny-Carman turns into permeability.
+		_f._porosity[c] = phi
+		_f._h2o[c] = phi * INITIAL_TABLE_FRAC                    # prime the water table

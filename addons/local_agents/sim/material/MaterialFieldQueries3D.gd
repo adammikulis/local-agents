@@ -44,17 +44,38 @@ func _cell_at(pos: Vector3) -> int:
 # --- Water queries -----------------------------------------------------------
 
 ## True where there is drinkable water at a world point. False outside the box / before readback.
+## LIQUID water in a cell, in channel units: the h2o it holds times the share the ladder says is liquid.
+func liquid_at(c: int) -> float:
+	if c < 0 or _f._h2o.size() != _f._cell_count or _f._h2o_liquid.size() != _f._cell_count:
+		return 0.0
+	return maxf(_f._h2o[c], 0.0) * clampf(_f._h2o_liquid[c], 0.0, 1.0)
+
+
+## FROZEN water in a cell, same units.
+func ice_at(c: int) -> float:
+	if c < 0 or _f._h2o.size() != _f._cell_count or _f._h2o_solid.size() != _f._cell_count:
+		return 0.0
+	return maxf(_f._h2o[c], 0.0) * clampf(_f._h2o_solid[c], 0.0, 1.0)
+
+
+## WATER VAPOUR in a cell, same units.
+func vapour_at(c: int) -> float:
+	if c < 0 or _f._h2o.size() != _f._cell_count or _f._h2o_vapour.size() != _f._cell_count:
+		return 0.0
+	return maxf(_f._h2o[c], 0.0) * clampf(_f._h2o_vapour[c], 0.0, 1.0)
+
+
 func is_water_at(pos: Vector3) -> bool:
-	if _f._water.size() != _f._cell_count:
+	if _f._h2o.size() != _f._cell_count:
 		return false
 	var c: int = _f.world_to_cell(pos)
-	return c >= 0 and _f._water[c] >= _f.MIN_MASS
+	return c >= 0 and liquid_at(c) >= _f.MIN_MASS
 
 
 func water_at_cell(ix: int, iy: int, iz: int) -> float:
 	if not _f._in_bounds(ix, iy, iz):
 		return 0.0
-	return _f._water[_f._idx(ix, iy, iz)]
+	return liquid_at(_f._idx(ix, iy, iz))
 
 
 # --- Water CURRENT (the sweep force) -----------------------------------------
@@ -62,7 +83,7 @@ func water_at_cell(ix: int, iy: int, iz: int) -> float:
 
 
 func total_water() -> float:
-	return CellVolScript.weighted(_f._water, CellVolScript.of(_f), _f._solid, false)
+	return CellVolScript.weighted(_liquid_mirror(), CellVolScript.of(_f), _f._solid, false)
 
 
 # --- Temperature query -------------------------------------------------------
@@ -129,7 +150,7 @@ func _bin_mean(bin_sum: PackedFloat32Array, bin_n: PackedInt32Array, b: int) -> 
 
 func hot_spring_stats() -> Dictionary:
 	var count: int = _f._cell_count
-	if _f._temp.size() != count or _f._water.size() != count or _f._solid.size() != count:
+	if _f._temp.size() != count or _f._h2o.size() != count or _f._solid.size() != count:
 		return {"hotspring_cells": 0, "hotspring_boiling": 0, "hotspring_max_c": 0.0}
 	var warm: int = 0        # open, non-sea surface water >60°C (a hot spring)
 	var boiling: int = 0     # at/over LAPhysical.WATER_BOIL_C — the same point atmos_evap flashes steam at
@@ -139,7 +160,7 @@ func hot_spring_stats() -> Dictionary:
 	for i in range(count):
 		if _f._solid[i] != 0:
 			continue
-		if _f._water[i] < 0.01:
+		if liquid_at(i) < 0.01:
 			continue
 		spring_wet += 1
 		var t: float = _f._temp[i]
@@ -160,7 +181,7 @@ func hot_spring_stats() -> Dictionary:
 func wet_cell_count() -> int:
 	var n: int = 0
 	for i in range(_f._cell_count):
-		if _f._solid[i] == 0 and _f._water[i] >= _f.RENDER_MIN:
+		if _f._solid[i] == 0 and liquid_at(i) >= _f.RENDER_MIN:
 			n += 1
 	return n
 
@@ -226,16 +247,16 @@ func updraft_at(pos: Vector3) -> float:
 ## the pressure a flow puts on anything it meets, so a caller multiplies by its own frontal area. Zero
 ## where there is no water: a force needs matter to carry it.
 func water_force_at(pos: Vector3) -> Vector3:
-	if _f._grid == null or _f._water.size() != _f._cell_count or _f._vel_x.size() != _f._cell_count:
+	if _f._grid == null or _f._h2o.size() != _f._cell_count or _f._vel_x.size() != _f._cell_count:
 		return Vector3.ZERO
 	var c: int = _f.world_to_cell(pos)
-	if c < 0 or _f._water[c] <= 0.0:
+	if c < 0 or liquid_at(c) <= 0.0:
 		return Vector3.ZERO
 	var v: Vector3 = LAFieldGeometry.velocity(_f, c)
 	var speed: float = v.length()
 	if speed <= 0.0:
 		return Vector3.ZERO
-	var rho: float = float(LASubstances.table().get("h2o", {}).get("density", 0.0)) * _f._water[c]
+	var rho: float = float(LASubstances.table().get("h2o", {}).get("density", 0.0)) * liquid_at(c)
 	return v.normalized() * (0.5 * rho * speed * speed)
 
 
@@ -445,12 +466,12 @@ func fertility_peak() -> float:
 ## True when cell `c` holds water and the cell one step UP the local vertical is open and DRY — the free
 ## water surface, where ice forms. The dryness above is what makes it a surface, not a mid-column cell.
 func _is_sea_surface(c: int) -> bool:
-	if _f._solid[c] != 0 or _f._water[c] < _f.MIN_MASS:
+	if _f._solid[c] != 0 or liquid_at(c) < _f.MIN_MASS:
 		return false
 	var hi: int = LAFieldGeometry.above(_f, c)
 	if hi < 0:
 		return true                                   # the march left the box — open sky above
-	return _f._solid[hi] == 0 and _f._water[hi] < _f.MIN_MASS
+	return _f._solid[hi] == 0 and liquid_at(hi) < _f.MIN_MASS
 
 ## Frozen extent and the MEDIAN temperature of the frozen and open halves of the sea surface, in one walk.
 ## Median, not mean: a handful of undersea-vent cells at hundreds of °C moves a mean and cannot move a
@@ -459,14 +480,14 @@ func sea_surface_stats() -> Dictionary:
 	var out: Dictionary = {"sea_ice_cells": 0, "sea_ice_temp": 0.0, "open_sea_cells": 0, "open_sea_temp": 0.0}
 	if _f._grid == null:
 		return out
-	if _f._snow.size() != _f._cell_count or _f._temp.size() != _f._cell_count or _f._water.size() != _f._cell_count:
+	if _f._h2o.size() != _f._cell_count or _f._temp.size() != _f._cell_count:
 		return out
 	var frozen: PackedFloat32Array = PackedFloat32Array()
 	var open: PackedFloat32Array = PackedFloat32Array()
 	for c in _f._cell_count:
 		if not _is_sea_surface(c):
 			continue
-		if _f._snow[c] > _f.SNOW_PRESENT:
+		if ice_at(c) > _f.SNOW_PRESENT:
 			frozen.append(_f._temp[c])
 		else:
 			open.append(_f._temp[c])
@@ -533,3 +554,36 @@ func lava_shell_diag() -> Dictionary:
 		"lava_int_c": snappedf(int_sum / float(max(1, interior)), 0.1),
 		"lava_rind_c": snappedf(rind_sum / float(max(1, rind)), 0.1),
 	}
+
+
+## The liquid share of every cell, as one array — for the volume-weighted sums that take a whole mirror.
+func _liquid_mirror() -> PackedFloat32Array:
+	var out: PackedFloat32Array = PackedFloat32Array()
+	if _f._h2o.size() != _f._cell_count:
+		return out
+	out.resize(_f._cell_count)
+	for c in _f._cell_count:
+		out[c] = liquid_at(c)
+	return out
+
+
+## The vapour share of every cell, as one array — the airborne-substance readers take a whole mirror.
+func _vapour_mirror() -> PackedFloat32Array:
+	var out: PackedFloat32Array = PackedFloat32Array()
+	if _f._h2o.size() != _f._cell_count:
+		return out
+	out.resize(_f._cell_count)
+	for c in _f._cell_count:
+		out[c] = vapour_at(c)
+	return out
+
+
+## The frozen share of every cell, as one array — the albedo and cover bakers take a whole mirror.
+func _ice_mirror() -> PackedFloat32Array:
+	var out: PackedFloat32Array = PackedFloat32Array()
+	if _f._h2o.size() != _f._cell_count:
+		return out
+	out.resize(_f._cell_count)
+	for c in _f._cell_count:
+		out[c] = ice_at(c)
+	return out
