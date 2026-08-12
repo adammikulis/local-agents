@@ -3,7 +3,7 @@ extends RefCounted
 
 ## Checks the radiative model against measured planets: Earth clear-sky OLR, the forcing of a CO2
 ## doubling, and the CO2 share of Venus's greenhouse at 92 bar. All three run LARadiativeColumn, which
-## is the CPU counterpart of kernels3d/heat3d_solar_sphere3d.glsl.
+## is the CPU counterpart of the RADIATE row in kernels3d/transport.glsl.
 
 const Rad: GDScript = preload("res://addons/local_agents/sim/material/RadiativeColumn.gd")
 const Bands: GDScript = preload("res://addons/local_agents/sim/material/AbsorptionBands.gd")

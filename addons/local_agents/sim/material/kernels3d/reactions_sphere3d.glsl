@@ -2,20 +2,8 @@
 #version 450
 
 #include "neighbours.glsli"
-#include "march.glsli"
 
 layout(set = 0, binding = 48, std430) restrict readonly buffer Grav { float g_field[]; };
-
-// The neighbour below / above this cell: down is -normalize(g), never a slot index.
-int la_below(uint c) {
-	vec3 gv = vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
-	return (length(gv) > 0.0) ? la_step(nbr, c, normalize(gv)) : -1;
-}
-
-int la_above(uint c) {
-	vec3 gv = vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
-	return (length(gv) > 0.0) ? la_step(nbr, c, -normalize(gv)) : -1;
-}
 #include "cellvol.glsli"
 
 // GENERIC REACTION ENGINE. One data-driven kernel: every same-cell reaction is a record in the Defs buffer.
@@ -54,6 +42,18 @@ layout(set = 0, binding = 24, std430) restrict buffer Soil { float soil[]; };
 // --- Gate inputs + scratch product target + the record table ----------------------------------------------
 layout(set = 0, binding = 10, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };        // idx*6 + slot
+#include "march.glsli"
+
+// The neighbour below / above this cell: down is -normalize(g), never a slot index.
+int la_below(uint c) {
+	vec3 gv = vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
+	return (length(gv) > 0.0) ? la_step(c, normalize(gv)) : -1;
+}
+
+int la_above(uint c) {
+	vec3 gv = vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
+	return (length(gv) > 0.0) ? la_step(c, -normalize(gv)) : -1;
+}
 layout(set = 0, binding = 20, std430) restrict buffer Scratch { float scratch[]; };         // SCRATCH product target (fungus_fert)
 layout(set = 0, binding = 25, std430) restrict readonly buffer Radial { float radial[]; };  // per-cell outward unit vec, flat c*3+{0,1,2}
 // AQUIFER PERMEABILITY MASK (1 = groundwater-bearing regolith). The mask root_soil() walks — soil lives
@@ -95,11 +95,10 @@ const float P_STD = 101325.0;            // LAPhysical.STANDARD_PRESSURE_PA
 // against `moisture` in the channel's own unit was wrong by the molar density of water.
 float sat_vapour_mol_m3(float t_c) {
 	float e_sat = la_saturation_p_at(la_h2o(), t_c);
-	return e_sat / (GAS_CONSTANT_J_MOL_K * max(t_c + KELVIN_0, 1.0));
+	return e_sat / (R_GAS * max(t_c + KELVIN_0, 1.0));
 }
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust
 #define OVERBURDEN_MAX_CELLS 12  // outward cells the lithostatic column walk sums over
-const float GAS_CONSTANT_J_MOL_K = 8.314462618;   // LAPhysical.GAS_CONSTANT_J_MOL_K
 const float ROCK_DENSITY = 2900.0;      // LAPhysical.ROCK_DENSITY_KG_M3 — basalt / crustal rock
 const float SEDIMENT_DENSITY = 2000.0;  // LAPhysical.SEDIMENT_DENSITY_KG_M3 — unconsolidated wet sediment
 
@@ -157,8 +156,8 @@ layout(push_constant, std430) uniform Params {
 	uint n_records;
 	uint pad0;      // no kernel-side dt: every rate_k already carries its own timebase
 	uint pad1;      // no global rain gate: rain is a per-cell condition, read per cell
-	float sun_x;    // world-space vector TOWARD the sun; MAGNITUDE carries insolation (same value ThermalPass
-	float sun_y;    // hands heat3d_solar_sphere3d, so light and heat are driven by ONE quantity)
+	float sun_x;    // world-space vector TOWARD the sun; MAGNITUDE carries insolation (the same value
+	float sun_y;    // transport.glsl's RADIATE row takes, so light and heat come from ONE quantity)
 	float sun_z;
 	// Pascals of lithostatic pressure per unit of (mass x density) in the column above — g times the model
 	// metres one cell represents. ReactionsPass derives it from the field's own vertical scale.

@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 473**   <!-- the grid's slot and face tags went with it; SimWorld's ten terrain lengths were
+**MAX_DECLARED: 467**   <!-- the grid's slot and face tags went with it; SimWorld's ten terrain lengths were
 inline literals scaled by a Node3D transform and are now named metre constants the registry can see. -->
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
@@ -59,7 +59,6 @@ and 1 nC/m^3/s is the top of the lab-constrained range.
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `NIC_CHARGE_RATE_C_M3_S` | 1.0e-9 | bulk stand-in for a collision process whose microphysics this grid cannot resolve; the top of the lab-constrained 0.1-1 nC/m^3/s range | hydrometeor size distributions in the substrate, at which point the rate is computed rather than chosen |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `CONVECTIVE_UPDRAFT_M_S` | 10.0 | the updraft at which the charging rate is taken to saturate; observed mature-cell updrafts span 5-25 m/s and one had to be picked | same as above: with real collision kinetics the updraft enters through fall speed, not through a reference value |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `CHARGING_LWC_KG_M3` | 1.0e-3 | the cloud liquid water content at which the riming rate is taken to saturate; lab rates climb over 0.1-2 g/m^3 | same as above |
-| `addons/local_agents/sim/material/PhysicalConstants.gd` | `LIGHTNING_NEUTRALISED_RADIUS_M` | 3000.0 | the horizontal extent a return stroke drains. Observed at a few km, but the real extent is set by where the channel propagates, which this model does not simulate | a leader propagation model, or a discharge that follows the field gradient rather than a sphere |
 
 ## Known wrong, already scheduled
 
@@ -86,15 +85,12 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/kernels3d/fungus_sphere3d.glsl` | `SPREAD` | 0.02 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/fungus_sphere3d.glsl` | `DECAY` | 0.02 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/kernels3d/fungus_sphere3d.glsl` | `DRY_DECAY` | 0.06 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/kernels3d/heat3d_solar_sphere3d.glsl` | `ICE_ALBEDO_GAIN` | 40.0 | radiative property not in the authority | add to PhysicalConstants.gd with a citation |
-| `addons/local_agents/sim/material/kernels3d/heat3d_solar_sphere3d.glsl` | `SURFACE_FILL_MIN` | 0.5 | a cell is part solid and part air, so "is this the surface" has no sharp answer at this resolution | a sub-cell surface height, so the radiating face has a position instead of a cell |
-| `addons/local_agents/sim/material/kernels3d/heat3d_solar_sphere3d.glsl` | `MAX_LAYERS` | 24 | bound on the per-thread arrays the column sweep needs; the shipped grid is 20 shells deep | a grid deeper than 24 shells, which needs this raised or the sweep restructured |
 | `addons/local_agents/sim/material/AbsorptionBands.gd` | `BAND_COUNT` | 109 | spectral resolution of the absorption table, chosen so the 667 cm^-1 CO2 band is resolved at 10 cm^-1 | it is measured against the CO2-doubling forcing in tests/test_radiative_transfer.gd; raise it if that test drifts off 3.7 W/m^2 |
 | `addons/local_agents/sim/material/AbsorptionBands.gd` | `TEMP_COUNT` | 9 | temperature resolution of the absorption table, 150-1000 K | a hot-band regime the slices cannot interpolate, which the Venus arm of the radiative test would catch |
 | `addons/local_agents/sim/material/AbsorptionBands.gd` | `CDF_COUNT` | 1024 | sample count of the Planck cumulative table the GPU reads instead of summing the series | a GPU that can afford the series inline |
 | `addons/local_agents/sim/material/AbsorptionBands.gd` | `CDF_XMAX` | 50.0 | upper limit of x = c2*nu/T in that table; above it the fraction of blackbody power is below 1e-9 | a body cold enough that x = 50 falls inside its emission, i.e. below about 30 K |
 | `addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd` | `SAMPLE_COLUMNS` | 64 | how many columns the gauge solves per report; a sampling rate, not a physical quantity | the kernel writing its own per-column fluxes back, so the gauge reads them instead of recomputing |
-| `addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd` | `K_SURFACE_FILL_MIN` | 0.5 | mirrors SURFACE_FILL_MIN in heat3d_solar_sphere3d.glsl | whatever deletes the kernel's copy |
+| `addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd` | `K_SURFACE_FILL_MIN` | 0.5 | a cell is part solid and part air, so "is this the surface" has no sharp answer at this resolution | the RADIATE row meets the condensed fraction geometrically and needs no surface at all, so this is the last copy |
 | `addons/local_agents/sim/mesh/VegetationRenderer.gd` | `_CHUNK` | 256 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/mesh/VegetationRenderer.gd` | `_INITIAL_CAP` | 512 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/SimWorld.gd` | `SLOW_BUILD_CELLS` | 250000 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -368,8 +364,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd` | `FUEL_REQUEST_LEAD` | 20 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `ACTIVE_ARGS_SLOTS` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `ARG_SLOT_LIST_COUNT` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `PLATE_STRIDE` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `MAX_PLATES` | 32 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `CHANNEL_HOLD_DRAINS` | 20 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `SLOW_READBACK_EVERY` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `DRAIN_ALL` | -1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |

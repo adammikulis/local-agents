@@ -10,12 +10,11 @@ static func slow_channels() -> PackedStringArray: return LAChannels.slow_channel
 
 
 # Dispatch order. SolidDerive MUST run first: every other pass reads the `solid` mask and the composition
-# it derives. Transport MUST precede Thermal and Reactions, which read what settled where.
+# it derives. ChargeSeparate precedes Transport, whose OHMIC row relaxes what it separated.
 const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/SolidDerivePass.gd",
+	"res://addons/local_agents/sim/material/sphere_passes/ChargeSeparatePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/ThermalPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/ChargeBreakdownPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd"]
 
 # Slots in the `active_args` buffer (see setup()). 0-2 are the uvec3 dispatch-indirect argument; 3 is the
@@ -25,12 +24,9 @@ const ARG_SLOT_LIST_COUNT: int = 3
 # Compacted active-cell lists: label -> [index buffer key, dispatch-indirect args key]. Each label publishes
 # a `<label>_list_cells` gauge.
 const ACTIVE_LISTS: Dictionary = {
-<<<<<<< HEAD
-	"fungus": ["active_idx_fungus", "active_args_fungus"],
-=======
 	"lava": ["active_idx", "active_args"],
 	"shock": ["active_idx_shock", "active_args_shock"],
->>>>>>> worktree-agent-ae18d3bf4ba96c0e0
+	"fungus": ["active_idx_fungus", "active_args_fungus"],
 }
 
 static func available() -> bool:
@@ -41,8 +37,6 @@ static func available() -> bool:
 	return true
 
 var _rd: RenderingDevice = null
-# LA_INJECT_AUDIT=1 -> every whole-mirror seed_field upload prints how much mass it wrote away (see
-# _audit_mirror_upload). Read once here, not per call: it costs a full-grid readback plus two sums.
 var _audit_mirror: bool = OS.has_environment("LA_INJECT_AUDIT")
 var _field = null
 var _grid: RefCounted = null
@@ -68,13 +62,9 @@ var _probe: Dictionary = {}
 ## Field step the probe dictionary was filled at. A consumer sampling on a coarse cadence gets a probe that
 ## is older than its own call, and a drift rate divided by the wrong step count is wrong by that ratio.
 var _probe_step: int = -1
-# begin_frame upload gates: the solid/static masks and CPU water copy are re-uploaded only when actually edited
-# (SDF stamp / water injection), not every step — the per-step re-upload was pure CPU↔GPU transfer waste. Both
-# default true so the first begin_frame seeds them.
+# Re-uploaded only when a CPU writer marks them, never per step.
 var _solid_dirty: bool = true
 var _water_dirty: bool = true
-# Set by MaterialFieldInject3D whenever anything writes the CPU temp mirror (add_heat, meteor, lava).
-# True at construction so the seeded field reaches the GPU on the first step.
 var _temp_dirty: bool = true
 # Set whenever the Poisson solver actually re-solved; g changes only then.
 var _gravity_dirty: bool = false
@@ -112,13 +102,6 @@ func setup(field) -> void:
 		_bufs[lkeys[1]] = _rd.storage_buffer_create(
 			ACTIVE_ARGS_SLOTS * 4, _zeros(ACTIVE_ARGS_SLOTS),
 			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
-	# Lightning: the strike list the breakdown column scan appends to, its dispatch/counter slots, and the
-	# column-integrated charge per surface column (C/m^2).
-	_bufs["strike_idx"] = _new_u32(_cc)
-	_bufs["strike_args"] = _rd.storage_buffer_create(
-		ACTIVE_ARGS_SLOTS * 4, _zeros(ACTIVE_ARGS_SLOTS),
-		RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
-	_bufs["sigma_col"] = _new_f(_cc)
 	# GRID GEOMETRY, and on a uniform Cartesian grid there are only two pieces of it. The neighbour table,
 	# whose slot order is the grid's (`d ^ 1` is the opposite, checked by scripts/check_neighbour_slots.sh),
 	var nbr_bytes: PackedByteArray = _grid.neighbours.to_byte_array()
@@ -156,7 +139,7 @@ func setup(field) -> void:
 		if p.has_method("setup"):
 			p.setup(_rd, _bufs, _cc)
 			_passes.append(p)
-			_pass_names.append(path.get_file().get_basename())   # e.g. "ThermalPass" — timestamp label
+			_pass_names.append(path.get_file().get_basename())   # e.g. "TransportPass" — timestamp label
 
 
 func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array) -> void:
@@ -190,11 +173,11 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	_ctx["g_m_s2"] = _field._gravity.mean_g() if _field._gravity != null else 0.0
 	# March bound: a column cannot be longer than the box.
 	_ctx["depth"] = _grid.max_span()
-	if not _ctx.has("sun_dir"):
-		_ctx["sun_dir"] = Vector3(0, 1, 0)
 
+## World-space vector toward the sun; its LENGTH is the relative insolation. Absent = no sun, which is
+## dark, not a default direction: an axis chosen here would decide where noon is.
 func set_sun_dir(v: Vector3) -> void:
-	_ctx["sun_dir"] = v if v.length() > 0.001 else Vector3(0, 1, 0)
+	_ctx["sun_dir"] = v
 
 
 func set_core_boundary_c(v: float) -> void:
@@ -386,21 +369,7 @@ func _read_active_list_counts() -> void:
 		LASimReport.gauge(String(lname) + "_list_cells", float(raw.to_int32_array()[ARG_SLOT_LIST_COUNT]))
 
 
-## Cells where a flash initiated this step, read at the drain. Visual/telemetry only — the neutralisation,
-## the discharge stamp and the heat were all done on the device.
-func strikes() -> PackedInt32Array:
-	if not _bufs.has("strike_args") or not _bufs.has("strike_idx"):
-		return PackedInt32Array()
-	var raw: PackedByteArray = _rd.buffer_get_data(_bufs["strike_args"])
-	if raw.size() < ACTIVE_ARGS_SLOTS * 4:
-		return PackedInt32Array()
-	var n: int = mini(raw.to_int32_array()[ARG_SLOT_LIST_COUNT], _cc)
-	if n <= 0:
-		return PackedInt32Array()
-	return _rd.buffer_get_data(_bufs["strike_idx"], 0, n * 4).to_int32_array()
-
-
-## "ThermalPass" -> "thermal"; a short, gauge-key-safe name (strip the "Pass" suffix, snake_case the rest).
+## "TransportPass" -> "transport"; a short, gauge-key-safe name (strip "Pass", snake_case the rest).
 func _gpu_gauge_key(pass_index: int) -> String:
 	var n: String = _pass_names[pass_index]
 	if n.ends_with("Pass"):

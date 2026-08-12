@@ -155,7 +155,7 @@ func process(delta: float) -> void:
 	_f._gpu.begin_frame(_f._temp, _f._water)   # drains prev step (sync+readback) + uploads
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
-	# sun_dir points from the planet toward the star; ThermalPass' solar kernel does max(0, dot(cell_radial, sun_dir)).
+	# sun_dir points from the planet toward the star; its LENGTH carries the relative insolation.
 	if _f._sun_light != null and _f._gpu.has_method("set_sun_dir"):
 		# The MAGNITUDE of sun_dir carries INSOLATION (orbit-distance² × atmospheric transmission), stamped on the
 		# sun by LASystemOrbits. The solar kernel's max(0, dot(cell_radial, sun_dir)) then scales intensity with the

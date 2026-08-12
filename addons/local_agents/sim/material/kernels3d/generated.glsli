@@ -65,6 +65,22 @@
 #define MODE_CONDUCT 5u
 #define MODE_RADIATE 6u
 
+// TransportRecords.gd Law enum
+#define LAW_NONE 0u
+#define LAW_SHALLOW 1u
+#define LAW_FILM 2u
+#define LAW_DARCY 3u
+#define LAW_EDDY 4u
+#define LAW_SOUND 5u
+#define LAW_OHMIC 6u
+#define LAW_PGF 7u
+
+// TransportRecords.gd Flag enum
+#define TF_SIGNED 1u
+#define TF_SETTLE 2u
+#define TF_STAMP 4u
+#define TF_DRIVEN 8u
+
 // MaterialFieldRegolith3D.gd, reactions/ReactionThermo.gd
 #define REGOLITH_CELLS 4
 const float EXP_LIMIT = 60.0;

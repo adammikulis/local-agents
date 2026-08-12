@@ -4,13 +4,14 @@
 // Pressure at every cell: the weight of everything standing over it.
 // p(c) = sum over the column above c of rho * |g| * ds, marched along -g.
 
-#include "march.glsli"
+#include "neighbours.glsli"
 
 layout(local_size_x = 64) in;
 
 layout(set = 0, binding = 0, std430) restrict writeonly buffer Pressure { float pressure[]; };
 layout(set = 0, binding = 1, std430) restrict readonly buffer Density { float density[]; };
 layout(set = 0, binding = 2, std430) restrict readonly buffer Neigh { int nbr[]; };
+#include "march.glsli"
 // Solved gravity, flat cell*3, m/s^2.
 layout(set = 0, binding = 3, std430) restrict readonly buffer Grav { float g_field[]; };
 
@@ -39,7 +40,7 @@ void main() {
 			break;
 		}
 		vec3 up = -gv / gmag;
-		int nx = la_step(nbr, c, up);
+		int nx = la_step(c, up);
 		if (nx < 0) {
 			break;
 		}
