@@ -105,9 +105,9 @@ channels that carry heat, because heat is no longer spread across channels:
 `METRES_PER_MODEL_UNIT`, its conversion sites, `PLANET_SCALE` and `check_model_unit_volume.sh` — a gate whose
 whole subject is the unit. *Acceptance:* `grep -rn METRES_PER_MODEL_UNIT addons/local_agents/sim
 addons/local_agents/game` returns nothing and lint is green. Then move the kernels onto `LAVoxelGrid`, which
-deletes `solid_angle`, `cell_vol`, `link_arc`, the tangent basis and its parallel transport, the seam table
-and `nbr_shared.glsli`, and fixes the missing donor/receiver volume ratio in eleven kernels by construction
-because the ratio becomes 1. `opposite(d)` becomes `d ^ 1`. **One owner across every kernel; never fanned out.**
+deletes `solid_angle`, `cell_vol`, `link_arc`, the tangent basis and its parallel transport and the seam
+table, and fixes the missing donor/receiver volume ratio in eleven kernels by construction because the ratio
+becomes 1. `opposite(d)` becomes `d ^ 1`. **One owner across every kernel; never fanned out.**
 
 **P — pressure in every cell.** `wind_pressure` writes one flat surface pressure into everything below the
 atmosphere, so an ocean cell and a mantle cell read alike. Harmless while temperature is stored, decisive
@@ -156,9 +156,7 @@ clean result; a living cell is not at chemical equilibrium. The defect named is 
   row like every other, or it is deleted outright. It cannot stay half-present.
 - **`_read_channels`'s SLOW block hardcodes its channel list**, so `slow_channels()` is a view nothing
   consumes and `porosity` never gets its coarse readback.
-- **`CLAUDE.md` is over the soft length limit** now that the missing rules are in, and
-  `tests/KernelConservation.gd` is too. Neither is at the hard limit. The rules section is the part of
-  `CLAUDE.md` that must stay; the process sections below Rule Zero are the candidates to move out.
+- **`tests/KernelConservation.gd` is over the soft length limit.** Not at the hard limit yet.
 - **Two parallel cell-volume subsystems both survived** — `FieldTotals.gd` + `kernels3d/cell_geom.glsli`
   against `MaterialFieldCellVolume3D` + `MaterialFieldFaceArea3D` + `kernels3d/cellvol.glsli`. `SphereGrid`
   serves both APIs off one table so nothing is broken today, but one of them has to die, and the grid
