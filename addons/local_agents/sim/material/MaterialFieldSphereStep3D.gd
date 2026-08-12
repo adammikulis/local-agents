@@ -36,7 +36,6 @@ static func day_length_sim_seconds() -> float:
 	return steps_per_rotation() * STEP_DT
 
 const LakesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLakes3D.gd")
-const SoilBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSoilBudget3D.gd")
 const MineralProfileScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd")
 const AttributionScript: GDScript = preload("res://addons/local_agents/sim/material/FieldPassAttribution3D.gd")
 const ElementProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldElementProbe3D.gd")
@@ -44,9 +43,6 @@ const PassProbeScript: GDScript = preload("res://addons/local_agents/sim/materia
 
 var _f = null                                          # back-reference to the owning LAMaterialField3D
 var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
-# Per-leg groundwater budget probe (LA_SOIL_BUDGET). Owned here rather than on the field because it is a
-# STEP diagnostic: it needs a hook that fires once per GPU step, which is this loop and nowhere else.
-var _soil_budget = null
 var _mineral_profile = null
 # The driver's ONE between-pass probe. Owned here for the same reason as the soil budget: it needs a hook on
 # BOTH sides of the GPU step, and this loop is the only place that has one. setup() picks exactly one.
@@ -62,9 +58,6 @@ func _armed(name: String) -> bool:
 
 func setup(field) -> void:
 	_f = field
-	if _armed("LA_SOIL_BUDGET"):
-		_soil_budget = SoilBudgetScript.new()
-		_soil_budget.setup(field)
 	if _armed("LA_MINERAL_PROFILE"):
 		_mineral_profile = MineralProfileScript.new()
 		_mineral_profile.setup(field)
@@ -151,15 +144,15 @@ func process(delta: float) -> void:
 	if steps <= 0:
 		return
 	var t0: int = Time.get_ticks_usec()
-	# Global scalar solar term is a constant fallback; the per-cell solar terminator comes from the sphere
-	# ThermalPass' set_sun_dir kernel (max(0, dot(cell_radial, sun_dir))), not this scalar.
-	var solar: float = 0.6
 	var t_pin: int = Time.get_ticks_usec()
-	_f.solve_gravity()               # g follows the mass; the solver runs on its own cadence
+	# g follows the mass; the solver runs on its own cadence, and every kernel that asks which way is down
+	# reads the solved field, so a solve is what makes the device's copy stale.
+	if _f.solve_gravity():
+		_f._gpu.mark_gravity_dirty()
 	_f._step_geotherm()              # finite core reservoir: cool it, and publish its flux for this step
 	LASimReport.gauge("field_pin_ms", float(Time.get_ticks_usec() - t_pin) / 1000.0)
 	var t_begin: int = Time.get_ticks_usec()
-	_f._gpu.begin_frame(_f._temp, _f._water, solar, Vector2.ZERO)   # drains prev step (sync+readback) + uploads
+	_f._gpu.begin_frame(_f._temp, _f._water)   # drains prev step (sync+readback) + uploads
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
 	# sun_dir points from the planet toward the star; ThermalPass' solar kernel does max(0, dot(cell_radial, sun_dir)).
@@ -169,10 +162,6 @@ func process(delta: float) -> void:
 		# direction — nearer the sun bakes, farther freezes, airborne dust dims it → impact winter. Default 1.0.
 		var insol: float = float(_f._sun_light.get_meta("insolation", 1.0))
 		_f._gpu.set_sun_dir(_f.dir_to_field(_f._sun_light.global_transform.basis.z * insol))
-	if _f._body != null and _f._gpu.has_method("set_spin_axis"):
-		_f._gpu.set_spin_axis(_f.dir_to_field(_f._body.spin_axis() if _f._body.has_method("spin_axis") else Vector3.UP))
-	if _f._terrain != null and _f._terrain.has_method("sea_radius") and _f._gpu.has_method("set_sea_radius"):
-		_f._gpu.set_sea_radius(_f._terrain.sea_radius())
 	# The world-gen seeds, declared through the seal. seed_field refuses a whole-mirror upload past step 0;
 	# every step-time CPU edit is a sparse queue op below.
 	if _f._fuel_dirty and _f._gpu.has_method("seed_field"):
@@ -219,8 +208,6 @@ func process(delta: float) -> void:
 	LASimReport.gauge("field_post_ms", float(Time.get_ticks_usec() - t_post) / 1000.0)   # scatter + CPU post-passes
 	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
 	LASimReport.event("field_step")   # telemetry: GPU field runs/run — a slower cadence lowers this (and the avg field_ms)
-	if _soil_budget != null:
-		_soil_budget.post_step()      # LA_SOIL_BUDGET: print the per-leg groundwater ledger on its own cadence
 	if _mineral_profile != null:
 		_mineral_profile.post_step()  # LA_MINERAL_PROFILE: print WHERE the loose mineral is, by elevation
 

@@ -6,8 +6,9 @@ const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/
 ## Atmosphere queries derived from the one `moisture` channel of LAMaterialField3D.
 ## vapor = min(moisture, sat(T)); condensate = max(0, moisture - sat(T)), split fog/cloud by temperature.
 
-# Rain threshold: AtmospherePass owns it; the report proxy reads the same number.
-const AtmospherePassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd")
+# Kessler (1969) q_crit: the cloud-water mixing ratio above which drops start collecting each other.
+# Declared in docs/MODEL_PARAMETERS.md.
+const CLOUD_WATER_CRIT_KG_KG: float = 0.5e-3
 
 # Altitudes above the sea surface, model units, at which the renderer places its particle bands.
 const CLOUD_BASE_ALT: float = 62.0
@@ -19,6 +20,11 @@ var _f = null                                            # back-reference to the
 
 func setup(field) -> void:
 	_f = field
+
+
+## The autoconversion threshold in the field's own unit: a fraction of a cell full of liquid water.
+static func rain_threshold() -> float:
+	return CLOUD_WATER_CRIT_KG_KG * LAPhysical.AIR_DENSITY_KG_M3 / LAPhysical.WATER_DENSITY_KG_M3
 
 
 ## Saturation vapour concentration at `t` °C, mol/m^3. Clausius-Clapeyron, owned by LAPhysical.
@@ -58,7 +64,7 @@ func refresh_aggregates() -> void:
 	var solid: PackedByteArray = _f._solid
 	var moisture: PackedFloat32Array = _f._moisture
 	var temp: PackedFloat32Array = _f._temp
-	var rain_threshold: float = AtmospherePassScript.rain_threshold()
+	var rain_threshold: float = rain_threshold()
 	var cover_min: float = LAMaterialField3D.CONDENSE_COVER_MIN
 	var fog_max_temp: float = LAMaterialField3D.FOG_MAX_TEMP
 	var cloud_n: int = 0

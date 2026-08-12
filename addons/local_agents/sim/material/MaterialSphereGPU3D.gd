@@ -9,40 +9,25 @@ static func situational_channels() -> PackedStringArray: return LAChannels.situa
 static func slow_channels() -> PackedStringArray: return LAChannels.slow_channels()
 
 
-# Data-flow dispatch order (see the PING-PONG PHASE note above). WaterSlumpLava MUST precede Thermal
-# (Thermal reads water/lava from "back" + consumes the lava carry-heat left in "live" temp); Atmosphere/
-# FireDust MUST follow Thermal (they read the finished temp/water from "back").
+# Dispatch order. SolidDerive MUST run first: every other pass reads the `solid` mask and the composition
+# it derives. Transport MUST precede Thermal and Reactions, which read what settled where.
 const PASS_SCRIPTS: PackedStringArray = [
-	"res://addons/local_agents/sim/material/sphere_passes/PlateAdvectPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/SolidDerivePass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/WaterSlumpLavaPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd",
+	"res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ThermalPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/GasWindPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ChargeBreakdownPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/SoilPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/ErosionTransportPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/ErosionPickupPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/FireDustPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/EcoSurfacePass.gd"]
+	"res://addons/local_agents/sim/material/sphere_passes/FungusPass.gd"]
 
 # Slots in the `active_args` buffer (see setup()). 0-2 are the uvec3 dispatch-indirect argument; 3 is the
 # compacted list length a compacted kernel uses as its loop bound. 8 rather than 4 purely for 32-byte alignment.
 const ACTIVE_ARGS_SLOTS: int = 8
 const ARG_SLOT_LIST_COUNT: int = 3
-# Compacted active-cell lists: label -> [index buffer key, dispatch-indirect args key]. ThermalPass reads the
-# lava pair by the unsuffixed keys. Each label publishes a `<label>_list_cells` gauge.
+# Compacted active-cell lists: label -> [index buffer key, dispatch-indirect args key]. Each label publishes
+# a `<label>_list_cells` gauge.
 const ACTIVE_LISTS: Dictionary = {
-	"lava": ["active_idx", "active_args"],
-	"shock": ["active_idx_shock", "active_args_shock"],
 	"fungus": ["active_idx_fungus", "active_args_fungus"],
 }
-# Plate table layout, shared with plate_advect_sphere3d.glsl: per plate, seed.xyz + rate + pole.xyz + pad.
-# MAX_PLATES is only the buffer ceiling; the live count travels in ctx["n_plates"].
-const PLATE_STRIDE: int = 8
-const MAX_PLATES: int = 32
 
 static func available() -> bool:
 	var rd: RenderingDevice = RenderingServer.create_local_rendering_device()
@@ -87,6 +72,8 @@ var _water_dirty: bool = true
 # Set by MaterialFieldInject3D whenever anything writes the CPU temp mirror (add_heat, meteor, lava).
 # True at construction so the seeded field reaches the GPU on the first step.
 var _temp_dirty: bool = true
+# Set whenever the Poisson solver actually re-solved; g changes only then.
+var _gravity_dirty: bool = false
 
 # Slow channels are read back only every Nth drain (their CPU consumers are coarse-cadence ledgers/bakers, not
 # every-frame world queries) — a direct cut of ~6 of 21 blocking readbacks on the other frames. Between reads the
@@ -113,11 +100,6 @@ func setup(field) -> void:
 		_bufs[name] = [_new_f(_cc), _new_f(_cc)]
 	for name in single_channels():
 		_bufs[name] = _new_f(_cc)
-	_bufs["send"] = _new_f(_cc * 6)
-	# Per-slot enthalpy flux beside `send`: the donor writes mass * its own temperature, the receiver gathers
-	# it. Reading a neighbour's temp in the apply pass would read a value another thread is writing.
-	_bufs["heat_send"] = _new_f(_cc * 6)
-	_bufs["soil_dbg"] = _new_f(_cc * LAMaterialFieldSoilBudget3D.SLOTS)   # per-leg groundwater budget probe
 	# Per list: the compacted cell indices, plus a buffer that is BOTH the uvec3 dispatch-indirect argument
 	# (slots 0-2) and the atomic list-length counter (slot 3).
 	for lname in ACTIVE_LISTS:
@@ -138,8 +120,13 @@ func setup(field) -> void:
 	var nbr_bytes: PackedByteArray = _grid.neighbours.to_byte_array()
 	_bufs["nbr"] = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	_bufs["pos"] = _make_vec3_flat(func(c: int) -> Vector3: return _grid.cell_world_pos(c))
-	_bufs["plates"] = _rd.storage_buffer_create(MAX_PLATES * PLATE_STRIDE * 4,
-		_zeros(MAX_PLATES * PLATE_STRIDE))
+	# The SOLVED gravity, flat cell*3, m/s^2. Every kernel that asks which way is down reads this and
+	# nothing anywhere holds a gravity constant.
+	_bufs["gravity"] = _new_f(_cc * 3)
+	_upload_gravity()
+	# kernels3d/cellvol.glsli, binding 40: model units^3 per cell.
+	var vol_bytes: PackedByteArray = _grid.cell_volumes().to_byte_array()
+	_bufs["cell_vol"] = _rd.storage_buffer_create(vol_bytes.size(), vol_bytes)
 
 	_seed("temp", field._temp)
 	_seed("o2", field._o2)
@@ -168,15 +155,14 @@ func setup(field) -> void:
 			_pass_names.append(path.get_file().get_basename())   # e.g. "ThermalPass" — timestamp label
 
 
-func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: float = 0.6, wind: Vector2 = Vector2.ZERO) -> void:
+func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	if _rd == null:
 		return
 	# Drain the previous frame's in-flight step FIRST: sync it (usually already done — the GPU ran it during the
 	# inter-frame CPU work) and read its channels into `_cached`. Must happen before the temp/water uploads below,
 	# which write the same live buffers the step wrote. This is the CPU↔GPU overlap that hides the field step cost.
 	_drain_pending()
-	# The core is a flux boundary applied inside heat_sphere3d.glsl (LAMaterialFieldGeotherm3D pushes one
-	# scalar); the only CPU writer of _temp is injection (add_heat / meteors / lava), which marks it dirty.
+	# The only CPU writer of _temp is injection (add_heat / meteors / lava), which marks it dirty.
 	if _temp_dirty:
 		_upload_f(_live("temp"), temp)
 		_temp_dirty = false
@@ -191,43 +177,21 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 	if _solid_dirty:
 		_seed_solid()
 		_solid_dirty = false
-	_ctx["solar"] = solar
-	_ctx["wind"] = wind
-	_ctx["dt"] = 0.1
+	if _gravity_dirty:
+		_upload_gravity()
+		_gravity_dirty = false
 	_ctx["cell_size"] = _grid.cell_size
 	# The SOLVED gravity, for the handful of scalar laws a pass evaluates once. A per-cell law reads the
 	# g field itself; nothing anywhere reads a gravity constant, because there is not one.
 	_ctx["g_m_s2"] = _field._gravity.mean_g() if _field._gravity != null else 0.0
-	# LATERAL cell spacing. One uniform grid: every axis has the same spacing as every other.
-	_ctx["lat_size"] = _grid.cell_size
 	# March bound: a column cannot be longer than the box.
 	_ctx["depth"] = _grid.max_span()
-	# The real sea surface arrives through set_sea_radius each step; until it does there is no sea to read.
-	if not _ctx.has("sea_radius"):
-		_ctx["sea_radius"] = 0.0
-	_ctx["max_mass"] = _field.MAX_MASS                      # a full cell of one phase — PlateAdvectPass uplifts the surplus
 	if not _ctx.has("sun_dir"):
 		_ctx["sun_dir"] = Vector3(0, 1, 0)
-
-## Planet spin axis in the FIELD's frame. GasWindPass reads ctx["spin_axis"] for its latitude bands and
-## Coriolis handedness.
-func set_spin_axis(v: Vector3) -> void:
-	_ctx["spin_axis"] = v.normalized() if v.length() > 0.001 else Vector3(0, 1, 0)
-
 
 func set_sun_dir(v: Vector3) -> void:
 	_ctx["sun_dir"] = v if v.length() > 0.001 else Vector3(0, 1, 0)
 
-
-func set_plates(table: PackedFloat32Array) -> void:
-	if _rd == null or not _bufs.has("plates"):
-		return
-	var n: int = mini(int(table.size() / PLATE_STRIDE), MAX_PLATES)
-	_ctx["n_plates"] = n
-	if n <= 0:
-		return
-	var b: PackedByteArray = table.slice(0, n * PLATE_STRIDE).to_byte_array()
-	_rd.buffer_update(_bufs["plates"], 0, b.size(), b)
 
 func set_core_boundary_c(v: float) -> void:
 	_ctx["core_boundary_c"] = v
@@ -238,8 +202,10 @@ func mark_temp_dirty() -> void:
 	_temp_dirty = true
 
 
-func set_sea_radius(r: float) -> void:
-	_ctx["sea_radius"] = r
+## The Poisson solver re-solved — hand the device the new g on the next begin_frame.
+func mark_gravity_dirty() -> void:
+	_gravity_dirty = true
+
 
 func step() -> void:
 	if _rd == null:
@@ -662,17 +628,6 @@ func channel_total(name: String) -> float:
 	return sum
 
 
-func read_soil_budget() -> Dictionary:
-	if _rd == null or not _bufs.has("soil_dbg"):
-		return {}
-	_flush_pending()
-	return {
-		"dbg": _rd.buffer_get_data(_bufs["soil_dbg"]).to_float32_array(),
-		"soil": _rd.buffer_get_data(_live("soil")).to_float32_array(),
-		"step_index": _step_index,
-	}
-
-
 func snapshot_channels() -> Dictionary:
 	var out: Dictionary = {}
 	if _rd == null:
@@ -773,6 +728,21 @@ func _seed_solid() -> void:
 		f[i] = 1.0 if _field._solid[i] != 0 else 0.0
 	var b: PackedByteArray = f.to_byte_array()
 	_rd.buffer_update(_bufs["solid"], 0, b.size(), b)
+
+func _upload_gravity() -> void:
+	var g = _field._gravity
+	if g == null or not _bufs.has("gravity"):
+		return
+	var f: PackedFloat32Array = PackedFloat32Array()
+	f.resize(_cc * 3)
+	for c in _cc:
+		var v: Vector3 = g.g_at(c)
+		f[c * 3 + 0] = v.x
+		f[c * 3 + 1] = v.y
+		f[c * 3 + 2] = v.z
+	var b: PackedByteArray = f.to_byte_array()
+	_rd.buffer_update(_bufs["gravity"], 0, b.size(), b)
+
 
 func _seed_regolith() -> void:
 	var m: PackedByteArray = _field._regolith

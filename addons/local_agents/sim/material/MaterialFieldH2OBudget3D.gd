@@ -10,9 +10,6 @@ const SAMPLE_EVERY: int = 50
 
 ## Pass names (LAMaterialSphereGPU3D._pass_names = the script basename) at which each pair channel's current
 ## half switches from live to back. Matched by name, not index: see the header.
-const WATER_PRODUCER: String = "WaterSlumpLavaPass"
-const MOISTURE_PRODUCER: String = "AtmospherePass"
-const SOIL_PRODUCER: String = "SoilPass"
 
 var _f = null                     # back-reference to the owning LAMaterialField3D
 # Primed so the FIRST pair samples at field_step 1. The world's opening H₂O total is the number that separates
@@ -81,11 +78,12 @@ func on_checkpoint(pass_index: int, pass_name: String) -> void:
 		_prev_all = _all_start
 		return
 	# The producer's OUTPUT is what a checkpoint taken after it must read, so the half flips here, not before.
-	if pass_name == WATER_PRODUCER:
+	var producers: Dictionary = LAFieldAttributionRecords.PRODUCERS
+	if pass_name == String(producers.get("water", "")):
 		_water_back = true
-	if pass_name == MOISTURE_PRODUCER:
+	if pass_name == String(producers.get("moisture", "")):
 		_moisture_back = true
-	if pass_name == SOIL_PRODUCER:
+	if pass_name == String(producers.get("soil", "")):
 		_soil_back = true
 	var now: Array = _totals()
 	var key: String = _leg_key(pass_name)

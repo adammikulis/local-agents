@@ -2,7 +2,7 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 ## Compacted active-cell lists + indirect dispatch, one ROW per gated channel. A row's predicate reproduces
 ## its consumer kernel's own no-op condition, so a cell left out of the list is one that kernel would have
-## left unchanged. Rows are supplied by whoever owns the consumer; `rows` defaults to the driver's set.
+## left unchanged. Rows are supplied by whoever owns the consumer.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/cell_list_sphere3d.glsl"
 
@@ -11,22 +11,8 @@ enum Half { LIVE = 0, BACK = 1 }
 ## Predicate terms; the kernel's F_* defines are generated from this enum.
 enum Flag { OPEN_ONLY = 1, INCLUSIVE = 2, BACK = 4, HALO = 8, AUX = 16 }
 
-# The threshold that builds the list; lava_phase_sphere3d.glsl takes it as a push constant.
-# Declared in docs/MODEL_PARAMETERS.md.
-const LAVA_MIN_MASS: float = 0.0001
-
 ## Row keys: label · idx/args driver buffer keys · prim channel + half · back/aux/halo terms · thresholds.
-## ThermalPass consumes "active_idx"/"active_args" and has no configuration seam, so the lava row is the default.
-const ROWS_DEFAULT: Array = [{
-	"label": "lava",
-	"idx": "active_idx", "args": "active_args",
-	"prim": "lava", "prim_half": Half.BACK,       # post lava_flow, exactly what lava_phase reads
-	"back": false, "aux": "", "halo": false,
-	"open_only": true, "inclusive": true,
-	"thr": LAVA_MIN_MASS, "aux_thr": 0.0,
-}]
-
-var rows: Array = ROWS_DEFAULT
+var rows: Array = []
 
 var _pipe: RID = RID()
 var _sets: Array = []                   # per row: [set(parity 0), set(parity 1)]

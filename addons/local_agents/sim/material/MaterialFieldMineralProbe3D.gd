@@ -10,10 +10,6 @@ const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/
 ## notice, and it matches the H₂O probe's cadence so the two diagnostics line up on the same horizons.
 const SAMPLE_EVERY: int = 50
 
-const LAVA_PRODUCER: String = "WaterSlumpLavaPass"
-const SEDIMENT_PRODUCER: String = "WaterSlumpLavaPass"
-const SUSP_PRODUCER: String = "ErosionPickupPass"
-const DUST_PRODUCER: String = "FireDustPass"
 
 var _f = null                     # back-reference to the owning LAMaterialField3D
 # Primed so the FIRST pair samples at field_step 1. The world's opening mineral total is the number that
@@ -82,13 +78,14 @@ func on_checkpoint(pass_index: int, pass_name: String) -> void:
 		_prev_all = _all_start
 		return
 	# The producer's OUTPUT is what a checkpoint taken after it must read, so the half flips here, not before.
-	if pass_name == LAVA_PRODUCER:
+	var producers: Dictionary = LAFieldAttributionRecords.PRODUCERS
+	if pass_name == String(producers.get("lava", "")):
 		_lava_back = true
-	if pass_name == SEDIMENT_PRODUCER:
+	if pass_name == String(producers.get("sediment", "")):
 		_sed_back = true
-	if pass_name == SUSP_PRODUCER:
+	if pass_name == String(producers.get("susp", "")):
 		_susp_back = true
-	if pass_name == DUST_PRODUCER:
+	if pass_name == String(producers.get("dust", "")):
 		_dust_back = true
 	var now: Array = _totals()
 	var key: String = _leg_key(pass_name)

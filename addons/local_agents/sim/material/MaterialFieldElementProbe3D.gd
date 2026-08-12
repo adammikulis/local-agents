@@ -10,15 +10,6 @@ const InventoryScript: GDScript = preload("res://addons/local_agents/sim/materia
 ## Field steps between sampled PAIRS. `LA_ELEMENT_BUDGET_EVERY` overrides.
 const SAMPLE_EVERY: int = 50
 
-## The pass that flips each PAIR channel's live half; a checkpoint after it reads `back`. Channels absent
-## here are SINGLE, or are only edited in place by a later pass. Read off the passes' own bindings.
-const PRODUCERS: Dictionary = {
-	"water": "WaterSlumpLavaPass", "sediment": "WaterSlumpLavaPass", "lava": "WaterSlumpLavaPass",
-	"moisture": "AtmospherePass", "soil": "SoilPass", "susp": "ErosionTransportPass",
-	"o2": "GasWindPass", "co2": "GasWindPass", "n2": "GasWindPass",
-	"dust": "FireDustPass", "fert": "EcoSurfacePass", "fungus": "EcoSurfacePass",
-}
-
 var _f = null
 var _elements: PackedStringArray = PackedStringArray()
 var _channels: PackedStringArray = PackedStringArray()
@@ -193,7 +184,7 @@ func _sample() -> Array:
 func _read(gpu, name: String, phase: int) -> PackedFloat32Array:
 	if gpu.single_channels().has(name):
 		return gpu.read_raw(name, 0)
-	var producer: String = String(PRODUCERS.get(name, ""))
+	var producer: String = String(LAFieldAttributionRecords.PRODUCERS.get(name, ""))
 	var half: int = (1 - phase) if (producer != "" and _done.has(producer)) else phase
 	return gpu.read_raw(name, half)
 
