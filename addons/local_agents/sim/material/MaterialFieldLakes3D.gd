@@ -98,7 +98,7 @@ const RIVER_CARVE_MAX: int = 6000        # safety cap on channel carves (bounds 
 func _seed_rivers(field, grid: RefCounted, sea_r: float, sc: int, depth: int,
 		surf_nbr: PackedInt32Array) -> int:
 	var terrain = field._terrain
-	if terrain == null or not terrain.has_method("sdf_at"):
+	if terrain == null or not terrain.has_method("sdf_at") or not terrain.has_method("carve_sphere"):
 		return 0
 	var center: Vector3 = grid.center
 	var solid: PackedByteArray = field._solid
@@ -159,7 +159,6 @@ func _seed_rivers(field, grid: RefCounted, sea_r: float, sc: int, depth: int,
 		var d: int = downstream[s]
 		if d >= 0 and is_land[d] == 1:
 			accum[d] += accum[s]
-	var can_carve: bool = terrain.has_method("carve_sphere") and not OS.has_environment("LA_NO_RIVER_CARVE")
 	var center2: Vector3 = grid.center
 	var count: int = 0
 	var carved: int = 0
@@ -171,7 +170,7 @@ func _seed_rivers(field, grid: RefCounted, sea_r: float, sc: int, depth: int,
 		var top: int = eground[s] - 1                            # shell of the top solid cell (the valley floor)
 		if top < 0:
 			continue
-		if can_carve and carved < RIVER_CARVE_MAX:
+		if carved < RIVER_CARVE_MAX:
 			# Bite the top `mag` shells out of the ground with a small sphere at the surface point; overlapping
 			# spheres down the channel trace one continuous incised valley. Radius grows with the incision depth.
 			var cdir: Vector3 = grid.surf_dir(s)
@@ -182,9 +181,9 @@ func _seed_rivers(field, grid: RefCounted, sea_r: float, sc: int, depth: int,
 				var rc: int = top - j
 				if rc >= 0:
 					field._solid[base2 + rc] = 0
-		# Fill: the carved notch (cells eground-mag .. eground-1), or — carving off — a thin ribbon above the floor.
-		var lo: int = maxi(0, eground[s] - mag) if can_carve else eground[s]
-		var hi: int = eground[s] if can_carve else (eground[s] + mag)
+		# Fill the carved notch: cells eground-mag .. eground-1.
+		var lo: int = maxi(0, eground[s] - mag)
+		var hi: int = eground[s]
 		for r in range(lo, mini(hi, depth)):
 			var c: int = base2 + r
 			if field._solid[c] == 0 and field._water[c] <= 0.0:

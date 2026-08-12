@@ -26,15 +26,12 @@ var _ceiling: int = ABS_FLOOR
 var _check_cd: float = 0.0
 var _cooldown: float = 0.0
 var _armed: bool = true                  # false after a smite until the count relieves back under ceiling*RELIEF
-var _enabled: bool = true
 
 
 func setup(ecology, terrain, actors_root: Node3D) -> void:
 	_ecology = ecology
 	_terrain = terrain
 	_actors_root = actors_root
-	# Opt-out for headless perf tests / a player who wants an uncapped sandbox.
-	_enabled = OS.get_environment("LA_NO_SMITE") == ""
 	var env_ceiling: String = OS.get_environment("LA_POP_CEILING")
 	if env_ceiling != "":
 		_ceiling = maxi(1, int(env_ceiling))
@@ -42,8 +39,6 @@ func setup(ecology, terrain, actors_root: Node3D) -> void:
 
 
 func _process(delta: float) -> void:
-	if not _enabled:
-		return
 	if _cooldown > 0.0:
 		_cooldown -= delta
 	_check_cd -= delta

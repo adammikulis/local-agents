@@ -5,13 +5,10 @@ extends RefCounted
 ## feeds it, and that volcanic vents draw on.
 
 
-const DISARM_ENV: String = "LA_NO_GEOTHERM"
-
-
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
 # --- reservoir state ---------------------------------------------------------------------------------------
-var _core_temp: float = 0.0          # THE state variable, deg C: the convecting interior. Falls. 0 = disarmed.
+var _core_temp: float = 0.0          # THE state variable, deg C: the convecting interior. Falls.
 var _armed_temp: float = 0.0         # what it was seeded at, kept to report the fall and to scale the boundary
 var _drawn_j: float = 0.0            # joules drawn out of it by draw_heat_j, cumulative
 var _refusals: int = 0               # draws the store was too cold to pay for
@@ -39,8 +36,6 @@ func setup(field) -> void:
 
 
 func arm(temp: float) -> void:
-	if OS.has_environment(DISARM_ENV) and OS.get_environment(DISARM_ENV) != "0":
-		return
 	if temp <= _core_temp:
 		return
 	_build()
@@ -56,7 +51,7 @@ func arm(temp: float) -> void:
 		_f._gpu.mark_temp_dirty()          # the CPU mirror just changed under the gated begin_frame upload
 
 
-## The reservoir's CURRENT temperature (0 when disarmed) — a state variable that falls, not a constant.
+## The reservoir's CURRENT temperature — a state variable that falls, not a constant.
 func core_temp() -> float:
 	return _core_temp
 

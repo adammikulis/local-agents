@@ -25,7 +25,6 @@ var _seeds: Array = []                   # Array[Vector3] plate seed directions 
 var _poles: Array = []                   # Array[Vector3] Euler rotation axis per plate (unit)
 var _rates: Array = []                   # Array[float] angular speed per plate (rad per simulated second, signed)
 var _cd: float = EVENT_PERIOD
-var _enabled: bool = true
 var _table: PackedFloat32Array = PackedFloat32Array()   # the packed plate table pushed to the field each frame
 
 
@@ -33,7 +32,6 @@ func setup(terrain, disasters, field = null) -> void:
 	_terrain = terrain
 	_disasters = disasters
 	_field = field
-	_enabled = OS.get_environment("LA_NO_TECTONICS") == ""
 	# Plate speeds come from the REAL observed range, one draw per plate, so the fast plates and the slow ones
 	# differ the way Earth's do. The radius is the body's own, so the same real speeds give the right angular
 	# rate on any size of planet.
@@ -53,7 +51,7 @@ func setup(terrain, disasters, field = null) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if not _enabled or _terrain == null or _disasters == null:
+	if _terrain == null or _disasters == null:
 		return
 	if not _terrain.has_method("surface_point") or not _terrain.has_method("planet_center"):
 		return

@@ -138,7 +138,6 @@ func _build_twig_cup() -> void:
 	# A ring of short cylinders around the rim -- the woven twigs.
 	var twig_count: int = 9
 	var ring_radius: float = 0.24
-	var rng: LASimRng = LASimRng.for_domain("life")
 	for i in range(twig_count):
 		var frac: float = float(i) / float(twig_count)
 		var angle: float = frac * TAU
