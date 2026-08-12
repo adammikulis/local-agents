@@ -46,6 +46,21 @@ order is the order.
 
 ## B. The substrate's state
 
+- [x] **FREE OXYGEN IS NO LONGER HANDED TO THE PLANET.** `O2_AMBIENT` was 1.0 in every open cell — Earth's
+      MODERN mole fraction — which asserts two billion years of photosynthesis before frame 1. Free O2 is
+      the textbook biosignature: it exists only because life made it. It seeds at zero now and has to be
+      earned. `world_seed` reads `o2: 0.0`, which is one entry of the six retired.
+      `CO2_AMBIENT` was defined as a RATIO TO O2, so zeroing oxygen would have silently taken the carbon
+      with it; it keeps its value (volcanic, not biological) and no longer derives from O2.
+
+- [ ] **AND IT IMMEDIATELY EXPOSED THAT NOTHING PRODUCES OXYGEN.** With the seed gone, `o2_total` reads
+      **0.0** — not "less", none. The seeded value was masking whether the source works at all, which is
+      the whole reason an input that should be an output is dangerous. `--planet-only` legitimately has no
+      vegetation, so the arm that decides this is a run WITH flora; that measurement is owed.
+      Also open: whether the biosphere can bootstrap at all from zero, since respiration and combustion
+      CONSUME O2 and photosynthesis is the only source.
+
+
 - [ ] **The field stores temperature, not energy.** Phase is therefore a set of CHANNELS (`water` /
       `moisture` / `snow` are one substance; `rock_fill` / `lava` are another) and a phase change is a
       REACTION RECORD with latent heat attached by hand. Store enthalpy per cell, derive temperature and
@@ -162,7 +177,35 @@ order is the order.
       geodynamics is research-grade.)*
 - [ ] **Rock has three compositions and no stratigraphy.** Carbonate and silica do not travel and do not
       lithify, so there is no limestone and no sandstone.
-- [ ] **The day is a game number** — `DAY_LENGTH = 200.0` against Earth's 86 400 s, with a `PLANET_SPIN_RATE`
-      that is not derived from it. Three clocks, one rotation.
+- [ ] **The field's `dt` is the presentation clock.** One rotation is now stated once
+      (`LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S`) and the compression once
+      (`LASimClock.REAL_SECONDS_PER_SIM_SECOND`), but `real_seconds_per_step()` is still
+      `STEP_DT * compression`, so how fast the player watches sets every transport kernel's timestep. A
+      substep budget separates them.
 - [ ] **The planet is pinned at the world origin** and the star orbits it. A deliberate moving-frame choice;
       making it literal is the 0.6 headline.
+
+## The biosphere has never run (found 2026-08-11, one run, seed 4242, 200 frames, `--full`)
+
+- [ ] **Nothing can fix nitrogen, so photosynthesis has never once fired.** `fert_total` /
+      `fert_all` / `fert_first` are all 0.0. Photosynthesis (`reactions/BioRecords.gd:119`) takes FERT as a
+      REACTANT, so its rate is zero by the limiting reagent. Every FERT source in the tree is downstream of
+      organic matter that must already exist — fungal decomposition of detritus (`:112`), respiration of
+      biomass (`:125`), combustion of fuel (`CombustionRecords.gd:46`). There is no abiotic entry point, so
+      the nutrient loop cannot start on a sterile planet. `photo_ground_cells` (4835) counts cells where the
+      GATE passes, not where the reaction runs, and reading it as evidence of photosynthesis is what let this
+      stand. It was invisible while `MaterialField3D` seeded 1.0 O2 into every open cell; deleting that seed
+      is what exposed it.
+- [ ] **The atmosphere has no nitrogen at all.** Real dry air is 78.08% N2 by mole and `Substances.gd` has no
+      N2 entry — the most abundant component of the atmosphere is absent. Lightning fires
+      (`phenomena_kinds` carries `lightning`) and fixes nothing.
+- [ ] **Detritus cannot rot.** 612.34 carbon sits in 4574 detritus cells while `fungus_cells` is 1 of 69120,
+      and decomposition is BILINEAR in fungus x detritus, so the only live FERT source is off everywhere but
+      one cell. Carbon is stranded, not cycling.
+- [ ] **`fuel_seeded` is 216.0** — fuel is an input where it should be a product of vegetation.
+- [ ] **`lava_phase_sphere3d.glsl` reads and writes one buffer.** It writes `temp[g]` while reading
+      `temp[nb]` from the same binding, so a cell sees a mixture of pre- and post-step neighbour values
+      according to GPU scheduling. It is the only kernel left doing this (surveyed, 2026-08-11). Its input
+      order is also scrambled by the `atomicAdd` compaction in `cell_list_lava_sphere3d.glsl:63,69`, which is
+      why two identical runs still differ in the last digits after the RNG was sealed. Needs the same
+      ping-pong PAIR treatment every other transport kernel already has.

@@ -7,7 +7,10 @@ const DefsScript: GDScript = preload("res://addons/local_agents/sim/material/rea
 
 # The condition the sweep is evaluated at: a cell holding litter, in ambient air.
 const FUEL_AT_CELL: float = 0.02          # the ground-surface fuel seed's order of magnitude
-const O2_AMBIENT: float = 1.0             # one unit of `o2` IS a cell of ambient air, by definition
+## The rate law is tested in AIR. The planet no longer seeds free oxygen — it is a product of life — so
+## this cannot borrow the world's seed without testing combustion in a vacuum.
+const O2_IN_AIR: float = 1.0
+const O2_IN_AIR: float = 1.0             # one unit of `o2` IS a cell of ambient air, by definition
 
 
 ## The extent, evaluated exactly as reactions_sphere3d.glsl does: the ARRHENIUS rate, then the reactant caps
@@ -77,11 +80,11 @@ func run_test(_tree: SceneTree) -> bool:
 
 	var temps: PackedFloat64Array = PackedFloat64Array(
 		[-20.0, 0.0, 27.0, 100.0, 200.0, 227.0, 300.0, 327.0, 400.0, 427.0, 500.0, 800.0])
-	print("COMBUSTION_RATE_LAW={\"note\":\"extent per step at fuel %.3f, o2 %.2f\"}" % [FUEL_AT_CELL, O2_AMBIENT])
+	print("COMBUSTION_RATE_LAW={\"note\":\"extent per step at fuel %.3f, o2 %.2f\"}" % [FUEL_AT_CELL, O2_IN_AIR])
 	var prev: float = -1.0
 	var prev_t: float = 0.0
 	for t in temps:
-		var x: float = _extent(burn, t, FUEL_AT_CELL, O2_AMBIENT)
+		var x: float = _extent(burn, t, FUEL_AT_CELL, O2_IN_AIR)
 		print("  T=%7.1f C   extent=%s   fuel_frac=%s" % [
 			t, String.num_scientific(x), String.num_scientific(x / FUEL_AT_CELL)])
 		if x <= 0.0:
@@ -95,8 +98,8 @@ func run_test(_tree: SceneTree) -> bool:
 		prev = x
 		prev_t = t
 
-	var cold: float = _extent(burn, 27.0, FUEL_AT_CELL, O2_AMBIENT)
-	var hot: float = _extent(burn, 427.0, FUEL_AT_CELL, O2_AMBIENT)
+	var cold: float = _extent(burn, 27.0, FUEL_AT_CELL, O2_IN_AIR)
+	var hot: float = _extent(burn, 427.0, FUEL_AT_CELL, O2_IN_AIR)
 	if hot / maxf(cold, 1.0e-300) < 1.0e12:
 		push_error("combustion at 427 C is only %s times its rate at 27 C. A pyrolysis activation energy of "
 			% String.num_scientific(hot / maxf(cold, 1.0e-300))
@@ -111,7 +114,7 @@ func run_test(_tree: SceneTree) -> bool:
 	# ...and in the flaming regime the extent must be reactant-limited, not rate-limited — the cell burns
 	# everything it can reach in one step. That is the runaway having happened. What it CAN reach is the
 	# oxygen above the quench floor, not all of it.
-	var reachable: float = minf(FUEL_AT_CELL, (O2_AMBIENT - quench) / o2_per_fuel)
+	var reachable: float = minf(FUEL_AT_CELL, (O2_IN_AIR - quench) / o2_per_fuel)
 	if hot < reachable * 0.999:
 		push_error("at 427 C combustion is still rate-limited (%s against a reactant cap of %s). "
 			% [String.num_scientific(hot), String.num_scientific(reachable)]
@@ -156,8 +159,8 @@ func run_test(_tree: SceneTree) -> bool:
 	# THE FLOOR MUST BIND WITHIN THE STEP, not only on the next one. A cell with a full charge of ambient air
 	# may burn only the oxygen ABOVE the flammability limit — the difference between a flame landing at a real
 	# wildfire's temperature and one reaching the full stoichiometric adiabatic rise.
-	var burned: float = _extent(burn, 800.0, FUEL_AT_CELL, O2_AMBIENT)
-	var o2_left: float = O2_AMBIENT - burned * o2_per_fuel
+	var burned: float = _extent(burn, 800.0, FUEL_AT_CELL, O2_IN_AIR)
+	var o2_left: float = O2_IN_AIR - burned * o2_per_fuel
 	print("  a full charge of ambient air at 800 C burns %s fuel and leaves o2 %.4f (quench %.4f)"
 		% [String.num_scientific(burned), o2_left, quench])
 	if o2_left < quench - 1.0e-6:

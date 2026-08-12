@@ -35,8 +35,14 @@ var _wnext: PackedFloat32Array = PackedFloat32Array()    # double buffer for the
 
 # --- Shared 3D field state used by the concern modules (heat / atmosphere / lava). Every cell (rock OR
 const INITIAL_TEMP: float = 15.0
-const O2_AMBIENT: float = 1.0
-const CO2_AMBIENT: float = O2_AMBIENT * (LAPhysical.AIR_MOLE_FRAC_CO2 / LAPhysical.AIR_MOLE_FRAC_O2)
+# One cell's worth of air. The channel unit is historically "the O2 in a cell of modern air", which is
+# itself a leftover of seeding oxygen; Stage 2's Hadean seed retires it.
+const AIR_CELL_UNIT: float = 1.0
+# FREE OXYGEN IS A PRODUCT OF LIFE. Seeding it asserted two billion years of photosynthesis before frame 1.
+# It starts at zero and has to be earned. CO2 keeps its value — that one is volcanic, not biological — but
+# no longer derives from O2, or zeroing oxygen would silently take the carbon with it.
+const O2_AMBIENT: float = 0.0
+const CO2_AMBIENT: float = AIR_CELL_UNIT * (LAPhysical.AIR_MOLE_FRAC_CO2 / LAPhysical.AIR_MOLE_FRAC_O2)
 # ICE_DEPTH = a thick pack that reads as glacial ice (the deep end of the same channel — no separate ice buffer).
 const SNOW_PRESENT: float = 1.9e-4
 const ICE_DEPTH: float = 0.5              # ~8 m water equivalent = a real glacial thickness, not a snowfall
@@ -556,7 +562,7 @@ func _sample_solidity_sphere() -> void:
 	var k: String = ""
 	if not _terrain_opts.is_empty():
 		k = SolidCacheScript.key(_terrain_opts, _cell_count, _dim_y, _sphere.core_radius,
-				_cell_size, _origin)
+				_sphere.shell_dr, _origin)
 		var cached: PackedByteArray = SolidCacheScript.load_mask(k, _cell_count, self)
 		if cached.size() == _cell_count:
 			_solid = cached

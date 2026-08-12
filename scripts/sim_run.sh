@@ -156,17 +156,28 @@ d = json.loads(line.strip()[len("SIM_REPORT="):])
 if os.environ.get("RAW") == "1":
     print(json.dumps(d, indent=2, sort_keys=True))
     raise SystemExit(0)
+# Gauges live under a nested "gauges" key, so a flat lookup reported <ABSENT> for every one of them —
+# `field_sim_s`, which the measurement rules tell people to compare runs on, could never print.
+def _lookup(rep, key):
+    if key in rep:
+        return rep[key]
+    for sub in ("gauges", "events"):
+        block = rep.get(sub)
+        if isinstance(block, dict) and key in block:
+            return block[key]
+    return "<ABSENT>"
+
 for k in os.environ["REPORT_KEYS"].split(","):
     k = k.strip()
     if not k:
         continue
-    print(f"{k:26} = {d.get(k, '<ABSENT>')}")
+    print(f"{k:26} = {_lookup(d, k)}")
 # DRIFT, SPELLED OUT. A `_first`/`_total` pair is the whole point of the seal, and computing the ratio by
 # hand every time is how a sign error survives (carbon read +1261% for a whole session against a true -10.7%).
 print("--- drift vs sealed baseline ---")
 for now_k, first_k in [("o2_total","o2_first"), ("mineral_total","mineral_first"),
                        ("h2o_total","h2o_first"), ("element_C_total","element_C_total_first")]:
-    a, b = d.get(now_k), d.get(first_k)
+    a, b = _lookup(d, now_k), _lookup(d, first_k)
     if isinstance(a,(int,float)) and isinstance(b,(int,float)) and b:
         print(f"{now_k:26} = {100.0*(a-b)/b:+8.3f}%")
 PY
