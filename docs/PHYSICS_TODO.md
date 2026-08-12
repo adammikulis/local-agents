@@ -30,7 +30,9 @@ order is the order.
       −0.0074, so a glacier melts under its own load. `sublimation_p_at` is Clausius–Clapeyron anchored on
       the triple point with the DERIVED sublimation enthalpy: 12.9 Pa at −40 °C against the measured 12.85.
       Supercritical is its own phase rather than a mislabelled gas.
-- [ ] **Freezing-point depression is implemented but not wired.** `melt_c_at` takes a molality and derives
+- [ ] **Freezing-point depression is implemented but not wired — and cannot be, because there is no
+  dissolved phase at all.** `molality` is 0 at every call site, no salt substance exists, and
+  `salinity_at` returns a 0..1 number with no mass behind it. Original text: `melt_c_at` takes a molality and derives
       the cryoscopic constant rather than tabulating it — `K_f = R T_f² M / ΔH_fus,molar` gives 1.859 K·kg/mol
       against the measured 1.86. Two things stop it being live: (a) **there is no salinity channel**, so
       nothing can say which cells are sea and which are rain, and applying it globally would freeze lakes at
@@ -53,7 +55,9 @@ order is the order.
       back to their declared reference for want of a boiling point, triple point and critical point, all of
       which `n2` and `h2o` already carry. Adding them changes those substances' phase ladder, so the GLSL
       twin moves at the same time.
-- [ ] **The `moisture` channel holds vapour and is priced as a condensed phase.** `LAFieldDensity3D` asks
+- [x] **The `moisture` channel holds vapour and is priced as a condensed phase.** Gone with the h2o
+  collapse: there is one h2o amount and the vapour share is derived from the saturation split.
+- [ ] **SUPERSEDED — the original text follows.** `LAFieldDensity3D` asks
       `density("h2o", ...)`, which reads liquid at surface conditions, for every h2o channel including the
       vapour one. The channel's unit is declared in `LAChannels`, not here.
 - [ ] **The momentum ledger's atmosphere weighs the same at every altitude.** `LAMaterialFieldMomentumLedger3D`
@@ -84,11 +88,12 @@ order is the order.
       CONSUME O2 and photosynthesis is the only source.
 
 
-- [ ] **The field stores temperature, not energy.** Phase is therefore a set of CHANNELS (`water` /
-      `moisture` / `snow` are one substance; `rock_fill` / `lava` are another) and a phase change is a
-      REACTION RECORD with latent heat attached by hand. Store enthalpy per cell, derive temperature and
-      phase, and 7 of the 18 records plus the snow-deposition and rain-condensation legs delete themselves.
-      **This is the largest single item and everything in C gets easier after it.**
+- [x] **The field stores ENERGY.** `h_j_m3` is the state; temperature, phase, pressure, velocity,
+  conductivity and the gas/condensed split are derived per step by `StateDerivePass` and live in
+  `LAChannels.derived_buffers()`. Latent heat is structural, so no kernel can skip a phase boundary.
+  `water`/`moisture`/`snow`/`soil` collapsed into one `h2o`, and the freeze/melt/evaporate/sublimate/
+  deposit records deleted themselves with their rate constants.
+
 - [ ] **Conserve elements, derive species.** The runtime state is channel amounts, so the inventory
       RECONSTRUCTS moles (`mol_per_unit`) — which is how a carbon gauge once read +1261% when the truth was
       negative. If the conserved state were moles of element per cell, no kernel could change total carbon,
@@ -316,3 +321,22 @@ does not work is the trigger.
       where `solid == 0`. **Burial is not loss** — the same defect already found on `fuel_total`, on the
       substance the conservation gate is built around. Until it is fixed, no h2o drift figure means
       anything, including every one recorded today.
+
+## G. Never ran at all — found 2026-08-12, each had silently disabled a subsystem
+
+Every one of these was invisible: the file existed, compiled, and passed every gate that named it.
+
+- [x] **`pressure.glsl` was dispatched by nobody.** No pass, no entry in `PASS_SCRIPTS`. The buffer held
+  zero, so every phase boundary was evaluated at vacuum.
+- [x] **The reaction engine bound a `radial` buffer nothing created**, so its uniform set was invalid and
+  every reaction record in the tree was dead.
+- [x] **`porosity` was written by nothing**, so Kozeny-Carman over phi = 0 meant groundwater never moved.
+- [x] **`MODE_CONDUCT` named a `conductivity` buffer nobody created**, so heat never conducted.
+- [x] **The momentum rows named `mom_x/y/z` and the channel table declared `vel_x/y/z`**, so every
+  momentum row push_errored out and the momentum equation never ran.
+- [x] **Coriolis was booked by a ledger and never applied.**
+- [x] **`pinned` never fired on the GPU** — a phase boundary compared for float equality contracted
+  differently at each call site in float32.
+- [ ] **What else is declared and never dispatched?** Six of these in one day is a class, not a
+  coincidence. A gate that fails when a kernel has no pass, or a buffer no writer, would have caught all
+  six the day each landed.
