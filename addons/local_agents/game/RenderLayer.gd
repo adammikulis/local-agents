@@ -15,8 +15,6 @@ var _render_opts: Dictionary = {}
 @onready var _ocean: Node = $OceanPlane
 @onready var _water: Node = $WaterParticles
 @onready var _water_surface: Node = $WaterSurface
-@onready var _biome_shader: Node = $BiomeShader
-@onready var _sea_ice_shader: Node = $SeaIceShader
 
 
 func build(world: Node, sim: LASimulation, input: LAVoxelInputController) -> void:
@@ -86,11 +84,6 @@ func _build_world_visuals() -> void:
 		terrain.set_shader_param("heat_tex", material.heat_texture())
 		terrain.set_shader_param("heat_world_min", material.heat_world_min())
 		terrain.set_shader_param("heat_world_size", material.heat_world_size())
-
-	# BIOME COLORATION: bake the emergent climate (moisture + temperature) into a terrain-shader texture.
-	_biome_shader.setup(material, terrain)
-
-	_sea_ice_shader.setup(material, _ocean, _water_surface)
 
 	# Effects density onto the atmosphere particles + the difficulty-scaled ambient-disaster cadence.
 	_sim.settings_applier().bind(_world, _sim.disasters(), terrain, _water)

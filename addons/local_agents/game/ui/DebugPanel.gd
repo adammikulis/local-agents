@@ -51,7 +51,6 @@ func _ready() -> void:
 	_add_check("Temperature", func(on: bool) -> void: view_toggled.emit("temp", on))
 	_add_check("Wind", func(on: bool) -> void: view_toggled.emit("wind", on))
 	_add_check("Scent", func(on: bool) -> void: view_toggled.emit("scent", on))
-	_add_check("Rivers (drainage)", func(on: bool) -> void: view_toggled.emit("drainage", on))
 	for frow in FIELD_VIEWS:
 		var vkey: String = frow[1]
 		_add_check(frow[0], func(on: bool) -> void: view_toggled.emit(vkey, on))

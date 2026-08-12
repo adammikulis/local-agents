@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://addons/local_agents/game/RenderLayer.gd" id="1_renderlayer"]
 [ext_resource type="Script" path="res://addons/local_agents/game/VoxelCameraRig.gd" id="2_voxelcamerarig"]
@@ -8,8 +8,6 @@
 [ext_resource type="Script" path="res://addons/local_agents/sim/material/OceanPlane.gd" id="6_oceanplane"]
 [ext_resource type="Script" path="res://addons/local_agents/sim/material/WaterParticles.gd" id="7_waterparticles"]
 [ext_resource type="Script" path="res://addons/local_agents/sim/material/MaterialFieldRender3D.gd" id="8_materialfieldrender3d"]
-[ext_resource type="Script" path="res://addons/local_agents/game/world/BiomeShaderController.gd" id="9_biomeshadercontroller"]
-[ext_resource type="Script" path="res://addons/local_agents/game/world/SeaIceShaderController.gd" id="10_seaiceshadercontroller"]
 
 [node name="RenderLayer" type="Node3D"]
 script = ExtResource("1_renderlayer")
@@ -34,9 +32,3 @@ script = ExtResource("7_waterparticles")
 
 [node name="WaterSurface" type="MeshInstance3D" parent="."]
 script = ExtResource("8_materialfieldrender3d")
-
-[node name="BiomeShader" type="Node" parent="."]
-script = ExtResource("9_biomeshadercontroller")
-
-[node name="SeaIceShader" type="Node" parent="."]
-script = ExtResource("10_seaiceshadercontroller")
