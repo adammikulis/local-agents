@@ -39,6 +39,187 @@ COMPARISON. NONE OF THIS HAS EVER WORKED SO NO BASELINE NUMBERS HAVE ANY MEANING
 spent most of a session producing control-vs-branch comparison tables while twelve kernels were walking
 sideways.)*
 
+# RULE 2 — YOU PRESERVE NUMBERS, NOT CODE. THAT IS THE ONE THAT KEEPS GETTING PAST RULE 1.
+
+**Rule 1 is obeyed on files and violated on values.** An agent will delete a whole kernel and then carry a
+calibrated constant forward untouched, because deleting a file feels like progress and changing a number
+feels like cheating. The three things actually protected here are always the same:
+
+- **calibrated constants** — tolerances, ceilings, allowances, "measured X" values;
+- **the measurement configuration** — which flags a test run uses, what a baseline was taken with;
+- **comparability with past runs**, which is the real motive: a preserved ceiling preserves the meaning of
+  every number already reported against it. **The instinct is not attachment to the code. It is attachment
+  to one's own previous output still being interpretable.**
+
+**A MEASURED VALUE IS A FACT ABOUT A RUN THAT NO LONGER EXISTS.** The run is gone, the substrate changed,
+and the number is a fossil. It is not a bar, and "it was measured" is not provenance — provenance is *what
+it was measured against, and is that thing still there*.
+
+**THE TELLS, and every one of them is real, from 2026-08-11, written by me and thought to be rigour:**
+- *"a unit conversion, not a re-tuning — nothing was loosened"*, about six ceilings whose every underlying
+  run was already known unreadable. Preserving them read as discipline; it was the defect.
+- *"we can't default to `--bare` because it changes the numbers"* — about numbers already known to be wrong.
+  **The numbers being wrong is the reason to iterate faster, not slower.**
+- Any sentence containing *previously*, *still*, *parity*, *unchanged*, *so the comparison holds*, *so the
+  baseline stays valid*. That clause is the sound of a fossil being defended.
+
+**AND THE DEFERENCE FAILURE, which is the same mechanism pointed at the maintainer.** He said "never
+maintain compat with something you KNOW is wrong" and "you have carte blanche" — and the `--bare` refusal
+happened anyway. It was not defiance. It was a REASON, manufactured in the moment, for why an explicit
+instruction did not apply to this case. **If you catch yourself constructing an argument for why an
+instruction should not apply here, that argument IS the defect.** Do the thing. There is no case where a
+number you already know is wrong is worth defending against an instruction to change it.
+
+**WHAT TO DO INSTEAD, mechanically:**
+1. An allowance is **zero unless derived**. A conserved substance drifts at zero; the only tolerance a
+   ledger is entitled to is arithmetic noise, and that is computed from the format and the cell count, not
+   chosen. `LAMaterialFieldConservation3D.noise_floor()` is the worked example.
+2. When a subsystem changes, every calibrated number downstream of it is **invalid until re-measured** —
+   not "still roughly right". Say it is invalid; do not carry it.
+3. Preserve *questions*, never *answers*. "What was this measuring?" survives a rewrite. "0.28" does not.
+
+# RULE 3 — NAME THE CONSTRAINT AS A LAW OR A DECISION. OUT LOUD. EVERY TIME.
+
+**There is already a rule saying "X can't, because Y" is usually false here, and it does not work.** It
+asks you to NOTICE, and noticing requires already suspecting — by the time the sentence "the fix is not one
+line because Y" is being written, Y has already been accepted. The rule fires after the decision it exists
+to prevent. So this one demands an OUTPUT instead, because an output can be checked and a state of mind
+cannot.
+
+**WHENEVER YOU DESCRIBE A CONSTRAINT, CLASSIFY IT IN THE SAME BREATH:**
+
+> **LAW** — physics, or the platform. *Headless Godot returns null from
+> `create_local_rendering_device()`, so a GPU field needs a window.* Verified today, not assumed; even a law
+> gets re-checked when it is load-bearing and old.
+>
+> **DECISION** — somebody typed it. Then answer three things: **who, when, and does the reason still hold?**
+> *`run_sim_offscreen.sh` exited 126 on any conservation violation — a decision, made when the debt table
+> tolerated today's drift, and it stopped holding the moment the ceilings became float noise.*
+
+An unclassified constraint is treated as a law by default, and that default is **empirically wrong in this
+repo**. Measured on 2026-08-11, in one day of reading: `sea_level` declared and never assigned;
+`_terrain_opts` declared and never assigned, so the solid-mask cache had never once run; `validate()` called
+by nothing, so the grid's closure and handedness checks had never executed; two of five scent planes with no
+emitter anywhere; `EJECTA_LOD_RADIUS` deciding where rock physically lands; 611 constants neither bound nor
+derived. **The base rate here is that existing code is an unexamined decision.** A prior that treats it as
+considered is not caution, it is a wrong number.
+
+**THE GRAMMAR IS THE TELL, and it is checkable in the moment because it is a sentence shape, not a
+judgement.** Any clause of the form *"it can't / it isn't / it doesn't / that's not possible — because
+<fact about the current code>"* is Rule 3 firing. The fact is true. It is also **yours to change**, and the
+next sentence has to say whether you are going to.
+
+**The maintainer should never be the one forcing this.** When he has to say "change the code" about code
+that is already known wrong, the failure has already happened — and it is the same mechanism as RULE 2:
+not refusal, but a locally plausible reason why the obvious change does not apply *here*.
+
+# RULE 5 — IF REMOVING THE WRONG THING BREAKS SOMETHING, THAT IS THE FINDING. NOT A VETO.
+
+**THE FIRST CHANCE IS READING IT, AND IT COSTS NOTHING.** When two things are welded together that have
+no business touching — a UI widget owning the physics clock, a gauge deciding residency, a camera
+deciding where rock lands — the reaction is "why the hell does a UI element control the entire sim",
+out loud, the moment you read the class declaration. Not a thought about how to work around it. If you
+find yourself reasoning about the MECHANICS of the coupling (can it be guarded, what breaks if I move
+it, what order does it initialise in) before you have said the coupling is absurd, you have already
+skipped the step. That is Rule Zero applied to structure rather than to constants.
+
+**THE SECOND CHANCE IS THE BREAKAGE, and it is the one people notice.** You take out something that
+should not be there. A run dies, a test reddens, a feature stops. The conclusion is NEVER "so it has to
+stay." It is "something load-bearing is living inside a thing that should not exist" — and THAT is the
+defect you were looking for. The breakage told you where. Needing this second chance means the first
+one was missed.
+
+**The tell is a sentence of the form "it can't be removed, because removing it breaks X."** That is
+RULE 3's grammar with a test result attached, and the test result makes it sound like evidence. It is
+not evidence about whether to remove it. It is a map of what to extract first.
+
+**Worked example, 2026-08-11, and I made the same inference the original author did.** The on-screen
+time control was a `CanvasLayer` that also owned `Engine.time_scale`, and it was the ONE presentation
+node in `VoxelWorld.gd` with no `bare()` guard among fourteen. Guarding it would have killed `--fast`.
+Somebody evidently found that out and left the UI in. I then wrote, in my own words, "it couldn't be
+guarded, because removing it would have killed --fast — that's why it was unconditional," having
+already split the authority out five minutes earlier. The maintainer: *"Yes it could be guarded. The
+killed run is an indicator to you that something is wrong if a UI element kills a run. You took the
+opposite conclusion."*
+
+**What it cost:** every measurement run drew a speed panel over the window, and the simulation's clock
+was owned by a widget — so a headless or bare world had no rate owner at all. Both invisible for as
+long as the coupling was treated as a reason.
+
+*(This is the same move as RULE 4 one level up. There, a compile error after a deletion is a work
+queue rather than a rejection. Here, a BROKEN RUN after a removal is a work queue rather than a
+rejection. In both, the red thing is pointing at the next task, and reading it as a stop sign is how
+the convicted code survives.)*
+
+# RULE 4 — WHEN A DELETION BREAKS A REFERRER, FIX THE REFERRER. NEVER RESTORE WHAT YOU DELETED.
+
+**This is the mechanism that gets past Rules 1, 2 and 3, and it has a precise trigger you cannot miss:
+you delete something, and a gate goes red because something else referenced it.** At that instant there
+are exactly two repairs. FORWARD: go to the referrer and decide what it should do now. BACKWARD: put the
+deleted thing back. Backward is always smaller, always turns the light green faster, and always ends with
+the code you convicted still running.
+
+**The gates make this WORSE, and that is not a reason to have fewer gates — it is the reason for this
+rule.** A red gate creates pressure to make it green by the minimum edit, and the minimum edit is the
+revert. Optimising for the light is how a conviction gets quietly withdrawn.
+
+**THE REFRAME, and it is the whole rule: a reference error after a deletion is not a rejection. It is the
+LIST of everything that depended on the thing you just convicted.** It is a work queue. The compiler just
+did the grep for you. Read it as "here are the five callers you now have to judge", never as "put it back".
+
+**A DELETION IS NOT FINISHED WHEN THE GATE IS GREEN. It is finished when every referrer has been
+individually judged** — fixed, deleted, or explicitly kept with a stated reason for why that one is right.
+"The build passes" is not one of the three.
+
+**THE REQUIRED OUTPUT, checkable in the moment:** before writing any repair, say what the referrer DOES and
+whether it should exist. If you cannot say it, you have not looked, and you are about to revert.
+
+*(Written 2026-08-11. `Fish.gd` computed a fish's metabolism from an invented 20 °C whenever a duck-typed
+probe missed, so the guard came out and `water_c` with it. `Fish.gd:597` still referenced `water_c` to pick
+between "hyperthermia" and "hypothermia"; the parse gate went red; the variable went straight back in
+without the referrer ever being read. It turned out to be correct — but that was luck, established
+afterwards, and one line further down sat the real find: the thermal band it labels gives every one of
+~28 species one optimum and one lethal pair, derived from water's freezing point and generic protein
+denaturation. That is the exact defect CLAUDE.md already records as fixed when `WARM_COMFORT`/`LETHAL_COLD`
+were deleted — the values went and the shape stayed. Reverting a deletion is how you walk past the thing
+you were about to find. The maintainer, watching it happen again: "why is your instinct always to preserve
+bad, broken code simply if it is referenced elsewhere instead of fixing the elsewhere?")*
+
+# RULE 1e — A CRUTCH IS DELETED, NOT MEASURED. AND NO NUMBER OUT OF THIS SUBSTRATE IS EVIDENCE.
+
+**If a thing exists to stand in for physics that was never built, delete it. Do not test it, do not compare
+it, do not report what it reads.** A clamp, a floor, a cap, a fitted rate, a salinity derived from basin
+depth, an invented drag law, a per-kernel heat capacity that exists only because the field stores the wrong
+variable — each is a crutch, and the only work any of them deserves is removal. Reporting a crutch's value
+is worse than silence, because it invites a conversation about the value instead of the deletion.
+
+**Rule 1b bans before/after comparisons. This bans the rest of it.** An absolute reading is not evidence
+either. Neither is a total, a drift, a percentage, a mean, a count, or two values of one constant held up
+side by side. **The system has always been a lie, so everything it emits is a property of the lie, not of a
+planet.** Presenting one as a finding is striving to find meaning in noise, and the cost is the maintainer's
+time, which has been spent on this many times.
+
+**What IS evidence: reading the code and saying whether it matches reality, and binary events.** A gate
+fires on purpose. A demo exits 0. A marker appears. A deletion compiles. A referrer breaks, which names the
+next thing to fix. None of those is a quantity.
+
+**AND THE EMBARGO IS ABSOLUTE UNTIL `HANDOFF.md` AND `docs/PHYSICS_TODO.md` ARE EMPTY.** Do not report a
+number to the maintainer — in any form, for any reason, however tempting — until every last item on those
+lists is done. Not as context, not as a caveat, not as a sanity check, not "just to confirm the pipeline is
+alive". Until the known defects are gone the substrate cannot produce a number that is about the planet, so
+there is nothing to report and the embargo costs nothing. Report what you DELETED and what you FIXED.
+
+**The tell — catch yourself before you send it:** you are about to write "measured", "it reads", "against",
+"versus", or any number with a unit, inside a sentence meant to persuade. Cut the sentence and name the
+defect instead. If a number genuinely matters, it belongs in a gate, never in prose.
+
+*(Maintainer, 2026-08-12, verbatim: "STOP QUOTING ME MEANINGLESS NUMBERS THAT WE ARE RIPPING OUT" · "I
+DON'T CARE WHAT THE VALUE IS IF THE VARIABLE IS USELESS" · "STOP MAKING OUR TECH DEBT SO STICKY. DELETE RC_
+EVERYTHING" · "IF IT IS A CRUTCH TO SUBSTITUTE FOR REAL PHYSICS GET RID OF IT. STOP TESTING IT, STOP WASTING
+MY TIME" · "IT HAS ALWAYS BEEN BROKEN. SO STOP TELLING ME NUMBERS LIKE THEY MEAN ANYTHING" · "STOP STRIVING
+SO HARD TO FIND MEANING IN NOISE". Said after an agent compared two values of a constant inside a file that
+was on the delete list, and quoted substrate totals as findings in the same session.)*
+
 # RULE 1c — THE WORLD HAS TWO PHASES. CREATION IS LEGAL IN ONE OF THEM AND ONLY ONE.
 
 **SEEDING.** The world is being built. Matter and energy may be **created**, because the planet does not have
