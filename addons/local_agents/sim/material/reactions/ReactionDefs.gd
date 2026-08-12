@@ -61,7 +61,16 @@ const TGT_SCRATCH: int = 3            # add into the per-cell scratch buffer
 # --- Record layout
 const RECORD_BYTES: int = 240         # std430 size of one Reaction
 
-static var cell_size_m: float = 16.0
+# Cell height in metres, set from the grid before the record table is built. 0 means unset.
+static var cell_size_m: float = 0.0
+
+
+## Cell height in metres. Returns 0.0 and names the absence when nothing set it.
+static func cell_height_m() -> float:
+	if cell_size_m <= 0.0:
+		push_error("LAReactionDefs.cell_size_m unset — a flux-derived rate has no layer to spread through")
+		return 0.0
+	return cell_size_m
 
 
 static func rec(rate_model: int, rate_k: float, driver_slot: int, reactants: Array, products: Array,

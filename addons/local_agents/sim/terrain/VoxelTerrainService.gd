@@ -315,7 +315,8 @@ func altitude_at(pos: Vector3) -> float:
 		return NAN
 	return d.length() - sr
 
-## True if terrain is meshed + collidable near world_pos.
+## True where terrain DATA gives a surface radius along world_pos: the voxel raycast, else the SDF. No
+## collider is consulted, so it answers the same with collision baking off.
 func is_ready_at(world_pos: Vector3) -> bool:
 	if _terrain == null:
 		return false

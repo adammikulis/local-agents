@@ -129,10 +129,9 @@ func setup(field) -> void:
 	_seed_silicate()
 	_seed_regolith()                    # aquifer permeability mask + grain-size field (static)
 
-	# The reaction table's flux-derived rates need the cell HEIGHT in METRES. The table is baked once, so it
-	# gets the thickness of the shell holding the sea surface, converted from model units.
-	var surf_dr: float = float(_grid.cell_size)
-	LAReactionDefs.cell_size_m = surf_dr
+	# Cell height in metres for the table's flux-derived rates; the grid is SI. Set before ReactionsPass
+	# bakes the table.
+	LAReactionDefs.cell_size_m = float(_grid.cell_size)
 
 	# Load + set up the pass modules (skip any that fail to load — WIP-tolerant).
 	for path in PASS_SCRIPTS:

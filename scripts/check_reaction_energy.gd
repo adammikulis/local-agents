@@ -19,6 +19,7 @@ extends SceneTree
 ## (Explicit types only, no ':=' inferred typing.)
 
 const REGISTRY_PATH: String = "res://addons/local_agents/sim/material/MaterialReactions3D.gd"
+const WORLD_PATH: String = "res://addons/local_agents/sim/SimWorld.gd"
 
 ## Relative tolerance on a cycle sum, against the largest enthalpy in that cycle. Float32 round-trips through
 ## the GPU record buffer, so exact zero is not available; anything above this is a real imbalance.
@@ -40,7 +41,19 @@ func _phase_edge(rec: Dictionary) -> Array:
 	return [int(r[0]), int(p[0]), float(rec.get("enthalpy_j_m3", 0.0))]
 
 
+## A flux-derived rate spreads a per-square-metre flux through a cell, so the table cannot be built without
+## a grid. This is the grid LocalAgentSimWorld builds at its own defaults.
+func _declare_cell_height() -> void:
+	var world: GDScript = load(WORLD_PATH)
+	if world == null:
+		return
+	var w: Node = world.new()
+	LAReactionDefs.cell_size_m = w.field_cell_size_m()
+	w.free()
+
+
 func _init() -> void:
+	_declare_cell_height()
 	var registry: GDScript = load(REGISTRY_PATH)
 	if registry == null:
 		print("REACTION_ENERGY_ERROR: could not load %s" % REGISTRY_PATH)

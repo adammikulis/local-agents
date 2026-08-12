@@ -66,8 +66,8 @@ func _compute() -> Dictionary:
 		var want: PackedStringArray = PackedStringArray(["pressure", "co2"])
 		want.append_array(PackedStringArray(LAChannels.mixture_channels().keys()))
 		_f._gpu.request_probe(want)
-	# NO MIRROR FALLBACK on a demand-gated channel: an absent leg stays absent, so `has_pressure`/`has_co2`
-	# below read false rather than reporting a stale mirror as a measurement.
+	# NO MIRROR FALLBACK on any probed channel: a mirror is allocated full-size and zero-filled, so one that
+	# never arrived reads identically to a phase holding nothing.
 	var pressure: PackedFloat32Array = legs.get("pressure", PackedFloat32Array())
 	var co2: PackedFloat32Array = legs.get("co2", PackedFloat32Array())
 	# ONE capacity model, shared with the thermal stock this module's output is differenced against.
@@ -75,7 +75,8 @@ func _compute() -> Dictionary:
 		"silicate": legs.get("silicate", PackedFloat32Array()),
 		"carbonate": legs.get("carbonate", PackedFloat32Array()),
 		"silica": legs.get("silica", PackedFloat32Array()),
-		"h2o": _f._h2o,
+		"h2o": legs.get("h2o", PackedFloat32Array()),
+		"porosity": _f._porosity,   # not a mixture channel, so not in the probe request above
 		"fuel": legs.get("fuel", PackedFloat32Array()), "biomass": legs.get("biomass", PackedFloat32Array()),
 		"detritus": legs.get("detritus", PackedFloat32Array()),
 		"fungus": legs.get("fungus", PackedFloat32Array()),
