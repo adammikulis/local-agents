@@ -199,8 +199,7 @@ func _open_temp_stats() -> Dictionary:
 			mx = t
 		sum += t
 		n += 1
-	# All-cell max (incl. solid) exposes the pinned geothermal core + the conduction gradient, which the
-	# open-cell stats above hide (the hot core cells are rock).
+	# All-cell max (incl. solid) exposes the deep rock the open-cell stats above hide.
 	var all_mx: float = -1.0e20
 	for v in temp:
 		if v > all_mx:
@@ -253,9 +252,8 @@ func report() -> Dictionary:
 	# sea_ice_cells / sea_ice_temp / open_sea_cells / open_sea_temp — one walk, medians.
 	r.merge(q.sea_surface_stats())
 	r.merge(q.rock_radial_profile())
-	# The geothermal RESERVOIR, which rock_radial_profile above cannot show: rock_core_c is the innermost
-	# simulated shell, and the reservoir is the unsimulated interior underneath it. core_res_c is the state
-	# variable that falls; core_flux_w_m2 is what it delivers, against LAPhysical.GEOTHERMAL_FLUX_W_M2.
+	# geo_radiogenic_w is the rock's own decay power; geo_grad_c_per_m is the gradient that produced, measured
+	# rather than set. The bins above cannot show the gradient, and the gradient cannot show where the heat is.
 	r.merge(_f.geotherm_report())
 	r.merge(q.hot_spring_stats())
 	r.merge(q.lava_shell_diag())

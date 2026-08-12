@@ -516,7 +516,6 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 			var vsite: Vector3 = _terrain.surface_point(Vector3(0.2, 1.0, 0.2).normalized()) if _terrain.has_method("surface_point") else Vector3(NAN, NAN, NAN)
 			if not is_nan(vsite.x):
 				_disasters.spawn_volcano(vsite)
-				_seed_hot_pocket(vsite)
 				if _camera != null and _camera.has_method("frame_vista"):
 					_camera.frame_vista(vsite)
 				_auto_volcano_fired = true
@@ -529,10 +528,8 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 			var hsurf: Vector3 = _terrain.surface_point(hdir)
 			if not is_nan(hsurf.x):
 				var cs: float = hfield.cell_size()
-				var hbelow: Vector3 = hsurf - hdir * (cs * 1.6)   # a cell below the surface
-				_seed_hot_pocket(hbelow)                          # shallow interior heat, drawn out of the finite store
-				hfield.add_water_pooled(hsurf, 0.5, cs * 3.5)     # DIFFUSE rain recharge — saturates the aquifer AROUND the
-				                                                  # vent without dumping cold water on the exact up-seep cell
+				# DIFFUSE recharge only. Whether anything warm seeps back out is the rock's answer, not ours.
+				hfield.add_water_pooled(hsurf, 0.5, cs * 3.5)
 
 	# CAPSTONE — auto-seavolcano: seed a SEABED vent EARLY so the sustained supply has a long window to build a
 	# new island underwater and breach the surface. Frame the camera on the SEA SURFACE above the vent.
@@ -928,7 +925,6 @@ func _bench_fire(frame: int) -> void:
 					var vsite: Vector3 = _terrain.surface_point(Vector3(0.2, 1.0, 0.2).normalized())
 					if not is_nan(vsite.x):
 						_disasters.spawn_volcano(vsite)
-						_seed_hot_pocket(vsite)
 			"thunderstorm", "tornado", "hurricane":
 				if _disasters != null and _disasters.has_method("fire_auto_storm"):
 					_disasters.fire_auto_storm(action)
@@ -959,17 +955,3 @@ func _bench_snapshot(frame: int) -> void:
 		float(snap.get("rock_fill_total", 0.0)), float(snap.get("mineral_total", 0.0)),
 		float(snap.get("h2o_total", 0.0)), int(snap.get("creatures", 0)),
 	])
-
-
-## Move heat OUT of the interior store and INTO the rock a few cells under `site`. A transfer, not a source:
-## the reservoir loses exactly what the rock gains, and it refuses once it is too cold to drive one.
-func _seed_hot_pocket(site: Vector3) -> void:
-	var f = _ecology.material_field() if (_ecology != null and _ecology.has_method("material_field")) else null
-	if f == null or _body == null or f.get("_inject") == null or f.get("_geotherm") == null:
-		return
-	var dir: Vector3 = (site - _body.center()).normalized()
-	var cs: float = f.cell_size()
-	var deep: Vector3 = site - dir * (cs * 3.0)
-	var r: float = cs * 2.0
-	var need: float = f._inject.heat_to_reach(deep, LAPhysical.BASALT_LIQUIDUS_C, r)
-	f._inject.add_heat_energy(deep, f._geotherm.draw_heat_j(need, LAPhysical.BASALT_LIQUIDUS_C), r)

@@ -168,15 +168,14 @@ func setup(field) -> void:
 			_pass_names.append(path.get_file().get_basename())   # e.g. "ThermalPass" — timestamp label
 
 
-func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: float = 0.6, wind: Vector2 = Vector2.ZERO) -> void:
+func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	if _rd == null:
 		return
 	# Drain the previous frame's in-flight step FIRST: sync it (usually already done — the GPU ran it during the
 	# inter-frame CPU work) and read its channels into `_cached`. Must happen before the temp/water uploads below,
 	# which write the same live buffers the step wrote. This is the CPU↔GPU overlap that hides the field step cost.
 	_drain_pending()
-	# The core is a flux boundary applied inside heat_sphere3d.glsl (LAMaterialFieldGeotherm3D pushes one
-	# scalar); the only CPU writer of _temp is injection (add_heat / meteors / lava), which marks it dirty.
+	# The only CPU writer of _temp is injection (add_heat / meteors / lava), which marks it dirty.
 	if _temp_dirty:
 		_upload_f(_live("temp"), temp)
 		_temp_dirty = false
@@ -191,9 +190,7 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 	if _solid_dirty:
 		_seed_solid()
 		_solid_dirty = false
-	_ctx["solar"] = solar
-	_ctx["wind"] = wind
-	_ctx["dt"] = 0.1
+	_ctx["dt"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()   # simulated seconds, not the cadence
 	_ctx["cell_size"] = _grid.cell_size
 	# The SOLVED gravity, for the handful of scalar laws a pass evaluates once. A per-cell law reads the
 	# g field itself; nothing anywhere reads a gravity constant, because there is not one.
@@ -228,10 +225,6 @@ func set_plates(table: PackedFloat32Array) -> void:
 		return
 	var b: PackedByteArray = table.slice(0, n * PLATE_STRIDE).to_byte_array()
 	_rd.buffer_update(_bufs["plates"], 0, b.size(), b)
-
-func set_core_boundary_c(v: float) -> void:
-	_ctx["core_boundary_c"] = v
-
 
 ## Mark the CPU temp mirror dirty so the next begin_frame re-uploads it.
 func mark_temp_dirty() -> void:

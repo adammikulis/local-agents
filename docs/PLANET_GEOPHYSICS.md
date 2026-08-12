@@ -11,15 +11,12 @@ dedicated code — they're what the substrate physics does. NOTE: the maintainer
 SDF, heat field, lava, and shock, so they want a design pass with the maintainer, not a blind one-shot.
 
 ## Substrate we already have (the ingredients)
-- **Radial heat field — a SEEDED GEOTHERM.** *(Corrected 2026-08-03. This said "hot core (pinned ~1300°C) →
-  cool surface, conducted through the crust (rock insulates ~6× air)". All three parts were wrong: 1300 °C is
-  an erupting-basalt temperature rather than a core one, the core is no longer pinned, and the conductivities
-  were fitted — the kernel now uses real material properties, and rock does not insulate relative to air, it
-  conducts ~100× better. What keeps an interior hot under a temperate surface is that geothermal flux is
-  negligible against solar across kilometres of rock.)* The profile is an INITIAL CONDITION: rock's real
-  diffusivity moves a thermal front 0.16 m in the ~7 hours of planet time a 600-frame run covers, so no
-  geotherm can establish at runtime — Earth has one because it was born with one. A finite reservoir seeded
-  at real temperatures maintains it and slowly cools. The geothermal ENGINE.
+- **Interior heat — RADIOGENIC, and nothing else.** ~~A finite reservoir seeded at real temperatures
+  maintains the geotherm and slowly cools.~~ **That reservoir, its core temperature, the seeded Fourier
+  profile and the boundary flux are deleted.** The rock's own decay (`LAPhysical.RADIOGENIC_W_PER_KG` on the
+  mass each cell holds) is the whole source; conduction carries it and the surface radiates it, and the
+  gradient is the outcome. A run covers hours of planet time and radiogenic warming is a megayear process,
+  so the observed gradient will read near flat — that is the honest answer, not a reason to seed one back.
 - **Magma / lava** — `_lava`, magma buoyancy (`magma_buoy_sphere3d`), lava flow, phase change (melt/solidify).
   Eruptions now draw from a FINITE mantle reserve; the vent used to be documented as "effectively infinite",
   which meant every island this planet ever built was made of matter that did not exist.
@@ -34,7 +31,9 @@ SDF, heat field, lava, and shock, so they want a design pass with the maintainer
   K = K_sat·k_r(S_e) and hold water against gravity below the residual saturation — that is field capacity,
   and it is why a real root zone is the wettest part of a profile after rain. Both fixed: the water table is
   surface-following (saturation ramp 1:65 → 1:2.3), lateral discharge exceeds downward percolation, and
-  hot springs discharge at the surface. Conductivity is now computed from
+  groundwater discharges at the surface. ~~Hot~~ springs: `--hotspring-test` used to hand the rock beneath
+  the vent a reservoir draw, so the heat was injected, not found. That draw is deleted and the discharge
+  is as warm as the rock it passed through. Conductivity is now computed from
   per-cell porosity and grain size (Kozeny-Carman) rather than one number for all regolith.
 - **N-body gravity + bodies** — `LAGravity`, `LAPlanetBody`, a moon, orbits (moving-frame). Test-particle pull.
 

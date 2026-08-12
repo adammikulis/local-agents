@@ -116,8 +116,6 @@ func process(delta: float) -> void:
 		_f._seed_sea()                # fills the ocean basin with real, flowing water
 		_f._compute_regolith()        # the permeable aquifer band (+ initial water table) for groundwater flow
 		LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins (static water bodies)
-		if _f._geotherm != null:
-			_f._geotherm.arm(LAPhysical.INNER_CORE_C)   # the interior's heat, declared through the seal
 		_f.activate()                 # builds the GPU driver + sets _use_gpu
 		_f._ready_sim = true
 		return
@@ -151,15 +149,12 @@ func process(delta: float) -> void:
 	if steps <= 0:
 		return
 	var t0: int = Time.get_ticks_usec()
-	# Global scalar solar term is a constant fallback; the per-cell solar terminator comes from the sphere
-	# ThermalPass' set_sun_dir kernel (max(0, dot(cell_radial, sun_dir))), not this scalar.
-	var solar: float = 0.6
 	var t_pin: int = Time.get_ticks_usec()
 	_f.solve_gravity()               # g follows the mass; the solver runs on its own cadence
-	_f._step_geotherm()              # finite core reservoir: cool it, and publish its flux for this step
+	_f._step_geotherm()              # radiogenic decay: hand the rock the joules its own mass produced
 	LASimReport.gauge("field_pin_ms", float(Time.get_ticks_usec() - t_pin) / 1000.0)
 	var t_begin: int = Time.get_ticks_usec()
-	_f._gpu.begin_frame(_f._temp, _f._water, solar, Vector2.ZERO)   # drains prev step (sync+readback) + uploads
+	_f._gpu.begin_frame(_f._temp, _f._water)   # drains prev step (sync+readback) + uploads
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
 	# sun_dir points from the planet toward the star; ThermalPass' solar kernel does max(0, dot(cell_radial, sun_dir)).

@@ -85,6 +85,40 @@ func _inject_energy(cells: PackedInt32Array, joules: float) -> float:
 	return delta_c
 
 
+## Add PER-CELL joules: `cells[i]` gets `joules[i]`, turned into degrees by that cell's own heat capacity.
+## A source spread over cells that differ has to be booked cell by cell; one shared rise would move energy
+## between them. Returns the joules that reached a cell with capacity.
+func add_heat_per_cell(cells: PackedInt32Array, joules: PackedFloat32Array) -> float:
+	if cells.size() == 0 or cells.size() != joules.size():
+		return 0.0
+	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
+	if vol.size() != _f._cell_count:
+		return 0.0
+	var ch: Dictionary = _rc_channels()
+	var hit: PackedInt32Array = PackedInt32Array()
+	var deltas: PackedFloat32Array = PackedFloat32Array()
+	var total: float = 0.0
+	for i in cells.size():
+		var c: int = cells[i]
+		if c < 0 or c >= _f._cell_count:
+			continue
+		var cap: float = LAHeatCapacity.cell(ch, c) * vol[c]
+		if cap <= 0.0:
+			continue
+		hit.append(c)
+		deltas.append(joules[i] / cap)
+		total += joules[i]
+	if hit.size() == 0:
+		return 0.0
+	queue.note_energy(total)
+	if not _device_ready():
+		for i in hit.size():
+			_f._temp[hit[i]] = _f._temp[hit[i]] + deltas[i]
+		return total
+	queue.queue_temp(hit, deltas)
+	return total
+
+
 ## Raise a temperature with no store behind it. This CREATES energy, so it is legal only while the world is
 ## seeding; after the seal the seal refuses it and counts the attempt.
 func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
@@ -285,21 +319,6 @@ func _cells_within(world_pos: Vector3, radius: float) -> PackedInt32Array:
 
 
 # --- Injection API (disasters/flood call these) -----------------------------
-
-## Joules needed to bring the cells within `radius` of `world_pos` up to `target_c`. A physical quantity a
-## caller pairs with a real store — nothing here decides where the heat comes from.
-func heat_to_reach(world_pos: Vector3, target_c: float, radius: float = 0.0) -> float:
-	if _f == null or _f._temp.size() != _f._cell_count:
-		return 0.0
-	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
-	if vol.size() != _f._cell_count:
-		return 0.0
-	var ch: Dictionary = _rc_channels()
-	var j: float = 0.0
-	for c in _cells_within(world_pos, radius):
-		j += LAHeatCapacity.cell(ch, c) * vol[c] * maxf(0.0, target_c - _f._temp[c])
-	return j
-
 
 ## Flood pool-fill: add water only where the ground is at/below the centre column's ground, so a surge
 ## fills the basin and runs downhill (never climbs a hillside). 3D analogue of the 2.5D add_water_pooled.

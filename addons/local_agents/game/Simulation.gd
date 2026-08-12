@@ -73,8 +73,8 @@ func build(opts: Dictionary) -> void:
 func _build_field() -> void:
 	var field_grid: RefCounted = LASphereGrid.new()
 	var depth: int = _settings_applier.grid_depth()
-	# The modelled shell, in METRES: it straddles the surface, with the interior below standing in as the
-	# geotherm reservoir. Declared granularity — see docs/MODEL_PARAMETERS.md.
+	# The modelled shell, in METRES: it straddles the surface, and the interior below it is not modelled at
+	# all. Declared granularity — see docs/MODEL_PARAMETERS.md.
 	var mean_dr: float = MODELLED_SPAN_M / float(maxi(depth, 1))
 	var core_r: float = float(_body.radius()) - MODELLED_CRUST_DEPTH_M
 	# Surface shell = the one holding the sea, so a graded profile puts its fine cells where the ground is.

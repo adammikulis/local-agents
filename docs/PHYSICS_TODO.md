@@ -179,8 +179,15 @@ order is the order.
 
 ## F. Prescribed where it should emerge
 
-- [ ] **No mantle convection.** The geotherm is a seeded initial condition maintained by a reservoir, so the
-      plates above are kinematic rather than driven.
+- [ ] **No mantle convection.** The rock's own radiogenic decay is now the only interior heat source and the
+      geotherm is whatever it, conduction and the surface produce — but nothing carries that heat by MOVING
+      rock, so the plates above are kinematic rather than driven.
+- [ ] **The radiogenic source is deposited from GDScript.** A volumetric source term belongs in the
+      conduction kernel beside `∇·(k∇T)`; `LAMaterialFieldGeotherm3D` hands it to the sparse heat queue
+      instead, on the gravity solve's cadence. Delete this entry when the kernel reads the source itself.
+- [ ] **`ThermalPass` still pushes a `core_boundary_c` nobody writes.** Its `ctx.get(..., 0.0)` fallback
+      would put a 0 °C ghost cell under the deepest rock — a heat SINK — the moment `heat_sphere3d.glsl`
+      returns. The base of the grid has no boundary condition to invent: delete the push constant.
 - [ ] **Plate tectonics is kinematic Voronoi.** *(Maintainer has explicitly OK'd faking this one — true
       geodynamics is research-grade.)*
 - [ ] **Rock has three compositions and no stratigraphy.** Carbonate and silica do not travel and do not

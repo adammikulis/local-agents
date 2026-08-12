@@ -35,8 +35,8 @@ from a caller list and from a red gate were not in front of anyone. They are in 
 **The grid migration is most of the way through.** The Cartesian box is what the kernels run on:
 `MaterialSphereGPU3D` takes an `LAVoxelGrid`, gravity is the solved Poisson field read per cell, and
 `check_no_privileged_axis.sh` passes — no slot means "up", no column is an array stride, and the radial
-shell table is deleted. `LASphereGrid` survives only for the geotherm, the bakers, the input controller
-and the charge readback, and is deleted when those move.
+shell table is deleted. `LASphereGrid` survives only for the bakers, the input controller and the charge
+readback, and is deleted when those move.
 
 **Kernels: 24 to 10.** One `transport.glsl` plus a record table absorbed the seven gathers, then diffusion,
 convection, conduction, radiation and momentum. What made them look different was the coordinate system:
@@ -78,7 +78,6 @@ channels that carry heat, because heat is no longer spread across channels:
 | the group views, `channels()` unions (`Seal3D`, `FieldLedgerRecords3D`, `EnergyProbe3D`) | deleted — nothing needs the list |
 | `field()` / `legs()` / `live_map()` capacity arrays (`FieldLedgerFold3D`, `EnergyLedger3D`) | deleted — the stock is the sum of `h * V` |
 | `EnergyBudget3D`'s capacity report | deleted |
-| `Geotherm3D.pure_rock()` | a boundary ENTHALPY from `LASubstances.enthalpy_at` |
 | `Inject3D`'s `capacity * volume * dT` | joules are `(h_target - h_now) * V` |
 | `WaterSlumpLavaPass`'s per-row rc upload | deleted — transport carries `h` |
 | the `heat` column in `Channels.gd` and `heat_group()` | deleted |
@@ -102,8 +101,8 @@ channels that carry heat, because heat is no longer spread across channels:
 **G — the grid. Nearly done.** The kernels run on `LAVoxelGrid`, gravity is solved, the axis gate passes,
 `METRES_PER_MODEL_UNIT` / `PLANET_SCALE` / `SURFACE_G` / the held `STANDARD_GRAVITY_M_S2` are gone, and so
 are `solid_angle`, `cell_vol`, `face_area`, `link_arc`, `link_partner`, the tangent basis and its parallel
-transport, and the shell table. *Left:* the geotherm, bakers, input controller and charge readback still
-hold `LASphereGrid`; when they move it deletes wholesale, taking the `_seed_families` / `_repair_pairs` /
+transport, and the shell table. *Left:* the bakers, input controller and charge readback still hold
+`LASphereGrid`; when they move it deletes wholesale, taking the `_seed_families` / `_repair_pairs` /
 `_augment_once` seam-repair graph matching with it.
 
 **P — pressure. Done.** `kernels3d/pressure.glsl` marches along -g accumulating the cell's own bulk
@@ -170,8 +169,13 @@ changes its unit, then the latent-plateau gate.
 - **`AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`**, which is now the
   cited ISA value. It is the unit definition of the `o2`/`co2`/`n2` channels, so correcting it re-scales
   every gas total — a maintainer call, not a merge resolution. The fix is one flat expression.
-- **`GEOTHERMAL_GRADIENT_C_PER_KM` was uncited and about twice the real continental geotherm.** It is a unit
-  restatement of the Fourier-derived value now, which changes the seeded geotherm.
+- **Five interior constants are now referenced by nothing** — `INNER_CORE_C`, `CORE_MANTLE_BOUNDARY_C`,
+  `UPPER_MANTLE_C`, `GEOTHERMAL_GRADIENT_C_PER_M`, `GEOTHERMAL_GRADIENT_C_PER_KM`. They existed to seed and
+  hold a prescribed geotherm, which is deleted. Delete the values too; `GEOTHERMAL_FLUX_W_M2` stays as the
+  real-Earth figure the emergent surface flux is read against.
+- **`RADIOGENIC_W_PER_KG` carries no citation comment**, and `docs/PHYSICS_AUDIT_2026-08-09.md` says it is
+  the present-day value on a world meant to be young. It is now the only interior heat source, so it needs
+  a source named beside it.
 
 ---
 

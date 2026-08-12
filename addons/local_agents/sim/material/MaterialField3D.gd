@@ -106,7 +106,7 @@ const SurfaceSeedScript: GDScript = preload("res://addons/local_agents/sim/mater
 const OrganicScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldOrganic3D.gd")
 var _gpu = null                                          # LAMaterialSphereGPU3D (local RenderingDevice) or null
 var _use_gpu: bool = false
-var _geotherm = null                                     # LAMaterialFieldGeotherm3D — the internal heat source
+var _geotherm = null                                     # LAMaterialFieldGeotherm3D — radiogenic heat in the rock
 # Read-only query accessors + the write-side injection facade (factored out; see those files).
 var _queries = null                                      # LAMaterialFieldQueries3D
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
@@ -747,7 +747,7 @@ func _step_geotherm() -> void:
 	_geotherm.step()
 
 
-## The geothermal reservoir's telemetry, merged into the field report by LAMaterialFieldReport3D.
+## Radiogenic power and the observed gradient, merged into the field report by LAMaterialFieldReport3D.
 func geotherm_report() -> Dictionary:
 	return _geotherm.report()
 
