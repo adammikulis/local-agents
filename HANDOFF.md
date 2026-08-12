@@ -27,34 +27,33 @@ FIXED, wherever it lives.**
 this branch until 2026-08-12 — they existed only on an unmerged branch, so the two rules that forbid arguing
 from a caller list and from a red gate were not in front of anyone. They are in now.
 
-### State (2026-08-12)
+### State
 
-**Everything is reconciled onto `feature/enthalpy`. `0.4-dev` is at its pre-reconciliation tip and parses.**
-The branch does not parse, and there is exactly one reason: `LAHeatCapacity` is deleted and its consumers
-have not been converted. That conversion is the next task and it is the only task.
+**Everything is on `feature/enthalpy`.** The branch does not parse and there is one reason left:
+`LAHeatCapacity` is deleted and the field still stores `temp`. That conversion is task 7 below.
 
-What the reconciliation settled, so nobody re-derives it:
+**The grid migration is most of the way through.** The Cartesian box is what the kernels run on:
+`MaterialSphereGPU3D` takes an `LAVoxelGrid`, gravity is the solved Poisson field read per cell, and
+`check_no_privileged_axis.sh` passes — no slot means "up", no column is an array stride, and the radial
+shell table is deleted. `LASphereGrid` survives only for the geotherm, the bakers, the input controller
+and the charge readback, and is deleted when those move.
 
-- **`0.4-dev` had never merged `main`.** It was missing the shipped release line. `main` is an ancestor now.
-- **Two substrate lines had diverged from `54f6e581` sharing NO patch in either direction** — `0.4-dev` and
-  `feature/physics-substrate`, plus `feature/no-tombstones` and three stranded worktree commits. All in.
-- **Where they fought, the physics won and the pass architecture went.** `physics-substrate`'s kernels read
-  neighbour slot 5 as "the cell above" when it is a LATERAL, so its solar column, buoyancy and wind were
-  circling the sphere at constant radius. Three lanes found it independently. `0.4-dev` has the neighbour
-  SSOT, `link_partner`, and `check_neighbour_slots.sh` to fail the build on either mistake.
-- **`pre-reconcile/*` tags freeze every tip from before the merge.** Nine of them. Nothing is unrecoverable.
+**Kernels: 24 to 10.** One `transport.glsl` plus a record table absorbed the seven gathers, then diffusion,
+convection, conduction, radiation and momentum. What made them look different was the coordinate system:
+a hardcoded "down" slot, a per-cell arc length for the lateral run, a donor/receiver volume ratio, and a
+lookup for the reverse link. On a uniform grid all six faces ask one question and the opposite of `d` is
+`d ^ 1`.
 
-### Two decisions the maintainer took, which reorder everything
+Two collapses worth not re-deriving:
+- **Convective adjustment IS the angle of repose** — a flux across a face once the pair exceeds a threshold
+  gradient. One threshold is a temperature, the other a mass.
+- **Wind IS the momentum equation.** Momentum is six transport rows: three down the pressure gradient,
+  which is the pressure-gradient force written as a flux, and three diffusing, which is eddy viscosity.
+  Velocity is derived.
 
-1. **The uniform Cartesian grid is the trunk.** The cubed-sphere shell made the coordinate system BE the
-   planet, so sphericity was an input and "down" was an array index. `sim/voxel/VoxelGrid.gd` is a box of
-   equal cells and `LAFieldGravity` solves `laplacian(phi) = 4*pi*G*rho` — deliberately not a
-   centre-of-mass `GM/r^2` shortcut, which is the field OF a sphere and would re-assert the symmetry the
-   migration exists to remove. Both are committed and consumed by nothing yet.
-2. **The planet is a declared small body with `g = GM/R^2` derived**, not Earth-sized with Earth's gravity
-   held against a small radius.
-
-The cubed-sphere machinery stays until the kernels move. It is deleted BY the migration, not before.
+**Units.** The fitted metre, the held Earth gravity, `PLANET_SCALE` and `SURFACE_G` are gone; the body is
+declared by radius and mean density and `g` is solved. A channel amount is MOLES, so a record's
+coefficient is stoichiometry rather than a density ratio between two invented units.
 
 ---
 
@@ -98,27 +97,29 @@ channels that carry heat, because heat is no longer spread across channels:
 
 ---
 
-## THEN, IN THIS ORDER
+## WHAT IS LEFT
 
-**G — the grid.** Radius becomes one declared seed parameter and `g = GM/R^2` is derived;
-`LAGravity.SURFACE_G` and the held `STANDARD_GRAVITY_M_S2` die together. Then delete
-`METRES_PER_MODEL_UNIT`, its conversion sites, `PLANET_SCALE` and `check_model_unit_volume.sh` — a gate whose
-whole subject is the unit. *Acceptance:* `grep -rn METRES_PER_MODEL_UNIT addons/local_agents/sim
-addons/local_agents/game` returns nothing and lint is green. Then move the kernels onto `LAVoxelGrid`, which
-deletes `solid_angle`, `cell_vol`, `link_arc`, the tangent basis and its parallel transport and the seam
-table, and fixes the missing donor/receiver volume ratio in eleven kernels by construction because the ratio
-becomes 1. `opposite(d)` becomes `d ^ 1`. **One owner across every kernel; never fanned out.**
+**G — the grid. Nearly done.** The kernels run on `LAVoxelGrid`, gravity is solved, the axis gate passes,
+`METRES_PER_MODEL_UNIT` / `PLANET_SCALE` / `SURFACE_G` / the held `STANDARD_GRAVITY_M_S2` are gone, and so
+are `solid_angle`, `cell_vol`, `face_area`, `link_arc`, `link_partner`, the tangent basis and its parallel
+transport, and the shell table. *Left:* the geotherm, bakers, input controller and charge readback still
+hold `LASphereGrid`; when they move it deletes wholesale, taking the `_seed_families` / `_repair_pairs` /
+`_augment_once` seam-repair graph matching with it.
 
-**P — pressure in every cell.** `wind_pressure` writes one flat surface pressure into everything below the
-atmosphere, so an ocean cell and a mantle cell read alike. Harmless while temperature is stored, decisive
-once enthalpy is, because pressure selects the phase. `reactions_sphere3d.glsl` already has `overburden()`.
-*Acceptance:* pressure is monotonically non-decreasing inward down every column. It is not today.
+**P — pressure. Done.** `kernels3d/pressure.glsl` marches along -g accumulating the cell's own bulk
+density times the solved `|g|`. It replaced a kernel that gave a buried cell the weight of the AIR column
+at ambient air density. *Acceptance still owed:* pressure monotonically non-decreasing inward, which needs
+a run.
 
-**M — the unit is moles.** Channel amounts become mol/cell; `mol_per_unit` and `unit_ratio` delete; one
-applicator evaluates every record against the same starting state, so `cap_slot` deletes too.
-*Acceptance:* permute the record order and the element totals are bit-identical. **Do not read "conserve
-elements, derive species" literally** — deriving species by equilibrium returns zero biomass and looks like a
-clean result; a living cell is not at chemical equilibrium. The defect named is the UNIT.
+**M — moles. Half done.** `mol_per_unit` and `unit_ratio` are deleted and the reaction table is
+stoichiometry. *Left:* one applicator evaluating every record against the same starting state, so
+`cap_slot` deletes. *Acceptance:* permute the record order, element totals bit-identical. **Do not read
+"conserve elements, derive species" literally** — deriving species by equilibrium returns zero biomass and
+looks clean; a living cell is not at chemical equilibrium. The defect named is the UNIT.
+
+**E — enthalpy. The one blocker left.** The field still stores `temp` and `LAHeatCapacity` is deleted, so
+the branch does not parse. Needs the mixture inverter, then `temp` becomes `h_j_m3` in the commit that
+changes its unit, then the latent-plateau gate.
 
 ---
 
