@@ -34,13 +34,20 @@ layout(set = 0, binding = 35, std430) restrict readonly buffer Soil { float soil
 layout(set = 0, binding = 36, std430) restrict readonly buffer Moisture { float moisture[]; };
 layout(set = 0, binding = 37, std430) restrict readonly buffer Fungus { float fungus[]; };
 layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
-#include "shell.glsli"
+#include "march.glsli"
+
+layout(set = 0, binding = 4, std430) restrict readonly buffer Grav { float g_field[]; };
+
+vec3 g_at(uint c) {
+	return vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
+}
 #include "rc_shared.glsli"
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint depth;
-	uint pass_id;        // 0 reset, 1 column scan, 2 neutralise
+	uint pass_id;
+	float cell_m;        // 0 reset, 1 column scan, 2 neutralise
 	float radius_model;  // return-stroke reach, model units
 } params;
 
@@ -80,17 +87,26 @@ void main() {
 	}
 
 	if (params.pass_id == 1u) {
-		uint columns = params.cell_count / depth;
-		if (g >= columns) {
+		// Gauss's law along the field line: integrate charge density from this cell outward. The line is
+		// -g, not an array stride, so a body that is not a sphere still has columns.
+		if (g >= params.cell_count) {
 			return;
 		}
-		uint base = g * depth;
 		float sigma = 0.0;
-		for (uint r = 0u; r < depth; ++r) {
-			uint c = base + r;
+		uint c = g;
+		for (uint step = 0u; step < depth; ++step) {
 			if (solid[c] == 0.0) {
-				sigma += charge[c] * shell_dr(r);
+				sigma += charge[c] * params.cell_m;
 			}
+			vec3 gv = g_at(c);
+			if (length(gv) <= 0.0) {
+				break;
+			}
+			int nx = la_step(nbr, c, -normalize(gv));
+			if (nx < 0) {
+				break;
+			}
+			c = uint(nx);
 		}
 		sigma_col[g] = sigma;
 		if (sigma <= 0.0) {
