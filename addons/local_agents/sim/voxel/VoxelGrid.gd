@@ -67,6 +67,16 @@ func cell_at(p: Vector3) -> int:
 
 ## Volume in model units cubed. Constant — the argument exists so callers read the same shape as before
 ## and so a future non-uniform grid has a seam, not because it varies.
+## The cell containing a world point, or -1. Same question as cell_at, under the name the field uses.
+func world_to_cell(p: Vector3) -> int:
+	return cell_at(p)
+
+
+## Centre of the box in world coordinates.
+func center() -> Vector3:
+	return origin + Vector3(float(nx), float(ny), float(nz)) * cell_size * 0.5
+
+
 ## Every cell's volume, m^3. One value repeated: that is what uniform means.
 func cell_volumes() -> PackedFloat32Array:
 	var out: PackedFloat32Array = PackedFloat32Array()

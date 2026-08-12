@@ -6,7 +6,7 @@ layout(local_size_x = 64) in;
 
 // --- WHAT HAPPENS TO THE LOOSE MATERIAL WHEN A CELL TURNS TO ROCK ------------------------------------------
 layout(set = 0, binding = 0, std430) restrict buffer RockFill { float rock_fill[]; };
-layout(set = 0, binding = 1, std430) restrict writeonly buffer Solid { float solid[]; };
+layout(set = 0, binding = 1, std430) restrict buffer Solid { float solid[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Sediment { float sediment[]; };
 layout(set = 0, binding = 3, std430) restrict buffer Susp { float susp[]; };
 layout(set = 0, binding = 4, std430) restrict buffer Dust { float dust[]; };
@@ -25,7 +25,10 @@ layout(push_constant, std430) uniform Params {
 	uint pad2;
 } params;
 
-const float SOLID_THRESHOLD = 0.5;
+// Rheological lock-up is HYSTERETIC: a crystallising melt stops flowing near 0.6 crystals and a solid does
+// not start flowing again until about 0.4. One threshold makes a cell hovering at half melt flip every
+const float SOLID_IN = 0.6;
+const float SOLID_OUT = 0.4;
 
 void main() {
 	uint g = gl_GlobalInvocationID.x;
@@ -33,7 +36,9 @@ void main() {
 		return;
 	}
 	float rf = rock_fill[g];
-	if (rf >= SOLID_THRESHOLD) {
+	bool was = solid[g] != 0.0;
+	bool now = was ? (rf >= SOLID_OUT) : (rf >= SOLID_IN);
+	if (now) {
 		// LITHIFY the loose phases into the bedrock they are now inside. Own-cell, mass-for-mass, so the
 		// mineral ledger (which sums rock_fill + lava + sediment + susp + dust) does not move.
 		float loose = sediment[g] + susp[g] + dust[g];
