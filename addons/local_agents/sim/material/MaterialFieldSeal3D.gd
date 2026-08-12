@@ -8,9 +8,7 @@ enum Phase { SEEDING = 0, SEALED = 1 }
 ## are measurements rather than mirrors that had not arrived.
 static func required_channels() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
-	for name in LAHeatCapacity.channels():
-		out.append(name)
-	for name in ["porosity", "temp", "co2", "o2", "fert", "n2"]:
+	for name in ["h_j_m3", "porosity", "co2", "o2", "fert", "n2"]:
 		if not out.has(name):
 			out.append(name)
 	return out

@@ -24,12 +24,10 @@ const OXIDANT: PackedStringArray = ["o2", "co2"]
 const NITROGEN_ORGANIC: PackedStringArray = ["biomass", "detritus", "fungus", "fuel"]
 
 
-## The heat-capacity mix's channels plus the pore fraction that converts the matrix channel.
+## The energy stock is one channel. It used to be the fifteen channels a mixture capacity read, plus the
+## pore fraction that converted the matrix one.
 static func energy() -> PackedStringArray:
-	var out: PackedStringArray = LAHeatCapacity.channels()
-	if not out.has("porosity"):
-		out.append("porosity")
-	return out
+	return PackedStringArray(["h_j_m3"])
 
 
 ## Union of every substance's legs — the one `request_probe` list.
