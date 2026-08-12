@@ -278,24 +278,22 @@ elif [ "$REASON" = "hung_after_report" ]; then
 fi
 
 # --- CONSERVATION: A RUN THAT BREAKS THE LAW IS A FAILED RUN ------------------------------------------------
-# Once the world is sealed, matter is closed apart from booked sources. LAMaterialFieldConservation3D audits
-# every element total once, at a fixed horizon past the seal, and prints CONSERVATION_VIOLATION for any
-# substance that has drifted further than its recorded debt.
+# Once the world is sealed, matter and energy are closed apart from booked exchange.
+# LAMaterialFieldConservation3D audits every gated quantity at a fixed horizon past the seal.
 #
-# THE VIOLATIONS ARE PRINTED LOUDLY AND THE EXIT CODE STAYS 0. This runner answers ONE question — did the
-# run complete — and the physics verdict belongs to `scripts/check_conservation.sh`, which owns it.
-#
-# *(Changed 2026-08-11. This used to exit 126 on any violation, for a good stated reason: "a gauge invites
-# interpretation. A red run does not." That held while the debt table tolerated the drift the planet had
-# TODAY. It stopped holding when the ceilings became float noise — the only honest bar for a conserved
-# substance — because 126 now fires on EVERY run, and a signal that always fires carries no information.
-# People learn to ignore it, which is the thing the red run existed to prevent. The verdict did not get
-# weaker; it got stricter and moved somewhere that can be red without making every `&&` chain and every
-# iteration read as a failure.)*
+# TWO FINDINGS, TWO CODES, AND A BREACH OUTRANKS A STARVED AUDIT. A run whose books COULD NOT ANSWER is not
+# a clean run; it used to exit 0, which is the same silent pass a missing gate gives.
+#   126  CONSERVATION_VIOLATION — a quantity drifted past the float floor
+#   123  CONSERVATION_UNMEASURED — the audit ran and a quantity had no number to give
 if [ "$TAP" != "caller-owned" ] && [ -f "$TAP" ] && [ "$GODOT_RC" -eq 0 ]; then
   if grep -q '^CONSERVATION_VIOLATION=' "$TAP" 2>/dev/null; then
     echo "CONSERVATION_FAILED={\"count\":$(grep -c '^CONSERVATION_VIOLATION=' "$TAP")}" >&2
     grep '^CONSERVATION_VIOLATION=' "$TAP" >&2
+    GODOT_RC=126
+  elif grep -q '^CONSERVATION_UNMEASURED=' "$TAP" 2>/dev/null; then
+    grep '^CONSERVATION_UNMEASURED=' "$TAP" >&2
+    echo "CONSERVATION_UNMEASURED: the audit could not answer, so this run proves nothing about the law." >&2
+    GODOT_RC=123
   fi
 fi
 exit "$GODOT_RC"
