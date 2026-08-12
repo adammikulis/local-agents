@@ -37,6 +37,14 @@ layout(set = 0, binding = 23, std430) restrict writeonly buffer Temp { float tem
 layout(set = 0, binding = 24, std430) restrict readonly buffer Props { float props[]; };
 layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
 
+// MOMENTUM is the state, kg m/s per m^3. Velocity is what you read off it once you know the mass.
+layout(set = 0, binding = 25, std430) restrict readonly buffer MomX { float mom_x[]; };
+layout(set = 0, binding = 26, std430) restrict readonly buffer MomY { float mom_y[]; };
+layout(set = 0, binding = 27, std430) restrict readonly buffer MomZ { float mom_z[]; };
+layout(set = 0, binding = 28, std430) restrict writeonly buffer VelX { float vel_x[]; };
+layout(set = 0, binding = 29, std430) restrict writeonly buffer VelY { float vel_y[]; };
+layout(set = 0, binding = 30, std430) restrict writeonly buffer VelZ { float vel_z[]; };
+
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint pad0;
@@ -144,8 +152,16 @@ void main() {
 	float total = mass[E_H2O] + mass[E_SILICATE] + mass[E_SENSIBLE];
 	if (total <= 0.0) {
 		temp[g] = -LA_KELVIN_OFFSET;   // no matter, so no temperature
+		vel_x[g] = 0.0;
+		vel_y[g] = 0.0;
+		vel_z[g] = 0.0;
 		return;
 	}
+	// v = p/m. Nothing with no mass moves, and a light cell is pushed further by the same momentum.
+	float inv_m = vol / total;
+	vel_x[g] = mom_x[g] * inv_m;
+	vel_y[g] = mom_y[g] * inv_m;
+	vel_z[g] = mom_z[g] * inv_m;
 
 	SubstanceTh subs[LA_MIX_MAX];
 	subs[E_H2O] = la_h2o();

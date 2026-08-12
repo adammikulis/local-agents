@@ -18,7 +18,7 @@ var _n_records: int = 0
 var _set: Array = [RID(), RID()]        # one uniform set per ping-pong parity
 
 
-func _setup(bufs: Dictionary, _cc: int) -> void:
+func _setup(bufs: Dictionary, cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
 	if not _pipe.is_valid():
 		return
@@ -52,7 +52,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	var snow: RID = _single(bufs, "snow")
 	var solid: RID = _single(bufs, "solid")
 	var nbr: RID = _single(bufs, "nbr")
-	var scratch: RID = _single(bufs, "fungus_fert")
+	var scratch: RID = _scratch(cc)         # reaction product target, consumed in the same step
 	var sediment: Array = _pair(bufs, "sediment")
 	var dust: Array = _pair(bufs, "dust")
 	var susp: Array = _pair(bufs, "susp")
@@ -66,7 +66,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	# `fire` is a PAIR but is NOT a channel: the kernel assigns it as the fraction of this cell's usable
 	# oxygen that combustion consumed, so the gauges have something true to read. No physics reads it.
 	var fuel: RID = _single(bufs, "fuel")
-	var fire: Array = _pair(bufs, "fire")
+	var fire: RID = _single(bufs, "fire")   # derived: the burn instrument, not a stock
 	# The two non-silicate mineral species (slots 24/25, bindings 28/29). SINGLE buffers: nothing advects them,
 	# and this kernel is their only reader and only writer, so there is no producer to ping-pong against.
 	var carbonate: RID = _single(bufs, "carbonate")
@@ -90,7 +90,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 			[3, o2[back]],          # o2 transport output — edited in place (sky refill / decompose draw)
 			[4, co2[back]],         # co2 transport output — edited in place (sky vent / decompose emit)
 			[5, fuel],              # SINGLE — combustion debits it (its only sink in the whole tree)
-			[6, fire[back]],        # BACK — the burn INSTRUMENT, assigned every step. Back for the same reason
+			[6, fire],              # derived: the burn INSTRUMENT, assigned every step
 			                        # o2/co2 are: the authoritative readback reads the back half after the
 			                        # phase flip, so a write to LIVE would be discarded.
 			[7, detritus],          # SINGLE — decompose debits in place / respiration credits in place

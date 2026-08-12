@@ -60,15 +60,16 @@ func report(step_index: int) -> Dictionary:
 	if _f._gpu != null and _f._gpu.has_method("take_probe"):
 		legs = _f._gpu.take_probe()
 		_f._gpu.request_probe(LEGS)
-	var co2: PackedFloat32Array = legs.get("co2", _f._co2)
-	var o2: PackedFloat32Array = legs.get("o2", _f._o2)
-	var det: PackedFloat32Array = legs.get("detritus", _f._detritus)
-	var bio: PackedFloat32Array = legs.get("biomass", _f._biomass)
-	var fert: PackedFloat32Array = legs.get("fert", _f._fert)
-	var fung: PackedFloat32Array = legs.get("fungus", _f._fungus)
-	var fuel: PackedFloat32Array = legs.get("fuel", _f._fuel)
-	# n2 is probe-only: nothing reads it back, so `_f._n2` holds the seed forever and would read as a planet
-	# whose nitrogen never moves. An absent leg reads as absent, and `mass_live` says so.
+	# NO MIRROR FALLBACK: a mirror's freshness depends on which channels are resident, which depends on
+	# who is watching, and a probe-only channel's mirror holds the SEED forever -- a planet whose nitrogen
+	# never moves. An absent leg is absent, and `mass_live` says so.
+	var co2: PackedFloat32Array = legs.get("co2", PackedFloat32Array())
+	var o2: PackedFloat32Array = legs.get("o2", PackedFloat32Array())
+	var det: PackedFloat32Array = legs.get("detritus", PackedFloat32Array())
+	var bio: PackedFloat32Array = legs.get("biomass", PackedFloat32Array())
+	var fert: PackedFloat32Array = legs.get("fert", PackedFloat32Array())
+	var fung: PackedFloat32Array = legs.get("fungus", PackedFloat32Array())
+	var fuel: PackedFloat32Array = legs.get("fuel", PackedFloat32Array())
 	var n2: PackedFloat32Array = legs.get("n2", PackedFloat32Array())
 	# SUMMABLE — the array is the right length, whatever it came from. Says nothing about provenance.
 	var has_n2: bool = n2.size() == cc

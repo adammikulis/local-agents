@@ -60,7 +60,8 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	for name: String in CHANNELS:
 		if not _half(bufs, name, 0, false).is_valid():
 			missing.append(name)
-	for name: String in ["h_j_m3", "pressure", "temp", "porosity", "cell_vol"]:
+	for name: String in ["h_j_m3", "pressure", "temp", "porosity", "cell_vol",
+			"mom_x", "mom_y", "mom_z", "vel_x", "vel_y", "vel_z"]:
 		if not _half(bufs, name, 0, false).is_valid():
 			missing.append(name)
 	if not missing.is_empty():
@@ -79,6 +80,12 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		entries.append([22, _single(bufs, "pressure")])
 		entries.append([23, _single(bufs, "temp")])
 		entries.append([24, props_ssbo])
+		entries.append([25, _half(bufs, "mom_x", p, false)])
+		entries.append([26, _half(bufs, "mom_y", p, false)])
+		entries.append([27, _half(bufs, "mom_z", p, false)])
+		entries.append([28, _single(bufs, "vel_x")])
+		entries.append([29, _single(bufs, "vel_y")])
+		entries.append([30, _single(bufs, "vel_z")])
 		entries.append([38, _single(bufs, "porosity")])
 		entries.append([40, _single(bufs, "cell_vol")])
 		_set[p] = _uset(_pipe, entries)

@@ -55,13 +55,13 @@ func report(step_index: int) -> Dictionary:
 	if _f._gpu != null and _f._gpu.has_method("take_probe"):
 		legs = _f._gpu.take_probe()
 		_f._gpu.request_probe(LEGS)
-	var rock: PackedFloat32Array = legs.get("rock_fill", _f._rock_fill)
-	var lava: PackedFloat32Array = legs.get("lava", _f._lava)
-	var sed: PackedFloat32Array = legs.get("sediment", _f._sediment)
-	var susp: PackedFloat32Array = legs.get("susp", _f._susp)
-	var dust: PackedFloat32Array = legs.get("dust", _f._dust)
-	# The two non-silicate species have NO CPU mirror on purpose — nothing on the CPU reads them, so there is
-	# no `_f._carbonate` to fall back to and an absent probe leg reads as absent rather than as a stale zero.
+	# NO MIRROR FALLBACK: a mirror's freshness depends on which channels are resident, which depends on
+	# who is watching. An absent leg is absent, and the total below refuses rather than inventing it.
+	var rock: PackedFloat32Array = legs.get("rock_fill", PackedFloat32Array())
+	var lava: PackedFloat32Array = legs.get("lava", PackedFloat32Array())
+	var sed: PackedFloat32Array = legs.get("sediment", PackedFloat32Array())
+	var susp: PackedFloat32Array = legs.get("susp", PackedFloat32Array())
+	var dust: PackedFloat32Array = legs.get("dust", PackedFloat32Array())
 	var carb: PackedFloat32Array = legs.get("carbonate", PackedFloat32Array())
 	var silica: PackedFloat32Array = legs.get("silica", PackedFloat32Array())
 	# SUMMABLE — the array is the right length, whatever it came from. Says nothing about provenance.
