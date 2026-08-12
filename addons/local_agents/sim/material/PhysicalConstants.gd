@@ -460,3 +460,9 @@ const KOZENY_CARMAN_C: float = 180.0
 # constant rather than fitting it: C_s = (1/pi) * (3 * C_K / 2)^(-3/4).
 const KOLMOGOROV_CONSTANT: float = 1.6
 const SMAGORINSKY_COEFF: float = (1.0 / PI) * pow(1.5 * KOLMOGOROV_CONSTANT, -0.75)
+
+# Air conductivity. Charge relaxes ohmically with time constant eps0/sigma, so these ARE the leak: ~885 s
+# inside cloud (droplets and ice scavenge the small ions that carry the current), ~89 s in clear air.
+# Gringel, Rosen & Hofmann 1986, in The Earth's Electrical Environment (NAS), fair-weather profile.
+const CLOUD_CONDUCTIVITY_S_M: float = 1.0e-14
+const CLEAR_AIR_CONDUCTIVITY_S_M: float = 1.0e-13

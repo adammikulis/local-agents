@@ -129,94 +129,11 @@ trap 'rm -f "$AUTH_MAP"' EXIT
 # invisible to the gate on the day it was added. Found 2026-08-10 when a new derived constant that depends on
 # it could not be bound. Same failure mode the paragraph above describes, one syntax later: the gate got
 # quietly weaker as the authority got better.
-awk '
-  # ONE VALUE PER TOKEN — a name or a numeric literal, exponent included.
-  function val_of(tok,   v) {
-    if (tok ~ /^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/) return tok + 0
-    if (tok in known) return known[tok]
-    return "UNRESOLVED"
-  }
-  # A `*` and `/` chain, evaluated left to right. Same precedence, so left-to-right IS correct here.
-  function resolve_term(term,   n, parts, ops, i, acc, v, e) {
-    e = term; ops = ""
-    while (match(e, /[*\/]/)) { ops = ops substr(e, RSTART, 1); e = substr(e, RSTART + 1) }
-    n = split(term, parts, /[*\/]/)
-    for (i = 1; i <= n; i++) {
-      v = val_of(parts[i])
-      if (v == "UNRESOLVED") return "UNRESOLVED"
-      if (i == 1) { acc = v; continue }
-      if (substr(ops, i - 1, 1) == "*") acc = acc * v
-      else { if (v == 0) return "UNRESOLVED"; acc = acc / v }
-    }
-    return acc
-  }
-  # PRECEDENCE IS REAL: split on + and - FIRST, then evaluate each */ term, then sum.
-  #
-  # *(Rewritten 2026-08-10. The previous resolver evaluated the WHOLE chain left to right with no
-  # precedence, so `x1*M1 + x2*M2 + x3*M3 + x4*M4` — a weighted mean, the shape every derived mixture
-  # property has — came out as ((((x1*M1)+x2)*M2)+x3)*M3... It did not fail; it produced a NUMBER. The
-  # authority map then held 4.787e-5 for MOLAR_MASS_DRY_AIR_KG_MOL against a true 0.028968, and any kernel
-  # bound to it would have been compared against garbage: a correct kernel constant FAILS and a wrong one can
-  # PASS. That is strictly worse than the constant being absent, which is what the line-continuation bug
-  # above was doing to the same constant. Exponent signs are protected before the +/- split, because
-  # `1.0e-9` would otherwise be torn into `1.0e` and `9`.)*
-  function resolve(expr,   n, i, parts, ops, acc, v, e, t) {
-    gsub(/[ \t]/, "", expr)
-    gsub(/[eE]\+/, "\001", expr); gsub(/[eE]-/, "\002", expr)
-    e = expr; ops = ""
-    while (match(e, /[-+]/)) { ops = ops substr(e, RSTART, 1); e = substr(e, RSTART + 1) }
-    n = split(expr, parts, /[-+]/)
-    for (i = 1; i <= n; i++) {
-      t = parts[i]
-      gsub(/\001/, "e+", t); gsub(/\002/, "e-", t)
-      v = resolve_term(t)
-      if (v == "UNRESOLVED") return "UNRESOLVED"
-      if (i == 1) { acc = v; continue }
-      if (substr(ops, i - 1, 1) == "+") acc = acc + v
-      else acc = acc - v
-    }
-    return acc
-  }
-  match($0, /^[ \t]*const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*:[ \t]*float[ \t]*=/) {
-    decl = substr($0, RSTART, RLENGTH)
-    sub(/^[ \t]*const[ \t]+/, "", decl); sub(/[ \t]*:.*$/, "", decl)
-    val = substr($0, RSTART + RLENGTH)
-    sub(/#.*$/, "", val); gsub(/^[ \t]+|[ \t]+$/, "", val)
-    if (val ~ /^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/) { known[decl] = val + 0; order[++nord] = decl; lit[decl] = val }
-    else if (val != "") { pending[decl] = val; porder[++npend] = decl }
-  }
-  END {
-    # iterate: an expression may name a constant that is itself an expression
-    changed = 1
-    while (changed) {
-      changed = 0
-      for (i = 1; i <= npend; i++) {
-        d = porder[i]
-        if (d in known) continue
-        r = resolve(pending[d])
-        if (r != "UNRESOLVED") { known[d] = r + 0; order[++nord] = d; lit[d] = sprintf("%.10g", r); changed = 1 }
-      }
-    }
-    for (i = 1; i <= nord; i++) printf "%s\t%s\n", order[i], lit[order[i]]
-  }
-' <(sed -e :a -e '/\\$/N; s/\\\n//; ta' "$AUTHORITY") > "$AUTH_MAP"
-
-# A CONSTANT THE PARSER CANNOT RESOLVE MUST NOT VANISH SILENTLY. The expression grammar has no parentheses,
-# so `A * (B / C)` dropped CO2_UNIT_DENSITY_KG_M3 out of the map and every kernel copy of it became
-# unbindable — reported as "the authority does not define it", which is false and sends the reader hunting
-# for a typo. Third instance of this shape; the header above records the first two.
-unresolved="$(sed -e :a -e '/\\$/N; s/\\\n//; ta' "$AUTHORITY" \
-  | grep -E '^const [A-Z][A-Z0-9_]*: *float *=' \
-  | sed -E 's/#.*$//' \
-  | grep -F '(' | sed -E 's/^const ([A-Z0-9_]+).*/\1/' || true)"
-if [ -n "$unresolved" ]; then
-  echo "check_physical_constants: FAILED — the authority declares a constant the expression parser cannot read" >&2
-  echo "$unresolved" | sed 's/^/  /' >&2
-  echo "  The grammar is a flat chain of + - * / over names and numbers, with NO parentheses. Rewrite the" >&2
-  echo "  declaration flat, or teach the parser. A constant it cannot read is absent from the authority map," >&2
-  echo "  and every kernel that binds to it then fails with a misleading message." >&2
-  exit 1
+if ! python3 "$SCRIPT_DIR/lib_parse_authority.py" "$AUTHORITY" > "$AUTH_MAP"; then
+  echo "check_physical_constants: the authority could not be parsed; see above." >&2
+  exit 2
 fi
+
 
 auth_count="$(wc -l < "$AUTH_MAP" | tr -d ' ')"
 if [[ "$auth_count" -eq 0 ]]; then
