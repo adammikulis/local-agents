@@ -4,8 +4,11 @@ class_name LocalAgentModelProfile
 
 @export_group("Model")
 
+## Human-readable label for this profile, shown wherever profiles are listed. Purely cosmetic.
 @export var profile_name: String = ""
 
+## The GGUF weights to load. Absolute paths work, and so does a `res://` path for a model you ship.
+## Leave blank to fall back to the project's `local_agents/model/default_path` setting.
 @export_file("*.gguf") var model_path: String = ""
 
 @export_group("Loading")
@@ -17,14 +20,20 @@ class_name LocalAgentModelProfile
 ## CPU threads used for inference. 0 lets the runtime pick (usually your core count).
 @export_range(0, 64, 1) var threads: int = 0
 
+## How many transformer layers to offload to the GPU. 0 is CPU only. Set it high (e.g. 99) to push
+## the whole model onto the GPU. Too high for your VRAM and loading fails.
 @export_range(0, 128, 1) var gpu_layers: int = 0
 
 @export_group("Prompting")
 
+## Standing instruction prepended to every conversation with this model ("You are a terse guide…").
+## Leave blank for none.
 @export_multiline var system_prompt: String = ""
 
 @export_group("Chat template")
 
+## Optional Jinja chat template overriding the one baked into the GGUF. Only needed when a model
+## ships a broken or missing template. Leave blank otherwise.
 @export_multiline var chat_template: String = ""
 
 func to_options() -> Dictionary:

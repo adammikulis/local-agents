@@ -36,13 +36,32 @@ for f in files:
     lines = open(f, errors='replace').read().split('\n')
     tot = com = run = worst = 0
     worst_at = 0
+    # A `##` block of at most MAX_RUN lines sitting directly on an @export / signal / const / enum is a
+    # Godot INSPECTOR TOOLTIP: user-facing documentation with a real consumer, not prose about internals.
+    # It still counts toward MAX_RUN, so it can never become an essay, but it does not count toward the
+    # ratio — a schema Resource is one export per line and would otherwise be 50% by construction, and the
+    # only way to pass would be deleting documentation to satisfy a number.
+    DOCS_TARGET = ('@export', 'signal ', 'const ', 'enum ')
+    doc_lines = set()
+    if marker == '#':
+        block = []
+        for i, l in enumerate(lines, 1):
+            t = l.strip()
+            if t.startswith('##'):
+                block.append(i)
+                continue
+            if block and t.startswith(DOCS_TARGET) and len(block) <= max_run:
+                doc_lines.update(block)
+            block = []
     for i, l in enumerate(lines, 1):
         t = l.strip()
         if not t:
             continue
         tot += 1
         if t.startswith(marker):
-            com += 1; run += 1
+            run += 1
+            if i not in doc_lines:
+                com += 1
             if run > worst: worst, worst_at = run, i - run + 1
         else:
             run = 0

@@ -260,6 +260,16 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_comment_density.sh ($rc_comments)"
       exit 1
     fi
+    # Same gate over first-party GDScript. sim/material is excluded: its kernels are covered by the call
+    # above and its GDScript passes are the field hub's own scope. Exit 2 = could not run.
+    set +e
+    EXCLUDE_RE='/sim/material/' "$SCRIPT_DIR/check_comment_density.sh" "$REPO_ROOT/addons/local_agents"
+    rc_comments_gd=$?
+    set -e
+    if [[ $rc_comments_gd -ne 0 ]]; then
+      echo "LINT_FAIL: check_comment_density.sh (gdscript) ($rc_comments_gd)"
+      exit 1
+    fi
     # Gate: phase-from-energy has one definition per side of the GPU boundary. Exit 2 = could not run.
     set +e
     "$SCRIPT_DIR/check_enthalpy_ssot.sh"

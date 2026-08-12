@@ -394,7 +394,7 @@ static func _species_group(sp: String) -> String:
 # framerate LOD, the collision LOD and the playback itself all live in LACreatureAnim.
 func _process(delta: float) -> void:
 	if Engine.is_editor_hint():
-		return                            # @tool guard — see the header note
+		return                            # @tool guard
 	if LAAblate.off("anim"):
 		return
 	if _model_root == null:
@@ -409,7 +409,7 @@ var _lod_accum: float = 0.0
 
 func _physics_process(delta: float) -> void:
 	if Engine.is_editor_hint():
-		return                            # @tool guard — see the header note
+		return                            # @tool guard
 	if LAAblate.off("creatures"):
 		return
 	# In the player's hand: VoxelWorld sets our position each frame; skip AI + terrain-snap.

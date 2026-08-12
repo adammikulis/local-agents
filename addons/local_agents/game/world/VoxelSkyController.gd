@@ -77,7 +77,7 @@ func sky() -> Node:
 func star() -> Node3D:
 	return _star
 
-## The VISUAL sun (the sky cycle's light). Not the field's solar input — see the class doc.
+## The VISUAL sun (the sky cycle's light). Not the field's solar input.
 func sun():
 	return _sky.sun() if _sky != null else null
 

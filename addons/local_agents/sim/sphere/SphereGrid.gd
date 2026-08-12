@@ -39,7 +39,7 @@ var _back: PackedInt32Array = PackedInt32Array()           # surf_count*4 : part
 var lateral_slot: PackedInt32Array = PackedInt32Array()    # surf_count*4 : geometric slot -> lateral pair slot 0..3
 var lateral_bends: int = 0       # links whose pair had to be bent away from the geometric axis (seam repair)
 
-# TANGENT FRAME — its own table, independent of the lateral slots (see the header). Indexed by SURFACE cell:
+# TANGENT FRAME — its own table, independent of the lateral slots. Indexed by SURFACE cell:
 # every radial layer of a column shares one frame, because the frame is a direction, not a position.
 var tan_a: PackedVector3Array = PackedVector3Array()       # surf_count : unit tangent axis A (face +a, projected)
 var tan_b: PackedVector3Array = PackedVector3Array()       # surf_count : unit tangent axis B = radial x tan_a
@@ -92,11 +92,11 @@ func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p
 				surf_nbr[s * 4 + S_B0] = _surf_idx(f, i, j - 1) if j > 0 else _seam(f, a, b - step)
 				surf_nbr[s * 4 + S_B1] = _surf_idx(f, i, j + 1) if j < res - 1 else _seam(f, a, b + step)
 
-	# 3) Turn that geometric adjacency into a SLOT-OPPOSITE-RECIPROCAL lateral pairing (see the header).
+	# 3) Turn that geometric adjacency into a SLOT-OPPOSITE-RECIPROCAL lateral pairing.
 	_build_back_slots()
 	_build_lateral_slots()
 
-	# 3b) The TANGENT FRAME. A different question from the pairing, so a different table (see the header).
+	# 3b) The TANGENT FRAME. A different question from the pairing, so a different table.
 	_build_tangent_basis()
 	_build_link_frames()
 
