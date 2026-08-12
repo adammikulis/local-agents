@@ -289,7 +289,7 @@ func _cells_within(world_pos: Vector3, radius: float) -> PackedInt32Array:
 	return out
 
 
-# --- Injection API (disasters/flood call these) -----------------------------
+# --- Injection API (the impact actor calls these) ---------------------------
 
 ## Flood pool-fill: add water only where the ground is at/below the centre column's ground, so a surge
 ## fills the basin and runs downhill (never climbs a hillside). 3D analogue of the 2.5D add_water_pooled.
@@ -485,7 +485,7 @@ func crater_report() -> Dictionary:
 
 # --- Physical splash droplets (FX) ------------------------------------------
 
-## A few short-lived rigidbody droplets flung from a world point — the splash accent disasters call.
+## A few short-lived rigidbody droplets flung from a world point — the splash accent an impact calls.
 func splash(world_pos: Vector3, strength: float) -> void:
 	if not _f.is_inside_tree() or is_nan(world_pos.x):
 		return

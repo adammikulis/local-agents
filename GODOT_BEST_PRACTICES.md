@@ -171,8 +171,8 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
   `--quit-after <iterations>` instead.
 - **Voxel scene self-harness** (the active `VoxelWorld.tscn`): pass args after `--`. `--run-frames=N`
   prints `SIM_REPORT={...}`, `--shoot=<png> --shoot-frames=N` screenshots, `--overview` frames a wide
-  island vista, `--time=<0..1>` sets time of day, and `--auto-meteor`/`--auto-volcano`/`--auto-lightning`
-  trigger disasters. Run all of them windowed through `scripts/run_sim_offscreen.sh` for the reason
+  island vista, `--time=<0..1>` sets time of day, and `--auto-meteor`/`--auto-barrage` aim an impact
+  (the only cause the player has). Run all of them windowed through `scripts/run_sim_offscreen.sh` for the reason
   above. A NEW `class_name`/`.gdextension` needs one editor scan first
   (`godot --headless --editor --quit-after 400`).
 - **`run_sim_offscreen.sh` names its failures instead of waiting them out.** The default
@@ -228,7 +228,7 @@ GODOT_BEST_PRACTICES (Godot/runtime/engine). What stays in HANDOFF.md is live re
 - **`FOO="${FOO:-}"` arms anything gating on `OS.has_environment`** — true for an empty value. *(Narrowed
   2026-08-08: the four budget probes this file names are FIXED — `MaterialFieldSphereStep3D._armed()` now
   requires a non-empty value. Still live for `LA_FIELD_CADENCE`, `LA_NO_STREAMER`, `LA_PROFILE`,
-  `LA_SNAPSHOTS`, `LA_NO_AMBIENT_DISASTERS`, `LA_NO_ANIM_LOD`.)*
+  `LA_SNAPSHOTS`, `LA_NO_ANIM_LOD`.)*
 
 ---
 
@@ -418,7 +418,8 @@ pass vacuously. A gate whose pass is the PRESENCE of a success marker cannot.
   the same `--seed` disagree. Measured without `--fixed-fps`: phenomenon totals 11/11/17, creatures
   184/184/171, `h2o_total` 14124.3/14126.9/14135.5.
 - Two plausible causes were fixed and NEITHER helped: `--seed` was not reaching `LASimRng` (nothing called
-  `LASimRng.reset()`), and `LAPlateTectonics` drew from the global RNG on a `_process` render-frame clock.
+  `LASimRng.reset()`), and the since-deleted `LAPlateTectonics` drew from the global RNG on a `_process`
+  render-frame clock.
   Spread after both fixes was 11.2 against 10.2 before. **Fixing a plausible cause is not evidence it was the
   cause; measure the spread again.**
 - What settled it: Godot's built-in **`--fixed-fps N`** (an engine flag, so it goes BEFORE the `--`
@@ -549,9 +550,7 @@ pass vacuously. A gate whose pass is the PRESENCE of a success marker cannot.
   future reader dismiss a genuine 1% regression.
 - Preventative pattern: quote `field_step` beside every h2o/soil figure and compare only at equal
   `field_step`. Run-to-run spread here is DISCRETE — dominated by how many impacts and eruptions a run
-  drew (2 versus 6) — not Gaussian, so quote `phenomenon/impact` and `phenomenon/eruption` too. Note
-  `LA_NO_AMBIENT_DISASTERS=1` is NOT sufficient: it gates only the ambient director, and
-  `LAPlateTectonics` keeps firing on its own drumbeat.
+  drew (2 versus 6) — not Gaussian, so quote `phenomenon/impact` and `phenomenon/eruption` too.
 
 ### 2026-07-30: Fitting a constant to an outcome instead of measuring the dominant term
 

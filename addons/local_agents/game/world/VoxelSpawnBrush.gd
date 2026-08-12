@@ -3,11 +3,6 @@ extends Node3D
 
 
 const MeteorScript: GDScript = preload("res://addons/local_agents/sim/actors/Meteor.gd")
-const EarthquakeScript: GDScript = preload("res://addons/local_agents/sim/actors/Earthquake.gd")
-const FloodScript: GDScript = preload("res://addons/local_agents/sim/actors/Flood.gd")
-
-# Big self-directed storm systems place ONCE at the cursor (not scattered across the brush disk).
-const SINGLETON_STORMS: PackedStringArray = ["tornado", "thunderstorm", "hurricane"]
 
 const BRUSH_MIN: float = 1.0
 const BRUSH_MAX: float = 28.0
@@ -20,7 +15,6 @@ var _ecology: Node = null
 var _hud: CanvasLayer = null
 var _audio = null
 var _actors_root: Node3D = null
-var _disasters = null        # LAVoxelDisasters
 
 var _armed_kind: String = ""
 var _brush_radius: float = 5.0
@@ -29,7 +23,7 @@ var _paint_last_world: Vector3 = Vector3(INF, INF, INF)
 var _brush_ring: MeshInstance3D = null
 
 
-func setup(world, terrain, camera: Camera3D, ecology: Node, hud: CanvasLayer, audio, actors_root: Node3D, disasters) -> void:
+func setup(world, terrain, camera: Camera3D, ecology: Node, hud: CanvasLayer, audio, actors_root: Node3D) -> void:
 	_world = world
 	_terrain = terrain
 	_camera = camera
@@ -37,7 +31,6 @@ func setup(world, terrain, camera: Camera3D, ecology: Node, hud: CanvasLayer, au
 	_hud = hud
 	_audio = audio
 	_actors_root = actors_root
-	_disasters = disasters
 
 
 func armed_kind() -> String:
@@ -107,9 +100,9 @@ func _terrain_point(screen_pos: Vector2) -> Vector3:
 
 
 # Apply the armed kind across the brush disk: one placement at the centre for a pinpoint brush,
-# else a size-scaled scatter of placements. General over all kinds — trees, herds, floods alike.
+# else a size-scaled scatter of placements. General over all kinds.
 func _paint_brush(center: Vector3) -> void:
-	if _brush_radius <= BRUSH_MIN + 0.01 or SINGLETON_STORMS.has(_armed_kind):
+	if _brush_radius <= BRUSH_MIN + 0.01:
 		_apply_at(center)
 	else:
 		var n: int = clampi(int(round(_brush_radius * 0.6)), 1, 12)
@@ -147,46 +140,6 @@ func _apply_at(point: Vector3) -> void:
 		_world.set_destruction(1.0)
 		if _hud != null:
 			_hud.set_status("Meteor inbound!")
-	elif _armed_kind == "volcano":
-		_disasters.spawn_volcano(point)
-		_world.set_destruction(1.0)
-		if _hud != null:
-			_hud.set_status("A volcano rises. Stand back!")
-	elif _armed_kind == "lightning":
-		_disasters.spawn_lightning(point)
-		_world.set_destruction(0.7)
-		if _hud != null:
-			_hud.set_status("A bolt strikes!")
-	elif _armed_kind == "earthquake":
-		var quake: Node = EarthquakeScript.new()
-		_actors_root.add_child(quake)
-		quake.setup(_terrain, _ecology)
-		quake.rupture(point)
-		_world.set_destruction(1.0)
-		if _hud != null:
-			_hud.set_status("The ground heaves!")
-	elif _armed_kind == "flood":
-		var flood: Node = FloodScript.new()
-		_actors_root.add_child(flood)
-		flood.setup(_terrain, _ecology)
-		# Tie the surge footprint to the spawn brush so a flood only covers where the player aimed.
-		flood.surge(point, _brush_radius)
-		if _hud != null:
-			_hud.set_status("Flood surge!")
-	elif _armed_kind == "tornado":
-		_disasters.spawn_tornado(point)
-		_world.set_destruction(0.8)
-		if _hud != null:
-			_hud.set_status("A tornado touches down!")
-	elif _armed_kind == "thunderstorm":
-		_disasters.spawn_thunderstorm(point)
-		if _hud != null:
-			_hud.set_status("A thunderstorm gathers!")
-	elif _armed_kind == "hurricane":
-		_disasters.spawn_hurricane(point)
-		_world.set_destruction(1.0)
-		if _hud != null:
-			_hud.set_status("A hurricane spins up!")
 	else:
 		_ecology.spawn(_armed_kind, point)
 		if _hud != null:
@@ -281,13 +234,6 @@ func _kind_color(kind: String) -> Color:
 		"villager": return Color(0.75, 0.5, 0.9)
 		"fish": return Color(0.55, 0.72, 0.86)
 		"meteor": return Color(1.0, 0.5, 0.2)
-		"volcano": return Color(0.95, 0.42, 0.12)
-		"lightning": return Color(0.82, 0.88, 1.0)
-		"earthquake": return Color(0.55, 0.40, 0.28)
-		"flood": return Color(0.30, 0.55, 0.90)
-		"tornado": return Color(0.55, 0.52, 0.5)
-		"thunderstorm": return Color(0.4, 0.45, 0.6)
-		"hurricane": return Color(0.35, 0.55, 0.75)
 		_: return Color(0.8, 0.9, 0.6)
 
 

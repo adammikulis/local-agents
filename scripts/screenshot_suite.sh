@@ -4,12 +4,11 @@
 # not by chance. sim_check.sh gates the NUMBERS; this gates the LOOK. Review the PNGs (Read them / open the dir /
 # the contact sheet) after any render-affecting change, and compare against a committed baseline set.
 #
-#   scripts/screenshot_suite.sh                      # quick set (orbit, ground, volcano) — the regression-prone few
+#   scripts/screenshot_suite.sh                      # quick set (orbit, ground, impact) — the regression-prone few
 #   scripts/screenshot_suite.sh full                 # every scenario
 #   scripts/screenshot_suite.sh full --path ../wt --out DIR
 #
-# Terrain is seeded (LA_SIM_SEED=1337) so the WORLD is reproducible shot-to-shot; disasters use Godot's global
-# RNG so their placement varies (a known limit — see disaster-load-unseeded-rng). Each shot: 0 errors + a
+# Terrain is seeded (LA_SIM_SEED=1337) so the WORLD is reproducible shot-to-shot. Each shot: 0 errors + a
 # non-trivial PNG => PASS. Builds a contact-sheet montage if ImageMagick `montage` is present.
 set -uo pipefail
 SELF="$(cd "$(dirname "$0")" && pwd)"
@@ -21,21 +20,16 @@ mkdir -p "$OUT"
 SCENE="addons/local_agents/game/VoxelWorld.tscn"
 RES="${LA_RES:-1280x800}"
 
-# scenario = "name|extra-sim-flags|shoot-frames". The world-view flags frame the camera; --auto-* fire a disaster
-# (disasters fire ~shoot_frames-240, so give them >=520 frames to fire + settle before the shot).
+# scenario = "name|extra-sim-flags|shoot-frames". The world-view flags frame the camera; --auto-meteor and
+# --auto-barrage fire ~shoot_frames-240, so give them >=520 frames to land + settle before the shot.
 QUICK=(
   "orbit|--farview|300"
   "ground|--water-cam|320"
-  "volcano|--auto-volcano|560"          # land-building — the floating-cube regression lives here
+  "impact|--auto-meteor|560"            # crater + toppled trees — the floating-cube regression lives here
 )
 FULL=(
   "${QUICK[@]}"
-  "seavolcano|--auto-seavolcano|600"    # island building from a sea vent
   "barrage|--auto-barrage|560"          # meteor craters (+ can expose caves)
-  "thunderstorm|--auto-thunderstorm|900"
-  "tornado|--auto-tornado|560"
-  "hurricane|--auto-hurricane|560"
-  "earthquake|--auto-earthquake|560"
   "solar|--solar-view|300"              # solar-system view: black space + sun + planet
   "creature|--auto-select|320"          # a framed creature + inspector
 )

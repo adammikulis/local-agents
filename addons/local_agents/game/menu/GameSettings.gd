@@ -2,7 +2,6 @@ class_name LAGameSettings
 extends Resource
 
 
-enum Difficulty { PEACEFUL, NORMAL, HARSH }
 enum GraphicsPreset { POTATO, LOW, MEDIUM, HIGH, ULTRA, CUSTOM }
 enum SimPreset { LOW, MEDIUM, HIGH, ULTRA, CUSTOM }
 enum EffectsLevel { LOW, MEDIUM, HIGH }
@@ -10,10 +9,6 @@ enum ShadowQuality { OFF, LOW, HIGH }
 enum OceanQuality { OPAQUE, TRANSLUCENT }
 
 const SAVE_PATH: String = "user://game_settings.cfg"
-
-@export var difficulty: Difficulty = Difficulty.NORMAL
-@export var disaster_frequency: float = 0.5   ## 0 = calm .. 1 = frequent disasters
-@export var climate_harshness: float = 0.5    ## 0 = mild .. 1 = extreme climate swings
 
 @export var graphics_preset: GraphicsPreset = GraphicsPreset.MEDIUM
 @export var grid_resolution: int = 72                              ## field cells per axis budget (÷3 = cells/face)
@@ -38,14 +33,6 @@ const SAVE_PATH: String = "user://game_settings.cfg"
 
 @export var invert_rotate_x: bool = false   ## flip the horizontal drag direction when rotating the planet
 @export var invert_rotate_y: bool = false   ## flip the vertical drag direction when rotating the planet
-
-# Difficulty preset → (disaster_frequency, climate_harshness). The preset seeds the knobs; the player may
-# then fine-tune the two sliders independently.
-const DIFFICULTY_PRESETS: Dictionary = {
-	Difficulty.PEACEFUL: {"disaster_frequency": 0.10, "climate_harshness": 0.15},
-	Difficulty.NORMAL: {"disaster_frequency": 0.50, "climate_harshness": 0.50},
-	Difficulty.HARSH: {"disaster_frequency": 0.85, "climate_harshness": 0.85},
-}
 
 const GRAPHICS_PRESETS: Dictionary = {
 	GraphicsPreset.POTATO: {
@@ -81,14 +68,6 @@ const SIM_PRESETS: Dictionary = {
 	SimPreset.HIGH: {"actor_budget": 240, "ai_tick_frames": 2, "llm_cadence": 8.0, "field_cadence": 1},
 	SimPreset.ULTRA: {"actor_budget": 360, "ai_tick_frames": 1, "llm_cadence": 5.0, "field_cadence": 1},
 }
-
-
-## Apply a difficulty preset: set the enum and seed the two continuous knobs from the table.
-func apply_difficulty_preset(preset: Difficulty) -> void:
-	difficulty = preset
-	var row: Dictionary = DIFFICULTY_PRESETS.get(preset, DIFFICULTY_PRESETS[Difficulty.NORMAL])
-	disaster_frequency = float(row["disaster_frequency"])
-	climate_harshness = float(row["climate_harshness"])
 
 
 ## Apply a graphics preset: set the enum and every concrete GPU knob it maps to.
@@ -179,9 +158,6 @@ static func load_or_default() -> LAGameSettings:
 	var err: int = config.load(SAVE_PATH)
 	if err != OK:
 		return settings
-	settings.difficulty = int(config.get_value("difficulty", "preset", settings.difficulty)) as Difficulty
-	settings.disaster_frequency = float(config.get_value("difficulty", "disaster_frequency", settings.disaster_frequency))
-	settings.climate_harshness = float(config.get_value("difficulty", "climate_harshness", settings.climate_harshness))
 	settings.graphics_preset = int(config.get_value("graphics", "preset", settings.graphics_preset)) as GraphicsPreset
 	settings.grid_resolution = int(config.get_value("graphics", "grid_resolution", settings.grid_resolution))
 	settings.effects_level = int(config.get_value("graphics", "effects_level", settings.effects_level)) as EffectsLevel
@@ -208,9 +184,6 @@ static func load_or_default() -> LAGameSettings:
 ## Persist to the ConfigFile. Returns OK on success.
 func save() -> int:
 	var config: ConfigFile = ConfigFile.new()
-	config.set_value("difficulty", "preset", int(difficulty))
-	config.set_value("difficulty", "disaster_frequency", disaster_frequency)
-	config.set_value("difficulty", "climate_harshness", climate_harshness)
 	config.set_value("graphics", "preset", int(graphics_preset))
 	config.set_value("graphics", "grid_resolution", grid_resolution)
 	config.set_value("graphics", "effects_level", int(effects_level))
@@ -236,8 +209,7 @@ func save() -> int:
 
 ## A compact human-readable snapshot (for logs / the settings-saved confirmation line).
 func summary() -> String:
-	return "diff=%d dis=%.2f cli=%.2f | gfx=%d grid=%d fx=%d shadow=%d ssao=%s glow=%s ocean=%d fog=%s veg=%.2f draw=%.0f | sim=%d actors=%d ai=%d llm=%.1f field=%d | vol[m=%.2f mu=%.2f s=%.2f] | ctrl[invx=%s invy=%s]" % [
-		int(difficulty), disaster_frequency, climate_harshness,
+	return "gfx=%d grid=%d fx=%d shadow=%d ssao=%s glow=%s ocean=%d fog=%s veg=%.2f draw=%.0f | sim=%d actors=%d ai=%d llm=%.1f field=%d | vol[m=%.2f mu=%.2f s=%.2f] | ctrl[invx=%s invy=%s]" % [
 		int(graphics_preset), grid_resolution, int(effects_level), int(shadow_quality),
 		str(ssao_enabled), str(glow_enabled), int(ocean_quality), str(fog_enabled),
 		vegetation_density, draw_distance,

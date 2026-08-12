@@ -1,4 +1,4 @@
-[gd_scene load_steps=20 format=3]
+[gd_scene load_steps=19 format=3]
 
 [ext_resource type="Script" path="res://addons/local_agents/game/Simulation.gd" id="1_simulation"]
 [ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelSettingsApplier.gd" id="2_voxelsettingsapplier"]
@@ -12,9 +12,8 @@
 [ext_resource type="Script" path="res://addons/local_agents/sim/events/LAEventTracker.gd" id="10_laeventtracker"]
 [ext_resource type="Script" path="res://addons/local_agents/sim/system/Moon.gd" id="11_moon"]
 [ext_resource type="Script" path="res://addons/local_agents/sim/system/SystemOrbits.gd" id="12_systemorbits"]
-[ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelDisasters.gd" id="13_voxeldisasters"]
-[ext_resource type="Script" path="res://addons/local_agents/sim/ecology/PopulationGovernor.gd" id="14_populationgovernor"]
-[ext_resource type="Script" path="res://addons/local_agents/sim/PlateTectonics.gd" id="15_platetectonics"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/MeteorImpacts.gd" id="13_meteorimpacts"]
+[ext_resource type="Script" path="res://addons/local_agents/game/world/PhenomenaMarkers.gd" id="15_phenomenamarkers"]
 [ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelSpawnController.gd" id="16_voxelspawncontroller"]
 [ext_resource type="Script" path="res://addons/local_agents/game/progression/WorldSaveController.gd" id="17_worldsavecontroller"]
 [ext_resource type="Script" path="res://addons/local_agents/sim/ecology/BandChronicle.gd" id="18_bandchronicle"]
@@ -58,14 +57,11 @@ script = ExtResource("11_moon")
 [node name="SystemOrbits" type="Node" parent="."]
 script = ExtResource("12_systemorbits")
 
-[node name="Disasters" type="Node" parent="."]
-script = ExtResource("13_voxeldisasters")
+[node name="MeteorImpacts" type="Node" parent="."]
+script = ExtResource("13_meteorimpacts")
 
-[node name="PopulationGovernor" type="Node" parent="."]
-script = ExtResource("14_populationgovernor")
-
-[node name="PlateTectonics" type="Node" parent="."]
-script = ExtResource("15_platetectonics")
+[node name="PhenomenaMarkers" type="Node3D" parent="."]
+script = ExtResource("15_phenomenamarkers")
 
 [node name="SpawnController" type="Node" parent="."]
 script = ExtResource("16_voxelspawncontroller")

@@ -34,18 +34,13 @@ from a caller list and from a red gate were not in front of anyone. They are in 
 
 **The grid migration is done.** The Cartesian box is the only grid: `MaterialSphereGPU3D` takes an
 `LAVoxelGrid`, gravity is the solved Poisson field read per cell, and `check_no_privileged_axis.sh` passes
-— no slot means "up", no column is an array stride. `sim/sphere/` is deleted, and with it the seam-repair
-graph matching, the tangent basis and its parallel transport, the radial shell stack and `link_partner`.
-The grid is METRES, because the gravity solve is SI.
+— no slot means "up", no column is an array stride. `sim/sphere/` and `LASphereGrid` are deleted, and with
+them the seam-repair graph matching, the tangent basis and its parallel transport, the radial shell stack
+and `link_partner`. The grid is METRES, because the gravity solve is SI.
 
-**`check_physical_constants.sh` is red on ONE line, on purpose.** `AMBIENT_O2_DENSITY_KG_M3` is now derived
-from the air density and mole fractions this file already declares rather than stored a second time and 4%
-adrift; `CO2_UNIT_DENSITY_KG_M3` moved with it, and `kernels3d/heat3d_solar_sphere3d.glsl` carries a
-hand-copied `RHO_CO2_UNIT` that must be set to the authority's value. Clearing it is one literal.
-
-**`LATransportRecords` and `LAFieldTotals` have no GDScript caller.** `max_fill` feeds a `transport.glsl`
-push constant nothing fills; `substance_kg` is reached only from `scripts/check_sphere_grid.sh`. Wire or
-delete — say which.
+**`LAFieldTotals` has no caller.** `substance_kg` is reached only from `scripts/check_sphere_grid.sh`, and
+it answers with the REFERENCE density now that the EOS gives a real one per cell. Wire or delete — say
+which. (`LATransportRecords.max_fill` was listed here as unfilled; it is not — `TransportPass` encodes it.)
 
 
 **Kernels: 24 to 10.** One `transport.glsl` plus a record table absorbed the seven gathers, then diffusion,
@@ -111,8 +106,9 @@ channels that carry heat, because heat is no longer spread across channels:
 **G — the grid. Done.** The kernels run on `LAVoxelGrid`, gravity is solved, the axis gate passes,
 `METRES_PER_MODEL_UNIT` / `PLANET_SCALE` / `SURFACE_G` / the held `STANDARD_GRAVITY_M_S2` are gone, and so
 are `solid_angle`, `cell_vol`, `face_area`, `link_arc`, `link_partner`, the tangent basis and its parallel
-transport, the shell table and the whole of `sim/sphere/`. *Left:* `BiomeTextureBaker` still calls
-`shell_of` on a grid class that no longer exists.
+transport, the shell table, the `_seed_families` / `_repair_pairs` / `_augment_once` seam-repair graph
+matching, `LASphereGrid` and the whole of `sim/sphere/`. *Left:* `BiomeTextureBaker` still calls
+`_grid.shell_of()`, which the box does not have.
 
 **P — pressure. Done.** `kernels3d/pressure.glsl` marches along -g accumulating the cell's own bulk
 density times the solved `|g|`. It replaced a kernel that gave a buried cell the weight of the AIR column
@@ -209,27 +205,16 @@ changes its unit, then the latent-plateau gate.
 - **`MOISTURE_DIFFUSE` differs from `EDDY_DIFFUSE`.** Eddy mixing is a property of the flow, not of what is
   suspended in it, so one parcel cannot stir vapour harder than it stirs oxygen. Neither value is derived,
   so picking one is a physics decision, not a merge resolution.
-- **`world_ready()` is defined nowhere, so the ambient-disaster readiness gate has never once run.** The
-  director guards on `has_method("world_ready")`, which is false, so the guard is skipped and it can seed a
-  tornado mid-terrain-generation. Both lineages' comments claim it routes through a life-independent spawn
-  check. One forwarder on the composition root closes it.
-
-## PHENOMENA THAT ARE STILL CAUSED RATHER THAN OBSERVED
-
-A named phenomenon belongs in a detector that reads the field and says "this is happening". The tell is a
-verb in a function name. These four survived the reconciliation because BOTH lineages had them, so no merge
-could decide them:
-
-- **`PlateTectonics._maybe_event`** calls into the disaster spawner on a fixed drumbeat with a rarity roll
-  deciding whether a convergent margin gets a volcano. Melt should come from crustal thinning and the
-  geotherm, with no boundary classifier and no dice.
-- **`VoxelSettingsApplier._seed_ambient_disaster`** spawns thunderstorms, tornadoes, hurricanes and volcanoes
-  weighted by a `climate_harshness` setting.
-- **`Volcano`** injects no matter any more, and still emits a constant-magnitude tremor every tick whether or
-  not anything is erupting. A detector would read the field's own state. `Earthquake` has the same shape.
-- **`Flood.surge` / `_pump_cloudburst`**, and the same in the hurricane and thunderstorm actors. These at
-  least debit the footprint's own water, so they move matter rather than create it — but a cloudburst is
-  pumped rather than observed.
+- **`pressure.glsl` is the weight of the column, so the atmosphere has no DYNAMIC pressure.**
+  `LAFieldPhenomena._cyclones` reads it for a closed low, sampling a tangent-plane ring so every reading
+  sits at one radius; whether a warm-core low can form in a purely hydrostatic field at all is unproven and
+  needs a run the shader gate currently forbids.
+- **Nothing carries elastic stress or strain, so there is no earthquake to detect.** The `shock` channel
+  propagates a wave once something emits one, and the only emitter left is an impact. A fault that stores
+  and releases strain is unbuilt; until it exists nothing may inject a quake.
+- **`fixtures/stable_world/world.sav` stores unlock ids for capabilities that no longer exist**
+  (`spawn_volcano`, `spawn_tornado`, `spawn_hurricane`, …). Harmless strings today; regenerate the fixture
+  with `scripts/fixture_check.sh --regen` once the tree runs.
 
 ## DECLARED DEPARTURES — the maintainer's to keep or kill
 

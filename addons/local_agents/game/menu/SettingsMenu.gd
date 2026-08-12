@@ -7,13 +7,6 @@ const ModelManagerPanelScene: PackedScene = preload("res://addons/local_agents/u
 
 var _settings: LAGameSettings = null
 
-var _difficulty_group: ButtonGroup = null
-var _difficulty_buttons: Dictionary = {}   # Difficulty enum -> Button
-
-var _disaster_slider: HSlider = null
-var _disaster_value: Label = null
-var _climate_slider: HSlider = null
-var _climate_value: Label = null
 var _master_value: Label = null
 var _music_value: Label = null
 var _sfx_value: Label = null
@@ -42,7 +35,6 @@ func _ready() -> void:
 	_save_button.pressed.connect(_on_save)
 	_models_button.pressed.connect(_on_models)
 	_back_button.pressed.connect(_on_back)
-	_refresh_difficulty()
 	_save_button.grab_focus()
 
 	# Screenshot verification: grow the scroll viewport so the whole settings list renders into one tall
@@ -62,24 +54,6 @@ func _ready() -> void:
 
 
 func _build_sections() -> void:
-	LASettingsWidgets.add_header(_sections, "Difficulty")
-	_difficulty_group = ButtonGroup.new()
-	var diff_row: HBoxContainer = LASettingsWidgets.add_row(_sections)
-	_add_difficulty(diff_row, LAGameSettings.Difficulty.PEACEFUL, "Peaceful", "Rare, mild disasters and a gentle climate. Gameplay difficulty.")
-	_add_difficulty(diff_row, LAGameSettings.Difficulty.NORMAL, "Normal", "A balanced cadence of disasters and climate swings. Gameplay difficulty.")
-	_add_difficulty(diff_row, LAGameSettings.Difficulty.HARSH, "Harsh", "Frequent, severe disasters and an extreme climate. Gameplay difficulty.")
-
-	var dis: Dictionary = LASettingsWidgets.add_slider(_sections, "Disaster frequency",
-		"How often ambient natural disasters are seeded into the world. Gameplay, not performance.",
-		0.0, 1.0, 0.01, _settings.disaster_frequency, Callable(self, "_fmt_percent"), Callable(self, "_on_disaster_changed"))
-	_disaster_slider = dis["slider"]
-	_disaster_value = dis["value"]
-	var cli: Dictionary = LASettingsWidgets.add_slider(_sections, "Climate harshness",
-		"How extreme the climate swings and which disasters lean in. Gameplay, not performance.",
-		0.0, 1.0, 0.01, _settings.climate_harshness, Callable(self, "_fmt_percent"), Callable(self, "_on_climate_changed"))
-	_climate_slider = cli["slider"]
-	_climate_value = cli["value"]
-
 	_graphics = LAGraphicsSettingsSection.new()
 	_graphics.setup(_settings, Callable(self, "_on_section_changed"))
 	_graphics.build(_sections)
@@ -112,27 +86,8 @@ func _build_sections() -> void:
 # Handlers
 # ---------------------------------------------------------------------------
 
-func _on_difficulty(preset: int) -> void:
-	if _suppress:
-		return
-	_settings.apply_difficulty_preset(preset as LAGameSettings.Difficulty)
-	_refresh_difficulty()
-
-
 func _on_section_changed() -> void:
 	_status_label.text = "Unsaved changes."
-
-
-func _on_disaster_changed(value: float) -> void:
-	_disaster_value.text = _fmt_percent(value)
-	if not _suppress:
-		_settings.disaster_frequency = value
-
-
-func _on_climate_changed(value: float) -> void:
-	_climate_value.text = _fmt_percent(value)
-	if not _suppress:
-		_settings.climate_harshness = value
 
 
 func _on_master_changed(value: float) -> void:
@@ -207,21 +162,6 @@ func _on_models() -> void:
 # ---------------------------------------------------------------------------
 # Refresh helpers
 # ---------------------------------------------------------------------------
-
-func _refresh_difficulty() -> void:
-	_suppress = true
-	for preset in _difficulty_buttons:
-		(_difficulty_buttons[preset] as Button).set_pressed_no_signal(preset == _settings.difficulty)
-	_disaster_slider.set_value_no_signal(_settings.disaster_frequency)
-	_disaster_value.text = _fmt_percent(_settings.disaster_frequency)
-	_climate_slider.set_value_no_signal(_settings.climate_harshness)
-	_climate_value.text = _fmt_percent(_settings.climate_harshness)
-	_suppress = false
-
-
-func _add_difficulty(row: HBoxContainer, preset: int, text: String, tooltip: String) -> void:
-	_difficulty_buttons[preset] = LASettingsWidgets.add_preset_button(row, text, _difficulty_group, tooltip, Callable(self, "_on_difficulty").bind(preset))
-
 
 func _fmt_percent(v: float) -> String:
 	return "%d%%" % int(round(v * 100.0))

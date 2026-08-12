@@ -107,27 +107,17 @@ to visuals that seed a source and *read back* the feature the field produces.
   where fertility peaks — so grazing pressure and vegetation recovery couple through the ground with no
   bookkeeping. It all diffuses, advects on the local wind, decays, and washes in rain, like a real
   smell would.
-- **Canonical worked example (0.3) — a seabed vent builds an island, with zero eruption code.** This is
-  the flagship dissolve-don't-patch result: "volcano" is a word for what the physics does, so the
-  scripted `Volcano.gd` eruption logic (`_is_erupting`, burst timers, `BOMBS_PER_BURST`, `_launch_bombs`)
-  was **deleted**. What remains is a seed and universal substrate rules that chain on their own:
-  1. the actor seeds a deep, hot, pressurized magma source at a seabed vent — that's the *only* dedicated
-     input;
-  2. overpressure melts/carves a conduit upward and drives hot lava out (the same pressure → momentum on
-     matter that throws any ejecta);
-  3. the surrounding cold seawater **quenches** the lava — a phase transition (a reaction record) that
-     solidifies it into conserved `rock_fill`;
-  4. `rock_fill` **accumulates** at the vent (conserving mass through the `mineral_total` ledger), and
-  5. where it crosses the solid threshold, the `MineralStamp3D` SDF-growth turns the pile into real
-     walkable terrain — so an open-ocean basin becomes a glowing volcanic island breaching sea level.
-  No step is "volcano code": each is a universal rule (pressure, phase-change, conservation, SDF growth)
-  that the same substrate applies everywhere. The actor is a seed + FX reader (`--auto-seavolcano` prints
-  `SEAVOLCANO={...}` proof that the vent rises from below sea level to above it). *Steam blasts, geysers,
-  and lava bombs are the same pressure-release rule at other thresholds — free, once the rule exists.*
+- **An eruption is observed, never caused (`LAFieldPhenomena`).** There is no `Volcano.gd` and no vent
+  seed. Melt rises because overpressure drives it, cold seawater quenches it into conserved `rock_fill`,
+  the pile accumulates through the `mineral_total` ledger, and `MineralStamp3D` turns a `rock_fill`
+  0.5-crossing into walkable terrain. The detector reads melt standing in an open cell and calls that an
+  eruption; a marker follows it. *Steam blasts, geysers and lava bombs are the same pressure-release rule
+  at other thresholds — free, once the rule exists.*
 - **Storms are a rotation term, not a strength envelope (`MaterialWind3D`).** Adding a single
-  Coriolis-like rotation to the pressure-driven wind makes any pressure low *spin*; tornadoes,
-  mesocyclones, and hurricanes are the same emergent vortex at different seed strengths. The storm
-  actors seed a low and read `vorticity_at`/`updraft_at` — the intensity is whatever the field spins up.
+  Coriolis-like rotation to the pressure-driven wind makes any pressure low *spin*. A cyclone is then
+  detected, not spawned: a horizontal pressure minimum at the ground layer whose core is warmer than its
+  surroundings and out-spins them. Three comparisons against the cell's own neighbours; no threshold
+  constant, no seed, no pump.
 - **Lightning is charge separation, not a rain trigger (`MaterialCharge3D`).** Charge accumulates
   where convective updrafts lift cold cloud (`vel_y`×cloud×cold); when it exceeds breakdown it fires a
   bolt to the tallest ground, dumping a heat pulse (which can ignite a wildfire through the ordinary
@@ -136,7 +126,8 @@ to visuals that seed a source and *read back* the feature the field produces.
 - **Snow / dust / shock (and, partially, erosion) are all the same move.** Snowpack accretes where it's
   cold and melts to meltwater where it's warm (`snowice_sphere3d` kernel); wind lofts dry sediment into
   dust storms and migrates dunes (`dust_transport_sphere3d`); a propagating pressure wave carries an
-  earthquake's shake and startle outward (`MaterialShock3D`, which replaced a point-based seismic ring).
+  impact's shake and startle outward (`MaterialShock3D`). **There is no earthquake:** the substrate
+  carries no elastic stress or strain state, so there is nothing to detect and nothing may inject one.
   Each is a local rule over a channel, so each rides the wind, water, and heat that are already there.
   **Erosion is only PARTLY landed, not shipped:** the sediment *pickup* phase exists as a GPU kernel
   (`erosion_pickup_sphere3d` / `ErosionPickupPass`), but the old `MaterialErosion3D` deposition module that
@@ -166,7 +157,7 @@ to visuals that seed a source and *read back* the feature the field produces.
   animal → carcass → detritus → fungus → CO₂ + fertility → new plants → O₂ → animals. A closed
   carbon/oxygen/nutrient cycle nobody scripted — every leg is a local rule over the one field.
 
-The test is the same as for creatures: canyons, dune fields, tornado-spawned fires, manure-fed meadows,
+The test is the same as for creatures: canyons, dune fields, storm-lit fires, manure-fed meadows,
 snow-capped peaks that stop the forest, cave fires that smother themselves, and mushrooms fruiting on the
 dead to feed the living are things we did not script — they *fall out* of local rules sharing one field.
 

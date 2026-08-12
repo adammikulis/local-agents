@@ -150,7 +150,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			and (event.keycode == KEY_BRACKETLEFT or event.keycode == KEY_BRACKETRIGHT):
 		_brush.adjust_radius(event.keycode == KEY_BRACKETRIGHT)
 		return
-	# Palette / selection hotkeys: Esc -> Select, digit keys arm a palette entry (Shift for the disasters
+	# Palette / selection hotkeys: Esc -> Select, digit keys arm a palette entry (Shift for the impact
 	# cluster), Tab / Shift+Tab cycle the selection through on-screen entities. The key->kind mapping and
 	# the progression lock both live in the shared hotkey registry / HUD, so nothing is duplicated here.
 	if event is InputEventKey and event.pressed and not event.echo:

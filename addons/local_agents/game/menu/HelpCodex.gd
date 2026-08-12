@@ -10,12 +10,12 @@ const ENTRIES: Array = [
 	{
 		"title": "Spawn & caretaker tools",
 		"image": "ecosystem.png",
-		"body": "The palette along the bottom is your caretaker toolkit. The left cluster spawns life: plants, trees, rabbits, foxes, birds, vultures, villagers and fish. The right cluster seeds disasters. Click a button (or press its number key) to arm it, then click the terrain to place. Hold and drag to paint a whole radius at once, and use the brush keys to size that radius. Click the crosshair, or press Esc, to return to select mode.",
+		"body": "The palette along the bottom is your caretaker toolkit. The left cluster spawns life: plants, trees, rabbits, foxes, birds, vultures, villagers and fish. The right cluster aims a meteor, the one thing that really does arrive from outside. Click a button (or press its number key) to arm it, then click the terrain to place. Hold and drag to paint a whole radius at once, and use the brush keys to size that radius. Click the crosshair, or press Esc, to return to select mode.",
 	},
 	{
-		"title": "Natural disasters",
+		"title": "Weather and geology",
 		"image": "disaster.png",
-		"body": "Disasters are not scripted set-pieces. Each is just matter given the physics to misbehave. A volcano is pressure escaping through rock; a meteor is momentum; a flood, quake, tornado, storm and hurricane all fall out of the same shared field of heat, pressure, water and wind. Seed one from the disasters cluster and watch how the world reacts: fire spreads downwind, herds stampede from a strike, predators scatter. Weathering one is also a campaign goal.",
+		"body": "Weather and geology cannot be spawned. An eruption is molten rock that reached the surface; a storm is a low the wind and pressure field grew; lightning fires when a cloud charges to breakdown. The game watches for these in the field and marks them where it finds them. The one thing you can aim is a meteor, because a rock really does arrive from outside. Watch how the world reacts: fire spreads downwind, herds stampede from a strike, predators scatter. Weathering a phenomenon is also a campaign goal.",
 	},
 	{
 		"title": "Time control",
@@ -38,9 +38,9 @@ const ENTRIES: Array = [
 		"body": "Every creature is driven by a local language model running on your machine, with no cloud and no network. Click a creature to select it and open the inspector: it shows the animal's state, needs and, where available, the reasoning behind its current decision. The same local models also drive the optional streamer overlay that narrates your world. Toggle the streamer, the HUD and the field overlays from the interface hotkeys.",
 	},
 	{
-		"title": "Difficulty & quality settings",
+		"title": "Quality & audio settings",
 		"image": "",
-		"body": "The Settings screen on the main menu tunes three groups. Difficulty picks a preset (peaceful, normal or harsh) that seeds how often disasters strike and how extreme the climate swings, both of which you can then nudge by hand. Quality picks a performance preset (low, medium or high) mapping to grid resolution, actor budget and effects level. Drop it to low if your GPU struggles. Audio sets the master, music and sfx volumes.",
+		"body": "The Settings screen on the main menu tunes two groups. Quality picks a performance preset (low, medium or high) mapping to grid resolution, actor budget and effects level. Drop it to low if your GPU struggles. Audio sets the master, music and sfx volumes.",
 	},
 ]
 

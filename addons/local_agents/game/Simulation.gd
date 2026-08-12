@@ -16,9 +16,8 @@ const STAR_POSITION: Vector3 = Vector3(900.0, 320.0, 620.0)
 @onready var _events: Node = $EventTracker
 @onready var _moon: LAMoon = $Moon
 @onready var _orbits: LASystemOrbits = $SystemOrbits
-@onready var _disasters: Node = $Disasters
-@onready var _governor: Node = $PopulationGovernor
-@onready var _tectonics: LAPlateTectonics = $PlateTectonics
+@onready var _impacts: LAMeteorImpacts = $MeteorImpacts
+@onready var _markers: LAPhenomenaMarkers = $PhenomenaMarkers
 @onready var _spawn: LAVoxelSpawnController = $SpawnController
 @onready var _save: LAWorldSaveController = $WorldSaveController
 @onready var _timeline: LAVoxelTimeline = $Timeline
@@ -99,15 +98,13 @@ func _build_system() -> void:
 
 func _build_geology_and_life() -> void:
 	# The camera + audio are rendering, injected by those layers when they exist.
-	_disasters.setup(self, _terrain, _ecology, _actors_root, null, null)
+	_impacts.setup(self, _terrain, _ecology, _actors_root, null)
+
+	_markers.setup(_material)
 	if _material.has_method("set_lightning_visual"):
-		_material.set_lightning_visual(Callable(_disasters, "spawn_lightning"))
+		_material.set_lightning_visual(Callable(_markers, "show_bolt"))
 
-	_governor.setup(_ecology, _terrain, _actors_root)
-
-	_tectonics.setup(_terrain, _disasters)
-
-	_spawn.setup(self, _body, _terrain, _ecology, null, _material, null, _disasters)
+	_spawn.setup(self, _body, _terrain, _ecology, null, _material, null)
 	_spawn.set_spawn_scale(_settings_applier.spawn_scale())
 
 
@@ -134,7 +131,8 @@ func ecology() -> Node: return _ecology
 func material_field() -> Node: return _material
 func moon() -> LAMoon: return _moon
 func orbits() -> LASystemOrbits: return _orbits
-func disasters() -> Node: return _disasters
+func meteor_impacts() -> LAMeteorImpacts: return _impacts
+func phenomena_markers() -> LAPhenomenaMarkers: return _markers
 func spawn_controller() -> LAVoxelSpawnController: return _spawn
 func save_controller() -> LAWorldSaveController: return _save
 func timeline() -> LAVoxelTimeline: return _timeline

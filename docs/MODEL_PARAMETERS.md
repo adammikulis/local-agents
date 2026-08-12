@@ -105,13 +105,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/SimWorld.gd` | `DETAIL_RELIEF_M` | 3.4e2 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
 | `addons/local_agents/sim/SimWorld.gd` | `CAVE_SIZE_M` | 2.0e4 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
 | `addons/local_agents/sim/SimWorld.gd` | `CAVE_DEPTH_FADE_M` | 4.7e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
-| `addons/local_agents/sim/PlateTectonics.gd` | `PLATE_COUNT` | 9 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/PlateTectonics.gd` | `EVENT_PERIOD` | 7.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/PlateTectonics.gd` | `SAMPLES_PER_EVENT` | 10 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/PlateTectonics.gd` | `BOUNDARY_PROBE` | 0.06 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/PlateTectonics.gd` | `CONVERGE_MIN` | 0.25 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/PlateTectonics.gd` | `GEOLOGIC_TIME_ACCELERATION` | 3.0e5 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/PlateTectonics.gd` | `VOLCANO_CHANCE_CONVERGENT` | 0.3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/SimClock.gd` | `REAL_SECONDS_PER_SIM_SECOND` | 432.0 | time compression: real seconds that one sim-clock second stands for. A real planet has no such number, and this is now the only one the timebase asserts — the rotation itself is `LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S`, and `DAY_LENGTH` (199.454 sim s), `SPIN_RAD_PER_SIM_S` (0.0315019 rad/sim s) and `LAMaterialFieldSphereStep3D.real_seconds_per_step()` (43.2 real s) are all derived from that pair. It is not only a viewing speed: `real_seconds_per_step()` is every transport kernel's `params.dt`, so this number sets every rate in the substrate and every kernel's Courant number. | a substep budget that decouples the field's `dt` from the presentation clock, so this number sets how fast the player watches and no kernel `dt` reads it |
 | `addons/local_agents/sim/SimClock.gd` | `DAYS_PER_SEASON` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_OUTPUT_SDF` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -172,19 +165,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/streamer/StreamerOverlay.gd` | `CAPTION_HOLD` | 8.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/streamer/StreamerOverlay.gd` | `FEED_MAX` | 4 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/actors/HeatGlow.gd` | `GLOW_MIN` | 400.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `VORTEX_FOLLOW` | 8.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `VORTEX_PROBE` | 26.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `WIND_FOLLOW` | 0.9 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `WANDER_SPEED` | 3.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `SCARE_BASE` | 40.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `SCARE_INTERVAL` | 0.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `FUNNEL_HEIGHT` | 62.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `FUNNEL_TOP_R` | 20.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `FUNNEL_BASE_R` | 1.4 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `FUNNEL_CORE_FRAC` | 0.52 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/actors/Tornado.gd` | `SPIN_SPEED` | 7.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `SWAY_SPEED` | 1.3 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tornado.gd` | `SPOUT_SPLASH_INTERVAL` | 0.18 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `SPAWN_HEIGHT` | 140.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `START_SPEED` | 70.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `LAUNCH_SPEED` | 150.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
@@ -208,31 +188,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/actors/LightningStrike.gd` | `FLASH_ENERGY` | 34.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/LightningStrike.gd` | `LINGER` | 0.7 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/LightningStrike.gd` | `SEGMENTS` | 14 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Flood.gd` | `DURATION` | 4.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Flood.gd` | `FADE_TIME` | 1.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Flood.gd` | `RADIUS_SCALE` | 1.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Flood.gd` | `MIN_RADIUS` | 6.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Flood.gd` | `SCARE_MULT` | 2.6 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Flood.gd` | `VAPOR_PER_SEC` | 26.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Flood.gd` | `VAPOR_INJECT_R` | 16.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Flood.gd` | `CLOUD_ALOFT` | 58.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Volcano.gd` | `SCARE_INTERVAL` | 2.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Volcano.gd` | `SCARE_RADIUS` | 55.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Volcano.gd` | `ERUPT_SEISMIC` | 3.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Volcano.gd` | `PROFILE_AZIMUTHS` | 24 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Volcano.gd` | `PROFILE_RINGS` | 14 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Volcano.gd` | `PROFILE_SPAN` | 0.25 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Volcano.gd` | `PROFILE_RISE` | 0.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Volcano.gd` | `BASELINE_DELAY` | 1.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Thunderstorm.gd` | `LIFETIME` | 46.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Thunderstorm.gd` | `BUILD_TIME` | 6.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Thunderstorm.gd` | `FADE_TIME` | 10.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Thunderstorm.gd` | `RADIUS` | 62.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Thunderstorm.gd` | `VAPOR_PER_SEC` | 5.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Thunderstorm.gd` | `VAPOR_INJECT_R` | 14.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Thunderstorm.gd` | `LIFT_FOLLOW` | 5.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Thunderstorm.gd` | `LIFT_PROBE` | 40.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Thunderstorm.gd` | `WIND_DRIFT` | 0.7 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tree.gd` | `GROW_TIME` | 20.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tree.gd` | `START_FRACTION` | 0.35 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tree.gd` | `TREE_BIOMASS_FULL` | 0.0025 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
@@ -240,21 +195,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/actors/Tree.gd` | `TOPPLE_TIME` | 1.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tree.gd` | `TOPPLE_ANGLE` | 1.483529 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tree.gd` | `TREE_SETTLE_STRIDE` | 30 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `WARM_OCEAN_TEMP` | 26.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `VORTEX_STEER` | 0.4 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `VORTEX_PROBE` | 60.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `EYE_RADIUS` | 26.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `OUTER_RADIUS` | 150.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `EYEWALL_POINTS` | 12 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `VAPOR_PER_SEC` | 9.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `VAPOR_INJECT_R` | 20.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `TRACK_SPEED` | 7.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `WIND_STEER` | 0.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `SPIN_SPEED` | 1.4 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Hurricane.gd` | `SCARE_INTERVAL` | 0.8 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Earthquake.gd` | `DURATION` | 3.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Earthquake.gd` | `SCARE_RADIUS` | 130.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Earthquake.gd` | `QUAKE_MAGNITUDE` | 14.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Plant.gd` | `BIOMASS_GROWTH_GAIN` | 4.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Plant.gd` | `BIOMASS_GROWTH_MAX` | 2.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/actors/Plant.gd` | `BIOMASS_PER_FOOD` | 1.8e-4 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |

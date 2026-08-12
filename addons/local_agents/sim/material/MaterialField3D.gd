@@ -665,7 +665,7 @@ func wet_cell_count() -> int:
 	return _queries.wet_cell_count()
 
 
-# --- Injection API (disasters/flood call these; bodies live in LAMaterialFieldInject3D) ------------
+# --- Injection API (the impact actor calls these; bodies live in LAMaterialFieldInject3D) ---------
 
 ## Flood pool-fill: add water only where the ground is at/below the centre column's ground, so a surge
 ## fills the basin and runs downhill (never climbs a hillside).
@@ -697,7 +697,7 @@ func hot_cell_count(threshold: float = 60.0) -> int:
 	return _queries.hot_cell_count(threshold)
 
 # --- Physical splash droplets (FX; body lives in LAMaterialFieldInject3D) ----
-## A few short-lived rigidbody droplets flung from a world point — the splash accent disasters call.
+## A few short-lived rigidbody droplets flung from a world point — the splash accent an impact calls.
 func splash(world_pos: Vector3, strength: float) -> void:
 	if _inject != null:
 		_inject.splash(world_pos, strength)
