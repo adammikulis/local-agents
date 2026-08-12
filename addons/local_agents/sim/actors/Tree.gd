@@ -76,7 +76,7 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 		species = DEFAULT_SPECIES
 
 	# Deterministic per-tree variation.
-	var seed_val: int = int(config.get("seed", randi()))
+	var seed_val: int = int(config.get("seed", LASimRng.for_domain("life").randi()))
 	_rng.seed = seed_val
 
 	var def: Dictionary = _species_def()

@@ -161,7 +161,8 @@ func setup(_terrain, _mat_field, _config: Dictionary) -> void:
 	add_to_group(GROUP_FISH)
 	add_to_group(SPECIES_GROUP)
 	add_to_group("species_%s" % species)     # per-species group so stocking caps count each kind
-	_heading = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0).normalized()
+	var rng: LASimRng = LASimRng.for_domain("life")
+	_heading = Vector3(rng.randf() * 2.0 - 1.0, 0.0, rng.randf() * 2.0 - 1.0).normalized()
 	if _heading == Vector3.ZERO:
 		_heading = Vector3.FORWARD
 	# A BODY APPEARED: register its mass with the field's biota ledger (swimmers are always spawner-made —
@@ -610,9 +611,10 @@ func _decide_heading(pos: Vector3, up: Vector3, delta: float) -> Vector3:
 	var desired: Vector3 = _heading
 	_wander_timer -= delta
 	if _wander_timer <= 0.0:
-		_wander_timer = randf_range(1.0, 2.5)
+		var rng: LASimRng = LASimRng.for_domain("life")
+		_wander_timer = rng.randf_range(1.0, 2.5)
 		# Isotropic 3D jitter; the tangent-plane projection by the caller keeps it in the swim plane.
-		var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0) * 0.7
+		var jitter: Vector3 = Vector3(rng.randf() * 2.0 - 1.0, rng.randf() * 2.0 - 1.0, rng.randf() * 2.0 - 1.0) * 0.7
 		desired = _heading + jitter
 
 	var threat: Node3D = _nearest_threat(pos)
@@ -776,7 +778,7 @@ func _swim_planet(pos: Vector3, candidate: Vector3, step_len: float, up: Vector3
 	var next_pos: Vector3 = pos + candidate * step_len
 	var next_dir: Vector3 = (next_pos - center).normalized()
 	if not _habitable_dir(next_dir):
-		if basks and _bask_cd <= 0.0 and randf() < BASK_CHANCE and _try_bask_planet(next_dir):
+		if basks and _bask_cd <= 0.0 and LASimRng.for_domain("life").randf() < BASK_CHANCE and _try_bask_planet(next_dir):
 			return true
 		var back: Vector3 = _find_habitable_dir_planet(pos, up)
 		if back != Vector3.ZERO:

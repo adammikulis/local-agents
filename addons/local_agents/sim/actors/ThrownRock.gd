@@ -36,10 +36,11 @@ func setup(terrain, water = null) -> void:
 	var mesh_instance: MeshInstance3D = MeshInstance3D.new()
 	mesh_instance.name = "ThrownRockMesh"
 	mesh_instance.mesh = mesh
+	var rng: LASimRng = LASimRng.shared()
 	mesh_instance.rotation = Vector3(
-		randf_range(-0.4, 0.4),
-		randf_range(0.0, TAU),
-		randf_range(-0.4, 0.4)
+		rng.randf_range(-0.4, 0.4),
+		rng.randf_range(0.0, TAU),
+		rng.randf_range(-0.4, 0.4)
 	)
 	add_child(mesh_instance)
 

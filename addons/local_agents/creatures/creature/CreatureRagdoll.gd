@@ -56,13 +56,14 @@ static func launch(c, impulse: Vector3, lethal: bool) -> void:
 	shadow.global_transform = c.global_transform
 
 	# The push. A tiny impulse still gets a topple nudge so the body lies down.
+	var rng: LASimRng = LASimRng.for_domain("life")
 	var push: Vector3 = impulse
 	if push.length() < 0.5:
-		var axis: Vector3 = Vector3(randf_range(-1.0, 1.0), 0.4, randf_range(-1.0, 1.0))
+		var axis: Vector3 = Vector3(rng.randf_range(-1.0, 1.0), 0.4, rng.randf_range(-1.0, 1.0))
 		push = axis.normalized() * (c.size * 2.5 + 1.5)
 	shadow.apply_central_impulse(push)
 	shadow.apply_torque_impulse(Vector3(
-		randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)
+		rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0)
 	) * (push.length() * 0.25 + 1.0))
 
 	c._shadow = shadow

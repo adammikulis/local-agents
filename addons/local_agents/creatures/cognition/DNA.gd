@@ -213,7 +213,7 @@ const FOUNDER_VARIATION: float = 0.08     # +/- fraction applied to each quantit
 
 func seed_variation(rng: LASimRng, frac: float = FOUNDER_VARIATION) -> LADNA:
 	if rng == null:
-		rng = LASimRng.shared()
+		rng = LASimRng.for_domain("life")
 	for row in LOCI:
 		var kind: String = String(row[1])
 		if kind != "gene" and kind != "cue":
@@ -293,7 +293,7 @@ static func _diet_bucket(carnivory: float) -> String:
 ## as an instinct prior its offspring may be born with — NOT wholesale thought copying, only the deepest,
 ## most consistently-rewarded habits, and only sometimes. Stochastic draw goes through the shared LASimRng.
 func maybe_canalize(policy: Dictionary) -> void:
-	var rng: LASimRng = LASimRng.shared()
+	var rng: LASimRng = LASimRng.for_domain("life")
 	for key in policy.keys():
 		var entry = policy[key]
 		if typeof(entry) != TYPE_DICTIONARY:
@@ -322,7 +322,7 @@ func _prune_instincts() -> void:
 ## are unioned (higher confidence wins). All stochastic draws go through the injected LASimRng.
 static func crossover(a: LADNA, b: LADNA, rng: LASimRng) -> LADNA:
 	if rng == null:
-		rng = LASimRng.shared()
+		rng = LASimRng.for_domain("life")
 	var g: LADNA = LADNA.new()
 	g.base_config = a.base_config.duplicate(true)
 	g.coded_genes = a.coded_genes.duplicate(true)
@@ -376,7 +376,7 @@ static func _splice(a: PackedByteArray, b: PackedByteArray, rng: LASimRng) -> Pa
 ## shifts a coding locus), plus rare forgetting of a baked instinct. All draws go through the injected LASimRng.
 func mutate(rng: LASimRng, rate: float = DEFAULT_MUTATION_RATE) -> LADNA:
 	if rng == null:
-		rng = LASimRng.shared()
+		rng = LASimRng.for_domain("life")
 	var codons: int = LADNA.total_codons()
 	for c in range(codons):
 		if rng.randf() < rate:

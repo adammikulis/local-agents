@@ -13,13 +13,13 @@ const FECES_DETRITUS_YIELD: float = 1.0
 static func tick(c, ground_pos: Vector3, delta: float) -> void:
 	c._poop_cd -= delta
 	if c._poop_cd <= 0.0:
-		c._poop_cd = randf_range(24.0, 48.0)
+		c._poop_cd = LASimRng.for_domain("life").randf_range(24.0, 48.0)
 		if c.gut_waste >= maxf(float(c.gut_capacity), 0.0) * FECES_MIN_GUT_FRAC:
 			deposit(c, ground_pos, "feces", c.gut_waste)
 			c.gut_waste = 0.0                     # expelled — the pending digested residue is passed (no double count)
 	c._urine_cd -= delta
 	if c._urine_cd <= 0.0:
-		c._urine_cd = randf_range(10.0, 22.0)
+		c._urine_cd = LASimRng.for_domain("life").randf_range(10.0, 22.0)
 		deposit(c, ground_pos, "urine", 0.0)
 
 

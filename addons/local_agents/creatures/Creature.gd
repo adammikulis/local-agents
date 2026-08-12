@@ -621,14 +621,15 @@ func _physics_process(delta: float) -> void:
 					# water). No water sensed -> back out the way it came (reverse heading). Latched, anti-oscillation.
 					var wdir: Vector3 = LACreatureThirst.find_water_dir(self, pos)
 					_veto_dir = (-wdir) if wdir.length() > 0.001 else (-_heading)
-					_veto_timer = randf_range(1.5, 2.5)
+					_veto_timer = LASimRng.for_domain("life").randf_range(1.5, 2.5)
 				if _veto_dir.length() > 0.001:
 					desired = _veto_dir
 					eff_speed = speed
 
 			if big_pred == null and _wander_timer <= 0.0:
-				_wander_timer = randf_range(1.2, 3.0)
-				var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0) * 0.6
+				var rng: LASimRng = LASimRng.for_domain("life")
+				_wander_timer = rng.randf_range(1.2, 3.0)
+				var jitter: Vector3 = Vector3(rng.randf() * 2.0 - 1.0, 0.0, rng.randf() * 2.0 - 1.0) * 0.6
 				desired = (desired + jitter)
 
 			if big_pred == null and _panic_timer <= 0.0 and lactate > 0.45 and energy > max_energy * 0.35 \

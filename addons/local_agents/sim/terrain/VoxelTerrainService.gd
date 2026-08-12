@@ -9,6 +9,7 @@ const ISLAND_RADIUS: float = 180.0        # land core radius (world units) — u
 const SEA_LEVEL_Y: float = 6.0            # world Y of the sea surface (default sea level)
 
 var _terrain: VoxelLodTerrain = null
+var _generator: VoxelGeneratorGraph = null   # the planet's SDF, queryable before anything is meshed
 var _viewer: VoxelViewer = null
 var _query_tool: VoxelTool = null          # cached SDF sampler for is_solid / sdf_at (the 3D-field rock test)
 var _sea_level: float = SEA_LEVEL_Y
@@ -80,6 +81,7 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	})
 	_planet_radius = pg.radius()
 	_sea_radius = pg.sea_radius()
+	_generator = gen
 
 	var mesher: VoxelMesherTransvoxel = VoxelMesherTransvoxel.new()
 	mesher.texturing_mode = 0
@@ -223,7 +225,7 @@ func fill_rock(world_pos: Vector3, size: float, normal: Vector3) -> void:
 	var right: Vector3 = up.cross(ref).normalized()
 	var fwd: Vector3 = right.cross(up).normalized()
 	var b: Basis = Basis(right, up, fwd)
-	b = b.rotated(up, randf() * TAU)                    # random spin so no two rocks align (no grid look)
+	b = b.rotated(up, LASimRng.shared().randf() * TAU)   # spin so no two rocks align
 	b = b.scaled(Vector3(size, size * 0.55, size))      # flatter than tall → a crust, not a boulder
 	vt.set_channel(VoxelBuffer.CHANNEL_SDF)
 	vt.set_mode(VoxelTool.MODE_ADD)
@@ -253,18 +255,43 @@ func raycast_terrain(from: Vector3, dir: Vector3, max_distance: float) -> Dictio
 func ground_point(pos: Vector3) -> Vector3:
 	return surface_point(pos - _center)
 
-## PLANET: world radius (distance from centre) of the solid surface along direction `dir`, via an inward
-## radial physics ray from above the surface toward the core. NAN if that patch is unmeshed / the ray misses.
+## PLANET: world radius (distance from centre) of the solid surface along direction `dir`. Reads the voxel
+## DATA, so runtime craters and carved tubes count, and falls back to the generator where no data block is
+## resident. Does not depend on which chunks a viewer has meshed. NAN only when there is no terrain.
 func surface_radius(dir: Vector3) -> float:
 	var d: Vector3 = dir.normalized()
 	var top: float = _planet_radius + _planet_relief + 60.0
-	var from: Vector3 = _center + d * top
-	var res: Dictionary = raycast_terrain(from, -d, top)      # cast inward toward the core
-	if not res["hit"]:
-		return NAN
-	return (res["position"] - _center).length()
+	var vt: VoxelTool = _query_voxel_tool()
+	if vt != null and _terrain != null:
+		var from_w: Vector3 = _center + d * top
+		var from_l: Vector3 = _terrain.to_local(from_w)
+		var dir_l: Vector3 = (_terrain.to_local(from_w - d) - from_l).normalized()
+		var span: float = top - maxf(_planet_radius - _planet_relief - 60.0, 1.0)
+		var hit: VoxelRaycastResult = vt.raycast(from_l, dir_l, span)
+		if hit != null:
+			return (_terrain.to_global(from_l + dir_l * hit.distance) - _center).length()
+	return _generated_surface_radius(d)
 
-## PLANET: the world-space surface point along `dir` (centre + dir * surface_radius). NAN-vector if unmeshed.
+# Bracket the SDF crossing with a metre sweep, then refine across that bracket at 5 cm.
+const GEN_RAY_STRIDE: float = 1.0
+const GEN_RAY_REFINE: float = 0.05
+
+func _generated_surface_radius(dir: Vector3) -> float:
+	if _generator == null or _shape != "planet":
+		return NAN
+	var d: Vector3 = dir.normalized()
+	var r_top: float = _planet_radius + _planet_relief + 60.0
+	var r_bot: float = maxf(_planet_radius - _planet_relief - 60.0, 1.0)
+	var coarse: float = _generator.raycast_sdf_approx(_center + d * r_top, _center + d * r_bot, GEN_RAY_STRIDE)
+	if coarse < 0.0:
+		return NAN
+	var r_hit: float = r_top - coarse
+	var r_a: float = minf(r_hit + GEN_RAY_STRIDE, r_top)
+	var r_b: float = maxf(r_hit - GEN_RAY_STRIDE, r_bot)
+	var fine: float = _generator.raycast_sdf_approx(_center + d * r_a, _center + d * r_b, GEN_RAY_REFINE)
+	return r_hit if fine < 0.0 else r_a - fine
+
+## PLANET: the world-space surface point along `dir` (centre + dir * surface_radius).
 func surface_point(dir: Vector3) -> Vector3:
 	var r: float = surface_radius(dir)
 	if is_nan(r):

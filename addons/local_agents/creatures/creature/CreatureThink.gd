@@ -354,7 +354,7 @@ static func _best_learned_cue(c, pos: Vector3) -> Dictionary:
 			unknown_dir = dir.normalized()
 	if best_key != "":
 		return {"key": best_key, "dir": best_dir}
-	if unknown_key != "" and randf() < 0.03:     # curiosity: try an unproven cue to learn from it
+	if unknown_key != "" and LASimRng.for_domain("life").randf() < 0.03:     # curiosity: try an unproven cue to learn from it
 		return {"key": unknown_key, "dir": unknown_dir}
 	return {}
 
@@ -487,7 +487,7 @@ static func execute_action(c, action: String, pos: Vector3, delta: float) -> Dic
 		"migrate":
 			if c._migrate_dir == Vector3.ZERO:
 				var cards: Array = [Vector3.FORWARD, Vector3.BACK, Vector3.LEFT, Vector3.RIGHT]
-				c._migrate_dir = cards[randi() % cards.size()]
+				c._migrate_dir = cards[LASimRng.for_domain("life").randi() % cards.size()]
 			return {"heading": c._migrate_dir, "state": "migrate", "speed": c.speed}
 		"flee":
 			# A follower that ADOPTED its leader's flee (Creature._physics_process) must actually move — this
@@ -498,7 +498,8 @@ static func execute_action(c, action: String, pos: Vector3, delta: float) -> Dic
 			if pred != null and is_instance_valid(pred) and (pos - pred.global_position).length() > 0.001:
 				away = pos - pred.global_position
 			if away.length() < 0.001:
-				away = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0)
+				var rng: LASimRng = LASimRng.for_domain("life")
+				away = Vector3(rng.randf() * 2.0 - 1.0, 0.0, rng.randf() * 2.0 - 1.0)
 			return {"heading": away.normalized(), "state": "flee", "speed": c.speed * 1.5}
 		"wander":
 			return {"heading": c._heading, "state": "wander", "speed": c.speed}

@@ -127,7 +127,7 @@ func _drop_footprint(creature_pos: Vector3) -> bool:
 	decal.texture_albedo = _footprint_texture
 	decal.size = DECAL_SIZE
 	decal.position = ground + up * SURFACE_OFFSET
-	decal.rotation.y = randf() * TAU  # small/arbitrary yaw for variety
+	decal.rotation.y = LASimRng.for_domain("life").randf() * TAU
 	decal.albedo_mix = 0.5            # subtle, not a hard grey stamp
 	decal.modulate = Color(1.0, 1.0, 1.0, 0.5)
 	add_child(decal)

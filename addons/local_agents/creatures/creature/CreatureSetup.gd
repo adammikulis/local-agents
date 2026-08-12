@@ -16,7 +16,7 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 		c.config = c._genome.express()
 	else:
 		c.config = config_arg.duplicate(true)
-		c._genome = LADNA.from_config(c.config).seed_variation(LASimRng.shared())
+		c._genome = LADNA.from_config(c.config).seed_variation(LASimRng.for_domain("life"))
 		c.config = c._genome.express()
 	var config: Dictionary = c.config
 	c.species = String(config.get("species", c.species))
@@ -28,7 +28,7 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.cruise_height = float(config.get("cruise_height", c.cruise_height))
 	c.sense_radius = float(config.get("sense_radius", c.sense_radius))
 	c.maturity_age = float(config.get("maturity_age", c.maturity_age))
-	c.maturity_age *= 1.0 + randf_range(-MATURITY_VARIANCE, MATURITY_VARIANCE)
+	c.maturity_age *= 1.0 + LASimRng.for_domain("life").randf_range(-MATURITY_VARIANCE, MATURITY_VARIANCE)
 	c.preys_on = PackedStringArray(config.get("preys_on", PackedStringArray()))
 	c.flees_from = PackedStringArray(config.get("flees_from", PackedStringArray()))
 	c.herd = bool(config.get("herd", c.herd))
@@ -51,13 +51,13 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.breathes = String(config.get("breathes", c.breathes))
 	LACreatureBodyMass.apply(c, config)
 	c.max_age = float(config.get("max_age", maxf(c.maturity_age * 5.0, 60.0)))
-	c.max_age *= 1.0 + randf_range(-LIFESPAN_VARIANCE, LIFESPAN_VARIANCE)
+	c.max_age *= 1.0 + LASimRng.for_domain("life").randf_range(-LIFESPAN_VARIANCE, LIFESPAN_VARIANCE)
 	if genome_arg == null:
-		c.age = randf() * c.maturity_age * 1.8
+		c.age = LASimRng.for_domain("life").randf() * c.maturity_age * 1.8
 	if config.has("sex"):
 		c.is_male = String(config.get("sex", "")) == "male"
 	else:
-		c.is_male = LASimRng.shared().randf() < 0.5
+		c.is_male = LASimRng.for_domain("life").randf() < 0.5
 	var display_gene: float = clampf(float(config.get("display", 0.0)), 0.0, 1.0)
 	if c.is_male and display_gene > 0.01:
 		c.color = c.color.lerp(Color(1.0, 0.72, 0.28), 0.6 * display_gene)
@@ -77,8 +77,9 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.body_temp = LACreatureRespiration.band_optimum_c()
 	c._target_altitude = c.cruise_height
 	c.state = "cruise" if c.can_fly else "wander"
-	c._poop_cd = randf_range(20.0, 45.0)
-	c._call_cd = randf_range(0.0, 2.0)
+	var rng: LASimRng = LASimRng.for_domain("life")
+	c._poop_cd = rng.randf_range(20.0, 45.0)
+	c._call_cd = rng.randf_range(0.0, 2.0)
 
 	c.collision_layer = 2
 	c.collision_mask = 0                  # movement is manual; picked via layer-2 query
@@ -86,7 +87,7 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.add_to_group(c.GROUP_SELECTABLE)
 	c.add_to_group(c._species_group(c.species))
 	c.add_to_group(c.GROUP_CREATURE)
-	c._heading = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0).normalized()
+	c._heading = Vector3(rng.randf() * 2.0 - 1.0, 0.0, rng.randf() * 2.0 - 1.0).normalized()
 	if c._heading == Vector3.ZERO:
 		c._heading = Vector3.FORWARD
 

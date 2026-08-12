@@ -38,8 +38,9 @@ static func choose_site(c, pos: Vector3) -> Vector3:
 			return tp + up * TREETOP_RISE
 		return pos
 	# Ground/burrow species: a small sheltered offset from where it stands, pinned radially to the surface.
-	var ox: float = (randf() * 2.0 - 1.0) * GROUND_SCATTER
-	var oz: float = (randf() * 2.0 - 1.0) * GROUND_SCATTER
+	var rng: LASimRng = LASimRng.for_domain("life")
+	var ox: float = (rng.randf() * 2.0 - 1.0) * GROUND_SCATTER
+	var oz: float = (rng.randf() * 2.0 - 1.0) * GROUND_SCATTER
 	var site: Vector3 = Vector3(pos.x + ox, pos.y, pos.z + oz)
 	var gp: Vector3 = c.terrain.ground_point(site) if c.terrain.has_method("ground_point") else Vector3(NAN, NAN, NAN)
 	if is_nan(gp.x):

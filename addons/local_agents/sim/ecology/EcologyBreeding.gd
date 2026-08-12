@@ -40,7 +40,7 @@ func birth_child(kind: String, pa: Node3D, pb: Node3D) -> Node:
 	var base_pos: Vector3 = pa.global_position
 	if bool(pa.get("has_nest")) and not is_inf(float((pa.get("nest_pos") as Vector3).x)):
 		base_pos = pa.get("nest_pos")
-	var placed = _eco._place_on_surface(_eco._tangent_offset_point(base_pos, LASimRng.shared().randf_range(-2.0, 2.0), LASimRng.shared().randf_range(-2.0, 2.0)))
+	var placed = _eco._place_on_surface(_eco._tangent_offset_point(base_pos, LASimRng.for_domain("life").randf_range(-2.0, 2.0), LASimRng.for_domain("life").randf_range(-2.0, 2.0)))
 	if placed == null:
 		return null
 	var mate: Node3D = pb if (pb != null and is_instance_valid(pb)) else pa
@@ -87,7 +87,7 @@ func _breed_genome(pa, pb):
 		gb.maybe_canalize(pb.get_cognition().policy)
 	# All heredity stochastics (crossover points, point mutations, indel) draw from the ONE seeded sim RNG so
 	# an evolutionary run reproduces from its seed — never a bare randf().
-	var rng: LASimRng = LASimRng.shared()
+	var rng: LASimRng = LASimRng.for_domain("life")
 	var child = LADNA.crossover(ga, gb, rng)
 	child.mutate(rng)
 	# The child's family_id is its parent's connected-component label, sourced from the kinship graph (which
@@ -138,7 +138,7 @@ func _graze_food_mult(adults: Array) -> float:
 	var sum_b: float = 0.0
 	var n: int = mini(adults.size(), GRAZE_BIOMASS_SAMPLES)
 	for i in range(n):
-		var a: Node3D = adults[LASimRng.shared().randi_range(0, adults.size() - 1)] as Node3D
+		var a: Node3D = adults[LASimRng.for_domain("life").randi_range(0, adults.size() - 1)] as Node3D
 		if a != null and is_instance_valid(a):
 			sum_b += _eco._biomass_at(a.global_position)
 	var mean_b: float = sum_b / float(maxi(n, 1))
@@ -149,13 +149,13 @@ func _graze_food_mult(adults: Array) -> float:
 # stay together), falling back to a valid point in the species' salinity/depth band if the parent drifted to the
 # waterline. The water gate in _instance_actor rejects any point that isn't inside the sea shell.
 func _birth_aquatic_one(kind: String, adults: Array, cfg: Dictionary) -> void:
-	var pa: Node3D = adults[LASimRng.shared().randi_range(0, adults.size() - 1)] as Node3D
+	var pa: Node3D = adults[LASimRng.for_domain("life").randi_range(0, adults.size() - 1)] as Node3D
 	# THE BEARER PAYS FIRST, or there is no young. Nothing else in this function ever asked where the new body
 	# came from; a school could double while every one of its members was starving.
 	if pa != null and is_instance_valid(pa) and _spawn_cost(pa) <= 0.0:
 		return
 	if pa != null and is_instance_valid(pa):
-		var jitter: Vector3 = LASimRng.shared().rand_dir() * LASimRng.shared().randf_range(0.5, 2.5)
+		var jitter: Vector3 = LASimRng.for_domain("life").rand_dir() * LASimRng.for_domain("life").randf_range(0.5, 2.5)
 		var near: Vector3 = pa.global_position + jitter
 		if _eco._is_water_pos(near):
 			_eco._instance_actor(kind, near)

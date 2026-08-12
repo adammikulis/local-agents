@@ -250,6 +250,27 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_neighbour_slots.sh ($rc_nbrslots)"
       exit 1
     fi
+    # Gate: the packed radial shell table the kernels read must match the order LASphereGrid writes it in.
+    # Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_shell_table.sh"
+    rc_shelltable=$?
+    set -e
+    if [[ $rc_shelltable -ne 0 ]]; then
+      echo "LINT_FAIL: check_shell_table.sh ($rc_shelltable)"
+      exit 1
+    fi
+    # Gate: no engine-global RNG in a simulation path. A global randf() is seeded from the OS, so the run
+    # cannot be reproduced; on a shared stream it also shifts every other subsystem's draws. Exit 2 = could
+    # not run.
+    set +e
+    "$SCRIPT_DIR/check_sim_determinism.sh"
+    rc_determinism=$?
+    set -e
+    if [[ $rc_determinism -ne 0 ]]; then
+      echo "LINT_FAIL: check_sim_determinism.sh ($rc_determinism)"
+      exit 1
+    fi
     # Gate: comment only what is needed to understand that line. Prose cannot be executed, so it rots and
     # then misleads with authority — every false slot-layout claim was a comment. Exit 2 = could not run.
     set +e

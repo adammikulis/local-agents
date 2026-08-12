@@ -8,8 +8,7 @@ const HERD_CLUSTER_SIZE: int = 18        # target members per founder cluster (f
 const HERD_CLUSTER_SPREAD: float = 8.0   # tangent-plane radius (metres) members scatter around a founder —
 const FOUNDER_ELDER_AGE_MULT: float = 1.6   # founder age = maturity_age × this (mature; clearly out-ranks the age-0 cohort)
 
-# Ambient forest siting: each cluster's centre is chosen as the WARMEST / most-fertile of several
-# candidate sites (the same climate the treeline reads), so groves start on the good continents.
+# Ambient forest siting: a cluster centre is the warmest/most-fertile of several candidate sites.
 const FOREST_CLUSTER_TRIES: int = 5      # candidate sites weighed per cluster (pick the warmest/most fertile)
 const FOREST_CLUSTER_SPREAD: float = 15.0 # tangent-plane radius the initial cluster scatters over (metres)
 const FOREST_BIOMASS_WEIGHT: float = 12.0 # how heavily fixed biomass outweighs raw warmth when siting a grove
@@ -50,9 +49,7 @@ func spawn_initial(counts: Dictionary) -> void:
 				_spawn_scattered_one(kind_s)
 
 
-# Place ONE individual at an independent random surface point (queue if the patch isn't meshed yet, skip
-# vegetation that can't germinate here). The pre-clustering behaviour, kept for truly solitary / non-social kinds.
-# Non-vegetation founders get a random age (a natural age structure) so a scattered cohort never ages out all at once.
+# One individual at an independent random surface point. Non-vegetation founders get a random age.
 func _spawn_scattered_one(kind: String) -> void:
 	var p: Vector3 = _random_spawn_point()
 	var placed = _place_on_surface(p)
@@ -79,7 +76,7 @@ func _spawn_clustered_founders(kind: String, n: int, cluster_size: int) -> void:
 		for mi in range(members):
 			var raw: Vector3 = founder_raw
 			if mi > 0:
-				raw = _tangent_offset_raw(founder_raw, LASimRng.shared().randf_range(-HERD_CLUSTER_SPREAD, HERD_CLUSTER_SPREAD), LASimRng.shared().randf_range(-HERD_CLUSTER_SPREAD, HERD_CLUSTER_SPREAD))
+				raw = _tangent_offset_raw(founder_raw, LASimRng.for_domain("life").randf_range(-HERD_CLUSTER_SPREAD, HERD_CLUSTER_SPREAD), LASimRng.for_domain("life").randf_range(-HERD_CLUSTER_SPREAD, HERD_CLUSTER_SPREAD))
 			var placed = _place_on_surface(raw)
 			if placed == null:
 				_eco._pending.append({"kind": kind, "pos": raw, "tries": 0, "family_id": fam, "elder": mi == 0})
@@ -91,8 +88,7 @@ func _spawn_clustered_founders(kind: String, n: int, cluster_size: int) -> void:
 					_seed_founder_age(node)   # stagger the herd's ages so the cohort doesn't age out all at once
 
 
-# Age a founder into its family elder (a head-start age so it out-ranks the age-0 cohort). Shared by the
-# founder seeding here and by the pending-spawn retry on the service when a founder site meshes late.
+# Age a founder into its family elder, so it out-ranks the age-0 cohort.
 func _seed_elder(node) -> void:
 	if node != null and is_instance_valid(node) and node is Node3D:
 		node.age = float(node.maturity_age) * FOUNDER_ELDER_AGE_MULT
@@ -101,13 +97,12 @@ func _seed_elder(node) -> void:
 func _seed_founder_age(node) -> void:
 	if node != null and is_instance_valid(node) and node is Node3D:
 		var span: float = maxf(float(node.max_age) * 0.6, float(node.maturity_age))
-		node.age = LASimRng.shared().randf_range(0.0, span)
+		node.age = LASimRng.for_domain("life").randf_range(0.0, span)
 
 
 # Metres above the sea shell a direction's surface must clear to count as DRY LAND (not tidal shallows).
 const LAND_MARGIN: float = 2.0
-# How many random directions to try before giving up on finding dry land (the planet is ~70% ocean now, so a
-# handful of tries almost always lands one; the loop is cheap — a radial raycast against the low-LOD sphere).
+# Directions tried before giving up on dry land.
 const LAND_TRIES: int = 32
 
 
@@ -117,40 +112,51 @@ func _random_spawn_point() -> Vector3:
 	var sea_r: float = _eco.terrain.sea_radius() if _eco.terrain.has_method("sea_radius") else 0.0
 	if sea_r <= 0.0 or not _eco.terrain.has_method("surface_radius"):
 		return center + _random_sphere_dir() * above
+	# Drawn up front: the draw count must not depend on what the terrain answers.
+	var dirs: Array[Vector3] = []
+	for i in range(LAND_TRIES):
+		dirs.append(_random_sphere_dir())
 	var best_dir: Vector3 = Vector3.ZERO
 	var best_r: float = -INF
-	for i in range(LAND_TRIES):
-		var d: Vector3 = _random_sphere_dir()
-		var sr: float = _eco.terrain.surface_radius(d)
+	for d in dirs:
+		var sr: float = _surface_radius(d)
 		if is_nan(sr):
-			continue                                   # unmeshed patch — skip, keep trying
+			continue
 		if sr > best_r:
 			best_r = sr
 			best_dir = d
 		if sr >= sea_r + LAND_MARGIN:
 			return center + d * above                  # dry land found
 	if best_dir == Vector3.ZERO:
-		best_dir = _random_sphere_dir()                # nothing meshed yet — hand back any dir (spawn will queue)
+		best_dir = dirs[0]
 	return center + best_dir * above
 
 
-# A uniform-ish random unit direction on the sphere (reject the degenerate near-zero vector). Static +
-# stateless so the service's aquatic sampler can reuse it without a spawner instance.
+func _surface_radius(dir: Vector3) -> float:
+	return _eco.terrain.surface_radius(dir)
+
+
+func _surface_point(dir: Vector3) -> Vector3:
+	var r: float = _surface_radius(dir)
+	if is_nan(r):
+		return Vector3(NAN, NAN, NAN)
+	return _eco.terrain.planet_center() + dir.normalized() * r
+
+
+# A uniform-ish random unit direction on the sphere. Static so the aquatic sampler can reuse it.
 static func _random_sphere_dir() -> Vector3:
-	var v: Vector3 = LASimRng.shared().rand_dir()
+	var v: Vector3 = LASimRng.for_domain("life").rand_dir()
 	while v.length() < 0.05:
-		v = LASimRng.shared().rand_dir()
+		v = LASimRng.for_domain("life").rand_dir()
 	return v.normalized()
 
 
 func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
 	var pc: Vector3 = _eco.terrain.planet_center()
-	return _eco.terrain.surface_point((_tangent_offset_raw(anchor, u, v) - pc).normalized())
+	return _surface_point((_tangent_offset_raw(anchor, u, v) - pc).normalized())
 
 
-# The RAW (un-projected) tangent-plane displacement of `anchor` by (u, v) metres. Kept separate from
-# _tangent_offset_point so callers that project themselves (or queue an unmeshed point for retry) can
-# reuse the offset math without forcing a surface lookup that fails on not-yet-meshed ground.
+# The un-projected tangent-plane displacement of `anchor` by (u, v) metres.
 func _tangent_offset_raw(anchor: Vector3, u: float, v: float) -> Vector3:
 	var pc: Vector3 = _eco.terrain.planet_center()
 	var up: Vector3 = _eco.terrain.up_at(anchor)
@@ -165,16 +171,14 @@ func _tangent_offset_raw(anchor: Vector3, u: float, v: float) -> Vector3:
 	return anchor + t1 * u + t2 * v
 
 
-# Resolve a surface position for a world point by projecting it radially onto the meshed sphere surface
-# (via its direction from the planet centre). Returns a positioned Vector3, or null if the terrain isn't
-# meshed there yet.
+# Project a world point radially onto the planet surface. Null when no surface resolves along it.
 func _place_on_surface(world_pos: Vector3):
 	if _eco.terrain == null:
 		return null
 	var d: Vector3 = world_pos - _eco.terrain.planet_center()
 	if is_nan(d.x) or d.length() < 0.001:
 		return null
-	var p: Vector3 = _eco.terrain.surface_point(d.normalized())
+	var p: Vector3 = _surface_point(d.normalized())
 	if is_nan(p.x):
 		return null
 	return p
@@ -187,15 +191,13 @@ func populate_environment(rock_count: int, forest_clusters: int) -> void:
 		var center: Vector3 = _best_forest_center(FOREST_CLUSTER_TRIES)
 		if is_nan(center.x):
 			continue
-		var trees: int = LASimRng.shared().randi_range(11, 20)
+		var trees: int = LASimRng.for_domain("life").randi_range(11, 20)
 		for t in trees:
 			# Scatter the cluster in the centre's tangent plane, then re-project to the sphere.
-			spawn("tree", _tangent_offset_point(center, LASimRng.shared().randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD), LASimRng.shared().randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD)))
+			spawn("tree", _tangent_offset_point(center, LASimRng.for_domain("life").randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD), LASimRng.for_domain("life").randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD)))
 
 
-# Pick the most forest-suitable of `tries` random surface points: highest biomass, warmest, snow-free. At
-# spawn biomass is ~0 everywhere so warmth (the photosynthesis driver) decides — clusters land on the warm
-# continents; later succession then reads the biomass those forests build. NAN-x if no meshed site found.
+# The most forest-suitable of `tries` random surface points. NAN-x when none qualifies.
 func _best_forest_center(tries: int) -> Vector3:
 	var best: Vector3 = Vector3(NAN, 0.0, 0.0)
 	var best_score: float = -INF
@@ -210,9 +212,7 @@ func _best_forest_center(tries: int) -> Vector3:
 	return best
 
 
-# Forest suitability of a surface point: biomass the photosynthesis chemistry has fixed there (weighted
-# high) plus the local warmth above the germination threshold (the biomass driver, so it ranks sites
-# before any biomass exists). Higher = better forest ground; drives initial siting.
+# Forest suitability: fixed biomass (weighted) plus warmth above the germination threshold.
 func _forest_suitability(pos: Vector3) -> float:
 	var warmth: float = 0.0
 	if _eco._material != null and _eco._material.has_method("temp_at"):
@@ -220,8 +220,7 @@ func _forest_suitability(pos: Vector3) -> float:
 	return _eco._biomass_at(pos) * FOREST_BIOMASS_WEIGHT + warmth
 
 
-# Place a shelter (LANest) at `site` for a nesting creature. Terrain-snapped for ground/water shelters;
-# kept at the caller's Y for tree roosts (in_tree=true).
+# Place a shelter at `site`. Terrain-snapped on ground/water; kept at the caller's Y for tree roosts.
 func spawn_nest(site: Vector3, nest_species: String, owner_family: int, in_tree: bool):
 	if _eco.actors_root == null:
 		return null
