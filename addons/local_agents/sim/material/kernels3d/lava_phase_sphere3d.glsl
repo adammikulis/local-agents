@@ -36,6 +36,7 @@ layout(push_constant, std430) uniform Params {
 	float dt_s;
 	float cell_size;   // metres
 	uint mode;         // 0 = emit, 1 = deposit
+	float lava_min;    // CellListPass.LAVA_MIN_MASS — the same threshold that built the active list
 } params;
 
 layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
@@ -43,7 +44,6 @@ layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float 
 #include "neighbours.glsli"
 
 // --- MODEL PARAMETERS -------------------------------------------------------------------------------------
-const float LAVA_MIN_MASS = 0.0001;
 const float SOLIDIFY_TEMP = 1000.0;    // LAPhysical.BASALT_SOLIDUS_C
 const float MAX_DT_PER_STEP = 5.0;
 const int   MAX_SUBSTEPS = 8;
@@ -69,7 +69,7 @@ void emit() {
 	if (g >= params.cell_count) {
 		return;                     // defensive: a corrupt list must not scribble outside the grid
 	}
-	// lava >= LAVA_MIN_MASS and solid == 0 are applied by cell_list_lava_sphere3d.glsl when it appends this
+	// The list's own predicate already applied lava >= lava_min and solid == 0 when it appended this
 	// cell, so a listed cell has already passed them.
 	if (temp[g] < SOLIDIFY_TEMP) {
 		return;
@@ -101,7 +101,7 @@ void emit() {
 		if (solid[nb] != 0.0) {
 			continue;
 		}
-		if (lava[nb] > LAVA_MIN_MASS) {
+		if (lava[nb] > params.lava_min) {
 			continue;
 		}
 		float tn = max(temp[nb] + KELVIN, 1.0);

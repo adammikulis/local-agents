@@ -112,6 +112,11 @@ command exited 0.
 **A gate you cannot make fail on purpose is not a gate**, and green from a tree full of those means nothing,
 which is what makes chasing it so cheap. Mutation-test both ways or you have not written one.
 
+**NEVER SHAPE THE PHYSICS TO SUIT THE DISPLAY.** Not the rate, not the threshold, not the unit, not which
+cells are stepped. If a thing is hard to render, fix the RENDERER. A quantity that exists because something
+needed a 0..1 dial, a cadence chosen so a frame looks smooth, a channel scaled so a texture packs — each is
+the simulation lying to make a picture easier, and the picture is then evidence of nothing.
+
 **AND DO NOT REPORT A GATE'S READING AS PROGRESS.** "Down to 55 errors", "the residual is small", "drift
 improved" are readings off broken instruments, and quoting one is the same error as quoting a figure from
 the sim. **THE ONLY MEASURE OF PROGRESS IS WHAT WAS RIPPED OUT.** Report the deletion — the file, the

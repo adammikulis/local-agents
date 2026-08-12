@@ -9,6 +9,7 @@ const LAVA_PHASE_PATH: String = "res://addons/local_agents/sim/material/kernels3
 const MAGMA_PATH: String = "res://addons/local_agents/sim/material/kernels3d/magma_buoy_sphere3d.glsl"
 
 const BandsScript: GDScript = preload("res://addons/local_agents/sim/material/AbsorptionBands.gd")
+const CellListScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd")
 
 var _conduct_pipe: RID = RID()
 var _copy_pipe: RID = RID()
@@ -245,11 +246,12 @@ func _buoy_pc(columns: int, depth: int) -> PackedByteArray:
 # needs the step's real seconds and the cell size in METRES.
 func _lava_phase_pc(cc: int, dt_s: float, cell_m: float, mode: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(16)
+	pc.resize(20)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, dt_s)
 	pc.encode_float(8, cell_m)
 	pc.encode_u32(12, mode)
+	pc.encode_float(16, CellListScript.LAVA_MIN_MASS)
 	return pc
 
 

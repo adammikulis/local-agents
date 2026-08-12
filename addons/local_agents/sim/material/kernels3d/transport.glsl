@@ -42,6 +42,7 @@ layout(push_constant, std430) uniform Params {
 const uint MODE_POTENTIAL = 0u;
 const uint MODE_ADVECT    = 1u;
 const uint MODE_BOTH      = 2u;
+const uint MODE_DIFFUSE   = 3u;
 
 vec3 g_at(uint c) {
 	return vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
@@ -58,15 +59,18 @@ vec3 face_normal(uint d) {
 	return vec3(axis == 0u ? s : 0.0, axis == 1u ? s : 0.0, axis == 2u ? s : 0.0);
 }
 
-// Driving potential across face d, metres of head.
+// Driving potential across face d, metres of head. MODE_DIFFUSE drops the gravity term: a diffusing
+// quantity runs down its own gradient and does not fall.
 float potential(uint c, uint d, float amt) {
-	vec3 n = face_normal(d);
+	if (params.mode == MODE_DIFFUSE) {
+		return amt * params.cell_m;
+	}
 	vec3 gv = g_at(c);
 	float gmag = length(gv);
 	if (gmag <= 0.0) {
 		return amt * params.cell_m;
 	}
-	return amt * params.cell_m + params.cell_m * dot(-gv / gmag, n);
+	return amt * params.cell_m + params.cell_m * dot(-gv / gmag, face_normal(d));
 }
 
 void main() {
@@ -115,7 +119,7 @@ void main() {
 			}
 			float flow = drop * params.mobility * open / params.cell_m;
 
-			if (params.mode != MODE_POTENTIAL) {
+			if (params.mode == MODE_ADVECT || params.mode == MODE_BOTH) {
 				// Outgoing advective flux; the neighbour's pass handles the other direction.
 				float vn = dot(vel_at(gidx), face_normal(d));
 				if (vn > 0.0) {

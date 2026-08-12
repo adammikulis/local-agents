@@ -6,7 +6,7 @@ extends RefCounted
 ## (Explicit types only, no ':=' inferred typing.)
 
 ## What drives a record across a face. Matches the MODE_* constants in transport.glsl.
-enum { POTENTIAL, ADVECT, BOTH }
+enum { POTENTIAL, ADVECT, BOTH, DIFFUSE }
 
 
 ## `mobility`: fraction of the driving imbalance crossing a face per step. Bounded by stability.
@@ -43,6 +43,14 @@ static func rows() -> Array:
 			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
 		{"channel": "n2", "substance": "n2", "mode": BOTH,
 			"mobility": 0.05, "repose_tan": 0.0, "resist": ""},
+
+		# Soil nutrient spreads through the ground rather than falling through it.
+		{"channel": "fert", "substance": "fixed_n", "mode": DIFFUSE,
+			"mobility": 0.1, "repose_tan": 0.0, "resist": ""},
+
+		# A pressure wave spreads from where it was released.
+		{"channel": "shock", "substance": "", "mode": DIFFUSE,
+			"mobility": 0.25, "repose_tan": 0.0, "resist": ""},
 	]
 
 
