@@ -185,8 +185,11 @@ order is the order.
 - [ ] **`ThermalPass` still pushes a `core_boundary_c` nobody writes.** Its `ctx.get(..., 0.0)` fallback
       would put a 0 °C ghost cell under the deepest rock — a heat SINK — the moment `heat_sphere3d.glsl`
       returns. The base of the grid has no boundary condition to invent: delete the push constant.
-- [ ] **Plate tectonics is kinematic Voronoi.** *(Maintainer has explicitly OK'd faking this one — true
-      geodynamics is research-grade.)*
+- [ ] **There are no plates.** `PlateTectonics.gd` was deleted: its Voronoi was spherical geometry on a
+      Cartesian grid, its substrate coupling (`PlateAdvectPass`) was already gone, and all it still did was
+      roll dice into a disaster spawner. The maintainer's standing OK to FAKE plate kinematics only ever
+      covered kinematics that DRIVE the substrate; nothing does. Melt must come from crustal thinning and
+      the geotherm.
 - [ ] **Rock has three compositions and no stratigraphy.** Carbonate and silica do not travel and do not
       lithify, so there is no limestone and no sandstone.
 - [ ] **The field's `dt` is the presentation clock.** One rotation is now stated once

@@ -7,7 +7,6 @@ const AUDIO_GROUP: String = "local_agents_audio"
 const PHENOMENON_STINGS: Dictionary = {
 	"eruption": "volcano_rumble",   # deep molten-rock rumble as lava supply builds
 	"wildfire": "fire",             # crackle of a spreading fire front
-	"flood": "steam",               # rushing/hiss of fast-rising water
 	"storm": "thunder",             # low roll of a gathering gale
 	"lightning": "thunder",         # sharp thunder-clap per bolt
 	"impact": "meteor_impact",      # heavy ground-shaking impact

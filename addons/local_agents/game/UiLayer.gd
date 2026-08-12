@@ -48,7 +48,7 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 
 	_debug.setup(_world, sim.material_field(), terrain, render.sky_controller(), _hud, _input, sim.ecology())
 
-	_brush.setup(_world, terrain, camera, sim.ecology(), _hud, _audio, sim.actors_root(), sim.disasters())
+	_brush.setup(_world, terrain, camera, sim.ecology(), _hud, _audio, sim.actors_root())
 	_interaction.setup(_world, terrain, camera, sim.ecology(), _hud, _audio, _brush)
 	_interaction.set_game_hud(_game_hud)
 	_companion.setup(camera, terrain, _hud)
@@ -65,8 +65,10 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 	if _input.has_method("build_ui"):
 		_input.build_ui()
 	# The stings and the status line these sim controllers accept but never require.
-	if sim.disasters() != null and sim.disasters().has_method("set_presentation"):
-		sim.disasters().set_presentation(camera, _audio)
+	if sim.meteor_impacts() != null:
+		sim.meteor_impacts().set_presentation(camera)
+	if sim.phenomena_markers() != null:
+		sim.phenomena_markers().set_presentation(_audio)
 	if sim.spawn_controller() != null and sim.spawn_controller().has_method("set_presentation"):
 		sim.spawn_controller().set_presentation(camera, _hud)
 

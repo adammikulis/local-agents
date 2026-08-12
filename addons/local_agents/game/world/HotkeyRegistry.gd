@@ -3,7 +3,7 @@ extends RefCounted
 
 
 const CAT_LIFE: String = "Spawn life"
-const CAT_DISASTER: String = "Spawn disasters"
+const CAT_IMPACT: String = "Aim an impact"
 const CAT_SELECTION: String = "Selection"
 const CAT_VIEW: String = "Camera & view"
 const CAT_OVERLAY: String = "Overlays"
@@ -25,10 +25,10 @@ static func hotkey_map() -> Array:
 	for i in life.size():
 		var kind: String = life[i]
 		rows.append(_row(str(i + 1), "arm_" + kind, "Arm %s" % _kind_label(kind), CAT_LIFE))
-	var dis: PackedStringArray = LASpawnPaletteHud.DISASTER_KINDS
+	var dis: PackedStringArray = LASpawnPaletteHud.IMPACT_KINDS
 	for j in dis.size():
 		var dkind: String = dis[j]
-		rows.append(_row("Shift+%d" % (j + 1), "arm_" + dkind, "Arm %s" % _kind_label(dkind), CAT_DISASTER))
+		rows.append(_row("Shift+%d" % (j + 1), "arm_" + dkind, "Arm %s" % _kind_label(dkind), CAT_IMPACT))
 
 	rows.append(_row("Esc", "select_cursor", "Cursor / select mode (and pause menu)", CAT_SELECTION))
 	rows.append(_row("Tab", "select_next", "Cycle selection forward", CAT_SELECTION))
@@ -61,7 +61,7 @@ static func hotkey_map() -> Array:
 
 
 ## Digit-select policy (single source shared by the palette label and the input router): the spawn kind a
-## number key arms, or "" when the key maps to no palette slot. `shifted` selects the disasters cluster,
+## number key arms, or "" when the key maps to no palette slot. `shifted` selects the impact cluster,
 ## otherwise life. 1..9 map to slots 0..8; 0 maps to slot 9 (so a tenth entry gets a key for free).
 static func spawn_kind_for_key(keycode: int, shifted: bool) -> String:
 	var index: int = -1
@@ -71,7 +71,7 @@ static func spawn_kind_for_key(keycode: int, shifted: bool) -> String:
 		index = keycode - KEY_1
 	if index < 0:
 		return ""
-	var kinds: PackedStringArray = LASpawnPaletteHud.DISASTER_KINDS if shifted else LASpawnPaletteHud.LIFE_KINDS
+	var kinds: PackedStringArray = LASpawnPaletteHud.IMPACT_KINDS if shifted else LASpawnPaletteHud.LIFE_KINDS
 	if index >= kinds.size():
 		return ""
 	return kinds[index]
@@ -87,14 +87,14 @@ static func key_for_action(action: String) -> String:
 	return ""
 
 
-## The compact key hint for a palette button ("1".."9"/"0", or "⇧1".. for a disaster). "" when the kind is
+## The compact key hint for a palette button ("1".."9"/"0", or "⇧1".. for an impact). "" when the kind is
 ## not on the palette. Drives the small number badge drawn on each button and its tooltip.
 static func spawn_label(kind: String) -> String:
 	var life: PackedStringArray = LASpawnPaletteHud.LIFE_KINDS
 	var li: int = life.find(kind)
 	if li >= 0:
 		return _digit_for_slot(li)
-	var dis: PackedStringArray = LASpawnPaletteHud.DISASTER_KINDS
+	var dis: PackedStringArray = LASpawnPaletteHud.IMPACT_KINDS
 	var di: int = dis.find(kind)
 	if di >= 0:
 		return SHIFT_GLYPH + _digit_for_slot(di)

@@ -22,8 +22,7 @@ const BASELINE_UNLOCKS: PackedStringArray = [
 
 # Every capability id the game knows about — the full set granted in sandbox (and eventually in campaign).
 const ALL_SPAWN_KINDS: PackedStringArray = [
-	"plant", "tree", "rabbit", "fox", "bird", "vulture", "villager", "fish",
-	"meteor", "volcano", "lightning", "earthquake", "flood", "tornado", "thunderstorm", "hurricane",
+	"plant", "tree", "rabbit", "fox", "bird", "vulture", "villager", "fish", "meteor",
 ]
 const ALL_VIEWS: PackedStringArray = [
 	"view_orbit", "view_fly", "view_geosync", "view_solar",
@@ -102,8 +101,7 @@ func _build_ladder() -> void:
 			PackedStringArray(["spawn_bird", "spawn_vulture", "view_geosync", "grab"]), 3.4),
 		# An enduring bloodline: a founding lineage breeds through to a third generation (generation index reaches 2).
 		_stage("lineage", "Raise a bloodline to the third generation", "max_generation", 2.0, 0.0,
-			PackedStringArray(["spawn_villager", "spawn_meteor", "spawn_volcano", "spawn_lightning",
-				"spawn_earthquake", "spawn_flood", "spawn_tornado", "spawn_thunderstorm", "spawn_hurricane"]), 4.6),
+			PackedStringArray(["spawn_villager", "spawn_meteor"]), 4.6),
 		# Capstone — weather the storm: survive a natural disaster (any tracked field phenomenon), then ascend to
 		# the whole solar system.
 		_stage("survive_disaster", "Weather a natural disaster, then survey the heavens", "phenomena_tracked", 1.0, 0.0,

@@ -6,7 +6,7 @@ const FPS: float = 60.0
 
 var _world: Node = null
 var _camera: Camera3D = null          # LAVoxelCameraRig (is a Camera3D) — frozen + driven directly
-var _disasters: Node = null
+var _impacts: LAMeteorImpacts = null
 var _input: Node = null
 var _body: Node = null                # LAPlanetBody
 var _hud_root: CanvasLayer = null
@@ -18,13 +18,12 @@ var _events: Array = []               # [{f:int, do:String, arg}]
 var _ev_i: int = 0
 var _end_frame: int = 0
 var _active: bool = false
-var _tracked: Node3D = null           # a spawned actor (volcano) the camera can bias toward
 
 
-func begin(world: Node, camera: Camera3D, disasters: Node, input: Node, body: Node, hud_root: CanvasLayer, shot: String) -> void:
+func begin(world: Node, camera: Camera3D, impacts: LAMeteorImpacts, input: Node, body: Node, hud_root: CanvasLayer, shot: String) -> void:
 	_world = world
 	_camera = camera
-	_disasters = disasters
+	_impacts = impacts
 	_input = input
 	_body = body
 	_hud_root = hud_root
@@ -91,37 +90,22 @@ func _run_event(ev: Dictionary) -> void:
 		"fast":
 			if _input != null and _input.has_method("set_time_scale"):
 				_input.set_time_scale(int(arg))
-		"volcano":
-			_tracked = _spawn_volcano(arg as Vector3)
-		"lightning":
-			if _disasters != null and _disasters.has_method("strike_random_lightning"):
-				_disasters.strike_random_lightning()
 		"meteor_from_left":
 			_fling_meteor_from_left()
 		_:
 			push_warning("TrailerDirector: unknown event '%s'" % action)
 
 
-func _spawn_volcano(point: Vector3) -> Node3D:
-	if _disasters != null and _disasters.has_method("spawn_volcano"):
-		var v = _disasters.spawn_volcano(point)
-		return v if v is Node3D else null
-	return null
-
-
 ## Fling a meteor in from the side of the frame OPPOSITE the sun (your brief: from behind-left, not the sun side).
 func _fling_meteor_from_left() -> void:
-	if _disasters == null or not _disasters.has_method("fire_meteor_at") or _camera == null or _body == null:
-		# Fallback: the generic auto-meteor if the aimed API isn't present.
-		if _disasters != null and _disasters.has_method("fire_test_meteor"):
-			_disasters.fire_test_meteor()
+	if _impacts == null or _camera == null or _body == null:
 		return
 	var centre: Vector3 = _body.center()
 	var r: float = _radius()
 	var left: Vector3 = -_camera.global_transform.basis.x    # screen-left in world space
 	var up: Vector3 = _camera.global_transform.basis.y
 	var from_pos: Vector3 = centre + left * (r * 7.0) + up * (r * 2.0)
-	_disasters.fire_meteor_at(centre + up * (r * 0.2), from_pos)
+	_impacts.fire_meteor_at(centre + up * (r * 0.2), from_pos)
 
 
 func _radius() -> float:
@@ -135,7 +119,7 @@ func _build_shot(shot: String) -> void:
 		return
 	var centre: Vector3 = _body.center()
 	var r: float = _radius()
-	# A lit-ish surface spot to erupt at + its radial up and a tangent to slide along.
+	# A surface spot to frame on + its radial up and a tangent to slide along.
 	var edir: Vector3 = Vector3(0.55, 0.45, 0.70).normalized()
 	var surf: Vector3 = centre + edir * r
 	var up0: Vector3 = edir
@@ -147,7 +131,7 @@ func _build_shot(shot: String) -> void:
 
 	match shot:
 		"chaos", "eruption", "reveal", "serenity":
-			# CLOSE on the erupting surface (no planet visible) → back out through the chaos → whole planet + a
+			# CLOSE on the surface (no planet visible) → back out → whole planet + a
 			# meteor sweeping in from the side opposite the sun. One continuous pull-back.
 			_cam_keys = [
 				{"f": 0,   "pos": surf + up0 * (r * 0.06) + tan * (r * 0.14), "look": surf + up0 * (r * 0.03)},
@@ -158,10 +142,7 @@ func _build_shot(shot: String) -> void:
 			]
 			_events = [
 				{"f": 0,   "do": "fast", "arg": 3},              # brief warm-up presim
-				{"f": 40,  "do": "volcano", "arg": surf},
 				{"f": 60,  "do": "fast", "arg": 1},              # realtime for the action
-				{"f": 90,  "do": "lightning"},
-				{"f": 210, "do": "lightning"},
 				{"f": 470, "do": "meteor_from_left"},
 			]
 		"life":

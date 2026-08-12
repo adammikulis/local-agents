@@ -33,8 +33,8 @@ rsync -a \
 # Delete everything the docs call game-only. What is left must stand on its own.
 # audio/ is NOT deleted, and used to be. The docs called it game-only chrome, but the force-parse
 # sweep showed five library files calling LocalAgentAudioDirector.emit(): creatures/creature/
-# CreatureThink.gd:158 for a chomp, and sim/actors/{Meteor,LightningStrike,Flood,Volcano}.gd for
-# impact and weather sounds. A creature making a noise is a stimulus broadcast like scent, which is
+# CreatureThink.gd:158 for a chomp, and sim/actors/{Meteor,LightningStrike}.gd for
+# impact and bolt sounds. A creature making a noise is a stimulus broadcast like scent, which is
 # core behaviour rather than game shell, so audio/ belongs to the library and the classification was
 # wrong. Deleting it here only hid that.
 rm -rf "$TMP/addons/local_agents/game" \

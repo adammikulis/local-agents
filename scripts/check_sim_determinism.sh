@@ -47,7 +47,7 @@ bare=$(printf '%s\n' "$FILES" | tr '\n' '\0' \
 if [ -n "$bare" ]; then
   echo "check_sim_determinism: GLOBAL RNG IN A SIMULATION PATH. Draw from LASimRng instead —" >&2
   echo "  LASimRng.for_domain(\"life\") for ecology/creatures, LASimRng.for_domain(\"planet\") for" >&2
-  echo "  weather/tectonics/the ambient director, LASimRng.shared() for disasters and world matter." >&2
+  echo "  weather and the planet, LASimRng.shared() for impacts and world matter." >&2
   echo "$bare" >&2
   fail=1
 fi

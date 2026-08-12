@@ -550,7 +550,7 @@ are guarded, so a creature runs on its pure fast brain with none of them.
 | --- | --- | --- |
 | `setup(_terrain, _config: Dictionary, _genome_arg = null)` | terrain, plus the species config | terrain defaults to `LAFlatGroundTerrain` |
 | `set_material_field(w)` | the shared `LAMaterialField3D` substrate | no field reads at all, listed below |
-| `set_ecology(e)` | the `LAEcologyService`, which owns `broadcast_scare()`, `broadcast_seismic()`, `spawn()` and the population dynamics | no ecology broadcasts |
+| `set_ecology(e)` | the `LAEcologyService`, which owns `broadcast_scare()`, `disturb_ground()`, `spawn()` and the population dynamics | no ecology broadcasts |
 | `set_cognition_scheduler(s)` | the shared slow brain | fast and reinforced brain only, no LLM escalation |
 
 Leaving `set_material_field()` unwired removes a lot more than a temperature probe. Every field read

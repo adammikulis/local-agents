@@ -50,8 +50,6 @@ MUTATORS = [
     "set_wind(", "set_sun(", "set_sun_dir(", "set_solid(", "set_plate_motion(",
     "add_heat(", "add_lava(", "add_vapor(", "add_charge(", "add_water_cell(",
     "add_water_pooled(", "add_magma_source(", "seed_field(", "apply_impulse(",
-    # LAVoxelDisasters' seeding facade: each of these injects heat/water/pressure into the field.
-    "spawn_thunderstorm(", "spawn_tornado(", "spawn_hurricane(", "spawn_default_volcano(",
     "fire_barrage(", "force_erupt(",
 ]
 # The two integrating advances LAVoxelWorld drives. They consume a delta, so the call site itself is the
@@ -66,7 +64,6 @@ PRESENTATION_ALLOW = {
     f"{SIM}/streamer/StreamerAvatar.gd": "avatar animation",
     f"{SIM}/streamer/StreamerOverlay.gd": "overlay layout and animation",
     f"{SIM}/actors/LightningStrike.gd": "flash fade and node lifetime; it writes no world state",
-    f"{SIM}/actors/Earthquake.gd": "node lifetime; the seismic and scare broadcasts fire in setup",
     f"{SIM}/ecology/BandChronicle.gd": "historian: writes dated records to the backstory store, not the field",
     f"{SIM}/events/LAEventTracker.gd": "instrument: samples the report and emits events, mutates nothing",
     f"{SIM}/material/MaterialFieldRender3D.gd": "renderer: rebuilds the near-cap surface mesh for the camera",

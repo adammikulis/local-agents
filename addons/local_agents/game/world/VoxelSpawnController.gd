@@ -31,7 +31,6 @@ var _ecology: Node = null
 var _camera: Camera3D = null
 var _material: Node = null
 var _hud: CanvasLayer = null
-var _disasters: Node = null
 
 var _spawned_initial: bool = false
 var _ready_wait_ticks: int = 0
@@ -40,7 +39,7 @@ var _ready_wait_ticks: int = 0
 var _spawn_scale: float = 1.0
 
 
-func setup(world: Node, body: Node3D, terrain, ecology: Node, camera: Camera3D, material: Node, hud: CanvasLayer, disasters: Node) -> void:
+func setup(world: Node, body: Node3D, terrain, ecology: Node, camera: Camera3D, material: Node, hud: CanvasLayer) -> void:
 	_world = world
 	_body = body
 	_terrain = terrain
@@ -48,7 +47,6 @@ func setup(world: Node, body: Node3D, terrain, ecology: Node, camera: Camera3D, 
 	_camera = camera
 	_material = material
 	_hud = hud
-	_disasters = disasters
 
 
 ## Camera + HUD are PRESENTATION — the opening camera framing and the status line. Both stay null without

@@ -7,8 +7,10 @@ substrate has to be redone. `CLAUDE.md` → "SCOPE RULE" carries the measurable 
 is parked until it is met. This doc captures the emergent-geophysics arc — what's DONE, and
 the design for the big pieces (real fracturing → plate tectonics, giant impacts, Theia). All of it follows
 **dissolve-don't-patch / one substrate**: named phenomena (fault, rift, subduction, mountain, moon) have zero
-dedicated code — they're what the substrate physics does. NOTE: the maintainer has OK'd FAKING tectonics (scripted plates whose boundary KINEMATICS drive emergent volcanism/quakes/uplift) since true geodynamics is research-grade. These interlock with the terrain
-SDF, heat field, lava, and shock, so they want a design pass with the maintainer, not a blind one-shot.
+dedicated code — they're what the substrate physics does. NOTE: the maintainer has OK'd FAKING tectonics, but
+only as scripted plate KINEMATICS that DRIVE the substrate; the Voronoi cartoon that only rolled dice into a
+disaster spawner is deleted, and a plate model that does not move crust does not qualify. These interlock with
+the terrain SDF, heat field, lava, and shock, so they want a design pass with the maintainer, not a blind one-shot.
 
 ## Substrate we already have (the ingredients)
 - **Interior heat — RADIOGENIC, and nothing else.** ~~A finite reservoir seeded at real temperatures
@@ -56,7 +58,8 @@ Built on 1 + the heat engine, entirely emergent:
 5. **Boundaries emerge** — divergent: plates pull apart → a **rift**, upwelling lava freezes into **new seafloor**
    (seafloor spreading, for free from lava solidification). Convergent: plates collide → crust **buckles up into
    mountains**, or one **subducts** (dives under, melts → **arc volcanoes** from the melt reaching the surface).
-   Transform: plates grind past → **faults + earthquakes** (shock injection). Continents drift; mountains,
+   Transform: plates grind past → **faults**, and a quake is a stress RELEASE the substrate would have to
+   carry as elastic strain; today it carries none, so nothing may inject one. Continents drift; mountains,
    volcanoes, quakes localize at boundaries — all falling out of the physics, none of them written as systems.
 
 ## 3. Giant impacts / THEIA (task #16)

@@ -85,11 +85,11 @@ func _build_world_visuals() -> void:
 		terrain.set_shader_param("heat_world_min", material.heat_world_min())
 		terrain.set_shader_param("heat_world_size", material.heat_world_size())
 
-	# Effects density onto the atmosphere particles + the difficulty-scaled ambient-disaster cadence.
-	_sim.settings_applier().bind(_world, _sim.disasters(), terrain, _water)
-	# The screen-ray casts the disaster controller accepts but never requires.
-	if _sim.disasters() != null and _sim.disasters().has_method("set_presentation"):
-		_sim.disasters().set_presentation(_camera, null)
+	# Effects density onto the atmosphere particles.
+	_sim.settings_applier().bind(_world, terrain, _water)
+	# The screen-ray casts the impact controller accepts but never requires.
+	if _sim.meteor_impacts() != null:
+		_sim.meteor_impacts().set_presentation(_camera)
 	if _sim.spawn_controller() != null and _sim.spawn_controller().has_method("set_presentation"):
 		_sim.spawn_controller().set_presentation(_camera, null)
 

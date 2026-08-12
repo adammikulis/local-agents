@@ -11,7 +11,7 @@ const TEXT: Color = Color(0.90, 0.92, 0.95)
 const OVERVIEW_SECTIONS: Array = [
 	{
 		"title": "Welcome back",
-		"body": "This is a living world simulated on your own machine. You are its caretaker: seed life and matter, stir up disasters, and watch an ecosystem run itself. Nothing here is scripted, and behaviour emerges from simple physical rules.",
+		"body": "This is a living world simulated on your own machine. You are its caretaker: seed life and matter, aim a meteor, and watch an ecosystem run itself. Nothing here is scripted, and behaviour emerges from simple physical rules.",
 	},
 	{
 		"title": "Getting your bearings",

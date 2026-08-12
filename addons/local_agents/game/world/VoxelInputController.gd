@@ -6,9 +6,9 @@ const ViewControlsScript: GDScript = preload("res://addons/local_agents/game/wor
 
 const BENCH_TIMELINES: Dictionary = {
 	"readback": [
-		{"frame": 100, "action": "lightning"},
-		{"frame": 400, "action": "volcano"},
-		{"frame": 900, "action": "thunderstorm"},
+		{"frame": 100, "action": "meteor"},
+		{"frame": 400, "action": "meteor"},
+		{"frame": 900, "action": "meteor"},
 	],
 }
 
@@ -18,7 +18,7 @@ var _camera: Camera3D = null
 var _body: Node3D = null
 var _star: Node3D = null
 var _material: Node = null
-var _disasters: Node = null
+var _impacts: LAMeteorImpacts = null
 var _interaction: Node3D = null
 var _ecology: Node = null
 
@@ -55,17 +55,7 @@ var _llm_off_calls_before: int = 0
 var _llm_select: bool = false           # --llm-select: late in the run, select all thinking/queued creatures (predicate proof)
 var _llm_select_done: bool = false
 var _llm_report_frame: int = 0          # throttles the periodic LLM_HIGHLIGHT count print
-var _auto_volcano: bool = false
-var _auto_volcano_fired: bool = false
 var _hotspring_test: bool = false        # --hotspring-test: sustained SHALLOW heat source in the regolith + surface
-var _auto_seavolcano: bool = false
-var _auto_seavolcano_fired: bool = false
-var _seavolcano: Node = null
-var _seavolcano_vent: Vector3 = Vector3.ZERO
-var _auto_lightning: bool = false
-var _auto_lightning_fired: bool = false
-var _auto_earthquake: bool = false
-var _auto_earthquake_fired: bool = false
 var _auto_meteor_fired: bool = false
 var _auto_select: bool = false
 var _auto_select_done: bool = false
@@ -76,10 +66,6 @@ var _debug_family_seeded: bool = false
 var _debug_family_selected: bool = false
 var _debug_family_root: Node = null
 var _cam_creature_done: bool = false    # latch: framed a behavior-tinted creature for the debug screenshot
-var _auto_tornado: bool = false
-var _auto_thunderstorm: bool = false
-var _auto_hurricane: bool = false
-var _auto_storm_fired: bool = false
 var _stamp_test: bool = false
 var _stamp_test_deposited: bool = false
 var _stamp_test_reported: bool = false
@@ -193,10 +179,6 @@ func parse_cmdline() -> void:
 			_auto_meteor = true
 		elif arg == "--auto-barrage":
 			_auto_barrage = true
-		elif arg == "--auto-volcano":
-			_auto_volcano = true
-		elif arg == "--auto-seavolcano":
-			_auto_seavolcano = true
 		elif arg == "--ui":
 			_ui = true
 		elif arg == "--render":
@@ -209,22 +191,12 @@ func parse_cmdline() -> void:
 			_streamer_persona = arg.substr("--streamer-persona=".length())
 		elif arg.begins_with("--streamer-avatar="):
 			_streamer_avatar_flavor = arg.substr("--streamer-avatar=".length())
-		elif arg == "--auto-lightning":
-			_auto_lightning = true
-		elif arg == "--auto-earthquake":
-			_auto_earthquake = true
 		elif arg == "--auto-select":
 			_auto_select = true
 		elif arg == "--frame-hut":
 			_frame_hut = true
 		elif arg == "--debug-family" or arg == "--debug-family=1":
 			_debug_family = true
-		elif arg == "--auto-tornado":
-			_auto_tornado = true
-		elif arg == "--auto-thunderstorm":
-			_auto_thunderstorm = true
-		elif arg == "--auto-hurricane":
-			_auto_hurricane = true
 		elif arg == "--overview":
 			_overview = true
 		elif arg == "--farview":
@@ -433,13 +405,13 @@ func _refresh_view_controls() -> void:
 
 
 ## Wire the scene refs the auto-demo hooks act on (called from the world once the scene is composed).
-func bind(terrain, camera: Camera3D, body: Node3D, star: Node3D, material: Node, disasters: Node, interaction: Node3D, ecology: Node) -> void:
+func bind(terrain, camera: Camera3D, body: Node3D, star: Node3D, material: Node, impacts: LAMeteorImpacts, interaction: Node3D, ecology: Node) -> void:
 	_terrain = terrain
 	_camera = camera
 	_body = body
 	_star = star
 	_material = material
-	_disasters = disasters
+	_impacts = impacts
 	_interaction = interaction
 	_ecology = ecology
 	# Wire the planet body so the camera's GEOSYNC mode can read its rotating frame (keeps VoxelWorld untouched).
@@ -462,7 +434,7 @@ func build_ui() -> void:
 	_refresh_view_controls()
 
 
-# The disasters controller fired the one-shot auto-meteor test; latch it so update() won't refire.
+# The impact controller fired the one-shot auto-meteor test; latch it so update() won't refire.
 func mark_auto_meteor_fired() -> void:
 	_auto_meteor_fired = true
 
@@ -499,26 +471,14 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 	if _auto_meteor and not _auto_meteor_fired and spawned:
 		var trigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
 		if frame == trigger:
-			_disasters.fire_test_meteor()
+			_impacts.fire_test_meteor()
 
 	# Auto-barrage demo/test: rain a volley of large meteors to dig deep (expose crust->mantle->magma) + fracture.
 	if _auto_barrage and not _auto_barrage_fired and spawned:
 		var btrigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
-		if frame >= btrigger and _disasters != null and _disasters.has_method("fire_barrage"):
-			_disasters.fire_barrage()
+		if frame >= btrigger and _impacts != null:
+			_impacts.fire_barrage()
 			_auto_barrage_fired = true
-
-	# Auto-volcano demo/test: mark a site, move interior heat into the rock beneath it, and let the substrate
-	# decide whether anything melts, rises or breaks out.
-	if _auto_volcano and not _auto_volcano_fired and spawned:
-		var vtrigger: int = 350 if _shoot_path != "" else maxi(_run_frames - 600, 60)
-		if frame >= vtrigger:
-			var vsite: Vector3 = _terrain.surface_point(Vector3(0.2, 1.0, 0.2).normalized()) if _terrain.has_method("surface_point") else Vector3(NAN, NAN, NAN)
-			if not is_nan(vsite.x):
-				_disasters.spawn_volcano(vsite)
-				if _camera != null and _camera.has_method("frame_vista"):
-					_camera.frame_vista(vsite)
-				_auto_volcano_fired = true
 
 	if _hotspring_test and spawned and frame >= 90 and frame <= 620:
 		var hfield = _ecology.material_field() if (_ecology != null and _ecology.has_method("material_field")) else null
@@ -530,34 +490,6 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 				var cs: float = hfield.cell_size()
 				# DIFFUSE recharge only. Whether anything warm seeps back out is the rock's answer, not ours.
 				hfield.add_water_pooled(hsurf, 0.5, cs * 3.5)
-
-	# CAPSTONE — auto-seavolcano: seed a SEABED vent EARLY so the sustained supply has a long window to build a
-	# new island underwater and breach the surface. Frame the camera on the SEA SURFACE above the vent.
-	if _auto_seavolcano and not _auto_seavolcano_fired and spawned and frame >= 120:
-		var sun_dir: Vector3 = (_star.global_position - _body.center()).normalized() if _star != null else Vector3.UP
-		var sv: Array = _disasters.spawn_sea_volcano(sun_dir)
-		_seavolcano = sv[0]
-		_seavolcano_vent = sv[1]
-		if _seavolcano != null and _camera != null:
-			var standoff: float = 8.0 if _farview else 1.0
-			var vdir: Vector3 = (_seavolcano_vent - _body.center()).normalized()
-			var sea_pt: Vector3 = _body.center() + vdir * (_terrain.sea_radius() + 2.0)
-			var cam_pos: Vector3 = sea_pt + sun_dir * (46.0 * standoff) + vdir * (30.0 * standoff)
-			_camera.global_position = cam_pos
-			_camera.look_at(sea_pt, vdir)
-		_auto_seavolcano_fired = true
-		var floor_r: float = (_seavolcano_vent - _body.center()).length() if _seavolcano != null else 0.0
-		print("SEAVOLCANO_SEED={vent:%v, floor_r:%.1f, sea_r:%.1f}" % [_seavolcano_vent, floor_r, _terrain.sea_radius()])
-	if _auto_seavolcano and _seavolcano != null and frame % 150 == 0:
-		var vd: Vector3 = (_seavolcano.global_position - _body.center()).normalized()
-		var vr: float = _terrain.surface_radius(vd)
-		var sea_r2: float = _terrain.sea_radius()
-		var shape: Dictionary = _seavolcano.cone_profile()
-		print("SEAVOLCANO={frame:%d, vent_r:%.2f, sea_r:%.2f, above_sea:%s, supplied:%.0f, rise:%.2f, breach:%.2f, smear:%.2f, drift:%.4f, span:%.4f, cover:%d/%d}" % [
-			frame, (vr if not is_nan(vr) else -1.0), sea_r2,
-			str((not is_nan(vr)) and vr > sea_r2), 0.0,
-			shape["rise"], shape["breach"], shape["smear"], shape["drift"], shape["span"],
-			shape["cover"], shape["samples"]])
 
 	# Rock Stage C proof: deposit rock into a VOID cell ~3 units above the top surface, then confirm the
 	# rock_fill 0.5-crossing GROWS terrain (is_solid flips false->true at the stamp point).
@@ -582,42 +514,6 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 					str(_terrain.is_solid(st.last_grow_pos) if (st != null and grew) else false),
 					(st.last_scan_ms if st != null else 0.0)])
 				_stamp_test_reported = true
-
-	# Auto-lightning demo/test: strike the nearest tree so a wildfire emerges from the bolt's heat.
-	if _auto_lightning and not _auto_lightning_fired and spawned:
-		# Strike ~150 frames before the end so the emergent wildfire is still burning at the final SIM_REPORT
-		# snapshot (the combustion front is self-limiting — a strike far earlier has burned out by the snapshot).
-		var ltrigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 100, 60)
-		if frame >= ltrigger:
-			_disasters.fire_test_lightning()
-			_auto_lightning_fired = true
-
-	# Auto-earthquake demo/test: release ONE stress wave near origin, LATE in the run so the propagating
-	# seismic wave is still crossing at the final SIM_REPORT snapshot (shock_cells > 0). The wave itself
-	# shakes the camera and panics wildlife — no per-pulse scatter. Spawn kept method-local here.
-	if _auto_earthquake and not _auto_earthquake_fired and spawned and _terrain != null and _body != null:
-		var qtrigger: int = (_shoot_frames - 120) if _shoot_path != "" else maxi(_run_frames - 45, 45)
-		if frame >= qtrigger:
-			_auto_earthquake_fired = true
-			var qsite: Vector3 = _terrain.surface_point(Vector3.UP) if _terrain.has_method("surface_point") else Vector3(NAN, NAN, NAN)
-			var epicentre: Vector3 = qsite if not is_nan(qsite.x) else (_body.center() + Vector3.UP * (_body.radius() if _body.has_method("radius") else 200.0))
-			var quake_script: GDScript = load("res://addons/local_agents/sim/actors/Earthquake.gd")
-			var quake: Node3D = quake_script.new()
-			_body.add_child(quake)
-			quake.global_position = epicentre
-			quake.setup(_terrain, _ecology)
-			quake.rupture(epicentre)
-			print("AUTO_EARTHQUAKE={frame:%d, epicentre:%v}" % [frame, epicentre])
-
-	# Auto-storm demos/tests: touch down a tornado / seed a thunderstorm / spin up a hurricane.
-	if (_auto_tornado or _auto_thunderstorm or _auto_hurricane) and not _auto_storm_fired and spawned:
-		var strigger: int = (_shoot_frames - 200) if _shoot_path != "" else maxi(_run_frames - 400, 40)
-		if frame >= strigger:
-			_auto_storm_fired = true
-			var kind: String = "hurricane" if _auto_hurricane else ("thunderstorm" if _auto_thunderstorm else "tornado")
-			var focus: Vector3 = _disasters.fire_auto_storm(kind)
-			if _camera != null and _camera.has_method("frame_vista"):
-				_camera.frame_vista(focus)
 
 	# Verification-aid CLI (--geosync / --solar-view): apply the start camera mode AFTER the ecology spawn has
 	# framed the camera, so the mode framing holds (otherwise spawn's vista overrides it).
@@ -903,9 +799,7 @@ func debug_behaviors() -> String: return _debug_behaviors
 func fast_multiplier() -> int: return _fast
 
 
-## Fire the current --bench timeline's scheduled action for `frame`, once each. Reuses the SAME disaster
-## calls the --auto-* flags above use -- a scripted timeline is just those calls at chosen frames instead
-## of "near the end of the run," so results are reproducible run-to-run for a before/after comparison.
+## Fire the current --bench timeline's scheduled action for `frame`, once each.
 func _bench_fire(frame: int) -> void:
 	var timeline: Array = BENCH_TIMELINES.get(_bench_name, [])
 	for i in timeline.size():
@@ -917,20 +811,9 @@ func _bench_fire(frame: int) -> void:
 		_bench_fired[i] = true
 		var action: String = String(entry.get("action", ""))
 		match action:
-			"lightning":
-				if _disasters != null and _disasters.has_method("fire_test_lightning"):
-					_disasters.fire_test_lightning()
-			"volcano":
-				if _disasters != null and _terrain != null and _terrain.has_method("surface_point"):
-					var vsite: Vector3 = _terrain.surface_point(Vector3(0.2, 1.0, 0.2).normalized())
-					if not is_nan(vsite.x):
-						_disasters.spawn_volcano(vsite)
-			"thunderstorm", "tornado", "hurricane":
-				if _disasters != null and _disasters.has_method("fire_auto_storm"):
-					_disasters.fire_auto_storm(action)
 			"meteor":
-				if _disasters != null and _disasters.has_method("fire_test_meteor"):
-					_disasters.fire_test_meteor()
+				if _impacts != null:
+					_impacts.fire_test_meteor()
 			_:
 				push_warning("VoxelInputController: unknown --bench action '%s' at frame %d" % [action, frame])
 		print("BENCH_EVENT={frame:%d, action:\"%s\"}" % [frame, action])

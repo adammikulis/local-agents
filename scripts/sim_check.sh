@@ -6,7 +6,7 @@
 #
 #   scripts/sim_check.sh                                  # 300 frames, current dir, --sandbox
 #   scripts/sim_check.sh --path ../la-foo --frames 800    # a worktree, longer
-#   scripts/sim_check.sh --frames 1200 -- --auto-volcano  # pass extra sim flags after --
+#   scripts/sim_check.sh --frames 1200 -- --auto-meteor   # pass extra sim flags after --
 #
 # Exit 0 = PASS (no errors, no get_spirv, biomass>0 i.e. field alive), 1 = FAIL. Full log: $LA_CHECK_LOG
 # (default /tmp/sim_check.log).

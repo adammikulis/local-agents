@@ -183,7 +183,7 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 
 
 # The ONE substrate: water (creatures drink, fish live in it), heat/temperature (fire + comfort),
-# and every material. Disasters inject heat/material; everything else reads it.
+# and every material. An impact injects heat/material; everything else reads it.
 func set_material_field(m) -> void:
 	_material = m
 	if _stimulus != null:
@@ -209,14 +209,9 @@ func fire_system():
 	return _material
 
 
-# Ground-disturbance + seismic-pulse stimuli live in LAEcologyStimulus (the broadcast bus); these stay
-# as thin forwarders for the disaster actors that call them on the service.
+# Ground disturbance lives in LAEcologyStimulus (the broadcast bus); the impact actor calls it here.
 func disturb_ground(world_pos: Vector3, radius: float, strength: float) -> void:
 	_stimulus.disturb_ground(world_pos, radius, strength)
-
-
-func broadcast_seismic(world_pos: Vector3, magnitude: float) -> void:
-	_stimulus.broadcast_seismic(world_pos, magnitude)
 
 
 # Shock energy felt at world_pos — the propagated field value (proximity + terrain muffling emerge from
@@ -248,10 +243,6 @@ func vegetation_report() -> Dictionary:
 		"veg_food_returned": snappedf(led.food_returned, 0.0001),
 		"veg_seed_cost": snappedf(led.seed_cost, 0.0001),
 	}
-
-
-func ignite_area(_world_pos: Vector3, _radius: float) -> void:
-	pass
 
 
 const GROW_MIN_TEMP: float = 7.5          # °C below which the ground is too cold for a seed to germinate
@@ -433,7 +424,7 @@ func populate_environment(rock_count: int, forest_clusters: int) -> void:
 	_spawner.populate_environment(rock_count, forest_clusters)
 
 
-# Point-blast + area terror/wind stimuli live in LAEcologyStimulus; thin forwarders for the disasters.
+# Point-blast + area terror/wind stimuli live in LAEcologyStimulus; thin forwarders for the impact actor.
 func damage_sphere(world_pos: Vector3, radius: float, base_damage: float = 1000.0) -> void:
 	_stimulus.damage_sphere(world_pos, radius, base_damage)
 

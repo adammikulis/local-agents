@@ -12,16 +12,17 @@ const EMOJI_FONT_PATH: String = "res://addons/local_agents/assets/fonts/emoji.tt
 const THUMB_PX: int = 64
 
 # The palette is split into two visible clusters. Order within each drives the number hotkeys
-# (LIFE -> 1..8, DISASTER -> Shift+1..8); KINDS is the flat union for lookups.
+# (LIFE -> 1..8, IMPACT -> Shift+1..8); KINDS is the flat union for lookups. A meteor is the only thing
+# the player can cause: weather and geology are observed, never spawned.
 const LIFE_KINDS: PackedStringArray = [
 	"plant", "tree", "rabbit", "fox", "bird", "vulture", "villager", "fish",
 ]
-const DISASTER_KINDS: PackedStringArray = [
-	"meteor", "volcano", "lightning", "earthquake", "flood", "tornado", "thunderstorm", "hurricane",
+const IMPACT_KINDS: PackedStringArray = [
+	"meteor",
 ]
 const KINDS: PackedStringArray = [
 	"plant", "tree", "rabbit", "fox", "bird", "vulture", "villager", "fish",
-	"meteor", "volcano", "lightning", "earthquake", "flood", "tornado", "thunderstorm", "hurricane",
+	"meteor",
 ]
 
 const KIND_LABELS: Dictionary = {
@@ -34,13 +35,6 @@ const KIND_LABELS: Dictionary = {
 	"villager": "Villager",
 	"fish": "Fish",
 	"meteor": "Meteor",
-	"volcano": "Volcano",
-	"lightning": "Lightning",
-	"earthquake": "Quake",
-	"flood": "Flood",
-	"tornado": "Tornado",
-	"thunderstorm": "Storm",
-	"hurricane": "Hurricane",
 }
 
 # Emoji glyph per kind, self-colored by the emoji font. Swapping a glyph needs its codepoint added to the
@@ -55,13 +49,6 @@ const KIND_SYMBOLS: Dictionary = {
 	"villager": "🧑",
 	"fish": "🐟",
 	"meteor": "☄",
-	"volcano": "🌋",
-	"lightning": "⚡",
-	"earthquake": "🏚",
-	"flood": "🌊",
-	"tornado": "🌪",
-	"thunderstorm": "⛈",
-	"hurricane": "🌀",
 }
 
 # Palette / theme colors (cohesive dark theme).
@@ -254,7 +241,7 @@ func _build_palette_buttons() -> void:
 
 	for kind in LIFE_KINDS:
 		_life_cluster.add_child(_make_kind_button(_palette_group, kind))
-	for kind in DISASTER_KINDS:
+	for kind in IMPACT_KINDS:
 		_disaster_cluster.add_child(_make_kind_button(_palette_group, kind))
 
 	# Diagnostic: confirm a palette button carries its registry-keyed name+hotkey tooltip (one-time log).

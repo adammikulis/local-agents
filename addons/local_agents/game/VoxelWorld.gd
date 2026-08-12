@@ -140,7 +140,7 @@ func _ready() -> void:
 		_progression = _ui.progression()
 
 	# Wire the input controller's auto-demo hooks now that every scene ref exists.
-	_input.bind(_sim.terrain(), _camera, _body, _sim.star(), _material, _sim.disasters(), _interaction, _ecology)
+	_input.bind(_sim.terrain(), _camera, _body, _sim.star(), _material, _sim.meteor_impacts(), _interaction, _ecology)
 	_begin_trailer_shot()
 
 
@@ -190,7 +190,7 @@ func _begin_trailer_shot() -> void:
 	var director: LATrailerDirector = LATrailerDirector.new()
 	director.name = "TrailerDirector"
 	add_child(director)
-	director.begin(self, _camera, _sim.disasters(), _input, _body, null, _input.trailer_shot())
+	director.begin(self, _camera, _sim.meteor_impacts(), _input, _body, null, _input.trailer_shot())
 
 
 # Everything that feeds the field runs on the fixed tick, in lockstep with LAMaterialField3D. The sun
@@ -350,7 +350,7 @@ func _on_music_auto_adapt_changed(on: bool) -> void:
 		_hud.set_status("Music auto-adapt: %s" % ("on" if on else "off, manual control"))
 
 
-# --- controller callbacks: the interaction/brush/disasters controllers forward the few bits of root-owned
+# --- controller callbacks: the interaction/brush/impact controllers forward the few bits of root-owned
 # state (music mood, harness latch, debug view toggles) back through these. ---
 
 # Spike the music's destruction mood (meteors/volcanoes/lightning). Decays each frame in _update_music_mood.
@@ -358,7 +358,7 @@ func set_destruction(intensity: float) -> void:
 	_music_destruction = intensity
 
 
-# The disasters controller fired the one-shot auto-meteor test; latch it.
+# The impact controller fired the one-shot auto-meteor test; latch it.
 func mark_auto_meteor_fired() -> void:
 	if _input != null:
 		_input.mark_auto_meteor_fired()

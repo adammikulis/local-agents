@@ -189,7 +189,7 @@ func _build_steps() -> Array[LocalAgentTutorialStep]:
 		"Life takes time. Press %s for the menu and pick a faster time speed, then watch a herd grow in seconds." % _key("select_cursor"),
 		"Speed it up"))
 
-	# 6 — Trouble comes. Nothing is scripted: name the physics the disasters fall out of.
+	# 6 — Trouble comes. Nothing is scripted: name the physics it falls out of.
 	steps.append(StepScript.message(
 		"Storms, quakes, floods and eruptions are never scripted. They emerge from the same physics as "
 		+ "everything else: heat, pressure and water finding their level. Keep your herd out of harm's way.",
