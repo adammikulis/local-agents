@@ -26,12 +26,11 @@ extends RefCounted
 ## Newton's constant, m^3 kg^-1 s^-2. Bound to the SSOT, not a second copy.
 const G_SI: float = LAPhysical.GRAVITATIONAL_CONSTANT
 
-## THE SOLVE IS ENTIRELY IN SI. G is in m^3 kg^-1 s^-2, so every length here is METRES and the grid's
-## model units are converted once, at setup. Mixing the two silently gives a potential wrong by the cube
-## of LAPhysical.METRES_PER_MODEL_UNIT.
+## THE SOLVE IS ENTIRELY IN SI, and so is the grid: G is in m^3 kg^-1 s^-2 and LAVoxelGrid.cell_size is
+## metres. There is no unit conversion here and there must never be one — a scale factor between the grid
+## and the physics is what let a fitted metre decide the potential, wrong by its cube.
 var grid: LAVoxelGrid = null
-var metres_per_unit: float = 1.0
-var h_m: float = 0.0                                     # cell size in metres
+var h_m: float = 0.0                                     # cell size, metres
 var phi: PackedFloat32Array = PackedFloat32Array()      # potential, J/kg
 var gx: PackedFloat32Array = PackedFloat32Array()        # acceleration, m/s^2
 var gy: PackedFloat32Array = PackedFloat32Array()
@@ -43,10 +42,9 @@ var total_mass: float = 0.0
 var centre_of_mass: Vector3 = Vector3.ZERO
 
 
-func setup(p_grid: LAVoxelGrid, p_metres_per_unit: float = LAPhysical.METRES_PER_MODEL_UNIT) -> void:
+func setup(p_grid: LAVoxelGrid) -> void:
 	grid = p_grid
-	metres_per_unit = maxf(p_metres_per_unit, 1.0e-12)
-	h_m = grid.cell_size * metres_per_unit
+	h_m = grid.cell_size
 	phi.resize(grid.cell_count)
 	gx.resize(grid.cell_count)
 	gy.resize(grid.cell_count)
@@ -64,7 +62,7 @@ func _measure(density: PackedFloat32Array) -> void:
 		if dm <= 0.0:
 			continue
 		m += dm
-		acc += grid.cell_world_pos(c) * metres_per_unit * dm
+		acc += grid.cell_world_pos(c) * dm
 	total_mass = m
 	centre_of_mass = (acc / m) if m > 0.0 else Vector3.ZERO
 
@@ -73,7 +71,7 @@ func _measure(density: PackedFloat32Array) -> void:
 func _boundary_phi(c: int) -> float:
 	if total_mass <= 0.0:
 		return 0.0
-	var r: float = (grid.cell_world_pos(c) * metres_per_unit - centre_of_mass).length()
+	var r: float = (grid.cell_world_pos(c) - centre_of_mass).length()
 	return -G_SI * total_mass / maxf(r, h_m)
 
 

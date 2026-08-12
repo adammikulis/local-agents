@@ -5,6 +5,7 @@ extends Node3D
 
 const Mat: GDScript = preload("res://addons/local_agents/sim/material/Materials.gd")
 const SolidCacheScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSolidCache3D.gd")
+const GravityScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldGravity3D.gd")
 const MineralStampScript: GDScript = preload("res://addons/local_agents/sim/material/MineralStamp3D.gd")
 
 # --- Water CA tuning (finite-volume cellular water: fall, pressurise, spread — mass-conserving and
@@ -270,6 +271,8 @@ func sample_solidity() -> void:
 # neighbour). The box (_dim_*) path is untouched when _sphere == null. See sphere/SphereGrid.gd.
 ## THE GRID. LAVoxelGrid — uniform, Cartesian, the one declaration of what a cell is.
 var _grid: LAVoxelGrid = null
+## Gravity, SOLVED from the mass that is there. There is no gravity constant anywhere in this tree.
+var _gravity = null                                      # LAMaterialFieldGravity3D
 var _sphere: RefCounted = null
 
 ## True when the field is laid out on a cubed-sphere planet rather than an origin box.
@@ -321,6 +324,8 @@ func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Ve
 	# The injection facade edits the CPU channel arrays directly; without it add_heat silently no-ops.
 	_inject = InjectScript.new()
 	_inject.setup(self)
+	_gravity = GravityScript.new()
+	_gravity.setup(self)
 
 ## Allocate + seed every per-cell channel for the current `_cell_count`. Shared by setup_dims (box) and
 ## setup_sphere (cubed-sphere) — both set _cell_count first, then call this.

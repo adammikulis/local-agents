@@ -1,0 +1,98 @@
+class_name LAMaterialFieldGravity3D
+extends RefCounted
+
+## THE FIELD'S GRAVITY. Owns the Poisson solve and the density that sources it, so the field itself stays
+## a facade and nothing else in the tree declares what g is.
+##
+## THERE IS NO GRAVITY CONSTANT. g is a VECTOR FIELD read per cell, because the planet is round only if
+## its own mass made it round. A scalar surface gravity, however carefully derived, is the field of a
+## sphere and asserts the shape it was supposed to explain.
+##
+## CADENCE. Mass moves slowly next to a step, and the solve warm-starts from the previous potential, so
+## re-solving every step buys nothing. It re-solves every `SOLVE_EVERY` steps and the sweeps in between
+## are what track the drift; the residual is published rather than assumed.
+##
+## (Explicit types only, no ':=' inferred typing.)
+
+const GravityScript: GDScript = preload("res://addons/local_agents/sim/voxel/FieldGravity.gd")
+const DensityScript: GDScript = preload("res://addons/local_agents/sim/material/FieldDensity3D.gd")
+
+const SOLVE_EVERY: int = 8
+const SWEEPS: int = 8
+
+var _f = null                                            # back-reference to the owning LAMaterialField3D
+var _solver: LAFieldGravity = null
+var _steps: int = 0
+var _density: PackedFloat32Array = PackedFloat32Array()
+
+
+func setup(field) -> void:
+	_f = field
+	if field._grid == null:
+		return
+	_solver = GravityScript.new()
+	_solver.setup(field._grid)
+
+
+## Channel name -> its per-cell mirror. The field names every mirror `_<channel>`, so this is built from
+## the channel SSOT rather than a second hand-written list that could fall behind it.
+func _mirrors() -> Dictionary:
+	var out: Dictionary = {}
+	var rows: Dictionary = LAChannels.rows()
+	for name in rows:
+		var arr = _f.get("_" + String(name))
+		if arr is PackedFloat32Array:
+			out[String(name)] = arr
+	return out
+
+
+## Re-solve if this step is due. Returns true when a solve actually ran.
+func step() -> bool:
+	if _solver == null:
+		return false
+	_steps += 1
+	if _steps % SOLVE_EVERY != 1 and _steps != 1:
+		return false
+	_density = DensityScript.of(_mirrors(), _f._porosity, _f._cell_count)
+	_solver.solve(_density, SWEEPS)
+	return true
+
+
+## Gravitational acceleration at a cell, m/s^2. Zero before the first solve, which is the honest answer:
+## no mass has been measured yet.
+func g_at(c: int) -> Vector3:
+	if _solver == null or c < 0 or c >= _solver.gx.size():
+		return Vector3.ZERO
+	return _solver.g_at(c)
+
+
+## The unit vector gravity points along at a cell — what "down" means here. Zero where g vanishes.
+func down_at(c: int) -> Vector3:
+	if _solver == null or c < 0 or c >= _solver.gx.size():
+		return Vector3.ZERO
+	return _solver.down_at(c)
+
+
+## The three acceleration components, flat cell*3, for upload to the kernels.
+func packed() -> PackedFloat32Array:
+	var out: PackedFloat32Array = PackedFloat32Array()
+	if _solver == null:
+		return out
+	var n: int = _solver.gx.size()
+	out.resize(n * 3)
+	for c in n:
+		out[c * 3] = _solver.gx[c]
+		out[c * 3 + 1] = _solver.gy[c]
+		out[c * 3 + 2] = _solver.gz[c]
+	return out
+
+
+func report() -> Dictionary:
+	if _solver == null:
+		return {}
+	return {
+		"gravity_residual": _solver.last_residual,
+		"gravity_sweeps": _solver.last_sweeps,
+		"gravity_total_mass_kg": _solver.total_mass,
+		"gravity_com": _solver.centre_of_mass,
+	}

@@ -134,47 +134,24 @@ func setup(field) -> void:
 		ACTIVE_ARGS_SLOTS * 4, _zeros(ACTIVE_ARGS_SLOTS),
 		RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
 	_bufs["sigma_col"] = _new_f(maxi(_cc / maxi(int(_grid.depth), 1), 1))
-	# Sphere geometry SSBOs: neighbour table (int32, LASphereGrid slot order — never permuted, see
-	# scripts/check_neighbour_slots.sh), radial + position (flat float3).
+	# GRID GEOMETRY, and on a uniform Cartesian grid there are only two pieces of it. The neighbour table,
+	# whose slot order is the grid's (`d ^ 1` is the opposite, checked by scripts/check_neighbour_slots.sh),
+	# and the cell centre.
+	#
+	# EVERYTHING ELSE THAT USED TO BE UPLOADED HERE WAS THE COORDINATE SYSTEM APOLOGISING FOR ITSELF:
+	#   solid_angle  a cubed-sphere cell subtends a varying steradian; a box cell subtends nothing
+	#   cell_vol     varied per cell, so every transfer needed a donor/receiver volume ratio; now cell_size^3
+	#   face_area    varied per face; now cell_size^2, and it was already bound by zero passes
+	#   shell        the radial stack; a box has no radial stack
+	#   link_arc     angular separation between cell centres; a box has cell_size
+	#   link_partner the slot answering each link, because a seam could bend one; `d ^ 1` cannot be bent
+	#   link_tan     the per-cell tangent basis, because "sideways" turned as you crossed a face
+	#   link_rot     the parallel transport carrying a vector into the neighbour's basis
+	#   radial       "down", supplied by the indexing. There is no down here: it is -normalize(g), and g
+	#                comes from the mass that is there (LAFieldGravity).
 	var nbr_bytes: PackedByteArray = _grid.neighbours.to_byte_array()
 	_bufs["nbr"] = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
-	_bufs["radial"] = _make_vec3_flat(func(c: int) -> Vector3: return _grid.cell_radial(c))
 	_bufs["pos"] = _make_vec3_flat(func(c: int) -> Vector3: return _grid.cell_world_pos(c))
-	var ltan_bytes: PackedByteArray = _grid.link_tan.to_byte_array()
-	_bufs["link_tan"] = _rd.storage_buffer_create(ltan_bytes.size(), ltan_bytes)
-	# The slot that answers each link. A gather indexes this instead of computing `d ^ 1`.
-	var partner_bytes: PackedByteArray = _grid.link_partner.to_byte_array()
-	_bufs["link_partner"] = _rd.storage_buffer_create(partner_bytes.size(), partner_bytes)
-	# Angular separation per lateral link — the lateral RUN a slope test needs (see LASphereGrid.link_arc).
-	var larc_bytes: PackedByteArray = _grid.link_arc.to_byte_array()
-	_bufs["link_arc"] = _rd.storage_buffer_create(larc_bytes.size(), larc_bytes)
-	# Solid angle per SURFACE column, steradians. Binding 17 on every kernel that includes cell_geom.glsli.
-	# Zero here makes every cell volume zero, so it is checked rather than assumed.
-	var omega: PackedFloat32Array = _grid.solid_angle
-	var omega_min: float = INF
-	for si in omega.size():
-		omega_min = minf(omega_min, omega[si])
-	if omega.size() * maxi(int(_grid.depth), 1) != _cc or not (omega_min > 0.0):
-		push_error("LAMaterialSphereGPU3D: solid_angle table is %d entries, min %f — cell volumes would be zero"
-			% [omega.size(), omega_min])
-		return
-	var omega_bytes: PackedByteArray = _grid.solid_angle_bytes()
-	_bufs["solid_angle"] = _rd.storage_buffer_create(omega_bytes.size(), omega_bytes)
-	# (cos, sin) carrying MY tangent axes into the neighbour's. A VECTOR crossing a lateral link is rotated by
-	# it; a scalar is not.
-	var lrot_bytes: PackedByteArray = _grid.link_rot.to_byte_array()
-	_bufs["link_rot"] = _rd.storage_buffer_create(lrot_bytes.size(), lrot_bytes)
-	# Per-shell radial geometry: thickness, centre radius, centre-to-centre runs. See kernels3d/shell.glsli.
-	var shell_bytes: PackedByteArray = _grid.shell_table().to_byte_array()
-	_bufs["shell"] = _rd.storage_buffer_create(shell_bytes.size(), shell_bytes)
-	# Per-cell volume. See kernels3d/cellvol.glsli: a channel is a fill fraction, so every transfer between
-	# two cells is scaled by their volume ratio.
-	var cvol_bytes: PackedByteArray = _grid.cell_volumes().to_byte_array()
-	_bufs["cell_vol"] = _rd.storage_buffer_create(cvol_bytes.size(), cvol_bytes)
-	# Per-face area, model units^2, flat cell*6 + slot. See kernels3d/facearea.glsli: a conductive or
-	# diffusive flux scales with the area of the wall it crosses, and on a cubed sphere that varies per cell.
-	var farea_bytes: PackedByteArray = _grid.face_areas().to_byte_array()
-	_bufs["face_area"] = _rd.storage_buffer_create(farea_bytes.size(), farea_bytes)
 	_bufs["plates"] = _rd.storage_buffer_create(MAX_PLATES * PLATE_STRIDE * 4,
 		_zeros(MAX_PLATES * PLATE_STRIDE))
 

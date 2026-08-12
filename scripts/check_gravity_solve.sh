@@ -29,7 +29,6 @@ extends SceneTree
 
 const N: int = 32
 const CELL: float = 1.0
-const MPU: float = 1.0          # solve in metres directly, so the analytic form needs no conversion
 const RHO: float = 5.0e12       # kg/m^3; large so g is far above float32 noise at this toy scale
 # Offset by half a cell so CELL CENTRES LAND ON INTEGERS, which puts a cell exactly at the origin. The
 # first draft of this gate did not, so the "centre of the sphere" sample sat 0.87 cells out and read
@@ -40,7 +39,7 @@ func _init() -> void:
 	var g = LAVoxelGrid.new()
 	g.build(N, N, N, CELL, ORIGIN)
 	var solver = LAFieldGravity.new()
-	solver.setup(g, MPU)
+	solver.setup(g)
 
 	var radius: float = 8.0
 	var rho: PackedFloat32Array = PackedFloat32Array()
@@ -86,7 +85,7 @@ func _init() -> void:
 	var h = LAVoxelGrid.new()
 	h.build(N, N, N, CELL, ORIGIN)
 	var s2 = LAFieldGravity.new()
-	s2.setup(h, MPU)
+	s2.setup(h)
 	var rho2: PackedFloat32Array = PackedFloat32Array()
 	rho2.resize(h.cell_count)
 	var a_c: Vector3 = Vector3(-6.0, 0.0, 0.0)

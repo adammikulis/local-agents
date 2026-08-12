@@ -3,11 +3,7 @@ extends Object
 
 
 const GROUP: String = "gravity_body"
-const SURFACE_G: float = 55.0        # target surface gravity (units/s^2) on the reference body
-const SOFTENING: float = 4.0         # min separation (units) so accel can't blow up as r -> 0 inside a body
-
-static var _g_const: float = -1.0
-static var _g_ref_id: int = 0
+const SOFTENING: float = 4.0         # min separation (m) so accel can't blow up as r -> 0 inside a body
 
 
 static func _bodies(tree: SceneTree) -> Array:
@@ -34,19 +30,14 @@ static func reference_body(tree: SceneTree) -> Object:
 	return flagged if flagged != null else best
 
 
-static func gravitational_constant(tree: SceneTree) -> float:
-	var p: Object = reference_body(tree)
-	if p != null and p.has_method("radius"):
-		var live_id: int = p.get_instance_id()
-		if _g_const > 0.0 and _g_ref_id == live_id:
-			return _g_const
-		var r: float = float(p.radius())
-		var m: float = float(p.mass())
-		if r > 1.0 and m > 0.0:
-			_g_const = SURFACE_G * r * r / m
-			_g_ref_id = live_id
-			return _g_const
-	return -1.0   # no usable body yet → acceleration_at returns ZERO, and we retry next call
+## NEWTON'S CONSTANT. It is a measured property of the universe, so it is read, never solved for.
+##
+## This used to back-solve it from a target surface gravity: `_g_const = SURFACE_G * r * r / m`, with
+## SURFACE_G = 55.0 "units/s^2" chosen to match a feel. That inverts the physics — it makes G a free
+## parameter and the body's mass and radius the things that must agree with a number somebody liked, so a
+## planet could not be given a real mass without changing what gravity IS.
+static func gravitational_constant(_tree: SceneTree = null) -> float:
+	return LAPhysical.GRAVITATIONAL_CONSTANT
 
 
 ## Standard gravitational parameter GM of one body (the only place a "mu" exists — derived, never typed).
