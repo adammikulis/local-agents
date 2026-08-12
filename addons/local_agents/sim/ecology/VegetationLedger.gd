@@ -3,8 +3,6 @@ extends RefCounted
 
 ## Per-world vegetation accounting. One ledger per world, resolved from that world's LAMaterialField3D
 ## instance, so two worlds stepping in one process never add into each other's totals.
-##
-## Masses are in the FIELD's mass units (LAPlant.BIOMASS_PER_FOOD converts on the way in).
 
 var food_held: float = 0.0        # mass standing in live plant nodes' reserves
 var food_drawn: float = 0.0       # cumulative mass taken out of the field's biomass channel

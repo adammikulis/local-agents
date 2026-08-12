@@ -10,13 +10,6 @@ const StreamerHostScript: GDScript = preload("res://addons/local_agents/sim/stre
 
 # THE BODY THIS WORLD IS SEEDED WITH. Every length below is METRES, because the grid is metres.
 #
-# THERE IS NO PLANET_SCALE. It was `PLANET_RADIUS / 250.0`, and every constant here was multiplied by it
-# because "everything below was tuned at radius 250" — so each of these was a shape held against a radius
-# nobody had believed in for a long time, and changing the radius silently rescaled the geology. Each is
-# now the length it actually is, and the radius can change without any of them moving.
-#
-# Mercury-class body: 2439.7 km mean radius (NASA planetary fact sheet). Its gravity is NOT declared here
-# or anywhere — it is solved from the mass that ends up in the grid (LAFieldGravity).
 const PLANET_RADIUS: float = 2.4397e6
 const PLANET_RELIEF: float = 9.4e3                # peak-to-trough continental relief; LA_RELIEF overrides
 const PLANET_FEATURE: float = 5.2e4               # continental wavelength

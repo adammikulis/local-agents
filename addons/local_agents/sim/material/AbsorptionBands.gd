@@ -3,34 +3,6 @@ extends RefCounted
 
 ## Band-averaged mass absorption coefficients for the two absorbing gases this substrate carries, m^2/kg,
 ## on a 109-band wavenumber grid from 0 to 10000 cm^-1 and 9 temperature slices.
-##
-## PROVENANCE. Lines: HITRAN (hitran.org line-by-line API, isotopologues 7-12 for CO2 and 1-4 for H2O),
-## reduced by the method of Pierrehumbert, Principles of Planetary Climate chapter 4 and its PyTran
-## courseware — Lorentz line shape, air-broadened half width gamma_air*(p/1.013e5)*(296/T)^n_air, line
-## strength scaled by the partition-function ratio, the lower-state Boltzmann factor and the
-## stimulated-emission factor, wings cut at 1000 line widths. The per-band statistic is the MEDIAN of
-## kappa over 3000 samples, his choice (figure 4.17), because band-averaged transmission is set by the
-## optically thin frequencies between the lines.
-##
-## Continua, three separate ones because they scale with three different pressures:
-##   CO2_CONT  air-induced, his equations 4.89 (25-450 cm^-1) and 4.90 (1150-1800), quoted at 300 K and
-##             100 mb, with his (300/T)^1.7 temperature law. Scales with TOTAL pressure.
-##   CO2_CIA   CO2-CO2 collision-induced absorption, HITRAN CIA CO2-CO2_2024 (Karman et al. 2019,
-##             Icarus 328:160), converted by kappa = 1e-4 * k * rho_CO2 * (N_A/M)^2 from k in
-##             cm^5/molecule^2. Scales with the CO2 PARTIAL pressure, being a two-body process. This is
-##             what makes a hundred-bar CO2 atmosphere opaque between its bands.
-##   H2O_CONT  self-induced, his equations 4.91 (500-1400 cm^-1) and 4.92 (2100-3000), quoted at 296 K
-##             and 100 mb of water vapour, with his (296/T)^4.25 law. Scales with the water partial
-##             pressure.
-##
-## Reference pressure is Pierrehumbert's standard 100 mb, air-broadened. Lorentz broadening makes kappa
-## proportional to the broadener's pressure, so a consumer scales each term by its own p/REF_PRESSURE_PA.
-##
-## N2, O2 and Ar are absent on purpose. Symmetric molecules acquire no dipole moment from rotation or
-## stretching, so at planetary densities they do not absorb in the thermal infrared.
-##
-## VERIFIED against measurement in tests/test_radiative_transfer.gd: Earth clear-sky OLR, the radiative
-## forcing of a CO2 doubling, and the CO2 share of Venus's greenhouse at 92 bar.
 
 const REF_PRESSURE_PA: float = LAPhysical.ABSORPTION_REF_PRESSURE_PA
 const BAND_COUNT: int = 109

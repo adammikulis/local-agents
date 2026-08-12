@@ -83,8 +83,6 @@ static func _decomposer_reference() -> float:
 
 ## DECOMPOSE_RATE — Olson's first-order decay constant, per unit of decomposer.
 ##     k = Rh / SOC = 54 / 1500 = 0.036 per year   (mean residence time 28 years)
-##     DECOMPOSE_RATE = k * dt / SECONDS_PER_YEAR / (decomposer stock k was measured with)
-## `fungus_peak` 0.0244 is 610x. So litter still rots 141-610 times faster than Olson, and the file to fix is
 static func _decompose_k() -> float:
 	var k_per_year: float = SOIL_HETEROTROPHIC_RESP_PG_C_PER_YEAR / SOIL_ORGANIC_CARBON_PG_C
 	var ref: float = _decomposer_reference()

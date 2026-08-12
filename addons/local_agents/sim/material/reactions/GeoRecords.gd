@@ -20,8 +20,6 @@ const FROST_PORE_CAP_COEFF: float = 1.0 / LAPhysical.ROCK_POROSITY_NEAR_SURFACE
 
 # --- D1b THE UREY REACTION, BOTH WAYS: CaSiO3 + CO2 <-> CaCO3 + SiO2 --------------------------------------
 # THE RATE LAW is unchanged and is Arrhenius, first order in the solvent (WATER, the driver) and first order
-#     x = DISSOLUTION_K * water * co2 * exp(-(Ea/R) * (1/T - 1/T_ref))
-# laboratory mol/m^2/s through to a per-cell per-step extent. DISSOLUTION_K is the model's timescale for the
 const DISSOLUTION_K: float = 2.0e-5
 
 # --- D2 LITHIFICATION (loose SEDIMENT → bedrock) -----------------------------------------------------------
@@ -30,8 +28,6 @@ const LITH_RATE_PER_PA: float = 1.0e-9   # per-step k on x = max(0, P - P_lith) 
 
 # --- COALIFICATION: BURIAL DRIVES ORGANIC MATTER TOWARD CARBON ---------------------------------------------
 # Peat, lignite, coal and oil are not fuels this substrate has to name. They are one dead organic pool losing
-# H and O as it is buried and heated, and what is left is the C:H:O ratio the two records below leave behind.
-# Both are Arrhenius on the pool's own element stocks; `_rate_k` puts the frequency factor on the field clock.
 static func _rate_k(ea_over_r_k: float) -> float:
 	var t_ref: float = LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET
 	return LAPhysical.VITRINITE_FREQUENCY_FACTOR_PER_S \

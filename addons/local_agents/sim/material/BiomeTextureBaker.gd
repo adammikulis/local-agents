@@ -3,8 +3,6 @@ extends RefCounted
 
 ##   R = relative humidity of the near-ground air (moisture / sat(T)), 0 arid .. 1 humid -> dry<->lush axis
 ##   G = warmth, temperature °C remapped over a cold..hot band, 0 tundra-cold .. 1 tropical-hot
-##   B = snowpack presence (cold-wet flag), lets the shader bias toward frost/tundra tint
-##   A = valid flag (255 once baked) so the shader FALLS BACK to altitude-only bands before the first bake
 
 const WARM_COLD_C: float = -25.0     # °C at G = 0
 const WARM_HOT_C: float = 40.0       # °C at G = 1

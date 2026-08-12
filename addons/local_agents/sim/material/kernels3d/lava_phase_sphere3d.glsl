@@ -3,9 +3,6 @@
 
 // Radiative cooling of molten cells, as a CROSS-CELL EXCHANGE. Two dispatches of this one shader:
 //   mode 0 — over the compacted lava list. Cools each molten cell and writes the joules it shed into
-//            rad_dep at the slot link_partner names, so every slot has exactly one writer.
-//   mode 1 — over every cell. Adds the joules aimed at this cell to its temperature and clears the slots.
-// Slot names come from neighbours.glsli; the reverse link is a link_partner lookup, never computed.
 
 layout(local_size_x = 64) in;
 
@@ -83,10 +80,6 @@ void emit() {
 
 	// The neighbour table is `cell*6 + slot` with slot 0 = INWARD (radial down), 1-4 lateral, 5 = OUTWARD.
 	//   * slot 5 with nbr < 0 — the top of the atmosphere, i.e. space. Nothing comes back (the 2.7 K
-	//                microwave background is 3e-6 W/m^2, eleven orders below the outgoing term).
-	//   * slot 0 with nbr < 0 — the core boundary, which is not space, so it does not radiate.
-	// A solid neighbour is skipped: conduction owns that face. A molten neighbour is skipped: both sides
-	// are at the same phase and conduction owns it too.
 	uint base = g * 6u;
 	float tn_c[6];     // the neighbour across emitting face k, deg C; carried forward across the sub-steps
 	float cap_n[6];    // that neighbour's J/m^2/K (0 for a face onto space)

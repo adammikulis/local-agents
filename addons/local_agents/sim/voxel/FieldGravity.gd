@@ -3,25 +3,6 @@ extends RefCounted
 
 ## GRAVITY SOLVED FROM THE MASS THAT IS THERE. Poisson's equation on the uniform grid:
 ##
-##     laplacian(phi) = 4 pi G rho        g = -grad(phi)
-##
-## WHY A SOLVE AND NOT A CENTRE-OF-MASS SHORTCUT. `g = -GM r_hat / r^2` about a centre of mass is the
-## field of a SPHERE. Using it would re-assert the spherical symmetry the cubed-sphere grid asserted and
-## this grid exists to stop asserting — the planet would be round because the gravity model says so,
-## which is the defect wearing different clothes. A Poisson solve assumes no shape: it is correct for a
-## shattered body, an accreting one, a contact binary, two bodies in one box, or a ring.
-##
-## IT IS ALSO ONLY CHEAP BECAUSE THE GRID IS UNIFORM. The 7-point laplacian is a constant stencil, so
-## the solve is a stencil sweep. On a curvilinear grid the operator varies per cell and this is a far
-## worse problem. The grid change is what makes emergent gravity affordable.
-##
-## METHOD. Red-black Gauss-Seidel, warm-started from the previous step's potential. Mass moves slowly
-## compared to a step, so a handful of sweeps per step tracks it; the residual is reported rather than
-## assumed. Boundary: the isolated-body condition phi = -G M / |r - com| on the box faces, which is exact
-## in the limit of a distant boundary and makes NO assumption about the interior — it is a statement
-## about the vacuum outside, where the multipole expansion's monopole term dominates.
-##
-## (Explicit types only, no ':=' inferred typing.)
 
 ## Newton's constant, m^3 kg^-1 s^-2. Bound to the SSOT, not a second copy.
 const G_SI: float = LAPhysical.GRAVITATIONAL_CONSTANT

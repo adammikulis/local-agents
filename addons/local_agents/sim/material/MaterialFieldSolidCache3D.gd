@@ -3,13 +3,6 @@ extends RefCounted
 
 ## Disk cache (user://, outside the tracked tree) for the field's solid mask, a pure function of the terrain
 ## generator's inputs and the grid.
-##
-## The key hashes every generator option, the grid geometry, and the source of BOTH scripts that decide the
-## SDF — the terrain service and the sphere generator. A key that omits an input hands back the previous
-## planet's mask without saying so.
-##
-## A hit is also spot-checked against the live terrain at SPOT_CELLS scattered cells. Those queries force
-## generation of only the blocks they touch. Any disagreement discards the cache and does the full sample.
 
 const DIR: String = "user://la_solid_cache"
 const SPOT_CELLS: int = 256

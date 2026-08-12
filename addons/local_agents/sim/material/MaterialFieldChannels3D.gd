@@ -14,10 +14,6 @@ func setup(field) -> void:
 
 # --- SMELL IS NOT A CHANNEL. IT IS READING THE AIRBORNE CHEMISTRY THAT IS ACTUALLY THERE. ------------------
 # There is no `scent` channel: smell is generic over the substance. An animal reads the concentration of a
-# gas, and which gases it can read is a property of the animal.
-#
-# A rotting carcass is found by its CO₂ because decomposition really does produce CO₂ (BioRecords.gd:112-117)
-# and that CO₂ really does ride the wind. Nothing here knows what a carcass is.
 
 ## Frozen H₂O in the cell at a world point, in channel units. A 2.5D (x,z) call has no radial point and
 ## returns 0, matching temp_at; a full 3D call reads the real cell.

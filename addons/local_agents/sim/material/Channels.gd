@@ -3,21 +3,6 @@ extends RefCounted
 
 ## THE ONE DECLARATION OF WHAT A CHANNEL IS.
 ##
-## "The channels that exist" was written down seven times — the GPU's PAIR/SINGLE lists, its
-## SITUATIONAL/SLOW residency lists, MaterialField3D's mirror declarations, LAHeatCapacity's substance
-## groups, LAReactionBalance's SLOT_SUBSTANCE/INVENTORY/LITHOSPHERE tables, LAReactionDefs' slot enum, and
-## reactions_sphere3d.glsl's #define block with its two switch ladders. Collapsing one channel into another
-## edits all seven, so every migration serialized on a list nobody owned. They are views of this table now.
-##
-## Per row:
-##   buffer    "pair" ping-pong | "single" one buffer | "" derived, no buffer at all
-##   residency "hot" every drain | "situational" on request | "slow" coarse cadence | "static" seeded once
-##   slot      LAReactionDefs index, or -1 for a channel no reaction reads
-##   substance LASubstances id whose matter this holds, or "" for a driver that is not matter
-##   heat      LAHeatCapacity group, or "" when the channel carries no heat of its own
-##
-## A const Dictionary built from another script's constants can fail to compile at runtime and take every
-## static method on the script with it, so this is a function.
 static func rows() -> Dictionary:
 	var D: GDScript = load("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 	return {

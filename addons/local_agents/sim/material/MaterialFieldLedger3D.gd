@@ -3,12 +3,6 @@ extends RefCounted
 
 ## THE conservation ledger. One probe read, one volume-weighted walk, one set of drift books, and a publisher
 ## per conserved substance — H2O, mineral, the element inventory, and the thermal stock.
-##
-## Rules every substance obeys here, because they are properties of the instrument and not of the substance:
-##   every leg comes from the drain probe, with no mirror fallback;
-##   a partial leg set publishes the live map, the missing list, and a null total — never a short one;
-##   an amount is the channel value times the cell's own volume in cubic metres;
-##   a threshold count compares a fraction against a fraction and stays unweighted.
 
 const FoldScript: GDScript = preload("res://addons/local_agents/sim/material/FieldLedgerFold3D.gd")
 const BooksScript: GDScript = preload("res://addons/local_agents/sim/material/FieldLedgerBooks3D.gd")

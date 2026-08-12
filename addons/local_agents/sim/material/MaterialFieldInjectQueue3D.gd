@@ -207,8 +207,6 @@ func _ratio(s: int, d: int) -> float:
 
 ## Apply one transfer/displace op to the live device buffers; returns the debit, in SOURCE-cell fractions.
 ## The credit is the debit times _ratio(), so matter is conserved across cells of different volume. Every take
-## is resolved against the live buffers read here, so the op costs a fixed number of round-trips whatever its
-## pair count.
 func _move(gpu, op: Dictionary) -> float:
 	var src: String = String(op["src"])
 	var dst: String = String(op["dst"])

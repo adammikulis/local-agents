@@ -3,9 +3,6 @@ extends RefCounted
 
 ## Per-sample drift and the run-long baseline, for any number of quantities. One implementation, keyed by
 ## name — the machinery every conserved substance shares.
-##
-## The baseline latches only once LAMaterialFieldSeal3D has closed the books. Before that, the only thing a
-## drift gauge can measure is the planet being assembled.
 
 var _f = null
 var _prev_v: Dictionary = {}

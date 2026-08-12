@@ -35,8 +35,6 @@ static func _enthalpy_parts() -> Vector3:
 static func records() -> Array:
 	# Per unit of FUEL, which is LASubstances.ORGANIC_MOL_PER_M3 moles of the dead pool's CARBON. Everything
 	# else is the cell's own composition: CH_yO_z + (1 + y/4 - z/2) O2 -> CO2 + (y/2) H2O.
-	# Nitrogen per mole of CH2O, read off the composition table rather than restated, so this record cannot
-	# disagree with the gate about what litter is made of. It is MOLAR; LITTER_C_TO_N is a ratio of MASSES.
 	var organic_n: float = float(LAReactionBalance.composition()[FUEL]["N"])
 	var dh: Vector3 = _enthalpy_parts()
 	return [

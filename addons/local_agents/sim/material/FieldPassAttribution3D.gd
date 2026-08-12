@@ -3,10 +3,6 @@ extends RefCounted
 
 ## Between-pass attribution for one conserved substance: which pass changed its total, and by how much.
 ## The substance is data (LAFieldAttributionRecords); the walk is LAFieldLedgerFold3D's; this file owns the
-## sampler, the pair state machine, the ping-pong residency and the report.
-##
-## A channel that did not arrive is ABSENT. The step then publishes `refused` and the missing list, never a
-## total short by whatever failed to read back.
 
 const FoldScript: GDScript = preload("res://addons/local_agents/sim/material/FieldLedgerFold3D.gd")
 

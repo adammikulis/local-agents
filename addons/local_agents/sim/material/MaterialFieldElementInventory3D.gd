@@ -168,8 +168,6 @@ func report(step_index: int) -> Dictionary:
 	out["o2_all"] = snappedf(o2_all, 0.01)
 	# NOT SNAPPED. One unit of FERT is a cell packed solid with elemental N at rock density, so a real soil
 	# nitrogen stock is ~1e-7 units per cell and a 0.01 quantum could only ever print 0.00 — a gauge whose
-	# resolution is five orders of magnitude coarser than the quantity it measures cannot answer the question
-	# it is asked. Same for the drift and the baseline below.
 	out["fert_total"] = fert_open
 	out["fert_all"] = fert_all
 	out["n2_total"] = snappedf(n2_open, 0.01)
@@ -233,8 +231,6 @@ func report(step_index: int) -> Dictionary:
 		out["element_" + String(el_a) + "_all"] = snappedf(float(elements_all[el_a]), 0.01)
 	# STRAIGHT OFF THE ELEMENT SUMS. This used to be `fert + (bio+det+fung+fuel)/LITTER_C_TO_N`, which divided
 	# CHANNEL UNITS by a carbon-to-nitrogen MASS ratio and so was neither moles nor kilograms: it weighted
-	# organic N against fertility 13.5x too heavily, while the composition table beside it already carries
-	# cellulose's N per unit. Two gauges for one quantity, and the wrong one was the gated one.
 	var nitrogen: float = float(elements.get("N", 0.0))
 	var nitrogen_all: float = float(elements_all.get("N", 0.0))
 	out["oxidant_total"] = snappedf(oxidant, 0.01)

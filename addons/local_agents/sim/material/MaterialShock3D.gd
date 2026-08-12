@@ -18,8 +18,6 @@ func setup(field) -> void:
 
 ## Inject a shock/sound wave of `magnitude` at a world point — an explosion, thunder-clap, meteor impact,
 ## eruption blast, or stampede. Queues a sparse ADD on the centre cell + its neighbour ring; the kernel radiates
-## it outward next step. The mirror is updated too, but only so shock_at/shock_gradient answer before the next
-## readback — it is never uploaded, so nothing here can rewind what the kernel produced.
 func emit_shock(world_pos: Vector3, magnitude: float) -> void:
 	if magnitude <= 0.0 or _f._shock.size() != _f._cell_count:
 		return

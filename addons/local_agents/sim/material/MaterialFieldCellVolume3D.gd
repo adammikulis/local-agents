@@ -3,12 +3,6 @@ extends RefCounted
 
 ## Volume of every cell, m^3. A channel value is a FILL FRACTION of the cell that holds it, so the matter in
 ## a channel is channel*volume and a bare sum over cells is not proportional to matter. On the cubed sphere
-## cells differ radially (volume goes as r^2 dr) and laterally (a gnomonic cell shrinks toward a face corner
-## by up to 4.7x at res 24). The box field is uniform, so every entry is side^3 there.
-## `LASphereGrid` is geometry and answers in model units; this is the physics accessor and answers in metres,
-## because every consumer multiplies it by a per-m^3 quantity (J/m^3/K, mol/m^3).
-## Never scale LASphereGrid's own table in place — it is a live member the GPU reads, and one rescale per
-## call compounds to +INF in six.
 static var _cache: Dictionary = {}
 
 static func of(field) -> PackedFloat32Array:

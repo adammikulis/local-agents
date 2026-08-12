@@ -3,9 +3,6 @@ extends RefCounted
 
 ## Momentum stock and its books, in the FIELD frame (planet-fixed, the frame the velocity channels and the
 ## tangent tables are written in). The GPU stores velocity FRAME-LOCAL: vel_x along tangent_a, vel_z along
-## tangent_b, vel_y outward-radial, all m/s.
-##   momentum = Σ over open cells of  air * AIR_DENSITY_KG_M3 * cell_volume_m3 * (ta*vel_x + tb*vel_z + r*vel_y)
-## in kg·m/s. `air` is a dimensionless multiplier on AIR_DENSITY_KG_M3 (wind_pressure_sphere3d.glsl).
 
 const LEGS: PackedStringArray = ["air", "pressure"]
 

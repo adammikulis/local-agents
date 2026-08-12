@@ -42,10 +42,6 @@ static func courant(lat_size_model_units: float) -> float:
 
 ## The kernel's uniform-set entries. Bindings 3..40 are the same wind + lattice block for every tracer, so
 ## only the source, the destination and the settled-phase channel differ between callers.
-##
-## `deposit` is unwritten when the push constant's `deposit` is false, but the layout still requires a buffer
-## there and it must NOT alias `tracer_in` or `tracer_out`: all three are declared `restrict`, which promises
-## the driver they do not overlap. A non-depositing caller passes its own scratch.
 static func bindings(bufs: Dictionary, tracer_in: RID, tracer_out: RID, deposit: RID) -> Array:
 	return [
 		[0, tracer_in], [1, tracer_out], [2, deposit],

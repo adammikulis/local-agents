@@ -3,9 +3,6 @@ extends RefCounted
 
 ## The ONE walk every conserved substance is summed by. Reads the drain probe, weights each channel by the
 ## cell's own volume in cubic metres, and returns per-channel open/mask-free amounts plus the thermal stock.
-##
-## No mirror is ever read here. A leg that did not arrive is ABSENT, and `live` says so; the caller refuses
-## that substance's total rather than publishing one that is short by whatever failed to arrive.
 
 var _f = null
 

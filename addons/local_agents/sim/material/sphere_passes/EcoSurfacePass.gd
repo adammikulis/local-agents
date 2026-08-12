@@ -13,8 +13,6 @@ const CellList = preload("res://addons/local_agents/sim/material/sphere_passes/C
 
 ## Active-cell rows for the two kernels below. Each predicate is that kernel's own no-op condition:
 ## fungus and shock write their ping-pong OUT half, so a skipped cell must already hold the value the
-## kernel would have written — hence the BACK term. Both are diffusive, hence HALO. Thresholds are 0
-## (strict >): nothing below a floor is discarded, only exact zeros are.
 const CELL_ROWS: Array = [{
 	"label": "fungus",
 	"idx": "active_idx_fungus", "args": "active_args_fungus",

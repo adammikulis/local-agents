@@ -2,11 +2,6 @@ extends RefCounted
 
 ## Base for every field pass module. It owns the RenderingDevice handle, compiles kernels, builds uniform
 ## sets, resolves channel buffers out of the driver's `bufs`, and frees every RID it handed out.
-##
-## A subclass implements `_setup(bufs, cc)` and `dispatch(rd, cl, parity, ctx, cc, groups)`. It must take
-## every kernel, uniform set and scratch buffer from the helpers below, because `dispose()` frees exactly
-## what those helpers created. A kernel is identified by its compute pipeline; the shader behind it is an
-## implementation detail this class keeps.
 
 var _rd: RenderingDevice = null
 

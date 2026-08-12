@@ -40,12 +40,6 @@ func sealed() -> bool:
 
 ## THE TWO PHASES OF THE WORLD, and the only place the boundary is decided.
 ##
-## SEEDING: the world is being built. Matter and energy may be CREATED, because they are being handed to a
-## planet that does not have them yet. Every such act is recorded in `world_seed`, which is the scoreboard of
-## what the substrate was TOLD rather than worked out.
-##
-## SEALED: the world exists. Matter and energy may only be MOVED or TRANSFORMED. Creating either is a
-## violation, not a modelling choice, and no flag, mode or environment variable may re-enable it.
 func creation_allowed() -> bool:
 	return _phase == Phase.SEEDING
 

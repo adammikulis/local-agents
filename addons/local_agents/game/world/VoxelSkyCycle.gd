@@ -289,10 +289,6 @@ func _update_day_night() -> void:
 
 ## Altitude-aware atmosphere for planet mode: blend the environment from the stark dark space look (pulled out)
 ## to a bright blue daytime sky with sky-sourced ambient + fog (down among the creatures), driven by the orbit
-## camera's surface_blend(). Near the surface the ambient lifts from the space value to SURFACE_AMBIENT
-## and the background becomes the blue procedural sky (its day
-## colours, set once in setup, are untouched in planet mode). The space view keeps its dark, stark-terminator
-## look. Called every frame from the planet branch, so it has the last word on the environment.
 func _apply_surface_atmosphere() -> void:
 	if _env == null:
 		return

@@ -29,10 +29,6 @@ layout(push_constant, std430) uniform Params {
 
 // Predicate terms. Bit values, not model parameters; CellListPass.Flag mirrors them.
 #define F_OPEN_ONLY 1u    // reject solid cells
-#define F_INCLUSIVE 2u    // keep on >= thr rather than > thr
-#define F_BACK 4u         // keep when the ping-pong back half is over thr
-#define F_HALO 8u         // keep when any of the six neighbours is over thr
-#define F_AUX 16u         // keep when the aux channel is over aux_thr
 
 shared uint s_list_n;
 shared uint s_list_base;

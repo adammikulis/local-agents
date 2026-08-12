@@ -3,15 +3,6 @@ extends RefCounted
 
 ## The planet's radiation books, computed with the SAME model the kernel runs — LARadiativeColumn over
 ## LAAbsorptionBands. There is one radiative authority; this module is its CPU reader, not a second model.
-##
-## It samples columns rather than scanning every one: a band-resolved column solve is far too expensive to
-## run 6000 times per report in GDScript. `energy_sample_columns` says how many were taken and every total is
-## scaled by the sampling stride.
-##
-## Two unit families, and they are not interchangeable. `energy_absorbed` / `energy_emitted` are sums of
-## per-column W/m^2 and answer "how far from balance". `energy_absorbed_w` / `energy_emitted_w` /
-## `energy_face_area_m2` are watts and square metres, each column's flux against its own outward face area —
-## the only form LAMaterialFieldLedger3D's energy books can difference against a joule stock.
 
 const RadScript: GDScript = preload("res://addons/local_agents/sim/material/RadiativeColumn.gd")
 

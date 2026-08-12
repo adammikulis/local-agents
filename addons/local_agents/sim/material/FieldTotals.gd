@@ -3,20 +3,6 @@ extends RefCounted
 
 ## A TOTAL IS A MASS, NOT A COUNT. One place that turns a channel into an amount of matter.
 ##
-## Every conservation total in this project is currently `sum += arr[c]` over cells, and this grid's cells
-## are not the same size: largest over smallest is 6.30 / 7.91 / 8.76 at res 8 / 16 / 32, and the ratio
-## grows with resolution (scripts/check_sphere_grid.sh). Water moving from the shell floor into a cloud
-## therefore changes the "total" with no water created or destroyed, and a drift percentage read off it
-## measures the geometry as much as the physics.
-##
-## A channel value is INTENSIVE — how full of that substance the cell is. The extensive quantity is
-##     value * cell_volume * density
-## which is what a ledger has to sum and what `substance_kg` returns.
-##
-## The masks are a PARAMETER here rather than a policy, because the four legs of H2O currently disagree
-## about which cells count (water and snow on solid == 0, soil mask-free, moisture on solid != 0) and
-## unifying that is a physics question about where each phase can be, not something this file should
-## decide by picking a default.
 
 ## Which cells a sum includes. An enum, not three int consts: these are TAGS, and the model-parameters
 ## gate is right to treat a bare `const NAME: int = 1` as a quantity somebody chose.

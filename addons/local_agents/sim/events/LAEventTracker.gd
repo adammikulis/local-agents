@@ -49,10 +49,6 @@ func _build_registry() -> void:
 			"a violent impact just shook the ground"),
 		# NO FLOOD DETECTOR. `water_total` is a GLOBAL sum, and a flood is local: one valley filling while
 		# another dries sums to zero. What a global rise in liquid water actually means is planet-wide net
-		# condensation — a wet spell, not a flood — so the detector answered a different question from the
-		# one it named. A flood needs a spatial signal (a count of cells that gained standing water), which
-		# no gauge publishes; adding one needs a "flooded" threshold nobody can derive yet.
-		# Storm: the emergent wind speed crossing high (a gale whipping up). Scalar wind() magnitude.
 		_threshold("storm", "wind", "cross_up", 8.0, 4.0, 10.0, 0.5,
 			"a storm is whipping up — the wind is howling"),
 		# Lightning: each bolt is one strike (cumulative counter increment). NOTE: bolts/charge are stubbed

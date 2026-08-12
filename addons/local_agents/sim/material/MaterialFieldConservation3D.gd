@@ -10,8 +10,6 @@ const FLOAT32_EPSILON: float = 1.0 / 16777216.0
 
 ## The only tolerance a conservation ledger is entitled to, and it is DERIVED rather than picked. Summing N
 ## float32 values accumulates relative round-off of order sqrt(N)·eps, so the floor depends on how many cells
-## there are — 1.6e-5 at 69120 cells. Writing a single constant here would have been a number I chose, and
-## the model-parameters gate said so the moment I tried.
 static func noise_floor(cell_count: int) -> float:
 	return sqrt(float(maxi(cell_count, 1))) * FLOAT32_EPSILON
 

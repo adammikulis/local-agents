@@ -136,19 +136,6 @@ func setup(field) -> void:
 	_bufs["sigma_col"] = _new_f(maxi(_cc / maxi(int(_grid.depth), 1), 1))
 	# GRID GEOMETRY, and on a uniform Cartesian grid there are only two pieces of it. The neighbour table,
 	# whose slot order is the grid's (`d ^ 1` is the opposite, checked by scripts/check_neighbour_slots.sh),
-	# and the cell centre.
-	#
-	# EVERYTHING ELSE THAT USED TO BE UPLOADED HERE WAS THE COORDINATE SYSTEM APOLOGISING FOR ITSELF:
-	#   solid_angle  a cubed-sphere cell subtends a varying steradian; a box cell subtends nothing
-	#   cell_vol     varied per cell, so every transfer needed a donor/receiver volume ratio; now cell_size^3
-	#   face_area    varied per face; now cell_size^2, and it was already bound by zero passes
-	#   shell        the radial stack; a box has no radial stack
-	#   link_arc     angular separation between cell centres; a box has cell_size
-	#   link_partner the slot answering each link, because a seam could bend one; `d ^ 1` cannot be bent
-	#   link_tan     the per-cell tangent basis, because "sideways" turned as you crossed a face
-	#   link_rot     the parallel transport carrying a vector into the neighbour's basis
-	#   radial       "down", supplied by the indexing. There is no down here: it is -normalize(g), and g
-	#                comes from the mass that is there (LAFieldGravity).
 	var nbr_bytes: PackedByteArray = _grid.neighbours.to_byte_array()
 	_bufs["nbr"] = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	_bufs["pos"] = _make_vec3_flat(func(c: int) -> Vector3: return _grid.cell_world_pos(c))
@@ -273,8 +260,6 @@ func step() -> void:
 		_passes[i].dispatch(_rd, cl, _phase, _ctx, _cc, _groups)
 		# EVERY PASS READS WHAT THE PREVIOUS ONE WROTE. Passes barrier internally between their own
 		# sub-dispatches but nothing ordered them against EACH OTHER, so in one submit they overlapped and
-		# read half-written buffers. The checkpointed path syncs per pass and was therefore correct, which is
-		# how this showed up: with LA_PASS_PROBE armed o2 stays at 69120, without it o2 reaches 4e17.
 		_rd.compute_list_add_barrier(cl)
 		_rd.compute_list_end()
 		_rd.capture_timestamp(_pass_names[i])
@@ -530,9 +515,6 @@ func _audit_mirror_upload(name: String, arr) -> void:
 
 ## SEEDING ONLY: hands the device a whole channel while the world is being built. The amount is declared to
 ## LAMaterialFieldSeal3D, which refuses it once the world is SEALED, and a whole-mirror upload past step 0 is
-## refused outright — it rewinds however much the device evolved since that mirror was last read back, which
-## depends on channel residency and therefore on which consumers happen to be alive. Step-time edits go
-## through the inject queue's sparse ops, which read the LIVE buffer and book what they moved.
 func seed_field(name: String, arr, seal) -> void:
 	if _rd == null or not _bufs.has(name):
 		return

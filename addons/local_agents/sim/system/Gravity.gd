@@ -32,10 +32,6 @@ static func reference_body(tree: SceneTree) -> Object:
 
 ## NEWTON'S CONSTANT. It is a measured property of the universe, so it is read, never solved for.
 ##
-## This used to back-solve it from a target surface gravity: `_g_const = SURFACE_G * r * r / m`, with
-## SURFACE_G = 55.0 "units/s^2" chosen to match a feel. That inverts the physics — it makes G a free
-## parameter and the body's mass and radius the things that must agree with a number somebody liked, so a
-## planet could not be given a real mass without changing what gravity IS.
 static func gravitational_constant(_tree: SceneTree = null) -> float:
 	return LAPhysical.GRAVITATIONAL_CONSTANT
 

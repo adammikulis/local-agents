@@ -47,8 +47,6 @@ layout(set = 0, binding = 25, std430) restrict readonly buffer Radial { float ra
 layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float regolith[]; };
 // --- THE TWO NON-SILICATE MINERAL SPECIES. Every mineral channel above is calcium silicate CaSiO3; the
 // Urey reaction CaSiO3 + CO2 <-> CaCO3 + SiO2 has two products that are not, so each gets a channel.
-// OWN-CELL stocks: they do not advect, and no kernel other than this one reads or writes them. Their SLOT
-// numbers are 24 and 25; check_kernel() verifies that against the #defines below.
 layout(set = 0, binding = 28, std430) restrict buffer Carbonate { float carbonate[]; };  // CaCO3 — the carbon sink
 layout(set = 0, binding = 29, std430) restrict buffer Silica { float silica[]; };        // SiO2 — the residue
 // Athy pore fraction (0 outside regolith). Declared here rather than beside the rc_shared.glsli include
@@ -56,8 +54,6 @@ layout(set = 0, binding = 29, std430) restrict buffer Silica { float silica[]; }
 layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
 // BINDINGS 30-33 IN THIS KERNEL ARE NOT THE 30-33 OF EVERY OTHER KERNEL. Elsewhere they are
 // sediment/susp/dust/carbonate; here they are the four below, and sediment/dust/susp/carbonate/silica are at
-// 13/14/16/28/29. rc_shared.glsli is a TEXTUAL include and binds by NAME, so it reads the right arrays
-// either way — but a binding list copied from another pass will not work here.
 layout(set = 0, binding = 30, std430) restrict buffer N2Buf { float n2[]; };              // dinitrogen, 78% of the air
 // Charge (channel units) a lightning return stroke drained from this cell this step. DRIVER ONLY.
 layout(set = 0, binding = 31, std430) restrict readonly buffer Discharge { float discharge[]; };
@@ -68,30 +64,6 @@ layout(set = 0, binding = 33, std430) restrict buffer OrgO { float org_o[]; };
 
 // Slot enum — MUST match MaterialReactions3D.gd.
 #define TEMP     0
-#define WATER    1
-#define MOISTURE 2
-#define O2       3
-#define CO2      4
-#define FUEL     5
-#define FIRE     6
-#define DETRITUS 7
-#define FUNGUS   8
-#define FERT     9
-#define LAVA     10
-#define BIOMASS  11
-#define SNOW     12
-#define SEDIMENT  13
-#define DUST      14
-#define SUSP      15
-#define WINDSPEED 16   // derived driver: sqrt(vel_x^2 + vel_z^2) — not a stored channel, read-only
-#define ROCK_FILL 17   // fractional bedrock mineral mass (solid iff >= 0.5); M5/M6 transfer it with LAVA
-#define LIGHT     18   // DERIVED driver: max(0, dot(cell_radial, sun_dir)) — REAL per-cell insolation, the same
-                       // quantity heat3d_solar_sphere3d computes, with sun_dir's magnitude carrying intensity
-#define SOIL_ROOT 19   // DERIVED, WRITABLE: the plant-available water of the ROOTING COLUMN — the soil summed
-                       // over the permeable REGOLITH cells directly beneath this open cell (the regolith mask,
-#define VAPOUR_DEFICIT 20  // DERIVED driver: sat(T) - moisture, SIGNED. The phase rule — see sat_mass_frac().
-#define SOIL_TOP  21   // DERIVED, WRITABLE: the soil of the FIRST regolith cell beneath this open cell — the
-                       // shallow DRYING FRONT. Roots reach the whole rooting column (SOIL_ROOT); evaporation
 
 // --- THE PHASE RULE ----------------------------------------------------------------------------------------
 // Saturation vapour pressure at the cell's temperature, in the field's own unit (a fraction of a cell full
@@ -114,27 +86,14 @@ float sat_mass_frac(float t_c) {
 }
 #define OVERBURDEN 22  // DERIVED driver: LITHOSTATIC pressure (Pa) of the SOLID column above. See overburden().
 #define BEDROCK_BELOW 23 // DERIVED, WRITABLE: the bedrock of the SOLID cell directly beneath this open one —
-                       // the rock a surface process actually attacks. Unique per thread; see bedrock_below().
-#define CARBONATE 24   // CaCO3, bound at 28 — where weathered carbon goes and where it comes back from
-                       // when D1b runs backwards. Own-cell stock; nothing advects it.
-#define SILICA    25   // SiO2, bound at 29 — the weathering residue. Nothing weathers it further.
-#define N2        26   // dinitrogen, bound at 30 — the nitrogen reservoir lightning fixation draws on
-#define DISCHARGE 27   // DERIVED driver only, bound at 31 — J/m^3 this cell's return stroke released
-#define ORG_H     28   // hydrogen bound in the dead organic pool, bound at 32
-#define ORG_O     29   // oxygen bound in the dead organic pool, bound at 33
-#define ORG_C     30   // DERIVED driver only: detritus + fuel, the carbon the two ratios divide by
 
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust (dust_loft parity)
 #define REGOLITH_CELLS 4    // rooting depth = the permeable regolith band (MUST match MaterialField3D.REGOLITH_CELLS)
-// OVERBURDEN_MAX_CELLS bounds the outward walk. The lithification threshold is reached at four cells of full
-#define OVERBURDEN_MAX_CELLS 12
 const float ROCK_DENSITY = 2900.0;      // LAPhysical.ROCK_DENSITY_KG_M3 — basalt / crustal rock
 const float SEDIMENT_DENSITY = 2000.0;  // LAPhysical.SEDIMENT_DENSITY_KG_M3 — unconsolidated wet sediment
 
 // --- A CELL'S VOLUMETRIC HEAT CAPACITY [J/m3/K] ------------------------------------------------------------
 // What an enthalpy of reaction is divided by to become a temperature change. The one definition lives in
-// rc_shared.glsli; do not fork it. Its `#include` is further down: it is TEXTUAL and reads the carrier
-// buffers by name, so it has to land after the last `layout(...) buffer` declaration.
 
 // Flammability limit as a fraction of ambient air: the limiting oxygen concentration over air's own mole
 // fraction of O2.
@@ -144,22 +103,9 @@ const float O2_FLAMMABILITY_LIMIT = LOC_MOLE_FRAC / AIR_O2_MOLE_FRAC_K;
 
 #define CONST_FRAC             0
 #define BILINEAR               1
-#define EXCESS_OVER_THRESHOLD  2
-// 3 IS RETIRED AND STAYS UNUSED. It was RELAX_TARGET, a product credit with no reactant. An unknown rate
-// model yields no extent at all, never an unbounded source.
-#define DEFICIT_BELOW_THRESHOLD 4   // mirror of EXCESS: fires when driver is BELOW threshold (freeze at T<FREEZE_TEMP)
-#define OPTIMUM_BAND           5    // x = k * driver * max(0, 1 - ((driver2 - threshold)/param2)^2) — a rate that
-                                    // PEAKS at an optimum and falls off BOTH ways. See MaterialReactions3D.gd.
-#define ARRHENIUS              6    // x = k * driver * driver2 * exp(-(Ea/R)(1/T - 1/T_ref)) — the temperature
-                                    // law of chemistry. threshold = Ea/R (K), param2 = T_ref (K). See ReactionDefs.gd.
 
 #define GATE_NEAR_GROUND 4
 #define GATE_DRY         16   // cell is DRY (water <= WET_MAX_LOFT) — sand only lofts when not wet
-#define GATE_FREEZING    32   // cell temp below WATER_FREEZE_C — see LAReactionDefs.GATE_FREEZING
-                              // water=1 and is deliberately not simulated) — real per-cell chemistry only
-#define GATE_BURIED      256  // ALSO runs in SOLID cells — buried organic matter is inside rock by definition
-#define GATE_AIR_ABOVE   128  // THE FREE SURFACE: the outward neighbour is air (not rock, not drowned). A
-                              // submerged cell has no air touching it and cannot evaporate. See ReactionDefs.
 
 #define DROWNED_WATER 0.5     // half a cell of standing water in the neighbour above = no free surface here
 
@@ -229,15 +175,6 @@ float light_at(uint i) {
 
 // ROOTING-COLUMN water. `soil` lives in REGOLITH cells, so an open cell's plant-available water is the soil
 // summed over the permeable column beneath it: walk inward while the cell is REGOLITH, at most
-// REGOLITH_CELLS deep. The walk keys on the REGOLITH mask, not on `solid` — the two diverge, because `solid`
-// is re-derived from rock_fill every step while `regolith` is seeded at world-gen, so an eroded or carved
-// aquifer cell is solid == 0 with regolith == 1 and still holds its soil.
-//
-// RACE-FREEDOM. These two functions and root_soil_draw are the only place this kernel touches a cell other
-// than its own. The walk INCLUDES the first open cell it reaches and then STOPS. Every reacting cell is
-// itself open, so for two reacting cells A (outer) and B (inner) in one column, A either halts before B or
-// counts B and halts; A covers only cells strictly outward of B and B only cells inward of itself. The
-// columns are disjoint, and `soil` has no readable slot in read_ch, so nothing else reads either write.
 
 // The FIRST regolith cell beneath an open cell, or -1. The inward-neighbour mapping is injective, so no two
 // reacting cells share one.
@@ -498,8 +435,6 @@ void main() {
 		} else if (rc.rate_model == ARRHENIUS) {
 			// The temperature law of chemistry: activation energy in `threshold` (Ea/R, kelvin), referenced
 			// to `param2` (the temperature k is quoted at). First order in `driver`, and in `driver2` when it
-			// names a slot. `t_ceiling_k` is the record's own phase limit — an aqueous reaction stops
-			// climbing at its solvent's boiling point; 0 means no ceiling.
 			float conc2 = (rc.driver2_slot >= 0) ? read_ch(rc.driver2_slot, i) : 1.0;
 			float t_k = temp[i] + KELVIN_0;
 			if (rc.t_ceiling_k > 0.0) {
@@ -521,8 +456,6 @@ void main() {
 		}
 		// CAPS ARE UNCONDITIONAL IN BOTH DIRECTIONS: whichever side is being debited bounds the extent, so no
 		// path runs a credit without its matching debit. `quench_min` is a FLOOR on one reactant — the amount
-		// the reaction may not draw below, which is how a flame goes out at the limiting oxygen concentration
-		// with oxygen still in the cell.
 		if (x > 0.0) {
 			for (int k = 0; k < rc.n_react; k++) {
 				float coeff = max(react_coeff_at(rc, k, comp_h, comp_o), 1e-6);
@@ -576,8 +509,6 @@ void main() {
 
 	// THE BURNING INSTRUMENT. `fire` is derived, not a state: the fraction of this cell's USABLE oxygen that
 	// combustion consumed this step, where usable means above the flammability limit. Read by the gauges
-	// (fire_cells / fire_peak / is_burning) and by no physics. The numerator is attributed per record inside
-	// the loop, because decomposition and respiration draw oxygen too.
 	if (fuel_before > 0.0) {
 		float o2_usable = max(0.0, o2_before - O2_FLAMMABILITY_LIMIT);
 		fire[i] = (o2_usable > 0.0) ? clamp(o2_burn / o2_usable, 0.0, 1.0) : 0.0;

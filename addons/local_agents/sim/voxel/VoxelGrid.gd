@@ -3,25 +3,6 @@ extends RefCounted
 
 ## A UNIFORM CARTESIAN GRID OF SPACE. Not a planet — space. A planet is wherever the matter ends up.
 ##
-## THE POINT. The grid this replaces was a cubed-sphere shell, so the planet's SHAPE was an input: the
-## coordinate system asserted a sphere and nothing could be any other shape. Here the cells are just
-## boxes, and a body is round because its own gravity pulled it round. Spherical is an OUTPUT.
-##
-## WHAT THAT DELETES, all of it geometry the curvilinear grid needed and this one does not have:
-##   solid angle per column · per-cell volume (every cell is cell_size^3) · the donor/receiver volume
-##   ratio on every transfer · link arc length · the tangent basis and its parallel transport between
-##   faces · the face seam table and the family orientation repair · the kernel-order slot permutation
-##   and the reciprocal-slot lookup it needed.
-##
-## SLOTS are axis-aligned and ordered so the OPPOSITE OF d IS d ^ 1:
-##   0 = -X, 1 = +X, 2 = -Y, 3 = +Y, 4 = -Z, 5 = +Z
-## A neighbour outside the box is -1, exactly as a missing neighbour was before.
-##
-## THERE IS NO "DOWN" HERE. The old grid's slot 0 was inward, so gravity was a direction the indexing
-## supplied for free. It does not exist on this grid and must not be reintroduced: down is
-## -normalize(g) at each cell, and g comes from the mass distribution (LAFieldGravity).
-##
-## (Explicit types only, no ':=' inferred typing.)
 
 ## Face tags, not quantities. Ordered so the opposite of d is d ^ 1.
 enum { S_NEG_X, S_POS_X, S_NEG_Y, S_POS_Y, S_NEG_Z, S_POS_Z }
@@ -115,13 +96,6 @@ func build_centred(center: Vector3, radius: float, p_cell_size: float) -> void:
 
 ## Build over a VoxelLodTerrain's own `voxel_bounds`, snapped so a field cell is a whole number of voxels
 ## and the origin lands on a voxel-block boundary.
-##
-## WHY THIS MATTERS. godot_voxel's terrain is already a uniform Cartesian voxel field. The grid this
-## replaces was a cubed-sphere shell, so the two were different coordinate systems describing one planet:
-## the solid mask was built by calling `is_solid(world_pos)` per cell, an interpolated SDF sample through
-## the script boundary, once for every cell in the field. Aligned, a field cell maps to a whole voxel
-## block by integer arithmetic, so occupancy is a block read and a carve and the field's view of that
-## carve are the same coordinates rather than two.
 func build_over_voxel_bounds(bounds: AABB, p_cell_size: float, voxel_size: float = 1.0) -> void:
 	var cs: float = maxf(round(p_cell_size / maxf(voxel_size, 1.0e-6)), 1.0) * voxel_size
 	var lo: Vector3 = Vector3(

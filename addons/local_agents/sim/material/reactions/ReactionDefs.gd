@@ -47,8 +47,6 @@ const N2: int = 26                    # dinitrogen, 78.084% of the air by mole �
 const DISCHARGE: int = 27
 # DEAD ORGANIC MATTER IS THREE STOCKS, NOT ONE FORMULA. DETRITUS and FUEL carry its CARBON; ORG_H and ORG_O
 # carry the hydrogen and oxygen bound in that same pool. All three hold LASubstances.ORGANIC_MOL_PER_M3 moles
-# per channel unit, so ORG_H/ORG_C is the molar H:C and ORG_O/ORG_C the molar O:C. Fresh CH2O litter is
-# (1, 2, 1); coalification drives H and O out and the ratios fall toward carbon.
 const ORG_H: int = DISCHARGE + 1
 const ORG_O: int = ORG_H + 1
 const ORG_C: int = ORG_O + 1          # DERIVED driver only: DETRITUS + FUEL, the pool the ratios divide by
@@ -75,8 +73,6 @@ const GATE_DRY: int = 16              # cell water <= WET_MAX_LOFT (dry surface)
 const GATE_FREEZING: int = 32         # cell temp below LAPhysical.WATER_FREEZE_C. Deposition needs it: the
                                       # condensate driver says HOW MUCH water is out of solution, not which
                                       # phase it lands in, and above 0 C that condensate is rain, not snow.
-                                      # Retires with the enthalpy channel, which derives phase from energy
-                                      # and so has no phase branch to gate.
 const GATE_AIR_ABOVE: int = 128       # THE FREE SURFACE — the air/liquid interface. True when the OUTWARD radial
                                       # `static` cells that are deliberately never simulated (MaterialField3D
                                       # ._seed_sphere_sea), so per-cell chemistry there is meaningless.
@@ -91,12 +87,6 @@ const RECORD_BYTES: int = 240         # std430 size of one Reaction (see layout 
 
 # --- A COEFFICIENT THAT IS A FUNCTION OF THE CELL'S OWN COMPOSITION ----------------------------------------
 # Burning CH_yO_z takes (1 + y/4 - z/2) moles of O2 and yields y/2 of water per mole of carbon. Those are not
-# constants, they are the cell's composition, so every stoichiometric coefficient here is a polynomial
-#     coeff = base + h * (ORG_H / ORG_C) + o * (ORG_O / ORG_C)
-# evaluated per cell in the kernel. A reactant entry is [slot, base] or [slot, base, h, o]; a product entry is
-# [slot, base, target] or [slot, base, target, h, o]. Balance must hold IDENTICALLY in y and z, so the gate
-# checks the base, h and o parts as three independent balance equations — which is what makes a
-# composition-dependent record conserve by construction instead of by inspection.
 
 
 # --- A RATE LAW'S TEMPERATURE CEILING (ARRHENIUS) ----------------------------------------------------------

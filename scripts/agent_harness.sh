@@ -314,7 +314,7 @@ if [[ "$cmd" == "lint" ]]; then
     # Same gate over first-party GDScript. sim/material is excluded: its kernels are covered by the call
     # above and its GDScript passes are the field hub's own scope. Exit 2 = could not run.
     set +e
-    EXCLUDE_RE='/sim/material/|/thirdparty/' "$SCRIPT_DIR/check_comment_density.sh" "$REPO_ROOT/addons/local_agents"
+    EXCLUDE_RE='/thirdparty/' "$SCRIPT_DIR/check_comment_density.sh" "$REPO_ROOT/addons/local_agents"
     rc_comments_gd=$?
     set -e
     if [[ $rc_comments_gd -ne 0 ]]; then

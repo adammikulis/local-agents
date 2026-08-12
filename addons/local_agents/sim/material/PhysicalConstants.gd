@@ -65,8 +65,6 @@ const GROUNDWATER_CIRCULATION_M: float = 2000.0
 
 # --- THERMAL TRANSPORT ------------------------------------------------------------------------------------
 # Conductivity lambda (W/m/K) and volumetric heat capacity rho*c (J/m^3/K) for the three materials this
-# substrate conducts through, plus the diffusivity alpha = lambda/(rho*c) (m^2/s) they imply.
-# WHAT THESE NUMBERS SAY ABOUT THIS PLANET, stated once so nobody re-derives it: alpha_rock 1.03e-6 m^2/s
 const THERMAL_CONDUCT_ROCK_W_MK: float = 2.5
 const THERMAL_CONDUCT_AIR_W_MK: float = 0.026
 const THERMAL_CONDUCT_WATER_W_MK: float = 0.60
@@ -118,13 +116,6 @@ const HEAT_PER_KG_OXYGEN_J: float = 1.31e7
 
 # --- GROUNDWATER: PERMEABILITY IS GEOMETRY, NOT A MATERIAL NAME ---------------------------------------------
 # (Freeze & Cherry 1979, Table 2.2): gravel 1e-3..1 m/s, clean sand 1e-5..1e-2, silty sand 1e-7..1e-3,
-# and the Kozeny-Carman relation says exactly how:
-#     k   = phi^3 * d^2 / (KOZENY_CARMAN_C * (1 - phi)^2)      [intrinsic permeability, m^2]
-#     K   = k * rho_w * g / mu                                 [hydraulic conductivity, m/s]
-# with phi the porosity and d the representative grain diameter. Kozeny (1927) / Carman (1937); the constant
-# 180 is Carman's fit for packed granular beds. Substituting real regolith numbers reproduces the table above
-# with nothing fitted: phi 0.35 with d = 0.5 mm gives 1.4e-3 m/s (coarse sand), d = 4 mm gives 8.8e-2 m/s
-# (fine gravel), d = 0.05 mm gives 1.4e-5 m/s (silty sand). One relation, the whole range.
 const KOZENY_CARMAN_C: float = 180.0
 const WATER_DYNAMIC_VISCOSITY_PA_S: float = 1.002e-3    # liquid water at 20 °C
 const AIR_DYNAMIC_VISCOSITY_PA_S: float = 1.81e-5       # dry air at 15 °C, 1 atm
@@ -134,8 +125,6 @@ const COMPACTION_LENGTH_M: float = 2500.0
 
 ## Terminal settling velocity of a grain in a fluid, m/s (Stokes drag): v = (rho_p - rho_f) g d^2 / 18 mu.
 ## Valid only for Reynolds < 1. At GRAIN_D_UPLAND_M in air Re = 1.2, so this is at the edge of validity and
-## reads a little fast; at GRAIN_D_LOWLAND_M it returns 1396 m/s, which is meaningless — a 4 mm grain is not
-## airborne and is never passed here.
 static func stokes_settling_velocity(grain_d_m: float, fluid_density: float, fluid_viscosity: float,
 		g_m_s2: float) -> float:
 	if fluid_viscosity <= 0.0:
@@ -387,9 +376,6 @@ const IONISATION_EV_AL: float = 5.986
 
 # ONSET TEMPERATURES FOR THE TWO HIGH RUNGS. DECLARED MODELLING CHOICES, NOT MEASUREMENTS: real thermal
 # dissociation and ionisation are gradual equilibria (Saha), not the sharp plateaus this ladder uses. A
-# plateau at a stated temperature keeps the ENERGY exact — the full bond and ionisation enthalpy is still
-# absorbed — while placing it at a single temperature instead of spreading it over a range.
-# See docs/MODEL_PARAMETERS.md.
 const DISSOCIATION_ONSET_C: float = 2226.85           # 2500 K, where H2O dissociation becomes significant
 # --- SAHA AND LAW OF MASS ACTION: the equilibria the two high rungs actually obey ------------------------
 const PLANCK_J_S: float = 6.62607015e-34             # CODATA, exact
@@ -469,10 +455,6 @@ const ENTROPY_N2_GAS_J_MOLK: float = 191.609         # standard molar entropy, C
 
 # --- LIGHTNING NITROGEN FIXATION ------------------------------------------------------------------------
 # Schumann & Huntrieser 2007 (Atmos. Chem. Phys. 7:3823) put the global lightning NOx source at 5 Tg(N)/yr
-# (range 2-8) and quote a best estimate of 250 mol NO per flash; Christian et al. 2003 (JGR 108:4005,
-# OTD/LIS) give the global flash rate of 44 s^-1, and 5e12 g/yr / 14.0067 g/mol / (44 * SECONDS_PER_YEAR)
-# returns 257 mol N per flash, so the two are the same number. Per JOULE it is that divided by the energy
-# of one flash.
 const LIGHTNING_N_FIXED_MOL_PER_FLASH: float = 250.0
 const LIGHTNING_N_FIXED_MOL_PER_J: float = LIGHTNING_N_FIXED_MOL_PER_FLASH / LIGHTNING_FLASH_J
 
@@ -485,11 +467,6 @@ const MOLAR_MASS_OXYGEN_KG_MOL: float = 0.0159994      # O
 
 # --- COALIFICATION KINETICS -------------------------------------------------------------------------------
 # Burial heats organic matter and it loses H2O, then CO2, then CH4, drifting toward carbon. Sweeney & Burnham
-# 1990 (AAPG Bulletin 74:1559, EASY%Ro) model vitrinite maturation as parallel first-order reactions with one
-# frequency factor of 1e13 /s and a distribution of activation energies over 34-72 kcal/mol in 2 kcal steps.
-# The two values below are the two LOWEST members of that grid, assigned to the two products this substrate
-# has a channel for. Collapsing a distribution to one activation energy per product is a modelling choice,
-# not a measurement; it goes when a distributed-activation-energy solver exists.
 const VITRINITE_FREQUENCY_FACTOR_PER_S: float = 1.0e13
 const KCAL_PER_MOL_TO_J_MOL: float = 4184.0
 const COAL_DEHYDRATION_EA_J_MOL: float = 34.0 * KCAL_PER_MOL_TO_J_MOL

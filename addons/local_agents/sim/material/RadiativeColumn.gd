@@ -3,12 +3,6 @@ extends RefCounted
 
 ## Two-stream band radiative transfer over one radial column. CPU counterpart of
 ## kernels3d/heat3d_solar_sphere3d.glsl — same bands, same paths, same sweeps.
-##
-## Optical depth is a sum over absorbers, tau_b = sum_i kappa_b_i(p, T) * u_i, with u_i the layer mass
-## path (kg/m^2) and kappa from LAAbsorptionBands. Lorentz collisional broadening makes kappa proportional
-## to the broadener's pressure: the line terms and the air-induced continuum scale with the total
-## pressure, the CO2-CO2 collision-induced term with the CO2 partial pressure, the water continuum with
-## the water partial pressure. N2, O2 and Ar have no dipole transitions here and appear nowhere.
 
 const Bands: GDScript = preload("res://addons/local_agents/sim/material/AbsorptionBands.gd")
 
@@ -65,9 +59,6 @@ static func partial_pressure_pa(rho: float, t_k: float, gas_const: float) -> flo
 
 ## Solve one column. Layer arrays run OUTWARD from the first cell above the surface.
 ##   t_k, p_pa, u_co2, u_h2o, p_co2_pa, p_h2o_pa : per layer (K, Pa, kg/m^2, kg/m^2, Pa, Pa)
-##   s_toa : solar flux on the horizontal at the top of the column, W/m^2
-##   mu    : cosine of the solar zenith angle, floored at the horizon air mass
-## Returns net radiative flux convergence per layer and at the surface, W/m^2, plus the OLR.
 static func solve(t_k: PackedFloat32Array, p_pa: PackedFloat32Array, u_co2: PackedFloat32Array,
 		u_h2o: PackedFloat32Array, p_co2_pa: PackedFloat32Array, p_h2o_pa: PackedFloat32Array,
 		t_surface_k: float, emissivity: float, albedo: float,

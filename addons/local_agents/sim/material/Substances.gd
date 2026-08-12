@@ -3,13 +3,6 @@ extends RefCounted
 
 ## ============================================================================================================
 ## ============================================================================================================
-##     in "the O2 in a cell of ambient air" (8.535 mol/m3) and water channels in "a cell full of liquid
-##     water" (55343 mol/m3). The balance gate compared them as equal, certifying every gas-to-water record
-##     and sublimation at 0 C, so a closed water -> vapour -> snow -> water loop released 2.433e5 J/kg from
-## kilogram (J/kg for a latent heat, J/kg/K for a specific heat). Storing energy and DERIVING temperature —
-## air" is not a quantity anybody can check; 0.2731 kg/m3 is. Mass conservation stops needing a conversion
-## phase. Hess's law cannot be violated because there is no set of independent latent heats left to
-## disagree. The 2.433e5 J/kg leak above is not fixed here — it is made unwritable.
 
 const PC = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
 
@@ -19,9 +12,6 @@ const ORGANIC_MOL_PER_M3: float = PC.DRY_WOOD_DENSITY_KG_M3 / PC.MOLAR_MASS_CH2O
 
 ## HIGHER heating value per kg of each element in a solid fuel — Channiwala & Parikh 2002, Fuel 81:1051-1063,
 ## "A unified correlation for estimating HHV of solid, liquid and gaseous fuels", eq. 1:
-##   HHV [MJ/kg] = 0.3491 C + 1.1783 H + 0.1005 S - 0.1034 O - 0.0151 N - 0.0211 A   (mass %)
-## It is LINEAR in element mass, which is what lets one heat of combustion cover the whole peat-to-anthracite
-## spectrum without a table: the record's enthalpy is this dotted with the cell's own C:H:O.
 const HHV_PER_KG_C_J: float = 0.3491e8
 const HHV_PER_KG_H_J: float = 1.1783e8
 const HHV_PER_KG_O_J: float = -0.1034e8
@@ -30,8 +20,6 @@ const HHV_PER_KG_N_J: float = -0.0151e8
 
 ##   molar_mass       kg/mol. The one bridge between the mass this table stores and the moles chemistry uses.
 ##   density          kg/m3 of the CONDENSED phase, for turning a mass into a volume fraction of a cell.
-##   specific_heat    J/kg/K, by phase where they differ enough to matter (ice is half of liquid water).
-##   conductivity     W/m/K.
 static func table() -> Dictionary:
 	return {
 		# --- WATER ------------------------------------------------------------------------------------------
@@ -70,10 +58,6 @@ static func table() -> Dictionary:
 
 		# --- THE ATMOSPHERE'S GASES -------------------------------------------------------------------------
 		# Stored as masses like everything else. Their ratios in the seeded air are mole fractions of a
-		# `density` for a GAS is the mass of it in a cubic metre of ambient air, not its condensed density —
-		# that is what makes one channel unit "the N2 in a cell of air", the same convention o2 and co2 use.
-		# `density_solid` is therefore omitted: with an ambient-air density the Clapeyron slope in melt_c_at()
-		# would be meaningless, and omitting it makes the slope exactly zero instead of wrong.
 		"n2": {
 			"formula": {"N": 2.0},
 			"molar_mass": PC.MOLAR_MASS_N2_KG_MOL,
@@ -114,9 +98,6 @@ static func table() -> Dictionary:
 
 		# --- ORGANIC MATTER ---------------------------------------------------------------------------------
 		# DEAD organic matter is THREE element stocks, not one formula. Its C:H:O ratio is per-cell state:
-		# organic_h / organic_c is the molar H:C, organic_o / organic_c the molar O:C (all three carry the
-		# same moles per channel unit, ORGANIC_MOL_PER_M3, so the quotient IS the ratio). Fresh CH2O litter
-		# is c=1, h=2, o=1; coalification drives h and o down and nothing has to change channel.
 		"organic_c": {
 			"formula": {"C": 1.0,
 				"N": (PC.MOLAR_MASS_CARBON_KG_MOL / PC.LITTER_C_TO_N) / PC.MOLAR_MASS_NITROGEN_KG_MOL},
@@ -209,8 +190,6 @@ static func fresh_litter_per_carbon(element: String) -> float:
 
 ## Heat released by fully oxidising ONE MOLE of one element of the dead organic pool, J/mol, with the water
 ## leaving as VAPOUR (that is where the MOISTURE channel puts it, so the latent heat is not available and the
-## hydrogen term is the LOWER heating value). Dotted with a cell's C:H:O this IS its heat of combustion, so no
-## fuel carries its own. Nitrogen rides on the carbon backbone at the litter C:N ratio.
 static func organic_energy_j_mol(element: String) -> float:
 	if element == "C":
 		var n_per_c: float = float(table()["organic_c"]["formula"]["N"])
@@ -307,10 +286,6 @@ static func boil_c_at(id: String, p_pa: float) -> float:
 
 ## constants with the relation between them written in a comment. Watson correlation:
 ## that is physically ZERO. Watson has the right asymptote — L goes to zero at Tc, because that is what a
-## Per-element data, keyed the way `formula` is. One row per element, never one per compound.
-## Static funcs, not consts: `table()` is one for the same reason. A const Dictionary holding values from
-## another preloaded script is a const-expression the runtime can fail to evaluate even when the editor scan
-## passes, and the whole script then has no static methods at all.
 static func element_ionisation_ev() -> Dictionary:
 	return {
 		"H": PC.IONISATION_EV_H, "O": PC.IONISATION_EV_O, "C": PC.IONISATION_EV_C, "N": PC.IONISATION_EV_N,
@@ -335,8 +310,6 @@ static func element_entropy_j_molk() -> Dictionary:
 
 ## Dissociated fraction at temperature and pressure, from the law of mass action. M <-> v atoms, with
 ## dG = dH_atomisation - T dS and dS the free atoms' standard entropies minus the molecule's.
-## No onset temperature: the fraction rises smoothly and is nonzero everywhere, which is what a real
-## equilibrium does.
 static func dissociated_fraction(id: String, t_k: float, p_pa: float) -> float:
 	var s: Dictionary = table().get(id, {})
 	var dh: float = float(s.get("atomisation_j_mol", 0.0))
@@ -409,12 +382,6 @@ static func ionised_fraction(id: String, t_k: float, p_pa: float) -> float:
 
 ## Melting point at pressure, and depressed by dissolved solute. Clapeyron for the solid-liquid boundary:
 ## dT/dP = T dv / dH_fus, with dv = 1/rho_liquid - 1/rho_solid straight out of this table. For water dv is
-## NEGATIVE because ice floats, so ice melts at a LOWER temperature under load — which is why a glacier
-## slides on its own base. Nothing here is a new number.
-##
-## `molality` is mol of dissolved particles per kg of solvent. The cryoscopic constant is DERIVED, not
-## tabulated: K_f = R T_f^2 M / dH_fus,molar, which comes out at 1.859 K kg/mol for water against the
-## measured 1.86. Sea water at ~1.16 mol/kg of ions therefore freezes near -2.2 C.
 static func melt_c_at(id: String, p_pa: float, molality_mol_kg: float = 0.0) -> float:
 	var s: Dictionary = table().get(id, {})
 	var t_ref_c: float = float(s.get("melt_c", INF))

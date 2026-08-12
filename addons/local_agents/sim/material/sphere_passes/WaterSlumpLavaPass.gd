@@ -7,8 +7,6 @@ const FLOW_PATH: String = "res://addons/local_agents/sim/material/kernels3d/grav
 
 ## One row per flowing material. `repose` is LAPhysical.REPOSE_TAN_DRY_GRANULAR for granular material and 0
 ## for a fluid, which levels out freely. The flow caps are model parameters of this grid and step.
-## `group` names the LAHeatCapacity group the material joins in `rc_of`, which sets how much heat a unit of
-## it carries.
 const MATERIALS: Array = [
 	{"channel": "water", "max_flow": 1.0, "lateral": 0.5, "repose": 0.0, "group": "water"},
 	{"channel": "sediment", "max_flow": 0.5, "lateral": 0.25,

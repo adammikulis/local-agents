@@ -3,16 +3,6 @@ extends RefCounted
 
 ## THE FIELD'S GRAVITY. Owns the Poisson solve and the density that sources it, so the field itself stays
 ## a facade and nothing else in the tree declares what g is.
-##
-## THERE IS NO GRAVITY CONSTANT. g is a VECTOR FIELD read per cell, because the planet is round only if
-## its own mass made it round. A scalar surface gravity, however carefully derived, is the field of a
-## sphere and asserts the shape it was supposed to explain.
-##
-## CADENCE. Mass moves slowly next to a step, and the solve warm-starts from the previous potential, so
-## re-solving every step buys nothing. It re-solves every `SOLVE_EVERY` steps and the sweeps in between
-## are what track the drift; the residual is published rather than assumed.
-##
-## (Explicit types only, no ':=' inferred typing.)
 
 const GravityScript: GDScript = preload("res://addons/local_agents/sim/voxel/FieldGravity.gd")
 const DensityScript: GDScript = preload("res://addons/local_agents/sim/material/FieldDensity3D.gd")

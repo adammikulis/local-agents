@@ -3,15 +3,6 @@ extends RefCounted
 
 ## BULK DENSITY PER CELL, kg/m^3 — the source term of the gravity solve.
 ##
-## This is the one place the field answers "how much mass is here". A channel is a VOLUME FILL FRACTION,
-## so a cell's density is the sum of each substance's fraction times its measured density, with whatever
-## fraction is left over holding air. Every density comes from LASubstances; there are no numbers here.
-##
-## ROCK_FILL IS A SATURATION, NOT A FRACTION. It is the pore-free share of the matrix, so the mineral it
-## carries is `rock_fill * (1 - porosity)`. That distinction used to live only inside the deleted rc_of(),
-## which is why two subsystems disagreed about how much rock a cell held.
-##
-## (Explicit types only, no ':=' inferred typing.)
 
 
 ## Channels whose amount is already a volume fraction, paired with the LASubstances id they hold. Built

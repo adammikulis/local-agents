@@ -268,8 +268,6 @@ func sample_solidity() -> void:
 
 # Cubed-sphere substrate (Phase B). When _sphere != null the field is a spherical planet: cells are a flat
 # array of length surf_count*depth gathered via the SphereGrid's 6-neighbour+radial table (down = inward-radial
-# neighbour). The box (_dim_*) path is untouched when _sphere == null. See sphere/SphereGrid.gd.
-## THE GRID. LAVoxelGrid — uniform, Cartesian, the one declaration of what a cell is.
 var _grid: LAVoxelGrid = null
 ## Gravity, SOLVED from the mass that is there. There is no gravity constant anywhere in this tree.
 var _gravity = null                                      # LAMaterialFieldGravity3D
@@ -860,10 +858,6 @@ func fertility_peak() -> float:
 
 # --- Emergent-process forwarders (magma volcano / erosion / snow-ice / dust / charge lightning / shock).
 # CPU oracles retired; these channels are not yet read back from the sphere GPU driver, so the emitters are
-# no-ops and the diagnostics return safe defaults until their sphere readback lands.
-## Advance the geothermal reservoir one field step: recompute the conductive flux across its boundary, debit
-## it by exactly that, credit radiogenic decay, and publish the boundary temperature to the GPU. The model
-## lives in LAMaterialFieldGeotherm3D.
 func _step_geotherm() -> void:
 	_geotherm.step()
 

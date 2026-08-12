@@ -3,9 +3,6 @@ extends Node3D
 
 ## LAMaterialEjecta3D: the momentum/ejecta primitive of the substrate — a pressure release throws mass, the
 ## mass arcs under the N-body field, and it lands as sediment plus its own kinetic energy as heat.
-##
-## WHERE MASS LANDS MAY NOT DEPEND ON WHERE THE CAMERA IS POINTED. Every parcel arcs; only the multimesh is
-## culled, and only the DRAW count is quality-scaled.
 
 const PARCELS_PER_EJECT: int = 6
 # Ballistic launch speed from the release energy: clamp(sqrt(2*energy/mass)*GAIN).

@@ -153,8 +153,6 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 
 # Params { uint surf_count; uint depth; float sea_radius; float dt; uint step_index; uint pad0..2; } — 32
 # bytes, wind_pressure (the per-COLUMN air/hydrostatic kernel). The lateral run comes from `link_arc` per
-# link and the radial geometry from `shell`, so no scalar spacing is passed. step_index == 0 tells the kernel
-# to seed the standard atmosphere; the air channel is allocated all-zero.
 func _pc_windpressure(columns: int, depth: int, sea_radius: float, dt: float,
 		step_index: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
