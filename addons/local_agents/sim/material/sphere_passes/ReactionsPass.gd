@@ -116,7 +116,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 			[31, discharge],        # SINGLE — the lightning discharge stamp, driver only
 			[32, org_h],            # SINGLE — organic hydrogen; ORG_H/ORG_C is the cell's molar H:C
 			[33, org_o],            # SINGLE — organic oxygen; ORG_O/ORG_C is the cell's molar O:C
-			[38, porosity],         # phi — rc_of and the overburden walk convert rock_fill with it
+			[38, porosity],         # phi — the overburden walk converts rock_fill with it
 			[40, cell_vol],         # per-cell volume (kernels3d/cellvol.glsli)
 		])
 

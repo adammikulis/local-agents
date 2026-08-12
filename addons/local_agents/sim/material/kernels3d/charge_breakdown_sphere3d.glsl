@@ -9,6 +9,7 @@
 layout(local_size_x = 64) in;
 
 layout(set = 0, binding = 0, std430) restrict buffer Charge { float charge[]; };
+layout(set = 0, binding = 50, std430) restrict buffer Enthalpy { float h[]; };
 layout(set = 0, binding = 1, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Temp { float temp[]; };
 layout(set = 0, binding = 3, std430) restrict readonly buffer Pos { float pos[]; };
@@ -36,12 +37,11 @@ layout(set = 0, binding = 37, std430) restrict readonly buffer Fungus { float fu
 layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
 #include "march.glsli"
 
-layout(set = 0, binding = 4, std430) restrict readonly buffer Grav { float g_field[]; };
+layout(set = 0, binding = 49, std430) restrict readonly buffer Grav { float g_field[]; };
 
 vec3 g_at(uint c) {
 	return vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
 }
-#include "rc_shared.glsli"
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -163,5 +163,7 @@ void main() {
 	}
 	charge[g] = 0.0;
 	discharge[g] += u;
-	temp[g] += u / max(rc_of(g), 1.0);
+	// The flash hands the field energy it destroyed straight to the cell. Enthalpy is the state, so
+	// there is no capacity to divide by and no floor to hide a near-zero one.
+	h[g] += u;
 }

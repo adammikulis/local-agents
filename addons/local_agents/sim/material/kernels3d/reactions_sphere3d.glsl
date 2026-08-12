@@ -63,7 +63,7 @@ layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float 
 // Urey reaction CaSiO3 + CO2 <-> CaCO3 + SiO2 has two products that are not, so each gets a channel.
 layout(set = 0, binding = 28, std430) restrict buffer Carbonate { float carbonate[]; };  // CaCO3 — the carbon sink
 layout(set = 0, binding = 29, std430) restrict buffer Silica { float silica[]; };        // SiO2 — the residue
-// Athy pore fraction (0 outside regolith). Declared here rather than beside the rc_shared.glsli include
+// Athy pore fraction, 0 outside regolith.
 // below, because `overburden()` uses it above that point and GLSL requires declaration before use.
 layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
 // BINDINGS 30-33 IN THIS KERNEL ARE NOT THE 30-33 OF EVERY OTHER KERNEL. Elsewhere they are
@@ -255,7 +255,6 @@ void bedrock_below_add(uint i, float v) {
 	rock_fill[uint(d)] = max(0.0, rock_fill[uint(d)] + v * vol_ratio(i, uint(d)));
 }
 
-#include "rc_shared.glsli"
 
 // Resolve a channel slot to its per-cell value. Unbound slots read 0 (a record must not reference them).
 float read_ch(int slot, uint i) {
@@ -498,7 +497,9 @@ void main() {
 		// THE ENTHALPY, and it is an ENERGY rather than a mass coefficient for a reason: how hot a cell gets
 		float dh = rc.enthalpy_j_m3 + rc.enthalpy_h_j_m3 * comp_h + rc.enthalpy_o_j_m3 * comp_o;
 		if (dh != 0.0) {
-			temp[i] += dh * x / max(rc_of(i), 1.0);
+			// Enthalpy is the state, so a reaction's heat is added directly. It used to divide by a mixture heat
+	// capacity with a floor of 1.0, which let a near-empty cell absorb an unbounded temperature.
+	h[i] += dh * x;
 		}
 	}
 

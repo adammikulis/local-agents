@@ -9,13 +9,19 @@
 
 layout(local_size_x = 64) in;
 
-layout(set = 0, binding = 0, std430) restrict buffer Temp { float temp[]; };
+layout(set = 0, binding = 0, std430) restrict buffer Enthalpy { float h[]; };
+layout(set = 0, binding = 49, std430) restrict readonly buffer Grav { float g_field[]; };
+layout(set = 0, binding = 51, std430) restrict readonly buffer Temp { float temp[]; };
+
+vec3 g_at(uint c) {
+	return vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
+}
 layout(set = 0, binding = 1, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 4, std430) restrict readonly buffer Snow { float snow[]; };
 layout(set = 0, binding = 5, std430) restrict readonly buffer Water { float water[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer RockFill { float rock_fill[]; };
 layout(set = 0, binding = 7, std430) restrict readonly buffer Pressure { float pressure[]; };  // Pa
-layout(set = 0, binding = 14, std430) restrict readonly buffer Radial { float radial[]; };
+
 layout(set = 0, binding = 27, std430) restrict readonly buffer Biomass { float biomass[]; };
 layout(set = 0, binding = 20, std430) restrict readonly buffer Lava { float lava[]; };
 layout(set = 0, binding = 21, std430) restrict readonly buffer Fuel { float fuel[]; };
@@ -46,10 +52,8 @@ layout(push_constant, std430) uniform Params {
 	float pad0;
 } params;
 
-#include "rc_shared.glsli"
 #include "march.glsli"
 
-layout(set = 0, binding = 48, std430) restrict readonly buffer Grav { float g_field[]; };
 
 const float STEFAN = 5.670374419e-8;         // LAPhysical.STEFAN_BOLTZMANN
 const float SOLAR_CONSTANT = 1361.0;         // LAPhysical.SOLAR_CONSTANT_W_M2
@@ -220,7 +224,8 @@ void main() {
 	float sun_len = length(sun);
 	float coz = 0.0;
 	if (sun_len > 1.0e-6) {
-		coz = dot(vec3(radial[rb + 0u], radial[rb + 1u], radial[rb + 2u]), sun) / sun_len;
+		// Outward is -normalize(g). `radial` was a second declaration of the gravity direction.
+		coz = dot(-normalize(g_at(c)), sun) / sun_len;
 	}
 	float s_toa = SOLAR_CONSTANT * sun_len * max(coz, 0.0);
 	float mu = max(coz, 1.0 / AIR_MASS_HORIZON);
@@ -274,12 +279,13 @@ void main() {
 		}
 	}
 
+	// The net flux is W/m^2 across the layer, so over its thickness it is J/m^3 -- which IS the state.
+	// It used to divide by a mixture heat capacity with a floor of 1.0, so a thin or near-empty cell
+	// absorbed an unbounded temperature.
 	for (int j = 0; j < nlay; ++j) {
 		uint r = uint(sfc + 1 + j);
 		uint c = uint(col[min(r, uint(ncol - 1))]);
-		float cap = max(rc_of(c) * params.cell_m, 1.0);
-		temp[c] += net[j] * params.dt_s / cap;
+		h[c] += net[j] * params.dt_s / params.cell_m;
 	}
-	float cap_s = max(rc_of(sc) * params.cell_m, 1.0);
-	temp[sc] += net_s * params.dt_s / cap_s;
+	h[sc] += net_s * params.dt_s / params.cell_m;
 }

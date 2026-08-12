@@ -180,7 +180,7 @@ func run_test(_tree: SceneTree) -> bool:
 		ok = false
 
 	# --- 5. WET FUEL RESISTS LIGHTING WITH NO WET-CELL GATE --------------------------------------------------
-	# The heat capacity is the mechanism (reactions_sphere3d.glsl's rc_of, the same expression
+	# Enthalpy is the state, so a reaction's heat is added directly (the expression
 	# heat3d_cool_sphere3d uses). The reaction is identical in both cells; only the cell's thermal mass differs.
 	var rc_dry: float = LAPhysical.VOL_HEAT_CAP_AIR_J_M3K
 	var rc_wet: float = LAPhysical.VOL_HEAT_CAP_AIR_J_M3K * (1.0 - 0.05) \
