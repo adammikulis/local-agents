@@ -38,7 +38,7 @@ static func emit_population_trace(w, frame: int) -> void:
 	# and cumulative bolts (their per-window delta shows lightning clustered in storm episodes, not constant).
 	var charge_peak: float = float(snap.get("charge_peak", 0.0))
 	var bolts: int = int(snap.get("bolts", 0))
-	var rain: float = float(snap.get("moisture_total", 0.0))
+	var rain: float = float(snap.get("vapour_total", 0.0))
 	var clouds: int = int(snap.get("cloud_cells", 0))
 	# Sample the temperature creatures ACTUALLY stand in: read the field at living surface actors (trees/plants).
 	var surf_sum: float = 0.0

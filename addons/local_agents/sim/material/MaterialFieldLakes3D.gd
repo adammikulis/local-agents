@@ -73,9 +73,9 @@ func seed(field) -> void:
 	for c in cc:
 		if solid[c] != 0 or done[c] == 0 or height[c] <= sea_r:
 			continue                                       # rock, unreached, or already static sea
-		if level[c] <= height[c] or field._water[c] > 0.0:
+		if level[c] <= height[c] or field._h2o[c] > 0.0:
 			continue
-		field._water[c] = 1.0
+		field._h2o[c] = 1.0
 		lake_cells += 1
 	if OS.has_environment("LA_WATER_DEBUG"):
 		print("LAKES_SEEDED={cells:%d}" % lake_cells)

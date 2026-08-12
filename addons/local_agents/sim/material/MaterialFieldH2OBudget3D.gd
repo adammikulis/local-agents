@@ -19,9 +19,7 @@ var _gate: int = SAMPLE_EVERY - 1
 var _in_pair: int = 0             # 0 = not sampling, 1 = first of the pair, 2 = second
 
 # Per-sampled-step accumulation. `_prev_*` hold the previous checkpoint's totals; the legs are the differences.
-var _water_back: bool = false
-var _moisture_back: bool = false
-var _soil_back: bool = false
+var _h2o_back: bool = false
 var _prev_open: float = 0.0
 var _prev_all: float = 0.0
 var _open_start: float = 0.0
@@ -66,9 +64,7 @@ func pre_step() -> void:
 ## finished, with `pass_name` its script basename.
 func on_checkpoint(pass_index: int, pass_name: String) -> void:
 	if pass_index < 0:
-		_water_back = false
-		_moisture_back = false
-		_soil_back = false
+		_h2o_back = false
 		_legs_open = {}
 		_legs_all = {}
 		var opening: Array = _totals()
@@ -79,12 +75,8 @@ func on_checkpoint(pass_index: int, pass_name: String) -> void:
 		return
 	# The producer's OUTPUT is what a checkpoint taken after it must read, so the half flips here, not before.
 	var producers: Dictionary = LAFieldAttributionRecords.PRODUCERS
-	if pass_name == String(producers.get("water", "")):
-		_water_back = true
-	if pass_name == String(producers.get("moisture", "")):
-		_moisture_back = true
-	if pass_name == String(producers.get("soil", "")):
-		_soil_back = true
+	if pass_name == String(producers.get("h2o", "")):
+		_h2o_back = true
 	var now: Array = _totals()
 	var key: String = _leg_key(pass_name)
 	_legs_open[key] = snappedf(now[0] - _prev_open, 0.0001)
@@ -144,55 +136,44 @@ func _totals() -> Array:
 	var solid: PackedFloat32Array = gpu.read_raw("solid", 0)
 	var phase: int = gpu.probe_phase()
 	var back: int = 1 - phase
-	var water: PackedFloat32Array = gpu.read_raw("water", back if _water_back else phase)
-	var moisture: PackedFloat32Array = gpu.read_raw("moisture", back if _moisture_back else phase)
-	var soil: PackedFloat32Array = gpu.read_raw("soil", back if _soil_back else phase)
-	var snow: PackedFloat32Array = gpu.read_raw("snow", 0)
+	var h2o: PackedFloat32Array = gpu.read_raw("h2o", back if _h2o_back else phase)
+	# The phase shares are DERIVED and single-buffered: they split the same stock, they do not add to it.
+	var f_sol: PackedFloat32Array = gpu.read_raw("h2o_solid", 0)
+	var f_liq: PackedFloat32Array = gpu.read_raw("h2o_liquid", 0)
+	var f_vap: PackedFloat32Array = gpu.read_raw("h2o_vapour", 0)
 	var has_solid: bool = solid.size() >= cc
 
 	var solid_cells: int = 0
-	var w_open: float = 0.0
-	var w_all: float = 0.0
-	var m_open: float = 0.0
-	var m_all: float = 0.0
-	var s_open: float = 0.0
-	var s_all: float = 0.0
-	var g_open: float = 0.0
-	var g_all: float = 0.0
+	var open_total: float = 0.0
+	var all_total: float = 0.0
+	var ice_all: float = 0.0
+	var liq_all: float = 0.0
+	var vap_all: float = 0.0
+	var pore_all: float = 0.0
 	var n: int = cc
-	if water.size() < n or moisture.size() < n or soil.size() < n or snow.size() < n:
+	if h2o.size() < n or f_sol.size() < n or f_liq.size() < n or f_vap.size() < n:
 		return [0.0, 0.0, {}, {}]
 	var vol: PackedFloat32Array = CellVolScript.of(_f)
 	if vol.size() != n:
 		return [0.0, 0.0, {}, {}]
 	for c in n:
 		var is_open: bool = (not has_solid) or solid[c] == 0.0
-		var w: float = vol[c]
-		var wv: float = water[c] * w
-		var mv: float = moisture[c] * w
-		var sv: float = snow[c] * w
-		var gv: float = soil[c] * w
-		w_all += wv
-		m_all += mv
-		s_all += sv
-		g_all += gv
+		var m: float = h2o[c] * vol[c]
+		all_total += m
 		if is_open:
-			w_open += wv
-			m_open += mv
-			s_open += sv
+			open_total += m
 		else:
 			solid_cells += 1
-		g_open += gv
-	var open_total: float = w_open + m_open + s_open + g_open
-	var all_total: float = w_all + m_all + s_all + g_all
-	var open_parts: Dictionary = {
-		"water": snappedf(w_open, 0.01), "moisture": snappedf(m_open, 0.01),
-		"snow": snappedf(s_open, 0.01), "soil": snappedf(g_open, 0.01)}
-	var all_parts: Dictionary = {
-		"water": snappedf(w_all, 0.01), "moisture": snappedf(m_all, 0.01),
-		"snow": snappedf(s_all, 0.01), "soil": snappedf(g_all, 0.01),
+			pore_all += m * clampf(f_liq[c], 0.0, 1.0)
+		ice_all += m * clampf(f_sol[c], 0.0, 1.0)
+		liq_all += m * clampf(f_liq[c], 0.0, 1.0)
+		vap_all += m * clampf(f_vap[c], 0.0, 1.0)
+	# The parts are a SPLIT of one stock, published so a leg can be read by phase. They are not addends.
+	var parts: Dictionary = {
+		"ice": snappedf(ice_all, 0.01), "liquid": snappedf(liq_all, 0.01),
+		"vapour": snappedf(vap_all, 0.01), "pore": snappedf(pore_all, 0.01),
 		"solid_cells": solid_cells}
-	return [open_total, all_total, open_parts, all_parts]
+	return [open_total, all_total, parts.duplicate(), parts]
 
 
 ## Short leg label: "WaterSlumpLavaPass" -> "water_slump_lava" (mirrors the driver's GPU-timing gauge keys).

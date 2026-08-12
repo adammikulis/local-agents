@@ -18,11 +18,11 @@ func _extent(rec: Dictionary, t_c: float) -> float:
 	var k: float = float(rec.get("rate_k", 0.0))
 	var thr: float = float(rec.get("threshold", 0.0))
 	var x: float = 0.0
-	if model == DefsScript.DEFICIT_BELOW_THRESHOLD:
+	if model == DefsScript.RM_DEFICIT_BELOW_THRESHOLD:
 		x = maxf(0.0, thr - t_c) * k
-	elif model == DefsScript.EXCESS_OVER_THRESHOLD:
+	elif model == DefsScript.RM_EXCESS_OVER_THRESHOLD:
 		x = maxf(0.0, t_c - thr) * k
-	elif model == DefsScript.ARRHENIUS:
+	elif model == DefsScript.RM_ARRHENIUS:
 		# Same expression as the kernel, including the temperature ceiling, which comes off the record as
 		# `t_ceiling_k` (zero means none) rather than being hardcoded to water's boiling point.
 		var t_k: float = t_c + LAPhysical.KELVIN_OFFSET
@@ -95,13 +95,13 @@ func run_test(_tree: SceneTree) -> bool:
 	var frost: Dictionary = {}
 	var chem: Dictionary = {}
 	for r in recs:
-		if int(r.get("rate_model", -1)) == DefsScript.ARRHENIUS:
+		if int(r.get("rate_model", -1)) == DefsScript.RM_ARRHENIUS:
 			chem = r
-		elif int(r.get("rate_model", -1)) == DefsScript.DEFICIT_BELOW_THRESHOLD:
+		elif int(r.get("rate_model", -1)) == DefsScript.RM_DEFICIT_BELOW_THRESHOLD:
 			frost = r
 	if chem.is_empty() or frost.is_empty():
-		push_error("weathering rate law: expected an ARRHENIUS record (chemical dissolution) and a "
-			+ "DEFICIT_BELOW_THRESHOLD one (frost shattering) in LAGeoRecords; found neither or one.")
+		push_error("weathering rate law: expected an RM_ARRHENIUS record (chemical dissolution) and a "
+			+ "RM_DEFICIT_BELOW_THRESHOLD one (frost shattering) in LAGeoRecords; found neither or one.")
 		return false
 
 	var temps: PackedFloat64Array = PackedFloat64Array(

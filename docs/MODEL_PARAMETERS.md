@@ -274,22 +274,17 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `DRAIN_ALL` | -1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd` | `SAMPLE_EVERY` | 100 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd` | `SUSP_ACTIVE` | 0.001 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `FREEZE_RATE` | 0.05 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `MELT_RATE` | 0.05 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SOLIDIFY_RATE` | 0.02 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `ROCK_MELT_RATE` | 0.02 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `VAPOUR_TRANSFER_COEFF` | 1.2e-3 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SURFACE_WIND_M_S` | 7.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SOIL_SURFACE_RESISTANCE_S_M` | 1000.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SATURATED_SURFACE_LAYER` | 0.36 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/GeoRecords.gd` | `LOFT_WIND` | 6.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/GeoRecords.gd` | `LOFT_RATE` | 0.003 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/GeoRecords.gd` | `SUSP_SETTLE_RATE` | 0.05 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/GeoRecords.gd` | `DISSOLUTION_K` | 2.0e-5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/GeoRecords.gd` | `LITH_RATE_PER_PA` | 1.0e-9 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TEMP` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `WATER` | 1 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `MOISTURE` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `H2O` | 1 | slot id, not a measured quantity | — |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `O2` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `CO2` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `FUEL` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -299,13 +294,15 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `FERT` | 9 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `LAVA` | 10 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `BIOMASS` | 11 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `SNOW` | 12 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `SEDIMENT` | 13 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `DUST` | 14 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `SUSP` | 15 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `WINDSPEED` | 16 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `ROCK_FILL` | 17 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `LIGHT` | 18 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_RESISTANCE_SERIES` | 7 | rate-model id, not a measured quantity | — |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `H2O_LIQUID` | 31 | slot id, not a measured quantity | — |
+| `addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd` | `PHASE_BINDING_BASE` | 31 | GLSL binding index, not a measured quantity | — |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `SOIL_ROOT` | 19 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `VAPOUR_DEFICIT` | 20 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `SOIL_TOP` | 21 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -315,12 +312,12 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `SILICA` | 25 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `N2` | 26 | channel-slot TAG, not a quantity: it names the dinitrogen buffer the kernel binds | the slot block becomes a GDScript `enum` mirrored into the kernel, which is what this gate asks of every tag here |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `DISCHARGE` | 27 | channel-slot TAG, not a quantity: it names the lightning discharge stamp | same as `N2` above |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `CONST_FRAC` | 0 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `BILINEAR` | 1 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `EXCESS_OVER_THRESHOLD` | 2 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `DEFICIT_BELOW_THRESHOLD` | 4 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `OPTIMUM_BAND` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `ARRHENIUS` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_CONST_FRAC` | 0 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_BILINEAR` | 1 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_EXCESS_OVER_THRESHOLD` | 2 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_DEFICIT_BELOW_THRESHOLD` | 4 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_OPTIMUM_BAND` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_ARRHENIUS` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_NEAR_GROUND` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_DRY` | 16 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_AIR_ABOVE` | 128 | inherited, unreviewed | Stage 2 substrate rewrite |

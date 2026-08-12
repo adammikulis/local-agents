@@ -38,17 +38,22 @@ layout(set = 0, binding = 16, std430) restrict readonly buffer PressureBuf { flo
 layout(set = 0, binding = 17, std430) restrict readonly buffer PorosityBuf { float porosity[]; };
 layout(set = 0, binding = 18, std430) restrict readonly buffer GrainBuf    { float grain[]; };
 layout(set = 0, binding = 19, std430) restrict readonly buffer CO2Buf      { float co2[]; };
-layout(set = 0, binding = 20, std430) restrict readonly buffer MoistureBuf { float moisture[]; };
+// ONE H2O CHANNEL plus the three DERIVED shares state_derive.glsl publishes. Ice, liquid and vapour differ
+// optically by more than an order of magnitude, so every radiative term below splits h2o by these.
+layout(set = 0, binding = 20, std430) restrict readonly buffer H2OBuf       { float h2o[]; };
 // LAAbsorptionBands.packed(): header, band edges, temperature slices, solar weights, five coefficients
 // per (temperature, band), Planck CDF.
 layout(set = 0, binding = 21, std430) restrict readonly buffer RadTable { float rad_table[]; };
-layout(set = 0, binding = 22, std430) restrict readonly buffer SnowBuf     { float snow[]; };
-layout(set = 0, binding = 23, std430) restrict readonly buffer WaterBuf    { float water[]; };
+layout(set = 0, binding = 22, std430) restrict readonly buffer H2OSolidBuf  { float h2o_solid[]; };
+layout(set = 0, binding = 23, std430) restrict readonly buffer H2OLiquidBuf { float h2o_liquid[]; };
 layout(set = 0, binding = 24, std430) restrict readonly buffer RockFillBuf { float rock_fill[]; };
 layout(set = 0, binding = 25, std430) restrict readonly buffer BiomassBuf  { float biomass[]; };
 layout(set = 0, binding = 26, std430) restrict readonly buffer LavaBuf     { float lava[]; };
 // Where a row that dissipates writes what it dissipated, J/m^3. Bound to `send_q` when it does not.
 layout(set = 0, binding = 27, std430) restrict buffer Stamp { float stamp[]; };
+layout(set = 0, binding = 28, std430) restrict readonly buffer H2OVapourBuf { float h2o_vapour[]; };
+// TF_FRACTION rows move only this share of `amount` — the phase whose law this row is. 0..1.
+layout(set = 0, binding = 29, std430) restrict readonly buffer FracBuf { float frac[]; };
 
 #include "march.glsli"
 
@@ -135,10 +140,15 @@ float air_rho(uint c) {
 	return max(pressure[c], 0.0) / (DRY_AIR_R * t_k(c));
 }
 
+// The cell's h2o split by the shares the enthalpy ladder derived, as volume fractions of the cell.
+float h2o_ice(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_solid[c], 0.0, 1.0); }
+float h2o_water(uint c)  { return max(h2o[c], 0.0) * clamp(h2o_liquid[c], 0.0, 1.0); }
+float h2o_gas(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_vapour[c], 0.0, 1.0); }
+
 // Volume fraction of the cell that is condensed, so a beam meets it geometrically.
 float condensed_frac(uint c) {
 	float f = solid[c] != 0.0 ? 1.0 : 0.0;
-	f += max(rock_fill[c], 0.0) + max(water[c], 0.0) + max(snow[c], 0.0) + max(lava[c], 0.0);
+	f += max(rock_fill[c], 0.0) + h2o_water(c) + h2o_ice(c) + max(lava[c], 0.0);
 	return clamp(f, 0.0, 1.0);
 }
 
@@ -207,7 +217,8 @@ float column_field(uint c) {
 // Past the runaway threshold the local air density sets, the dielectric stops being one: the conductivity
 // jumps to a return-stroke channel's and the charge row becomes a stroke.
 float ohmic_conductivity(uint c) {
-	float lwc = max(aux[c], 0.0) * RHO_WATER;
+	// Charge separation lives in the CONDENSED cloud water, ice and droplets alike.
+	float lwc = (h2o_water(c) + h2o_ice(c)) * RHO_WATER;
 	float ambient = mix(CLEAR_AIR_COND, CLOUD_COND, clamp(lwc / CHARGING_LWC, 0.0, 1.0));
 	if (pressure[c] <= 0.0) {
 		return ambient;
@@ -234,12 +245,7 @@ float mobility_at(uint c, float amt) {
 		return params.density * g * hh * hh * dt / (3.0 * mu * L);
 	}
 	if (params.law == LAW_DARCY) {
-		// Kozeny-Carman permeability of the cell's own pore geometry, then K = rho g k / mu.
-		float phi = clamp(porosity[c], 0.0, 0.999);
-		float d = grain[c] > 0.0 ? grain[c] : params.grain_d;
-		float open_frac = (1.0 - phi) * (1.0 - phi);
-		float k = d * d * phi * phi * phi / (KOZENY_CARMAN_C * max(open_frac, 1.0e-12));
-		return params.fluid_rho * g * k * dt / (max(params.fluid_visc, 1.0e-30) * L);
+		return 0.0;   // a bond property, not a cell property — see darcy_mobility
 	}
 	if (params.law == LAW_EDDY) {
 		return eddy_viscosity(c) * dt / (L * L);
@@ -256,6 +262,32 @@ float mobility_at(uint c, float amt) {
 		return L * L * dt;
 	}
 	return 0.0;
+}
+
+// Hydraulic resistance of half a cell to pore flow, the reciprocal of its Kozeny-Carman permeability.
+// An OPEN cell has no matrix and resists nothing; rock with no pore space is impermeable.
+float darcy_resistance(uint c) {
+	if (solid[c] == 0.0) {
+		return 0.0;
+	}
+	float phi = clamp(porosity[c], 0.0, 0.999);
+	if (phi <= 0.0) {
+		return 1.0e30;
+	}
+	float d = grain[c] > 0.0 ? grain[c] : params.grain_d;
+	float k = d * d * phi * phi * phi / (KOZENY_CARMAN_C * max((1.0 - phi) * (1.0 - phi), 1.0e-12));
+	return 1.0 / max(k, 1.0e-30);
+}
+
+// Two half-cells in series across the bond: K = rho g k_bond / mu, k_bond the series permeability. Two open
+// cells resist nothing and pore flow between them is not a thing — their free liquid moves on its own law.
+float darcy_mobility(uint a, uint b) {
+	float r = 0.5 * (darcy_resistance(a) + darcy_resistance(b));
+	if (r <= 0.0) {
+		return 0.0;
+	}
+	return params.fluid_rho * length(g_at(a)) * params.dt_s
+		/ (r * max(params.fluid_visc, 1.0e-30) * params.cell_m);
 }
 
 // Terminal settling velocity of the row's grain in the row's fluid, m/s (Stokes drag).
@@ -343,7 +375,7 @@ float band_weight(uint b, float tk) {
 float longwave_emissivity(uint c) {
 	float tk = t_k(c);
 	float dz = params.cell_m;
-	float rho_v = max(moisture[c], 0.0) * RHO_WATER;
+	float rho_v = h2o_gas(c) * RHO_WATER;
 	float rho_c = max(co2[c], 0.0) * RHO_CO2_UNIT;
 	float p_tot = max(pressure[c], 0.0) / KAPPA_REF_PA;
 	float a_co2 = p_tot * rho_c * dz;
@@ -360,8 +392,8 @@ float longwave_emissivity(uint c) {
 			+ kappa_at(b, 4u, ti, tf) * a_hc;
 		eps += band_weight(b, tk) * (1.0 - exp(-DIFFUSIVITY * dtau));
 	}
-	float wet = max(water[c], 0.0);
-	float icy = max(snow[c], 0.0);
+	float wet = h2o_water(c);
+	float icy = h2o_ice(c);
 	float dry = max(rock_fill[c], 0.0) + max(lava[c], 0.0) + (solid[c] != 0.0 ? 1.0 : 0.0);
 	float mass = wet + icy + dry;
 	if (mass <= 0.0) {
@@ -374,8 +406,8 @@ float longwave_emissivity(uint c) {
 // Shortwave reflectivity: the cited albedo of each thing the cell holds, weighted by how much of it there
 // is. A cell holding nothing condensed reflects nothing and the beam goes on through it.
 float shortwave_albedo(uint c) {
-	float wet = max(water[c], 0.0);
-	float icy = max(snow[c], 0.0);
+	float wet = h2o_water(c);
+	float icy = h2o_ice(c);
 	float veg = max(biomass[c], 0.0);
 	float dry = max(rock_fill[c], 0.0) + max(lava[c], 0.0) + (solid[c] != 0.0 ? 1.0 : 0.0);
 	float mass = wet + icy + veg + dry;
@@ -440,6 +472,8 @@ void main() {
 	}
 	uint base = gidx * N_SLOTS;
 	bool is_signed = (params.flags & TF_SIGNED) != 0u;
+	// Pore flow's domain IS the rock: its resistance, not a solid mask, is what stops it.
+	bool through_pores = params.law == LAW_DARCY;
 
 	if (params.pass_id == 0u) {
 		for (uint d = 0u; d < N_SLOTS; ++d) {
@@ -447,7 +481,7 @@ void main() {
 			send_h[base + d] = 0.0;
 			send_q[base + d] = 0.0;
 		}
-		if (solid[gidx] != 0.0 && params.mode != MODE_RADIATE) {
+		if (solid[gidx] != 0.0 && params.mode != MODE_RADIATE && !through_pores) {
 			return;
 		}
 		// MODE_RADIATE emits through every face it has, including the box edge, where nobody gathers it
@@ -461,7 +495,9 @@ void main() {
 			}
 			return;
 		}
-		float remaining = amount[gidx];
+		// A TF_FRACTION row moves only the phase share `frac` names; the rest of the channel stays put.
+		float share = (params.flags & TF_FRACTION) != 0u ? clamp(frac[gidx], 0.0, 1.0) : 1.0;
+		float remaining = amount[gidx] * share;
 		if (!is_signed && remaining < params.min_amount) {
 			return;
 		}
@@ -484,7 +520,10 @@ void main() {
 				break;
 			}
 			int inb = nbr[base + d];
-			if (inb < 0 || solid[inb] != 0.0) {
+			if (inb < 0) {
+				continue;
+			}
+			if (solid[inb] != 0.0 && !through_pores) {
 				continue;
 			}
 			uint nb = uint(inb);
@@ -511,7 +550,8 @@ void main() {
 					continue;
 				}
 			}
-			float flow = drop * mob * open / params.cell_m;
+			float mob_face = through_pores ? darcy_mobility(gidx, nb) : mob;
+			float flow = drop * mob_face * open / params.cell_m;
 			if (params.mode == MODE_CONDUCT) {
 				// Two half-cells in series across the bond, so the interface conductivity is the harmonic
 				// mean. dh = lambda_i * (T_nb - T_here) * dt / dx^2, with no capacity: h IS the state.

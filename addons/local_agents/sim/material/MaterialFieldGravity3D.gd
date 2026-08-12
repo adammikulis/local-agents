@@ -34,6 +34,12 @@ func _mirrors() -> Dictionary:
 		var arr = _f.get("_" + String(name))
 		if arr is PackedFloat32Array:
 			out[String(name)] = arr
+	# The equation of state needs the cell's temperature and pressure, and both are DERIVED, so neither is
+	# a row. Without them every cell's density was pushed as an error and gravity never followed the mass.
+	for name in LAChannels.derived_buffers():
+		var d = _f.get("_" + String(name))
+		if d is PackedFloat32Array:
+			out[String(name)] = d
 	return out
 
 

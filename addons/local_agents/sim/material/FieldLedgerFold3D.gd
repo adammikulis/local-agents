@@ -129,16 +129,19 @@ func _count_presence(out: Dictionary, ch: Dictionary, temp: PackedFloat32Array, 
 			if carb[c] > 0.0:
 				n_carb += 1
 		out["carbonate_cells"] = n_carb
-	var snow: PackedFloat32Array = ch.get("snow", PackedFloat32Array())
-	if snow.size() == cc and temp.size() == cc:
+	# The frozen share of the one h2o channel: the ladder's own solid fraction, not a separate stock.
+	var h2o: PackedFloat32Array = ch.get("h2o", PackedFloat32Array())
+	var fs: PackedFloat32Array = ch.get("h2o_solid", PackedFloat32Array())
+	if h2o.size() == cc and fs.size() == cc and temp.size() == cc:
 		var n_snow: int = 0
 		var n_ice: int = 0
 		var t_sum: float = 0.0
 		for c in cc:
-			if snow[c] > LAMaterialField3D.SNOW_PRESENT:
+			var ice: float = maxf(h2o[c], 0.0) * clampf(fs[c], 0.0, 1.0)
+			if ice > LAMaterialField3D.SNOW_PRESENT:
 				n_snow += 1
 				t_sum += temp[c]
-			if snow[c] >= LAMaterialField3D.ICE_DEPTH:
+			if ice >= LAMaterialField3D.ICE_DEPTH:
 				n_ice += 1
 		out["snow_cells"] = n_snow
 		out["ice_cells"] = n_ice

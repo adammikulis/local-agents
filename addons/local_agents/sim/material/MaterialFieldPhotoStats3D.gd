@@ -27,7 +27,7 @@ func report() -> Dictionary:
 		return out
 	var cc: int = _f._cell_count
 	var solid: PackedByteArray = _f._solid
-	var soil: PackedFloat32Array = _f._soil
+	var soil: PackedFloat32Array = _f._queries._liquid_mirror()
 	var regolith: PackedByteArray = _f._regolith
 	var biomass: PackedFloat32Array = _f._biomass
 	var temp: PackedFloat32Array = _f._temp

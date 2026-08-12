@@ -19,10 +19,10 @@ func setup(field) -> void:
 
 ## Frozen H₂O in the cell at a world point, in channel units.
 func snow_depth_at(pos: Vector3) -> float:
-	if _f._snow.size() != _f._cell_count:
+	if _f._h2o.size() != _f._cell_count:
 		return 0.0
 	var c: int = _f.world_to_cell(pos)
-	return _f._snow[c] if c >= 0 else 0.0
+	return _f._queries.ice_at(c) if c >= 0 else 0.0
 
 
 ## CPU mirror of an airborne channel, or an empty array when that channel is not one.
@@ -30,7 +30,7 @@ func _airborne_mirror(substance: String) -> PackedFloat32Array:
 	match substance:
 		"co2": return _f._co2
 		"o2": return _f._o2
-		"moisture": return _f._moisture
+		"moisture": return _f._queries._vapour_mirror()
 		"dust": return _f._dust
 	return PackedFloat32Array()
 
@@ -88,12 +88,12 @@ func breathable_o2_at(x: float, y: float, z: float) -> float:
 	if c < 0:
 		return LAMaterialField3D.O2_AMBIENT   # above the atmosphere shell = open sky
 	# Water fills the cell → air is displaced → a lung drowns. Real; keep it (drowning + smoke stay 0).
-	if _f._water[c] >= LAMaterialField3D.MAX_MASS * 0.5:
+	if _f._queries.liquid_at(c) >= LAMaterialField3D.MAX_MASS * 0.5:
 		return 0.0
 	if _f._solid[c] != 0:
 		# Encased in rock unless a head-height march UP the local vertical reaches open air.
 		c = LAFieldGeometry.air_above(_f, c, HEAD_REACH)
-		if c < 0 or _f._water[c] >= LAMaterialField3D.MAX_MASS * 0.5:
+		if c < 0 or _f._queries.liquid_at(c) >= LAMaterialField3D.MAX_MASS * 0.5:
 			return 0.0
 	return _f._o2[c]
 
@@ -102,7 +102,8 @@ func breathable_o2_at(x: float, y: float, z: float) -> float:
 ## (and what tells a lung it is submerged). Solid rock reads not-submerged (no water there).
 func is_submerged_at(x: float, y: float, z: float) -> bool:
 	var c: int = _f.world_to_cell(Vector3(x, y, z))
-	return c >= 0 and _f._solid[c] == 0 and _f._water[c] >= LAMaterialField3D.MAX_MASS * 0.5
+	return c >= 0 and _f._solid[c] == 0 \
+		and _f._queries.liquid_at(c) >= LAMaterialField3D.MAX_MASS * 0.5
 
 
 # Open-cell O₂ min / mean over the GPU readback (_o2). Proves the sky-refill + transport keep the open air
@@ -111,7 +112,7 @@ func o2_min_open() -> float:
 	if _f._o2.size() != _f._cell_count or _f._cell_count <= 0:
 		return LAMaterialField3D.O2_AMBIENT
 	var solid: PackedByteArray = _f._solid
-	var water: PackedFloat32Array = _f._water
+	var water: PackedFloat32Array = _f._queries._liquid_mirror()
 	var o2: PackedFloat32Array = _f._o2
 	var flooded: float = LAMaterialField3D.MAX_MASS * 0.5
 	var mn: float = 1.0e20
@@ -128,7 +129,7 @@ func o2_avg() -> float:
 	if _f._o2.size() != _f._cell_count or _f._cell_count <= 0:
 		return LAMaterialField3D.O2_AMBIENT
 	var solid: PackedByteArray = _f._solid
-	var water: PackedFloat32Array = _f._water
+	var water: PackedFloat32Array = _f._queries._liquid_mirror()
 	var o2: PackedFloat32Array = _f._o2
 	var flooded: float = LAMaterialField3D.MAX_MASS * 0.5
 	var sum: float = 0.0

@@ -15,15 +15,16 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	var sediment: Array = _pair(bufs, "sediment")
 	var susp: Array = _pair(bufs, "susp")
 	var dust: Array = _pair(bufs, "dust")
-	var water: Array = _pair(bufs, "water")
-	var moisture: Array = _pair(bufs, "moisture")
-	var soil: Array = _pair(bufs, "soil")
-	var snow: RID = _single(bufs, "snow")
+	var h2o: Array = _pair(bufs, "h2o")
 	var regolith: RID = _single(bufs, "regolith")
 	var grain: RID = _single(bufs, "grain")
+	# Binding 38 is the kernel's `porosity`: rock_fill is a SATURATION, so converting a volume fraction into
+	# it needs the cell's solid share. Leaving it unbound made the whole uniform set invalid and this pass
+	# never ran — lithification, and with it the loose-to-bedrock path, was silently dead.
+	var porosity: RID = _single(bufs, "porosity")
 	for p in 2:
 		_set[p] = _uset(_pipe, [[0, rock_fill], [1, solid], [2, sediment[p]], [3, susp[p]], [4, dust[p]],
-			[5, water[p]], [6, moisture[p]], [7, snow], [8, soil[p]], [9, regolith], [10, grain]])
+			[5, h2o[p]], [9, regolith], [10, grain], [38, porosity]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: int, groups: int) -> void:

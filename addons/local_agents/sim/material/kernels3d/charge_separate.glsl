@@ -11,7 +11,10 @@ layout(local_size_x = 64) in;
 
 layout(set = 0, binding = 0, std430) restrict buffer Charge { float charge[]; };
 layout(set = 0, binding = 1, std430) restrict readonly buffer Temp { float temp[]; };
-layout(set = 0, binding = 2, std430) restrict readonly buffer Cloud { float cloud[]; };
+// The CONDENSED cloud water the rebounding pair is made of: h2o times its derived liquid and solid shares.
+layout(set = 0, binding = 2, std430) restrict readonly buffer H2OBuf { float h2o[]; };
+layout(set = 0, binding = 8, std430) restrict readonly buffer H2OLiquid { float h2o_liquid[]; };
+layout(set = 0, binding = 9, std430) restrict readonly buffer H2OSolid { float h2o_solid[]; };
 layout(set = 0, binding = 3, std430) restrict readonly buffer Neigh { int nbr[]; };
 layout(set = 0, binding = 4, std430) restrict readonly buffer Grav { float g_field[]; };
 layout(set = 0, binding = 5, std430) restrict readonly buffer VelX { float vel_x[]; };
@@ -28,7 +31,7 @@ layout(push_constant, std430) uniform Params {
 	float zone_cold_c;     // LAPhysical.CHARGE_ZONE_COLD_C
 	float updraft_ref;     // LAPhysical.CONVECTIVE_UPDRAFT_M_S
 	float lwc_ref;         // LAPhysical.CHARGING_LWC_KG_M3
-	uint pad0;
+	float rho_water;       // LAPhysical.WATER_DENSITY_KG_M3 — kg one channel unit of h2o carries
 } params;
 
 void main() {
@@ -48,7 +51,9 @@ void main() {
 	}
 	// The updraft is the component of the wind along -g. It was a buffer nobody filled.
 	float up = dot(vec3(vel_x[g], vel_y[g], vel_z[g]), -normalize(gv));
-	float wet = clamp(cloud[g] / max(params.lwc_ref, 1e-30), 0.0, 1.0);
+	// kg/m^3 of condensed water: one channel unit is a cell full of liquid water.
+	float lwc = max(h2o[g], 0.0) * clamp(h2o_liquid[g] + h2o_solid[g], 0.0, 1.0) * params.rho_water;
+	float wet = clamp(lwc / max(params.lwc_ref, 1e-30), 0.0, 1.0);
 	float lift = clamp(up / max(params.updraft_ref, 1e-30), 0.0, 1.0);
 	float dq = params.rate_c_m3_s * band * wet * lift * params.dt_s;
 	if (dq <= 0.0) {

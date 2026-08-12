@@ -87,21 +87,32 @@ channels that carry heat, because heat is no longer spread across channels:
 | `WaterSlumpLavaPass`'s per-row rc upload | deleted — transport carries `h` |
 | the `heat` column in `Channels.gd` and `heat_group()` | deleted |
 
-**Also deletes:** `PhaseRecords.gd` entire, `rc_shared.glsli` (done), `HeatCapacity.gd` (done), its SSOT gate
-(done), and the `water`/`moisture`/`snow` and `rock_fill`/`lava` channel pairs — one substance each.
+**Also deletes:** `rc_shared.glsli` (done), `HeatCapacity.gd` (done), its SSOT gate (done), and the
+`rock_fill`/`lava` channel pair — one substance.
 
-- **Acceptance, and it is binary:** seed a column of liquid water above freezing, remove heat at a constant
-  rate, and `temp` must **pin at 0.0** for exactly the span `m * L_fus / rate` pays for. Latent heat becoming
-  structural cannot be faked. If it does not pin, the conversion is not done.
+- ~~the `water`/`moisture`/`snow` channel pair~~ — DONE. `water`, `moisture`, `snow` and `soil` are one `h2o`
+  channel; solid / liquid / vapour are derived per cell by `state_derive.glsl` off the same ladder and the
+  same saturation curve, and published as `h2o_solid` / `h2o_liquid` / `h2o_vapour`.
+- ~~**A MOISTURE→WATER condensation record does not exist on either lineage.**~~ STRUCK. There is no
+  condensation record on either side of the boundary now, and there must not be: a phase change is what the
+  cell's enthalpy says happened, and no record may move mass between phases of one substance.
+- **The acceptance test PASSED, on the GPU:** a cell of pure water with its enthalpy half-way up the melting
+  plateau derives `h2o_solid` 0.5 at the melting point; with `l_fus` zeroed in `enthalpy.glsli` the same cell
+  derives 0.0 and leaves the plateau entirely.
 - **`rc_of` coming out is the acceptance test for the whole stage, not a step in it.** It had 20 consumers.
   If it cannot come out, the root is not fixed — say so rather than restoring it.
-- **A MOISTURE→WATER condensation record does not exist on either lineage.** Evaporation debits the latent
-  heat of vaporisation in three records and the return leg paid nothing. Do not add a record and a capacity:
-  once `h` is the state the return leg cannot be skipped, because there is no separate temperature to forget.
 
 ---
 
 ## WHAT IS LEFT
+
+**HEAT DOES NOT CONDUCT, AND IT NEVER HAS.** The `MODE_CONDUCT` row of `LATransportRecords` names
+`"conductivity"` as its aux buffer and nothing creates one, so `TransportPass` refuses the row every run —
+it is the last engine error a planet run emits. The buffer must be DERIVED (a volume-weighted mean of what
+each cell holds, off the same props table `StateDerivePass` already builds), which needs a thermal
+conductivity on every substance a channel names. `material/Substances.gd` carries one for `h2o`, `n2` and
+the three rock entries only; `o2`, `co2`, `cellulose`, `organic_c`, `organic_h`, `organic_o` and `fixed_n`
+have none, and inventing them is the maintainer's call, not an agent's.
 
 **G — the grid. Done.** The kernels run on `LAVoxelGrid`, gravity is solved, the axis gate passes,
 `METRES_PER_MODEL_UNIT` / `PLANET_SCALE` / `SURFACE_G` / the held `STANDARD_GRAVITY_M_S2` are gone, and so
@@ -186,7 +197,7 @@ changes its unit, then the latent-plateau gate.
 - **`_bufs["face_area"]` is bound by zero passes and `facearea.glsli` is included by zero kernels.**
   Binding 42 is reserved-but-unconsumed — the surviving artefact of the two-lanes-one-number incident.
 - **`_wnext` is dead** — a declaration and two allocation lines; no element is ever read or written.
-  **`_snow`, `_susp` and `_porosity` are never allocated at all**, so on a CPU-only run every consumer's
+  **`_susp` is never allocated at all** (`_porosity` is now seeded from Athy compaction, `_snow` is gone), so on a CPU-only run every consumer's
   size guard silently skips them.
 - **`_charge_woke` is written in two places and read nowhere.** The compute-bubble early-out it exists for
   was never wired.

@@ -1,13 +1,14 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
-## TEMPERATURE FROM STORED ENTHALPY. Reads `h_j_m3` (J/m^3), the substance amounts and `pressure`, and
-## writes the derived `temp` (deg C). It writes no channel and mutates no state.
+## TEMPERATURE AND PHASE FROM STORED ENTHALPY. Reads `h_j_m3` (J/m^3), the substance amounts and `pressure`,
+## and writes the derived `temp` (deg C), the three velocity components and the h2o solid/liquid/vapour
+## shares. It writes no channel and mutates no state.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/state_derive.glsl"
 
 ## Channel binding order. The kernel's `channel_at` switch IS this list and props[i] describes CHANNELS[i].
 const CHANNELS: PackedStringArray = [
-	"water", "moisture", "snow", "soil",
+	"h2o",
 	"lava", "rock_fill", "sediment", "susp", "dust",
 	"carbonate", "silica",
 	"o2", "co2", "n2",
@@ -15,7 +16,11 @@ const CHANNELS: PackedStringArray = [
 	"fert"]
 
 ## Cases in the kernel's `channel_at` switch. A mismatch drops a substance's heat capacity silently.
-const KERNEL_CHANNEL_SLOTS: int = 21
+const KERNEL_CHANNEL_SLOTS: int = 18
+
+## The h2o phase shares the kernel derives, in binding order — state_derive.glsl bindings 31..33.
+const PHASE_BUFFERS: PackedStringArray = ["h2o_solid", "h2o_liquid", "h2o_vapour"]
+const PHASE_BINDING_BASE: int = 31
 
 ## props row layout — state_derive.glsl PROP_*.
 const PROP_STRIDE: int = 5
@@ -64,6 +69,9 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 			"mom_x", "mom_y", "mom_z", "vel_x", "vel_y", "vel_z"]:
 		if not _half(bufs, name, 0, false).is_valid():
 			missing.append(name)
+	for name: String in PHASE_BUFFERS:
+		if not _single(bufs, name).is_valid():
+			missing.append(name)
 	if not missing.is_empty():
 		push_error("StateDerivePass: no buffer for %s, so no cell would get a temperature."
 			% String(", ").join(missing))
@@ -88,6 +96,8 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		entries.append([30, _single(bufs, "vel_z")])
 		entries.append([38, _single(bufs, "porosity")])
 		entries.append([40, _single(bufs, "cell_vol")])
+		for k in PHASE_BUFFERS.size():
+			entries.append([PHASE_BINDING_BASE + k, _single(bufs, PHASE_BUFFERS[k])])
 		_set[p] = _uset(_pipe, entries)
 
 

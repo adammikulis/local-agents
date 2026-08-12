@@ -15,11 +15,11 @@ static func masses_at(f, c: int, cell_m3: float) -> Dictionary:
 	if f._porosity.size() > c:
 		phi = clampf(f._porosity[c], 0.0, 1.0)
 	var tbl: Dictionary = LASubstances.table()
-	for name in LAChannels.condensed_channels():
+	for name in LAChannels.mixture_channels():
 		var arr = f.get("_" + String(name))
 		if not (arr is PackedFloat32Array) or c >= arr.size():
 			continue
-		var row: Dictionary = LAChannels.condensed_channels()[name]
+		var row: Dictionary = LAChannels.mixture_channels()[name]
 		var vf: float = maxf(arr[c], 0.0)
 		if String(row.get("unit", "vf")) == "sat":
 			vf *= (1.0 - phi)

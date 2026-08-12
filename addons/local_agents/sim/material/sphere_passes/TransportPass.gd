@@ -80,16 +80,17 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 	var resist: String = String(row.get("resist", ""))
 	var aux: String = String(row.get("aux", ""))
 	var stamp: String = String(row.get("stamp", ""))
+	var frac: String = String(row.get("frac", ""))
 	var moves_enthalpy: bool = channel == "h_j_m3"
 	# Mass does not move without its heat, so the enthalpy field is required of every row that carries mass.
-	var needed: Array = [channel, drive, resist, aux, stamp, "" if moves_enthalpy else "h_j_m3"]
+	var needed: Array = [channel, drive, resist, aux, stamp, frac, "" if moves_enthalpy else "h_j_m3"]
 	for key in needed:
 		if String(key) != "" and not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row does not move." % [key, channel])
 			return []
 	# The material state every law and the band model read. A missing one is a dead row, not a default.
-	for key in ["temp", "pressure", "porosity", "grain", "co2", "moisture", "snow", "water",
-			"rock_fill", "biomass", "lava"]:
+	for key in ["temp", "pressure", "porosity", "grain", "co2", "h2o", "h2o_solid", "h2o_liquid",
+			"h2o_vapour", "rock_fill", "biomass", "lava"]:
 		if not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row has no law." % [key, channel])
 			return []
@@ -113,14 +114,16 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 			[17, _single(bufs, "porosity")],
 			[18, _single(bufs, "grain")],
 			[19, _half(bufs, "co2", p, false)],
-			[20, _half(bufs, "moisture", p, false)],
+			[20, _half(bufs, "h2o", p, false)],
 			[21, _rad_table],
-			[22, _single(bufs, "snow")],
-			[23, _half(bufs, "water", p, false)],
+			[22, _single(bufs, "h2o_solid")],
+			[23, _single(bufs, "h2o_liquid")],
 			[24, _single(bufs, "rock_fill")],
 			[25, _single(bufs, "biomass")],
 			[26, _half(bufs, "lava", p, false)],
 			[27, _send_q if stamp == "" else _half(bufs, stamp, p, false)],
+			[28, _single(bufs, "h2o_vapour")],
+			[29, _one if frac == "" else _single(bufs, frac)],
 		]
 		out[p] = _uset(_pipe, entries)
 	return out
@@ -145,6 +148,8 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lap
 		flags |= LATransportRecords.Flag.STAMP
 	if String(row.get("drive", "")) != "":
 		flags |= LATransportRecords.Flag.DRIVEN
+	if String(row.get("frac", "")) != "":
+		flags |= LATransportRecords.Flag.FRACTION
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(76)
 	pc.encode_u32(0, cc)

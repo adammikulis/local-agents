@@ -10,10 +10,7 @@ layout(set = 0, binding = 1, std430) restrict buffer Solid { float solid[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Sediment { float sediment[]; };
 layout(set = 0, binding = 3, std430) restrict buffer Susp { float susp[]; };
 layout(set = 0, binding = 4, std430) restrict buffer Dust { float dust[]; };
-layout(set = 0, binding = 5, std430) restrict buffer Water { float water[]; };
-layout(set = 0, binding = 6, std430) restrict buffer Moisture { float moisture[]; };
-layout(set = 0, binding = 7, std430) restrict buffer Snow { float snow[]; };
-layout(set = 0, binding = 8, std430) restrict buffer Soil { float soil[]; };
+layout(set = 0, binding = 5, std430) restrict buffer H2OBuf { float h2o[]; };
 layout(set = 0, binding = 9, std430) restrict buffer Regolith { float regolith[]; };
 layout(set = 0, binding = 10, std430) restrict buffer Grain { float grain[]; };
 // rock_fill is a saturation, so converting a volume fraction into it needs the cell's solid share.
@@ -51,13 +48,9 @@ void main() {
 			susp[g] = 0.0;
 			dust[g] = 0.0;
 		}
-		// The water phases become the new rock's PORE WATER, and the rock becomes aquifer.
-		float trapped = water[g] + moisture[g] + snow[g];
-		if (trapped > 0.0) {
-			soil[g] += trapped;
-			water[g] = 0.0;
-			moisture[g] = 0.0;
-			snow[g] = 0.0;
+		// The h2o the closing rock encloses is now PORE water — the same channel, a different place — so
+		// nothing moves. What changes is that the cell has become aquifer.
+		if (h2o[g] > 0.0) {
 			regolith[g] = 1.0;
 			grain[g] = max(grain[g], params.fresh_grain_m);
 		}
