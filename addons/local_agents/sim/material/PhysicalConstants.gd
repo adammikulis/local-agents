@@ -109,7 +109,10 @@ const ALBEDO_OCEAN: float = 0.06
 const ALBEDO_BARE_GROUND: float = 0.15
 const ALBEDO_SNOW_ICE: float = 0.65
 
-const AMBIENT_O2_DENSITY_KG_M3: float = 0.2731
+## O2 mass in a cubic metre of ambient air, kg/m^3 — the air density times the O2 mass fraction, both
+## already declared in this file, so this cannot disagree with them.
+const AMBIENT_O2_DENSITY_KG_M3: float = AIR_DENSITY_KG_M3 * AIR_MOLE_FRAC_O2 \
+	* MOLAR_MASS_O2_KG_MOL / MOLAR_MASS_DRY_AIR_KG_MOL
 
 # --- COMBUSTION -------------------------------------------------------------------------------------------
 # Heat released per kg of O2 consumed, J/kg. Near-constant across hydrocarbon and carbohydrate fuels
