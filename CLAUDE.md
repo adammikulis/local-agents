@@ -388,6 +388,10 @@ When removing files:
 - **DO NOT FAN OUT PROSE, AND NEVER RUN A THIRD ROUND.** Fan-out earns its cost on parallel implementation
   over disjoint files whose correctness a command settles. On documentation the checking costs more than the
   writing. Two rounds, then do the rest yourself. The tell: the verifier's report is longer than the artifact.
+- **THE SIZE OF A CHANGE IS NEVER A FACTOR IN DECIDING WHAT TO DO.** Not a tiebreaker, not a
+  recommendation, not an ordering. "Most correct, but the largest change" is a sentence that must never be
+  written: if it is most correct that IS the decision, and the size is a scheduling fact stated after.
+  Recommending a cheaper option while labelling another one "most correct" is sandbagging.
 - **NEVER PRESENT A MENU WHEN ONE OPTION IS CORRECT, AND EFFORT IS NEVER A TIEBREAKER.** Decide by
   correctness, say the answer in one sentence, build it. "Contained", "blast radius", "a bigger change" are
   facts about SCHEDULE: state them after the decision, never as inputs. If your options differ mainly in how
