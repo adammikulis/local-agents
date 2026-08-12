@@ -38,7 +38,7 @@ func setup(ecology, terrain, actors_root: Node3D) -> void:
 		_baseline = _ceiling                 # an explicit ceiling overrides the auto-baseline entirely
 
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if _cooldown > 0.0:
 		_cooldown -= delta
 	_check_cd -= delta

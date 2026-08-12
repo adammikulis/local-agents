@@ -19,13 +19,13 @@ const MaterialFieldScript: GDScript = preload("res://addons/local_agents/sim/mat
 
 @export_group("Heat source")
 ## Run the built-in floor heat source. Turn it off for an inert volume you drive yourself by calling
-## add_heat() on field().
+## add_heat_energy() on field().
 @export var heat_enabled: bool = true
-## Degrees C injected per frame per source cell during the opening burst.
-@export_range(0.0, 500.0, 1.0, "suffix:C") var heat_per_frame: float = 40.0
-## Frames the source runs before switching off, after which you watch the heat flow and settle.
+## Power per source cell. A hotplate is watts; how many frames pass while it runs is not its business.
+@export_range(0.0, 1.0e6, 1.0, "suffix:W") var heat_source_w: float = 2000.0
+## Seconds the source runs before switching off, after which you watch the heat flow and settle.
 ## 0 = never stop.
-@export_range(0, 6000, 1, "suffix:frames") var heat_burst_frames: int = 40
+@export_range(0.0, 6000.0, 0.1, "suffix:s") var heat_burst_s: float = 10.0
 ## Source footprint in cells, centred on the floor: how many cells wide (x), tall (y) and deep (z) the
 ## heated block is.
 @export var heat_source_cells: Vector3i = Vector3i(3, 1, 3)
@@ -52,6 +52,7 @@ var _dx: int = 0
 var _dy: int = 0
 var _dz: int = 0
 var _frame: int = 0
+var _source_elapsed: float = 0.0    # simulated seconds the heat source has run
 var _top_start: float = 0.0
 
 # ONE MultiMeshInstance3D draws the whole slice: a single node and a single draw call for every cell,
@@ -73,7 +74,7 @@ func _ready() -> void:
 	_top_start = _sample(_dx / 2, _dy - 1, _dz / 2)
 
 
-## The LAMaterialField3D this node owns. Call add_heat(), temp_at(), add_water_cell() and friends on it
+## The LAMaterialField3D this node owns. Call add_heat_energy(), temp_at(), add_water_cell() and friends on it
 ## to drive the volume yourself.
 func field() -> Node:
 	return _field
@@ -95,7 +96,7 @@ func _build_field() -> void:
 	_field.setup_dims(_dx, _dy, _dz, cell_size, origin)
 
 
-# Cell centre straight from the field, so a point handed back to temp_at()/add_heat() lands on exactly
+# Cell centre straight from the field, so a point handed back to temp_at()/add_heat_energy() lands on exactly
 # the cell it came from (the field's world_to_cell is the inverse of this).
 func _cell_point(ix: int, iy: int, iz: int) -> Vector3:
 	return _field.cell_world_pos(clampi(ix, 0, _dx - 1), clampi(iy, 0, _dy - 1), clampi(iz, 0, _dz - 1))
@@ -107,16 +108,17 @@ func _sample(ix: int, iy: int, iz: int) -> float:
 	return _field.temp_at(_cell_point(ix, iy, iz))
 
 
-# framerate: the same 120-frame run deposited very different totals on a fast machine and a slow one,
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if _field == null:
 		return
 	_frame += 1
-	if heat_enabled and heat_per_frame != 0.0 and (heat_burst_frames <= 0 or _frame <= heat_burst_frames):
+	_source_elapsed += delta
+	if heat_enabled and heat_source_w != 0.0 and (heat_burst_s <= 0.0 or _source_elapsed <= heat_burst_s):
 		if _source_key != heat_source_cells:
 			_rebuild_source_points()
+		var joules: float = heat_source_w * delta
 		for p in _source_points:
-			_field.add_heat(p, heat_per_frame)
+			_field.add_heat_energy(p, joules)
 
 
 # The slice is presentation, so it stays on the render clock — redrawing it more often than the

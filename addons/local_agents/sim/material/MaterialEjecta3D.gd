@@ -135,12 +135,12 @@ func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = V
 		_peak_inflight = _p_mass.size()
 
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if _p_mass.size() == 0:
 		if _multimesh != null and _multimesh.visible_instance_count != 0:
 			_multimesh.visible_instance_count = 0
 		return
-	var dt: float = minf(delta, 0.05)                     # clamp to keep the arc stable under a frame spike
+	var dt: float = delta
 	var i: int = _p_mass.size() - 1
 	while i >= 0:
 		var pos: Vector3 = _p_pos[i]

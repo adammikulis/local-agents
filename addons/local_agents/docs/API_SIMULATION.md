@@ -324,9 +324,9 @@ Every property in this group is read once when the node starts. Changing one lat
   = 0.
 
 #### Exports, group Heat source
-- `heat_enabled` (bool, default `true`). Off gives an inert volume you drive yourself by calling `add_heat()` on `field()`.
-- `heat_per_frame` (float, default `40.0`, range 0.0 to 500.0, suffix C). Degrees injected per physics frame per source cell.
-- `heat_burst_frames` (int, default `40`, range 0 to 6000, suffix frames). Frames the source runs before switching off. 0 never
+- `heat_enabled` (bool, default `true`). Off gives an inert volume you drive yourself by calling `add_heat_energy()` on `field()`.
+- `heat_source_w` (float, default `2000.0`, range 0.0 to 1e6, suffix W). Power per source cell.
+- `heat_burst_s` (float, default `10.0`, range 0.0 to 6000.0, suffix s). Simulated seconds the source runs before switching off. 0 never
   stops.
 - `heat_source_cells` (Vector3i, default `Vector3i(3, 1, 3)`). Source footprint in cells, centred on the floor.
 
@@ -357,18 +357,18 @@ func demo_report() -> Dictionary
 share a coordinate convention, so read the signatures before you pass anything:
 
 ```gdscript
-func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void
+func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float
 func temp_at(pos: Vector3) -> float
 func add_water_cell(ix: int, iy: int, iz: int, amount: float) -> void
 ```
 
-`add_heat()` and `temp_at()` take a position in the field's frame, which is this node's local space, with the floor of the box at
+`add_heat_energy()` and `temp_at()` take a position in the field's frame, which is this node's local space, with the floor of the box at
 y = 0 and the box centred on X and Z unless Origin Offset moves it. `add_water_cell()` takes integer cell indices instead, and does
 nothing for an out-of-bounds or solid cell. To go between the two, `cell_world_pos(ix, iy, iz) -> Vector3` gives the position of a
 cell and `world_to_cell(pos) -> int` gives the linear index of a position, so a point from `cell_world_pos()` handed to `temp_at()`
 lands on exactly the cell it came from.
 
-`add_heat()`'s `radius` argument does nothing in box mode. The radius walk needs the cubed-sphere neighbour table, so a box field
+`add_heat_energy()`'s `radius` argument does nothing in box mode. The radius walk needs the cubed-sphere neighbour table, so a box field
 heats the single cell at `world_pos` whatever radius you pass. Loop over the cells you want instead.
 
 `demo_report()` returns `frames`, `cells`, `dims` (a `"WxHxD"` string), `top_start`, `top_now`, `bottom_now`, `flowed` (true when

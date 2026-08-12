@@ -643,10 +643,6 @@ func wind3_at(x: float, y: float, z: float) -> Vector3:
 	return _queries.wind3_at(x, y, z)
 
 # Local injection writes the GPU field buffers via the injection module; the field only forwards.
-## Raise the temperature at a world point (and within `radius`) — a meteor's molten spike, a fire's heat.
-func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
-	if _inject != null:
-		_inject.add_heat(world_pos, amount, radius)
 
 ## Inject airborne water vapor (humidity) at a world point (+`radius`) — a storm's moisture source. Real (module).
 func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:

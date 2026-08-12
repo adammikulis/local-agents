@@ -150,7 +150,7 @@ func process(delta: float) -> void:
 	_f._step_geotherm()              # radiogenic decay: hand the rock the joules its own mass produced
 	LASimReport.gauge("field_pin_ms", float(Time.get_ticks_usec() - t_pin) / 1000.0)
 	var t_begin: int = Time.get_ticks_usec()
-	_f._gpu.begin_frame(_f._temp, _f._water)   # drains prev step (sync+readback) + uploads
+	_f._gpu.begin_frame(_f._h, _f._water)      # drains prev step (sync+readback) + uploads
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
 	# sun_dir points from the planet toward the star; its LENGTH carries the relative insolation.
@@ -212,6 +212,7 @@ func process(delta: float) -> void:
 
 func _apply_readback(res: Dictionary) -> void:
 	var n: int = _f._cell_count
+	if res.has("h_j_m3") and res["h_j_m3"].size() == n: _f._h = res["h_j_m3"]
 	if res.has("temp") and res["temp"].size() == n: _f._temp = res["temp"]
 	if res.has("water") and res["water"].size() == n: _f._water = res["water"]
 	if res.has("moisture") and res["moisture"].size() == n: _f._moisture = res["moisture"]

@@ -6,7 +6,7 @@ extends RefCounted
 # Channel name -> the field's CPU mirror array property. A channel with no CPU mirror still round-trips on
 # the GPU via restore_channels().
 const CPU_MIRROR: Dictionary = {
-	"temp": "_temp", "water": "_water", "moisture": "_moisture", "lava": "_lava", "fire": "_fire",
+	"h_j_m3": "_h", "water": "_water", "moisture": "_moisture", "lava": "_lava", "fire": "_fire",
 	"o2": "_o2", "co2": "_co2", "biomass": "_biomass", "snow": "_snow", "dust": "_dust",
 	"sediment": "_sediment", "rock_fill": "_rock_fill", "shock": "_shock", "charge": "_charge",
 	"vel_x": "_vel_x", "vel_y": "_vel_y", "vel_z": "_vel_z", "fuel": "_fuel", "fungus": "_fungus",

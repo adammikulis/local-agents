@@ -6,8 +6,6 @@ extends RefCounted
 
 var _f = null
 
-# Previous sample's per-cell capacity and absolute temperature, for the dU = sum(rc0*dT) + sum(drc*T1) split.
-
 # Baseline bedrock, and the step it was latched at.
 var _rock_ref: PackedFloat32Array = PackedFloat32Array()
 var _rock_ref_step: int = -1
@@ -63,8 +61,6 @@ func amounts(ch: Dictionary, solid: PackedByteArray, temp: PackedFloat32Array,
 		return out
 	var cc: int = _f._cell_count
 	if solid.size() != cc:
-		return out
-	if want_energy and temp.size() != cc:
 		return out
 	var cell_size: float = float(_f._cell_size)
 	if cell_size <= 0.0:

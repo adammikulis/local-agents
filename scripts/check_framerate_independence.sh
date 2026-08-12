@@ -48,7 +48,7 @@ GAME = "addons/local_agents/game"
 # MaterialField3D's public write API, LAEcologyService.set_sun and LASystemOrbits.
 MUTATORS = [
     "set_wind(", "set_sun(", "set_sun_dir(", "set_solid(", "set_plate_motion(",
-    "add_heat(", "add_lava(", "add_vapor(", "add_charge(", "add_water_cell(",
+    "add_heat_energy(", "add_lava(", "add_vapor(", "add_charge(", "add_water_cell(",
     "add_water_pooled(", "add_magma_source(", "seed_field(", "apply_impulse(",
     # LAVoxelDisasters' seeding facade: each of these injects heat/water/pressure into the field.
     "spawn_thunderstorm(", "spawn_tornado(", "spawn_hurricane(", "spawn_default_volcano(",

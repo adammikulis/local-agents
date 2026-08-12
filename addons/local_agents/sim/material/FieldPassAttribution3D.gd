@@ -185,7 +185,9 @@ func _sample() -> Dictionary:
 		ch[name] = gpu.read_raw(name, _half(String(name), phase))
 	var temp: PackedFloat32Array = PackedFloat32Array()
 	if energy:
-		temp = gpu.read_raw("temp", _half("temp", phase))
+		# The stock is enthalpy; temperature is derived and books nothing.
+		ch["h_j_m3"] = gpu.read_raw("h_j_m3", _half("h_j_m3", phase))
+		temp = gpu.read_raw("temp", 0)
 	var f: Dictionary = _fold.amounts(ch, _mask(gpu.read_raw("solid", 0), cc), temp, energy)
 	if f.is_empty():
 		_missing = PackedStringArray(["solid"])
@@ -195,8 +197,8 @@ func _sample() -> Dictionary:
 	for name in channels:
 		if not bool(live.get(name, false)):
 			absent.append(String(name))
-	if energy and temp.size() < cc and not absent.has("temp"):
-		absent.append("temp")
+	if energy and int(ch.get("h_j_m3", PackedFloat32Array()).size()) < cc and not absent.has("h_j_m3"):
+		absent.append("h_j_m3")
 	_missing = absent
 	if absent.size() > 0:
 		return {}
