@@ -81,6 +81,23 @@ The rule is the credibility; a story attached to it means a reader cannot tell w
 
 Tells: a parenthetical longer than its sentence · any date · a paragraph that would survive deletion.
 
+# RULE 1f — "SO THAT IT COMPILES" AND "SO WE HAVE A BASELINE" ARE NOT REASONS. THEY ARE THE DISEASE.
+
+Green is the only signal cheap to read, so every plan bends toward producing one. That is how a deleted
+crutch comes back behind a forwarder, and how a step gets invented whose only purpose is that something
+passes.
+
+**Justify a change by what is true of the WORLD.** If the sentence you would write is "so that X compiles",
+"so the call sites still read the same", "so we have a baseline to compare against", or "so the gate goes
+green", stop — you have written the cost of being honest, not a reason.
+
+**Red is the working state of a branch mid-conversion.** It is a status with a named cause, not damage, and
+clearing it is not a goal. A step is DONE when something is GONE or a physical claim is TRUE — never when a
+command exited 0.
+
+**A gate you cannot make fail on purpose is not a gate**, and green from a tree full of those means nothing,
+which is what makes chasing it so cheap. Mutation-test both ways or you have not written one.
+
 # RULE 1b — NO NUMBER FROM THIS REPO HAS EVER MEASURED ANYTHING.
 
 Nothing here has ever worked, so a figure is the interaction of whichever defects were live that day, and two
