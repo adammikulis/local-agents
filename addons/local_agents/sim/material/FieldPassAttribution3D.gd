@@ -67,7 +67,6 @@ func on_checkpoint(pass_index: int, pass_name: String) -> void:
 		_legs = {}
 		_parts = {}
 		_cum = {}
-		_fold.clear_energy_prev()
 		var opening: Dictionary = _sample()
 		_start = opening.duplicate()
 		_prev = opening.duplicate()
@@ -220,13 +219,11 @@ func _mass_scalars(f: Dictionary, channels: PackedStringArray) -> Dictionary:
 		"all": LAFieldLedgerRecords.sum_of(all_by, channels)}
 
 
-## `heat` and `capacity` are running sums within the step, so differencing them per pass gives the pass's
-## own dU = sum(rc0*dT) and sum(drc*T1) terms in joules.
+## The stock is the enthalpy the cells hold. There is no heat/capacity split to take: that decomposition
+## existed only to separate "temperature moved" from "the capacity mix moved", and with h as the state
+## there is no capacity mix.
 func _energy_scalars(f: Dictionary) -> Dictionary:
-	_cum["heat"] = float(_cum.get("heat", 0.0)) + float(f["energy_d_heat_j"])
-	_cum["capacity"] = float(_cum.get("capacity", 0.0)) + float(f["energy_d_cap_j"])
-	return {"stock": float(f["energy_stock"]), "cap": float(f["energy_cap_j_k"]),
-		"heat": float(_cum["heat"]), "capacity": float(_cum["capacity"])}
+	return {"stock": float(f["energy_stock"])}
 
 
 ## Which ping-pong half a channel's current data sits in, given which passes have already run this step.

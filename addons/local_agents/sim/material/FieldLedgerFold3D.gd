@@ -7,8 +7,6 @@ extends RefCounted
 var _f = null
 
 # Previous sample's per-cell capacity and absolute temperature, for the dU = sum(rc0*dT) + sum(drc*T1) split.
-var _prev_rc: PackedFloat32Array = PackedFloat32Array()
-var _prev_tk: PackedFloat32Array = PackedFloat32Array()
 
 # Baseline bedrock, and the step it was latched at.
 var _rock_ref: PackedFloat32Array = PackedFloat32Array()
@@ -42,13 +40,6 @@ func probe_step(fallback: int) -> int:
 		if s >= 0:
 			return s
 	return fallback
-
-
-## Drop the per-cell energy baseline, so the next `amounts` call reports no dU terms rather than terms
-## measured against a sample taken at some other step.
-func clear_energy_prev() -> void:
-	_prev_rc = PackedFloat32Array()
-	_prev_tk = PackedFloat32Array()
 
 
 ## Walk the grid once. Returns the per-channel amounts, the counts, and the thermal stock terms.
@@ -121,7 +112,7 @@ func amounts(ch: Dictionary, solid: PackedByteArray, temp: PackedFloat32Array,
 	out["open"] = amt_open
 	out["all"] = amt_all
 	if want_energy:
-		_energy(out, ch, temp, solid, vol, cc)
+		_energy(out, ch.get("h_j_m3", PackedFloat32Array()), solid, vol, cc)
 	return out
 
 
@@ -174,55 +165,22 @@ func _crust(out: Dictionary, ch: Dictionary, cc: int, step_index: int, sealed: b
 		_rock_ref_step = step_index
 
 
-## The thermal stock, in joules: sum over EVERY cell of rc(cell) * volume * absolute temperature, plus the
-## exact split of its change into the part temperature moved and the part the capacity mix moved.
-func _energy(out: Dictionary, ch: Dictionary, temp: PackedFloat32Array, solid: PackedByteArray,
+## The thermal stock, in joules: the enthalpy the cells hold. `h` is J/m^3, so the stock is h * volume and
+## there is nothing to reconstruct.
+func _energy(out: Dictionary, h: PackedFloat32Array, solid: PackedByteArray,
 		vol: PackedFloat64Array, cc: int) -> void:
-	var cap_live: Dictionary = LAHeatCapacity.live_map(ch, cc)
-	var missing: PackedStringArray = PackedStringArray()
-	for name in cap_live:
-		if not bool(cap_live[name]):
-			missing.append(String(name))
-	out["energy_live"] = cap_live
-	out["energy_missing"] = missing
-	if missing.size() > 0:
+	if h.size() != cc:
+		out["energy_missing"] = PackedStringArray(["h_j_m3"])
 		return
-	var rc_all: PackedFloat64Array = LAHeatCapacity.field(ch, cc)
-	var have_prev: bool = _prev_rc.size() == cc and _prev_tk.size() == cc
-	if not have_prev:
-		_prev_rc.resize(cc)
-		_prev_tk.resize(cc)
+	out["energy_missing"] = PackedStringArray()
 	var stock: float = 0.0
-	var cap_j_k: float = 0.0
-	var d_heat_j: float = 0.0
-	var d_cap_j: float = 0.0
 	# Faces the geotherm's flux crosses: the DEEPEST rock, where nothing solid lies further down the vertical.
 	var shell_solid: int = 0
 	for c in cc:
-		var rc: float = rc_all[c]
 		if solid[c] != 0:
 			var lo: int = LAFieldGeometry.below(_f, c)
 			if lo < 0 or solid[lo] == 0:
 				shell_solid += 1
-		var tk: float = temp[c] + LAPhysical.KELVIN_OFFSET
-		stock += rc * tk * vol[c]
-		cap_j_k += rc * vol[c]
-		if have_prev:
-			d_heat_j += _prev_rc[c] * (tk - _prev_tk[c]) * vol[c]
-			d_cap_j += (rc - _prev_rc[c]) * tk * vol[c]
-		_prev_rc[c] = rc
-		_prev_tk[c] = tk
+		stock += h[c] * vol[c]
 	out["energy_stock"] = stock
-	out["energy_cap_j_k"] = cap_j_k
-	out["energy_have_prev"] = have_prev
-	out["energy_d_heat_j"] = d_heat_j
-	out["energy_d_cap_j"] = d_cap_j
 	out["energy_shell_solid"] = shell_solid
-	# Per-leg capacities are sums over cells of rc, so they take the mean cell volume; a per-cell split would
-	# mean re-walking the field once per leg.
-	var cap_raw: Dictionary = LAHeatCapacity.legs(ch, cc)
-	var mean_m3: float = (float(out["vol_total_m3"]) / float(cc)) if cc > 0 else 0.0
-	var cap_legs: Dictionary = {}
-	for k in cap_raw:
-		cap_legs[k] = snappedf(float(cap_raw[k]) * mean_m3, 1.0)
-	out["energy_cap_legs"] = cap_legs

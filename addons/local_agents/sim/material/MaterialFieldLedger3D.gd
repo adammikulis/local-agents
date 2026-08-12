@@ -14,14 +14,11 @@ var _samples: int = 0
 
 # Cumulative energy books, zeroed at the sample the thermal baseline latches so the stock change and the
 # booked terms span the same window.
-var _cum_heat: float = 0.0
-var _cum_cap: float = 0.0
 var _cum_solar: float = 0.0
 var _cum_lw: float = 0.0
 var _cum_geo: float = 0.0
 var _first_inject_j: float = 0.0
 var _first_unsourced_dc: float = 0.0
-var _first_cap: Dictionary = {}
 # Last published block, for the consumers that ask the field for one scalar outside the report path.
 var _last: Dictionary = {}
 
@@ -288,12 +285,6 @@ func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int
 	var stock: float = float(f["energy_stock"])
 	out["energy_stock"] = stock
 	out["energy_geo_shell_cells"] = f["energy_shell_solid"]
-	var cap_legs: Dictionary = f.get("energy_cap_legs", {})
-	var cap_total: float = 0.0
-	for k in cap_legs:
-		cap_total += float(cap_legs[k])
-	out["energy_cap_j_k"] = cap_total
-	out["energy_cap_legs"] = cap_legs
 
 	# Booked rates, in watts. LAMaterialFieldEnergyBudget3D sums each cell's flux against that cell's own
 	# outward face area in square metres, so these arrive as watts and need no conversion.
@@ -320,24 +311,18 @@ func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int
 		return
 	out["energy_stock_first"] = float(r[0])
 	if not was_latched:
-		_cum_heat = 0.0
-		_cum_cap = 0.0
 		_cum_solar = 0.0
 		_cum_lw = 0.0
 		_cum_geo = 0.0
 		_first_inject_j = inject_j
 		_first_unsourced_dc = unsourced_dc
-		_first_cap = cap_legs
-	elif steps > 0 and bool(f.get("energy_have_prev", false)):
+	elif steps > 0:
 		# Rectangle rule over the window, at the flux sampled at its right-hand end, integrated against the
 		# real seconds the kernel applies.
 		var window_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step() * float(steps)
-		_cum_heat += float(f["energy_d_heat_j"])
-		_cum_cap += float(f["energy_d_cap_j"])
 		_cum_solar += solar_w * window_s
 		_cum_lw += lw_w * window_s
 		_cum_geo += geo_w * window_s
-	out["energy_cap_legs_first"] = _first_cap
 	out["energy_unsourced_dc"] = unsourced_dc - _first_unsourced_dc
 	var run_steps: int = int(r[3])
 	out["energy_run_steps"] = run_steps
@@ -352,7 +337,6 @@ func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int
 	out["energy_residual"] = run_drift - booked
 	# The decomposition's own check: sum(rc0*dT) + sum(drc*T1) is the stock change identically, so this is
 	# near zero or the split is wrong.
-	out["energy_split_close"] = (_cum_heat + _cum_cap) - run_drift
 	var area: float = float(flux.get("energy_face_area_m2", 0.0))
 	out["energy_ref_area_m2"] = area
 	var run_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step() * float(run_steps)
@@ -360,8 +344,6 @@ func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int
 		return
 	var inv: float = 1.0 / (area * run_s)
 	out["energy_drift_w_m2"] = run_drift * inv
-	out["energy_heat_w_m2"] = _cum_heat * inv
-	out["energy_capacity_w_m2"] = _cum_cap * inv
 	out["energy_booked_w_m2"] = booked * inv
 	out["energy_residual_w_m2"] = (run_drift - booked) * inv
 	out["energy_book_solar_w_m2"] = _cum_solar * inv
