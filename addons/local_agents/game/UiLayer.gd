@@ -15,7 +15,6 @@ var _input: LAVoxelInputController = null
 @onready var _audio: LAAudioDirector = $AudioDirector
 @onready var _audio_ctrl: Node = $AudioController
 @onready var _debug: LAVoxelDebugWiring = $DebugWiring
-@onready var _drainage: Node = $DrainageOverlay
 @onready var _brush: Node3D = $SpawnBrush
 @onready var _interaction: Node3D = $Interaction
 @onready var _companion: Node = $CompanionController
@@ -48,10 +47,6 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 		_hud.music_auto_adapt_changed.connect(Callable(_world, "_on_music_auto_adapt_changed"))
 
 	_debug.setup(_world, sim.material_field(), terrain, render.sky_controller(), _hud, _input, sim.ecology())
-	# The drainage highlight is world-space: reparent under the body so it rides the planet's spin.
-	_drainage.reparent(sim.body())
-	_drainage.setup(sim.material_field())
-	_debug.set_drainage(_drainage, _input.debug_rivers())
 
 	_brush.setup(_world, terrain, camera, sim.ecology(), _hud, _audio, sim.actors_root(), sim.disasters())
 	_interaction.setup(_world, terrain, camera, sim.ecology(), _hud, _audio, _brush)

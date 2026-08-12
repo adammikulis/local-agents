@@ -47,7 +47,6 @@ var _rain_force: bool = false           # --rain: force the rain visual on (veri
 var _debug_demo: bool = false
 var _wind_view: bool = false            # --wind-view: enable ONLY the emergent wind-arrow overlay
 var _debug_field: String = ""           # --debug-field=<channel>: pre-enable a substrate heatmap (biomass/lava/…)
-var _debug_rivers: bool = false          # --debug-rivers: highlight the drainage network (where rivers should run)
 var _debug_behaviors: String = ""       # --debug-behaviors[=a,b]: pre-enable behavior-state highlights (default foraging+hunting)
 var _llm_highlight: bool = false        # --llm-highlight: pre-enable the thinking/queued tints + report live counts
 var _llm_off: String = ""               # --llm-off[=all|species]: mid-run, disable the slow brain for a group (fallback proof)
@@ -175,8 +174,6 @@ func parse_cmdline() -> void:
 			_wind_view = true
 		elif arg.begins_with("--debug-field="):
 			_debug_field = arg.substr("--debug-field=".length())
-		elif arg == "--debug-rivers":
-			_debug_rivers = true
 		elif arg == "--debug-behaviors":
 			_debug_behaviors = "foraging,hunting"
 		elif arg.begins_with("--debug-behaviors="):
@@ -527,13 +524,12 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 	if _hotspring_test and spawned and frame >= 90 and frame <= 620:
 		var hfield = _ecology.material_field() if (_ecology != null and _ecology.has_method("material_field")) else null
 		if hfield != null and hfield.has_method("add_water_pooled") \
-				and _terrain != null and _terrain.has_method("surface_point") and hfield.has_method("sphere_grid"):
+				and _terrain != null and _terrain.has_method("surface_point") and hfield.has_method("cell_size"):
 			var hdir: Vector3 = Vector3(0.2, 1.0, 0.2).normalized()
 			var hsurf: Vector3 = _terrain.surface_point(hdir)
-			var hgrid = hfield.sphere_grid()
-			if not is_nan(hsurf.x) and hgrid != null:
-				var cs: float = float(hgrid.cell_size)
-				var hbelow: Vector3 = hsurf - hdir * (cs * 1.6)   # in the regolith just under the surface (the up-seep shell)
+			if not is_nan(hsurf.x):
+				var cs: float = hfield.cell_size()
+				var hbelow: Vector3 = hsurf - hdir * (cs * 1.6)   # a cell below the surface
 				_seed_hot_pocket(hbelow)                          # shallow interior heat, drawn out of the finite store
 				hfield.add_water_pooled(hsurf, 0.5, cs * 3.5)     # DIFFUSE rain recharge — saturates the aquifer AROUND the
 				                                                  # vent without dumping cold water on the exact up-seep cell
@@ -906,7 +902,6 @@ func debug_family() -> bool: return _debug_family
 func debug_demo() -> bool: return _debug_demo
 func wind_view() -> bool: return _wind_view
 func debug_field() -> String: return _debug_field
-func debug_rivers() -> bool: return _debug_rivers
 func debug_behaviors() -> String: return _debug_behaviors
 func fast_multiplier() -> int: return _fast
 
@@ -966,17 +961,14 @@ func _bench_snapshot(frame: int) -> void:
 	])
 
 
-## Move heat OUT of the interior store and INTO the rock a few shells under `site`. A transfer, not a source:
+## Move heat OUT of the interior store and INTO the rock a few cells under `site`. A transfer, not a source:
 ## the reservoir loses exactly what the rock gains, and it refuses once it is too cold to drive one.
 func _seed_hot_pocket(site: Vector3) -> void:
 	var f = _ecology.material_field() if (_ecology != null and _ecology.has_method("material_field")) else null
 	if f == null or _body == null or f.get("_inject") == null or f.get("_geotherm") == null:
 		return
-	var grid = f.sphere_grid() if f.has_method("sphere_grid") else null
-	if grid == null:
-		return
 	var dir: Vector3 = (site - _body.center()).normalized()
-	var cs: float = float(grid.cell_size)
+	var cs: float = f.cell_size()
 	var deep: Vector3 = site - dir * (cs * 3.0)
 	var r: float = cs * 2.0
 	var need: float = f._inject.heat_to_reach(deep, LAPhysical.BASALT_LIQUIDUS_C, r)

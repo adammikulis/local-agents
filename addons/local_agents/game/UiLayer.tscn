@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene load_steps=15 format=3]
 
 [ext_resource type="Script" path="res://addons/local_agents/game/UiLayer.gd" id="1_uilayer"]
 [ext_resource type="Script" path="res://addons/local_agents/game/progression/GameProgression.gd" id="2_gameprogression"]
@@ -9,7 +9,6 @@
 [ext_resource type="Script" path="res://addons/local_agents/audio/AudioDirector.gd" id="7_audiodirector"]
 [ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelAudioController.gd" id="8_voxelaudiocontroller"]
 [ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelDebugWiring.gd" id="9_voxeldebugwiring"]
-[ext_resource type="Script" path="res://addons/local_agents/game/ui/DrainageOverlay.gd" id="10_drainageoverlay"]
 [ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelSpawnBrush.gd" id="11_voxelspawnbrush"]
 [ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelInteraction.gd" id="12_voxelinteraction"]
 [ext_resource type="Script" path="res://addons/local_agents/game/world/CompanionController.gd" id="13_companioncontroller"]
@@ -40,9 +39,6 @@ script = ExtResource("8_voxelaudiocontroller")
 
 [node name="DebugWiring" type="Node" parent="."]
 script = ExtResource("9_voxeldebugwiring")
-
-[node name="DrainageOverlay" type="MeshInstance3D" parent="."]
-script = ExtResource("10_drainageoverlay")
 
 [node name="SpawnBrush" type="Node3D" parent="."]
 script = ExtResource("11_voxelspawnbrush")
