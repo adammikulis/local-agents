@@ -3,7 +3,7 @@ extends MeshInstance3D
 
 
 const BEAM_HEIGHT: float = 16.0            # tall beam so highlighted objects are visible far off
-const BEAM_THICK: float = 0.09             # offset used to fake line thickness (4 parallel beams)
+const BEAM_THICK: float = 0.09             # offset that fakes line thickness (4 parallel beams)
 const RING_RADIUS: float = 1.4
 const RING_SEGS: int = 20
 const PATH_LEN: float = 5.0
@@ -28,24 +28,15 @@ var _mat: StandardMaterial3D = null
 var _highlight: Dictionary = {}            # group name -> true (which types are highlighted)
 var _paths: bool = false
 var _wind: bool = false
-var _scent: bool = false
 var _field_channel: String = ""           # active field-channel heatmap ("" = none). One at a time.
 
 # Field-channel heatmap: a grid of directions over the planet, each drawn as a colored radial spike
-# rising from the surface, height + colour = the sampled channel value (a channel swap on the wind/scent
-# grid mechanism). Toggle-gated — nothing is sampled unless a channel view is active.
+# rising from the surface, height + colour = the sampled channel value (a channel swap on the wind-grid
+# mechanism). Toggle-gated — nothing is sampled unless a channel view is active.
 const FIELD_LAT: int = 22               # latitude rings of sample directions over the sphere
 const FIELD_LON: int = 44               # longitude steps per ring
 const FIELD_SPIKE_MIN: float = 1.5      # shortest visible spike (so any non-zero cell still reads)
 const FIELD_SPIKE_MAX: float = 14.0     # tallest spike (channel value saturated)
-# Scent-channel colours for the debug view (dominant channel tints each grid cell's arrow).
-const SCENT_COLORS: Array = [
-	Color(0.45, 0.65, 1.0, 0.8),           # PREY   — blue
-	Color(1.0, 0.35, 0.2, 0.8),            # PREDATOR — red
-	Color(0.9, 0.1, 0.15, 0.85),           # BLOOD  — deep red
-	Color(0.6, 0.85, 0.25, 0.8),           # FOOD   — olive
-	Color(1.0, 0.85, 0.2, 0.85),           # ALARM  — yellow
-]
 
 
 func setup(field, terrain = null) -> void:
@@ -79,10 +70,6 @@ func set_wind(on: bool) -> void:
 	_wind = on
 
 
-func set_scent(on: bool) -> void:
-	_scent = on
-
-
 ## Select the active field-channel heatmap ("" = off). One channel at a time — enabling a new channel
 ## replaces the previous. Keys match LADebugPanel VIEWS (biomass/water_phase/snow/lava/rock_fill/co2/o2/
 ## charge/fertility).
@@ -94,7 +81,7 @@ func _process(_delta: float) -> void:
 	if _im == null:
 		return
 	_im.clear_surfaces()
-	if _highlight.is_empty() and not _paths and not _wind and not _scent and _field_channel == "":
+	if _highlight.is_empty() and not _paths and not _wind and _field_channel == "":
 		return                              # nothing to draw — leave the mesh empty (no cost)
 	_im.surface_begin(Mesh.PRIMITIVE_LINES)
 	if not _highlight.is_empty():
@@ -103,8 +90,6 @@ func _process(_delta: float) -> void:
 		_draw_paths()
 	if _wind:
 		_draw_wind()
-	if _scent:
-		_draw_scent()
 	if _field_channel != "":
 		_draw_field_channel()
 	_im.surface_end()
@@ -174,25 +159,25 @@ func _draw_paths() -> void:
 		_line(tip, tip - dir * 1.0 - side, col)
 
 
-# The emergent LOCAL wind field as a grid of arrows floating above the world: each arrow is sampled from
-# wind_at(x,z) at its own XZ position, so its direction AND length (= local speed) vary across the map —
-# this is the primary way to SEE funneling through valley gaps and fronts pulling air into a heated low.
+# The emergent local wind as arrows over the planet: sampled on a lat/long grid, the same layout
+# _draw_field_channel uses, so direction and length (= local speed) vary across the sphere.
 func _draw_wind() -> void:
-	if _field == null or not _field.has_method("wind_at"):
+	if _field == null or not _field.has_method("wind_at") or _terrain == null:
 		return
-	var y: float = _field.sea_radius() + 48.0     # a plane above most terrain so the arrows read clearly
-	var ext: float = _field.grid_half_extent() if _field.has_method("grid_half_extent") else 300.0
-	var step: float = ext * 2.0 / float(WIND_GRID)
+	var shell: float = _field.sea_radius() + 48.0
 	# Map local speed (m/s-ish) to arrow length so slow air draws short stubs and jets draw long arrows.
 	const SPEED_REF: float = 5.0
 	const LEN_MIN: float = 4.0
 	const LEN_MAX: float = 24.0
 	const THICK: float = 0.7                   # parallel-line offset faking arrow thickness (visible far off)
-	for gx in range(WIND_GRID):
-		for gz in range(WIND_GRID):
-			var wx: float = -ext + (float(gx) + 0.5) * step
-			var wz: float = -ext + (float(gz) + 0.5) * step
-			var w: Vector2 = _field.wind_at(wx, wz)
+	var centre: Vector3 = _terrain.center() if _terrain.has_method("center") else Vector3.ZERO
+	for iy in range(1, WIND_GRID):
+		var theta: float = PI * float(iy) / float(WIND_GRID)
+		for ix in range(WIND_GRID * 2):
+			var phi: float = TAU * float(ix) / float(WIND_GRID * 2)
+			var radial: Vector3 = Vector3(sin(theta) * cos(phi), cos(theta), sin(theta) * sin(phi))
+			var probe: Vector3 = centre + radial * shell
+			var w: Vector2 = _field.wind_at(probe)
 			var speed: float = w.length()
 			if speed < 0.02:
 				continue
@@ -201,8 +186,8 @@ func _draw_wind() -> void:
 			# Colour ramps calm(blue) -> fast(cyan/white) so speed reads at a glance too.
 			var t: float = clampf(speed / (SPEED_REF * 1.5), 0.0, 1.0)
 			var col: Color = Color(0.35 + 0.55 * t, 0.7 + 0.3 * t, 1.0, 0.85)
-			var side: Vector3 = dir.cross(Vector3.UP).normalized()
-			var base: Vector3 = Vector3(wx, y, wz)
+			var side: Vector3 = dir.cross(radial).normalized()
+			var base: Vector3 = probe
 			var tip: Vector3 = base + dir * arrow
 			var hoff: Vector3 = side * THICK
 			# Shaft (doubled for thickness) + arrowhead.
@@ -210,35 +195,6 @@ func _draw_wind() -> void:
 			_line(base - hoff, tip - hoff, col)
 			_line(tip, tip - dir * (arrow * 0.32) + side * (arrow * 0.18), col)
 			_line(tip, tip - dir * (arrow * 0.32) - side * (arrow * 0.18), col)
-
-
-func _draw_scent() -> void:
-	if _field == null or not _field.has_method("scent_at"):
-		return
-	var ext: float = _field.grid_half_extent() if _field.has_method("grid_half_extent") else 300.0
-	var step: float = ext * 2.0 / float(WIND_GRID)
-	var y: float = _field.sea_radius() + 10.0
-	for gx in range(WIND_GRID):
-		for gz in range(WIND_GRID):
-			var wx: float = -ext + (float(gx) + 0.5) * step
-			var wz: float = -ext + (float(gz) + 0.5) * step
-			var probe: Vector3 = Vector3(wx, y, wz)
-			var best: float = 0.0
-			var best_ch: int = -1
-			for ch in range(SCENT_COLORS.size()):
-				var s: float = _field.scent_at(probe, ch)
-				if s > best:
-					best = s
-					best_ch = ch
-			if best_ch < 0 or best < 0.01:
-				continue
-			var col: Color = SCENT_COLORS[best_ch]
-			var base: Vector3 = Vector3(wx, y, wz)
-			var h: float = clampf(1.0 + best * 3.0, 1.0, 8.0)
-			_line(base, base + Vector3.UP * h, col)          # a tick whose height reads intensity
-			var g: Vector3 = _field.scent_gradient(probe, best_ch)
-			if g.length() > 0.001:
-				_line(base, base + g.normalized() * (step * 0.35), col)
 
 
 func _draw_field_channel() -> void:

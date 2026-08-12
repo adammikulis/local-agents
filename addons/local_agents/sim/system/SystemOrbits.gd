@@ -2,19 +2,19 @@ class_name LASystemOrbits
 extends Node
 
 
-const ORBIT_RADIUS: float = 12000.0       # nominal orbital separation; insolation == 1 here. Kepler + the moon's
-                                          # Hill margin pin this against LAStar.DEFAULT_MASS (see SCALE above).
+const ORBIT_RADIUS: float = 12000.0       # nominal orbital separation (world units); insolation == 1 here
 const INSOLATION_MIN: float = 0.02        # never fully zero (numeric floor)
 const INSOLATION_MAX: float = 4.0         # cap the bake so the field can't NaN
 const DUST_OPACITY: float = 3.5           # how strongly atmospheric dust/cloud blocks the sun (impact winter)
-const CLOUD_OPACITY_CAP: float = 0.22     # max opacity clouds alone may add (transmission floor ~1/(1+3.5*0.22)=0.56)
-const CLOUD_OPACITY_K: float = 0.35       # per-unit-cover cloud opacity (pre-cap)
+const CLOUD_OPACITY_K: float = 0.35       # per-unit-cover cloud opacity
+# Impact momentum handed to the orbit is multiplied by this. Not physics: a declared exaggeration.
 const KNOCK_GAIN: float = 5.9
 
 const MOON_RADIUS_MULT: float = 3.2       # orbit radius = planet_radius * this
 const MOON_INCLINATION: float = 0.28      # radians the moon plane is tipped from the planet equator
 
-const TIDE_AMP: float = 4.0               # peak sea-level swing (world units) — ~0.8% of the 500u planet radius
+# sea_radius = base + TIDE_AMP*cos(2*moon_angle). Not a per-cell tide: a declared modelling choice.
+const TIDE_AMP: float = 4.0               # peak sea-level swing, world units
 
 var _body: Node3D = null                  # LAPlanetBody (the planet — orbit reference + scene centre)
 var _sky_ctrl: Node = null                # LAVoxelSkyController (owns the star node + the sky sun)
@@ -82,7 +82,8 @@ func set_sky_controller(sky_ctrl: Node) -> void:
 
 
 ## Advance the orbit + moon and push the derived sun direction / position / insolation into the scene. Called
-## from the world's process BEFORE the sky-cycle update (so the sun-shine direction is fresh when the sky reads it).
+## from LAVoxelWorld._physics_process BEFORE the sky-cycle update, so the sun-shine direction is fresh when
+## the sky reads it. `delta` must be the fixed physics delta — never a render delta.
 func update(delta: float) -> void:
 	if _body == null:
 		return
@@ -185,10 +186,8 @@ func _compute_transmission() -> float:
 	if _material != null and _material.has_method("avg_atmos_dust"):
 		dust_op = float(_material.avg_atmos_dust())
 	var cloud_op: float = 0.0
-	# CLOUD — BOUNDED contribution: dims the sun but capped so insolation never collapses (breaks the
-	# cloud→cold→more-cloud runaway; the surface settles at a temperate equilibrium clouds modulate around).
 	if _material != null and _material.has_method("avg_cloud_cover"):
-		cloud_op = minf(float(_material.avg_cloud_cover()) * CLOUD_OPACITY_K, CLOUD_OPACITY_CAP)
+		cloud_op = float(_material.avg_cloud_cover()) * CLOUD_OPACITY_K
 	var t: float = 1.0 / (1.0 + DUST_OPACITY * maxf(dust_op + cloud_op, 0.0))
 	LASimReport.gauge("atmos_dust_opacity", dust_op)
 	LASimReport.gauge("atmos_cloud_opacity", cloud_op)

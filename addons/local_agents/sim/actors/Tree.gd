@@ -75,8 +75,8 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 	if not SPECIES.has(species):
 		species = DEFAULT_SPECIES
 
-	# Deterministic per-tree variation.
-	var seed_val: int = int(config.get("seed", LASimRng.for_domain("life").randi()))
+	# "actors": placement-gated, so this draw count is not reproducible.
+	var seed_val: int = int(config.get("seed", LASimRng.for_domain("actors").randi()))
 	_rng.seed = seed_val
 
 	var def: Dictionary = _species_def()
@@ -397,8 +397,7 @@ func set_vegetation_renderer(r) -> void:
 
 
 # The instanced visual type is the tree's species — a separate MultiMesh per species keeps oak/pine coloured
-# correctly (each has its own recolored prototype). This comment used to claim it was "config-driven, no
-# per-species branch in the render path" while the line beneath it was `species == "pine"`. Now it is true.
+# correctly (each has its own recolored prototype). Read from the species record, no per-species branch.
 func _render_type() -> String:
 	return String(_species_def()["model"])
 

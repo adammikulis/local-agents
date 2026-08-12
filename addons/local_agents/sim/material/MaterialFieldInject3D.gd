@@ -33,6 +33,8 @@ signal splashed(world_pos: Vector3, strength: float)
 
 func setup(field) -> void:
 	_f = field
+	# The grid the queue sizes cross-cell transfers in mass with. Without it flush() drops every op.
+	queue.setup(field._sphere)
 	# Terrain-destruction telemetry as a registered provider (the LASimReport.register plugin seam), so the
 	# crater proof is polled at snapshot time — when `_rock_fill` holds the freshest readback — instead of
 	# being scanned every frame.

@@ -201,7 +201,9 @@ func _recompute_disaster_cadence() -> void:
 	_disaster_accum = 0.0
 
 
-func _process(delta: float) -> void:
+# The ambient director seeds into the field, so its cadence runs on the fixed physics tick, the clock the
+# field steps on. The readiness gate below asks whether the world is BUILT; it never reads a population.
+func _physics_process(delta: float) -> void:
 	if not _bound or not _ambient_enabled or _disasters == null:
 		return
 	if get_tree() == null or _world == null:

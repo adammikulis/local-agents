@@ -44,7 +44,7 @@ func _exit_tree() -> void:
 		_active = null
 
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	_elapsed += delta
 	var d: int = int(_elapsed / DAY_LENGTH)
 	if d != _day:

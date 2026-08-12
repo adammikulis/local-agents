@@ -56,7 +56,8 @@ var _audio: LAAudioDirector = null
 var _debug: LAVoxelDebugWiring = null
 var _interaction: Node3D = null
 
-var _frame: int = 0
+var _frame: int = 0                         # physics ticks since _ready; the clock the run length is counted on
+var _render_frame: int = 0                  # render frames since _ready; the clock --perf-frames and --shoot use
 var _peak_slump: int = 0                    # most loose-sediment cells slumping at once
 var _music_destruction: float = 0.0         # decays each frame; meteors spike it
 var _mood_timer: int = 0
@@ -191,16 +192,12 @@ func _begin_trailer_shot() -> void:
 	director.begin(self, _camera, _sim.disasters(), _input, _body, null, _input.trailer_shot())
 
 
-func _process(delta: float) -> void:
+# Everything that feeds the field runs on the fixed tick, in lockstep with LAMaterialField3D. The sun
+# direction, the insolation, the planet's spin phase and the demo hooks that seed matter are all field
+# inputs, so on the render clock the chemistry would depend on the framerate.
+func _physics_process(delta: float) -> void:
 	_frame += 1
-	# Track the physics-tick cost every frame so SimReport's max = the heavy STEP-FRAME spike.
-	LASimReport.gauge("physics_ms", Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
 	_sim.step(delta, _input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
-	if _render != null:
-		_render.step(delta)
-	if _ui != null:
-		_ui.step(delta)
-	_update_music_mood()
 	# Sample the night gauges PERIODICALLY, not once at report time: sampled once, night_frac's min and max
 	# are the same number and the gauge cannot show whether the terminator moves.
 	if _sim.is_spawned() and _frame % 15 == 0:
@@ -209,12 +206,27 @@ func _process(delta: float) -> void:
 	# Landslide diagnostic: most sediment cells slumping at once (throttled — the count is a full grid scan).
 	if _sim.is_spawned() and _frame % 10 == 0 and _material != null and _material.has_method("slump_count"):
 		_peak_slump = maxi(_peak_slump, _material.slump_count())
-	# Per-frame auto-demo firing (meteor/volcano/seavolcano/stamp/lightning/storm/select) — CLI-driven only.
-	_input.update(_frame, _sim.is_spawned())
+	# Auto-demo firing on the SIMULATION clock: every trigger is expressed relative to --run-frames, which
+	# the harness counts in physics ticks.
+	_input.update_sim(_frame, _sim.is_spawned())
 	# Trajectory samples through a long run. The END of the run belongs to the DemoHarness child, which
 	# counts frames, calls demo_report(), prints SIM_REPORT, emits LA_RUN_COMPLETE and owns the exit.
 	if _input.run_frames() > 0 and _frame % 180 == 0 and _frame < _input.run_frames():
 		LAVoxelHarness.emit_population_trace(self, _frame)
+
+
+func _process(delta: float) -> void:
+	_render_frame += 1
+	# Track the physics-tick cost every frame so SimReport's max = the heavy STEP-FRAME spike.
+	LASimReport.gauge("physics_ms", Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
+	if _render != null:
+		_render.step(delta)
+	if _ui != null:
+		_ui.step(delta)
+	_update_music_mood()
+	# The --shoot half of the same schedule, on the RENDER clock: the harness captures on render frame
+	# --shoot-frames.
+	_input.update_render(_render_frame, _sim.is_spawned())
 	_perf_probe(delta)
 
 
@@ -223,7 +235,7 @@ func _perf_probe(delta: float) -> void:
 	if pf <= 0:
 		return
 	var window: int = mini(FPS_PROBE_FRAMES, maxi(30, pf / 2))
-	if _frame > pf - window and _frame <= pf:
+	if _render_frame > pf - window and _render_frame <= pf:
 		var vp_rid: RID = get_viewport().get_viewport_rid()
 		# The _process delta IS the frame period — the ground truth that disambiguates the fps counter (a
 		# rolling average that can lag) from TIME_PROCESS (which includes the stall waiting on the GPU).
@@ -234,7 +246,7 @@ func _perf_probe(delta: float) -> void:
 		_proc_ms_accum += Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
 		_phys_ms_accum += Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
 		_fps_count += 1
-	if _frame != pf:
+	if _render_frame != pf:
 		return
 	var n: float = maxf(1.0, float(_fps_count))
 	var frame_ms: float = (_frame_dt_accum / n) * 1000.0

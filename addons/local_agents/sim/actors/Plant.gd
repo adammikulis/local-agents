@@ -20,9 +20,8 @@ const FOOD_UPTAKE_RATE: float = 8.0      # food-energy/second the plant may draw
 const FOOD_MIN_EDIBLE: float = 5.0       # below this the plant is grazed-down and not worth targeting (recovers)
 var _food: float = 0.0                   # current edible reserve — earned from the field, never granted
 
-static var food_held_total: float = 0.0      # mass currently standing in every live plant node's reserve
-static var food_drawn_total: float = 0.0     # cumulative mass drawn out of the field into plant tissue
-static var food_returned_total: float = 0.0  # cumulative mass handed back to the field as detritus
+# Mass held/drawn/returned by plant nodes, in the field's mass units. Per world, not process-wide.
+var _led: LAVegLedger = null
 
 var species: String = "plant"
 var color: Color = Color(0.30, 0.65, 0.22)
@@ -44,12 +43,10 @@ const POLLINATE_PER_VISIT: float = 1.0     # pollen deposited by one flower visi
 const POLLINATE_DECAY: float = 0.10        # pollen lost per second (a flower must be re-visited to stay pollinated)
 const POLLINATE_MAX: float = 4.0           # cap on the pollen load (bounded)
 const POLLINATE_SEED_BOOST: float = 7.0    # a fully-pollinated flower seeds this many × faster than an un-visited one
-static var pollination_events: int = 0     # global running count of flower visits (SIM_REPORT bee-activity proxy)
 const POLLINATOR_SPECIES: Array = ["bee", "butterfly"]
 const POLLEN_RADIUS: float = 10.0          # a pollinator within this range deposits pollen (bees cruise ~5 m up, so
                                            # this reaches a bee/butterfly passing overhead, not only one landed alongside)
 const POLLEN_SCAN_PERIOD: float = 0.5      # seconds between a flower's cheap pollinator-proximity checks
-static var _pollinator_index: LASpatialIndex = LASpatialIndex.new()
 var _pollen_scan_t: float = 0.0
 
 var age: float = 0.0
@@ -82,7 +79,6 @@ func setup(_terrain, _config: Dictionary) -> void:
 	# Root strength: explicit config, else scaled from mature size (already read above) so bigger plants hold on.
 	root_strength = maxf(0.2, float(config.get("root_strength", ROOT_BASE + ROOT_PER_SCALE * max_scale)))
 	_food = 0.0
-	food_held_total += _food * BIOMASS_PER_FOOD
 
 	collision_layer = 2
 	collision_mask = 0
@@ -224,6 +220,14 @@ func _build_flower_body() -> void:
 ## LAEcologyService at spawn, exactly like creatures get set_material_field.
 func set_material_field(m) -> void:
 	_material = m
+	_led = LAVegLedger.of(_material)   # this plant books into ITS world's ledger, not a process-wide total
+
+
+# This world's vegetation ledger, resolved from the injected field.
+func _ledger() -> LAVegLedger:
+	if _led == null:
+		_led = LAVegLedger.of(_material)
+	return _led
 
 
 const PLANT_SETTLE_STRIDE: int = 24   # a settled plant runs its body ~every 24 frames (catch-up dt) — Big-O by relevance
@@ -293,8 +297,9 @@ func _uptake(want_food: float) -> void:
 	if got_mass <= 0.0:
 		return
 	_food += got_mass / BIOMASS_PER_FOOD
-	food_held_total += got_mass
-	food_drawn_total += got_mass
+	var led: LAVegLedger = _ledger()
+	led.food_held += got_mass
+	led.food_drawn += got_mass
 
 
 func _biomass_boost() -> float:
@@ -336,10 +341,11 @@ func _exit_tree() -> void:
 		_veg_slot = -1
 	if _food > 0.0:
 		var mass: float = _food * BIOMASS_PER_FOOD
-		food_held_total = maxf(0.0, food_held_total - mass)
+		var led: LAVegLedger = _ledger()
+		led.food_held = maxf(0.0, led.food_held - mass)
 		if _material != null and _material._inject != null and _material._inject.has_method("return_detritus"):
 			_material._inject.return_detritus(global_position, mass)
-			food_returned_total += mass
+			led.food_returned += mass
 		_food = 0.0
 
 
@@ -355,13 +361,14 @@ func _pollinate_from_nearby() -> void:
 	var groups: Array = []
 	for sp in POLLINATOR_SPECIES:
 		groups.append("species_" + String(sp))
-	_pollinator_index.rebuild_if_stale(tree, Engine.get_physics_frames(), groups)
+	var led: LAVegLedger = _ledger()
+	led.pollinator_index.rebuild_if_stale(tree, Engine.get_physics_frames(), groups)
 	var pos: Vector3 = global_position
 	for g in groups:
-		for cand in _pollinator_index.query(String(g), pos, POLLEN_RADIUS):
+		for cand in led.pollinator_index.query(String(g), pos, POLLEN_RADIUS):
 			if cand != null and is_instance_valid(cand) and pos.distance_to((cand as Node3D).global_position) <= POLLEN_RADIUS:
 				_pollination = minf(POLLINATE_MAX, _pollination + POLLINATE_PER_VISIT)
-				pollination_events += 1
+				led.pollinations += 1
 				return
 
 
@@ -388,7 +395,7 @@ func credit_reserve(amount: float) -> void:
 	if amount <= 0.0:
 		return
 	_food += amount
-	food_held_total += amount * BIOMASS_PER_FOOD
+	_ledger().food_held += amount * BIOMASS_PER_FOOD
 
 
 func food_mass_per_unit() -> float:
@@ -402,12 +409,13 @@ func is_edible() -> bool:
 func feed(amount: float) -> float:
 	var take: float = clampf(amount, 0.0, _food)
 	_food -= take
-	food_held_total = maxf(0.0, food_held_total - take * BIOMASS_PER_FOOD)
+	var led: LAVegLedger = _ledger()
+	led.food_held = maxf(0.0, led.food_held - take * BIOMASS_PER_FOOD)
 	# A visit to a flower deposits pollen (POLLINATION): the visitor — bees dominate flower visits — carries
 	# pollen between blooms, so a fed-on flower becomes/stays seed-ready. This is the mutualism, no scripting.
 	if flower and take > 0.0:
 		_pollination = minf(POLLINATE_MAX, _pollination + POLLINATE_PER_VISIT)
-		pollination_events += 1
+		led.pollinations += 1
 	return take
 
 

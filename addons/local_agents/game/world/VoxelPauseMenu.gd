@@ -78,17 +78,14 @@ func _on_speed_pressed(n: int) -> void:
 		b.button_pressed = (b.text == "%dx" % n)
 
 
-## Reusable fast-forward setter. DELEGATES to LAVoxelTimeControl, which is the only writer of
-## Engine.time_scale. This is a forwarder and must never write that global itself.
+## Forwards to LASimTimeAuthority, the one writer of Engine.time_scale. No fallback: a second writer
+## silently resets the rate, which is what made --fast a no-op.
 func set_time_scale(n: int) -> void:
-	var mult: int = clampi(n, 1, SPEEDS[SPEEDS.size() - 1])
 	var ctrl: LASimTimeAuthority = LASimTimeAuthority.active()
-	if ctrl != null:
-		ctrl.set_multiplier(float(mult))
+	if ctrl == null:
+		push_error("LAVoxelPauseMenu: no LASimTimeAuthority in the scene — speed cannot be set.")
 		return
-	# No time control in this scene (a demo, or a harness mounting the menu alone): own it directly.
-	Engine.time_scale = float(mult)
-	Engine.max_physics_steps_per_frame = maxi(8, mult)
+	ctrl.set_multiplier(float(clampi(n, 1, SPEEDS[SPEEDS.size() - 1])))
 
 
 func _on_save() -> void:

@@ -18,14 +18,21 @@ const TEX_SIZE: int = 32
 var _terrain = null
 var _footprint_texture: ImageTexture = null
 
+# This world's footprint stream, seeded from the world seed handed to setup(). Owned here, so a second
+# world's tracks cannot move this one's sequence.
+var _rng: LASimRng = LASimRng.make(LASimRng.DEFAULT_SEED, "tracks")
+
 # instance_id -> last footprint drop position (Vector3, world space).
 var _last_print_pos: Dictionary = {}
 
 var _decals: Array = []
 
 
-func setup(terrain) -> void:
+func setup(terrain, world_seed: int = LASimRng.DEFAULT_SEED) -> void:
+	# Store the injected terrain service and build the one shared texture that
+	# every decal reuses (no per-decal allocation of image data).
 	_terrain = terrain
+	_rng = LASimRng.make(world_seed, "tracks")
 	if _footprint_texture == null:
 		_footprint_texture = _build_footprint_texture()
 
@@ -127,7 +134,7 @@ func _drop_footprint(creature_pos: Vector3) -> bool:
 	decal.texture_albedo = _footprint_texture
 	decal.size = DECAL_SIZE
 	decal.position = ground + up * SURFACE_OFFSET
-	decal.rotation.y = LASimRng.for_domain("life").randf() * TAU
+	decal.rotation.y = _rng.randf() * TAU  # yaw variety, from this world's own stream
 	decal.albedo_mix = 0.5            # subtle, not a hard grey stamp
 	decal.modulate = Color(1.0, 1.0, 1.0, 0.5)
 	add_child(decal)

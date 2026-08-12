@@ -57,13 +57,11 @@ func _physics_process(delta: float) -> void:
 		return
 	if not _terrain.has_method("surface_point") or not _terrain.has_method("planet_center"):
 		return
-	# DRIFT: rotate each plate seed about its Euler pole every frame, so the Voronoi boundaries MIGRATE over time
-	# and the Ring of Fire slowly moves (was frozen — the seeds were set once in setup and never integrated).
+	# Drift: rotate each plate seed about its Euler pole, so the Voronoi boundaries migrate.
 	for i in range(_seeds.size()):
 		_seeds[i] = (_seeds[i] as Vector3).rotated((_poles[i] as Vector3).normalized(), float(_rates[i]) * delta)
-	# AND HAND THE PLATES TO THE SUBSTRATE, which is the half that did not exist. Rotating the seeds moves the
-	# BOUNDARIES; carrying rock_fill and sediment with the same velocity moves the CRUST. Without this the Ring
-	# of Fire swept across continents that never moved, which is not plate tectonics — it is a moving label.
+	# Hand the plates to the substrate: rotating the seeds moves the boundaries, carrying rock_fill and
+	# sediment at the same velocity moves the crust.
 	_push_plates()
 	_cd -= delta
 	if _cd > 0.0:

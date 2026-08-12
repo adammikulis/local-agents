@@ -6,8 +6,6 @@ const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/
 ## LAMaterialFieldQueries3D: the READ-ONLY query accessors of the dense 3D MaterialField3D, factored
 
 # Basin depth (world units) mapped to a 0..1 salinity band. NOT a simulated solute.
-const SALT_FULL_DEPTH: float = 22.0
-const BRACKISH_FLOOR: float = 0.35
 const DUST_PRESENT: float = 0.001      # gauge floor: airborne dust mass per cell
 const MOLTEN_MIN: float = 0.0001       # gauge floor: lava mass per cell
 const FIRE_PRESENT: float = 0.02       # gauge floor: fraction of a cell's usable O2 burned this step
@@ -43,26 +41,6 @@ func _cell_at(pos: Vector3) -> int:
 	return _f.world_to_cell(pos)
 
 
-func _sea_under(pos: Vector3) -> bool:
-	if _f._terrain == null or not _f._terrain.has_method("sea_radius") or _f._water.size() != _f._cell_count:
-		return false
-	var sea_r: float = _f._terrain.sea_radius()
-	if sea_r <= 0.0:
-		return false
-	var radial: Vector3 = pos - _f._origin
-	if radial.length_squared() < 1.0e-6:
-		return false
-	var dir: Vector3 = radial.normalized()
-	var depths: PackedFloat32Array = PackedFloat32Array([sea_r - 0.5, sea_r - _f._cell_size])
-	for rr in depths:
-		if rr <= 0.0:
-			continue
-		var sc: int = _f.world_to_cell(_f._origin + dir * rr)
-		if sc >= 0 and _f._water[sc] >= _f.MIN_MASS:
-			return true
-	return false
-
-
 # --- Water queries -----------------------------------------------------------
 
 ## True where there is drinkable water at a world point: water in the cell the point sits in (a river, a
@@ -72,9 +50,7 @@ func is_water_at(pos: Vector3) -> bool:
 	if _f._water.size() != _f._cell_count:
 		return false
 	var c: int = _f.world_to_cell(pos)
-	if c >= 0 and _f._water[c] >= _f.MIN_MASS:
-		return true
-	return _sea_under(pos)
+	return c >= 0 and _f._water[c] >= _f.MIN_MASS
 
 
 func water_at_cell(ix: int, iy: int, iz: int) -> float:
@@ -85,42 +61,6 @@ func water_at_cell(ix: int, iy: int, iz: int) -> float:
 
 # --- Water CURRENT (the sweep force) -----------------------------------------
 # Tuning for the shallow-water drag that moving water exerts on anything standing in it.
-const SWEEP_PROBE: float = 6.0        # tangent-plane sample distance for the downhill gradient (~one cell)
-const SWEEP_STRENGTH: float = 9.0     # world units/sec of push per (depth × slope) unit — tune vs flood feel
-const SWEEP_MIN_WATER: float = 0.12   # below this local water mass (and no sea shell) there's no current
-
-func water_force_at(pos: Vector3) -> Vector3:
-	if _f._water.size() != _f._cell_count or _f._terrain == null or not _f._terrain.has_method("surface_radius"):
-		return Vector3.ZERO
-	var c: int = _f.world_to_cell(pos)
-	var depth: float = _f._water[c] if c >= 0 else 0.0
-	if depth < SWEEP_MIN_WATER and not _sea_under(pos):
-		return Vector3.ZERO
-	var up: Vector3 = pos - _f._origin
-	if up.length_squared() < 1.0e-6:
-		return Vector3.ZERO
-	up = up.normalized()
-	# Two tangent axes spanning the local ground plane (pick a stable seed axis away from the radial).
-	var t1: Vector3 = up.cross(Vector3.RIGHT)
-	if t1.length_squared() < 1.0e-4:
-		t1 = up.cross(Vector3.FORWARD)
-	t1 = t1.normalized()
-	var t2: Vector3 = up.cross(t1).normalized()
-	var r_p1: float = _f._terrain.surface_radius((pos + t1 * SWEEP_PROBE) - _f._origin)
-	var r_m1: float = _f._terrain.surface_radius((pos - t1 * SWEEP_PROBE) - _f._origin)
-	var r_p2: float = _f._terrain.surface_radius((pos + t2 * SWEEP_PROBE) - _f._origin)
-	var r_m2: float = _f._terrain.surface_radius((pos - t2 * SWEEP_PROBE) - _f._origin)
-	if is_nan(r_p1) or is_nan(r_m1) or is_nan(r_p2) or is_nan(r_m2):
-		return Vector3.ZERO
-	# Free-surface gradient (approximated by the ground gradient — the water sheet follows the terrain); the
-	# current flows toward DECREASING surface radius (downhill).
-	var grad: Vector3 = t1 * ((r_p1 - r_m1) / (2.0 * SWEEP_PROBE)) + t2 * ((r_p2 - r_m2) / (2.0 * SWEEP_PROBE))
-	var slope: float = grad.length()
-	if slope < 1.0e-4:
-		return Vector3.ZERO
-	var downhill: Vector3 = -grad / slope
-	var d: float = maxf(depth, 0.3)          # the sea/lake shell carries a current even where the cell mass reads low
-	return downhill * (SWEEP_STRENGTH * d * slope)
 
 
 func total_water() -> float:
@@ -138,38 +78,6 @@ func temp_at(pos: Vector3) -> float:
 
 
 # --- Ocean / salinity --------------------------------------------------------
-
-## True where the ground beneath a world point is below the sea shell (open salt ocean / a sea basin). Uses the
-## terrain surface radius directly (ground below sea level ⇒ ocean), which is exact for any basin depth — storms
-## call this a bounded number of times, so the raycast cost is fine (vs. is_water_at's cheap per-cell sampling).
-func is_ocean_at(pos: Vector3) -> bool:
-	if _f._terrain != null and _f._terrain.has_method("sea_radius") and _f._terrain.has_method("surface_radius"):
-		var sea_r: float = _f._terrain.sea_radius()
-		if sea_r <= 0.0:
-			return false
-		var radial: Vector3 = pos - _f._origin
-		if radial.length_squared() < 1.0e-6:
-			return false
-		var sr: float = _f._terrain.surface_radius(radial.normalized())
-		return not is_nan(sr) and sr < sea_r
-	return _sea_under(pos)
-
-
-## Salinity 0 (fresh inland water) .. brackish shallows .. 1 (deep salt ocean); NAN if dry. On the sphere
-## the basin depth is (sea_radius − solid_surface_radius) along the point's radial.
-func salinity_at(pos: Vector3) -> float:
-	if _f._terrain != null and _f._terrain.has_method("sea_radius") and is_ocean_at(pos):
-		var sea_r: float = _f._terrain.sea_radius()
-		var floor_r: float = sea_r
-		if _f._terrain.has_method("surface_radius"):
-			var sr: float = _f._terrain.surface_radius(pos - _f._origin)
-			if not is_nan(sr):
-				floor_r = sr
-		return clampf((sea_r - floor_r) / SALT_FULL_DEPTH, BRACKISH_FLOOR, 1.0)
-	if is_water_at(pos):
-		return 0.0                                       # inland pool (lake/river) = fresh
-	return NAN
-
 
 # --- Diagnostics -------------------------------------------------------------
 

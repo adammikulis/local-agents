@@ -15,8 +15,9 @@ func setup(terrain) -> void:
 	add_to_group("rock")
 	add_to_group("selectable")
 
-	var rng: LASimRng = LASimRng.shared()
-	var size: float = 0.45 + rng.randf() * 0.4   # units
+	# "actors": placement-gated, so this draw count is not reproducible.
+	var rng: LASimRng = LASimRng.for_domain("actors")
+	var size: float = 0.45 + rng.randf() * 0.4  # units
 	_radius = size
 
 	# Natural irregular boulder (not a cube).

@@ -56,8 +56,10 @@ const CORE_MANTLE_BOUNDARY_C: float = 3700.0
 const UPPER_MANTLE_C: float = 1300.0
 
 # --- UPPER CRUST ------------------------------------------------------------------------------------------
-# Conductive geotherm, K/m. Fourier: dT/dz = q / lambda, from the two measured constants below.
+# Conductive geotherm. Fourier: dT/dz = q / lambda, from the two measured constants below. One value, in the
+# two units its consumers ask for.
 const GEOTHERMAL_GRADIENT_C_PER_M: float = GEOTHERMAL_FLUX_W_M2 / THERMAL_CONDUCT_ROCK_W_MK
+const GEOTHERMAL_GRADIENT_C_PER_KM: float = GEOTHERMAL_GRADIENT_C_PER_M * 1000.0
 
 const GROUNDWATER_CIRCULATION_M: float = 2000.0
 

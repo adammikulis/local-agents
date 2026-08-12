@@ -23,9 +23,14 @@ const SLOW_BUILD_CELLS: int = 250000
 ## Build the world automatically in _ready(). Turn it off to choose the moment yourself by calling
 ## spawn_world() from a script (e.g. after a menu has picked the settings).
 @export var build_on_ready: bool = true: set = _set_build_on_ready
+## This world's seed. Terrain generation and every random draw this node makes derive from it, so two
+## LocalAgentSimWorld nodes in one process with different seeds are independent worlds.
+@export var world_seed: int = 1337
 
 @export_group("Sphere bounds")
 @export_subgroup("Shape")
+## Mean solid radius of the planet, in world units. Relief, feature size and the field shell all scale
+## linearly with it, so doubling this gives the same-looking planet at twice the size.
 @export_range(25.0, 2000.0, 1.0, "or_greater", "suffix:m") var radius: float = 250.0
 @export_range(-30.0, 60.0, 0.1, "or_less", "or_greater", "suffix:m") var ocean_bias: float = 3.0
 ## Carve winding cave tunnels into the crust while the terrain generates.
@@ -73,6 +78,15 @@ var _sun: DirectionalLight3D = null
 var _built: bool = false
 var _spawned: bool = false
 var _ready_ticks: int = 0
+
+# This world's own placement stream, derived from world_seed. Owned here, not shared with any other world.
+var _rng: LASimRng = null
+
+
+func _spawn_rng() -> LASimRng:
+	if _rng == null:
+		_rng = LASimRng.make(world_seed, "simworld_spawn")
+	return _rng
 
 
 ## True when the godot_voxel GDExtension (addons/zylann.voxel/) is present, which is what a SPHERE world
@@ -123,7 +137,7 @@ func _build_sphere() -> bool:
 	if script_res == null:
 		push_error("VOXEL_BACKEND_REQUIRED: LocalAgentSimWorld could not load %s. That script needs the godot_voxel GDExtension (addons/zylann.voxel/); install it, or set world_type to FLAT." % PLANET_BODY_PATH)
 		return false
-	var scale: float = radius / 250.0                 # the sphere knobs were tuned at radius 250
+	var scale: float = radius / 250.0                 # relief knobs below are expressed at radius 250
 	_body = script_res.new()
 	_body.name = "PlanetBody"
 	add_child(_body)
@@ -135,7 +149,7 @@ func _build_sphere() -> bool:
 		"detail_relief": 1.0 * scale,
 		"caves_enabled": caves_enabled, "cave_size": 60.0 * scale, "cave_threshold": 0.09,
 		"cave_strength": 40.0, "cave_depth_fade": 14.0 * scale,
-		"tides_enabled": tides_enabled, "view_distance": 2000, "seed": 1337,
+		"tides_enabled": tides_enabled, "view_distance": 2000, "seed": world_seed,
 	})
 	_terrain = _body.terrain()
 	_actors_root = _body.actors_root
@@ -224,7 +238,7 @@ func _scatter_flat(counts: Dictionary) -> void:
 		var kind: String = String(kind_v)
 		var n: int = int(counts[kind_v])
 		for i in range(n):
-			var rng: LASimRng = LASimRng.for_domain("life")
+			var rng: LASimRng = _spawn_rng()
 			var p: Vector3 = Vector3(rng.randf_range(-hx, hx), ground_y + 2.0, rng.randf_range(-hz, hz))
 			_ecology.spawn(kind, p)
 

@@ -9,8 +9,7 @@ const SPACE_AMBIENT: float = 0.14           # low ambient so the planet's night 
 const SPACE_BG: Color = Color(0.01, 0.015, 0.03)      # near-black space
 const SPACE_AMBIENT_COLOR: Color = Color(0.10, 0.13, 0.22)  # faint cool fill on the night side
 const SURFACE_ATMO_T: float = 0.12
-const SURFACE_AMBIENT: float = 0.55         # ground-level ambient energy (was 0.70 — trimmed so the day side
-                                            # doesn't blow out to white when the atmosphere fades in)
+const SURFACE_AMBIENT: float = 0.55         # ground-level ambient energy
 const SURFACE_FILL_COLOR: Color = Color(0.50, 0.56, 0.66)   # soft blue-grey day fill (ambient at the surface)
 const FOG_DENSITY_SURFACE: float = 0.0016   # target fog density at ground; fades in from 0 with descent
 
@@ -184,32 +183,33 @@ func set_shadows(on: bool) -> void:
 		_sun.shadow_enabled = on
 
 
-# Advance the clock + drive all sky lighting from it. VoxelWorld calls this each frame.
-func update(delta: float) -> void:
-	_update_day_night(delta)
+# Drive all sky lighting from the world clock. VoxelWorld calls this from _physics_process.
+func update(_delta: float) -> void:
+	_update_day_night()
 
 
-func _advance_clocks(delta: float) -> void:
+## Day and lunar phase read off LASimClock's elapsed days, each wrapped at its own period. No local
+## integrator: elapsed time has one owner.
+func _advance_clocks() -> void:
 	var clock: LASimClock = LASimClock.active()
 	if clock == null:
-		_time_of_day = fposmod(_time_of_day + delta / LASimClock.DAY_LENGTH, 1.0)
-		_lunar_phase = fposmod(_lunar_phase + delta / (LASimClock.DAY_LENGTH * LUNAR_DAYS), 1.0)
 		return
 	var days: float = clock.days_elapsed()
 	_time_of_day = fposmod(_tod_seed + days, 1.0)
 	_lunar_phase = fposmod(_lunar_seed + days / LUNAR_DAYS, 1.0)
 
 
-func _update_day_night(delta: float) -> void:
+# Sun elevation is a sine of the time of day; light energy, horizon warmth and night ambient all follow it.
+func _update_day_night() -> void:
 	if _sun == null:
 		return
 	# PLANET-FROM-SPACE: fixed star sun + low ambient + dark sky; day/night is the planet's SPIN (it turns
 	# under the fixed sun). No clock advance / sun arc. Weather + cloud still dim the light.
 	if _planet_mode:
 		var pstorm: float = 1.0
-		if _weather != null and _weather.has_method("rain"):
+		if _weather != null:
 			pstorm = 1.0 - _weather.rain() * 0.68
-		if _material != null and _material.has_method("avg_cloud_cover"):
+		if _material != null:
 			pstorm *= 1.0 - clampf(_material.avg_cloud_cover() * 1.5, 0.0, 0.6)
 		var pup: Vector3 = Vector3.UP if absf(_sun_shine.dot(Vector3.UP)) < 0.98 else Vector3.RIGHT
 		_sun.look_at_from_position(Vector3.ZERO, _sun_shine, pup)   # light travels along _sun_shine
@@ -220,7 +220,7 @@ func _update_day_night(delta: float) -> void:
 			_water.set_sky_tint(Color(1.0, 1.0, 1.0) * (0.55 + 0.45 * pstorm))
 		_apply_surface_atmosphere()
 		return
-	_advance_clocks(delta)
+	_advance_clocks()
 	# Sun elevation: -1 (midnight) .. +1 (noon), zero at dawn (.25) and dusk (.75).
 	var elev: float = sin((_time_of_day - 0.25) * TAU)
 	var daylight: float = clampf(elev, 0.0, 1.0)
@@ -284,8 +284,15 @@ func _update_day_night(delta: float) -> void:
 	cloud_tint = cloud_tint.lerp(Color(1.0, 0.55, 0.30), warm * 0.6)
 	if _water != null and _water.has_method("set_sky_tint"):
 		_water.set_sky_tint(cloud_tint)
+	# This owns the sky and the sun transform/energy only. The field reads the star's light itself.
 
 
+## Altitude-aware atmosphere for planet mode: blend the environment from the stark dark space look (pulled out)
+## to a bright blue daytime sky with sky-sourced ambient + fog (down among the creatures), driven by the orbit
+## camera's surface_blend(). Near the surface the ambient lifts from the space value to SURFACE_AMBIENT
+## and the background becomes the blue procedural sky (its day
+## colours, set once in setup, are untouched in planet mode). The space view keeps its dark, stark-terminator
+## look. Called every frame from the planet branch, so it has the last word on the environment.
 func _apply_surface_atmosphere() -> void:
 	if _env == null:
 		return
