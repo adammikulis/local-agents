@@ -143,6 +143,11 @@ func spawn_world() -> void:
 		_ecology.set_material_field(_material)
 
 
+## Edge of one field cell, metres: the box spans the body plus its air column, cut grid_res ways.
+func field_cell_size_m() -> float:
+	return 2.0 * (radius + MODELLED_ATMOSPHERE_HEIGHT_M) / float(maxi(grid_res, 1))
+
+
 func _build_sphere() -> bool:
 	var script_res: GDScript = load(PLANET_BODY_PATH)
 	if script_res == null:
@@ -173,8 +178,7 @@ func _build_sphere() -> bool:
 	_material = MaterialFieldScript.new()
 	_material.name = "MaterialField"
 	add_child(_material)
-	var extent_m: float = radius + MODELLED_ATMOSPHERE_HEIGHT_M
-	_material.setup_body(_body.center(), extent_m, 2.0 * extent_m / float(maxi(grid_res, 1)), _terrain)
+	_material.setup_body(_body.center(), radius + MODELLED_ATMOSPHERE_HEIGHT_M, field_cell_size_m(), _terrain)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
 	if _sun != null and _material.has_method("set_sun"):

@@ -31,9 +31,9 @@ static func _dt() -> float:
 ## Photosynthesis rate coefficient: (eps / M_C) * f_PAR * S0 * dt / H.
 static func _photo_k() -> float:
 	var mol_c: float = LAPhysical.MOLAR_MASS_CARBON_KG_MOL
-	var h: float = maxf(cell_size_m, 0.001)
+	var h: float = cell_height_m()
 	var mpu_co2: float = _density("co2") / LAPhysical.MOLAR_MASS_CO2_KG_MOL
-	if mol_c <= 0.0 or mpu_co2 <= 0.0:
+	if mol_c <= 0.0 or mpu_co2 <= 0.0 or h <= 0.0:
 		return 0.0
 	return (PHOTO_LUE_KG_C_PER_J / mol_c) * PAR_FRACTION_OF_SHORTWAVE \
 		* LAPhysical.SOLAR_CONSTANT_W_M2 * _dt() / (h * mpu_co2)
@@ -53,8 +53,8 @@ static func _litterfall_k() -> float:
 ## Soil microbial biomass expressed in FUNGUS channel units.
 static func _decomposer_reference() -> float:
 	var rho: float = _density("cellulose")
-	var h: float = maxf(cell_size_m, 0.001)
-	if rho <= 0.0 or LAPhysical.MOLAR_MASS_CARBON_KG_MOL <= 0.0:
+	var h: float = cell_height_m()
+	if rho <= 0.0 or LAPhysical.MOLAR_MASS_CARBON_KG_MOL <= 0.0 or h <= 0.0:
 		return 0.0
 	var ch2o_kg_m2: float = SOIL_MICROBIAL_C_KG_PER_M2 \
 		* (LAPhysical.MOLAR_MASS_CH2O_UNIT_KG_MOL / LAPhysical.MOLAR_MASS_CARBON_KG_MOL)
