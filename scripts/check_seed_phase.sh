@@ -73,7 +73,7 @@ if bad:
 # is stopping the world — so the COUNT is fixed here and may only shrink. A sixth fails the build, and each
 # one converted must lower this number in the same commit. This is the MAX_DECLARED pattern the parameter
 # registry already uses. It is not a carve-out: no upload is exempt, and the backlog cannot grow.
-MAX_MIRROR_UPLOADS = 5
+MAX_MIRROR_UPLOADS = 0
 if len(mirror) > MAX_MIRROR_UPLOADS:
     fail = True
     print("check_seed_phase: FAILED — %d whole-mirror set_field() uploads, ceiling is %d"

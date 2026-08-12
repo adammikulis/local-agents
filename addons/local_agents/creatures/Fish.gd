@@ -5,8 +5,7 @@ extends CharacterBody3D
 const GROUP_SELECTABLE: String = "selectable"
 const GROUP_FISH: String = "fish"
 const SPECIES_GROUP: String = "aquatic"    # shared "all aquatic life" group (schooling base). NOT "species_fish":
-# that collides with the per-species group of the species literally named "fish", which made _tick_aquatic count
-# ALL aquatic actors against fish's pop_cap so fish never bred + SimReport mislabelled the whole pop as fish.
+# that collides with the per-species group of the species literally named "fish".
 
 const DEFAULT_SUBMERGE: float = 0.35  # how far below the surface a swimmer rides (config: "submerge")
 const GILL_SUBMERGE_MARGIN: float = 0.15  # keep a gill-breather's top this far under the sea shell so it stays submerged
@@ -70,6 +69,9 @@ var respiratory_capacity: float = 1.0 # gill surface packed into the body's area
 var aerobic_capacity: float = 0.5     # what the gills and the water could support per second, before the band
 var bite_rate: float = 1.0            # mass units a mouth can process per second
 var thermal_band: float = 1.0         # 0..1 reaction rate at the water temperature; also caps swim speed
+var thermal_optimum_c: float = (LAPhysical.WATER_FREEZE_C + LAPhysical.PROTEIN_DENATURE_C) * 0.5
+                                      # heritable: the water temperature this genome's enzymes work best at
+var thermal_tolerance: float = 1.0    # heritable: fraction of the liquid-water/protein envelope it spans
 var gut: float = 0.0                  # ingested mass awaiting assimilation (bounds a meal to the animal's gut)
 var gut_waste: float = 0.0            # kept so LACreatureBodyMass.body_mass reads one shape for every animal
 var hungry_at: float = 0.6            # forage urgently once energy drops below this fraction of max
@@ -140,6 +142,8 @@ func setup(_terrain, _mat_field, _config: Dictionary) -> void:
 	# `max_energy` / `metabolism` / `food_value` numbers are gone from the aquatic data too.
 	mass_kg = LACreatureBodyMass.mass_kg(config)
 	respiratory_capacity = float(config.get("respiratory_capacity", respiratory_capacity))
+	thermal_optimum_c = float(config.get("thermal_optimum_c", thermal_optimum_c))
+	thermal_tolerance = float(config.get("thermal_tolerance", thermal_tolerance))
 	structural_mass = LACreatureBodyMass.structural(config)
 	max_energy = LACreatureBodyMass.reserve(config)
 	energy = max_energy
@@ -530,14 +534,13 @@ func _physics_process(delta: float) -> void:
 		return
 
 	var pos: Vector3 = global_position
-	var water_c: float = 20.0
-	if material != null and material.has_method("temp_at"):
-		water_c = float(material.temp_at(pos))
-	thermal_band = LACreatureRespiration.temp_band(water_c)
+	# A fish is an ectotherm: body temperature is the water's, so the burn rides this genome's band read there.
+	var water_c: float = float(material.temp_at(pos))
+	thermal_band = LACreatureRespiration.temp_band(water_c, self)
 	metabolism = aerobic_capacity * thermal_band
 	var burned: float = metabolism * delta
 	energy -= burned
-	if burned > 0.0 and material != null and material.has_method("respire_at"):
+	if burned > 0.0:
 		material.respire_at(pos, burned)         # O₂ in, CO₂ out — a fish breathes the water it swims in
 	if energy <= 0.0:
 		die("starved")
@@ -545,7 +548,7 @@ func _physics_process(delta: float) -> void:
 	if thermal_band <= 0.0:
 		# Past an edge of the band the reaction cannot run at all. Which edge names the cause; it is one
 		# mechanism, not two rules with two thresholds.
-		die("hyperthermia" if water_c > LACreatureRespiration.band_optimum_c() else "hypothermia")
+		die("hyperthermia" if water_c > LACreatureRespiration.band_optimum_c(self) else "hypothermia")
 		return
 	if LACreatureDigestion.DIETS_THAT_GRAZE.has(diet) and material != null and material.has_method("graze_biomass"):
 		var room: float = maxf(0.0, max_energy - energy)
@@ -885,9 +888,8 @@ func get_inspector_payload() -> Dictionary:
 		"Water: %s (salinity %.2f to %.2f, depth %.0f to %.0f)" % [band, salinity_min, salinity_max, depth_min, depth_max],
 		"Age: %.0fs / %.0fs" % [age, max_age],
 	]
-	# EVERY swimmer has a real energy budget now — the grazers and filter feeders that "lived off ambient
-	# biomass" were simply not burning anything. Shown with more precision than the old "%.0f" because a small
-	# ectotherm's whole reserve is a fraction of a unit once physiology is derived from its real body mass.
+	# A small ectotherm's whole reserve is a fraction of a unit once physiology is derived from its real body
+	# mass, so this is shown to three decimals.
 	lines.append("Energy: %.3f / %.3f%s" % [energy, max_energy, "  (hungry)" if energy < max_energy * hungry_at else ""])
 	lines.append("Mass: %.4g kg" % mass_kg)
 	return {

@@ -2,6 +2,7 @@ class_name LACreatureDigestion
 extends RefCounted
 
 
+
 const CAPACITY_FRAC: float = 0.85       # gut capacity as a fraction of max_energy (biomass units == energy units)
 const DIGEST_RATE: float = 0.22         # fraction of current gut biomass digested per second
 
@@ -20,13 +21,14 @@ static func setup(c) -> void:
 	c.gut = 0.0
 	c.gut_waste = 0.0
 	c.gut_digestibility = 1.0
+	# Gut volume is isometric with body mass, so it sizes off `max_energy` (the mass-proportional reserve).
 	c.gut_capacity = maxf(float(c.max_energy) * CAPACITY_FRAC, 0.0)
 	c.microbiome = MICROBIOME_HERBIVORE if String(c.diet) == "herbivore" else MICROBIOME_DEFAULT
 
 
 const DIETS_THAT_GRAZE: PackedStringArray = ["herbivore", "grazer", "filter_feeder"]
-const FORAGE_WATER_PER_MASS: float = 3.0
-const FLESH_WATER_PER_MASS: float = 2.3
+const FORAGE_WATER_PER_MASS: float = 3.0   # fresh plant matter is ~0.75 water by mass
+const FLESH_WATER_PER_MASS: float = 2.3    # vertebrate soft tissue is ~0.70 water by mass
 
 static func ambient_graze(c, pos: Vector3, delta: float) -> void:
 	if c == null or delta <= 0.0 or c._material == null:
@@ -50,6 +52,7 @@ static func ambient_graze(c, pos: Vector3, delta: float) -> void:
 			c.hydration += c._material.drink_water(pos, thirsty_for)
 
 
+## A bite: add its biomass to the gut, bounded by capacity. Excess is not taken.
 static func ingest(c, biomass: float, _profile: Dictionary = {}) -> void:
 	if c == null or biomass <= 0.0:
 		return
@@ -72,8 +75,11 @@ static func ingest(c, biomass: float, _profile: Dictionary = {}) -> void:
 static func tick(c, delta: float) -> void:
 	if c == null or c.gut <= 0.0 or delta <= 0.0:
 		return
-	if c.energy >= c.max_energy * FULL_FRAC:
-		return                                       # sated: hold the gut, buffer the surplus (no matter lost)
+	# A sated animal with tissue still to build keeps digesting, into STRUCTURE rather than reserve. That is
+	# what growth is funded by, and it uses the satiety test already defined here rather than a new threshold.
+	var growing: bool = LACreatureBodyMass.growth_deficit(c) > 0.0
+	if c.energy >= c.max_energy * FULL_FRAC and not growing:
+		return                                       # sated and grown: hold the gut, buffer it (no matter lost)
 	# LA_EVO_FAST compresses digestion throughput by the SAME factor as the metabolic burn (CreatureMetabolism),
 	# so energy recovery keeps pace with the faster burn — a bite refills proportionally faster and the population
 	# doesn't starve at high fast-factors. The minf cap keeps it bounded/conserved (never digest more than held).
@@ -84,10 +90,14 @@ static func tick(c, delta: float) -> void:
 	var mb: float = c.gut_microbiome.multiplier() if ("gut_microbiome" in c and c.gut_microbiome != null) else float(c.microbiome)
 	var efficiency: float = clampf(BASE_EFFICIENCY * mb * float(c.gut_digestibility), 0.0, 1.0)
 	var to_energy: float = digested * efficiency
+	# A full reserve does not destroy the surplus: the overflow returns to the gut.
 	var room: float = maxf(0.0, float(c.max_energy) - float(c.energy))
 	var absorbed: float = minf(to_energy, room)
 	c.energy += absorbed
-	c.gut += to_energy - absorbed
+	# What the reserve had no room for builds tissue, up to what this body still owes its age. Both legs are
+	# transfers out of the same digested mass, so the conservation line below is unchanged.
+	var built: float = LACreatureBodyMass.grow(c, to_energy - absorbed)
+	c.gut += to_energy - absorbed - built
 	c.gut_waste += digested - to_energy              # matter conserved: digested == energy gained + waste
 
 

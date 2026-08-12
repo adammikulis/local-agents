@@ -7,17 +7,12 @@ const PhotoStatsScript: GDScript = preload("res://addons/local_agents/sim/materi
 const EnergyBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd")
 const ExtremesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldExtremes3D.gd")
 const ClimateSwingScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd")
-const ElementInventoryScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldElementInventory3D.gd")
-const MineralBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralBudget3D.gd")
-const EnergyLedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyLedger3D.gd")
+const MomentumLedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMomentumLedger3D.gd")
 const SealScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSeal3D.gd")
 const ConservationScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldConservation3D.gd")
 
-## Process frames between recomputes of the O(cells) instrument block.
-##
-## These gauges are GDScript walks over every cell — measured on frame 1: energy_stock 87.9 ms, energy 38.5,
-## mass 13.7, mineral 11.0, clim 7.1, against a field step of 6.5 ms. At every 8 frames they were ~20x the
-## cost of the simulation they measure and dominated every verification run. `LA_GAUGE_EVERY` overrides.
+## Process frames between recomputes of the O(cells) instrument block. These gauges are GDScript walks over
+## every cell and cost far more than the field step they measure. `LA_GAUGE_EVERY` overrides.
 const HEAVY_EVERY_FRAMES: int = 64
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
@@ -25,9 +20,7 @@ var _photo = null                                        # LAMaterialFieldPhotoS
 var _energy = null                                       # LAMaterialFieldEnergyBudget3D — absorbed/emitted/net radiation
 var _extremes = null                                     # LAMaterialFieldExtremes3D — min/max-ever register
 var _swing = null                                        # LAMaterialFieldClimateSwing3D — diurnal + seasonal range
-var _mass = null                                         # LAMaterialFieldElementInventory3D — carbon/oxygen/fertility ledgers
-var _mineral = null                                      # LAMaterialFieldMineralBudget3D — the five-phase rock ledger
-var _energy_stock = null                         # LAMaterialFieldEnergyLedger3D — rho*c*V*T stock + its drift
+var _momentum = null                             # LAMaterialFieldMomentumLedger3D — Σ m*v stock + its books
 # The cross-book carbon baseline, latched at the seal. Lives here rather than in either ledger because it is
 # the SUM of the two, and neither of them can see the other.
 var _first_element_c: float = NAN
@@ -48,12 +41,8 @@ func setup(field) -> void:
 	_extremes = ExtremesScript.new()
 	_swing = ClimateSwingScript.new()
 	_swing.setup(field)
-	_mass = ElementInventoryScript.new()
-	_mass.setup(field)
-	_mineral = MineralBudgetScript.new()
-	_mineral.setup(field)
-	_energy_stock = EnergyLedgerScript.new()
-	_energy_stock.setup(field)
+	_momentum = MomentumLedgerScript.new()
+	_momentum.setup(field)
 	_seal = SealScript.new()
 	_seal.setup(field)
 	_conservation = ConservationScript.new()
@@ -230,9 +219,7 @@ func _open_temp_stats() -> Dictionary:
 
 
 func report() -> Dictionary:
-	# The seal is polled on the FIELD STEP (LAMaterialFieldSphereStep3D), never here: this runs on the gauge
-	# cadence, so polling here made the seal step depend on the report rate and on renderer-driven channel
-	# residency. Announce the transition once, from the phase the step has already reached.
+	# LAMaterialFieldSphereStep3D polls the seal on the field step; this only announces the transition once.
 	if _seal != null and _seal.sealed() and not _seal_announced:
 		_seal_announced = true
 		print("WORLD_SEALED=", JSON.stringify(_seal.report()))
@@ -245,26 +232,25 @@ func report() -> Dictionary:
 		"wet_cells": _f.wet_cell_count(), "heat_peak": _f.peak_heat(), "heat_cells": _f.hot_cell_count(),
 		"cloud_cells": _f.cloud_cell_count(), "cloud_cover": _f.avg_cloud_cover(),
 		"fog_cover": _f.avg_fog_cover(), "moisture_total": _f.moisture_total(),
-		"wind": _f.wind().length(), "scent_cells": _f.scent_cell_count(),
+		"wind": _f.wind().length(),
 		"fertility_peak": _f.fertility_peak(),
+		# Molten rock standing in open cells is an eruption. All three come from one cached walk.
 		"lava_cells": molten.get("lava_cells", 0), "magma_cells": molten.get("magma_cells", 0),
 		"magma_erupting": q.magma_erupting(),
 		"molten_live": molten.get("molten_live", false),
-		"erosion_cells": _f.erosion_cell_count(), "snow_cells": _f.snow_cell_count(), "ice_cells": _f.ice_cell_count(),
+		"erosion_cells": _f.erosion_cell_count(),
 		"charge_peak": _f.charge_peak(), "bolts": _f.bolts_fired(),
 		"shock_cells": _f.shock_cell_count(), "o2_min": _f.o2_min_open(), "o2_avg": _f.o2_avg(),
 		"co2_peak": _f.co2_peak(), "co2_avg": _f.co2_avg(),
 		"biomass_total": _f.biomass_total(),
-		# Fuel totals come from the element inventory: `fuel_all` mask-free, `fuel_open_total` masked.
 		"fire_peak": fire.get("fire_peak", 0.0), "fire_cells": fire.get("fire_cells", 0),
 		"fire_live": fire.get("fire_live", false),
-		"h2o_total": _f.h2o_total(), "water_total": _f.water_total(), "snow_total": _f.snow_total(), "soil_total": _f.soil_total(),
-		"snow_line_temp": _f.snow_line_temp(),
+		# Conserved totals are NOT listed here. LAMaterialFieldLedger3D publishes them in `_heavy_block()`, and
+		# `Dictionary.merge` does not overwrite — a key here would shadow the ledger with a CPU-mirror value.
 		"enclosed_void": q.enclosed_void_cells(),
 		"enclosed_void5": q.enclosed_void_cells(5),
 		"rock_grows": (_f._stamp.grows if _f._stamp != null else 0), "rock_shrinks": (_f._stamp.shrinks if _f._stamp != null else 0),
 	}
-	r.merge(_f._ledger.conservation_report(_f._gpu._step_index if _f._gpu != null else 0))
 	if _f._inject != null:
 		r.merge(_f._inject.queue.report())
 	var temps: Dictionary = _open_temp_stats()
@@ -277,7 +263,7 @@ func report() -> Dictionary:
 	r.merge(q.rock_radial_profile())
 	# The geothermal RESERVOIR, which rock_radial_profile above cannot show: rock_core_c is the innermost
 	# simulated shell, and the reservoir is the unsimulated interior underneath it. core_res_c is the state
-	# variable that falls; core_flux_w_m2 is what it delivers, to be read against LAPhysical's 0.087.
+	# variable that falls; core_flux_w_m2 is what it delivers, against LAPhysical.GEOTHERMAL_FLUX_W_M2.
 	r.merge(_f.geotherm_report())
 	r.merge(q.hot_spring_stats())
 	r.merge(q.lava_shell_diag())
@@ -291,21 +277,24 @@ func report() -> Dictionary:
 	# so adding the next one does not need a new plumbing decision.
 	_extremes.track("open_cold", float(temps.get("temp_min", 0.0)))
 	_extremes.track("open_hot", float(temps.get("temp_max", 0.0)))
-	_extremes.track("h2o_total", float(r.get("h2o_total", 0.0)))
+	_track_if_measured(r, "h2o_total", "h2o_total")
 	_extremes.track("energy_net", float(heavy.get("energy_net", 0.0)))
 	_extremes.track("subsolar_lat", float(r.get("swing_subsolar_lat", 0.0)))
 	r.merge(_extremes.report())
 	if _seal != null:
 		r.merge(_seal.report())
-	# THE LAW, CHECKED LAST — here rather than inside _heavy_block() because the H2O ledger's `h2o_first` is
-	# merged into `r` after that block runs, and checking early reported the planet's water as "unmeasured".
-	# It reads what every ledger has published, so it must run after all of them.
+	# THE LAW, CHECKED LAST. It reads what the ledger has published, so it must run after it.
 	if _conservation != null:
 		r.merge(_conservation.check(r))
-	# A mirror-vs-device o2 comparison stood here and called `channel_totals_now`, which is two
-	# `buffer_get_data` calls on the report path. That is a device read outside the drain, and it changes the
-	# run it is measuring. The read-only probe (`request_probe`/`take_probe`) reads at the drain instead.
 	return r
+
+
+## Track an extreme only when the ledger actually measured it. A refused total is null, and folding that in
+## as a zero would put a low-water record into the register that no run ever reached.
+func _track_if_measured(r: Dictionary, key: String, register: String) -> void:
+	var v = r.get(key)
+	if v is float or v is int:
+		_extremes.track(register, float(v))
 
 
 ## True on the last frame of a --run-frames run, so the closing report is always freshly computed.
@@ -324,41 +313,54 @@ func _heavy_block() -> Dictionary:
 	if not _heavy_cache.is_empty() and frame - _heavy_frame < every and not _is_final_frame():
 		return _heavy_cache
 	_heavy_frame = frame
-	# latitude/altitude temperature structure
 	var d: Dictionary = surface_climate()
-	# radiative flux, then the rho*c*V*T stock and its residual
+	#   energy — the radiative books.
 	var flux: Dictionary = _energy.report()
 	d.merge(flux)
-	d.merge(_energy_stock.report(_f._gpu._step_index if _f._gpu != null else 0, flux))
-	# carbon / oxygen / nitrogen / fertility / biomass / fuel, both masks
-	d.merge(_mass.report(_f._gpu._step_index if _f._gpu != null else 0))
-	# the five mineral phases, both masks, and the drift
-	d.merge(_mineral.report(_f._gpu._step_index if _f._gpu != null else 0))
-	# BOTH SIDES MASK-FREE. `element_C` is the OPEN-cell sum while `lith_element_C` is the whole-grid one, so
-	# adding them read carbon that moved into a solid cell as carbon destroyed.
+	var step: int = _f._gpu._step_index if _f._gpu != null else 0
+	#   momentum — Σ m*v over the air, the third conserved quantity of mechanics. Books the pressure gradient,
+	#            Coriolis and buoyancy; `momentum_unbooked` names the terms it cannot reach.
+	d.merge(_momentum.report(step))
+	#   the conservation ledger — H2O, mineral, the element inventory and the thermal stock, all from ONE
+	#            probe read and ONE volume-weighted walk.
+	if _f._ledger != null:
+		d.merge(_f._ledger.report(step, flux))
+	# BOTH SIDES MASK-FREE. `element_C` is the open-cell sum; `lith_element_C` is the whole-grid one, so adding
+	# that pair read carbon that moved into a solid cell as carbon destroyed.
 	if d.has("element_C_all") and d.has("lith_element_C"):
 		var c_total: float = float(d["element_C_all"]) + float(d["lith_element_C"])
 		d["element_C_total"] = snappedf(c_total, 0.01)
 		if _seal != null and _seal.sealed():
 			var step_now: int = int(_f._gpu._step_index) if _f._gpu != null else 0
-			# The baseline latches only when BOTH sides of the sum have their channels. Gating on the seal
-			# alone latched it through mirrors that had not arrived, so the baseline read near zero and every
-			# later sample looked like carbon appearing from nothing.
-			var live: Dictionary = d.get("mass_live", {})
-			var c_live: bool = bool(live.get("co2", false)) and bool(live.get("biomass", false)) \
-				and bool(live.get("detritus", false)) and bool(live.get("fungus", false)) \
-				and bool(live.get("fuel", false)) and bool(d.get("mineral_first_live", false))
+			# The baseline latches only when BOTH sides of the sum are LIVE — measured from the drain probe this
+			# sample, not merely present as an array. A baseline taken through a leg that had not arrived reads
+			# near zero and every later sample then looks like carbon appearing from nothing.
+			var c_live: bool = _all_live(d.get("mass_live", {})) and _all_live(d.get("mineral_live", {}))
 			d["element_C_first_live"] = c_live
 			if is_nan(_first_element_c) and c_live:
 				_first_element_c = c_total
 				_first_element_c_step = step_now
 				_seal.note_seed({"element_C_mol": c_total})
-			d["element_C_total_first"] = snappedf(_first_element_c, 0.01)
-			d["element_C_total_drift"] = snappedf(c_total - _first_element_c, 0.01)
-			var c_steps: int = step_now - _first_element_c_step
-			if c_steps > 0:
-				d["element_C_total_drift_per_step"] = snappedf((c_total - _first_element_c) / float(c_steps), 0.0001)
-			if _first_element_c != 0.0:
-				d["element_C_total_rel_drift"] = snappedf((c_total - _first_element_c) / _first_element_c, 1e-9)
+			# No baseline, no baseline-derived keys. An absent `element_C_total_first` makes the conservation
+			# gate report `element_C_total` unmeasured; a NAN one would be checked against and silently pass.
+			if not is_nan(_first_element_c):
+				d["element_C_total_first"] = snappedf(_first_element_c, 0.01)
+				d["element_C_total_drift"] = snappedf(c_total - _first_element_c, 0.01)
+				var c_steps: int = step_now - _first_element_c_step
+				if c_steps > 0:
+					d["element_C_total_drift_per_step"] = snappedf((c_total - _first_element_c) / float(c_steps), 0.0001)
+				if _first_element_c != 0.0:
+					d["element_C_total_rel_drift"] = snappedf((c_total - _first_element_c) / _first_element_c, 1e-9)
 	_heavy_cache = d
 	return d
+
+
+## True when a ledger `live` map is non-empty and every leg in it arrived from the drain probe. `has_x` (the
+## array is the right length) and `live_x` (measured this sample) are different questions; this asks the second.
+func _all_live(m: Dictionary) -> bool:
+	if m.is_empty():
+		return false
+	for k in m:
+		if not bool(m[k]):
+			return false
+	return true

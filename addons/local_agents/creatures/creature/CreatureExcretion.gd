@@ -2,6 +2,7 @@ class_name LACreatureExcretion
 extends RefCounted
 
 
+## Minimum pending digested residue before a feces deposit is made, as a fraction of gut capacity.
 const FECES_MIN_GUT_FRAC: float = 0.02
 
 ## Detritus deposited into the field's soil-nutrient loop per unit of feces mass (same 1:1 conserving-transfer
@@ -23,10 +24,9 @@ static func tick(c, ground_pos: Vector3, delta: float) -> void:
 		deposit(c, ground_pos, "urine", 0.0)
 
 
+## Deposit waste at `ground_pos`. Faeces is organic matter, so it enters the detritus channel and rots there.
 static func deposit(c, ground_pos: Vector3, kind: String, waste_amount: float) -> void:
 	if c._material == null:
 		return
-	if c._material.has_method("deposit_waste"):
-		c._material.deposit_waste(ground_pos, c, kind)
 	if kind == "feces" and waste_amount > 0.0 and c._material.has_method("deposit_detritus"):
 		c._material.deposit_detritus(ground_pos, waste_amount * FECES_DETRITUS_YIELD)

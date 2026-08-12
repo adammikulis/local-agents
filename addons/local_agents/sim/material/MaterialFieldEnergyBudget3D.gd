@@ -5,10 +5,13 @@ extends RefCounted
 ## LAAbsorptionBands. There is one radiative authority; this module is its CPU reader, not a second model.
 ##
 ## It samples columns rather than scanning every one: a band-resolved column solve is far too expensive to
-## run 6000 times per report in GDScript, and a global mean over a spread sample answers the global
-## question. `energy_sample_columns` says how many were taken and the totals are scaled by the sampling
-## stride, so `energy_absorbed` and `energy_emitted` stay what the energy ledger expects — sums of per-cell
-## W/m^2 over the whole grid, which it multiplies by one cell face area.
+## run 6000 times per report in GDScript. `energy_sample_columns` says how many were taken and every total is
+## scaled by the sampling stride.
+##
+## Two unit families, and they are not interchangeable. `energy_absorbed` / `energy_emitted` are sums of
+## per-column W/m^2 and answer "how far from balance". `energy_absorbed_w` / `energy_emitted_w` /
+## `energy_face_area_m2` are watts and square metres, each column's flux against its own outward face area —
+## the only form LAMaterialFieldLedger3D's energy books can difference against a joule stock.
 
 const RadScript: GDScript = preload("res://addons/local_agents/sim/material/RadiativeColumn.gd")
 
@@ -86,18 +89,21 @@ func _compute() -> Dictionary:
 		var want: PackedStringArray = PackedStringArray(["pressure", "co2"])
 		want.append_array(LAHeatCapacity.channels())
 		_f._gpu.request_probe(want)
-	var pressure: PackedFloat32Array = legs.get("pressure", _f._pressure)
-	var co2: PackedFloat32Array = legs.get("co2", _f._co2)
-	var rock_fill: PackedFloat32Array = legs.get("rock_fill", _f._rock_fill)
+	# NO MIRROR FALLBACK on a demand-gated channel: an absent leg stays absent, so `has_pressure`/`has_co2`
+	# below read false rather than reporting a stale mirror as a measurement.
+	var pressure: PackedFloat32Array = legs.get("pressure", PackedFloat32Array())
+	var co2: PackedFloat32Array = legs.get("co2", PackedFloat32Array())
+	var rock_fill: PackedFloat32Array = legs.get("rock_fill", PackedFloat32Array())
+	# ONE capacity model, shared with the thermal stock this module's output is differenced against.
 	var ch: Dictionary = {
-		"rock_fill": rock_fill, "lava": legs.get("lava", _f._lava),
+		"rock_fill": rock_fill, "lava": legs.get("lava", PackedFloat32Array()),
 		"sediment": _f._sediment, "susp": _f._susp, "dust": legs.get("dust", PackedFloat32Array()),
 		"carbonate": legs.get("carbonate", PackedFloat32Array()),
 		"silica": legs.get("silica", PackedFloat32Array()),
 		"water": _f._water, "soil": _f._soil, "snow": _f._snow, "moisture": _f._moisture,
 		"porosity": _f._porosity,
-		"fuel": legs.get("fuel", _f._fuel), "biomass": _f._biomass,
-		"detritus": legs.get("detritus", _f._detritus),
+		"fuel": legs.get("fuel", PackedFloat32Array()), "biomass": legs.get("biomass", PackedFloat32Array()),
+		"detritus": legs.get("detritus", PackedFloat32Array()),
 		"fungus": legs.get("fungus", PackedFloat32Array()),
 	}
 	var water: PackedFloat32Array = _f._water
@@ -133,6 +139,12 @@ func _compute() -> Dictionary:
 	var t_cool_sum: float = 0.0
 	var emit_magma: float = 0.0
 	var dt_real: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	# Watts, and the area they cross. The column's exchange with space crosses the outward face of its
+	# outermost cell, whose area varies across the grid as the cell volumes do — so each column's W/m^2 is
+	# multiplied by its OWN face area rather than by one nominal cell face.
+	var abs_w: float = 0.0
+	var emit_w: float = 0.0
+	var face_m2_total: float = 0.0
 
 	var s: int = 0
 	while s < columns:
@@ -191,6 +203,10 @@ func _compute() -> Dictionary:
 		var col_emit: float = float(res["olr"])
 		absorbed_total += col_abs
 		emitted_total += col_emit
+		var face_m2: float = LAFieldTotals.face_area_outward_m2(_f._sphere, base + depth - 1)
+		face_m2_total += face_m2
+		abs_w += col_abs * face_m2
+		emit_w += col_emit * face_m2
 		sw_atm += float(res["sw_atm"])
 		sw_surface += float(res["sw_surface"])
 		albedo_sum += albedo
@@ -215,7 +231,7 @@ func _compute() -> Dictionary:
 
 	if sampled <= 0:
 		return out
-	# Scale the sample up to the whole grid: the ledger multiplies these sums by ONE cell face area.
+	# Scale the sample up to the whole grid.
 	var scale: float = float(columns) / float(sampled)
 	absorbed_total *= scale
 	emitted_total *= scale
@@ -224,6 +240,9 @@ func _compute() -> Dictionary:
 	abs_cool *= scale
 	emit_cool *= scale
 	emit_magma *= scale
+	abs_w *= scale
+	emit_w *= scale
+	face_m2_total *= scale
 	var fn: float = float(sampled)
 	var net: float = absorbed_total - emitted_total
 
@@ -238,6 +257,12 @@ func _compute() -> Dictionary:
 	out["energy_absorbed"] = absorbed_total
 	out["energy_emitted"] = emitted_total
 	out["energy_net"] = net
+	# WATTS. LAMaterialFieldLedger3D's energy books read these three and no others; a W/m^2 sum cannot be
+	# differenced against a joule stock.
+	out["energy_absorbed_w"] = abs_w
+	out["energy_emitted_w"] = emit_w
+	out["energy_net_w"] = abs_w - emit_w
+	out["energy_face_area_m2"] = face_m2_total
 	# The dimensionless read of "how far from balance". At equilibrium this is near zero; the SIGN says which
 	# way the planet is going, which no temperature reading gives you.
 	out["energy_imbalance"] = net / absorbed_total if absorbed_total > 1.0e-9 else 0.0
@@ -279,6 +304,7 @@ func _compute() -> Dictionary:
 func _blank() -> Dictionary:
 	return {
 		"energy_absorbed": 0.0, "energy_emitted": 0.0, "energy_net": 0.0, "energy_imbalance": 0.0,
+		"energy_absorbed_w": 0.0, "energy_emitted_w": 0.0, "energy_net_w": 0.0, "energy_face_area_m2": 0.0,
 		"energy_absorbed_mean": 0.0, "energy_emitted_mean": 0.0,
 		"energy_cells": 0, "energy_sample_columns": 0,
 		"energy_lit_cells": 0, "energy_lit_frac": 0.0,

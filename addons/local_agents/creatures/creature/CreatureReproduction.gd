@@ -2,8 +2,9 @@ class_name LACreatureReproduction
 extends RefCounted
 
 
-const MIN_ENERGY_FRAC: float = 0.55     # well-fed-enough-to-breed gate. Kept comfortably above the gestation drain (a
+const MIN_ENERGY_FRAC: float = 0.55     # energy, as a fraction of max, a bearer needs to conceive
 const GESTATION_SECONDS: float = 12.0   # seconds a bearer carries a pregnancy before giving birth
+## The mother pays the newborn's live mass times the overhead below. She resorbs the pregnancy if she cannot.
 const GESTATION_OVERHEAD: float = 1.35  # mother's cost / newborn's mass — placenta, remodelling, the work of
                                         # building tissue is never free (mammalian reproductive efficiency
                                         # measures out around 0.7-0.8, i.e. an overhead near 1.3)
@@ -15,7 +16,7 @@ const MATE_REFRACTORY: float = 6.0      # short pair-bond cooldown put on the pa
                                         # pairing from both conceiving at once; keeps the effective birth rate sane)
 const MATE_SEEK_RADIUS: float = 26.0    # how far a courting adult looks for a mate — widened so a THINNED population
 const MATING_RADIUS: float = 3.0        # within this range of a ready mate, conception happens (else steer closer)
-const STERILE_FLOOR: float = 0.15       # fertility_mult at/below which the creature can no longer conceive (barren)
+const STERILE_FLOOR: float = 0.15       # fertility_mult at/below which the creature cannot conceive (barren)
 
 const DEFAULT_DENSITY_RADIUS: float = 12.0  # fallback sensing radius if a tuned species omits breed_density_radius
 const CROWD_SOFT_FRAC: float = 0.45     # fraction of carrying density at/below which breeding stays at full rate
@@ -51,8 +52,11 @@ static func tick(c, delta: float) -> void:
 		_give_birth(c)
 
 
+## What this pregnancy costs the mother: the newborn's live mass times the overhead. A newborn is
+## LACreatureLifeStage.NEWBORN_SCALE of adult length, so NEWBORN_SCALE cubed of adult mass.
 static func gestation_cost(c) -> float:
-	return LACreatureBodyMass.live_mass(c.config) * GESTATION_OVERHEAD
+	var s: float = LACreatureLifeStage.NEWBORN_SCALE
+	return LACreatureBodyMass.live_mass(c.config) * s * s * s * GESTATION_OVERHEAD
 
 
 ## True once this creature could start a pregnancy RIGHT NOW: mature, not already pregnant, off cooldown,
@@ -115,6 +119,7 @@ static func _crowd_cooldown_mult(c) -> float:
 	return lerpf(1.0, CROWD_COOLDOWN_MULT, t)
 
 
+## Fertility test with no pop_cap scan: mature, not pregnant, off cooldown, well-fed. Filters mate candidates.
 static func _is_fertile(c) -> bool:
 	if not c.is_mature() or c.pregnant or c._repro_cd > 0.0:
 		return false
@@ -182,6 +187,7 @@ static func _give_birth(c) -> void:
 	c.pregnant = false
 	c._gestation_t = 0.0
 	c._gestation_paid = 0.0
+	# The mate may have been freed mid-gestation; birth falls back to a single-parent line on null.
 	var mate = c._mate if (c._mate != null and is_instance_valid(c._mate)) else null
 	c._mate = null
 	c._repro_cd = (POST_BIRTH_COOLDOWN / LAAblate.evo_fast()) * _crowd_cooldown_mult(c)

@@ -17,31 +17,39 @@ const MAX_THERMOGENESIS_GAIN: float = 12.0
 
 const METABOLIC_HEAT_K: float = 1826.9    # °C of body warming per unit extent per kg of body mass
 
-static func band_optimum_c() -> float:
-	return (LAPhysical.WATER_FREEZE_C + LAPhysical.PROTEIN_DENATURE_C) * 0.5
-
-
-static func band_width_c() -> float:
+## Half-width in °C of the envelope where liquid cell water and intact protein overlap.
+static func envelope_half_c() -> float:
 	return (LAPhysical.PROTEIN_DENATURE_C - LAPhysical.WATER_FREEZE_C) * 0.5
 
 
-## The reaction-rate factor at body temperature `t` — 1.0 at the optimum, 0 at freezing and at denaturation.
-static func temp_band(t: float) -> float:
-	var w: float = band_width_c()
+## This genome's optimum in °C (`thermal_optimum_c` locus).
+static func band_optimum_c(c) -> float:
+	return float(c.get("thermal_optimum_c"))
+
+
+## This genome's half-width in °C: `thermal_tolerance` as a fraction of the envelope's half-range.
+static func band_width_c(c) -> float:
+	return clampf(float(c.get("thermal_tolerance")), 0.0, 1.0) * envelope_half_c()
+
+
+## The reaction-rate factor at body temperature `t` for THIS creature — 1.0 at its optimum, 0 at the edges
+## of what it tolerates. Zero tolerance means the genome cannot function at any temperature.
+static func temp_band(t: float, c) -> float:
+	var w: float = band_width_c(c)
 	if w <= 0.0:
-		return 1.0
-	var d: float = (t - band_optimum_c()) / w
+		return 0.0
+	var d: float = (t - band_optimum_c(c)) / w
 	return maxf(0.0, 1.0 - d * d)
 
 
 ## Body mass in KILOGRAMS — the species' measured mass, carried on the creature as `mass_kg` by
-## LACreatureBodyMass.apply. Not derived from `size`; see statement 1 in the header.
+## LACreatureBodyMass.apply. Not derived from `size`.
 static func body_mass(c) -> float:
 	return maxf(float(c.get("mass_kg")), 1.0e-7)
 
 
 ## The body's characteristic linear dimension, in metres: the cube root of the volume its measured mass
-## occupies at tissue density. Volume → length is a definition, not an exponent anybody picked.
+## occupies at tissue density.
 static func body_length(m_kg: float) -> float:
 	return pow(maxf(m_kg, 1.0e-9) / LAPhysical.ANIMAL_TISSUE_DENSITY_KG_M3, 1.0 / 3.0)
 
@@ -79,8 +87,8 @@ static func tick(c, pos: Vector3, delta: float) -> bool:
 	var k: float = clampf(delta * evo / tau, 0.0, 1.0)     # clamped: a large step relaxes fully, never overshoots
 	c.body_temp = float(c.body_temp) + (ambient - float(c.body_temp)) * k
 
-	var band: float = temp_band(float(c.body_temp))
-	var cold: float = clampf((band_optimum_c() - float(c.body_temp)) / maxf(band_width_c(), 0.001), 0.0, 1.0)
+	var band: float = temp_band(float(c.body_temp), c)
+	var cold: float = clampf((band_optimum_c(c) - float(c.body_temp)) / maxf(band_width_c(c), 0.001), 0.0, 1.0)
 	var gain: float = 1.0 + MAX_THERMOGENESIS_GAIN * clampf(float(c.get("thermogenesis")), 0.0, 1.0) * cold
 	var exertion: float = 1.0
 	if c.state == "flee" or c.state == "panic" or c.state == "chase":
@@ -100,7 +108,7 @@ static func tick(c, pos: Vector3, delta: float) -> bool:
 	# Hand the transaction to the substrate: it applies the same aerobic Liebig cap the kernel applies and
 	# books O₂ → CO₂ + detritus into this cell. What comes back is what the local air could support.
 	var extent: float = want
-	if c._material != null and c._material.has_method("respire_at"):
+	if c._material != null:
 		extent = c._material.respire_at(pos, want)
 	c.energy -= extent
 	c._resp_rate = extent / maxf(delta * evo, 1e-6)
@@ -138,8 +146,8 @@ static func deficit_cause(c, o2: float) -> String:
 	if float(c.body_temp) <= LAPhysical.WATER_FREEZE_C:
 		return "hypothermia"
 	if o2 <= 0.01:
-		# Same distinction the old suffocation rule drew, on the same test: a lung-breather that has run out of
-		# oxygen while submerged drowned; anything else (a gill in air, a body in smoke or foul air) suffocated.
+		# A lung-breather that has run out of oxygen while submerged drowned; anything else (a gill in air, a
+		# body in smoke or foul air) suffocated.
 		if c._material != null and c.breathes != "water":
 			var up: Vector3 = c.terrain.up_at(c.global_position) if c.terrain != null and c.terrain.has_method("up_at") else Vector3.UP
 			if c._material.is_submerged_at(c.global_position.x + up.x * c.size,

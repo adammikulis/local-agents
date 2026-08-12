@@ -1,154 +1,420 @@
 class_name LAMaterialFieldLedger3D
 extends RefCounted
 
-const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
+## THE conservation ledger. One probe read, one volume-weighted walk, one set of drift books, and a publisher
+## per conserved substance — H2O, mineral, the element inventory, and the thermal stock.
+##
+## Rules every substance obeys here, because they are properties of the instrument and not of the substance:
+##   every leg comes from the drain probe, with no mirror fallback;
+##   a partial leg set publishes the live map, the missing list, and a null total — never a short one;
+##   an amount is the channel value times the cell's own volume in cubic metres;
+##   a threshold count compares a fraction against a fraction and stays unweighted.
 
-## LAMaterialFieldLedger3D: the conserved H₂O ledger of LAMaterialField3D, plus the snow/ice extent
-## diagnostics. Reaches into the owning field `_f` for the shared channels.
+const FoldScript: GDScript = preload("res://addons/local_agents/sim/material/FieldLedgerFold3D.gd")
+const BooksScript: GDScript = preload("res://addons/local_agents/sim/material/FieldLedgerBooks3D.gd")
 
-var _f = null                                            # back-reference to the owning LAMaterialField3D
+var _f = null
+var _fold = null
+var _books = null
+var _samples: int = 0
 
-var _stranded_cells: int = 0    # set by stranded_soil_total(); reported beside it
-var _prev_h2o: float = NAN
-var _prev_step: int = -1
-# Run-level anchor: the total at the seal step, so drift is measured over the whole horizon.
-var _first_h2o: float = NAN
-var _first_step: int = -1
+# Cumulative energy books, zeroed at the sample the thermal baseline latches so the stock change and the
+# booked terms span the same window.
+var _cum_heat: float = 0.0
+var _cum_cap: float = 0.0
+var _cum_solar: float = 0.0
+var _cum_lw: float = 0.0
+var _cum_geo: float = 0.0
+var _first_inject_j: float = 0.0
+var _first_unsourced_dc: float = 0.0
+var _first_cap: Dictionary = {}
+# Last published block, for the consumers that ask the field for one scalar outside the report path.
+var _last: Dictionary = {}
 
 
 func setup(field) -> void:
 	_f = field
+	_fold = FoldScript.new()
+	_fold.setup(field)
+	_books = BooksScript.new()
+	_books.setup(field)
 
 
-## Snow depth at a world point (frozen H₂O in the cell). 2.5D-style (x,z) calls have no radial point, so they
-## return the safe default 0 (matching temp_at); a full 3D call (x,z,y) reads the real cell — three-d-always.
-func snow_depth_at(pos: Vector3) -> float:
-	if _f._snow.size() != _f._cell_count:
-		return 0.0
-	var c: int = _f.world_to_cell(pos)
-	return _f._snow[c] if c >= 0 else 0.0
-
-
-## Open cells carrying a snowpack (frozen H₂O over SNOW_PRESENT) — the emergent snow-line count for SIM_REPORT.
-func snow_cell_count() -> int:
-	if _f._snow.size() != _f._cell_count:
-		return 0
-	var solid: PackedByteArray = _f._solid
-	var snow: PackedFloat32Array = _f._snow
-	var n: int = 0
-	for c in _f._cell_count:
-		if solid[c] == 0 and snow[c] > LAMaterialField3D.SNOW_PRESENT:
-			n += 1
-	return n
-
-
-## Cells whose pack is thick enough to read as glacial ICE (deep end of the SAME _snow channel, no separate buffer).
-func ice_cell_count() -> int:
-	if _f._snow.size() != _f._cell_count:
-		return 0
-	var solid: PackedByteArray = _f._solid
-	var snow: PackedFloat32Array = _f._snow
-	var n: int = 0
-	for c in _f._cell_count:
-		if solid[c] == 0 and snow[c] >= LAMaterialField3D.ICE_DEPTH:
-			n += 1
-	return n
-
-
-# Every leg of h2o_total is mask-free: water that infiltrates a cell the derived solid flag then covers has
-# moved, not vanished, and an open-only sum books that move as destruction.
-
-## Frozen H₂O over every cell — one leg of the conserved h2o_total.
-func snow_total() -> float:
-	return CellVolScript.weighted(_f._snow, CellVolScript.of(_f), _f._solid, false)
-
-
-## Liquid H₂O over every cell — one leg of the conserved h2o_total.
-func water_total() -> float:
-	return CellVolScript.weighted(_f._water, CellVolScript.of(_f), _f._solid, false)
-
-
-## Groundwater over every cell — one leg of the conserved h2o_total.
-func soil_total() -> float:
-	return CellVolScript.weighted(_f._soil, CellVolScript.of(_f), _f._solid, false)
-
-
-## Liquid + airborne + frozen + groundwater. Every leg mask-free, so burial reads as burial.
-func h2o_total() -> float:
-	return water_total() + _f.moisture_total() + snow_total() + soil_total()
-
-
-func stranded_soil_total() -> float:
-	if _f._soil.size() != _f._cell_count or _f._regolith.size() != _f._cell_count:
-		return 0.0
-	var regolith: PackedByteArray = _f._regolith
-	var solid: PackedByteArray = _f._solid
-	var soil: PackedFloat32Array = _f._soil
-	var vol: PackedFloat32Array = CellVolScript.of(_f)
-	if vol.size() != _f._cell_count:
-		return 0.0
-	var sum: float = 0.0
-	var n: int = 0
-	for c in _f._cell_count:
-		if regolith[c] != 0 and solid[c] == 0:
-			sum += soil[c] * vol[c]
-			n += 1
-	_stranded_cells = n
-	return sum
-
-
-func conservation_report(step_index: int) -> Dictionary:
-	var h2o: float = h2o_total()
-	var drift: float = 0.0
-	var per_step: float = 0.0
-	if not is_nan(_prev_h2o) and step_index > _prev_step:
-		drift = h2o - _prev_h2o
-		per_step = drift / float(step_index - _prev_step)
-	_prev_h2o = h2o
-	_prev_step = step_index
-	if _first_step < 0 and _at_seal(step_index):
-		_first_h2o = h2o
-		_note_seed("h2o", h2o)
-		_first_step = step_index
-	var run_steps: int = step_index - _first_step
-	var out: Dictionary = {
-		# The key LAMaterialFieldConservation3D gates on.
-		"h2o_closed_total": snappedf(h2o, 0.01),
-		"h2o_drift": snappedf(drift, 0.01),
-		"h2o_drift_per_step": snappedf(per_step, 0.001),
-		"h2o_first": snappedf(_first_h2o, 0.01),
-		"h2o_run_steps": run_steps,
-		"soil_stranded": snappedf(stranded_soil_total(), 0.01),
-		"soil_stranded_cells": _stranded_cells,
-	}
-	if run_steps > 0:
-		out["h2o_run_drift"] = snappedf(h2o - _first_h2o, 0.01)
-		out["h2o_run_drift_per_step"] = snappedf((h2o - _first_h2o) / float(run_steps), 0.0001)
+## Every conserved substance, sampled together. `step_index` is the field's own step counter; drift is
+## reported per field step, never per frame. `flux` is LAMaterialFieldEnergyBudget3D's radiative report.
+func report(step_index: int, flux: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	if _f == null or _f._cell_count <= 0:
+		return out
+	var t0: int = Time.get_ticks_usec()
+	var ch: Dictionary = _fold.take_legs()
+	if ch.is_empty():
+		return out
+	var step: int = _fold.probe_step(step_index)
+	var f: Dictionary = _fold.fold(ch, step, _books.sealed(), _f._solid, _f._temp)
+	if f.is_empty():
+		return out
+	_samples += 1
+	_publish_h2o(out, f, step)
+	_publish_mineral(out, f, step)
+	_publish_element(out, f, step)
+	_publish_energy(out, f, flux, step)
+	out["ledger_step"] = step
+	out["ledger_samples"] = _samples
+	out["ledger_scan_ms"] = snappedf(float(Time.get_ticks_usec() - t0) / 1000.0, 0.01)
+	_last = out
 	return out
 
 
-## Mean temperature over the snow-covered cells — proves snow sits on the COLD side (should read below FREEZE_TEMP).
-func snow_line_temp() -> float:
-	if _f._snow.size() != _f._cell_count:
+## One published total, for a consumer outside the report path. Returns the last measurement; 0.0 before the
+## first one, and 0.0 for a total this ledger refused.
+func total(key: String) -> float:
+	var v = _last.get(key)
+	return float(v) if v is float or v is int else 0.0
+
+
+# --- H2O ---------------------------------------------------------------------------------------------
+
+func _publish_h2o(out: Dictionary, f: Dictionary, step: int) -> void:
+	var live: Dictionary = _live_of(f, LAFieldLedgerRecords.H2O)
+	var missing: PackedStringArray = _missing_of(live)
+	out["h2o_live"] = live
+	if missing.size() > 0:
+		out["h2o_missing"] = missing
+		out["h2o_total"] = null
+		out["h2o_closed_total"] = null
+		return
+	var all: Dictionary = f["all"]
+	out["water_total"] = snappedf(float(all["water"]), 0.01)
+	out["snow_total"] = snappedf(float(all["snow"]), 0.01)
+	out["soil_total"] = snappedf(float(all["soil"]), 0.01)
+	out["h2o_vapour_total"] = snappedf(float(all["moisture"]), 0.01)
+	var h2o: float = LAFieldLedgerRecords.sum_of(all, LAFieldLedgerRecords.H2O)
+	out["h2o_total"] = snappedf(h2o, 0.01)
+	out["h2o_closed_total"] = snappedf(h2o, 0.01)
+	if f.has("snow_cells"):
+		out["snow_cells"] = f["snow_cells"]
+		out["ice_cells"] = f["ice_cells"]
+		out["snow_line_temp"] = snappedf(float(f["snow_line_temp"]), 0.1)
+	var s: Array = _books.sample("h2o", h2o, step)
+	if not s.is_empty():
+		out["h2o_drift"] = snappedf(float(s[0]), 0.01)
+		out["h2o_drift_per_step"] = snappedf(float(s[1]), 0.001)
+		out["h2o_drift_steps"] = int(s[2])
+	var r: Array = _books.run("h2o", "h2o", h2o, step)
+	if not r.is_empty():
+		out["h2o_first"] = snappedf(float(r[0]), 0.01)
+		out["h2o_run_drift"] = snappedf(float(r[1]), 0.01)
+		out["h2o_run_drift_per_step"] = snappedf(float(r[2]), 0.0001)
+		out["h2o_run_steps"] = int(r[3])
+
+
+# --- MINERAL -----------------------------------------------------------------------------------------
+
+func _publish_mineral(out: Dictionary, f: Dictionary, step: int) -> void:
+	var live: Dictionary = _live_of(f, LAFieldLedgerRecords.MINERAL)
+	var missing: PackedStringArray = _missing_of(live)
+	out["mineral_live"] = live
+	if missing.size() > 0:
+		out["mineral_missing"] = missing
+		out["mineral_total"] = null
+		return
+	var all: Dictionary = f["all"]
+	var open: Dictionary = f["open"]
+	var total: float = LAFieldLedgerRecords.sum_of(all, LAFieldLedgerRecords.MINERAL_SUM)
+	var open_total: float = LAFieldLedgerRecords.sum_of(open, LAFieldLedgerRecords.MINERAL_SUM)
+	out["mineral_total"] = snappedf(total, 0.01)
+	out["mineral_open"] = snappedf(open_total, 0.01)
+	out["mineral_buried"] = snappedf(total - open_total, 0.01)
+	out["rock_fill_total"] = snappedf(float(all["rock_fill"]), 0.01)
+	out["lava_total"] = snappedf(float(all["lava"]), 0.01)
+	out["sediment_total"] = snappedf(float(all["sediment"]), 0.01)
+	out["susp_total"] = snappedf(float(all["susp"]), 0.01)
+	out["dust_total"] = snappedf(float(all["dust"]), 0.01)
+	out["dust_open_total"] = snappedf(float(open["dust"]), 0.01)
+	out["carbonate_total"] = snappedf(float(all["carbonate"]), 0.0001)
+	out["silica_total"] = snappedf(float(all["silica"]), 0.0001)
+	out["carbonate_open"] = snappedf(float(open["carbonate"]), 0.0001)
+	out["silica_open"] = snappedf(float(open["silica"]), 0.0001)
+	out["rock_cells"] = f["solid_cells"]
+	out["dust_cells"] = f.get("dust_cells", 0)
+	out["carbonate_cells"] = f.get("carbonate_cells", 0)
+	if f.has("crust_moved"):
+		out["crust_moved"] = snappedf(float(f["crust_moved"]), 0.01)
+		out["crust_moved_ref_step"] = f["crust_ref_step"]
+	var lith: Dictionary = LAFieldLedgerRecords.lith_elements(all)
+	for el in lith:
+		out["lith_element_" + String(el)] = snappedf(float(lith[el]), 0.01)
+	# The admitted source: erupt_source injects mantle lava with no debit anywhere in the field, so it is
+	# booked by the injection queue and subtracted before any statement about whether the substrate conserves.
+	var src: float = 0.0
+	if _f._inject != null and _f._inject.queue != null:
+		src = float(_f._inject.queue.mineral_minted)
+	out["mineral_src_total"] = snappedf(src, 0.01)
+	out["mineral_samples"] = _samples
+
+	var s: Array = _books.sample("mineral", total, step)
+	if not s.is_empty():
+		out["mineral_drift"] = snappedf(float(s[0]), 0.01)
+		out["mineral_drift_per_step"] = snappedf(float(s[1]), 0.0001)
+		out["mineral_drift_steps"] = int(s[2])
+	var r: Array = _books.run("mineral", "mineral", total, step)
+	var r_src: Array = _books.run("mineral_src", "", src, step)
+	if r.is_empty():
+		out["mineral_first_step"] = -1
+		return
+	out["mineral_first"] = snappedf(float(r[0]), 0.01)
+	out["mineral_run_steps"] = int(r[3])
+	out["mineral_first_step"] = int(r[4])
+	var run_steps: int = int(r[3])
+	if run_steps > 0:
+		var rinv: float = 1.0 / float(run_steps)
+		out["mineral_run_drift_per_step"] = snappedf(float(r[1]) * rinv, 0.0001)
+		var d_src: float = float(r_src[1]) if not r_src.is_empty() else 0.0
+		out["mineral_src_per_step"] = snappedf(d_src * rinv, 0.0001)
+		out["mineral_net_per_step"] = snappedf((float(r[1]) - d_src) * rinv, 0.0001)
+		_rel_drift(out, "lith_ca_rel_drift_per_step", "lith_Ca", float(lith.get("Ca", 0.0)), step, rinv)
+		_rel_drift(out, "lith_si_rel_drift_per_step", "lith_Si", float(lith.get("Si", 0.0)), step, rinv)
+
+
+func _rel_drift(out: Dictionary, key: String, book: String, value: float, step: int, rinv: float) -> void:
+	var r: Array = _books.run(book, "", value, step)
+	if r.is_empty():
+		return
+	var first: float = float(r[0])
+	if first > 0.0:
+		out[key] = snappedf(float(r[1]) * rinv / first, 1.0e-12)
+
+
+# --- ELEMENT INVENTORY -------------------------------------------------------------------------------
+
+func _publish_element(out: Dictionary, f: Dictionary, step: int) -> void:
+	var live: Dictionary = _live_of(f, LAFieldLedgerRecords.ELEMENT)
+	var missing: PackedStringArray = _missing_of(live)
+	out["mass_live"] = live
+	if missing.size() > 0:
+		out["mass_missing"] = missing
+		for key in ["carbon_total", "o2_total", "oxidant_total", "oxidant_all",
+				"carbon_closed_total", "nitrogen_total", "nitrogen_all"]:
+			out[key] = null
+		return
+	var all: Dictionary = f["all"]
+	var open: Dictionary = f["open"]
+	var carbon: float = LAFieldLedgerRecords.sum_of(open, LAFieldLedgerRecords.CARBON)
+	var carbon_all: float = LAFieldLedgerRecords.sum_of(all, LAFieldLedgerRecords.CARBON)
+	out["carbon_total"] = snappedf(carbon, 0.01)
+	out["carbon_all"] = snappedf(carbon_all, 0.01)
+	out["carbon_buried"] = snappedf(carbon_all - carbon, 0.01)
+	out["carbon_co2"] = snappedf(float(open["co2"]), 0.01)
+	out["carbon_biomass"] = snappedf(float(open["biomass"]), 0.01)
+	out["carbon_detritus"] = snappedf(float(open["detritus"]), 0.01)
+	out["o2_total"] = snappedf(float(open["o2"]), 0.01)
+	out["o2_all"] = snappedf(float(all["o2"]), 0.01)
+	out["fert_total"] = snappedf(float(open["fert"]), 0.01)
+	out["fert_all"] = snappedf(float(all["fert"]), 0.01)
+	out["biomass_open_total"] = snappedf(float(open["biomass"]), 0.01)
+	out["fungus_total"] = snappedf(float(open["fungus"]), 0.01)
+	out["fungus_all"] = snappedf(float(all["fungus"]), 0.01)
+	out["fuel_open_total"] = snappedf(float(open["fuel"]), 0.01)
+	out["fuel_all"] = snappedf(float(all["fuel"]), 0.01)
+	out["mass_open_cells"] = f["open_cells"]
+
+	var oxidant: float = LAFieldLedgerRecords.sum_of(open, LAFieldLedgerRecords.OXIDANT)
+	var oxidant_all: float = LAFieldLedgerRecords.sum_of(all, LAFieldLedgerRecords.OXIDANT)
+	var closed: float = LAFieldLedgerRecords.sum_of(open, LAFieldLedgerRecords.CARBON_CLOSED)
+	var closed_all: float = LAFieldLedgerRecords.sum_of(all, LAFieldLedgerRecords.CARBON_CLOSED)
+	var n_org: float = LAFieldLedgerRecords.sum_of(open, LAFieldLedgerRecords.NITROGEN_ORGANIC)
+	var n_org_all: float = LAFieldLedgerRecords.sum_of(all, LAFieldLedgerRecords.NITROGEN_ORGANIC)
+	var nitrogen: float = float(open["fert"]) + n_org / LAPhysical.LITTER_C_TO_N
+	var nitrogen_all: float = float(all["fert"]) + n_org_all / LAPhysical.LITTER_C_TO_N
+	out["oxidant_total"] = snappedf(oxidant, 0.01)
+	out["oxidant_all"] = snappedf(oxidant_all, 0.01)
+	out["carbon_closed_total"] = snappedf(closed, 0.01)
+	out["carbon_closed_all"] = snappedf(closed_all, 0.01)
+	out["carbon_closed_buried"] = snappedf(closed_all - closed, 0.01)
+	out["nitrogen_total"] = snappedf(nitrogen, 0.01)
+	out["nitrogen_all"] = snappedf(nitrogen_all, 0.01)
+	out["nitrogen_buried"] = snappedf(nitrogen_all - nitrogen, 0.01)
+
+	var open_by: Dictionary = _subset(open, LAFieldLedgerRecords.ELEMENT)
+	var all_by: Dictionary = _subset(all, LAFieldLedgerRecords.ELEMENT)
+	var elements: Dictionary = LAFieldLedgerRecords.elements_of(open_by)
+	for el in elements:
+		out["element_" + String(el)] = snappedf(float(elements[el]), 0.01)
+	var elements_all: Dictionary = LAFieldLedgerRecords.elements_of(all_by)
+	for el_a in elements_all:
+		out["element_" + String(el_a) + "_all"] = snappedf(float(elements_all[el_a]), 0.01)
+
+	var steps: int = 0
+	for pair in [["carbon", carbon], ["o2", float(open["o2"])], ["fert", float(open["fert"])],
+			["biomass", float(open["biomass"])]]:
+		var s: Array = _books.sample(String(pair[0]), float(pair[1]), step)
+		if s.is_empty():
+			continue
+		out[String(pair[0]) + "_drift"] = snappedf(float(s[0]), 0.01)
+		out[String(pair[0]) + "_drift_per_step"] = snappedf(float(s[1]), 0.0001)
+		steps = int(s[2])
+	if steps > 0:
+		out["mass_drift_steps"] = steps
+
+	# The three totals gated by LAMaterialFieldConservation3D are latched MASK-FREE, because a substance
+	# moving into rock is buried, not destroyed. `carbon_run_drift_per_step` stays on the open triangle: its
+	# job is to localise a leak to one side of the reaction table.
+	out["mass_run_steps"] = _run_pair(out, "carbon", "carbon", "carbon", carbon, step)
+	_run_pair(out, "o2", "o2", "o2", float(open["o2"]), step)
+	_run_pair(out, "fert", "fert", "", float(open["fert"]), step)
+	_run_pair(out, "biomass", "biomass", "", float(open["biomass"]), step)
+	_run_pair(out, "oxidant", "oxidant", "", oxidant_all, step)
+	_run_pair(out, "carbon_closed", "carbon_closed", "", closed_all, step)
+	_run_pair(out, "nitrogen", "nitrogen", "", nitrogen_all, step)
+
+
+## Publish `<name>_first` and `<name>_run_drift_per_step` from one book. Returns the run length in steps.
+func _run_pair(out: Dictionary, name: String, book: String, seed_key: String, value: float, step: int) -> int:
+	var r: Array = _books.run(book, seed_key, value, step)
+	if r.is_empty():
+		return 0
+	out[name + "_first"] = snappedf(float(r[0]), 0.01)
+	var steps: int = int(r[3])
+	if steps > 0:
+		out[name + "_run_drift_per_step"] = snappedf(float(r[2]), 0.0001)
+	return steps
+
+
+# --- ENERGY ------------------------------------------------------------------------------------------
+
+func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int) -> void:
+	out["energy_stock_cells"] = f["cells"]
+	out["energy_stock_live"] = f.get("energy_live", {})
+	var missing: PackedStringArray = f.get("energy_missing", PackedStringArray())
+	if missing.size() > 0 or not f.has("energy_stock"):
+		out["energy_stock_missing"] = missing
+		out["energy_stock"] = null
+		return
+	var stock: float = float(f["energy_stock"])
+	out["energy_stock"] = stock
+	out["energy_geo_shell_cells"] = f["energy_shell_solid"]
+	var cap_legs: Dictionary = f.get("energy_cap_legs", {})
+	var cap_total: float = 0.0
+	for k in cap_legs:
+		cap_total += float(cap_legs[k])
+	out["energy_cap_j_k"] = cap_total
+	out["energy_cap_legs"] = cap_legs
+
+	# Booked rates, in watts. LAMaterialFieldEnergyBudget3D sums each cell's flux against that cell's own
+	# outward face area in square metres, so these arrive as watts and need no conversion.
+	var solar_w: float = float(flux.get("energy_absorbed_w", 0.0))
+	var lw_w: float = float(flux.get("energy_emitted_w", 0.0))
+	var geo_w: float = _geo_watts(int(f["energy_shell_solid"]), int(f["cells"]))
+	var inject_j: float = 0.0
+	var unsourced_dc: float = 0.0
+	if _f._inject != null and _f._inject.queue != null:
+		inject_j = float(_f._inject.queue.heat_energy_j)
+		unsourced_dc = float(_f._inject.queue.heat_unsourced_dc)
+
+	var s: Array = _books.sample("energy_stock", stock, step)
+	var steps: int = int(s[2]) if not s.is_empty() else 0
+	if not s.is_empty():
+		out["energy_drift"] = float(s[0])
+		out["energy_drift_per_step"] = float(s[1])
+		out["energy_drift_steps"] = steps
+	var was_latched: bool = _books.first_step_of("energy_stock") >= 0
+	var r: Array = _books.run("energy_stock", "energy_j", stock, step)
+	out["energy_stock_samples"] = _samples
+	out["energy_first_step"] = _books.first_step_of("energy_stock")
+	if r.is_empty():
+		return
+	out["energy_stock_first"] = float(r[0])
+	if not was_latched:
+		_cum_heat = 0.0
+		_cum_cap = 0.0
+		_cum_solar = 0.0
+		_cum_lw = 0.0
+		_cum_geo = 0.0
+		_first_inject_j = inject_j
+		_first_unsourced_dc = unsourced_dc
+		_first_cap = cap_legs
+	elif steps > 0 and bool(f.get("energy_have_prev", false)):
+		# Rectangle rule over the window, at the flux sampled at its right-hand end, integrated against the
+		# real seconds the kernel applies.
+		var window_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step() * float(steps)
+		_cum_heat += float(f["energy_d_heat_j"])
+		_cum_cap += float(f["energy_d_cap_j"])
+		_cum_solar += solar_w * window_s
+		_cum_lw += lw_w * window_s
+		_cum_geo += geo_w * window_s
+	out["energy_cap_legs_first"] = _first_cap
+	out["energy_unsourced_dc"] = unsourced_dc - _first_unsourced_dc
+	var run_steps: int = int(r[3])
+	out["energy_run_steps"] = run_steps
+	if run_steps <= 0:
+		return
+	var run_drift: float = float(r[1])
+	var cum_inject: float = inject_j - _first_inject_j
+	var booked: float = _cum_solar - _cum_lw + _cum_geo + cum_inject
+	out["energy_run_drift"] = run_drift
+	out["energy_run_drift_per_step"] = run_drift / float(run_steps)
+	out["energy_booked"] = booked
+	out["energy_residual"] = run_drift - booked
+	# The decomposition's own check: sum(rc0*dT) + sum(drc*T1) is the stock change identically, so this is
+	# near zero or the split is wrong.
+	out["energy_split_close"] = (_cum_heat + _cum_cap) - run_drift
+	var area: float = float(flux.get("energy_face_area_m2", 0.0))
+	out["energy_ref_area_m2"] = area
+	var run_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step() * float(run_steps)
+	if area <= 0.0 or run_s <= 0.0:
+		return
+	var inv: float = 1.0 / (area * run_s)
+	out["energy_drift_w_m2"] = run_drift * inv
+	out["energy_heat_w_m2"] = _cum_heat * inv
+	out["energy_capacity_w_m2"] = _cum_cap * inv
+	out["energy_booked_w_m2"] = booked * inv
+	out["energy_residual_w_m2"] = (run_drift - booked) * inv
+	out["energy_book_solar_w_m2"] = _cum_solar * inv
+	out["energy_book_lw_w_m2"] = _cum_lw * inv
+	out["energy_book_geo_w_m2"] = _cum_geo * inv
+	out["energy_book_inject_w_m2"] = cum_inject * inv
+
+
+## The geotherm's scalar flux crosses the innermost solid faces, whose area is the r == 0 inward face.
+func _geo_watts(shell_solid: int, cc: int) -> float:
+	if _f._geotherm == null:
 		return 0.0
-	var solid: PackedByteArray = _f._solid
-	var snow: PackedFloat32Array = _f._snow
-	var temp: PackedFloat32Array = _f._temp
-	var sum: float = 0.0
-	var n: int = 0
-	for c in _f._cell_count:
-		if solid[c] == 0 and snow[c] > LAMaterialField3D.SNOW_PRESENT:
-			sum += temp[c]
-			n += 1
-	return sum / float(n) if n > 0 else 0.0
+	var geo_flux: float = float(_f._geotherm.report().get("core_flux_w_m2", 0.0))
+	var depth: int = _f._dim_y
+	var grid = _f._sphere
+	var k2: float = LAPhysical.METRES_PER_MODEL_UNIT * LAPhysical.METRES_PER_MODEL_UNIT
+	var face_m2: float = 0.0
+	if grid != null and grid.cell_count == cc and depth > 0:
+		var columns: int = int(cc / depth)
+		for s_col in columns:
+			face_m2 += grid.face_area_inward(s_col * depth) * k2
+		face_m2 = face_m2 / float(maxi(columns, 1))
+	else:
+		face_m2 = pow(float(_f._cell_size) * LAPhysical.METRES_PER_MODEL_UNIT, 2.0)
+	return geo_flux * face_m2 * float(shell_solid)
 
 
-## True only on the step LAMaterialFieldSeal3D latched the books. The seal drives one sample there; a sample
-## on any other step cannot take a baseline, so a late one is impossible rather than merely unlikely.
-func _at_seal(step_index: int) -> bool:
-	return _f != null and _f._seal != null and step_index == _f._seal.baseline_step()
+# --- shared ------------------------------------------------------------------------------------------
+
+func _live_of(f: Dictionary, group: PackedStringArray) -> Dictionary:
+	var live: Dictionary = f["live"]
+	var out: Dictionary = {}
+	for name in group:
+		out[name] = bool(live.get(name, false))
+	return out
 
 
-func _note_seed(key: String, value: float) -> void:
-	if _f != null and _f._seal != null:
-		_f._seal.note_seed({key: value})
+func _missing_of(live: Dictionary) -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	for name in live:
+		if not bool(live[name]):
+			out.append(String(name))
+	return out
+
+
+func _subset(by_channel: Dictionary, group: PackedStringArray) -> Dictionary:
+	var out: Dictionary = {}
+	for name in group:
+		out[name] = float(by_channel.get(name, 0.0))
+	return out

@@ -1,10 +1,8 @@
 class_name LAMaterialFieldRegolith3D
 extends RefCounted
 
-## LAMaterialFieldRegolith3D: the AQUIFER ROCK of LAMaterialField3D — which cells are permeable, how coarse
-## conductivity of 4.05 m/s: twenty-six times the coarsest natural gravel, a thousand million times a silt.
-## Kozeny-Carman. There is no material-type table anywhere and there should never be one — "sand" and "clay"
-## cell's water CAPACITY, and it is the phi in Kozeny-Carman. A separate `SOIL_CAPACITY = 0.6` used to sit
+## LAMaterialFieldRegolith3D: the AQUIFER ROCK of LAMaterialField3D — which cells are permeable and how
+## porous they are. There is no material-type table anywhere and there should never be one.
 
 ## Rooting / aquifer band: the top REGOLITH_CELLS solid shells of each column are permeable; below is bedrock.
 const REGOLITH_CELLS: int = 4
@@ -48,7 +46,7 @@ func compute() -> void:
 	var surf_count: int = int(_f._sphere.surf_count)
 	var depth: int = int(_f._sphere.depth)
 	var mid: PackedFloat32Array = _f._sphere.shell_mid
-	var sea_r: float = _f.sea_level
+	var sea_r: float = _f.sea_radius()
 	# The elevation band the grain-size gradient is read over: from the sea shell up to the highest ground
 	# this planet actually has. Derived from the terrain rather than assumed, so a flatter or steeper world
 	# still spans the same range of materials.

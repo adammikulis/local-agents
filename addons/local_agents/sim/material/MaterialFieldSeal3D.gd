@@ -114,8 +114,6 @@ func poll(legs: Dictionary) -> bool:
 func _latch_baselines() -> void:
 	_latched = true
 	_baseline_step = _step_index()
-	if _f._ledger != null:
-		_f._ledger.conservation_report(_baseline_step)
 	var rep = _f._report_mod
 	if rep != null:
 		rep._heavy_frame = -1_000_000

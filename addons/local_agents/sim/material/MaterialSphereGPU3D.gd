@@ -16,7 +16,7 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/PlateAdvectPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/SolidDerivePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/WaterSlumpLavaPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/LavaCellListPass.gd",
+	"res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ThermalPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/GasWindPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ChargeBreakdownPass.gd",
@@ -28,12 +28,18 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/FireDustPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/EcoSurfacePass.gd"]
 
-const SCENT_PLANES: int = 5
 const SOIL_DBG_SLOTS: int = 21
 # Slots in the `active_args` buffer (see setup()). 0-2 are the uvec3 dispatch-indirect argument; 3 is the
 # compacted list length a compacted kernel uses as its loop bound. 8 rather than 4 purely for 32-byte alignment.
 const ACTIVE_ARGS_SLOTS: int = 8
 const ARG_SLOT_LIST_COUNT: int = 3
+# Compacted active-cell lists: label -> [index buffer key, dispatch-indirect args key]. ThermalPass reads the
+# lava pair by the unsuffixed keys. Each label publishes a `<label>_list_cells` gauge.
+const ACTIVE_LISTS: Dictionary = {
+	"lava": ["active_idx", "active_args"],
+	"shock": ["active_idx_shock", "active_args_shock"],
+	"fungus": ["active_idx_fungus", "active_args_fungus"],
+}
 # Plate table layout, shared with plate_advect_sphere3d.glsl: per plate, seed.xyz + rate + pole.xyz + pad.
 # MAX_PLATES is only the buffer ceiling; the live count travels in ctx["n_plates"].
 const PLATE_STRIDE: int = 8
@@ -47,15 +53,14 @@ static func available() -> bool:
 	return true
 
 var _rd: RenderingDevice = null
-# LA_INJECT_AUDIT=1 -> every whole-mirror set_field upload prints how much mass it wrote away (see
+# LA_INJECT_AUDIT=1 -> every whole-mirror seed_field upload prints how much mass it wrote away (see
 # _audit_mirror_upload). Read once here, not per call: it costs a full-grid readback plus two sums.
 var _audit_mirror: bool = OS.has_environment("LA_INJECT_AUDIT")
 var _field = null
 var _grid: RefCounted = null
 var _cc: int = 0
 var _phase: int = 0                 # ping-pong phase ∈ {0,1}; flips once per step (NOT CPU parity)
-var _step_index: int = 0            # monotonic field-step counter; wind_pressure_sphere3d reads step_index == 0
-                                    # as "seed the standard atmosphere" (the air channel allocates all-zero)
+var _step_index: int = 0            # monotonic field-step counter, published to kernels as ctx["step_index"]
 var _groups: int = 0
 var _bufs: Dictionary = {}          # key → RID (single) or [rid_a, rid_b] (pair)
 var _passes: Array = []
@@ -72,6 +77,9 @@ var _channel_hold: Dictionary = {}      # channel name -> drain index it stays h
 var _drain_count: int = 0               # monotonic drain counter the holds are measured against
 var _probe_want: PackedStringArray = PackedStringArray()
 var _probe: Dictionary = {}
+## Field step the probe dictionary was filled at. A consumer sampling on a coarse cadence gets a probe that
+## is older than its own call, and a drift rate divided by the wrong step count is wrong by that ratio.
+var _probe_step: int = -1
 # begin_frame upload gates: the solid/static masks and CPU water copy are re-uploaded only when actually edited
 # (SDF stamp / water injection), not every step — the per-step re-upload was pure CPU↔GPU transfer waste. Both
 # default true so the first begin_frame seeds them.
@@ -86,9 +94,9 @@ var _temp_dirty: bool = true
 # CPU array keeps its prior value (the _apply_readback scatter is res.has()-guarded), which the consumers tolerate.
 const SLOW_READBACK_EVERY: int = 4
 
-# BETWEEN-PASS PROBE (LA_H2O_BUDGET diagnostics only; armed per step by LAMaterialFieldH2OBudget3D, left
-# invalid otherwise). When valid, step() runs the checkpointed path below instead of the normal one-submit
-# path. Nothing on the per-frame path reads this.
+# BETWEEN-PASS PROBE, armed per step by LAFieldPassAttribution3D and left invalid otherwise. When valid,
+# step() runs the checkpointed path below instead of the normal one-submit path. Nothing on the per-frame
+# path reads this.
 var _step_probe: Callable = Callable()
 
 
@@ -104,24 +112,30 @@ func setup(field) -> void:
 
 	for name in pair_channels():
 		_bufs[name] = [_new_f(_cc), _new_f(_cc)]
-	_bufs["scent"] = [_new_f(_cc * SCENT_PLANES), _new_f(_cc * SCENT_PLANES)]
 	for name in single_channels():
 		_bufs[name] = _new_f(_cc)
 	_bufs["send"] = _new_f(_cc * 6)
+	# Per-slot enthalpy flux beside `send`: the donor writes mass * its own temperature, the receiver gathers
+	# it. Reading a neighbour's temp in the apply pass would read a value another thread is writing.
+	_bufs["heat_send"] = _new_f(_cc * 6)
 	_bufs["soil_dbg"] = _new_f(_cc * SOIL_DBG_SLOTS)     # per-leg groundwater budget probe (see SOIL_DBG_SLOTS)
-	# BOTH the uvec3 dispatch-indirect argument (slots 0-2) and the atomic list-length counter (slot 3) — one
-	# Lightning: the strike list its column scan appends to, its dispatch/counter slots, and the
+	# Per list: the compacted cell indices, plus a buffer that is BOTH the uvec3 dispatch-indirect argument
+	# (slots 0-2) and the atomic list-length counter (slot 3).
+	for lname in ACTIVE_LISTS:
+		var lkeys: Array = ACTIVE_LISTS[lname]
+		_bufs[lkeys[0]] = _new_u32(_cc)
+		_bufs[lkeys[1]] = _rd.storage_buffer_create(
+			ACTIVE_ARGS_SLOTS * 4, _zeros(ACTIVE_ARGS_SLOTS),
+			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
+	# Lightning: the strike list the breakdown column scan appends to, its dispatch/counter slots, and the
 	# column-integrated charge per surface column (C/m^2).
 	_bufs["strike_idx"] = _new_u32(_cc)
 	_bufs["strike_args"] = _rd.storage_buffer_create(
 		ACTIVE_ARGS_SLOTS * 4, _zeros(ACTIVE_ARGS_SLOTS),
 		RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
 	_bufs["sigma_col"] = _new_f(maxi(_cc / maxi(int(_grid.depth), 1), 1))
-	_bufs["active_idx"] = _new_u32(_cc)
-	_bufs["active_args"] = _rd.storage_buffer_create(
-		ACTIVE_ARGS_SLOTS * 4, _zeros(ACTIVE_ARGS_SLOTS),
-		RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
-	# Sphere geometry SSBOs: neighbour table (int32, LASphereGrid slot order), radial + position (flat float3).
+	# Sphere geometry SSBOs: neighbour table (int32, LASphereGrid slot order — never permuted, see
+	# scripts/check_neighbour_slots.sh), radial + position (flat float3).
 	var nbr_bytes: PackedByteArray = _grid.neighbours.to_byte_array()
 	_bufs["nbr"] = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	_bufs["radial"] = _make_vec3_flat(func(c: int) -> Vector3: return _grid.cell_radial(c))
@@ -134,8 +148,20 @@ func setup(field) -> void:
 	# Angular separation per lateral link — the lateral RUN a slope test needs (see LASphereGrid.link_arc).
 	var larc_bytes: PackedByteArray = _grid.link_arc.to_byte_array()
 	_bufs["link_arc"] = _rd.storage_buffer_create(larc_bytes.size(), larc_bytes)
+	# Solid angle per SURFACE column, steradians. Binding 17 on every kernel that includes cell_geom.glsli.
+	# Zero here makes every cell volume zero, so it is checked rather than assumed.
+	var omega: PackedFloat32Array = _grid.solid_angle
+	var omega_min: float = INF
+	for si in omega.size():
+		omega_min = minf(omega_min, omega[si])
+	if omega.size() * maxi(int(_grid.depth), 1) != _cc or not (omega_min > 0.0):
+		push_error("LAMaterialSphereGPU3D: solid_angle table is %d entries, min %f — cell volumes would be zero"
+			% [omega.size(), omega_min])
+		return
+	var omega_bytes: PackedByteArray = _grid.solid_angle_bytes()
+	_bufs["solid_angle"] = _rd.storage_buffer_create(omega_bytes.size(), omega_bytes)
 	# (cos, sin) carrying MY tangent axes into the neighbour's. A VECTOR crossing a lateral link is rotated by
-	# it; a scalar is not. Momentum advection is the first consumer, which is why it now reaches the GPU.
+	# it; a scalar is not.
 	var lrot_bytes: PackedByteArray = _grid.link_rot.to_byte_array()
 	_bufs["link_rot"] = _rd.storage_buffer_create(lrot_bytes.size(), lrot_bytes)
 	# Per-shell radial geometry: thickness, centre radius, centre-to-centre runs. See kernels3d/shell.glsli.
@@ -161,13 +187,9 @@ func setup(field) -> void:
 	_seed_rock_fill()
 	_seed_regolith()                    # aquifer permeability mask + grain-size field (static)
 
-	# The reaction table's flux-derived rates (evaporation and its kin) turn a real per-square-metre flux into a
-	# per-cell extent, which needs the cell HEIGHT. The table is baked once, so it gets the SURFACE shell's
-	# thickness — the shell those fluxes cross — not the column mean.
-	# `shell_dr` and `cell_size` are MODEL units — the same units LASphereGrid was built in — so they convert
-	# through METRES_PER_MODEL_UNIT, exactly as GasWindPass.dispatch converts `lat_size` for its Courant
-	# factor. Assigning them raw made every flux-derived rate in the reaction table wrong by that factor.
-	var surf_shell: int = _grid.shell_of(field.sea_level)
+	# The reaction table's flux-derived rates need the cell HEIGHT in METRES. The table is baked once, so it
+	# gets the thickness of the shell holding the sea surface, converted from model units.
+	var surf_shell: int = _grid.shell_of(field.sea_radius())
 	var surf_dr: float = float(_grid.shell_dr[surf_shell]) if surf_shell >= 0 else float(_grid.cell_size)
 	LAReactionDefs.cell_size_m = surf_dr * LAPhysical.METRES_PER_MODEL_UNIT
 
@@ -191,9 +213,8 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 	# inter-frame CPU work) and read its channels into `_cached`. Must happen before the temp/water uploads below,
 	# which write the same live buffers the step wrote. This is the CPU↔GPU overlap that hides the field step cost.
 	_drain_pending()
-	# geothermal core pin wrote _temp on the CPU every step. It does not any more. The core is a flux
-	# boundary applied inside heat_sphere3d.glsl (LAMaterialFieldGeotherm3D pushes one scalar), so the only
-	# CPU writer left is injection (add_heat / meteors / lava), which marks it dirty. Same gate as water.
+	# The core is a flux boundary applied inside heat_sphere3d.glsl (LAMaterialFieldGeotherm3D pushes one
+	# scalar); the only CPU writer of _temp is injection (add_heat / meteors / lava), which marks it dirty.
 	if _temp_dirty:
 		_upload_f(_live("temp"), temp)
 		_temp_dirty = false
@@ -224,8 +245,7 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 		_ctx["sun_dir"] = Vector3(0, 1, 0)
 
 ## Planet spin axis in the FIELD's frame. GasWindPass reads ctx["spin_axis"] for its latitude bands and
-## Coriolis handedness; until this existed nothing set it, so it fell back to world +Y while the planet's
-## real axis is 23.5 degrees away — every wind band was referenced to the wrong pole.
+## Coriolis handedness.
 func set_spin_axis(v: Vector3) -> void:
 	_ctx["spin_axis"] = v.normalized() if v.length() > 0.001 else Vector3(0, 1, 0)
 
@@ -392,6 +412,7 @@ func _drain_pending() -> void:
 			var pb = _bufs[pname]
 			_probe[pname] = _rd.buffer_get_data(pb[_phase] if pb is Array else pb).to_float32_array()
 		_probe_want = PackedStringArray()
+		_probe_step = _step_index
 	# Direct sub-timings (noise-immune, unlike fps): how long the GPU sync stall vs the channel copy/convert
 	# actually cost this drain. The readback (buffer_get_data + to_float32_array over ~17 full-grid channels) is
 	# the suspected field bottleneck; measuring it directly is how we know what gating it can win.
@@ -421,14 +442,15 @@ func _read_gpu_pass_timings() -> void:
 
 
 func _read_active_list_counts() -> void:
-	if not _bufs.has("active_args"):
-		return
-	var raw: PackedByteArray = _rd.buffer_get_data(_bufs["active_args"])
-	if raw.size() < ACTIVE_ARGS_SLOTS * 4:
-		return
-	var slots: PackedInt32Array = raw.to_int32_array()
 	LASimReport.gauge("field_cells", float(_cc))
-	LASimReport.gauge("lava_list_cells", float(slots[ARG_SLOT_LIST_COUNT]))
+	for lname in ACTIVE_LISTS:
+		var key: String = String(ACTIVE_LISTS[lname][1])
+		if not _bufs.has(key):
+			continue
+		var raw: PackedByteArray = _rd.buffer_get_data(_bufs[key])
+		if raw.size() < ACTIVE_ARGS_SLOTS * 4:
+			continue
+		LASimReport.gauge(String(lname) + "_list_cells", float(raw.to_int32_array()[ARG_SLOT_LIST_COUNT]))
 
 
 ## Cells where a flash initiated this step, read at the drain. Visual/telemetry only — the neutralisation,
@@ -457,9 +479,6 @@ func _read_channels(read_slow: bool) -> Dictionary:
 	var out: Dictionary = _empty_result()
 	for k in ["temp", "water", "moisture", "o2"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
-	# scent is a 5-plane packed pair (SCENT_PLANES * cell_count) — read its live half whole so the CPU bridge
-	# scatters all five planes (prey/predator/blood/food/alarm) back for the sense gradients.
-	out["scent"] = _rd.buffer_get_data(_live("scent")).to_float32_array()
 	# snow (SINGLE) — read every physics frame per living carcass (decomposition/permafrost gating), not just
 	# render/debug, so it stays hot even though most consumers are periodic.
 	if _bufs.has("snow"):
@@ -494,11 +513,15 @@ func request_probe(names: PackedStringArray) -> void:
 			_probe_want.append(name)
 
 
-## Collect the most recent read-only sample — one drain old at most, the same lag the CPU mirrors carry. Empty
-## until the first drain after `request_probe`, so a caller falls back to the mirrors and publishes which legs
-## it actually got (`mineral_live` / `mass_live`).
+## The most recent read-only sample, taken at the drain into a dictionary no simulation consumer sees. Empty
+## until the first drain after `request_probe`; a leg that is absent is ABSENT, never substituted.
 func take_probe() -> Dictionary:
 	return _probe
+
+
+## Field step of the sample `take_probe` holds; -1 when there is none.
+func probe_step() -> int:
+	return _probe_step
 
 
 ## The CPU solid/static mask changed (initial solidity sample, a volcano SDF stamp, a terrain edit) — re-seed
@@ -518,8 +541,6 @@ func _audit_mirror_upload(name: String, arr) -> void:
 	var live: PackedFloat32Array = _rd.buffer_get_data(buf).to_float32_array()
 	var lt: float = 0.0
 	var mt: float = 0.0
-	# Whole array, not the first _cc entries: `scent` is a 5-plane pair (SCENT_PLANES * _cc) and capping at _cc
-	# would report one plane's drift as the channel's.
 	var n: int = mini(live.size(), arr.size())
 	for i in n:
 		lt += live[i]
@@ -527,10 +548,18 @@ func _audit_mirror_upload(name: String, arr) -> void:
 	print("MIRROR_REWIND={\"channel\":\"%s\",\"live\":%.4f,\"mirror\":%.4f,\"delta\":%.4f}" % [name, lt, mt, mt - lt])
 
 
-## SEEDING ONLY. Hands the device a whole channel while the world is being built — the seed sea, the
-## geotherm, the initial litter. After LAMaterialFieldSeal3D.sealed() this is a hard error: a whole-channel
-## write cannot say what it changed, so after the seal it is indistinguishable from creating matter.
+## SEEDING ONLY: hands the device a whole channel while the world is being built. The amount is declared to
+## LAMaterialFieldSeal3D, which refuses it once the world is SEALED, and a whole-mirror upload past step 0 is
+## refused outright — it rewinds however much the device evolved since that mirror was last read back, which
+## depends on channel residency and therefore on which consumers happen to be alive. Step-time edits go
+## through the inject queue's sparse ops, which read the LIVE buffer and book what they moved.
 func seed_field(name: String, arr, seal) -> void:
+	if _rd == null or not _bufs.has(name):
+		return
+	if _step_index > 0:
+		push_error(("seed_field('%s') after %d steps: a whole-mirror upload past step 0 rewinds live GPU state " +
+			"by an amount that depends on channel residency. Queue a sparse edit instead.") % [name, _step_index])
+		return
 	if seal != null and seal.has_method("note_creation"):
 		var total: float = 0.0
 		if arr is PackedFloat32Array:
@@ -538,30 +567,20 @@ func seed_field(name: String, arr, seal) -> void:
 				total += float(v)
 		if not seal.note_creation("seed_" + name, total):
 			return
-	set_field(name, arr)
-
-
-func set_field(name: String, arr) -> void:
-	if _rd == null or not _bufs.has(name):
-		return
 	if _audit_mirror and arr is PackedFloat32Array:
 		_audit_mirror_upload(name, arr)
 	if name == "temp":
-		_temp_dirty = true      # keep the gated begin_frame upload in step with a whole-mirror set
+		_temp_dirty = true      # keep the gated begin_frame upload in step with a whole-mirror seed
 	var b = _bufs[name]
 	if b is Array:
-		# scent is a 5-plane pair (SCENT_PLANES * cell_count); every other pair channel is one plane (cell_count).
-		# Upload the whole array into the live half when it matches the channel's expected length (mirrors
-		# restore_channels) — the shared _upload_f only accepts a single-plane cell_count array, so route directly.
-		var expect: int = _cc * (SCENT_PLANES if name == "scent" else 1)
-		if arr.size() == expect:
+		if arr.size() == _cc:   # every PAIR channel is one plane of cell_count
 			var bytes: PackedByteArray = arr.to_byte_array()
 			_rd.buffer_update(b[_phase], 0, bytes.size(), bytes)
 	else:
 		_upload_f(b, arr)
 
 
-# --- SPARSE IN-PLACE EDITS (the additive counterpart to set_field) ----------------------------------------
+# --- SPARSE IN-PLACE EDITS (the only legal step-time write) -----------------------------------------------
 
 ## A delta this negative empties a cell exactly (the clamp floor is 0), so callers that want to DRAIN a cell
 ## without knowing what is in it pass this and read the returned total.
@@ -578,11 +597,13 @@ func add_field_sparse(name: String, cells: PackedInt32Array, deltas: PackedFloat
 	if arr.size() < _cc:
 		return 0.0
 	var applied: float = 0.0
-	var lo: int = _cc
+	# Bound on the BUFFER, not on _cc, so a channel wider than one plane is editable at all.
+	var n: int = arr.size()
+	var lo: int = n
 	var hi: int = -1
 	for i in cells.size():
 		var c: int = cells[i]
-		if c < 0 or c >= _cc:
+		if c < 0 or c >= n:
 			continue
 		var before: float = arr[c]
 		var delta: float = deltas[i]
@@ -699,7 +720,6 @@ func snapshot_channels() -> Dictionary:
 	_flush_pending()        # a step submit may be in flight (async pipeline) — sync before reading the buffers
 	for name in pair_channels():
 		out[name] = _rd.buffer_get_data(_live(name)).to_float32_array()
-	out["scent"] = _rd.buffer_get_data(_bufs["scent"][_phase]).to_float32_array()
 	for name in single_channels():
 		out[name] = _rd.buffer_get_data(_bufs[name]).to_float32_array()
 	return out
@@ -718,8 +738,7 @@ func restore_channels(data: Dictionary) -> void:
 		var bytes: PackedByteArray = arr.to_byte_array()
 		var b = _bufs[key]
 		if b is Array:
-			var expect: int = _cc * (SCENT_PLANES if key == "scent" else 1)
-			if arr.size() != expect:
+			if arr.size() != _cc:
 				continue
 			_rd.buffer_update(b[0], 0, bytes.size(), bytes)
 			_rd.buffer_update(b[1], 0, bytes.size(), bytes)
@@ -838,7 +857,7 @@ func _empty_result() -> Dictionary:
 		"fire": PackedFloat32Array(), "fuel": PackedFloat32Array(),
 		"sediment": PackedFloat32Array(), "o2": PackedFloat32Array(),
 		"co2": PackedFloat32Array(), "charge": PackedFloat32Array(),
-		"scent": PackedFloat32Array(), "fert": PackedFloat32Array(),
+		"fert": PackedFloat32Array(),
 		"detritus": PackedFloat32Array(), "shock": PackedFloat32Array(),
 		"dust": PackedFloat32Array(), "snow": PackedFloat32Array(),
 		"susp": PackedFloat32Array(), "biomass": PackedFloat32Array(),

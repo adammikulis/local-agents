@@ -134,6 +134,7 @@ static func _throw_rock_at(c, prey: Node3D) -> void:
 	rock.throw_at(c.global_position + Vector3(0, c.size, 0), prey, 26.0)
 
 
+## The meal is drawn out of the prey's body; the remainder stays on it as the carcass a scavenger strips.
 static func _kill_and_eat(c, prey: Node3D) -> void:
 	var prey_profile: Dictionary = prey.food_profile() if prey != null and prey.has_method("food_profile") else {}
 	# How much of the body one feeding bout can take: bounded by the predator's own gut room and its bite rate,
@@ -156,9 +157,7 @@ static func _kill_and_eat(c, prey: Node3D) -> void:
 			prey.queue_free()
 		return
 	LACreatureDigestion.ingest(c, meat, prey_profile)
-	# THE PREY'S BODY WATER comes with its flesh. A carnivore in the field usually does not need to drink,
-	# because meat is about 70% water — and this leg conserves exactly, since it is transferred out of the
-	# animal that was carrying it rather than credited from nothing.
+	# The prey's body water moves with its flesh: debited from the prey, never credited from nothing.
 	_transfer_prey_water(c, prey, meat)
 	LAAudioDirector.emit(c.get_tree(), "chomp", c.global_position)
 	c._emit_call("forage")                     # a kill call: kin nearby learn to hunt this situation
@@ -228,7 +227,9 @@ static func _try_eat_food(c, pos: Vector3) -> bool:
 		return false
 	var profile: Dictionary = best.food_profile()
 	var gained: float = 0.0
-	var bite: float = maxf(float(c.bite_rate), 1.0e-9)
+	var bite: float = maxf(float(c.bite_rate), 1.0e-9)          # mass units the mouth can take this bout
+	# `food_mass_per_unit` is the food node's own unit in field mass units; a node that declares none already
+	# speaks mass. Both sides of the bite go through it, so a bite cannot credit food-units as a mass.
 	var per_unit: float = 1.0
 	if best.has_method("food_mass_per_unit"):
 		per_unit = maxf(float(best.call("food_mass_per_unit")), 1.0e-12)
@@ -237,8 +238,7 @@ static func _try_eat_food(c, pos: Vector3) -> bool:
 		gained = float(best.call("feed", bite / per_unit)) * per_unit           # a bite of a carcass or a plant
 	else:
 		# A whole food node with no partial-bite contract: take what the mouth can hold and free it once it has
-		# actually been stripped. It used to credit the node's FULL value in one frame however small the animal,
-		# so an ant swallowed a shrub whole.
+		# actually been stripped.
 		gained = minf(bite, value_mass)
 		if gained >= value_mass - 1.0e-9:
 			(best as Node3D).queue_free()
@@ -298,8 +298,8 @@ static func think_scavenger(c, pos: Vector3, _delta: float) -> Vector3:
 	var to_flat: Vector3 = Vector3.ZERO
 	if carcass != null:
 		to_flat = Vector3(carcass.global_position.x - pos.x, 0.0, carcass.global_position.z - pos.z)
-	elif c._material != null and c._material.has_method("scent_gradient"):
-		var d: Vector3 = c._material.scent_gradient(pos, LAScentChannels.SCENT_FOOD)
+	elif c._material != null and c._material.has_method("airborne_gradient"):
+		var d: Vector3 = c._material.airborne_gradient("co2", pos)
 		if d != Vector3.ZERO:
 			to_flat = Vector3(d.x, 0.0, d.z)
 	if to_flat != Vector3.ZERO:
@@ -388,8 +388,8 @@ static func _carrion_cue(c, pos: Vector3) -> Vector3:
 		var d: Vector3 = Vector3(flyer.global_position.x - pos.x, 0.0, flyer.global_position.z - pos.z)
 		if d.length() > 0.001:
 			return d.normalized()
-	if c._material != null and c._material.has_method("scent_gradient"):
-		var s: Vector3 = c._material.scent_gradient(pos, LAScentChannels.SCENT_FOOD)
+	if c._material != null and c._material.has_method("airborne_gradient"):
+		var s: Vector3 = c._material.airborne_gradient("co2", pos)
 		if s != Vector3.ZERO:
 			return Vector3(s.x, 0.0, s.z).normalized()
 	if c._cue_cd > 0.0:
@@ -471,8 +471,7 @@ static func execute_action(c, action: String, pos: Vector3, delta: float) -> Dic
 			return {"heading": c._heading + LACreatureFlocking.steer(c, pos, not c.can_fly), "state": "flock", "speed": c.speed}
 		"drink":
 			# Routed through the ONE drinking path (LACreatureThirst.drink) so this refill debits the puddle
-			# too. It used to be a second copy of the rate constant that refilled hydration with no water cell
-			# touched anywhere — two callers, both of which forgot the debit.
+			# too.
 			if c._material != null and c._material.has_method("is_water_at") and c._material.is_water_at(pos):
 				LACreatureThirst.drink(c, pos, delta)
 				return {"heading": c._heading, "state": "drink", "speed": 0.0}
@@ -490,9 +489,8 @@ static func execute_action(c, action: String, pos: Vector3, delta: float) -> Dic
 				c._migrate_dir = cards[LASimRng.for_domain("life").randi() % cards.size()]
 			return {"heading": c._migrate_dir, "state": "migrate", "speed": c.speed}
 		"flee":
-			# A follower that ADOPTED its leader's flee (Creature._physics_process) must actually move — this
-			# used to fall through to the no-op default and keep wandering toward the danger. Sprint away from
-			# the nearest larger predator if one is sensed, else reverse the current heading.
+			# A follower that ADOPTED its leader's flee (Creature._physics_process) must actually move: sprint
+			# away from the nearest larger predator if one is sensed, else reverse the current heading.
 			var away: Vector3 = -c._heading
 			var pred = LACreatureSenses.nearest_larger_predator(c, pos)
 			if pred != null and is_instance_valid(pred) and (pos - pred.global_position).length() > 0.001:

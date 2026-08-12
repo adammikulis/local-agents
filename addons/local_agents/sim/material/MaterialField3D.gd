@@ -49,23 +49,16 @@ const N2_AMBIENT: float = AIR_CELL_UNIT * (LAPhysical.AIR_MOLE_FRAC_N2 / LAPhysi
 # ICE_DEPTH = a thick pack that reads as glacial ice (the deep end of the same channel — no separate ice buffer).
 const SNOW_PRESENT: float = 1.9e-4
 const ICE_DEPTH: float = 0.5              # ~8 m water equivalent = a real glacial thickness, not a snowfall
-# Clausius-Clapeyron, one function, one owner. It used to be three constants here (SAT_BASE 0.06 /
 const FOG_MAX_TEMP: float = 12.0
-# is 5e-5 kg/m³ / 997 kg/m³ = 5.0e-8. It was 0.05, a thousand times saturation itself.
+# Condensate fraction at which a cell counts as covered: 5e-5 kg/m³ over water's 997 kg/m³.
 const CONDENSE_COVER_MIN: float = 5.0e-8
-const SCENT_PREY: int = LAScentChannels.SCENT_PREY
-const SCENT_PREDATOR: int = LAScentChannels.SCENT_PREDATOR
-const SCENT_BLOOD: int = LAScentChannels.SCENT_BLOOD
-const SCENT_FOOD: int = LAScentChannels.SCENT_FOOD
-const SCENT_ALARM: int = LAScentChannels.SCENT_ALARM
-const SCENT_CHANNELS: int = LAScentChannels.SCENT_CHANNELS
 var _temp: PackedFloat32Array = PackedFloat32Array()     # temperature °C per cell (rock + void)
 # ONE conserved atmospheric-water channel: total water suspended in a cell's air (Phase 2a — collapses the
 # old vapor/cloud/fog trio). vapor = min(moisture, sat(T)); condensed = max(0, moisture − sat(T)); the
 # condensed part reads as fog (cool + near ground) or cloud (else) — all DERIVED, nothing else stores it.
 var _moisture: PackedFloat32Array = PackedFloat32Array()
 # Frozen H₂O per cell (snowpack depth) — the SAME conserved substance as _water/_moisture, just the cold phase.
-# GPU-owned (never re-uploaded); read back each frame for snow_cell_count/ice_cell_count/snow_depth_at + h2o_total.
+# GPU-owned (never re-uploaded); the CPU mirror serves snow_depth_at. The ledger reads the drain probe.
 var _snow: PackedFloat32Array = PackedFloat32Array()
 # Fractional BEDROCK mineral mass per cell (Stage B). `solid` is DERIVED from it on the GPU (solid iff >= 0.5).
 # GPU-owned + GPU-evolved (M5/M6 records).
@@ -109,9 +102,6 @@ var _charge: PackedFloat32Array = PackedFloat32Array()   # electrification charg
 var _dust: PackedFloat32Array = PackedFloat32Array()     # airborne dust density per cell (wind-lofted sand storm)
 # Seismic / sound SHOCK amplitude per cell — a propagating pressure wave (GPU shock_sphere3d radiates it).
 var _shock: PackedFloat32Array = PackedFloat32Array()
-# Five-plane SCENT density (SCENT_CHANNELS * _cell_count, plane-major: channel*_cell_count + cell). Prey/
-# predator/blood/food/alarm chemical trails the GPU scent kernel diffuses + advects on the wind each step.
-var _scent: PackedFloat32Array = PackedFloat32Array()
 var _sun_light = null                                    # DirectionalLight3D — solar forcing (top cells)
 
 var _ecology = null                                      # LAEcologyService back-ref (ash regrowth / actor coupling)
@@ -137,11 +127,9 @@ var _organic = null                                      # LAMaterialFieldOrgani
 # per-actor dissolution agents fill: shock (Earthquake/Meteor), charge→bolt (Thunderstorm), ejecta (bombs/debris).
 var _shock_mod = null                                    # LAMaterialShock3D — shock channel + emit/readback
 var _charge_mod = null                                   # LAMaterialCharge3D — charge readback + breakdown→bolt
-var _scent_mod = null                                    # LAMaterialScent3D — 5-plane scent channel + deposit/readback
 var _ejecta = null                                       # LAMaterialEjecta3D — momentum/ejecta parcels (Node3D child)
 var _pending_lightning_cb: Callable = Callable()         # lightning visual callback (registered pre-activate)
 const ShockScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialShock3D.gd")
-const ScentScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialScent3D.gd")
 const ChargeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialCharge3D.gd")
 const EjectaScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialEjecta3D.gd")
 # they hold no per-cell state (every one reaches back into this field's arrays), so the field stays the thin
@@ -214,15 +202,19 @@ func point_to_field(world_pos: Vector3) -> Vector3:
 	return _origin + _body_basis_inv * (world_pos - _origin)
 
 
-var sea_level: float = 0.0
-var _half_extent: float = 0.0
+## Radius of the sea shell, model units. Everything here is radial; the flat-world `sea_level` world-Y is gone.
+func sea_radius() -> float:
+	if _terrain != null and _terrain.has_method("sea_radius"):
+		return float(_terrain.sea_radius())
+	return 0.0
+
 
 # --- Frame loop + rendering -------------------------------------------------
 const STEP_HZ: float = 10.0
 const STEP_DT: float = 1.0 / STEP_HZ
 const MAX_STEPS_PER_FRAME: int = 2
 const RENDER_MIN: float = 0.08            # min water mass in a cell for its top face to render
-const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of sea_level are left to the ocean plane
+const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of the sea shell are left to the ocean plane
 var _step_accum: float = 0.0
 var _ready_sim: bool = false
 var _seal = null
@@ -231,11 +223,8 @@ const HEAT_TEX_EVERY: int = 3            # terrain-glow heat texture refresh cad
 const SLOW_READ_EVERY: int = 3           # render-only GPU readback cadence for vapor/cloud/fog
 var _heat_tex_tick: int = 0
 var _slow_read_tick: int = 0
-var _lava_dirty: bool = false
-var _rock_fill_dirty: bool = false       # the CPU edited bedrock → re-upload rock_fill this step
-var _shock_dirty: bool = false           # emit_shock seeded shock on the CPU → re-upload shock this step
-var _scent_dirty: bool = false           # deposit() seeded scent on the CPU → re-upload the 5-plane scent this step
-var _fuel_dirty: bool = false            # fuel seed/refill edited the CPU channel → re-upload fuel this step
+var _charge_woke: bool = false           # a charge injection woke the breakdown scan
+var _fuel_dirty: bool = false            # fuel seeded on the CPU → seed the GPU fuel buffer before step 0
 var _detritus_seed_dirty: bool = false   # one-shot: initial soil detritus seeded → upload once before the first step
 var _organic_seed_dirty: bool = false    # one-shot: the seeded litter's C:H:O pushed once, with the detritus seed
 # Lazy solidity sampling: the field is created before the terrain has finished streaming, so it samples
@@ -298,6 +287,11 @@ func setup_sphere(grid: RefCounted, terrain = null) -> void:
 	_sphere = grid
 	if terrain != null:
 		_terrain = terrain      # sphere path's terrain wiring (box uses setup()); needed to activate + sample solidity
+		# The solid-mask cache's key. `_terrain_opts` was declared for this and never assigned, so the guard
+		# at _sample_solidity_sphere was always false and THE CACHE HAD NEVER ONCE BEEN USED — every run paid
+		# the full per-cell is_solid sweep, ~1 s, to recompute a mask that had not changed.
+		if terrain.has_method("generator_options"):
+			_terrain_opts = terrain.generator_options()
 	_cell_size = maxf(0.5, grid.cell_size)
 	_origin = grid.center
 	_cell_count = grid.cell_count
@@ -358,9 +352,7 @@ func _alloc_channels() -> void:
 	_fuel.resize(_cell_count)
 	_fire = PackedFloat32Array()
 	_fire.resize(_cell_count)
-	# THE AIR, seeded once and finite thereafter. Both gases are filled at Earth's measured composition; the
-	# gas loops. (The `.fill` on `_co2` is the whole fix for "the planet had no carbon in its air": the line
-	# reaction record was manufacturing the carbon anyway.)
+	# THE AIR, seeded once and finite thereafter. Both gases are filled at Earth's measured composition.
 	_o2 = PackedFloat32Array()
 	_o2.resize(_cell_count)
 	_o2.fill(O2_AMBIENT)
@@ -401,9 +393,6 @@ func _alloc_channels() -> void:
 	_dust.resize(_cell_count)
 	_shock = PackedFloat32Array()
 	_shock.resize(_cell_count)
-	# Five scent planes packed into one flat array (plane-major): SCENT_CHANNELS * _cell_count.
-	_scent = PackedFloat32Array()
-	_scent.resize(SCENT_CHANNELS * _cell_count)
 	# Read-only query accessors bind to this field now; the arrays they read exist from here on.
 	_queries = QueriesScript.new()
 	_queries.setup(self)
@@ -553,8 +542,6 @@ func activate() -> void:
 	_charge_mod.setup(self)
 	if _pending_lightning_cb.is_valid():
 		_charge_mod.set_visual(_pending_lightning_cb)
-	_scent_mod = ScentScript.new()
-	_scent_mod.setup(self)
 	_ejecta = EjectaScript.new()
 	_ejecta.setup(self)
 	add_child(_ejecta)                            # Node3D: integrates ballistic parcels + owns the GPU ejecta particles
@@ -736,9 +723,10 @@ func set_plate_motion(table: PackedFloat32Array) -> void:
 func wind() -> Vector2:
 	return _queries.wind()
 
-## LOCAL horizontal wind (world XZ) at a point — the emergent GPU velocity read back into `_vel_*`.
-func wind_at(x: float, z: float) -> Vector2:
-	return _queries.wind_at(x, z)
+## LOCAL horizontal wind at a world POINT, as the tangential drift in world XZ — the emergent GPU velocity
+## read back into `_vel_*`.
+func wind_at(world_pos: Vector3) -> Vector2:
+	return _queries.wind_at(world_pos)
 
 ## Radial vorticity (air SPIN about local up) at a world point — storm actors track/scale off the emergent vortex.
 func vorticity_at(pos: Vector3) -> float:
@@ -756,9 +744,6 @@ func wind3_at(x: float, y: float, z: float) -> Vector3:
 # `grid_dim()` IS DELETED. It existed so "CloudLayer's texture maps 1:1 with the 2.5D field" — there is no
 # CloudLayer and no 2.5D field; both survive only in gravestone comments. Cloud is derived from `moisture`
 # against the saturation curve now and has no grid of its own.
-
-func grid_half_extent() -> float:
-	return _half_extent
 
 
 # Local injection writes the sphere GPU field buffers via the injection module; the field only forwards.
@@ -781,7 +766,6 @@ func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = V
 
 ## Cells holding melt that has reached OPEN ground — lava. Thin forwarder; the walk (and the magma/lava
 ## distinction it rests on) lives in LAMaterialFieldQueries3D.molten_counts.
-## (Was `return 0`, a gauge that read "no lava" identically whether there was none or the reporting was dead.)
 func lava_cell_count() -> int:
 	return _queries.lava_cell_count() if _queries != null else 0
 
@@ -831,9 +815,9 @@ func splash(world_pos: Vector3, strength: float) -> void:
 		_inject.splash(world_pos, strength)
 
 
-# --- Ecology back-ref. Fire/combustion (ignite/is_burning/active_fire_count) AND granular landslides
-# (disturb_terrain/slump_count) are now LIVE via their field modules — nothing here is stubbed anymore.
-# _ecology backs fire ash regrowth + actor coupling. ---
+# --- Ecology back-ref. Fire/combustion (ignite/is_burning/active_fire_count) and granular landslides
+# (disturb_terrain/slump_count) are live via their field modules. _ecology backs fire ash regrowth +
+# actor coupling. ---
 func set_ecology(e) -> void:
 	_ecology = e
 
@@ -858,43 +842,16 @@ func active_fire_count() -> int:
 	return _queries.fire_cells() if _queries != null else 0
 
 
-# --- Scent / waste / fertility — thin forwarders to LAMaterialScent3D (the 5-plane scent channel module).
-# The field stays an extract-only facade: deposits seed a plane + set _scent_dirty (uploaded before the next
-# GPU step), reads sample the plane the sphere driver read back. Channel indices (SCENT_PREY/…) live at top. --
+# --- Organic deposits. There is no scent channel: dung, blood and a carcass land as `detritus`, the
+# decomposer record eats them, and the CO2 rides the same gas transport as every other gas. -----------------
 
-## Drop feces/urine at a world point. Feces carries a FOOD/musk cue (predators track prey by dung); urine is a
-## territorial musk that marks a PREY trail. Simple per-kind channel mapping — the scent kernel diffuses it.
-func deposit_waste(world_pos: Vector3, creature, kind: String) -> void:
-	if _scent_mod == null:
-		return
-	var channel: int = SCENT_FOOD if kind == "feces" else SCENT_PREY
-	_scent_mod.deposit(world_pos, channel, 1.0)
-
-## A fresh burst of BLOOD scent (a wound or a kill).
+## A wound or a kill: blood is water plus organic solids, and the solids are what rots.
 func deposit_blood(world_pos: Vector3, amount: float) -> void:
-	if _scent_mod != null:
-		_scent_mod.deposit(world_pos, SCENT_BLOOD, amount)
-
-## A carcass advertising FOOD (the decaying-corpse cue scavengers follow).
-func deposit_food(world_pos: Vector3, amount: float) -> void:
-	if _scent_mod != null:
-		_scent_mod.deposit(world_pos, SCENT_FOOD, amount)
-
-## Scent density of a channel (SCENT_PREY/PREDATOR/BLOOD/FOOD/ALARM) at a world point.
-func scent_at(world_pos: Vector3, channel: int) -> float:
-	return _scent_mod.scent_at(world_pos, channel) if _scent_mod != null else 0.0
-
-## Normalized world direction UP a scent channel's gradient (predator tracking, prey avoidance).
-func scent_gradient(world_pos: Vector3, channel: int) -> Vector3:
-	return _scent_mod.scent_gradient(world_pos, channel) if _scent_mod != null else Vector3.ZERO
+	deposit_detritus(world_pos, amount)
 
 ## Soil nutrient at a world point (plants grow faster on rich ground) — the read-back GPU fertility channel.
 func fertility_at(world_pos: Vector3) -> float:
 	return _queries.fertility_at(world_pos) if _queries != null else 0.0
-
-## Columns carrying meaningful airborne scent (SMOKE_SUMMARY `scent_cells`).
-func scent_cell_count() -> int:
-	return _scent_mod.scent_cell_count() if _scent_mod != null else 0
 
 ## Peak soil nutrient (SMOKE_SUMMARY `fertility_peak`) — the read-back GPU fertility channel.
 func fertility_peak() -> float:
@@ -918,7 +875,6 @@ func geotherm_report() -> Dictionary:
 
 ## Cells holding melt still CONFINED by rock — magma, as against the lava_cell_count above. Thin forwarders;
 ## both, and the eruption test, come from the single walk in LAMaterialFieldQueries3D.molten_counts.
-## (Both were hardcoded — `return 0` / `return false` — while `magma_cells` was published in every SIM_REPORT.)
 func magma_cell_count() -> int:
 	return _queries.magma_cell_count() if _queries != null else 0
 ## Molten rock standing in open cells: magma has reached the surface, which is what an eruption IS.
@@ -926,39 +882,19 @@ func magma_erupting() -> bool:
 	return _queries.magma_erupting() if _queries != null else false
 ## Open cells currently carrying a suspended mineral load — the `erosion_cells` gauge in SIM_REPORT. Thin
 ## forwarder; the count lives in LAMaterialFieldMineralProfile3D (static, so no diagnostic instance is needed).
-## (Was `return 0` — a hardcoded zero that read "no erosion anywhere" identically whether erosion was working
 func erosion_cell_count() -> int:
 	return LAMaterialFieldMineralProfile3D.suspended_cell_count(_susp, _solid)
-# --- Conserved H₂O ledger + snow/ice diagnostics — bodies live in LAMaterialFieldLedger3D. ONE water
+## Snow depth at a world point, in channel units. Body in LAMaterialFieldChannels3D.
 func snow_depth_at(pos: Vector3) -> float:
-	return _ledger.snow_depth_at(pos)
-## Open cells carrying a snowpack (frozen H₂O over SNOW_PRESENT) — the emergent snow-line count for SIM_REPORT.
-func snow_cell_count() -> int:
-	return _ledger.snow_cell_count()
-## Cells whose pack is thick enough to read as glacial ICE (deep end of the SAME _snow channel, no separate buffer).
-func ice_cell_count() -> int:
-	return _ledger.ice_cell_count()
-## Total frozen H₂O over the field, over every open cell (one leg of the conserved h2o_total).
-func snow_total() -> float:
-	return _ledger.snow_total()
-## Total liquid water over the field, over every open cell — the static sea/lake reservoir INCLUDED. Its
-func water_total() -> float:
-	return _ledger.water_total()
-## Total water stored in the SOIL, over every REGOLITH cell — the subsurface leg of the conserved h2o budget.
-## Infiltrated water lives here rather than in _water, so it must be counted or conservation would appear to
-## leak. Masked on regolith, not solidity: carved/eroded aquifer cells read open but still hold their soil.
-func soil_total() -> float:
-	return _ledger.soil_total()
-## The planet's WHOLE conserved H₂O budget: liquid water (sea included) + airborne moisture + frozen snow +
-## soil water. A closed sum since the four legs' inclusion rule was unified — nothing sits outside it.
+	return _channels.snow_depth_at(pos)
+## The planet's whole conserved H₂O budget in cubic metres, as LAMaterialFieldLedger3D last measured it.
 func h2o_total() -> float:
-	return _ledger.h2o_total()
-## Mean temperature over the snow-covered cells — proves snow sits on the COLD side (should read below FREEZE_TEMP).
-func snow_line_temp() -> float:
-	return _ledger.snow_line_temp()
-## Airborne dust at a world point. Was a bare `return 0.0` with no comment — a point read that answered "how
-## much debris is in the air here" with a permanent no. Forwards to the channel module like every other
-## per-cell read; it self-wakes the demand-gated `dust` readback the way co2_at does.
+	return _ledger.total("h2o_total")
+## Liquid surface water in cubic metres, as LAMaterialFieldLedger3D last measured it.
+func water_total() -> float:
+	return _ledger.total("water_total")
+## Airborne dust at a world point. Forwards to the channel module; self-wakes the demand-gated `dust`
+## readback the way co2_at does.
 func dust_at(x: float, y: float, z: float) -> float:
 	return _channels.dust_at(x, y, z)
 #  counts the same cells with the same threshold inside a pass it already makes. Reason in MaterialFieldQueries3D.)

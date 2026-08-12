@@ -42,14 +42,15 @@ static func family_id(c) -> int:
 	return int(c.family_id)
 
 
-static func senses(c, temp_fallback: float) -> Dictionary:
+## Welfare senses: {health, fear, o2} plus `temp` only when there is a material field to read an ambient from.
+static func senses(c) -> Dictionary:
 	var o2: float = 1.0
 	if c.breath_capacity > 0.0:
 		o2 = clampf(c._breath / c.breath_capacity, 0.0, 1.0)
-	var temp: float = temp_fallback
-	if c._material != null and c._material.has_method("temp_at"):
-		temp = c._material.temp_at(c.global_position)
-	return {"health": c.health, "fear": c._panic_timer, "o2": o2, "temp": temp}
+	var out: Dictionary = {"health": c.health, "fear": c._panic_timer, "o2": o2}
+	if c._material != null:
+		out["temp"] = float(c._material.temp_at(c.global_position))
+	return out
 
 
 ## Same-species neighbours in the scene tree (the social-learning scan pool). The group-naming convention

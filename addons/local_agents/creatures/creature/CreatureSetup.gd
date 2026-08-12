@@ -2,11 +2,9 @@ class_name LACreatureSetup
 extends RefCounted
 
 
+# Per-individual jitter on maturity and lifespan, so a generation does not mature, breed and die in lockstep.
 const MATURITY_VARIANCE: float = 0.45    # ±fraction on per-individual maturity_age
-const LIFESPAN_VARIANCE: float = 0.45    # ±fraction on per-individual max_age — WIDE, so even a big single-
-                                         # generation boom (an overshoot cohort) ages out over a LONG spread of
-                                         # time (overlapping generations) instead of dying together in one pulse
-                                         # that crashes the population below its recovery floor (the boom-bust)
+const LIFESPAN_VARIANCE: float = 0.45    # ±fraction on per-individual max_age
 
 
 static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
@@ -16,6 +14,8 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 		c.config = c._genome.express()
 	else:
 		c.config = config_arg.duplicate(true)
+		# Standing genetic variation: from_config() encodes the species template exactly, so founders would
+		# otherwise be clones with zero variance at every locus. See LADNA.seed_variation.
 		c._genome = LADNA.from_config(c.config).seed_variation(LASimRng.for_domain("life"))
 		c.config = c._genome.express()
 	var config: Dictionary = c.config
@@ -43,17 +43,23 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	# RESPIRATORY ANATOMY, expressed before the body ledger because the ledger's derived rates read it.
 	c.respiratory_capacity = float(config.get("respiratory_capacity", c.respiratory_capacity))
 	c.thermogenesis = float(config.get("thermogenesis", c.thermogenesis))
+	c.thermal_optimum_c = float(config.get("thermal_optimum_c", c.thermal_optimum_c))
+	c.thermal_tolerance = float(config.get("thermal_tolerance", c.thermal_tolerance))
 	# HP scales with body size: a bigger animal endures more before a blast kills it.
 	c.max_health = float(config.get("max_health", 30.0 + c.size * 120.0))
 	c.health = c.max_health
 	c.breath_capacity = float(config.get("breath_capacity", c.breath_capacity))
 	c._breath = c.breath_capacity
 	c.breathes = String(config.get("breathes", c.breathes))
+	# Sets mass_kg / structural_mass / max_energy / max_hydration / thirst_rate / bite_rate / food_value.
 	LACreatureBodyMass.apply(c, config)
 	c.max_age = float(config.get("max_age", maxf(c.maturity_age * 5.0, 60.0)))
 	c.max_age *= 1.0 + LASimRng.for_domain("life").randf_range(-LIFESPAN_VARIANCE, LIFESPAN_VARIANCE)
 	if genome_arg == null:
+		# Founders spread over juvenile→young-adult, so the first maturation wave is desynchronised without
+		# seeding anyone near old age.
 		c.age = LASimRng.for_domain("life").randf() * c.maturity_age * 1.8
+	LACreatureBodyMass.size_to_age(c)
 	if config.has("sex"):
 		c.is_male = String(config.get("sex", "")) == "male"
 	else:
@@ -74,7 +80,8 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.nests = bool(config.get("nests", c.nests))
 	c.nest_habitat = String(config.get("nest_habitat", "tree" if c.can_fly else "ground"))
 	c.llm_enabled = bool(config.get("llm_enabled", c.llm_enabled))   # export is the default; config may override
-	c.body_temp = LACreatureRespiration.band_optimum_c()
+	# Body temperature starts at this genome's own optimum; Newton cooling carries it to ambient from there.
+	c.body_temp = LACreatureRespiration.band_optimum_c(c)
 	c._target_altitude = c.cruise_height
 	c.state = "cruise" if c.can_fly else "wander"
 	var rng: LASimRng = LASimRng.for_domain("life")

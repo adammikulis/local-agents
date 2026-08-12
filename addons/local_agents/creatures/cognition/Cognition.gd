@@ -13,9 +13,8 @@ const W_DAMAGE: float = 6.0                # aversion per unit of fractional HP 
 const W_FEAR: float = 0.25                 # aversion per unit rise in the panic/fear level (predator dread)
 const W_O2: float = 1.0                    # aversion for being fully out of breath in my medium (suffocating)
 const W_TEMP: float = 1.0                  # aversion at a temperature where metabolism stops entirely (freezing
-                                           # or protein denaturation). Was 0.03 per °C outside a comfort band;
-                                           # _comfort_deviation is now a bounded 0..1 shortfall of the body's
-                                           # own reaction rate, so the weight is on the same scale as W_O2.
+                                           # or protein denaturation). _comfort_deviation is a bounded 0..1
+                                           # shortfall of the body's own reaction rate.
 const TERM_CAP: float = 1.0                # clamp on each individual aversive term so one sense can't dominate
 
 const RISK_RETAIN: float = 0.7             # how much remembered pain carries frame-to-frame (rest decays)
@@ -50,7 +49,7 @@ var _last_hydration: float = -1.0
 var _last_health: float = -1.0            # HP at the last decision — a drop since = damage taken (aversive)
 var _last_fear: float = 0.0               # panic/fear level at the last decision — a rise since = dread (aversive)
 var _last_o2: float = 1.0                 # breath fraction (0..1) at the last decision — low = suffocating
-var _last_temp: float = 15.0             # ambient °C at the last decision — outside comfort band = discomfort
+var _last_temp: float = NAN              # ambient °C at the last decision; NAN until one has been sensed
 var _last_veto: bool = false             # did the last decide() REFUSE a learned-lethal action? (Creature reads this to retreat)
 var _last_was_fallback: bool = false     # was _last_action a veto REDIRECT (not a free choice)? gates the durability guard
 
@@ -203,7 +202,7 @@ func _record_choice(action: String, how: String, sig: Dictionary) -> void:
 ## called once per decision, which is already throttled — no per-frame or neighbour scan. Returns
 ## {health, fear, o2, temp}: HP, the panic/fear level, the breath fraction in-medium, and ambient °C.
 func _sample_senses(c) -> Dictionary:
-	return LACognizerAdapter.senses(c, _last_temp)
+	return LACognizerAdapter.senses(c)
 
 
 func _reinforce(c, senses: Dictionary) -> void:
@@ -233,7 +232,7 @@ func _reinforce(c, senses: Dictionary) -> void:
 	var breath_frac: float = minf(_last_o2, float(senses.get("o2", 1.0)))
 	aversive += clampf((1.0 - breath_frac) * W_O2, 0.0, TERM_CAP)
 	# Temperature: the worst deviation outside the comfort band across the interval (cold snap / heat).
-	var dev: float = maxf(_comfort_deviation(_last_temp), _comfort_deviation(float(senses.get("temp", _last_temp))))
+	var dev: float = maxf(_comfort_deviation(_last_temp, c), _comfort_deviation(float(senses.get("temp", _last_temp)), c))
 	aversive += clampf(dev * W_TEMP, 0.0, TERM_CAP)
 
 	var reward: float = clampf(appetitive - aversive, -1.0, 1.0)
@@ -252,8 +251,11 @@ func _reinforce(c, senses: Dictionary) -> void:
 	(entry as Dictionary)["risk"] = clampf(prev_risk * RISK_RETAIN + aversive, 0.0, RISK_MAX)
 
 
-func _comfort_deviation(t: float) -> float:
-	return 1.0 - LACreatureRespiration.temp_band(t)
+# Shortfall of this creature's own respiration band at temperature `t` (°C), 0..1.
+func _comfort_deviation(t: float, c) -> float:
+	if is_nan(t):
+		return 0.0                       # never sensed an ambient: no discomfort to feel
+	return 1.0 - LACreatureRespiration.temp_band(t, c)
 
 
 # Drive urgency in [0,1]: how hard hunger OR thirst is pushing this creature right now (fractional deficit).

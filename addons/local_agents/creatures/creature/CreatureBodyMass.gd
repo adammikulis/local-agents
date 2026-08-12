@@ -3,9 +3,9 @@ extends RefCounted
 
 
 const RESERVE_FRAC: float = 0.20       # labile reserve (fat + glycogen) as a fraction of live mass, wild mammal
-const LETHAL_WATER_DEFICIT_FRAC: float = 0.15
+const LETHAL_WATER_DEFICIT_FRAC: float = 0.15   # water a mammal can lose as a fraction of live mass before death
 
-const MASS_UNIT_SCALE: float = 1.0e-4  # the factor TISSUE_PER_KG was moved by, kept visible
+const MASS_UNIT_SCALE: float = 1.0e-4  # fauna:flora scale factor applied to TISSUE_PER_KG
 const TISSUE_PER_KG: float = 130.0 * MASS_UNIT_SCALE      # simulation mass units per kilogram of live tissue
 const REFERENCE_MASS_KG: float = 0.5   # fallback when a species has no measured mass yet (a small mammal)
 
@@ -34,6 +34,8 @@ static func hydration_capacity(config: Dictionary) -> float:
 	return live_mass(config) * LETHAL_WATER_DEFICIT_FRAC
 
 
+## Water turnover per second: a multiple of aerobic capacity, since respiratory water leaves across the same
+## gas-exchange surface the oxygen crosses.
 const WATER_PER_CAPACITY: float = 1.5
 static func thirst_rate(c) -> float:
 	return WATER_PER_CAPACITY * LACreatureRespiration.capacity_rate(c)
@@ -55,6 +57,8 @@ static func note_spawn(c, from_genome: bool) -> void:
 	c._material.note_biota_spawn(body_mass(c), int(Engine.get_physics_frames()) <= FOUNDING_FRAMES)
 
 
+## Overwrite the mass-derived fields on a freshly-configured creature. Called from LACreatureSetup after
+## species/genome expression.
 static func apply(c, config: Dictionary) -> void:
 	c.mass_kg = mass_kg(config)
 	c.structural_mass = structural(config)
@@ -91,6 +95,44 @@ static func draw(c, want: float) -> float:
 	c.structural_mass -= from_tissue
 	taken += from_tissue
 	return taken
+
+
+## Mass as a fraction of the adult body, from the age-driven growth curve. Mass goes as the CUBE of the
+## linear scale at fixed tissue density, so this is geometry rather than a second curve anybody chose.
+static func growth_mass_fraction(c) -> float:
+	var s: float = LACreatureLifeStage.growth_scale(c)
+	return s * s * s
+
+
+## Structural tissue this body should carry at its current age.
+static func growth_target_structural(c) -> float:
+	return structural(c.config) * growth_mass_fraction(c)
+
+
+## How much tissue this body still has to build. Zero once grown, or if it is already over target.
+static func growth_deficit(c) -> float:
+	return maxf(0.0, growth_target_structural(c) - float(c.structural_mass))
+
+
+## Put `amount` of digested mass into structural tissue, returning what was used. The caller has already
+## taken it out of the gut, so this is a transfer and body_mass is unchanged by it.
+static func grow(c, amount: float) -> float:
+	var used: float = minf(maxf(amount, 0.0), growth_deficit(c))
+	c.structural_mass += used
+	return used
+
+
+## Size a newborn to its age. `apply` runs before CreatureSetup assigns `age`, so the age-dependent part
+## cannot live there; this is called once the age is on the body. A founder spawned aged-in reads
+## fraction 1.0 and is unchanged.
+static func size_to_age(c) -> void:
+	var f: float = growth_mass_fraction(c)
+	c.structural_mass = structural(c.config) * f
+	c.max_energy = reserve(c.config) * f
+	c.energy = c.max_energy
+	c.max_hydration = hydration_capacity(c.config) * f
+	c.hydration = c.max_hydration
+	c.food_value = body_mass(c)
 
 
 ## Keep `food_value` in step with what the body actually weighs, so a starved animal is worth less to a
