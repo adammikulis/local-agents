@@ -121,7 +121,8 @@ LOG_FILE="$LOG_DIR/agent_harness_${cmd}_$(date +%s).log"
 child=()
 case "$cmd" in
   sim)
-    shift
+    # No shift here: line 81 already consumed the subcommand. A second one ate the first argument, so
+    # `sim --frames 600` reached sim_run.sh as a bare `600` and `sim --raw` ran the default arm silently.
     "$(dirname "${BASH_SOURCE[0]}")/sim_run.sh" "$@"
     exit $?
     ;;
