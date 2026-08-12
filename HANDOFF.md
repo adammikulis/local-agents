@@ -29,8 +29,17 @@ from a caller list and from a red gate were not in front of anyone. They are in 
 
 ### State
 
-**Everything is on `feature/enthalpy`.** The branch does not parse and there is one reason left:
-`LAHeatCapacity` is deleted and the field still stores `temp`. That conversion is task 7 below.
+**Everything is on `feature/enthalpy`, and the tree is GREEN.** `check_parse_all` 0 errors,
+`check_shaders_compile` 10/10, `BoxFieldDemo` and `SimWorldPlanetDemo` exit 0 with ZERO engine-error
+lines. `lint` is red on one gate only: `check_comment_density.sh (gdscript)`.
+
+**Enthalpy is the state.** `h_j_m3` is what a cell stores; temperature, phase, pressure, `solid`, `fire`,
+`discharge`, velocity, conductivity, gas moles and condensed density are all DERIVED per step and live in
+`LAChannels.derived_buffers()`, not in the channel table. Latent heat is structural.
+
+**Momentum is the state and velocity is derived.** `mom_x/y/z` replaced `vel_x/y/z`: the transport rows had
+always named `mom_*` while the table declared `vel_*`, so every momentum row push_errored out and THE
+MOMENTUM EQUATION HAD NEVER RUN.
 
 **The grid migration is done.** The Cartesian box is the only grid: `MaterialSphereGPU3D` takes an
 `LAVoxelGrid`, gravity is the solved Poisson field read per cell, and `check_no_privileged_axis.sh` passes
@@ -62,47 +71,21 @@ coefficient is stoichiometry rather than a density ratio between two invented un
 
 ---
 
-## THE ONE TASK — ENTHALPY IS THE STATE
+## FOUND BY DOING IT — each had silently disabled a whole subsystem
 
-**Indivisible. One owner. It cannot be split by file or by channel, and a partial rename produces a planet
-instead of an error.** Everything else queues behind it.
+These were invisible: the file existed, compiled, and passed every gate that mentioned it.
 
-`temp` becomes `h_j_m3`. **Rename the buffer in the same commit that changes its unit**, so an unconverted
-kernel fails to COMPILE rather than evaluating the phase ladder against the wrong quantity.
-
-**The curve is already built on both sides and gated** — `LASubstances.enthalpy_at` / `enthalpy_to_state`,
-`kernels3d/enthalpy.glsli`'s `la_state_to_enthalpy` / `la_enthalpy_to_state`, held equal by
-`check_enthalpy_ssot.sh`, which also checks the phase ladder appears in the same ORDER on both sides. The
-GLSL twin stops at gas; the high rungs need bisection (`PHYSICS_TODO.md` A2). This is wiring, not research.
-
-**Every `LAHeatCapacity` consumer is a DELETION, not a rewrite.** With enthalpy stored there is no set of
-channels that carry heat, because heat is no longer spread across channels:
-
-| Consumer | Becomes |
-|---|---|
-| the group views, `channels()` unions (`Seal3D`, `FieldLedgerRecords3D`, `EnergyProbe3D`) | deleted — nothing needs the list |
-| `field()` / `legs()` / `live_map()` capacity arrays (`FieldLedgerFold3D`, `EnergyLedger3D`) | deleted — the stock is the sum of `h * V` |
-| `EnergyBudget3D`'s capacity report | deleted |
-| `Inject3D`'s `capacity * volume * dT` | joules are `(h_target - h_now) * V` |
-| `WaterSlumpLavaPass`'s per-row rc upload | deleted — transport carries `h` |
-| the `heat` column in `Channels.gd` and `heat_group()` | deleted |
-
-**Also deletes:** `rc_shared.glsli` (done), `HeatCapacity.gd` (done), its SSOT gate (done), and the
-`rock_fill`/`lava` channel pair — one substance.
-
-- ~~the `water`/`moisture`/`snow` channel pair~~ — DONE. `water`, `moisture`, `snow` and `soil` are one `h2o`
-  channel; solid / liquid / vapour are derived per cell by `state_derive.glsl` off the same ladder and the
-  same saturation curve, and published as `h2o_solid` / `h2o_liquid` / `h2o_vapour`.
-- ~~**A MOISTURE→WATER condensation record does not exist on either lineage.**~~ STRUCK. There is no
-  condensation record on either side of the boundary now, and there must not be: a phase change is what the
-  cell's enthalpy says happened, and no record may move mass between phases of one substance.
-- **The acceptance test PASSED, on the GPU:** a cell of pure water with its enthalpy half-way up the melting
-  plateau derives `h2o_solid` 0.5 at the melting point; with `l_fus` zeroed in `enthalpy.glsli` the same cell
-  derives 0.0 and leaves the plateau entirely.
-- **`rc_of` coming out is the acceptance test for the whole stage, not a step in it.** It had 20 consumers.
-  If it cannot come out, the root is not fixed — say so rather than restoring it.
-
----
+- **`pressure.glsl` had no pass and was dispatched by nobody.** The buffer held zero, so every phase
+  boundary the ladder evaluates was read at VACUUM. Fixed, and gas now answers with p = nRT rather than
+  the weight of a column it does not have.
+- **The reaction engine had never run.** Its uniform set bound a `radial` buffer nothing created, so the
+  set was invalid every step and every reaction record in the tree was dead.
+- **`porosity` was written by nothing**, so Kozeny-Carman over phi = 0 meant groundwater had never moved.
+- **`MODE_CONDUCT` named a `conductivity` buffer nobody created**, so heat had never conducted.
+- **Coriolis was booked by a LEDGER and never applied** — no rotation term in the momentum equation at all.
+- **`pinned` never fired on the GPU**: a phase boundary compared for float equality contracted differently
+  at each call site in float32, while the float64 GDScript twin latched correctly.
+- **A render budget decided where ejecta landed**, and a run's length defaulted to RENDER frames.
 
 ## WHAT IS LEFT
 
@@ -122,20 +105,33 @@ matching, `LASphereGrid` and the whole of `sim/sphere/`. `BiomeTextureBaker` -- 
 caller -- is deleted: a cubed-sphere face bake has no meaning on a box, and what grows where is what
 the biota channels compute.
 
-**P — pressure. Done.** `kernels3d/pressure.glsl` marches along -g accumulating the cell's own bulk
-density times the solved `|g|`. It replaced a kernel that gave a buried cell the weight of the AIR column
-at ambient air density. *Acceptance still owed:* pressure monotonically non-decreasing inward, which needs
-a run.
+**P — pressure. Done, and it had never run.** `kernels3d/pressure.glsl` had NO PASS: nothing dispatched
+it, so the buffer held zero and every phase boundary was evaluated at vacuum. `PressurePass` exists now,
+and gas answers with p = nRT of what it holds while condensed matter contributes the weight of the
+condensed column above. The atmosphere's hydrostatic profile is not added on top — it emerges, because
+gravity is what puts more gas in the cells near the ground. *Acceptance still owed:* pressure
+monotonically non-decreasing inward, which needs a run.
 
-**M — moles. Half done.** `mol_per_unit` and `unit_ratio` are deleted and the reaction table is
-stoichiometry. *Left:* one applicator evaluating every record against the same starting state, so
-`cap_slot` deletes. *Acceptance:* permute the record order, element totals bit-identical. **Do not read
-"conserve elements, derive species" literally** — deriving species by equilibrium returns zero biomass and
-looks clean; a living cell is not at chemical equilibrium. The defect named is the UNIT.
+**E — enthalpy. Done.** See the section above.
 
-**E — enthalpy. The one blocker left.** The field still stores `temp` and `LAHeatCapacity` is deleted, so
-the branch does not parse. Needs the mixture inverter, then `temp` becomes `h_j_m3` in the commit that
-changes its unit, then the latent-plateau gate.
+**M — moles. Half done, and the remaining half is the biggest thing left.** `mol_per_unit` and
+`unit_ratio` are deleted and the reaction table is stoichiometry. *Left:* channels still store VOLUME
+FRACTIONS while reactions balance in MOLES, and the bridge is a density that varies with T and p — so the
+two disagree by construction and every reaction mints or destroys matter at the conversion. Also left: one
+applicator evaluating every record against the same starting state, so `cap_slot` deletes. *Acceptance:*
+permute the record order, element totals bit-identical. **Do not read "conserve elements, derive species"
+literally** — deriving species by equilibrium returns zero biomass and looks clean; a living cell is not at
+chemical equilibrium. The defect named is the UNIT.
+
+**S — the things the substrate has no state for at all.** Each blocks a phenomenon outright:
+- **No dissolved phase.** `molality` is passed as 0 at every call site and no salt substance exists, yet
+  `salinity_at` returns a 0..1 number creatures band on. No thermohaline circulation, no freezing-point
+  depression, no brine rejection.
+- **No stress or strain.** Which is why the earthquake verb was DELETED rather than turned into a
+  detector: there was nothing to observe. No seismicity, and tectonics has nothing to emerge from.
+- **Angular momentum is not conserved by the scheme.** Face transport carries `mom_x/y/z` as three
+  independent scalars with no lever arm, so a resolved vortex spuriously spins down. The fix is the
+  advection scheme, NOT an angular-momentum channel — that would be a derived value in a buffer.
 
 ---
 
