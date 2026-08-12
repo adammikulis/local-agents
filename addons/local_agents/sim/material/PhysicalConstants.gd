@@ -168,11 +168,11 @@ const SILICATE_DISSOLUTION_EA_OVER_R_K: float = SILICATE_DISSOLUTION_EA_J_MOL / 
 ## Temperature laboratory dissolution rates are quoted at.
 const LAB_REFERENCE_TEMP_C: float = 25.0
 
-## Overburden pressure at which loose sediment lithifies, Pa.
 # Effective stress at which quartz pressure solution cements sand. Bjorlykke & Egeberg 1993, AAPG 77:1538.
 const LITHIFICATION_PRESSURE_PA: float = 6.0e7
-## Bulk density of unconsolidated wet sediment, kg/m^3.
-const SEDIMENT_DENSITY_KG_M3: float = 2000.0
+# Share of a cell's uncemented silicate that consolidates, per step per Pa above the threshold.
+# Inherited, unreviewed — docs/MODEL_PARAMETERS.md.
+const LITHIFICATION_RATE_PER_PA: float = 1.0e-9
 
 const PLATE_SPEED_MIN_MM_PER_YEAR: float = 10.0
 const PLATE_SPEED_MAX_MM_PER_YEAR: float = 100.0

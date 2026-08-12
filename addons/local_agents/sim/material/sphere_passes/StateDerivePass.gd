@@ -1,35 +1,33 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 ## TEMPERATURE AND PHASE FROM STORED ENTHALPY. Reads `h_j_m3` (J/m^3), the substance amounts and `pressure`,
-## and writes the derived `temp` (deg C), the three velocity components and the h2o solid/liquid/vapour
-## shares. It writes no channel and mutates no state.
+## and writes the derived `temp` (deg C), the three velocity components, the h2o solid/liquid/vapour shares
+## and the silicate melt share. It writes no channel and mutates no state.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/state_derive.glsl"
 
 ## Channel binding order. The kernel's `channel_at` switch IS this list and props[i] describes CHANNELS[i].
 const CHANNELS: PackedStringArray = [
 	"h2o",
-	"lava", "rock_fill", "sediment", "susp", "dust",
-	"carbonate", "silica",
+	"silicate", "carbonate", "silica",
 	"o2", "co2", "n2",
 	"biomass", "fungus", "detritus", "fuel", "org_h", "org_o",
 	"fert"]
 
 ## Cases in the kernel's `channel_at` switch. A mismatch drops a substance's heat capacity silently.
-const KERNEL_CHANNEL_SLOTS: int = 18
+const KERNEL_CHANNEL_SLOTS: int = 14
 
-## The h2o phase shares the kernel derives, in binding order — state_derive.glsl bindings 31..33.
-const PHASE_BUFFERS: PackedStringArray = ["h2o_solid", "h2o_liquid", "h2o_vapour"]
-const PHASE_BINDING_BASE: int = 31
+## Derived phase shares the kernel writes, name -> state_derive.glsl binding.
+const PHASE_BUFFERS: Dictionary = {
+	"h2o_solid": 34, "h2o_liquid": 35, "h2o_vapour": 36, "silicate_melt": 37}
 
 ## props row layout — state_derive.glsl PROP_*.
-const PROP_STRIDE: int = 6
+const PROP_STRIDE: int = 5
 const PROP_RHO: int = 0
 const PROP_C: int = 1
 const PROP_MOL_PER_KG: int = 2
 const PROP_ENTRY: int = 3
-const PROP_SAT: int = 4
-const PROP_LAMBDA: int = 5
+const PROP_LAMBDA: int = 4
 
 ## Mixture entries — state_derive.glsl E_*.
 const E_H2O: int = 0
@@ -66,13 +64,13 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	for name: String in CHANNELS:
 		if not _half(bufs, name, 0, false).is_valid():
 			missing.append(name)
-	for name: String in ["h_j_m3", "pressure", "temp", "porosity", "cell_vol", "conductivity",
-			"mom_x", "mom_y", "mom_z", "vel_x", "vel_y", "vel_z"]:
+	for name: String in ["h_j_m3", "pressure", "temp", "cell_vol", "conductivity",
+			"n_gas_m3", "rho_cond", "mom_x", "mom_y", "mom_z", "vel_x", "vel_y", "vel_z"]:
 		if not _half(bufs, name, 0, false).is_valid():
 			missing.append(name)
-	for name: String in PHASE_BUFFERS:
-		if not _single(bufs, name).is_valid():
-			missing.append(name)
+	for name in PHASE_BUFFERS:
+		if not _single(bufs, String(name)).is_valid():
+			missing.append(String(name))
 	if not missing.is_empty():
 		push_error("StateDerivePass: no buffer for %s, so no cell would get a temperature."
 			% String(", ").join(missing))
@@ -95,11 +93,12 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		entries.append([28, _single(bufs, "vel_x")])
 		entries.append([29, _single(bufs, "vel_y")])
 		entries.append([30, _single(bufs, "vel_z")])
+		entries.append([31, _single(bufs, "n_gas_m3")])
+		entries.append([32, _single(bufs, "rho_cond")])
 		entries.append([33, _single(bufs, "conductivity")])
-		entries.append([38, _single(bufs, "porosity")])
 		entries.append([40, _single(bufs, "cell_vol")])
-		for k in PHASE_BUFFERS.size():
-			entries.append([PHASE_BINDING_BASE + k, _single(bufs, PHASE_BUFFERS[k])])
+		for name in PHASE_BUFFERS:
+			entries.append([int(PHASE_BUFFERS[name]), _single(bufs, String(name))])
 		_set[p] = _uset(_pipe, entries)
 
 
@@ -155,10 +154,9 @@ func _props() -> PackedFloat32Array:
 				% [id, name] + "cannot be weighed and its heat capacity would vanish.")
 			return PackedFloat32Array()
 		var unit: String = String(row.get("unit", ""))
-		if unit != "vf" and unit != "sat":
-			push_error("StateDerivePass: LAChannels row \"%s\" declares no `unit`. " % name
-				+ "\"vf\" is a volume fraction of the cell, \"sat\" a saturation of the pore-free share; "
-				+ "without it the channel's mass is a guess.")
+		if unit != "vf":
+			push_error("StateDerivePass: LAChannels row \"%s\" declares unit \"%s\", not \"vf\". " % [name, unit]
+				+ "Matter is a volume fraction of the cell; without it the channel's mass is a guess.")
 			return PackedFloat32Array()
 		var entry: int = int(LADDER.get(id, E_SENSIBLE))
 		var c: float = 0.0
@@ -188,5 +186,4 @@ func _props() -> PackedFloat32Array:
 		out[base + PROP_C] = c
 		out[base + PROP_MOL_PER_KG] = mol_per_kg
 		out[base + PROP_ENTRY] = float(entry)
-		out[base + PROP_SAT] = 1.0 if unit == "sat" else 0.0
 	return out

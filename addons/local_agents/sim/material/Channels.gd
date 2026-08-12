@@ -2,18 +2,14 @@ class_name LAChannels
 extends RefCounted
 
 ## The one declaration of what a channel is. `phase` is "solid" / "liquid" / "gas", or "" when derived
-## from enthalpy. `unit` is "vf" (volume fraction of the cell), "sat" (saturation of the pore space,
-## times 1 - porosity for a volume fraction), or "" for not an amount of matter.
+## from enthalpy. `unit` is "vf", a volume fraction of the cell, or "" for not an amount of matter.
 static func rows() -> Dictionary:
 	var D: GDScript = load("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 	return {
 		"h_j_m3":      {"buffer": "pair",   "residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
 		"h2o":         {"buffer": "pair",   "residency": "hot",         "slot": D.H2O,       "substance": "h2o",        "phase": "",       "unit": "vf", "kind": "state"},
-		"lava":        {"buffer": "pair",   "residency": "situational", "slot": D.LAVA,      "substance": "silicate",   "phase": "liquid", "unit": "vf", "kind": "state"},
-		"rock_fill":   {"buffer": "single", "residency": "situational", "slot": D.ROCK_FILL, "substance": "silicate",   "phase": "solid",  "unit": "sat", "kind": "state"},
-		"sediment":    {"buffer": "pair",   "residency": "slow",        "slot": D.SEDIMENT,  "substance": "silicate",   "phase": "solid",  "unit": "vf", "kind": "state"},
-		"susp":        {"buffer": "pair",   "residency": "slow",        "slot": D.SUSP,      "substance": "silicate",   "phase": "solid",  "unit": "vf", "kind": "state"},
-		"dust":        {"buffer": "pair",   "residency": "situational", "slot": D.DUST,      "substance": "silicate",   "phase": "solid",  "unit": "vf", "kind": "state"},
+		"silicate":    {"buffer": "pair",   "residency": "slow",        "slot": D.SILICATE,  "substance": "silicate",   "phase": "",       "unit": "vf", "kind": "state"},
+		"cement":      {"buffer": "single", "residency": "slow",        "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
 		"carbonate":   {"buffer": "single", "residency": "hot",         "slot": D.CARBONATE, "substance": "carbonate",  "phase": "solid",  "unit": "vf", "kind": "state"},
 		"silica":      {"buffer": "single", "residency": "hot",         "slot": D.SILICA,    "substance": "silica",     "phase": "solid",  "unit": "vf", "kind": "state"},
 		"o2":          {"buffer": "pair",   "residency": "hot",         "slot": D.O2,        "substance": "o2",         "phase": "gas",    "unit": "vf", "kind": "state"},
@@ -44,6 +40,10 @@ static func derived_buffers() -> Dictionary:
 		"h2o_solid": "share of this cell's h2o the ladder leaves below the melting point at this pressure",
 		"h2o_liquid": "share of this cell's h2o that is condensed and above the melting point",
 		"h2o_vapour": "share of this cell's h2o the saturation curve puts in the gas at this cell's pressure",
+		"silicate_melt": "share of this cell's silicate the lever rule puts above the solidus at this pressure",
+		"silicate_susp_water": "loose share the water's shear holds up against the grain's settling velocity",
+		"silicate_susp_air": "loose share the air's shear holds up against the grain's settling velocity",
+		"silicate_bed": "loose share neither fluid holds up: (1 - melt) * (1 - cement) minus the two above",
 		"vel_x": "mom_x divided by the cell's mass",
 		"vel_y": "mom_y divided by the cell's mass",
 		"vel_z": "mom_z divided by the cell's mass",
@@ -51,7 +51,7 @@ static func derived_buffers() -> Dictionary:
 		"n_gas_m3": "moles of non-condensable gas per cubic metre of cell",
 		"rho_cond": "density of the cell's condensed matter alone",
 		"conductivity": "volume-weighted thermal conductivity of what the cell holds",
-		"solid": "rock_fill past the lock-up threshold",
+		"solid": "cemented silicate volume fraction past the rheological lock-up threshold",
 		"fire": "the share of a cell's usable oxygen that combustion consumed this step",
 		"discharge": "stamped where the field exceeded the local breakdown strength",
 	}
@@ -67,8 +67,7 @@ static func derived_slots() -> Dictionary:
 		D.SOIL_ROOT:       {"from": "pore water over the whole rooting column", "substance": "h2o"},
 		D.VAPOUR_DEFICIT:  {"from": "sat(T) - the cell's own h2o vapour", "substance": ""},
 		D.SOIL_TOP:        {"from": "pore water of the first regolith cell below an open one", "substance": "h2o"},
-		D.OVERBURDEN:      {"from": "lithostatic pressure of the solid column above", "substance": ""},
-		D.BEDROCK_BELOW:   {"from": "rock_fill of the inward neighbour", "substance": "silicate"},
+		D.BEDROCK_BELOW:   {"from": "silicate of the inward neighbour", "substance": "silicate"},
 		D.ORG_C:           {"from": "detritus + fuel", "substance": ""},
 	}
 
@@ -137,7 +136,8 @@ static func lithosphere_channels() -> PackedStringArray:
 	return out
 
 
-## Channels entering the cell mixture by mass: name -> {"substance": id, "unit": "vf" | "sat"}. Gas excluded.
+## Channels entering the cell mixture by mass: name -> {"substance": id, "unit": "vf"}. Gas is excluded:
+## it is the non-condensable denominator of the saturation split, counted in moles.
 static func mixture_channels() -> Dictionary:
 	var out: Dictionary = {}
 	var tbl: Dictionary = rows()

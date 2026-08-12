@@ -10,34 +10,24 @@ layout(local_size_x = 64) in;
 
 // Substance amounts, in the order StateDerivePass.CHANNELS declares. `channel_at` is that order.
 layout(set = 0, binding = 0,  std430) restrict readonly buffer H2O { float h2o[]; };
-layout(set = 0, binding = 1,  std430) restrict readonly buffer Lava { float lava[]; };
-layout(set = 0, binding = 2,  std430) restrict readonly buffer RockFill { float rock_fill[]; };
-layout(set = 0, binding = 3,  std430) restrict readonly buffer Sediment { float sediment[]; };
-layout(set = 0, binding = 4,  std430) restrict readonly buffer Susp { float susp[]; };
-layout(set = 0, binding = 5,  std430) restrict readonly buffer Dust { float dust[]; };
-layout(set = 0, binding = 6,  std430) restrict readonly buffer Carbonate { float carbonate[]; };
-layout(set = 0, binding = 7,  std430) restrict readonly buffer Silica { float silica[]; };
-layout(set = 0, binding = 8,  std430) restrict readonly buffer O2 { float o2[]; };
-layout(set = 0, binding = 9,  std430) restrict readonly buffer Co2 { float co2[]; };
-layout(set = 0, binding = 10, std430) restrict readonly buffer N2 { float n2[]; };
-layout(set = 0, binding = 11, std430) restrict readonly buffer Biomass { float biomass[]; };
-layout(set = 0, binding = 12, std430) restrict readonly buffer Fungus { float fungus[]; };
-layout(set = 0, binding = 13, std430) restrict readonly buffer Detritus { float detritus[]; };
-layout(set = 0, binding = 14, std430) restrict readonly buffer Fuel { float fuel[]; };
-layout(set = 0, binding = 15, std430) restrict readonly buffer OrgH { float org_h[]; };
-layout(set = 0, binding = 16, std430) restrict readonly buffer OrgO { float org_o[]; };
-layout(set = 0, binding = 17, std430) restrict readonly buffer Fert { float fert[]; };
+layout(set = 0, binding = 1,  std430) restrict readonly buffer Silicate { float silicate[]; };
+layout(set = 0, binding = 2,  std430) restrict readonly buffer Carbonate { float carbonate[]; };
+layout(set = 0, binding = 3,  std430) restrict readonly buffer Silica { float silica[]; };
+layout(set = 0, binding = 4,  std430) restrict readonly buffer O2 { float o2[]; };
+layout(set = 0, binding = 5,  std430) restrict readonly buffer Co2 { float co2[]; };
+layout(set = 0, binding = 6,  std430) restrict readonly buffer N2 { float n2[]; };
+layout(set = 0, binding = 7,  std430) restrict readonly buffer Biomass { float biomass[]; };
+layout(set = 0, binding = 8,  std430) restrict readonly buffer Fungus { float fungus[]; };
+layout(set = 0, binding = 9,  std430) restrict readonly buffer Detritus { float detritus[]; };
+layout(set = 0, binding = 10, std430) restrict readonly buffer Fuel { float fuel[]; };
+layout(set = 0, binding = 11, std430) restrict readonly buffer OrgH { float org_h[]; };
+layout(set = 0, binding = 12, std430) restrict readonly buffer OrgO { float org_o[]; };
+layout(set = 0, binding = 13, std430) restrict readonly buffer Fert { float fert[]; };
 
 layout(set = 0, binding = 21, std430) restrict readonly buffer Enthalpy { float h_j_m3[]; };
 layout(set = 0, binding = 22, std430) restrict readonly buffer Pressure { float pressure[]; };
 layout(set = 0, binding = 23, std430) restrict writeonly buffer Temp { float temp[]; };
 layout(set = 0, binding = 24, std430) restrict readonly buffer Props { float props[]; };
-layout(set = 0, binding = 38, std430) restrict readonly buffer Porosity { float porosity[]; };
-
-// THE PHASE OF THE CELL'S H2O, as three shares of h2o[] summing to 1. Derived, never stored.
-layout(set = 0, binding = 31, std430) restrict writeonly buffer H2OSolid { float h2o_solid[]; };
-layout(set = 0, binding = 32, std430) restrict writeonly buffer H2OLiquid { float h2o_liquid[]; };
-layout(set = 0, binding = 33, std430) restrict writeonly buffer H2OVapour { float h2o_vapour[]; };
 
 // MOMENTUM is the state, kg m/s per m^3. Velocity is what you read off it once you know the mass.
 layout(set = 0, binding = 25, std430) restrict readonly buffer MomX { float mom_x[]; };
@@ -53,6 +43,15 @@ layout(set = 0, binding = 31, std430) restrict writeonly buffer GasMol { float n
 layout(set = 0, binding = 32, std430) restrict writeonly buffer RhoCond { float rho_cond[]; };
 layout(set = 0, binding = 33, std430) restrict writeonly buffer Cond { float conductivity[]; };
 
+// THE PHASE OF THE CELL'S H2O, as three shares of h2o[] summing to 1. Derived, never stored.
+layout(set = 0, binding = 34, std430) restrict writeonly buffer H2OSolid { float h2o_solid[]; };
+layout(set = 0, binding = 35, std430) restrict writeonly buffer H2OLiquid { float h2o_liquid[]; };
+layout(set = 0, binding = 36, std430) restrict writeonly buffer H2OVapour { float h2o_vapour[]; };
+
+// THE MELT SHARE OF THE CELL'S SILICATE: the lever rule across the solidus-liquidus interval. Derived from
+// the same enthalpy ladder the temperature came off, never stored.
+layout(set = 0, binding = 37, std430) restrict writeonly buffer SilicateMelt { float silicate_melt[]; };
+
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint pad0;
@@ -60,16 +59,15 @@ layout(push_constant, std430) uniform Params {
 	uint pad2;
 } params;
 
-const int CHANNEL_SLOTS = 18;      // StateDerivePass.KERNEL_CHANNEL_SLOTS
+const int CHANNEL_SLOTS = 14;      // StateDerivePass.KERNEL_CHANNEL_SLOTS
 
 // One row of `props` per channel, built from LASubstances by StateDerivePass.
-const int PROP_STRIDE = 6;         // StateDerivePass.PROP_STRIDE
+const int PROP_STRIDE = 5;         // StateDerivePass.PROP_STRIDE
 const int PROP_RHO = 0;            // kg/m^3 that one unit of fill carries
 const int PROP_C = 1;              // J/kg/K, sensible-heat entry only
 const int PROP_MOL_PER_KG = 2;     // mol/kg, non-condensable gases only
 const int PROP_ENTRY = 3;          // which mixture entry the substance belongs to
-const int PROP_SAT = 4;
-const int PROP_LAMBDA = 5;    // W/m/K            // 1 = saturation of the pore-free share, not a cell volume fraction
+const int PROP_LAMBDA = 4;         // W/m/K
 
 // Mixture entries. Two substances carry a phase ladder; everything else is linear in T, so one entry with
 // the summed mass and c = sum(m*c)/sum(m) reproduces sum(m_i*c_i*T) exactly.
@@ -81,23 +79,19 @@ const int N_ENTRIES = 3;
 float channel_at(int i, uint c) {
 	switch (i) {
 		case 0:  return h2o[c];
-		case 1:  return lava[c];
-		case 2:  return rock_fill[c];
-		case 3:  return sediment[c];
-		case 4:  return susp[c];
-		case 5:  return dust[c];
-		case 6:  return carbonate[c];
-		case 7:  return silica[c];
-		case 8:  return o2[c];
-		case 9:  return co2[c];
-		case 10: return n2[c];
-		case 11: return biomass[c];
-		case 12: return fungus[c];
-		case 13: return detritus[c];
-		case 14: return fuel[c];
-		case 15: return org_h[c];
-		case 16: return org_o[c];
-		case 17: return fert[c];
+		case 1:  return silicate[c];
+		case 2:  return carbonate[c];
+		case 3:  return silica[c];
+		case 4:  return o2[c];
+		case 5:  return co2[c];
+		case 6:  return n2[c];
+		case 7:  return biomass[c];
+		case 8:  return fungus[c];
+		case 9:  return detritus[c];
+		case 10: return fuel[c];
+		case 11: return org_h[c];
+		case 12: return org_o[c];
+		case 13: return fert[c];
 	}
 	return 0.0;
 }
@@ -131,7 +125,6 @@ void main() {
 	}
 
 	float vol = cell_volume(g);
-	float phi = clamp(porosity[g], 0.0, 1.0);
 
 	float mass[LA_MIX_MAX] = float[LA_MIX_MAX](0.0, 0.0, 0.0, 0.0);
 	float mc = 0.0;          // sum of m*c over the sensible-heat substances, J/K
@@ -146,9 +139,6 @@ void main() {
 			continue;
 		}
 		int base = i * PROP_STRIDE;
-		if (props[base + PROP_SAT] != 0.0) {
-			f *= 1.0 - phi;
-		}
 		float m = f * props[base + PROP_RHO] * vol;
 		int entry = int(props[base + PROP_ENTRY]);
 		mass[entry] += m;
@@ -178,6 +168,7 @@ void main() {
 		h2o_solid[g] = 0.0;
 		h2o_liquid[g] = 0.0;
 		h2o_vapour[g] = 0.0;
+		silicate_melt[g] = 0.0;
 		return;
 	}
 	// v = p/m. Nothing with no mass moves, and a light cell is pushed further by the same momentum.
@@ -231,4 +222,18 @@ void main() {
 	h2o_solid[g] = f_solid;
 	h2o_liquid[g] = f_liquid;
 	h2o_vapour[g] = f_vapour;
+
+	// THE MELT SHARE OF THIS CELL'S SILICATE, off the SAME ladder. Rock has a melting INTERVAL, so the
+	// lever rule the enthalpy curve already integrates over reads back as a linear share of the interval —
+	// no plateau, no `pinned` branch, and the latent heat is what put t_c where it is.
+	float f_melt = 0.0;
+	if (mass[E_SILICATE] > 0.0) {
+		SubstanceTh r = subs[E_SILICATE];
+		float solidus = la_melt_c_at(r, p_pa, 0.0);
+		float liquidus = la_liquidus_c_at(r, p_pa, 0.0);
+		float width = liquidus - solidus;
+		f_melt = width > 0.0 ? clamp((t_c - solidus) / width, 0.0, 1.0)
+			: (t_c < solidus ? 0.0 : 1.0);
+	}
+	silicate_melt[g] = f_melt;
 }

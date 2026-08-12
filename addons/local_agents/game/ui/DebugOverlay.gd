@@ -249,12 +249,12 @@ func _field_sample(p: Vector3) -> Array:
 			val = _field.o2_at(p.x, p.y, p.z)
 			ref = 1.4
 			base = Color(0.35, 0.7, 1.0)
-		"lava":
-			val = _field.lava_at(p.x, p.y, p.z)
+		"melt":
+			val = _field.melt_at(p.x, p.y, p.z)
 			ref = 0.5
 			base = Color(1.0, 0.45, 0.1)
-		"rock_fill":
-			val = _field.rock_fill_at(p.x, p.y, p.z)
+		"silicate":
+			val = _field.silicate_at(p.x, p.y, p.z)
 			ref = 1.0
 			base = Color(0.55, 0.45, 0.38)
 		"charge":

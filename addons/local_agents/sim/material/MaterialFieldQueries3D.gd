@@ -6,8 +6,8 @@ const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/
 ## LAMaterialFieldQueries3D: the READ-ONLY query accessors of the dense 3D MaterialField3D, factored
 
 # Basin depth (world units) mapped to a 0..1 salinity band. NOT a simulated solute.
-const DUST_PRESENT: float = 0.001      # gauge floor: airborne dust mass per cell
-const MOLTEN_MIN: float = 0.0001       # gauge floor: lava mass per cell
+const AIRBORNE_PRESENT: float = 0.001  # gauge floor: airborne mineral volume fraction per cell
+const MOLTEN_MIN: float = 0.0001       # gauge floor: molten mineral volume fraction per cell
 const FIRE_PRESENT: float = 0.02       # gauge floor: fraction of a cell's usable O2 burned this step
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
@@ -301,35 +301,59 @@ func wind() -> Vector2:
 	return Vector2(sx / float(n), sz / float(n))
 
 
-# --- MINERAL: dust opacity + the molten phase. Totals live in LAMaterialFieldMineralBudget3D. -----------
+# --- MINERAL: airborne opacity + the molten state. Totals live in LAMaterialFieldLedger3D. -------------
 
-## Volume-mean airborne dust — the opacity LASystemOrbits turns into insolation. A physical consumer, so it
-## keeps its own channel resident.
-func avg_atmos_dust() -> float:
+## Volume fraction of the cell that is wind-borne mineral: the amount times its derived airborne share.
+func airborne_at(c: int) -> float:
+	if c < 0 or _f._silicate.size() != _f._cell_count \
+			or _f._silicate_susp_air.size() != _f._cell_count:
+		return 0.0
+	return maxf(_f._silicate[c], 0.0) * clampf(_f._silicate_susp_air[c], 0.0, 1.0)
+
+
+## Volume fraction of the cell that is molten mineral.
+func melt_at(c: int) -> float:
+	if c < 0 or _f._silicate.size() != _f._cell_count \
+			or _f._silicate_melt.size() != _f._cell_count:
+		return 0.0
+	return maxf(_f._silicate[c], 0.0) * clampf(_f._silicate_melt[c], 0.0, 1.0)
+
+
+## Volume-mean airborne mineral — the opacity LASystemOrbits turns into insolation.
+func avg_airborne_mineral() -> float:
 	if _f._cell_count <= 0:
 		return 0.0
-	if _f._gpu != null and _f._gpu.has_method("request_channel"):
-		_f._gpu.request_channel("dust")
 	var vol: PackedFloat32Array = CellVolScript.of(_f)
-	if vol.size() != _f._cell_count or _f._dust.size() != _f._cell_count:
+	if vol.size() != _f._cell_count or _f._silicate_susp_air.size() != _f._cell_count:
 		return 0.0
-	var mass: float = 0.0
+	var amount: float = 0.0
 	var span: float = 0.0
 	for c in _f._cell_count:
 		var w: float = vol[c]
-		mass += _f._dust[c] * w
+		amount += airborne_at(c) * w
 		span += w
-	return mass / span if span > 0.0 else 0.0
+	return amount / span if span > 0.0 else 0.0
 
 
-## Molten rock (lava) over ALL cells — mask-free: add_lava injects into a still-solid vent, and lava lingers
-## the instant a cell crosses to derived-solid, so an open-only sum would drop mass that physically exists.
-func lava_total() -> float:
-	return CellVolScript.weighted(_f._lava, CellVolScript.of(_f), _f._solid, false)
+## Molten mineral over ALL cells — mask-free: melt lingers the instant a cell crosses to derived-solid, so
+## an open-only sum would drop matter that physically exists.
+func melt_total() -> float:
+	return CellVolScript.weighted(_melt_mirror(), CellVolScript.of(_f), _f._solid, false)
 
 
-## magma_cells / lava_cells, plus `molten_live`: whether the demand-gated `lava` readback landed on the last
-## drain. Without it a zero here cannot be told from a channel that never arrived.
+## Per-cell molten volume fraction, as an array. Empty when either input mirror is absent.
+func _melt_mirror() -> PackedFloat32Array:
+	var out: PackedFloat32Array = PackedFloat32Array()
+	if _f._silicate.size() != _f._cell_count or _f._silicate_melt.size() != _f._cell_count:
+		return out
+	out.resize(_f._cell_count)
+	for c in _f._cell_count:
+		out[c] = melt_at(c)
+	return out
+
+
+## magma_cells / lava_cells, plus `molten_live`: whether the silicate readback landed on the last drain.
+## Without it a zero here cannot be told from a channel that never arrived.
 func molten_counts() -> Dictionary:
 	var step: int = _f._gpu._step_index if _f._gpu != null else -1
 	if step >= 0 and step == _molten_step:
@@ -337,11 +361,11 @@ func molten_counts() -> Dictionary:
 	_molten_magma = 0
 	_molten_lava = 0
 	_molten_step = step
-	_molten_live = _mirror_live("lava")
-	if not _molten_live or _f._lava.size() != _f._cell_count or _f._solid.size() != _f._cell_count:
+	_molten_live = _mirror_live("silicate") and _f._silicate_melt.size() == _f._cell_count
+	if not _molten_live or _f._solid.size() != _f._cell_count:
 		return {"magma_cells": 0, "lava_cells": 0, "molten_live": _molten_live}
 	for c in _f._cell_count:
-		if _f._lava[c] < MOLTEN_MIN:
+		if melt_at(c) < MOLTEN_MIN:
 			continue
 		if _f._solid[c] != 0:
 			_molten_magma += 1          # confined by rock — magma
@@ -364,8 +388,8 @@ func lava_cell_count() -> int:
 func magma_erupting() -> bool:
 	return int(molten_counts()["lava_cells"]) > 0
 
-## Derived-solid (bedrock) cell count — a display/diagnostic (cells whose derived solid flag is set). NOT the mineral
-## mass baseline: bedrock is a FRACTIONAL channel (rock_fill), whose mass baseline is rock_fill_total().
+## Derived-solid (bedrock) cell count — a display/diagnostic. NOT the mineral mass baseline: that is the
+## `silicate` amount, whose total is silicate_total.
 func rock_cells() -> int:
 	var n: int = 0
 	for c in _f._cell_count:
@@ -412,14 +436,15 @@ func is_burning(node) -> bool:
 
 
 # --- LAVA-TUBE / HOLLOW signature -------------------------------------------
-const TUBE_LAVA_NEAR_ZERO: float = 0.05
+const TUBE_MELT_NEAR_ZERO: float = 0.05
 
-## Open cells walled in by rock and NOT still lava-filled — a drained tube. Reads `lava`, so it returns 0
+## Open cells walled in by rock and NOT still melt-filled — a drained tube. Reads the melt share, so it
 ## when that channel did not arrive; `molten_live` in the same report says which zero this is.
 func enclosed_void_cells(min_solid_nbr: int = 4) -> int:
-	if not _mirror_live("lava"):
+	if not _mirror_live("silicate"):
 		return 0
-	if _f._grid == null or _f._solid.size() != _f._cell_count or _f._lava.size() != _f._cell_count:
+	if _f._grid == null or _f._solid.size() != _f._cell_count \
+			or _f._silicate_melt.size() != _f._cell_count:
 		return 0
 	var nbr: PackedInt32Array = _f._grid.neighbours
 	if nbr.size() != _f._cell_count * 6:
@@ -427,9 +452,9 @@ func enclosed_void_cells(min_solid_nbr: int = 4) -> int:
 	var n: int = 0
 	for c in range(_f._cell_count):
 		if _f._solid[c] != 0:
-			continue                                    # cell itself must be OPEN (rock_fill < 0.5)
-		if _f._lava[c] >= TUBE_LAVA_NEAR_ZERO:
-			continue                                    # still lava-filled — not yet a drained hollow
+			continue                                    # cell itself must be OPEN
+		if melt_at(c) >= TUBE_MELT_NEAR_ZERO:
+			continue                                    # still melt-filled — not yet a drained hollow
 		var base: int = c * 6
 		var sn: int = 0
 		for d in range(6):
@@ -505,12 +530,12 @@ func _median(v: PackedFloat32Array) -> float:
 	return snappedf(v[v.size() / 2], 0.1)
 
 
-## Lava body/rind split. Reads `lava`, so it returns zeros when that channel did not arrive; `molten_live`
+## Melt body/rind split. Reads the silicate mirror, so it returns zeros when it did not arrive;
 ## in the same report says which zero this is.
 func lava_shell_diag() -> Dictionary:
-	if not _mirror_live("lava"):
+	if not _mirror_live("silicate") or _f._silicate_melt.size() != _f._cell_count:
 		return {"lava_hot": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
-	if _f._grid == null or _f._solid.size() != _f._cell_count or _f._lava.size() != _f._cell_count:
+	if _f._grid == null or _f._solid.size() != _f._cell_count:
 		return {"lava_hot": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
 	var nbr: PackedInt32Array = _f._grid.neighbours
 	if nbr.size() != _f._cell_count * 6:
@@ -520,13 +545,13 @@ func lava_shell_diag() -> Dictionary:
 	var rind: int = 0
 	var int_sum: float = 0.0
 	var rind_sum: float = 0.0
-	var thick: int = 0            # lava cells carrying a substantial body (>= 0.5 mass) — the tube prerequisite
-	var maxmass: float = 0.0      # peak per-cell lava mass anywhere (how deep does the flow ever get?)
+	var thick: int = 0            # melt cells over half a cell deep — the tube prerequisite
+	var maxmass: float = 0.0      # peak per-cell molten volume fraction anywhere
 	for c in range(_f._cell_count):
-		var lv: float = _f._lava[c]
+		var lv: float = melt_at(c)
 		if lv > maxmass and _f._solid[c] == 0:
 			maxmass = lv
-		if _f._solid[c] != 0 or lv < 0.001 or _f._temp[c] < LAPhysical.BASALT_SOLIDUS_C:
+		if _f._solid[c] != 0 or lv < 0.001 or _f._silicate_melt[c] <= 0.0:
 			continue
 		if lv >= 0.5:
 			thick += 1
@@ -540,7 +565,7 @@ func lava_shell_diag() -> Dictionary:
 				continue
 			if _f._solid[nb] != 0:
 				continue
-			if _f._lava[nb] < TUBE_LAVA_NEAR_ZERO or _f._temp[nb] < LAPhysical.BASALT_SOLIDUS_C:
+			if melt_at(nb) < TUBE_MELT_NEAR_ZERO or _f._silicate_melt[nb] <= 0.0:
 				exposed += 1
 		if exposed == 0:
 			interior += 1

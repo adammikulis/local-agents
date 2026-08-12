@@ -292,6 +292,7 @@ func _heavy_block() -> Dictionary:
 	#   energy — the radiative books.
 	var flux: Dictionary = _energy.report()
 	d.merge(flux)
+	d.merge(LAFieldPressureAudit.inversions(_f))
 	var step: int = _f._gpu._step_index if _f._gpu != null else 0
 	# momentum — Σ m*v over the air, the third conserved quantity of mechanics.
 	d.merge(_momentum.report(step))

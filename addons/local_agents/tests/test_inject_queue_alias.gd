@@ -10,9 +10,9 @@ func run_test(_tree: SceneTree) -> bool:
 
 	# Two edits under one (kind, src, dst) key, each passing ITS OWN array as both source and destination.
 	var cells_a: PackedInt32Array = PackedInt32Array([1, 2, 3, 4, 5])
-	q.transfer("rock_fill", cells_a, PackedFloat32Array([1.0, 1.0, 1.0, 1.0, 1.0]), "sediment", cells_a)
+	q.transfer("silicate", cells_a, PackedFloat32Array([1.0, 1.0, 1.0, 1.0, 1.0]), "silicate", cells_a)
 	var cells_b: PackedInt32Array = PackedInt32Array([6, 7])
-	q.transfer("rock_fill", cells_b, PackedFloat32Array([1.0, 1.0]), "sediment", cells_b)
+	q.transfer("silicate", cells_b, PackedFloat32Array([1.0, 1.0]), "silicate", cells_b)
 
 	var ops: Array = q.get("_ops")
 	var ok: bool = _assert(ops.size() == 1, "the two edits share a key and must coalesce into one op, got %d" % ops.size())

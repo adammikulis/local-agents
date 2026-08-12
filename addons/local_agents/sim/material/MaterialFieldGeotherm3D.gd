@@ -54,7 +54,7 @@ func _rebuild() -> bool:
 		return false
 	var cc: int = int(_f._cell_count)
 	var vol: PackedFloat32Array = CellVolScript.of(_f)
-	if cc <= 0 or vol.size() != cc or _f._rock_fill.size() != cc:
+	if cc <= 0 or vol.size() != cc or _f._silicate.size() != cc:
 		return false
 	var rock: Dictionary = LASubstances.table().get("silicate", {})
 	var rho_rock: float = float(rock.get("density", 0.0))
@@ -62,14 +62,12 @@ func _rebuild() -> bool:
 	var w_per_kg: float = LARadiogenicDecay.heat_production_w_kg_at(_epoch_years())
 	if rho_rock <= 0.0 or w_per_kg <= 0.0:
 		return false
-	var has_phi: bool = _f._porosity.size() == cc
 	_built_at = n
 	_cells = PackedInt32Array()
 	_watts_of = PackedFloat32Array()
 	_watts = 0.0
 	for c in cc:
-		var solid_share: float = _f._rock_fill[c] * (1.0 - (_f._porosity[c] if has_phi else 0.0))
-		var w: float = solid_share * rho_rock * vol[c] * w_per_kg
+		var w: float = _f._silicate[c] * rho_rock * vol[c] * w_per_kg
 		if w <= 0.0:
 			continue
 		_cells.append(c)

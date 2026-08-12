@@ -6,7 +6,7 @@ extends RefCounted
 ## A per-cell amount this large means "take everything that is there".
 const DRAIN_ALL: float = 1.0e30
 
-const MINERAL_CHANNELS: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust"]
+const MINERAL_CHANNELS: PackedStringArray = ["silicate"]
 
 const BIOTIC_CHANNELS: PackedStringArray = ["biomass", "o2", "co2", "detritus", "fuel", "org_h", "org_o"]
 

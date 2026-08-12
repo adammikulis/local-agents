@@ -12,13 +12,15 @@ const SAMPLE_EVERY: int = 100
 const SUSP_ACTIVE: float = 0.001
 
 
-static func suspended_cell_count(susp: PackedFloat32Array, solid: PackedByteArray) -> int:
-	var n: int = susp.size()
-	if n == 0 or solid.size() != n:
+## Open cells whose silicate times its water-suspended share is a real load in transit.
+static func suspended_cell_count(silicate: PackedFloat32Array, susp_water: PackedFloat32Array,
+		solid: PackedByteArray) -> int:
+	var n: int = silicate.size()
+	if n == 0 or susp_water.size() != n or solid.size() != n:
 		return 0
 	var count: int = 0
 	for c in n:
-		if solid[c] == 0 and susp[c] > SUSP_ACTIVE:
+		if solid[c] == 0 and silicate[c] * susp_water[c] > SUSP_ACTIVE:
 			count += 1
 	return count
 
@@ -51,7 +53,9 @@ func sample() -> Dictionary:
 	if _f == null or _f._grid == null:
 		return {}
 	var cc: int = _f._cell_count
-	if _f._solid.size() != cc or _f._sediment.size() != cc or _f._susp.size() != cc:
+	if _f._solid.size() != cc or _f._silicate.size() != cc:
+		return {}
+	if _f._silicate_bed.size() != cc or _f._silicate_susp_water.size() != cc:
 		return {}
 	var cell: float = _f._grid.cell_size
 
@@ -67,8 +71,9 @@ func sample() -> Dictionary:
 	var susp_mass: float = 0.0
 	var susp_r: float = 0.0
 	for c in cc:
-		var sd: float = _f._sediment[c]
-		var sp: float = _f._susp[c]
+		var sil: float = _f._silicate[c]
+		var sd: float = sil * _f._silicate_bed[c]
+		var sp: float = sil * _f._silicate_susp_water[c]
 		var m: float = sd + sp
 		var hi: int = LAFieldGeometry.above(_f, c)
 		if _f._solid[c] != 0:

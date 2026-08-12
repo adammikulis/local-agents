@@ -3,18 +3,22 @@
 # silently and then misleads with authority.
 #
 #   MAX_RUN     consecutive comment lines. A block longer than this is an essay, not a line note.
-#   MAX_PCT     comment lines as a share of non-blank lines.
+#   MAX_PCT     comment lines as a share of non-blank lines, on files of MIN_LINES_FOR_PCT lines or more.
 #   EXCLUDE_RE  POSIX regex; a path matching it is skipped.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MAX_RUN="${MAX_RUN:-3}"
 MAX_PCT="${MAX_PCT:-15}"
+# A share over a tiny denominator is noise, not prose: one required citation is 20% of a 20-line file.
+# The RUN limit still applies to every file, at every size.
+MIN_LINES_FOR_PCT="${MIN_LINES_FOR_PCT:-40}"
 EXCLUDE_RE="${EXCLUDE_RE:-}"
 SCOPE="${1:-$ROOT/addons/local_agents/sim/material/kernels3d}"
 
-python3 - "$SCOPE" "$MAX_RUN" "$MAX_PCT" "$EXCLUDE_RE" <<'PY'
+python3 - "$SCOPE" "$MAX_RUN" "$MAX_PCT" "$EXCLUDE_RE" "$MIN_LINES_FOR_PCT" <<'PY'
 import sys, os, re
 scope, max_run, max_pct, exclude = sys.argv[1], int(sys.argv[2]), float(sys.argv[3]), sys.argv[4]
+min_lines = int(sys.argv[5])
 MARKER = {'.glsl': '//', '.glsli': '//', '.gd': '#'}
 skip = re.compile(exclude) if exclude else None
 files = []
@@ -37,11 +41,13 @@ for f in files:
     tot = com = run = worst = 0
     worst_at = 0
     # A `##` block of at most MAX_RUN lines sitting directly on an @export / signal / const / enum is a
-    # Godot INSPECTOR TOOLTIP: user-facing documentation with a real consumer, not prose about internals.
+    # Godot INSPECTOR TOOLTIP, or the documented signature of a function: user-facing documentation with a
+    # real consumer, not prose about internals. A facade of one-line accessors is the same shape as a
+    # schema Resource -- CLAUDE.md ASKS for a `##` saying what a public function returns and in what units.
     # It still counts toward MAX_RUN, so it can never become an essay, but it does not count toward the
     # ratio — a schema Resource is one export per line and would otherwise be 50% by construction, and the
     # only way to pass would be deleting documentation to satisfy a number.
-    DOCS_TARGET = ('@export', 'signal ', 'const ', 'enum ')
+    DOCS_TARGET = ('@export', 'signal ', 'const ', 'enum ', 'func ', 'static func ')
     doc_lines = set()
     if marker == '#':
         block = []
@@ -66,7 +72,7 @@ for f in files:
         else:
             run = 0
     pct = 100.0 * com / tot if tot else 0.0
-    if worst > max_run or pct > max_pct:
+    if worst > max_run or (tot >= min_lines and pct > max_pct):
         bad.append((os.path.relpath(f, scope), worst, worst_at, pct))
 if bad:
     print("check_comment_density: FAILED (max run %d, max %.0f%%)" % (max_run, max_pct), file=sys.stderr)

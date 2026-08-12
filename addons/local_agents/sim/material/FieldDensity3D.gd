@@ -9,7 +9,7 @@ static func _fraction_channels() -> Dictionary:
 	var rows: Dictionary = LAChannels.rows()
 	for name in rows:
 		var sub: String = String(rows[name].get("substance", ""))
-		if sub == "" or name == "rock_fill":
+		if sub == "":
 			continue
 		out[String(name)] = sub
 	return out
@@ -22,8 +22,9 @@ static func _kg_per_unit(id: String, eos: bool, t_c: float, p_pa: float) -> floa
 	return float(LASubstances.table().get(id, {}).get("density", 0.0))
 
 
-## Bulk density per cell, kg/m^3. `mirrors` maps channel name -> per-cell array; temp and pressure required.
-static func of(mirrors: Dictionary, porosity: PackedFloat32Array, cell_count: int) -> PackedFloat32Array:
+## Bulk density per cell, kg/m^3. `mirrors` maps channel name -> per-cell array; a missing channel
+## contributes nothing. Temperature and pressure are required and are never invented.
+static func of(mirrors: Dictionary, cell_count: int) -> PackedFloat32Array:
 	var out: PackedFloat32Array = PackedFloat32Array()
 	out.resize(cell_count)
 	out.fill(0.0)
@@ -36,22 +37,16 @@ static func of(mirrors: Dictionary, porosity: PackedFloat32Array, cell_count: in
 		return out
 
 	var frac: Dictionary = _fraction_channels()
-	frac["rock_fill"] = "silicate"
-	var has_phi: bool = porosity.size() == cell_count
 	for name in frac:
 		var arr = mirrors.get(name, null)
 		if arr == null or arr.size() != cell_count:
 			continue
 		var id: String = String(frac[name])
 		var eos: bool = LASubstances.has_eos(id)
-		# A "sat" channel is a saturation of the pore-free share of its cell; a "vf" channel fills freely.
-		var matrix: bool = String(LAChannels.rows().get(name, {}).get("unit", "vf")) == "sat"
 		for c in cell_count:
 			var f: float = arr[c]
 			var p_pa: float = pres[c]
 			if f <= 0.0 or p_pa <= 0.0:
 				continue
-			if matrix and has_phi:
-				f *= 1.0 - porosity[c]
 			out[c] += f * _kg_per_unit(id, eos, temp[c], p_pa)
 	return out

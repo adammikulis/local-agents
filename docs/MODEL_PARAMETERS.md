@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 354**   <!-- the grid's slot and face tags went with it; SimWorld's ten terrain lengths were
+**MAX_DECLARED: 336**   <!-- the grid's slot and face tags went with it; SimWorld's ten terrain lengths were
 inline literals scaled by a Node3D transform and are now named metre constants the registry can see. -->
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
@@ -99,6 +99,8 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_SUBTRACT` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MULTIPLY` | 7 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_ABS` | 11 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `AIRBORNE_PRESENT` | 0.001 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `TUBE_MELT_NEAR_ZERO` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MIN` | 16 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MAX` | 17 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_SDF_SPHERE` | 32 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -241,15 +243,12 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/events/LAEventTracker.gd` | `RECENT_MAX` | 32 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `EVAP_KEEP_LIQUID` | 0.1 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `EVAP_TAKE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `EXCAVATED_DUST_FRAC` | 0.25 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `CRATER_WATCH_MAX` | 256 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `ORGANIC_TAKE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/MaterialFieldSolidCache3D.gd` | `SPOT_CELLS` | 256 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `DUST_PRESENT` | 0.001 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `MOLTEN_MIN` | 0.0001 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `FIRE_PRESENT` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `STRIDE` | 97 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `TUBE_LAVA_NEAR_ZERO` | 0.05 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd` | `MAX_STEPS_PER_FRAME` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd` | `FIELD_CADENCE_MAX` | 60 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `STATIONS_PER_BAND` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -274,15 +273,10 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `DRAIN_ALL` | -1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd` | `SAMPLE_EVERY` | 100 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd` | `SUSP_ACTIVE` | 0.001 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SOLIDIFY_RATE` | 0.02 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `ROCK_MELT_RATE` | 0.02 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `VAPOUR_TRANSFER_COEFF` | 1.2e-3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SOIL_SURFACE_RESISTANCE_S_M` | 1000.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/GeoRecords.gd` | `LOFT_WIND` | 6.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/GeoRecords.gd` | `LOFT_RATE` | 0.003 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/material/reactions/GeoRecords.gd` | `SUSP_SETTLE_RATE` | 0.05 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/GeoRecords.gd` | `DISSOLUTION_K` | 2.0e-5 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/GeoRecords.gd` | `LITH_RATE_PER_PA` | 1.0e-9 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/PhysicalConstants.gd` | `LITHIFICATION_RATE_PER_PA` | 1.0e-9 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TEMP` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `H2O` | 1 | slot id, not a measured quantity | — |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `O2` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -292,21 +286,14 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `DETRITUS` | 7 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `FUNGUS` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `FERT` | 9 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `LAVA` | 10 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `BIOMASS` | 11 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `SEDIMENT` | 13 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `DUST` | 14 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `SUSP` | 15 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `WINDSPEED` | 16 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `ROCK_FILL` | 17 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `LIGHT` | 18 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_RESISTANCE_SERIES` | 7 | rate-model id, not a measured quantity | — |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `H2O_LIQUID` | 31 | slot id, not a measured quantity | — |
-| `addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd` | `PHASE_BINDING_BASE` | 31 | GLSL binding index, not a measured quantity | — |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `SOIL_ROOT` | 19 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `VAPOUR_DEFICIT` | 20 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `SOIL_TOP` | 21 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `OVERBURDEN` | 22 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `BEDROCK_BELOW` | 23 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `CARBONATE` | 24 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `SILICA` | 25 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -319,7 +306,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_OPTIMUM_BAND` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_ARRHENIUS` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_NEAR_GROUND` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_DRY` | 16 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_AIR_ABOVE` | 128 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TGT_SELF` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TGT_SCRATCH` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |

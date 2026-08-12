@@ -38,21 +38,15 @@ func sun_field_dir() -> Vector3:
 	return _f.dir_to_field(_f._sun_light.global_transform.basis.z * insol)
 
 
-## Volume fraction of cell `c` that IS condensed matter — solid and liquid, never gas. A "sat" channel is
-## a share of the pore space, so it enters as its value times 1 - porosity.
+## Volume fraction of cell `c` that IS condensed matter — solid and liquid, never gas. Every mixture channel
+## is a volume fraction of the whole cell, so the shares add directly.
 static func _condensed(ch: Dictionary, c: int) -> float:
-	var phi: float = 0.0
-	var pa = ch.get("porosity")
-	if pa is PackedFloat32Array and c < pa.size():
-		phi = clampf(pa[c], 0.0, 1.0)
 	var total: float = 0.0
-	var want: Dictionary = LAChannels.mixture_channels()
-	for name in want:
+	for name in LAChannels.mixture_channels():
 		var a = ch.get(name)
 		if not (a is PackedFloat32Array) or c >= a.size():
 			continue
-		var v: float = clampf(a[c], 0.0, 1.0)
-		total += v * (1.0 - phi) if String(want[name].get("unit", "vf")) == "sat" else v
+		total += clampf(a[c], 0.0, 1.0)
 	return clampf(total, 0.0, 1.0)
 
 
@@ -76,18 +70,18 @@ func _compute() -> Dictionary:
 	# below read false rather than reporting a stale mirror as a measurement.
 	var pressure: PackedFloat32Array = legs.get("pressure", PackedFloat32Array())
 	var co2: PackedFloat32Array = legs.get("co2", PackedFloat32Array())
-	var rock_fill: PackedFloat32Array = legs.get("rock_fill", PackedFloat32Array())
 	# ONE capacity model, shared with the thermal stock this module's output is differenced against.
 	var ch: Dictionary = {
-		"rock_fill": rock_fill, "lava": legs.get("lava", PackedFloat32Array()),
-		"sediment": _f._sediment, "susp": _f._susp, "dust": legs.get("dust", PackedFloat32Array()),
+		"silicate": legs.get("silicate", PackedFloat32Array()),
 		"carbonate": legs.get("carbonate", PackedFloat32Array()),
 		"silica": legs.get("silica", PackedFloat32Array()),
 		"h2o": _f._h2o,
-		"porosity": _f._porosity,
 		"fuel": legs.get("fuel", PackedFloat32Array()), "biomass": legs.get("biomass", PackedFloat32Array()),
 		"detritus": legs.get("detritus", PackedFloat32Array()),
 		"fungus": legs.get("fungus", PackedFloat32Array()),
+		"org_h": legs.get("org_h", PackedFloat32Array()),
+		"org_o": legs.get("org_o", PackedFloat32Array()),
+		"fert": legs.get("fert", PackedFloat32Array()),
 	}
 	var water: PackedFloat32Array = _f._queries._liquid_mirror()
 	var snow: PackedFloat32Array = _f._queries._ice_mirror()

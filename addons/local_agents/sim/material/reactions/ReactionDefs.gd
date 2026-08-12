@@ -13,18 +13,16 @@ const FIRE: int = 6
 const DETRITUS: int = 7
 const FUNGUS: int = 8
 const FERT: int = 9
-const LAVA: int = 10
+# SILICATE — ONE channel; melt and suspended shares are DERIVED, so no record moves mass between them.
+const SILICATE: int = 10
 const BIOMASS: int = 11
-const SEDIMENT: int = 13
-const DUST: int = 14
-const SUSP: int = 15
-const WINDSPEED: int = 16             # derived driver only: speed tangential to the local vertical, m/s
-const ROCK_FILL: int = 17             # fractional bedrock mineral mass
-const LIGHT: int = 18                 # derived driver only
+const WINDSPEED: int = 16             # DERIVED driver only: speed TANGENTIAL to the local vertical, m/s
+const LIGHT: int = 18                 # DERIVED driver only; never a product/reactant target
 const SOIL_ROOT: int = 19
-const VAPOUR_DEFICIT: int = 20        # derived driver only: saturation minus held vapour, volume fraction
-const SOIL_TOP: int = 21              # derived, writable: pore water of the first regolith cell below
-const OVERBURDEN: int = 22
+# Derived driver only: sat(T) minus the vapour held, volume fraction. Positive = unsaturated.
+const VAPOUR_DEFICIT: int = 20
+# Drying front: pore water of the first regolith cell under an open one. Derived, writable.
+const SOIL_TOP: int = 21
 const BEDROCK_BELOW: int = 23
 const CARBONATE: int = 24             # CaCO3
 const SILICA: int = 25                # SiO2
@@ -44,12 +42,17 @@ const RM_OPTIMUM_BAND: int = 5           # x = k * driver * max(0, 1 - ((driver2
 const RM_ARRHENIUS: int = 6              # x = k * driver * driver2 * exp(-(Ea/R) * (1/T_K - 1/T_ref_K))
 const RM_RESISTANCE_SERIES: int = 7      # x = k * driver * driver2 / (1 + param2 * driver2)
 
-# --- Gate bitflags
-const GATE_NEAR_GROUND: int = 4       # open cell whose inward neighbour is rock
-const GATE_DRY: int = 16              # cell water <= WET_MAX_LOFT
-const GATE_FREEZING: int = 32         # cell temp below LAPhysical.WATER_FREEZE_C
-const GATE_AIR_ABOVE: int = 128       # outward radial neighbour is air
-const GATE_BURIED: int = GATE_AIR_ABOVE * 2   # also runs in solid cells
+# --- Gate bitflags (0 = ungated) -------------------------------------------------------------------------
+                                      # TOP OF THE ATMOSPHERE — correct for sky gas exchange, wrong for ground.
+const GATE_NEAR_GROUND: int = 4       # GROUND-HUGGING open cell (INWARD nbr is rock) — where a plant, a snowpack
+const GATE_FREEZING: int = 32         # cell temp below LAPhysical.WATER_FREEZE_C. Deposition needs it: the
+                                      # condensate driver says HOW MUCH water is out of solution, not which
+                                      # phase it lands in, and above 0 C that condensate is rain, not snow.
+const GATE_AIR_ABOVE: int = 128       # THE FREE SURFACE — the air/liquid interface. True when the OUTWARD radial
+                                      # `static` cells that are deliberately never simulated (MaterialField3D
+                                      # ._seed_sphere_sea), so per-cell chemistry there is meaningless.
+const GATE_BURIED: int = GATE_AIR_ABOVE * 2   # ALSO runs in SOLID cells. Everything else is open-cell only;
+                                      # coalification is not, because buried organic matter is inside rock.
 
 # --- Product targets
 const TGT_SELF: int = 0               # add into the live/back cell channel

@@ -10,8 +10,11 @@ const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/
 const H2O: PackedStringArray = ["h2o"]
 
 ## The lithosphere. `MINERAL_SUM` is the conserved total; carbonate and silica are memo lines outside it.
-const MINERAL: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust", "carbonate", "silica"]
-const MINERAL_SUM: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust"]
+const MINERAL: PackedStringArray = ["silicate", "carbonate", "silica"]
+const MINERAL_SUM: PackedStringArray = ["silicate"]
+## Not matter: the derived state of the silicate. The crust gauge needs `cement` to tell rock from grains,
+## the presence counts need the airborne share.
+const FABRIC: PackedStringArray = ["cement", "silicate_susp_air"]
 
 ## The atmosphere/biosphere element book.
 const ELEMENT: PackedStringArray = ["co2", "o2", "detritus", "biomass", "fert", "fungus", "fuel"]
@@ -34,7 +37,7 @@ static func energy() -> PackedStringArray:
 ## Union of every substance's legs — the one `request_probe` list.
 static func all_legs() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
-	for group in [energy(), H2O, MINERAL, ELEMENT]:
+	for group in [energy(), H2O, MINERAL, ELEMENT, FABRIC]:
 		for name in group:
 			if not out.has(name):
 				out.append(name)

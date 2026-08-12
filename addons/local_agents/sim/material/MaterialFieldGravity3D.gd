@@ -46,7 +46,7 @@ func step() -> bool:
 	_steps += 1
 	if _steps % SOLVE_EVERY != 1 and _steps != 1:
 		return false
-	_density = DensityScript.of(_mirrors(), _f._porosity, _f._cell_count)
+	_density = DensityScript.of(_mirrors(), _f._cell_count)
 	_solver.solve(_density, SWEEPS)
 	_solves += 1
 	return true

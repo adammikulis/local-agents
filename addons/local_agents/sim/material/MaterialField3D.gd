@@ -43,9 +43,16 @@ const FOG_MAX_TEMP: float = 12.0
 const CONDENSE_COVER_MIN: float = 5.0e-5 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
 var _h: PackedFloat32Array = PackedFloat32Array()        # THE STATE: enthalpy J/m^3 per cell
 var _temp: PackedFloat32Array = PackedFloat32Array()     # DERIVED °C, rewritten by StateDerivePass each step
-# Fractional bedrock mineral mass per cell; `solid` is derived from it on the GPU at >= 0.5.
-var _rock_fill: PackedFloat32Array = PackedFloat32Array()
-var _lava: PackedFloat32Array = PackedFloat32Array()     # lava mass per cell (a hot, viscous liquid)
+# ONE MINERAL AMOUNT, volume fraction of the cell. Melt and suspended shares are derived on the GPU; how
+# much of it is consolidated is `_cement`.
+var _silicate: PackedFloat32Array = PackedFloat32Array()
+var _cement: PackedFloat32Array = PackedFloat32Array()   # consolidated share of this cell's silicate, 0..1
+# DERIVED shares of `_silicate`, rewritten every step by the GPU. Never seeded, never conserved.
+var _silicate_melt: PackedFloat32Array = PackedFloat32Array()
+var _silicate_susp_water: PackedFloat32Array = PackedFloat32Array()
+var _silicate_susp_air: PackedFloat32Array = PackedFloat32Array()
+var _silicate_bed: PackedFloat32Array = PackedFloat32Array()
+# --- Emergent FIRE / COMBUSTION (LAMaterialCombustion3D): a FUEL channel (flammable vegetation mass seeded
 var _fuel: PackedFloat32Array = PackedFloat32Array()     # flammable fuel mass per cell (vegetation)
 var _fire: PackedFloat32Array = PackedFloat32Array()     # burning intensity per cell (0 = not burning)
 var _o2: PackedFloat32Array = PackedFloat32Array()       # atmospheric O₂ per cell, mol/m^3
@@ -62,11 +69,8 @@ var _pressure: PackedFloat32Array = PackedFloat32Array() # air pressure per cell
 var _vel_x: PackedFloat32Array = PackedFloat32Array()    # wind velocity X per cell (world +X)
 var _vel_y: PackedFloat32Array = PackedFloat32Array()    # wind velocity Y per cell (world +Y, up)
 var _vel_z: PackedFloat32Array = PackedFloat32Array()    # wind velocity Z per cell (world +Z)
-var _sediment: PackedFloat32Array = PackedFloat32Array() # loose granular mass per cell (landslide slump)
-var _susp: PackedFloat32Array = PackedFloat32Array()     # waterborne suspended sediment (erosion pickup → settle); mineral phase read back for the ledger
 var _charge: PackedFloat32Array = PackedFloat32Array()   # electrification charge per cell (updraft × supercooled cloud)
-var _dust: PackedFloat32Array = PackedFloat32Array()     # airborne dust density per cell (wind-lofted sand storm)
-# Seismic / sound shock amplitude per cell.
+# Seismic / sound SHOCK amplitude per cell — a propagating pressure wave (GPU shock_sphere3d radiates it).
 var _shock: PackedFloat32Array = PackedFloat32Array()
 var _sun_light = null                                    # DirectionalLight3D — solar forcing (top cells)
 
@@ -81,14 +85,16 @@ var _gpu = null                                          # LAMaterialSphereGPU3D
 var _use_gpu: bool = false
 var _geotherm = null                                     # LAMaterialFieldGeotherm3D
 var _queries = null                                      # LAMaterialFieldQueries3D
-var _inject = null                                       # LAMaterialFieldInject3D
-var _stamp = null                                        # LAMineralStamp3D
-var _sphere_step = null                                  # LAMaterialFieldSphereStep3D
-var _surface_seed = null                                 # LAMaterialSurfaceSeed3D
-var _organic = null                                      # LAMaterialFieldOrganic3D
-var _shock_mod = null                                    # LAMaterialShock3D
-var _charge_mod = null                                   # LAMaterialCharge3D
-var _ejecta = null                                       # LAMaterialEjecta3D
+var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
+var _stamp = null                                        # LAMineralStamp3D — solid-flag -> SDF growth stamp
+var _sphere_step = null                                  # LAMaterialFieldSphereStep3D — the per-frame step loop
+var _surface_seed = null                                 # LAMaterialSurfaceSeed3D — ground-surface fuel + soil detritus seed/refill
+var _organic = null                                      # LAMaterialFieldOrganic3D — the dead pool's C:H:O gauge
+# Substrate-foundation primitive modules (the field only delegates; all logic lives in these). Seams the
+# per-actor dissolution agents fill: shock (Earthquake/Meteor), charge→bolt (Thunderstorm), ejecta (bombs/debris).
+var _shock_mod = null                                    # LAMaterialShock3D — shock channel + emit/readback
+var _charge_mod = null                                   # LAMaterialCharge3D — charge readback + breakdown→bolt
+var _ejecta = null                                       # LAMaterialEjecta3D — momentum/ejecta parcels (Node3D child)
 var _pending_lightning_cb: Callable = Callable()         # lightning visual callback (registered pre-activate)
 const ShockScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialShock3D.gd")
 const ChargeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialCharge3D.gd")
@@ -253,11 +259,11 @@ func _alloc_channels() -> void:
 	_temp = PackedFloat32Array()
 	_temp.resize(_cell_count)
 	_temp.fill(INITIAL_TEMP)
-	_lava = PackedFloat32Array()
-	_lava.resize(_cell_count)
-	# Bedrock mineral fraction: seeded from the solid mask on activate (mirrors _solid), GPU-owned thereafter.
-	_rock_fill = PackedFloat32Array()
-	_rock_fill.resize(_cell_count)
+	# Mineral amount: seeded from the solid mask on activate, GPU-owned thereafter.
+	_silicate = PackedFloat32Array()
+	_silicate.resize(_cell_count)
+	_cement = PackedFloat32Array()
+	_cement.resize(_cell_count)
 	_fuel = PackedFloat32Array()
 	_fuel.resize(_cell_count)
 	_fire = PackedFloat32Array()
@@ -295,12 +301,8 @@ func _alloc_channels() -> void:
 	_vel_y.resize(_cell_count)
 	_vel_z = PackedFloat32Array()
 	_vel_z.resize(_cell_count)
-	_sediment = PackedFloat32Array()
-	_sediment.resize(_cell_count)
 	_charge = PackedFloat32Array()
 	_charge.resize(_cell_count)
-	_dust = PackedFloat32Array()
-	_dust.resize(_cell_count)
 	_shock = PackedFloat32Array()
 	_shock.resize(_cell_count)
 	# Read-only query accessors bind to this field now; the arrays they read exist from here on.
@@ -407,7 +409,7 @@ func activate() -> void:
 	_surface_seed.seed_initial()
 	_organic = OrganicScript.new()
 	_organic.setup(self)
-	# Stage C: the sparse, event-driven rock_fill 0.5-crossing -> SDF terrain-growth stamp (idle until armed).
+	# The sparse, event-driven solid-flag crossing -> SDF terrain-growth stamp (idle until armed).
 	_stamp = MineralStampScript.new()
 	_stamp.setup(self)
 	# Substrate-foundation primitives (thin delegates; the field only forwards to them).
@@ -433,20 +435,23 @@ func sample_solidity() -> void:
 		var cached: PackedByteArray = SolidCacheScript.load_mask(k, _cell_count, self)
 		if cached.size() == _cell_count:
 			_solid = cached
-			_seed_rock_fill()
+			_seed_silicate()
 			return
 	for c in _cell_count:
 		_solid[c] = 1 if _terrain.is_solid(cell_world_pos_linear(c)) else 0
 	if k != "":
 		SolidCacheScript.save_mask(k, _solid)
-	_seed_rock_fill()
+	_seed_silicate()
 
-## Bedrock fraction mirrors the sampled mask, so the gravity solve has mass to read before the first step.
-func _seed_rock_fill() -> void:
-	if _rock_fill.size() != _cell_count or _solid.size() != _cell_count:
+## Mineral amount mirrors the sampled mask, so the gravity solve has mass to read before the first step.
+## Seeded rock is fully consolidated: it is bedrock, not a heap of grains.
+func _seed_silicate() -> void:
+	if _silicate.size() != _cell_count or _cement.size() != _cell_count \
+			or _solid.size() != _cell_count:
 		return
 	for c in _cell_count:
-		_rock_fill[c] = 1.0 if _solid[c] != 0 else 0.0
+		_silicate[c] = 1.0 if _solid[c] != 0 else 0.0
+		_cement[c] = 1.0 if _solid[c] != 0 else 0.0
 
 func _seed_sea() -> void:
 	if _grid == null or _terrain == null or not _terrain.has_method("sea_radius"):
@@ -534,8 +539,8 @@ func atmos_outer_r() -> float:
 func avg_cloud_cover() -> float:
 	return _atmos.avg_cloud_cover()
 
-func avg_atmos_dust() -> float:
-	return _queries.avg_atmos_dust()
+func avg_airborne_mineral() -> float:
+	return _queries.avg_airborne_mineral()
 
 func avg_fog_cover() -> float:
 	return _atmos.avg_fog_cover()
@@ -677,16 +682,17 @@ func magma_erupting() -> bool:
 	return _queries.magma_erupting() if _queries != null else false
 ## Open cells currently carrying a suspended mineral load.
 func erosion_cell_count() -> int:
-	return LAMaterialFieldMineralProfile3D.suspended_cell_count(_susp, _solid)
-## Snow depth at a world point, in channel units.
+	return LAMaterialFieldMineralProfile3D.suspended_cell_count(_silicate, _silicate_susp_water, _solid)
+## Snow depth at a world point, in channel units. Body in LAMaterialFieldChannels3D.
 func snow_depth_at(pos: Vector3) -> float:
 	return _channels.snow_depth_at(pos)
 ## The planet's conserved H₂O budget, m^3.
 func h2o_total() -> float:
 	return _ledger.total("h2o_total")
-## Airborne dust at a world point.
-func dust_at(x: float, y: float, z: float) -> float:
-	return _channels.dust_at(x, y, z)
+## Airborne mineral at a world point, as a volume fraction of the cell.
+func airborne_mineral_at(x: float, y: float, z: float) -> float:
+	return _channels.airborne_mineral_at(x, y, z)
+#  counts the same cells with the same threshold inside a pass it already makes. Reason in MaterialFieldQueries3D.)
 
 func o2_at(x: float, y: float, z: float) -> float:
 	return _channels.o2_at(x, y, z)
@@ -711,10 +717,10 @@ func biomass_at(x: float, y: float, z: float) -> float:
 ## Total living biomass over every open cell.
 func biomass_total() -> float:
 	return _channels.biomass_total()
-func lava_at(x: float, y: float, z: float) -> float:
-	return _channels.lava_at(x, y, z)
-func rock_fill_at(x: float, y: float, z: float) -> float:
-	return _channels.rock_fill_at(x, y, z)
+func melt_at(x: float, y: float, z: float) -> float:
+	return _channels.melt_at(x, y, z)
+func silicate_at(x: float, y: float, z: float) -> float:
+	return _channels.silicate_at(x, y, z)
 func charge_at(x: float, y: float, z: float) -> float:
 	return _channels.charge_at(x, y, z)
 func fungus_at(x: float, y: float, z: float) -> float:

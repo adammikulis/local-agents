@@ -9,12 +9,13 @@ static func situational_channels() -> PackedStringArray: return LAChannels.situa
 static func slow_channels() -> PackedStringArray: return LAChannels.slow_channels()
 
 
-# Dispatch order. SolidDerive MUST run first: every other pass reads the `solid` mask and the composition
-# it derives. ChargeSeparate precedes Transport, whose OHMIC row relaxes what it separated.
+# Dispatch order is a data dependency chain: each pass reads what the one above it published.
+# ChargeSeparate precedes Transport, whose OHMIC row relaxes what it separated.
 const PASS_SCRIPTS: PackedStringArray = [
-	"res://addons/local_agents/sim/material/sphere_passes/SolidDerivePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/PressurePass.gd",
+	"res://addons/local_agents/sim/material/sphere_passes/SolidDerivePass.gd",
+	"res://addons/local_agents/sim/material/sphere_passes/GrainStatePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/RotatingFramePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ChargeSeparatePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd",
@@ -125,7 +126,7 @@ func setup(field) -> void:
 	_seed("h2o", field._h2o)            # the ocean basin + the primed water table
 	_seed("porosity", field._porosity)  # Athy pore fraction: the ONE phi permeability and capacity both read
 	_seed_solid()
-	_seed_rock_fill()
+	_seed_silicate()
 	_seed_regolith()                    # aquifer permeability mask + grain-size field (static)
 
 	# The reaction table's flux-derived rates need the cell HEIGHT in METRES. The table is baked once, so it
@@ -400,13 +401,14 @@ func _read_channels(read_slow: bool) -> Dictionary:
 			continue
 		var src: RID = _bufs[k] if k in single_channels() else _live(k)
 		out[k] = _rd.buffer_get_data(src).to_float32_array()
-	# SLOW — ledger/baker channels, read only on the coarse cadence. PAIR channels (sediment/susp/fert/soil) from
-	# the live half; single channel (biomass) direct.
+	# SLOW — ledger/baker channels, read only on the coarse cadence. PAIR channels from the live half; the
+	# singles and the derived silicate shares direct.
 	if read_slow:
-		for k in ["sediment", "susp", "fert"]:
+		for k in ["silicate", "fert"]:
 			out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
-		if _bufs.has("biomass"):
-			out["biomass"] = _rd.buffer_get_data(_bufs["biomass"]).to_float32_array()
+		for k in ["biomass", "cement", "silicate_melt", "silicate_susp_water", "silicate_susp_air"]:
+			if _bufs.has(k):
+				out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
 	return out
 
 func request_channel(name: String) -> void:
@@ -745,13 +747,16 @@ func _seed_regolith() -> void:
 		_rd.buffer_update(_bufs["grain"], 0, gb.size(), gb)
 
 
-func _seed_rock_fill() -> void:
+## Seeded rock is bedrock, so it is both present and fully consolidated.
+func _seed_silicate() -> void:
 	var f: PackedFloat32Array = PackedFloat32Array()
 	f.resize(_cc)
 	for i in _cc:
 		f[i] = 1.0 if _field._solid[i] != 0 else 0.0
 	var b: PackedByteArray = f.to_byte_array()
-	_rd.buffer_update(_bufs["rock_fill"], 0, b.size(), b)
+	_rd.buffer_update(_bufs["silicate"][0], 0, b.size(), b)
+	_rd.buffer_update(_bufs["silicate"][1], 0, b.size(), b)
+	_rd.buffer_update(_bufs["cement"], 0, b.size(), b)
 
 func _upload_f(buf: RID, arr: PackedFloat32Array) -> void:
 	if arr.size() == _cc:
@@ -767,13 +772,13 @@ func _empty_result() -> Dictionary:
 	return {
 		"h_j_m3": PackedFloat32Array(), "temp": PackedFloat32Array(), "h2o": PackedFloat32Array(),
 		"h2o_solid": PackedFloat32Array(), "h2o_liquid": PackedFloat32Array(),
-		"h2o_vapour": PackedFloat32Array(), "lava": PackedFloat32Array(),
+		"h2o_vapour": PackedFloat32Array(), "silicate": PackedFloat32Array(),
 		"fire": PackedFloat32Array(), "fuel": PackedFloat32Array(),
-		"sediment": PackedFloat32Array(), "o2": PackedFloat32Array(),
+		"o2": PackedFloat32Array(),
 		"co2": PackedFloat32Array(), "charge": PackedFloat32Array(),
 		"fert": PackedFloat32Array(),
 		"detritus": PackedFloat32Array(), "shock": PackedFloat32Array(),
-		"dust": PackedFloat32Array(),
-		"susp": PackedFloat32Array(), "biomass": PackedFloat32Array(),
-		"rock_fill": PackedFloat32Array(),
+		"biomass": PackedFloat32Array(), "cement": PackedFloat32Array(),
+		"silicate_melt": PackedFloat32Array(),
+		"silicate_susp_water": PackedFloat32Array(), "silicate_susp_air": PackedFloat32Array(),
 	}

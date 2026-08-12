@@ -13,18 +13,13 @@
 #define DETRITUS 7
 #define FUNGUS 8
 #define FERT 9
-#define LAVA 10
+#define SILICATE 10
 #define BIOMASS 11
-#define SEDIMENT 13
-#define DUST 14
-#define SUSP 15
 #define WINDSPEED 16
-#define ROCK_FILL 17
 #define LIGHT 18
 #define SOIL_ROOT 19
 #define VAPOUR_DEFICIT 20
 #define SOIL_TOP 21
-#define OVERBURDEN 22
 #define BEDROCK_BELOW 23
 #define CARBONATE 24
 #define SILICA 25
@@ -42,7 +37,6 @@
 #define RM_ARRHENIUS 6
 #define RM_RESISTANCE_SERIES 7
 #define GATE_NEAR_GROUND 4
-#define GATE_DRY 16
 #define GATE_FREEZING 32
 #define GATE_AIR_ABOVE 128
 #define GATE_BURIED 256
@@ -81,6 +75,7 @@
 #define TF_STAMP 4u
 #define TF_DRIVEN 8u
 #define TF_FRACTION 16u
+#define TF_DILUTE 32u
 
 // MaterialFieldRegolith3D.gd, reactions/ReactionThermo.gd
 #define REGOLITH_CELLS 4

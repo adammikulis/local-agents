@@ -7,13 +7,9 @@ extends RefCounted
 const PC: GDScript = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
 
 
-## Kilograms of each substance in cell `c`, keyed by LASubstances id. A "sat" channel is a share of the
-## pore space, so its volume fraction is its value times 1 - porosity.
+## Kilograms of each substance in cell `c`, keyed by LASubstances id.
 static func masses_at(f, c: int, cell_m3: float) -> Dictionary:
 	var out: Dictionary = {}
-	var phi: float = 0.0
-	if f._porosity.size() > c:
-		phi = clampf(f._porosity[c], 0.0, 1.0)
 	var tbl: Dictionary = LASubstances.table()
 	for name in LAChannels.mixture_channels():
 		var arr = f.get("_" + String(name))
@@ -21,8 +17,6 @@ static func masses_at(f, c: int, cell_m3: float) -> Dictionary:
 			continue
 		var row: Dictionary = LAChannels.mixture_channels()[name]
 		var vf: float = maxf(arr[c], 0.0)
-		if String(row.get("unit", "vf")) == "sat":
-			vf *= (1.0 - phi)
 		if vf <= 0.0:
 			continue
 		var id: String = String(row["substance"])

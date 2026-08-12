@@ -16,7 +16,7 @@ signal render_debug_toggled(mode: String, on: bool)  # "wireframe" | "overdraw"
 # [display label, view_toggled key] — the DebugOverlay samples that channel.
 const FIELD_VIEWS: Array = [
 	["Biomass", "biomass"], ["Water phase", "water_phase"], ["Snow / ice", "snow"],
-	["Lava", "lava"], ["Rock fill", "rock_fill"], ["CO₂", "co2"], ["O₂", "o2"],
+	["Melt", "melt"], ["Mineral", "silicate"], ["CO₂", "co2"], ["O₂", "o2"],
 	["Charge", "charge"], ["Fertility", "fertility"],
 ]
 

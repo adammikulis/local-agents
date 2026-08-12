@@ -193,8 +193,8 @@ chemical equilibrium. The defect named is the UNIT.
 - **`_bufs["face_area"]` is bound by zero passes and `facearea.glsli` is included by zero kernels.**
   Binding 42 is reserved-but-unconsumed — the surviving artefact of the two-lanes-one-number incident.
 - **`_wnext` is dead** — a declaration and two allocation lines; no element is ever read or written.
-  **`_susp` is never allocated at all** (`_porosity` is now seeded from Athy compaction, `_snow` is gone), so on a CPU-only run every consumer's
-  size guard silently skips them.
+  (`_susp` is gone with the silicate collapse; `_porosity` is now seeded from Athy compaction.) On a
+  CPU-only run every consumer's size guard silently skips them.
 - **`_charge_woke` is written in two places and read nowhere.** The compute-bubble early-out it exists for
   was never wired.
 - **`CreatureLod`'s `LA_NO_PHYS_LOD`** keeps a superseded LOD tier reachable — `MID_LOD_D2` and `FAR_LOD_D2`

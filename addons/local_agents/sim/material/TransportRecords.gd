@@ -13,7 +13,7 @@ enum Law { NONE, SHALLOW, FILM, DARCY, EDDY, SOUND, OHMIC, PGF }
 enum Fluid { VACUUM, WATER, AIR }
 
 ## Per-row switches, packed into the kernel's `flags`. Matches the TF_* constants in transport.glsl.
-enum Flag { SIGNED = 1, SETTLE = 2, STAMP = 4, DRIVEN = 8, FRACTION = 16 }
+enum Flag { SIGNED = 1, SETTLE = 2, STAMP = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32 }
 
 
 ## `settle` adds the grain's terminal velocity to the advecting fluid; `frac` is the derived share moved.
@@ -28,15 +28,19 @@ static func rows() -> Array:
 		{"channel": "h2o", "substance": "h2o", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
 			"frac": "h2o_vapour"},
 
-		{"channel": "sediment", "substance": "silicate", "mode": POTENTIAL, "law": Law.SHALLOW,
-			"repose_tan": LAPhysical.REPOSE_TAN_DRY_GRANULAR},
+		# One silicate channel, four laws. Cemented rock has no row: that is what being rock means.
+		{"channel": "silicate", "substance": "silicate", "mode": POTENTIAL, "law": Law.FILM,
+			"frac": "silicate_melt", "dilute": true},
 
-		{"channel": "susp", "substance": "silicate", "mode": ADVECT,
-			"fluid": Fluid.WATER, "settle": true},
-		{"channel": "dust", "substance": "silicate", "mode": ADVECT,
-			"fluid": Fluid.AIR, "settle": true},
+		{"channel": "silicate", "substance": "silicate", "mode": ADVECT, "fluid": Fluid.WATER,
+			"settle": true, "frac": "silicate_susp_water", "dilute": true},
 
-		{"channel": "lava", "substance": "silicate", "mode": POTENTIAL, "law": Law.FILM},
+		{"channel": "silicate", "substance": "silicate", "mode": ADVECT, "fluid": Fluid.AIR,
+			"settle": true, "frac": "silicate_susp_air", "dilute": true},
+
+		{"channel": "silicate", "substance": "silicate", "mode": POTENTIAL, "law": Law.SHALLOW,
+			"repose_tan": LAPhysical.REPOSE_TAN_DRY_GRANULAR,
+			"frac": "silicate_bed", "dilute": true},
 
 		{"channel": "o2", "substance": "o2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},
 		{"channel": "co2", "substance": "co2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},

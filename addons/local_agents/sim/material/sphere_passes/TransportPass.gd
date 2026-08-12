@@ -90,7 +90,7 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 			return []
 	# The material state every law and the band model read. A missing one is a dead row, not a default.
 	for key in ["temp", "pressure", "porosity", "grain", "co2", "h2o", "h2o_solid", "h2o_liquid",
-			"h2o_vapour", "rock_fill", "biomass", "lava"]:
+			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement"]:
 		if not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row has no law." % [key, channel])
 			return []
@@ -118,12 +118,13 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 			[21, _rad_table],
 			[22, _single(bufs, "h2o_solid")],
 			[23, _single(bufs, "h2o_liquid")],
-			[24, _single(bufs, "rock_fill")],
+			[24, _half(bufs, "silicate", p, false)],
 			[25, _single(bufs, "biomass")],
-			[26, _half(bufs, "lava", p, false)],
+			[26, _single(bufs, "silicate_melt")],
 			[27, _send_q if stamp == "" else _half(bufs, stamp, p, false)],
 			[28, _single(bufs, "h2o_vapour")],
 			[29, _one if frac == "" else _single(bufs, frac)],
+			[30, _single(bufs, "cement")],
 		]
 		out[p] = _uset(_pipe, entries)
 	return out
@@ -150,6 +151,8 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lap
 		flags |= LATransportRecords.Flag.DRIVEN
 	if String(row.get("frac", "")) != "":
 		flags |= LATransportRecords.Flag.FRACTION
+	if bool(row.get("dilute", false)):
+		flags |= LATransportRecords.Flag.DILUTE
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(76)
 	pc.encode_u32(0, cc)
@@ -168,7 +171,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lap
 	pc.encode_float(48, lapse)
 	pc.encode_float(52, fluid.x)
 	pc.encode_float(56, fluid.y)
-	# Airborne dust and suspended load are silt-grade; the aquifer's own grain field overrides it in-cell.
+	# Seed diameter for cells whose own grain field is unset; the cell's value wins wherever it has one.
 	pc.encode_float(60, LAPhysical.GRAIN_D_UPLAND_M)
 	pc.encode_float(64, sun.x)
 	pc.encode_float(68, sun.y)

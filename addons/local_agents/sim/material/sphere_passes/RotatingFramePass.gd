@@ -40,7 +40,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	var w: Vector3 = ctx.get("spin", Vector3.ZERO) * LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S
 	var centre: Vector3 = ctx.get("centre", Vector3.ZERO)
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(40)
+	pc.resize(36)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, LAMaterialFieldSphereStep3D.real_seconds_per_step())
 	pc.encode_float(8, w.x)
@@ -50,7 +50,6 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	pc.encode_float(24, centre.x)
 	pc.encode_float(28, centre.y)
 	pc.encode_float(32, centre.z)
-	pc.encode_float(36, 0.0)
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, _set[parity], 0)
 	rd.compute_list_set_push_constant(cl, pc, pc.size())
