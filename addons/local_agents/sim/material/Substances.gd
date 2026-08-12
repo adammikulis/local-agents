@@ -261,6 +261,11 @@ static func atoms_per_kg(id: String) -> Dictionary:
 ## SPECIFIC ENTHALPY (J/kg) of a substance at a temperature, referenced to its solid at 0 K — the curve whose
 ## flat sections ARE the latent heats. This is the function that makes phase a consequence rather than a
 ## channel: sensible heat through each phase, plus the full latent step at each boundary crossed.
+##
+## THE INVERSE OF enthalpy_to_state(), rung for rung, and the only reason a temperature survives a trip
+## through energy and back. Every boundary and every latent heat is read from the same helper the inverse
+## reads it from, so neither side can be moved alone. On a plateau this returns the plateau's LOWER end,
+## which is the one temperature-to-enthalpy answer that inverts.
 static func enthalpy_at(id: String, t_c: float, p_pa: float = PC.STANDARD_PRESSURE_PA,
 		molality_mol_kg: float = 0.0) -> float:
 	var s: Dictionary = table().get(id, {})
@@ -271,13 +276,30 @@ static func enthalpy_at(id: String, t_c: float, p_pa: float = PC.STANDARD_PRESSU
 	var melt: float = melt_c_at(id, p_pa, molality_mol_kg)
 	var boil: float = boil_c_at(id, p_pa)
 	var t_k: float = t_c + PC.KELVIN_OFFSET
-	if not is_finite(melt) or t_c <= melt:
+	if not is_finite(melt):
+		# Never melts on this planet — silica, the gases. Sensible heat alone, on whichever capacity it has.
+		var c: float = c_sol if c_sol > 0.0 else c_liq
+		return c * t_k
+
+	# NO LIQUID BELOW THE TRIPLE POINT. The solid's only exit is the vapour, across the SUBLIMATION plateau
+	# at the frost point, and the ramp above it is the gas.
+	if sublimes_at(id, p_pa):
+		var t_sub: float = sublimation_c_at(id, p_pa)
+		if t_c <= t_sub:
+			return c_sol * t_k
+		var h_sub: float = c_sol * (t_sub + PC.KELVIN_OFFSET) + latent_sublimation_j_kg(id)
+		return _gas_enthalpy_at(id, t_c, p_pa, t_sub, h_sub, c_gas)
+
+	if t_c <= melt:
 		return c_sol * t_k
 	var h: float = c_sol * (melt + PC.KELVIN_OFFSET) + float(s.get("latent_fusion_j_kg", 0.0))
 	if not is_finite(boil) or t_c <= boil:
 		return h + c_liq * (t_c - melt)
-	h += c_liq * (boil - melt) + float(s.get("latent_vaporisation_j_kg", 0.0))
-	return h + c_gas * (t_c - boil)
+	# THE LATENT HEAT AT THE BOUNDARY, not the table's reference value: the plateau shortens with pressure
+	# and is exactly zero at the critical point.
+	h += c_liq * (boil - melt) + latent_vaporisation_at(id, boil)
+	# Above the plateau the atomisation and ionisation energies are paid by equilibrium, not in one step.
+	return _gas_enthalpy_at(id, t_c, p_pa, boil, h, c_gas)
 
 
 ## THE BOILING POINT AT A GIVEN PRESSURE. Clausius-Clapeyron, integrated with the latent heat taken as
@@ -453,6 +475,25 @@ static func sublimation_p_at(id: String, t_c: float) -> float:
 	return p3 * exp(-(l_sub / PC.VAPOUR_GAS_CONST_J_KGK) * (1.0 / t_k - 1.0 / t3_k))
 
 
+## THE FROST POINT AT A GIVEN PRESSURE, C — sublimation_p_at() inverted, so the solid-vapour boundary is one
+## curve read from either end. Below the triple point the solid leaves at THIS temperature, not at the
+## melting point: the fusion curve does not exist down here.
+static func sublimation_c_at(id: String, p_pa: float) -> float:
+	var s: Dictionary = table().get(id, {})
+	var t3: float = float(s.get("triple_t_c", INF))
+	var p3: float = float(s.get("triple_p_pa", 0.0))
+	if not is_finite(t3) or p3 <= 0.0:
+		return INF
+	var l_sub: float = latent_sublimation_j_kg(id)
+	if l_sub <= 0.0:
+		return t3
+	var inv_t: float = 1.0 / (t3 + PC.KELVIN_OFFSET) \
+		- (PC.VAPOUR_GAS_CONST_J_KGK / l_sub) * log(maxf(p_pa, 1.0e-12) / p3)
+	if inv_t <= 0.0:
+		return t3
+	return 1.0 / inv_t - PC.KELVIN_OFFSET
+
+
 ## True when this substance has NO liquid phase at this pressure: below the triple-point pressure a solid
 ## goes straight to vapour, which is how snow leaves a cold dry summit without ever melting.
 static func sublimes_at(id: String, p_pa: float) -> bool:
@@ -537,23 +578,29 @@ static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDA
 		return {"t_c": (h_j_kg / c) - PC.KELVIN_OFFSET if c > 0.0 else 0.0,
 			"phase": SOLID, "melted": 0.0, "vaporised": 0.0}
 
+	# NO LIQUID BELOW THE TRIPLE POINT. Ice on a cold dry summit leaves as vapour without ever melting, so
+	# the plateau it crosses is SUBLIMATION at the frost point, not fusion, and the next ramp is the gas.
+	if sublimes_at(id, p_pa):
+		var t_sub: float = sublimation_c_at(id, p_pa)
+		var h_sub_start: float = c_sol * (t_sub + PC.KELVIN_OFFSET)
+		if h_j_kg <= h_sub_start:
+			return {"t_c": (h_j_kg / c_sol) - PC.KELVIN_OFFSET if c_sol > 0.0 else t_sub,
+				"phase": SOLID, "melted": 0.0, "vaporised": 0.0, "sublimating": true,
+				"dissociated": 0.0, "ionised": 0.0}
+		var l_sub: float = latent_sublimation_j_kg(id)
+		var h_sub_end: float = h_sub_start + l_sub
+		if h_j_kg < h_sub_end:
+			return {"t_c": t_sub, "phase": SOLID, "melted": 0.0,
+				"vaporised": (h_j_kg - h_sub_start) / l_sub if l_sub > 0.0 else 1.0,
+				"sublimating": true, "dissociated": 0.0, "ionised": 0.0}
+		var st: Dictionary = _gas_state(id, h_j_kg, p_pa, t_sub, h_sub_end, c_gas, 0.0)
+		st["sublimating"] = true
+		return st
+
 	var h_melt_start: float = c_sol * (melt + PC.KELVIN_OFFSET)
 	if h_j_kg <= h_melt_start:
 		return {"t_c": (h_j_kg / c_sol) - PC.KELVIN_OFFSET if c_sol > 0.0 else melt,
 			"phase": SOLID, "melted": 0.0, "vaporised": 0.0}
-
-	# NO LIQUID BELOW THE TRIPLE POINT. Ice on a cold dry summit leaves as vapour without ever melting, so
-	# the plateau it crosses is SUBLIMATION, not fusion, and the next ramp is the gas.
-	if sublimes_at(id, p_pa):
-		var l_sub: float = latent_sublimation_j_kg(id)
-		var h_sub_end: float = h_melt_start + l_sub
-		if h_j_kg < h_sub_end:
-			return {"t_c": melt, "phase": SOLID, "melted": 0.0,
-				"vaporised": (h_j_kg - h_melt_start) / l_sub if l_sub > 0.0 else 1.0,
-				"sublimating": true, "dissociated": 0.0, "ionised": 0.0}
-		return {"t_c": melt + (h_j_kg - h_sub_end) / c_gas if c_gas > 0.0 else melt,
-			"phase": GAS, "melted": 0.0, "vaporised": 1.0, "sublimating": true,
-			"dissociated": 0.0, "ionised": 0.0}
 
 	var h_melt_end: float = h_melt_start + l_fus
 	if h_j_kg < h_melt_end:
@@ -576,10 +623,17 @@ static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDA
 		return {"t_c": boil, "phase": LIQUID, "melted": 1.0,
 			"vaporised": (h_j_kg - h_boil_start) / l_vap if l_vap > 0.0 else 1.0}
 
-	# ABOVE THE BOILING PLATEAU the two high transitions are EQUILIBRIA, not plateaus: the dissociated and
-	# ionised fractions rise smoothly with temperature (law of mass action, Saha). So enthalpy is a
-	# continuous monotonic function of T and the state is found by inverting it.
-	var t_gas: float = _invert_gas_enthalpy(id, h_j_kg, p_pa, boil, h_boil_end, c_gas)
+	return _gas_state(id, h_j_kg, p_pa, boil, h_boil_end, c_gas, 1.0)
+
+
+## ABOVE A CONDENSATION PLATEAU the two high transitions are EQUILIBRIA, not plateaus: the dissociated and
+## ionised fractions rise smoothly with temperature (law of mass action, Saha). Enthalpy is therefore a
+## continuous monotonic function of T and the state is found by inverting it. `ref_t_c` is the plateau's
+## temperature and `h_ref` its top, so boiling and sublimation share one tail.
+static func _gas_state(id: String, h_j_kg: float, p_pa: float, ref_t_c: float, h_ref: float,
+		c_gas: float, melted: float) -> Dictionary:
+	var s: Dictionary = table().get(id, {})
+	var t_gas: float = _invert_gas_enthalpy(id, h_j_kg, p_pa, ref_t_c, h_ref, c_gas)
 	var t_k: float = t_gas + PC.KELVIN_OFFSET
 	var a_d: float = dissociated_fraction(id, t_k, p_pa)
 	var a_i: float = ionised_fraction(id, t_k, p_pa)
@@ -592,7 +646,7 @@ static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDA
 		ph = PLASMA
 	elif a_d >= 0.5:
 		ph = ATOMS
-	return {"t_c": t_gas, "phase": ph, "melted": 1.0, "vaporised": 1.0,
+	return {"t_c": t_gas, "phase": ph, "melted": melted, "vaporised": 1.0,
 		"dissociated": a_d, "ionised": a_i}
 
 
