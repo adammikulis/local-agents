@@ -8,29 +8,37 @@ const RenderLayerScene: PackedScene = preload("res://addons/local_agents/game/Re
 const UiLayerScene: PackedScene = preload("res://addons/local_agents/game/UiLayer.tscn")
 const StreamerHostScript: GDScript = preload("res://addons/local_agents/sim/streamer/StreamerHost.gd")
 
-const PLANET_RADIUS: float = 500.0
-const PLANET_SCALE: float = PLANET_RADIUS / 250.0     # everything below was tuned at radius 250
-const PLANET_RELIEF: float = 28.0 * PLANET_SCALE      # LA_RELIEF overrides
-const PLANET_FEATURE: float = 155.0 * PLANET_SCALE
+# THE BODY THIS WORLD IS SEEDED WITH. Every length below is METRES, because the grid is metres.
+#
+# THERE IS NO PLANET_SCALE. It was `PLANET_RADIUS / 250.0`, and every constant here was multiplied by it
+# because "everything below was tuned at radius 250" — so each of these was a shape held against a radius
+# nobody had believed in for a long time, and changing the radius silently rescaled the geology. Each is
+# now the length it actually is, and the radius can change without any of them moving.
+#
+# Mercury-class body: 2439.7 km mean radius (NASA planetary fact sheet). Its gravity is NOT declared here
+# or anywhere — it is solved from the mass that ends up in the grid (LAFieldGravity).
+const PLANET_RADIUS: float = 2.4397e6
+const PLANET_RELIEF: float = 9.4e3                # peak-to-trough continental relief; LA_RELIEF overrides
+const PLANET_FEATURE: float = 5.2e4               # continental wavelength
 # OCEAN-heavy world: sea shell at the mean radius; OCEAN_BIAS pushes the surface inward, so most of the
 # sphere is below the sea and continents emerge at the cellular cores. Runtime-tunable: LA_OCEAN_BIAS=<n>.
 const PLANET_SEA_RADIUS: float = PLANET_RADIUS
-const PLANET_OCEAN_BIAS: float = 3.0 * PLANET_SCALE
+const PLANET_OCEAN_BIAS: float = 1.0e3
 # BASIN relief: medium-wavelength undulation carved into the cellular plateaus so land has CLOSED
 # DEPRESSIONS (lake bowls) for springs/rain/runoff to collect in.
-const PLANET_BASIN_RELIEF: float = 12.0 * PLANET_SCALE
-const PLANET_BASIN_SIZE: float = 130.0 * PLANET_SCALE
+const PLANET_BASIN_RELIEF: float = 4.0e3
+const PLANET_BASIN_SIZE: float = 4.4e4
 # RIDGES: ridged-multifractal mountain layer. Rivers do not ride this noise — the drainage network is carved
 # from the ACTUAL water flow — so its only job is gentle mountain extrusions.
-const PLANET_RIDGE_RELIEF: float = 4.0 * PLANET_SCALE   # LA_RIDGE overrides
-const PLANET_RIDGE_SIZE: float = 95.0 * PLANET_SCALE
+const PLANET_RIDGE_RELIEF: float = 1.35e3               # LA_RIDGE overrides
+const PLANET_RIDGE_SIZE: float = 3.2e4
 const PLANET_RIDGE_OCTAVES: int = 2
-const PLANET_DETAIL_RELIEF: float = 1.0 * PLANET_SCALE  # fine surface grain (LA_DETAIL overrides)
+const PLANET_DETAIL_RELIEF: float = 3.4e2               # fine surface grain (LA_DETAIL overrides)
 # CAVES: emergent fractal spaghetti tunnels carved into the SDF underground. LA_CAVES=0 disables.
-const PLANET_CAVE_SIZE: float = 60.0 * PLANET_SCALE      # tunnel wavelength (world units)
+const PLANET_CAVE_SIZE: float = 2.0e4                    # tunnel wavelength, metres
 const PLANET_CAVE_THRESHOLD: float = 0.09                # near-zero band => tunnel fatness (scale-free)
 const PLANET_CAVE_STRENGTH: float = 40.0                 # void-SDF wall sharpness (0 disables)
-const PLANET_CAVE_DEPTH_FADE: float = 14.0 * PLANET_SCALE
+const PLANET_CAVE_DEPTH_FADE: float = 4.7e3
 
 const FPS_PROBE_FRAMES: int = 150
 
@@ -75,17 +83,17 @@ var _frame_dt_accum: float = 0.0
 # Terrain-roughness live knobs (pre-scale units, per-launch, no edit).
 func _ocean_bias() -> float:
 	if OS.has_environment("LA_OCEAN_BIAS"):
-		return float(OS.get_environment("LA_OCEAN_BIAS")) * PLANET_SCALE
+		return float(OS.get_environment("LA_OCEAN_BIAS"))
 	return PLANET_OCEAN_BIAS
 
 func _relief() -> float:
-	return float(OS.get_environment("LA_RELIEF")) * PLANET_SCALE if OS.has_environment("LA_RELIEF") else PLANET_RELIEF
+	return float(OS.get_environment("LA_RELIEF")) if OS.has_environment("LA_RELIEF") else PLANET_RELIEF
 
 func _ridge_relief() -> float:
-	return float(OS.get_environment("LA_RIDGE")) * PLANET_SCALE if OS.has_environment("LA_RIDGE") else PLANET_RIDGE_RELIEF
+	return float(OS.get_environment("LA_RIDGE")) if OS.has_environment("LA_RIDGE") else PLANET_RIDGE_RELIEF
 
 func _detail_relief() -> float:
-	return float(OS.get_environment("LA_DETAIL")) * PLANET_SCALE if OS.has_environment("LA_DETAIL") else PLANET_DETAIL_RELIEF
+	return float(OS.get_environment("LA_DETAIL")) if OS.has_environment("LA_DETAIL") else PLANET_DETAIL_RELIEF
 
 func _caves_enabled() -> bool:
 	if OS.has_environment("LA_CAVES"):

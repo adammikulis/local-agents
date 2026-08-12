@@ -67,10 +67,10 @@ func report(step_index: int) -> Dictionary:
 	var ltan: PackedFloat32Array = grid.link_tan
 	var depth: int = grid.depth
 	var columns: int = cc / depth
-	var cell_m: float = float(_f._cell_size) * LAPhysical.METRES_PER_MODEL_UNIT
+	var cell_m: float = float(_f._cell_size)
 	var spin: Vector3 = _spin_axis()
 	var rho0: float = LAPhysical.AIR_DENSITY_KG_M3
-	var g_acc: float = LAPhysical.STANDARD_GRAVITY_M_S2
+	var g_acc: float = _f._gravity.mean_g() if _f._gravity != null else 0.0
 	var two_omega: float = LAPhysical.CORIOLIS_TWO_OMEGA_RAD_S
 
 	var stock: Vector3 = Vector3.ZERO

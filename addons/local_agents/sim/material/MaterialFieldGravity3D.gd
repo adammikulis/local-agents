@@ -73,6 +73,22 @@ func down_at(c: int) -> Vector3:
 	return _solver.down_at(c)
 
 
+## Mean |g| over cells where gravity is non-zero, m/s^2. For the handful of SCALAR laws evaluated once per
+## pass rather than per cell -- a settling velocity, an overburden scale. A per-cell law reads g_at.
+func mean_g() -> float:
+	if _solver == null:
+		return 0.0
+	var n: int = _solver.gx.size()
+	var acc: float = 0.0
+	var hits: int = 0
+	for c in n:
+		var m: float = _solver.g_at(c).length()
+		if m > 0.0:
+			acc += m
+			hits += 1
+	return acc / float(hits) if hits > 0 else 0.0
+
+
 ## The three acceleration components, flat cell*3, for upload to the kernels.
 func packed() -> PackedFloat32Array:
 	var out: PackedFloat32Array = PackedFloat32Array()

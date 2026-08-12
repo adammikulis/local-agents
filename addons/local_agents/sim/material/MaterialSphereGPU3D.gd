@@ -168,7 +168,7 @@ func setup(field) -> void:
 	# gets the thickness of the shell holding the sea surface, converted from model units.
 	var surf_shell: int = _grid.shell_of(field.sea_radius())
 	var surf_dr: float = float(_grid.shell_dr[surf_shell]) if surf_shell >= 0 else float(_grid.cell_size)
-	LAReactionDefs.cell_size_m = surf_dr * LAPhysical.METRES_PER_MODEL_UNIT
+	LAReactionDefs.cell_size_m = surf_dr
 
 	# Load + set up the pass modules (skip any that fail to load — WIP-tolerant).
 	for path in PASS_SCRIPTS:
@@ -210,6 +210,9 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 	_ctx["wind"] = wind
 	_ctx["dt"] = 0.1
 	_ctx["cell_size"] = _grid.cell_size
+	# The SOLVED gravity, for the handful of scalar laws a pass evaluates once. A per-cell law reads the
+	# g field itself; nothing anywhere reads a gravity constant, because there is not one.
+	_ctx["g_m_s2"] = _field._gravity.mean_g() if _field._gravity != null else 0.0
 	# LATERAL cell spacing. It is the mean radial thickness only because nothing measures the real arc yet;
 	# the true run is `link_arc * shell_mid`, which varies 1.07-4.08 across a face. Named so the two stop
 	# sharing a symbol — the radial half now comes from the shell table, this one does not.

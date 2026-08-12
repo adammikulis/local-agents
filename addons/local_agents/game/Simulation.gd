@@ -4,6 +4,12 @@ extends Node3D
 
 const STAR_POSITION: Vector3 = Vector3(900.0, 320.0, 620.0)
 
+# How much of the body the field models, metres: a shell straddling the surface. The radial resolution
+# follows from this and the shell count, rather than from a multiple of a radius nobody believed in.
+const MODELLED_CRUST_DEPTH_M: float = 2.7e4
+const MODELLED_ATMOSPHERE_HEIGHT_M: float = 2.7e4
+const MODELLED_SPAN_M: float = MODELLED_CRUST_DEPTH_M + MODELLED_ATMOSPHERE_HEIGHT_M
+
 @onready var _settings_applier: LAVoxelSettingsApplier = $SettingsApplier
 @onready var _clock: LASimClock = $SimClock
 @onready var _time: LASimTimeAuthority = $TimeAuthority
@@ -66,10 +72,11 @@ func build(opts: Dictionary) -> void:
 
 func _build_field() -> void:
 	var field_grid: RefCounted = LASphereGrid.new()
-	var scale: float = float(_body.radius()) / 250.0
 	var depth: int = _settings_applier.grid_depth()
-	var core_r: float = 170.0 * scale
-	var mean_dr: float = 8.0 * scale
+	# The modelled shell, in METRES: it straddles the surface, with the interior below standing in as the
+	# geotherm reservoir. Declared granularity — see docs/MODEL_PARAMETERS.md.
+	var mean_dr: float = MODELLED_SPAN_M / float(maxi(depth, 1))
+	var core_r: float = float(_body.radius()) - MODELLED_CRUST_DEPTH_M
 	# Surface shell = the one holding the sea, so a graded profile puts its fine cells where the ground is.
 	var surf_shell: int = clampi(int((_terrain.sea_radius() - core_r) / mean_dr), 0, depth - 1)
 	field_grid.build(_settings_applier.grid_res_per_face(), depth, core_r, mean_dr, _body.center(),

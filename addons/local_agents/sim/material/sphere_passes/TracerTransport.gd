@@ -25,16 +25,16 @@ static func gas_settle_v(molar_mass_kg_mol: float) -> float:
 
 ## Still-air settling velocity of the airborne grain, m/s, from Stokes drag. The `dust` channel carries no
 ## per-cell grain diameter, so every grain settles as GRAIN_D_UPLAND_M.
-static func dust_settle_v() -> float:
+static func dust_settle_v(g_m_s2: float) -> float:
 	return LAPhysical.stokes_settling_velocity(LAPhysical.GRAIN_D_UPLAND_M,
-			LAPhysical.AIR_DENSITY_KG_M3, LAPhysical.AIR_DYNAMIC_VISCOSITY_PA_S)
+			LAPhysical.AIR_DENSITY_KG_M3, LAPhysical.AIR_DYNAMIC_VISCOSITY_PA_S, g_m_s2)
 
 
 ## Lateral Courant factor k_lat = dt/dx: real seconds per field step over the lateral spacing in real metres.
 ## The velocity field is m/s, so dividing by a model-unit spacing would pin every cell against the CFL cap.
 ## The kernel rescales this per radial face from the shell table, so only the LATERAL reference is passed.
 static func courant(lat_size_model_units: float) -> float:
-	var lat_m: float = lat_size_model_units * LAPhysical.METRES_PER_MODEL_UNIT
+	var lat_m: float = lat_size_model_units
 	if lat_m == 0.0:
 		return 0.0
 	return LAMaterialFieldSphereStep3D.real_seconds_per_step() / lat_m

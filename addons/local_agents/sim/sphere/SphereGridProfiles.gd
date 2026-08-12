@@ -20,7 +20,7 @@ static func from_env(depth: int, mean_dr: float, surf_index: int) -> PackedFloat
 ## Thinnest shell the grid needs, model units: the aquifer's circulation depth over the shells modelling it.
 static func aquifer_shell_units() -> float:
 	var metres: float = LAPhysical.GROUNDWATER_CIRCULATION_M / float(LAMaterialFieldRegolith3D.REGOLITH_CELLS)
-	return metres / LAPhysical.METRES_PER_MODEL_UNIT
+	return metres
 
 
 ## A flat band of `REGOLITH_CELLS` shells at the aquifer thickness, ending at the surface shell, growing
@@ -91,25 +91,24 @@ static func describe(table: PackedFloat32Array, depth: int, mean_dr: float, surf
 		dr = PackedFloat32Array()
 		dr.resize(depth)
 		dr.fill(mean_dr)
-	var mpu: float = LAPhysical.METRES_PER_MODEL_UNIT
 	var focus: int = clampi(surf_index, 0, depth - 1)
 	var reg: int = LAMaterialFieldRegolith3D.REGOLITH_CELLS
 	var reg_m: float = 0.0
 	for k in reg:
 		var r: int = focus - k
 		if r >= 0:
-			reg_m += dr[r] * mpu
+			reg_m += dr[r]
 	var within_km: int = 0
 	var walk: float = 0.0
 	for r in range(focus, -1, -1):
-		walk += dr[r] * mpu
+		walk += dr[r]
 		if _mm(walk) > 1000.0:
 			break
 		within_km += 1
 	return {
-		"surface_shell_m": _mm(dr[focus] * mpu),
-		"thinnest_m": _mm(_extreme(dr, false) * mpu),
-		"thickest_m": _mm(_extreme(dr, true) * mpu),
+		"surface_shell_m": _mm(dr[focus]),
+		"thinnest_m": _mm(_extreme(dr, false)),
+		"thickest_m": _mm(_extreme(dr, true)),
 		"cells_within_1km_of_surface": within_km,
 		"regolith_band_m": _mm(reg_m),
 		"aquifer_resolved": _mm(reg_m) <= LAPhysical.GROUNDWATER_CIRCULATION_M,

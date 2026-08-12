@@ -71,7 +71,7 @@ func _core_radius_m() -> float:
 	var grid: RefCounted = _f.sphere_grid() if _f != null else null
 	if grid == null:
 		return 0.0
-	return maxf(0.0, float(grid.core_radius)) * LAPhysical.METRES_PER_MODEL_UNIT
+	return maxf(0.0, float(grid.core_radius))
 
 
 ## Reservoir heat capacity, J/K: the interior's volume times rock's volumetric heat capacity.
@@ -106,7 +106,7 @@ func step() -> void:
 	if grid == null:
 		return
 	# The flux crosses the INNERMOST shell's own face, so its thickness is that shell's, not the mean.
-	var dr0: float = float(grid.shell_dr[0]) * LAPhysical.METRES_PER_MODEL_UNIT
+	var dr0: float = float(grid.shell_dr[0])
 	if dr0 <= 0.0:
 		return
 

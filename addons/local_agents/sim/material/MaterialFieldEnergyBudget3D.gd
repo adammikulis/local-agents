@@ -114,7 +114,6 @@ func _compute() -> Dictionary:
 	var has_co2: bool = co2.size() == cc
 	var has_moisture: bool = moisture.size() == cc
 	var sun: Vector3 = sun_field_dir()
-	var m_per_unit: float = LAPhysical.METRES_PER_MODEL_UNIT
 	var shells: PackedFloat32Array = _f._sphere.shell_dr
 
 	var columns: int = cc / depth
@@ -168,7 +167,7 @@ func _compute() -> Dictionary:
 		for j in nlay:
 			var r2: int = sfc + 1 + j
 			var c: int = base + r2
-			var dz: float = float(shells[r2]) * m_per_unit
+			var dz: float = float(shells[r2])
 			var tk: float = maxf(temp[c] + LAPhysical.KELVIN_OFFSET, 1.0)
 			var rho_v: float = (maxf(moisture[c], 0.0) if has_moisture else 0.0) \
 				* LAPhysical.WATER_DENSITY_KG_M3
@@ -186,7 +185,7 @@ func _compute() -> Dictionary:
 		var veg: float = 0.0
 		if biomass.size() == cc:
 			var leaf: float = maxf(biomass[sc], 0.0) * LAPhysical.DRY_WOOD_DENSITY_KG_M3 \
-				* float(shells[sfc]) * m_per_unit * LAPhysical.FOLIAGE_FRACTION_OF_PLANT_MASS
+				* float(shells[sfc]) * LAPhysical.FOLIAGE_FRACTION_OF_PLANT_MASS
 			veg = 1.0 - exp(-LAPhysical.CANOPY_EXTINCTION_COEFF * (leaf / LAPhysical.LEAF_MASS_PER_AREA_KG_M2))
 		var land: float = lerpf(LAPhysical.ALBEDO_BARE_GROUND, LAPhysical.ALBEDO_VEGETATION, veg)
 		var albedo: float = lerpf(lerpf(land, LAPhysical.ALBEDO_OCEAN, wet), LAPhysical.ALBEDO_SNOW_ICE, icy)
@@ -212,7 +211,7 @@ func _compute() -> Dictionary:
 		albedo_sum += albedo
 		emis_sum += emis
 		t_sum += temp[sc]
-		var cap: float = maxf(LAHeatCapacity.cell(ch, sc) * float(shells[sfc]) * m_per_unit, 1.0)
+		var cap: float = maxf(LAHeatCapacity.cell(ch, sc) * float(shells[sfc]), 1.0)
 		cap_sum += cap
 		var d_t: float = float(res["net_surface"]) * dt_real / cap
 		dt_sum += d_t

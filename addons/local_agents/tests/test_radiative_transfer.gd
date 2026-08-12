@@ -12,6 +12,9 @@ const LAYERS: int = 60
 const TOP_PRESSURE_RATIO: float = 1.0e-4     # column top, as a fraction of the surface pressure
 
 # --- EARTH (measured) --------------------------------------------------------------------------------
+## This suite validates the solver against EARTH's measured column, so Earth's surface gravity is a
+## FIXTURE of the test, not this planet's gravity. The planet's g is solved per cell (LAFieldGravity).
+const EARTH_G_M_S2: float = 9.80665
 const EARTH_SURFACE_PA: float = 1.0e5
 const EARTH_SURFACE_K: float = 288.15
 const EARTH_LAPSE_K_PER_KM: float = 6.5           # ICAO standard troposphere
@@ -107,7 +110,7 @@ func _solve(col: Dictionary, t_s: float, emis: float, albedo: float) -> Dictiona
 
 func _earth(ppmv: float) -> Dictionary:
 	var scale_h: float = LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * EARTH_SURFACE_K \
-		/ LAPhysical.STANDARD_GRAVITY_M_S2
+		/ EARTH_G_M_S2
 	var t_of_p: Callable = func(p: float) -> float:
 		var z_km: float = scale_h * log(EARTH_SURFACE_PA / maxf(p, 1.0)) / 1000.0
 		return maxf(EARTH_SURFACE_K - EARTH_LAPSE_K_PER_KM * z_km, EARTH_TROPOPAUSE_K)
@@ -119,7 +122,7 @@ func _earth(ppmv: float) -> Dictionary:
 			/ (tc + LAPhysical.MAGNUS_C_C))
 		var x: float = minf(EARTH_RH * e_sat / maxf(p, 1.0), 1.0)
 		return x * LAPhysical.MOLAR_MASS_WATER_KG_MOL / LAPhysical.MOLAR_MASS_DRY_AIR_KG_MOL
-	return _solve(_column(EARTH_SURFACE_PA, LAPhysical.STANDARD_GRAVITY_M_S2, t_of_p, q_co2, q_h2o),
+	return _solve(_column(EARTH_SURFACE_PA, EARTH_G_M_S2, t_of_p, q_co2, q_h2o),
 		EARTH_SURFACE_K, LAPhysical.EMISSIVITY_WATER, LAPhysical.ALBEDO_OCEAN)
 
 

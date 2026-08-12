@@ -86,7 +86,7 @@ func amounts(ch: Dictionary, solid: PackedByteArray, temp: PackedFloat32Array,
 	# grid's cells differ in volume across the shell.
 	var grid = _f._sphere
 	var have_grid: bool = grid != null and grid.cell_count == cc
-	var uniform_m3: float = pow(cell_size * LAPhysical.METRES_PER_MODEL_UNIT, 3.0)
+	var uniform_m3: float = pow(cell_size, 3.0)
 	var vol: PackedFloat64Array = PackedFloat64Array()
 	vol.resize(cc)
 	var vol_total_m3: float = 0.0

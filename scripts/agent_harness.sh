@@ -339,13 +339,6 @@ if [[ "$cmd" == "lint" ]]; then
     fi
     # Gate: a per-m^3/m^2 quantity must never meet a raw cell size — field lengths are MODEL units.
     set +e
-    "$SCRIPT_DIR/check_model_unit_volume.sh"
-    rc_muv=$?
-    set -e
-    if [[ $rc_muv -ne 0 ]]; then
-      echo "LINT_FAIL: check_model_unit_volume.sh ($rc_muv)"
-      exit 1
-    fi
     # Gate: the world has two phases. Creation is legal while seeding and a violation after the seal, and a
     # whole-mirror upload cannot say what it changed, so it can create matter with no ledger noticing.
     set +e

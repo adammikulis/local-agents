@@ -29,10 +29,10 @@ const SLOW_BUILD_CELLS: int = 250000
 
 @export_group("Sphere bounds")
 @export_subgroup("Shape")
-## Mean solid radius of the planet, in world units. Relief, feature size and the field shell all scale
-## linearly with it, so doubling this gives the same-looking planet at twice the size.
-@export_range(25.0, 2000.0, 1.0, "or_greater", "suffix:m") var radius: float = 250.0
-@export_range(-30.0, 60.0, 0.1, "or_less", "or_greater", "suffix:m") var ocean_bias: float = 3.0
+## Mean solid radius of the planet, METRES. Relief and feature size are declared lengths and no longer
+## scale with it, so changing this changes the body's size without silently rescaling its geology.
+@export_range(1.0e5, 1.0e7, 1.0e3, "or_greater", "suffix:m") var radius: float = 2.4397e6
+@export_range(-1.0e4, 1.0e4, 10.0, "or_less", "or_greater", "suffix:m") var ocean_bias: float = 1.0e3
 ## Carve winding cave tunnels into the crust while the terrain generates.
 @export var caves_enabled: bool = true
 @export var tides_enabled: bool = false
@@ -137,7 +137,6 @@ func _build_sphere() -> bool:
 	if script_res == null:
 		push_error("VOXEL_BACKEND_REQUIRED: LocalAgentSimWorld could not load %s. That script needs the godot_voxel GDExtension (addons/zylann.voxel/); install it, or set world_type to FLAT." % PLANET_BODY_PATH)
 		return false
-	var scale: float = radius / 250.0                 # relief knobs below are expressed at radius 250
 	_body = script_res.new()
 	_body.name = "PlanetBody"
 	add_child(_body)
@@ -164,8 +163,8 @@ func _build_sphere() -> bool:
 	_material.name = "MaterialField"
 	add_child(_material)
 	var grid: RefCounted = SphereGridScript.new()
-	var core_r: float = 170.0 * scale
-	var mean_dr: float = 8.0 * scale
+	var mean_dr: float = LASimulation.MODELLED_SPAN_M / float(maxi(grid_depth, 1))
+	var core_r: float = radius - LASimulation.MODELLED_CRUST_DEPTH_M
 	var surf_shell: int = clampi(int((_terrain.sea_radius() - core_r) / mean_dr), 0, grid_depth - 1)
 	grid.build(grid_res, grid_depth, core_r, mean_dr, _body.center(),
 		LASphereGridProfiles.from_env(grid_depth, mean_dr, surf_shell))

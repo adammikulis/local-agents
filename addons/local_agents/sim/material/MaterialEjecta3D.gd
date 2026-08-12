@@ -172,8 +172,7 @@ func _process(delta: float) -> void:
 	_refresh_visual()
 
 
-## Kilograms in one mass unit at `cell`. The answer is an absolute mass, so the volume is m^3 and per-cell:
-## a model-unit cube would be METRES_PER_MODEL_UNIT^3 too small.
+## Kilograms in one mass unit at `cell`. The grid is metres, so the cell volume is already m^3.
 func _mass_unit_kg(cell: int) -> float:
 	if _f == null:
 		return 0.0

@@ -1186,7 +1186,7 @@ func _check_wind_surface_drag(speed_m_s: float) -> void:
 	_wind_step_dispatch(d, 0)
 	var vx: PackedFloat32Array = _read(d["vx"])
 	var vz: PackedFloat32Array = _read(d["vz"])
-	var h_m: float = float(_grid.shell_dr[ground_shell]) * LAPhysical.METRES_PER_MODEL_UNIT
+	var h_m: float = float(_grid.shell_dr[ground_shell])
 	var ln_r: float = log(0.5 * h_m / LAPhysical.ROUGHNESS_LENGTH_LAND_M)
 	var cd: float = pow(LAPhysical.VON_KARMAN_CONSTANT / ln_r, 2.0)
 	var dt: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
@@ -1303,11 +1303,10 @@ func _check_wind_smagorinsky(scale_m_s: float) -> void:
 	var v0: float = before[cell]
 	var v_up: float = before[cell + 1]
 	var v_dn: float = before[cell - 1]
-	var dz: float = float(_grid.shell_dr[shell]) * LAPhysical.METRES_PER_MODEL_UNIT
+	var dz: float = float(_grid.shell_dr[shell])
 	var lat_mean: float = 0.0
 	for l in 4:
-		lat_mean += float(_grid.link_arc[col * 4 + l]) * float(_grid.shell_mid[shell]) \
-			* LAPhysical.METRES_PER_MODEL_UNIT
+		lat_mean += float(_grid.link_arc[col * 4 + l]) * float(_grid.shell_mid[shell])
 	lat_mean *= 0.25
 	var filter_m: float = pow(lat_mean * lat_mean * dz, 1.0 / 3.0)
 	var dv_dy: float = absf(v_up - v_dn) / (2.0 * dz)

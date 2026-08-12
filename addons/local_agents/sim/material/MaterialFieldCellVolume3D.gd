@@ -23,7 +23,6 @@ static func of(field) -> PackedFloat32Array:
 	var hit = _cache.get(key)
 	if hit is PackedFloat32Array and hit.size() == cc:
 		return hit
-	var m3: float = pow(LAPhysical.METRES_PER_MODEL_UNIT, 3.0)
 	var out: PackedFloat32Array = PackedFloat32Array()
 	out.resize(cc)
 	if grid != null:
@@ -31,10 +30,10 @@ static func of(field) -> PackedFloat32Array:
 		if model.size() != cc:
 			return PackedFloat32Array()
 		for i in cc:
-			out[i] = model[i] * m3
+			out[i] = model[i]
 	else:
 		var side: float = float(field.cell_size())
-		out.fill(side * side * side * m3)
+		out.fill(side * side * side)
 	_cache[key] = out
 	return out
 

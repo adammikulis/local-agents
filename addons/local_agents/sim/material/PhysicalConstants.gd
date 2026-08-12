@@ -126,8 +126,6 @@ const HEAT_PER_KG_OXYGEN_J: float = 1.31e7
 # with nothing fitted: phi 0.35 with d = 0.5 mm gives 1.4e-3 m/s (coarse sand), d = 4 mm gives 8.8e-2 m/s
 # (fine gravel), d = 0.05 mm gives 1.4e-5 m/s (silty sand). One relation, the whole range.
 const KOZENY_CARMAN_C: float = 180.0
-# quantity, two constants, two values. The CGPM-defined figure is the authority and this is now an alias, so
-const GRAVITY_M_S2: float = STANDARD_GRAVITY_M_S2
 const WATER_DYNAMIC_VISCOSITY_PA_S: float = 1.002e-3    # liquid water at 20 °C
 const AIR_DYNAMIC_VISCOSITY_PA_S: float = 1.81e-5       # dry air at 15 °C, 1 atm
 
@@ -138,10 +136,11 @@ const COMPACTION_LENGTH_M: float = 2500.0
 ## Valid only for Reynolds < 1. At GRAIN_D_UPLAND_M in air Re = 1.2, so this is at the edge of validity and
 ## reads a little fast; at GRAIN_D_LOWLAND_M it returns 1396 m/s, which is meaningless — a 4 mm grain is not
 ## airborne and is never passed here.
-static func stokes_settling_velocity(grain_d_m: float, fluid_density: float, fluid_viscosity: float) -> float:
+static func stokes_settling_velocity(grain_d_m: float, fluid_density: float, fluid_viscosity: float,
+		g_m_s2: float) -> float:
 	if fluid_viscosity <= 0.0:
 		return 0.0
-	return (ROCK_DENSITY_KG_M3 - fluid_density) * STANDARD_GRAVITY_M_S2 * grain_d_m * grain_d_m \
+	return (ROCK_DENSITY_KG_M3 - fluid_density) * g_m_s2 * grain_d_m * grain_d_m \
 		/ (18.0 * fluid_viscosity)
 
 
@@ -169,7 +168,6 @@ const BIOMASS_HEAT_OF_COMBUSTION_J_PER_KG: float = 1.7e7
 # Specific heat of animal tissue, J/kg/K.
 const ANIMAL_SPECIFIC_HEAT_J_KGK: float = 3500.0
 # --- UNIVERSAL CONSTANTS ------------------------------------------------------------------------------------
-const STANDARD_GRAVITY_M_S2: float = 9.80665        # CGPM-defined standard gravity
 const PLANET_ANGULAR_VELOCITY_RAD_S: float = 7.2921159e-5   # Earth sidereal rotation, 2*pi/86164.1 s
 ## Coriolis parameter is f = CORIOLIS_TWO_OMEGA_RAD_S * sin(latitude).
 const CORIOLIS_TWO_OMEGA_RAD_S: float = PLANET_ANGULAR_VELOCITY_RAD_S * 2.0
@@ -239,7 +237,7 @@ const SILICATE_DISSOLUTION_EA_OVER_R_K: float = SILICATE_DISSOLUTION_EA_J_MOL / 
 const LAB_REFERENCE_TEMP_C: float = 25.0
 
 # --- LITHIFICATION: A PRESSURE, NOT A DEPTH -----------------------------------------------------------------
-#     P = ROCK_DENSITY_KG_M3 * STANDARD_GRAVITY_M_S2 * GROUNDWATER_CIRCULATION_M
+#     P = ROCK_DENSITY_KG_M3 * g * GROUNDWATER_CIRCULATION_M
 const LITHIFICATION_PRESSURE_PA: float = 5.688e7
 # Bulk density of unconsolidated wet sediment (sand and mud), kg/m^3; range 1600-2200. Lower than rock
 # because sediment is a grain framework with water in the pores, so a sediment pile has to be thicker
@@ -256,15 +254,6 @@ const AIR_MOLE_FRAC_AR: float = 0.00934
 const AIR_MOLE_FRAC_CO2: float = 0.000419   # NOAA GML global annual mean, 2023
 
 # ============================================================================================================
-const METRES_PER_MODEL_UNIT: float = 168.6
-
-
-## Model units to metres. One scale, not a horizontal/vertical pair: the field is laid on a cubed sphere,
-## where the radial stack and the lateral arc are the same coordinate (LASphereGrid.cell_volume returns
-## solid_angle * (ro^3 - ri^3) / 3, a model-unit volume that becomes m^3 under one factor cubed).
-static func model_units_to_metres(u: float) -> float:
-	return u * METRES_PER_MODEL_UNIT
-
 # Dry air, from the mole fractions above and the molar masses above. M_air = sum(x_i * M_i) — a real
 # weighted mean, not a stored 0.02896 whose derivation lives in a comment.
 const MOLAR_MASS_DRY_AIR_KG_MOL: float = \
@@ -275,23 +264,16 @@ const MOLAR_MASS_DRY_AIR_KG_MOL: float = \
 const DRY_AIR_GAS_CONSTANT_J_KGK: float = GAS_CONSTANT_J_MOL_K / MOLAR_MASS_DRY_AIR_KG_MOL
 
 
-## Atmospheric scale height in METRES at a temperature: H = R_d * T / g, the hydrostatic relation for an
-## isothermal ideal-gas column. A FUNCTION, because H is a function of temperature.
-static func scale_height_m(t_c: float) -> float:
-	return DRY_AIR_GAS_CONSTANT_J_KGK * maxf(t_c + KELVIN_OFFSET, 1.0) / STANDARD_GRAVITY_M_S2
+## Atmospheric scale height in METRES: H = R_d * T / g, the hydrostatic relation for an isothermal
+## ideal-gas column. It takes BOTH its arguments because H is a function of temperature and of the local
+## gravity, and this planet has no single g -- g is solved from the mass that is there (LAFieldGravity).
+static func scale_height_m(t_c: float, g_m_s2: float) -> float:
+	return DRY_AIR_GAS_CONSTANT_J_KGK * maxf(t_c + KELVIN_OFFSET, 1.0) / maxf(g_m_s2, 1.0e-12)
 
 
-## The same, in MODEL UNITS, which is what a kernel walking radial shells needs.
-static func scale_height_model_units(t_c: float) -> float:
-	return scale_height_m(t_c) / METRES_PER_MODEL_UNIT
-
-
-const SCALE_HEIGHT_PER_K_MODEL: float = DRY_AIR_GAS_CONSTANT_J_KGK / STANDARD_GRAVITY_M_S2 / METRES_PER_MODEL_UNIT
-
-
-static func air_units_to_pascals(column_air_units: float, cell_size_model_units: float) -> float:
-	return STANDARD_GRAVITY_M_S2 * AIR_DENSITY_KG_M3 * model_units_to_metres(cell_size_model_units) \
-		* column_air_units
+## Weight of a column of air, Pa. `cell_size_m` is metres because the grid is metres.
+static func air_units_to_pascals(column_air_units: float, cell_size_m: float, g_m_s2: float) -> float:
+	return g_m_s2 * AIR_DENSITY_KG_M3 * cell_size_m * column_air_units
 # ============================================================================================================
 
 # --- ORGANIC MATTER: THE CARBON-TO-NITROGEN RATIO ---------------------------------------------------------

@@ -57,7 +57,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 		return
 	var depth: int = maxi(int(ctx.get("depth", 1)), 1)
 	var columns: int = cc / depth
-	var radius: float = LAPhysical.LIGHTNING_NEUTRALISED_RADIUS_M / LAPhysical.METRES_PER_MODEL_UNIT
+	var radius: float = LAPhysical.LIGHTNING_NEUTRALISED_RADIUS_M
 
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, _sets[parity], 0)

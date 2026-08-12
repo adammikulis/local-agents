@@ -383,15 +383,14 @@ func _geo_watts(shell_solid: int, cc: int) -> float:
 	var geo_flux: float = float(_f._geotherm.report().get("core_flux_w_m2", 0.0))
 	var depth: int = _f._dim_y
 	var grid = _f._sphere
-	var k2: float = LAPhysical.METRES_PER_MODEL_UNIT * LAPhysical.METRES_PER_MODEL_UNIT
 	var face_m2: float = 0.0
 	if grid != null and grid.cell_count == cc and depth > 0:
 		var columns: int = int(cc / depth)
 		for s_col in columns:
-			face_m2 += grid.face_area_inward(s_col * depth) * k2
+			face_m2 += grid.face_area_inward(s_col * depth)
 		face_m2 = face_m2 / float(maxi(columns, 1))
 	else:
-		face_m2 = pow(float(_f._cell_size) * LAPhysical.METRES_PER_MODEL_UNIT, 2.0)
+		face_m2 = pow(float(_f._cell_size), 2.0)
 	return geo_flux * face_m2 * float(shell_solid)
 
 

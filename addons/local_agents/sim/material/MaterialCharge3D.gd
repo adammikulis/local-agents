@@ -56,7 +56,7 @@ func _refresh_peaks() -> void:
 			var c: int = base + r
 			if _f._solid[c] == 0:
 				var q: float = _f._charge[c]
-				sigma += q * tbl[r * 4] * LAPhysical.METRES_PER_MODEL_UNIT
+				sigma += q * tbl[r * 4]
 				if q > _charge_peak:
 					_charge_peak = q
 		var e: float = sigma / eps0

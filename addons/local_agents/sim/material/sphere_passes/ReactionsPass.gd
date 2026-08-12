@@ -6,10 +6,12 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reactions_sphere3d.glsl"
 const REACTIONS_SCRIPT: String = "res://addons/local_agents/sim/material/MaterialReactions3D.gd"
 
-static func overburden_pa_per_unit() -> float:
+## Lithostatic pressure added per unit of overlying rock, Pa. Takes the local gravity: a pressure is
+## rho*g*h and this planet has no single g.
+static func overburden_pa_per_unit(g_m_s2: float) -> float:
 	var cells: int = maxi(int(LAMaterialField3D.REGOLITH_CELLS), 1)
 	var metres_per_cell: float = LAPhysical.GROUNDWATER_CIRCULATION_M / float(cells)
-	return LAPhysical.STANDARD_GRAVITY_M_S2 * metres_per_cell
+	return g_m_s2 * metres_per_cell
 
 var _pipe: RID = RID()
 var _n_records: int = 0
@@ -138,7 +140,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	pc.encode_float(16, sun_dir.x)
 	pc.encode_float(20, sun_dir.y)
 	pc.encode_float(24, sun_dir.z)
-	pc.encode_float(28, overburden_pa_per_unit())
+	pc.encode_float(28, overburden_pa_per_unit(float(ctx.get("g_m_s2", 0.0))))
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, _set[parity], 0)
 	rd.compute_list_set_push_constant(cl, pc, pc.size())

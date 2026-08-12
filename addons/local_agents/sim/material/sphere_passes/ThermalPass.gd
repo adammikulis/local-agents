@@ -134,7 +134,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	var sun_dir: Vector3 = ctx.get("sun_dir", Vector3(0.0, 1.0, 0.0))
 	var depth: int = _ctx_depth(ctx)
 	var lat_dx: float = _ctx_num(ctx, "lat_size")
-	var cell_m: float = _ctx_cell_size(ctx) * LAPhysical.METRES_PER_MODEL_UNIT
+	var cell_m: float = _ctx_cell_size(ctx)
 	var dt_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
 	var core_boundary_c: float = float(ctx.get("core_boundary_c", 0.0))
 	var columns: int = cc / depth
