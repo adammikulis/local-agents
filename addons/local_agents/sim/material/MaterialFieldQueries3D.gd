@@ -222,6 +222,23 @@ func updraft_at(pos: Vector3) -> float:
 	return LAFieldGeometry.velocity(_f, aloft).dot(LAFieldGeometry.up(_f, aloft))
 
 
+## Dynamic pressure the moving WATER exerts at a world point, in pascals, along the flow. q = rho v^2 / 2 --
+## the pressure a flow puts on anything it meets, so a caller multiplies by its own frontal area. Zero
+## where there is no water: a force needs matter to carry it.
+func water_force_at(pos: Vector3) -> Vector3:
+	if _f._grid == null or _f._water.size() != _f._cell_count or _f._vel_x.size() != _f._cell_count:
+		return Vector3.ZERO
+	var c: int = _f.world_to_cell(pos)
+	if c < 0 or _f._water[c] <= 0.0:
+		return Vector3.ZERO
+	var v: Vector3 = LAFieldGeometry.velocity(_f, c)
+	var speed: float = v.length()
+	if speed <= 0.0:
+		return Vector3.ZERO
+	var rho: float = float(LASubstances.table().get("h2o", {}).get("density", 0.0)) * _f._water[c]
+	return v.normalized() * (0.5 * rho * speed * speed)
+
+
 # --- Emergent WIND as a real momentum/force (read back from the GPU velocity field) ------------------
 
 ## Full 3D wind velocity at a world point, m/s. The velocity channels are the grid's own axes, so there is

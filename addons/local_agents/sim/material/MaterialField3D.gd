@@ -111,7 +111,7 @@ var _geotherm = null                                     # LAMaterialFieldGeothe
 var _queries = null                                      # LAMaterialFieldQueries3D
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
 var _stamp = null                                        # LAMineralStamp3D — Stage C rock_fill->SDF growth stamp
-var _sphere_step = null                                  # LAMaterialFieldSphereStep3D — cubed-sphere per-frame step loop
+var _sphere_step = null                                  # LAMaterialFieldSphereStep3D — the per-frame step loop
 var _surface_seed = null                                 # LAMaterialSurfaceSeed3D — ground-surface fuel + soil detritus seed/refill
 var _organic = null                                      # LAMaterialFieldOrganic3D — the dead pool's C:H:O gauge
 # Substrate-foundation primitive modules (the field only delegates; all logic lives in these). Seams the
@@ -244,20 +244,15 @@ func setup_body(centre_pos: Vector3, radius: float, cell_size: float, terrain = 
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	grid.build_centred(centre_pos, radius, maxf(0.5, cell_size))
 	_adopt(grid)
-	# Per-frame step orchestration (begin/step/end + readback) lives in a focused module.
-	_sphere_step = SphereStepScript.new()
-	_sphere_step.setup(self)
 
-## Lay the field over an explicit box. Indexing, neighbours, cell volume and face area all come from
-## LAVoxelGrid — never recomputed here, and never with a second index layout.
+## Lay the field over an explicit box. Same grid, same lifecycle: an extent is not a second kind of world.
 func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Vector3) -> void:
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	grid.build(dim_x, dim_y, dim_z, cell_size, origin)
 	_adopt(grid)
-	# The injection facade edits the CPU channel arrays directly; without it add_heat silently no-ops.
-	_inject = InjectScript.new()
-	_inject.setup(self)
 
+## ONE lifecycle. A box and a body differ in extent and in nothing else: both step, both solve gravity,
+## both run the kernels. A field that adopts a grid without a step module never advances.
 func _adopt(grid: LAVoxelGrid) -> void:
 	_grid = grid
 	_dim_x = grid.nx
@@ -269,6 +264,9 @@ func _adopt(grid: LAVoxelGrid) -> void:
 	_alloc_channels()
 	_gravity = GravityScript.new()
 	_gravity.setup(self)
+	# Per-frame step orchestration (begin/step/end + readback). Without it the field never advances.
+	_sphere_step = SphereStepScript.new()
+	_sphere_step.setup(self)
 
 ## The body centre — the pivot the grid's rotation turns about, and the origin `sea_radius` is measured from.
 func centre() -> Vector3:
@@ -536,8 +534,6 @@ func _exit_tree() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if LAAblate.off("field"):
-		return
 	if _sphere_step != null:
 		_sphere_step.process(delta)
 
@@ -643,6 +639,11 @@ func wind3_at(x: float, y: float, z: float) -> Vector3:
 	return _queries.wind3_at(x, y, z)
 
 # Local injection writes the GPU field buffers via the injection module; the field only forwards.
+
+## Hand JOULES to the matter at a world point (and within `radius`). Returns the J/m^3 it raised the
+## enthalpy by; what temperature that is depends on what is there, which is the ladder's business.
+func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float:
+	return _inject.add_heat_energy(world_pos, joules, radius) if _inject != null else 0.0
 
 ## Inject airborne water vapor (humidity) at a world point (+`radius`) — a storm's moisture source. Real (module).
 func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
