@@ -101,6 +101,16 @@ func _init() -> void:
 	quit(1 if failed > 0 else 0)
 GD
 
+# THE CACHE IS NOT INVALIDATED BY AN INCLUDE. Editing a .glsli leaves every .glsl that includes it holding
+# its old SPIR-V in .godot/imported, and `--import` does not notice — not even after touching the .glsl.
+# `load()` then returns the STALE kernel and this gate reads green against code that no longer exists.
+# Verified by zeroing a latent heat in enthalpy.glsli: the GPU kept the old value until the cache was
+# deleted. Drop the kernels' cache entries and re-import so every probe below compiles from source.
+if [ -d "$REPO_ROOT/.godot/imported" ]; then
+  find "$REPO_ROOT/.godot/imported" -maxdepth 1 -name '*.glsl-*' -delete
+  (cd "$REPO_ROOT" && timeout 300 godot --headless --path . --import >/dev/null 2>&1) || true
+fi
+
 out="$(cd "$REPO_ROOT" && timeout 300 godot --headless --path . -s "res://$PROBE_REL" 2>&1)"
 echo "$out" | grep -E '^SHADER_FAIL=|^SHADER_GATE=' || true
 

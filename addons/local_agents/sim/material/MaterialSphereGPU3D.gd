@@ -13,6 +13,7 @@ static func slow_channels() -> PackedStringArray: return LAChannels.slow_channel
 # it derives. ChargeSeparate precedes Transport, whose OHMIC row relaxes what it separated.
 const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/SolidDerivePass.gd",
+	"res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ChargeSeparatePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd"]
