@@ -1,11 +1,6 @@
 class_name LASettingsMenu
 extends Control
 
-## The settings screen. It edits the live LAGameSettings held on the GameMode autoload. The panel shell,
-## the action bar and the status line live in SettingsMenu.tscn; the four setting groups (difficulty,
-## graphics, simulation/AI, audio, controls) are generated into the Sections column from the settings
-## resource by LASettingsWidgets and the two section objects. "Save" persists to user:// and calls
-## GameMode.apply(); "Back" returns to the main menu.
 
 const MAIN_MENU_SCENE: String = "res://addons/local_agents/game/menu/MainMenu.tscn"
 const ModelManagerPanelScene: PackedScene = preload("res://addons/local_agents/ui/ModelManagerPanel.tscn")
@@ -67,7 +62,6 @@ func _ready() -> void:
 
 
 func _build_sections() -> void:
-	# --- Difficulty ---
 	LASettingsWidgets.add_header(_sections, "Difficulty")
 	_difficulty_group = ButtonGroup.new()
 	var diff_row: HBoxContainer = LASettingsWidgets.add_row(_sections)
@@ -86,17 +80,14 @@ func _build_sections() -> void:
 	_climate_slider = cli["slider"]
 	_climate_value = cli["value"]
 
-	# --- Graphics (GPU) ---
 	_graphics = LAGraphicsSettingsSection.new()
 	_graphics.setup(_settings, Callable(self, "_on_section_changed"))
 	_graphics.build(_sections)
 
-	# --- Simulation / AI (CPU) ---
 	_sim = LASimSettingsSection.new()
 	_sim.setup(_settings, Callable(self, "_on_section_changed"))
 	_sim.build(_sections)
 
-	# --- Audio ---
 	LASettingsWidgets.add_header(_sections, "Audio")
 	var mv: Dictionary = LASettingsWidgets.add_slider(_sections, "Master volume",
 		"Overall output level.", 0.0, 1.0, 0.01, _settings.master_volume, Callable(self, "_fmt_percent"), Callable(self, "_on_master_changed"))
@@ -108,7 +99,6 @@ func _build_sections() -> void:
 		"Procedural sound-effects level.", 0.0, 1.0, 0.01, _settings.sfx_volume, Callable(self, "_fmt_percent"), Callable(self, "_on_sfx_changed"))
 	_sfx_value = sv["value"]
 
-	# --- Controls ---
 	LASettingsWidgets.add_header(_sections, "Controls")
 	_invert_x_option = LASettingsWidgets.add_option(_sections, "Invert rotate X",
 		"Flip the horizontal drag direction when rotating the planet.",
@@ -218,8 +208,6 @@ func _on_models() -> void:
 # Refresh helpers
 # ---------------------------------------------------------------------------
 
-# Push the difficulty + audio values onto their controls without re-firing the change handlers. The two
-# section objects own their own refresh.
 func _refresh_difficulty() -> void:
 	_suppress = true
 	for preset in _difficulty_buttons:

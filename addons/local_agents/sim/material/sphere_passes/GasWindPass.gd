@@ -77,6 +77,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var vz: RID = bufs["vel_z"]
 	var charge: RID = bufs["charge"]
 	var nbr: RID = bufs["nbr"]
+	var partner_rid: RID = bufs.get("link_partner", RID())
 	# A write-only sink for bindings the kernel declares but this pass never uses. Never read back.
 	if not _dump.is_valid():
 		var z: PackedByteArray = PackedByteArray()
@@ -94,10 +95,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		var back: int = 1 - p
 		# wind_pressure: 0=AirIn(live), 1=AirOut(back), 2=TempIn(live), 3=Solid, 4=PressureOut, 5=VelX, 6=VelZ, 15=Neigh
 		_wp_set[p] = _uset(_wp_shader, [[0, air[p]], [1, air[back]], [2, temp[p]], [3, solid],
-				[4, pressure], [5, vx], [6, vz], [15, nbr], [16, ltan]])
+				[4, pressure], [5, vx], [6, vz], [15, nbr], [17, partner_rid], [16, ltan]])
 		# wind_step: 0=PressureIn, 1=TempIn(live), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 6=AirIn(back), 14=Radial, 15=Neigh
 		_ws_set[p] = _uset(_ws_shader, [[0, pressure], [1, temp[p]], [2, solid], [3, vx], [4, vy], [5, vz],
-				[6, air[back]], [14, radial], [15, nbr], [16, ltan]])
+				[6, air[back]], [14, radial], [15, nbr], [17, partner_rid], [16, ltan]])
 		# gas_transport, one set per gas: 0=GasIn(live), 1=GasOut(back), 2=Solid, 3/4/5=Vel, 15=Neigh, 16=LinkTan.
 		for gi in GASES.size():
 			var ch: Array = bufs[String(GASES[gi]["channel"])]
@@ -105,7 +106,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			# out buffer: the kernel declares both `restrict`, which promises the driver they do not alias.
 			# Binding one buffer to both is undefined behaviour whether or not the second is written.
 			_gas_sets[gi][p] = _uset(_gas_shader, [[0, ch[p]], [1, ch[back]], [2, _dump], [3, solid],
-					[4, vx], [5, vy], [6, vz], [15, nbr], [16, ltan]])
+					[4, vx], [5, vy], [6, vz], [15, nbr], [17, partner_rid], [16, ltan]])
 		# charge_accum: 0=Charge(single, in place), 1=TempIn(live), 2=CloudIn(live), 3=VelY, 4=Solid.
 		#  slower clock than a near one. Deleted — see MaterialSphereGPU3D.gd's header note.)
 		_ch_set[p] = _uset(_ch_shader, [[0, charge], [1, temp[p]], [2, cloud[p]], [3, vy], [4, solid]])

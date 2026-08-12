@@ -2,45 +2,7 @@
 class_name LocalAgentSpeechEngine
 extends Node
 
-## The one place Local Agents turns text into sound.
-##
-## Three backends are tried in this order, all against the same voice model:
-##
-## 1. the `piper` binary in the addon's runtime directory, driven through AgentRuntime.synthesize_speech
-## 2. the piper Python module, run as `python -m piper` off the main thread
-## 3. Godot's DisplayServer text to speech, meaning the system voice
-##
-## If none of them can run, one warning is pushed and the call reports false.
-##
-## Step 1 is preferred, but the addon does not ship a piper binary, so on a stock install step 2 is
-## what actually speaks. That path was written for the streamer overlay and lived in
-## sim/streamer/StreamerVoice.gd, where LocalAgent.speak() could not reach it. It lives here now, and
-## StreamerVoice is a thin adapter over this node.
-##
-## The voice model is a Piper .onnx. It is looked up under user://local_agents/voices and
-## res://addons/local_agents/voices, and downloaded once from rhasspy/piper-voices when neither has
-## it. That download is asynchronous, so lines spoken while it runs use the system voice and the
-## next ones use Piper.
-##
-## Two ways in, because the two callers need different things:
-##
-## - `speak(text)` queues a line and returns immediately. Lines are serialized so the speaker never
-##   talks over itself, and only the freshest MAX_QUEUE lines survive a backlog.
-## - `speak_blocking(text)` synthesizes on the calling thread and returns whether audio was produced.
-##   Measured at 0.47s for a short line through python piper on an M-series Mac, so call it from a
-##   menu or a turn, not from _process.
-##
-## The two share one speaker and speak_blocking wins. An explicit speak() ends whatever is talking, drops
-## the queued backlog, and lets a synthesis already in flight land on the floor. Making speak() wait
-## instead cannot work: a queued line ends on a deferred call, which only runs once the caller has
-## returned to the main loop, so waiting inside speak() would deadlock.
-##
-## Playback goes to the `bus` named in setup() when that bus exists, so speech volume stays
-## independent of music and effects. `speaking_started` and `speaking_finished` drive avatar mouths.
-##
-## (Explicit types only, project rule: no ':=' inferred typing.)
 
-## A line has started. `text` is that line, stripped of surrounding whitespace.
 signal speaking_started(text: String)
 
 ## The line that started is over. It played to the end, or speak_blocking cut it off, or no backend
@@ -103,19 +65,12 @@ func _init() -> void:
 	_engine_seq += 1
 	_out_prefix = "speech_%d" % _engine_seq
 
-# --- voice model download state ---
 var _dl_http: HTTPRequest = null
 var _dl_stage: String = ""          # "" | "json" | "onnx" | "done" | "failed"
 var _dl_onnx_path: String = ""
 var _dl_json_path: String = ""
 
 
-## Bring the engine up. Add it to the tree first, then call this: it parents an AudioStreamPlayer and
-## an HTTPRequest under itself.
-##
-## Options, all optional: `voice_id` (a Piper voice id, a res:// or user:// path, or an absolute path
-## to an .onnx), `gender` ("male" or "female", a shorthand for voice_id), `runtime_directory` (where
-## to look for a piper binary), `bus` (audio bus name, default "Voice"), `enabled`, `auto_download`.
 func setup(options: Dictionary = {}) -> void:
 	_enabled = bool(options.get("enabled", true))
 	_headless = DisplayServer.get_name() == "headless"
@@ -213,10 +168,6 @@ func has_voice() -> bool:
 	return _voice_onnx != ""
 
 
-## Which backend the next line will use: "native_piper", "python_piper", "system_tts" or "none".
-## Probes for python if that has not happened yet, so the first call can block for about 0.14s. It is
-## a diagnostic, keep it off per-frame paths. Reached through LocalAgentAgentSpeech.backend_name(),
-## and asserted by tests/test_speech_engine.gd.
 func backend_name() -> String:
 	if _voice_onnx != "":
 		if _native_bin != "":
@@ -242,19 +193,6 @@ func speak(text: String) -> void:
 	_pump()
 
 
-## Synthesize on the calling thread and report whether audio was produced.
-##
-## True means a wav was written and playback started, or the system voice accepted the line. In
-## headless there is no audio device, so it reports whether the wav was written. False means nothing
-## could speak, and the reason is pushed as a warning once per engine.
-##
-## This blocks. A short line took 0.47s through python piper on an M-series Mac, including the
-## interpreter start and the model load. Use speak() on any per-frame path.
-##
-## An explicit speak() outranks queued commentary: this cuts off whatever is speaking and clears the
-## backlog before it starts, so the speaker never has two lines going at once.
-##
-## `opts` accepts `output_path` (absolute) and `voice_id` to override this call only.
 func speak_blocking(text: String, opts: Dictionary = {}) -> bool:
 	if not _enabled:
 		return false
@@ -296,8 +234,6 @@ func speak_blocking(text: String, opts: Dictionary = {}) -> bool:
 	_warn_no_backend()
 	return false
 
-
-# --- queued speech --------------------------------------------------------------------------------
 
 func _pump() -> void:
 	# _synth_thread guards as hard as _busy does. speak_blocking can end a line while its worker is
@@ -400,8 +336,6 @@ func _release_after(line: String, gen: int) -> void:
 	tree.create_timer(secs).timeout.connect(_finish_line.bind(gen), CONNECT_ONE_SHOT)
 
 
-# --- synthesis ------------------------------------------------------------------------------------
-
 # Runs on the calling thread, which is a worker for speak() and the main thread for speak_blocking().
 # Reads only state the main thread set before the call, and writes nothing.
 func _synthesize_to_file(line: String, out_wav: String) -> bool:
@@ -414,11 +348,6 @@ func _synthesize_to_file(line: String, out_wav: String) -> bool:
 	return false
 
 
-# The preferred path: the piper binary, driven by the native runtime. Unexercised on a stock
-# install, because the addon ships no bin/runtimes directory, so _native_bin is "" and
-# _synthesize_to_file never calls this. Every step returns false rather than raising, so a runtime
-# that is absent, that has no synthesize_speech, that answers with something other than a dictionary,
-# or that reports ok without writing the file, all fall through to the python backend.
 func _synthesize_native(line: String, out_wav: String) -> bool:
 	if not Engine.has_singleton("AgentRuntime"):
 		return false
@@ -467,8 +396,6 @@ func _synthesize_python(line: String, out_wav: String) -> bool:
 	return code == 0 and FileAccess.file_exists(ProjectSettings.globalize_path(out_wav))
 
 
-# --- playback -------------------------------------------------------------------------------------
-
 # A player outside the tree refuses to play and only logs an engine error, so asking first is what
 # keeps speak_blocking's return value honest.
 func _can_play() -> bool:
@@ -506,8 +433,6 @@ func _next_output_path() -> String:
 	return path
 
 
-# --- system voice ---------------------------------------------------------------------------------
-
 func _speak_os(line: String) -> bool:
 	if _headless:
 		return false
@@ -527,8 +452,6 @@ func _speak_os(line: String) -> bool:
 	return true
 
 
-# --- python resolution ----------------------------------------------------------------------------
-
 ## Which interpreter can `import piper`, or "" when none can. Probes once per process, then answers
 ## from cache. Blocks for about 0.14s on the first call, so a status probe should call it off any
 ## per-frame path.
@@ -540,19 +463,6 @@ static func python_interpreter() -> String:
 	return _python_cache
 
 
-## True when anything at all can speak: a piper binary in `runtime_dir`, the piper Python module, or
-## a system voice. This is the question a status probe wants answered, rather than "is the native
-## binary present", which is false on every stock install.
-##
-## `runtime/AgentStatus.gd._speech_ok()` delegates here, so the setup report and this agree. It used to
-## ask only whether the native binary existed, which is false on every stock install, so a working
-## setup reported itself degraded forever.
-##
-## Gotcha before you call a false answer a bug: the python branch is WORKING-DIRECTORY DEPENDENT.
-## pyenv picks the interpreter from a `.python-version` file, so `python3` launched from a project that
-## has one can import piper while the same command from /tmp cannot. Measured 2026-07-29: true from the
-## repo, false from a staged copy under /tmp, same machine, same minute. That is the environment being
-## reported accurately rather than a wrong answer.
 static func speech_available(runtime_dir: String = "") -> bool:
 	if RuntimePaths.resolve_executable("piper", runtime_dir) != "":
 		return true
@@ -622,8 +532,6 @@ func _resolved_python() -> String:
 		_python_probed = true
 	return _python
 
-
-# --- voice model ----------------------------------------------------------------------------------
 
 func _requested_voice(options: Dictionary) -> String:
 	var requested: String = String(options.get("voice_id", "")).strip_edges()
@@ -709,8 +617,6 @@ func _cancel_download() -> void:
 	if _dl_stage != "done":
 		_dl_stage = ""
 
-
-# --- diagnostics ----------------------------------------------------------------------------------
 
 # One warning per engine, not one per line: a speaker with no backend would otherwise fill the log.
 func _warn_no_backend() -> void:

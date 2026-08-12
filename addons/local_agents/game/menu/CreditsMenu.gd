@@ -1,8 +1,6 @@
 class_name LACreditsMenu
 extends Control
 
-## The credits screen. Node tree and styling live in CreditsMenu.tscn; the grouped attributions below
-## are generated into the Groups column at runtime.
 
 const MAIN_MENU_SCENE: String = "res://addons/local_agents/game/menu/MainMenu.tscn"
 

@@ -1,63 +1,18 @@
 class_name LAEcologyBreeding
 extends RefCounted
 
-## Reproduction / population dynamics for the living world: the genome/kinship/nest MACHINERY that every
-## birth reuses, plus the aquatic school's population tick. Phase 2 (W-REPRO) DISSOLVED the top-down land
-## breeding: land births are no longer scheduled here by a god-tick. Each individual now decides to breed
-## for itself (courtship + gestation, energy-costed) in LACreatureReproduction, which calls back into
-## birth_child() below to produce the actual offspring through the SAME heredity path. So the reusable
-## helpers stay here (one owner of the placement + genome + lineage machinery) while the DECISION to breed
-## moved out to the creature. Aquatic breeding (_tick_aquatic → _birth_aquatic_one, with the biomass food
-## gate) is still a population tick for now (fish get the per-creature treatment later). Every young inherits
-## a crossover+mutation genome, its parent's natal nest, and its family line in the kinship graph. No
-## individual appears without living parents.
-##
-## Owned by LAEcologyService. Its _physics_process forwards the aquatic tick here; the per-creature land path
-## reaches birth_child()/species_below_cap() through the service forwarders (LAEcologyService.birth_offspring
-## / can_species_breed). This module reaches back into the service for the shared state that stays on the hub
-## (the species/aquatic rosters, get_tree, the surface + tangent placement helpers, the actor instancer,
-## biomass reads, the water gate, the aquatic-point sampler and the kinship graph), so there is exactly one
-## owner of each. Explicit types only (project rule: no ':=').
 
-# AQUATIC BREEDING — the de-hack that retires the old `restock` spawn-from-nowhere crutch. Aquatic species
-# still recover through a parent-based population tick bounded by pop_cap (the land herds moved to the
-# per-creature courtship drive in LACreatureReproduction; fish get that treatment later), so no individual
-# appears without living parents. Young are born beside a mature parent (same
-# school). GRAZERS (config diet:"grazer" / grazes_biomass:true — the web BASE, bugs+shrimp) additionally have
-# their birth rate MODULATED by the BIOMASS/algae base they graze: births scale with the mean field biomass at
-# the school's surface column, so the food-web bottom TRACKS primary production (algae-rich water multiplies the
-# base; barren water only trickles) while the fish/birds keep foraging them. The per-species pop_cap stays the
-# hard ceiling; grazes_biomass is the food gate. No per-species code — the flag + pop_cap drive it. Initial
-# founding stock is seeded once by stock_initial_aquatic(); this refills toward equilibrium, never past cap.
 const AQUATIC_BREED_FRACTION: float = 0.12    # fraction of mature adults that may spawn young each aquatic tick
 const AQUATIC_BREED_MAX_PER_TICK: int = 4     # per-species per-tick bound (keeps the surge + work bounded)
 const GRAZE_BIOMASS_FULL: float = 0.05        # biomass at/above which a grazer breeds at full rate (algae-rich water)
 const GRAZE_BIOMASS_FLOOR: float = 0.30       # survival birth-rate multiplier in barren water (never a hard 0 → no collapse)
 const GRAZE_BIOMASS_SAMPLES: int = 6          # adults sampled for the school's mean biomass (O(k), not O(adults))
 
-## A FISH IS BUILT OUT OF A FISH. Land births already work this way — LACreatureReproduction gestates an
-## offspring against the bearer's own energy budget — but the aquatic tick still materialised up to four
-## complete bodies per species every 2.5 s at no cost to anybody: a school with two adults and a deficit
-## produced young whose mass and energy came from nowhere.
-##
-## The bearer now pays SPAWN_ENERGY_FRAC of its maximum energy to produce one young, and cannot spawn at all
-## below SPAWN_ENERGY_FLOOR of full. So a starving school stops breeding on its own, without a rule saying
-## so, and a well-fed one recovers — which is what the `grazes_biomass` food gate was reaching for by
-## multiplying a birth RATE instead of charging for the birth.
-##
-## The fraction is a real reproductive investment, not a knob: for a broadcast-spawning fish the gonad output
-## of one season is measured at 10-25% of body mass, and the energy to build it comes out of the same budget
-## the animal swims on. 0.15 is inside that range. The floor is what stops an adult spending itself to death
-## producing young it cannot then feed.
 const SPAWN_ENERGY_FRAC: float = 0.15
 const SPAWN_ENERGY_FLOOR: float = 0.45
 
 var _eco: LAEcologyService = null
 
-# Frame-stamped soft-ceiling cache: species -> [physics_frame, below_cap_bool]. species_below_cap is asked by
-# EVERY fertile creature's courtship check each think-frame, so without this the per-species group scan would
-# be O(n) per creature → O(n²) across the population. Caching the result per species per frame collapses that
-# to one scan per species per frame (all creatures of a species that frame reuse the same answer).
 var _cap_frame: Dictionary = {}
 
 
@@ -65,12 +20,6 @@ func setup(eco: LAEcologyService) -> void:
 	_eco = eco
 
 
-# SOFT CEILING — true while `kind` is still below its per-species pop_cap (the LA_SPAWN_SCALE benchmark knob
-# scales it). The per-creature reproduction drive (LACreatureReproduction) gates CONCEPTION on this so a
-# creature never conceives once its species is at/over cap: food + energy regulate the population emergently,
-# and the cap is the hard backstop that stops any runaway. This replaces the old deficit-driven god-tick.
-# Result is cached per species per physics frame (see _cap_frame) so the population-wide courtship checks
-# stay O(species-per-frame), not O(n²).
 func species_below_cap(kind: String) -> bool:
 	var frame: int = int(Engine.get_physics_frames())
 	var cached: Variant = _cap_frame.get(kind)
@@ -84,12 +33,6 @@ func species_below_cap(kind: String) -> bool:
 	return below
 
 
-# Produce ONE offspring for `kind` from a specific mated pair (pa = the bearer that gestated it, pb = the
-# other parent) — crossover genome + mutation, born at the bearer's nest (natal philopatry) and recorded in
-# the kinship graph. This is the shared heredity path every birth flows through: the per-creature gestation
-# drive calls it at term (via LAEcologyService.birth_offspring). If the other parent has since died/drifted
-# invalid the child is bred from the bearer alone (a single-parent line) rather than losing the pregnancy.
-# Returns the child node (or null if placement failed).
 func birth_child(kind: String, pa: Node3D, pb: Node3D) -> Node:
 	if pa == null or not is_instance_valid(pa):
 		return null
@@ -177,9 +120,6 @@ func _tick_aquatic() -> void:
 			_birth_aquatic_one(String(kind), adults, cfg)
 
 
-# Charge a bearer for one spawning: returns the energy actually taken, or 0 if it could not afford it (which
-# means no young). Guarded on the properties rather than the type, so an adult of any aquatic species that
-# carries an energy budget pays and one that does not is simply refused — no per-species branch.
 func _spawn_cost(pa: Node3D) -> float:
 	if not ("energy" in pa) or not ("max_energy" in pa):
 		return 0.0
@@ -192,9 +132,6 @@ func _spawn_cost(pa: Node3D) -> float:
 	return cost
 
 
-# Birth-rate multiplier (∈ [GRAZE_BIOMASS_FLOOR, 1]) for a grazer school from the biomass base it feeds on —
-# the mean surface biomass at a cheap random sample of its adults. Rich algae water → full rate; barren water →
-# the survival floor (so the base tracks primary production without ever collapsing to zero and starving the web).
 func _graze_food_mult(adults: Array) -> float:
 	if adults.is_empty():
 		return GRAZE_BIOMASS_FLOOR

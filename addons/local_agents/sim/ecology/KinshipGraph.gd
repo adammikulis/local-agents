@@ -1,28 +1,12 @@
 class_name LAKinshipGraph
 extends RefCounted
 
-## Permanent KINSHIP GRAPH backing every creature's family_id (owned by LAEcologyService, kept out of the
-## extract-only field/world hubs). A FAMILY is a connected component; family_id is that component's stable
-## label. Relationships are recorded as EDGES once and never rewritten: founder-cluster siblings link to their
-## cluster anchor at spawn, parent→offspring links at birth. A creature's family label is assigned once and
-## never changes for life, because components only GROW as offspring join their parent's family, and distinct founder
-## families are never merged, so labels stay immutable (kin is fixed for life).
-##
-## Kin recognition / regroup reads the cheap family_id equality (an omnidirectional smell/sound RANGE sense,
-## see LACreatureLeadership.nearest_lineage_adult), NOT this graph, so the graph never sits on the per-frame
-## path: it is touched only on the founding / birth / death EVENTS. Union-find find() is ~O(1) amortised
-## (path-compressed); death cleanup is O(degree). No per-frame rebuild, no O(n²). (Explicit types only, no ':=' inferred typing.)
 
 var _parent: Dictionary = {}      # union-find: node/label id → parent id (a component's root IS its family label)
 var _adj: Dictionary = {}         # relationship record: node id → Array[int] of kin node ids (undirected edges)
 var _anchor: Dictionary = {}      # family label → its first-registered member (siblings link to this anchor)
 var _seq: int = 0                 # family-label sequence — small positive ids (creature instance ids are large)
 
-# DIRECTED / TYPED lineage records, kept alongside the undirected _adj so a reader (the family-tree inspector)
-# can tell a parent from a child from a mate — _adj alone loses that. Populated from the SAME founding / birth /
-# bond events as _adj (no change to when edges are recorded, or to the union-find family labels). These are the
-# permanent SKELETON of the lineage: forget() (death cleanup) intentionally does NOT prune them, so a family tree
-# still shows a dead/removed ancestor's place in the line — the reader resolves each id to decide alive vs dead.
 var _children: Dictionary = {}    # parent cid → Array[int] child cids (directed, from add_offspring)
 var _parents: Dictionary = {}     # child cid → Array[int] parent cids (directed, from add_offspring)
 var _mates: Dictionary = {}       # cid → Array[int] mate cids (undirected pair bond, from add_bond)
@@ -57,9 +41,6 @@ func family_of(cid: int) -> int:
 	return find(cid)
 
 
-## Register `cid` as a member of family `label` (a founder-cluster member — the direct spawn or its later
-## pending retry). Links a sibling edge to the cluster's anchor so the record is a real connected graph, not
-## just a shared scalar. Idempotent per creature.
 func add_member(label: int, cid: int) -> void:
 	if not _parent.has(label):
 		_parent[label] = label
@@ -92,14 +73,6 @@ func add_bond(a_cid: int, b_cid: int) -> void:
 		_append_unique(_mates, b_cid, a_cid)
 
 
-## SAVE-RESTORE: replant the directed lineage skeleton (parent→child, child→parent, mate↔mate) after a reload
-## has re-instanced every creature under NEW instance ids. The caller has already rebuilt component membership
-## (new_family + add_member) and remapped these dicts from saved indices to the live cids, so this simply
-## adopts them verbatim (each is cid -> Array[int] of cids). Undirected _adj is rebuilt from them so the
-## family-tree inspector's edge reads stay consistent. Does not touch union-find (membership is already set).
-## SAVE-CAPTURE: the directed lineage skeleton as three copies ({children, parents, mates}, each cid ->
-## Array[int] cids). The world-save remaps these cids to save indices before persisting. Copies, so a caller
-## can't alias the internal dicts.
 func directed_edges() -> Dictionary:
 	return {
 		"children": _children.duplicate(true),
@@ -164,10 +137,6 @@ func family_count() -> int:
 	return seen.size()
 
 
-# --- Read-only lineage accessors (for the family-tree inspector) --------------------------------------------
-# Pure reads over the stored typed edges — they never mutate the graph. Each returns a fresh copy so a caller
-# can't alias the internal arrays. O(degree), safe to call on selection (never per frame).
-
 ## Direct parents of `cid` (usually 1-2). Empty for a founder (no recorded parent).
 func parents_of(cid: int) -> Array:
 	return (_parents[cid] as Array).duplicate() if _parents.has(cid) else []
@@ -183,10 +152,6 @@ func mates_of(cid: int) -> Array:
 	return (_mates[cid] as Array).duplicate() if _mates.has(cid) else []
 
 
-## Every LIVING id currently sharing `cid`'s family label (its connected component). Founder siblings included.
-## Union-find scan over the registered nodes — O(registered), only called on selection. Dead/forgotten ids drop
-## out here (their _parent entry is gone), but they persist in the directed edges above so the tree still draws
-## their place in the line.
 func members_of_component(cid: int) -> Array:
 	var root: int = find(cid)
 	var out: Array = []

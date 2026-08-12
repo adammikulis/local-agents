@@ -1,15 +1,6 @@
 class_name LARenderLayer
 extends Node3D
 
-## THE RENDER LAYER — the camera and the spatial nodes that DRAW the world: sky, ocean, water surface and
-## particles, vegetation, biome and sea-ice shading. Built with `--render` (and implied by `--ui`).
-##
-## Everything here is a Camera3D / Node3D / MeshInstance3D / GPUParticles3D. NOT ONE Control or CanvasLayer —
-## those are the UI, they are a different kind of node with a different reason to exist, and they live in
-## LAUiLayer. A camera is not UI: a run can draw the world with no menus, panels or HUD on top of it.
-##
-## Nothing here may feed the simulation. Terrain streaming does not depend on this layer — LASimulation owns
-## its own data-only VoxelViewer — so the physics is identical with and without it.
 
 var _world: Node = null
 var _sim: LASimulation = null
@@ -65,14 +56,10 @@ func _build_world_visuals() -> void:
 	var material: Node = _sim.material_field()
 	var terrain = _sim.terrain()
 
-	# Batched vegetation draws — one draw per type instead of hundreds of MeshInstances.
-	# Vegetation draws ride the planet's frame, so the renderer is reparented under its actors root.
 	_veg_renderer.reparent(_sim.actors_root())
 	if _sim.ecology().has_method("set_vegetation_renderer"):
 		_sim.ecology().set_vegetation_renderer(_veg_renderer)
 
-	# Visual rain/wind, relaying the field's EMERGENT rain (no invented rain of its own, and no longer any
-	# path back INTO the field — the prevailing-wind plumbing it used to drive was dead and is deleted).
 	_weather.setup(_camera, _sky_ctrl.sun(), _sky_ctrl.env())
 	if _weather.has_method("set_field"):
 		_weather.set_field(material)
@@ -103,8 +90,6 @@ func _build_world_visuals() -> void:
 	# BIOME COLORATION: bake the emergent climate (moisture + temperature) into a terrain-shader texture.
 	_biome_shader.setup(material, terrain)
 
-	# EMERGENT SEA ICE: bake the conserved frozen sea into a cube-face texture the ocean shell samples. No
-	# new physics — the generic freeze reaction already froze the cold sea; this only renders it.
 	_sea_ice_shader.setup(material, _ocean, _water_surface)
 
 	# Effects density onto the atmosphere particles + the difficulty-scaled ambient-disaster cadence.

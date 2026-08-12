@@ -1,21 +1,8 @@
 class_name LASceneEnergyGraph
 extends Control
 
-## A live line graph of the SCENE'S TOTAL ENERGY, broken into its physical sources:
-##   - KINETIC : the motion of the animals, Σ ½·m·v² over every creature (mass from its size, speed
-##               scaled by how agitated its state is), so a calm herd reads low and a stampede spikes.
-##   - SEISMIC : the ground-shake energy of impacts/quakes (the ecology's live seismic pulse ring).
-##   - THERMAL : heat in the world, hot cells + lava (a meteor crater, a wildfire, a lava flow).
-## Total = their weighted sum. This is the same number the streamer uses to gauge "how big a deal is this", so
-## the graph IS the intensity signal, made visible. Emergent: nothing is per-event, it's just the energy.
-## (Explicit types only, no ':=' inferred typing.)
 
 const SAMPLE_HZ: float = 10.0
-# HARD minimum physics-frames between samples. _sample_energy() calls hot_cell_count()/lava_cell_count()
-# (full 127K-cell field scans), so at low FPS the wall-clock 10Hz gate would fire EVERY frame — that was
-# ~75ms/frame, the dominant streamer cost (it dropped the sim from ~28 to ~9 FPS on its own). Capping the
-# sample to at most once per this many frames keeps the scan rare regardless of frame-rate; the graph is a
-# background readout, so a slightly coarser update is invisible.
 const MIN_FRAME_GAP: int = 30
 const HISTORY: int = 300                    # ~30 s at 10 Hz
 const PANEL_SIZE: Vector2 = Vector2(300.0, 132.0)

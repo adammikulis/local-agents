@@ -1,10 +1,6 @@
 class_name LACreatureThoughtPanel
 extends CanvasLayer
 
-## Right-docked inspection sidebar (CreatureThoughtPanel.tscn): the selected creature's name, behaviour,
-## reasoning source, its latest natural-language thought from the local model, and a scrolling stream of its
-## recent decisions. It SURFACES existing cognition via LACreatureThought / LACognition.history(); it starts
-## no LLM of its own, and rebuilds only on selection change plus a coarse timer.
 
 const REFRESH_INTERVAL: float = 0.3   # seconds between live refreshes while a creature is selected
 

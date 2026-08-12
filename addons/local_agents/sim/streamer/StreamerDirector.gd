@@ -1,19 +1,6 @@
 class_name LAStreamerDirector
 extends Node
 
-## The commentator's brain. Watches the living sim, decides WHEN there is something worth saying, and
-## turns it into one short streamer line via the shared local-LLM client, all off the physics frame. It
-## never blocks: generation is an async request through the shared LocalAgentLlmClient (LocalAgentLlmService's
-## LocalAgent, run on a worker thread) with a single-in-flight budget. The server + model are owned by
-## LocalAgentLlmService (one server, one model, one config, with no private llama-server here anymore). When no client
-## is injected (no model installed) it stays silent, holding the event queue until a client appears.
-##
-## Context hygiene: the request is near-stateless (a persona system prompt + only a short rolling
-## window of recent lines + the current scene delta), and the window is hard-reset on big events / every
-## N lines, so the model never accumulates context rot.
-##
-## Emits `line_ready(text)`; the world wires that to the overlay caption + StreamerVoice.
-## (Explicit types only, no ':=' inferred typing.)
 
 signal line_ready(text: String)
 signal status_changed(status: String)
@@ -28,32 +15,19 @@ var _world: Node = null
 var _voice: Node = null                # optional; checked for is_speaking()
 var _enabled: bool = true
 
-# --- shared local-LLM client (owned by LocalAgentLlmService; null = offline/silent) ---
 var _llm_client = null
 
-# --- persona / context hygiene ---
 var _persona_id: String = ""
 var _window: Array = []                # recent assistant lines: [{role,content}]
 const WINDOW_MAX: int = 4
 var _lines_since_reset: int = 0
 const RESET_EVERY: int = 12
 
-# --- pacing: event-intensity accumulator ---
-# The caster does NOT talk on a timer, and it no longer SCANS the world for events itself — the shared
-# LAEventTracker is the ONE emergent source, and on_tracked_event() feeds each typed event's intensity in
-# here. Those weights accumulate and DECAY over time. A line only fires when the running intensity trips
-# THRESHOLD (so a volcano or a death sets it off, but a calm biome stays quiet), gated by a minimum cooldown
-# so even a chaotic stretch doesn't machine-gun lines. A long idle filler keeps the stream from going dead.
 const SAMPLE_INTERVAL: float = 0.5
 const INTENSITY_THRESHOLD: float = 6.0
 const INTENSITY_DECAY: float = 0.8      # points bled off per second, so stale minor events fade out
 const MIN_COOLDOWN: float = 6.0         # never two lines closer than this
 const IDLE_FILLER: float = 45.0         # if nothing trips for this long, drop one hype filler
-# URGENT queue: big events (disasters, extinctions, fires, deaths, stampedes) must NEVER slip through
-# just because the caster was mid-line or waiting on the LLM when they happened. They are queued here and
-# survive the intensity decay — the moment the caster is free (not speaking, not awaiting a reply) it
-# pops the queue and reacts, even if the decaying ambient intensity has bled below THRESHOLD. This is the
-# "accumulate and pop" fix: ambient chatter uses the decaying score; landmark events use the queue.
 const URGENT_BAR: float = 6.0           # an event at/above this intensity is queued as must-say
 const URGENT_COOLDOWN: float = 2.5      # urgent events may interrupt the idle gap (but never a live line)
 const URGENT_MAX: int = 6               # cap the backlog; keep the most recent landmark beats
@@ -70,10 +44,6 @@ var _energy_source: Node = null           # LASceneEnergyGraph, exposes current_
 var _last_energy: float = 0.0
 var _energy_primed: bool = false         # seed _last_energy on the first sample so the starting energy isn't a false surge
 
-# --- scene sampling ---
-# Behaviour states worth naming in the commentary; each carries a representative animal (species,
-# location, its prey) so the caster can react to "a fox stalking the rabbits down by the water" rather
-# than the old generic "a predator has started stalking prey".
 const HOT_STATES: Array = ["stalk", "chase", "circle", "panic"]
 var _pop_baseline: float = 0.0         # slow EMA of total population, for the "numbers rising/thinning" narrative
 var _last_sample: Dictionary = {}
@@ -115,8 +85,6 @@ func latest_line() -> String:
 	return _last_line
 
 
-# --- shared LLM client --------------------------------------------------------------------------
-
 ## Inject/replace the shared LocalAgentLlmClient (e.g. if the runtime resolves a model after startup).
 func set_llm_client(client) -> void:
 	_llm_client = client
@@ -126,8 +94,6 @@ func set_llm_client(client) -> void:
 func _has_client() -> bool:
 	return _llm_client != null and _llm_client.has_method("request")
 
-
-# --- main loop ----------------------------------------------------------------------------------
 
 func _process(delta: float) -> void:
 	if not _enabled or _world == null:
@@ -162,8 +128,6 @@ func _process(delta: float) -> void:
 func _voice_busy() -> bool:
 	return _voice != null and _voice.has_method("is_speaking") and bool(_voice.is_speaking())
 
-
-# --- scene sampling / event detection -----------------------------------------------------------
 
 func _take_sample() -> void:
 	var tree: SceneTree = get_tree()
@@ -246,10 +210,6 @@ const I_BIRTH: float = 1.0
 const I_DAYNIGHT: float = 1.0
 
 
-## Creature-NARRATION detection (deaths/births/extinction/behaviour spikes) — the streamer's own rich,
-## per-species, located beats. FIELD phenomena (eruption/wildfire/flood/storm/lightning/impact) are NOT
-## detected here anymore: they arrive from the shared LAEventTracker via on_tracked_event(), so the crude
-## destruction-spike + raw fire-count scans that used to live here are dissolved (no parallel field scans).
 func _detect_events(prev: Dictionary, cur: Dictionary) -> void:
 	var prev_sp: Dictionary = prev.get("species", {})
 	var cur_sp: Dictionary = cur.get("species", {})
@@ -379,10 +339,6 @@ func _push_event(text: String, intensity: float) -> void:
 			_urgent.pop_front()   # if the backlog overflows, drop the oldest, keep the freshest beats
 
 
-## Consume one FIELD-phenomenon event from the shared LAEventTracker (the ONE emergent source, wired in
-## VoxelStreamerHost). The tracker already decided WHAT happened and how big it is; the caster just reacts —
-## feeding the event's own intensity + narratable description into the same pacing queue its creature beats
-## use. This replaces the crude destruction-spike / fire-count scan the director used to run itself.
 func on_tracked_event(ev) -> void:
 	if ev == null:
 		return
@@ -404,8 +360,6 @@ func _tod_phase(tod: float) -> String:
 		return "night is falling"
 	return "day" if (tod >= 0.25 and tod < 0.75) else "night"
 
-
-# --- firing a line ------------------------------------------------------------------------------
 
 func _fire(idle: bool) -> void:
 	# No brain yet: stay SILENT (there is no canned pool) and leave the events queued — the moment a
@@ -551,8 +505,6 @@ func _build_ambient_context() -> String:
 		+ "weather, the calm, the view. Keep it casual and streamer-friendly; do not recite facts or "
 		+ "repeat yourself.") % [sky, extra, life]
 
-
-# --- helpers ------------------------------------------------------------------------------------
 
 func _reset_window() -> void:
 	_window.clear()

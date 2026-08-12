@@ -2,18 +2,6 @@
 extends RefCounted
 class_name LocalAgentModelSettingsStore
 
-# Persistence layer over the two configuration Resources, for the in-game model manager.
-#
-# The Resources are the SCHEMA — LocalAgentModelProfile ("which model, loaded how") and
-# LocalAgentInferenceParams ("how it generates"). This store owns neither shape: it holds one of
-# each, round-trips them through a single ConfigFile under user://, and adds the parts that are
-# genuinely player-runtime rather than design-time (the models a player registered by browsing to a
-# .gguf, the folders to scan, and which model each role uses). No AgentManager autoload required,
-# so this works standalone inside the voxel sim.
-#
-# to_llama_options() emits the exact Dictionary LocalAgentLlamaServerManager.ensure_running() reads:
-# the profile's load-time keys (context_size / threads / n_gpu_layers / system_prompt) merged over
-# the sampling params from InferenceParams.
 
 const InferenceParams: GDScript = preload("res://addons/local_agents/configuration/parameters/InferenceParams.gd")
 const ModelProfile: GDScript = preload("res://addons/local_agents/configuration/parameters/ModelProfile.gd")
@@ -45,9 +33,6 @@ var registered_models: Array = []
 # Optional per-role overrides (role -> absolute path). The fallback is the profile's model_path.
 var role_models: Dictionary = {}
 
-# -- Views onto the profile ---------------------------------------------------
-# The profile is the single owner of these values; these named views exist because the settings UI
-# (and any game code) speaks in llama.cpp's vocabulary. Assigning through a view writes the profile.
 
 # Absolute path of the model the player selected. Same storage as profile.model_path.
 var active_model_path: String:
@@ -105,7 +90,6 @@ func _ensure_profile() -> void:
 		profile = ModelProfile.new()
 		profile.profile_name = "In-game"
 
-# -- Custom-model registry ----------------------------------------------------
 
 func register_model(path: String, label: String = "") -> bool:
 	var trimmed: String = path.strip_edges()
@@ -127,7 +111,6 @@ func unregister_model(path: String) -> void:
 			kept.append(entry)
 	registered_models = kept
 
-# -- Options emission ---------------------------------------------------------
 
 # Merges the sampling params with the profile's load-time knobs into the Dictionary the llama server
 # manager consumes. The profile is merged LAST so its context/threads/GPU settings win.
@@ -146,7 +129,6 @@ func model_for_role(role: String) -> String:
 		return override
 	return active_model_path
 
-# -- Persistence --------------------------------------------------------------
 
 func save() -> bool:
 	_ensure_profile()
@@ -207,7 +189,6 @@ func load() -> bool:
 	role_models = cfg.get_value("active", "role_models", role_models)
 	return true
 
-# -- Self-test ----------------------------------------------------------------
 
 # Round-trips a fully-populated store through save()/load() into a fresh instance and asserts every
 # field survives. Uses the real CONFIG_PATH but restores whatever was there first.

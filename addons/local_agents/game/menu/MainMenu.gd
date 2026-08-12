@@ -1,7 +1,6 @@
 class_name LAMainMenu
 extends Control
 
-## The title screen. Node tree and styling live in MainMenu.tscn.
 
 const WORLD_SCENE: String = "res://addons/local_agents/game/VoxelWorld.tscn"
 const SETTINGS_SCENE: String = "res://addons/local_agents/game/menu/SettingsMenu.tscn"

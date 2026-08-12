@@ -1,14 +1,6 @@
 class_name LATutorialHighlightOverlay
 extends Control
 
-## Full-screen guided-tutorial overlay: dims the whole viewport, cuts a bright "spotlight" hole around a
-## target rectangle, outlines it, points an arrow at it, and floats a text callout (title + body +
-## Back / Skip / Next buttons + a "don't show again" checkbox) beside it. The spotlight animates smoothly
-## between targets and degrades gracefully when a target is momentarily null or off-screen (it just dims
-## and centers the callout). Purely presentational: it owns no step logic. An LATutorialSequencer drives
-## it via show_step()/finish() and listens to its button signals. Reusable and game-agnostic. The callout
-## widgets are TutorialHighlightOverlay.tscn.
-## (Explicit types only. No ':=' inferred typing.)
 
 signal next_pressed
 signal back_pressed

@@ -1,9 +1,6 @@
 class_name LASimTimeAuthority
 extends Node
 
-## The ONE owner of the sim's playback rate: Engine.time_scale, Engine.max_physics_steps_per_frame and
-## get_tree().paused. Plain Node, no UI — it exists in every run, including runs with no presentation layer.
-## LAVoxelTimeControl is a CanvasLayer presenter over this; the keys live there.
 
 const SPEEDS: Array[float] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0]
 const PLAY_IDX: int = 2   # 1.0×
@@ -96,10 +93,5 @@ func _apply() -> void:
 	get_tree().paused = _paused
 	if not _paused:
 		Engine.time_scale = SPEEDS[_idx]
-		# Ticks a single RENDERED frame may run, scaled by the speed for THROUGHPUT: rendering one frame costs
-		# far more than one physics tick, so packing more ticks per rendered frame gets more simulated seconds
-		# per wall second. Consequence: sim-time per rendered frame is quadratic in the multiplier
-		# (8*s ticks x s/60 s each), so --run-frames=N is not a fixed horizon — compare runs at equal
-		# field_sim_s, never equal frames.
 		Engine.max_physics_steps_per_frame = maxi(8, int(ceil(SPEEDS[_idx])) * 8)
 	speed_changed.emit(_paused, current_speed())

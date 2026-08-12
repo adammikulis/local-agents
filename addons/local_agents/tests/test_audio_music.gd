@@ -1,9 +1,6 @@
 @tool
 extends RefCounted
 
-## Tests the generative music stack: theory (modes incl. Phrygian dominant), Roman-
-## numeral resolution, the progression library, the seeded planner, the song
-## arranger's evolution (key/mode/meter changes), and MusicDirector's runtime API.
 
 const Theory := preload("res://addons/local_agents/audio/music/MusicTheory.gd")
 const Roman := preload("res://addons/local_agents/audio/music/RomanNumeral.gd")

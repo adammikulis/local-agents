@@ -1,8 +1,6 @@
 class_name LAHelpMenu
 extends Control
 
-## The help & reference screen. Node tree and styling live in HelpMenu.tscn; the Tabs host is filled with
-## the shared help hub (LAHelpTabs), which the in-sim pause menu also embeds.
 
 const MAIN_MENU_SCENE: String = "res://addons/local_agents/game/menu/MainMenu.tscn"
 

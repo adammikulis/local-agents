@@ -1,21 +1,6 @@
 class_name LAGameSave
 extends RefCounted
 
-## LAGameSave: the slot catalogue + on-disk plumbing for world saves. The main menu queries it to decide
-## whether "Continue" is enabled and which slot to resume; the sim's save controller (LAWorldSaveController)
-## calls it to WRITE and READ the heavy world blob. This file owns only the disk layout + catalogue reads, and
-## the actual gather/apply of world state lives in LAWorldSaveState (creatures/kinship/progression) and
-## LAMaterialFieldSnapshot3D (the field), keeping this a thin plumbing/catalogue facade.
-##
-## Disk layout is one directory per slot under a saves root:
-##   user://local_agents/saves/<slot>/meta.cfg    ConfigFile header (version, timestamp, mode, seed, name,
-##                                                 population, progression_stage), cheap to read for the menu
-##   user://local_agents/saves/<slot>/world.sav   binary FileAccess.store_var of the one big state Dictionary
-##                                                 (field channels + actors + kinship + progression)
-##   user://local_agents/saves/<slot>/settings.res the active LAGameSettings resource (ResourceSaver)
-##
-## Everything fails GRACEFULLY: a missing/corrupt slot reads back as an empty dict (never a crash), so the
-## menu simply keeps Continue disabled and the sim boots a fresh world. (Explicit types only, no ':=' inferred typing.)
 
 const SAVES_ROOT: String = "user://local_agents/saves"
 const SAVE_VERSION: int = 1
@@ -120,10 +105,6 @@ static func read_world(slot: String) -> Dictionary:
 	return v if v is Dictionary else {}
 
 
-## READ a world blob from an ARBITRARY directory (a committed test fixture, not a user:// slot). Same
-## graceful get_var(true) plumbing as read_world, sourced from `<dir>/world.sav` — the deterministic
-## fixture-load path (LAWorldSaveController --load-fixture) uses this so a committed save round-trips
-## without shuffling files into the user:// saves root. Empty dict on any failure.
 static func read_world_dir(dir: String) -> Dictionary:
 	var path: String = "%s/%s" % [dir, WORLD_FILE]
 	if not FileAccess.file_exists(path):

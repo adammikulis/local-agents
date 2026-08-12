@@ -1,33 +1,6 @@
 class_name LAVolcano
 extends Node3D
 
-## A volcano is NOT a scripted eruption. It is a VENT (a seed/marker) that does ONE authored thing: drive a
-## SUSTAINED lava supply at a fixed spot on the terrain. EVERYTHING downstream EMERGES from the shared substrate
-## with zero volcano code:
-##   • erupt_source() extrudes deep-mantle lava into the OPEN seawater cell at the growing surface front;
-##   • it spreads into a mound as more piles up (lava_flow);
-##   • underwater it QUENCHES on contact with seawater (the marine-lava heat sink) and, cooled below the solidus,
-##     the M5 reaction record freezes it to rock_fill;
-##   • rock_fill crossing 0.5 STAMPS the SDF terrain upward (MineralStamp3D), so the cone accretes;
-##   • repeated supply piles the cone until it BREACHES the sea surface = a NEW ISLAND (the capstone), all from
-##     eruption + water-quench solidification + rock accumulation + SDF growth composing. Nothing here says "island".
-##
-## HOW THE CONE PILES AT ONE SPOT: each supply tick deposits at the CURRENT surface top along the vent radial
-## (tracking the growing cone), so lava always emerges into the open water at the front where the cell above is
-## sea. The pile climbs, never plugs. The vent node rides the planet body, so that radial follows the spin.
-##
-## This used to need help. The MaterialField grid was WORLD-FIXED while the body SPUN, so over a long accretion
-## the field's rock_fill and the terrain SDF stopped describing the same place and the cone SMEARED into an arc
-## — and VoxelWorld froze the planet's rotation for the --auto-seavolcano demo to hide it. The field is
-## body-local now (LAMaterialField3D.sync_body_frame / dir_to_field / point_to_field), the freeze is gone, and
-## cone_profile() below measures what the freeze was covering for: with the planet turning through ~1.6
-## rotations over a 600-frame run, the accreted material's centroid stays within 0.02 rad of the vent radial
-## (~9 units of arc on a 500-unit planet) and its major/minor half-width ratio stays near 1. It builds a round
-## pile on one spot. Measured 2026-07-30 over five runs; see the SEAVOLCANO proof line.
-##
-## Deleted vs the old scripted volcano: `_is_erupting`, `_bomb_cd`, `BOMBS_PER_BURST`/`BOMB_*`, `_launch_bombs`,
-## the bomb GPUParticles/RigidBody emitter, `_bomb_impact`, the burst timer and pressure state machine. A thrown
-## rock ("bomb"), a geyser, an island are all just words for what the one substrate does. (Explicit types only.)
 
 const SCARE_INTERVAL: float = 2.0
 const SCARE_RADIUS: float = 55.0
@@ -39,31 +12,10 @@ const SUPPLY_INTERVAL: float = 0.05        # deposit cadence (s); many small dep
 # A vent is a DISC, not a 1-cell needle: scatter each deposit across a small angular disc around the vent radial so
 # the erupted rock piles into a BROAD island cone instead of a single-column spire racing to the grid ceiling.
 const VENT_DISC: float = 0.10              # angular radius of the vent disc (rad); ~ a handful of columns wide
-#
-# ISLAND_FREEBOARD = 14.0 USED TO SIT HERE, skipping any column whose surface already stood 14 units above sea so
-# supply flowed to the submerged ones and "the island tops out as a low landmass rather than a runaway tower". It
-# was deleted 2026-07-30 because it does not do that. Measured over 600-frame runs: with the cap in place the pile
-# stands 107-116 units above sea level, eight times the freeboard it names, while the cap fires on 657 of 5120
-# deposit attempts (13%). Removing it changes nothing outside run-to-run spread — rise 139.7/155.6 uncapped versus
-# 144.2-149.8 capped, breach 97.9/114.3 versus 115.5-115.9, roundness and drift identical. It only ever chose WHICH
-# column in the disc received the next deposit; the height is set downstream by quench/solidify/stamp, which no
-# supply routing reaches. The runaway tower is REAL and still unsolved — the fix belongs in the substrate (the
-# stamp's response to accumulated rock_fill), not in a supply-side skip that cannot see the spire it is aiming at,
-# because surface_radius() casts a single ray that misses a one-cell-wide column. A clamp that does not clamp is
-# worse than none: it told every reader this was handled.
 
 # Seismic tremor emitted while supplying (camera shake / felt seismic EMERGES from the shared field, not here).
 const ERUPT_SEISMIC: float = 3.0
 
-# --- CONE-SHAPE TELEMETRY (the accretion's positional proof) -------------------------------------------
-# "The cone piled at one spot" and "it smeared into an arc" are SHAPES, and no scalar the field already
-# reports tells them apart. This measures the terrain CHANGE: a baseline radial profile is taken on a polar
-# grid around the vent shortly after seeding, and at report time the same grid is re-read and subtracted, so
-# what is left is exactly the material this vent added — the surrounding natural terrain cancels itself out.
-# That delta is then reduced to its moments on the tangent plane: a compact cone is round (major/minor ~ 1)
-# and centred on the vent (drift ~ 0); an arc is elongated along the direction the deposits walked. The grid
-# is stored in BODY-LOCAL directions, so it rotates with the planet and asks about the same ground both
-# times. It costs one raycast per sample, so it is pulled on a cadence by whoever wants it, never per frame.
 const PROFILE_AZIMUTHS: int = 24
 const PROFILE_RINGS: int = 14
 const PROFILE_SPAN: float = 0.25           # sample out to this angular radius (rad) — 2.5x the vent disc
@@ -128,11 +80,6 @@ func erupt_at(point: Vector3) -> void:
 	if _terrain != null and _terrain.has_method("sea_radius"):
 		_submerged_seed = seed_surface_radius > 0.0 and seed_surface_radius < _terrain.sea_radius()
 	if _submerged_seed:
-		# Arm the cone-shape baseline: only a seabed vent builds an island, so only it needs the "before".
-		# This is NOT registered with LASimReport. A run has several vents at once (the ambient director and
-		# LAPlateTectonics both seed their own), any of which can land on a seabed, and a flat report key would
-		# be won by whichever registered last — a confidently wrong number is worse than no number. The caller
-		# that knows WHICH vent it is asks it directly (see the --auto-seavolcano SEAVOLCANO proof line).
 		_baseline_cd = BASELINE_DELAY
 	_build_fx()
 	LAAudioDirector.emit(get_tree(), "crumble", point)
@@ -170,14 +117,6 @@ func _capture_baseline() -> void:
 			_base_r.append(sr)
 
 
-## Shape of what this vent actually built, measured as terrain GROWTH against the baseline profile. Costs
-## one raycast per sample, so call it on a cadence, never per frame. Reports:
-##   rise    90th-percentile column growth (units) — did the pile build UP? (a percentile, not a max: see below)
-##   breach  that column's standing relative to sea level (>0 = a real island stands above the water)
-##   smear   major/minor angular half-width of the grown material. ~1 = round cone; >>1 = smeared arc.
-##   drift   angular distance (rad) from the vent radial to the grown material's centroid — 0 = on the vent
-##   span    major angular half-width (rad), the pile's absolute size, so `smear` reads in context
-##   cover   how many sampled columns grew, out of `samples` compared — a handful makes the moments noise
 func cone_profile() -> Dictionary:
 	var out: Dictionary = {"rise": 0.0, "breach": 0.0, "smear": 0.0, "drift": 0.0, "span": 0.0,
 		"cover": 0, "samples": 0, "supplied": total_supplied, "seabed": seed_surface_radius}
@@ -193,12 +132,6 @@ func cone_profile() -> Dictionary:
 	var myy: float = 0.0
 	var mxy: float = 0.0
 	var cover: int = 0
-	# Height is reported as a PERCENTILE, never a maximum. surface_radius() casts one ray inward, and the
-	# planet has caves, so a ray that happens to drop through a void reads a near-core radius. That single
-	# sample then dominates a max: one 600-frame run reported a 336-unit "rise" whose own sea-level standing
-	# came out 30 units UNDERWATER, which is not a thing a pile can be. Sorting and taking p90 discards those
-	# few punched rays and still answers "how tall did this build". The shape numbers below never had the
-	# problem — they are weighted averages over ~150 columns, so a stray sample cannot move them.
 	var grown: PackedVector2Array = PackedVector2Array()   # (growth, sea-level standing) per sampled column
 	for i in range(_base_dirs.size()):
 		var sr: float = _terrain.surface_radius(bas * _base_dirs[i])
@@ -284,10 +217,6 @@ func _vent_dir_now() -> Vector3:
 	return vent_dir_world
 
 
-# Erupt `amount` of molten mantle mineral at the vent's current top. erupt_source injects it into the first OPEN cell
-# above the surface (the seawater cell at the growing front), where it quenches + solidifies + stamps the terrain up.
-# Depositing at the CURRENT surface radius (not the fixed seed) keeps the supply at the growing front so, as the cone
-# climbs, the lava always emerges into open water instead of burying itself in the pile.
 func _deposit(amount: float) -> void:
 	if _inject == null or not _inject.has_method("erupt_source"):
 		return

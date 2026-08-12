@@ -1,27 +1,12 @@
 class_name LASimReport
 extends RefCounted
 
-## Central sim telemetry: the ONE place everything reports to, replacing scattered one-off tallies (a static
-## death dict on Creature, HERD_DEBUG/BREATH_DBG prints, …) and the brittle hand-synced SMOKE_SUMMARY string.
-##
-## Three ways in, one way out:
-##   • event(kind, tags):   record that something HAPPENED (a death, birth, ignition, bolt). Auto-tallies the
-##                          bare kind AND a per-tag breakdown, so "how many rabbits drowned" is free.
-##   • gauge(name, value):  record a current metric; tracks running min/max (free peak tracking).
-##   • register(provider):  a subsystem hands over a `func() -> Dictionary` of its aggregates, polled only
-##                          when a snapshot is taken (so heavy grid scans don't run per frame).
-##   snapshot()/emit():     merge it all into one structured dict; emit() prints `SIM_REPORT={…}`.
-##
-## All STATIC so any node reports without needing a reference. A live HUD / the streamer can read snapshot()
-## too, so there is one source of truth for headless smoke, on-screen debug, and commentary. (Explicit types only.)
 
 static var _events: Dictionary = {}       # tally: key -> count (bare kind + per-tag breakdowns)
 static var _gauges: Dictionary = {}       # name -> {"cur","min","max"}
 static var _providers: Array = []         # registered Callables: func() -> Dictionary
 
 
-## Clear per-run telemetry — call once at world setup (a fresh headless process starts empty already; this
-## matters on in-editor scene reloads). Keeps registered providers unless drop_providers.
 static func reset(drop_providers: bool = false) -> void:
 	_events = {}
 	_gauges = {}
@@ -54,15 +39,11 @@ static func gauge_cur(name: String, default_val: float = 0.0) -> float:
 	return float(g.get("cur", default_val))
 
 
-## Register a subsystem aggregate provider — a Callable returning a Dictionary merged into snapshot(). No-op
-## if already registered (safe to call from _ready).
 static func register(provider: Callable) -> void:
 	if not _providers.has(provider):
 		_providers.append(provider)
 
 
-## One structured snapshot: {events, gauges} plus each provider's dict merged in. Providers are polled HERE,
-## not per frame, so their (possibly heavy) scans only run when a snapshot is actually taken.
 static func snapshot() -> Dictionary:
 	var out: Dictionary = {"events": _events.duplicate(true), "gauges": _gauges.duplicate(true)}
 	var dead: Array = []

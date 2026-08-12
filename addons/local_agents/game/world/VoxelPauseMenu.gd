@@ -1,9 +1,6 @@
 class_name LAVoxelPauseMenu
 extends CanvasLayer
 
-## The Esc pause menu (VoxelPauseMenu.tscn). Esc opens it from any state and pauses the tree; Esc again or
-## Resume closes it and unpauses; Quit exits. PROCESS_MODE_ALWAYS so its buttons and Esc keep firing while
-## the tree is paused. The speed row sets Engine.time_scale via LASimTimeAuthority.
 
 const SPEEDS: Array[int] = [1, 2, 4, 8, 16]
 

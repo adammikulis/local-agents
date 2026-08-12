@@ -1,27 +1,8 @@
 class_name LAStar
 extends Node3D
 
-## The system's star in the SOLAR-SYSTEM-FIRST spine: a POSITIONED body (not a global sun_dir) that is at once
-## the light source, the GRAVITY source, and the driver of every body's per-cell solar terminator. A body's
-## sun direction is `normalize(star_pos - body_center)` and its insolation falls off as `1/dist²`. One planet
-## today, N tomorrow, same rule. (Explicit types only, no ':=' inferred typing.)
-##
-## IT IS A REAL GRAVITY BODY (since 2026-07-30). It joins the `gravity_body` group and exposes the same
-## center()/mass()/radius() contract as LAPlanetBody and LAMoon, so LAGravity sums it like anything else and
-## the planet's own orbit is integrated from THIS mass. Before that the star was scenery: it had no center(),
-## so every gravity loop's `has_method("center")` guard silently skipped it, and the orbit ran on a separate
-## `SUN_MU` constant in unrelated units while the visible disc sat at a decorative fixed distance.
-##
-## MASS is set relative to the planet, not in isolation: DEFAULT_MASS is 10x LAPlanetBody's default 1e6, which
-## is what makes it the primary of the system rather than a third moon. It is NOT the calibration body — see
-## LAGravity.reference_body(): SURFACE_G is calibrated against the planet you stand on, never against this.
 
 const DEFAULT_MASS: float = 1.0e7        # 10x the planet's 1e6 — the star has to dominate to be a star
-# Physical body radius. Its one behavioural use is LAMeteor's escape test, which frees a rock once it is
-# further than 30 radii from whichever body dominates there — so 250 is chosen to make that test say the right
-# thing: past the planet's sphere of influence (2883 units out) the star becomes the dominant body and the rock
-# is at least 9117 units from it, comfortably beyond 30x250, so it is freed for having left the planet's
-# neighbourhood instead of coasting 12000 units sunward at the speed clamp for its whole lifetime.
 const DEFAULT_RADIUS: float = 250.0
 
 var _light: DirectionalLight3D = null       # for a single close body, a directional light reads as "the sun"
@@ -53,15 +34,6 @@ func setup(opts: Dictionary = {}) -> void:
 func mass() -> float:
 	return _mass
 
-## Physical radius of the star. Its intended job is the softening/escape scale — "how far out has a rock left
-## this body's neighbourhood" — and in normal operation LAGravity calibrates G on the planet, not here.
-##
-## It is NOT, however, safe to describe this as "not a gravity-calibration radius", which is what this comment
-## used to say. `LAGravity.reference_body()` falls back to the most massive body until one declares
-## `is_gravity_reference()`, and this star is ten times the planet's mass — so any gravity query made before
-## the planet registers calibrates G right here, as 55*250^2/1e7 = 0.34375, giving a surface gravity of 1.37
-## instead of 55. LAGravity now re-derives when the reference body changes, so that state no longer persists,
-## but this radius does feed the calibration in that window and the comment should not claim otherwise.
 func radius() -> float:
 	return _radius
 
@@ -82,9 +54,6 @@ func insolation_at(body_center: Vector3) -> float:
 	var dist: float = maxf(1.0, global_position.distance_to(body_center))
 	return _base_energy * (_ref_distance * _ref_distance) / (dist * dist)
 
-## Point the directional light from the star toward a target (the primary body) so shading matches the
-## geometry. basis.z then points body -> star: the "toward the sun" convention the field's solar term reads.
-## Re-call whenever the star is repositioned, or the direction goes stale as the orbit advances.
 func aim_at(target: Vector3) -> void:
 	if _light == null:
 		return

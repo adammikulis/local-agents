@@ -66,6 +66,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# --- Resolve the shared SINGLE buffers once ------------------------------------
 	var solid_rid: RID = _single(bufs, "solid")
 	var nbr_rid: RID = _single(bufs, "nbr")
+	var partner_rid: RID = bufs.get("link_partner", RID())
 	var vel_x_rid: RID = _single(bufs, "vel_x")
 	var vel_z_rid: RID = _single(bufs, "vel_z")
 	var vel_y_rid: RID = _single(bufs, "vel_y")
@@ -92,13 +93,13 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# tracer_transport, one dispatch per scent channel via the `offset` push field.
 		_scent_transport_set[p] = _build_set(_scent_transport_shader, [
 			[0, scent_pair[p]], [1, scent_pair[back]], [2, scent_pair[back]], [3, solid_rid],
-			[4, vel_x_rid], [5, vel_y_rid], [6, vel_z_rid], [15, nbr_rid], [16, ltan_rid],
+			[4, vel_x_rid], [5, vel_y_rid], [6, vel_z_rid], [15, nbr_rid], [17, partner_rid], [16, ltan_rid],
 		])
 
 		_scent_fert_set[p] = _build_set(_scent_fert_shader, [
 			[0, fert_pair[p]],       # FertIn  = live fertility
 			[1, fert_pair[back]],    # FertOut = back fertility (fungus_fert then adds into THIS)
-			[15, nbr_rid],
+			[15, nbr_rid], [17, partner_rid],
 		])
 
 		# Decompose chemistry moved to ReactionsPass → this kernel no longer binds CO2/O2 or writes fert scratch.
@@ -109,14 +110,14 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[5, temp_pair[p]],       # Temp  (live, read)
 			[6, moisture_pair[p]],   # Moisture = the unified airborne-H₂O channel (live, read)
 			[8, solid_rid],          # Solid   (7 = Fire is gone; the gap is deliberate)
-			[15, nbr_rid],
+			[15, nbr_rid], [17, partner_rid],
 		])
 
 		_fungus_fert_set[p] = _build_set(_fungus_fert_shader, [
 			[0, fungus_fert_rid],    # FertCell = the per-cell scratch fungus just wrote
 			[1, fert_pair[back]],    # Fert = scent_fert's output (fert[back]), added into in place
 			[2, solid_rid],          # Solid
-			[15, nbr_rid],
+			[15, nbr_rid], [17, partner_rid],
 		])
 
 		# Snow DEPOSITION (snowfall): freeze the CONDENSED moisture on cold ground → snow, mass-conserving. Reads
@@ -127,14 +128,14 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[1, temp_pair[back]],    # Temp (settled, read)
 			[2, moisture_pair[back]],# Moisture (settled, debited in place — the frozen-out condensate)
 			[3, solid_rid],          # Solid
-			[15, nbr_rid],
+			[15, nbr_rid], [17, partner_rid],
 		])
 
 		_shock_set[p] = _build_set(_shock_shader, [
 			[0, shock_pair[p]],      # ShockIn  = live shock
 			[1, shock_pair[back]],   # ShockOut = back shock
 			[2, solid_rid],          # Solid
-			[15, nbr_rid],
+			[15, nbr_rid], [17, partner_rid],
 		])
 
 

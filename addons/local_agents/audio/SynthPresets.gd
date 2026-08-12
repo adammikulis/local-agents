@@ -2,21 +2,9 @@
 extends RefCounted
 class_name LocalAgentSynthPresets
 
-## A curated library of good-sounding starting points, so a user (or an LLM agent)
-## can pick a named preset and tweak from there instead of dialing in raw DSP.
-##
-## Two families:
-##   sfx_presets():         one-shot event sounds (impacts, creatures, UI, …)
-##   music_voice_presets(): sustained pads/drones + melodic voices for MusicDirector
-##
-## Everything is tuned toward the project's naturalistic/ambient aesthetic
-## (filtered pink noise for impacts, soft-filtered triangles/sines for pads).
-## All presets are plain `LASynthVoiceParams`. Enumerate them,
-## `duplicate_params()`, and adjust any field.
 
 const Params := preload("res://addons/local_agents/audio/params/SynthVoiceParamsResource.gd")
 
-# --- SFX one-shots ---------------------------------------------------------------
 
 static func sfx_presets() -> Dictionary:
 	var W := Params.Waveform
@@ -229,7 +217,6 @@ static func music_voice_presets() -> Dictionary:
 		}),
 	}
 
-# --- Lookup helpers -------------------------------------------------------------
 
 ## Every preset (SFX + music) merged, for enumeration by editors/agents.
 static func all_presets() -> Dictionary:

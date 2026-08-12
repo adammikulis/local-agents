@@ -2,18 +2,6 @@
 extends Control
 class_name LASetupTab
 
-## The Local Agents first-run checklist.
-##
-## This is the tab a third-party developer lands on the first time they enable the addon, and the
-## one thing in the plugin that MUST render with nothing installed — no native library, no model, no
-## autoload. Every row states what is wrong and the single sentence that fixes it, plus a button that
-## performs (or opens) the fix.
-##
-## It owns no status logic of its own. `LocalAgentStatus` is the single source of truth: `check()`
-## for the headline, `warnings_for()` for each row's pass/fail and its fix sentence. Adding a check
-## is a new record in `_row_specs()`, never a new branch.
-##
-## (Explicit types only — project rule: no ':=' inferred typing.)
 
 const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
 
@@ -63,16 +51,7 @@ signal register_autoload_requested()
 # a 3-second poll never steals focus from a button mid-click.
 var _rows: Array = []
 
-# -- Row registry -------------------------------------------------------------
 
-## The checklist, in fix order. Each record is a small data row, not a code path:
-##   needs    : the `LocalAgentStatus.warnings_for()` key — supplies BOTH the pass/fail test and the
-##              fix sentence, so the wording lives in exactly one place.
-##   title    : short label.
-##   ok_text  : what the row says when it is satisfied.
-##   advisory : true = never blocks generation (rendered amber, not red).
-##   action   : button text, "" for no button.
-##   handler  : method invoked when the button is pressed.
 func _row_specs() -> Array:
     return [
         {
@@ -117,7 +96,6 @@ func _row_specs() -> Array:
         },
     ]
 
-# -- Lifecycle ----------------------------------------------------------------
 
 func _ready() -> void:
     _recheck_button.pressed.connect(refresh)
@@ -134,7 +112,6 @@ func _notification(what: int) -> void:
     if what == NOTIFICATION_VISIBILITY_CHANGED and is_visible_in_tree() and _rows_box != null:
         refresh()
 
-# -- Rows ---------------------------------------------------------------------
 
 func _build_rows() -> void:
     for spec_variant in _row_specs():
@@ -189,7 +166,6 @@ func _apply_refresh_interval() -> void:
     _timer.wait_time = refresh_interval_seconds
     _timer.start()
 
-# -- Refresh ------------------------------------------------------------------
 
 ## Re-run the checks and repaint. Safe to call at any time; it only reads LocalAgentStatus.
 func refresh() -> void:
@@ -286,7 +262,6 @@ func _details_text(state: Dictionary) -> String:
     lines.append("Runtime binaries: %s" % String(state["runtime_dir"]))
     return "\n".join(lines)
 
-# -- Actions ------------------------------------------------------------------
 
 func _on_activate_pressed() -> void:
     activate_requested.emit()

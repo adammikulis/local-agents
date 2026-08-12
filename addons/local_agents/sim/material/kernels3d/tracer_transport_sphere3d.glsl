@@ -18,6 +18,7 @@ layout(set = 0, binding = 5, std430) restrict readonly buffer VelY { float vel_y
 layout(set = 0, binding = 6, std430) restrict readonly buffer VelZ { float vel_z[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh   { int nbr[]; };      // idx*6 + slot
 layout(set = 0, binding = 16, std430) restrict readonly buffer LinkTan { float ltan[]; };   // per-column dirs
+layout(set = 0, binding = 17, std430) restrict readonly buffer LinkPartner { int partner[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -124,7 +125,13 @@ void main() {
 		if (m < 0 || solid[m] != 0.0) {
 			continue;
 		}
-		gain += tracer_in[params.offset + uint(m)] * share(toward_link(uint(m), l ^ 1)) * out_scale(uint(m));
+		// The donor's OWN lateral index for the link back to me, from the table. `l ^ 1` is right only where
+		// the seam is not bent, and the few bent links made the gather double-count — which compounds.
+		int pi = partner[base + N_LAT0 + uint(l)];
+		if (pi < 0) { continue; }
+		int el = int(uint(pi) % N_SLOTS) - int(N_LAT0);
+		if (el < 0) { continue; }
+		gain += tracer_in[params.offset + uint(m)] * share(toward_link(uint(m), el)) * out_scale(uint(m));
 	}
 
 	// Vertical inflow: the cell below blowing UP into us (advection + mixing), and the cell above sending its

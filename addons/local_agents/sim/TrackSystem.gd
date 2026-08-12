@@ -1,30 +1,10 @@
 class_name LATrackSystem
 extends Node3D
 
-# LATrackSystem — DECOUPLED OBSERVER footprint/track system.
-#
-# This node watches creatures from the outside and drops fading Decal
-# footprints onto the terrain. It never modifies creature scripts: it only
-# reads the `can_fly` property and the global transform of nodes in the
-# "creature" group. All visuals are generated in code (no external assets).
-#
-# Usage:
-#   var tracks := LATrackSystem.new()
-#   add_child(tracks)
-#   tracks.setup(terrain_service)   # terrain exposes surface_height(x, z) -> float
-#
-# Contract of the injected terrain service:
-#   surface_height(x: float, z: float) -> float
-#     Returns the world-space Y of the ground at (x, z), or NAN when unknown.
 
-# --- Tunables ---------------------------------------------------------------
-
-## World-space distance a creature must travel before a new footprint drops.
 const STEP_DISTANCE: float = 1.2
 ## Seconds a footprint takes to fully fade before it is freed.
 const FADE_SECONDS: float = 5.0
-## Footprint decal box size. Y is the projection depth (SHALLOW so prints don't
-## smear into long streaks on sloped voxel terrain); X/Z is the ground footprint.
 const DECAL_SIZE: Vector3 = Vector3(0.4, 0.5, 0.4)
 ## Small vertical offset so the decal box straddles the surface cleanly.
 const SURFACE_OFFSET: float = 0.25
@@ -34,7 +14,6 @@ const MAX_DECALS: int = 300
 ## Pixel dimension of the generated footprint texture (square).
 const TEX_SIZE: int = 32
 
-# --- State ------------------------------------------------------------------
 
 var _terrain = null
 var _footprint_texture: ImageTexture = null
@@ -42,22 +21,16 @@ var _footprint_texture: ImageTexture = null
 # instance_id -> last footprint drop position (Vector3, world space).
 var _last_print_pos: Dictionary = {}
 
-# Ordered list (oldest first) of live footprint records. Each record is a
-# Dictionary: { "decal": Decal, "age": float }.
 var _decals: Array = []
 
 
 func setup(terrain) -> void:
-	# Store the injected terrain service and build the one shared texture that
-	# every decal reuses (no per-decal allocation of image data).
 	_terrain = terrain
 	if _footprint_texture == null:
 		_footprint_texture = _build_footprint_texture()
 
 
 func _build_footprint_texture() -> ImageTexture:
-	# Generate a soft dark oval/paw shape with alpha. Most pixels are fully
-	# transparent; only an elongated oval near the center carries opacity.
 	var img: Image = Image.create(TEX_SIZE, TEX_SIZE, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0.0, 0.0, 0.0, 0.0))
 
@@ -104,8 +77,6 @@ func _update_creatures() -> void:
 			continue
 		if not (node is Node3D):
 			continue
-		# Skip fliers. Missing property is treated as ground-dweller only if it
-		# is explicitly false; unknown/other values are skipped to be safe.
 		var can_fly = node.get("can_fly")
 		if can_fly == null or bool(can_fly):
 			continue
@@ -139,7 +110,6 @@ func _update_creatures() -> void:
 
 
 func _drop_footprint(creature_pos: Vector3) -> bool:
-	# Returns true if a footprint was actually placed.
 	if _terrain == null or _footprint_texture == null:
 		return false
 
@@ -156,8 +126,6 @@ func _drop_footprint(creature_pos: Vector3) -> bool:
 	var decal: Decal = Decal.new()
 	decal.texture_albedo = _footprint_texture
 	decal.size = DECAL_SIZE
-	# Decals project along their local -Y (downward), so sitting the box a little proud of the surface
-	# (radially) lets it project cleanly onto the ground.
 	decal.position = ground + up * SURFACE_OFFSET
 	decal.rotation.y = randf() * TAU  # small/arbitrary yaw for variety
 	decal.albedo_mix = 0.5            # subtle, not a hard grey stamp
@@ -179,8 +147,6 @@ func _drop_footprint(creature_pos: Vector3) -> bool:
 func _update_decals(delta: float) -> void:
 	if _decals.is_empty():
 		return
-	# Iterate a snapshot of indices; rebuild the survivors list in place so we
-	# avoid per-frame allocations except when decals expire.
 	var survivors: Array = []
 	for record in _decals:
 		var decal = record.get("decal")

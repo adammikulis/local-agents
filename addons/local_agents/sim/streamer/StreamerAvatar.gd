@@ -1,16 +1,6 @@
 class_name LAStreamerAvatar
 extends Node
 
-## The streamer's face-cam. The SubViewport + portrait camera + key light are StreamerAvatar.tscn; it
-## renders a rigged character live so the overlay can show it as a moving portrait via a ViewportTexture.
-## The model loops an idle clip; while the voice speaks we layer a bob + sway on the holder so it reads
-## as "talking". Head accessories (cap / headphones / hair) ride a pivot synced to the model each frame.
-##
-## Two swappable flavors:
-##   "male":    Quaternius villager.glb (embedded Idle) + red Kenney cap.
-##   "female":  Kenney characterLargeFemale mesh with the shared-skeleton Idle animation stitched on
-##              from idle.fbx, a female skin, a ponytail, and procedural headphones.
-## (Explicit types only, no ':=' inferred typing.)
 
 const HAT_SCENE_PATH: String = "res://addons/local_agents/assets/models/people/accessories/cap.fbx"
 
@@ -147,8 +137,6 @@ static func _find_head_bone(skel: Skeleton3D) -> String:
 	return ""
 
 
-# --- head accessories (positions are head-local; the BoneAttachment carries them onto the head) -----
-
 func _mount_asset(scene_path: String, target_width: float, pos: Vector3, tint: Color) -> void:
 	var scene: Resource = load(scene_path)
 	if not (scene is PackedScene):
@@ -207,8 +195,6 @@ func _build_headphones() -> void:
 		cup.position = Vector3(0.135 * sign, 0.01, 0.0)
 		_accessory.add_child(cup)
 
-
-# --- shared -------------------------------------------------------------------------------------
 
 static func _mesh_instances(node: Node) -> Array:
 	var out: Array = []

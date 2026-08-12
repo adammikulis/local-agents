@@ -1,30 +1,10 @@
 class_name LAActorModels
 extends RefCounted
 
-## Central data table mapping an actor id (species / prop kind) to its display model and how
-## to present it. This is config, not branches: WHICH glTF, its facing yaw, an optional flat
-## tint, and the rig's animation names all live here as data, and every actor reads the same table
-## via get_def(), so there is never an `if species == "X"` in the visual path.
-##
-## Height is deliberately NOT stored: each actor passes a target height derived from its own
-## `size`/`trunk_height`, and LAModelVisual normalizes the model's AABB to that. So one table
-## row drives a rabbit and a whale alike, because the actor's size does the scaling.
-##
-## Animation contract (when a row has "anims"): keys "idle" / "move" / "run" name clips in the
-## model's AnimationPlayer; "run" (a speed, m/s) is the threshold above which the run clip plays.
-## Rows WITHOUT "anims" are rigless static models, and LAModelVisual gives them a procedural bob so
-## they still feel alive.
 
 const _BASE: String = "res://addons/local_agents/assets/models/"
 
-# id -> { path, tint?[r,g,b], anims?{idle,move,run}, run?(m/s) }
-#
-# All models are preprocessed to face -Z (Creature.look_at points -Z at the heading), so there is
-# NO per-model yaw here. Verified by side-view test: Quaternius rigs (fox/fish/villager) export
-# facing +Z and were rotated 180 deg via scripts/bake_model_forward.py; the Kenney Cube Pets already
-# face -Z. Baking the forward axis into the asset data — not a magic yaw in code — keeps this uniform.
 const TABLE: Dictionary = {
-	# --- fauna ---
 	"fox": {
 		"path": _BASE + "fauna/fox.glb",
 		"anims": {"idle": "Idle", "move": "Walk", "run": "Gallop"}, "run": 2.2,
@@ -51,9 +31,6 @@ const TABLE: Dictionary = {
 	# Vulture reuses the parrot mesh, flattened to a dark scavenger tint (config, not a new asset).
 	"vulture": {"path": _BASE + "fauna/vulture.glb", "tint": [0.30, 0.26, 0.23]},
 
-	# --- flora / props (Kenney Nature Kit, static). Their baked baseColorFactor greens gamma-shift
-	# to cyan in Godot, so foliage/wood surfaces are recoloured to sane values via "recolor"
-	# (a single-material bush is simply flat-tinted green). ---
 	"plant": {"path": _BASE + "nature/plant_bushDetailed.glb", "tint": [0.31, 0.55, 0.21]},
 	"tree_oak": {
 		"path": _BASE + "nature/tree_oak.glb",

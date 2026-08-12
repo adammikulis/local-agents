@@ -2,25 +2,6 @@
 extends Node
 class_name LAMusicDirector
 
-## Multi-layer generative music engine with long-form song structure.
-##
-## Layers (all synthesized at runtime via the swappable SynthVoice):
-##   • pad:    sustained chord tones (harmonic bed), crossfaded on chord change
-##   • bass:   chord root/fifth on downbeats
-##   • arp:    chord-tone arpeggio gated by density
-##   • melody: sparse in-mode motif with voice-leading toward chord tones
-##   • perc:   soft filtered-noise backbeat when energetic
-##
-## Harmony source: "generative" (ChordProgressionPlanner over any mode, e.g.
-## phrygian_dominant) or "library" (a named real-world progression). A SongArranger
-## walks a section form (intro/verse/chorus/bridge/outro) so the music evolves with
-## mid-song key modulations, mode changes, time-signature changes, tempo shifts, and
-## fresh progressions per section, rather than looping four chords forever.
-##
-## Pickable at runtime: set_mode(), set_key(), set_tempo(), set_time_signature(),
-## set_progression(), set_arrangement_enabled(). Presentation-only + dedicated seeded
-## RNG → never perturbs sim determinism, never replays on rewind. set_mood() reacts
-## to live sim state.
 
 const SynthDsp := preload("res://addons/local_agents/audio/synth/SynthDsp.gd")
 const GdScriptSynthVoice := preload("res://addons/local_agents/audio/synth/GdScriptSynthVoice.gd")
@@ -103,7 +84,6 @@ func reseed(seed: int) -> void:
 func _steps_per_bar() -> int:
 	return STEPS_PER_BEAT * maxi(2, _beats_per_bar)
 
-# --- Public control -------------------------------------------------------------
 
 func set_enabled(enabled: bool) -> void:
 	_enabled = enabled
@@ -215,7 +195,6 @@ func _auto_mode(day_factor: float, threat: float) -> String:
 		return "dorian"
 	return "aeolian"
 
-# --- Introspection --------------------------------------------------------------
 
 func current_chord() -> Array:
 	if _progression.is_empty():
@@ -231,7 +210,6 @@ func current_mode() -> String:
 func current_key_root() -> int:
 	return _key_root
 
-# --- Clock ----------------------------------------------------------------------
 
 func _process(delta: float) -> void:
 	if not _enabled or delta <= 0.0 or _progression.is_empty():
@@ -285,7 +263,6 @@ func _on_bar_end() -> void:
 				_build_section_progression(_section)
 			_section_bars_left = 4
 
-# --- Sections -------------------------------------------------------------------
 
 func _begin_section(section: Dictionary) -> void:
 	_section = section
@@ -332,7 +309,6 @@ func _eff_density() -> float:
 func _eff_energy() -> float:
 	return clampf(float(_mood["energy"]) * 0.5 + _section_energy * 0.6, 0.0, 1.0)
 
-# --- Layer triggers -------------------------------------------------------------
 
 func _trigger_chord(_force: bool) -> void:
 	var chord := current_chord()
@@ -406,7 +382,6 @@ func _next_melody_note() -> int:
 	_last_melody_midi = snapped
 	return snapped
 
-# --- Rendering ------------------------------------------------------------------
 
 func _chord_stream(chord: Array) -> AudioStreamWAV:
 	var sorted := chord.duplicate()
@@ -450,7 +425,6 @@ func _note_stream(voice_name: String, midi: int) -> AudioStreamWAV:
 	_note_cache[key] = stream
 	return stream
 
-# --- Players --------------------------------------------------------------------
 
 func _build_players() -> void:
 	for p in _all_players():

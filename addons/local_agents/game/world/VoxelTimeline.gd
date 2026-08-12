@@ -1,15 +1,6 @@
 class_name LAVoxelTimeline
 extends Node
 
-## Snapshot ring buffer → smooth in-place REVERSE + timeline FORK. Periodically captures the whole world
-## (WorldSaveController.capture_snapshot, a RAM dict, no disk) at a fixed SIM-time cadence into a BOUNDED ring
-## that evicts its oldest entry (never unbounded, never touches disk). Reverse pauses the sim and restores
-## progressively older snapshots to scrub back; resuming FORWARD from a scrubbed point truncates the newer
-## snapshots: a fork, a divergent future from that moment (the abandoned future is dropped).
-##
-## Perf-first: capture is coarse (every CAPTURE_PERIOD sim-seconds) and gated on the field being ready; the
-## ring is capped. DISABLED in the self-run harness (--run-frames/--smoke/--timeline-selftest) unless
-## LA_SNAPSHOTS=1 opts it in as an inspection tool, so automated runs never stack snapshots.
 
 const CAPTURE_PERIOD: float = 2.0     # sim-seconds between snapshots (the rewind resolution)
 # Snapshots are actors-only by default (~100 KB each — the heavy GPU field is dropped, see WorldSaveController),

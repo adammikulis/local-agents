@@ -1,12 +1,6 @@
 class_name LAVoxelSkyCycle
 extends Node
 
-# Day/night + sky + lighting subsystem for the voxel world, factored out of the root so VoxelWorld
-# stays a thin composition/harness root. Owns ALL sky lighting (sun arc + energy, sky colors, ambient,
-# environment tuning, moon + lunar phase) so the cycle and weather never fight over the same
-# properties; weather only supplies a rain factor that dims on top. time_of_day: 0=midnight, .25=dawn,
-# .5=noon, .75=dusk. Dependency-free of the LAVoxelWorld type (dynamic access, no cyclic class
-# reference). (Explicit types only — project rule: no ':=' inferred typing.)
 
 var _sun: DirectionalLight3D = null
 var _planet_mode: bool = false              # true = viewed from space: dark starfield, low ambient, fixed sun
@@ -14,21 +8,12 @@ var _sun_shine: Vector3 = Vector3(0, -1, 0) # world direction the sunlight trave
 const SPACE_AMBIENT: float = 0.14           # low ambient so the planet's night side darkens (stark terminator)
 const SPACE_BG: Color = Color(0.01, 0.015, 0.03)      # near-black space
 const SPACE_AMBIENT_COLOR: Color = Color(0.10, 0.13, 0.22)  # faint cool fill on the night side
-# SURFACE ATMOSPHERE: down among the creatures the planet-from-space look (dark flat bg + 0.14 ambient) reads
-# far too dark, so the environment blends toward a bright blue daytime SKY as the camera approaches the surface
-# (driven by the orbit camera's surface_blend(): 0 in space → 1 at ground). SURFACE_ATMO_T is the approach point
-# where the background/ambient source switches to the blue atmosphere; SURFACE_AMBIENT is the sky-sourced ambient
-# energy at ground level — generous, so the ground reads as a lit, blue-sky day rather than a dim terminator.
 const SURFACE_ATMO_T: float = 0.12
 const SURFACE_AMBIENT: float = 0.55         # ground-level ambient energy (was 0.70 — trimmed so the day side
                                             # doesn't blow out to white when the atmosphere fades in)
 const SURFACE_FILL_COLOR: Color = Color(0.50, 0.56, 0.66)   # soft blue-grey day fill (ambient at the surface)
 const FOG_DENSITY_SURFACE: float = 0.0016   # target fog density at ground; fades in from 0 with descent
 
-## PLANETARY SKY: view the world as a planet from space. The flat sky is an ATMOSPHERE DOME that sources
-## ambient from itself (washes out the night side), so switch to a dark space background + a dark COLOR ambient
-## and fix the sun shining from the star (light travels along `shine_dir`). Day/night is then the planet's SPIN
-## turning under this fixed sun — the clock is frozen.
 func set_space_mode(shine_dir: Vector3) -> void:
 	if shine_dir.length() < 0.001:
 		return
@@ -78,10 +63,6 @@ const SKY_HORIZON_NIGHT: Color = Color(0.05, 0.06, 0.15)
 const SKY_HORIZON_DUSK: Color = Color(0.92, 0.48, 0.24)
 
 
-# Build the sky material, WorldEnvironment, sun (with PSSM cascade-blend shadows) and moon, parenting
-# them onto the world. `time_of_day` / `lunar_phase` seed the clocks (command-line overrides). `render_opts`
-# (from LAVoxelSettingsApplier.render_opts) gates the fill-rate-heavy effects by the quality preset — the
-# DEFAULT drops SSAO/glow/sun-shadows so the frame-rate is playable; HIGH pays for the full look.
 func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: Dictionary = {}) -> void:
 	_time_of_day = time_of_day
 	_lunar_phase = lunar_phase
@@ -92,10 +73,6 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: D
 	var want_shadows: bool = bool(render_opts.get("sun_shadows", true))
 	var want_fog: bool = bool(render_opts.get("fog", true))
 
-	# --- Sun + sky ---
-	# Custom sky shader (stars + phase-shaded moon) replaces ProceduralSkyMaterial; the day
-	# gradient is driven from the same uniforms each frame so daytime looks unchanged. The sun
-	# and moon lights below become LIGHT0 / LIGHT1 in the shader, which draws their discs.
 	var env: WorldEnvironment = WorldEnvironment.new()
 	var e: Environment = Environment.new()
 	e.background_mode = Environment.BG_SKY
@@ -116,9 +93,6 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: D
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	e.ambient_light_energy = AMBIENT_DAY
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	# SSAO tuned for terrain scale: the default 1m radius is invisible on kilometre-wide
-	# hills, so widen it to occlude at valley/gully scale for real depth in creases and
-	# under actors, with a gentle power curve so it reads as soft contact shadow, not grime.
 	e.ssao_enabled = want_ssao
 	e.ssao_radius = 3.5
 	e.ssao_intensity = 2.2
@@ -127,9 +101,6 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: D
 	e.ssao_horizon = 0.09
 	e.ssao_sharpness = 0.95
 
-	# HDR glow/bloom: only genuinely bright (>1.0) pixels bloom — incandescent lava, the
-	# sun's specular glint on water, sunlit snow — so the scene gains punch without a
-	# washed-out haze over everything. High threshold keeps midtone grass/rock crisp.
 	e.glow_enabled = want_glow and not OS.has_environment("NOGLOW")
 	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
 	e.glow_intensity = 0.85
@@ -139,20 +110,12 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: D
 	e.glow_hdr_scale = 2.0
 	e.glow_hdr_luminance_cap = 12.0
 	e.glow_normalized = false
-	# Only the two mid-frequency levels are active: bloom passes are the cost driver at
-	# this resolution, and these give a soft halo without paying for full-res or very-wide
-	# blur taps. (Baseline: enabling all 5 levels cost ~40% fps for no extra visible gain.)
 	e.set_glow_level(1, 0.0)
 	e.set_glow_level(2, 0.0)
 	e.set_glow_level(3, 1.0)
 	e.set_glow_level(4, 0.8)
 	e.set_glow_level(5, 0.0)
 
-	# Subtle atmospheric fog: gives the vista depth, hides the terrain-LOD pop at the
-	# horizon, and dissolves the ocean's hard edge into the skyline instead of ending in a
-	# line. Cheap (non-volumetric). Aerial perspective tints distant geometry toward the
-	# sky so far mountains recede; sky_affect stays low so the sky itself isn't washed out.
-	# fog_light_color is re-tinted to the horizon color every frame in _update_day_night.
 	e.fog_enabled = want_fog and not OS.has_environment("NOFOG")
 	e.fog_mode = Environment.FOG_MODE_EXPONENTIAL
 	e.fog_light_color = SKY_HORIZON_DAY
@@ -176,10 +139,6 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: D
 	sun.light_energy = SUN_ENERGY_NOON
 	sun.shadow_enabled = want_shadows
 	sun.directional_shadow_max_distance = 400.0
-	# Smoother, softer sun shadows: blend the PSSM cascades so their seams don't pop as the
-	# camera pans, soften the edges, and pull the split boundaries closer so near geometry
-	# gets the crisp cascade. Bias tuned to kill acne on the rolling terrain without peter-
-	# panning the low-poly actors. (GPU-side; free given the CPU-bound headroom.)
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	sun.directional_shadow_blend_splits = true
 	sun.directional_shadow_split_1 = 0.08
@@ -192,9 +151,6 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: D
 	world.add_child(sun)
 	_sun = sun
 
-	# Moon: added after the sun so it is LIGHT1 in the sky shader. Cool light, energy driven
-	# per-frame from the lunar phase (0 at new moon), so bright nights are navigable. It does NOT cast
-	# shadows — a second full shadow pass is expensive and a soft fill light's shadows are imperceptible.
 	var moon: DirectionalLight3D = DirectionalLight3D.new()
 	moon.light_color = MOON_COLOR
 	moon.light_energy = 0.0
@@ -237,14 +193,6 @@ func update(delta: float) -> void:
 	_update_day_night(delta)
 
 
-## Read the day and lunar phase off the world's elapsed time. Both are the same number of elapsed days,
-## wrapped at different periods, plus the seeds this world opened at — so the two can never drift apart and
-## neither is a second copy of "how long has this been running".
-##
-## The fallback integrates locally when there is no clock in the tree, which is not a shim: LAVoxelSkyCycle
-## is usable on its own (a scene with a sky and no simulation), and a sky with no world behind it still has
-## to get light and dark. When a clock IS present it is the only source, and pause / --fast reach the sky
-## through it for free.
 func _advance_clocks(delta: float) -> void:
 	var clock: LASimClock = LASimClock.active()
 	if clock == null:
@@ -256,9 +204,6 @@ func _advance_clocks(delta: float) -> void:
 	_lunar_phase = fposmod(_lunar_seed + days / LUNAR_DAYS, 1.0)
 
 
-# Advance the clock and drive all sky lighting from it, dimmed by weather rain.
-# Emergent day arc: sun elevation is a sine of the time of day; everything (light
-# energy, warm horizon at dawn/dusk, ambient floor at night) follows from that one value.
 func _update_day_night(delta: float) -> void:
 	if _sun == null:
 		return
@@ -343,24 +288,12 @@ func _update_day_night(delta: float) -> void:
 	cloud_tint = cloud_tint.lerp(Color(1.0, 0.55, 0.30), warm * 0.6)
 	if _water != null and _water.has_method("set_sky_tint"):
 		_water.set_sky_tint(cloud_tint)
-	# NOTE: the material field is NOT fed rain/daylight here — it reads the sun node directly and
-	# derives its own heating/weather. This day/night code only owns the sky + sun transform/energy.
-	# The ecology clock is fed from VoxelWorld._process via time_of_day() (kept decoupled here).
 
 
-## Altitude-aware atmosphere for planet mode: blend the environment from the stark dark space look (pulled out)
-## to a bright blue daytime sky with sky-sourced ambient + fog (down among the creatures), driven by the orbit
-## camera's surface_blend(). This is why the ground is no longer "too dark": near the surface the ambient lifts
-## from the 0.14 space value to SURFACE_AMBIENT and the background becomes the blue procedural sky (its day
-## colours, set once in setup, are untouched in planet mode). The space view keeps its dark, stark-terminator
-## look. Called every frame from the planet branch, so it has the last word on the environment.
 func _apply_surface_atmosphere() -> void:
 	if _env == null:
 		return
 	var t: float = clampf(_surface_blend(), 0.0, 1.0)   # 0 in space .. 1 hovering at the surface
-	# CONTINUOUS crossfade — NO hard background-mode/ambient-source switch (that read as an instant flip + a
-	# white-out). The sky SHADER stays active always and fades atmosphere<->space via `space_amount`; the ambient
-	# and fog LERP with altitude. So descending from orbit is one smooth blend.
 	if _sky_shader_mat != null:
 		_sky_shader_mat.set_shader_parameter("space_amount", 1.0 - t)
 	_env.background_mode = Environment.BG_SKY

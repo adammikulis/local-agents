@@ -2,12 +2,6 @@
 extends RefCounted
 class_name LocalAgentSfxBank
 
-## Renders parametric SFX presets into cached 16-bit `AudioStreamWAV` resources,
-## keyed by name. Each key is synthesized once (lazily, on first request) via the
-## configured `SynthVoice` backend and then reused. Playback variety comes from
-## per-play pitch/volume jitter at the pool, not from re-synthesis.
-##
-## Callers can also register custom `LASynthVoiceParams` presets.
 
 const SynthPresets := preload("res://addons/local_agents/audio/SynthPresets.gd")
 const GdScriptSynthVoice := preload("res://addons/local_agents/audio/synth/GdScriptSynthVoice.gd")

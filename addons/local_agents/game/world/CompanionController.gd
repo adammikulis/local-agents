@@ -1,13 +1,6 @@
 class_name LACompanionController
 extends Node
 
-## LACompanionController: routes the player's standing COMPANION command (come / stay / follow) to every
-## bonded creature and keeps the player "beacon" (the hand point on the terrain that come/follow home to)
-## current on each of them. Self-ticks; thin. Taming itself is the per-creature bond (LACreatureBond), so
-## this only broadcasts the command + the beacon, and lightly befriends creatures that linger calmly at the
-## player's hand (emergent "calm proximity" taming). VoxelInteraction routes the tame/command keys here; the
-## composition root wires it with one add_child. Dependency-free of LAVoxelWorld (dynamic access, no cyclic
-## class reference). (Explicit types only, no ':=' inferred typing.)
 
 var _camera: Camera3D = null
 var _terrain = null                       # LAVoxelTerrainService (raycast_terrain for the hand point)

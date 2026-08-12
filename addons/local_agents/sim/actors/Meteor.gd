@@ -2,24 +2,7 @@
 class_name LAMeteor
 extends Node3D
 
-## A meteor is NOT a scripted explosion. It is a falling hot fast rock (a seed/marker + visual) whose
-## impact seeds the shared substrate ONCE. Everything downstream emerges with zero meteor code:
-##   • emit_shock radiates a seismic wave (tremor + felt panic);
-##   • eject throws molten mass as ballistic ejecta parcels that arc under radial gravity and re-deposit
-##     (the debris fling and the ejecta blanket both fall out of the field, with no per-actor chunk code);
-##   • add_charge ionises the air above the crater → the field's breakdown discharges a bolt (the same
-##     charge→bolt primitive a storm feeds);
-##   • add_heat dumps the kinetic+thermal energy as a molten spike (crater glows, vegetation ignites);
-##   • broadcast_scare / damage_sphere / disturb_ground panic, kill and slump via the shared stimuli;
-##   • the crater itself emerges from the existing carve + ejecta redeposit.
-##
-## Deleted vs the old scripted meteor: `_spawn_debris_chunks` (22 RigidBody3D debris chunks with random
-## velocities), `_impact_material_palette`, `_spawn_impact_fx` (one-shot burst particles + flash light) and
-## `_make_debris_mesh`. A "debris chunk", a "crater", a "shockwave" are all just words for what the one
-## substrate does. The actor is now seed + falling visual + one impact→substrate call.
-## (Explicit types only, no ':=' inferred typing.)
 
-# --- Tunables -----------------------------------------------------------------
 const SPAWN_HEIGHT: float = 140.0          # fallback drop height when launched with no camera origin
 const START_SPEED: float = 70.0            # initial fall speed (units/s) for the fallback drop
 const LAUNCH_SPEED: float = 150.0          # fallback launch speed only if no gravity body exists yet
@@ -30,32 +13,11 @@ const METEOR_MASS_SCALE: float = 400.0     # mass = size³ × this; momentum = m
 const IMPACT_RADIUS: float = 10.0          # carve radius — large & dramatic
 const DAMAGE_SCALE: float = 1.6            # ecology damage radius = radius * this
 const BODY_RADIUS: float = 1.4
-# --- Heating ------------------------------------------------------------------
-# A meteor has no fixed temperature. It arrives cold and heats by ramming air, so how hot it gets is
-# an outcome of how fast and how steeply it came in, not a constant anyone typed. There was a flat
-# 1600 °C here, injected on impact no matter whether the rock fell from orbit at 600 u/s or was lobbed
-# at 150, and a separate hardcoded orange for the visual, so the look and the physics could disagree
-# about the same rock.
-#
-# Convective entry heating goes as air density times the cube of speed, and the body radiates back
-# toward ambient. Those two lines are the whole model. What falls out: a fast steep entry goes
-# white-hot and lights the ground under it, a slow graze barely reddens, a rock that never meets the
-# atmosphere stays dark, and a big rock hits harder than a small one at the same speed because the
-# impact term carries its mass.
 const AMBIENT_TEMP_C: float = -60.0        # what it starts at and relaxes toward
 const ENTRY_HEAT_GAIN: float = 4.23e-6     # scales rho * v^3 into °C/s; ~1600 °C at MAX_SPEED in thick air
 const RADIATIVE_COOL: float = 0.55         # per second, fraction of the excess over ambient shed again
 const MAX_SURFACE_TEMP_C: float = 3000.0   # cap, so a runaway entry cannot inject absurd heat
-# Air density is READ FROM THE FIELD, not modelled here. The substrate already simulates a 3D oxygen
-# channel, so `o2_at()` at the meteor's own position is how much air there is to ram, and it composes
-# for free: a thin atmosphere heats meteors less, a region stripped by an eruption heats them less
-# right there, and a planet with no air at all never lights one up. A local scale-height formula would
-# have been a second, disagreeing atmosphere living inside this actor.
 const AIR_REFERENCE_O2: float = 0.21       # the o2 level treated as full thickness, so rho is a ratio
-# On impact the remaining kinetic energy also goes into the ground — as a real E = 1/2 m v^2 in joules, see
-# `_impact_energy_j()`. The two constants that used to live here (`KINETIC_HEAT_GAIN = 0.004` scaling v^2 into
-# degrees, and `MAX_IMPACT_TEMP_C = 2500` capping the result) are DELETED: neither was a property of anything,
-# and together they let one strike add up to 2500 °C to every one of ~150 cells with no energy behind it.
 const FX_LINGER: float = 1.8               # seconds of FX after impact before free
 
 enum State { IDLE, FALLING, IMPACTED }
@@ -93,25 +55,6 @@ func setup(terrain: Object, ecology: Object) -> void:
 	_ecology = ecology
 
 
-## Effective impact radius for THIS meteor (base * its random size), FLOORED AT THE SUBSTRATE'S RESOLUTION.
-##
-## A crater smaller than one field cell cannot exist in the physics. The field samples cell CENTRES, so a
-## carve that fails to engulf one flips no cell from rock to void: `resample_terrain`'s `is_solid` probe still
-## reads solid everywhere, its excavation loop `continue`s on every cell, and no bedrock is moved into the
-## loose phases. The SDF mesh is far finer than the field grid, so the crater still LOOKS carved — which is
-## why this went unnoticed.
-##
-## A SCALE CHANGE INTRODUCED IT, not this constant. When the planet went to radius 500, `PLANET_SCALE` was
-## applied to world-gen geometry including cell_size (8.0 * PLANET_SCALE = 16 world units) but NOT to
-## interaction radii, which kept their radius-250 values. IMPACT_RADIUS 10 was comfortably super-cell at the
-## old 8-unit cell and became sub-cell at 16. Measured over 600 frames with --auto-meteor: six impacts,
-## `crater_cells` 0, `crater_mass` 0.0, `crater_sea` 0 — and `crater_mass` is exactly the number the mineral
-## ledger's own documentation names as the cross-check that a strike MOVED rock rather than deleting it.
-##
-## Floored against the LIVE cell size rather than re-scaled by PLANET_SCALE on purpose: it then stays correct
-## at any future world scale and at any grid resolution, including the Low/High quality presets that change
-## `grid_res_per_face` underneath it. 1.5 cells guarantees the centre cell is engulfed even when the impact
-## point lands at a cell corner.
 const MIN_CRATER_CELLS: float = 1.5
 
 func _radius() -> float:
@@ -124,10 +67,6 @@ func _radius() -> float:
 	return maxf(want, cell * MIN_CRATER_CELLS)
 
 
-## Launch toward `target`. If `from_pos` is finite it fires FROM THAT POINT (the camera / screen
-## centre) like an FPS projectile, streaking straight out and homing onto the target so it always
-## lands on the click point; otherwise it falls ballistically from above the target. Size is
-## randomized each launch so strikes vary in scale.
 func launch(target: Vector3, from_pos: Vector3 = Vector3(INF, INF, INF), size_scale: float = 1.0) -> void:
 	_target = target
 	# Base random variation scaled by the caller's size hint: the spawn brush passes a factor derived
@@ -268,36 +207,11 @@ func _apply_heat_visual() -> void:
 			_glow.light_energy = LAHeatGlow.energy(_surface_temp) * _size
 
 
-## THE IMPACTOR'S MASS, in kilograms, from its own geometry and the density of the rock it is made of.
-##
-## The actor already carried a second, incompatible mass claim — `METEOR_MASS_SCALE = 400.0`, "mass = size³ ×
-## this", used for the orbital impulse at :335. That number is in no units at all, so the rock the orbit feels
-## and the rock the ground feels were different rocks. This one is a real mass: a sphere of basalt of the
-## body's own radius. (The orbital-impulse line is left alone here — it belongs to the gravity/orbit track —
-## but it should be reading this.)
 func _impact_mass_kg() -> float:
 	var r: float = BODY_RADIUS * _size
 	return LAPhysical.ROCK_DENSITY_KG_M3 * (4.0 / 3.0) * PI * r * r * r
 
 
-## WHAT THE GROUND ACTUALLY RECEIVES, IN JOULES: the kinetic energy the rock still had, plus the heat stored
-## in its body by entry friction. Both are properties of this rock on this trajectory, and both stop existing
-## when it stops — that is what "the impact's heat is the impactor's energy" means.
-##
-## THIS REPLACES A TEMPERATURE, AND THE DIFFERENCE IS THE WHOLE POINT. `_impact_temp_c()` returned a NUMBER OF
-## DEGREES (skin temperature plus `KINETIC_HEAT_GAIN * v² * size`, capped at 2500) which `add_heat` then added
-## to EVERY cell in a bubble of radius `r * 2.2` — roughly 150 cells at the shipped grid. So one strike raised
-## a hundred and fifty cells by up to two and a half thousand degrees each, out of nothing, and the amount did
-## not depend on how much rock there was to heat. `KINETIC_HEAT_GAIN` and `MAX_IMPACT_TEMP_C` were the two
-## constants holding that in a plausible-looking range; neither is a property of anything, and both are gone.
-##
-## WHAT THE HONEST NUMBER SAYS, stated here so nobody re-derives it as a bug: a 2.8 m basalt rock is about
-## 33,000 kg, and at this game's impact speeds (150-600 m/s) it carries 0.4-6 GJ of kinetic energy against a
-## bubble of basalt whose heat capacity is of order 1e12 J/K. The temperature rise is hundredths of a degree.
-## That is CORRECT — real impact melting needs meteoric speed, 11-72 km/s, not 600 m/s — and it means the
-## glowing crater was never a consequence of the impact, it was a typed-in temperature. If incandescent
-## craters are wanted back, the thing to change is the entry speed, which is a real physical quantity, not the
-## heat, which is an outcome.
 func _impact_energy_j() -> float:
 	var m: float = _impact_mass_kg()
 	var speed: float = _velocity.length()
@@ -370,13 +284,6 @@ func _on_impact() -> void:
 	var r: float = _radius()                                   # size-scaled crater
 	if _terrain != null and _terrain.has_method("carve_sphere"):
 		_terrain.carve_sphere(_impact_point, r)
-		# ...and TELL THE SUBSTRATE the rock is gone. carve_sphere only edits the godot_voxel SDF, which is the
-		# mesh and the collision; the field's own bedrock channel is what decides where water may pool and air
-		# may sit. Without this second call the crater was a hole you could stand in that the physics still
-		# treated as solid rock. resample_terrain re-reads the freshly carved SDF as its shape oracle and moves
-		# the excavated bedrock into the loose mineral phases, so the strike relocates mass instead of deleting
-		# it. Slightly wider than the carve so the cells straddling the rim are re-read too (they stay solid
-		# unless the carve actually reached them — the is_solid probe, not this radius, decides).
 		if _ecology != null and _ecology.has_method("material_field"):
 			var substrate: Object = _ecology.material_field()
 			if substrate != null and substrate.has_method("resample_terrain"):
@@ -394,11 +301,6 @@ func _on_impact() -> void:
 	# Terror shockwave: everything that hears/feels the impact panics and flees.
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(_impact_point, r * 6.0, 1.0)
-	# The strike hands the ground the ENERGY it arrived carrying (kinetic + the heat entry friction put in the
-	# body). The substrate divides that by the heat capacity of the rock and air it landed on, so how hot the
-	# crater gets is an OUTCOME of how fast and how heavy the rock was and what it hit — not a temperature
-	# anyone typed. Vegetation that crosses the ignition temperature still catches fire from it; it just has to
-	# earn the temperature now.
 	if _ecology != null and _ecology.has_method("material_field"):
 		var field: Object = _ecology.material_field()
 		if field != null and field._inject != null and field._inject.has_method("add_heat_energy"):
@@ -414,11 +316,6 @@ func _on_impact() -> void:
 			# Hypervelocity impact IONISES the air above the crater — a charge seed the field's breakdown then
 			# discharges as a bolt (the same charge→bolt primitive a storm feeds; here from impact plasma).
 			if field.has_method("add_charge"):
-				# Scale the seed with meteor size (same idiom as emit_shock above) so a small strike stays at or
-				# below the field's dielectric breakdown (~6.0) and barely sparks, while a large one seeds a real
-				# storm — and cap it just above breakdown so even the biggest impact never dumps the 4-bolts/step
-				# barrage. _size in [0.55, 2.3]: small ~ 5.4 (sub-breakdown, 0 bolts), mid ~ 7.5 (one or two bolts),
-				# large capped at 9.0.
 				field.add_charge(_impact_point + up * 20.0, minf(4.0 + _size * 2.5, 9.0), r)
 	# Shake the ground: steep terrain in the blast radius slumps downhill under gravity (a meteor into
 	# a mountainside triggers a slide — pure material physics, no landslide code).
@@ -435,9 +332,6 @@ func _on_impact() -> void:
 		_picker.queue_free()
 		_picker = null
 
-	# Procedural impact boom (presentation only; resolves the AudioDirector by group). The flash, debris
-	# fling and ejecta blanket are no longer scripted here — they emerge from the eject/add_heat/add_charge
-	# seeds above (glowing ejecta parcels + molten crater glow + a discharge bolt).
 	LAAudioDirector.emit(get_tree(), "meteor_impact", _impact_point)
 
 

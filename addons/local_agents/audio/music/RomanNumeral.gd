@@ -2,10 +2,6 @@
 extends RefCounted
 class_name LocalAgentRomanNumeral
 
-## Parses Roman-numeral chord tokens (I, ii, V7, vii°, bVII, IVmaj7, iiø, V+, …) and
-## resolves them to absolute MIDI chords in a chosen key. Anchored to the major-scale
-## of the tonic plus accidentals, so both major- and minor-key progressions are
-## expressible (minor = i, bIII, iv, v/V, bVI, bVII). Pure/stateless → testable.
 
 const Theory := preload("res://addons/local_agents/audio/music/MusicTheory.gd")
 

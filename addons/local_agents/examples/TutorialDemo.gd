@@ -1,28 +1,6 @@
 extends Control
 
-## Usage example for the reusable tutorial system (LATutorialSequencer + LATutorialHighlightOverlay +
-## LocalAgentTutorialStep): four demo buttons and a three-step guided tour that spotlights three of
-## them in turn ("click this", "now this"). Needs no model, no runtime and no voxel sim.
-##
-## Everything you would configure lives in TutorialDemo.tscn: the buttons, the overlay, the sequencer
-## and the `steps` themselves, authored as LocalAgentTutorialStep sub-resources you can edit in the
-## inspector. The steps are the part worth copying. Select the root node, open Steps, and each step's
-## text, title and target button are right there. This file only does what a game would still have to
-## do by hand: hand the list to the sequencer and react to a button being pressed.
-##
-## The version this replaced built the background, the labels, the VBox and all four buttons in
-## `_ready()` from a const array, then aimed its steps at NodePath("Buttons/Spawn"), a path into a
-## tree that existed only after that build ran. Opening the scene in the editor showed one empty
-## Control.
-##
-## Headless: a LocalAgentDemoHarness child gives it the repo's standard contract.
-##   -- --run-frames=N       auto-drive: press each spotlighted button in turn, print TUTORIAL_STEP /
-##                           TUTORIAL_DONE and DEMO_REPORT, then quit (proves the advance wiring).
-##   -- --shoot=<png>        capture a frame with the spotlight resting on a button, then quit.
-##
-## (Explicit types only. The project rule bans ':=' inferred typing.)
 
-## The guided tour, in order. Authored as sub-resources in TutorialDemo.tscn.
 @export var steps: Array[LocalAgentTutorialStep] = []
 
 ## Keys the "don't show again" flag the sequencer persists to user://. Blank hides that checkbox.
@@ -69,10 +47,6 @@ func _on_finished(completed: bool) -> void:
 	print("TUTORIAL_DONE=%s" % ("true" if completed else "false"))
 	_log.text = "Tutorial finished."
 
-
-# --- Headless self-test ------------------------------------------------------------------------
-# Only runs under `-- --run-frames=N`. Presses the button the current step spotlights, so a headless
-# run actually walks the tour instead of idling for N frames and reporting nothing.
 
 ## Called once by LocalAgentDemoHarness with the resolved command line.
 func demo_harness_configured(frames: int, _shoot: String) -> void:

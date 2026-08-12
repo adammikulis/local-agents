@@ -1,11 +1,6 @@
 class_name LAVoxelStreamerHost
 extends Node
 
-# Streamer / commentator subsystem for the voxel world, factored out of the root so VoxelWorld stays a
-# thin composition/harness root. Owns the lower-right face-cam overlay, the live SubViewport avatar, the
-# Piper TTS voice, the local-LLM director brain, and the live scene-energy graph the director reacts to.
-# Dependency-free of the LAVoxelWorld type (dynamic access, no cyclic class reference). (Explicit types
-# only — project rule: no ':=' inferred typing.)
 
 const StreamerOverlayScene: PackedScene = preload("res://addons/local_agents/sim/streamer/StreamerOverlay.tscn")
 const StreamerAvatarScene: PackedScene = preload("res://addons/local_agents/sim/streamer/StreamerAvatar.tscn")
@@ -52,9 +47,6 @@ func setup(world: Node, ecology: Node, material: Node, persona: String, avatar_f
 	world.add_child(_streamer_director)
 	_streamer_director.setup(world, {"voice": _streamer_voice, "persona": _streamer_persona, "llm_client": llm_client})
 
-	# Consume the ONE emergent phenomenon-event source instead of scanning the world for events itself: the
-	# tracker detects eruptions/wildfires/floods/deaths/… from the shared field + ecology and the director
-	# just reacts to each event (dissolve-don't-patch / no parallel detection scans).
 	var tracker: Node = world.get_node_or_null("EventTracker")
 	if tracker != null and _streamer_director.has_method("on_tracked_event"):
 		tracker.event_emitted.connect(_streamer_director.on_tracked_event)
@@ -79,9 +71,6 @@ func setup(world: Node, ecology: Node, material: Node, persona: String, avatar_f
 	_streamer_overlay.set_default_persona(_streamer_persona)
 	_streamer_overlay.set_default_avatar(_streamer_avatar_flavor)
 
-	# A freshly built host always starts hidden + compute-gated: it is now built LAZILY the first time the
-	# player presses the streamer hotkey (VoxelWorld._ensure_streamer_host), and that same press then toggles
-	# it active/shown. Starting inactive here keeps the local LLM + TTS idle until that toggle fires.
 	_set_streamer_active(false)
 
 

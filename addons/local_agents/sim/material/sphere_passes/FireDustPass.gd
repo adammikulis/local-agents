@@ -34,6 +34,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 
 	# --- Shared buffers ---------------------------------------------------------------------------
 	var nbr: RID = bufs["nbr"]
+	var partner_rid: RID = bufs.get("link_partner", RID())
 	var solid: RID = bufs["solid"]
 	var vel_x: RID = bufs["vel_x"]
 	var vel_y: RID = bufs["vel_y"]
@@ -51,7 +52,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 
 		_transport_set[p] = _build_set(rd, _transport_shader, [
 			[0, dust[p]], [1, dust[back]], [2, sediment[back]], [3, solid],
-			[4, vel_x], [5, vel_y], [6, vel_z], [15, nbr], [16, ltan]])
+			[4, vel_x], [5, vel_y], [6, vel_z], [15, nbr], [17, partner_rid], [16, ltan]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:

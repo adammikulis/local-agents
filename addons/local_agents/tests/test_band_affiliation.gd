@@ -1,25 +1,6 @@
 @tool
 extends RefCounted
 
-## Proves an animal can LEAVE one group and JOIN another, and that the world remembers both.
-##
-## The thing under test is the split of one integer into two. `family_id` used to mean both "who I descend
-## from" and "who I run with"; lineage is immutable for life by design, so affiliation inherited an
-## immutability it had no business having and nothing could ever change groups. Affiliation now lives in
-## `band_id` (LACreatureAffiliation, derived from sustained association) and its history lives in dated
-## MEMBER_OF records in the backstory store (LABandChronicle).
-##
-## WHAT IS ASSERTED, and why it is not the obvious thing. Every assertion below reads state back OUT of the
-## store — the membership history, the day-windowed context, the faction node. None of them asserts that a
-## call returned ok. The first backstory wiring in this repo returned ok from every single call and recalled
-## nothing (see the header of test_agent_backstory.gd), so "it said ok" is worth nothing here.
-##
-## The rule is driven directly rather than through a launched world, because the question is whether the
-## rule produces a membership CHANGE and whether the chronicle writes it down as a period with an end — and
-## that is settled by stepping it, in about a second, with no GPU, no terrain and no model. The stubs below
-## carry exactly the duck-typed surface LACreatureAffiliation reads, which is also a check that the rule
-## really is decoupled from LocalAgentCreature.
-## (Explicit types only, project rule: no ':=' inferred typing.)
 
 const SvcScript: GDScript = preload("res://addons/local_agents/graph/BackstoryGraphService.gd")
 const ChronicleScript: GDScript = preload("res://addons/local_agents/sim/ecology/BandChronicle.gd")
@@ -74,17 +55,12 @@ func run_test(tree: SceneTree) -> bool:
 	chronicle.set_service(svc)
 	tree.get_root().add_child(chronicle)
 
-	# The RESIDENTS are built first, so their band label is the older one. Affiliation only ever adopts an
-	# older label (that is what makes label propagation converge instead of two animals swapping forever),
-	# so building them first is what makes this a wanderer JOINING an established band rather than renaming
-	# it — the same asymmetry a real newcomer meets.
 	var host_a: Beast = _spawn(tree, Vector3(300.0, 0.0, 0.0))
 	var host_b: Beast = _spawn(tree, Vector3(302.0, 0.0, 0.0))
 	var wanderer: Beast = _spawn(tree, Vector3(0.0, 0.0, 0.0))
 	var home_mate: Beast = _spawn(tree, Vector3(2.0, 0.0, 0.0))
 	var herd: Array = [host_a, host_b, wanderer, home_mate]
 
-	# --- Phase 1: two separate pairs keep company until each pair has settled into one band. ---
 	_run(herd, chronicle, 12)
 	var ok: bool = true
 	var home_band: int = wanderer.band_id
@@ -99,7 +75,6 @@ func run_test(tree: SceneTree) -> bool:
 	var left_faction: String = "band_%d" % home_band
 	var joined_faction: String = "band_%d" % host_band
 
-	# --- Phase 2: the wanderer walks over to the other pair. Nothing tells it to change band. ---
 	clock.restore({"elapsed": float(DAY_SWITCH) * LASimClock.DAY_LENGTH})
 	wanderer.global_position = Vector3(301.0, 0.0, 2.0)
 	_run(herd, chronicle, 40)
@@ -109,7 +84,6 @@ func run_test(tree: SceneTree) -> bool:
 	ok = _assert(wanderer.band_id == host_band,
 		"the wanderer never joined the band it moved in with (band %d, expected %d)" % [wanderer.band_id, host_band]) and ok
 
-	# --- What the world remembers. Everything below is read back out of the store. ---
 	var history: Dictionary = svc.membership_history(npc_id)
 	var records: Array = history.get("memberships", [])
 	ok = _assert(records.size() == 2,
@@ -139,10 +113,6 @@ func run_test(tree: SceneTree) -> bool:
 	ok = _assert(bool(old_group.get("ok", false)) and String((old_group.get("faction", {}) as Dictionary).get("id", "")) == left_faction,
 		"the band it left no longer exists in the store: %s" % old_group) and ok
 
-	# And the day-windowed read the game itself uses agrees: exactly one membership is live, the new one.
-	# Asked on the day AFTER the switch, because the store's window treats to_day as INCLUSIVE — a membership
-	# that ended on day five was still real for part of day five, and this test reads that convention rather
-	# than arguing with it.
 	var context: Dictionary = svc.get_backstory_context(npc_id, DAY_SWITCH + 1, 32)
 	var active: Array = []
 	for rel_v in (context.get("relationships", []) as Array):
@@ -155,12 +125,6 @@ func run_test(tree: SceneTree) -> bool:
 	return _finish(ok, svc, chronicle, clock, herd, tree)
 
 
-## Advance every animal's association rule and the chronicle by `steps` samples of STEP seconds.
-##
-## The shared spatial index is stamped with the PHYSICS FRAME, and no physics frames pass inside a
-## synchronous test, so it would be built once and then hand out positions from before the wanderer moved —
-## and the test would pass on stale data. Dropping the static forces a real rebuild per step at the
-## positions the animals are actually at.
 func _run(herd: Array, chronicle: LABandChronicle, steps: int) -> void:
 	for i in range(steps):
 		LACreatureSenses._index = null

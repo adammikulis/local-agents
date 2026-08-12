@@ -1,14 +1,7 @@
 class_name LACreatureBody
 extends RefCounted
 
-## Body/model construction for LocalAgentCreature, factored out of the main brain. Builds the display model
-## (glTF via LAModelVisual) when the species has one, else a procedural capsule, plus the collision
-## shape and the thrower's carried-rock visual. Static + dynamic access on the passed creature so there
-## is no cyclic class reference. (Explicit types only, no ':=' inferred typing.)
 
-
-## Build the creature's visual body: a display model if the species has one, otherwise a procedural
-## capsule; then the collision shape and (for throwers) the carried-rock mesh.
 static func build_body(c) -> void:
 	# Prefer a display model for this species (LAActorModels); fall back to the primitive capsule.
 	build_model(c)

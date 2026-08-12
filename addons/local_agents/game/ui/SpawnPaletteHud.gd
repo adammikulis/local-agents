@@ -1,10 +1,6 @@
 class_name LASpawnPaletteHud
 extends CanvasLayer
 
-## The sim HUD (SpawnPaletteHud.tscn): a bottom-center spawn palette, a right-side inspector, a top status
-## bar, and the audio menu. The shell is the scene; the palette's per-kind buttons come from the kind lists
-## below, and the shared Theme is procedural (drawn styleboxes + icons), so both are built here.
-## Palette buttons use a bundled emoji subset (assets/fonts/emoji.ttf), swapped for model thumbnails.
 
 signal spawn_selected(kind: String)
 ## Re-exposed from the audio menu; VoxelWorld listens to gate its live mood feed.
@@ -377,10 +373,6 @@ func _on_select_pressed() -> void:
 		spawn_selected.emit("")
 
 
-# ---------------------------------------------------------------------------
-# Theme + widget helpers
-# ---------------------------------------------------------------------------
-
 ## Load the bundled emoji subset for the palette symbols. load_dynamic_font works straight from the raw
 ## .ttf with no editor import step. Returns null on any failure, and the palette falls back to text labels.
 func _load_emoji_font() -> FontFile:
@@ -549,10 +541,6 @@ func _clear_children(node: Node) -> void:
 		child.queue_free()
 		node.remove_child(child)
 
-
-# ---------------------------------------------------------------------------
-# Model thumbnails (isometric off-screen render per spawnable model)
-# ---------------------------------------------------------------------------
 
 # The "tree" button spawns a mixed forest; show the oak as its representative render.
 func _thumb_model_id(kind: String) -> String:

@@ -1,25 +1,10 @@
 class_name LANest
 extends Node3D
 
-## A creature's home site. The shelter varies by species so each kind of animal
-## builds its own recognisable home: a bird weaves a twig cup up in a tree, a
-## rabbit digs a burrow, a fox digs a larger den, a villager raises a hut, and
-## anything else gets a generic earthen mound. A nest tracks the young raised
-## there and slowly falls into disrepair when its owners stop visiting -- unused
-## nests eventually rot away.
-##
-## The shell (mesh holder + layer-2 pick body) is Nest.tscn; the shelter itself is
-## built from primitives, no external assets. Robust against a null terrain and
-## guards against double queue_free.
 
 const IDLE_TIMEOUT: float = 120.0        # seconds of neglect before the nest rots away
 const DISREPAIR_START: float = 60.0      # idle seconds after which condition visibly degrades
 
-## Declarative dimensions/colours for the human (villager) dwelling, in metres. Kept as data — a
-## per-species dwelling "config entry" — so the hut form is config rather than magic numbers buried
-## in the builder, and another humanoid species can be given its own dwelling by adding a spec here.
-## Sized against a ~1.8 m villager: cylinder walls a standing person fits inside, under an
-## overhanging conical thatch roof. Wall diameter ~2.7 m, eaves ~3.2 m, peak ~2.85 m tall.
 const HUT_SPEC: Dictionary = {
 	"wall_radius": 1.35,                          # walls ~2.7 m across
 	"wall_height": 1.7,                           # taller than a standing villager's shoulders
@@ -193,10 +178,6 @@ func _build_earthen_mound() -> void:
 	_build_mound(0.55, 0.40, Color(0.30, 0.22, 0.14), true, 0.18)
 
 
-## Shared builder for the earthen-dome shelters (burrow / den / generic mound).
-## `radius`/`flatten` size the flattened dome; `earth_color` tints it; when
-## `with_entrance` is set a darker entrance hollow of `hole_radius` is dug into
-## the front so the shelter reads as an occupied burrow.
 func _build_mound(radius: float, flatten: float, earth_color: Color, with_entrance: bool, hole_radius: float) -> void:
 	var earth_mat: StandardMaterial3D = StandardMaterial3D.new()
 	earth_mat.albedo_color = earth_color
@@ -234,10 +215,6 @@ func _build_mound(radius: float, flatten: float, earth_color: Color, with_entran
 	_mesh_root.add_child(hole)
 
 
-## A human dwelling: a round mud/clay hut — a wide cylinder body under a conical
-## thatch roof — sized (from HUT_SPEC) so a ~1.8 m villager stands comfortably
-## beside and could step through it, rather than the old ankle-high stub. Earthy
-## matte materials (no metal) and a dark doorway hollow so it reads as a home.
 func _build_hut() -> void:
 	var wall_radius: float = HUT_SPEC["wall_radius"]
 	var wall_height: float = HUT_SPEC["wall_height"]

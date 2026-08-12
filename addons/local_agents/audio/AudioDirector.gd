@@ -2,12 +2,6 @@
 extends Node
 class_name LAAudioDirector
 
-## Presentation-layer composition root for all procedural audio.
-##
-## Owns the swappable synth voice, the SFX bank + voice pool, and the generative
-## MusicDirector. Sim/actor code reaches it via the "local_agents_audio" group and
-## calls `play_sfx(...)`; VoxelWorld feeds `set_music_mood(...)` each frame.
-## It never reads or writes simulation-authoritative state. It only reacts.
 
 const GdScriptSynthVoice := preload("res://addons/local_agents/audio/synth/GdScriptSynthVoice.gd")
 const SfxBank := preload("res://addons/local_agents/audio/SfxBank.gd")
@@ -68,7 +62,6 @@ func configure(
 
 	_apply_enabled_state()
 
-# --- SFX ------------------------------------------------------------------------
 
 ## Play a named SFX. Pass a `Vector3` world position for a spatialized (3D) sound;
 ## omit it (or pass null) for a non-positional UI/ambient sound. Returns false if
@@ -93,7 +86,6 @@ func register_sfx(key: String, params: LASynthVoiceParams) -> void:
 func sfx_keys() -> Array:
 	return _sfx.keys() if _sfx != null else []
 
-# --- Music ----------------------------------------------------------------------
 
 ## Feed a sim snapshot to the music engine. Keys: population, destruction_intensity,
 ## time_of_day, threat.
@@ -155,7 +147,6 @@ func music_status() -> Dictionary:
 		"section": _music.current_section_label(),
 	}
 
-# --- Enable state ---------------------------------------------------------------
 
 func set_enabled(on: bool) -> void:
 	enabled = on

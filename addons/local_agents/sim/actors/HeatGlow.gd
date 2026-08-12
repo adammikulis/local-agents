@@ -1,21 +1,6 @@
 class_name LAHeatGlow
 extends RefCounted
 
-## Blackbody incandescence for MINERAL matter: temperature in °C to an emissive colour, using the same
-## ramp as the terrain shader so a molten rock reads as the same temperature as the molten ground.
-## Below GLOW_MIN nothing glows.
-##
-## This header used to say "for ANY actor" and offered a creature and a tree as the examples. That is
-## wrong, and it is most likely why nothing called this file for so long. Flesh and wood do not
-## incandesce, they burn. A creature that gets hot enough crosses the combust bound in the one
-## temperature rule (`Creature.gd:79`), bursts into LAFlameFX and dies charred, which is already what
-## happens. Glow belongs to things still solid at 400°C and up: molten rock, volcanic ejecta, a meteor
-## on entry, embers.
-##
-## Consumer today: `sim/actors/Meteor.gd`, whose body material and light colour are both computed from
-## its MOLTEN_TEMP_C, the same number it injects into the field on impact.
-##
-## (Explicit types only, no ':=' inferred typing.)
 
 const GLOW_MIN: float = 400.0             # °C — dull red starts here
 

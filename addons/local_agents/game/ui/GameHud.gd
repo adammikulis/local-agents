@@ -1,11 +1,6 @@
 class_name LAGameHud
 extends CanvasLayer
 
-## The gamified overlay (GameHud.tscn). It READS and drives nothing: the current objective plus a progress
-## bar and stage from LAGameProgression, transient unlock toasts off its capability_unlocked /
-## objective_completed signals, and a live summary corner from LASimReport.snapshot(). With gating off the
-## objective panel hides and a "Sandbox" tag stands in. All panels ignore the mouse. Updates on the two
-## progression signals plus the scene's RefreshTimer, never per frame.
 
 const COL_BG_2: Color = Color(0.129, 0.145, 0.184, 0.96)
 const COL_ACCENT: Color = Color(0.33, 0.70, 0.98, 1.0)
@@ -42,10 +37,6 @@ func _ready() -> void:
 	print("GAME_HUD={ready:true, progression:%s}" % str(_progression != null))
 
 
-# ---------------------------------------------------------------------------
-# Public API (a later hotkey binding drives these — VoxelInputController owns the key)
-# ---------------------------------------------------------------------------
-
 ## Show/hide the whole gamified overlay.
 func set_hud_visible(on: bool) -> void:
 	visible = on
@@ -66,8 +57,6 @@ func toggle_visible() -> void:
 # Progression wiring
 # ---------------------------------------------------------------------------
 
-## Resolve the live progression singleton and subscribe to its unlock signals (idempotent — retried from the
-## timer tick if the singleton was not up yet at _ready).
 func _connect_progression() -> void:
 	if _connected:
 		return
@@ -157,10 +146,6 @@ func _refresh_summary() -> void:
 	_summary_gen.text = "Gen %d" % (top_gen + 1)
 
 
-# ---------------------------------------------------------------------------
-# Toasts
-# ---------------------------------------------------------------------------
-
 ## A transient notification: fades + slides in, holds, fades out, then frees itself.
 func _spawn_toast(text: String, accent: Color) -> void:
 	if _toast_column == null:
@@ -191,10 +176,6 @@ func _spawn_toast(text: String, accent: Color) -> void:
 	tw.chain().tween_property(panel, "modulate:a", 0.0, 0.6)
 	tw.chain().tween_callback(panel.queue_free)
 
-
-# ---------------------------------------------------------------------------
-# Style + format helpers
-# ---------------------------------------------------------------------------
 
 ## Compact number formatting for summary/progress figures (1240 -> "1.2k").
 func _fmt_num(v: float) -> String:

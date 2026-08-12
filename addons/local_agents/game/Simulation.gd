@@ -1,18 +1,7 @@
 class_name LASimulation
 extends Node3D
 
-## THE SIMULATION — the planet, the field, the star, the clock, ecology, geology, telemetry, persistence.
-## Runs in every launch, with or without a camera or a UI.
-##
-## The node TREE is declared in Simulation.tscn; this script only WIRES it, in order. Nothing here may be a
-## Control, a CanvasLayer or a Camera3D. If a node is needed for the world to be RIGHT it belongs here; if
-## it is needed for the world to be SEEN it is LARenderLayer; if the player clicks it, it is LAUiLayer.
-##
-## Order matters: settings are read before the field is built (grid resolution) and before spawning (actor
-## budget), and the star exists before the field reads its light.
 
-# The star's world position. The planet is pinned at the origin and the star orbits around it (see
-# SystemOrbits) — a deliberate moving-frame choice, not a claim that the planet is stationary.
 const STAR_POSITION: Vector3 = Vector3(900.0, 320.0, 620.0)
 
 @onready var _settings_applier: LAVoxelSettingsApplier = $SettingsApplier
@@ -44,8 +33,6 @@ var _spin_rate: float = 0.10
 func build(opts: Dictionary) -> void:
 	_settings_applier.read_settings()
 
-	# The playback rate. A plain Node, so it exists with no UI — LAVoxelTimeControl only shows it.
-	# --fast=N applies here, through the one owner of Engine.time_scale.
 	_time.set_multiplier(float(opts.get("fast_multiplier", 1)))
 
 	# The star: position, gravity, and the light whose basis + `insolation` meta ARE the field's solar input.
@@ -80,8 +67,6 @@ func build(opts: Dictionary) -> void:
 
 
 func _build_field() -> void:
-	# CUBED-SPHERE field: a SphereGrid shell enclosing the planet (crust + atmosphere), gathered via the
-	# neighbour table with radial gravity. Per-face resolution + shell depth come from the quality setting.
 	var field_grid: RefCounted = LASphereGrid.new()
 	var scale: float = float(_body.radius()) / 250.0
 	field_grid.build(_settings_applier.grid_res_per_face(), _settings_applier.grid_depth(),
@@ -107,16 +92,12 @@ func _validate_grid(grid: RefCounted) -> void:
 	if not grid.has_method("validate"):
 		return
 	var v: Dictionary = grid.validate()
-	# Registered, not gauged: LASimReport.reset() runs at initial spawn and wipes anything set during build,
-	# which is why this reported nothing the first time it was wired.
 	LASimReport.register(func() -> Dictionary: return {
 		"grid_valid": bool(v.get("ok", false)),
 		"grid_non_reciprocal": int(v.get("non_reciprocal", -1)),
 		"grid_lateral_bends": int(v.get("lateral_bends", -1)),
 	})
 	if not bool(v.get("ok", false)):
-		# Fatal: every flow kernel on this grid moves mass into slots that do not answer back, so nothing the
-		# run reports afterwards is a measurement. sim_run.sh greps for the marker.
 		print("GRID_INVALID=", JSON.stringify(v))
 		push_error("LASphereGrid.validate() failed: %s" % JSON.stringify(v))
 
@@ -132,8 +113,6 @@ func _build_geology_and_life() -> void:
 	# Disasters seed real matter/energy into the field; the camera + audio they also accept are rendering
 	# and UI, injected by those layers when they exist.
 	_disasters.setup(self, _terrain, _ecology, _actors_root, null, null)
-	# Lightning is EMERGENT: the field's charge process fires a bolt where a convective updraft breaks down,
-	# injecting the heat pulse + scare itself, and calls back for the VISUAL bolt only.
 	if _material.has_method("set_lightning_visual"):
 		_material.set_lightning_visual(Callable(_disasters, "spawn_lightning"))
 
@@ -156,8 +135,6 @@ func step(delta: float, overview: bool, farview: bool, auto_meteor: bool, auto_s
 	if _ecology.has_method("set_sun"):
 		var centre: Vector3 = _body.center()
 		_ecology.set_sun((_star.global_position - centre).normalized(), centre)
-	# Planet axial SPIN — the body (terrain + actors are children) turns as ONE moving frame. Starts after
-	# life is placed so spawn stays deterministic.
 	if _spawn.is_spawned() and _terrain.is_planet():
 		_body.rotate(_body.spin_axis(), _spin_rate * delta)
 	_spawn.try_spawn(overview, farview, auto_meteor, auto_select)
@@ -166,8 +143,6 @@ func step(delta: float, overview: bool, farview: bool, auto_meteor: bool, auto_s
 func set_spin_rate(rate: float) -> void:
 	_spin_rate = rate
 
-
-# --- Accessors: the render/UI layers and the world root read the sim through these, never by node path. ---
 
 func settings_applier() -> LAVoxelSettingsApplier: return _settings_applier
 func clock() -> LASimClock: return _clock

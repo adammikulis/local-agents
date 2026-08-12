@@ -1,38 +1,6 @@
 @tool
 extends RefCounted
 
-## COMBUSTION IS CHEMISTRY, NOT A STATE MACHINE — and there is no ignition temperature anywhere in it.
-##
-## WHAT THIS REPLACES. `fire_sphere3d.glsl` was a standalone kernel with a hand-rolled state machine:
-## `IGNITE_TEMP` (one global ignition temperature applied to every combustible cell on the planet),
-## FIRE_START, FIRE_MIN, FIRE_GROW, a stored `fire` intensity and a bespoke radiant-spread gather. Because no
-## RECORD described it, `scripts/check_reaction_balance.sh` could not see it, and it destroyed the hydrogen,
-## the oxygen and the nitrogen of everything it burned for as long as it shipped. Both defects were found by
-## a person reading the file.
-##
-## WHY THIS TEST EXISTS AT ALL, stated plainly: combustion is UNREACHABLE in a run today. Five arms measured
-## at 600 frames (--planet-only, --no-fauna, and --no-fauna with --auto-lightning / --auto-meteor /
-## --auto-volcano) all report `fires` 0, partly because `MaterialField3D.ignite()` and
-## `EcologyService.ignite_area()` are deliberate no-ops. So a SIM_REPORT cannot prove the chemistry, and this
-## does instead: it evaluates the live record with the kernel's own arithmetic and asserts the physics.
-##
-##   1. NO IGNITION POINT. The rate is Arrhenius on cellulose's measured pyrolysis activation energy, so it is
-##      smooth, positive everywhere and spans twenty orders of magnitude across the range a planet reaches.
-##      There is no temperature at which it switches on, and the test asserts there is no step in it.
-##   2. IT RUNS AWAY. Q10 near the pyrolysis regime must be enormous (the definition of a thermal runaway),
-##      and cold ground must be so slow that a cell's fuel outlives the planet.
-##   3. THE STOICHIOMETRY IS THE REACTION. Per unit burned: 1 CO2 and 1 H2O per carbon, one O2 consumed per
-##      CO2 made, and the fuel's own nitrogen conserved into the ash — checked in MOLES, not channel units.
-##   4. THE OXYGEN QUENCH. Below the limiting oxygen concentration the reaction does not proceed at all,
-##      however hot the cell is — a flame in a sealed room goes out with most of the oxygen still in it.
-##   5. A DAMP CELL RESISTS LIGHTING with no wet-cell gate: the water is in the heat capacity, so the same
-##      reaction warms it two orders of magnitude less.
-##
-## WHAT IT IS AND IS NOT. A CPU oracle of `reactions_sphere3d.glsl`'s arithmetic over the records
-## LACombustionRecords actually publishes — not a GPU measurement. Its value is that it fails if anyone
-## re-introduces a threshold, unbalances the reaction, or drifts the rate constant away from the activation
-## energy it is quoted with.
-## (Explicit types only, project rule: no ':=' inferred typing.)
 
 const CombustionScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/CombustionRecords.gd")
 const DefsScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
@@ -107,7 +75,6 @@ func run_test(_tree: SceneTree) -> bool:
 		+ "\"enthalpy_j_m3\":%s,\"o2_quench\":%.3f}"
 		% [String.num_scientific(enthalpy), quench])
 
-	# --- 1. NO IGNITION POINT: a smooth curve with no step in it, positive everywhere ------------------------
 	var temps: PackedFloat64Array = PackedFloat64Array(
 		[-20.0, 0.0, 27.0, 100.0, 200.0, 227.0, 300.0, 327.0, 400.0, 427.0, 500.0, 800.0])
 	print("COMBUSTION_RATE_LAW={\"note\":\"extent per step at fuel %.3f, o2 %.2f\"}" % [FUEL_AT_CELL, O2_AMBIENT])
@@ -128,11 +95,6 @@ func run_test(_tree: SceneTree) -> bool:
 		prev = x
 		prev_t = t
 
-	# --- 2. IT RUNS AWAY, AND COLD GROUND DOES NOT SMOULDER --------------------------------------------------
-	# Q10 across the pyrolysis regime is the signature of a thermal runaway. From Ea/R = 27664 K, the factor
-	# between 300 C and 310 C is exp(27664*(1/573.15 - 1/583.15)) = 2.3, and between 27 C and 37 C it is 20.
-	# The RANGE is what matters: this reaction spans twenty orders of magnitude over a planet's temperatures,
-	# which is why it needs no switch.
 	var cold: float = _extent(burn, 27.0, FUEL_AT_CELL, O2_AMBIENT)
 	var hot: float = _extent(burn, 427.0, FUEL_AT_CELL, O2_AMBIENT)
 	if hot / maxf(cold, 1.0e-300) < 1.0e12:

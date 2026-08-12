@@ -1,11 +1,6 @@
 class_name LAVoxelSpawnBrush
 extends Node3D
 
-# Radius spawn brush + placement for the voxel world, factored out of the root. RMB (click or drag)
-# applies the armed kind across a disk, so one gesture paints a grove of trees, a herd of rabbits, or a
-# spreading flood — general over any armed kind (no per-kind branch beyond the terminal spawn). Owns the
-# armed kind, brush radius, the ground footprint ring, and the paint stroke state. Dependency-free of the
-# LAVoxelWorld type (dynamic access, no cyclic class reference). (Explicit types only — no ':=' .)
 
 const MeteorScript: GDScript = preload("res://addons/local_agents/sim/actors/Meteor.gd")
 const EarthquakeScript: GDScript = preload("res://addons/local_agents/sim/actors/Earthquake.gd")

@@ -1,12 +1,6 @@
 class_name LAVoxelTimeControl
 extends CanvasLayer
 
-## The player-facing half of time control: the speed pill, the time-travel toast, and the keys.
-## It OWNS NOTHING — Engine.time_scale / max_physics_steps_per_frame / get_tree().paused belong to
-## LASimTimeAuthority, which is a plain Node and exists in every run. This node is presentation and is
-## built only with the presentation layer; skipping it must never change the sim's clock.
-##
-## Keys:  Space = pause / play toggle · , = slower · . = faster · Home = reset to 1× · J = reverse scrub.
 
 var _authority: LASimTimeAuthority = null
 var _camera: Node = null           # optional — to yield Space to the fly-drone's lift control

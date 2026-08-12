@@ -105,55 +105,25 @@ order is the order.
 
 ## E. Conservation, open
 
-- [ ] **THE AIRBORNE TRACERS CREATE MASS, AND A CORRECT FIX IS WHAT EXPOSED IT. THIS IS THE TOP ITEM.**
-      `o2_total` goes from 26 050 to **4.4e17** over 200 frames; `h2o` and `element_C` go with it.
-      `mineral_total`, which does not ride `tracer_transport`, stays sane — that is the tell.
+- [ ] **`o2` ALONE STILL RUNS AWAY, AND IT IS LOCALISED TO ONE PASS AND ONE STEP.** `LA_PASS_PROBE=o2`
+      names it exactly: sane for 11 steps (69 120 decaying ~0.7%/step), then from **step 12** `GasWindPass`
+      multiplies it by ~2.4x EVERY step — 7.9e4, 1.9e5, 4.4e5, ... 1e16. Nothing else touches the channel.
 
-      **Bisected, not guessed.** Sane at `1433765`, broken at `bf710bd`. The only functional change between
-      them is the lateral-base correction in `tracer_transport`, `wind_step` and `wind_pressure`:
-      `nbr[base + N_OUT + l]` -> `nbr[base + N_LAT0 + l]`. The old form walked slots 1..4, i.e. it used UP as
-      one of the four HORIZONTAL directions and never visited one real lateral, and it paired each neighbour
-      with the wrong `link_tan` row. **The new form is correct** — verified against how `LASphereGrid` fills
-      the table — so it does not get reverted. It was masking this.
+      **Already fixed and no longer suspects.** `tracer_transport` computed its lateral reverse index as
+      `l ^ 1`, which is right only where the cubed-sphere seam is not bent; it uses `link_partner` now. That
+      alone took `element_C_total` from 2.44e17 to **1.53e7** and `mineral_total` to **31 977**, both sane,
+      and `h2o` from 1.05e11 to 4.49e9. So the seam WAS one real bug — just not the whole of this one.
 
-      **Ruled out by measurement, so do not re-check these:**
-      · the `fall_frac` gating in the same commit — reverting it alone at `bf710bd` leaves the explosion;
-      · the wind being large — it FALLS with the fix, 425 -> 160 m/s (both still absurd, see below);
-      · the comment stripping in that commit — every removed line is a comment, diffed;
-      · `deposit` being set for a gas — `GasWindPass` passes 0.
+      **The discriminator to start from:** `co2` rides the SAME kernel, the same pass and the same dispatch
+      loop as `o2`, differing only in `contrast` (0.10460 vs 0.51927, i.e. settling velocity) — and co2 does
+      not run away. So the fault is o2-specific, not the shared operator. Look at what is different: the
+      settle_v magnitude, and o2's second writer (photosynthesis in ReactionsPass, which the probe shows
+      touching it only slightly).
 
-      **Ruled out by symmetry, on paper:** the exchange conserves exactly. A cell loses
-      `raw_out(g) * out_scale(g)`; each neighbour gathers one term of the donor's own `raw_out` scaled by the
-      donor's own `out_scale`, and those terms sum to exactly `raw_out(m)`. Reverse slots are `d ^ 1` and the
-      reverse LATERAL index is `l ^ 1`, both checked term by term against the table.
-
-      **IT HAPPENS IN AT MOST TWO STEPS, NOT BY ACCUMULATION.** `o2_first` — latched at the seal, field_step
-      2 — is ALREADY 4.67e17 against a seeded ~37 000. So whatever it is multiplies by ~1e13 within two
-      dispatches, which rules out slow drift and points at a single pass producing a huge `gain` on its first
-      run. Instrument the first two steps, not a long run.
-
-      **THE KERNELS ARE PROVEN CLEAN.** `addons/local_agents/tests/KernelConservation.tscn` dispatches each
-      kernel on a real 4x4x6 cubed-sphere grid and checks total mass before vs after. 8 checks pass:
-      `gravity_flow`, `erosion_transport`, and `tracer_transport` under still air, wind, a solid crust, and
-      a 160 m/s gale. So no amount of staring at the kernels will find this — do not spend time there.
-
-      **A FALSE LEAD, RECORDED SO IT IS NOT RE-RUN.** With `LA_PASS_PROBE=o2` armed, o2 stays at 69 120 and
-      never diverges; without it the same run reaches 4e17. That looks like proof the passes are unordered,
-      and it is NOT: the probe path submits and SYNCS per pass, and this repo already documents that
-      `buffer_get_data` is not a passive read — syncing mid-flight changes the simulation. Adding an
-      explicit `compute_list_add_barrier` between passes changed nothing measurable, which is consistent.
-
-      **So the defect is in the pass wiring, not the arithmetic.** Where to look next, in order:
-      (a) `GasWindPass` binds the SAME buffer to binding 1 (`TracerOut`, `writeonly`) and binding 2
-          (`Deposit`), both declared `restrict` — a promise to the driver that they do not alias, which they
-          do. Benign only while nothing writes binding 2.
-      (b) the parity/ping-pong: whether `ch[p]` and `ch[back]` are the halves the caller thinks they are on
-          every pass, and whether a second dispatch re-reads a half already written this step.
-      (c) whether the tracer pass runs more than once per step against the same pair;
-      (d) the DEFERRED READBACK. `begin_frame` drains the previous step (sync + readback into the CPU
-          mirrors) and then uploads dirty mirrors back. If a mirror is read while its step is still in
-          flight, garbage lands on the CPU and `set_field` writes it back to the GPU. That is the one path
-          that differs between the probe run and the normal run and has not been ruled out.
+      **Do not re-check, all measured:** the kernels conserve in isolation (`check_kernel_conservation.sh`,
+      8/8 including a 160 m/s gale on a solid crust); the CPU mirror equals the GPU buffer exactly, so this
+      is not a readback or residency problem; the checkpointed and normal step paths give the SAME result,
+      so it is not pass ordering or sync; `restrict` aliasing on the deposit binding is removed.
 
 - [ ] **The wind is supersonic and always has been** — 160 m/s after the lateral fix, 425 before, against a
       real jet stream of ~70 m/s. `MAX_WIND` was deleted on purpose (wind speed is an output), so this is the

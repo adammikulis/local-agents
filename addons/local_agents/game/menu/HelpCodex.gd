@@ -1,9 +1,6 @@
 class_name LAHelpCodex
 extends Control
 
-## The browsable in-game manual: a nav list of entries on the left, a detail pane on the right. Node tree
-## and styling live in HelpCodex.tscn; instantiate that scene, not this script. Embedded as a tab by both
-## the main-menu Help screen and the in-sim pause overlay.
 
 const IMG_DIR: String = "res://docs/help-img/"
 

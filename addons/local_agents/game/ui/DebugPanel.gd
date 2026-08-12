@@ -1,8 +1,6 @@
 class_name LADebugPanel
 extends CanvasLayer
 
-## Left-docked debug menu (DebugPanel.tscn). The shell is the scene; the toggle rows are generated from the
-## registries below, so a new view/highlight is a table row and not a node. Owns no state — each row emits.
 
 signal view_toggled(view: String, on: bool)          # "temp"|"wind"|"scent"|a field-channel key
 signal highlight_toggled(group: String, on: bool)    # a "species_*" or "nest" group

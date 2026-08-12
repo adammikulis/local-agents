@@ -1,14 +1,6 @@
 class_name LAPauseSettingsPanel
 extends VBoxContainer
 
-## PauseSettingsPanel: the in-game settings block hosted inside the Esc pause menu. Three DESCRIPTIVE tier
-## selectors (Graphics · Simulation/CPU · Animal cognition), each a row of named-tier buttons with a plain
-## sentence under it explaining WHAT the tier does, with no magic numbers or raw units shown to the player. Owns
-## no state of its own: it reads the live LAGameSettings off the GameMode autoload, mutates it on a pick, and
-## routes the change through GameMode.apply() (the single application entry point) so the settings applier
-## re-publishes the live knobs. Field/creature cadence + cognition cadence + effects density take effect the
-## next frame without a rebuild. The change is also persisted to disk. Split into its own module so the pause
-## menu stays a thin host (file-size + one-owner discipline). (Explicit types only, no ':=' inferred typing.)
 
 const HEADING: Color = Color(0.72, 0.82, 1.0)
 const DESC: Color = Color(0.68, 0.72, 0.8)
@@ -112,8 +104,6 @@ func _build_row(title: String, tiers: Array, active: int, cb: Callable, spacer: 
 	return buttons
 
 
-# --- Selection handlers -----------------------------------------------------------------------------------
-
 func _on_graphics(tier: int) -> void:
 	var s: LAGameSettings = _settings()
 	s.apply_graphics_preset(GRAPHICS_PRESET_BY_TIER[tier])
@@ -133,8 +123,6 @@ func _on_cognition(tier: int) -> void:
 	_select(_cognition_buttons, tier)
 	_apply_live(s)
 
-
-# --- Apply + persist --------------------------------------------------------------------------------------
 
 ## Route the mutated settings through the single application entry point (GameMode.apply → settings_applied →
 ## the settings applier re-publishes the live knobs), then persist to disk. Falls back to a direct save when
@@ -161,8 +149,6 @@ func _refresh_descriptions() -> void:
 	if _cognition_desc != null:
 		_cognition_desc.text = String(COGNITION_TIERS[_cognition_tier_of(s)][1])
 
-
-# --- Current-tier resolution (settings value → tier index) ------------------------------------------------
 
 func _settings() -> LAGameSettings:
 	var gm: Node = get_node_or_null("/root/GameMode")

@@ -2,21 +2,7 @@
 extends CharacterBody3D
 class_name LocalAgent3D
 
-## A LocalAgent with a body: a character that thinks, then says the answer on a Label3D above its
-## head and plays a talk animation while it does.
-##
-## The three node paths below are how it finds its own parts. They default to the names used in
-## Agent3D.tscn, so an instance of that scene needs no configuration at all. Re-point them if you
-## build your own character around a LocalAgent.
-##
-## `think()` / `think_async()` / `speak()` forward to the LocalAgent, so a caller drives the character
-## directly instead of reaching through `.get("agent")` or `Engine.get_singleton("AgentRuntime")`
-## reflection to find the runtime.
-##
-## (Explicit types only. Project rule: no ':=' inferred typing.)
 
-## Re-emitted from the inner LocalAgent whenever the model produces text, after it has been written
-## onto the Label3D.
 signal model_output_received(text: String)
 
 @export_group("Wiring")
@@ -28,14 +14,10 @@ signal model_output_received(text: String)
 ## character whose replies you render yourself from `model_output_received`.
 @export_node_path("Label3D") var chat_label_path: NodePath = NodePath("ChatLabel3D")
 
-## AnimationPlayer holding the talk animation. Leave empty for a character that does not move
-## when it speaks.
 @export_node_path("AnimationPlayer") var animation_player_path: NodePath = NodePath("AnimationPlayer")
 
 @export_group("Animation")
 
-## Animation played when a reply arrives, if the AnimationPlayer is idle and actually has a clip by
-## this name. Nothing plays when it does not, so a rig without a talk clip is not an error.
 @export var animation_name: StringName = &"bobble"
 
 var agent: LocalAgent
@@ -52,8 +34,6 @@ func _ready() -> void:
     if agent != null and not agent.model_output_received.is_connected(_on_agent_output):
         agent.model_output_received.connect(_on_agent_output)
 
-## Ask the model, blocking the frame until it answers, and return the runtime's result Dictionary
-## ({"ok": bool, "text": String, ...}). Clears the Label3D first so the old reply does not linger.
 func think(prompt: String, extra_opts: Dictionary = {}) -> Dictionary:
     if agent == null:
         return {"ok": false, "error": "agent_unavailable"}

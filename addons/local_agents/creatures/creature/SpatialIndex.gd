@@ -1,31 +1,7 @@
 class_name LASpatialIndex
 extends RefCounted
 
-## Frame-stamped spatial hash over scene-group members. Replaces the per-creature O(n) group scans
-## in LACreatureSenses with an O(1)-ish bucketed lookup: with 277 creatures each doing several full
-## `get_nodes_in_group()` distance sweeps per physics frame the sensing was O(n²); binning candidates
-## into coarse cells and visiting only the cells overlapping a query's radius collapses that to a small
-## constant per query.
-##
-## Rebuilt at most ONCE per physics frame PER GROUP (lazily: the first sense call of a frame that needs
-## a group rebuilds it; later calls that frame reuse it). All creatures share ONE index instance
-## (LACreatureSenses holds it), so the whole population pays for one rebuild per group per frame.
-##
-## Binning is 3D (x/y/z cells): on a PLANET the population wraps a spherical shell, so the old XZ-only
-## (flat-island) binning projected the whole globe onto one overlapping disk. Creatures on opposite
-## hemispheres shared a cell and every query returned a near-global candidate set (senses collapsed back
-## toward O(n²), which is what made a bigger population so costly). Binning in full 3D partitions the shell,
-## so a query visits only the cells within `radius` in space. A candidate whose true 3D distance is within
-## `radius` is guaranteed to fall in the visited 3D cells, because the cell set is a strict SUPERSET of the in-range
-## set. Positions are cached at rebuild time (start of frame); a creature that moves within the frame is
-## still found because the query visits neighbour cells and the CALLER re-checks the exact current distance
-## (and validity/vision/species/size filters). Pure speedup: same nearest node within range as a linear scan.
-## (Explicit types only, no ':=' inferred typing.)
 
-# Coarse cell edge in world units. Chosen >= the largest sense query radius in play: the widest query is
-# nearest_visible_carrion / nearest_visible_in_state at effective_range*1.5 ≈ 20 (max sense_radius) *
-# 1.4 (night) * 1.6 (binocular) * 1.5 ≈ 67. `query()` derives exact cell bounds from the radius, so a
-# typical ~45u query spans a 3×3 block and a rare >64 radius just visits one extra ring — never a miss.
 const CELL_SIZE: float = 64.0
 
 # group name (String) -> { Vector3i cell -> Array[Node3D] }
@@ -39,9 +15,6 @@ func _cell_of(pos: Vector3) -> Vector3i:
 	return Vector3i(int(floor(pos.x / CELL_SIZE)), int(floor(pos.y / CELL_SIZE)), int(floor(pos.z / CELL_SIZE)))
 
 
-## Ensure every group in `group_names` is indexed for physics frame `frame`. A group already built this
-## frame is skipped, so calling this from several sense methods in the same frame rebuilds each group at
-## most once. Only groups actually requested are indexed (no wasted work on groups no one queries).
 func rebuild_if_stale(tree: SceneTree, frame: int, group_names: Array) -> void:
 	if tree == null:
 		return

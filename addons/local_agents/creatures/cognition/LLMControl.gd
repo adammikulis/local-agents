@@ -1,16 +1,7 @@
 class_name LALLMControl
 extends RefCounted
 
-## Player-facing control over the per-creature local-LLM "slow brain": bulk-enable/disable the slow-brain
-## escalation across a GROUP (one species, or all creatures) and the PREDICATE that picks out creatures
-## currently consulting (thinking) or waiting on (queued) the shared LocalAgentCognitionScheduler. Pure static
-## helpers over the scene tree + the shared scheduler, with no per-species branches, driven by the creature's
-## config-set `llm_enabled` flag and the scheduler's live activity set. The two highlight KEYS below double
-## as the tint-registry categories (LocalAgentCreature reuses the behavior-tint registry for them).
-##
-## (Explicit types only, no ':=' inferred typing.)
 
-# Tint-registry categories for the LLM highlight (reused by LocalAgentCreature's behavior-tint path).
 const HL_THINKING: String = "llm_thinking"   # a slow-brain escalation is in flight / just resolved
 const HL_QUEUED: String = "llm_queued"        # wanted to escalate but the shared budget was full
 

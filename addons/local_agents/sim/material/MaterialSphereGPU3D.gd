@@ -263,10 +263,25 @@ func step() -> void:
 ## path, where the driver has already synced — a read anywhere else flushes work mid-flight and changes the
 ## simulation. PAIR channels resolve their live half; SINGLE channels are read directly.
 func channel_total_now(name: String) -> float:
-	if _rd == null:
+	return channel_total_half(name, _phase)
+
+
+## BOTH halves of a PAIR, because mid-step the live half is the one being read FROM and the written half is
+## the other one. A probe that only reads `_live` never sees what the step produced.
+func channel_totals_now(name: String) -> Dictionary:
+	if not _bufs.has(name):
+		return {}
+	if name in SINGLE_CHANNELS:
+		return {"single": channel_total_half(name, 0)}
+	return {"live": channel_total_half(name, _phase), "back": channel_total_half(name, 1 - _phase)}
+
+
+func channel_total_half(name: String, half: int) -> float:
+	if _rd == null or not _bufs.has(name):
 		return NAN
-	var rid: RID = _bufs[name] if name in SINGLE_CHANNELS else _live(name)
-	if not _bufs.has(name) or not rid.is_valid():
+	var entry = _bufs[name]
+	var rid: RID = entry[half] if entry is Array else entry
+	if not rid.is_valid():
 		return NAN
 	var a: PackedFloat32Array = _rd.buffer_get_data(rid).to_float32_array()
 	var t: float = 0.0

@@ -1,12 +1,6 @@
 extends VBoxContainer
 class_name LADetectedModelsTab
 
-# "Installed / detected" tab of the model manager.
-#
-# Shows the shipped-catalog models with a live on-disk status (already usable in the local folder or
-# found in the HF cache, versus not downloaded), plus any loose GGUFs discovered elsewhere on disk.
-# Each already-present model gets a "Use this model" button that sets it as the active model — so the
-# player reuses what they already have instead of re-downloading.
 
 const ModelDownloadService: GDScript = preload("res://addons/local_agents/controllers/ModelDownloadService.gd")
 

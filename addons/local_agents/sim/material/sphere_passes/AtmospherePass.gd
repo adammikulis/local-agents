@@ -80,6 +80,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var vel_y: RID = bufs["vel_y"]
 	var vel_z: RID = bufs["vel_z"]
 	var nbr: RID = bufs["nbr"]
+	var partner_rid: RID = bufs.get("link_partner", RID())
 	# Per-column tangent-frame table — the horizontal wind is stored in each cell's own frame, so transport
 	# reads link directions from here instead of assuming a slot is an axis (see wind_step_sphere3d).
 	var ltan: RID = bufs["link_tan"]
@@ -90,7 +91,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# tracer_transport: 0=in(live), 1=out(private scratch), 2=deposit(unused, bound to the scratch),
 		_transport_set[p] = _mkset(rd, _transport_shader, [
 			[0, moisture[p]], [1, _moist_buf], [2, _moist_buf], [3, solid],
-			[4, vel_x], [5, vel_y], [6, vel_z], [15, nbr], [16, ltan]])
+			[4, vel_x], [5, vel_y], [6, vel_z], [15, nbr], [17, partner_rid], [16, ltan]])
 
 		# PRECIP — atmos_precip_sphere3d.glsl: 0=moisture in(post-transport scratch), 1=temp(back), 2=solid,
 		# 3=moisture out(back), 4=rain scratch.
@@ -101,7 +102,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# 4=STATIC (rain over the sea vanishes into the infinite reservoir, not
 		# parked in undrained static-cell water — the fix for the unbounded h2o climb), 15=nbr.
 		_rain_set[p] = _mkset(rd, _rain_shader, [
-			[0, _rain_buf], [1, solid], [2, water[back]], [15, nbr]])
+			[0, _rain_buf], [1, solid], [2, water[back]], [15, nbr], [17, partner_rid]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:

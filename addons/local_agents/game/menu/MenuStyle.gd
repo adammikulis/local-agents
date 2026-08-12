@@ -1,9 +1,6 @@
 class_name LAMenuStyle
 extends RefCounted
 
-## Shared look for the menu controls that are still built in code (the pause-menu overlay, the dynamic
-## settings and credits rows). The menu scenes carry their own styling; the panel stylebox is the one
-## MenuPanel.tres both sides use.
 
 const OVERLAY_BG: Color = Color(0.02, 0.03, 0.06, 1.0)
 const ACCENT: Color = Color(0.55, 0.72, 1.0)

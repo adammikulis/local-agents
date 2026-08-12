@@ -1,14 +1,6 @@
 class_name LADrainageOverlay
 extends MeshInstance3D
 
-## DEBUG: highlight the DRAINAGE NETWORK, the "gouges in the ground" where rivers should run. On an
-## ocean-heavy planet the channels are hard to spot, so this draws bright cyan spikes along the land's
-## flow paths, computed by standard hydrology: fill the depressions (priority-flood), point every land
-## column downhill (steepest descent on the filled surface), then accumulate upstream area. Cells with
-## a lot of upstream area are the trunk channels (taller/brighter here), the thin ones are headwater
-## creeks. Static terrain → computed ONCE on first toggle, drawn through terrain/water (no depth test) so
-## you can always see where the water is meant to collect. Toggle with the debug key / --debug-rivers.
-## (Explicit types only, no ':=' inferred typing.)
 
 const RIVER_ACCUM_MIN: int = 5         # upstream cells before a column counts as a visible channel
 const SPIKE_BASE: float = 5.0          # shortest channel spike (world units)

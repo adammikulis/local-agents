@@ -2,19 +2,6 @@
 extends Control
 class_name LADownloadController
 
-## The editor Downloads tab: pick a model from the shipped catalog, fetch it, and watch the log.
-##
-## There is exactly one downloader in this addon now. This tab used to route models through a thin
-## `api/` wrapper over the `AgentRuntime` native singleton, so downloading a model required the
-## native library, which is the very thing you download a model in order to use.
-## It now drives `LAModelDownloadManager` (pure GDScript, HTTPRequest, streams to a `.part`
-## file and promotes it only after the size verifies), the same downloader the in-game panel uses.
-## Nothing on the model path needs the native binary any more.
-##
-## The worker Thread survives only for the shell script job (voices / build dependencies via
-## fetch_dependencies.sh). The model path is signal-driven and needs no thread at all.
-##
-## (Explicit types only. Project rule: no ':=' inferred typing.)
 
 const FETCH_SCRIPT: String = "res://addons/local_agents/gdextensions/localagents/scripts/fetch_dependencies.sh"
 const MODEL_SERVICE: GDScript = preload("res://addons/local_agents/controllers/ModelDownloadService.gd")
@@ -60,7 +47,6 @@ func _exit_tree() -> void:
         _worker.wait_to_finish()
         _worker = null
 
-# -- Public actions (wired from DownloadTab.tscn) ------------------------------
 
 ## Dependencies + voices first, then the selected (or recommended) model.
 func download_all() -> void:
@@ -95,7 +81,6 @@ func refresh_models() -> void:
     _populate_model_tree()
     _set_running_state(false, "Catalog refreshed")
 
-# -- Model download (LAModelDownloadManager) ---------------------------
 
 func _ensure_downloader() -> void:
     if _downloader != null:
@@ -183,7 +168,6 @@ func _on_model_download_finished(_model_id: String, ok: bool, path: String, erro
         _set_running_state(false, "Failed %s (%s)" % [label, error])
     _active_model_label = ""
 
-# -- Shell script job (voices / build dependencies) ----------------------------
 
 func _start_script_job(args: PackedStringArray, status: String) -> void:
     if _is_busy():
@@ -238,7 +222,6 @@ func _is_busy() -> bool:
         return true
     return _downloader != null and _downloader.is_downloading()
 
-# -- Log -----------------------------------------------------------------------
 
 func _log(line: String) -> void:
     if output_log:
@@ -251,7 +234,6 @@ func _reset_output() -> void:
         output_log.append_text("-------------------------\n")
         output_log.append_text("Models stream straight to user://local_agents/models; voices and build dependencies use fetch_dependencies.sh.\n\n")
 
-# -- Model catalog tree --------------------------------------------------------
 
 func _populate_model_tree() -> void:
     if not model_tree:
@@ -380,7 +362,6 @@ func _on_model_tree_item_activated() -> void:
     if typeof(model_id_variant) == TYPE_STRING and String(model_id_variant) != "":
         download_models_only()
 
-# -- Button state --------------------------------------------------------------
 
 func _set_running_state(running: bool, label: String) -> void:
     if status_label:

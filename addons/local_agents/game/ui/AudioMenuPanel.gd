@@ -1,18 +1,7 @@
 class_name LAAudioMenuPanel
 extends PanelContainer
 
-## The audio control menu (AudioMenuPanel.tscn). Binds LAAudioDirector to the UI: music composition
-## (scale / progression / key / tempo / time signature / auto / arrangement), a unified per-aspect mixer
-## (Master / Music / SFX / Voice / UI, each a volume slider + a mute), and an SFX preview bench.
-##
-## Each mixer row acts on that aspect's AudioServer bus (audio/default_bus_layout.tres) and, where one
-## exists, its director synthesis flag, so muting also stops the work. The streamer TTS rides "Voice".
-##
-## Presentation only: it drives the audio engine and the AudioServer buses and never touches
-## simulation-authoritative state. It inherits the shared Theme from the parent HudRoot.
 
-## Emitted when the "Auto-adapt music (sim mood)" toggle changes. VoxelWorld listens
-## and stops/starts feeding its live mood snapshot so manual picks can stick.
 signal auto_adapt_changed(on: bool)
 
 # One mixer row per audio aspect. `bus` is the AudioServer bus it rides; `flag` names the director
@@ -89,10 +78,6 @@ func _process(_delta: float) -> void:
 	if _refresh_ticks % 30 == 0:
 		refresh_status()
 
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 ## Wire this panel to the live audio director and initialize all control states.
 func bind(director: LAAudioDirector) -> void:
@@ -174,8 +159,6 @@ func refresh_status() -> void:
 # Wiring
 # ---------------------------------------------------------------------------
 
-# Bind one scene mixer row to its bus: the slider sets the bus volume; the mute silences the bus AND flips
-# its director synthesis flag (if any).
 func _wire_aspect_row(aspect: Dictionary) -> void:
 	var row: HBoxContainer = _col.get_node_or_null(String(aspect["node"])) as HBoxContainer
 	if row == null:

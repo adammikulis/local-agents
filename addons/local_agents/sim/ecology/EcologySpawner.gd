@@ -1,32 +1,11 @@
 class_name LAEcologySpawner
 extends RefCounted
 
-## Spawn / population placement for the living world, every way an actor gets ONTO the planet surface:
-## the single-actor spawn, the initial population seeding (with herd founder-clustering that gives each
-## band a shared family_id + an elder so leadership finds real followers), ambient rock + clustered
-## forest scatter, nest placement, and the sphere-surface math (random points, tangent-plane offsets,
-## radial surface projection) they all share.
-##
-## Owned by LAEcologyService, which keeps thin forwarders for its public API (spawn / spawn_initial /
-## populate_environment / spawn_nest) and reaches back here for the placement helpers its per-tick
-## breeding/seeding uses. This module reaches back into the service for the shared state that stays on
-## the hub (terrain, actors_root, the material field, the pending-spawn queue, the actor instancer,
-## the germination gate, species configs, biomass reads and the kinship graph), so there is exactly one
-## owner of each. Explicit types only (project rule: no ':=').
 
 const NestScene: PackedScene = preload("res://addons/local_agents/sim/actors/Nest.tscn")
 
-# Founder clustering — a HERDING species starts as a few tight bands, not a planet-wide smear, so local
-# same-species density is high enough that leadership finds followers and durable kin herds form. One
-# founder cluster per ~this many members (at least one); members scatter around the founder within a
-# tangent-plane spread and share ONE family_id (the permanent kin bond). Solitary species keep scatter.
 const HERD_CLUSTER_SIZE: int = 18        # target members per founder cluster (fewer, bigger bands → fewer leaders)
 const HERD_CLUSTER_SPREAD: float = 8.0   # tangent-plane radius (metres) members scatter around a founder —
-                                         # kept inside a ground species' leadership radius (flock_radius×1.5)
-                                         # so cluster-mates fall within one leader's neighbourhood from frame 0
-# The founding elder of a cluster gets a head-start age so it is unambiguously the highest-ranked member
-# of its family and its cohort follows IT from the very first election — one stable leader per band instead
-# of a tie-break lottery among age-0 equals. Emergent, not identity: the founder is simply the eldest.
 const FOUNDER_ELDER_AGE_MULT: float = 1.6   # founder age = maturity_age × this (mature; clearly out-ranks the age-0 cohort)
 
 # Ambient forest siting: each cluster's centre is chosen as the WARMEST / most-fertile of several
@@ -63,11 +42,6 @@ func spawn_initial(counts: Dictionary) -> void:
 		if n <= 0:
 			continue
 		var cfg: Dictionary = _eco._species_config(kind_s)
-		# Cluster size: a HERD species founds as big bands (HERD_CLUSTER_SIZE); a SOLITARY-but-social species
-		# (a fox family group) can set found_cluster_size to found as a few SMALL family clusters instead of a
-		# planet-wide smear — otherwise a handful of scattered predators never fall within one mate-seek radius
-		# of each other, so they can never pair, never breed, and their age-0 founder cohort ages out to
-		# extinction. A cluster of a few kin means mates are in range and natal philopatry keeps a lineage going.
 		var cluster_size: int = HERD_CLUSTER_SIZE if bool(cfg.get("herd", false)) else int(cfg.get("found_cluster_size", 0))
 		if cluster_size > 0:
 			_spawn_clustered_founders(kind_s, n, cluster_size)
@@ -92,12 +66,6 @@ func _spawn_scattered_one(kind: String) -> void:
 			_seed_founder_age(node)   # stagger scattered founders' ages too (no synchronized age-out)
 
 
-# Seed a social species as K founder clusters (K scales with the count / cluster_size — a big band for a herd,
-# a small family group for a solitary-but-social predator). Each cluster gets a fresh family_id and scatters its
-# members around one founder site in the founder's tangent plane, so kin are spatially local from frame 0 —
-# leadership then elects one leader per band with real followers, AND mates fall within one mate-seek radius so
-# the group can actually reproduce. Total count is preserved. The founder sits at the cluster centre, within
-# every cohort member's leadership radius, and is aged into the family elder (its band's stable leader).
 func _spawn_clustered_founders(kind: String, n: int, cluster_size: int) -> void:
 	var clusters: int = maxi(1, int(round(float(n) / float(maxi(cluster_size, 1)))))
 	var base: int = n / clusters
@@ -130,10 +98,6 @@ func _seed_elder(node) -> void:
 		node.age = float(node.maturity_age) * FOUNDER_ELDER_AGE_MULT
 
 
-# Give a non-elder founder a RANDOM age spread across its lifespan, so the founding herd has a natural age
-# structure (juveniles + adults + elders) instead of one age-0 cohort that matures, breeds, and then ages out
-# ALL AT ONCE — the synchronized founder die-off that left no younger generation behind and collapsed the herd
-# to extinction. A staggered age pyramid means deaths trickle out over time and there is always a next generation.
 func _seed_founder_age(node) -> void:
 	if node != null and is_instance_valid(node) and node is Node3D:
 		var span: float = maxf(float(node.max_age) * 0.6, float(node.maturity_age))
@@ -148,11 +112,6 @@ const LAND_TRIES: int = 32
 
 
 func _random_spawn_point() -> Vector3:
-	# LAND-biased: the planet is ocean-DOMINANT now (~72% sea), so a blind random direction would drop most
-	# land actors (herd founders, rocks, forests) onto the SEABED, underwater. Rejection-sample directions and
-	# take the first whose surface clears the sea shell (dry land); keep the highest sampled direction as a
-	# fallback so we still return the most-land-like point if no clearly-dry site was meshed yet. The returned
-	# raw point is re-projected to the meshed ground by _place_on_surface(); an unmeshed patch queues + retries.
 	var center: Vector3 = _eco.terrain.planet_center()
 	var above: float = _eco.terrain.planet_radius() + 1.0
 	var sea_r: float = _eco.terrain.sea_radius() if _eco.terrain.has_method("sea_radius") else 0.0
@@ -184,10 +143,6 @@ static func _random_sphere_dir() -> Vector3:
 	return v.normalized()
 
 
-# Offset a surface anchor by (u, v) metres within its LOCAL TANGENT PLANE, then re-project the
-# displaced point back onto the sphere surface. This keeps clustered spawns (forests, nests, seeds)
-# hugging the ground instead of drifting radially in/out as a world-axis XZ offset would near the
-# "sides" of the globe. Returns a surface point (NAN-x if that patch isn't meshed).
 func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
 	var pc: Vector3 = _eco.terrain.planet_center()
 	return _eco.terrain.surface_point((_tangent_offset_raw(anchor, u, v) - pc).normalized())
@@ -225,10 +180,6 @@ func _place_on_surface(world_pos: Vector3):
 	return p
 
 
-# Scatter ambient rocks and SEED clustered forests across the world (independent of meteors). Each forest
-# cluster's centre is chosen as the WARMEST / most-fertile of several candidate sites, so groves start on
-# the good continents rather than the frozen poles. From these seeds the groves DENSIFY over the run
-# wherever photosynthesis has built biomass (see LAEcologyService._tick_tree_seeding).
 func populate_environment(rock_count: int, forest_clusters: int) -> void:
 	for i in rock_count:
 		spawn("rock", _random_spawn_point())

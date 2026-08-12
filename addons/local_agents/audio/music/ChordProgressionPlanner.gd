@@ -2,14 +2,6 @@
 extends RefCounted
 class_name LocalAgentChordProgressionPlanner
 
-## Generates chord progressions over any mode using functional-harmony weighting,
-## seeded for reproducibility. Output is a list of chord events; playback lives in
-## MusicDirector. Pure given (root, mode, rng, mood) → testable.
-##
-## Each event: {
-##   "degree": int, "size": int, "octave": int,
-##   "root_midi": int, "midis": Array[int], "quality": String
-## }
 
 const Theory := preload("res://addons/local_agents/audio/music/MusicTheory.gd")
 

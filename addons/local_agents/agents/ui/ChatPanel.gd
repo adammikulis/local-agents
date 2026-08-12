@@ -3,28 +3,7 @@
 extends PanelContainer
 class_name LocalAgentChatPanel
 
-## A drop-in chat window for a LocalAgent: transcript, prompt box, send button, readiness bar.
-##
-## Instance `ChatPanel.tscn` under any Control (or CanvasLayer), leave every property alone, and you
-## have a working conversation with a local model, with no script. Point `agent` at a LocalAgent, or
-## drop the panel next to one and it finds it by itself.
-##
-## This exists because four demos each hand-wired the same thing: `LineEdit.text_submitted` ->
-## `agent.think()` -> `RichTextLabel.append_text()`, each with its own copy of the readiness probe and
-## its own phrasing for "no model". Here the readiness bar is `LocalAgentStatus` verbatim, so the panel
-## never invents its own diagnosis.
-##
-## The UI lives in ChatPanel.tscn, not in `_ready()`. Nothing here builds a node. It only wires the
-## ones the scene already has (`%Transcript`, `%PromptInput`, `%SendButton`, `%StatusLabel`,
-## `%StatusBar`). Restyle it by editing the scene.
-##
-## Speaker labels are not settings: the user's lines are prefixed "You", the model's with the agent
-## node's own name. Rename the LocalAgent node to rename the speaker.
-##
-## (Explicit types only. Project rule: no ':=' inferred typing.)
 
-## Emitted the moment a prompt is accepted, before generation starts. Carries the raw typed text,
-## without `prompt_prefix`.
 signal prompt_submitted(text: String)
 ## Emitted when the model answers with non-empty text. Failures and empty replies are shown in the
 ## transcript but do not emit this.
@@ -50,9 +29,6 @@ const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.
 ## "Answer in one short sentence." Leave blank to send exactly what the user typed.
 @export_multiline var prompt_prefix: String = ""
 
-## Load the resolved model on the first send if it is not loaded yet, instead of refusing to send.
-## The first send then pauses for as long as the load takes (seconds, for a multi-GB file). Every
-## later one is immediate. Turn this off if something else in your scene owns model loading.
 @export var auto_load_model: bool = true
 
 @export_group("Presentation")
@@ -279,9 +255,6 @@ func _agent_label() -> String:
     return "Agent"
 
 
-# Look inside this panel first, then in the parent's subtree (which is where a sibling LocalAgent
-# lives). Deliberately stops there rather than sweeping the whole scene, so two panels in one scene
-# do not silently grab each other's agent.
 func _find_agent() -> LocalAgent:
     if agent != null:
         return agent
@@ -294,9 +267,6 @@ func _find_agent() -> LocalAgent:
     return _first_agent_under(parent)
 
 
-# Siblings and own children only, deliberately NOT the parent's whole subtree. Recursing further is
-# how two panels under one parent end up driving each other's agent, which was what the comment above
-# claimed this avoided while the code did the opposite.
 func _first_agent_under(root: Node) -> LocalAgent:
     for child in root.get_children():
         if child is LocalAgent:

@@ -1,31 +1,6 @@
 extends Control
 class_name LAModelManagerPanel
 
-# In-game model manager: one panel, four tabs.
-#
-#   Download            - the existing curated downloader (ModelDownloadPanel), embedded as-is.
-#   Installed / detected - models already on disk (local folder + HF cache + custom folders).
-#   Add your own        - browse to a .gguf, pull by HF repo id, or add scan locations.
-#   Inference settings  - context length / sampling / GPU layers / system prompt / per-role models.
-#
-# Everything reuses existing pieces: LAModelDownloadManager + catalog for downloads,
-# LocalAgentModelInventory for detection, LocalAgentModelSettingsStore (backed by
-# LocalAgentInferenceParams) for persisted config. No sim/field files are touched.
-#
-# Public API:
-#   open()                  -> show + refresh every tab
-#   close()                 -> hide
-#   settings_store()        -> LocalAgentModelSettingsStore (live)
-#   inventory()             -> LocalAgentModelInventory
-#   active_model_path()     -> String  (the player's chosen model, or "")
-#   inference_options()     -> Dictionary  (ready for LlamaServerManager.ensure_running)
-#   model_for_role(role)    -> String
-#
-# Self-harness (standalone scene only):
-#   --model-manager-selftest        run store + inventory round-trip, print MODEL_MANAGER_SELFTEST, quit
-#   --shoot=<png> [--shoot-frames=N] [--shoot-tab=I]   off-screen screenshot of tab I
-#   --fake-hf-cache=<dir>           point detection at a fake HF cache (detection proof)
-#   --demo-register=<path.gguf>     register a custom model before the shot (BYO proof)
 
 signal active_model_changed(path: String)
 
@@ -84,7 +59,6 @@ func _wire() -> void:
 	_add_tab.registry_changed.connect(_on_registry_changed)
 	_inference_tab.setup(_store, _inventory)
 
-# -- Public API ---------------------------------------------------------------
 
 func open() -> void:
 	visible = true
@@ -135,7 +109,6 @@ func _on_registry_changed() -> void:
 	if _inference_tab != null:
 		_inference_tab.refresh()
 
-# -- Self-harness -------------------------------------------------------------
 
 var _fake_hf_cache: String = ""
 var _demo_register: String = ""

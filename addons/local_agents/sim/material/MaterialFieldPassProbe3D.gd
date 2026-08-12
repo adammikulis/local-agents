@@ -12,7 +12,6 @@ var _f = null
 var _channel: String = ""
 var _steps: int = DEFAULT_STEPS
 var _step: int = 0
-var _prev: float = NAN
 
 
 func setup(field) -> void:
@@ -41,22 +40,15 @@ func pre_step() -> void:
 func post_step() -> void:
 	if _step < _steps:
 		_step += 1
-		_prev = NAN
 
 
 func _on_pass(pass_index: int, pass_name: String) -> void:
-	var total: float = _total()
-	if is_nan(total):
+	var halves: Dictionary = _f._gpu.channel_totals_now(_channel)
+	if halves.is_empty():
 		return
-	var delta: float = 0.0 if is_nan(_prev) else total - _prev
-	_prev = total
 	print("PASS_PROBE=", JSON.stringify({
 		"step": _step, "pass": pass_name if pass_index >= 0 else "start",
-		"channel": _channel, "total": total, "delta": delta}))
+		"channel": _channel, "halves": halves}))
 
 
-func _total() -> float:
-	var gpu = _f._gpu
-	if gpu == null or not gpu.has_method("channel_total_now"):
-		return NAN
-	return gpu.channel_total_now(_channel)
+

@@ -1,37 +1,13 @@
 class_name LAVision
 extends RefCounted
 
-## Realistic-ish sight: a creature only perceives things inside its field-of-view cone and within
-## eye range. The cone is driven by heritable "eye" genes, so perception itself evolves and differs
-## by body plan, with no vision-language model needed, just geometry:
-##
-##   * Prey (rabbit, bird) have side-set eyes → a very wide, nearly panoramic FOV (small rear blind
-##     spot) but see the world flatly. They notice threats from almost any angle.
-##   * Predators (fox, villager) have forward-set eyes → a narrow cone they must aim at prey, in
-##     exchange for the longer effective range that binocular focus buys.
-##
-## This gates ALL perception (who a creature can hunt, flee, or learn from), so ambush from a blind
-## spot, a hunter that must face its target, and "you only copy herd-mates you can actually see" all
-## fall out of the same rule (emergent, not scripted per species).
-##
-## BINOCULAR ADVANTAGE: a narrow forward cone means the eyes' fields overlap → depth perception →
-## the animal sees FARTHER (it can pick out and range a target). A wide panoramic cone sees in every
-## direction but shallowly. So the single `eye_fov` gene trades range for coverage, and forward-eyed
-## predators get the reach to spot and judge prey that side-eyed prey lack. Purely emergent from one
-## number, no predator/prey special-casing.
-##
-## Reads `c.eye_fov` (degrees, full cone width), `c.sense_radius`, `c._sense_mult`, `c._heading`.
-## (Explicit types only, no ':=' inferred typing.)
 
-# Narrowest cone we reward with full binocular reach, and the widest cone that keeps any bonus.
 const BINOCULAR_FOV: float = 90.0        # <= this: maximum depth-perception range bonus
 const PANORAMIC_FOV: float = 300.0       # >= this: shallowest (panoramic) range
 const BINOCULAR_RANGE_MULT: float = 1.6  # reach multiplier for a fully-binocular hunter
 const PANORAMIC_RANGE_MULT: float = 0.85 # reach multiplier for fully-panoramic prey
 
 
-## How much the eye configuration scales view distance. Narrow forward eyes (low fov) → >1 (they see
-## farther via depth perception); wide side eyes (high fov) → <1 (broad but shallow).
 static func binocular_range_factor(fov: float) -> float:
 	var t: float = clampf((fov - BINOCULAR_FOV) / (PANORAMIC_FOV - BINOCULAR_FOV), 0.0, 1.0)
 	return lerpf(BINOCULAR_RANGE_MULT, PANORAMIC_RANGE_MULT, t)

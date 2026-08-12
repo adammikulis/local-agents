@@ -1,12 +1,6 @@
 extends VBoxContainer
 class_name LAAddYourOwnTab
 
-# "Add your own" tab of the model manager.
-#
-# Three ways for a player to bring a model the catalog does not ship:
-#   1. Browse to a local .gguf and register it as a selectable model (persisted).
-#   2. Pull an arbitrary GGUF by Hugging Face repo id + filename (routed through the download manager).
-#   3. Point detection at extra folders / a custom HF cache location (persisted, feeds every scan).
 
 signal active_model_changed(path: String)
 signal registry_changed()
@@ -48,7 +42,6 @@ func refresh() -> void:
 	_rebuild_registered()
 	_rebuild_folders()
 
-# -- Registered-model list ----------------------------------------------------
 
 func _rebuild_registered() -> void:
 	for child: Node in _registered_box.get_children():
@@ -106,7 +99,6 @@ func _rebuild_folders() -> void:
 		row.add_child(remove_button)
 		_folders_box.add_child(row)
 
-# -- Handlers -----------------------------------------------------------------
 
 func _on_browse_pressed() -> void:
 	_browse_dialog.popup_centered_ratio(0.7)

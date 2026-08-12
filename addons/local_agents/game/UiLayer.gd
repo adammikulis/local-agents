@@ -1,16 +1,6 @@
 class_name LAUiLayer
 extends Node
 
-## THE UI LAYER — the menus, panels and HUD the player clicks, plus the input controllers that route clicks
-## and keys to them. Built only with `--ui`.
-##
-## Every drawing node here is a Control or a CanvasLayer. The CAMERA IS NOT HERE and neither is any world
-## rendering: a Camera3D is a spatial node and drawing the planet is LARenderLayer's job, so `--render`
-## gives a camera looking at the world with no chrome on top of it. Conflating the two is what produced a
-## sim clock living inside a CanvasLayer.
-##
-## The two Node3D children (the spawn brush's ring and the drainage overlay) are player-facing gizmos, not
-## world rendering; the overlay is reparented under the planet body so it rides the spin.
 
 var _world: Node = null
 var _sim: LASimulation = null

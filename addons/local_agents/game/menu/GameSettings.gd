@@ -1,29 +1,6 @@
 class_name LAGameSettings
 extends Resource
 
-## LAGameSettings: the game's front-end configuration, held as a typed Resource (not a loose
-## dictionary) so every consumer reads named, typed fields. It carries FOUR groups the player picks on
-## the settings screen, and (the point of this file) keeps the two performance categories SEPARATE so a
-## player can trade GPU cost and CPU cost independently:
-##   - difficulty        → a preset (peaceful/normal/harsh) plus two continuous knobs (disaster frequency,
-##                         climate harshness) the preset seeds and the player can nudge (gameplay, not perf);
-##   - graphics (GPU)    → a five-step preset (potato/low/medium/high/ultra) plus the individual GPU knobs
-##                         it maps to: field/render resolution, particle/effects density, shadow quality,
-##                         ambient occlusion, bloom/glow, ocean water quality, atmospheric fog, vegetation
-##                         density and draw distance. Potato is the weak/integrated-GPU floor;
-##   - simulation / AI   → a SEPARATE four-step preset (low/medium/high/ultra) plus the CPU knobs it maps
-##                         to: creature population budget, AI/cognition tick rate, LLM call cadence and
-##                         field update cadence;
-##   - audio             → master / music / sfx linear volumes (0..1).
-## Changing any individual graphics or simulation knob flips that category's preset to CUSTOM (the preset
-## enums carry a trailing CUSTOM member the UI shows when the knobs no longer match a named preset).
-##
-## Persistence is a human-editable ConfigFile at `user://game_settings.cfg` (load_or_default / save).
-##
-## APPLICATION INTERFACE: the sim consumes a settings object through `LAGameMode.apply(settings)`, which
-## stores it and emits `LAGameMode.settings_applied(settings)`. LAVoxelSettingsApplier reads the concrete
-## knobs off this resource and pushes them into the field/spawn/render systems. This file only DEFINES and
-## PERSISTS the values; it never reaches into simulation code. (Explicit types only, no ':=' inferred typing.)
 
 enum Difficulty { PEACEFUL, NORMAL, HARSH }
 enum GraphicsPreset { POTATO, LOW, MEDIUM, HIGH, ULTRA, CUSTOM }
@@ -34,12 +11,10 @@ enum OceanQuality { OPAQUE, TRANSLUCENT }
 
 const SAVE_PATH: String = "user://game_settings.cfg"
 
-# --- Difficulty (gameplay, not performance) ---
 @export var difficulty: Difficulty = Difficulty.NORMAL
 @export var disaster_frequency: float = 0.5   ## 0 = calm .. 1 = frequent disasters
 @export var climate_harshness: float = 0.5    ## 0 = mild .. 1 = extreme climate swings
 
-# --- Graphics / GPU ---
 @export var graphics_preset: GraphicsPreset = GraphicsPreset.MEDIUM
 @export var grid_resolution: int = 72                              ## field cells per axis budget (÷3 = cells/face)
 @export var effects_level: EffectsLevel = EffectsLevel.MEDIUM      ## particle / effects density
@@ -51,19 +26,16 @@ const SAVE_PATH: String = "user://game_settings.cfg"
 @export var vegetation_density: float = 1.0                        ## plant/foliage density scale (0.3..1.5)
 @export var draw_distance: float = 8000.0                          ## camera far-plane budget in metres
 
-# --- Simulation / AI / CPU ---
 @export var sim_preset: SimPreset = SimPreset.MEDIUM
 @export var actor_budget: int = 120           ## max concurrent creatures (spawn-count scale)
 @export var ai_tick_frames: int = 3           ## creatures re-decide every N frames (larger = cheaper CPU)
 @export var llm_cadence: float = 12.0         ## seconds between LLM cognition / narration calls
 @export var field_cadence: int = 1            ## field substrate steps every N frames (larger = cheaper CPU)
 
-# --- Audio (linear 0..1) ---
 @export var master_volume: float = 0.9
 @export var music_volume: float = 0.7
 @export var sfx_volume: float = 0.8
 
-# --- Controls ---
 @export var invert_rotate_x: bool = false   ## flip the horizontal drag direction when rotating the planet
 @export var invert_rotate_y: bool = false   ## flip the vertical drag direction when rotating the planet
 
@@ -75,11 +47,6 @@ const DIFFICULTY_PRESETS: Dictionary = {
 	Difficulty.HARSH: {"disaster_frequency": 0.85, "climate_harshness": 0.85},
 }
 
-# Graphics preset → concrete GPU knobs. grid_resolution ÷3 is the field's cells-per-face and is the single
-# biggest frame cost (a per-cell GPU CA + per-step readback), so it dominates the frame-rate: Potato runs the
-# coarsest 8 cells/face on the weakest hardware, Ultra the fine 43 cells/face. The fill-rate killers
-# (translucent ocean overdraw, SSAO + glow full-screen passes, sun shadow map) stay OFF below High so the
-# default is playable and only strong GPUs pay for the full look.
 const GRAPHICS_PRESETS: Dictionary = {
 	GraphicsPreset.POTATO: {
 		"grid_resolution": 24, "effects_level": EffectsLevel.LOW, "shadow_quality": ShadowQuality.OFF,
@@ -108,12 +75,6 @@ const GRAPHICS_PRESETS: Dictionary = {
 	},
 }
 
-# Simulation preset → concrete CPU knobs. More population + more frequent thinking / LLM calls + field every
-# frame all cost CPU, so Low is the light-CPU floor and Ultra the busiest world.
-# field_cadence stays 1 at every tier: measured, stepping the field LESS often does NOT help fps (it batches +
-# catches up, so a field frame just runs multiple steps at once — spikier, slightly slower). The processor
-# slider's real levers are actor_budget (fewer creatures = less animation/render/AI) and ai_tick_frames.
-# Reducing the field cost needs activity-LOD (step only the active cells), not temporal cadence.
 const SIM_PRESETS: Dictionary = {
 	SimPreset.LOW: {"actor_budget": 48, "ai_tick_frames": 6, "llm_cadence": 24.0, "field_cadence": 1},
 	SimPreset.MEDIUM: {"actor_budget": 120, "ai_tick_frames": 3, "llm_cadence": 12.0, "field_cadence": 1},

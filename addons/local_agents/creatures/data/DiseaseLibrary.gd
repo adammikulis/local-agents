@@ -1,27 +1,6 @@
 class_name LADiseaseLibrary
 extends RefCounted
 
-## Loads DISEASE STRAIN records from data files, exactly like LASpeciesLibrary loads creatures. A disease is a
-## DATA record, never an `if strain == "X"` branch (config-over-cases). Each strain lives in one small JSON under
-## `creatures/data/diseases/<id>.json`, so a designer adds a new plague by dropping in a file: the transmission + immune +
-## symptom code all read the record generically, so the new disease composes in with zero code.
-##
-## Strain record schema (all optional; sane defaults below):
-##   name           display name
-##   vector         "contact" | "airborne" | "waterborne" | "pest"   (how it spreads)
-##   transmissibility  dose passed per second of close exposure (0..1+)
-##   range          shedding/exposure radius, world units
-##   incubation     seconds after infection before it turns symptomatic + infectious
-##   virulence      load growth per second once active (how fast it worsens)
-##   lethality      HP damage per second at full load
-##   drain          energy drained per second at full load (wasting)
-##   slow           movement slowdown 0..1 at full load (lethargy → easy prey)
-##   fever          °C the sick body adds to its own cell at full load (emergent overheat + a warm-body cue)
-##   resolve        immune clearance per second (baseline; scaled by constitution + acquired immunity)
-##   immunity_gain  acquired-immunity level granted on recovery (0..1)
-##   hosts          array of host tags it can infect ("mammal","bird","insect","people","any"); empty = any
-##
-## (Explicit types only, no ':=' inferred typing.)
 
 const DISEASE_DIR: String = "res://addons/local_agents/creatures/data/diseases"
 

@@ -1,10 +1,6 @@
 class_name LAKernelConservation
 extends Node
 
-## Dispatches ONE kernel on a small real cubed-sphere grid and asserts it conserves. The unit of feedback
-## for a kernel bug was a 200-frame world, so every one this session was found by bisecting full runs.
-##
-## Needs a real RenderingDevice, so it runs windowed through scripts/run_sim_offscreen.sh.
 
 const GRAVITY_FLOW: String = "res://addons/local_agents/sim/material/kernels3d/gravity_flow_sphere3d.glsl"
 const TRACER: String = "res://addons/local_agents/sim/material/kernels3d/tracer_transport_sphere3d.glsl"
@@ -175,8 +171,10 @@ func _check_tracer(wind_m_s: float, with_solid: bool, tag: String) -> void:
 	pc.encode_u32(24, 0)            # offset
 	pc.encode_float(28, 0.0)        # decay 0: a conserved tracer
 
+	var b_part2: RID = _rd.storage_buffer_create(_grid.link_partner.to_byte_array().size(),
+		_grid.link_partner.to_byte_array())
 	var uset: RID = _uset(shader, [[0, b_in], [1, b_out], [2, b_dep], [3, b_solid],
-		[4, b_vx], [5, b_vy], [6, b_vz], [15, b_nbr], [16, b_ltan]])
+		[4, b_vx], [5, b_vy], [6, b_vz], [15, b_nbr], [16, b_ltan], [17, b_part2]])
 	var groups: int = int(ceil(float(_cc) / 64.0))
 	var cl: int = _rd.compute_list_begin()
 	_rd.compute_list_bind_compute_pipeline(cl, pipe)

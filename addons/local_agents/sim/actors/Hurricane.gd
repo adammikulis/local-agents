@@ -1,18 +1,6 @@
 class_name LAHurricane
 extends Node3D
 
-## A HURRICANE: a big, slow, rotating storm system with a calm EYE. It is essentially a large,
-## structured, self-sustaining storm built from the SAME field reads as the thunderstorm and tornado; it
-## differs only by CONFIG (huge scale, rotation, a calm eye, ocean genesis), not by copy-pasted logic. Its
-## GENESIS is emergent: it only sustains + intensifies over WARM OCEAN (high temp AND is_ocean_at across
-## its eyewall) and WEAKENS over land or cool water, so it strengthens at sea and falls apart on
-## landfall, read fresh each step. Structure: it pumps moisture + cool air aloft in an ANNULUS around the
-## eye (never at the centre), so the field's condense→rain rules raise a dense spiral of cloud + torrential
-## rain around a rain-free eye. It rotates: nearby wildlife is swept tangentially + slightly inward (advected
-## by the cyclonic wind force via EcologyStimulus.apply_wind_force, with no direct throw()) and panicked. Embedded
-## severe weather is EMERGENT, not scripted: the eyewall pumps moisture + cold aloft, so the field's own charge
-## physics builds charge under the convective annulus and fires lightning where it breaks down (via
-## LAMaterialCharge3D). Built in code, no assets. (Explicit types only, no ':=' inferred typing.)
 
 const LIFETIME_MAX: float = 150.0         # a hurricane is long-lived; ocean fuel keeps it going within this
 const STRENGTH_START: float = 0.5
@@ -23,11 +11,9 @@ const VORT_TO_STRENGTH: float = 0.55      # K: |vorticity| → strength; tuned s
 const STRENGTH_RATE: float = 0.1          # smoothing of strength toward the field-read target
 const WARM_OCEAN_TEMP: float = 16.0       # sea at least this warm counts as fuel (gates the SEEDING)
 
-# --- Vortex tracking (steer the eye toward the strongest nearby vorticity — the low the seeding grew) ---
 const VORTEX_STEER: float = 0.4
 const VORTEX_PROBE: float = 60.0
 
-# --- Structure (all in world units; the rain/cloud fills the annulus, the eye stays calm) ---
 const EYE_RADIUS: float = 26.0
 const OUTER_RADIUS: float = 150.0
 const EYEWALL_POINTS: int = 12            # moisture-pump points around the eyewall ring
@@ -36,12 +22,10 @@ const VAPOR_INJECT_R: float = 20.0
 # (COOL_PER_SEC = 10.0 °C/s and COOL_INJECT_R = 26.0 deleted 2026-08-03 — a hurricane does not destroy heat;
 # see the note in `_pump_eyewall` where the injection was.)
 
-# --- Motion (slow, wind-steered track) ---
 const TRACK_SPEED: float = 7.0            # base forward crawl (world u/s)
 const WIND_STEER: float = 0.5
 const PLAY_HALF_EXTENT: float = 290.0
 
-# --- Rotation + wind (the rotating cyclonic wind, felt by wildlife in the annulus) ---
 const SPIN_SPEED: float = 1.4             # visual + swirl rotation (rad/s)
 const WIND_FORCE: float = 14.0            # tangential wind speed (world u/s) at strength 1, advecting creatures
 const WIND_INWARD_FRAC: float = 0.15      # slight inward spiral (fraction of the tangential wind)
@@ -203,10 +187,6 @@ func _physics_process(delta: float) -> void:
 	_update_fx()
 
 
-# SEED the low: pump moisture around the EYEWALL (never the calm eye) so a dense rain-bearing spiral builds
-# around a rain-free centre — the eye emerges because nothing is injected there.
-# Gated by the warm-ocean fuel `fuel`: over the sea it feeds the low that Coriolis spins into the hurricane
-# vortex; over land `fuel`→0, the seeding stops, and the vortex (hence strength) decays — landfall EMERGES.
 func _pump_eyewall(fuel: float, delta: float) -> void:
 	if fuel <= 0.0:
 		return
@@ -224,18 +204,8 @@ func _pump_eyewall(fuel: float, delta: float) -> void:
 				gy = g.y
 		if _field.has_method("add_vapor"):
 			_field.add_vapor(Vector3(px, gy + 3.0, pz), per_point, VAPOR_INJECT_R)
-	# THE EYEWALL COOLING IS GONE (COOL_PER_SEC = 10 °C/s per eyewall point, every frame, via `add_cooling`,
-	# which is `add_heat(-amount)`). It destroyed heat outright to force condensation, and heat is conserved:
-	# nothing in a hurricane annihilates energy. What actually cools rising air is EXPANSION as it climbs into
-	# lower pressure, and that is the substrate's adiabatic lapse, which already runs. The latent heat released
-	# when the lifted vapour condenses is what powers a real cyclone, and it is the condensation reaction's to
-	# deliver — not this actor's to fake by subtracting degrees at cloud base.
 
 
-# The rotating wind: sweep wildlife in the annulus through the substrate's field-force seam (the same
-# advection every gust/gale drives) instead of directly throwing them — the cyclonic wind carries each
-# creature tangentially + slightly inward + lofts it, emergently, and panics them. Weaker per-creature than
-# a tornado (spread over a huge area) but it makes the whole system feel alive.
 func _stir_wildlife(delta: float) -> void:
 	_scare_cd -= delta
 	if _scare_cd <= 0.0:
@@ -268,8 +238,6 @@ func _dissipate() -> void:
 		_ecology.broadcast_scare(_center, OUTER_RADIUS * 0.5, 0.3)
 	queue_free()
 
-
-# --- Visuals: a large slowly-rotating cloud spiral with a clear eye at the centre ---
 
 # Soft storm-cloud fade for the spiral: transparent → bright storm-grey → transparent, so the disc
 # has soft edges and reads as a dense cloud mass against the dark ocean instead of flat dark quads.

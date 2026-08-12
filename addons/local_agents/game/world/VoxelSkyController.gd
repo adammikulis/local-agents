@@ -1,19 +1,9 @@
 class_name LAVoxelSkyController
 extends Node
 
-## PRESENTATION ONLY: the sky cycle (LAVoxelSkyCycle — sky shader, WorldEnvironment, visible sun/moon,
-## day/night tint) and the glowing sun disc. It does NOT own the star and does NOT own the sun the physics
-## reads: LAStar is a simulation node, its light carries the direction and the `insolation` meta, and
-## MaterialField3D reads THAT. This node only draws.
-##
-## It used to build the star itself and hand `_sky.sun()` — a light owned by the sky cycle — to the field, so
-## skipping presentation left the planet with no solar input at all.
 
 const SkyCycleScript: GDScript = preload("res://addons/local_agents/game/world/VoxelSkyCycle.gd")
 
-# Visible-sun body: a bright unshaded emissive sphere sitting AT the star so the sun is visible (the
-# DirectionalLight alone is invisible). Emission sits above the environment's glow HDR threshold, so the
-# WorldEnvironment bloom wraps it in a corona. Radius reads ~5-6° across from planet-orbit distance.
 const SUN_BODY_RADIUS: float = 60.0
 const SUN_EMISSION_ENERGY: float = 6.0
 const SUN_CORE_COLOR: Color = Color(1.0, 0.94, 0.72)

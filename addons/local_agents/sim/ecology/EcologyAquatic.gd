@@ -1,20 +1,7 @@
 class_name LAEcologyAquatic
 extends RefCounted
 
-## Aquatic placement for the living world, the non-reproduction water helpers: the initial founding stock
-## that makes the sea and lakes feel alive from the first frame, and the salinity/depth-band sampler that
-## finds a valid underwater point for a species. Everything is radial (no XZ column reads, per three-d-always),
-## so species self-sort into the right water with no hand-placed spawn points.
-##
-## Aquatic REPRODUCTION (the parent-based _tick_aquatic recovery) reuses the shared birth/genome/kinship
-## machinery, so it lives in LAEcologyBreeding; this module owns only the non-repro
-## spawn/placement helpers. Owned by LAEcologyService, which keeps a thin forwarder for the public
-## stock_initial_aquatic() and for _random_aquatic_point() (which the breeding module reaches through the
-## hub). This module reaches back into the service for the shared state that stays on the hub (the aquatic
-## roster, species configs, terrain and the actor instancer), so there is exactly one owner of each.
-## Explicit types only (project rule: no ':=').
 
-# Aquatic sampling budget: tries per placement to land inside a species' salinity/depth band (radial).
 const AQUATIC_SAMPLE_TRIES: int = 60
 
 var _eco: LAEcologyService = null
@@ -37,10 +24,6 @@ func stock_initial_aquatic() -> void:
 				_eco._instance_actor(String(kind), wet)
 
 
-# Sample the sea for a point inside a species' depth band: pick a random direction where the GROUND surface
-# sits below sea level, then place the individual somewhere in the underwater shell between the seabed and the
-# sea radius, inside the species' depth band. Everything is radial (no XZ column reads — three-d-always), so
-# species self-sort into the right water with no hand-placed spawn points. NAN-x vector if none found.
 func _random_aquatic_point(cfg: Dictionary) -> Vector3:
 	var dmin: float = float(cfg.get("depth_min", 0.0))
 	var dmax: float = float(cfg.get("depth_max", 999.0))

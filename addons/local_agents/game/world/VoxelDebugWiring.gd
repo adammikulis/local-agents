@@ -1,11 +1,6 @@
 class_name LAVoxelDebugWiring
 extends Node
 
-## LAVoxelDebugWiring: owns the debug menu (LADebugPanel, left dock) + its world-space gizmo overlay
-## (LADebugOverlay), the panel→handler signal wiring, and the debug-view dispatch (temp/wind/scent views,
-## type highlights, intended paths, perf toggles, the save-screenshot button) plus the V/T scent+temp
-## toggles the interaction controller triggers. Factored out of LAVoxelWorld so the "debug views + behavior
-## highlights" concern is one file. (Explicit types only, no ':=' inferred typing.)
 
 const DebugPanelScene: PackedScene = preload("res://addons/local_agents/game/ui/DebugPanel.tscn")
 const DebugOverlayScript: GDScript = preload("res://addons/local_agents/game/ui/DebugOverlay.gd")
@@ -105,10 +100,6 @@ func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud:
 	if _input != null and _input.debug_family() and _family_tree != null:
 		_family_tree.set_enabled(true)
 
-	# Anti-aliasing at BOOT (not only when a screenshot is taken): the low-poly, cel-shaded terrain/actors have
-	# hard silhouettes that crawl and alias badly in normal play. MSAA 4x cleans the geometry edges — important
-	# now the toon shader gives crisp light/shadow terminators. The scene is CPU-bound, so this GPU-side
-	# smoothing is effectively free here.
 	var boot_vp: Viewport = world.get_viewport()
 	if boot_vp != null:
 		boot_vp.msaa_3d = Viewport.MSAA_4X
@@ -120,9 +111,6 @@ func set_interaction(interaction: Node) -> void:
 	_interaction = interaction
 
 
-# "Select thinking / queued" button: pick out every creature currently consulting/waiting on the shared
-# cognition scheduler and select the nearest through the normal selection path (the whole set is already
-# tinted by the LLM highlight). Reuses LAVoxelInteraction.select_by_predicate; logs the match count.
 func _on_select_llm(kind: String) -> void:
 	if _interaction == null or not _interaction.has_method("select_by_predicate"):
 		return
@@ -148,8 +136,6 @@ func on_selection_changed(node: Node) -> void:
 		_family_tree.set_root(node)
 
 
-# --- Debug menu handlers -----------------------------------------------------
-
 ## Register the drainage-network overlay (built by VoxelWorld under the planet body) + honour --debug-rivers.
 func set_drainage(overlay: Node, show_now: bool) -> void:
 	_drainage = overlay
@@ -174,8 +160,6 @@ func _on_debug_view(view: String, on: bool) -> void:
 			if _drainage != null:
 				_drainage.set_shown(on)
 		_:
-			# A substrate field-channel heatmap (biomass/lava/snow/…). Only one at a time: enabling a
-			# channel shows it; disabling it clears the overlay only if it was the active one.
 			if FIELD_CHANNELS.has(view):
 				if on:
 					_active_field_view = view
@@ -190,9 +174,6 @@ func _on_debug_highlight(group: String, on: bool) -> void:
 		_debug_overlay.set_highlight(group, on)
 
 
-# Behavior-state highlight: register/clear the category tint on every creature, then refresh the live
-# population once (a one-time pass on the click — NOT a per-frame scan) so already-alive creatures pick
-# up or drop the tint immediately. New creatures apply it themselves on their next state change.
 func _on_debug_behavior(behavior: String, on: bool) -> void:
 	var col: Color = BEHAVIOR_COLORS.get(behavior, Color(1, 1, 1))
 	CreatureScript.set_behavior_highlight(behavior, col, on)
@@ -263,8 +244,6 @@ func _on_debug_screenshot() -> void:
 	if _input != null and _input.shoot_path() != "":
 		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
 
-
-# --- V/T toggles (from the interaction controller, forwarded through the world) ---
 
 ## V key: toggle the emergent scent-field debug gizmos (DebugOverlay).
 func toggle_scent_view() -> void:

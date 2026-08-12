@@ -1,9 +1,6 @@
 class_name LASettingsWidgets
 extends RefCounted
 
-## Shared control builders for the settings screen. Each builder instantiates its widget scene under
-## widgets/ and fills in only what is per-setting: text, range, tooltip and signal. Returns the created
-## nodes so the section objects can drive them.
 
 const HeaderScene: PackedScene = preload("res://addons/local_agents/game/menu/widgets/SettingsHeader.tscn")
 const RowScene: PackedScene = preload("res://addons/local_agents/game/menu/widgets/SettingsRow.tscn")

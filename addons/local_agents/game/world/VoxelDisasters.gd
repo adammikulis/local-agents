@@ -1,10 +1,6 @@
 class_name LAVoxelDisasters
 extends Node
 
-# Natural-disaster spawning for the voxel world, factored out of the root so VoxelWorld stays a thin
-# composition/harness root. Owns the volcano/lightning/meteor casts the sim and harness trigger; the
-# root creates one of these in _ready and forwards its _process disaster hooks here. Dependency-free of
-# the LAVoxelWorld type (dynamic access, no cyclic class reference). (Explicit types only — no ':=' .)
 
 const MeteorScript: GDScript = preload("res://addons/local_agents/sim/actors/Meteor.gd")
 const VolcanoScript: GDScript = preload("res://addons/local_agents/sim/actors/Volcano.gd")
@@ -89,11 +85,6 @@ func spawn_volcano(point: Vector3) -> Node:
 	return v
 
 
-## Seed a volcano on the SEABED — a vent whose surface sits BELOW the sea shell (an ocean basin). Its sustained
-## lava supply then quenches underwater, solidifies, accretes and (given a long run) BREACHES the surface as a new
-## island — the capstone. Searches radial directions for the DEEPEST sea floor well below sea level, PREFERRING the
-## sunlit hemisphere (`sun_dir`, planet->sun) so the emerging island is well lit for the demo; falls back to the
-## deepest sampled point. Returns [volcano_node, world_vent_point] so the harness can frame + prove it.
 func spawn_sea_volcano(sun_dir: Vector3 = Vector3.ZERO) -> Array:
 	if _terrain == null or not _terrain.has_method("planet_center") or not _terrain.has_method("sea_radius"):
 		return [null, Vector3.ZERO]
@@ -165,11 +156,6 @@ func spawn_hurricane(point: Vector3) -> Node:
 	return h
 
 
-# Harness helper: fire an auto-storm of `kind` at a fitting site and return the world point to frame.
-# A tornado over warm land near origin, a thunderstorm over origin, a hurricane over the nearest OPEN
-# OCEAN (so its warm-ocean genesis kicks in and it can make landfall as it tracks inward). The camera
-# is set to FOLLOW the spawned storm (it wanders) at a framing distance sized to the storm, so it stays
-# in shot — see LAVoxelCameraRig.track_target / stop_tracking.
 func fire_auto_storm(kind: String) -> Vector3:
 	if kind == "hurricane":
 		var site: Vector3 = _find_ocean_point()
@@ -286,10 +272,6 @@ func fire_test_meteor() -> void:
 		_camera.look_at(impact, Vector3.UP)
 
 
-## Rain a BARRAGE of large meteors onto the camera-aimed region — bombard the planet to expose its deep
-## geology (crust -> mantle -> magma) and, with enough hits, fracture it to pieces. Concentrated (small
-## spread) so the impacts STACK into a deep crater rather than scattering shallowly; each rock is size-scaled
-## big so a single volley digs toward the mantle.
 func fire_barrage(count: int = 18, size_scale: float = 5.5, spread: float = 20.0) -> void:
 	if _camera == null or _terrain == null:
 		return

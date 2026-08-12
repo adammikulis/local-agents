@@ -1,13 +1,6 @@
 class_name LAStreamerOverlay
 extends CanvasLayer
 
-## Lower-right "face-cam" overlay for the streamer/commentator: a live 3D avatar portrait, the current
-## commentary caption, an enable checkbox, and a personality picker. The node tree is StreamerOverlay.tscn.
-## The PanelContainer's default STOP mouse filter consumes clicks over its rect, so toggling the UI never
-## leaks a world-click (meteor drop) to the sim behind it.
-##
-## Emits `enabled_toggled(on)` and `persona_selected(id)`; the world wires those to the director.
-## (Explicit types only, no ':=' inferred typing.)
 
 signal enabled_toggled(on: bool)
 signal persona_selected(id: String)
@@ -77,8 +70,6 @@ func _push_feed(text: String) -> void:
 		_feed.remove_child(oldest)
 		oldest.queue_free()
 
-
-# --- master show/hide (host gates streamer compute off when hidden) ------------------------------
 
 func _on_hide_pressed() -> void:
 	set_collapsed(true)

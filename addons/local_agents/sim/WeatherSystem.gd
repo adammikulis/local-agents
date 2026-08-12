@@ -1,20 +1,6 @@
 class_name LAWeatherSystem
 extends Node3D
 
-# Surface-breeze overlay + emergent-rain relay. Weather no longer invents rain OR the prevailing circulation:
-# the dense 3D MaterialField owns the real water cycle (evaporation -> cloud -> rain) AND, as of the climate
-# pass, the real PREVAILING WIND. The latitude-banded base flow (easterly trades near the equator, mid-latitude
-# westerlies) can't be a single global vector on a sphere — it varies with latitude — so it is now computed
-# PER CELL inside wind_step_sphere3d.glsl from geometry (sin(lat) = radial·spin_axis; zonal dir = spin×radial),
-# with the local pressure + Coriolis circulation riding on top. This node no longer drives that; it keeps two
-# lighter jobs:
-#   1) it drifts a slow, GENTLE global surface BREEZE (a cosmetic gust) that VoxelWorld still feeds to the sky /
-#      cloud-drift visual + as the fallback prevailing scalar for the few field edge cells that lack a full local
-#      tangent basis — NOT the planet's prevailing circulation, which is now emergent in the field kernel;
-#   2) it RELAYS the field's emergent rain intensity as `rain()` and integrates a ground `wetness` from it, so the
-#      ScentField's rain-washes-away-scent behaviour keeps working off the real, physical precipitation.
-# No rain particles here (RainLayer owns the visual); no sun/ambient writes (day/night owns lighting).
-# (Explicit types only — project rule: no ':=' inferred typing.)
 
 signal weather_changed(rain_intensity: float, wetness: float)
 
@@ -39,9 +25,6 @@ func set_field(field) -> void:
 
 
 func _process(delta: float) -> void:
-	# Cosmetic surface breeze: a slow, GENTLE global gust for the sky/cloud-drift visual + the field's edge-cell
-	# fallback. The planet's real banded prevailing circulation is emergent per-cell in wind_step_sphere3d.glsl, so
-	# this stays weak on purpose (it must not overpower the field's own latitude bands through the fallback path).
 	_wind_timer -= delta
 	if _wind_timer <= 0.0:
 		# Seeded (LASimRng): the breeze feeds moisture transport -> charge -> emergent lightning, so its

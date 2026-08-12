@@ -1,12 +1,6 @@
 extends VBoxContainer
 class_name LAInferenceSettingsTab
 
-# "Inference settings" tab of the model manager.
-#
-# Surfaces a generous set of the fields on the reused LocalAgentInferenceParams resource plus the
-# model-load knobs (context length, threads, GPU layers) and a system prompt. Also lets the player
-# pick which model drives each sim role (streamer / creature cognition / embedding), or leave a role
-# on the single active model. Everything writes straight into the shared store and persists on Save.
 
 var _store: LocalAgentModelSettingsStore = null
 var _inventory: LocalAgentModelInventory = null

@@ -1,22 +1,6 @@
 extends Control
 class_name LAModelDownloadPanel
 
-# Runtime (in-game) model download panel.
-#
-# Shows a curated shortlist of ungated GGUF models, each with its size shown up front and a Download
-# button (or an "Installed" badge if the file is already present under user://local_agents/models).
-# Downloading swaps the row into a live progress bar with "420 MB / 1.1 GB", an EMA-smoothed speed,
-# an ETA ("~2m left") and a Cancel button. All fetching is async via LAModelDownloadManager.
-#
-# Public API (for a main menu / "no model yet" prompt to invoke later — not wired here):
-#   open()                       -> show the panel and refresh installed states
-#   close()                      -> hide the panel
-#   is_model_installed(model_id) -> bool
-#   model_installed(model_id, path)  [signal] re-emitted when a download completes
-#
-# Self-harness: launched standalone it honors `-- --downloader-selftest` (prints
-# DOWNLOADER_SELFTEST={...} then quits) and `-- --shoot=<png> [--shoot-frames=N]` (off-screen
-# screenshot). `--demo-installed=<id>` forces a row into the Installed state for a screenshot.
 
 const ModelDownloadManager: GDScript = preload("res://addons/local_agents/ui/ModelDownloadManager.gd")
 
@@ -29,7 +13,6 @@ signal model_installed(model_id: String, path: String)
 
 var _rows: Dictionary = {}   # model_id -> Dictionary of that row's controls
 
-# --- Self-harness state ---
 var _shoot_path: String = ""
 var _shoot_frames: int = 12
 var _shoot_counter: int = 0
@@ -89,7 +72,6 @@ func _capture_screenshot(path: String) -> void:
 	img.save_png(path)
 	print("SHOT_SAVED=%s size=%dx%d" % [path, img.get_width(), img.get_height()])
 
-# -- Public API ---------------------------------------------------------------
 
 func open() -> void:
 	visible = true
@@ -103,7 +85,6 @@ func is_model_installed(model_id: String) -> bool:
 		return false
 	return _manager.is_model_installed(model_id)
 
-# -- Row construction ---------------------------------------------------------
 
 func _build_rows() -> void:
 	if _rows_box == null:
@@ -197,7 +178,6 @@ func _make_row(model: Dictionary) -> Control:
 	_rows[model_id] = row
 	return panel
 
-# -- Row state ----------------------------------------------------------------
 
 func _refresh_all_rows() -> void:
 	for model_id: String in _rows.keys():
@@ -243,7 +223,6 @@ func _set_status(text: String) -> void:
 	if _status_label != null:
 		_status_label.text = text
 
-# -- Button handlers ----------------------------------------------------------
 
 func _on_row_download_pressed(model_id: String) -> void:
 	if _manager.is_downloading():
@@ -263,7 +242,6 @@ func _on_row_cancel_pressed() -> void:
 	if _manager.is_downloading():
 		_manager.cancel()
 
-# -- Manager signal handlers --------------------------------------------------
 
 func _on_download_started(model_id: String, total_bytes: int) -> void:
 	var name: String = _model_name(model_id)

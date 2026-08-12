@@ -1,22 +1,6 @@
 extends Node3D
 class_name LAVoxelWorld
 
-# THE COMPOSITION ROOT, and nothing else. It parses the command line and instances up to THREE scenes:
-#
-#   Simulation.tscn   always      the planet, the field, the star, ecology, geology, telemetry
-#   RenderLayer.tscn  --render    the Camera3D and the spatial nodes that DRAW the world
-#   UiLayer.tscn      --ui        the Control / CanvasLayer menus and panels, and the input that drives them
-#
-# A CAMERA IS NOT UI. Those are different kinds of Godot node with different reasons to exist, so they are
-# different scenes and different flags: --render draws the world with no chrome on it, --ui adds the chrome
-# (and implies --render, since the panels are drawn over a view and pick against a camera).
-#
-# The boundary is the SCENE, never a flag inside a node. It used to be `if not _input.bare():` applied at 13
-# of 42 add_child sites in this file, so the debug menu, the loading overlay, the tutorial and every input
-# controller ran in physics-only runs — and it could not express a node doing BOTH jobs at all: the sim clock
-# lived inside a CanvasLayer that owned Engine.time_scale, and the sun the field integrates was a light owned
-# by the sky cycle.
-# (Explicit types only — project rule: no ':=' inferred typing.)
 
 const InputControllerScript: GDScript = preload("res://addons/local_agents/game/world/VoxelInputController.gd")
 const SimulationScene: PackedScene = preload("res://addons/local_agents/game/Simulation.tscn")
@@ -24,11 +8,6 @@ const RenderLayerScene: PackedScene = preload("res://addons/local_agents/game/Re
 const UiLayerScene: PackedScene = preload("res://addons/local_agents/game/UiLayer.tscn")
 const StreamerHostScript: GDScript = preload("res://addons/local_agents/sim/streamer/StreamerHost.gd")
 
-# --- SOLAR-SYSTEM-FIRST: the world is a star + planet body. Radial is the default; flat retired. ---
-# CELLULAR (Voronoi) relief: continents sit at the cell cores, valley networks run the cell borders → real
-# emergent river drainage. RELIEF is the cellular amplitude; FEATURE is the cell size (continent wavelength).
-# RELIEF + FEATURE + OCEAN_BIAS + the field shell all scale with the radius via PLANET_SCALE, so the ocean
-# fraction (~72%), continent count and field cost are preserved as the radius changes.
 const PLANET_RADIUS: float = 500.0
 const PLANET_SCALE: float = PLANET_RADIUS / 250.0     # everything below was tuned at radius 250
 const PLANET_RELIEF: float = 28.0 * PLANET_SCALE      # LA_RELIEF overrides
@@ -145,7 +124,6 @@ func _ready() -> void:
 	_actors_root = _sim.actors_root()
 	_spawn = _sim.spawn_controller()
 
-	# --ui implies --render: the panels draw over a view and pick against a camera.
 	if _input.render() or _input.ui():
 		_render = RenderLayerScene.instantiate()
 		add_child(_render)
@@ -236,9 +214,6 @@ func _process(delta: float) -> void:
 	_perf_probe(delta)
 
 
-# PERF BENCH (--perf-frames=N): average fps + a CPU/GPU render split over the trailing window, then emit one
-# PERF={...} line and quit. Godot's own instrumentation, so a run says definitively whether a config is
-# GPU-bound (fill/particles) or CPU-bound (field stepping), which raw fps cannot.
 func _perf_probe(delta: float) -> void:
 	var pf: int = _input.perf_frames()
 	if pf <= 0:
@@ -280,9 +255,6 @@ func demo_report() -> Dictionary:
 	return report
 
 
-## Every Control / CanvasLayer alive in the tree. Without --ui this MUST be 0, and sim_run.sh fails the run
-## when it is not — a behavioural gate, so a UI node added anywhere in future trips it without anyone
-## remembering a rule. A grep could not have caught the two that were built inside the CLI parser.
 func _count_ui_nodes(node: Node) -> int:
 	var n: int = 0
 	if node is Control or node is CanvasLayer:

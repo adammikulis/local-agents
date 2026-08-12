@@ -1,73 +1,6 @@
 class_name LASphereGrid
 extends RefCounted
 
-## Cubed-sphere grid + seam-aware NEIGHBOUR TABLE: the planet's substrate geometry (Phase A0 spike).
-##
-## 6 gnomonic cube faces, each `res × res` surface cells, extruded into `depth` RADIAL layers (r=0 = innermost
-## core shell, r=depth-1 = outermost/space). This replaces the flat cartesian `idx=(iy*dim_z+iz)*dim_x+ix` +
-## `±1/±dx/±layer` scheme: every field kernel will gather its 6 neighbours by TABLE LOOKUP instead of index
-## arithmetic, so "down" is simply the INWARD radial neighbour on a real sphere, with no box axes and no poles.
-##
-## The only hard part is the cube-face SEAMS (a cell on a face edge's lateral neighbour lives on an ADJACENT
-## face). We sidestep hand-coding 24 edge transforms + 8 corner cases by building the 2D SURFACE adjacency
-## GEOMETRICALLY: step just past the edge in local coords, project to a sphere direction, and match the nearest
-## surface cell on another face. Radial neighbours are then trivial arithmetic. (Explicit types only, no ':=' inferred typing.)
-##
-## SLOT-OPPOSITE RECIPROCITY (the contract the kernels actually depend on)
-## ----------------------------------------------------------------------
-## Every 2-pass gather kernel (`soil_/water_/slump_/lava_flow_sphere3d.glsl`) writes its outflow to
-## `send[me*6 + slot]` and credits its inflow from `send[neighbour*6 + OPPOSITE(slot)]`. That is only
-## mass-conserving if the table is RECIPROCAL IN THE OPPOSITE SLOT: `nbr[c*6+d] == m  ⟹  nbr[m*6+(d^1)] == c`.
-## Merely "A lists B somewhere" is not enough — a link placed in the wrong slot debits a send slot that NO cell
-## reads (mass destroyed) and makes some other slot get read twice (mass duplicated).
-##
-## The raw geometric stitch does NOT satisfy that, and no choice of per-face axes can fix it. Measured on the
-## unrepaired table at res 24: 288 of 576 directed cross-face links per radial layer land in a non-opposite
-## slot — 4 of the 12 cube edges have their local (a,b) axes ROTATED across the seam (a face-0 `+b` link is the
-## partner's `+a` link) and 2 more have them REFLECTED (both sides say `+b`). The rotation is irreducible: with
-## the grid lines kept straight, each face is crossed by exactly two of the three great-ring families (X-, Y-,
-## Z-rings), so labelling a family "the a-axis" globally requires 2-colouring a triangle. It cannot be done.
-##
-## The fix is to stop treating the four lateral slots as fixed compass directions and treat them as two
-## RECIPROCAL PAIRS: partition each cell's 4 lateral links into pair A (slots N_A0/N_A1) and pair B
-## (N_B0/N_B1) such that every link sits in the opposite slot at both ends. That partition is a 2-factorisation
-## of the 4-regular surface adjacency graph, which always exists (Petersen). We seed it from the geometry — so
-## in the interior of every face pair A really is the ±a axis and pair B the ±b axis, exactly as before — and
-## REPAIR only the seams where the geometry contradicts itself, by BENDING the affected line at a handful of
-## cells near the four rotated cube edges. Those bends are the topological branch cuts the 8 cube corners
-## demand, and there are O(res) of them, not O(res²): `lateral_bends` measures 2·res at even `res` and 6·res at
-## odd (an odd seam column cannot pair off internally, so its leftover cell routes a longer path) — at res 24
-## that is 48 bent links out of 6912. `surf_nbr` keeps its literal geometric meaning (WaterSurfaceMesh and
-## MaterialFieldLakes3D build quads and drainage from it), so only the 6-slot `neighbours` table is permuted.
-##
-## THE TANGENT BASIS IS A SEPARATE TABLE, AND IT HAS TO BE (2026-07-30)
-## -------------------------------------------------------------------
-## The four lateral slots were doing a second job they cannot do: standing in for the TANGENT FRAME the wind
-## kernel stores momentum in (`vel_x` along "the slot 1/2 axis", `vel_z` along "the slot 3/4 axis"). Coriolis
-## rotates that pair, so it needs the frame to be consistently HANDED; the gather kernels need the slots to be
-## slot-opposite RECIPROCAL. **Both cannot hold in one table, and that is topology, not a bug.** The pairing's
-## two link families form closed cycles on the sphere; where two cycles cross, the handedness sign is the
-## transverse intersection sign of two closed curves, and on a sphere every closed curve bounds, so that signed
-## count is exactly 0. Measured at res 16/24/32: every crossing pair carries BOTH signs and every pair sums to
-## zero. A 50/50 split is the FLOOR, not an accident (measured 1732 right / 1724 left at res 24). Worse than a
-## sign flip: cycle ORIENTATION is the convention momentum is stored in, so adjacent cells on different cycles
-## disagreed about which way "tangent A" points on 17.45/17.13/16.99% of links at res 16/24/32 — an INTERIOR
-## defect growing as O(res²), where the pre-repair face-local axes could only disagree across a seam (O(res)).
-##
-## So the frame gets its own table and the pairing is left alone. `tan_a`/`tan_b` are built from the FACE-LOCAL
-## geometric axes, which are right-handed on all six faces by construction (`cross(_FACE_R, _FACE_U)·_FACE_N`
-## == +1 for every f) and merely DISCONTINUOUS at the seams — and Coriolis needs the handedness, not the
-## continuity. `tan_b = radial × tan_a` makes (a, b, radial) right-handed at every cell unconditionally.
-## Two derived tables carry the discontinuity so nothing else has to:
-##   `link_tan` — per lateral slot, the unit direction TOWARD that neighbour written in THIS cell's own (a,b)
-##       components. Kernels no longer assume "slot 2 == +tangent A": they dot with this. It is what makes the
-##       upwind flux conservative to the face, because both ends of a link evaluate the SAME expression (a cell
-##       reads its neighbour's direction back at itself from `link_tan[m*4 + (l^1)]`, and slot-opposite
-##       reciprocity is exactly what guarantees that entry is the reverse of its own).
-##   `link_rot` — per lateral slot, the (cos, sin) that PARALLEL-TRANSPORTS a vector's (a,b) components out of
-##       this cell's frame and into the neighbour's. Anything that moves a VECTOR across a seam must apply it;
-##       a SCALAR is unaffected. (Vorticity is the in-tree consumer: a curl differences neighbour VELOCITIES,
-##       which are meaningless until they are expressed in one frame.)
 
 const FACES: int = 6
 # Per-cell neighbour slots (flat table = cell*6 + slot). OPPOSITE SLOT IS `d ^ 1` for all three pairs.
@@ -85,11 +18,6 @@ const S_A1: int = 1    # +a lateral
 const S_B0: int = 2    # -b lateral
 const S_B1: int = 3    # +b lateral
 
-# Cube-face bases: (normal, right=+a axis, up=+b axis). The seams are stitched by nearest-direction match, so
-# any consistent per-face frame tiles the sphere correctly — but the frame is ALSO what `tan_a`/`tan_b` are
-# seeded from, and there handedness matters: `cross(_FACE_R[f], _FACE_U[f]) · _FACE_N[f]` is +1 on all six
-# faces, which is why the per-cell tangent basis below comes out uniformly right-handed. `validate()` reports
-# it as `face_handed_min` rather than leaving it as a comment nobody re-checks.
 const _FACE_N: Array[Vector3] = [Vector3(1,0,0), Vector3(-1,0,0), Vector3(0,1,0), Vector3(0,-1,0), Vector3(0,0,1), Vector3(0,0,-1)]
 const _FACE_R: Array[Vector3] = [Vector3(0,0,-1), Vector3(0,0,1), Vector3(1,0,0), Vector3(1,0,0), Vector3(1,0,0), Vector3(-1,0,0)]
 const _FACE_U: Array[Vector3] = [Vector3(0,1,0), Vector3(0,1,0), Vector3(0,0,-1), Vector3(0,0,1), Vector3(0,1,0), Vector3(0,1,0)]
@@ -105,10 +33,6 @@ var center: Vector3 = Vector3.ZERO
 var _dir: PackedVector3Array = PackedVector3Array()        # surf_count unit surface directions
 var surf_nbr: PackedInt32Array = PackedInt32Array()        # surf_count*4 : [-a,+a,-b,+b] neighbour surf index
 var neighbours: PackedInt32Array = PackedInt32Array()      # cell_count*6 : the full per-cell table (for kernels)
-# cell_count*6 : the FLAT index of the slot in my neighbour that points back at me, or -1 at a boundary.
-# A two-pass gather reads `send[link_partner[base + d]]` — no opposite-slot arithmetic anywhere, so the
-# reciprocity bug that hit four kernels cannot be written. Built from `neighbours` itself, so it cannot
-# disagree with it.
 var link_partner: PackedInt32Array = PackedInt32Array()
 
 var _back: PackedInt32Array = PackedInt32Array()           # surf_count*4 : partner's geometric slot pointing back
@@ -122,16 +46,6 @@ var tan_b: PackedVector3Array = PackedVector3Array()       # surf_count : unit t
 # surf_count*4*2, indexed (surf*4 + lateral_slot)*2 — LATERAL SLOT ORDER, i.e. kernel slots 1..4 are l = 0..3.
 var link_tan: PackedFloat32Array = PackedFloat32Array()    # unit direction toward that neighbour, in MY (a,b)
 var link_rot: PackedFloat32Array = PackedFloat32Array()    # (cos, sin) transporting MY (a,b) into the NEIGHBOUR's
-# ANGULAR separation to each lateral neighbour, radians, one per surface cell per lateral slot. Multiply by a
-# cell's RADIUS to get the arc distance between the two cell centres — the lateral RUN of that link.
-#
-# It exists because a slope is a rise over a RUN, and this grid's run is not its cell size. The radial
-# thickness of a cell is exactly `cell_size`, but the lateral spacing is an arc that grows with radius and
-# shrinks toward a face corner, so on the shipped grid the width/height aspect ranges 1.07 to 4.08. Any kernel
-# comparing a height difference against a tangent — the angle of repose is the one that does — is asserting
-# cells are cubes, and holds sediment at 33 degrees at the shell floor and 10 degrees at the top instead of
-# the 35 the material actually stands at. Stored per SURFACE cell like the other two link tables, because the
-# angle depends only on the two directions; the radius scaling is the kernel's one multiply.
 var link_arc: PackedFloat32Array = PackedFloat32Array()    # radians between cell centres, per lateral slot
 
 
@@ -232,10 +146,6 @@ func _seam(f: int, a_local: float, b_local: float) -> int:
 	return best
 
 
-# ---------------------------------------------------------------------------------------------------------
-# Reciprocal lateral pairing. Seeded from the geometry, repaired only where the geometry contradicts itself.
-# ---------------------------------------------------------------------------------------------------------
-
 ## For every surface link (s, geometric slot g), the slot the PARTNER uses to point back at s. -1 if the stitch
 ## failed to produce a mutual link (should never happen on a closed sphere; `validate().symmetric` reports it).
 func _build_back_slots() -> void:
@@ -323,10 +233,6 @@ func _repair_pairs(fam: PackedInt32Array) -> int:
 	return flips
 
 
-## Stage 2 — general alternating-path repair, needed when the seam column has ODD length (odd `res`), where
-## pairing cells off along the column always strands one. Walks an alternating path (remove an A link, add an
-## A link, remove, …) from an unbalanced cell to another one: every cell in the MIDDLE of such a path loses and
-## gains one A link, so only the two ENDS change, and both change toward balance.
 func _repair_augment(fam: PackedInt32Array) -> int:
 	var flips: int = 0
 	var rounds: int = 0
@@ -465,10 +371,6 @@ func _build_lateral_slots() -> void:
 # TANGENT FRAME + per-link direction/rotation. Built from the FACE geometry, never from the lateral slots.
 # ---------------------------------------------------------------------------------------------------------
 
-## Per-cell orthonormal tangent frame. `tan_a` is the face's +a axis projected into the cell's tangent plane —
-## on a cube face `|_FACE_R · dir|` never exceeds 1/sqrt(3), so the projection can never degenerate. `tan_b` is
-## then `radial × tan_a`, which forces `tan_a × tan_b == radial` at EVERY cell: the frame is right-handed by
-## construction, on all six faces, with no dependence on how the lateral links happened to be paired or walked.
 func _build_tangent_basis() -> void:
 	tan_a.resize(surf_count)
 	tan_b.resize(surf_count)
@@ -492,10 +394,6 @@ func _transport(v: Vector3, n_from: Vector3, n_to: Vector3) -> Vector3:
 	return v.rotated(axis / alen, atan2(alen, n_from.dot(n_to)))
 
 
-## For every lateral link: the direction toward the neighbour in MY frame, and the rotation into ITS frame.
-## Indexed by LATERAL SLOT (`lateral_slot`, i.e. kernel slots 1..4 as l = 0..3) so a kernel that has a slot in
-## hand can read them without a second indirection. Both are functions of the two cells' directions only, so
-## they are identical for every radial layer of a column and stored once per SURFACE cell.
 func _build_link_frames() -> void:
 	link_tan.resize(surf_count * 8)
 	link_rot.resize(surf_count * 8)
@@ -613,10 +511,6 @@ func _face_of(dir: Vector3) -> int:
 	return 4 if dir.z >= 0.0 else 5
 
 
-## Neighbour table packed in the GPU KERNEL slot order (matches the water/lava/slump send convention):
-## slot 0=inward/down, 1-4=lateral, 5=outward/up. (Internal table order is [IN,OUT,A0,A1,B0,B1].) The kernels'
-## opposite pairs (0↔5, 1↔2, 3↔4) map exactly onto the internal `d ^ 1` pairs, so the reciprocity guaranteed by
-## `validate().reciprocal` carries over to this packing unchanged.
 func neighbours_kernel_order() -> PackedInt32Array:
 	var out: PackedInt32Array = PackedInt32Array()
 	out.resize(cell_count * 6)
@@ -631,20 +525,6 @@ func neighbours_kernel_order() -> PackedInt32Array:
 	return out
 
 
-## Self-validation of the seam table. Returns {ok, reciprocal, non_reciprocal, symmetric, closed, min_dot,
-## max_dot, lateral_bends, errors}.
-##
-## reciprocal = SLOT-OPPOSITE reciprocity over the full cell table: `nbr[c*6+d] == m ⟹ nbr[m*6+(d^1)] == c`.
-## This is the real contract — every 2-pass gather kernel credits its inflow from `send[m*6 + OPPOSITE(d)]`, so
-## a link sitting in any other slot destroys mass at that seam (the send slot is written and never read) and
-## duplicates it at another (read twice). Reciprocity implies BOTH of those counts are zero, because it makes
-## `(c,d) ↦ (m,d^1)` an involution on the valid links: every written send slot has exactly one reader.
-##
-## symmetric = the weaker set-level property (A lists B ⟹ B lists A SOMEWHERE). It is kept because it isolates
-## a genuine stitch failure from a mere slot-assignment failure, but on its own it proves nothing about mass —
-## it was true, and reported ok, throughout the years this table was silently leaking at 1.4% of its links.
-## closed = every surface neighbour index is in range. min/max_dot = alignment of adjacent cell directions
-## (near 1.0 everywhere = a smooth, seam-free surface). `ok` requires ALL of closed, symmetric and reciprocal.
 func validate() -> Dictionary:
 	var errors: int = 0
 	var closed: bool = true
@@ -680,10 +560,6 @@ func validate() -> Dictionary:
 			if neighbours[m * 6 + (d2 ^ 1)] != c:
 				non_recip += 1
 	errors += non_recip
-	# TANGENT FRAME (a separate table, and a separate contract — see the header). `handed_min` is the worst
-	# `(tan_a × tan_b) · radial` over every cell: it must be +1, because Coriolis rotates that pair and a cell
-	# where it is -1 deflects backwards. `face_handed_min` is the same test on the six raw face bases, checked
-	# rather than asserted, since the per-cell frame inherits its sign from them.
 	var handed_min: float = 2.0
 	for s in surf_count:
 		handed_min = minf(handed_min, tan_a[s].cross(tan_b[s]).dot(_dir[s]))

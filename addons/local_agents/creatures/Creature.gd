@@ -3,16 +3,6 @@
 class_name LocalAgentCreature
 extends CharacterBody3D
 
-# @tool is here ONLY so the inspector can show _get_configuration_warnings() on a Creature dropped into a
-# scene. Nothing else about this script may run in the editor: _ready, _process and _physics_process each
-# return immediately under Engine.is_editor_hint(), and those three are the script's only engine callbacks
-# (there is no _init / _enter_tree / _notification here), so an editor-placed Creature stays inert.
-#
-# One flexible creature driven by a species config Dictionary. Terrain-follow via an
-# injected LAVoxelTerrainService (surface_height(x,z)). Behavior is emergent: flee larger
-# hunters, hunt prey (melee bite or persistence + thrown rocks), scavenge carrion, eat
-# plants, panic at felt/heard events, flock/imitate same-kind neighbours, and live/die by
-# an energy budget. (Explicit types only — project rule: no ':=' inferred typing.)
 
 const GROUP_SELECTABLE: String = "selectable"
 const GROUP_PLANT: String = "plant"
@@ -23,54 +13,25 @@ const PREDATOR_SIZE_RATIO: float = 1.2     # flee anything this many times my si
 # Turn rates + coast avoidance live in LACreatureLocomotion (which owns the movement step); the think and
 # physics-rate stride constants live in LACreatureLod (which owns the decision + update cadence).
 
-# --- energy / hunger / mortality (emergent: eat to live, starve or age to die) ---
 var energy: float = 100.0
 var max_energy: float = 100.0
-# Per-creature disease/immune state — owned by LACreatureDisease so all of it lives off this monolith (the
-# seam the disease fan-out builds on). Set in setup(); ticked in _physics_process; transmission modules call
-# disease.infect(). Symptoms damage the HP `health` field below. Null-guarded so the sim runs identically
-# until disease behaviour lands.
 var disease: LACreatureDisease = null
 var gut_microbiome: LACreatureMicrobiome = null  # adaptive gut flora — modulates digestive yield (LACreatureMicrobiome)
 var lactate: float = 0.0                     # muscle LACTATE (0..1): the anaerobic-exertion fatigue byproduct.
 var _water_force: Vector3 = Vector3.ZERO     # cached water-current sweep (recomputed on a stride; raycast-heavy)
-                                             # Builds when sprinting past the aerobic threshold, clears aerobically
-                                             # at rest; caps top speed + makes conserving energy a top drive so
-                                             # animals aren't perpetually running. (0.4: full ATP/glycogen/O₂ chem.)
-# --- body state the respiration reaction runs on (LACreatureRespiration). There is no `metabolism` trait any
-# more: a body's burn rate is its gas-exchange SURFACE times the local oxygen times the temperature band, and
-# that surface is the geometric surface of the species' MEASURED body mass below, not a per-species constant.
 var body_temp: float = 20.0                 # °C of the BODY, not the air. Newton-cools toward ambient with a
-                                            # time constant ∝ mass/area, and is raised by the heat its own
-                                            # oxidation releases. An ectotherm tracks ambient because its
-                                            # thermogenesis gene is ~0, not because of any branch.
 var respiratory_capacity: float = 1.0       # heritable gas-exchange surface packed into the body's area
 var thermogenesis: float = 0.0              # heritable: how hard the body raises oxygen throughput when cold.
                                             # 0 IS an ectotherm; high IS an endotherm. One continuum, no flag.
 var _resp_capacity: float = 0.0             # last tick's AEROBIC CAPACITY per second (what the body's surface and
-                                            # the local air could support, before behaviour). The allometry is a
-                                            # law about this; _resp_rate below is what was actually spent.
 var _resp_rate: float = 0.0                 # last tick's REALISED oxidation, per second — the measured metabolic
-                                            # rate. Read by SIM_REPORT to fit the mass-scaling exponent, so the
-                                            # allometry is something the run reports rather than something a
-                                            # constant asserts.
 
-# --- BODY MASS: the account every transaction with the world is measured in (LACreatureBodyMass) ----------
-# The RATE law is above (surface × oxygen × band). What these carry is the MASS, because a grazing bite, a
-# predator's meal, a carcass and a gestation all have to come out of a real account or the substrate's carbon
-# books cannot close. `mass_kg` is the species' MEASURED body mass, not `size` — see LACreatureBodyMass.
 var mass_kg: float = 0.5                     # real body mass in kilograms (species data; not the `size` gene)
 var structural_mass: float = 0.0             # bone/muscle/organ in simulation mass units (the non-labile half)
 var bite_rate: float = 1.0                   # mass units a mouth can process per second (∝ aerobic capacity)
 
-# --- breathing (emergent: breathe your medium; suffocate out of it). Land animals breathe AIR — submerged
-# past the head, or in O2-depleted smoke, they can't breathe and burn through a per-animal BREATH reserve;
-# at zero they suffocate (drown). breath_capacity is the seconds of held breath — big lungs (diving birds,
-# aquatic mammals) can stay under longer to hunt, then must resurface. See LACreatureMetabolism.tick_breath.
 var breath_capacity: float = 6.0
 var _breath: float = 6.0
-# Breathing organ: "air" = LUNGS (land animals — suffocate underwater / in smoke), "water" = GILLS (suffocate
-# in air). Every creature is equipped with one; land LocalAgentCreature default to lungs, aquatic LAFish to gills.
 var breathes: String = "air"
 
 # --- health / HP (emergent damage: blasts & lightning deal graded, deterministic damage;
@@ -81,11 +42,6 @@ var food_value: float = 55.0
 var max_age: float = 90.0
 var hungry_at: float = 0.7
 
-# --- digestion: a gut buffer that turns eaten biomass into energy + waste OVER TIME (LACreatureDigestion),
-# replacing the old instant feed. A bite fills the gut; the gut digests each frame into energy (at a
-# microbiome-scaled efficiency) and pending feces (gut_waste). Energy now climbs as food digests, a full gut
-# buffers surplus, and an empty gut means no energy until the creature eats. State lives here; logic is in the
-# module. Sized + seeded at spawn (LACreatureDigestion.setup); the waste is deposited by LACreatureExcretion.
 var gut: float = 0.0                          # biomass currently buffered in the gut (energy-equivalent units)
 var gut_capacity: float = 0.0                 # max gut fill (set at spawn ~ max_energy * CAPACITY_FRAC)
 var gut_waste: float = 0.0                    # indigestible residue awaiting excretion (feeds LACreatureExcretion)
@@ -97,21 +53,13 @@ var gut_digestibility: float = 1.0            # mass-weighted digestibility of w
 var hydration: float = 100.0
 var max_hydration: float = 100.0
 var thirst_rate: float = 1.0
-# `DRINK_RATE` is GONE from here. It was a flat 45.0/sec copied into THREE files (this one,
-# LACreatureThirst, LACreatureThink) — more than a mouse's entire body water per second and a trickle to a
-# whale — and two of the three copies refilled hydration without emptying any water cell at all. There is one
-# drinking path now, LACreatureThirst.drink, and it scales with the animal's own water turnover.
 const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupts other drives
 
-# Temperature-comfort + drowning constants moved to LACreatureMetabolism (which owns that survival tick):
-# heat/cold/combust/lethal bounds + drown depth. A wildfire, lava, a hot day, or a cold snap all act through
-# that one temperature rule — no per-disaster code.
 
 var _material = null                          # LAMaterialField (temp_at / depth_at / is_water_at)
 var _water_dir_cache: Vector3 = Vector3.ZERO
 var _water_search_cd: float = 0.0
 
-# --- ranged hunting (throwers can't outrun fast prey, so they throw rocks) ---
 var throws: bool = false
 var throw_range: float = 14.0
 var _throw_cd: float = 0.0
@@ -122,24 +70,10 @@ var _dying: bool = false
 var terrain = null                       # LAVoxelTerrainService (injected)
 var config: Dictionary = {}
 
-# --- STANDALONE (library drop-in) support -------------------------------------------------------
-# A Creature dropped into a scene as a NODE (Creature.tscn), with NO ecology / MaterialField / planet
-# wiring, is configured by setup_standalone(): it gets a flat-ground terrain + sensible defaults and runs
-# on its pure FAST brain (no slow-LLM escalation, no shared field reads, no ecology broadcasts). When
-# `standalone_on_ready` is set, the .tscn self-configures in _ready from `standalone_species` (a species id
-# like "rabbit", a res:// JSON path, or "" for a generic walker) — so the prefab "just works" on drop-in.
-# Default OFF so a sim creature (built via _instance_actor, whose setup() is called explicitly right after
-# add_child) never self-configures — its _ready sees an empty config but standalone_on_ready is false.
-# Creature.tscn stores `standalone_on_ready = true`, so a Creature DRAGGED into a scene does self-configure;
-# only the bare-script/`.new()` path (which the ecology uses) starts from this OFF default.
 @export_group("Standalone")
 ## Configure this creature from its species file during _ready, with a flat-ground terrain at Ground Y.
 ## Turn off if a world (LocalAgentSimWorld / EcologyService) will call setup() for it instead.
 @export var standalone_on_ready: bool = false
-## Species id, e.g. "rabbit", "fox", "bird". Backed by creatures/species/**/<id>.json.
-## A res:// path ending in ".json" also works. Blank uses the built-in generic walker.
-## (Plain String on purpose: @export_enum cannot offer an empty option, so it could not express
-## the generic walker. The editor plugin supplies the dropdown instead.)
 @export var standalone_species: String = ""
 ## World Y of the flat ground plane this creature stands on when running standalone.
 @export_range(-1000.0, 1000.0, 0.05, "or_less", "or_greater", "suffix:m") var ground_y: float = 0.0
@@ -149,16 +83,10 @@ var diet: String = "herbivore"
 var speed: float = 3.0
 var size: float = 0.5
 var color: Color = Color(0.7, 0.7, 0.7)
-# SEX (assigned ~50/50 at setup via the seeded sim RNG, not inherited). Breeding needs one of each: the female
-# bears + gestates and CHOOSES her mate; the male courts and shows his DISPLAY (see LAAppraisal /
-# LACreatureReproduction). is_male also gates how strongly the display gene is expressed.
 var is_male: bool = false
 var can_fly: bool = false
 var cruise_height: float = 12.0
 var sense_radius: float = 8.0
-# COHORT DESYNC: every individual gets its OWN maturity/lifespan, jittered around the species value at spawn
-# so a generation doesn't mature, breed and die in lockstep (the variance constants + the jitter live in
-# LACreatureSetup, which owns the whole spawn-time config expression).
 var maturity_age: float = 15.0
 var preys_on: PackedStringArray = PackedStringArray()
 var flees_from: PackedStringArray = PackedStringArray()
@@ -167,19 +95,10 @@ var herd: bool = false
 # out-rank the current leader by MORE than this margin to take over. 0 = pure meritocracy (always follow the
 # local top — animals); high = sticky dynasties that survive a slump (humans). One number, no per-species code.
 var leader_loyalty: float = 0.0
-# Emergent leadership SHAPE for this species (one knob, increasing structure):
-#   "flat"    — one local leader per cluster; everyone else follows it directly (the base model).
-#   "family"  — juveniles follow their nearest family adult (parent/elder); adults flat-follow the pack leader.
-#   "command" — family-following PLUS a multi-level rank tree among adults (grunt→lieutenant→huntmaster).
-# "family"/"command" both parent-follow, so parent-following is just a mode of hierarchy, not a separate flag.
 var hierarchy: String = "flat"
 var nocturnal: bool = false
-# Perception scale for the night: recomputed each frame from the shared day/night clock.
-# Nocturnal species see FARTHER after dark; diurnal species see LESS — so nights favour
-# night hunters. Emergent, driven by one config flag, not hardcoded predator/prey cases.
 var _sense_mult: float = 1.0
 
-# --- flocking weights (defaults; overridden per-species via config) ---
 var flock_cohesion: float = 0.5
 var flock_alignment: float = 0.5
 var flock_separation: float = 0.8
@@ -189,15 +108,8 @@ var flock_weight: float = 0.7
 var age: float = 0.0
 var state: String = "wander"
 
-# --- the player's "hand" (Black & White): picked up, carried, then dropped or thrown ---
-# While _held, _physics_process is suspended so VoxelWorld drives global_position directly.
-# A THROW is just a fling: it releases the same physics shadow (below), so a thrown creature tumbles
-# under real physics and stands back up on landing — one mechanism, no separate ballistic path.
 var _held: bool = false
 
-# Physics shadow (HL2-style): while _ragdoll, a RigidBody3D SHADOW drives the body (fling/topple),
-# and the visible creature reads its transform each frame. On settle it either stands up (alive) or
-# becomes a _carcass — the SAME node, no separate corpse, no model swap — and rots green->black.
 var _ragdoll: bool = false
 var _carcass: bool = false
 var _dead: bool = false
@@ -219,11 +131,6 @@ var _mesh: MeshInstance3D = null
 var _model_root: Node3D = null
 var _model_anim: AnimationPlayer = null
 var _model_anims: Dictionary = {}
-# Animation-framerate + collision LOD state, driven by LACreatureAnim (which owns both throttles and the
-# animation playback): accumulated real time since this creature's last skeleton update, its instance-
-# staggered phase so the population's animation frames spread evenly, and the last computed stride (read by
-# telemetry). _collision_shape is set in LACreatureBody.build_body; _collision_on tracks the pick shape's
-# current broadphase state to avoid redundant toggles.
 var _anim_accum: float = 0.0
 var _anim_phase: int = -1
 var _anim_stride: int = 1            # last computed animation-update stride (1 = every frame); telemetry reads it
@@ -239,7 +146,6 @@ var _tint_category: String = ""                   # the category currently paint
 var _tint_mat: StandardMaterial3D = null          # per-creature emissive overlay (reused across colours)
 var _tint_targets: Array = []                      # cached MeshInstance3D nodes to overlay (lazy)
 
-# --- terror / fear system: sprint away from felt/heard violence, overriding all else ---
 var _panic_timer: float = 0.0
 var _panic_source: Vector3 = Vector3.ZERO
 
@@ -249,10 +155,6 @@ var _eff_speed: float = 0.0                 # decided speed, carried between thi
 var _think_phase: int = -1                  # per-instance stagger offset (lazily set on first tick)
 var _force_think: bool = false              # acute event (scare/damage) → re-decide next frame
 
-# --- emergent local leadership (LACreatureLeadership) ---
-# A `herd` creature is either the local top-ranked same-species individual (a LEADER: _leader==null,
-# _is_leader==true, runs the full think cascade) or a FOLLOWER (_leader set → adopts the leader's decision
-# and coasts). Election is throttled by _leader_elect_cd. Non-herd creatures are always their own leader.
 var _leader: Node3D = null
 var _is_leader: bool = true
 var _leader_elect_cd: int = 0
@@ -260,86 +162,46 @@ var _leader_elect_cd: int = 0
 # Injected ecology service — broadcast calls, spawns.
 var _ecology = null
 
-# Digestion + marking: a fed creature periodically drops FECES (soil fertility + a food/musk cue) and, more
-# often, URINE (territorial musk). Both deposit into the shared scent/fertility field (LAMaterialScent3D)
-# via _material — predators track prey by their dung, and dung fertilizes the soil so plants regrow.
 var _poop_cd: float = 0.0
 var _urine_cd: float = 0.0
 
-# --- perception genes: sight is a FOV cone (LAVision), hearing is omnidirectional ---
-# eye_fov = full cone width in degrees. Wide (prey, ~300) = panoramic but shallow; narrow
-# (predator, ~100) = must aim, but binocular depth buys longer range. Heritable + evolvable.
 var eye_fov: float = 220.0
 var hearing_range: float = 12.0            # calls carry this far, in every direction, even at night
 var _call_cd: float = 0.0
 
-# --- cognition (fast/slow) + genetics ---
-# LINEAGE. family_id is the bloodline and ONLY the bloodline: offspring inherit a parent's id, so relatives
-# learn from each other more strongly than unrelated herd-mates (social/cultural transmission of behaviour).
-# It is immutable for life by design — LAKinshipGraph's components only grow and its labels never change,
-# which is what keeps the kin check a cached integer compare that can never go stale.
 var family_id: int = 0
-# AFFILIATION. band_id is who I currently RUN WITH, which is a different question and answers to a different
-# rule: it emerges from sustained association and CHANGES when the association does (LACreatureAffiliation).
-# These two used to be the same integer, which is why an animal could not leave one warren for another.
-# `_band_solo` is this creature's own permanent band-of-one label, returned to whenever it leaves a band.
 var band_id: int = 0
 var _band_solo: int = 0
 var _assoc: Dictionary = {}                # instance id -> association bond with that companion
 var _assoc_cd: float = 0.0                 # seconds until the next (coarse) association sample
 var _genome = null                         # LADNA (literal DNA strand → traits + baked instinct priors)
 var _cognition = null                      # LACognition (per-creature learned policy + slow-brain hook)
-# Per-creature TAMENESS / companion state — owned by LACreatureBond so all of it lives off this monolith (a
-# per-creature RefCounted module that owns its own state). Set in setup(); ticked in _physics_process; friendly
-# interaction calls bond.befriend(). While bonded + commanded it pre-empts the autonomous decision cascade (the
-# command override below). Null-guarded so a wild, untamed creature runs identically to before.
 var bond: LACreatureBond = null
-# PLAYER CONTROL over the local-LLM "slow brain". When off, cognition never escalates to the shared
-# scheduler (see LACognition._should_escalate) — the creature runs on its fast reinforced policy + innate
-# cascade only. Toggled per-creature / per-group from the UI (LALLMControl, CreatureThoughtPanel).
-# This export is the DEFAULT; a species config key "llm_enabled" still overrides it in setup().
 @export_group("Cognition")
-## Let this creature escalate novel situations to the language model. Off = fast rules only.
-## Needs a cognition scheduler injected (set_cognition_scheduler) before it can do anything, and
-## with no scheduler present this costs nothing, because escalations resolve on the heuristic teacher.
-## Defaults ON to match the behaviour before this was an export: no species JSON sets the key, so a
-## default of false silently took the slow brain away from every land creature in the shipped sim.
 @export var llm_enabled: bool = true
 var _migrate_dir: Vector3 = Vector3.ZERO   # steady heading chosen when the 'migrate' action fires
 var _veto_dir: Vector3 = Vector3.ZERO      # committed retreat heading when cognition VETOES a learned-lethal action
 var _veto_timer: float = 0.0               # seconds left on the current retreat commitment (latched, anti-oscillation)
 
-# --- flight / scavenging / public information ("watch the vultures") ---
 var _target_altitude: float = 12.0         # per-frame desired flight height above ground (flyers descend to feed/circle)
 var _cue_pos: Vector3 = Vector3.ZERO       # a heard/smelt carrion cue to investigate
 var _cue_cd: float = 0.0                    # seconds the current cue stays salient
 var _pursued_cue: String = ""              # the LEARNED cue key currently being investigated
 var _pursued_cd: float = 0.0               # window to credit that cue if food follows (else it decays)
 
-# --- nesting / shelter (birds nest, mammals burrow/den; offspring inherit the site) ---
 var nests: bool = false
 var nest_habitat: String = ""                    # "tree" | "ground" | "water" (default derived from can_fly)
 var has_nest: bool = false
 var nest_pos: Vector3 = Vector3(INF, INF, INF)   # sentinel = no nest yet
 var _nest_node = null                            # LANest (the placed home site)
 
-# --- per-creature reproduction (LACreatureReproduction: courtship + energy-costed gestation) ---
-# A mature, well-fed adult seeks a nearby same-species mate; on pairing the bearer gestates (draining energy)
-# and BIRTHS one offspring at term, then cools down. Replaces the old top-down breeding god-tick. State only —
-# all logic lives in the module. `pregnant` gates re-conception; `_mate` is the captured partner used at birth.
 var pregnant: bool = false
 var _gestation_t: float = 0.0                    # seconds of gestation remaining while pregnant
 var _gestation_paid: float = 0.0                 # body mass already invested in the young (recovered on resorption)
 var _mate = null                                 # LocalAgentCreature partner captured at conception (for the birth genome/bond)
 var _repro_cd: float = 0.0                       # seconds until this creature may conceive again (post-birth / pair refractory)
 
-# --- life stage (LACreatureLifeStage): a newborn is born small and grows to adult size along the age axis ---
 var _growth: float = 1.0                          # cached visual growth scale (1.0 = full adult); updated by the life-stage tick
-# --- senescence / ageing (LACreatureSenescence): a graded juvenile→prime→old decline of speed, fertility, and
-# resilience (max_energy reserve) as age climbs toward max_age. Owns its own curve + the youthful speed/max_energy
-# baselines it rewrites the live traits from each frame; ticked right after the life-stage age advance. Metabolism
-# reads its factor() for old-age mortality; reproduction reads its fertility_mult(). Null until setup(); the sim
-# runs identically until it is created (all age-graded state lives off this monolith, mirroring the `disease` seam).
 var senescence: LACreatureSenescence = null
 
 
@@ -363,8 +225,6 @@ func hold_end() -> void:
 	_held = false
 
 
-# Released with a fling: hand the release velocity to the physics shadow as an impulse — the body
-# tumbles under real physics and (surviving) gets back up on landing. Same path as any other fling.
 func throw(velocity: Vector3) -> void:
 	_held = false
 	fling(velocity)
@@ -381,8 +241,6 @@ func debug_heading() -> Vector3:
 		return Vector3.ZERO
 	return _heading
 
-
-# --- behavior-state debug tint (all logic in LACreatureTint) --------------------------------------
 
 ## Enable/disable a behavior-state highlight globally (called by VoxelDebugWiring from the DebugPanel).
 ## The tint applies to whichever creatures are in a matching state; multiple categories can be on at once.
@@ -440,9 +298,6 @@ func on_struck() -> void:
 	die("struck")
 
 
-# Take deterministic HP damage from a blast/lightning/etc. Death happens only when HP hits 0.
-# A surviving creature hit by a real impulse is FLUNG (physics shadow) and gets back up; the
-# killing blow's impulse flings the body that then stays as a carcass. No randomness in the path.
 func take_damage(amount: float, cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	if _dying or amount <= 0.0:
 		return
@@ -465,27 +320,16 @@ func fling(impulse: Vector3) -> void:
 	LACreatureRagdoll.launch(self, impulse, false)
 
 
-# Instance hook for the EcologyStimulus.apply_wind_force area broadcast: apply a CONTINUOUS field
-# force (world units/sec) to this creature over `delta`. Distinct from fling()'s discrete impulse —
-# this is the wind/momentum advection path (delegates to LACreatureFieldForces; inert while zero).
 func apply_field_force(force: Vector3, delta: float) -> void:
 	if _held or _ragdoll or _carcass:
 		return
 	LACreatureFieldForces.apply(self, force, delta)
 
 
-# Death: the creature does NOT vanish or spawn a corpse — it becomes a carcass IN PLACE. Its physics
-# shadow is released so the body falls/tumbles (an `impulse`, e.g. a meteor, flings it), and once it
-# settles it stays where it fell and rots (green->black) before finally shrinking away. Same node,
-# same model, throughout.
 func die(cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	if _dying:
 		return
 	_dying = true
-	# The JOINT cause x species tag, not just the two marginals. Reading "83 starvations" and "12 villager
-	# deaths" off separate tallies cannot tell you whether the villagers starved, and working that out by
-	# elimination is how a real defect (large animals in false metabolic deficit while asleep) stayed hidden
-	# for a whole measurement round.
 	LASimReport.event("death", {"cause": cause, "species": species, "who": cause + ":" + species})
 	# A death cry: nearby animals hear it and startle (predators may later home in on it).
 	if _ecology != null and _ecology.has_method("broadcast_call"):
@@ -493,9 +337,6 @@ func die(cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	LACreatureRagdoll.launch(self, impulse, true)
 
 
-## Spawn-time configuration: express the genome/species config onto this individual, build the body, and
-## construct the per-creature sub-state modules. Thin forwarder — the whole pass lives in LACreatureSetup
-## (off this monolith), which writes the trait fields declared above.
 func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	LACreatureSetup.apply(self, _terrain, _config, _genome_arg)
 
@@ -515,11 +356,6 @@ func _get_configuration_warnings() -> PackedStringArray:
 	return LocalAgentCreatureWarnings.check(self)
 
 
-## LIBRARY drop-in entry — configure this Creature to live on a bare FLAT floor with NONE of the sim's
-## optional services (no ecology broadcasts, no shared LAMaterialField, no shared slow-brain scheduler): a
-## pure fast/reinforced-brain animal you can drop into any scene. Thin forwarder — the resolution + wiring
-## live in LACreatureStandalone (off this monolith). `config_source` may be a Dictionary, a ".json" path, a
-## species id ("rabbit", …) or "" (generic walker); `opts` may carry {ground_y, cognition_scheduler}.
 func setup_standalone(config_source = {}, opts: Dictionary = {}) -> void:
 	LACreatureStandalone.setup(self, config_source, opts)
 
@@ -568,12 +404,6 @@ func _process(delta: float) -> void:
 	LACreatureAnim.tick(self, delta)
 
 
-# --- decision + physics-rate LOD, and the hot-path profiler ---------------------------------------
-# The full cognition cascade is the creature's only non-trivial per-frame cost, and the whole physics
-# tick runs on a relevance-derived stride with a catch-up dt. Both cadences (plus the shared camera
-# position and the global AI-tick multiplier) live in LACreatureLod; the per-subsystem microsecond
-# accounting emitted to SIM_REPORT lives in LACreatureProfile. Election cadence + the
-# LA_NO_LEADERSHIP kill-switch live in LACreatureLeadership.
 var _lod_accum: float = 0.0
 
 
@@ -593,10 +423,6 @@ func _physics_process(delta: float) -> void:
 	if _carcass:
 		LACreatureRagdoll.decay_tick(self, delta)
 		return
-	# Compute-bubble LOD: the whole update runs on a cadence derived from camera relevance, with a
-	# catch-up dt so metabolism/aging/movement distance stay correct however sparse the update (a far
-	# creature simply advances several frames of motion at once, invisible at range). An acute event
-	# (_force_think from a scare/damage) always runs live. No camera -> relevance undefined -> full rate.
 	if _think_phase < 0:
 		_think_phase = int(get_instance_id())
 	var lod_dt: float = LACreatureLod.phys_gate(self, delta)
@@ -617,18 +443,11 @@ func _physics_process(delta: float) -> void:
 	_sense_mult = 1.0
 	if _ecology != null and _ecology.has_method("is_night_at") and _ecology.is_night_at(global_position):
 		_sense_mult = 1.4 if nocturnal else 0.7
-	# Grazing: a plant-eater on vegetated ground crops the field's real `biomass` channel at its feet, and the
-	# pasture is DEBITED by what the mouth takes. Run BEFORE digestion so it is digested this same frame. Barren,
-	# frozen, flooded or already-grazed ground yields nothing — which is what makes starvation reachable.
 	LACreatureDigestion.ambient_graze(self, global_position, delta)
 	# Digestion: the gut converts buffered food into energy (+ pending feces) this frame — run BEFORE the
 	# metabolism burn/starvation check so a creature that just ate is credited its digested energy and won't
 	# starve with a full gut. Empty gut = no energy (must eat). See LACreatureDigestion.
 	LACreatureDigestion.tick(self, delta)
-	# Reproduction: run the breeding cooldown down, and if pregnant advance gestation + pay the per-frame
-	# gestation energy cost, giving birth at term (LACreatureReproduction). Placed BEFORE the metabolism burn
-	# so the gestation drain is folded into this frame's energy accounting. Courtship/mate-seeking (the steering)
-	# happens later in the decision cascade via courtship_heading. See LACreatureReproduction.
 	LACreatureReproduction.tick(self, delta)
 	# Disease/immune: progress any active infection, fight it (immune system), express symptoms (energy/speed),
 	# recover-with-immunity or die of disease. Owned by LACreatureDisease; a no-op until the disease work lands.
@@ -648,16 +467,9 @@ func _physics_process(delta: float) -> void:
 
 	var pos: Vector3 = global_position
 
-	# RESPIRATION: the substrate's own R20 oxidation (biomass + O₂ → CO₂ + detritus) running inside this body.
-	# Body temperature, the energy burn, the oxygen it draws from this cell and the CO₂ it exhales into it are
-	# all one reaction — see LACreatureRespiration. Replaces the old hand-rolled per-species energy burn and
-	# the module-constant comfort band. Death stops us.
 	if LACreatureRespiration.tick(self, pos, delta):
 		return
 
-	# Continuous field-force advection: the substrate's local wind/momentum drags the body (storm
-	# gale, updraft, shock front). Sampled every frame; distinct from the discrete fling() impulse.
-	# The field's wind3_at is zero today, so this is inert until the substrate lights it up.
 	LACreatureFieldForces.tick(self, delta)
 
 	# Temperature comfort + combustion, emergent from the shared field at my feet.
@@ -672,9 +484,6 @@ func _physics_process(delta: float) -> void:
 		LACreatureProfile.add("cr_meta", _pt)
 		_pt = Time.get_ticks_usec()
 
-	# Radial locomotion: `up` points away from the planet centre. All heading/heading-flatten math projects
-	# onto the local tangent plane using `up`, and ground reads/snaps go radial. `ground_pos` is the world
-	# point on the ground below us.
 	var up: Vector3 = terrain.up_at(pos)
 	var up_dir0: Vector3 = (pos - terrain.planet_center()).normalized()
 	var ground_pos: Vector3 = terrain.surface_point(up_dir0)
@@ -688,30 +497,12 @@ func _physics_process(delta: float) -> void:
 	# more often urinates (territorial musk). Both write to the shared scent/fertility field below it.
 	LACreatureExcretion.tick(self, ground_pos, delta)
 
-	# EMERGENT LEADERSHIP: decide (throttled) whether I lead my local same-species cluster or follow its
-	# top — done BEFORE the stride is computed so a fresh follower immediately gets the slow follower rate,
-	# and a leaderless creature (dead/departed leader) re-elects or self-decides this frame. Non-herd
-	# creatures are always their own leader (they never delegate their decision).
-	# Emergent leadership (all logic in LACreatureLeadership): decide (throttled) whether I lead my local
-	# cluster or follow a leader/parent — done BEFORE the stride so a fresh follower gets the slow rate and a
-	# leaderless creature (dead/departed leader) re-elects this frame.
-	# EMERGENT AFFILIATION: keep company with whoever is beside me, and let my band follow from that
-	# (LACreatureAffiliation). Runs on its own coarse cadence, not per frame, and settles `band_id` BEFORE
-	# the election and the flocking below read it. Given its own profiler bucket rather than folded into
-	# cr_glue, because "one bounded query per creature per half second" is a claim, and a claim about cost
-	# on this hot path should be readable off a run instead of argued.
 	var _at: int = Time.get_ticks_usec() if prof else 0
 	LACreatureAffiliation.tick(self, pos, delta)
 	if prof:
 		LACreatureProfile.add("cr_affil", _at)
 	LACreatureLeadership.maybe_elect(self, pos)
 
-	# DECISION THROTTLE (LOD): run the full cognition cascade only every `stride` frames, where the
-	# stride grows with distance to the camera and is heaviest while asleep/resting — see _think_stride.
-	# Instance-staggered (id % stride) so the population spreads its think-frames evenly at every rate.
-	# An acute event (_force_think, set by scare/damage) re-decides NEXT frame regardless — so a sleeping
-	# or distant creature still wakes and reacts. Between think-frames the creature keeps gliding along its
-	# last _heading at _eff_speed — movement + metabolism below stay every-frame for smoothness.
 	if prof:
 		LACreatureProfile.add("cr_glue", _pt)
 		_pt = Time.get_ticks_usec()
@@ -741,10 +532,6 @@ func _physics_process(delta: float) -> void:
 
 		var eff_speed: float = speed
 		if bond != null and bond.is_commanded():
-			# COMPANION COMMAND OVERRIDE: a tamed creature under an active player command (come/stay/follow)
-			# PRE-EMPTS its autonomous drive — the command steering wins outright until the player frees it or
-			# the bond lapses. Runs the command action through the same execute_action dispatch the fast policy
-			# uses, so a commanded pet reuses the ordinary movement path (LACreatureBond + LACompanionController).
 			var cmv: Dictionary = LACreatureThink.execute_action(self, bond.command(), pos, delta)
 			if cmv.has("heading"):
 				desired = cmv["heading"]
@@ -784,16 +571,8 @@ func _physics_process(delta: float) -> void:
 					desired = _water_dir_cache
 					state = "seek"
 				elif _leader != null and is_instance_valid(_leader):
-					# FOLLOWER (herd member, squad grunt, OR a parent-following juvenile): adopt my leader's
-					# DECISION (its canonical action) and act on it locally — skipping the whole expensive
-					# think_* + cognition assessment, which my leader (or the huntmaster above it) already
-					# paid. execute_action still finds MY own food/water/heading, so a lieutenant leading a
-					# sub-hunt and its grunts each chase their own nearest prey → coordinated, divergent hunts.
 					var la: String = LACreatureThink._adoptable_action(
 							LACreatureThink.state_to_action(_leader, _leader.state), self)
-					# CHEAP per-creature learning (followers too, O(1)): reinforce MY policy from MY own outcome
-					# and VETO the adopted action if MY own experience proves it lethal for me. No senses scan and
-					# no LLM here — that expensive "what to do" assessment stays leader-only (the decide() block).
 					if _cognition != null and state != "roost" and state != "nesting":
 						var sig_f: Dictionary = LASituationSignature.compute(self)
 						la = _cognition.learn_and_veto(self, la, sig_f, delta)
@@ -812,17 +591,8 @@ func _physics_process(delta: float) -> void:
 				else:
 					desired = LACreatureThink.think_prey(self, pos, desired)
 
-			# CHEMICAL-AFFINITY SMELL STEERING (LACreatureChemSense): bias the foraging heading toward scents
-			# this creature has LEARNED (or was born, via DNA cue priors) to associate with food/prey, and away
-			# from ones it learned mean danger — scaled by hunger so a fed animal ignores it. Emergent: no scent
-			# channel is hardcoded good or bad; the sign is learned. Suppressed while fleeing/drinking (see module).
 			desired = LACreatureChemSense.steer(self, pos, desired)
 
-			# COURTSHIP drive (LACreatureReproduction): a mature, well-fed, off-cooldown adult (species below its
-			# pop_cap) steers toward the nearest fertile same-species mate; on reaching it, it CONCEIVES (gestation
-			# begins in the reproduction tick). Below survival drives (predator/thirst/forage set `desired` above)
-			# and gated on being well-fed, so a hungry or fleeing animal never courts. Nesting can still override
-			# to send a home-nesting species back to breed at its nest.
 			if LACreatureReproduction.should_seek_mate(self):
 				desired = LACreatureReproduction.courtship_heading(self, pos, desired)
 
@@ -833,11 +603,6 @@ func _physics_process(delta: float) -> void:
 				if state == "sleep":
 					eff_speed = speed * 0.05          # barely stir while sleeping at the nest
 
-			# COGNITION (fast/slow) — the EXPENSIVE, LEADER-ONLY assessment of WHAT to do. Only local leaders
-			# (and non-herd creatures, which are their own leader) pay the senses scan + slow-brain LLM
-			# escalation; a confident learned habit may substitute a better action here. FOLLOWERS never reach
-			# this — they already adopted their leader's action above and ran the CHEAP learn_and_veto there.
-			# An empty policy changes nothing, so day-0 behaviour is unchanged (regression-safe).
 			if big_pred == null and _is_leader and _cognition != null and state != "roost" and state != "nesting":
 				var sig: Dictionary = LASituationSignature.compute(self)
 				var innate_action: String = LACreatureThink.state_to_action(self, state)
@@ -850,11 +615,6 @@ func _physics_process(delta: float) -> void:
 					eff_speed = float(mv.get("speed", eff_speed))
 				cognized = true
 
-			# LEARNED-LETHAL VETO retreat — shared by leaders (decide) and followers (learn_and_veto). If a
-			# decision THIS tick REFUSED an action learned reliably lethal HERE, don't merely coast on the safe
-			# fallback's heading — actively RETREAT away from the harm, at normal pace, so the creature clears
-			# the hazard instead of re-deciding into it. `cognized` gates freshness (a decision ran this tick)
-			# so a stale veto never hijacks a flee/drink frame. Latched for a short interval (anti-oscillation).
 			if cognized and _cognition.was_vetoed():
 				if _veto_timer <= 0.0:
 					# Dominant learned-lethal case is water (drowning): retreat to DRY LAND (opposite the nearest
@@ -871,9 +631,6 @@ func _physics_process(delta: float) -> void:
 				var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0) * 0.6
 				desired = (desired + jitter)
 
-			# CONSERVE ENERGY (a top drive): winded (high muscle lactate) with nothing pressing — safe and fed —
-			# so REST instead of roaming; lactate then clears aerobically. This is why animals aren't perpetually
-			# running around. Pressing needs (hunger/thirst/predator/flee/hunt) are NOT overridden — life still gets done.
 			if big_pred == null and _panic_timer <= 0.0 and lactate > 0.45 and energy > max_energy * 0.35 \
 					and (state == "wander" or state == "flock" or state == "migrate"):
 				state = "rest"
@@ -881,9 +638,6 @@ func _physics_process(delta: float) -> void:
 
 		desired = desired - up * desired.dot(up)   # decided heading lives in the local tangent plane
 		if desired.length() > 0.001:
-			# Record the decided direction as a TARGET; the movement block turns _heading toward it
-			# smoothly every frame (see below). On an acute flee (_force_think) snap instantly so a
-			# startled animal bolts NOW rather than banking into the turn.
 			_target_heading = desired.normalized()
 			if _force_think:
 				_heading = _target_heading
@@ -895,10 +649,6 @@ func _physics_process(delta: float) -> void:
 	if prof:
 		LACreatureProfile.add("cr_think", _pt)
 		_pt = Time.get_ticks_usec()
-	# MOVEMENT — every frame: turn toward the decided TARGET heading, step, and re-seat radially on the
-	# surface (coast avoidance included). All of it lives in LACreatureLocomotion; the think cascade above
-	# only ever sets _target_heading / _eff_speed, which this carries the body along smoothly, so throttled
-	# decisions still read as fluid motion instead of 20 Hz direction pops.
 	LACreatureLocomotion.move(self, pos, ground_pos, delta)
 	if prof:
 		LACreatureProfile.add("cr_move", _pt)
@@ -909,18 +659,12 @@ func _physics_process(delta: float) -> void:
 	LACreatureTint.update(self)
 
 
-# Off-hours: diurnal animals rest at night, nocturnal ones by day — from the one `nocturnal` flag + WHERE
-# THIS ANIMAL IS STANDING relative to the sun, no per-species sleep schedule and no global clock. Two herds
-# on opposite sides of the planet are correctly on opposite schedules.
 func _rest_period() -> bool:
 	if _ecology == null or not _ecology.has_method("is_night_at"):
 		return false
 	return _ecology.is_night_at(global_position) != nocturnal
 
 
-# Home drive: establish a nest the first time, then head to it — to SLEEP through the rest period,
-# or to breed. Returns the desired heading; sets state (roost/nesting/sleep). Site + shelter are
-# config-driven (birds nest in trees, mammals/snakes burrow, aquatic species nest in water).
 func _handle_nesting(pos: Vector3, fallback: Vector3) -> Vector3:
 	if not has_nest:
 		_establish_nest(pos)
@@ -971,9 +715,6 @@ func _emit_call(call_type: String) -> void:
 	_ecology.broadcast_call(global_position, species, call_type, self)
 
 
-# Hear a call from `caller` (already range-checked by the broadcaster against my hearing_range).
-# Alarm/distress feed the fear reflex even with no line of sight; a same-species forage call teaches
-# me to forage in my current situation, kin weighted over strangers — sound-based social learning.
 func hear_call(source_pos: Vector3, from_species: String, call_type: String, caller) -> void:
 	match call_type:
 		"alarm":
@@ -996,9 +737,6 @@ func hear_call(source_pos: Vector3, from_species: String, call_type: String, cal
 				_cue_cd = 12.0
 
 
-# Emergent threat detection: no hardcoded predator pairs. Flee ANY nearby creature that
-# HUNTS and is meaningfully LARGER than me — one rule makes rabbits flee foxes AND humans,
-# foxes flee humans, and apex-sized hunters fear nothing.
 func is_hunter() -> bool:
 	return diet == "carnivore" or (diet == "omnivore" and preys_on.size() > 0)
 
@@ -1015,8 +753,6 @@ func get_inspector_payload() -> Dictionary:
 	return LACreatureInspector.payload(self)
 
 
-# --- carcass food contract (only meaningful once dead; scavengers eat via these) ----------------
-
 # A scavenger takes a bite of the carcass; returns the energy actually removed.
 func feed(amount: float) -> float:
 	return LACreatureRagdoll.feed(self, amount)
@@ -1032,17 +768,10 @@ func nutrition() -> float:
 	return _carrion
 
 
-# --- body-mass contract (the trophic ledger; see LACreatureBodyMass) -----------------------------
-# What this body weighs right now: structural tissue + labile reserve + gut contents. A predator's meal, a
-# carcass and a gestation are all measured in this, so nothing can gain mass a body did not have.
 func body_mass() -> float:
 	return _carrion if _dead else LACreatureBodyMass.body_mass(self)
 
 
-# A predator (or a scavenger) takes up to `want` of this body and gets back what was actually there. On a live
-# animal it spends gut, then reserve, then structural tissue; on a carcass it strips the remaining meat. This
-# is what makes a kill conserve: the predator's gain and the carcass left behind add up to the prey's live
-# mass, instead of the old path banking `food_value * 0.7` and THEN minting a full-size carcass on top.
 func draw_body_mass(want: float) -> float:
 	if _dead:
 		return LACreatureRagdoll.feed(self, want)

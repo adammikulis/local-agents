@@ -2,10 +2,6 @@
 extends "res://addons/local_agents/audio/synth/SynthVoice.gd"
 class_name LocalAgentGdScriptSynthVoice
 
-## Default, dependency-free synthesis backend built on SynthDsp.
-##
-## Signal chain: (oscillator ⊕ noise) → ADSR envelope → biquad filter →
-## normalize → clip. Deterministic given the params' `seed`.
 
 const Params := preload("res://addons/local_agents/audio/params/SynthVoiceParamsResource.gd")
 

@@ -303,6 +303,18 @@ func report() -> Dictionary:
 	if _conservation != null:
 		r.merge(_conservation.check(r))
 
+	# One-off comparison: what the CPU mirror holds against what the GPU buffer holds, for the same channel.
+	# They must be equal; if they are not, every ledger reading the mirror is reporting fiction.
+	if _f._gpu != null and _f._gpu.has_method("channel_totals_now"):
+		var m: float = 0.0
+		for v in _f._o2:
+			m += v
+		var g: Dictionary = _f._gpu.channel_totals_now("o2")
+		r["o2_mirror_sum"] = snappedf(m, 0.01)
+		r["o2_gpu_live"] = snappedf(float(g.get("live", NAN)), 0.01)
+		r["o2_gpu_back"] = snappedf(float(g.get("back", NAN)), 0.01)
+		r["o2_mirror_size"] = _f._o2.size()
+		r["o2_cell_count"] = _f._cell_count
 	return r
 
 

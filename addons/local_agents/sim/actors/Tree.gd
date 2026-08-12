@@ -1,21 +1,6 @@
 class_name LATree
 extends StaticBody3D
 
-## A natural-looking tree built entirely from code meshes (no external assets).
-## A tapered brown trunk (CylinderMesh) plus a layered green canopy of overlapping
-## foliage blobs. Per-tree seeded jitter in size / tilt / hue keeps a forest varied
-## rather than cloned. Starts as a small sapling and grows to full size over ~20s.
-##
-## Species:
-##   "oak" (default) -> rounded broadleaf, overlapping foliage spheres
-##   "pine"          -> conical stacked cones, darker/taller/narrower
-##
-## Config keys (all optional):
-##   "height":       float   base trunk height (units, ~3-7 typical)
-##   "canopy_color": Color   foliage albedo (overrides species default)
-##   "scale":        float   full-grown scale multiplier
-##   "species":      String  "oak" | "pine"
-##   "seed":         int     deterministic per-tree variation seed
 
 const GROUP_SELECTABLE: String = "selectable"
 const GROUP_TREE: String = "tree"
@@ -23,25 +8,6 @@ const GROUP_TREE: String = "tree"
 const GROW_TIME: float = 20.0        # seconds sapling -> full size ON FULLY PRODUCTIVE GROUND (see _growth_rate)
 const START_FRACTION: float = 0.35   # freshly planted trees are visible immediately
 
-## A TREE GROWS AT THE SPEED ITS GROUND FIXES CARBON, NOT AT THE SPEED OF A CLOCK.
-##
-## What this replaced: `age += delta; _apply_growth()`. An entire trunk and canopy accreted from wall-clock
-## time — the same rate on bare rock, in the dark, at the pole, and in a rich equatorial grove — with no CO₂,
-## light, fertility or soil-water draw anywhere in it.
-##
-## WHY THIS IS A GATE AND NOT A STOCK, stated because the Plant node next door got the opposite treatment and
-## the difference is deliberate. A plant's edible RESERVE is CONSUMED: a herbivore eats it and it becomes
-## animal energy, so it has to be real mass drawn out of the field's biomass channel or the food web mints
-## matter. A tree's SCALE is not consumed by anything — the wood standing in a cell is already counted once,
-## in that cell's `biomass`, and giving the node a second private wood stock would double-count the same
-## carbon. So the honest fix here is to make the visual track the chemistry rather than to invent a ledger:
-## a tree on ground photosynthesis never greened simply stops growing.
-##
-## The scale is the biomass at the tree's own cell against a reference density. TREE_BIOMASS_FULL is that
-## reference — the local standing crop at which a tree is growing as fast as it can — and it is measured, not
-## picked: `biomass_ground` on a 600-frame baseline is ~6.05 mass units over 4800 lit ground cells, so a
-## typical vegetated cell carries ~1.3e-3. A cell at twice the planetary average is treated as fully
-## productive. Nothing about the tree's appearance enters that number.
 const TREE_BIOMASS_FULL: float = 0.0025
 const TREE_GROWTH_FLOOR: float = 0.05   # a trickle even on poor ground, so a sapling on thin soil creeps up
                                         # rather than freezing forever at exactly START_FRACTION
@@ -58,16 +24,6 @@ var config: Dictionary = {}
 func set_material_field(m) -> void:
 	_material = m
 
-## SPECIES ARE DATA, NOT BRANCHES. Everything that differed between an oak and a pine used to be an
-## `if species == "pine"` at five separate sites: trunk height range, canopy colour, which canopy builder to
-## call, and the model id, twice. EMERGENCE.md:178 states the rule directly — "if you're about to write
-## `if species == \"X\"`, ask whether a property could express it" — and one of those five carried a comment
-## claiming it was already "config-driven, no per-species branch in the render path" while being exactly that.
-##
-## A third tree is now a RECORD here rather than an edit to five functions. `canopy` names the FORM, so a new
-## species picks an existing canopy shape instead of needing new geometry code. Anything unlisted falls back
-## to DEFAULT_SPECIES, so an unknown name renders as a plausible broadleaf rather than taking the oak path by
-## the accident of not being "pine".
 const SPECIES: Dictionary = {
 	"oak": {
 		"height": Vector2(3.0, 5.5),
@@ -93,7 +49,6 @@ var max_scale: float = 1.0
 var age: float = 0.0
 var toppled: bool = false
 
-# --- health / HP: a taller trunk takes more punishment before a blast fells it. 0 HP = topple. ---
 var health: float = 100.0
 var max_health: float = 100.0
 
@@ -336,10 +291,6 @@ func _physics_process(delta: float) -> void:
 			if _topple_t >= 1.0:
 				_render_settled = true
 		return
-	# A mature tree (settled, not toppled) has no per-frame work — its scale is final and the render batch is
-	# already synced — so advance its age on a coarse staggered cadence (catch-up dt) and skip the redundant
-	# _apply_growth() scale write. Hundreds of grown trees stop each dirtying a transform every frame; a
-	# topple (handled above, every frame) still wakes it live.
 	if _render_settled:
 		if _settle_phase < 0:
 			_settle_phase = int(get_instance_id())
@@ -356,11 +307,6 @@ func _physics_process(delta: float) -> void:
 		_render_settled = true
 
 
-## How fast this tree may add wood right now, in [TREE_GROWTH_FLOOR, 1], from the standing biomass the
-## photosynthesis chemistry has fixed in its own cell. This is the whole coupling: a grove on rich equatorial
-## ground fills out in GROW_TIME, a sapling on a cold thin margin creeps, and neither needs a per-species
-## branch or a placement table. With no field wired (headless tests, the box demo) it falls back to 1.0 so
-## nothing that has no chemistry to consult silently stops growing.
 func _growth_rate() -> float:
 	if _material == null or not _material.has_method("biomass_at"):
 		return 1.0

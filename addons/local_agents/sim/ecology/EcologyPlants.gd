@@ -1,29 +1,7 @@
 class_name LAEcologyPlants
 extends RefCounted
 
-## Vegetation seeding for the living world: the per-tick spread of plants (generic plant, flowers, shrubs)
-## and forest succession (trees). Seed-ready plants sow their own kind into their neighbourhood bounded by
-## that kind's pop_cap; existing trees standing on biomass-rich ground drop seedlings so groves densify on
-## the warm fertile continents the photosynthesis chemistry made most productive. Every germination passes
-## the emergent treeline gate (warm, snow-free ground) so cold/polar/coastal margins stay bare. Vegetation
-## is a consequence of the climate + chemistry, not a placement table.
-##
-## Owned by LAEcologyService, whose _physics_process forwards its plant/tree seeding ticks here. This module
-## reaches back into the service for the shared state that stays on the hub (get_tree, the veg config, the
-## surface + tangent placement helpers, the germination gate, the actor instancer, biomass reads and the
-## water gate), so there is exactly one owner of each. Explicit types only (project rule: no ':=').
 
-## A SEED IS BUILT OUT OF THE PARENT. It is not free.
-##
-## What this replaced: every 1.5 s, 30% of seed-ready plants spawned a child, and the child arrived holding a
-## full 27.6-unit food reserve while the parent lost nothing. Two plants where there had been one, and the
-## second one's matter came from nowhere.
-##
-## Now the parent pays SEED_RESERVE_COST out of its own reserve and the seedling starts holding exactly that,
-## so germination MOVES mass rather than making it. A parent that has not managed to take up that much from
-## the ground it stands on cannot set seed at all — which is what makes a barren pasture stop spreading, with
-## no cap or timer saying so. The cost is a fraction of a full-grown plant's capacity: real seed mass is a
-## small share of the parent's standing biomass, and one plant's seed crop is not a second whole plant.
 const SEED_RESERVE_COST: float = 1.0
 static var seed_cost_total: float = 0.0   # cumulative parent reserve spent on germination (SIM_REPORT)
 
@@ -52,10 +30,6 @@ func _tick_plant_seeding() -> void:
 			continue
 		if LASimRng.shared().randf() > 0.7:
 			continue                                # most seed-ready plants spread each tick → pasture densifies
-		# THE PARENT PAYS FIRST. `feed()` is the plant's own honest debit path (the same one a herbivore's bite
-		# uses), so drawing the seed's mass through it means a parent that has not taken up enough from the
-		# ground simply cannot set seed — no germination, and nothing created. Its seed timer still resets
-		# below, so it tries again once it has built the reserve back up.
 		var paid: float = 0.0
 		if p.has_method("feed"):
 			paid = float(p.feed(SEED_RESERVE_COST))
@@ -78,12 +52,6 @@ func _tick_plant_seeding() -> void:
 			p.consume()
 
 
-# FOREST SUCCESSION — the emergent grove-builder. Each tick a few existing trees standing on biomass-rich
-# ground drop a seedling into their tangent neighbourhood, but ONLY where the local biomass the photosynthesis
-# chemistry has fixed clears an adaptive threshold (a fraction of the richest grove's biomass). So forests
-# THICKEN on the warm fertile continents that grew the most biomass, spread out from existing trees (groves,
-# not scatter), and stall at cold/snowy/coastal margins where biomass never crosses the bar or the treeline
-# gate blocks germination. Forests are a consequence of the chemistry, not a placement table.
 const TREE_POP_CAP: int = 400               # forest carrying capacity (well above the initial seed count)
 const TREE_SEED_BIOMASS_FRAC: float = 0.35  # seed only onto ground with >= this fraction of the richest grove's biomass
 const TREE_SEED_FLOOR: float = 0.04         # absolute biomass floor so bare/cold ground never seeds
