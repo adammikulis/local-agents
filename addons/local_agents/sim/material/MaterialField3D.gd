@@ -65,9 +65,9 @@ var _org_o: PackedFloat32Array = PackedFloat32Array()
 var _fungus: PackedFloat32Array = PackedFloat32Array()   # fungal biomass density per cell (0 = none; high = mushrooms)
 var _fert: PackedFloat32Array = PackedFloat32Array()     # soil nutrient density per cell (0 = barren)
 var _biomass: PackedFloat32Array = PackedFloat32Array()  # living plant matter density per cell (0 = none)
-var _pressure: PackedFloat32Array = PackedFloat32Array() # air pressure per cell (derived from temperature)
+var _pressure: PackedFloat32Array = PackedFloat32Array() # pressure per cell, Pa; negative = never written
 var _vel_x: PackedFloat32Array = PackedFloat32Array()    # wind velocity X per cell (world +X)
-var _vel_y: PackedFloat32Array = PackedFloat32Array()    # wind velocity Y per cell (world +Y, up)
+var _vel_y: PackedFloat32Array = PackedFloat32Array()    # wind velocity Y per cell (world +Y)
 var _vel_z: PackedFloat32Array = PackedFloat32Array()    # wind velocity Z per cell (world +Z)
 var _charge: PackedFloat32Array = PackedFloat32Array()   # electrification charge per cell (updraft × supercooled cloud)
 # Seismic / sound SHOCK amplitude per cell — a propagating pressure wave (GPU shock_sphere3d radiates it).

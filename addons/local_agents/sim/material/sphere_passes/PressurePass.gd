@@ -1,10 +1,12 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
-## Pressure at every cell, from the gas that is in it and the condensed weight standing over it. The
-## kernel existed and no pass dispatched it, so the buffer held zero and every phase boundary in the
-## ladder was being read at vacuum.
+## Pressure at every cell: the gas it holds, plus the condensed weight standing over it.
+## Two dispatches — stamp the sentinel, then walk each column top down.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/pressure.glsl"
+
+const MODE_UNWRITTEN: int = 0
+const MODE_COLUMN: int = 1
 
 var _pipe: RID = RID()
 var _set: RID = RID()
@@ -32,15 +34,26 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 func dispatch(rd: RenderingDevice, cl: int, _parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable() or not _set.is_valid():
 		return
+	rd.compute_list_bind_compute_pipeline(cl, _pipe)
+	rd.compute_list_bind_uniform_set(cl, _set, 0)
+	var pc: PackedByteArray = _push(ctx, cc, MODE_UNWRITTEN)
+	rd.compute_list_set_push_constant(cl, pc, pc.size())
+	rd.compute_list_dispatch(cl, groups, 1, 1)
+	# Or the sentinel lands after the walk that replaced it.
+	rd.compute_list_add_barrier(cl)
+	pc = _push(ctx, cc, MODE_COLUMN)
+	rd.compute_list_set_push_constant(cl, pc, pc.size())
+	rd.compute_list_dispatch(cl, groups, 1, 1)
+
+
+func _push(ctx: Dictionary, cc: int, mode: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(24)
+	pc.resize(28)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, _ctx_cell_size(ctx))
 	pc.encode_float(8, 0.0)                       # vacuum above the outermost cell
 	pc.encode_u32(12, int(_ctx_num(ctx, "depth")))
 	pc.encode_float(16, LAPhysical.GAS_CONSTANT_J_MOL_K)
 	pc.encode_float(20, LAPhysical.KELVIN_OFFSET)
-	rd.compute_list_bind_compute_pipeline(cl, _pipe)
-	rd.compute_list_bind_uniform_set(cl, _set, 0)
-	rd.compute_list_set_push_constant(cl, pc, pc.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
+	pc.encode_u32(24, mode)
+	return pc
