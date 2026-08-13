@@ -20,8 +20,9 @@ physics tick. Everything in this item is that one coupling.
   time whenever a frame runs slow.
 - Delete the path from `VoxelSettingsApplier`'s `la_field_cadence` to `_field_cadence()`. A graphics
   quality preset decides how often the field steps.
-- Move `_step_geotherm()` inside the step loop. It runs once per frame while `_gpu.step()` runs up to
-  twice, so a two-step frame deposits one step's worth of radiogenic joules.
+- Delete `MaterialFieldGeotherm3D` and `_step_geotherm()` — see item 3. While it exists it runs once per
+  frame while `_gpu.step()` runs up to twice, so a two-step frame deposits one step's worth of radiogenic
+  joules, and `_epoch_years()` reads `REAL_SECONDS_PER_SIM_SECOND`, so the watch speed sets the decay rate.
 - Derive the kernel timestep from simulated time. `SIM_SECONDS_PER_STEP` is `STEP_DT` times
   `LASimClock.REAL_SECONDS_PER_SIM_SECOND` written out as a literal, and `check_step_quantum.sh` only
   checks that it is a literal.
@@ -56,7 +57,36 @@ them; each item below is a set of rows in that table.
 - Lower both ceilings in `docs/GDSCRIPT_LINES_CEILING` and `docs/CELL_LOOP_CEILING` in the same commit as
   each deletion.
 
-## 3. Solve gravity on the device
+## 3. Collapse the per-cell kernels into one dispatch
+
+Eight passes are dispatched per step, each its own pipeline bind, uniform set and barrier. Three of them
+bind no neighbour buffer at all, and each reads at its own index what the one before it wrote there:
+`state_derive` writes `temp`, `vel_*`, `rho_cond`, `n_gas_m3` and the phase shares; `solid_derive` reads
+`silicate_melt` and writes `solid`, `cement`, `regolith`, `grain`; `rotating_frame` reads `vel_*`,
+`rho_cond` and `n_gas_m3` and writes `mom_*`. No neighbour read means no barrier is owed between them, so
+they are one kernel making one pass over the cell.
+
+Two more are duplicate writers of a channel inside one step, and both are per-cell source terms, which is
+what a reaction record already is:
+
+- `rotating_frame` writes `mom_*`; `transport`'s PGF and EDDY rows write `mom_*`.
+- `charge_separate` writes `charge`; `transport`'s OHMIC row writes `charge` and stamps `discharge`.
+
+`grain_state` reads neighbour velocity for the shear, so it owes a barrier after `vel_*` is written — its
+home is the neighbour gather `transport` already does, not a dispatch of its own. `pressure` marches a
+column and stays.
+
+`MaterialFieldGeotherm3D` is the same shape one step further out — it is not even a kernel. `_rebuild()`
+computes `silicate[c] * rho_rock * vol[c] * w_per_kg`, in which only `silicate[c]` varies per cell, then
+compacts a list and hands joules to the sparse inject queue from GDScript on the gravity solve's cadence.
+Radiogenic heating is not a different kind of thermal behaviour: it is a volumetric source, heat appearing
+in proportion to the rock a cell holds, and it is one term in the kernel beside the rest. Keep
+`LARadiogenicDecay`, which is the real physics of a decaying nuclide store; delete the module, the list, the
+queue round trip and the separate cadence.
+
+The target is four dispatches: derive, pressure, transport, reactions.
+
+## 4. Solve gravity on the device
 
 `FieldGravity.solve` is red-black Gauss-Seidel in GDScript: eight sweeps, two colours, every cell, a
 six-neighbour gather and a six-slot boundary scan in the innermost loop, then three more full sweeps for
@@ -65,7 +95,7 @@ calling the EOS. Two dispatches per sweep, one per colour, is the same recurrenc
 would be a different answer. Deletes `FieldGravity.gd`, `FieldDensity3D.gd`, most of
 `MaterialFieldGravity3D.gd` and `MaterialSphereGPU3D._upload_gravity`.
 
-## 4. Delete the second radiative model
+## 5. Delete the second radiative model
 
 `MaterialFieldEnergyBudget3D` and `RadiativeColumn` re-solve the RADIATE row of `transport.glsl` on the CPU
 over 64 sampled columns. Have the row accumulate its own per-cell absorbed and emitted watts, sum those,
@@ -73,12 +103,12 @@ and delete both files with `K_SURFACE_FILL_MIN`, `K_ICE_ALBEDO_GAIN` and `SAMPLE
 `tests/test_radiative_transfer.gd` drives `RadiativeColumn` directly and is repaired forward, never by
 restoring it.
 
-## 5. Move the lightning column march into the kernel
+## 6. Move the lightning column march into the kernel
 
 `MaterialCharge3D._scan` walks the whole air column above every ground cell every step. It belongs in
 `charge_separate.glsl`, publishing a strike list. Same march, same `RREA_THRESHOLD_V_M`.
 
-## 6. Move what the device cannot take into the GDExtension
+## 7. Move what the device cannot take into the GDExtension
 
 GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is a `.cpp`/`.hpp` pair, one
 `SRC` line and one `register_class`.
@@ -91,7 +121,7 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
   per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
 - The driver: `MaterialSphereGPU3D.gd` and `MaterialField3D.gd`. Last, after the pass seam settles.
 
-## 7. Delete these
+## 8. Delete these
 
 - `MaterialField3D._charge_woke` — declared, never written, never read.
 - `CreatureLod`'s `LA_NO_PHYS_LOD`, which keeps a superseded LOD tier reachable and gates on
@@ -100,41 +130,41 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
 - `SimRng.rand_dir` advances the generator three times and counts one draw, so the determinism probe
   under-reports divergence involving it.
 
-## 8. Give `scent` a row in `Channels.gd` or delete its readers
+## 9. Give `scent` a row in `Channels.gd` or delete its readers
 
 It has no row, so the transport set cannot carry it, and it cannot stay half-present.
 
-## 9. Make `_read_channels`'s SLOW block read `slow_channels()`
+## 10. Make `_read_channels`'s SLOW block read `slow_channels()`
 
 It hardcodes `["silicate", "fert"]` and `["biomass", "cement", ...]`, so `slow_channels()` is a view nothing
 consumes and `porosity` never gets its coarse readback.
 
-## 10. Build the binding registry
+## 11. Build the binding registry
 
 SSBO binding numbers are a bare integer in GLSL and a second bare integer in one of fourteen uniform-set
 builders, held equal by nothing. Build `sim/material/Bindings.gd` on `Channels.gd`'s shape — a
 `static func rows()`, never a `const Dictionary` built from another script's constants — and one gate
 absorbing the hand-written binding stanzas. Mutation-test it both ways.
 
-## 11. Make `lint` distinguish "could not run" from "violated"
+## 12. Make `lint` distinguish "could not run" from "violated"
 
 It is fail-fast and collapses every gate's exit code to 1, so the exit-2 contract asserted in about ten gate
 headers and in `lint.yml` is not observable. Fix the harness, not the gates.
 
-## 12. Fix the conservation ceiling's units
+## 13. Fix the conservation ceiling's units
 
 `check()` compares a per-step rate against a single-sample round-off floor, and round-off does not
 accumulate linearly. Compare the magnitude, not the magnitude over elapsed. Take it after item 2, because
 against the current substrate it fires on every substance and drives every run to the violation exit code.
 
-## 13. Find why a run costs render frames
+## 14. Find why a run costs render frames
 
 `--run-frames=N` ends in `LocalAgentDemoHarness._tick_run`, counted in physics frames, and a 64-frame run
 does not reach it. `TIME_PHYSICS_PROCESS` and `TIME_PROCESS` together account for a small part of the frame
 period, so the rest is engine work no script callback owns. Start at godot_voxel's main-thread apply and the
 physics server. Item 1 may dissolve this.
 
-## 14. Two constants that are not what they name
+## 15. Two constants that are not what they name
 
 - `AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`, and it is the unit
   definition of the `o2`, `co2` and `n2` channels, so correcting it rescales every gas total.
