@@ -25,4 +25,12 @@ if [ -n "$hits" ]; then
 	echo "Name the file and the expression. Delete the reasoning. Nobody needs your working." >&2
 	exit 1
 fi
-echo "check_doc_prose: OK (${#TARGETS[@]} doc(s), no narrator)"
+# NO CHANGELOGS. The tree is the change log. A hand-written one is a second account of what happened,
+# it drifts from the first the day it is written, and it is always the wrong one.
+banned_files="$(cd "$ROOT" && git ls-files 2>/dev/null | rg -i '(^|/)(changelog|release[_-]?notes|whats[_-]?new|history)\.(md|txt|rst)$' || true)"
+if [ -n "$banned_files" ]; then
+	echo "check_doc_prose: a changelog is tracked. The tree is the change log." >&2
+	printf '%s\n' "$banned_files" | sed 's/^/  /' >&2
+	exit 1
+fi
+echo "check_doc_prose: OK (${#TARGETS[@]} doc(s), no narrator, no changelog)"

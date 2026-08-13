@@ -206,6 +206,11 @@ are banned work. A hypothesis announced, corrected, then corrected again is chur
 A probe that prints only past a threshold is a gate that cannot fail. Give it a positive control or do not
 trust its silence.
 
+**NEVER WRITE A CHANGELOG.** Not `CHANGELOG.md`, not release notes, not a "what changed" section. The
+tree is the change log: `git log` is written by the act itself and cannot drift. A hand-written one is a
+second account that disagrees with the first the day it is written, and it is always the wrong one.
+`scripts/check_doc_prose.sh` fails the build if one is tracked.
+
 **`HANDOFF.md` IS NOT YOUR SCRATCHPAD. IT IS THE NEXT AGENT'S INSTRUCTION SET.** It gets the file and the
 expression, in one sentence, and only when the fix could not land this turn. Never your reasoning, your
 retractions, what you first thought, what you ruled out, or what a run printed.
