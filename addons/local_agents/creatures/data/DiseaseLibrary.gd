@@ -3,6 +3,7 @@ extends RefCounted
 
 
 const DISEASE_DIR: String = "res://addons/local_agents/creatures/data/diseases"
+const TextFile = preload("res://addons/local_agents/runtime/TextFile.gd")
 
 const DEFAULTS: Dictionary = {
 	"name": "Plague", "vector": "contact", "transmissibility": 0.5, "range": 3.0,
@@ -23,7 +24,7 @@ static func strain(id: String) -> Dictionary:
 	_build_index()
 	if not _index.has(id):
 		return {}
-	var text: String = _read_file(String(_index[id]))
+	var text: String = TextFile.read(String(_index[id]))
 	if text == "":
 		return {}
 	var parsed = JSON.parse_string(text)
@@ -68,12 +69,3 @@ static func _build_index() -> void:
 			_ids.append(id)
 		entry = d.get_next()
 	d.list_dir_end()
-
-
-static func _read_file(path: String) -> String:
-	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
-	if f == null:
-		return ""
-	var text: String = f.get_as_text()
-	f.close()
-	return text

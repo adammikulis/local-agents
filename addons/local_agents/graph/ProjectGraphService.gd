@@ -7,9 +7,10 @@ const DB_PATH: String = STORE_DIR + "/network.sqlite3"
 const CODE_SPACE: String = "code"
 const DIRECTORY_SPACE: String = "code_dir"
 const DEFAULT_EXTENSIONS: Array[String] = ["gd", "tscn", "tres", "cs", "gdshader", "cfg"]
+const AgentRuntimeAccess = preload("res://addons/local_agents/runtime/AgentRuntimeAccess.gd")
+const TextFile = preload("res://addons/local_agents/runtime/TextFile.gd")
 
 var _graph: Object = null
-var _runtime: Object = null
 
 func _ready() -> void:
     _ensure_graph()
@@ -46,7 +47,7 @@ func rebuild_project_graph(root_path: String = "res://", extensions: Array = DEF
                 file_name = dir.get_next()
                 continue
             var resource_path: String = path.path_join(file_name)
-            var content: String = _read_file(resource_path)
+            var content: String = TextFile.read(resource_path)
             var metadata: Dictionary = {
                 "type": "code",
                 "path": resource_path,
@@ -78,7 +79,7 @@ func search_code(query: String, top_k: int = 5, expand: int = 64) -> Array:
         return []
     if not _ensure_graph():
         return []
-    var runtime: Object = _agent_runtime()
+    var runtime: Object = AgentRuntimeAccess.singleton()
     if runtime == null or not runtime.has_method("is_model_loaded"):
         return []
     if not runtime.call("is_model_loaded"):
@@ -149,7 +150,7 @@ func _ensure_directory_node(path: String, cache: Dictionary) -> int:
     return node_id
 
 func _store_code_embedding(node_id: int, content: String) -> void:
-    var runtime: Object = _agent_runtime()
+    var runtime: Object = AgentRuntimeAccess.singleton()
     if runtime == null or not runtime.has_method("is_model_loaded"):
         return
     if not runtime.call("is_model_loaded"):
@@ -162,7 +163,7 @@ func _store_code_embedding(node_id: int, content: String) -> void:
     var emb: Variant = runtime.call("embed_text", slice, {"normalize": true})
     if emb.is_empty():
         return
-    var embedding_model: String = _resolve_embedding_model(runtime)
+    var embedding_model: String = AgentRuntimeAccess.default_model_name(runtime)
     var node_variant = _graph.get_node(node_id)
     var node_data: Dictionary = {}
     if node_variant is Dictionary:
@@ -192,28 +193,3 @@ func _clear_code_space() -> void:
 
 func _sort_results_by_similarity(a: Dictionary, b: Dictionary) -> bool:
     return float(a.get("similarity", 0.0)) > float(b.get("similarity", 0.0))
-
-func _read_file(path: String) -> String:
-    var file: FileAccess = FileAccess.open(path, FileAccess.READ)
-    if file == null:
-        return ""
-    var content: String = file.get_as_text()
-    file.close()
-    return content
-
-func _agent_runtime() -> Object:
-    if _runtime:
-        return _runtime
-    if not Engine.has_singleton("AgentRuntime"):
-        return null
-    _runtime = Engine.get_singleton("AgentRuntime")
-    return _runtime
-
-func _resolve_embedding_model(runtime: Object) -> String:
-    if runtime == null:
-        return "unknown"
-    if runtime.has_method("get_default_model_path"):
-        var path: String = String(runtime.call("get_default_model_path")).strip_edges()
-        if path != "":
-            return path.get_file()
-    return "unknown"

@@ -2,8 +2,9 @@
 extends RefCounted
 
 const TEST_DIR := "res://tmp_project_graph"
+const RuntimeSingletonSwap := preload("res://addons/local_agents/tests/runtime_singleton_swap.gd")
 
-class MockRuntime:
+class MockRuntime extends Object:
     func is_model_loaded() -> bool:
         return true
 
@@ -27,9 +28,18 @@ func run_test(tree: SceneTree) -> bool:
 
     _prepare_test_files()
 
+    var swap := RuntimeSingletonSwap.new()
+    swap.install(MockRuntime.new())
+    var ok := _exercise(tree)
+    swap.restore()
+    _cleanup_test_files()
+    if ok:
+        print("ProjectGraphService tests passed")
+    return ok
+
+func _exercise(tree: SceneTree) -> bool:
     var service := LAProjectGraphService.new()
     tree.get_root().add_child(service)
-    service._runtime = MockRuntime.new()
 
     service.rebuild_project_graph(TEST_DIR, ["gd"])
 
@@ -49,9 +59,6 @@ func run_test(tree: SceneTree) -> bool:
         DirAccess.remove_absolute(db_path)
 
     service.queue_free()
-    _cleanup_test_files()
-    if ok:
-        print("ProjectGraphService tests passed")
     return ok
 
 func _prepare_test_files() -> void:

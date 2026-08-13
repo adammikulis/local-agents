@@ -24,6 +24,7 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_latent_plateau.gd",
 	"res://addons/local_agents/tests/test_mixture_enthalpy.gd",
 	"res://addons/local_agents/tests/test_density_eos.gd",
+	"res://addons/local_agents/tests/test_conversation_store.gd",
 ]
 
 const INTEGRATION_TESTS: Array[String] = []
@@ -35,3 +36,13 @@ const RUNTIME_HEAVY_TESTS: Array[String] = [
 ]
 
 const PERF_BENCHMARKS: Array[String] = []
+
+
+## The full script path in `lane` that `token` names, by exact path or by file name; "" if none does.
+static func resolve(token: String, lane: Array) -> String:
+	if lane.has(token):
+		return token
+	for script_path in lane:
+		if script_path.ends_with("/%s" % token) or script_path.get_file() == token:
+			return script_path
+	return ""
