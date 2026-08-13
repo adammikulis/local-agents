@@ -17,6 +17,10 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 ROOT="$(git rev-parse --show-toplevel)"
 [ -x "$ROOT/scripts/agent_harness.sh" ] || exit 0
 
+if [ -x "$ROOT/scripts/check_comment_ratio.sh" ] && ! "$ROOT/scripts/check_comment_ratio.sh"; then
+  echo "COMMIT BLOCKED: more comment than code."
+  exit 1
+fi
 out="$("$ROOT/scripts/agent_harness.sh" lint 2>&1)"
 rc=$?
 if [ "$rc" -ne 0 ]; then

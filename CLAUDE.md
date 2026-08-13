@@ -195,6 +195,11 @@ The rule is the credibility; a story attached to it means a reader cannot tell w
 
 Tells: a parenthetical longer than its sentence · any date · a paragraph that would survive deletion.
 
+**A CHANGE MAY NOT ADD MORE COMMENT THAN CODE, PER FILE.** `scripts/check_comment_ratio.sh` runs in the
+pre-commit hook and in `lint`. Density gates measure a file; this measures the diff, which is where prose
+arrives. `check_comment_history.sh` counts the banned kinds — dates, measured figures, war stories — as a
+ratchet that may only fall.
+
 # RULE 8 — READ THE CODE. DO NOT NARRATE A DIAGNOSIS, AND NEVER REVISE ONE OUT LOUD.
 
 Open the file. Read what it does. Answer from the code.

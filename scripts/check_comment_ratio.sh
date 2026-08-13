@@ -26,10 +26,12 @@ if [ -z "$d" ]; then
 	exit 0
 fi
 
-# PER FILE. An aggregate hides the file that is all prose behind a file that is all code.
+# PER FILE, and NET of comment removed: replacing a comment is not adding prose.
 bad="$(printf '%s\n' "$d" | awk '
 	/^\+\+\+ b\// { if (f != "" ) print c, k, f; f = substr($0, 7); c = 0; k = 0; next }
 	/^\+\+\+/ { next }
+	/^-[ \t]*(#|\/\/)/ { c--; next }
+	/^-/ { next }
 	/^\+[ \t]*(#|\/\/)[ \t]*(SOAK|claim|shellcheck|!)/ { k++; next }
 	/^\+[ \t]*(#|\/\/)/ { c++; next }
 	/^\+[ \t]*$/ { next }
