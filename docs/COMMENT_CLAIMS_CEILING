@@ -4,4 +4,4 @@
 # NOT A STANDING RED. A ceiling below the count makes lint fail on every run by design, and a permanently
 # red light has no signal — two commits went out over genuinely broken gates because red had become the
 # normal colour. Lower this as claims are deleted; never raise it to make a light green.
-19
+18
