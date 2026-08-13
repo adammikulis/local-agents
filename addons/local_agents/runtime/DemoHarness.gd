@@ -33,7 +33,7 @@ const ARG_SHOOT_FRAMES: String = "--shoot-frames="
 ## `get_tree().quit()`. Keeps the addon usable in projects that do not register that autoload.
 @export var use_app_exit: bool = true
 
-var _frame: int = 0          # run length, in PHYSICS ticks. A simulation is not measured on render frames.
+var _frame: int = 0          # run length, in SIM STEPS when a LASimLoop is running; physics ticks otherwise.
 var _render_frame: int = 0   # render frames only; drives shoot_frames
 var _done: bool = false
 
@@ -49,7 +49,7 @@ func _ready() -> void:
 	set_physics_process(run_frames > 0)
 
 
-## Run-length frames counted so far. Equals `run_frames` at the moment the report is emitted.
+## Run-length steps counted so far. Equals `run_frames` at the moment the report is emitted.
 func frames_elapsed() -> int:
 	return _frame
 
@@ -73,10 +73,13 @@ func _process(_delta: float) -> void:
 		return
 
 
+## A scene carrying a LASimLoop is measured on ITS clock: the run is N simulated steps, and a slow frame
+## does not shorten it. A demo scene with no simulation has only the engine's physics tick.
 func _tick_run() -> void:
 	if _done:
 		return
-	_frame += 1
+	var loop: LASimLoop = LASimLoop.active()
+	_frame = loop.step_index() if loop != null else _frame + 1
 	if run_frames > 0 and _frame >= run_frames:
 		_done = true
 		emit_report()

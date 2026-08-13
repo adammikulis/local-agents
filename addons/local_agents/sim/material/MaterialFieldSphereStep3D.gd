@@ -1,12 +1,7 @@
 class_name LAMaterialFieldSphereStep3D
 extends RefCounted
 
-## Per-frame step orchestration of LAMaterialField3D.
-
-# Sim-clock seconds banked per field step (accumulator cadence, not simulated time).
-const STEP_DT: float = 1.0 / 10.0
-const MAX_STEPS_PER_FRAME: int = 2
-const FIELD_CADENCE_MAX: int = 60                       # clamp for the published Sim knob (avoid absurd skips)
+## ONE field step per call. LASimLoop drives it; nothing here reads a frame delta or banks time.
 
 # Simulated seconds ONE field step represents. Gated by scripts/check_step_quantum.sh.
 const SIM_SECONDS_PER_STEP: float = 43.2
@@ -16,25 +11,6 @@ static func real_seconds_per_step() -> float:
 	return SIM_SECONDS_PER_STEP
 
 
-## Simulated seconds per sim-clock second.
-static func real_seconds_per_sim_second() -> float:
-	return SIM_SECONDS_PER_STEP / STEP_DT
-
-
-## Planet rotation period, seconds.
-static func rotation_period_s() -> float:
-	return TAU / LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S
-
-
-## Field steps in one rotation. Rises when the planet spins slower; the per-step chemistry does not move.
-static func steps_per_rotation() -> float:
-	return rotation_period_s() / SIM_SECONDS_PER_STEP
-
-
-## Sim-clock seconds in one rotation. The sim clock's day is this and nothing else.
-static func day_length_sim_seconds() -> float:
-	return steps_per_rotation() * STEP_DT
-
 const LakesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLakes3D.gd")
 const MineralProfileScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd")
 const AttributionScript: GDScript = preload("res://addons/local_agents/sim/material/FieldPassAttribution3D.gd")
@@ -42,13 +18,9 @@ const ElementProbeScript: GDScript = preload("res://addons/local_agents/sim/mate
 const PassProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldPassProbe3D.gd")
 
 var _f = null                                          # back-reference to the owning LAMaterialField3D
-var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
 var _mineral_profile = null
 # The driver's ONE between-pass probe.
 var _probe = null
-
-var _sim_s: float = 0.0
-var _offer_s: float = 0.0
 
 
 func _armed(name: String) -> bool:
@@ -87,60 +59,38 @@ func _pick_probe(field):
 	return pass_probe if pass_probe.armed() else null
 
 
-func _field_cadence() -> int:
-	if OS.has_environment("LA_FIELD_CADENCE"):   # benchmark override: measure field step-rate vs perf/aggregates
-		return clampi(int(OS.get_environment("LA_FIELD_CADENCE")), 1, FIELD_CADENCE_MAX)
-	var n: int = int(Engine.get_meta("la_field_cadence", 1)) if Engine.has_meta("la_field_cadence") else 1
-	return clampi(n, 1, FIELD_CADENCE_MAX)
+## SEEDING. Runs while LASimLoop is held; releases the hold once the world exists and can be sealed.
+## Returns true when the world is ready and no simulated time has passed yet.
+func seed_tick() -> bool:
+	if _f._ready_sim:
+		return true
+	if _f._terrain == null or not _f._terrain.has_method("is_solid"):
+		return false
+	_f.sample_solidity()
+	# Gravity BEFORE anything asks which way is down: every "below"/"above" read is a slot chosen from g.
+	_f.solve_gravity()
+	_f._seed_sea()                # fills the ocean basin with real, flowing water
+	_f._compute_regolith()        # the permeable aquifer band (+ initial water table) for groundwater flow
+	LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins (static water bodies)
+	_f.activate()                 # builds the GPU driver + sets _use_gpu
+	_f._ready_sim = true
+	return true
 
 
-## Per-frame step.
-func process(delta: float) -> void:
-	if not _f._ready_sim:
-		if _f._terrain == null or not _f._terrain.has_method("is_solid"):
-			return
-		_f.sample_solidity()
-		# Gravity BEFORE anything asks which way is down: every "below"/"above" read is a slot chosen from g.
-		_f.solve_gravity()
-		_f._seed_sea()                # fills the ocean basin with real, flowing water
-		_f._compute_regolith()        # the permeable aquifer band (+ initial water table) for groundwater flow
-		LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins (static water bodies)
-		_f.activate()                 # builds the GPU driver + sets _use_gpu
-		_f._ready_sim = true
-		return
-	if not _f._use_gpu:
+## ONE step: SIM_SECONDS_PER_STEP of simulated time. Every per-step term — the gravity solve, the
+## radiogenic deposit, the upload, the dispatch, the readback — happens once here, so a step's books
+## cannot be split across a frame boundary.
+func step() -> void:
+	if not _f._ready_sim or not _f._use_gpu:
 		return
 	# Refresh the body rotation FIRST: everything below that converts a position or a direction reads it.
 	_f.sync_body_frame()
-	# Bank the frame's dt EVERY frame (even ones we skip).
-	_f._step_accum += delta
-	_offer_s += delta
-	LASimReport.gauge("field_offer_s", _offer_s)
-	_f._step_accum = minf(_f._step_accum, STEP_DT * float(MAX_STEPS_PER_FRAME + 1))
-	# Cadence gate: only run the GPU begin/step/end loop every N frames (N = la_field_cadence).
-	var cadence: int = _field_cadence()
-	_frame_gate += 1
-	if _frame_gate < cadence:
-		return
-	_frame_gate = 0
-	var cap: int = MAX_STEPS_PER_FRAME if cadence <= 1 else 1
-	var steps: int = 0
-	while _f._step_accum >= STEP_DT and steps < cap:
-		_f._step_accum -= STEP_DT
-		steps += 1
-	if cadence > 1:
-		_f._step_accum = minf(_f._step_accum, STEP_DT)
-	_sim_s += STEP_DT * float(steps)
-	LASimReport.gauge("field_sim_s", _sim_s)
-	if steps <= 0:
-		return
 	var t0: int = Time.get_ticks_usec()
-	var t_pin: int = Time.get_ticks_usec()
 	# g follows the mass, and every kernel asking which way is down reads the solved field.
 	if _f.solve_gravity():
 		_f._gpu.mark_gravity_dirty()
 	_f._step_geotherm()              # radiogenic decay: hand the rock the joules its own mass produced
-	LASimReport.gauge("field_pin_ms", float(Time.get_ticks_usec() - t_pin) / 1000.0)
+	LASimReport.gauge("field_pin_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
 	var t_begin: int = Time.get_ticks_usec()
 	_f._gpu.begin_frame(_f._h, _f._h2o)      # drains prev step (sync+readback) + uploads
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
@@ -167,13 +117,12 @@ func process(delta: float) -> void:
 			_f._inject.queue.audit_rewind(_f._gpu, "h2o", _f._h2o)
 		_f._inject.queue.flush(_f._gpu)
 	var t_step: int = Time.get_ticks_usec()
-	for i in steps:
-		if _probe != null:
-			_probe.pre_step()         # arm/disarm the driver's between-pass probe for THIS step
-			_f._gpu.step()
-			_probe.post_step()        # print the per-pass budget (no-op on unsampled steps)
-		else:
-			_f._gpu.step()
+	if _probe != null:
+		_probe.pre_step()             # arm/disarm the driver's between-pass probe for THIS step
+		_f._gpu.step()
+		_probe.post_step()            # print the per-pass budget (no-op on unsampled steps)
+	else:
+		_f._gpu.step()
 	LASimReport.gauge("field_dispatch_ms", float(Time.get_ticks_usec() - t_step) / 1000.0)
 	var res: Dictionary = _f._gpu.end_frame()
 	var t_post: int = Time.get_ticks_usec()
@@ -191,7 +140,7 @@ func process(delta: float) -> void:
 		_f._stamp.maybe_scan()                       # stamp solid-flag crossings into the SDF (gated)
 	LASimReport.gauge("field_post_ms", float(Time.get_ticks_usec() - t_post) / 1000.0)   # scatter + CPU post-passes
 	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
-	LASimReport.event("field_step")   # telemetry: GPU field runs/run — a slower cadence lowers this (and the avg field_ms)
+	LASimReport.event("field_step")   # telemetry: GPU field steps per run
 	if _mineral_profile != null:
 		_mineral_profile.post_step()  # LA_MINERAL_PROFILE: print WHERE the loose mineral is, by elevation
 

@@ -6,10 +6,9 @@
 #
 # WHAT IT SEPARATES, and why that matters more than the red light. Three things make two runs disagree and
 # they need different fixes, so the gate names which one it saw instead of reporting one number:
-#   HORIZON  the runs simulated different amounts of time. `--run-frames` counts RENDERED frames while the
-#            field steps in _physics_process, so without --fixed-fps the horizon is set by how fast the
-#            machine ran. This gate passes --fixed-fps 60 to remove it; a horizon difference under that
-#            flag is a defect in the step loop, not in the substrate.
+#   HORIZON  the runs simulated different amounts of time. `--run-frames` counts SIMULATED STEPS off
+#            LASimLoop, so two runs of the same length cover the same simulated seconds whatever the
+#            machine did. A horizon difference here is a defect in the step loop, not in the substrate.
 #   RNG      the seeded streams drew different values. Reported per domain from RNG_TRACE.
 #   SUBSTRATE  same horizon, same RNG draws, different totals -> the GPU step itself is order-dependent.
 #
@@ -45,7 +44,7 @@ run_one() {
   LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-900}" LA_NO_STREAMER=1 LA_RNG_TRACE=1 \
     "$SCRIPT_DIR/run_sim_offscreen.sh" --path "$PROJ" \
     addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \
-    -- --sandbox --planet-only "--run-frames=${FRAMES}" --fast=8 "--seed=${SEED}" --no-fauna \
+    -- --sandbox --planet-only "--run-frames=${FRAMES}" "--seed=${SEED}" --no-fauna \
     > "$1" 2>&1
   return 0
 }

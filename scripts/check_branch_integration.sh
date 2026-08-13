@@ -16,6 +16,7 @@
 #
 # EXIT 0 clean · 1 a violation · 2 the gate could not run.
 set -uo pipefail
+HERE="$(git rev-parse --show-toplevel 2>/dev/null || echo "")"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REGISTRY="$ROOT/docs/OPEN_BRANCHES.md"
 DEV="${LA_DEV_BRANCH:-0.4-dev}"
@@ -91,7 +92,13 @@ done < <(printf '%s\n' "$declared")
 while read -r wt; do
   [ "$wt" = "$ROOT" ] && continue
   [ -d "$wt" ] || continue
-  gitdir="$(git -C "$wt" rev-parse --git-dir 2>/dev/null)" || continue
+  # NEVER the tree this gate is running in. A pre-commit hook runs here, and a tree mid-merge is exactly
+  # the tree whose next commit FINISHES the merge -- failing on it deadlocks: the gate blocks the commit
+  # that would clear the gate. An unresolved merge in SOMEBODY ELSE'S tree is the real defect.
+  [ "$wt" = "$HERE" ] && continue
+  # --absolute-git-dir, not --git-dir: the latter returns a RELATIVE path, so "$gitdir/MERGE_HEAD"
+  # resolved against the CALLER's cwd. Run from inside a mid-merge tree, every worktree looked mid-merge.
+  gitdir="$(git -C "$wt" rev-parse --absolute-git-dir 2>/dev/null)" || continue
   if [ -e "$gitdir/MERGE_HEAD" ]; then
     echo "FAIL  worktree $wt holds an unresolved merge. Finish it or remove the tree." >&2
     fail=1

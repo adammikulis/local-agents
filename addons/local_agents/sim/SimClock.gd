@@ -2,10 +2,8 @@ class_name LASimClock
 extends Node
 
 
-const REAL_SECONDS_PER_SIM_SECOND: float = 432.0
-# Rotation period, sim-clock seconds.
-const DAY_LENGTH: float = TAU / (LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S * REAL_SECONDS_PER_SIM_SECOND)
-const SPIN_RAD_PER_SIM_S: float = TAU / DAY_LENGTH
+# The planet's rotation period, simulated seconds. A day is the body's spin, not a pacing knob.
+const DAY_LENGTH: float = TAU / LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S
 
 const DAYS_PER_SEASON: int = 4
 const SEASONS: Array[String] = ["spring", "summer", "autumn", "winter"]
@@ -15,8 +13,8 @@ signal day_advanced(day: int)
 
 static var _active: LASimClock = null
 
-var _elapsed: float = 0.0     # total simulated seconds since the world started (never wraps)
-var _day: int = 0             # cached int(_elapsed / DAY_LENGTH), so the rollover is one compare per frame
+var _step: int = 0            # THE counter. Every time reading below derives from it.
+var _day: int = 0             # cached int(elapsed() / DAY_LENGTH), so the rollover is one compare per step
 
 
 ## The live clock, or null when no world has one (a bare demo scene, a unit test). Callers null-guard;
@@ -44,16 +42,22 @@ func _exit_tree() -> void:
 		_active = null
 
 
-func _physics_process(delta: float) -> void:
-	_elapsed += delta
-	var d: int = int(_elapsed / DAY_LENGTH)
+## One simulated step. Driven by LASimLoop and by nothing else.
+func advance() -> void:
+	_step += 1
+	var d: int = int(elapsed() / DAY_LENGTH)
 	if d != _day:
 		_day = d
 		day_advanced.emit(d)
 
 
+## Simulated seconds since the world was sealed.
 func elapsed() -> float:
-	return _elapsed
+	return float(_step) * LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP
+
+
+func steps() -> int:
+	return _step
 
 
 func day() -> int:
@@ -61,23 +65,26 @@ func day() -> int:
 
 
 func days_elapsed() -> float:
-	return _elapsed / DAY_LENGTH
+	return elapsed() / DAY_LENGTH
 
 
 func day_fraction() -> float:
-	return fposmod(_elapsed / DAY_LENGTH, 1.0)
+	return fposmod(elapsed() / DAY_LENGTH, 1.0)
 
 
 func season() -> String:
 	return SEASONS[(_day / DAYS_PER_SEASON) % SEASONS.size()]
 
 
-## SAVE: the whole clock is one float. Everything else (day, fraction, season) derives from it, so there is
-## no second field that can be restored out of step with the first.
+## SAVE: the whole clock is one step count, written out in simulated seconds. Everything else (day,
+## fraction, season) derives from it, so there is no second field that can be restored out of step.
 func serialize() -> Dictionary:
-	return {"elapsed": _elapsed}
+	return {"elapsed": elapsed()}
 
 
 func restore(data: Dictionary) -> void:
-	_elapsed = maxf(0.0, float(data.get("elapsed", 0.0)))
-	_day = int(_elapsed / DAY_LENGTH)
+	_step = int(maxf(0.0, float(data.get("elapsed", 0.0))) / LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP)
+	_day = int(elapsed() / DAY_LENGTH)
+	var loop: LASimLoop = LASimLoop.active()
+	if loop != null:
+		loop.restore_elapsed_s(elapsed())

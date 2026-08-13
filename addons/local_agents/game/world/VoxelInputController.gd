@@ -85,7 +85,6 @@ var _geosync: bool = false       # GEOSYNC: camera rides the planet's rotating f
 var _fly: bool = false           # FLY: planet-aware free-flight drone (WASD + hold-drag look + radial up/down)
 var _solar_view: bool = false    # PLANET orbit ↔ SOLAR-SYSTEM overview (planet + visible sun)
 var _view_controls = null                # the on-screen [Planet|Solar] · [Free|Geosync] · [Auto-spin] cluster (LAVoxelViewControls)
-var _fast: int = 1                       # --fast=N: sim steps per render frame (1 = realtime)
 var _trailer_shot: String = ""           # --trailer-shot=NAME: LATrailerDirector drives a scripted capture
 var _face_sun: bool = false              # --face-sun: aim the camera at the star before the screenshot (sun-visibility proof)
 var _face_sun_done: bool = false
@@ -210,8 +209,6 @@ func parse_cmdline() -> void:
 			_cognition_stats = true
 		elif arg == "--stamp-test":
 			_stamp_test = true
-		elif arg.begins_with("--fast="):
-			_fast = int(arg.substr("--fast=".length()))
 		elif arg == "--face-sun":
 			_face_sun = true
 		elif arg == "--water-cam":
@@ -784,19 +781,16 @@ func farview() -> bool: return _farview
 func auto_meteor() -> bool: return _auto_meteor
 func trailer_shot() -> String: return _trailer_shot
 
-# Live fast-forward multiplier (sim steps per rendered frame) — forwards to the pause menu's clamped setter, the
-# same one the in-menu speed buttons and the --fast cmdline use. Lets the trailer director time-lapse mid-shot.
+# Live fast-forward: SIM STEPS PER ENGINE TICK. It buys steps; the timestep never moves.
 func set_time_scale(n: int) -> void:
-	_fast = maxi(1, n)
 	if _pause_menu != null and _pause_menu.has_method("set_time_scale"):
-		_pause_menu.set_time_scale(_fast)
+		_pause_menu.set_time_scale(maxi(1, n))
 func auto_select() -> bool: return _auto_select
 func debug_family() -> bool: return _debug_family
 func debug_demo() -> bool: return _debug_demo
 func wind_view() -> bool: return _wind_view
 func debug_field() -> String: return _debug_field
 func debug_behaviors() -> String: return _debug_behaviors
-func fast_multiplier() -> int: return _fast
 
 
 ## Fire the current --bench timeline's scheduled action for `frame`, once each.

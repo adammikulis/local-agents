@@ -1,8 +1,9 @@
-[gd_scene load_steps=19 format=3]
+[gd_scene load_steps=20 format=3]
 
 [ext_resource type="Script" path="res://addons/local_agents/game/Simulation.gd" id="1_simulation"]
 [ext_resource type="Script" path="res://addons/local_agents/game/world/VoxelSettingsApplier.gd" id="2_voxelsettingsapplier"]
 [ext_resource type="Script" path="res://addons/local_agents/sim/SimClock.gd" id="3_simclock"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/SimLoop.gd" id="20_simloop"]
 [ext_resource type="Script" path="res://addons/local_agents/sim/SimTimeAuthority.gd" id="4_simtimeauthority"]
 [ext_resource type="Script" path="res://addons/local_agents/sim/system/Star.gd" id="5_star"]
 [ext_resource type="Script" path="res://addons/local_agents/sim/system/PlanetBody.gd" id="6_planetbody"]
@@ -21,6 +22,9 @@
 
 [node name="Simulation" type="Node3D"]
 script = ExtResource("1_simulation")
+
+[node name="SimLoop" type="Node" parent="."]
+script = ExtResource("20_simloop")
 
 [node name="SettingsApplier" type="Node" parent="."]
 script = ExtResource("2_voxelsettingsapplier")

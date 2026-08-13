@@ -92,7 +92,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/SimWorld.gd` | `DETAIL_RELIEF_M` | 3.4e2 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
 | `addons/local_agents/sim/SimWorld.gd` | `CAVE_SIZE_M` | 2.0e4 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
 | `addons/local_agents/sim/SimWorld.gd` | `CAVE_DEPTH_FADE_M` | 4.7e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
-| `addons/local_agents/sim/SimClock.gd` | `REAL_SECONDS_PER_SIM_SECOND` | 432.0 | time compression: real seconds that one sim-clock second stands for. A real planet has no such number, and this is now the only one the timebase asserts — the rotation itself is `LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S`, and `DAY_LENGTH` (199.454 sim s), `SPIN_RAD_PER_SIM_S` (0.0315019 rad/sim s) and `LAMaterialFieldSphereStep3D.real_seconds_per_step()` (43.2 real s) are all derived from that pair. It is not only a viewing speed: `real_seconds_per_step()` is every transport kernel's `params.dt`, so this number sets every rate in the substrate and every kernel's Courant number. | a substep budget that decouples the field's `dt` from the presentation clock, so this number sets how fast the player watches and no kernel `dt` reads it |
 | `addons/local_agents/sim/SimClock.gd` | `DAYS_PER_SEASON` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_OUTPUT_SDF` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_ADD` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -247,8 +246,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldSolidCache3D.gd` | `SPOT_CELLS` | 256 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `MOLTEN_MIN` | 0.0001 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `FIRE_PRESENT` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd` | `MAX_STEPS_PER_FRAME` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd` | `FIELD_CADENCE_MAX` | 60 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `STATIONS_PER_BAND` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `LONG_DAYS` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `SITE_RETRY_FRAMES` | 60 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -381,8 +378,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `ICE_DEPTH` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `FOG_MAX_TEMP` | 12.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `CONDENSE_COVER_MIN` | 5.0e-8 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/MaterialField3D.gd` | `STEP_HZ` | 10.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialField3D.gd` | `MAX_STEPS_PER_FRAME` | 2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `RENDER_MIN` | 0.08 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `SEA_WAVE_EPS` | 0.6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `HEAT_TEX_EVERY` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
