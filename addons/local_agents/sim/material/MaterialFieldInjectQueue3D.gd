@@ -58,16 +58,19 @@ func is_empty() -> bool:
 	return _ops.is_empty()
 
 
-func _merge(key: String, kind: String, src: String, dst: String, src_cells: PackedInt32Array,
-		amounts: PackedFloat32Array, dst_cells: PackedInt32Array, ceiling: float) -> void:
-	var slot: int = _index.get(key, -1)
+## Append one edit's cells into the op `key` already opened in `ops`, or open that op with `head` as its
+## non-cell fields. Every cell buffer is duplicated, so no op holds one caller's buffer in two slots.
+static func coalesce(ops: Array, index: Dictionary, key: String, head: Dictionary,
+		src_cells: PackedInt32Array, amounts: PackedFloat32Array, dst_cells: PackedInt32Array) -> void:
+	var slot: int = index.get(key, -1)
 	if slot < 0:
-		_index[key] = _ops.size()
-		# See the header: `dst_cells` is duplicated so no op ever holds one buffer in both of its cell slots.
-		_ops.append({"kind": kind, "src": src, "dst": dst, "src_cells": src_cells,
-			"amounts": amounts, "dst_cells": dst_cells.duplicate(), "ceiling": ceiling})
+		index[key] = ops.size()
+		head["src_cells"] = src_cells.duplicate()
+		head["amounts"] = amounts.duplicate()
+		head["dst_cells"] = dst_cells.duplicate()
+		ops.append(head)
 		return
-	var op: Dictionary = _ops[slot]
+	var op: Dictionary = ops[slot]
 	var sc: PackedInt32Array = (op["src_cells"] as PackedInt32Array).duplicate()
 	var am: PackedFloat32Array = (op["amounts"] as PackedFloat32Array).duplicate()
 	var dc: PackedInt32Array = (op["dst_cells"] as PackedInt32Array).duplicate()
@@ -77,6 +80,12 @@ func _merge(key: String, kind: String, src: String, dst: String, src_cells: Pack
 	op["src_cells"] = sc
 	op["amounts"] = am
 	op["dst_cells"] = dc
+
+
+func _merge(key: String, kind: String, src: String, dst: String, src_cells: PackedInt32Array,
+		amounts: PackedFloat32Array, dst_cells: PackedInt32Array, ceiling: float) -> void:
+	coalesce(_ops, _index, key, {"kind": kind, "src": src, "dst": dst, "ceiling": ceiling},
+		src_cells, amounts, dst_cells)
 
 
 func note_demand(want: float) -> void:

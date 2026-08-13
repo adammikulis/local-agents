@@ -30,22 +30,8 @@ var carbon_cells: int = 0
 
 func _c_merge(key: String, src: String, src_cells: PackedInt32Array, amounts: PackedFloat32Array,
 		dst: String, dst_cells: PackedInt32Array, ceiling: float) -> void:
-	var slot: int = _c_index.get(key, -1)
-	if slot < 0:
-		_c_index[key] = _c_ops.size()
-		_c_ops.append({"src": src, "src_cells": src_cells.duplicate(), "amounts": amounts.duplicate(),
-			"dst": dst, "dst_cells": dst_cells.duplicate(), "ceiling": ceiling})
-		return
-	var op: Dictionary = _c_ops[slot]
-	var sc: PackedInt32Array = (op["src_cells"] as PackedInt32Array).duplicate()
-	var am: PackedFloat32Array = (op["amounts"] as PackedFloat32Array).duplicate()
-	var dc: PackedInt32Array = (op["dst_cells"] as PackedInt32Array).duplicate()
-	sc.append_array(src_cells)
-	am.append_array(amounts)
-	dc.append_array(dst_cells)
-	op["src_cells"] = sc
-	op["amounts"] = am
-	op["dst_cells"] = dc
+	coalesce(_c_ops, _c_index, key, {"src": src, "dst": dst, "ceiling": ceiling},
+		src_cells, amounts, dst_cells)
 
 
 ## Queue a CONSERVING carbon move. `dst_cells[i]` of -1 means the mass leaves the field entirely (into an

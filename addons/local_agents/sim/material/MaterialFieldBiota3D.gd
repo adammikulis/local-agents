@@ -29,11 +29,6 @@ static func _respiration_j_per_o2_unit() -> float:
 	return _resp_j_per_unit
 
 
-## Cubic metres of cell `c`.
-func _cell_m3(c: int) -> float:
-	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
-	return vol[c] if c >= 0 and c < vol.size() else 0.0
-
 # --- the biotic ledger (published into SIM_REPORT through the LASimReport.register seam) --------------------
 var graze_asked: float = 0.0             # standing crop animals bit at
 var graze_taken: float = 0.0             # ...of which the local mirror agreed was there (the gut credit)
@@ -160,6 +155,12 @@ func respire(head_pos: Vector3, mass: float) -> float:
 	var c: int = _f.world_to_cell(head_pos)
 	if c < 0 or _f._solid[c] != 0:
 		return 0.0
+	# Oxidation heat is part of the exchange, not an extra. With no cell volume the joules cannot be sized,
+	# so the whole exchange is refused rather than booked with its heat silently zero.
+	var m3: float = LAMaterialFieldCellVolume3D.m3(_f, c)
+	if m3 < 0.0:
+		push_error("LAMaterialFieldBiota3D.respire: no cell volume, so respiration heat cannot be sized.")
+		return 0.0
 	var have: float = _f._o2[c]
 	var got: float = minf(mass, maxf(0.0, have))
 	if got <= 0.0:
@@ -173,7 +174,7 @@ func respire(head_pos: Vector3, mass: float) -> float:
 	co2_out += got
 	exchanges += 2
 	# Respiration heat, by Hess's law over the same formation enthalpies the reaction table uses.
-	var j: float = got * _respiration_j_per_o2_unit() * _cell_m3(c)
+	var j: float = got * _respiration_j_per_o2_unit() * m3
 	if j > 0.0 and _f.has_method("add_heat_energy"):
 		_f.add_heat_energy(head_pos, j, HEAT_RADIUS)
 		heat_out += j

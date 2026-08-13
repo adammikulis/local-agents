@@ -5,18 +5,12 @@ extends RefCounted
 ## The substance is data (LAFieldAttributionRecords); the walk is LAFieldLedgerFold3D's; this file owns the
 
 const FoldScript: GDScript = preload("res://addons/local_agents/sim/material/FieldLedgerFold3D.gd")
-
-## Field steps between sampled PAIRS. A sample checkpoints between every pass, so it is not free.
-const SAMPLE_EVERY: int = 50
+const SampleScript: GDScript = preload("res://addons/local_agents/sim/material/FieldStepSample3D.gd")
 
 var _f = null                              # back-reference to the owning LAMaterialField3D
 var _rec: Dictionary = {}
 var _fold = null
-
-# Primed so the first pair samples at field step 1: the opening total is what separates a run that lost
-# matter from a build that started with less.
-var _gate: int = SAMPLE_EVERY - 1
-var _in_pair: int = 0                      # 0 = not sampling, 1 = first of the pair, 2 = second
+var _sched = null                          # LAFieldStepSample3D: which steps are checkpointed
 
 var _done: Dictionary = {}                 # pass name -> true, once it has run this step
 var _missing: PackedStringArray = PackedStringArray()
@@ -36,27 +30,16 @@ func setup(field, record: Dictionary) -> void:
 	_rec = record
 	_fold = FoldScript.new()
 	_fold.setup(field)
+	_sched = SampleScript.new()
+	_sched.setup(field)
 
 
-## Called once per field step BEFORE _gpu.step(). Arms the driver's between-pass probe on the steps this
-## sampler wants and leaves it disarmed otherwise.
+## Called once per field step BEFORE _gpu.step().
 func pre_step() -> void:
-	if _f == null or _f._gpu == null or not _f._gpu.has_method("set_step_probe"):
+	if _sched == null:
 		return
-	if _in_pair == 1:
-		_in_pair = 2
-	else:
-		_gate += 1
-		if _gate >= SAMPLE_EVERY:
-			_gate = 0
-			_in_pair = 1
-			_pair_end = {}
-		else:
-			_in_pair = 0
-	if _in_pair == 0:
-		_f._gpu.set_step_probe(Callable())
-		return
-	_f._gpu.set_step_probe(Callable(self, "on_checkpoint"))
+	if _sched.arm(Callable(self, "on_checkpoint")):
+		_pair_end = {}
 
 
 ## The between-pass probe. `pass_index` -1 = before any pass ran; otherwise the index of the pass that just
@@ -76,7 +59,7 @@ func on_checkpoint(pass_index: int, pass_name: String) -> void:
 	var now: Dictionary = _sample()
 	if now.is_empty():
 		return
-	var key: String = _leg_key(pass_name)
+	var key: String = SampleScript.leg_key(pass_name)
 	for name in now:
 		var d: Dictionary = _legs.get(name, {})
 		d[key] = float(now[name]) - float(_prev.get(name, 0.0))
@@ -86,14 +69,14 @@ func on_checkpoint(pass_index: int, pass_name: String) -> void:
 
 ## Called once per field step AFTER _gpu.step(). Prints the sampled step's budget; a no-op otherwise.
 func post_step() -> void:
-	if _in_pair == 0:
+	if _sched == null or _sched.pair() == 0:
 		return
 	var marker: String = String(_rec.get("marker", ""))
-	var out: Dictionary = {"field_step": _step_index(), "pair": _in_pair}
+	var out: Dictionary = {}
 	if not _missing.is_empty():
 		out["refused"] = true
 		out["missing"] = _missing
-		print(marker, "=", JSON.stringify(out))
+		_sched.publish(marker, out)
 		_clear_step()
 		return
 	if _legs.is_empty():
@@ -116,7 +99,7 @@ func post_step() -> void:
 		if violations.size() > 0:
 			out["INSTRUMENT_WRONG_silent_pass_moved_heat"] = violations
 	_pair_end = _prev.duplicate()
-	print(marker, "=", JSON.stringify(out))
+	_sched.publish(marker, out)
 	_clear_step()
 
 
@@ -139,7 +122,7 @@ func _publish_row(out: Dictionary, row: Dictionary) -> void:
 			booked += _leg_sum(String(other))
 		out[String(row["residual"])] = (value - opened) - booked
 	# The instrument's falsifiable number: this step opened where the previous one closed.
-	if row.has("chain") and _in_pair == 2 and _pair_end.has(scalar):
+	if row.has("chain") and _sched.pair() == 2 and _pair_end.has(scalar):
 		out[String(row["chain"])] = opened - float(_pair_end[scalar])
 
 
@@ -244,16 +227,3 @@ func _mask(solid: PackedFloat32Array, cc: int) -> PackedByteArray:
 	for c in cc:
 		out[c] = 1 if solid[c] != 0.0 else 0
 	return out
-
-
-## Short leg label: "WaterSlumpLavaPass" -> "water_slump_lava".
-func _leg_key(pass_name: String) -> String:
-	var s: String = pass_name
-	if s.ends_with("Pass"):
-		s = s.substr(0, s.length() - 4)
-	return s.to_snake_case()
-
-
-func _step_index() -> int:
-	var gpu = _f._gpu
-	return int(gpu._step_index) if gpu != null else -1
