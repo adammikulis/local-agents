@@ -2,10 +2,6 @@ class_name LAGameHud
 extends CanvasLayer
 
 
-const COL_BG_2: Color = Color(0.129, 0.145, 0.184, 0.96)
-const COL_ACCENT: Color = Color(0.33, 0.70, 0.98, 1.0)
-const COL_GOLD: Color = Color(1.0, 0.82, 0.36, 1.0)          # reward / milestone highlight
-const COL_TEXT_HEADING: Color = Color(0.98, 0.99, 1.0, 1.0)
 
 # Capabilities worth a headline toast. Spawn unlocks are surfaced by the palette lighting up instead.
 const NOTABLE_CAP_LABELS: Dictionary = {
@@ -71,16 +67,16 @@ func _connect_progression() -> void:
 func _on_capability_unlocked(id: String) -> void:
 	if not NOTABLE_CAP_LABELS.has(id):
 		return
-	_spawn_toast("Unlocked: %s!" % String(NOTABLE_CAP_LABELS[id]), COL_GOLD)
+	_spawn_toast("Unlocked: %s!" % String(NOTABLE_CAP_LABELS[id]), LAUiStyle.COL_GOLD)
 	_chime()
 
 
 func _on_objective_completed(_id: String) -> void:
 	var title: String = String(_last_objective_title)
 	if title.is_empty():
-		_spawn_toast("Objective complete!", COL_ACCENT)
+		_spawn_toast("Objective complete!", LAUiStyle.COL_ACCENT)
 	else:
-		_spawn_toast("Objective complete: %s" % title, COL_ACCENT)
+		_spawn_toast("Objective complete: %s" % title, LAUiStyle.COL_ACCENT)
 	_chime()
 	_refresh()
 
@@ -116,7 +112,7 @@ func _refresh_objective() -> void:
 	var total: int = int(p.get("stages_total", 0))
 	if bool(p.get("done", false)):
 		_objective_title.text = "All objectives complete: survey the heavens"
-		_objective_title.add_theme_color_override("font_color", COL_GOLD)
+		_objective_title.add_theme_color_override("font_color", LAUiStyle.COL_GOLD)
 		_stage_label.text = "Stage %d / %d" % [total, total]
 		_progress_bar.visible = false
 		_progress_value.visible = false
@@ -125,7 +121,7 @@ func _refresh_objective() -> void:
 
 	_last_objective_title = String(p.get("title", ""))
 	_objective_title.text = _last_objective_title
-	_objective_title.add_theme_color_override("font_color", COL_TEXT_HEADING)
+	_objective_title.add_theme_color_override("font_color", LAUiStyle.COL_TEXT_HEADING)
 	_stage_label.text = "Stage %d / %d" % [int(p.get("stage", 1)), total]
 	_progress_bar.visible = true
 	_progress_value.visible = true
@@ -159,7 +155,7 @@ func _spawn_toast(text: String, accent: Color) -> void:
 	panel.add_child(margin)
 	var label: Label = Label.new()
 	label.text = text
-	label.add_theme_color_override("font_color", COL_TEXT_HEADING)
+	label.add_theme_color_override("font_color", LAUiStyle.COL_TEXT_HEADING)
 	label.add_theme_font_size_override("font_size", 17)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	margin.add_child(label)
@@ -188,15 +184,7 @@ func _fmt_num(v: float) -> String:
 
 
 func _toast_stylebox(accent: Color) -> StyleBoxFlat:
-	var sb: StyleBoxFlat = StyleBoxFlat.new()
-	sb.bg_color = COL_BG_2
-	sb.set_corner_radius_all(10)
-	sb.set_border_width_all(2)
-	sb.border_color = accent
-	sb.set_content_margin_all(0)
-	sb.shadow_color = Color(0, 0, 0, 0.45)
-	sb.shadow_size = 10
-	return sb
+	return LAUiStyle.flat_box(LAUiStyle.COL_BG_2, accent, 2, 0.45, 10)
 
 
 func _make_margin(h: int, v: int) -> MarginContainer:

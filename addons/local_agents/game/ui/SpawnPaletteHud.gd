@@ -52,14 +52,6 @@ const KIND_SYMBOLS: Dictionary = {
 }
 
 # Palette / theme colors (cohesive dark theme).
-const COL_BG: Color = Color(0.086, 0.098, 0.129, 0.94)
-const COL_BG_2: Color = Color(0.129, 0.145, 0.184, 0.96)
-const COL_BORDER: Color = Color(0.24, 0.27, 0.33, 1.0)
-const COL_ACCENT: Color = Color(0.33, 0.70, 0.98, 1.0)
-const COL_ACCENT_DIM: Color = Color(0.33, 0.70, 0.98, 0.22)
-const COL_TEXT: Color = Color(0.90, 0.92, 0.95, 1.0)
-const COL_TEXT_DIM: Color = Color(0.62, 0.66, 0.72, 1.0)
-const COL_TEXT_HEADING: Color = Color(0.98, 0.99, 1.0, 1.0)
 
 @onready var _root: Control = $HudRoot
 @onready var _status_panel: PanelContainer = $HudRoot/StatusBar
@@ -146,25 +138,25 @@ func show_inspector(payload: Dictionary) -> void:
 		return
 	var title: String = String(payload.get("title", "Entity"))
 	_inspector_title.text = title
-	_inspector_title.add_theme_color_override("font_color", COL_TEXT_HEADING)
+	_inspector_title.add_theme_color_override("font_color", LAUiStyle.COL_TEXT_HEADING)
 
 	_clear_children(_inspector_lines)
 	var lines: Array = payload.get("lines", [])
 	if lines.is_empty():
-		var empty: Label = _make_line_label("(no details)", COL_TEXT_DIM)
+		var empty: Label = _make_line_label("(no details)", LAUiStyle.COL_TEXT_DIM)
 		_inspector_lines.add_child(empty)
 	else:
 		for entry in lines:
-			_inspector_lines.add_child(_make_line_label(str(entry), COL_TEXT))
+			_inspector_lines.add_child(_make_line_label(str(entry), LAUiStyle.COL_TEXT))
 
 
 func clear_inspector() -> void:
 	if _inspector_title == null:
 		return
 	_inspector_title.text = "Inspector"
-	_inspector_title.add_theme_color_override("font_color", COL_TEXT_DIM)
+	_inspector_title.add_theme_color_override("font_color", LAUiStyle.COL_TEXT_DIM)
 	_clear_children(_inspector_lines)
-	var hint: Label = _make_line_label("Click an entity to inspect.", COL_TEXT_DIM)
+	var hint: Label = _make_line_label("Click an entity to inspect.", LAUiStyle.COL_TEXT_DIM)
 	_inspector_lines.add_child(hint)
 
 
@@ -309,7 +301,7 @@ func _style_hotkey_badge(kind: String) -> void:
 	if badge == null or not is_instance_valid(badge):
 		return
 	var unlocked: bool = LAGameProgression.spawn_unlocked(kind)
-	badge.add_theme_color_override("font_color", COL_ACCENT if unlocked else Color(COL_TEXT_DIM.r, COL_TEXT_DIM.g, COL_TEXT_DIM.b, 0.35))
+	badge.add_theme_color_override("font_color", LAUiStyle.COL_ACCENT if unlocked else Color(LAUiStyle.COL_TEXT_DIM.r, LAUiStyle.COL_TEXT_DIM.g, LAUiStyle.COL_TEXT_DIM.b, 0.35))
 
 
 ## Re-enable each palette entry whose spawn capability is now unlocked (campaign). Wired to the
@@ -378,18 +370,18 @@ func _build_theme() -> Theme:
 	var t: Theme = Theme.new()
 	t.default_font_size = 15
 
-	var panel_sb: StyleBoxFlat = _panel_stylebox(COL_BG)
+	var panel_sb: StyleBoxFlat = _panel_stylebox(LAUiStyle.COL_BG)
 	t.set_stylebox("panel", "PanelContainer", panel_sb)
 
 	# Buttons.
-	var btn_normal: StyleBoxFlat = _button_stylebox(COL_BG_2, COL_BORDER)
-	var btn_hover: StyleBoxFlat = _button_stylebox(Color(0.18, 0.20, 0.25, 0.98), COL_ACCENT.lerp(COL_BORDER, 0.4))
-	var btn_pressed: StyleBoxFlat = _button_stylebox(COL_ACCENT_DIM, COL_ACCENT)
+	var btn_normal: StyleBoxFlat = _button_stylebox(LAUiStyle.COL_BG_2, LAUiStyle.COL_BORDER)
+	var btn_hover: StyleBoxFlat = _button_stylebox(Color(0.18, 0.20, 0.25, 0.98), LAUiStyle.COL_ACCENT.lerp(LAUiStyle.COL_BORDER, 0.4))
+	var btn_pressed: StyleBoxFlat = _button_stylebox(LAUiStyle.COL_ACCENT_DIM, LAUiStyle.COL_ACCENT)
 	btn_pressed.border_width_left = 2
 	btn_pressed.border_width_right = 2
 	btn_pressed.border_width_top = 2
 	btn_pressed.border_width_bottom = 2
-	var btn_focus: StyleBoxFlat = _button_stylebox(Color(0, 0, 0, 0), COL_ACCENT)
+	var btn_focus: StyleBoxFlat = _button_stylebox(Color(0, 0, 0, 0), LAUiStyle.COL_ACCENT)
 
 	t.set_stylebox("normal", "Button", btn_normal)
 	t.set_stylebox("hover", "Button", btn_hover)
@@ -397,18 +389,18 @@ func _build_theme() -> Theme:
 	t.set_stylebox("hover_pressed", "Button", btn_pressed)
 	t.set_stylebox("focus", "Button", btn_focus)
 	t.set_stylebox("disabled", "Button", btn_normal)
-	t.set_color("font_color", "Button", COL_TEXT)
-	t.set_color("font_disabled_color", "Button", Color(COL_TEXT_DIM.r, COL_TEXT_DIM.g, COL_TEXT_DIM.b, 0.35))
-	t.set_color("font_hover_color", "Button", COL_TEXT_HEADING)
-	t.set_color("font_pressed_color", "Button", COL_ACCENT)
-	t.set_color("font_hover_pressed_color", "Button", COL_ACCENT)
+	t.set_color("font_color", "Button", LAUiStyle.COL_TEXT)
+	t.set_color("font_disabled_color", "Button", Color(LAUiStyle.COL_TEXT_DIM.r, LAUiStyle.COL_TEXT_DIM.g, LAUiStyle.COL_TEXT_DIM.b, 0.35))
+	t.set_color("font_hover_color", "Button", LAUiStyle.COL_TEXT_HEADING)
+	t.set_color("font_pressed_color", "Button", LAUiStyle.COL_ACCENT)
+	t.set_color("font_hover_pressed_color", "Button", LAUiStyle.COL_ACCENT)
 	t.set_constant("h_separation", "Button", 8)
 	t.set_font_size("font_size", "Button", 14)
 
-	t.set_color("font_color", "Label", COL_TEXT)
+	t.set_color("font_color", "Label", LAUiStyle.COL_TEXT)
 
 	var sep_sb: StyleBoxLine = StyleBoxLine.new()
-	sep_sb.color = COL_BORDER
+	sep_sb.color = LAUiStyle.COL_BORDER
 	sep_sb.vertical = true
 	t.set_stylebox("separator", "VSeparator", sep_sb)
 
@@ -418,29 +410,29 @@ func _build_theme() -> Theme:
 	t.set_stylebox("pressed", "OptionButton", btn_pressed)
 	t.set_stylebox("focus", "OptionButton", btn_focus)
 	t.set_stylebox("disabled", "OptionButton", btn_normal)
-	t.set_color("font_color", "OptionButton", COL_TEXT)
-	t.set_color("font_hover_color", "OptionButton", COL_TEXT_HEADING)
+	t.set_color("font_color", "OptionButton", LAUiStyle.COL_TEXT)
+	t.set_color("font_hover_color", "OptionButton", LAUiStyle.COL_TEXT_HEADING)
 	t.set_font_size("font_size", "OptionButton", 13)
 
-	var popup_sb: StyleBoxFlat = _panel_stylebox(COL_BG_2)
+	var popup_sb: StyleBoxFlat = _panel_stylebox(LAUiStyle.COL_BG_2)
 	popup_sb.set_content_margin_all(4)
 	t.set_stylebox("panel", "PopupMenu", popup_sb)
-	t.set_color("font_color", "PopupMenu", COL_TEXT)
-	t.set_color("font_hover_color", "PopupMenu", COL_TEXT_HEADING)
+	t.set_color("font_color", "PopupMenu", LAUiStyle.COL_TEXT)
+	t.set_color("font_hover_color", "PopupMenu", LAUiStyle.COL_TEXT_HEADING)
 	var popup_hover: StyleBoxFlat = StyleBoxFlat.new()
-	popup_hover.bg_color = COL_ACCENT_DIM
+	popup_hover.bg_color = LAUiStyle.COL_ACCENT_DIM
 	popup_hover.set_corner_radius_all(4)
 	t.set_stylebox("hover", "PopupMenu", popup_hover)
 
 	# HSlider: a thin track with a bright round grabber.
 	var slider_track: StyleBoxFlat = StyleBoxFlat.new()
-	slider_track.bg_color = COL_BG_2
+	slider_track.bg_color = LAUiStyle.COL_BG_2
 	slider_track.set_corner_radius_all(3)
 	slider_track.content_margin_top = 3
 	slider_track.content_margin_bottom = 3
 	t.set_stylebox("slider", "HSlider", slider_track)
 	var slider_fill: StyleBoxFlat = StyleBoxFlat.new()
-	slider_fill.bg_color = COL_ACCENT_DIM
+	slider_fill.bg_color = LAUiStyle.COL_ACCENT_DIM
 	slider_fill.set_corner_radius_all(3)
 	t.set_stylebox("grabber_area", "HSlider", slider_fill)
 	t.set_stylebox("grabber_area_highlight", "HSlider", slider_fill)
@@ -450,8 +442,8 @@ func _build_theme() -> Theme:
 	t.set_icon("grabber_disabled", "HSlider", grabber)
 
 	# CheckButton keeps the default engine on/off icons.
-	t.set_color("font_color", "CheckButton", COL_TEXT)
-	t.set_color("font_hover_color", "CheckButton", COL_TEXT_HEADING)
+	t.set_color("font_color", "CheckButton", LAUiStyle.COL_TEXT)
+	t.set_color("font_hover_color", "CheckButton", LAUiStyle.COL_TEXT_HEADING)
 	t.set_font_size("font_size", "CheckButton", 13)
 	var transparent: StyleBoxEmpty = StyleBoxEmpty.new()
 	t.set_stylebox("normal", "CheckButton", transparent)
@@ -460,7 +452,7 @@ func _build_theme() -> Theme:
 	t.set_stylebox("focus", "CheckButton", transparent)
 
 	var scroll_grabber: StyleBoxFlat = StyleBoxFlat.new()
-	scroll_grabber.bg_color = COL_BORDER
+	scroll_grabber.bg_color = LAUiStyle.COL_BORDER
 	scroll_grabber.set_corner_radius_all(3)
 	t.set_stylebox("grabber", "VScrollBar", scroll_grabber)
 	t.set_stylebox("grabber_highlight", "VScrollBar", scroll_grabber)
@@ -480,22 +472,14 @@ func _make_grabber_icon() -> ImageTexture:
 		for x in s:
 			var d: float = Vector2(x + 0.5, y + 0.5).distance_to(c)
 			if d <= r - 3.0:
-				img.set_pixel(x, y, COL_ACCENT)
+				img.set_pixel(x, y, LAUiStyle.COL_ACCENT)
 			elif d <= r:
-				img.set_pixel(x, y, COL_TEXT_HEADING)
+				img.set_pixel(x, y, LAUiStyle.COL_TEXT_HEADING)
 	return ImageTexture.create_from_image(img)
 
 
 func _panel_stylebox(bg: Color) -> StyleBoxFlat:
-	var sb: StyleBoxFlat = StyleBoxFlat.new()
-	sb.bg_color = bg
-	sb.set_corner_radius_all(10)
-	sb.set_border_width_all(1)
-	sb.border_color = COL_BORDER
-	sb.set_content_margin_all(0)
-	sb.shadow_color = Color(0, 0, 0, 0.35)
-	sb.shadow_size = 8
-	return sb
+	return LAUiStyle.flat_box(bg, LAUiStyle.COL_BORDER, 1, 0.35, 8)
 
 
 func _button_stylebox(bg: Color, border: Color) -> StyleBoxFlat:
@@ -616,10 +600,10 @@ func _make_cursor_icon() -> ImageTexture:
 	# A simple crosshair.
 	var mid: int = s / 2
 	for i in s:
-		img.set_pixel(mid, i, COL_TEXT)
-		img.set_pixel(i, mid, COL_TEXT)
+		img.set_pixel(mid, i, LAUiStyle.COL_TEXT)
+		img.set_pixel(i, mid, LAUiStyle.COL_TEXT)
 	for i in range(mid - 3, mid + 4):
 		if i >= 0 and i < s:
-			img.set_pixel(i, mid, COL_ACCENT)
-			img.set_pixel(mid, i, COL_ACCENT)
+			img.set_pixel(i, mid, LAUiStyle.COL_ACCENT)
+			img.set_pixel(mid, i, LAUiStyle.COL_ACCENT)
 	return ImageTexture.create_from_image(img)
