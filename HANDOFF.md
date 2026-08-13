@@ -8,28 +8,7 @@ code, then act. Report what was deleted; report no number this substrate printed
 
 ---
 
-## 1. Finish what the gravity solve left
-
-`MaterialField3D.solve_gravity()` returns `LAMaterialFieldGravity3D.step()`, whose whole body is `_bind()`
-then `return false`. Delete the method, both call sites in `MaterialFieldSphereStep3D` — they are in
-`seed_tick()` and `step()`, not `process` — and `mark_gravity_dirty()`, which loses its only caller with
-the unreachable branch. Nothing depends on `step()` having primed the bind: `solves()`, `mean_g()` and
-`down_at()` each call `_bind()` themselves.
-
-**There is no aquifer.** `seed_tick()` runs `_compute_regolith()` before `activate()`, so `_gpu` is null,
-`down_at()` returns `Vector3.ZERO`, and `LAFieldGeometry.burial_steps()` returns -1 for every solid cell.
-The second loop skips every one, so `regolith`, `grain` and `porosity` stay zero and the water table is
-never primed — and `darcy_resistance()` in `transport.glsl` reads `porosity <= 0.0` as `1.0e30`, so the
-Darcy row is inert. `_seed_sea()` is a pure radius test and `MaterialFieldLakes3D.seed()` keys on
-`radius_of()`; neither reads gravity, so the regolith is the only casualty.
-
-`activate()` moves after `sample_solidity()` and before `_compute_regolith()`. It only CONSTRUCTS `_gpu` —
-`down_at()` stays zero until the gravity buffer is drained — so a gravity-only dispatch has to run between
-them. Not a full `step()`: `activate()` already sets `_ready_sim`, so a plain step would run
-`_step_geotherm()` and burn simulated time, against `seed_tick()`'s contract that none has passed and
-against `MaterialFieldSeal3D`'s SEEDING line. Acceptance: `porosity` non-zero after seed.
-
-## 2. Reduce the rest on the device
+## 1. Reduce the rest on the device
 
 `ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and twenty-one report
 sweeps already use it. Left:
@@ -48,7 +27,7 @@ sweeps already use it. Left:
   already holds. Three `LAChannels.derived_buffers()` entries written by `StateDerivePass` delete all three
   loops with no reduce row at all; waiting for their five consumers to convert is a choice, not a blocker.
 
-## 3. Collapse the per-cell kernels into one dispatch
+## 2. Collapse the per-cell kernels into one dispatch
 
 Eleven passes are dispatched per step, each its own pipeline bind, uniform set and barrier. Three of them
 bind no neighbour buffer at all, and each reads at its own index what the one before it wrote there:
@@ -78,7 +57,7 @@ queue round trip and the separate cadence.
 The target is six: gravity, derive, pressure, transport, reactions, reduce — with the cell list folded
 into whichever pass dispatches indirectly over it.
 
-## 4. Delete the second radiative model
+## 3. Delete the second radiative model
 
 `MaterialFieldEnergyBudget3D` and `RadiativeColumn` re-solve the RADIATE row of `transport.glsl` on the CPU
 over 64 sampled columns. Have the row accumulate its own per-cell absorbed and emitted watts, sum those,
@@ -86,12 +65,12 @@ and delete both files with `K_SURFACE_FILL_MIN`, `K_ICE_ALBEDO_GAIN` and `SAMPLE
 `tests/test_radiative_transfer.gd` drives `RadiativeColumn` directly and is repaired forward, never by
 restoring it.
 
-## 5. Move the lightning column march into the kernel
+## 4. Move the lightning column march into the kernel
 
 `MaterialCharge3D._scan` walks the whole air column above every ground cell every step. It belongs in
 `charge_separate.glsl`, publishing a strike list. Same march, same `RREA_THRESHOLD_V_M`.
 
-## 6. Move what the device cannot take into the GDExtension
+## 5. Move what the device cannot take into the GDExtension
 
 GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is a `.cpp`/`.hpp` pair, one
 `SRC` line and one `register_class`.
@@ -104,12 +83,12 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
   per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
 - The driver: `MaterialSphereGPU3D.gd` and `MaterialField3D.gd`. Last, after the pass seam settles.
 
-## 7. Make `_read_channels`'s SLOW block read `slow_channels()`
+## 6. Make `_read_channels`'s SLOW block read `slow_channels()`
 
 It hardcodes `["silicate", "fert"]` and `["biomass", "cement", ...]`, so `slow_channels()` is a view nothing
 consumes and `porosity` never gets its coarse readback.
 
-## 8. Build the binding registry
+## 7. Build the binding registry
 
 SSBO binding numbers are a bare integer in GLSL and a second bare integer in one of fourteen uniform-set
 builders. `check_binding_collisions.sh` check 4 already holds a pass to indices its kernel declares, so what
@@ -117,20 +96,24 @@ is unheld is narrower: that one index names the same BUFFER on both sides. Build
 on `Channels.gd`'s shape — a `static func rows()`, never a `const Dictionary` built from another script's
 constants — and one gate absorbing the hand-written binding stanzas. Mutation-test it both ways.
 
-## 9. Make `lint` distinguish "could not run" from "violated"
+## 8. Make `lint` distinguish "could not run" from "violated"
 
 Every gate runs and the failures are summarised, so the fail-fast half of this is already done. What remains:
 the harness collapses every gate's exit code into `exit 1`, so the exit-2 contract asserted in about ten gate
 headers and in `lint.yml` is not observable. Fix the harness, not the gates.
 
-## 10. Find why a run costs render frames
+## 9. Find why a run costs render frames
 
 `--run-frames=N` is simulated steps now and a 200-step run does not reach the end. Steps 0-6 complete in
-tens of milliseconds, then step 7 blocks for about ten seconds and the process goes silent. `TIME_PHYSICS_PROCESS` and `TIME_PROCESS` together account for a small part of the frame
-period, so the rest is engine work no script callback owns. Start at godot_voxel's main-thread apply and the
-physics server. Item 1 may dissolve this.
+tens of milliseconds, then step 7 blocks for about ten seconds and the process goes silent.
+`TIME_PHYSICS_PROCESS` and `TIME_PROCESS` together account for a small part of the frame period, so the rest
+is engine work no script callback owns. Start at godot_voxel's main-thread apply and the physics server.
 
-## 11. Two constants that are not what they name
+Even a five-step arm times out, and it does so on an unmodified tree — so this is not a lane's change and
+not the gravity solve. **Nothing else here can be verified by running the planet until this is fixed**, which
+is why every lane gates on `lint` instead. Take it first.
+
+## 10. Two constants that are not what they name
 
 - `AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`, and it is the unit
   definition of the `o2`, `co2` and `n2` channels, so correcting it rescales every gas total.
@@ -138,7 +121,7 @@ physics server. Item 1 may dissolve this.
   fifty times over depleted mantle, so a second rock substance with its own abundance is what makes crust
   and mantle differ. The rate is also present-day and this body has no age.
 
-## 12. Rebuild frost shattering from the phase boundary
+## 11. Rebuild frost shattering from the phase boundary
 
 `LAGeoRecords` has no `RM_DEFICIT_BELOW_THRESHOLD` record, no `FROST_*` constant survives, and the rate
 model is declared in `ReactionDefs` and used by nothing. The mechanism is ice segregation, not expansion in
