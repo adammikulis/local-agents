@@ -124,11 +124,11 @@ static func _bake_prototype(type: String) -> ArrayMesh:
 		return null
 	LAModelVisual.recolor(model, def.get("recolor", {}))
 	var out: ArrayMesh = ArrayMesh.new()
-	for mi in LAModelVisual._mesh_instances(model):
+	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		var src: Mesh = (mi as MeshInstance3D).mesh
 		if src == null:
 			continue
-		var rel: Transform3D = model.transform * LAModelVisual._relative_xform(model, mi)
+		var rel: Transform3D = model.transform * LAModelVisual._relative_xform(model, mi as Node3D)
 		for si in range(src.get_surface_count()):
 			if src.surface_get_primitive_type(si) != Mesh.PRIMITIVE_TRIANGLES:
 				continue

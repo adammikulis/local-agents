@@ -46,7 +46,7 @@ static func build(model_path: String, target_height: float, anchor: String, yaw_
 	if yaw_deg != 0.0:
 		root.rotate_y(deg_to_rad(yaw_deg))
 	if tint.a > 0.0:
-		_apply_tint(root, tint)
+		apply_tint(root, tint)
 
 	# Bob baseline + amplitude for the rigless procedural path (see animate()).
 	root.set_meta("base_y", root.position.y)
@@ -81,7 +81,7 @@ static func animate(model: Node3D, anim: AnimationPlayer, anims: Dictionary, spe
 static func recolor(root: Node, overrides: Dictionary) -> void:
 	if overrides.is_empty():
 		return
-	for mi in _mesh_instances(root):
+	for mi in root.find_children("*", "MeshInstance3D", true, false):
 		var mesh: Mesh = (mi as MeshInstance3D).mesh
 		if mesh == null:
 			continue
@@ -118,8 +118,8 @@ static func find_anim(root: Node) -> AnimationPlayer:
 static func _model_aabb(root: Node3D) -> AABB:
 	var out: AABB = AABB()
 	var have: bool = false
-	for mi in _mesh_instances(root):
-		var local: AABB = _relative_xform(root, mi) * (mi as MeshInstance3D).get_aabb()
+	for mi in root.find_children("*", "MeshInstance3D", true, false):
+		var local: AABB = _relative_xform(root, mi as Node3D) * (mi as MeshInstance3D).get_aabb()
 		if not have:
 			out = local
 			have = true
@@ -141,18 +141,9 @@ static func _relative_xform(root: Node3D, node: Node3D) -> Transform3D:
 	return t
 
 
-static func _mesh_instances(node: Node) -> Array:
-	var out: Array = []
-	if node is MeshInstance3D:
-		out.append(node)
-	for child in node.get_children():
-		out.append_array(_mesh_instances(child))
-	return out
-
-
-# Flatten every surface to one albedo (used only for the vulture recolour of the parrot mesh).
-static func _apply_tint(root: Node, tint: Color) -> void:
-	for mi in _mesh_instances(root):
+# Flatten every surface to one albedo.
+static func apply_tint(root: Node, tint: Color) -> void:
+	for mi in root.find_children("*", "MeshInstance3D", true, false):
 		var mat: StandardMaterial3D = StandardMaterial3D.new()
 		mat.albedo_color = tint
 		mat.roughness = 0.85

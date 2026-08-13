@@ -266,19 +266,8 @@ func set_material_field(w) -> void:
 	_material = w
 
 
-# The game's LAFlameFX combustion visual — resolved lazily + guarded (never top-level `preload`d) so a
-# core creature parses and dies-burned with the game deleted; it just skips the flame prop. Null when absent.
+# The game's LAFlameFX combustion visual, optional: a core creature dies-burned with the game deleted.
 const FLAME_FX_PATH: String = "res://addons/local_agents/sim/actors/FlameFX.gd"
-static var _flame_fx_script: GDScript = null
-static var _flame_fx_resolved: bool = false
-
-static func _resolve_flame_fx() -> GDScript:
-	if _flame_fx_resolved:
-		return _flame_fx_script
-	_flame_fx_resolved = true
-	if ResourceLoader.exists(FLAME_FX_PATH):
-		_flame_fx_script = load(FLAME_FX_PATH) as GDScript
-	return _flame_fx_script
 
 
 # Organic matter combusts — bursts into flame (not incandescent glow) and dies burned. The flame is
@@ -287,7 +276,7 @@ func _combust() -> void:
 	if _dying:
 		return
 	var parent: Node = get_parent()
-	var flame_script: GDScript = _resolve_flame_fx()
+	var flame_script: GDScript = LAOptionalScript.resolve(FLAME_FX_PATH)
 	if parent != null and flame_script != null and flame_script.has_method("make"):
 		var flame: Node3D = flame_script.make()
 		parent.add_child(flame)
