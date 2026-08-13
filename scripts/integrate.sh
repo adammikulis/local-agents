@@ -84,6 +84,17 @@ if ! git -C "$STAGE_WT" merge --no-ff "$BRANCH" -m "$SUBJECT" >/dev/null 2>&1; t
 	exit 1
 fi
 
+# SCAN AFTER THE MERGE, NOT BEFORE IT. new_worktree.sh scans when it builds the staging tree, which is off
+# the DEV branch -- so a lane's new `class_name` or `.glsl` arrives afterwards and is unregistered. The
+# staged lint then fails on "Identifier not declared" for a class the lane correctly added, which reads as
+# the lane being broken. Imports first (a new kernel is unimported and load()s as null), then the scan.
+(cd "$STAGE_WT" && godot --headless --path . --import >/dev/null 2>&1) || true
+"$SCRIPT_DIR/editor_scan.sh" --path "$STAGE_WT" >/dev/null 2>&1 || {
+	echo "integrate: the staged tree does not scan clean after the merge." >&2
+	"$SCRIPT_DIR/editor_scan.sh" --path "$STAGE_WT" >&2
+	exit 1
+}
+
 # The integrator owns the ceilings, so it writes them rather than asking a lane to carry the number.
 # THE STAGED TREE'S OWN WRITER, for the same reason the lint step below uses the staged harness. The
 # primary's copy is the PRE-MERGE one, so a lane that changes how a ceiling is counted would have the stale
