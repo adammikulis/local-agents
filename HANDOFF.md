@@ -49,7 +49,7 @@ them; each item below is a set of rows in that table.
   per report. Point queries keep their mirrors.
 - `MaterialFieldChannels3D`, `MaterialFieldAtmos3D.refresh_aggregates`, `MaterialShock3D.shock_cell_count`.
 - `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`, `MaterialFieldElementProbe3D`,
-  `MaterialFieldH2OBudget3D`.
+  `FieldPassAttribution3D`.
 - `MaterialFieldReport3D.surface_climate` and `_open_temp_stats`, `MaterialFieldPhotoStats3D`,
   `MaterialFieldClimateSwing3D._site_stations`, `MaterialFieldGeotherm3D._gradient`.
 - Delete the sampling heuristics that only exist because those walks are expensive:

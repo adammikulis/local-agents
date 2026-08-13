@@ -3,20 +3,15 @@ extends RefCounted
 
 const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
 const RecordsScript: GDScript = preload("res://addons/local_agents/sim/material/FieldLedgerRecords3D.gd")
+const SampleScript: GDScript = preload("res://addons/local_agents/sim/material/FieldStepSample3D.gd")
 
 ## Per-pass attribution for an ELEMENT, in moles. `LA_ELEMENT_BUDGET=C`; comma-separate for several, `all`
 ## for every element any channel carries. Moles come from LAFieldLedgerRecords.elements_of.
 
-## Field steps between sampled PAIRS. `LA_ELEMENT_BUDGET_EVERY` overrides.
-const SAMPLE_EVERY: int = 50
-
 var _f = null
 var _elements: PackedStringArray = PackedStringArray()
 var _channels: PackedStringArray = PackedStringArray()
-var _every: int = SAMPLE_EVERY
-# Primed so the FIRST pair samples at field_step 1 — the opening inventory.
-var _gate: int = SAMPLE_EVERY - 1
-var _in_pair: int = 0              # 0 = not sampling, 1 = first of the pair, 2 = second
+var _sched = null                  # LAFieldStepSample3D: which steps are checkpointed
 
 var _done: Dictionary = {}         # pass name -> true once it has run this step (drives the half map)
 var _prev_all: Dictionary = {}     # element -> moles at the previous checkpoint
@@ -37,9 +32,7 @@ func setup(field) -> void:
 	if want == "":
 		return
 	var every: String = OS.get_environment("LA_ELEMENT_BUDGET_EVERY")
-	if every != "":
-		_every = maxi(1, int(every))
-	_gate = _every - 1
+	var cadence: int = maxi(1, int(every)) if every != "" else SampleScript.SAMPLE_EVERY
 	if want == "all" or want == "1":
 		_elements = LAReactionBalance.all_elements()
 	else:
@@ -54,31 +47,21 @@ func setup(field) -> void:
 	if _channels.is_empty():
 		push_warning("LA_ELEMENT_BUDGET=%s names no element any channel carries — probe disarmed." % want)
 		_elements = PackedStringArray()
+		return
+	_sched = SampleScript.new()
+	_sched.setup(field, cadence)
 
 
 func armed() -> bool:
 	return not _channels.is_empty()
 
 
-## Called once per field step BEFORE _gpu.step(). Arms the driver's between-pass probe on the steps this
-## sampler wants and leaves it disarmed otherwise.
+## Called once per field step BEFORE _gpu.step().
 func pre_step() -> void:
-	if _f == null or _f._gpu == null or not _f._gpu.has_method("set_step_probe"):
+	if _sched == null:
 		return
-	if _in_pair == 1:
-		_in_pair = 2
-	else:
-		_gate += 1
-		if _gate >= _every:
-			_gate = 0
-			_in_pair = 1
-			_pair_end_all = {}
-		else:
-			_in_pair = 0
-	if _in_pair == 0:
-		_f._gpu.set_step_probe(Callable())
-		return
-	_f._gpu.set_step_probe(Callable(self, "on_checkpoint"))
+	if _sched.arm(Callable(self, "on_checkpoint")):
+		_pair_end_all = {}
 
 
 ## `pass_index` -1 = before any pass ran; otherwise the index of the pass that just finished. The device has
@@ -99,7 +82,7 @@ func on_checkpoint(pass_index: int, pass_name: String) -> void:
 	# The producer's OUTPUT is what a checkpoint taken after it must read, so the half flips HERE, not before.
 	_done[pass_name] = true
 	var now: Array = _sample()
-	var key: String = _leg_key(pass_name)
+	var key: String = SampleScript.leg_key(pass_name)
 	_legs_all[key] = _delta(now[0], _prev_all)
 	_legs_open[key] = _delta(now[1], _prev_open)
 	var moved: Dictionary = {}
@@ -116,13 +99,11 @@ func on_checkpoint(pass_index: int, pass_name: String) -> void:
 
 ## Called once per field step AFTER _gpu.step(). Prints the sampled step's budget; a no-op otherwise.
 func post_step() -> void:
-	if _in_pair == 0 or _legs_all.is_empty():
+	if _sched == null or _sched.pair() == 0 or _legs_all.is_empty():
 		return
 	var step_all: Dictionary = _delta(_prev_all, _start_all)
 	var step_open: Dictionary = _delta(_prev_open, _start_open)
 	var out: Dictionary = {
-		"field_step": _step_index(),
-		"pair": _in_pair,
 		"elements": _elements,
 		"channels": _channels,
 		"all": _prev_all,
@@ -134,12 +115,12 @@ func post_step() -> void:
 		"legs_parts": _legs_parts,
 		"parts_all": _parts_all,
 	}
-	if _in_pair == 2 and not _pair_end_all.is_empty():
+	if _sched.pair() == 2 and not _pair_end_all.is_empty():
 		# The instrument's falsifiable number: this step opened where the previous one closed, or the half map
 		# above is wrong.
 		out["chain_all"] = _delta(_start_all, _pair_end_all)
 	_pair_end_all = _prev_all.duplicate()
-	print("ELEMENT_BUDGET=", JSON.stringify(out))
+	_sched.publish("ELEMENT_BUDGET", out)
 	_legs_all = {}
 	_legs_open = {}
 	_legs_parts = {}
@@ -202,16 +183,3 @@ func _delta(now: Dictionary, before: Dictionary) -> Dictionary:
 	for el in _elements:
 		out[el] = float(now.get(el, 0.0)) - float(before.get(el, 0.0))
 	return out
-
-
-## Short leg label: "WaterSlumpLavaPass" -> "water_slump_lava" (mirrors the driver's GPU-timing gauge keys).
-func _leg_key(pass_name: String) -> String:
-	var s: String = pass_name
-	if s.ends_with("Pass"):
-		s = s.substr(0, s.length() - 4)
-	return s.to_snake_case()
-
-
-func _step_index() -> int:
-	var gpu = _f._gpu
-	return int(gpu._step_index) if gpu != null else -1

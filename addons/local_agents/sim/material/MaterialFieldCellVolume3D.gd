@@ -24,6 +24,15 @@ static func of(field) -> PackedFloat32Array:
 	return out
 
 
+## Volume of cell `c`, m^3. NEGATIVE when the grid published no table: a volume is never negative, so the
+## caller must read that as "unmeasured" and refuse whatever it was sizing.
+static func m3(field, c: int) -> float:
+	var vol: PackedFloat32Array = of(field)
+	if c < 0 or c >= vol.size():
+		return -1.0
+	return vol[c]
+
+
 ## Sum of `arr` weighted by each cell's own volume — the matter the channel holds. `mask_open` restricts it
 ## to cells where `solid` is 0.
 static func weighted(arr: PackedFloat32Array, vol: PackedFloat32Array, solid: PackedByteArray,

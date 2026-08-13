@@ -1,6 +1,8 @@
 class_name LAMaterialFieldSeal3D
 extends RefCounted
 
+const SampleScript: GDScript = preload("res://addons/local_agents/sim/material/FieldStepSample3D.gd")
+
 
 enum Phase { SEEDING = 0, SEALED = 1 }
 
@@ -90,7 +92,7 @@ func poll(legs: Dictionary) -> bool:
 		return false
 	if _phase != Phase.SEALED:
 		_phase = Phase.SEALED
-		_seal_step = _step_index()
+		_seal_step = SampleScript.field_step(_f)
 		_origin = "seeded"
 	_latch_baselines()
 	return true
@@ -99,7 +101,7 @@ func poll(legs: Dictionary) -> bool:
 ## One instrument pass on the sealing step, so every ledger's `*_first` is the state at the seal.
 func _latch_baselines() -> void:
 	_latched = true
-	_baseline_step = _step_index()
+	_baseline_step = SampleScript.field_step(_f)
 	var rep = _f._report_mod
 	if rep != null:
 		rep._heavy_frame = -1_000_000
@@ -152,8 +154,3 @@ func report() -> Dictionary:
 		# Creations REFUSED after the seal, per kind.
 		"creation_after_seal": _refused,
 	}
-
-
-func _step_index() -> int:
-	var gpu = _f._gpu
-	return int(gpu._step_index) if gpu != null else -1
