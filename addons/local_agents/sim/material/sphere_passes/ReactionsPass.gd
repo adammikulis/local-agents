@@ -63,7 +63,6 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	# The dead organic pool's hydrogen and oxygen. Registered channels (LAChannels), so the driver owns them.
 	var org_h: RID = _single(bufs, "org_h")
 	var org_o: RID = _single(bufs, "org_o")
-	var porosity: RID = _single(bufs, "porosity")
 	var cell_vol: RID = _single(bufs, "cell_vol")
 	var pressure: RID = _single(bufs, "pressure")
 	var gravity: RID = _single(bufs, "gravity")
@@ -107,7 +106,6 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			[35, h2o_liquid],       # DERIVED share — liquid, free or in pores
 			[36, h2o_vapour],       # DERIVED share — vapour
 			[37, pressure],         # Pa — the saturation curve and the ladder both read it
-			[38, porosity],         # phi — the pore fraction the aquifer walk reads
 			[40, cell_vol],         # per-cell volume (kernels3d/cellvol.glsli)
 			[48, gravity],          # the SOLVED g: every "above"/"below" and the light angle read it
 		])

@@ -108,7 +108,6 @@ static func build_report(w) -> Dictionary:
 	_emit_draw_sources(w)
 	LASimReport.gauge("frames", float(w._frame))
 	LASimReport.gauge("time_of_day", w._sky_ctrl.time_of_day() if w._sky_ctrl != null else 0.30)
-	LASimReport.gauge("peak_slump", float(w._peak_slump))
 	LASimReport.gauge("fps", Performance.get_monitor(Performance.TIME_FPS))
 	LASimReport.gauge("process_ms", Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)
 	LASimReport.gauge("physics_ms", Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
