@@ -2,10 +2,10 @@ class_name LAMaterialFieldElementProbe3D
 extends RefCounted
 
 const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
-const InventoryScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldElementInventory3D.gd")
+const RecordsScript: GDScript = preload("res://addons/local_agents/sim/material/FieldLedgerRecords3D.gd")
 
 ## Per-pass attribution for an ELEMENT, in moles. `LA_ELEMENT_BUDGET=C`; comma-separate for several, `all`
-## for every element any channel carries. Moles come from LAMaterialFieldElementInventory3D.elements_of.
+## for every element any channel carries. Moles come from LAFieldLedgerRecords.elements_of.
 
 ## Field steps between sampled PAIRS. `LA_ELEMENT_BUDGET_EVERY` overrides.
 const SAMPLE_EVERY: int = 50
@@ -41,14 +41,14 @@ func setup(field) -> void:
 		_every = maxi(1, int(every))
 	_gate = _every - 1
 	if want == "all" or want == "1":
-		_elements = InventoryScript.all_elements()
+		_elements = LAReactionBalance.all_elements()
 	else:
 		for part in want.split(",", false):
 			var el: String = part.strip_edges()
 			if el != "" and not _elements.has(el):
 				_elements.append(el)
 	for el in _elements:
-		for ch in InventoryScript.channels_with(el):
+		for ch in LAReactionBalance.channels_with(el):
 			if not _channels.has(ch):
 				_channels.append(ch)
 	if _channels.is_empty():
@@ -176,8 +176,8 @@ func _sample() -> Array:
 	var parts: Dictionary = {}
 	for ch in all_by_channel:
 		parts[ch] = all_by_channel[ch]
-	return [_only(InventoryScript.elements_of(all_by_channel)),
-		_only(InventoryScript.elements_of(open_by_channel)), parts]
+	return [_only(RecordsScript.elements_of(all_by_channel)),
+		_only(RecordsScript.elements_of(open_by_channel)), parts]
 
 
 ## Read one channel at the half that is current given which passes have already run this step.

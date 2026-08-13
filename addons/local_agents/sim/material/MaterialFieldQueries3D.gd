@@ -398,7 +398,7 @@ func rock_cells() -> int:
 	return n
 
 
-# --- Combustion FIRE diagnostics. Fuel totals live in LAMaterialFieldElementInventory3D. ----------------
+# --- Combustion FIRE diagnostics. Fuel totals live in the ledger. -------------------------------------
 
 ## Peak intensity, burning-cell count, and whether the demand-gated `fire` readback landed on the last drain.
 func fire_stats() -> Dictionary:

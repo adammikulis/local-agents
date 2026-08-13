@@ -50,6 +50,26 @@ static func channel_elements(channel: String) -> Dictionary:
 	return composition().get(slot, {})
 
 
+## Every stored channel whose composition carries `element`. Asking where the carbon went costs the
+## channels that hold carbon, not every channel.
+static func channels_with(element: String) -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	for ch in inventory_channels():
+		if channel_elements(ch).has(element):
+			out.append(String(ch))
+	return out
+
+
+## Every element any stored channel carries.
+static func all_elements() -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	for ch in inventory_channels():
+		for el in channel_elements(ch):
+			if not out.has(String(el)):
+				out.append(String(el))
+	return out
+
+
 ## Slot number -> the LAReactionDefs constant name that declares it.
 static func slot_names() -> Dictionary:
 	var out: Dictionary = {}
