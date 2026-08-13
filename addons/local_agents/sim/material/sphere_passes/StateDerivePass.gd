@@ -1,8 +1,8 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
-## TEMPERATURE AND PHASE FROM STORED ENTHALPY. Reads `h_j_m3` (J/m^3), the substance amounts and `pressure`,
-## and writes the derived `temp` (deg C), the three velocity components, the h2o solid/liquid/vapour shares
-## and the silicate melt share. It writes no channel and mutates no state.
+## EVERYTHING A CELL DERIVES FROM ITS OWN INDEX. Writes `temp`, `vel_*`, `n_gas_m3`, `rho_cond`,
+## `conductivity` and the h2o/silicate phase shares off `h_j_m3` and `pressure`; cements and sets `solid`,
+## `regolith`, `grain` off that melt share; adds Coriolis and centrifugal to `mom_*`.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/state_derive.glsl"
 
@@ -47,7 +47,8 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 
 	var want: PackedStringArray = LAMatterChannels.CHANNELS.duplicate()
 	want.append_array(PackedStringArray(["h_j_m3", "pressure", "temp", "cell_vol", "conductivity",
-		"n_gas_m3", "rho_cond", "mom_x", "mom_y", "mom_z", "vel_x", "vel_y", "vel_z"]))
+		"n_gas_m3", "rho_cond", "mom_x", "mom_y", "mom_z", "vel_x", "vel_y", "vel_z",
+		"solid", "cement", "regolith", "grain", "pos"]))
 	want.append_array(PackedStringArray(PHASE_BUFFERS.keys()))
 	var missing: PackedStringArray = LAMatterChannels.absent(bufs, want)
 	if not missing.is_empty():
@@ -67,6 +68,11 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		entries.append([22, _single(bufs, "pressure")])
 		entries.append([23, _single(bufs, "temp")])
 		entries.append([24, props_ssbo])
+		entries.append([14, _single(bufs, "solid")])
+		entries.append([15, _single(bufs, "cement")])
+		entries.append([16, _single(bufs, "regolith")])
+		entries.append([17, _single(bufs, "grain")])
+		entries.append([18, _single(bufs, "pos")])
 		entries.append([25, _half(bufs, "mom_x", p, false)])
 		entries.append([26, _half(bufs, "mom_y", p, false)])
 		entries.append([27, _half(bufs, "mom_z", p, false)])
@@ -82,15 +88,24 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		_set[p] = _uset(_pipe, entries)
 
 
-func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable() or not _set[parity].is_valid():
 		return
+	var w: Vector3 = ctx.get("spin", Vector3.ZERO) * LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S
+	var centre: Vector3 = ctx.get("centre", Vector3.ZERO)
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(16)
+	pc.resize(44)
 	pc.encode_u32(0, cc)
-	pc.encode_u32(4, 0)
-	pc.encode_u32(8, 0)
-	pc.encode_u32(12, 0)
+	pc.encode_float(4, LAMaterialFieldSphereStep3D.real_seconds_per_step())
+	pc.encode_float(8, w.x)
+	pc.encode_float(12, w.y)
+	pc.encode_float(16, w.z)
+	pc.encode_float(20, centre.x)
+	pc.encode_float(24, centre.y)
+	pc.encode_float(28, centre.z)
+	pc.encode_float(32, LAPhysical.GRAIN_D_LOWLAND_M)
+	pc.encode_float(36, LAPhysical.LITHIFICATION_RATE_PER_PA)
+	pc.encode_float(40, LAPhysical.LITHIFICATION_PRESSURE_PA)
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, _set[parity], 0)
 	rd.compute_list_set_push_constant(cl, pc, pc.size())

@@ -53,16 +53,27 @@ layout(set = 0, binding = 26, std430) restrict readonly buffer SilicateMeltBuf {
 layout(set = 0, binding = 27, std430) restrict buffer Stamp { float stamp[]; };
 layout(set = 0, binding = 28, std430) restrict readonly buffer H2OVapourBuf { float h2o_vapour[]; };
 // TF_FRACTION rows move only this share of `amount` — the phase whose law this row is. 0..1.
-layout(set = 0, binding = 29, std430) restrict readonly buffer FracBuf { float frac[]; };
+// No `restrict` on this or the three below: the grain prologue writes the very buffers three silicate rows
+// bind here as their `frac`.
+layout(set = 0, binding = 29, std430) readonly buffer FracBuf { float frac[]; };
 // Consolidated share of the cell's silicate. A TF_DILUTE row rescales it when matter arrives, because what
 // arrives is loose and cement is a share of a total that just grew.
 layout(set = 0, binding = 30, std430) restrict buffer CementBuf { float cement[]; };
+// Where the cell's loose mineral grains are, written by the PASS_GRAIN prologue.
+layout(set = 0, binding = 31, std430) writeonly buffer SuspWater { float silicate_susp_water[]; };
+layout(set = 0, binding = 32, std430) writeonly buffer SuspAir { float silicate_susp_air[]; };
+layout(set = 0, binding = 33, std430) writeonly buffer Bed { float silicate_bed[]; };
+// A TF_LISTED row runs over CellListPass's compacted cell list instead of the grid. Slot 3 of the args is
+// the list length; the flag is 1 for every cell in the list.
+layout(set = 0, binding = 34, std430) restrict readonly buffer ActiveIdx { uint active_idx[]; };
+layout(set = 0, binding = 35, std430) restrict readonly buffer ActiveArgs { uint active_args[]; };
+layout(set = 0, binding = 36, std430) restrict readonly buffer ActiveFlag { uint active_flag[]; };
 
 #include "march.glsli"
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	uint pass_id;         // 0 = outflow, 1 = gather
+	uint pass_id;         // TransportPass.PASS_* — 0 = outflow, 1 = gather, 2 = the grain prologue
 	uint mode;            // MODE_* — what drives the flux across a face
 	uint law;             // LAW_* — which transport law sets the mobility
 	uint band_count;
@@ -80,7 +91,14 @@ layout(push_constant, std430) uniform Params {
 	float sun_x;          // world-space vector toward the sun; its LENGTH carries relative insolation
 	float sun_y;
 	float sun_z;
+	// PASS_GRAIN weighs a grain against BOTH fluids in one dispatch, so it cannot use fluid_rho/fluid_visc.
+	float rho_water;      // LAPhysical.WATER_DENSITY_KG_M3
+	float mu_water;       // LAPhysical.WATER_DYNAMIC_VISCOSITY_PA_S
+	float rho_air;        // LAPhysical.AIR_DENSITY_KG_M3
+	float mu_air;         // LAPhysical.AIR_DYNAMIC_VISCOSITY_PA_S
 } params;
+
+const uint PASS_GRAIN = 2u;   // TransportPass.PASS_GRAIN
 
 const float KELVIN = 273.15;                        // LAPhysical.KELVIN_OFFSET
 const float STEFAN = 5.670374419e-8;                // LAPhysical.STEFAN_BOLTZMANN
@@ -96,6 +114,10 @@ const float CLOUD_COND = 1.0e-14;                   // LAPhysical.CLOUD_CONDUCTI
 const float CLEAR_AIR_COND = 1.0e-13;               // LAPhysical.CLEAR_AIR_CONDUCTIVITY_S_M
 const float CHANNEL_COND = 1.0e4;                   // LAPhysical.LIGHTNING_CHANNEL_CONDUCTIVITY_S_M
 const float CHARGING_LWC = 1.0e-3;                  // LAPhysical.CHARGING_LWC_KG_M3
+const float NIC_CHARGE_RATE = 1.0e-9;               // LAPhysical.NIC_CHARGE_RATE_C_M3_S
+const float CHARGE_ZONE_WARM_C = -10.0;             // LAPhysical.CHARGE_ZONE_WARM_C
+const float CHARGE_ZONE_COLD_C = -25.0;             // LAPhysical.CHARGE_ZONE_COLD_C
+const float CONVECTIVE_UPDRAFT = 10.0;              // LAPhysical.CONVECTIVE_UPDRAFT_M_S
 const float BASALT_SOLIDUS_C = 1000.0;              // LAPhysical.BASALT_SOLIDUS_C
 const float BASALT_LIQUIDUS_C = 1200.0;             // LAPhysical.BASALT_LIQUIDUS_C
 const float MELT_VISC = 100.0;                      // LAPhysical.BASALT_MELT_VISCOSITY_PA_S
@@ -127,6 +149,11 @@ vec3 vel_at(uint c) {
 	return vec3(vel_x[c], vel_y[c], vel_z[c]);
 }
 
+// The cell's own grain diameter, or the row's seed where the cell declares none, m.
+float grain_d_at(uint c) {
+	return grain[c] > 0.0 ? grain[c] : params.grain_d;
+}
+
 // Outward unit normal of face d. Slot order -X,+X,-Y,+Y,-Z,+Z.
 vec3 face_normal(uint d) {
 	float s = (d & 1u) == 1u ? 1.0 : -1.0;
@@ -147,6 +174,22 @@ float air_rho(uint c) {
 float h2o_ice(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_solid[c], 0.0, 1.0); }
 float h2o_water(uint c)  { return max(h2o[c], 0.0) * clamp(h2o_liquid[c], 0.0, 1.0); }
 float h2o_gas(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_vapour[c], 0.0, 1.0); }
+
+// CONDENSED cloud water, droplets and ice alike, kg/m^3: what a rebounding pair is made of and what the
+// air's conductivity tracks.
+float cloud_water_kg_m3(uint c) {
+	return (h2o_water(c) + h2o_ice(c)) * RHO_WATER;
+}
+
+// Non-inductive charge separation in the riming band, C/m^3 this step. The light phase carries this much
+// charge up and the heavy phase carries the same amount down, so the pair creates nothing.
+float separation_dq(uint c, vec3 up) {
+	float band = clamp((CHARGE_ZONE_WARM_C - temp[c]) / (CHARGE_ZONE_WARM_C - CHARGE_ZONE_COLD_C),
+		0.0, 1.0);
+	float wet = clamp(cloud_water_kg_m3(c) / CHARGING_LWC, 0.0, 1.0);
+	float lift = clamp(dot(vel_at(c), up) / CONVECTIVE_UPDRAFT, 0.0, 1.0);
+	return NIC_CHARGE_RATE * band * wet * lift * params.dt_s;
+}
 
 // Volume fraction of the cell that is condensed, so a beam meets it geometrically.
 float condensed_frac(uint c) {
@@ -182,11 +225,15 @@ float strain_rate(uint c) {
 	return sqrt(s2);
 }
 
-// Smagorinsky eddy viscosity, m^2/s: nu_t = (C_s dx)^2 |S| plus the row fluid's molecular floor.
-float eddy_viscosity(uint c) {
+// Smagorinsky eddy viscosity, m^2/s: nu_t = (C_s dx)^2 |S| plus that fluid's molecular floor.
+float eddy_viscosity_of(uint c, float rho, float mu) {
 	float mixing = SMAGORINSKY_COEFF * params.cell_m;
-	float nu_mol = params.fluid_rho > 0.0 ? params.fluid_visc / params.fluid_rho : 0.0;
+	float nu_mol = rho > 0.0 ? mu / rho : 0.0;
 	return nu_mol + mixing * mixing * strain_rate(c);
+}
+
+float eddy_viscosity(uint c) {
+	return eddy_viscosity_of(c, params.fluid_rho, params.fluid_visc);
 }
 
 // Einstein-Roscoe: the melt's own viscosity times the crystal framework it is carrying, Pa s. The crystal
@@ -224,9 +271,8 @@ float column_field(uint c) {
 // Past the runaway threshold the local air density sets, the dielectric stops being one: the conductivity
 // jumps to a return-stroke channel's and the charge row becomes a stroke.
 float ohmic_conductivity(uint c) {
-	// Charge separation lives in the CONDENSED cloud water, ice and droplets alike.
-	float lwc = (h2o_water(c) + h2o_ice(c)) * RHO_WATER;
-	float ambient = mix(CLEAR_AIR_COND, CLOUD_COND, clamp(lwc / CHARGING_LWC, 0.0, 1.0));
+	float ambient = mix(CLEAR_AIR_COND, CLOUD_COND,
+		clamp(cloud_water_kg_m3(c) / CHARGING_LWC, 0.0, 1.0));
 	if (pressure[c] <= 0.0) {
 		return ambient;
 	}
@@ -281,7 +327,7 @@ float darcy_resistance(uint c) {
 	if (phi <= 0.0) {
 		return 1.0e30;
 	}
-	float d = grain[c] > 0.0 ? grain[c] : params.grain_d;
+	float d = grain_d_at(c);
 	float k = d * d * phi * phi * phi / (KOZENY_CARMAN_C * max((1.0 - phi) * (1.0 - phi), 1.0e-12));
 	return 1.0 / max(k, 1.0e-30);
 }
@@ -297,15 +343,27 @@ float darcy_mobility(uint a, uint b) {
 		/ (r * max(params.fluid_visc, 1.0e-30) * params.cell_m);
 }
 
-// Terminal settling velocity of the row's grain in the row's fluid, m/s (Stokes drag: the buoyant weight
-// balanced by 3 pi mu d w). The cell's own grain field wins; the row carries a seed for cells without one.
+// Terminal settling velocity of a grain of diameter `d` in a fluid, m/s (Stokes drag: the buoyant weight
+// balanced by 3 pi mu d w).
+float stokes_settling(uint c, float d, float rho, float mu) {
+	return max(params.density - rho, 0.0) * length(g_at(c)) * d * d / (18.0 * max(mu, 1.0e-30));
+}
+
 float settling_speed(uint c) {
 	if ((params.flags & TF_SETTLE) == 0u) {
 		return 0.0;
 	}
-	float d = grain[c] > 0.0 ? grain[c] : params.grain_d;
-	float mu = max(params.fluid_visc, 1.0e-30);
-	return max(params.density - params.fluid_rho, 0.0) * length(g_at(c)) * d * d / (18.0 * mu);
+	return stokes_settling(c, grain_d_at(c), params.fluid_rho, params.fluid_visc);
+}
+
+// Share of grains a fluid holds up. u* = sqrt(nu_t |S|) is the friction velocity, which in a boundary
+// layer is the scale of the vertical turbulent fluctuations (Bagnold: suspension once u* > w_s).
+float suspended_share(uint c, float rho, float mu) {
+	float w_s = stokes_settling(c, grain_d_at(c), rho, mu);
+	if (w_s <= 0.0) {
+		return 1.0;      // no denser than its fluid, so nothing pulls it out
+	}
+	return clamp(sqrt(max(eddy_viscosity_of(c, rho, mu) * strain_rate(c), 0.0)) / w_s, 0.0, 1.0);
 }
 
 // The velocity the row's matter actually travels at: the fluid's, plus its own fall through it.
@@ -473,9 +531,47 @@ float potential(uint c, uint d) {
 	return drive[c] * params.cell_m + params.cell_m * dot(-gv / gmag, face_normal(d));
 }
 
+// PASS_GRAIN: where a cell's loose mineral grains are — carried by water, carried by air, or on the bed.
+// The three shares sum to (1 - melt) * (1 - cement), and they are the `frac` of three silicate rows, so
+// this runs before any row's pass 0. It reads neighbour velocity, which is why it cannot join the derive.
+void grain_state(uint g) {
+	float loose = (1.0 - clamp(silicate_melt[g], 0.0, 1.0)) * (1.0 - clamp(cement[g], 0.0, 1.0));
+	if (loose <= 0.0) {
+		silicate_susp_water[g] = 0.0;
+		silicate_susp_air[g] = 0.0;
+		silicate_bed[g] = 0.0;
+		return;
+	}
+	float water = h2o_water(g);
+	float air = 1.0 - condensed_frac(g);
+	float tot = water + air;
+	float f_water = tot > 0.0 ? water / tot : 0.0;
+	float f_air = tot > 0.0 ? air / tot : 0.0;
+
+	float in_water = f_water * suspended_share(g, params.rho_water, params.mu_water);
+	float in_air = f_air * suspended_share(g, params.rho_air, params.mu_air);
+
+	silicate_susp_water[g] = loose * in_water;
+	silicate_susp_air[g] = loose * in_air;
+	silicate_bed[g] = loose * clamp(1.0 - in_water - in_air, 0.0, 1.0);
+}
+
+
 void main() {
 	uint gidx = gl_GlobalInvocationID.x;
+	bool listed = (params.flags & TF_LISTED) != 0u;
+	if (listed) {
+		// The dispatch is indirect over ceil(count/64) groups, so the tail of the last group is past the end.
+		if (gidx >= active_args[3]) {
+			return;
+		}
+		gidx = active_idx[gidx];
+	}
 	if (gidx >= params.cell_count) {
+		return;
+	}
+	if (params.pass_id == PASS_GRAIN) {
+		grain_state(gidx);
 		return;
 	}
 	uint base = gidx * N_SLOTS;
@@ -503,13 +599,36 @@ void main() {
 			}
 			return;
 		}
+		// SEPARATION is a transfer between this cell and the one below it, not a flux down a gradient: the
+		// donor keeps the light phase's charge and sends the heavy phase's down, so the ledger closes.
+		if (params.mode == MODE_SEPARATE) {
+			vec3 gv = g_at(gidx);
+			if (length(gv) <= 0.0) {
+				return;
+			}
+			vec3 up = -normalize(gv);
+			float dq = separation_dq(gidx, up);
+			if (dq <= 0.0) {
+				return;
+			}
+			int slot = la_slot_toward(-up);
+			if (slot < 0) {
+				return;
+			}
+			int below = nbr[base + uint(slot)];
+			// A charge with nowhere to go is not a separated charge.
+			if (below < 0 || solid[below] != 0.0) {
+				return;
+			}
+			send[base + uint(slot)] = -dq;
+			return;
+		}
 		// A TF_FRACTION row moves only the phase share `frac` names; the rest of the channel stays put.
 		float share = (params.flags & TF_FRACTION) != 0u ? clamp(frac[gidx], 0.0, 1.0) : 1.0;
 		float remaining = amount[gidx] * share;
+		// No floor on a SIGNED row. Momentum is made by a pressure gradient in a cell that has none, so a
+		// donor floor there is a cell that can never start moving.
 		if (!is_signed && remaining < params.min_amount) {
-			return;
-		}
-		if (is_signed && abs(remaining) < params.min_amount) {
 			return;
 		}
 		// Mass carries its heat and its charge. A row that carries no matter carries neither.
@@ -617,6 +736,10 @@ void main() {
 			continue;
 		}
 		uint nb = uint(inb);
+		// A cell outside the list never ran pass 0 this row, so its face scratch still holds another row's.
+		if (listed && active_flag[nb] == 0u) {
+			continue;
+		}
 		float in_amt = send[nb * N_SLOTS + (d ^ 1u)];
 		// What a neighbour radiated is absorbed only in proportion to this cell's own absorptivity; the
 		// rest passes on out of the world, which is how a transparent atmosphere lets the ground cool.

@@ -5,9 +5,14 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/transport.glsl"
 
 const BandsScript: GDScript = preload("res://addons/local_agents/sim/material/AbsorptionBands.gd")
+const CellListScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd")
 
-## Which half of the gather a dispatch is; a tag, not a quantity.
-enum { PASS_OUTFLOW, PASS_GATHER }
+## Which half of the gather a dispatch is, plus the prologue that runs before any row; tags, not quantities.
+enum { PASS_OUTFLOW, PASS_GATHER, PASS_GRAIN }
+
+## The grain prologue carries mineral grains, so the Stokes law reads silicate's density off `substance`.
+const GRAIN_ROW: Dictionary = {"channel": "silicate", "substance": "silicate",
+	"mode": LATransportRecords.POTENTIAL}
 
 ## Below this a cell is empty and does not donate. Declared in docs/MODEL_PARAMETERS.md.
 const MIN_AMOUNT: float = 0.0001
@@ -29,6 +34,10 @@ var _no_h: RID = RID()
 ## Band edges, absorption coefficients and the Planck CDF the RADIATE row reads.
 var _rad_table: RID = RID()
 var _band_count: int = 0
+## [set(parity 0), set(parity 1)] for the grain prologue.
+var _grain_sets: Array = []
+## Per row: the dispatch-indirect args RID of the cell list it runs over, invalid for a full-grid row.
+var _list_args: Array = []
 
 
 func _setup(bufs: Dictionary, cc: int) -> void:
@@ -46,6 +55,8 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 
 	for row: Dictionary in _rows:
 		_sets.append(_row_sets(bufs, row))
+		_list_args.append(_single(bufs, String(_list_keys(row).get("args", ""))))
+	_grain_sets = _row_sets(bufs, GRAIN_ROW)
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
@@ -56,22 +67,42 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	# Dry adiabat, K/m: g over the specific heat of dry air at constant pressure.
 	var lapse: float = _ctx_num(ctx, "g_m_s2") / LAPhysical.AIR_SPECIFIC_HEAT_J_KGK
 	var sun: Vector3 = ctx.get("sun_dir", Vector3.ZERO)
+	# PROLOGUE. The three suspension shares are the `frac` of three silicate rows, so they must be complete
+	# before those rows donate, and it reads `cement` before the dilute rows rescale it.
+	var grain_set: RID = _grain_sets[parity] if not _grain_sets.is_empty() else RID()
+	if grain_set.is_valid():
+		rd.compute_list_bind_compute_pipeline(cl, _pipe)
+		rd.compute_list_bind_uniform_set(cl, grain_set, 0)
+		var gpc: PackedByteArray = _pc(GRAIN_ROW, cc, PASS_GRAIN, cell_m, dt_s, lapse, sun)
+		rd.compute_list_set_push_constant(cl, gpc, gpc.size())
+		rd.compute_list_dispatch(cl, groups, 1, 1)
+		rd.compute_list_add_barrier(cl)
 	for r in _rows.size():
 		var uset: RID = _sets[r][parity] if not (_sets[r] as Array).is_empty() else RID()
 		if not uset.is_valid():
 			continue
 		# EVERY ROW RUNS TWICE. Pass 0 writes what leaves each face; pass 1 gathers. A receiver reading a
 		# donor inside one dispatch reads a value another thread is still writing.
+		var args: RID = _list_args[r]
 		for pass_id in [PASS_OUTFLOW, PASS_GATHER]:
 			rd.compute_list_bind_compute_pipeline(cl, _pipe)
 			rd.compute_list_bind_uniform_set(cl, uset, 0)
 			var pc: PackedByteArray = _pc(_rows[r], cc, pass_id, cell_m, dt_s, lapse, sun)
 			rd.compute_list_set_push_constant(cl, pc, pc.size())
-			rd.compute_list_dispatch(cl, groups, 1, 1)
+			# A listed row walks the cells CellListPass compacted, so its cost is O(active), not O(grid).
+			if args.is_valid():
+				rd.compute_list_dispatch_indirect(cl, args, 0)
+			else:
+				rd.compute_list_dispatch(cl, groups, 1, 1)
 			rd.compute_list_add_barrier(cl)
 
 
 # --- bindings ---------------------------------------------------------------------------------------------
+
+## The cell-list buffer keys a row runs over; empty for a row that sweeps the whole grid.
+func _list_keys(row: Dictionary) -> Dictionary:
+	var label: String = String(row.get("list", ""))
+	return {} if label == "" else CellListScript.list_buffers(label)
 
 ## [set(parity 0), set(parity 1)] for one row, or [] when a buffer it names does not exist.
 func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
@@ -83,14 +114,17 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 	var frac: String = String(row.get("frac", ""))
 	var moves_enthalpy: bool = channel == "h_j_m3"
 	# Mass does not move without its heat, so the enthalpy field is required of every row that carries mass.
-	var needed: Array = [channel, drive, resist, aux, stamp, frac, "" if moves_enthalpy else "h_j_m3"]
+	var list: Dictionary = _list_keys(row)
+	var needed: Array = [channel, drive, resist, aux, stamp, frac, "" if moves_enthalpy else "h_j_m3",
+		String(list.get("idx", "")), String(list.get("args", "")), String(list.get("flag", ""))]
 	for key in needed:
 		if String(key) != "" and not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row does not move." % [key, channel])
 			return []
 	# The material state every law and the band model read. A missing one is a dead row, not a default.
 	for key in ["temp", "pressure", "porosity", "grain", "co2", "h2o", "h2o_solid", "h2o_liquid",
-			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement"]:
+			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement",
+			"silicate_susp_water", "silicate_susp_air", "silicate_bed"]:
 		if not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row has no law." % [key, channel])
 			return []
@@ -125,6 +159,13 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 			[28, _single(bufs, "h2o_vapour")],
 			[29, _one if frac == "" else _single(bufs, frac)],
 			[30, _single(bufs, "cement")],
+			[31, _single(bufs, "silicate_susp_water")],
+			[32, _single(bufs, "silicate_susp_air")],
+			[33, _single(bufs, "silicate_bed")],
+			# A full-grid row never reads these; the kernel touches them only under TF_LISTED.
+			[34, _zero if list.is_empty() else bufs[String(list["idx"])]],
+			[35, _zero if list.is_empty() else bufs[String(list["args"])]],
+			[36, _zero if list.is_empty() else bufs[String(list["flag"])]],
 		]
 		out[p] = _uset(_pipe, entries)
 	return out
@@ -132,8 +173,7 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 
 # --- push constant ----------------------------------------------------------------------------------------
 
-## { uint cell_count, pass_id, mode, law, band_count, flags; float cell_m, dt_s, repose_tan, min_amount,
-## density, max_fill, lapse_k_per_m, fluid_rho, fluid_visc, grain_d, sun_x, sun_y, sun_z; } — 76 bytes.
+## transport.glsl's Params block, in its declared order — 92 bytes.
 func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lapse: float,
 		sun: Vector3) -> PackedByteArray:
 	var substance: String = String(row["substance"])
@@ -153,8 +193,10 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lap
 		flags |= LATransportRecords.Flag.FRACTION
 	if bool(row.get("dilute", false)):
 		flags |= LATransportRecords.Flag.DILUTE
+	if String(row.get("list", "")) != "":
+		flags |= LATransportRecords.Flag.LISTED
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(76)
+	pc.resize(92)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
@@ -176,6 +218,12 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lap
 	pc.encode_float(64, sun.x)
 	pc.encode_float(68, sun.y)
 	pc.encode_float(72, sun.z)
+	var water: Vector2 = LATransportRecords.fluid_properties(LATransportRecords.Fluid.WATER)
+	var air: Vector2 = LATransportRecords.fluid_properties(LATransportRecords.Fluid.AIR)
+	pc.encode_float(76, water.x)
+	pc.encode_float(80, water.y)
+	pc.encode_float(84, air.x)
+	pc.encode_float(88, air.y)
 	return pc
 
 

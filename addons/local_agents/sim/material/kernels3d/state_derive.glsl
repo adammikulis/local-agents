@@ -14,10 +14,18 @@ layout(set = 0, binding = 22, std430) restrict readonly buffer Pressure { float 
 layout(set = 0, binding = 23, std430) restrict writeonly buffer Temp { float temp[]; };
 layout(set = 0, binding = 24, std430) restrict readonly buffer Props { float props[]; };
 
+// Cementation state and the solid flag. Read-modify-write: the lockup branch is hysteretic.
+layout(set = 0, binding = 14, std430) restrict buffer Solid { float solid[]; };
+layout(set = 0, binding = 15, std430) restrict buffer Cement { float cement[]; };
+layout(set = 0, binding = 16, std430) restrict buffer Regolith { float regolith[]; };
+layout(set = 0, binding = 17, std430) restrict buffer Grain { float grain[]; };
+// Cell centre, flat cell*3, model units. The centrifugal term needs the radius vector.
+layout(set = 0, binding = 18, std430) restrict readonly buffer Pos { float pos[]; };
+
 // MOMENTUM is the state, kg m/s per m^3. Velocity is what you read off it once you know the mass.
-layout(set = 0, binding = 25, std430) restrict readonly buffer MomX { float mom_x[]; };
-layout(set = 0, binding = 26, std430) restrict readonly buffer MomY { float mom_y[]; };
-layout(set = 0, binding = 27, std430) restrict readonly buffer MomZ { float mom_z[]; };
+layout(set = 0, binding = 25, std430) restrict buffer MomX { float mom_x[]; };
+layout(set = 0, binding = 26, std430) restrict buffer MomY { float mom_y[]; };
+layout(set = 0, binding = 27, std430) restrict buffer MomZ { float mom_z[]; };
 layout(set = 0, binding = 28, std430) restrict writeonly buffer VelX { float vel_x[]; };
 layout(set = 0, binding = 29, std430) restrict writeonly buffer VelY { float vel_y[]; };
 layout(set = 0, binding = 30, std430) restrict writeonly buffer VelZ { float vel_z[]; };
@@ -39,10 +47,20 @@ layout(set = 0, binding = 37, std430) restrict writeonly buffer SilicateMelt { f
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	uint pad0;
-	uint pad1;
-	uint pad2;
+	float dt_s;
+	float omega_x;          // the body's angular velocity in the field's own axes, rad/s
+	float omega_y;
+	float omega_z;
+	float centre_x;         // the spin axis passes through the body centre
+	float centre_y;
+	float centre_z;
+	float fresh_grain_m;    // grain diameter given to newly-closed rock — LAPhysical.GRAIN_D_LOWLAND_M
+	float lith_rate_per_pa; // LAPhysical.LITHIFICATION_RATE_PER_PA, per step per Pa of excess
+	float lith_pressure_pa; // LAPhysical.LITHIFICATION_PRESSURE_PA
 } params;
+
+const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
+const float SOLID_OUT = 0.4;   // LAPhysical.RHEOLOGICAL_MOBILE_CRYSTAL_FRAC
 
 // One row of `props` per channel, built from LASubstances by StateDerivePass.
 const int PROP_STRIDE = 5;         // StateDerivePass.PROP_STRIDE
@@ -80,6 +98,31 @@ SubstanceTh la_sensible_only(float c_j_kgk) {
 		float[LA_MAX_EL](0.0, 0.0, 0.0)
 	);
 }
+
+// Cementation and the solid flag, from the melt share this cell just derived. No mass moves here, and the
+// pressure it reads is the one the enthalpy solve above read: the column solved at the end of the last step.
+void lithify(uint g, float melt) {
+	// A melt carries no cement.
+	float cem = min(clamp(cement[g], 0.0, 1.0), 1.0 - melt);
+	float excess = max(pressure[g] - params.lith_pressure_pa, 0.0);
+	cem = clamp(cem + params.lith_rate_per_pa * excess * (1.0 - melt - cem), 0.0, 1.0 - melt);
+	cement[g] = cem;
+
+	float rock = max(silicate[g], 0.0) * cem;
+	bool was = solid[g] != 0.0;
+	bool now = was ? (rock >= SOLID_OUT) : (rock >= SOLID_IN);
+	if (now) {
+		// Enclosed h2o is now pore water: same channel, different place. The cell has become aquifer.
+		if (h2o[g] > 0.0) {
+			regolith[g] = 1.0;
+			grain[g] = max(grain[g], params.fresh_grain_m);
+		}
+		solid[g] = 1.0;
+		return;
+	}
+	solid[g] = 0.0;
+}
+
 
 void main() {
 	uint g = gl_GlobalInvocationID.x;
@@ -123,6 +166,8 @@ void main() {
 	conductivity[g] = (v_used > 0.0) ? v_lambda / v_used : 0.0;
 	n_gas_m3[g] = n_gas_mol * inv_vol;
 	rho_cond[g] = max(total - m_gas, 0.0) * inv_vol;
+	float f_melt = 0.0;
+	vec3 v = vec3(0.0);
 	if (total <= 0.0) {
 		temp[g] = -LA_KELVIN_OFFSET;   // no matter, so no temperature
 		vel_x[g] = 0.0;
@@ -132,13 +177,15 @@ void main() {
 		h2o_liquid[g] = 0.0;
 		h2o_vapour[g] = 0.0;
 		silicate_melt[g] = 0.0;
-		return;
+		lithify(g, f_melt);
+		return;   // no mass, so the frame terms deliver no momentum either
 	}
 	// v = p/m. Nothing with no mass moves, and a light cell is pushed further by the same momentum.
 	float inv_m = vol / total;
-	vel_x[g] = mom_x[g] * inv_m;
-	vel_y[g] = mom_y[g] * inv_m;
-	vel_z[g] = mom_z[g] * inv_m;
+	v = vec3(mom_x[g], mom_y[g], mom_z[g]) * inv_m;
+	vel_x[g] = v.x;
+	vel_y[g] = v.y;
+	vel_z[g] = v.z;
 
 	SubstanceTh subs[LA_MIX_MAX];
 	subs[E_H2O] = la_h2o();
@@ -189,7 +236,6 @@ void main() {
 	// THE MELT SHARE OF THIS CELL'S SILICATE, off the SAME ladder. Rock has a melting INTERVAL, so the
 	// lever rule the enthalpy curve already integrates over reads back as a linear share of the interval —
 	// no plateau, no `pinned` branch, and the latent heat is what put t_c where it is.
-	float f_melt = 0.0;
 	if (mass[E_SILICATE] > 0.0) {
 		SubstanceTh r = subs[E_SILICATE];
 		float solidus = la_melt_c_at(r, p_pa, 0.0);
@@ -199,4 +245,19 @@ void main() {
 			: (t_c < solidus ? 0.0 : 1.0);
 	}
 	silicate_melt[g] = f_melt;
+
+	lithify(g, f_melt);
+
+	// ROTATING FRAME: Coriolis -2w x v and centrifugal -w x (w x r), per unit volume. The field's axes are
+	// body-local and the body spins. The density is this cell's whole mass, gas included.
+	vec3 omega = vec3(params.omega_x, params.omega_y, params.omega_z);
+	if (dot(omega, omega) > 0.0) {
+		vec3 r_vec = vec3(pos[g * 3u], pos[g * 3u + 1u], pos[g * 3u + 2u])
+			- vec3(params.centre_x, params.centre_y, params.centre_z);
+		vec3 a = -2.0 * cross(omega, v) - cross(omega, cross(omega, r_vec));
+		vec3 dp = a * (total * inv_vol) * params.dt_s;
+		mom_x[g] += dp.x;
+		mom_y[g] += dp.y;
+		mom_z[g] += dp.z;
+	}
 }

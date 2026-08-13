@@ -4,7 +4,7 @@ extends RefCounted
 ## What moves, and by what rule. transport.glsl runs every row through one gather.
 
 ## What drives a record across a face. Matches the MODE_* constants in transport.glsl.
-enum { POTENTIAL, ADVECT, BOTH, DIFFUSE, CONVECT, CONDUCT, RADIATE }
+enum { POTENTIAL, ADVECT, BOTH, DIFFUSE, CONVECT, CONDUCT, RADIATE, SEPARATE }
 
 ## The transport law that sets a row's mobility from the cell's own state. Matches LAW_* in transport.glsl.
 enum Law { NONE, SHALLOW, FILM, DARCY, EDDY, SOUND, OHMIC, PGF }
@@ -13,12 +13,15 @@ enum Law { NONE, SHALLOW, FILM, DARCY, EDDY, SOUND, OHMIC, PGF }
 enum Fluid { VACUUM, WATER, AIR }
 
 ## Per-row switches, packed into the kernel's `flags`. Matches the TF_* constants in transport.glsl.
-enum Flag { SIGNED = 1, SETTLE = 2, STAMP = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32 }
+enum Flag { SIGNED = 1, SETTLE = 2, STAMP = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32, LISTED = 64 }
 
 
 ## `settle` adds the grain's terminal velocity to the advecting fluid; `frac` is the derived share moved.
 static func rows() -> Array:
 	return [
+		# FIRST: the riming pair separates charge before anything relaxes or carries it.
+		{"channel": "charge", "substance": "", "mode": SEPARATE, "signed": true},
+
 		{"channel": "h2o", "substance": "h2o", "mode": POTENTIAL, "law": Law.SHALLOW,
 			"frac": "h2o_liquid"},
 
@@ -29,8 +32,9 @@ static func rows() -> Array:
 			"frac": "h2o_vapour"},
 
 		# One silicate channel, four laws. Cemented rock has no row: that is what being rock means.
+		# `list` dispatches this row over CellListPass's compacted melt list — O(molten) rather than O(grid).
 		{"channel": "silicate", "substance": "silicate", "mode": POTENTIAL, "law": Law.FILM,
-			"frac": "silicate_melt", "dilute": true},
+			"frac": "silicate_melt", "dilute": true, "list": "melt"},
 
 		{"channel": "silicate", "substance": "silicate", "mode": ADVECT, "fluid": Fluid.WATER,
 			"settle": true, "frac": "silicate_susp_water", "dilute": true},

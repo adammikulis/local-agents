@@ -58,6 +58,7 @@
 #define MODE_CONVECT 4u
 #define MODE_CONDUCT 5u
 #define MODE_RADIATE 6u
+#define MODE_SEPARATE 7u
 
 // TransportRecords.gd Law enum
 #define LAW_NONE 0u
@@ -76,6 +77,7 @@
 #define TF_DRIVEN 8u
 #define TF_FRACTION 16u
 #define TF_DILUTE 32u
+#define TF_LISTED 64u
 
 // ReduceRecords.gd Op enum
 #define OP_SUM 0u
