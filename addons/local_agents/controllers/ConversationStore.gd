@@ -6,12 +6,12 @@ const STORE_DIR: String = "user://local_agents"
 const DB_PATH: String = STORE_DIR + "/network.sqlite3"
 const CONVERSATION_SPACE: String = "conversation"
 const MESSAGE_SPACE: String = "message"
+const AgentRuntimeAccess = preload("res://addons/local_agents/runtime/AgentRuntimeAccess.gd")
 
 # Typed Object, not NetworkGraph. That class comes from the native GDExtension, so annotating against
 # it makes this file a PARSE error for anyone who enabled the plugin before building the binary. The
 # ClassDB.class_exists() guard below was always right; the annotation was what broke a first install.
 var _graph: Object = null
-var _runtime: Object = null
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -141,7 +141,7 @@ func search_messages(query: String, top_k: int = 5, expand: int = 32) -> Array:
         return []
     if not _ensure_graph():
         return []
-    var runtime: Object = _agent_runtime()
+    var runtime: Object = AgentRuntimeAccess.singleton()
     if runtime == null or not runtime.has_method("is_model_loaded"):
         return []
     if not runtime.call("is_model_loaded"):
@@ -227,7 +227,7 @@ func _message_from_row(row: Dictionary) -> Dictionary:
     }
 
 func _store_embedding(message_id: int, role: String, content: String, conversation_id: int) -> void:
-    var runtime: Object = _agent_runtime()
+    var runtime: Object = AgentRuntimeAccess.singleton()
     if runtime == null or not runtime.has_method("is_model_loaded"):
         return
     if not runtime.call("is_model_loaded"):
@@ -240,7 +240,7 @@ func _store_embedding(message_id: int, role: String, content: String, conversati
     var vector: Variant = runtime.call("embed_text", truncated, {"normalize": true})
     if vector.is_empty():
         return
-    var embedding_model: String = _resolve_embedding_model(runtime)
+    var embedding_model: String = AgentRuntimeAccess.default_model_name(runtime)
     _graph.add_embedding(message_id, vector, {
         "type": "chat_message",
         "conversation_id": conversation_id,
@@ -253,20 +253,3 @@ func _generate_label(prefix: String) -> String:
 
 func _timestamp() -> int:
     return int(Time.get_unix_time_from_system())
-
-func _agent_runtime() -> Object:
-    if _runtime:
-        return _runtime
-    if not Engine.has_singleton("AgentRuntime"):
-        return null
-    _runtime = Engine.get_singleton("AgentRuntime")
-    return _runtime
-
-func _resolve_embedding_model(runtime: Object) -> String:
-    if runtime == null:
-        return "unknown"
-    if runtime.has_method("get_default_model_path"):
-        var path: String = String(runtime.call("get_default_model_path")).strip_edges()
-        if path != "":
-            return path.get_file()
-    return "unknown"

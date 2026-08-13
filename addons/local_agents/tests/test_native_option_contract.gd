@@ -5,6 +5,7 @@ extends RefCounted
 const NATIVE_SRC_DIR: String = "res://addons/local_agents/gdextensions/localagents/src/"
 const ADDON_ROOT: String = "res://addons/local_agents/"
 const NATIVE_SRC_SUFFIXES: Array[String] = [".cpp", ".h", ".hpp"]
+const TextFile = preload("res://addons/local_agents/runtime/TextFile.gd")
 
 # Reason codes for KNOWN_UNCONSUMED. Both are verified, not just documented - see _check_known_entry.
 const GDSCRIPT_CONSUMED: String = "gdscript"   # the addon's GDScript reads it; the native runtime does not
@@ -215,7 +216,7 @@ func _read_dir_text(dir_path: String, suffixes: Array[String]) -> String:
 		if not dir.current_is_dir():
 			for suffix in suffixes:
 				if entry.ends_with(suffix):
-					out += _read_file(dir_path + entry) + "\n"
+					out += TextFile.read(dir_path + entry) + "\n"
 					break
 		entry = dir.get_next()
 	dir.list_dir_end()
@@ -240,19 +241,10 @@ func _read_addon_gdscript() -> String:
 				if entry != "tests" and entry != "parameters" and not entry.begins_with("."):
 					pending.append(path + "/")
 			elif entry.ends_with(".gd"):
-				out += _read_file(path) + "\n"
+				out += TextFile.read(path) + "\n"
 			entry = dir.get_next()
 		dir.list_dir_end()
 	return out
-
-
-func _read_file(path: String) -> String:
-	var file: FileAccess = FileAccess.open(path, FileAccess.READ)
-	if file == null:
-		return ""
-	var text: String = file.get_as_text()
-	file.close()
-	return text
 
 
 func _fail(message: String) -> void:

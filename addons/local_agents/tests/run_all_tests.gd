@@ -19,7 +19,6 @@ const FAST_CORE_TESTS := [
 
 const LONG_TESTS := TestLaneRegistry.INTEGRATION_TESTS
 const RUNTIME_TESTS := TestLaneRegistry.RUNTIME_HEAVY_TESTS
-const COGNITION_DEPENDENT_TESTS := []
 
 const HEAVY_TEST := "res://addons/local_agents/tests/test_agent_runtime_heavy.gd"
 const HEAVY_FLAG := "--include-heavy"
@@ -28,6 +27,7 @@ const INCLUDE_LONG_FLAG := "--include-long"
 const FAST_FLAG := "--fast"
 const TestModelHelper := preload("res://addons/local_agents/tests/test_model_helper.gd")
 const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
+const CmdlineArgs := preload("res://addons/local_agents/runtime/CmdlineArgs.gd")
 const AgentResultReporter := preload("res://addons/local_agents/tests/agent_result_reporter.gd")
 
 var _failures: Array[String] = []
@@ -46,11 +46,11 @@ var _override_max_tokens: int = 0
 var _runner := TestRunnerHelper.new()
 
 func _init() -> void:
-    _fast_mode = _has_flag(FAST_FLAG)
-    _gpu_enabled = _has_flag("--use-gpu")
-    _gpu_layers = _int_arg("--gpu-layers=", 0)
-    _override_context_size = _int_arg("--context-size=", 0)
-    _override_max_tokens = _int_arg("--max-tokens=", 0)
+    _fast_mode = CmdlineArgs.has_flag(FAST_FLAG)
+    _gpu_enabled = CmdlineArgs.has_flag("--use-gpu")
+    _gpu_layers = CmdlineArgs.int_value("--gpu-layers=", 0)
+    _override_context_size = CmdlineArgs.int_value("--context-size=", 0)
+    _override_max_tokens = CmdlineArgs.int_value("--max-tokens=", 0)
     OS.set_environment("LOCAL_AGENTS_TEST_USE_GPU", "1" if _gpu_enabled else "0")
     if _gpu_layers > 0:
         OS.set_environment("LOCAL_AGENTS_TEST_GPU_LAYERS", str(_gpu_layers))
@@ -78,7 +78,6 @@ func _run_all() -> void:
     else:
         print("Skipping long deterministic tests (use --include-long).")
     if _run_runtime_tests:
-        _apply_cognition_runtime_gate()
         var ensured := _model_helper.ensure_local_model()
         if ensured == "":
             _record_failure(HEAVY_TEST, "Failed to auto-download required test model")
@@ -97,27 +96,16 @@ func _run_case(script_path: String) -> void:
         _record_failure(script_path, "Reported failure")
 
 func _should_run_runtime_tests() -> bool:
-    for arg in _all_cmdline_args():
-        if arg == SKIP_HEAVY_FLAG:
-            return false
-    for arg in _all_cmdline_args():
-        if arg == HEAVY_FLAG:
-            return true
-    if _fast_mode:
+    if CmdlineArgs.has_flag(SKIP_HEAVY_FLAG):
         return false
-    if OS.has_environment("LOCAL_AGENTS_TEST_GGUF"):
-        var path := OS.get_environment("LOCAL_AGENTS_TEST_GGUF").strip_edges()
-        if path != "":
-            return true
-    return true
+    if CmdlineArgs.has_flag(HEAVY_FLAG):
+        return true
+    return not _fast_mode
 
 func _should_run_long_tests() -> bool:
     if _fast_mode:
         return false
-    for arg in _all_cmdline_args():
-        if arg == INCLUDE_LONG_FLAG:
-            return true
-    return false
+    return CmdlineArgs.has_flag(INCLUDE_LONG_FLAG)
 
 func _core_tests_from_args() -> Array[String]:
     var selected = _tests_from_arg("core-tests")
@@ -129,7 +117,7 @@ func _core_tests_from_args() -> Array[String]:
         return defaults
     var out: Array[String] = []
     for script_path in selected:
-        var resolved = _resolve_token(script_path, CORE_TESTS)
+        var resolved = TestLaneRegistry.resolve(script_path, CORE_TESTS)
         if resolved == "":
             _record_failure("arg_parse", "Unknown core test in --core-tests filter: %s" % script_path)
             continue
@@ -146,7 +134,7 @@ func _runtime_tests_from_args() -> Array[String]:
         return defaults
     var out: Array[String] = []
     for script_path in selected:
-        var resolved = _resolve_token(script_path, RUNTIME_TESTS)
+        var resolved = TestLaneRegistry.resolve(script_path, RUNTIME_TESTS)
         if resolved == "":
             _record_failure("arg_parse", "Unknown runtime test in --runtime-tests filter: %s" % script_path)
             continue
@@ -156,7 +144,7 @@ func _runtime_tests_from_args() -> Array[String]:
 
 func _tests_from_arg(flag_name: String) -> Array[String]:
     var out: Array[String] = []
-    for arg in _all_cmdline_args():
+    for arg in CmdlineArgs.all():
         var prefix = "--%s=" % flag_name
         if not arg.begins_with(prefix):
             continue
@@ -168,122 +156,6 @@ func _tests_from_arg(flag_name: String) -> Array[String]:
             if token != "":
                 out.append(token)
     return out
-
-func _resolve_token(token: String, universe: Array) -> String:
-    if universe.has(token):
-        return token
-    for script_path in universe:
-        if script_path.ends_with("/%s" % token) or script_path.get_file() == token:
-            return script_path
-    return ""
-
-func _has_flag(flag: String) -> bool:
-    for arg in _all_cmdline_args():
-        if arg == flag:
-            return true
-    return false
-
-func _int_arg(prefix: String, fallback: int) -> int:
-    for arg in _all_cmdline_args():
-        if arg.begins_with(prefix):
-            return int(arg.trim_prefix(prefix))
-    return fallback
-
-func _all_cmdline_args() -> PackedStringArray:
-    var args := PackedStringArray()
-    for arg in OS.get_cmdline_args():
-        args.append(arg)
-    for arg in OS.get_cmdline_user_args():
-        if not args.has(arg):
-            args.append(arg)
-    return args
-
-func _apply_cognition_runtime_gate() -> void:
-    var skip_reason := _cognition_runtime_skip_reason()
-    if skip_reason == "":
-        return
-    var kept: Array[String] = []
-    var skipped: Array[String] = []
-    for script_path in _selected_runtime_tests:
-        if COGNITION_DEPENDENT_TESTS.has(script_path):
-            skipped.append(script_path)
-            continue
-        kept.append(script_path)
-    if skipped.is_empty():
-        return
-    print("Cognition runtime gate active: %s" % skip_reason)
-    for script_path in skipped:
-        print("==> %s skipped due to missing cognition runtime (%s)" % [script_path, skip_reason])
-    _selected_runtime_tests = kept
-
-func _cognition_runtime_skip_reason() -> String:
-    if not ClassDB.class_exists("NetworkGraph"):
-        return "NetworkGraph extension unavailable"
-    if not Engine.has_singleton("AgentRuntime"):
-        return "AgentRuntime singleton unavailable"
-    var runtime = Engine.get_singleton("AgentRuntime")
-    if runtime == null:
-        return "AgentRuntime singleton unavailable"
-    if not runtime.has_method("load_model"):
-        return "AgentRuntime.load_model unavailable"
-    var base_url := _cognition_backend_base_url()
-    var endpoint := _parse_backend_endpoint(base_url)
-    var host := String(endpoint.get("host", "127.0.0.1"))
-    var port := int(endpoint.get("port", 8080))
-    if not _is_tcp_endpoint_reachable(host, port, 750):
-        return "cognition HTTP backend unreachable at %s" % base_url
-    return ""
-
-func _cognition_backend_base_url() -> String:
-    for key in [
-        "LOCAL_AGENTS_TEST_COGNITION_BASE_URL",
-        "LOCAL_AGENTS_COGNITION_BASE_URL",
-        "LOCAL_AGENTS_SERVER_BASE_URL",
-    ]:
-        var value := OS.get_environment(key).strip_edges()
-        if value != "":
-            return value
-    return "http://127.0.0.1:8080"
-
-func _parse_backend_endpoint(base_url: String) -> Dictionary:
-    var cleaned := base_url.strip_edges()
-    if cleaned == "":
-        return {"host": "127.0.0.1", "port": 8080}
-    var scheme_idx := cleaned.find("://")
-    if scheme_idx >= 0:
-        cleaned = cleaned.substr(scheme_idx + 3)
-    var slash_idx := cleaned.find("/")
-    if slash_idx >= 0:
-        cleaned = cleaned.substr(0, slash_idx)
-    var host := cleaned
-    var port := 8080
-    var colon_idx := cleaned.rfind(":")
-    if colon_idx > 0 and colon_idx < cleaned.length() - 1:
-        host = cleaned.substr(0, colon_idx)
-        port = int(cleaned.substr(colon_idx + 1))
-    if host == "":
-        host = "127.0.0.1"
-    return {"host": host, "port": port}
-
-func _is_tcp_endpoint_reachable(host: String, port: int, timeout_ms: int) -> bool:
-    var peer := StreamPeerTCP.new()
-    var err := peer.connect_to_host(host, port)
-    if err != OK:
-        return false
-    var deadline_ms := Time.get_ticks_msec() + maxi(50, timeout_ms)
-    while true:
-        var status := peer.get_status()
-        if status == StreamPeerTCP.STATUS_CONNECTED:
-            peer.disconnect_from_host()
-            return true
-        if status != StreamPeerTCP.STATUS_CONNECTING:
-            peer.disconnect_from_host()
-            return false
-        if Time.get_ticks_msec() >= deadline_ms:
-            peer.disconnect_from_host()
-            return false
-        OS.delay_msec(25)
-    return false
 
 func _record_failure(name: String, message: String) -> void:
     var entry = "%s: %s" % [name, message]

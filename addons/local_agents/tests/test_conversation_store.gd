@@ -1,7 +1,9 @@
 @tool
 extends RefCounted
 
-class MockRuntime:
+const RuntimeSingletonSwap := preload("res://addons/local_agents/tests/runtime_singleton_swap.gd")
+
+class MockRuntime extends Object:
     func is_model_loaded() -> bool:
         return true
 
@@ -23,9 +25,17 @@ func run_test(tree: SceneTree) -> bool:
         push_error("NetworkGraph unavailable; build the native extension.")
         return false
 
+    var swap := RuntimeSingletonSwap.new()
+    swap.install(MockRuntime.new())
+    var ok := _exercise(tree)
+    swap.restore()
+    if ok:
+        print("ConversationStore tests passed")
+    return ok
+
+func _exercise(tree: SceneTree) -> bool:
     var store := LAConversationStore.new()
     tree.get_root().add_child(store)
-    store.set("_runtime", MockRuntime.new())
     store.clear_all()
 
     var ok := true
@@ -56,8 +66,6 @@ func run_test(tree: SceneTree) -> bool:
     ok = ok and _assert(conversations.is_empty(), "Conversation delete failed")
 
     store.queue_free()
-    if ok:
-        print("ConversationStore tests passed")
     return ok
 
 func _assert(condition: bool, message: String) -> bool:

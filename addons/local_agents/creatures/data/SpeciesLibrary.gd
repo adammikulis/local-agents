@@ -4,6 +4,7 @@ extends RefCounted
 
 const SPECIES_DIR: String = "res://addons/local_agents/creatures/species"
 const STRING_ARRAY_KEYS: Array = ["preys_on", "flees_from"]
+const TextFile = preload("res://addons/local_agents/runtime/TextFile.gd")
 
 static var _cache: Dictionary = {}     # kind -> converted config
 static var _index: Dictionary = {}     # kind -> res:// path
@@ -17,7 +18,7 @@ static func load_config(kind: String) -> Dictionary:
 	_build_index()
 	if not _index.has(kind):
 		return {}
-	var text: String = _read_file(String(_index[kind]))
+	var text: String = TextFile.read(String(_index[kind]))
 	if text == "":
 		return {}
 	var parsed = JSON.parse_string(text)
@@ -47,7 +48,7 @@ static func convert(raw: Dictionary) -> Dictionary:
 static func load_path(path: String) -> Dictionary:
 	if path == "":
 		return {}
-	var text: String = _read_file(path)
+	var text: String = TextFile.read(path)
 	if text == "":
 		return {}
 	var parsed = JSON.parse_string(text)
@@ -85,15 +86,6 @@ static func _scan_dir(path: String) -> void:
 				_index[entry.get_basename()] = full
 		entry = d.get_next()
 	d.list_dir_end()
-
-
-static func _read_file(path: String) -> String:
-	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
-	if f == null:
-		return ""
-	var text: String = f.get_as_text()
-	f.close()
-	return text
 
 
 static func _convert(raw: Dictionary) -> Dictionary:
