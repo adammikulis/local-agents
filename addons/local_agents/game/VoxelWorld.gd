@@ -53,7 +53,6 @@ var _interaction: Node3D = null
 
 var _frame: int = 0                         # physics ticks since _ready; the clock the run length is counted on
 var _render_frame: int = 0                  # render frames since _ready; the clock --perf-frames and --shoot use
-var _peak_slump: int = 0                    # most loose-sediment cells slumping at once
 var _music_destruction: float = 0.0         # decays each frame; meteors spike it
 var _mood_timer: int = 0
 var _music_auto_adapt: bool = true
@@ -192,9 +191,6 @@ func _physics_process(delta: float) -> void:
 	if _sim.is_spawned() and _frame % 15 == 0:
 		LAVoxelHarness.sample_night(self)
 		_sample_behaviour_peaks()
-	# Landslide diagnostic: most sediment cells slumping at once (throttled — the count is a full grid scan).
-	if _sim.is_spawned() and _frame % 10 == 0 and _material != null and _material.has_method("slump_count"):
-		_peak_slump = maxi(_peak_slump, _material.slump_count())
 	# Auto-demo firing on the SIMULATION clock.
 	_input.update_sim(_frame, _sim.is_spawned())
 	# Trajectory samples through a long run.
