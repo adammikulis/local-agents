@@ -9,7 +9,6 @@ const DefsScript: GDScript = preload("res://addons/local_agents/sim/material/rea
 const FUEL_AT_CELL: float = 0.02          # the ground-surface fuel seed's order of magnitude
 ## The rate law is tested in AIR. The planet no longer seeds free oxygen — it is a product of life — so
 ## this cannot borrow the world's seed without testing combustion in a vacuum.
-const O2_IN_AIR: float = 1.0
 const O2_IN_AIR: float = 1.0             # one unit of `o2` IS a cell of ambient air, by definition
 
 

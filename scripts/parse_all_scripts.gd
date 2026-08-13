@@ -18,23 +18,40 @@ extends SceneTree
 
 const DEFAULT_ROOT: String = "res://addons/local_agents"
 
-# Directories whose scripts are not part of the shipped surface. tests/ carries a .gdignore so it is
-# skipped anyway in a consumer project, and the build tree under gdextensions/ holds vendored code.
+# Directories holding code that is not ours to parse: vendored third party and build trees.
+#
+# tests/ WAS skipped here, on the ground that it carries a .gdignore and so is absent from a consumer
+# project. That is true of the shipped surface and irrelevant to whether a test parses. Two tests sat on
+# the dev branch with hard parse errors -- a constant declared twice, and a reference to a constant the
+# enthalpy collapse deleted -- while this gate reported green, because the one command that would have
+# caught them is the test lane, and that is not in lint.
 # A plain Array, not PackedStringArray(...): a constructor call is not a constant expression.
 const SKIP_DIRS: Array = [
-	"/tests", "/gdextensions/localagents/thirdparty", "/gdextensions/localagents/build",
+	"/gdextensions/localagents/thirdparty", "/gdextensions/localagents/build",
 	"/gdextensions/localagents/build_native", "/.cache",
 ]
 
 
 func _initialize() -> void:
 	var root: String = DEFAULT_ROOT
+	# --skip-tests is for the LIBRARY-ONLY staging, where game/ is deleted and the GDExtension is not
+	# loaded, so a test that drives either cannot parse there and its failing to is not a finding. In the
+	# real project tests ARE swept: a test that does not parse cannot run.
+	var skip_tests: bool = false
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--root="):
 			root = arg.substr(7)
+		elif arg == "--skip-tests":
+			skip_tests = true
 
 	var scripts: PackedStringArray = PackedStringArray()
 	_collect(root, scripts)
+	if skip_tests:
+		var kept: PackedStringArray = PackedStringArray()
+		for path in scripts:
+			if not (path.contains("/tests/")):
+				kept.append(path)
+		scripts = kept
 
 	# Loading is what MAKES the engine parse each file. It is not what detects the failure: measured
 	# 2026-07-29, load() on a script whose preload target is missing prints

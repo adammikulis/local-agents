@@ -140,6 +140,21 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
       `GATE_DAYLIGHT` is genuinely redundant (photosynthesis takes light as its rate driver). The other two
       are live machinery nothing calls: wire them in or delete them.
 
+## Weathering has lost both its mechanisms
+
+- [ ] **Frost shattering does not exist.** `LAGeoRecords` carries no `RM_DEFICIT_BELOW_THRESHOLD` record,
+      no `FROST_*` constant survives anywhere in `sim/`, and `RM_DEFICIT_BELOW_THRESHOLD` is declared in
+      `ReactionDefs` and handled in `reactions_sphere3d.glsl` for no record at all. Ice expansion is a
+      first-order weathering mechanism on a planet with a freezing point, and rebuilding it needs a rock
+      broken per unit of ice frozen, which is a maintainer's call, not an agent's. The substrate now
+      derives the frozen share structurally as `h2o_solid`, so a rebuilt record reads that rather than a
+      freeze rate.
+- [ ] **The Arrhenius dissolution record evaluates to zero at every temperature**, including 100 C, so
+      chemical weathering removes no bedrock either. `tests/test_weathering_rate_law.gd` measures it and
+      fails on a Q10 of 0. **Decide it against the kernel, not against the test**: that test evaluates the
+      rate with a HAND COPY of the kernel's arithmetic, which is a second model of the reaction engine and
+      may itself be what drifted. The test should read the record through the real evaluator.
+
 ## D. Transport and geometry
 
 - [x] **The reverse link is arithmetic again, and now it is the RIGHT arithmetic.** `LAVoxelGrid` orders

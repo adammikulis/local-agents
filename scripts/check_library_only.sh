@@ -96,7 +96,7 @@ fi
 cp "$ROOT/scripts/parse_all_scripts.gd" "$TMP/parse_all_scripts.gd"
 PARSE_LOG="$TMP/parse.log"
 parse_rc=0
-"$GODOT" --headless --path "$TMP" -s parse_all_scripts.gd -- \
+"$GODOT" --headless --path "$TMP" -s parse_all_scripts.gd -- --skip-tests \
   --root=res://addons/local_agents > "$PARSE_LOG" 2>&1 || parse_rc=$?
 
 parse_line="$(grep -a '^PARSE_ALL=' "$PARSE_LOG" | tail -n 1 || true)"
