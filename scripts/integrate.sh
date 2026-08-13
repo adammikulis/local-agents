@@ -100,7 +100,10 @@ if [ -n "$(git -C "$STAGE_WT" status --porcelain)" ]; then
 	git -C "$STAGE_WT" add -A
 	# NOT `|| true`. A pre-commit hook can block this, and swallowing that leaves the ceilings unwritten
 	# while the run reports success -- which is how a red ratchet reached the dev branch.
-	if ! git -C "$STAGE_WT" commit -q -m "chore(ceilings): the post-merge counts"; then
+	# The staging tree's pre-commit hook runs the full lint, so it needs the same in-flight exemption the
+	# gate step gets: without it check_branch_integration fails on the staging branch itself.
+	if ! (cd "$STAGE_WT" && LA_CEILING_STRICT=1 LA_INTEGRATE_BRANCH="$STAGE" LA_INTEGRATE_SOURCE="$BRANCH" \
+			git commit -q -m "chore(ceilings): the post-merge counts"); then
 		echo "integrate: could not commit the ceilings. $DEV is untouched." >&2
 		exit 1
 	fi
