@@ -84,6 +84,12 @@ static func _water_rows() -> Array:
 static func _heat_rows() -> Array:
 	return [
 		{"key": "open_temp_max", "source": "temp", "op": Op.MAX, "mask": Mask.OPEN},
+		{"key": "open_temp_min", "source": "temp", "op": Op.MIN, "mask": Mask.OPEN},
+		# Unweighted: over the open-cell count this is a mean over CELLS, not volume. all_temp_max is the
+		# deep rock the open-only rows cannot see; pressure_written's complement is the cells no walk reached.
+		{"key": "open_temp_sum", "source": "temp", "op": Op.SUM, "mask": Mask.OPEN},
+		{"key": "all_temp_max", "source": "temp", "op": Op.MAX, "mask": Mask.ALL},
+		{"key": "pressure_written", "source": "pressure", "op": Op.COUNT_GE, "threshold": 0.0},
 		# 60 °C: the one temperature "a hot open cell" means here. Read back through row("hot_cells").
 		{"key": "hot_cells", "source": "temp", "op": Op.COUNT_GE, "mask": Mask.OPEN, "threshold": 60.0},
 		{"key": "fire_peak", "source": "fire", "op": Op.MAX, "mask": Mask.ALL},
@@ -97,6 +103,7 @@ static func _heat_rows() -> Array:
 static func _mineral_rows() -> Array:
 	var drained: Dictionary = {"gate": "silicate", "gate_aux": "silicate_melt",
 		"gate_hi": LAMaterialFieldQueries3D.TUBE_MELT_NEAR_ZERO}
+	var melt: Dictionary = {"source": "silicate", "aux": "silicate_melt", "mask": Mask.OPEN}
 	return [
 		{"key": "melt_total", "source": "silicate", "aux": "silicate_melt", "op": Op.SUM,
 			"mask": Mask.ALL, "weight": true},
@@ -107,6 +114,12 @@ static func _mineral_rows() -> Array:
 		# Wind-borne mineral, per cell, unweighted: its consumer is a mean over cells, not an amount.
 		{"key": "airborne_mineral_sum", "source": "silicate", "aux": "silicate_susp_air", "op": Op.SUM,
 			"mask": Mask.ALL},
+		# Open cells carrying a real suspended load; then a melt body, one over half full, and its peak.
+		{"key": "suspended_cells", "source": "silicate", "aux": "silicate_susp_water", "op": Op.COUNT_GT,
+			"mask": Mask.OPEN, "threshold": LAMaterialFieldMineralProfile3D.SUSP_ACTIVE},
+		_merged(melt, {"key": "lava_hot", "op": Op.COUNT_GE, "threshold": 0.001}),
+		_merged(melt, {"key": "lava_thick", "op": Op.COUNT_GE, "threshold": 0.5}),
+		_merged(melt, {"key": "lava_maxmass", "op": Op.MAX}),
 		# An open cell walled in by rock and no longer melt-filled — a drained lava tube.
 		_merged({"key": "enclosed_void4", "source": "solid", "op": Op.COUNT_GE, "mask": Mask.OPEN,
 			"threshold": 4.0, "nbr_solid": true}, drained),

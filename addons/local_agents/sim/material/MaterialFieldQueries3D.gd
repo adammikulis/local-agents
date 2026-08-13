@@ -316,6 +316,13 @@ func melt_total() -> float:
 	return row_f("melt_total")
 
 
+## Open cells whose silicate times its water-suspended share is a real load in transit. The load that counts
+## is declared once, as the suspended_cells row's threshold, so no caller can name a different one. -1 when
+## the reduction has not run.
+func suspended_cell_count() -> int:
+	return row_n("suspended_cells")
+
+
 ## magma_cells / lava_cells, plus `molten_live`: whether the device reduced them at all. Without it a zero
 ## here cannot be told from a reduction that never ran.
 func molten_counts() -> Dictionary:
@@ -442,32 +449,31 @@ func _median(v: PackedFloat32Array) -> float:
 	return snappedf(v[v.size() / 2], 0.1)
 
 
-## Melt body/rind split. Reads the silicate mirror, so it returns zeros when it did not arrive;
-## in the same report says which zero this is.
+## Melt body/rind split. The three body rows are reduced on the device, so they stand whether or not the
+## silicate mirror arrived. The interior/rind split asks each cell's six neighbours for THEIR melt, which no
+## reduce row can express, so it walks the mirror and publishes null when the mirror is absent.
 func lava_shell_diag() -> Dictionary:
+	var mx: Variant = row_v("lava_maxmass", false)
+	var out: Dictionary = {"lava_hot": row_v("lava_hot", true), "lava_thick": row_v("lava_thick", true),
+		"lava_maxmass": snappedf(float(mx), 0.001) if mx != null else null,
+		"lava_interior": null, "lava_rind": null, "lava_int_c": null, "lava_rind_c": null}
 	if not _mirror_live("silicate") or _f._silicate_melt.size() != _f._cell_count:
-		return {"lava_hot": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
-	if _f._grid == null or _f._solid.size() != _f._cell_count:
-		return {"lava_hot": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
+		return out
+	if _f._grid == null or _f._solid.size() != _f._cell_count or _f._temp.size() != _f._cell_count:
+		return out
+	# The melt depth that makes a cell part of the body, read back from the row the device counted with.
 	var nbr: PackedInt32Array = _f._grid.neighbours
-	if nbr.size() != _f._cell_count * 6:
-		return {"lava_hot": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
-	var hot: int = 0
+	var body: float = float(LAReduceRecords.row("lava_hot").get("threshold", NAN))
+	if nbr.size() != _f._cell_count * 6 or is_nan(body):
+		return out
 	var interior: int = 0
 	var rind: int = 0
 	var int_sum: float = 0.0
 	var rind_sum: float = 0.0
-	var thick: int = 0            # melt cells over half a cell deep — the tube prerequisite
-	var maxmass: float = 0.0      # peak per-cell molten volume fraction anywhere
 	for c in range(_f._cell_count):
 		var lv: float = melt_at(c)
-		if lv > maxmass and _f._solid[c] == 0:
-			maxmass = lv
-		if _f._solid[c] != 0 or lv < 0.001 or _f._silicate_melt[c] <= 0.0:
+		if _f._solid[c] != 0 or lv < body or _f._silicate_melt[c] <= 0.0:
 			continue
-		if lv >= 0.5:
-			thick += 1
-		hot += 1
 		var base: int = c * 6
 		var exposed: int = 0
 		for d in range(6):
@@ -485,12 +491,11 @@ func lava_shell_diag() -> Dictionary:
 		else:
 			rind += 1
 			rind_sum += _f._temp[c]
-	return {
-		"lava_hot": hot, "lava_interior": interior, "lava_rind": rind,
-		"lava_thick": thick, "lava_maxmass": snappedf(maxmass, 0.001),
-		"lava_int_c": snappedf(int_sum / float(max(1, interior)), 0.1),
-		"lava_rind_c": snappedf(rind_sum / float(max(1, rind)), 0.1),
-	}
+	out["lava_interior"] = interior
+	out["lava_rind"] = rind
+	out["lava_int_c"] = snappedf(int_sum / float(interior), 0.1) if interior > 0 else null
+	out["lava_rind_c"] = snappedf(rind_sum / float(rind), 0.1) if rind > 0 else null
+	return out
 
 
 # Whole-grid mirrors. No reduction reads these — a total is a row of LAReduceRecords. Their consumers are
