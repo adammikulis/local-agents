@@ -6,11 +6,13 @@
 # 1. the dev branch contains main
 # 2. every local branch ahead of the dev branch is declared in docs/OPEN_BRANCHES.md
 # 3. no declared branch is missing, and none is further ahead or older than the limits
+# 4. every worktree maps to a branch, holds no unresolved merge, and has moved inside the age limit
 #
 # A row marked SUPERSEDED is exempt from the age limit and nothing else: its content is already on the dev
 # branch, so there is no reconciliation left, only a worktree for its owner to remove.
 #
-# Agent and workflow worktree branches are exempt: they are created and reaped within a session.
+# Agent and workflow worktree BRANCHES are exempt from declaration, being made and reaped in one session.
+# Their TREES are not exempt from 4, which is what catches the ones that were never reaped.
 #
 # EXIT 0 clean · 1 a violation · 2 the gate could not run.
 set -uo pipefail
@@ -76,6 +78,29 @@ while read -r d; do
     fail=1
   fi
 done < <(printf '%s\n' "$declared")
+
+# 4. Every worktree is live. A session tree is exempt from declaration because it is reaped in the session
+# that made it; nothing checked that it WAS reaped, and thirty-four survived one reconciliation. A tree on
+# a detached HEAD maps to no branch, and one holding an unresolved merge is a conflict nobody finished.
+while read -r wt; do
+  [ "$wt" = "$ROOT" ] && continue
+  [ -d "$wt" ] || continue
+  gitdir="$(git -C "$wt" rev-parse --git-dir 2>/dev/null)" || continue
+  if [ -e "$gitdir/MERGE_HEAD" ]; then
+    echo "FAIL  worktree $wt holds an unresolved merge. Finish it or remove the tree." >&2
+    fail=1
+  fi
+  if ! git -C "$wt" symbolic-ref -q HEAD >/dev/null; then
+    echo "FAIL  worktree $wt is on a detached HEAD, so it maps to no branch." >&2
+    fail=1
+    continue
+  fi
+  wt_age=$(( (now - $(git -C "$wt" log -1 --format=%ct HEAD)) / 86400 ))
+  if [ "$wt_age" -gt "$MAX_AGE_DAYS" ]; then
+    echo "FAIL  worktree $wt last moved ${wt_age}d ago, past the limit of ${MAX_AGE_DAYS}d." >&2
+    fail=1
+  fi
+done < <(git -C "$ROOT" worktree list --porcelain | awk '/^worktree /{print $2}')
 
 if [ "$fail" -ne 0 ]; then
   echo "" >&2
