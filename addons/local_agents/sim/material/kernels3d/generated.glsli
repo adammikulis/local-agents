@@ -58,6 +58,7 @@
 #define MODE_CONVECT 4u
 #define MODE_CONDUCT 5u
 #define MODE_RADIATE 6u
+#define MODE_SEPARATE 7u
 
 // TransportRecords.gd Law enum
 #define LAW_NONE 0u

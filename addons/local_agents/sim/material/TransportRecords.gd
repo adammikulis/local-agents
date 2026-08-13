@@ -4,7 +4,7 @@ extends RefCounted
 ## What moves, and by what rule. transport.glsl runs every row through one gather.
 
 ## What drives a record across a face. Matches the MODE_* constants in transport.glsl.
-enum { POTENTIAL, ADVECT, BOTH, DIFFUSE, CONVECT, CONDUCT, RADIATE }
+enum { POTENTIAL, ADVECT, BOTH, DIFFUSE, CONVECT, CONDUCT, RADIATE, SEPARATE }
 
 ## The transport law that sets a row's mobility from the cell's own state. Matches LAW_* in transport.glsl.
 enum Law { NONE, SHALLOW, FILM, DARCY, EDDY, SOUND, OHMIC, PGF }
@@ -19,6 +19,9 @@ enum Flag { SIGNED = 1, SETTLE = 2, STAMP = 4, DRIVEN = 8, FRACTION = 16, DILUTE
 ## `settle` adds the grain's terminal velocity to the advecting fluid; `frac` is the derived share moved.
 static func rows() -> Array:
 	return [
+		# FIRST: the riming pair separates charge before anything relaxes or carries it.
+		{"channel": "charge", "substance": "", "mode": SEPARATE, "signed": true},
+
 		{"channel": "h2o", "substance": "h2o", "mode": POTENTIAL, "law": Law.SHALLOW,
 			"frac": "h2o_liquid"},
 

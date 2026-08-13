@@ -109,6 +109,10 @@ const float CLOUD_COND = 1.0e-14;                   // LAPhysical.CLOUD_CONDUCTI
 const float CLEAR_AIR_COND = 1.0e-13;               // LAPhysical.CLEAR_AIR_CONDUCTIVITY_S_M
 const float CHANNEL_COND = 1.0e4;                   // LAPhysical.LIGHTNING_CHANNEL_CONDUCTIVITY_S_M
 const float CHARGING_LWC = 1.0e-3;                  // LAPhysical.CHARGING_LWC_KG_M3
+const float NIC_CHARGE_RATE = 1.0e-9;               // LAPhysical.NIC_CHARGE_RATE_C_M3_S
+const float CHARGE_ZONE_WARM_C = -10.0;             // LAPhysical.CHARGE_ZONE_WARM_C
+const float CHARGE_ZONE_COLD_C = -25.0;             // LAPhysical.CHARGE_ZONE_COLD_C
+const float CONVECTIVE_UPDRAFT = 10.0;              // LAPhysical.CONVECTIVE_UPDRAFT_M_S
 const float BASALT_SOLIDUS_C = 1000.0;              // LAPhysical.BASALT_SOLIDUS_C
 const float BASALT_LIQUIDUS_C = 1200.0;             // LAPhysical.BASALT_LIQUIDUS_C
 const float MELT_VISC = 100.0;                      // LAPhysical.BASALT_MELT_VISCOSITY_PA_S
@@ -165,6 +169,22 @@ float air_rho(uint c) {
 float h2o_ice(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_solid[c], 0.0, 1.0); }
 float h2o_water(uint c)  { return max(h2o[c], 0.0) * clamp(h2o_liquid[c], 0.0, 1.0); }
 float h2o_gas(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_vapour[c], 0.0, 1.0); }
+
+// CONDENSED cloud water, droplets and ice alike, kg/m^3: what a rebounding pair is made of and what the
+// air's conductivity tracks.
+float cloud_water_kg_m3(uint c) {
+	return (h2o_water(c) + h2o_ice(c)) * RHO_WATER;
+}
+
+// Non-inductive charge separation in the riming band, C/m^3 this step. The light phase carries this much
+// charge up and the heavy phase carries the same amount down, so the pair creates nothing.
+float separation_dq(uint c, vec3 up) {
+	float band = clamp((CHARGE_ZONE_WARM_C - temp[c]) / (CHARGE_ZONE_WARM_C - CHARGE_ZONE_COLD_C),
+		0.0, 1.0);
+	float wet = clamp(cloud_water_kg_m3(c) / CHARGING_LWC, 0.0, 1.0);
+	float lift = clamp(dot(vel_at(c), up) / CONVECTIVE_UPDRAFT, 0.0, 1.0);
+	return NIC_CHARGE_RATE * band * wet * lift * params.dt_s;
+}
 
 // Volume fraction of the cell that is condensed, so a beam meets it geometrically.
 float condensed_frac(uint c) {
@@ -246,9 +266,8 @@ float column_field(uint c) {
 // Past the runaway threshold the local air density sets, the dielectric stops being one: the conductivity
 // jumps to a return-stroke channel's and the charge row becomes a stroke.
 float ohmic_conductivity(uint c) {
-	// Charge separation lives in the CONDENSED cloud water, ice and droplets alike.
-	float lwc = (h2o_water(c) + h2o_ice(c)) * RHO_WATER;
-	float ambient = mix(CLEAR_AIR_COND, CLOUD_COND, clamp(lwc / CHARGING_LWC, 0.0, 1.0));
+	float ambient = mix(CLEAR_AIR_COND, CLOUD_COND,
+		clamp(cloud_water_kg_m3(c) / CHARGING_LWC, 0.0, 1.0));
 	if (pressure[c] <= 0.0) {
 		return ambient;
 	}
@@ -567,13 +586,36 @@ void main() {
 			}
 			return;
 		}
+		// SEPARATION is a transfer between this cell and the one below it, not a flux down a gradient: the
+		// donor keeps the light phase's charge and sends the heavy phase's down, so the ledger closes.
+		if (params.mode == MODE_SEPARATE) {
+			vec3 gv = g_at(gidx);
+			if (length(gv) <= 0.0) {
+				return;
+			}
+			vec3 up = -normalize(gv);
+			float dq = separation_dq(gidx, up);
+			if (dq <= 0.0) {
+				return;
+			}
+			int slot = la_slot_toward(-up);
+			if (slot < 0) {
+				return;
+			}
+			int below = nbr[base + uint(slot)];
+			// A charge with nowhere to go is not a separated charge.
+			if (below < 0 || solid[below] != 0.0) {
+				return;
+			}
+			send[base + uint(slot)] = -dq;
+			return;
+		}
 		// A TF_FRACTION row moves only the phase share `frac` names; the rest of the channel stays put.
 		float share = (params.flags & TF_FRACTION) != 0u ? clamp(frac[gidx], 0.0, 1.0) : 1.0;
 		float remaining = amount[gidx] * share;
+		// No floor on a SIGNED row. Momentum is made by a pressure gradient in a cell that has none, so a
+		// donor floor there is a cell that can never start moving.
 		if (!is_signed && remaining < params.min_amount) {
-			return;
-		}
-		if (is_signed && abs(remaining) < params.min_amount) {
 			return;
 		}
 		// Mass carries its heat and its charge. A row that carries no matter carries neither.
