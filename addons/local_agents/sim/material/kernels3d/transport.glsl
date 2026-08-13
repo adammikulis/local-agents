@@ -53,16 +53,22 @@ layout(set = 0, binding = 26, std430) restrict readonly buffer SilicateMeltBuf {
 layout(set = 0, binding = 27, std430) restrict buffer Stamp { float stamp[]; };
 layout(set = 0, binding = 28, std430) restrict readonly buffer H2OVapourBuf { float h2o_vapour[]; };
 // TF_FRACTION rows move only this share of `amount` — the phase whose law this row is. 0..1.
-layout(set = 0, binding = 29, std430) restrict readonly buffer FracBuf { float frac[]; };
+// No `restrict` on this or the three below: the grain prologue writes the very buffers three silicate rows
+// bind here as their `frac`.
+layout(set = 0, binding = 29, std430) readonly buffer FracBuf { float frac[]; };
 // Consolidated share of the cell's silicate. A TF_DILUTE row rescales it when matter arrives, because what
 // arrives is loose and cement is a share of a total that just grew.
 layout(set = 0, binding = 30, std430) restrict buffer CementBuf { float cement[]; };
+// Where the cell's loose mineral grains are, written by the PASS_GRAIN prologue.
+layout(set = 0, binding = 31, std430) writeonly buffer SuspWater { float silicate_susp_water[]; };
+layout(set = 0, binding = 32, std430) writeonly buffer SuspAir { float silicate_susp_air[]; };
+layout(set = 0, binding = 33, std430) writeonly buffer Bed { float silicate_bed[]; };
 
 #include "march.glsli"
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	uint pass_id;         // 0 = outflow, 1 = gather
+	uint pass_id;         // TransportPass.PASS_* — 0 = outflow, 1 = gather, 2 = the grain prologue
 	uint mode;            // MODE_* — what drives the flux across a face
 	uint law;             // LAW_* — which transport law sets the mobility
 	uint band_count;
@@ -80,7 +86,14 @@ layout(push_constant, std430) uniform Params {
 	float sun_x;          // world-space vector toward the sun; its LENGTH carries relative insolation
 	float sun_y;
 	float sun_z;
+	// PASS_GRAIN weighs a grain against BOTH fluids in one dispatch, so it cannot use fluid_rho/fluid_visc.
+	float rho_water;      // LAPhysical.WATER_DENSITY_KG_M3
+	float mu_water;       // LAPhysical.WATER_DYNAMIC_VISCOSITY_PA_S
+	float rho_air;        // LAPhysical.AIR_DENSITY_KG_M3
+	float mu_air;         // LAPhysical.AIR_DYNAMIC_VISCOSITY_PA_S
 } params;
+
+const uint PASS_GRAIN = 2u;   // TransportPass.PASS_GRAIN
 
 const float KELVIN = 273.15;                        // LAPhysical.KELVIN_OFFSET
 const float STEFAN = 5.670374419e-8;                // LAPhysical.STEFAN_BOLTZMANN
@@ -125,6 +138,11 @@ vec3 g_at(uint c) {
 
 vec3 vel_at(uint c) {
 	return vec3(vel_x[c], vel_y[c], vel_z[c]);
+}
+
+// The cell's own grain diameter, or the row's seed where the cell declares none, m.
+float grain_d_at(uint c) {
+	return grain[c] > 0.0 ? grain[c] : params.grain_d;
 }
 
 // Outward unit normal of face d. Slot order -X,+X,-Y,+Y,-Z,+Z.
@@ -182,11 +200,15 @@ float strain_rate(uint c) {
 	return sqrt(s2);
 }
 
-// Smagorinsky eddy viscosity, m^2/s: nu_t = (C_s dx)^2 |S| plus the row fluid's molecular floor.
-float eddy_viscosity(uint c) {
+// Smagorinsky eddy viscosity, m^2/s: nu_t = (C_s dx)^2 |S| plus that fluid's molecular floor.
+float eddy_viscosity_of(uint c, float rho, float mu) {
 	float mixing = SMAGORINSKY_COEFF * params.cell_m;
-	float nu_mol = params.fluid_rho > 0.0 ? params.fluid_visc / params.fluid_rho : 0.0;
+	float nu_mol = rho > 0.0 ? mu / rho : 0.0;
 	return nu_mol + mixing * mixing * strain_rate(c);
+}
+
+float eddy_viscosity(uint c) {
+	return eddy_viscosity_of(c, params.fluid_rho, params.fluid_visc);
 }
 
 // Einstein-Roscoe: the melt's own viscosity times the crystal framework it is carrying, Pa s. The crystal
@@ -281,7 +303,7 @@ float darcy_resistance(uint c) {
 	if (phi <= 0.0) {
 		return 1.0e30;
 	}
-	float d = grain[c] > 0.0 ? grain[c] : params.grain_d;
+	float d = grain_d_at(c);
 	float k = d * d * phi * phi * phi / (KOZENY_CARMAN_C * max((1.0 - phi) * (1.0 - phi), 1.0e-12));
 	return 1.0 / max(k, 1.0e-30);
 }
@@ -297,15 +319,27 @@ float darcy_mobility(uint a, uint b) {
 		/ (r * max(params.fluid_visc, 1.0e-30) * params.cell_m);
 }
 
-// Terminal settling velocity of the row's grain in the row's fluid, m/s (Stokes drag: the buoyant weight
-// balanced by 3 pi mu d w). The cell's own grain field wins; the row carries a seed for cells without one.
+// Terminal settling velocity of a grain of diameter `d` in a fluid, m/s (Stokes drag: the buoyant weight
+// balanced by 3 pi mu d w).
+float stokes_settling(uint c, float d, float rho, float mu) {
+	return max(params.density - rho, 0.0) * length(g_at(c)) * d * d / (18.0 * max(mu, 1.0e-30));
+}
+
 float settling_speed(uint c) {
 	if ((params.flags & TF_SETTLE) == 0u) {
 		return 0.0;
 	}
-	float d = grain[c] > 0.0 ? grain[c] : params.grain_d;
-	float mu = max(params.fluid_visc, 1.0e-30);
-	return max(params.density - params.fluid_rho, 0.0) * length(g_at(c)) * d * d / (18.0 * mu);
+	return stokes_settling(c, grain_d_at(c), params.fluid_rho, params.fluid_visc);
+}
+
+// Share of grains a fluid holds up. u* = sqrt(nu_t |S|) is the friction velocity, which in a boundary
+// layer is the scale of the vertical turbulent fluctuations (Bagnold: suspension once u* > w_s).
+float suspended_share(uint c, float rho, float mu) {
+	float w_s = stokes_settling(c, grain_d_at(c), rho, mu);
+	if (w_s <= 0.0) {
+		return 1.0;      // no denser than its fluid, so nothing pulls it out
+	}
+	return clamp(sqrt(max(eddy_viscosity_of(c, rho, mu) * strain_rate(c), 0.0)) / w_s, 0.0, 1.0);
 }
 
 // The velocity the row's matter actually travels at: the fluid's, plus its own fall through it.
@@ -473,9 +507,39 @@ float potential(uint c, uint d) {
 	return drive[c] * params.cell_m + params.cell_m * dot(-gv / gmag, face_normal(d));
 }
 
+// PASS_GRAIN: where a cell's loose mineral grains are — carried by water, carried by air, or on the bed.
+// The three shares sum to (1 - melt) * (1 - cement), and they are the `frac` of three silicate rows, so
+// this runs before any row's pass 0. It reads neighbour velocity, which is why it cannot join the derive.
+void grain_state(uint g) {
+	float loose = (1.0 - clamp(silicate_melt[g], 0.0, 1.0)) * (1.0 - clamp(cement[g], 0.0, 1.0));
+	if (loose <= 0.0) {
+		silicate_susp_water[g] = 0.0;
+		silicate_susp_air[g] = 0.0;
+		silicate_bed[g] = 0.0;
+		return;
+	}
+	float water = h2o_water(g);
+	float air = 1.0 - condensed_frac(g);
+	float tot = water + air;
+	float f_water = tot > 0.0 ? water / tot : 0.0;
+	float f_air = tot > 0.0 ? air / tot : 0.0;
+
+	float in_water = f_water * suspended_share(g, params.rho_water, params.mu_water);
+	float in_air = f_air * suspended_share(g, params.rho_air, params.mu_air);
+
+	silicate_susp_water[g] = loose * in_water;
+	silicate_susp_air[g] = loose * in_air;
+	silicate_bed[g] = loose * clamp(1.0 - in_water - in_air, 0.0, 1.0);
+}
+
+
 void main() {
 	uint gidx = gl_GlobalInvocationID.x;
 	if (gidx >= params.cell_count) {
+		return;
+	}
+	if (params.pass_id == PASS_GRAIN) {
+		grain_state(gidx);
 		return;
 	}
 	uint base = gidx * N_SLOTS;
