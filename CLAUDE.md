@@ -317,7 +317,21 @@ work forward.
     I do not own".
   - **And it manufactures the excuse for the NEXT failure.** Once the lanes collide, "another lane owns
     that file" starts appearing as a reason not to do work — which is RULE 1d, caused by this.
-  - **The coordinator still integrates.** Worktree agents commit to their own branch; merging, conflict
+  - **INTEGRATION IS A COMMAND, NOT A HABIT: `scripts/integrate.sh <branch>`.** It refuses a worktree on a
+  detached HEAD or holding uncommitted changes, merges onto a staging branch in its own worktree, runs
+  `lint` THERE, fast-forwards the dev branch only when green, writes the ceilings, and prunes the lane.
+  Never `git merge` into the dev branch by hand: a bad merge on the dev branch can only be undone by
+  rewriting history, which is the moment somebody reaches for `reset --hard`.
+- **A RUNNING AGENT'S WORKTREE IS NOT YOURS TO WRITE IN.** Not to fix, not to commit, not to "just take
+  its diff". It moves HEAD under you: a whole lane's commits were orphaned that way, and the branch left
+  behind pointed at a commit identical to the dev branch, so `merge-base --is-ancestor` reported it
+  merged. Stop the agent first, then integrate its branch.
+- **VERIFY A DELETION BY CONTENT, NEVER BY ANCESTRY.** `git cherry` and `merge-base` answer questions
+  about commits. The question is whether the identifier is still in the tree — `rg` it.
+- **LANES DO NOT EDIT CEILING FILES.** A counter every lane must write is a serialization bottleneck, and
+  four of six conflicts in one session were ceiling files and nothing else. A lane fails only when a count
+  RISES; `scripts/integrate.sh` writes the tightened number once, after the merge.
+- **The coordinator still integrates.** Worktree agents commit to their own branch; merging, conflict
     resolution and the editor-scan/verify gate stay the main thread's job. Check `git log <base>..<branch>`
     before merging — an isolated agent can branch off a stale commit; salvage with cherry-pick (right base)
     or `git diff | git apply --3way` (wrong base).

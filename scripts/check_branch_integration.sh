@@ -46,6 +46,11 @@ now="$(git -C "$ROOT" log -1 --format=%ct "$DEV")"
 seen=""
 while read -r b; do
   case "$b" in worktree-agent-*|worktree-wf_*|"$DEV") continue ;; esac
+  # The two branches of an integrate.sh run IN FLIGHT: the staging branch and the lane being landed.
+  # Both are deleted before that run returns, so one surviving is a leak the gate must still catch --
+  # which is why this keys on the environment of the run, not on a name pattern. Exempting a PATTERN is
+  # how worktree-agent-* accumulated thirty-four branches.
+  case "$b" in "${LA_INTEGRATE_BRANCH:-__none__}"|"${LA_INTEGRATE_SOURCE:-__none__}") continue ;; esac
   ahead="$(git -C "$ROOT" rev-list --count "$DEV..$b")"
   [ "$ahead" -eq 0 ] && continue
   seen="$seen $b"
@@ -69,6 +74,7 @@ done < <(git -C "$ROOT" branch --format='%(refname:short)')
 while read -r d; do
   [ -z "$d" ] && continue
   case "$d" in worktree-agent-*|worktree-wf_*|"$DEV") continue ;; esac
+  case "$d" in "${LA_INTEGRATE_BRANCH:-__none__}"|"${LA_INTEGRATE_SOURCE:-__none__}") continue ;; esac
   git -C "$ROOT" rev-parse --verify -q "$d" >/dev/null || continue
   [ "$(git -C "$ROOT" rev-list --count "$DEV..$d")" -eq 0 ] || continue
   printf '%s\n' "$declared" | grep -qx "$d" || continue

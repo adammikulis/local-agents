@@ -10,6 +10,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh" 2>/dev/null || true
+. "$ROOT/scripts/lib_ceiling.sh" 2>/dev/null || true
 require_tool rg
 require_tool wc
 
@@ -41,6 +42,7 @@ files="$(rg --files -g '*.gd' "$SIM" 2>/dev/null)"
 lines="$(printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 wc -l | tail -1 | awk '{print $1}')"
 loops="$(rg -c --no-heading -g '*.gd' -e "$LOOP_RE" "$SIM" 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')"
 
+STRICT="$(ceiling_strict "$ROOT")"
 read_ceiling "$LINES_CEIL_FILE"; lines_ceil="$CEILING"
 read_ceiling "$LOOPS_CEIL_FILE"; loops_ceil="$CEILING"
 
@@ -51,9 +53,10 @@ judge() {  # judge <label> <have> <ceiling> <ceiling file> <what a rise means>
 		echo "check_gdscript_budget: $label rose to $have against a ceiling of $ceil." >&2
 		echo "                       $meaning" >&2
 		fail=1
-	elif [ "$have" -lt "$ceil" ]; then
+	elif [ "$have" -lt "$ceil" ] && [ "$STRICT" = "1" ]; then
 		echo "check_gdscript_budget: $label is $have and ${file#"$ROOT"/} still says $ceil." >&2
-		echo "                       A ratchet that is not tightened is not a ratchet. Write $have into it." >&2
+		echo "                       A ratchet that is not tightened is not a ratchet. Write $have into it," >&2
+		echo "                       or land through scripts/integrate.sh, which writes it for you." >&2
 		fail=1
 	fi
 }
@@ -64,4 +67,4 @@ judge "cell-bounded loops under sim/" "$loops" "$loops_ceil" "$LOOPS_CEIL_FILE" 
 	"A loop over cells in GDScript is a GPU reduction run in an interpreter."
 
 [ "$fail" -eq 0 ] || exit 1
-echo "check_gdscript_budget: OK ($lines lines, $loops cell loops, both at their ceilings)"
+echo "check_gdscript_budget: OK ($lines lines, $loops cell loops; strict=$STRICT)"
