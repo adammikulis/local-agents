@@ -285,6 +285,7 @@ fi
 # a clean run; it used to exit 0, which is the same silent pass a missing gate gives.
 #   126  CONSERVATION_VIOLATION — a quantity drifted past the float floor
 #   123  CONSERVATION_UNMEASURED — the audit ran and a quantity had no number to give
+#   122  PRESSURE_BROKEN — pressure fell going DOWN, or a cell no column walk ever reached
 if [ "$TAP" != "caller-owned" ] && [ -f "$TAP" ] && [ "$GODOT_RC" -eq 0 ]; then
   if grep -q '^CONSERVATION_VIOLATION=' "$TAP" 2>/dev/null; then
     echo "CONSERVATION_FAILED={\"count\":$(grep -c '^CONSERVATION_VIOLATION=' "$TAP")}" >&2
@@ -294,6 +295,10 @@ if [ "$TAP" != "caller-owned" ] && [ -f "$TAP" ] && [ "$GODOT_RC" -eq 0 ]; then
     grep '^CONSERVATION_UNMEASURED=' "$TAP" >&2
     echo "CONSERVATION_UNMEASURED: the audit could not answer, so this run proves nothing about the law." >&2
     GODOT_RC=123
+  elif grep -q '^PRESSURE_BROKEN=' "$TAP" 2>/dev/null; then
+    grep '^PRESSURE_BROKEN=' "$TAP" | tail -1 >&2
+    echo "PRESSURE_BROKEN: pressure fell going down, or a cell the column walk never reached." >&2
+    GODOT_RC=122
   fi
 fi
 exit "$GODOT_RC"
