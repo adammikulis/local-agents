@@ -7,22 +7,7 @@ layout(local_size_x = 64) in;
 #include "enthalpy.glsli"
 #include "mixture_enthalpy.glsli"
 #include "cellvol.glsli"
-
-// Substance amounts, in the order StateDerivePass.CHANNELS declares. `channel_at` is that order.
-layout(set = 0, binding = 0,  std430) restrict readonly buffer H2O { float h2o[]; };
-layout(set = 0, binding = 1,  std430) restrict readonly buffer Silicate { float silicate[]; };
-layout(set = 0, binding = 2,  std430) restrict readonly buffer Carbonate { float carbonate[]; };
-layout(set = 0, binding = 3,  std430) restrict readonly buffer Silica { float silica[]; };
-layout(set = 0, binding = 4,  std430) restrict readonly buffer O2 { float o2[]; };
-layout(set = 0, binding = 5,  std430) restrict readonly buffer Co2 { float co2[]; };
-layout(set = 0, binding = 6,  std430) restrict readonly buffer N2 { float n2[]; };
-layout(set = 0, binding = 7,  std430) restrict readonly buffer Biomass { float biomass[]; };
-layout(set = 0, binding = 8,  std430) restrict readonly buffer Fungus { float fungus[]; };
-layout(set = 0, binding = 9,  std430) restrict readonly buffer Detritus { float detritus[]; };
-layout(set = 0, binding = 10, std430) restrict readonly buffer Fuel { float fuel[]; };
-layout(set = 0, binding = 11, std430) restrict readonly buffer OrgH { float org_h[]; };
-layout(set = 0, binding = 12, std430) restrict readonly buffer OrgO { float org_o[]; };
-layout(set = 0, binding = 13, std430) restrict readonly buffer Fert { float fert[]; };
+#include "matter_channels.glsli"
 
 layout(set = 0, binding = 21, std430) restrict readonly buffer Enthalpy { float h_j_m3[]; };
 layout(set = 0, binding = 22, std430) restrict readonly buffer Pressure { float pressure[]; };
@@ -59,8 +44,6 @@ layout(push_constant, std430) uniform Params {
 	uint pad2;
 } params;
 
-const int CHANNEL_SLOTS = 14;      // StateDerivePass.KERNEL_CHANNEL_SLOTS
-
 // One row of `props` per channel, built from LASubstances by StateDerivePass.
 const int PROP_STRIDE = 5;         // StateDerivePass.PROP_STRIDE
 const int PROP_RHO = 0;            // kg/m^3 that one unit of fill carries
@@ -75,26 +58,6 @@ const int E_H2O = 0;               // StateDerivePass.E_H2O
 const int E_SILICATE = 1;          // StateDerivePass.E_SILICATE
 const int E_SENSIBLE = 2;          // StateDerivePass.E_SENSIBLE
 const int N_ENTRIES = 3;
-
-float channel_at(int i, uint c) {
-	switch (i) {
-		case 0:  return h2o[c];
-		case 1:  return silicate[c];
-		case 2:  return carbonate[c];
-		case 3:  return silica[c];
-		case 4:  return o2[c];
-		case 5:  return co2[c];
-		case 6:  return n2[c];
-		case 7:  return biomass[c];
-		case 8:  return fungus[c];
-		case 9:  return detritus[c];
-		case 10: return fuel[c];
-		case 11: return org_h[c];
-		case 12: return org_o[c];
-		case 13: return fert[c];
-	}
-	return 0.0;
-}
 
 // A substance with no phase boundary in this planet's range: enthalpy is c*T and nothing else.
 SubstanceTh la_sensible_only(float c_j_kgk) {
@@ -133,7 +96,7 @@ void main() {
 	float v_lambda = 0.0;    // volume-weighted conductivity, W/m/K
 	float v_used = 0.0;
 
-	for (int i = 0; i < CHANNEL_SLOTS; ++i) {
+	for (int i = 0; i < LA_CHANNEL_SLOTS; ++i) {
 		float f = max(channel_at(i, g), 0.0);
 		if (f <= 0.0) {
 			continue;

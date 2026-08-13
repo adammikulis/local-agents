@@ -12,6 +12,7 @@ static func slow_channels() -> PackedStringArray: return LAChannels.slow_channel
 # Dispatch order is a data dependency chain: each pass reads what the one above it published.
 # ChargeSeparate precedes Transport, whose OHMIC row relaxes what it separated.
 const PASS_SCRIPTS: PackedStringArray = [
+	"res://addons/local_agents/sim/material/sphere_passes/GravityPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/PressurePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/SolidDerivePass.gd",
@@ -59,8 +60,6 @@ var _probe: Dictionary = {}
 var _solid_dirty: bool = true
 var _water_dirty: bool = true
 var _h_dirty: bool = true
-# Set whenever the Poisson solver actually re-solved; g changes only then.
-var _gravity_dirty: bool = false
 
 # Slow channels are read back only every Nth drain (their CPU consumers are coarse-cadence ledgers/bakers, not
 # every-frame world queries) — a direct cut of ~6 of 21 blocking readbacks on the other frames. Between reads the
@@ -98,10 +97,9 @@ func setup(field) -> void:
 	var nbr_bytes: PackedByteArray = _grid.neighbours.to_byte_array()
 	_bufs["nbr"] = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	_bufs["pos"] = _make_vec3_flat(func(c: int) -> Vector3: return _grid.cell_world_pos(c))
-	# The SOLVED gravity, flat cell*3, m/s^2. Every kernel that asks which way is down reads this and
-	# nothing anywhere holds a gravity constant.
+	# The SOLVED gravity, flat cell*3, m/s^2. GravityPass writes it, every kernel that asks which way is
+	# down reads it, and nothing anywhere holds a gravity constant.
 	_bufs["gravity"] = _new_f(_cc * 3)
-	_upload_gravity()
 	# kernels3d/cellvol.glsli, binding 40: model units^3 per cell.
 	var vol_bytes: PackedByteArray = _grid.cell_volumes().to_byte_array()
 	_bufs["cell_vol"] = _rd.storage_buffer_create(vol_bytes.size(), vol_bytes)
@@ -184,9 +182,6 @@ func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	if _solid_dirty:
 		_seed_solid()
 		_solid_dirty = false
-	if _gravity_dirty:
-		_upload_gravity()
-		_gravity_dirty = false
 	_ctx["dt"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()   # simulated seconds, not the cadence
 	_ctx["cell_size"] = _grid.cell_size
 	# The SOLVED gravity, for the handful of scalar laws a pass evaluates once. A per-cell law reads the
@@ -207,11 +202,6 @@ func set_sun_dir(v: Vector3) -> void:
 ## Mark the CPU enthalpy mirror dirty so the next begin_frame re-uploads it.
 func mark_h_dirty() -> void:
 	_h_dirty = true
-
-
-## The Poisson solver re-solved — hand the device the new g on the next begin_frame.
-func mark_gravity_dirty() -> void:
-	_gravity_dirty = true
 
 
 func step() -> void:
@@ -697,21 +687,6 @@ func _seed_solid() -> void:
 		f[i] = 1.0 if _field._solid[i] != 0 else 0.0
 	var b: PackedByteArray = f.to_byte_array()
 	_rd.buffer_update(_bufs["solid"], 0, b.size(), b)
-
-func _upload_gravity() -> void:
-	var g = _field._gravity
-	if g == null or not _bufs.has("gravity"):
-		return
-	var f: PackedFloat32Array = PackedFloat32Array()
-	f.resize(_cc * 3)
-	for c in _cc:
-		var v: Vector3 = g.g_at(c)
-		f[c * 3 + 0] = v.x
-		f[c * 3 + 1] = v.y
-		f[c * 3 + 2] = v.z
-	var b: PackedByteArray = f.to_byte_array()
-	_rd.buffer_update(_bufs["gravity"], 0, b.size(), b)
-
 
 func _seed_regolith() -> void:
 	var m: PackedByteArray = _field._regolith
