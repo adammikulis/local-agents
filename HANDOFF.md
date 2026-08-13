@@ -8,60 +8,41 @@ code, then act. Report what was deleted; report no number this substrate printed
 
 ---
 
-## 1. Give the simulation its own loop
+## 1. Finish what the gravity solve left
 
-The field steps from `VoxelWorld._physics_process`, so a sim step happens only when rendering yields a
-physics tick. Everything in this item is that one coupling.
+`MaterialField3D.solve_gravity()` and its two call sites in `MaterialFieldSphereStep3D.process` are dead:
+no CPU step re-solves, so `step()` returns false. Delete all three.
 
-- Make the sim own its clock and a substep budget in simulated time. `Simulation.tscn` is the seam;
-  presentation subscribes to the step instead of driving it.
-- Delete the bank clamp in `MaterialFieldSphereStep3D.process`
-  (`_f._step_accum = minf(_f._step_accum, STEP_DT * (MAX_STEPS_PER_FRAME + 1))`). It discards simulated
-  time whenever a frame runs slow.
-- Delete the path from `VoxelSettingsApplier`'s `la_field_cadence` to `_field_cadence()`. A graphics
-  quality preset decides how often the field steps.
-- Delete `MaterialFieldGeotherm3D` and `_step_geotherm()` — see item 3. While it exists it runs once per
-  frame while `_gpu.step()` runs up to twice, so a two-step frame deposits one step's worth of radiogenic
-  joules, and `_epoch_years()` reads `REAL_SECONDS_PER_SIM_SECOND`, so the watch speed sets the decay rate.
-- Derive the kernel timestep from simulated time. `SIM_SECONDS_PER_STEP` is `STEP_DT` times
-  `LASimClock.REAL_SECONDS_PER_SIM_SECOND` written out as a literal, and `check_step_quantum.sh` only
-  checks that it is a literal.
-- Delete `--fast` and `VoxelInputController._fast`. It buys steps per frame through `Engine.time_scale`.
-  Its readers are `sim_run.sh`, `check_determinism.sh`, `check_conservation.sh`,
-  `check_observer_independence.sh` and `physics_score.sh`; `--fast` in `run_all_tests.gd` is a different
-  flag and stays.
-- Collapse `LASimClock._elapsed`, `MaterialFieldSphereStep3D._sim_s` and `_offer_s`, and
-  `EcologyService._eco_s` into the one step counter.
-- Move `WeatherSystem` out of `RenderLayer.tscn`. Its wind feeds moisture transport, charge and lightning,
-  so a run without rendering has different physics.
-- Extend `check_framerate_independence.sh` to ban `_physics_process` in a sim module, and to scan
-  `game/world/` for the `_process` integrators it misses. Mutation-test both ways.
+`MaterialFieldSphereStep3D`'s seeding branch calls `solve_gravity()` BEFORE `activate()`, so the driver
+that owns the solve does not exist yet. `activate()` moves above `_seed_sea()`, with one field step run
+before it, or the sea, the aquifer and the lakes seed with no gravity at all — `above` and `below` return
+-1 for every cell while they run.
 
-## 2. Reduce on the device, not in the interpreter
+`game/menu/GameSettings.gd`'s `field_cadence` and the "Field update cadence" slider in
+`SimSettingsSection.gd` are a knob wired to nothing now. Delete both. `agent_harness.sh`'s `sim` help text
+still advertises `--fast=8`.
 
-Every whole-grid sum, count, minimum, maximum, binned mean and percentile in `sim/material` walks a
-downloaded mirror in GDScript. `LAReduceRecords` + `reduce.glsl` + `ReducePass` is the machine, and it is
-built; each item below is a set of rows added to that table. Ops so far: SUM, COUNT_GT, COUNT_GE,
-SUM_ABS_DIFF, LATCH. A minimum or a percentile needs a new op and a second dispatch stage.
+## 2. Reduce the rest on the device
 
-- `MaterialFieldQueries3D` — every total, count and peak. Delete `_liquid_mirror`, `_ice_mirror`,
-  `_vapour_mirror` and `_melt_mirror`: they materialise a product of two device buffers six to eight times
-  per report. Point queries keep their mirrors.
-- `MaterialFieldChannels3D`, `MaterialFieldAtmos3D.refresh_aggregates`, `MaterialShock3D.shock_cell_count`.
-- `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`, `MaterialFieldElementProbe3D`,
-  `MaterialFieldOrganic3D`.
-- `FieldPassAttribution3D._sums` walks the halves it downloads at a checkpoint. ReducePass runs last, so
-  it cannot answer "which pass moved it": the fix is a reduce dispatch per checkpoint, not a row.
+`ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and twenty-one report
+sweeps already use it. Left:
+
 - `MaterialFieldReport3D.surface_climate` and `_open_temp_stats`, `MaterialFieldPhotoStats3D`,
   `MaterialFieldClimateSwing3D._site_stations`, `MaterialFieldGeotherm3D._gradient`.
-- Delete the sampling heuristics that only exist because those walks are expensive:
-  `CLIMATE_MAX_CELLS`, and `MaterialFieldQueries3D.wind`'s stride.
-- Lower both ceilings in `docs/GDSCRIPT_LINES_CEILING` and `docs/CELL_LOOP_CEILING` in the same commit as
-  each deletion.
+- `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`, `MaterialFieldElementProbe3D`,
+  `MaterialFieldOrganic3D`.
+- `CLIMATE_MAX_CELLS` and its stride delete with the climate scan.
+- `FieldPassAttribution3D._sums` walks the halves it downloads at a checkpoint. ReducePass runs last, so
+  it cannot answer "which pass moved it": that wants a reduce dispatch per checkpoint, not a row.
+- Three shapes refused a row and say why: `sea_surface_stats` (a median needs a declared range nothing
+  supplies), `lava_shell_diag` (five outputs over two gates), `rock_radial_profile` (a binned reduction
+  plus a gravity march in one walk).
+- `_liquid_mirror`, `_ice_mirror` and `_vapour_mirror` stay: five consumers read every cell, and they
+  belong to the files above. Delete them when those files convert.
 
 ## 3. Collapse the per-cell kernels into one dispatch
 
-Eight passes are dispatched per step, each its own pipeline bind, uniform set and barrier. Three of them
+Eleven passes are dispatched per step, each its own pipeline bind, uniform set and barrier. Three of them
 bind no neighbour buffer at all, and each reads at its own index what the one before it wrote there:
 `state_derive` writes `temp`, `vel_*`, `rho_cond`, `n_gas_m3` and the phase shares; `solid_derive` reads
 `silicate_melt` and writes `solid`, `cement`, `regolith`, `grain`; `rotating_frame` reads `vel_*`,
@@ -86,18 +67,10 @@ in proportion to the rock a cell holds, and it is one term in the kernel beside 
 `LARadiogenicDecay`, which is the real physics of a decaying nuclide store; delete the module, the list, the
 queue round trip and the separate cadence.
 
-The target is four dispatches: derive, pressure, transport, reactions.
+The target is six: gravity, derive, pressure, transport, reactions, reduce — with the cell list folded
+into whichever pass dispatches indirectly over it.
 
-## 4. Solve gravity on the device
-
-`FieldGravity.solve` is red-black Gauss-Seidel in GDScript: eight sweeps, two colours, every cell, a
-six-neighbour gather and a six-slot boundary scan in the innermost loop, then three more full sweeps for
-`_measure`, `_residual` and `_gradient`. Its source term `FieldDensity3D.of` is a per-channel per-cell loop
-calling the EOS. Two dispatches per sweep, one per colour, is the same recurrence — Jacobi is not, and
-would be a different answer. Deletes `FieldGravity.gd`, `FieldDensity3D.gd`, most of
-`MaterialFieldGravity3D.gd` and `MaterialSphereGPU3D._upload_gravity`.
-
-## 5. Delete the second radiative model
+## 4. Delete the second radiative model
 
 `MaterialFieldEnergyBudget3D` and `RadiativeColumn` re-solve the RADIATE row of `transport.glsl` on the CPU
 over 64 sampled columns. Have the row accumulate its own per-cell absorbed and emitted watts, sum those,
@@ -105,12 +78,12 @@ and delete both files with `K_SURFACE_FILL_MIN`, `K_ICE_ALBEDO_GAIN` and `SAMPLE
 `tests/test_radiative_transfer.gd` drives `RadiativeColumn` directly and is repaired forward, never by
 restoring it.
 
-## 6. Move the lightning column march into the kernel
+## 5. Move the lightning column march into the kernel
 
 `MaterialCharge3D._scan` walks the whole air column above every ground cell every step. It belongs in
 `charge_separate.glsl`, publishing a strike list. Same march, same `RREA_THRESHOLD_V_M`.
 
-## 7. Move what the device cannot take into the GDExtension
+## 6. Move what the device cannot take into the GDExtension
 
 GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is a `.cpp`/`.hpp` pair, one
 `SRC` line and one `register_class`.
@@ -123,41 +96,41 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
   per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
 - The driver: `MaterialSphereGPU3D.gd` and `MaterialField3D.gd`. Last, after the pass seam settles.
 
-## 8. Give `scent` a row in `Channels.gd` or delete its readers
+## 7. Give `scent` a row in `Channels.gd` or delete its readers
 
 It has no row, so the transport set cannot carry it, and it cannot stay half-present.
 
-## 9. Make `_read_channels`'s SLOW block read `slow_channels()`
+## 8. Make `_read_channels`'s SLOW block read `slow_channels()`
 
 It hardcodes `["silicate", "fert"]` and `["biomass", "cement", ...]`, so `slow_channels()` is a view nothing
 consumes and `porosity` never gets its coarse readback.
 
-## 10. Build the binding registry
+## 9. Build the binding registry
 
 SSBO binding numbers are a bare integer in GLSL and a second bare integer in one of fourteen uniform-set
 builders, held equal by nothing. Build `sim/material/Bindings.gd` on `Channels.gd`'s shape — a
 `static func rows()`, never a `const Dictionary` built from another script's constants — and one gate
 absorbing the hand-written binding stanzas. Mutation-test it both ways.
 
-## 11. Make `lint` distinguish "could not run" from "violated"
+## 10. Make `lint` distinguish "could not run" from "violated"
 
 It is fail-fast and collapses every gate's exit code to 1, so the exit-2 contract asserted in about ten gate
 headers and in `lint.yml` is not observable. Fix the harness, not the gates.
 
-## 12. Fix the conservation ceiling's units
+## 11. Fix the conservation ceiling's units
 
 `check()` compares a per-step rate against a single-sample round-off floor, and round-off does not
 accumulate linearly. Compare the magnitude, not the magnitude over elapsed. Take it after item 2, because
 against the current substrate it fires on every substance and drives every run to the violation exit code.
 
-## 13. Find why a run costs render frames
+## 12. Find why a run costs render frames
 
-`--run-frames=N` ends in `LocalAgentDemoHarness._tick_run`, counted in physics frames, and a 64-frame run
-does not reach it. `TIME_PHYSICS_PROCESS` and `TIME_PROCESS` together account for a small part of the frame
+`--run-frames=N` is simulated steps now and a 200-step run does not reach the end. Steps 0-6 complete in
+tens of milliseconds, then step 7 blocks for about ten seconds and the process goes silent. `TIME_PHYSICS_PROCESS` and `TIME_PROCESS` together account for a small part of the frame
 period, so the rest is engine work no script callback owns. Start at godot_voxel's main-thread apply and the
 physics server. Item 1 may dissolve this.
 
-## 14. Two constants that are not what they name
+## 13. Two constants that are not what they name
 
 - `AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`, and it is the unit
   definition of the `o2`, `co2` and `n2` channels, so correcting it rescales every gas total.
