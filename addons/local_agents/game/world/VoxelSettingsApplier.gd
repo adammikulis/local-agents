@@ -117,18 +117,12 @@ func llm_cadence() -> float:
 	return clampf(settings().llm_cadence, 1.0, 120.0)
 
 
-## Field substrate steps every N frames (larger = cheaper CPU).
-func field_cadence() -> int:
-	return clampi(settings().field_cadence, 1, 60)
-
-
 ## Publish the graphics + simulation knobs that are consumed by systems this module does not own.
 func publish_globals() -> void:
 	Engine.set_meta("la_vegetation_scale", vegetation_scale())
 	Engine.set_meta("la_draw_distance", draw_distance())
 	Engine.set_meta("la_ai_tick_frames", ai_tick_frames())
 	Engine.set_meta("la_llm_cadence", llm_cadence())
-	Engine.set_meta("la_field_cadence", field_cadence())
 	Engine.set_meta("la_effects_scale", particle_scale())   # quality-scaled effects budget (ejecta pool, …)
 
 
@@ -146,11 +140,11 @@ func bind(world: Node, terrain, water: Node) -> void:
 			gm.settings_applied.connect(cb)
 	_bound = true
 	var ro: Dictionary = render_opts()
-	print("SETTINGS_APPLIED={grid_res:%d, grid_edge:%d, effects:%d, actor_budget:%d, spawn_scale:%.2f, particle:%.2f, ssao:%s, glow:%s, shadows:%s, ocean_transparent:%s, fog:%s, veg:%.2f, draw:%.0f, ai_tick:%d, llm_cadence:%.1f, field_cadence:%d}" % [
+	print("SETTINGS_APPLIED={grid_res:%d, grid_edge:%d, effects:%d, actor_budget:%d, spawn_scale:%.2f, particle:%.2f, ssao:%s, glow:%s, shadows:%s, ocean_transparent:%s, fog:%s, veg:%.2f, draw:%.0f, ai_tick:%d, llm_cadence:%.1f}" % [
 		settings().grid_resolution, grid_cells_per_edge(), int(settings().effects_level),
 		settings().actor_budget, spawn_scale(), particle_scale(),
 		str(ro["ssao"]), str(ro["glow"]), str(ro["sun_shadows"]), str(ro["ocean_transparent"]), str(ro["fog"]),
-		vegetation_scale(), draw_distance(), ai_tick_frames(), llm_cadence(), field_cadence()])
+		vegetation_scale(), draw_distance(), ai_tick_frames(), llm_cadence()])
 
 
 func _on_settings_applied(new_settings: LAGameSettings) -> void:

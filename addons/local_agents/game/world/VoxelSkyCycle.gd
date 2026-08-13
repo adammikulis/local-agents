@@ -31,8 +31,7 @@ var _lunar_phase: float = 0.15              # 0=new, 0.25=first quarter, 0.5=ful
 var _tod_seed: float = 0.30
 var _lunar_seed: float = 0.15
 
-# Scene refs read each frame by the cycle (weather rain dims the sky; the field's cloud cover overcasts.
-var _weather: Node = null
+# Scene refs read each frame by the cycle (the field's precipitation and cloud cover dim the sky).
 var _material: Node = null
 var _water: Node = null      # LAWaterParticles — the day/night colour tint is pushed to it each frame
 
@@ -147,9 +146,8 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: D
 	_moon = moon
 
 
-# Bind the scene systems the cycle reads each frame. Called after weather/material/water-particles exist.
-func bind_scene(weather: Node, material: Node, water: Node) -> void:
-	_weather = weather
+# Bind the scene systems the cycle reads each frame. Called after material/water-particles exist.
+func bind_scene(material: Node, water: Node) -> void:
 	_material = material
 	_water = water
 
@@ -198,9 +196,8 @@ func _update_day_night() -> void:
 	# PLANET-FROM-SPACE: fixed star sun + low ambient + dark sky.
 	if _planet_mode:
 		var pstorm: float = 1.0
-		if _weather != null:
-			pstorm = 1.0 - _weather.rain() * 0.68
 		if _material != null:
+			pstorm = 1.0 - float(_material.precipitation()) * 0.68
 			pstorm *= 1.0 - clampf(_material.avg_cloud_cover() * 1.5, 0.0, 0.6)
 		var pup: Vector3 = Vector3.UP if absf(_sun_shine.dot(Vector3.UP)) < 0.98 else Vector3.RIGHT
 		_sun.look_at_from_position(Vector3.ZERO, _sun_shine, pup)   # light travels along _sun_shine
@@ -214,10 +211,10 @@ func _update_day_night() -> void:
 	# Sun elevation: -1 (midnight) .. +1 (noon), zero at dawn (.25) and dusk (.75).
 	var elev: float = sin((_time_of_day - 0.25) * TAU)
 	var daylight: float = clampf(elev, 0.0, 1.0)
-	# Storm factor from weather dims the sun/ambient on top of the day cycle.
+	# The field's own precipitation dims the sun/ambient on top of the day cycle.
 	var rain: float = 0.0
-	if _weather != null and _weather.has_method("rain"):
-		rain = _weather.rain()
+	if _material != null and _material.has_method("precipitation"):
+		rain = float(_material.precipitation())
 	var storm: float = 1.0 - rain * 0.68
 	# Overcast skies (the field's own emergent cloud cover) dim the sun + ambient on top of rain.
 	var cloud_cover: float = 0.0

@@ -2,16 +2,17 @@ class_name LASimTimeAuthority
 extends Node
 
 
-const SPEEDS: Array[float] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0]
+## Playback speed, in SIM STEPS PER ENGINE TICK. Fast-forward buys steps; the timestep never moves.
+const SPEEDS: Array[int] = [1, 2, 4, 8]
 
 ## Real time, found in the list rather than written down beside it — an index that can disagree with the
 ## array it indexes is a defect waiting for someone to reorder SPEEDS.
 static func play_index() -> int:
-	return maxi(SPEEDS.find(1.0), 0)
+	return maxi(SPEEDS.find(1), 0)
 
 signal speed_changed(paused: bool, speed: float)
 
-## The live authority, so anything changing speed goes through the node that owns Engine.time_scale.
+## The live authority, so anything changing speed goes through the node that owns the loop's step budget.
 static var _active: LASimTimeAuthority = null
 
 var _idx: int = play_index()
@@ -36,13 +37,12 @@ static func active() -> LASimTimeAuthority:
 	return _active
 
 
-## Set the speed from a raw multiplier, snapped to the nearest supported SPEED. The entry point for every
-## non-key speed change (`--fast=N`, the pause menu's speed row, the trailer director).
-func set_multiplier(mult: float) -> void:
+## Set the speed from a raw steps-per-tick request, snapped to the nearest supported SPEED.
+func set_steps_per_tick(n: int) -> void:
 	var best: int = play_index()
-	var best_delta: float = INF
+	var best_delta: int = 1 << 30
 	for i in range(SPEEDS.size()):
-		var d: float = absf(SPEEDS[i] - mult)
+		var d: int = absi(SPEEDS[i] - n)
 		if d < best_delta:
 			best_delta = d
 			best = i
@@ -73,7 +73,7 @@ func slower() -> void:
 	_apply()
 
 
-## Back to 1× (Home).
+## Back to 1 step per tick (Home).
 func reset_speed() -> void:
 	_idx = play_index()
 	_paused = false
@@ -84,9 +84,9 @@ func is_paused() -> bool:
 	return _paused
 
 
-## The effective playback rate (0 while paused).
+## The effective playback rate in steps per tick (0 while paused).
 func current_speed() -> float:
-	return 0.0 if _paused else SPEEDS[_idx]
+	return 0.0 if _paused else float(SPEEDS[_idx])
 
 
 func speed_index() -> int:
@@ -95,7 +95,7 @@ func speed_index() -> int:
 
 func _apply() -> void:
 	get_tree().paused = _paused
-	if not _paused:
-		Engine.time_scale = SPEEDS[_idx]
-		Engine.max_physics_steps_per_frame = maxi(8, int(ceil(SPEEDS[_idx])) * 8)
+	var loop: LASimLoop = LASimLoop.active()
+	if not _paused and loop != null:
+		loop.set_steps_per_tick(SPEEDS[_idx])
 	speed_changed.emit(_paused, current_speed())

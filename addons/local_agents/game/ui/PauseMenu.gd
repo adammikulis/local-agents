@@ -78,14 +78,14 @@ func _on_speed_pressed(n: int) -> void:
 		b.button_pressed = (b.text == "%dx" % n)
 
 
-## Forwards to LASimTimeAuthority, the one writer of Engine.time_scale. No fallback: a second writer
-## silently resets the rate, which is what made --fast a no-op.
+## Forwards to LASimTimeAuthority, the one writer of the loop's step budget. No fallback: a second writer
+## silently resets the rate.
 func set_time_scale(n: int) -> void:
 	var ctrl: LASimTimeAuthority = LASimTimeAuthority.active()
 	if ctrl == null:
 		push_error("LAPauseMenu: no LASimTimeAuthority in the scene — speed cannot be set.")
 		return
-	ctrl.set_multiplier(float(clampi(n, 1, SPEEDS[SPEEDS.size() - 1])))
+	ctrl.set_steps_per_tick(clampi(n, 1, SPEEDS[SPEEDS.size() - 1]))
 
 
 func _on_save() -> void:

@@ -51,7 +51,7 @@ run_arm() {  # $1 = out file, $2.. = extra scene args
   LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-600}" LA_NO_STREAMER=1 \
     "$REPO_ROOT/scripts/run_sim_offscreen.sh" --path "$REPO_ROOT" \
     addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \
-    -- --sandbox --planet-only --no-fauna "--run-frames=${FRAMES}" --fast=8 "--seed=${SEED}" "$@" \
+    -- --sandbox --planet-only --no-fauna "--run-frames=${FRAMES}" "--seed=${SEED}" "$@" \
     > "$out" 2>&1
   return 0
 }

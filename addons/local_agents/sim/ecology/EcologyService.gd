@@ -53,11 +53,10 @@ func is_night_at(pos: Vector3) -> bool:
 
 # pending spawns whose surface wasn't ready yet: [{kind, pos, tries}]
 var _pending: Array = []
-var _seed_timer: float = 0.0
-var _fish_timer: float = 0.0
-var _tree_timer: float = 0.0             # forest succession: groves densify on biomass-rich ground
-var _eco_s: float = 0.0
-var _phys_frames: int = 0
+# Recruitment cadences, in SIM STEPS. There is one clock and it counts steps.
+const SEED_EVERY_STEPS: int = 15
+const FISH_EVERY_STEPS: int = 25
+const TREE_EVERY_STEPS: int = 14         # forest succession: groves densify on biomass-rich ground
 var _aquatic_kinds_cache: Array = []     # aquatic species ids (config aquatic:true), indexed once
 var _aquatic_indexed: bool = false
 var _land_kinds_cache: Array = []        # land creature species ids (has diet, not aquatic), indexed once
@@ -435,30 +434,18 @@ func broadcast_scare(world_pos: Vector3, radius: float, base_intensity: float = 
 
 
 
-func _physics_process(delta: float) -> void:
+## ONE simulated step. LASimLoop drives it; nothing here reads a frame delta.
+func on_sim_step(step: int) -> void:
 	if LAAblate.off("ecology"):
 		return
 	if terrain == null or actors_root == null:
 		return
-	# Publish the actor-side clock (see _eco_s). phys_dt's min/max come free from the gauge, which is how
-	# we read what Engine.time_scale actually does to the physics delta at each --fast multiplier.
-	_eco_s += delta
-	_phys_frames += 1
-	LASimReport.gauge("eco_sim_s", _eco_s)
-	LASimReport.gauge("phys_dt", delta)
-	LASimReport.gauge("phys_frames", float(_phys_frames))
 	_process_pending()
-	_seed_timer -= delta
-	if _seed_timer <= 0.0:
-		_seed_timer = 1.5
+	if step % SEED_EVERY_STEPS == 0:
 		_plants._tick_plant_seeding()
-	_fish_timer -= delta
-	if _fish_timer <= 0.0:
-		_fish_timer = 2.5
+	if step % FISH_EVERY_STEPS == 0:
 		_breeding._tick_aquatic()
-	_tree_timer -= delta
-	if _tree_timer <= 0.0:
-		_tree_timer = 1.4
+	if step % TREE_EVERY_STEPS == 0:
 		_plants._tick_tree_seeding()
 
 

@@ -172,12 +172,8 @@ func sea_radius() -> float:
 	return 0.0
 
 
-const STEP_HZ: float = 10.0
-const STEP_DT: float = 1.0 / STEP_HZ
-const MAX_STEPS_PER_FRAME: int = 2
 const RENDER_MIN: float = 0.08            # min water mass in a cell for its top face to render
 const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of the sea shell are left to the ocean plane
-var _step_accum: float = 0.0
 var _ready_sim: bool = false
 var _seal = null
 const HEAT_TEX_EVERY: int = 3            # terrain-glow heat texture refresh cadence (full-grid column scan)
@@ -482,9 +478,9 @@ func _exit_tree() -> void:
 		_gpu.dispose()
 
 
-func _physics_process(delta: float) -> void:
-	if _sphere_step != null:
-		_sphere_step.process(delta)
+## The step driver LASimLoop calls: `seed_tick()` while seeding, `step()` once per simulated step.
+func step_driver():
+	return _sphere_step
 
 
 ## Temperature °C at a true-3D world point (a mild default outside the shell). Sphere-native single read.

@@ -11,7 +11,6 @@ var _render_opts: Dictionary = {}
 @onready var _camera: Camera3D = $CameraRig
 @onready var _sky_ctrl: LAVoxelSkyController = $SkyController
 @onready var _veg_renderer: Node3D = $VegetationRenderer
-@onready var _weather: Node = $Weather
 @onready var _ocean: Node = $OceanPlane
 @onready var _water: Node = $WaterParticles
 @onready var _water_surface: Node = $WaterSurface
@@ -59,10 +58,6 @@ func _build_world_visuals() -> void:
 	if _sim.ecology().has_method("set_vegetation_renderer"):
 		_sim.ecology().set_vegetation_renderer(_veg_renderer)
 
-	_weather.setup(_camera, _sky_ctrl.sun(), _sky_ctrl.env())
-	if _weather.has_method("set_field"):
-		_weather.set_field(material)
-
 	# The calm sea: ONE GPU plane at sea level — a finite spherical shell at sea_radius.
 	if terrain.is_planet():
 		_ocean.setup_sphere(body.center(), body.sea_radius(), bool(_render_opts.get("ocean_transparent", true)))
@@ -76,7 +71,7 @@ func _build_world_visuals() -> void:
 	# The dynamic FLUID SURFACE: springs/rivers/waterfalls/lakes/floods meshed from the field's water column.
 	_water_surface.setup(material, _camera, terrain, _sky_ctrl.sun(), body.center(), body.sea_radius())
 
-	_sky_ctrl.bind_scene(_weather, material, _water)
+	_sky_ctrl.bind_scene(material, _water)
 	if _sim.orbits() != null:
 		_sim.orbits().set_tide_targets(_ocean, _water_surface, body.sea_radius())
 

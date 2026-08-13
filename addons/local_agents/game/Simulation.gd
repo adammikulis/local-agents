@@ -5,6 +5,7 @@ extends Node3D
 const STAR_POSITION: Vector3 = Vector3(900.0, 320.0, 620.0)
 
 @onready var _settings_applier: LAVoxelSettingsApplier = $SettingsApplier
+@onready var _loop: LASimLoop = $SimLoop
 @onready var _clock: LASimClock = $SimClock
 @onready var _time: LASimTimeAuthority = $TimeAuthority
 @onready var _star: LAStar = $Star
@@ -25,12 +26,16 @@ const STAR_POSITION: Vector3 = Vector3(900.0, 320.0, 620.0)
 var _terrain = null
 var _actors_root: Node3D = null
 
+# Harness probe flags, set once from the CLI. They gate the spawn probe, not any physics.
+var _auto_meteor: bool = false
+var _auto_select: bool = false
+var _overview: bool = false
+var _farview: bool = false
 
-## Wire the world. `opts` carries the planet's shape and `fast_multiplier`.
+
+## Wire the world. `opts` carries the planet's shape.
 func build(opts: Dictionary) -> void:
 	_settings_applier.read_settings()
-
-	_time.set_multiplier(float(opts.get("fast_multiplier", 1)))
 
 	_star.setup({"position": STAR_POSITION, "energy": 1.4})
 
@@ -56,6 +61,23 @@ func build(opts: Dictionary) -> void:
 	_build_geology_and_life()
 	_save.setup(self)
 	_timeline.setup(_save)
+	_wire_loop()
+
+
+## THE ONE DRIVER. Everything that advances subscribes to the loop; nothing subscribes to a frame.
+func _wire_loop() -> void:
+	# The world is being SEEDED until the field has its sea, its regolith and its GPU driver. No simulated
+	# time passes while that is true.
+	_loop.hold()
+	_loop.seeding.connect(_on_seeding)
+	_loop.stepped.connect(_on_step)
+	_loop.stepped.connect(Callable(_ecology, "on_sim_step"))
+	_loop.stepped.connect(Callable(_material.step_driver(), "step").unbind(1))
+
+
+func _on_seeding(_tick: int) -> void:
+	if _material.step_driver().seed_tick():
+		_loop.release()
 
 
 func _build_field() -> void:
@@ -108,19 +130,31 @@ func _build_geology_and_life() -> void:
 	_spawn.set_spawn_scale(_settings_applier.spawn_scale())
 
 
-## Advance the orbit, the spin and the spawn probe. Called from the world root's _process.
-func step(delta: float, overview: bool, farview: bool, auto_meteor: bool, auto_select: bool) -> void:
-	_orbits.update(delta)
+## The CLI probe flags, set once. They arm harness hooks; nothing physical reads them.
+func set_probe_flags(overview: bool, farview: bool, auto_meteor: bool, auto_select: bool) -> void:
+	_overview = overview
+	_farview = farview
+	_auto_meteor = auto_meteor
+	_auto_select = auto_select
+
+
+## ONE simulated step: the clock, the orbit, the spin and the spawn probe. `dt` is a fixed quantum of
+## SIMULATED seconds, so the orbit and the rotation advance by real physics rather than by a frame period.
+func _on_step(_step: int) -> void:
+	var dt: float = LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP
+	_clock.advance()
+	_orbits.update(dt)
 	# The sun's world direction, published to ecology so night is a place on the sphere rather than a clock.
 	if _ecology.has_method("set_sun"):
 		var centre: Vector3 = _body.center()
 		_ecology.set_sun((_star.global_position - centre).normalized(), centre)
 	if _spawn.is_spawned() and _terrain.is_planet():
-		_body.rotate(_body.spin_axis(), LASimClock.SPIN_RAD_PER_SIM_S * delta)
-	_spawn.try_spawn(overview, farview, auto_meteor, auto_select)
+		_body.rotate(_body.spin_axis(), LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S * dt)
+	_spawn.try_spawn(_overview, _farview, _auto_meteor, _auto_select)
 
 
 func settings_applier() -> LAVoxelSettingsApplier: return _settings_applier
+func loop() -> LASimLoop: return _loop
 func clock() -> LASimClock: return _clock
 func time_authority() -> LASimTimeAuthority: return _time
 func star() -> LAStar: return _star
