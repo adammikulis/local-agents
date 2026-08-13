@@ -145,4 +145,5 @@ static func deficit_cause(c, o2: float) -> String:
 					c.global_position.y + up.y * c.size, c.global_position.z + up.z * c.size):
 				return "drowned"
 		return "suffocated"
-	return "starvation"
+	# Body temp inside the envelope, outside this genome's band. Fuel exhaustion is a separate death.
+	return "thermal_stress"

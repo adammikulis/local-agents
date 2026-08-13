@@ -15,15 +15,16 @@ func _init() -> void:
 	_rng.seed = DEFAULT_SEED
 
 
-func _count() -> void:
-	draws += 1
+## `n` is how many times the generator is advanced by the calling draw.
+func _count(n: int = 1) -> void:
+	draws += n
 	if trace_enabled:
 		# Attribute the draw to its immediate caller, so the report says WHICH subsystem drifted.
 		var st: Array = get_stack()
 		if st.size() > 2:
 			var f: Dictionary = st[2]
 			var tag: String = "%s:%s" % [String(f.get("source", "?")).get_file(), f.get("function", "?")]
-			_tags[tag] = int(_tags.get(tag, 0)) + 1
+			_tags[tag] = int(_tags.get(tag, 0)) + n
 
 
 func trace_report() -> Dictionary:
@@ -69,7 +70,7 @@ func randfn(mean: float = 0.0, deviation: float = 1.0) -> float:
 
 
 func rand_dir() -> Vector3:
-	_count()
+	_count(3)
 	return Vector3(_rng.randf() * 2.0 - 1.0, _rng.randf() * 2.0 - 1.0, _rng.randf() * 2.0 - 1.0)
 
 

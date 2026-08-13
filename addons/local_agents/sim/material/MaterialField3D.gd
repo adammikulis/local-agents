@@ -184,7 +184,6 @@ const HEAT_TEX_EVERY: int = 3            # terrain-glow heat texture refresh cad
 const SLOW_READ_EVERY: int = 3           # render-only GPU readback cadence for vapor/cloud/fog
 var _heat_tex_tick: int = 0
 var _slow_read_tick: int = 0
-var _charge_woke: bool = false           # a charge injection woke the breakdown scan
 var _fuel_dirty: bool = false            # fuel seeded on the CPU → seed the GPU fuel buffer before step 0
 var _detritus_seed_dirty: bool = false   # one-shot: initial soil detritus seeded → upload once before the first step
 var _organic_seed_dirty: bool = false    # one-shot: the seeded litter's C:H:O pushed once, with the detritus seed
