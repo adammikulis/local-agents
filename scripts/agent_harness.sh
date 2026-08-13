@@ -292,6 +292,13 @@ if [[ "$cmd" == "lint" ]]; then
       fail=1
     fi
 
+    "$SCRIPT_DIR/check_gdscript_budget.sh"
+    rc_gdbudget=$?
+    if [ "$rc_gdbudget" -ne 0 ]; then
+      echo "LINT_FAIL: check_gdscript_budget.sh ($rc_gdbudget)"
+      fail=1
+    fi
+
     "$SCRIPT_DIR/check_neighbour_slots.sh"
     rc_nbrslots=$?
     set -e
