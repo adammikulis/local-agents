@@ -50,33 +50,20 @@ sweeps already use it. Left:
 
 ## 3. Collapse the per-cell kernels into one dispatch
 
-Eleven passes are dispatched per step, each its own pipeline bind, uniform set and barrier. Three of them
-bind no neighbour buffer at all, and each reads at its own index what the one before it wrote there:
-`state_derive` writes `temp`, `vel_*`, `rho_cond`, `n_gas_m3` and the phase shares; `solid_derive` reads
-`silicate_melt` and writes `solid`, `cement`, `regolith`, `grain`; `rotating_frame` reads `vel_*`,
-`rho_cond` and `n_gas_m3` and writes `mom_*`. No neighbour read means no barrier is owed between them, so
-they are one kernel making one pass over the cell.
+Seven passes are dispatched per step. `MaterialFieldGeotherm3D` is the next one to go and it is not even a
+kernel: `_rebuild()` computes `silicate[c] * rho_rock * vol[c] * w_per_kg`, in which only `silicate[c]`
+varies per cell, then compacts a list and hands joules to the sparse inject queue from GDScript on the
+gravity solve's cadence. Radiogenic heating is a volumetric source, heat appearing in proportion to the rock
+a cell holds, and it is one term in the kernel beside the rest. Keep `LARadiogenicDecay`, which is the real
+physics of a decaying nuclide store; delete the module, the list, the queue round trip and the separate
+cadence.
 
-Two more are duplicate writers of a channel inside one step, and both are per-cell source terms, which is
-what a reaction record already is:
+`CellListPass` is the seventh, and it stays a pass until the compaction becomes a mode of `transport.glsl`:
+`check_binding_collisions.sh` fails any pass naming two kernel paths, so it cannot simply be folded into
+`TransportPass`. The compaction needs workgroup-shared memory and barriers in uniform control flow, which
+`PASS_GRAIN` shows a transport mode can carry.
 
-- `rotating_frame` writes `mom_*`; `transport`'s PGF and EDDY rows write `mom_*`.
-- `charge_separate` writes `charge`; `transport`'s OHMIC row writes `charge` and stamps `discharge`.
-
-`grain_state` reads neighbour velocity for the shear, so it owes a barrier after `vel_*` is written — its
-home is the neighbour gather `transport` already does, not a dispatch of its own. `pressure` marches a
-column and stays.
-
-`MaterialFieldGeotherm3D` is the same shape one step further out — it is not even a kernel. `_rebuild()`
-computes `silicate[c] * rho_rock * vol[c] * w_per_kg`, in which only `silicate[c]` varies per cell, then
-compacts a list and hands joules to the sparse inject queue from GDScript on the gravity solve's cadence.
-Radiogenic heating is not a different kind of thermal behaviour: it is a volumetric source, heat appearing
-in proportion to the rock a cell holds, and it is one term in the kernel beside the rest. Keep
-`LARadiogenicDecay`, which is the real physics of a decaying nuclide store; delete the module, the list, the
-queue round trip and the separate cadence.
-
-The target is six: gravity, derive, pressure, transport, reactions, reduce — with the cell list folded
-into whichever pass dispatches indirectly over it.
+The target is six: gravity, derive, pressure, transport, reactions, reduce.
 
 ## 4. Delete the second radiative model
 
@@ -89,7 +76,8 @@ restoring it.
 ## 5. Move the lightning column march into the kernel
 
 `MaterialCharge3D._scan` walks the whole air column above every ground cell every step. It belongs in
-`charge_separate.glsl`, publishing a strike list. Same march, same `RREA_THRESHOLD_V_M`.
+`transport.glsl`, whose OHMIC row already marches it in `column_field()`, publishing a strike list. Same
+march, same `RREA_THRESHOLD_V_M`.
 
 ## 6. Move what the device cannot take into the GDExtension
 
