@@ -33,7 +33,7 @@ func fold() -> Dictionary:
 		amt_all[name] = float(r["all_" + name])
 		amt_open[name] = float(r["open_" + name])
 	var cc: int = _f._cell_count
-	# `solid` is 0 or 1 on the device (solid_derive_sphere3d.glsl), so every cell is open or solid.
+	# `solid` is 0 or 1 on the device (state_derive.glsl), so every cell is open or solid.
 	var solid_cells: int = int(r.get("solid_cells", 0.0))
 	out["cells"] = cc
 	out["solid_cells"] = solid_cells

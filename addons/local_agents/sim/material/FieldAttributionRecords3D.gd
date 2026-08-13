@@ -17,7 +17,7 @@ const PRODUCERS: Dictionary = {
 
 ## Passes that bind no writable temp buffer. A heat leg above the readback resolution on one of these
 ## falsifies the instrument rather than the planet.
-const SILENT_HEAT_PASSES: PackedStringArray = ["solid_derive", "fungus"]
+const SILENT_HEAT_PASSES: PackedStringArray = ["fungus"]
 
 ## One report row per tracked scalar. `scalar` names the sampled quantity; the rest name the published keys.
 ## `residual_of` lists the scalars whose leg sums are subtracted from this row's step delta; it defaults to
