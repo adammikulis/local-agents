@@ -328,6 +328,16 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_branch_integration.sh ($rc_branches)"
       lint_failed=$((lint_failed + 1))
     fi
+    # Gate: the map was prose and nothing checked it, so three of its claims were false at once. A claim
+    # written as a directive beside its paragraph is evaluated here. Exit 2 = the docs lost their claims.
+    set +e
+    "$SCRIPT_DIR/check_doc_claims.sh"
+    rc_claims=$?
+    set -e
+    if [[ $rc_claims -ne 0 ]]; then
+      echo "LINT_FAIL: check_doc_claims.sh ($rc_claims)"
+      lint_failed=$((lint_failed + 1))
+    fi
     # Gate: comment only what is needed to understand that line. Prose cannot be executed, so it rots and
     # then misleads with authority — every false slot-layout claim was a comment. Exit 2 = could not run.
     set +e

@@ -28,3 +28,21 @@ require_tool() {
     exit 2
   fi
 }
+
+# A gate's SCOPE is as load-bearing as its rule, and it is usually implicit. check_shaders_compile walked
+# every .glsl under addons/ and so read 10 files in a worktree (where bin/ is a symlink) and 58 in the
+# primary checkout, where whisper.cpp's vendored ggml-vulkan sources appear: green in one tree and red in
+# the other, from the same commit. The count a gate examines is part of its verdict. Assert it.
+#
+#   require_scanned <examined> <floor> <what>
+#
+# Exits 2, not 1: a scope that collapsed is a gate that could not run, not a violation it found.
+require_scanned() {
+  local have="${1:-0}" floor="$2" what="$3"
+  local caller="${BASH_SOURCE[1]:-gate}"
+  if [ "$have" -lt "$floor" ]; then
+    echo "ERROR: ${caller##*/} examined $have $what, below its floor of $floor." >&2
+    echo "       Its scope collapsed. A shrunken gate reports a pass it never earned." >&2
+    exit 2
+  fi
+}

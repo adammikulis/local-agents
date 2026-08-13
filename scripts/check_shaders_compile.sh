@@ -126,6 +126,10 @@ if echo "$out" | grep -q '"checked":0'; then
   echo "ERROR: zero shaders found — refusing to report a pass on an empty comparison." >&2
   exit 2
 fi
+# Zero was never how this gate lost its scope. It read 10 here and 58 in the primary checkout from ONE
+# commit, because a worktree's bin/ is a symlink and the vendored GLSL only exists on one side.
+checked_n="$(echo "$out" | sed -nE 's/.*"checked":([0-9]+).*/\1/p' | tail -1)"
+require_scanned "$checked_n" "${SHADER_FLOOR:-10}" "first-party .glsl kernels"
 if echo "$out" | grep -q '"failed":0'; then
   echo "check_shaders_compile: OK (every .glsl loads and compiles; no GPU required)"
   exit 0

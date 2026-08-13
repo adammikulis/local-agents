@@ -47,6 +47,13 @@ exempts `worktree-agent-*` by design, which is how it watched thirty-four accumu
 always named `mom_*` while the table declared `vel_*`, so every momentum row push_errored out and THE
 MOMENTUM EQUATION HAD NEVER RUN.
 
+<!-- claim: nofile addons/local_agents/sim/sphere -->
+<!-- claim: absent METRES_PER_MODEL_UNIT addons/local_agents/sim addons/local_agents/game -->
+<!-- claim: absent PLANET_SCALE addons/local_agents/sim addons/local_agents/game -->
+<!-- claim: absent SURFACE_G addons/local_agents/sim addons/local_agents/game -->
+<!-- claim: absent link_partner addons/local_agents/sim -->
+<!-- claim: files 10 addons/local_agents/sim/material/kernels3d .glsl -->
+
 **The grid migration is done.** The Cartesian box is the only grid: `MaterialSphereGPU3D` takes an
 `LAVoxelGrid`, gravity is the solved Poisson field read per cell, and `check_no_privileged_axis.sh` passes
 — no slot means "up", no column is an array stride. `sim/sphere/` and `LASphereGrid` are deleted, and with
@@ -96,15 +103,27 @@ across a run. `VoxelWorld._physics_process` and `_process` were bracketed sectio
 `_update_music_mood`, `_input.update_render`, `_perf_probe`): **every one reads ~0 ms after spawn.**
 Frame 7 costs seconds, once, and that is world generation.
 
-**So the time is on the main thread and OUTSIDE every callback we own** — `sample` puts it in a deep
-GDScript stack under the run loop, reached from neither `_process` nor `_physics_process`. That leaves
-signal handlers, the `call_deferred` queue, and godot_voxel's main-thread apply calling back into
-script. Look there, and note that the voxel worker threads are all parked in `condition_variable::wait`
-while the main thread burns — so the terrain is waiting on us, not the other way round.
+Also ruled out, so nobody spends the run again: **it is not drawing.** `--disable-render-loop` changes
+nothing. And **it is not the harness budget** — `LA_RUN_TIMEOUT=400` on a 64-frame `--fast 1` run still
+produced no report after 405 s. The field's own `_physics_process` was timed whole and is quiet too:
+two slow calls in a run, both at init.
+
+**READ THIS BEFORE TRUSTING THE PARAGRAPH ABOVE.** Every "~0 ms" above came from probes that printed
+only when they exceeded a threshold, and **I never proved any of them could print at all.** A probe that
+stays silent is indistinguishable from a probe that is not wired — which is the same defect as a gate
+that cannot fail, committed by the person hunting it. So "every callback is cheap" is UNCONFIRMED, and
+the contradiction it creates is real: frames advance about once a second while nothing measurable
+consumes that second. **First move for the next reader: give each probe a positive control** (print
+unconditionally for the first N frames) and re-run. The likeliest outcome is that one of those probes was
+dead and the cost is in a callback after all.
+
+If they are honest, what is left is the main thread outside our callbacks: signal handlers, the
+`call_deferred` queue, and godot_voxel's main-thread apply calling into script. The voxel worker threads
+sit in `condition_variable::wait` while the main thread burns, so the terrain is waiting on us.
 
 **This is `docs/PHYSICS_TODO.md` F4 with a receipt.** "The field's `dt` is the presentation clock" is
 filed as a physics defect about timestep; it is also why the planet cannot be verified. Sim progress is
-hostage to render throughput because the sim is driven from a rendered scene's `_physics_process`, and
+hostage to the frame loop because the sim is driven from a rendered scene's `_physics_process`, and
 `--run-frames` counts PHYSICS frames. **Both halves are one fix: the sim needs a driver that is not a
 frame callback.** See the note under WHAT IS LEFT.
 
@@ -340,7 +359,15 @@ and three reporting success on zero files for months.
 
 ## WHAT IS SETTLED — do not rebuild these
 
-*(The most dangerous list here, because work AVOIDS what is on it. An entry that stops being true comes OFF.)*
+*(The most dangerous list here, because work AVOIDS what is on it. An entry that stops being true comes OFF.
+Every entry that CAN be machine-checked now is, by `scripts/check_doc_claims.sh` — the claim directives
+below fail the build the day one stops holding, instead of waiting for a reader to notice.)*
+
+<!-- claim: file addons/local_agents/sim/voxel/VoxelGrid.gd -->
+<!-- claim: file addons/local_agents/sim/material/Channels.gd -->
+<!-- claim: file addons/local_agents/sim/material/Substances.gd -->
+<!-- claim: file scripts/check_seed_phase.sh -->
+<!-- claim: file scripts/check_neighbour_slots.sh -->
 
 - the six-slot neighbour table, axis tags with `d ^ 1` as the reverse — `sim/voxel/VoxelGrid.gd`, gated by
   `check_neighbour_slots.sh` and by `validate()` at runtime;
