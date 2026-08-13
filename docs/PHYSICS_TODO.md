@@ -142,15 +142,19 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
 - [ ] **Frost shattering does not exist.** `LAGeoRecords` carries no `RM_DEFICIT_BELOW_THRESHOLD` record,
       no `FROST_*` constant survives anywhere in `sim/`, and `RM_DEFICIT_BELOW_THRESHOLD` is declared in
       `ReactionDefs` and handled in `reactions_sphere3d.glsl` for no record at all. Ice expansion is a
-      first-order weathering mechanism on a planet with a freezing point, and rebuilding it needs a rock
-      broken per unit of ice frozen, which is a maintainer's call, not an agent's. The substrate now
-      derives the frozen share structurally as `h2o_solid`, so a rebuilt record reads that rather than a
-      freeze rate.
-- [ ] **The Arrhenius dissolution record evaluates to zero at every temperature**, including 100 C, so
-      chemical weathering removes no bedrock either. `tests/test_weathering_rate_law.gd` measures it and
-      fails on a Q10 of 0. **Decide it against the kernel, not against the test**: that test evaluates the
-      rate with a HAND COPY of the kernel's arithmetic, which is a second model of the reaction engine and
-      may itself be what drifted. The test should read the record through the real evaluator.
+      first-order weathering mechanism on a planet with a freezing point. Most of what it needs is already
+      here or citable: the 8.8% expansion is `WATER_DENSITY_KG_M3` against `ICE_DENSITY_KG_M3`, and a rock
+      tensile strength is a measured property `Substances.gd` can carry with its source. What is a
+      maintainer's call is the DAMAGE MODEL — how pore-ice pressure past that strength becomes a volume of
+      rock detached per step. The substrate derives the frozen share structurally as `h2o_solid`, so a
+      rebuilt record reads that rather than a freeze rate.
+- [ ] **`tests/test_weathering_rate_law.gd` reads zero bedrock removed at every temperature, and the record
+      is not the reason.** The dissolution record carries `rate_k` 2.0e-5, `threshold` 7216.34 (Ea/R off the
+      cited 60 kJ/mol), `param2` 298.15 and a `BEDROCK_BELOW` reactant, so the arithmetic has non-zero
+      inputs at every temperature the test sweeps. Nothing here is missing a constant. **The test evaluates
+      the rate with a HAND COPY of the kernel's arithmetic — a second model of the reaction engine — and
+      that copy is where the zero comes from.** Have it read the record through the real evaluator, then
+      re-ask whether the rate is right.
 
 ## D. Transport and geometry
 
