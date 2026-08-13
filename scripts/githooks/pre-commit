@@ -11,6 +11,12 @@
 #
 # Bypass with `git commit --no-verify` only when you MEAN to record a broken tree.
 set -uo pipefail
+# GIT EXPORTS GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE INTO A HOOK, and they poison every `git -C <path>`
+# a gate runs: the -C is honoured for the cwd but the environment still points at the committing repo, so
+# a cross-worktree query answers about the wrong tree. check_branch_integration read every worktree's
+# MERGE_HEAD as the committing worktree's, so one tree mid-merge failed the gate for all of them and
+# blocked the commit that would have resolved it. Gates must see a clean environment.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 ROOT="$(git rev-parse --show-toplevel)"
 [ -x "$ROOT/scripts/agent_harness.sh" ] || exit 0
 
