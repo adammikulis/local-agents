@@ -96,7 +96,7 @@ if [ -n "$(git -C "$STAGE_WT" status --porcelain)" ]; then
 fi
 
 echo "integrate: gates, on the merged tree" >&2
-if ! (cd "$STAGE_WT" && LA_CEILING_STRICT=1 "$SCRIPT_DIR/agent_harness.sh" lint >/dev/null 2>&1); then
+if ! (cd "$STAGE_WT" && LA_CEILING_STRICT=1 LA_INTEGRATE_BRANCH="$STAGE" LA_INTEGRATE_SOURCE="$BRANCH" "$SCRIPT_DIR/agent_harness.sh" lint >/dev/null 2>&1); then
 	echo "integrate: LINT FAILED on the merged tree. $DEV is untouched." >&2
 	echo "           Reproduce with: cd $STAGE_WT && scripts/agent_harness.sh lint" >&2
 	exit 1
