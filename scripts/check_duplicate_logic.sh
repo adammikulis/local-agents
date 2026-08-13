@@ -254,8 +254,15 @@ for label, got, cap, _, name in caps:
         bad = True
 if bad:
     sys.exit(1)
+# A RATCHET THAT IS NOT TIGHTENED IS NOT A RATCHET. This printed a NOTE and exited 0, so every ceiling
+# stayed wherever it was first set and the slack only ever grew. Falling below is now a failure with the
+# number to write, exactly like rising above.
 for label, got, cap, _, name in caps:
     if got < cap:
-        print("NOTE  %d below %s — lower it to %d." % (cap - got, name, got))
+        print("\n%s: %d, and %s says %d." % (label, got, name, cap))
+        print("Write %d into it, in the commit that earned it." % got)
+        bad = True
+if bad:
+    sys.exit(1)
 print("check_duplicate_logic: OK")
 PY
