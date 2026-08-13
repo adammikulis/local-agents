@@ -13,7 +13,6 @@ substrate lines with zero patch overlap and every conflict was a physics decisio
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
-| `feature/gates-and-claims` | 2 | `check_doc_claims.sh` and `check_doc_prose.sh`, `require_scanned` and the shader-gate floor, the CLAUDE.md rule sort and duplicate merge. | Immediately: it is verified and merges this session. The row goes with it. |
 
 **None.** The two SUPERSEDED rows are discharged: `feature/no-tombstones` and `feature/conservation` are
 deleted along with their worktrees, and `pre-reconcile/no-tombstones` / `pre-reconcile/conservation` freeze
