@@ -46,18 +46,24 @@ PRIMARY="$(git -C "$ROOT" worktree list --porcelain | awk '/^worktree /{print $2
 git -C "$ROOT" show-ref --verify --quiet "refs/heads/$BRANCH" || { echo "integrate: no branch '$BRANCH'." >&2; exit 2; }
 
 # --- 1. REFUSE A TREE SOMEBODY IS STILL WRITING IN -----------------------------------------------------
+# Scoped to the tree holding THIS branch. Other lanes are mid-edit by design -- refusing on their dirtiness
+# would mean nothing can land while anything else is running, and a tool that blocks the normal case is a
+# tool people route around.
 refused=0
 while IFS= read -r line; do
 	wt="${line#worktree }"
 	[ "$wt" = "$PRIMARY" ] && continue
 	head_ref="$(git -C "$wt" symbolic-ref -q --short HEAD 2>/dev/null || echo "")"
 	if [ -z "$head_ref" ]; then
-		echo "integrate: $wt is on a DETACHED HEAD. An agent is mid-flight there, or left work on no branch." >&2
-		echo "           Stop the agent, give its HEAD a branch, then integrate that." >&2
-		refused=1
+		# A detached HEAD anywhere is worth naming: it is how a lane's commits get orphaned. It only
+		# REFUSES when it is the tree this run would take work from.
+		echo "integrate: note - $wt is on a DETACHED HEAD; work there belongs to no branch." >&2
+		continue
 	fi
+	[ "$head_ref" = "$BRANCH" ] || continue
 	if [ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]; then
-		echo "integrate: $wt has uncommitted changes. Its owner is still writing; do not take its work." >&2
+		echo "integrate: $wt holds $BRANCH and has uncommitted changes. Its owner is still writing." >&2
+		echo "           Stop the agent before taking its work." >&2
 		refused=1
 	fi
 done < <(git -C "$ROOT" worktree list --porcelain | rg -N '^worktree ')
