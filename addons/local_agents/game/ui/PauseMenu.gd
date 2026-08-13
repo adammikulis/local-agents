@@ -78,8 +78,7 @@ func _on_speed_pressed(n: int) -> void:
 		b.button_pressed = (b.text == "%dx" % n)
 
 
-## Forwards to LASimTimeAuthority, the one writer of the loop's step budget. No fallback: a second writer
-## silently resets the rate.
+## Forwards to LASimTimeAuthority, the one writer of the step budget.
 func set_time_scale(n: int) -> void:
 	var ctrl: LASimTimeAuthority = LASimTimeAuthority.active()
 	if ctrl == null:

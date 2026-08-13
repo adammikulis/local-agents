@@ -6,9 +6,7 @@
 #
 # WHAT IT SEPARATES, and why that matters more than the red light. Three things make two runs disagree and
 # they need different fixes, so the gate names which one it saw instead of reporting one number:
-#   HORIZON  the runs simulated different amounts of time. `--run-frames` counts SIMULATED STEPS off
-#            LASimLoop, so two runs of the same length cover the same simulated seconds whatever the
-#            machine did. A horizon difference here is a defect in the step loop, not in the substrate.
+#   HORIZON  the runs covered different simulated time. --run-frames counts steps, so this is the loop.
 #   RNG      the seeded streams drew different values. Reported per domain from RNG_TRACE.
 #   SUBSTRATE  same horizon, same RNG draws, different totals -> the GPU step itself is order-dependent.
 #

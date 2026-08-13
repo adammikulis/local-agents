@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # A FIELD STEP IS A FIXED QUANTUM OF SIMULATED TIME. THE DAY LENGTH IS DERIVED FROM IT, NEVER AN INPUT TO IT.
 #
-# Evaporation, pyrolysis, decomposition, photosynthesis, rain autoconversion, the thermal diffusion number,
-# the transport Courant factor, the geotherm flux and the plate drift rate all multiply by
-# real_seconds_per_step(). A day length reaching that function rescales the whole chemistry of the planet.
+# Every rate multiplies by real_seconds_per_step(), so a day length reaching it rescales the chemistry.
 #
 # Three checks:
 #   1. MaterialFieldSphereStep3D.gd declares `const SIM_SECONDS_PER_STEP`.
