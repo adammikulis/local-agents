@@ -4,4 +4,4 @@
 # SET AT THE COUNT, not raised: the pattern in scripts/lib_ceiling.sh now also matches `for c in range(N)`,
 # which is the same loop as `for c in N` and was never counted. Nothing got worse; the instrument stopped
 # under-reading. The loop it exposes is lava_shell_diag in MaterialFieldQueries3D.
-43
+41
