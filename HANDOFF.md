@@ -84,15 +84,32 @@ coefficient is stoichiometry rather than a density ratio between two invented un
 
 ---
 
-## THE ONE REGRESSION — THE RUN SCHEDULE IS PINNED TO FLOORS A SHORT RUN NEVER REACHES
+## NEXT — THE LEDGER FOLD IS A GPU REDUCTION RUN IN AN INTERPRETER
 
-`VoxelInputController._fire_schedule`: every trigger is `maxi(_run_frames - K, FLOOR)`, e.g.
-`off_trigger = maxi(_run_frames / 2, 100)` and `end_frame = maxi(_run_frames - 2, off_trigger + 2)`.
-A `--run-frames=64` run schedules its end at 102. Scale them with `_run_frames`, or fail when it is
-below the floor.
+`FieldLedgerFold3D.amounts()` sums every channel on the CPU:
+`for name in ch: for c in cc: s_all += a[c] * vol[c]`, plus an open-cell twin. The field is already on the
+device, so this downloads every mirror to add it up in GDScript. Eight such loops in that file; 37 across
+14 files in `sim/material`.
 
-Not the cause: `pressure.glsl`'s march, drawing (`--disable-render-loop` is neutral), the harness
-budget (`LA_RUN_TIMEOUT=400` still yields no report).
+Build `kernels3d/fold.glsl`: one workgroup per channel, grid-stride with a shared-memory reduce, writing
+`(sum_all, sum_open)` per channel into a small buffer. A `FoldPass` dispatches it and `amounts()` reads two
+floats per channel instead of the mirror. `vol` is one scalar on a uniform box, so it leaves the kernel
+entirely. **Not C++** — this is a parallel reduction over data that is already on the GPU.
+
+The same treatment retires `_count_presence`, the momentum ledger, the element inventory and the pressure
+audit, which are all per-cell reductions on downloaded mirrors.
+
+## THE STALL — ENGINE-SIDE, OUTSIDE SCRIPT
+
+`--run-frames=N` ends in `LocalAgentDemoHarness._tick_run` at `_frame >= run_frames`, counted in physics
+frames. A 64-frame run never reaches that line. Godot's own `TIME_PHYSICS_PROCESS` and `TIME_PROCESS`
+monitors together account for well under a tenth of the frame period, so the rest is engine work no script
+callback owns.
+
+Not the cause: `pressure.glsl`'s march, drawing (`--disable-render-loop` is neutral), the harness budget
+(`LA_RUN_TIMEOUT=400` still yields no report), the field's own `_physics_process`, the report path, and
+`VoxelInputController._fire_schedule`'s floors (the run never reaches them). Start at godot_voxel's
+main-thread apply and the physics server.
 
 ## FOUND BY DOING IT — each had silently disabled a whole subsystem
 
