@@ -1,3 +1,3 @@
 # A loop whose bound is a cell count is a GPU reduction run in an interpreter, over data that was
 # downloaded to be walked. May fall, may not rise.
-62
+49
