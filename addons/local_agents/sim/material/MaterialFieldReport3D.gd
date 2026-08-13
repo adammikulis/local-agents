@@ -173,31 +173,15 @@ func surface_climate() -> Dictionary:
 	}
 
 
+## Open-cell temperature spread, plus the all-cell max that exposes the deep rock the open-only rows hide.
+## Four reduced rows; the mean is the open-cell sum over the open-cell count, the same population. NAN and
+## -1 where the device reduced nothing, because an absent reading is not a cold one.
 func _open_temp_stats() -> Dictionary:
-	var solid: PackedByteArray = _f._solid
-	var temp: PackedFloat32Array = _f._temp
-	var mn: float = 1.0e20
-	var mx: float = -1.0e20
-	var sum: float = 0.0
-	var n: int = 0
-	for c in _f._cell_count:
-		if solid[c] != 0:
-			continue
-		var t: float = temp[c]
-		if t < mn:
-			mn = t
-		if t > mx:
-			mx = t
-		sum += t
-		n += 1
-	# All-cell max (incl. solid) exposes the deep rock the open-cell stats above hide.
-	var all_mx: float = -1.0e20
-	for v in temp:
-		if v > all_mx:
-			all_mx = v
-	if n == 0:
-		return {"temp_min": 0.0, "temp_mean": 0.0, "temp_max": 0.0, "temp_open": 0, "temp_all_max": all_mx}
-	return {"temp_min": mn, "temp_mean": sum / float(n), "temp_max": mx, "temp_open": n, "temp_all_max": all_mx}
+	var q: LAMaterialFieldQueries3D = _f._queries
+	var n: int = q.open_cells()
+	return {"temp_min": q.row_f("open_temp_min"), "temp_max": q.row_f("open_temp_max"), "temp_open": n,
+		"temp_mean": (q.row_f("open_temp_sum") / float(n)) if n > 0 else NAN,
+		"temp_all_max": q.row_f("all_temp_max")}
 
 
 func report() -> Dictionary:
@@ -250,12 +234,12 @@ func report() -> Dictionary:
 	# The station network is read EVERY call, unlike the block above.
 	_swing.sample()
 	r.merge(_swing.report())
-	# Registering a scalar is one line.
-	_extremes.track("open_cold", float(temps.get("temp_min", 0.0)))
-	_extremes.track("open_hot", float(temps.get("temp_max", 0.0)))
+	# Registering a scalar is one line. An extreme is latched only from a reading that exists.
+	_track_if_measured(temps, "temp_min", "open_cold")
+	_track_if_measured(temps, "temp_max", "open_hot")
 	_track_if_measured(r, "h2o_total", "h2o_total")
-	_extremes.track("energy_net", float(heavy.get("energy_net", 0.0)))
-	_extremes.track("subsolar_lat", float(r.get("swing_subsolar_lat", 0.0)))
+	_track_if_measured(heavy, "energy_net", "energy_net")
+	_track_if_measured(r, "swing_subsolar_lat", "subsolar_lat")
 	r.merge(_extremes.report())
 	if _seal != null:
 		r.merge(_seal.report())
@@ -265,10 +249,10 @@ func report() -> Dictionary:
 	return r
 
 
-## Track an extreme only when the ledger actually measured it.
+## Track an extreme only when the ledger measured it. NAN is a reduced row's absence, so it is not one.
 func _track_if_measured(r: Dictionary, key: String, register: String) -> void:
 	var v = r.get(key)
-	if v is float or v is int:
+	if v is int or (v is float and not is_nan(v)):
 		_extremes.track(register, float(v))
 
 

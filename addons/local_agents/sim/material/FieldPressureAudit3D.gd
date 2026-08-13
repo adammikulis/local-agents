@@ -4,19 +4,18 @@ extends RefCounted
 ## Pressure may not fall as you go DOWN: a decrease inward is the kernel contradicting gravity.
 ## A pure instrument -- it reads the drained mirrors and requests nothing.
 
-## Inward neighbours holding a LOWER pressure, plus cells left negative by no column walk reaching them.
+## Inward neighbours holding a LOWER pressure, and the cells no column walk gave one.
 static func inversions(f) -> Dictionary:
-	var out: Dictionary = {"pressure_inversions": 0, "pressure_audited": 0, "pressure_unwritten": 0}
 	var cc: int = int(f._cell_count)
+	# The unwritten are the complement of the reduced count of cells that DID get a pressure.
+	var written: int = int(f._queries.row_n("pressure_written")) if f._queries != null else -1
+	var out: Dictionary = {"pressure_inversions": null, "pressure_audited": null,
+		"pressure_unwritten": (cc - written) if written >= 0 else null}
 	if cc <= 0 or f._pressure.size() != cc:
 		return out
-	var unwritten: int = 0
-	for c in cc:
-		if f._pressure[c] < 0.0:
-			unwritten += 1
-	out["pressure_unwritten"] = unwritten
 	var bad: int = 0
 	var audited: int = 0
+	# No reduce row can compare a cell with the one BELOW it, so this half walks the drained mirror.
 	for c in cc:
 		var below: int = LAFieldGeometry.below(f, c)
 		if below < 0:
@@ -30,7 +29,6 @@ static func inversions(f) -> Dictionary:
 			bad += 1
 	out["pressure_inversions"] = bad
 	out["pressure_audited"] = audited
-	if bad > 0 or unwritten > 0:
-		print("PRESSURE_BROKEN=", JSON.stringify(
-			{"inversions": bad, "unwritten": unwritten, "audited": audited}))
+	if bad > 0 or (written >= 0 and cc - written > 0):
+		print("PRESSURE_BROKEN=", JSON.stringify(out))
 	return out
