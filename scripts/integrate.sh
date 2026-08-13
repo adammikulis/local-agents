@@ -85,7 +85,12 @@ if ! git -C "$STAGE_WT" merge --no-ff "$BRANCH" -m "$SUBJECT" >/dev/null 2>&1; t
 fi
 
 # The integrator owns the ceilings, so it writes them rather than asking a lane to carry the number.
-LA_CEILING_STRICT=1 "$SCRIPT_DIR/write_ceilings.sh" "$STAGE_WT" >&2 || true
+# THE STAGED TREE'S OWN WRITER, for the same reason the lint step below uses the staged harness. The
+# primary's copy is the PRE-MERGE one, so a lane that changes how a ceiling is counted would have the stale
+# count banked over its new one.
+STAGE_CEILINGS="$STAGE_WT/scripts/write_ceilings.sh"
+[ -x "$STAGE_CEILINGS" ] || { echo "integrate: the staged tree has no write_ceilings.sh." >&2; exit 2; }
+LA_CEILING_STRICT=1 "$STAGE_CEILINGS" "$STAGE_WT" >&2 || true
 if [ -n "$(git -C "$STAGE_WT" status --porcelain)" ]; then
 	git -C "$STAGE_WT" add -A
 	# NOT `|| true`. A pre-commit hook can block this, and swallowing that leaves the ceilings unwritten
