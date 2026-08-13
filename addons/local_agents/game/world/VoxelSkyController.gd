@@ -61,9 +61,9 @@ func enter_space_mode(body_center: Vector3) -> void:
 
 ## The sky cycle reads the field each frame (cloud-cover dimming) + pushes the day/night colour tint to
 ## the water-particle renderer.
-func bind_scene(weather, material, water) -> void:
+func bind_scene(material, water) -> void:
 	if _sky != null and _sky.has_method("bind_scene"):
-		_sky.bind_scene(weather, material, water)
+		_sky.bind_scene(material, water)
 
 
 func update(delta: float) -> void:

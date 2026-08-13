@@ -2,12 +2,12 @@ class_name LAVoxelTimeline
 extends Node
 
 
-const CAPTURE_PERIOD: float = 2.0     # sim-seconds between snapshots (the rewind resolution)
+const CAPTURE_EVERY_STEPS: int = 20   # simulated steps between snapshots (the rewind resolution)
 # Snapshots are actors-only by default (~100 KB each — the heavy GPU field is dropped, see WorldSaveController),
 # so a deep ring is cheap: 30 × ~2s ≈ 60s of rewind history for a few MB. With LA_SNAPSHOT_FIELD=1 each snapshot
 # balloons to several MB — lower this if you enable that.
 const RING_CAP: int = 30
-const REVERSE_STEP: float = 0.22      # wall-seconds between restoring successive older snapshots while reversing
+const REVERSE_STEP_MS: int = 220      # wall-milliseconds between restoring successive older snapshots while reversing
 
 signal timeline_changed(count: int, cursor: int, reversing: bool)
 signal achievement(title: String, body: String)
@@ -26,10 +26,9 @@ var _rewind_count: int = 0
 var _save: Node = null
 var _enabled: bool = false
 var _ring: Array = []                 # Array[Dictionary] snapshots, oldest first
-var _since_capture: float = 0.0
 var _reversing: bool = false
 var _cursor: int = -1                 # -1 = live present; >=0 = viewing _ring[_cursor] (scrubbed)
-var _reverse_accum: float = 0.0
+var _reverse_at_ms: int = 0
 var _restore_inflight: bool = false
 
 
@@ -40,6 +39,9 @@ func _init() -> void:
 func setup(save_controller: Node) -> void:
 	_save = save_controller
 	_enabled = _resolve_enabled()
+	var loop: LASimLoop = LASimLoop.active()
+	if loop != null:
+		loop.stepped.connect(on_sim_step)
 
 
 func is_enabled() -> bool:
@@ -65,18 +67,22 @@ func _resolve_enabled() -> bool:
 	return true
 
 
-func _process(delta: float) -> void:
-	if not _enabled or _save == null:
+# REVERSE playback only. It runs while the sim is paused, so it is paced by the wall clock — the one
+# thing here that legitimately is.
+func _process(_delta: float) -> void:
+	if not _enabled or _save == null or not _reversing:
 		return
-	if _reversing:
-		_tick_reverse(delta)
+	_tick_reverse()
+
+
+## Snapshot cadence on the SIMULATION's clock. A snapshot is a moment of the world, so it is spaced in
+## simulated steps and never in frames.
+func on_sim_step(step: int) -> void:
+	if not _enabled or _save == null or _reversing:
 		return
-	# Never capture mid-restore or while paused (the world is not advancing → no new sim-time).
-	if (_save.has_method("is_restoring") and _save.is_restoring()) or get_tree().paused:
+	if _save.has_method("is_restoring") and _save.is_restoring():
 		return
-	_since_capture += delta            # delta is already time-scaled, so cadence is even in SIM time
-	if _since_capture >= CAPTURE_PERIOD:
-		_since_capture = 0.0
+	if step % CAPTURE_EVERY_STEPS == 0:
 		_capture()
 
 
@@ -108,7 +114,7 @@ func start_reverse() -> void:
 		return
 	_reversing = true
 	_cursor = _ring.size()             # first step lands on the most recent snapshot (size-1)
-	_reverse_accum = REVERSE_STEP      # step immediately
+	_reverse_at_ms = 0                 # step immediately
 	get_tree().paused = true
 	_rewind_count += 1
 	if REWIND_MILESTONES.has(_rewind_count):
@@ -126,21 +132,20 @@ func stop_reverse() -> void:
 	if _cursor >= 0 and _cursor < _ring.size() - 1:
 		_ring.resize(_cursor + 1)      # FORK: drop the abandoned newer future
 	_cursor = -1
-	_since_capture = 0.0
 	get_tree().paused = false
 	timeline_changed.emit(_ring.size(), -1, false)
 
 
-func _tick_reverse(delta: float) -> void:
+func _tick_reverse() -> void:
 	# Wait out any restore still applying before stepping again.
 	if _restore_inflight:
 		if _save.has_method("is_restoring") and _save.is_restoring():
 			return
 		_restore_inflight = false
-	_reverse_accum += delta
-	if _reverse_accum < REVERSE_STEP:
+	var now: int = Time.get_ticks_msec()
+	if now - _reverse_at_ms < REVERSE_STEP_MS:
 		return
-	_reverse_accum = 0.0
+	_reverse_at_ms = now
 	if _cursor <= 0:
 		return                          # reached the oldest snapshot — hold here (paused) until the player plays
 	_cursor -= 1

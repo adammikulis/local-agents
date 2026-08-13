@@ -118,10 +118,9 @@ func _gradient() -> Dictionary:
 	return out
 
 
-## Years since the epoch the nuclide abundances are quoted at. The sim clock runs in simulated seconds,
-## which the geologic time scale stretches.
+## Years since the epoch the nuclide abundances are quoted at.
 func _epoch_years() -> float:
 	var clock = LASimClock.active()
 	if clock == null:
 		return 0.0
-	return clock.elapsed() * LASimClock.REAL_SECONDS_PER_SIM_SECOND / LAPhysical.SECONDS_PER_YEAR
+	return clock.elapsed() / LAPhysical.SECONDS_PER_YEAR

@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # A FIELD STEP IS A FIXED QUANTUM OF SIMULATED TIME. THE DAY LENGTH IS DERIVED FROM IT, NEVER AN INPUT TO IT.
 #
-# real_seconds_per_step() used to return STEP_DT * (86400 / LASimClock.DAY_LENGTH), and DAY_LENGTH is a
-# game-feel knob. Evaporation, pyrolysis, decomposition, photosynthesis, rain autoconversion, the thermal
-# diffusion number, the transport Courant factor, the geotherm flux and the plate drift rate all multiply by
-# that function, so moving the day length rescaled the whole chemistry of the planet. This gate is the
-# enforcement; the claim was previously only prose.
+# Evaporation, pyrolysis, decomposition, photosynthesis, rain autoconversion, the thermal diffusion number,
+# the transport Courant factor, the geotherm flux and the plate drift rate all multiply by
+# real_seconds_per_step(). A day length reaching that function rescales the whole chemistry of the planet.
 #
 # Three checks:
 #   1. MaterialFieldSphereStep3D.gd declares `const SIM_SECONDS_PER_STEP`.
@@ -72,9 +70,8 @@ if [[ -n "$hits" ]]; then
   echo "FAIL  DAY_LENGTH is read inside the simulation substrate:"
   echo "$hits" | sed "s#^$ROOT/#      #"
   echo
-  echo "      The day length is a consequence of the rotation rate and the step quantum"
-  echo "      (LAMaterialFieldSphereStep3D.day_length_sim_seconds()), not an input to any rate. A planet that"
-  echo "      spins slower gets MORE steps per day; its chemistry per step does not change."
+  echo "      The day length is the body's rotation period (LASimClock.DAY_LENGTH), not an input to any"
+  echo "      rate. A planet that spins slower gets MORE steps per day; its chemistry per step does not move."
   violations=$((violations + 1))
 fi
 

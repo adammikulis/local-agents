@@ -43,7 +43,7 @@ if [ -z "$REPORT_SRC" ]; then
   LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-900}" LA_NO_STREAMER=1 \
     "$SCRIPT_DIR/run_sim_offscreen.sh" --path "$PROJ" \
     addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \
-    -- --sandbox --planet-only "--run-frames=${FRAMES}" --fast=8 "--seed=${SEED}" --no-fauna --bare \
+    -- --sandbox --planet-only "--run-frames=${FRAMES}" "--seed=${SEED}" --no-fauna --bare \
     > "$TMP_OUT" 2>&1
   rc=$?
   # Exit 126 is a conservation violation, which is a RESULT here rather than a failure to run — the score
@@ -66,7 +66,7 @@ if [ -z "$REPORT_SRC" ]; then
     LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-900}" LA_NO_STREAMER=1 \
       "$SCRIPT_DIR/run_sim_offscreen.sh" --path "$PROJ" \
       addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \
-      -- --sandbox --planet-only "--run-frames=${AUX_FRAMES}" --fast=8 "--seed=${SEED}" --no-fauna "$@" \
+      -- --sandbox --planet-only "--run-frames=${AUX_FRAMES}" "--seed=${SEED}" --no-fauna "$@" \
       > "$out" 2>&1
     return 0
   }

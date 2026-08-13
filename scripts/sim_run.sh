@@ -3,7 +3,7 @@
 #
 # WHY THIS EXISTS. The verification run was being retyped by hand every time — a 200-character line carrying
 # LA_RUN_TIMEOUT, LA_NO_STREAMER, the wrapper, --path, the scene, `--fixed-fps 60` BEFORE the `--`, then
-# --sandbox --planet-only --no-fauna --run-frames --fast --seed. Every element of it is a thing that can be
+# --sandbox --planet-only --no-fauna --run-frames --seed. Every element of it is a thing that can be
 # forgotten, and forgetting one silently changes what is being measured:
 #   * omit the wrapper and a Godot window appears AND STEALS THE KEYBOARD mid-session;
 #   * put --fixed-fps after the `--` and it is passed to the scene instead of the engine, which ignores it;
@@ -12,12 +12,11 @@
 # It also parses SIM_REPORT afterwards, which was being done with an inline python heredoc every single time.
 #
 # USAGE
-#   scripts/sim_run.sh [--frames N] [--seed N] [--fast N] [--path DIR] [--fauna] [--full] [--keep]
+#   scripts/sim_run.sh [--frames N] [--seed N] [--path DIR] [--fauna] [--full] [--keep]
 #                      [--report k1,k2,...] [--raw] [-- <extra scene args>]
 #
-#   --frames N     run length (default 200; the conservation gate needs 600+ to audit at all)
+#   --frames N     run length in SIMULATED STEPS (default 200; the conservation gate needs 600+)
 #   --seed N       sim seed (default 4242 — the seed every recorded figure uses)
-#   --fast N       time multiplier (default 8)
 #   --path DIR     project dir (default .) — point it at a worktree
 #   --fauna        keep animals (default --no-fauna: vegetation stays, animals do not)
 #   --full         drop --planet-only (default is pure geophysics)
@@ -33,7 +32,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FRAMES=200
 SEED=4242
-FAST=8
 PROJ="."
 FAUNA=0
 FULL=0
@@ -46,7 +44,6 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --frames) FRAMES="$2"; shift 2 ;;
     --seed) SEED="$2"; shift 2 ;;
-    --fast) FAST="$2"; shift 2 ;;
     --path) PROJ="$2"; shift 2 ;;
     --fauna) FAUNA=1; shift ;;
     --full) FULL=1; shift ;;
@@ -90,14 +87,14 @@ if [ "$FAUNA" -eq 1 ] && [ "$FULL" -eq 0 ]; then
 	echo "         so --fauna would change nothing and the run would not be the arm you asked for." >&2
 	exit 2
 fi
-ARGS=(--sandbox "--run-frames=${FRAMES}" "--fast=${FAST}" "--seed=${SEED}")
+ARGS=(--sandbox "--run-frames=${FRAMES}" "--seed=${SEED}")
 [ "${WITH_UI:-0}" -eq 0 ] && ARGS+=(--bare)
 [ "$FULL" -eq 0 ] && ARGS+=(--planet-only)
 [ "$FAUNA" -eq 0 ] && ARGS+=(--no-fauna)
 [ "${#EXTRA[@]}" -gt 0 ] && ARGS+=("${EXTRA[@]}")
 
 LOG="$(mktemp "${TMPDIR:-/tmp}/la_sim_run.XXXXXX")"
-echo "sim_run: ${FRAMES} frames, seed ${SEED}, --fast=${FAST}${FULL:+}$([ "$FULL" -eq 0 ] && echo ' --planet-only')$([ "$FAUNA" -eq 0 ] && echo ' --no-fauna')" >&2
+echo "sim_run: ${FRAMES} steps, seed ${SEED}${FULL:+}$([ "$FULL" -eq 0 ] && echo ' --planet-only')$([ "$FAUNA" -eq 0 ] && echo ' --no-fauna')" >&2
 
 LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-120}" \
   "$SCRIPT_DIR/run_sim_offscreen.sh" --path "$PROJ" \
@@ -112,7 +109,7 @@ fi
 
 # NO UI IN A SIMULATION RUN. This arm never passes --ui, so any Control / CanvasLayer in the tree is a
 # presentation node that leaked into the physics-only path. That has happened twice: the sim clock lived in
-# a CanvasLayer owning Engine.time_scale, and the CLI parser built the Esc menu + the view-controls bar.
+# a CanvasLayer owning the global clock, and the CLI parser built the Esc menu + the view-controls bar.
 # Behavioural, so a UI node added anywhere in future trips it without anyone remembering a rule.
 # THE NEIGHBOUR TABLE IS THE CONTRACT EVERY FLOW KERNEL RIDES ON. If slot-opposite reciprocity fails, mass
 # moves into slots that never answer back and no number in the run is a measurement.

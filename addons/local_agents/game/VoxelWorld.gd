@@ -51,7 +51,7 @@ var _audio: LAAudioDirector = null
 var _debug: LAVoxelDebugWiring = null
 var _interaction: Node3D = null
 
-var _frame: int = 0                         # physics ticks since _ready; the clock the run length is counted on
+var _frame: int = 0                         # SIM STEPS since the world was sealed; the run length is counted on it
 var _render_frame: int = 0                  # render frames since _ready; the clock --perf-frames and --shoot use
 var _music_destruction: float = 0.0         # decays each frame; meteors spike it
 var _mood_timer: int = 0
@@ -108,7 +108,9 @@ func _ready() -> void:
 
 	_sim = SimulationScene.instantiate()
 	add_child(_sim)
-	_sim.build({"planet": _planet_opts(), "fast_multiplier": _input.fast_multiplier()})
+	_sim.build({"planet": _planet_opts()})
+	_sim.set_probe_flags(_input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
+	_sim.loop().stepped.connect(_on_sim_step)
 	_material = _sim.material_field()
 	_ecology = _sim.ecology()
 	_body = _sim.body()
@@ -183,10 +185,9 @@ func _begin_trailer_shot() -> void:
 	director.begin(self, _camera, _sim.meteor_impacts(), _input, _body, null, _input.trailer_shot())
 
 
-# Everything that feeds the field runs on the fixed tick.
-func _physics_process(delta: float) -> void:
-	_frame += 1
-	_sim.step(delta, _input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
+# The harness hooks, on the SIMULATION's clock. `_frame` is the step count, never a frame count.
+func _on_sim_step(step: int) -> void:
+	_frame = step
 	# Sample the night gauges PERIODICALLY, not once at report time.
 	if _sim.is_spawned() and _frame % 15 == 0:
 		LAVoxelHarness.sample_night(self)
