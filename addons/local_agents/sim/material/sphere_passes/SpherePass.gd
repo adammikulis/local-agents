@@ -24,6 +24,17 @@ func _setup(_bufs: Dictionary, _cc: int) -> void:
 	pass
 
 
+## Buffers the DRIVER allocates into `bufs` before `_setup`, so they are driver-owned and readable back.
+## Name -> element count, or -> {"n": count, "indirect": true} for a dispatch-indirect argument buffer.
+func _buffers(_cc: int) -> Dictionary:
+	return {}
+
+
+## Readings taken at the drain, once the driver has synced. Key -> value; a float becomes a gauge.
+func _drain(_rd: RenderingDevice) -> Dictionary:
+	return {}
+
+
 ## Frees this pass's own RIDs, dependent-first. Buffers borrowed from `bufs` belong to the driver.
 func dispose(rd: RenderingDevice) -> void:
 	var dev: RenderingDevice = rd if rd != null else _rd

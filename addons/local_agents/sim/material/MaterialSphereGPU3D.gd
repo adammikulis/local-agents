@@ -18,17 +18,9 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/GrainStatePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/RotatingFramePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ChargeSeparatePass.gd",
+	"res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd"]
-
-# Slots in the `active_args` buffer (see setup()). 0-2 are the uvec3 dispatch-indirect argument; 3 is the
-# compacted list length a compacted kernel uses as its loop bound. 8 rather than 4 purely for 32-byte alignment.
-const ACTIVE_ARGS_SLOTS: int = 8
-const ARG_SLOT_LIST_COUNT: int = 3
-# Compacted active-cell lists: label -> [index buffer key, dispatch-indirect args key]. Each label publishes
-# a `<label>_list_cells` gauge.
-const ACTIVE_LISTS: Dictionary = {
-}
 
 static func available() -> bool:
 	var rd: RenderingDevice = RenderingServer.create_local_rendering_device()
@@ -51,6 +43,8 @@ var _pass_names: PackedStringArray = []   # parallel to _passes — short label 
 var _ctx: Dictionary = {}
 var _gpu_pass_ms: Dictionary = {}   # pass name -> this step's GPU execution time (ms)
 var _gpu_dispatch_ms: float = 0.0   # sum of all passes — the real GPU counterpart to field_dispatch_ms
+var _buf_owner: Dictionary = {}     # _bufs key -> what claimed it, so a collision can name both claimants
+var _pass_results: Dictionary = {}  # merged _drain() readings of the last drained step
 var _pending: bool = false          # a step() submit is in flight, not yet synced/read
 var _cached: Dictionary = {}        # channels read back from the last drained step (what end_frame returns)
 var _slow_gate: int = 0             # cadence counter for the slow (ledger/baker) channel readback set
@@ -93,19 +87,14 @@ func setup(field) -> void:
 
 	for name in pair_channels():
 		_bufs[name] = [_new_f(_cc), _new_f(_cc)]
+		_buf_owner[name] = "LAChannels.rows()"
 	for name in single_channels():
 		_bufs[name] = _new_f(_cc)
+		_buf_owner[name] = "LAChannels.rows()"
 	# Derived: recomputed from the channels every step, so never seeded and never restored.
 	for name in LAChannels.derived_buffers():
 		_bufs[name] = _new_f(_cc)
-	# Per list: the compacted cell indices, plus a buffer that is BOTH the uvec3 dispatch-indirect argument
-	# (slots 0-2) and the atomic list-length counter (slot 3).
-	for lname in ACTIVE_LISTS:
-		var lkeys: Array = ACTIVE_LISTS[lname]
-		_bufs[lkeys[0]] = _new_u32(_cc)
-		_bufs[lkeys[1]] = _rd.storage_buffer_create(
-			ACTIVE_ARGS_SLOTS * 4, _zeros(ACTIVE_ARGS_SLOTS),
-			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
+		_buf_owner[name] = "LAChannels.derived_buffers()"
 	# GRID GEOMETRY, and on a uniform Cartesian grid there are only two pieces of it. The neighbour table,
 	# whose slot order is the grid's (`d ^ 1` is the opposite, checked by scripts/check_neighbour_slots.sh),
 	var nbr_bytes: PackedByteArray = _grid.neighbours.to_byte_array()
@@ -133,7 +122,10 @@ func setup(field) -> void:
 	# bakes the table.
 	LAReactionDefs.cell_size_m = float(_grid.cell_size)
 
-	# Load + set up the pass modules (skip any that fail to load — WIP-tolerant).
+	for key in _bufs:
+		if not _buf_owner.has(key):
+			_buf_owner[key] = "the driver"
+	# Load the pass modules (skip any that fail to load — WIP-tolerant).
 	for path in PASS_SCRIPTS:
 		var scr: GDScript = load(path)
 		if scr == null:
@@ -141,9 +133,35 @@ func setup(field) -> void:
 			continue
 		var p: RefCounted = scr.new()
 		if p.has_method("setup"):
-			p.setup(_rd, _bufs, _cc)
 			_passes.append(p)
 			_pass_names.append(path.get_file().get_basename())   # e.g. "TransportPass" — timestamp label
+	# A pass declares the buffers it needs and the DRIVER allocates them, so they are driver-owned and can be
+	# read back. Every declaration lands before any _setup, so a pass may bind another pass's buffer.
+	for i in _passes.size():
+		_allocate_declared(_passes[i], _pass_names[i])
+	for p2 in _passes:
+		p2.setup(_rd, _bufs, _cc)
+
+
+## Allocate one pass's declared buffers. A name already in `_bufs` is a collision, not an overwrite: the
+## first claimant keeps its RID and both claimants are named.
+func _allocate_declared(p: RefCounted, label: String) -> void:
+	var want: Dictionary = p._buffers(_cc)
+	for key in want:
+		var name: String = String(key)
+		if _bufs.has(name):
+			push_error("%s declares buffer \"%s\", which %s already allocated." % [
+				label, name, _buf_owner[name]])
+			continue
+		var spec: Variant = want[key]
+		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
+		var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))
+		if n <= 0:
+			push_error("%s declares buffer \"%s\" of %d elements." % [label, name, n])
+			continue
+		_bufs[name] = _rd.storage_buffer_create(n * 4, _zeros(n),
+			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT if indirect else 0)
+		_buf_owner[name] = label
 
 
 func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
@@ -339,7 +357,31 @@ func _drain_pending() -> void:
 	LASimReport.gauge("field_sync_ms", float(t_sync - t0) / 1000.0)
 	LASimReport.gauge("field_readback_ms", float(Time.get_ticks_usec() - t_sync) / 1000.0)
 	_read_gpu_pass_timings()   # real GPU execution time for the step just sync()'d — see field vars above
-	_read_active_list_counts()
+	LASimReport.gauge("field_cells", float(_cc))
+	_drain_passes()
+
+
+## Each pass's own readings, taken here because the device was just synced. A pass owns its keys; two passes
+## claiming one key is a collision, and the first one keeps it.
+func _drain_passes() -> void:
+	_pass_results = {}
+	for i in _passes.size():
+		var res: Dictionary = _passes[i]._drain(_rd)
+		for key in res:
+			var name: String = String(key)
+			if _pass_results.has(name):
+				push_error("%s publishes \"%s\", which another pass already published." % [_pass_names[i], name])
+				continue
+			_pass_results[name] = res[key]
+			if typeof(res[key]) == TYPE_FLOAT or typeof(res[key]) == TYPE_INT:
+				LASimReport.gauge(name, float(res[key]))
+
+
+## The merged pass readings of the last drained step, and clears them.
+func take_pass_results() -> Dictionary:
+	var out: Dictionary = _pass_results
+	_pass_results = {}
+	return out
 
 
 func _read_gpu_pass_timings() -> void:
@@ -359,18 +401,6 @@ func _read_gpu_pass_timings() -> void:
 		t_prev = t_cur
 	_gpu_dispatch_ms = float(total_ns) / 1_000_000.0
 	LASimReport.gauge("gpu_dispatch_ms", _gpu_dispatch_ms)
-
-
-func _read_active_list_counts() -> void:
-	LASimReport.gauge("field_cells", float(_cc))
-	for lname in ACTIVE_LISTS:
-		var key: String = String(ACTIVE_LISTS[lname][1])
-		if not _bufs.has(key):
-			continue
-		var raw: PackedByteArray = _rd.buffer_get_data(_bufs[key])
-		if raw.size() < ACTIVE_ARGS_SLOTS * 4:
-			continue
-		LASimReport.gauge(String(lname) + "_list_cells", float(raw.to_int32_array()[ARG_SLOT_LIST_COUNT]))
 
 
 ## "TransportPass" -> "transport"; a short, gauge-key-safe name (strip "Pass", snake_case the rest).
@@ -672,12 +702,6 @@ func _live(name: String) -> RID:
 	return _bufs[name][_phase]
 
 func _new_f(n: int) -> RID:
-	var z: PackedByteArray = _zeros(n)
-	return _rd.storage_buffer_create(z.size(), z)
-
-## An n-element uint32 storage buffer. Same 4-bytes-per-element allocation as _new_f — the distinction is only
-## how the kernel declares it — but named separately so the active-cell list reads as the index buffer it is.
-func _new_u32(n: int) -> RID:
 	var z: PackedByteArray = _zeros(n)
 	return _rd.storage_buffer_create(z.size(), z)
 
