@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# GDSCRIPT IS THE BUDGET. The substrate runs on the GPU, and what cannot go to the GPU goes to C++; what
-# is left in GDScript is bindings. Two counts over addons/local_agents/sim, each a RATCHET: it may fall,
-# it may not rise, and when it falls the ceiling comes down with it in the same commit.
-#
-# The second count is the one that names the defect directly. A loop whose bound is a cell count is a
-# reduction over data that already lives on the device, run in an interpreter after being downloaded.
+# GDSCRIPT IS THE BUDGET: the substrate runs on the GPU, what cannot goes to C++, and what is left is
+# bindings. Two ratchets over addons/local_agents/sim -- total lines, and loops bounded by a cell count.
 #
 # EXIT 0 clean · 1 a ceiling breached, or a ceiling left standing above the real count · 2 could not run.
 set -uo pipefail

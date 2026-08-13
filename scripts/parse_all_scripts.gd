@@ -18,13 +18,8 @@ extends SceneTree
 
 const DEFAULT_ROOT: String = "res://addons/local_agents"
 
-# Directories holding code that is not ours to parse: vendored third party and build trees.
-#
-# tests/ WAS skipped here, on the ground that it carries a .gdignore and so is absent from a consumer
-# project. That is true of the shipped surface and irrelevant to whether a test parses. Two tests sat on
-# the dev branch with hard parse errors -- a constant declared twice, and a reference to a constant the
-# enthalpy collapse deleted -- while this gate reported green, because the one command that would have
-# caught them is the test lane, and that is not in lint.
+# Directories holding code that is not ours to parse: vendored third party and build trees. tests/ is NOT
+# skipped -- a test that does not parse cannot run.
 # A plain Array, not PackedStringArray(...): a constructor call is not a constant expression.
 const SKIP_DIRS: Array = [
 	"/gdextensions/localagents/thirdparty", "/gdextensions/localagents/build",

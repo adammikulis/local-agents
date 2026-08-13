@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
-# A VERIFICATION ARM IS SHORT. A long run is a SOAK, it is declared as one, and it is never what a lane
-# waits on to know whether its change is good.
-#
-# run_sim_offscreen.sh already defaults LA_RUN_TIMEOUT to 60s and its own comment says to raise it only for
-# a deliberate soak. Every caller above it then overrode that -- sim_run.sh to 900, check_conservation.sh
-# to 1800 -- so the discipline held at the bottom layer and nowhere else, and the routine acceptance arm
-# every lane runs could sit for fifteen minutes before saying anything.
-#
-# A run over the ceiling must carry `# SOAK: <why>` on the line before it. That is not a rubber stamp: it
-# marks the run as one nobody blocks on, and it makes the long ones countable.
+# A VERIFICATION ARM IS SHORT. A run over docs/RUN_TIMEOUT_CEILING must carry `# SOAK: <why>` on the line
+# before it, which marks it as one nobody blocks on.
 #
 # EXIT 0 clean · 1 an undeclared long run, or a ceiling left above the real maximum · 2 could not run.
 set -uo pipefail

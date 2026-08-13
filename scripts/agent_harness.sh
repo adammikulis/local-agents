@@ -306,6 +306,20 @@ if [[ "$cmd" == "lint" ]]; then
       fail=1
     fi
 
+    "$SCRIPT_DIR/check_comment_ratio.sh"
+    rc_cmtratio=$?
+    if [ "$rc_cmtratio" -ne 0 ]; then
+      echo "LINT_FAIL: check_comment_ratio.sh ($rc_cmtratio)"
+      fail=1
+    fi
+
+    "$SCRIPT_DIR/check_comment_history.sh"
+    rc_cmthist=$?
+    if [ "$rc_cmthist" -ne 0 ]; then
+      echo "LINT_FAIL: check_comment_history.sh ($rc_cmthist)"
+      fail=1
+    fi
+
     "$SCRIPT_DIR/check_neighbour_slots.sh"
     rc_nbrslots=$?
     set -e

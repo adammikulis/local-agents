@@ -1,19 +1,9 @@
 #!/usr/bin/env bash
-# THE ONE WAY TO LAND A LANE. Integration is the coordinator's job and it has four steps that get skipped
-# by hand, each of which has already cost a session's work:
-#
-#   1. A LIVE AGENT'S WORKTREE IS NOT YOURS TO WRITE IN. Committing into a tree an agent still owns lets it
-#      move HEAD underneath you: a whole lane's commits were orphaned that way, and the branch left behind
-#      pointed at a commit identical to the dev branch, so `git merge-base --is-ancestor` cheerfully
-#      reported it merged. This refuses to run against a worktree that is on a detached HEAD or that holds
-#      uncommitted changes.
-#   2. VERIFY THE MERGE, THEN MOVE THE DEV BRANCH -- not the other way round. A merge that goes straight to
-#      the dev branch and fails its gates cannot be undone without rewriting history, which is exactly when
-#      somebody reaches for `reset --hard`. The merge happens on an integration branch in its own worktree.
-#   3. THE CEILINGS ARE WRITTEN HERE, ONCE. A ratchet file every lane must edit is a serialization
-#      bottleneck; four of six conflicts in one session were ceiling files and nothing else. Lanes fail
-#      only on a RISE (scripts/lib_ceiling.sh); the post-merge number is computed and committed here.
-#   4. THE LANE IS PRUNED IN THE SAME BREATH. A worktree nobody removed is a defect somebody ships.
+# THE ONE WAY TO LAND A LANE. Never `git merge` into the dev branch by hand.
+#   1. Refuses a worktree on a detached HEAD or holding uncommitted changes.
+#   2. Merges and gates on a staging branch in its own worktree; the dev branch moves only when green.
+#   3. Writes the ceilings, so no lane carries the number.
+#   4. Prunes the lane.
 #
 # USAGE
 #   scripts/integrate.sh <branch> ["merge subject"]
