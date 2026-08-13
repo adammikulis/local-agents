@@ -47,6 +47,7 @@ trap 'rm -f "$A" "$B"' EXIT
 
 run_arm() {  # $1 = out file, $2.. = extra scene args
   local out="$1"; shift
+  # SOAK: two full runs, presentation on and off; run by hand
   LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-600}" LA_NO_STREAMER=1 \
     "$REPO_ROOT/scripts/run_sim_offscreen.sh" --path "$REPO_ROOT" \
     addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \

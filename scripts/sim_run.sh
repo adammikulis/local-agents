@@ -99,7 +99,7 @@ ARGS=(--sandbox "--run-frames=${FRAMES}" "--fast=${FAST}" "--seed=${SEED}")
 LOG="$(mktemp "${TMPDIR:-/tmp}/la_sim_run.XXXXXX")"
 echo "sim_run: ${FRAMES} frames, seed ${SEED}, --fast=${FAST}${FULL:+}$([ "$FULL" -eq 0 ] && echo ' --planet-only')$([ "$FAUNA" -eq 0 ] && echo ' --no-fauna')" >&2
 
-LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-900}" \
+LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-120}" \
   "$SCRIPT_DIR/run_sim_offscreen.sh" --path "$PROJ" \
   addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \
   -- "${ARGS[@]}" > "$LOG" 2>&1

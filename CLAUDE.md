@@ -438,6 +438,17 @@ When removing files:
 
 ## Validation defaults
 
+- **A VERIFICATION RUN IS SHORT, AND A LONG ONE IS A DECLARED SOAK NOBODY BLOCKS ON.** The arm a lane waits
+  on to learn whether its change is good must answer inside `docs/RUN_TIMEOUT_CEILING`. A run that needs
+  longer is a real long-running sim — a conservation audit, a determinism pair, the score — and it says so
+  with `# SOAK: <why>` on the line above its timeout. `scripts/check_run_budget.sh` fails on an undeclared
+  long run and on a ceiling left above the real maximum. **Never raise the ceiling to make a slow arm
+  pass**; make the arm shorter, or find why it cannot finish. A fifteen-minute wait for "no result" is not
+  thoroughness, it is the iteration loop destroying itself, and every lane pays it.
+- **ONE SIM RUNS AT A TIME ON THIS MACHINE.** `run_sim_offscreen.sh` takes a machine-wide GPU lock, because
+  the race is over the GPU rather than over one project's `.godot`. Twelve lanes launching runs at once put
+  the machine under a load where every one of them timed out, and each then blamed its own change for what
+  was contention.
 - **ITERATE AS FAST AS POSSIBLE.** Short runs while iterating; long runs and screenshots only at the final
   gate. For anything slow-emergent — geology, succession, erosion, climate — use the fast-forward time scale
   rather than waiting. Pick the cheapest run that proves the point.

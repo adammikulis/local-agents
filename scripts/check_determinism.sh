@@ -41,6 +41,7 @@ B="$(mktemp "${TMPDIR:-/tmp}/la_det_b.XXXXXX")"
 trap 'rm -f "$A" "$B"' EXIT
 
 run_one() {
+  # SOAK: two full runs compared end to end; run by hand, no lane blocks on it
   LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-900}" LA_NO_STREAMER=1 LA_RNG_TRACE=1 \
     "$SCRIPT_DIR/run_sim_offscreen.sh" --path "$PROJ" \
     addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \

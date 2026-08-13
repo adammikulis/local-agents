@@ -199,7 +199,33 @@ fi
 REASON_FILE="$(mktemp "${TMPDIR:-/tmp}/la_offscreen_reason.XXXXXX")"
 # The tap duplicates output that already streamed to this script's stdout, so nothing is lost by
 # discarding it. `--log-file` rotates, so clear the siblings godot may have made next to it too.
+# ONE SIM AT A TIME ON THIS MACHINE. Twelve lanes each launching a run put load ~5 on one GPU, and every
+# one of them then blamed its own change for a timeout that was contention. The editor lock is per-project
+# because the race is over one project's .godot; this race is over the GPU, so the lock is machine-wide.
+# mkdir is the portable primitive (macOS has no flock(1)), and a lock whose owner died is reclaimed.
+SIM_LOCK="${TMPDIR:-/tmp}/la_sim_gpu.lock"
+SIM_LOCK_TIMEOUT="${LA_SIM_LOCK_TIMEOUT:-1800}"
+waited=0
+until mkdir "$SIM_LOCK" 2>/dev/null; do
+  if [ -f "$SIM_LOCK/pid" ]; then
+    owner="$(cat "$SIM_LOCK/pid" 2>/dev/null || echo "")"
+    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+      echo "run_sim_offscreen: clearing stale GPU lock from dead pid $owner" >&2
+      rm -rf "$SIM_LOCK"
+      continue
+    fi
+  fi
+  if [ "$waited" -ge "$SIM_LOCK_TIMEOUT" ]; then
+    echo "run_sim_offscreen: timed out after ${SIM_LOCK_TIMEOUT}s waiting for the GPU lock." >&2
+    exit 2
+  fi
+  sleep 2
+  waited=$(( waited + 2 ))
+done
+echo $$ > "$SIM_LOCK/pid"
+
 cleanup() {
+  rm -rf "$SIM_LOCK"
   if [ -n "$REASON_FILE" ]; then rm -f "$REASON_FILE"; fi
   if [ -n "${LOG_ARGS[*]}" ] && [ -n "$TAP" ]; then rm -f "$TAP" "$TAP".*; fi
 }
