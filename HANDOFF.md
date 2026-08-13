@@ -84,23 +84,29 @@ coefficient is stoichiometry rather than a density ratio between two invented un
 thread per column top walking down once, O(cells). **The attribution was FALSE.** The failure
 reproduces on `feature/enthalpy` with the fix reverted. Do not re-derive it.)*
 
-**What it actually does, and the cliff is sharp.** `--frames 7` and `--frames 8` finish and exit 0.
-`--frames 9` prints its whole report in seconds and then **the process will not exit** — the harness
-kills it and returns 125, `hung_after_report`. `--frames 10` never reaches the report at all. With
-`--fast=8` that puts the cliff between 72 and 80 sim steps.
+**There is NO threshold, and looking for one wasted a bisect.** *(My first reading called it a sharp
+cliff between 72 and 80 steps. Falsified the same session: 64 steps passes as `--frames 8 --fast 8` and
+FAILS as `--frames 64 --fast 1`; 10 frames passes at `--fast 1` and fails at `--fast 8`. Same step
+count, different verdict — so it is neither a step trigger nor a frame trigger.)*
+
+**The cost grows with BOTH frames and steps, superlinearly, until it runs off the harness budget.** That
+is the shape of something ACCUMULATING that a recursive traversal then walks — a queue never drained, a
+list appended per step, a structure that grows per frame. Two symptoms, and they are the same illness at
+two depths: `--frames 9 --fast 8` prints its whole report in seconds and then **will not exit** (125,
+`hung_after_report`), while anything larger never reaches the report at all (124).
 
 **It is CPU, on one core, in GDScript.** `sample` on the live process shows the GDScript VM's
 call cycle repeating hundreds of frames deep and growing — a recursive or mutually-recursive script
 call, which no compute kernel can produce. Godot's stack limit never trips, so the depth is bounded and
 the branching is what costs: exponential, not runaway.
 
-**What that rules out, and what to look at.** Not a kernel, not the GPU, not a pass. The harness's own
-message for 125 names the exit path — `LAAppExit.quit()` and whether `LAProcess.exit_now` fires — but
-that cannot be the whole story, because `--frames 10` dies BEFORE the report. Two failures or one, that
-is the first thing to settle. Bisect with `--fast 1` to separate a step-count trigger from a frame-count
-one; the search for a self-recursive `func` came back empty, so look for MUTUAL recursion, which a
-facade delegating to a module that delegates back would produce — and this tree has just been through
-three extract-only splits.
+**What that rules out, and where to start.** Not a kernel, not the GPU, not a pass — a compute shader
+cannot produce a GDScript call stack. Do not re-bisect for a threshold; find the thing that GROWS.
+Instrument the per-step cost and print the size of every queue and accumulator each step: the
+inject and heat queues are the first two to print, because a queue is exactly the shape that gets
+longer every step and is walked every step. A search for a self-recursive `func` came back empty, so
+the recursion is MUTUAL — a facade delegating to a module that delegates back is what produces it, and
+this tree has just been through three extract-only splits, which is when that gets written.
 
 **Nothing that needs a run of useful length can be verified until this is closed**, including the
 pressure acceptance below.
