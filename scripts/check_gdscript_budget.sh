@@ -16,8 +16,9 @@ SIM="$ROOT/addons/local_agents/sim"
 LINES_CEIL_FILE="$ROOT/docs/GDSCRIPT_LINES_CEILING"
 LOOPS_CEIL_FILE="$ROOT/docs/CELL_LOOP_CEILING"
 
-# A cell-bounded iteration, in either spelling GDScript offers.
-LOOP_RE='for [a-zA-Z_][a-zA-Z0-9_]* in (cc|_cc|cell_count|_cell_count|_f\._cell_count|[a-zA-Z_]*grid\.cell_count)\b|while [a-zA-Z_][a-zA-Z0-9_]* < (cc|_cc|cell_count|_cell_count|_f\._cell_count|[a-zA-Z_]*grid\.cell_count)\b'
+# Declared once, in scripts/lib_ceiling.sh, because scripts/write_ceilings.sh must ask the identical
+# question. Two copies of it meant the gate and the writer could disagree about what a cell loop is.
+LOOP_RE="$(cell_loop_re)"
 
 # Assigns to CEILING. NOT a command substitution: an `exit 2` inside one leaves only the subshell, and the
 # gate then reports OK on a ceiling file it could not read. That is the shape this repo has shipped three

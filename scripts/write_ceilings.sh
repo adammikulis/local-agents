@@ -10,6 +10,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TREE="${1:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 . "$SCRIPT_DIR/lib_require.sh" 2>/dev/null || true
+. "$SCRIPT_DIR/lib_ceiling.sh" 2>/dev/null || true
 require_tool rg
 
 fail=0
@@ -32,17 +33,34 @@ lower() {  # lower <ceiling file> <measured>
 SIM="$TREE/addons/local_agents/sim"
 [ -d "$SIM" ] || { echo "write_ceilings: no $SIM" >&2; exit 2; }
 lines="$(rg --files -g '*.gd' "$SIM" | tr '\n' '\0' | xargs -0 wc -l | tail -1 | awk '{print $1}')"
-LOOP_RE='for [a-zA-Z_][a-zA-Z0-9_]* in (cc|_cc|cell_count|_cell_count|_f\._cell_count|[a-zA-Z_]*grid\.cell_count)\b|while [a-zA-Z_][a-zA-Z0-9_]* < (cc|_cc|cell_count|_cell_count|_f\._cell_count|[a-zA-Z_]*grid\.cell_count)\b'
+LOOP_RE="$(cell_loop_re)"
 loops="$(rg -c --no-heading -g '*.gd' -e "$LOOP_RE" "$SIM" 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')"
 lower GDSCRIPT_LINES_CEILING "$lines"
 lower CELL_LOOP_CEILING "$loops"
 
-# The duplicate counts come from the gate itself, which is the only thing that knows how it hashes.
-out="$(cd "$TREE" && LA_DUP_STRICT=0 bash scripts/check_duplicate_logic.sh 2>&1 || true)"
-for pair in "COPIES:DUPLICATE_LOGIC_CEILING" "SHAPE:DUPLICATE_SHAPE_CEILING" "FRAGMENT:DUPLICATE_FRAGMENT_CEILING"; do
-	label="${pair%%:*}"; file="${pair##*:}"
-	n="$(printf '%s\n' "$out" | rg -N -o -e "^$label: [0-9]+" | head -1 | rg -N -o -e '[0-9]+' || true)"
-	[ -n "$n" ] && lower "$file" "$n"
-done
+# Every remaining count comes from its own gate, which is the only thing that knows how it counts.
+#
+# READ THE UNCONDITIONAL MACHINE LINE, NEVER A PROSE FAILURE MESSAGE. This read `^COPIES: <n>` — a line
+# check_duplicate_logic.sh prints only when the count is OVER the ceiling or when LA_DUP_STRICT=1, and the
+# call below set it to 0. So the grep matched nothing, `lower` was never reached, and the three duplicate
+# ceilings could not be tightened by anything. Same shape for the two comment ceilings, which were absent
+# from this file entirely.
+field() {  # field <json line> <key>
+	printf '%s\n' "$1" | rg -N -o -e "\"$2\":[0-9]+" | head -1 | rg -N -o -e '[0-9]+' || true
+}
+
+dup="$(cd "$TREE" && bash scripts/check_duplicate_logic.sh 2>&1 | rg -N '^DUPLICATE_LOGIC=' || true)"
+[ -n "$dup" ] || { echo "write_ceilings: check_duplicate_logic.sh printed no DUPLICATE_LOGIC= line." >&2; exit 2; }
+lower DUPLICATE_LOGIC_CEILING "$(field "$dup" redundant_copies)"
+lower DUPLICATE_SHAPE_CEILING "$(field "$dup" shape_copies)"
+lower DUPLICATE_FRAGMENT_CEILING "$(field "$dup" fragment_copies)"
+
+claims="$(cd "$TREE" && bash scripts/check_comment_claims.sh 2>&1 | rg -N '^COMMENT_CLAIMS=' || true)"
+[ -n "$claims" ] || { echo "write_ceilings: check_comment_claims.sh printed no COMMENT_CLAIMS= line." >&2; exit 2; }
+lower COMMENT_CLAIMS_CEILING "$(field "$claims" count)"
+
+hist="$(cd "$TREE" && bash scripts/check_comment_history.sh 2>&1 | rg -N '^COMMENT_HISTORY=' || true)"
+[ -n "$hist" ] || { echo "write_ceilings: check_comment_history.sh printed no COMMENT_HISTORY= line." >&2; exit 2; }
+lower COMMENT_HISTORY_CEILING "$(field "$hist" count)"
 
 [ "$fail" -eq 0 ] || exit 1

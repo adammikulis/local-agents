@@ -130,6 +130,24 @@ def bodies_glsl(lines):
         i = j
 
 
+# AN ARGUMENT-STORE IS NOT AN ALGORITHM, and hashing it as one is a false positive the ceiling cannot pass.
+# The normaliser turns every non-call identifier into `_`, so `_world = world` and `_camera = camera` both
+# become `_ = _` — which means "assign N parameters to N members" hashes identically no matter WHICH
+# parameters. Two setters storing disjoint dependency sets on unrelated classes matched that way, and the
+# only fix the gate left available was a base class holding both sets, which makes both files worse.
+# Anything carrying a call, an operator or control flow survives: this admits `_ = _` and nothing else.
+STORE_STMT = re.compile(r"^_ = _$")
+
+
+def is_argument_store(norm):
+    for line in norm:
+        for stmt in line.split(";"):
+            stmt = stmt.strip()
+            if stmt and not STORE_STMT.match(stmt):
+                return False
+    return True
+
+
 exact = collections.defaultdict(list)
 shape = collections.defaultdict(list)
 units = []
@@ -150,6 +168,8 @@ for dp, dns, fns in os.walk(os.path.join(root, "addons", "local_agents")):
                 continue
             norm = normalise(body, ext)
             if len(norm) < min_lines:
+                continue
+            if is_argument_store(norm):
                 continue
             joined = "\n".join(norm)
             units.append((rel, start, name, norm))
