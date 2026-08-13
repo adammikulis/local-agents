@@ -338,6 +338,15 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_doc_claims.sh ($rc_claims)"
       lint_failed=$((lint_failed + 1))
     fi
+    # Gate: the map is the next agent's instruction set, not a scratchpad. No narrator, no retractions.
+    set +e
+    "$SCRIPT_DIR/check_doc_prose.sh"
+    rc_prose=$?
+    set -e
+    if [[ $rc_prose -ne 0 ]]; then
+      echo "LINT_FAIL: check_doc_prose.sh ($rc_prose)"
+      lint_failed=$((lint_failed + 1))
+    fi
     # Gate: comment only what is needed to understand that line. Prose cannot be executed, so it rots and
     # then misleads with authority — every false slot-layout claim was a comment. Exit 2 = could not run.
     set +e

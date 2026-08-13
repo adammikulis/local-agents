@@ -71,29 +71,46 @@ remove it, and fix whatever breaks. Every example below is real and was removed 
 - **A quality or presentation dial that reaches physics** — an effects scale that changed where ejecta
   landed, a camera position that decided which ground existed and therefore the RNG.
 
-# RULE 7 — PROSE IS EXPENSIVE. "IT COSTS NOTHING TO WRITE" IS FALSE AND YOU KEEP SAYING IT.
+# RULE 1b — NO NUMBER FROM THIS SUBSTRATE IS EVIDENCE, AND A CRUTCH IS DELETED RATHER THAN MEASURED.
 
-Every paragraph is spent context, and context is the budget the work runs on. This file loads every session:
-words added to look thorough are subtracted from the reasoning left, and the task does not land.
+Nothing here has ever worked, so a figure is the interaction of whichever defects were live that day, and
+two such figures differenced is a difference between fictions.
 
-Write the imperative and stop. No history, no dates, no worked examples, no measured figures, no restating.
-The rule is the credibility; a story attached to it means a reader cannot tell which half is still true.
+**Report no number — total, drift, percentage, mean, count, absolute reading — until `HANDOFF.md` and
+`docs/PHYSICS_TODO.md` are empty.** Never a before/after table, never "beating a baseline". "This got
+worse, should we revert?" is not a real question about a correct fix, and fitting the model to its output
+is how water came to freeze at 12.5 °C.
 
-Tells: a parenthetical longer than its sentence · any date · a paragraph that would survive deletion.
+If a thing stands in for physics that was never built, delete it. Do not test it, compare it, or report
+what it reads: reporting a crutch's value invites a conversation about the value instead of the deletion.
 
-# RULE 1g — NEVER ASK WHETHER THE SIM MAY BE BROKEN. IT HAS NEVER WORKED. THERE IS NOTHING TO PROTECT.
+Evidence is reading the code against reality, plus binary events: a gate fires on purpose, a demo exits 0,
+a marker appears, a deletion compiles, a referrer breaks and names the next fix.
 
-**Do not ask "should I keep the old path running", "is a long red stretch acceptable", "do you want a
-working sim meanwhile".** The answer is always yes, break it, and three rules already say so: no number
-from this substrate has ever meant anything, temporary breakage on a feature branch is expected, and a red
-gate is the work queue. Asking anyway proves the rules were not read, and it costs DAYS.
+# RULE 1c — THE WORLD HAS TWO PHASES. CREATION IS LEGAL IN ONE OF THEM.
 
-**Before `AskUserQuestion`, check whether this file, `HANDOFF.md` or `docs/PHYSICS_TODO.md` already decides
-it. If they do, ACT.** The tool is for what only the maintainer knows — what he wants the world to BE
-like. Never for permission to do the correct thing, never for a choice between correct and cheap, never
-for reassurance.
+**SEEDING:** the world is being built, so matter and energy may be CREATED. Declare every such act through
+`LAMaterialFieldSeal3D.note_creation()`; it lands in the seed manifest, which is the scoreboard of what the
+substrate was TOLD. Progress is entries being deleted from it.
 
-Delete, fix forward, report what you deleted. Do not check in first.
+**SEALED:** the world exists. Matter and energy may only be moved or transformed. Creating either is a
+violation, and no flag, mode or environment variable may re-enable it.
+
+`sealed()` is the boundary and there is no other. `creation_after_seal` must read empty, and
+`scripts/check_seed_phase.sh` fails the build on a creation-class write that never asks and on any
+whole-mirror upload — an upload that cannot say what it changed creates matter with no ledger noticing.
+
+# RULE 1d — "A CAN'T HAPPEN BECAUSE B" IS ONLY ALLOWED WHEN B IS AN UPSTREAM BUG YOU CANNOT FIX.
+
+If B is our code the sentence is unfinished. It must continue: "and this is how I am fixing it."
+
+Every constraint here is a past decision, not physics, and there are no downstream consumers. Nothing is
+"choosing the architecture" for you — you wrote every line. Never keep something because it matches what was
+there: "parity", "feel", "familiar", "so the existing tuning still sees familiar numbers" are the reason the
+defect is still here.
+
+The subtle form is preserving a SHAPE rather than a value — adding the right relation beside the scalar it
+replaces, with every consumer still on the scalar.
 
 # RULE 1f — "SO THAT IT COMPILES" AND "SO WE HAVE A BASELINE" ARE NOT REASONS. THEY ARE THE DISEASE.
 
@@ -122,14 +139,13 @@ improved" are readings off broken instruments, and quoting one is the same error
 the sim. **THE ONLY MEASURE OF PROGRESS IS WHAT WAS RIPPED OUT.** Report the deletion — the file, the
 constant, the switch, the duplicate — and nothing else.
 
-# RULE 1b — NO NUMBER FROM THIS REPO HAS EVER MEASURED ANYTHING.
+# RULE 1g — NEVER ASK PERMISSION TO DO THE CORRECT THING.
 
-Nothing here has ever worked, so a figure is the interaction of whichever defects were live that day, and two
-such figures differenced is a difference between fictions.
-
-Never present before/after tables and never frame work as beating a baseline. Report what the CODE does
-against what REALITY does, established by reading it. "This got worse, should we revert?" is never a real
-question for a correct fix, and fitting the model to its output is how water came to freeze at 12.5 °C.
+**Before `AskUserQuestion`, check whether this file, `HANDOFF.md` or `docs/PHYSICS_TODO.md` already
+decides it. If they do, ACT.** The tool is for what only the maintainer knows — what he wants the world
+to BE like. Never for permission, never for a choice between correct and cheap, never for reassurance,
+never to ask whether a broken sim may stay broken. Asking anyway proves the rules were not read, and it
+costs DAYS.
 
 # RULE 2 — YOU PRESERVE NUMBERS, NOT CODE. THAT IS WHAT KEEPS GETTING PAST RULE 1.
 
@@ -169,40 +185,33 @@ Verify branch state with git arithmetic before planning against it — `git cher
 `main`. Every branch ahead of it is declared with a reason. Reconcile at a handful of commits, not a hundred:
 by then both lines have re-fixed the same defects differently and every conflict is a physics decision.
 
-# RULE 1e — A CRUTCH IS DELETED, NOT MEASURED. NO NUMBER FROM THIS SUBSTRATE IS EVIDENCE.
+# RULE 7 — PROSE IS EXPENSIVE. "IT COSTS NOTHING TO WRITE" IS FALSE AND YOU KEEP SAYING IT.
 
-If a thing stands in for physics that was never built, delete it. Do not test it, compare it, or report what
-it reads. Reporting a crutch's value invites a conversation about the value instead of the deletion.
+Every paragraph is spent context, and context is the budget the work runs on. This file loads every session:
+words added to look thorough are subtracted from the reasoning left, and the task does not land.
 
-**Report no number — total, drift, percentage, mean, count, absolute reading — until `HANDOFF.md` and
-`docs/PHYSICS_TODO.md` are empty.** Everything this substrate emits is a property of the breakage. Report what
-you DELETED and what you FIXED. Evidence is reading the code against reality, plus binary events: a gate fires
-on purpose, a demo exits 0, a marker appears, a deletion compiles, a referrer breaks and names the next fix.
+Write the imperative and stop. No history, no dates, no worked examples, no measured figures, no restating.
+The rule is the credibility; a story attached to it means a reader cannot tell which half is still true.
 
-# RULE 1c — THE WORLD HAS TWO PHASES. CREATION IS LEGAL IN ONE OF THEM.
+Tells: a parenthetical longer than its sentence · any date · a paragraph that would survive deletion.
 
-**SEEDING:** the world is being built, so matter and energy may be CREATED. Declare every such act through
-`LAMaterialFieldSeal3D.note_creation()`; it lands in the seed manifest, which is the scoreboard of what the
-substrate was TOLD. Progress is entries being deleted from it.
+# RULE 8 — READ THE CODE. DO NOT NARRATE A DIAGNOSIS, AND NEVER REVISE ONE OUT LOUD.
 
-**SEALED:** the world exists. Matter and energy may only be moved or transformed. Creating either is a
-violation, and no flag, mode or environment variable may re-enable it.
+Open the file. Read what it does. Answer from the code.
 
-`sealed()` is the boundary and there is no other. `creation_after_seal` must read empty, and
-`scripts/check_seed_phase.sh` fails the build on a creation-class write that never asks and on any
-whole-mirror upload — an upload that cannot say what it changed creates matter with no ledger noticing.
+Instrument only after reading has failed, and never report a theory before it is settled. "That changes
+the diagnosis", "it reframes it", "actually it is X" are banned phrases and the turns that produce them
+are banned work. A hypothesis announced, corrected, then corrected again is churn billed to the maintainer.
 
-# RULE 1d — "A CAN'T HAPPEN BECAUSE B" IS ONLY ALLOWED WHEN B IS AN UPSTREAM BUG YOU CANNOT FIX.
+A probe that prints only past a threshold is a gate that cannot fail. Give it a positive control or do not
+trust its silence.
 
-If B is our code the sentence is unfinished. It must continue: "and this is how I am fixing it."
+**`HANDOFF.md` IS NOT YOUR SCRATCHPAD. IT IS THE NEXT AGENT'S INSTRUCTION SET.** It gets the file and the
+expression, in one sentence, and only when the fix could not land this turn. Never your reasoning, your
+retractions, what you first thought, what you ruled out, or what a run printed.
+`scripts/check_doc_prose.sh` fails the build on it.
 
-Every constraint here is a past decision, not physics, and there are no downstream consumers. Nothing is
-"choosing the architecture" for you — you wrote every line. Never keep something because it matches what was
-there: "parity", "feel", "familiar", "so the existing tuning still sees familiar numbers" are the reason the
-defect is still here.
-
-The subtle form is preserving a SHAPE rather than a value — adding the right relation beside the scalar it
-replaces, with every consumer still on the scalar.
+Findings are not written down. Fix it.
 
 # YOU MAY NOT VIOLATE PHYSICS WITHOUT EXPLICIT PERMISSION. ASK BEFORE YOU WRITE IT.
 

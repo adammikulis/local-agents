@@ -113,17 +113,12 @@ order is the order.
       reactant interact through application order — which is what the `cap_channel` field patches around.
       Evaluate every record against the same starting state, then one scaling if a reactant would go
       negative. Order-independence for free and `cap` deletes itself.
-- [ ] **The reaction table carries TWO different rate units.** *(Corrected 2026-08-11. This said `params.dt`
-      is uploaded and never read "so every reaction rate is per-STEP rather than per-second" — the first half
-      was true and the second half was the wrong diagnosis.)* Evaporation, photosynthesis, respiration,
-      litterfall and decomposition already fold `real_seconds_per_step()` into their own `k`, so they are
-      per-real-second. (`FREEZE_RATE`, `MELT_RATE`, `SOLIDIFY_RATE` and `ROCK_MELT_RATE` are gone: phase
-      is derived from enthalpy, so a plateau is energy-limited rather than rate-limited.) The rest are flat per-step
-      numbers that are neither derived nor scaled by the clock. Multiplying everything by `dt` in the kernel
-      would therefore DOUBLE-COUNT the first group — which is why the dead `dt` upload was deleted rather
-      than wired up. **Resolves with B1:** those four records are the phase-change relaxations, and once the
-      field stores enthalpy the freezing rate is set by heat removal rather than by a rate constant, so all
-      four delete themselves. Do not re-derive them first.
+- [ ] **The reaction table carries two rate units.** Evaporation, photosynthesis, respiration, litterfall
+      and decomposition fold `real_seconds_per_step()` into their own `k` and are per-real-second; the rest
+      are flat per-step numbers, neither derived nor scaled by the clock. Multiplying by `dt` in the kernel
+      would double-count the first group, which is why the dead `dt` upload was deleted rather than wired.
+      Resolves with B1: enthalpy makes a phase plateau energy-limited, so the relaxation constants delete.
+
 - [ ] **Three condition gates are used by no record** — `GATE_SURFACE`, `GATE_OPEN_ABOVE`, `GATE_DAYLIGHT`.
       `GATE_DAYLIGHT` is genuinely redundant (photosynthesis takes light as its rate driver). The other two
       are live machinery nothing calls: wire them in or delete them.

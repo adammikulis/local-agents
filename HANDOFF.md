@@ -84,52 +84,15 @@ coefficient is stoichiometry rather than a density ratio between two invented un
 
 ---
 
-## THE ONE REGRESSION — A RUN COSTS RENDER FRAMES, NOT SIM STEPS. THE SIM IS NOT THE SLOW PART.
+## THE ONE REGRESSION — THE RUN SCHEDULE IS PINNED TO FLOORS A SHORT RUN NEVER REACHES
 
-*(Corrected twice, and both wrong answers are recorded so nobody walks back into them. **(1)** This
-said `kernels3d/pressure.glsl`'s O(cells x depth) march was the cause. The march was real and is fixed —
-O(cells) now — but the attribution was FALSE: the failure reproduces with the fix reverted. **(2)** Then
-I called it a sharp step-count cliff. Also false.)*
+`VoxelInputController._fire_schedule`: every trigger is `maxi(_run_frames - K, FLOOR)`, e.g.
+`off_trigger = maxi(_run_frames / 2, 100)` and `end_frame = maxi(_run_frames - 2, off_trigger + 2)`.
+A `--run-frames=64` run schedules its end at 102. Scale them with `_run_frames`, or fail when it is
+below the floor.
 
-**The measurement that settles it. Same 64 sim steps, two shapes:**
-`--frames 8 --fast 8` passes in seconds. `--frames 64 --fast 1` never finishes. **Wall cost scales with
-FRAMES and is nearly independent of sim steps.** `--fast` is not an accelerator, it is the only reason
-any run completes at all.
-
-**The sim itself is cheap, measured directly.** Per-step timing inside `LAMaterialFieldSphereStep3D`
-puts a whole field step in the low milliseconds — pin, begin, dispatch and post all flat, no growth
-across a run. `VoxelWorld._physics_process` and `_process` were bracketed section by section
-(`_sim.step`, the night/slump gauges, `_input.update_sim`, `_render.step`, `_ui.step`,
-`_update_music_mood`, `_input.update_render`, `_perf_probe`): **every one reads ~0 ms after spawn.**
-Frame 7 costs seconds, once, and that is world generation.
-
-Also ruled out, so nobody spends the run again: **it is not drawing.** `--disable-render-loop` changes
-nothing. And **it is not the harness budget** — `LA_RUN_TIMEOUT=400` on a 64-frame `--fast 1` run still
-produced no report after 405 s. The field's own `_physics_process` was timed whole and is quiet too:
-two slow calls in a run, both at init.
-
-**READ THIS BEFORE TRUSTING THE PARAGRAPH ABOVE.** Every "~0 ms" above came from probes that printed
-only when they exceeded a threshold, and **I never proved any of them could print at all.** A probe that
-stays silent is indistinguishable from a probe that is not wired — which is the same defect as a gate
-that cannot fail, committed by the person hunting it. So "every callback is cheap" is UNCONFIRMED, and
-the contradiction it creates is real: frames advance about once a second while nothing measurable
-consumes that second. **First move for the next reader: give each probe a positive control** (print
-unconditionally for the first N frames) and re-run. The likeliest outcome is that one of those probes was
-dead and the cost is in a callback after all.
-
-If they are honest, what is left is the main thread outside our callbacks: signal handlers, the
-`call_deferred` queue, and godot_voxel's main-thread apply calling into script. The voxel worker threads
-sit in `condition_variable::wait` while the main thread burns, so the terrain is waiting on us.
-
-**This is `docs/PHYSICS_TODO.md` F4 with a receipt.** "The field's `dt` is the presentation clock" is
-filed as a physics defect about timestep; it is also why the planet cannot be verified. Sim progress is
-hostage to the frame loop because the sim is driven from a rendered scene's `_physics_process`, and
-`--run-frames` counts PHYSICS frames. **Both halves are one fix: the sim needs a driver that is not a
-frame callback.** See the note under WHAT IS LEFT.
-
-**Nothing that needs a run of useful length can be verified until this is closed**, including the
-pressure acceptance below. `--fast` is the workaround, and it is why every long run in this repo's
-history was taken at `--fast 8`.
+Not the cause: `pressure.glsl`'s march, drawing (`--disable-render-loop` is neutral), the harness
+budget (`LA_RUN_TIMEOUT=400` still yields no report).
 
 ## FOUND BY DOING IT — each had silently disabled a whole subsystem
 
