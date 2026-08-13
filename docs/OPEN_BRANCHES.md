@@ -9,7 +9,7 @@ holds an unresolved merge, or has not moved inside the age limit.
 **7 days** old, fails the gate. Reconciling at five commits is minutes; this repository once reconciled two
 substrate lines with zero patch overlap and every conflict was a physics decision.
 
-**The dev branch is `feature/enthalpy`** and it must contain `main`.
+**The dev branch is `0.4-dev`**, named once in `CLAUDE.md`, and it must contain `main`.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|

@@ -235,13 +235,11 @@ chemical equilibrium. The defect named is the UNIT.
 
 ## DEAD OR LYING — delete, do not preserve
 
-- **`tests/cmp_channels.gd` is already broken.** It reads `PAIR_CHANNELS` / `SINGLE_CHANNELS` /
-  `SITUATIONAL_CHANNELS` / `SLOW_CHANNELS`, which became static functions.
-- **`_bufs["face_area"]` is bound by zero passes and `facearea.glsli` is included by zero kernels.**
-  Binding 42 is reserved-but-unconsumed — the surviving artefact of the two-lanes-one-number incident.
-- **`_wnext` is dead** — a declaration and two allocation lines; no element is ever read or written.
-  (`_susp` is gone with the silicate collapse; `_porosity` is now seeded from Athy compaction.) On a
-  CPU-only run every consumer's size guard silently skips them.
+<!-- claim: present _charge_woke addons/local_agents -->
+<!-- claim: present LA_NO_PHYS_LOD addons/local_agents -->
+<!-- claim: present EXP_LIMIT addons/local_agents -->
+<!-- claim: present deficit_cause addons/local_agents -->
+
 - **`_charge_woke` is written in two places and read nowhere.** The compute-bubble early-out it exists for
   was never wired.
 - **`CreatureLod`'s `LA_NO_PHYS_LOD`** keeps a superseded LOD tier reachable — `MID_LOD_D2` and `FAR_LOD_D2`
@@ -249,27 +247,15 @@ chemical equilibrium. The defect named is the UNIT.
 - **`SimRng.rand_dir()` advances the generator three times and counts one draw**, so the determinism probe
   under-reports any divergence involving it.
 - **`ReactionThermo.EXP_LIMIT` and `reactions_sphere3d.DG_EXP_LIMIT` are held equal by a comment.**
-- **`EcoSurfacePass.SCENT_DECAY`-style array literals are invisible to the constants gate** — it examines
-  only scalar `const` declarations, so a list of modelling choices passes unexamined. So do `var` and
-  `@export` defaults, and `// LAPhysical.ANYTHING` acquits whether that symbol exists or not.
 - **`deficit_cause` labels a per-genome thermal band failure as "starvation"** now that the band is
   heritable; the hyperthermia and hypothermia tests still compare against the envelope edges.
-- **`lava_phase_sphere3d.glsl` wants each shell's own thickness, not the uniform grid spacing.** Its
-  capacity term multiplies a per-volume quantity by a length, so the length must be metres; the shell table
-  exists and the kernel does not read it.
-- **`MOISTURE_DIFFUSE` differs from `EDDY_DIFFUSE`.** Eddy mixing is a property of the flow, not of what is
-  suspended in it, so one parcel cannot stir vapour harder than it stirs oxygen. Neither value is derived,
-  so picking one is a physics decision, not a merge resolution.
-- **`pressure.glsl` is the weight of the column, so the atmosphere has no DYNAMIC pressure.**
-  `LAFieldPhenomena._cyclones` reads it for a closed low, sampling a tangent-plane ring so every reading
-  sits at one radius; whether a warm-core low can form in a purely hydrostatic field at all is unproven and
-  needs a run the shader gate currently forbids.
-- **Nothing carries elastic stress or strain, so there is no earthquake to detect.** The `shock` channel
-  propagates a wave once something emits one, and the only emitter left is an impact. A fault that stores
-  and releases strain is unbuilt; until it exists nothing may inject a quake.
-- **`fixtures/stable_world/world.sav` stores unlock ids for capabilities that no longer exist**
-  (`spawn_volcano`, `spawn_tornado`, `spawn_hurricane`, …). Harmless strings today; regenerate the fixture
-  with `scripts/fixture_check.sh --regen` once the tree runs.
+- **`AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`.** It is the unit
+  definition of the `o2`/`co2`/`n2` channels, so correcting it re-scales every gas total.
+- **Two cell-volume subsystems survive** — `FieldTotals.gd` against `MaterialFieldCellVolume3D` +
+  `kernels3d/cellvol.glsli`. On a uniform box every cell has one volume, so one is ceremony.
+- **`scent` is half-present**: no row in `Channels.gd`, so the transport set cannot carry it.
+- **`_read_channels`'s SLOW block hardcodes its channel list**, so `slow_channels()` is a view nothing
+  consumes and `porosity` never gets its coarse readback.
 
 ## DECLARED DEPARTURES — the maintainer's to keep or kill
 

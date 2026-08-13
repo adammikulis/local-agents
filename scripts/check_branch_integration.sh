@@ -18,7 +18,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REGISTRY="$ROOT/docs/OPEN_BRANCHES.md"
-DEV="${LA_DEV_BRANCH:-feature/enthalpy}"
+DEV="${LA_DEV_BRANCH:-0.4-dev}"
 MAX_AHEAD="${LA_MAX_AHEAD:-15}"
 MAX_AGE_DAYS="${LA_MAX_BRANCH_AGE_DAYS:-7}"
 
