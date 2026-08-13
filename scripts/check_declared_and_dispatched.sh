@@ -10,10 +10,6 @@
 # 2. Every buffer a pass asks `bufs` for exists: a channel row, a derived buffer, or one the driver
 #    allocates by hand.
 #
-# NOT IN `lint` YET, and that is deliberate: it is red on CellListPass, which is not in PASS_SCRIPTS, so
-# no active-cell list is ever built and adaptive LOD does not run. Wiring that pass in is what makes this
-# gate green, and it goes into `lint` in the same commit. A gate that is permanently red destroys the
-# signal of every gate beside it, so it does not join until it can pass.
 #
 # EXIT 0 clean · 1 a violation · 2 the gate could not run.
 set -uo pipefail

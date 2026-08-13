@@ -326,6 +326,16 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_binding_collisions.sh ($rc_bindings)"
       lint_failed=$((lint_failed + 1))
     fi
+    # Gate: a kernel no pass dispatches, or a buffer no allocation creates, is a subsystem that silently does
+    # nothing while every gate naming it stays green. Exit 2 = could not run.
+    set +e
+    "$SCRIPT_DIR/check_declared_and_dispatched.sh"
+    rc_dispatched=$?
+    set -e
+    if [[ $rc_dispatched -ne 0 ]]; then
+      echo "LINT_FAIL: check_declared_and_dispatched.sh ($rc_dispatched)"
+      lint_failed=$((lint_failed + 1))
+    fi
     # Gate: a branch nobody measures is a reconciliation nobody scheduled. Exit 2 = could not run.
     set +e
     "$SCRIPT_DIR/check_branch_integration.sh"
