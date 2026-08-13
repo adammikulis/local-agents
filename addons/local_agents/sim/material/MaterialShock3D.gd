@@ -70,12 +70,7 @@ func shock_gradient(world_pos: Vector3) -> Vector3:
 	return grad.normalized()
 
 
-## Count of open cells whose amplitude is over SHOCK_ACTIVE.
+## Count of open cells whose amplitude is over SHOCK_ACTIVE, reduced on the device. -1 when the reduction
+## has not run: a quiet planet and an unread one are different answers.
 func shock_cell_count() -> int:
-	if _f._shock.size() != _f._cell_count:
-		return 0
-	var n: int = 0
-	for c in _f._cell_count:
-		if _f._solid[c] == 0 and _f._shock[c] > SHOCK_ACTIVE:
-			n += 1
-	return n
+	return _f._queries.row_n("shock_cells") if _f != null and _f._queries != null else -1

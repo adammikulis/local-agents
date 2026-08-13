@@ -1,28 +1,50 @@
 class_name LAMaterialFieldQueries3D
 extends RefCounted
 
-const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
-
 ## LAMaterialFieldQueries3D: the READ-ONLY query accessors of the dense 3D MaterialField3D, factored
 
-# Basin depth (world units) mapped to a 0..1 salinity band. NOT a simulated solute.
 const MOLTEN_MIN: float = 0.0001       # gauge floor: molten mineral volume fraction per cell
 const FIRE_PRESENT: float = 0.02       # gauge floor: fraction of a cell's usable O2 burned this step
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
-
-var _molten_step: int = -1
-var _molten_magma: int = 0
-var _molten_lava: int = 0
-var _molten_live: bool = false
-var _fire_step: int = -1
-var _fire_max: float = 0.0
-var _fire_count: int = 0
-var _fire_live: bool = false
+var _reduce = null                                       # the field's own ReducePass, found once
 
 
 func setup(field) -> void:
 	_f = field
+
+
+## The reduce pass's last drained rows. Empty before the first drain and when the GPU field is absent.
+func reduced() -> Dictionary:
+	if _f == null or _f._gpu == null:
+		return {}
+	if _reduce == null:
+		var names: PackedStringArray = _f._gpu._pass_names
+		for i in names.size():
+			if names[i] == "ReducePass":
+				_reduce = _f._gpu._passes[i]
+				break
+	return _reduce.latest() if _reduce != null else {}
+
+
+## A reduced row, or NAN. Never 0.0: a total of zero and a total nobody measured differ.
+func row_f(key: String) -> float:
+	var r: Dictionary = reduced()
+	return float(r[key]) if r.has(key) else NAN
+
+
+## A reduced count, or -1. A count is never negative, so a caller cannot read the absence as an answer.
+func row_n(key: String) -> int:
+	var r: Dictionary = reduced()
+	return int(round(float(r[key]))) if r.has(key) else -1
+
+
+## A reduced count for a dictionary the report publishes, or null.
+func row_v(key: String, as_count: bool):
+	var r: Dictionary = reduced()
+	if not r.has(key):
+		return null
+	return int(round(float(r[key]))) if as_count else float(r[key])
 
 
 ## True when `name`'s readback landed on the most recent GPU drain, so the CPU mirror is current. A
@@ -33,11 +55,6 @@ func _mirror_live(name: String) -> bool:
 		return false
 	var got = _f._gpu._cached.get(name, null)
 	return got is PackedFloat32Array and got.size() == _f._cell_count
-
-
-# --- Cell resolver (world -> linear cell) ------------------------------------
-func _cell_at(pos: Vector3) -> int:
-	return _f.world_to_cell(pos)
 
 
 # --- Water queries -----------------------------------------------------------
@@ -77,12 +94,9 @@ func water_at_cell(ix: int, iy: int, iz: int) -> float:
 	return liquid_at(_f._idx(ix, iy, iz))
 
 
-# --- Water CURRENT (the sweep force) -----------------------------------------
-# Tuning for the shallow-water drag that moving water exerts on anything standing in it.
-
-
+## Liquid h2o over every cell, mask-free, in the channel's own amount unit.
 func total_water() -> float:
-	return CellVolScript.weighted(_liquid_mirror(), CellVolScript.of(_f), _f._solid, false)
+	return row_f("water_liquid_total")
 
 
 # --- Temperature query -------------------------------------------------------
@@ -94,8 +108,6 @@ func temp_at(pos: Vector3) -> float:
 	var c: int = _f.world_to_cell(pos)
 	return _f._temp[c] if c >= 0 else _f.INITIAL_TEMP
 
-
-# --- Ocean / salinity --------------------------------------------------------
 
 # --- Diagnostics -------------------------------------------------------------
 
@@ -147,58 +159,36 @@ func _bin_mean(bin_sum: PackedFloat32Array, bin_n: PackedInt32Array, b: int) -> 
 	return bin_sum[b] / float(bin_n[b])
 
 
+## Open cells holding surface water, how many of those are warm / boiling, and the hottest of them. The
+## peak is gated on the cell holding water, so it is the hottest WATER rather than the hottest cell.
 func hot_spring_stats() -> Dictionary:
-	var count: int = _f._cell_count
-	if _f._temp.size() != count or _f._h2o.size() != count or _f._solid.size() != count:
-		return {"hotspring_cells": 0, "hotspring_boiling": 0, "hotspring_max_c": 0.0}
-	var warm: int = 0        # open, non-sea surface water >60°C (a hot spring)
-	var boiling: int = 0     # at/over LAPhysical.WATER_BOIL_C — the same point atmos_evap flashes steam at
-	var mild: int = 0        # >30°C with any discharge film (early/faint geothermal signal)
-	var spring_wet: int = 0  # open non-sea cells holding ANY discharge film (denominator for the warm fraction)
-	var mx: float = 0.0      # hottest open non-sea surface-water cell (the true spring peak, no threshold)
-	for i in range(count):
-		if _f._solid[i] != 0:
-			continue
-		if liquid_at(i) < 0.01:
-			continue
-		spring_wet += 1
-		var t: float = _f._temp[i]
-		if t > mx:
-			mx = t
-		if t > 30.0:
-			mild += 1
-		if t > 60.0:
-			warm += 1
-		if t >= LAPhysical.WATER_BOIL_C:
-			boiling += 1
+	var mx = row_v("hotspring_max_c", false)
 	return {
-		"hotspring_cells": warm, "hotspring_boiling": boiling, "hotspring_max_c": snappedf(mx, 0.1),
-		"hotspring_mild": mild, "hotspring_wet": spring_wet,
+		"hotspring_cells": row_v("hotspring_cells", true),
+		"hotspring_boiling": row_v("hotspring_boiling", true),
+		"hotspring_max_c": snappedf(float(mx), 0.1) if mx != null else null,
+		"hotspring_mild": row_v("hotspring_mild", true),
+		"hotspring_wet": row_v("hotspring_wet", true),
 	}
 
 
 func wet_cell_count() -> int:
-	var n: int = 0
-	for i in range(_f._cell_count):
-		if _f._solid[i] == 0 and liquid_at(i) >= _f.RENDER_MIN:
-			n += 1
-	return n
+	return row_n("wet_cells")
 
 
 func peak_heat() -> float:
-	var m: float = 0.0
-	for i in range(_f._cell_count):
-		if _f._solid[i] == 0 and _f._temp[i] > m:
-			m = _f._temp[i]
-	return m
+	return row_f("open_temp_max")
 
 
+## Open cells at or over the one temperature the `hot_cells` row counts. There is one such row, so a caller
+## naming a different threshold gets -1: the reduction did not measure it.
 func hot_cell_count(threshold: float = 60.0) -> int:
-	var n: int = 0
-	for i in range(_f._cell_count):
-		if _f._solid[i] == 0 and _f._temp[i] >= threshold:
-			n += 1
-	return n
+	var declared: float = float(LAReduceRecords.row("hot_cells").get("threshold", NAN))
+	if threshold != declared:
+		push_error("hot_cell_count(%s): the hot_cells row counts at %s °C and the device reduced nothing "
+			% [threshold, declared] + "else. Add a row or read the declared one.")
+		return -1
+	return row_n("hot_cells")
 
 
 # --- Storm queries (read the emergent wind field; storm actors track the vortex they seed) -----------
@@ -279,25 +269,19 @@ func wind_at(world_pos: Vector3) -> Vector2:
 	return Vector2(v.x, v.z)
 
 
-## Domain-average horizontal wind magnitude/direction (ocean swell / HUD). Strided sample (every STRIDE-th
-## cell) so it stays O(cells/STRIDE), never a full per-call grid sweep.
+## Domain-mean horizontal wind over every open cell, as world XZ. Two reduced sums over the velocity
+## channels; NAN when the reduction has not run, because a mean of nothing is not zero wind.
 func wind() -> Vector2:
-	if _f._grid == null or _f._vel_x.size() != _f._cell_count:
-		return Vector2.ZERO
-	const STRIDE: int = 97
-	var sx: float = 0.0
-	var sz: float = 0.0
-	var n: int = 0
-	var c: int = 0
-	while c < _f._cell_count:
-		if _f._solid[c] == 0:
-			sx += _f._vel_x[c]
-			sz += _f._vel_z[c]
-			n += 1
-		c += STRIDE
-	if n == 0:
-		return Vector2.ZERO
-	return Vector2(sx / float(n), sz / float(n))
+	var n: int = open_cells()
+	if n <= 0:
+		return Vector2(NAN, NAN)
+	return Vector2(row_f("wind_x_sum") / float(n), row_f("wind_z_sum") / float(n))
+
+
+## Cells the solid derive left open, from the same reduction. -1 when it has not run.
+func open_cells() -> int:
+	var solid: int = row_n("solid_cells")
+	return _f._cell_count - solid if solid >= 0 else -1
 
 
 # --- MINERAL: airborne opacity + the molten state. Totals live in LAMaterialFieldLedger3D. -------------
@@ -318,113 +302,65 @@ func melt_at(c: int) -> float:
 	return maxf(_f._silicate[c], 0.0) * clampf(_f._silicate_melt[c], 0.0, 1.0)
 
 
-## Volume-mean airborne mineral — the opacity LASystemOrbits turns into insolation.
+## Mean airborne mineral over every cell — the opacity LASystemOrbits turns into insolation. The grid is
+## uniform, so the volume weight cancels between the sum and the cell count and the mean is the bare one.
 func avg_airborne_mineral() -> float:
 	if _f._cell_count <= 0:
-		return 0.0
-	var vol: PackedFloat32Array = CellVolScript.of(_f)
-	if vol.size() != _f._cell_count or _f._silicate_susp_air.size() != _f._cell_count:
-		return 0.0
-	var amount: float = 0.0
-	var span: float = 0.0
-	for c in _f._cell_count:
-		var w: float = vol[c]
-		amount += airborne_at(c) * w
-		span += w
-	return amount / span if span > 0.0 else 0.0
+		return NAN
+	return row_f("airborne_mineral_sum") / float(_f._cell_count)
 
 
 ## Molten mineral over ALL cells — mask-free: melt lingers the instant a cell crosses to derived-solid, so
 ## an open-only sum would drop matter that physically exists.
 func melt_total() -> float:
-	return CellVolScript.weighted(_melt_mirror(), CellVolScript.of(_f), _f._solid, false)
+	return row_f("melt_total")
 
 
-## Per-cell molten volume fraction, as an array. Empty when either input mirror is absent.
-func _melt_mirror() -> PackedFloat32Array:
-	var out: PackedFloat32Array = PackedFloat32Array()
-	if _f._silicate.size() != _f._cell_count or _f._silicate_melt.size() != _f._cell_count:
-		return out
-	out.resize(_f._cell_count)
-	for c in _f._cell_count:
-		out[c] = melt_at(c)
-	return out
-
-
-## magma_cells / lava_cells, plus `molten_live`: whether the silicate readback landed on the last drain.
-## Without it a zero here cannot be told from a channel that never arrived.
+## magma_cells / lava_cells, plus `molten_live`: whether the device reduced them at all. Without it a zero
+## here cannot be told from a reduction that never ran.
 func molten_counts() -> Dictionary:
-	var step: int = _f._gpu._step_index if _f._gpu != null else -1
-	if step >= 0 and step == _molten_step:
-		return {"magma_cells": _molten_magma, "lava_cells": _molten_lava, "molten_live": _molten_live}
-	_molten_magma = 0
-	_molten_lava = 0
-	_molten_step = step
-	_molten_live = _mirror_live("silicate") and _f._silicate_melt.size() == _f._cell_count
-	if not _molten_live or _f._solid.size() != _f._cell_count:
-		return {"magma_cells": 0, "lava_cells": 0, "molten_live": _molten_live}
-	for c in _f._cell_count:
-		if melt_at(c) < MOLTEN_MIN:
-			continue
-		if _f._solid[c] != 0:
-			_molten_magma += 1          # confined by rock — magma
-		else:
-			_molten_lava += 1           # out in the open — lava
-	return {"magma_cells": _molten_magma, "lava_cells": _molten_lava, "molten_live": _molten_live}
+	var r: Dictionary = reduced()
+	return {
+		"magma_cells": row_v("magma_cells", true),
+		"lava_cells": row_v("lava_cells", true),
+		"molten_live": r.has("magma_cells") and r.has("lava_cells"),
+	}
 
 
 ## Cells holding melt that has NOT reached open ground — magma.
 func magma_cell_count() -> int:
-	return int(molten_counts()["magma_cells"])
+	return row_n("magma_cells")
 
 
 ## Cells holding melt that HAS reached open ground — lava.
 func lava_cell_count() -> int:
-	return int(molten_counts()["lava_cells"])
+	return row_n("lava_cells")
 
 
 ## Molten rock is standing in open cells, which is what an eruption IS. No timer, no burst state, no actor.
+## False also when the row is absent; `molten_live` beside it in the same report says which false this is.
 func magma_erupting() -> bool:
-	return int(molten_counts()["lava_cells"]) > 0
-
-## Derived-solid (bedrock) cell count — a display/diagnostic. NOT the mineral mass baseline: that is the
-## `silicate` amount, whose total is silicate_total.
-func rock_cells() -> int:
-	var n: int = 0
-	for c in _f._cell_count:
-		if _f._solid[c] != 0:
-			n += 1
-	return n
+	return lava_cell_count() > 0
 
 
 # --- Combustion FIRE diagnostics. Fuel totals live in LAMaterialFieldLedger3D. ------------------------
 
-## Peak intensity, burning-cell count, and whether the demand-gated `fire` readback landed on the last drain.
+## Peak intensity, burning-cell count, and whether the device reduced them at all.
 func fire_stats() -> Dictionary:
-	var step: int = _f._gpu._step_index if _f._gpu != null else -1
-	if step >= 0 and step == _fire_step:
-		return {"fire_peak": _fire_max, "fire_cells": _fire_count, "fire_live": _fire_live}
-	_fire_step = step
-	_fire_max = 0.0
-	_fire_count = 0
-	_fire_live = _mirror_live("fire")
-	if not _fire_live or _f._fire.size() != _f._cell_count:
-		return {"fire_peak": 0.0, "fire_cells": 0, "fire_live": _fire_live}
-	for c in _f._cell_count:
-		var v: float = _f._fire[c]
-		if v > _fire_max:
-			_fire_max = v
-		if v > FIRE_PRESENT:
-			_fire_count += 1
-	return {"fire_peak": _fire_max, "fire_cells": _fire_count, "fire_live": _fire_live}
+	var r: Dictionary = reduced()
+	return {
+		"fire_peak": row_v("fire_peak", false),
+		"fire_cells": row_v("fire_cells", true),
+		"fire_live": r.has("fire_peak") and r.has("fire_cells"),
+	}
 
 
 func fire_peak() -> float:
-	return float(fire_stats()["fire_peak"])
+	return row_f("fire_peak")
 
 
 func fire_cells() -> int:
-	return int(fire_stats()["fire_cells"])
+	return row_n("fire_cells")
 
 
 func is_burning(node) -> bool:
@@ -437,32 +373,15 @@ func is_burning(node) -> bool:
 # --- LAVA-TUBE / HOLLOW signature -------------------------------------------
 const TUBE_MELT_NEAR_ZERO: float = 0.05
 
-## Open cells walled in by rock and NOT still melt-filled — a drained tube. Reads the melt share, so it
-## when that channel did not arrive; `molten_live` in the same report says which zero this is.
-func enclosed_void_cells(min_solid_nbr: int = 4) -> int:
-	if not _mirror_live("silicate"):
-		return 0
-	if _f._grid == null or _f._solid.size() != _f._cell_count \
-			or _f._silicate_melt.size() != _f._cell_count:
-		return 0
-	var nbr: PackedInt32Array = _f._grid.neighbours
-	if nbr.size() != _f._cell_count * 6:
-		return 0
-	var n: int = 0
-	for c in range(_f._cell_count):
-		if _f._solid[c] != 0:
-			continue                                    # cell itself must be OPEN
-		if melt_at(c) >= TUBE_MELT_NEAR_ZERO:
-			continue                                    # still melt-filled — not yet a drained hollow
-		var base: int = c * 6
-		var sn: int = 0
-		for d in range(6):
-			var nb: int = nbr[base + d]
-			if nb >= 0 and _f._solid[nb] != 0:
-				sn += 1
-		if sn >= min_solid_nbr:
-			n += 1
-	return n
+## Open cells walled in by rock and NOT still melt-filled — a drained tube. One row per wall count, and the
+## kernel binds the neighbour table; null when the reduction has not run.
+func enclosed_void_cells(min_solid_nbr: int = 4):
+	var key: String = "enclosed_void%d" % min_solid_nbr
+	if LAReduceRecords.row(key).is_empty():
+		push_error("enclosed_void_cells(%d): no such row. The device reduces the wall counts declared in "
+			% min_solid_nbr + "LAReduceRecords and nothing else.")
+		return null
+	return row_v(key, true)
 
 
 # --- Soil FERTILITY (decomposer output: detritus → fungus → CO₂ + fertility) — read the GPU fert channel -------
@@ -476,13 +395,7 @@ func fertility_at(pos: Vector3) -> float:
 
 ## Peak soil fertility over every open cell — above 0 once the decomposer loop deposits nutrient.
 func fertility_peak() -> float:
-	if _f._fert.size() != _f._cell_count:
-		return 0.0
-	var m: float = 0.0
-	for c in _f._cell_count:
-		if _f._solid[c] == 0 and _f._fert[c] > m:
-			m = _f._fert[c]
-	return m
+	return row_f("fert_peak")
 
 
 # --- SEA SURFACE — the free water surface, frozen and open ---------------------------------------------
@@ -580,7 +493,8 @@ func lava_shell_diag() -> Dictionary:
 	}
 
 
-## The liquid share of every cell, as one array — for the volume-weighted sums that take a whole mirror.
+# Whole-grid mirrors. No reduction reads these — a total is a row of LAReduceRecords. Their consumers are
+# the ones that need the value of EVERY cell: the water surface mesh, the albedo bake, the climate texture.
 func _liquid_mirror() -> PackedFloat32Array:
 	var out: PackedFloat32Array = PackedFloat32Array()
 	if _f._h2o.size() != _f._cell_count:
@@ -591,7 +505,7 @@ func _liquid_mirror() -> PackedFloat32Array:
 	return out
 
 
-## The vapour share of every cell, as one array — the airborne-substance readers take a whole mirror.
+## The vapour share of every cell, as one array.
 func _vapour_mirror() -> PackedFloat32Array:
 	var out: PackedFloat32Array = PackedFloat32Array()
 	if _f._h2o.size() != _f._cell_count:
@@ -602,7 +516,7 @@ func _vapour_mirror() -> PackedFloat32Array:
 	return out
 
 
-## The frozen share of every cell, as one array — the albedo and cover bakers take a whole mirror.
+## The frozen share of every cell, as one array.
 func _ice_mirror() -> PackedFloat32Array:
 	var out: PackedFloat32Array = PackedFloat32Array()
 	if _f._h2o.size() != _f._cell_count:

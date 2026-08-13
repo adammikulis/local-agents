@@ -83,6 +83,9 @@
 #define OP_COUNT_GE 2u
 #define OP_SUM_ABS_DIFF 3u
 #define OP_LATCH 4u
+#define OP_MIN 5u
+#define OP_MAX 6u
+#define OP_COUNT 7u
 
 // ReduceRecords.gd Mask enum
 #define MASK_ALL 0u
