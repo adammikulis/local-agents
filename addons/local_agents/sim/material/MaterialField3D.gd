@@ -662,7 +662,7 @@ func magma_erupting() -> bool:
 	return _queries.magma_erupting() if _queries != null else false
 ## Open cells currently carrying a suspended mineral load.
 func erosion_cell_count() -> int:
-	return LAMaterialFieldMineralProfile3D.suspended_cell_count(_silicate, _silicate_susp_water, _solid)
+	return _queries.suspended_cell_count()
 ## Snow depth at a world point, in channel units. Body in LAMaterialFieldChannels3D.
 func snow_depth_at(pos: Vector3) -> float:
 	return _channels.snow_depth_at(pos)

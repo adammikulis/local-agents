@@ -12,18 +12,6 @@ const SAMPLE_EVERY: int = 100
 const SUSP_ACTIVE: float = 0.001
 
 
-## Open cells whose silicate times its water-suspended share is a real load in transit.
-static func suspended_cell_count(silicate: PackedFloat32Array, susp_water: PackedFloat32Array,
-		solid: PackedByteArray) -> int:
-	var n: int = silicate.size()
-	if n == 0 or susp_water.size() != n or solid.size() != n:
-		return 0
-	var count: int = 0
-	for c in n:
-		if solid[c] == 0 and silicate[c] * susp_water[c] > SUSP_ACTIVE:
-			count += 1
-	return count
-
 var _f = null                    # back-reference to the owning LAMaterialField3D
 var _gate: int = 0
 var _cut_lo: float = 0.0         # radius below which ground counts as the low tercile
