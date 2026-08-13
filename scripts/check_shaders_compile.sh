@@ -60,7 +60,10 @@ func _find(dir_path: String, out: Array) -> void:
 			continue
 		var full: String = dir_path.path_join(name)
 		if d.current_is_dir():
-			_find(full, out)
+			# Vendored GLSL is not ours and is not a Godot kernel: whisper.cpp ships ggml-vulkan
+			# sources Godot never imports, so get_spirv() is null for all of them by construction.
+			if name != "thirdparty":
+				_find(full, out)
 		elif name.ends_with(".glsl"):
 			out.append(full)
 		name = d.get_next()
