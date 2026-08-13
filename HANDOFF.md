@@ -40,16 +40,18 @@ physics tick. Everything in this item is that one coupling.
 ## 2. Reduce on the device, not in the interpreter
 
 Every whole-grid sum, count, minimum, maximum, binned mean and percentile in `sim/material` walks a
-downloaded mirror in GDScript. `ReduceRecords` + `reduce.glsl` + `ReducePass` is the one machine for all of
-them; each item below is a set of rows in that table.
+downloaded mirror in GDScript. `LAReduceRecords` + `reduce.glsl` + `ReducePass` is the machine, and it is
+built; each item below is a set of rows added to that table. Ops so far: SUM, COUNT_GT, COUNT_GE,
+SUM_ABS_DIFF, LATCH. A minimum or a percentile needs a new op and a second dispatch stage.
 
-- `FieldLedgerFold3D` — `amounts`, `_count_presence`, `_crust`, `_energy`.
 - `MaterialFieldQueries3D` — every total, count and peak. Delete `_liquid_mirror`, `_ice_mirror`,
   `_vapour_mirror` and `_melt_mirror`: they materialise a product of two device buffers six to eight times
   per report. Point queries keep their mirrors.
 - `MaterialFieldChannels3D`, `MaterialFieldAtmos3D.refresh_aggregates`, `MaterialShock3D.shock_cell_count`.
 - `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`, `MaterialFieldElementProbe3D`,
-  `MaterialFieldH2OBudget3D`.
+  `MaterialFieldH2OBudget3D`, `MaterialFieldOrganic3D`.
+- `FieldPassAttribution3D._sums` walks the halves it downloads at a checkpoint. ReducePass runs last, so
+  it cannot answer "which pass moved it": the fix is a reduce dispatch per checkpoint, not a row.
 - `MaterialFieldReport3D.surface_climate` and `_open_temp_stats`, `MaterialFieldPhotoStats3D`,
   `MaterialFieldClimateSwing3D._site_stations`, `MaterialFieldGeotherm3D._gradient`.
 - Delete the sampling heuristics that only exist because those walks are expensive:

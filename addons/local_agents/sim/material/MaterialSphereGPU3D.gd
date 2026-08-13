@@ -20,7 +20,8 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/ChargeSeparatePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd"]
+	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd",
+	"res://addons/local_agents/sim/material/sphere_passes/ReducePass.gd"]
 
 static func available() -> bool:
 	var rd: RenderingDevice = RenderingServer.create_local_rendering_device()
@@ -54,9 +55,6 @@ var _channel_hold: Dictionary = {}      # channel name -> drain index it stays h
 var _drain_count: int = 0               # monotonic drain counter the holds are measured against
 var _probe_want: PackedStringArray = PackedStringArray()
 var _probe: Dictionary = {}
-## Field step the probe dictionary was filled at. A consumer sampling on a coarse cadence gets a probe that
-## is older than its own call, and a drift rate divided by the wrong step count is wrong by that ratio.
-var _probe_step: int = -1
 # Re-uploaded only when a CPU writer marks them, never per step.
 var _solid_dirty: bool = true
 var _water_dirty: bool = true
@@ -241,37 +239,6 @@ func step() -> void:
 	_phase = 1 - _phase
 	_step_index += 1
 
-## Total of one channel's LIVE half, read at a checkpoint. Only safe between passes on the checkpointed
-## path, where the driver has already synced — a read anywhere else flushes work mid-flight and changes the
-## simulation. PAIR channels resolve their live half; SINGLE channels are read directly.
-func channel_total_now(name: String) -> float:
-	return channel_total_half(name, _phase)
-
-
-## BOTH halves of a PAIR, because mid-step the live half is the one being read FROM and the written half is
-## the other one. A probe that only reads `_live` never sees what the step produced.
-func channel_totals_now(name: String) -> Dictionary:
-	if not _bufs.has(name):
-		return {}
-	if name in single_channels():
-		return {"single": channel_total_half(name, 0)}
-	return {"live": channel_total_half(name, _phase), "back": channel_total_half(name, 1 - _phase)}
-
-
-func channel_total_half(name: String, half: int) -> float:
-	if _rd == null or not _bufs.has(name):
-		return NAN
-	var entry = _bufs[name]
-	var rid: RID = entry[half] if entry is Array else entry
-	if not rid.is_valid():
-		return NAN
-	var a: PackedFloat32Array = _rd.buffer_get_data(rid).to_float32_array()
-	var t: float = 0.0
-	for v in a:
-		t += v
-	return t
-
-
 ## Signature: `probe.call(pass_index: int, pass_name: String)`, pass_index -1 = before any pass ran.
 func set_step_probe(cb: Callable) -> void:
 	_step_probe = cb
@@ -350,7 +317,6 @@ func _drain_pending() -> void:
 			var pb = _bufs[pname]
 			_probe[pname] = _rd.buffer_get_data(pb[_phase] if pb is Array else pb).to_float32_array()
 		_probe_want = PackedStringArray()
-		_probe_step = _step_index
 	# Direct sub-timings (noise-immune, unlike fps): how long the GPU sync stall vs the channel copy/convert
 	# actually cost this drain. The readback (buffer_get_data + to_float32_array over ~17 full-grid channels) is
 	# the suspected field bottleneck; measuring it directly is how we know what gating it can win.
@@ -454,11 +420,6 @@ func request_probe(names: PackedStringArray) -> void:
 ## until the first drain after `request_probe`; a leg that is absent is ABSENT, never substituted.
 func take_probe() -> Dictionary:
 	return _probe
-
-
-## Field step of the sample `take_probe` holds; -1 when there is none.
-func probe_step() -> int:
-	return _probe_step
 
 
 ## The CPU solid/static mask changed (initial solidity sample, a volcano SDF stamp, a terrain edit) — re-seed
