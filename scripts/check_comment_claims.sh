@@ -16,6 +16,9 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The SLACK arm belongs to the integrator; a lane fails only on a rise. See scripts/lib_ceiling.sh.
+. "$REPO_ROOT/scripts/lib_ceiling.sh" 2>/dev/null || true
+export LA_CLAIMS_STRICT="$(ceiling_strict "$REPO_ROOT" 2>/dev/null || echo 0)"
 MAX_CLAIMS="${LA_MAX_COMMENT_CLAIMS:-}"
 CAP_FILE="$REPO_ROOT/docs/COMMENT_CLAIMS_CEILING"
 
@@ -100,8 +103,14 @@ if len(hits) > cap:
           % (len(hits), cap))
     print("put it in a gate, a test, or docs/. Source comments say what the code promises.")
     sys.exit(1)
+# A RATCHET THAT IS NOT TIGHTENED IS NOT A RATCHET. This printed a NOTE and exited 0, so the ceiling stayed
+# wherever it was first set and the slack only ever grew. Falling below is a failure carrying the number to
+# write, exactly like rising above — for the integrator. A lane fails only on a rise.
 if len(hits) < cap:
-    print("NOTE  %d below the ceiling — lower docs/COMMENT_CLAIMS_CEILING to %d to bank it."
-          % (cap - len(hits), len(hits)))
+    if os.environ.get("LA_CLAIMS_STRICT", "0") == "1":
+        print("\n%d comment claims, and docs/COMMENT_CLAIMS_CEILING says %d." % (len(hits), cap))
+        print("Write %d into it, in the commit that earned it." % len(hits))
+        sys.exit(1)
+    print("NOTE  %d below the ceiling — the integrator banks it." % (cap - len(hits)))
 print("check_comment_claims: OK")
 PY

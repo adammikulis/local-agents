@@ -6,6 +6,8 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh" 2>/dev/null || true
+# The SLACK arm belongs to the integrator; a lane fails only on a rise. See scripts/lib_ceiling.sh.
+. "$ROOT/scripts/lib_ceiling.sh" 2>/dev/null || true
 require_tool rg
 
 SCAN=("$ROOT/scripts" "$ROOT/addons/local_agents")
@@ -23,6 +25,11 @@ TELL='(^|\s)(#|//)\s*.*(\b20[0-9]{2}\b|\bmeasured\b|\bone session\b|\bthis sessi
 hits="$(rg -n --no-heading -g '*.sh' -g '*.gd' -g '*.glsl' -g '*.glsli' -g '*.py' -e "$TELL" "${SCAN[@]}" 2>/dev/null || true)"
 n="$(printf '%s' "$hits" | rg -c '.' || echo 0)"
 
+# The count, unconditionally and machine-readable: scripts/write_ceilings.sh reads it from here, because
+# only the gate knows how it counts. A number recoverable only from a prose failure message is a number
+# the integrator cannot bank.
+echo "COMMENT_HISTORY={\"count\":$n,\"cap\":$CEIL}"
+
 if [ "$n" -gt "$CEIL" ]; then
 	echo "check_comment_history: $n comment(s) tell a story, against a ceiling of $CEIL." >&2
 	printf '%s\n' "$hits" | head -20 | sed 's/^/  /' >&2
@@ -30,8 +37,8 @@ if [ "$n" -gt "$CEIL" ]; then
 	echo "Say what the code does and in what units. git log holds why it changed." >&2
 	exit 1
 fi
-if [ "$n" -lt "$CEIL" ]; then
+if [ "$n" -lt "$CEIL" ] && [ "$(ceiling_strict "$ROOT")" = "1" ]; then
 	echo "check_comment_history: $n and docs/COMMENT_HISTORY_CEILING says $CEIL. Write $n into it." >&2
 	exit 1
 fi
-echo "check_comment_history: OK ($n at the ceiling)"
+echo "check_comment_history: OK ($n against a ceiling of $CEIL)"

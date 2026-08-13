@@ -8,8 +8,8 @@ one thing nobody else has — **every creature thinks on your machine, offline**
 - Record with Godot **movie-maker** (`--write-movie=<path>`) at fixed fps — not a screen grab.
 - **Pin the world seed AND music seed** (`LA_MUSIC_SEED`) so retakes are identical.
 - Cameras: **fly/drone** (low, dynamic), **geosync** (locked tracking), **orbit** (reveals),
-  **solar-system view** (the pull-out). Use **`--fast`** for the day/night flash + volcano build, realtime
-  for the action.
+  **solar-system view** (the pull-out). Use the timeline's **`fast`** action — `set_time_scale`, which buys
+  steps and never moves the timestep — for the day/night flash + volcano build, realtime for the action.
 - Thought bubbles: the creature thought-inspector; select the featured creature deterministically.
 - Grade: warm golden open → fiery cataclysm → deep-space blue reveal. Music: calm → thunderous, event
   stings on impacts.
@@ -23,7 +23,7 @@ one thing nobody else has — **every creature thinks on your machine, offline**
 3. **0:08–0:11 (3s)** — **Civilization.** Quick **orbit** reveal of **villagers by their huts**, foxes at
    the margins — the world filling with minds.
 4. **0:11–0:14 (3s)** — **Hand of god.** The spawn-brush sweeps in a **forest**; a fast **day→night
-   flash** (`--fast`), clouds and rain. *You shape it; the climate is emergent.*
+   flash** (the `fast` action), clouds and rain. *You shape it; the climate is emergent.*
 5. **0:14–0:22 (8s)** — **CATACLYSM (the payoff).** **Volcano erupts** — lava **ejecta arcing** on real
    momentum, **lightning** in the ash, creatures fleeing, then a **new island rises** from the sea.
    **Fly-cam** pulling back through the chaos. Peak music + stings. *All emergent from one substrate.*
