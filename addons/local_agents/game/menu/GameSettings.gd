@@ -25,7 +25,6 @@ const SAVE_PATH: String = "user://game_settings.cfg"
 @export var actor_budget: int = 120           ## max concurrent creatures (spawn-count scale)
 @export var ai_tick_frames: int = 3           ## creatures re-decide every N frames (larger = cheaper CPU)
 @export var llm_cadence: float = 12.0         ## seconds between LLM cognition / narration calls
-@export var field_cadence: int = 1            ## field substrate steps every N frames (larger = cheaper CPU)
 
 @export var master_volume: float = 0.9
 @export var music_volume: float = 0.7
@@ -63,10 +62,10 @@ const GRAPHICS_PRESETS: Dictionary = {
 }
 
 const SIM_PRESETS: Dictionary = {
-	SimPreset.LOW: {"actor_budget": 48, "ai_tick_frames": 6, "llm_cadence": 24.0, "field_cadence": 1},
-	SimPreset.MEDIUM: {"actor_budget": 120, "ai_tick_frames": 3, "llm_cadence": 12.0, "field_cadence": 1},
-	SimPreset.HIGH: {"actor_budget": 240, "ai_tick_frames": 2, "llm_cadence": 8.0, "field_cadence": 1},
-	SimPreset.ULTRA: {"actor_budget": 360, "ai_tick_frames": 1, "llm_cadence": 5.0, "field_cadence": 1},
+	SimPreset.LOW: {"actor_budget": 48, "ai_tick_frames": 6, "llm_cadence": 24.0},
+	SimPreset.MEDIUM: {"actor_budget": 120, "ai_tick_frames": 3, "llm_cadence": 12.0},
+	SimPreset.HIGH: {"actor_budget": 240, "ai_tick_frames": 2, "llm_cadence": 8.0},
+	SimPreset.ULTRA: {"actor_budget": 360, "ai_tick_frames": 1, "llm_cadence": 5.0},
 }
 
 
@@ -97,7 +96,6 @@ func apply_sim_preset(preset: SimPreset) -> void:
 	actor_budget = int(row["actor_budget"])
 	ai_tick_frames = int(row["ai_tick_frames"])
 	llm_cadence = float(row["llm_cadence"])
-	field_cadence = int(row["field_cadence"])
 	sim_preset = preset
 
 
@@ -125,7 +123,7 @@ func _graphics_knobs() -> Dictionary:
 func _sim_knobs() -> Dictionary:
 	return {
 		"actor_budget": actor_budget, "ai_tick_frames": ai_tick_frames,
-		"llm_cadence": llm_cadence, "field_cadence": field_cadence,
+		"llm_cadence": llm_cadence,
 	}
 
 
@@ -172,7 +170,6 @@ static func load_or_default() -> LAGameSettings:
 	settings.actor_budget = int(config.get_value("simulation", "actor_budget", settings.actor_budget))
 	settings.ai_tick_frames = int(config.get_value("simulation", "ai_tick_frames", settings.ai_tick_frames))
 	settings.llm_cadence = float(config.get_value("simulation", "llm_cadence", settings.llm_cadence))
-	settings.field_cadence = int(config.get_value("simulation", "field_cadence", settings.field_cadence))
 	settings.master_volume = float(config.get_value("audio", "master_volume", settings.master_volume))
 	settings.music_volume = float(config.get_value("audio", "music_volume", settings.music_volume))
 	settings.sfx_volume = float(config.get_value("audio", "sfx_volume", settings.sfx_volume))
@@ -198,7 +195,6 @@ func save() -> int:
 	config.set_value("simulation", "actor_budget", actor_budget)
 	config.set_value("simulation", "ai_tick_frames", ai_tick_frames)
 	config.set_value("simulation", "llm_cadence", llm_cadence)
-	config.set_value("simulation", "field_cadence", field_cadence)
 	config.set_value("audio", "master_volume", master_volume)
 	config.set_value("audio", "music_volume", music_volume)
 	config.set_value("audio", "sfx_volume", sfx_volume)
@@ -213,7 +209,7 @@ func summary() -> String:
 		int(graphics_preset), grid_resolution, int(effects_level), int(shadow_quality),
 		str(ssao_enabled), str(glow_enabled), int(ocean_quality), str(fog_enabled),
 		vegetation_density, draw_distance,
-		int(sim_preset), actor_budget, ai_tick_frames, llm_cadence, field_cadence,
+		int(sim_preset), actor_budget, ai_tick_frames, llm_cadence,
 		master_volume, music_volume, sfx_volume,
 		str(invert_rotate_x), str(invert_rotate_y),
 	]

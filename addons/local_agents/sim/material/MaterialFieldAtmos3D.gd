@@ -73,7 +73,7 @@ func refresh_aggregates() -> void:
 	_f._cloud_cells_c = cloud_n
 	_f._cloud_cover_c = float(cloud_n) * inv if cloud_n >= 0 else NAN
 	_f._fog_cover_c = float(fog_n) * inv if fog_n >= 0 else NAN
-	_f._precip_c = clampf(float(precip_n) * inv * 40.0, 0.0, 1.0) if precip_n >= 0 else NAN
+	_f._precip_c = float(precip_n) * inv if precip_n >= 0 else NAN
 	_f._vapour_total_c = q.row_f("vapour_amount")
 
 
@@ -118,7 +118,7 @@ func avg_fog_cover() -> float:
 	return _f._fog_cover_c
 
 
-## Precipitation proxy 0..1.
+## Share of cells precipitating.
 func precipitation() -> float:
 	if _f._atmos_dirty:
 		refresh_aggregates()

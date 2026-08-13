@@ -18,8 +18,6 @@ var _ai_slider: HSlider = null
 var _ai_value: Label = null
 var _llm_slider: HSlider = null
 var _llm_value: Label = null
-var _field_slider: HSlider = null
-var _field_value: Label = null
 
 
 func setup(settings: LAGameSettings, on_changed: Callable) -> void:
@@ -59,11 +57,6 @@ func build(col: VBoxContainer) -> void:
 	_llm_slider = llm["slider"]
 	_llm_value = llm["value"]
 
-	var field: Dictionary = LASettingsWidgets.add_slider(col, "Field update cadence",
-		"How often the world substrate (water / heat / air / fire) steps, in frames. CPU cost: high.",
-		1.0, 6.0, 1.0, float(_settings.field_cadence), Callable(self, "_fmt_every_frames"), Callable(self, "_on_field"))
-	_field_slider = field["slider"]
-	_field_value = field["value"]
 
 	refresh()
 
@@ -104,12 +97,6 @@ func _on_llm(value: float) -> void:
 	_after_individual()
 
 
-func _on_field(value: float) -> void:
-	_field_value.text = _fmt_every_frames(value)
-	if _suppress:
-		return
-	_settings.field_cadence = int(round(value))
-	_after_individual()
 
 
 func _after_individual() -> void:
@@ -135,8 +122,6 @@ func refresh() -> void:
 	_ai_value.text = _fmt_every_frames(float(_settings.ai_tick_frames))
 	_llm_slider.set_value_no_signal(_settings.llm_cadence)
 	_llm_value.text = _fmt_seconds(_settings.llm_cadence)
-	_field_slider.set_value_no_signal(float(_settings.field_cadence))
-	_field_value.text = _fmt_every_frames(float(_settings.field_cadence))
 	_refresh_preset_highlight()
 	_suppress = false
 

@@ -50,7 +50,7 @@ Commands:
                 Set LA_GATE_MODEL=/path/to/model.gguf to also require a real reply.
   sim [args]    Run the planet and print its books via scripts/sim_run.sh. Off-screen, streamer off,
                 re-imports first so stale kernels cannot fake a report. Defaults to the standard
-                verification arm (200 frames, seed 4242, --fast=8, --planet-only --no-fauna).
+                verification arm (200 steps, seed 4242, --planet-only --no-fauna).
                 e.g. agent_harness.sh sim --frames 600      agent_harness.sh sim --raw
   score [args]  PHYSICS_RUBRIC.md, all ten criteria, COMPUTED. Never hand-enter a row: the half a person
                 scores is the half that moves. Prints the table row ready to paste. Takes its own

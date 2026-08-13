@@ -197,7 +197,7 @@ func _update_day_night() -> void:
 	if _planet_mode:
 		var pstorm: float = 1.0
 		if _material != null:
-			pstorm = 1.0 - float(_material.precipitation()) * 0.68
+			pstorm = 1.0 - _rain_dial() * 0.68
 			pstorm *= 1.0 - clampf(_material.avg_cloud_cover() * 1.5, 0.0, 0.6)
 		var pup: Vector3 = Vector3.UP if absf(_sun_shine.dot(Vector3.UP)) < 0.98 else Vector3.RIGHT
 		_sun.look_at_from_position(Vector3.ZERO, _sun_shine, pup)   # light travels along _sun_shine
@@ -214,7 +214,7 @@ func _update_day_night() -> void:
 	# The field's own precipitation dims the sun/ambient on top of the day cycle.
 	var rain: float = 0.0
 	if _material != null and _material.has_method("precipitation"):
-		rain = float(_material.precipitation())
+		rain = _rain_dial()
 	var storm: float = 1.0 - rain * 0.68
 	# Overcast skies (the field's own emergent cloud cover) dim the sun + ambient on top of rain.
 	var cloud_cover: float = 0.0
@@ -296,3 +296,11 @@ func _surface_blend() -> float:
 	if cam != null and cam.has_method("surface_blend"):
 		return cam.surface_blend()
 	return 0.0
+
+
+## Precipitating cell share to a 0..1 sky dial. The scale is the renderer's, not the field's.
+const RAIN_FULL_SHARE: float = 0.025
+func _rain_dial() -> float:
+	if _material == null or not _material.has_method("precipitation"):
+		return 0.0
+	return clampf(float(_material.precipitation()) / RAIN_FULL_SHARE, 0.0, 1.0)
