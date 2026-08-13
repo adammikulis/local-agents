@@ -6,7 +6,8 @@ const RecordsScript: GDScript = preload("res://addons/local_agents/sim/material/
 const SampleScript: GDScript = preload("res://addons/local_agents/sim/material/FieldStepSample3D.gd")
 
 ## Per-pass attribution for an ELEMENT, in moles. `LA_ELEMENT_BUDGET=C`; comma-separate for several, `all`
-## for every element any channel carries. Moles come from LAFieldLedgerRecords.elements_of.
+## for every element any channel carries. Moles come from LAFieldLedgerRecords.elements_of, and which
+## channels carry which element from LAReactionBalance, which owns composition.
 
 var _f = null
 var _elements: PackedStringArray = PackedStringArray()

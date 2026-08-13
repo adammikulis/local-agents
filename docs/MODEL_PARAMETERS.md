@@ -99,7 +99,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_SUBTRACT` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MULTIPLY` | 7 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_ABS` | 11 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `AIRBORNE_PRESENT` | 0.001 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `TUBE_MELT_NEAR_ZERO` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MIN` | 16 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MAX` | 17 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |

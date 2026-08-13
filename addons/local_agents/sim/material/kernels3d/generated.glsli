@@ -77,6 +77,18 @@
 #define TF_FRACTION 16u
 #define TF_DILUTE 32u
 
+// ReduceRecords.gd Op enum
+#define OP_SUM 0u
+#define OP_COUNT_GT 1u
+#define OP_COUNT_GE 2u
+#define OP_SUM_ABS_DIFF 3u
+#define OP_LATCH 4u
+
+// ReduceRecords.gd Mask enum
+#define MASK_ALL 0u
+#define MASK_OPEN 1u
+#define MASK_SOLID 2u
+
 // MaterialFieldRegolith3D.gd, reactions/ReactionThermo.gd
 #define REGOLITH_CELLS 4
 const float EXP_LIMIT = 60.0;

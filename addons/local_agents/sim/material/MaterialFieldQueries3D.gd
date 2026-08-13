@@ -6,7 +6,6 @@ const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/
 ## LAMaterialFieldQueries3D: the READ-ONLY query accessors of the dense 3D MaterialField3D, factored
 
 # Basin depth (world units) mapped to a 0..1 salinity band. NOT a simulated solute.
-const AIRBORNE_PRESENT: float = 0.001  # gauge floor: airborne mineral volume fraction per cell
 const MOLTEN_MIN: float = 0.0001       # gauge floor: molten mineral volume fraction per cell
 const FIRE_PRESENT: float = 0.02       # gauge floor: fraction of a cell's usable O2 burned this step
 
@@ -398,7 +397,7 @@ func rock_cells() -> int:
 	return n
 
 
-# --- Combustion FIRE diagnostics. Fuel totals live in the ledger. -------------------------------------
+# --- Combustion FIRE diagnostics. Fuel totals live in LAMaterialFieldLedger3D. ------------------------
 
 ## Peak intensity, burning-cell count, and whether the demand-gated `fire` readback landed on the last drain.
 func fire_stats() -> Dictionary:

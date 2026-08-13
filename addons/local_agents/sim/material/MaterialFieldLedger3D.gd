@@ -1,8 +1,8 @@
 class_name LAMaterialFieldLedger3D
 extends RefCounted
 
-## THE conservation ledger. One probe read, one volume-weighted walk, one set of drift books, and a publisher
-## per conserved substance — H2O, mineral, the element inventory, and the thermal stock.
+## THE conservation ledger. One reduction read off the device, one set of drift books, and a publisher per
+## conserved substance — H2O, mineral, the element inventory, and the thermal stock.
 
 const FoldScript: GDScript = preload("res://addons/local_agents/sim/material/FieldLedgerFold3D.gd")
 const BooksScript: GDScript = preload("res://addons/local_agents/sim/material/FieldLedgerBooks3D.gd")
@@ -37,13 +37,13 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	if _f == null or _f._cell_count <= 0:
 		return out
 	var t0: int = Time.get_ticks_usec()
-	var ch: Dictionary = _fold.take_legs()
-	if ch.is_empty():
-		return out
-	var step: int = _fold.probe_step(step_index)
-	var f: Dictionary = _fold.fold(ch, step, _books.sealed(), _f._solid, _f._temp)
+	var f: Dictionary = _fold.fold()
 	if f.is_empty():
 		return out
+	# The step the reduction ran at, which is not the step the report is being written at.
+	var step: int = int(f["step"])
+	if step < 0:
+		step = step_index
 	_samples += 1
 	_publish_h2o(out, f, step)
 	_publish_mineral(out, f, step)
@@ -81,7 +81,6 @@ func _publish_h2o(out: Dictionary, f: Dictionary, step: int) -> void:
 	if f.has("snow_cells"):
 		out["snow_cells"] = f["snow_cells"]
 		out["ice_cells"] = f["ice_cells"]
-		out["snow_line_temp"] = snappedf(float(f["snow_line_temp"]), 0.1)
 	var s: Array = _books.sample("h2o", h2o, step)
 	if not s.is_empty():
 		out["h2o_drift"] = snappedf(float(s[0]), 0.01)
@@ -204,18 +203,11 @@ func _publish_element(out: Dictionary, f: Dictionary, step: int) -> void:
 	var oxidant_all: float = LAFieldLedgerRecords.sum_of(all, LAFieldLedgerRecords.OXIDANT)
 	var closed: float = LAFieldLedgerRecords.sum_of(open, LAFieldLedgerRecords.CARBON_CLOSED)
 	var closed_all: float = LAFieldLedgerRecords.sum_of(all, LAFieldLedgerRecords.CARBON_CLOSED)
-	var n_org: float = LAFieldLedgerRecords.sum_of(open, LAFieldLedgerRecords.NITROGEN_ORGANIC)
-	var n_org_all: float = LAFieldLedgerRecords.sum_of(all, LAFieldLedgerRecords.NITROGEN_ORGANIC)
-	var nitrogen: float = float(open["fert"]) + n_org / LAPhysical.LITTER_C_TO_N
-	var nitrogen_all: float = float(all["fert"]) + n_org_all / LAPhysical.LITTER_C_TO_N
 	out["oxidant_total"] = snappedf(oxidant, 0.01)
 	out["oxidant_all"] = snappedf(oxidant_all, 0.01)
 	out["carbon_closed_total"] = snappedf(closed, 0.01)
 	out["carbon_closed_all"] = snappedf(closed_all, 0.01)
 	out["carbon_closed_buried"] = snappedf(closed_all - closed, 0.01)
-	out["nitrogen_total"] = snappedf(nitrogen, 0.01)
-	out["nitrogen_all"] = snappedf(nitrogen_all, 0.01)
-	out["nitrogen_buried"] = snappedf(nitrogen_all - nitrogen, 0.01)
 
 	var open_by: Dictionary = _subset(open, LAFieldLedgerRecords.ELEMENT)
 	var all_by: Dictionary = _subset(all, LAFieldLedgerRecords.ELEMENT)
@@ -225,6 +217,15 @@ func _publish_element(out: Dictionary, f: Dictionary, step: int) -> void:
 	var elements_all: Dictionary = LAFieldLedgerRecords.elements_of(all_by)
 	for el_a in elements_all:
 		out["element_" + String(el_a) + "_all"] = snappedf(float(elements_all[el_a]), 0.01)
+	# Moles of N over every pool that carries it, the atmosphere included, straight off the element sums. A
+	# channel amount IS moles, so dividing one by a carbon-to-nitrogen MASS ratio was neither moles nor kg.
+	var nitrogen: float = float(elements.get("N", 0.0))
+	var nitrogen_all: float = float(elements_all.get("N", 0.0))
+	out["n2_total"] = snappedf(float(open["n2"]), 0.01)
+	out["n2_all"] = snappedf(float(all["n2"]), 0.01)
+	out["nitrogen_total"] = snappedf(nitrogen, 0.01)
+	out["nitrogen_all"] = snappedf(nitrogen_all, 0.01)
+	out["nitrogen_buried"] = snappedf(nitrogen_all - nitrogen, 0.01)
 
 	var steps: int = 0
 	for pair in [["carbon", carbon], ["o2", float(open["o2"])], ["fert", float(open["fert"])],
@@ -266,7 +267,6 @@ func _run_pair(out: Dictionary, name: String, book: String, seed_key: String, va
 
 func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int) -> void:
 	out["energy_stock_cells"] = f["cells"]
-	out["energy_stock_live"] = f.get("energy_live", {})
 	var missing: PackedStringArray = f.get("energy_missing", PackedStringArray())
 	if missing.size() > 0 or not f.has("energy_stock"):
 		out["energy_stock_missing"] = missing

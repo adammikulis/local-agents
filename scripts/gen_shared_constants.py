@@ -16,6 +16,7 @@ REACTION_DEFS = os.path.join(SIM, "material", "reactions", "ReactionDefs.gd")
 REACTION_THERMO = os.path.join(SIM, "material", "reactions", "ReactionThermo.gd")
 CELL_LIST_PASS = os.path.join(SIM, "material", "sphere_passes", "CellListPass.gd")
 TRANSPORT_RECORDS = os.path.join(ROOT, "addons/local_agents/sim/material/TransportRecords.gd")
+REDUCE_RECORDS = os.path.join(ROOT, "addons/local_agents/sim/material/ReduceRecords.gd")
 REGOLITH = os.path.join(SIM, "material", "MaterialFieldRegolith3D.gd")
 RENDER = os.path.join(SIM, "material", "MaterialFieldRender3D.gd")
 
@@ -156,6 +157,17 @@ def transport_laws():
     return list(enumerate(names))
 
 
+def reduce_enum(kind):
+    """LAReduceRecords' Op/Mask enums, which reduce.glsl must not restate."""
+    m = re.search(r"^enum %s \{ ([A-Z_, ]+) \}" % kind, read(REDUCE_RECORDS), re.M)
+    if not m:
+        raise Missing("ReduceRecords.gd declares no `enum %s`" % kind)
+    names = [n.strip() for n in m.group(1).split(",") if n.strip()]
+    if not names:
+        raise Missing("ReduceRecords.gd's `enum %s` is empty" % kind)
+    return list(enumerate(names))
+
+
 def face_frames():
     return FACE_FRAMES
 
@@ -183,6 +195,14 @@ def glsli_text():
     lines.append("// TransportRecords.gd Flag enum")
     for name, value in transport_flags():
         lines.append("#define TF_%s %du" % (name, value))
+    lines.append("")
+    lines.append("// ReduceRecords.gd Op enum")
+    for value, name in reduce_enum("Op"):
+        lines.append("#define OP_%s %du" % (name, value))
+    lines.append("")
+    lines.append("// ReduceRecords.gd Mask enum")
+    for value, name in reduce_enum("Mask"):
+        lines.append("#define MASK_%s %du" % (name, value))
     lines.append("")
     lines.append("// MaterialFieldRegolith3D.gd, reactions/ReactionThermo.gd")
     lines.append("#define REGOLITH_CELLS %d" % const_int(REGOLITH, "REGOLITH_CELLS"))

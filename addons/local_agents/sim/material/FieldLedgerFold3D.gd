@@ -1,185 +1,60 @@
 class_name LAFieldLedgerFold3D
 extends RefCounted
 
-## The ONE walk every conserved substance is summed by. Reads the drain probe, weights each channel by the
-## cell's own volume in cubic metres, and returns per-channel open/mask-free amounts plus the thermal stock.
+## The ledger's reading of the field's own reduction: LAReduceRecords declares the rows, ReducePass runs
+## them on the device, and this reshapes the drained keys into per-channel books. A row whose buffer was
+## absent has no key here and its consumer publishes null, because a missing measurement is missing.
 
 var _f = null
-
-# Baseline bedrock, and the step it was latched at.
-var _silicate_ref: PackedFloat32Array = PackedFloat32Array()
-var _silicate_ref_step: int = -1
 
 
 func setup(field) -> void:
 	_f = field
 
 
-## Collect the probe armed by the previous call and arm the next. Returns channel name -> array, with an
-## EMPTY array for any leg that did not arrive.
-func take_legs() -> Dictionary:
+## Per-channel open/mask-free amounts, the counts, and the thermal stock, all off the device.
+func fold() -> Dictionary:
 	var out: Dictionary = {}
-	if _f == null or _f._gpu == null or not _f._gpu.has_method("take_probe"):
+	if _f == null or _f._cell_count <= 0 or _f._gpu == null:
 		return out
-	var cc: int = _f._cell_count
-	var want: PackedStringArray = LAFieldLedgerRecords.all_legs()
-	var legs: Dictionary = _f._gpu.take_probe()
-	_f._gpu.request_probe(want)
-	for name in want:
-		var arr: PackedFloat32Array = legs.get(name, PackedFloat32Array())
-		out[name] = arr if arr.size() == cc else PackedFloat32Array()
-	return out
-
-
-## The step the probe legs were sampled at, which is not the step the report is being written at.
-func probe_step(fallback: int) -> int:
-	if _f != null and _f._gpu != null and _f._gpu.has_method("probe_step"):
-		var s: int = int(_f._gpu.probe_step())
-		if s >= 0:
-			return s
-	return fallback
-
-
-## Walk the grid once. Returns the per-channel amounts, the counts, and the thermal stock terms.
-func fold(ch: Dictionary, step_index: int, sealed: bool, solid: PackedByteArray,
-		temp: PackedFloat32Array) -> Dictionary:
-	var out: Dictionary = amounts(ch, solid, temp, true)
-	if out.is_empty():
+	if not _f._gpu.has_method("take_pass_results"):
 		return out
-	var cc: int = _f._cell_count
-	_count_presence(out, ch, temp, cc)
-	_crust(out, ch, cc, step_index, sealed)
-	return out
-
-
-## The per-channel open/mask-free amounts, in cubic metres of channel. `temp` is in degrees Celsius and is
-## required only when `want_energy`, which appends the thermal stock and its dU split.
-func amounts(ch: Dictionary, solid: PackedByteArray, temp: PackedFloat32Array,
-		want_energy: bool) -> Dictionary:
-	var out: Dictionary = {}
-	if _f == null or _f._cell_count <= 0:
+	var r: Dictionary = _f._gpu.take_pass_results()
+	if r.is_empty():
 		return out
-	var cc: int = _f._cell_count
-	if solid.size() != cc:
-		return out
-	var cell_size: float = float(_f._cell_size)
-	if cell_size <= 0.0:
-		return out
-
-	# Cell volumes in cubic metres, once. Channel values are intensive; the amount is value * volume. One
-	# uniform grid, so one volume.
-	var uniform_m3: float = pow(cell_size, 3.0)
-	var vol: PackedFloat64Array = PackedFloat64Array()
-	vol.resize(cc)
-	vol.fill(uniform_m3)
-	var vol_total_m3: float = uniform_m3 * float(cc)
-	var open_cells: int = 0
-	var solid_cells: int = 0
-	for c in cc:
-		if solid[c] == 0:
-			open_cells += 1
-		else:
-			solid_cells += 1
-
 	var live: Dictionary = {}
-	var amt_open: Dictionary = {}
 	var amt_all: Dictionary = {}
-	for name in ch:
-		var a: PackedFloat32Array = ch[name]
-		var present: bool = a.size() == cc
+	var amt_open: Dictionary = {}
+	for name in LAReduceRecords.AMOUNTS:
+		var present: bool = r.has("all_" + name) and r.has("open_" + name)
 		live[name] = present
 		if not present:
 			continue
-		var s_all: float = 0.0
-		var s_open: float = 0.0
-		for c in cc:
-			var av: float = a[c] * vol[c]
-			s_all += av
-			if solid[c] == 0:
-				s_open += av
-		amt_all[name] = s_all
-		amt_open[name] = s_open
-
+		amt_all[name] = float(r["all_" + name])
+		amt_open[name] = float(r["open_" + name])
+	var cc: int = _f._cell_count
+	# `solid` is 0 or 1 on the device (solid_derive_sphere3d.glsl), so every cell is open or solid.
+	var solid_cells: int = int(r.get("solid_cells", 0.0))
 	out["cells"] = cc
-	out["open_cells"] = open_cells
 	out["solid_cells"] = solid_cells
-	out["vol_total_m3"] = vol_total_m3
+	out["open_cells"] = cc - solid_cells
+	out["vol_total_m3"] = pow(float(_f._cell_size), 3.0) * float(cc)
 	out["live"] = live
-	out["open"] = amt_open
 	out["all"] = amt_all
-	if want_energy:
-		_energy(out, ch.get("h_j_m3", PackedFloat32Array()), solid, vol, cc)
-	return out
-
-
-## Threshold counts and the snow-line mean. These compare a per-cell FRACTION against a fraction threshold,
-## so they stay UNWEIGHTED — multiplying one side by a volume would move the threshold per cell.
-func _count_presence(out: Dictionary, ch: Dictionary, temp: PackedFloat32Array, cc: int) -> void:
-	var carb: PackedFloat32Array = ch.get("carbonate", PackedFloat32Array())
-	if carb.size() == cc:
-		var n_carb: int = 0
-		for c in cc:
-			if carb[c] > 0.0:
-				n_carb += 1
-		out["carbonate_cells"] = n_carb
-	var sil: PackedFloat32Array = ch.get("silicate", PackedFloat32Array())
-	var air: PackedFloat32Array = ch.get("silicate_susp_air", PackedFloat32Array())
-	if sil.size() == cc and air.size() == cc:
-		var n_air: int = 0
-		for c in cc:
-			if maxf(sil[c], 0.0) * clampf(air[c], 0.0, 1.0) > LAMaterialFieldQueries3D.AIRBORNE_PRESENT:
-				n_air += 1
-		out["airborne_cells"] = n_air
-	# The frozen share of the one h2o channel: the ladder's own solid fraction, not a separate stock.
-	var h2o: PackedFloat32Array = ch.get("h2o", PackedFloat32Array())
-	var fs: PackedFloat32Array = ch.get("h2o_solid", PackedFloat32Array())
-	if h2o.size() == cc and fs.size() == cc and temp.size() == cc:
-		var n_snow: int = 0
-		var n_ice: int = 0
-		var t_sum: float = 0.0
-		for c in cc:
-			var ice: float = maxf(h2o[c], 0.0) * clampf(fs[c], 0.0, 1.0)
-			if ice > LAMaterialField3D.SNOW_PRESENT:
-				n_snow += 1
-				t_sum += temp[c]
-			if ice >= LAMaterialField3D.ICE_DEPTH:
-				n_ice += 1
-		out["snow_cells"] = n_snow
-		out["ice_cells"] = n_ice
-		out["snow_line_temp"] = (t_sum / float(n_snow)) if n_snow > 0 else 0.0
-
-
-## How far the CRUST has travelled since the books closed, as a fraction. Consolidated rock only: loose
-## grains blowing about are sediment transport, not continental drift. Churn, not matter, so UNWEIGHTED.
-func _crust(out: Dictionary, ch: Dictionary, cc: int, step_index: int, sealed: bool) -> void:
-	var sil_raw: PackedFloat32Array = ch.get("silicate", PackedFloat32Array())
-	var cem: PackedFloat32Array = ch.get("cement", PackedFloat32Array())
-	if sil_raw.size() != cc or cem.size() != cc:
-		return
-	var sil: PackedFloat32Array = PackedFloat32Array()
-	sil.resize(cc)
-	for c in cc:
-		sil[c] = maxf(sil_raw[c], 0.0) * clampf(cem[c], 0.0, 1.0)
-	if _silicate_ref.size() == cc:
-		var moved: float = 0.0
-		for c in cc:
-			moved += absf(sil[c] - _silicate_ref[c])
-		out["crust_moved"] = moved * 0.5
-		out["crust_ref_step"] = _silicate_ref_step
-	elif sealed:
-		_silicate_ref = sil.duplicate()
-		_silicate_ref_step = step_index
-
-
-## The thermal stock, in joules: the enthalpy the cells hold. `h` is J/m^3, so the stock is h * volume and
-## there is nothing to reconstruct.
-func _energy(out: Dictionary, h: PackedFloat32Array, _solid: PackedByteArray,
-		vol: PackedFloat64Array, cc: int) -> void:
-	if h.size() != cc:
+	out["open"] = amt_open
+	out["step"] = int(r.get("reduce_step", -1.0))
+	if r.has("carbonate_cells"):
+		out["carbonate_cells"] = int(r["carbonate_cells"])
+	if r.has("snow_cells") and r.has("ice_cells"):
+		out["snow_cells"] = int(r["snow_cells"])
+		out["ice_cells"] = int(r["ice_cells"])
+	# Half, because a cell that gained rock is matched by one that lost it.
+	if r.has("crust_moved") and int(r.get("crust_ref_step", -1.0)) >= 0:
+		out["crust_moved"] = float(r["crust_moved"]) * 0.5
+		out["crust_ref_step"] = int(r["crust_ref_step"])
+	if r.has("energy_stock"):
+		out["energy_missing"] = PackedStringArray()
+		out["energy_stock"] = float(r["energy_stock"])
+	else:
 		out["energy_missing"] = PackedStringArray(["h_j_m3"])
-		return
-	out["energy_missing"] = PackedStringArray()
-	var stock: float = 0.0
-	for c in cc:
-		stock += h[c] * vol[c]
-	out["energy_stock"] = stock
+	return out

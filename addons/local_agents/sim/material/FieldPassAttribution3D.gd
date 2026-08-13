@@ -2,14 +2,12 @@ class_name LAFieldPassAttribution3D
 extends RefCounted
 
 ## Between-pass attribution for one conserved substance: which pass changed its total, and by how much.
-## The substance is data (LAFieldAttributionRecords); the walk is LAFieldLedgerFold3D's; this file owns the
+## A sample sums the halves it downloaded at the checkpoint; the ledger's totals come off the device.
 
-const FoldScript: GDScript = preload("res://addons/local_agents/sim/material/FieldLedgerFold3D.gd")
 const SampleScript: GDScript = preload("res://addons/local_agents/sim/material/FieldStepSample3D.gd")
 
 var _f = null                              # back-reference to the owning LAMaterialField3D
 var _rec: Dictionary = {}
-var _fold = null
 var _sched = null                          # LAFieldStepSample3D: which steps are checkpointed
 
 var _done: Dictionary = {}                 # pass name -> true, once it has run this step
@@ -19,7 +17,6 @@ var _start: Dictionary = {}                # scalar -> value at the step's openi
 var _legs: Dictionary = {}                 # scalar -> {leg key -> delta}
 var _parts: Dictionary = {}                # scalar -> per-channel closing split
 var _pair_end: Dictionary = {}             # scalar -> closing value of the pair's first sample
-var _cum: Dictionary = {}                  # scalar -> running within-step sum, for the energy split terms
 
 
 func setup(field, record: Dictionary) -> void:
@@ -28,13 +25,12 @@ func setup(field, record: Dictionary) -> void:
 		return
 	_f = field
 	_rec = record
-	_fold = FoldScript.new()
-	_fold.setup(field)
 	_sched = SampleScript.new()
 	_sched.setup(field)
 
 
-## Called once per field step BEFORE _gpu.step().
+## Called once per field step BEFORE _gpu.step(). Arms the driver's between-pass probe on the steps this
+## sampler wants and leaves it disarmed otherwise.
 func pre_step() -> void:
 	if _sched == null:
 		return
@@ -49,7 +45,6 @@ func on_checkpoint(pass_index: int, pass_name: String) -> void:
 		_done = {}
 		_legs = {}
 		_parts = {}
-		_cum = {}
 		var opening: Dictionary = _sample()
 		_start = opening.duplicate()
 		_prev = opening.duplicate()
@@ -72,11 +67,11 @@ func post_step() -> void:
 	if _sched == null or _sched.pair() == 0:
 		return
 	var marker: String = String(_rec.get("marker", ""))
-	var out: Dictionary = {}
+	var out: Dictionary = {"field_step": SampleScript.field_step(_f), "pair": _sched.pair()}
 	if not _missing.is_empty():
 		out["refused"] = true
 		out["missing"] = _missing
-		_sched.publish(marker, out)
+		print(marker, "=", JSON.stringify(out))
 		_clear_step()
 		return
 	if _legs.is_empty():
@@ -99,7 +94,7 @@ func post_step() -> void:
 		if violations.size() > 0:
 			out["INSTRUMENT_WRONG_silent_pass_moved_heat"] = violations
 	_pair_end = _prev.duplicate()
-	_sched.publish(marker, out)
+	print(marker, "=", JSON.stringify(out))
 	_clear_step()
 
 
@@ -166,12 +161,10 @@ func _sample() -> Dictionary:
 	var ch: Dictionary = {}
 	for name in channels:
 		ch[name] = gpu.read_raw(name, _half(String(name), phase))
-	var temp: PackedFloat32Array = PackedFloat32Array()
 	if energy:
 		# The stock is enthalpy; temperature is derived and books nothing.
 		ch["h_j_m3"] = gpu.read_raw("h_j_m3", _half("h_j_m3", phase))
-		temp = gpu.read_raw("temp", 0)
-	var f: Dictionary = _fold.amounts(ch, _mask(gpu.read_raw("solid", 0), cc), temp, energy)
+	var f: Dictionary = _sums(ch, gpu.read_raw("solid", 0), cc, energy)
 	if f.is_empty():
 		_missing = PackedStringArray(["solid"])
 		return {}
@@ -219,11 +212,38 @@ func _half(name: String, phase: int) -> int:
 	return phase
 
 
-func _mask(solid: PackedFloat32Array, cc: int) -> PackedByteArray:
-	var out: PackedByteArray = PackedByteArray()
+## Mask-free and open-only amounts of the halves this checkpoint downloaded, in cubic metres of channel.
+## One uniform grid, so one volume; `temp` books nothing, the stock is the enthalpy.
+func _sums(ch: Dictionary, solid: PackedFloat32Array, cc: int, energy: bool) -> Dictionary:
 	if solid.size() < cc:
-		return out
-	out.resize(cc)
+		return {}
+	var m3: float = pow(float(_f._cell_size), 3.0)
+	var live: Dictionary = {}
+	var all_by: Dictionary = {}
+	var open_by: Dictionary = {}
+	var solid_cells: int = 0
 	for c in cc:
-		out[c] = 1 if solid[c] != 0.0 else 0
+		if solid[c] != 0.0:
+			solid_cells += 1
+	for name in ch:
+		var a: PackedFloat32Array = ch[name]
+		live[name] = a.size() == cc
+		if a.size() != cc:
+			continue
+		var s_all: float = 0.0
+		var s_open: float = 0.0
+		for c in cc:
+			var av: float = a[c] * m3
+			s_all += av
+			if solid[c] == 0.0:
+				s_open += av
+		all_by[name] = s_all
+		open_by[name] = s_open
+	var out: Dictionary = {"live": live, "all": all_by, "open": open_by, "solid_cells": solid_cells}
+	if energy:
+		out["energy_stock"] = float(all_by.get("h_j_m3", 0.0))
 	return out
+
+
+
+

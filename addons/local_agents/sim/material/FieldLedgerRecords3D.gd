@@ -12,36 +12,20 @@ const H2O: PackedStringArray = ["h2o"]
 ## The lithosphere. `MINERAL_SUM` is the conserved total; carbonate and silica are memo lines outside it.
 const MINERAL: PackedStringArray = ["silicate", "carbonate", "silica"]
 const MINERAL_SUM: PackedStringArray = ["silicate"]
-## Not matter: the derived state of the silicate. The crust gauge needs `cement` to tell rock from grains,
-## the presence counts need the airborne share.
-const FABRIC: PackedStringArray = ["cement", "silicate_susp_air"]
-
 ## The atmosphere/biosphere element book.
-const ELEMENT: PackedStringArray = ["co2", "o2", "detritus", "biomass", "fert", "fungus", "fuel"]
+const ELEMENT: PackedStringArray = ["co2", "o2", "detritus", "biomass", "fert", "fungus", "fuel", "n2"]
 ## The reaction table's closed carbon triangle.
 const CARBON: PackedStringArray = ["co2", "biomass", "detritus"]
 ## Carbon over every pool that carries it, not only the three the reaction table moves between.
 const CARBON_CLOSED: PackedStringArray = ["co2", "biomass", "detritus", "fungus", "fuel"]
 ## O2-equivalent sum the reaction table holds.
 const OXIDANT: PackedStringArray = ["o2", "co2"]
-## Nitrogen-bearing organic pools, divided by LAPhysical.LITTER_C_TO_N in the ledger.
-const NITROGEN_ORGANIC: PackedStringArray = ["biomass", "detritus", "fungus", "fuel"]
 
 
 ## The energy stock is one channel. It used to be the fifteen channels a mixture capacity read, plus the
 ## pore fraction that converted the matrix one.
 static func energy() -> PackedStringArray:
 	return PackedStringArray(["h_j_m3"])
-
-
-## Union of every substance's legs — the one `request_probe` list.
-static func all_legs() -> PackedStringArray:
-	var out: PackedStringArray = PackedStringArray()
-	for group in [energy(), H2O, MINERAL, ELEMENT, FABRIC]:
-		for name in group:
-			if not out.has(name):
-				out.append(name)
-	return out
 
 
 ## Moles of each element held by a set of channel amounts, from the same declaration the load-time reaction
@@ -54,6 +38,10 @@ static func elements_of(by_channel: Dictionary) -> Dictionary:
 		for el in parts:
 			out[el] = float(out.get(el, 0.0)) + moles * float(parts[el])
 	return out
+
+
+
+
 
 
 ## The same book restricted to the lithosphere channels.
