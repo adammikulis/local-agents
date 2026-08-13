@@ -121,50 +121,41 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
   per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
 - The driver: `MaterialSphereGPU3D.gd` and `MaterialField3D.gd`. Last, after the pass seam settles.
 
-## 8. Delete these
-
-- `MaterialField3D._charge_woke` — declared, never written, never read.
-- `CreatureLod`'s `LA_NO_PHYS_LOD`, which keeps a superseded LOD tier reachable and gates on
-  `OS.has_environment`, true for `env FOO=`.
-- `deficit_cause`'s "starvation" label in `CreatureRespiration`, for a per-genome thermal band failure.
-- `SimRng.rand_dir` advances the generator three times and counts one draw, so the determinism probe
-  under-reports divergence involving it.
-
-## 9. Give `scent` a row in `Channels.gd` or delete its readers
+## 8. Give `scent` a row in `Channels.gd` or delete its readers
 
 It has no row, so the transport set cannot carry it, and it cannot stay half-present.
 
-## 10. Make `_read_channels`'s SLOW block read `slow_channels()`
+## 9. Make `_read_channels`'s SLOW block read `slow_channels()`
 
 It hardcodes `["silicate", "fert"]` and `["biomass", "cement", ...]`, so `slow_channels()` is a view nothing
 consumes and `porosity` never gets its coarse readback.
 
-## 11. Build the binding registry
+## 10. Build the binding registry
 
 SSBO binding numbers are a bare integer in GLSL and a second bare integer in one of fourteen uniform-set
 builders, held equal by nothing. Build `sim/material/Bindings.gd` on `Channels.gd`'s shape — a
 `static func rows()`, never a `const Dictionary` built from another script's constants — and one gate
 absorbing the hand-written binding stanzas. Mutation-test it both ways.
 
-## 12. Make `lint` distinguish "could not run" from "violated"
+## 11. Make `lint` distinguish "could not run" from "violated"
 
 It is fail-fast and collapses every gate's exit code to 1, so the exit-2 contract asserted in about ten gate
 headers and in `lint.yml` is not observable. Fix the harness, not the gates.
 
-## 13. Fix the conservation ceiling's units
+## 12. Fix the conservation ceiling's units
 
 `check()` compares a per-step rate against a single-sample round-off floor, and round-off does not
 accumulate linearly. Compare the magnitude, not the magnitude over elapsed. Take it after item 2, because
 against the current substrate it fires on every substance and drives every run to the violation exit code.
 
-## 14. Find why a run costs render frames
+## 13. Find why a run costs render frames
 
 `--run-frames=N` ends in `LocalAgentDemoHarness._tick_run`, counted in physics frames, and a 64-frame run
 does not reach it. `TIME_PHYSICS_PROCESS` and `TIME_PROCESS` together account for a small part of the frame
 period, so the rest is engine work no script callback owns. Start at godot_voxel's main-thread apply and the
 physics server. Item 1 may dissolve this.
 
-## 15. Two constants that are not what they name
+## 14. Two constants that are not what they name
 
 - `AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`, and it is the unit
   definition of the `o2`, `co2` and `n2` channels, so correcting it rescales every gas total.
