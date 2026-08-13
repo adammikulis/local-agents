@@ -82,6 +82,14 @@ fi
 # water particles, the vegetation renderer, the biome and sea-ice shaders, the drainage overlay or the
 # thought panel — those are `add_child` calls guarded by `if not _input.bare()`, so bare does not hide them,
 # it never builds them. Pass --with-ui to get them back for a look at the world.
+# --planet-only builds no life at all, so it does not merely outrank --fauna, it makes it a no-op: the run
+# reports LIFE_MODE={mode:planet_only, fauna:false} while the caller believes animals are in it and reads
+# the result as an arm that exercised them. Refuse the pair rather than silently picking one.
+if [ "$FAUNA" -eq 1 ] && [ "$FULL" -eq 0 ]; then
+	echo "sim_run: --fauna needs --full. Without it the arm is --planet-only, which builds no life," >&2
+	echo "         so --fauna would change nothing and the run would not be the arm you asked for." >&2
+	exit 2
+fi
 ARGS=(--sandbox "--run-frames=${FRAMES}" "--fast=${FAST}" "--seed=${SEED}")
 [ "${WITH_UI:-0}" -eq 0 ] && ARGS+=(--bare)
 [ "$FULL" -eq 0 ] && ARGS+=(--planet-only)
