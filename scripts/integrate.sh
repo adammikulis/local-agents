@@ -124,6 +124,12 @@ fi
 # --- 4. LAND, THEN PRUNE EVERYTHING THIS TOUCHED -------------------------------------------------------
 git -C "$ROOT" merge --ff-only "$STAGE" >/dev/null 2>&1 || {
 	echo "integrate: $DEV moved under this run. Re-run." >&2; exit 1; }
+# The PRIMARY has just fast-forwarded, so its .godot is stale: a new class_name is unregistered and a new
+# .glsl unimported, which makes check_parse_all red and a GPU field silently dead. The staging tree got
+# this from new_worktree.sh; the primary needs it too.
+(cd "$ROOT" && godot --headless --path . --import >/dev/null 2>&1) || true
+"$SCRIPT_DIR/editor_scan.sh" --path "$ROOT" >/dev/null 2>&1 || \
+	echo "integrate: the post-merge editor scan was not clean; run scripts/editor_scan.sh." >&2
 git -C "$ROOT" worktree remove "$STAGE_WT" --force >/dev/null 2>&1 || true
 git -C "$ROOT" branch -D "$STAGE" >/dev/null 2>&1 || true
 for wt in $(git -C "$ROOT" worktree list --porcelain | rg -N '^worktree ' | sed 's/^worktree //'); do
