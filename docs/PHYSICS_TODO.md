@@ -11,6 +11,23 @@ order is the order.
 
 ---
 
+## Regressions the build watches for
+
+`scripts/check_doc_claims.sh` evaluates each directive below on every run, so a deletion that comes back
+fails the build instead of waiting for a reader to notice it. Add one when a deletion must stay deleted;
+delete one when its subject stops being a rule.
+
+The Cartesian box is the only grid — no seam graph, no tangent basis, no radial shell stack:
+
+<!-- claim: nofile addons/local_agents/sim/sphere -->
+<!-- claim: absent link_partner addons/local_agents/sim -->
+
+The grid is metres and gravity is solved — no fitted model unit, no held surface gravity:
+
+<!-- claim: absent METRES_PER_MODEL_UNIT addons/local_agents/sim addons/local_agents/game -->
+<!-- claim: absent PLANET_SCALE addons/local_agents/sim addons/local_agents/game -->
+<!-- claim: absent SURFACE_G addons/local_agents/sim addons/local_agents/game -->
+
 ## A. The phase curve
 
 - [x] **Dissociation and ionisation exist** — Saha for ionisation (per element, closed form), law of mass

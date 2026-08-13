@@ -33,4 +33,37 @@ if [ -n "$banned_files" ]; then
 	printf '%s\n' "$banned_files" | sed 's/^/  /' >&2
 	exit 1
 fi
-echo "check_doc_prose: OK (${#TARGETS[@]} doc(s), no narrator, no changelog)"
+# HANDOFF.md IS AN INSTRUCTION SET, SO IT HAS NO PAST TENSE AT ALL. The narrator ban above catches a
+# writer talking about themselves; these catch the other half, a map that has started keeping records --
+# a settled list, a struck claim, a dated finding, a section of what turned out to be false. Every one of
+# those is a second account of the tree that disagrees with the tree, and a reader cannot tell which half
+# still holds. `docs/PHYSICS_TODO.md` is exempt: an open physics item legitimately says when it was
+# measured and what a struck claim used to assert.
+# Its ABSENCE is exit 2, never a pass. The rules below are all "HANDOFF.md must not contain X", and a rule
+# of that shape is satisfied by the file not existing -- which is how a gate comes to report OK on a map
+# somebody deleted.
+HANDOFF="$ROOT/HANDOFF.md"
+[ -f "$HANDOFF" ] || { echo "check_doc_prose: no HANDOFF.md. The map is not optional." >&2; exit 2; }
+if true; then
+	MAX_MAP_LINES=200
+	n="$(wc -l < "$HANDOFF" | tr -d ' ')"
+	if [ "$n" -gt "$MAX_MAP_LINES" ]; then
+		echo "check_doc_prose: HANDOFF.md is $n lines against a ceiling of $MAX_MAP_LINES." >&2
+		echo "A list nobody reads to the bottom of is where stale instructions live. Delete what landed." >&2
+		exit 1
+	fi
+	map_hits="$(rg -n --no-heading \
+		-e '\b20[0-9]{2}\b' \
+		-e '~~' \
+		-e '(?i)^#+.*\b(settled|found by|dead or lying|struck|what is left|state|history|done)\b' \
+		-e '(?i)\b(do not re-derive|claims struck|was FALSE|stale|outlived it)\b' \
+		"$HANDOFF" 2>/dev/null || true)"
+	if [ -n "$map_hits" ]; then
+		echo "check_doc_prose: HANDOFF.md is keeping records. It is an instruction set." >&2
+		printf '%s\n' "$map_hits" | sed 's/^/  /' >&2
+		echo "" >&2
+		echo "No dates, no strikethroughs, no settled list, no struck claims. Say what to do next." >&2
+		exit 1
+	fi
+fi
+echo "check_doc_prose: OK (${#TARGETS[@]} doc(s), no narrator, no changelog, the map has no past tense)"
