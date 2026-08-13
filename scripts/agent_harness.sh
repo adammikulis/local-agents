@@ -275,7 +275,7 @@ if [[ "$cmd" == "lint" ]]; then
     rc_kpaths=$?
     if [ "$rc_kpaths" -ne 0 ]; then
       echo "LINT_FAIL: check_kernel_paths.sh ($rc_kpaths)"
-      fail=1
+      lint_failed=$((lint_failed + 1))
     fi
 
     "$SCRIPT_DIR/check_no_stored_derived.sh"
@@ -289,35 +289,35 @@ if [[ "$cmd" == "lint" ]]; then
     rc_axis=$?
     if [ "$rc_axis" -ne 0 ]; then
       echo "LINT_FAIL: check_no_privileged_axis.sh ($rc_axis)"
-      fail=1
+      lint_failed=$((lint_failed + 1))
     fi
 
     "$SCRIPT_DIR/check_gdscript_budget.sh"
     rc_gdbudget=$?
     if [ "$rc_gdbudget" -ne 0 ]; then
       echo "LINT_FAIL: check_gdscript_budget.sh ($rc_gdbudget)"
-      fail=1
+      lint_failed=$((lint_failed + 1))
     fi
 
     "$SCRIPT_DIR/check_run_budget.sh"
     rc_runbudget=$?
     if [ "$rc_runbudget" -ne 0 ]; then
       echo "LINT_FAIL: check_run_budget.sh ($rc_runbudget)"
-      fail=1
+      lint_failed=$((lint_failed + 1))
     fi
 
     "$SCRIPT_DIR/check_comment_ratio.sh"
     rc_cmtratio=$?
     if [ "$rc_cmtratio" -ne 0 ]; then
       echo "LINT_FAIL: check_comment_ratio.sh ($rc_cmtratio)"
-      fail=1
+      lint_failed=$((lint_failed + 1))
     fi
 
     "$SCRIPT_DIR/check_comment_history.sh"
     rc_cmthist=$?
     if [ "$rc_cmthist" -ne 0 ]; then
       echo "LINT_FAIL: check_comment_history.sh ($rc_cmthist)"
-      fail=1
+      lint_failed=$((lint_failed + 1))
     fi
 
     "$SCRIPT_DIR/check_neighbour_slots.sh"
