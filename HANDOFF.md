@@ -77,39 +77,40 @@ coefficient is stoichiometry rather than a density ratio between two invented un
 
 ---
 
-## THE ONE REGRESSION — AND IT IS NOT THE PRESSURE MARCH. THE RUN DIES ON ITS WAY OUT.
+## THE ONE REGRESSION — A RUN COSTS RENDER FRAMES, NOT SIM STEPS. THE SIM IS NOT THE SLOW PART.
 
-*(Corrected. This section used to say `kernels3d/pressure.glsl`'s O(cells x depth) march was why a
-60-frame run does not finish, and called it the next job. **The march was real and is fixed** — one
-thread per column top walking down once, O(cells). **The attribution was FALSE.** The failure
-reproduces on `feature/enthalpy` with the fix reverted. Do not re-derive it.)*
+*(Corrected twice, and both wrong answers are recorded so nobody walks back into them. **(1)** This
+said `kernels3d/pressure.glsl`'s O(cells x depth) march was the cause. The march was real and is fixed —
+O(cells) now — but the attribution was FALSE: the failure reproduces with the fix reverted. **(2)** Then
+I called it a sharp step-count cliff. Also false.)*
 
-**There is NO threshold, and looking for one wasted a bisect.** *(My first reading called it a sharp
-cliff between 72 and 80 steps. Falsified the same session: 64 steps passes as `--frames 8 --fast 8` and
-FAILS as `--frames 64 --fast 1`; 10 frames passes at `--fast 1` and fails at `--fast 8`. Same step
-count, different verdict — so it is neither a step trigger nor a frame trigger.)*
+**The measurement that settles it. Same 64 sim steps, two shapes:**
+`--frames 8 --fast 8` passes in seconds. `--frames 64 --fast 1` never finishes. **Wall cost scales with
+FRAMES and is nearly independent of sim steps.** `--fast` is not an accelerator, it is the only reason
+any run completes at all.
 
-**The cost grows with BOTH frames and steps, superlinearly, until it runs off the harness budget.** That
-is the shape of something ACCUMULATING that a recursive traversal then walks — a queue never drained, a
-list appended per step, a structure that grows per frame. Two symptoms, and they are the same illness at
-two depths: `--frames 9 --fast 8` prints its whole report in seconds and then **will not exit** (125,
-`hung_after_report`), while anything larger never reaches the report at all (124).
+**The sim itself is cheap, measured directly.** Per-step timing inside `LAMaterialFieldSphereStep3D`
+puts a whole field step in the low milliseconds — pin, begin, dispatch and post all flat, no growth
+across a run. `VoxelWorld._physics_process` and `_process` were bracketed section by section
+(`_sim.step`, the night/slump gauges, `_input.update_sim`, `_render.step`, `_ui.step`,
+`_update_music_mood`, `_input.update_render`, `_perf_probe`): **every one reads ~0 ms after spawn.**
+Frame 7 costs seconds, once, and that is world generation.
 
-**It is CPU, on one core, in GDScript.** `sample` on the live process shows the GDScript VM's
-call cycle repeating hundreds of frames deep and growing — a recursive or mutually-recursive script
-call, which no compute kernel can produce. Godot's stack limit never trips, so the depth is bounded and
-the branching is what costs: exponential, not runaway.
+**So the time is on the main thread and OUTSIDE every callback we own** — `sample` puts it in a deep
+GDScript stack under the run loop, reached from neither `_process` nor `_physics_process`. That leaves
+signal handlers, the `call_deferred` queue, and godot_voxel's main-thread apply calling back into
+script. Look there, and note that the voxel worker threads are all parked in `condition_variable::wait`
+while the main thread burns — so the terrain is waiting on us, not the other way round.
 
-**What that rules out, and where to start.** Not a kernel, not the GPU, not a pass — a compute shader
-cannot produce a GDScript call stack. Do not re-bisect for a threshold; find the thing that GROWS.
-Instrument the per-step cost and print the size of every queue and accumulator each step: the
-inject and heat queues are the first two to print, because a queue is exactly the shape that gets
-longer every step and is walked every step. A search for a self-recursive `func` came back empty, so
-the recursion is MUTUAL — a facade delegating to a module that delegates back is what produces it, and
-this tree has just been through three extract-only splits, which is when that gets written.
+**This is `docs/PHYSICS_TODO.md` F4 with a receipt.** "The field's `dt` is the presentation clock" is
+filed as a physics defect about timestep; it is also why the planet cannot be verified. Sim progress is
+hostage to render throughput because the sim is driven from a rendered scene's `_physics_process`, and
+`--run-frames` counts PHYSICS frames. **Both halves are one fix: the sim needs a driver that is not a
+frame callback.** See the note under WHAT IS LEFT.
 
 **Nothing that needs a run of useful length can be verified until this is closed**, including the
-pressure acceptance below.
+pressure acceptance below. `--fast` is the workaround, and it is why every long run in this repo's
+history was taken at `--fast 8`.
 
 ## FOUND BY DOING IT — each had silently disabled a whole subsystem
 
@@ -139,6 +140,21 @@ against stale SPIR-V because Godot does not re-import a `.glsl` when its `.glsli
 
 
 ## WHAT IS LEFT
+
+**THE SIM MUST STOP BEING A FRAME CALLBACK. This is the structural fix, and three separate defects are
+the same one.** The field steps from `VoxelWorld._physics_process`, so a sim step only happens when the
+engine grants a physics tick, and a physics tick only happens when rendering yields one. That single
+coupling produces: a run whose wall cost is render frames rather than sim steps (above); `dt` being the
+presentation clock (`PHYSICS_TODO.md` F4), so how fast the player watches sets every transport kernel's
+timestep; and a headless verification that cannot go headless, because the sim needs a rendered scene to
+tick it. **`--fast N` is not a feature, it is the symptom** — it exists to buy sim steps per frame
+because steps are rationed by the renderer.
+
+The shape of the fix: the sim owns its own loop with its own clock and a substep budget, and
+presentation SUBSCRIBES to it. `Simulation.tscn` already exists and the sim is already headless-by-
+default, so the seam is drawn — what is missing is that the thing on the sim side of it is still driven
+from the render side. Until this lands, "measure at equal simulated time" is unenforceable, the
+observer-independence rule is aspirational, and no long run is affordable.
 
 **HEAT DOES NOT CONDUCT, AND IT NEVER HAS.** The `MODE_CONDUCT` row of `LATransportRecords` names
 `"conductivity"` as its aux buffer and nothing creates one, so `TransportPass` refuses the row every run —
