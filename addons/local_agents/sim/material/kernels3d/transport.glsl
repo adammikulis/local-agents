@@ -63,6 +63,11 @@ layout(set = 0, binding = 30, std430) restrict buffer CementBuf { float cement[]
 layout(set = 0, binding = 31, std430) writeonly buffer SuspWater { float silicate_susp_water[]; };
 layout(set = 0, binding = 32, std430) writeonly buffer SuspAir { float silicate_susp_air[]; };
 layout(set = 0, binding = 33, std430) writeonly buffer Bed { float silicate_bed[]; };
+// A TF_LISTED row runs over CellListPass's compacted cell list instead of the grid. Slot 3 of the args is
+// the list length; the flag is 1 for every cell in the list.
+layout(set = 0, binding = 34, std430) restrict readonly buffer ActiveIdx { uint active_idx[]; };
+layout(set = 0, binding = 35, std430) restrict readonly buffer ActiveArgs { uint active_args[]; };
+layout(set = 0, binding = 36, std430) restrict readonly buffer ActiveFlag { uint active_flag[]; };
 
 #include "march.glsli"
 
@@ -554,6 +559,14 @@ void grain_state(uint g) {
 
 void main() {
 	uint gidx = gl_GlobalInvocationID.x;
+	bool listed = (params.flags & TF_LISTED) != 0u;
+	if (listed) {
+		// The dispatch is indirect over ceil(count/64) groups, so the tail of the last group is past the end.
+		if (gidx >= active_args[3]) {
+			return;
+		}
+		gidx = active_idx[gidx];
+	}
 	if (gidx >= params.cell_count) {
 		return;
 	}
@@ -723,6 +736,10 @@ void main() {
 			continue;
 		}
 		uint nb = uint(inb);
+		// A cell outside the list never ran pass 0 this row, so its face scratch still holds another row's.
+		if (listed && active_flag[nb] == 0u) {
+			continue;
+		}
 		float in_amt = send[nb * N_SLOTS + (d ^ 1u)];
 		// What a neighbour radiated is absorbed only in proportion to this cell's own absorptivity; the
 		// rest passes on out of the world, which is how a transparent atmosphere lets the ground cool.

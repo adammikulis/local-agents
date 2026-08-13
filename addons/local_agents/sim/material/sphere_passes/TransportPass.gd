@@ -5,6 +5,7 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/transport.glsl"
 
 const BandsScript: GDScript = preload("res://addons/local_agents/sim/material/AbsorptionBands.gd")
+const CellListScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd")
 
 ## Which half of the gather a dispatch is, plus the prologue that runs before any row; tags, not quantities.
 enum { PASS_OUTFLOW, PASS_GATHER, PASS_GRAIN }
@@ -35,6 +36,8 @@ var _rad_table: RID = RID()
 var _band_count: int = 0
 ## [set(parity 0), set(parity 1)] for the grain prologue.
 var _grain_sets: Array = []
+## Per row: the dispatch-indirect args RID of the cell list it runs over, invalid for a full-grid row.
+var _list_args: Array = []
 
 
 func _setup(bufs: Dictionary, cc: int) -> void:
@@ -52,6 +55,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 
 	for row: Dictionary in _rows:
 		_sets.append(_row_sets(bufs, row))
+		_list_args.append(_single(bufs, String(_list_keys(row).get("args", ""))))
 	_grain_sets = _row_sets(bufs, GRAIN_ROW)
 
 
@@ -79,16 +83,26 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 			continue
 		# EVERY ROW RUNS TWICE. Pass 0 writes what leaves each face; pass 1 gathers. A receiver reading a
 		# donor inside one dispatch reads a value another thread is still writing.
+		var args: RID = _list_args[r]
 		for pass_id in [PASS_OUTFLOW, PASS_GATHER]:
 			rd.compute_list_bind_compute_pipeline(cl, _pipe)
 			rd.compute_list_bind_uniform_set(cl, uset, 0)
 			var pc: PackedByteArray = _pc(_rows[r], cc, pass_id, cell_m, dt_s, lapse, sun)
 			rd.compute_list_set_push_constant(cl, pc, pc.size())
-			rd.compute_list_dispatch(cl, groups, 1, 1)
+			# A listed row walks the cells CellListPass compacted, so its cost is O(active), not O(grid).
+			if args.is_valid():
+				rd.compute_list_dispatch_indirect(cl, args, 0)
+			else:
+				rd.compute_list_dispatch(cl, groups, 1, 1)
 			rd.compute_list_add_barrier(cl)
 
 
 # --- bindings ---------------------------------------------------------------------------------------------
+
+## The cell-list buffer keys a row runs over; empty for a row that sweeps the whole grid.
+func _list_keys(row: Dictionary) -> Dictionary:
+	var label: String = String(row.get("list", ""))
+	return {} if label == "" else CellListScript.list_buffers(label)
 
 ## [set(parity 0), set(parity 1)] for one row, or [] when a buffer it names does not exist.
 func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
@@ -100,7 +114,9 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 	var frac: String = String(row.get("frac", ""))
 	var moves_enthalpy: bool = channel == "h_j_m3"
 	# Mass does not move without its heat, so the enthalpy field is required of every row that carries mass.
-	var needed: Array = [channel, drive, resist, aux, stamp, frac, "" if moves_enthalpy else "h_j_m3"]
+	var list: Dictionary = _list_keys(row)
+	var needed: Array = [channel, drive, resist, aux, stamp, frac, "" if moves_enthalpy else "h_j_m3",
+		String(list.get("idx", "")), String(list.get("args", "")), String(list.get("flag", ""))]
 	for key in needed:
 		if String(key) != "" and not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row does not move." % [key, channel])
@@ -146,6 +162,10 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 			[31, _single(bufs, "silicate_susp_water")],
 			[32, _single(bufs, "silicate_susp_air")],
 			[33, _single(bufs, "silicate_bed")],
+			# A full-grid row never reads these; the kernel touches them only under TF_LISTED.
+			[34, _zero if list.is_empty() else bufs[String(list["idx"])]],
+			[35, _zero if list.is_empty() else bufs[String(list["args"])]],
+			[36, _zero if list.is_empty() else bufs[String(list["flag"])]],
 		]
 		out[p] = _uset(_pipe, entries)
 	return out
@@ -173,6 +193,8 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lap
 		flags |= LATransportRecords.Flag.FRACTION
 	if bool(row.get("dilute", false)):
 		flags |= LATransportRecords.Flag.DILUTE
+	if String(row.get("list", "")) != "":
+		flags |= LATransportRecords.Flag.LISTED
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(92)
 	pc.encode_u32(0, cc)

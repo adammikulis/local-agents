@@ -21,9 +21,19 @@ enum Arg { GROUPS_X = 0, GROUPS_Y = 1, GROUPS_Z = 2, LIST_COUNT = 3, SLOTS = 8 }
 static func rows() -> Array:
 	return [
 		{"label": "melt", "idx": "melt_list_idx", "args": "melt_list_args",
+			"flag": "melt_list_flag",
 			"prim": "silicate_melt", "prim_half": Half.LIVE, "thr": 0.0, "inclusive": false,
 			"open_only": true, "back": false, "halo": true, "aux": "", "aux_thr": 0.0},
 	]
+
+
+## The three buffer keys of one row, or an empty dictionary for a label no row carries.
+static func list_buffers(label: String) -> Dictionary:
+	for row: Dictionary in rows():
+		if String(row["label"]) == label:
+			return {"idx": String(row["idx"]), "args": String(row["args"]),
+				"flag": String(row["flag"])}
+	return {}
 
 
 var _rows: Array = []
@@ -39,6 +49,7 @@ func _buffers(cc: int) -> Dictionary:
 	var out: Dictionary = {}
 	for row: Dictionary in rows():
 		out[String(row["idx"])] = cc
+		out[String(row["flag"])] = cc
 		out[String(row["args"])] = {"n": int(Arg.SLOTS), "indirect": true}
 	return out
 
@@ -63,8 +74,10 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	for row: Dictionary in _rows:
 		var idx_key: String = String(row["idx"])
 		var args_key: String = String(row["args"])
-		if not bufs.has(idx_key) or not bufs.has(args_key):
-			push_error("CellListPass: driver did not allocate %s/%s" % [idx_key, args_key])
+		var flag_key: String = String(row["flag"])
+		if not bufs.has(idx_key) or not bufs.has(args_key) or not bufs.has(flag_key):
+			push_error("CellListPass: driver did not allocate %s/%s/%s"
+				% [idx_key, args_key, flag_key])
 			return
 		var flags: int = 0
 		if bool(row["open_only"]):
@@ -92,6 +105,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 				[4, bufs[idx_key]],
 				[5, bufs[args_key]],
 				[6, aux],
+				[7, bufs[flag_key]],
 				[15, nbr]])
 		_sets.append(per_parity)
 
@@ -117,14 +131,6 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: i
 		_record(rd, cl, _pc(cc, Pass.APPEND, flags, thr, aux_thr), groups)
 		# 2. ARGS — publish groups_x = ceil(count / 64) for the consumer's indirect dispatch.
 		_record(rd, cl, _pc(cc, Pass.ARGS, flags, thr, aux_thr), 1)
-
-
-## The dispatch-indirect args buffer for `label`, for a consumer recorded into the same compute list.
-func args_rid(label: String) -> RID:
-	for r in _rows.size():
-		if String(_rows[r]["label"]) == label:
-			return _args_rid[r]
-	return RID()
 
 
 # --- helpers ---------------------------------------------------------------------------------------------

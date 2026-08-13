@@ -13,6 +13,9 @@ layout(set = 0, binding = 4, std430) writeonly buffer ActiveIdx { uint active_id
 //   [3] list_count    -- number of entries written into active_idx; the consumer's loop bound
 layout(set = 0, binding = 5, std430) buffer ActiveArgs { uint active_args[]; };
 layout(set = 0, binding = 6, std430) readonly buffer Aux { float aux[]; };
+// 1 where this cell is in the list. A consumer dispatched over the list gathers only from cells that are
+// in it — a cell that is out never ran, so whatever its scratch holds belongs to somebody else.
+layout(set = 0, binding = 7, std430) writeonly buffer ActiveFlag { uint active_flag[]; };
 layout(set = 0, binding = 15, std430) readonly buffer Neigh { int nbr[]; };   // idx*6 + slot
 
 layout(push_constant, std430) uniform Params {
@@ -86,6 +89,7 @@ void main() {
 			}
 		}
 		keep = hit && ((params.flags & F_OPEN_ONLY) == 0u || solid[g] == 0.0);
+		active_flag[g] = keep ? 1u : 0u;   // APPEND already sweeps the grid, so this needs no clearing pass
 	}
 
 	uint slot_local = 0u;
