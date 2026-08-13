@@ -7,7 +7,7 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/re
 const PARTIALS: String = "reduce_partials"
 const CRUST_REF: String = "crust_ref"
 const GROUP: int = 64
-const PC_BYTES: int = 32
+const PC_BYTES: int = 48
 
 var _pipe: RID = RID()
 var _rows: Array = []                   # rows whose buffers exist, in dispatch order
@@ -17,6 +17,7 @@ var _groups: int = 0
 var _step: int = -1                     # field step the last dispatch reduced
 var _latch_step: int = -1               # field step the crust reference was taken at
 var _failed_announced: bool = false
+var _last: Dictionary = {}              # the last drain, for the query modules that read rows directly
 
 
 ## One partial per workgroup per row, plus the crust reference the diff row is taken from.
@@ -35,12 +36,19 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		push_error("ReducePass: the driver allocated no \"%s\"; every reduced total is absent." % PARTIALS)
 		return
 	var solid: RID = _single(bufs, "solid")
+	var nbr: RID = _single(bufs, "nbr")
+	if not nbr.is_valid():
+		push_error("ReducePass: the driver allocated no \"nbr\"; no row can ask about a neighbour.")
+		return
 	for row: Dictionary in LAReduceRecords.rows():
 		var src: String = String(row["source"])
 		var aux: String = String(row.get("aux", ""))
+		var aux2: String = String(row.get("aux2", ""))
 		var ref: String = String(row.get("ref", ""))
+		var gate: String = String(row.get("gate", ""))
+		var gate_aux: String = String(row.get("gate_aux", ""))
 		var absent: PackedStringArray = PackedStringArray()
-		for key in [src, aux, ref]:
+		for key in [src, aux, aux2, ref, gate, gate_aux]:
 			if String(key) != "" and not bufs.has(String(key)):
 				absent.append(String(key))
 		if absent.size() > 0:
@@ -54,7 +62,11 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 				[2, _half(bufs, aux, p, false) if aux != "" else solid],
 				[3, solid],
 				[4, _partials],
-				[5, bufs[ref] if ref != "" else solid]])
+				[5, bufs[ref] if ref != "" else solid],
+				[6, _half(bufs, gate, p, false) if gate != "" else solid],
+				[7, _half(bufs, gate_aux, p, false) if gate_aux != "" else solid],
+				[8, _half(bufs, aux2, p, false) if aux2 != "" else solid],
+				[9, nbr]])
 		_sets.append(per_parity)
 		_rows.append(row)
 
@@ -84,7 +96,13 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 			_latch_step = _step
 
 
-## One readback of the partials buffer; each row's groups summed in float64, in slot order.
+## The last drained rows, for the query modules. Reading it does not clear it: several instruments read the
+## same reduction, and a reading that vanished when the first of them looked would be a different defect.
+func latest() -> Dictionary:
+	return _last
+
+
+## One readback of the partials buffer; each row's groups folded in float64, in slot order.
 func _drain(rd: RenderingDevice) -> Dictionary:
 	var out: Dictionary = {}
 	if _rows.is_empty() or not _partials.is_valid():
@@ -92,22 +110,51 @@ func _drain(rd: RenderingDevice) -> Dictionary:
 	var raw: PackedFloat32Array = rd.buffer_get_data(_partials).to_float32_array()
 	for r in _rows.size():
 		var row: Dictionary = _rows[r]
-		if int(row["op"]) == LAReduceRecords.Op.LATCH:
+		var op: int = int(row["op"])
+		if op == LAReduceRecords.Op.LATCH:
 			continue
 		var base: int = r * _groups
 		if base + _groups > raw.size():
 			continue
-		var acc: float = 0.0
-		for g in _groups:
-			acc += raw[base + g]
+		var acc: float = _fold(raw, base, op)
+		# A MIN/MAX lane that kept no cell returns the identity, and no cell anywhere means no measurement.
+		if is_inf(acc):
+			continue
 		out[String(row["key"])] = acc
 	out["reduce_step"] = float(_step)
 	out["crust_ref_step"] = float(_latch_step)
+	_last = out
 	return out
 
 
-# Params { uint cell_count, op, mask, base; float threshold, weight; uint has_aux, pad0; } — 32 bytes.
+## The workgroup partials of one row, combined the way that row's op combines cells.
+func _fold(raw: PackedFloat32Array, base: int, op: int) -> float:
+	if op == LAReduceRecords.Op.MIN:
+		var mn: float = INF
+		for g in _groups:
+			mn = minf(mn, raw[base + g])
+		return mn
+	if op == LAReduceRecords.Op.MAX:
+		var mx: float = -INF
+		for g in _groups:
+			mx = maxf(mx, raw[base + g])
+		return mx
+	var acc: float = 0.0
+	for g in _groups:
+		acc += raw[base + g]
+	return acc
+
+
+# Params { uint cell_count, op, mask, base; float threshold, weight; uint has_aux, has_gate;
+#          float gate_lo, gate_hi; uint nbr_solid, pad0; } — 48 bytes.
 func _pc(cc: int, row: Dictionary, base: int, cell_m3: float) -> PackedByteArray:
+	var gate: String = String(row.get("gate", ""))
+	var has_aux: int = 0
+	if String(row.get("aux", "")) != "":
+		has_aux = 2 if String(row.get("aux2", "")) != "" else 1
+	var has_gate: int = 0
+	if gate != "":
+		has_gate = 2 if String(row.get("gate_aux", "")) != "" else 1
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(PC_BYTES)
 	pc.encode_u32(0, cc)
@@ -116,6 +163,10 @@ func _pc(cc: int, row: Dictionary, base: int, cell_m3: float) -> PackedByteArray
 	pc.encode_u32(12, base)
 	pc.encode_float(16, float(row.get("threshold", 0.0)))
 	pc.encode_float(20, cell_m3 if bool(row.get("weight", false)) else 1.0)
-	pc.encode_u32(24, 1 if String(row.get("aux", "")) != "" else 0)
-	pc.encode_u32(28, 0)
+	pc.encode_u32(24, has_aux)
+	pc.encode_u32(28, has_gate)
+	pc.encode_float(32, float(row.get("gate_lo", -INF)))
+	pc.encode_float(36, float(row.get("gate_hi", INF)))
+	pc.encode_u32(40, 1 if bool(row.get("nbr_solid", false)) else 0)
+	pc.encode_u32(44, 0)
 	return pc

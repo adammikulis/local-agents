@@ -1,8 +1,6 @@
 class_name LAMaterialFieldAtmos3D
 extends RefCounted
 
-const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
-
 ## Atmosphere queries derived from the one `moisture` channel of LAMaterialField3D.
 
 # Kessler (1969) q_crit: the cloud-water mixing ratio above which drops start collecting each other.
@@ -61,46 +59,22 @@ func fog_at(x: float, z: float) -> float:
 	return _condensed_at(c) if _f._temp[c] < LAMaterialField3D.FOG_MAX_TEMP else 0.0
 
 
-## Recompute the condensate aggregates + the mask-free moisture_total in one grid pass.
+## Take the condensate counts and the mask-free vapour amount off the device. Cloud, fog and rain are three
+## thresholds on ONE quantity — the liquid plus frozen share of a cell's h2o — so each is a reduced row and
+## none of them walks the grid. Absent rows publish NAN / -1 rather than an empty sky.
 func refresh_aggregates() -> void:
 	_f._atmos_dirty = false
-	# Local (copy-on-write, read-only) handles for the hot loop — same buffers, no per-cell property lookup.
+	var q = _f._queries
 	var cell_count: int = _f._cell_count
-	var solid: PackedByteArray = _f._solid
-	var moisture: PackedFloat32Array = _f._queries._vapour_mirror()
-	var temp: PackedFloat32Array = _f._temp
-	var rain_threshold: float = rain_threshold()
-	var cover_min: float = LAMaterialField3D.CONDENSE_COVER_MIN
-	var fog_max_temp: float = LAMaterialField3D.FOG_MAX_TEMP
-	var cloud_n: int = 0
-	var fog_n: int = 0
-	var precip_n: int = 0
-	var vol: PackedFloat32Array = CellVolScript.of(_f)
-	if vol.size() != cell_count:
-		return
-	var total: float = 0.0
-	for i in range(cell_count):
-		var aw: float = moisture[i]
-		# Mask-free, mol.
-		total += aw * vol[i]
-		if solid[i] != 0:
-			continue
-		var cond: float = _condensed_at(i)
-		if cond <= 0.0:
-			continue
-		if cond > rain_threshold:
-			precip_n += 1
-		if cond >= cover_min:
-			if temp[i] < fog_max_temp:
-				fog_n += 1
-			else:
-				cloud_n += 1
+	var cloud_n: int = q.row_n("cloud_cells")
+	var fog_n: int = q.row_n("fog_cells")
+	var precip_n: int = q.row_n("precip_cells")
 	var inv: float = 1.0 / float(cell_count) if cell_count > 0 else 0.0
 	_f._cloud_cells_c = cloud_n
-	_f._cloud_cover_c = float(cloud_n) * inv
-	_f._fog_cover_c = float(fog_n) * inv
-	_f._precip_c = clampf(float(precip_n) * inv * 40.0, 0.0, 1.0)
-	_f._vapour_total_c = total
+	_f._cloud_cover_c = float(cloud_n) * inv if cloud_n >= 0 else NAN
+	_f._fog_cover_c = float(fog_n) * inv if fog_n >= 0 else NAN
+	_f._precip_c = clampf(float(precip_n) * inv * 40.0, 0.0, 1.0) if precip_n >= 0 else NAN
+	_f._vapour_total_c = q.row_f("vapour_amount")
 
 
 func climate_snapshot() -> Dictionary:
