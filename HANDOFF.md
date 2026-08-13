@@ -138,6 +138,17 @@ physics server. Item 1 may dissolve this.
   fifty times over depleted mantle, so a second rock substance with its own abundance is what makes crust
   and mantle differ. The rate is also present-day and this body has no age.
 
+## 14. Rebuild frost shattering from the phase boundary
+
+`LAGeoRecords` has no `RM_DEFICIT_BELOW_THRESHOLD` record, no `FROST_*` constant survives, and the rate
+model is declared in `ReactionDefs` and used by nothing. The mechanism is ice segregation, not expansion in
+a sealed pore. Invert `LASubstances.melt_c_at`: the pressure ice exerts at undercooling dT is
+`dH_fus * dT / (T_m * dv)` with `dv = 1/rho_ice - 1/rho_water`, every term already in the table, about
+13.5 MPa per kelvin. Rock fractures where that passes its TENSILE strength, which is a measured property
+`Substances.gd` should carry with its source. Bound the extent by the pore water available to freeze, and
+let deep cold starve the mechanism out of the state rather than a cutoff. Observed damage peaks at -3 to
+-10 C: if the law disagrees, that is the finding, not a thing to tune.
+
 ---
 
 ## How to run
