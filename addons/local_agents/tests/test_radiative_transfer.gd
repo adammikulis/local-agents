@@ -13,7 +13,7 @@ const TOP_PRESSURE_RATIO: float = 1.0e-4     # column top, as a fraction of the 
 
 # --- EARTH (measured) --------------------------------------------------------------------------------
 ## This suite validates the solver against EARTH's measured column, so Earth's surface gravity is a
-## FIXTURE of the test, not this planet's gravity. The planet's g is solved per cell (LAFieldGravity).
+## FIXTURE of the test, not this planet's gravity. The planet's g is solved per cell (gravity_poisson.glsl).
 const EARTH_G_M_S2: float = 9.80665
 const EARTH_SURFACE_PA: float = 1.0e5
 const EARTH_SURFACE_K: float = 288.15

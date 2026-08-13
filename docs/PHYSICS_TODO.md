@@ -74,9 +74,6 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
       twin moves at the same time.
 - [x] **The `moisture` channel holds vapour and is priced as a condensed phase.** Gone with the h2o
   collapse: there is one h2o amount and the vapour share is derived from the saturation split.
-- [ ] **SUPERSEDED — the original text follows.** `LAFieldDensity3D` asks
-      `density("h2o", ...)`, which reads liquid at surface conditions, for every h2o channel including the
-      vapour one. The channel's unit is declared in `LAChannels`, not here.
 - [ ] **The momentum ledger's atmosphere weighs the same at every altitude.** `LAMaterialFieldMomentumLedger3D`
       makes cell mass `air * AIR_DENSITY_KG_M3 * V`, a fixed ISA sea-level conversion, and its buoyancy leg is
       the ideal-gas Boussinesq `a = g dT/T` gated on `d_t > 0.0`, so cold air never sinks. Both need the `air`

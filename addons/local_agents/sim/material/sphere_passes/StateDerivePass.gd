@@ -6,17 +6,6 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/state_derive.glsl"
 
-## Channel binding order. The kernel's `channel_at` switch IS this list and props[i] describes CHANNELS[i].
-const CHANNELS: PackedStringArray = [
-	"h2o",
-	"silicate", "carbonate", "silica",
-	"o2", "co2", "n2",
-	"biomass", "fungus", "detritus", "fuel", "org_h", "org_o",
-	"fert"]
-
-## Cases in the kernel's `channel_at` switch. A mismatch drops a substance's heat capacity silently.
-const KERNEL_CHANNEL_SLOTS: int = 14
-
 ## Derived phase shares the kernel writes, name -> state_derive.glsl binding.
 const PHASE_BUFFERS: Dictionary = {
 	"h2o_solid": 34, "h2o_liquid": 35, "h2o_vapour": 36, "silicate_melt": 37}
@@ -49,28 +38,18 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
 	if not _pipe.is_valid():
 		return
-	if CHANNELS.size() != KERNEL_CHANNEL_SLOTS:
-		push_error("StateDerivePass: CHANNELS holds %d channels and state_derive.glsl switches on %d."
-			% [CHANNELS.size(), KERNEL_CHANNEL_SLOTS])
-		return
-	if not _covers_the_matter_channels():
+	if not LAMatterChannels.covers_the_matter_channels("StateDerivePass"):
 		return
 	var props: PackedFloat32Array = _props()
 	if props.is_empty():
 		return
 	var props_ssbo: RID = _storage_buffer(props.to_byte_array())
 
-	var missing: PackedStringArray = PackedStringArray()
-	for name: String in CHANNELS:
-		if not _half(bufs, name, 0, false).is_valid():
-			missing.append(name)
-	for name: String in ["h_j_m3", "pressure", "temp", "cell_vol", "conductivity",
-			"n_gas_m3", "rho_cond", "mom_x", "mom_y", "mom_z", "vel_x", "vel_y", "vel_z"]:
-		if not _half(bufs, name, 0, false).is_valid():
-			missing.append(name)
-	for name in PHASE_BUFFERS:
-		if not _single(bufs, String(name)).is_valid():
-			missing.append(String(name))
+	var want: PackedStringArray = LAMatterChannels.CHANNELS.duplicate()
+	want.append_array(PackedStringArray(["h_j_m3", "pressure", "temp", "cell_vol", "conductivity",
+		"n_gas_m3", "rho_cond", "mom_x", "mom_y", "mom_z", "vel_x", "vel_y", "vel_z"]))
+	want.append_array(PackedStringArray(PHASE_BUFFERS.keys()))
+	var missing: PackedStringArray = LAMatterChannels.absent(bufs, want)
 	if not missing.is_empty():
 		push_error("StateDerivePass: no buffer for %s, so no cell would get a temperature."
 			% String(", ").join(missing))
@@ -79,10 +58,11 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		push_error("StateDerivePass: `temp` is not a SINGLE buffer. It is derived, so it has no back half.")
 		return
 
+	var channels: PackedStringArray = LAMatterChannels.CHANNELS
 	for p in 2:
 		var entries: Array = []
-		for i in CHANNELS.size():
-			entries.append([i, _half(bufs, CHANNELS[i], p, false)])
+		for i in channels.size():
+			entries.append([i, _half(bufs, channels[i], p, false)])
 		entries.append([21, _half(bufs, "h_j_m3", p, false)])   # FRONT: the settled enthalpy
 		entries.append([22, _single(bufs, "pressure")])
 		entries.append([23, _single(bufs, "temp")])
@@ -117,42 +97,23 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: i
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 
 
-## Every channel LAChannels declares as matter must be in CHANNELS, or the cell's temperature is read off
-## an incomplete heat capacity.
-func _covers_the_matter_channels() -> bool:
-	var rows: Dictionary = LAChannels.rows()
-	var uncovered: PackedStringArray = PackedStringArray()
-	for name in rows:
-		if String(rows[name].get("substance", "")) != "" and not CHANNELS.has(String(name)):
-			uncovered.append(String(name))
-	var unknown: PackedStringArray = PackedStringArray()
-	for name: String in CHANNELS:
-		if not rows.has(name) or String(rows[name].get("substance", "")) == "":
-			unknown.append(name)
-	if uncovered.is_empty() and unknown.is_empty():
-		return true
-	push_error("StateDerivePass: CHANNELS disagrees with LAChannels. Not bound: [%s]. Not matter: [%s]. "
-		% [String(", ").join(uncovered), String(", ").join(unknown)]
-		+ "Add the binding to state_derive.glsl's channel_at switch and the name here, in the same order.")
-	return false
-
-
-## One row per channel, from the substance table. No value is declared here.
+## One row per channel, from the substance table. No value is declared here; the mass column is the one
+## LAMatterChannels publishes, so gravity and heat capacity weigh the same cell.
 func _props() -> PackedFloat32Array:
+	var channels: PackedStringArray = LAMatterChannels.CHANNELS
+	var rho_units: PackedFloat32Array = LAMatterChannels.rho_units()
+	if rho_units.size() != channels.size():
+		return PackedFloat32Array()
 	var out: PackedFloat32Array = PackedFloat32Array()
-	out.resize(CHANNELS.size() * PROP_STRIDE)
+	out.resize(channels.size() * PROP_STRIDE)
 	var rows: Dictionary = LAChannels.rows()
 	var table: Dictionary = LASubstances.table()
-	for i in CHANNELS.size():
-		var name: String = CHANNELS[i]
+	for i in channels.size():
+		var name: String = channels[i]
 		var row: Dictionary = rows[name]
 		var id: String = String(row.get("substance", ""))
 		var s: Dictionary = table.get(id, {})
-		var rho: float = float(s.get("density", 0.0))
-		if rho <= 0.0:
-			push_error("StateDerivePass: LASubstances has no density for \"%s\" (channel %s), so its mass "
-				% [id, name] + "cannot be weighed and its heat capacity would vanish.")
-			return PackedFloat32Array()
+		var rho: float = rho_units[i]
 		var unit: String = String(row.get("unit", ""))
 		if unit != "vf":
 			push_error("StateDerivePass: LAChannels row \"%s\" declares unit \"%s\", not \"vf\". " % [name, unit]
