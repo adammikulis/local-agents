@@ -3,7 +3,7 @@ extends RefCounted
 
 ## The CPU's read-only view of gravity. The solve itself is `kernels3d/gravity_poisson.glsl`, dispatched by
 ## GravityPass inside the field's own chain, straight into the buffer every kernel reads to know which way
-## is down. Nothing here solves, and nothing here uploads.
+## is down. Nothing here uploads, and the only solve it asks for is the seeding one below.
 
 const PASS_FILE: String = "GravityPass.gd"
 
@@ -15,10 +15,20 @@ func setup(field) -> void:
 	_f = field
 
 
-## Binds to the device pass once the driver exists. No CPU step re-solves, so this never reports one.
-func step() -> bool:
+## SEEDING: GravityPass alone, dispatched and drained, so `down_at` answers before the first step. Its own
+## ctx, so no dt is consumed and the step index does not move: no simulated time passes and nothing is made.
+func solve_seed() -> void:
 	_bind()
-	return false
+	if _pass == null or _f._gpu == null or _f._gpu._rd == null:
+		return
+	var rd: RenderingDevice = _f._gpu._rd
+	var ctx: Dictionary = {"step_index": 0, "cell_size": _f._grid.cell_size}
+	var cl: int = rd.compute_list_begin()
+	_pass.dispatch(rd, cl, _f._gpu._phase, ctx, _f._gpu._cc, _f._gpu._groups)
+	rd.compute_list_end()
+	rd.submit()
+	rd.sync()
+	_pass._drain(rd)
 
 
 func _bind() -> void:

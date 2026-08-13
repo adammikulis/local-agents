@@ -8,7 +8,6 @@ const GravityScript: GDScript = preload("res://addons/local_agents/sim/material/
 const MineralStampScript: GDScript = preload("res://addons/local_agents/sim/material/MineralStamp3D.gd")
 
 const MAX_MASS: float = 1.0               # a cell is "full" at this water mass
-const MAX_COMPRESS: float = 0.02          # extra mass a cell can hold per cell of water stacked above it
 const MIN_MASS: float = 0.0001            # below this a cell is considered dry
 const MAX_FLOW: float = 1.0               # max mass moved out of a cell per step (stability cap)
 const MIN_FLOW: float = 0.01              # ignore dribbles smaller than this
@@ -233,10 +232,6 @@ func _adopt(grid: LAVoxelGrid) -> void:
 func centre() -> Vector3:
 	return LAFieldGeometry.centre(self)
 
-## Re-solve gravity from the mass that is there. Returns true when a solve actually ran.
-func solve_gravity() -> bool:
-	return _gravity.step() if _gravity != null else false
-
 ## Allocate + seed every per-cell channel for the current `_cell_count`.
 func _alloc_channels() -> void:
 	_solid = PackedByteArray()
@@ -364,15 +359,6 @@ func total_water() -> float:
 
 
 
-# Stable amount for the lower of two stacked water cells given their combined mass.
-func _stable_below(total_mass: float) -> float:
-	if total_mass <= MAX_MASS:
-		return total_mass
-	if total_mass < 2.0 * MAX_MASS + MAX_COMPRESS:
-		return (MAX_MASS * MAX_MASS + total_mass * MAX_COMPRESS) / (MAX_MASS + MAX_COMPRESS)
-	return (total_mass + MAX_COMPRESS) * 0.5
-
-
 
 # Water in the point's own cell, or the sea/lake shell over the ground beneath it.
 func is_water_at(pos: Vector3) -> bool:
@@ -398,10 +384,9 @@ func activate() -> void:
 		_use_gpu = true
 	_inject = InjectScript.new()
 	_inject.setup(self)
-	# Seed baseline flammable fuel and soil detritus on surface cells.
+	# Baseline flammable fuel and soil detritus on surface cells; seed_tick seeds it once gravity is solved.
 	_surface_seed = SurfaceSeedScript.new()
 	_surface_seed.setup(self)
-	_surface_seed.seed_initial()
 	_organic = OrganicScript.new()
 	_organic.setup(self)
 	# The sparse, event-driven solid-flag crossing -> SDF terrain-growth stamp (idle until armed).
