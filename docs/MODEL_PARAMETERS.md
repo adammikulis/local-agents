@@ -367,7 +367,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldReport3D.gd` | `ALT_BAND_SPAN` | 8.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldReport3D.gd` | `CLIMATE_MAX_CELLS` | 200000 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `MAX_MASS` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialField3D.gd` | `MAX_COMPRESS` | 0.02 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `MIN_MASS` | 0.0001 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `MAX_FLOW` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `MIN_FLOW` | 0.01 | inherited, unreviewed | Stage 2 substrate rewrite |

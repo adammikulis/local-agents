@@ -66,14 +66,21 @@ func seed_tick() -> bool:
 		return true
 	if _f._terrain == null or not _f._terrain.has_method("is_solid"):
 		return false
-	_f.sample_solidity()
-	# Gravity BEFORE anything asks which way is down: every "below"/"above" read is a slot chosen from g.
-	_f.solve_gravity()
+	_f.sample_solidity()          # solid mask -> the bedrock silicate + cement the gravity solve weighs
 	_f._seed_sea()                # fills the ocean basin with real, flowing water
+	_f.activate()                 # builds the GPU driver, which owns the solve the walks below read
+	_f._gravity.solve_seed()      # g FIRST: every "below"/"above" below here is a slot chosen from it
 	_f._compute_regolith()        # the permeable aquifer band (+ initial water table) for groundwater flow
-	LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins (static water bodies)
-	_f.activate()                 # builds the GPU driver + sets _use_gpu
-	_f._ready_sim = true
+	if not _f._regolith.has(1):
+		push_error("The regolith walk marked no cell permeable, so every rock cell has zero porosity, the "
+			+ "water table is unprimed and darcy_resistance() makes the groundwater row inert. The walk "
+			+ "reads `below` from solved gravity: it ran before the solve was dispatched and drained.")
+	LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins
+	_f._surface_seed.seed_initial()                    # litter on the open cells standing on rock
+	if _f._gpu != null:                                # hand the device what those three walks produced
+		_f._gpu._seed_regolith()                       # permeability mask + grain size
+		_f._gpu._seed("porosity", _f._porosity)        # Athy pore fraction
+		_f._gpu.seed_field("h2o", _f._h2o, _f._seal)   # ocean + water table + lakes, declared once
 	return true
 
 
@@ -86,9 +93,6 @@ func step() -> void:
 	# Refresh the body rotation FIRST: everything below that converts a position or a direction reads it.
 	_f.sync_body_frame()
 	var t0: int = Time.get_ticks_usec()
-	# g follows the mass, and every kernel asking which way is down reads the solved field.
-	if _f.solve_gravity():
-		_f._gpu.mark_gravity_dirty()
 	_f._step_geotherm()              # radiogenic decay: hand the rock the joules its own mass produced
 	LASimReport.gauge("field_pin_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
 	var t_begin: int = Time.get_ticks_usec()
