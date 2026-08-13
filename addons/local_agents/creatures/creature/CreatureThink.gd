@@ -4,20 +4,8 @@ extends RefCounted
 
 const COMPANION_FOLLOW_DIST: float = 4.0   # a "follow" companion closes to this range, then heels/holds
 
-# Rock-throwing is an OPTIONAL behaviour that depends on the game's LAThrownRock prop. It is resolved
-# lazily + guarded (never top-level `preload`d) so a core creature parses and runs with the game deleted —
-# it simply cannot throw. Resolves to null when the prop script is absent.
+# The game's LAThrownRock prop, optional: a core creature runs with the game deleted, it just cannot throw.
 const THROWN_ROCK_PATH: String = "res://addons/local_agents/sim/actors/ThrownRock.gd"
-static var _thrown_rock_script: GDScript = null
-static var _thrown_rock_resolved: bool = false
-
-static func _resolve_thrown_rock() -> GDScript:
-	if _thrown_rock_resolved:
-		return _thrown_rock_script
-	_thrown_rock_resolved = true
-	if ResourceLoader.exists(THROWN_ROCK_PATH):
-		_thrown_rock_script = load(THROWN_ROCK_PATH) as GDScript
-	return _thrown_rock_script
 
 
 static func think_prey(c, pos: Vector3, fallback: Vector3) -> Vector3:
@@ -118,7 +106,7 @@ static func _hunt_with_rock(c, pos: Vector3, prey: Node3D, to_prey: Vector3, fal
 
 
 static func _throw_rock_at(c, prey: Node3D) -> void:
-	var rock_script: GDScript = _resolve_thrown_rock()
+	var rock_script: GDScript = LAOptionalScript.resolve(THROWN_ROCK_PATH)
 	if rock_script == null:
 		return   # no LAThrownRock prop (core/library build with the game deleted) — can't throw
 	c.has_rock = false

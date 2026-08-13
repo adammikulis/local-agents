@@ -152,11 +152,7 @@ func _mount_asset(scene_path: String, target_width: float, pos: Vector3, tint: C
 		var s: float = target_width / span
 		mount.scale = Vector3(s, s, s)
 	asset.position -= ab.get_center()
-	for mi in _mesh_instances(mount):
-		var mat: StandardMaterial3D = StandardMaterial3D.new()
-		mat.albedo_color = tint
-		mat.roughness = 0.85
-		(mi as MeshInstance3D).material_override = mat
+	LAModelVisual.apply_tint(mount, tint)
 	mount.position = pos
 	_accessory.add_child(mount)
 
@@ -194,15 +190,6 @@ func _build_headphones() -> void:
 		cup.rotation.z = deg_to_rad(90.0)
 		cup.position = Vector3(0.135 * sign, 0.01, 0.0)
 		_accessory.add_child(cup)
-
-
-static func _mesh_instances(node: Node) -> Array:
-	var out: Array = []
-	if node is MeshInstance3D:
-		out.append(node)
-	for child in node.get_children():
-		out.append_array(_mesh_instances(child))
-	return out
 
 
 # Pick the idle clip by name (Blender exports compound names like "Root_001|Root|Idle"); prefer one

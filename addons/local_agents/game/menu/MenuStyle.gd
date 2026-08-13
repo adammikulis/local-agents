@@ -8,6 +8,7 @@ const TEXT: Color = Color(0.90, 0.92, 0.95)
 const TEXT_DIM: Color = Color(0.62, 0.66, 0.72)
 
 const PANEL_STYLE: StyleBoxFlat = preload("res://addons/local_agents/game/menu/MenuPanel.tres")
+const ModelManagerPanelScene: PackedScene = preload("res://addons/local_agents/ui/ModelManagerPanel.tscn")
 
 
 ## The bordered deep-blue panel used behind every menu's content (matches the pause menu).
@@ -42,3 +43,26 @@ static func make_button(text: String) -> Button:
 	button.custom_minimum_size = Vector2(300.0, 46.0)
 	button.focus_mode = Control.FOCUS_ALL
 	return button
+
+
+## Open the model manager as a full-screen overlay over `host`; Close frees it.
+static func open_model_manager(host: Control) -> void:
+	var overlay: Control = Control.new()
+	overlay.name = "ModelManagerOverlay"
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	host.add_child(overlay)
+
+	var panel: Control = ModelManagerPanelScene.instantiate()
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(panel)
+	panel.open()
+
+	var close_button: Button = make_button("Close")
+	close_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	close_button.offset_left = -140.0
+	close_button.offset_top = 12.0
+	close_button.offset_right = -16.0
+	close_button.custom_minimum_size = Vector2(120.0, 40.0)
+	close_button.pressed.connect(overlay.queue_free)
+	overlay.add_child(close_button)
+	close_button.grab_focus()

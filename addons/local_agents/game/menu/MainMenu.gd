@@ -4,7 +4,6 @@ extends Control
 
 const WORLD_SCENE: String = "res://addons/local_agents/game/VoxelWorld.tscn"
 const SETTINGS_SCENE: String = "res://addons/local_agents/game/menu/SettingsMenu.tscn"
-const ModelManagerPanelScene: PackedScene = preload("res://addons/local_agents/ui/ModelManagerPanel.tscn")
 const HELP_SCENE: String = "res://addons/local_agents/game/menu/HelpMenu.tscn"
 const CREDITS_SCENE: String = "res://addons/local_agents/game/menu/CreditsMenu.tscn"
 const EXAMPLES_SCENE: String = "res://addons/local_agents/examples/DemoLauncher.tscn"
@@ -54,7 +53,7 @@ func _wire_actions() -> void:
 
 	_sandbox_button.pressed.connect(_on_sandbox)
 	_settings_button.pressed.connect(func() -> void: _change_scene(SETTINGS_SCENE))
-	_models_button.pressed.connect(_on_models)
+	_models_button.pressed.connect(func() -> void: LAMenuStyle.open_model_manager(self))
 	_examples_button.pressed.connect(func() -> void: _change_scene(EXAMPLES_SCENE))
 	_help_button.pressed.connect(func() -> void: _change_scene(HELP_SCENE))
 	_credits_button.pressed.connect(func() -> void: _change_scene(CREDITS_SCENE))
@@ -83,29 +82,6 @@ func _on_sandbox() -> void:
 	GameMode.start_sandbox()
 	GameMode.apply(GameMode.settings)
 	_change_scene(WORLD_SCENE)
-
-
-## Open the model manager as a full-screen overlay on top of the menu; Close frees it.
-func _on_models() -> void:
-	var overlay: Control = Control.new()
-	overlay.name = "ModelManagerOverlay"
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(overlay)
-
-	var panel: Control = ModelManagerPanelScene.instantiate()
-	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	overlay.add_child(panel)
-	panel.open()
-
-	var close_button: Button = LAMenuStyle.make_button("Close")
-	close_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	close_button.offset_left = -140.0
-	close_button.offset_top = 12.0
-	close_button.offset_right = -16.0
-	close_button.custom_minimum_size = Vector2(120.0, 40.0)
-	close_button.pressed.connect(overlay.queue_free)
-	overlay.add_child(close_button)
-	close_button.grab_focus()
 
 
 func _on_quit() -> void:

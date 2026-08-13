@@ -3,7 +3,6 @@ extends Control
 
 
 const MAIN_MENU_SCENE: String = "res://addons/local_agents/game/menu/MainMenu.tscn"
-const ModelManagerPanelScene: PackedScene = preload("res://addons/local_agents/ui/ModelManagerPanel.tscn")
 
 var _settings: LAGameSettings = null
 
@@ -33,7 +32,7 @@ func _ready() -> void:
 		GameMode.settings = _settings
 	_build_sections()
 	_save_button.pressed.connect(_on_save)
-	_models_button.pressed.connect(_on_models)
+	_models_button.pressed.connect(func() -> void: LAMenuStyle.open_model_manager(self))
 	_back_button.pressed.connect(_on_back)
 	_save_button.grab_focus()
 
@@ -134,29 +133,6 @@ func _on_back() -> void:
 	var err: int = get_tree().change_scene_to_file(MAIN_MENU_SCENE)
 	if err != OK:
 		push_error("SettingsMenu: failed to return to main menu (err=%d)" % err)
-
-
-## Open the model manager as a full-screen overlay; Close frees it.
-func _on_models() -> void:
-	var overlay: Control = Control.new()
-	overlay.name = "ModelManagerOverlay"
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(overlay)
-
-	var panel: Control = ModelManagerPanelScene.instantiate()
-	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	overlay.add_child(panel)
-	panel.open()
-
-	var close_button: Button = LAMenuStyle.make_button("Close")
-	close_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	close_button.offset_left = -140.0
-	close_button.offset_top = 12.0
-	close_button.offset_right = -16.0
-	close_button.custom_minimum_size = Vector2(120.0, 40.0)
-	close_button.pressed.connect(overlay.queue_free)
-	overlay.add_child(close_button)
-	close_button.grab_focus()
 
 
 # ---------------------------------------------------------------------------
