@@ -31,7 +31,13 @@ from a caller list and from a red gate were not in front of anyone. They are in 
 
 **Everything is on `feature/enthalpy`, and the tree is GREEN.** `check_parse_all` 0 errors,
 `check_shaders_compile` 10/10, `BoxFieldDemo` and `SimWorldPlanetDemo` exit 0 with ZERO engine-error
-lines. `lint` is red on one gate only: `check_comment_density.sh (gdscript)`.
+lines. **`lint` is fully green** — the claim that `check_comment_density.sh (gdscript)` was red is struck.
+
+**One worktree, three branches.** Thirty stale trees and thirty-four branches are deleted; the tips that
+were ahead are frozen under `pre-reconcile/*` and every file they touch was deleted by the kernel
+collapse, so there is nothing to merge them into. `check_branch_integration.sh` grew check 4 — a worktree
+must map to a branch, hold no unresolved merge, and have moved inside the age limit. Its branch half
+exempts `worktree-agent-*` by design, which is how it watched thirty-four accumulate.
 
 **Enthalpy is the state.** `h_j_m3` is what a cell stores; temperature, phase, pressure, `solid`, `fire`,
 `discharge`, velocity, conductivity, gas moles and condensed density are all DERIVED per step and live in
@@ -71,17 +77,33 @@ coefficient is stoichiometry rather than a density ratio between two invented un
 
 ---
 
-## THE ONE REGRESSION, AND IT IS THE NEXT JOB
+## THE ONE REGRESSION — AND IT IS NOT THE PRESSURE MARCH. THE RUN DIES ON ITS WAY OUT.
 
-`kernels3d/pressure.glsl` marches EVERY cell up its whole column: the loop bound is the grid depth, so
-it is O(cells x depth) per step where the kernel it replaced was O(cells). A 5-frame run completes; a
-60-frame run does not finish in fifteen minutes. Not hung — this.
+*(Corrected. This section used to say `kernels3d/pressure.glsl`'s O(cells x depth) march was why a
+60-frame run does not finish, and called it the next job. **The march was real and is fixed** — one
+thread per column top walking down once, O(cells). **The attribution was FALSE.** The failure
+reproduces on `feature/enthalpy` with the fix reverted. Do not re-derive it.)*
 
-The fix is a column prefix scan, which is what the physics already says: the pressure at a cell is the
-pressure of the cell above plus the weight of one step. One thread per gravity-aligned column, walking
-DOWN once and writing every cell on the way, is O(cells) and computes the same integral once instead of
-depth times. The columns follow -g per cell, not a grid axis, so they must be enumerated from the
-field's own top cells. The gas term stays per-cell; only the condensed overburden accumulates.
+**What it actually does, and the cliff is sharp.** `--frames 7` and `--frames 8` finish and exit 0.
+`--frames 9` prints its whole report in seconds and then **the process will not exit** — the harness
+kills it and returns 125, `hung_after_report`. `--frames 10` never reaches the report at all. With
+`--fast=8` that puts the cliff between 72 and 80 sim steps.
+
+**It is CPU, on one core, in GDScript.** `sample` on the live process shows the GDScript VM's
+call cycle repeating hundreds of frames deep and growing — a recursive or mutually-recursive script
+call, which no compute kernel can produce. Godot's stack limit never trips, so the depth is bounded and
+the branching is what costs: exponential, not runaway.
+
+**What that rules out, and what to look at.** Not a kernel, not the GPU, not a pass. The harness's own
+message for 125 names the exit path — `LAAppExit.quit()` and whether `LAProcess.exit_now` fires — but
+that cannot be the whole story, because `--frames 10` dies BEFORE the report. Two failures or one, that
+is the first thing to settle. Bisect with `--fast 1` to separate a step-count trigger from a frame-count
+one; the search for a self-recursive `func` came back empty, so look for MUTUAL recursion, which a
+facade delegating to a module that delegates back would produce — and this tree has just been through
+three extract-only splits.
+
+**Nothing that needs a run of useful length can be verified until this is closed**, including the
+pressure acceptance below.
 
 ## FOUND BY DOING IT — each had silently disabled a whole subsystem
 
@@ -132,8 +154,10 @@ the biota channels compute.
 it, so the buffer held zero and every phase boundary was evaluated at vacuum. `PressurePass` exists now,
 and gas answers with p = nRT of what it holds while condensed matter contributes the weight of the
 condensed column above. The atmosphere's hydrostatic profile is not added on top — it emerges, because
-gravity is what puts more gas in the cells near the ground. *Acceptance still owed:* pressure
-monotonically non-decreasing inward, which needs a run.
+gravity is what puts more gas in the cells near the ground. The column integral is O(cells).
+*Acceptance still owed:* `pressure_inversions` and `pressure_unwritten` both zero over a run long enough
+to matter, which is blocked on the section above. The instrument and the gate exist —
+`LAFieldPressureAudit` counts both, and either one non-zero exits 122.
 
 **E — enthalpy. Done.** See the section above.
 
@@ -175,13 +199,9 @@ chemical equilibrium. The defect named is the UNIT.
   Four pure-git checks, wired into `lint`: the dev branch must contain `main`; every local branch ahead of it
   must be listed in a tracked `docs/OPEN_BRANCHES` with a reason and a date; a branch more than ~15 commits
   ahead or ~7 days old fails; every worktree maps to a listed branch. Reconciling at five commits is minutes.
-- **Split the conservation VERDICT from the provenance verdict, at the process boundary.** The GDScript half
-  is done — `conservation_violated`, `conservation_unmeasured`, `conservation_starved` and
-  `conservation_audited` are separate keys now. But `scripts/run_sim_offscreen.sh` greps only
-  `CONSERVATION_VIOLATION=` to set its exit code, so **a starved leg still exits 0** — a clean-looking pass
-  over a gate that never ran. Give `CONSERVATION_UNMEASURED=` its own code, ordered so a real violation still
-  wins. *(Corrected 2026-08-12: this used to claim a starved leg "fires CONSERVATION_VIOLATION for a
-  provenance reason". False. It fires nothing.)*
+- ~~"Split the conservation VERDICT from the provenance verdict — a starved leg still exits 0."~~ **Done,
+  and this entry outlived it.** `run_sim_offscreen.sh` gives `CONSERVATION_UNMEASURED=` exit 123, ordered
+  after 126 so a real violation still wins. `PRESSURE_BROKEN=` took 122 beside it on the same pattern.
 - **`lint` is fail-fast and collapses every gate's exit code to 1**, so "exit 2 means the gate could not run"
   — asserted in about ten gate headers and in `lint.yml` — **is not observable from the harness's exit code.**
   A gate that cannot run is indistinguishable from a violation. Fix the harness, not the gates.
@@ -277,7 +297,8 @@ print if there are any. Never launch godot windowed directly; it steals the keyb
 engine flag and goes before the `--`; the harness handles it.
 
 **Exit codes:** 0 clean · 2 usage · 3 stale shaders · 4 engine errors, output withheld · 5 a UI node without
-`--ui` · 6 grid invalid · 126 conservation violation. **A starved gate still exits 0 — see the seams.**
+`--ui` · 6 grid invalid · 122 pressure inverted or unwritten · 123 conservation unmeasured · 124 no report
+inside the budget · 125 reported then would not exit · 126 conservation violation.
 
 **`scripts/agent_harness.sh lint` is what CI runs**, and it now runs the union of both lineages' gates,
 including `check_model_parameters.sh`, which had never once executed. Look for the force-load marker before
