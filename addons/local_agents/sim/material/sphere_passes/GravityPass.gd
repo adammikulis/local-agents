@@ -204,8 +204,3 @@ func mean_g() -> float:
 ## means the discrete Poisson equation is satisfied rather than that G is small. INF before the first drain.
 func residual_rel() -> float:
 	return _residual_rel
-
-
-## Solves the device has completed.
-func solves() -> int:
-	return _solves

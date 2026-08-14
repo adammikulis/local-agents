@@ -20,7 +20,7 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 sweeps already use it. Left:
 
 - `MaterialFieldReport3D.surface_climate`, `MaterialFieldPhotoStats3D`,
-  `MaterialFieldClimateSwing3D._site_stations`, `MaterialFieldGeotherm3D._gradient`.
+  `MaterialFieldClimateSwing3D._site_stations`.
 - `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`, `MaterialFieldElementProbe3D`,
   `MaterialFieldOrganic3D`.
 - `CLIMATE_MAX_CELLS` and its stride delete with the climate scan.
@@ -42,14 +42,6 @@ Free today, no new op: `momentum_vec` is three `SUM` rows on `vel_*` with `aux: 
 `spin × momentum_vec × -2Ω` on the CPU, and the per-cell accumulation is pure waste.
 
 ## 2. Collapse the per-cell kernels into one dispatch
-
-Seven passes are dispatched per step. `MaterialFieldGeotherm3D` is the next one to go and it is not even a
-kernel: `_rebuild()` computes `silicate[c] * rho_rock * vol[c] * w_per_kg`, in which only `silicate[c]`
-varies per cell, then compacts a list and hands joules to the sparse inject queue from GDScript on the
-gravity solve's cadence. Radiogenic heating is a volumetric source, heat appearing in proportion to the rock
-a cell holds, and it is one term in the kernel beside the rest. Keep `LARadiogenicDecay`, which is the real
-physics of a decaying nuclide store; delete the module, the list, the queue round trip and the separate
-cadence.
 
 `CellListPass` is the seventh, and it stays a pass until the compaction becomes a mode of `transport.glsl`:
 `check_binding_collisions.sh` fails any pass naming two kernel paths, so it cannot simply be folded into

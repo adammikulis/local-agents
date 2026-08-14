@@ -43,7 +43,7 @@ var _list_args: Array = []
 ## What the TF_STAMP gather publishes about the electric field: driver-owned so ReducePass and
 ## CellListPass can read them, and not a derived channel, which would be read back with no CPU consumer.
 func _buffers(cc: int) -> Dictionary:
-	return {"col_e": cc, "strike": cc}
+	return {"col_e": cc, "strike": cc, "radiogenic": cc}
 
 
 func _setup(bufs: Dictionary, cc: int) -> void:
@@ -131,7 +131,8 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 	for key in ["temp", "pressure", "porosity", "grain", "co2", "h2o", "h2o_solid", "h2o_liquid",
 			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement",
 			"silicate_susp_water", "silicate_susp_air", "silicate_bed",
-			"rad_absorbed", "rad_emitted", "col_e", "strike"]:
+			"rad_absorbed", "rad_emitted", "col_e", "strike",
+			"carbonate", "silica", "radiogenic"]:
 		if not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row has no law." % [key, channel])
 			return []
@@ -178,6 +179,10 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 			[38, _single(bufs, "rad_emitted")],
 			[39, _single(bufs, "col_e")],
 			[40, _single(bufs, "strike")],
+			# The other two rock channels and where the radiogenic tail books what it deposited.
+			[41, _single(bufs, "carbonate")],
+			[42, _single(bufs, "silica")],
+			[43, _single(bufs, "radiogenic")],
 		]
 		out[p] = _uset(_pipe, entries)
 	return out
@@ -185,7 +190,7 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 
 # --- push constant ----------------------------------------------------------------------------------------
 
-## transport.glsl's Params block, in its declared order — 92 bytes.
+## transport.glsl's Params block, in its declared order — 104 bytes.
 func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lapse: float,
 		sun: Vector3) -> PackedByteArray:
 	var substance: String = String(row["substance"])
@@ -207,8 +212,10 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lap
 		flags |= LATransportRecords.Flag.DILUTE
 	if String(row.get("list", "")) != "":
 		flags |= LATransportRecords.Flag.LISTED
+	if bool(row.get("radiogenic", false)):
+		flags |= LATransportRecords.Flag.RADIOGENIC
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(92)
+	pc.resize(104)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
@@ -236,6 +243,11 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lap
 	pc.encode_float(80, water.y)
 	pc.encode_float(84, air.x)
 	pc.encode_float(88, air.y)
+	# The nuclide store is finite, so the rate FALLS: this is what each rock has left at the run's epoch.
+	var epoch: float = LARadiogenicDecay.epoch_years()
+	pc.encode_float(92, LARadiogenicDecay.heat_production_w_m3_at("silicate", epoch))
+	pc.encode_float(96, LARadiogenicDecay.heat_production_w_m3_at("carbonate", epoch))
+	pc.encode_float(100, LARadiogenicDecay.heat_production_w_m3_at("silica", epoch))
 	return pc
 
 

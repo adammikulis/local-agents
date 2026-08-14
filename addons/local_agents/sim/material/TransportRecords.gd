@@ -13,7 +13,8 @@ enum Law { NONE, SHALLOW, FILM, DARCY, EDDY, SOUND, OHMIC, PGF }
 enum Fluid { VACUUM, WATER, AIR }
 
 ## Per-row switches, packed into the kernel's `flags`. Matches the TF_* constants in transport.glsl.
-enum Flag { SIGNED = 1, SETTLE = 2, STAMP = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32, LISTED = 64 }
+enum Flag { SIGNED = 1, SETTLE = 2, STAMP = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32, LISTED = 64,
+	RADIOGENIC = 128 }
 
 
 ## `settle` adds the grain's terminal velocity to the advecting fluid; `frac` is the derived share moved.
@@ -62,8 +63,10 @@ static func rows() -> Array:
 
 		{"channel": "h_j_m3", "substance": "", "mode": CONVECT, "law": Law.EDDY, "fluid": Fluid.AIR},
 
+		# The heat equation: conduction down the temperature gradient, and the rock's own decay as the
+		# volumetric source term beside it.
 		{"channel": "h_j_m3", "substance": "", "mode": CONDUCT,
-			"drive": "temp", "aux": "conductivity"},
+			"drive": "temp", "aux": "conductivity", "radiogenic": true},
 
 		{"channel": "h_j_m3", "substance": "", "mode": RADIATE},
 

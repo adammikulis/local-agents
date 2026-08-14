@@ -84,18 +84,16 @@ func seed_tick() -> bool:
 	return true
 
 
-## ONE step: SIM_SECONDS_PER_STEP of simulated time. Every per-step term — the gravity solve, the
-## radiogenic deposit, the upload, the dispatch, the readback — happens once here, so a step's books
-## cannot be split across a frame boundary.
+## ONE step: SIM_SECONDS_PER_STEP of simulated time. Every per-step term — the gravity solve, the upload,
+## the dispatch, the readback — happens once here, so a step's books cannot be split across a frame
+## boundary.
 func step() -> void:
 	if not _f._ready_sim or not _f._use_gpu:
 		return
 	# Refresh the body rotation FIRST: everything below that converts a position or a direction reads it.
 	_f.sync_body_frame()
 	var t0: int = Time.get_ticks_usec()
-	_f._step_geotherm()              # radiogenic decay: hand the rock the joules its own mass produced
-	LASimReport.gauge("field_pin_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
-	var t_begin: int = Time.get_ticks_usec()
+	var t_begin: int = t0
 	_f._gpu.begin_frame(_f._h, _f._h2o)      # drains prev step (sync+readback) + uploads
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
