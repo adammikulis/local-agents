@@ -24,15 +24,13 @@ sweeps already use it. Left:
 - Three shapes refused a row and say why: `sea_surface_stats` (a median needs a declared range nothing
   supplies), `lava_shell_diag` (five outputs over two gates), `rock_radial_profile` (a binned reduction
   plus a gravity march in one walk).
-- `_liquid_mirror`, `_ice_mirror` and `_vapour_mirror` are each a per-cell product of two buffers the GPU
-  already holds. Three `LAChannels.derived_buffers()` entries written by `StateDerivePass` delete all three
-  loops with no reduce row at all; waiting for their five consumers to convert is a choice, not a blocker.
+- `_liquid_mirror` is a per-cell product of two buffers the GPU already holds, rebuilt per drinking
+  creature per tick. A derived buffer written by `StateDerivePass` deletes the loop with no reduce row at
+  all; its four consumers convert with it, and `drink` stops writing its depletion into a throwaway copy.
 
-The ops these sweeps still need, so a lane adds them once rather than four times: `Mask.GROUND` / `Mask.AIR`
-(open with solid at the gravity-below slot — `nbr_solid` already binds the neighbour table); `Op.COUNT_LT`;
-a below-neighbour comparison, which covers `pressure_inversions`, `pressure_audited` AND the momentum
-buoyancy book; a six-face gradient for the momentum PGF book; derived `speed`, `lat` and `alt` channels,
-after which every latitude and altitude band is an ordinary row using the existing `gate_lo`/`gate_hi`.
+The ops are BUILT — `Mask.GROUND`/`Mask.AIR`, `Op.COUNT_LT`, `enum Nbr` (below, above, six-face gradient)
+and the derived `speed`/`lat`/`alt` channels — so a sweep converts without adding machinery, and every
+latitude and altitude band is an ordinary row on the existing `gate_lo`/`gate_hi`.
 
 Free today, no new op: `momentum_vec` is three `SUM` rows on `vel_*` with `aux: "air"`, weighted, OPEN;
 `momentum_mass_kg` is one. **Coriolis then costs nothing** — it is linear in v, so it is
@@ -77,11 +75,6 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
   per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
 - The driver: `MaterialSphereGPU3D.gd` and `MaterialField3D.gd`. Last, after the pass seam settles.
 
-## 6. Make `_read_channels`'s SLOW block read `slow_channels()`
-
-It hardcodes `["silicate", "fert"]` and `["biomass", "cement", ...]`, so `slow_channels()` is a view nothing
-consumes and `porosity` never gets its coarse readback.
-
 ## 7. Build the binding registry
 
 SSBO binding numbers are a bare integer in GLSL and a second bare integer in one of fourteen uniform-set
@@ -90,17 +83,12 @@ is unheld is narrower: that one index names the same BUFFER on both sides. Build
 on `Channels.gd`'s shape — a `static func rows()`, never a `const Dictionary` built from another script's
 constants — and one gate absorbing the hand-written binding stanzas. Mutation-test it both ways.
 
-## 8. Make `lint` distinguish "could not run" from "violated"
+## 9. Pressure falls going DOWN, and the harness exits 122 saying so
 
-Every gate runs and the failures are summarised, so the fail-fast half of this is already done. What remains:
-the harness collapses every gate's exit code into `exit 1`, so the exit-2 contract asserted in about ten gate
-headers and in `lint.yml` is not observable. Fix the harness, not the gates.
-
-## 9. Pressure is broken, and the harness exits 122 saying so
-
-`PRESSURE_BROKEN` reports both a count of inversions — pressure falling as you go DOWN — and a count of
-cells no column walk ever reached. Both are large. A cell with no pressure evaluates every phase boundary
-at vacuum, so this reaches the whole phase curve.
+`PRESSURE_BROKEN`'s unwritten-cell arm is clean once the field settles: every cell now gets a pressure.
+What remains is INVERSIONS — pressure falling with depth, which hydrostatics forbids. `pressure.glsl` walks
+one thread per column top downward through `below_of`, and the discrete up-map is not a bijection, so ask
+whether that shape can cover every cell exactly once before trusting the integral it builds.
 
 - `FieldAttributionRecords3D.SILENT_HEAT_PASSES` now lists only `"fungus"`, and there is no `FungusPass` in
   `PASS_SCRIPTS` — while `PRODUCERS` still names one for a channel `Channels.gd` declares as a single
@@ -109,8 +97,6 @@ at vacuum, so this reaches the whole phase curve.
   inside its own file.
 - `check_shaders_compile.sh`'s kernel floor is `docs/SHADER_FLOOR` and `write_ceilings.sh` lowers it. Do not
   bake a count back into the gate.
-- `LAMineralStamp3D._scan` restarts at cell 0 every scan and breaks on a budget, so the low-index prefix is
-  re-walked and high-index cells are starved. It needs a rolling cursor at minimum.
 - `LASpatialIndex.rebuild_if_stale` rebuilds a whole group's dictionary every frame it is touched rather
   than tracking per-node cell changes, and `LASimReport.snapshot` deep-copies its events and gauges on every
   call. Both are constants, not asymptotes.
