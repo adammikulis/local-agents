@@ -129,7 +129,15 @@ fi
 # Zero was never how this gate lost its scope. It read 10 here and 58 in the primary checkout from ONE
 # commit, because a worktree's bin/ is a symlink and the vendored GLSL only exists on one side.
 checked_n="$(echo "$out" | sed -nE 's/.*"checked":([0-9]+).*/\1/p' | tail -1)"
-require_scanned "$checked_n" "${SHADER_FLOOR:-8}" "first-party .glsl kernels"
+# The floor lives in docs/SHADER_FLOOR and the integrator writes it, so deleting a kernel does not require
+# editing this gate. A number baked in here is one a lane must edit to do correct work.
+FLOOR_FILE="$REPO_ROOT/docs/SHADER_FLOOR"
+[ -f "$FLOOR_FILE" ] || { echo "check_shaders_compile: no docs/SHADER_FLOOR." >&2; exit 2; }
+SHADER_FLOOR_N="$(rg -N -e '^[0-9]+$' "$FLOOR_FILE" 2>/dev/null | head -1)"
+case "$SHADER_FLOOR_N" in
+  "" | *[!0-9]*) echo "check_shaders_compile: docs/SHADER_FLOOR carries no number." >&2; exit 2 ;;
+esac
+require_scanned "$checked_n" "${SHADER_FLOOR:-$SHADER_FLOOR_N}" "first-party .glsl kernels"
 if echo "$out" | grep -q '"failed":0'; then
   echo "check_shaders_compile: OK (every .glsl loads and compiles; no GPU required)"
   exit 0
