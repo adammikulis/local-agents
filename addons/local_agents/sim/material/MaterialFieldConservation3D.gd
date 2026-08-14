@@ -14,10 +14,9 @@ static func noise_floor(cell_count: int) -> float:
 	return sqrt(float(maxi(cell_count, 1))) * FLOAT32_EPSILON
 
 
-## Gated quantity -> the PUBLISHED DIMENSIONLESS key it is asserted on. The ledger owns every ratio.
-## `rel` alone: drift NET of what crossed the edge, over the sealed baseline PLUS what crossed. Both terms
-## are zero on a shut wall, and the float32 floor still bounds it because the denominator only grows.
-## `+ turnover`: a residual of the boundary EXCHANGE, denominator what crossed, not what is held.
+## Gated quantity -> the PUBLISHED DIMENSIONLESS key it is asserted on; the ledger owns every ratio.
+## `rel` is drift NET of what crossed the edge over the baseline PLUS what crossed, both zero on a shut
+## wall; `+ turnover` is a residual of the EXCHANGE, denominated in what crossed rather than what is held.
 const GATED: Dictionary = {
 	"element_C_total": {"rel": "element_C_total_rel_drift"},
 	"h2o_closed_total": {"rel": "h2o_rel_drift"},
