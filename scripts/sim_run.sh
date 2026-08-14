@@ -72,7 +72,7 @@ while IFS= read -r g; do
 done < <(find "$PROJ/addons" -name '*.glsl' 2>/dev/null)
 if [ "$NEED_IMPORT" -eq 1 ]; then
   echo "sim_run: a kernel changed — importing." >&2
-  godot --headless --path "$PROJ" --import >/dev/null 2>&1
+  "$(dirname "${BASH_SOURCE[0]}")/godot_import.sh" "$PROJ"
 fi
 
 # --bare BY DEFAULT. A measurement run has no use for the HUD, the audio director, the ocean plane, the
