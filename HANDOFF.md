@@ -86,9 +86,12 @@ consumes and `porosity` never gets its coarse readback.
 
 SSBO binding numbers are a bare integer in GLSL and a second bare integer in one of fourteen uniform-set
 builders. `check_binding_collisions.sh` check 4 already holds a pass to indices its kernel declares, so what
-is unheld is narrower: that one index names the same BUFFER on both sides. Build `sim/material/Bindings.gd`
-on `Channels.gd`'s shape — a `static func rows()`, never a `const Dictionary` built from another script's
-constants — and one gate absorbing the hand-written binding stanzas. Mutation-test it both ways.
+is unheld is narrower: that one index names the same BUFFER on both sides. Build
+`addons/local_agents/sim/material/Bindings.gd` on `Channels.gd`'s shape — a `static func rows()`, never a
+`const Dictionary` built from another script's constants — and one gate absorbing the hand-written binding
+stanzas. Mutation-test it both ways. Delete the claim below with this item.
+
+<!-- claim: nofile addons/local_agents/sim/material/Bindings.gd -->
 
 ## 8. Make `lint` distinguish "could not run" from "violated"
 
