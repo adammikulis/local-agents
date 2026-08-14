@@ -68,6 +68,9 @@ layout(set = 0, binding = 33, std430) writeonly buffer Bed { float silicate_bed[
 layout(set = 0, binding = 34, std430) restrict readonly buffer ActiveIdx { uint active_idx[]; };
 layout(set = 0, binding = 35, std430) restrict readonly buffer ActiveArgs { uint active_args[]; };
 layout(set = 0, binding = 36, std430) restrict readonly buffer ActiveFlag { uint active_flag[]; };
+// MODE_RADIATE's own books, J/m^3, assigned in the gather so each is a per-step rate needing no clear.
+layout(set = 0, binding = 37, std430) restrict writeonly buffer RadAbs { float rad_absorbed[]; };
+layout(set = 0, binding = 38, std430) restrict writeonly buffer RadEmit { float rad_emitted[]; };
 
 #include "march.glsli"
 
@@ -752,6 +755,8 @@ void main() {
 		float taken = sun_w * shortwave_absorbed_frac(gidx, params.cell_m)
 			* (1.0 - shortwave_albedo(gidx));
 		gained += taken * params.dt_s / params.cell_m;
+		rad_absorbed[gidx] = gained;
+		rad_emitted[gidx] = lost;
 	}
 	// No floor. Pass 0 clamps every outflow to what the cell holds, so a negative here is a defect
 	// and clamping it up would create the mass it is short of.

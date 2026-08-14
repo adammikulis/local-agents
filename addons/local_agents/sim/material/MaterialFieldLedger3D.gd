@@ -14,8 +14,8 @@ var _samples: int = 0
 
 # Cumulative energy books, zeroed at the sample the thermal baseline latches so the stock change and the
 # booked terms span the same window.
-var _cum_solar: float = 0.0
-var _cum_lw: float = 0.0
+var _cum_absorbed: float = 0.0
+var _cum_emitted: float = 0.0
 var _first_inject_j: float = 0.0
 var _first_unsourced_dc: float = 0.0
 # Last published block, for the consumers that ask the field for one scalar outside the report path.
@@ -31,8 +31,8 @@ func setup(field) -> void:
 
 
 ## Every conserved substance, sampled together. `step_index` is the field's own step counter; drift is
-## reported per field step, never per frame. `flux` is LAMaterialFieldEnergyBudget3D's radiative report.
-func report(step_index: int, flux: Dictionary) -> Dictionary:
+## reported per field step, never per frame.
+func report(step_index: int) -> Dictionary:
 	var out: Dictionary = {}
 	if _f == null or _f._cell_count <= 0:
 		return out
@@ -48,7 +48,7 @@ func report(step_index: int, flux: Dictionary) -> Dictionary:
 	_publish_h2o(out, f, step)
 	_publish_mineral(out, f, step)
 	_publish_element(out, f, step)
-	_publish_energy(out, f, flux, step)
+	_publish_energy(out, f, step)
 	out["ledger_step"] = step
 	out["ledger_samples"] = _samples
 	out["ledger_scan_ms"] = snappedf(float(Time.get_ticks_usec() - t0) / 1000.0, 0.01)
@@ -265,7 +265,7 @@ func _run_pair(out: Dictionary, name: String, book: String, seed_key: String, va
 
 # --- ENERGY ------------------------------------------------------------------------------------------
 
-func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int) -> void:
+func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	out["energy_stock_cells"] = f["cells"]
 	var missing: PackedStringArray = f.get("energy_missing", PackedStringArray())
 	if missing.size() > 0 or not f.has("energy_stock"):
@@ -275,10 +275,24 @@ func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int
 	var stock: float = float(f["energy_stock"])
 	out["energy_stock"] = stock
 
-	# Booked rates, in watts. LAMaterialFieldEnergyBudget3D sums each cell's flux against that cell's own
-	# outward face area in square metres, so these arrive as watts and need no conversion.
-	var solar_w: float = float(flux.get("energy_absorbed_w", 0.0))
-	var lw_w: float = float(flux.get("energy_emitted_w", 0.0))
+	# WATTS, off the device. transport.glsl's RADIATE row writes what each cell took in and sent out as
+	# J/m^3 for one step; the two reduce rows weight those by cell volume, so the pair arrives in joules
+	# over one step and only the step's own real seconds separate it from watts.
+	var dt_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	var has_rad: bool = f.has("rad_absorbed") and f.has("rad_emitted") and dt_s > 0.0
+	if not has_rad:
+		# A missing measurement is missing: with no radiative pair there is nothing to book against.
+		out["energy_absorbed_w"] = null
+		out["energy_emitted_w"] = null
+		out["energy_net_w"] = null
+		out["energy_booked"] = null
+		out["energy_residual"] = null
+		return
+	var absorbed_w: float = float(f["rad_absorbed"]) / dt_s
+	var emitted_w: float = float(f["rad_emitted"]) / dt_s
+	out["energy_absorbed_w"] = absorbed_w
+	out["energy_emitted_w"] = emitted_w
+	out["energy_net_w"] = absorbed_w - emitted_w
 	var inject_j: float = 0.0
 	var unsourced_dc: float = 0.0
 	if _f._inject != null and _f._inject.queue != null:
@@ -299,16 +313,16 @@ func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int
 		return
 	out["energy_stock_first"] = float(r[0])
 	if not was_latched:
-		_cum_solar = 0.0
-		_cum_lw = 0.0
+		_cum_absorbed = 0.0
+		_cum_emitted = 0.0
 		_first_inject_j = inject_j
 		_first_unsourced_dc = unsourced_dc
 	elif steps > 0:
 		# Rectangle rule over the window, at the flux sampled at its right-hand end, integrated against the
 		# real seconds the kernel applies.
-		var window_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step() * float(steps)
-		_cum_solar += solar_w * window_s
-		_cum_lw += lw_w * window_s
+		var window_s: float = dt_s * float(steps)
+		_cum_absorbed += absorbed_w * window_s
+		_cum_emitted += emitted_w * window_s
 	out["energy_unsourced_dc"] = unsourced_dc - _first_unsourced_dc
 	var run_steps: int = int(r[3])
 	out["energy_run_steps"] = run_steps
@@ -316,25 +330,14 @@ func _publish_energy(out: Dictionary, f: Dictionary, flux: Dictionary, step: int
 		return
 	var run_drift: float = float(r[1])
 	var cum_inject: float = inject_j - _first_inject_j
-	var booked: float = _cum_solar - _cum_lw + cum_inject
+	var booked: float = _cum_absorbed - _cum_emitted + cum_inject
 	out["energy_run_drift"] = run_drift
 	out["energy_run_drift_per_step"] = run_drift / float(run_steps)
 	out["energy_booked"] = booked
 	out["energy_residual"] = run_drift - booked
-	# The decomposition's own check: sum(rc0*dT) + sum(drc*T1) is the stock change identically, so this is
-	# near zero or the split is wrong.
-	var area: float = float(flux.get("energy_face_area_m2", 0.0))
-	out["energy_ref_area_m2"] = area
-	var run_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step() * float(run_steps)
-	if area <= 0.0 or run_s <= 0.0:
-		return
-	var inv: float = 1.0 / (area * run_s)
-	out["energy_drift_w_m2"] = run_drift * inv
-	out["energy_booked_w_m2"] = booked * inv
-	out["energy_residual_w_m2"] = (run_drift - booked) * inv
-	out["energy_book_solar_w_m2"] = _cum_solar * inv
-	out["energy_book_lw_w_m2"] = _cum_lw * inv
-	out["energy_book_inject_w_m2"] = cum_inject * inv
+	out["energy_book_absorbed_j"] = _cum_absorbed
+	out["energy_book_emitted_j"] = _cum_emitted
+	out["energy_book_inject_j"] = cum_inject
 
 
 # --- shared ------------------------------------------------------------------------------------------

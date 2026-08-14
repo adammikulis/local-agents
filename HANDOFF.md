@@ -44,13 +44,14 @@ cadence.
 
 The target is six: gravity, derive, pressure, transport, reactions, reduce.
 
-## 3. Delete the second radiative model
+## 3. Give the RADIATE row a column, so radiation crosses more than one cell
 
-`MaterialFieldEnergyBudget3D` and `RadiativeColumn` re-solve the RADIATE row of `transport.glsl` on the CPU
-over 64 sampled columns. Have the row accumulate its own per-cell absorbed and emitted watts, sum those,
-and delete both files with `K_SURFACE_FILL_MIN`, `K_ICE_ALBEDO_GAIN` and `SAMPLE_COLUMNS`.
-`tests/test_radiative_transfer.gd` drives `RadiativeColumn` directly and is repaired forward, never by
-restoring it.
+In `transport.glsl`'s gather, `gained += in_amt * absorptivity` keeps a neighbour's emission in proportion
+to this cell's own absorptivity and DROPS the rest: a photon the adjacent cell does not absorb never
+reaches the one beyond it. The mean free path is one cell by construction, so the substrate has no
+transmission, no outgoing longwave at the top of the atmosphere, and no way to price a CO2 doubling —
+`solar_incident()` already marches a real slant path with `la_step`, and the longwave half needs the same
+march. `BAND_COUNT` and `TEMP_COUNT` in `docs/MODEL_PARAMETERS.md` name that solver as what deletes them.
 
 ## 4. Move the lightning column march into the kernel
 

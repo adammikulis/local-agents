@@ -675,6 +675,21 @@ static var _solar: PackedFloat32Array = PackedFloat32Array()
 static var _packed: PackedFloat32Array = PackedFloat32Array()
 
 
+## Fraction of blackbody power emitted above dimensionless frequency x = c2*nu/T. Siegel & Howell series;
+## planck_above(0) == 1.
+static func planck_above(x: float) -> float:
+	if x <= 0.0:
+		return 1.0
+	if x > 60.0:
+		return 0.0
+	var sum: float = 0.0
+	for n in range(1, 40):
+		var fn: float = float(n)
+		sum += exp(-fn * x) * (x * x * x / fn + 3.0 * x * x / (fn * fn)
+			+ 6.0 * x / (fn * fn * fn) + 6.0 / (fn * fn * fn * fn))
+	return 15.0 / pow(PI, 4.0) * sum
+
+
 static func edges_cm1() -> PackedFloat32Array:
 	if _edges.is_empty():
 		_edges.resize(BAND_COUNT + 1)
@@ -720,10 +735,10 @@ static func solar_weight(b: int) -> float:
 		var c2: float = LAPhysical.PLANCK_C2_CM_K
 		_solar.resize(BAND_COUNT)
 		for i in BAND_COUNT:
-			var lo: float = LARadiativeColumn.planck_above(c2 * e[i] / SOLAR_TEMPERATURE_K)
+			var lo: float = planck_above(c2 * e[i] / SOLAR_TEMPERATURE_K)
 			var hi: float = 0.0
 			if i < BAND_COUNT - 1:
-				hi = LARadiativeColumn.planck_above(c2 * e[i + 1] / SOLAR_TEMPERATURE_K)
+				hi = planck_above(c2 * e[i + 1] / SOLAR_TEMPERATURE_K)
 			_solar[i] = maxf(lo - hi, 0.0)
 	return _solar[b]
 
@@ -761,6 +776,6 @@ static func packed() -> PackedFloat32Array:
 			out[k + 4] = float(H2O_CONT[i])
 	o += TEMP_COUNT * BAND_COUNT * 5
 	for i in CDF_COUNT:
-		out[o + i] = LARadiativeColumn.planck_above(CDF_XMAX * float(i) / float(CDF_COUNT - 1))
+		out[o + i] = planck_above(CDF_XMAX * float(i) / float(CDF_COUNT - 1))
 	_packed = out
 	return _packed

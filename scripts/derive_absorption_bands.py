@@ -240,8 +240,9 @@ extends RefCounted
 ## N2, O2 and Ar are absent on purpose. Symmetric molecules acquire no dipole moment from rotation or
 ## stretching, so at planetary densities they do not absorb in the thermal infrared.
 ##
-## VERIFIED against measurement in tests/test_radiative_transfer.gd: Earth clear-sky OLR, the radiative
-## forcing of a CO2 doubling, and the CO2 share of Venus's greenhouse at 92 bar.
+## NOTHING IN THE TREE MEASURES THIS TABLE AGAINST A PLANET. Earth's clear-sky OLR, the forcing of a CO2
+## doubling and Venus's greenhouse are all column quantities, and the RADIATE row absorbs only from the
+## adjacent cell, so there is no column to solve them over. See HANDOFF.md item 3.
 
 const REF_PRESSURE_PA: float = LAPhysical.ABSORPTION_REF_PRESSURE_PA
 const BAND_COUNT: int = %d
@@ -294,6 +295,21 @@ static var _solar: PackedFloat32Array = PackedFloat32Array()
 static var _packed: PackedFloat32Array = PackedFloat32Array()
 
 
+## Fraction of blackbody power emitted above dimensionless frequency x = c2*nu/T. Siegel & Howell series;
+## planck_above(0) == 1.
+static func planck_above(x: float) -> float:
+\tif x <= 0.0:
+\t\treturn 1.0
+\tif x > 60.0:
+\t\treturn 0.0
+\tvar sum: float = 0.0
+\tfor n in range(1, 40):
+\t\tvar fn: float = float(n)
+\t\tsum += exp(-fn * x) * (x * x * x / fn + 3.0 * x * x / (fn * fn)
+\t\t\t+ 6.0 * x / (fn * fn * fn) + 6.0 / (fn * fn * fn * fn))
+\treturn 15.0 / pow(PI, 4.0) * sum
+
+
 static func edges_cm1() -> PackedFloat32Array:
 \tif _edges.is_empty():
 \t\t_edges.resize(BAND_COUNT + 1)
@@ -339,10 +355,10 @@ static func solar_weight(b: int) -> float:
 \t\tvar c2: float = LAPhysical.PLANCK_C2_CM_K
 \t\t_solar.resize(BAND_COUNT)
 \t\tfor i in BAND_COUNT:
-\t\t\tvar lo: float = LARadiativeColumn.planck_above(c2 * e[i] / SOLAR_TEMPERATURE_K)
+\t\t\tvar lo: float = planck_above(c2 * e[i] / SOLAR_TEMPERATURE_K)
 \t\t\tvar hi: float = 0.0
 \t\t\tif i < BAND_COUNT - 1:
-\t\t\t\thi = LARadiativeColumn.planck_above(c2 * e[i + 1] / SOLAR_TEMPERATURE_K)
+\t\t\t\thi = planck_above(c2 * e[i + 1] / SOLAR_TEMPERATURE_K)
 \t\t\t_solar[i] = maxf(lo - hi, 0.0)
 \treturn _solar[b]
 
@@ -380,7 +396,7 @@ static func packed() -> PackedFloat32Array:
 \t\t\tout[k + 4] = float(H2O_CONT[i])
 \to += TEMP_COUNT * BAND_COUNT * 5
 \tfor i in CDF_COUNT:
-\t\tout[o + i] = LARadiativeColumn.planck_above(CDF_XMAX * float(i) / float(CDF_COUNT - 1))
+\t\tout[o + i] = planck_above(CDF_XMAX * float(i) / float(CDF_COUNT - 1))
 \t_packed = out
 \treturn _packed
 '''
