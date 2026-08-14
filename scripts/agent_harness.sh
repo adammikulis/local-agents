@@ -223,6 +223,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_sim_determinism
     gate check_binding_collisions
     gate check_declared_and_dispatched
+    gate check_gate_fixtures
     gate check_branch_integration
     gate check_doc_claims
     gate check_doc_prose
