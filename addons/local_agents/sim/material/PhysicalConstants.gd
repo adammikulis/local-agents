@@ -94,9 +94,6 @@ const STEFAN_BOLTZMANN: float = 5.670374419e-8
 const GRAVITATIONAL_CONSTANT: float = 6.67430e-11
 const KELVIN_OFFSET: float = 273.15
 
-## Greybody longwave optical depth of a sea-level air column.
-const ATMOS_OPTICAL_DEPTH: float = 0.835
-
 ## Surface albedo, cloud contribution excluded.
 const ALBEDO_OCEAN: float = 0.06
 const ALBEDO_BARE_GROUND: float = 0.15
@@ -202,9 +199,6 @@ const AIR_MOLAR_DENSITY_MOL_M3: float = AIR_DENSITY_KG_M3 / MOLAR_MASS_DRY_AIR_K
 
 ## Litter, mol C per mol N (Batjes 1996).
 const LITTER_C_TO_N: float = 20.0
-## Beer-Lambert vertical shortwave optical depth (Trenberth, Fasullo & Kiehl 2009, BAMS 90:311).
-const ATMOS_SW_OPTICAL_DEPTH: float = 0.2597
-
 const AIR_MASS_HORIZON: float = 38.0
 
 const LIGHTNING_FLASH_J: float = 1.0e9

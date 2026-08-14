@@ -71,10 +71,6 @@ The target is six: gravity, derive, pressure, transport, reactions, reduce.
 the whole absorbed share, so what a surface reflects is subtracted from the beam and deposited in no cell.
 Reflected shortwave is a real flux that crosses the atmosphere again and may be absorbed on the way out.
 
-`LAPhysical.ATMOS_OPTICAL_DEPTH` (0.835) has NO reader anywhere in the tree — the band model replaced it and
-nobody deleted it. A fitted number left in the constants authority is worse than a bare one, because the
-next reader assumes it is load-bearing. Delete it with its `PHYSICS_RUBRIC.md` mention.
-
 ## 5. Move what the device cannot take into the GDExtension
 
 GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is a `.cpp`/`.hpp` pair, one

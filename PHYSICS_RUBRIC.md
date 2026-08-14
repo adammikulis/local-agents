@@ -52,8 +52,8 @@ Energy is **not** closed and must not be — sunlight enters and longwave leaves
 **Computed:** the count of constants in `docs/MODEL_PARAMETERS.md` that are neither bound to an authority
 nor derived from other constants. A scalar where a relation belongs IS a number in that registry — the gate
 counts them on every lint, so this has a real population instead of an audit somebody must remember to redo.
-This shape has appeared five times by hand: `rc_of`, `rock_fill`, `carbon_total`, `boil_c`,
-`ATMOS_OPTICAL_DEPTH`.
+This shape has appeared five times by hand: `rc_of`, `rock_fill`, `carbon_total`, `boil_c`, and a greybody
+optical depth standing in for a band model.
 
 | **0** | never audited | **1** | > 10 outstanding | **2** | 4–10 | **3** | 1–3, each with a stated reason and bounded error | **4** | none; every state-dependent quantity is a function with its validity range stated |
 |---|---|---|---|---|---|---|---|---|---|
