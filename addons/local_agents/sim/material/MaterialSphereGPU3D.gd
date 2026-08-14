@@ -387,14 +387,14 @@ func _read_channels(read_slow: bool) -> Dictionary:
 			continue
 		var src: RID = _bufs[k] if k in single_channels() else _live(k)
 		out[k] = _rd.buffer_get_data(src).to_float32_array()
-	# SLOW — ledger/baker channels, read only on the coarse cadence. PAIR channels from the live half; the
-	# singles and the derived silicate shares direct.
+	# SLOW — ledger/baker channels on the coarse cadence, from the table that declares which those ARE.
+	# PAIR channels come from the live half, singles direct.
 	if read_slow:
-		for k in ["silicate", "fert"]:
-			out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
-		for k in ["biomass", "cement", "silicate_melt", "silicate_susp_water", "silicate_susp_air"]:
-			if _bufs.has(k):
-				out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
+		for k in slow_channels():
+			if not _bufs.has(k):
+				continue
+			var slow_src: RID = _bufs[k] if k in single_channels() else _live(k)
+			out[k] = _rd.buffer_get_data(slow_src).to_float32_array()
 	return out
 
 func request_channel(name: String) -> void:

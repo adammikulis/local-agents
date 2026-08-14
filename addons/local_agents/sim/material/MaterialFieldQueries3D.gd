@@ -508,25 +508,3 @@ func _liquid_mirror() -> PackedFloat32Array:
 	for c in _f._cell_count:
 		out[c] = liquid_at(c)
 	return out
-
-
-## The vapour share of every cell, as one array.
-func _vapour_mirror() -> PackedFloat32Array:
-	var out: PackedFloat32Array = PackedFloat32Array()
-	if _f._h2o.size() != _f._cell_count:
-		return out
-	out.resize(_f._cell_count)
-	for c in _f._cell_count:
-		out[c] = vapour_at(c)
-	return out
-
-
-## The frozen share of every cell, as one array.
-func _ice_mirror() -> PackedFloat32Array:
-	var out: PackedFloat32Array = PackedFloat32Array()
-	if _f._h2o.size() != _f._cell_count:
-		return out
-	out.resize(_f._cell_count)
-	for c in _f._cell_count:
-		out[c] = ice_at(c)
-	return out

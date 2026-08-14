@@ -80,11 +80,7 @@ func refresh_aggregates() -> void:
 func climate_snapshot() -> Dictionary:
 	if _f._cell_count <= 0 or _f._h2o.size() != _f._cell_count or _f._temp.size() != _f._cell_count:
 		return {}
-	return {
-		"moisture": _f._queries._vapour_mirror(), "temp": _f._temp,
-		"snow": _f._queries._ice_mirror(),
-		"solid": _f._solid, "cell_count": _f._cell_count,
-	}
+	return {"temp": _f._temp, "solid": _f._solid, "cell_count": _f._cell_count}
 
 
 ## The atmosphere band radii the water-particle renderer places against, measured from the body centre.
