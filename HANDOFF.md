@@ -34,7 +34,7 @@ sweeps already use it. Left:
 - `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`, `MaterialFieldElementProbe3D`,
   `MaterialFieldOrganic3D`.
 - `CLIMATE_MAX_CELLS` and its stride delete with the climate scan.
-- `FieldPassAttribution3D._sums` walks the halves it downloads at a checkpoint. ReducePass runs last, so
+- `FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint. ReducePass runs last, so
   it cannot answer "which pass moved it": that wants a reduce dispatch per checkpoint, not a row.
 - Three shapes refused a row and say why: `sea_surface_stats` (a median needs a declared range nothing
   supplies), `lava_shell_diag` (five outputs over two gates), `rock_radial_profile` (a binned reduction
