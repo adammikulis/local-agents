@@ -35,7 +35,7 @@ const MOMENTS: String = "grav_moments"
 const PARTIALS: String = "grav_partials"
 
 var _pipe: RID = RID()
-var _set: Array = [RID(), RID()]        # one uniform set per ping-pong parity
+var _set: RID = RID()
 var _moments: RID = RID()
 var _gravity: RID = RID()
 var _groups: int = 0
@@ -88,20 +88,19 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_moments = _single(bufs, MOMENTS)
 	_gravity = _single(bufs, "gravity")
 
-	for p in 2:
-		var entries: Array = []
-		for i in channels.size():
-			entries.append([i, _half(bufs, channels[i], p, false)])
-		entries.append([14, props_ssbo])
-		entries.append([15, _single(bufs, "nbr")])
-		entries.append([16, _single(bufs, "pos")])
-		entries.append([17, _single(bufs, FLAGS)])
-		entries.append([18, _single(bufs, PHI)])
-		entries.append([19, _single(bufs, DENSITY)])
-		entries.append([20, _gravity])
-		entries.append([21, _moments])
-		entries.append([22, _single(bufs, PARTIALS)])
-		_set[p] = _uset(_pipe, entries)
+	var entries: Array = []
+	for i in channels.size():
+		entries.append([i, _single(bufs, channels[i])])
+	entries.append([14, props_ssbo])
+	entries.append([15, _single(bufs, "nbr")])
+	entries.append([16, _single(bufs, "pos")])
+	entries.append([17, _single(bufs, FLAGS)])
+	entries.append([18, _single(bufs, PHI)])
+	entries.append([19, _single(bufs, DENSITY)])
+	entries.append([20, _gravity])
+	entries.append([21, _moments])
+	entries.append([22, _single(bufs, PARTIALS)])
+	_set = _uset(_pipe, entries)
 
 
 ## The grid's index layout, read off cell 0's own neighbour row: +Y lands nx away, +Z lands nx*ny away.
@@ -119,8 +118,8 @@ func _read_strides(bufs: Dictionary) -> bool:
 	return true
 
 
-func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
-	if not _dispatchable() or not _set[parity].is_valid():
+func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+	if not _dispatchable() or not _set.is_valid():
 		if not _failed_announced:
 			_failed_announced = true
 			push_error("GPU_REQUIRED: GravityPass has no pipeline, so gravity is never solved and every "
@@ -131,7 +130,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	if step % SOLVE_EVERY != 0:
 		return
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
-	rd.compute_list_bind_uniform_set(cl, _set[parity], 0)
+	rd.compute_list_bind_uniform_set(cl, _set, 0)
 	var cell_m: float = _ctx_cell_size(ctx)
 	if not _flagged:
 		_flagged = true

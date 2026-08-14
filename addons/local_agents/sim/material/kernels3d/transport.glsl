@@ -1,8 +1,7 @@
 #[compute]
 #version 450
 
-// The one gather: every substance that moves between cells moves through it.
-// Two passes over the same dispatch. Pass 0 writes what leaves each face into send/send_h; pass 1 gathers.
+// Two passes over one dispatch: pass 0 writes what leaves each face into send/send_h, pass 1 gathers.
 // Opposite of slot d is d ^ 1.
 
 #include "neighbours.glsli"
@@ -80,6 +79,9 @@ layout(set = 0, binding = 42, std430) restrict readonly buffer SilicaBuf { float
 layout(set = 0, binding = 43, std430) restrict writeonly buffer Radiogenic { float radiogenic[]; };
 layout(set = 0, binding = 44, std430) restrict buffer LwEmis { float lw_emis[]; };
 layout(set = 0, binding = 45, std430) restrict buffer SwAbs { float sw_absorbed[]; };
+// Heat of the entry this row's substance sits in, J/m^3, and that entry's capacity, J/m^3/K.
+layout(set = 0, binding = 46, std430) restrict readonly buffer HCarried { float h_carried[]; };
+layout(set = 0, binding = 47, std430) restrict readonly buffer CapSensible { float cap_sensible[]; };
 
 #include "march.glsli"
 
@@ -112,6 +114,8 @@ layout(push_constant, std430) uniform Params {
 	float w_silicate;
 	float w_carbonate;
 	float w_silica;
+	// J/m^3/K a unit of fill adds to the sensible entry; 0 for a substance on its own phase ladder.
+	float sub_cap_j_m3k;
 } params;
 
 const uint PASS_GRAIN = 2u;   // TransportPass.PASS_GRAIN
@@ -331,8 +335,8 @@ float mobility_at(uint c, float amt) {
 		return ohmic_conductivity_at(c, column_field(c)) * dt / EPS0;
 	}
 	if (params.law == LAW_PGF) {
-		// The pressure-gradient force written as a flux: dp * area * dt IS the momentum it delivers.
-		return L * L * dt;
+		// A force per volume delivers momentum per volume: dp * dt / L, `drop` already carrying one L.
+		return dt / L;
 	}
 	return 0.0;
 }
@@ -695,7 +699,16 @@ void main() {
 		}
 		// Mass carries its heat and its charge. A row that carries no matter carries neither.
 		bool carries = params.density > 0.0 && amount[gidx] > 0.0;
-		float h_per_unit = carries ? h[gidx] / amount[gidx] : 0.0;
+		// Heat per unit fill of THIS substance: its share of the entry its heat sits in.
+		float h_per_unit = 0.0;
+		if (carries) {
+			if (params.sub_cap_j_m3k > 0.0) {
+				float cap = cap_sensible[gidx];
+				h_per_unit = cap > 0.0 ? h_carried[gidx] * params.sub_cap_j_m3k / cap : 0.0;
+			} else {
+				h_per_unit = h_carried[gidx] / amount[gidx];
+			}
+		}
 		float q_per_unit = carries ? charge[gidx] / amount[gidx] : 0.0;
 		float open = 1.0 - clamp(resist[gidx], 0.0, 1.0);
 		if (open <= 0.0) {

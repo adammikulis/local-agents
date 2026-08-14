@@ -3,10 +3,9 @@
 
 layout(local_size_x = 64) in;
 
-// No `restrict`: a row that does not use Back/Aux binds an already-bound buffer into those slots.
+// No `restrict`: a row that does not use Aux binds an already-bound buffer into that slot.
 layout(set = 0, binding = 1, std430) readonly buffer Prim { float prim[]; };
 layout(set = 0, binding = 2, std430) readonly buffer Solid { float solid[]; };
-layout(set = 0, binding = 3, std430) readonly buffer Back { float back_half[]; };
 layout(set = 0, binding = 4, std430) writeonly buffer ActiveIdx { uint active_idx[]; };
 // Doubles as the dispatch-indirect argument buffer AND the atomic counter. Slots:
 //   [0] groups_x   [1] groups_y (1)   [2] groups_z (1)   -- read by compute_list_dispatch_indirect at offset 0
@@ -22,7 +21,7 @@ layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint pass_id;      // 0 = reset counters, 1 = append, 2 = publish dispatch args
 	uint flags;        // predicate terms, below
-	float thr;         // prim/back keep threshold
+	float thr;         // prim keep threshold
 	float aux_thr;     // aux keep threshold
 	uint pad0;
 	uint pad1;
@@ -73,9 +72,6 @@ void main() {
 	bool keep = false;
 	if (g < params.cell_count) {
 		bool hit = over(prim[g]);
-		if (!hit && (params.flags & F_BACK) != 0u) {
-			hit = over(back_half[g]);
-		}
 		if (!hit && (params.flags & F_AUX) != 0u) {
 			hit = aux[g] > params.aux_thr;
 		}

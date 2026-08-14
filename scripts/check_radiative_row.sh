@@ -63,6 +63,8 @@ const CELL: float = 1.0
 const ORIGIN: Vector3 = Vector3(-0.5 * N * CELL, -0.5 * N * CELL, -0.5 * N * CELL)
 const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
 const LIST_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd"
+## Transport binds the enthalpy decomposition this pass declares, so the harness must allocate it too.
+const DERIVE_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd"
 
 ## Two temperatures far enough apart that T^4 separates them by more than any tolerance.
 const COOL_C: float = 20.0
@@ -111,9 +113,7 @@ func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Arra
 	var lst: GDScript = load(LIST_PATH)
 	var p: RefCounted = scr.new()
 	var bufs: Dictionary = {}
-	for name in LAChannels.pair_channels():
-		bufs[String(name)] = [_f32(cc), _f32(cc)]
-	for name in LAChannels.single_channels():
+	for name in LAChannels.channels():
 		bufs[String(name)] = _f32(cc)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(cc)
@@ -125,6 +125,7 @@ func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Arra
 	# ASK THE PASS what it declares, exactly as the driver's _allocate_declared does. A harness that
 	# builds its own inputs tests the kernel against a table the sim never sends it.
 	var declared: Dictionary = p._buffers(cc)
+	declared.merge((load(DERIVE_PATH) as GDScript).new()._buffers(cc))
 	for name in declared:
 		var spec: Variant = declared[name]
 		bufs[String(name)] = _f32(int(spec["n"]) if spec is Dictionary else int(spec))
@@ -144,7 +145,7 @@ func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Arra
 	var ctx: Dictionary = {"cell_size": CELL, "g_m_s2": 9.81, "sun_dir": Vector3.ZERO,
 		"step_index": 0.0}
 	var cl: int = _rd.compute_list_begin()
-	p.dispatch(_rd, cl, 0, ctx, cc, groups)
+	p.dispatch(_rd, cl, ctx, cc, groups)
 	_rd.compute_list_end()
 	_rd.submit()
 	_rd.sync()

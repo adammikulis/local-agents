@@ -132,25 +132,9 @@ func _scratch(n: int) -> RID:
 	return _storage_buffer(a.to_byte_array())
 
 
-## SINGLE channel -> its RID; RID() when unallocated.
+## A channel or driver buffer -> its RID; RID() when unallocated.
 func _single(bufs: Dictionary, key: String) -> RID:
 	var v: Variant = bufs.get(key, RID())
-	return v if v is RID else RID()
-
-
-## PAIR channel -> [half 0, half 1]; two invalid RIDs when unallocated.
-func _pair(bufs: Dictionary, key: String) -> Array:
-	var v: Variant = bufs.get(key, null)
-	if v is Array and (v as Array).size() >= 2:
-		return v
-	return [RID(), RID()]
-
-
-## PAIR -> the half at parity `p`, or the other one when `back`. SINGLE -> its bare RID.
-func _half(bufs: Dictionary, key: String, p: int, back: bool) -> RID:
-	var v: Variant = bufs.get(key, null)
-	if v is Array and (v as Array).size() >= 2:
-		return (v as Array)[1 - p] if back else (v as Array)[p]
 	return v if v is RID else RID()
 
 

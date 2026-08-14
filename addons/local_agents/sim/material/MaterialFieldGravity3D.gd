@@ -31,7 +31,7 @@ func solve_seed() -> void:
 	var dispatches: int = 0
 	while rel > SEED_RESIDUAL_TOLERANCE and dispatches < SEED_DISPATCH_CAP:
 		var cl: int = rd.compute_list_begin()
-		_pass.dispatch(rd, cl, _f._gpu._phase, ctx, _f._gpu._cc, _f._gpu._groups)
+		_pass.dispatch(rd, cl, ctx, _f._gpu._cc, _f._gpu._groups)
 		rd.compute_list_end()
 		rd.submit()
 		rd.sync()

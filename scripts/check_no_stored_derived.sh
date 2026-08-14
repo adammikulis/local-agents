@@ -24,13 +24,12 @@ if not rows:
 undeclared, stored_derived = [], []
 for name, body in rows:
     kind = re.search(r'"kind":\s*"(\w+)"', body)
-    buf = re.search(r'"buffer":\s*"(\w*)"', body)
     if not kind:
         undeclared.append(name)
         continue
+    # rows() IS the allocation list: the driver gives every row in it a buffer.
     if kind.group(1) == "derived":
-        if buf and buf.group(1):
-            stored_derived.append((name, buf.group(1)))
+        stored_derived.append((name, "channel"))
         if not re.search(r'"from":\s*"[^"]+"', body):
             undeclared.append(name + " (derived, but names no law)")
 

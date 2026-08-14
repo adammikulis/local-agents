@@ -247,6 +247,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_voxel_grid
     gate check_gravity_solve
     gate check_radiative_row
+    gate check_finite_channels
     gate check_shaders_compile
     gate check_reaction_energy
     # EVERY GATE RUNS. Fail-fast meant one red gate hid every gate after it.

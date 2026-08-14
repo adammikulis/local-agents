@@ -18,7 +18,7 @@ const GRAIN_ROW: Dictionary = {"channel": "silicate", "substance": "silicate",
 const MIN_AMOUNT: float = 0.0001
 
 var _pipe: RID = RID()
-## Per row: [set(parity 0), set(parity 1)]. An empty entry is a row whose buffers the driver has not got.
+## Per row: its uniform set. An invalid entry is a row whose buffers the driver has not got.
 var _sets: Array = []
 var _rows: Array = []
 ## Per-face scratch, cell*6: what left each face this step, and the enthalpy and charge that rode with it.
@@ -38,8 +38,8 @@ var _rad_table: RID = RID()
 var _lw_emis: RID = RID()
 var _sw_abs: RID = RID()
 var _band_count: int = 0
-## [set(parity 0), set(parity 1)] for the grain prologue.
-var _grain_sets: Array = []
+## The grain prologue's uniform set.
+var _grain_set: RID = RID()
 ## Per row: the dispatch-indirect args RID of the cell list it runs over, invalid for a full-grid row.
 var _list_args: Array = []
 
@@ -66,12 +66,12 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_sw_abs = _scratch(cc)
 
 	for row: Dictionary in _rows:
-		_sets.append(_row_sets(bufs, row))
+		_sets.append(_row_set(bufs, row))
 		_list_args.append(_single(bufs, String(_list_keys(row).get("args", ""))))
-	_grain_sets = _row_sets(bufs, GRAIN_ROW)
+	_grain_set = _row_set(bufs, GRAIN_ROW)
 
 
-func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable():
 		return
 	var cell_m: float = _ctx_cell_size(ctx)
@@ -81,16 +81,15 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	var sun: Vector3 = ctx.get("sun_dir", Vector3.ZERO)
 	# PROLOGUE. The three suspension shares are the `frac` of three silicate rows, so they must be complete
 	# before those rows donate, and it reads `cement` before the dilute rows rescale it.
-	var grain_set: RID = _grain_sets[parity] if not _grain_sets.is_empty() else RID()
-	if grain_set.is_valid():
+	if _grain_set.is_valid():
 		rd.compute_list_bind_compute_pipeline(cl, _pipe)
-		rd.compute_list_bind_uniform_set(cl, grain_set, 0)
+		rd.compute_list_bind_uniform_set(cl, _grain_set, 0)
 		var gpc: PackedByteArray = _pc(GRAIN_ROW, cc, PASS_GRAIN, cell_m, dt_s, lapse, sun)
 		rd.compute_list_set_push_constant(cl, gpc, gpc.size())
 		rd.compute_list_dispatch(cl, groups, 1, 1)
 		rd.compute_list_add_barrier(cl)
 	for r in _rows.size():
-		var uset: RID = _sets[r][parity] if not (_sets[r] as Array).is_empty() else RID()
+		var uset: RID = _sets[r]
 		if not uset.is_valid():
 			continue
 		# EVERY ROW RUNS TWICE. Pass 0 writes what leaves each face; pass 1 gathers. A receiver reading a
@@ -116,8 +115,8 @@ func _list_keys(row: Dictionary) -> Dictionary:
 	var label: String = String(row.get("list", ""))
 	return {} if label == "" else CellListScript.list_buffers(label)
 
-## [set(parity 0), set(parity 1)] for one row, or [] when a buffer it names does not exist.
-func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
+## The uniform set for one row, or RID() when a buffer it names does not exist.
+func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 	var channel: String = String(row["channel"])
 	var drive: String = String(row.get("drive", ""))
 	var resist: String = String(row.get("resist", ""))
@@ -132,73 +131,84 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 	for key in needed:
 		if String(key) != "" and not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row does not move." % [key, channel])
-			return []
+			return RID()
 	# The material state every law and the band model read. A missing one is a dead row, not a default.
-	for key in ["temp", "pressure", "porosity", "grain", "co2", "h2o", "h2o_solid", "h2o_liquid",
+	for key in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible",
+			"temp", "pressure", "porosity", "grain", "co2", "h2o", "h2o_solid", "h2o_liquid",
 			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement",
 			"silicate_susp_water", "silicate_susp_air", "silicate_bed",
 			"rad_absorbed", "rad_emitted", "col_e", "strike",
 			"carbonate", "silica", "radiogenic"]:
 		if not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row has no law." % [key, channel])
-			return []
-	var out: Array = [RID(), RID()]
-	for p in 2:
-		var amount: RID = _half(bufs, channel, p, false)
-		var entries: Array = [
-			[0, amount],
-			[1, _no_h if moves_enthalpy else _half(bufs, "h_j_m3", p, false)],
-			[2, _single(bufs, "nbr")],
-			[3, _single(bufs, "solid")],
-			[4, _single(bufs, "gravity")],
-			[5, _single(bufs, "vel_x")], [6, _single(bufs, "vel_y")], [7, _single(bufs, "vel_z")],
-			[8, _send], [9, _send_h],
-			[10, _zero if resist == "" else _half(bufs, resist, p, false)],
-			[11, amount if drive == "" else _half(bufs, drive, p, false)],
-			[12, _one if aux == "" else _half(bufs, aux, p, false)],
-			[13, _single(bufs, "charge")], [14, _send_q],
-			[15, _single(bufs, "temp")],
-			[16, _single(bufs, "pressure")],
-			[17, _single(bufs, "porosity")],
-			[18, _single(bufs, "grain")],
-			[19, _half(bufs, "co2", p, false)],
-			[20, _half(bufs, "h2o", p, false)],
-			[21, _rad_table],
-			[22, _single(bufs, "h2o_solid")],
-			[23, _single(bufs, "h2o_liquid")],
-			[24, _half(bufs, "silicate", p, false)],
-			[25, _single(bufs, "biomass")],
-			[26, _single(bufs, "silicate_melt")],
-			[27, _send_q if stamp == "" else _half(bufs, stamp, p, false)],
-			[28, _single(bufs, "h2o_vapour")],
-			[29, _one if frac == "" else _single(bufs, frac)],
-			[30, _single(bufs, "cement")],
-			[31, _single(bufs, "silicate_susp_water")],
-			[32, _single(bufs, "silicate_susp_air")],
-			[33, _single(bufs, "silicate_bed")],
-			# A full-grid row never reads these; the kernel touches them only under TF_LISTED.
-			[34, _zero if list.is_empty() else bufs[String(list["idx"])]],
-			[35, _zero if list.is_empty() else bufs[String(list["args"])]],
-			[36, _zero if list.is_empty() else bufs[String(list["flag"])]],
-			# Every row binds these; only a MODE_RADIATE gather writes them.
-			[37, _single(bufs, "rad_absorbed")],
-			[38, _single(bufs, "rad_emitted")],
-			[39, _single(bufs, "col_e")],
-			[40, _single(bufs, "strike")],
-			# The other two rock channels and where the radiogenic tail books what it deposited.
-			[41, _single(bufs, "carbonate")],
-			[42, _single(bufs, "silica")],
-			[43, _single(bufs, "radiogenic")],
-			[44, _lw_emis],
-			[45, _sw_abs],
-		]
-		out[p] = _uset(_pipe, entries)
-	return out
+			return RID()
+	var amount: RID = _single(bufs, channel)
+	var entries: Array = [
+		[0, amount],
+		[1, _no_h if moves_enthalpy else _single(bufs, "h_j_m3")],
+		[2, _single(bufs, "nbr")],
+		[3, _single(bufs, "solid")],
+		[4, _single(bufs, "gravity")],
+		[5, _single(bufs, "vel_x")], [6, _single(bufs, "vel_y")], [7, _single(bufs, "vel_z")],
+		[8, _send], [9, _send_h],
+		[10, _zero if resist == "" else _single(bufs, resist)],
+		[11, amount if drive == "" else _single(bufs, drive)],
+		[12, _one if aux == "" else _single(bufs, aux)],
+		[13, _single(bufs, "charge")], [14, _send_q],
+		[15, _single(bufs, "temp")],
+		[16, _single(bufs, "pressure")],
+		[17, _single(bufs, "porosity")],
+		[18, _single(bufs, "grain")],
+		[19, _single(bufs, "co2")],
+		[20, _single(bufs, "h2o")],
+		[21, _rad_table],
+		[22, _single(bufs, "h2o_solid")],
+		[23, _single(bufs, "h2o_liquid")],
+		[24, _single(bufs, "silicate")],
+		[25, _single(bufs, "biomass")],
+		[26, _single(bufs, "silicate_melt")],
+		[27, _send_q if stamp == "" else _single(bufs, stamp)],
+		[28, _single(bufs, "h2o_vapour")],
+		[29, _one if frac == "" else _single(bufs, frac)],
+		[30, _single(bufs, "cement")],
+		[31, _single(bufs, "silicate_susp_water")],
+		[32, _single(bufs, "silicate_susp_air")],
+		[33, _single(bufs, "silicate_bed")],
+		# A full-grid row never reads these; the kernel touches them only under TF_LISTED.
+		[34, _zero if list.is_empty() else bufs[String(list["idx"])]],
+		[35, _zero if list.is_empty() else bufs[String(list["args"])]],
+		[36, _zero if list.is_empty() else bufs[String(list["flag"])]],
+		# Every row binds these; only a MODE_RADIATE gather writes them.
+		[37, _single(bufs, "rad_absorbed")],
+		[38, _single(bufs, "rad_emitted")],
+		[39, _single(bufs, "col_e")],
+		[40, _single(bufs, "strike")],
+		# The other two rock channels and where the radiogenic tail books what it deposited.
+		[41, _single(bufs, "carbonate")],
+		[42, _single(bufs, "silica")],
+		[43, _single(bufs, "radiogenic")],
+		[44, _lw_emis],
+		[45, _sw_abs],
+		# Heat travels with the matter that holds it, so a row reads the enthalpy of ITS OWN entry.
+		[46, _single(bufs, _carried_key(String(row["substance"])))],
+		[47, _single(bufs, "cap_sensible")],
+	]
+	return _uset(_pipe, entries)
+
+
+## The buffer holding the enthalpy of the mixture entry a substance's heat sits in.
+func _carried_key(substance: String) -> String:
+	match LAMatterChannels.entry_of(substance):
+		LAMatterChannels.Entry.H2O:
+			return "h_h2o"
+		LAMatterChannels.Entry.SILICATE:
+			return "h_silicate"
+	return "h_sensible"
 
 
 # --- push constant ----------------------------------------------------------------------------------------
 
-## transport.glsl's Params block, in its declared order — 104 bytes.
+## transport.glsl's Params block, in its declared order — 108 bytes.
 func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lapse: float,
 		sun: Vector3) -> PackedByteArray:
 	var substance: String = String(row["substance"])
@@ -223,7 +233,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lap
 	if bool(row.get("radiogenic", false)):
 		flags |= LATransportRecords.Flag.RADIOGENIC
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(104)
+	pc.resize(108)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
@@ -256,6 +266,9 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lap
 	pc.encode_float(92, LARadiogenicDecay.heat_production_w_m3_at("silicate", epoch))
 	pc.encode_float(96, LARadiogenicDecay.heat_production_w_m3_at("carbonate", epoch))
 	pc.encode_float(100, LARadiogenicDecay.heat_production_w_m3_at("silica", epoch))
+	# J/m^3/K one unit of fill contributes to the sensible entry; 0 for a substance on a phase ladder,
+	# whose entry is the channel itself.
+	pc.encode_float(104, float(entry.get("density", 0.0)) * LAMatterChannels.specific_heat(substance))
 	return pc
 
 

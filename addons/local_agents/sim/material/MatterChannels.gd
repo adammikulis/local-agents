@@ -4,6 +4,36 @@ extends RefCounted
 ## THE MATTER CHANNELS THE KERNELS BIND, AND THE ONE WEIGHING OF THEM.
 ## `kernels3d/matter_channels.glsli` is the GPU half: same order, same binding slots, same switch.
 
+## Mixture entries — state_derive.glsl E_*. Two substances carry a phase ladder; the rest are linear in T.
+enum Entry { H2O, SILICATE, SENSIBLE }
+
+const LADDER: Dictionary = {"h2o": Entry.H2O, "silicate": Entry.SILICATE}
+
+## No melt and no boil in this planet's range, so their moles are the Dalton vapour split's denominator.
+const GASES: PackedStringArray = ["o2", "co2", "n2"]
+
+
+## Which mixture entry a substance's enthalpy sits in.
+static func entry_of(id: String) -> int:
+	return int(LADDER.get(id, Entry.SENSIBLE))
+
+
+## J/kg/K a substance holds sensible heat at, or 0 for one on a phase ladder (whose enthalpy comes off
+## the ladder, not off a single capacity). Empty table entry -> 0 and a named error.
+static func specific_heat(id: String) -> float:
+	# A row naming no substance carries no matter, so it has no capacity to look up.
+	if id == "" or entry_of(id) != Entry.SENSIBLE:
+		return 0.0
+	var s: Dictionary = LASubstances.table().get(id, {})
+	var c: float = float(s.get("specific_heat_gas", 0.0)) if GASES.has(id) else 0.0
+	if c <= 0.0:
+		c = float(s.get("specific_heat", 0.0))
+	if c <= 0.0:
+		push_error("LAMatterChannels: LASubstances gives \"%s\" no specific heat, so matter of it would "
+			% id + "carry mass with no heat capacity.")
+	return c
+
+
 ## Binding order. The include's `channel_at` switch IS this list.
 const CHANNELS: PackedStringArray = [
 	"h2o",
@@ -37,17 +67,12 @@ static func rho_units() -> PackedFloat32Array:
 	return out
 
 
-## The names in `want` that `bufs` has no buffer for. A PAIR channel is present when its first half is.
+## The names in `want` that `bufs` has no buffer for.
 static func absent(bufs: Dictionary, want: PackedStringArray) -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
 	for name: String in want:
 		var v: Variant = bufs.get(name, null)
-		var r: RID = RID()
-		if v is Array and (v as Array).size() >= 2:
-			r = (v as Array)[0]
-		elif v is RID:
-			r = v
-		if not r.is_valid():
+		if not (v is RID and (v as RID).is_valid()):
 			out.append(name)
 	return out
 

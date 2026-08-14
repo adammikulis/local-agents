@@ -14,7 +14,6 @@ var _elements: PackedStringArray = PackedStringArray()
 var _channels: PackedStringArray = PackedStringArray()
 var _sched = null                  # LAFieldStepSample3D: which steps are checkpointed
 
-var _done: Dictionary = {}         # pass name -> true once it has run this step (drives the half map)
 var _prev_all: Dictionary = {}     # element -> moles at the previous checkpoint
 var _prev_open: Dictionary = {}
 var _start_all: Dictionary = {}
@@ -69,7 +68,6 @@ func pre_step() -> void:
 ## just been synced when this is called.
 func on_checkpoint(pass_index: int, pass_name: String) -> void:
 	if pass_index < 0:
-		_done = {}
 		_legs_all = {}
 		_legs_open = {}
 		_legs_parts = {}
@@ -80,8 +78,6 @@ func on_checkpoint(pass_index: int, pass_name: String) -> void:
 		_prev_open = opening[1]
 		_prev_parts = opening[2]
 		return
-	# The producer's OUTPUT is what a checkpoint taken after it must read, so the half flips HERE, not before.
-	_done[pass_name] = true
 	var now: Array = _sample()
 	var key: String = SampleScript.leg_key(pass_name)
 	_legs_all[key] = _delta(now[0], _prev_all)
@@ -137,13 +133,12 @@ func _sample() -> Array:
 	var vol: PackedFloat32Array = CellVolScript.of(_f)
 	if vol.size() != cc:
 		return [{}, {}, {}]
-	var solid: PackedFloat32Array = gpu.read_raw("solid", 0)
+	var solid: PackedFloat32Array = gpu.read_raw("solid")
 	var has_solid: bool = solid.size() >= cc
-	var phase: int = gpu.probe_phase()
 	var all_by_channel: Dictionary = {}
 	var open_by_channel: Dictionary = {}
 	for ch in _channels:
-		var a: PackedFloat32Array = _read(gpu, ch, phase)
+		var a: PackedFloat32Array = gpu.read_raw(String(ch))
 		if a.size() < cc:
 			continue
 		var t_all: float = 0.0
@@ -160,15 +155,6 @@ func _sample() -> Array:
 		parts[ch] = all_by_channel[ch]
 	return [_only(RecordsScript.elements_of(all_by_channel)),
 		_only(RecordsScript.elements_of(open_by_channel)), parts]
-
-
-## Read one channel at the half that is current given which passes have already run this step.
-func _read(gpu, name: String, phase: int) -> PackedFloat32Array:
-	if gpu.single_channels().has(name):
-		return gpu.read_raw(name, 0)
-	var producer: String = String(LAFieldAttributionRecords.PRODUCERS.get(name, ""))
-	var half: int = (1 - phase) if (producer != "" and _done.has(producer)) else phase
-	return gpu.read_raw(name, half)
 
 
 ## Drop every element the run did not ask for, so a carbon probe does not print the whole periodic table.

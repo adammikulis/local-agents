@@ -11,7 +11,7 @@ const PC_BYTES: int = 48
 
 var _pipe: RID = RID()
 var _rows: Array = []                   # rows whose buffers exist, in dispatch order
-var _sets: Array = []                   # per row: [set(parity 0), set(parity 1)]
+var _sets: Array = []                   # per row: its uniform set
 var _partials: RID = RID()
 var _groups: int = 0
 var _step: int = -1                     # field step the last dispatch reduced
@@ -57,24 +57,21 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			push_error(("ReducePass: row \"%s\" names %s, which nothing allocates. Its reading is ABSENT, "
 				+ "not zero, and its consumer publishes null.") % [String(row["key"]), ", ".join(absent)])
 			continue
-		var per_parity: Array = [RID(), RID()]
-		for p in 2:
-			per_parity[p] = _uset(_pipe, [
-				[1, _half(bufs, src, p, false)],
-				[2, _half(bufs, aux, p, false) if aux != "" else solid],
-				[3, solid],
-				[4, _partials],
-				[5, bufs[ref] if ref != "" else solid],
-				[6, _half(bufs, gate, p, false) if gate != "" else solid],
-				[7, _half(bufs, gate_aux, p, false) if gate_aux != "" else solid],
-				[8, _half(bufs, aux2, p, false) if aux2 != "" else solid],
-				[9, nbr],
-				[10, grav]])
-		_sets.append(per_parity)
+		_sets.append(_uset(_pipe, [
+			[1, _single(bufs, src)],
+			[2, _single(bufs, aux) if aux != "" else solid],
+			[3, solid],
+			[4, _partials],
+			[5, bufs[ref] if ref != "" else solid],
+			[6, _single(bufs, gate) if gate != "" else solid],
+			[7, _single(bufs, gate_aux) if gate_aux != "" else solid],
+			[8, _single(bufs, aux2) if aux2 != "" else solid],
+			[9, nbr],
+			[10, grav]]))
 		_rows.append(row)
 
 
-func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, _groups_in: int) -> void:
+func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, _groups_in: int) -> void:
 	if not _dispatchable() or _sets.is_empty():
 		if not _failed_announced:
 			_failed_announced = true
@@ -83,11 +80,11 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 				+ "`godot --headless --path . --import` in this worktree.")
 		return
 	_step = int(ctx.get("step_index", -1))
-	_run(rd, cl, parity, ctx, cc, true)
+	_run(rd, cl, ctx, cc, true)
 
 
-## Every row at ping-pong half `parity`. `latch_ok` false leaves the crust reference where it is.
-func _run(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, latch_ok: bool) -> void:
+## Every row. `latch_ok` false leaves the crust reference where it is.
+func _run(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, latch_ok: bool) -> void:
 	var cell_m: float = _ctx_cell_size(ctx)
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	for r in _rows.size():
@@ -95,7 +92,7 @@ func _run(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, l
 		var latch: bool = int(row["op"]) == LAReduceRecords.Op.LATCH
 		if latch and (_latch_step >= 0 or not latch_ok):
 			continue      # the reference is the crust the world was built with, taken once
-		rd.compute_list_bind_uniform_set(cl, _sets[r][parity], 0)
+		rd.compute_list_bind_uniform_set(cl, _sets[r], 0)
 		var pc: PackedByteArray = _pc(cc, row, r * _groups, cell_m)
 		rd.compute_list_set_push_constant(cl, pc, pc.size())
 		rd.compute_list_dispatch(cl, _groups, 1, 1)
@@ -104,14 +101,14 @@ func _run(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, l
 			_latch_step = _step
 
 
-## A reduce taken BETWEEN passes at ping-pong half `parity`, for the instruments no row can serve: this
-## pass runs last, so a row cannot say WHICH pass moved a total. Submits and syncs on the spot; leaves the
-## crust reference and `latest()` alone, because arming a probe may not move what an instrument reads.
-func checkpoint(rd: RenderingDevice, parity: int, ctx: Dictionary, cc: int) -> Dictionary:
+## A reduce taken BETWEEN passes, for the instruments no row can serve: this pass runs last, so a row
+## cannot say WHICH pass moved a total. Submits and syncs on the spot; leaves the crust reference and
+## `latest()` alone, because arming a probe may not move what an instrument reads.
+func checkpoint(rd: RenderingDevice, ctx: Dictionary, cc: int) -> Dictionary:
 	if not _dispatchable() or _sets.is_empty():
 		return {}
 	var cl: int = rd.compute_list_begin()
-	_run(rd, cl, parity, ctx, cc, false)
+	_run(rd, cl, ctx, cc, false)
 	rd.compute_list_end()
 	rd.submit()
 	rd.sync()

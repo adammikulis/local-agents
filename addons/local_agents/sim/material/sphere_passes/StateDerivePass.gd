@@ -13,7 +13,8 @@ const BOUND: Dictionary = {
 	"solid": 14, "cement": 15, "regolith": 16, "grain": 17, "pos": 18, "h_j_m3": 21, "pressure": 22,
 	"temp": 23, "mom_x": 25, "mom_y": 26, "mom_z": 27, "vel_x": 28, "vel_y": 29, "vel_z": 30,
 	"rho_bulk": 32, "conductivity": 33, "h2o_solid": 34, "h2o_liquid": 35,
-	"h2o_vapour": 36, "silicate_melt": 37, "cell_vol": 40, "speed": 41, "lat": 42, "alt": 43}
+	"h2o_vapour": 36, "silicate_melt": 37, "cell_vol": 40, "speed": 41, "lat": 42, "alt": 43,
+	"nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48}
 
 ## props row layout — state_derive.glsl PROP_*.
 const PROP_STRIDE: int = 5
@@ -23,26 +24,15 @@ const PROP_MOL_PER_KG: int = 2
 const PROP_ENTRY: int = 3
 const PROP_LAMBDA: int = 4
 
-## Mixture entries — state_derive.glsl E_*.
-const E_H2O: int = 0
-const E_SILICATE: int = 1
-const E_SENSIBLE: int = 2
-
-## Substances the table gives no melt and no boil, so they stay gas at every temperature this planet
-## reaches. Their moles are the non-condensable denominator of the Dalton vapour split.
-const GASES: PackedStringArray = ["o2", "co2", "n2"]
-
-## Substance id -> the mixture entry that carries its phase ladder.
-const LADDER: Dictionary = {"h2o": E_H2O, "silicate": E_SILICATE}
-
 var _pipe: RID = RID()
-var _set: Array = [RID(), RID()]     # one uniform set per ping-pong parity
+var _set: RID = RID()
 
 
 ## Read by reduce rows on the device and by no CPU consumer, so they are this pass's own rather than
 ## LAChannels.derived_buffers() entries the driver would copy back on every drain.
 func _buffers(cc: int) -> Dictionary:
-	return {"speed": cc, "lat": cc, "alt": cc}
+	return {"speed": cc, "lat": cc, "alt": cc, "nonfinite": cc,
+		"h_h2o": cc, "h_silicate": cc, "h_sensible": cc, "cap_sensible": cc}
 
 
 func _setup(bufs: Dictionary, _cc: int) -> void:
@@ -63,24 +53,18 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		push_error("StateDerivePass: no buffer for %s, so no cell would get a temperature."
 			% String(", ").join(missing))
 		return
-	if not _single(bufs, "temp").is_valid():
-		push_error("StateDerivePass: `temp` is not a SINGLE buffer. It is derived, so it has no back half.")
-		return
-
 	var channels: PackedStringArray = LAMatterChannels.CHANNELS
-	for p in 2:
-		var entries: Array = []
-		for i in channels.size():
-			entries.append([i, _half(bufs, channels[i], p, false)])
-		entries.append([24, props_ssbo])
-		# _half is the FRONT half of a PAIR and the bare RID of a SINGLE, so one call covers both.
-		for name in BOUND:
-			entries.append([int(BOUND[name]), _half(bufs, String(name), p, false)])
-		_set[p] = _uset(_pipe, entries)
+	var entries: Array = []
+	for i in channels.size():
+		entries.append([i, _single(bufs, channels[i])])
+	entries.append([24, props_ssbo])
+	for name in BOUND:
+		entries.append([int(BOUND[name]), _single(bufs, String(name))])
+	_set = _uset(_pipe, entries)
 
 
-func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
-	if not _dispatchable() or not _set[parity].is_valid():
+func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+	if not _dispatchable() or not _set.is_valid():
 		return
 	var w: Vector3 = ctx.get("spin", Vector3.ZERO) * LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S
 	var centre: Vector3 = ctx.get("centre", Vector3.ZERO)
@@ -98,7 +82,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	pc.encode_float(36, LAPhysical.LITHIFICATION_RATE_PER_PA)
 	pc.encode_float(40, LAPhysical.LITHIFICATION_PRESSURE_PA)
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
-	rd.compute_list_bind_uniform_set(cl, _set[parity], 0)
+	rd.compute_list_bind_uniform_set(cl, _set, 0)
 	rd.compute_list_set_push_constant(cl, pc, pc.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 
@@ -125,18 +109,12 @@ func _props() -> PackedFloat32Array:
 			push_error("StateDerivePass: LAChannels row \"%s\" declares unit \"%s\", not \"vf\". " % [name, unit]
 				+ "Matter is a volume fraction of the cell; without it the channel's mass is a guess.")
 			return PackedFloat32Array()
-		var entry: int = int(LADDER.get(id, E_SENSIBLE))
-		var c: float = 0.0
-		if entry == E_SENSIBLE:
-			c = float(s.get("specific_heat_gas", 0.0)) if GASES.has(id) else 0.0
-			if c <= 0.0:
-				c = float(s.get("specific_heat", 0.0))
-			if c <= 0.0:
-				push_error("StateDerivePass: LASubstances gives \"%s\" no specific heat, so channel %s "
-					% [id, name] + "would carry mass with no heat capacity.")
-				return PackedFloat32Array()
+		var entry: int = LAMatterChannels.entry_of(id)
+		var c: float = LAMatterChannels.specific_heat(id)
+		if entry == LAMatterChannels.Entry.SENSIBLE and c <= 0.0:
+			return PackedFloat32Array()
 		var mol_per_kg: float = 0.0
-		if GASES.has(id):
+		if LAMatterChannels.GASES.has(id):
 			var m: float = float(s.get("molar_mass", 0.0))
 			if m <= 0.0:
 				push_error("StateDerivePass: LASubstances has no molar mass for the gas \"%s\"." % id)

@@ -8,7 +8,7 @@ const REACTIONS_SCRIPT: String = "res://addons/local_agents/sim/material/Materia
 
 var _pipe: RID = RID()
 var _n_records: int = 0
-var _set: Array = [RID(), RID()]        # one uniform set per ping-pong parity
+var _set: RID = RID()
 
 
 func _setup(bufs: Dictionary, cc: int) -> void:
@@ -33,12 +33,12 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	var defs_ssbo: RID = _storage_buffer(defs_script.serialize(recs))
 
 	var temp: RID = _single(bufs, "temp")        # derived C, read-only
-	var h: Array = _pair(bufs, "h_j_m3")         # the state, J/m^3
-	var h2o: Array = _pair(bufs, "h2o")
-	var o2: Array = _pair(bufs, "o2")
-	var co2: Array = _pair(bufs, "co2")
+	var h: RID = _single(bufs, "h_j_m3")         # the state, J/m^3
+	var h2o: RID = _single(bufs, "h2o")
+	var o2: RID = _single(bufs, "o2")
+	var co2: RID = _single(bufs, "co2")
 	var fungus: RID = _single(bufs, "fungus")
-	var fert: Array = _pair(bufs, "fert")
+	var fert: RID = _single(bufs, "fert")
 	var detritus: RID = _single(bufs, "detritus")
 	var biomass: RID = _single(bufs, "biomass")
 	var solid: RID = _single(bufs, "solid")
@@ -47,18 +47,15 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	var vel_x: RID = _single(bufs, "vel_x")
 	var vel_y: RID = _single(bufs, "vel_y")
 	var vel_z: RID = _single(bufs, "vel_z")
-	var silicate: Array = _pair(bufs, "silicate")
+	var silicate: RID = _single(bufs, "silicate")
 	var regolith: RID = _single(bufs, "regolith")   # aquifer mask — the column SOIL_ROOT walks
-	# `fire` is a PAIR but is NOT a channel: the kernel assigns it as the fraction of this cell's usable
-	# oxygen that combustion consumed, so the gauges have something true to read. No physics reads it.
 	var fuel: RID = _single(bufs, "fuel")
 	var fire: RID = _single(bufs, "fire")   # derived: the burn instrument, not a stock
-	# The two non-silicate mineral species (slots 24/25, bindings 28/29). SINGLE buffers: nothing advects them,
-	# and this kernel is their only reader and only writer, so there is no producer to ping-pong against.
+	# The two non-silicate mineral species (slots 24/25, bindings 28/29).
 	var carbonate: RID = _single(bufs, "carbonate")
 	var silica: RID = _single(bufs, "silica")
 	# `discharge` is the lightning stamp — read-only, single, driver only.
-	var n2: Array = _pair(bufs, "n2")
+	var n2: RID = _single(bufs, "n2")
 	var discharge: RID = _single(bufs, "discharge")
 	# The dead organic pool's hydrogen and oxygen. Registered channels (LAChannels), so the driver owns them.
 	var org_h: RID = _single(bufs, "org_h")
@@ -71,48 +68,46 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	var h2o_liquid: RID = _single(bufs, "h2o_liquid")
 	var h2o_vapour: RID = _single(bufs, "h2o_vapour")
 
-	for p in 2:
-		var back: int = 1 - p
-		_set[p] = _uset(_pipe, [
-			[0, temp],
-			[19, h[back]],          # the settled half, the one this pass adds reaction heat to
-			[1, h2o[back]],         # settled h2o — ONE channel, every phase
-			[3, o2[back]],          # o2 transport output — edited in place (sky refill / decompose draw)
-			[4, co2[back]],         # co2 transport output — edited in place (sky vent / decompose emit)
-			[5, fuel],              # SINGLE — combustion debits it (its only sink in the whole tree)
-			[6, fire],              # derived: the burn INSTRUMENT, assigned every step
-			                        # o2/co2 are: the authoritative readback reads the back half after the
-			                        # phase flip, so a write to LIVE would be discarded.
-			[7, detritus],          # SINGLE — decompose debits in place / respiration credits in place
-			[8, fungus],            # SINGLE — decompose drives on it and both bio records write it
-			[9, fert[p]],           # LIVE — nutrient-uptake reactant, debited in place (producer runs later)
-			[10, solid],
-			[11, biomass],          # SINGLE — photosynthesis grows it, respiration/decay oxidises it
-			[15, nbr],
-			[17, vel_x],            # SINGLE — WINDSPEED reads the flow tangential to the local vertical
-			[18, vel_z],
-			[26, vel_y],
-			[20, scratch],          # fungus-fert SCRATCH product target
-			[21, defs_ssbo],
-			[22, silicate[back]],   # ONE mineral amount — weathering debits it, nothing else writes it
-			[27, regolith],         # aquifer permeability mask — root_soil() walks THIS, not `solid`
-			[28, carbonate],        # SINGLE CaCO3 — the Urey record credits it forward, debits it in reverse
-			[29, silica],           # SINGLE SiO2 — the weathering residue, same record
-			[30, n2[back]],         # dinitrogen — lightning fixation debits it
-			[31, discharge],        # SINGLE — the lightning discharge stamp, driver only
-			[32, org_h],            # SINGLE — organic hydrogen; ORG_H/ORG_C is the cell's molar H:C
-			[33, org_o],            # SINGLE — organic oxygen; ORG_O/ORG_C is the cell's molar O:C
-			[34, h2o_solid],        # DERIVED share — ice
-			[35, h2o_liquid],       # DERIVED share — liquid, free or in pores
-			[36, h2o_vapour],       # DERIVED share — vapour
-			[37, pressure],         # Pa — the saturation curve and the ladder both read it
-			[40, cell_vol],         # per-cell volume (kernels3d/cellvol.glsli)
-			[48, gravity],          # the SOLVED g: every "above"/"below" and the light angle read it
-		])
+	# Transport ran before this pass in the same submit, with a barrier between them, so every amount here
+	# is what transport left. A reaction is same-cell, so it edits that amount in place.
+	_set = _uset(_pipe, [
+		[0, temp],
+		[19, h],                # enthalpy, the one this pass adds reaction heat to
+		[1, h2o],               # ONE channel, every phase
+		[3, o2],                # sky refill / decompose draw
+		[4, co2],               # sky vent / decompose emit
+		[5, fuel],              # combustion debits it (its only sink in the whole tree)
+		[6, fire],              # derived: the burn INSTRUMENT, assigned every step
+		[7, detritus],          # decompose debits in place / respiration credits in place
+		[8, fungus],            # decompose drives on it and both bio records write it
+		[9, fert],              # nutrient-uptake reactant, debited in place
+		[10, solid],
+		[11, biomass],          # photosynthesis grows it, respiration/decay oxidises it
+		[15, nbr],
+		[17, vel_x],            # WINDSPEED reads the flow tangential to the local vertical
+		[18, vel_z],
+		[26, vel_y],
+		[20, scratch],          # fungus-fert SCRATCH product target
+		[21, defs_ssbo],
+		[22, silicate],         # ONE mineral amount — weathering debits it, nothing else writes it
+		[27, regolith],         # aquifer permeability mask — root_soil() walks THIS, not `solid`
+		[28, carbonate],        # CaCO3 — the Urey record credits it forward, debits it in reverse
+		[29, silica],           # SiO2 — the weathering residue, same record
+		[30, n2],               # dinitrogen — lightning fixation debits it
+		[31, discharge],        # the lightning discharge stamp, driver only
+		[32, org_h],            # organic hydrogen; ORG_H/ORG_C is the cell's molar H:C
+		[33, org_o],            # organic oxygen; ORG_O/ORG_C is the cell's molar O:C
+		[34, h2o_solid],        # DERIVED share — ice
+		[35, h2o_liquid],       # DERIVED share — liquid, free or in pores
+		[36, h2o_vapour],       # DERIVED share — vapour
+		[37, pressure],         # Pa — the saturation curve and the ladder both read it
+		[40, cell_vol],         # per-cell volume (kernels3d/cellvol.glsli)
+		[48, gravity],          # the SOLVED g: every "above"/"below" and the light angle read it
+	])
 
 
-func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
-	if not _dispatchable() or _n_records <= 0:
+func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+	if not _dispatchable() or _n_records <= 0 or not _set.is_valid():
 		return
 	# The solar kernel and the reaction engine must see the IDENTICAL sun, magnitude included: it carries
 	# orbit-distance squared times atmospheric transmission, so what dims the sky suppresses photosynthesis
@@ -129,6 +124,6 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	pc.encode_float(24, sun_dir.z)
 	pc.encode_u32(28, 0)   # pad2
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
-	rd.compute_list_bind_uniform_set(cl, _set[parity], 0)
+	rd.compute_list_bind_uniform_set(cl, _set, 0)
 	rd.compute_list_set_push_constant(cl, pc, pc.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)

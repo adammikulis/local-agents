@@ -278,12 +278,6 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
       and decomposition is RM_BILINEAR in fungus x detritus, so the only live FERT source is off everywhere but
       one cell. Carbon is stranded, not cycling.
 - [ ] **`fuel_seeded` is 216.0** — fuel is an input where it should be a product of vegetation.
-- [ ] **`lava_phase_sphere3d.glsl` reads and writes one buffer.** It writes `temp[g]` while reading
-      `temp[nb]` from the same binding, so a cell sees a mixture of pre- and post-step neighbour values
-      according to GPU scheduling. It is the only kernel left doing this (surveyed, 2026-08-11). Its input
-      order is also scrambled by the `atomicAdd` compaction in `cell_list_lava_sphere3d.glsl:63,69`, which is
-      why two identical runs still differ in the last digits after the RNG was sealed. Needs the same
-      ping-pong PAIR treatment every other transport kernel already has.
 
 ## Lightning is structurally dead, so the abiotic nitrogen source has no trigger (2026-08-11)
 

@@ -46,9 +46,8 @@
 // sphere_passes/CellListPass.gd Flag
 #define F_OPEN_ONLY 1u
 #define F_INCLUSIVE 2u
-#define F_BACK 4u
-#define F_HALO 8u
-#define F_AUX 16u
+#define F_HALO 4u
+#define F_AUX 8u
 
 // TransportRecords.gd mode enum
 #define MODE_POTENTIAL 0u

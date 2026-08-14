@@ -1,19 +1,7 @@
 class_name LAFieldAttributionRecords
 extends RefCounted
 
-## Which pass produces each channel's ping-pong half, and which keys the report publishes. Keyed by CHANNEL;
-## SINGLE channels are absent, and `read_raw` ignores the half for those.
-const PRODUCERS: Dictionary = {
-	"temp": "TransportPass",
-	"h2o": "TransportPass",
-	"silicate": "TransportPass",
-	"o2": "TransportPass",
-	"co2": "TransportPass",
-	"n2": "TransportPass",
-	"fert": "TransportPass",
-	"shock": "TransportPass",
-	"fungus": "FungusPass",
-}
+## Which keys the report publishes.
 
 ## Passes that bind no writable temp buffer. A heat leg above the readback resolution on one of these
 ## falsifies the instrument rather than the planet.
