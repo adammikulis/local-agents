@@ -263,9 +263,12 @@ printf '%s\n' "$sim_out" | grep -E '^gravity_' || true
 # A pass reading arrives as a gauge, so the value is behind a 'cur' key; a plain scalar has none.
 reading() { printf '%s\n' "$sim_out" | sed -n "s/^$1  *= *//p" | head -1 \
   | sed -e "s/.*'cur': *//" -e 's/[,}].*//' -e 's/[^0-9eE.+-]//g'; }
+# `reading` strips every non-numeric character, so an absent gauge leaves a FRAGMENT that is non-empty and
+# floors to 0 in awk. Emptiness is not the test; being a number is.
+numeric() { printf '%s' "$1" | grep -Eq '^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$'; }
 gauss="$(reading gravity_gauss_rel)"
 mass="$(reading gravity_total_mass_kg)"
-if [ -z "$gauss" ] || [ -z "$mass" ]; then
+if ! numeric "$gauss" || ! numeric "$mass"; then
   echo "ERROR: the run published no gravity_gauss_rel (sim_run exit $sim_rc), so the sim's own field went" >&2
   echo "       unmeasured. Refusing to report a pass." >&2
   printf '%s\n' "$sim_out" | tail -20 >&2

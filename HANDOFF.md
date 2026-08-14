@@ -14,6 +14,21 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
+## 0. THE ENERGY FIELD DOES NOT REPORT A NUMBER. TAKE THIS FIRST.
+
+`energy_stock` serialises to null and the run logs Godot's own "NaN found in JSON.stringify". Every ledger
+figure downstream goes null with it: `energy_absorbed_w`, `energy_emitted_w`, `energy_net_w`,
+`energy_booked`, `energy_residual`. Beside it, `all_temp_max` and `open_temp_max` read hotter than any star,
+and `geo_grad_c_per_m` reads garbage. The reduced `rad_absorbed` / `rad_emitted` rows underneath are finite.
+
+**Reproduce:** `scripts/agent_harness.sh sim --frames 20`, then read `energy_stock` and `all_temp_max` out
+of `SIM_REPORT`.
+
+Temperature is derived from enthalpy per step and drives the phase ladder, every reaction gate and both
+radiative terms, so nothing measured anywhere in the substrate means anything while this holds. A single
+cell carrying NaN or a sentinel poisons a SUM row and a MAX row differently, which is why one gauge is null
+and the other is enormous.
+
 ## 1. Reduce the rest on the device
 
 `ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and twenty-one report
@@ -105,13 +120,10 @@ constants — and one gate absorbing the hand-written binding stanzas. Mutation-
   than tracking per-node cell changes, and `LASimReport.snapshot` deep-copies its events and gauges on every
   call. Both are constants, not asymptotes.
 
-## 10. Two constants that are not what they name
+## 10. A constant that is not what it names
 
 - `AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`, and it is the unit
   definition of the `o2`, `co2` and `n2` channels, so correcting it rescales every gas total.
-- One radiogenic rate covers every rock and there is only one rock. Continental crust is enriched about
-  fifty times over depleted mantle, so a second rock substance with its own abundance is what makes crust
-  and mantle differ. The rate is also present-day and this body has no age.
 
 ## 11. Rebuild frost shattering from the phase boundary
 
