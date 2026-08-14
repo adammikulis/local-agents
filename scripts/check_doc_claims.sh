@@ -82,9 +82,52 @@ if [ "$checked" -eq 0 ]; then
 	exit 2
 fi
 
+# EVERY FILE PATH A GATED DOC CITES MUST EXIST. No directive opts a path in: a path in backticks IS the
+# claim, and the class it closes is the one nobody writes a directive for -- prose naming a file that was
+# deleted out from under it. To say a path is absent ON PURPOSE, deleted and staying deleted or named as
+# work not yet built, write `<!-- claim: nofile <repo-relative path> -->` beside it. That claim is checked
+# above and goes red the day the file appears, so the escape cannot rot into a permanent exemption.
+PATH_EXT='gd|glsl|glsli|gdshader|sh|py|md|tscn|cfg|gdextension|cpp|hpp|yml|json|patch|txt'
+PATH_RE="^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_.-]+)*\.($PATH_EXT)(:[0-9]+(,[0-9]+)*)?$"
+
+# rg skips hidden directories by default, and .github/workflows is cited by name.
+INDEX="$(rg --files --hidden --glob '!.git/**' "$ROOT" 2>/dev/null | sed "s|^$ROOT/||")"
+[ -n "$INDEX" ] || { echo "check_doc_claims: could not list the tree." >&2; exit 2; }
+EXEMPT="$(rg -o --no-filename -e '<!--[[:space:]]*claim:[[:space:]]*nofile[[:space:]]+[^[:space:]]+' \
+	"${DOCS[@]}" 2>/dev/null | awk '{print $NF}')"
+
+paths=0
+while IFS= read -r line; do
+	src="${line%%:*}"; rest="${line#*:}"
+	lno="${rest%%:*}"; body="${rest#*:}"
+	case "$body" in *"<!--"*"claim:"*) continue ;; esac
+	for span in $(printf '%s' "$body" | rg -o '`[^`]+`' | tr -d '`' | tr ' ' '\n'); do
+		word="${span#res://}"
+		word="${word%[,;)]}"
+		word="${word#(}"
+		printf '%s' "$word" | rg -q "$PATH_RE" || continue
+		printf '%s\n' "$EXEMPT" | grep -qxF "$word" && continue
+		p="${word%%:*}"
+		printf '%s\n' "$EXEMPT" | grep -qxF "$p" && continue
+		paths=$((paths + 1))
+		[ -e "$ROOT/$p" ] && continue
+		printf '%s\n' "$INDEX" \
+			| awk -v s="/$p" '(i = index($0, s)) > 0 && i == length($0) - length(s) + 1 { hit = 1; exit }
+				END { exit !hit }' \
+			&& continue
+		verdict 1 "$(basename "$src"):$lno" \
+			"\`$word\` names a file that is not in the tree. Fix the path, or declare it nofile."
+	done
+done < <(rg -n --no-heading -e '`[^`]+`' "${DOCS[@]}" 2>/dev/null)
+
+if [ "$paths" -eq 0 ]; then
+	echo "check_doc_claims: found NO cited file path. The docs lost them or the pattern rotted." >&2
+	exit 2
+fi
+
 if [ "$fail" -ne 0 ]; then
 	echo "" >&2
 	echo "The map is wrong, not the code. Fix the sentence, or fix what it describes." >&2
 	exit 1
 fi
-echo "check_doc_claims: OK ($checked claim(s) hold)"
+echo "check_doc_claims: OK ($checked claim(s) hold, $paths cited path(s) exist)"

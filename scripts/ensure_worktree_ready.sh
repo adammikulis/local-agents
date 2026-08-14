@@ -88,7 +88,7 @@ if [[ $needs_import -eq 1 ]]; then
     exit 2
   fi
   say "importing (unimported kernels would load as null and the GPU field would be silently dead)"
-  if ! timeout 900 godot --headless --path "$REPO_ROOT" --import >/dev/null 2>&1; then
+  if ! "$REPO_ROOT/scripts/godot_import.sh" "$REPO_ROOT"; then
     echo "ERROR: godot --import failed in this worktree. Do not trust any run from it." >&2
     exit 2
   fi

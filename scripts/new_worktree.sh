@@ -22,7 +22,7 @@ BIN="$PRIMARY/addons/local_agents/gdextensions/localagents/bin"
 git -C "$PRIMARY" worktree add "$WT" -b "$BRANCH" "$BASE" >&2
 ln -sfn "$BIN" "$WT/addons/local_agents/gdextensions/localagents/bin"
 echo "[new_worktree] importing shaders (compiles .glsl kernels — required or the GPU field is dead)…" >&2
-godot --headless --path "$WT" --import >/dev/null 2>&1 || echo "[new_worktree] WARN: --import returned nonzero (check manually)" >&2
+"$(dirname "${BASH_SOURCE[0]}")/godot_import.sh" "$WT" || echo "[new_worktree] WARN: --import returned nonzero (check manually)" >&2
 # Through scripts/editor_scan.sh, never `godot --headless --editor` directly. Two unlocked scans against
 # the same .godot/ segfault (six crashes in three minutes, measured 2026-07-28) and a fresh worktree is
 # exactly when several agents start at once; the wrapper takes the per-project lock. It also force-loads

@@ -216,6 +216,8 @@ tree is the change log: `git log` is written by the act itself and cannot drift.
 second account that disagrees with the first the day it is written, and it is always the wrong one.
 `scripts/check_doc_prose.sh` fails the build if one is tracked.
 
+<!-- claim: nofile CHANGELOG.md -->
+
 **`HANDOFF.md` IS NOT YOUR SCRATCHPAD. IT IS THE NEXT AGENT'S INSTRUCTION SET.** It gets the file and the
 expression, in one sentence, and only when the fix could not land this turn. Never your reasoning, your
 retractions, what you first thought, what you ruled out, or what a run printed.
@@ -235,6 +237,25 @@ This covers matter or energy created or destroyed · a constant you invented rat
 mechanism reality does not have · a clamp, floor, cap or target that exists to stop a symptom · a rate fitted
 so an output looks right · a phase change that skips its latent heat · a gauge answering a different question
 than the one asked.
+
+## THE ONE STANDING EXEMPTION: A CHEAPER SOLVER OF THE SAME SHAPE
+
+**Maintainer's decision, standing.** What is computationally infeasible may be APPROXIMATED. No permission
+needed each time, and it is the only departure that does not need asking. Three conditions, all required:
+
+1. **THE SHAPE IS THE SAME.** The functional form, the dependencies and the direction of every effect are
+   the real ones; only the resolution or the solver is cheapened. A coarse integral over the right integrand
+   qualifies. **A number back-derived from the answer does NOT** — it has no shape, it IS the answer, and
+   that is the fitted constant this file bans everywhere else. If you cannot write down what the exact
+   version of your expression would be, you have not approximated it, you have replaced it.
+2. **THE REAL ONE SWAPS IN.** It occupies the seam the exact solver will occupy, so more compute is the only
+   thing standing between them. Name the replacement.
+3. **IT IS DECLARED** in `docs/APPROXIMATIONS.md`, with what it stands in for and what swaps it in.
+   `scripts/check_approximations.sh` holds the registry to the code both ways.
+
+**CONSERVATION IS NOT COVERED AND NEVER WILL BE. Matter and energy are still neither created nor
+destroyed** — no approximation may leak either, and "close enough" is not a defence for a ledger that does
+not close. Cheapen the solver, never the books.
 
 **If you cannot derive it or cite it, STOP AND ASK.** "I need a settling velocity and the channel carries no
 grain size — may I use one value for all dust?" is correct. Choosing a number and writing a
@@ -704,3 +725,6 @@ The five canonical roles, each label string equal to its name. See `docs/agents/
 ### Domain docs
 
 Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Neither exists yet; the claim below goes red the day one is written, which is when this line gets checked.
+
+<!-- claim: nofile CONTEXT.md -->

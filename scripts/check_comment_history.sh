@@ -21,8 +21,12 @@ CEIL="$(rg -N -e '^[0-9]+$' "$CEIL_FILE" | head -1)"
 case "$CEIL" in "" | *[!0-9]*) echo "check_comment_history: the ceiling carries no number." >&2; exit 2 ;; esac
 
 # A comment line only. The tells of a story: a date, a session, a count of times, a past-tense report.
+# A LITERATURE CITATION IS NOT A STORY: CLAUDE.md requires one beside a physical constant.
 TELL='(^|\s)(#|//)\s*.*(\b20[0-9]{2}\b|\bmeasured\b|\bone session\b|\bthis session\b|\bused to\b|\bwas (once|nearly|already)\b|\bhad been\b|\bturned out\b|\bwent red\b|\bcost (a|us|the)\b|\bfour of six\b|\bthirty-four\b)'
-hits="$(rg -n --no-heading -g '*.sh' -g '*.gd' -g '*.glsl' -g '*.glsli' -g '*.py' -e "$TELL" "${SCAN[@]}" 2>/dev/null || true)"
+# The year must be FOLLOWED by a comma or close paren, which `In 2026 this went red` is not.
+CITE='([A-Z][A-Za-z.-]+|&)[[:space:]]+(19|20)[0-9]{2}[,)]|[0-9]+(st|nd|rd|th)[[:space:]]+ed\.'
+hits="$(rg -n --no-heading -g '*.sh' -g '*.gd' -g '*.glsl' -g '*.glsli' -g '*.py' -e "$TELL" "${SCAN[@]}" 2>/dev/null \
+	| rg -v -e "$CITE" || true)"
 n="$(printf '%s' "$hits" | rg -c '.' || echo 0)"
 
 # The count, unconditionally and machine-readable: scripts/write_ceilings.sh reads it from here, because
