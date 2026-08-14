@@ -1,7 +1,8 @@
 # What to do next
 
 Work down this list. An item is DELETED the moment it lands — this file is the remaining work, never a
-record of what happened. `git log` is the record. Physics work is in `docs/PHYSICS_TODO.md`.
+record of what happened. `git log` is the record. Physics work is in `docs/PHYSICS_TODO.md`; what costs
+more than it should is in `docs/PERFORMANCE_TODO.md`.
 
 Nothing here is a claim about the state of the tree, because a claim rots and nobody notices. Check the
 code, then act. Report what was deleted; report no number this substrate printed.
@@ -26,6 +27,16 @@ sweeps already use it. Left:
 - `_liquid_mirror`, `_ice_mirror` and `_vapour_mirror` are each a per-cell product of two buffers the GPU
   already holds. Three `LAChannels.derived_buffers()` entries written by `StateDerivePass` delete all three
   loops with no reduce row at all; waiting for their five consumers to convert is a choice, not a blocker.
+
+The ops these sweeps still need, so a lane adds them once rather than four times: `Mask.GROUND` / `Mask.AIR`
+(open with solid at the gravity-below slot — `nbr_solid` already binds the neighbour table); `Op.COUNT_LT`;
+a below-neighbour comparison, which covers `pressure_inversions`, `pressure_audited` AND the momentum
+buoyancy book; a six-face gradient for the momentum PGF book; derived `speed`, `lat` and `alt` channels,
+after which every latitude and altitude band is an ordinary row using the existing `gate_lo`/`gate_hi`.
+
+Free today, no new op: `momentum_vec` is three `SUM` rows on `vel_*` with `aux: "air"`, weighted, OPEN;
+`momentum_mass_kg` is one. **Coriolis then costs nothing** — it is linear in v, so it is
+`spin × momentum_vec × -2Ω` on the CPU, and the per-cell accumulation is pure waste.
 
 ## 2. Collapse the per-cell kernels into one dispatch
 
@@ -91,16 +102,51 @@ Every gate runs and the failures are summarised, so the fail-fast half of this i
 the harness collapses every gate's exit code into `exit 1`, so the exit-2 contract asserted in about ten gate
 headers and in `lint.yml` is not observable. Fix the harness, not the gates.
 
-## 9. Find why a run costs render frames
+## 9. THE RUN NEVER FINISHES. TAKE THIS FIRST — nothing else here can be checked by running the planet.
 
-`--run-frames=N` is simulated steps now and a 200-step run does not reach the end. Steps 0-6 complete in
-tens of milliseconds, then step 7 blocks for about ten seconds and the process goes silent.
-`TIME_PHYSICS_PROCESS` and `TIME_PROCESS` together account for a small part of the frame period, so the rest
-is engine work no script callback owns. Start at godot_voxel's main-thread apply and the physics server.
+No arm prints `SIM_REPORT`: not 3, 5, 8, 20 or 200 steps, and not at a raised `LA_RUN_TIMEOUT`. Every lane
+this session gated on `lint` because of it. There are TWO defects, and they were separated by bisect.
 
-Even a five-step arm times out, and it does so on an unmodified tree — so this is not a lane's change and
-not the gravity solve. **Nothing else here can be verified by running the planet until this is fixed**, which
-is why every lane gates on `lint` instead. Take it first.
+**9a. The seed does not finish.** The log stops after `EVENT_TRACKER=`, before the first report. Bisect:
+the run reaches `PRESSURE_BROKEN=` at the commit before the seed-order change and stops before it at the
+merge that landed `solve_seed()`. So the suspect is `MaterialFieldSphereStep3D.seed_tick()`'s new order or
+`LAMaterialFieldGravity3D.solve_seed()` itself.
+
+`solve_seed()` calls `rd.submit()` and `rd.sync()` on the driver's device without touching
+`LAMaterialSphereGPU3D._pending`, which is that flag's whole job — every other path guards on it, and
+`_step_checkpointed()` re-establishes it deliberately after doing raw submits. Routing the seed solve
+through a driver method that flushes first is the right shape and the device's owner should do it.
+**Tried and it did NOT clear the hang, so the pairing is not the cause — do not stop there.**
+
+**9b. Past the seed, the report sweeps stall it.** Before 9a existed, the run reached `PRESSURE_BROKEN` —
+printed partway through `_heavy_block()` — and then went quiet in `_momentum.report()` or
+`LAMaterialFieldLedger3D.report()`. Item 1 is that fix; the momentum ledger is the heaviest single sweep.
+
+`_is_final_frame()` reading physics frames while the run ended on steps is FIXED. It made every physics
+frame after the seed recompute the whole heavy block instead of every sixty-fourth, which made 9b far
+worse and is why it looked like a hang. `LASimLoop` does not advance `_step` while a seed holder is
+registered, so the two clocks diverge by the length of the seed.
+
+A 1-step arm does complete, then exits 125 — `RUN_HUNG_AFTER_REPORT`, the exit path stalling after
+`LA_RUN_COMPLETE` prints. Third defect, smallest, probably independent.
+
+## 9b. Loose ends left by the lanes that found them
+
+- `FieldAttributionRecords3D.SILENT_HEAT_PASSES` now lists only `"fungus"`, and there is no `FungusPass` in
+  `PASS_SCRIPTS`. That instrument's silent-heat check names no live pass, so it cannot fire. Wire it to the
+  surviving passes or delete it. Removing the constant outright breaks `check_parse_all` — it is read from
+  inside its own file.
+- `MaterialSurfaceSeed3D.seed_initial()` walked `below` before gravity existed, same as the regolith did.
+  Moved, but litter and detritus have never seeded in any prior run, so any past reading of them is fiction.
+- Check that `_is_final_frame()` actually fires for the VoxelWorld scene, not only the demo harness: if it
+  does not, the closing report a run is judged on can be up to 64 frames old.
+- `check_shaders_compile.sh`'s kernel floor is `docs/SHADER_FLOOR` and `write_ceilings.sh` lowers it. Do not
+  bake a count back into the gate.
+- `LAMineralStamp3D._scan` restarts at cell 0 every scan and breaks on a budget, so the low-index prefix is
+  re-walked and high-index cells are starved. It needs a rolling cursor at minimum.
+- `LASpatialIndex.rebuild_if_stale` rebuilds a whole group's dictionary every frame it is touched rather
+  than tracking per-node cell changes, and `LASimReport.snapshot` deep-copies its events and gauges on every
+  call. Both are constants, not asymptotes.
 
 ## 10. Two constants that are not what they name
 
