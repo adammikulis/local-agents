@@ -14,17 +14,17 @@ static func noise_floor(cell_count: int) -> float:
 	return sqrt(float(maxi(cell_count, 1))) * FLOAT32_EPSILON
 
 
-## Gated quantity -> the report keys it is read from, and the only declaration of what is gated.
-## `now`/`first`: a CLOSED total, nothing crosses the world boundary, so `now - first` must be zero.
-## `unbooked`/`first`: an OPEN one, and the ledger has already subtracted every booked exchange with space.
+## Gated quantity -> the PUBLISHED DIMENSIONLESS key it is asserted on. The ledger owns every ratio.
+## `rel` alone: a CLOSED total, denominator its own sealed baseline.
+## `+ turnover`: a residual of the boundary EXCHANGE, denominator what crossed, not what is held.
 const GATED: Dictionary = {
-	"element_C_total": {"now": "element_C_total", "first": "element_C_total_first"},
-	"h2o_closed_total": {"now": "h2o_closed_total", "first": "h2o_first"},
-	"o2_total": {"now": "o2_total", "first": "o2_first"},
-	"oxidant_all": {"now": "oxidant_all", "first": "oxidant_first"},
-	"nitrogen_all": {"now": "nitrogen_all", "first": "nitrogen_first"},
-	"mineral_total": {"now": "mineral_total", "first": "mineral_first"},
-	"energy_stock": {"unbooked": "energy_residual", "first": "energy_stock_first"},
+	"element_C_total": {"rel": "element_C_total_rel_drift"},
+	"h2o_closed_total": {"rel": "h2o_rel_drift"},
+	"o2_total": {"rel": "o2_rel_drift"},
+	"oxidant_all": {"rel": "oxidant_rel_drift"},
+	"nitrogen_all": {"rel": "nitrogen_rel_drift"},
+	"mineral_total": {"rel": "mineral_rel_drift"},
+	"energy_stock": {"rel": "energy_residual_rel", "turnover": "energy_turnover_j", "stock": "energy_stock"},
 }
 
 var _f = null
@@ -48,38 +48,38 @@ func check(d: Dictionary) -> Dictionary:
 		out["conservation"] = "seeding"
 		return out
 	var elapsed: int = _steps_since_seal()
-	# One threshold for every row: the round-off of a single float32 sum over this grid.
-	var ceiling: float = noise_floor(_f._cell_count if _f != null else 0)
+	# The round-off of a single float32 sum over this grid, already a FRACTION.
+	var floor_rel: float = noise_floor(_f._cell_count if _f != null else 0)
 	var rows: Dictionary = {}
+	var allowed_by: Dictionary = {}
 	var unmeasured: PackedStringArray = PackedStringArray()
 	for key in GATED:
 		var spec: Dictionary = GATED[key]
-		var first = d.get(String(spec["first"]))
-		if not (first is float or first is int) or float(first) == 0.0:
+		var rel = d.get(String(spec["rel"]))
+		var allowed: float = _allowed_rel(d, spec, floor_rel)
+		# A tolerance at or past 1.0 cannot tell a wholly unaccounted window from round-off, so the row reads
+		# UNMEASURED. A gate that cannot fail must never report a pass.
+		if not (rel is float or rel is int) or not is_finite(allowed) or allowed >= 1.0:
 			rows[key] = "unmeasured"
 			unmeasured.append(key)
 			continue
-		var drift = _unbooked(d, spec, float(first))
-		if drift == null:
-			rows[key] = "unmeasured"
-			unmeasured.append(key)
-			continue
-		var rel: float = float(drift) / absf(float(first))
-		var mag: float = absf(rel)
-		if mag > float(_worst.get(key, 0.0)):
-			_worst[key] = mag
-		rows[key] = snappedf(rel, 1e-9)
+		allowed_by[key] = allowed
+		# Seeded UNCONDITIONALLY. A row reading exactly 0.0 never cleared a `>` test, so the peak read below
+		# threw and took the whole conservation block with it — every row after a conserved one went silent.
+		var mag: float = absf(float(rel))
+		_worst[key] = maxf(mag, float(_worst.get(key, 0.0)))
+		rows[key] = snappedf(float(rel), 1e-12)
 		if elapsed < REFERENCE_STEPS:
 			continue
 		# The PEAK, not the reading of the moment: a quantity that swings out and returns has still broken
 		# conservation, and the peak is never smaller than the current drift.
 		var peak: float = float(_worst[key])
-		if peak > ceiling and not _violations.has(key):
+		if peak > allowed and not _violations.has(key):
 			_violations.append(key)
 			print("CONSERVATION_VIOLATION=", JSON.stringify({
-				"substance": key, "first": float(first),
-				"rel_drift": snappedf(rel, 1e-9), "worst_rel_drift": snappedf(peak, 1e-9),
-				"allowed_rel": ceiling, "at_steps": elapsed,
+				"substance": key, "rel_key": String(spec["rel"]),
+				"rel_drift": snappedf(float(rel), 1e-12), "worst_rel_drift": snappedf(peak, 1e-12),
+				"allowed_rel": allowed, "at_steps": elapsed,
 				"seal_step": _f._seal.seal_step(),
 			}))
 	# A gate that cannot run must not pass: the audit latches only when every row produced a number.
@@ -90,7 +90,7 @@ func check(d: Dictionary) -> Dictionary:
 		print("CONSERVATION_UNMEASURED=", JSON.stringify({
 			"substances": unmeasured, "at_steps": elapsed, "seal_step": _f._seal.seal_step()}))
 	out["conservation"] = rows
-	out["conservation_allowed_rel"] = ceiling
+	out["conservation_allowed_rel"] = allowed_by
 	out["conservation_audited"] = _audited
 	out["conservation_steps"] = elapsed
 	out["conservation_worst"] = _worst
@@ -104,13 +104,19 @@ func check(d: Dictionary) -> Dictionary:
 	return out
 
 
-## The change since the seal that no booked exchange accounts for, or null when the row cannot answer.
-func _unbooked(d: Dictionary, spec: Dictionary, first: float):
-	if spec.has("unbooked"):
-		var residual = d.get(String(spec["unbooked"]))
-		return float(residual) if (residual is float or residual is int) else null
-	var now = d.get(String(spec["now"]))
-	return (float(now) - first) if (now is float or now is int) else null
+## The fraction below which a row cannot tell a breach from float32 round-off. A closed total's floor IS its
+## sum's relative round-off; a residual's is that round-off re-expressed in units of the boundary exchange,
+## two stock reads differenced in quadrature. INF when the row carries no denominator to answer on.
+func _allowed_rel(d: Dictionary, spec: Dictionary, floor_rel: float) -> float:
+	if not spec.has("turnover"):
+		return floor_rel
+	var turnover = d.get(String(spec["turnover"]))
+	var stock = d.get(String(spec["stock"]))
+	if not (turnover is float or turnover is int) or not (stock is float or stock is int):
+		return INF
+	if float(turnover) <= 0.0:
+		return INF
+	return sqrt(2.0) * floor_rel * absf(float(stock)) / float(turnover)
 
 
 ## Steps elapsed since the books closed.

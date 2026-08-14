@@ -13,7 +13,6 @@ const UNBOOKED: Array = ["drag", "terrain_block", "orographic_lift", "solid_zero
 
 var _f = null                                # back-reference to the owning LAMaterialField3D
 
-var _prev_stock: Vector3 = Vector3.ZERO
 var _prev_step: int = -1
 
 var _first_stock: Vector3 = Vector3.ZERO
@@ -22,6 +21,9 @@ var _samples: int = 0
 var _cum_pgf: Vector3 = Vector3.ZERO         # ∫ pressure-gradient force dt, kg·m/s
 var _cum_cor: Vector3 = Vector3.ZERO         # ∫ Coriolis force dt, kg·m/s
 var _cum_buo: Vector3 = Vector3.ZERO         # ∫ buoyancy force dt, kg·m/s
+## ∫ (|pgf| + |Coriolis| + |buoyancy|) dt, kg·m/s. The impulse that ACTED — no direction to cancel through,
+## so it is the one denominator the residual can be a fraction of that does not pass through zero.
+var _cum_impulse: float = 0.0
 
 
 func setup(field) -> void:
@@ -119,11 +121,7 @@ func report(step_index: int) -> Dictionary:
 
 	var steps: int = step_index - _prev_step
 	var dt_real: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
-	if steps > 0 and _prev_step >= 0:
-		out["momentum_drift"] = (stock - _prev_stock).length()
-		out["momentum_drift_steps"] = steps
 	if steps > 0 or _prev_step < 0:
-		_prev_stock = stock
 		_prev_step = step_index
 
 	_samples += 1
@@ -134,6 +132,7 @@ func report(step_index: int) -> Dictionary:
 		_cum_pgf = Vector3.ZERO
 		_cum_cor = Vector3.ZERO
 		_cum_buo = Vector3.ZERO
+		_cum_impulse = 0.0
 		_note_seed("momentum_kg_m_s", stock.length())
 		latched = true
 	if _first_step >= 0 and not latched and steps > 0:
@@ -143,6 +142,7 @@ func report(step_index: int) -> Dictionary:
 		_cum_pgf += f_pgf * window_s
 		_cum_cor += f_cor * window_s
 		_cum_buo += f_buo * window_s
+		_cum_impulse += (f_pgf.length() + f_cor.length() + f_buo.length()) * window_s
 
 	var run_steps: int = (step_index - _first_step) if _first_step >= 0 else 0
 	out["momentum_samples"] = _samples
@@ -157,11 +157,16 @@ func report(step_index: int) -> Dictionary:
 	var residual: Vector3 = run_drift - booked
 	out["momentum_run_drift_vec"] = _vec(run_drift)
 	out["momentum_run_drift"] = run_drift.length()
+	# Σ m|v| is the motion that exists; a net stock change is a fraction OF it.
+	out["momentum_run_drift_rel"] = _rel(run_drift.length(), carried)
 	out["momentum_booked_vec"] = _vec(booked)
 	out["momentum_booked"] = booked.length()
 	out["momentum_residual_vec"] = _vec(residual)
-	# The impulse nothing names, as a magnitude — scored against `momentum_booked` by scripts/physics_score.sh.
 	out["momentum_residual"] = residual.length()
+	out["momentum_impulse"] = _cum_impulse
+	# The impulse nothing names, as a fraction of the impulse that acted. NOT of |booked|: that is a vector sum
+	# whose magnitude cancels toward zero, so the same residual read anywhere from fine to infinite.
+	out["momentum_residual_rel"] = _rel(residual.length(), _cum_impulse)
 	out["momentum_book_pgf"] = _vec(_cum_pgf)
 	out["momentum_book_coriolis"] = _vec(_cum_cor)
 	out["momentum_book_buoyancy"] = _vec(_cum_buo)
@@ -173,16 +178,24 @@ func _vec(v: Vector3) -> Array:
 	return [v.x, v.y, v.z]
 
 
+## A residual over the quantity it is a residual OF, dimensionless. Null when there is no scale to divide by.
+static func _rel(numerator: float, denominator: float):
+	if not is_finite(numerator) or not is_finite(denominator) or denominator == 0.0:
+		return null
+	return snappedf(numerator / absf(denominator), 1.0e-12)
+
+
 func _blank() -> Dictionary:
 	return {
 		# Net vector momentum of the air: which way the whole atmosphere is going, and how hard.
 		"momentum_total": 0.0, "momentum_vec": [0.0, 0.0, 0.0],
 		# Σ m|v| — how much motion exists at all. Cancellation cannot hide inside it.
 		"momentum_carried": 0.0, "momentum_mass_kg": 0.0, "momentum_cells": 0,
-		"momentum_drift": 0.0, "momentum_drift_steps": 0,
 		"momentum_run_drift": 0.0, "momentum_run_drift_vec": [0.0, 0.0, 0.0],
+		"momentum_run_drift_rel": null,
 		"momentum_booked": 0.0, "momentum_booked_vec": [0.0, 0.0, 0.0],
 		"momentum_residual": 0.0, "momentum_residual_vec": [0.0, 0.0, 0.0],
+		"momentum_impulse": 0.0, "momentum_residual_rel": null,
 		"momentum_book_pgf": [0.0, 0.0, 0.0], "momentum_book_coriolis": [0.0, 0.0, 0.0],
 		"momentum_book_buoyancy": [0.0, 0.0, 0.0],
 		"momentum_force_n": [0.0, 0.0, 0.0],
