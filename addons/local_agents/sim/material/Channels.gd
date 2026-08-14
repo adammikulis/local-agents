@@ -53,7 +53,7 @@ static func derived_buffers() -> Dictionary:
 		"conductivity": "volume-weighted thermal conductivity of what the cell holds",
 		"solid": "cemented silicate volume fraction past the rheological lock-up threshold",
 		"fire": "the share of a cell's usable oxygen that combustion consumed this step",
-		"discharge": "stamped where the field exceeded the local breakdown strength",
+		"discharge": "J/m^3 the OHMIC row dissipated in this cell this step, sigma E^2 dt",
 		"rad_absorbed": "J/m^3 the RADIATE gather took in this step: neighbours' longwave times this "
 			+ "cell's absorptivity, plus the solar beam that reached it",
 		"rad_emitted": "J/m^3 the RADIATE row sent out of all six faces this step",

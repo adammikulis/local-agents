@@ -157,6 +157,11 @@ static func _air_rows() -> Array:
 		{"key": "wind_z_sum", "source": "vel_z", "op": Op.SUM, "mask": Mask.OPEN},
 		{"key": "shock_cells", "source": "shock", "op": Op.COUNT_GT, "mask": Mask.OPEN,
 			"threshold": LAMaterialShock3D.SHOCK_ACTIVE},
+		# The storm's electrics, read off what transport published rather than re-marched on the CPU.
+		{"key": "charge_peak", "source": "charge", "op": Op.MAX, "mask": Mask.OPEN},
+		{"key": "e_peak", "source": "col_e", "op": Op.MAX, "mask": Mask.OPEN},
+		{"key": "bolt_cells", "source": "strike", "op": Op.COUNT_GT, "mask": Mask.OPEN,
+			"threshold": 0.0},
 	]
 
 

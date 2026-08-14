@@ -328,6 +328,12 @@ func _drain_passes() -> void:
 				LASimReport.gauge(name, float(res[key]))
 
 
+## The compacted cell indices a CellListPass row published, empty when it listed nothing. Non-clearing.
+func list_indices(label: String) -> PackedInt32Array:
+	var v: Variant = _pass_results.get(label + "_list_idx", null)
+	return v if v is PackedInt32Array else PackedInt32Array()
+
+
 ## The merged pass readings of the last drained step, and clears them.
 func take_pass_results() -> Dictionary:
 	var out: Dictionary = _pass_results
