@@ -14,20 +14,26 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 0. THE ENERGY FIELD DOES NOT REPORT A NUMBER. TAKE THIS FIRST.
+## 0. THE TWO HALVES OF `h_j_m3` DISAGREE, AND ONE OF THEM IS INFINITE. TAKE THIS FIRST.
 
 `energy_stock` serialises to null and the run logs Godot's own "NaN found in JSON.stringify". Every ledger
-figure downstream goes null with it: `energy_absorbed_w`, `energy_emitted_w`, `energy_net_w`,
-`energy_booked`, `energy_residual`. Beside it, `all_temp_max` and `open_temp_max` read hotter than any star,
-and `geo_grad_c_per_m` reads garbage. The reduced `rad_absorbed` / `rad_emitted` rows underneath are finite.
+watt goes null with it: `energy_absorbed_w`, `energy_emitted_w`, `energy_net_w`, `energy_booked`,
+`energy_residual`. The energy conservation row reads UNMEASURED rather than conserved.
 
-**Reproduce:** `scripts/agent_harness.sh sim --frames 20`, then read `energy_stock` and `all_temp_max` out
-of `SIM_REPORT`.
+`h_j_m3` is a PAIR channel. Read both halves off the device on the same step and they hold different
+worlds: one carries a physically ordinary enthalpy density, the other carries `inf`. The CPU mirror
+`_f._h` — which `LAMaterialFieldSphereStep3D.step()` hands straight back to `begin_frame()` to upload —
+carries the infinite one. Cells whose enthalpy is enormous report ordinary temperatures, and at least one
+of them reports exactly `-273.15`, the `total <= 0.0` branch of `state_derive.glsl`: no matter at all.
 
-Temperature is derived from enthalpy per step and drives the phase ladder, every reaction gate and both
-radiative terms, so nothing measured anywhere in the substrate means anything while this holds. A single
-cell carrying NaN or a sentinel poisons a SUM row and a MAX row differently, which is why one gauge is null
-and the other is enormous.
+**Reproduce:** in `MaterialSphereGPU3D`, read `_bufs["h_j_m3"][0]` and `_bufs["h_j_m3"][1]` back after a
+step and compare their maxima, against `_f._h`'s. `MaterialFieldQueries3D.row_f("all_temp_max")` reads
+correctly at the same moment, so `temp` derives from the sound half while the mirror does not.
+
+Nothing measured anywhere in the substrate means anything while this holds: temperature is derived from
+enthalpy every step and drives the phase ladder, every reaction gate and both radiative terms. Note
+`_live()` returns `_bufs[name][_phase]` and `step()` flips `_phase` after dispatching, while the readback
+runs from the NEXT `begin_frame` — establish which half each pass writes before changing anything.
 
 ## 1. Reduce the rest on the device
 
