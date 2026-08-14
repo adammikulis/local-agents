@@ -102,6 +102,12 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
 
 ## 9. An instrument that cannot fire, and two re-sweeps
 
+- **`discharge` is read and no longer written.** `reactions_sphere3d.glsl` binds it and `DISCHARGE` drives
+  the lightning nitrogen-fixation record, but the term that wrote it was `sigma*E^2*dt` added straight to
+  `h[]` with no electrostatic store behind it, and it was deleted for creating energy. So that record's
+  driver is now zero everywhere and the reaction cannot fire. Either give a flash a real store to spend —
+  `0.5*eps0*E^2` over the volume it neutralises, debited, not conjured — or delete the record and the
+  binding with it. `col_e` and `strike` survive as detectors and are honest.
 - `FieldAttributionRecords3D.SILENT_HEAT_PASSES` now lists only `"fungus"`, and there is no `FungusPass` in
   `PASS_SCRIPTS` — while `PRODUCERS` still names one for a channel `Channels.gd` declares as a single
   buffer. That instrument's silent-heat check names no live pass, so it cannot fire. Wire it to the
