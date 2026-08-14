@@ -32,13 +32,6 @@ func fold() -> Dictionary:
 			continue
 		amt_all[name] = float(r["all_" + name])
 		amt_open[name] = float(r["open_" + name])
-	var cc: int = _f._cell_count
-	# `solid` is 0 or 1 on the device (state_derive.glsl), so every cell is open or solid.
-	var solid_cells: int = int(r.get("solid_cells", 0.0))
-	out["cells"] = cc
-	out["solid_cells"] = solid_cells
-	out["open_cells"] = cc - solid_cells
-	out["vol_total_m3"] = pow(float(_f._cell_size), 3.0) * float(cc)
 	out["live"] = live
 	out["all"] = amt_all
 	out["open"] = amt_open
@@ -69,4 +62,10 @@ func fold() -> Dictionary:
 		else:
 			absent.append(key)
 	out["energy_missing"] = absent
+	# The edge crossings, per channel per step, positive INTO the domain. LABoundaryBooks integrates them
+	# and names any leg a row promised and the drain did not carry.
+	for key in r:
+		if String(key).begins_with(LABoundaryBooks.AMOUNT):
+			out[String(key)] = float(r[key])
+	out["bnd_declared"] = LABoundaryBooks.declared()
 	return out

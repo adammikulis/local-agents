@@ -57,6 +57,56 @@ if [ "$n" -gt 0 ]; then
   exit 1
 fi
 
+# THE BOUNDARY BOOKS' OWN LAWS, asserted before the audit is believed, because every drift verdict above is
+# now net of what these say crossed. Two statements, both true open or shut:
+#   (a) nothing may be booked that no reduce row declared — a crossing with no instrument came from nowhere;
+#   (b) a NET crossing cannot exceed the MAGNITUDE that crossed, which is what a broken sign convention or a
+#       mismatched accumulator breaks first.
+books="$(python3 - "$OUT" <<'PY'
+import json, sys
+rep = None
+for line in open(sys.argv[1], errors="replace"):
+    if line.startswith("SIM_REPORT="):
+        rep = line[len("SIM_REPORT="):]
+try:
+    d = json.loads(rep)
+except Exception as exc:
+    print("unreadable %s" % exc); raise SystemExit(0)
+if "bnd_declared" not in d:
+    print("absent"); raise SystemExit(0)
+shut = not d["bnd_declared"]
+bad = []
+for k, v in d.items():
+    if not k.endswith("_bnd_in") and not k.endswith("_bnd_crossed"):
+        continue
+    if not isinstance(v, (int, float)):
+        bad.append("%s is not a number" % k); continue
+    if shut and v != 0.0:
+        bad.append("%s booked a crossing with no row declared" % k)
+for k, v in d.items():
+    if not k.endswith("_bnd_in") or not isinstance(v, (int, float)):
+        continue
+    gross = d.get(k[: -len("_bnd_in")] + "_bnd_crossed")
+    if isinstance(gross, (int, float)) and abs(v) > gross:
+        bad.append("%s exceeds the magnitude that crossed" % k)
+print(("bad " + "; ".join(bad)) if bad else "ok")
+PY
+)"
+case "$books" in
+  ok) ;;
+  absent)
+    echo "ERROR: the report carries no bnd_declared, so the boundary books could not be checked at all." >&2
+    echo "       LAMaterialFieldLedger3D publishes it every sample; a ledger that did not report cannot" >&2
+    echo "       be called conserved." >&2
+    exit 2 ;;
+  bad*)
+    echo "ERROR: the boundary books broke their own law: ${books#bad }" >&2
+    exit 1 ;;
+  *)
+    echo "ERROR: could not read the boundary books from SIM_REPORT — $books" >&2
+    exit 2 ;;
+esac
+
 # The audit is what makes a clean log mean anything. Four ways it does not happen, each needing a different
 # fix, so the gate names which one it saw instead of guessing.
 verdict="$(python3 - "$OUT" <<'PY'
