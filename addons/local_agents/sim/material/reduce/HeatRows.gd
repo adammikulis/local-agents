@@ -18,11 +18,13 @@ static func rows() -> Array:
 			"threshold": LAMaterialFieldQueries3D.FIRE_PRESENT},
 		# J/m^3 per step, so volume-weighted these are joules per step. Mask-free: the outflow pass emits
 		# from solid cells too, so an OPEN mask would drop the ground's emission.
-		{"key": "rad_absorbed", "source": "rad_absorbed", "op": Rec.Op.SUM, "mask": Rec.Mask.ALL, "weight": true},
-		{"key": "rad_emitted", "source": "rad_emitted", "op": Rec.Op.SUM, "mask": Rec.Mask.ALL, "weight": true},
+		{"key": "rad_absorbed", "source": "rad_absorbed", "op": Rec.Op.SUM, "mask": Rec.Mask.ALL,
+			"weight": true, "energy_book": true},
+		{"key": "rad_emitted", "source": "rad_emitted", "op": Rec.Op.SUM, "mask": Rec.Mask.ALL,
+			"weight": true, "energy_book": true},
 		# The rock's own decay, J/m^3 per step, volume-weighted to joules. The energy books read this.
 		{"key": "radiogenic", "source": "radiogenic", "op": Rec.Op.SUM, "mask": Rec.Mask.ALL,
-			"weight": true},
+			"weight": true, "energy_book": true},
 		# THE GEOTHERM DETECTOR. Temperature across one cell against the cell one step out of gravity, K,
 		# over the solid interior. An imposed geotherm would read the seeded profile; an emergent one reads
 		# whatever the source, the conduction and the surface left.

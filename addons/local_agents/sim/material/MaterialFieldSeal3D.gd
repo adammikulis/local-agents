@@ -59,11 +59,6 @@ func seal_step() -> int:
 	return _seal_step
 
 
-## Field step every conservation baseline was taken on. -1 until the seal has driven the latch.
-func baseline_step() -> int:
-	return _baseline_step
-
-
 ## Restoring a snapshot: seal at the step it carried, rather than re-seeding matter already accounted for.
 func seal_restored(step_index: int) -> void:
 	_phase = Phase.SEALED
