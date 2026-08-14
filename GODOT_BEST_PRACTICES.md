@@ -955,3 +955,19 @@ run_one "$name" "$frames" || rc=$?
     numbers. Seeding the gate's input buffer to its no-op value on the OLD code reproduced them exactly,
     which is what located the gap. When a deletion and its supposed off-switch disagree, trust neither
     until you have found the difference.
+
+## The CLI godot is an ACCESSORY APP, and that is deliberate
+
+`/opt/homebrew/bin/godot` points at `/Applications/GodotQuiet.app`, a copy of the editor bundle whose
+`Info.plist` carries `LSUIElement`. An accessory app never activates, never takes focus and never appears
+in the Dock, whatever script it runs — which is the only way to cover every path that opens a window: the
+sim, the importer, the editor scan, and the bare `SceneTree` probes four gates launch for themselves.
+Setting a window flag inside our own harness covered the sim alone and left the gate probes stealing focus.
+
+`/Applications/Godot.app` is untouched, so launching the editor by hand behaves normally.
+
+`brew upgrade godot` restores the original symlink. Repoint it:
+`ln -sf /Applications/GodotQuiet.app/Contents/MacOS/Godot /opt/homebrew/bin/godot`
+
+Rebuild the bundle after a Godot upgrade: copy the app, add the `LSUIElement` key, then
+`codesign --force --deep --sign -` it, because editing `Info.plist` invalidates the signature.
