@@ -166,11 +166,23 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
 
 ## F. Prescribed where it should emerge
 
-- [ ] **The nuclide abundances are present-day on a 4.5 Ga planet.** `LARadiogenicDecay.nuclides()` quotes
-      bulk-silicate-Earth kg/kg for today, and `MaterialFieldGeotherm3D` offsets them only by elapsed sim
-      time. At formation U235 was ~84× more abundant and K40 ~12×, so the interior heat source is several
-      times what the code hands it — which is the difference between a magma ocean and a cool planet. Quote
-      the abundances at formation and let the decay law run forward from there.
+- [ ] **There is no core, because nothing differentiates.** `Substances.gd` carries no iron at all, so the
+      planet is silicate all the way down. A just-formed post-Theia Earth is mid-differentiation: metal
+      segregating from silicate under gravity, which is one of the largest heat sources of that epoch and
+      the reason the interior is layered. Without it there is no metallic core, no compositional contrast
+      for the mantle to convect against, and no seat for a dynamo. **The route:** iron as a substance with
+      its measured density, melting curve, conductivity and latent heat; it sinks through silicate under the
+      solved potential using the transport the substrate already has for a dense phase; the gravitational
+      energy released is BOOKED as heat rather than discarded; a liquid outer core is then whatever the
+      geotherm crossing iron's melting curve produces, not a declared region.
+- [ ] **No magnetic field, and it is downstream of the core rather than a subsystem to add.** A geodynamo is
+      a convecting, electrically conducting, rotating fluid shell; the rotation and the conducting-fluid
+      machinery exist and the shell does not. Note two things before scheduling it. A cell edge of this size
+      cannot resolve a dynamo — dedicated geodynamo codes do not reach Earth's parameter regime — so what
+      the field COSTS the atmosphere (solar-wind stripping, and the aurora that is its detector) may be the
+      only honest coupling at this grain. And for this epoch a planet with no field is defensible: the
+      oldest paleomagnetic record postdates formation by a long way. **Decide it** after differentiation
+      exists, never by prescribing a field.
 - [ ] **No mantle convection.** Radiogenic decay is the only interior heat source and the geotherm is
       whatever it, conduction and the surface produce — but nothing carries that heat by MOVING rock, so
       the plates above are kinematic rather than driven.
