@@ -16,6 +16,7 @@ var _samples: int = 0
 # booked terms span the same window.
 var _cum_absorbed: float = 0.0
 var _cum_emitted: float = 0.0
+var _cum_radiogenic: float = 0.0
 var _first_inject_j: float = 0.0
 var _first_unsourced_dc: float = 0.0
 # Last published block, for the consumers that ask the field for one scalar outside the report path.
@@ -279,7 +280,8 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	# J/m^3 for one step; the two reduce rows weight those by cell volume, so the pair arrives in joules
 	# over one step and only the step's own real seconds separate it from watts.
 	var dt_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
-	var has_rad: bool = f.has("rad_absorbed") and f.has("rad_emitted") and dt_s > 0.0
+	var has_rad: bool = f.has("rad_absorbed") and f.has("rad_emitted") and f.has("radiogenic") \
+		and dt_s > 0.0
 	if not has_rad:
 		# A missing measurement is missing: with no radiative pair there is nothing to book against.
 		out["energy_absorbed_w"] = null
@@ -290,6 +292,7 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 		return
 	var absorbed_w: float = float(f["rad_absorbed"]) / dt_s
 	var emitted_w: float = float(f["rad_emitted"]) / dt_s
+	var radiogenic_w: float = float(f["radiogenic"]) / dt_s
 	out["energy_absorbed_w"] = absorbed_w
 	out["energy_emitted_w"] = emitted_w
 	out["energy_net_w"] = absorbed_w - emitted_w
@@ -315,6 +318,7 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	if not was_latched:
 		_cum_absorbed = 0.0
 		_cum_emitted = 0.0
+		_cum_radiogenic = 0.0
 		_first_inject_j = inject_j
 		_first_unsourced_dc = unsourced_dc
 	elif steps > 0:
@@ -323,6 +327,7 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 		var window_s: float = dt_s * float(steps)
 		_cum_absorbed += absorbed_w * window_s
 		_cum_emitted += emitted_w * window_s
+		_cum_radiogenic += radiogenic_w * window_s
 	out["energy_unsourced_dc"] = unsourced_dc - _first_unsourced_dc
 	var run_steps: int = int(r[3])
 	out["energy_run_steps"] = run_steps
@@ -330,7 +335,7 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 		return
 	var run_drift: float = float(r[1])
 	var cum_inject: float = inject_j - _first_inject_j
-	var booked: float = _cum_absorbed - _cum_emitted + cum_inject
+	var booked: float = _cum_absorbed - _cum_emitted + cum_inject + _cum_radiogenic
 	out["energy_run_drift"] = run_drift
 	out["energy_run_drift_per_step"] = run_drift / float(run_steps)
 	out["energy_booked"] = booked
@@ -338,6 +343,7 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	out["energy_book_absorbed_j"] = _cum_absorbed
 	out["energy_book_emitted_j"] = _cum_emitted
 	out["energy_book_inject_j"] = cum_inject
+	out["energy_book_radiogenic_j"] = _cum_radiogenic
 
 
 # --- shared ------------------------------------------------------------------------------------------

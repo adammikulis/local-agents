@@ -17,9 +17,8 @@ quarters of the field's frame cost and dispatch at a few percent, so a dispatch 
 `LASimReport.snapshot()` calls every provider, and `LAGameProgression._process` calls it twice per
 `CHECK_INTERVAL` (0.5 s), plus the HUD and `LAVoxelHarness`. Only `_heavy_block()` is behind the 64-frame
 cache. `PhotoStats.report` (O(cells × REGOLITH_CELLS)), `sea_surface_stats`, `rock_radial_profile` (two
-passes), `lava_shell_diag`, `geotherm_report._gradient` and `ClimateSwing._site_stations` are NOT — six
-or seven whole-grid GDScript sweeps twice a second on the main thread. `_gradient` and
-`rock_radial_profile` recompute the same rock-skin predicate in the same call.
+passes), `lava_shell_diag` and `ClimateSwing._site_stations` are NOT — whole-grid GDScript sweeps twice
+a second on the main thread.
 
 Moving them inside the cache is a CADENCE change and forbidden as a speed measure on its own. Make them
 cheap instead.
@@ -164,8 +163,7 @@ performance defect, not a creature feature, and `EcologyStimulus` and the index 
 ## 13. Precompute `above[]` / `below[]` on the gravity-solve cadence
 
 Every `LAFieldGeometry.above`/`below` is five interpreted calls deep and includes a square root, and it is
-a pure function of solved gravity — which changes only when `_gravity.solves()` changes. Two
+a pure function of solved gravity — which changes only when `GravityPass`'s `gravity_solves` changes. Two
 `PackedInt32Array` tables rebuilt on that cadence make every full-grid sweep in items 1 and 2 several times
-cheaper, numerically identically. `LAMaterialFieldGeotherm3D._rebuild` already demonstrates the dirty
-signal. Cheapest change per line in this file.
+cheaper, numerically identically. Cheapest change per line in this file.
 

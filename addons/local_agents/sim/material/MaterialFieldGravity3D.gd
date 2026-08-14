@@ -55,11 +55,6 @@ func _bind() -> void:
 			return
 
 
-## Solves the device has completed; the geotherm rebuilds its source table on this cadence.
-func solves() -> int:
-	_bind()
-	return int(_pass.solves()) if _pass != null else 0
-
 
 ## Mean |g| over the cells where gravity does not vanish, m/s^2. Reduced on the device.
 func mean_g() -> float:
