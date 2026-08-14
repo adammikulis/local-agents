@@ -9,12 +9,14 @@ holds an unresolved merge, or has not moved inside the age limit.
 **7 days** old, fails the gate. Reconciling at five commits is minutes; this repository once reconciled two
 substrate lines with zero patch overlap and every conflict was a physics decision.
 
-**The dev branch is `0.4-dev`**, named once in `CLAUDE.md`, and it must contain `main`.
+**The dev branch is named once, in `CLAUDE.md`**, and read from there by `scripts/lib_dev_branch.sh`. It
+must contain `main`.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
+| `docs/collapse` | 1 | the map names the epoch and its cited paths exist | its lane reports |
 
-**None.** The two SUPERSEDED rows are discharged: `feature/no-tombstones` and `feature/conservation` are
+The two SUPERSEDED rows are discharged: `feature/no-tombstones` and `feature/conservation` are
 deleted along with their worktrees, and `pre-reconcile/no-tombstones` / `pre-reconcile/conservation` freeze
 their tips. So are `feature/live-breakages`, `feature/physics-substrate`, `feature/radiogenic-constants`
 and `integrate/reconcile`, which the dev branch already contained.
