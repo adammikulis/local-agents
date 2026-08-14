@@ -172,6 +172,28 @@ func hot_spring_stats() -> Dictionary:
 	}
 
 
+## The rock's own decay power, W, and the radial temperature gradient it is observed to produce, deg C per
+## metre. The reduce rows hold a difference across one cell, so the cell edge is the divisor.
+func geotherm_stats() -> Dictionary:
+	var out: Dictionary = {"geo_radiogenic_w": null, "geo_grad_c_per_m": null,
+		"geo_grad_max_c_per_m": null, "geo_grad_pairs": row_v("geo_grad_pairs", true)}
+	var dt_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	var j = row_v("radiogenic", false)
+	if j != null and dt_s > 0.0:
+		out["geo_radiogenic_w"] = float(j) / dt_s
+	var dx: float = float(_f._cell_size) if _f != null else 0.0
+	if dx <= 0.0:
+		return out
+	var pairs = out["geo_grad_pairs"]
+	var sum = row_v("geo_grad_sum", false)
+	if pairs != null and int(pairs) > 0 and sum != null:
+		out["geo_grad_c_per_m"] = float(sum) / (float(pairs) * dx)
+	var mx = row_v("geo_grad_max", false)
+	if mx != null:
+		out["geo_grad_max_c_per_m"] = float(mx) / dx
+	return out
+
+
 func wet_cell_count() -> int:
 	return row_n("wet_cells")
 

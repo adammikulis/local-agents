@@ -219,6 +219,8 @@ second account that disagrees with the first the day it is written, and it is al
 **`HANDOFF.md` IS NOT YOUR SCRATCHPAD. IT IS THE NEXT AGENT'S INSTRUCTION SET.** It gets the file and the
 expression, in one sentence, and only when the fix could not land this turn. Never your reasoning, your
 retractions, what you first thought, what you ruled out, or what a run printed.
+**A TRACKER ITEM CARRIES A SYMPTOM AND THE COMMAND THAT REPRODUCES IT, NEVER A DIAGNOSIS** — a symptom holds
+until it is fixed, a guess at a cause rots in silence and aims the next reader at the wrong file.
 `scripts/check_doc_prose.sh` fails the build on it.
 
 Findings are not written down. Fix it.

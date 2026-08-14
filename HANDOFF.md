@@ -7,7 +7,27 @@ more than it should is in `docs/PERFORMANCE_TODO.md`.
 Nothing here is a claim about the state of the tree, because a claim rots and nobody notices. Check the
 code, then act. Report what was deleted; report no number this substrate printed.
 
+**AN ITEM CARRIES A SYMPTOM AND THE COMMAND THAT REPRODUCES IT, NEVER A DIAGNOSIS.** A symptom holds until
+it is fixed. An assertion about a cause rots in silence, reads as progress, and spends the next reader's day
+on the file it named. If you know the cause you are close enough to fix it, so fix it.
+`scripts/check_doc_prose.sh` fails the build on a tracker that names one.
+
 ---
+
+## 0. THE ENERGY FIELD DOES NOT REPORT A NUMBER. TAKE THIS FIRST.
+
+`energy_stock` serialises to null and the run logs Godot's own "NaN found in JSON.stringify". Every ledger
+figure downstream goes null with it: `energy_absorbed_w`, `energy_emitted_w`, `energy_net_w`,
+`energy_booked`, `energy_residual`. Beside it, `all_temp_max` and `open_temp_max` read hotter than any star,
+and `geo_grad_c_per_m` reads garbage. The reduced `rad_absorbed` / `rad_emitted` rows underneath are finite.
+
+**Reproduce:** `scripts/agent_harness.sh sim --frames 20`, then read `energy_stock` and `all_temp_max` out
+of `SIM_REPORT`.
+
+Temperature is derived from enthalpy per step and drives the phase ladder, every reaction gate and both
+radiative terms, so nothing measured anywhere in the substrate means anything while this holds. A single
+cell carrying NaN or a sentinel poisons a SUM row and a MAX row differently, which is why one gauge is null
+and the other is enormous.
 
 ## 1. Reduce the rest on the device
 
@@ -15,7 +35,7 @@ code, then act. Report what was deleted; report no number this substrate printed
 sweeps already use it. Left:
 
 - `MaterialFieldReport3D.surface_climate`, `MaterialFieldPhotoStats3D`,
-  `MaterialFieldClimateSwing3D._site_stations`, `MaterialFieldGeotherm3D._gradient`.
+  `MaterialFieldClimateSwing3D._site_stations`.
 - `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`, `MaterialFieldElementProbe3D`,
   `MaterialFieldOrganic3D`.
 - `CLIMATE_MAX_CELLS` and its stride delete with the climate scan.
@@ -38,14 +58,6 @@ Free today, no new op: `momentum_vec` is three `SUM` rows on `vel_*` with `aux: 
 
 ## 2. Collapse the per-cell kernels into one dispatch
 
-Seven passes are dispatched per step. `MaterialFieldGeotherm3D` is the next one to go and it is not even a
-kernel: `_rebuild()` computes `silicate[c] * rho_rock * vol[c] * w_per_kg`, in which only `silicate[c]`
-varies per cell, then compacts a list and hands joules to the sparse inject queue from GDScript on the
-gravity solve's cadence. Radiogenic heating is a volumetric source, heat appearing in proportion to the rock
-a cell holds, and it is one term in the kernel beside the rest. Keep `LARadiogenicDecay`, which is the real
-physics of a decaying nuclide store; delete the module, the list, the queue round trip and the separate
-cadence.
-
 `CellListPass` is the seventh, and it stays a pass until the compaction becomes a mode of `transport.glsl`:
 `check_binding_collisions.sh` fails any pass naming two kernel paths, so it cannot simply be folded into
 `TransportPass`. The compaction needs workgroup-shared memory and barriers in uniform control flow, which
@@ -61,6 +73,18 @@ reaches the one beyond it. The mean free path is one cell by construction, so th
 transmission, no outgoing longwave at the top of the atmosphere, and no way to price a CO2 doubling —
 `solar_incident()` already marches a real slant path with `la_step`, and the longwave half needs the same
 march. `BAND_COUNT` and `TEMP_COUNT` in `docs/MODEL_PARAMETERS.md` name that solver as what deletes them.
+
+**And the two halves of the spectrum are modelled at wildly different fidelity.** Longwave gets 109 HITRAN
+bands over 9 temperature slices. Shortwave gets ONE fitted grey number: `SW_OPTICAL_DEPTH = 0.2597`, applied
+to the total air column in `shortwave_absorbed_frac`, which asserts that N2 and O2 absorb sunlight and that
+doubling CO2 does nothing to the incoming beam. It is back-derived from Earth's own balance, in the file
+whose header forbids fitted constants. `LAAbsorptionBands` already carries per-band SOLAR WEIGHTS, so the
+shortwave side can read the same table the longwave side does.
+
+`LAPhysical.ATMOS_OPTICAL_DEPTH` (0.835) is that constant's longwave twin and has NO reader anywhere in the
+tree — the band model replaced it and nobody deleted it. A fitted number left in the constants authority is
+worse than a bare one, because the next reader assumes it is load-bearing. Delete it with its
+`PHYSICS_RUBRIC.md` mention.
 
 ## 5. Move what the device cannot take into the GDExtension
 
@@ -83,12 +107,7 @@ is unheld is narrower: that one index names the same BUFFER on both sides. Build
 on `Channels.gd`'s shape — a `static func rows()`, never a `const Dictionary` built from another script's
 constants — and one gate absorbing the hand-written binding stanzas. Mutation-test it both ways.
 
-## 9. Pressure falls going DOWN, and the harness exits 122 saying so
-
-`PRESSURE_BROKEN`'s unwritten-cell arm is clean once the field settles: every cell now gets a pressure.
-What remains is INVERSIONS — pressure falling with depth, which hydrostatics forbids. `pressure.glsl` walks
-one thread per column top downward through `below_of`, and the discrete up-map is not a bijection, so ask
-whether that shape can cover every cell exactly once before trusting the integral it builds.
+## 9. An instrument that cannot fire, and two re-sweeps
 
 - `FieldAttributionRecords3D.SILENT_HEAT_PASSES` now lists only `"fungus"`, and there is no `FungusPass` in
   `PASS_SCRIPTS` — while `PRODUCERS` still names one for a channel `Channels.gd` declares as a single
@@ -101,13 +120,10 @@ whether that shape can cover every cell exactly once before trusting the integra
   than tracking per-node cell changes, and `LASimReport.snapshot` deep-copies its events and gauges on every
   call. Both are constants, not asymptotes.
 
-## 10. Two constants that are not what they name
+## 10. A constant that is not what it names
 
 - `AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`, and it is the unit
   definition of the `o2`, `co2` and `n2` channels, so correcting it rescales every gas total.
-- One radiogenic rate covers every rock and there is only one rock. Continental crust is enriched about
-  fifty times over depleted mantle, so a second rock substance with its own abundance is what makes crust
-  and mantle differ. The rate is also present-day and this body has no age.
 
 ## 11. Rebuild frost shattering from the phase boundary
 
@@ -119,6 +135,19 @@ a sealed pore. Invert `LASubstances.melt_c_at`: the pressure ice exerts at under
 `Substances.gd` should carry with its source. Bound the extent by the pore water available to freeze, and
 let deep cold starve the mechanism out of the state rather than a cutoff. Observed damage peaks at -3 to
 -10 C: if the law disagrees, that is the finding, not a thing to tune.
+
+## 12. `LAFieldGeometry.above` and `below` are not inverses, and `PRESSURE_BROKEN` still fires on it
+
+`slot_toward` snaps the local vertical to one of six axes, so across the diagonal where the snap flips,
+`above(below(c)) != c`. The pressure column, `air_above`, `ground` and `burial_steps` all march that
+relation, and no column integral can be monotone along a `below` step its own `above` step does not undo.
+One vertical relation, built once and inverse by construction, is what removes it.
+
+**A RADIAL COORDINATE SYSTEM IS NOT THE ANSWER. This is the maintainer's DECISION, not a law.** It has been
+tried twice: the cubed-sphere shell was replaced by the uniform Cartesian box on purpose, and a
+true-radial-ray traversal built to remove this very snap measured WORSE, because with no structural relation
+to the grid's own vertical step, ray divergence across a density contrast dominates. Fix the relation on the
+Cartesian grid.
 
 ---
 

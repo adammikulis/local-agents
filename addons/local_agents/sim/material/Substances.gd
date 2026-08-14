@@ -163,6 +163,10 @@ static func _build_table() -> Dictionary:
 			"conductivity": PC.THERMAL_CONDUCT_ROCK_W_MK,
 			"emissivity": PC.BASALT_EMISSIVITY,
 			"albedo": PC.ALBEDO_BARE_GROUND,
+			# The silicate Earth entire, crust and mantle, so bulk silicate Earth is its abundance.
+			"u_kg_per_kg": PC.BSE_U_KG_PER_KG,
+			"th_kg_per_kg": PC.BSE_TH_KG_PER_KG,
+			"k_kg_per_kg": PC.BSE_K_KG_PER_KG,
 		},
 		"silica": {
 			"formula": {"Si": 1.0, "O": 2.0},
@@ -177,6 +181,10 @@ static func _build_table() -> Dictionary:
 			"conductivity": PC.THERMAL_CONDUCT_ROCK_W_MK,
 			"emissivity": PC.BASALT_EMISSIVITY,
 			"albedo": PC.ALBEDO_BARE_GROUND,
+			# The quartz sand the weathering rows leave behind: sandstone's abundance, not the mantle's.
+			"u_kg_per_kg": PC.SANDSTONE_U_KG_PER_KG,
+			"th_kg_per_kg": PC.SANDSTONE_TH_KG_PER_KG,
+			"k_kg_per_kg": PC.SANDSTONE_K_KG_PER_KG,
 		},
 		"carbonate": {
 			"formula": {"Ca": 1.0, "C": 1.0, "O": 3.0},
@@ -190,6 +198,10 @@ static func _build_table() -> Dictionary:
 			"conductivity": PC.THERMAL_CONDUCT_ROCK_W_MK,
 			"emissivity": PC.BASALT_EMISSIVITY,
 			"albedo": PC.ALBEDO_BARE_GROUND,
+			# Precipitated calcite: uranium substitutes for calcium, thorium and potassium barely do.
+			"u_kg_per_kg": PC.LIMESTONE_U_KG_PER_KG,
+			"th_kg_per_kg": PC.LIMESTONE_TH_KG_PER_KG,
+			"k_kg_per_kg": PC.LIMESTONE_K_KG_PER_KG,
 		},
 
 		# --- MINERAL NITROGEN -------------------------------------------------------------------------------

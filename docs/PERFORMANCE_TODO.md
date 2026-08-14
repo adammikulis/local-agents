@@ -17,9 +17,8 @@ quarters of the field's frame cost and dispatch at a few percent, so a dispatch 
 `LASimReport.snapshot()` calls every provider, and `LAGameProgression._process` calls it twice per
 `CHECK_INTERVAL` (0.5 s), plus the HUD and `LAVoxelHarness`. Only `_heavy_block()` is behind the 64-frame
 cache. `PhotoStats.report` (O(cells × REGOLITH_CELLS)), `sea_surface_stats`, `rock_radial_profile` (two
-passes), `lava_shell_diag`, `geotherm_report._gradient` and `ClimateSwing._site_stations` are NOT — six
-or seven whole-grid GDScript sweeps twice a second on the main thread. `_gradient` and
-`rock_radial_profile` recompute the same rock-skin predicate in the same call.
+passes), `lava_shell_diag` and `ClimateSwing._site_stations` are NOT — whole-grid GDScript sweeps twice
+a second on the main thread.
 
 Moving them inside the cache is a CADENCE change and forbidden as a speed measure on its own. Make them
 cheap instead.
@@ -81,8 +80,8 @@ sure the predicate covers every cell where a `TF_DILUTE` or `TF_STAMP` gather wr
 - **`longwave_emissivity(c)`** loops all 109 bands with five mixes and two table lookups each, and the
   RADIATE row evaluates it once in pass 0 as emissivity and again in pass 1 as absorptivity. Nothing it
   reads changes between those two dispatches. Stamp it in pass 0.
-- **`below_of()` in `pressure.glsl`** searches all six slots with a `length` and a divide per slot instead
-  of indexing. The walk descends along `up`, so probe that slot first.
+- **`pressure.glsl`** re-marches the whole column above every cell, so a cell at depth d costs d loads and
+  the pass is O(cells x span). A scan over each axis-snapped column would share the prefix.
 - **`root_soil()`** re-walks its 4-cell column once per record naming `SOIL_ROOT` and again inside
   `root_soil_draw`.
 
@@ -164,8 +163,7 @@ performance defect, not a creature feature, and `EcologyStimulus` and the index 
 ## 13. Precompute `above[]` / `below[]` on the gravity-solve cadence
 
 Every `LAFieldGeometry.above`/`below` is five interpreted calls deep and includes a square root, and it is
-a pure function of solved gravity — which changes only when `_gravity.solves()` changes. Two
+a pure function of solved gravity — which changes only when `GravityPass`'s `gravity_solves` changes. Two
 `PackedInt32Array` tables rebuilt on that cadence make every full-grid sweep in items 1 and 2 several times
-cheaper, numerically identically. `LAMaterialFieldGeotherm3D._rebuild` already demonstrates the dirty
-signal. Cheapest change per line in this file.
+cheaper, numerically identically. Cheapest change per line in this file.
 
