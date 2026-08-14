@@ -11,8 +11,6 @@ forbidden. Several items below WOULD change results; each says so, and those nee
 publishes — not against a wall clock.** This repo's own recorded measurement put readback at roughly three
 quarters of the field's frame cost and dispatch at a few percent, so a dispatch win can be invisible.
 
-**Nothing here can be measured at all until `HANDOFF.md` item 9 is fixed and a run completes.**
-
 ---
 ## 1b. The report walks the grid ~2 Hz, and only the heavy half is cached
 
@@ -83,9 +81,6 @@ sure the predicate covers every cell where a `TF_DILUTE` or `TF_STAMP` gather wr
 - **`longwave_emissivity(c)`** loops all 109 bands with five mixes and two table lookups each, and the
   RADIATE row evaluates it once in pass 0 as emissivity and again in pass 1 as absorptivity. Nothing it
   reads changes between those two dispatches. Stamp it in pass 0.
-- **`column_field()` is called twice per cell in the `TF_STAMP` gather**, ungated, for every cell in the
-  grid — two ≤64-hop marches to compute a Joule term that is zero wherever the column carries no charge.
-  Hoisting the second call is exact and halves it immediately.
 - **`below_of()` in `pressure.glsl`** searches all six slots with a `length` and a divide per slot instead
   of indexing. The walk descends along `up`, so probe that slot first.
 - **`root_soil()`** re-walks its 4-cell column once per record naming `SOIL_ROOT` and again inside

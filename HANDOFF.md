@@ -14,7 +14,7 @@ code, then act. Report what was deleted; report no number this substrate printed
 `ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and twenty-one report
 sweeps already use it. Left:
 
-- `MaterialFieldReport3D.surface_climate` and `_open_temp_stats`, `MaterialFieldPhotoStats3D`,
+- `MaterialFieldReport3D.surface_climate`, `MaterialFieldPhotoStats3D`,
   `MaterialFieldClimateSwing3D._site_stations`, `MaterialFieldGeotherm3D._gradient`.
 - `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`, `MaterialFieldElementProbe3D`,
   `MaterialFieldOrganic3D`.
@@ -64,12 +64,6 @@ transmission, no outgoing longwave at the top of the atmosphere, and no way to p
 `solar_incident()` already marches a real slant path with `la_step`, and the longwave half needs the same
 march. `BAND_COUNT` and `TEMP_COUNT` in `docs/MODEL_PARAMETERS.md` name that solver as what deletes them.
 
-## 4. Move the lightning column march into the kernel
-
-`MaterialCharge3D._scan` walks the whole air column above every ground cell every step. It belongs in
-`transport.glsl`, whose OHMIC row already marches it in `column_field()`, publishing a strike list. Same
-march, same `RREA_THRESHOLD_V_M`.
-
 ## 5. Move what the device cannot take into the GDExtension
 
 GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is a `.cpp`/`.hpp` pair, one
@@ -102,44 +96,17 @@ Every gate runs and the failures are summarised, so the fail-fast half of this i
 the harness collapses every gate's exit code into `exit 1`, so the exit-2 contract asserted in about ten gate
 headers and in `lint.yml` is not observable. Fix the harness, not the gates.
 
-## 9. THE RUN NEVER FINISHES. TAKE THIS FIRST — nothing else here can be checked by running the planet.
+## 9. Pressure is broken, and the harness exits 122 saying so
 
-No arm prints `SIM_REPORT`: not 3, 5, 8, 20 or 200 steps, and not at a raised `LA_RUN_TIMEOUT`. Every lane
-this session gated on `lint` because of it. There are TWO defects, and they were separated by bisect.
-
-**9a. The seed does not finish.** The log stops after `EVENT_TRACKER=`, before the first report. Bisect:
-the run reaches `PRESSURE_BROKEN=` at the commit before the seed-order change and stops before it at the
-merge that landed `solve_seed()`. So the suspect is `MaterialFieldSphereStep3D.seed_tick()`'s new order or
-`LAMaterialFieldGravity3D.solve_seed()` itself.
-
-`solve_seed()` calls `rd.submit()` and `rd.sync()` on the driver's device without touching
-`LAMaterialSphereGPU3D._pending`, which is that flag's whole job — every other path guards on it, and
-`_step_checkpointed()` re-establishes it deliberately after doing raw submits. Routing the seed solve
-through a driver method that flushes first is the right shape and the device's owner should do it.
-**Tried and it did NOT clear the hang, so the pairing is not the cause — do not stop there.**
-
-**9b. Past the seed, the report sweeps stall it.** Before 9a existed, the run reached `PRESSURE_BROKEN` —
-printed partway through `_heavy_block()` — and then went quiet in `_momentum.report()` or
-`LAMaterialFieldLedger3D.report()`. Item 1 is that fix; the momentum ledger is the heaviest single sweep.
-
-`_is_final_frame()` reading physics frames while the run ended on steps is FIXED. It made every physics
-frame after the seed recompute the whole heavy block instead of every sixty-fourth, which made 9b far
-worse and is why it looked like a hang. `LASimLoop` does not advance `_step` while a seed holder is
-registered, so the two clocks diverge by the length of the seed.
-
-A 1-step arm does complete, then exits 125 — `RUN_HUNG_AFTER_REPORT`, the exit path stalling after
-`LA_RUN_COMPLETE` prints. Third defect, smallest, probably independent.
-
-## 9b. Loose ends left by the lanes that found them
+`PRESSURE_BROKEN` reports both a count of inversions — pressure falling as you go DOWN — and a count of
+cells no column walk ever reached. Both are large. A cell with no pressure evaluates every phase boundary
+at vacuum, so this reaches the whole phase curve.
 
 - `FieldAttributionRecords3D.SILENT_HEAT_PASSES` now lists only `"fungus"`, and there is no `FungusPass` in
-  `PASS_SCRIPTS`. That instrument's silent-heat check names no live pass, so it cannot fire. Wire it to the
+  `PASS_SCRIPTS` — while `PRODUCERS` still names one for a channel `Channels.gd` declares as a single
+  buffer. That instrument's silent-heat check names no live pass, so it cannot fire. Wire it to the
   surviving passes or delete it. Removing the constant outright breaks `check_parse_all` — it is read from
   inside its own file.
-- `MaterialSurfaceSeed3D.seed_initial()` walked `below` before gravity existed, same as the regolith did.
-  Moved, but litter and detritus have never seeded in any prior run, so any past reading of them is fiction.
-- Check that `_is_final_frame()` actually fires for the VoxelWorld scene, not only the demo harness: if it
-  does not, the closing report a run is judged on can be up to 64 frames old.
 - `check_shaders_compile.sh`'s kernel floor is `docs/SHADER_FLOOR` and `write_ceilings.sh` lowers it. Do not
   bake a count back into the gate.
 - `LAMineralStamp3D._scan` restarts at cell 0 every scan and breaks on a budget, so the low-index prefix is
