@@ -44,6 +44,9 @@ func _ready() -> void:
 		report_source = get_parent()
 	if report_source != null and report_source.has_method("demo_harness_configured"):
 		report_source.call("demo_harness_configured", run_frames, shoot_path)
+	# An armed run is automated and never wants the keyboard; a bare one is a human, so leave it alone.
+	if run_frames > 0 or shoot_path != "":
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS, true)
 	# Nothing to count when neither mode is armed — stay off the per-frame paths entirely.
 	set_process(shoot_path != "")
 	set_physics_process(run_frames > 0)
