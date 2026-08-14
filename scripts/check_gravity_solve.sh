@@ -17,6 +17,11 @@
 # The mass is a silicate fill, so the SOURCE TERM is checked with the solve: the kernel weighs the same
 # kg per unit fill that every other pass weighs, off LASubstances, and no density is written here.
 #
+# ARM TWO IS THE SIM'S OWN FIELD. Everything above builds its own sphere and its own sweep budget, so it
+# says nothing about the world the sim seeds. The second arm boots the real world and reads Gauss's law
+# off it: the flux of g out of the box is -4 pi G times the mass inside, so `gravity_gauss_rel` is +1
+# when gravity points at the planet and -1 when it points away.
+#
 # The solve is a compute kernel, so this needs a real device: headless has none. It runs through
 # run_sim_offscreen.sh, which takes the machine-wide GPU lock.
 #
@@ -31,6 +36,10 @@ KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/gravity_poisson.gl
 PASS="$REPO_ROOT/addons/local_agents/sim/material/sphere_passes/GravityPass.gd"
 [ -f "$KERNEL" ] || { echo "ERROR: gravity_poisson.glsl missing." >&2; exit 2; }
 [ -f "$PASS" ] || { echo "ERROR: GravityPass.gd missing." >&2; exit 2; }
+
+# A .glsl edited since its last import leaves the compiled .res stale, and the probe below would then
+# check the PREVIOUS kernel and report a pass on it.
+"$GODOT" --headless --path "$REPO_ROOT" --import >/dev/null 2>&1
 
 PROBE="$REPO_ROOT/addons/local_agents/tests/zz_gravity_gate.gd"
 cat > "$PROBE" <<'GD'
@@ -211,7 +220,7 @@ func _init() -> void:
 	if not attract: fail += 1
 	print('GRAVITY_SOLVE={"inside_rel":%.4f,"outside_rel":%.4f,"radial_err":%.4f,"centre_ratio":%.4f,"source_mass_rel":%.4f,"two_body_attracts":%s,"sweeps":%d,"residual":%s,"failures":%d}'
 		% [worst_in, worst_out, worst_radial, centre_ratio, mass_rel, str(attract).to_lower(),
-			SWEEP_BUDGET, str(readings.get("gravity_residual", "absent")), fail])
+			SWEEP_BUDGET, str(readings.get("gravity_residual_rel", "absent")), fail])
 	for r2 in _owned:
 		if r2.is_valid():
 			_rd.free_rid(r2)
@@ -240,6 +249,40 @@ if [ "$rc" -ne 0 ]; then
   echo "the magnitude errors; centre_ratio must vanish (only a real solve gives that, a GM/r^2 shortcut"
   echo "diverges there); source_mass_rel is the kernel's own weighing of the fill against the closed-form"
   echo "mass; two_body_attracts must hold for a distribution with no spherical symmetry."
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------------------------------
+# ARM TWO — the field the SIM seeds, not one this script built.
+# ---------------------------------------------------------------------------------------------------
+SIM_FRAMES="${LA_GRAVITY_FRAMES:-20}"
+sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "$SIM_FRAMES" \
+  --report gravity_gauss_rel,gravity_total_mass_kg 2>&1)"
+sim_rc=$?
+printf '%s\n' "$sim_out" | grep -E '^gravity_' || true
+# A pass reading arrives as a gauge, so the value is behind a 'cur' key; a plain scalar has none.
+reading() { printf '%s\n' "$sim_out" | sed -n "s/^$1  *= *//p" | head -1 \
+  | sed -e "s/.*'cur': *//" -e 's/[,}].*//' -e 's/[^0-9eE.+-]//g'; }
+gauss="$(reading gravity_gauss_rel)"
+mass="$(reading gravity_total_mass_kg)"
+if [ -z "$gauss" ] || [ -z "$mass" ]; then
+  echo "ERROR: the run published no gravity_gauss_rel (sim_run exit $sim_rc), so the sim's own field went" >&2
+  echo "       unmeasured. Refusing to report a pass." >&2
+  printf '%s\n' "$sim_out" | tail -20 >&2
+  exit 2
+fi
+# THE POSITIVE CONTROL. With no mass in the box the ratio is 0 by construction, which is not a verdict.
+if ! awk -v m="$mass" 'BEGIN{exit !(m > 0)}'; then
+  echo "ERROR: the box holds no mass, so Gauss's law asserts nothing about the sign of g." >&2
+  exit 2
+fi
+if ! awk -v r="$gauss" 'BEGIN{exit !(r > 0)}'; then
+  echo
+  echo "In the world the sim seeds, the flux of g out of the box has the WRONG SIGN. Gauss's law puts that"
+  echo "flux at -4 pi G times the mass inside, so the ratio printed above is +1 when gravity points at the"
+  echo "planet and -1 when it points away. Gravity is pointing away, and every column walk that asks"
+  echo "LAFieldGeometry.below()/above() — pressure, the regolith burial march, the lake flood, the surface"
+  echo "seed — is running upward."
   exit 1
 fi
 echo "check_gravity_solve: OK"
