@@ -67,6 +67,18 @@ transmission, no outgoing longwave at the top of the atmosphere, and no way to p
 `solar_incident()` already marches a real slant path with `la_step`, and the longwave half needs the same
 march. `BAND_COUNT` and `TEMP_COUNT` in `docs/MODEL_PARAMETERS.md` name that solver as what deletes them.
 
+**And the two halves of the spectrum are modelled at wildly different fidelity.** Longwave gets 109 HITRAN
+bands over 9 temperature slices. Shortwave gets ONE fitted grey number: `SW_OPTICAL_DEPTH = 0.2597`, applied
+to the total air column in `shortwave_absorbed_frac`, which asserts that N2 and O2 absorb sunlight and that
+doubling CO2 does nothing to the incoming beam. It is back-derived from Earth's own balance, in the file
+whose header forbids fitted constants. `LAAbsorptionBands` already carries per-band SOLAR WEIGHTS, so the
+shortwave side can read the same table the longwave side does.
+
+`LAPhysical.ATMOS_OPTICAL_DEPTH` (0.835) is that constant's longwave twin and has NO reader anywhere in the
+tree — the band model replaced it and nobody deleted it. A fitted number left in the constants authority is
+worse than a bare one, because the next reader assumes it is load-bearing. Delete it with its
+`PHYSICS_RUBRIC.md` mention.
+
 ## 5. Move what the device cannot take into the GDExtension
 
 GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is a `.cpp`/`.hpp` pair, one
