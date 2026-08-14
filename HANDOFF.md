@@ -76,6 +76,16 @@ The target is six: gravity, derive, pressure, transport, reactions, reduce.
 `transport.glsl`'s gather takes `sun_w * sw_absorbed * (1 - shortwave_albedo)` and the beam march removes
 the whole absorbed share, so what a surface reflects is subtracted from the beam and deposited in no cell.
 Reflected shortwave is a real flux that crosses the atmosphere again and may be absorbed on the way out.
+Building it means a scattered shortwave field, which no gate covers yet.
+
+The band table also stops at 10000 cm^-1 and carries no ozone, so there is no stratospheric UV absorber.
+That is a missing absorber rather than a fitted constant: `scripts/derive_absorption_bands.py` and
+`scripts/fetch_hitran.sh` are where a species is added.
+
+`check_radiative_row.sh` asserts the Stefan-Boltzmann law on its own isothermal block and NOT on the world
+the sim seeds; its seeded arm reads only the sign of the two radiative books. The honest form is a per-cell
+residual of `rad_emitted` against `6 * e * STEFAN * T^4 * dt / L`, computed in the RADIATE path beside the
+field it measures and reduced to a MAX, exactly as gravity publishes Gauss's law.
 
 ## 5. Move what the device cannot take into the GDExtension
 
@@ -110,6 +120,10 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
   inside its own file.
 - `check_shaders_compile.sh`'s kernel floor is `docs/SHADER_FLOOR` and `write_ceilings.sh` lowers it. Do not
   bake a count back into the gate.
+- `MaterialFieldReport3D` publishes `element_C_total_drift_per_step`, a bare-SI rate with no consumer; the
+  dimensionless `element_C_total_rel_drift` beside it is what anything reads. One-line deletion.
+- `PHYSICS_RUBRIC.md` quotes `energy_residual / energy_booked` figures in prose. That denominator no longer
+  exists — the residual is a fraction of turnover now — and measured figures in a doc are banned anyway.
 - `LASpatialIndex.rebuild_if_stale` rebuilds a whole group's dictionary every frame it is touched rather
   than tracking per-node cell changes, and `LASimReport.snapshot` deep-copies its events and gauges on every
   call. Both are constants, not asymptotes.
