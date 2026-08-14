@@ -8,11 +8,27 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh" 2>/dev/null || true
 command -v rg >/dev/null 2>&1 || { echo "check_doc_prose: rg absent." >&2; exit 2; }
 
+# A DECLARED TARGET THAT IS MISSING IS EXIT 2, NOT A NARROWER GATE. Every rule below is "the map must not
+# contain X", and a rule of that shape is satisfied by the file not existing.
 TARGETS=()
 for d in HANDOFF.md docs/PHYSICS_TODO.md; do
-	[ -f "$ROOT/$d" ] && TARGETS+=("$ROOT/$d")
+	[ -f "$ROOT/$d" ] || { echo "check_doc_prose: no $d. A tracker is not optional." >&2; exit 2; }
+	TARGETS+=("$ROOT/$d")
 done
-[ "${#TARGETS[@]}" -gt 0 ] || { echo "check_doc_prose: no target doc." >&2; exit 2; }
+
+# A TRACKER ITEM CARRIES A SYMPTOM AND THE COMMAND THAT REPRODUCES IT, NEVER A DIAGNOSIS. A symptom holds
+# until it is fixed; a claim about a cause rots silently and aims the next reader at the wrong file.
+# `bisect` as the debugging verb only: "bisected extent" is root-finding, not a claim about a cause.
+DIAGNOSIS='(?i)\b(the suspects?|suspects?|suspected|probably|likely|presumably|my guess|guess(ing)?|bisect|almost certainly|i think|smells like|the culprit is)\b'
+diag="$(rg -n --no-heading -e "$DIAGNOSIS" "${TARGETS[@]}" 2>/dev/null || true)"
+if [ -n "$diag" ]; then
+	echo "check_doc_prose: a tracker item is guessing at a cause." >&2
+	printf '%s\n' "$diag" | sed 's/^/  /' >&2
+	echo "" >&2
+	echo "Write the SYMPTOM and the command that reproduces it. A diagnosis rots without anyone noticing," >&2
+	echo "and the next reader spends the day on the file it named. If you know the cause, fix it instead." >&2
+	exit 1
+fi
 
 # First person is the tell: a map has no narrator.
 BANNED='\b(I |I'"'"'|my |we |our |me\b)|\bcorrected\b|\bfalsified\b|\bre-derived it\b|changes the diagnosis|reframes it|first reading|turns out|it seems|I thought|ruled out'

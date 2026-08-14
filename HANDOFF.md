@@ -7,6 +7,11 @@ more than it should is in `docs/PERFORMANCE_TODO.md`.
 Nothing here is a claim about the state of the tree, because a claim rots and nobody notices. Check the
 code, then act. Report what was deleted; report no number this substrate printed.
 
+**AN ITEM CARRIES A SYMPTOM AND THE COMMAND THAT REPRODUCES IT, NEVER A DIAGNOSIS.** A symptom holds until
+it is fixed. An assertion about a cause rots in silence, reads as progress, and spends the next reader's day
+on the file it named. If you know the cause you are close enough to fix it, so fix it.
+`scripts/check_doc_prose.sh` fails the build on a tracker that names one.
+
 ---
 
 ## 1. Reduce the rest on the device
