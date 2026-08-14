@@ -711,8 +711,10 @@ func set_lightning_visual(cb: Callable) -> void:
 	_pending_lightning_cb = cb
 	if _charge_mod != null:
 		_charge_mod.set_visual(cb)
+## Peak space-charge density in the open air, C/m^3, off the row that folded it.
 func charge_peak() -> float:
-	return _charge_mod.charge_peak() if _charge_mod != null else 0.0
+	var v: float = _queries.row_f("charge_peak")
+	return 0.0 if is_nan(v) else v
 func bolts_fired() -> int:
 	return _charge_mod.bolts_fired() if _charge_mod != null else 0
 ## Inject a shock/sound wave of `magnitude` at a world point.

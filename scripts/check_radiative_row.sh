@@ -103,6 +103,12 @@ func _run(grid, solid_v: float, temp_c: float) -> Array:
 		bufs[String(row["idx"])] = _u32(cc)
 		bufs[String(row["flag"])] = _u32(cc)
 		bufs[String(row["args"])] = _u32(int(lst.Arg.SLOTS))
+	# ASK THE PASS what it declares, exactly as the driver's _allocate_declared does. A harness that
+	# builds its own inputs tests the kernel against a table the sim never sends it.
+	var declared: Dictionary = p._buffers(cc)
+	for name in declared:
+		var spec: Variant = declared[name]
+		bufs[String(name)] = _f32(int(spec["n"]) if spec is Dictionary else int(spec))
 	var nbr_bytes: PackedByteArray = grid.neighbours.to_byte_array()
 	var nbr: RID = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	_owned.append(nbr)

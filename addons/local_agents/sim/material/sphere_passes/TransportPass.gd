@@ -40,6 +40,12 @@ var _grain_sets: Array = []
 var _list_args: Array = []
 
 
+## What the TF_STAMP gather publishes about the electric field: driver-owned so ReducePass and
+## CellListPass can read them, and not a derived channel, which would be read back with no CPU consumer.
+func _buffers(cc: int) -> Dictionary:
+	return {"col_e": cc, "strike": cc}
+
+
 func _setup(bufs: Dictionary, cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
 	_rows = LATransportRecords.rows()
@@ -125,7 +131,7 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 	for key in ["temp", "pressure", "porosity", "grain", "co2", "h2o", "h2o_solid", "h2o_liquid",
 			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement",
 			"silicate_susp_water", "silicate_susp_air", "silicate_bed",
-			"rad_absorbed", "rad_emitted"]:
+			"rad_absorbed", "rad_emitted", "col_e", "strike"]:
 		if not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row has no law." % [key, channel])
 			return []
@@ -170,6 +176,8 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 			# Every row binds these; only a MODE_RADIATE gather writes them.
 			[37, _single(bufs, "rad_absorbed")],
 			[38, _single(bufs, "rad_emitted")],
+			[39, _single(bufs, "col_e")],
+			[40, _single(bufs, "strike")],
 		]
 		out[p] = _uset(_pipe, entries)
 	return out

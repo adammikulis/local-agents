@@ -73,6 +73,19 @@ derived = re.search(r"static func derived_buffers\(\).*?\n\treturn \{(.*?)\n\t\}
 allocated = set(re.findall(r'"(\w+)":', rows.group(1))) if rows else set()
 allocated |= set(re.findall(r'"(\w+)":', derived.group(1))) if derived else set()
 allocated |= set(re.findall(r'_bufs\["(\w+)"\]\s*=', driver))
+# A pass declares buffers of its own and the DRIVER allocates them (_allocate_declared), so those are
+# allocated too. Without this the gate sees only the channel table and calls every pass-owned buffer
+# missing -- it stayed quiet until now only because CellListPass reaches its own by bufs[key].
+for _nm, _src in pass_src.items():
+    if _nm not in registered:
+        continue
+    _body = re.search(r"func _buffers\([^)]*\)[^\n]*\n((?:[ \t].*\n|\n)*)", _src)
+    if _body:
+        allocated |= set(re.findall(r'"(\w+)"', _body.group(1)))
+    _rows = re.search(r"static func rows\(\)[^\n]*\n((?:[ \t].*\n|\n)*)", _src)
+    if _rows:
+        for _k in ("idx", "args", "flag"):
+            allocated |= set(re.findall(r'"%s"\s*:\s*"(\w+)"' % _k, _rows.group(1)))
 if not allocated:
     print("check_declared_and_dispatched: no buffers found — the gate has no subject.", file=sys.stderr)
     sys.exit(2)

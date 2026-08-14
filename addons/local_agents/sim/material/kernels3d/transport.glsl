@@ -71,6 +71,9 @@ layout(set = 0, binding = 36, std430) restrict readonly buffer ActiveFlag { uint
 // MODE_RADIATE's own books, J/m^3, assigned in the gather so each is a per-step rate needing no clear.
 layout(set = 0, binding = 37, std430) restrict writeonly buffer RadAbs { float rad_absorbed[]; };
 layout(set = 0, binding = 38, std430) restrict writeonly buffer RadEmit { float rad_emitted[]; };
+// The column field and the breakdown it decides, published rather than re-derived on the CPU.
+layout(set = 0, binding = 39, std430) restrict writeonly buffer ColE { float col_e[]; };
+layout(set = 0, binding = 40, std430) restrict writeonly buffer Strike { float strike[]; };
 
 #include "march.glsli"
 
@@ -271,16 +274,22 @@ float column_field(uint c) {
 	return abs(sigma) / EPS0;
 }
 
+// Relativistic runaway breakdown field at this cell, V/m: the threshold falls with air density, so it is
+// reachable aloft where 3 MV/m conventional breakdown never is. 0 where there is no air to break down.
+float rrea_threshold(uint c) {
+	if (pressure[c] <= 0.0) {
+		return 0.0;
+	}
+	return RREA_THRESHOLD * air_rho(c) / AIR_DENSITY;
+}
+
 // Past the runaway threshold the local air density sets, the dielectric stops being one: the conductivity
-// jumps to a return-stroke channel's and the charge row becomes a stroke.
-float ohmic_conductivity(uint c) {
+// jumps to a return-stroke channel's and the charge row becomes a stroke. `e` is this cell's column field.
+float ohmic_conductivity_at(uint c, float e) {
 	float ambient = mix(CLEAR_AIR_COND, CLOUD_COND,
 		clamp(cloud_water_kg_m3(c) / CHARGING_LWC, 0.0, 1.0));
-	if (pressure[c] <= 0.0) {
-		return ambient;
-	}
-	float threshold = RREA_THRESHOLD * air_rho(c) / AIR_DENSITY;
-	return (threshold > 0.0 && column_field(c) >= threshold) ? CHANNEL_COND : ambient;
+	float threshold = rrea_threshold(c);
+	return (threshold > 0.0 && e >= threshold) ? CHANNEL_COND : ambient;
 }
 
 // The fraction of the driving imbalance that crosses a face in one step. Every branch is a transport law
@@ -311,7 +320,7 @@ float mobility_at(uint c, float amt) {
 	}
 	if (params.law == LAW_OHMIC) {
 		// Ohmic relaxation of a space charge: d(rho)/dt = -(sigma/eps0) rho.
-		return ohmic_conductivity(c) * dt / EPS0;
+		return ohmic_conductivity_at(c, column_field(c)) * dt / EPS0;
 	}
 	if (params.law == LAW_PGF) {
 		// The pressure-gradient force written as a flux: dp * area * dt IS the momentum it delivers.
@@ -771,9 +780,14 @@ void main() {
 	charge[gidx] = charge[gidx] - lost_q + gained_q;
 	if ((params.flags & TF_STAMP) != 0u) {
 		// Ohmic dissipation, J/m^3: sigma E^2 is the power the medium takes out of the field it conducts in.
+		// ONE march: the column integral is the same one the conductivity and the strike test both read.
 		float e_here = column_field(gidx);
-		float joule = ohmic_conductivity(gidx) * e_here * e_here * params.dt_s;
+		float joule = ohmic_conductivity_at(gidx, e_here) * e_here * e_here * params.dt_s;
 		stamp[gidx] += joule;
 		h[gidx] += joule;
+		// Published where it is DECIDED: col_e is the field in V/m, strike marks where it broke down.
+		float thr = rrea_threshold(gidx);
+		col_e[gidx] = e_here;
+		strike[gidx] = (thr > 0.0 && e_here >= thr) ? 1.0 : 0.0;
 	}
 }

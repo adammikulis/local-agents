@@ -24,6 +24,13 @@ static func rows() -> Array:
 			"flag": "melt_list_flag",
 			"prim": "silicate_melt", "prim_half": Half.LIVE, "thr": 0.0, "inclusive": false,
 			"open_only": true, "back": false, "halo": true, "aux": "", "aux_thr": 0.0},
+		# STRIKE gives a bolt its position without anything walking the grid. No halo: a flash is where
+		# it struck. Built before transport runs, so the list carries the previous step's strikes.
+		{"label": "strike", "idx": "strike_list_idx", "args": "strike_list_args",
+			"flag": "strike_list_flag",
+			"prim": "strike", "prim_half": Half.LIVE, "thr": 0.0, "inclusive": false,
+			"open_only": true, "back": false, "halo": false, "aux": "", "aux_thr": 0.0,
+			"emit_idx": true},
 	]
 
 
@@ -40,6 +47,7 @@ var _rows: Array = []
 var _pipe: RID = RID()
 var _sets: Array = []                   # per row: [set(parity 0), set(parity 1)]
 var _args_rid: Array = []               # per row: dispatch-indirect args RID
+var _idx_rid: Array = []                # per row: compacted index buffer RID
 var _flags: PackedInt32Array = PackedInt32Array()
 var _failed_announced: bool = false     # so the GPU_REQUIRED error below fires once, not 60x a second
 
@@ -54,14 +62,20 @@ func _buffers(cc: int) -> Dictionary:
 	return out
 
 
-## Cells the last built list holds, per row.
+## Cells the last built list holds, per row. A row marked `emit_idx` also hands back the indices, reading
+## only the occupied prefix.
 func _drain(rd: RenderingDevice) -> Dictionary:
 	var out: Dictionary = {}
 	for r in _rows.size():
 		var raw: PackedByteArray = rd.buffer_get_data(_args_rid[r])
 		if raw.size() < int(Arg.SLOTS) * 4:
 			continue
-		out[String(_rows[r]["label"]) + "_list_cells"] = float(raw.to_int32_array()[int(Arg.LIST_COUNT)])
+		var label: String = String(_rows[r]["label"])
+		var n: int = raw.to_int32_array()[int(Arg.LIST_COUNT)]
+		out[label + "_list_cells"] = float(n)
+		if n > 0 and bool(_rows[r].get("emit_idx", false)):
+			var idx: PackedByteArray = rd.buffer_get_data(_idx_rid[r], 0, n * 4)
+			out[label + "_list_idx"] = idx.to_int32_array()
 	return out
 
 
@@ -93,6 +107,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 			flags |= Flag.AUX
 		_flags.append(flags)
 		_args_rid.append(bufs[args_key])
+		_idx_rid.append(bufs[idx_key])
 		var prim: String = String(row["prim"])
 		var prim_back: bool = int(row["prim_half"]) == Half.BACK
 		var per_parity: Array = [RID(), RID()]
