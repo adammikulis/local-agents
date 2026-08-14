@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # CONSERVATION GATE — matter and energy do not appear or vanish.
 #
-# THE BAR IS ZERO, plus arithmetic. LAMaterialFieldConservation3D derives its floor from the float32 format
-# and the cell count; there is no per-substance allowance and adding one needs the maintainer.
+# EVERY ROW IS A FRACTION: the ledger's `*_rel` gauges, a residual over what it is a residual OF, never bare
+# SI. The tolerance is a fraction too, from the float32 format and the cell count; changing it needs the
+# maintainer.
 #
 # A CLEAN LOG IS NOT A PASS. The audit runs once, REFERENCE_STEPS past the seal, and only when every gated
 # quantity produced a number. A run that never reached the horizon, or whose ledger could not answer, prints
@@ -97,6 +98,8 @@ case "$verdict" in
   starved*)
     echo "ERROR: the audit ran and could not answer. No number for: ${verdict#starved }" >&2
     echo "       A quantity with no total is UNMEASURED, not conserved. Fix the ledger leg that is absent." >&2
+    echo "       A row also reads UNMEASURED when its tolerance reached 1.0: past that the instrument" >&2
+    echo "       cannot separate a wholly unaccounted window from round-off, so it may not report a pass." >&2
     grep '^CONSERVATION_UNMEASURED=' "$OUT" >&2
     exit 2 ;;
   short)

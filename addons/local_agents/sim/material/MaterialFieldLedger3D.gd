@@ -17,7 +17,6 @@ var _samples: int = 0
 var _cum_absorbed: float = 0.0
 var _cum_emitted: float = 0.0
 var _first_inject_j: float = 0.0
-var _first_unsourced_dc: float = 0.0
 # Last published block, for the consumers that ask the field for one scalar outside the report path.
 var _last: Dictionary = {}
 
@@ -81,16 +80,11 @@ func _publish_h2o(out: Dictionary, f: Dictionary, step: int) -> void:
 	if f.has("snow_cells"):
 		out["snow_cells"] = f["snow_cells"]
 		out["ice_cells"] = f["ice_cells"]
-	var s: Array = _books.sample("h2o", h2o, step)
-	if not s.is_empty():
-		out["h2o_drift"] = snappedf(float(s[0]), 0.01)
-		out["h2o_drift_per_step"] = snappedf(float(s[1]), 0.001)
-		out["h2o_drift_steps"] = int(s[2])
 	var r: Array = _books.run("h2o", "h2o", h2o, step)
 	if not r.is_empty():
 		out["h2o_first"] = snappedf(float(r[0]), 0.01)
 		out["h2o_run_drift"] = snappedf(float(r[1]), 0.01)
-		out["h2o_run_drift_per_step"] = snappedf(float(r[2]), 0.0001)
+		out["h2o_rel_drift"] = _rel(float(r[1]), float(r[0]))
 		out["h2o_run_steps"] = int(r[3])
 
 
@@ -133,11 +127,6 @@ func _publish_mineral(out: Dictionary, f: Dictionary, step: int) -> void:
 	out["mineral_src_total"] = snappedf(src, 0.01)
 	out["mineral_samples"] = _samples
 
-	var s: Array = _books.sample("mineral", total, step)
-	if not s.is_empty():
-		out["mineral_drift"] = snappedf(float(s[0]), 0.01)
-		out["mineral_drift_per_step"] = snappedf(float(s[1]), 0.0001)
-		out["mineral_drift_steps"] = int(s[2])
 	var r: Array = _books.run("mineral", "mineral", total, step)
 	var r_src: Array = _books.run("mineral_src", "", src, step)
 	if r.is_empty():
@@ -146,24 +135,26 @@ func _publish_mineral(out: Dictionary, f: Dictionary, step: int) -> void:
 	out["mineral_first"] = snappedf(float(r[0]), 0.01)
 	out["mineral_run_steps"] = int(r[3])
 	out["mineral_first_step"] = int(r[4])
-	var run_steps: int = int(r[3])
-	if run_steps > 0:
-		var rinv: float = 1.0 / float(run_steps)
-		out["mineral_run_drift_per_step"] = snappedf(float(r[1]) * rinv, 0.0001)
-		var d_src: float = float(r_src[1]) if not r_src.is_empty() else 0.0
-		out["mineral_src_per_step"] = snappedf(d_src * rinv, 0.0001)
-		out["mineral_net_per_step"] = snappedf((float(r[1]) - d_src) * rinv, 0.0001)
-		_rel_drift(out, "lith_ca_rel_drift_per_step", "lith_Ca", float(lith.get("Ca", 0.0)), step, rinv)
-		_rel_drift(out, "lith_si_rel_drift_per_step", "lith_Si", float(lith.get("Si", 0.0)), step, rinv)
+	out["mineral_run_drift"] = snappedf(float(r[1]), 0.01)
+	out["mineral_rel_drift"] = _rel(float(r[1]), float(r[0]))
+	var d_src: float = float(r_src[1]) if not r_src.is_empty() else 0.0
+	out["mineral_net_rel_drift"] = _rel(float(r[1]) - d_src, float(r[0]))
+	out["lith_ca_rel_drift"] = _rel_run("lith_Ca", float(lith.get("Ca", 0.0)), step)
+	out["lith_si_rel_drift"] = _rel_run("lith_Si", float(lith.get("Si", 0.0)), step)
 
 
-func _rel_drift(out: Dictionary, key: String, book: String, value: float, step: int, rinv: float) -> void:
+## A residual over the quantity it is a residual OF, dimensionless. Null when the denominator is absent or
+## zero: a ratio with no scale is not a measurement, and a bare-SI difference is a gauge no gate can fail on.
+static func _rel(numerator: float, denominator: float):
+	if not is_finite(numerator) or not is_finite(denominator) or denominator == 0.0:
+		return null
+	return snappedf(numerator / absf(denominator), 1.0e-12)
+
+
+## Drift since the sealed baseline of a book, as a fraction of that baseline.
+func _rel_run(book: String, value: float, step: int):
 	var r: Array = _books.run(book, "", value, step)
-	if r.is_empty():
-		return
-	var first: float = float(r[0])
-	if first > 0.0:
-		out[key] = snappedf(float(r[1]) * rinv / first, 1.0e-12)
+	return _rel(float(r[1]), float(r[0])) if not r.is_empty() else null
 
 
 # --- ELEMENT INVENTORY -------------------------------------------------------------------------------
@@ -227,21 +218,9 @@ func _publish_element(out: Dictionary, f: Dictionary, step: int) -> void:
 	out["nitrogen_all"] = snappedf(nitrogen_all, 0.01)
 	out["nitrogen_buried"] = snappedf(nitrogen_all - nitrogen, 0.01)
 
-	var steps: int = 0
-	for pair in [["carbon", carbon], ["o2", float(open["o2"])], ["fert", float(open["fert"])],
-			["biomass", float(open["biomass"])]]:
-		var s: Array = _books.sample(String(pair[0]), float(pair[1]), step)
-		if s.is_empty():
-			continue
-		out[String(pair[0]) + "_drift"] = snappedf(float(s[0]), 0.01)
-		out[String(pair[0]) + "_drift_per_step"] = snappedf(float(s[1]), 0.0001)
-		steps = int(s[2])
-	if steps > 0:
-		out["mass_drift_steps"] = steps
-
-	# The three totals gated by LAMaterialFieldConservation3D are latched MASK-FREE, because a substance
-	# moving into rock is buried, not destroyed. `carbon_run_drift_per_step` stays on the open triangle: its
-	# job is to localise a leak to one side of the reaction table.
+	# The totals gated by LAMaterialFieldConservation3D are latched MASK-FREE, because a substance moving into
+	# rock is buried, not destroyed. `carbon_rel_drift` stays on the open triangle: its job is to localise a
+	# leak to one side of the reaction table.
 	out["mass_run_steps"] = _run_pair(out, "carbon", "carbon", "carbon", carbon, step)
 	_run_pair(out, "o2", "o2", "o2", float(open["o2"]), step)
 	_run_pair(out, "fert", "fert", "", float(open["fert"]), step)
@@ -251,16 +230,15 @@ func _publish_element(out: Dictionary, f: Dictionary, step: int) -> void:
 	_run_pair(out, "nitrogen", "nitrogen", "", nitrogen_all, step)
 
 
-## Publish `<name>_first` and `<name>_run_drift_per_step` from one book. Returns the run length in steps.
+## Publish `<name>_first`, the drift since it, and that drift as a FRACTION of it. Returns the run length.
 func _run_pair(out: Dictionary, name: String, book: String, seed_key: String, value: float, step: int) -> int:
 	var r: Array = _books.run(book, seed_key, value, step)
 	if r.is_empty():
 		return 0
 	out[name + "_first"] = snappedf(float(r[0]), 0.01)
-	var steps: int = int(r[3])
-	if steps > 0:
-		out[name + "_run_drift_per_step"] = snappedf(float(r[2]), 0.0001)
-	return steps
+	out[name + "_run_drift"] = snappedf(float(r[1]), 0.01)
+	out[name + "_rel_drift"] = _rel(float(r[1]), float(r[0]))
+	return int(r[3])
 
 
 # --- ENERGY ------------------------------------------------------------------------------------------
@@ -287,6 +265,8 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 		out["energy_net_w"] = null
 		out["energy_booked"] = null
 		out["energy_residual"] = null
+		out["energy_residual_rel"] = null
+		out["energy_turnover_j"] = null
 		return
 	var absorbed_w: float = float(f["rad_absorbed"]) / dt_s
 	var emitted_w: float = float(f["rad_emitted"]) / dt_s
@@ -294,17 +274,10 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	out["energy_emitted_w"] = emitted_w
 	out["energy_net_w"] = absorbed_w - emitted_w
 	var inject_j: float = 0.0
-	var unsourced_dc: float = 0.0
 	if _f._inject != null and _f._inject.queue != null:
 		inject_j = float(_f._inject.queue.heat_energy_j)
-		unsourced_dc = float(_f._inject.queue.heat_unsourced_dc)
 
-	var s: Array = _books.sample("energy_stock", stock, step)
-	var steps: int = int(s[2]) if not s.is_empty() else 0
-	if not s.is_empty():
-		out["energy_drift"] = float(s[0])
-		out["energy_drift_per_step"] = float(s[1])
-		out["energy_drift_steps"] = steps
+	var steps: int = _books.elapsed("energy_stock", step)
 	var was_latched: bool = _books.first_step_of("energy_stock") >= 0
 	var r: Array = _books.run("energy_stock", "energy_j", stock, step)
 	out["energy_stock_samples"] = _samples
@@ -316,14 +289,12 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 		_cum_absorbed = 0.0
 		_cum_emitted = 0.0
 		_first_inject_j = inject_j
-		_first_unsourced_dc = unsourced_dc
 	elif steps > 0:
 		# Rectangle rule over the window, at the flux sampled at its right-hand end, integrated against the
 		# real seconds the kernel applies.
 		var window_s: float = dt_s * float(steps)
 		_cum_absorbed += absorbed_w * window_s
 		_cum_emitted += emitted_w * window_s
-	out["energy_unsourced_dc"] = unsourced_dc - _first_unsourced_dc
 	var run_steps: int = int(r[3])
 	out["energy_run_steps"] = run_steps
 	if run_steps <= 0:
@@ -331,10 +302,16 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	var run_drift: float = float(r[1])
 	var cum_inject: float = inject_j - _first_inject_j
 	var booked: float = _cum_absorbed - _cum_emitted + cum_inject
+	# The energy that actually crossed the world boundary over the window, and the ONLY admissible denominator
+	# for the residual: a planet may hold 1e30 J of enthalpy while exchanging 1e20, so a residual read as a
+	# fraction of the STOCK reports a fully unaccounted window as round-off.
+	var turnover: float = _cum_absorbed + _cum_emitted + absf(cum_inject)
 	out["energy_run_drift"] = run_drift
-	out["energy_run_drift_per_step"] = run_drift / float(run_steps)
+	out["energy_run_drift_rel"] = _rel(run_drift, stock)
 	out["energy_booked"] = booked
 	out["energy_residual"] = run_drift - booked
+	out["energy_turnover_j"] = turnover
+	out["energy_residual_rel"] = _rel(run_drift - booked, turnover)
 	out["energy_book_absorbed_j"] = _cum_absorbed
 	out["energy_book_emitted_j"] = _cum_emitted
 	out["energy_book_inject_j"] = cum_inject
