@@ -1,6 +1,6 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
-## EVERYTHING A CELL DERIVES FROM ITS OWN INDEX. Writes `temp`, `vel_*`, `n_gas_m3`, `rho_cond`,
+## EVERYTHING A CELL DERIVES FROM ITS OWN INDEX. Writes `temp`, `vel_*`, `rho_bulk`,
 ## `conductivity` and the h2o/silicate phase shares off `h_j_m3` and `pressure`; cements and sets `solid`,
 ## `regolith`, `grain` off that melt share; adds Coriolis and centrifugal to `mom_*`.
 
@@ -12,7 +12,7 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/st
 const BOUND: Dictionary = {
 	"solid": 14, "cement": 15, "regolith": 16, "grain": 17, "pos": 18, "h_j_m3": 21, "pressure": 22,
 	"temp": 23, "mom_x": 25, "mom_y": 26, "mom_z": 27, "vel_x": 28, "vel_y": 29, "vel_z": 30,
-	"n_gas_m3": 31, "rho_cond": 32, "conductivity": 33, "h2o_solid": 34, "h2o_liquid": 35,
+	"rho_bulk": 32, "conductivity": 33, "h2o_solid": 34, "h2o_liquid": 35,
 	"h2o_vapour": 36, "silicate_melt": 37, "cell_vol": 40, "speed": 41, "lat": 42, "alt": 43}
 
 ## props row layout — state_derive.glsl PROP_*.

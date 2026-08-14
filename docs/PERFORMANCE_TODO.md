@@ -81,8 +81,8 @@ sure the predicate covers every cell where a `TF_DILUTE` or `TF_STAMP` gather wr
 - **`longwave_emissivity(c)`** loops all 109 bands with five mixes and two table lookups each, and the
   RADIATE row evaluates it once in pass 0 as emissivity and again in pass 1 as absorptivity. Nothing it
   reads changes between those two dispatches. Stamp it in pass 0.
-- **`below_of()` in `pressure.glsl`** searches all six slots with a `length` and a divide per slot instead
-  of indexing. The walk descends along `up`, so probe that slot first.
+- **`pressure.glsl`** re-marches the whole column above every cell, so a cell at depth d costs d loads and
+  the pass is O(cells x span). A scan over each axis-snapped column would share the prefix.
 - **`root_soil()`** re-walks its 4-cell column once per record naming `SOIL_ROOT` and again inside
   `root_soil_draw`.
 

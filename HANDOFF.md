@@ -88,12 +88,7 @@ is unheld is narrower: that one index names the same BUFFER on both sides. Build
 on `Channels.gd`'s shape — a `static func rows()`, never a `const Dictionary` built from another script's
 constants — and one gate absorbing the hand-written binding stanzas. Mutation-test it both ways.
 
-## 9. Pressure falls going DOWN, and the harness exits 122 saying so
-
-`PRESSURE_BROKEN`'s unwritten-cell arm is clean once the field settles: every cell now gets a pressure.
-What remains is INVERSIONS — pressure falling with depth, which hydrostatics forbids. `pressure.glsl` walks
-one thread per column top downward through `below_of`, and the discrete up-map is not a bijection, so ask
-whether that shape can cover every cell exactly once before trusting the integral it builds.
+## 9. An instrument that cannot fire, and two re-sweeps
 
 - `FieldAttributionRecords3D.SILENT_HEAT_PASSES` now lists only `"fungus"`, and there is no `FungusPass` in
   `PASS_SCRIPTS` — while `PRODUCERS` still names one for a channel `Channels.gd` declares as a single
@@ -124,6 +119,19 @@ a sealed pore. Invert `LASubstances.melt_c_at`: the pressure ice exerts at under
 `Substances.gd` should carry with its source. Bound the extent by the pore water available to freeze, and
 let deep cold starve the mechanism out of the state rather than a cutoff. Observed damage peaks at -3 to
 -10 C: if the law disagrees, that is the finding, not a thing to tune.
+
+## 12. `LAFieldGeometry.above` and `below` are not inverses, and `PRESSURE_BROKEN` still fires on it
+
+`slot_toward` snaps the local vertical to one of six axes, so across the diagonal where the snap flips,
+`above(below(c)) != c`. The pressure column, `air_above`, `ground` and `burial_steps` all march that
+relation, and no column integral can be monotone along a `below` step its own `above` step does not undo.
+One vertical relation, built once and inverse by construction, is what removes it.
+
+**A RADIAL COORDINATE SYSTEM IS NOT THE ANSWER. This is the maintainer's DECISION, not a law.** It has been
+tried twice: the cubed-sphere shell was replaced by the uniform Cartesian box on purpose, and a
+true-radial-ray traversal built to remove this very snap measured WORSE, because with no structural relation
+to the grid's own vertical step, ray divergence across a density contrast dominates. Fix the relation on the
+Cartesian grid.
 
 ---
 
