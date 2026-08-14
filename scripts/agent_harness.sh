@@ -528,7 +528,8 @@ if [[ "$cmd" == "lint" ]]; then
     fi
     # These four were WRITTEN AND NEVER WIRED, so they only ran when somebody remembered to. A gate that
     # is not in `lint` is not a gate — CI runs this exact command.
-    for g in check_duplicate_logic check_never_assigned check_voxel_grid check_gravity_solve; do
+    for g in check_duplicate_logic check_never_assigned check_voxel_grid check_gravity_solve \
+             check_radiative_row; do
       set +e
       "$SCRIPT_DIR/$g.sh"
       rc_g=$?

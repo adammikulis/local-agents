@@ -73,12 +73,10 @@ registry does not read as if everything in it is merely unreviewed.
 
 | file | constant | value | why it is not physics | what deletes it |
 |---|---|---|---|---|
-| `addons/local_agents/sim/material/AbsorptionBands.gd` | `BAND_COUNT` | 109 | spectral resolution of the absorption table, chosen so the 667 cm^-1 CO2 band is resolved at 10 cm^-1 | it is measured against the CO2-doubling forcing in tests/test_radiative_transfer.gd; raise it if that test drifts off 3.7 W/m^2 |
-| `addons/local_agents/sim/material/AbsorptionBands.gd` | `TEMP_COUNT` | 9 | temperature resolution of the absorption table, 150-1000 K | a hot-band regime the slices cannot interpolate, which the Venus arm of the radiative test would catch |
+| `addons/local_agents/sim/material/AbsorptionBands.gd` | `BAND_COUNT` | 109 | spectral resolution of the absorption table, chosen so the 667 cm^-1 CO2 band is resolved at 10 cm^-1 | a column solver to measure the CO2-doubling forcing against; the RADIATE row absorbs only from the adjacent cell, so nothing in the tree can price a doubling |
+| `addons/local_agents/sim/material/AbsorptionBands.gd` | `TEMP_COUNT` | 9 | temperature resolution of the absorption table, 150-1000 K | a hot-band regime the slices cannot interpolate, which needs a column solver to expose |
 | `addons/local_agents/sim/material/AbsorptionBands.gd` | `CDF_COUNT` | 1024 | sample count of the Planck cumulative table the GPU reads instead of summing the series | a GPU that can afford the series inline |
 | `addons/local_agents/sim/material/AbsorptionBands.gd` | `CDF_XMAX` | 50.0 | upper limit of x = c2*nu/T in that table; above it the fraction of blackbody power is below 1e-9 | a body cold enough that x = 50 falls inside its emission, i.e. below about 30 K |
-| `addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd` | `SAMPLE_COLUMNS` | 64 | how many columns the gauge solves per report; a sampling rate, not a physical quantity | the kernel writing its own per-column fluxes back, so the gauge reads them instead of recomputing |
-| `addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd` | `K_SURFACE_FILL_MIN` | 0.5 | a cell is part solid and part air, so "is this the surface" has no sharp answer at this resolution | the RADIATE row meets the condensed fraction geometrically and needs no surface at all, so this is the last copy |
 | `addons/local_agents/sim/mesh/VegetationRenderer.gd` | `_CHUNK` | 256 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/mesh/VegetationRenderer.gd` | `_INITIAL_CAP` | 512 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/SimWorld.gd` | `SLOW_BUILD_CELLS` | 250000 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -339,7 +337,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `CONE` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `MAX_LIFETIME` | 12.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `LAND_HEAT_R` | 8.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd` | `K_ICE_ALBEDO_GAIN` | 40.0 | radiative property not in the authority | add to PhysicalConstants.gd with a citation |
 | `addons/local_agents/sim/material/SeaIceTextureBaker.gd` | `ICE_GAIN` | 6.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `FUNGUS_PRESENT` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `DETRITUS_PRESENT` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |

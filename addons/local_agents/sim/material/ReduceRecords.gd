@@ -95,6 +95,10 @@ static func _heat_rows() -> Array:
 		{"key": "fire_peak", "source": "fire", "op": Op.MAX, "mask": Mask.ALL},
 		{"key": "fire_cells", "source": "fire", "op": Op.COUNT_GT, "mask": Mask.ALL,
 			"threshold": LAMaterialFieldQueries3D.FIRE_PRESENT},
+		# J/m^3 per step, so volume-weighted these are joules per step. Mask-free: the outflow pass emits
+		# from solid cells too, so an OPEN mask would drop the ground's emission.
+		{"key": "rad_absorbed", "source": "rad_absorbed", "op": Op.SUM, "mask": Mask.ALL, "weight": true},
+		{"key": "rad_emitted", "source": "rad_emitted", "op": Op.SUM, "mask": Mask.ALL, "weight": true},
 	]
 
 

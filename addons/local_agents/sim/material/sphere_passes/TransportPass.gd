@@ -124,7 +124,8 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 	# The material state every law and the band model read. A missing one is a dead row, not a default.
 	for key in ["temp", "pressure", "porosity", "grain", "co2", "h2o", "h2o_solid", "h2o_liquid",
 			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement",
-			"silicate_susp_water", "silicate_susp_air", "silicate_bed"]:
+			"silicate_susp_water", "silicate_susp_air", "silicate_bed",
+			"rad_absorbed", "rad_emitted"]:
 		if not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row has no law." % [key, channel])
 			return []
@@ -166,6 +167,9 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 			[34, _zero if list.is_empty() else bufs[String(list["idx"])]],
 			[35, _zero if list.is_empty() else bufs[String(list["args"])]],
 			[36, _zero if list.is_empty() else bufs[String(list["flag"])]],
+			# Every row binds these; only a MODE_RADIATE gather writes them.
+			[37, _single(bufs, "rad_absorbed")],
+			[38, _single(bufs, "rad_emitted")],
 		]
 		out[p] = _uset(_pipe, entries)
 	return out

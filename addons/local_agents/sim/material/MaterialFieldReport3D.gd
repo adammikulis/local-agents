@@ -4,7 +4,6 @@ extends RefCounted
 ## The central-telemetry snapshot of LAMaterialField3D.
 
 const PhotoStatsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd")
-const EnergyBudgetScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldEnergyBudget3D.gd")
 const ExtremesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldExtremes3D.gd")
 const ClimateSwingScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd")
 const MomentumLedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMomentumLedger3D.gd")
@@ -16,7 +15,6 @@ const HEAVY_EVERY_FRAMES: int = 64
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 var _photo = null                                        # LAMaterialFieldPhotoStats3D — primary-production spatial stats
-var _energy = null                                       # LAMaterialFieldEnergyBudget3D — absorbed/emitted/net radiation
 var _extremes = null                                     # LAMaterialFieldExtremes3D — min/max-ever register
 var _swing = null                                        # LAMaterialFieldClimateSwing3D — diurnal + seasonal range
 var _momentum = null                             # LAMaterialFieldMomentumLedger3D — Σ m*v stock + its books
@@ -34,8 +32,6 @@ func setup(field) -> void:
 	_f = field
 	_photo = PhotoStatsScript.new()
 	_photo.setup(field)
-	_energy = EnergyBudgetScript.new()
-	_energy.setup(field)
 	_extremes = ExtremesScript.new()
 	_swing = ClimateSwingScript.new()
 	_swing.setup(field)
@@ -238,7 +234,7 @@ func report() -> Dictionary:
 	_track_if_measured(temps, "temp_min", "open_cold")
 	_track_if_measured(temps, "temp_max", "open_hot")
 	_track_if_measured(r, "h2o_total", "h2o_total")
-	_track_if_measured(heavy, "energy_net", "energy_net")
+	_track_if_measured(heavy, "energy_net_w", "energy_net_w")
 	_track_if_measured(r, "swing_subsolar_lat", "subsolar_lat")
 	r.merge(_extremes.report())
 	if _seal != null:
@@ -273,15 +269,13 @@ func _heavy_block() -> Dictionary:
 		return _heavy_cache
 	_heavy_frame = frame
 	var d: Dictionary = surface_climate()
-	#   energy — the radiative books.
-	var flux: Dictionary = _energy.report()
-	d.merge(flux)
 	d.merge(LAFieldPressureAudit.inversions(_f))
 	var step: int = _f._gpu._step_index if _f._gpu != null else 0
 	# momentum — Σ m*v over the air, the third conserved quantity of mechanics.
 	d.merge(_momentum.report(step))
+	# The radiative books ride in with the ledger: they are reduce rows off the device, not a CPU scan.
 	if _f._ledger != null:
-		d.merge(_f._ledger.report(step, flux))
+		d.merge(_f._ledger.report(step))
 	# BOTH SIDES MASK-FREE. `element_C` is the open-cell sum.
 	if d.has("element_C_all") and d.has("lith_element_C"):
 		var c_total: float = float(d["element_C_all"]) + float(d["lith_element_C"])
