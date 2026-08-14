@@ -425,9 +425,15 @@ func _seed_silicate() -> void:
 	if _silicate.size() != _cell_count or _cement.size() != _cell_count \
 			or _solid.size() != _cell_count:
 		return
+	var made: float = 0.0
 	for c in _cell_count:
 		_silicate[c] = 1.0 if _solid[c] != 0 else 0.0
 		_cement[c] = 1.0 if _solid[c] != 0 else 0.0
+		made += _silicate[c]
+	if _seal != null:   # the manifest scores what the substrate was told, and this is most of it
+		_seal.note_creation("silicate", made)
+		_seal.note_creation("cement", made)
+
 
 func _seed_sea() -> void:
 	if _grid == null or _terrain == null or not _terrain.has_method("sea_radius"):

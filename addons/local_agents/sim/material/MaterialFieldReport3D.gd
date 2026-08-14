@@ -20,7 +20,6 @@ var _swing = null                                        # LAMaterialFieldClimat
 var _momentum = null                             # LAMaterialFieldMomentumLedger3D — Σ m*v stock + its books
 # The cross-book carbon baseline, latched at the seal.
 var _first_element_c: float = NAN
-var _first_element_c_step: int = -1
 var _conservation = null                         # LAMaterialFieldConservation3D — the law, enforced
 var _seal = null                                 # LAMaterialFieldSeal3D — SEEDING -> SEALED, the line the books start at
 var _seal_announced: bool = false                # WORLD_SEALED printed once, from the step-driven phase
@@ -286,15 +285,11 @@ func _heavy_block() -> Dictionary:
 			d["element_C_first_live"] = c_live
 			if is_nan(_first_element_c) and c_live:
 				_first_element_c = c_total
-				_first_element_c_step = step_now
 				_seal.note_seed({"element_C_mol": c_total})
 			# No baseline, no baseline-derived keys.
 			if not is_nan(_first_element_c):
 				d["element_C_total_first"] = snappedf(_first_element_c, 0.01)
 				d["element_C_total_drift"] = snappedf(c_total - _first_element_c, 0.01)
-				var c_steps: int = step_now - _first_element_c_step
-				if c_steps > 0:
-					d["element_C_total_drift_per_step"] = snappedf((c_total - _first_element_c) / float(c_steps), 0.0001)
 				if _first_element_c != 0.0:
 					d["element_C_total_rel_drift"] = snappedf((c_total - _first_element_c) / _first_element_c, 1e-9)
 	_heavy_cache = d

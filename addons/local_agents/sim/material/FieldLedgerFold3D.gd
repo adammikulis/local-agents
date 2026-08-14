@@ -57,8 +57,16 @@ func fold() -> Dictionary:
 		out["energy_stock"] = float(r["energy_stock"])
 	else:
 		out["energy_missing"] = PackedStringArray(["h_j_m3"])
-	# The RADIATE row's own books, and the radiogenic source's: joules over one step, volume-weighted.
-	for key in ["rad_absorbed", "rad_emitted", "radiogenic"]:
+	# Joules over one step, volume-weighted. A book the device did not deliver is NAMED, never skipped:
+	# skipping one nulls the whole radiative block and the conservation row reads UNMEASURED instead of red.
+	var absent: PackedStringArray = out.get("energy_missing", PackedStringArray())
+	for row: Dictionary in LAReduceRecords.rows():
+		if not bool(row.get("energy_book", false)):
+			continue
+		var key: String = String(row["key"])
 		if r.has(key):
 			out[key] = float(r[key])
+		else:
+			absent.append(key)
+	out["energy_missing"] = absent
 	return out

@@ -49,9 +49,5 @@ func run(key: String, seed_key: String, value: float, step: int) -> Array:
 
 
 ## The latched baseline for a key, or NAN when it has not latched.
-func first_of(key: String) -> float:
-	return float(_first_v[key]) if _first_v.has(key) else NAN
-
-
 func first_step_of(key: String) -> int:
 	return int(_first_s[key]) if _first_s.has(key) else -1

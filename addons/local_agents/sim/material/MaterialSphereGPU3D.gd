@@ -658,14 +658,10 @@ func _seed_regolith() -> void:
 
 
 ## Seeded rock is bedrock, so it is both present and fully consolidated.
+## The field derived and declared these; this hands the device that array rather than deriving it twice.
 func _seed_silicate() -> void:
-	var f: PackedFloat32Array = PackedFloat32Array()
-	f.resize(_cc)
-	for i in _cc:
-		f[i] = 1.0 if _field._solid[i] != 0 else 0.0
-	var b: PackedByteArray = f.to_byte_array()
-	_rd.buffer_update(_bufs["silicate"], 0, b.size(), b)
-	_rd.buffer_update(_bufs["cement"], 0, b.size(), b)
+	_seed("silicate", _field._silicate)
+	_seed("cement", _field._cement)
 
 func _upload_f(buf: RID, arr: PackedFloat32Array) -> void:
 	if arr.size() == _cc:
