@@ -7,6 +7,10 @@ extends RefCounted
 
 const PASS_FILE: String = "GravityPass.gd"
 
+## Residual, as a fraction of its own source, the seeding solve relaxes to. docs/MODEL_PARAMETERS.md.
+const SEED_RESIDUAL_TOLERANCE: float = 1.0e-3
+const SEED_DISPATCH_CAP: int = 512
+
 var _f = null
 var _pass = null
 
@@ -15,20 +19,30 @@ func setup(field) -> void:
 	_f = field
 
 
-## SEEDING: GravityPass alone, dispatched and drained, so `down_at` answers before the first step. Its own
-## ctx, so no dt is consumed and the step index does not move: no simulated time passes and nothing is made.
+## SEEDING: GravityPass alone, RELAXED TO CONVERGENCE, so `down_at` answers before the first step. Poisson
+## is elliptic, so a fixed sweep count is not a solve. Its own ctx: no dt is consumed, no step index moves.
 func solve_seed() -> void:
 	_bind()
 	if _pass == null or _f._gpu == null or _f._gpu._rd == null:
 		return
 	var rd: RenderingDevice = _f._gpu._rd
 	var ctx: Dictionary = {"step_index": 0, "cell_size": _f._grid.cell_size}
-	var cl: int = rd.compute_list_begin()
-	_pass.dispatch(rd, cl, _f._gpu._phase, ctx, _f._gpu._cc, _f._gpu._groups)
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
-	_pass._drain(rd)
+	var rel: float = INF
+	var dispatches: int = 0
+	while rel > SEED_RESIDUAL_TOLERANCE and dispatches < SEED_DISPATCH_CAP:
+		var cl: int = rd.compute_list_begin()
+		_pass.dispatch(rd, cl, _f._gpu._phase, ctx, _f._gpu._cc, _f._gpu._groups)
+		rd.compute_list_end()
+		rd.submit()
+		rd.sync()
+		_pass._drain(rd)
+		rel = float(_pass.residual_rel())
+		dispatches += 1
+	if rel > SEED_RESIDUAL_TOLERANCE:
+		push_error(("The gravity solve did not converge in %d dispatches: the discrete Poisson residual is "
+			+ "still %f of its source. Every `above`/`below` walk below this — pressure, the regolith "
+			+ "burial march, the lake flood, the surface seed — is reading a direction the solve has not "
+			+ "yet produced.") % [dispatches, rel])
 
 
 func _bind() -> void:
