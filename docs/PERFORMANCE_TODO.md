@@ -12,6 +12,38 @@ publishes — not against a wall clock.** This repo's own recorded measurement p
 quarters of the field's frame cost and dispatch at a few percent, so a dispatch win can be invisible.
 
 ---
+## 1a. EVERY COLUMN MARCH IS A PREFIX SUM. THIS IS THE LARGEST EXACT WIN AVAILABLE.
+
+Three separate places march a line of cells per cell, each up to `MARCH_HOPS` hops: `column_field()` for the
+charge column, `longwave_incident()` for radiative transfer (and it runs per FACE, so six times), and
+`pressure.glsl`'s per-cell column integral.
+
+Every one of them satisfies a recurrence — a cell's integral is its own term plus its neighbour's — so ONE
+sweep along each line computes them all. **O(cells x depth) becomes O(cells), and the answer is identical.**
+No approximation, no physics decision, no new constant. Do this before any of the constant-factor items
+below it.
+
+Two of the marches also feed values a CPU consumer reads, so shortening them shortens a readback as well as
+a dispatch, which is the half that actually shows up (see the measurement note above).
+
+
+## 1d. BOOK THE FLOWS TO MAKE A TOTAL CHEAP — AND NEVER DELETE THE REDUCTION THAT CHECKS IT
+
+A channel's total is recomputed by a full reduction, while `transport.glsl`'s gather already has `gained`
+and `lost` in hand. Accumulating the total from the fluxes is exact and turns a sweep into an add.
+
+**THE TRAP, AND IT IS THE WHOLE REASON THIS ITEM IS DANGEROUS.** `stock - booked` IS the residual, and that
+difference is the ONLY thing in the tree that can detect a leak. A booked total is what the books SAY;
+the reduction is what the field actually HOLDS. Replace the second with the first and the two can never
+disagree, so a leak stops being loud and becomes invisible — the books would balance perfectly while matter
+drained away, and every conservation gate would report clean.
+
+So: book the flows to make the total cheap, keep the reduction as the AUDIT, and cheapen its CADENCE rather
+than removing it. An item that deletes a measured stock in favour of a computed one has not optimised the
+instrument, it has removed it. The same argument holds for energy, where `turnover` and `energy_residual_rel`
+already have this shape.
+
+
 ## 1b. The report walks the grid ~2 Hz, and only the heavy half is cached
 
 `LASimReport.snapshot()` calls every provider, and `LAGameProgression._process` calls it twice per
@@ -77,10 +109,11 @@ sure the predicate covers every cell where a `TF_DILUTE` or `TF_STAMP` gather wr
   about twelve times per cell per step — every `LAW_EDDY` row plus four times inside `PASS_GRAIN`. `vel_*`
   are written once by `StateDerivePass` and not touched again, so caching it in one derived buffer is
   exactly equivalent, not an approximation.
-- **`pressure.glsl`** re-marches the whole column above every cell, so a cell at depth d costs d loads and
-  the pass is O(cells x span). A scan over each axis-snapped column would share the prefix.
 - **`root_soil()`** re-walks its 4-cell column once per record naming `SOIL_ROOT` and again inside
-  `root_soil_draw`.
+  `root_soil_draw`. It is a march, so it is item 1a's shape at a small depth.
+
+`pressure.glsl`'s per-cell column integral moved to item 1a, which is the same idea stated once for all
+three marches rather than three times.
 
 
 ## 2e. Nothing sleeps, and nothing wakes its neighbour
@@ -110,6 +143,11 @@ is not the potential of the mass that is there, for tens of steps. **A geometric
 correct answer**: same discrete operator, same fixed point, O(N) per cycle, whole-grid propagation.
 `check_gravity_solve.sh` is the gate to measure any replacement against. Raising `SOLVE_EVERY` or lowering
 `SWEEPS` is FORBIDDEN — the published potential is an unconverged iterate, so both change the answer.
+
+**And solve the CORRECTION, not the field.** Mass barely moves in a step, and `lap(dphi) = 4 pi G drho`
+with `drho` sparse — only the cells whose mass actually changed. Same operator, same fixed point, a far
+smaller problem, and exact. It composes with the V-cycle rather than competing with it; it needs the
+previous step's density kept, which is one buffer.
 
 
 ## 2g. The readback is the measured cost, and it reads duplicates
