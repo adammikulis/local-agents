@@ -33,6 +33,10 @@ var _one: RID = RID()
 var _no_h: RID = RID()
 ## Band edges, absorption coefficients and the Planck CDF the RADIATE row reads.
 var _rad_table: RID = RID()
+## Per cell: the broadband longwave emissivity and the solar-beam share, stamped by the RADIATE row's pass 0
+## and marched by its pass 1. Scratch of one dispatch pair, like _send — never read outside the step.
+var _lw_emis: RID = RID()
+var _sw_abs: RID = RID()
 var _band_count: int = 0
 ## [set(parity 0), set(parity 1)] for the grain prologue.
 var _grain_sets: Array = []
@@ -58,6 +62,8 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_one = _storage_buffer(_filled(cc, 1.0))
 	_band_count = BandsScript.BAND_COUNT
 	_rad_table = _storage_buffer(BandsScript.packed().to_byte_array())
+	_lw_emis = _scratch(cc)
+	_sw_abs = _scratch(cc)
 
 	for row: Dictionary in _rows:
 		_sets.append(_row_sets(bufs, row))
@@ -178,6 +184,8 @@ func _row_sets(bufs: Dictionary, row: Dictionary) -> Array:
 			[38, _single(bufs, "rad_emitted")],
 			[39, _single(bufs, "col_e")],
 			[40, _single(bufs, "strike")],
+			[44, _lw_emis],
+			[45, _sw_abs],
 		]
 		out[p] = _uset(_pipe, entries)
 	return out
