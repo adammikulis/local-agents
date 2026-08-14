@@ -24,7 +24,34 @@ null. `nonfinite_cells` counts three per affected cell, which is `mom_x`/`mom_y`
 The gate is written and mutation-tested both ways but is **NOT wired into `lint`** — wire it in the moment
 it passes, and not before.
 
-## 1. Reduce the rest on the device
+## 1. THE BOX EDGE IS A CLOSED WALL. OPEN IT, AND A SLICE BECOMES TESTABLE.
+
+`transport.glsl`'s gather SKIPS a face whose neighbour index is negative, so no matter crosses the box edge,
+while `MODE_RADIATE` already emits through it. Give that face a STATE instead of an absence: a ghost cell
+carrying an amount, an enthalpy and a momentum, with the ordinary flux law running against it. Wind blows in
+because there is more air outside than in, which the pressure-gradient row already expresses. Do not inject
+a phenomenon at the edge.
+
+**One seam, three records, not three code paths** — a boundary-state provider per face, sourced by a
+periodic wrap (free, exact, but no large-scale gradient so no fronts arrive), a declared constant, or a
+coarse GLOBAL run replayed as the driver. That last is one-way nesting and the reason for this item: the
+coarse run is the sim as it stands, and one stored global run can drive many slice runs.
+
+**Leave global, each cheap and none local:** sun direction and insolation (already a push constant);
+Coriolis, linear in v off the momentum sum; the solved potential sampled in, nearly uniform over a thin
+patch; and the deep heat flux on the bottom face, without which no magma arrives from below.
+
+**BOOK THE EXCHANGE OR THE CONSERVATION GATE IS RIGHT TO FIRE.** Matter and energy crossing an open
+boundary read as creation unless booked; `turnover` is the shape, and matter needs its per-substance twin.
+
+**Why it unblocks testing:** not speed at equal cells, but a SMALL SUFFICIENT domain. At the cell size a
+whole planet forces, rain and eruptions may not be reachable at all. A slice with a declared boundary makes
+"moist convection precipitates" and "overpressure erupts" assertions a gate can make.
+
+One-way nesting reflects waves inward near the edge; a relaxation zone is the standard answer and is an
+approximation, so it takes a row and an `LA_APPROX` marker.
+
+## 4. Reduce the rest on the device
 
 `ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and twenty-one report
 sweeps already use it. Left:
@@ -108,10 +135,9 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
   driver is now zero everywhere and the reaction cannot fire. Either give a flash a real store to spend —
   `0.5*eps0*E^2` over the volume it neutralises, debited, not conjured — or delete the record and the
   binding with it. `col_e` and `strike` survive as detectors and are honest.
-- `FieldAttributionRecords3D.SILENT_HEAT_PASSES` now lists only `"fungus"`, and there is no `FungusPass` in
-  `PASS_SCRIPTS` — while `PRODUCERS` still names one for a channel `Channels.gd` declares as a single
-  buffer. That instrument's silent-heat check names no live pass, so it cannot fire. Wire it to the
-  surviving passes or delete it. Removing the constant outright breaks `check_parse_all` — it is read from
+- `FieldAttributionRecords3D.SILENT_HEAT_PASSES` lists only `"fungus"` and there is no `FungusPass` in
+  `PASS_SCRIPTS`, so that instrument's silent-heat check names no live pass and cannot fire. Wire it to the
+  surviving passes or delete it; removing the constant alone breaks `check_parse_all`, which reads it from
   inside its own file.
 - `check_shaders_compile.sh`'s kernel floor is `docs/SHADER_FLOOR` and `write_ceilings.sh` lowers it. Do not
   bake a count back into the gate.
@@ -122,8 +148,6 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
   `buffer_update` and never calls `note_creation`, so the planet's entire rock mass is absent from the seed
   manifest that is meant to be the scoreboard of what the substrate was told. `MaterialField3D` declares the
   same fact a second time.
-- `MaterialFieldReport3D` publishes `element_C_total_drift_per_step`, a bare-SI rate with no consumer; the
-  dimensionless `element_C_total_rel_drift` beside it is what anything reads. One-line deletion.
 - `PHYSICS_RUBRIC.md` quotes `energy_residual / energy_booked` figures in prose. That denominator no longer
   exists — the residual is a fraction of turnover now — and measured figures in a doc are banned anyway.
 - `LASpatialIndex.rebuild_if_stale` rebuilds a whole group's dictionary every frame it is touched rather
