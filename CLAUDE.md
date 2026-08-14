@@ -294,9 +294,9 @@ things you already have your hands on.
 work forward.
 
 ## Branch & worktree workflow (DEFAULT)
-- **The current development branch is `0.4-dev`** — the integration branch all feature work targets (this
-  is the ONE place its name is written; everywhere else says "the current dev branch" so a version bump
-  changes only this line). `main` is downstream — it holds the shipped release (currently **0.3.1**, tagged
+- **The current development branch is `0.4-dev`** — the integration branch all feature work targets. This
+  line is the ONE declaration of its name: `scripts/lib_dev_branch.sh` parses it out of this file and every
+  script reads it from there, so a version bump changes this line and nothing else. `main` is downstream — it holds the shipped release (currently **0.3.1**, tagged
   `v0.3.1`). Do **not** commit feature work directly to `main`.
 - **EVERY SUBAGENT THAT EDITS FILES GETS ITS OWN WORKTREE. PASS `isolation: "worktree"` ON THE AGENT CALL.
   THIS IS NOT A JUDGEMENT CALL AND THERE IS NO THRESHOLD.** One agent or nine, one file or fifty — if it

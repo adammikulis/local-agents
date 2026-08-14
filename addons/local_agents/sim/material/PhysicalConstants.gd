@@ -335,8 +335,6 @@ const TWO_STREAM_DIFFUSIVITY: float = 1.66
 ## Pressure LAAbsorptionBands coefficients are stated at, Pa (Pierrehumbert, Principles of Planetary
 ## Climate 4.4.7: 100 mb, 260 K, air-broadened).
 const ABSORPTION_REF_PRESSURE_PA: float = 1.0e4
-## Density one unit of the `co2` channel carries, kg/m^3.
-const CO2_UNIT_DENSITY_KG_M3: float = AMBIENT_O2_DENSITY_KG_M3 * MOLAR_MASS_CO2_KG_MOL / MOLAR_MASS_O2_KG_MOL
 ## Broadband 8-14 um emissivity of snow (Warren 1982, Rev. Geophys. 20:67; Dozier & Warren 1982).
 const EMISSIVITY_SNOW: float = 0.99
 ## Specific gas constant of CO2, J/kg/K.

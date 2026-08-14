@@ -5,13 +5,14 @@
 # MaterialField is SILENTLY DEAD (biomass=0) and the log fills with "get_spirv on a null value". So always
 # make worktrees with this, then trust SIM_REPORT.
 #
-#   scripts/new_worktree.sh feature/my-thing            # off 0.4-dev (default)
-#   scripts/new_worktree.sh feature/my-thing 0.4-dev    # explicit base
+#   scripts/new_worktree.sh feature/my-thing            # off the dev branch CLAUDE.md names
+#   scripts/new_worktree.sh feature/my-thing <base>     # explicit base
 #
 # Prints the worktree path on success. Safe to source the path: WT=$(scripts/new_worktree.sh ... | tail -1)
 set -euo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_dev_branch.sh"
 BRANCH="${1:?usage: new_worktree.sh <branch> [base]}"
-BASE="${2:-0.4-dev}"
+BASE="${2:-$(dev_branch)}"
 # The MAIN checkout (first worktree) owns the compiled bin we symlink into the new worktree.
 PRIMARY="$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
 SLUG="$(printf '%s' "$BRANCH" | tr '/' '-')"

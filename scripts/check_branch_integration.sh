@@ -19,7 +19,9 @@ set -uo pipefail
 HERE="$(git rev-parse --show-toplevel 2>/dev/null || echo "")"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REGISTRY="$ROOT/docs/OPEN_BRANCHES.md"
-DEV="${LA_DEV_BRANCH:-0.4-dev}"
+. "$ROOT/scripts/lib_dev_branch.sh"
+DEV="${LA_DEV_BRANCH:-$(dev_branch "$ROOT")}"
+[ -n "$DEV" ] || exit 2
 MAX_AHEAD="${LA_MAX_AHEAD:-15}"
 MAX_AGE_DAYS="${LA_MAX_BRANCH_AGE_DAYS:-7}"
 
@@ -29,6 +31,12 @@ git -C "$ROOT" rev-parse --verify -q "$DEV" >/dev/null \
   || { echo "check_branch_integration: no dev branch '$DEV'." >&2; exit 2; }
 
 fail=0
+
+# Epoch seconds of a file's last write, 0 when absent. BSD and GNU stat spell the flag differently.
+mtime() {
+  [ -f "$1" ] || { printf '0'; return; }
+  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || printf '0'
+}
 
 if git -C "$ROOT" rev-parse --verify -q main >/dev/null; then
   if ! git -C "$ROOT" merge-base --is-ancestor main "$DEV"; then
@@ -104,7 +112,13 @@ while read -r wt; do
     fail=1
     continue
   fi
-  wt_age=$(( (now - $(git -C "$wt" log -1 --format=%ct HEAD)) / 86400 ))
+  # WHEN THE TREE LAST MOVED. The committer date of HEAD is the age of the commit it was branched FROM, so a
+  # tree created this minute off a week-old base reads as a week stale — and every agent worktree is exactly
+  # that. Its own index is written by checkout and commit in that tree and by nothing outside it.
+  wt_ct="$(git -C "$wt" log -1 --format=%ct HEAD)"
+  wt_it="$(mtime "$gitdir/index")"
+  [ "$wt_it" -gt "$wt_ct" ] && wt_ct="$wt_it"
+  wt_age=$(( (now - wt_ct) / 86400 ))
   if [ "$wt_age" -gt "$MAX_AGE_DAYS" ]; then
     echo "FAIL  worktree $wt last moved ${wt_age}d ago, past the limit of ${MAX_AGE_DAYS}d." >&2
     fail=1

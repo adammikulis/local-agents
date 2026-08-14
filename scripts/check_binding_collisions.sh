@@ -11,6 +11,9 @@
 # 3. no pass builds a uniform set with the same index twice
 # 4. no pass binds an index its kernel never declares
 #
+# 3 and 4 read a set built in a variable as well as an inline literal, and exit 2 rather than skip a set
+# whose indices it cannot resolve — the three widest binding tables in the tree are built in a variable.
+#
 # EXIT 0 clean · 1 a collision · 2 the gate could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -109,10 +112,125 @@ if missing:
         print("  " + m, file=sys.stderr)
     sys.exit(2)
 
-# A pass builds its set as a list of [index, rid] pairs, one _uset call per parity.
-USET = re.compile(r"_uset\s*\(\s*[^,]+,\s*\[(.*?)\]\s*\)", re.S)
+# A pass builds its set as a list of [index, rid] pairs. The list is either an inline literal or a
+# variable the function appends to, and the three widest binding tables in the tree use the variable.
+USET = re.compile(r"_uset\s*\(\s*[^,]+,\s*(\[.*?\]|\w+)\s*\)", re.S)
 KERNEL_LIT = re.compile(r'"res://addons/local_agents/sim/material/kernels3d/([\w.]+\.glsl)"')
+FOR = re.compile(r"^\s*for\s+(\w+)(?:\s*:\s*\w+)?\s+in\s+(.+?)\s*:", re.M)
 
+
+def balanced(src, start):
+    # Text inside the bracket opened at `start`, and the index one past its close.
+    depth, i = 1, start + 1
+    while i < len(src) and depth:
+        if src[i] in "([":
+            depth += 1
+        elif src[i] in ")]":
+            depth -= 1
+        i += 1
+    return (src[start + 1:i - 1], i) if depth == 0 else (None, i)
+
+
+def pair_index(pair):
+    # The index half of one `[index, rid]` entry. Bracket-aware: `int(D[k])` is one expression.
+    depth = 0
+    for i, c in enumerate(pair):
+        if c in "([":
+            depth += 1
+        elif c in ")]":
+            depth -= 1
+        elif c == "," and depth == 0:
+            return pair[:i].strip()
+    return None
+
+
+def array_pair_indices(inner):
+    # The index half of every top-level `[...]` item of an array literal's inner text.
+    out, i = [], 0
+    while i < len(inner):
+        if inner[i] == "[":
+            pair, i = balanced(inner, i)
+            out.append(None if pair is None else pair_index(pair))
+            continue
+        i += 1
+    return out
+
+# class_name -> source. A pass sizes a run of bindings off a const array that lives in another file.
+CLASSES = {}
+for dirpath, _dirs, names in os.walk(os.path.join(root, "addons/local_agents/sim")):
+    for n in names:
+        if not n.endswith(".gd"):
+            continue
+        s = read(os.path.join(dirpath, n))
+        m = re.search(r"^class_name\s+(\w+)", s, re.M)
+        if m:
+            CLASSES[m.group(1)] = s
+
+
+def const_block(src, name, opener, closer):
+    # The text between the brackets of `const NAME ... = <opener>`, nesting-aware.
+    m = re.search(r"^const\s+%s\s*(?::[^=]+)?=\s*\%s" % (name, opener), src, re.M)
+    if m is None:
+        return None
+    depth, i = 1, m.end()
+    while i < len(src) and depth:
+        if src[i] == opener:
+            depth += 1
+        elif src[i] == closer:
+            depth -= 1
+        i += 1
+    return src[m.end():i - 1] if depth == 0 else None
+
+
+def const_array_len(src, local):
+    b = const_block(src, local, "[", "]")
+    if b is None:
+        a = re.search(r"\b%s\s*(?::[^=]+)?=\s*(\w+)\.(\w+)\b" % local, src)
+        if a is None:
+            return None
+        owner = CLASSES.get(a.group(1))
+        b = const_block(owner, a.group(2), "[", "]") if owner else None
+        if b is None:
+            return None
+    return len(re.findall(r'"[^"]*"', b))
+
+
+def const_dict_values(src, name):
+    b = const_block(src, name, "{", "}")
+    if b is None:
+        return None
+    return [int(v) for v in re.findall(r":\s*(\d+)", b)]
+
+
+def loop_ranges(src):
+    # Loop variable -> the indices it takes, for `for i in N:` / `range(N)` / `NAME.size()`.
+    out = {}
+    for m in FOR.finditer(src):
+        var, it = m.group(1), m.group(2).strip()
+        r = re.match(r"^(?:range\(\s*)?(\d+)\s*\)?$", it)
+        n = int(r.group(1)) if r else None
+        if n is None:
+            s = re.match(r"^(\w+)\.size\(\)$", it)
+            n = const_array_len(src, s.group(1)) if s else None
+        if n is not None:
+            out.setdefault(var, set()).update(range(n))
+    return out
+
+
+def resolve(src, expr, ranges):
+    # An index expression -> the concrete indices it binds, or None when the gate cannot say.
+    expr = expr.strip()
+    if re.match(r"^\d+$", expr):
+        return [int(expr)]
+    m = re.match(r"^(?:int\(\s*)?(\w+)\[\s*\w+\s*\]\s*\)?$", expr)
+    if m:
+        return const_dict_values(src, m.group(1))
+    if expr in ranges:
+        return sorted(ranges[expr])
+    return None
+
+
+unresolved = []
 for fn in sorted(os.listdir(PASSES)):
     if not fn.endswith(".gd"):
         continue
@@ -130,13 +248,43 @@ for fn in sorted(os.listdir(PASSES)):
         print("check_binding_collisions: %s names %s, which is not in kernels3d."
               % (fn, kernels[0]), file=sys.stderr)
         sys.exit(2)
+    ranges = loop_ranges(src)
     for call in calls:
-        idx = [int(x) for x in re.findall(r"\[\s*(\d+)\s*,", call.group(1))]
+        arg = call.group(1).strip()
+        if arg.startswith("["):
+            exprs = array_pair_indices(arg[1:-1])
+        else:
+            exprs = []
+            for m in re.finditer(r"\b%s\s*\.append\(" % arg, src):
+                a = balanced(src, m.end() - 1)[0]
+                a = (a or "").strip()
+                exprs.append(pair_index(a[1:-1]) if a.startswith("[") and a.endswith("]") else None)
+            for m in re.finditer(r"\b%s\s*(?::[^=\n]+)?=\s*\[" % arg, src):
+                inner = balanced(src, m.end() - 1)[0]
+                if inner is not None:
+                    exprs += array_pair_indices(inner)
+            if not exprs:
+                unresolved.append("%s passes `%s` to _uset and nothing builds an entry in it" % (fn, arg))
+                continue
+        idx = []
+        for e in exprs:
+            got = None if e is None else resolve(src, e, ranges)
+            if got is None:
+                unresolved.append("%s binds index expression `%s`, which the gate cannot resolve" % (fn, e))
+                continue
+            idx += got
         scanned += len(idx)
         for d in sorted({i for i in idx if idx.count(i) > 1}):
             bad.append("%s builds a uniform set binding %d twice" % (fn, d))
         for u in sorted({i for i in idx if i not in declared}):
             bad.append("%s binds %d, which %s never declares" % (fn, u, kernels[0]))
+
+if unresolved:
+    print("check_binding_collisions: a uniform set the gate cannot read is a set it cannot check.",
+          file=sys.stderr)
+    for u in sorted(set(unresolved)):
+        print("  " + u, file=sys.stderr)
+    sys.exit(2)
 
 if scanned == 0:
     print("check_binding_collisions: found no bindings — the gate has no subject.", file=sys.stderr)
