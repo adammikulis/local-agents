@@ -55,29 +55,9 @@ DONE_RE="${LA_DONE_RE:-^LA_RUN_COMPLETE=}"
 FRONT_BID="$(osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true' 2>/dev/null)"
 
 # --- WHERE THE WINDOW GOES ---------------------------------------------------
-# Far right of the SECONDARY display, so a run is watchable without covering the primary. The geometry is
-# read at launch rather than hardcoded: `bounds of window of desktop` returns the union of every display, so
-# its right edge is the right edge of the rightmost monitor whatever the arrangement. Falls back to
-# off-screen if AppleScript answers nothing (headless CI, no window server).
-_res="${LA_RES:-640x400}"
-_w="${_res%%x*}"
-_h="${_res##*x}"
-_bounds="$(osascript -e 'tell application "Finder" to get bounds of window of desktop' 2>/dev/null | tr -d ' ')"
-if [ -n "$_bounds" ]; then
-  _right="$(printf '%s' "$_bounds" | cut -d, -f3)"
-  _bottom="$(printf '%s' "$_bounds" | cut -d, -f4)"
-  # Primary spans 0..primary_w; anything beyond it is the secondary. Land the window against the far right
-  # edge, inset by its own width, and below the menu bar so the title bar stays grabbable.
-  _x=$(( _right - _w ))
-  _y=40
-  # If the desktop is a single display, keep the old off-view behaviour rather than covering the user's screen.
-  if [ "$_right" -le 3441 ]; then
-    _x=-10000; _y=-10000
-  fi
-  DEFAULT_WIN_POS="${_x},${_y}"
-else
-  DEFAULT_WIN_POS="-10000,-10000"
-fi
+# A TEST RUN IS NEVER WATCHABLE. create_local_rendering_device returns null under --headless, so a GPU run
+# must open a window — off-view, always, and the scene marks it NO_FOCUS so it cannot take the keyboard.
+DEFAULT_WIN_POS="-10000,-10000"
 # Fully off-view to the upper-left. The negative X must exceed the WINDOW WIDTH so the right edge also clears
 # the screen: at a 1080p test res (1920 px wide) -2400 left only -480 of slack, so a wide window still poked out
 # on the left. -10000 clears any width, and matches the in-code reposition (VoxelWorld sends the window to
