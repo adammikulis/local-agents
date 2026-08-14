@@ -92,7 +92,7 @@ if bad:
           file=sys.stderr)
     raise SystemExit(1)
 
-print("check_finite_channels: OK (the conserved state is finite and energy_stock folded)")
+print("check_finite_channels: OK (finite, and energy_stock folded) — wire this into agent_harness.sh lint")
 '
 rc=$?
 exit $rc

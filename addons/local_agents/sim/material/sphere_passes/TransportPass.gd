@@ -76,15 +76,13 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 		return
 	var cell_m: float = _ctx_cell_size(ctx)
 	var dt_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
-	# Dry adiabat, K/m: g over the specific heat of dry air at constant pressure.
-	var lapse: float = _ctx_num(ctx, "g_m_s2") / LAPhysical.AIR_SPECIFIC_HEAT_J_KGK
 	var sun: Vector3 = ctx.get("sun_dir", Vector3.ZERO)
 	# PROLOGUE. The three suspension shares are the `frac` of three silicate rows, so they must be complete
 	# before those rows donate, and it reads `cement` before the dilute rows rescale it.
 	if _grain_set.is_valid():
 		rd.compute_list_bind_compute_pipeline(cl, _pipe)
 		rd.compute_list_bind_uniform_set(cl, _grain_set, 0)
-		var gpc: PackedByteArray = _pc(GRAIN_ROW, cc, PASS_GRAIN, cell_m, dt_s, lapse, sun)
+		var gpc: PackedByteArray = _pc(GRAIN_ROW, cc, PASS_GRAIN, cell_m, dt_s, sun)
 		rd.compute_list_set_push_constant(cl, gpc, gpc.size())
 		rd.compute_list_dispatch(cl, groups, 1, 1)
 		rd.compute_list_add_barrier(cl)
@@ -98,7 +96,7 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 		for pass_id in [PASS_OUTFLOW, PASS_GATHER]:
 			rd.compute_list_bind_compute_pipeline(cl, _pipe)
 			rd.compute_list_bind_uniform_set(cl, uset, 0)
-			var pc: PackedByteArray = _pc(_rows[r], cc, pass_id, cell_m, dt_s, lapse, sun)
+			var pc: PackedByteArray = _pc(_rows[r], cc, pass_id, cell_m, dt_s, sun)
 			rd.compute_list_set_push_constant(cl, pc, pc.size())
 			# A listed row walks the cells CellListPass compacted, so its cost is O(active), not O(grid).
 			if args.is_valid():
@@ -121,12 +119,11 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 	var drive: String = String(row.get("drive", ""))
 	var resist: String = String(row.get("resist", ""))
 	var aux: String = String(row.get("aux", ""))
-	var stamp: String = String(row.get("stamp", ""))
 	var frac: String = String(row.get("frac", ""))
 	var moves_enthalpy: bool = channel == "h_j_m3"
 	# Mass does not move without its heat, so the enthalpy field is required of every row that carries mass.
 	var list: Dictionary = _list_keys(row)
-	var needed: Array = [channel, drive, resist, aux, stamp, frac, "" if moves_enthalpy else "h_j_m3",
+	var needed: Array = [channel, drive, resist, aux, frac, "" if moves_enthalpy else "h_j_m3",
 		String(list.get("idx", "")), String(list.get("args", "")), String(list.get("flag", ""))]
 	for key in needed:
 		if String(key) != "" and not bufs.has(key):
@@ -167,7 +164,6 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[24, _single(bufs, "silicate")],
 		[25, _single(bufs, "biomass")],
 		[26, _single(bufs, "silicate_melt")],
-		[27, _send_q if stamp == "" else _single(bufs, stamp)],
 		[28, _single(bufs, "h2o_vapour")],
 		[29, _one if frac == "" else _single(bufs, frac)],
 		[30, _single(bufs, "cement")],
@@ -208,8 +204,8 @@ func _carried_key(substance: String) -> String:
 
 # --- push constant ----------------------------------------------------------------------------------------
 
-## transport.glsl's Params block, in its declared order — 108 bytes.
-func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lapse: float,
+## transport.glsl's Params block, in its declared order — 104 bytes.
+func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 		sun: Vector3) -> PackedByteArray:
 	var substance: String = String(row["substance"])
 	var entry: Dictionary = LASubstances.table().get(substance, {})
@@ -220,8 +216,8 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lap
 		flags |= LATransportRecords.Flag.SIGNED
 	if bool(row.get("settle", false)):
 		flags |= LATransportRecords.Flag.SETTLE
-	if String(row.get("stamp", "")) != "":
-		flags |= LATransportRecords.Flag.STAMP
+	if bool(row.get("efield", false)):
+		flags |= LATransportRecords.Flag.EFIELD
 	if String(row.get("drive", "")) != "":
 		flags |= LATransportRecords.Flag.DRIVEN
 	if String(row.get("frac", "")) != "":
@@ -233,7 +229,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lap
 	if bool(row.get("radiogenic", false)):
 		flags |= LATransportRecords.Flag.RADIOGENIC
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(108)
+	pc.resize(104)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
@@ -247,28 +243,27 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float, lap
 	pc.encode_float(40, float(entry.get("density", 0.0)))
 	# Enthalpy, momentum and a shock front are not matter occupying volume, so no cell is ever full of them.
 	pc.encode_float(44, LATransportRecords.max_fill(substance) if substance != "" else INF)
-	pc.encode_float(48, lapse)
-	pc.encode_float(52, fluid.x)
-	pc.encode_float(56, fluid.y)
+	pc.encode_float(48, fluid.x)
+	pc.encode_float(52, fluid.y)
 	# Seed diameter for cells whose own grain field is unset; the cell's value wins wherever it has one.
-	pc.encode_float(60, LAPhysical.GRAIN_D_UPLAND_M)
-	pc.encode_float(64, sun.x)
-	pc.encode_float(68, sun.y)
-	pc.encode_float(72, sun.z)
+	pc.encode_float(56, LAPhysical.GRAIN_D_UPLAND_M)
+	pc.encode_float(60, sun.x)
+	pc.encode_float(64, sun.y)
+	pc.encode_float(68, sun.z)
 	var water: Vector2 = LATransportRecords.fluid_properties(LATransportRecords.Fluid.WATER)
 	var air: Vector2 = LATransportRecords.fluid_properties(LATransportRecords.Fluid.AIR)
-	pc.encode_float(76, water.x)
-	pc.encode_float(80, water.y)
-	pc.encode_float(84, air.x)
-	pc.encode_float(88, air.y)
+	pc.encode_float(72, water.x)
+	pc.encode_float(76, water.y)
+	pc.encode_float(80, air.x)
+	pc.encode_float(84, air.y)
 	# The nuclide store is finite, so the rate FALLS: this is what each rock has left at the run's epoch.
 	var epoch: float = LARadiogenicDecay.epoch_years()
-	pc.encode_float(92, LARadiogenicDecay.heat_production_w_m3_at("silicate", epoch))
-	pc.encode_float(96, LARadiogenicDecay.heat_production_w_m3_at("carbonate", epoch))
-	pc.encode_float(100, LARadiogenicDecay.heat_production_w_m3_at("silica", epoch))
+	pc.encode_float(88, LARadiogenicDecay.heat_production_w_m3_at("silicate", epoch))
+	pc.encode_float(92, LARadiogenicDecay.heat_production_w_m3_at("carbonate", epoch))
+	pc.encode_float(96, LARadiogenicDecay.heat_production_w_m3_at("silica", epoch))
 	# J/m^3/K one unit of fill contributes to the sensible entry; 0 for a substance on a phase ladder,
 	# whose entry is the channel itself.
-	pc.encode_float(104, float(entry.get("density", 0.0)) * LAMatterChannels.specific_heat(substance))
+	pc.encode_float(100, float(entry.get("density", 0.0)) * LAMatterChannels.specific_heat(substance))
 	return pc
 
 

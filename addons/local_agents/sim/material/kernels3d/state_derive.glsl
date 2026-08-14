@@ -55,8 +55,7 @@ layout(set = 0, binding = 43, std430) restrict writeonly buffer Alt { float alt[
 // Reduced by the `nonfinite_cells` row.
 layout(set = 0, binding = 44, std430) restrict writeonly buffer NonFinite { float nonfinite[]; };
 
-// The enthalpy each mixture entry holds, J/m^3, and the sensible entry's capacity, J/m^3/K. Enthalpy
-// is extensive, so the cell's h is their sum and a parcel carries the heat of its OWN substance.
+// The enthalpy each mixture entry holds, J/m^3, and the sensible entry's capacity, J/m^3/K.
 layout(set = 0, binding = 45, std430) restrict writeonly buffer HH2O { float h_h2o[]; };
 layout(set = 0, binding = 46, std430) restrict writeonly buffer HSilicate { float h_silicate[]; };
 layout(set = 0, binding = 47, std430) restrict writeonly buffer HSensible { float h_sensible[]; };
@@ -114,6 +113,16 @@ SubstanceTh la_sensible_only(float c_j_kgk) {
 		float[LA_MAX_EL](0.0, 0.0, 0.0),
 		float[LA_MAX_EL](0.0, 0.0, 0.0)
 	);
+}
+
+// The enthalpy one mixture entry holds at the state the solve landed on, J.
+float la_entry_h(SubstanceTh s, float m_kg, float t_c, float p_pa, float n_gas_mol, bool pinned,
+		float progress) {
+	if (m_kg <= 0.0) {
+		return 0.0;
+	}
+	float h = m_kg * la_mix_specific_enthalpy(s, t_c, p_pa, m_kg, n_gas_mol, 0.0);
+	return pinned ? h + progress * la_mix_jump_of(s, m_kg, t_c, p_pa, n_gas_mol, 0.0) : h;
 }
 
 // Cementation and the solid flag, from the melt share this cell just derived. No mass moves here, and the
@@ -244,18 +253,12 @@ void main() {
 		pinned, progress);
 	temp[g] = t_c;
 
-	// The decomposition la_mix_enthalpy_at sums, kept per entry so transport can move heat with matter.
-	h_h2o[g] = mass[E_H2O] > 0.0
-		? mass[E_H2O] * la_mix_specific_enthalpy(subs[E_H2O], t_c, p_pa, mass[E_H2O], n_gas_mol, 0.0) * inv_vol
-		: 0.0;
-	h_silicate[g] = mass[E_SILICATE] > 0.0
-		? mass[E_SILICATE] * la_mix_specific_enthalpy(subs[E_SILICATE], t_c, p_pa, mass[E_SILICATE],
-			n_gas_mol, 0.0) * inv_vol
-		: 0.0;
-	h_sensible[g] = mass[E_SENSIBLE] > 0.0
-		? mass[E_SENSIBLE] * la_mix_specific_enthalpy(subs[E_SENSIBLE], t_c, p_pa, mass[E_SENSIBLE],
-			n_gas_mol, 0.0) * inv_vol
-		: 0.0;
+	// The decomposition la_mix_enthalpy_at sums, kept per entry so transport moves heat with matter.
+	h_h2o[g] = la_entry_h(subs[E_H2O], mass[E_H2O], t_c, p_pa, n_gas_mol, pinned, progress) * inv_vol;
+	h_silicate[g] = la_entry_h(subs[E_SILICATE], mass[E_SILICATE], t_c, p_pa, n_gas_mol, pinned,
+		progress) * inv_vol;
+	h_sensible[g] = la_entry_h(subs[E_SENSIBLE], mass[E_SENSIBLE], t_c, p_pa, n_gas_mol, pinned,
+		progress) * inv_vol;
 	cap_sensible[g] = mc * inv_vol;
 
 	// THE PHASE SPLIT OF THIS CELL'S H2O, off the SAME ladder and the SAME saturation curve the solve used.

@@ -14,19 +14,15 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 0. ENTHALPY GOES NON-FINITE INSIDE THE FIRST HANDFUL OF STEPS. TAKE THIS FIRST.
+## 0. MOMENTUM RUNS AWAY TO NON-FINITE. TAKE THIS FIRST.
 
-`energy_stock` serialises to null and the run logs Godot's own "NaN found in JSON.stringify". Every ledger
-watt goes null with it: `energy_absorbed_w`, `energy_emitted_w`, `energy_net_w`, `energy_booked`,
-`energy_residual`. The energy conservation row reads UNMEASURED rather than conserved.
+**Reproduce:** `scripts/check_finite_channels.sh` exits 0 at `LA_FINITE_FRAMES=4` and 1 at 20, and the
+report's `wind_x_sum`, `wind_z_sum`, `momentum_residual_rel` and `momentum_run_drift_rel` all serialise to
+null. `nonfinite_cells` counts three per affected cell, which is `mom_x`/`mom_y`/`mom_z` and nothing else:
+`energy_stock` and the whole energy row now fold to numbers.
 
-**Reproduce:** `scripts/check_finite_channels.sh` exits 0 at `LA_FINITE_FRAMES=4` and 1 at
-`LA_FINITE_FRAMES=6`. Between those two the peak of `h_j_m3` climbs by fifteen orders inside one
-`TransportPass`, while `temp` stays inside its ordinary range and `silicate` stays inside its own — so
-cells hold enthalpy that no matter in them can account for.
-
-Nothing measured anywhere in the substrate means anything while this holds: temperature is derived from
-enthalpy every step and drives the phase ladder, every reaction gate and both radiative terms.
+The gate is written and mutation-tested both ways but is **NOT wired into `lint`** — wire it in the moment
+it passes, and not before.
 
 ## 1. Reduce the rest on the device
 
