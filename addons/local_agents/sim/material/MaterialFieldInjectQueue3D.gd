@@ -199,10 +199,9 @@ func _ratio(s: int, d: int) -> float:
 func _move(gpu, op: Dictionary) -> float:
 	var src: String = String(op["src"])
 	var dst: String = String(op["dst"])
-	var half: int = int(gpu.probe_phase())
-	var live_s: PackedFloat32Array = gpu.read_raw(src, half)
+	var live_s: PackedFloat32Array = gpu.read_raw(src)
 	var same: bool = src == dst
-	var live_d: PackedFloat32Array = live_s if same else gpu.read_raw(dst, half)
+	var live_d: PackedFloat32Array = live_s if same else gpu.read_raw(dst)
 	if live_s.is_empty() or live_d.is_empty():
 		return 0.0
 	var sc: PackedInt32Array = op["src_cells"]

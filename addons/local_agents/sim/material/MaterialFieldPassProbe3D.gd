@@ -43,34 +43,22 @@ func post_step() -> void:
 
 
 func _on_pass(pass_index: int, pass_name: String) -> void:
-	var halves: Dictionary = _halves()
-	if halves.is_empty():
+	var amount: float = _total()
+	if is_nan(amount):
 		return
 	print("PASS_PROBE=", JSON.stringify({
 		"step": _step, "pass": pass_name if pass_index >= 0 else "start",
-		"channel": _channel, "halves": halves}))
+		"channel": _channel, "amount": amount}))
 
 
-## Mask-free matter in each half of the channel, right now. SINGLE channels have one buffer; a PAIR's back
-## half is what the pass that just ran wrote, so both are reported and the reader picks.
-func _halves() -> Dictionary:
+## Mask-free matter in the channel, right now.
+func _total() -> float:
 	var gpu = _f._gpu
 	var cc: int = _f._cell_count
 	var vol: PackedFloat32Array = CellVolScript.of(_f)
 	if gpu == null or vol.size() != cc:
-		return {}
-	var empty: PackedByteArray = PackedByteArray()
-	if gpu.single_channels().has(_channel):
-		var one: PackedFloat32Array = gpu.read_raw(_channel, 0)
-		if one.size() != cc:
-			return {}
-		return {"single": CellVolScript.weighted(one, vol, empty, false)}
-	var p: int = gpu.probe_phase()
-	var live: PackedFloat32Array = gpu.read_raw(_channel, p)
-	var back: PackedFloat32Array = gpu.read_raw(_channel, 1 - p)
-	if live.size() != cc or back.size() != cc:
-		return {}
-	return {
-		"live": CellVolScript.weighted(live, vol, empty, false),
-		"back": CellVolScript.weighted(back, vol, empty, false),
-	}
+		return NAN
+	var one: PackedFloat32Array = gpu.read_raw(_channel)
+	if one.size() != cc:
+		return NAN
+	return CellVolScript.weighted(one, vol, PackedByteArray(), false)

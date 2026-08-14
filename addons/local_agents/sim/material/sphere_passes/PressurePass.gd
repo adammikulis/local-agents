@@ -25,7 +25,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		[3, _single(bufs, "gravity")]])
 
 
-func dispatch(rd: RenderingDevice, cl: int, _parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable() or not _set.is_valid():
 		return
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)

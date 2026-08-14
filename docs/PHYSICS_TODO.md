@@ -227,7 +227,8 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
 - [ ] **`gravity_poisson.glsl` relaxes `phi` in place.** It writes `phi[c]` from a stencil that reads
       `phi[nbr]` out of the same binding, so a cell sees a mixture of pre- and post-iteration neighbour
       values according to GPU scheduling, and two identical runs differ. Chaotic relaxation converges; it
-      is not reproducible. Needs the ping-pong pair every transport kernel already has.
+      is not reproducible. No channel carries a second half to relax into: a red-black sweep reads only the
+      opposite colour, so the ordering is the fix rather than a buffer.
 - [ ] **What else is declared and never dispatched?** Six kernels, buffers and channel rows were found in
       one day that compiled, passed every gate naming them, and ran never. A gate that fails when a kernel
       has no pass, or a buffer no writer, would have caught all six.

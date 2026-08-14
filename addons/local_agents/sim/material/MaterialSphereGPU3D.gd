@@ -3,8 +3,7 @@ extends RefCounted
 
 
 ## Views of LAChannels, the one declaration of what a channel is.
-static func pair_channels() -> PackedStringArray: return LAChannels.pair_channels()
-static func single_channels() -> PackedStringArray: return LAChannels.single_channels()
+static func channels() -> PackedStringArray: return LAChannels.channels()
 static func situational_channels() -> PackedStringArray: return LAChannels.situational_channels()
 static func slow_channels() -> PackedStringArray: return LAChannels.slow_channels()
 
@@ -31,10 +30,9 @@ var _audit_mirror: bool = OS.has_environment("LA_INJECT_AUDIT")
 var _field = null
 var _grid: RefCounted = null
 var _cc: int = 0
-var _phase: int = 0                 # ping-pong phase ∈ {0,1}; flips once per step (NOT CPU parity)
 var _step_index: int = 0            # monotonic field-step counter, published to kernels as ctx["step_index"]
 var _groups: int = 0
-var _bufs: Dictionary = {}          # key → RID (single) or [rid_a, rid_b] (pair)
+var _bufs: Dictionary = {}          # channel/buffer name → its one RID
 var _passes: Array = []
 var _pass_names: PackedStringArray = []   # parallel to _passes — short label per pass, for GPU per-pass timing
 var _ctx: Dictionary = {}
@@ -77,10 +75,7 @@ func setup(field) -> void:
 		return
 	_groups = int(ceil(float(_cc) / 64.0))
 
-	for name in pair_channels():
-		_bufs[name] = [_new_f(_cc), _new_f(_cc)]
-		_buf_owner[name] = "LAChannels.rows()"
-	for name in single_channels():
+	for name in channels():
 		_bufs[name] = _new_f(_cc)
 		_buf_owner[name] = "LAChannels.rows()"
 	# Derived: recomputed from the channels every step, so never seeded and never restored.
@@ -164,13 +159,13 @@ func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	_drain_pending()
 	# The only CPU writer of _h is injection (meteors / lava / geotherm), which marks it dirty.
 	if _h_dirty:
-		_upload_f(_live("h_j_m3"), h)
+		_upload_f(_bufs["h_j_m3"], h)
 		_h_dirty = false
 	# water is only CPU-modified by injection (add_water / lakes seed), never per-step; after the readback the CPU
 	# copy already equals the GPU's evolved water, so re-uploading it every step is redundant. Gate it on a dirty
 	# flag the injectors set.
 	if _water_dirty:
-		_upload_f(_live("h2o"), water)
+		_upload_f(_bufs["h2o"], water)
 		_water_dirty = false
 	# solid + static masks change only on an SDF edit (volcano stamp, terrain edit) — NOT per step. _seed_solid
 	# rebuilt + uploaded BOTH full-grid buffers every frame; gate it so it only fires when the CPU mask changed.
@@ -213,7 +208,7 @@ func step() -> void:
 	_rd.capture_timestamp("field_start")   # marker 0 — the interval to pass 0's own marker is pass 0's GPU time
 	for i in _passes.size():
 		var cl: int = _rd.compute_list_begin()
-		_passes[i].dispatch(_rd, cl, _phase, _ctx, _cc, _groups)
+		_passes[i].dispatch(_rd, cl, _ctx, _cc, _groups)
 		# EVERY PASS READS WHAT THE PREVIOUS ONE WROTE. Passes barrier internally between their own
 		# sub-dispatches but nothing ordered them against EACH OTHER, so in one submit they overlapped and
 		_rd.compute_list_add_barrier(cl)
@@ -221,7 +216,6 @@ func step() -> void:
 		_rd.capture_timestamp(_pass_names[i])
 	_rd.submit()                        # deferred sync — drained at the next begin_frame (GPU overlaps CPU frame work)
 	_pending = true
-	_phase = 1 - _phase
 	_step_index += 1
 
 ## Signature: `probe.call(pass_index: int, pass_name: String)`, pass_index -1 = before any pass ran.
@@ -233,7 +227,7 @@ func _step_checkpointed() -> void:
 	_step_probe.call(-1, "start")
 	for i in _passes.size():
 		var cl: int = _rd.compute_list_begin()
-		_passes[i].dispatch(_rd, cl, _phase, _ctx, _cc, _groups)
+		_passes[i].dispatch(_rd, cl, _ctx, _cc, _groups)
 		_rd.compute_list_end()
 		_rd.submit()
 		_rd.sync()
@@ -244,24 +238,15 @@ func _step_checkpointed() -> void:
 	_rd.compute_list_end()
 	_rd.submit()
 	_pending = true
-	_phase = 1 - _phase
 	_step_index += 1
 
 
-## Current ping-pong phase — the probe needs it to know which half of a PAIR channel is live at a checkpoint.
-func probe_phase() -> int:
-	return _phase
-
-
-## Raw device readback of one channel half. Diagnostic only (the between-pass probe): `half` picks the ping-pong
-## slot for PAIR channels and is ignored for SINGLE ones. No sync is done here — the checkpointed step already
-## synced, and calling this off that path would read whatever the last sync left.
-func read_raw(name: String, half: int) -> PackedFloat32Array:
+## Raw device readback of one buffer. Diagnostic only (the between-pass probe). No sync is done here — the
+## checkpointed step already synced, and calling this off that path would read whatever the last sync left.
+func read_raw(name: String) -> PackedFloat32Array:
 	if _rd == null or not _bufs.has(name):
 		return PackedFloat32Array()
-	var b = _bufs[name]
-	var buf: RID = b[half] if b is Array else b
-	return _rd.buffer_get_data(buf).to_float32_array()
+	return _rd.buffer_get_data(_bufs[name]).to_float32_array()
 
 
 func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool = true, _rl: bool = true, _rs: bool = true) -> Dictionary:
@@ -299,8 +284,7 @@ func _drain_pending() -> void:
 		for pname in _probe_want:
 			if not _bufs.has(pname):
 				continue
-			var pb = _bufs[pname]
-			_probe[pname] = _rd.buffer_get_data(pb[_phase] if pb is Array else pb).to_float32_array()
+			_probe[pname] = _rd.buffer_get_data(_bufs[pname]).to_float32_array()
 		_probe_want = PackedStringArray()
 	# Direct sub-timings (noise-immune, unlike fps): how long the GPU sync stall vs the channel copy/convert
 	# actually cost this drain. The readback (buffer_get_data + to_float32_array over ~17 full-grid channels) is
@@ -371,8 +355,8 @@ func _gpu_gauge_key(pass_index: int) -> String:
 func _read_channels(read_slow: bool) -> Dictionary:
 	var out: Dictionary = _empty_result()
 	for k in ["h_j_m3", "h2o", "o2"]:
-		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
-	# Derived: a single buffer StateDerivePass rewrote this step, not a conserved half.
+		out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
+	# Derived: recomputed by StateDerivePass this step rather than carried.
 	for k in LAChannels.derived_buffers():
 		if _bufs.has(k):
 			out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
@@ -385,16 +369,13 @@ func _read_channels(read_slow: bool) -> Dictionary:
 	for k in situational_channels():
 		if not _bufs.has(k) or int(_channel_hold.get(k, -1)) < _drain_count:
 			continue
-		var src: RID = _bufs[k] if k in single_channels() else _live(k)
-		out[k] = _rd.buffer_get_data(src).to_float32_array()
+		out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
 	# SLOW — ledger/baker channels on the coarse cadence, from the table that declares which those ARE.
-	# PAIR channels come from the live half, singles direct.
 	if read_slow:
 		for k in slow_channels():
 			if not _bufs.has(k):
 				continue
-			var slow_src: RID = _bufs[k] if k in single_channels() else _live(k)
-			out[k] = _rd.buffer_get_data(slow_src).to_float32_array()
+			out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
 	return out
 
 func request_channel(name: String) -> void:
@@ -425,9 +406,7 @@ func mark_water_dirty() -> void:
 
 
 func _audit_mirror_upload(name: String, arr) -> void:
-	var b = _bufs[name]
-	var buf: RID = _live(name) if b is Array else b
-	var live: PackedFloat32Array = _rd.buffer_get_data(buf).to_float32_array()
+	var live: PackedFloat32Array = _rd.buffer_get_data(_bufs[name]).to_float32_array()
 	var lt: float = 0.0
 	var mt: float = 0.0
 	var n: int = mini(live.size(), arr.size())
@@ -457,13 +436,7 @@ func seed_field(name: String, arr, seal) -> void:
 		_audit_mirror_upload(name, arr)
 	if name == "h_j_m3":
 		_h_dirty = true         # keep the gated begin_frame upload in step with a whole-mirror seed
-	var b = _bufs[name]
-	if b is Array:
-		if arr.size() == _cc:   # every PAIR channel is one plane of cell_count
-			var bytes: PackedByteArray = arr.to_byte_array()
-			_rd.buffer_update(b[_phase], 0, bytes.size(), bytes)
-	else:
-		_upload_f(b, arr)
+	_upload_f(_bufs[name], arr)
 
 
 # --- SPARSE IN-PLACE EDITS (the only legal step-time write) -----------------------------------------------
@@ -478,7 +451,7 @@ func add_field_sparse(name: String, cells: PackedInt32Array, deltas: PackedFloat
 		return 0.0
 	if _rd == null or not _bufs.has(name) or cells.size() == 0:
 		return 0.0
-	var buf: RID = _live(name) if _bufs[name] is Array else _bufs[name]
+	var buf: RID = _bufs[name]
 	var arr: PackedFloat32Array = _rd.buffer_get_data(buf).to_float32_array()
 	if arr.size() < _cc:
 		return 0.0
@@ -516,8 +489,8 @@ func move_field_sparse(src: String, src_cells: PackedInt32Array, amounts: Packed
 		return 0.0
 	if src_cells.size() == 0 or src_cells.size() != amounts.size() or src_cells.size() != dst_cells.size():
 		return 0.0
-	var sbuf: RID = _live(src) if _bufs[src] is Array else _bufs[src]
-	var dbuf: RID = _live(dst) if _bufs[dst] is Array else _bufs[dst]
+	var sbuf: RID = _bufs[src]
+	var dbuf: RID = _bufs[dst]
 	# A src==dst move (displacing water from a burying cell into its neighbour) must edit ONE array, or the
 	# second write-back would clobber the first. PackedFloat32Array is copy-on-write, so aliasing the handle is
 	# not enough — the branch below keeps a single array and a single touched span in that case.
@@ -574,14 +547,13 @@ func move_field_sparse(src: String, src_cells: PackedInt32Array, amounts: Packed
 	return moved
 
 
-## Sum of a channel's LIVE device buffer. Diagnostic only (the injection queue's staleness audit compares it
+## Sum of a channel's device buffer. Diagnostic only (the injection queue's staleness audit compares it
 ## against the CPU mirror to measure what a mirror-upload would have written away); nothing on the per-frame
 ## path calls it, because it is a full-grid readback plus a full-grid sum.
 func channel_total(name: String) -> float:
 	if _rd == null or not _bufs.has(name):
 		return 0.0
-	var buf: RID = _live(name) if _bufs[name] is Array else _bufs[name]
-	var arr: PackedFloat32Array = _rd.buffer_get_data(buf).to_float32_array()
+	var arr: PackedFloat32Array = _rd.buffer_get_data(_bufs[name]).to_float32_array()
 	var sum: float = 0.0
 	for i in mini(arr.size(), _cc):
 		sum += arr[i]
@@ -593,14 +565,12 @@ func snapshot_channels() -> Dictionary:
 	if _rd == null:
 		return out
 	_flush_pending()        # a step submit may be in flight (async pipeline) — sync before reading the buffers
-	for name in pair_channels():
-		out[name] = _rd.buffer_get_data(_live(name)).to_float32_array()
-	for name in single_channels():
+	for name in channels():
 		out[name] = _rd.buffer_get_data(_bufs[name]).to_float32_array()
 	return out
 
 
-## LOAD: upload a snapshot_channels() dict back into the GPU buffers. Pair channels are written to BOTH halves
+## LOAD: upload a snapshot_channels() dict back into the GPU buffers.
 func restore_channels(data: Dictionary) -> void:
 	if _rd == null:
 		return
@@ -610,17 +580,10 @@ func restore_channels(data: Dictionary) -> void:
 		if not _bufs.has(key):
 			continue
 		var arr: PackedFloat32Array = data[key]
+		if arr.size() != _cc:
+			continue
 		var bytes: PackedByteArray = arr.to_byte_array()
-		var b = _bufs[key]
-		if b is Array:
-			if arr.size() != _cc:
-				continue
-			_rd.buffer_update(b[0], 0, bytes.size(), bytes)
-			_rd.buffer_update(b[1], 0, bytes.size(), bytes)
-		elif b is RID:
-			if arr.size() != _cc:
-				continue
-			_rd.buffer_update(b, 0, bytes.size(), bytes)
+		_rd.buffer_update(_bufs[key], 0, bytes.size(), bytes)
 
 func set_precip(v: float) -> void:
 	_ctx["precip"] = v
@@ -636,12 +599,8 @@ func dispose() -> void:
 	_passes = []
 	_pass_names = PackedStringArray()
 	for k in _bufs:
-		var b = _bufs[k]
-		if b is Array:
-			for r in b:
-				if r is RID and r.is_valid():
-					_rd.free_rid(r)
-		elif b is RID and b.is_valid():
+		var b: RID = _bufs[k]
+		if b.is_valid():
 			_rd.free_rid(b)
 	_bufs = {}
 	_rd.free()
@@ -649,9 +608,6 @@ func dispose() -> void:
 
 
 # --- helpers ------------------------------------------------------------------
-
-func _live(name: String) -> RID:
-	return _bufs[name][_phase]
 
 func _new_f(n: int) -> RID:
 	var z: PackedByteArray = _zeros(n)
@@ -668,18 +624,12 @@ func _make_vec3_flat(getter: Callable) -> RID:
 	var b: PackedByteArray = f.to_byte_array()
 	return _rd.storage_buffer_create(b.size(), b)
 
-## Seed a channel from its CPU mirror. A SINGLE channel is one buffer; a PAIR is two halves, and both start
-## equal or the first step reads whichever half it was handed as empty.
+## Seed a channel from its CPU mirror.
 func _seed(name: String, arr: PackedFloat32Array) -> void:
 	if not _bufs.has(name) or arr.size() != _cc:
 		return
-	var b = _bufs[name]
 	var bytes: PackedByteArray = arr.to_byte_array()
-	if b is Array:
-		_rd.buffer_update(b[0], 0, bytes.size(), bytes)
-		_rd.buffer_update(b[1], 0, bytes.size(), bytes)
-	else:
-		_rd.buffer_update(b, 0, bytes.size(), bytes)
+	_rd.buffer_update(_bufs[name], 0, bytes.size(), bytes)
 
 func _seed_solid() -> void:
 	var f: PackedFloat32Array = PackedFloat32Array()

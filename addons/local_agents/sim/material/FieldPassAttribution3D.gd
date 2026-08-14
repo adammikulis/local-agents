@@ -10,7 +10,6 @@ var _f = null                              # back-reference to the owning LAMate
 var _rec: Dictionary = {}
 var _sched = null                          # LAFieldStepSample3D: which steps are checkpointed
 
-var _done: Dictionary = {}                 # pass name -> true, once it has run this step
 var _missing: PackedStringArray = PackedStringArray()
 var _prev: Dictionary = {}                 # scalar -> value at the previous checkpoint
 var _start: Dictionary = {}                # scalar -> value at the step's opening
@@ -42,15 +41,12 @@ func pre_step() -> void:
 ## finished, with `pass_name` its script basename. The device has just been synced.
 func on_checkpoint(pass_index: int, pass_name: String) -> void:
 	if pass_index < 0:
-		_done = {}
 		_legs = {}
 		_parts = {}
 		var opening: Dictionary = _sample()
 		_start = opening.duplicate()
 		_prev = opening.duplicate()
 		return
-	# The producer's OUTPUT is what a checkpoint taken after it must read, so the half flips here.
-	_done[pass_name] = true
 	var now: Dictionary = _sample()
 	if now.is_empty():
 		return
@@ -155,16 +151,15 @@ func _clear_step() -> void:
 func _sample() -> Dictionary:
 	var gpu = _f._gpu
 	var cc: int = _f._cell_count
-	var phase: int = gpu.probe_phase()
 	var channels: PackedStringArray = _rec["channels"]
 	var energy: bool = bool(_rec["energy"])
 	var ch: Dictionary = {}
 	for name in channels:
-		ch[name] = gpu.read_raw(name, _half(String(name), phase))
+		ch[name] = gpu.read_raw(String(name))
 	if energy:
 		# The stock is enthalpy; temperature is derived and books nothing.
-		ch["h_j_m3"] = gpu.read_raw("h_j_m3", _half("h_j_m3", phase))
-	var f: Dictionary = _sums(ch, gpu.read_raw("solid", 0), cc, energy)
+		ch["h_j_m3"] = gpu.read_raw("h_j_m3")
+	var f: Dictionary = _sums(ch, gpu.read_raw("solid"), cc, energy)
 	if f.is_empty():
 		_missing = PackedStringArray(["solid"])
 		return {}
@@ -204,15 +199,7 @@ func _energy_scalars(f: Dictionary) -> Dictionary:
 	return {"stock": float(f["energy_stock"])}
 
 
-## Which ping-pong half a channel's current data sits in, given which passes have already run this step.
-func _half(name: String, phase: int) -> int:
-	var producer: String = String(LAFieldAttributionRecords.PRODUCERS.get(name, ""))
-	if producer != "" and _done.has(producer):
-		return 1 - phase
-	return phase
-
-
-## Mask-free and open-only amounts of the halves this checkpoint downloaded, in cubic metres of channel.
+## Mask-free and open-only amounts of the channels this checkpoint downloaded, in cubic metres of channel.
 ## One uniform grid, so one volume; `temp` books nothing, the stock is the enthalpy.
 func _sums(ch: Dictionary, solid: PackedFloat32Array, cc: int, energy: bool) -> Dictionary:
 	if solid.size() < cc:

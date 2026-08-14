@@ -1,8 +1,7 @@
 #[compute]
 #version 450
 
-// The one gather: every substance that moves between cells moves through it.
-// Two passes over the same dispatch. Pass 0 writes what leaves each face into send/send_h; pass 1 gathers.
+// Two passes over one dispatch: pass 0 writes what leaves each face into send/send_h, pass 1 gathers.
 // Opposite of slot d is d ^ 1.
 
 #include "neighbours.glsli"
@@ -49,12 +48,9 @@ layout(set = 0, binding = 23, std430) restrict readonly buffer H2OLiquidBuf { fl
 layout(set = 0, binding = 24, std430) restrict readonly buffer SilicateBuf { float silicate[]; };
 layout(set = 0, binding = 25, std430) restrict readonly buffer BiomassBuf  { float biomass[]; };
 layout(set = 0, binding = 26, std430) restrict readonly buffer SilicateMeltBuf { float silicate_melt[]; };
-// Where a row that dissipates writes what it dissipated, J/m^3. Bound to `send_q` when it does not.
-layout(set = 0, binding = 27, std430) restrict buffer Stamp { float stamp[]; };
 layout(set = 0, binding = 28, std430) restrict readonly buffer H2OVapourBuf { float h2o_vapour[]; };
-// TF_FRACTION rows move only this share of `amount` — the phase whose law this row is. 0..1.
-// No `restrict` on this or the three below: the grain prologue writes the very buffers three silicate rows
-// bind here as their `frac`.
+// TF_FRACTION rows move only this share of `amount`, 0..1. No `restrict` here or on the three below: the
+// grain prologue writes the very buffers three silicate rows bind as their `frac`.
 layout(set = 0, binding = 29, std430) readonly buffer FracBuf { float frac[]; };
 // Consolidated share of the cell's silicate. A TF_DILUTE row rescales it when matter arrives, because what
 // arrives is loose and cement is a share of a total that just grew.
@@ -80,6 +76,9 @@ layout(set = 0, binding = 42, std430) restrict readonly buffer SilicaBuf { float
 layout(set = 0, binding = 43, std430) restrict writeonly buffer Radiogenic { float radiogenic[]; };
 layout(set = 0, binding = 44, std430) restrict buffer LwEmis { float lw_emis[]; };
 layout(set = 0, binding = 45, std430) restrict buffer SwAbs { float sw_absorbed[]; };
+// Heat of the entry this row's substance sits in, and that entry's capacity, J/m^3 and J/m^3/K.
+layout(set = 0, binding = 46, std430) restrict readonly buffer HCarried { float h_carried[]; };
+layout(set = 0, binding = 47, std430) restrict readonly buffer CapSensible { float cap_sensible[]; };
 
 #include "march.glsli"
 
@@ -89,14 +88,13 @@ layout(push_constant, std430) uniform Params {
 	uint mode;            // MODE_* — what drives the flux across a face
 	uint law;             // LAW_* — which transport law sets the mobility
 	uint band_count;
-	uint flags;           // TF_SIGNED | TF_SETTLE | TF_STAMP
+	uint flags;           // TF_SIGNED | TF_SETTLE | TF_EFIELD
 	float cell_m;         // cell edge, metres. One number: the grid is uniform.
 	float dt_s;
 	float repose_tan;     // 0 = a fluid, which levels freely
 	float min_amount;     // below this a cell is empty and does not donate
 	float density;        // kg/m^3 of the substance this record carries
 	float max_fill;       // the amount at which a cell is full
-	float lapse_k_per_m;  // MODE_CONVECT: the adiabat this pair must exceed before it overturns
 	float fluid_rho;      // kg/m^3 of the fluid the row moves THROUGH
 	float fluid_visc;     // Pa s of that fluid
 	float grain_d;        // m, the row's own grain diameter where the cell declares none
@@ -112,6 +110,8 @@ layout(push_constant, std430) uniform Params {
 	float w_silicate;
 	float w_carbonate;
 	float w_silica;
+	// J/m^3/K a unit of fill adds to the sensible entry; 0 for a substance on its own phase ladder.
+	float sub_cap_j_m3k;
 } params;
 
 const uint PASS_GRAIN = 2u;   // TransportPass.PASS_GRAIN
@@ -331,8 +331,8 @@ float mobility_at(uint c, float amt) {
 		return ohmic_conductivity_at(c, column_field(c)) * dt / EPS0;
 	}
 	if (params.law == LAW_PGF) {
-		// The pressure-gradient force written as a flux: dp * area * dt IS the momentum it delivers.
-		return L * L * dt;
+		// A force per volume delivers momentum per volume: dp * dt / L, `drop` already carrying one L.
+		return dt / L;
 	}
 	return 0.0;
 }
@@ -695,7 +695,16 @@ void main() {
 		}
 		// Mass carries its heat and its charge. A row that carries no matter carries neither.
 		bool carries = params.density > 0.0 && amount[gidx] > 0.0;
-		float h_per_unit = carries ? h[gidx] / amount[gidx] : 0.0;
+		// Heat per unit fill of THIS substance: its share of the entry its heat sits in.
+		float h_per_unit = 0.0;
+		if (carries) {
+			if (params.sub_cap_j_m3k > 0.0) {
+				float cap = cap_sensible[gidx];
+				h_per_unit = cap > 0.0 ? h_carried[gidx] * params.sub_cap_j_m3k / cap : 0.0;
+			} else {
+				h_per_unit = h_carried[gidx] / amount[gidx];
+			}
+		}
 		float q_per_unit = carries ? charge[gidx] / amount[gidx] : 0.0;
 		float open = 1.0 - clamp(resist[gidx], 0.0, 1.0);
 		if (open <= 0.0) {
@@ -724,17 +733,6 @@ void main() {
 			// gas holds a temperature gradient up to its adiabat. Same construct, one cell of run either way.
 			if (params.repose_tan > 0.0) {
 				drop -= params.repose_tan * params.cell_m;
-				if (drop <= 0.0) {
-					continue;
-				}
-			}
-			if (params.mode == MODE_CONVECT) {
-				vec3 gv = g_at(gidx);
-				float up = dot(-normalize(gv + vec3(1.0e-30)), face_normal(d));
-				if (up >= 0.0) {
-					continue;   // convection lifts; the sinking half is the neighbour's own pass
-				}
-				drop -= params.lapse_k_per_m * params.cell_m * (-up);
 				if (drop <= 0.0) {
 					continue;
 				}
@@ -828,14 +826,10 @@ void main() {
 	}
 	h[gidx] = h[gidx] - lost_h + gained_h;
 	charge[gidx] = charge[gidx] - lost_q + gained_q;
-	if ((params.flags & TF_STAMP) != 0u) {
-		// Ohmic dissipation, J/m^3: sigma E^2 is the power the medium takes out of the field it conducts in.
-		// ONE march: the column integral is the same one the conductivity and the strike test both read.
+	if ((params.flags & TF_EFIELD) != 0u) {
+		// DETECTORS ONLY. sigma E^2 dt is a dissipation RATE and nothing here holds the electrostatic
+		// store it would have to be drawn out of, so no cell is handed energy for conducting.
 		float e_here = column_field(gidx);
-		float joule = ohmic_conductivity_at(gidx, e_here) * e_here * e_here * params.dt_s;
-		stamp[gidx] += joule;
-		h[gidx] += joule;
-		// Published where it is DECIDED: col_e is the field in V/m, strike marks where it broke down.
 		float thr = rrea_threshold(gidx);
 		col_e[gidx] = e_here;
 		strike[gidx] = (thr > 0.0 && e_here >= thr) ? 1.0 : 0.0;

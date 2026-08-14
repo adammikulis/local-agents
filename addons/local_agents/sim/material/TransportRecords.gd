@@ -4,7 +4,7 @@ extends RefCounted
 ## What moves, and by what rule. transport.glsl runs every row through one gather.
 
 ## What drives a record across a face. Matches the MODE_* constants in transport.glsl.
-enum { POTENTIAL, ADVECT, BOTH, DIFFUSE, CONVECT, CONDUCT, RADIATE, SEPARATE }
+enum { POTENTIAL, ADVECT, BOTH, DIFFUSE, CONDUCT, RADIATE, SEPARATE }
 
 ## The transport law that sets a row's mobility from the cell's own state. Matches LAW_* in transport.glsl.
 enum Law { NONE, SHALLOW, FILM, DARCY, EDDY, SOUND, OHMIC, PGF }
@@ -13,7 +13,7 @@ enum Law { NONE, SHALLOW, FILM, DARCY, EDDY, SOUND, OHMIC, PGF }
 enum Fluid { VACUUM, WATER, AIR }
 
 ## Per-row switches, packed into the kernel's `flags`. Matches the TF_* constants in transport.glsl.
-enum Flag { SIGNED = 1, SETTLE = 2, STAMP = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32, LISTED = 64,
+enum Flag { SIGNED = 1, SETTLE = 2, EFIELD = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32, LISTED = 64,
 	RADIOGENIC = 128 }
 
 
@@ -59,9 +59,7 @@ static func rows() -> Array:
 		{"channel": "shock", "substance": "", "mode": DIFFUSE, "law": Law.SOUND, "fluid": Fluid.AIR},
 
 		{"channel": "charge", "substance": "", "mode": DIFFUSE, "law": Law.OHMIC, "fluid": Fluid.AIR,
-			"stamp": "discharge"},
-
-		{"channel": "h_j_m3", "substance": "", "mode": CONVECT, "law": Law.EDDY, "fluid": Fluid.AIR},
+			"efield": true},
 
 		# The heat equation: conduction down the temperature gradient, and the rock's own decay as the
 		# volumetric source term beside it.

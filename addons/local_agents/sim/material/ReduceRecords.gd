@@ -46,6 +46,8 @@ static func rows() -> Array:
 		out.append({"key": "open_" + name, "source": name, "op": Op.SUM, "mask": Mask.OPEN, "weight": true})
 	out.append({"key": "energy_stock", "source": "h_j_m3", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
 	out.append({"key": "solid_cells", "source": "solid", "op": Op.COUNT_GT, "threshold": 0.0})
+	# Conserved amounts are finite reals; state_derive.glsl counts a cell's NaN and infinite ones.
+	out.append({"key": "nonfinite_cells", "source": "nonfinite", "op": Op.SUM, "mask": Mask.ALL})
 	out.append({"key": "carbonate_cells", "source": "carbonate", "op": Op.COUNT_GT, "threshold": 0.0})
 	# The frozen share of the one h2o channel: the ladder's own solid fraction, not a separate stock.
 	out.append({"key": "snow_cells", "source": "h2o", "aux": "h2o_solid", "op": Op.COUNT_GT,

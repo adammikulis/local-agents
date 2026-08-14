@@ -113,24 +113,31 @@ int la_mix_breakpoints(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int
 
 // The height of the discontinuity at a boundary, J. The boiling step vanishes when non-condensable gas is
 // present: the vapour share reaches one smoothly as the saturation pressure climbs to the cell's.
+// One substance's share of the latent step at t_b, J — the part la_mix_specific_enthalpy cannot report.
+float la_mix_jump_of(SubstanceTh s, float m_kg, float t_b, float p_pa, float n_gas_mol,
+		float molality_mol_kg) {
+	if (m_kg <= 0.0) { return 0.0; }
+	float total = 0.0;
+	float solidus = la_melt_c_at(s, p_pa, molality_mol_kg);
+	float liquidus = la_liquidus_c_at(s, p_pa, molality_mol_kg);
+	if (s.has_melt && solidus == t_b && liquidus == t_b) {
+		float f_v = la_mix_vapour_fraction(s, t_b, p_pa, m_kg, n_gas_mol, molality_mol_kg);
+		total += m_kg * (1.0 - f_v) * s.l_fus;
+	}
+	bool has = false;
+	float vap_t = la_mix_vapour_boundary_c(s, p_pa, has);
+	if (has && vap_t == t_b && n_gas_mol <= 0.0) {
+		total += m_kg * la_mix_latent_out(s, t_b, p_pa, molality_mol_kg);
+	}
+	return total;
+}
+
 float la_mix_jump_at(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, float t_b, float p_pa,
 		float n_gas_mol, float molality_mol_kg) {
 	float total = 0.0;
 	for (int i = 0; i < LA_MIX_MAX; ++i) {
 		if (i >= n) { break; }
-		if (mass[i] <= 0.0) { continue; }
-		SubstanceTh s = subs[i];
-		float solidus = la_melt_c_at(s, p_pa, molality_mol_kg);
-		float liquidus = la_liquidus_c_at(s, p_pa, molality_mol_kg);
-		if (s.has_melt && solidus == t_b && liquidus == t_b) {
-			float f_v = la_mix_vapour_fraction(s, t_b, p_pa, mass[i], n_gas_mol, molality_mol_kg);
-			total += mass[i] * (1.0 - f_v) * s.l_fus;
-		}
-		bool has = false;
-		float vap_t = la_mix_vapour_boundary_c(s, p_pa, has);
-		if (has && vap_t == t_b && n_gas_mol <= 0.0) {
-			total += mass[i] * la_mix_latent_out(s, t_b, p_pa, molality_mol_kg);
-		}
+		total += la_mix_jump_of(subs[i], mass[i], t_b, p_pa, n_gas_mol, molality_mol_kg);
 	}
 	return total;
 }

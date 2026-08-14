@@ -14,26 +14,15 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 0. THE TWO HALVES OF `h_j_m3` DISAGREE, AND ONE OF THEM IS INFINITE. TAKE THIS FIRST.
+## 0. MOMENTUM RUNS AWAY TO NON-FINITE. TAKE THIS FIRST.
 
-`energy_stock` serialises to null and the run logs Godot's own "NaN found in JSON.stringify". Every ledger
-watt goes null with it: `energy_absorbed_w`, `energy_emitted_w`, `energy_net_w`, `energy_booked`,
-`energy_residual`. The energy conservation row reads UNMEASURED rather than conserved.
+**Reproduce:** `scripts/check_finite_channels.sh` exits 0 at `LA_FINITE_FRAMES=4` and 1 at 20, and the
+report's `wind_x_sum`, `wind_z_sum`, `momentum_residual_rel` and `momentum_run_drift_rel` all serialise to
+null. `nonfinite_cells` counts three per affected cell, which is `mom_x`/`mom_y`/`mom_z` and nothing else:
+`energy_stock` and the whole energy row now fold to numbers.
 
-`h_j_m3` is a PAIR channel. Read both halves off the device on the same step and they hold different
-worlds: one carries a physically ordinary enthalpy density, the other carries `inf`. The CPU mirror
-`_f._h` — which `LAMaterialFieldSphereStep3D.step()` hands straight back to `begin_frame()` to upload —
-carries the infinite one. Cells whose enthalpy is enormous report ordinary temperatures, and at least one
-of them reports exactly `-273.15`, the `total <= 0.0` branch of `state_derive.glsl`: no matter at all.
-
-**Reproduce:** in `MaterialSphereGPU3D`, read `_bufs["h_j_m3"][0]` and `_bufs["h_j_m3"][1]` back after a
-step and compare their maxima, against `_f._h`'s. `MaterialFieldQueries3D.row_f("all_temp_max")` reads
-correctly at the same moment, so `temp` derives from the sound half while the mirror does not.
-
-Nothing measured anywhere in the substrate means anything while this holds: temperature is derived from
-enthalpy every step and drives the phase ladder, every reaction gate and both radiative terms. Note
-`_live()` returns `_bufs[name][_phase]` and `step()` flips `_phase` after dispatching, while the readback
-runs from the NEXT `begin_frame` — establish which half each pass writes before changing anything.
+The gate is written and mutation-tested both ways but is **NOT wired into `lint`** — wire it in the moment
+it passes, and not before.
 
 ## 1. Reduce the rest on the device
 
@@ -45,7 +34,7 @@ sweeps already use it. Left:
 - `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`, `MaterialFieldElementProbe3D`,
   `MaterialFieldOrganic3D`.
 - `CLIMATE_MAX_CELLS` and its stride delete with the climate scan.
-- `FieldPassAttribution3D._sums` walks the halves it downloads at a checkpoint. ReducePass runs last, so
+- `FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint. ReducePass runs last, so
   it cannot answer "which pass moved it": that wants a reduce dispatch per checkpoint, not a row.
 - Three shapes refused a row and say why: `sea_surface_stats` (a median needs a declared range nothing
   supplies), `lava_shell_diag` (five outputs over two gates), `rock_radial_profile` (a binned reduction

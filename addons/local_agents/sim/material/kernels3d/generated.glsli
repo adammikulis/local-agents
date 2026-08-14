@@ -46,19 +46,17 @@
 // sphere_passes/CellListPass.gd Flag
 #define F_OPEN_ONLY 1u
 #define F_INCLUSIVE 2u
-#define F_BACK 4u
-#define F_HALO 8u
-#define F_AUX 16u
+#define F_HALO 4u
+#define F_AUX 8u
 
 // TransportRecords.gd mode enum
 #define MODE_POTENTIAL 0u
 #define MODE_ADVECT 1u
 #define MODE_BOTH 2u
 #define MODE_DIFFUSE 3u
-#define MODE_CONVECT 4u
-#define MODE_CONDUCT 5u
-#define MODE_RADIATE 6u
-#define MODE_SEPARATE 7u
+#define MODE_CONDUCT 4u
+#define MODE_RADIATE 5u
+#define MODE_SEPARATE 6u
 
 // TransportRecords.gd Law enum
 #define LAW_NONE 0u
@@ -73,7 +71,7 @@
 // TransportRecords.gd Flag enum
 #define TF_SIGNED 1u
 #define TF_SETTLE 2u
-#define TF_STAMP 4u
+#define TF_EFIELD 4u
 #define TF_DRIVEN 8u
 #define TF_FRACTION 16u
 #define TF_DILUTE 32u

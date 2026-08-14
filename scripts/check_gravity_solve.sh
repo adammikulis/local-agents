@@ -108,7 +108,7 @@ func _solve(grid, fill: PackedFloat32Array) -> Array:
 	var rounds: int = int(ceil(float(SWEEP_BUDGET) / float(scr.SWEEPS)))
 	for _i in rounds:
 		var cl: int = _rd.compute_list_begin()
-		p.dispatch(_rd, cl, 0, ctx, cc, groups)
+		p.dispatch(_rd, cl, ctx, cc, groups)
 		_rd.compute_list_end()
 		_rd.submit()
 		_rd.sync()

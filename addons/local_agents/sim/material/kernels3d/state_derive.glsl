@@ -51,6 +51,16 @@ layout(set = 0, binding = 41, std430) restrict writeonly buffer Speed { float sp
 layout(set = 0, binding = 42, std430) restrict writeonly buffer Lat { float lat[]; };
 layout(set = 0, binding = 43, std430) restrict writeonly buffer Alt { float alt[]; };
 
+// How many of this cell's channel amounts, its enthalpy and its momentum are NaN or infinite.
+// Reduced by the `nonfinite_cells` row.
+layout(set = 0, binding = 44, std430) restrict writeonly buffer NonFinite { float nonfinite[]; };
+
+// The enthalpy each mixture entry holds, J/m^3, and the sensible entry's capacity, J/m^3/K.
+layout(set = 0, binding = 45, std430) restrict writeonly buffer HH2O { float h_h2o[]; };
+layout(set = 0, binding = 46, std430) restrict writeonly buffer HSilicate { float h_silicate[]; };
+layout(set = 0, binding = 47, std430) restrict writeonly buffer HSensible { float h_sensible[]; };
+layout(set = 0, binding = 48, std430) restrict writeonly buffer CapSensible { float cap_sensible[]; };
+
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	float dt_s;
@@ -78,9 +88,9 @@ const int PROP_LAMBDA = 4;         // W/m/K
 
 // Mixture entries. Two substances carry a phase ladder; everything else is linear in T, so one entry with
 // the summed mass and c = sum(m*c)/sum(m) reproduces sum(m_i*c_i*T) exactly.
-const int E_H2O = 0;               // StateDerivePass.E_H2O
-const int E_SILICATE = 1;          // StateDerivePass.E_SILICATE
-const int E_SENSIBLE = 2;          // StateDerivePass.E_SENSIBLE
+const int E_H2O = 0;               // LAMatterChannels.Entry.H2O
+const int E_SILICATE = 1;          // LAMatterChannels.Entry.SILICATE
+const int E_SENSIBLE = 2;          // LAMatterChannels.Entry.SENSIBLE
 const int N_ENTRIES = 3;
 
 // A substance with no phase boundary in this planet's range: enthalpy is c*T and nothing else.
@@ -103,6 +113,16 @@ SubstanceTh la_sensible_only(float c_j_kgk) {
 		float[LA_MAX_EL](0.0, 0.0, 0.0),
 		float[LA_MAX_EL](0.0, 0.0, 0.0)
 	);
+}
+
+// The enthalpy one mixture entry holds at the state the solve landed on, J.
+float la_entry_h(SubstanceTh s, float m_kg, float t_c, float p_pa, float n_gas_mol, bool pinned,
+		float progress) {
+	if (m_kg <= 0.0) {
+		return 0.0;
+	}
+	float h = m_kg * la_mix_specific_enthalpy(s, t_c, p_pa, m_kg, n_gas_mol, 0.0);
+	return pinned ? h + progress * la_mix_jump_of(s, m_kg, t_c, p_pa, n_gas_mol, 0.0) : h;
 }
 
 // Cementation and the solid flag, from the melt share this cell just derived. No mass moves here, and the
@@ -150,6 +170,19 @@ void main() {
 		? degrees(asin(clamp(dot(r_vec / r_len, omega / w_len), -1.0, 1.0)))
 		: uintBitsToFloat(0x7FC00000u);
 
+	float nf = 0.0;
+	for (int i = 0; i < LA_CHANNEL_SLOTS; ++i) {
+		float v = channel_at(i, g);
+		nf += (isnan(v) || isinf(v)) ? 1.0 : 0.0;
+	}
+	float hv = h_j_m3[g];
+	nf += (isnan(hv) || isinf(hv)) ? 1.0 : 0.0;
+	vec3 pv = vec3(mom_x[g], mom_y[g], mom_z[g]);
+	nf += (isnan(pv.x) || isinf(pv.x)) ? 1.0 : 0.0;
+	nf += (isnan(pv.y) || isinf(pv.y)) ? 1.0 : 0.0;
+	nf += (isnan(pv.z) || isinf(pv.z)) ? 1.0 : 0.0;
+	nonfinite[g] = nf;
+
 	float mass[LA_MIX_MAX] = float[LA_MIX_MAX](0.0, 0.0, 0.0, 0.0);
 	float mc = 0.0;          // sum of m*c over the sensible-heat substances, J/K
 	float n_gas_mol = 0.0;   // moles of non-condensable gas: the Dalton denominator of the vapour split
@@ -177,7 +210,8 @@ void main() {
 	float inv_vol = (vol > 0.0) ? 1.0 / vol : 0.0;
 	// Parallel mixing rule: the fluxes through each constituent add. An empty cell conducts nothing.
 	conductivity[g] = (v_used > 0.0) ? v_lambda / v_used : 0.0;
-	rho_bulk[g] = total * inv_vol;   // kg/m^3, gas included: gravity pulls on all of it
+	float rho = total * inv_vol;     // kg/m^3, gas included: gravity pulls on all of it
+	rho_bulk[g] = rho;
 	float f_melt = 0.0;
 	vec3 v = vec3(0.0);
 	if (total <= 0.0) {
@@ -190,12 +224,16 @@ void main() {
 		h2o_liquid[g] = 0.0;
 		h2o_vapour[g] = 0.0;
 		silicate_melt[g] = 0.0;
+		h_h2o[g] = 0.0;
+		h_silicate[g] = 0.0;
+		h_sensible[g] = 0.0;
+		cap_sensible[g] = 0.0;
 		lithify(g, f_melt);
 		return;   // no mass, so the frame terms deliver no momentum either
 	}
-	// v = p/m. Nothing with no mass moves, and a light cell is pushed further by the same momentum.
-	float inv_m = vol / total;
-	v = vec3(mom_x[g], mom_y[g], mom_z[g]) * inv_m;
+	// v = p/rho, momentum density over mass density. Dividing by the density rather than multiplying by
+	// vol/total keeps the intermediate inside float range on a grid whose cells are kilometres wide.
+	v = vec3(mom_x[g], mom_y[g], mom_z[g]) / rho;
 	vel_x[g] = v.x;
 	vel_y[g] = v.y;
 	vel_z[g] = v.z;
@@ -214,6 +252,14 @@ void main() {
 	float t_c = la_mix_state(subs, mass, N_ENTRIES, h_j_m3[g] * vol, p_pa, n_gas_mol, 0.0,
 		pinned, progress);
 	temp[g] = t_c;
+
+	// The decomposition la_mix_enthalpy_at sums, kept per entry so transport moves heat with matter.
+	h_h2o[g] = la_entry_h(subs[E_H2O], mass[E_H2O], t_c, p_pa, n_gas_mol, pinned, progress) * inv_vol;
+	h_silicate[g] = la_entry_h(subs[E_SILICATE], mass[E_SILICATE], t_c, p_pa, n_gas_mol, pinned,
+		progress) * inv_vol;
+	h_sensible[g] = la_entry_h(subs[E_SENSIBLE], mass[E_SENSIBLE], t_c, p_pa, n_gas_mol, pinned,
+		progress) * inv_vol;
+	cap_sensible[g] = mc * inv_vol;
 
 	// THE PHASE SPLIT OF THIS CELL'S H2O, off the SAME ladder and the SAME saturation curve the solve used.
 	// `progress` is where inside a latent plateau the enthalpy landed, so a cell held at the melting point
@@ -266,7 +312,7 @@ void main() {
 	// body-local and the body spins. The density is this cell's whole mass, gas included.
 	if (w_len > 0.0) {
 		vec3 a = -2.0 * cross(omega, v) - cross(omega, cross(omega, r_vec));
-		vec3 dp = a * (total * inv_vol) * params.dt_s;
+		vec3 dp = a * rho * params.dt_s;
 		mom_x[g] += dp.x;
 		mom_y[g] += dp.y;
 		mom_z[g] += dp.z;

@@ -7,29 +7,28 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/cell_list_sphere3d.glsl"
 
 enum Pass { RESET = 0, APPEND = 1, ARGS = 2 }
-enum Half { LIVE = 0, BACK = 1 }
 ## Predicate terms; the kernel's F_* defines are generated from this enum.
-enum Flag { OPEN_ONLY = 1, INCLUSIVE = 2, BACK = 4, HALO = 8, AUX = 16 }
+enum Flag { OPEN_ONLY = 1, INCLUSIVE = 2, HALO = 4, AUX = 8 }
 ## Args-buffer layout, shared with the kernel: 0-2 are the uvec3 an indirect dispatch reads, 3 is the
 ## atomic list length. SLOTS is the buffer's element count.
 enum Arg { GROUPS_X = 0, GROUPS_Y = 1, GROUPS_Z = 2, LIST_COUNT = 3, SLOTS = 8 }
 
 
-## Row keys: label · idx/args driver buffer keys · prim channel + half · back/aux/halo terms · thresholds.
+## Row keys: label · idx/args driver buffer keys · prim channel · aux/halo terms · thresholds.
 ## MELT reproduces transport.glsl's FILM row: no melt share, or cemented into rock, and it does not write.
 ## HALO adds the receivers of a molten cell's outflow to the list beside its donors.
 static func rows() -> Array:
 	return [
 		{"label": "melt", "idx": "melt_list_idx", "args": "melt_list_args",
 			"flag": "melt_list_flag",
-			"prim": "silicate_melt", "prim_half": Half.LIVE, "thr": 0.0, "inclusive": false,
-			"open_only": true, "back": false, "halo": true, "aux": "", "aux_thr": 0.0},
+			"prim": "silicate_melt", "thr": 0.0, "inclusive": false,
+			"open_only": true, "halo": true, "aux": "", "aux_thr": 0.0},
 		# STRIKE gives a bolt its position without anything walking the grid. No halo: a flash is where
 		# it struck. Built before transport runs, so the list carries the previous step's strikes.
 		{"label": "strike", "idx": "strike_list_idx", "args": "strike_list_args",
 			"flag": "strike_list_flag",
-			"prim": "strike", "prim_half": Half.LIVE, "thr": 0.0, "inclusive": false,
-			"open_only": true, "back": false, "halo": false, "aux": "", "aux_thr": 0.0,
+			"prim": "strike", "thr": 0.0, "inclusive": false,
+			"open_only": true, "halo": false, "aux": "", "aux_thr": 0.0,
 			"emit_idx": true},
 	]
 
@@ -45,7 +44,7 @@ static func list_buffers(label: String) -> Dictionary:
 
 var _rows: Array = []
 var _pipe: RID = RID()
-var _sets: Array = []                   # per row: [set(parity 0), set(parity 1)]
+var _sets: Array = []                   # per row: its uniform set
 var _args_rid: Array = []               # per row: dispatch-indirect args RID
 var _idx_rid: Array = []                # per row: compacted index buffer RID
 var _flags: PackedInt32Array = PackedInt32Array()
@@ -98,8 +97,6 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 			flags |= Flag.OPEN_ONLY
 		if bool(row["inclusive"]):
 			flags |= Flag.INCLUSIVE
-		if bool(row["back"]):
-			flags |= Flag.BACK
 		if bool(row["halo"]):
 			flags |= Flag.HALO
 		var aux_key: String = String(row["aux"])
@@ -109,23 +106,18 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		_args_rid.append(bufs[args_key])
 		_idx_rid.append(bufs[idx_key])
 		var prim: String = String(row["prim"])
-		var prim_back: bool = int(row["prim_half"]) == Half.BACK
-		var per_parity: Array = [RID(), RID()]
-		for p in 2:
-			var aux: RID = _half(bufs, aux_key, p, false) if aux_key != "" else solid
-			per_parity[p] = _uset(_pipe, [
-				[1, _half(bufs, prim, p, prim_back)],
-				[2, solid],
-				[3, _half(bufs, prim, p, not prim_back)],
-				[4, bufs[idx_key]],
-				[5, bufs[args_key]],
-				[6, aux],
-				[7, bufs[flag_key]],
-				[15, nbr]])
-		_sets.append(per_parity)
+		var aux: RID = _single(bufs, aux_key) if aux_key != "" else solid
+		_sets.append(_uset(_pipe, [
+			[1, _single(bufs, prim)],
+			[2, solid],
+			[4, bufs[idx_key]],
+			[5, bufs[args_key]],
+			[6, aux],
+			[7, bufs[flag_key]],
+			[15, nbr]]))
 
 
-func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(rd: RenderingDevice, cl: int, _ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable() or _sets.is_empty():
 		if not _failed_announced:
 			_failed_announced = true
@@ -136,7 +128,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: i
 		return
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	for r in _sets.size():
-		rd.compute_list_bind_uniform_set(cl, _sets[r][parity], 0)
+		rd.compute_list_bind_uniform_set(cl, _sets[r], 0)
 		var flags: int = _flags[r]
 		var thr: float = float(_rows[r]["thr"])
 		var aux_thr: float = float(_rows[r]["aux_thr"])
