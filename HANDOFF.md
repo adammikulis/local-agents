@@ -120,6 +120,13 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
   inside its own file.
 - `check_shaders_compile.sh`'s kernel floor is `docs/SHADER_FLOOR` and `write_ceilings.sh` lowers it. Do not
   bake a count back into the gate.
+- `FieldLedgerFold3D.fold()` walks a LITERAL key list, so an energy row not named there never reaches
+  `_publish_energy`, and one missing leg nulls the whole radiative block — which makes the `energy_stock`
+  conservation row read UNMEASURED rather than fail. A gate that goes quiet instead of red.
+- `MaterialSphereGPU3D._seed_silicate()` writes the whole `silicate` and `cement` buffers with
+  `buffer_update` and never calls `note_creation`, so the planet's entire rock mass is absent from the seed
+  manifest that is meant to be the scoreboard of what the substrate was told. `MaterialField3D` declares the
+  same fact a second time.
 - `MaterialFieldReport3D` publishes `element_C_total_drift_per_step`, a bare-SI rate with no consumer; the
   dimensionless `element_C_total_rel_drift` beside it is what anything reads. One-line deletion.
 - `PHYSICS_RUBRIC.md` quotes `energy_residual / energy_booked` figures in prose. That denominator no longer

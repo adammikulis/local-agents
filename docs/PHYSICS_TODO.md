@@ -175,6 +175,19 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
       solved potential using the transport the substrate already has for a dense phase; the gravitational
       energy released is BOOKED as heat rather than discarded; a liquid outer core is then whatever the
       geotherm crossing iron's melting curve produces, not a declared region.
+      Three things block it, all established by reading. **`melt_c_at` gives iron a melting slope of about
+      119 K/GPa against a measured ~33** (Williams 1987, Science 236:181), because `dv` is taken from the two
+      REFERENCE densities and iron's sit 1518 K apart — alpha-Fe at 20 C against the liquid at its melting
+      point — so the slope carries 1518 K of thermal expansion. It wants `density_solid` quoted AT the
+      melting point with its own `density_solid_ref_t_c`, which needs a cited value for solid iron at 1811 K.
+      **A fifteenth matter channel must take binding 14, which is `Solid` in `state_derive.glsl` and
+      `Props` in `gravity_poisson.glsl`**, because `StateDerivePass` and `GravityPass` build uniform sets as
+      `entries.append([i, channels[i]])` — the entry index IS the channel index, so a high free binding is
+      not available. And **a dense phase descending under the solved potential releases NOTHING today**:
+      pass 0 carries enthalpy unchanged as `send_h[base+d] = flow * h_per_unit`, no term adds m·g·dz, and
+      `MODE_POTENTIAL` is a relaxation rather than a momentum equation, so the work is discarded. The
+      mechanism is viscous dissipation — metal percolating at terminal velocity heats what it passes through
+      — deposited on the row and debited against a potential store.
 - [ ] **No magnetic field, and it is downstream of the core rather than a subsystem to add.** A geodynamo is
       a convecting, electrically conducting, rotating fluid shell; the rotation and the conducting-fluid
       machinery exist and the shell does not. Note two things before scheduling it. A cell edge of this size
