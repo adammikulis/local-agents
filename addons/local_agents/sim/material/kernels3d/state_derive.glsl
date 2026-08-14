@@ -45,6 +45,13 @@ layout(set = 0, binding = 36, std430) restrict writeonly buffer H2OVapour { floa
 // the same enthalpy ladder the temperature came off, never stored.
 layout(set = 0, binding = 37, std430) restrict writeonly buffer SilicateMelt { float silicate_melt[]; };
 
+// WHERE AND HOW FAST, so a band of latitude or altitude is an ordinary reduce gate rather than a CPU walk.
+// speed is |v|, m/s; alt is the distance from the body centre, m; lat is the angle of that radius out of
+// the equatorial plane, degrees.
+layout(set = 0, binding = 41, std430) restrict writeonly buffer Speed { float speed[]; };
+layout(set = 0, binding = 42, std430) restrict writeonly buffer Lat { float lat[]; };
+layout(set = 0, binding = 43, std430) restrict writeonly buffer Alt { float alt[]; };
+
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	float dt_s;
@@ -132,6 +139,18 @@ void main() {
 
 	float vol = cell_volume(g);
 
+	// GEOMETRY, which does not depend on what the cell holds. No spin axis is no pole and no latitude, so
+	// lat is NaN there rather than a fabricated equator, and every gate then admits the cell nowhere.
+	vec3 omega = vec3(params.omega_x, params.omega_y, params.omega_z);
+	vec3 r_vec = vec3(pos[g * 3u], pos[g * 3u + 1u], pos[g * 3u + 2u])
+		- vec3(params.centre_x, params.centre_y, params.centre_z);
+	float r_len = length(r_vec);
+	float w_len = length(omega);
+	alt[g] = r_len;
+	lat[g] = (w_len > 0.0 && r_len > 0.0)
+		? degrees(asin(clamp(dot(r_vec / r_len, omega / w_len), -1.0, 1.0)))
+		: uintBitsToFloat(0x7FC00000u);
+
 	float mass[LA_MIX_MAX] = float[LA_MIX_MAX](0.0, 0.0, 0.0, 0.0);
 	float mc = 0.0;          // sum of m*c over the sensible-heat substances, J/K
 	float n_gas_mol = 0.0;   // moles of non-condensable gas: the Dalton denominator of the vapour split
@@ -173,6 +192,7 @@ void main() {
 		vel_x[g] = 0.0;
 		vel_y[g] = 0.0;
 		vel_z[g] = 0.0;
+		speed[g] = 0.0;
 		h2o_solid[g] = 0.0;
 		h2o_liquid[g] = 0.0;
 		h2o_vapour[g] = 0.0;
@@ -186,6 +206,7 @@ void main() {
 	vel_x[g] = v.x;
 	vel_y[g] = v.y;
 	vel_z[g] = v.z;
+	speed[g] = length(v);
 
 	SubstanceTh subs[LA_MIX_MAX];
 	subs[E_H2O] = la_h2o();
@@ -250,10 +271,7 @@ void main() {
 
 	// ROTATING FRAME: Coriolis -2w x v and centrifugal -w x (w x r), per unit volume. The field's axes are
 	// body-local and the body spins. The density is this cell's whole mass, gas included.
-	vec3 omega = vec3(params.omega_x, params.omega_y, params.omega_z);
-	if (dot(omega, omega) > 0.0) {
-		vec3 r_vec = vec3(pos[g * 3u], pos[g * 3u + 1u], pos[g * 3u + 2u])
-			- vec3(params.centre_x, params.centre_y, params.centre_z);
+	if (w_len > 0.0) {
 		vec3 a = -2.0 * cross(omega, v) - cross(omega, cross(omega, r_vec));
 		vec3 dp = a * (total * inv_vol) * params.dt_s;
 		mom_x[g] += dp.x;

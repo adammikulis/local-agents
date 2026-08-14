@@ -15,6 +15,9 @@ layout(set = 0, binding = 6, std430) readonly buffer Gate { float gatev[]; };
 layout(set = 0, binding = 7, std430) readonly buffer GateAux { float gate_aux[]; };
 layout(set = 0, binding = 8, std430) readonly buffer Aux2 { float aux2[]; };
 layout(set = 0, binding = 9, std430) readonly buffer Nbr { int nbr[]; };
+// Solved gravity per cell, flat cell*3, m/s^2. Which cell is BELOW another is a question only gravity
+// answers on a uniform Cartesian box.
+layout(set = 0, binding = 10, std430) readonly buffer Grav { float g_field[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -27,12 +30,13 @@ layout(push_constant, std430) uniform Params {
 	uint has_gate;     // 0 none, 1 gate, 2 gate*gate_aux
 	float gate_lo;     // gated cells are those inside [gate_lo, gate_hi)
 	float gate_hi;
-	uint nbr_solid;    // 1: the cell's value is how many of its six neighbours are solid
-	uint pad0;
+	uint nbr;          // NBR_*: what the cell's value is read against
+	float cell_m;      // cell edge, m — the denominator of a gradient
 } params;
 
 #include "neighbours.glsli"
 #include "generated.glsli"
+#include "march.glsli"
 
 shared float s_acc[64];
 
@@ -57,17 +61,7 @@ float la_fold(float a, float b) {
 	return a + b;
 }
 
-float la_value(uint i) {
-	if (params.nbr_solid != 0u) {
-		float n = 0.0;
-		for (uint d = 0u; d < N_SLOTS; ++d) {
-			int nb = nbr[i * N_SLOTS + d];
-			if (nb >= 0 && solid[uint(nb)] != 0.0) {
-				n += 1.0;
-			}
-		}
-		return n;
-	}
+float la_raw(uint i) {
 	float v = src[i];
 	if (params.has_aux != 0u) {
 		float a = aux[i];
@@ -79,8 +73,78 @@ float la_value(uint i) {
 	return v;
 }
 
+vec3 la_g(uint i) {
+	return vec3(g_field[i * 3u], g_field[i * 3u + 1u], g_field[i * 3u + 2u]);
+}
+
+// The cell one step along gravity, or against it; -1 outside the box or where gravity vanishes.
+int la_vertical(uint i) {
+	if (params.nbr == NBR_BELOW) {
+		return la_step(i, la_g(i));
+	}
+	return la_step(i, -la_g(i));
+}
+
+// Central difference of the row's value across one grid axis, per metre. The two faces are walked along
+// the axis, never named by a slot number. A solid or missing neighbour reflects, as a wall does.
+float la_grad(uint i) {
+	vec3 axis = vec3(float(params.nbr == NBR_GRAD_X), float(params.nbr == NBR_GRAD_Y),
+		float(params.nbr == NBR_GRAD_Z));
+	int hi = la_step(i, axis);
+	int lo = la_step(i, -axis);
+	float here = la_raw(i);
+	float a = (hi >= 0 && solid[uint(hi)] == 0.0) ? la_raw(uint(hi)) : here;
+	float b = (lo >= 0 && solid[uint(lo)] == 0.0) ? la_raw(uint(lo)) : here;
+	return (a - b) / (2.0 * max(params.cell_m, 1.0e-30));
+}
+
+float la_value(uint i) {
+	if (params.nbr == NBR_SOLID_COUNT) {
+		float n = 0.0;
+		for (uint d = 0u; d < N_SLOTS; ++d) {
+			int nb = nbr[i * N_SLOTS + d];
+			if (nb >= 0 && solid[uint(nb)] != 0.0) {
+				n += 1.0;
+			}
+		}
+		return n;
+	}
+	if (params.nbr >= NBR_GRAD_X) {
+		return la_grad(i);
+	}
+	float v = la_raw(i);
+	if (params.nbr == NBR_BELOW || params.nbr == NBR_ABOVE) {
+		v -= la_raw(uint(la_vertical(i)));
+	}
+	return v;
+}
+
+bool la_mask(uint i) {
+	bool open = solid[i] == 0.0;
+	if (params.mask == MASK_ALL) {
+		return true;
+	}
+	if (params.mask == MASK_OPEN) {
+		return open;
+	}
+	if (params.mask == MASK_SOLID) {
+		return !open;
+	}
+	// GROUND is an open cell whose gravity-below neighbour is solid; AIR is every other open cell.
+	if (!open) {
+		return false;
+	}
+	int b = la_step(i, la_g(i));
+	bool grounded = (b >= 0) && (solid[uint(b)] != 0.0);
+	return (params.mask == MASK_GROUND) ? grounded : !grounded;
+}
+
 bool la_keep(uint i) {
-	if (!((params.mask == MASK_ALL) || ((params.mask == MASK_OPEN) == (solid[i] == 0.0)))) {
+	if (!la_mask(i)) {
+		return false;
+	}
+	// A cell whose vertical neighbour does not exist has no difference to take, so the row skips it.
+	if ((params.nbr == NBR_BELOW || params.nbr == NBR_ABOVE) && la_vertical(i) < 0) {
 		return false;
 	}
 	if (params.has_gate == 0u) {
@@ -120,6 +184,8 @@ void main() {
 			acc += (v > params.threshold) ? 1.0 : 0.0;
 		} else if (params.op == OP_COUNT_GE) {
 			acc += (v >= params.threshold) ? 1.0 : 0.0;
+		} else if (params.op == OP_COUNT_LT) {
+			acc += (v < params.threshold) ? 1.0 : 0.0;
 		} else if (params.op == OP_COUNT) {
 			acc += 1.0;
 		} else if (params.op == OP_MIN || params.op == OP_MAX) {
