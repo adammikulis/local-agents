@@ -37,7 +37,7 @@ static func rows() -> Dictionary:
 static func derived_buffers() -> PackedStringArray:
 	return PackedStringArray(["temp", "h2o_solid", "h2o_liquid", "h2o_vapour", "silicate_melt",
 		"silicate_susp_water", "silicate_susp_air", "silicate_bed", "vel_x", "vel_y", "vel_z",
-		"pressure", "n_gas_m3", "rho_cond", "conductivity", "solid", "fire", "discharge",
+		"pressure", "rho_bulk", "conductivity", "solid", "fire", "discharge",
 		"rad_absorbed", "rad_emitted"])
 
 

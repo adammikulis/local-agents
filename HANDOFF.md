@@ -96,11 +96,7 @@ Every gate runs and the failures are summarised, so the fail-fast half of this i
 the harness collapses every gate's exit code into `exit 1`, so the exit-2 contract asserted in about ten gate
 headers and in `lint.yml` is not observable. Fix the harness, not the gates.
 
-## 9. Pressure is broken, and the harness exits 122 saying so
-
-`PRESSURE_BROKEN` reports both a count of inversions — pressure falling as you go DOWN — and a count of
-cells no column walk ever reached. Both are large. A cell with no pressure evaluates every phase boundary
-at vacuum, so this reaches the whole phase curve.
+## 9. An instrument that cannot fire, and three re-sweeps
 
 - `FieldAttributionRecords3D.SILENT_HEAT_PASSES` now lists only `"fungus"`, and there is no `FungusPass` in
   `PASS_SCRIPTS` — while `PRODUCERS` still names one for a channel `Channels.gd` declares as a single
@@ -133,6 +129,13 @@ a sealed pore. Invert `LASubstances.melt_c_at`: the pressure ice exerts at under
 `Substances.gd` should carry with its source. Bound the extent by the pore water available to freeze, and
 let deep cold starve the mechanism out of the state rather than a cutoff. Observed damage peaks at -3 to
 -10 C: if the law disagrees, that is the finding, not a thing to tune.
+
+## 12. `LAFieldGeometry.above` and `below` are not inverses, and `PRESSURE_BROKEN` still fires on it
+
+`slot_toward` snaps the local vertical to one of six axes, so across the diagonal where the snap flips,
+`above(below(c)) != c`. The pressure column, `air_above`, `ground` and `burial_steps` all march that
+relation, and no column integral can be monotone along a `below` step its own `above` step does not undo.
+One vertical relation, built once and inverse by construction, is what removes it.
 
 ---
 

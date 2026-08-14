@@ -32,8 +32,7 @@ layout(set = 0, binding = 30, std430) restrict writeonly buffer VelZ { float vel
 
 // What the pressure kernel needs and this pass already computes: the cell's gas in mol/m^3 and the
 // density of its CONDENSED matter alone, kg/m^3.
-layout(set = 0, binding = 31, std430) restrict writeonly buffer GasMol { float n_gas_m3[]; };
-layout(set = 0, binding = 32, std430) restrict writeonly buffer RhoCond { float rho_cond[]; };
+layout(set = 0, binding = 32, std430) restrict writeonly buffer RhoBulk { float rho_bulk[]; };
 layout(set = 0, binding = 33, std430) restrict writeonly buffer Cond { float conductivity[]; };
 
 // THE PHASE OF THE CELL'S H2O, as three shares of h2o[] summing to 1. Derived, never stored.
@@ -154,7 +153,6 @@ void main() {
 	float mass[LA_MIX_MAX] = float[LA_MIX_MAX](0.0, 0.0, 0.0, 0.0);
 	float mc = 0.0;          // sum of m*c over the sensible-heat substances, J/K
 	float n_gas_mol = 0.0;   // moles of non-condensable gas: the Dalton denominator of the vapour split
-	float m_gas = 0.0;       // kg of that same gas, so the condensed density needs no mean molar mass
 	float v_lambda = 0.0;    // volume-weighted conductivity, W/m/K
 	float v_used = 0.0;
 
@@ -172,19 +170,14 @@ void main() {
 		}
 		v_lambda += f * props[base + PROP_LAMBDA];
 		v_used += f;
-		float mol_per_kg = props[base + PROP_MOL_PER_KG];
-		n_gas_mol += m * mol_per_kg;
-		if (mol_per_kg > 0.0) {
-			m_gas += m;
-		}
+		n_gas_mol += m * props[base + PROP_MOL_PER_KG];
 	}
 
 	float total = mass[E_H2O] + mass[E_SILICATE] + mass[E_SENSIBLE];
 	float inv_vol = (vol > 0.0) ? 1.0 / vol : 0.0;
 	// Parallel mixing rule: the fluxes through each constituent add. An empty cell conducts nothing.
 	conductivity[g] = (v_used > 0.0) ? v_lambda / v_used : 0.0;
-	n_gas_m3[g] = n_gas_mol * inv_vol;
-	rho_cond[g] = max(total - m_gas, 0.0) * inv_vol;
+	rho_bulk[g] = total * inv_vol;   // kg/m^3, gas included: gravity pulls on all of it
 	float f_melt = 0.0;
 	vec3 v = vec3(0.0);
 	if (total <= 0.0) {
