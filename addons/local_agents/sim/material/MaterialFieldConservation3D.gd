@@ -15,7 +15,8 @@ static func noise_floor(cell_count: int) -> float:
 
 
 ## Gated quantity -> the PUBLISHED DIMENSIONLESS key it is asserted on. The ledger owns every ratio.
-## `rel` alone: a CLOSED total, denominator its own sealed baseline.
+## `rel` alone: drift NET of what crossed the edge, over the sealed baseline PLUS what crossed. Both terms
+## are zero on a shut wall, and the float32 floor still bounds it because the denominator only grows.
 ## `+ turnover`: a residual of the boundary EXCHANGE, denominator what crossed, not what is held.
 const GATED: Dictionary = {
 	"element_C_total": {"rel": "element_C_total_rel_drift"},
