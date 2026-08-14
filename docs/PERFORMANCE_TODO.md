@@ -77,9 +77,6 @@ sure the predicate covers every cell where a `TF_DILUTE` or `TF_STAMP` gather wr
   about twelve times per cell per step — every `LAW_EDDY` row plus four times inside `PASS_GRAIN`. `vel_*`
   are written once by `StateDerivePass` and not touched again, so caching it in one derived buffer is
   exactly equivalent, not an approximation.
-- **`longwave_emissivity(c)`** loops all 109 bands with five mixes and two table lookups each, and the
-  RADIATE row evaluates it once in pass 0 as emissivity and again in pass 1 as absorptivity. Nothing it
-  reads changes between those two dispatches. Stamp it in pass 0.
 - **`pressure.glsl`** re-marches the whole column above every cell, so a cell at depth d costs d loads and
   the pass is O(cells x span). A scan over each axis-snapped column would share the prefix.
 - **`root_soil()`** re-walks its 4-cell column once per record naming `SOIL_ROOT` and again inside
