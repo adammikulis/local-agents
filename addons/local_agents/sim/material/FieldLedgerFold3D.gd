@@ -57,8 +57,8 @@ func fold() -> Dictionary:
 		out["energy_stock"] = float(r["energy_stock"])
 	else:
 		out["energy_missing"] = PackedStringArray(["h_j_m3"])
-	# The RADIATE row's own books: joules over one step, volume-weighted off the device.
-	for key in ["rad_absorbed", "rad_emitted"]:
+	# The RADIATE row's own books, and the radiogenic source's: joules over one step, volume-weighted.
+	for key in ["rad_absorbed", "rad_emitted", "radiogenic"]:
 		if r.has(key):
 			out[key] = float(r[key])
 	return out

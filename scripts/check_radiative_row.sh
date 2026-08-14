@@ -27,6 +27,17 @@
 #   temperature. This is the negative control: without it, a floor or a default in the emissivity would
 #   pass the two arms above unnoticed.
 #
+# ARM TWO IS THE SIM'S OWN FIELD. Everything above builds its own grid, its own buffers and its own
+# temperatures, so it cannot see whether the row ran in the world at all: a uniform set the driver cannot
+# build makes the whole transport dispatch a no-op that arm one still reads as clean. The second arm boots
+# the real world and reads the row's own books off it. Matter above absolute zero radiates, and a cell
+# inside an opaque planet is surrounded by emitters, so both books are positive in a box holding condensed
+# matter — with solid_cells as the positive control, since an empty box emits nothing by construction.
+#
+# WHAT ARM TWO STILL CANNOT ASSERT. Stefan-Boltzmann in the seeded world needs the per-cell residual
+# computed beside the field it measures, in transport.glsl's RADIATE path, published as a gauge the way
+# gravity publishes Gauss's law. Off the reduced books alone the law is only checkable as a sign.
+#
 # The row is a compute kernel, so this needs a real device: headless has none. It runs through
 # run_sim_offscreen.sh, which takes the machine-wide GPU lock.
 #
@@ -318,6 +329,49 @@ if [ "$rc" -ne 0 ]; then
   echo "THROUGH a transparent cell, which reads 1.0 when the mean free path is one cell, and"
   echo "clear_cell_absorbed must be zero because a transparent cell takes nothing on the way past;"
   echo "vacuum_emission must be exactly zero, because a cell holding no matter has nothing to radiate."
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------------------------------
+# ARM TWO — the field the SIM seeds, not one this script built.
+# ---------------------------------------------------------------------------------------------------
+SIM_FRAMES="${LA_RADIATIVE_FRAMES:-20}"
+sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "$SIM_FRAMES" \
+  --report rad_emitted,rad_absorbed,solid_cells 2>&1)"
+sim_rc=$?
+printf '%s\n' "$sim_out" | grep -E '^(rad_emitted|rad_absorbed|solid_cells)' || true
+# A reduce row arrives as a gauge, so the value is behind a 'cur' key; a plain scalar has none.
+reading() { printf '%s\n' "$sim_out" | sed -n "s/^$1  *= *//p" | head -1 \
+  | sed -e "s/.*'cur': *//" -e 's/[,}].*//' -e "s/[^0-9eE.+-]//g"; }
+numeric() { printf '%s' "$1" | grep -Eq '^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$'; }
+emitted="$(reading rad_emitted)"
+absorbed="$(reading rad_absorbed)"
+solid="$(reading solid_cells)"
+for pair in "rad_emitted $emitted" "rad_absorbed $absorbed" "solid_cells $solid"; do
+  if ! numeric "${pair#* }"; then
+    echo "ERROR: the run published no numeric ${pair%% *} (sim_run exit $sim_rc), so the row went" >&2
+    echo "       unmeasured in the world the sim seeds. Refusing to report a pass." >&2
+    printf '%s\n' "$sim_out" | tail -20 >&2
+    exit 2
+  fi
+done
+# THE POSITIVE CONTROL. An empty box emits nothing by construction, which is not a verdict.
+if ! awk -v s="$solid" 'BEGIN{exit !(s > 0)}'; then
+  echo "ERROR: the box holds no condensed matter, so nothing in it is obliged to radiate." >&2
+  exit 2
+fi
+if ! awk -v e="$emitted" 'BEGIN{exit !(e > 0)}'; then
+  echo
+  echo "In the world the sim seeds the RADIATE row emitted NOTHING, while the box holds condensed matter"
+  echo "above absolute zero. Every such cell radiates through its six faces, so the row did not run there:"
+  echo "look for a uniform set the driver could not build, or a dispatch that never reached this pass."
+  exit 1
+fi
+if ! awk -v a="$absorbed" 'BEGIN{exit !(a > 0)}'; then
+  echo
+  echo "In the world the sim seeds the RADIATE row absorbed NOTHING. A cell inside an opaque planet is"
+  echo "surrounded by six emitters and the lit surface also takes sunlight, so the gather half of the row"
+  echo "is not running even though the emit half is."
   exit 1
 fi
 echo "check_radiative_row: OK"

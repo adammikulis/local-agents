@@ -231,15 +231,17 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
 - [ ] **No per-pass attribution for ELEMENTS.** Mineral and energy each have a probe, and each named its
       culprit in a single run. Carbon, oxygen and water have only global totals, which say a number moved
       and never where.
+- [ ] **The planet's thermal enthalpy sum is NON-FINITE, so energy is UNMEASURED rather than conserved.**
+      The `h_j_m3` reduce row drains a value that is not a number, so `energy_residual_rel` cannot be formed
+      and the conservation gate refuses the row. Decided by that row's sum reading finite.
+- [ ] **`o2_first` latches at zero, so the o2 row has no scale to be a fraction of.** A baseline of zero is
+      not a baseline; the row reads UNMEASURED. Decided by the o2 baseline latching after the channel is live.
 
 ## F. Prescribed where it should emerge
 
 - [ ] **No mantle convection.** The rock's own radiogenic decay is now the only interior heat source and the
       geotherm is whatever it, conduction and the surface produce — but nothing carries that heat by MOVING
       rock, so the plates above are kinematic rather than driven.
-- [ ] **The radiogenic source is deposited from GDScript.** A volumetric source term belongs in the
-      conduction kernel beside `∇·(k∇T)`; `LAMaterialFieldGeotherm3D` hands it to the sparse heat queue
-      instead, on the gravity solve's cadence. Delete this entry when the kernel reads the source itself.
 - [ ] **`ThermalPass` still pushes a `core_boundary_c` nobody writes.** Its `ctx.get(..., 0.0)` fallback
       would put a 0 °C ghost cell under the deepest rock — a heat SINK — the moment `heat_sphere3d.glsl`
       returns. The base of the grid has no boundary condition to invent: delete the push constant.

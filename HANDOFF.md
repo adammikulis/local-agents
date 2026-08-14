@@ -14,13 +14,28 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
+## 0. THE ENERGY FIELD DOES NOT REPORT A NUMBER. TAKE THIS FIRST.
+
+`energy_stock` serialises to null and the run logs Godot's own "NaN found in JSON.stringify". Every ledger
+figure downstream goes null with it: `energy_absorbed_w`, `energy_emitted_w`, `energy_net_w`,
+`energy_booked`, `energy_residual`. Beside it, `all_temp_max` and `open_temp_max` read hotter than any star,
+and `geo_grad_c_per_m` reads garbage. The reduced `rad_absorbed` / `rad_emitted` rows underneath are finite.
+
+**Reproduce:** `scripts/agent_harness.sh sim --frames 20`, then read `energy_stock` and `all_temp_max` out
+of `SIM_REPORT`.
+
+Temperature is derived from enthalpy per step and drives the phase ladder, every reaction gate and both
+radiative terms, so nothing measured anywhere in the substrate means anything while this holds. A single
+cell carrying NaN or a sentinel poisons a SUM row and a MAX row differently, which is why one gauge is null
+and the other is enormous.
+
 ## 1. Reduce the rest on the device
 
 `ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and twenty-one report
 sweeps already use it. Left:
 
 - `MaterialFieldReport3D.surface_climate`, `MaterialFieldPhotoStats3D`,
-  `MaterialFieldClimateSwing3D._site_stations`, `MaterialFieldGeotherm3D._gradient`.
+  `MaterialFieldClimateSwing3D._site_stations`.
 - `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`, `MaterialFieldElementProbe3D`,
   `MaterialFieldOrganic3D`.
 - `CLIMATE_MAX_CELLS` and its stride delete with the climate scan.
@@ -42,14 +57,6 @@ Free today, no new op: `momentum_vec` is three `SUM` rows on `vel_*` with `aux: 
 `spin × momentum_vec × -2Ω` on the CPU, and the per-cell accumulation is pure waste.
 
 ## 2. Collapse the per-cell kernels into one dispatch
-
-Seven passes are dispatched per step. `MaterialFieldGeotherm3D` is the next one to go and it is not even a
-kernel: `_rebuild()` computes `silicate[c] * rho_rock * vol[c] * w_per_kg`, in which only `silicate[c]`
-varies per cell, then compacts a list and hands joules to the sparse inject queue from GDScript on the
-gravity solve's cadence. Radiogenic heating is a volumetric source, heat appearing in proportion to the rock
-a cell holds, and it is one term in the kernel beside the rest. Keep `LARadiogenicDecay`, which is the real
-physics of a decaying nuclide store; delete the module, the list, the queue round trip and the separate
-cadence.
 
 `CellListPass` is the seventh, and it stays a pass until the compaction becomes a mode of `transport.glsl`:
 `check_binding_collisions.sh` fails any pass naming two kernel paths, so it cannot simply be folded into
@@ -102,13 +109,10 @@ constants — and one gate absorbing the hand-written binding stanzas. Mutation-
   than tracking per-node cell changes, and `LASimReport.snapshot` deep-copies its events and gauges on every
   call. Both are constants, not asymptotes.
 
-## 10. Two constants that are not what they name
+## 10. A constant that is not what it names
 
 - `AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`, and it is the unit
   definition of the `o2`, `co2` and `n2` channels, so correcting it rescales every gas total.
-- One radiogenic rate covers every rock and there is only one rock. Continental crust is enriched about
-  fifty times over depleted mantle, so a second rock substance with its own abundance is what makes crust
-  and mantle differ. The rate is also present-day and this body has no age.
 
 ## 11. Rebuild frost shattering from the phase boundary
 

@@ -74,7 +74,10 @@ layout(set = 0, binding = 38, std430) restrict writeonly buffer RadEmit { float 
 // The column field and the breakdown it decides, published rather than re-derived on the CPU.
 layout(set = 0, binding = 39, std430) restrict writeonly buffer ColE { float col_e[]; };
 layout(set = 0, binding = 40, std430) restrict writeonly buffer Strike { float strike[]; };
-// RADIATE two-pass scratch: pass 0 stamps the broadband emissivity and the solar share, pass 1 marches.
+// Rock channels two and three, the TF_RADIOGENIC deposit (J/m^3), and the RADIATE march's scratch.
+layout(set = 0, binding = 41, std430) restrict readonly buffer CarbonateBuf { float carbonate[]; };
+layout(set = 0, binding = 42, std430) restrict readonly buffer SilicaBuf { float silica[]; };
+layout(set = 0, binding = 43, std430) restrict writeonly buffer Radiogenic { float radiogenic[]; };
 layout(set = 0, binding = 44, std430) restrict buffer LwEmis { float lw_emis[]; };
 layout(set = 0, binding = 45, std430) restrict buffer SwAbs { float sw_absorbed[]; };
 
@@ -105,6 +108,10 @@ layout(push_constant, std430) uniform Params {
 	float mu_water;       // LAPhysical.WATER_DYNAMIC_VISCOSITY_PA_S
 	float rho_air;        // LAPhysical.AIR_DENSITY_KG_M3
 	float mu_air;         // LAPhysical.AIR_DYNAMIC_VISCOSITY_PA_S
+	// Radiogenic power of one cubic metre of each pure rock at this epoch, W/m^3.
+	float w_silicate;
+	float w_carbonate;
+	float w_silica;
 } params;
 
 const uint PASS_GRAIN = 2u;   // TransportPass.PASS_GRAIN
@@ -629,6 +636,8 @@ void main() {
 	bool is_signed = (params.flags & TF_SIGNED) != 0u;
 	// Pore flow's domain IS the rock: its resistance, not a solid mask, is what stops it.
 	bool through_pores = params.law == LAW_DARCY;
+	// The solid mask stops MATTER. Heat is not matter, so conduction crosses rock both ways.
+	bool blocks_solid = !through_pores && params.mode != MODE_RADIATE && params.mode != MODE_CONDUCT;
 
 	if (params.pass_id == 0u) {
 		for (uint d = 0u; d < N_SLOTS; ++d) {
@@ -636,7 +645,7 @@ void main() {
 			send_h[base + d] = 0.0;
 			send_q[base + d] = 0.0;
 		}
-		if (solid[gidx] != 0.0 && params.mode != MODE_RADIATE && !through_pores) {
+		if (solid[gidx] != 0.0 && blocks_solid) {
 			return;
 		}
 		// MODE_RADIATE emits through every face it has, including the box edge, where nobody gathers it
@@ -703,7 +712,7 @@ void main() {
 			if (inb < 0) {
 				continue;
 			}
-			if (solid[inb] != 0.0 && !through_pores) {
+			if (solid[inb] != 0.0 && blocks_solid) {
 				continue;
 			}
 			uint nb = uint(inb);
@@ -733,12 +742,13 @@ void main() {
 			float mob_face = through_pores ? darcy_mobility(gidx, nb) : mob;
 			float flow = drop * mob_face * open / params.cell_m;
 			if (params.mode == MODE_CONDUCT) {
-				// Two half-cells in series across the bond, so the interface conductivity is the harmonic
-				// mean. dh = lambda_i * (T_nb - T_here) * dt / dx^2, with no capacity: h IS the state.
+				// Series half-cells, so the interface conductivity is the harmonic mean, and
+				// dh = lambda_i * (T_here - T_nb) * dt / dx^2 off `drive`: `drop` carries a spare cell_m.
 				float a = aux[gidx];
 				float b = aux[nb];
 				float lam = 2.0 * a * b / max(a + b, 1.0e-12);
-				flow = drop * lam * params.dt_s / (params.cell_m * params.cell_m);
+				flow = lam * (drive[gidx] - drive[nb]) * params.dt_s
+					/ (params.cell_m * params.cell_m);
 			}
 
 			if (params.mode == MODE_ADVECT || params.mode == MODE_BOTH) {
@@ -829,5 +839,13 @@ void main() {
 		float thr = rrea_threshold(gidx);
 		col_e[gidx] = e_here;
 		strike[gidx] = (thr > 0.0 && e_here >= thr) ? 1.0 : 0.0;
+	}
+	if ((params.flags & TF_RADIOGENIC) != 0u) {
+		// The rock warms itself, at this epoch's rate. This row carries h_j_m3, so `amount` IS enthalpy.
+		float dq = (max(silicate[gidx], 0.0) * params.w_silicate
+			+ max(carbonate[gidx], 0.0) * params.w_carbonate
+			+ max(silica[gidx], 0.0) * params.w_silica) * params.dt_s;
+		amount[gidx] += dq;
+		radiogenic[gidx] = dq;
 	}
 }

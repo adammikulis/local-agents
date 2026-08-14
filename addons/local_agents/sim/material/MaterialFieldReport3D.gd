@@ -221,8 +221,7 @@ func report() -> Dictionary:
 	# sea_ice_cells / sea_ice_temp / open_sea_cells / open_sea_temp — one walk, medians.
 	r.merge(q.sea_surface_stats())
 	r.merge(q.rock_radial_profile())
-	# geo_radiogenic_w is the rock's own decay power.
-	r.merge(_f.geotherm_report())
+	r.merge(q.geotherm_stats())
 	r.merge(q.hot_spring_stats())
 	r.merge(q.lava_shell_diag())
 	var heavy: Dictionary = _heavy_block()
