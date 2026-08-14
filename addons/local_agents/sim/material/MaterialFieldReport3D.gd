@@ -256,14 +256,14 @@ func _track_if_measured(r: Dictionary, key: String, register: String) -> void:
 		_extremes.track(register, float(v))
 
 
-## True on the last STEP of a --run-frames run, so the closing report is always freshly computed.
+## STEPS, the clock the run ends on. Physics frames advance through the seed while steps do not.
 func _is_final_frame() -> bool:
 	var want: int = int(Engine.get_meta("la_run_frames", 0))
-	return want > 0 and Engine.get_physics_frames() >= want - 1
+	return want > 0 and LASimLoop.active() != null and LASimLoop.active().step_index() >= want - 1
 
 
 func _heavy_block() -> Dictionary:
-	var frame: int = int(Engine.get_physics_frames())
+	var frame: int = LASimLoop.active().step_index() if LASimLoop.active() != null else 0
 	var every: int = HEAVY_EVERY_FRAMES
 	var ov: String = OS.get_environment("LA_GAUGE_EVERY")
 	if ov != "":
