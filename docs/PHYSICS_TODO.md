@@ -165,9 +165,9 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
 - [ ] **The four gathers are still four kernels.** `gravity_flow`, `soil`, `erosion_transport` and
       `plate_advect` remain separate with different flow rules. The bug CLASS is now closed by the table
       above, so this is de-duplication rather than correctness — worth doing, no longer urgent.
-- [ ] ~~**`sediment_total` is ~0**~~ — STRUCK: the gauge no longer exists. Loose mineral is now a derived
-      share of `silicate`, reported as `silicate_total` with `silicate_bed` / `silicate_susp_water`.
-      Downstream of E1 most likely, but unconfirmed; re-check once E1 is closed.
+- [ ] **Loose mineral may not be moving.** `silicate_bed` / `silicate_susp_water` are the derived shares
+      that replaced the deleted `sediment_total` gauge. **Reproduce:** `scripts/agent_harness.sh sim
+      --frames 200` and read whether either share is ever non-zero away from a slump.
 - [ ] **Two mass transfers still move temperature without moving heat**: the regolith→regolith Darcy leg
       (`soil_sphere3d.glsl:51`) and sediment slump.
 - [ ] **The grid cannot resolve its own aquifer.** Four regolith cells span 10.8 km against the 2 km
@@ -220,9 +220,9 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
       non-solid while only gathering within its own column's atmosphere, so a cell under a rock overhang was
       a one-way sink.
 
-- [ ] **The wind is supersonic and always has been** — 160 m/s after the lateral fix, 425 before, against a
-      real jet stream of ~70 m/s. `MAX_WIND` was deleted on purpose (wind speed is an output), so this is the
-      momentum equation or its timebase, not a missing clamp. Suspect first now that pressure is in pascals.
+- [ ] **The wind is supersonic**, against a real jet stream of ~70 m/s. `MAX_WIND` was deleted on purpose,
+      because a wind speed is an output and not a thing to clamp. **Reproduce:** `scripts/agent_harness.sh
+      sim --frames 200` and read the peak speed off the `speed` derived channel.
 
 - [ ] **`o2_total` and `oxidant_all`** are the largest remaining drifts, newly visible now that the
       air-above gates select the right cells.

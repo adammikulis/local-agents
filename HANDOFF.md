@@ -7,6 +7,11 @@ more than it should is in `docs/PERFORMANCE_TODO.md`.
 Nothing here is a claim about the state of the tree, because a claim rots and nobody notices. Check the
 code, then act. Report what was deleted; report no number this substrate printed.
 
+**AN ITEM CARRIES A SYMPTOM AND THE COMMAND THAT REPRODUCES IT, NEVER A DIAGNOSIS.** A symptom holds until
+it is fixed. An assertion about a cause rots in silence, reads as progress, and spends the next reader's day
+on the file it named. If you know the cause you are close enough to fix it, so fix it.
+`scripts/check_doc_prose.sh` fails the build on a tracker that names one.
+
 ---
 
 ## 1. Reduce the rest on the device
@@ -24,15 +29,13 @@ sweeps already use it. Left:
 - Three shapes refused a row and say why: `sea_surface_stats` (a median needs a declared range nothing
   supplies), `lava_shell_diag` (five outputs over two gates), `rock_radial_profile` (a binned reduction
   plus a gravity march in one walk).
-- `_liquid_mirror`, `_ice_mirror` and `_vapour_mirror` are each a per-cell product of two buffers the GPU
-  already holds. Three `LAChannels.derived_buffers()` entries written by `StateDerivePass` delete all three
-  loops with no reduce row at all; waiting for their five consumers to convert is a choice, not a blocker.
+- `_liquid_mirror` is a per-cell product of two buffers the GPU already holds, rebuilt per drinking
+  creature per tick. A derived buffer written by `StateDerivePass` deletes the loop with no reduce row at
+  all; its four consumers convert with it, and `drink` stops writing its depletion into a throwaway copy.
 
-The ops these sweeps still need, so a lane adds them once rather than four times: `Mask.GROUND` / `Mask.AIR`
-(open with solid at the gravity-below slot — `nbr_solid` already binds the neighbour table); `Op.COUNT_LT`;
-a below-neighbour comparison, which covers `pressure_inversions`, `pressure_audited` AND the momentum
-buoyancy book; a six-face gradient for the momentum PGF book; derived `speed`, `lat` and `alt` channels,
-after which every latitude and altitude band is an ordinary row using the existing `gate_lo`/`gate_hi`.
+The ops are BUILT — `Mask.GROUND`/`Mask.AIR`, `Op.COUNT_LT`, `enum Nbr` (below, above, six-face gradient)
+and the derived `speed`/`lat`/`alt` channels — so a sweep converts without adding machinery, and every
+latitude and altitude band is an ordinary row on the existing `gate_lo`/`gate_hi`.
 
 Free today, no new op: `momentum_vec` is three `SUM` rows on `vel_*` with `aux: "air"`, weighted, OPEN;
 `momentum_mass_kg` is one. **Coriolis then costs nothing** — it is linear in v, so it is
@@ -77,11 +80,6 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
   per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
 - The driver: `MaterialSphereGPU3D.gd` and `MaterialField3D.gd`. Last, after the pass seam settles.
 
-## 6. Make `_read_channels`'s SLOW block read `slow_channels()`
-
-It hardcodes `["silicate", "fert"]` and `["biomass", "cement", ...]`, so `slow_channels()` is a view nothing
-consumes and `porosity` never gets its coarse readback.
-
 ## 7. Build the binding registry
 
 SSBO binding numbers are a bare integer in GLSL and a second bare integer in one of fourteen uniform-set
@@ -90,13 +88,7 @@ is unheld is narrower: that one index names the same BUFFER on both sides. Build
 on `Channels.gd`'s shape — a `static func rows()`, never a `const Dictionary` built from another script's
 constants — and one gate absorbing the hand-written binding stanzas. Mutation-test it both ways.
 
-## 8. Make `lint` distinguish "could not run" from "violated"
-
-Every gate runs and the failures are summarised, so the fail-fast half of this is already done. What remains:
-the harness collapses every gate's exit code into `exit 1`, so the exit-2 contract asserted in about ten gate
-headers and in `lint.yml` is not observable. Fix the harness, not the gates.
-
-## 9. An instrument that cannot fire, and three re-sweeps
+## 9. An instrument that cannot fire, and two re-sweeps
 
 - `FieldAttributionRecords3D.SILENT_HEAT_PASSES` now lists only `"fungus"`, and there is no `FungusPass` in
   `PASS_SCRIPTS` — while `PRODUCERS` still names one for a channel `Channels.gd` declares as a single
@@ -105,8 +97,6 @@ headers and in `lint.yml` is not observable. Fix the harness, not the gates.
   inside its own file.
 - `check_shaders_compile.sh`'s kernel floor is `docs/SHADER_FLOOR` and `write_ceilings.sh` lowers it. Do not
   bake a count back into the gate.
-- `LAMineralStamp3D._scan` restarts at cell 0 every scan and breaks on a budget, so the low-index prefix is
-  re-walked and high-index cells are starved. It needs a rolling cursor at minimum.
 - `LASpatialIndex.rebuild_if_stale` rebuilds a whole group's dictionary every frame it is touched rather
   than tracking per-node cell changes, and `LASimReport.snapshot` deep-copies its events and gauges on every
   call. Both are constants, not asymptotes.
@@ -136,6 +126,12 @@ let deep cold starve the mechanism out of the state rather than a cutoff. Observ
 `above(below(c)) != c`. The pressure column, `air_above`, `ground` and `burial_steps` all march that
 relation, and no column integral can be monotone along a `below` step its own `above` step does not undo.
 One vertical relation, built once and inverse by construction, is what removes it.
+
+**A RADIAL COORDINATE SYSTEM IS NOT THE ANSWER. This is the maintainer's DECISION, not a law.** It has been
+tried twice: the cubed-sphere shell was replaced by the uniform Cartesian box on purpose, and a
+true-radial-ray traversal built to remove this very snap measured WORSE, because with no structural relation
+to the grid's own vertical step, ray divergence across a density contrast dominates. Fix the relation on the
+Cartesian grid.
 
 ---
 
