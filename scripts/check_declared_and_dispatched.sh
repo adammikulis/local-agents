@@ -69,9 +69,9 @@ for fn in sorted(os.listdir(KERNELS)):
 # --- 2. a pass naming a buffer nothing allocates -------------------------------------------------------
 chan = read(CHANNELS)
 rows = re.search(r"static func rows\(\).*?\n\treturn \{(.*?)\n\t\}", chan, re.S)
-derived = re.search(r"static func derived_buffers\(\).*?\n\treturn \{(.*?)\n\t\}", chan, re.S)
+derived = re.search(r"static func derived_buffers\(\).*?\n\treturn PackedStringArray\(\[(.*?)\]\)", chan, re.S)
 allocated = set(re.findall(r'"(\w+)":', rows.group(1))) if rows else set()
-allocated |= set(re.findall(r'"(\w+)":', derived.group(1))) if derived else set()
+allocated |= set(re.findall(r'"(\w+)"', derived.group(1))) if derived else set()
 allocated |= set(re.findall(r'_bufs\["(\w+)"\]\s*=', driver))
 # A pass declares buffers of its own and the DRIVER allocates them (_allocate_declared), so those are
 # allocated too. Without this the gate sees only the channel table and calls every pass-owned buffer

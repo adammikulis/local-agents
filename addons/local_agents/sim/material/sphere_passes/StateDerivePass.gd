@@ -1,14 +1,19 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
-## EVERYTHING A CELL DERIVES FROM ITS OWN INDEX. Writes `temp`, `vel_*`, `n_gas_m3`, `rho_cond`,
+## EVERYTHING A CELL DERIVES FROM ITS OWN INDEX. Writes `temp`, `vel_*`, `rho_bulk`,
 ## `conductivity` and the h2o/silicate phase shares off `h_j_m3` and `pressure`; cements and sets `solid`,
 ## `regolith`, `grain` off that melt share; adds Coriolis and centrifugal to `mom_*`.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/state_derive.glsl"
 
-## Derived phase shares the kernel writes, name -> state_derive.glsl binding.
-const PHASE_BUFFERS: Dictionary = {
-	"h2o_solid": 34, "h2o_liquid": 35, "h2o_vapour": 36, "silicate_melt": 37}
+## Every buffer outside LAMatterChannels this kernel touches, name -> state_derive.glsl binding. ONE
+## declaration: the absence check and the uniform set ask the same list, so neither can name what the
+## other does not.
+const BOUND: Dictionary = {
+	"solid": 14, "cement": 15, "regolith": 16, "grain": 17, "pos": 18, "h_j_m3": 21, "pressure": 22,
+	"temp": 23, "mom_x": 25, "mom_y": 26, "mom_z": 27, "vel_x": 28, "vel_y": 29, "vel_z": 30,
+	"rho_bulk": 32, "conductivity": 33, "h2o_solid": 34, "h2o_liquid": 35,
+	"h2o_vapour": 36, "silicate_melt": 37, "cell_vol": 40, "speed": 41, "lat": 42, "alt": 43}
 
 ## props row layout — state_derive.glsl PROP_*.
 const PROP_STRIDE: int = 5
@@ -34,6 +39,12 @@ var _pipe: RID = RID()
 var _set: Array = [RID(), RID()]     # one uniform set per ping-pong parity
 
 
+## Read by reduce rows on the device and by no CPU consumer, so they are this pass's own rather than
+## LAChannels.derived_buffers() entries the driver would copy back on every drain.
+func _buffers(cc: int) -> Dictionary:
+	return {"speed": cc, "lat": cc, "alt": cc}
+
+
 func _setup(bufs: Dictionary, _cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
 	if not _pipe.is_valid():
@@ -46,10 +57,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	var props_ssbo: RID = _storage_buffer(props.to_byte_array())
 
 	var want: PackedStringArray = LAMatterChannels.CHANNELS.duplicate()
-	want.append_array(PackedStringArray(["h_j_m3", "pressure", "temp", "cell_vol", "conductivity",
-		"n_gas_m3", "rho_cond", "mom_x", "mom_y", "mom_z", "vel_x", "vel_y", "vel_z",
-		"solid", "cement", "regolith", "grain", "pos"]))
-	want.append_array(PackedStringArray(PHASE_BUFFERS.keys()))
+	want.append_array(PackedStringArray(BOUND.keys()))
 	var missing: PackedStringArray = LAMatterChannels.absent(bufs, want)
 	if not missing.is_empty():
 		push_error("StateDerivePass: no buffer for %s, so no cell would get a temperature."
@@ -64,27 +72,10 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		var entries: Array = []
 		for i in channels.size():
 			entries.append([i, _half(bufs, channels[i], p, false)])
-		entries.append([21, _half(bufs, "h_j_m3", p, false)])   # FRONT: the settled enthalpy
-		entries.append([22, _single(bufs, "pressure")])
-		entries.append([23, _single(bufs, "temp")])
 		entries.append([24, props_ssbo])
-		entries.append([14, _single(bufs, "solid")])
-		entries.append([15, _single(bufs, "cement")])
-		entries.append([16, _single(bufs, "regolith")])
-		entries.append([17, _single(bufs, "grain")])
-		entries.append([18, _single(bufs, "pos")])
-		entries.append([25, _half(bufs, "mom_x", p, false)])
-		entries.append([26, _half(bufs, "mom_y", p, false)])
-		entries.append([27, _half(bufs, "mom_z", p, false)])
-		entries.append([28, _single(bufs, "vel_x")])
-		entries.append([29, _single(bufs, "vel_y")])
-		entries.append([30, _single(bufs, "vel_z")])
-		entries.append([31, _single(bufs, "n_gas_m3")])
-		entries.append([32, _single(bufs, "rho_cond")])
-		entries.append([33, _single(bufs, "conductivity")])
-		entries.append([40, _single(bufs, "cell_vol")])
-		for name in PHASE_BUFFERS:
-			entries.append([int(PHASE_BUFFERS[name]), _single(bufs, String(name))])
+		# _half is the FRONT half of a PAIR and the bare RID of a SINGLE, so one call covers both.
+		for name in BOUND:
+			entries.append([int(BOUND[name]), _half(bufs, String(name), p, false)])
 		_set[p] = _uset(_pipe, entries)
 
 

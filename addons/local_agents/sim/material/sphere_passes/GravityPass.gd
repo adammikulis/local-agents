@@ -8,13 +8,14 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/gr
 
 ## Field steps between solves. The solve warm-starts from the previous potential.
 const SOLVE_EVERY: int = 8
-## Red-black sweeps per solve: a convergence budget, not a property of gravity.
+## Red-black sweeps per dispatch. Poisson is elliptic, so a fixed count is not a solve: the SEEDING solve
+## relaxes until `residual_rel` falls, and the per-step solves track a warm-started field from there.
 const SWEEPS: int = 8
 
 ## Floats each workgroup writes into the partials buffer — gravity_poisson.glsl PART_STRIDE.
-const PART_STRIDE: int = 7
-## gravity_poisson.glsl `moments`: 0 total mass · 1..3 centre of mass · 4 mean |g| · 5 max residual.
-const MOMENT_SLOTS: int = 6
+const PART_STRIDE: int = 9
+## gravity_poisson.glsl `moments`: 0 mass · 1..3 centre of mass · 4 mean |g| · 5 residual · 6 Gauss ratio.
+const MOMENT_SLOTS: int = 7
 const GROUP: int = 64
 const PC_BYTES: int = 32
 
@@ -45,6 +46,7 @@ var _solves: int = 0
 var _read_due: bool = false             # a solve is in flight; the next drain publishes it
 var _mirror: PackedFloat32Array = PackedFloat32Array()
 var _mean_g: float = 0.0
+var _residual_rel: float = INF          # until a solve has been drained, the field is not answerable
 var _failed_announced: bool = false
 
 
@@ -178,11 +180,13 @@ func _drain(rd: RenderingDevice) -> Dictionary:
 	if m.size() < MOMENT_SLOTS:
 		return {}
 	_mean_g = m[4]
+	_residual_rel = m[5]
 	_mirror = rd.buffer_get_data(_gravity).to_float32_array()
 	return {
 		"gravity_total_mass_kg": m[0],
 		"gravity_mean_g": m[4],
-		"gravity_residual": m[5],
+		"gravity_residual_rel": m[5],
+		"gravity_gauss_rel": m[6],
 		"gravity_solves": float(_solves)}
 
 
@@ -196,6 +200,7 @@ func mean_g() -> float:
 	return _mean_g
 
 
-## Solves the device has completed.
-func solves() -> int:
-	return _solves
+## Worst |laplacian(phi) - 4 pi G rho| as a fraction of the source term. Dimensionless, so a small value
+## means the discrete Poisson equation is satisfied rather than that G is small. INF before the first drain.
+func residual_rel() -> float:
+	return _residual_rel

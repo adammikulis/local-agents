@@ -61,6 +61,7 @@ Commands:
                 public surface, whole-tree parse, library-only parse, physical constants
                 (GLSL kernel copies must equal LAPhysical), reaction balance. Policy markers
                 stay advisory. CI runs this exact command, so a green here is a green there.
+                Exit 0 clean · 1 a gate reported a violation · 2 a gate COULD NOT RUN.
   -h | --help   Show this help and exit 0.
 
 Environment:
@@ -177,393 +178,83 @@ if [[ "$cmd" == "lint" ]]; then
   set +e
   {
     set +e
-    # Gate: file length, at the DOCUMENTED thresholds (soft 1300 warn, hard 1500 fail — the script's own
-    # defaults, which is what CLAUDE.md describes). This used to run at MAX_FILE_LINES=1000 as advisory,
-    # with the comment "matches docs + CI"; neither half was true. Docs said 1500, CI set 1000 — and CI's
-    # copy examined ZERO files because ripgrep is not installed on the runner, so it passed vacuously on
-    # every push. Three different numbers, none of them enforced. One number now, gating in both places.
-    set +e
+    # A gate answers with 0 clean, 1 a violation, anything else it COULD NOT RUN. The two are different
+    # facts about the tree and the caller reads only $?, so they get different exit codes: could-not-run
+    # examined nothing, so its silence is not a pass, and it outranks a violation.
     lint_failed=0
-    "$SCRIPT_DIR/check_max_file_length.sh"
-    rc_len=$?
-    set -e
-    if [[ $rc_len -ne 0 ]]; then
-      echo "LINT_FAIL: check_max_file_length.sh ($rc_len)"
-      lint_failed=$((lint_failed + 1))
-    fi
+    lint_unrunnable=0
+    run_gate() {
+      local label="$1"
+      shift
+      local rc=0
+      "$@" || rc=$?
+      case "$rc" in
+        0) ;;
+        1)
+          echo "LINT_FAIL: $label ($rc)"
+          lint_failed=$((lint_failed + 1))
+          ;;
+        *)
+          echo "LINT_UNRUNNABLE: $label ($rc)"
+          lint_unrunnable=$((lint_unrunnable + 1))
+          ;;
+      esac
+    }
+    gate() { run_gate "$1.sh" "$SCRIPT_DIR/$1.sh"; }
+
+    gate check_max_file_length
     # Advisory: policy/plan marker drift never gates.
     "$SCRIPT_DIR/check_policy_plan_markers.sh"
-    # Gate: banning direct test_*.gd invocation is a genuine correctness check.
-    "$SCRIPT_DIR/check_no_direct_refcounted_invocation.sh"
-    rc_gate=$?
-    set -e
-    if [[ $rc_gate -ne 0 ]]; then
-      echo "LINT_FAIL: check_no_direct_refcounted_invocation.sh ($rc_gate)"
-      lint_failed=$((lint_failed + 1))
+    gate check_no_direct_refcounted_invocation
+    gate check_no_inferred_typing
+    gate check_tool_safety
+    gate check_demo_catalog
+    gate check_public_surface
+    gate check_physical_constants
+    gate check_model_parameters
+    gate check_kernel_paths
+    gate check_no_stored_derived
+    gate check_no_privileged_axis
+    gate check_gdscript_budget
+    gate check_run_budget
+    gate check_comment_ratio
+    gate check_comment_history
+    gate check_neighbour_slots
+    gate check_sim_determinism
+    gate check_binding_collisions
+    gate check_declared_and_dispatched
+    gate check_gate_fixtures
+    gate check_branch_integration
+    gate check_doc_claims
+    gate check_doc_prose
+    gate check_comment_density
+    # Same gate over first-party GDScript; sim/material is covered by the call above.
+    run_gate "check_comment_density.sh (gdscript)" env EXCLUDE_RE=/thirdparty/ \
+      "$SCRIPT_DIR/check_comment_density.sh" "$REPO_ROOT/addons/local_agents"
+    gate check_enthalpy_ssot
+    gate check_generated_constants
+    gate check_seed_phase
+    gate check_reaction_balance
+    gate check_framerate_independence
+    gate check_parse_all
+    gate check_library_only
+    gate check_step_quantum
+    gate check_comment_claims
+    gate check_no_silent_fallback
+    gate check_no_invented_fallback
+    gate check_duplicate_logic
+    gate check_never_assigned
+    gate check_voxel_grid
+    gate check_gravity_solve
+    gate check_radiative_row
+    gate check_shaders_compile
+    gate check_reaction_energy
+    # EVERY GATE RUNS. Fail-fast meant one red gate hid every gate after it.
+    if [[ $lint_unrunnable -gt 0 ]]; then
+      echo "LINT_SUMMARY: $lint_unrunnable gate(s) COULD NOT RUN, $lint_failed violation(s). Every gate ran;"
+      echo "              a gate that could not run examined nothing, so this is not a physics failure."
+      exit 2
     fi
-    # Gate: no inferred typing (:=) in the enforced directories.
-    set +e
-    "$SCRIPT_DIR/check_no_inferred_typing.sh"
-    rc_typing=$?
-    set -e
-    if [[ $rc_typing -ne 0 ]]; then
-      echo "LINT_FAIL: check_no_inferred_typing.sh ($rc_typing)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: no @tool script writing serialised state in the editor. Two independently written nodes
-    # shipped that bug (silently editing the user's .tscn) before this existed.
-    set +e
-    "$SCRIPT_DIR/check_tool_safety.sh"
-    rc_tool=$?
-    set -e
-    if [[ $rc_tool -ne 0 ]]; then
-      echo "LINT_FAIL: check_tool_safety.sh ($rc_tool)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: the demo catalogue matches the demos on disk (no orphan entry, no unlisted demo).
-    set +e
-    "$SCRIPT_DIR/check_demo_catalog.sh"
-    rc_catalog=$?
-    set -e
-    if [[ $rc_catalog -ne 0 ]]; then
-      echo "LINT_FAIL: check_demo_catalog.sh ($rc_catalog)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: only real public API reaches a creation dialog under the LocalAgent prefix. README tells
-    # users to type "LocalAgent" into Add Node to find the addon's nodes, and that was returning about
-    # twice as much noise as signal.
-    set +e
-    "$SCRIPT_DIR/check_public_surface.sh"
-    rc_surface=$?
-    set -e
-    if [[ $rc_surface -ne 0 ]]; then
-      echo "LINT_FAIL: check_public_surface.sh ($rc_surface)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: the GLSL kernels' copies of physical constants equal LAPhysical. A compute shader cannot
-    # import a GDScript constant, so every kernel hand-copies the value — which is exactly how the
-    # freezing point of water ended up in five files at three different values (12.5 / 13.0 / 14.0).
-    # This is the import the language does not have. Exit 2 means the gate could not run.
-    set +e
-    "$SCRIPT_DIR/check_physical_constants.sh"
-    rc_physical=$?
-    set -e
-    if [[ $rc_physical -ne 0 ]]; then
-      echo "LINT_FAIL: check_physical_constants.sh ($rc_physical)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: every number is derived, bound, or written down in docs/MODEL_PARAMETERS.md. The gate above asks
-    # whether a copy equals the authority; it cannot ask whether the thing should be a number at all. Scans
-    # the GDScript sim layer too, which is where a second air density (1.225 against the authority's 1.18)
-    # sat invisible to a GLSL-only gate. Exit 2 means the gate could not run.
-    set +e
-    "$SCRIPT_DIR/check_model_parameters.sh"
-    rc_modelparams=$?
-    set -e
-    if [[ $rc_modelparams -ne 0 ]]; then
-      echo "LINT_FAIL: check_model_parameters.sh ($rc_modelparams)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: ONE definition of the 6-slot neighbour layout. It was written from memory in every kernel that
-    # touches nbr[], and most wrote it down wrong — twelve read slot 5 as "the cell above" when slot 5 is a
-    # LATERAL and up is slot 1, so the solar column, the aquifer walk, reactions' air-above gates, both
-    # buoyancy kernels, tracer transport and the wind were all walking sideways at constant radius. Four
-    # gathers hand-rolled the reverse map instead of `d ^ 1` and duplicated and destroyed mass with it.
-    # Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_kernel_paths.sh"
-    rc_kpaths=$?
-    if [ "$rc_kpaths" -ne 0 ]; then
-      echo "LINT_FAIL: check_kernel_paths.sh ($rc_kpaths)"
-      lint_failed=$((lint_failed + 1))
-    fi
-
-    "$SCRIPT_DIR/check_no_stored_derived.sh"
-    rc_derived=$?
-    if [ "$rc_derived" -ne 0 ]; then
-      echo "LINT_FAIL: check_no_stored_derived.sh ($rc_derived)"
-      lint_failed=$((lint_failed + 1))
-    fi
-
-    "$SCRIPT_DIR/check_no_privileged_axis.sh"
-    rc_axis=$?
-    if [ "$rc_axis" -ne 0 ]; then
-      echo "LINT_FAIL: check_no_privileged_axis.sh ($rc_axis)"
-      lint_failed=$((lint_failed + 1))
-    fi
-
-    "$SCRIPT_DIR/check_gdscript_budget.sh"
-    rc_gdbudget=$?
-    if [ "$rc_gdbudget" -ne 0 ]; then
-      echo "LINT_FAIL: check_gdscript_budget.sh ($rc_gdbudget)"
-      lint_failed=$((lint_failed + 1))
-    fi
-
-    "$SCRIPT_DIR/check_run_budget.sh"
-    rc_runbudget=$?
-    if [ "$rc_runbudget" -ne 0 ]; then
-      echo "LINT_FAIL: check_run_budget.sh ($rc_runbudget)"
-      lint_failed=$((lint_failed + 1))
-    fi
-
-    "$SCRIPT_DIR/check_comment_ratio.sh"
-    rc_cmtratio=$?
-    if [ "$rc_cmtratio" -ne 0 ]; then
-      echo "LINT_FAIL: check_comment_ratio.sh ($rc_cmtratio)"
-      lint_failed=$((lint_failed + 1))
-    fi
-
-    "$SCRIPT_DIR/check_comment_history.sh"
-    rc_cmthist=$?
-    if [ "$rc_cmthist" -ne 0 ]; then
-      echo "LINT_FAIL: check_comment_history.sh ($rc_cmthist)"
-      lint_failed=$((lint_failed + 1))
-    fi
-
-    "$SCRIPT_DIR/check_neighbour_slots.sh"
-    rc_nbrslots=$?
-    set -e
-    if [[ $rc_nbrslots -ne 0 ]]; then
-      echo "LINT_FAIL: check_neighbour_slots.sh ($rc_nbrslots)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: no engine-global RNG in a simulation path. A global randf() is seeded from the OS, so the run
-    # cannot be reproduced; on a shared stream it also shifts every other subsystem's draws. Exit 2 = could
-    # not run.
-    set +e
-    "$SCRIPT_DIR/check_sim_determinism.sh"
-    rc_determinism=$?
-    set -e
-    if [[ $rc_determinism -ne 0 ]]; then
-      echo "LINT_FAIL: check_sim_determinism.sh ($rc_determinism)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: two buffers on one binding number compile, and the later write wins. Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_binding_collisions.sh"
-    rc_bindings=$?
-    set -e
-    if [[ $rc_bindings -ne 0 ]]; then
-      echo "LINT_FAIL: check_binding_collisions.sh ($rc_bindings)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: a kernel no pass dispatches, or a buffer no allocation creates, is a subsystem that silently does
-    # nothing while every gate naming it stays green. Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_declared_and_dispatched.sh"
-    rc_dispatched=$?
-    set -e
-    if [[ $rc_dispatched -ne 0 ]]; then
-      echo "LINT_FAIL: check_declared_and_dispatched.sh ($rc_dispatched)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: a branch nobody measures is a reconciliation nobody scheduled. Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_branch_integration.sh"
-    rc_branches=$?
-    set -e
-    if [[ $rc_branches -ne 0 ]]; then
-      echo "LINT_FAIL: check_branch_integration.sh ($rc_branches)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: the map was prose and nothing checked it, so three of its claims were false at once. A claim
-    # written as a directive beside its paragraph is evaluated here. Exit 2 = the docs lost their claims.
-    set +e
-    "$SCRIPT_DIR/check_doc_claims.sh"
-    rc_claims=$?
-    set -e
-    if [[ $rc_claims -ne 0 ]]; then
-      echo "LINT_FAIL: check_doc_claims.sh ($rc_claims)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: the map is the next agent's instruction set, not a scratchpad. No narrator, no retractions.
-    set +e
-    "$SCRIPT_DIR/check_doc_prose.sh"
-    rc_prose=$?
-    set -e
-    if [[ $rc_prose -ne 0 ]]; then
-      echo "LINT_FAIL: check_doc_prose.sh ($rc_prose)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: comment only what is needed to understand that line. Prose cannot be executed, so it rots and
-    # then misleads with authority — every false slot-layout claim was a comment. Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_comment_density.sh"
-    rc_comments=$?
-    set -e
-    if [[ $rc_comments -ne 0 ]]; then
-      echo "LINT_FAIL: check_comment_density.sh ($rc_comments)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Same gate over first-party GDScript. sim/material is excluded: its kernels are covered by the call
-    # above and its GDScript passes are the field hub's own scope. Exit 2 = could not run.
-    set +e
-    EXCLUDE_RE='/thirdparty/' "$SCRIPT_DIR/check_comment_density.sh" "$REPO_ROOT/addons/local_agents"
-    rc_comments_gd=$?
-    set -e
-    if [[ $rc_comments_gd -ne 0 ]]; then
-      echo "LINT_FAIL: check_comment_density.sh (gdscript) ($rc_comments_gd)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: phase-from-energy has one definition per side of the GPU boundary. Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_enthalpy_ssot.sh"
-    rc_enth=$?
-    set -e
-    if [[ $rc_enth -ne 0 ]]; then
-      echo "LINT_FAIL: check_enthalpy_ssot.sh ($rc_enth)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: the GLSL/gdshader copies of a GDScript fact are generated from it, never held equal by a
-    # comment. Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_generated_constants.sh"
-    rc_gencon=$?
-    set -e
-    if [[ $rc_gencon -ne 0 ]]; then
-      echo "LINT_FAIL: check_generated_constants.sh ($rc_gencon)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: a per-m^3/m^2 quantity must never meet a raw cell size — field lengths are MODEL units.
-    set +e
-    # Gate: the world has two phases. Creation is legal while seeding and a violation after the seal, and a
-    # whole-mirror upload cannot say what it changed, so it can create matter with no ledger noticing.
-    set +e
-    "$SCRIPT_DIR/check_seed_phase.sh"
-    rc_seed=$?
-    set -e
-    if [[ $rc_seed -ne 0 ]]; then
-      echo "LINT_FAIL: check_seed_phase.sh ($rc_seed)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: no reaction record may create or destroy matter. The DEFS engine took reactants and products as
-    # two independent lists of hand-written coefficients with nothing relating them, and one rate model had
-    # no reactant at all, so only its product credit ever ran — which is where every carbon atom in this
-    # simulation came from. Conservation was asserted in comments and enforced nowhere; this is the
-    # enforcement. Exit 2 means the gate could not run.
-    set +e
-    "$SCRIPT_DIR/check_reaction_balance.sh"
-    rc_balance=$?
-    set -e
-    if [[ $rc_balance -ne 0 ]]; then
-      echo "LINT_FAIL: check_reaction_balance.sh ($rc_balance)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: the render clock does not drive the simulation. The field steps on a fixed physics accumulator;
-    # the master clock and the orbit advanced in _process, so the sun moved a framerate-dependent distance
-    # across the sky per unit of chemistry. Static check — no run required. Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_framerate_independence.sh"
-    rc_framerate=$?
-    set -e
-    if [[ $rc_framerate -ne 0 ]]; then
-      echo "LINT_FAIL: check_framerate_independence.sh ($rc_framerate)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: every script in the REAL tree parses. An editor scan does not check this — it emits twenty
-    # progress lines and nothing about any script — so a broken pass module let the sim run to
-    # completion and print a full SIM_REPORT with a whole transport CA silently missing. The sweep
-    # existed but ran only inside check_library_only.sh, which deletes game/ before scanning, so game/
-    # (54 scripts) was force-parsed by nothing at all. Exit 2 means the gate could not run.
-    set +e
-    "$SCRIPT_DIR/check_parse_all.sh"
-    rc_parseall=$?
-    set -e
-    if [[ $rc_parseall -ne 0 ]]; then
-      echo "LINT_FAIL: check_parse_all.sh ($rc_parseall)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: the addon still parses with the game deleted. docs/USAGE.md promises this; nothing
-    # enforced it, and it had already rotted once. Distinct from the sweep above: that one asks whether
-    # the tree parses, this one asks whether the LIBRARY HALF parses on its own.
-    set +e
-    "$SCRIPT_DIR/check_library_only.sh"
-    rc_libonly=$?
-    set -e
-    if [[ $rc_libonly -ne 0 ]]; then
-      echo "LINT_FAIL: check_library_only.sh ($rc_libonly)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: a field step is a fixed quantum of simulated time. real_seconds_per_step() used to divide by
-    # LASimClock.DAY_LENGTH, a game-feel knob, and every derived rate in the substrate multiplies by that
-    # function — so the day length silently rescaled evaporation, pyrolysis, decomposition, photosynthesis,
-    # rain, thermal diffusion, transport CFL, geotherm flux and plate drift. Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_step_quantum.sh"
-    rc_stepq=$?
-    set -e
-    if [[ $rc_stepq -ne 0 ]]; then
-      echo "LINT_FAIL: check_step_quantum.sh ($rc_stepq)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: a source comment may not carry a measurement or a date. A contract stays true; a measurement is
-    # true for one commit. Ratcheted in docs/COMMENT_CLAIMS_CEILING.
-    set +e
-    "$SCRIPT_DIR/check_comment_claims.sh"
-    rc_cc=$?
-    set -e
-    if [[ $rc_cc -ne 0 ]]; then
-      echo "LINT_FAIL: check_comment_claims.sh ($rc_cc)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: a missing measurement is missing. A `.get(key, mirror)` default makes a gauge read whichever
-    # other consumer last called request_channel. Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_no_silent_fallback.sh"
-    rc_fallback=$?
-    set -e
-    if [[ $rc_fallback -ne 0 ]]; then
-      echo "LINT_FAIL: check_no_silent_fallback.sh ($rc_fallback)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: the same defect in duck-type form — a has_method() probe on the substrate standing a literal in
-    # for a reading it could not take. Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_no_invented_fallback.sh"
-    rc_invented=$?
-    set -e
-    if [[ $rc_invented -ne 0 ]]; then
-      echo "LINT_FAIL: check_no_invented_fallback.sh ($rc_invented)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # These four were WRITTEN AND NEVER WIRED, so they only ran when somebody remembered to. A gate that
-    # is not in `lint` is not a gate — CI runs this exact command.
-    for g in check_duplicate_logic check_never_assigned check_voxel_grid check_gravity_solve \
-             check_radiative_row; do
-      set +e
-      "$SCRIPT_DIR/$g.sh"
-      rc_g=$?
-      set -e
-      if [[ $rc_g -ne 0 ]]; then
-        echo "LINT_FAIL: $g.sh ($rc_g)"
-        lint_failed=$((lint_failed + 1))
-      fi
-    done
-    # Gate: every compute kernel compiles. `godot --import` ACCEPTS a .glsl containing an undeclared symbol
-    # without complaint; the failure appears at runtime as `get_spirv on a null value`, and what that looks
-    # like from outside is a full, plausible SIM_REPORT with one pass silently not running. Needs no GPU.
-    set +e
-    "$SCRIPT_DIR/check_shaders_compile.sh"
-    rc_shaders=$?
-    set -e
-    if [[ $rc_shaders -ne 0 ]]; then
-      echo "LINT_FAIL: check_shaders_compile.sh ($rc_shaders)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # Gate: a phase-change loop may not be an energy source. check_reaction_balance proves records balance in
-    # ATOMS and says nothing about enthalpy, so a wrong sign or a missing latent heat shipped silently — as it
-    # did, releasing 2.433e5 J/kg per traverse of the water cycle. Hess's law on every cycle, plus reverse
-    # pairs cancelling. Exit 2 = could not run.
-    set +e
-    "$SCRIPT_DIR/check_reaction_energy.sh"
-    rc_renergy=$?
-    set -e
-    if [[ $rc_renergy -ne 0 ]]; then
-      echo "LINT_FAIL: check_reaction_energy.sh ($rc_renergy)"
-      lint_failed=$((lint_failed + 1))
-    fi
-    # EVERY GATE RUNS. Fail-fast meant one red gate hid every gate after it, so on a branch that is
-    # deliberately red most of the tree went unobserved and a real regression could ride in behind it.
     if [[ $lint_failed -gt 0 ]]; then
       echo "LINT_SUMMARY: $lint_failed gate(s) failed. Every gate ran; the list above is complete."
       exit 1
@@ -590,6 +281,8 @@ if [[ "$exit_code" -eq 0 ]]; then
   status="pass"
 elif [[ "$exit_code" -eq 124 ]]; then
   status="timeout"
+elif [[ "$cmd" == "lint" && "$exit_code" -eq 2 ]]; then
+  status="unrunnable"
 else
   status="fail"
 fi

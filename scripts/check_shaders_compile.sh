@@ -111,7 +111,7 @@ GD
 # deleted. Drop the kernels' cache entries and re-import so every probe below compiles from source.
 if [ -d "$REPO_ROOT/.godot/imported" ]; then
   find "$REPO_ROOT/.godot/imported" -maxdepth 1 -name '*.glsl-*' -delete
-  (cd "$REPO_ROOT" && timeout 300 godot --headless --path . --import >/dev/null 2>&1) || true
+  "$REPO_ROOT/scripts/godot_import.sh" "$REPO_ROOT" || true
 fi
 
 out="$(cd "$REPO_ROOT" && timeout 300 godot --headless --path . -s "res://$PROBE_REL" 2>&1)"

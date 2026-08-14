@@ -4,7 +4,6 @@ extends RefCounted
 ## Per-sample drift and the run-long baseline, keyed by name.
 
 var _f = null
-var _prev_v: Dictionary = {}
 var _prev_s: Dictionary = {}
 var _first_v: Dictionary = {}
 var _first_s: Dictionary = {}
@@ -23,16 +22,12 @@ func note_seed(key: String, value: float) -> void:
 		_f._seal.note_seed({key: value})
 
 
-## Returns [drift, per_step, steps] against the previous sample, or [] when there is none.
-func sample(key: String, value: float, step: int) -> Array:
-	var out: Array = []
+## Steps since the previous call for this key, 0 when there is none. The window an integration runs over.
+func elapsed(key: String, step: int) -> int:
+	var out: int = 0
 	if _prev_s.has(key):
-		var steps: int = step - int(_prev_s[key])
-		if steps > 0:
-			var d: float = value - float(_prev_v[key])
-			out = [d, d / float(steps), steps]
+		out = maxi(step - int(_prev_s[key]), 0)
 	if not _prev_s.has(key) or step > int(_prev_s[key]):
-		_prev_v[key] = value
 		_prev_s[key] = step
 	return out
 

@@ -158,7 +158,7 @@ def transport_laws():
 
 
 def reduce_enum(kind):
-    """LAReduceRecords' Op/Mask enums, which reduce.glsl must not restate."""
+    """LAReduceRecords' Op/Mask/Nbr enums, which reduce.glsl must not restate."""
     m = re.search(r"^enum %s \{ ([A-Z_, ]+) \}" % kind, read(REDUCE_RECORDS), re.M)
     if not m:
         raise Missing("ReduceRecords.gd declares no `enum %s`" % kind)
@@ -203,6 +203,10 @@ def glsli_text():
     lines.append("// ReduceRecords.gd Mask enum")
     for value, name in reduce_enum("Mask"):
         lines.append("#define MASK_%s %du" % (name, value))
+    lines.append("")
+    lines.append("// ReduceRecords.gd Nbr enum")
+    for value, name in reduce_enum("Nbr"):
+        lines.append("#define NBR_%s %du" % (name, value))
     lines.append("")
     lines.append("// MaterialFieldRegolith3D.gd, reactions/ReactionThermo.gd")
     lines.append("#define REGOLITH_CELLS %d" % const_int(REGOLITH, "REGOLITH_CELLS"))

@@ -78,21 +78,34 @@
 #define TF_FRACTION 16u
 #define TF_DILUTE 32u
 #define TF_LISTED 64u
+#define TF_RADIOGENIC 128u
 
 // ReduceRecords.gd Op enum
 #define OP_SUM 0u
 #define OP_COUNT_GT 1u
 #define OP_COUNT_GE 2u
-#define OP_SUM_ABS_DIFF 3u
-#define OP_LATCH 4u
-#define OP_MIN 5u
-#define OP_MAX 6u
-#define OP_COUNT 7u
+#define OP_COUNT_LT 3u
+#define OP_SUM_ABS_DIFF 4u
+#define OP_LATCH 5u
+#define OP_MIN 6u
+#define OP_MAX 7u
+#define OP_COUNT 8u
 
 // ReduceRecords.gd Mask enum
 #define MASK_ALL 0u
 #define MASK_OPEN 1u
 #define MASK_SOLID 2u
+#define MASK_GROUND 3u
+#define MASK_AIR 4u
+
+// ReduceRecords.gd Nbr enum
+#define NBR_NONE 0u
+#define NBR_SOLID_COUNT 1u
+#define NBR_BELOW 2u
+#define NBR_ABOVE 3u
+#define NBR_GRAD_X 4u
+#define NBR_GRAD_Y 5u
+#define NBR_GRAD_Z 6u
 
 // MaterialFieldRegolith3D.gd, reactions/ReactionThermo.gd
 #define REGOLITH_CELLS 4

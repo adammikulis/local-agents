@@ -18,7 +18,7 @@ layout(set = 0, binding = 17, std430) restrict buffer Flags { uint cellflag[]; }
 layout(set = 0, binding = 18, std430) restrict buffer Phi { float phi[]; };          // J/kg
 layout(set = 0, binding = 19, std430) restrict buffer Density { float density[]; };  // kg/m^3
 layout(set = 0, binding = 20, std430) restrict buffer Grav { float g_field[]; };     // flat cell*3, m/s^2
-// 0 total mass kg · 1..3 centre of mass · 4 mean |g| · 5 max residual
+// 0 total mass kg · 1..3 centre of mass · 4 mean |g| · 5 residual over its source · 6 Gauss ratio
 layout(set = 0, binding = 21, std430) restrict buffer Moments { float moments[]; };
 layout(set = 0, binding = 22, std430) restrict buffer Partials { float partials[]; };
 
@@ -34,7 +34,7 @@ const uint MODE_FIELD_STATS = 7u;
 const uint FLAG_BOUNDARY = 1u;
 const uint FLAG_COLOUR = 2u;
 
-const uint PART_STRIDE = 7u;     // GravityPass.PART_STRIDE
+const uint PART_STRIDE = 9u;     // GravityPass.PART_STRIDE
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -185,6 +185,7 @@ void mode_relax(uint c) {
 
 void mode_gradient(uint gidx, bool live) {
 	float mag = 0.0;
+	float outflux = 0.0;
 	if (live) {
 		float h = params.cell_m;
 		vec3 g = -vec3(
@@ -195,26 +196,41 @@ void mode_gradient(uint gidx, bool live) {
 		g_field[gidx * 3u + 1u] = g.y;
 		g_field[gidx * 3u + 2u] = g.z;
 		mag = length(g);
+		// GAUSS'S LAW. A face with no neighbour is on the box surface; the outward normal of slot d is
+		// +axis for the odd slot and -axis for the even one, and the box encloses every gram of mass.
+		for (uint d = 0u; d < N_SLOTS; ++d) {
+			if (nbr[gidx * N_SLOTS + d] < 0) {
+				outflux += ((d & 1u) != 0u ? g[d >> 1u] : -g[d >> 1u]) * h * h;
+			}
+		}
 	}
 	float acc = wg_sum(mag);
 	float hits = wg_sum(mag > 0.0 ? 1.0 : 0.0);
+	float flux = wg_sum(outflux);
 	if (gl_LocalInvocationID.x == 0u) {
 		uint b = gl_WorkGroupID.x * PART_STRIDE;
 		partials[b + 4u] = acc;
 		partials[b + 5u] = hits;
+		partials[b + 8u] = flux;
 	}
 }
 
-// |laplacian(phi) - 4 pi G rho| over interior cells, in the discrete operator's own units.
+// |laplacian(phi) - 4 pi G rho| over interior cells, AND the source term it is a residual OF, so the
+// drain publishes their ratio. The bare difference carries G, which is small whether the solve worked.
 void mode_residual(uint gidx, bool live) {
 	float r = 0.0;
+	float s = 0.0;
 	if (live && (cellflag[gidx] & FLAG_BOUNDARY) == 0u) {
 		float h = params.cell_m;
-		r = abs(neighbour_sum(gidx) - 6.0 * phi[gidx] - source_k() * density[gidx]) / (h * h);
+		float src = source_k() * density[gidx];
+		r = abs(neighbour_sum(gidx) - 6.0 * phi[gidx] - src) / (h * h);
+		s = abs(src) / (h * h);
 	}
 	float worst = wg_max(r);
+	float src_max = wg_max(s);
 	if (gl_LocalInvocationID.x == 0u) {
 		partials[gl_WorkGroupID.x * PART_STRIDE + 6u] = worst;
+		partials[gl_WorkGroupID.x * PART_STRIDE + 7u] = src_max;
 	}
 }
 
@@ -224,18 +240,28 @@ void mode_field_stats() {
 	float acc = 0.0;
 	float hits = 0.0;
 	float worst = 0.0;
+	float src = 0.0;
+	float flux = 0.0;
 	for (uint g = t; g < params.groups; g += 64u) {
 		uint b = g * PART_STRIDE;
 		acc += partials[b + 4u];
 		hits += partials[b + 5u];
 		worst = max(worst, partials[b + 6u]);
+		src = max(src, partials[b + 7u]);
+		flux += partials[b + 8u];
 	}
 	float sum_g = wg_sum(acc);
 	float n = wg_sum(hits);
 	float max_r = wg_max(worst);
+	float max_src = wg_max(src);
+	float sum_flux = wg_sum(flux);
 	if (t == 0u) {
 		moments[4] = n > 0.0 ? sum_g / n : 0.0;
-		moments[5] = max_r;
+		moments[5] = max_src > 0.0 ? max_r / max_src : 0.0;
+		// Flux out of the box over the -4 pi G M the law says it equals: 1 when g points at the mass,
+		// -1 when it points away from it.
+		float want = -4.0 * acos(-1.0) * params.g_si * moments[0];
+		moments[6] = want != 0.0 ? sum_flux / want : 0.0;
 	}
 }
 

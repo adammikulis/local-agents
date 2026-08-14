@@ -74,6 +74,12 @@ layout(set = 0, binding = 38, std430) restrict writeonly buffer RadEmit { float 
 // The column field and the breakdown it decides, published rather than re-derived on the CPU.
 layout(set = 0, binding = 39, std430) restrict writeonly buffer ColE { float col_e[]; };
 layout(set = 0, binding = 40, std430) restrict writeonly buffer Strike { float strike[]; };
+// Rock channels two and three, the TF_RADIOGENIC deposit (J/m^3), and the RADIATE march's scratch.
+layout(set = 0, binding = 41, std430) restrict readonly buffer CarbonateBuf { float carbonate[]; };
+layout(set = 0, binding = 42, std430) restrict readonly buffer SilicaBuf { float silica[]; };
+layout(set = 0, binding = 43, std430) restrict writeonly buffer Radiogenic { float radiogenic[]; };
+layout(set = 0, binding = 44, std430) restrict buffer LwEmis { float lw_emis[]; };
+layout(set = 0, binding = 45, std430) restrict buffer SwAbs { float sw_absorbed[]; };
 
 #include "march.glsli"
 
@@ -102,6 +108,10 @@ layout(push_constant, std430) uniform Params {
 	float mu_water;       // LAPhysical.WATER_DYNAMIC_VISCOSITY_PA_S
 	float rho_air;        // LAPhysical.AIR_DENSITY_KG_M3
 	float mu_air;         // LAPhysical.AIR_DYNAMIC_VISCOSITY_PA_S
+	// Radiogenic power of one cubic metre of each pure rock at this epoch, W/m^3.
+	float w_silicate;
+	float w_carbonate;
+	float w_silica;
 } params;
 
 const uint PASS_GRAIN = 2u;   // TransportPass.PASS_GRAIN
@@ -129,12 +139,10 @@ const float BASALT_LIQUIDUS_C = 1200.0;             // LAPhysical.BASALT_LIQUIDU
 const float MELT_VISC = 100.0;                      // LAPhysical.BASALT_MELT_VISCOSITY_PA_S
 const float ROSCOE_N = 2.5;                         // LAPhysical.EINSTEIN_ROSCOE_EXPONENT
 const float LOCKUP_CRYSTAL_FRAC = 0.6;              // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
-const float SW_OPTICAL_DEPTH = 0.2597;              // LAPhysical.ATMOS_SW_OPTICAL_DEPTH
-const float P_STD = 101325.0;                       // LAPhysical.STANDARD_PRESSURE_PA
 const float DIFFUSIVITY = 1.66;                     // LAPhysical.TWO_STREAM_DIFFUSIVITY
 const float C2_CM_K = 1.4387768775;                 // LAPhysical.PLANCK_C2_CM_K
 const float KAPPA_REF_PA = 1.0e4;                   // LAPhysical.ABSORPTION_REF_PRESSURE_PA
-const float RHO_CO2_UNIT = 0.3898208082;            // LAPhysical.CO2_UNIT_DENSITY_KG_M3
+const float RHO_CO2_UNIT = 0.3898208082;            // LASubstances.co2.density
 const float R_CO2 = 188.924269;                     // LAPhysical.CO2_GAS_CONST_J_KGK
 const float RHO_WATER = 997.0;                      // LAPhysical.WATER_DENSITY_KG_M3
 const float R_VAPOUR = 461.52;                      // LAPhysical.VAPOUR_GAS_CONST_J_KGK
@@ -390,6 +398,9 @@ vec3 transport_velocity(uint c) {
 
 // --- RADIATION: the band table, read per cell ---------------------------------------------------------
 
+// DECISION, not a law: hops a march may take. SimWorld.grid_res caps at 64, so a ray can cross the box.
+const uint MARCH_HOPS = 64u;
+
 uint temp_count() { return uint(rad_table[3]); }
 uint edge_off() { return 4u; }
 uint temp_off() { return edge_off() + params.band_count + 1u; }
@@ -397,6 +408,7 @@ uint wsun_off() { return temp_off() + temp_count(); }
 uint kappa_off() { return wsun_off() + params.band_count; }
 uint cdf_off() { return kappa_off() + temp_count() * params.band_count * 5u; }
 float band_edge(uint b) { return rad_table[edge_off() + b]; }
+float solar_weight(uint b) { return rad_table[wsun_off() + b]; }
 
 float kappa_at(uint b, uint k, uint ti, float tf) {
 	uint o = kappa_off() + b * 5u + k;
@@ -448,27 +460,36 @@ float band_weight(uint b, float tk) {
 	return max(lo - planck_above(C2_CM_K * band_edge(b + 1u) / tk), 0.0);
 }
 
+// The four absorber paths this cell presents over `len` metres, kg/m^2 scaled by the broadening pressure:
+// CO2 line, CO2 collision-induced, H2O line, H2O self-continuum; line and continuum broaden with p_total.
+vec4 absorber_paths(uint c, float len) {
+	float tk = t_k(c);
+	float rho_v = h2o_gas(c) * RHO_WATER;
+	float rho_c = max(co2[c], 0.0) * RHO_CO2_UNIT;
+	float p_tot = max(pressure[c], 0.0) / KAPPA_REF_PA;
+	return vec4(p_tot * rho_c * len,
+		(rho_c * R_CO2 * tk / KAPPA_REF_PA) * rho_c * len,
+		p_tot * rho_v * len,
+		(rho_v * R_VAPOUR * tk / KAPPA_REF_PA) * rho_v * len);
+}
+
+float band_tau(vec4 a, uint b, uint ti, float tf) {
+	return (kappa_at(b, 0u, ti, tf) + kappa_at(b, 1u, ti, tf)) * a.x
+		+ kappa_at(b, 2u, ti, tf) * a.y
+		+ kappa_at(b, 3u, ti, tf) * a.z
+		+ kappa_at(b, 4u, ti, tf) * a.w;
+}
+
 // The cell's thermal-infrared emissivity: band-resolved optical depth over its own absorber paths,
 // Planck-weighted at its own temperature, blended into the emissivity of whatever it holds condensed.
 float longwave_emissivity(uint c) {
 	float tk = t_k(c);
-	float dz = params.cell_m;
-	float rho_v = h2o_gas(c) * RHO_WATER;
-	float rho_c = max(co2[c], 0.0) * RHO_CO2_UNIT;
-	float p_tot = max(pressure[c], 0.0) / KAPPA_REF_PA;
-	float a_co2 = p_tot * rho_c * dz;
-	float a_cia = (rho_c * R_CO2 * tk / KAPPA_REF_PA) * rho_c * dz;
-	float a_h2o = p_tot * rho_v * dz;
-	float a_hc = (rho_v * R_VAPOUR * tk / KAPPA_REF_PA) * rho_v * dz;
+	vec4 a = absorber_paths(c, params.cell_m);
 	float tf = 0.0;
 	uint ti = slice_of(tk, tf);
 	float eps = 0.0;
 	for (uint b = 0u; b < params.band_count; ++b) {
-		float dtau = (kappa_at(b, 0u, ti, tf) + kappa_at(b, 1u, ti, tf)) * a_co2
-			+ kappa_at(b, 2u, ti, tf) * a_cia
-			+ kappa_at(b, 3u, ti, tf) * a_h2o
-			+ kappa_at(b, 4u, ti, tf) * a_hc;
-		eps += band_weight(b, tk) * (1.0 - exp(-DIFFUSIVITY * dtau));
+		eps += band_weight(b, tk) * (1.0 - exp(-DIFFUSIVITY * band_tau(a, b, ti, tf)));
 	}
 	float wet = h2o_water(c);
 	float icy = h2o_ice(c);
@@ -495,17 +516,26 @@ float shortwave_albedo(uint c) {
 	return (wet * ALBEDO_WATER + icy * ALBEDO_ICE + veg * ALBEDO_VEG + dry * ALBEDO_GROUND) / mass;
 }
 
-// Shortwave optical depth of one cell over path `len`. Beer-Lambert over the air it holds, plus the
-// condensed fraction, which the beam meets geometrically rather than spectrally.
+// Share of the DIRECT solar beam a cell takes over `len` m of slant path: the CO2 and H2O bands the
+// longwave side reads, weighted by the sun's spectrum. N2 and O2 have no dipole. No diffusivity factor.
 float shortwave_absorbed_frac(uint c, float len) {
-	float column = air_rho(c) * len * length(g_at(c)) / P_STD;
-	float gas = 1.0 - exp(-SW_OPTICAL_DEPTH * max(column, 0.0));
+	vec4 a = absorber_paths(c, len);
+	float tf = 0.0;
+	uint ti = slice_of(t_k(c), tf);
+	float gas = 0.0;
+	for (uint b = 0u; b < params.band_count; ++b) {
+		gas += solar_weight(b) * (1.0 - exp(-band_tau(a, b, ti, tf)));
+	}
 	float f_c = condensed_frac(c);
 	return clamp(f_c + (1.0 - f_c) * gas, 0.0, 1.0);
 }
 
+float solar_step_m() {
+	return la_step_len(vec3(params.sun_x, params.sun_y, params.sun_z), params.cell_m);
+}
+
 // What reaches this cell of the solar beam, W/m^2, marched along the real slant path to the top of the
-// grid. Zero on the night side, where the sun is below this cell's own horizon.
+// grid. Zero on the night side, where the sun is below this cell's own horizon. Each hop reads a stamp.
 float solar_incident(uint c) {
 	vec3 sun = vec3(params.sun_x, params.sun_y, params.sun_z);
 	float sun_len = length(sun);
@@ -520,12 +550,28 @@ float solar_incident(uint c) {
 	}
 	float beam = SOLAR_CONSTANT * sun_len * mu;
 	int at = la_step(c, dir);
-	float step_m = la_step_len(dir, params.cell_m);
-	for (uint i = 0u; i < 64u && at >= 0 && beam > 0.0; ++i) {
-		beam *= 1.0 - shortwave_absorbed_frac(uint(at), step_m);
+	for (uint i = 0u; i < MARCH_HOPS && at >= 0 && beam > 0.0; ++i) {
+		beam *= 1.0 - sw_absorbed[uint(at)];
 		at = la_step(uint(at), dir);
 	}
 	return beam;
+}
+
+// Longwave arriving at `c` through face `d`, J/m^3: every cell on that grid line, attenuated by the cells
+// between; what the far end does not take leaves the box for space. APPROXIMATION — the transmittance is
+// band-integrated BEFORE marching, so it closes windows nature leaves open over a long path.
+float longwave_incident(uint c, uint d) {
+	uint back = d ^ 1u;
+	float through = 1.0;
+	float arriving = 0.0;
+	int at = nbr[c * N_SLOTS + d];
+	for (uint i = 0u; i < MARCH_HOPS && at >= 0 && through > 0.0; ++i) {
+		uint a = uint(at);
+		arriving += through * send[a * N_SLOTS + back];
+		through *= 1.0 - lw_emis[a];
+		at = nbr[a * N_SLOTS + d];
+	}
+	return arriving;
 }
 
 // --- THE GATHER ---------------------------------------------------------------------------------------
@@ -590,6 +636,8 @@ void main() {
 	bool is_signed = (params.flags & TF_SIGNED) != 0u;
 	// Pore flow's domain IS the rock: its resistance, not a solid mask, is what stops it.
 	bool through_pores = params.law == LAW_DARCY;
+	// The solid mask stops MATTER. Heat is not matter, so conduction crosses rock both ways.
+	bool blocks_solid = !through_pores && params.mode != MODE_RADIATE && params.mode != MODE_CONDUCT;
 
 	if (params.pass_id == 0u) {
 		for (uint d = 0u; d < N_SLOTS; ++d) {
@@ -597,15 +645,17 @@ void main() {
 			send_h[base + d] = 0.0;
 			send_q[base + d] = 0.0;
 		}
-		if (solid[gidx] != 0.0 && params.mode != MODE_RADIATE && !through_pores) {
+		if (solid[gidx] != 0.0 && blocks_solid) {
 			return;
 		}
 		// MODE_RADIATE emits through every face it has, including the box edge, where nobody gathers it
 		// and the emission leaves for space.
 		if (params.mode == MODE_RADIATE) {
+			float eps = longwave_emissivity(gidx);
+			lw_emis[gidx] = eps;
+			sw_absorbed[gidx] = shortwave_absorbed_frac(gidx, solar_step_m());
 			float tk = t_k(gidx);
-			float leaving = longwave_emissivity(gidx) * STEFAN * tk * tk * tk * tk
-				* params.dt_s / params.cell_m;
+			float leaving = eps * STEFAN * tk * tk * tk * tk * params.dt_s / params.cell_m;
 			for (uint d = 0u; d < N_SLOTS; ++d) {
 				send[base + d] = leaving;
 			}
@@ -662,7 +712,7 @@ void main() {
 			if (inb < 0) {
 				continue;
 			}
-			if (solid[inb] != 0.0 && !through_pores) {
+			if (solid[inb] != 0.0 && blocks_solid) {
 				continue;
 			}
 			uint nb = uint(inb);
@@ -692,12 +742,13 @@ void main() {
 			float mob_face = through_pores ? darcy_mobility(gidx, nb) : mob;
 			float flow = drop * mob_face * open / params.cell_m;
 			if (params.mode == MODE_CONDUCT) {
-				// Two half-cells in series across the bond, so the interface conductivity is the harmonic
-				// mean. dh = lambda_i * (T_nb - T_here) * dt / dx^2, with no capacity: h IS the state.
+				// Series half-cells, so the interface conductivity is the harmonic mean, and
+				// dh = lambda_i * (T_here - T_nb) * dt / dx^2 off `drive`: `drop` carries a spare cell_m.
 				float a = aux[gidx];
 				float b = aux[nb];
 				float lam = 2.0 * a * b / max(a + b, 1.0e-12);
-				flow = drop * lam * params.dt_s / (params.cell_m * params.cell_m);
+				flow = lam * (drive[gidx] - drive[nb]) * params.dt_s
+					/ (params.cell_m * params.cell_m);
 			}
 
 			if (params.mode == MODE_ADVECT || params.mode == MODE_BOTH) {
@@ -738,7 +789,7 @@ void main() {
 	float lost = 0.0;
 	float lost_h = 0.0;
 	float lost_q = 0.0;
-	float absorptivity = params.mode == MODE_RADIATE ? longwave_emissivity(gidx) : 0.0;
+	float absorptivity = params.mode == MODE_RADIATE ? lw_emis[gidx] : 0.0;
 	for (uint d = 0u; d < N_SLOTS; ++d) {
 		lost += send[base + d];
 		lost_h += send_h[base + d];
@@ -752,17 +803,16 @@ void main() {
 		if (listed && active_flag[nb] == 0u) {
 			continue;
 		}
-		float in_amt = send[nb * N_SLOTS + (d ^ 1u)];
-		// What a neighbour radiated is absorbed only in proportion to this cell's own absorptivity; the
-		// rest passes on out of the world, which is how a transparent atmosphere lets the ground cool.
-		gained += params.mode == MODE_RADIATE ? in_amt * absorptivity : in_amt;
+		// Radiation arrives from the whole grid line behind this face, not just from the cell touching it.
+		gained += params.mode == MODE_RADIATE
+			? absorptivity * longwave_incident(gidx, d)
+			: send[nb * N_SLOTS + (d ^ 1u)];
 		gained_h += send_h[nb * N_SLOTS + (d ^ 1u)];
 		gained_q += send_q[nb * N_SLOTS + (d ^ 1u)];
 	}
 	if (params.mode == MODE_RADIATE) {
 		float sun_w = solar_incident(gidx);
-		float taken = sun_w * shortwave_absorbed_frac(gidx, params.cell_m)
-			* (1.0 - shortwave_albedo(gidx));
+		float taken = sun_w * sw_absorbed[gidx] * (1.0 - shortwave_albedo(gidx));
 		gained += taken * params.dt_s / params.cell_m;
 		rad_absorbed[gidx] = gained;
 		rad_emitted[gidx] = lost;
@@ -789,5 +839,13 @@ void main() {
 		float thr = rrea_threshold(gidx);
 		col_e[gidx] = e_here;
 		strike[gidx] = (thr > 0.0 && e_here >= thr) ? 1.0 : 0.0;
+	}
+	if ((params.flags & TF_RADIOGENIC) != 0u) {
+		// The rock warms itself, at this epoch's rate. This row carries h_j_m3, so `amount` IS enthalpy.
+		float dq = (max(silicate[gidx], 0.0) * params.w_silicate
+			+ max(carbonate[gidx], 0.0) * params.w_carbonate
+			+ max(silica[gidx], 0.0) * params.w_silica) * params.dt_s;
+		amount[gidx] += dq;
+		radiogenic[gidx] = dq;
 	}
 }

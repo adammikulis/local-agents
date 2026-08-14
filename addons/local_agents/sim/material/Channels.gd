@@ -33,46 +33,20 @@ static func rows() -> Dictionary:
 	}
 
 
-## Buffers a pass recomputes from the channels every step. Name -> the law that produces it.
-static func derived_buffers() -> Dictionary:
-	return {
-		"temp": "the mixture's enthalpy ladder inverted at this cell's pressure",
-		"h2o_solid": "share of this cell's h2o the ladder leaves below the melting point at this pressure",
-		"h2o_liquid": "share of this cell's h2o that is condensed and above the melting point",
-		"h2o_vapour": "share of this cell's h2o the saturation curve puts in the gas at this cell's pressure",
-		"silicate_melt": "share of this cell's silicate the lever rule puts above the solidus at this pressure",
-		"silicate_susp_water": "loose share the water's shear holds up against the grain's settling velocity",
-		"silicate_susp_air": "loose share the air's shear holds up against the grain's settling velocity",
-		"silicate_bed": "loose share neither fluid holds up: (1 - melt) * (1 - cement) minus the two above",
-		"vel_x": "mom_x divided by the cell's mass",
-		"vel_y": "mom_y divided by the cell's mass",
-		"vel_z": "mom_z divided by the cell's mass",
-		"pressure": "the gas's own nRT plus the weight of the condensed column above",
-		"n_gas_m3": "moles of non-condensable gas per cubic metre of cell",
-		"rho_cond": "density of the cell's condensed matter alone",
-		"conductivity": "volume-weighted thermal conductivity of what the cell holds",
-		"solid": "cemented silicate volume fraction past the rheological lock-up threshold",
-		"fire": "the share of a cell's usable oxygen that combustion consumed this step",
-		"discharge": "J/m^3 the OHMIC row dissipated in this cell this step, sigma E^2 dt",
-		"rad_absorbed": "J/m^3 the RADIATE gather took in this step: neighbours' longwave times this "
-			+ "cell's absorptivity, plus the solar beam that reached it",
-		"rad_emitted": "J/m^3 the RADIATE row sent out of all six faces this step",
-	}
+## Buffers a pass recomputes from the channels every step, and the driver copies back on every drain.
+static func derived_buffers() -> PackedStringArray:
+	return PackedStringArray(["temp", "h2o_solid", "h2o_liquid", "h2o_vapour", "silicate_melt",
+		"silicate_susp_water", "silicate_susp_air", "silicate_bed", "vel_x", "vel_y", "vel_z",
+		"pressure", "rho_bulk", "conductivity", "solid", "fire", "discharge",
+		"rad_absorbed", "rad_emitted"])
 
 
-## Reaction slots that no channel backs; the kernel derives them from other state each step.
+## Reaction slots that no channel backs; the kernel derives them from other state each step. Slot -> the
+## LASubstances id it holds, or "" where the slot is not an amount of matter.
 static func derived_slots() -> Dictionary:
 	var D: GDScript = load("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
-	return {
-		D.TEMP:            {"from": "the enthalpy ladder inverted over the cell mixture", "substance": ""},
-		D.WINDSPEED:       {"from": "the flow tangential to -g, and velocity is momentum over mass", "substance": ""},
-		D.LIGHT:           {"from": "insolation at this cell", "substance": ""},
-		D.SOIL_ROOT:       {"from": "pore water over the whole rooting column", "substance": "h2o"},
-		D.VAPOUR_DEFICIT:  {"from": "sat(T) - the cell's own h2o vapour", "substance": ""},
-		D.SOIL_TOP:        {"from": "pore water of the first regolith cell below an open one", "substance": "h2o"},
-		D.BEDROCK_BELOW:   {"from": "silicate of the inward neighbour", "substance": "silicate"},
-		D.ORG_C:           {"from": "detritus + fuel", "substance": ""},
-	}
+	return {D.TEMP: "", D.WINDSPEED: "", D.LIGHT: "", D.SOIL_ROOT: "h2o", D.VAPOUR_DEFICIT: "",
+		D.SOIL_TOP: "h2o", D.BEDROCK_BELOW: "silicate", D.ORG_C: ""}
 
 
 static func _by(field: String, want: String) -> PackedStringArray:
@@ -122,9 +96,8 @@ static func slot_substance() -> Dictionary:
 			out[slot] = sub
 	var der: Dictionary = derived_slots()
 	for slot in der:
-		var ds: String = String(der[slot].get("substance", ""))
-		if ds != "":
-			out[int(slot)] = ds
+		if String(der[slot]) != "":
+			out[int(slot)] = String(der[slot])
 	return out
 
 

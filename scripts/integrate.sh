@@ -88,7 +88,7 @@ fi
 # the DEV branch -- so a lane's new `class_name` or `.glsl` arrives afterwards and is unregistered. The
 # staged lint then fails on "Identifier not declared" for a class the lane correctly added, which reads as
 # the lane being broken. Imports first (a new kernel is unimported and load()s as null), then the scan.
-(cd "$STAGE_WT" && godot --headless --path . --import >/dev/null 2>&1) || true
+"$SCRIPT_DIR/godot_import.sh" "$STAGE_WT" || true
 "$SCRIPT_DIR/editor_scan.sh" --path "$STAGE_WT" >/dev/null 2>&1 || {
 	echo "integrate: the staged tree does not scan clean after the merge." >&2
 	"$SCRIPT_DIR/editor_scan.sh" --path "$STAGE_WT" >&2
@@ -133,7 +133,7 @@ git -C "$ROOT" merge --ff-only "$STAGE" >/dev/null 2>&1 || {
 # The PRIMARY has just fast-forwarded, so its .godot is stale: a new class_name is unregistered and a new
 # .glsl unimported, which makes check_parse_all red and a GPU field silently dead. The staging tree got
 # this from new_worktree.sh; the primary needs it too.
-(cd "$ROOT" && godot --headless --path . --import >/dev/null 2>&1) || true
+"$SCRIPT_DIR/godot_import.sh" "$ROOT" || true
 "$SCRIPT_DIR/editor_scan.sh" --path "$ROOT" >/dev/null 2>&1 || \
 	echo "integrate: the post-merge editor scan was not clean; run scripts/editor_scan.sh." >&2
 git -C "$ROOT" worktree remove "$STAGE_WT" --force >/dev/null 2>&1 || true

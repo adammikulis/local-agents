@@ -100,9 +100,9 @@ if [[ ! -f "$PROJECT/project.godot" ]]; then
 fi
 
 # mkdir is atomic on every filesystem we care about, so it is the portable lock primitive here (macOS has
-# no flock(1)). The lock lives beside the project it guards, because the race is over that project's
-# .godot directory — two DIFFERENT projects may scan at the same time safely.
-LOCK_DIR="${PROJECT}/.godot/.editor_scan.lock"
+# no flock(1)). MACHINE-WIDE, and shared with scripts/godot_import.sh: a per-project lock excluded nothing
+# once every lane ran in its own worktree, and what races is the shared GDExtension load.
+LOCK_DIR="${TMPDIR:-/tmp}/la_godot_extension.lock"
 mkdir -p "${PROJECT}/.godot" 2>/dev/null || true
 
 waited=0

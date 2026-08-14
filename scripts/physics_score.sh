@@ -8,8 +8,8 @@
 #
 #   1  MATTER    per-element |drift| since the world seal, mask-free, in MOLES. A raw channel sum is not
 #                admissible: carbon_total read +1261% while the mole count read -10.7%, opposite signs.
-#   2  ENERGY    energy_residual as a fraction of the booked terms. NOT drift — energy is not closed and
-#                must not be; sunlight enters and longwave leaves every step.
+#   2  ENERGY    energy_residual_rel — the residual as a fraction of the energy that CROSSED the boundary.
+#                NOT drift: energy is not closed and must not be; sunlight enters and longwave leaves.
 #   5  SEED      how many entries the world_seed manifest still carries, i.e. how much the planet was TOLD.
 #
 # Usage:  scripts/physics_score.sh [--path DIR] [--frames N] [--seed N]
@@ -142,14 +142,16 @@ else:
         print("    %-14s %s" % (name, "unmeasured" if rel is None else "%+.4f%%" % (rel * 100)))
 
 # --- 2. ENERGY: the residual, not the drift --------------------------------------------------------------
-booked, residual = d.get("energy_booked"), d.get("energy_residual")
-if not isinstance(booked, (int, float)) or not isinstance(residual, (int, float)) or booked == 0:
+# The ledger publishes the ratio; this reads it. Dividing by `energy_booked` was a second declaration against
+# a denominator that passes through zero at radiative equilibrium, so the score swung on the sun, not the books.
+rel = d.get("energy_residual_rel")
+if not isinstance(rel, (int, float)):
     e_score = 0
-    print("criterion 2  ENERGY      score 0   (no booked terms to measure a residual against)")
+    print("criterion 2  ENERGY      score 0   (no energy_residual_rel: nothing crossed the boundary to book)")
 else:
-    frac = abs(residual / booked)
+    frac = abs(rel)
     e_score = band(frac, [0.50, 0.10, 0.01])
-    print("criterion 2  ENERGY      score %d   residual/booked %.3f" % (e_score, frac))
+    print("criterion 2  ENERGY      score %d   residual/turnover %.3f" % (e_score, frac))
 print("    (drift %-12s is NOT the score: energy is not closed and must not be)"
       % ("%.4g" % d["energy_run_drift"] if isinstance(d.get("energy_run_drift"), (int, float)) else "n/a"))
 
@@ -237,17 +239,14 @@ if unattributed:
 # Matter has ledgers and energy has a ledger. Momentum has none: wind and flow carry it, pressure gradients
 # and gravity create it, drag destroys it, and NOTHING sums it. A substrate that books two of the three
 # conserved quantities of mechanics is not measuring the third — it is not looking.
-MOMENTUM_KEYS = ("momentum_total", "momentum_drift", "momentum_booked", "momentum_residual")
+MOMENTUM_KEYS = ("momentum_total", "momentum_carried", "momentum_impulse", "momentum_residual")
 mom_present = [k for k in MOMENTUM_KEYS if isinstance(d.get(k), (int, float))]
 if not mom_present:
     mo_score = 0
 else:
-    resid = d.get("momentum_residual")
-    booked = d.get("momentum_booked")
-    if isinstance(resid, (int, float)) and isinstance(booked, (int, float)) and booked:
-        mo_score = band(abs(resid / booked), [0.50, 0.10, 0.01])
-    else:
-        mo_score = 1
+    # The ledger publishes the ratio, against the impulse that ACTED. |booked| was a cancelling vector sum.
+    rel = d.get("momentum_residual_rel")
+    mo_score = band(abs(rel), [0.50, 0.10, 0.01]) if isinstance(rel, (int, float)) else 1
 print()
 print("criterion 7  MOMENTUM     score %d   %s"
       % (mo_score, "no momentum ledger exists" if not mom_present else ", ".join(mom_present)))

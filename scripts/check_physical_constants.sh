@@ -129,7 +129,15 @@ trap 'rm -f "$AUTH_MAP"' EXIT
 # invisible to the gate on the day it was added. Found 2026-08-10 when a new derived constant that depends on
 # it could not be bound. Same failure mode the paragraph above describes, one syntax later: the gate got
 # quietly weaker as the authority got better.
-if ! python3 "$SCRIPT_DIR/lib_parse_authority.py" "$AUTHORITY" > "$AUTH_MAP"; then
+SUBSTANCES="${LA_SUBSTANCE_AUTHORITY:-$REPO_ROOT/addons/local_agents/sim/material/Substances.gd}"
+if [[ ! -f "$SUBSTANCES" ]]; then
+  echo "ERROR: check_physical_constants.sh cannot find the substance table:" >&2
+  echo "       $SUBSTANCES" >&2
+  echo "       It is the authority for every property of matter, so a kernel copy of one is" >&2
+  echo "       unverifiable without it." >&2
+  exit 2
+fi
+if ! python3 "$SCRIPT_DIR/lib_parse_authority.py" "$AUTHORITY" "$SUBSTANCES" > "$AUTH_MAP"; then
   echo "check_physical_constants: the authority could not be parsed; see above." >&2
   exit 2
 fi
@@ -185,6 +193,22 @@ awk -v AUTH="$AUTH_MAP" -v ROOT="$REPO_ROOT/" '
     literal = (val ~ /^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?[fF]?$/)
     v = val + 0
     checked++
+
+    # --- a property of a substance binds to the substance table, the SSOT for matter --------------
+    if (match(cmt, /LASubstances\.[A-Za-z0-9_]+\.[A-Za-z0-9_]+/)) {
+      ref = substr(cmt, RSTART, RLENGTH)
+      if (!have[ref]) {
+        fail(FILENAME, FNR, name " references " ref ", which the substance table does not give as a scalar property.")
+        next
+      }
+      if (!literal) {
+        fail(FILENAME, FNR, name " references " ref " but its value \"" val "\" is not a plain numeric literal, so the gate cannot verify it. Write the number.")
+        next
+      }
+      if (!num_eq(v, auth[ref]))
+        fail(FILENAME, FNR, name " = " val ", but " ref " = " authstr[ref] ". A measured property of a substance is declared once, in the table.")
+      next
+    }
 
     # --- explicit reference: the binding contract -----------------------------------------------
     if (match(cmt, /LAPhysical\.[A-Za-z0-9_]+/)) {

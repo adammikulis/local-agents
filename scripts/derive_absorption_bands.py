@@ -318,35 +318,6 @@ static func edges_cm1() -> PackedFloat32Array:
 \treturn _edges
 
 
-## Temperature slice index and interpolation fraction for `t_k`, held flat outside the tabulated range.
-## Returned as a Vector2 so a caller can hoist it out of its band loop.
-static func slice_of(t_k: float) -> Vector2:
-	if t_k <= float(TEMPS_K[0]):
-		return Vector2(0.0, 0.0)
-	if t_k >= float(TEMPS_K[TEMP_COUNT - 1]):
-		return Vector2(float(TEMP_COUNT - 2), 1.0)
-	var i: int = 0
-	while i < TEMP_COUNT - 2 and t_k > float(TEMPS_K[i + 1]):
-		i += 1
-	var lo: float = float(TEMPS_K[i])
-	return Vector2(float(i), (t_k - lo) / (float(TEMPS_K[i + 1]) - lo))
-
-
-## Coefficient of band `b` at temperature `t_k`, linearly interpolated between slices and held flat
-## outside them.
-static func at(table: Array, b: int, t_k: float) -> float:
-\tif t_k <= float(TEMPS_K[0]):
-\t\treturn float(table[b])
-\tif t_k >= float(TEMPS_K[TEMP_COUNT - 1]):
-\t\treturn float(table[(TEMP_COUNT - 1) * BAND_COUNT + b])
-\tvar i: int = 0
-\twhile i < TEMP_COUNT - 2 and t_k > float(TEMPS_K[i + 1]):
-\t\ti += 1
-\tvar lo: float = float(TEMPS_K[i])
-\tvar f: float = (t_k - lo) / (float(TEMPS_K[i + 1]) - lo)
-\treturn lerpf(float(table[i * BAND_COUNT + b]), float(table[(i + 1) * BAND_COUNT + b]), f)
-
-
 ## Share of the solar constant in band `b`. Derived from the solar blackbody, not tabulated; the
 ## outermost band keeps everything above its lower edge, so the weights sum to 1.
 static func solar_weight(b: int) -> float:

@@ -221,6 +221,8 @@ second account that disagrees with the first the day it is written, and it is al
 **`HANDOFF.md` IS NOT YOUR SCRATCHPAD. IT IS THE NEXT AGENT'S INSTRUCTION SET.** It gets the file and the
 expression, in one sentence, and only when the fix could not land this turn. Never your reasoning, your
 retractions, what you first thought, what you ruled out, or what a run printed.
+**A TRACKER ITEM CARRIES A SYMPTOM AND THE COMMAND THAT REPRODUCES IT, NEVER A DIAGNOSIS** — a symptom holds
+until it is fixed, a guess at a cause rots in silence and aims the next reader at the wrong file.
 `scripts/check_doc_prose.sh` fails the build on it.
 
 Findings are not written down. Fix it.
@@ -296,9 +298,9 @@ things you already have your hands on.
 work forward.
 
 ## Branch & worktree workflow (DEFAULT)
-- **The current development branch is `0.4-dev`** — the integration branch all feature work targets (this
-  is the ONE place its name is written; everywhere else says "the current dev branch" so a version bump
-  changes only this line). `main` is downstream — it holds the shipped release (currently **0.3.1**, tagged
+- **The current development branch is `0.4-dev`** — the integration branch all feature work targets. This
+  line is the ONE declaration of its name: `scripts/lib_dev_branch.sh` parses it out of this file and every
+  script reads it from there, so a version bump changes this line and nothing else. `main` is downstream — it holds the shipped release (currently **0.3.1**, tagged
   `v0.3.1`). Do **not** commit feature work directly to `main`.
 - **EVERY SUBAGENT THAT EDITS FILES GETS ITS OWN WORKTREE. PASS `isolation: "worktree"` ON THE AGENT CALL.
   THIS IS NOT A JUDGEMENT CALL AND THERE IS NO THRESHOLD.** One agent or nine, one file or fifty — if it

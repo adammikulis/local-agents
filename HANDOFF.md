@@ -7,7 +7,33 @@ more than it should is in `docs/PERFORMANCE_TODO.md`.
 Nothing here is a claim about the state of the tree, because a claim rots and nobody notices. Check the
 code, then act. Report what was deleted; report no number this substrate printed.
 
+**AN ITEM CARRIES A SYMPTOM AND THE COMMAND THAT REPRODUCES IT, NEVER A DIAGNOSIS.** A symptom holds until
+it is fixed. An assertion about a cause rots in silence, reads as progress, and spends the next reader's day
+on the file it named. If you know the cause you are close enough to fix it, so fix it.
+`scripts/check_doc_prose.sh` fails the build on a tracker that names one.
+
 ---
+
+## 0. THE TWO HALVES OF `h_j_m3` DISAGREE, AND ONE OF THEM IS INFINITE. TAKE THIS FIRST.
+
+`energy_stock` serialises to null and the run logs Godot's own "NaN found in JSON.stringify". Every ledger
+watt goes null with it: `energy_absorbed_w`, `energy_emitted_w`, `energy_net_w`, `energy_booked`,
+`energy_residual`. The energy conservation row reads UNMEASURED rather than conserved.
+
+`h_j_m3` is a PAIR channel. Read both halves off the device on the same step and they hold different
+worlds: one carries a physically ordinary enthalpy density, the other carries `inf`. The CPU mirror
+`_f._h` — which `LAMaterialFieldSphereStep3D.step()` hands straight back to `begin_frame()` to upload —
+carries the infinite one. Cells whose enthalpy is enormous report ordinary temperatures, and at least one
+of them reports exactly `-273.15`, the `total <= 0.0` branch of `state_derive.glsl`: no matter at all.
+
+**Reproduce:** in `MaterialSphereGPU3D`, read `_bufs["h_j_m3"][0]` and `_bufs["h_j_m3"][1]` back after a
+step and compare their maxima, against `_f._h`'s. `MaterialFieldQueries3D.row_f("all_temp_max")` reads
+correctly at the same moment, so `temp` derives from the sound half while the mirror does not.
+
+Nothing measured anywhere in the substrate means anything while this holds: temperature is derived from
+enthalpy every step and drives the phase ladder, every reaction gate and both radiative terms. Note
+`_live()` returns `_bufs[name][_phase]` and `step()` flips `_phase` after dispatching, while the readback
+runs from the NEXT `begin_frame` — establish which half each pass writes before changing anything.
 
 ## 1. Reduce the rest on the device
 
@@ -15,7 +41,7 @@ code, then act. Report what was deleted; report no number this substrate printed
 sweeps already use it. Left:
 
 - `MaterialFieldReport3D.surface_climate`, `MaterialFieldPhotoStats3D`,
-  `MaterialFieldClimateSwing3D._site_stations`, `MaterialFieldGeotherm3D._gradient`.
+  `MaterialFieldClimateSwing3D._site_stations`.
 - `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`, `MaterialFieldElementProbe3D`,
   `MaterialFieldOrganic3D`.
 - `CLIMATE_MAX_CELLS` and its stride delete with the climate scan.
@@ -24,29 +50,19 @@ sweeps already use it. Left:
 - Three shapes refused a row and say why: `sea_surface_stats` (a median needs a declared range nothing
   supplies), `lava_shell_diag` (five outputs over two gates), `rock_radial_profile` (a binned reduction
   plus a gravity march in one walk).
-- `_liquid_mirror`, `_ice_mirror` and `_vapour_mirror` are each a per-cell product of two buffers the GPU
-  already holds. Three `LAChannels.derived_buffers()` entries written by `StateDerivePass` delete all three
-  loops with no reduce row at all; waiting for their five consumers to convert is a choice, not a blocker.
+- `_liquid_mirror` is a per-cell product of two buffers the GPU already holds, rebuilt per drinking
+  creature per tick. A derived buffer written by `StateDerivePass` deletes the loop with no reduce row at
+  all; its four consumers convert with it, and `drink` stops writing its depletion into a throwaway copy.
 
-The ops these sweeps still need, so a lane adds them once rather than four times: `Mask.GROUND` / `Mask.AIR`
-(open with solid at the gravity-below slot — `nbr_solid` already binds the neighbour table); `Op.COUNT_LT`;
-a below-neighbour comparison, which covers `pressure_inversions`, `pressure_audited` AND the momentum
-buoyancy book; a six-face gradient for the momentum PGF book; derived `speed`, `lat` and `alt` channels,
-after which every latitude and altitude band is an ordinary row using the existing `gate_lo`/`gate_hi`.
+The ops are BUILT — `Mask.GROUND`/`Mask.AIR`, `Op.COUNT_LT`, `enum Nbr` (below, above, six-face gradient)
+and the derived `speed`/`lat`/`alt` channels — so a sweep converts without adding machinery, and every
+latitude and altitude band is an ordinary row on the existing `gate_lo`/`gate_hi`.
 
 Free today, no new op: `momentum_vec` is three `SUM` rows on `vel_*` with `aux: "air"`, weighted, OPEN;
 `momentum_mass_kg` is one. **Coriolis then costs nothing** — it is linear in v, so it is
 `spin × momentum_vec × -2Ω` on the CPU, and the per-cell accumulation is pure waste.
 
 ## 2. Collapse the per-cell kernels into one dispatch
-
-Seven passes are dispatched per step. `MaterialFieldGeotherm3D` is the next one to go and it is not even a
-kernel: `_rebuild()` computes `silicate[c] * rho_rock * vol[c] * w_per_kg`, in which only `silicate[c]`
-varies per cell, then compacts a list and hands joules to the sparse inject queue from GDScript on the
-gravity solve's cadence. Radiogenic heating is a volumetric source, heat appearing in proportion to the rock
-a cell holds, and it is one term in the kernel beside the rest. Keep `LARadiogenicDecay`, which is the real
-physics of a decaying nuclide store; delete the module, the list, the queue round trip and the separate
-cadence.
 
 `CellListPass` is the seventh, and it stays a pass until the compaction becomes a mode of `transport.glsl`:
 `check_binding_collisions.sh` fails any pass naming two kernel paths, so it cannot simply be folded into
@@ -55,14 +71,11 @@ cadence.
 
 The target is six: gravity, derive, pressure, transport, reactions, reduce.
 
-## 3. Give the RADIATE row a column, so radiation crosses more than one cell
+## 3. Sunlight reflected off the ground goes nowhere
 
-In `transport.glsl`'s gather, `gained += in_amt * absorptivity` keeps a neighbour's emission in proportion
-to this cell's own absorptivity and DROPS the rest: a photon the adjacent cell does not absorb never
-reaches the one beyond it. The mean free path is one cell by construction, so the substrate has no
-transmission, no outgoing longwave at the top of the atmosphere, and no way to price a CO2 doubling —
-`solar_incident()` already marches a real slant path with `la_step`, and the longwave half needs the same
-march. `BAND_COUNT` and `TEMP_COUNT` in `docs/MODEL_PARAMETERS.md` name that solver as what deletes them.
+`transport.glsl`'s gather takes `sun_w * sw_absorbed * (1 - shortwave_albedo)` and the beam march removes
+the whole absorbed share, so what a surface reflects is subtracted from the beam and deposited in no cell.
+Reflected shortwave is a real flux that crosses the atmosphere again and may be absorbed on the way out.
 
 ## 5. Move what the device cannot take into the GDExtension
 
@@ -77,11 +90,6 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
   per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
 - The driver: `MaterialSphereGPU3D.gd` and `MaterialField3D.gd`. Last, after the pass seam settles.
 
-## 6. Make `_read_channels`'s SLOW block read `slow_channels()`
-
-It hardcodes `["silicate", "fert"]` and `["biomass", "cement", ...]`, so `slow_channels()` is a view nothing
-consumes and `porosity` never gets its coarse readback.
-
 ## 7. Build the binding registry
 
 SSBO binding numbers are a bare integer in GLSL and a second bare integer in one of fourteen uniform-set
@@ -93,17 +101,7 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
 
 <!-- claim: nofile addons/local_agents/sim/material/Bindings.gd -->
 
-## 8. Make `lint` distinguish "could not run" from "violated"
-
-Every gate runs and the failures are summarised, so the fail-fast half of this is already done. What remains:
-the harness collapses every gate's exit code into `exit 1`, so the exit-2 contract asserted in about ten gate
-headers and in `lint.yml` is not observable. Fix the harness, not the gates.
-
-## 9. Pressure is broken, and the harness exits 122 saying so
-
-`PRESSURE_BROKEN` reports both a count of inversions — pressure falling as you go DOWN — and a count of
-cells no column walk ever reached. Both are large. A cell with no pressure evaluates every phase boundary
-at vacuum, so this reaches the whole phase curve.
+## 9. An instrument that cannot fire, and two re-sweeps
 
 - `FieldAttributionRecords3D.SILENT_HEAT_PASSES` now lists only `"fungus"`, and there is no `FungusPass` in
   `PASS_SCRIPTS` — while `PRODUCERS` still names one for a channel `Channels.gd` declares as a single
@@ -112,19 +110,14 @@ at vacuum, so this reaches the whole phase curve.
   inside its own file.
 - `check_shaders_compile.sh`'s kernel floor is `docs/SHADER_FLOOR` and `write_ceilings.sh` lowers it. Do not
   bake a count back into the gate.
-- `LAMineralStamp3D._scan` restarts at cell 0 every scan and breaks on a budget, so the low-index prefix is
-  re-walked and high-index cells are starved. It needs a rolling cursor at minimum.
 - `LASpatialIndex.rebuild_if_stale` rebuilds a whole group's dictionary every frame it is touched rather
   than tracking per-node cell changes, and `LASimReport.snapshot` deep-copies its events and gauges on every
   call. Both are constants, not asymptotes.
 
-## 10. Two constants that are not what they name
+## 10. A constant that is not what it names
 
 - `AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`, and it is the unit
   definition of the `o2`, `co2` and `n2` channels, so correcting it rescales every gas total.
-- One radiogenic rate covers every rock and there is only one rock. Continental crust is enriched about
-  fifty times over depleted mantle, so a second rock substance with its own abundance is what makes crust
-  and mantle differ. The rate is also present-day and this body has no age.
 
 ## 11. Rebuild frost shattering from the phase boundary
 
@@ -136,6 +129,19 @@ a sealed pore. Invert `LASubstances.melt_c_at`: the pressure ice exerts at under
 `Substances.gd` should carry with its source. Bound the extent by the pore water available to freeze, and
 let deep cold starve the mechanism out of the state rather than a cutoff. Observed damage peaks at -3 to
 -10 C: if the law disagrees, that is the finding, not a thing to tune.
+
+## 12. `LAFieldGeometry.above` and `below` are not inverses, and `PRESSURE_BROKEN` still fires on it
+
+`slot_toward` snaps the local vertical to one of six axes, so across the diagonal where the snap flips,
+`above(below(c)) != c`. The pressure column, `air_above`, `ground` and `burial_steps` all march that
+relation, and no column integral can be monotone along a `below` step its own `above` step does not undo.
+One vertical relation, built once and inverse by construction, is what removes it.
+
+**A RADIAL COORDINATE SYSTEM IS NOT THE ANSWER. This is the maintainer's DECISION, not a law.** It has been
+tried twice: the cubed-sphere shell was replaced by the uniform Cartesian box on purpose, and a
+true-radial-ray traversal built to remove this very snap measured WORSE, because with no structural relation
+to the grid's own vertical step, ray divergence across a density contrast dominates. Fix the relation on the
+Cartesian grid.
 
 ---
 

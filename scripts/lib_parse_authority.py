@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Parse a GDScript constants file into NAME<TAB>VALUE on stdout.
 
+With a second argument, also emits the substance table's scalar properties as
+LASubstances.<id>.<property><TAB>VALUE, so a kernel copy of a material property binds to the SSOT for
+matter rather than to a second declaration of the same fact in LAPhysical.
+
 Evaluates each `const NAME: float = <expr>` over the constants already known, iterating until nothing
 new resolves. The grammar is real: parentheses, unary minus, + - * / and ** , plus PI, TAU, INF and the
 functions pow, sqrt, log, exp, abs, min, max. A flat +-*/ chain could not express a derivation like
@@ -62,17 +66,49 @@ def _eval(node, known):
     raise Unresolved(type(node).__name__)
 
 
-def main() -> int:
-    src = open(sys.argv[1], encoding="utf-8").read()
-    src = re.sub(r"\\\n", " ", src)                       # join line continuations before reading
-    decls = []
+def _consts(src):
+    out = []
     for line in src.split("\n"):
         m = re.match(r"^\s*const\s+([A-Za-z_]\w*)\s*:\s*float\s*=\s*(.+)$", line)
         if not m:
             continue
         expr = re.sub(r"#.*$", "", m.group(2)).strip()
         if expr:
-            decls.append((m.group(1), expr))
+            out.append((m.group(1), expr))
+    return out
+
+
+def substances(path, known):
+    # The substance table is the SSOT for matter, so a kernel copy of a material property binds to it the
+    # same way one binds to LAPhysical. Emitted as LASubstances.<id>.<property>.
+    src = re.sub(r"\\\n", " ", open(path, encoding="utf-8").read()).replace("PC.", "")
+    local = dict(known)
+    for name, expr in _consts(src):
+        try:
+            local[name] = _eval(ast.parse(expr, mode="eval").body, local)
+        except (SyntaxError, Unresolved):
+            continue
+    out, sid = [], None
+    for line in src.split("\n"):
+        m = re.match(r'^\t\t"(\w+)"\s*:\s*\{', line)
+        if m:
+            sid = m.group(1)
+            continue
+        m = re.match(r'^\t\t\t"(\w+)"\s*:\s*(.+?),?\s*$', line)
+        if sid is None or not m:
+            continue
+        try:
+            out.append(("LASubstances.%s.%s" % (sid, m.group(1)),
+                        _eval(ast.parse(m.group(2), mode="eval").body, local)))
+        except (SyntaxError, Unresolved, TypeError, ValueError):
+            continue      # a formula dict, a string, an array: not a scalar property
+    return out
+
+
+def main() -> int:
+    src = open(sys.argv[1], encoding="utf-8").read()
+    src = re.sub(r"\\\n", " ", src)                       # join line continuations before reading
+    decls = _consts(src)
     if not decls:
         print("lib_parse_authority: no `const NAME: float =` declarations found.", file=sys.stderr)
         return 2
@@ -108,6 +144,13 @@ def main() -> int:
 
     for name in order:
         print("%s\t%.10g" % (name, known[name]))
+    if len(sys.argv) > 2:
+        rows = substances(sys.argv[2], known)
+        if not rows:
+            print("lib_parse_authority: %s yielded no substance properties." % sys.argv[2], file=sys.stderr)
+            return 3
+        for name, value in rows:
+            print("%s\t%.10g" % (name, value))
     return 0
 
 

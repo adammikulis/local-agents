@@ -57,6 +57,16 @@ const VOL_HEAT_CAP_WATER_J_M3K: float = WATER_DENSITY_KG_M3 * WATER_SPECIFIC_HEA
 const BSE_U_KG_PER_KG: float = 20.3e-9
 const BSE_TH_KG_PER_KG: float = 79.5e-9
 const BSE_K_KG_PER_KG: float = 240.0e-6
+## Limestone and sandstone, kg of element per kg of rock (Turekian & Wedepohl 1961, GSA Bull. 72:175).
+const LIMESTONE_U_KG_PER_KG: float = 2.2e-6
+const LIMESTONE_TH_KG_PER_KG: float = 1.7e-6
+const LIMESTONE_K_KG_PER_KG: float = 2700.0e-6
+const SANDSTONE_U_KG_PER_KG: float = 0.45e-6
+const SANDSTONE_TH_KG_PER_KG: float = 1.7e-6
+const SANDSTONE_K_KG_PER_KG: float = 10700.0e-6
+## Age of the Earth, years: Pb-Pb isochron over meteorites and terrestrial lead (Patterson 1956, Geochim.
+## Cosmochim. Acta 10:230; Dalrymple 1991, The Age of the Earth, 4.54 +/- 0.05 Ga).
+const EARTH_FORMATION_AGE_YEARS: float = 4.54e9
 ## Half-lives, years (Audi et al. 2003, NUBASE). Decay energy per decay, MeV, net of neutrino loss
 ## (Ruedas 2017, Geochem. Geophys. Geosyst. 18:3530).
 const HALF_LIFE_U238_YEARS: float = 4.468e9
@@ -83,12 +93,6 @@ const STEFAN_BOLTZMANN: float = 5.670374419e-8
 ## Newton's constant, m^3 kg^-1 s^-2 (CODATA 2018).
 const GRAVITATIONAL_CONSTANT: float = 6.67430e-11
 const KELVIN_OFFSET: float = 273.15
-
-## Mean geothermal heat flux out of Earth's surface, W/m^2.
-const GEOTHERMAL_FLUX_W_M2: float = 0.087
-
-## Greybody longwave optical depth of a sea-level air column.
-const ATMOS_OPTICAL_DEPTH: float = 0.835
 
 ## Surface albedo, cloud contribution excluded.
 const ALBEDO_OCEAN: float = 0.06
@@ -195,9 +199,6 @@ const AIR_MOLAR_DENSITY_MOL_M3: float = AIR_DENSITY_KG_M3 / MOLAR_MASS_DRY_AIR_K
 
 ## Litter, mol C per mol N (Batjes 1996).
 const LITTER_C_TO_N: float = 20.0
-## Beer-Lambert vertical shortwave optical depth (Trenberth, Fasullo & Kiehl 2009, BAMS 90:311).
-const ATMOS_SW_OPTICAL_DEPTH: float = 0.2597
-
 const AIR_MASS_HORIZON: float = 38.0
 
 const LIGHTNING_FLASH_J: float = 1.0e9
@@ -335,8 +336,6 @@ const TWO_STREAM_DIFFUSIVITY: float = 1.66
 ## Pressure LAAbsorptionBands coefficients are stated at, Pa (Pierrehumbert, Principles of Planetary
 ## Climate 4.4.7: 100 mb, 260 K, air-broadened).
 const ABSORPTION_REF_PRESSURE_PA: float = 1.0e4
-## Density one unit of the `co2` channel carries, kg/m^3.
-const CO2_UNIT_DENSITY_KG_M3: float = AMBIENT_O2_DENSITY_KG_M3 * MOLAR_MASS_CO2_KG_MOL / MOLAR_MASS_O2_KG_MOL
 ## Broadband 8-14 um emissivity of snow (Warren 1982, Rev. Geophys. 20:67; Dozier & Warren 1982).
 const EMISSIVITY_SNOW: float = 0.99
 ## Specific gas constant of CO2, J/kg/K.

@@ -8,12 +8,8 @@
 # grid the opposite of d IS d ^ 1 and there is nothing to get wrong — but "nothing to get wrong" is a
 # claim, so it is tested.
 #
-# It also checks the two properties the whole migration is FOR:
+# It also checks the property the whole migration is FOR:
 #   volume_ratio == 1      every cell is the same size, so no transfer needs a donor/receiver ratio.
-#                          The old grid measured 5.34 and climbing with resolution.
-#   voxel alignment        a field cell is a whole number of godot_voxel voxels and the origin sits on
-#                          a cell boundary, so cell <-> voxel is integer arithmetic and the terrain and
-#                          the field are ONE coordinate system instead of two.
 #
 # EXIT CODES. 0 pass · 1 a structural claim is false · 2 could not run.
 # =====================================================================================================
@@ -31,13 +27,11 @@ extends SceneTree
 func _init() -> void:
 	var fail: int = 0
 	var g = LAVoxelGrid.new()
-	g.build_over_voxel_bounds(AABB(Vector3(-660, -660, -660), Vector3(1320, 1320, 1320)), 16.0, 1.0)
+	g.build_centred(Vector3.ZERO, 660.0, 16.0)
 	var v: Dictionary = g.validate()
 	if not bool(v["ok"]): fail += 1
 	if int(v["non_reciprocal"]) != 0: fail += 1
 	if absf(float(v["volume_ratio"]) - 1.0) > 1.0e-9: fail += 1
-	if not g.is_voxel_aligned(1.0): fail += 1
-	if g.voxels_per_cell(1.0) != 16: fail += 1
 	# d ^ 1 is an involution on every slot, and never maps a slot to itself.
 	for d in 6:
 		if LAVoxelGrid.opposite_slot(LAVoxelGrid.opposite_slot(d)) != d: fail += 1
@@ -59,8 +53,8 @@ func _init() -> void:
 	# Boundary faces are -1, never a wrapped neighbour.
 	if h.neighbours[h.index(0, 0, 0) * 6 + LAVoxelGrid.S_NEG_X] != -1: fail += 1
 	if h.neighbours[h.index(4, 6, 2) * 6 + LAVoxelGrid.S_POS_Z] != -1: fail += 1
-	print('VOXEL_GRID={"cells":%d,"non_reciprocal":%d,"volume_ratio":%.6f,"voxels_per_cell":%d,"failures":%d}'
-		% [int(v["cells"]), int(v["non_reciprocal"]), float(v["volume_ratio"]), g.voxels_per_cell(1.0), fail])
+	print('VOXEL_GRID={"cells":%d,"non_reciprocal":%d,"volume_ratio":%.6f,"failures":%d}'
+		% [int(v["cells"]), int(v["non_reciprocal"]), float(v["volume_ratio"]), fail])
 	quit(1 if fail > 0 else 0)
 GD
 

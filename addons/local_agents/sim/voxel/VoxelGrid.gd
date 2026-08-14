@@ -65,13 +65,6 @@ func cell_at(p: Vector3) -> int:
 	return index(x, y, z)
 
 
-## Volume in model units cubed. Constant — the argument exists so callers read the same shape as before
-## and so a future non-uniform grid has a seam, not because it varies.
-## The cell containing a world point, or -1. Same question as cell_at, under the name the field uses.
-func world_to_cell(p: Vector3) -> int:
-	return cell_at(p)
-
-
 ## Centre of the box in world coordinates.
 func center() -> Vector3:
 	return origin + Vector3(float(nx), float(ny), float(nz)) * cell_size * 0.5
@@ -115,41 +108,6 @@ func build_centred(center: Vector3, radius: float, p_cell_size: float) -> void:
 	var n: int = maxi(int(ceil(2.0 * radius / maxf(p_cell_size, 1.0e-6))), 1)
 	var half: float = 0.5 * float(n) * p_cell_size
 	build(n, n, n, p_cell_size, center - Vector3(half, half, half))
-
-
-## Build over a VoxelLodTerrain's own `voxel_bounds`, snapped so a field cell is a whole number of voxels
-## and the origin lands on a voxel-block boundary.
-func build_over_voxel_bounds(bounds: AABB, p_cell_size: float, voxel_size: float = 1.0) -> void:
-	var cs: float = maxf(round(p_cell_size / maxf(voxel_size, 1.0e-6)), 1.0) * voxel_size
-	var lo: Vector3 = Vector3(
-		floor(bounds.position.x / cs) * cs,
-		floor(bounds.position.y / cs) * cs,
-		floor(bounds.position.z / cs) * cs)
-	var hi: Vector3 = bounds.position + bounds.size
-	build(
-		maxi(int(ceil((hi.x - lo.x) / cs)), 1),
-		maxi(int(ceil((hi.y - lo.y) / cs)), 1),
-		maxi(int(ceil((hi.z - lo.z) / cs)), 1),
-		cs, lo)
-
-
-## Voxels per cell along one axis, for the block-aligned terrain read. Integer by construction of
-## build_over_voxel_bounds; anything else means the grid was built unaligned.
-func voxels_per_cell(voxel_size: float = 1.0) -> int:
-	return int(round(cell_size / maxf(voxel_size, 1.0e-6)))
-
-
-## Is the grid aligned to `voxel_size`, so cell <-> voxel is integer arithmetic with no resampling?
-func is_voxel_aligned(voxel_size: float = 1.0) -> bool:
-	var vs: float = maxf(voxel_size, 1.0e-6)
-	var n: float = cell_size / vs
-	if absf(n - round(n)) > 1.0e-6:
-		return false
-	for a in [origin.x, origin.y, origin.z]:
-		var k: float = float(a) / cell_size
-		if absf(k - round(k)) > 1.0e-6:
-			return false
-	return true
 
 
 func _build_neighbours() -> void:

@@ -3,20 +3,11 @@ name: Lint
 # Runs `scripts/agent_harness.sh lint` — the exact command CLAUDE.md names as THE gate, so that a green
 # local lint means a green CI and there is no second list of checks to drift from the first.
 #
-# WHY THIS IS NOT THE WORKFLOW THAT WAS REMOVED. 9030ddd deleted `godot-headless-tests.yml` — 211 lines
-# that ran the Godot test suite on every push and had been unreliable. This is a different thing: ten
-# deterministic gates that finish in about 11 seconds locally and never start the simulation. Nothing about
-# the flakiness that got the test workflow removed applies to it.
+# The gate list lives in the harness, never here: a second list drifts from the first.
 #
-# WHAT IT ENFORCES (scripts/agent_harness.sh:139-241): file length (soft 1300 / hard 1500), the
-# no-direct-refcounted-invocation ban, the `:=` inferred-typing ban, @tool write safety, the demo catalogue,
-# the public class surface, check_physical_constants.sh, check_reaction_balance.sh, and a library-only parse.
-# Between 9030ddd and this file, NONE of them ran on any push.
-#
-# EXIT 2 MEANS THE GATE COULD NOT RUN, and it is a failure on purpose. Several of these scripts need `rg`,
-# `awk` or `godot`, and this repo has already shipped gates that reported a pass while examining zero files
-# because ripgrep was missing on the runner. If this job starts failing with exit 2, the runner environment
-# is broken — do not "fix" it by making the step non-blocking.
+# EXIT 1 IS A VIOLATION. EXIT 2 MEANS A GATE COULD NOT RUN, and it is a failure on purpose — a gate that
+# examined nothing is not a pass. Several of these scripts need `rg`, `awk` or `godot`; a job failing with 2
+# says the runner environment is broken. Do not "fix" it by making the step non-blocking.
 
 on:
   push:

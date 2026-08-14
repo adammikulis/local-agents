@@ -82,7 +82,6 @@ const SurfaceSeedScript: GDScript = preload("res://addons/local_agents/sim/mater
 const OrganicScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldOrganic3D.gd")
 var _gpu = null                                          # LAMaterialSphereGPU3D or null
 var _use_gpu: bool = false
-var _geotherm = null                                     # LAMaterialFieldGeotherm3D
 var _queries = null                                      # LAMaterialFieldQueries3D
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
 var _stamp = null                                        # LAMineralStamp3D — solid-flag -> SDF growth stamp
@@ -108,7 +107,6 @@ const AtmosScript: GDScript = preload("res://addons/local_agents/sim/material/Ma
 const LedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLedger3D.gd")
 const ChannelsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldChannels3D.gd")
 const ReportScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldReport3D.gd")
-const GeothermScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldGeotherm3D.gd")
 const RegolithScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldRegolith3D.gd")
 const BiotaScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldBiota3D.gd")
 
@@ -116,8 +114,6 @@ const BiotaScript: GDScript = preload("res://addons/local_agents/sim/material/Ma
 func _init() -> void:
 	_atmos = AtmosScript.new()
 	_atmos.setup(self)
-	_geotherm = GeothermScript.new()
-	_geotherm.setup(self)
 	_ledger = LedgerScript.new()
 	_ledger.setup(self)
 	_channels = ChannelsScript.new()
@@ -643,15 +639,6 @@ func fertility_at(world_pos: Vector3) -> float:
 ## Peak soil nutrient over the grid.
 func fertility_peak() -> float:
 	return _queries.fertility_peak() if _queries != null else 0.0
-
-
-func _step_geotherm() -> void:
-	_geotherm.step()
-
-
-## Radiogenic power and the observed geothermal gradient.
-func geotherm_report() -> Dictionary:
-	return _geotherm.report()
 
 
 ## Cells holding melt still confined by rock.

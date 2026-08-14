@@ -13,6 +13,7 @@ const STAMP_BUDGET: int = 96             # max SDF edits emitted per scan (bound
 var _f = null                            # owning LAMaterialField3D (reads its mineral mirrors + geometry)
 var _window: int = 0                     # frames left in the active scan window (0 = idle, no per-frame cost)
 var _tick: int = 0                       # cadence counter toward SCAN_EVERY
+var _cursor: int = 0                     # cell the next scan resumes at
 
 # Telemetry / proof (read by SIM_REPORT + the --stamp-test harness).
 var grows: int = 0                       # total GROW stamps emitted over the run
@@ -63,9 +64,11 @@ func _scan() -> void:
 	# H₂O the solidity change has to account for (see _settle_h2o). Gathered here, queued once at the end.
 	var bury_src: PackedInt32Array = PackedInt32Array()
 	var bury_dst: PackedInt32Array = PackedInt32Array()
-	for c in range(n):
-		if budget <= 0:
-			break
+	# ROLLING CURSOR: a scan resumes where the last stopped and wraps once, so the budget cannot starve
+	# the high-index cells.
+	var visited: int = 0
+	var c: int = _cursor if _cursor < n else 0
+	while visited < n and budget > 0:
 		var was_solid: bool = solid[c] != 0
 		var rf: float = maxf(sil[c], 0.0) * clampf(cem[c], 0.0, 1.0)
 		if not was_solid and rf >= GROW_THRESHOLD:
@@ -86,6 +89,9 @@ func _scan() -> void:
 			shrinks += 1
 			found += 1
 			budget -= 1
+		c = (c + 1) % n
+		visited += 1
+	_cursor = c
 	_f._solid = solid                              # PackedByteArray is COW — write the updated mask back
 	_settle_h2o(bury_src, bury_dst)
 	last_scan_ms = float(Time.get_ticks_usec() - t0) / 1000.0

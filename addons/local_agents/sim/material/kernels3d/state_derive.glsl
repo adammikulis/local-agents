@@ -32,8 +32,7 @@ layout(set = 0, binding = 30, std430) restrict writeonly buffer VelZ { float vel
 
 // What the pressure kernel needs and this pass already computes: the cell's gas in mol/m^3 and the
 // density of its CONDENSED matter alone, kg/m^3.
-layout(set = 0, binding = 31, std430) restrict writeonly buffer GasMol { float n_gas_m3[]; };
-layout(set = 0, binding = 32, std430) restrict writeonly buffer RhoCond { float rho_cond[]; };
+layout(set = 0, binding = 32, std430) restrict writeonly buffer RhoBulk { float rho_bulk[]; };
 layout(set = 0, binding = 33, std430) restrict writeonly buffer Cond { float conductivity[]; };
 
 // THE PHASE OF THE CELL'S H2O, as three shares of h2o[] summing to 1. Derived, never stored.
@@ -44,6 +43,13 @@ layout(set = 0, binding = 36, std430) restrict writeonly buffer H2OVapour { floa
 // THE MELT SHARE OF THE CELL'S SILICATE: the lever rule across the solidus-liquidus interval. Derived from
 // the same enthalpy ladder the temperature came off, never stored.
 layout(set = 0, binding = 37, std430) restrict writeonly buffer SilicateMelt { float silicate_melt[]; };
+
+// WHERE AND HOW FAST, so a band of latitude or altitude is an ordinary reduce gate rather than a CPU walk.
+// speed is |v|, m/s; alt is the distance from the body centre, m; lat is the angle of that radius out of
+// the equatorial plane, degrees.
+layout(set = 0, binding = 41, std430) restrict writeonly buffer Speed { float speed[]; };
+layout(set = 0, binding = 42, std430) restrict writeonly buffer Lat { float lat[]; };
+layout(set = 0, binding = 43, std430) restrict writeonly buffer Alt { float alt[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -132,10 +138,21 @@ void main() {
 
 	float vol = cell_volume(g);
 
+	// GEOMETRY, which does not depend on what the cell holds. No spin axis is no pole and no latitude, so
+	// lat is NaN there rather than a fabricated equator, and every gate then admits the cell nowhere.
+	vec3 omega = vec3(params.omega_x, params.omega_y, params.omega_z);
+	vec3 r_vec = vec3(pos[g * 3u], pos[g * 3u + 1u], pos[g * 3u + 2u])
+		- vec3(params.centre_x, params.centre_y, params.centre_z);
+	float r_len = length(r_vec);
+	float w_len = length(omega);
+	alt[g] = r_len;
+	lat[g] = (w_len > 0.0 && r_len > 0.0)
+		? degrees(asin(clamp(dot(r_vec / r_len, omega / w_len), -1.0, 1.0)))
+		: uintBitsToFloat(0x7FC00000u);
+
 	float mass[LA_MIX_MAX] = float[LA_MIX_MAX](0.0, 0.0, 0.0, 0.0);
 	float mc = 0.0;          // sum of m*c over the sensible-heat substances, J/K
 	float n_gas_mol = 0.0;   // moles of non-condensable gas: the Dalton denominator of the vapour split
-	float m_gas = 0.0;       // kg of that same gas, so the condensed density needs no mean molar mass
 	float v_lambda = 0.0;    // volume-weighted conductivity, W/m/K
 	float v_used = 0.0;
 
@@ -153,19 +170,14 @@ void main() {
 		}
 		v_lambda += f * props[base + PROP_LAMBDA];
 		v_used += f;
-		float mol_per_kg = props[base + PROP_MOL_PER_KG];
-		n_gas_mol += m * mol_per_kg;
-		if (mol_per_kg > 0.0) {
-			m_gas += m;
-		}
+		n_gas_mol += m * props[base + PROP_MOL_PER_KG];
 	}
 
 	float total = mass[E_H2O] + mass[E_SILICATE] + mass[E_SENSIBLE];
 	float inv_vol = (vol > 0.0) ? 1.0 / vol : 0.0;
 	// Parallel mixing rule: the fluxes through each constituent add. An empty cell conducts nothing.
 	conductivity[g] = (v_used > 0.0) ? v_lambda / v_used : 0.0;
-	n_gas_m3[g] = n_gas_mol * inv_vol;
-	rho_cond[g] = max(total - m_gas, 0.0) * inv_vol;
+	rho_bulk[g] = total * inv_vol;   // kg/m^3, gas included: gravity pulls on all of it
 	float f_melt = 0.0;
 	vec3 v = vec3(0.0);
 	if (total <= 0.0) {
@@ -173,6 +185,7 @@ void main() {
 		vel_x[g] = 0.0;
 		vel_y[g] = 0.0;
 		vel_z[g] = 0.0;
+		speed[g] = 0.0;
 		h2o_solid[g] = 0.0;
 		h2o_liquid[g] = 0.0;
 		h2o_vapour[g] = 0.0;
@@ -186,6 +199,7 @@ void main() {
 	vel_x[g] = v.x;
 	vel_y[g] = v.y;
 	vel_z[g] = v.z;
+	speed[g] = length(v);
 
 	SubstanceTh subs[LA_MIX_MAX];
 	subs[E_H2O] = la_h2o();
@@ -250,10 +264,7 @@ void main() {
 
 	// ROTATING FRAME: Coriolis -2w x v and centrifugal -w x (w x r), per unit volume. The field's axes are
 	// body-local and the body spins. The density is this cell's whole mass, gas included.
-	vec3 omega = vec3(params.omega_x, params.omega_y, params.omega_z);
-	if (dot(omega, omega) > 0.0) {
-		vec3 r_vec = vec3(pos[g * 3u], pos[g * 3u + 1u], pos[g * 3u + 2u])
-			- vec3(params.centre_x, params.centre_y, params.centre_z);
+	if (w_len > 0.0) {
 		vec3 a = -2.0 * cross(omega, v) - cross(omega, cross(omega, r_vec));
 		vec3 dp = a * (total * inv_vol) * params.dt_s;
 		mom_x[g] += dp.x;

@@ -142,12 +142,22 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
 
 ## E. Conservation, open
 
+- [ ] **Loose mineral may not be moving.** `silicate_bed` / `silicate_susp_water` are the derived shares
+      that replaced the deleted `sediment_total` gauge. **Reproduce:** `scripts/agent_harness.sh sim
+      --frames 200` and read whether either share is ever non-zero away from a slump.
+- [ ] **Five matter rows trip the conservation gate on a clean tree** — h2o, nitrogen, mineral, oxidant and
+      element_C — and the energy row reads UNMEASURED rather than conserved. **Reproduce:**
+      `scripts/check_conservation.sh`.
+- [ ] **`o2_first` latches at zero**, so the o2 row has no scale to be a fraction of. A baseline of zero is
+      not a baseline.
+
 - [ ] **`LA_PASS_PROBE` sums bare fill fractions**, which a kernel moving fill fractions conserves by
       construction, so it cannot see a volume-weighted loss and its silence is not evidence. Every
       per-pass probe wants the same volume weight the reduce rows carry.
 - [ ] **The wind is supersonic and always has been**, against a real jet stream of ~70 m/s. `MAX_WIND` was
       deleted on purpose (wind speed is an output), so this is the momentum equation or its timebase, not a
-      missing clamp. Suspect first that pressure is in pascals.
+      missing clamp. **Reproduce:** `scripts/agent_harness.sh sim --frames 200`, then read the peak off the
+      derived `speed` channel.
 - [ ] **`mineral_total` still trips the conservation gate**, and the pass its per-pass probe once named no
       longer exists. Re-localise it against the surviving passes before theorising.
 - [ ] **No per-pass attribution for ELEMENTS.** Mineral and energy each have a probe, and each named its
