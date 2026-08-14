@@ -227,6 +227,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_branch_integration
     gate check_doc_claims
     gate check_doc_prose
+    gate check_approximations
     gate check_comment_density
     # Same gate over first-party GDScript; sim/material is covered by the call above.
     run_gate "check_comment_density.sh (gdscript)" env EXCLUDE_RE=/thirdparty/ \

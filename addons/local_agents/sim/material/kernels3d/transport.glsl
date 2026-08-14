@@ -558,8 +558,8 @@ float solar_incident(uint c) {
 }
 
 // Longwave arriving at `c` through face `d`, J/m^3: every cell on that grid line, attenuated by the cells
-// between; what the far end does not take leaves the box for space. APPROXIMATION — the transmittance is
-// band-integrated BEFORE marching, so it closes windows nature leaves open over a long path.
+// between; what the far end does not take leaves the box for space.
+// LA_APPROX: band_averaged_transmittance
 float longwave_incident(uint c, uint d) {
 	uint back = d ^ 1u;
 	float through = 1.0;

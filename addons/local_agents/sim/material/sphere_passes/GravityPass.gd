@@ -10,7 +10,7 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/gr
 const SOLVE_EVERY: int = 8
 ## Red-black sweeps per dispatch. Poisson is elliptic, so a fixed count is not a solve: the SEEDING solve
 ## relaxes until `residual_rel` falls, and the per-step solves track a warm-started field from there.
-const SWEEPS: int = 8
+const SWEEPS: int = 8   # LA_APPROX: fixed_sweep_relaxation
 
 ## Floats each workgroup writes into the partials buffer — gravity_poisson.glsl PART_STRIDE.
 const PART_STRIDE: int = 9
