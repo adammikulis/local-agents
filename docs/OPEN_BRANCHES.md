@@ -14,6 +14,7 @@ must contain `main`.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
+| `gates/exit-codes` | 2 | lint tells could-not-run from violated; the binding gate reads a set built in a variable; one declaration of the dev branch name | its lane reports |
 | `docs/collapse` | 1 | the map names the epoch and its cited paths exist | its lane reports |
 
 The two SUPERSEDED rows are discharged: `feature/no-tombstones` and `feature/conservation` are
