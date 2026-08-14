@@ -216,6 +216,8 @@ tree is the change log: `git log` is written by the act itself and cannot drift.
 second account that disagrees with the first the day it is written, and it is always the wrong one.
 `scripts/check_doc_prose.sh` fails the build if one is tracked.
 
+<!-- claim: nofile CHANGELOG.md -->
+
 **`HANDOFF.md` IS NOT YOUR SCRATCHPAD. IT IS THE NEXT AGENT'S INSTRUCTION SET.** It gets the file and the
 expression, in one sentence, and only when the fix could not land this turn. Never your reasoning, your
 retractions, what you first thought, what you ruled out, or what a run printed.
@@ -704,3 +706,6 @@ The five canonical roles, each label string equal to its name. See `docs/agents/
 ### Domain docs
 
 Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Neither exists yet; the claim below goes red the day one is written, which is when this line gets checked.
+
+<!-- claim: nofile CONTEXT.md -->
