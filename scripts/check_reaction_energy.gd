@@ -25,6 +25,9 @@ const WORLD_PATH: String = "res://addons/local_agents/sim/SimWorld.gd"
 ## the GPU record buffer, so exact zero is not available; anything above this is a real imbalance.
 const CYCLE_REL_TOL: float = 1.0e-4
 
+## Relative tolerance on one organic redox record's price against the shared one.
+const ORGANIC_REL_TOL: float = 1.0e-6
+
 
 ## A record is a PHASE TRANSFER when it moves one substance slot to one other slot with unit coefficients.
 ## Those are the records whose enthalpy is a latent heat and whose cycles must close. A record with several
@@ -50,6 +53,21 @@ func _declare_cell_height() -> void:
 	var w: Node = world.new()
 	LAReactionDefs.cell_size_m = w.field_cell_size_m()
 	w.free()
+
+
+## Coefficient of `slot` on one side of `rec`, 0.0 when it is not there.
+func _coeff(rec: Dictionary, side: String, slot: int) -> float:
+	for entry in rec.get(side, []):
+		if int(entry[0]) == slot:
+			return float(entry[1])
+	return 0.0
+
+
+## Heat this record books per unit extent at the reference organic composition, J/m3.
+func _heat_at_reference(rec: Dictionary) -> float:
+	return float(rec.get("enthalpy_j_m3", 0.0)) \
+		+ float(rec.get("enthalpy_h_j_m3", 0.0)) * LASubstances.fresh_litter_per_carbon("H") \
+		+ float(rec.get("enthalpy_o_j_m3", 0.0)) * LASubstances.fresh_litter_per_carbon("O")
 
 
 func _init() -> void:
@@ -140,6 +158,57 @@ func _init() -> void:
 				nt.append(String(edges[n][3]))
 				stack.append([n, nv, running + float(edges[n][2]), nt])
 
-	print("REACTION_ENERGY={\"edges\":%d,\"cycles\":%d,\"violations\":%d}"
-		% [edges.size(), seen_cycles.size(), violations])
+	# --- 3. ONE PRICE FOR ORGANIC REDOX ------------------------------------------------------------------
+	# Burning carbon and fixing it are the same bond energy in opposite directions, so every record that
+	# moves CO2 against O2 books the same heat per mole of CO2, up to sign. Decomposition and respiration
+	# booked nothing at all while combustion booked the lot: one reaction cannot be exothermic when fast
+	# and athermal when slow.
+	var want: float = 0.0
+	var want_from: String = ""
+	var redox: int = 0
+	var prices: Array = []
+	for path in registry.RECORD_MODULES:
+		var mod2: GDScript = load(path)
+		if mod2 == null:
+			continue
+		var recs: Array = mod2.records()
+		for i in range(recs.size()):
+			var rec: Dictionary = recs[i]
+			var co2_out: float = _coeff(rec, "products", LAReactionDefs.CO2)
+			var co2_in: float = _coeff(rec, "reactants", LAReactionDefs.CO2)
+			var o2_in: float = _coeff(rec, "reactants", LAReactionDefs.O2)
+			var o2_out: float = _coeff(rec, "products", LAReactionDefs.O2)
+			var moles: float = 0.0
+			var sign: float = 0.0
+			if co2_out > 0.0 and o2_in > 0.0:
+				moles = co2_out
+				sign = 1.0
+			elif co2_in > 0.0 and o2_out > 0.0:
+				moles = co2_in
+				sign = -1.0
+			else:
+				continue
+			redox += 1
+			var per_mole: float = sign * _heat_at_reference(rec) / moles
+			prices.append([per_mole, "%s record %d" % [String(path).get_file(), i]])
+			# The reference is the LARGEST price, never the first: a record booking nothing must read as a
+			# violation, and taking it as the reference would make every other record look wrong instead.
+			if absf(per_mole) > absf(want):
+				want = per_mole
+				want_from = String(prices[prices.size() - 1][1])
+	if redox < 2 or absf(want) <= 0.0:
+		print("REACTION_ENERGY_ERROR: fewer than two organic redox records priced — nothing was compared.")
+		print('REACTION_ENERGY={"edges":0,"violations":-1}')
+		quit(2)
+		return
+	for entry in prices:
+		var rel: float = absf(float(entry[0]) - want) / absf(want)
+		if rel > ORGANIC_REL_TOL:
+			print("REACTION_ENERGY_FAIL={\"kind\":\"organic_price\",\"record\":%s,\"against\":%s,"
+				% [JSON.stringify(String(entry[1])), JSON.stringify(want_from)]
+				+ "\"booked_j_m3\":%f,\"want_j_m3\":%f,\"rel\":%f}" % [float(entry[0]), want, rel])
+			violations += 1
+
+	print("REACTION_ENERGY={\"edges\":%d,\"cycles\":%d,\"redox\":%d,\"violations\":%d}"
+		% [edges.size(), seen_cycles.size(), redox, violations])
 	quit(1 if violations > 0 else 0)

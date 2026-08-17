@@ -241,6 +241,11 @@ static func organic_energy_j_mol(element: String) -> float:
 	return 0.0
 
 
+## Heat of oxidising one unit of organic matter, J/m3 of extent, as (C, H, O) parts.
+static func organic_oxidation_parts() -> Vector3:
+	var n: float = ORGANIC_MOL_PER_M3
+	return Vector3(n * organic_energy_j_mol("C"), n * organic_energy_j_mol("H"),
+		n * organic_energy_j_mol("O"))
 ## SOLID / LIQUID / GAS, derived — never stored.
 const SOLID: int = 0
 const LIQUID: int = 1

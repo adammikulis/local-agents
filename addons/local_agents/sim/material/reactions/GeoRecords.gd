@@ -14,9 +14,7 @@ static func _rate_k(ea_over_r_k: float) -> float:
 
 ## Heat per unit extent when the pool loses these moles of C, H and O. J/m3.
 static func _coal_enthalpy_j_m3(mol_c: float, mol_h: float, mol_o: float) -> float:
-	return LASubstances.ORGANIC_MOL_PER_M3 * (mol_c * LASubstances.organic_energy_j_mol("C")
-		+ mol_h * LASubstances.organic_energy_j_mol("H")
-		+ mol_o * LASubstances.organic_energy_j_mol("O"))
+	return LASubstances.organic_oxidation_parts().dot(Vector3(mol_c, mol_h, mol_o))
 
 
 ## Reaction records this domain contributes to the live table.
