@@ -47,6 +47,9 @@ MEAS  = re.compile(r"\b(measured|read|reads|was|were|took|costs?)\b[^.\n]{0,40}?
 # was backwards.
 HIST  = re.compile(r"\b(used to|previously|formerly|no longer|obsolete|was replaced|replaced by|"
                    r"the old (code|kernel|version|comment|value|way)|before the refactor)\b", re.I)
+# A comment asserting a signal is dead makes live code look dead. If it is dead, delete it.
+DEAD  = re.compile(r"\b(stubbed|dormant|never fires|not producing|"
+                   r"is not (?:read|written|wired) (?:back )?(?:yet|on))\b", re.I)
 
 def comment_of(line, ext):
     if ext == ".gd":
@@ -73,7 +76,8 @@ for dp, dns, fns in os.walk(os.path.join(root, "addons", "local_agents")):
             if not c:
                 continue
             why = "percentage" if PCT.search(c) else "date" if DATE.search(c) else \
-                  "measurement" if MEAS.search(c) else "history" if HIST.search(c) else None
+                  "measurement" if MEAS.search(c) else "history" if HIST.search(c) else \
+                  "deadness" if DEAD.search(c) else None
             if why:
                 hits.append((rel, n, why, c.strip()[:88]))
 
