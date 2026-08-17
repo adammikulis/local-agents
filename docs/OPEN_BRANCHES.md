@@ -12,4 +12,4 @@ merge, or has not moved inside the age limit.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
-| `feature/momentum-advection` | 1 | The weight term and momentum advection in the momentum equation, and the one vertical relation. | the finite-channels gate passes. |
+| `feature/momentum-advection` | 3 | The weight term, momentum advection, and the one vertical relation (pressure_inversions 0). RED: check_finite_channels and check_gdscript_budget, both named in its head commit. | both go green. |
