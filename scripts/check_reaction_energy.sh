@@ -56,7 +56,7 @@ if echo "$line" | grep -q '"edges":0'; then
   exit 2
 fi
 if echo "$line" | grep -q '"violations":0'; then
-  echo "reaction-energy check passed: every phase loop closes and every reverse pair cancels."
+  echo "reaction-energy check passed: phase loops close, reverse pairs cancel, one price for organic redox."
   exit 0
 fi
 echo

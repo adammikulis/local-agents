@@ -114,29 +114,28 @@ func drink(world_pos: Vector3, want: float) -> float:
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0:
 		return 0.0
-	var liquid: PackedFloat32Array = _f._queries._liquid_mirror()
-	var took: float = _draw(q, "h2o", liquid, c, want)
-	if took < want and liquid.size() == _f._cell_count and _f._grid != null:
+	var took: float = _draw(q, "h2o", c, want)
+	if took < want and _f._grid != null:
 		# Groundwater: the permeable ground immediately under the animal's feet.
 		var g: int = ground_cell(world_pos)
 		if g >= 0:
 			var below: int = LAFieldGeometry.below(_f, g)
 			if below >= 0:
-				took += _draw(q, "h2o", liquid, below, want - took)
+				took += _draw(q, "h2o", below, want - took)
 	if took > 0.0:
 		water_in += took
 	return took
 
 
-## One channel, one cell, up to `want`, planned against `mirror` and resolved on device.
-func _draw(q, channel: String, mirror: PackedFloat32Array, c: int, want: float) -> float:
-	if want <= 0.0 or mirror.size() != _f._cell_count or c < 0:
+## One channel, one cell, up to `want`. Decrements the LIVE mirror as graze() does.
+func _draw(q, channel: String, c: int, want: float) -> float:
+	if want <= 0.0 or c < 0 or _f._h2o.size() != _f._cell_count:
 		return 0.0
-	var have: float = mirror[c]
+	var have: float = _f._queries.liquid_at(c)
 	if have <= 0.0:
 		return 0.0
 	var take: float = minf(want, have)
-	mirror[c] = have - take
+	_f._h2o[c] = maxf(0.0, _f._h2o[c] - take)
 	q.transfer(channel, PackedInt32Array([c]), PackedFloat32Array([take]), channel, PackedInt32Array([-1]))
 	exchanges += 1
 	return take

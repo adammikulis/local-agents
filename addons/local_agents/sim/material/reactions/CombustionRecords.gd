@@ -11,19 +11,11 @@ static func _rate_k() -> float:
 	return PYROLYSIS_K_PER_S * LAMaterialFieldSphereStep3D.real_seconds_per_step()
 
 
-## Heat of combustion per unit extent per m3, as (C, H, O) per-element parts, J/m3.
-static func _enthalpy_parts() -> Vector3:
-	var n: float = LASubstances.ORGANIC_MOL_PER_M3
-	return Vector3(n * LASubstances.organic_energy_j_mol("C"),
-		n * LASubstances.organic_energy_j_mol("H"),
-		n * LASubstances.organic_energy_j_mol("O"))
-
-
 ## Reaction records this domain contributes to the live table.
 static func records() -> Array:
 	# CH_yO_z + (1 + y/4 - z/2) O2 -> CO2 + (y/2) H2O, per unit of FUEL.
 	var organic_n: float = float(LAReactionBalance.composition()[FUEL]["N"])
-	var dh: Vector3 = _enthalpy_parts()
+	var dh: Vector3 = LASubstances.organic_oxidation_parts()
 	return [
 		rec(RM_ARRHENIUS, _rate_k(), FUEL,
 			[[FUEL, 1.0], [ORG_H, 0.0, 1.0, 0.0], [ORG_O, 0.0, 0.0, 1.0],
