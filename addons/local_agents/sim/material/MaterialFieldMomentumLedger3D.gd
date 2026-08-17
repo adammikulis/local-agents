@@ -4,12 +4,8 @@ extends RefCounted
 ## Momentum stock and its books, in the FIELD frame (planet-fixed). The velocity channels are the grid's own
 ## axes, so there is no basis to rotate through.
 
-const LEGS: PackedStringArray = ["air", "pressure"]
-
-## Momentum terms wind_step_sphere3d.glsl applies that no CPU-side sum can reach — their rates are per-step
-## fractions declared only inside that kernel (drag), or the transfer leaves no per-cell trace (the rest).
-## They land in `momentum_residual`.
-const UNBOOKED: Array = ["drag", "terrain_block", "orographic_lift", "solid_zeroing", "air_advection"]
+## rho_bulk is the density state_derive.glsl divides momentum by.
+const LEGS: PackedStringArray = ["rho_bulk", "pressure"]
 
 var _f = null                                # back-reference to the owning LAMaterialField3D
 
@@ -19,9 +15,8 @@ var _first_stock: Vector3 = Vector3.ZERO
 var _first_step: int = -1
 var _samples: int = 0
 var _cum_pgf: Vector3 = Vector3.ZERO         # ∫ pressure-gradient force dt, kg·m/s
-var _cum_cor: Vector3 = Vector3.ZERO         # ∫ Coriolis force dt, kg·m/s
-var _cum_buo: Vector3 = Vector3.ZERO         # ∫ buoyancy force dt, kg·m/s
-## ∫ (|pgf| + |Coriolis| + |buoyancy|) dt, kg·m/s. The impulse that ACTED — no direction to cancel through,
+var _cum_frame: Vector3 = Vector3.ZERO       # ∫ (Coriolis + centrifugal) dt, kg·m/s
+## ∫ (|pgf| + |rotating frame|) dt, kg·m/s. The impulse that ACTED — no direction to cancel through,
 ## so it is the one denominator the residual can be a fraction of that does not pass through zero.
 var _cum_impulse: float = 0.0
 
@@ -40,24 +35,22 @@ func report(step_index: int) -> Dictionary:
 	if grid.cell_count != cc:
 		return out
 
-	# READ-ONLY, AT THE DRAIN. `air` has no CPU mirror and `pressure` is demand-gated; both arrive through the
-	# probe, which never changes channel residency.
+	# READ-ONLY, AT THE DRAIN, through the probe, which never changes channel residency.
 	var legs: Dictionary = {}
 	if _f._gpu != null and _f._gpu.has_method("take_probe"):
 		legs = _f._gpu.take_probe()
 		_f._gpu.request_probe(LEGS)
-	var air: PackedFloat32Array = legs.get("air", PackedFloat32Array())
+	var rho: PackedFloat32Array = legs.get("rho_bulk", PackedFloat32Array())
 	var pres: PackedFloat32Array = legs.get("pressure", PackedFloat32Array())
-	var has_air: bool = air.size() == cc
+	var has_rho: bool = rho.size() == cc
 	var has_pres: bool = pres.size() == cc
-	out["momentum_live"] = {"air": has_air, "pressure": has_pres}
+	out["momentum_live"] = {"rho_bulk": has_rho, "pressure": has_pres}
 
 	var solid: PackedByteArray = _f._solid
-	var temp: PackedFloat32Array = _f._temp
 	var vx: PackedFloat32Array = _f._vel_x
 	var vy: PackedFloat32Array = _f._vel_y
 	var vz: PackedFloat32Array = _f._vel_z
-	if not has_air or solid.size() != cc or temp.size() != cc \
+	if not has_rho or solid.size() != cc \
 			or vx.size() != cc or vy.size() != cc or vz.size() != cc:
 		out["momentum_scan_ms"] = snappedf(float(Time.get_ticks_usec() - t0) / 1000.0, 0.01)
 		return out
@@ -66,35 +59,34 @@ func report(step_index: int) -> Dictionary:
 	var cell_m: float = float(_f._cell_size)
 	var v_m3: float = grid.cell_volume()
 	var spin: Vector3 = LAFieldGeometry.spin_axis(_f)
-	var rho0: float = LAPhysical.AIR_DENSITY_KG_M3
-	var g_acc: float = _f._gravity.mean_g() if _f._gravity != null else 0.0
+	var omega: Vector3 = spin * LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S
 	var two_omega: float = LAPhysical.CORIOLIS_TWO_OMEGA_RAD_S
+	var centre: Vector3 = LAFieldGeometry.centre(_f)
 
 	var stock: Vector3 = Vector3.ZERO
 	var carried: float = 0.0                 # Σ m|v|, kg·m/s — never cancels
 	var mass_kg: float = 0.0
 	var moving_cells: int = 0
 	var f_pgf: Vector3 = Vector3.ZERO
-	var f_cor: Vector3 = Vector3.ZERO
-	var f_buo: Vector3 = Vector3.ZERO
+	var f_frame: Vector3 = Vector3.ZERO
 
 	for c in cc:
 		if solid[c] != 0:
 			continue
-		var m: float = air[c] * rho0 * v_m3
+		var m: float = rho[c] * v_m3
 		if m <= 0.0:
 			continue
 		mass_kg += m
-		var up: Vector3 = LAFieldGeometry.up(_f, c)
 		var v: Vector3 = Vector3(vx[c], vy[c], vz[c])
 		stock += v * m
 		var speed: float = v.length()
 		carried += m * speed
 		if speed > 0.0:
 			moving_cells += 1
-		# CORIOLIS: F = -2Ω x v m. The full vector form; on a rotating body the horizontal deflection falls out
-		# of it rather than being applied as a separate sin(lat) term.
-		f_cor += spin.cross(v) * (-two_omega * m)
+		# THE ROTATING FRAME, both terms state_derive.glsl applies: Coriolis -2Ω x v and centrifugal
+		# -Ω x (Ω x r). Booking one and not the other made the residual carry the difference.
+		var r_vec: Vector3 = grid.cell_world_pos(c) - centre
+		f_frame += (spin.cross(v) * -two_omega - omega.cross(omega.cross(r_vec))) * m
 		# PRESSURE GRADIENT: F = -V grad(p), central differences over the six faces. A solid or missing
 		# neighbour reflects, which is what a wall does.
 		if has_pres:
@@ -105,19 +97,13 @@ func report(step_index: int) -> Dictionary:
 				var pn: float = pres[mi] if (mi >= 0 and solid[mi] == 0) else p0
 				gp += Vector3(LAVoxelGrid.SLOT_STEP[d]) * (0.5 * (pn - p0))
 			f_pgf += gp * (-v_m3 / cell_m)
-		# BUOYANCY: Boussinesq a = g dT/T against the open cell one step UP the local vertical.
-		var mo: int = LAFieldGeometry.above(_f, c)
-		if mo >= 0 and solid[mo] == 0:
-			var d_t: float = temp[c] - temp[mo]
-			if d_t > 0.0:
-				f_buo += up * (m * g_acc * d_t / maxf(temp[c] + LAPhysical.KELVIN_OFFSET, 1.0))
 
 	out["momentum_vec"] = _vec(stock)
 	out["momentum_total"] = stock.length()
 	out["momentum_carried"] = carried
 	out["momentum_mass_kg"] = mass_kg
 	out["momentum_cells"] = moving_cells
-	out["momentum_force_n"] = _vec(f_pgf + f_cor + f_buo)
+	out["momentum_force_n"] = _vec(f_pgf + f_frame)
 
 	var steps: int = step_index - _prev_step
 	var dt_real: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
@@ -130,8 +116,7 @@ func report(step_index: int) -> Dictionary:
 		_first_stock = stock
 		_first_step = step_index
 		_cum_pgf = Vector3.ZERO
-		_cum_cor = Vector3.ZERO
-		_cum_buo = Vector3.ZERO
+		_cum_frame = Vector3.ZERO
 		_cum_impulse = 0.0
 		_note_seed("momentum_kg_m_s", stock.length())
 		latched = true
@@ -140,9 +125,8 @@ func report(step_index: int) -> Dictionary:
 		# LAMaterialFieldLedger3D integrates its fluxes with.
 		var window_s: float = dt_real * float(steps)
 		_cum_pgf += f_pgf * window_s
-		_cum_cor += f_cor * window_s
-		_cum_buo += f_buo * window_s
-		_cum_impulse += (f_pgf.length() + f_cor.length() + f_buo.length()) * window_s
+		_cum_frame += f_frame * window_s
+		_cum_impulse += (f_pgf.length() + f_frame.length()) * window_s
 
 	var run_steps: int = (step_index - _first_step) if _first_step >= 0 else 0
 	out["momentum_samples"] = _samples
@@ -153,7 +137,7 @@ func report(step_index: int) -> Dictionary:
 		return out
 
 	var run_drift: Vector3 = stock - _first_stock
-	var booked: Vector3 = _cum_pgf + _cum_cor + _cum_buo
+	var booked: Vector3 = _cum_pgf + _cum_frame
 	var residual: Vector3 = run_drift - booked
 	out["momentum_run_drift_vec"] = _vec(run_drift)
 	out["momentum_run_drift"] = run_drift.length()
@@ -168,8 +152,7 @@ func report(step_index: int) -> Dictionary:
 	# whose magnitude cancels toward zero, so the same residual read anywhere from fine to infinite.
 	out["momentum_residual_rel"] = _rel(residual.length(), _cum_impulse)
 	out["momentum_book_pgf"] = _vec(_cum_pgf)
-	out["momentum_book_coriolis"] = _vec(_cum_cor)
-	out["momentum_book_buoyancy"] = _vec(_cum_buo)
+	out["momentum_book_frame"] = _vec(_cum_frame)
 	out["momentum_scan_ms"] = snappedf(float(Time.get_ticks_usec() - t0) / 1000.0, 0.01)
 	return out
 
@@ -196,10 +179,8 @@ func _blank() -> Dictionary:
 		"momentum_booked": 0.0, "momentum_booked_vec": [0.0, 0.0, 0.0],
 		"momentum_residual": 0.0, "momentum_residual_vec": [0.0, 0.0, 0.0],
 		"momentum_impulse": 0.0, "momentum_residual_rel": null,
-		"momentum_book_pgf": [0.0, 0.0, 0.0], "momentum_book_coriolis": [0.0, 0.0, 0.0],
-		"momentum_book_buoyancy": [0.0, 0.0, 0.0],
+		"momentum_book_pgf": [0.0, 0.0, 0.0], "momentum_book_frame": [0.0, 0.0, 0.0],
 		"momentum_force_n": [0.0, 0.0, 0.0],
-		"momentum_unbooked": UNBOOKED,
 		"momentum_samples": 0, "momentum_first_step": -1, "momentum_run_steps": 0,
 		"momentum_live": {}, "momentum_scan_ms": 0.0,
 	}

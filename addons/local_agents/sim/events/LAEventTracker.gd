@@ -51,8 +51,7 @@ func _build_registry() -> void:
 		# another dries sums to zero. What a global rise in liquid water actually means is planet-wide net
 		_threshold("storm", "wind", "cross_up", 8.0, 4.0, 10.0, 0.5,
 			"a storm is whipping up — the wind is howling"),
-		# Lightning: each bolt is one strike (cumulative counter increment). NOTE: bolts/charge are stubbed
-		# to 0 on the sphere path, so this is DORMANT until the sphere charge channel is read back (logged).
+		# Lightning: each bolt is one strike, off the bolt_cells reduce row.
 		_threshold_increment("lightning", "bolts", 1.0, 1.5, 12.0,
 			"lightning just struck"),
 	]
@@ -165,8 +164,7 @@ func report() -> Dictionary:
 	}
 
 
-## Startup diagnostic: LOG (never silently skip) which detectors are watching a signal that is not live yet
-## on this build — the bolts/charge/shock/magma channels are stubbed to 0 on the sphere path.
+## Startup diagnostic: LOG (never silently skip) which detectors watch a signal nothing has written.
 func _log_dormant_detectors() -> void:
 	var probe: Dictionary = _snapshot()
 	var dormant: Array = []
