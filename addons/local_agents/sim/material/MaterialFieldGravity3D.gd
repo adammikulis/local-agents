@@ -56,6 +56,17 @@ func _bind() -> void:
 
 
 
+## The solved vertical relation: cell -> the neighbour above it, and its inverse. Empty before the drain.
+func up_table() -> PackedInt32Array:
+	_bind()
+	return _pass.up_table() if _pass != null else PackedInt32Array()
+
+
+func down_table() -> PackedInt32Array:
+	_bind()
+	return _pass.down_table() if _pass != null else PackedInt32Array()
+
+
 ## Mean |g| over the cells where gravity does not vanish, m/s^2. Reduced on the device.
 func mean_g() -> float:
 	_bind()

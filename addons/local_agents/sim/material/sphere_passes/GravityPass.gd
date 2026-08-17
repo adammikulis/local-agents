@@ -27,17 +27,24 @@ const MODE_RELAX: int = 4
 const MODE_GRADIENT: int = 5
 const MODE_RESIDUAL: int = 6
 const MODE_FIELD_STATS: int = 7
+const MODE_VERT_UP: int = 8
+const MODE_VERT_DOWN: int = 9
 
 const PHI: String = "grav_phi"
 const DENSITY: String = "grav_density"
 const FLAGS: String = "grav_cellflag"
 const MOMENTS: String = "grav_moments"
 const PARTIALS: String = "grav_partials"
+## The one vertical relation, published for every march in the tree. Inverse by construction.
+const VERT_UP: String = "vert_up"
+const VERT_DOWN: String = "vert_down"
 
 var _pipe: RID = RID()
 var _set: RID = RID()
 var _moments: RID = RID()
 var _gravity: RID = RID()
+var _up_rid: RID = RID()
+var _down_rid: RID = RID()
 var _groups: int = 0
 var _nx: int = 0
 var _nxny: int = 0
@@ -45,6 +52,8 @@ var _flagged: bool = false              # the boundary/colour map is a property 
 var _solves: int = 0
 var _read_due: bool = false             # a solve is in flight; the next drain publishes it
 var _mirror: PackedFloat32Array = PackedFloat32Array()
+var _up: PackedInt32Array = PackedInt32Array()
+var _down: PackedInt32Array = PackedInt32Array()
 var _mean_g: float = 0.0
 var _residual_rel: float = INF          # until a solve has been drained, the field is not answerable
 var _failed_announced: bool = false
@@ -57,6 +66,8 @@ func _buffers(cc: int) -> Dictionary:
 		DENSITY: maxi(cc, 1),
 		FLAGS: maxi(cc, 1),
 		MOMENTS: MOMENT_SLOTS,
+		VERT_UP: maxi(cc, 1),
+		VERT_DOWN: maxi(cc, 1),
 		PARTIALS: g * PART_STRIDE}
 
 
@@ -77,7 +88,8 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	var props_ssbo: RID = _storage_buffer(props.to_byte_array())
 
 	var want: PackedStringArray = channels.duplicate()
-	want.append_array(PackedStringArray(["nbr", "pos", "gravity", PHI, DENSITY, FLAGS, MOMENTS, PARTIALS]))
+	want.append_array(PackedStringArray(["nbr", "pos", "gravity", PHI, DENSITY, FLAGS, MOMENTS, PARTIALS,
+		VERT_UP, VERT_DOWN]))
 	var missing: PackedStringArray = LAMatterChannels.absent(bufs, want)
 	if not missing.is_empty():
 		push_error("GravityPass: no buffer for %s, so no cell would get a gravity."
@@ -87,6 +99,8 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		return
 	_moments = _single(bufs, MOMENTS)
 	_gravity = _single(bufs, "gravity")
+	_up_rid = _single(bufs, VERT_UP)
+	_down_rid = _single(bufs, VERT_DOWN)
 
 	var entries: Array = []
 	for i in channels.size():
@@ -100,6 +114,8 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	entries.append([20, _gravity])
 	entries.append([21, _moments])
 	entries.append([22, _single(bufs, PARTIALS)])
+	entries.append([23, _single(bufs, VERT_UP)])
+	entries.append([24, _single(bufs, VERT_DOWN)])
 	_set = _uset(_pipe, entries)
 
 
@@ -142,6 +158,8 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 		for colour in 2:
 			_run(rd, cl, MODE_RELAX, colour, cc, cell_m, groups)
 	_run(rd, cl, MODE_GRADIENT, 0, cc, cell_m, groups)
+	_run(rd, cl, MODE_VERT_UP, 0, cc, cell_m, groups)
+	_run(rd, cl, MODE_VERT_DOWN, 0, cc, cell_m, groups)
 	_run(rd, cl, MODE_RESIDUAL, 0, cc, cell_m, groups)
 	_run(rd, cl, MODE_FIELD_STATS, 0, cc, cell_m, 1)
 	_solves += 1
@@ -181,6 +199,8 @@ func _drain(rd: RenderingDevice) -> Dictionary:
 	_mean_g = m[4]
 	_residual_rel = m[5]
 	_mirror = rd.buffer_get_data(_gravity).to_float32_array()
+	_up = rd.buffer_get_data(_up_rid).to_int32_array()
+	_down = rd.buffer_get_data(_down_rid).to_int32_array()
 	return {
 		"gravity_total_mass_kg": m[0],
 		"gravity_mean_g": m[4],
@@ -192,6 +212,17 @@ func _drain(rd: RenderingDevice) -> Dictionary:
 ## Solved acceleration, flat cell*3, m/s^2. Empty until the first drain after the first solve.
 func mirror() -> PackedFloat32Array:
 	return _mirror
+
+
+## THE ONE VERTICAL RELATION. `up_table` is the neighbour against gravity, `down_table` its scattered
+## inverse, so up_table[down_table[c]] == c wherever c has a cell below it. -1 where the march leaves the
+## box. Empty until the first drain after the first solve.
+func up_table() -> PackedInt32Array:
+	return _up
+
+
+func down_table() -> PackedInt32Array:
+	return _down
 
 
 ## Mean |g| over the cells where gravity does not vanish, m/s^2.

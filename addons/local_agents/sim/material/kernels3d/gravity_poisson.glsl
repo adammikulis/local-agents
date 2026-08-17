@@ -12,6 +12,7 @@ layout(local_size_x = 64) in;
 // kg/m^3 one unit of fill carries, per channel. The mass every other pass weighs.
 layout(set = 0, binding = 14, std430) restrict readonly buffer Props { float rho_unit[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
+#include "march.glsli"
 layout(set = 0, binding = 16, std430) restrict readonly buffer Pos { float pos[]; };
 // bit 0 = the cell touches the outside of the box, bit 1 = its red-black colour.
 layout(set = 0, binding = 17, std430) restrict buffer Flags { uint cellflag[]; };
@@ -21,6 +22,9 @@ layout(set = 0, binding = 20, std430) restrict buffer Grav { float g_field[]; };
 // 0 total mass kg · 1..3 centre of mass · 4 mean |g| · 5 residual over its source · 6 Gauss ratio
 layout(set = 0, binding = 21, std430) restrict buffer Moments { float moments[]; };
 layout(set = 0, binding = 22, std430) restrict buffer Partials { float partials[]; };
+// The one vertical relation. vert_down is the scattered inverse of vert_up; an unset entry means no cell below.
+layout(set = 0, binding = 23, std430) restrict buffer VertUp { int vert_up[]; };
+layout(set = 0, binding = 24, std430) restrict buffer VertDown { uint vert_down[]; };
 
 const uint MODE_FLAGS = 0u;
 const uint MODE_DENSITY = 1u;
@@ -30,6 +34,8 @@ const uint MODE_RELAX = 4u;
 const uint MODE_GRADIENT = 5u;
 const uint MODE_RESIDUAL = 6u;
 const uint MODE_FIELD_STATS = 7u;
+const uint MODE_VERT_UP = 8u;
+const uint MODE_VERT_DOWN = 9u;
 
 const uint FLAG_BOUNDARY = 1u;
 const uint FLAG_COLOUR = 2u;
@@ -265,10 +271,33 @@ void mode_field_stats() {
 	}
 }
 
+// The neighbour one step against gravity, snapped to the axis the local vertical lies nearest.
+void mode_vert_up(uint gidx) {
+	vec3 g = vec3(g_field[gidx * 3u], g_field[gidx * 3u + 1u], g_field[gidx * 3u + 2u]);
+	float mag = length(g);
+	vert_up[gidx] = (mag > 0.0) ? la_step(gidx, -g / mag) : -1;
+	vert_down[gidx] = 0xFFFFFFFFu;
+}
+
+// Invert it by scatter: the lowest-indexed cell naming `u` as its up becomes `u`'s below, so a march up
+// and back down returns to where it started. atomicMin makes the choice deterministic.
+void mode_vert_down(uint gidx) {
+	int u = vert_up[gidx];
+	if (u >= 0) {
+		atomicMin(vert_down[uint(u)], gidx);
+	}
+}
+
 void main() {
 	uint gidx = gl_GlobalInvocationID.x;
 	bool live = gidx < params.cell_count;
 	switch (params.mode) {
+		case MODE_VERT_UP:
+			if (live) { mode_vert_up(gidx); }
+			return;
+		case MODE_VERT_DOWN:
+			if (live) { mode_vert_down(gidx); }
+			return;
 		case MODE_FLAGS:
 			if (live) { mode_flags(gidx); }
 			return;

@@ -29,23 +29,24 @@ static func up(field, c: int) -> Vector3:
 	return -down(field, c)
 
 
-## Neighbour one step along gravity from `c`; -1 outside the box or where gravity vanishes.
+## Neighbour one step along gravity from `c`; -1 where no cell is below it. Reads GravityPass's table, the
+## same one the kernels march, so a step down and the step back up are one edge: above(below(c)) == c.
 static func below(field, c: int) -> int:
-	return step_along(field, c, down(field, c))
+	return _vert(field, c, false)
 
 
-## Neighbour one step against gravity from `c`; -1 outside the box or where gravity vanishes.
+## Neighbour one step against gravity from `c`; -1 where the march leaves the box.
 static func above(field, c: int) -> int:
-	return step_along(field, c, up(field, c))
+	return _vert(field, c, true)
 
 
-static func step_along(field, c: int, dir: Vector3) -> int:
-	if field == null or field._grid == null or c < 0:
+## One entry of the solved vertical relation. -1 before the first gravity drain: no solve has yet said
+## which way is down, and inventing a direction is how the two relations diverged.
+static func _vert(field, c: int, upward: bool) -> int:
+	if field == null or field._gravity == null or c < 0:
 		return -1
-	var d: int = slot_toward(dir)
-	if d < 0:
-		return -1
-	return field._grid.neighbours[c * LAVoxelGrid.SLOTS + d]
+	var t: PackedInt32Array = field._gravity.up_table() if upward else field._gravity.down_table()
+	return t[c] if c < t.size() else -1
 
 
 ## The open cell over `c`, found by marching up out of rock. -1 when the march leaves the box still in rock.

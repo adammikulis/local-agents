@@ -79,9 +79,14 @@ allocated |= set(re.findall(r'_bufs\["(\w+)"\]\s*=', driver))
 for _nm, _src in pass_src.items():
     if _nm not in registered:
         continue
+    # A key may be a const rather than a literal, so resolve the pass's own string constants first.
+    _consts = dict(re.findall(r'const\s+(\w+)\s*:\s*String\s*=\s*"(\w+)"', _src))
     _body = re.search(r"func _buffers\([^)]*\)[^\n]*\n((?:[ \t].*\n|\n)*)", _src)
     if _body:
         allocated |= set(re.findall(r'"(\w+)"', _body.group(1)))
+        for _ident in re.findall(r'(\w+)\s*:', _body.group(1)):
+            if _ident in _consts:
+                allocated.add(_consts[_ident])
     _rows = re.search(r"static func rows\(\)[^\n]*\n((?:[ \t].*\n|\n)*)", _src)
     if _rows:
         for _k in ("idx", "args", "flag"):
