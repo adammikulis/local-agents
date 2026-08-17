@@ -1,0 +1,4 @@
+# Worst |1 - gravity_gauss_rel| the seeded world may show, in permille. Gauss's law puts the flux of g out
+# of the box at -4 pi G M, so the ratio is 1 when the solve is exact and this is how far off it is.
+# The integrator lowers this; a lane that has to raise it has made the solve worse.
+64

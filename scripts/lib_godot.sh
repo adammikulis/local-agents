@@ -2,6 +2,7 @@
 # The only launcher. check_godot_launcher.sh fails on a direct godot invocation.
 # LA_GODOT_TIMEOUT=<seconds> wraps the run; `timeout` cannot run a shell function.
 
+
 LA_OFFSCREEN_POS="${LA_WIN_POS:--10000,-10000}"
 LA_OFFSCREEN_RES="${LA_RES:-640x400}"
 

@@ -37,7 +37,7 @@ func _ready() -> void:
 	_refresh_all_rows()
 
 	if _shoot_path != "" or OS.has_environment("LA_OFFSCREEN"):
-		DisplayServer.window_set_position(Vector2i(-8000, -8000))
+		LAQuietWindow.apply()
 	if _shoot_path != "":
 		set_process(true)
 
