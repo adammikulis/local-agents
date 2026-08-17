@@ -49,12 +49,19 @@ jobs:
           sudo install -m 0755 "${GODOT_BIN}" /usr/local/bin/godot
           godot --version
 
+      - name: Install extension build dependencies
+        # The same list build-extension.yml uses; anything less and the build fails on the runner instead
+        # of on the tree.
+        run: |
+          sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config patchelf
+
       - name: Build the GDExtension
         # Without it NetworkGraph and every other native class is undeclared, so check_parse_all fails on
         # scripts that type them and CI lints a tree the project never runs.
         working-directory: addons/local_agents/gdextensions/localagents
         run: |
-          sudo apt-get install -y cmake ninja-build
+          chmod +x scripts/*.sh
+          ./scripts/fetch_dependencies.sh --skip-models --skip-voices
           ./scripts/build_extension.sh --platform linux
 
       - name: Import project assets
