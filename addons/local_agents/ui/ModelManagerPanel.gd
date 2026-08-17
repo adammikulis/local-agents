@@ -45,7 +45,7 @@ func _ready() -> void:
 	refresh()
 
 	if is_scene_root and (_shoot_path != "" or OS.has_environment("LA_OFFSCREEN")):
-		DisplayServer.window_set_position(Vector2i(-8000, -8000))
+		LAQuietWindow.apply()
 	if is_scene_root and _shoot_path != "":
 		if _tabs != null and _shoot_tab >= 0 and _shoot_tab < _tabs.get_tab_count():
 			_tabs.current_tab = _shoot_tab

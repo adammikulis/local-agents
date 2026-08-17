@@ -12,12 +12,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GODOT="${GODOT:-godot}"
 # ONE launcher. A direct `godot` here is what put a window on the user's screen.
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
-# The headless smoke target. Deliberately the menu, not the voxel world. VoxelWorld.tscn does BOOT
-# headless and exits rc 0 (measured 2026-07-28: 5.3s), but headless has no compute device, so its
-# SIM_REPORT comes back EMPTY — biomass 0, heat_cells 0, sediment_total 0.00, temp flat, no field_* gauges
-# — where the same run windowed reports sediment_total ~980. It fails silently rather than loudly, so a
-# headless voxel smoke would be a green light that measured nothing. Use run_sim_offscreen.sh for it.
-# Was pointing at scenes/simulation/WorldSimulation.tscn, deleted with the old stack.
+# The headless smoke target is the menu, not the voxel world: headless has no compute device, so a
+# headless VoxelWorld run publishes an empty SIM_REPORT and rc 0. Use run_sim_offscreen.sh for it.
 MAIN_SCENE="res://addons/local_agents/game/menu/MainMenu.tscn"
 
 # Any godot process this harness (or a test it spawns) launches inherits this: it makes the in-code
@@ -86,8 +82,7 @@ shift || true
 # --- A LINKED WORKTREE REPAIRS ITSELF HERE, BEFORE ANY COMMAND RUNS ----------------------------------
 # `git worktree add` gives you the source and none of the build state: no `bin/` symlink, no imported
 # kernels, no `.godot/`. Each degrades QUIETLY — an unimported `.glsl` loads as null, the GPU field is
-# silently dead, and SIM_REPORT still prints a full set of plausible numbers. Measured 2026-08-11 across a
-# seven-agent fan-out: gates that take seconds took thirteen CPU-MINUTES each in unprepared worktrees.
+# silently dead, and SIM_REPORT still prints a full set of plausible numbers.
 #
 # CLAUDE.md has pointed at `scripts/new_worktree.sh` for as long as that section has existed, and it is
 # still the right way to MAKE one. But the Workflow tool creates worktrees itself, so no instruction can
@@ -211,6 +206,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_no_inferred_typing
     gate check_tool_safety
     gate check_godot_launcher
+    gate check_quiet_window
     gate check_demo_catalog
     gate check_public_surface
     gate check_physical_constants

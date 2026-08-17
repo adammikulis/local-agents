@@ -46,6 +46,9 @@ PROBE="$REPO_ROOT/addons/local_agents/tests/zz_gravity_gate.gd"
 cat > "$PROBE" <<'GD'
 extends SceneTree
 
+# An automated run's window is minimized; macOS clamps an off-view position back on screen.
+const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
+
 const N: int = 32
 const CELL: float = 1.0
 # Offset by half a cell so CELL CENTRES LAND ON INTEGERS, which puts a cell exactly at the origin. The
@@ -132,6 +135,7 @@ func _fail(msg: String) -> void:
 
 
 func _init() -> void:
+	QuietWindow.apply_if_automated()
 	_rd = RenderingServer.create_local_rendering_device()
 	if _rd == null:
 		_fail("no RenderingDevice — headless has no compute device, so this gate cannot run.")
@@ -280,6 +284,14 @@ if ! awk -v m="$mass" 'BEGIN{exit !(m > 0)}'; then
   echo "ERROR: the box holds no mass, so Gauss's law asserts nothing about the sign of g." >&2
   exit 2
 fi
+CEIL_FILE="$REPO_ROOT/docs/GRAVITY_GAUSS_CEILING"
+[ -f "$CEIL_FILE" ] || { echo "check_gravity_solve: no docs/GRAVITY_GAUSS_CEILING." >&2; exit 2; }
+GAUSS_CEIL="$(rg -N -e '^[0-9]+$' "$CEIL_FILE" | head -1)"
+case "$GAUSS_CEIL" in "" | *[!0-9]*)
+  echo "check_gravity_solve: docs/GRAVITY_GAUSS_CEILING carries no number." >&2; exit 2 ;;
+esac
+err="$(awk -v r="$gauss" 'BEGIN{d=1000*(1-r); if (d<0) d=-d; printf "%d", int(d+0.5)}')"
+echo "gravity_gauss_err_permille = $err (ceiling $GAUSS_CEIL)"
 if ! awk -v r="$gauss" 'BEGIN{exit !(r > 0)}'; then
   echo
   echo "In the world the sim seeds, the flux of g out of the box has the WRONG SIGN. Gauss's law puts that"
@@ -287,6 +299,14 @@ if ! awk -v r="$gauss" 'BEGIN{exit !(r > 0)}'; then
   echo "planet and -1 when it points away. Gravity is pointing away, and every column walk that asks"
   echo "LAFieldGeometry.below()/above() — pressure, the regolith burial march, the lake flood, the surface"
   echo "seed — is running upward."
+  exit 1
+fi
+if [ "$err" -gt "$GAUSS_CEIL" ]; then
+  echo
+  echo "Gauss's law is off by ${err} permille in the world the sim seeds, past the ceiling of ${GAUSS_CEIL}."
+  echo "The flux of g out of the box must equal -4 pi G times the mass inside. The sign arm above only ever"
+  echo "proved gravity points the right WAY; this is whether it has the right SIZE, and every column walk"
+  echo "and every weight term reads that field."
   exit 1
 fi
 echo "check_gravity_solve: OK"
