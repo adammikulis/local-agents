@@ -10,6 +10,7 @@
 # native binary, and it DOES install zylann.voxel (see the note at the symlink below for why). Whether
 # the addon can generate text is a different question, checked by scripts/check_dropin_scene.sh.
 set -euo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GODOT="${GODOT:-godot}"
@@ -75,7 +76,7 @@ PROJECT
 
 LOG="$TMP/scan.log"
 echo "check_library_only: scanning (no game tree, zylann.voxel symlinked, no native binary)"
-"$GODOT" --headless --editor --quit-after 400 --path "$TMP" > "$LOG" 2>&1 || true
+la_godot --headless --editor --quit-after 400 --path "$TMP" > "$LOG" 2>&1 || true
 
 # Unresolved class_name references (the LAAppExit failure mode) surface as parse errors, so this
 # single grep covers both a missing script and a missing global identifier.
@@ -96,7 +97,7 @@ fi
 cp "$ROOT/scripts/parse_all_scripts.gd" "$TMP/parse_all_scripts.gd"
 PARSE_LOG="$TMP/parse.log"
 parse_rc=0
-"$GODOT" --headless --path "$TMP" -s parse_all_scripts.gd -- --skip-tests \
+la_godot --headless --path "$TMP" -s parse_all_scripts.gd -- --skip-tests \
   --root=res://addons/local_agents > "$PARSE_LOG" 2>&1 || parse_rc=$?
 
 parse_line="$(grep -a '^PARSE_ALL=' "$PARSE_LOG" | tail -n 1 || true)"

@@ -28,6 +28,7 @@
 # EXIT CODES. 0 within tolerance · 1 the solver is wrong · 2 could not run.
 # =====================================================================================================
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GODOT="${GODOT:-godot}"
@@ -39,7 +40,7 @@ PASS="$REPO_ROOT/addons/local_agents/sim/material/sphere_passes/GravityPass.gd"
 
 # A .glsl edited since its last import leaves the compiled .res stale, and the probe below would then
 # check the PREVIOUS kernel and report a pass on it.
-"$GODOT" --headless --path "$REPO_ROOT" --import >/dev/null 2>&1
+la_godot --headless --path "$REPO_ROOT" --import >/dev/null 2>&1
 
 PROBE="$REPO_ROOT/addons/local_agents/tests/zz_gravity_gate.gd"
 cat > "$PROBE" <<'GD'
