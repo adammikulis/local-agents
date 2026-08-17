@@ -277,6 +277,17 @@ agent's report and this file are all claims.
 
 **Do not file it — fix it.** Finding a defect and writing it down is not progress.
 
+**EVERY BUG YOU FIND IS IN SCOPE, BECAUSE ONE YOU DO NOT FIX WHEN YOU FIND IT NEVER GETS FIXED.** There is no
+"not my current task". WEEKS have been lost this way: it gets noticed, classified as some other lane's, and
+met again months later. The tells are "out of scope", "another lane owns it", "I must not sprawl", "noting it
+for later", and any list of defects in a reply that is not also a list of commits.
+
+**THIS COVERS THE HARNESS AND THE TOOLING, NOT ONLY THE PHYSICS.** Scripts, gates and launchers rot exactly
+like kernels, and they are the ones you read past because they look like infrastructure.
+
+**FIX THE CLASS, NOT THE INSTANCE: LEAVE A GATE BEHIND.** A rule does not survive the session and a gate
+does. If the defect could recur, the fix is unfinished until something goes red when it does.
+
 ## SCOPE RULE — LOCK THE PLANET DOWN FIRST. CREATURE WORK IS 0.5 AND DOES NOT START YET.
 
 **Maintainer's directive, standing: 0.4 is the PLANET, and creature work is not merely lower priority — it is

@@ -58,6 +58,9 @@ PROBE="$REPO_ROOT/addons/local_agents/tests/zz_radiative_gate.gd"
 cat > "$PROBE" <<'GD'
 extends SceneTree
 
+# An automated run's window is minimized; macOS clamps an off-view position back on screen.
+const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
+
 const N: int = 6
 const CELL: float = 1.0
 const ORIGIN: Vector3 = Vector3(-0.5 * N * CELL, -0.5 * N * CELL, -0.5 * N * CELL)
@@ -230,6 +233,7 @@ func _worst_rel(v: PackedFloat32Array, want: float, cells: PackedInt32Array) -> 
 
 
 func _init() -> void:
+	QuietWindow.apply_if_automated()
 	_rd = RenderingServer.create_local_rendering_device()
 	if _rd == null:
 		_fail("no RenderingDevice — headless has no compute device, so this gate cannot run.")

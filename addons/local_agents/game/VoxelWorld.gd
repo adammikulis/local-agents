@@ -139,21 +139,14 @@ func _ready() -> void:
 	_begin_trailer_shot()
 
 
-# Non-interactive verification/screenshot runs shove the OS window WAY off-screen the instant we start.
-func _window_pos_from_env() -> Vector2i:
-	var raw: String = OS.get_environment("LA_WIN_POS")
-	var parts: PackedStringArray = raw.split(",")
-	if parts.size() == 2 and parts[0].strip_edges().is_valid_int() and parts[1].strip_edges().is_valid_int():
-		return Vector2i(int(parts[0]), int(parts[1]))
-	return Vector2i(-8000, -8000)
-
-
 func _apply_window_mode() -> void:
 	var offscreen: bool = _input.run_frames() > 0 or _input.perf_frames() > 0 \
 		or _input.shoot_path() != "" or OS.has_environment("LA_OFFSCREEN")
 	if not offscreen or DisplayServer.get_name() == "headless":
 		return
-	DisplayServer.window_set_position(_window_pos_from_env())
+	# A screenshot run still has to draw, so it defocuses without minimizing.
+	LAQuietWindow.apply(_input.shoot_path() == "")
+	print(LAQuietWindow.state_line())
 	# The perf bench ALWAYS uncaps.
 	if _input.perf_frames() > 0:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)

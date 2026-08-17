@@ -14,6 +14,7 @@
 # EXIT CODES. 0 pass · 1 a structural claim is false · 2 could not run.
 # =====================================================================================================
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GODOT="${GODOT:-godot}"
@@ -58,7 +59,7 @@ func _init() -> void:
 	quit(1 if fail > 0 else 0)
 GD
 
-out="$("$GODOT" --headless --path "$REPO_ROOT" -s "res://addons/local_agents/tests/zz_voxel_grid_gate.gd" 2>&1)"
+out="$(la_godot --headless --path "$REPO_ROOT" -s "res://addons/local_agents/tests/zz_voxel_grid_gate.gd" 2>&1)"
 rc=$?
 rm -f "$PROBE" "$PROBE.uid"
 

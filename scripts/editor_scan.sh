@@ -60,6 +60,7 @@
 # files. A gate that cannot run must fail, never pass.
 # =====================================================================================================
 set -euo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 
 # Pure-bash, no `dirname`: this must still resolve when PATH is broken, or the missing-tool check below
 # never gets a chance to report exit 2.
@@ -131,7 +132,7 @@ trap 'rm -rf "$LOCK_DIR"; rm -f "$LOG" "$PARSE_LOG"' EXIT
 
 # --- phase 1: the editor scan (class_name + .gdextension registration, import) ------------------------
 scan_rc=0
-"$GODOT" --headless --editor --quit-after "$QUIT_AFTER" --path "$PROJECT" > "$LOG" 2>&1 || scan_rc=$?
+la_godot --headless --editor --quit-after "$QUIT_AFTER" --path "$PROJECT" > "$LOG" 2>&1 || scan_rc=$?
 
 # Positive evidence that the editor actually ran. Every Godot invocation prints its banner; an empty or
 # bannerless log means the binary never got going, and the old `|| true` turned exactly that into a pass.

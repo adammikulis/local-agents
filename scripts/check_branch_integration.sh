@@ -48,7 +48,9 @@ else
   exit 2
 fi
 
-declared="$(grep -oE '`[A-Za-z0-9._/-]+`' "$REGISTRY" | tr -d '`' | sort -u)"
+# TABLE ROWS ONLY. Scraping every backticked token put CLAUDE.md and scripts/*.sh in the same set as branch
+# names, so check 3 could not tell a deleted branch from a filename and never fired.
+declared="$(grep -oE '^\| `[A-Za-z0-9._/-]+`' "$REGISTRY" | tr -d '`|' | tr -d ' ' | sort -u)"
 [ -n "$declared" ] || { echo "check_branch_integration: $REGISTRY names no branches." >&2; exit 2; }
 
 now="$(git -C "$ROOT" log -1 --format=%ct "$DEV")"
@@ -84,7 +86,11 @@ while read -r d; do
   [ -z "$d" ] && continue
   case "$d" in worktree-agent-*|worktree-wf_*|"$DEV") continue ;; esac
   case "$d" in "${LA_INTEGRATE_BRANCH:-__none__}"|"${LA_INTEGRATE_SOURCE:-__none__}") continue ;; esac
-  git -C "$ROOT" rev-parse --verify -q "$d" >/dev/null || continue
+  if ! git -C "$ROOT" rev-parse --verify -q "$d" >/dev/null; then
+    echo "FAIL  $d is declared open in docs/OPEN_BRANCHES.md and does not exist. Delete its row." >&2
+    fail=1
+    continue
+  fi
   [ "$(git -C "$ROOT" rev-list --count "$DEV..$d")" -eq 0 ] || continue
   printf '%s\n' "$declared" | grep -qx "$d" || continue
   grep -qE "^\`$d\` · |\`$d\`.*safe to delete|safe to delete.*\`$d\`" "$REGISTRY" && continue

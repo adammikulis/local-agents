@@ -12,4 +12,4 @@ merge, or has not moved inside the age limit.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
-| `docs/collapse` | 1 | The dead-architecture docs deleted, `docs/PHYSICS_TODO.md` rewritten against the declared epoch, and the path rule in `scripts/check_doc_claims.sh`. | `lint` is green. |
+| `feature/momentum-advection` | 1 | The weight term and momentum advection in the momentum equation, and the one vertical relation. | the finite-channels gate passes. |

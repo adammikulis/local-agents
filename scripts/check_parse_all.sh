@@ -38,6 +38,7 @@
 # purpose: a gate that cannot run must fail, never pass.
 # =====================================================================================================
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 
 # Pure-bash, no `dirname`: this must still resolve when PATH is broken, or the missing-tool check below
 # never gets a chance to report exit 2.
@@ -78,7 +79,7 @@ fi
 LOG="$(mktemp)"
 trap 'rm -f "$LOG"' EXIT
 
-"$GODOT" --headless --path "$PROJECT" -s "$SWEEP" -- "--root=$PARSE_ROOT" > "$LOG" 2>&1
+la_godot --headless --path "$PROJECT" -s "$SWEEP" -- "--root=$PARSE_ROOT" > "$LOG" 2>&1
 sweep_rc=$?
 
 verdict="$(grep -a '^PARSE_ALL=' "$LOG" | tail -n 1)"

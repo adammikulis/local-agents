@@ -32,6 +32,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # check_branch_integration compares the dev branch against main; a shallow clone has neither.
+          fetch-depth: 0
 
       - name: Install ripgrep
         run: |
@@ -46,12 +49,37 @@ jobs:
           sudo install -m 0755 "${GODOT_BIN}" /usr/local/bin/godot
           godot --version
 
+      - name: Install extension build dependencies
+        # The same list build-extension.yml uses; anything less and the build fails on the runner instead
+        # of on the tree.
+        run: |
+          sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config patchelf
+
+      - name: Build the GDExtension
+        # Without it NetworkGraph and every other native class is undeclared, so check_parse_all fails on
+        # scripts that type them and CI lints a tree the project never runs.
+        working-directory: addons/local_agents/gdextensions/localagents
+        run: |
+          chmod +x scripts/*.sh
+          ./scripts/fetch_dependencies.sh --skip-models --skip-voices
+          ./scripts/build_extension.sh --platform linux
+
       - name: Import project assets
         # A fresh checkout has no .godot cache, so the .glsl kernels are unimported and every class_name is
         # unregistered. The Godot-backed gates (reaction balance, library-only parse) read both.
         run: |
           godot --headless --path . --import 2>&1 | tail -5 || true
 
+      - name: Register class names
+        # A fresh checkout has no global script class cache, so a `class_name` is unregistered and every
+        # script typing one fails to parse. scripts/new_worktree.sh does this locally for the same reason.
+        run: |
+          scripts/editor_scan.sh --path . || true
+
       - name: Lint
+        # LA_NO_GPU skips exactly the gates in the harness's GPU_GATES, which check_gpu_gate_list.sh holds
+        # to the gates that really launch a sim. They are run on the dev host, never silently dropped.
+        env:
+          LA_NO_GPU: "1"
         run: |
           scripts/agent_harness.sh lint

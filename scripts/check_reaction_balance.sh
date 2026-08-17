@@ -36,6 +36,7 @@
 # check vacuous. A gate that cannot run must fail, never pass.
 # =====================================================================================================
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 
 # Pure-bash, no `dirname`: this must still resolve when PATH is broken, or the missing-tool check below
 # never gets a chance to report exit 2.
@@ -52,7 +53,7 @@ if [[ ! -f "$RUNNER" ]]; then
   exit 2
 fi
 
-OUT="$(godot --headless --path "$REPO_ROOT" -s "$RUNNER" 2>&1)"
+OUT="$(la_godot --headless --path "$REPO_ROOT" -s "$RUNNER" 2>&1)"
 # Godot's own exit code is not reliably the script's `quit(N)` on every platform, so the verdict is read
 # from the structured marker the runner prints as its last line. No marker = the gate did not run.
 SUMMARY="$(printf '%s\n' "$OUT" | grep -o 'REACTION_BALANCE=.*' | tail -n 1)"

@@ -10,12 +10,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GODOT="${GODOT:-godot}"
-# The headless smoke target. Deliberately the menu, not the voxel world. VoxelWorld.tscn does BOOT
-# headless and exits rc 0 (measured 2026-07-28: 5.3s), but headless has no compute device, so its
-# SIM_REPORT comes back EMPTY — biomass 0, heat_cells 0, sediment_total 0.00, temp flat, no field_* gauges
-# — where the same run windowed reports sediment_total ~980. It fails silently rather than loudly, so a
-# headless voxel smoke would be a green light that measured nothing. Use run_sim_offscreen.sh for it.
-# Was pointing at scenes/simulation/WorldSimulation.tscn, deleted with the old stack.
+# ONE launcher. A direct `godot` here is what put a window on the user's screen.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
+# The headless smoke target is the menu, not the voxel world: headless has no compute device, so a
+# headless VoxelWorld run publishes an empty SIM_REPORT and rc 0. Use run_sim_offscreen.sh for it.
 MAIN_SCENE="res://addons/local_agents/game/menu/MainMenu.tscn"
 
 # Any godot process this harness (or a test it spawns) launches inherits this: it makes the in-code
@@ -84,8 +82,7 @@ shift || true
 # --- A LINKED WORKTREE REPAIRS ITSELF HERE, BEFORE ANY COMMAND RUNS ----------------------------------
 # `git worktree add` gives you the source and none of the build state: no `bin/` symlink, no imported
 # kernels, no `.godot/`. Each degrades QUIETLY — an unimported `.glsl` loads as null, the GPU field is
-# silently dead, and SIM_REPORT still prints a full set of plausible numbers. Measured 2026-08-11 across a
-# seven-agent fan-out: gates that take seconds took thirteen CPU-MINUTES each in unprepared worktrees.
+# silently dead, and SIM_REPORT still prints a full set of plausible numbers.
 #
 # CLAUDE.md has pointed at `scripts/new_worktree.sh` for as long as that section has existed, and it is
 # still the right way to MAKE one. But the Workflow tool creates worktrees itself, so no instruction can
@@ -127,13 +124,13 @@ case "$cmd" in
     exit $?
     ;;
   fast)
-    child=("$GODOT" --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --fast)
+    child=(la_godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --fast)
     ;;
   all)
-    child=("$GODOT" --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120 "$@")
+    child=(la_godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120 "$@")
     ;;
   bounded)
-    child=("$GODOT" --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120 "$@")
+    child=(la_godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120 "$@")
     ;;
   single)
     if [[ $# -lt 1 ]]; then
@@ -145,13 +142,13 @@ case "$cmd" in
     child=("$SCRIPT_DIR/run_single_test.sh" "$target" "$@")
     ;;
   smoke)
-    child=("$GODOT" --headless --no-window --quit-after 120 "$MAIN_SCENE")
+    child=(la_godot --headless --no-window --quit-after 120 "$MAIN_SCENE")
     ;;
   demo)
     child=("$SCRIPT_DIR/run_demo.sh" "$@")
     ;;
   extension)
-    child=("$GODOT" -s scripts/check_extension.gd)
+    child=(la_godot -s scripts/check_extension.gd)
     ;;
   # Kept OUT of lint on purpose. It stages a whole project and runs the importer, measured at 3s warm
   # and about 25s cold, and reply mode additionally loads a model. lint has to stay cheap enough to
@@ -183,6 +180,7 @@ if [[ "$cmd" == "lint" ]]; then
     # examined nothing, so its silence is not a pass, and it outranks a violation.
     lint_failed=0
     lint_unrunnable=0
+    lint_skipped=0
     run_gate() {
       local label="$1"
       shift
@@ -201,6 +199,18 @@ if [[ "$cmd" == "lint" ]]; then
       esac
     }
     gate() { run_gate "$1.sh" "$SCRIPT_DIR/$1.sh"; }
+    # GATES THAT NEED A REAL GPU, declared ONCE. Each launches a sim through run_sim_offscreen.sh, and
+    # create_local_rendering_device() is null without one. LA_NO_GPU=1 skips exactly these and says which;
+    # check_gpu_gate_list.sh holds this list to the gates that actually launch a run, both ways.
+    GPU_GATES="check_quiet_window check_gravity_solve check_radiative_row"
+    gpu_gate() {
+      if [[ "${LA_NO_GPU:-0}" == "1" ]]; then
+        echo "LINT_SKIPPED_NO_GPU: $1.sh (declared in GPU_GATES; run it on a machine with a GPU)"
+        lint_skipped=$((lint_skipped + 1))
+        return
+      fi
+      gate "$1"
+    }
 
     gate check_max_file_length
     # Advisory: policy/plan marker drift never gates.
@@ -208,6 +218,9 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_no_direct_refcounted_invocation
     gate check_no_inferred_typing
     gate check_tool_safety
+    gate check_godot_launcher
+    gate check_gpu_gate_list
+    gpu_gate check_quiet_window
     gate check_demo_catalog
     gate check_public_surface
     gate check_physical_constants
@@ -246,8 +259,8 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_duplicate_logic
     gate check_never_assigned
     gate check_voxel_grid
-    gate check_gravity_solve
-    gate check_radiative_row
+    gpu_gate check_gravity_solve
+    gpu_gate check_radiative_row
     gate check_shaders_compile
     gate check_reaction_energy
     # EVERY GATE RUNS. Fail-fast meant one red gate hid every gate after it.
@@ -259,6 +272,10 @@ if [[ "$cmd" == "lint" ]]; then
     if [[ $lint_failed -gt 0 ]]; then
       echo "LINT_SUMMARY: $lint_failed gate(s) failed. Every gate ran; the list above is complete."
       exit 1
+    fi
+    if [[ $lint_skipped -gt 0 ]]; then
+      echo "LINT_SUMMARY: passed, with $lint_skipped GPU gate(s) SKIPPED — this run did not examine them."
+      exit 0
     fi
     echo "All lint gates passed (file length gates at soft 1300 / hard 1500; policy markers are advisory)."
     exit 0

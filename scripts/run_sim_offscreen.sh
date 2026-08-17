@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 # Launch a WINDOWED (GPU) run without interrupting the user: the window is positioned off-screen and
 # keyboard focus is handed back to whatever app was frontmost, so a verification run never steals
 # attention. Override the position with LA_WIN_POS="x,y". Pass the normal godot args, e.g.:
@@ -54,14 +55,8 @@ DONE_RE="${LA_DONE_RE:-^LA_RUN_COMPLETE=}"
 
 FRONT_BID="$(osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true' 2>/dev/null)"
 
-# --- WHERE THE WINDOW GOES ---------------------------------------------------
-# A TEST RUN IS NEVER WATCHABLE. create_local_rendering_device returns null under --headless, so a GPU run
-# must open a window — off-view, always, and the scene marks it NO_FOCUS so it cannot take the keyboard.
+# Off-view far enough that no window width puts an edge back on screen. lib_godot.sh applies it.
 DEFAULT_WIN_POS="-10000,-10000"
-# Fully off-view to the upper-left. The negative X must exceed the WINDOW WIDTH so the right edge also clears
-# the screen: at a 1080p test res (1920 px wide) -2400 left only -480 of slack, so a wide window still poked out
-# on the left. -10000 clears any width, and matches the in-code reposition (VoxelWorld sends the window to
-# -8000,-8000), so neither the initial paint nor the reposition shows.
 WIN_POS="${LA_WIN_POS:-$DEFAULT_WIN_POS}"
 RENDER_DRIVER="${LA_RENDER_DRIVER:-metal}"
 
@@ -211,7 +206,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-LA_WIN_POS="$WIN_POS" godot --rendering-driver "$RENDER_DRIVER" --position "$WIN_POS" --resolution "${LA_RES:-640x400}" \
+LA_WIN_POS="$WIN_POS" LA_RES="${LA_RES:-640x400}" la_godot --rendering-driver "$RENDER_DRIVER" \
   "${LOG_ARGS[@]}" "$@" &
 GODOT_PID=$!
 

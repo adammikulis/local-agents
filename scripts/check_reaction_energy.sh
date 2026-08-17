@@ -21,6 +21,7 @@
 # table with no phase transfers in it) — never a silent pass.
 # =====================================================================================================
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNNER_REL="scripts/check_reaction_energy.gd"
@@ -38,7 +39,7 @@ if [[ ! -f "$REPO_ROOT/$RUNNER_REL" ]]; then
   exit 2
 fi
 
-out="$(cd "$REPO_ROOT" && timeout 180 godot --headless --path . -s "res://$RUNNER_REL" 2>&1)"
+out="$(cd "$REPO_ROOT" && LA_GODOT_TIMEOUT=180 la_godot --headless --path . -s "res://$RUNNER_REL" 2>&1)"
 echo "$out" | grep -E '^REACTION_ENERGY_FAIL=|^REACTION_ENERGY_ERROR|^REACTION_ENERGY=' || true
 
 line="$(echo "$out" | grep -E '^REACTION_ENERGY=' | tail -1)"
@@ -55,7 +56,7 @@ if echo "$line" | grep -q '"edges":0'; then
   exit 2
 fi
 if echo "$line" | grep -q '"violations":0'; then
-  echo "reaction-energy check passed: every phase loop closes and every reverse pair cancels."
+  echo "reaction-energy check passed: phase loops close, reverse pairs cancel, one price for organic redox."
   exit 0
 fi
 echo

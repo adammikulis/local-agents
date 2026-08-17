@@ -23,8 +23,8 @@ func phenomenon() -> String:
 	return type_name
 
 
-## bolts/charge/shock/magma are stubbed to 0 on the sphere path — treat a flatly-zero cumulative signal
-## as dormant so the tracker can LOG "not producing yet" instead of silently watching a dead channel.
+## False when this detector's signal has never moved, so a detector watching a channel nothing writes is
+## reported rather than silently watched.
 func signal_live(cur: Dictionary) -> bool:
 	if mode == "increment":
 		return float(cur.get(key, 0.0)) > 0.0 or _last_fired_value > 0.0
