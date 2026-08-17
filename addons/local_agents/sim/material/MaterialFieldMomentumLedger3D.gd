@@ -6,11 +6,6 @@ extends RefCounted
 
 const LEGS: PackedStringArray = ["air", "pressure"]
 
-## Momentum terms wind_step_sphere3d.glsl applies that no CPU-side sum can reach — their rates are per-step
-## fractions declared only inside that kernel (drag), or the transfer leaves no per-cell trace (the rest).
-## They land in `momentum_residual`.
-const UNBOOKED: Array = ["drag", "terrain_block", "orographic_lift", "solid_zeroing", "air_advection"]
-
 var _f = null                                # back-reference to the owning LAMaterialField3D
 
 var _prev_step: int = -1
@@ -199,7 +194,6 @@ func _blank() -> Dictionary:
 		"momentum_book_pgf": [0.0, 0.0, 0.0], "momentum_book_coriolis": [0.0, 0.0, 0.0],
 		"momentum_book_buoyancy": [0.0, 0.0, 0.0],
 		"momentum_force_n": [0.0, 0.0, 0.0],
-		"momentum_unbooked": UNBOOKED,
 		"momentum_samples": 0, "momentum_first_step": -1, "momentum_run_steps": 0,
 		"momentum_live": {}, "momentum_scan_ms": 0.0,
 	}

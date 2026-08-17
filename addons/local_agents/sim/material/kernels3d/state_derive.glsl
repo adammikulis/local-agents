@@ -21,6 +21,7 @@ layout(set = 0, binding = 16, std430) restrict buffer Regolith { float regolith[
 layout(set = 0, binding = 17, std430) restrict buffer Grain { float grain[]; };
 // Cell centre, flat cell*3, model units. The centrifugal term needs the radius vector.
 layout(set = 0, binding = 18, std430) restrict readonly buffer Pos { float pos[]; };
+layout(set = 0, binding = 49, std430) restrict readonly buffer Grav { float g_field[]; };  // m/s^2, cell*3
 
 // MOMENTUM is the state, kg m/s per m^3. Velocity is what you read off it once you know the mass.
 layout(set = 0, binding = 25, std430) restrict buffer MomX { float mom_x[]; };
@@ -216,6 +217,10 @@ void main() {
 	vec3 v = vec3(0.0);
 	if (total <= 0.0) {
 		temp[g] = -LA_KELVIN_OFFSET;   // no matter, so no temperature
+		// Momentum is rho*v, so with no mass there is none to hold.
+		mom_x[g] = 0.0;
+		mom_y[g] = 0.0;
+		mom_z[g] = 0.0;
 		vel_x[g] = 0.0;
 		vel_y[g] = 0.0;
 		vel_z[g] = 0.0;
@@ -308,13 +313,13 @@ void main() {
 
 	lithify(g, f_melt);
 
-	// ROTATING FRAME: Coriolis -2w x v and centrifugal -w x (w x r), per unit volume. The field's axes are
-	// body-local and the body spins. The density is this cell's whole mass, gas included.
+	// BODY FORCES per volume: weight rho*g, which -grad(p) stands against, then the rotating-frame pair.
+	vec3 acc = vec3(g_field[g * 3u], g_field[g * 3u + 1u], g_field[g * 3u + 2u]);
 	if (w_len > 0.0) {
-		vec3 a = -2.0 * cross(omega, v) - cross(omega, cross(omega, r_vec));
-		vec3 dp = a * rho * params.dt_s;
-		mom_x[g] += dp.x;
-		mom_y[g] += dp.y;
-		mom_z[g] += dp.z;
+		acc += -2.0 * cross(omega, v) - cross(omega, cross(omega, r_vec));
 	}
+	vec3 dp = acc * rho * params.dt_s;
+	mom_x[g] += dp.x;
+	mom_y[g] += dp.y;
+	mom_z[g] += dp.z;
 }
