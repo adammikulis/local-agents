@@ -180,6 +180,7 @@ if [[ "$cmd" == "lint" ]]; then
     # examined nothing, so its silence is not a pass, and it outranks a violation.
     lint_failed=0
     lint_unrunnable=0
+    lint_skipped=0
     run_gate() {
       local label="$1"
       shift
@@ -198,6 +199,18 @@ if [[ "$cmd" == "lint" ]]; then
       esac
     }
     gate() { run_gate "$1.sh" "$SCRIPT_DIR/$1.sh"; }
+    # GATES THAT NEED A REAL GPU, declared ONCE. Each launches a sim through run_sim_offscreen.sh, and
+    # create_local_rendering_device() is null without one. LA_NO_GPU=1 skips exactly these and says which;
+    # check_gpu_gate_list.sh holds this list to the gates that actually launch a run, both ways.
+    GPU_GATES="check_quiet_window check_gravity_solve check_radiative_row"
+    gpu_gate() {
+      if [[ "${LA_NO_GPU:-0}" == "1" ]]; then
+        echo "LINT_SKIPPED_NO_GPU: $1.sh (declared in GPU_GATES; run it on a machine with a GPU)"
+        lint_skipped=$((lint_skipped + 1))
+        return
+      fi
+      gate "$1"
+    }
 
     gate check_max_file_length
     # Advisory: policy/plan marker drift never gates.
@@ -206,7 +219,8 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_no_inferred_typing
     gate check_tool_safety
     gate check_godot_launcher
-    gate check_quiet_window
+    gate check_gpu_gate_list
+    gpu_gate check_quiet_window
     gate check_demo_catalog
     gate check_public_surface
     gate check_physical_constants
@@ -245,8 +259,8 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_duplicate_logic
     gate check_never_assigned
     gate check_voxel_grid
-    gate check_gravity_solve
-    gate check_radiative_row
+    gpu_gate check_gravity_solve
+    gpu_gate check_radiative_row
     gate check_shaders_compile
     gate check_reaction_energy
     # EVERY GATE RUNS. Fail-fast meant one red gate hid every gate after it.
@@ -258,6 +272,10 @@ if [[ "$cmd" == "lint" ]]; then
     if [[ $lint_failed -gt 0 ]]; then
       echo "LINT_SUMMARY: $lint_failed gate(s) failed. Every gate ran; the list above is complete."
       exit 1
+    fi
+    if [[ $lint_skipped -gt 0 ]]; then
+      echo "LINT_SUMMARY: passed, with $lint_skipped GPU gate(s) SKIPPED — this run did not examine them."
+      exit 0
     fi
     echo "All lint gates passed (file length gates at soft 1300 / hard 1500; policy markers are advisory)."
     exit 0
