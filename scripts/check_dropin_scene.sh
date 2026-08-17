@@ -26,6 +26,7 @@
 #
 # Exit 0 when the drop-in path works, 1 when it does not.
 set -euo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GODOT="${GODOT:-godot}"
@@ -100,7 +101,7 @@ SCENE
 
 # --- import, then run --------------------------------------------------------------------------
 echo "check_dropin_scene: importing"
-"$GODOT" --headless --path "$TMP" --import > "$TMP/import.log" 2>&1 || true
+la_godot --headless --path "$TMP" --import > "$TMP/import.log" 2>&1 || true
 
 PROBE_ARGS=("--scene=res://Quickstart.tscn" "--timeout=$TIMEOUT_S")
 MODE="structure"
@@ -118,7 +119,7 @@ cp "$ROOT/scripts/dropin_probe.gd" "$TMP/dropin_probe.gd"
 
 LOG="$TMP/run.log"
 rc=0
-"$GODOT" --headless --path "$TMP" -s dropin_probe.gd -- "${PROBE_ARGS[@]}" > "$LOG" 2>&1 || rc=$?
+la_godot --headless --path "$TMP" -s dropin_probe.gd -- "${PROBE_ARGS[@]}" > "$LOG" 2>&1 || rc=$?
 
 gate_line="$(grep -a '^DROPIN_GATE=' "$LOG" | tail -n 1 || true)"
 reply_line="$(grep -a '^DROPIN_REPLY=' "$LOG" | tail -n 1 || true)"

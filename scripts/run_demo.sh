@@ -16,6 +16,7 @@
 # which is the real reason a wrapper run used to burn its whole timeout. This script detects harness
 # support per scene and refuses the others up front instead of hanging on them.
 set -eo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -73,7 +74,7 @@ run_one() {
   log="$(mktemp "${TMPDIR:-/tmp}/la_run_demo.XXXXXX")"
   start="$(now_ms)"
   set +e
-  ( cd "$REPO_ROOT" && "$GODOT" --headless --path . "$scene" -- --run-frames="$frames" ) >"$log" 2>&1 &
+  ( cd "$REPO_ROOT" && la_godot --headless --path . "$scene" -- --run-frames="$frames" ) >"$log" 2>&1 &
   local child=$!
   # Poll in one-second slices rather than one long `sleep $DEMO_TIMEOUT`. A single long sleep survives the
   # kill below (SIGTERM reaps the subshell, not the sleep it is blocked in) and the orphan keeps this

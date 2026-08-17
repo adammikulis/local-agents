@@ -10,6 +10,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GODOT="${GODOT:-godot}"
+# ONE launcher. A direct `godot` here is what put a window on the user's screen.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 # The headless smoke target. Deliberately the menu, not the voxel world. VoxelWorld.tscn does BOOT
 # headless and exits rc 0 (measured 2026-07-28: 5.3s), but headless has no compute device, so its
 # SIM_REPORT comes back EMPTY — biomass 0, heat_cells 0, sediment_total 0.00, temp flat, no field_* gauges
@@ -127,13 +129,13 @@ case "$cmd" in
     exit $?
     ;;
   fast)
-    child=("$GODOT" --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --fast)
+    child=(la_godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --fast)
     ;;
   all)
-    child=("$GODOT" --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120 "$@")
+    child=(la_godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120 "$@")
     ;;
   bounded)
-    child=("$GODOT" --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120 "$@")
+    child=(la_godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120 "$@")
     ;;
   single)
     if [[ $# -lt 1 ]]; then
@@ -145,13 +147,13 @@ case "$cmd" in
     child=("$SCRIPT_DIR/run_single_test.sh" "$target" "$@")
     ;;
   smoke)
-    child=("$GODOT" --headless --no-window --quit-after 120 "$MAIN_SCENE")
+    child=(la_godot --headless --no-window --quit-after 120 "$MAIN_SCENE")
     ;;
   demo)
     child=("$SCRIPT_DIR/run_demo.sh" "$@")
     ;;
   extension)
-    child=("$GODOT" -s scripts/check_extension.gd)
+    child=(la_godot -s scripts/check_extension.gd)
     ;;
   # Kept OUT of lint on purpose. It stages a whole project and runs the importer, measured at 3s warm
   # and about 25s cold, and reply mode additionally loads a model. lint has to stay cheap enough to
@@ -208,6 +210,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_no_direct_refcounted_invocation
     gate check_no_inferred_typing
     gate check_tool_safety
+    gate check_godot_launcher
     gate check_demo_catalog
     gate check_public_surface
     gate check_physical_constants

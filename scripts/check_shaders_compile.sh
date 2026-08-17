@@ -19,6 +19,7 @@
 # EXIT CODES. 0 pass · 1 a kernel failed to load or compile · 2 the gate could not run, never a silent pass.
 # =====================================================================================================
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib_require.sh
@@ -114,7 +115,7 @@ if [ -d "$REPO_ROOT/.godot/imported" ]; then
   "$REPO_ROOT/scripts/godot_import.sh" "$REPO_ROOT" || true
 fi
 
-out="$(cd "$REPO_ROOT" && timeout 300 godot --headless --path . -s "res://$PROBE_REL" 2>&1)"
+out="$(cd "$REPO_ROOT" && LA_GODOT_TIMEOUT=300 la_godot --headless --path . -s "res://$PROBE_REL" 2>&1)"
 echo "$out" | grep -E '^SHADER_FAIL=|^SHADER_GATE=' || true
 
 if ! echo "$out" | grep -q '^SHADER_GATE='; then

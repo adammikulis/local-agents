@@ -5,6 +5,7 @@
 # Usage: scripts/godot_import.sh [project_dir]   (default: the repo this script lives in)
 # EXIT: godot's own status, or 1 if the lock could not be taken.
 set -uo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_godot_lock.sh"
 
@@ -13,5 +14,5 @@ PROJ="${1:-$ROOT}"
 
 godot_lock || exit 1
 trap godot_unlock EXIT
-timeout "${LA_IMPORT_TIMEOUT:-900}" godot --headless --path "$PROJ" --import >/dev/null 2>&1
+LA_GODOT_TIMEOUT="${LA_IMPORT_TIMEOUT:-900}" la_godot --headless --path "$PROJ" --import >/dev/null 2>&1
 exit $?
