@@ -12,6 +12,9 @@ static func inversions(f) -> Dictionary:
 		return out
 	var bad: int = 0
 	var audited: int = 0
+	var rock: int = 0
+	var air: int = 0
+	var skin: int = 0
 	# No reduce row can compare a cell with the one BELOW it, so this walks the drained mirror.
 	for c in cc:
 		var below: int = LAFieldGeometry.below(f, c)
@@ -24,8 +27,19 @@ static func inversions(f) -> Dictionary:
 		audited += 1
 		if deeper < here:
 			bad += 1
+			var s_here: bool = f._solid[c] != 0
+			var s_deep: bool = f._solid[below] != 0
+			if s_here and s_deep:
+				rock += 1
+			elif not s_here and not s_deep:
+				air += 1
+			else:
+				skin += 1
 	out["pressure_inversions"] = bad
 	out["pressure_audited"] = audited
+	out["pressure_inv_rock"] = rock
+	out["pressure_inv_air"] = air
+	out["pressure_inv_skin"] = skin
 	if bad > 0:
 		print("PRESSURE_BROKEN=", JSON.stringify(out))
 	return out
