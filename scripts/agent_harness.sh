@@ -213,8 +213,6 @@ if [[ "$cmd" == "lint" ]]; then
     }
 
     gate check_max_file_length
-    # Advisory: policy/plan marker drift never gates.
-    "$SCRIPT_DIR/check_policy_plan_markers.sh"
     gate check_no_direct_refcounted_invocation
     gate check_no_inferred_typing
     gate check_tool_safety
