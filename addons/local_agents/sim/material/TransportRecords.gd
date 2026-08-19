@@ -14,7 +14,7 @@ enum Fluid { VACUUM, WATER, AIR }
 
 ## Per-row switches, packed into the kernel's `flags`. Matches the TF_* constants in transport.glsl.
 enum Flag { SIGNED = 1, SETTLE = 2, EFIELD = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32, LISTED = 64,
-	RADIOGENIC = 128 }
+	RADIOGENIC = 128, ENTHALPY = 256 }
 
 
 ## `settle` adds the grain's terminal velocity to the advecting fluid; `frac` is the derived share moved.

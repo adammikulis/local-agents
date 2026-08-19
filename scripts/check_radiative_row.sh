@@ -120,6 +120,14 @@ func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Arra
 	var nbr: RID = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	_owned.append(nbr)
 	bufs["nbr"] = nbr
+	# Every wall shut: the boundary redirect holds -1 per face, exactly as the driver builds it.
+	var gh_arr: PackedInt32Array = PackedInt32Array()
+	gh_arr.resize(cc * 6)
+	gh_arr.fill(-1)
+	var gh_bytes: PackedByteArray = gh_arr.to_byte_array()
+	var gh: RID = _rd.storage_buffer_create(gh_bytes.size(), gh_bytes)
+	_owned.append(gh)
+	bufs["ghost"] = gh
 	bufs["gravity"] = _f32(cc * 3)
 	bufs["pos"] = _f32(cc * 3)
 
