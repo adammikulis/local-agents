@@ -22,7 +22,7 @@ const AMOUNTS: PackedStringArray = ["h2o", "silicate", "carbonate", "silica",
 ## because a domain file names the enums above, and a class_name in both directions is a cycle.
 const ROW_DIR: String = "res://addons/local_agents/sim/material/reduce/"
 const ROW_SCRIPTS: PackedStringArray = ["WaterRows.gd", "HeatRows.gd", "MineralRows.gd",
-	"AirRows.gd", "LifeRows.gd"]
+	"AirRows.gd", "LifeRows.gd", "BoundaryRows.gd"]
 
 static var _by_key: Dictionary = {}
 

@@ -31,8 +31,10 @@ var _set: RID = RID()
 ## Read by reduce rows on the device and by no CPU consumer, so they are this pass's own rather than
 ## LAChannels.derived_buffers() entries the driver would copy back on every drain.
 func _buffers(cc: int) -> Dictionary:
+	# The four entry-heat buffers carry ghost tails: transport's pass 0 reads them for ghost donors.
 	return {"speed": cc, "lat": cc, "alt": cc, "nonfinite": cc,
-		"h_h2o": cc, "h_silicate": cc, "h_sensible": cc, "cap_sensible": cc}
+		"h_h2o": {"n": cc, "ghosts": true}, "h_silicate": {"n": cc, "ghosts": true},
+		"h_sensible": {"n": cc, "ghosts": true}, "cap_sensible": {"n": cc, "ghosts": true}}
 
 
 func _setup(bufs: Dictionary, _cc: int) -> void:

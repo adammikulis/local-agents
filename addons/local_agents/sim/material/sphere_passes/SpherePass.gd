@@ -11,6 +11,9 @@ var _owned_buffers: Array[RID] = []
 
 var _ctx_missing: Dictionary = {}        # ctx key -> its absence has already been reported
 
+## Ghost tail cells appended past cell_count, set by the driver before setup. 0 = every wall shut.
+var ghost_count: int = 0
+
 
 func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	if rd == null:

@@ -6,6 +6,7 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/tr
 
 const BandsScript: GDScript = preload("res://addons/local_agents/sim/material/AbsorptionBands.gd")
 const CellListScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd")
+const BoundaryRowsScript: GDScript = preload("res://addons/local_agents/sim/material/reduce/BoundaryRows.gd")
 
 ## Which half of the gather a dispatch is, plus the prologue that runs before any row; tags, not quantities.
 enum { PASS_OUTFLOW, PASS_GATHER, PASS_GRAIN }
@@ -47,23 +48,30 @@ var _list_args: Array = []
 ## What the TF_STAMP gather publishes about the electric field: driver-owned so ReducePass and
 ## CellListPass can read them, and not a derived channel, which would be read back with no CPU consumer.
 func _buffers(cc: int) -> Dictionary:
-	return {"col_e": cc, "strike": cc, "radiogenic": cc}
+	var out: Dictionary = {"col_e": cc, "strike": cc, "radiogenic": cc,
+		"bnd_void": cc, "bnd_h_void": cc}
+	for ch in BoundaryRowsScript.BOOKED:
+		out["bnd_" + String(ch)] = cc
+		out["bnd_h_" + String(ch)] = cc
+	return out
 
 
 func _setup(bufs: Dictionary, cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
 	_rows = LATransportRecords.rows()
 
-	_send = _scratch(cc * 6)
-	_send_h = _scratch(cc * 6)
-	_send_q = _scratch(cc * 6)
-	_zero = _scratch(cc)
-	_no_h = _scratch(cc)
-	_one = _storage_buffer(_filled(cc, 1.0))
+	# Ghost tail cells run pass 0, so every buffer the kernel indexes by cell carries the tail.
+	var tc: int = cc + ghost_count
+	_send = _scratch(tc * 6)
+	_send_h = _scratch(tc * 6)
+	_send_q = _scratch(tc * 6)
+	_zero = _scratch(tc)
+	_no_h = _scratch(tc)
+	_one = _storage_buffer(_filled(tc, 1.0))
 	_band_count = BandsScript.BAND_COUNT
 	_rad_table = _storage_buffer(BandsScript.packed().to_byte_array())
-	_lw_emis = _scratch(cc)
-	_sw_abs = _scratch(cc)
+	_lw_emis = _scratch(tc)
+	_sw_abs = _scratch(tc)
 
 	for row: Dictionary in _rows:
 		_sets.append(_row_set(bufs, row))
@@ -102,7 +110,11 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 			if args.is_valid():
 				rd.compute_list_dispatch_indirect(cl, args, 0)
 			else:
-				rd.compute_list_dispatch(cl, groups, 1, 1)
+				# Pass 0 covers the ghost tail; the driver's group count covers interior only.
+				var g: int = groups
+				if pass_id == PASS_OUTFLOW and ghost_count > 0:
+					g = int(ceil(float(cc + ghost_count) / 64.0))
+				rd.compute_list_dispatch(cl, g, 1, 1)
 			rd.compute_list_add_barrier(cl)
 
 
@@ -135,7 +147,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement",
 			"silicate_susp_water", "silicate_susp_air", "silicate_bed",
 			"rad_absorbed", "rad_emitted", "col_e", "strike",
-			"carbonate", "silica", "radiogenic"]:
+			"carbonate", "silica", "radiogenic", "ghost", "bnd_void", "bnd_h_void"]:
 		if not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row has no law." % [key, channel])
 			return RID()
@@ -164,6 +176,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[24, _single(bufs, "silicate")],
 		[25, _single(bufs, "biomass")],
 		[26, _single(bufs, "silicate_melt")],
+		[27, _single(bufs, "ghost")],
 		[28, _single(bufs, "h2o_vapour")],
 		[29, _one if frac == "" else _single(bufs, frac)],
 		[30, _single(bufs, "cement")],
@@ -188,6 +201,9 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		# Heat travels with the matter that holds it, so a row reads the enthalpy of ITS OWN entry.
 		[46, _single(bufs, _carried_key(String(row["substance"])))],
 		[47, _single(bufs, "cap_sensible")],
+		# A booked channel's boundary crossings; an unbooked row writes a void pair nothing reads.
+		[48, _single(bufs, ("bnd_" + channel) if BoundaryRowsScript.BOOKED.has(channel) else "bnd_void")],
+		[49, _single(bufs, ("bnd_h_" + channel) if BoundaryRowsScript.BOOKED.has(channel) else "bnd_h_void")],
 	]
 	return _uset(_pipe, entries)
 
@@ -228,8 +244,11 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 		flags |= LATransportRecords.Flag.LISTED
 	if bool(row.get("radiogenic", false)):
 		flags |= LATransportRecords.Flag.RADIOGENIC
+	# The row whose amount IS enthalpy books joules on both boundary legs.
+	if String(row["channel"]) == "h_j_m3":
+		flags |= LATransportRecords.Flag.ENTHALPY
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(104)
+	pc.resize(108)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
@@ -264,6 +283,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	# J/m^3/K one unit of fill contributes to the sensible entry; 0 for a substance on a phase ladder,
 	# whose entry is the channel itself.
 	pc.encode_float(100, float(entry.get("density", 0.0)) * LAMatterChannels.specific_heat(substance))
+	pc.encode_u32(104, cc + ghost_count)
 	return pc
 
 
