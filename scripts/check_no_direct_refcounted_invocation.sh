@@ -36,10 +36,9 @@ scanned="$(
     --glob '*.sh' --glob '*.yml' --glob '*.yaml' --glob 'Makefile' 2>/dev/null | grep -c . || true
 )"
 
-# A root-level Makefile is searched only when there is one. This used to be an unconditional `Makefile`
-# argument, and there has never been a Makefile in this repo, so rg failed on it on every single run —
-# invisibly, because the search redirects stderr and ends in `|| true`. Harmless here, but it is the same
-# habit as the rest of this file's history: a scan target that does not exist, silently skipped.
+# A root-level Makefile is searched only when there is one. Naming it unconditionally makes rg fail on
+# every run, invisibly, because the search redirects stderr and ends in `|| true` — a scan target that
+# does not exist, silently skipped.
 TARGETS=("${SCAN_ROOTS[@]}")
 [[ -f "$REPO_ROOT/Makefile" ]] && TARGETS+=(Makefile)
 

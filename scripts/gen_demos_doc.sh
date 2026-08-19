@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # Generate addons/local_agents/docs/DEMOS.md from the demo catalogue.
 #
-# The demo list used to be written by hand in three places (a `const DEMOS` array in the launcher, a
-# table in README.md, prose in docs/USAGE.md). All three disagreed, and two demos appeared in none of
-# them. The catalogue in addons/local_agents/examples/demos/ is now the one source, so the
-# human-readable page is rendered from it rather than typed a fourth time.
+# The catalogue in addons/local_agents/examples/demos/ is the one source; the human-readable page is
+# rendered from it rather than typed a second time.
 #
 #   scripts/gen_demos_doc.sh           # write addons/local_agents/docs/DEMOS.md
 #   scripts/gen_demos_doc.sh --check   # compare the checked-in file against a fresh render

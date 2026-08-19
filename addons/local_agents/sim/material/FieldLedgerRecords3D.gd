@@ -22,8 +22,7 @@ const CARBON_CLOSED: PackedStringArray = ["co2", "biomass", "detritus", "fungus"
 const OXIDANT: PackedStringArray = ["o2", "co2"]
 
 
-## The energy stock is one channel. It used to be the fifteen channels a mixture capacity read, plus the
-## pore fraction that converted the matrix one.
+## The energy stock is one channel.
 static func energy() -> PackedStringArray:
 	return PackedStringArray(["h_j_m3"])
 

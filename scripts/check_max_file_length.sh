@@ -5,10 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib_require.sh
 source "$SCRIPT_DIR/lib_require.sh"
 require_tool rg   # without this the file list comes back empty and the gate passes on zero files
-# The scan roots below are RELATIVE. Without this cd they resolve against the caller's directory, rg
-# prints "No such file or directory" four times, the list comes back empty and the gate exits 0 having
-# examined nothing — the same vacuous pass require_tool was added to stop, reached by a different road.
-# Measured 2026-08-09: run from a scratch directory this printed "No matching files found" and exit 0.
+# The scan roots below are RELATIVE, so cd first: resolved against the caller's directory they match
+# nothing and the gate passes having examined nothing.
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 # Two thresholds: a SOFT smell limit that warns (split before you cross it) and a HARD limit that FAILS
@@ -25,18 +23,10 @@ done
 
 # Test-invocation safety gate (genuine correctness check, kept as a hard gate).
 "$SCRIPT_DIR/check_no_direct_refcounted_invocation.sh"
-# NOTE: the policy/plan marker check is intentionally NOT invoked here. It used to
-# be bundled in, which secretly turned this "advisory" file-length check into a
-# hard marker gate under `set -euo pipefail`. Marker checks are now advisory and
-# run separately (see scripts/check_policy_plan_markers.sh, invoked by the lint
-# harness as advisory-only).
 
-# MARKDOWN IS CHECKED TOO (added 2026-07-29). Docs rot the same way source does: API.md reached 1480 lines
-# and nothing warned, because this list globbed source extensions only. Prose over the soft limit is the same
-# problem as code over it — nobody reads to the bottom, and claims at the bottom go stale unnoticed.
-# `docs/` and the repo-root .md files (HANDOFF.md, CLAUDE.md, GODOT_BEST_PRACTICES.md,
-# README.md) were never scanned by any root in this list, so they are added here explicitly. Third-party
-# markdown under gdextensions/ stays excluded by the filters below.
+# MARKDOWN IS CHECKED TOO. Prose over the soft limit is the same problem as code over it: nobody reads to
+# the bottom, so claims at the bottom go stale unnoticed. `docs/` and the repo-root .md files are added
+# explicitly. Third-party markdown under gdextensions/ stays excluded by the filters below.
 FILES=()
 while IFS= read -r file; do
   FILES+=("$file")
@@ -51,9 +41,7 @@ done < <(
 )
 
 # An empty list is never a pass. This tree has hundreds of matching files, so zero means the roots moved,
-# a glob broke, or rg failed — every one of which leaves the gate measuring nothing. Exit 2 (could not
-# run), never 0. This branch used to `exit 0` with the message below, which is verbatim what CI printed on
-# every push for months while ripgrep was missing from the runner.
+# a glob broke, or rg failed — every one of which leaves the gate measuring nothing. Exit 2, never 0.
 if [[ ${#FILES[@]} -eq 0 ]]; then
   echo "ERROR: no matching files found for max-file-length check under $REPO_ROOT." >&2
   echo "       Refusing to report a pass on zero files — the scan roots or globs are wrong." >&2

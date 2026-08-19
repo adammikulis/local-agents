@@ -12,8 +12,8 @@ const REVERSE_STEP_MS: int = 220      # wall-milliseconds between restoring succ
 signal timeline_changed(count: int, cursor: int, reversing: bool)
 signal achievement(title: String, body: String)
 
-# Escalating tongue-in-cheek "achievements" for the incorrigible time-meddler — fired the Nth time reverse is
-# engaged this session. Pure flavour (no gameplay effect); the space/time continuum remains, regrettably, stable.
+# Escalating tongue-in-cheek "achievements", fired the Nth time reverse is engaged in a play session.
+# Flavour only, no gameplay effect.
 const REWIND_MILESTONES: Dictionary = {
 	5:   ["⏪  Temporal Tourist", "You've rewound time 5 times. The universe is keeping count."],
 	12:  ["⚠  Chrono-Meddler", "Rewinding to the past can destabilise the space/time continuum.\n(It hasn't. Yet.)"],

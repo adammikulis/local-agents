@@ -49,8 +49,8 @@ repo_hits=$(grep -rnE "[^:]${PATTERN}[^=]" addons --include='*.gd' 2>/dev/null \
   | sort -u | wc -l | tr -d ' ')
 
 if [ -n "$enforced_hits" ]; then
-  # NOTE: this used to interpolate $ENFORCED_DIR, which no longer exists — under `set -u` that
-  # aborted the script with "unbound variable" instead of printing the offending lines.
+  # Print ENFORCED_DIRS, not a scalar: a name that does not exist aborts under `set -u` instead of
+  # printing the offending lines.
   echo "FAIL: inferred typing ':=' found in an enforced directory (use explicit types):"
   printf '  enforced: %s\n' "${ENFORCED_DIRS[@]}"
   echo "$enforced_hits"

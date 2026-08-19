@@ -32,24 +32,17 @@ rsync -a \
   "$ROOT/addons/local_agents/" "$TMP/addons/local_agents/"
 
 # Delete everything the docs call game-only. What is left must stand on its own.
-# audio/ is NOT deleted, and used to be. The docs called it game-only chrome, but the force-parse
-# sweep showed five library files calling LocalAgentAudioDirector.emit(): creatures/creature/
-# CreatureThink.gd:158 for a chomp, and sim/actors/{Meteor,LightningStrike}.gd for
-# impact and bolt sounds. A creature making a noise is a stimulus broadcast like scent, which is
-# core behaviour rather than game shell, so audio/ belongs to the library and the classification was
-# wrong. Deleting it here only hid that.
+# audio/ is NOT deleted. Library files call LocalAgentAudioDirector.emit(), and a creature making a noise
+# is a stimulus broadcast like scent — core behaviour, not game shell. audio/ belongs to the library.
 rm -rf "$TMP/addons/local_agents/game" \
        "$TMP/addons/local_agents/assets" \
        "$TMP/addons/local_agents/voices"
 
 # zylann.voxel IS installed, by symlink so the ~100 MB of committed binaries are not copied per run.
 #
-# It used to be omitted, on the theory that the library should parse without it. That made the gate
-# unreadable rather than strict: sim/ genuinely needs godot_voxel for SPHERE mode, so leaving it out
-# produced 26 unresolved ZN_*/Voxel* types plus a cascade of "Failed to load script" lines that carry
-# no type name, and the one real break, StreamerHost preloading a game/ file, was a single line lost
-# inside them. Filtering the expected noise by type name cannot work, because the cascade lines have
-# no type name to filter on.
+# Omitting it does not make the gate stricter, only unreadable: sim/ genuinely needs godot_voxel for
+# SPHERE mode, so leaving it out buries the one real break under a cascade of "Failed to load script"
+# lines that carry no type name and so cannot be filtered out.
 #
 # So this gate asks the question the docs actually promise: with the game tree deleted and the
 # optional extension present, does the library parse. Whether FLAT mode alone runs without

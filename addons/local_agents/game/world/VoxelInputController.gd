@@ -102,8 +102,8 @@ var _start_mode_applied: bool = false
 
 func parse_cmdline() -> void:
 	# PARSING ONLY. This node builds no UI: it runs in every run, including runs with no presentation layer,
-	# and the Esc menu + view-controls bar it used to construct here are Controls. LAPresentation calls
-	# build_ui() when there is a screen to put them on.
+	# and the Esc menu + view-controls bar are Controls. LAPresentation calls build_ui() when there is a
+	# screen to put them on.
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--shoot="):
 			_shoot_path = arg.substr("--shoot=".length())

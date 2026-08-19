@@ -63,6 +63,10 @@ hist="$(cd "$TREE" && bash scripts/check_comment_history.sh 2>&1 | rg -N '^COMME
 [ -n "$hist" ] || { echo "write_ceilings: check_comment_history.sh printed no COMMENT_HISTORY= line." >&2; exit 2; }
 lower COMMENT_HISTORY_CEILING "$(field "$hist" count)"
 
+blk="$(cd "$TREE" && bash scripts/check_comment_block.sh 2>&1 | rg -N '^COMMENT_BLOCK=' || true)"
+[ -n "$blk" ] || { echo "write_ceilings: check_comment_block.sh printed no COMMENT_BLOCK= line." >&2; exit 2; }
+lower COMMENT_BLOCK_CEILING "$(field "$blk" count)"
+
 # A FLOOR, not a ceiling, and it moves the same way: down, and only here. It guards check_shaders_compile.sh
 # against scanning a tree whose kernels did not import, so it tracks the kernel count rather than leading it.
 kernels="$(rg --files -g '*.glsl' "$TREE/addons/local_agents/sim/material/kernels3d" 2>/dev/null | rg -c '.' || echo 0)"

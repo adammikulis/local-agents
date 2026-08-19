@@ -2,53 +2,20 @@
 # =====================================================================================================
 # EDITOR SCAN — register class_name / .gdextension SERIALLY, then PROVE the tree actually parses.
 #
-# WHY THE LOCK. A full `godot --headless --editor` run loads every GDExtension, including the
-# zylann.voxel editor build, which spins worker threads to import and generate. Two of those running at
-# once against the SAME .godot/ directory race and segfault — measured 2026-07-28, six Godot crashes in
-# three minutes with faulting frames inside libvoxel.macos.editor.universal on a thread named "run",
-# while ten parallel agents each ran the scan a handful of times.
+# THE LOCK. A full `godot --headless --editor` loads every GDExtension, including the zylann.voxel editor
+# build, which spins worker threads to import and generate. Two of those against the SAME .godot/ race and
+# segfault. The scan is also the one thing every agent must run, so this wrapper takes a lock and
+# concurrent callers queue.
 #
-# The scan is also the ONE thing every agent wants to run (a new class_name does not register without
-# it), so "just do not run it concurrently" is not a rule anyone can follow by hand. This wrapper takes a
-# lock instead: concurrent callers queue and each gets a correct scan.
-#
-# -----------------------------------------------------------------------------------------------------
-# WHY THERE IS A SECOND PHASE, measured 2026-08-09.
-#
-# This gate used to be one editor run plus a grep of its log for
-# `parse error|script error|failed to load|could not resolve class`. It printed `editor_scan: OK (0
-# errors)` on a tree where sim/material/sphere_passes/WaterSlumpLavaPass.gd had a hard parse error
-# (`Identifier "ctx" not declared in the current scope`). The simulation then ran to completion and exited
-# 0 with a full SIM_REPORT at the same field_step 590 a healthy run reaches. Measured, broken vs healthy,
-# 600 frames at seed 4242: temp_ground_p50 15.0 (exactly INITIAL_TEMP) vs 26.196 · snow_cells 0 vs 1147 ·
-# sediment_total 0.0 vs 601.75 · erosion_cells 0 vs 1348. Three mass-transport CAs silently absent, and
-# nothing in the output said so.
-#
-# THE GREP WAS NOT TOO NARROW. THE LOG CONTAINED NOTHING TO GREP. A full editor scan of this project
-# emits twenty lines, every one of them a progress bar, and not one word about any script:
-#     [  16% ] first_scan_filesystem | Loading global class names...
-#     [  83% ] first_scan_filesystem | Starting file scan...
-#     [ DONE ] first_scan_filesystem
-# "Loading global class names" reads only enough of each .gd to pull out `class_name` and `extends`; it
-# never compiles a function body. A script the editor never LOADS cannot report a parse error, and nothing
-# loads WaterSlumpLavaPass.gd at scan time: it declares no class_name and is reached at run time through a
-# res:// string in MaterialSphereGPU3D.gd's pass list. So the old pass condition was the ABSENCE of a
-# pattern from a log that never carries it — a gate that could only ever pass.
-#
-# It also passed when Godot was not installed. The invocation ended in `|| true`, so a missing binary, a
-# wrong --path, or a segfault all produced an empty log, which greps to zero, which printed OK.
-#
-# So phase 1 still runs the editor — that is what registers a new class_name / .gdextension and imports —
-# and now demands positive evidence that it ran. Phase 2 force-LOADS every .gd under the addon in one
-# headless process via scripts/parse_all_scripts.gd, because loading is what makes the engine parse a
-# file, and fails on any parse diagnostic.
-#
-# That machinery already existed. It was wired into scripts/check_library_only.sh only, which runs under
-# `agent_harness.sh lint` and stages a tree with game/ DELETED — so game/ was force-parsed by nothing at
-# all (263 scripts checked there against 317 here). GODOT_BEST_PRACTICES.md has said "a scan is necessary
-# and not sufficient, also run check_library_only.sh" since 2026-07-29; asking every agent to remember a
-# second command is the same rule-nobody-can-follow-by-hand that the lock above exists to replace. The
-# scan does it itself now.
+# TWO PHASES, because an editor scan does not parse your code. Its log is twenty progress-bar lines and
+# says nothing about any script: "Loading global class names" reads only `class_name` and `extends` and
+# never compiles a function body. A script the editor never LOADS cannot report a parse error, so a grep
+# for error patterns is the ABSENCE of a pattern from a log that never carries one — a gate that can only
+# pass. Phase 1 runs the editor, which is what registers a new class_name / .gdextension and imports, and
+# demands positive evidence it ran. Phase 2 force-LOADS every .gd under the addon through
+# scripts/parse_all_scripts.gd, because loading is what makes the engine parse a file, and fails on any
+# parse diagnostic. Phase 2 covers game/ too, which check_library_only.sh cannot: it stages a tree with
+# game/ deleted.
 #
 #   scripts/editor_scan.sh                # scan + parse sweep, print the verdict, non-zero if any
 #   scripts/editor_scan.sh --quiet        # the error count and nothing else

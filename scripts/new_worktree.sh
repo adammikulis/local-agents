@@ -24,8 +24,8 @@ ln -sfn "$BIN" "$WT/addons/local_agents/gdextensions/localagents/bin"
 echo "[new_worktree] importing shaders (compiles .glsl kernels — required or the GPU field is dead)…" >&2
 "$(dirname "${BASH_SOURCE[0]}")/godot_import.sh" "$WT" || echo "[new_worktree] WARN: --import returned nonzero (check manually)" >&2
 # Through scripts/editor_scan.sh, never `godot --headless --editor` directly. Two unlocked scans against
-# the same .godot/ segfault (six crashes in three minutes, measured 2026-07-28) and a fresh worktree is
-# exactly when several agents start at once; the wrapper takes the per-project lock. It also force-loads
+# the same .godot/ segfault, and a fresh worktree is exactly when several agents start at once; the
+# wrapper takes the per-project lock. It also force-loads
 # every script, so a worktree that does not parse is reported here instead of at the first SIM_REPORT.
 echo "[new_worktree] editor scan + parse sweep (registers new class_name / .gdextension)…" >&2
 scan_rc=0
