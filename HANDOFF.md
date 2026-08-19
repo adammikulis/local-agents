@@ -59,22 +59,20 @@ The gate is mutation-tested three ways and is **NOT wired into `lint`**. Wire it
 
 ## 4. Reduce the rest on the device
 
-`ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and twenty-one report
-sweeps already use it. Left:
+`ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and the report sweeps
+already use it. Left:
 
-- `MaterialFieldReport3D.surface_climate`, `MaterialFieldPhotoStats3D`,
-  `MaterialFieldClimateSwing3D._site_stations`.
-- `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`, `MaterialFieldElementProbe3D`,
-  `MaterialFieldOrganic3D`.
-- `CLIMATE_MAX_CELLS` and its stride delete with the climate scan.
+- `MaterialFieldPhotoStats3D`.
+- `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`.
+- `clim_alt_min` (per-altitude-band minima above the sea shell) needs `sea_radius` on the device: a static
+  row cannot carry an instance value, so give `MaterialSphereGPU3D._ctx` a setter like `set_sun_dir` and
+  let `state_derive.glsl` write `alt` relative to the shell; the open-air `air_grad_*` rows measure the
+  lapse until then.
 - `FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint. ReducePass runs last, so
   it cannot answer "which pass moved it": that wants a reduce dispatch per checkpoint, not a row.
 - Three shapes refused a row and say why: `sea_surface_stats` (a median needs a declared range nothing
   supplies), `lava_shell_diag` (five outputs over two gates), `rock_radial_profile` (a binned reduction
   plus a gravity march in one walk).
-- `_liquid_mirror` is a per-cell product of two buffers the GPU already holds, rebuilt per drinking
-  creature per tick. A derived buffer written by `StateDerivePass` deletes the loop with no reduce row at
-  all; its four consumers convert with it, and `drink` stops writing its depletion into a throwaway copy.
 
 The ops are BUILT — `Mask.GROUND`/`Mask.AIR`, `Op.COUNT_LT`, `enum Nbr` (below, above, six-face gradient)
 and the derived `speed`/`lat`/`alt` channels — so a sweep converts without adding machinery, and every
