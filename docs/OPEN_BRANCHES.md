@@ -13,4 +13,4 @@ merge, or has not moved inside the age limit.
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
 | `feature/momentum-advection` | 3 | The weight term, momentum advection, and the one vertical relation (pressure_inversions 0). RED: check_finite_channels and check_gdscript_budget, both named in its head commit. | both go green. |
-| `docs/prose-burn-down` | 1 | The dated error log, a gate that could not fail, docs planning against a deleted tree, and the story comments both comment ratchets count. | lint is green. |
+| `docs/prose-burn-down` | 3 | The dated error log, a gate that could not fail, docs planning against a deleted tree, and the story comments both comment ratchets count. | lint is green. |
