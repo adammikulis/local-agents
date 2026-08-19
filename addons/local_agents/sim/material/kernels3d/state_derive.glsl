@@ -256,7 +256,9 @@ void main() {
 	vec3 v = vec3(0.0);
 	if (total <= 0.0) {
 		temp[g] = -LA_KELVIN_OFFSET;   // no matter, so no temperature
-		pressure[g] = 0.0;
+		if (solid[g] == 0.0) {
+			pressure[g] = 0.0;
+		}
 		// Momentum is rho*v, so with no mass there is none to hold.
 		mom_x[g] = 0.0;
 		mom_y[g] = 0.0;
@@ -345,7 +347,10 @@ void main() {
 	float c_comp = (c0 + t_c * c1 - c2) + f_cond * (hc0 + t_c * hc1 - hc2);
 	float n_gas = n_gas_mol + f_vapour * m_h2o * mol_h2o;
 	float tk = max(t_c + LA_KELVIN_OFFSET, 1.0);
-	pressure[g] = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD);
+	// Rock is quasi-static and PressurePass owns it; an open cell's pressure is its own state.
+	if (solid[g] == 0.0) {
+		pressure[g] = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD);
+	}
 
 	// THE MELT SHARE OF THIS CELL'S SILICATE, off the SAME ladder. Rock has a melting INTERVAL, so the
 	// lever rule the enthalpy curve already integrates over reads back as a linear share of the interval —
