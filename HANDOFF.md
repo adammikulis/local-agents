@@ -14,17 +14,19 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 0. MOMENTUM RUNS AWAY TO NON-FINITE. TAKE THIS FIRST.
+## 0. MOMENTUM RUNS AWAY TO NON-FINITE, AND IT IS DOWNSTREAM OF ITEM 1.
 
-**Reproduce:** `scripts/check_finite_channels.sh` exits 0 at `LA_FINITE_FRAMES=4` and 1 at 20, and the
-report's `wind_x_sum`, `wind_z_sum`, `momentum_residual_rel` and `momentum_run_drift_rel` all serialise to
-null. `nonfinite_cells` counts three per affected cell, which is `mom_x`/`mom_y`/`mom_z` and nothing else:
-`energy_stock` and the whole energy row now fold to numbers.
+**Reproduce:** `LA_FINITE_FRAMES=20 scripts/check_finite_channels.sh` on `feature/momentum-advection`.
+`nonfinite_cells` counts three per affected cell — `mom_x`/`mom_y`/`mom_z` and nothing else.
 
-The gate is written and mutation-tested both ways but is **NOT wired into `lint`** — wire it in the moment
-it passes, and not before. `feature/momentum-advection` carries the weight term, momentum advection and the
-one vertical relation against this; what is left there is the stability of the explicit diffusion and
-advection rows, which wants sub-stepping and never a clamp.
+`scripts/sim_run.sh --frames 10` also exits 122 with `PRESSURE_BROKEN`, whose counters read 0 for
+rock-on-rock and 0 for open-standing-on-rock; the remainder are open-on-open.
+
+The gate is mutation-tested three ways and is **NOT wired into `lint`**. Wire it the moment it passes.
+`feature/momentum-advection` carries the work; its red is declared in `docs/OPEN_BRANCHES.md`.
+
+**Take item 1 first.** The dry-air scale height on this body is a fraction of a cell edge, so two
+vertically adjacent air cells do not sample a column. `docs/PHYSICS_TODO.md` D says it of the grid.
 
 ## 1. THE BOX EDGE IS A CLOSED WALL. OPEN IT, AND A SLICE BECOMES TESTABLE.
 
