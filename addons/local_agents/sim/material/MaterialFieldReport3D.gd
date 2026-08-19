@@ -3,7 +3,6 @@ extends RefCounted
 
 ## The central-telemetry snapshot of LAMaterialField3D.
 
-const PhotoStatsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldPhotoStats3D.gd")
 const ExtremesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldExtremes3D.gd")
 const ClimateSwingScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd")
 const MomentumLedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMomentumLedger3D.gd")
@@ -14,7 +13,6 @@ const ConservationScript: GDScript = preload("res://addons/local_agents/sim/mate
 const HEAVY_EVERY_FRAMES: int = 64
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
-var _photo = null                                        # LAMaterialFieldPhotoStats3D — primary-production spatial stats
 var _extremes = null                                     # LAMaterialFieldExtremes3D — min/max-ever register
 var _swing = null                                        # LAMaterialFieldClimateSwing3D — diurnal + seasonal range
 var _momentum = null                             # LAMaterialFieldMomentumLedger3D — Σ m*v stock + its books
@@ -29,8 +27,6 @@ var _heavy_frame: int = -1_000_000                       # physics tick it was c
 
 func setup(field) -> void:
 	_f = field
-	_photo = PhotoStatsScript.new()
-	_photo.setup(field)
 	_extremes = ExtremesScript.new()
 	_swing = ClimateSwingScript.new()
 	_swing.setup(field)
@@ -174,9 +170,13 @@ func surface_climate() -> Dictionary:
 func _open_temp_stats() -> Dictionary:
 	var q: LAMaterialFieldQueries3D = _f._queries
 	var n: int = q.open_cells()
+	var gn: int = int(q.row_f("ground_cells"))
 	return {"temp_min": q.row_f("open_temp_min"), "temp_max": q.row_f("open_temp_max"), "temp_open": n,
 		"temp_mean": (q.row_f("open_temp_sum") / float(n)) if n > 0 else NAN,
-		"temp_all_max": q.row_f("all_temp_max")}
+		"temp_all_max": q.row_f("all_temp_max"),
+		# NAN, not 0: no ground cell is an ABSENT reading, never a cold one.
+		"temp_ground_cells": gn,
+		"temp_ground_mean": (q.row_f("temp_ground_sum") / float(gn)) if gn > 0 else NAN}
 
 
 func report() -> Dictionary:
@@ -214,7 +214,6 @@ func report() -> Dictionary:
 		r.merge(_f._inject.queue.report())
 	var temps: Dictionary = _open_temp_stats()
 	r.merge(temps)
-	r.merge(_photo.report())
 	# DECOMPOSER extent + intensity (fungus_peak/_cells, detritus_peak/_cells). One grid pass for all four.
 	r.merge(_f.decomposer_stats())
 	# sea_ice_cells / sea_ice_temp / open_sea_cells / open_sea_temp — one walk, medians.

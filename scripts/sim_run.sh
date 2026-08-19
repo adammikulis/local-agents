@@ -29,7 +29,7 @@ FAUNA=0
 FULL=0
 RAW=0
 KEEP=0
-REPORT_KEYS="conservation,conservation_failed,conservation_audited,energy_run_drift,energy_stock_first,energy_residual,energy_booked,o2_first,o2_total,mineral_first,mineral_total,h2o_first,h2o_total,element_C_total_first,element_C_total,temp_ground_p50,phenomena_kinds"
+REPORT_KEYS="conservation,conservation_failed,conservation_audited,energy_run_drift,energy_stock_first,energy_residual,energy_booked,o2_first,o2_total,mineral_first,mineral_total,h2o_first,h2o_total,element_C_total_first,element_C_total,temp_ground_mean,phenomena_kinds"
 EXTRA=()
 
 while [ $# -gt 0 ]; do

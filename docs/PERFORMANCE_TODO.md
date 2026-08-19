@@ -48,7 +48,7 @@ already have this shape.
 
 `LASimReport.snapshot()` calls every provider, and `LAGameProgression._process` calls it twice per
 `CHECK_INTERVAL` (0.5 s), plus the HUD and `LAVoxelHarness`. Only `_heavy_block()` is behind the 64-frame
-cache. `PhotoStats.report` (O(cells × REGOLITH_CELLS)), `sea_surface_stats`, `rock_radial_profile` (two
+cache. `sea_surface_stats`, `rock_radial_profile` (two
 passes), `lava_shell_diag` and `ClimateSwing._site_stations` are NOT — whole-grid GDScript sweeps twice
 a second on the main thread.
 
@@ -59,7 +59,7 @@ cheap instead.
 ## 1c. One surface-cell list would empty six full-grid walks
 
 `MaterialFieldEnergyBudget3D`'s surface compaction is gone with that file, but `WaterSurfaceMesh.build`,
-`PhotoStats`, `sea_surface_stats`, `rock_radial_profile` and `MaterialSurfaceSeed3D` each still walk every
+`sea_surface_stats`, `rock_radial_profile` and `MaterialSurfaceSeed3D` each still walk every
 cell to find the same thing: the skin. It is a stream compaction, so no reduce `Op` expresses it — it is
 the active-cell list again. Build it once per step and all of them become O(surface cells), about N^(2/3).
 

@@ -449,7 +449,6 @@ func _seed_sea() -> void:
 		if (_grid.cell_world_pos(c) - pivot).length_squared() <= sea_sq:
 			_h2o[c] = 1.0
 
-const REGOLITH_CELLS: int = LAMaterialFieldRegolith3D.REGOLITH_CELLS
 # Athy pore fraction per cell (0 outside regolith), GPU-written and read back on the slow cadence.
 var _porosity: PackedFloat32Array = PackedFloat32Array()
 var _regolith: PackedByteArray = PackedByteArray()

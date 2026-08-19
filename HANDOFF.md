@@ -58,8 +58,7 @@ approximation, so it takes a row and an `LA_APPROX` marker.
 `ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and twenty-one report
 sweeps already use it. Left:
 
-- `MaterialFieldReport3D.surface_climate`, `MaterialFieldPhotoStats3D`,
-  `MaterialFieldClimateSwing3D._site_stations`.
+- `MaterialFieldReport3D.surface_climate`, `MaterialFieldClimateSwing3D._site_stations`.
 - `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`, `MaterialFieldElementProbe3D`,
   `MaterialFieldOrganic3D`.
 - `CLIMATE_MAX_CELLS` and its stride delete with the climate scan.

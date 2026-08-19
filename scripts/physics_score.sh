@@ -162,7 +162,7 @@ asserted = {k: v for k, v in seed.items() if isinstance(v, (int, float)) and v !
 # composition given. Ordered from most to least telling.
 if not d.get("world_sealed"):
     s_score = 0
-elif "h2o" in asserted and isinstance(d.get("temp_ground_p50"), (int, float)):
+elif "h2o" in asserted and isinstance(d.get("temp_ground_mean"), (int, float)):
     s_score = 1
 else:
     s_score = 2

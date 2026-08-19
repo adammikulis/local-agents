@@ -11,6 +11,10 @@ static func rows() -> Array:
 		# deep rock the open-only rows cannot see.
 		{"key": "open_temp_sum", "source": "temp", "op": Rec.Op.SUM, "mask": Rec.Mask.OPEN},
 		{"key": "all_temp_max", "source": "temp", "op": Rec.Op.MAX, "mask": Rec.Mask.ALL},
+		# The ground SKIN: an open cell whose gravity-below neighbour is solid. Unweighted, so over
+		# ground_cells this is a mean over cells. First rows to dispatch Mask.GROUND.
+		{"key": "ground_cells", "source": "temp", "op": Rec.Op.COUNT, "mask": Rec.Mask.GROUND},
+		{"key": "temp_ground_sum", "source": "temp", "op": Rec.Op.SUM, "mask": Rec.Mask.GROUND},
 		# 60 °C: the one temperature "a hot open cell" means here. Read back through row("hot_cells").
 		{"key": "hot_cells", "source": "temp", "op": Rec.Op.COUNT_GE, "mask": Rec.Mask.OPEN, "threshold": 60.0},
 		{"key": "fire_peak", "source": "fire", "op": Rec.Op.MAX, "mask": Rec.Mask.ALL},

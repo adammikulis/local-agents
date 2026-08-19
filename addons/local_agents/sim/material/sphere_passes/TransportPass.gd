@@ -229,7 +229,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	if bool(row.get("radiogenic", false)):
 		flags |= LATransportRecords.Flag.RADIOGENIC
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(104)
+	pc.resize(108)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
@@ -264,6 +264,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	# J/m^3/K one unit of fill contributes to the sensible entry; 0 for a substance on a phase ladder,
 	# whose entry is the channel itself.
 	pc.encode_float(100, float(entry.get("density", 0.0)) * LAMatterChannels.specific_heat(substance))
+	pc.encode_u32(104, int(row.get("axis", 0)))
 	return pc
 
 

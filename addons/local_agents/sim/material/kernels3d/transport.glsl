@@ -37,11 +37,9 @@ layout(set = 0, binding = 16, std430) restrict readonly buffer PressureBuf { flo
 layout(set = 0, binding = 17, std430) restrict readonly buffer PorosityBuf { float porosity[]; };
 layout(set = 0, binding = 18, std430) restrict readonly buffer GrainBuf    { float grain[]; };
 layout(set = 0, binding = 19, std430) restrict readonly buffer CO2Buf      { float co2[]; };
-// ONE H2O CHANNEL plus the three DERIVED shares state_derive.glsl publishes. Ice, liquid and vapour differ
-// optically by more than an order of magnitude, so every radiative term below splits h2o by these.
+// ONE H2O CHANNEL plus the three DERIVED shares state_derive.glsl publishes; they differ optically.
 layout(set = 0, binding = 20, std430) restrict readonly buffer H2OBuf       { float h2o[]; };
-// LAAbsorptionBands.packed(): header, band edges, temperature slices, solar weights, five coefficients
-// per (temperature, band), Planck CDF.
+// LAAbsorptionBands.packed(): header, edges, slices, solar weights, five coefficients, Planck CDF.
 layout(set = 0, binding = 21, std430) restrict readonly buffer RadTable { float rad_table[]; };
 layout(set = 0, binding = 22, std430) restrict readonly buffer H2OSolidBuf  { float h2o_solid[]; };
 layout(set = 0, binding = 23, std430) restrict readonly buffer H2OLiquidBuf { float h2o_liquid[]; };
@@ -112,6 +110,7 @@ layout(push_constant, std430) uniform Params {
 	float w_silica;
 	// J/m^3/K a unit of fill adds to the sensible entry; 0 for a substance on its own phase ladder.
 	float sub_cap_j_m3k;
+	uint axis;            // which momentum component a signed PGF row carries: 0=x 1=y 2=z
 } params;
 
 const uint PASS_GRAIN = 2u;   // TransportPass.PASS_GRAIN
@@ -329,10 +328,6 @@ float mobility_at(uint c, float amt) {
 	if (params.law == LAW_OHMIC) {
 		// Ohmic relaxation of a space charge: d(rho)/dt = -(sigma/eps0) rho.
 		return ohmic_conductivity_at(c, column_field(c)) * dt / EPS0;
-	}
-	if (params.law == LAW_PGF) {
-		// A force per volume delivers momentum per volume: dp * dt / L, `drop` already carrying one L.
-		return dt / L;
 	}
 	return 0.0;
 }
@@ -718,15 +713,39 @@ void main() {
 				break;
 			}
 			int inb = nbr[base + d];
-			if (inb < 0) {
+			// A WALL STILL PUSHES: matter crosses neither a solid face nor the box edge, pressure does.
+			bool wall = inb < 0 || (solid[inb] != 0.0 && blocks_solid);
+			if (wall && !(is_signed && params.law == LAW_PGF)) {
 				continue;
 			}
-			if (solid[inb] != 0.0 && blocks_solid) {
+			uint nb = uint(max(inb, 0));
+			if (is_signed) {
+				// ONE WRITER PER FACE (+axis side, or a wall's only fluid side), else applied twice.
+				if (!wall && (d & 1u) == 0u) {
+					continue;
+				}
+				vec3 nrm = face_normal(d);
+				float sflux = 0.0;
+				if (params.law == LAW_PGF) {
+					// Pressure's momentum flux; over six faces, -dp/dx_i. A wall: no penetration.
+					float p_face = wall ? drive[gidx] : 0.5 * (drive[gidx] + drive[nb]);
+					float ni = params.axis == 0u ? nrm.x : (params.axis == 1u ? nrm.y : nrm.z);
+					sflux = p_face * ni * params.dt_s / params.cell_m;
+				} else {
+					// A face property, so the face's mobility, not the owner's.
+					float mob_nb = mobility_at(nb, abs(amount[nb]));
+					float drop_s = potential(gidx, d) - potential(nb, d ^ 1u);
+					sflux = drop_s * 0.5 * (mob + mob_nb) * open / params.cell_m;
+				}
+				if (!wall && (params.mode == MODE_ADVECT || params.mode == MODE_BOTH)) {
+					float vn = dot(0.5 * (v_here + transport_velocity(nb)), nrm);
+					sflux += (vn > 0.0 ? amount[gidx] : amount[nb]) * vn * params.dt_s / params.cell_m;
+				}
+				send[base + d] = sflux;
 				continue;
 			}
-			uint nb = uint(inb);
 			float drop = potential(gidx, d) - potential(nb, d ^ 1u);
-			if (!is_signed && drop <= 0.0) {
+			if (drop <= 0.0) {
 				continue;
 			}
 			// A THRESHOLD GRADIENT. Granular material holds a slope up to its angle of repose; a column of
@@ -757,15 +776,6 @@ void main() {
 				} else if (params.mode == MODE_ADVECT) {
 					continue;
 				}
-			}
-			if (is_signed) {
-				// Momentum is signed and unbounded: a pressure gradient makes it in a cell that has none,
-				// so no donor floor and no room limit apply.
-				if (flow == 0.0) {
-					continue;
-				}
-				send[base + d] = flow;
-				continue;
 			}
 			float room = max(params.max_fill - amount[nb], 0.0);
 			flow = clamp(flow, 0.0, min(remaining, room));

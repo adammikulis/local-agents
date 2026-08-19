@@ -69,11 +69,11 @@ static func rows() -> Array:
 		{"channel": "h_j_m3", "substance": "", "mode": RADIATE},
 
 		# BOTH: div(rho v x v) beside -grad(p). Momentum crosses a face with the parcel that holds it.
-		{"channel": "mom_x", "substance": "", "mode": BOTH, "law": Law.PGF,
+		{"channel": "mom_x", "substance": "", "mode": BOTH, "law": Law.PGF, "axis": 0,
 			"drive": "pressure", "signed": true},
-		{"channel": "mom_y", "substance": "", "mode": BOTH, "law": Law.PGF,
+		{"channel": "mom_y", "substance": "", "mode": BOTH, "law": Law.PGF, "axis": 1,
 			"drive": "pressure", "signed": true},
-		{"channel": "mom_z", "substance": "", "mode": BOTH, "law": Law.PGF,
+		{"channel": "mom_z", "substance": "", "mode": BOTH, "law": Law.PGF, "axis": 2,
 			"drive": "pressure", "signed": true},
 
 		{"channel": "mom_x", "substance": "", "mode": DIFFUSE, "law": Law.EDDY,
