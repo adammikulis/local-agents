@@ -12,7 +12,9 @@ const SOIL_SURFACE_RESISTANCE_S_M: float = 1000.0  # r_s of a well-watered soil 
 ## Reaction records this domain contributes to the live table.
 static func records() -> Array:
 	var dt: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
-	var h: float = maxf(cell_size_m, 0.001)
+	var h: float = cell_height_m()
+	if h <= 0.0:
+		return []
 	return [
 		# Pore water of the regolith cell below, into the air of this one.
 		rec(RM_RESISTANCE_SERIES, VAPOUR_TRANSFER_COEFF * dt / h, VAPOUR_DEFICIT,

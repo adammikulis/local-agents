@@ -21,7 +21,8 @@ out="$(cd "$ROOT" && MAX="$MAX" python3 - <<'PY'
 import io, os, subprocess, sys, tokenize
 files = subprocess.run(['git','ls-files','*.gd','*.sh','*.glsl','*.glsli','*.py'],
                        capture_output=True, text=True).stdout.split()
-files = [f for f in files if 'thirdparty' not in f and 'generated' not in f and 'zylann' not in f]
+files = [f for f in files if 'thirdparty' not in f and 'generated' not in f and 'zylann' not in f
+         and os.path.exists(f)]
 if not files:
     print("NOFILES"); sys.exit(0)
 lim = int(os.environ['MAX'])

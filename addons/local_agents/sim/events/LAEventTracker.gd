@@ -70,12 +70,6 @@ func _threshold(type_name: String, key: String, mode: String, threshold: float, 
 	return d
 
 
-func _threshold_rate(type_name: String, key: String, rate_threshold: float, cooldown_s: float, intensity_base: float, intensity_scale: float, text: String) -> LAThresholdDetector:
-	var d: LAThresholdDetector = _threshold(type_name, key, "rate", rate_threshold, 0.0, intensity_base, intensity_scale, text)
-	d.cooldown_s = cooldown_s
-	return d
-
-
 func _threshold_increment(type_name: String, key: String, step: float, cooldown_s: float, intensity_base: float, text: String) -> LAThresholdDetector:
 	var d: LAThresholdDetector = _threshold(type_name, key, "increment", step, 0.0, intensity_base, 0.0, text)
 	d.cooldown_s = cooldown_s
