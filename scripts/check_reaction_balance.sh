@@ -1,39 +1,23 @@
 #!/usr/bin/env bash
-# =====================================================================================================
-# REACTION BALANCE GATE — a record that creates or destroys matter must not be shippable.
-#
-# WHY THIS EXISTS. The DEFS reaction engine was a rate table, not a chemistry. `rec()` took `reactants[]`
-# and `products[]` as two independent lists of hand-written coefficients with nothing relating them, and
-# nothing validated them at any point. Two consequences shipped:
-#
-#   * R15 decompose consumed 0.8 O2 per 1.0 CO2 produced — 18% under-oxidised, creating oxygen every
-#     cycle. It was found by a person reading the table, and fixed by setting two constants equal by hand.
-#   * R11 and R12 used the RELAX_TARGET rate model, which had NO REACTANT. reactions_sphere3d.glsl skipped
-#     the entire cap-and-debit block for it, so only the product credit ran. Every carbon atom that has
-#     ever existed in this simulation was conjured by R12, at +6.5 units per field step.
-#
-# Conservation was asserted in comments and enforced nowhere, and a rule that lives only in a comment has
-# now been broken here twice. This is the enforcement. It is the sibling of check_physical_constants.sh:
-# that one keeps the kernels' copies of real-matter values equal to the authority; this one keeps every
-# reaction honest about what it is made of.
-#
-# WHAT IT CHECKS (the detail lives in reactions/ReactionBalance.gd, which is also what the runtime calls):
-#   1. every record balances in ATOMS — C, N, H, O, Ca and Si — after converting each coefficient from
-#      channel units to moles, because a channel unit is not a mole and the two differ by up to 6484x;
-#      minerals carry real formulas, and with them calcium and silicon, which is what makes
-#      CaSiO3 + CO2 -> CaCO3 + SiO2 checkable;
+# REACTION BALANCE GATE — a record that creates or destroys matter must not be shippable. Conservation
+# asserted in a comment is enforced nowhere, and this repo has broken that rule twice: a decomposition
+# under-oxidised per cycle, and a rate model with NO REACTANT whose product credit ran while the kernel
+# skipped the whole cap-and-debit block. Sibling of check_physical_constants.sh: that keeps the kernels'
+# copies of real-matter values equal to the authority, this keeps every reaction honest about what it is
+# made of.
+
+# WHAT IT CHECKS, the detail living in reactions/ReactionBalance.gd, which is what the runtime calls:
+#   1. every record balances in ATOMS — C, N, H, O, Ca, Si — after converting each coefficient from
+#      channel units to moles, a channel unit not being a mole and the two differing by up to 6484x;
 #   2. a record with products and NO reactant is refused outright, in those words;
-#   3. TEMP / LIGHT / WINDSPEED / FIRE are drivers, not substances, and cannot be consumed or produced;
-#   4. a slot with no declared composition is refused rather than silently treated as massless;
-#   5. the GDScript slot enum matches the kernel's #defines, and every slot a record names actually has a
-#      read_ch / add_ch branch. Slots 5 (FUEL) and 6 (FIRE) were declared in both enums with no branch in
-#      either ladder, so they read 0 and their writes vanished — this catches that class of drift.
-#
-# EXIT CODES.  0 = clean.  1 = a violation.  2 = the gate COULD NOT RUN (missing godot, missing runner,
-# no output, or a table that parsed to zero records). 2 is distinct on purpose: this repo has already
-# shipped three gates that reported a pass while examining zero files, because a missing tool made the
-# check vacuous. A gate that cannot run must fail, never pass.
-# =====================================================================================================
+#   3. TEMP / LIGHT / WINDSPEED / FIRE are drivers, not substances, so cannot be consumed or produced;
+#   4. a slot with no declared composition is refused rather than treated as massless;
+#   5. the GDScript slot enum matches the kernel's #defines, and every slot a record names has a
+#      read_ch / add_ch branch — a slot declared in both enums with no branch reads 0 and its writes
+#      vanish.
+
+# EXIT 0 clean · 1 a violation · 2 could not run (missing godot, missing runner, no output, or a table
+# that parsed to zero records). A gate that cannot run must fail, never pass.
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 

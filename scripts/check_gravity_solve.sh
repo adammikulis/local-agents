@@ -1,32 +1,22 @@
 #!/usr/bin/env bash
-# =====================================================================================================
-# GRAVITY SOLVE — checked against the one mass distribution with an exact closed-form answer.
-#
-# A uniform sphere of density rho and radius R has, EXACTLY:
+# GRAVITY SOLVE — checked against the one mass distribution with an exact closed-form answer. A uniform
+# sphere of density rho and radius R has, exactly:
 #     inside  (r < R):  g = (4/3) pi G rho r      linear in r, zero at the centre
-#     outside (r > R):  g = G M / r^2             and M = (4/3) pi R^3 rho
-#
-# So the solver can be checked rather than believed. This matters more here than for most gates: the
-# thing being tested is that gravity comes OUT of the mass distribution. A centre-of-mass shortcut would
-# also pass the outside test — it is the INSIDE profile, linear in r and vanishing at the centre, that
-# only a real solve produces, because it is the enclosed mass that falls off, not the distance.
-#
-# It also checks a distribution with NO spherical symmetry at all: two separated blobs must produce a
-# field that points from each toward the other, which the shell-theorem shortcut cannot represent.
-#
-# The mass is a silicate fill, so the SOURCE TERM is checked with the solve: the kernel weighs the same
-# kg per unit fill that every other pass weighs, off LASubstances, and no density is written here.
-#
-# ARM TWO IS THE SIM'S OWN FIELD. Everything above builds its own sphere and its own sweep budget, so it
-# says nothing about the world the sim seeds. The second arm boots the real world and reads Gauss's law
-# off it: the flux of g out of the box is -4 pi G times the mass inside, so `gravity_gauss_rel` is +1
-# when gravity points at the planet and -1 when it points away.
-#
-# The solve is a compute kernel, so this needs a real device: headless has none. It runs through
-# run_sim_offscreen.sh, which takes the machine-wide GPU lock.
-#
-# EXIT CODES. 0 within tolerance · 1 the solver is wrong · 2 could not run.
-# =====================================================================================================
+#     outside (r > R):  g = G M / r^2             with M = (4/3) pi R^3 rho
+
+# The INSIDE profile is the one that matters: a centre-of-mass shortcut also passes the outside test,
+# and only a real solve makes g vanish at the centre, because it is the enclosed mass that falls off.
+# A second distribution has no spherical symmetry at all — two separated blobs must each point at the
+# other, which the shell-theorem shortcut cannot represent. The mass is a silicate fill, so the SOURCE
+# TERM is checked with the solve: the kernel weighs the same kg per unit fill as every other pass, off
+# LASubstances, and no density is written here.
+
+# ARM TWO IS THE SIM'S OWN FIELD, since everything above builds its own sphere and says nothing about
+# the world the sim seeds. It reads Gauss's law off the real world: the flux of g out of the box is
+# -4 pi G times the mass inside, so `gravity_gauss_rel` is +1 when gravity points at the planet.
+
+# A compute kernel needs a real device, so this runs through run_sim_offscreen.sh and its GPU lock.
+# EXIT 0 within tolerance · 1 the solver is wrong · 2 could not run.
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 

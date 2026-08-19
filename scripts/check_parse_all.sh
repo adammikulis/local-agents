@@ -1,42 +1,26 @@
 #!/usr/bin/env bash
-# =====================================================================================================
 # PARSE GATE — force every script in the tree to LOAD, because loading is what makes the engine parse it.
-#
-# WHY THIS EXISTS. An editor scan does not parse your code. `godot --headless
-# --editor` emits twenty progress lines and nothing about any script: its "Loading global class names"
-# step reads just enough of each .gd to pull out `class_name` and `extends`, and never compiles a
-# function body. So a script the editor never LOADS cannot report a parse error, and a script reached at
-# run time through a res:// string — every sphere_passes/ plugin, for one — is never loaded at scan time.
-#
-# sim/material/sphere_passes/WaterSlumpLavaPass.gd was broken on purpose to measure this. The editor scan
-# printed `OK (0 errors)`, and the simulation then ran to completion and exited 0. Both runs, 600 frames,
-# seed 4242, --fast=8, reaching the SAME field_step 590 — broken against healthy:
-#     temp_ground_p50   15.0 (exactly INITIAL_TEMP)  vs  26.196
-#     snow_cells        0                            vs  1147
-#     sediment_total    0.0                          vs  601.75
-#     erosion_cells     0                            vs  1348
-#     temp_mean         17.26                        vs  34.91
-#     h2o_total         2743.4                       vs  4384.6
-# Three whole mass-transport CAs were gone and the report still looked like a report. A tree that does not
-# parse still produces numbers, and nothing in the output says they are fiction. That is the whole danger.
-#
-# The sweep itself is scripts/parse_all_scripts.gd, which load()s every .gd under a root in ONE headless
-# process. It already existed and was wired into check_library_only.sh alone — which stages a tree with
-# game/ DELETED, so it covers 263 scripts and game/ was force-parsed by nothing at all. This gate runs the
-# same sweep against the REAL project: 317 scripts, game/ included. Measured with the compiled
-# GDExtension absent as well, since CI has no built binary: still 317 checked, zero error lines.
-#
+
+# An editor scan does not parse your code. `godot --headless --editor` emits progress lines and nothing
+# about any script: "Loading global class names" reads only enough of each .gd for `class_name` and
+# `extends`, and never compiles a function body. A script the editor never LOADS cannot report a parse
+# error, and one reached at run time through a res:// string — every sphere_passes/ plugin — is never
+# loaded at scan time. A tree that does not parse still produces a full report, and nothing in the
+# output says the numbers are fiction.
+
+# The sweep is scripts/parse_all_scripts.gd, which load()s every .gd under a root in one headless
+# process. check_library_only.sh runs it against a staged tree with game/ DELETED; this gate runs it
+# against the REAL project, game/ included, and does not need the compiled GDExtension present.
+
 #   scripts/check_parse_all.sh                # sweep the repo
 #   scripts/check_parse_all.sh --path <dir>   # sweep a staged copy or a worktree
 #   scripts/check_parse_all.sh --quiet        # just the PARSE_GATE= summary line
-#
-# Prints PARSE_GATE={"checked":N,"errors":N,"null":N} as its last line so a caller can read the counts
-# rather than re-deriving them (scripts/editor_scan.sh does exactly that).
-#
-# EXIT CODES.  0 = every script parses.  1 = at least one does not.  2 = the gate COULD NOT RUN (missing
-# godot, missing sweep script, no project, no verdict, or zero scripts examined). 2 is distinct on
-# purpose: a gate that cannot run must fail, never pass.
-# =====================================================================================================
+
+# Prints PARSE_GATE={"checked":N,"errors":N,"null":N} last so a caller reads the counts rather than
+# re-deriving them; scripts/editor_scan.sh does exactly that.
+
+# EXIT 0 every script parses · 1 at least one does not · 2 could not run (missing godot, missing sweep
+# script, no project, no verdict, or zero scripts examined). A gate that cannot run must fail.
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 
