@@ -141,9 +141,6 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
   driver is now zero everywhere and the reaction cannot fire. Either give a flash a real store to spend —
   `0.5*eps0*E^2` over the volume it neutralises, debited, not conjured — or delete the record and the
   binding with it. `col_e` and `strike` survive as detectors and are honest.
-- `FieldLedgerFold3D.fold()` walks a LITERAL key list, so an energy row not named there never reaches
-  `_publish_energy`, and one missing leg nulls the whole radiative block — which makes the `energy_stock`
-  conservation row read UNMEASURED rather than fail. A gate that goes quiet instead of red.
 - `MaterialSphereGPU3D._seed_silicate()` writes the whole `silicate` and `cement` buffers with
   `buffer_update` and never calls `note_creation`, so the planet's entire rock mass is absent from the seed
   manifest that is meant to be the scoreboard of what the substrate was told. `MaterialField3D` declares the
