@@ -13,3 +13,4 @@ merge, or has not moved inside the age limit.
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
 | `feature/momentum-advection` | 3 | The weight term, momentum advection, and the one vertical relation (pressure_inversions 0). RED: check_finite_channels and check_gdscript_budget, both named in its head commit. | both go green. |
+| `docs/comment-blocks` | 2 | Gate-script headers cut to labels; check_comment_block tokenizes Python; integrate.sh now deletes a landed lane's own row. | lint is green. |
