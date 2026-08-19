@@ -163,18 +163,6 @@ against a few percent for dispatch, so **measure any of 2b–2f against `field_r
 `field_dispatch_ms` before believing it helped.**
 
 
-## 11. A whole-grid array is allocated per drinking creature per tick
-
-`LAMaterialFieldBiota3D.drink` calls `LAMaterialFieldQueries3D._liquid_mirror()` — it builds and fills a
-`PackedFloat32Array` over EVERY cell to read one cell. That is O(creatures × cells) per physics tick, the
-worst single thing on the per-frame path. It needs `liquid_at(c)` and `liquid_at(below)`, both O(1) and
-both already there.
-
-Fixing it changes results, and fixes a second bug doing so: `_draw` writes the depletion back into the
-throwaway copy, so two creatures drinking one cell in the same step both see the full amount. `graze`
-decrements the real array; `drink` never has.
-
-
 ## 12. Θ(N²) creature scans, next to a spatial index that already works
 
 `LASpatialIndex` exists, is rebuilt each frame for `"creature"` and `"plant"`, and is used correctly by

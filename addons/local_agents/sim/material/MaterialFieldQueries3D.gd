@@ -520,13 +520,11 @@ func lava_shell_diag() -> Dictionary:
 	return out
 
 
-# Whole-grid mirrors. No reduction reads these — a total is a row of LAReduceRecords. Their consumers are
-# the ones that need the value of EVERY cell: the water surface mesh, the albedo bake, the climate texture.
-func _liquid_mirror() -> PackedFloat32Array:
-	var out: PackedFloat32Array = PackedFloat32Array()
-	if _f._h2o.size() != _f._cell_count:
-		return out
-	out.resize(_f._cell_count)
-	for c in _f._cell_count:
-		out[c] = liquid_at(c)
-	return out
+# Whole-grid liquid water, one value per cell — the `liquid` buffer state_derive.glsl writes, read back at
+# the drain. For consumers that need EVERY cell (the water surface mesh, the root-column stats). Empty
+# before the first drain: a missing readback is missing.
+func liquid() -> PackedFloat32Array:
+	if _f == null or _f._gpu == null:
+		return PackedFloat32Array()
+	var got = _f._gpu._cached.get("liquid", null)
+	return got if got is PackedFloat32Array else PackedFloat32Array()
