@@ -41,11 +41,13 @@ admissible: `carbon_total` summed CO₂ + biomass + detritus units and read +126
 | **3** | 0.1 – 1% |
 | **4** | < 0.1%, and every remaining change booked to a named mechanism |
 
-### 2. Energy booked — *is every joule accounted for?*
-Energy is **not** closed and must not be — sunlight enters and longwave leaves every step. The score is on
-`energy_residual`, **not** drift. A gate demanding a constant energy stock would demand a planet with no sun.
+### 2. Energy residual — *is every joule accounted for?*
+Energy is **not** closed and must not be — sunlight enters and longwave leaves every step. The score is
+`energy_residual_rel`, the residual as a fraction of `energy_turnover_j` — what actually crossed the
+boundary — **not** drift, and **not** a fraction of `energy_booked`, which passes through zero at radiative
+equilibrium.
 
-| **0** | no stock ledger | **1** | residual > 50% of booked | **2** | 10–50% | **3** | 1–10% | **4** | < 1%, latent heat structural |
+| **0** | no `energy_residual_rel` | **1** | residual > 50% of turnover | **2** | 10–50% | **3** | 1–10% | **4** | < 1%, latent heat structural |
 |---|---|---|---|---|---|---|---|---|---|
 
 ### 3. Constitutive honesty — *is each quantity a relation where physics says relation?*
@@ -178,10 +180,9 @@ the planet conserve anything — it makes the failure legible.
 - **1 = 1.** Worst is mineral at +52.4%; carbon +15.8%, h2o +41.7%, o2 +21.4%, oxidant +15.0%, N +2.5%.
   Mineral is the one to chase: it is the same ORDER of drift as carbon but carries a ceiling four orders
   tighter, and the per-pass probe says no sampled pass produces it while `solid_cells` grows 31978 -> 53935.
-- **2 = 1.** `energy_residual / energy_booked` reads 150772. It read 1742 before the unit fix, which is not
-  an improvement in the physics and not a regression either: the old figure divided a stock short by
-  METRES_PER_MODEL_UNIT^3 by a flux short by the square of it, so the ratio carried a spurious factor of
-  168.6. The residual is now measured in real joules against real watts and is simply very large.
+- **2 = 1.** `energy_residual` is now measured in real joules against real watts. Dividing it by
+  `energy_booked` carried a spurious unit factor from the stock and flux being short by
+  `METRES_PER_MODEL_UNIT` to different powers; the ratio is scored against `energy_turnover_j` instead.
 - **3 = 1, 4 = 1.** 611 constants in the registry are neither bound nor derived; 453 of those are recorded
   as a clamp, a floor, or a per-step fitted rate. Both are now populations that a gate maintains rather
   than counts from a remembered audit.
@@ -193,10 +194,9 @@ the planet conserve anything — it makes the failure legible.
 
 - **1 = 1.** C −26.7%, H₂O −19.5%, O₂ −90.3%, oxidant −56.2%, N −2.1% per 600 frames from the seal.
   Mineral alone is −0.027% and would score 3.
-- **2 = 1.** `scripts/physics_score.sh` puts `energy_residual / energy_booked` at **1742** — the unbooked
-  remainder is three orders of magnitude larger than everything the books can name. Sixteen
-  reaction records cross a phase or chemical boundary booking zero joules; evaporative cooling, the largest
-  term in Earth's surface energy budget, does not exist in the substrate.
+- **2 = 1.** `energy_residual` dwarfs everything the books can name. Sixteen reaction records cross a phase
+  or chemical boundary booking zero joules; evaporative cooling, the largest term in Earth's surface energy
+  budget, does not exist in the substrate.
 - **3 = 1.** 17 confirmed scalar-where-a-relation-belongs defects plus 10 physical quantities missing
   entirely (dry-air gas constant, pascals-per-world-unit, thermal expansion, magma viscosity, salinity,
   saturation over ice, grain size for airborne phases, …).
