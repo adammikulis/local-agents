@@ -23,13 +23,16 @@ static func event(kind: String, tags: Dictionary = {}) -> void:
 		_events[key] = int(_events.get(key, 0)) + 1
 
 
-## Record a current metric value; tracks cur + running min/max so peaks come for free (no hand-written _peak_*).
+## Record a current metric value; tracks cur + running min/max so peaks come for free (no hand-written
+## _peak_*). Writes a fresh dict rather than mutating the stored one in place, so a snapshot() caller
+## holding the old dict never sees a value change out from under it.
 static func gauge(name: String, value: float) -> void:
-	var g: Dictionary = _gauges.get(name, {"cur": value, "min": value, "max": value})
-	g["cur"] = value
-	g["min"] = minf(float(g["min"]), value)
-	g["max"] = maxf(float(g["max"]), value)
-	_gauges[name] = g
+	var prev: Dictionary = _gauges.get(name, {})
+	_gauges[name] = {
+		"cur": value,
+		"min": minf(float(prev.get("min", value)), value),
+		"max": maxf(float(prev.get("max", value)), value),
+	}
 
 
 ## Current value of a gauge (or `default_val` if not recorded yet) — a cheap single-key read for live HUD
@@ -44,8 +47,15 @@ static func register(provider: Callable) -> void:
 		_providers.append(provider)
 
 
+## Read-only view of the current telemetry. `events`/`gauges` are shallow top-level copies — cheap, since
+## `gauge()` never mutates a stored entry in place — marked read-only so a caller cannot corrupt the live
+## tallies through the handed-out dict.
 static func snapshot() -> Dictionary:
-	var out: Dictionary = {"events": _events.duplicate(true), "gauges": _gauges.duplicate(true)}
+	var events_view: Dictionary = _events.duplicate()
+	var gauges_view: Dictionary = _gauges.duplicate()
+	events_view.make_read_only()
+	gauges_view.make_read_only()
+	var out: Dictionary = {"events": events_view, "gauges": gauges_view}
 	var dead: Array = []
 	for p in _providers:
 		if p is Callable and p.is_valid():
