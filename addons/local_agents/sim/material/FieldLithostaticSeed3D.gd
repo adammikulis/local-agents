@@ -39,6 +39,46 @@ static func compress(field) -> float:
 	return added
 
 
+## AN ATMOSPHERE IS A SHELL ON A SURFACE, not a uniform fill of the box. The channels are filled before
+## solidity is sampled, so every cell gets a sea-level atmosphere: inside the stone, and out at the box
+## corners far above any air. Gas is kept where there is air to be, and falls off with altitude by the
+## barometric relation about the mean solid radius, with the scale height taken from the seeded state.
+static func shape_atmosphere(field, temp_c: float) -> void:
+	if field == null or field._grid == null or field._solid.size() != field._cell_count:
+		return
+	var centre: Vector3 = LAFieldGeometry.centre(field)
+	var rho_rock: float = float(LASubstances.table().get("silicate", {}).get("density", 0.0))
+	var cell_vol: float = pow(field._grid.cell_size, 3.0)
+	var surface_r: float = 0.0
+	var mass_kg: float = 0.0
+	for c in field._cell_count:
+		if field._solid[c] == 0:
+			continue
+		surface_r = maxf(surface_r, (field._grid.cell_world_pos(c) - centre).length())
+		mass_kg += field._silicate[c] * rho_rock * cell_vol
+	if surface_r <= 0.0 or mass_kg <= 0.0:
+		return
+	# g is SOLVED here, never held: it comes from the mass this seed just laid down.
+	var g: float = LAPhysical.GRAVITATIONAL_CONSTANT * mass_kg / (surface_r * surface_r)
+	var scale_h: float = LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * (temp_c + LAPhysical.KELVIN_OFFSET) / g
+	if scale_h <= 0.0:
+		return
+	# A CELL CANNOT HOLD A PROFILE SHORTER THAN ITSELF. Where the scale height is under a cell edge the
+	# whole atmosphere sits inside the first open shell, and a per-cell exponential is a shape the grid
+	# cannot carry; the honest seed is gas in that shell and vacuum beyond it. docs/PHYSICS_TODO.md D.
+	var flat: bool = scale_h < field._grid.cell_size
+	for c in field._cell_count:
+		if field._solid[c] != 0:
+			continue
+		var r: float = (field._grid.cell_world_pos(c) - centre).length()
+		var above: float = maxf(r - surface_r, 0.0)
+		var f: float = (1.0 if above <= field._grid.cell_size else 0.0) if flat \
+			else exp(-above / scale_h)
+		field._o2[c] *= f
+		field._co2[c] *= f
+		field._n2[c] *= f
+
+
 ## FREE GAS DOES NOT SIT INSIDE STONE. The channels are filled before solidity is sampled, so every solid
 ## cell is handed a full atmosphere's worth of o2, co2 and n2 — matter in cells that have no room for it,
 ## and a gas pressure as flat through the rock as through the sky.

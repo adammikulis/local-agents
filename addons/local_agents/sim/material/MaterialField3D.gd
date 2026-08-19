@@ -432,6 +432,7 @@ func _seed_silicate() -> void:
 		made += _silicate[c]
 	made += LAFieldLithostaticSeed.compress(self)
 	LAFieldLithostaticSeed.clear_gas_in_rock(self)
+	LAFieldLithostaticSeed.shape_atmosphere(self, INITIAL_TEMP)
 	if _seal != null:   # the manifest scores what the substrate was told, and this is most of it
 		_seal.note_creation("silicate", made)
 		_seal.note_creation("cement", made)
