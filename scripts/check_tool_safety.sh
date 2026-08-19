@@ -1,52 +1,20 @@
 #!/usr/bin/env bash
-# Gate: a @tool node must never write a SERIALISED property while running in the editor.
-#
-# WHY THIS EXISTS
-# ---------------
-# `@tool` makes a script's lifecycle callbacks (_ready/_process/_physics_process/_enter_tree) run
-# inside the Godot editor as well as at run time. If such a callback assigns a property that Godot
-# serialises (text, visible, position, rotation, scale, placeholder_text, modulate, or a theme
-# override), the editor records that assignment as a scene override and bakes it into the user's
-# .tscn on the next save. The user never asked for it and never sees it happen.
-#
-# Two independently written @tool nodes in this addon did exactly that (one painted `text` plus a
-# theme colour override onto a Label, another wrote placeholder_text and `visible` onto child
-# nodes). Both were caught by human review, not by a gate. This script is that gate.
-#
-# WHAT IT FLAGS
-# -------------
-# A file is reported only when BOTH conditions hold, which is what keeps the false-positive rate
-# low:
-#   1. it declares `@tool`, and has a lifecycle callback whose body is NOT guarded by an early
-#      `Engine.is_editor_hint()` return, AND
-#   2. it assigns a serialised property somewhere in the file, on a receiver that the file does not
-#      itself construct at run time.
-#
-# A file with a guarded lifecycle cannot reach the write in the editor, so it passes. A file that
-# never writes a serialised property has nothing to bake, so it passes.
-#
-# WHAT IT DOES NOT CATCH (deliberate limits — bash is not a GDScript type checker)
-# -------------------------------------------------------------------------------
-#   * Writes reached from a signal callback, a Timer timeout, a `call_deferred`, or a setter that
-#     the editor invokes without going through a lifecycle callback. Only the four lifecycle
-#     callbacks are used as the editor-entry heuristic.
-#   * Serialised properties outside the fixed list below (custom @export vars, `size`, `anchors`,
-#     `material_override`, ...). Extend SERIALISED_PROPS if a new offender class shows up.
-#   * A guard that is present but not reachable first (e.g. behind an `if` that can fall through).
-#     The guard only has to appear within the first GUARD_WINDOW code lines of the callback body.
-#   * A receiver constructed conditionally: if a variable is assigned from `X.new()` ANYWHERE in the
-#     file, every write to that variable is treated as run-time-created and ignored — even if the
-#     same variable is also bound to a scene node on another path.
-# KNOWN FALSE-POSITIVE CLASS
-#   * A local variable or parameter that happens to be named like a serialised property (`text`,
-#     `scale`) is indistinguishable from `self.text` here, so it counts as a write. That only
-#     matters for a file that also has an unguarded lifecycle callback.
-#
-# EXEMPTIONS
-#   * `extends EditorPlugin` — an EditorPlugin only ever exists inside the editor and is never part
-#     of a user scene; the nodes it touches are dock instances it created at run time.
-#   * The ALLOWLIST below. Every entry requires a `#` comment line directly above it saying why;
-#     the script refuses to run if an entry is missing one.
+# Gate: a @tool node must never write a SERIALISED property while running in the editor. `@tool` runs
+# _ready/_process/_physics_process/_enter_tree inside the editor, and an assignment to a serialised
+# property there is recorded as a scene override and baked into the user's .tscn on the next save.
+
+# FLAGGED only when BOTH hold, which is what keeps the false-positive rate low: the file declares
+# `@tool` and has a lifecycle callback not guarded by an early `Engine.is_editor_hint()` return, AND it
+# assigns a serialised property on a receiver it does not itself construct at run time.
+
+# NOT CAUGHT, bash being no GDScript type checker: writes reached from a signal, a Timer, a
+# `call_deferred` or a setter; properties outside SERIALISED_PROPS below; a guard present but not
+# reachable first, since it need only appear within GUARD_WINDOW code lines; and a receiver assigned
+# from `X.new()` anywhere in the file, whose every write is then treated as run-time-created. A local
+# named like a serialised property counts as a write.
+
+# EXEMPT: `extends EditorPlugin`, which only ever exists inside the editor, and the ALLOWLIST below —
+# every entry needs a `#` reason directly above it or this refuses to run.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"

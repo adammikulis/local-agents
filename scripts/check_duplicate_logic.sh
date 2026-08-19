@@ -1,35 +1,22 @@
 #!/usr/bin/env bash
-# =====================================================================================================
-# DUPLICATE LOGIC — the same algorithm written N times, found by shape rather than by noticing.
-#
-# Every expensive defect in this project so far has been one bug written N times, and each was found by
-# accident: rc_of in five copies and four incompatible versions, so a snowy cell was mostly air to one
-# kernel and energy was created on every exchange between them. Four conservation ledgers, so a probe read
-# with a silent mirror fallback got fixed in one at a time. Five radial column walks with five different
-# stop rules. Two placements of standing water, one called "lakes" and one called "the ocean". Three
-# buoyancy laws for one Archimedean statement.
-#
-# A person will not spot these: the copies live in different files, they were written months apart, and
-# each looks reasonable alone. A hash does spot them.
-#
-# THREE CLASSES, in rising order of how much they cost.
+# DUPLICATE LOGIC — the same algorithm written N times, found by shape rather than by noticing. The
+# copies live in different files, were written months apart, and each looks reasonable alone, so a person
+# does not spot them and a hash does.
+
+# THREE CLASSES, in rising order of cost.
 #   COPIES    identical after renaming. A bug in it has to be found N times.
 #   SHAPE     identical ALGEBRA carrying different NUMBERS. Not at risk of drifting — already drifted.
-#   FRAGMENT  a stretch repeated INLINE inside longer bodies. This is the class the kernels are made of:
-#             the column walks and the buoyancy laws are fragments of 200-line main() bodies, not
-#             functions of their own, so whole-function hashing is structurally blind to them.
-#
+#   FRAGMENT  a stretch repeated INLINE inside longer bodies, which is what the kernels are made of:
+#             column walks and buoyancy laws inside 200-line main() bodies, not functions of their own,
+#             so whole-function hashing is structurally blind to them.
+
 # HOW. Each body is normalised — comments stripped, whitespace collapsed, every identifier that is not a
 # keyword or a call replaced by a placeholder — then hashed with its numbers and again with them replaced
-# by `#`. Short bodies are ignored: a two-line getter repeating is not a smell.
-#
-# BOTH LANGUAGES. .gd bodies are indentation-delimited, .glsl/.glsli bodies are brace-delimited.
-#
-# THIS GATE DOES NOT SAY "DELETE THE COPIES". It says: these N are one thing, decide what that thing is.
+# by `#`. Short bodies are ignored. .gd bodies are indentation-delimited, .glsl brace-delimited.
+
+# THIS GATE DOES NOT SAY "DELETE THE COPIES". It says these N are one thing, decide what that thing is.
 # The answer is usually a parameterised module and a record per case.
-#
-# EXIT CODES. 0 at or under every ceiling · 1 over any · 2 could not run.
-# =====================================================================================================
+# EXIT 0 at or under every ceiling · 1 over any · 2 could not run.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

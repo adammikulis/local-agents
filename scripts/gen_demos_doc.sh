@@ -1,32 +1,22 @@
 #!/usr/bin/env bash
-# Generate addons/local_agents/docs/DEMOS.md from the demo catalogue.
-#
-# The catalogue in addons/local_agents/examples/demos/ is the one source; the human-readable page is
-# rendered from it rather than typed a second time.
-#
+# Generate addons/local_agents/docs/DEMOS.md from the demo catalogue. The catalogue in
+# addons/local_agents/examples/demos/ is the one source; the page is rendered from it, never typed.
+
 #   scripts/gen_demos_doc.sh           # write addons/local_agents/docs/DEMOS.md
 #   scripts/gen_demos_doc.sh --check   # compare the checked-in file against a fresh render
-#
-# Exit 0 when the file is written, or when --check finds it already current. Exit 1 when --check
-# finds drift (it prints the diff first, then the verdict), or when the catalogue cannot be rendered.
-# scripts/check_demo_catalog.sh runs the --check mode, and scripts/agent_harness.sh lint runs that,
-# so a stale page fails lint.
-#
-# The .tres files are parsed as text, by the same rules scripts/check_demo_catalog.sh uses:
-#   * a property left at its default is omitted by Godot when it saves the resource, so every field
-#     defaults here exactly as it does in examples/DemoEntry.gd;
-#   * the id match carries a leading space, because a bare /id="/ matches inside uid="..." first
-#     (leftmost match) and would read the uid as the resource id on any editor-resaved file.
-# `description` is @export_multiline, so Godot still writes it on one line and escapes a newline as
-# the two characters \n. Those are turned back into real newlines here, as is \". A literal backslash
-# in a description is not unescaped, and no entry has one. Text parsing takes no editor lock and runs
-# in milliseconds, so this is safe to run beside scripts/editor_scan.sh.
-#
-# Environment notes that have already cost this repo time: macOS ships bash 3.2, so no mapfile and no
-# associative arrays. Every expansion is quoted, the maintainer's interactive shell is zsh. `set -e`
-# plus a grep that legitimately matches nothing kills a script, so every grep here is an `if`
-# condition. The output carries no timestamp and no absolute path on purpose, otherwise --check would
-# report drift on every run.
+
+# Exit 0 when written, or when --check finds it current. Exit 1 on drift (the diff prints first) or when
+# the catalogue cannot be rendered. check_demo_catalog.sh runs --check under lint, so a stale page fails.
+
+# The .tres files are parsed as text, by the same rules check_demo_catalog.sh uses: a property left at
+# its default is omitted when Godot saves, so every field defaults here exactly as in
+# examples/DemoEntry.gd; the id match carries a leading space, because a bare /id="/ matches inside
+# uid="..." first and would read the uid as the resource id. `description` is @export_multiline, so
+# Godot writes \n as two characters — turned back here, as is \". Text parsing takes no editor lock.
+
+# macOS ships bash 3.2: no mapfile, no associative arrays. `set -e` plus a grep that legitimately
+# matches nothing kills the script, so every grep here is an `if` condition. The output carries no
+# timestamp and no absolute path, or --check would report drift on every run.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -18,20 +18,38 @@ CEIL="$(grep -E '^[0-9]+$' "$CEIL_FILE" | head -1)"
 case "$CEIL" in "" | *[!0-9]*) echo "check_comment_block: the ceiling carries no number." >&2; exit 2 ;; esac
 
 out="$(cd "$ROOT" && MAX="$MAX" python3 - <<'PY'
-import os, subprocess, sys
+import io, os, subprocess, sys, tokenize
 files = subprocess.run(['git','ls-files','*.gd','*.sh','*.glsl','*.glsli','*.py'],
                        capture_output=True, text=True).stdout.split()
 files = [f for f in files if 'thirdparty' not in f and 'generated' not in f and 'zylann' not in f]
 if not files:
     print("NOFILES"); sys.exit(0)
 lim = int(os.environ['MAX'])
-over = []
-for f in files:
-    run = 0; start = 0
-    for i, l in enumerate(open(f, errors='ignore').read().split('\n')):
+
+def comment_lines(path, text):
+    # A `#` inside a string literal is not a comment. Python can be tokenized exactly; for the rest a
+    # leading marker is the whole grammar that matters.
+    if path.endswith('.py'):
+        try:
+            return {t.start[0] for t in tokenize.generate_tokens(io.StringIO(text).readline)
+                    if t.type == tokenize.COMMENT}
+        except Exception:
+            pass
+    out = set()
+    for i, l in enumerate(text.split('\n'), 1):
         s = l.strip()
         if s.startswith('#') or s.startswith('//'):
-            if run == 0: start = i + 1
+            out.add(i)
+    return out
+
+over = []
+for f in files:
+    text = open(f, errors='ignore').read()
+    marks = comment_lines(f, text)
+    run = 0; start = 0
+    for i in range(1, text.count('\n') + 2):
+        if i in marks:
+            if run == 0: start = i
             run += 1
         else:
             if run > lim: over.append((run, f, start))
