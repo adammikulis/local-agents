@@ -19,7 +19,12 @@ SLUG="$(printf '%s' "$BRANCH" | tr '/' '-')"
 WT="$PRIMARY/../la-$SLUG"
 BIN="$PRIMARY/addons/local_agents/gdextensions/localagents/bin"
 
-git -C "$PRIMARY" worktree add "$WT" -b "$BRANCH" "$BASE" >&2
+# An EXISTING lane is checked out, not recreated: -b fails on it, and resuming one is the normal case.
+if git -C "$PRIMARY" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+	git -C "$PRIMARY" worktree add "$WT" "$BRANCH" >&2
+else
+	git -C "$PRIMARY" worktree add "$WT" -b "$BRANCH" "$BASE" >&2
+fi
 ln -sfn "$BIN" "$WT/addons/local_agents/gdextensions/localagents/bin"
 echo "[new_worktree] importing shaders (compiles .glsl kernels — required or the GPU field is dead)…" >&2
 "$(dirname "${BASH_SOURCE[0]}")/godot_import.sh" "$WT" || echo "[new_worktree] WARN: --import returned nonzero (check manually)" >&2
