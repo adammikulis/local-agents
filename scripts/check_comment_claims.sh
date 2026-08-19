@@ -2,12 +2,9 @@
 # =====================================================================================================
 # COMMENT-CLAIM GATE — a source comment may not carry a measurement or a date.
 #
-# A comment stating a CONTRACT stays true. A comment stating a MEASUREMENT or a HISTORY is true for one commit, and this
-# repo is full of the corpses: "the sweep is 0.36 s" (it is 1.0), "-26.7% carbon" (the sign was wrong),
-# "matches atmos_evap_sphere3d.glsl" (deleted file). CLAUDE.md has banned this in prose since 2026-08-10 and
-# it kept happening, including by the agent that re-read the ban the same hour.
-#
-# So: numbers that decay and dates belong in git, docs/ and gates. Source carries what the code promises.
+# A comment stating a CONTRACT stays true. A comment stating a MEASUREMENT or a HISTORY is true for one
+# commit only. Numbers that decay and dates belong in git, docs/ and gates. Source carries what the code
+# promises.
 #
 # RATCHET. MAX_CLAIMS caps the count; it may fall and may not rise. Lower it when you delete some.
 #
@@ -36,15 +33,9 @@ PCT   = re.compile(r"\d+(?:\.\d+)?\s?%")
 DATE  = re.compile(r"\b20\d\d-\d\d-\d\d\b")
 MEAS  = re.compile(r"\b(measured|read|reads|was|were|took|costs?)\b[^.\n]{0,40}?\b\d+(?:\.\d+)?(?:e[-+]?\d+)?\b",
                    re.I)
-# HISTORY WITH NO NUMBER IN IT ROTS IDENTICALLY, and the first version of this gate could not see it. A
-# verifier found 13 such sentences left standing in files the sweep had just edited — including one whose
-# same claim had been rewritten into a contract two hundred lines away.
+# HISTORY WITH NO NUMBER IN IT ROTS IDENTICALLY, so the tells below are not only numeric.
 # A LIVE CONDITION BECOMES A MEMOIR THE INSTANT IT CHANGES, so "it is currently true" is not a defence —
-# it identifies the class that rots. Every stale claim this repo has produced was true when written:
-# "matches atmos_evap_sphere3d.glsl" (that file was deleted), "the always-hot CPU mirror is the honest
-# source" (those channels are SLOW_CHANNELS), "dust_loft raining flag parity" (dust_loft was deleted).
-# "no longer" and "obsolete" were excluded here on the grounds that they describe present behaviour. That
-# was backwards.
+# it identifies the class that rots. "no longer" and "obsolete" belong here for the same reason.
 HIST  = re.compile(r"\b(used to|previously|formerly|no longer|obsolete|was replaced|replaced by|"
                    r"the old (code|kernel|version|comment|value|way)|before the refactor)\b", re.I)
 # A comment asserting a signal is dead makes live code look dead. If it is dead, delete it.

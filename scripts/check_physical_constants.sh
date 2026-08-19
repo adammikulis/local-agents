@@ -56,19 +56,15 @@
 # SCOPE, v2: the water phase points, the charge-separation band, and the two radiation constants.
 # Widening it is a one-line edit to WATCHED_* below.
 #
-# *(Corrected 2026-08-07. This paragraph used to name two quantities as "deliberately NOT watched yet
-# because the kernels and the authority genuinely disagree today", citing
-# `heat3d_solar_sphere3d.glsl:96  SOLAR_CONSTANT = 600.0` and `:95  STEFAN = 5.670374e-8`, and ended "Add
-# them here the day the kernel is reconciled." THE KERNEL WAS RECONCILED. heat3d_solar_sphere3d.glsl:114-115
-# now carry 5.670374419e-8 and 1361.0, both already annotated, so rule 1 has been binding them the whole
-# time — the comment outlived the disagreement and went on telling every reader this planet's sun was dimmed
-# to 600 W/m². They join the watched set below, which is what that sentence asked for: a NEW kernel constant
-# named SOLAR_CONSTANT or STEFAN can no longer be introduced without a reference.)*
+# A quantity is never listed here as "not watched yet because the kernel disagrees". Watch it and fix the
+# kernel: an exemption written for a disagreement outlives the disagreement, and every reader after that
+# is told the disagreement is intentional. A NEW kernel constant named SOLAR_CONSTANT or STEFAN cannot be
+# introduced without a reference.
 #
 # EXIT CODES.  0 = clean.  1 = a violation.  2 = the gate COULD NOT RUN (missing tool, missing authority
 # file, missing kernel directory, or an authority that parsed to zero constants). 2 is distinct on
-# purpose: this repo has already shipped gates that reported a pass while examining zero files, because a
-# missing `rg` on the CI runner made the check vacuous. A gate that cannot run must fail, never pass.
+# purpose: a gate that reports a pass while examining zero files is worse than no gate. A gate that
+# cannot run must fail, never pass.
 # =====================================================================================================
 set -euo pipefail
 
@@ -98,7 +94,7 @@ fi
 
 # .glsli TOO, NOT JUST .glsl. Shared includes hold real constants — rc_shared.glsli owns the five RC_*
 # volumetric heat capacities for every kernel that includes it — and a glob of `*.glsl` alone would let a
-# value slip out of this gate simply by being factored into a header. Added 2026-08-09 with that file.
+# value slip out of this gate simply by being factored into a header.
 shopt -s nullglob
 kernels=("$KERNEL_DIR"/*.glsl "$KERNEL_DIR"/*.glsli)
 shopt -u nullglob
@@ -126,9 +122,8 @@ trap 'rm -f "$AUTH_MAP"' EXIT
 # value and fell out of the map entirely. That silently hid MOLAR_MASS_DRY_AIR_KG_MOL — a weighted mean over
 # four mole fractions, written across five lines — and with it DRY_AIR_GAS_CONSTANT_J_KGK, which depends on
 # it. THE SPECIFIC GAS CONSTANT OF DRY AIR, the most important structural parameter of an atmosphere, was
-# invisible to the gate on the day it was added. Found 2026-08-10 when a new derived constant that depends on
-# it could not be bound. Same failure mode the paragraph above describes, one syntax later: the gate got
-# quietly weaker as the authority got better.
+# invisible to the gate on the day it was added: the gate gets quietly weaker as the authority gets
+# better unless every declaration syntax is parsed.
 SUBSTANCES="${LA_SUBSTANCE_AUTHORITY:-$REPO_ROOT/addons/local_agents/sim/material/Substances.gd}"
 if [[ ! -f "$SUBSTANCES" ]]; then
   echo "ERROR: check_physical_constants.sh cannot find the substance table:" >&2
@@ -171,8 +166,7 @@ awk -v AUTH="$AUTH_MAP" -v ROOT="$REPO_ROOT/" '
     WATCH_RADIATION = "(SOLAR_CONSTANT|STEFAN)"
     MODEL_TOKENS = "(RATE|FRAC|GAIN|SCALE|COEFF|COEF|MIN|MAX|THRESH|STEP|COUNT|DAMP|LEAK|SPAN|MASS|FLOW|DEPTH)"
     # Rock is not water, so a rock phase point must not be checked against WATER_*. It is REDIRECTED to
-    # BASALT_* below, not exempted. SOLIDIF used to sit in this list and the exemption is how
-    # SOLIDIFY_TEMP = 800 survived against a 1000 C solidus.
+    # BASALT_* below, not exempted: an exemption here is how a rock phase point survives unchecked.
     OTHER_MATTER = "(ROCK|BASALT|LAVA|MAGMA|IRON|METAL|SOLIDIF)"
     WATCH_ROCK_PHASE = "(SOLIDIF|SOLIDUS|LIQUIDUS)"
     WATCH_ALBEDO = "ALBEDO"
@@ -293,8 +287,7 @@ awk -v AUTH="$AUTH_MAP" -v ROOT="$REPO_ROOT/" '
     }
 
     # --- ROCK PHASE POINTS: redirected, not exempted ----------------------------------------------
-    # A carve-out is where a wrong value hides. These names used to fall through OTHER_MATTER and be
-    # scanned by nothing at all.
+    # A carve-out is where a wrong value hides: falling through OTHER_MATTER means scanned by nothing.
     if ((u ~ WATCH_ROCK_PHASE || (u ~ /(ROCK|BASALT|LAVA|MAGMA)/ && u ~ /(MELT|FREEZE)/)) && u !~ MODEL_TOKENS) {
       rtgt = (u ~ /(MELT|LIQUIDUS)/) ? "BASALT_LIQUIDUS_C" : "BASALT_SOLIDUS_C"
       if (!have[rtgt]) {

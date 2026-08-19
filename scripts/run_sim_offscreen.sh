@@ -6,15 +6,9 @@
 #   scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=200
 # Env passthrough (LA_NO_STREAMER etc.) works as usual. Requires macOS (osascript); elsewhere it just runs.
 #
-# USE THIS ONLY FOR SCENES THAT NEED A REAL GPU: game/VoxelWorld.tscn (its field is a compute shader, and
-# headless has no compute device). Every example scene under addons/local_agents/examples/ runs BARE
-# HEADLESS in ~1-2s — use scripts/run_demo.sh for those. Measured 2026-07-28 on this tree:
-#   BoxFieldDemo         headless 0.8s / windowed 1.7s   (both rc 0)
-#   ThinkingCreatureDemo headless 0.9s / windowed 1.1s   (both rc 0)
-#   SimWorldPlanetDemo   headless 1.7s / windowed 1.9s   (both rc 0)
-#   CoreCreatureSmoke    headless 0.8s / windowed 1.0s   (both rc 0)
-#   VoxelWorld           windowed 8.7s rc 0 (it DOES boot headless in ~6s, but with no
-#                        compute device the field is empty, so the report measures nothing)
+# USE THIS ONLY FOR SCENES THAT NEED A REAL GPU: game/VoxelWorld.tscn, whose field is a compute shader and
+# whose report measures nothing headless, because headless has no compute device. Every example scene under
+# addons/local_agents/examples/ runs bare headless — use scripts/run_demo.sh for those.
 # Rendering driver defaults to metal (this project's verified default — cel-shading/water/sky shaders have
 # all been built and checked against it). Override with LA_RENDER_DRIVER=vulkan for a one-off diagnostic run
 # (e.g. real GPU-side timestamp queries via RenderingDevice.get_captured_timestamp_gpu_time — Metal's Godot
@@ -41,12 +35,9 @@ RUN_TIMEOUT="${LA_RUN_TIMEOUT:-60}"
 EXIT_GRACE="${LA_EXIT_GRACE:-10}"
 # A run is "done" when the scene SAYS so, not when a line happens to look like a report.
 #
-# This used to match "an all-caps token followed by ={quote}", reasoning that only a JSON report body
-# has quoted keys. VoxelWorld's own POP_TRACE={"frame":180,...} — printed every 180 frames by
-# game/world/VoxelHarness.gd — matches that exactly, so the grace clock armed at frame 180 and this
-# watchdog SIGKILLed healthy 800- and 1200-frame runs long before their SIM_REPORT. Measured: 300
-# frames passed, 800 and 1200 died at ~26s with rc 125 and a confidently wrong "the EXIT path is
-# broken" diagnosis.
+# Match the scene's OWN completion marker, never a shape a report body happens to share: VoxelWorld
+# prints POP_TRACE={"frame":...} periodically, and a pattern loose enough to catch that arms the grace
+# clock mid-run and SIGKILLs a healthy run before its SIM_REPORT.
 #
 # Every harness now prints one dedicated sentinel immediately before quitting
 # (LocalAgentDemoHarness.print_complete -> `LA_RUN_COMPLETE={"code":N}`), so detection is explicit
@@ -65,15 +56,9 @@ RENDER_DRIVER="${LA_RENDER_DRIVER:-metal}"
 # kernel and says nothing. The run completes, prints a full normal-looking SIM_REPORT, and every number in it
 # is fiction.
 #
-# WHY THIS EXISTS. Measured 2026-08-09: the PRIMARY checkout had 15 kernels whose compiled .res predated their
-# source, reactions_sphere3d.glsl by six days and four commits. A 600-frame run there gave `biomass_total`
-# 0.0, `snow_cells` 0, `o2_total` 40474, `carbon_total` 606 — against 5.25 / 1160 / 3695 / 12425 from the SAME
-# COMMIT in a freshly imported worktree. The entire reaction engine had not run. That run was taken as an A/B
-# baseline before the mismatch was spotted, and its whole "before" arm was an artefact of the stale cache.
-#
-# THE GAP IS IN DOCUMENTED PROCESS, NOT CODE. scripts/new_worktree.sh imports a FRESH worktree and every doc
-# says to use it. NOTHING re-imports a LONG-LIVED checkout after a merge lands someone else's kernel edit, so
-# the primary checkout rots silently from that moment on.
+# scripts/new_worktree.sh imports a FRESH worktree, but nothing re-imports a LONG-LIVED checkout after a
+# merge lands someone else's kernel edit, so a primary checkout rots silently from that moment on and a
+# whole subsystem can be absent from a run that reports normally.
 #
 # FAIL, DO NOT AUTO-FIX: a measurement wrapper that quietly mutates the import cache is exactly the hidden
 # side effect this project bans on authoritative paths. Name what is stale and how to fix it.
@@ -257,8 +242,7 @@ if [ -n "$FRONT_BID" ]; then
   # Godot grabs focus during startup; reclaim it for the user's app a few times as it comes up.
   # The `>/dev/null 2>&1` is on the SUBSHELL, not just osascript: these outlive a fast run, and while
   # they hold this script's inherited stdout they hold open the write end of any pipe the caller reads
-  # us through — measured 3.8s vs 1.7s for the same BoxFieldDemo run just from that. (This was never
-  # the cause of the old 240s runs; that was scenes with no harness. It is only a couple of seconds.)
+  # us through, which stalls the caller until they expire.
   for d in 0.4 1.0 2.0 3.5; do
     ( sleep "$d"; osascript -e "tell application id \"$FRONT_BID\" to activate" >/dev/null 2>&1 ) >/dev/null 2>&1 &
   done
@@ -282,8 +266,8 @@ fi
 # Once the world is sealed, matter and energy are closed apart from booked exchange.
 # LAMaterialFieldConservation3D audits every gated quantity at a fixed horizon past the seal.
 #
-# TWO FINDINGS, TWO CODES, AND A BREACH OUTRANKS A STARVED AUDIT. A run whose books COULD NOT ANSWER is not
-# a clean run; it used to exit 0, which is the same silent pass a missing gate gives.
+# TWO FINDINGS, TWO CODES, AND A BREACH OUTRANKS A STARVED AUDIT. A run whose books COULD NOT ANSWER is
+# not a clean run, and exiting 0 on one is the same silent pass a missing gate gives.
 #   126  CONSERVATION_VIOLATION — a quantity drifted past the float floor
 #   123  CONSERVATION_UNMEASURED — the audit ran and a quantity had no number to give
 #   122  PRESSURE_BROKEN — pressure fell going DOWN

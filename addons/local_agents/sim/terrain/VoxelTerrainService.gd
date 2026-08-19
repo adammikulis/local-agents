@@ -5,7 +5,7 @@ extends RefCounted
 const SHADER_PATH: String = "res://addons/local_agents/sim/shaders/VoxelTerrainTriplanar.gdshader"
 const PlanetGenScript: GDScript = preload("res://addons/local_agents/sim/terrain/SpherePlanetGenerator.gd")
 
-const ISLAND_RADIUS: float = 180.0        # land core radius (world units) — used to place caves
+const ISLAND_RADIUS: float = 180.0        # land core radius (world units); cave placement reads it
 const SEA_LEVEL_Y: float = 6.0            # world Y of the sea surface (default sea level)
 
 var _terrain: VoxelLodTerrain = null

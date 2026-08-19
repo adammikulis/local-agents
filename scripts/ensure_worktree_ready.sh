@@ -10,9 +10,8 @@
 #   2. NO IMPORTED KERNELS. A fresh worktree's `.glsl` files are unimported, so `load()` returns null, the
 #      GPU MaterialField is SILENTLY DEAD (`biomass` 0, the log full of `get_spirv on a null value`) and
 #      every number in SIM_REPORT is fiction that looks fine.
-#   3. NO `.godot/`. Every Godot invocation re-imports the whole project first. Measured 2026-08-11 across
-#      the seven-agent fan-out: gates that take seconds took THIRTEEN CPU-MINUTES each, and one agent
-#      watched another burn 14 minutes on a single check.
+#   3. NO `.godot/`. Every Godot invocation then re-imports the whole project first, so a gate that takes
+#      seconds takes CPU-minutes, on every gate, in every tree.
 #
 # CLAUDE.md has told agents to use `scripts/new_worktree.sh` for as long as the section has existed, and it
 # is still the right way to MAKE one. But the Workflow tool creates worktrees itself, so no instruction to a

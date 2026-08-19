@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 # Gate: the demo catalogue in addons/local_agents/examples/demos/ must describe every demo, exactly once.
 #
-# Why this exists: the launcher used to hold a hardcoded array of res:// strings, and the README and
-# docs/USAGE.md each held their own copy of the list. All three disagreed, and two demos (TutorialDemo,
-# CoreCreatureSmoke) appeared in none of them. The catalogue is now one LocalAgentDemoEntry resource per
-# demo, but "drop a file in and it appears" only stays true if forgetting the file is caught here rather
-# than by a user noticing a missing row.
+# One LocalAgentDemoEntry resource per demo is the only list. "Drop a file in and it appears" stays true
+# only if a forgotten file is caught here rather than by a user noticing a missing row.
 #
 # WHAT COUNTS AS A DEMO (the rule, applied to the directory rather than a hardcoded list):
 #   A .tscn directly in addons/local_agents/examples/ needs a catalogue entry, UNLESS
@@ -168,9 +165,8 @@ done
 # so checking it here is what stops the old three-copies-of-the-list drift returning through the docs.
 GEN_DOC="$ROOT/scripts/gen_demos_doc.sh"
 if [[ ! -x "$GEN_DOC" ]]; then
-  # Not a silent pass. Three gates in this repo were written, wired into nothing, and reported as
-  # delivered (GODOT_BEST_PRACTICES.md, 2026-07-29). A gate that skips its own work when the tool it
-  # shells out to is absent or has lost its +x bit is that same failure wearing a different hat.
+  # Not a silent pass. A gate that skips its own work when the tool it shells out to is absent or has
+  # lost its +x bit is a gate that reports delivery while running nothing.
   echo "  ERROR scripts/gen_demos_doc.sh: missing or not executable, cannot verify docs/DEMOS.md"
   errors=$((errors + 1))
 else

@@ -2,12 +2,7 @@
 # =====================================================================================================
 # MODEL-PARAMETERS GATE — every number is derived, bound, or written down. There is no fourth option.
 #
-# WHY THIS EXISTS. CLAUDE.md's second rule says a departure from real physics needs the maintainer's
-# consent, asked first, and closes with "Prose rules did not hold on this repo; gates did." It then cites
-# THIS script and docs/MODEL_PARAMETERS.md as the enforcement. Neither existed until 2026-08-10, so for as
-# long as that rule has been written down, the sentence claiming gates beat prose was itself prose.
-#
-# check_physical_constants.sh answers "does this copy equal the authority". It cannot answer the prior
+# WHY THIS EXISTS. check_physical_constants.sh answers "does this copy equal the authority". It cannot answer the prior
 # question: SHOULD this be a number at all, and if so, who decided? A value that is not a property of
 # matter is a MODELLING CHOICE, and a modelling choice that nobody wrote down is indistinguishable from a
 # value someone fitted until the output looked right. That is the defect this repo keeps producing.

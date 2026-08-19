@@ -2,7 +2,7 @@
 # =====================================================================================================
 # PARSE GATE — force every script in the tree to LOAD, because loading is what makes the engine parse it.
 #
-# WHY THIS EXISTS, measured 2026-08-09. An editor scan does not parse your code. `godot --headless
+# WHY THIS EXISTS. An editor scan does not parse your code. `godot --headless
 # --editor` emits twenty progress lines and nothing about any script: its "Loading global class names"
 # step reads just enough of each .gd to pull out `class_name` and `extends`, and never compiles a
 # function body. So a script the editor never LOADS cannot report a parse error, and a script reached at

@@ -9,11 +9,10 @@
 # Why this exists: scripts/run_sim_offscreen.sh opens a real window, which only game/VoxelWorld.tscn
 # actually needs (its field is a compute shader; headless has no compute device, and the headless run
 # silently reports an EMPTY field rather than failing). Every example scene runs headless in ~1s.
-# Measured on this tree 2026-07-28 (see the run_sim_offscreen.sh header for the windowed comparison).
 #
 # `--run-frames` is not an engine flag — it is a contract implemented by LocalAgentDemoHarness
 # (addons/local_agents/runtime/DemoHarness.gd). A scene with no harness IGNORES it and runs forever,
-# which is the real reason a wrapper run used to burn its whole timeout. This script detects harness
+# which is what makes a wrapper run burn its whole timeout. This script detects harness
 # support per scene and refuses the others up front instead of hanging on them.
 set -eo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"

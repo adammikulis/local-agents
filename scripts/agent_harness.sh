@@ -157,8 +157,8 @@ case "$cmd" in
     child=("$SCRIPT_DIR/check_dropin_scene.sh" "$@")
     ;;
   # The rubric, all ten criteria, computed. NOBODY HAND-ENTERS A ROW: the half a person scores is the half
-  # that moves, and the criteria that used to be hand-entered were described in PHYSICS_RUBRIC.md itself as
-  # "the ones to distrust". It takes its own comparison runs for determinism and observer independence, so
+  # that moves, and the person scoring is the person who did the work. It takes its own comparison runs
+  # for determinism and observer independence, so
   # it is minutes, not seconds — a landing-time command, not a per-change one.
   score)
     child=("$SCRIPT_DIR/physics_score.sh" "$@")

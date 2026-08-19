@@ -48,11 +48,10 @@ func _initialize() -> void:
 				kept.append(path)
 		scripts = kept
 
-	# Loading is what MAKES the engine parse each file. It is not what detects the failure: measured
-	# 2026-07-29, load() on a script whose preload target is missing prints
-	# `SCRIPT ERROR: Parse Error: Preload file "..." does not exist.` and still returns a non-null
-	# Script. So the caller greps this run's stderr, and the null check below only catches the harder
-	# failures where the engine gives back nothing at all.
+	# Loading is what MAKES the engine parse each file, and is NOT what detects the failure: load() on a
+	# script whose preload target is missing prints a Parse Error and still returns a non-null Script. So
+	# the caller greps this run's stderr; the null check below catches only the harder failures where the
+	# engine gives back nothing at all.
 	var failures: PackedStringArray = PackedStringArray()
 	for path in scripts:
 		var res: Resource = load(path)
