@@ -17,12 +17,17 @@ const BOUND: Dictionary = {
 	"nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48}
 
 ## props row layout — state_derive.glsl PROP_*.
-const PROP_STRIDE: int = 5
+const PROP_STRIDE: int = 9
 const PROP_RHO: int = 0
 const PROP_C: int = 1
 const PROP_MOL_PER_KG: int = 2
 const PROP_ENTRY: int = 3
 const PROP_LAMBDA: int = 4
+## The EOS half: rho(T, p) inverted per substance, so pressure is a state function of the cell.
+const PROP_ALPHA: int = 5
+const PROP_BULK: int = 6
+const PROP_TREF: int = 7
+const PROP_MOL_ALL: int = 8
 
 var _pipe: RID = RID()
 var _set: RID = RID()
@@ -131,4 +136,11 @@ func _props() -> PackedFloat32Array:
 		out[base + PROP_C] = c
 		out[base + PROP_MOL_PER_KG] = mol_per_kg
 		out[base + PROP_ENTRY] = float(entry)
+		out[base + PROP_ALPHA] = float(s.get("expansion_per_k", 0.0))
+		# No bulk modulus is a DECLARED incompressibility, not a guessed one: the substance occupies its
+		# unstressed volume and takes no part in the compressibility sum.
+		out[base + PROP_BULK] = float(s.get("bulk_modulus_pa", 0.0))
+		out[base + PROP_TREF] = float(s.get("density_ref_t_c", 0.0))
+		var mm: float = float(s.get("molar_mass", 0.0))
+		out[base + PROP_MOL_ALL] = (1.0 / mm) if mm > 0.0 else 0.0
 	return out

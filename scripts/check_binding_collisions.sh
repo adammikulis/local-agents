@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # TWO BUFFERS ON ONE BINDING NUMBER COMPILE, AND THE LATER WRITE WINS.
 #
-# state_derive.glsl once declared bindings 31/32/33 twice: one lane's gas-moles / condensed-density /
-# conductivity aliased another lane's phase fractions, and the pass bound 33 twice. Both sides compiled,
-# the merge was clean, and pressure.glsl spent every step computing the planet's lithostatic column from
-# the LIQUID WATER FRACTION as if it were kg/m^3. A merge conflict would have been the good outcome.
+# One kernel declaring a binding twice aliases two buffers, and both sides still compile: a kernel then
+# reads one channel believing it is another, and the merge that produced it looks clean.
 #
 # 1. no .glsl declares one (set, binding) twice, COUNTING WHAT ITS #includes DECLARE
 # 2. no .glsli declares one (set, binding) twice

@@ -8,9 +8,10 @@ layout(local_size_x = 64) in;
 #include "mixture_enthalpy.glsli"
 #include "cellvol.glsli"
 #include "matter_channels.glsli"
+#include "eos.glsli"
 
 layout(set = 0, binding = 21, std430) restrict readonly buffer Enthalpy { float h_j_m3[]; };
-layout(set = 0, binding = 22, std430) restrict readonly buffer Pressure { float pressure[]; };
+layout(set = 0, binding = 22, std430) restrict buffer Pressure { float pressure[]; };
 layout(set = 0, binding = 23, std430) restrict writeonly buffer Temp { float temp[]; };
 layout(set = 0, binding = 24, std430) restrict readonly buffer Props { float props[]; };
 
@@ -80,12 +81,16 @@ const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
 const float SOLID_OUT = 0.4;   // LAPhysical.RHEOLOGICAL_MOBILE_CRYSTAL_FRAC
 
 // One row of `props` per channel, built from LASubstances by StateDerivePass.
-const int PROP_STRIDE = 5;         // StateDerivePass.PROP_STRIDE
+const int PROP_STRIDE = 9;         // StateDerivePass.PROP_STRIDE
 const int PROP_RHO = 0;            // kg/m^3 that one unit of fill carries
 const int PROP_C = 1;              // J/kg/K, sensible-heat entry only
 const int PROP_MOL_PER_KG = 2;     // mol/kg, non-condensable gases only
 const int PROP_ENTRY = 3;          // which mixture entry the substance belongs to
 const int PROP_LAMBDA = 4;         // W/m/K
+const int PROP_ALPHA = 5;          // 1/K volumetric expansivity
+const int PROP_BULK = 6;           // Pa bulk modulus; 0 = declared incompressible
+const int PROP_TREF = 7;           // C the reference density is quoted at
+const int PROP_MOL_ALL = 8;        // mol/kg, every substance, for the EOS gas term
 
 // Mixture entries. Two substances carry a phase ladder; everything else is linear in T, so one entry with
 // the summed mass and c = sum(m*c)/sum(m) reproduces sum(m_i*c_i*T) exactly.
@@ -189,6 +194,12 @@ void main() {
 	float n_gas_mol = 0.0;   // moles of non-condensable gas: the Dalton denominator of the vapour split
 	float v_lambda = 0.0;    // volume-weighted conductivity, W/m/K
 	float v_used = 0.0;
+	// EOS sums: b* the unstressed condensed volume, c* its compressibility, h* the same for h2o alone.
+	float b0 = 0.0; float b1 = 0.0; float b2 = 0.0;
+	float c0 = 0.0; float c1 = 0.0; float c2 = 0.0;
+	float hb0 = 0.0; float hb1 = 0.0; float hb2 = 0.0;
+	float hc0 = 0.0; float hc1 = 0.0; float hc2 = 0.0;
+	float mol_h2o = 0.0;
 
 	for (int i = 0; i < LA_CHANNEL_SLOTS; ++i) {
 		float f = max(channel_at(i, g), 0.0);
@@ -205,6 +216,34 @@ void main() {
 		v_lambda += f * props[base + PROP_LAMBDA];
 		v_used += f;
 		n_gas_mol += m * props[base + PROP_MOL_PER_KG];
+		// v0(T) is linear in T, so its mass sum splits into three T-independent pieces gathered here
+		// and combined once the solve has a temperature. h2o is kept apart: its vapour share is gas.
+		float rho_i = props[base + PROP_RHO];
+		if (rho_i > 0.0 && props[base + PROP_MOL_PER_KG] <= 0.0) {
+			float al = props[base + PROP_ALPHA];
+			float tr = props[base + PROP_TREF];
+			float kk = props[base + PROP_BULK];
+			float w0 = m / rho_i;
+			float w1 = w0 * al;
+			bool is_water = entry == E_H2O;
+			mol_h2o = is_water ? props[base + PROP_MOL_ALL] : mol_h2o;
+			b0 += is_water ? 0.0 : w0;
+			b1 += is_water ? 0.0 : w1;
+			b2 += is_water ? 0.0 : w1 * tr;
+			hb0 += is_water ? w0 : 0.0;
+			hb1 += is_water ? w1 : 0.0;
+			hb2 += is_water ? w1 * tr : 0.0;
+			if (kk > 0.0) {
+				float q0 = w0 / kk;
+				float q1 = w1 / kk;
+				c0 += is_water ? 0.0 : q0;
+				c1 += is_water ? 0.0 : q1;
+				c2 += is_water ? 0.0 : q1 * tr;
+				hc0 += is_water ? q0 : 0.0;
+				hc1 += is_water ? q1 : 0.0;
+				hc2 += is_water ? q1 * tr : 0.0;
+			}
+		}
 	}
 
 	float total = mass[E_H2O] + mass[E_SILICATE] + mass[E_SENSIBLE];
@@ -217,6 +256,7 @@ void main() {
 	vec3 v = vec3(0.0);
 	if (total <= 0.0) {
 		temp[g] = -LA_KELVIN_OFFSET;   // no matter, so no temperature
+		pressure[g] = 0.0;
 		// Momentum is rho*v, so with no mass there is none to hold.
 		mom_x[g] = 0.0;
 		mom_y[g] = 0.0;
@@ -297,6 +337,15 @@ void main() {
 	h2o_solid[g] = f_solid;
 	h2o_liquid[g] = f_liquid;
 	h2o_vapour[g] = f_vapour;
+
+	// PRESSURE, off this cell's own matter and energy. The vapour share joins the gas term and what is
+	// left of the water is condensed. No column is walked, so there is no staircase to integrate along.
+	float f_cond = max(1.0 - f_vapour, 0.0);
+	float b_vol = (b0 + t_c * b1 - b2) + f_cond * (hb0 + t_c * hb1 - hb2);
+	float c_comp = (c0 + t_c * c1 - c2) + f_cond * (hc0 + t_c * hc1 - hc2);
+	float n_gas = n_gas_mol + f_vapour * m_h2o * mol_h2o;
+	float tk = max(t_c + LA_KELVIN_OFFSET, 1.0);
+	pressure[g] = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD);
 
 	// THE MELT SHARE OF THIS CELL'S SILICATE, off the SAME ladder. Rock has a melting INTERVAL, so the
 	// lever rule the enthalpy curve already integrates over reads back as a linear share of the interval —

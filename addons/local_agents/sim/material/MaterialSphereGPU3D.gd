@@ -12,7 +12,6 @@ static func slow_channels() -> PackedStringArray: return LAChannels.slow_channel
 const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/GravityPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/PressurePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd",
