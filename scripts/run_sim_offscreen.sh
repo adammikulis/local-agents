@@ -47,8 +47,11 @@ DONE_RE="${LA_DONE_RE:-^LA_RUN_COMPLETE=}"
 FRONT_BID="$(osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true' 2>/dev/null)"
 
 # Off-view far enough that no window width puts an edge back on screen. lib_godot.sh applies it.
-DEFAULT_WIN_POS="-10000,-10000"
+DEFAULT_WIN_POS="99999,99999"
 WIN_POS="${LA_WIN_POS:-$DEFAULT_WIN_POS}"
+# A run that is not capturing anything needs no pixels. Created 1x1 it can never appear on a monitor;
+# created 640x400 it does, because macOS clamps the off-screen position back on.
+case " $* " in *--shoot*) DEFAULT_RES="1280x800" ;; *) DEFAULT_RES="1x1" ;; esac
 RENDER_DRIVER="${LA_RENDER_DRIVER:-metal}"
 
 # --- STALE-SHADER GUARD ------------------------------------------------------
@@ -191,7 +194,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-LA_WIN_POS="$WIN_POS" LA_RES="${LA_RES:-640x400}" la_godot --rendering-driver "$RENDER_DRIVER" \
+LA_WIN_POS="$WIN_POS" LA_RES="${LA_RES:-$DEFAULT_RES}" la_godot --rendering-driver "$RENDER_DRIVER" \
   "${LOG_ARGS[@]}" "$@" &
 GODOT_PID=$!
 
