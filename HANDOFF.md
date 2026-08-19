@@ -14,21 +14,12 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 0. MOMENTUM RUNS AWAY TO NON-FINITE, AND IT IS DOWNSTREAM OF ITEM 1.
+## 1. THE BOX EDGE IS A CLOSED WALL. OPEN IT, AND A SLICE BECOMES TESTABLE. TAKE THIS FIRST.
 
-**Reproduce:** `LA_FINITE_FRAMES=20 scripts/check_finite_channels.sh` on `feature/momentum-advection`.
-`nonfinite_cells` counts three per affected cell — `mom_x`/`mom_y`/`mom_z` and nothing else.
-
-`scripts/sim_run.sh --frames 10` also exits 122 with `PRESSURE_BROKEN`, whose counters read 0 for
-rock-on-rock and 0 for open-standing-on-rock; the remainder are open-on-open.
-
-The gate is mutation-tested three ways and is **NOT wired into `lint`**. Wire it the moment it passes.
-`feature/momentum-advection` carries the work; its red is declared in `docs/OPEN_BRANCHES.md`.
-
-**Take item 1 first.** The dry-air scale height on this body is a fraction of a cell edge, so two
-vertically adjacent air cells do not sample a column. `docs/PHYSICS_TODO.md` D says it of the grid.
-
-## 1. THE BOX EDGE IS A CLOSED WALL. OPEN IT, AND A SLICE BECOMES TESTABLE.
+**Nothing in the momentum equation can be finished before this.** `LAVoxelGrid.cell_size` is one number
+for the whole box, and a cell edge is far larger than the dry-air scale height this body's solved gravity
+gives, so two vertically adjacent air cells do not sample a column. `docs/PHYSICS_TODO.md` D is the same
+limit stated of the grid, and the other way out of it.
 
 `transport.glsl`'s gather SKIPS a face whose neighbour index is negative, so no matter crosses the box edge,
 while `MODE_RADIATE` already emits through it. Give that face a STATE instead of an absence: a ghost cell
@@ -54,6 +45,17 @@ whole planet forces, rain and eruptions may not be reachable at all. A slice wit
 
 One-way nesting reflects waves inward near the edge; a relaxation zone is the standard answer and is an
 approximation, so it takes a row and an `LA_APPROX` marker.
+
+## 0. MOMENTUM RUNS AWAY TO NON-FINITE. DOWNSTREAM OF ITEM 1; DO NOT START IT FIRST.
+
+**Reproduce:** `LA_FINITE_FRAMES=20 scripts/check_finite_channels.sh` on `feature/momentum-advection`.
+`nonfinite_cells` counts three per affected cell — `mom_x`/`mom_y`/`mom_z` and nothing else.
+
+`scripts/sim_run.sh --frames 10` also exits 122 with `PRESSURE_BROKEN`, whose counters read 0 for
+rock-on-rock and 0 for open-standing-on-rock; the remainder are open-on-open.
+
+The gate is mutation-tested three ways and is **NOT wired into `lint`**. Wire it the moment it passes.
+`feature/momentum-advection` carries the work, declared in `docs/OPEN_BRANCHES.md`.
 
 ## 4. Reduce the rest on the device
 
@@ -139,8 +141,6 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
   driver is now zero everywhere and the reaction cannot fire. Either give a flash a real store to spend —
   `0.5*eps0*E^2` over the volume it neutralises, debited, not conjured — or delete the record and the
   binding with it. `col_e` and `strike` survive as detectors and are honest.
-- `check_shaders_compile.sh`'s kernel floor is `docs/SHADER_FLOOR` and `write_ceilings.sh` lowers it. Do not
-  bake a count back into the gate.
 - `FieldLedgerFold3D.fold()` walks a LITERAL key list, so an energy row not named there never reaches
   `_publish_energy`, and one missing leg nulls the whole radiative block — which makes the `energy_stock`
   conservation row read UNMEASURED rather than fail. A gate that goes quiet instead of red.
