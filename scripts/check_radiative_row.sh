@@ -1,48 +1,32 @@
 #!/usr/bin/env bash
-# =====================================================================================================
-# THE RADIATE ROW — checked against the radiation laws, on the device that runs it.
-#
-# transport.glsl's RADIATE row is the planet's only radiative model. It emits from every face of every
-# cell and gathers what the neighbours sent, and it now writes its own per-cell books into rad_emitted
-# and rad_absorbed, which the ledger reduces into the energy accounts. Three closed forms check it:
-#
-#   STEFAN-BOLTZMANN. A cube of side L at temperature T with emissivity e radiates e*sigma*T^4 out of
-#   each of its six faces. The kernel carries that as J/m^3 per step, so rad_emitted must read
-#   6 * e * sigma * T^4 * dt / L, and it must scale as T^4 between two temperatures. A units error in
-#   the J/m^3 -> joules -> watts chain the ledger walks cannot survive both halves.
-#
-#   AN ISOTHERMAL BLOCK IS IN RADIATIVE EQUILIBRIUM. Radiation crosses more than one cell, so a cell
-#   gathers the emission of the whole grid line behind each face, every term attenuated by the cells in
-#   between. In an isothermal medium those terms telescope and rad_absorbed / rad_emitted is
-#   (1/6) sum_d (1 - (1-e)^n_d), n_d the cells along d before the box edge — which goes to 1 as the
-#   column deepens, because a body in an isothermal enclosure absorbs exactly what it emits. It reads e
-#   instead when the mean free path is one cell, and it reads the wrong number the moment absorptivity
-#   stops equalling emissivity, so one closed form gates Kirchhoff AND the column.
-#
-#   TRANSMISSION. A transparent cell between a hot emitter and a cold absorber must PASS the emission
-#   on: what a cell does not absorb is not destroyed. The absorber two cells along receives
-#   e * (e sigma T_hot^4 dt / L) and the clear cell in the middle absorbs exactly nothing.
-#
-#   A VACUUM DOES NOT RADIATE. A cell holding no matter at all must emit exactly zero, whatever its
-#   temperature. This is the negative control: without it, a floor or a default in the emissivity would
-#   pass the two arms above unnoticed.
-#
-# ARM TWO IS THE SIM'S OWN FIELD. Everything above builds its own grid, its own buffers and its own
-# temperatures, so it cannot see whether the row ran in the world at all: a uniform set the driver cannot
-# build makes the whole transport dispatch a no-op that arm one still reads as clean. The second arm boots
-# the real world and reads the row's own books off it. Matter above absolute zero radiates, and a cell
-# inside an opaque planet is surrounded by emitters, so both books are positive in a box holding condensed
-# matter — with solid_cells as the positive control, since an empty box emits nothing by construction.
-#
-# WHAT ARM TWO STILL CANNOT ASSERT. Stefan-Boltzmann in the seeded world needs the per-cell residual
-# computed beside the field it measures, in transport.glsl's RADIATE path, published as a gauge the way
-# gravity publishes Gauss's law. Off the reduced books alone the law is only checkable as a sign.
-#
-# The row is a compute kernel, so this needs a real device: headless has none. It runs through
-# run_sim_offscreen.sh, which takes the machine-wide GPU lock.
-#
-# EXIT CODES. 0 within tolerance · 1 the row is wrong · 2 could not run.
-# =====================================================================================================
+# THE RADIATE ROW — checked against the radiation laws, on the device that runs it. transport.glsl's
+# RADIATE row is the planet's only radiative model: it emits from every face of every cell, gathers what
+# the neighbours sent, and writes rad_emitted and rad_absorbed for the ledger. Four closed forms:
+
+#   STEFAN-BOLTZMANN. A cube of side L at T with emissivity e radiates e*sigma*T^4 from each of six
+#   faces, so rad_emitted must read 6*e*sigma*T^4*dt/L and scale as T^4 between two temperatures. No
+#   units error in the J/m^3 -> joules -> watts chain survives both halves.
+
+#   AN ISOTHERMAL BLOCK IS IN RADIATIVE EQUILIBRIUM. A cell gathers the whole grid line behind each
+#   face, attenuated by what lies between; in an isothermal medium those terms telescope and
+#   rad_absorbed/rad_emitted is (1/6) sum_d (1 - (1-e)^n_d), going to 1 as the column deepens. It reads
+#   e when the mean free path is one cell, and reads wrong the moment absorptivity stops equalling
+#   emissivity — so one form gates Kirchhoff AND the column.
+
+#   TRANSMISSION. What a clear cell does not absorb is not destroyed: the absorber two cells along
+#   receives e*(e sigma T_hot^4 dt/L) and the cell between absorbs exactly nothing.
+
+#   A VACUUM DOES NOT RADIATE. A cell holding no matter emits exactly zero at any temperature. The
+#   negative control: without it a floor or default in the emissivity passes the arms above unnoticed.
+
+# ARM TWO IS THE SIM'S OWN FIELD, because everything above builds its own grid and cannot see whether
+# the row ran in the world at all — a uniform set the driver cannot build makes the dispatch a no-op arm
+# one still reads as clean. Both books are positive in a box holding condensed matter, with solid_cells
+# as the positive control. Stefan-Boltzmann in the seeded world needs a per-cell residual computed in
+# the RADIATE path itself; off the reduced books the law is checkable only as a sign.
+
+# A compute kernel needs a real device, so this runs through run_sim_offscreen.sh and its GPU lock.
+# EXIT 0 within tolerance · 1 the row is wrong · 2 could not run.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

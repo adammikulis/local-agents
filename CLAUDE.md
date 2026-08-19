@@ -200,6 +200,13 @@ pre-commit hook and in `lint`. Density gates measure a file; this measures the d
 arrives. `check_comment_history.sh` counts the banned kinds — dates, measured figures, war stories — as a
 ratchet that may only fall.
 
+**A COMMENT LABELS. IT DOES NOT ARGUE, DEFEND, OR ANTICIPATE A QUESTION.** More than six consecutive
+comment lines is a paragraph, and a paragraph is a case being made to a reader rather than a fact about
+the code. `scripts/check_comment_block.sh` counts every line past that limit as a ratchet that may only
+fall. Do not write the justification down: a claim that matters becomes a GATE, and one that does not is
+not written. You will feel the pull hardest right after making a decision you expect to be asked about —
+that is the moment the comment is for you, not for the reader, and it is the one to delete.
+
 # RULE 8 — READ THE CODE. DO NOT NARRATE A DIAGNOSIS, AND NEVER REVISE ONE OUT LOUD.
 
 Open the file. Read what it does. Answer from the code.
@@ -323,9 +330,7 @@ species, `basal_metabolism`/`active_metabolism` genes that nothing reads. **Do n
 fix-these and a note-those pile.** `HANDOFF.md` is for work that has not been started, not a place to put
 things you already have your hands on.
 
-`docs/0.5_CREATURE_FEATURES.md` and `docs/0.5_PARALLELIZATION_GUIDE.md` hold the creature plan. They are
-**parked**, and their filenames say 0.5 for a reason — they were named `0.4_*` and that alone kept pulling
-work forward.
+`docs/0.5_CREATURE_FEATURES.md` holds the creature plan. It is **parked**.
 
 ## Branch & worktree workflow (DEFAULT)
 - **The current development branch is `0.4-dev`** — the integration branch all feature work targets. This
@@ -703,12 +708,9 @@ hand-entered half is the half to distrust, because the person scoring is the per
   dictionaries for reusable runtime state. Migrate incrementally: add module + tests, move call sites,
   then delete the old inlined code.
 
-## Godot process & validation (canonical location)
-- `GODOT_BEST_PRACTICES.md` is the canonical, enforceable source for Godot-specific design, runtime,
-  testing, validation, harness invocation, and process guidance. If behavior or commands change, update
-  `README` and `GODOT_BEST_PRACTICES.md` together, and record breaking changes/migrations in
-  the commit message. When an avoidable Godot/runtime/parser/test-process error is found, append a
-  dated entry to `GODOT_BEST_PRACTICES.md` under `Error Log / Preventative Patterns`.
+## Godot process & validation
+- `GODOT_BEST_PRACTICES.md` holds the Godot-specific rules: harness invocation, engine limits, markers.
+  A preventable error becomes a GATE, never a log entry.
 
 ## Orientation
 - **Active work:** `addons/local_agents/game/VoxelWorld.tscn` — a from-scratch godot_voxel ecosystem sim.
@@ -732,10 +734,3 @@ Issues live in GitHub Issues on `adammikulis/local-agents`, driven by the `gh` C
 ### Triage labels
 
 The five canonical roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
-Neither exists yet; the claim below goes red the day one is written, which is when this line gets checked.
-
-<!-- claim: nofile CONTEXT.md -->

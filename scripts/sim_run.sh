@@ -1,32 +1,24 @@
 #!/usr/bin/env bash
-# THE ONE WAY TO RUN THE PLANET AND READ ITS BOOKS.
-#
-# WHY THIS EXISTS. The verification run was being retyped by hand every time — a 200-character line carrying
-# LA_RUN_TIMEOUT, LA_NO_STREAMER, the wrapper, --path, the scene, `--fixed-fps 60` BEFORE the `--`, then
-# --sandbox --planet-only --no-fauna --run-frames --seed. Every element of it is a thing that can be
-# forgotten, and forgetting one silently changes what is being measured:
-#   * omit the wrapper and a Godot window appears AND STEALS THE KEYBOARD mid-session;
-#   * put --fixed-fps after the `--` and it is passed to the scene instead of the engine, which ignores it;
-#   * forget --planet-only or --no-fauna and the arm is not the arm the debt table was measured on;
-#   * skip the re-import and the compiled kernels are stale, so the numbers are fiction that looks fine.
-# It also parses SIM_REPORT afterwards, which was being done with an inline python heredoc every single time.
-#
+# THE ONE WAY TO RUN THE PLANET AND READ ITS BOOKS, so that no element of the invocation can be
+# forgotten. Omit the wrapper and a Godot window steals the keyboard; put --fixed-fps after the `--` and
+# the engine never sees it; forget --planet-only or --no-fauna and the arm is not the arm it is compared
+# against; skip the re-import and the compiled kernels are stale. It parses SIM_REPORT afterwards too.
+
 # USAGE
 #   scripts/sim_run.sh [--frames N] [--seed N] [--path DIR] [--fauna] [--full] [--keep]
 #                      [--report k1,k2,...] [--raw] [-- <extra scene args>]
-#
+
 #   --frames N     run length in SIMULATED STEPS (default 200; the conservation gate needs 600+)
-#   --seed N       sim seed (default 4242 — the seed every recorded figure uses)
+#   --seed N       sim seed (default 4242)
 #   --path DIR     project dir (default .) — point it at a worktree
 #   --fauna        keep animals (default --no-fauna: vegetation stays, animals do not)
 #   --full         drop --planet-only (default is pure geophysics)
 #   --report LIST  comma-separated SIM_REPORT keys to print (default: the conservation set)
 #   --raw          print the whole SIM_REPORT as formatted JSON instead of a key list
 #   --keep         keep the log file and print its path
-#
-# EXIT CODES: 0 clean · 3 stale shaders · 4 the run logged engine errors (numbers withheld) · 5 a UI node
-#             was built without --ui · 124 never
-# reported · 125 hung after reporting · 126 CONSERVATION_VIOLATION.
+
+# EXIT 0 clean · 3 stale shaders · 4 the run logged engine errors, numbers withheld · 5 a UI node was
+# built without --ui · 124 never reported · 125 hung after reporting · 126 CONSERVATION_VIOLATION.
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

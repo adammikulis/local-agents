@@ -21,7 +21,10 @@ if [ -x "$ROOT/scripts/check_comment_ratio.sh" ] && ! "$ROOT/scripts/check_comme
   echo "COMMIT BLOCKED: more comment than code."
   exit 1
 fi
-out="$("$ROOT/scripts/agent_harness.sh" lint 2>&1)"
+# LA_NO_GPU: the three gates in GPU_GATES each launch a REAL WINDOWED Godot, which appears on the
+# user's monitor and takes focus. A commit may not do that. They run in scripts/integrate.sh, which
+# lints the staged merge before anything reaches the dev branch, and in CI.
+out="$(LA_NO_GPU=1 "$ROOT/scripts/agent_harness.sh" lint 2>&1)"
 rc=$?
 if [ "$rc" -ne 0 ]; then
   printf '%s\n' "$out" | grep -E "LINT_FAIL|^FAIL |ERROR:" | head -12

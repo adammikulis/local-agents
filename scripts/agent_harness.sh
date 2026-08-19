@@ -157,8 +157,8 @@ case "$cmd" in
     child=("$SCRIPT_DIR/check_dropin_scene.sh" "$@")
     ;;
   # The rubric, all ten criteria, computed. NOBODY HAND-ENTERS A ROW: the half a person scores is the half
-  # that moves, and the criteria that used to be hand-entered were described in PHYSICS_RUBRIC.md itself as
-  # "the ones to distrust". It takes its own comparison runs for determinism and observer independence, so
+  # that moves, and the person scoring is the person who did the work. It takes its own comparison runs
+  # for determinism and observer independence, so
   # it is minutes, not seconds — a landing-time command, not a per-change one.
   score)
     child=("$SCRIPT_DIR/physics_score.sh" "$@")
@@ -213,8 +213,6 @@ if [[ "$cmd" == "lint" ]]; then
     }
 
     gate check_max_file_length
-    # Advisory: policy/plan marker drift never gates.
-    "$SCRIPT_DIR/check_policy_plan_markers.sh"
     gate check_no_direct_refcounted_invocation
     gate check_no_inferred_typing
     gate check_tool_safety
@@ -232,6 +230,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_run_budget
     gate check_comment_ratio
     gate check_comment_history
+    gate check_comment_block
     gate check_neighbour_slots
     gate check_sim_determinism
     gate check_binding_collisions

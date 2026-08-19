@@ -22,7 +22,9 @@ null. `nonfinite_cells` counts three per affected cell, which is `mom_x`/`mom_y`
 `energy_stock` and the whole energy row now fold to numbers.
 
 The gate is written and mutation-tested both ways but is **NOT wired into `lint`** — wire it in the moment
-it passes, and not before.
+it passes, and not before. `feature/momentum-advection` carries the weight term, momentum advection and the
+one vertical relation against this; what is left there is the stability of the explicit diffusion and
+advection rows, which wants sub-stepping and never a clamp.
 
 ## 1. THE BOX EDGE IS A CLOSED WALL. OPEN IT, AND A SLICE BECOMES TESTABLE.
 
@@ -135,10 +137,6 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
   driver is now zero everywhere and the reaction cannot fire. Either give a flash a real store to spend —
   `0.5*eps0*E^2` over the volume it neutralises, debited, not conjured — or delete the record and the
   binding with it. `col_e` and `strike` survive as detectors and are honest.
-- `FieldAttributionRecords3D.SILENT_HEAT_PASSES` lists only `"fungus"` and there is no `FungusPass` in
-  `PASS_SCRIPTS`, so that instrument's silent-heat check names no live pass and cannot fire. Wire it to the
-  surviving passes or delete it; removing the constant alone breaks `check_parse_all`, which reads it from
-  inside its own file.
 - `check_shaders_compile.sh`'s kernel floor is `docs/SHADER_FLOOR` and `write_ceilings.sh` lowers it. Do not
   bake a count back into the gate.
 - `FieldLedgerFold3D.fold()` walks a LITERAL key list, so an energy row not named there never reaches

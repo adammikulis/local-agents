@@ -11,7 +11,7 @@
 # A row marked SUPERSEDED is exempt from the age limit and nothing else: its content is already on the dev
 # branch, so there is no reconciliation left, only a worktree for its owner to remove.
 #
-# Agent and workflow worktree BRANCHES are exempt from declaration, being made and reaped in one session.
+# Agent and workflow worktree BRANCHES are exempt from declaration; the session that makes them reaps them.
 # Their TREES are not exempt from 4, which is what catches the ones that were never reaped.
 #
 # EXIT 0 clean · 1 a violation · 2 the gate could not run.
@@ -59,8 +59,8 @@ while read -r b; do
   case "$b" in worktree-agent-*|worktree-wf_*|"$DEV") continue ;; esac
   # The two branches of an integrate.sh run IN FLIGHT: the staging branch and the lane being landed.
   # Both are deleted before that run returns, so one surviving is a leak the gate must still catch --
-  # which is why this keys on the environment of the run, not on a name pattern. Exempting a PATTERN is
-  # how worktree-agent-* accumulated thirty-four branches.
+  # which is why this keys on the environment of the run, not on a name pattern. Exempting a PATTERN
+  # exempts every branch that ever matches it.
   case "$b" in "${LA_INTEGRATE_BRANCH:-__none__}"|"${LA_INTEGRATE_SOURCE:-__none__}") continue ;; esac
   ahead="$(git -C "$ROOT" rev-list --count "$DEV..$b")"
   [ "$ahead" -eq 0 ] && continue
@@ -100,9 +100,8 @@ while read -r d; do
   fi
 done < <(printf '%s\n' "$declared")
 
-# 4. Every worktree is live. A session tree is exempt from declaration because it is reaped in the session
-# that made it; nothing checked that it WAS reaped, and thirty-four survived one reconciliation. A tree on
-# a detached HEAD maps to no branch, and one holding an unresolved merge is a conflict nobody finished.
+# 4. Every worktree is live. This is what checks a session tree WAS reaped. A tree on a detached HEAD maps
+# to no branch, and one holding an unresolved merge is a conflict nobody finished.
 while read -r wt; do
   [ "$wt" = "$ROOT" ] && continue
   [ -d "$wt" ] || continue

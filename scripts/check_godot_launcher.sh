@@ -9,6 +9,32 @@ LIB="$ROOT/scripts/lib_godot.sh"
 [ -f "$LIB" ] || { echo "check_godot_launcher: MISSING $LIB" >&2; exit 2; }
 grep -q '"\$binary"' "$LIB" || { echo "check_godot_launcher: $LIB launches nothing." >&2; exit 2; }
 
+launcher_fail=0
+# THE WINDOW IS CREATED BEFORE ANY SCRIPT RUNS, so QuietWindow.apply() cannot stop it appearing — only
+# the launch flags can. A default resolution with pixels in it puts a real window on the user's monitor,
+# because macOS clamps the off-screen position back on.
+res_def="$(rg -N -o -e 'LA_OFFSCREEN_RES="\$\{LA_RES:-[^}]*\}"' "$ROOT/scripts/lib_godot.sh" | head -1)"
+case "$res_def" in
+	*:-1x1\}*) ;;
+	"") echo "FAIL  scripts/lib_godot.sh no longer defaults LA_OFFSCREEN_RES; a window can be created" >&2
+	    echo "      at any size." >&2; launcher_fail=1 ;;
+	*)  echo "FAIL  scripts/lib_godot.sh creates the window at ${res_def#*:-} rather than 1x1, so it" >&2
+	    echo "      user's monitor before any script can shrink it." >&2; launcher_fail=1 ;;
+esac
+
+# A COMMIT MAY NOT LAUNCH A SIM. The GPU gates each open a real window and take focus; they belong to
+# integrate.sh and CI, which lint the staged merge before anything lands.
+HOOK="$ROOT/scripts/githooks/pre-commit"
+if [ -f "$HOOK" ] && rg -q 'agent_harness\.sh" lint' "$HOOK"; then
+	rg -q 'LA_NO_GPU=1 "\$ROOT/scripts/agent_harness\.sh" lint' "$HOOK" || {
+		echo "FAIL  $HOOK runs lint without LA_NO_GPU=1, so every commit launches the GPU gates and" >&2
+		echo "      pops a Godot window onto the user's monitor." >&2
+		launcher_fail=1
+	}
+fi
+
+[ "$launcher_fail" -eq 0 ] || exit 1
+
 SCAN="${1:-$ROOT/scripts}"
 hits="$(rg -n --no-heading -g '*.sh' -g '!lib_godot.sh' -g '!check_godot_launcher.sh' \
 	'(^|[^-[:alnum:]_/."])(\$GODOT|"\$GODOT"|godot)[[:space:]]+-' "$SCAN" 2>/dev/null \

@@ -3,11 +3,9 @@
 # SHADER-COMPILE GATE — every compute kernel actually compiles, checked without a GPU.
 #
 # WHY THIS EXISTS. A broken `.glsl` in this project is SILENT. `godot --headless --import` accepts a
-# kernel containing an undeclared symbol without a word of complaint (verified 2026-08-10: an import of a
-# probe kernel referencing `this_symbol_does_not_exist` reported success). The failure surfaces only at
-# runtime, as `get_spirv on a null value`, and what the maintainer sees is a sim that runs to completion
-# and prints a full, normal-looking SIM_REPORT with one entire pass silently not running. CLAUDE.md
-# records exactly that happening in a fresh worktree — `biomass` 0, every number in the report fiction.
+# kernel containing an undeclared symbol without complaint. The failure surfaces only at runtime, as
+# `get_spirv on a null value`, and the sim runs to completion and prints a full, normal-looking
+# SIM_REPORT with one entire pass not running.
 #
 # The same class as check_parse_all.sh, for the half of the substrate that is not GDScript. Both exist
 # because "it ran and printed numbers" is not evidence that the code ran.

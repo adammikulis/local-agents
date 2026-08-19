@@ -1,75 +1,31 @@
 #!/usr/bin/env bash
-# =====================================================================================================
-# PHYSICAL CONSTANTS GATE — the GLSL copies must equal the one authority.
-#
-# WHY THIS EXISTS. Water froze at 12.5 °C in this simulation. The planet could not get below ~11 °C, so
-# instead of fixing the planet someone moved the freezing point of WATER up to meet it — and because GLSL
-# cannot read GDScript, the moved value had to be copied by hand into every kernel that needed it. It
-# ended up in FIVE places at THREE different values: 12.5 in MaterialReactions3D.gd and
-# snowice_sphere3d.glsl, 13.0 in charge_accum_sphere3d.glsl and the since-deleted activity_sphere3d.glsl,
-# melting at 14.0.
-# Snow then "worked", and every measurement ever taken against those numbers was meaningless.
-#
-# The real values now live in ONE authority: addons/local_agents/sim/material/PhysicalConstants.gd
-# (class LAPhysical). The kernels STILL declare their own copies, because a compute shader has no way to
-# import a GDScript constant. That copy is where the drift comes back. This gate is the substitute for
-# the import the language does not have.
-#
-# ----------------------------------------------------------------------------------------------------
-# THE RULE, in three parts.
-#
-# 1. AN EXPLICIT REFERENCE IS A BINDING CONTRACT.
-#    A kernel constant whose trailing comment names `LAPhysical.<NAME>` must equal that constant's value:
-#        const float FREEZE_TEMP = 0.0;   // LAPhysical.WATER_FREEZE_C — the phase boundary, not a tunable
-#    An explicit reference always WINS over the name heuristic in part 2, which is how
-#    `const float FREEZE_T = -10.0;  // LAPhysical.CHARGE_ZONE_WARM_C` is correctly read as the warm edge
-#    of the mixed-phase charging band and not as the freezing point of water. If you mean a quantity, say
-#    which one; the comment is the declaration.
-#
-#    A SPAN may be written relative to another endpoint. When the words "down to" (or "span to") precede
-#    the reference, the constant is a WIDTH: it must equal the distance from the nearest preceding
-#    directly-referenced constant in the same file to the named one. That is how
-#        const float FREEZE_T  = -10.0;  // LAPhysical.CHARGE_ZONE_WARM_C
-#        const float COLD_SPAN =  15.0;  // down to LAPhysical.CHARGE_ZONE_COLD_C (-25 C)
-#    is checked as |-10 - (-25)| == 15. If the reference is followed by a parenthesised number, that
-#    number is checked too, so the comment itself cannot go stale while the code stays right.
-#
-# 2. A WATCHED NAME IS BOUND EVEN WITHOUT A COMMENT — so a fitted constant cannot be added silently.
-#    Some names ARE the physical quantity. A kernel constant whose NAME says it is a water phase point
-#    (contains FREEZE / MELT / THAW / BOIL) or the charge-separation band (CHARGE + FREEZE/ZONE/WARM/COLD)
-#    must be bound to the authority in ONE of two ways:
-#        (a) explicitly, by an `LAPhysical.<NAME>` comment (part 1), or
-#        (b) implicitly, by simply HAVING the authority's value.
-#    Anything else fails. A fitted constant fails by construction: fitting means moving the value off the
-#    physical one, so it can satisfy neither (a) nor (b). A correct-but-undocumented constant passes and
-#    prints a NOTE asking for the comment. The charge band has two endpoints and no safe default, so it
-#    requires (a) — an unannotated CHARGE_* temperature always fails.
-#
-# 3. GENUINE MODEL PARAMETERS ARE NOT TOUCHED, deliberately.
-#    Rates, gains, fractions, thresholds, minima, capacities and numerical guards are properties of the
-#    MODEL, not of matter, and they belong next to the code that uses them. So the name heuristic ignores
-#    any name carrying a model token (RATE, FRAC, GAIN, SCALE, COEFF, MIN, MAX, THRESH, STEP, COUNT, DAMP,
-#    LEAK, SPAN, MASS, FLOW, DEPTH) — BOIL_RATE and BOIL_MAX_FRAC are model parameters, BOIL_TEMP is not —
-#    and any name qualified by another material (ROCK, BASALT, LAVA, MAGMA, IRON, METAL, SOLIDIF), whose
-#    phase points are not water's.
-#
-# SCOPE, v2: the water phase points, the charge-separation band, and the two radiation constants.
-# Widening it is a one-line edit to WATCHED_* below.
-#
-# *(Corrected 2026-08-07. This paragraph used to name two quantities as "deliberately NOT watched yet
-# because the kernels and the authority genuinely disagree today", citing
-# `heat3d_solar_sphere3d.glsl:96  SOLAR_CONSTANT = 600.0` and `:95  STEFAN = 5.670374e-8`, and ended "Add
-# them here the day the kernel is reconciled." THE KERNEL WAS RECONCILED. heat3d_solar_sphere3d.glsl:114-115
-# now carry 5.670374419e-8 and 1361.0, both already annotated, so rule 1 has been binding them the whole
-# time — the comment outlived the disagreement and went on telling every reader this planet's sun was dimmed
-# to 600 W/m². They join the watched set below, which is what that sentence asked for: a NEW kernel constant
-# named SOLAR_CONSTANT or STEFAN can no longer be introduced without a reference.)*
-#
-# EXIT CODES.  0 = clean.  1 = a violation.  2 = the gate COULD NOT RUN (missing tool, missing authority
-# file, missing kernel directory, or an authority that parsed to zero constants). 2 is distinct on
-# purpose: this repo has already shipped gates that reported a pass while examining zero files, because a
-# missing `rg` on the CI runner made the check vacuous. A gate that cannot run must fail, never pass.
-# =====================================================================================================
+# PHYSICAL CONSTANTS GATE — the GLSL copies must equal the one authority, LAPhysical in
+# addons/local_agents/sim/material/PhysicalConstants.gd. A compute shader cannot import a GDScript
+# constant, so every kernel declares its own copy; this stands in for the import the language lacks.
+
+# 1. AN EXPLICIT REFERENCE IS A BINDING CONTRACT, and always beats the name heuristic in 2:
+#        const float FREEZE_TEMP = 0.0;   // LAPhysical.WATER_FREEZE_C
+#    "down to" or "span to" before the reference makes the constant a WIDTH — the distance from the
+#    nearest preceding referenced constant in the same file to the named one. A parenthesised number
+#    after the reference is checked too, so the comment cannot go stale while the code stays right.
+
+# 2. A WATCHED NAME IS BOUND EVEN WITHOUT A COMMENT, so a fitted constant cannot arrive silently. A name
+#    carrying a water phase point (FREEZE / MELT / THAW / BOIL) or the charge band (CHARGE with
+#    FREEZE/ZONE/WARM/COLD) must either name its authority or already hold its value. Fitting satisfies
+#    neither. Correct-but-undocumented passes with a NOTE. The charge band has two endpoints and no safe
+#    default, so an unannotated CHARGE_* temperature always fails.
+
+# 3. MODEL PARAMETERS ARE NOT TOUCHED. Rates, gains, fractions, thresholds, minima, capacities and
+#    numerical guards are properties of the model, not of matter. The heuristic ignores any name carrying
+#    RATE, FRAC, GAIN, SCALE, COEFF, MIN, MAX, THRESH, STEP, COUNT, DAMP, LEAK, SPAN, MASS, FLOW or DEPTH
+#    (BOIL_RATE is a model parameter, BOIL_TEMP is not), and any name qualified by another material.
+
+# SCOPE: the water phase points, the charge-separation band, the two radiation constants. Widen it in
+# WATCHED_* below. Never list a quantity as "not watched yet because the kernel disagrees" — watch it and
+# fix the kernel, or every later reader is told the disagreement is intentional.
+
+# EXIT 0 clean · 1 a violation · 2 could not run (missing tool, authority, kernel directory, or an
+# authority that parsed to zero constants). A gate that cannot run must fail, never pass.
 set -euo pipefail
 
 # Pure-bash, no `dirname`: this must still resolve when PATH is broken, or the missing-tool check below
@@ -98,7 +54,7 @@ fi
 
 # .glsli TOO, NOT JUST .glsl. Shared includes hold real constants — rc_shared.glsli owns the five RC_*
 # volumetric heat capacities for every kernel that includes it — and a glob of `*.glsl` alone would let a
-# value slip out of this gate simply by being factored into a header. Added 2026-08-09 with that file.
+# value slip out of this gate simply by being factored into a header.
 shopt -s nullglob
 kernels=("$KERNEL_DIR"/*.glsl "$KERNEL_DIR"/*.glsli)
 shopt -u nullglob
@@ -126,9 +82,8 @@ trap 'rm -f "$AUTH_MAP"' EXIT
 # value and fell out of the map entirely. That silently hid MOLAR_MASS_DRY_AIR_KG_MOL — a weighted mean over
 # four mole fractions, written across five lines — and with it DRY_AIR_GAS_CONSTANT_J_KGK, which depends on
 # it. THE SPECIFIC GAS CONSTANT OF DRY AIR, the most important structural parameter of an atmosphere, was
-# invisible to the gate on the day it was added. Found 2026-08-10 when a new derived constant that depends on
-# it could not be bound. Same failure mode the paragraph above describes, one syntax later: the gate got
-# quietly weaker as the authority got better.
+# invisible to the gate on the day it was added: the gate gets quietly weaker as the authority gets
+# better unless every declaration syntax is parsed.
 SUBSTANCES="${LA_SUBSTANCE_AUTHORITY:-$REPO_ROOT/addons/local_agents/sim/material/Substances.gd}"
 if [[ ! -f "$SUBSTANCES" ]]; then
   echo "ERROR: check_physical_constants.sh cannot find the substance table:" >&2
@@ -171,8 +126,7 @@ awk -v AUTH="$AUTH_MAP" -v ROOT="$REPO_ROOT/" '
     WATCH_RADIATION = "(SOLAR_CONSTANT|STEFAN)"
     MODEL_TOKENS = "(RATE|FRAC|GAIN|SCALE|COEFF|COEF|MIN|MAX|THRESH|STEP|COUNT|DAMP|LEAK|SPAN|MASS|FLOW|DEPTH)"
     # Rock is not water, so a rock phase point must not be checked against WATER_*. It is REDIRECTED to
-    # BASALT_* below, not exempted. SOLIDIF used to sit in this list and the exemption is how
-    # SOLIDIFY_TEMP = 800 survived against a 1000 C solidus.
+    # BASALT_* below, not exempted: an exemption here is how a rock phase point survives unchecked.
     OTHER_MATTER = "(ROCK|BASALT|LAVA|MAGMA|IRON|METAL|SOLIDIF)"
     WATCH_ROCK_PHASE = "(SOLIDIF|SOLIDUS|LIQUIDUS)"
     WATCH_ALBEDO = "ALBEDO"
@@ -293,8 +247,7 @@ awk -v AUTH="$AUTH_MAP" -v ROOT="$REPO_ROOT/" '
     }
 
     # --- ROCK PHASE POINTS: redirected, not exempted ----------------------------------------------
-    # A carve-out is where a wrong value hides. These names used to fall through OTHER_MATTER and be
-    # scanned by nothing at all.
+    # A carve-out is where a wrong value hides: falling through OTHER_MATTER means scanned by nothing.
     if ((u ~ WATCH_ROCK_PHASE || (u ~ /(ROCK|BASALT|LAVA|MAGMA)/ && u ~ /(MELT|FREEZE)/)) && u !~ MODEL_TOKENS) {
       rtgt = (u ~ /(MELT|LIQUIDUS)/) ? "BASALT_LIQUIDUS_C" : "BASALT_SOLIDUS_C"
       if (!have[rtgt]) {

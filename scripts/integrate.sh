@@ -99,6 +99,14 @@ fi
 # THE STAGED TREE'S OWN WRITER, for the same reason the lint step below uses the staged harness. The
 # primary's copy is the PRE-MERGE one, so a lane that changes how a ceiling is counted would have the stale
 # count banked over its new one.
+# A landed lane's declaration lands with it. Pruning the branch and leaving its row standing makes the
+# next lane trip on a branch that no longer exists.
+STAGE_DECL="$STAGE_WT/docs/OPEN_BRANCHES.md"
+if [ -f "$STAGE_DECL" ]; then
+	rg -N -v -e "^\| \`$(printf '%s' "$BRANCH" | sed 's/[].[^$\\*\/]/\\&/g')\` \|" "$STAGE_DECL" > "$STAGE_DECL.tmp" \
+		&& mv "$STAGE_DECL.tmp" "$STAGE_DECL"
+fi
+
 STAGE_CEILINGS="$STAGE_WT/scripts/write_ceilings.sh"
 [ -x "$STAGE_CEILINGS" ] || { echo "integrate: the staged tree has no write_ceilings.sh." >&2; exit 2; }
 LA_CEILING_STRICT=1 "$STAGE_CEILINGS" "$STAGE_WT" >&2 || true

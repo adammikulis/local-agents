@@ -3,8 +3,9 @@
 # LA_GODOT_TIMEOUT=<seconds> wraps the run; `timeout` cannot run a shell function.
 
 
-LA_OFFSCREEN_POS="${LA_WIN_POS:--10000,-10000}"
-LA_OFFSCREEN_RES="${LA_RES:-640x400}"
+# 1x1 at creation: macOS clamps an off-screen position back on, and _ready is too late to shrink.
+LA_OFFSCREEN_POS="${LA_WIN_POS:-99999,99999}"
+LA_OFFSCREEN_RES="${LA_RES:-1x1}"
 
 la_godot() {
 	local binary="${GODOT:-godot}"

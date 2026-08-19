@@ -98,12 +98,6 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
       `GeoRecords.gd` uses it. Everything else is a gate mask plus a threshold constant, so it is
       permanently one-way. Standard entropies exist for H₂O, O₂, CO₂ and the four atomic species, so every
       record whose participants are in that set is unblocked today.
-- [ ] **Organic oxidation books no reaction heat unless it is called combustion.** `CombustionRecords.gd`
-      prices its heat per element from `LASubstances.organic_energy_j_mol`; decomposition and respiration in
-      `BioRecords.gd` oxidise the same organic matter to the same products and pass no `enthalpy_j_m3` at
-      all. There is no thermodynamic path by which one reaction is exothermic when fast and athermal when
-      slow. **Decide it:** run every organic-oxidation record through the same element accounting, so one
-      set of enthalpies prices all of them.
 - [ ] **Decay has no temperature dependence and production has an optimum.** Decomposition and respiration
       are `RM_BILINEAR` in their two reactants, so litter rots at the same rate at −40 °C and +40 °C, wet or
       bone dry, while photosynthesis carries `RM_OPTIMUM_BAND`. Michaelis–Menten and a Q₁₀ (or the

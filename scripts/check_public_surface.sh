@@ -1,31 +1,24 @@
 #!/usr/bin/env bash
-# Gate: only real public API may carry the LocalAgent prefix into a creation dialog.
-#
-# WHAT THIS PROTECTS. README.md tells a user to open Add Node, or the Create Resource dialog, and type
-# "LocalAgent" to find what the addon gives them. That instruction is only true if the things matching
-# it are the things they should use. Measured before this gate existed: 130 classes reach a creation
-# dialog, 48 of those carried the LocalAgent prefix, and about 26 were public API. The rest were model
-# download tabs, editor panels and audio nodes, so the filter returned roughly twice as much noise as
-# signal.
-#
-# WHY THE CHECK IS SCOPED TO CREATION DIALOGS rather than to every class_name. Godot only lists Node
-# descendants in Add Node and Resource descendants in Create Resource. A RefCounted or Object class
-# with a class_name takes a global identifier but never appears in either dialog, so it cannot mislead
-# anyone browsing for a node. It is namespace cost, not a broken promise, and this gate is about the
-# promise. Those are reported at the bottom as a note and do not fail the build.
-#
-# WHY NOT JUST DROP class_name FROM INTERNALS. That was tried on paper and does not survive contact:
-# only 2 files in the addon are referenced neither by identifier nor by res:// path, and there are 105
-# pairs of classes that reference each other, which class_name resolves lazily and preload cannot.
-# So internals keep a class_name, and take the LA prefix to stay out of this gate's way.
-#
-# ADDING A TYPE TO PUBLIC is deliberate. Ask: would someone press A in the scene tree and add this,
-# assign it to an inspector slot, or write it as a type annotation in their own script? If yes, add it
-# below and document it in addons/local_agents/docs/API.md. If no, prefix the class LA.
-#
+# Gate: only real public API may carry the LocalAgent prefix into a creation dialog. README.md tells a
+# user to open Add Node or Create Resource and type "LocalAgent" to find what the addon gives them, and
+# that instruction is true only if what matches is what they should use.
+
+# SCOPED TO CREATION DIALOGS rather than to every class_name, because Godot lists only Node descendants
+# in Add Node and Resource descendants in Create Resource. A RefCounted or Object class with a
+# class_name takes a global identifier but appears in neither, so it cannot mislead anyone browsing for
+# a node: namespace cost, not a broken promise. Those are noted at the bottom and do not fail the build.
+
+# INTERNALS KEEP THEIR class_name. Dropping it does not survive contact — this addon has many pairs of
+# classes that reference each other, which class_name resolves lazily and preload cannot. They take the
+# LA prefix instead, to stay out of this gate's way.
+
+# ADDING A TYPE TO PUBLIC is deliberate. Would someone press A in the scene tree and add this, assign it
+# to an inspector slot, or write it as a type annotation in their own script? If yes, add it below and
+# document it in addons/local_agents/docs/API.md. If no, prefix the class LA.
+
 #   scripts/check_public_surface.sh            # table + verdict
 #   scripts/check_public_surface.sh --quiet    # verdict only
-# Exit: 0 when the dialog-visible surface matches this list, 1 when it does not.
+# Exit 0 when the dialog-visible surface matches this list · 1 when it does not.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
