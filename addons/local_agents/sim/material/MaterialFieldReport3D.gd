@@ -41,138 +41,81 @@ func setup(field) -> void:
 
 
 const CLIMATE_BANDS: int = 6                    # 15° per band from equator to pole
-const ALT_BANDS: int = 4                        # ground / low / mid / high, by altitude above the sea shell
-const ALT_BAND_SPAN: float = 8.0                # world units per altitude band
-const CLIMATE_MAX_CELLS: int = 200000
 const PLANET_SPIN_AXIS: Vector3 = LAPlanetBody.SPIN_AXIS
 
 # Running extremes across the whole run.
 var _coldest_ever: float = 1.0e20
-var _coldest_ever_alt: float = 0.0
-var _coldest_ever_lat: float = 0.0
 var _ground_coldest_ever: float = 1.0e20
 
 
+## The surface climate, off the device: per-|lat|-band ground rows (HeatRows folds a north and a south
+## gate per band), the ground/air freezing split, the open-air lapse, and the liquid-water rows.
 func surface_climate() -> Dictionary:
-	var solid: PackedByteArray = _f._solid
-	var temp: PackedFloat32Array = _f._temp
-	if solid.size() != _f._cell_count or temp.size() != _f._cell_count or _f._grid == null:
+	var q: LAMaterialFieldQueries3D = _f._queries
+	var ground_n: int = q.row_n("clim_ground_cells")
+	if ground_n < 0:
 		return {}
-	var t_scan: int = Time.get_ticks_usec()
-	var axis: Vector3 = (_f.spin_axis() if _f.has_method("spin_axis") else PLANET_SPIN_AXIS).normalized()
-	var sea_r: float = float(_f.sea_radius()) if _f.has_method("sea_radius") else 0.0
-	var lat_sum: PackedFloat64Array = PackedFloat64Array(); lat_sum.resize(CLIMATE_BANDS)
-	var lat_min: PackedFloat64Array = PackedFloat64Array(); lat_min.resize(CLIMATE_BANDS)
-	var lat_n: PackedInt32Array = PackedInt32Array(); lat_n.resize(CLIMATE_BANDS)
-	var alt_min: PackedFloat64Array = PackedFloat64Array(); alt_min.resize(ALT_BANDS)
-	var alt_n: PackedInt32Array = PackedInt32Array(); alt_n.resize(ALT_BANDS)
-	for b in CLIMATE_BANDS:
-		lat_min[b] = 1.0e20
-	for b in ALT_BANDS:
-		alt_min[b] = 1.0e20
-	var ground_frozen: int = 0
-	var ground_n: int = 0
-	var air_frozen: int = 0
-	var air_n: int = 0
-	var coldest: float = 1.0e20        # coldest OPEN cell anywhere this snapshot (ground or aloft)
-	var ground_coldest: float = 1.0e20
-	var water: PackedFloat32Array = _f._queries._liquid_mirror()
-	var has_water: bool = water.size() == _f._cell_count
-	var water_frozen: int = 0
-	var water_cells: int = 0
-	var water_coldest: float = 1.0e20
-	# Strided so the scan stays bounded on a big grid.
-	var stride: int = maxi(1, _f._cell_count / CLIMATE_MAX_CELLS)
-	var c: int = 0
-	while c < _f._cell_count:
-		var cell: int = c
-		c += stride
-		if solid[cell] != 0:
-			continue
-		var up: Vector3 = LAFieldGeometry.up(_f, cell)
-		if up == Vector3.ZERO:
-			continue
-		# Latitude from the LOCAL VERTICAL against the spin axis; altitude from the body centre.
-		var wdir: Vector3 = _f._body_basis * up
-		var lat: float = absf(rad_to_deg(asin(clampf(wdir.dot(axis), -1.0, 1.0))))
-		var band: int = clampi(int(lat / (90.0 / float(CLIMATE_BANDS))), 0, CLIMATE_BANDS - 1)
-		var alt: float = LAFieldGeometry.radius_of(_f, cell) - sea_r
-		var t: float = temp[cell]
-		if t < coldest:
-			coldest = t
-			if t < _coldest_ever:
-				_coldest_ever = t
-				_coldest_ever_alt = snappedf(alt, 0.1)
-				_coldest_ever_lat = snappedf(lat, 0.1)
-		# ALTITUDE profile over every open cell.
-		var ab: int = clampi(int(maxf(alt, 0.0) / ALT_BAND_SPAN), 0, ALT_BANDS - 1)
-		alt_n[ab] += 1
-		if t < alt_min[ab]:
-			alt_min[ab] = t
-		if has_water and water[cell] > LAMaterialField3D.MIN_MASS:
-			water_cells += 1
-			if t < LAPhysical.WATER_FREEZE_C:
-				water_frozen += 1
-			if t < water_coldest:
-				water_coldest = t
-		# GROUND-HUGGING (the cell one step DOWN is rock) vs ALOFT — two distinct freezing populations.
-		var lo: int = LAFieldGeometry.below(_f, cell)
-		if lo >= 0 and solid[lo] != 0:
-			lat_sum[band] += t
-			lat_n[band] += 1
-			if t < lat_min[band]:
-				lat_min[band] = t
-			ground_n += 1
-			if t < LAPhysical.WATER_FREEZE_C:
-				ground_frozen += 1
-			if t < ground_coldest:
-				ground_coldest = t
-				_ground_coldest_ever = minf(_ground_coldest_ever, t)
-		else:
-			air_n += 1
-			if t < LAPhysical.WATER_FREEZE_C:
-				air_frozen += 1
 	var means: Array = []
 	var lmins: Array = []
 	for b in CLIMATE_BANDS:
-		means.append(snappedf(lat_sum[b] / float(maxi(lat_n[b], 1)), 0.1) if lat_n[b] > 0 else 0.0)
-		lmins.append(snappedf(lat_min[b], 0.1) if lat_n[b] > 0 else 0.0)
-	var amins: Array = []
-	for b in ALT_BANDS:
-		amins.append(snappedf(alt_min[b], 0.1) if alt_n[b] > 0 else 0.0)
-	return {
+		var n: int = maxi(q.row_n("clim_lat%dn_n" % b), 0) + maxi(q.row_n("clim_lat%ds_n" % b), 0)
+		if n <= 0:
+			means.append(0.0)
+			lmins.append(0.0)
+			continue
+		var s: float = q.row_f("clim_lat%dn_sum" % b) + q.row_f("clim_lat%ds_sum" % b)
+		means.append(snappedf(s / float(n), 0.1))
+		var mn: float = q.row_f("clim_lat%dn_min" % b)
+		var ms: float = q.row_f("clim_lat%ds_min" % b)
+		# A hemisphere with no ground in the band has no MIN row; the other hemisphere's stands alone.
+		lmins.append(snappedf(minf(mn, ms) if not (is_nan(mn) or is_nan(ms)) else (ms if is_nan(mn) else mn), 0.1))
+	var coldest: float = q.row_f("open_temp_min")
+	if not is_nan(coldest):
+		_coldest_ever = minf(_coldest_ever, coldest)
+	var ground_min: float = q.row_f("clim_ground_min")
+	if not is_nan(ground_min):
+		_ground_coldest_ever = minf(_ground_coldest_ever, ground_min)
+	var out: Dictionary = {
 		# Equator-first: [0] is 0-15°, [5] is 75-90°. A working planet DESCENDS across this.
 		"clim_lat_mean": means,
 		"clim_lat_min": lmins,
-		# Ground-up: [0] is sea level, [3] is high. A working planet DESCENDS across this too (the lapse).
-		"clim_alt_min": amins,
 		# Coldest anything gets, this snapshot and EVER — the number that decides whether 0 °C can fire.
-		"clim_coldest_now": snappedf(coldest if coldest < 1.0e19 else 0.0, 0.1),
+		"clim_coldest_now": snappedf(coldest, 0.1) if not is_nan(coldest) else null,
 		"clim_coldest_ever": snappedf(_coldest_ever if _coldest_ever < 1.0e19 else 0.0, 0.1),
-		"clim_coldest_ever_at": {"alt": _coldest_ever_alt, "lat": _coldest_ever_lat},
 		"clim_ground_coldest_ever": snappedf(_ground_coldest_ever if _ground_coldest_ever < 1.0e19 else 0.0, 0.1),
 		# Sub-zero populations, split.
-		"clim_ground_frozen": ground_frozen,
+		"clim_ground_frozen": q.row_v("clim_ground_frozen", true),
 		"clim_ground_cells": ground_n,
-		"clim_air_frozen": air_frozen,
-		"clim_air_cells": air_n,
+		"clim_air_frozen": q.row_v("clim_air_frozen", true),
+		"clim_air_cells": q.row_v("clim_air_cells", true),
 		# Cells that actually HOLD liquid water, and how many of those are below freezing.
-		"clim_water_cells": water_cells,
-		"clim_water_frozen": water_frozen,
-		"clim_water_coldest": snappedf(water_coldest if water_coldest < 1.0e19 else 0.0, 0.1),
-		"clim_scan_ms": snappedf(float(Time.get_ticks_usec() - t_scan) / 1000.0, 0.01),
+		"clim_water_cells": q.row_v("clim_water_cells", true),
+		"clim_water_frozen": q.row_v("clim_water_frozen", true),
 	}
+	var water_coldest: float = q.row_f("clim_water_coldest")
+	if not is_nan(water_coldest):
+		out["clim_water_coldest"] = snappedf(water_coldest, 0.1)
+	# THE LAPSE, °C per metre downward across one cell over the open air. Positive = colder aloft.
+	var pairs: int = q.row_n("air_grad_pairs")
+	var grad: float = q.row_f("air_grad_sum")
+	var dx: float = float(_f._cell_size)
+	if pairs > 0 and not is_nan(grad) and dx > 0.0:
+		out["clim_air_grad_c_per_m"] = grad / (float(pairs) * dx)
+		out["clim_air_grad_pairs"] = pairs
+	return out
 
 
 ## Open-cell temperature spread, plus the all-cell max that exposes the deep rock the open-only rows hide.
-## Four reduced rows; the mean is the open-cell sum over the open-cell count, the same population. NAN and
+## Four reduced rows; the mean is the open-cell sum over the open-cell count, the same population. null and
 ## -1 where the device reduced nothing, because an absent reading is not a cold one.
 func _open_temp_stats() -> Dictionary:
 	var q: LAMaterialFieldQueries3D = _f._queries
 	var n: int = q.open_cells()
-	return {"temp_min": q.row_f("open_temp_min"), "temp_max": q.row_f("open_temp_max"), "temp_open": n,
-		"temp_mean": (q.row_f("open_temp_sum") / float(n)) if n > 0 else NAN,
-		"temp_all_max": q.row_f("all_temp_max")}
+	var sum = q.row_v("open_temp_sum", false)
+	return {"temp_min": q.row_v("open_temp_min", false), "temp_max": q.row_v("open_temp_max", false),
+		"temp_open": n,
+		"temp_mean": (float(sum) / float(n)) if n > 0 and sum != null else null,
+		"temp_all_max": q.row_v("all_temp_max", false)}
 
 
 func report() -> Dictionary:

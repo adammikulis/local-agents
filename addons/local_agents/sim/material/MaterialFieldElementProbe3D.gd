@@ -1,7 +1,6 @@
 class_name LAMaterialFieldElementProbe3D
 extends RefCounted
 
-const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
 const RecordsScript: GDScript = preload("res://addons/local_agents/sim/material/FieldLedgerRecords3D.gd")
 const SampleScript: GDScript = preload("res://addons/local_agents/sim/material/FieldStepSample3D.gd")
 
@@ -13,6 +12,7 @@ var _f = null
 var _elements: PackedStringArray = PackedStringArray()
 var _channels: PackedStringArray = PackedStringArray()
 var _sched = null                  # LAFieldStepSample3D: which steps are checkpointed
+var _reduce = null                 # the field's own ReducePass, found once
 
 var _prev_all: Dictionary = {}     # element -> moles at the previous checkpoint
 var _prev_open: Dictionary = {}
@@ -125,36 +125,40 @@ func post_step() -> void:
 
 # --- internals ----------------------------------------------------------------
 
-## Moles of every requested element right now, mask-free and over open cells, plus the per-channel amounts.
-## Returns [all, open, parts_all].
+## Moles of every requested element right now, mask-free and over open cells, plus the per-channel
+## amounts — the ledger's own `all_`/`open_` rows via ReducePass.checkpoint. Returns [all, open, parts_all].
 func _sample() -> Array:
 	var gpu = _f._gpu
-	var cc: int = _f._cell_count
-	var vol: PackedFloat32Array = CellVolScript.of(_f)
-	if vol.size() != cc:
+	var reduce = _find_reduce()
+	if reduce == null:
 		return [{}, {}, {}]
-	var solid: PackedFloat32Array = gpu.read_raw("solid")
-	var has_solid: bool = solid.size() >= cc
+	var rows: Dictionary = reduce.checkpoint(gpu._rd, gpu._ctx, gpu._cc)
 	var all_by_channel: Dictionary = {}
 	var open_by_channel: Dictionary = {}
 	for ch in _channels:
-		var a: PackedFloat32Array = gpu.read_raw(String(ch))
-		if a.size() < cc:
+		var name: String = String(ch)
+		if not rows.has("all_" + name) or not rows.has("open_" + name):
 			continue
-		var t_all: float = 0.0
-		var t_open: float = 0.0
-		for c in cc:
-			var v: float = a[c] * vol[c]
-			t_all += v
-			if (not has_solid) or solid[c] == 0.0:
-				t_open += v
-		all_by_channel[ch] = t_all
-		open_by_channel[ch] = t_open
+		all_by_channel[name] = float(rows["all_" + name])
+		open_by_channel[name] = float(rows["open_" + name])
 	var parts: Dictionary = {}
-	for ch in all_by_channel:
-		parts[ch] = all_by_channel[ch]
+	for ch2 in all_by_channel:
+		parts[ch2] = all_by_channel[ch2]
 	return [_only(RecordsScript.elements_of(all_by_channel)),
 		_only(RecordsScript.elements_of(open_by_channel)), parts]
+
+
+func _find_reduce():
+	if _reduce != null:
+		return _reduce
+	if _f == null or _f._gpu == null:
+		return null
+	var names: PackedStringArray = _f._gpu._pass_names
+	for i in names.size():
+		if names[i] == "ReducePass":
+			_reduce = _f._gpu._passes[i]
+			break
+	return _reduce
 
 
 ## Drop every element the run did not ask for, so a carbon probe does not print the whole periodic table.

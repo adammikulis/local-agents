@@ -27,4 +27,12 @@ static func rows() -> Array:
 			"mask": Rec.Mask.OPEN, "threshold": 60.0}, true),
 		wet.merged({"key": "hotspring_boiling", "source": "temp", "op": Rec.Op.COUNT_GE,
 			"mask": Rec.Mask.OPEN, "threshold": LAPhysical.WATER_BOIL_C}, true),
+		# Cells actually HOLDING liquid water, how many of those sit below freezing, and the coldest.
+		{"key": "clim_water_cells", "source": "h2o", "aux": "h2o_liquid", "op": Rec.Op.COUNT_GT,
+			"mask": Rec.Mask.OPEN, "threshold": LAMaterialField3D.MIN_MASS},
+		{"key": "clim_water_frozen", "source": "temp", "op": Rec.Op.COUNT_LT, "mask": Rec.Mask.OPEN,
+			"threshold": LAPhysical.WATER_FREEZE_C, "gate": "h2o", "gate_aux": "h2o_liquid",
+			"gate_lo": LAMaterialField3D.MIN_MASS},
+		{"key": "clim_water_coldest", "source": "temp", "op": Rec.Op.MIN, "mask": Rec.Mask.OPEN,
+			"gate": "h2o", "gate_aux": "h2o_liquid", "gate_lo": LAMaterialField3D.MIN_MASS},
 	]
