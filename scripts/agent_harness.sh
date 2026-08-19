@@ -230,6 +230,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_run_budget
     gate check_comment_ratio
     gate check_comment_history
+    gate check_comment_block
     gate check_neighbour_slots
     gate check_sim_determinism
     gate check_binding_collisions

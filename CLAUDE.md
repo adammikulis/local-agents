@@ -200,6 +200,13 @@ pre-commit hook and in `lint`. Density gates measure a file; this measures the d
 arrives. `check_comment_history.sh` counts the banned kinds — dates, measured figures, war stories — as a
 ratchet that may only fall.
 
+**A COMMENT LABELS. IT DOES NOT ARGUE, DEFEND, OR ANTICIPATE A QUESTION.** More than six consecutive
+comment lines is a paragraph, and a paragraph is a case being made to a reader rather than a fact about
+the code. `scripts/check_comment_block.sh` counts every line past that limit as a ratchet that may only
+fall. Do not write the justification down: a claim that matters becomes a GATE, and one that does not is
+not written. You will feel the pull hardest right after making a decision you expect to be asked about —
+that is the moment the comment is for you, not for the reader, and it is the one to delete.
+
 # RULE 8 — READ THE CODE. DO NOT NARRATE A DIAGNOSIS, AND NEVER REVISE ONE OUT LOUD.
 
 Open the file. Read what it does. Answer from the code.
