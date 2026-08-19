@@ -48,6 +48,8 @@ layout(set = 0, binding = 23, std430) restrict readonly buffer H2OLiquidBuf { fl
 layout(set = 0, binding = 24, std430) restrict readonly buffer SilicateBuf { float silicate[]; };
 layout(set = 0, binding = 25, std430) restrict readonly buffer BiomassBuf  { float biomass[]; };
 layout(set = 0, binding = 26, std430) restrict readonly buffer SilicateMeltBuf { float silicate_melt[]; };
+// Boundary redirect per face: a wrapped interior cell, a prescribed ghost tail cell, or -1 = shut wall.
+layout(set = 0, binding = 27, std430) restrict readonly buffer Ghost { int ghost[]; };
 layout(set = 0, binding = 28, std430) restrict readonly buffer H2OVapourBuf { float h2o_vapour[]; };
 // TF_FRACTION rows move only this share of `amount`, 0..1. No `restrict` here or on the three below: the
 // grain prologue writes the very buffers three silicate rows bind as their `frac`.
@@ -79,6 +81,9 @@ layout(set = 0, binding = 45, std430) restrict buffer SwAbs { float sw_absorbed[
 // Heat of the entry this row's substance sits in, and that entry's capacity, J/m^3 and J/m^3/K.
 layout(set = 0, binding = 46, std430) restrict readonly buffer HCarried { float h_carried[]; };
 layout(set = 0, binding = 47, std430) restrict readonly buffer CapSensible { float cap_sensible[]; };
+// What crossed an OPEN box edge this step, per interior cell: amount units in, and the joules riding along.
+layout(set = 0, binding = 48, std430) restrict buffer BndAmt { float bnd_amt[]; };
+layout(set = 0, binding = 49, std430) restrict buffer BndH { float bnd_h[]; };
 
 #include "march.glsli"
 
@@ -112,6 +117,7 @@ layout(push_constant, std430) uniform Params {
 	float w_silica;
 	// J/m^3/K a unit of fill adds to the sensible entry; 0 for a substance on its own phase ladder.
 	float sub_cap_j_m3k;
+	uint total_count;     // interior cells plus ghost tail cells; pass 0 runs the ghosts too
 } params;
 
 const uint PASS_GRAIN = 2u;   // TransportPass.PASS_GRAIN
@@ -222,6 +228,8 @@ float strain_rate(uint c) {
 		uint slot = a * 2u;
 		int lo = nbr[base + slot];
 		int hi = nbr[base + opposite_slot(slot)];
+		if (lo < 0) { lo = ghost[base + slot]; }
+		if (hi < 0) { hi = ghost[base + opposite_slot(slot)]; }
 		vec3 vlo = lo >= 0 ? vel_at(uint(lo)) : vel_at(c);
 		vec3 vhi = hi >= 0 ? vel_at(uint(hi)) : vel_at(c);
 		vec3 d = (vhi - vlo) / (2.0 * params.cell_m);
@@ -565,11 +573,13 @@ float longwave_incident(uint c, uint d) {
 	float through = 1.0;
 	float arriving = 0.0;
 	int at = nbr[c * N_SLOTS + d];
+	if (at < 0) { at = ghost[c * N_SLOTS + d]; }
 	for (uint i = 0u; i < MARCH_HOPS && at >= 0 && through > 0.0; ++i) {
 		uint a = uint(at);
 		arriving += through * send[a * N_SLOTS + back];
 		through *= 1.0 - lw_emis[a];
 		at = nbr[a * N_SLOTS + d];
+		if (at < 0) { at = ghost[a * N_SLOTS + d]; }
 	}
 	return arriving;
 }
@@ -625,7 +635,10 @@ void main() {
 		}
 		gidx = active_idx[gidx];
 	}
-	if (gidx >= params.cell_count) {
+	// Ghost tail cells donate through the ordinary outflow law and are never updated: prescribed state.
+	uint limit = (params.pass_id == 0u && params.mode != MODE_SEPARATE)
+		? params.total_count : params.cell_count;
+	if (gidx >= limit) {
 		return;
 	}
 	if (params.pass_id == PASS_GRAIN) {
@@ -719,6 +732,9 @@ void main() {
 			}
 			int inb = nbr[base + d];
 			if (inb < 0) {
+				inb = ghost[base + d];
+			}
+			if (inb < 0) {
 				continue;
 			}
 			if (solid[inb] != 0.0 && blocks_solid) {
@@ -793,12 +809,26 @@ void main() {
 		lost_h += send_h[base + d];
 		lost_q += send_q[base + d];
 		int inb = nbr[base + d];
+		bool edge = inb < 0;
+		if (edge) {
+			inb = ghost[base + d];
+		}
 		if (inb < 0) {
 			continue;
 		}
 		uint nb = uint(inb);
+		// Exterior crossings book inflow-positive; a wrap partner is interior motion and books nothing.
+		bool exterior = edge && nb >= params.cell_count;
+		if (exterior && !is_signed && params.mode != MODE_RADIATE) {
+			float in_a = listed ? 0.0 : send[nb * N_SLOTS + (d ^ 1u)];
+			float in_h = listed ? 0.0 : send_h[nb * N_SLOTS + (d ^ 1u)];
+			bnd_amt[gidx] += in_a - send[base + d];
+			bnd_h[gidx] += (params.flags & TF_ENTHALPY) != 0u
+				? in_a - send[base + d]
+				: in_h - send_h[base + d];
+		}
 		// A cell outside the list never ran pass 0 this row, so its face scratch still holds another row's.
-		if (listed && active_flag[nb] == 0u) {
+		if (listed && (nb >= params.cell_count || active_flag[nb] == 0u)) {
 			continue;
 		}
 		// Radiation arrives from the whole grid line behind this face, not just from the cell touching it.
