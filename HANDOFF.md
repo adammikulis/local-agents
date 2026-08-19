@@ -133,7 +133,7 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
 
 <!-- claim: nofile addons/local_agents/sim/material/Bindings.gd -->
 
-## 9. An instrument that cannot fire, and two re-sweeps
+## 9. An instrument that cannot fire, and an undeclared seed
 
 - **`discharge` is read and no longer written.** `reactions_sphere3d.glsl` binds it and `DISCHARGE` drives
   the lightning nitrogen-fixation record, but the term that wrote it was `sigma*E^2*dt` added straight to
@@ -145,11 +145,6 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
   `buffer_update` and never calls `note_creation`, so the planet's entire rock mass is absent from the seed
   manifest that is meant to be the scoreboard of what the substrate was told. `MaterialField3D` declares the
   same fact a second time.
-- `PHYSICS_RUBRIC.md` quotes `energy_residual / energy_booked` figures in prose. That denominator no longer
-  exists — the residual is a fraction of turnover now — and measured figures in a doc are banned anyway.
-- `LASpatialIndex.rebuild_if_stale` rebuilds a whole group's dictionary every frame it is touched rather
-  than tracking per-node cell changes, and `LASimReport.snapshot` deep-copies its events and gauges on every
-  call. Both are constants, not asymptotes.
 
 ## 10. A constant that is not what it names
 
