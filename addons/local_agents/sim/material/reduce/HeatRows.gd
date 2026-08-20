@@ -25,6 +25,8 @@ static func rows() -> Array:
 		# The rock's own decay, J/m^3 per step, volume-weighted to joules. The energy books read this.
 		{"key": "radiogenic", "source": "radiogenic", "op": Rec.Op.SUM, "mask": Rec.Mask.ALL,
 			"weight": true, "energy_book": true},
+		{"key": "sw_reflected", "source": "sw_space", "op": Rec.Op.SUM, "mask": Rec.Mask.ALL,
+			"weight": true},
 		# THE GEOTHERM DETECTOR. Temperature across one cell against the cell one step out of gravity, K,
 		# over the solid interior. An imposed geotherm would read the seeded profile; an emergent one reads
 		# whatever the source, the conduction and the surface left.

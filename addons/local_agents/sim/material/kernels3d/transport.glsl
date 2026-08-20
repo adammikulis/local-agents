@@ -68,7 +68,7 @@ layout(set = 0, binding = 34, std430) buffer ActiveIdx { uint active_idx[]; };
 layout(set = 0, binding = 35, std430) buffer ActiveArgs { uint active_args[]; };
 layout(set = 0, binding = 36, std430) buffer ActiveFlag { uint active_flag[]; };
 // MODE_RADIATE's own books, J/m^3, assigned in the gather so each is a per-step rate needing no clear.
-layout(set = 0, binding = 37, std430) restrict writeonly buffer RadAbs { float rad_absorbed[]; };
+layout(set = 0, binding = 37, std430) restrict buffer RadAbs { float rad_absorbed[]; };
 layout(set = 0, binding = 38, std430) restrict writeonly buffer RadEmit { float rad_emitted[]; };
 // The column field and the breakdown it decides, published rather than re-derived on the CPU.
 layout(set = 0, binding = 39, std430) restrict writeonly buffer ColE { float col_e[]; };
@@ -88,6 +88,11 @@ layout(set = 0, binding = 49, std430) restrict buffer BndH { float bnd_h[]; };
 // The REPLAY relaxation rim: the driving ghost cell and the per-step nudge fraction; 0 = outside the rim.
 layout(set = 0, binding = 50, std430) restrict readonly buffer RimGhost { int rim_ghost[]; };
 layout(set = 0, binding = 51, std430) restrict readonly buffer RimW { float rim_w[]; };
+// The reflected-shortwave field: the share of upwelling flux a cell keeps as heat, each cell's reflected
+// source W/m^2, and what escapes to space J/m^3 per step.
+layout(set = 0, binding = 52, std430) restrict buffer SwKeep { float sw_keep[]; };
+layout(set = 0, binding = 53, std430) restrict buffer SwSrc { float sw_src[]; };
+layout(set = 0, binding = 54, std430) restrict writeonly buffer SwSpace { float sw_space[]; };
 
 #include "march.glsli"
 
@@ -129,6 +134,7 @@ const uint PASS_GRAIN = 2u;
 const uint PASS_LIST_RESET = 3u;
 const uint PASS_LIST_APPEND = 4u;
 const uint PASS_LIST_ARGS = 5u;
+const uint PASS_SW = 6u;
 
 const float KELVIN = 273.15;                        // LAPhysical.KELVIN_OFFSET
 const float STEFAN = 5.670374419e-8;                // LAPhysical.STEFAN_BOLTZMANN
@@ -592,6 +598,43 @@ float longwave_incident(uint c, uint d) {
 	return arriving;
 }
 
+// PASS_SW: the reflected shortwave crosses the atmosphere again. Each cell gathers the upwelling flux the
+// reflectors below it sent, keeps its own share as heat, and books what its own reflection loses to space.
+// LA_APPROX: single_bounce_shortwave
+void sw_scatter(uint c) {
+	sw_space[c] = 0.0;
+	vec3 gv = g_at(c);
+	if (length(gv) <= 0.0) {
+		return;
+	}
+	vec3 up = -normalize(gv);
+	float through = 1.0;
+	float arriving = 0.0;
+	int at = la_step(c, -up);
+	for (uint i = 0u; i < MARCH_HOPS && at >= 0 && through > 0.0; ++i) {
+		uint a = uint(at);
+		arriving += through * sw_src[a];
+		through *= 1.0 - sw_keep[a];
+		at = la_step(a, -up);
+	}
+	float dep = arriving * sw_keep[c] * params.dt_s / params.cell_m;
+	if (dep > 0.0) {
+		amount[c] += dep;
+		rad_absorbed[c] += dep;
+	}
+	float src = sw_src[c];
+	if (src <= 0.0) {
+		return;
+	}
+	float esc = 1.0;
+	int above = la_step(c, up);
+	for (uint i = 0u; i < MARCH_HOPS && above >= 0 && esc > 0.0; ++i) {
+		esc *= 1.0 - sw_keep[uint(above)];
+		above = la_step(uint(above), up);
+	}
+	sw_space[c] = src * esc * params.dt_s / params.cell_m;
+}
+
 // --- THE GATHER ---------------------------------------------------------------------------------------
 
 // Driving potential across face d, metres of head. A diffusing quantity does not fall, and a row that
@@ -721,6 +764,10 @@ void main() {
 		grain_state(gidx);
 		return;
 	}
+	if (params.pass_id == PASS_SW) {
+		sw_scatter(gidx);
+		return;
+	}
 	uint base = gidx * N_SLOTS;
 	bool is_signed = (params.flags & TF_SIGNED) != 0u;
 	// Pore flow's domain IS the rock: its resistance, not a solid mask, is what stops it.
@@ -751,6 +798,12 @@ void main() {
 			float eps = longwave_emissivity(gidx);
 			lw_emis[gidx] = eps;
 			sw_absorbed[gidx] = shortwave_absorbed_frac(gidx, solar_step_m());
+			// Share of an upwelling flux this cell keeps as heat over one vertical step: what it
+			// intercepts, minus what it reflects onward.
+			vec3 gsw = g_at(gidx);
+			float up_len = length(gsw) > 0.0
+				? la_step_len(-normalize(gsw), params.cell_m) : params.cell_m;
+			sw_keep[gidx] = shortwave_absorbed_frac(gidx, up_len) * (1.0 - shortwave_albedo(gidx));
 			float tk = t_k(gidx);
 			float leaving = eps * STEFAN * tk * tk * tk * tk * params.dt_s / params.cell_m;
 			for (uint d = 0u; d < N_SLOTS; ++d) {
@@ -932,10 +985,13 @@ void main() {
 	}
 	if (params.mode == MODE_RADIATE) {
 		float sun_w = solar_incident(gidx);
-		float taken = sun_w * sw_absorbed[gidx] * (1.0 - shortwave_albedo(gidx));
-		gained += taken * params.dt_s / params.cell_m;
+		float intercepted = sun_w * sw_absorbed[gidx];
+		float albedo = shortwave_albedo(gidx);
+		gained += intercepted * (1.0 - albedo) * params.dt_s / params.cell_m;
 		rad_absorbed[gidx] = gained;
 		rad_emitted[gidx] = lost;
+		// What the beam march removed and this cell did not keep: PASS_SW carries it back out.
+		sw_src[gidx] = intercepted * albedo;
 	}
 	// No floor. Pass 0 clamps every outflow to what the cell holds, so a negative here is a defect
 	// and clamping it up would create the mass it is short of.
