@@ -68,22 +68,6 @@ Free today, no new op: `momentum_vec` is three `SUM` rows on `vel_*` with `aux: 
 `momentum_mass_kg` is one. **Coriolis then costs nothing** — it is linear in v, so it is
 `spin × momentum_vec × -2Ω` on the CPU, and the per-cell accumulation is pure waste.
 
-## 3. Sunlight reflected off the ground goes nowhere
-
-`transport.glsl`'s gather takes `sun_w * sw_absorbed * (1 - shortwave_albedo)` and the beam march removes
-the whole absorbed share, so what a surface reflects is subtracted from the beam and deposited in no cell.
-Reflected shortwave is a real flux that crosses the atmosphere again and may be absorbed on the way out.
-Building it means a scattered shortwave field, which no gate covers yet.
-
-The band table also stops at 10000 cm^-1 and carries no ozone, so there is no stratospheric UV absorber.
-That is a missing absorber rather than a fitted constant: `scripts/derive_absorption_bands.py` and
-`scripts/fetch_hitran.sh` are where a species is added.
-
-`check_radiative_row.sh` asserts the Stefan-Boltzmann law on its own isothermal block and NOT on the world
-the sim seeds; its seeded arm reads only the sign of the two radiative books. The honest form is a per-cell
-residual of `rad_emitted` against `6 * e * STEFAN * T^4 * dt / L`, computed in the RADIATE path beside the
-field it measures and reduced to a MAX, exactly as gravity publishes Gauss's law.
-
 ## 5. Move what the device cannot take into the GDExtension
 
 GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is a `.cpp`/`.hpp` pair, one
