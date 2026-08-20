@@ -14,23 +14,14 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 1. FEED THE OPEN BOUNDARY A REAL EXTERIOR, AND A SLICE BECOMES TESTABLE. TAKE THIS FIRST.
+## 1. The REPLAY rim skips the momentum rows
 
-The seam is `LAFieldBoundary3D` (SHUT/WRAP/CONSTANT/REPLAY per face; node meta -> project setting ->
-`LA_BOUNDARY_FACES`); CONSTANT and REPLAY refuse to run without a supplied state. What is left:
+The slice runs (`scripts/sim_run.sh --slice`; record a global run's exterior with `--slice-capture FILE`,
+consume it with `--slice --slice-state FILE`, series-feed with `LA_SLICE_REPLAY=1`). Momentum's boundary
+book exists (`BoundaryRows.BOOKED_SIGNED`), so the rim's reason for skipping the mom rows is gone: mark
+them `relax` in `TransportRecords`, and verify the rim's nudge lands in `bnd_mom_*` on the REPLAY arm.
 
-- **The capture pipeline.** Store a global run's drain as per-face states plus a time series, and feed
-  `LAFieldBoundary3D.replay(face, state)` per step. One stored global run drives many slice runs.
-- **One-way nesting reflects waves inward near the edge.** A relaxation zone is the standard answer and is
-  an approximation, so it takes a row and an `LA_APPROX` marker.
-- **Leave global, each cheap and none local:** the deep heat flux on the bottom face, without which no magma
-  arrives from below; the solved potential sampled in, nearly uniform over a thin patch.
-
-**Why it unblocks testing:** not speed at equal cells, but a SMALL SUFFICIENT domain. At the cell size a
-whole planet forces, rain and eruptions may not be reachable at all. A slice with a declared boundary makes
-"moist convection precipitates" and "overpressure erupts" assertions a gate can make.
-
-## 0. MOMENTUM RUNS AWAY TO NON-FINITE. DOWNSTREAM OF ITEM 1; DO NOT START IT FIRST.
+## 0. MOMENTUM RUNS AWAY TO NON-FINITE. THE SLICE IS THE TEST DOMAIN.
 
 Same lane, second symptom: **identical-seed runs diverge on a clean tree.** Reproduce:
 `scripts/agent_harness.sh sim --frames 5 --report h2o_total` twice and diff — one key differs at 5
@@ -38,10 +29,13 @@ frames and the whole report by 20. Transport, gravity, pressure and the reduce f
 order-independent by construction.
 
 **Reproduce:** `LA_FINITE_FRAMES=20 scripts/check_finite_channels.sh` on `feature/momentum-advection`.
-`nonfinite_cells` counts three per affected cell — `mom_x`/`mom_y`/`mom_z` and nothing else.
+The `nonfinite_solid`/`nonfinite_ground`/`nonfinite_air` rows place the non-finite population in OPEN
+cells; `mom_*` go first and `h_j_m3` follows. `LA_PASS_PROBE=mom_y LA_PASS_PROBE_STEPS=k` prints only
+its final sampled step's last two passes — the probe drops its other prints, which is its own bug.
 
-`scripts/sim_run.sh --frames 10` also exits 122 with `PRESSURE_BROKEN`, whose counters read 0 for
-rock-on-rock and 0 for open-standing-on-rock; the remainder are open-on-open.
+`scripts/sim_run.sh --frames 10` also exits 122 with `PRESSURE_BROKEN`: while the field is finite the
+counters read 0 rock-on-rock, 0 open-standing-on-rock, 0 rock-over-void and 0 dry — only wet open-on-open
+remain; once the momentum NaN spreads, every class reads polluted.
 
 The gate is mutation-tested three ways and is **NOT wired into `lint`**. Wire it the moment it passes.
 `feature/momentum-advection` carries the work, declared in `docs/OPEN_BRANCHES.md`.
@@ -109,19 +103,6 @@ is unheld is narrower: that one index names the same BUFFER on both sides. Build
 stanzas. Mutation-test it both ways. Delete the claim below with this item.
 
 <!-- claim: nofile addons/local_agents/sim/material/Bindings.gd -->
-
-## 12. `LAFieldGeometry.above` and `below` are not inverses, and `PRESSURE_BROKEN` still fires on it
-
-`slot_toward` snaps the local vertical to one of six axes, so across the diagonal where the snap flips,
-`above(below(c)) != c`. The pressure column, `air_above`, `ground` and `burial_steps` all march that
-relation, and no column integral can be monotone along a `below` step its own `above` step does not undo.
-One vertical relation, built once and inverse by construction, is what removes it.
-
-**A RADIAL COORDINATE SYSTEM IS NOT THE ANSWER. This is the maintainer's DECISION, not a law.** It has been
-tried twice: the cubed-sphere shell was replaced by the uniform Cartesian box on purpose, and a
-true-radial-ray traversal built to remove this very snap measured WORSE, because with no structural relation
-to the grid's own vertical step, ray divergence across a density contrast dominates. Fix the relation on the
-Cartesian grid.
 
 ---
 

@@ -16,7 +16,7 @@ const BOUND: Dictionary = {
 	"org_oc": 31, "rho_bulk": 32, "conductivity": 33, "h2o_solid": 34, "h2o_liquid": 35,
 	"h2o_vapour": 36, "silicate_melt": 37, "org_fresh": 38, "cell_vol": 40, "speed": 41, "lat": 42,
 	"alt": 43, "nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48,
-	"gravity": 49}
+	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52}
 
 ## One mole of organic carbon per cell, m^3 — the pool below which a cell's C:H:O ratio is fp32 noise.
 const ORG_MIN_POOL_M3: float = 1.0 / LASubstances.ORGANIC_MOL_PER_M3
@@ -47,7 +47,8 @@ func _buffers(cc: int) -> Dictionary:
 	return {"speed": cc, "lat": cc, "alt": cc, "nonfinite": cc,
 		"h_h2o": {"n": cc, "ghosts": true}, "h_silicate": {"n": cc, "ghosts": true},
 		"h_sensible": {"n": cc, "ghosts": true}, "cap_sensible": {"n": cc, "ghosts": true},
-		"org_hc": cc, "org_oc": cc, "org_fresh": cc}
+		"org_hc": cc, "org_oc": cc, "org_fresh": cc,
+		"bodyf_x": cc, "bodyf_y": cc, "bodyf_z": cc}
 
 
 func _setup(bufs: Dictionary, _cc: int) -> void:

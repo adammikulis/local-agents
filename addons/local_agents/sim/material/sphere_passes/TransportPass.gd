@@ -24,7 +24,7 @@ const MIN_AMOUNT: float = 0.0001
 
 ## Substeps one row may take inside a field step. Declared in docs/MODEL_PARAMETERS.md.
 ## LA_APPROX: cfl_substep_budget
-const SUBSTEP_MAX: int = 64
+const SUBSTEP_MAX: int = 128
 
 var _pipe: RID = RID()
 ## Per row: its uniform set. An invalid entry is a row whose buffers the driver has not got.
@@ -34,6 +34,8 @@ var _rows: Array = []
 var _send: RID = RID()
 var _send_h: RID = RID()
 var _send_q: RID = RID()
+## Momentum riding each face's mass flux, one scratch per component.
+var _send_m: Array = []
 ## resist 0 and aux 1 for a row that names neither.
 var _zero: RID = RID()
 var _one: RID = RID()
@@ -64,7 +66,7 @@ var _list_idx_rid: Array = []
 ## compacted-index, membership-flag and indirect-args buffers.
 func _buffers(cc: int) -> Dictionary:
 	var out: Dictionary = {"col_e": cc, "strike": cc, "radiogenic": cc,
-		"bnd_void": cc, "bnd_h_void": cc}
+		"bnd_void": cc, "bnd_h_void": cc, "rim_ghost": cc, "rim_w": cc}
 	for ch in BoundaryRowsScript.BOOKED:
 		out["bnd_" + String(ch)] = cc
 		out["bnd_h_" + String(ch)] = cc
@@ -87,6 +89,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_send = _scratch(tc * 6)
 	_send_h = _scratch(tc * 6)
 	_send_q = _scratch(tc * 6)
+	_send_m = [_scratch(tc * 6), _scratch(tc * 6), _scratch(tc * 6)]
 	_zero = _scratch(tc)
 	_no_h = _scratch(tc)
 	_one = _storage_buffer(_filled(tc, 1.0))
@@ -115,7 +118,7 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	if not _dispatchable():
 		return
 	var cell_m: float = _ctx_cell_size(ctx)
-	var dt_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	var dt_s: float = _ctx_num(ctx, "dt_s")
 	var sun: Vector3 = ctx.get("sun_dir", Vector3.ZERO)
 	# THE LISTS, rebuilt before any listed row dispatches over one: RESET the counter, APPEND the interior
 	# cells the predicate keeps, publish the indirect ARGS.
@@ -193,6 +196,14 @@ func _substeps(row: Dictionary, cell_m: float, dt_s: float, ctx: Dictionary) -> 
 	var mode: int = int(row["mode"])
 	var law: int = int(row.get("law", LATransportRecords.Law.NONE))
 	var vmax: float = maxf(float(ctx.get("cfl_speed_max", 0.0)), 0.0)
+	var tk_max: float = maxf(float(ctx.get("cfl_temp_max_k", 0.0)), 0.0)
+	# The drained peak lags one step. Within THIS step the momentum rows can add at most the
+	# free-expansion speed 2c/(gamma-1) — the fastest gas ever leaves a pressure front — plus g dt.
+	if _vel_row(row):
+		if tk_max > 0.0:
+			vmax += 2.0 * sqrt(LAPhysical.AIR_ADIABATIC_INDEX
+				* LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * tk_max) / (LAPhysical.AIR_ADIABATIC_INDEX - 1.0)
+		vmax += maxf(float(ctx.get("cfl_mean_g", 0.0)), 0.0) * dt_s
 	var need: float = 0.0
 	if mode == LATransportRecords.ADVECT or mode == LATransportRecords.BOTH:
 		var v: float = vmax
@@ -205,7 +216,8 @@ func _substeps(row: Dictionary, cell_m: float, dt_s: float, ctx: Dictionary) -> 
 			v += maxf(rho_s - fl.x, 0.0) * maxf(float(ctx.get("cfl_mean_g", 0.0)), 0.0) \
 				* LAPhysical.GRAIN_D_UPLAND_M * LAPhysical.GRAIN_D_UPLAND_M / (18.0 * maxf(fl.y, 1.0e-30))
 		need += v * dt_s / cell_m
-	if law == LATransportRecords.Law.EDDY:
+	# A signed EDDY row is the pair-exact viscous relaxation: no diffusion CFL applies to it.
+	if law == LATransportRecords.Law.EDDY and not _vel_row(row):
 		var fl2: Vector2 = LATransportRecords.fluid_properties(
 			int(row.get("fluid", LATransportRecords.Fluid.VACUUM)))
 		var nu_mol: float = (fl2.y / fl2.x) if fl2.x > 0.0 else 0.0
@@ -213,11 +225,9 @@ func _substeps(row: Dictionary, cell_m: float, dt_s: float, ctx: Dictionary) -> 
 		# |S| <= sqrt(18) vmax / L bounds the strain the kernel can read off the drained peak speed.
 		var nu: float = nu_mol + mix * mix * sqrt(18.0) * vmax / cell_m
 		need += 6.0 * nu * dt_s / (cell_m * cell_m)
-	if law == LATransportRecords.Law.SOUND:
-		var tk: float = maxf(float(ctx.get("cfl_temp_max_k", 0.0)), 0.0)
-		if tk > 0.0:
-			need = maxf(need, 6.0 * sqrt(LAPhysical.AIR_ADIABATIC_INDEX
-				* LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * tk) * dt_s / cell_m)
+	if law == LATransportRecords.Law.SOUND and tk_max > 0.0:
+		need = maxf(need, 6.0 * sqrt(LAPhysical.AIR_ADIABATIC_INDEX
+			* LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * tk_max) * dt_s / cell_m)
 	return clampi(int(ceil(need)), 1, SUBSTEP_MAX)
 
 
@@ -270,7 +280,8 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement",
 			"silicate_susp_water", "silicate_susp_air", "silicate_bed",
 			"rad_absorbed", "rad_emitted", "col_e", "strike",
-			"carbonate", "silica", "radiogenic", "ghost", "bnd_void", "bnd_h_void", "rho_bulk"]:
+			"carbonate", "silica", "radiogenic", "ghost", "bnd_void", "bnd_h_void", "rho_bulk",
+			"mom_x", "mom_y", "mom_z"]:
 		if not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row has no law." % [key, channel])
 			return RID()
@@ -329,7 +340,14 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[48, _single(bufs, ("bnd_" + channel) if (BoundaryRowsScript.BOOKED.has(channel)
 			or BoundaryRowsScript.BOOKED_SIGNED.has(channel)) else "bnd_void")],
 		[49, _single(bufs, ("bnd_h_" + channel) if BoundaryRowsScript.BOOKED.has(channel) else "bnd_h_void")],
-		[50, _single(bufs, "rho_bulk")],
+		# The REPLAY relaxation rim, filled by LAFieldBoundary3D.attach; all-zero weights without one.
+		[50, _single(bufs, "rim_ghost")],
+		[51, _single(bufs, "rim_w")],
+		[52, _single(bufs, "rho_bulk")],
+		[53, _single(bufs, "mom_x")],
+		[54, _single(bufs, "mom_y")],
+		[55, _single(bufs, "mom_z")],
+		[56, _send_m[0]], [57, _send_m[1]], [58, _send_m[2]],
 	]
 	return _uset(_pipe, entries)
 
@@ -370,6 +388,8 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 		flags |= LATransportRecords.Flag.LISTED
 	if bool(row.get("halo", false)):
 		flags |= LATransportRecords.Flag.LIST_HALO
+	if bool(row.get("relax", false)):
+		flags |= LATransportRecords.Flag.RELAX
 	if bool(row.get("radiogenic", false)):
 		flags |= LATransportRecords.Flag.RADIOGENIC
 	if _vel_row(row):

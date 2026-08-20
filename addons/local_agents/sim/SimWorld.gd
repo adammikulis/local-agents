@@ -55,6 +55,16 @@ const CAVE_DEPTH_FADE_M: float = 4.7e3
 ## doubling it multiplies the grid by eight.
 @export_range(8, 64, 1, "suffix:cells") var grid_res: int = 20: set = _set_grid_res
 
+@export_subgroup("Slice")
+## Cells per axis of a SLICE box laid on the body instead of a box around the whole planet. ZERO = no
+## slice here; the project setting / LA_SLICE_BOX env can still configure one (node wins when set).
+@export var slice_cells: Vector3i = Vector3i.ZERO
+## Cell edge of the slice box, metres.
+@export_range(1.0, 1.0e5, 1.0, "or_greater", "suffix:m") var slice_cell_size_m: float = 4000.0
+## Offset of the slice box's centre from the body centre, metres, body frame. Its direction is the
+## slice's local vertical, so it must be nonzero.
+@export var slice_offset_m: Vector3 = Vector3.ZERO
+
 @export_subgroup("Lighting")
 @export var sun_enabled: bool = true
 
@@ -178,7 +188,18 @@ func _build_sphere() -> bool:
 	_material = MaterialFieldScript.new()
 	_material.name = "MaterialField"
 	add_child(_material)
-	_material.setup_body(_body.center(), radius + MODELLED_ATMOSPHERE_HEIGHT_M, field_cell_size_m(), _terrain)
+	# Node exports outrank the project setting, which outranks LA_SLICE_BOX.
+	if slice_cells != Vector3i.ZERO:
+		_material.set_meta(LAFieldSlice3D.META_BOX, "%f,%f,%f,%d,%d,%d,%f" % [
+			slice_offset_m.x, slice_offset_m.y, slice_offset_m.z,
+			slice_cells.x, slice_cells.y, slice_cells.z, slice_cell_size_m])
+	var slice: LAFieldSlice3D = LAFieldSlice3D.of(_material)
+	if slice != null:
+		if not slice.apply(_material, _body, _terrain):
+			push_error("SLICE_INVALID: %s" % slice.error)
+			return false
+	else:
+		_material.setup_body(_body.center(), radius + MODELLED_ATMOSPHERE_HEIGHT_M, field_cell_size_m(), _terrain)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
 	if _sun != null and _material.has_method("set_sun"):

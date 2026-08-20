@@ -90,8 +90,10 @@ static func burial_steps(field, c: int, limit: int) -> int:
 	return -1
 
 
-## Geometric centre of the box, model units.
+## The body centre: the declared pivot when the box is a slice standing off it, else the box's own centre.
 static func centre(field) -> Vector3:
+	if field != null and field._pivot != null:
+		return field._pivot
 	var grid: LAVoxelGrid = field._grid if field != null else null
 	if grid == null:
 		return Vector3.ZERO

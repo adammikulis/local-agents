@@ -81,10 +81,17 @@ func _on_seeding(_tick: int) -> void:
 
 
 func _build_field() -> void:
-	# METRES: LAFieldGravity solves Poisson in SI on this grid.
-	var extent_m: float = float(_body.radius()) + LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M
-	var cells: int = maxi(_settings_applier.grid_cells_per_edge(), 1)
-	_material.setup_body(_body.center(), extent_m, 2.0 * extent_m / float(cells), _terrain)
+	# A configured SLICE lays the box on the body instead of around it; behaviour lives in LAFieldSlice3D.
+	var slice: LAFieldSlice3D = LAFieldSlice3D.of(_material)
+	if slice != null:
+		if not slice.apply(_material, _body, _terrain):
+			push_error("SLICE_INVALID: %s" % slice.error)
+			return
+	else:
+		# METRES: LAFieldGravity solves Poisson in SI on this grid.
+		var extent_m: float = float(_body.radius()) + LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M
+		var cells: int = maxi(_settings_applier.grid_cells_per_edge(), 1)
+		_material.setup_body(_body.center(), extent_m, 2.0 * extent_m / float(cells), _terrain)
 	_validate_grid(_material._grid)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()

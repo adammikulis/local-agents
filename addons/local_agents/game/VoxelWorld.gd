@@ -6,7 +6,7 @@ const InputControllerScript: GDScript = preload("res://addons/local_agents/game/
 const SimulationScene: PackedScene = preload("res://addons/local_agents/game/Simulation.tscn")
 const RenderLayerScene: PackedScene = preload("res://addons/local_agents/game/RenderLayer.tscn")
 const UiLayerScene: PackedScene = preload("res://addons/local_agents/game/UiLayer.tscn")
-const StreamerHostScript: GDScript = preload("res://addons/local_agents/game/streamer/StreamerHost.gd")
+const StreamerHostScript: GDScript = preload("res://addons/local_agents/streamer/StreamerHost.gd")
 
 # THE BODY THIS WORLD IS SEEDED WITH. Every length below is METRES, because the grid is metres.
 const PLANET_RADIUS: float = 2.4397e6

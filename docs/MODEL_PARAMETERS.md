@@ -116,39 +116,39 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/system/SystemOrbits.gd` | `TIDE_AMP` | 4.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/system/Star.gd` | `DEFAULT_MASS` | 1.0e7 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/system/Star.gd` | `DEFAULT_RADIUS` | 250.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `WINDOW_MAX` | 4 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `RESET_EVERY` | 12 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `SAMPLE_INTERVAL` | 0.5 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `INTENSITY_THRESHOLD` | 6.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `INTENSITY_DECAY` | 0.8 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `MIN_COOLDOWN` | 6.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `IDLE_FILLER` | 45.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `URGENT_BAR` | 6.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `URGENT_COOLDOWN` | 2.5 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `URGENT_MAX` | 6 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `ENERGY_TO_INTENSITY` | 0.02 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `ENERGY_URGENT_RISE` | 400.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `I_DISASTER` | 12.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `I_EXTINCT` | 10.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `I_FIRE` | 7.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `I_DEATH` | 6.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `I_STAMPEDE` | 6.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `I_CHASE` | 3.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `I_STALK` | 3.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `I_CIRCLE` | 2.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `I_BIRTH` | 1.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerDirector.gd` | `I_DAYNIGHT` | 1.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/SceneEnergyGraph.gd` | `SAMPLE_HZ` | 10.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/SceneEnergyGraph.gd` | `MIN_FRAME_GAP` | 30 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/SceneEnergyGraph.gd` | `HISTORY` | 300 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/SceneEnergyGraph.gd` | `W_KINETIC` | 1.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/SceneEnergyGraph.gd` | `W_SEISMIC` | 8.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/SceneEnergyGraph.gd` | `W_THERMAL` | 0.6 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerAvatar.gd` | `AVATAR_RENDER_EVERY` | 3 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerAvatar.gd` | `GLANCE_PITCH_UP` | -0.20 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerAvatar.gd` | `GLANCE_YAW_LEFT` | 0.34 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerOverlay.gd` | `CAPTION_HOLD` | 8.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/streamer/StreamerOverlay.gd` | `FEED_MAX` | 4 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `WINDOW_MAX` | 4 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `RESET_EVERY` | 12 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `SAMPLE_INTERVAL` | 0.5 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `INTENSITY_THRESHOLD` | 6.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `INTENSITY_DECAY` | 0.8 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `MIN_COOLDOWN` | 6.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `IDLE_FILLER` | 45.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `URGENT_BAR` | 6.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `URGENT_COOLDOWN` | 2.5 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `URGENT_MAX` | 6 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `ENERGY_TO_INTENSITY` | 0.02 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `ENERGY_URGENT_RISE` | 400.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `I_DISASTER` | 12.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `I_EXTINCT` | 10.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `I_FIRE` | 7.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `I_DEATH` | 6.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `I_STAMPEDE` | 6.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `I_CHASE` | 3.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `I_STALK` | 3.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `I_CIRCLE` | 2.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `I_BIRTH` | 1.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `I_DAYNIGHT` | 1.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/SceneEnergyGraph.gd` | `SAMPLE_HZ` | 10.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/SceneEnergyGraph.gd` | `MIN_FRAME_GAP` | 30 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/SceneEnergyGraph.gd` | `HISTORY` | 300 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/SceneEnergyGraph.gd` | `W_KINETIC` | 1.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/SceneEnergyGraph.gd` | `W_SEISMIC` | 8.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/SceneEnergyGraph.gd` | `W_THERMAL` | 0.6 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerAvatar.gd` | `AVATAR_RENDER_EVERY` | 3 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerAvatar.gd` | `GLANCE_PITCH_UP` | -0.20 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerAvatar.gd` | `GLANCE_YAW_LEFT` | 0.34 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerOverlay.gd` | `CAPTION_HOLD` | 8.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/streamer/StreamerOverlay.gd` | `FEED_MAX` | 4 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/actors/HeatGlow.gd` | `GLOW_MIN` | 400.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `SPAWN_HEIGHT` | 140.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `START_SPEED` | 70.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
@@ -254,11 +254,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MineralStamp3D.gd` | `STAMP_BUDGET` | 96 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/OceanPlane.gd` | `SPHERE_RADIAL_SEGMENTS` | 96 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/OceanPlane.gd` | `SPHERE_RINGS` | 64 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd` | `BASELINE_DETRITUS` | 0.15 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd` | `LITTER_FLAMMABLE_FRAC` | 0.30 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd` | `LITTER_FROM_BIOMASS` | 0.20 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd` | `REFILL_EVERY` | 40 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd` | `FUEL_REQUEST_LEAD` | 20 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `CHANNEL_HOLD_DRAINS` | 20 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `SLOW_READBACK_EVERY` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `DRAIN_ALL` | -1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -316,7 +311,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd` | `DRAIN_ALL` | 1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `CLOUD_WATER_CRIT_KG_KG` | 0.5e-3 | Kessler (1969) q_crit | deleted when condensation is a reaction record and the detector reads the record |
 | `addons/local_agents/sim/material/sphere_passes/TransportPass.gd` | `MIN_AMOUNT` | 0.0001 | the amount below which a cell is treated as empty; chosen, not derived | deleted when a donor's floor comes from the substance's own molar volume |
-| `addons/local_agents/sim/material/sphere_passes/TransportPass.gd` | `SUBSTEP_MAX` | 64 | solver budget cap, not physics — see `cfl_substep_budget` in docs/APPROXIMATIONS.md | an implicit or uncapped substepped solve |
+| `addons/local_agents/sim/material/sphere_passes/TransportPass.gd` | `SUBSTEP_MAX` | 128 | solver budget cap, not physics — see `cfl_substep_budget` in docs/APPROXIMATIONS.md | an implicit or uncapped substepped solve |
 | `addons/local_agents/sim/material/MaterialFieldRegolith3D.gd` | `REGOLITH_CELLS` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldRegolith3D.gd` | `INITIAL_TABLE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/game/render/WaterSurfaceMesh.gd` | `SEA_BIAS` | 0.4 | inherited, unreviewed | Stage 2 substrate rewrite |

@@ -75,7 +75,6 @@ const SphereGPUScript: GDScript = preload("res://addons/local_agents/sim/materia
 const QueriesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldQueries3D.gd")
 const InjectScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldInject3D.gd")
 const SphereStepScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd")
-const SurfaceSeedScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd")
 const OrganicScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldOrganic3D.gd")
 var _gpu = null                                          # LAMaterialSphereGPU3D or null
 var _use_gpu: bool = false
@@ -83,7 +82,6 @@ var _queries = null                                      # LAMaterialFieldQuerie
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
 var _stamp = null                                        # LAMineralStamp3D — solid-flag -> SDF growth stamp
 var _sphere_step = null                                  # LAMaterialFieldSphereStep3D — the per-frame step loop
-var _surface_seed = null                                 # LAMaterialSurfaceSeed3D — ground-surface fuel + soil detritus seed/refill
 var _organic = null                                      # LAMaterialFieldOrganic3D — the dead pool's C:H:O gauge
 # Substrate-foundation primitive modules (the field only delegates; all logic lives in these). Seams the
 # per-actor dissolution agents fill: shock (Earthquake/Meteor), charge→bolt (Thunderstorm), ejecta (bombs/debris).
@@ -102,6 +100,10 @@ var _regolith_mod = null                                 # LAMaterialFieldRegoli
 var _biota = null                                        # LAMaterialFieldBiota3D
 const BoundaryScript: GDScript = preload("res://addons/local_agents/sim/material/FieldBoundary3D.gd")
 var _boundary = null                                     # LAFieldBoundary3D — the box-face boundary provider
+const CaptureScript: GDScript = preload("res://addons/local_agents/sim/material/FieldBoundaryCapture3D.gd")
+var _capture = null                                      # LAFieldBoundaryCapture3D — face-state record/replay
+var _slice = null                                        # LAFieldSlice3D — set when this field is a slice
+var _pivot = null                                        # Vector3 body centre when the box is not centred on it
 const AtmosScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldAtmos3D.gd")
 const LedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLedger3D.gd")
 const ChannelsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldChannels3D.gd")
@@ -170,10 +172,6 @@ const RENDER_MIN: float = 0.08            # min water mass in a cell for its top
 const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of the sea shell are left to the ocean plane
 var _ready_sim: bool = false
 var _seal = null
-var _fuel_dirty: bool = false            # fuel seeded on the CPU → seed the GPU fuel buffer before step 0
-var _detritus_seed_dirty: bool = false   # one-shot: initial soil detritus seeded → upload once before the first step
-var _organic_seed_dirty: bool = false    # one-shot: the seeded litter's C:H:O pushed once, with the detritus seed
-
 
 
 ## THE ONE GRID: a uniform Cartesian box. Nothing here holds a second index layout.
@@ -372,9 +370,6 @@ func activate() -> void:
 	_boundary.attach(_gpu)                # uploads the redirect table + supplied ghost tails
 	_inject = InjectScript.new()
 	_inject.setup(self)
-	# Baseline flammable fuel and soil detritus on surface cells; seed_tick seeds it once gravity is solved.
-	_surface_seed = SurfaceSeedScript.new()
-	_surface_seed.setup(self)
 	_organic = OrganicScript.new()
 	_organic.setup(self)
 	# The sparse, event-driven solid-flag crossing -> SDF terrain-growth stamp (idle until armed).
@@ -390,6 +385,7 @@ func activate() -> void:
 	_ejecta = EjectaScript.new()
 	_ejecta.setup(self)
 	add_child(_ejecta)                            # Node3D: integrates ballistic parcels + owns the GPU ejecta particles
+	_capture = CaptureScript.maybe_make(self)
 	_ready_sim = true
 
 

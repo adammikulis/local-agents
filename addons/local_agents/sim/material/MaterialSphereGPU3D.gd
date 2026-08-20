@@ -198,7 +198,7 @@ func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	_ctx["g_m_s2"] = _field._gravity.mean_g() if _field._gravity != null else 0.0
 	# March bound: a column cannot be longer than the box.
 	_ctx["depth"] = _grid.max_span()
-	_ctx["centre"] = _grid.center()      # the spin axis passes through it
+	_ctx["centre"] = _field.centre()     # the body centre — the spin axis passes through it
 	_ctx["spin"] = LAFieldGeometry.spin_axis(_field)
 
 ## World-space vector toward the sun; its LENGTH is the relative insolation. Absent = no sun, which is
@@ -228,6 +228,7 @@ func step() -> void:
 		_pending = false
 		_read_gpu_pass_timings()
 	_ctx["step_index"] = _step_index
+	_ctx["dt_s"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()
 	for key in _bnd_keys:
 		_rd.buffer_clear(_bufs[key], 0, _cc * 4)
 	if _step_probe.is_valid():
@@ -423,8 +424,14 @@ func request_probe(names: PackedStringArray) -> void:
 
 ## The most recent read-only sample, taken at the drain into a dictionary no simulation consumer sees. Empty
 ## until the first drain after `request_probe`; a leg that is absent is ABSENT, never substituted.
-func take_probe() -> Dictionary:
-	return _probe
+## Each consumer takes ONLY the legs it named, so two instruments never steal each other's sample.
+func take_probe(names: PackedStringArray) -> Dictionary:
+	var out: Dictionary = {}
+	for name in names:
+		if _probe.has(name):
+			out[name] = _probe[name]
+			_probe.erase(name)
+	return out
 
 
 ## The CPU solid/static mask changed (initial solidity sample, a volcano SDF stamp, a terrain edit) — re-seed

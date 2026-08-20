@@ -209,14 +209,10 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
   `MaterialFieldSphereStep3D.gd:282-306` overwrites them wholesale from the GPU readback every drain. Park
   transactions on the device injection queue instead. Every breath an animal took once debited nothing.
 - **No GPU-side execution timer in this build.** `gpu_dispatch_ms` reads 0.00 on Metal.
-- **Where the field's time goes: RE-MEASURE IT, the old split is void.** It read "readback 77%, core pin 13%,
-  dispatch 4%", and the core pin no longer exists — `MaterialSphereGPU3D.gd:327-330` records that the
-  geothermal core stopped writing `_temp` on the CPU every step and became a flux boundary inside
-  `heat_sphere3d.glsl`. So 13% is attributed to work that does not run, and the rest cannot be trusted to
-  add up. Readback is still the thing to optimise. A
-  camera-relevance LOD was deleted for optimising the 4% while costing 4.5 °C of climate error.
-- **The neighbour table and the tangent frame are SEPARATE tables** — the discrete hairy-ball theorem, proved
-  in `GODOT_BEST_PRACTICES.md`. Anything reading a vector across a seam uses the per-link rotation.
+- **Where the field's time goes: RE-MEASURE IT, the old split is void.** The split it quoted attributed a
+  share to a geothermal core pin, and that work no longer exists — the geotherm module is gone and rock
+  warms itself inside the transport kernel. Readback is still the thing to optimise; a camera-relevance
+  LOD was deleted for optimising the smallest share while costing real climate error.
 - **A wrapper run reads the tree AT LAUNCH** — editing a worktree mid-batch silently mixes code versions.
 - **`FOO="${FOO:-}"` arms anything gating on `OS.has_environment`** — true for an empty value. Gate on
   `get_environment(name) != ""` instead.

@@ -14,6 +14,8 @@ const META_FACES: StringName = &"boundary_faces"
 const META_STATES: StringName = &"boundary_face_states"
 ## A supplied face state is captured data, never invented here. These keys are required of every state.
 const STATE_KEYS: PackedStringArray = ["temp_c", "pressure_pa", "gravity", "velocity", "amounts"]
+## Rayleigh rim inward of a REPLAY face: nudge fraction per step ((RIM_CELLS - k) / RIM_CELLS)^2 at row k.
+const RIM_CELLS: int = 4
 
 var error: String = ""
 var _grid: LAVoxelGrid = null
@@ -26,6 +28,9 @@ var _face_base: PackedInt32Array = PackedInt32Array()
 var _ghost: PackedInt32Array = PackedInt32Array()
 ## Per ghost tail cell: the prescribed pressure, Pa — the momentum ledger's CPU mirror.
 var _mirror_p: PackedFloat32Array = PackedFloat32Array()
+## Per interior cell: the REPLAY face's driving ghost cell and the per-step nudge fraction; 0 = no rim.
+var _rim_ghost: PackedInt32Array = PackedInt32Array()
+var _rim_w: PackedFloat32Array = PackedFloat32Array()
 var _gpu = null
 
 
@@ -111,7 +116,33 @@ func configure(grid: LAVoxelGrid, modes: PackedInt32Array, states: Array) -> boo
 				nbr[gh * LAVoxelGrid.SLOTS + back] = cells[i]
 			next += cells.size()
 	grid.neighbours = nbr
+	_build_rim(nbr)
 	return true
+
+
+## LA_APPROX: boundary_relaxation_zone
+func _build_rim(nbr: PackedInt32Array) -> void:
+	_rim_ghost = PackedInt32Array()
+	_rim_ghost.resize(_cc)
+	_rim_ghost.fill(-1)
+	_rim_w = PackedFloat32Array()
+	_rim_w.resize(_cc)
+	for d in LAVoxelGrid.SLOTS:
+		if _modes[d] != REPLAY:
+			continue
+		var inward: int = LAVoxelGrid.opposite_slot(d)
+		var cells: PackedInt32Array = _face_cells[d]
+		var base: int = _face_base[d]
+		for i in cells.size():
+			var at: int = cells[i]
+			for k in RIM_CELLS:
+				if at < 0 or at >= _cc:
+					break
+				var w: float = pow(float(RIM_CELLS - k) / float(RIM_CELLS), 2.0)
+				if w > _rim_w[at]:
+					_rim_w[at] = w
+					_rim_ghost[at] = base + i
+				at = nbr[at * LAVoxelGrid.SLOTS + inward]
 
 
 func _valid_state(st: Dictionary, d: int) -> bool:
@@ -140,12 +171,21 @@ func attach(gpu) -> void:
 		return
 	var bytes: PackedByteArray = _ghost.to_byte_array()
 	_gpu._rd.buffer_update(_gpu._bufs["ghost"], 0, bytes.size(), bytes)
+	var has_replay: bool = false
 	for d in LAVoxelGrid.SLOTS:
 		if _modes[d] == CONSTANT or _modes[d] == REPLAY:
 			_fill_face(d)
+		if _modes[d] == REPLAY:
+			has_replay = true
+	if has_replay and _gpu._bufs.has("rim_ghost") and _gpu._bufs.has("rim_w"):
+		var rg: PackedByteArray = _rim_ghost.to_byte_array()
+		_gpu._rd.buffer_update(_gpu._bufs["rim_ghost"], 0, rg.size(), rg)
+		var rw: PackedByteArray = _rim_w.to_byte_array()
+		_gpu._rd.buffer_update(_gpu._bufs["rim_w"], 0, rw.size(), rw)
 
 
 ## The REPLAY seam: the series owner supplies the next state and the tails are re-uploaded in place.
+## LA_APPROX: one_way_boundary_nesting
 func replay(d: int, state: Dictionary) -> void:
 	if _modes.size() != LAVoxelGrid.SLOTS or _modes[d] != REPLAY:
 		_fail("face %d is not REPLAY" % d)

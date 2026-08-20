@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # MOMENTUM CROSSING AN OPEN BOUNDARY IS BOOKED, judged by the REAL evaluator: TransportPass dispatching
 # transport.glsl over a two-cell rig with one CONSTANT face from the real LAFieldBoundary3D. The PGF is a
-# face FLUX (p n dt/L crosses every face, cancelling pairwise inside), so a balanced face books exactly
-# the static flux while the cells' momentum stays exactly zero; a gap books more and accelerates the edge
-# cell inward; shut walls book zero. LABoundaryBooks promises no heat leg for a signed channel and still
-# names a matter channel's absent one.
+# face FLUX (p n dt/L crosses every face, cancelling pairwise inside) and bnd_mom_* books the whole
+# exchange with everything outside the fluid, walls included: a balanced box books net zero while its
+# cells' momentum stays exactly zero; a gap books a net inflow and accelerates the edge cell inward.
+# LABoundaryBooks promises no heat leg for a signed channel and still names a matter channel's absent one.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -113,7 +113,9 @@ func _run(p_ghost: float) -> Dictionary:
 		owned.append(r)
 		bufs[String(key)] = r
 
-	for pair: Array in [["pressure", P_IN], ["temp", T_C]]:
+	# Air of that pressure holds this mass: a cell at P with zero density is not a state matter has.
+	var rho_air: float = P_IN / (LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * (T_C + LAPhysical.KELVIN_OFFSET))
+	for pair: Array in [["pressure", P_IN], ["temp", T_C], ["rho_bulk", rho_air]]:
 		var vals: PackedByteArray = _filled(tc, float(pair[1])).to_byte_array()
 		_rd.buffer_update(bufs[String(pair[0])], 0, vals.size(), vals)
 
@@ -126,7 +128,9 @@ func _run(p_ghost: float) -> Dictionary:
 		if bnd.error != "":
 			_expect(false, "boundary attach failed: " + bnd.error)
 	var cl: int = _rd.compute_list_begin()
-	p.dispatch(_rd, cl, {"cell_size": CELL, "sun_dir": Vector3.ZERO}, cc, int(ceil(float(cc) / 64.0)))
+	# One acoustic crossing is ~3 ms at this cell size; the rig's step stays inside the explicit regime.
+	p.dispatch(_rd, cl, {"cell_size": CELL, "sun_dir": Vector3.ZERO, "dt_s": 1.0e-4},
+		cc, int(ceil(float(cc) / 64.0)))
 	_rd.compute_list_end()
 	_rd.submit()
 	_rd.sync()
@@ -168,15 +172,13 @@ func _init() -> void:
 		+ "edge cell booked none (bnd_mom_x %s)." % String.num_scientific(gap_x))
 	_expect(float(gap["mom_x"][0]) > 0.0, "a higher exterior pressure did not accelerate the edge "
 		+ "cell inward (mom_x %s)." % String.num_scientific(float(gap["mom_x"][0])))
-	_expect(float(gap["bnd_mom_x"][1]) == 0.0, "the interior cell touches no open face and booked "
-		+ "momentum anyway.")
+	_expect(float(gap["bnd_mom_x"][1]) < 0.0, "the far cell's wall took the fluid's push and booked "
+		+ "none of it.")
 	_expect(_sum(gap["bnd_n2"]) > 0.0, "exterior air diffused in through the open face and bnd_n2 "
 		+ "booked none.")
-	# The static momentum flux p dt / L crosses the balanced face; the cells it enters do not move.
-	var flux: float = P_IN * LAMaterialFieldSphereStep3D.real_seconds_per_step() / CELL
-	var bal_x: float = _sum(balanced["bnd_mom_x"])
-	_expect(absf(bal_x - flux) <= 1.0e-4 * flux, ("a balanced face carries the static flux %s yet "
-		+ "bnd_mom_x reads %s.") % [String.num_scientific(flux), String.num_scientific(bal_x)])
+	# The open face's static flux and the far wall's push cancel exactly: no net momentum enters.
+	_expect(_sum(balanced["bnd_mom_x"]) == 0.0, "a balanced box exchanged net momentum: bnd_mom_x "
+		+ "reads %s." % String.num_scientific(_sum(balanced["bnd_mom_x"])))
 	for c in 2:
 		_expect(float(balanced["mom_x"][c]) == 0.0, "uniform pressure accelerated cell %d "
 			% c + "(mom_x %s)." % String.num_scientific(float(balanced["mom_x"][c])))

@@ -22,6 +22,9 @@ func setup(field) -> void:
 ## SEEDING: GravityPass alone, RELAXED TO CONVERGENCE, so `down_at` answers before the first step. Poisson
 ## is elliptic, so a fixed sweep count is not a solve. Its own ctx: no dt is consumed, no step index moves.
 func solve_seed() -> void:
+	if _f._slice != null:
+		_solve_slice()
+		return
 	_bind()
 	if _pass == null or _f._gpu == null or _f._gpu._rd == null:
 		return
@@ -43,6 +46,34 @@ func solve_seed() -> void:
 			+ "still %f of its source. Every `above`/`below` walk below this — pressure, the regolith "
 			+ "burial march, the lake flood, the surface seed — is reading a direction the solve has not "
 			+ "yet produced.") % [dispatches, rel])
+
+
+## SLICE: a partial slab cannot solve Poisson — its own mass is not the field's source. The DECLARED
+## body's monopole is dispatched once instead (gravity_poisson.glsl MODE_MONOPOLE), M derived from the
+## declared radius and the declared rock density. Nothing is sampled from the slice's own partial mass.
+func _solve_slice() -> void:
+	_bind()
+	if _pass == null or _f._gpu == null or _f._gpu._rd == null:
+		return
+	var body = _f._body
+	if body == null or not body.has_method("radius") or not body.has_method("center"):
+		push_error("SLICE_NO_BODY: slice mode has no declared body, so gravity has no mass to point at. "
+			+ "Declare the body (set_body) before the seed.")
+		return
+	var r_body: float = float(body.radius())
+	var rho: float = float(LASubstances.table()["silicate"].get("density", 0.0))
+	if r_body <= 0.0 or rho <= 0.0:
+		push_error("SLICE_NO_BODY: the declared body states radius %f and LASubstances states rock density %f; the monopole needs both." % [r_body, rho])
+		return
+	var m_kg: float = (4.0 / 3.0) * PI * r_body * r_body * r_body * rho
+	_pass.set_monopole(_f.centre(), r_body, m_kg)
+	var rd: RenderingDevice = _f._gpu._rd
+	var cl: int = rd.compute_list_begin()
+	_pass.dispatch_monopole(rd, cl, _f._gpu._cc, _f._grid.cell_size, _f._gpu._groups)
+	rd.compute_list_end()
+	rd.submit()
+	rd.sync()
+	_pass._drain(rd)
 
 
 func _bind() -> void:
@@ -82,6 +113,13 @@ func mean_g() -> float:
 ## The unit vector gravity points along at a cell — what "down" means here. Zero where g vanishes, and
 ## zero before the first solve has been drained.
 func down_at(c: int) -> Vector3:
+	var v: Vector3 = g_vec_at(c)
+	var l: float = v.length()
+	return (v / l) if l > 0.0 else Vector3.ZERO
+
+
+## The solved (or, in slice mode, declared-monopole) acceleration at a cell, m/s^2.
+func g_vec_at(c: int) -> Vector3:
 	_bind()
 	if _pass == null or c < 0:
 		return Vector3.ZERO
@@ -89,6 +127,4 @@ func down_at(c: int) -> Vector3:
 	var base: int = c * 3
 	if base + 2 >= g.size():
 		return Vector3.ZERO
-	var v: Vector3 = Vector3(g[base], g[base + 1], g[base + 2])
-	var l: float = v.length()
-	return (v / l) if l > 0.0 else Vector3.ZERO
+	return Vector3(g[base], g[base + 1], g[base + 2])

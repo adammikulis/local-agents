@@ -23,6 +23,10 @@ layout(set = 0, binding = 17, std430) restrict buffer Grain { float grain[]; };
 // Cell centre, flat cell*3, model units. The centrifugal term needs the radius vector.
 layout(set = 0, binding = 18, std430) restrict readonly buffer Pos { float pos[]; };
 layout(set = 0, binding = 49, std430) restrict readonly buffer Grav { float g_field[]; };  // m/s^2, cell*3
+// The body impulse this step deposits per cell (weight + rotating frame), kg/(m^2 s): the ledger's book.
+layout(set = 0, binding = 50, std430) restrict writeonly buffer BodyFX { float bodyf_x[]; };
+layout(set = 0, binding = 51, std430) restrict writeonly buffer BodyFY { float bodyf_y[]; };
+layout(set = 0, binding = 52, std430) restrict writeonly buffer BodyFZ { float bodyf_z[]; };
 
 // MOMENTUM is the state, kg m/s per m^3. Velocity is what you read off it once you know the mass.
 layout(set = 0, binding = 25, std430) restrict buffer MomX { float mom_x[]; };
@@ -303,6 +307,9 @@ void main() {
 		h_silicate[g] = 0.0;
 		h_sensible[g] = 0.0;
 		cap_sensible[g] = 0.0;
+		bodyf_x[g] = 0.0;
+		bodyf_y[g] = 0.0;
+		bodyf_z[g] = 0.0;
 		lithify(g, f_melt);
 		return;   // no mass, so the frame terms deliver no momentum either
 	}
@@ -406,6 +413,9 @@ void main() {
 		vel_y[g] = 0.0;
 		vel_z[g] = 0.0;
 		speed[g] = 0.0;
+		bodyf_x[g] = 0.0;
+		bodyf_y[g] = 0.0;
+		bodyf_z[g] = 0.0;
 		return;
 	}
 	// BODY FORCES per volume: weight rho*g, which -grad(p) stands against, then the rotating-frame pair.
@@ -417,4 +427,7 @@ void main() {
 	mom_x[g] += dp.x;
 	mom_y[g] += dp.y;
 	mom_z[g] += dp.z;
+	bodyf_x[g] = dp.x;
+	bodyf_y[g] = dp.y;
+	bodyf_z[g] = dp.z;
 }

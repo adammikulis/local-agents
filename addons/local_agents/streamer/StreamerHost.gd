@@ -2,11 +2,11 @@ class_name LAVoxelStreamerHost
 extends Node
 
 
-const StreamerOverlayScene: PackedScene = preload("res://addons/local_agents/game/streamer/StreamerOverlay.tscn")
-const StreamerAvatarScene: PackedScene = preload("res://addons/local_agents/game/streamer/StreamerAvatar.tscn")
-const StreamerVoiceScript: GDScript = preload("res://addons/local_agents/game/streamer/StreamerVoice.gd")
-const StreamerDirectorScript: GDScript = preload("res://addons/local_agents/game/streamer/StreamerDirector.gd")
-const EnergyGraphScript: GDScript = preload("res://addons/local_agents/game/streamer/SceneEnergyGraph.gd")
+const StreamerOverlayScene: PackedScene = preload("res://addons/local_agents/streamer/StreamerOverlay.tscn")
+const StreamerAvatarScene: PackedScene = preload("res://addons/local_agents/streamer/StreamerAvatar.tscn")
+const StreamerVoiceScript: GDScript = preload("res://addons/local_agents/streamer/StreamerVoice.gd")
+const StreamerDirectorScript: GDScript = preload("res://addons/local_agents/streamer/StreamerDirector.gd")
+const EnergyGraphScript: GDScript = preload("res://addons/local_agents/streamer/SceneEnergyGraph.gd")
 
 var _streamer_overlay: CanvasLayer = null  # LAStreamerOverlay (lower-right face-cam + caption + toggle)
 var _streamer_director: Node = null        # LAStreamerDirector (LLM commentary brain)

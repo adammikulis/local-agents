@@ -44,11 +44,10 @@ func post_step() -> void:
 
 func _on_pass(pass_index: int, pass_name: String) -> void:
 	var amount: float = _total()
-	if is_nan(amount):
-		return
+	# A NaN total is the reading, not a reason to stay silent.
 	print("PASS_PROBE=", JSON.stringify({
 		"step": _step, "pass": pass_name if pass_index >= 0 else "start",
-		"channel": _channel, "amount": amount}))
+		"channel": _channel, "amount": amount if is_finite(amount) else String.num(amount)}))
 
 
 ## Mask-free matter in the channel, right now.

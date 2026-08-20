@@ -76,7 +76,6 @@ func seed_tick() -> bool:
 			+ "water table is unprimed and darcy_resistance() makes the groundwater row inert. The walk "
 			+ "reads `below` from solved gravity: it ran before the solve was dispatched and drained.")
 	LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins
-	_f._surface_seed.seed_initial()                    # litter on the open cells standing on rock
 	if _f._gpu != null:                                # hand the device what those three walks produced
 		_f._gpu._seed_regolith()                       # permeability mask + grain size
 		_f._gpu._seed("porosity", _f._porosity)        # Athy pore fraction
@@ -101,28 +100,23 @@ func step() -> void:
 		# The MAGNITUDE of sun_dir carries INSOLATION (orbit-distance² × atmospheric transmission).
 		var insol: float = float(_f._sun_light.get_meta("insolation", 1.0))
 		_f._gpu.set_sun_dir(_f.dir_to_field(_f._sun_light.global_transform.basis.z * insol))
-	# The transport substep budget reads last step's drained maxima.
+	# The transport substep budget reads last step's drained maxima; before the first drain the field
+	# is the seed, whose hottest cell is the declared seed temperature.
 	if _f._gpu.has_method("set_cfl_inputs") and _f._queries != null:
+		var tk_max: float = _f._queries.row_f("all_temp_max")
+		if not is_finite(tk_max):
+			tk_max = LAMaterialField3D.INITIAL_TEMP
 		_f._gpu.set_cfl_inputs(_f._queries.row_f("wind_speed_max"),
-			_f._queries.row_f("all_temp_max") + LAPhysical.KELVIN_OFFSET,
+			tk_max + LAPhysical.KELVIN_OFFSET,
 			_f._gravity.mean_g() if _f._gravity != null else 0.0)
-	# The world-gen seeds, declared through the seal.
-	if _f._fuel_dirty and _f._gpu.has_method("seed_field"):
-		_f._gpu.seed_field("fuel", _f._fuel, _f._seal)
-		_f._fuel_dirty = false
-	if _f._detritus_seed_dirty and _f._gpu.has_method("seed_field"):
-		_f._gpu.seed_field("detritus", _f._detritus, _f._seal)
-		_f._detritus_seed_dirty = false
-	# The seeded litter's bound H and O, in the same one-shot as its carbon.
-	if _f._organic_seed_dirty and _f._gpu.has_method("seed_field"):
-		_f._gpu.seed_field("org_h", _f._org_h, _f._seal)
-		_f._gpu.seed_field("org_o", _f._org_o, _f._seal)
-		_f._organic_seed_dirty = false
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		if OS.has_environment("LA_INJECT_AUDIT"):
 			# Diagnostic.
 			_f._inject.queue.audit_rewind(_f._gpu, "h2o", _f._h2o)
 		_f._inject.queue.flush(_f._gpu)
+	# Boundary face-state record/replay: samples at the drain, feeds REPLAY tails before the dispatch.
+	if _f._capture != null:
+		_f._capture.pre_step()
 	var t_step: int = Time.get_ticks_usec()
 	if _probe != null:
 		_probe.pre_step()             # arm/disarm the driver's between-pass probe for THIS step
@@ -134,12 +128,9 @@ func step() -> void:
 	var res: Dictionary = _f._gpu.end_frame()
 	var t_post: int = Time.get_ticks_usec()
 	_apply_readback(res)
-	# Seal on the field clock, never the report clock.
+	# Seal on the field clock, never the report clock. The seal takes only its own legs.
 	if _f._seal != null and _f._gpu.has_method("take_probe"):
-		_f._seal.poll(_f._gpu.take_probe())
-	# Surface seed module: coarse-cadence biomass -> fuel litter transfer, queued sparse.
-	if _f._surface_seed != null:
-		_f._surface_seed.post_readback()
+		_f._seal.poll(_f._gpu.take_probe(LAMaterialFieldSeal3D.required_channels()))
 	# Charge module reads the strike list the breakdown kernel published and fires the bolt visuals.
 	if _f._charge_mod != null:
 		_f._charge_mod.post_step()
