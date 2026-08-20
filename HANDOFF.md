@@ -14,13 +14,6 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 1. The REPLAY rim skips the momentum rows
-
-The slice runs (`scripts/sim_run.sh --slice`; record a global run's exterior with `--slice-capture FILE`,
-consume it with `--slice --slice-state FILE`, series-feed with `LA_SLICE_REPLAY=1`). Momentum's boundary
-book exists (`BoundaryRows.BOOKED_SIGNED`), so the rim's reason for skipping the mom rows is gone: mark
-them `relax` in `TransportRecords`, and verify the rim's nudge lands in `bnd_mom_*` on the REPLAY arm.
-
 ## 0. MOMENTUM RUNS AWAY TO NON-FINITE. THE SLICE IS THE TEST DOMAIN.
 
 Same lane, second symptom: **identical-seed runs diverge on a clean tree.** Reproduce:
