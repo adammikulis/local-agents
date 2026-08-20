@@ -133,14 +133,8 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
 
 <!-- claim: nofile addons/local_agents/sim/material/Bindings.gd -->
 
-## 9. An instrument that cannot fire, and two re-sweeps
+## 9. Two re-sweeps
 
-- **`discharge` is read and no longer written.** `reactions_sphere3d.glsl` binds it and `DISCHARGE` drives
-  the lightning nitrogen-fixation record, but the term that wrote it was `sigma*E^2*dt` added straight to
-  `h[]` with no electrostatic store behind it, and it was deleted for creating energy. So that record's
-  driver is now zero everywhere and the reaction cannot fire. Either give a flash a real store to spend —
-  `0.5*eps0*E^2` over the volume it neutralises, debited, not conjured — or delete the record and the
-  binding with it. `col_e` and `strike` survive as detectors and are honest.
 - `MaterialSphereGPU3D._seed_silicate()` writes the whole `silicate` and `cement` buffers with
   `buffer_update` and never calls `note_creation`, so the planet's entire rock mass is absent from the seed
   manifest that is meant to be the scoreboard of what the substrate was told. `MaterialField3D` declares the
@@ -150,22 +144,6 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
 - `LASpatialIndex.rebuild_if_stale` rebuilds a whole group's dictionary every frame it is touched rather
   than tracking per-node cell changes, and `LASimReport.snapshot` deep-copies its events and gauges on every
   call. Both are constants, not asymptotes.
-
-## 10. A constant that is not what it names
-
-- `AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`, and it is the unit
-  definition of the `o2`, `co2` and `n2` channels, so correcting it rescales every gas total.
-
-## 11. Rebuild frost shattering from the phase boundary
-
-`LAGeoRecords` has no `RM_DEFICIT_BELOW_THRESHOLD` record, no `FROST_*` constant survives, and the rate
-model is declared in `ReactionDefs` and used by nothing. The mechanism is ice segregation, not expansion in
-a sealed pore. Invert `LASubstances.melt_c_at`: the pressure ice exerts at undercooling dT is
-`dH_fus * dT / (T_m * dv)` with `dv = 1/rho_ice - 1/rho_water`, every term already in the table, about
-13.5 MPa per kelvin. Rock fractures where that passes its TENSILE strength, which is a measured property
-`Substances.gd` should carry with its source. Bound the extent by the pore water available to freeze, and
-let deep cold starve the mechanism out of the state rather than a cutoff. Observed damage peaks at -3 to
--10 C: if the law disagrees, that is the finding, not a thing to tune.
 
 ## 12. `LAFieldGeometry.above` and `below` are not inverses, and `PRESSURE_BROKEN` still fires on it
 
