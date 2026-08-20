@@ -35,6 +35,11 @@ whole planet forces, rain and eruptions may not be reachable at all. A slice wit
 
 ## 0. MOMENTUM RUNS AWAY TO NON-FINITE. DOWNSTREAM OF ITEM 1; DO NOT START IT FIRST.
 
+Same lane, second symptom: **identical-seed runs diverge on a clean tree.** Reproduce:
+`scripts/agent_harness.sh sim --frames 5 --report h2o_total` twice and diff — one key differs at 5
+frames and the whole report by 20. Transport, gravity, pressure and the reduce fold are
+order-independent by construction.
+
 **Reproduce:** `LA_FINITE_FRAMES=20 scripts/check_finite_channels.sh` on `feature/momentum-advection`.
 `nonfinite_cells` counts three per affected cell — `mom_x`/`mom_y`/`mom_z` and nothing else.
 
