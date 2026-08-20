@@ -729,6 +729,14 @@ void main() {
 			send_h[base + d] = 0.0;
 			send_q[base + d] = 0.0;
 		}
+		// DETECTORS ONLY, stamped in pass 0: nothing writes `charge` in this dispatch, so every march
+		// reads the one pre-drain state the OHMIC mobility below acts on.
+		if ((params.flags & TF_EFIELD) != 0u && gidx < params.cell_count) {
+			float e_here = column_field(gidx);
+			float thr = rrea_threshold(gidx);
+			col_e[gidx] = e_here;
+			strike[gidx] = (thr > 0.0 && e_here >= thr) ? 1.0 : 0.0;
+		}
 		if (solid[gidx] != 0.0 && blocks_solid) {
 			return;
 		}
@@ -927,14 +935,6 @@ void main() {
 	}
 	h[gidx] = h[gidx] - lost_h + gained_h;
 	charge[gidx] = charge[gidx] - lost_q + gained_q;
-	if ((params.flags & TF_EFIELD) != 0u) {
-		// DETECTORS ONLY. sigma E^2 dt is a dissipation RATE and nothing here holds the electrostatic
-		// store it would have to be drawn out of, so no cell is handed energy for conducting.
-		float e_here = column_field(gidx);
-		float thr = rrea_threshold(gidx);
-		col_e[gidx] = e_here;
-		strike[gidx] = (thr > 0.0 && e_here >= thr) ? 1.0 : 0.0;
-	}
 	if ((params.flags & TF_RADIOGENIC) != 0u) {
 		// The rock warms itself, at this epoch's rate. This row carries h_j_m3, so `amount` IS enthalpy.
 		float dq = (max(silicate[gidx], 0.0) * params.w_silicate
