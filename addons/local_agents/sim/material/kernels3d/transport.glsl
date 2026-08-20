@@ -40,7 +40,7 @@ layout(set = 0, binding = 19, std430) restrict readonly buffer CO2Buf      { flo
 // ONE H2O CHANNEL plus the three DERIVED shares state_derive.glsl publishes. Ice, liquid and vapour differ
 // optically by more than an order of magnitude, so every radiative term below splits h2o by these.
 layout(set = 0, binding = 20, std430) restrict readonly buffer H2OBuf       { float h2o[]; };
-// LAAbsorptionBands.packed(): header, band edges, temperature slices, solar weights, five coefficients
+// LAAbsorptionBands.packed(): header, band edges, temperature slices, solar weights, seven coefficients
 // per (temperature, band), Planck CDF.
 layout(set = 0, binding = 21, std430) restrict readonly buffer RadTable { float rad_table[]; };
 layout(set = 0, binding = 22, std430) restrict readonly buffer H2OSolidBuf  { float h2o_solid[]; };
@@ -68,7 +68,7 @@ layout(set = 0, binding = 34, std430) buffer ActiveIdx { uint active_idx[]; };
 layout(set = 0, binding = 35, std430) buffer ActiveArgs { uint active_args[]; };
 layout(set = 0, binding = 36, std430) buffer ActiveFlag { uint active_flag[]; };
 // MODE_RADIATE's own books, J/m^3, assigned in the gather so each is a per-step rate needing no clear.
-layout(set = 0, binding = 37, std430) restrict writeonly buffer RadAbs { float rad_absorbed[]; };
+layout(set = 0, binding = 37, std430) restrict buffer RadAbs { float rad_absorbed[]; };
 layout(set = 0, binding = 38, std430) restrict writeonly buffer RadEmit { float rad_emitted[]; };
 // The column field and the breakdown it decides, published rather than re-derived on the CPU.
 layout(set = 0, binding = 39, std430) restrict writeonly buffer ColE { float col_e[]; };
@@ -88,6 +88,15 @@ layout(set = 0, binding = 49, std430) restrict buffer BndH { float bnd_h[]; };
 // The REPLAY relaxation rim: the driving ghost cell and the per-step nudge fraction; 0 = outside the rim.
 layout(set = 0, binding = 50, std430) restrict readonly buffer RimGhost { int rim_ghost[]; };
 layout(set = 0, binding = 51, std430) restrict readonly buffer RimW { float rim_w[]; };
+// The reflected-shortwave field: the share of upwelling flux a cell keeps as heat, each cell's reflected
+// source W/m^2, what escapes to space J/m^3 per step, and the Stefan-Boltzmann residual of rad_emitted.
+layout(set = 0, binding = 52, std430) restrict buffer SwKeep { float sw_keep[]; };
+layout(set = 0, binding = 53, std430) restrict buffer SwSrc { float sw_src[]; };
+layout(set = 0, binding = 54, std430) restrict writeonly buffer SwSpace { float sw_space[]; };
+layout(set = 0, binding = 55, std430) restrict writeonly buffer RadResid { float rad_residual[]; };
+// O3 partial density, kg/m^3. Zeros until a photochemical o3 channel exists to swap in: at 4.5 Ga,
+// with free O2 at zero, there is no ozone layer.
+layout(set = 0, binding = 56, std430) restrict readonly buffer O3Buf { float o3[]; };
 
 #include "march.glsli"
 
@@ -129,6 +138,7 @@ const uint PASS_GRAIN = 2u;
 const uint PASS_LIST_RESET = 3u;
 const uint PASS_LIST_APPEND = 4u;
 const uint PASS_LIST_ARGS = 5u;
+const uint PASS_SW = 6u;
 
 const float KELVIN = 273.15;                        // LAPhysical.KELVIN_OFFSET
 const float STEFAN = 5.670374419e-8;                // LAPhysical.STEFAN_BOLTZMANN
@@ -434,13 +444,13 @@ uint edge_off() { return 4u; }
 uint temp_off() { return edge_off() + params.band_count + 1u; }
 uint wsun_off() { return temp_off() + temp_count(); }
 uint kappa_off() { return wsun_off() + params.band_count; }
-uint cdf_off() { return kappa_off() + temp_count() * params.band_count * 5u; }
+uint cdf_off() { return kappa_off() + temp_count() * params.band_count * 7u; }
 float band_edge(uint b) { return rad_table[edge_off() + b]; }
 float solar_weight(uint b) { return rad_table[wsun_off() + b]; }
 
 float kappa_at(uint b, uint k, uint ti, float tf) {
-	uint o = kappa_off() + b * 5u + k;
-	uint stride = params.band_count * 5u;
+	uint o = kappa_off() + b * 7u + k;
+	uint stride = params.band_count * 7u;
 	return mix(rad_table[o + ti * stride], rad_table[o + (ti + 1u) * stride], tf);
 }
 
@@ -488,7 +498,7 @@ float band_weight(uint b, float tk) {
 	return max(lo - planck_above(C2_CM_K * band_edge(b + 1u) / tk), 0.0);
 }
 
-// The four absorber paths this cell presents over `len` metres, kg/m^2 scaled by the broadening pressure:
+// The four gas-pair paths this cell presents over `len` metres, kg/m^2 scaled by the broadening pressure:
 // CO2 line, CO2 collision-induced, H2O line, H2O self-continuum; line and continuum broaden with p_total.
 vec4 absorber_paths(uint c, float len) {
 	float tk = t_k(c);
@@ -501,11 +511,20 @@ vec4 absorber_paths(uint c, float len) {
 		(rho_v * R_VAPOUR * tk / KAPPA_REF_PA) * rho_v * len);
 }
 
-float band_tau(vec4 a, uint b, uint ti, float tf) {
+// The O3 legs: air-broadened lines scale with total pressure; the electronic cross-section does not.
+vec2 o3_paths(uint c, float len) {
+	float rho_o3 = max(o3[c], 0.0);
+	float p_tot = max(pressure[c], 0.0) / KAPPA_REF_PA;
+	return vec2(p_tot * rho_o3 * len, rho_o3 * len);
+}
+
+float band_tau(vec4 a, vec2 z, uint b, uint ti, float tf) {
 	return (kappa_at(b, 0u, ti, tf) + kappa_at(b, 1u, ti, tf)) * a.x
 		+ kappa_at(b, 2u, ti, tf) * a.y
 		+ kappa_at(b, 3u, ti, tf) * a.z
-		+ kappa_at(b, 4u, ti, tf) * a.w;
+		+ kappa_at(b, 4u, ti, tf) * a.w
+		+ kappa_at(b, 5u, ti, tf) * z.x
+		+ kappa_at(b, 6u, ti, tf) * z.y;
 }
 
 // The cell's thermal-infrared emissivity: band-resolved optical depth over its own absorber paths,
@@ -513,11 +532,12 @@ float band_tau(vec4 a, uint b, uint ti, float tf) {
 float longwave_emissivity(uint c) {
 	float tk = t_k(c);
 	vec4 a = absorber_paths(c, params.cell_m);
+	vec2 z = o3_paths(c, params.cell_m);
 	float tf = 0.0;
 	uint ti = slice_of(tk, tf);
 	float eps = 0.0;
 	for (uint b = 0u; b < params.band_count; ++b) {
-		eps += band_weight(b, tk) * (1.0 - exp(-DIFFUSIVITY * band_tau(a, b, ti, tf)));
+		eps += band_weight(b, tk) * (1.0 - exp(-DIFFUSIVITY * band_tau(a, z, b, ti, tf)));
 	}
 	float wet = h2o_water(c) / FULL_H2O;
 	float icy = h2o_ice(c) / FULL_H2O;
@@ -544,15 +564,16 @@ float shortwave_albedo(uint c) {
 	return (wet * ALBEDO_WATER + icy * ALBEDO_ICE + veg * ALBEDO_VEG + dry * ALBEDO_GROUND) / mass;
 }
 
-// Share of the DIRECT solar beam a cell takes over `len` m of slant path: the CO2 and H2O bands the
+// Share of the DIRECT solar beam a cell takes over `len` m of slant path: the CO2, H2O and O3 bands the
 // longwave side reads, weighted by the sun's spectrum. N2 and O2 have no dipole. No diffusivity factor.
 float shortwave_absorbed_frac(uint c, float len) {
 	vec4 a = absorber_paths(c, len);
+	vec2 z = o3_paths(c, len);
 	float tf = 0.0;
 	uint ti = slice_of(t_k(c), tf);
 	float gas = 0.0;
 	for (uint b = 0u; b < params.band_count; ++b) {
-		gas += solar_weight(b) * (1.0 - exp(-band_tau(a, b, ti, tf)));
+		gas += solar_weight(b) * (1.0 - exp(-band_tau(a, z, b, ti, tf)));
 	}
 	float f_c = condensed_frac(c);
 	return clamp(f_c + (1.0 - f_c) * gas, 0.0, 1.0);
@@ -602,6 +623,43 @@ float longwave_incident(uint c, uint d) {
 		if (at < 0) { at = ghost[a * N_SLOTS + d]; }
 	}
 	return arriving;
+}
+
+// PASS_SW: the reflected shortwave crosses the atmosphere again. Each cell gathers the upwelling flux the
+// reflectors below it sent, keeps its own share as heat, and books what its own reflection loses to space.
+// LA_APPROX: single_bounce_shortwave
+void sw_scatter(uint c) {
+	sw_space[c] = 0.0;
+	vec3 gv = g_at(c);
+	if (length(gv) <= 0.0) {
+		return;
+	}
+	vec3 up = -normalize(gv);
+	float through = 1.0;
+	float arriving = 0.0;
+	int at = la_step(c, -up);
+	for (uint i = 0u; i < MARCH_HOPS && at >= 0 && through > 0.0; ++i) {
+		uint a = uint(at);
+		arriving += through * sw_src[a];
+		through *= 1.0 - sw_keep[a];
+		at = la_step(a, -up);
+	}
+	float dep = arriving * sw_keep[c] * params.dt_s / params.cell_m;
+	if (dep > 0.0) {
+		amount[c] += dep;
+		rad_absorbed[c] += dep;
+	}
+	float src = sw_src[c];
+	if (src <= 0.0) {
+		return;
+	}
+	float esc = 1.0;
+	int above = la_step(c, up);
+	for (uint i = 0u; i < MARCH_HOPS && above >= 0 && esc > 0.0; ++i) {
+		esc *= 1.0 - sw_keep[uint(above)];
+		above = la_step(uint(above), up);
+	}
+	sw_space[c] = src * esc * params.dt_s / params.cell_m;
 }
 
 // --- THE GATHER ---------------------------------------------------------------------------------------
@@ -733,6 +791,10 @@ void main() {
 		grain_state(gidx);
 		return;
 	}
+	if (params.pass_id == PASS_SW) {
+		sw_scatter(gidx);
+		return;
+	}
 	uint base = gidx * N_SLOTS;
 	bool is_signed = (params.flags & TF_SIGNED) != 0u;
 	// Pore flow's domain IS the rock: its resistance, not a solid mask, is what stops it.
@@ -763,6 +825,12 @@ void main() {
 			float eps = longwave_emissivity(gidx);
 			lw_emis[gidx] = eps;
 			sw_absorbed[gidx] = shortwave_absorbed_frac(gidx, solar_step_m());
+			// Share of an upwelling flux this cell keeps as heat over one vertical step: what it
+			// intercepts, minus what it reflects onward.
+			vec3 gsw = g_at(gidx);
+			float up_len = length(gsw) > 0.0
+				? la_step_len(-normalize(gsw), params.cell_m) : params.cell_m;
+			sw_keep[gidx] = shortwave_absorbed_frac(gidx, up_len) * (1.0 - shortwave_albedo(gidx));
 			float tk = t_k(gidx);
 			float leaving = eps * STEFAN * tk * tk * tk * tk * params.dt_s / params.cell_m;
 			for (uint d = 0u; d < N_SLOTS; ++d) {
@@ -944,10 +1012,18 @@ void main() {
 	}
 	if (params.mode == MODE_RADIATE) {
 		float sun_w = solar_incident(gidx);
-		float taken = sun_w * sw_absorbed[gidx] * (1.0 - shortwave_albedo(gidx));
-		gained += taken * params.dt_s / params.cell_m;
+		float intercepted = sun_w * sw_absorbed[gidx];
+		float albedo = shortwave_albedo(gidx);
+		gained += intercepted * (1.0 - albedo) * params.dt_s / params.cell_m;
 		rad_absorbed[gidx] = gained;
 		rad_emitted[gidx] = lost;
+		// What the beam march removed and this cell did not keep: PASS_SW carries it back out.
+		sw_src[gidx] = intercepted * albedo;
+		// Stefan-Boltzmann, recomputed against the published emission: six faces of e*sigma*T^4.
+		float tk_sb = t_k(gidx);
+		float sb = 6.0 * lw_emis[gidx] * STEFAN * tk_sb * tk_sb * tk_sb * tk_sb
+			* params.dt_s / params.cell_m;
+		rad_residual[gidx] = abs(lost - sb) / max(sb, 1.0e-30);
 	}
 	// No floor. Pass 0 clamps every outflow to what the cell holds, so a negative here is a defect
 	// and clamping it up would create the mass it is short of.

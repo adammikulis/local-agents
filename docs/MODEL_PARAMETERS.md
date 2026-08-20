@@ -73,7 +73,7 @@ registry does not read as if everything in it is merely unreviewed.
 
 | file | constant | value | why it is not physics | what deletes it |
 |---|---|---|---|---|
-| `addons/local_agents/sim/material/AbsorptionBands.gd` | `BAND_COUNT` | 109 | spectral resolution of the absorption table, chosen so the 667 cm^-1 CO2 band is resolved at 10 cm^-1 | a convergence test against a finer grid: the RADIATE row now marches a column, but its transmittance is band-integrated before it is marched, so band count and correlated-k error are not yet separable |
+| `addons/local_agents/sim/material/AbsorptionBands.gd` | `BAND_COUNT` | 157 | spectral resolution of the absorption table over 0-46000 cm^-1, chosen so the 667 cm^-1 CO2 band is resolved at 10 cm^-1 and the Huggins O3 structure at 500 | a convergence test against a finer grid: the RADIATE row now marches a column, but its transmittance is band-integrated before it is marched, so band count and correlated-k error are not yet separable |
 | `addons/local_agents/sim/material/AbsorptionBands.gd` | `TEMP_COUNT` | 9 | temperature resolution of the absorption table, 150-1000 K | a hot-band regime the slices cannot interpolate |
 | `addons/local_agents/sim/material/AbsorptionBands.gd` | `CDF_COUNT` | 1024 | sample count of the Planck cumulative table the GPU reads instead of summing the series | a GPU that can afford the series inline |
 | `addons/local_agents/sim/material/AbsorptionBands.gd` | `CDF_XMAX` | 50.0 | upper limit of x = c2*nu/T in that table; above it the fraction of blackbody power is below 1e-9 | a body cold enough that x = 50 falls inside its emission, i.e. below about 30 K |

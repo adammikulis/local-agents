@@ -2,12 +2,13 @@
 """Regenerate addons/local_agents/sim/material/AbsorptionBands.gd from HITRAN.
 
 Usage, from the repo root:
-    scripts/fetch_hitran.sh                          # writes co2_lines.csv / h2o_lines.csv / CO2-CO2_2024.cia
+    scripts/fetch_hitran.sh    # writes co2/h2o/o3_lines.csv, CO2-CO2_2024.cia, o3_uv_serdyuchenko.dat
     python3 scripts/derive_absorption_bands.py addons/local_agents/sim/material/AbsorptionBands.gd
 
 Needs numpy. The band table is DATA, not a modelling choice: every number here comes out of HITRAN
-line parameters, HITRAN CIA cross-sections, or a published continuum fit, by the method documented in
-the emitted file. Nothing in it was chosen to make an output look right.
+line parameters, HITRAN CIA cross-sections, measured O3 electronic cross-sections, or a published
+continuum fit, by the method documented in the emitted file. Nothing in it was chosen to make an
+output look right.
 """
 import numpy as np
 
@@ -22,9 +23,15 @@ SAMPLES = 3000
 TEMPS = [150.0, 200.0, 260.0, 320.0, 400.0, 500.0, 650.0, 800.0, 1000.0]
 T_SUN = 5772.0               # K, solar effective temperature (IAU 2015 nominal)
 
+# Thermal IR at line-band resolution, then the solar near-IR, visible (Chappuis), Huggins and Hartley
+# ranges up to 46000 cm^-1 (217 nm), past which the solar blackbody carries under 1e-3 of its power.
 EDGES = np.concatenate([np.arange(0.0, 500.0, 50.0), np.arange(500.0, 900.0, 10.0),
                         np.arange(900.0, 1500.0, 25.0), np.arange(1500.0, 2500.0, 50.0),
-                        np.arange(2500.0, 10001.0, 500.0)])
+                        np.arange(2500.0, 10000.0, 500.0),
+                        np.arange(10000.0, 14000.0, 500.0), np.arange(14000.0, 26000.0, 1000.0),
+                        np.arange(26000.0, 34000.0, 500.0), np.arange(34000.0, 46001.0, 1000.0)])
+
+O3_M_GMOL = 47.98474
 
 
 def load(path, m_gmol, q_exp):
@@ -134,6 +141,36 @@ def cia_kappa(blocks, grid, t):
     return out * 1.0e-4 * rho_ref * (N_A / 44.0095) ** 2
 
 
+def load_o3_uv(path):
+    """Serdyuchenko/Gorshelev O3 electronic cross-sections (AMT 7:625 / 7:609): vacuum wavelength nm,
+    then 11 columns of cm^2/molecule at 293..193 K descending."""
+    rows = np.loadtxt(path, skiprows=45)
+    nu = 1.0e7 / rows[:, 0]
+    temps = np.arange(293.0, 192.0, -10.0)
+    o = np.argsort(nu)
+    return nu[o], rows[o, 1:], temps
+
+
+def o3_uv_kappa(uv, grid, t):
+    """m^2/kg on `grid`, interpolated in temperature and held flat outside the measured 193-293 K."""
+    nu, xs, temps = uv
+    order = np.argsort(temps)
+    ts = temps[order]
+    tt = min(max(t, ts[0]), ts[-1])
+    i = int(np.searchsorted(ts, tt))
+    if i <= 0:
+        pick = [(order[0], 1.0)]
+    elif i >= len(ts):
+        pick = [(order[-1], 1.0)]
+    else:
+        f = (tt - ts[i - 1]) / (ts[i] - ts[i - 1])
+        pick = [(order[i - 1], 1.0 - f), (order[i], f)]
+    sig = np.zeros_like(grid)
+    for col, w in pick:
+        sig += w * np.interp(grid, nu, xs[:, col], left=0.0, right=0.0)
+    return sig * 1.0e-4 * N_A / (O3_M_GMOL * 1.0e-3)
+
+
 def planck_above(x):
     """Fraction of blackbody power emitted above dimensionless frequency x = c2*nu/T.
     Siegel & Howell series; G(0) = 1."""
@@ -157,26 +194,35 @@ def band_table(data, cont, t, cia=None):
 if __name__ == "__main__":
     co2 = load("co2_lines.csv", 44.0095, 1.0)
     h2o = load("h2o_lines.csv", 18.01528, 1.5)
-    print("CO2 lines", len(co2[0]), " H2O lines", len(h2o[0]))
+    o3 = load("o3_lines.csv", O3_M_GMOL, 1.5)
+    print("CO2 lines", len(co2[0]), " H2O lines", len(h2o[0]), " O3 lines", len(o3[0]))
     cia = load_cia("CO2-CO2_2024.cia")
-    print("CO2-CO2 CIA blocks", len(cia))
-    kc = []; cc = []; ci = []; kw = []; cw = []
+    uv = load_o3_uv("o3_uv_serdyuchenko.dat")
+    print("CO2-CO2 CIA blocks", len(cia), " O3 UV points", len(uv[0]))
+    kc = []; cc = []; ci = []; kw = []; cw = []; ko = []; xo = []
     for t in TEMPS:
         a, b, g = band_table(co2, co2_continuum, t, cia)
         c, e, _z = band_table(h2o, h2o_continuum, t)
         kc.append(a); cc.append(b); ci.append(g); kw.append(c); cw.append(e)
+        line_o3 = []; xsc_o3 = []
+        for i in range(len(EDGES) - 1):
+            grid = np.linspace(EDGES[i], EDGES[i + 1], SAMPLES, endpoint=False)
+            line_o3.append(float(np.median(kappa_lines(o3, grid, P_REF, t))))
+            xsc_o3.append(float(np.mean(o3_uv_kappa(uv, grid, t))))
+        ko.append(np.array(line_o3)); xo.append(np.array(xsc_o3))
         print("  T = %.0f K done" % t)
     kc = np.array(kc); cc = np.array(cc); ci = np.array(ci)
-    kw = np.array(kw); cw = np.array(cw)
+    kw = np.array(kw); cw = np.array(cw); ko = np.array(ko); xo = np.array(xo)
     wsun = planck_above(C2 * EDGES[:-1] / T_SUN) - planck_above(C2 * EDGES[1:] / T_SUN)
     np.savez("bands.npz", edges=EDGES, temps=np.array(TEMPS), co2_line=kc, co2_cont=cc,
-             co2_cia=ci, h2o_line=kw, h2o_cont=cw, w_sun=wsun)
-    print(f"solar fraction below 10000 cm^-1: {wsun.sum():.4f}")
-    print(f"{'band':>12} {'CO2 line':>11} {'CO2 cont':>11} {'CO2 cia':>11} {'H2O line':>11} {'H2O cont':>11} {'w_sun':>9}")
+             co2_cia=ci, h2o_line=kw, h2o_cont=cw, o3_line=ko, o3_xsc=xo, w_sun=wsun)
+    print(f"solar fraction below {EDGES[-1]:.0f} cm^-1: {wsun.sum():.4f}")
+    print(f"{'band':>12} {'CO2 line':>11} {'CO2 cont':>11} {'CO2 cia':>11} {'H2O line':>11} {'H2O cont':>11} {'O3 line':>11} {'O3 xsc':>11} {'w_sun':>9}")
     ti = TEMPS.index(260.0)
     for i in range(kc.shape[1]):
         print(f"{EDGES[i]:5.0f}-{EDGES[i+1]:5.0f} {kc[ti][i]:11.4e} {cc[ti][i]:11.4e} "
-              f"{ci[ti][i]:11.4e} {kw[ti][i]:11.4e} {cw[ti][i]:11.4e} {wsun[i]:9.5f}")
+              f"{ci[ti][i]:11.4e} {kw[ti][i]:11.4e} {cw[ti][i]:11.4e} {ko[ti][i]:11.4e} "
+              f"{xo[ti][i]:11.4e} {wsun[i]:9.5f}")
 
     # --- validation against Pierrehumbert's own quantitative statements -----------------------------
     # Table 4.1 pressure-weighted equivalent paths (100 mb reference, cos(theta)=1/2):
@@ -212,37 +258,8 @@ def rows(a, per=8, fmt="%.5e"):
 TPL = '''class_name LAAbsorptionBands
 extends RefCounted
 
-## Band-averaged mass absorption coefficients for the two absorbing gases this substrate carries, m^2/kg,
-## on a %d-band wavenumber grid from 0 to 10000 cm^-1 and %d temperature slices.
-##
-## PROVENANCE. Lines: HITRAN (hitran.org line-by-line API, isotopologues 7-12 for CO2 and 1-4 for H2O),
-## reduced by the method of Pierrehumbert, Principles of Planetary Climate chapter 4 and its PyTran
-## courseware — Lorentz line shape, air-broadened half width gamma_air*(p/1.013e5)*(296/T)^n_air, line
-## strength scaled by the partition-function ratio, the lower-state Boltzmann factor and the
-## stimulated-emission factor, wings cut at 1000 line widths. The per-band statistic is the MEDIAN of
-## kappa over 3000 samples, his choice (figure 4.17), because band-averaged transmission is set by the
-## optically thin frequencies between the lines.
-##
-## Continua, three separate ones because they scale with three different pressures:
-##   CO2_CONT  air-induced, his equations 4.89 (25-450 cm^-1) and 4.90 (1150-1800), quoted at 300 K and
-##             100 mb, with his (300/T)^1.7 temperature law. Scales with TOTAL pressure.
-##   CO2_CIA   CO2-CO2 collision-induced absorption, HITRAN CIA CO2-CO2_2024 (Karman et al. 2019,
-##             Icarus 328:160), converted by kappa = 1e-4 * k * rho_CO2 * (N_A/M)^2 from k in
-##             cm^5/molecule^2. Scales with the CO2 PARTIAL pressure, being a two-body process. This is
-##             what makes a hundred-bar CO2 atmosphere opaque between its bands.
-##   H2O_CONT  self-induced, his equations 4.91 (500-1400 cm^-1) and 4.92 (2100-3000), quoted at 296 K
-##             and 100 mb of water vapour, with his (296/T)^4.25 law. Scales with the water partial
-##             pressure.
-##
-## Reference pressure is Pierrehumbert's standard 100 mb, air-broadened. Lorentz broadening makes kappa
-## proportional to the broadener's pressure, so a consumer scales each term by its own p/REF_PRESSURE_PA.
-##
-## N2, O2 and Ar are absent on purpose. Symmetric molecules acquire no dipole moment from rotation or
-## stretching, so at planetary densities they do not absorb in the thermal infrared.
-##
-## NOTHING IN THE TREE MEASURES THIS TABLE AGAINST A PLANET. Earth's clear-sky OLR, the forcing of a CO2
-## doubling and Venus's greenhouse are all column quantities, and the RADIATE row absorbs only from the
-## adjacent cell, so there is no column to solve them over. See HANDOFF.md item 3.
+## Band-averaged mass absorption coefficients for the absorbing gases this substrate carries, m^2/kg,
+## on a %d-band wavenumber grid from 0 to 46000 cm^-1 and %d temperature slices.
 
 const REF_PRESSURE_PA: float = LAPhysical.ABSORPTION_REF_PRESSURE_PA
 const BAND_COUNT: int = %d
@@ -263,30 +280,43 @@ const TEMPS_K: Array = [
 %s
 ]
 
-## Every coefficient array below is flat, indexed t * BAND_COUNT + b.
-
-## CO2 line absorption, m^2/kg. Scales with total pressure.
+## Flat arrays, indexed t * BAND_COUNT + b. N2, O2, Ar absent: no dipole, no thermal-IR absorption.
+## CO2 line absorption, m^2/kg: HITRAN lbl isotopologues 7-12, reduced per Pierrehumbert ch. 4 (Lorentz,
+## air-broadened, per-band MEDIAN of 3000 samples). Scales with total pressure against REF_PRESSURE_PA.
 const CO2_LINE: Array = [
 %s
 ]
 
-## CO2 air-induced continuum, m^2/kg. Scales with total pressure.
+## CO2 air-induced continuum, m^2/kg, his eqs 4.89/4.90. Scales with total pressure.
 const CO2_CONT: Array = [
 %s
 ]
 
-## CO2-CO2 collision-induced absorption, m^2/kg. Scales with the CO2 partial pressure.
+## CO2-CO2 collision-induced absorption, m^2/kg: HITRAN CO2-CO2_2024 (Karman et al. 2019, Icarus
+## 328:160). A two-body process, so it scales with the CO2 partial pressure.
 const CO2_CIA: Array = [
 %s
 ]
 
-## H2O line absorption, m^2/kg. Scales with total pressure.
+## H2O line absorption, m^2/kg: HITRAN lbl isotopologues 1-4, same reduction. Scales with total pressure.
 const H2O_LINE: Array = [
 %s
 ]
 
-## H2O self-induced continuum, m^2/kg. Scales with the water partial pressure.
+## H2O self-induced continuum, m^2/kg, his eqs 4.91/4.92. Scales with the water partial pressure.
 const H2O_CONT: Array = [
+%s
+]
+
+## O3 line absorption, m^2/kg: HITRAN lbl isotopologues 16-20, same reduction. Scales with total pressure.
+const O3_LINE: Array = [
+%s
+]
+
+## O3 electronic cross-sections, m^2/kg, 213-1100 nm (Hartley, Huggins, Chappuis, Wulf bands):
+## Serdyuchenko et al. 2014, AMT 7:625; Gorshelev et al. 2014, AMT 7:609. Pressure-independent,
+## temperature-interpolated over 193-293 K, held flat outside.
+const O3_XSC: Array = [
 %s
 ]
 
@@ -334,14 +364,14 @@ static func solar_weight(b: int) -> float:
 \treturn _solar[b]
 
 
-## The GPU upload. Header, band edges, temperature slices, solar weights, then five coefficients per
+## The GPU upload. Header, band edges, temperature slices, solar weights, then seven coefficients per
 ## (temperature, band), then the Planck cumulative table. transport.glsl's RADIATE row reads this layout.
 static func packed() -> PackedFloat32Array:
 \tif not _packed.is_empty():
 \t\treturn _packed
 \tvar e: PackedFloat32Array = edges_cm1()
 \tvar out: PackedFloat32Array = PackedFloat32Array()
-\tout.resize(4 + (BAND_COUNT + 1) + TEMP_COUNT + BAND_COUNT + TEMP_COUNT * BAND_COUNT * 5 + CDF_COUNT)
+\tout.resize(4 + (BAND_COUNT + 1) + TEMP_COUNT + BAND_COUNT + TEMP_COUNT * BAND_COUNT * 7 + CDF_COUNT)
 \tout[0] = float(BAND_COUNT)
 \tout[1] = float(CDF_COUNT)
 \tout[2] = CDF_XMAX
@@ -359,13 +389,15 @@ static func packed() -> PackedFloat32Array:
 \tfor t in TEMP_COUNT:
 \t\tfor b in BAND_COUNT:
 \t\t\tvar i: int = t * BAND_COUNT + b
-\t\t\tvar k: int = o + i * 5
+\t\t\tvar k: int = o + i * 7
 \t\t\tout[k + 0] = float(CO2_LINE[i])
 \t\t\tout[k + 1] = float(CO2_CONT[i])
 \t\t\tout[k + 2] = float(CO2_CIA[i])
 \t\t\tout[k + 3] = float(H2O_LINE[i])
 \t\t\tout[k + 4] = float(H2O_CONT[i])
-\to += TEMP_COUNT * BAND_COUNT * 5
+\t\t\tout[k + 5] = float(O3_LINE[i])
+\t\t\tout[k + 6] = float(O3_XSC[i])
+\to += TEMP_COUNT * BAND_COUNT * 7
 \tfor i in CDF_COUNT:
 \t\tout[o + i] = planck_above(CDF_XMAX * float(i) / float(CDF_COUNT - 1))
 \t_packed = out
@@ -375,7 +407,8 @@ static func packed() -> PackedFloat32Array:
 txt = TPL % (nb, nt, nb, nt,
              rows(edges, 10, "%.1f"),
              rows(temps, 10, "%.1f"),
-             rows(d["co2_line"]), rows(d["co2_cont"]), rows(d["co2_cia"]),
-             rows(d["h2o_line"]), rows(d["h2o_cont"]))
+             rows(d["co2_line"], 20), rows(d["co2_cont"], 20), rows(d["co2_cia"], 20),
+             rows(d["h2o_line"], 20), rows(d["h2o_cont"], 20),
+             rows(d["o3_line"], 20), rows(d["o3_xsc"], 20))
 open(sys.argv[1], "w").write(txt)
 print("wrote", sys.argv[1], nb, "bands", nt, "temps", len(txt.splitlines()), "lines")

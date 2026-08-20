@@ -12,7 +12,8 @@ const H2O: PackedStringArray = ["h2o"]
 ## The lithosphere. Reactions move matter between these channels, so the conserved stock is elemental Si.
 const MINERAL: PackedStringArray = ["silicate", "carbonate", "silica"]
 ## The atmosphere/biosphere element book.
-const ELEMENT: PackedStringArray = ["co2", "o2", "detritus", "biomass", "fert", "fungus", "fuel", "n2"]
+const ELEMENT: PackedStringArray = ["co2", "o2", "detritus", "biomass", "fert", "fungus", "fuel", "n2",
+	"org_h", "org_o"]
 ## The reaction table's closed carbon triangle.
 const CARBON: PackedStringArray = ["co2", "biomass", "detritus"]
 ## Carbon over every pool that carries it, not only the three the reaction table moves between.

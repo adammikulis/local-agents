@@ -7,9 +7,10 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/tr
 const BandsScript: GDScript = preload("res://addons/local_agents/sim/material/AbsorptionBands.gd")
 const BoundaryRowsScript: GDScript = preload("res://addons/local_agents/sim/material/reduce/BoundaryRows.gd")
 
-## Which half of the gather a dispatch is, the grain prologue, and the three compaction dispatches that
-## build each LATransportRecords.lists() list; tags, not quantities.
-enum { PASS_OUTFLOW, PASS_GATHER, PASS_GRAIN, PASS_LIST_RESET, PASS_LIST_APPEND, PASS_LIST_ARGS }
+## Which half of the gather a dispatch is, the grain prologue, the three compaction dispatches that
+## build each LATransportRecords.lists() list, and the RADIATE row's reflected-shortwave march.
+enum { PASS_OUTFLOW, PASS_GATHER, PASS_GRAIN, PASS_LIST_RESET, PASS_LIST_APPEND, PASS_LIST_ARGS,
+	PASS_SW }
 
 ## List-args buffer layout, shared with the kernel: 0-2 are the uvec3 an indirect dispatch reads, 3 is the
 ## atomic list length. SLOTS is the buffer's element count.
@@ -43,6 +44,10 @@ var _rad_table: RID = RID()
 ## and marched by its pass 1. Scratch of one dispatch pair, like _send — never read outside the step.
 var _lw_emis: RID = RID()
 var _sw_abs: RID = RID()
+## The reflected-shortwave march's scratch pair: the share of upwelling flux a cell keeps, and each
+## cell's reflected source. Stamped by the RADIATE row's passes 0 and 1, marched by its PASS_SW.
+var _sw_keep: RID = RID()
+var _sw_src: RID = RID()
 var _band_count: int = 0
 ## The grain prologue's uniform set.
 var _grain_set: RID = RID()
@@ -61,6 +66,7 @@ var _list_idx_rid: Array = []
 ## compacted-index, membership-flag and indirect-args buffers.
 func _buffers(cc: int) -> Dictionary:
 	var out: Dictionary = {"col_e": cc, "strike": cc, "radiogenic": cc,
+		"sw_space": cc, "rad_residual": cc,
 		"bnd_void": cc, "bnd_h_void": cc, "rim_ghost": cc, "rim_w": cc}
 	for ch in BoundaryRowsScript.BOOKED:
 		out["bnd_" + String(ch)] = cc
@@ -91,6 +97,8 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_rad_table = _storage_buffer(BandsScript.packed().to_byte_array())
 	_lw_emis = _scratch(tc)
 	_sw_abs = _scratch(tc)
+	_sw_keep = _scratch(tc)
+	_sw_src = _scratch(tc)
 
 	for row: Dictionary in _rows:
 		_sets.append(_row_set(bufs, row))
@@ -141,9 +149,13 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 		if not uset.is_valid():
 			continue
 		# EVERY ROW RUNS TWICE. Pass 0 writes what leaves each face; pass 1 gathers. A receiver reading a
-		# donor inside one dispatch reads a value another thread is still writing.
+		# donor inside one dispatch reads a value another thread is still writing. The RADIATE row runs a
+		# third time: the gather stamps each cell's reflected source, and PASS_SW marches the upwelling.
 		var args: RID = _list_args[r]
-		for pass_id in [PASS_OUTFLOW, PASS_GATHER]:
+		var passes: Array = [PASS_OUTFLOW, PASS_GATHER]
+		if int(_rows[r]["mode"]) == LATransportRecords.RADIATE:
+			passes.append(PASS_SW)
+		for pass_id in passes:
 			rd.compute_list_bind_compute_pipeline(cl, _pipe)
 			rd.compute_list_bind_uniform_set(cl, uset, 0)
 			var pc: PackedByteArray = _pc(_rows[r], cc, pass_id, cell_m, dt_s, sun)
@@ -209,7 +221,8 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement",
 			"silicate_susp_water", "silicate_susp_air", "silicate_bed",
 			"rad_absorbed", "rad_emitted", "col_e", "strike",
-			"carbonate", "silica", "radiogenic", "ghost", "bnd_void", "bnd_h_void"]:
+			"carbonate", "silica", "radiogenic", "sw_space", "rad_residual",
+			"ghost", "bnd_void", "bnd_h_void"]:
 		if not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row has no law." % [key, channel])
 			return RID()
@@ -271,6 +284,14 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		# The REPLAY relaxation rim, filled by LAFieldBoundary3D.attach; all-zero weights without one.
 		[50, _single(bufs, "rim_ghost")],
 		[51, _single(bufs, "rim_w")],
+		# The reflected-shortwave field: pass-owned scratch pair, then the escape book and the
+		# Stefan-Boltzmann residual the reduce rows read.
+		[52, _sw_keep],
+		[53, _sw_src],
+		[54, _single(bufs, "sw_space")],
+		[55, _single(bufs, "rad_residual")],
+		# O3 partial density, kg/m^3: zeros until a photochemical o3 channel exists to swap in.
+		[56, _zero],
 	]
 	return _uset(_pipe, entries)
 

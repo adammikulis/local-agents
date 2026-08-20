@@ -3,8 +3,7 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 PARAMS="molec_id,local_iso_id,nu,sw,gamma_air,n_air,elower"
-fetch() {  # $1 out  $2 isos  $3 lo  $4 hi  $5 step
-  : > "$1"
+fetch() {  # $1 out  $2 isos  $3 lo  $4 hi  $5 step   (appends; truncate before the first call)
   for lo in $(seq "$3" "$5" $(( $4 - $5 ))); do
     hi=$((lo + $5))
     ok=0
@@ -21,9 +20,22 @@ fetch() {  # $1 out  $2 isos  $3 lo  $4 hi  $5 step
   done
   return 0
 }
+# Dense rotation-vibration ranges in 250 cm^-1 chunks; the sparse near-IR tails in 500.
+: > co2_lines.csv
 fetch co2_lines.csv "7,8,9,10,11,12" 0 10000 250 || exit 1
+fetch co2_lines.csv "7,8,9,10,11,12" 10000 13000 500 || exit 1
+: > h2o_lines.csv
 fetch h2o_lines.csv "1,2,3,4" 0 10000 250 || exit 1
+fetch h2o_lines.csv "1,2,3,4" 10000 26000 500 || exit 1
+: > o3_lines.csv
+fetch o3_lines.csv "16,17,18,19,20" 0 7000 250 || exit 1
 echo FETCH_ALL_DONE
 curl -sSL -m 300 --ignore-content-length -o CO2-CO2_2024.cia \
   "https://hitran.org/data/CIA/main/CO2-CO2_2024.cia" || exit 1
 echo CIA_DONE
+# O3 electronic bands (Hartley, Huggins, Chappuis, Wulf), 213-1100 nm at 11 temperatures 193-293 K:
+# Serdyuchenko et al. 2014, AMT 7:625; Gorshelev et al. 2014, AMT 7:609. HITRAN's UV cross-section
+# downloads sit behind a login; this is the same dataset from its authors' own server.
+curl -sSL -m 600 --ignore-content-length -o o3_uv_serdyuchenko.dat \
+  "https://www.iup.uni-bremen.de/gruppen/molspec/downloads/serdyuchenkogorshelev5digits.dat" || exit 1
+echo O3_UV_DONE
