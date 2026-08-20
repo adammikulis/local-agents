@@ -55,9 +55,9 @@ var _list_args_rid: Array = []
 var _list_idx_rid: Array = []
 
 
-## What the TF_STAMP gather publishes about the electric field (driver-owned so ReducePass can read them,
-## not a derived channel, which would be read back with no CPU consumer), plus each list's compacted-index,
-## membership-flag and indirect-args buffers.
+## What the TF_EFIELD row's outflow pass publishes about the electric field (driver-owned so ReducePass can
+## read them, not a derived channel, which would be read back with no CPU consumer), plus each list's
+## compacted-index, membership-flag and indirect-args buffers.
 func _buffers(cc: int) -> Dictionary:
 	var out: Dictionary = {"col_e": cc, "strike": cc, "radiogenic": cc,
 		"bnd_void": cc, "bnd_h_void": cc}
