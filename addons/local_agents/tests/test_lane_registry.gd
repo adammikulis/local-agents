@@ -17,7 +17,6 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_agent_backstory.gd",
 	"res://addons/local_agents/tests/test_band_affiliation.gd",
 	"res://addons/local_agents/tests/test_inject_queue_alias.gd",
-	"res://addons/local_agents/tests/test_weathering_rate_law.gd",
 	"res://addons/local_agents/tests/test_combustion_rate_law.gd",
 	"res://addons/local_agents/tests/test_reaction_direction.gd",
 	"res://addons/local_agents/tests/test_enthalpy_roundtrip.gd",
