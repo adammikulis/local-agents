@@ -13,7 +13,6 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/GravityPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/PressurePass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReducePass.gd"]
@@ -334,7 +333,7 @@ func _drain_passes() -> void:
 				LASimReport.gauge(name, float(res[key]))
 
 
-## The compacted cell indices a CellListPass row published, empty when it listed nothing. Non-clearing.
+## The compacted cell indices an `emit_idx` list published, empty when it listed nothing. Non-clearing.
 func list_indices(label: String) -> PackedInt32Array:
 	var v: Variant = _pass_results.get(label + "_list_idx", null)
 	return v if v is PackedInt32Array else PackedInt32Array()
