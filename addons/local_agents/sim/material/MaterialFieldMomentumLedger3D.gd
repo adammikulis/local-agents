@@ -56,6 +56,7 @@ func report(step_index: int) -> Dictionary:
 		return out
 
 	var nbr: PackedInt32Array = grid.neighbours
+	var bnd = _f._boundary
 	var cell_m: float = float(_f._cell_size)
 	var v_m3: float = grid.cell_volume()
 	var spin: Vector3 = LAFieldGeometry.spin_axis(_f)
@@ -87,14 +88,23 @@ func report(step_index: int) -> Dictionary:
 		# -Ω x (Ω x r). Booking one and not the other made the residual carry the difference.
 		var r_vec: Vector3 = grid.cell_world_pos(c) - centre
 		f_frame += (spin.cross(v) * -two_omega - omega.cross(omega.cross(r_vec))) * m
-		# PRESSURE GRADIENT: F = -V grad(p), central differences over the six faces. A solid or missing
-		# neighbour reflects, which is what a wall does.
+		# PRESSURE GRADIENT: F = -V grad(p), central differences over the six faces. A solid neighbour or a
+		# shut wall reflects; an open face reads the provider's ghost pressure mirror or its wrap partner.
 		if has_pres:
 			var p0: float = pres[c]
 			var gp: Vector3 = Vector3.ZERO
 			for d in LAVoxelGrid.SLOTS:
 				var mi: int = nbr[c * LAVoxelGrid.SLOTS + d]
-				var pn: float = pres[mi] if (mi >= 0 and solid[mi] == 0) else p0
+				if mi < 0 and bnd != null:
+					mi = bnd.redirect(c, d)
+				var pn: float = p0
+				if mi >= 0 and mi < cc:
+					if solid[mi] == 0:
+						pn = pres[mi]
+				elif mi >= cc:
+					var gpres: float = bnd.ghost_pressure(mi)
+					if is_finite(gpres):
+						pn = gpres
 				gp += Vector3(LAVoxelGrid.SLOT_STEP[d]) * (0.5 * (pn - p0))
 			f_pgf += gp * (-v_m3 / cell_m)
 
