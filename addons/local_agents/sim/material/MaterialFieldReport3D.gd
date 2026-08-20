@@ -18,6 +18,7 @@ var _swing = null                                        # LAMaterialFieldClimat
 var _momentum = null                             # LAMaterialFieldMomentumLedger3D — Σ m*v stock + its books
 # The cross-book carbon baseline, latched at the seal.
 var _first_element_c: float = NAN
+var _first_element_o: float = NAN
 var _conservation = null                         # LAMaterialFieldConservation3D — the law, enforced
 var _seal = null                                 # LAMaterialFieldSeal3D — SEEDING -> SEALED, the line the books start at
 var _seal_announced: bool = false                # WORLD_SEALED printed once, from the step-driven phase
@@ -230,6 +231,21 @@ func _heavy_block() -> Dictionary:
 				d["element_C_total_drift"] = snappedf(c_total - _first_element_c, 0.01)
 				if _first_element_c != 0.0:
 					d["element_C_total_rel_drift"] = snappedf((c_total - _first_element_c) / _first_element_c, 1e-9)
+	# Elemental O over every pool, the h2o stock included: chemistry conserves the ATOM, never the O2
+	# molecule, which photosynthesis creates and respiration consumes.
+	if d.has("element_O_all") and d.has("lith_element_O") and d.get("h2o_total") is float:
+		var o_total: float = float(d["element_O_all"]) + float(d["lith_element_O"]) + float(d["h2o_total"])
+		d["element_O_total"] = snappedf(o_total, 0.01)
+		if _seal != null and _seal.sealed():
+			var o_live: bool = _all_live(d.get("mass_live", {})) and _all_live(d.get("mineral_live", {}))
+			if is_nan(_first_element_o) and o_live:
+				_first_element_o = o_total
+				_seal.note_seed({"element_O_mol": o_total})
+			if not is_nan(_first_element_o):
+				d["element_O_total_first"] = snappedf(_first_element_o, 0.01)
+				d["element_O_total_drift"] = snappedf(o_total - _first_element_o, 0.01)
+				if _first_element_o != 0.0:
+					d["element_O_total_rel_drift"] = snappedf((o_total - _first_element_o) / _first_element_o, 1e-9)
 	_heavy_cache = d
 	return d
 

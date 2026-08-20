@@ -19,9 +19,8 @@ static func noise_floor(cell_count: int) -> float:
 ## wall; `+ turnover` is a residual of the EXCHANGE, denominated in what crossed rather than what is held.
 const GATED: Dictionary = {
 	"element_C_total": {"rel": "element_C_total_rel_drift"},
+	"element_O_total": {"rel": "element_O_total_rel_drift"},
 	"h2o_closed_total": {"rel": "h2o_rel_drift"},
-	"o2_total": {"rel": "o2_rel_drift"},
-	"oxidant_all": {"rel": "oxidant_rel_drift"},
 	"nitrogen_all": {"rel": "nitrogen_rel_drift"},
 	"mineral_total": {"rel": "mineral_rel_drift"},
 	"energy_stock": {"rel": "energy_residual_rel", "turnover": "energy_turnover_j", "stock": "energy_stock"},
