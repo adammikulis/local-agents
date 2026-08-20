@@ -48,12 +48,8 @@ const GATE_FREEZING: int = 32         # cell temp below LAPhysical.WATER_FREEZE_
 const GATE_AIR_ABOVE: int = 128       # free surface: outward neighbour open, rock-free, not drowned
 const GATE_BURIED: int = GATE_AIR_ABOVE * 2   # ALSO runs in SOLID cells; everything else is open-cell only
 
-# --- Product targets
-const TGT_SELF: int = 0               # add into the live/back cell channel
-const TGT_SCRATCH: int = 3            # add into the per-cell scratch buffer
-
 # --- Record layout
-const RECORD_BYTES: int = 240         # std430 size of one Reaction
+const RECORD_BYTES: int = 224         # std430 size of one Reaction
 
 # Cell height in metres, set from the grid before the record table is built. 0 means unset.
 static var cell_size_m: float = 0.0
@@ -82,12 +78,11 @@ static func rec(rate_model: int, rate_k: float, driver_slot: int, reactants: Arr
 	}
 
 
-## The composition-scaled parts of one participant's coefficient. Reactant entries are [slot, base, h, o];
-## product entries are [slot, base, target, h, o]; both fall back to 0 when the entry is the short form.
-static func comp_parts(entry: Array, is_product: bool) -> Vector2:
-	var at: int = 3 if is_product else 2
-	var h: float = float(entry[at]) if entry.size() > at else 0.0
-	var o: float = float(entry[at + 1]) if entry.size() > at + 1 else 0.0
+## The composition-scaled parts of one participant's coefficient. An entry is [slot, base, h, o],
+## falling back to 0 when it is the short form.
+static func comp_parts(entry: Array) -> Vector2:
+	var h: float = float(entry[2]) if entry.size() > 2 else 0.0
+	var o: float = float(entry[3]) if entry.size() > 3 else 0.0
 	return Vector2(h, o)
 
 
@@ -112,41 +107,33 @@ static func serialize(recs: Array) -> PackedByteArray:
 		buf.encode_s32(base + 36, products.size())
 		buf.encode_float(base + 40, float(rec.get("param2", 0.0)))
 		buf.encode_float(base + 44, float(rec.get("t_ceiling_k", 0.0)))
-		buf.encode_float(base + 128, float(rec.get("enthalpy_j_m3", 0.0)))
-		buf.encode_s32(base + 132, int(rec.get("quench_slot", -1)))
-		buf.encode_float(base + 136, float(rec.get("quench_min", 0.0)))
-		buf.encode_s32(base + 140, 0)
+		buf.encode_float(base + 112, float(rec.get("enthalpy_j_m3", 0.0)))
+		buf.encode_s32(base + 116, int(rec.get("quench_slot", -1)))
+		buf.encode_float(base + 120, float(rec.get("quench_min", 0.0)))
+		buf.encode_s32(base + 124, 0)
 		# q_slot < 0 = no equilibrium, record is one-way.
-		buf.encode_float(base + 144, float(rec.get("dg_h_j_mol", 0.0)))
-		buf.encode_float(base + 148, float(rec.get("dg_s_j_molk", 0.0)))
-		buf.encode_s32(base + 152, int(rec.get("q_slot", -1)))
-		buf.encode_float(base + 156, float(rec.get("q_pa_per_unit_k", 0.0)))
+		buf.encode_float(base + 128, float(rec.get("dg_h_j_mol", 0.0)))
+		buf.encode_float(base + 132, float(rec.get("dg_s_j_molk", 0.0)))
+		buf.encode_s32(base + 136, int(rec.get("q_slot", -1)))
+		buf.encode_float(base + 140, float(rec.get("q_pa_per_unit_k", 0.0)))
 		for k in range(4):
 			var rs: int = int(reactants[k][0]) if k < reactants.size() else -1
 			var rc: float = float(reactants[k][1]) if k < reactants.size() else 0.0
 			buf.encode_s32(base + 48 + k * 4, rs)
 			buf.encode_float(base + 64 + k * 4, rc)
 		for k in range(4):
-			var ps: int = -1
-			var pc: float = 0.0
-			var pt: int = TGT_SELF
-			if k < products.size():
-				ps = int(products[k][0])
-				pc = float(products[k][1])
-				pt = int(products[k][2]) if products[k].size() > 2 else TGT_SELF
-			buf.encode_s32(base + 80 + k * 4, ps)
-			buf.encode_float(base + 96 + k * 4, pc)
-			buf.encode_s32(base + 112 + k * 4, pt)
-		# Composition-scaled coefficient halves: 160 reactant-h, 176 reactant-o, 192/208 product.
+			buf.encode_s32(base + 80 + k * 4, int(products[k][0]) if k < products.size() else -1)
+			buf.encode_float(base + 96 + k * 4, float(products[k][1]) if k < products.size() else 0.0)
+		# Composition-scaled coefficient halves: 144 reactant-h, 160 reactant-o, 176/192 product.
 		for k in range(4):
-			var rp: Vector2 = comp_parts(reactants[k], false) if k < reactants.size() else Vector2.ZERO
-			buf.encode_float(base + 160 + k * 4, rp.x)
-			buf.encode_float(base + 176 + k * 4, rp.y)
-			var pp: Vector2 = comp_parts(products[k], true) if k < products.size() else Vector2.ZERO
-			buf.encode_float(base + 192 + k * 4, pp.x)
-			buf.encode_float(base + 208 + k * 4, pp.y)
-		buf.encode_float(base + 224, float(rec.get("enthalpy_h_j_m3", 0.0)))
-		buf.encode_float(base + 228, float(rec.get("enthalpy_o_j_m3", 0.0)))
-		buf.encode_s32(base + 232, 0)
-		buf.encode_s32(base + 236, 0)
+			var rp: Vector2 = comp_parts(reactants[k]) if k < reactants.size() else Vector2.ZERO
+			buf.encode_float(base + 144 + k * 4, rp.x)
+			buf.encode_float(base + 160 + k * 4, rp.y)
+			var pp: Vector2 = comp_parts(products[k]) if k < products.size() else Vector2.ZERO
+			buf.encode_float(base + 176 + k * 4, pp.x)
+			buf.encode_float(base + 192 + k * 4, pp.y)
+		buf.encode_float(base + 208, float(rec.get("enthalpy_h_j_m3", 0.0)))
+		buf.encode_float(base + 212, float(rec.get("enthalpy_o_j_m3", 0.0)))
+		buf.encode_s32(base + 216, 0)
+		buf.encode_s32(base + 220, 0)
 	return buf

@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 315**   <!-- the grid's slot and face tags went with it; SimWorld's ten terrain lengths were
+**MAX_DECLARED: 291**   <!-- the grid's slot and face tags went with it; SimWorld's ten terrain lengths were
 inline literals scaled by a Node3D transform and are now named metre constants the registry can see. -->
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
@@ -289,8 +289,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_ARRHENIUS` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_NEAR_GROUND` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_AIR_ABOVE` | 128 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TGT_SELF` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TGT_SCRATCH` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RECORD_BYTES` | 144 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `PHOTO_LUE_KG_C_PER_J` | 1.0e-9 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `PAR_FRACTION_OF_SHORTWAVE` | 0.45 | inherited, unreviewed | Stage 2 substrate rewrite |

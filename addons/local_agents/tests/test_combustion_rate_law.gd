@@ -37,10 +37,9 @@ func _extent(rec: Dictionary, t_c: float, fuel: float, o2: float) -> float:
 
 ## Coefficient at a composition: base + h*(H:C) + o*(O:C). Quoted at fresh CH2O litter, (2, 1).
 func _coeff(rec: Dictionary, side: String, slot: int, hc: float = 2.0, oc: float = 1.0) -> float:
-	var is_prod: bool = side == "products"
 	for e in rec.get(side, []):
 		if int(e[0]) == slot:
-			var parts: Vector2 = DefsScript.comp_parts(e, is_prod)
+			var parts: Vector2 = DefsScript.comp_parts(e)
 			return float(e[1]) + parts.x * hc + parts.y * oc
 	return 0.0
 

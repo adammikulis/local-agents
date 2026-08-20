@@ -11,5 +11,5 @@ static func records() -> Array:
 	return [
 		rec(RM_CONST_FRAC, _fix_k(), DISCHARGE,
 			[[N2, 1.0]],
-			[[FERT, fert_per_n2, TGT_SCRATCH]]),
+			[[FERT, fert_per_n2]]),
 	]

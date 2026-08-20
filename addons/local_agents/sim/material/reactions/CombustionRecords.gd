@@ -24,9 +24,9 @@ static func records() -> Array:
 		rec(RM_ARRHENIUS, _rate_k(), FUEL,
 			[[FUEL, 1.0], [ORG_H, 0.0, 1.0, 0.0], [ORG_O, 0.0, 0.0, 1.0],
 				[O2, 1.0, 0.25, -0.5]],
-			[[CO2, 1.0, TGT_SELF],
-				[H2O, 0.0, TGT_SELF, 0.5 * 1.0, 0.0],
-				[FERT, organic_n, TGT_SELF]],
+			[[CO2, 1.0],
+				[H2O, 0.0, 0.5 * 1.0, 0.0],
+				[FERT, organic_n]],
 			0, LAPhysical.CELLULOSE_PYROLYSIS_EA_OVER_R_K, O2, PYROLYSIS_REF_TEMP_K,
 			-1, 0.0, 0.0, dh.x, O2, OXYGEN_QUENCH, dh.y, dh.z),
 	]

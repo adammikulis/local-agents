@@ -88,30 +88,30 @@ static func records() -> Array:
 		rec(RM_BILINEAR, _decompose_k(), FUNGUS,
 			[[DETRITUS, 1.0], [ORG_H, 0.0, 1.0, 0.0], [ORG_O, 0.0, 0.0, 1.0],
 				[O2, 1.0 - cue, 0.25, -0.5]],
-			[[FUNGUS, cue, TGT_SELF],
-				[CO2, 1.0 - cue, TGT_SELF],
-				[H2O, -cue, TGT_SELF, 0.5, 0.0],
-				[FERT, organic_n * (1.0 - cue), TGT_SCRATCH]],
+			[[FUNGUS, cue],
+				[CO2, 1.0 - cue],
+				[H2O, -cue, 0.5, 0.0],
+				[FERT, organic_n * (1.0 - cue)]],
 			0, 0.0, DETRITUS, 0.0, -1, 0.0, 0.0, dh.x * ox, -1, 0.0, dh.y * ox, dh.z * ox),
 
 		# Die-back: dead mycelium is CH2O, re-entering the dead pool at H:C 2, O:C 1.
 		rec(RM_CONST_FRAC, _dieback_k(), FUNGUS, [[FUNGUS, 1.0]],
-			[[DETRITUS, 1.0, TGT_SELF], [ORG_H, 2.0, TGT_SELF], [ORG_O, 1.0, TGT_SELF]], 0),
+			[[DETRITUS, 1.0], [ORG_H, 2.0], [ORG_O, 1.0]], 0),
 
 		# Fixing carbon stores the bond energy burning it releases, debited from the absorbed sunlight.
 		rec(RM_OPTIMUM_BAND, _photo_k(), LIGHT,
 			[[CO2, 1.0], [SOIL_ROOT, 1.0 + transpired], [FERT, organic_n]],
-			[[O2, 1.0, TGT_SELF], [BIOMASS, 1.0, TGT_SELF],
-				[H2O, transpired, TGT_SELF]],
+			[[O2, 1.0], [BIOMASS, 1.0],
+				[H2O, transpired]],
 			GATE_NEAR_GROUND, PHOTO_T_OPT, TEMP, PHOTO_T_WIDTH,
 			-1, 0.0, 0.0, -lumped),
 
 		rec(RM_BILINEAR, _resp_k(), BIOMASS, [[BIOMASS, 1.0], [O2, 1.0]],
-			[[CO2, 1.0, TGT_SELF], [H2O, 1.0, TGT_SELF],
-				[FERT, organic_n, TGT_SELF]],
+			[[CO2, 1.0], [H2O, 1.0],
+				[FERT, organic_n]],
 			0, 0.0, O2, 0.0, -1, 0.0, 0.0, lumped),
 
 		# Litterfall: shed biomass enters the dead pool at H:C 2, O:C 1.
 		rec(RM_CONST_FRAC, _litterfall_k(), BIOMASS, [[BIOMASS, 1.0]],
-			[[DETRITUS, 1.0, TGT_SELF], [ORG_H, 2.0, TGT_SELF], [ORG_O, 1.0, TGT_SELF]], 0),
+			[[DETRITUS, 1.0], [ORG_H, 2.0], [ORG_O, 1.0]], 0),
 	]

@@ -52,14 +52,14 @@ static func records() -> Array:
 	return [
 		rec(RM_ARRHENIUS, _rate_k(LAPhysical.COAL_DEHYDRATION_EA_OVER_R_K), ORG_O,
 			[[ORG_H, 2.0], [ORG_O, 1.0]],
-			[[H2O, 1.0, TGT_SELF]],
+			[[H2O, 1.0]],
 			GATE_BURIED, LAPhysical.COAL_DEHYDRATION_EA_OVER_R_K, -1,
 			LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET,
 			-1, 0.0, 0.0, _coal_enthalpy_j_m3(0.0, 2.0, 1.0)),
 
 		rec(RM_ARRHENIUS, _rate_k(LAPhysical.COAL_DECARBOXYLATION_EA_OVER_R_K), DETRITUS,
 			[[DETRITUS, 1.0], [ORG_O, 2.0]],
-			[[CO2, 1.0, TGT_SELF], [FERT, organic_n, TGT_SELF]],
+			[[CO2, 1.0], [FERT, organic_n]],
 			GATE_BURIED, LAPhysical.COAL_DECARBOXYLATION_EA_OVER_R_K, -1,
 			LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET,
 			-1, 0.0, 0.0, _coal_enthalpy_j_m3(1.0, 0.0, 2.0)),
@@ -67,8 +67,8 @@ static func records() -> Array:
 		# Reversible: direction is dG(T, p_CO2), not a threshold. CO2 is the one varying activity.
 		LAReactionThermo.reversible(rec(RM_ARRHENIUS, _dissolution_k(), H2O_LIQUID,
 			[[BEDROCK_BELOW, 1.0], [CO2, 1.0]],
-			[[CARBONATE, 1.0, TGT_SELF],
-				[SILICA, 1.0, TGT_SELF]],
+			[[CARBONATE, 1.0],
+				[SILICA, 1.0]],
 			GATE_NEAR_GROUND, LAPhysical.SILICATE_DISSOLUTION_EA_OVER_R_K, CO2,
 			LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET,
 			-1, 0.0, LAPhysical.WATER_BOIL_C + LAPhysical.KELVIN_OFFSET), CO2),
@@ -77,7 +77,7 @@ static func records() -> Array:
 		# Clapeyron pressure passes the rock's tensile strength. The water rides up with the debris.
 		rec(RM_DEFICIT_BELOW_THRESHOLD, _frost_k_per_k(), TEMP,
 			[[BEDROCK_BELOW, 1.0], [SOIL_TOP, _pore_water_per_rock()]],
-			[[SILICATE, 1.0, TGT_SELF], [H2O, _pore_water_per_rock(), TGT_SELF]],
+			[[SILICATE, 1.0], [H2O, _pore_water_per_rock()]],
 			GATE_NEAR_GROUND, _frost_threshold_c()),
 	]
 

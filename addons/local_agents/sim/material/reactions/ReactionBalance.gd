@@ -77,7 +77,7 @@ static func slot_names() -> Dictionary:
 	for key in consts:
 		var cname: String = String(key)
 		# A slot id is what is left once the namespaced constants are removed.
-		if cname.begins_with("GATE_") or cname.begins_with("TGT_") or cname.begins_with("RM_") \
+		if cname.begins_with("GATE_") or cname.begins_with("RM_") \
 				or NON_SLOT_CONSTS.has(cname):
 			continue
 		var value: Variant = consts[key]
@@ -112,10 +112,9 @@ static func check_records(recs: Array, labels: PackedStringArray = PackedStringA
 		var bad_slot: bool = false
 		for side in ["reactants", "products"]:
 			var sgn: float = -1.0 if side == "reactants" else 1.0
-			var is_prod: bool = side == "products"
 			for entry in rec.get(side, []):
 				var slot: int = int(entry[0])
-				var parts_v: Vector2 = DefsScript.comp_parts(entry, is_prod)
+				var parts_v: Vector2 = DefsScript.comp_parts(entry)
 				var coeffs: Array = [float(entry[1]), parts_v.x, parts_v.y]
 				if drivers.has(slot):
 					out.append("%s: %s is a DRIVER, not a substance — it cannot be a %s. " % [
@@ -215,8 +214,6 @@ static func check_kernel(recs: Array, labels: PackedStringArray = PackedStringAr
 				out.append("%s: reactant %s has no add_ch branch — the kernel cannot debit it, so this "
 					% [label, s] + "record would consume nothing while still crediting its products.")
 		for entry in rec.get("products", []):
-			if entry.size() > 2 and int(entry[2]) == DefsScript.TGT_SCRATCH:
-				continue                    # SCRATCH is a per-cell accumulator, not a channel slot
 			var sp: String = _name_of(int(entry[0]), names)
 			if not writable.has(sp):
 				out.append("%s: product %s has no add_ch branch — the kernel drops this write silently." % [
