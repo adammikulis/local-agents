@@ -12,4 +12,5 @@ merge, or has not moved inside the age limit.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
+| `worktree-agent-ae8626bf367576018` | 4 | Reaction thermodynamics: dG direction with cited entropies, rate-unit gate, order-independent extents. RED: check_gravity_solve on the moles-vs-fill-fraction seed seam. | the seed speaks mol/m^3. |
 | `feature/momentum-advection` | 7 | Per-component pressure gradient, one writer per face, wall normal force, EOS pressure for open cells + lithostatic rock, PhotoStats deleted. RED: check_finite_channels and PRESSURE_BROKEN, both open-cell air. | item 1 lands and the atmosphere is resolved. |
