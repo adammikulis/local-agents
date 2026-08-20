@@ -8,8 +8,8 @@ extends RefCounted
 const PASS_FILE: String = "GravityPass.gd"
 
 ## Residual, as a fraction of its own source, the seeding solve relaxes to. docs/MODEL_PARAMETERS.md.
-const SEED_RESIDUAL_TOLERANCE: float = 1.0e-3
-const SEED_DISPATCH_CAP: int = 512
+const SEED_RESIDUAL_TOLERANCE: float = 1.0e-4
+const SEED_DISPATCH_CAP: int = 2048
 
 var _f = null
 var _pass = null

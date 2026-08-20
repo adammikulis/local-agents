@@ -80,6 +80,7 @@ func seed_tick() -> bool:
 		_f._gpu._seed_regolith()                       # permeability mask + grain size
 		_f._gpu._seed("porosity", _f._porosity)        # Athy pore fraction
 		_f._gpu.seed_field("h2o", _f._h2o, _f._seal)   # ocean + water table + lakes, declared once
+	_f._gravity.solve_seed()      # the ocean just landed: relax the potential over the WHOLE seeded mass
 	return true
 
 

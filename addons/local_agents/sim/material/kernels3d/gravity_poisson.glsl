@@ -41,7 +41,7 @@ const uint MODE_VERT_DOWN = 10u;
 const uint FLAG_BOUNDARY = 1u;
 const uint FLAG_COLOUR = 2u;
 
-const uint PART_STRIDE = 9u;     // GravityPass.PART_STRIDE
+const uint PART_STRIDE = 10u;    // GravityPass.PART_STRIDE
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -200,6 +200,7 @@ void mode_relax(uint c) {
 void mode_gradient(uint gidx, bool live) {
 	float mag = 0.0;
 	float outflux = 0.0;
+	float m_in = 0.0;
 	if (live) {
 		float h = params.cell_m;
 		vec3 g = -vec3(
@@ -210,22 +211,29 @@ void mode_gradient(uint gidx, bool live) {
 		g_field[gidx * 3u + 1u] = g.y;
 		g_field[gidx * 3u + 2u] = g.z;
 		mag = length(g);
-		// GAUSS'S LAW. A face with no neighbour is on the box surface; the outward normal of slot d is
-		// +axis for the odd slot and -axis for the even one, and the box encloses every gram of mass.
-		for (uint d = 0u; d < N_SLOTS; ++d) {
-			if (nbr[gidx * N_SLOTS + d] < 0) {
-				outflux += ((d & 1u) != 0u ? g[d >> 1u] : -g[d >> 1u]) * h * h;
+		// GAUSS'S LAW ON THE SOLVER'S OWN SURFACE: summing the interior stencil equations telescopes to
+		// the one-sided flux through the interface with the Dirichlet ring, equal to -4 pi G times the
+		// mass the solve relaxed — an identity at convergence, so the ratio audits the solve itself.
+		if ((cellflag[gidx] & FLAG_BOUNDARY) == 0u) {
+			m_in = density[gidx] * h * h * h;
+			for (uint d = 0u; d < N_SLOTS; ++d) {
+				int nb2 = nbr[gidx * N_SLOTS + d];
+				if (nb2 >= 0 && (cellflag[uint(nb2)] & FLAG_BOUNDARY) != 0u) {
+					outflux += -(phi[uint(nb2)] - phi[gidx]) * h;
+				}
 			}
 		}
 	}
 	float acc = wg_sum(mag);
 	float hits = wg_sum(mag > 0.0 ? 1.0 : 0.0);
 	float flux = wg_sum(outflux);
+	float mass_in = wg_sum(m_in);
 	if (gl_LocalInvocationID.x == 0u) {
 		uint b = gl_WorkGroupID.x * PART_STRIDE;
 		partials[b + 4u] = acc;
 		partials[b + 5u] = hits;
 		partials[b + 8u] = flux;
+		partials[b + 9u] = mass_in;
 	}
 }
 
@@ -285,6 +293,7 @@ void mode_field_stats() {
 	float worst = 0.0;
 	float src = 0.0;
 	float flux = 0.0;
+	float m_in = 0.0;
 	for (uint g = t; g < params.groups; g += 64u) {
 		uint b = g * PART_STRIDE;
 		acc += partials[b + 4u];
@@ -292,18 +301,20 @@ void mode_field_stats() {
 		worst = max(worst, partials[b + 6u]);
 		src = max(src, partials[b + 7u]);
 		flux += partials[b + 8u];
+		m_in += partials[b + 9u];
 	}
 	float sum_g = wg_sum(acc);
 	float n = wg_sum(hits);
 	float max_r = wg_max(worst);
 	float max_src = wg_max(src);
 	float sum_flux = wg_sum(flux);
+	float mass_in = wg_sum(m_in);
 	if (t == 0u) {
 		moments[4] = n > 0.0 ? sum_g / n : 0.0;
 		moments[5] = max_src > 0.0 ? max_r / max_src : 0.0;
-		// Flux out of the box over the -4 pi G M the law says it equals: 1 when g points at the mass,
-		// -1 when it points away from it.
-		float want = -4.0 * acos(-1.0) * params.g_si * moments[0];
+		// Interface flux over the -4 pi G M of the relaxed interior: 1 when the solve satisfies its own
+		// discrete law, -1 when g points away from the mass.
+		float want = -4.0 * acos(-1.0) * params.g_si * mass_in;
 		moments[6] = want != 0.0 ? sum_flux / want : 0.0;
 	}
 }

@@ -7,13 +7,13 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/gravity_poisson.glsl"
 
 ## Field steps between solves. The solve warm-starts from the previous potential.
-const SOLVE_EVERY: int = 8
+const SOLVE_EVERY: int = 2
 ## Red-black sweeps per dispatch. Poisson is elliptic, so a fixed count is not a solve: the SEEDING solve
 ## relaxes until `residual_rel` falls, and the per-step solves track a warm-started field from there.
-const SWEEPS: int = 8   # LA_APPROX: fixed_sweep_relaxation
+const SWEEPS: int = 128   # LA_APPROX: fixed_sweep_relaxation
 
 ## Floats each workgroup writes into the partials buffer — gravity_poisson.glsl PART_STRIDE.
-const PART_STRIDE: int = 9
+const PART_STRIDE: int = 10
 ## gravity_poisson.glsl `moments`: 0 mass · 1..3 centre of mass · 4 mean |g| · 5 residual · 6 Gauss ratio.
 const MOMENT_SLOTS: int = 7
 const GROUP: int = 64
