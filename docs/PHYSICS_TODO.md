@@ -195,6 +195,10 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       (`LASimClock.REAL_SECONDS_PER_SIM_SECOND`), but `real_seconds_per_step()` is still
       `STEP_DT * compression`, so how fast the player watches sets every transport kernel's timestep. A
       substep budget separates them.
+- [ ] **The planet has two masses.** `PlanetBody.mass()` is a toy value the parked orbit lane reads,
+      while the field's gravity — the Poisson total and the slice monopole alike — carries the mass the
+      seeded rock derives. One fact, two declarations; unifying them changes the 0.5 orbit integrator's
+      regime, so which one dies is the maintainer's system decision.
 - [ ] **The planet is pinned at the world origin** and the star orbits it. A deliberate moving-frame choice;
       making it literal is the 0.6 headline.
 
