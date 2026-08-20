@@ -101,6 +101,11 @@ func step() -> void:
 		# The MAGNITUDE of sun_dir carries INSOLATION (orbit-distance² × atmospheric transmission).
 		var insol: float = float(_f._sun_light.get_meta("insolation", 1.0))
 		_f._gpu.set_sun_dir(_f.dir_to_field(_f._sun_light.global_transform.basis.z * insol))
+	# The transport substep budget reads last step's drained maxima.
+	if _f._gpu.has_method("set_cfl_inputs") and _f._queries != null:
+		_f._gpu.set_cfl_inputs(_f._queries.row_f("wind_speed_max"),
+			_f._queries.row_f("all_temp_max") + LAPhysical.KELVIN_OFFSET,
+			_f._gravity.mean_g() if _f._gravity != null else 0.0)
 	# The world-gen seeds, declared through the seal.
 	if _f._fuel_dirty and _f._gpu.has_method("seed_field"):
 		_f._gpu.seed_field("fuel", _f._fuel, _f._seal)

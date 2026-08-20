@@ -14,7 +14,7 @@ enum Fluid { VACUUM, WATER, AIR }
 
 ## Per-row switches, packed into the kernel's `flags`. Matches the TF_* constants in transport.glsl.
 enum Flag { SIGNED = 1, SETTLE = 2, EFIELD = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32, LISTED = 64,
-	RADIOGENIC = 128, ENTHALPY = 256, LIST_HALO = 512 }
+	RADIOGENIC = 128, ENTHALPY = 256, LIST_HALO = 512, VEL = 1024 }
 
 
 ## `settle` adds the grain's terminal velocity to the advecting fluid; `frac` is the derived share moved.
@@ -76,11 +76,11 @@ static func rows() -> Array:
 		{"channel": "mom_z", "substance": "", "mode": BOTH, "law": Law.PGF, "axis": 2,
 			"drive": "pressure", "signed": true},
 
-		{"channel": "mom_x", "substance": "", "mode": DIFFUSE, "law": Law.EDDY,
+		{"channel": "mom_x", "substance": "", "mode": DIFFUSE, "law": Law.EDDY, "axis": 0,
 			"fluid": Fluid.AIR, "signed": true},
-		{"channel": "mom_y", "substance": "", "mode": DIFFUSE, "law": Law.EDDY,
+		{"channel": "mom_y", "substance": "", "mode": DIFFUSE, "law": Law.EDDY, "axis": 1,
 			"fluid": Fluid.AIR, "signed": true},
-		{"channel": "mom_z", "substance": "", "mode": DIFFUSE, "law": Law.EDDY,
+		{"channel": "mom_z", "substance": "", "mode": DIFFUSE, "law": Law.EDDY, "axis": 2,
 			"fluid": Fluid.AIR, "signed": true},
 	]
 

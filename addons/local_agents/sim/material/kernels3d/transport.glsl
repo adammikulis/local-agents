@@ -16,9 +16,10 @@ layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float soli
 // Solved gravity per cell, flat cell*3, m/s^2.
 layout(set = 0, binding = 4, std430) restrict readonly buffer Grav { float g_field[]; };
 
-layout(set = 0, binding = 5, std430) restrict readonly buffer VelX { float vel_x[]; };
-layout(set = 0, binding = 6, std430) restrict readonly buffer VelY { float vel_y[]; };
-layout(set = 0, binding = 7, std430) restrict readonly buffer VelZ { float vel_z[]; };
+// Writable: a TF_VEL gather refreshes its own component from the momentum it just moved.
+layout(set = 0, binding = 5, std430) restrict buffer VelX { float vel_x[]; };
+layout(set = 0, binding = 6, std430) restrict buffer VelY { float vel_y[]; };
+layout(set = 0, binding = 7, std430) restrict buffer VelZ { float vel_z[]; };
 // Per-face scratch, cell*6 + slot.
 layout(set = 0, binding = 8, std430) restrict buffer Send   { float send[]; };
 layout(set = 0, binding = 9, std430) restrict buffer SendH  { float send_h[]; };
@@ -83,6 +84,8 @@ layout(set = 0, binding = 47, std430) restrict readonly buffer CapSensible { flo
 // What crossed an OPEN box edge this step, per interior cell: amount units in, and the joules riding along.
 layout(set = 0, binding = 48, std430) restrict buffer BndAmt { float bnd_amt[]; };
 layout(set = 0, binding = 49, std430) restrict buffer BndH { float bnd_h[]; };
+// Mass density per cell, kg/m^3: what a TF_VEL gather divides its momentum by.
+layout(set = 0, binding = 50, std430) restrict readonly buffer RhoBulk { float rho_bulk[]; };
 
 #include "march.glsli"
 
@@ -886,6 +889,10 @@ void main() {
 	}
 
 	// Pass 1: gather.
+	// Rock is quasi-static: a wall's normal push goes to the body, never into a solid cell's momentum.
+	if (is_signed && solid[gidx] != 0.0) {
+		return;
+	}
 	float gained = 0.0;
 	float gained_h = 0.0;
 	float gained_q = 0.0;
@@ -953,6 +960,18 @@ void main() {
 	}
 	h[gidx] = h[gidx] - lost_h + gained_h;
 	charge[gidx] = charge[gidx] - lost_q + gained_q;
+	// v = p/rho off the momentum this gather just settled, so the next substep advects the new field.
+	if ((params.flags & TF_VEL) != 0u) {
+		float rb = rho_bulk[gidx];
+		float vc = rb > 0.0 ? amount[gidx] / rb : 0.0;
+		if (params.axis == 0u) {
+			vel_x[gidx] = vc;
+		} else if (params.axis == 1u) {
+			vel_y[gidx] = vc;
+		} else {
+			vel_z[gidx] = vc;
+		}
+	}
 	if ((params.flags & TF_RADIOGENIC) != 0u) {
 		// The rock warms itself, at this epoch's rate. This row carries h_j_m3, so `amount` IS enthalpy.
 		float dq = (max(silicate[gidx], 0.0) * params.w_silicate

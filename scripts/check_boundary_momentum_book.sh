@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # MOMENTUM CROSSING AN OPEN BOUNDARY IS BOOKED, judged by the REAL evaluator: TransportPass dispatching
-# transport.glsl over a two-cell rig with one CONSTANT face from the real LAFieldBoundary3D. A pressure
-# gap books a nonzero signed bnd_mom and matter (bnd_n2) beside it; a balanced face and shut walls book
-# exactly zero; LABoundaryBooks promises no heat leg for a signed channel and still names a matter
-# channel's absent one. Arm two reads the seeded world's own momentum_book_bnd, all walls shut.
+# transport.glsl over a two-cell rig with one CONSTANT face from the real LAFieldBoundary3D. The PGF is a
+# face FLUX (p n dt/L crosses every face, cancelling pairwise inside), so a balanced face books exactly
+# the static flux while the cells' momentum stays exactly zero; a gap books more and accelerates the edge
+# cell inward; shut walls book zero. LABoundaryBooks promises no heat leg for a signed channel and still
+# names a matter channel's absent one.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -132,6 +133,7 @@ func _run(p_ghost: float) -> Dictionary:
 	var out: Dictionary = {}
 	for key in ["bnd_mom_x", "bnd_mom_y", "bnd_mom_z", "bnd_n2"]:
 		out[key] = _rd.buffer_get_data(bufs[String(key)]).to_float32_array()
+	out["mom_x"] = _rd.buffer_get_data(bufs["mom_x"]).to_float32_array()
 	p.dispose(_rd)
 	for r in owned:
 		if r.is_valid():
@@ -164,13 +166,24 @@ func _init() -> void:
 	var gap_x: float = float(gap["bnd_mom_x"][0])
 	_expect(gap_x > 0.0, "a higher exterior pressure pushed momentum in through the open face and the "
 		+ "edge cell booked none (bnd_mom_x %s)." % String.num_scientific(gap_x))
+	_expect(float(gap["mom_x"][0]) > 0.0, "a higher exterior pressure did not accelerate the edge "
+		+ "cell inward (mom_x %s)." % String.num_scientific(float(gap["mom_x"][0])))
 	_expect(float(gap["bnd_mom_x"][1]) == 0.0, "the interior cell touches no open face and booked "
 		+ "momentum anyway.")
 	_expect(_sum(gap["bnd_n2"]) > 0.0, "exterior air diffused in through the open face and bnd_n2 "
 		+ "booked none.")
-	for key in ["bnd_mom_x", "bnd_mom_y", "bnd_mom_z"]:
-		_expect(_sum(balanced[key]) == 0.0, "a balanced face moved no momentum yet %s reads %s."
+	# The static momentum flux p dt / L crosses the balanced face; the cells it enters do not move.
+	var flux: float = P_IN * LAMaterialFieldSphereStep3D.real_seconds_per_step() / CELL
+	var bal_x: float = _sum(balanced["bnd_mom_x"])
+	_expect(absf(bal_x - flux) <= 1.0e-4 * flux, ("a balanced face carries the static flux %s yet "
+		+ "bnd_mom_x reads %s.") % [String.num_scientific(flux), String.num_scientific(bal_x)])
+	for c in 2:
+		_expect(float(balanced["mom_x"][c]) == 0.0, "uniform pressure accelerated cell %d "
+			% c + "(mom_x %s)." % String.num_scientific(float(balanced["mom_x"][c])))
+	for key in ["bnd_mom_y", "bnd_mom_z"]:
+		_expect(_sum(balanced[key]) == 0.0, "no y/z face is open yet %s reads %s."
 			% [key, String.num_scientific(_sum(balanced[key]))])
+	for key in ["bnd_mom_x", "bnd_mom_y", "bnd_mom_z"]:
 		_expect(_sum(shut[key]) == 0.0, "every wall is shut yet %s reads %s."
 			% [key, String.num_scientific(_sum(shut[key]))])
 

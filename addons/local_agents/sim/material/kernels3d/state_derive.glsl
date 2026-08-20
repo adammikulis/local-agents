@@ -396,6 +396,18 @@ void main() {
 
 	lithify(g, f_melt);
 
+	// QUASI-STATIC ROCK: the lattice carries its weight (LA_APPROX quasi_static_solid_pressure), so
+	// locked matter holds no bulk momentum and a cell that unlocks starts from rest.
+	if (solid[g] != 0.0) {
+		mom_x[g] = 0.0;
+		mom_y[g] = 0.0;
+		mom_z[g] = 0.0;
+		vel_x[g] = 0.0;
+		vel_y[g] = 0.0;
+		vel_z[g] = 0.0;
+		speed[g] = 0.0;
+		return;
+	}
 	// BODY FORCES per volume: weight rho*g, which -grad(p) stands against, then the rotating-frame pair.
 	vec3 acc = vec3(g_field[g * 3u], g_field[g * 3u + 1u], g_field[g * 3u + 2u]);
 	if (w_len > 0.0) {

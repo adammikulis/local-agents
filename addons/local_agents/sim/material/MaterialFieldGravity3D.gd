@@ -56,6 +56,12 @@ func _bind() -> void:
 
 
 
+## The drained gravity mirror, flat cell*3, m/s^2. Empty before the first drain.
+func mirror() -> PackedFloat32Array:
+	_bind()
+	return _pass.mirror() if _pass != null else PackedFloat32Array()
+
+
 ## The solved vertical relation: cell -> the neighbour above it, and its inverse. Empty before the drain.
 func up_table() -> PackedInt32Array:
 	_bind()

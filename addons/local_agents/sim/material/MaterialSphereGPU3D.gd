@@ -207,6 +207,13 @@ func set_sun_dir(v: Vector3) -> void:
 	_ctx["sun_dir"] = v
 
 
+## The drained maxima the substep budget reads; before any drain there are none, so no extra substeps.
+func set_cfl_inputs(speed_max: float, temp_max_k: float, mean_g: float) -> void:
+	_ctx["cfl_speed_max"] = speed_max if is_finite(speed_max) else 0.0
+	_ctx["cfl_temp_max_k"] = temp_max_k if is_finite(temp_max_k) else 0.0
+	_ctx["cfl_mean_g"] = mean_g if is_finite(mean_g) else 0.0
+
+
 
 ## Mark the CPU enthalpy mirror dirty so the next begin_frame re-uploads it.
 func mark_h_dirty() -> void:

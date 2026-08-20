@@ -22,6 +22,10 @@ const GRAIN_ROW: Dictionary = {"channel": "silicate", "substance": "silicate",
 ## Below this a cell is empty and does not donate. Declared in docs/MODEL_PARAMETERS.md.
 const MIN_AMOUNT: float = 0.0001
 
+## Substeps one row may take inside a field step. Declared in docs/MODEL_PARAMETERS.md.
+## LA_APPROX: cfl_substep_budget
+const SUBSTEP_MAX: int = 64
+
 var _pipe: RID = RID()
 ## Per row: its uniform set. An invalid entry is a row whose buffers the driver has not got.
 var _sets: Array = []
@@ -135,28 +139,86 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 		rd.compute_list_set_push_constant(cl, gpc, gpc.size())
 		rd.compute_list_dispatch(cl, groups, 1, 1)
 		rd.compute_list_add_barrier(cl)
-	for r in _rows.size():
-		var uset: RID = _sets[r]
-		if not uset.is_valid():
-			continue
-		# EVERY ROW RUNS TWICE. Pass 0 writes what leaves each face; pass 1 gathers. A receiver reading a
-		# donor inside one dispatch reads a value another thread is still writing.
-		var args: RID = _list_args[r]
-		for pass_id in [PASS_OUTFLOW, PASS_GATHER]:
-			rd.compute_list_bind_compute_pipeline(cl, _pipe)
-			rd.compute_list_bind_uniform_set(cl, uset, 0)
-			var pc: PackedByteArray = _pc(_rows[r], cc, pass_id, cell_m, dt_s, sun)
-			rd.compute_list_set_push_constant(cl, pc, pc.size())
-			# A listed row walks the compacted cells, so its cost is O(active), not O(grid).
-			if args.is_valid():
-				rd.compute_list_dispatch_indirect(cl, args, 0)
-			else:
-				# Pass 0 covers the ghost tail; the driver's group count covers interior only.
-				var g: int = groups
-				if pass_id == PASS_OUTFLOW and ghost_count > 0:
-					g = int(ceil(float(cc + ghost_count) / 64.0))
-				rd.compute_list_dispatch(cl, g, 1, 1)
-			rd.compute_list_add_barrier(cl)
+	# The signed momentum rows substep as ONE group: their gathers refresh velocity, so each substep
+	# advects and diffuses the field the previous substep made — the exact law, integrated finer.
+	var r: int = 0
+	while r < _rows.size():
+		var group: PackedInt32Array = PackedInt32Array([r])
+		if _vel_row(_rows[r]):
+			while r + 1 < _rows.size() and _vel_row(_rows[r + 1]):
+				r += 1
+				group.append(r)
+		var n: int = 1
+		for gi in group:
+			n = maxi(n, _substeps(_rows[gi], cell_m, dt_s, ctx))
+		for _k in n:
+			for gi in group:
+				_run_row(rd, cl, gi, cc, cell_m, dt_s / float(n), sun, groups)
+		r += 1
+
+
+## One row's outflow+gather pair. Pass 0 writes what leaves each face; pass 1 gathers — a receiver
+## reading a donor inside one dispatch reads a value another thread is still writing.
+func _run_row(rd: RenderingDevice, cl: int, r: int, cc: int, cell_m: float, dt_s: float,
+		sun: Vector3, groups: int) -> void:
+	var uset: RID = _sets[r]
+	if not uset.is_valid():
+		return
+	var args: RID = _list_args[r]
+	for pass_id in [PASS_OUTFLOW, PASS_GATHER]:
+		rd.compute_list_bind_compute_pipeline(cl, _pipe)
+		rd.compute_list_bind_uniform_set(cl, uset, 0)
+		var pc: PackedByteArray = _pc(_rows[r], cc, pass_id, cell_m, dt_s, sun)
+		rd.compute_list_set_push_constant(cl, pc, pc.size())
+		# A listed row walks the compacted cells, so its cost is O(active), not O(grid).
+		if args.is_valid():
+			rd.compute_list_dispatch_indirect(cl, args, 0)
+		else:
+			# Pass 0 covers the ghost tail; the driver's group count covers interior only.
+			var g: int = groups
+			if pass_id == PASS_OUTFLOW and ghost_count > 0:
+				g = int(ceil(float(cc + ghost_count) / 64.0))
+			rd.compute_list_dispatch(cl, g, 1, 1)
+		rd.compute_list_add_barrier(cl)
+
+
+## A signed per-axis momentum row, whose gather refreshes its velocity component.
+func _vel_row(row: Dictionary) -> bool:
+	return row.has("axis") and bool(row.get("signed", false))
+
+
+## Substeps the row's stability needs: an explicit per-face share holds at <= 1/6 (six faces) and a donor
+## empties no faster than v dt <= L, so N = ceil(courant + 6 nu dt / L^2) off the LAST drained maxima.
+func _substeps(row: Dictionary, cell_m: float, dt_s: float, ctx: Dictionary) -> int:
+	var mode: int = int(row["mode"])
+	var law: int = int(row.get("law", LATransportRecords.Law.NONE))
+	var vmax: float = maxf(float(ctx.get("cfl_speed_max", 0.0)), 0.0)
+	var need: float = 0.0
+	if mode == LATransportRecords.ADVECT or mode == LATransportRecords.BOTH:
+		var v: float = vmax
+		if bool(row.get("settle", false)):
+			var fl: Vector2 = LATransportRecords.fluid_properties(
+				int(row.get("fluid", LATransportRecords.Fluid.VACUUM)))
+			var rho_s: float = float(LASubstances.table().get(String(row["substance"]), {})
+				.get("density", 0.0))
+			# Stokes terminal velocity at the row's seed grain; mean solved g is the only g drained.
+			v += maxf(rho_s - fl.x, 0.0) * maxf(float(ctx.get("cfl_mean_g", 0.0)), 0.0) \
+				* LAPhysical.GRAIN_D_UPLAND_M * LAPhysical.GRAIN_D_UPLAND_M / (18.0 * maxf(fl.y, 1.0e-30))
+		need += v * dt_s / cell_m
+	if law == LATransportRecords.Law.EDDY:
+		var fl2: Vector2 = LATransportRecords.fluid_properties(
+			int(row.get("fluid", LATransportRecords.Fluid.VACUUM)))
+		var nu_mol: float = (fl2.y / fl2.x) if fl2.x > 0.0 else 0.0
+		var mix: float = LAPhysical.SMAGORINSKY_COEFF * cell_m
+		# |S| <= sqrt(18) vmax / L bounds the strain the kernel can read off the drained peak speed.
+		var nu: float = nu_mol + mix * mix * sqrt(18.0) * vmax / cell_m
+		need += 6.0 * nu * dt_s / (cell_m * cell_m)
+	if law == LATransportRecords.Law.SOUND:
+		var tk: float = maxf(float(ctx.get("cfl_temp_max_k", 0.0)), 0.0)
+		if tk > 0.0:
+			need = maxf(need, 6.0 * sqrt(LAPhysical.AIR_ADIABATIC_INDEX
+				* LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * tk) * dt_s / cell_m)
+	return clampi(int(ceil(need)), 1, SUBSTEP_MAX)
 
 
 # --- bindings ---------------------------------------------------------------------------------------------
@@ -208,7 +270,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement",
 			"silicate_susp_water", "silicate_susp_air", "silicate_bed",
 			"rad_absorbed", "rad_emitted", "col_e", "strike",
-			"carbonate", "silica", "radiogenic", "ghost", "bnd_void", "bnd_h_void"]:
+			"carbonate", "silica", "radiogenic", "ghost", "bnd_void", "bnd_h_void", "rho_bulk"]:
 		if not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row has no law." % [key, channel])
 			return RID()
@@ -267,6 +329,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[48, _single(bufs, ("bnd_" + channel) if (BoundaryRowsScript.BOOKED.has(channel)
 			or BoundaryRowsScript.BOOKED_SIGNED.has(channel)) else "bnd_void")],
 		[49, _single(bufs, ("bnd_h_" + channel) if BoundaryRowsScript.BOOKED.has(channel) else "bnd_h_void")],
+		[50, _single(bufs, "rho_bulk")],
 	]
 	return _uset(_pipe, entries)
 
@@ -309,6 +372,8 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 		flags |= LATransportRecords.Flag.LIST_HALO
 	if bool(row.get("radiogenic", false)):
 		flags |= LATransportRecords.Flag.RADIOGENIC
+	if _vel_row(row):
+		flags |= LATransportRecords.Flag.VEL
 	# The row whose amount IS enthalpy books joules on both boundary legs.
 	if String(row["channel"]) == "h_j_m3":
 		flags |= LATransportRecords.Flag.ENTHALPY
