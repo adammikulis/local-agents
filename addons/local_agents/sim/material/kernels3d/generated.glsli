@@ -73,6 +73,7 @@
 #define TF_RADIOGENIC 128u
 #define TF_ENTHALPY 256u
 #define TF_LIST_HALO 512u
+#define TF_RELAX 1024u
 
 // ReduceRecords.gd Op enum
 #define OP_SUM 0u

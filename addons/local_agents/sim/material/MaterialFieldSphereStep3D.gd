@@ -118,6 +118,9 @@ func step() -> void:
 			# Diagnostic.
 			_f._inject.queue.audit_rewind(_f._gpu, "h2o", _f._h2o)
 		_f._inject.queue.flush(_f._gpu)
+	# Boundary face-state record/replay: samples at the drain, feeds REPLAY tails before the dispatch.
+	if _f._capture != null:
+		_f._capture.pre_step()
 	var t_step: int = Time.get_ticks_usec()
 	if _probe != null:
 		_probe.pre_step()             # arm/disarm the driver's between-pass probe for THIS step
@@ -129,9 +132,9 @@ func step() -> void:
 	var res: Dictionary = _f._gpu.end_frame()
 	var t_post: int = Time.get_ticks_usec()
 	_apply_readback(res)
-	# Seal on the field clock, never the report clock.
+	# Seal on the field clock, never the report clock. The seal takes only its own legs.
 	if _f._seal != null and _f._gpu.has_method("take_probe"):
-		_f._seal.poll(_f._gpu.take_probe())
+		_f._seal.poll(_f._gpu.take_probe(LAMaterialFieldSeal3D.required_channels()))
 	# Surface seed module: coarse-cadence biomass -> fuel litter transfer, queued sparse.
 	if _f._surface_seed != null:
 		_f._surface_seed.post_readback()

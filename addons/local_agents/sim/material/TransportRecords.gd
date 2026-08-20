@@ -14,10 +14,11 @@ enum Fluid { VACUUM, WATER, AIR }
 
 ## Per-row switches, packed into the kernel's `flags`. Matches the TF_* constants in transport.glsl.
 enum Flag { SIGNED = 1, SETTLE = 2, EFIELD = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32, LISTED = 64,
-	RADIOGENIC = 128, ENTHALPY = 256, LIST_HALO = 512 }
+	RADIOGENIC = 128, ENTHALPY = 256, LIST_HALO = 512, RELAX = 1024 }
 
 
 ## `settle` adds the grain's terminal velocity to the advecting fluid; `frac` is the derived share moved.
+## `relax` carries the boundary rim's nudge toward a REPLAY face's driving state — once per channel.
 static func rows() -> Array:
 	return [
 		# FIRST: the riming pair separates charge before anything relaxes or carries it.
@@ -30,7 +31,7 @@ static func rows() -> Array:
 			"fluid": Fluid.WATER, "frac": "h2o_liquid"},
 
 		{"channel": "h2o", "substance": "h2o", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"frac": "h2o_vapour"},
+			"frac": "h2o_vapour", "relax": true},
 
 		# One silicate channel, four laws. Cemented rock has no row: that is what being rock means.
 		# `list` dispatches this row over the compacted melt list — O(molten) rather than O(grid).
@@ -41,20 +42,24 @@ static func rows() -> Array:
 			"settle": true, "frac": "silicate_susp_water", "dilute": true},
 
 		{"channel": "silicate", "substance": "silicate", "mode": ADVECT, "fluid": Fluid.AIR,
-			"settle": true, "frac": "silicate_susp_air", "dilute": true},
+			"settle": true, "frac": "silicate_susp_air", "dilute": true, "relax": true},
 
 		{"channel": "silicate", "substance": "silicate", "mode": POTENTIAL, "law": Law.SHALLOW,
 			"repose_tan": LAPhysical.REPOSE_TAN_DRY_GRANULAR,
 			"frac": "silicate_bed", "dilute": true},
 
-		{"channel": "o2", "substance": "o2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},
-		{"channel": "co2", "substance": "co2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},
-		{"channel": "n2", "substance": "n2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR},
+		{"channel": "o2", "substance": "o2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"relax": true},
+		{"channel": "co2", "substance": "co2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"relax": true},
+		{"channel": "n2", "substance": "n2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"relax": true},
 
-		{"channel": "fungus", "substance": "cellulose", "mode": ADVECT, "fluid": Fluid.AIR},
+		{"channel": "fungus", "substance": "cellulose", "mode": ADVECT, "fluid": Fluid.AIR,
+			"relax": true},
 
 		{"channel": "fert", "substance": "fixed_n", "mode": DIFFUSE, "law": Law.DARCY,
-			"fluid": Fluid.WATER},
+			"fluid": Fluid.WATER, "relax": true},
 
 		{"channel": "shock", "substance": "", "mode": DIFFUSE, "law": Law.SOUND, "fluid": Fluid.AIR},
 
@@ -64,7 +69,7 @@ static func rows() -> Array:
 		# The heat equation: conduction down the temperature gradient, and the rock's own decay as the
 		# volumetric source term beside it.
 		{"channel": "h_j_m3", "substance": "", "mode": CONDUCT,
-			"drive": "temp", "aux": "conductivity", "radiogenic": true},
+			"drive": "temp", "aux": "conductivity", "radiogenic": true, "relax": true},
 
 		{"channel": "h_j_m3", "substance": "", "mode": RADIATE},
 

@@ -85,6 +85,9 @@ layout(set = 0, binding = 47, std430) restrict readonly buffer CapSensible { flo
 // What crossed an OPEN box edge this step, per interior cell: amount units in, and the joules riding along.
 layout(set = 0, binding = 48, std430) restrict buffer BndAmt { float bnd_amt[]; };
 layout(set = 0, binding = 49, std430) restrict buffer BndH { float bnd_h[]; };
+// The REPLAY relaxation rim: the driving ghost cell and the per-step nudge fraction; 0 = outside the rim.
+layout(set = 0, binding = 50, std430) restrict readonly buffer RimGhost { int rim_ghost[]; };
+layout(set = 0, binding = 51, std430) restrict readonly buffer RimW { float rim_w[]; };
 
 #include "march.glsli"
 
@@ -935,6 +938,39 @@ void main() {
 	}
 	h[gidx] = h[gidx] - lost_h + gained_h;
 	charge[gidx] = charge[gidx] - lost_q + gained_q;
+	// LA_APPROX: boundary_relaxation_zone
+	if ((params.flags & TF_RELAX) != 0u && rim_w[gidx] > 0.0
+			&& !(solid[gidx] != 0.0 && blocks_solid)) {
+		int rg = rim_ghost[gidx];
+		if (rg >= int(params.cell_count) && rg < int(params.total_count)) {
+			uint rgu = uint(rg);
+			float dq = rim_w[gidx] * (amount[rgu] - amount[gidx]);
+			if (dq != 0.0) {
+				float dh = 0.0;
+				if ((params.flags & TF_ENTHALPY) != 0u) {
+					dh = dq;
+				} else if (params.density > 0.0) {
+					uint hc = dq > 0.0 ? rgu : gidx;
+					float h_pu = 0.0;
+					if (params.sub_cap_j_m3k > 0.0) {
+						float cap = cap_sensible[hc];
+						h_pu = cap > 0.0 ? h_carried[hc] * params.sub_cap_j_m3k / cap : 0.0;
+					} else if (amount[hc] > 0.0) {
+						h_pu = h_carried[hc] / amount[hc];
+					}
+					dh = dq * h_pu;
+					h[gidx] += dh;
+				}
+				float held = amount[gidx];
+				amount[gidx] = held + dq;
+				if ((params.flags & TF_DILUTE) != 0u && dq > 0.0 && held > 0.0) {
+					cement[gidx] = clamp(cement[gidx] * held / amount[gidx], 0.0, 1.0);
+				}
+				bnd_amt[gidx] += dq;
+				bnd_h[gidx] += dh;
+			}
+		}
+	}
 	if ((params.flags & TF_RADIOGENIC) != 0u) {
 		// The rock warms itself, at this epoch's rate. This row carries h_j_m3, so `amount` IS enthalpy.
 		float dq = (max(silicate[gidx], 0.0) * params.w_silicate

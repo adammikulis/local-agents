@@ -102,6 +102,10 @@ var _regolith_mod = null                                 # LAMaterialFieldRegoli
 var _biota = null                                        # LAMaterialFieldBiota3D
 const BoundaryScript: GDScript = preload("res://addons/local_agents/sim/material/FieldBoundary3D.gd")
 var _boundary = null                                     # LAFieldBoundary3D — the box-face boundary provider
+const CaptureScript: GDScript = preload("res://addons/local_agents/sim/material/FieldBoundaryCapture3D.gd")
+var _capture = null                                      # LAFieldBoundaryCapture3D — face-state record/replay
+var _slice = null                                        # LAFieldSlice3D — set when this field is a slice
+var _pivot = null                                        # Vector3 body centre when the box is not centred on it
 const AtmosScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldAtmos3D.gd")
 const LedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLedger3D.gd")
 const ChannelsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldChannels3D.gd")
@@ -390,6 +394,7 @@ func activate() -> void:
 	_ejecta = EjectaScript.new()
 	_ejecta.setup(self)
 	add_child(_ejecta)                            # Node3D: integrates ballistic parcels + owns the GPU ejecta particles
+	_capture = CaptureScript.maybe_make(self)
 	_ready_sim = true
 
 

@@ -38,7 +38,7 @@ func report(step_index: int) -> Dictionary:
 	# READ-ONLY, AT THE DRAIN, through the probe, which never changes channel residency.
 	var legs: Dictionary = {}
 	if _f._gpu != null and _f._gpu.has_method("take_probe"):
-		legs = _f._gpu.take_probe()
+		legs = _f._gpu.take_probe(LEGS)
 		_f._gpu.request_probe(LEGS)
 	var rho: PackedFloat32Array = legs.get("rho_bulk", PackedFloat32Array())
 	var pres: PackedFloat32Array = legs.get("pressure", PackedFloat32Array())

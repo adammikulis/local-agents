@@ -4,7 +4,7 @@ extends SceneTree
 ##
 ## Why this exists. An editor scan only loads what something references, so a script nothing
 ## instantiates can carry a broken `preload` and never be looked at. scripts/check_library_only.sh
-## staged a game-free tree, scanned it, printed OK, and missed exactly that: sim/streamer/
+## staged a game-free tree, scanned it, printed OK, and missed exactly that: streamer/
 ## StreamerHost.gd preloads game/ui/SceneEnergyGraph.gd, which the staging had just deleted. Three
 ## separate reviews found the hole before the gate did.
 ##

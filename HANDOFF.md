@@ -14,24 +14,17 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 1. FEED THE OPEN BOUNDARY A REAL EXTERIOR, AND A SLICE BECOMES TESTABLE. TAKE THIS FIRST.
+## 1. MOMENTUM CROSSING AN OPEN FACE IS UNBOOKED
 
-The seam is `LAFieldBoundary3D` (SHUT/WRAP/CONSTANT/REPLAY per face; node meta -> project setting ->
-`LA_BOUNDARY_FACES`); CONSTANT and REPLAY refuse to run without a supplied state. What is left:
+The slice runs (`scripts/sim_run.sh --slice`; record a global run's exterior with `--slice-capture FILE`,
+consume it with `--slice --slice-state FILE`, series-feed with `LA_SLICE_REPLAY=1`). What is left: the mom
+rows bind `bnd_void` in `TransportPass._row_set`, so an open-boundary slice's momentum ledger residual
+carries the crossings, and the REPLAY relaxation rim skips the mom rows for the same reason. Give momentum
+its boundary book, the per-substance `bnd_*` shape, then mark the mom rows `relax`.
 
-- **The capture pipeline.** Store a global run's drain as per-face states plus a time series, and feed
-  `LAFieldBoundary3D.replay(face, state)` per step. One stored global run drives many slice runs.
-- **Momentum crossing an open face is unbooked** — the mom rows bind `bnd_void` in `TransportPass._row_set`,
-  so an open-boundary slice's momentum ledger residual carries the crossings. Give momentum its boundary
-  book, the per-substance `bnd_*` shape.
-- **One-way nesting reflects waves inward near the edge.** A relaxation zone is the standard answer and is
-  an approximation, so it takes a row and an `LA_APPROX` marker.
-- **Leave global, each cheap and none local:** the deep heat flux on the bottom face, without which no magma
-  arrives from below; the solved potential sampled in, nearly uniform over a thin patch.
-
-**Why it unblocks testing:** not speed at equal cells, but a SMALL SUFFICIENT domain. At the cell size a
-whole planet forces, rain and eruptions may not be reachable at all. A slice with a declared boundary makes
-"moist convection precipitates" and "overpressure erupts" assertions a gate can make.
+**Why a slice matters:** a SMALL SUFFICIENT domain. At the cell size a whole planet forces, rain and
+eruptions may not be reachable at all. A slice with a declared boundary makes "moist convection
+precipitates" and "overpressure erupts" assertions a gate can make.
 
 ## 0. MOMENTUM RUNS AWAY TO NON-FINITE. DOWNSTREAM OF ITEM 1; DO NOT START IT FIRST.
 
