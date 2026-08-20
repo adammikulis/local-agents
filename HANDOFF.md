@@ -37,6 +37,9 @@ its final sampled step's last two passes — the probe drops its other prints, w
 counters read 0 rock-on-rock, 0 open-standing-on-rock, 0 rock-over-void and 0 dry — only wet open-on-open
 remain; once the momentum NaN spreads, every class reads polluted.
 
+**Hunt it on a slice whose cells resolve the scale height, not on the planet box:**
+`scripts/agent_harness.sh sim --slice --slice-box "0,2439700,0,24,32,24,2500" --frames 20`.
+
 The gate is mutation-tested three ways and is **NOT wired into `lint`**. Wire it the moment it passes.
 `feature/momentum-advection` carries the work, declared in `docs/OPEN_BRANCHES.md`.
 

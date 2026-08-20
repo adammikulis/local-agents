@@ -12,4 +12,4 @@ merge, or has not moved inside the age limit.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
-| `feature/momentum-advection` | 12 | Dev merged twice. Vert tables (item 12 closed: rock/surface/void inversions 0 while finite), acoustic-Riemann face pressure, quasi-static rock, mass fluxes carry momentum, pair-exact viscosity, CFL substep budget, momentum ledger on device rows. RED: check_finite_channels (open-cell mom_* NaN by ~10 frames) and PRESSURE_BROKEN exit 122 (wet open-on-open while finite). | item 1's slice arms localize the residual open-cell runaway. |
+| `feature/momentum-advection` | 14 | Dev merged twice. Vert tables (item 12 closed: rock/surface/void inversions 0 while finite), acoustic-Riemann face pressure, quasi-static rock, mass fluxes carry momentum, pair-exact viscosity, CFL substep budget, momentum ledger on device rows. RED: check_finite_channels (open-cell mom_* NaN by ~10 frames; same on a slice at 2 km cells) and PRESSURE_BROKEN exit 122 (wet open-on-open only while finite). | item 1's slice arms localize the residual open-cell runaway. |
