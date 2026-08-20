@@ -21,16 +21,14 @@ consume it with `--slice --slice-state FILE`, series-feed with `LA_SLICE_REPLAY=
 book exists (`BoundaryRows.BOOKED_SIGNED`), so the rim's reason for skipping the mom rows is gone: mark
 them `relax` in `TransportRecords`, and verify the rim's nudge lands in `bnd_mom_*` on the REPLAY arm.
 
-## 0. MOMENTUM LANE — WHAT IS LEFT
+## 0. IDENTICAL-SEED RUNS DIVERGE, AND PRESSURE_BROKEN STILL EXITS 122
 
-`check_finite_channels` is green and wired into `lint`. Two symptoms remain:
+**Reproduce the divergence:** `scripts/agent_harness.sh sim --frames 5 --report h2o_total` twice and
+diff — `h2o_total` differs in the ninth digit and `pressure_audited` by a few cells, with the field
+finite throughout (`check_finite_channels` in `lint` holds it so).
 
-**Identical-seed runs diverge on a clean tree.** Reproduce:
-`scripts/agent_harness.sh sim --frames 5 --report h2o_total` twice and diff — `h2o_total` differs in
-the ninth digit and `pressure_audited` by a few cells, with the field finite throughout.
-
-**`scripts/sim_run.sh --frames 10` exits 122 with `PRESSURE_BROKEN`**, the DRY open-pair class
-carrying nearly the whole count and wet/rock/surface near zero. On the slice
+**Reproduce the inversions:** `scripts/sim_run.sh --frames 10` exits 122 with `PRESSURE_BROKEN`, the
+DRY open-pair class carrying nearly the whole count and wet/rock/surface near zero. On the slice
 (`scripts/agent_harness.sh sim --slice --slice-box "0,2439700,0,24,32,24,2500" --frames 20`, finite)
 the cells flanking the wrap seam accumulate multiple fills of h2o.
 
