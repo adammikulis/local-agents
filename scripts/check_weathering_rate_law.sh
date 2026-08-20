@@ -3,7 +3,9 @@
 # reactions_sphere3d.glsl over the live record table on a one-column rig, extents read off the device.
 # Chemical arm: positive at 25 C, monotone in T, Q10 ~2, zero with no liquid water, stoichiometric.
 # Frost arm: fires below the tensile threshold over liquid pore water, conserves rock and water, and
-# reads zero above the threshold or over frozen pores. Arm two reads the seeded world's own gauge.
+# reads zero above the threshold or over frozen pores. Competition arm: two records drawing one scarce
+# reactant land on the same state whichever way the table is ordered. Arm two reads the seeded world's
+# own gauge.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,11 +25,15 @@ const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWi
 
 const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd"
 const CELL: float = 1.0
-const H2O_AT_CELL: float = 0.5
-const CO2_AT_CELL: float = 0.277
-const PORE_WATER: float = 0.3
+# A channel amount is moles. Rig stimuli, mol/m^3: a damp cell (so the CO2 cap never saturates the Q10
+# measurement) over CO2-rich ground air.
+const H2O_MOL_M3: float = LAPhysical.WATER_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
+const H2O_AT_CELL: float = 0.01 * H2O_MOL_M3
+const CO2_AT_CELL: float = 0.25 * LAPhysical.AIR_MOLAR_DENSITY_MOL_M3
+const PORE_WATER: float = 0.3 * H2O_MOL_M3
 const GROUND_WARM_C: float = 1.0
 const TOL: float = 1.0e-6
+const ORDER_REL_TOL: float = 1.0e-5
 
 var _rd: RenderingDevice = null
 var _grid: LAVoxelGrid = null
@@ -51,8 +57,8 @@ func _filled(n: int, v: float) -> PackedFloat32Array:
 
 
 ## One dispatch of the real reactions pass over a 1x3x1 column: bedrock, the reacting open cell, air.
-## `cond` carries per-buffer overrides; returns the channels read back off the device.
-func _run(cond: Dictionary) -> Dictionary:
+## `cond` carries per-buffer overrides; `recs` a table override. Returns the channels read off the device.
+func _run(cond: Dictionary, recs: Array = []) -> Dictionary:
 	var cc: int = _grid.cell_count
 	var owned: Array[RID] = []
 	var bufs: Dictionary = {}
@@ -81,6 +87,8 @@ func _run(cond: Dictionary) -> Dictionary:
 		_rd.buffer_update(bufs[String(key)], 0, vals.to_byte_array().size(), vals.to_byte_array())
 
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
+	if not recs.is_empty():
+		bufs["reaction_records"] = recs
 	p.setup(_rd, bufs, cc)
 	var cl: int = _rd.compute_list_begin()
 	p.dispatch(_rd, cl, {"sun_dir": Vector3.ZERO}, cc, int(ceil(float(cc) / 64.0)))
@@ -88,7 +96,7 @@ func _run(cond: Dictionary) -> Dictionary:
 	_rd.submit()
 	_rd.sync()
 	var out: Dictionary = {}
-	for key in ["silicate", "carbonate", "silica", "h2o"]:
+	for key in ["silicate", "carbonate", "silica", "h2o", "o2", "co2", "fuel", "detritus", "fungus"]:
 		out[key] = _rd.buffer_get_data(bufs[key]).to_float32_array()
 	p.dispose(_rd)
 	for r in owned:
@@ -101,9 +109,10 @@ func _run(cond: Dictionary) -> Dictionary:
 ## freezing point — the state the ladder itself would derive. Returns the carbonate credited.
 func _chem(t_c: float) -> Dictionary:
 	var liq: float = 1.0 if t_c > LAPhysical.WATER_FREEZE_C else 0.0
+	var bedrock: float = LAPhysical.ROCK_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_CASIO3_KG_MOL
 	var out: Dictionary = _run({
 		"solid": {_bottom: 1.0},
-		"silicate": {_bottom: 1.0},
+		"silicate": {_bottom: bedrock},
 		"temp": {_bottom: t_c, _mid: t_c, _grid.index(0, 2, 0): t_c},
 		"pressure": {_bottom: LAPhysical.STANDARD_PRESSURE_PA, _mid: LAPhysical.STANDARD_PRESSURE_PA,
 			_grid.index(0, 2, 0): LAPhysical.STANDARD_PRESSURE_PA},
@@ -113,16 +122,17 @@ func _chem(t_c: float) -> Dictionary:
 		"co2": {_mid: CO2_AT_CELL},
 	})
 	return {"carbonate": float(out["carbonate"][_mid]), "silica": float(out["silica"][_mid]),
-		"bedrock_removed": 1.0 - float(out["silicate"][_bottom])}
+		"bedrock_removed": bedrock - float(out["silicate"][_bottom])}
 
 
 ## The frost record: cold open surface on wet regolith-bedrock. The pore water below is liquid or frozen
 ## according to the GROUND temperature, which is the state that starves deep cold.
 func _frost(surface_c: float, ground_c: float) -> Dictionary:
 	var liq: float = 1.0 if ground_c > LAPhysical.WATER_FREEZE_C else 0.0
+	var bedrock: float = LAPhysical.ROCK_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_CASIO3_KG_MOL
 	var out: Dictionary = _run({
 		"solid": {_bottom: 1.0},
-		"silicate": {_bottom: 1.0},
+		"silicate": {_bottom: bedrock},
 		"regolith": {_bottom: 1.0},
 		"h2o": {_bottom: PORE_WATER},
 		"h2o_liquid": {_bottom: liq},
@@ -132,9 +142,28 @@ func _frost(surface_c: float, ground_c: float) -> Dictionary:
 			_grid.index(0, 2, 0): LAPhysical.STANDARD_PRESSURE_PA},
 	})
 	return {"debris": float(out["silicate"][_mid]),
-		"bedrock_removed": 1.0 - float(out["silicate"][_bottom]),
+		"bedrock_removed": bedrock - float(out["silicate"][_bottom]),
 		"pore_debit": PORE_WATER - float(out["h2o"][_bottom]),
 		"water_credit": float(out["h2o"][_mid])}
+
+
+## Decomposition and combustion drawing one scarce oxygen pool, with the record table in a given order.
+func _compete(recs: Array) -> Dictionary:
+	var t_c: float = 300.0
+	var out: Dictionary = _run({
+		"temp": {_bottom: t_c, _mid: t_c, _grid.index(0, 2, 0): t_c},
+		"pressure": {_bottom: LAPhysical.STANDARD_PRESSURE_PA, _mid: LAPhysical.STANDARD_PRESSURE_PA,
+			_grid.index(0, 2, 0): LAPhysical.STANDARD_PRESSURE_PA},
+		"fuel": {_mid: 1.0e2},
+		"detritus": {_mid: 4.0e4},
+		"fungus": {_mid: 4.0e4},
+		"org_h": {_mid: 2.0 * (1.0e2 + 4.0e4)},
+		"org_o": {_mid: 1.0 * (1.0e2 + 4.0e4)},
+		"o2": {_mid: 5.0},
+	}, recs)
+	return {"o2": float(out["o2"][_mid]), "co2": float(out["co2"][_mid]),
+		"fuel": float(out["fuel"][_mid]), "detritus": float(out["detritus"][_mid]),
+		"fungus": float(out["fungus"][_mid])}
 
 
 func _expect(ok: bool, msg: String) -> void:
@@ -176,20 +205,27 @@ func _init() -> void:
 	_expect(float(frozen["carbonate"]) == 0.0, "aqueous dissolution proceeds at -10 C with no liquid "
 		+ "water in the cell (%s)." % String.num_scientific(float(frozen["carbonate"])))
 	var c: Dictionary = chem[25.0]
-	_expect(absf(float(c["bedrock_removed"]) - float(c["carbonate"])) <= TOL
-		and absf(float(c["silica"]) - float(c["carbonate"])) <= TOL,
-		"Urey stoichiometry broke: bedrock %s, carbonate %s, silica %s should be equal." % [
-			String.num_scientific(float(c["bedrock_removed"])),
+	var scale_c: float = maxf(float(c["carbonate"]), 1.0)
+	# The bedrock delta is read off a float32 field holding the rock's full molar density, so its noise
+	# floor is that field's ulp, not the credit fields' near-zero one.
+	var rock_ulp: float = LAPhysical.ROCK_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_CASIO3_KG_MOL \
+		* 4.0 / 8388608.0
+	_expect(absf(float(c["silica"]) - float(c["carbonate"])) <= TOL * scale_c,
+		"Urey stoichiometry broke: carbonate %s and silica %s moles should be equal." % [
 			String.num_scientific(float(c["carbonate"])), String.num_scientific(float(c["silica"]))])
+	_expect(absf(float(c["bedrock_removed"]) - float(c["carbonate"])) <= maxf(TOL * scale_c, rock_ulp),
+		"Urey stoichiometry broke: bedrock %s and carbonate %s moles should be equal." % [
+			String.num_scientific(float(c["bedrock_removed"])), String.num_scientific(float(c["carbonate"]))])
 
 	var f: Dictionary = _frost(-5.0, GROUND_WARM_C)
 	var warm: Dictionary = _frost(-0.5, GROUND_WARM_C)
 	var starved: Dictionary = _frost(-5.0, -5.0)
+	var scale_f: float = maxf(float(f["debris"]), 1.0)
 	_expect(float(f["debris"]) > 0.0, "frost shattering detached nothing at -5 C over liquid pore water.")
-	_expect(absf(float(f["bedrock_removed"]) - float(f["debris"])) <= TOL,
+	_expect(absf(float(f["bedrock_removed"]) - float(f["debris"])) <= TOL * scale_f,
 		"frost shattering does not conserve rock: %s left the bedrock, %s arrived as debris." % [
 			String.num_scientific(float(f["bedrock_removed"])), String.num_scientific(float(f["debris"]))])
-	_expect(absf(float(f["pore_debit"]) - float(f["water_credit"])) <= TOL,
+	_expect(absf(float(f["pore_debit"]) - float(f["water_credit"])) <= TOL * maxf(float(f["pore_debit"]), 1.0),
 		"frost shattering does not conserve water: %s left the pores, %s arrived with the debris." % [
 			String.num_scientific(float(f["pore_debit"])), String.num_scientific(float(f["water_credit"]))])
 	_expect(float(warm["debris"]) == 0.0, "frost shattering runs at -0.5 C, above the tensile threshold "
@@ -197,10 +233,27 @@ func _init() -> void:
 	_expect(float(starved["debris"]) == 0.0, "frost shattering runs over FROZEN pore water — the supply "
 		+ "must leave the state, not survive it.")
 
-	print('WEATHERING_RATE_LAW={"carbonate_25c":%s,"q10":%.3f,"carbonate_frozen":%s,"frost_debris":%s,"frost_warm":%s,"frost_starved":%s,"failures":%d}'
+	# --- ORDER INDEPENDENCE: the same competition, the table forward and reversed --------------------------
+	var table: Array = LAMaterialReactions3D.records()
+	_expect(not table.is_empty(), "the live record table refused to build; the competition arm ran nothing.")
+	var reversed_table: Array = table.duplicate()
+	reversed_table.reverse()
+	var fwd: Dictionary = _compete(table)
+	var rev: Dictionary = _compete(reversed_table)
+	_expect(float(fwd["o2"]) < 5.0 - 1.0, "the competition arm drew almost no oxygen (o2 %s of 5.0) — "
+		% String.num_scientific(float(fwd["o2"])) + "nothing competed, so order independence was not tested.")
+	for key in fwd:
+		var a: float = float(fwd[key])
+		var b: float = float(rev[key])
+		_expect(absf(a - b) <= ORDER_REL_TOL * maxf(maxf(absf(a), absf(b)), 1.0e-3),
+			"two records competing for one reactant depend on table order: %s is %s forward, %s reversed."
+			% [String(key), String.num_scientific(a), String.num_scientific(b)])
+
+	print('WEATHERING_RATE_LAW={"carbonate_25c":%s,"q10":%.3f,"carbonate_frozen":%s,"frost_debris":%s,"frost_warm":%s,"frost_starved":%s,"order_o2_fwd":%s,"order_o2_rev":%s,"failures":%d}'
 		% [String.num_scientific(c25), q10, String.num_scientific(float(frozen["carbonate"])),
 			String.num_scientific(float(f["debris"])), String.num_scientific(float(warm["debris"])),
-			String.num_scientific(float(starved["debris"])), _fails])
+			String.num_scientific(float(starved["debris"])), String.num_scientific(float(fwd["o2"])),
+			String.num_scientific(float(rev["o2"])), _fails])
 	_rd.free()
 	quit(1 if _fails > 0 else 0)
 GD

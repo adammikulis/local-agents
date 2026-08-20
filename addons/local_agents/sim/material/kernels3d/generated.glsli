@@ -42,6 +42,8 @@
 #define GATE_BURIED 256
 #define TGT_SELF 0
 #define TGT_SCRATCH 3
+#define RECORD_BYTES 240
+#define MAX_RECORDS 24
 
 // TransportRecords.gd mode enum
 #define MODE_POTENTIAL 0u

@@ -16,21 +16,26 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	if not _pipe.is_valid():
 		return
 
-	var defs_script: GDScript = load(REACTIONS_SCRIPT)
-	if defs_script == null:
-		push_error("ReactionsPass: could not load %s — the reaction table is GONE and all same-cell chemistry "
-			% REACTIONS_SCRIPT + "would silently stop. Run scripts/editor_scan.sh (a new class_name only "
-			+ "registers after a scan).")
-		return
-	var recs: Array = defs_script.records()
+	# Test-rig seam: a table under this key replaces MaterialReactions3D.records(). The driver never sets it.
+	var recs: Array = bufs.get("reaction_records", [])
 	if recs.is_empty():
-		push_error("ReactionsPass: the reaction table is EMPTY. Every same-cell reaction (photosynthesis, "
-			+ "respiration, decompose, evaporation, weathering) is disabled. "
-			+ "This is a load failure, not a valid configuration — check the record modules in "
-			+ "material/reactions/ and run scripts/editor_scan.sh.")
+		var defs_script: GDScript = load(REACTIONS_SCRIPT)
+		if defs_script == null:
+			push_error("ReactionsPass: could not load %s — the reaction table is GONE and all same-cell chemistry "
+				% REACTIONS_SCRIPT + "would silently stop. Run scripts/editor_scan.sh (a new class_name only "
+				+ "registers after a scan).")
+			return
+		recs = defs_script.records()
+	if recs.is_empty():
+		push_error("ReactionsPass: the reaction table is EMPTY — every same-cell reaction is disabled. A load "
+			+ "failure, not a configuration: check material/reactions/ and run scripts/editor_scan.sh.")
+		return
+	if recs.size() > LAReactionDefs.MAX_RECORDS:
+		push_error("ReactionsPass: %d records exceed the kernel's MAX_RECORDS = %d; raise it in "
+			% [recs.size(), LAReactionDefs.MAX_RECORDS] + "LAReactionDefs and regenerate.")
 		return
 	_n_records = recs.size()
-	var defs_ssbo: RID = _storage_buffer(defs_script.serialize(recs))
+	var defs_ssbo: RID = _storage_buffer(LAReactionDefs.serialize(recs))
 
 	var temp: RID = _single(bufs, "temp")        # derived C, read-only
 	var h: RID = _single(bufs, "h_j_m3")         # the state, J/m^3

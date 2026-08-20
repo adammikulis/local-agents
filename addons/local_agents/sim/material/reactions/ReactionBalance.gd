@@ -10,7 +10,7 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/re
 const TOL: float = 1.0e-6
 
 ## Constants of LAReactionDefs that are not channel slots and carry no namespace prefix.
-const NON_SLOT_CONSTS: PackedStringArray = ["RECORD_BYTES"]
+const NON_SLOT_CONSTS: PackedStringArray = ["RECORD_BYTES", "MAX_RECORDS"]
 
 
 ## Slots that may only drive a record, never be a reactant or a product.
