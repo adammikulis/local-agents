@@ -9,15 +9,14 @@ const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/
 ## is in is derived from its enthalpy, not stored. Every cell, no residency mask.
 const H2O: PackedStringArray = ["h2o"]
 
-## The lithosphere. `MINERAL_SUM` is the conserved total; carbonate and silica are memo lines outside it.
+## The lithosphere. Reactions move matter between these channels, so the conserved stock is elemental Si.
 const MINERAL: PackedStringArray = ["silicate", "carbonate", "silica"]
-const MINERAL_SUM: PackedStringArray = ["silicate"]
 ## The atmosphere/biosphere element book.
 const ELEMENT: PackedStringArray = ["co2", "o2", "detritus", "biomass", "fert", "fungus", "fuel", "n2"]
 ## The reaction table's closed carbon triangle.
 const CARBON: PackedStringArray = ["co2", "biomass", "detritus"]
 ## Carbon over every pool that carries it, not only the three the reaction table moves between.
-const CARBON_CLOSED: PackedStringArray = ["co2", "biomass", "detritus", "fungus", "fuel"]
+const CARBON_CLOSED: PackedStringArray = ["co2", "biomass", "detritus", "fungus", "fuel", "carbonate"]
 ## O2-equivalent sum the reaction table holds.
 const OXIDANT: PackedStringArray = ["o2", "co2"]
 

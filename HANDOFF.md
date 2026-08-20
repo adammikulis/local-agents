@@ -14,13 +14,6 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 1. The REPLAY rim skips the momentum rows
-
-The slice runs (`scripts/sim_run.sh --slice`; record a global run's exterior with `--slice-capture FILE`,
-consume it with `--slice --slice-state FILE`, series-feed with `LA_SLICE_REPLAY=1`). Momentum's boundary
-book exists (`BoundaryRows.BOOKED_SIGNED`), so the rim's reason for skipping the mom rows is gone: mark
-them `relax` in `TransportRecords`, and verify the rim's nudge lands in `bnd_mom_*` on the REPLAY arm.
-
 ## 0. MOMENTUM RUNS AWAY TO NON-FINITE. THE SLICE IS THE TEST DOMAIN.
 
 Same lane, second symptom: **identical-seed runs diverge on a clean tree.** Reproduce:
@@ -36,6 +29,20 @@ rock-on-rock and 0 for open-standing-on-rock; the remainder are open-on-open.
 
 The gate is mutation-tested three ways and is **NOT wired into `lint`**. Wire it the moment it passes.
 `feature/momentum-advection` carries the work, declared in `docs/OPEN_BRANCHES.md`.
+
+## 2. The open-boundary books do not close at run level, and a capture's six faces read identical
+
+`scripts/sim_run.sh --frames 20 --slice-capture C` then `scripts/sim_run.sh --slice --slice-state C
+--frames 650` fires CONSERVATION_VIOLATION on h2o and mineral, and C carries one state on every face —
+the box bottom, deep underground, reads the same temperature as the sky. `check_boundary_books.sh` holds
+the kernel's per-dispatch booking closed on the same capture, so the work is behind it:
+
+- `MaterialSphereGPU3D.gd` clears `bnd_*` every step and `LABoundaryBooks.sample` multiplies one drained
+  rate by the elapsed steps; the crossing integral belongs on the device.
+- `LAFieldBoundaryCapture3D._exterior_face_cells` lands every face plane of the default box in the same
+  few coarse global cells.
+- `MaterialFieldMomentumLedger3D` accumulates its `_cum_*` books only across report samples, and a
+  measurement run reports once, so `momentum_book_bnd` cannot fold in that mode.
 
 ## 4. Reduce the rest on the device
 

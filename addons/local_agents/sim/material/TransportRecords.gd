@@ -81,11 +81,11 @@ static func rows() -> Array:
 			"drive": "pressure", "signed": true},
 
 		{"channel": "mom_x", "substance": "", "mode": DIFFUSE, "law": Law.EDDY,
-			"fluid": Fluid.AIR, "signed": true},
+			"fluid": Fluid.AIR, "signed": true, "relax": true},
 		{"channel": "mom_y", "substance": "", "mode": DIFFUSE, "law": Law.EDDY,
-			"fluid": Fluid.AIR, "signed": true},
+			"fluid": Fluid.AIR, "signed": true, "relax": true},
 		{"channel": "mom_z", "substance": "", "mode": DIFFUSE, "law": Law.EDDY,
-			"fluid": Fluid.AIR, "signed": true},
+			"fluid": Fluid.AIR, "signed": true, "relax": true},
 	]
 
 
