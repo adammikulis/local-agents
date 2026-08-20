@@ -95,8 +95,8 @@ func _exterior_face_cells(box: LAFieldSlice3D) -> Array:
 		var seen: Dictionary = {}
 		var cells: PackedInt32Array = PackedInt32Array()
 		var p: Vector3 = Vector3.ZERO
-		p[axis] = (lo[axis] - 0.5 * grid.cell_size) if (d & 1) == 0 \
-			else (lo[axis] + 2.0 * half[axis] + 0.5 * grid.cell_size)
+		p[axis] = (lo[axis] - 0.5 * box.cell_size) if (d & 1) == 0 \
+			else (lo[axis] + 2.0 * half[axis] + 0.5 * box.cell_size)
 		var nu: int = box.dims[u_axis]
 		var nv: int = box.dims[v_axis]
 		for u in nu:
@@ -142,7 +142,11 @@ func _fold(step: int, legs: Dictionary) -> void:
 		var cells: PackedInt32Array = _face_cells[d]
 		if cells.is_empty():
 			continue
-		faces[str(d)] = _face_state(cells, legs)
+		var st: Dictionary = _face_state(cells, legs)
+		if not _raw_ok(st):
+			push_warning("LAFieldBoundaryCapture3D: face %d read a non-finite state at step %d; the sample is dropped, not invented." % [d, step])
+			return
+		faces[str(d)] = st
 	_samples.append({"step": step, "faces": faces})
 	_write()
 
@@ -230,6 +234,9 @@ static func constant_states(data: Dictionary) -> Dictionary:
 	var counts: Dictionary = {}
 	for s in samples:
 		var faces: Dictionary = s.get("faces", {})
+		if not _sample_ok(faces):
+			push_warning("LAFieldBoundaryCapture3D: a stored sample carries a non-finite reading; skipped.")
+			continue
 		for key in faces:
 			var d: int = int(String(key))
 			var st: Dictionary = _state_of(faces[key])
@@ -259,10 +266,14 @@ static func constant_states(data: Dictionary) -> Dictionary:
 
 
 ## Face slot -> the per-sample series, plus the cadence in field steps: the REPLAY boundary's feed.
+## A series with a gap cannot drive a boundary, so one bad sample refuses the whole file.
 static func series_states(data: Dictionary) -> Dictionary:
 	var faces: Dictionary = {}
 	for s in data.get("samples", []):
 		var sf: Dictionary = s.get("faces", {})
+		if not _sample_ok(sf):
+			push_error("LAFieldBoundaryCapture3D: the series carries a non-finite sample; a gapped series cannot drive a REPLAY face.")
+			return {}
 		for key in sf:
 			var d: int = int(String(key))
 			if not faces.has(d):
@@ -283,3 +294,39 @@ static func _to_vec(v) -> Vector3:
 	if v is Array and (v as Array).size() == 3:
 		return Vector3(float(v[0]), float(v[1]), float(v[2]))
 	return Vector3.ZERO
+
+
+static func _sample_ok(faces: Dictionary) -> bool:
+	for key in faces:
+		if not (faces[key] is Dictionary) or not _raw_ok(faces[key]):
+			return false
+	return true
+
+
+## A recorded reading is a measurement only when every number in it is a finite number. The momentum
+## runaway writes non-finite velocities, which JSON stores as null.
+static func _raw_ok(raw: Dictionary) -> bool:
+	if not _num_ok(raw.get("temp_c")) or not _num_ok(raw.get("pressure_pa")):
+		return false
+	for vk in ["velocity", "gravity"]:
+		var v = raw.get(vk)
+		if v is Vector3:
+			if not (v as Vector3).is_finite():
+				return false
+			continue
+		if not (v is Array) or (v as Array).size() != 3:
+			return false
+		for e in v:
+			if not _num_ok(e):
+				return false
+	var amounts = raw.get("amounts")
+	if not (amounts is Dictionary):
+		return false
+	for name in amounts:
+		if not _num_ok(amounts[name]):
+			return false
+	return true
+
+
+static func _num_ok(v) -> bool:
+	return (v is float and is_finite(v)) or v is int
