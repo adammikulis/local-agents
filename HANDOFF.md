@@ -21,9 +21,6 @@ The seam is `LAFieldBoundary3D` (SHUT/WRAP/CONSTANT/REPLAY per face; node meta -
 
 - **The capture pipeline.** Store a global run's drain as per-face states plus a time series, and feed
   `LAFieldBoundary3D.replay(face, state)` per step. One stored global run drives many slice runs.
-- **Momentum crossing an open face is unbooked** — the mom rows bind `bnd_void` in `TransportPass._row_set`,
-  so an open-boundary slice's momentum ledger residual carries the crossings. Give momentum its boundary
-  book, the per-substance `bnd_*` shape.
 - **One-way nesting reflects waves inward near the edge.** A relaxation zone is the standard answer and is
   an approximation, so it takes a row and an `LA_APPROX` marker.
 - **Leave global, each cheap and none local:** the deep heat flux on the bottom face, without which no magma
