@@ -54,7 +54,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	# The two non-silicate mineral species (slots 24/25, bindings 28/29).
 	var carbonate: RID = _single(bufs, "carbonate")
 	var silica: RID = _single(bufs, "silica")
-	# `discharge` is the lightning stamp — read-only, single, driver only.
+	# `discharge` is derived HERE from col_e and strike: the field energy the stroke relaxes, J/m^3.
 	var n2: RID = _single(bufs, "n2")
 	var discharge: RID = _single(bufs, "discharge")
 	# The dead organic pool's hydrogen and oxygen. Registered channels (LAChannels), so the driver owns them.
@@ -94,7 +94,9 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		[28, carbonate],        # CaCO3 — the Urey record credits it forward, debits it in reverse
 		[29, silica],           # SiO2 — the weathering residue, same record
 		[30, n2],               # dinitrogen — lightning fixation debits it
-		[31, discharge],        # the lightning discharge stamp, driver only
+		[31, discharge],        # the lightning discharge stamp, derived from col_e/strike, driver only
+		[38, _single(bufs, "col_e")],   # column electrostatic field, V/m (transport's EFIELD row)
+		[39, _single(bufs, "strike")],  # breakdown flag (same row)
 		[32, org_h],            # organic hydrogen; ORG_H/ORG_C is the cell's molar H:C
 		[33, org_o],            # organic oxygen; ORG_O/ORG_C is the cell's molar O:C
 		[34, h2o_solid],        # DERIVED share — ice

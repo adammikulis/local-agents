@@ -1,12 +1,6 @@
-// PRESSURE IS A STATE FUNCTION OF THE CELL, not a path integral up a column.
-// The phases share one cell and are in mechanical equilibrium, so one pressure satisfies
-//     V = sum_gas n R T / p  +  sum_cond m v(T, p)
-// with the condensed specific volume LASubstances.density inverts to,
-//     v(T, p) = v0(T) * (1 - (p - p_std) / K),  v0(T) = (1 + alpha (T - T_ref)) / rho_ref.
-// Multiplying through by p gives one quadratic, so the root is closed form and O(1) per cell:
-//     C p^2 + (V - B - C p_std) p - A = 0
-// A = N_gas R T, B = sum m v0(T), C = sum m v0(T) / K. A substance with no declared bulk modulus is
-// incompressible: it takes its unstressed volume and adds nothing to C.
+// One cell, one pressure: V = N R T / p + sum m v0(T)(1 - (p - p_std)/K) is the quadratic
+//     C p^2 + (V - B - C p_std) p - A = 0,  A = N R T, B = sum m v0(T), C = sum m v0(T)/K,
+// closed form and O(1) per cell. No bulk modulus = incompressible: adds to B and nothing to C.
 #ifndef LA_EOS_GLSLI
 #define LA_EOS_GLSLI
 

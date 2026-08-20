@@ -23,8 +23,10 @@ var cell_size: float = 0.0                 # model units; the same along every a
 var origin: Vector3 = Vector3.ZERO         # world position of the minimum corner of cell (0,0,0)
 var cell_count: int = 0
 
-## cell_count * 6 flat neighbour table, slot order above. -1 = outside the box.
+## (cell_count + ghost_rows) * 6 flat neighbour table, slot order above. -1 = outside the box.
 var neighbours: PackedInt32Array = PackedInt32Array()
+## Ghost rows appended past cell_count by a boundary provider; 0 = every wall shut.
+var ghost_rows: int = 0
 
 
 ## The slot at which the neighbour at slot `d` points back here. Axis-aligned, so it is the bit flip
@@ -110,7 +112,18 @@ func build_centred(center: Vector3, radius: float, p_cell_size: float) -> void:
 	build(n, n, n, p_cell_size, center - Vector3(half, half, half))
 
 
+## Append `n` ghost rows to the neighbour table: boundary-provider cells past cell_count, every slot shut
+## until the provider writes its interior partner. The table stays the one declaration of adjacency.
+func add_ghost_rows(n: int) -> void:
+	ghost_rows += maxi(n, 0)
+	var first: int = neighbours.size()
+	neighbours.resize((cell_count + ghost_rows) * SLOTS)
+	for i in range(first, neighbours.size()):
+		neighbours[i] = -1
+
+
 func _build_neighbours() -> void:
+	ghost_rows = 0
 	neighbours.resize(cell_count * SLOTS)
 	for z in nz:
 		for y in ny:

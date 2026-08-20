@@ -84,7 +84,7 @@ fi
 
 # The scan above is necessary and NOT sufficient. An editor scan only loads what something references,
 # so a script nothing instantiates can preload a file the staging just deleted and never be looked at.
-# That is not hypothetical: this gate printed OK while sim/streamer/StreamerHost.gd preloaded
+# That is not hypothetical: this gate printed OK while a streamer host outside game/ preloaded
 # game/ui/SceneEnergyGraph.gd, which the rm -rf above removes. Three separate reviews found the hole
 # before the gate did. So force every script in the staged tree to load.
 cp "$ROOT/scripts/parse_all_scripts.gd" "$TMP/parse_all_scripts.gd"

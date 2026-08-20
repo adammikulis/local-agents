@@ -1,6 +1,6 @@
 [gd_scene load_steps=3 format=3 uid="uid://c5t8n1q0stravt0"]
 
-[ext_resource type="Script" path="res://addons/local_agents/sim/streamer/StreamerAvatar.gd" id="1_avatar"]
+[ext_resource type="Script" path="res://addons/local_agents/game/streamer/StreamerAvatar.gd" id="1_avatar"]
 
 [sub_resource type="Environment" id="Environment_avatar"]
 background_mode = 0

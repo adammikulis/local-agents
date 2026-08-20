@@ -1,10 +1,9 @@
 #[compute]
 #version 450
 
-// LITHOSTATIC PRESSURE, SOLID CELLS ONLY: the weight per unit area of everything standing over the cell.
+// LITHOSTATIC PRESSURE, SOLID CELLS ONLY: the weight per unit area standing over the cell. An open
+// cell's pressure is state_derive.glsl's; touching one here makes two writers disagree about it.
 // LA_APPROX: quasi_static_solid_pressure
-// An open cell's pressure is a state function of its own matter and is written by state_derive.glsl;
-// this kernel must not touch one, or two writers disagree about the same cell.
 
 #include "neighbours.glsli"
 
@@ -66,9 +65,7 @@ void main() {
 	float top = params.p_top;
 	int a = vert_up[g];
 	for (uint i = 0u; i < params.max_steps && a >= 0; ++i) {
-		// Rock stands under whatever fluid is on it: at the first open cell the march ends and that
-		// cell's own pressure is what the column carries. Without it the surface starts from vacuum
-		// and the skin reads a lower pressure than the air above it.
+		// Rock stands under whatever fluid is on it: the first open cell ends the march at its pressure.
 		if (solid[uint(a)] == 0.0) {
 			top = pressure[uint(a)];
 			break;

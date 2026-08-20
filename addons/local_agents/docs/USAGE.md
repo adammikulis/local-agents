@@ -19,8 +19,8 @@ the install for you, deletes `game/`, and then does two passes. First an editor 
 unresolved `class_name`. Then a force-load of every script in the tree through
 `scripts/parse_all_scripts.gd`, because a scan only loads what something references, so a script
 nothing instantiates can preload a deleted file and never be looked at. That is not hypothetical: the
-gate reported OK for days while `sim/streamer/StreamerHost.gd` preloaded `game/ui/SceneEnergyGraph.gd`.
-That file has since moved to `sim/streamer/`, next to the only code that used it.
+gate reported OK for days while the streamer host preloaded `game/ui/SceneEnergyGraph.gd`.
+That file has since moved to `game/streamer/`, next to the only code that used it.
 
 Two details of that gate are worth knowing if you write one like it. `load()` on a script whose preload
 target is missing returns a NON-null Script and prints the parse error to stderr, so loading is what

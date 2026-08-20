@@ -16,6 +16,8 @@ var _first_step: int = -1
 var _samples: int = 0
 var _cum_pgf: Vector3 = Vector3.ZERO         # ∫ pressure-gradient force dt, kg·m/s
 var _cum_frame: Vector3 = Vector3.ZERO       # ∫ (Coriolis + centrifugal) dt, kg·m/s
+## Σ of the kernel's bnd_mom_* books, kg·m/s, inflow-positive: momentum that crossed an open boundary.
+var _cum_bnd: Vector3 = Vector3.ZERO
 ## ∫ (|pgf| + |rotating frame|) dt, kg·m/s. The impulse that ACTED — no direction to cancel through,
 ## so it is the one denominator the residual can be a fraction of that does not pass through zero.
 var _cum_impulse: float = 0.0
@@ -44,7 +46,14 @@ func report(step_index: int) -> Dictionary:
 	var pres: PackedFloat32Array = legs.get("pressure", PackedFloat32Array())
 	var has_rho: bool = rho.size() == cc
 	var has_pres: bool = pres.size() == cc
-	out["momentum_live"] = {"rho_bulk": has_rho, "pressure": has_pres}
+	# The boundary books, off the reduce drain: kg·m/s that crossed an open face per step, inflow-positive.
+	var qy: LAMaterialFieldQueries3D = _f._queries
+	var bnd_now: Vector3 = Vector3(qy.row_f("bnd_mom_x"), qy.row_f("bnd_mom_y"),
+		qy.row_f("bnd_mom_z")) if qy != null else Vector3(NAN, NAN, NAN)
+	var has_bnd: bool = bnd_now.is_finite()
+	if not has_bnd:
+		bnd_now = Vector3.ZERO
+	out["momentum_live"] = {"rho_bulk": has_rho, "pressure": has_pres, "bnd_mom": has_bnd}
 
 	var solid: PackedByteArray = _f._solid
 	var vx: PackedFloat32Array = _f._vel_x
@@ -56,6 +65,7 @@ func report(step_index: int) -> Dictionary:
 		return out
 
 	var nbr: PackedInt32Array = grid.neighbours
+	var bnd = _f._boundary
 	var cell_m: float = float(_f._cell_size)
 	var v_m3: float = grid.cell_volume()
 	var spin: Vector3 = LAFieldGeometry.spin_axis(_f)
@@ -87,14 +97,23 @@ func report(step_index: int) -> Dictionary:
 		# -Ω x (Ω x r). Booking one and not the other made the residual carry the difference.
 		var r_vec: Vector3 = grid.cell_world_pos(c) - centre
 		f_frame += (spin.cross(v) * -two_omega - omega.cross(omega.cross(r_vec))) * m
-		# PRESSURE GRADIENT: F = -V grad(p), central differences over the six faces. A solid or missing
-		# neighbour reflects, which is what a wall does.
+		# PRESSURE GRADIENT: F = -V grad(p), central differences over the six faces. A solid neighbour or a
+		# shut wall reflects; an open face reads the provider's ghost pressure mirror or its wrap partner.
 		if has_pres:
 			var p0: float = pres[c]
 			var gp: Vector3 = Vector3.ZERO
 			for d in LAVoxelGrid.SLOTS:
 				var mi: int = nbr[c * LAVoxelGrid.SLOTS + d]
-				var pn: float = pres[mi] if (mi >= 0 and solid[mi] == 0) else p0
+				if mi < 0 and bnd != null:
+					mi = bnd.redirect(c, d)
+				var pn: float = p0
+				if mi >= 0 and mi < cc:
+					if solid[mi] == 0:
+						pn = pres[mi]
+				elif mi >= cc:
+					var gpres: float = bnd.ghost_pressure(mi)
+					if is_finite(gpres):
+						pn = gpres
 				gp += Vector3(LAVoxelGrid.SLOT_STEP[d]) * (0.5 * (pn - p0))
 			f_pgf += gp * (-v_m3 / cell_m)
 
@@ -117,16 +136,18 @@ func report(step_index: int) -> Dictionary:
 		_first_step = step_index
 		_cum_pgf = Vector3.ZERO
 		_cum_frame = Vector3.ZERO
+		_cum_bnd = Vector3.ZERO
 		_cum_impulse = 0.0
 		_note_seed("momentum_kg_m_s", stock.length())
 		latched = true
 	if _first_step >= 0 and not latched and steps > 0:
 		# Rectangle rule over the window at the force sampled at its right-hand end, the same approximation
-		# LAMaterialFieldLedger3D integrates its fluxes with.
+		# LAMaterialFieldLedger3D uses. The bnd book is an impulse per step, so it scales by steps.
 		var window_s: float = dt_real * float(steps)
 		_cum_pgf += f_pgf * window_s
 		_cum_frame += f_frame * window_s
-		_cum_impulse += (f_pgf.length() + f_frame.length()) * window_s
+		_cum_bnd += bnd_now * float(steps)
+		_cum_impulse += (f_pgf.length() + f_frame.length()) * window_s + bnd_now.length() * float(steps)
 
 	var run_steps: int = (step_index - _first_step) if _first_step >= 0 else 0
 	out["momentum_samples"] = _samples
@@ -137,7 +158,7 @@ func report(step_index: int) -> Dictionary:
 		return out
 
 	var run_drift: Vector3 = stock - _first_stock
-	var booked: Vector3 = _cum_pgf + _cum_frame
+	var booked: Vector3 = _cum_pgf + _cum_frame + _cum_bnd
 	var residual: Vector3 = run_drift - booked
 	out["momentum_run_drift_vec"] = _vec(run_drift)
 	out["momentum_run_drift"] = run_drift.length()
@@ -153,6 +174,7 @@ func report(step_index: int) -> Dictionary:
 	out["momentum_residual_rel"] = _rel(residual.length(), _cum_impulse)
 	out["momentum_book_pgf"] = _vec(_cum_pgf)
 	out["momentum_book_frame"] = _vec(_cum_frame)
+	out["momentum_book_bnd"] = _vec(_cum_bnd)
 	out["momentum_scan_ms"] = snappedf(float(Time.get_ticks_usec() - t0) / 1000.0, 0.01)
 	return out
 
@@ -180,6 +202,7 @@ func _blank() -> Dictionary:
 		"momentum_residual": 0.0, "momentum_residual_vec": [0.0, 0.0, 0.0],
 		"momentum_impulse": 0.0, "momentum_residual_rel": null,
 		"momentum_book_pgf": [0.0, 0.0, 0.0], "momentum_book_frame": [0.0, 0.0, 0.0],
+		"momentum_book_bnd": [0.0, 0.0, 0.0],
 		"momentum_force_n": [0.0, 0.0, 0.0],
 		"momentum_samples": 0, "momentum_first_step": -1, "momentum_run_steps": 0,
 		"momentum_live": {}, "momentum_scan_ms": 0.0,

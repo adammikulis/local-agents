@@ -1,12 +1,8 @@
 class_name LAFieldLithostaticSeed
 extends RefCounted
 
-## Rock at depth is COMPRESSED. Seeding every solid cell at the reference density gives a body whose
-## pressure, read off the equation of state, is one standard atmosphere all the way down.
-##
-## A uniform self-gravitating sphere has, exactly, p(r) = (2/3) pi G rho^2 (R^2 - r^2) — the same closed
-## form scripts/check_gravity_solve.sh checks g against. Inverting the linear condensed EOS at that
-## pressure gives the fill that holds it: v = v0 (1 - (p - p_std)/K), and the fill is v0/v.
+## Rock at depth is COMPRESSED. A uniform self-gravitating sphere has p(r) = (2/3) pi G rho^2 (R^2 - r^2);
+## inverting the linear condensed EOS there, v = v0 (1 - (p - p_std)/K), gives the fill v0/v.
 static func compress(field) -> float:
 	if field == null or field._grid == null or field._silicate.size() != field._cell_count:
 		return 0.0
@@ -39,10 +35,8 @@ static func compress(field) -> float:
 	return added
 
 
-## AN ATMOSPHERE IS A SHELL ON A SURFACE, not a uniform fill of the box. The channels are filled before
-## solidity is sampled, so every cell gets a sea-level atmosphere: inside the stone, and out at the box
-## corners far above any air. Gas is kept where there is air to be, and falls off with altitude by the
-## barometric relation about the mean solid radius, with the scale height taken from the seeded state.
+## AN ATMOSPHERE IS A SHELL ON A SURFACE, not a uniform fill of the box: gas falls off with altitude
+## by the barometric relation about the mean solid radius, scale height from the seeded state.
 static func shape_atmosphere(field, temp_c: float) -> void:
 	if field == null or field._grid == null or field._solid.size() != field._cell_count:
 		return

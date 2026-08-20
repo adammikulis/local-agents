@@ -49,7 +49,6 @@ const N: int = 6
 const CELL: float = 1.0
 const ORIGIN: Vector3 = Vector3(-0.5 * N * CELL, -0.5 * N * CELL, -0.5 * N * CELL)
 const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
-const LIST_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd"
 ## Transport binds the enthalpy decomposition this pass declares, so the harness must allocate it too.
 const DERIVE_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd"
 
@@ -71,11 +70,12 @@ func _f32(n: int) -> RID:
 	return r
 
 
-func _u32(n: int) -> RID:
+func _indirect(n: int) -> RID:
 	var a: PackedInt32Array = PackedInt32Array()
 	a.resize(maxi(n, 1))
 	var b: PackedByteArray = a.to_byte_array()
-	var r: RID = _rd.storage_buffer_create(b.size(), b)
+	var r: RID = _rd.storage_buffer_create(b.size(), b,
+		RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
 	_owned.append(r)
 	return r
 
@@ -97,29 +97,35 @@ func _filled(cc: int, v: float) -> PackedFloat32Array:
 func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Array:
 	var cc: int = grid.cell_count
 	var scr: GDScript = load(PASS_PATH)
-	var lst: GDScript = load(LIST_PATH)
 	var p: RefCounted = scr.new()
 	var bufs: Dictionary = {}
 	for name in LAChannels.channels():
 		bufs[String(name)] = _f32(cc)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(cc)
-	# The one listed row's compacted-cell buffers, so it builds a uniform set like every other row.
-	for row: Dictionary in lst.rows():
-		bufs[String(row["idx"])] = _u32(cc)
-		bufs[String(row["flag"])] = _u32(cc)
-		bufs[String(row["args"])] = _u32(int(lst.Arg.SLOTS))
 	# ASK THE PASS what it declares, exactly as the driver's _allocate_declared does. A harness that
 	# builds its own inputs tests the kernel against a table the sim never sends it.
 	var declared: Dictionary = p._buffers(cc)
 	declared.merge((load(DERIVE_PATH) as GDScript).new()._buffers(cc))
 	for name in declared:
 		var spec: Variant = declared[name]
-		bufs[String(name)] = _f32(int(spec["n"]) if spec is Dictionary else int(spec))
+		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
+		if spec is Dictionary and bool(spec.get("indirect", false)):
+			bufs[String(name)] = _indirect(n)
+		else:
+			bufs[String(name)] = _f32(n)
 	var nbr_bytes: PackedByteArray = grid.neighbours.to_byte_array()
 	var nbr: RID = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	_owned.append(nbr)
 	bufs["nbr"] = nbr
+	# Every wall shut: the boundary redirect holds -1 per face, exactly as the driver builds it.
+	var gh_arr: PackedInt32Array = PackedInt32Array()
+	gh_arr.resize(cc * 6)
+	gh_arr.fill(-1)
+	var gh_bytes: PackedByteArray = gh_arr.to_byte_array()
+	var gh: RID = _rd.storage_buffer_create(gh_bytes.size(), gh_bytes)
+	_owned.append(gh)
+	bufs["ghost"] = gh
 	bufs["gravity"] = _f32(cc * 3)
 	bufs["pos"] = _f32(cc * 3)
 

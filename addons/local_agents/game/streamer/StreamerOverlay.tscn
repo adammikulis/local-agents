@@ -1,6 +1,6 @@
 [gd_scene load_steps=3 format=3 uid="uid://c5t8n1q0strovl0"]
 
-[ext_resource type="Script" path="res://addons/local_agents/sim/streamer/StreamerOverlay.gd" id="1_overlay"]
+[ext_resource type="Script" path="res://addons/local_agents/game/streamer/StreamerOverlay.gd" id="1_overlay"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
 content_margin_left = 8.0

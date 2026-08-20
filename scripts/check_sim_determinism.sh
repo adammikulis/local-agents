@@ -25,7 +25,7 @@ SCAN_ROOTS=(
   "$ROOT/addons/local_agents/game/world"
 )
 # Presentation, or the seeded source itself.
-EXEMPT_RE='/addons/local_agents/sim/streamer/|/addons/local_agents/tests/|/creatures/sim/SimRng.gd$|/game/world/VoxelAudioController.gd$'
+EXEMPT_RE='/addons/local_agents/tests/|/creatures/sim/SimRng.gd$|/game/world/VoxelAudioController.gd$'
 
 for d in "${SCAN_ROOTS[@]}"; do
   [ -d "$d" ] || { echo "check_sim_determinism: MISSING scan root $d." >&2; exit 2; }

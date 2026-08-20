@@ -35,7 +35,7 @@ static func rows() -> Dictionary:
 
 ## Buffers a pass recomputes from the channels every step, and the driver copies back on every drain.
 static func derived_buffers() -> PackedStringArray:
-	return PackedStringArray(["temp", "h2o_solid", "h2o_liquid", "h2o_vapour", "silicate_melt",
+	return PackedStringArray(["temp", "h2o_solid", "h2o_liquid", "h2o_vapour", "liquid", "silicate_melt",
 		"silicate_susp_water", "silicate_susp_air", "silicate_bed", "vel_x", "vel_y", "vel_z",
 		"pressure", "rho_bulk", "conductivity", "solid", "fire", "discharge",
 		"rad_absorbed", "rad_emitted"])
@@ -109,17 +109,4 @@ static func lithosphere_channels() -> PackedStringArray:
 		var sub: String = String(tbl[name].get("substance", ""))
 		if sub == "silicate" or sub == "carbonate" or sub == "silica":
 			out.append(String(name))
-	return out
-
-
-## Channels entering the cell mixture by mass: name -> {"substance": id, "unit": "vf"}. Gas is excluded:
-## it is the non-condensable denominator of the saturation split, counted in moles.
-static func mixture_channels() -> Dictionary:
-	var out: Dictionary = {}
-	var tbl: Dictionary = rows()
-	for name in tbl:
-		var sub: String = String(tbl[name].get("substance", ""))
-		if sub == "" or String(tbl[name].get("phase", "")) == "gas":
-			continue
-		out[String(name)] = {"substance": sub, "unit": String(tbl[name].get("unit", "vf"))}
 	return out

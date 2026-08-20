@@ -49,6 +49,8 @@ const ROCK_VOLUME_EXPANSION_PER_K: float = 1.5e-5
 ## Isothermal bulk modulus of the basalt mineral matrix, Pa. Adam & Otheim 2013, JGR Solid Earth 118, give
 ## Voigt-Reuss-Hill mineral moduli of 80.1 and 84.1 GPa on two basalt samples.
 const ROCK_BULK_MODULUS_PA: float = 8.0e10
+## Uniaxial tensile strength of intact basalt, Pa (Schultz 1995, Rock Mech. Rock Eng. 28:1, 14.5±3.3 MPa).
+const BASALT_TENSILE_STRENGTH_PA: float = 1.45e7
 const ROCK_SPECIFIC_HEAT_J_KGK: float = 840.0
 const VOL_HEAT_CAP_AIR_J_M3K: float = AIR_DENSITY_KG_M3 * AIR_SPECIFIC_HEAT_J_KGK
 const VOL_HEAT_CAP_WATER_J_M3K: float = WATER_DENSITY_KG_M3 * WATER_SPECIFIC_HEAT_J_KGK
@@ -112,10 +114,6 @@ const GRAIN_D_LOWLAND_M: float = 4.0e-3     # fine gravel
 const REPOSE_TAN_DRY_GRANULAR: float = 0.70
 
 
-## Saturation vapour concentration, mol/m^3: Magnus e_sat put through the ideal gas law, n = e / (R T).
-static func saturation_vapour_mol_m3(t_c: float) -> float:
-	var e_sat: float = LASubstances.saturation_p_at("h2o", t_c)
-	return e_sat / (GAS_CONSTANT_J_MOL_K * maxf(t_c + KELVIN_OFFSET, 1.0))
 const ANIMAL_TISSUE_DENSITY_KG_M3: float = 1000.0
 
 const PROTEIN_DENATURE_C: float = 45.0
@@ -156,9 +154,7 @@ const ENTROPY_CASIO3_J_MOL_K: float = 81.69
 const ENTROPY_SIO2_J_MOL_K: float = 41.46
 const ENTROPY_CACO3_J_MOL_K: float = 91.7
 
-const WATER_DENSITY_0C_KG_M3: float = 999.84
 const ICE_DENSITY_KG_M3: float = 916.7
-const ICE_FREEZE_EXPANSION: float = 0.0907          # 999.84/916.7 - 1
 ## Volumetric thermal expansivity of ice Ih near 265 K, 1/K (Röttger et al. 1994, Acta Cryst B50:644).
 const ICE_VOLUME_EXPANSION_PER_K: float = 1.6e-4
 ## Isothermal bulk modulus of ice Ih at 273 K, Pa (Neumeier 2018, J. Phys. Chem. Ref. Data 47:033101).
@@ -177,9 +173,6 @@ const LITHIFICATION_PRESSURE_PA: float = 6.0e7
 # Share of a cell's uncemented silicate that consolidates, per step per Pa above the threshold.
 # Inherited, unreviewed — docs/MODEL_PARAMETERS.md.
 const LITHIFICATION_RATE_PER_PA: float = 1.0e-9
-
-const PLATE_SPEED_MIN_MM_PER_YEAR: float = 10.0
-const PLATE_SPEED_MAX_MM_PER_YEAR: float = 100.0
 
 const AIR_MOLE_FRAC_N2: float = 0.78084     # NASA/NOAA standard atmosphere, dry air
 const AIR_MOLE_FRAC_O2: float = 0.20946
@@ -288,14 +281,6 @@ const CELLULOSE_PYROLYSIS_EA_J_MOL: float = 2.30e5
 const CELLULOSE_PYROLYSIS_EA_OVER_R_K: float = CELLULOSE_PYROLYSIS_EA_J_MOL / GAS_CONSTANT_J_MOL_K
 
 const ALBEDO_VEGETATION: float = 0.12
-
-## Leaf mass per area, kg/m^2, log-mean of the leaf-economics spectrum (Wright et al. 2004, Nature).
-const LEAF_MASS_PER_AREA_KG_M2: float = 0.080
-
-## Foliage as a fraction of standing plant mass (Bar-On, Phillips & Milo 2018).
-const FOLIAGE_FRACTION_OF_PLANT_MASS: float = 0.03
-
-const CANOPY_EXTINCTION_COEFF: float = 0.5
 
 # Dinitrogen, from the NIST Chemistry WebBook (CAS 7727-37-9) unless another source is named.
 const N2_BOIL_C: float = -195.795                    # normal boiling point 77.355 K

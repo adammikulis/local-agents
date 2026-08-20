@@ -14,11 +14,10 @@ SIM = os.path.join(ROOT, "addons", "local_agents", "sim")
 
 REACTION_DEFS = os.path.join(SIM, "material", "reactions", "ReactionDefs.gd")
 REACTION_THERMO = os.path.join(SIM, "material", "reactions", "ReactionThermo.gd")
-CELL_LIST_PASS = os.path.join(SIM, "material", "sphere_passes", "CellListPass.gd")
 TRANSPORT_RECORDS = os.path.join(ROOT, "addons/local_agents/sim/material/TransportRecords.gd")
 REDUCE_RECORDS = os.path.join(ROOT, "addons/local_agents/sim/material/ReduceRecords.gd")
 REGOLITH = os.path.join(SIM, "material", "MaterialFieldRegolith3D.gd")
-RENDER = os.path.join(SIM, "material", "MaterialFieldRender3D.gd")
+RENDER = os.path.join(ROOT, "addons/local_agents/game/render/MaterialFieldRender3D.gd")
 
 # Outward normal and the two in-plane axes of each face of an axis-aligned cube, order [+X,-X,+Y,-Y,+Z,-Z].
 # Pure cube geometry, declared once here and emitted into the shader include; no GDScript reads it.
@@ -114,16 +113,6 @@ def reaction_sections():
     return found
 
 
-def cell_list_flags():
-    m = re.search(r"^enum Flag \{(.+?)\}", read(CELL_LIST_PASS), re.M | re.S)
-    if not m:
-        raise Missing("CellListPass.gd declares no `enum Flag`")
-    out = [(n, int(v)) for n, v in re.findall(r"([A-Z][A-Z0-9_]*)\s*=\s*(\d+)", m.group(1))]
-    if not out:
-        raise Missing("CellListPass.gd's `enum Flag` is empty")
-    return out
-
-
 def transport_modes():
     """LATransportRecords' mode enum, which transport.glsl must not restate."""
     m = re.search(r"^enum \{ ([A-Z, ]+) \}", read(TRANSPORT_RECORDS), re.M)
@@ -180,10 +169,6 @@ def glsli_text():
         for name, value in sections[want]:
             lines.append("#define %s %d" % (name, value))
     lines.append("")
-    lines.append("// sphere_passes/CellListPass.gd Flag")
-    for name, value in cell_list_flags():
-        lines.append("#define F_%s %du" % (name, value))
-    lines.append("")
     lines.append("// TransportRecords.gd mode enum")
     for value, name in transport_modes():
         lines.append("#define MODE_%s %du" % (name, value))
@@ -220,7 +205,7 @@ def fmt(value):
 
 
 def shaderinc_text():
-    lines = [BANNER, "", "// cube-face frames; material/MaterialFieldRender3D.gd"]
+    lines = [BANNER, "", "// cube-face frames; game/render/MaterialFieldRender3D.gd"]
     for name, vecs in face_frames():
         cells = ", ".join("vec3(%s)" % ", ".join(fmt(float(c)) for c in v) for v in vecs)
         lines.append("const vec3 %s[6] = vec3[6](%s);" % (name, cells))

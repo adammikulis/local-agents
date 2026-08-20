@@ -8,7 +8,7 @@ const LONG_DAYS: int = 8                                       # rotations held 
 ## A sample that jumps more than this much sun-angle has under-sampled the rotation and the day boundary it
 const ALIAS_LIMIT: float = PI * 0.5
 ## Process frames between siting attempts while there is still no land to site on (pre-spawn, or a headless
-## field with no terrain). Without it a world that never grows ground pays two full-grid scans per report.
+## field with no terrain).
 const SITE_RETRY_FRAMES: int = 60
 
 
@@ -111,50 +111,32 @@ func report() -> Dictionary:
 
 # --- Stations ----------------------------------------------------------------------------------------------
 
+## Site the stations by radial march: per band, STATIONS_PER_BAND directions spread in longitude,
+## hemispheres alternating, each walked inward from the box edge to the ground.
 func _site_stations() -> void:
 	var cc: int = _f._cell_count
 	var solid: PackedByteArray = _f._solid
-	if solid.size() != cc:
+	if solid.size() != cc or _f._grid == null:
 		return
 	var axis: Vector3 = LAMaterialFieldReport3D.PLANET_SPIN_AXIS.normalized()
-	var counts: PackedInt32Array = PackedInt32Array()
-	counts.resize(BANDS)
-	var band_of: PackedInt32Array = PackedInt32Array()
-	band_of.resize(cc)
-	for c in cc:
-		band_of[c] = -1
-		if solid[c] != 0:
-			continue
-		var lo: int = LAFieldGeometry.below(_f, c)
-		if lo < 0 or solid[lo] == 0:
-			continue                                     # not ground: no rock beneath
-		var p: Vector3 = _f.cell_world_pos_linear(c) - _f.centre()
-		var radius: float = p.length()
-		if radius < 0.001:
-			continue
-		var lat: float = absf(rad_to_deg(asin(clampf(p.dot(axis) / radius, -1.0, 1.0))))
-		var b: int = clampi(int(lat / (90.0 / float(BANDS))), 0, BANDS - 1)
-		band_of[c] = b
-		counts[b] += 1
-	var stride: PackedInt32Array = PackedInt32Array()
-	stride.resize(BANDS)
+	var e1: Vector3 = axis.cross(Vector3.RIGHT)
+	if e1.length_squared() < 1.0e-6:
+		e1 = axis.cross(Vector3.FORWARD)
+	e1 = e1.normalized()
+	var e2: Vector3 = axis.cross(e1).normalized()
+	var centre: Vector3 = _f.centre()
+	var band_w: float = 90.0 / float(BANDS)
 	for b in BANDS:
-		stride[b] = maxi(1, counts[b] / STATIONS_PER_BAND)
-	var seen: PackedInt32Array = PackedInt32Array()
-	seen.resize(BANDS)
-	var taken: PackedInt32Array = PackedInt32Array()
-	taken.resize(BANDS)
-	for c in cc:
-		var b: int = band_of[c]
-		if b < 0:
-			continue
-		var idx: int = seen[b]
-		seen[b] = idx + 1
-		if taken[b] >= STATIONS_PER_BAND or idx % stride[b] != 0:
-			continue
-		taken[b] += 1
-		_cells.append(c)
-		_band.append(b)
+		for k in STATIONS_PER_BAND:
+			var hemi: float = 1.0 if (k & 1) == 0 else -1.0
+			var lat: float = deg_to_rad((float(b) + (float(k) + 0.5) / float(STATIONS_PER_BAND)) * band_w) * hemi
+			var lon: float = TAU * (float(k) + 0.5 * float(b % 2)) / float(STATIONS_PER_BAND)
+			var dir: Vector3 = (axis * sin(lat) + (e1 * cos(lon) + e2 * sin(lon)) * cos(lat)).normalized()
+			var c: int = _surface_cell(centre, dir, solid)
+			if c < 0:
+				continue
+			_cells.append(c)
+			_band.append(b)
 	var n: int = _cells.size()
 	if n <= 0:
 		return                                           # no land yet (pre-spawn) — try again next sample
@@ -166,6 +148,23 @@ func _site_stations() -> void:
 	_ring_ok.resize(n * LONG_DAYS)
 	_reset_day()
 	_sited = true
+
+
+## The open cell resting on the FIRST solid cell inward from the box edge along `dir`; -1 when the march
+## crosses no rock (no land yet, or an all-open column).
+func _surface_cell(centre: Vector3, dir: Vector3, solid: PackedByteArray) -> int:
+	var step_m: float = float(_f._grid.cell_size)
+	var r: float = 0.5 * float(_f._grid.max_span()) * step_m
+	var prev: int = -1
+	while r > 0.0:
+		var c: int = _f.world_to_cell(centre + dir * r)
+		r -= step_m
+		if c < 0 or c == prev:
+			continue
+		if solid[c] != 0:
+			return prev if (prev >= 0 and solid[prev] == 0) else -1
+		prev = c
+	return -1
 
 
 func _read_stations() -> void:

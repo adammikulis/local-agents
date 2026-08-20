@@ -88,7 +88,7 @@ rc=$?
 # kernel silently falls back to nothing, which is a compile error the runtime reports as a null SPIR-V.
 # The consumer list is named, not derived: a buffer block called CO2 would read as a slot to a "uses a
 # generated name" rule. A consumer that is GONE fails the gate — delete its line in the same commit.
-for f in "$KERNELS/cell_list_sphere3d.glsl" "$KERNELS/reactions_sphere3d.glsl" "$KERNELS/transport.glsl"; do
+for f in "$KERNELS/reactions_sphere3d.glsl" "$KERNELS/transport.glsl"; do
   [ -f "$f" ] || { echo "check_generated_constants: MISSING ${f#"$ROOT"/} — drop it from this list." >&2; exit 2; }
   grep -q '#include "generated.glsli"' "$f" || {
     echo "MISSING INCLUDE ${f#"$ROOT"/} does not include generated.glsli" >&2; fail=1; }

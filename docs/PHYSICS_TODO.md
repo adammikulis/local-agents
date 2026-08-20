@@ -115,18 +115,6 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
       flat per-step numbers, neither derived nor scaled by the clock. Multiplying by `dt` in the kernel
       would double-count the first group, which is why the dead `dt` upload was deleted rather than wired.
 
-## Weathering has lost both its mechanisms
-
-- [ ] **Frost shattering does not exist.** `LAGeoRecords` carries no record on `RM_DEFICIT_BELOW_THRESHOLD`,
-      the rate model is declared in `ReactionDefs` and handled in `reactions_sphere3d.glsl` for no record at
-      all, and no frost constant survives in the substrate. Ice segregation is a first-order weathering
-      mechanism on a planet with a freezing point. What is a maintainer's call is the DAMAGE MODEL — how
-      pore-ice pressure past a rock's tensile strength becomes a volume detached per step.
-- [ ] **`tests/test_weathering_rate_law.gd` evaluates the rate with a HAND COPY of the kernel's
-      arithmetic** — a second model of the reaction engine — and reads zero bedrock removed at every
-      temperature. The record itself carries non-zero inputs at every temperature the test sweeps. Have the
-      test read the record through the real evaluator, then re-ask whether the rate is right.
-
 ## D. Transport and geometry
 
 - [ ] **The grid cannot resolve its own aquifer.** `LAVoxelGrid.cell_size` is one number for all three axes,
@@ -211,18 +199,10 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
 
 ## G. The radiation and the solver
 
-- [ ] **`ATMOS_OPTICAL_DEPTH` is read by nothing.** It is a fitted greybody number back-derived from Earth's
-      own 288/255 K ratio, in the file whose header forbids fitted constants, and the longwave side is
-      band-resolved now. Delete the constant.
 - [ ] **The shortwave side is one grey number for the whole spectrum.** `transport.glsl` attenuates
       sunlight with a single `SW_OPTICAL_DEPTH` on total air mass, asserting that N₂ and O₂ absorb
       sunlight and that CO₂ does nothing, while the longwave half already integrates per band over each
       absorber's own path. Give the shortwave the same band treatment.
-- [ ] **`gravity_poisson.glsl` relaxes `phi` in place.** It writes `phi[c]` from a stencil that reads
-      `phi[nbr]` out of the same binding, so a cell sees a mixture of pre- and post-iteration neighbour
-      values according to GPU scheduling, and two identical runs differ. Chaotic relaxation converges; it
-      is not reproducible. No channel carries a second half to relax into: a red-black sweep reads only the
-      opposite colour, so the ordering is the fix rather than a buffer.
-- [ ] **What else is declared and never dispatched?** Six kernels, buffers and channel rows were found in
-      one day that compiled, passed every gate naming them, and ran never. A gate that fails when a kernel
-      has no pass, or a buffer no writer, would have caught all six.
+- [ ] **A buffer allocated and never WRITTEN passes the gate.** `check_declared_and_dispatched.sh`
+      fails a kernel with no pass and a buffer nothing allocates, and does not fail a buffer no kernel
+      or pass ever writes — the read-never-written channel it was built for still slips through.

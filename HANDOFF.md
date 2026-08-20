@@ -14,62 +14,53 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 0. MOMENTUM RUNS AWAY TO NON-FINITE. TAKE THIS FIRST.
+## 1. FEED THE OPEN BOUNDARY A REAL EXTERIOR, AND A SLICE BECOMES TESTABLE. TAKE THIS FIRST.
 
-**Reproduce:** `scripts/check_finite_channels.sh` exits 0 at `LA_FINITE_FRAMES=4` and 1 at 20, and the
-report's `wind_x_sum`, `wind_z_sum`, `momentum_residual_rel` and `momentum_run_drift_rel` all serialise to
-null. `nonfinite_cells` counts three per affected cell, which is `mom_x`/`mom_y`/`mom_z` and nothing else:
-`energy_stock` and the whole energy row now fold to numbers.
+The seam is `LAFieldBoundary3D` (SHUT/WRAP/CONSTANT/REPLAY per face; node meta -> project setting ->
+`LA_BOUNDARY_FACES`); CONSTANT and REPLAY refuse to run without a supplied state. What is left:
 
-The gate is written and mutation-tested both ways but is **NOT wired into `lint`** — wire it in the moment
-it passes, and not before. `feature/momentum-advection` carries the weight term, momentum advection and the
-one vertical relation against this; what is left there is the stability of the explicit diffusion and
-advection rows, which wants sub-stepping and never a clamp.
-
-## 1. THE BOX EDGE IS A CLOSED WALL. OPEN IT, AND A SLICE BECOMES TESTABLE.
-
-`transport.glsl`'s gather SKIPS a face whose neighbour index is negative, so no matter crosses the box edge,
-while `MODE_RADIATE` already emits through it. Give that face a STATE instead of an absence: a ghost cell
-carrying an amount, an enthalpy and a momentum, with the ordinary flux law running against it. Wind blows in
-because there is more air outside than in, which the pressure-gradient row already expresses. Do not inject
-a phenomenon at the edge.
-
-**One seam, three records, not three code paths** — a boundary-state provider per face, sourced by a
-periodic wrap (free, exact, but no large-scale gradient so no fronts arrive), a declared constant, or a
-coarse GLOBAL run replayed as the driver. That last is one-way nesting and the reason for this item: the
-coarse run is the sim as it stands, and one stored global run can drive many slice runs.
-
-**Leave global, each cheap and none local:** sun direction and insolation (already a push constant);
-Coriolis, linear in v off the momentum sum; the solved potential sampled in, nearly uniform over a thin
-patch; and the deep heat flux on the bottom face, without which no magma arrives from below.
-
-**BOOK THE EXCHANGE OR THE CONSERVATION GATE IS RIGHT TO FIRE.** Matter and energy crossing an open
-boundary read as creation unless booked; `turnover` is the shape, and matter needs its per-substance twin.
+- **The capture pipeline.** Store a global run's drain as per-face states plus a time series, and feed
+  `LAFieldBoundary3D.replay(face, state)` per step. One stored global run drives many slice runs.
+- **One-way nesting reflects waves inward near the edge.** A relaxation zone is the standard answer and is
+  an approximation, so it takes a row and an `LA_APPROX` marker.
+- **Leave global, each cheap and none local:** the deep heat flux on the bottom face, without which no magma
+  arrives from below; the solved potential sampled in, nearly uniform over a thin patch.
 
 **Why it unblocks testing:** not speed at equal cells, but a SMALL SUFFICIENT domain. At the cell size a
 whole planet forces, rain and eruptions may not be reachable at all. A slice with a declared boundary makes
 "moist convection precipitates" and "overpressure erupts" assertions a gate can make.
 
-One-way nesting reflects waves inward near the edge; a relaxation zone is the standard answer and is an
-approximation, so it takes a row and an `LA_APPROX` marker.
+## 0. MOMENTUM RUNS AWAY TO NON-FINITE. DOWNSTREAM OF ITEM 1; DO NOT START IT FIRST.
+
+Same lane, second symptom: **identical-seed runs diverge on a clean tree.** Reproduce:
+`scripts/agent_harness.sh sim --frames 5 --report h2o_total` twice and diff — one key differs at 5
+frames and the whole report by 20. Transport, gravity, pressure and the reduce fold are
+order-independent by construction.
+
+**Reproduce:** `LA_FINITE_FRAMES=20 scripts/check_finite_channels.sh` on `feature/momentum-advection`.
+`nonfinite_cells` counts three per affected cell — `mom_x`/`mom_y`/`mom_z` and nothing else.
+
+`scripts/sim_run.sh --frames 10` also exits 122 with `PRESSURE_BROKEN`, whose counters read 0 for
+rock-on-rock and 0 for open-standing-on-rock; the remainder are open-on-open.
+
+The gate is mutation-tested three ways and is **NOT wired into `lint`**. Wire it the moment it passes.
+`feature/momentum-advection` carries the work, declared in `docs/OPEN_BRANCHES.md`.
 
 ## 4. Reduce the rest on the device
 
-`ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and twenty-one report
-sweeps already use it. Left:
+`ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and the report sweeps
+already use it. Left:
 
-- `MaterialFieldReport3D.surface_climate`, `MaterialFieldClimateSwing3D._site_stations`.
-- `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`, `MaterialFieldElementProbe3D`,
-  `MaterialFieldOrganic3D`.
-- `CLIMATE_MAX_CELLS` and its stride delete with the climate scan.
+- `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`.
+- `clim_alt_min` (per-altitude-band minima above the sea shell) needs `sea_radius` on the device: a static
+  row cannot carry an instance value, so give `MaterialSphereGPU3D._ctx` a setter like `set_sun_dir` and
+  let `state_derive.glsl` write `alt` relative to the shell; the open-air `air_grad_*` rows measure the
+  lapse until then.
 - `FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint. ReducePass runs last, so
   it cannot answer "which pass moved it": that wants a reduce dispatch per checkpoint, not a row.
 - Three shapes refused a row and say why: `sea_surface_stats` (a median needs a declared range nothing
   supplies), `lava_shell_diag` (five outputs over two gates), `rock_radial_profile` (a binned reduction
   plus a gravity march in one walk).
-- `_liquid_mirror` is a per-cell product of two buffers the GPU already holds, rebuilt per drinking
-  creature per tick. A derived buffer written by `StateDerivePass` deletes the loop with no reduce row at
-  all; its four consumers convert with it, and `drink` stops writing its depletion into a throwaway copy.
 
 The ops are BUILT — `Mask.GROUND`/`Mask.AIR`, `Op.COUNT_LT`, `enum Nbr` (below, above, six-face gradient)
 and the derived `speed`/`lat`/`alt` channels — so a sweep converts without adding machinery, and every
@@ -78,15 +69,6 @@ latitude and altitude band is an ordinary row on the existing `gate_lo`/`gate_hi
 Free today, no new op: `momentum_vec` is three `SUM` rows on `vel_*` with `aux: "air"`, weighted, OPEN;
 `momentum_mass_kg` is one. **Coriolis then costs nothing** — it is linear in v, so it is
 `spin × momentum_vec × -2Ω` on the CPU, and the per-cell accumulation is pure waste.
-
-## 2. Collapse the per-cell kernels into one dispatch
-
-`CellListPass` is the seventh, and it stays a pass until the compaction becomes a mode of `transport.glsl`:
-`check_binding_collisions.sh` fails any pass naming two kernel paths, so it cannot simply be folded into
-`TransportPass`. The compaction needs workgroup-shared memory and barriers in uniform control flow, which
-`PASS_GRAIN` shows a transport mode can carry.
-
-The target is six: gravity, derive, pressure, transport, reactions, reduce.
 
 ## 3. Sunlight reflected off the ground goes nowhere
 
@@ -127,45 +109,6 @@ is unheld is narrower: that one index names the same BUFFER on both sides. Build
 stanzas. Mutation-test it both ways. Delete the claim below with this item.
 
 <!-- claim: nofile addons/local_agents/sim/material/Bindings.gd -->
-
-## 9. An instrument that cannot fire, and two re-sweeps
-
-- **`discharge` is read and no longer written.** `reactions_sphere3d.glsl` binds it and `DISCHARGE` drives
-  the lightning nitrogen-fixation record, but the term that wrote it was `sigma*E^2*dt` added straight to
-  `h[]` with no electrostatic store behind it, and it was deleted for creating energy. So that record's
-  driver is now zero everywhere and the reaction cannot fire. Either give a flash a real store to spend —
-  `0.5*eps0*E^2` over the volume it neutralises, debited, not conjured — or delete the record and the
-  binding with it. `col_e` and `strike` survive as detectors and are honest.
-- `check_shaders_compile.sh`'s kernel floor is `docs/SHADER_FLOOR` and `write_ceilings.sh` lowers it. Do not
-  bake a count back into the gate.
-- `FieldLedgerFold3D.fold()` walks a LITERAL key list, so an energy row not named there never reaches
-  `_publish_energy`, and one missing leg nulls the whole radiative block — which makes the `energy_stock`
-  conservation row read UNMEASURED rather than fail. A gate that goes quiet instead of red.
-- `MaterialSphereGPU3D._seed_silicate()` writes the whole `silicate` and `cement` buffers with
-  `buffer_update` and never calls `note_creation`, so the planet's entire rock mass is absent from the seed
-  manifest that is meant to be the scoreboard of what the substrate was told. `MaterialField3D` declares the
-  same fact a second time.
-- `PHYSICS_RUBRIC.md` quotes `energy_residual / energy_booked` figures in prose. That denominator no longer
-  exists — the residual is a fraction of turnover now — and measured figures in a doc are banned anyway.
-- `LASpatialIndex.rebuild_if_stale` rebuilds a whole group's dictionary every frame it is touched rather
-  than tracking per-node cell changes, and `LASimReport.snapshot` deep-copies its events and gauges on every
-  call. Both are constants, not asymptotes.
-
-## 10. A constant that is not what it names
-
-- `AMBIENT_O2_DENSITY_KG_M3` is air at a different temperature from `AIR_DENSITY_KG_M3`, and it is the unit
-  definition of the `o2`, `co2` and `n2` channels, so correcting it rescales every gas total.
-
-## 11. Rebuild frost shattering from the phase boundary
-
-`LAGeoRecords` has no `RM_DEFICIT_BELOW_THRESHOLD` record, no `FROST_*` constant survives, and the rate
-model is declared in `ReactionDefs` and used by nothing. The mechanism is ice segregation, not expansion in
-a sealed pore. Invert `LASubstances.melt_c_at`: the pressure ice exerts at undercooling dT is
-`dH_fus * dT / (T_m * dv)` with `dv = 1/rho_ice - 1/rho_water`, every term already in the table, about
-13.5 MPa per kelvin. Rock fractures where that passes its TENSILE strength, which is a measured property
-`Substances.gd` should carry with its source. Bound the extent by the pore water available to freeze, and
-let deep cold starve the mechanism out of the state rather than a cutoff. Observed damage peaks at -3 to
--10 C: if the law disagrees, that is the finding, not a thing to tune.
 
 ## 12. `LAFieldGeometry.above` and `below` are not inverses, and `PRESSURE_BROKEN` still fires on it
 

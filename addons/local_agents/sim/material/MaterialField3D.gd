@@ -9,9 +9,6 @@ const MineralStampScript: GDScript = preload("res://addons/local_agents/sim/mate
 
 const MAX_MASS: float = 1.0               # a cell is "full" at this water mass
 const MIN_MASS: float = 0.0001            # below this a cell is considered dry
-const MAX_FLOW: float = 1.0               # max mass moved out of a cell per step (stability cap)
-const MIN_FLOW: float = 0.01              # ignore dribbles smaller than this
-const LATERAL_FRACTION: float = 0.5      # share of the level-out flow sent to each lateral neighbour
 
 var _terrain = null
 ## The terrain definition PlanetBody.setup() was given; the solid-mask cache's key.
@@ -103,6 +100,8 @@ var _channels = null                                     # LAMaterialFieldChanne
 var _report_mod = null                                   # LAMaterialFieldReport3D
 var _regolith_mod = null                                 # LAMaterialFieldRegolith3D
 var _biota = null                                        # LAMaterialFieldBiota3D
+const BoundaryScript: GDScript = preload("res://addons/local_agents/sim/material/FieldBoundary3D.gd")
+var _boundary = null                                     # LAFieldBoundary3D — the box-face boundary provider
 const AtmosScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldAtmos3D.gd")
 const LedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLedger3D.gd")
 const ChannelsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldChannels3D.gd")
@@ -171,19 +170,9 @@ const RENDER_MIN: float = 0.08            # min water mass in a cell for its top
 const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of the sea shell are left to the ocean plane
 var _ready_sim: bool = false
 var _seal = null
-const HEAT_TEX_EVERY: int = 3            # terrain-glow heat texture refresh cadence (full-grid column scan)
-const SLOW_READ_EVERY: int = 3           # render-only GPU readback cadence for vapor/cloud/fog
-var _heat_tex_tick: int = 0
-var _slow_read_tick: int = 0
 var _fuel_dirty: bool = false            # fuel seeded on the CPU → seed the GPU fuel buffer before step 0
 var _detritus_seed_dirty: bool = false   # one-shot: initial soil detritus seeded → upload once before the first step
 var _organic_seed_dirty: bool = false    # one-shot: the seeded litter's C:H:O pushed once, with the detritus seed
-# The field is created before terrain streaming finishes, so it samples rock/void a budget of columns per frame.
-const SAMPLE_COLS_PER_FRAME: int = 700
-var _sampling_done: bool = false
-var _sample_cursor: int = 0
-# Persistent water sources (springs) injected each step: [{pos, rate}].
-var _sources: Array = []
 
 
 
@@ -373,11 +362,14 @@ func water_force_at(pos: Vector3) -> Vector3:
 func activate() -> void:
 	# The state the device is seeded FROM, so it is filled before the driver reads it.
 	LAFieldEnthalpySeed.seed(self, INITIAL_TEMP)
+	_boundary = BoundaryScript.new()
+	_boundary.setup(self)                 # appends ghost rows before the driver reads grid.ghost_rows
 	if _grid != null and SphereGPUScript.available() and not OS.has_environment("LA_FORCE_CPU"):
 		# The GPU driver runs the kernels over the grid's neighbour SSBO.
 		_gpu = SphereGPUScript.new()
 		_gpu.setup(self)
 		_use_gpu = true
+	_boundary.attach(_gpu)                # uploads the redirect table + supplied ghost tails
 	_inject = InjectScript.new()
 	_inject.setup(self)
 	# Baseline flammable fuel and soil detritus on surface cells; seed_tick seeds it once gravity is solved.
@@ -425,17 +417,14 @@ func _seed_silicate() -> void:
 	if _silicate.size() != _cell_count or _cement.size() != _cell_count \
 			or _solid.size() != _cell_count:
 		return
-	var made: float = 0.0
 	for c in _cell_count:
 		_silicate[c] = 1.0 if _solid[c] != 0 else 0.0
 		_cement[c] = 1.0 if _solid[c] != 0 else 0.0
-		made += _silicate[c]
-	made += LAFieldLithostaticSeed.compress(self)
+	# Shape the CPU arrays BEFORE the driver's seed_field reads them, so the declared upload is the
+	# compressed rock and the shell atmosphere, not the flat fill.
+	LAFieldLithostaticSeed.compress(self)
 	LAFieldLithostaticSeed.clear_gas_in_rock(self)
 	LAFieldLithostaticSeed.shape_atmosphere(self, INITIAL_TEMP)
-	if _seal != null:   # the manifest scores what the substrate was told, and this is most of it
-		_seal.note_creation("silicate", made)
-		_seal.note_creation("cement", made)
 
 
 func _seed_sea() -> void:

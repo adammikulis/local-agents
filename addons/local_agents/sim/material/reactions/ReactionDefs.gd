@@ -43,16 +43,10 @@ const RM_ARRHENIUS: int = 6              # x = k * driver * driver2 * exp(-(Ea/R
 const RM_RESISTANCE_SERIES: int = 7      # x = k * driver * driver2 / (1 + param2 * driver2)
 
 # --- Gate bitflags (0 = ungated) -------------------------------------------------------------------------
-                                      # TOP OF THE ATMOSPHERE — correct for sky gas exchange, wrong for ground.
-const GATE_NEAR_GROUND: int = 4       # GROUND-HUGGING open cell (INWARD nbr is rock) — where a plant, a snowpack
-const GATE_FREEZING: int = 32         # cell temp below LAPhysical.WATER_FREEZE_C. Deposition needs it: the
-                                      # condensate driver says HOW MUCH water is out of solution, not which
-                                      # phase it lands in, and above 0 C that condensate is rain, not snow.
-const GATE_AIR_ABOVE: int = 128       # THE FREE SURFACE — the air/liquid interface. True when the OUTWARD radial
-                                      # `static` cells that are deliberately never simulated (MaterialField3D
-                                      # ._seed_sphere_sea), so per-cell chemistry there is meaningless.
-const GATE_BURIED: int = GATE_AIR_ABOVE * 2   # ALSO runs in SOLID cells. Everything else is open-cell only;
-                                      # coalification is not, because buried organic matter is inside rock.
+const GATE_NEAR_GROUND: int = 4       # open cell whose inward neighbour is rock
+const GATE_FREEZING: int = 32         # cell temp below LAPhysical.WATER_FREEZE_C
+const GATE_AIR_ABOVE: int = 128       # free surface: outward neighbour open, rock-free, not drowned
+const GATE_BURIED: int = GATE_AIR_ABOVE * 2   # ALSO runs in SOLID cells; everything else is open-cell only
 
 # --- Product targets
 const TGT_SELF: int = 0               # add into the live/back cell channel

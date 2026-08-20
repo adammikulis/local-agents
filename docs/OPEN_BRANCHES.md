@@ -12,4 +12,4 @@ merge, or has not moved inside the age limit.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
-| `feature/momentum-advection` | 3 | The weight term, momentum advection, and the one vertical relation (pressure_inversions 0). RED: check_finite_channels and check_gdscript_budget, both named in its head commit. | both go green. |
+| `feature/momentum-advection` | 7 | Per-component pressure gradient, one writer per face, wall normal force, EOS pressure for open cells + lithostatic rock, PhotoStats deleted. RED: check_finite_channels and PRESSURE_BROKEN, both open-cell air. | item 1 lands and the atmosphere is resolved. |

@@ -267,7 +267,7 @@ func set_material_field(w) -> void:
 
 
 # The game's LAFlameFX combustion visual, optional: a core creature dies-burned with the game deleted.
-const FLAME_FX_PATH: String = "res://addons/local_agents/sim/actors/FlameFX.gd"
+const FLAME_FX_PATH: String = "res://addons/local_agents/game/render/FlameFX.gd"
 
 
 # Organic matter combusts — bursts into flame (not incandescent glow) and dies burned. The flame is

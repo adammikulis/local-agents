@@ -74,14 +74,23 @@ fi
 # --- 3. MERGE AND VERIFY OFF THE DEV BRANCH ------------------------------------------------------------
 STAGE="integrate/$(printf '%s' "$BRANCH" | tr '/' '-')"
 STAGE_WT="$PRIMARY/../la-$(printf '%s' "$STAGE" | tr '/' '-')"
-git -C "$ROOT" worktree remove "$STAGE_WT" --force >/dev/null 2>&1 || true
-git -C "$ROOT" branch -D "$STAGE" >/dev/null 2>&1 || true
-"$SCRIPT_DIR/new_worktree.sh" "$STAGE" "$DEV" >/dev/null || { echo "integrate: could not stage." >&2; exit 2; }
+# A staging tree holding a COMPLETED merge of both tips is a resolved conflict from a prior run: use it,
+# or rebuilding here would destroy the resolution the prior run asked for.
+if [ -d "$STAGE_WT" ] \
+	&& [ -z "$(git -C "$STAGE_WT" status --porcelain 2>/dev/null)" ] \
+	&& git -C "$STAGE_WT" merge-base --is-ancestor "$BRANCH" "$STAGE" 2>/dev/null \
+	&& git -C "$STAGE_WT" merge-base --is-ancestor "$DEV" "$STAGE" 2>/dev/null; then
+	echo "integrate: reusing the resolved staging merge in $STAGE_WT" >&2
+else
+	git -C "$ROOT" worktree remove "$STAGE_WT" --force >/dev/null 2>&1 || true
+	git -C "$ROOT" branch -D "$STAGE" >/dev/null 2>&1 || true
+	"$SCRIPT_DIR/new_worktree.sh" "$STAGE" "$DEV" >/dev/null || { echo "integrate: could not stage." >&2; exit 2; }
 
-if ! git -C "$STAGE_WT" merge --no-ff "$BRANCH" -m "$SUBJECT" >/dev/null 2>&1; then
-	echo "integrate: the merge conflicts. Resolve it in $STAGE_WT, then re-run." >&2
-	git -C "$STAGE_WT" diff --name-only --diff-filter=U | sed 's/^/    /' >&2
-	exit 1
+	if ! git -C "$STAGE_WT" merge --no-ff "$BRANCH" -m "$SUBJECT" >/dev/null 2>&1; then
+		echo "integrate: the merge conflicts. Resolve it in $STAGE_WT, then re-run." >&2
+		git -C "$STAGE_WT" diff --name-only --diff-filter=U | sed 's/^/    /' >&2
+		exit 1
+	fi
 fi
 
 # SCAN AFTER THE MERGE, NOT BEFORE IT. new_worktree.sh scans when it builds the staging tree, which is off

@@ -46,6 +46,15 @@ layout(set = 0, binding = 36, std430) restrict writeonly buffer H2OVapour { floa
 // the same enthalpy ladder the temperature came off, never stored.
 layout(set = 0, binding = 37, std430) restrict writeonly buffer SilicateMelt { float silicate_melt[]; };
 
+// LIQUID water per cell: h2o times its liquid share. Read back every drain for the CPU consumers.
+layout(set = 0, binding = 19, std430) restrict writeonly buffer Liquid { float liquid[]; };
+
+// THE DEAD ORGANIC POOL'S COMPOSITION: molar H:C and O:C, and how far below fresh litter the nearer ratio
+// sits. +inf where the pool is under the mole floor, so a MIN or COUNT_LT row cannot read noise.
+layout(set = 0, binding = 20, std430) restrict writeonly buffer OrgHC { float org_hc[]; };
+layout(set = 0, binding = 31, std430) restrict writeonly buffer OrgOC { float org_oc[]; };
+layout(set = 0, binding = 38, std430) restrict writeonly buffer OrgFresh { float org_fresh[]; };
+
 // WHERE AND HOW FAST, so a band of latitude or altitude is an ordinary reduce gate rather than a CPU walk.
 // speed is |v|, m/s; alt is the distance from the body centre, m; lat is the angle of that radius out of
 // the equatorial plane, degrees.
@@ -75,6 +84,9 @@ layout(push_constant, std430) uniform Params {
 	float fresh_grain_m;    // grain diameter given to newly-closed rock — LAPhysical.GRAIN_D_LOWLAND_M
 	float lith_rate_per_pa; // LAPhysical.LITHIFICATION_RATE_PER_PA, per step per Pa of excess
 	float lith_pressure_pa; // LAPhysical.LITHIFICATION_PRESSURE_PA
+	float org_min_pool_m3;  // m^3 of dead organic carbon below which a cell's C:H:O is fp32 noise
+	float fresh_h_per_c;    // LASubstances.fresh_litter_per_carbon("H")
+	float fresh_o_per_c;    // LASubstances.fresh_litter_per_carbon("O")
 } params;
 
 const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
@@ -189,6 +201,21 @@ void main() {
 	nf += (isnan(pv.z) || isinf(pv.z)) ? 1.0 : 0.0;
 	nonfinite[g] = nf;
 
+	// The dead pool's molar ratios, from the same channels the reduce rows sum.
+	float org_pool = max(detritus[g], 0.0) + max(fuel[g], 0.0);
+	if (org_pool * vol > params.org_min_pool_m3) {
+		float hc = max(org_h[g], 0.0) / org_pool;
+		float oc = max(org_o[g], 0.0) / org_pool;
+		org_hc[g] = hc;
+		org_oc[g] = oc;
+		org_fresh[g] = min(hc / params.fresh_h_per_c, oc / params.fresh_o_per_c);
+	} else {
+		float no_pool = uintBitsToFloat(0x7F800000u);
+		org_hc[g] = no_pool;
+		org_oc[g] = no_pool;
+		org_fresh[g] = no_pool;
+	}
+
 	float mass[LA_MIX_MAX] = float[LA_MIX_MAX](0.0, 0.0, 0.0, 0.0);
 	float mc = 0.0;          // sum of m*c over the sensible-heat substances, J/K
 	float n_gas_mol = 0.0;   // moles of non-condensable gas: the Dalton denominator of the vapour split
@@ -270,6 +297,7 @@ void main() {
 		h2o_solid[g] = 0.0;
 		h2o_liquid[g] = 0.0;
 		h2o_vapour[g] = 0.0;
+		liquid[g] = 0.0;
 		silicate_melt[g] = 0.0;
 		h_h2o[g] = 0.0;
 		h_silicate[g] = 0.0;
@@ -339,6 +367,7 @@ void main() {
 	h2o_solid[g] = f_solid;
 	h2o_liquid[g] = f_liquid;
 	h2o_vapour[g] = f_vapour;
+	liquid[g] = max(h2o[g], 0.0) * f_liquid;
 
 	// PRESSURE, off this cell's own matter and energy. The vapour share joins the gas term and what is
 	// left of the water is condensed. No column is walked, so there is no staircase to integrate along.

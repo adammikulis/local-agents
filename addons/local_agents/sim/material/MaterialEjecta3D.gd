@@ -218,9 +218,3 @@ func _refresh_visual() -> void:
 
 func in_flight() -> int:
 	return _p_mass.size()
-
-func ejected_total() -> float:
-	return _ejected
-
-func deposited_total() -> float:
-	return _deposited

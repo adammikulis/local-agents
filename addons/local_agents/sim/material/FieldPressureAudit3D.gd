@@ -1,13 +1,8 @@
 class_name LAFieldPressureAudit
 extends RefCounted
 
-## Pressure may not fall as you go DOWN: a decrease inward is the kernel contradicting gravity.
-## A pure instrument -- it reads the drained mirrors and requests nothing.
-##
-## ROCK OVER A VOID IS NOT COMPARED. A solid cell holds a lithostatic stress and an open one holds a gas
-## pressure; the two are different quantities sharing a buffer by the decision CLAUDE.md records, so
-## differencing them measures nothing. A cave roof at lithostatic over air at one atmosphere is why a deep
-## mine needs support. Open-over-solid IS compared: the rock column starts from the fluid on it.
+## Pressure may not fall as you go DOWN. A pure instrument: reads the drained mirrors, requests nothing.
+## Rock over a void is not compared — lithostatic stress and gas pressure are different quantities.
 
 ## Inward neighbours holding a LOWER pressure.
 static func inversions(f) -> Dictionary:
@@ -50,13 +45,9 @@ static func inversions(f) -> Dictionary:
 				void_below += 1     # rock standing over an open cell
 			else:
 				surface += 1        # open cell standing on rock
-	out["pressure_inversions"] = bad
-	out["pressure_audited"] = audited
-	out["pressure_inv_rock"] = rock
-	out["pressure_inv_void"] = void_below
-	out["pressure_inv_surface"] = surface
-	out["pressure_inv_wet"] = wet
-	out["pressure_inv_dry"] = dry
+	out.merge({"pressure_inversions": bad, "pressure_audited": audited,
+		"pressure_inv_rock": rock, "pressure_inv_void": void_below, "pressure_inv_surface": surface,
+		"pressure_inv_wet": wet, "pressure_inv_dry": dry}, true)
 	if bad > 0:
 		print("PRESSURE_BROKEN=", JSON.stringify(out))
 	return out

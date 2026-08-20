@@ -13,7 +13,6 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/GravityPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/PressurePass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReducePass.gd"]
@@ -30,6 +29,8 @@ var _audit_mirror: bool = OS.has_environment("LA_INJECT_AUDIT")
 var _field = null
 var _grid: RefCounted = null
 var _cc: int = 0
+var _ng: int = 0                    # ghost tail cells appended past _cc; 0 = every wall shut
+var _bnd_keys: PackedStringArray = PackedStringArray()   # per-step boundary books, cleared before each step
 var _step_index: int = 0            # monotonic field-step counter, published to kernels as ctx["step_index"]
 var _groups: int = 0
 var _bufs: Dictionary = {}          # channel/buffer name → its one RID
@@ -69,35 +70,45 @@ func setup(field) -> void:
 	_field = field
 	_grid = field._grid
 	_cc = field._cell_count
+	# Ghost tail cells the boundary provider appended to the grid before activation; 0 = every wall shut.
+	_ng = int(_grid.ghost_rows)
 	_rd = RenderingServer.create_local_rendering_device()
 	if _rd == null:
 		push_error("LAMaterialSphereGPU3D: no RenderingDevice")
 		return
 	_groups = int(ceil(float(_cc) / 64.0))
+	var tc: int = _cc + _ng
 
 	for name in channels():
-		_bufs[name] = _new_f(_cc)
+		_bufs[name] = _new_f(tc)
 		_buf_owner[name] = "LAChannels.rows()"
 	# Derived: recomputed from the channels every step, so never seeded and never restored.
 	for name in LAChannels.derived_buffers():
-		_bufs[name] = _new_f(_cc)
+		_bufs[name] = _new_f(tc)
 		_buf_owner[name] = "LAChannels.derived_buffers()"
 	# GRID GEOMETRY, and on a uniform Cartesian grid there are only two pieces of it. The neighbour table,
 	# whose slot order is the grid's (`d ^ 1` is the opposite, checked by scripts/check_neighbour_slots.sh),
+	# already carrying any ghost rows the boundary provider appended,
 	var nbr_bytes: PackedByteArray = _grid.neighbours.to_byte_array()
 	_bufs["nbr"] = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
+	# The boundary redirect: per face, a wrap partner or a ghost tail cell; -1 keeps the face shut.
+	var gh: PackedInt32Array = PackedInt32Array()
+	gh.resize(tc * 6)
+	gh.fill(-1)
+	var gh_bytes: PackedByteArray = gh.to_byte_array()
+	_bufs["ghost"] = _rd.storage_buffer_create(gh_bytes.size(), gh_bytes)
 	_bufs["pos"] = _make_vec3_flat(func(c: int) -> Vector3: return _grid.cell_world_pos(c))
 	# The SOLVED gravity, flat cell*3, m/s^2. GravityPass writes it, every kernel that asks which way is
 	# down reads it, and nothing anywhere holds a gravity constant.
-	_bufs["gravity"] = _new_f(_cc * 3)
+	_bufs["gravity"] = _new_f(tc * 3)
 	# kernels3d/cellvol.glsli, binding 40: model units^3 per cell.
 	var vol_bytes: PackedByteArray = _grid.cell_volumes().to_byte_array()
 	_bufs["cell_vol"] = _rd.storage_buffer_create(vol_bytes.size(), vol_bytes)
 
 	_seed("h_j_m3", field._h)
-	_seed("o2", field._o2)
-	_seed("co2", field._co2)            # the atmosphere's carbon — finite, at Earth's measured mole fraction
-	_seed("n2", field._n2)              # the atmosphere's nitrogen — finite, at Earth's measured mole fraction
+	seed_field("o2", field._o2, field._seal)
+	seed_field("co2", field._co2, field._seal)   # the atmosphere's carbon — finite, at Earth's mole fraction
+	seed_field("n2", field._n2, field._seal)     # the atmosphere's nitrogen — finite, at Earth's mole fraction
 	_seed("h2o", field._h2o)            # the ocean basin + the primed water table
 	_seed("porosity", field._porosity)  # Athy pore fraction: the ONE phi permeability and capacity both read
 	_seed_solid()
@@ -119,6 +130,7 @@ func setup(field) -> void:
 			continue
 		var p: RefCounted = scr.new()
 		if p.has_method("setup"):
+			p.ghost_count = _ng
 			_passes.append(p)
 			_pass_names.append(path.get_file().get_basename())   # e.g. "TransportPass" — timestamp label
 	# A pass declares the buffers it needs and the DRIVER allocates them, so they are driver-owned and can be
@@ -127,6 +139,10 @@ func setup(field) -> void:
 		_allocate_declared(_passes[i], _pass_names[i])
 	for p2 in _passes:
 		p2.setup(_rd, _bufs, _cc)
+	# The boundary books are per-step rates: cleared before every step, summed by their reduce rows after.
+	for key in _bufs:
+		if String(key).begins_with("bnd_"):
+			_bnd_keys.append(String(key))
 
 
 ## Allocate one pass's declared buffers. A name already in `_bufs` is a collision, not an overwrite: the
@@ -142,6 +158,9 @@ func _allocate_declared(p: RefCounted, label: String) -> void:
 		var spec: Variant = want[key]
 		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
 		var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))
+		# A per-cell buffer a kernel indexes by ghost tail cells declares {"ghosts": true}.
+		if spec is Dictionary and bool(spec.get("ghosts", false)):
+			n += _ng
 		if n <= 0:
 			push_error("%s declares buffer \"%s\" of %d elements." % [label, name, n])
 			continue
@@ -202,6 +221,8 @@ func step() -> void:
 		_pending = false
 		_read_gpu_pass_timings()
 	_ctx["step_index"] = _step_index
+	for key in _bnd_keys:
+		_rd.buffer_clear(_bufs[key], 0, _cc * 4)
 	if _step_probe.is_valid():
 		_step_checkpointed()
 		return
@@ -284,7 +305,7 @@ func _drain_pending() -> void:
 		for pname in _probe_want:
 			if not _bufs.has(pname):
 				continue
-			_probe[pname] = _rd.buffer_get_data(_bufs[pname]).to_float32_array()
+			_probe[pname] = _read_cells(pname)
 		_probe_want = PackedStringArray()
 	# Direct sub-timings (noise-immune, unlike fps): how long the GPU sync stall vs the channel copy/convert
 	# actually cost this drain. The readback (buffer_get_data + to_float32_array over ~17 full-grid channels) is
@@ -312,7 +333,7 @@ func _drain_passes() -> void:
 				LASimReport.gauge(name, float(res[key]))
 
 
-## The compacted cell indices a CellListPass row published, empty when it listed nothing. Non-clearing.
+## The compacted cell indices an `emit_idx` list published, empty when it listed nothing. Non-clearing.
 func list_indices(label: String) -> PackedInt32Array:
 	var v: Variant = _pass_results.get(label + "_list_idx", null)
 	return v if v is PackedInt32Array else PackedInt32Array()
@@ -352,30 +373,35 @@ func _gpu_gauge_key(pass_index: int) -> String:
 	return n.to_snake_case()
 
 
+## The interior cells of a per-cell buffer: CPU mirrors never see the ghost tail.
+func _read_cells(name: String) -> PackedFloat32Array:
+	return _rd.buffer_get_data(_bufs[name], 0, _cc * 4).to_float32_array()
+
+
 func _read_channels(read_slow: bool) -> Dictionary:
 	var out: Dictionary = _empty_result()
 	for k in ["h_j_m3", "h2o", "o2"]:
-		out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
+		out[k] = _read_cells(k)
 	# Derived: recomputed by StateDerivePass this step rather than carried.
 	for k in LAChannels.derived_buffers():
 		if _bufs.has(k):
-			out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
+			out[k] = _read_cells(k)
 	# Emergent WIND velocity (SINGLE, in-place) — wind3_at/wind_at expose a real force field that EVERY creature
 	# samples per frame (LACreatureFieldForces), so it stays always-hot. CHARGE (breakdown→bolt firing) also has
 	# a per-frame consumer with NO CPU-side trigger event to hook a request_channel() call to, so it stays hot too.
 	for k in ["vel_x", "vel_y", "vel_z", "charge"]:
 		if _bufs.has(k):
-			out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
+			out[k] = _read_cells(k)
 	for k in situational_channels():
 		if not _bufs.has(k) or int(_channel_hold.get(k, -1)) < _drain_count:
 			continue
-		out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
+		out[k] = _read_cells(k)
 	# SLOW — ledger/baker channels on the coarse cadence, from the table that declares which those ARE.
 	if read_slow:
 		for k in slow_channels():
 			if not _bufs.has(k):
 				continue
-			out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
+			out[k] = _read_cells(k)
 	return out
 
 func request_channel(name: String) -> void:
@@ -417,7 +443,7 @@ func _audit_mirror_upload(name: String, arr) -> void:
 
 
 ## SEEDING ONLY: hands the device a whole channel while the world is being built. The amount is declared to
-## LAMaterialFieldSeal3D, which refuses it once the world is SEALED, and a whole-mirror upload past step 0 is
+## LAMaterialFieldSeal3D, which refuses it once the world is SEALED.
 func seed_field(name: String, arr, seal) -> void:
 	if _rd == null or not _bufs.has(name):
 		return
@@ -425,13 +451,16 @@ func seed_field(name: String, arr, seal) -> void:
 		push_error(("seed_field('%s') after %d steps: a whole-mirror upload past step 0 rewinds live GPU state " +
 			"by an amount that depends on channel residency. Queue a sparse edit instead.") % [name, _step_index])
 		return
-	if seal != null and seal.has_method("note_creation"):
-		var total: float = 0.0
-		if arr is PackedFloat32Array:
-			for v in arr:
-				total += float(v)
-		if not seal.note_creation("seed_" + name, total):
-			return
+	if seal == null:
+		push_error(("seed_field('%s'): no seal to declare to. Handing the device a whole channel CREATES what " +
+			"it holds, and an undeclared creation is a violation — pass LAMaterialField3D._seal.") % name)
+		return
+	var total: float = 0.0
+	if arr is PackedFloat32Array:
+		for v in arr:
+			total += float(v)
+	if not seal.note_creation("seed_" + name, total):
+		return
 	if _audit_mirror and arr is PackedFloat32Array:
 		_audit_mirror_upload(name, arr)
 	if name == "h_j_m3":
@@ -657,11 +686,10 @@ func _seed_regolith() -> void:
 		_rd.buffer_update(_bufs["grain"], 0, gb.size(), gb)
 
 
-## Seeded rock is bedrock, so it is both present and fully consolidated.
-## The field derived and declared these; this hands the device that array rather than deriving it twice.
+## Seeded rock is bedrock, so it is both present and fully consolidated. Declared where it lands.
 func _seed_silicate() -> void:
-	_seed("silicate", _field._silicate)
-	_seed("cement", _field._cement)
+	seed_field("silicate", _field._silicate, _field._seal)
+	seed_field("cement", _field._cement, _field._seal)
 
 func _upload_f(buf: RID, arr: PackedFloat32Array) -> void:
 	if arr.size() == _cc:

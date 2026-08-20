@@ -59,14 +59,6 @@ func seal_step() -> int:
 	return _seal_step
 
 
-## Restoring a snapshot: seal at the step it carried, rather than re-seeding matter already accounted for.
-func seal_restored(step_index: int) -> void:
-	_phase = Phase.SEALED
-	_seal_step = step_index
-	_waiting_on = PackedStringArray()
-	_origin = "restored"
-
-
 ## Called once per field step, right after the readback.
 func poll(legs: Dictionary) -> bool:
 	if _latched:

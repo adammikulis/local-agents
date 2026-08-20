@@ -3,7 +3,7 @@ extends MeshInstance3D
 
 
 const WaterShader: Shader = preload("res://addons/local_agents/sim/shaders/VoxelWater.gdshader")
-const MeshBuilderScript: GDScript = preload("res://addons/local_agents/sim/material/WaterSurfaceMesh.gd")
+const MeshBuilderScript: GDScript = preload("res://addons/local_agents/game/render/WaterSurfaceMesh.gd")
 
 const CAP_ANGLE: float = 0.8               # rebuild within this half-angle of the camera radial — a small NEAR patch
                                            # (nearly flat, so the flat Y-up shader stays correct; far sea = the sphere)
@@ -58,13 +58,6 @@ func setup(field, camera: Node3D, terrain, _sun, center: Vector3, sea_radius: fl
 	if field._inject != null and field._inject.has_signal("splashed"):
 		field._inject.splashed.connect(_on_splashed)
 	_ready = true
-
-
-func set_sea_ice_texture(tex: Texture2DArray) -> void:
-	if _mat == null:
-		return
-	_mat.set_shader_parameter("sea_ice_tex", tex)
-	_mat.set_shader_parameter("sea_ice_enabled", 1.0)
 
 
 ## Moon-driven tide: set the sea-surface radius the near-cap mesh builds against. The next throttled rebuild
