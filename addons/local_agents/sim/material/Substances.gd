@@ -20,6 +20,16 @@ const ENTROPY_H2O_GAS_J_MOLK: float = 188.835
 const ENTROPY_O2_GAS_J_MOLK: float = 205.152
 const ENTROPY_CO2_GAS_J_MOLK: float = 213.785
 
+## Standard formation enthalpy of water VAPOUR, J/mol (CODATA Key Values, 298.15 K) — gas standard
+## state, pairing entropy_gas_j_molk and the LHV convention of organic_energy_j_mol.
+const FORMATION_ENTHALPY_H2O_GAS_J_MOL: float = -241826.0
+
+## Standard entropy of solid wood/paper organics per element MASS FRACTION, J/(kg K) (Eboh, Ahlstrom &
+## Richards 2016, Energy Sci. Eng. 4(3):217-231, eq. 26, converted from kJ/(K kg) per wt%).
+const WOOD_ENTROPY_C_J_KGK: float = 1620.0
+const WOOD_ENTROPY_H_J_KGK: float = 1160.0
+const WOOD_ENTROPY_O_J_KGK: float = 810.0
+
 
 static var _table_cache: Dictionary = {}
 
@@ -29,7 +39,15 @@ static var _table_cache: Dictionary = {}
 static func table() -> Dictionary:
 	if _table_cache.is_empty():
 		_table_cache = _build_table()
+		_add_organic_formation()
 	return _table_cache
+
+
+## Formation enthalpies of the dead organic pool's elements, J/mol, by Hess from the oxidation heats.
+static func _add_organic_formation() -> void:
+	_table_cache["organic_c"]["formation_enthalpy_j_mol"] = PC.FORMATION_ENTHALPY_CO2_J_MOL + organic_energy_j_mol("C")
+	_table_cache["organic_h"]["formation_enthalpy_j_mol"] = 0.5 * FORMATION_ENTHALPY_H2O_GAS_J_MOL + organic_energy_j_mol("H")
+	_table_cache["organic_o"]["formation_enthalpy_j_mol"] = organic_energy_j_mol("O")
 
 
 static func _build_table() -> Dictionary:
@@ -40,6 +58,7 @@ static func _build_table() -> Dictionary:
 			"molar_mass": PC.MOLAR_MASS_WATER_KG_MOL,
 			"atomisation_j_mol": PC.ATOMISATION_H2O_J_MOL,
 			"entropy_gas_j_molk": ENTROPY_H2O_GAS_J_MOLK,
+			"formation_enthalpy_j_mol": FORMATION_ENTHALPY_H2O_GAS_J_MOL,
 			"density": PC.WATER_DENSITY_KG_M3,
 			"density_ref_t_c": PC.LAB_REFERENCE_TEMP_C,
 			"expansion_per_k": PC.WATER_VOLUME_EXPANSION_PER_K,
@@ -93,6 +112,7 @@ static func _build_table() -> Dictionary:
 			"molar_mass": PC.MOLAR_MASS_O2_KG_MOL,
 			"atomisation_j_mol": PC.ATOMISATION_O2_J_MOL,
 			"entropy_gas_j_molk": ENTROPY_O2_GAS_J_MOLK,
+			"formation_enthalpy_j_mol": 0.0,   # reference state of the element, by definition
 			"density": PC.AMBIENT_O2_DENSITY_KG_M3,
 			"specific_heat": PC.AIR_SPECIFIC_HEAT_J_KGK,
 			"conductivity": PC.THERMAL_CONDUCT_O2_GAS_W_MK,
@@ -113,6 +133,7 @@ static func _build_table() -> Dictionary:
 			"formula": {"C": 1.0,
 				"N": (PC.MOLAR_MASS_CARBON_KG_MOL / PC.LITTER_C_TO_N) / PC.MOLAR_MASS_NITROGEN_KG_MOL},
 			"molar_mass": PC.MOLAR_MASS_CARBON_KG_MOL,
+			"entropy_j_molk": WOOD_ENTROPY_C_J_KGK * PC.MOLAR_MASS_CARBON_KG_MOL,
 			"density": ORGANIC_MOL_PER_M3 * PC.MOLAR_MASS_CARBON_KG_MOL,
 			"specific_heat": PC.DRY_WOOD_SPECIFIC_HEAT_J_KGK,
 			"albedo": PC.ALBEDO_VEGETATION,
@@ -121,6 +142,7 @@ static func _build_table() -> Dictionary:
 		"organic_h": {
 			"formula": {"H": 1.0},
 			"molar_mass": PC.MOLAR_MASS_HYDROGEN_KG_MOL,
+			"entropy_j_molk": WOOD_ENTROPY_H_J_KGK * PC.MOLAR_MASS_HYDROGEN_KG_MOL,
 			"density": ORGANIC_MOL_PER_M3 * PC.MOLAR_MASS_HYDROGEN_KG_MOL,
 			"specific_heat": PC.DRY_WOOD_SPECIFIC_HEAT_J_KGK,
 			"conductivity": PC.THERMAL_CONDUCT_ORGANIC_W_MK,
@@ -128,6 +150,7 @@ static func _build_table() -> Dictionary:
 		"organic_o": {
 			"formula": {"O": 1.0},
 			"molar_mass": PC.MOLAR_MASS_OXYGEN_KG_MOL,
+			"entropy_j_molk": WOOD_ENTROPY_O_J_KGK * PC.MOLAR_MASS_OXYGEN_KG_MOL,
 			"density": ORGANIC_MOL_PER_M3 * PC.MOLAR_MASS_OXYGEN_KG_MOL,
 			"specific_heat": PC.DRY_WOOD_SPECIFIC_HEAT_J_KGK,
 			"conductivity": PC.THERMAL_CONDUCT_ORGANIC_W_MK,
@@ -239,11 +262,10 @@ static func organic_energy_j_mol(element: String) -> float:
 	return 0.0
 
 
-## Heat of oxidising one unit of organic matter, J/m3 of extent, as (C, H, O) parts.
+## Heat of oxidising one mole of the dead pool's carbon, J/mol of extent, as (C, H, O) parts. A channel
+## amount is moles, so per-mole heat times a molar extent is J/m3.
 static func organic_oxidation_parts() -> Vector3:
-	var n: float = ORGANIC_MOL_PER_M3
-	return Vector3(n * organic_energy_j_mol("C"), n * organic_energy_j_mol("H"),
-		n * organic_energy_j_mol("O"))
+	return Vector3(organic_energy_j_mol("C"), organic_energy_j_mol("H"), organic_energy_j_mol("O"))
 ## SOLID / LIQUID / GAS, derived — never stored.
 const SOLID: int = 0
 const LIQUID: int = 1
