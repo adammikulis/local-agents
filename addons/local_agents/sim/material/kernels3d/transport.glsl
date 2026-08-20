@@ -40,7 +40,7 @@ layout(set = 0, binding = 19, std430) restrict readonly buffer CO2Buf      { flo
 // ONE H2O CHANNEL plus the three DERIVED shares state_derive.glsl publishes. Ice, liquid and vapour differ
 // optically by more than an order of magnitude, so every radiative term below splits h2o by these.
 layout(set = 0, binding = 20, std430) restrict readonly buffer H2OBuf       { float h2o[]; };
-// LAAbsorptionBands.packed(): header, band edges, temperature slices, solar weights, five coefficients
+// LAAbsorptionBands.packed(): header, band edges, temperature slices, solar weights, seven coefficients
 // per (temperature, band), Planck CDF.
 layout(set = 0, binding = 21, std430) restrict readonly buffer RadTable { float rad_table[]; };
 layout(set = 0, binding = 22, std430) restrict readonly buffer H2OSolidBuf  { float h2o_solid[]; };
@@ -94,6 +94,9 @@ layout(set = 0, binding = 52, std430) restrict buffer SwKeep { float sw_keep[]; 
 layout(set = 0, binding = 53, std430) restrict buffer SwSrc { float sw_src[]; };
 layout(set = 0, binding = 54, std430) restrict writeonly buffer SwSpace { float sw_space[]; };
 layout(set = 0, binding = 55, std430) restrict writeonly buffer RadResid { float rad_residual[]; };
+// O3 partial density, kg/m^3. Zeros until a photochemical o3 channel exists to swap in: at 4.5 Ga,
+// with free O2 at zero, there is no ozone layer.
+layout(set = 0, binding = 56, std430) restrict readonly buffer O3Buf { float o3[]; };
 
 #include "march.glsli"
 
@@ -429,13 +432,13 @@ uint edge_off() { return 4u; }
 uint temp_off() { return edge_off() + params.band_count + 1u; }
 uint wsun_off() { return temp_off() + temp_count(); }
 uint kappa_off() { return wsun_off() + params.band_count; }
-uint cdf_off() { return kappa_off() + temp_count() * params.band_count * 5u; }
+uint cdf_off() { return kappa_off() + temp_count() * params.band_count * 7u; }
 float band_edge(uint b) { return rad_table[edge_off() + b]; }
 float solar_weight(uint b) { return rad_table[wsun_off() + b]; }
 
 float kappa_at(uint b, uint k, uint ti, float tf) {
-	uint o = kappa_off() + b * 5u + k;
-	uint stride = params.band_count * 5u;
+	uint o = kappa_off() + b * 7u + k;
+	uint stride = params.band_count * 7u;
 	return mix(rad_table[o + ti * stride], rad_table[o + (ti + 1u) * stride], tf);
 }
 
@@ -483,7 +486,7 @@ float band_weight(uint b, float tk) {
 	return max(lo - planck_above(C2_CM_K * band_edge(b + 1u) / tk), 0.0);
 }
 
-// The four absorber paths this cell presents over `len` metres, kg/m^2 scaled by the broadening pressure:
+// The four gas-pair paths this cell presents over `len` metres, kg/m^2 scaled by the broadening pressure:
 // CO2 line, CO2 collision-induced, H2O line, H2O self-continuum; line and continuum broaden with p_total.
 vec4 absorber_paths(uint c, float len) {
 	float tk = t_k(c);
@@ -496,11 +499,20 @@ vec4 absorber_paths(uint c, float len) {
 		(rho_v * R_VAPOUR * tk / KAPPA_REF_PA) * rho_v * len);
 }
 
-float band_tau(vec4 a, uint b, uint ti, float tf) {
+// The O3 legs: air-broadened lines scale with total pressure; the electronic cross-section does not.
+vec2 o3_paths(uint c, float len) {
+	float rho_o3 = max(o3[c], 0.0);
+	float p_tot = max(pressure[c], 0.0) / KAPPA_REF_PA;
+	return vec2(p_tot * rho_o3 * len, rho_o3 * len);
+}
+
+float band_tau(vec4 a, vec2 z, uint b, uint ti, float tf) {
 	return (kappa_at(b, 0u, ti, tf) + kappa_at(b, 1u, ti, tf)) * a.x
 		+ kappa_at(b, 2u, ti, tf) * a.y
 		+ kappa_at(b, 3u, ti, tf) * a.z
-		+ kappa_at(b, 4u, ti, tf) * a.w;
+		+ kappa_at(b, 4u, ti, tf) * a.w
+		+ kappa_at(b, 5u, ti, tf) * z.x
+		+ kappa_at(b, 6u, ti, tf) * z.y;
 }
 
 // The cell's thermal-infrared emissivity: band-resolved optical depth over its own absorber paths,
@@ -508,11 +520,12 @@ float band_tau(vec4 a, uint b, uint ti, float tf) {
 float longwave_emissivity(uint c) {
 	float tk = t_k(c);
 	vec4 a = absorber_paths(c, params.cell_m);
+	vec2 z = o3_paths(c, params.cell_m);
 	float tf = 0.0;
 	uint ti = slice_of(tk, tf);
 	float eps = 0.0;
 	for (uint b = 0u; b < params.band_count; ++b) {
-		eps += band_weight(b, tk) * (1.0 - exp(-DIFFUSIVITY * band_tau(a, b, ti, tf)));
+		eps += band_weight(b, tk) * (1.0 - exp(-DIFFUSIVITY * band_tau(a, z, b, ti, tf)));
 	}
 	float wet = h2o_water(c);
 	float icy = h2o_ice(c);
@@ -539,15 +552,16 @@ float shortwave_albedo(uint c) {
 	return (wet * ALBEDO_WATER + icy * ALBEDO_ICE + veg * ALBEDO_VEG + dry * ALBEDO_GROUND) / mass;
 }
 
-// Share of the DIRECT solar beam a cell takes over `len` m of slant path: the CO2 and H2O bands the
+// Share of the DIRECT solar beam a cell takes over `len` m of slant path: the CO2, H2O and O3 bands the
 // longwave side reads, weighted by the sun's spectrum. N2 and O2 have no dipole. No diffusivity factor.
 float shortwave_absorbed_frac(uint c, float len) {
 	vec4 a = absorber_paths(c, len);
+	vec2 z = o3_paths(c, len);
 	float tf = 0.0;
 	uint ti = slice_of(t_k(c), tf);
 	float gas = 0.0;
 	for (uint b = 0u; b < params.band_count; ++b) {
-		gas += solar_weight(b) * (1.0 - exp(-band_tau(a, b, ti, tf)));
+		gas += solar_weight(b) * (1.0 - exp(-band_tau(a, z, b, ti, tf)));
 	}
 	float f_c = condensed_frac(c);
 	return clamp(f_c + (1.0 - f_c) * gas, 0.0, 1.0);

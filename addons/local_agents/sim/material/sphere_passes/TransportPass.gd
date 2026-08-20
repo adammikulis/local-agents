@@ -289,6 +289,8 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[53, _sw_src],
 		[54, _single(bufs, "sw_space")],
 		[55, _single(bufs, "rad_residual")],
+		# O3 partial density, kg/m^3: zeros until a photochemical o3 channel exists to swap in.
+		[56, _zero],
 	]
 	return _uset(_pipe, entries)
 
