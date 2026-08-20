@@ -93,27 +93,18 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
 
 ## C. The reaction engine
 
-- [ ] **Direction is a hand-set threshold for every record but one.** `LAReactionThermo.reversible` derives
-      dG = dH − T dS + RT ln Q from the record's own stoichiometry, and only the dissolution record in
-      `GeoRecords.gd` uses it. Everything else is a gate mask plus a threshold constant, so it is
-      permanently one-way. Standard entropies exist for H₂O, O₂, CO₂ and the four atomic species, so every
-      record whose participants are in that set is unblocked today.
+- [ ] **Direction is derived for dissolution and coal dehydration; the rest lack standard-state data.**
+      Decarboxylation and combustion produce FERT, and `fixed_n` has no formation enthalpy or entropy until
+      the fixed-N compound is decided; the five bio records run on cellulose, which has neither datum.
+      Add the data (cited) and pass each record through `LAReactionThermo.reversible`.
 - [ ] **Decay has no temperature dependence and production has an optimum.** Decomposition and respiration
       are `RM_BILINEAR` in their two reactants, so litter rots at the same rate at −40 °C and +40 °C, wet or
       bone dry, while photosynthesis carries `RM_OPTIMUM_BAND`. Michaelis–Menten and a Q₁₀ (or the
       Arrhenius the engine already has) are what the two uptake reactions want. The whole temperature
       feedback of the carbon cycle is this asymmetry.
-- [ ] **`rate_k` has a different dimension in every record** — 1/step, 1/(fungus-unit·step), per kelvin, per
-      pascal — and the extent is denominated per record too, so no cross-record dimensional check is
-      possible and nothing checks it. **Decide it:** declare each rate model's units in `ReactionDefs` and
-      gate that a record's `rate_k` matches its model.
-- [ ] **Extents are applied one record at a time**, capped per channel, so several records competing for one
-      reactant interact through application order. Evaluate every record against the same starting state,
-      then one scaling if a reactant would go negative. Order-independence for free.
-- [ ] **The reaction table carries two rate units.** Photosynthesis, respiration, litterfall, decomposition
-      and combustion fold `real_seconds_per_step()` into their own `k` and are per-real-second; the rest are
-      flat per-step numbers, neither derived nor scaled by the clock. Multiplying by `dt` in the kernel
-      would double-count the first group, which is why the dead `dt` upload was deleted rather than wired.
+- [ ] **`DISSOLUTION_K` is the one per-step rate left** (its `MODEL_PARAMETERS.md` row). A cited areal rate
+      law (wollastonite, mol/m²/s) times a reactive surface area the grid can defend replaces it, and its
+      `k_timebase` flips to per_real_second.
 
 ## D. Transport and geometry
 
