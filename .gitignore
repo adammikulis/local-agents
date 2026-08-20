@@ -57,3 +57,9 @@ addons/local_agents/gdextensions/localagents/bin
 volcano_shot_*.png
 /trailers/
 .DS_Store
+
+# Fetched spectroscopy inputs for derive_absorption_bands.py — regenerate with fetch_hitran.sh
+scripts/*_lines.csv
+scripts/*.cia
+scripts/bands.npz
+scripts/o3_uv_serdyuchenko.dat

@@ -7,8 +7,51 @@
 LA_OFFSCREEN_POS="${LA_WIN_POS:-99999,99999}"
 LA_OFFSCREEN_RES="${LA_RES:-1x1}"
 
+# macOS activates every launched GUI app and its keystrokes go nowhere; an LSUIElement bundle never
+# activates. dyld resolves symlinks before bundle lookup, so the executable is a hard copy, cached by
+# inode-checked mtime.
+la_agent_exe() {
+	local real="$1"
+	local app="${TMPDIR:-/tmp}/la-godot-agent/GodotAgent.app"
+	local exe="$app/Contents/MacOS/godot"
+	if [ ! -x "$exe" ] || [ "$exe" -ot "$real" ]; then
+		mkdir -p "$app/Contents/MacOS"
+		cat > "$app/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>godot</string>
+<key>CFBundleIdentifier</key><string>com.localagents.godot-agent</string>
+<key>CFBundleName</key><string>GodotAgent</string>
+<key>LSUIElement</key><true/>
+</dict></plist>
+PLIST
+		cp -f "$real" "$exe" || { echo "$real"; return; }
+	fi
+	echo "$exe"
+}
+
+# Godot self-activates on launch and its off-screen window eats every keystroke; hand focus straight
+# back to whatever the user had frontmost.
+la_restore_focus() {
+	local front="$1"
+	local i
+	for i in $(seq 1 100); do
+		if lsappinfo list 2>/dev/null | rg -q "GodotAgent|\"godot\""; then break; fi
+		sleep 0.05
+	done
+	[ -n "$front" ] && osascript -e "tell application \"$front\" to activate" >/dev/null 2>&1
+}
+
 la_godot() {
 	local binary="${GODOT:-godot}"
+	if [ "$(uname)" = "Darwin" ]; then
+		local real
+		real="$(command -v "$binary" 2>/dev/null)" && binary="$(la_agent_exe "$real")"
+		local front
+		front="$(lsappinfo front 2>/dev/null | xargs -I{} lsappinfo info -only name {} 2>/dev/null | sed 's/.*=//; s/"//g')"
+		( la_restore_focus "$front" ) &
+	fi
 	local pre=()
 	if [ -n "${LA_GODOT_TIMEOUT:-}" ]; then
 		pre=(timeout "$LA_GODOT_TIMEOUT")
