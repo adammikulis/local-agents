@@ -21,9 +21,6 @@ const ENTROPY_O2_GAS_J_MOLK: float = 205.152
 const ENTROPY_CO2_GAS_J_MOLK: float = 213.785
 
 
-##   molar_mass       kg/mol. The one bridge between the mass this table stores and the moles chemistry uses.
-##   density          kg/m3, a REFERENCE value at `density_ref_t_c` and STANDARD_PRESSURE_PA — not the
-##                    density, which is density(id, t_c, p_pa) and varies with both.
 static var _table_cache: Dictionary = {}
 
 
@@ -156,6 +153,7 @@ static func _build_table() -> Dictionary:
 			"density_ref_t_c": PC.LAB_REFERENCE_TEMP_C,
 			"expansion_per_k": PC.ROCK_VOLUME_EXPANSION_PER_K,
 			"bulk_modulus_pa": PC.ROCK_BULK_MODULUS_PA,
+			"tensile_strength_pa": PC.BASALT_TENSILE_STRENGTH_PA,
 			"specific_heat": PC.ROCK_SPECIFIC_HEAT_J_KGK,
 			"melt_c": PC.BASALT_SOLIDUS_C,
 			"liquidus_c": PC.BASALT_LIQUIDUS_C,
@@ -225,8 +223,8 @@ static func fresh_litter_per_carbon(element: String) -> float:
 	return float(f.get(element, 0.0)) / c
 
 
-## Heat released by fully oxidising ONE MOLE of one element of the dead organic pool, J/mol, with the water
-## leaving as VAPOUR (that is where the MOISTURE channel puts it, so the latent heat is not available and the
+## Heat released by fully oxidising ONE MOLE of one element of the dead organic pool, J/mol; water leaves
+## as vapour.
 static func organic_energy_j_mol(element: String) -> float:
 	if element == "C":
 		var n_per_c: float = float(table()["organic_c"]["formula"]["N"])
@@ -334,17 +332,6 @@ static func mol_per_kg(id: String) -> float:
 	return 1.0 / m if m > 0.0 else 0.0
 
 
-## Atoms per KILOGRAM of a substance, which is what a conservation ledger has to sum. `formula` is per MOLE.
-static func atoms_per_kg(id: String) -> Dictionary:
-	var s: Dictionary = table().get(id, {})
-	var per_mol: Dictionary = s.get("formula", {})
-	var n: float = mol_per_kg(id)
-	var out: Dictionary = {}
-	for el in per_mol:
-		out[el] = float(per_mol[el]) * n
-	return out
-
-
 ## SPECIFIC ENTHALPY (J/kg) at a temperature, referenced to the solid at 0 K. The inverse of
 ## enthalpy_to_state(), rung for rung; on a ZERO-WIDTH plateau it returns the LOWER end.
 static func enthalpy_at(id: String, t_c: float, p_pa: float = PC.STANDARD_PRESSURE_PA,
@@ -431,8 +418,6 @@ static func boil_c_at(id: String, p_pa: float) -> float:
 	return minf(t_c, t_crit) if is_finite(t_crit) else t_c
 
 
-## constants with the relation between them written in a comment. Watson correlation:
-## that is physically ZERO. Watson has the right asymptote — L goes to zero at Tc, because that is what a
 static func element_ionisation_ev() -> Dictionary:
 	return {
 		"H": PC.IONISATION_EV_H, "O": PC.IONISATION_EV_O, "C": PC.IONISATION_EV_C, "N": PC.IONISATION_EV_N,
@@ -553,6 +538,19 @@ static func melt_c_at(id: String, p_pa: float, molality_mol_kg: float = 0.0) -> 
 	return t_c
 
 
+## melt_c_at's Clapeyron slope inverted, Pa/K: dP/dT = dH_fus / (T_m dv), the same two reference densities
+## and latent heat. Segregation ice at undercooling dT below melt_c exerts this times dT.
+static func fusion_pa_per_k(id: String) -> float:
+	var s: Dictionary = table().get(id, {})
+	var t_ref_c: float = float(s.get("melt_c", INF))
+	var rho_l: float = float(s.get("density", 0.0))
+	var rho_s: float = float(s.get("density_solid", 0.0))
+	var l_fus: float = float(s.get("latent_fusion_j_kg", 0.0))
+	if not is_finite(t_ref_c) or rho_l <= 0.0 or rho_s <= 0.0 or l_fus <= 0.0 or rho_l == rho_s:
+		return 0.0
+	return absf(l_fus * rho_l * rho_s / ((t_ref_c + PC.KELVIN_OFFSET) * (rho_l - rho_s)))
+
+
 ## THE LIQUIDUS AT PRESSURE — the temperature the last crystal goes. Water is the degenerate case where it
 ## meets the solidus. DECISION, not a law: the interval keeps its width, both ends on one Clapeyron slope.
 static func liquidus_c_at(id: String, p_pa: float, molality_mol_kg: float = 0.0) -> float:
@@ -669,18 +667,6 @@ static func latent_vaporisation_at(id: String, t_c: float) -> float:
 	if span_ref <= 0.0:
 		return l_ref
 	return l_ref * pow((t_crit - t_c) / span_ref, PC.WATSON_LATENT_EXPONENT)
-
-
-## Is this substance past its critical point at these conditions? Above it there is one fluid phase, no
-## boiling, and no latent heat — so a caller that branches on "liquid or gas" has no valid answer and must
-## ask this first.
-static func is_supercritical(id: String, t_c: float, p_pa: float) -> bool:
-	var s: Dictionary = table().get(id, {})
-	var t_crit: float = float(s.get("critical_t_c", INF))
-	var p_crit: float = float(s.get("critical_p_pa", INF))
-	if not is_finite(t_crit) or not is_finite(p_crit):
-		return false
-	return t_c >= t_crit and p_pa >= p_crit
 
 
 static func enthalpy_to_state(id: String, h_j_kg: float, p_pa: float = PC.STANDARD_PRESSURE_PA,

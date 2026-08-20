@@ -115,18 +115,6 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
       flat per-step numbers, neither derived nor scaled by the clock. Multiplying by `dt` in the kernel
       would double-count the first group, which is why the dead `dt` upload was deleted rather than wired.
 
-## Weathering has lost both its mechanisms
-
-- [ ] **Frost shattering does not exist.** `LAGeoRecords` carries no record on `RM_DEFICIT_BELOW_THRESHOLD`,
-      the rate model is declared in `ReactionDefs` and handled in `reactions_sphere3d.glsl` for no record at
-      all, and no frost constant survives in the substrate. Ice segregation is a first-order weathering
-      mechanism on a planet with a freezing point. What is a maintainer's call is the DAMAGE MODEL — how
-      pore-ice pressure past a rock's tensile strength becomes a volume detached per step.
-- [ ] **`tests/test_weathering_rate_law.gd` evaluates the rate with a HAND COPY of the kernel's
-      arithmetic** — a second model of the reaction engine — and reads zero bedrock removed at every
-      temperature. The record itself carries non-zero inputs at every temperature the test sweeps. Have the
-      test read the record through the real evaluator, then re-ask whether the rate is right.
-
 ## D. Transport and geometry
 
 - [ ] **The grid cannot resolve its own aquifer.** `LAVoxelGrid.cell_size` is one number for all three axes,

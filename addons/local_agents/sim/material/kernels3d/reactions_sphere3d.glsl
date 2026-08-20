@@ -64,8 +64,11 @@ layout(set = 0, binding = 28, std430) restrict buffer Carbonate { float carbonat
 layout(set = 0, binding = 29, std430) restrict buffer Silica { float silica[]; };        // SiO2 — the residue
 // BINDINGS 30-33 IN THIS KERNEL ARE NOT THE 30-33 OF EVERY OTHER KERNEL.
 layout(set = 0, binding = 30, std430) restrict buffer N2Buf { float n2[]; };              // dinitrogen, 78% of the air
-// Charge (channel units) a lightning return stroke drained from this cell this step. DRIVER ONLY.
-layout(set = 0, binding = 31, std430) restrict readonly buffer Discharge { float discharge[]; };
+// Lightning energy released this step, J/m^3. DERIVED here from the field the strike is relaxing.
+layout(set = 0, binding = 31, std430) restrict buffer Discharge { float discharge[]; };
+// The column electrostatic field (V/m) and breakdown flag transport's EFIELD row publishes.
+layout(set = 0, binding = 38, std430) restrict readonly buffer ColE { float col_e[]; };
+layout(set = 0, binding = 39, std430) restrict readonly buffer StrikeBuf { float strike[]; };
 // The hydrogen and oxygen bound in the DEAD organic pool whose carbon is detritus + fuel. Same moles per
 // channel unit as the carbon, so org_h/org_c is the molar H:C and org_o/org_c the molar O:C.
 layout(set = 0, binding = 32, std430) restrict buffer OrgH { float org_h[]; };
@@ -82,6 +85,7 @@ const float KELVIN_0 = 273.15;           // LAPhysical.KELVIN_OFFSET
 const float RHO_WATER = 997.0;           // LAPhysical.WATER_DENSITY_KG_M3
 const float R_GAS = 8.314462618;         // LAPhysical.GAS_CONSTANT_J_MOL_K
 const float P_STD = 101325.0;            // LAPhysical.STANDARD_PRESSURE_PA
+const float EPS0 = 8.8541878128e-12;     // LAPhysical.VACUUM_PERMITTIVITY_F_M
 
 // The cell's h2o split by the shares the ladder derived, in the channel's own unit (volume fraction).
 float h2o_liq(uint i) { return max(h2o[i], 0.0) * clamp(h2o_liquid[i], 0.0, 1.0); }
@@ -393,6 +397,9 @@ void main() {
 	}
 	scratch[i] = 0.0;                       // reset the per-cell SCRATCH product target each step
 	fire[i] = 0.0;                          // the burning INSTRUMENT — assigned from this step's fuel loss below
+	// The stroke's store: the field energy the strike is relaxing this step. Transport drains the charge
+	// at channel conductivity; this reads what that debit released. J/m^3, driver only.
+	discharge[i] = (strike[i] > 0.0) ? 0.5 * EPS0 * col_e[i] * col_e[i] : 0.0;
 	bool buried = (solid[i] != 0.0);        // only GATE_BURIED records run in rock; everything else is open-cell
 	// THE CELL'S OWN ORGANIC COMPOSITION: molar H:C and O:C of the dead pool. Every stoichiometric coefficient
 	// and every enthalpy below is a polynomial in these two, so one channel carries peat through to anthracite.
