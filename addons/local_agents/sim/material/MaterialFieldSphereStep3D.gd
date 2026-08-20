@@ -6,7 +6,6 @@ extends RefCounted
 # Simulated seconds ONE field step represents. Gated by scripts/check_step_quantum.sh.
 const SIM_SECONDS_PER_STEP: float = 43.2
 
-## Simulated seconds one field step represents.
 static func real_seconds_per_step() -> float:
 	return SIM_SECONDS_PER_STEP
 
@@ -15,7 +14,7 @@ const LakesScript: GDScript = preload("res://addons/local_agents/sim/material/Ma
 const MineralProfileScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd")
 const AttributionScript: GDScript = preload("res://addons/local_agents/sim/material/FieldPassAttribution3D.gd")
 const ElementProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldElementProbe3D.gd")
-const PassProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldPassProbe3D.gd")
+const PassProbeScript: GDScript = preload("res://addons/local_agents/runtime/FieldPassProbe3D.gd")
 
 var _f = null                                          # back-reference to the owning LAMaterialField3D
 var _mineral_profile = null
@@ -76,16 +75,24 @@ func seed_tick() -> bool:
 			+ "water table is unprimed and darcy_resistance() makes the groundwater row inert. The walk "
 			+ "reads `below` from solved gravity: it ran before the solve was dispatched and drained.")
 	LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins
+	# The lakes poured water into already-seeded cells: displace the gas it occupies, and re-derive
+	# the enthalpy so the water arrives WITH its heat.
+	LAFieldLithostaticSeed.displace_gas_from_water(_f)
+	LAFieldEnthalpySeed.seed(_f, LAMaterialField3D.INITIAL_TEMP)
 	if _f._gpu != null:                                # hand the device what those three walks produced
 		_f._gpu._seed_regolith()                       # permeability mask + grain size
 		_f._gpu._seed("porosity", _f._porosity)        # Athy pore fraction
 		_f._gpu.seed_field("h2o", _f._h2o, _f._seal)   # ocean + water table + lakes, declared once
+		_f._gpu.seed_field("o2", _f._o2, _f._seal)     # what the poured water displaced
+		_f._gpu.seed_field("co2", _f._co2, _f._seal)
+		_f._gpu.seed_field("n2", _f._n2, _f._seal)
+		_f._gpu.mark_h_dirty()
+	_f._gravity.solve_seed()      # the ocean just landed: relax the potential over the WHOLE seeded mass
 	return true
 
 
-## ONE step: SIM_SECONDS_PER_STEP of simulated time. Every per-step term — the gravity solve, the upload,
-## the dispatch, the readback — happens once here, so a step's books cannot be split across a frame
-## boundary.
+## ONE step: SIM_SECONDS_PER_STEP of simulated time. Every per-step term happens once here, so a
+## step's books cannot be split across a frame boundary.
 func step() -> void:
 	if not _f._ready_sim or not _f._use_gpu:
 		return
@@ -100,6 +107,16 @@ func step() -> void:
 		# The MAGNITUDE of sun_dir carries INSOLATION (orbit-distance² × atmospheric transmission).
 		var insol: float = float(_f._sun_light.get_meta("insolation", 1.0))
 		_f._gpu.set_sun_dir(_f.dir_to_field(_f._sun_light.global_transform.basis.z * insol))
+	# The transport substep budget reads last step's drained maxima; before the first drain the field
+	# is the seed, whose hottest cell is the declared seed temperature.
+	if _f._gpu.has_method("set_cfl_inputs") and _f._queries != null:
+		var tk_max: float = _f._queries.row_f("all_temp_max")
+		if not is_finite(tk_max):
+			tk_max = LAMaterialField3D.INITIAL_TEMP
+		_f._gpu.set_cfl_inputs(_f._queries.row_f("wind_speed_max"),
+			tk_max + LAPhysical.KELVIN_OFFSET,
+			_f._gravity.mean_g() if _f._gravity != null else 0.0,
+			_f._queries.row_f("celerity_max"))
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		if OS.has_environment("LA_INJECT_AUDIT"):
 			# Diagnostic.

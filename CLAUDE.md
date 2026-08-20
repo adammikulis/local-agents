@@ -535,6 +535,12 @@ When removing files:
   `request_channel`: residency decides which mirrors the simulation's own write paths read. Nor may it read
   the device directly mid-submit. A pure instrument samples at the drain, into a dictionary no consumer sees.
   And no physical mechanism may depend on a diagnostic being switched on.
+- **PRESSURE HAS TWO WRITERS, ONE PER CELL CLASS, AND THIS IS THE MAINTAINER'S DECISION, NOT A LAW.** An
+  OPEN cell's pressure is a state function of its own matter, solved from the EOS in `state_derive.glsl`.
+  A SOLID cell's is the column standing over it, from `pressure.glsl`, because rock's bulk modulus makes a
+  state-function pressure hypersensitive to fill noise. They are legitimate only while they never meet:
+  rock pressure must never reach the momentum equation, and a wall face takes the FLUID cell's own
+  pressure. `scripts/check_pressure_split.sh` holds all of that. Do not unify them without the maintainer.
 - **THE SUBSTANCE TABLE IS THE SSOT FOR MATTER — `material/Substances.gd`.** Every material declares its own
   measured properties in ONE entry. `PhysicalConstants.gd` keeps only what is not a property of a substance.
   Do not add a flat constant for something a material owns, and check the fact is not already there under

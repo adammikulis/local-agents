@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 291**   <!-- the grid's slot and face tags went with it; SimWorld's ten terrain lengths were
+**MAX_DECLARED: 292**   <!-- the grid's slot and face tags went with it; SimWorld's ten terrain lengths were
 inline literals scaled by a Node3D transform and are now named metre constants the registry can see. -->
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
@@ -77,8 +77,8 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/AbsorptionBands.gd` | `TEMP_COUNT` | 9 | temperature resolution of the absorption table, 150-1000 K | a hot-band regime the slices cannot interpolate |
 | `addons/local_agents/sim/material/AbsorptionBands.gd` | `CDF_COUNT` | 1024 | sample count of the Planck cumulative table the GPU reads instead of summing the series | a GPU that can afford the series inline |
 | `addons/local_agents/sim/material/AbsorptionBands.gd` | `CDF_XMAX` | 50.0 | upper limit of x = c2*nu/T in that table; above it the fraction of blackbody power is below 1e-9 | a body cold enough that x = 50 falls inside its emission, i.e. below about 30 K |
-| `addons/local_agents/sim/mesh/VegetationRenderer.gd` | `_CHUNK` | 256 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/sim/mesh/VegetationRenderer.gd` | `_INITIAL_CAP` | 512 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/game/render/VegetationRenderer.gd` | `_CHUNK` | 256 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/game/render/VegetationRenderer.gd` | `_INITIAL_CAP` | 512 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/SimWorld.gd` | `SLOW_BUILD_CELLS` | 250000 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/SimWorld.gd` | `MODELLED_ATMOSPHERE_HEIGHT_M` | 1.0e5 | modelling extent: how much air the box holds | a body that declares its own atmosphere mass |
 | `addons/local_agents/sim/SimWorld.gd` | `RELIEF_M` | 9.4e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
@@ -305,6 +305,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd` | `DRAIN_ALL` | 1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `CLOUD_WATER_CRIT_KG_KG` | 0.5e-3 | Kessler (1969) q_crit | deleted when condensation is a reaction record and the detector reads the record |
 | `addons/local_agents/sim/material/sphere_passes/TransportPass.gd` | `MIN_FILL_FRAC` | 0.0001 | the fraction of a row's full amount below which a cell is treated as empty; chosen, not derived | deleted when a donor's floor comes from the substance's own molar volume |
+| `addons/local_agents/sim/material/sphere_passes/TransportPass.gd` | `SUBSTEP_MAX` | 256 | solver budget cap, not physics — covers the acoustic need of molten rock at 2.5 km cells; see `cfl_substep_budget` in docs/APPROXIMATIONS.md | an implicit or uncapped substepped solve |
 | `addons/local_agents/sim/material/MaterialFieldRegolith3D.gd` | `REGOLITH_CELLS` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldRegolith3D.gd` | `INITIAL_TABLE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/game/render/WaterSurfaceMesh.gd` | `SEA_BIAS` | 0.4 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -345,11 +346,11 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `O2_AMBIENT` | 0.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `FOG_MAX_TEMP` | 12.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `SEA_WAVE_EPS` | 0.6 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldPassProbe3D.gd` | `DEFAULT_STEPS` | 3 | how many steps `LA_PASS_PROBE` samples before it disarms; a diagnostic default, not a property of the world | delete when the probe is cheap enough to leave armed for a whole run |
-| `addons/local_agents/sim/material/sphere_passes/GravityPass.gd` | `SOLVE_EVERY` | 8 | how often the Poisson solve re-runs; mass moves slowly next to a step and the solve warm-starts | the residual between solves is published and stops being reported as small |
-| `addons/local_agents/sim/material/sphere_passes/GravityPass.gd` | `SWEEPS` | 8 | red-black Gauss-Seidel sweeps per dispatch; the seeding solve loops on the measured residual, so this only sizes the per-step tracking | a solver whose work does not scale with the box edge, so one dispatch converges |
-| `addons/local_agents/sim/material/MaterialFieldGravity3D.gd` | `SEED_RESIDUAL_TOLERANCE` | 1.0e-3 | how well the seeding solve must satisfy the discrete Poisson equation, as a fraction of its own source, before any walk reads `down` | a direct solve, which has no residual to tolerate |
-| `addons/local_agents/sim/material/MaterialFieldGravity3D.gd` | `SEED_DISPATCH_CAP` | 512 | dispatches the seeding solve may take before it reports that it did not converge; Gauss-Seidel carries information one cell per sweep | the same direct solve |
+| `addons/local_agents/runtime/FieldPassProbe3D.gd` | `DEFAULT_STEPS` | 3 | how many steps `LA_PASS_PROBE` samples before it disarms; a diagnostic default, not a property of the world | delete when the probe is cheap enough to leave armed for a whole run |
+| `addons/local_agents/sim/material/sphere_passes/GravityPass.gd` | `SOLVE_EVERY` | 2 | how often the Poisson solve re-runs; mass moves slowly next to a step and the solve warm-starts | the residual between solves is published and stops being reported as small |
+| `addons/local_agents/sim/material/sphere_passes/GravityPass.gd` | `SWEEPS` | 128 | red-black Gauss-Seidel sweeps per dispatch; the seeding solve loops on the measured residual, so this only sizes the per-step tracking | a solver whose work does not scale with the box edge, so one dispatch converges |
+| `addons/local_agents/sim/material/MaterialFieldGravity3D.gd` | `SEED_RESIDUAL_TOLERANCE` | 1.0e-4 | how well the seeding solve must satisfy the discrete Poisson equation, as a fraction of its own source, before any walk reads `down` | a direct solve, which has no residual to tolerate |
+| `addons/local_agents/sim/material/MaterialFieldGravity3D.gd` | `SEED_DISPATCH_CAP` | 2048 | dispatches the seeding solve may take before it reports that it did not converge; Gauss-Seidel carries information one cell per sweep | the same direct solve |
 | `addons/local_agents/sim/material/kernels3d/neighbours.glsli` | `N_SLOTS` | 6 | faces of a cube; it is geometry, not a choice | never — a box has six faces |
 | `addons/local_agents/sim/material/kernels3d/generated.glsli` | `EXP_LIMIT` | 60.0 | generated from ReactionThermo.EXP_LIMIT; the exponent bound where exp() overflows float32 | deleted with its source row |
 | `addons/local_agents/sim/terrain/VoxelTerrainService.gd` | `GEN_RAY_STRIDE` | 1.0 | march step for the SDF surface search, metres. A DISCRETISATION, not a property of the ground | an analytic surface intersection, at which point there is no step to choose |

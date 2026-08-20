@@ -2,32 +2,38 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 ## EVERYTHING A CELL DERIVES FROM ITS OWN INDEX. Writes `temp`, `vel_*`, `rho_bulk`,
 ## `conductivity` and the h2o/silicate phase shares off `h_j_m3` and `pressure`; cements and sets `solid`,
-## `regolith`, `grain` off that melt share; adds Coriolis and centrifugal to `mom_*`.
+## `regolith`, `grain` off that melt share; adds weight, Coriolis and centrifugal to `mom_*`.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/state_derive.glsl"
 
+const TransportPassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd")
+
 ## Every buffer outside LAMatterChannels this kernel touches, name -> state_derive.glsl binding. ONE
-## declaration: the absence check and the uniform set ask the same list, so neither can name what the
-## other does not.
+## declaration: the absence check and the uniform set ask the same list.
 const BOUND: Dictionary = {
 	"solid": 14, "cement": 15, "regolith": 16, "grain": 17, "pos": 18, "liquid": 19, "org_hc": 20,
 	"h_j_m3": 21, "pressure": 22,
 	"temp": 23, "mom_x": 25, "mom_y": 26, "mom_z": 27, "vel_x": 28, "vel_y": 29, "vel_z": 30,
 	"org_oc": 31, "rho_bulk": 32, "conductivity": 33, "h2o_solid": 34, "h2o_liquid": 35,
 	"h2o_vapour": 36, "silicate_melt": 37, "org_fresh": 38, "cell_vol": 40, "speed": 41, "lat": 42,
-	"alt": 43, "nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48}
+	"alt": 43, "nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48,
+	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52, "celerity": 53}
 
 ## One mole of organic carbon per cell — the pool below which a cell's C:H:O ratio is fp32 noise.
 const ORG_MIN_POOL_MOL: float = 1.0
 
 ## props row layout — state_derive.glsl PROP_*.
-const PROP_STRIDE: int = 6
+const PROP_STRIDE: int = 9
 const PROP_M: int = 0
 const PROP_C: int = 1
 const PROP_MOL_PER_KG: int = 2
 const PROP_ENTRY: int = 3
 const PROP_LAMBDA: int = 4
 const PROP_FULL: int = 5
+## The EOS half: rho(T, p) inverted per substance, so pressure is a state function of the cell.
+const PROP_ALPHA: int = 6
+const PROP_BULK: int = 7
+const PROP_TREF: int = 8
 
 var _pipe: RID = RID()
 var _set: RID = RID()
@@ -35,14 +41,15 @@ var _fresh_h_per_c: float = 0.0
 var _fresh_o_per_c: float = 0.0
 
 
-## Read by reduce rows on the device and by no CPU consumer, so they are this pass's own rather than
-## LAChannels.derived_buffers() entries the driver would copy back on every drain.
+## Device-read only, so this pass's own rather than drained LAChannels.derived_buffers() entries.
 func _buffers(cc: int) -> Dictionary:
 	# The four entry-heat buffers carry ghost tails: transport's pass 0 reads them for ghost donors.
 	return {"speed": cc, "lat": cc, "alt": cc, "nonfinite": cc,
 		"h_h2o": {"n": cc, "ghosts": true}, "h_silicate": {"n": cc, "ghosts": true},
 		"h_sensible": {"n": cc, "ghosts": true}, "cap_sensible": {"n": cc, "ghosts": true},
-		"org_hc": cc, "org_oc": cc, "org_fresh": cc}
+		"org_hc": cc, "org_oc": cc, "org_fresh": cc,
+		"bodyf_x": cc, "bodyf_y": cc, "bodyf_z": cc,
+		"celerity": {"n": cc, "ghosts": true}}
 
 
 func _setup(bufs: Dictionary, _cc: int) -> void:
@@ -85,7 +92,7 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	var w: Vector3 = ctx.get("spin", Vector3.ZERO) * LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S
 	var centre: Vector3 = ctx.get("centre", Vector3.ZERO)
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(56)
+	pc.resize(60)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, LAMaterialFieldSphereStep3D.real_seconds_per_step())
 	pc.encode_float(8, w.x)
@@ -100,6 +107,8 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	pc.encode_float(44, ORG_MIN_POOL_MOL)
 	pc.encode_float(48, _fresh_h_per_c)
 	pc.encode_float(52, _fresh_o_per_c)
+	# Below TransportPass.MIN_FILL_FRAC of occupied volume a cell donates nothing and holds no bulk state.
+	pc.encode_float(56, TransportPassScript.MIN_FILL_FRAC)
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, _set, 0)
 	rd.compute_list_set_push_constant(cl, pc, pc.size())
@@ -145,4 +154,9 @@ func _props() -> PackedFloat32Array:
 		out[base + PROP_MOL_PER_KG] = mol_per_kg
 		out[base + PROP_ENTRY] = float(entry)
 		out[base + PROP_FULL] = full[i]
+		out[base + PROP_ALPHA] = float(s.get("expansion_per_k", 0.0))
+		# No bulk modulus is a DECLARED incompressibility, not a guessed one: the substance occupies its
+		# unstressed volume and takes no part in the compressibility sum.
+		out[base + PROP_BULK] = float(s.get("bulk_modulus_pa", 0.0))
+		out[base + PROP_TREF] = float(s.get("density_ref_t_c", 0.0))
 	return out

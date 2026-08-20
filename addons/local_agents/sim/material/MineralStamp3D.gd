@@ -139,14 +139,14 @@ func _open_neighbour(c: int, solid: PackedByteArray) -> int:
 	if hi >= 0 and hi < solid.size() and solid[hi] == 0:
 		return hi
 	var nbr: PackedInt32Array = _f._grid.neighbours
-	var down_slot: int = LAFieldGeometry.slot_toward(LAFieldGeometry.down(_f, c))
+	var lo: int = LAFieldGeometry.below(_f, c)
 	for d in LAVoxelGrid.SLOTS:
-		if d == down_slot or d == LAVoxelGrid.opposite_slot(down_slot):
-			continue
 		var nb: int = nbr[c * LAVoxelGrid.SLOTS + d]
+		# The vertical pair waits: up was tried first and down is the last resort.
+		if nb == hi or nb == lo:
+			continue
 		if nb >= 0 and nb < solid.size() and solid[nb] == 0:
 			return nb
-	var lo: int = LAFieldGeometry.below(_f, c)
 	return lo if lo >= 0 and lo < solid.size() and solid[lo] == 0 else -1
 
 

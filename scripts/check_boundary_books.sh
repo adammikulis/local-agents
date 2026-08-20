@@ -116,7 +116,8 @@ func _init() -> void:
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible"]:
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "speed",
+			"bodyf_x", "bodyf_y", "bodyf_z"]:
 		bufs[name] = _f32(_filled(tc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(tc * 3, 0.0), owned)
 	bufs["nbr"] = _i32(grid.neighbours, owned)
@@ -150,7 +151,9 @@ func _init() -> void:
 	if bnd.error != "":
 		_expect(false, "boundary attach failed: " + bnd.error)
 	var cl: int = _rd.compute_list_begin()
-	p.dispatch(_rd, cl, {"cell_size": CELL, "sun_dir": Vector3.ZERO}, cc, int(ceil(float(cc) / 64.0)))
+	# One acoustic crossing is ~3 ms at this cell size; the rig's step stays inside the explicit regime.
+	p.dispatch(_rd, cl, {"cell_size": CELL, "sun_dir": Vector3.ZERO, "dt_s": 1.0e-4},
+		cc, int(ceil(float(cc) / 64.0)))
 	_rd.compute_list_end()
 	_rd.submit()
 	_rd.sync()

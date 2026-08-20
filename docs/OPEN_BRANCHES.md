@@ -12,4 +12,3 @@ merge, or has not moved inside the age limit.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
-| `feature/momentum-advection` | 7 | Per-component pressure gradient, one writer per face, wall normal force, EOS pressure for open cells + lithostatic rock, PhotoStats deleted. RED: check_finite_channels and PRESSURE_BROKEN, both open-cell air. | item 1 lands and the atmosphere is resolved. |

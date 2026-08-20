@@ -8,9 +8,10 @@ layout(local_size_x = 64) in;
 #include "mixture_enthalpy.glsli"
 #include "cellvol.glsli"
 #include "matter_channels.glsli"
+#include "eos.glsli"
 
 layout(set = 0, binding = 21, std430) restrict readonly buffer Enthalpy { float h_j_m3[]; };
-layout(set = 0, binding = 22, std430) restrict readonly buffer Pressure { float pressure[]; };
+layout(set = 0, binding = 22, std430) restrict buffer Pressure { float pressure[]; };
 layout(set = 0, binding = 23, std430) restrict writeonly buffer Temp { float temp[]; };
 layout(set = 0, binding = 24, std430) restrict readonly buffer Props { float props[]; };
 
@@ -21,6 +22,13 @@ layout(set = 0, binding = 16, std430) restrict buffer Regolith { float regolith[
 layout(set = 0, binding = 17, std430) restrict buffer Grain { float grain[]; };
 // Cell centre, flat cell*3, model units. The centrifugal term needs the radius vector.
 layout(set = 0, binding = 18, std430) restrict readonly buffer Pos { float pos[]; };
+layout(set = 0, binding = 49, std430) restrict readonly buffer Grav { float g_field[]; };  // m/s^2, cell*3
+// The body impulse this step deposits per cell (weight + rotating frame), kg/(m^2 s): the ledger's book.
+layout(set = 0, binding = 50, std430) restrict writeonly buffer BodyFX { float bodyf_x[]; };
+layout(set = 0, binding = 51, std430) restrict writeonly buffer BodyFY { float bodyf_y[]; };
+layout(set = 0, binding = 52, std430) restrict writeonly buffer BodyFZ { float bodyf_z[]; };
+// The mixture's sound speed, m/s: Wood's one-pressure compressibility sum over the cell's own matter.
+layout(set = 0, binding = 53, std430) restrict writeonly buffer Celerity { float cel_m_s[]; };
 
 // MOMENTUM is the state, kg m/s per m^3. Velocity is what you read off it once you know the mass.
 layout(set = 0, binding = 25, std430) restrict buffer MomX { float mom_x[]; };
@@ -85,19 +93,23 @@ layout(push_constant, std430) uniform Params {
 	float org_min_pool_mol; // moles of dead organic carbon below which a cell's C:H:O is fp32 noise
 	float fresh_h_per_c;    // LASubstances.fresh_litter_per_carbon("H")
 	float fresh_o_per_c;    // LASubstances.fresh_litter_per_carbon("O")
+	float min_fill;         // TransportPass.MIN_AMOUNT: below this total fill a cell is EMPTY
 } params;
 
 const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
 const float SOLID_OUT = 0.4;   // LAPhysical.RHEOLOGICAL_MOBILE_CRYSTAL_FRAC
 
 // One row of `props` per channel, built from LASubstances by StateDerivePass. A channel amount is mol/m^3.
-const int PROP_STRIDE = 6;         // StateDerivePass.PROP_STRIDE
+const int PROP_STRIDE = 9;         // StateDerivePass.PROP_STRIDE
 const int PROP_M = 0;              // kg/mol
 const int PROP_C = 1;              // J/kg/K, sensible-heat entry only
 const int PROP_MOL_PER_KG = 2;     // mol/kg, non-condensable gases only
 const int PROP_ENTRY = 3;          // which mixture entry the substance belongs to
 const int PROP_LAMBDA = 4;         // W/m/K
 const int PROP_FULL = 5;           // mol/m^3 at which a cell is full — amount/full is its volume fraction
+const int PROP_ALPHA = 6;          // 1/K volumetric expansivity
+const int PROP_BULK = 7;           // Pa bulk modulus; 0 = declared incompressible
+const int PROP_TREF = 8;           // C the reference density is quoted at
 
 // Mixture entries. Two substances carry a phase ladder; everything else is linear in T, so one entry with
 // the summed mass and c = sum(m*c)/sum(m) reproduces sum(m_i*c_i*T) exactly.
@@ -214,9 +226,16 @@ void main() {
 
 	float mass[LA_MIX_MAX] = float[LA_MIX_MAX](0.0, 0.0, 0.0, 0.0);
 	float mc = 0.0;          // sum of m*c over the sensible-heat substances, J/K
+	float cp_gas = 0.0;      // sum of m*cp over the non-condensable gases, J/K: the mixture gamma's cp
 	float n_gas_mol = 0.0;   // moles of non-condensable gas: the Dalton denominator of the vapour split
 	float v_lambda = 0.0;    // volume-weighted conductivity, W/m/K
 	float v_used = 0.0;
+	// EOS sums: b* the unstressed condensed volume, c* its compressibility, h* the same for h2o alone.
+	float b0 = 0.0; float b1 = 0.0; float b2 = 0.0;
+	float c0 = 0.0; float c1 = 0.0; float c2 = 0.0;
+	float hb0 = 0.0; float hb1 = 0.0; float hb2 = 0.0;
+	float hc0 = 0.0; float hc1 = 0.0; float hc2 = 0.0;
+	float mol_h2o = 0.0;
 
 	for (int i = 0; i < LA_CHANNEL_SLOTS; ++i) {
 		float f = max(channel_at(i, g), 0.0);
@@ -234,6 +253,37 @@ void main() {
 		v_lambda += vf * props[base + PROP_LAMBDA];
 		v_used += vf;
 		n_gas_mol += m * props[base + PROP_MOL_PER_KG];
+		if (props[base + PROP_MOL_PER_KG] > 0.0) {
+			cp_gas += m * props[base + PROP_C];
+		}
+		// v0(T) is linear in T, so its mass sum splits into three T-independent pieces gathered here
+		// and combined once the solve has a temperature. h2o is kept apart: its vapour share is gas.
+		if (props[base + PROP_FULL] > 0.0 && props[base + PROP_MOL_PER_KG] <= 0.0) {
+			float al = props[base + PROP_ALPHA];
+			float tr = props[base + PROP_TREF];
+			float kk = props[base + PROP_BULK];
+			// The channel's unstressed condensed volume: its volume fraction of the cell, times the cell.
+			float w0 = vf * vol;
+			float w1 = w0 * al;
+			bool is_water = entry == E_H2O;
+			mol_h2o = is_water ? mol_h2o + f * vol : mol_h2o;
+			b0 += is_water ? 0.0 : w0;
+			b1 += is_water ? 0.0 : w1;
+			b2 += is_water ? 0.0 : w1 * tr;
+			hb0 += is_water ? w0 : 0.0;
+			hb1 += is_water ? w1 : 0.0;
+			hb2 += is_water ? w1 * tr : 0.0;
+			if (kk > 0.0) {
+				float q0 = w0 / kk;
+				float q1 = w1 / kk;
+				c0 += is_water ? 0.0 : q0;
+				c1 += is_water ? 0.0 : q1;
+				c2 += is_water ? 0.0 : q1 * tr;
+				hc0 += is_water ? q0 : 0.0;
+				hc1 += is_water ? q1 : 0.0;
+				hc2 += is_water ? q1 * tr : 0.0;
+			}
+		}
 	}
 
 	float total = mass[E_H2O] + mass[E_SILICATE] + mass[E_SENSIBLE];
@@ -244,8 +294,17 @@ void main() {
 	rho_bulk[g] = rho;
 	float f_melt = 0.0;
 	vec3 v = vec3(0.0);
-	if (total <= 0.0) {
+	// Below the donation floor the cell is EMPTY by the declared model: trace matter keeps its mass
+	// and enthalpy and holds no bulk state — a momentum residue over vanishing mass is any velocity.
+	if (v_used < params.min_fill) {
 		temp[g] = -LA_KELVIN_OFFSET;   // no matter, so no temperature
+		if (solid[g] == 0.0) {
+			pressure[g] = 0.0;
+		}
+		// Momentum is rho*v, so with no mass there is none to hold.
+		mom_x[g] = 0.0;
+		mom_y[g] = 0.0;
+		mom_z[g] = 0.0;
 		vel_x[g] = 0.0;
 		vel_y[g] = 0.0;
 		vel_z[g] = 0.0;
@@ -259,6 +318,10 @@ void main() {
 		h_silicate[g] = 0.0;
 		h_sensible[g] = 0.0;
 		cap_sensible[g] = 0.0;
+		bodyf_x[g] = 0.0;
+		bodyf_y[g] = 0.0;
+		bodyf_z[g] = 0.0;
+		cel_m_s[g] = 0.0;
 		lithify(g, f_melt);
 		return;   // no mass, so the frame terms deliver no momentum either
 	}
@@ -325,6 +388,42 @@ void main() {
 	h2o_vapour[g] = f_vapour;
 	liquid[g] = max(h2o[g], 0.0) * f_liquid;
 
+	// PRESSURE, off this cell's own matter and energy. The vapour share joins the gas term and what is
+	// left of the water is condensed. No column is walked, so there is no staircase to integrate along.
+	float f_cond = max(1.0 - f_vapour, 0.0);
+	float b_vol = (b0 + t_c * b1 - b2) + f_cond * (hb0 + t_c * hb1 - hb2);
+	float c_comp = (c0 + t_c * c1 - c2) + f_cond * (hc0 + t_c * hc1 - hc2);
+	float n_gas = n_gas_mol + f_vapour * mol_h2o;
+	float tk = max(t_c + LA_KELVIN_OFFSET, 1.0);
+	// Rock is quasi-static and PressurePass owns it; an open cell's pressure is its own state.
+	if (solid[g] == 0.0) {
+		pressure[g] = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD);
+	}
+
+	// THE MIXTURE'S SOUND SPEED (Wood 1930): one pressure, so compressibilities add by volume — the
+	// gas at gamma*p, each condensed phase at its bulk modulus, an undeclared modulus contributing
+	// none, exactly as in the EOS.
+	float cel = 0.0;
+	if (solid[g] == 0.0) {
+		float comp = c_comp;
+		float v_gas = max(vol - b_vol, 0.0);
+		bool defined = true;
+		if (v_gas > 0.0) {
+			float cp_tot = cp_gas + f_vapour * m_h2o * subs[E_H2O].c_gas;
+			float p_now = max(pressure[g], 0.0);
+			float cv_tot = cp_tot - n_gas * LA_R_J_MOL_K;
+			if (p_now > 0.0 && cp_tot > 0.0 && cv_tot > 0.0) {
+				comp += v_gas * cv_tot / (cp_tot * p_now);
+			} else {
+				defined = false;
+			}
+		}
+		if (defined && comp > 0.0) {
+			cel = sqrt(vol / (comp * rho));
+		}
+	}
+	cel_m_s[g] = cel;
+
 	// THE MELT SHARE OF THIS CELL'S SILICATE, off the SAME ladder. Rock has a melting INTERVAL, so the
 	// lever rule the enthalpy curve already integrates over reads back as a linear share of the interval —
 	// no plateau, no `pinned` branch, and the latent heat is what put t_c where it is.
@@ -340,13 +439,29 @@ void main() {
 
 	lithify(g, f_melt);
 
-	// ROTATING FRAME: Coriolis -2w x v and centrifugal -w x (w x r), per unit volume. The field's axes are
-	// body-local and the body spins. The density is this cell's whole mass, gas included.
-	if (w_len > 0.0) {
-		vec3 a = -2.0 * cross(omega, v) - cross(omega, cross(omega, r_vec));
-		vec3 dp = a * rho * params.dt_s;
-		mom_x[g] += dp.x;
-		mom_y[g] += dp.y;
-		mom_z[g] += dp.z;
+	// QUASI-STATIC ROCK: the lattice carries its weight (LA_APPROX quasi_static_solid_pressure), so
+	// locked matter holds no bulk momentum and a cell that unlocks starts from rest.
+	if (solid[g] != 0.0) {
+		mom_x[g] = 0.0;
+		mom_y[g] = 0.0;
+		mom_z[g] = 0.0;
+		vel_x[g] = 0.0;
+		vel_y[g] = 0.0;
+		vel_z[g] = 0.0;
+		speed[g] = 0.0;
+		bodyf_x[g] = 0.0;
+		bodyf_y[g] = 0.0;
+		bodyf_z[g] = 0.0;
+		return;
 	}
+	// BODY FORCES per volume: weight rho*g and the rotating-frame pair, computed and booked here;
+	// transport deposits them a substep at a time beside the pressure gradient they stand against.
+	vec3 acc = vec3(g_field[g * 3u], g_field[g * 3u + 1u], g_field[g * 3u + 2u]);
+	if (w_len > 0.0) {
+		acc += -2.0 * cross(omega, v) - cross(omega, cross(omega, r_vec));
+	}
+	vec3 dp = acc * rho * params.dt_s;
+	bodyf_x[g] = dp.x;
+	bodyf_y[g] = dp.y;
+	bodyf_z[g] = dp.z;
 }

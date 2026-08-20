@@ -404,6 +404,11 @@ func _seed_silicate() -> void:
 	for c in _cell_count:
 		_silicate[c] = full if _solid[c] != 0 else 0.0
 		_cement[c] = 1.0 if _solid[c] != 0 else 0.0
+	# Shape the CPU arrays BEFORE the driver's seed_field reads them, so the declared upload is the
+	# compressed rock and the shell atmosphere, not the flat fill.
+	LAFieldLithostaticSeed.compress(self)
+	LAFieldLithostaticSeed.clear_gas_in_rock(self)
+	LAFieldLithostaticSeed.shape_atmosphere(self, INITIAL_TEMP)
 
 
 func _seed_sea() -> void:
@@ -419,8 +424,8 @@ func _seed_sea() -> void:
 			continue
 		if (_grid.cell_world_pos(c) - pivot).length_squared() <= sea_sq:
 			_h2o[c] = MAX_MASS
+	LAFieldLithostaticSeed.displace_gas_from_water(self)
 
-const REGOLITH_CELLS: int = LAMaterialFieldRegolith3D.REGOLITH_CELLS
 # Athy pore fraction per cell (0 outside regolith), GPU-written and read back on the slow cadence.
 var _porosity: PackedFloat32Array = PackedFloat32Array()
 var _regolith: PackedByteArray = PackedByteArray()

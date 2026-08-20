@@ -113,6 +113,18 @@ if [ "${LA_SKIP_SHADER_CHECK:-0}" != "1" ]; then
       else
         stale=0
       fi
+      # The md5 covers the .glsl SOURCE only, so an edited include recompiles nothing and every kernel
+      # including it runs stale with a normal-looking report. No hash is recorded for includes; a sibling
+      # .glsli newer than the artifact is the only signal, and a false alarm costs one --import.
+      if [ "$stale" -eq 0 ] && [ -n "$newest" ]; then
+        for inc in "$(dirname "$src")"/*.glsli; do
+          [ -f "$inc" ] || continue
+          if [ "$inc" -nt "$newest" ]; then
+            stale=1
+            break
+          fi
+        done
+      fi
       if [ "$stale" -eq 1 ]; then
         stale_n=$((stale_n + 1))
         if [ "$stale_n" -le 8 ]; then stale_list="$stale_list

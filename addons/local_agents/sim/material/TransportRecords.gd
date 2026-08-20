@@ -14,7 +14,7 @@ enum Fluid { VACUUM, WATER, AIR }
 
 ## Per-row switches, packed into the kernel's `flags`. Matches the TF_* constants in transport.glsl.
 enum Flag { SIGNED = 1, SETTLE = 2, EFIELD = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32, LISTED = 64,
-	RADIOGENIC = 128, ENTHALPY = 256, LIST_HALO = 512, RELAX = 1024 }
+	RADIOGENIC = 128, ENTHALPY = 256, LIST_HALO = 512, RELAX = 1024, VEL = 2048 }
 
 
 ## `settle` adds the grain's terminal velocity to the advecting fluid; `frac` is the derived share moved.
@@ -30,9 +30,6 @@ static func rows() -> Array:
 		{"channel": "h2o", "substance": "h2o", "mode": POTENTIAL, "law": Law.DARCY,
 			"fluid": Fluid.WATER, "frac": "h2o_liquid"},
 
-		{"channel": "h2o", "substance": "h2o", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"frac": "h2o_vapour", "relax": true},
-
 		# One silicate channel, four laws. Cemented rock has no row: that is what being rock means.
 		# `list` dispatches this row over the compacted melt list — O(molten) rather than O(grid).
 		{"channel": "silicate", "substance": "silicate", "mode": POTENTIAL, "law": Law.FILM,
@@ -47,13 +44,6 @@ static func rows() -> Array:
 		{"channel": "silicate", "substance": "silicate", "mode": POTENTIAL, "law": Law.SHALLOW,
 			"repose_tan": LAPhysical.REPOSE_TAN_DRY_GRANULAR,
 			"frac": "silicate_bed", "dilute": true},
-
-		{"channel": "o2", "substance": "o2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"relax": true},
-		{"channel": "co2", "substance": "co2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"relax": true},
-		{"channel": "n2", "substance": "n2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"relax": true},
 
 		{"channel": "fungus", "substance": "cellulose", "mode": ADVECT, "fluid": Fluid.AIR,
 			"relax": true},
@@ -73,18 +63,35 @@ static func rows() -> Array:
 
 		{"channel": "h_j_m3", "substance": "", "mode": RADIATE},
 
-		{"channel": "mom_x", "substance": "", "mode": POTENTIAL, "law": Law.PGF,
+		# THE ACOUSTIC GROUP: compressible matter and its momentum advance together on the acoustic
+		# substep — a mass flux at frame cadence against a stiff equation of state has loop gain c dt/L.
+		{"channel": "h2o", "substance": "h2o", "mode": ADVECT, "fluid": Fluid.WATER,
+			"frac": "h2o_liquid", "acoustic": true},
+
+		{"channel": "h2o", "substance": "h2o", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"frac": "h2o_vapour", "relax": true, "acoustic": true},
+
+		{"channel": "o2", "substance": "o2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"relax": true, "acoustic": true},
+		{"channel": "co2", "substance": "co2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"relax": true, "acoustic": true},
+		{"channel": "n2", "substance": "n2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"relax": true, "acoustic": true},
+
+		# -grad(p) alone: bulk momentum advection EMERGES from the mass fluxes, each of which carries
+		# the donor's momentum share exactly as it carries heat and charge.
+		{"channel": "mom_x", "substance": "", "mode": POTENTIAL, "law": Law.PGF, "axis": 0,
 			"drive": "pressure", "signed": true},
-		{"channel": "mom_y", "substance": "", "mode": POTENTIAL, "law": Law.PGF,
+		{"channel": "mom_y", "substance": "", "mode": POTENTIAL, "law": Law.PGF, "axis": 1,
 			"drive": "pressure", "signed": true},
-		{"channel": "mom_z", "substance": "", "mode": POTENTIAL, "law": Law.PGF,
+		{"channel": "mom_z", "substance": "", "mode": POTENTIAL, "law": Law.PGF, "axis": 2,
 			"drive": "pressure", "signed": true},
 
-		{"channel": "mom_x", "substance": "", "mode": DIFFUSE, "law": Law.EDDY,
+		{"channel": "mom_x", "substance": "", "mode": DIFFUSE, "law": Law.EDDY, "axis": 0,
 			"fluid": Fluid.AIR, "signed": true, "relax": true},
-		{"channel": "mom_y", "substance": "", "mode": DIFFUSE, "law": Law.EDDY,
+		{"channel": "mom_y", "substance": "", "mode": DIFFUSE, "law": Law.EDDY, "axis": 1,
 			"fluid": Fluid.AIR, "signed": true, "relax": true},
-		{"channel": "mom_z", "substance": "", "mode": DIFFUSE, "law": Law.EDDY,
+		{"channel": "mom_z", "substance": "", "mode": DIFFUSE, "law": Law.EDDY, "axis": 2,
 			"fluid": Fluid.AIR, "signed": true, "relax": true},
 	]
 
@@ -99,6 +106,8 @@ static func lists() -> Array:
 		# STRIKE gives a bolt its position without anything walking the grid. No halo: a flash is where it
 		# struck. Built before the rows run, so the list carries the previous step's strikes.
 		{"label": "strike", "prim": "strike", "halo": false, "emit_idx": true},
+		# WHERE the non-finite conserved values sit, as indices: the finite gate's localizer.
+		{"label": "nonfinite", "prim": "nonfinite", "halo": false, "emit_idx": true},
 	]
 
 

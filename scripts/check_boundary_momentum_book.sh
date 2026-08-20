@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # MOMENTUM CROSSING AN OPEN BOUNDARY IS BOOKED, judged by the REAL evaluator: TransportPass dispatching
-# transport.glsl over a two-cell rig with one CONSTANT face from the real LAFieldBoundary3D. A pressure
-# gap books a nonzero signed bnd_mom and matter (bnd_n2) beside it; a balanced face and shut walls book
-# exactly zero; LABoundaryBooks promises no heat leg for a signed channel and still names a matter
-# channel's absent one. Arm two reads the seeded world's own momentum_book_bnd, all walls shut.
+# transport.glsl over a two-cell rig with one CONSTANT face from the real LAFieldBoundary3D. The PGF is a
+# face FLUX (p n dt/L crosses every face, cancelling pairwise inside) and bnd_mom_* books the whole
+# exchange with everything outside the fluid, walls included: a balanced box books net zero while its
+# cells' momentum stays exactly zero; a gap books a net inflow and accelerates the edge cell inward.
+# LABoundaryBooks promises no heat leg for a signed channel and still names a matter channel's absent one.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -90,7 +91,8 @@ func _run(p_ghost: float) -> Dictionary:
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible"]:
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "speed",
+			"bodyf_x", "bodyf_y", "bodyf_z"]:
 		bufs[name] = _f32(_filled(tc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(tc * 3, 0.0), owned)
 	bufs["nbr"] = _i32(grid.neighbours, owned)
@@ -112,7 +114,12 @@ func _run(p_ghost: float) -> Dictionary:
 		owned.append(r)
 		bufs[String(key)] = r
 
-	for pair: Array in [["pressure", P_IN], ["temp", T_C]]:
+	# Air of that pressure holds this mass and this sound speed: a cell at P with zero density, or with
+	# no celerity, is not a state matter has.
+	var rho_air: float = P_IN / (LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * (T_C + LAPhysical.KELVIN_OFFSET))
+	var c_air: float = sqrt(LAPhysical.AIR_ADIABATIC_INDEX * LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK
+		* (T_C + LAPhysical.KELVIN_OFFSET))
+	for pair: Array in [["pressure", P_IN], ["temp", T_C], ["rho_bulk", rho_air], ["celerity", c_air]]:
 		var vals: PackedByteArray = _filled(tc, float(pair[1])).to_byte_array()
 		_rd.buffer_update(bufs[String(pair[0])], 0, vals.size(), vals)
 
@@ -125,13 +132,16 @@ func _run(p_ghost: float) -> Dictionary:
 		if bnd.error != "":
 			_expect(false, "boundary attach failed: " + bnd.error)
 	var cl: int = _rd.compute_list_begin()
-	p.dispatch(_rd, cl, {"cell_size": CELL, "sun_dir": Vector3.ZERO}, cc, int(ceil(float(cc) / 64.0)))
+	# One acoustic crossing is ~3 ms at this cell size; the rig's step stays inside the explicit regime.
+	p.dispatch(_rd, cl, {"cell_size": CELL, "sun_dir": Vector3.ZERO, "dt_s": 1.0e-4},
+		cc, int(ceil(float(cc) / 64.0)))
 	_rd.compute_list_end()
 	_rd.submit()
 	_rd.sync()
 	var out: Dictionary = {}
 	for key in ["bnd_mom_x", "bnd_mom_y", "bnd_mom_z", "bnd_n2"]:
 		out[key] = _rd.buffer_get_data(bufs[String(key)]).to_float32_array()
+	out["mom_x"] = _rd.buffer_get_data(bufs["mom_x"]).to_float32_array()
 	p.dispose(_rd)
 	for r in owned:
 		if r.is_valid():
@@ -164,13 +174,22 @@ func _init() -> void:
 	var gap_x: float = float(gap["bnd_mom_x"][0])
 	_expect(gap_x > 0.0, "a higher exterior pressure pushed momentum in through the open face and the "
 		+ "edge cell booked none (bnd_mom_x %s)." % String.num_scientific(gap_x))
-	_expect(float(gap["bnd_mom_x"][1]) == 0.0, "the interior cell touches no open face and booked "
-		+ "momentum anyway.")
+	_expect(float(gap["mom_x"][0]) > 0.0, "a higher exterior pressure did not accelerate the edge "
+		+ "cell inward (mom_x %s)." % String.num_scientific(float(gap["mom_x"][0])))
+	_expect(float(gap["bnd_mom_x"][1]) < 0.0, "the far cell's wall took the fluid's push and booked "
+		+ "none of it.")
 	_expect(_sum(gap["bnd_n2"]) > 0.0, "exterior air diffused in through the open face and bnd_n2 "
 		+ "booked none.")
-	for key in ["bnd_mom_x", "bnd_mom_y", "bnd_mom_z"]:
-		_expect(_sum(balanced[key]) == 0.0, "a balanced face moved no momentum yet %s reads %s."
+	# The open face's static flux and the far wall's push cancel exactly: no net momentum enters.
+	_expect(_sum(balanced["bnd_mom_x"]) == 0.0, "a balanced box exchanged net momentum: bnd_mom_x "
+		+ "reads %s." % String.num_scientific(_sum(balanced["bnd_mom_x"])))
+	for c in 2:
+		_expect(float(balanced["mom_x"][c]) == 0.0, "uniform pressure accelerated cell %d "
+			% c + "(mom_x %s)." % String.num_scientific(float(balanced["mom_x"][c])))
+	for key in ["bnd_mom_y", "bnd_mom_z"]:
+		_expect(_sum(balanced[key]) == 0.0, "no y/z face is open yet %s reads %s."
 			% [key, String.num_scientific(_sum(balanced[key]))])
+	for key in ["bnd_mom_x", "bnd_mom_y", "bnd_mom_z"]:
 		_expect(_sum(shut[key]) == 0.0, "every wall is shut yet %s reads %s."
 			% [key, String.num_scientific(_sum(shut[key]))])
 
@@ -219,8 +238,10 @@ if [ "$rc" -ne 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------------------------------
-# ARM TWO — the world the SIM seeds. Every wall is shut there, so the momentum ledger's boundary book
-# must read exactly zero on every axis; an absent reading is the fold unwired, not a zero.
+# ARM TWO — the world the SIM seeds. bnd_mom_* books the whole exchange with everything outside the
+# fluid, WALLS INCLUDED (the ground's normal force holds the ocean up), so the book is not zero there;
+# the rig's shut sub-arm above owns the exact-zero case. Here the fold must be PRESENT and FINITE —
+# an absent reading is the fold unwired, a non-finite one is the ledger poisoned.
 # ---------------------------------------------------------------------------------------------------
 SIM_FRAMES="${LA_BND_MOM_FRAMES:-20}"
 sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "$SIM_FRAMES" \
@@ -234,12 +255,9 @@ if [ -z "$reading" ] || printf '%s' "$reading" | grep -q '<ABSENT>'; then
   printf '%s\n' "$sim_out" | tail -20 >&2
   exit 2
 fi
-nonzero="$(printf '%s' "$reading" | tr -d '[] ' | tr ',' '\n' \
-  | grep -Evc '^(-?0(\.0+)?|0)$' || true)"
-if [ "${nonzero:-0}" -ne 0 ]; then
+if printf '%s' "$reading" | grep -qiE 'nan|inf|null|None'; then
   echo
-  echo "Every wall of the seeded world is shut, yet its momentum boundary book reads $reading —"
-  echo "momentum is being booked across a boundary that does not exist."
+  echo "The seeded world's momentum boundary book reads $reading — the fold is poisoned."
   exit 1
 fi
 echo "check_boundary_momentum_book: OK"

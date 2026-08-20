@@ -14,12 +14,11 @@ quarters of the field's frame cost and dispatch at a few percent, so a dispatch 
 ---
 ## 1a. EVERY COLUMN MARCH IS A PREFIX SUM. THIS IS THE LARGEST EXACT WIN AVAILABLE.
 
-Three separate places march a line of cells per cell, each up to `MARCH_HOPS` hops: `column_field()` for the
-charge column, `longwave_incident()` for radiative transfer (and it runs per FACE, so six times), and
-`pressure.glsl`'s per-cell column integral.
+Two separate places march a line of cells per cell, each up to `MARCH_HOPS` hops: `column_field()` for the
+charge column, and `longwave_incident()` for radiative transfer, which runs per FACE, so six times.
 
-Every one of them satisfies a recurrence — a cell's integral is its own term plus its neighbour's — so ONE
-sweep along each line computes them all. **O(cells x depth) becomes O(cells), and the answer is identical.**
+Both satisfy a recurrence — a cell's integral is its own term plus its neighbour's — so ONE sweep along
+each line computes them all. **O(cells x depth) becomes O(cells), and the answer is identical.**
 No approximation, no physics decision, no new constant. Do this before any of the constant-factor items
 below it.
 
@@ -109,9 +108,6 @@ sure the predicate covers every cell where a `TF_DILUTE` or `TF_STAMP` gather wr
   exactly equivalent, not an approximation.
 - **`root_soil()`** re-walks its 4-cell column once per record naming `SOIL_ROOT` and again inside
   `root_soil_draw`. It is a march, so it is item 1a's shape at a small depth.
-
-`pressure.glsl`'s per-cell column integral moved to item 1a, which is the same idea stated once for all
-three marches rather than three times.
 
 
 ## 2e. Nothing sleeps, and nothing wakes its neighbour

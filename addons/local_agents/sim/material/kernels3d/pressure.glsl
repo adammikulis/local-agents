@@ -1,25 +1,27 @@
 #[compute]
 #version 450
 
-// p = p_top + the weight per unit area of everything standing above the cell.
-// One thread per cell marching UP its own local vertical, so every cell is written exactly once.
+// LITHOSTATIC PRESSURE, SOLID CELLS ONLY: the weight per unit area standing over the cell. An open
+// cell's pressure is state_derive.glsl's; touching one here makes two writers disagree about it.
+// LA_APPROX: quasi_static_solid_pressure
 
 #include "neighbours.glsli"
 
 layout(local_size_x = 64) in;
 
-layout(set = 0, binding = 0, std430) restrict writeonly buffer Pressure { float pressure[]; };
+layout(set = 0, binding = 0, std430) restrict buffer Pressure { float pressure[]; };
 layout(set = 0, binding = 1, std430) restrict readonly buffer RhoBulk { float rho_bulk[]; };
-layout(set = 0, binding = 2, std430) restrict readonly buffer Neigh { int nbr[]; };
-#include "march.glsli"
+layout(set = 0, binding = 2, std430) restrict readonly buffer Solid { float solid[]; };
 // Solved gravity, flat cell*3, m/s^2.
 layout(set = 0, binding = 3, std430) restrict readonly buffer Grav { float g_field[]; };
+// GravityPass's one vertical relation; marching it is what makes the column monotone.
+layout(set = 0, binding = 4, std430) restrict readonly buffer VertUp { int vert_up[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	float cell_m;
 	float p_top;      // pressure above the outermost cell: vacuum unless something stands there
-	uint max_steps;   // walk bound; a column cannot be longer than the grid's longest span
+	uint max_steps;   // walk bound: a staircase takes at most one step per cell on each axis
 } params;
 
 vec3 g_at(uint c) {
@@ -38,24 +40,15 @@ bool la_up(uint c, out vec3 up, out float gmag) {
 	return true;
 }
 
-// Weight per unit area of the matter in `c`, Pa: rho * g * the vertical chord through the cell.
+// Weight per unit area of the matter in `c`, Pa: dp/dz = rho g over the step's projection on the vertical.
 float la_load(uint c) {
 	vec3 up;
 	float gmag;
 	if (!la_up(c, up, gmag)) {
 		return 0.0;
 	}
-	return rho_bulk[c] * gmag * la_step_len(up, params.cell_m);
-}
-
-// The cell one step up from `c` along its own local vertical; -1 leaves the box.
-int la_above(uint c) {
-	vec3 up;
-	float gmag;
-	if (!la_up(c, up, gmag)) {
-		return -1;
-	}
-	return la_step(c, up);
+	float m = max(max(abs(up.x), abs(up.y)), abs(up.z));
+	return rho_bulk[c] * gmag * params.cell_m * m;
 }
 
 void main() {
@@ -63,12 +56,22 @@ void main() {
 	if (g >= params.cell_count) {
 		return;
 	}
+	// Rock only. state_derive.glsl owns every open cell.
+	if (solid[g] == 0.0) {
+		return;
+	}
 	// Half this cell's own load: the integral evaluated at the cell centre.
 	float acc = 0.5 * la_load(g);
-	int a = la_above(g);
+	float top = params.p_top;
+	int a = vert_up[g];
 	for (uint i = 0u; i < params.max_steps && a >= 0; ++i) {
+		// Rock stands under whatever fluid is on it: the first open cell ends the march at its pressure.
+		if (solid[uint(a)] == 0.0) {
+			top = pressure[uint(a)];
+			break;
+		}
 		acc += la_load(uint(a));
-		a = la_above(uint(a));
+		a = vert_up[uint(a)];
 	}
-	pressure[g] = params.p_top + acc;
+	pressure[g] = top + acc;
 }

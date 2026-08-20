@@ -113,10 +113,15 @@ func _open_temp_stats() -> Dictionary:
 	var q: LAMaterialFieldQueries3D = _f._queries
 	var n: int = q.open_cells()
 	var sum = q.row_v("open_temp_sum", false)
+	var gn = q.row_v("ground_cells", true)
+	var gsum = q.row_v("temp_ground_sum", false)
 	return {"temp_min": q.row_v("open_temp_min", false), "temp_max": q.row_v("open_temp_max", false),
 		"temp_open": n,
 		"temp_mean": (float(sum) / float(n)) if n > 0 and sum != null else null,
-		"temp_all_max": q.row_v("all_temp_max", false)}
+		"temp_all_max": q.row_v("all_temp_max", false),
+		"temp_ground_cells": gn,
+		"temp_ground_mean": (float(gsum) / float(int(gn))) \
+			if gn != null and int(gn) > 0 and gsum != null else null}
 
 
 func report() -> Dictionary:

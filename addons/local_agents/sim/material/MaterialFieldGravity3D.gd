@@ -8,8 +8,8 @@ extends RefCounted
 const PASS_FILE: String = "GravityPass.gd"
 
 ## Residual, as a fraction of its own source, the seeding solve relaxes to. docs/MODEL_PARAMETERS.md.
-const SEED_RESIDUAL_TOLERANCE: float = 1.0e-3
-const SEED_DISPATCH_CAP: int = 512
+const SEED_RESIDUAL_TOLERANCE: float = 1.0e-4
+const SEED_DISPATCH_CAP: int = 2048
 
 var _f = null
 var _pass = null
@@ -85,6 +85,23 @@ func _bind() -> void:
 			_pass = p
 			return
 
+
+
+## The drained gravity mirror, flat cell*3, m/s^2. Empty before the first drain.
+func mirror() -> PackedFloat32Array:
+	_bind()
+	return _pass.mirror() if _pass != null else PackedFloat32Array()
+
+
+## The solved vertical relation: cell -> the neighbour above it, and its inverse. Empty before the drain.
+func up_table() -> PackedInt32Array:
+	_bind()
+	return _pass.up_table() if _pass != null else PackedInt32Array()
+
+
+func down_table() -> PackedInt32Array:
+	_bind()
+	return _pass.down_table() if _pass != null else PackedInt32Array()
 
 
 ## Mean |g| over the cells where gravity does not vanish, m/s^2. Reduced on the device.

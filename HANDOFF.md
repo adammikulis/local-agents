@@ -14,21 +14,27 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 0. MOMENTUM RUNS AWAY TO NON-FINITE. THE SLICE IS THE TEST DOMAIN.
+## 1. The REPLAY rim's momentum nudge is unverified
 
-Same lane, second symptom: **identical-seed runs diverge on a clean tree.** Reproduce:
-`scripts/agent_harness.sh sim --frames 5 --report h2o_total` twice and diff — one key differs at 5
-frames and the whole report by 20. Transport, gravity, pressure and the reduce fold are
-order-independent by construction.
+The slice runs (`scripts/sim_run.sh --slice`; record a global run's exterior with `--slice-capture FILE`,
+consume it with `--slice --slice-state FILE`, series-feed with `LA_SLICE_REPLAY=1`). The mom rows are
+marked `relax` in `TransportRecords` and momentum's boundary book exists (`BoundaryRows.BOOKED_SIGNED`):
+verify the rim's nudge lands in `bnd_mom_*` on the REPLAY arm.
 
-**Reproduce:** `LA_FINITE_FRAMES=20 scripts/check_finite_channels.sh` on `feature/momentum-advection`.
-`nonfinite_cells` counts three per affected cell — `mom_x`/`mom_y`/`mom_z` and nothing else.
+## 0. IDENTICAL-SEED RUNS DIVERGE, AND PRESSURE_BROKEN STILL EXITS 122
 
-`scripts/sim_run.sh --frames 10` also exits 122 with `PRESSURE_BROKEN`, whose counters read 0 for
-rock-on-rock and 0 for open-standing-on-rock; the remainder are open-on-open.
+**Reproduce the divergence:** `scripts/agent_harness.sh sim --frames 5 --report h2o_total` twice and
+diff — `h2o_total` differs in the ninth digit and `pressure_audited` by a few cells, with the field
+finite throughout (`check_finite_channels` in `lint` holds it so).
 
-The gate is mutation-tested three ways and is **NOT wired into `lint`**. Wire it the moment it passes.
-`feature/momentum-advection` carries the work, declared in `docs/OPEN_BRANCHES.md`.
+**Reproduce the inversions:** `scripts/sim_run.sh --frames 10` exits 122 with `PRESSURE_BROKEN`, the
+DRY open-pair class carrying nearly the whole count and wet/rock/surface near zero.
+
+**The 2.5 km slice still reaches non-finite momentum past ~10 frames** while the default box stays
+finite: `scripts/agent_harness.sh sim --slice --slice-box "0,2439700,0,24,32,24,2500" --frames 20 --report nonfinite_cells`.
+The cells flanking the wrap seam accumulate multiple fills of h2o first, and `celerity_max` leaves the
+physical range before the momentum does. `LA_PASS_PROBE=nonfinite LA_PASS_PROBE_STEPS=12` prints each
+pass's peak-cell state and per-channel non-finite counts.
 
 ## 2. The open-boundary books do not close at run level, and a capture's six faces read identical
 
@@ -95,19 +101,6 @@ is unheld is narrower: that one index names the same BUFFER on both sides. Build
 stanzas. Mutation-test it both ways. Delete the claim below with this item.
 
 <!-- claim: nofile addons/local_agents/sim/material/Bindings.gd -->
-
-## 12. `LAFieldGeometry.above` and `below` are not inverses, and `PRESSURE_BROKEN` still fires on it
-
-`slot_toward` snaps the local vertical to one of six axes, so across the diagonal where the snap flips,
-`above(below(c)) != c`. The pressure column, `air_above`, `ground` and `burial_steps` all march that
-relation, and no column integral can be monotone along a `below` step its own `above` step does not undo.
-One vertical relation, built once and inverse by construction, is what removes it.
-
-**A RADIAL COORDINATE SYSTEM IS NOT THE ANSWER. This is the maintainer's DECISION, not a law.** It has been
-tried twice: the cubed-sphere shell was replaced by the uniform Cartesian box on purpose, and a
-true-radial-ray traversal built to remove this very snap measured WORSE, because with no structural relation
-to the grid's own vertical step, ray divergence across a density contrast dominates. Fix the relation on the
-Cartesian grid.
 
 ---
 

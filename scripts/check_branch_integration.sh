@@ -51,7 +51,10 @@ fi
 # TABLE ROWS ONLY. Scraping every backticked token put CLAUDE.md and scripts/*.sh in the same set as branch
 # names, so check 3 could not tell a deleted branch from a filename and never fired.
 declared="$(grep -oE '^\| `[A-Za-z0-9._/-]+`' "$REGISTRY" | tr -d '`|' | tr -d ' ' | sort -u)"
-[ -n "$declared" ] || { echo "check_branch_integration: $REGISTRY names no branches." >&2; exit 2; }
+# The format control is the table HEADER: zero rows is a real reading (no open branches), while a
+# registry whose format drifted is the state this refuses to score.
+grep -qE '^\| Branch \| Ahead \|' "$REGISTRY" \
+  || { echo "check_branch_integration: $REGISTRY carries no branch table." >&2; exit 2; }
 
 now="$(git -C "$ROOT" log -1 --format=%ct "$DEV")"
 seen=""

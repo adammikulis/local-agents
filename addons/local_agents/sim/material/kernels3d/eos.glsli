@@ -1,0 +1,32 @@
+// One cell, one pressure: V = N R T / p + sum m v0(T)(1 - (p - p_std)/K) is the quadratic
+//     C p^2 + (V - B - C p_std) p - A = 0,  A = N R T, B = sum m v0(T), C = sum m v0(T)/K,
+// closed form and O(1) per cell. No bulk modulus = incompressible: adds to B and nothing to C.
+#ifndef LA_EOS_GLSLI
+#define LA_EOS_GLSLI
+
+float la_eos_p(float vol, float a_gas_rt, float b_vol, float c_comp, float p_std) {
+	if (vol <= 0.0) {
+		return 0.0;
+	}
+	// Nothing compressible: the gas fills what the condensed phases leave.
+	if (c_comp <= 0.0) {
+		float room = vol - b_vol;
+		return room > 0.0 ? a_gas_rt / room : 0.0;
+	}
+	// No gas: the condensed phases alone are squeezed into the cell. A cell they underfill holds them
+	// beside void at zero stress — liquid under tension cavitates rather than stretching to fill.
+	if (a_gas_rt <= 0.0) {
+		float squeezed = p_std + (b_vol - vol) / c_comp;
+		return squeezed > 0.0 ? squeezed : 0.0;
+	}
+	float k = vol - b_vol - c_comp * p_std;
+	float disc = sqrt(k * k + 4.0 * c_comp * a_gas_rt);
+	// Stable root of the same quadratic: for k > 0, (disc - k)/(2C) cancels catastrophically as C -> 0
+	// and one ulp over 2C is an arbitrary pressure; 2A/(k + disc) is algebraically identical, sums
+	// positives, and limits exactly to the ideal-gas A/k.
+	if (k > 0.0) {
+		return 2.0 * a_gas_rt / (k + disc);
+	}
+	return (disc - k) / (2.0 * c_comp);
+}
+#endif

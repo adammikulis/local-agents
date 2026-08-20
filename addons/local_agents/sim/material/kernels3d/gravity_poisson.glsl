@@ -12,6 +12,7 @@ layout(local_size_x = 64) in;
 // kg/mol per channel: amounts are mol/m^3, so amount times this is kg/m^3. The mass every other pass weighs.
 layout(set = 0, binding = 14, std430) restrict readonly buffer Props { float mol_mass[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
+#include "march.glsli"
 layout(set = 0, binding = 16, std430) restrict readonly buffer Pos { float pos[]; };
 // bit 0 = the cell touches the outside of the box, bit 1 = its red-black colour.
 layout(set = 0, binding = 17, std430) restrict buffer Flags { uint cellflag[]; };
@@ -21,6 +22,9 @@ layout(set = 0, binding = 20, std430) restrict buffer Grav { float g_field[]; };
 // 0 total mass kg · 1..3 centre of mass · 4 mean |g| · 5 residual over its source · 6 Gauss ratio
 layout(set = 0, binding = 21, std430) restrict buffer Moments { float moments[]; };
 layout(set = 0, binding = 22, std430) restrict buffer Partials { float partials[]; };
+// The one vertical relation. vert_down is the scattered inverse of vert_up; an unset entry means no cell below.
+layout(set = 0, binding = 23, std430) restrict buffer VertUp { int vert_up[]; };
+layout(set = 0, binding = 24, std430) restrict buffer VertDown { uint vert_down[]; };
 
 const uint MODE_FLAGS = 0u;
 const uint MODE_DENSITY = 1u;
@@ -31,11 +35,13 @@ const uint MODE_GRADIENT = 5u;
 const uint MODE_RESIDUAL = 6u;
 const uint MODE_FIELD_STATS = 7u;
 const uint MODE_MONOPOLE = 8u;
+const uint MODE_VERT_UP = 9u;
+const uint MODE_VERT_DOWN = 10u;
 
 const uint FLAG_BOUNDARY = 1u;
 const uint FLAG_COLOUR = 2u;
 
-const uint PART_STRIDE = 9u;     // GravityPass.PART_STRIDE
+const uint PART_STRIDE = 10u;    // GravityPass.PART_STRIDE
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -194,6 +200,7 @@ void mode_relax(uint c) {
 void mode_gradient(uint gidx, bool live) {
 	float mag = 0.0;
 	float outflux = 0.0;
+	float m_in = 0.0;
 	if (live) {
 		float h = params.cell_m;
 		vec3 g = -vec3(
@@ -204,22 +211,29 @@ void mode_gradient(uint gidx, bool live) {
 		g_field[gidx * 3u + 1u] = g.y;
 		g_field[gidx * 3u + 2u] = g.z;
 		mag = length(g);
-		// GAUSS'S LAW. A face with no neighbour is on the box surface; the outward normal of slot d is
-		// +axis for the odd slot and -axis for the even one, and the box encloses every gram of mass.
-		for (uint d = 0u; d < N_SLOTS; ++d) {
-			if (nbr[gidx * N_SLOTS + d] < 0) {
-				outflux += ((d & 1u) != 0u ? g[d >> 1u] : -g[d >> 1u]) * h * h;
+		// GAUSS'S LAW ON THE SOLVER'S OWN SURFACE: summing the interior stencil equations telescopes to
+		// the one-sided flux through the interface with the Dirichlet ring, equal to -4 pi G times the
+		// mass the solve relaxed — an identity at convergence, so the ratio audits the solve itself.
+		if ((cellflag[gidx] & FLAG_BOUNDARY) == 0u) {
+			m_in = density[gidx] * h * h * h;
+			for (uint d = 0u; d < N_SLOTS; ++d) {
+				int nb2 = nbr[gidx * N_SLOTS + d];
+				if (nb2 >= 0 && (cellflag[uint(nb2)] & FLAG_BOUNDARY) != 0u) {
+					outflux += -(phi[uint(nb2)] - phi[gidx]) * h;
+				}
 			}
 		}
 	}
 	float acc = wg_sum(mag);
 	float hits = wg_sum(mag > 0.0 ? 1.0 : 0.0);
 	float flux = wg_sum(outflux);
+	float mass_in = wg_sum(m_in);
 	if (gl_LocalInvocationID.x == 0u) {
 		uint b = gl_WorkGroupID.x * PART_STRIDE;
 		partials[b + 4u] = acc;
 		partials[b + 5u] = hits;
 		partials[b + 8u] = flux;
+		partials[b + 9u] = mass_in;
 	}
 }
 
@@ -279,6 +293,7 @@ void mode_field_stats() {
 	float worst = 0.0;
 	float src = 0.0;
 	float flux = 0.0;
+	float m_in = 0.0;
 	for (uint g = t; g < params.groups; g += 64u) {
 		uint b = g * PART_STRIDE;
 		acc += partials[b + 4u];
@@ -286,19 +301,38 @@ void mode_field_stats() {
 		worst = max(worst, partials[b + 6u]);
 		src = max(src, partials[b + 7u]);
 		flux += partials[b + 8u];
+		m_in += partials[b + 9u];
 	}
 	float sum_g = wg_sum(acc);
 	float n = wg_sum(hits);
 	float max_r = wg_max(worst);
 	float max_src = wg_max(src);
 	float sum_flux = wg_sum(flux);
+	float mass_in = wg_sum(m_in);
 	if (t == 0u) {
 		moments[4] = n > 0.0 ? sum_g / n : 0.0;
 		moments[5] = max_src > 0.0 ? max_r / max_src : 0.0;
-		// Flux out of the box over the -4 pi G M the law says it equals: 1 when g points at the mass,
-		// -1 when it points away from it.
-		float want = -4.0 * acos(-1.0) * params.g_si * moments[0];
+		// Interface flux over the -4 pi G M of the relaxed interior: 1 when the solve satisfies its own
+		// discrete law, -1 when g points away from the mass.
+		float want = -4.0 * acos(-1.0) * params.g_si * mass_in;
 		moments[6] = want != 0.0 ? sum_flux / want : 0.0;
+	}
+}
+
+// The neighbour one step against gravity, snapped to the axis the local vertical lies nearest.
+void mode_vert_up(uint gidx) {
+	vec3 g = vec3(g_field[gidx * 3u], g_field[gidx * 3u + 1u], g_field[gidx * 3u + 2u]);
+	float mag = length(g);
+	vert_up[gidx] = (mag > 0.0) ? la_step(gidx, -g / mag) : -1;
+	vert_down[gidx] = 0xFFFFFFFFu;
+}
+
+// Invert it by scatter: the lowest-indexed cell naming `u` as its up becomes `u`'s below, so a march up
+// and back down returns to where it started. atomicMin makes the choice deterministic.
+void mode_vert_down(uint gidx) {
+	int u = vert_up[gidx];
+	if (u >= 0) {
+		atomicMin(vert_down[uint(u)], gidx);
 	}
 }
 
@@ -306,6 +340,12 @@ void main() {
 	uint gidx = gl_GlobalInvocationID.x;
 	bool live = gidx < params.cell_count;
 	switch (params.mode) {
+		case MODE_VERT_UP:
+			if (live) { mode_vert_up(gidx); }
+			return;
+		case MODE_VERT_DOWN:
+			if (live) { mode_vert_down(gidx); }
+			return;
 		case MODE_FLAGS:
 			if (live) { mode_flags(gidx); }
 			return;

@@ -202,7 +202,7 @@ the planet conserve anything — it makes the failure legible.
   saturation over ice, grain size for airborne phases, …).
 - **4 = 1.** `heat3d_cool_sphere3d.glsl` is provably a 100 °C thermostat; most reaction rates are fitted
   per-step fractions; `params.dt` is uploaded to the reaction kernel and never read.
-- **5 = 1.** The manifest's `temp_ground_p50` is exactly `INITIAL_TEMP`.
+- **5 = 1.** The manifest's `temp_ground_mean` is exactly `INITIAL_TEMP`.
 - **6 = 2.** Per-pass probes exist for energy and mineral only. Demerit noted:
   `check_physical_constants.sh` reports green across three mutually inconsistent representations of the
   latent-heat curve, because it binds the kernel to whichever one it happens to match.
