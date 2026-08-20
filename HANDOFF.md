@@ -14,12 +14,12 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 1. The REPLAY rim's momentum nudge is unverified
+## 1. Nothing holds the REPLAY rim's momentum nudge
 
-The slice runs (`scripts/sim_run.sh --slice`; record a global run's exterior with `--slice-capture FILE`,
-consume it with `--slice --slice-state FILE`, series-feed with `LA_SLICE_REPLAY=1`). The mom rows are
-marked `relax` in `TransportRecords` and momentum's boundary book exists (`BoundaryRows.BOOKED_SIGNED`):
-verify the rim's nudge lands in `bnd_mom_*` on the REPLAY arm.
+`scripts/check_boundary_momentum_book.sh` names no rim and no `relax` row, so the mom rows' nudge toward
+a REPLAY face's driving state can stop being booked and every gate stays green. Give it an arm on the
+REPLAY path (`scripts/sim_run.sh --slice --slice-state FILE` with `LA_SLICE_REPLAY=1`), asserting the
+per-cell nudge reaches `bnd_mom_*`, and mutation-test it both ways.
 
 ## 0. IDENTICAL-SEED RUNS DIVERGE, AND PRESSURE_BROKEN STILL EXITS 122
 
@@ -49,6 +49,7 @@ the kernel's per-dispatch booking closed on the same capture, so the work is beh
   few coarse global cells.
 - `MaterialFieldMomentumLedger3D` accumulates its `_cum_*` books only across report samples, and a
   measurement run reports once, so `momentum_book_bnd` cannot fold in that mode.
+
 ## 6. The h2o book does not close on a shut box
 
 With every wall shut, `scripts/agent_harness.sh sim --frames 20` ends with `h2o_total` below its sealed
@@ -59,7 +60,7 @@ baseline while the element and mineral books close. Same symptom on the pre-conv
 `ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and the report sweeps
 already use it. Left:
 
-- `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`.
+- `FieldPressureAudit3D` still walks the grid on the CPU to count inversions.
 - `clim_alt_min` (per-altitude-band minima above the sea shell) needs `sea_radius` on the device: a static
   row cannot carry an instance value, so give `MaterialSphereGPU3D._ctx` a setter like `set_sun_dir` and
   let `state_derive.glsl` write `alt` relative to the shell; the open-air `air_grad_*` rows measure the
@@ -73,10 +74,6 @@ already use it. Left:
 The ops are BUILT — `Mask.GROUND`/`Mask.AIR`, `Op.COUNT_LT`, `enum Nbr` (below, above, six-face gradient)
 and the derived `speed`/`lat`/`alt` channels — so a sweep converts without adding machinery, and every
 latitude and altitude band is an ordinary row on the existing `gate_lo`/`gate_hi`.
-
-Free today, no new op: `momentum_vec` is three `SUM` rows on `vel_*` with `aux: "air"`, weighted, OPEN;
-`momentum_mass_kg` is one. **Coriolis then costs nothing** — it is linear in v, so it is
-`spin × momentum_vec × -2Ω` on the CPU, and the per-cell accumulation is pure waste.
 
 ## 5. Move what the device cannot take into the GDExtension
 
