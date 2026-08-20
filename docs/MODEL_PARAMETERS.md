@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 315**   <!-- the grid's slot and face tags went with it; SimWorld's ten terrain lengths were
+**MAX_DECLARED: 291**   <!-- the grid's slot and face tags went with it; SimWorld's ten terrain lengths were
 inline literals scaled by a Node3D transform and are now named metre constants the registry can see. -->
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
@@ -96,7 +96,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_SUBTRACT` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MULTIPLY` | 7 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_ABS` | 11 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `TUBE_MELT_NEAR_ZERO` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MIN` | 16 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MAX` | 17 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_SDF_SPHERE` | 32 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -164,7 +163,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/actors/Meteor.gd` | `ENTRY_HEAT_GAIN` | 4.23e-6 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `RADIATIVE_COOL` | 0.55 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `MAX_SURFACE_TEMP_C` | 3000.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Meteor.gd` | `AIR_REFERENCE_O2` | 0.21 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `FX_LINGER` | 1.8 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `MIN_CRATER_CELLS` | 1.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Nest.gd` | `IDLE_TIMEOUT` | 120.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
@@ -237,12 +235,10 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/ecology/EcologySpawner.gd` | `LAND_TRIES` | 32 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/events/LAEventTracker.gd` | `SAMPLE_INTERVAL` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/events/LAEventTracker.gd` | `RECENT_MAX` | 32 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `EVAP_KEEP_LIQUID` | 0.1 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `EVAP_TAKE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `CRATER_WATCH_MAX` | 256 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `ORGANIC_TAKE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/MaterialFieldSolidCache3D.gd` | `SPOT_CELLS` | 256 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `MOLTEN_MIN` | 0.0001 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `FIRE_PRESENT` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `STATIONS_PER_BAND` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `LONG_DAYS` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -258,10 +254,10 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `SLOW_READBACK_EVERY` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `DRAIN_ALL` | -1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd` | `SAMPLE_EVERY` | 100 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd` | `SUSP_ACTIVE` | 0.001 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `VAPOUR_TRANSFER_COEFF` | 1.2e-3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SOIL_SURFACE_RESISTANCE_S_M` | 1000.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/GeoRecords.gd` | `DISSOLUTION_K` | 2.0e-5 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/reactions/GeoRecords.gd` | `DISSOLUTION_K_PER_VF` | 2.0e-5 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd` | `ORG_MIN_POOL_MOL` | 1.0 | the mole floor under which an organic C:H:O ratio is fp32 noise | deleted when the ratio buffers carry their own uncertainty |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `LITHIFICATION_RATE_PER_PA` | 1.0e-9 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TEMP` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `H2O` | 1 | slot id, not a measured quantity | — |
@@ -293,8 +289,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_ARRHENIUS` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_NEAR_GROUND` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_AIR_ABOVE` | 128 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TGT_SELF` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TGT_SCRATCH` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RECORD_BYTES` | 144 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `PHOTO_LUE_KG_C_PER_J` | 1.0e-9 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `PAR_FRACTION_OF_SHORTWAVE` | 0.45 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -310,7 +304,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/ReactionBalance.gd` | `TOL` | 1.0e-6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd` | `DRAIN_ALL` | 1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `CLOUD_WATER_CRIT_KG_KG` | 0.5e-3 | Kessler (1969) q_crit | deleted when condensation is a reaction record and the detector reads the record |
-| `addons/local_agents/sim/material/sphere_passes/TransportPass.gd` | `MIN_AMOUNT` | 0.0001 | the amount below which a cell is treated as empty; chosen, not derived | deleted when a donor's floor comes from the substance's own molar volume |
+| `addons/local_agents/sim/material/sphere_passes/TransportPass.gd` | `MIN_FILL_FRAC` | 0.0001 | the fraction of a row's full amount below which a cell is treated as empty; chosen, not derived | deleted when a donor's floor comes from the substance's own molar volume |
 | `addons/local_agents/sim/material/MaterialFieldRegolith3D.gd` | `REGOLITH_CELLS` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldRegolith3D.gd` | `INITIAL_TABLE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/game/render/WaterSurfaceMesh.gd` | `SEA_BIAS` | 0.4 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -322,7 +316,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `FOG_LO_ALT` | 0.0 | a renderer band radius, not a measured fog base | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `GROUND_SEARCH` | 6 | a march bound, not a physical quantity | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `HEAD_REACH` | 4 | a march bound, not a physical quantity | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `GRAZE_RESIDUAL` | 0.02 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `BITE_TAKE_FRAC` | 0.35 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `HEAT_RADIUS` | 0.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `PARCELS_PER_EJECT` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -332,8 +325,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `CONE` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `MAX_LIFETIME` | 12.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `LAND_HEAT_R` | 8.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `FUNGUS_PRESENT` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `DETRITUS_PRESENT` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/game/render/WaterParticles.gd` | `MAX_PARTICLES` | 12000 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/WaterParticles.gd` | `LIFETIME` | 7.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/WaterParticles.gd` | `CAP_ANGLE` | 1.4 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -342,7 +333,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldConservation3D.gd` | `REFERENCE_STEPS` | 600 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `CAP_ANGLE` | 0.8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `FAR_ALT` | 130.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `MAX_MASS` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `REBUILD_PERIOD` | 0.22 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RECENTER_DOT` | 0.999 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RIPPLE_MAX` | 16 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
@@ -351,15 +341,9 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `WIND_SCALE` | 6.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldReport3D.gd` | `HEAVY_EVERY_FRAMES` | 64 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldReport3D.gd` | `CLIMATE_BANDS` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialField3D.gd` | `MAX_MASS` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialField3D.gd` | `MIN_MASS` | 0.0001 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `INITIAL_TEMP` | 15.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialField3D.gd` | `O2_AMBIENT` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialField3D.gd` | `SNOW_PRESENT` | 1.9e-4 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/MaterialField3D.gd` | `ICE_DEPTH` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/MaterialField3D.gd` | `O2_AMBIENT` | 0.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `FOG_MAX_TEMP` | 12.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialField3D.gd` | `CONDENSE_COVER_MIN` | 5.0e-8 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/MaterialField3D.gd` | `RENDER_MIN` | 0.08 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `SEA_WAVE_EPS` | 0.6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldPassProbe3D.gd` | `DEFAULT_STEPS` | 3 | how many steps `LA_PASS_PROBE` samples before it disarms; a diagnostic default, not a property of the world | delete when the probe is cheap enough to leave armed for a whole run |
 | `addons/local_agents/sim/material/sphere_passes/GravityPass.gd` | `SOLVE_EVERY` | 8 | how often the Poisson solve re-runs; mass moves slowly next to a step and the solve warm-starts | the residual between solves is published and stops being reported as small |

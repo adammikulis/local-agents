@@ -18,7 +18,7 @@ static func records() -> Array:
 	return [
 		# Pore water of the regolith cell below, into the air of this one.
 		rec(RM_RESISTANCE_SERIES, VAPOUR_TRANSFER_COEFF * dt / h, VAPOUR_DEFICIT,
-			[[SOIL_TOP, 1.0]], [[H2O, 1.0, TGT_SELF]],
+			[[SOIL_TOP, 1.0]], [[H2O, 1.0]],
 			GATE_NEAR_GROUND | GATE_AIR_ABOVE, 0.0, WINDSPEED,
 			VAPOUR_TRANSFER_COEFF * SOIL_SURFACE_RESISTANCE_S_M),
 	]

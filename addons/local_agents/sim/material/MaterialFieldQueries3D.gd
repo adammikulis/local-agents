@@ -3,7 +3,7 @@ extends RefCounted
 
 ## LAMaterialFieldQueries3D: the READ-ONLY query accessors of the dense 3D MaterialField3D, factored
 
-const MOLTEN_MIN: float = 0.0001       # gauge floor: molten mineral volume fraction per cell
+const MOLTEN_MIN: float = 0.0001 * LAPhysical.ROCK_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_CASIO3_KG_MOL  # gauge floor, mol/m^3
 const FIRE_PRESENT: float = 0.02       # gauge floor: fraction of a cell's usable O2 burned this step
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
@@ -88,12 +88,6 @@ func is_water_at(pos: Vector3) -> bool:
 	return c >= 0 and liquid_at(c) >= _f.MIN_MASS
 
 
-func water_at_cell(ix: int, iy: int, iz: int) -> float:
-	if not _f._in_bounds(ix, iy, iz):
-		return 0.0
-	return liquid_at(_f._idx(ix, iy, iz))
-
-
 ## Liquid h2o over every cell, mask-free, in the channel's own amount unit.
 func total_water() -> float:
 	return row_f("water_liquid_total")
@@ -107,6 +101,14 @@ func temp_at(pos: Vector3) -> float:
 		return _f.INITIAL_TEMP
 	var c: int = _f.world_to_cell(pos)
 	return _f._temp[c] if c >= 0 else _f.INITIAL_TEMP
+
+
+## Pressure at a world point, Pa. NAN outside the box or before the first readback.
+func pressure_at(pos: Vector3) -> float:
+	if _f._pressure.size() != _f._cell_count:
+		return NAN
+	var c: int = _f.world_to_cell(pos)
+	return _f._pressure[c] if c >= 0 else NAN
 
 
 # --- Diagnostics -------------------------------------------------------------
@@ -267,7 +269,8 @@ func water_force_at(pos: Vector3) -> Vector3:
 	var speed: float = v.length()
 	if speed <= 0.0:
 		return Vector3.ZERO
-	var rho: float = float(LASubstances.table().get("h2o", {}).get("density", 0.0)) * liquid_at(c)
+	# Mass density of the moving water, kg/m^3: its amount (mol/m^3) times its molar mass.
+	var rho: float = float(LASubstances.table().get("h2o", {}).get("molar_mass", 0.0)) * liquid_at(c)
 	return v.normalized() * (0.5 * rho * speed * speed)
 
 
@@ -400,7 +403,7 @@ func is_burning(node) -> bool:
 
 
 # --- LAVA-TUBE / HOLLOW signature -------------------------------------------
-const TUBE_MELT_NEAR_ZERO: float = 0.05
+const TUBE_MELT_NEAR_ZERO: float = 0.05 * LAPhysical.ROCK_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_CASIO3_KG_MOL  # mol/m^3
 
 ## Open cells walled in by rock and NOT still melt-filled — a drained tube. One row per wall count, and the
 ## kernel binds the neighbour table; null when the reduction has not run.

@@ -58,6 +58,9 @@ func _scan() -> void:
 	if sil.size() != n or cem.size() != n or solid.size() != n:
 		return
 	var t0: int = Time.get_ticks_usec()
+	var full_sil: float = LASubstances.full_mol_m3("silicate")
+	if full_sil <= 0.0:
+		return
 	var size: float = _f._cell_size * 0.7          # SDF edit extent ~ one cell (fill_rock scales by this)
 	var budget: int = STAMP_BUDGET
 	var found: int = 0
@@ -70,7 +73,8 @@ func _scan() -> void:
 	var c: int = _cursor if _cursor < n else 0
 	while visited < n and budget > 0:
 		var was_solid: bool = solid[c] != 0
-		var rf: float = maxf(sil[c], 0.0) * clampf(cem[c], 0.0, 1.0)
+		# Cemented rock VOLUME fraction: the amount over silicate's full amount, times the cemented share.
+		var rf: float = maxf(sil[c], 0.0) / full_sil * clampf(cem[c], 0.0, 1.0)
 		if not was_solid and rf >= GROW_THRESHOLD:
 			var wp: Vector3 = _f.cell_world_pos_linear(c)
 			last_grow_before_solid = terrain.is_solid(wp)
@@ -152,7 +156,7 @@ func debug_deposit(world_pos: Vector3, amount: float) -> void:
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0 or c >= _f._cell_count or _f._silicate.size() != _f._cell_count:
 		return
-	var want: float = clampf(amount, 0.0, 1.0)
+	var want: float = clampf(amount, 0.0, 1.0) * LASubstances.full_mol_m3("silicate")
 	var gain: float = want - _f._silicate[c]
 	_f._silicate[c] = maxf(_f._silicate[c], want)
 	if gain > 0.0 and _f._inject != null:

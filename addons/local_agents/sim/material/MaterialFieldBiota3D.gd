@@ -2,7 +2,8 @@ class_name LAMaterialFieldBiota3D
 extends RefCounted
 
 
-const GRAZE_RESIDUAL: float = 0.02       # standing crop per cell a mouth cannot reach (regrowth stays possible)
+# Standing crop per cell a mouth cannot reach (regrowth stays possible), mol/m^3 of biomass.
+const GRAZE_RESIDUAL: float = 0.02 * LAPhysical.DRY_WOOD_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_CH2O_UNIT_KG_MOL
 const BITE_TAKE_FRAC: float = 0.35       # share of the reachable crop one animal's bite may take in a frame
 
 const HEAT_RADIUS: float = 0.0           # the animal's own cell only; body heat does not teleport
@@ -11,7 +12,8 @@ var _f = null                            # back-reference to the owning LAMateri
 static var _resp_j_per_unit: float = -1.0   # cached: J released per channel unit of O2 respired
 
 
-## Joules of oxidation heat per CHANNEL UNIT of O2 consumed, from the substance table's formation enthalpies.
+## Joules of oxidation heat per MOLE of O2 consumed, from the substance table's formation enthalpies. A
+## channel amount is moles, so no unit bridge stands between the mole and the channel.
 static func _respiration_j_per_o2_unit() -> float:
 	if _resp_j_per_unit >= 0.0:
 		return _resp_j_per_unit
@@ -19,13 +21,7 @@ static func _respiration_j_per_o2_unit() -> float:
 	var c_h: float = float(tbl.get("organic_c", {}).get("formation_enthalpy_j_mol", 0.0))
 	var o2_h: float = float(tbl.get("o2", {}).get("formation_enthalpy_j_mol", 0.0))
 	var co2_h: float = float(tbl.get("co2", {}).get("formation_enthalpy_j_mol", 0.0))
-	var o2_mm: float = float(tbl.get("o2", {}).get("molar_mass", 0.0))
-	var o2_rho: float = float(tbl.get("o2", {}).get("density", 0.0))
-	if o2_mm <= 0.0 or o2_rho <= 0.0:
-		push_error("LAMaterialFieldBiota3D: o2 has no molar mass or unit density, so respiration heat is unknown.")
-		_resp_j_per_unit = 0.0
-		return 0.0
-	_resp_j_per_unit = maxf(0.0, -(co2_h - c_h - o2_h)) * (o2_rho / o2_mm)
+	_resp_j_per_unit = maxf(0.0, -(co2_h - c_h - o2_h))
 	return _resp_j_per_unit
 
 

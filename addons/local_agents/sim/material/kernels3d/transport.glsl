@@ -156,10 +156,19 @@ const float LOCKUP_CRYSTAL_FRAC = 0.6;              // LAPhysical.RHEOLOGICAL_LO
 const float DIFFUSIVITY = 1.66;                     // LAPhysical.TWO_STREAM_DIFFUSIVITY
 const float C2_CM_K = 1.4387768775;                 // LAPhysical.PLANCK_C2_CM_K
 const float KAPPA_REF_PA = 1.0e4;                   // LAPhysical.ABSORPTION_REF_PRESSURE_PA
-const float RHO_CO2_UNIT = 0.3898208082;            // LASubstances.co2.density
 const float R_CO2 = 188.924269;                     // LAPhysical.CO2_GAS_CONST_J_KGK
 const float RHO_WATER = 997.0;                      // LAPhysical.WATER_DENSITY_KG_M3
 const float R_VAPOUR = 461.52;                      // LAPhysical.VAPOUR_GAS_CONST_J_KGK
+const float M_H2O = 0.018015;                       // LASubstances.h2o.molar_mass
+const float M_CO2 = 0.0440095;                      // LASubstances.co2.molar_mass
+const float RHO_SILICATE = 2900.0;                  // LASubstances.silicate.density
+const float M_SILICATE = 0.1161612;                 // LASubstances.silicate.molar_mass
+const float RHO_CELLULOSE = 500.0;                  // LASubstances.cellulose.density
+const float M_CELLULOSE = 0.030026;                 // LASubstances.cellulose.molar_mass
+// mol/m^3 at which a cell is FULL of a substance; amount/full is its volume fraction of the cell.
+const float FULL_H2O = RHO_WATER / M_H2O;
+const float FULL_SILICATE = RHO_SILICATE / M_SILICATE;
+const float FULL_CELLULOSE = RHO_CELLULOSE / M_CELLULOSE;
 const float ALBEDO_GROUND = 0.15;                   // LAPhysical.ALBEDO_BARE_GROUND
 const float ALBEDO_WATER = 0.06;                    // LAPhysical.ALBEDO_OCEAN
 const float ALBEDO_ICE = 0.65;                      // LAPhysical.ALBEDO_SNOW_ICE
@@ -198,7 +207,7 @@ float air_rho(uint c) {
 	return max(pressure[c], 0.0) / (DRY_AIR_R * t_k(c));
 }
 
-// The cell's h2o split by the shares the enthalpy ladder derived, as volume fractions of the cell.
+// The cell's h2o split by the shares the enthalpy ladder derived, mol/m^3.
 float h2o_ice(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_solid[c], 0.0, 1.0); }
 float h2o_water(uint c)  { return max(h2o[c], 0.0) * clamp(h2o_liquid[c], 0.0, 1.0); }
 float h2o_gas(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_vapour[c], 0.0, 1.0); }
@@ -206,7 +215,7 @@ float h2o_gas(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_vapour[c], 0.0, 1
 // CONDENSED cloud water, droplets and ice alike, kg/m^3: what a rebounding pair is made of and what the
 // air's conductivity tracks.
 float cloud_water_kg_m3(uint c) {
-	return (h2o_water(c) + h2o_ice(c)) * RHO_WATER;
+	return (h2o_water(c) + h2o_ice(c)) * M_H2O;
 }
 
 // Non-inductive charge separation in the riming band, C/m^3 this step. The light phase carries this much
@@ -222,7 +231,7 @@ float separation_dq(uint c, vec3 up) {
 // Volume fraction of the cell that is condensed, so a beam meets it geometrically.
 float condensed_frac(uint c) {
 	float f = solid[c] != 0.0 ? 1.0 : 0.0;
-	f += max(silicate[c], 0.0) + h2o_water(c) + h2o_ice(c);
+	f += max(silicate[c], 0.0) / FULL_SILICATE + (h2o_water(c) + h2o_ice(c)) / FULL_H2O;
 	return clamp(f, 0.0, 1.0);
 }
 
@@ -322,14 +331,17 @@ float mobility_at(uint c, float amt) {
 	float L = params.cell_m;
 	float dt = params.dt_s;
 	float g = length(g_at(c));
+	// The matter's depth: its volume fraction of the cell (amount over the row's full amount) times the
+	// cell edge, metres.
+	float depth_m = params.max_fill > 0.0 ? (amt / params.max_fill) * L : 0.0;
 	if (params.law == LAW_SHALLOW) {
 		// Inviscid gravity adjustment: du/dt = -g dh/dx, so the head moves at g h dt^2 / L^2. Granular
 		// piles take the same law with the repose slope already subtracted (Savage & Hutter 1989).
-		return g * (amt * L) * dt * dt / (L * L);
+		return g * depth_m * dt * dt / (L * L);
 	}
 	if (params.law == LAW_FILM) {
 		// Nusselt falling film: K = rho g h^2 / (3 mu), and mu climbs as the melt crystallises.
-		float hh = amt * L;
+		float hh = depth_m;
 		float mu = max(melt_viscosity(c), 1.0e-12);
 		return params.density * g * hh * hh * dt / (3.0 * mu * L);
 	}
@@ -480,8 +492,8 @@ float band_weight(uint b, float tk) {
 // CO2 line, CO2 collision-induced, H2O line, H2O self-continuum; line and continuum broaden with p_total.
 vec4 absorber_paths(uint c, float len) {
 	float tk = t_k(c);
-	float rho_v = h2o_gas(c) * RHO_WATER;
-	float rho_c = max(co2[c], 0.0) * RHO_CO2_UNIT;
+	float rho_v = h2o_gas(c) * M_H2O;
+	float rho_c = max(co2[c], 0.0) * M_CO2;
 	float p_tot = max(pressure[c], 0.0) / KAPPA_REF_PA;
 	return vec4(p_tot * rho_c * len,
 		(rho_c * R_CO2 * tk / KAPPA_REF_PA) * rho_c * len,
@@ -507,9 +519,9 @@ float longwave_emissivity(uint c) {
 	for (uint b = 0u; b < params.band_count; ++b) {
 		eps += band_weight(b, tk) * (1.0 - exp(-DIFFUSIVITY * band_tau(a, b, ti, tf)));
 	}
-	float wet = h2o_water(c);
-	float icy = h2o_ice(c);
-	float dry = max(silicate[c], 0.0) + (solid[c] != 0.0 ? 1.0 : 0.0);
+	float wet = h2o_water(c) / FULL_H2O;
+	float icy = h2o_ice(c) / FULL_H2O;
+	float dry = max(silicate[c], 0.0) / FULL_SILICATE + (solid[c] != 0.0 ? 1.0 : 0.0);
 	float mass = wet + icy + dry;
 	if (mass <= 0.0) {
 		return clamp(eps, 0.0, 1.0);
@@ -521,10 +533,10 @@ float longwave_emissivity(uint c) {
 // Shortwave reflectivity: the cited albedo of each thing the cell holds, weighted by how much of it there
 // is. A cell holding nothing condensed reflects nothing and the beam goes on through it.
 float shortwave_albedo(uint c) {
-	float wet = h2o_water(c);
-	float icy = h2o_ice(c);
-	float veg = max(biomass[c], 0.0);
-	float dry = max(silicate[c], 0.0) + (solid[c] != 0.0 ? 1.0 : 0.0);
+	float wet = h2o_water(c) / FULL_H2O;
+	float icy = h2o_ice(c) / FULL_H2O;
+	float veg = max(biomass[c], 0.0) / FULL_CELLULOSE;
+	float dry = max(silicate[c], 0.0) / FULL_SILICATE + (solid[c] != 0.0 ? 1.0 : 0.0);
 	float mass = wet + icy + veg + dry;
 	if (mass <= 0.0) {
 		return 0.0;
@@ -618,7 +630,7 @@ void grain_state(uint g) {
 		silicate_bed[g] = 0.0;
 		return;
 	}
-	float water = h2o_water(g);
+	float water = h2o_water(g) / FULL_H2O;
 	float air = 1.0 - condensed_frac(g);
 	float tot = water + air;
 	float f_water = tot > 0.0 ? water / tot : 0.0;

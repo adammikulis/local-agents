@@ -133,8 +133,10 @@ func _init() -> void:
 	var rows: Dictionary = LAChannels.rows()
 	var sub: String = String(rows.get(SOURCE_CHANNEL, {}).get("substance", ""))
 	var rho: float = float(LASubstances.table().get(sub, {}).get("density", 0.0))
-	if rho <= 0.0:
-		_fail("LASubstances gives \"%s\" no density, so the gate has no source mass." % sub)
+	# A channel amount is mol/m^3: a FULL cell holds density/molar_mass of the substance.
+	var full: float = LASubstances.full_mol_m3(sub)
+	if rho <= 0.0 or full <= 0.0:
+		_fail("LASubstances gives \"%s\" no density or molar mass, so the gate has no source mass." % sub)
 		return
 
 	var g0 = LAVoxelGrid.new()
@@ -144,8 +146,9 @@ func _init() -> void:
 	fill.resize(g0.cell_count)
 	var filled: float = 0.0
 	for c in g0.cell_count:
-		fill[c] = 1.0 if g0.cell_world_pos(c).length() < radius else 0.0
-		filled += fill[c]
+		var inside: bool = g0.cell_world_pos(c).length() < radius
+		fill[c] = full if inside else 0.0
+		filled += 1.0 if inside else 0.0
 	var res: Array = _solve(g0, fill)
 	var field: PackedFloat32Array = res[0]
 	var readings: Dictionary = res[1]
@@ -199,7 +202,7 @@ func _init() -> void:
 	var b_c: Vector3 = Vector3(6.0, 0.0, 0.0)
 	for c in h.cell_count:
 		var p2: Vector3 = h.cell_world_pos(c)
-		fill2[c] = 1.0 if (p2 - a_c).length() < 3.0 or (p2 - b_c).length() < 3.0 else 0.0
+		fill2[c] = full if (p2 - a_c).length() < 3.0 or (p2 - b_c).length() < 3.0 else 0.0
 	var res2: Array = _solve(h, fill2)
 	var field2: PackedFloat32Array = res2[0]
 	var ga: Vector3 = _g_at(field2, h.cell_at(a_c))

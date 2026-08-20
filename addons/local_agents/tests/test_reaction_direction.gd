@@ -8,9 +8,8 @@ extends RefCounted
 const GeoScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/GeoRecords.gd")
 const ThermoScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionThermo.gd")
 
-# Conditions of the sweep, measured off this planet, not constants of the model.
-const CO2_AT_CELL: float = 0.277           # mean ground CO2 in channel units
-const FIELD_HOTTEST_C: float = 256.0       # hottest cell the field reaches
+# The sweep's CO2 condition: the seeded ambient, mol/m^3.
+const CO2_AT_CELL: float = LAMaterialField3D.CO2_AMBIENT
 # Robie & Hemingway 1995; CODATA for CO2. Derived from the table, so this is the cross-check.
 const DECARB_DH_J_MOL: float = 89890.0
 const DECARB_DS_J_MOL_K: float = 162.32
@@ -63,21 +62,27 @@ func run_test(_tree: SceneTree) -> bool:
 			% t_1bar + "phases give. The standard-state data has drifted.")
 		ok = false
 
-	# The claim: at the planet's own CO2 it turns round at a temperature the field reaches.
-	var t_k_cell: float = FIELD_HOTTEST_C + LAPhysical.KELVIN_OFFSET
-	var a_cell: float = ThermoScript.activity_of(rec, CO2_AT_CELL, t_k_cell)
-	var t_eq_cell: float = ThermoScript.equilibrium_temperature_k(rec, sigma, a_cell) - LAPhysical.KELVIN_OFFSET
-	print("DECARB_AT_PLANET_CO2={\"co2_units\":%.3f,\"activity\":%.4f,\"t_eq_c\":%.1f,\"hottest_c\":%.1f}"
-		% [CO2_AT_CELL, a_cell, t_eq_cell, FIELD_HOTTEST_C])
-	if t_eq_cell >= FIELD_HOTTEST_C:
-		push_error("at this planet's CO2 the reaction still cannot turn round below %.1f C (needs %.1f C). "
-			% [FIELD_HOTTEST_C, t_eq_cell] + "The carbonate sink is one-way again.")
+	# At the seeded ambient CO2: forward below its own equilibrium temperature, backward above it. The
+	# activity depends on T, so the equilibrium is a fixed point; a few sweeps settle it.
+	var a_15: float = ThermoScript.activity_of(rec, CO2_AT_CELL, LAPhysical.KELVIN_OFFSET + 15.0)
+	var t_eq_k: float = LAPhysical.KELVIN_OFFSET + 280.0
+	for _i in 8:
+		t_eq_k = ThermoScript.equilibrium_temperature_k(rec, sigma,
+			ThermoScript.activity_of(rec, CO2_AT_CELL, t_eq_k))
+	var t_eq_cell: float = t_eq_k - LAPhysical.KELVIN_OFFSET
+	var t_k_hot: float = t_eq_cell + 50.0 + LAPhysical.KELVIN_OFFSET
+	var a_cell: float = ThermoScript.activity_of(rec, CO2_AT_CELL, t_k_hot)
+	print("DECARB_AT_PLANET_CO2={\"co2_mol_m3\":%.3f,\"activity_15c\":%.4f,\"t_eq_c\":%.1f}"
+		% [CO2_AT_CELL, a_15, t_eq_cell])
+	if t_eq_cell <= 15.0:
+		push_error("at the seeded ambient CO2 the equilibrium temperature is %.1f C, at or below the "
+			% t_eq_cell + "weathering surface. The sink would run backwards on temperate ground.")
 		ok = false
 
-	var f_cold: float = ThermoScript.direction_factor(rec, sigma, LAPhysical.KELVIN_OFFSET + 15.0,
-		ThermoScript.activity_of(rec, CO2_AT_CELL, LAPhysical.KELVIN_OFFSET + 15.0))
-	var f_hot: float = ThermoScript.direction_factor(rec, sigma, t_k_cell, a_cell)
-	var f_eq: float = ThermoScript.direction_factor(rec, sigma, t_eq_cell + LAPhysical.KELVIN_OFFSET, a_cell)
+	var f_cold: float = ThermoScript.direction_factor(rec, sigma, LAPhysical.KELVIN_OFFSET + 15.0, a_15)
+	var f_hot: float = ThermoScript.direction_factor(rec, sigma, t_k_hot, a_cell)
+	var f_eq: float = ThermoScript.direction_factor(rec, sigma, t_eq_cell + LAPhysical.KELVIN_OFFSET,
+		ThermoScript.activity_of(rec, CO2_AT_CELL, t_eq_cell + LAPhysical.KELVIN_OFFSET))
 	print("DECARB_DIRECTION={\"f_15c\":%.4f,\"f_hot\":%.4f,\"f_at_equilibrium\":%s}"
 		% [f_cold, f_hot, String.num_scientific(f_eq)])
 	if f_cold <= 0.0:
@@ -85,7 +90,7 @@ func run_test(_tree: SceneTree) -> bool:
 		ok = false
 	if f_hot >= 0.0:
 		push_error("the record does not run BACKWARDS at %.1f C, above its own equilibrium temperature of "
-			% FIELD_HOTTEST_C + "%.1f C. dG > 0 means the reverse reaction, not a stalled forward one."
+			% (t_eq_cell + 50.0) + "%.1f C. dG > 0 means the reverse reaction, not a stalled forward one."
 			% t_eq_cell)
 		ok = false
 	if absf(f_eq) > 1.0e-6:

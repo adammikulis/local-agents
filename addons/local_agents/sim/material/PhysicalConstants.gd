@@ -101,9 +101,8 @@ const ALBEDO_OCEAN: float = 0.06
 const ALBEDO_BARE_GROUND: float = 0.15
 const ALBEDO_SNOW_ICE: float = 0.65
 
-## O2 mass in a cubic metre of ambient air, kg/m^3.
-const AMBIENT_O2_DENSITY_KG_M3: float = AIR_DENSITY_KG_M3 * AIR_MOLE_FRAC_O2 \
-	* MOLAR_MASS_O2_KG_MOL / MOLAR_MASS_DRY_AIR_KG_MOL
+## Molar density of an ideal gas at STP (0 degC, 1 atm), mol/m^3: p / (R T).
+const STP_MOLAR_DENSITY_MOL_M3: float = STANDARD_PRESSURE_PA / (GAS_CONSTANT_J_MOL_K * KELVIN_OFFSET)
 
 const REGOLITH_SURFACE_POROSITY: float = 0.40
 const COMPACTION_LENGTH_M: float = 2500.0

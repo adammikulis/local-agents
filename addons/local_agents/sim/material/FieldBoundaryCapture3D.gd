@@ -76,7 +76,7 @@ static func _matter_channels() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
 	var rows: Dictionary = LAChannels.rows()
 	for name in rows:
-		if String(rows[name].get("unit", "")) == "vf":
+		if String(rows[name].get("unit", "")) == "mol_m3":
 			out.append(String(name))
 	return out
 

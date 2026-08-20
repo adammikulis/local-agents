@@ -2,26 +2,26 @@ class_name LAChannels
 extends RefCounted
 
 ## The one declaration of what a channel is. `phase` is "solid" / "liquid" / "gas", or "" when derived
-## from enthalpy. `unit` is "vf", a volume fraction of the cell, or "" for not an amount of matter.
+## from enthalpy. `unit` is "mol_m3", moles of substance per m^3 of cell, or "" for not an amount of matter.
 static func rows() -> Dictionary:
 	var D: GDScript = load("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 	return {
 		"h_j_m3":      {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
-		"h2o":         {"residency": "hot",         "slot": D.H2O,       "substance": "h2o",        "phase": "",       "unit": "vf", "kind": "state"},
-		"silicate":    {"residency": "slow",        "slot": D.SILICATE,  "substance": "silicate",   "phase": "",       "unit": "vf", "kind": "state"},
+		"h2o":         {"residency": "hot",         "slot": D.H2O,       "substance": "h2o",        "phase": "",       "unit": "mol_m3", "kind": "state"},
+		"silicate":    {"residency": "slow",        "slot": D.SILICATE,  "substance": "silicate",   "phase": "",       "unit": "mol_m3", "kind": "state"},
 		"cement":      {"residency": "slow",        "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
-		"carbonate":   {"residency": "hot",         "slot": D.CARBONATE, "substance": "carbonate",  "phase": "solid",  "unit": "vf", "kind": "state"},
-		"silica":      {"residency": "hot",         "slot": D.SILICA,    "substance": "silica",     "phase": "solid",  "unit": "vf", "kind": "state"},
-		"o2":          {"residency": "hot",         "slot": D.O2,        "substance": "o2",         "phase": "gas",    "unit": "vf", "kind": "state"},
-		"co2":         {"residency": "situational", "slot": D.CO2,       "substance": "co2",        "phase": "gas",    "unit": "vf", "kind": "state"},
-		"n2":          {"residency": "hot",         "slot": D.N2,        "substance": "n2",         "phase": "gas",    "unit": "vf", "kind": "state"},
-		"biomass":     {"residency": "slow",        "slot": D.BIOMASS,   "substance": "cellulose",  "phase": "solid",  "unit": "vf", "kind": "state"},
-		"fungus":      {"residency": "situational", "slot": D.FUNGUS,    "substance": "cellulose",  "phase": "solid",  "unit": "vf", "kind": "state"},
-		"detritus":    {"residency": "situational", "slot": D.DETRITUS,  "substance": "organic_c",  "phase": "solid",  "unit": "vf", "kind": "state"},
-		"fuel":        {"residency": "situational", "slot": D.FUEL,      "substance": "organic_c",  "phase": "solid",  "unit": "vf", "kind": "state"},
-		"org_h":       {"residency": "situational", "slot": D.ORG_H,     "substance": "organic_h",  "phase": "solid",  "unit": "vf", "kind": "state"},
-		"org_o":       {"residency": "situational", "slot": D.ORG_O,     "substance": "organic_o",  "phase": "solid",  "unit": "vf", "kind": "state"},
-		"fert":        {"residency": "slow",        "slot": D.FERT,      "substance": "fixed_n",    "phase": "solid",  "unit": "vf", "kind": "state"},
+		"carbonate":   {"residency": "hot",         "slot": D.CARBONATE, "substance": "carbonate",  "phase": "solid",  "unit": "mol_m3", "kind": "state"},
+		"silica":      {"residency": "hot",         "slot": D.SILICA,    "substance": "silica",     "phase": "solid",  "unit": "mol_m3", "kind": "state"},
+		"o2":          {"residency": "hot",         "slot": D.O2,        "substance": "o2",         "phase": "gas",    "unit": "mol_m3", "kind": "state"},
+		"co2":         {"residency": "situational", "slot": D.CO2,       "substance": "co2",        "phase": "gas",    "unit": "mol_m3", "kind": "state"},
+		"n2":          {"residency": "hot",         "slot": D.N2,        "substance": "n2",         "phase": "gas",    "unit": "mol_m3", "kind": "state"},
+		"biomass":     {"residency": "slow",        "slot": D.BIOMASS,   "substance": "cellulose",  "phase": "solid",  "unit": "mol_m3", "kind": "state"},
+		"fungus":      {"residency": "situational", "slot": D.FUNGUS,    "substance": "cellulose",  "phase": "solid",  "unit": "mol_m3", "kind": "state"},
+		"detritus":    {"residency": "situational", "slot": D.DETRITUS,  "substance": "organic_c",  "phase": "solid",  "unit": "mol_m3", "kind": "state"},
+		"fuel":        {"residency": "situational", "slot": D.FUEL,      "substance": "organic_c",  "phase": "solid",  "unit": "mol_m3", "kind": "state"},
+		"org_h":       {"residency": "situational", "slot": D.ORG_H,     "substance": "organic_h",  "phase": "solid",  "unit": "mol_m3", "kind": "state"},
+		"org_o":       {"residency": "situational", "slot": D.ORG_O,     "substance": "organic_o",  "phase": "solid",  "unit": "mol_m3", "kind": "state"},
+		"fert":        {"residency": "slow",        "slot": D.FERT,      "substance": "fixed_n",    "phase": "solid",  "unit": "mol_m3", "kind": "state"},
 		"charge":      {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
 		"shock":       {"residency": "situational", "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
 		"mom_x":       {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},

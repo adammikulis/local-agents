@@ -51,8 +51,8 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       uploaded, with a gate that the table reproduces the functions to tolerance. This is what real EOS
       codes do; it keeps the GPU cost O(1) per cell.
 - [ ] **Freezing-point depression is implemented and cannot be wired, because there is no dissolved phase.**
-      `LASubstances.melt_c_at` takes a molality; every call site passes 0, no salt substance exists, and
-      `salinity_at` returns a 0..1 number with no mass behind it. **Decide it:** add a salinity channel with
+      `LASubstances.melt_c_at` takes a molality; every call site passes 0 and no salt substance
+      exists. **Decide it:** add a salinity channel with
       a real dissolved mass, and either accept the ideal van 't Hoff law or carry an osmotic coefficient —
       ideal gives −2.16 °C for sea water against the measured −1.86.
 - [ ] **Density is rho(T, p) on the CPU only, and water has no 4 °C maximum.** `LASubstances.density` gives

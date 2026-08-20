@@ -93,8 +93,11 @@ func _constant_without_state_fails() -> bool:
 
 
 func _state() -> Dictionary:
+	# Ambient air's two major gases in the channel unit, mol/m^3: mole fraction times molar density.
 	return {"temp_c": 15.0, "pressure_pa": 101325.0, "gravity": Vector3(0, -9.8, 0),
-		"velocity": Vector3.ZERO, "amounts": {"n2": 0.78, "o2": 0.21}}
+		"velocity": Vector3.ZERO, "amounts": {
+			"n2": 0.78 * LAPhysical.AIR_MOLAR_DENSITY_MOL_M3,
+			"o2": 0.21 * LAPhysical.AIR_MOLAR_DENSITY_MOL_M3}}
 
 
 func _fault(msg: String) -> bool:

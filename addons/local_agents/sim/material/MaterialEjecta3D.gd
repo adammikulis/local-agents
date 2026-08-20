@@ -163,15 +163,14 @@ func _physics_process(delta: float) -> void:
 	_refresh_visual()
 
 
-## Kilograms in one mass unit at `cell`. The grid is metres, so the cell volume is already m^3.
+## Kilograms in one channel unit (1 mol/m^3 of silicate) at `cell`: molar mass times the cell volume.
 func _mass_unit_kg(cell: int) -> float:
 	if _f == null:
 		return 0.0
 	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
 	if cell < 0 or cell >= vol.size():
 		return 0.0
-	var max_mass: float = maxf(float(_f.MAX_MASS), 0.0001)
-	return LAPhysical.ROCK_DENSITY_KG_M3 * vol[cell] / max_mass
+	return LAPhysical.MOLAR_MASS_CASIO3_KG_MOL * vol[cell]
 
 
 ## A parcel lands: the debris it carried out of `src` arrives here, and its kinetic energy arrives as heat.

@@ -6,10 +6,9 @@ extends RefCounted
 ## Field steps between printed profiles. A sample walks every cell once, so this is not free.
 const SAMPLE_EVERY: int = 100
 
-## A cell counts as actively eroding when it is carrying a real suspended load. Well above fp noise and well
-## below a single scour event (erosion_pickup_sphere3d.MAX_SCOUR is 0.08), so it counts cells with a load in
-## transit rather than cells with a rounding error.
-const SUSP_ACTIVE: float = 0.001
+## A cell counts as actively eroding when it carries a real suspended load, mol/m^3 — well above fp
+## noise, so it counts cells with a load in transit rather than cells with a rounding error.
+const SUSP_ACTIVE: float = 0.001 * LAPhysical.ROCK_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_CASIO3_KG_MOL
 
 
 var _f = null                    # back-reference to the owning LAMaterialField3D

@@ -5,7 +5,7 @@ const Rec: GDScript = preload("res://addons/local_agents/sim/material/ReduceReco
 
 ## LIQUID h2o: the one water channel times the share the enthalpy ladder leaves liquid at this cell.
 static func rows() -> Array:
-	var wet_min: float = 0.01           # volume fraction of a cell below which it is not holding water
+	var wet_min: float = 0.01 * LAMaterialField3D.MAX_MASS  # below this a cell is not holding water, mol/m^3
 	var wet: Dictionary = {"gate": "h2o", "gate_aux": "h2o_liquid", "gate_lo": wet_min}
 	return [
 		{"key": "water_liquid_total", "source": "h2o", "aux": "h2o_liquid", "op": Rec.Op.SUM,

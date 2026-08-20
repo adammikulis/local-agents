@@ -47,23 +47,36 @@ const CHANNELS: PackedStringArray = [
 const KERNEL_SLOTS: int = 14
 
 
-## kg/m^3 one unit of a channel's fill carries, in CHANNELS order. Phase does not enter it: the fill is a
-## volume fraction at the substance's declared density, so freezing moves no mass. Empty when the table
-## gives a channel's substance no density, which is a missing measurement rather than a zero.
-static func rho_units() -> PackedFloat32Array:
+## kg one mole of a channel's substance carries, in CHANNELS order: a channel amount is mol/m^3, so mass
+## per m^3 is amount times this. Empty when the table lacks a datum — a missing measurement is missing.
+static func molar_masses() -> PackedFloat32Array:
+	return _per_channel("molar_mass")
+
+
+## mol/m^3 at which a cell is FULL of a channel's substance; amount/full is its volume fraction.
+static func full_amounts() -> PackedFloat32Array:
+	var out: PackedFloat32Array = _per_channel("density")
+	var mm: PackedFloat32Array = molar_masses()
+	if out.is_empty() or mm.is_empty():
+		return PackedFloat32Array()
+	for i in out.size():
+		out[i] = out[i] / mm[i]
+	return out
+
+
+static func _per_channel(prop: String) -> PackedFloat32Array:
 	var out: PackedFloat32Array = PackedFloat32Array()
 	out.resize(CHANNELS.size())
 	var rows: Dictionary = LAChannels.rows()
 	var table: Dictionary = LASubstances.table()
 	for i in CHANNELS.size():
-		var name: String = CHANNELS[i]
-		var id: String = String(rows.get(name, {}).get("substance", ""))
-		var rho: float = float(table.get(id, {}).get("density", 0.0))
-		if rho <= 0.0:
-			push_error("LAMatterChannels: LASubstances has no density for \"%s\" (channel %s), so its "
-				% [id, name] + "mass cannot be weighed.")
+		var id: String = String(rows.get(CHANNELS[i], {}).get("substance", ""))
+		var v: float = float(table.get(id, {}).get(prop, 0.0))
+		if v <= 0.0:
+			push_error("LAMatterChannels: LASubstances has no %s for \"%s\" (channel %s), so its "
+				% [prop, id, CHANNELS[i]] + "mass cannot be weighed.")
 			return PackedFloat32Array()
-		out[i] = rho
+		out[i] = v
 	return out
 
 

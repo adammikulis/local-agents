@@ -18,31 +18,28 @@ const PHOTO_T_OPT: float = (LAPhysical.PROTEIN_DENATURE_C + LAPhysical.WATER_FRE
 const PHOTO_T_WIDTH: float = (LAPhysical.PROTEIN_DENATURE_C - LAPhysical.WATER_FREEZE_C) * 0.5
 
 
-## Reference density of a substance, kg/m3.
-static func _density(id: String) -> float:
-	return float(LASubstances.table().get(id, {}).get("density", 0.0))
-
-
 ## Simulated seconds one field step stands for.
 static func _dt() -> float:
 	return LAMaterialFieldSphereStep3D.real_seconds_per_step()
 
 
-## Photosynthesis rate coefficient: (eps / M_C) * f_PAR * S0 * dt / H.
+## Photosynthesis rate coefficient, mol C per m^3 per step per unit of light: (eps / M_C) * f_PAR * S0
+## * dt / H. The extent is mol/m^3 directly, since a channel amount is moles.
 static func _photo_k() -> float:
 	var mol_c: float = LAPhysical.MOLAR_MASS_CARBON_KG_MOL
 	var h: float = cell_height_m()
-	var mpu_co2: float = _density("co2") / LAPhysical.MOLAR_MASS_CO2_KG_MOL
-	if mol_c <= 0.0 or mpu_co2 <= 0.0 or h <= 0.0:
+	if mol_c <= 0.0 or h <= 0.0:
 		return 0.0
 	return (PHOTO_LUE_KG_C_PER_J / mol_c) * PAR_FRACTION_OF_SHORTWAVE \
-		* LAPhysical.SOLAR_CONSTANT_W_M2 * _dt() / (h * mpu_co2)
+		* LAPhysical.SOLAR_CONSTANT_W_M2 * _dt() / h
 
 
-## Autotrophic respiration rate per step: (GPP - NPP) / plant carbon.
+## Autotrophic respiration rate per step: (GPP - NPP) / plant carbon, quoted at ambient oxygen, so the
+## bilinear form divides by ambient O2's partial molar density, mol/m^3.
 static func _resp_k() -> float:
 	var per_year: float = (GLOBAL_GPP_PG_C_PER_YEAR - GLOBAL_NPP_PG_C_PER_YEAR) / GLOBAL_PLANT_CARBON_PG_C
-	return per_year * _dt() / LAPhysical.SECONDS_PER_YEAR
+	var o2_ambient: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.AIR_MOLE_FRAC_O2
+	return per_year * _dt() / (LAPhysical.SECONDS_PER_YEAR * o2_ambient)
 
 
 static func _litterfall_k() -> float:
@@ -50,15 +47,13 @@ static func _litterfall_k() -> float:
 	return per_year * _dt() / LAPhysical.SECONDS_PER_YEAR
 
 
-## Soil microbial biomass expressed in FUNGUS channel units.
+## Soil microbial biomass in FUNGUS channel units, mol/m^3: moles of CH2O carbon spread through one cell
+## height.
 static func _decomposer_reference() -> float:
-	var rho: float = _density("cellulose")
 	var h: float = cell_height_m()
-	if rho <= 0.0 or LAPhysical.MOLAR_MASS_CARBON_KG_MOL <= 0.0 or h <= 0.0:
+	if LAPhysical.MOLAR_MASS_CARBON_KG_MOL <= 0.0 or h <= 0.0:
 		return 0.0
-	var ch2o_kg_m2: float = SOIL_MICROBIAL_C_KG_PER_M2 \
-		* (LAPhysical.MOLAR_MASS_CH2O_UNIT_KG_MOL / LAPhysical.MOLAR_MASS_CARBON_KG_MOL)
-	return ch2o_kg_m2 / (h * rho)
+	return SOIL_MICROBIAL_C_KG_PER_M2 / (LAPhysical.MOLAR_MASS_CARBON_KG_MOL * h)
 
 
 ## First-order decay constant per unit of decomposer; gross uptake is Rh / (1 - CUE).
@@ -93,30 +88,30 @@ static func records() -> Array:
 		rec(RM_BILINEAR, _decompose_k(), FUNGUS,
 			[[DETRITUS, 1.0], [ORG_H, 0.0, 1.0, 0.0], [ORG_O, 0.0, 0.0, 1.0],
 				[O2, 1.0 - cue, 0.25, -0.5]],
-			[[FUNGUS, cue, TGT_SELF],
-				[CO2, 1.0 - cue, TGT_SELF],
-				[H2O, -cue, TGT_SELF, 0.5, 0.0],
-				[FERT, organic_n * (1.0 - cue), TGT_SCRATCH]],
+			[[FUNGUS, cue],
+				[CO2, 1.0 - cue],
+				[H2O, -cue, 0.5, 0.0],
+				[FERT, organic_n * (1.0 - cue)]],
 			0, 0.0, DETRITUS, 0.0, -1, 0.0, 0.0, dh.x * ox, -1, 0.0, dh.y * ox, dh.z * ox),
 
 		# Die-back: dead mycelium is CH2O, re-entering the dead pool at H:C 2, O:C 1.
 		rec(RM_CONST_FRAC, _dieback_k(), FUNGUS, [[FUNGUS, 1.0]],
-			[[DETRITUS, 1.0, TGT_SELF], [ORG_H, 2.0, TGT_SELF], [ORG_O, 1.0, TGT_SELF]], 0),
+			[[DETRITUS, 1.0], [ORG_H, 2.0], [ORG_O, 1.0]], 0),
 
 		# Fixing carbon stores the bond energy burning it releases, debited from the absorbed sunlight.
 		rec(RM_OPTIMUM_BAND, _photo_k(), LIGHT,
 			[[CO2, 1.0], [SOIL_ROOT, 1.0 + transpired], [FERT, organic_n]],
-			[[O2, 1.0, TGT_SELF], [BIOMASS, 1.0, TGT_SELF],
-				[H2O, transpired, TGT_SELF]],
+			[[O2, 1.0], [BIOMASS, 1.0],
+				[H2O, transpired]],
 			GATE_NEAR_GROUND, PHOTO_T_OPT, TEMP, PHOTO_T_WIDTH,
 			-1, 0.0, 0.0, -lumped),
 
 		rec(RM_BILINEAR, _resp_k(), BIOMASS, [[BIOMASS, 1.0], [O2, 1.0]],
-			[[CO2, 1.0, TGT_SELF], [H2O, 1.0, TGT_SELF],
-				[FERT, organic_n, TGT_SELF]],
+			[[CO2, 1.0], [H2O, 1.0],
+				[FERT, organic_n]],
 			0, 0.0, O2, 0.0, -1, 0.0, 0.0, lumped),
 
 		# Litterfall: shed biomass enters the dead pool at H:C 2, O:C 1.
 		rec(RM_CONST_FRAC, _litterfall_k(), BIOMASS, [[BIOMASS, 1.0]],
-			[[DETRITUS, 1.0, TGT_SELF], [ORG_H, 2.0, TGT_SELF], [ORG_O, 1.0, TGT_SELF]], 0),
+			[[DETRITUS, 1.0], [ORG_H, 2.0], [ORG_O, 1.0]], 0),
 	]

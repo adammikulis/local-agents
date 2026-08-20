@@ -82,7 +82,7 @@ layout(push_constant, std430) uniform Params {
 	float fresh_grain_m;    // grain diameter given to newly-closed rock — LAPhysical.GRAIN_D_LOWLAND_M
 	float lith_rate_per_pa; // LAPhysical.LITHIFICATION_RATE_PER_PA, per step per Pa of excess
 	float lith_pressure_pa; // LAPhysical.LITHIFICATION_PRESSURE_PA
-	float org_min_pool_m3;  // m^3 of dead organic carbon below which a cell's C:H:O is fp32 noise
+	float org_min_pool_mol; // moles of dead organic carbon below which a cell's C:H:O is fp32 noise
 	float fresh_h_per_c;    // LASubstances.fresh_litter_per_carbon("H")
 	float fresh_o_per_c;    // LASubstances.fresh_litter_per_carbon("O")
 } params;
@@ -90,13 +90,14 @@ layout(push_constant, std430) uniform Params {
 const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
 const float SOLID_OUT = 0.4;   // LAPhysical.RHEOLOGICAL_MOBILE_CRYSTAL_FRAC
 
-// One row of `props` per channel, built from LASubstances by StateDerivePass.
-const int PROP_STRIDE = 5;         // StateDerivePass.PROP_STRIDE
-const int PROP_RHO = 0;            // kg/m^3 that one unit of fill carries
+// One row of `props` per channel, built from LASubstances by StateDerivePass. A channel amount is mol/m^3.
+const int PROP_STRIDE = 6;         // StateDerivePass.PROP_STRIDE
+const int PROP_M = 0;              // kg/mol
 const int PROP_C = 1;              // J/kg/K, sensible-heat entry only
 const int PROP_MOL_PER_KG = 2;     // mol/kg, non-condensable gases only
 const int PROP_ENTRY = 3;          // which mixture entry the substance belongs to
 const int PROP_LAMBDA = 4;         // W/m/K
+const int PROP_FULL = 5;           // mol/m^3 at which a cell is full — amount/full is its volume fraction
 
 // Mixture entries. Two substances carry a phase ladder; everything else is linear in T, so one entry with
 // the summed mass and c = sum(m*c)/sum(m) reproduces sum(m_i*c_i*T) exactly.
@@ -146,7 +147,8 @@ void lithify(uint g, float melt) {
 	cem = clamp(cem + params.lith_rate_per_pa * excess * (1.0 - melt - cem), 0.0, 1.0 - melt);
 	cement[g] = cem;
 
-	float rock = max(silicate[g], 0.0) * cem;
+	// Rock volume fraction: silicate over its full amount (channel slot 1), times the cemented share.
+	float rock = max(silicate[g], 0.0) / props[1 * PROP_STRIDE + PROP_FULL] * cem;
 	bool was = solid[g] != 0.0;
 	bool now = was ? (rock >= SOLID_OUT) : (rock >= SOLID_IN);
 	if (now) {
@@ -197,7 +199,7 @@ void main() {
 
 	// The dead pool's molar ratios, from the same channels the reduce rows sum.
 	float org_pool = max(detritus[g], 0.0) + max(fuel[g], 0.0);
-	if (org_pool * vol > params.org_min_pool_m3) {
+	if (org_pool * vol > params.org_min_pool_mol) {
 		float hc = max(org_h[g], 0.0) / org_pool;
 		float oc = max(org_o[g], 0.0) / org_pool;
 		org_hc[g] = hc;
@@ -222,14 +224,15 @@ void main() {
 			continue;
 		}
 		int base = i * PROP_STRIDE;
-		float m = f * props[base + PROP_RHO] * vol;
+		float m = f * props[base + PROP_M] * vol;
 		int entry = int(props[base + PROP_ENTRY]);
 		mass[entry] += m;
 		if (entry == E_SENSIBLE) {
 			mc += m * props[base + PROP_C];
 		}
-		v_lambda += f * props[base + PROP_LAMBDA];
-		v_used += f;
+		float vf = f / props[base + PROP_FULL];
+		v_lambda += vf * props[base + PROP_LAMBDA];
+		v_used += vf;
 		n_gas_mol += m * props[base + PROP_MOL_PER_KG];
 	}
 

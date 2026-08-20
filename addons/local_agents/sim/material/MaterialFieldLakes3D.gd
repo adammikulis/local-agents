@@ -75,7 +75,7 @@ func seed(field) -> void:
 			continue                                       # rock, unreached, or already static sea
 		if level[c] <= height[c] or field._h2o[c] > 0.0:
 			continue
-		field._h2o[c] = 1.0
+		field._h2o[c] = LAMaterialField3D.MAX_MASS
 		lake_cells += 1
 	if OS.has_environment("LA_WATER_DEBUG"):
 		print("LAKES_SEEDED={cells:%d}" % lake_cells)

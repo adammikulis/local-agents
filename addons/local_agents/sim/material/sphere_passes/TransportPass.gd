@@ -19,8 +19,9 @@ enum Arg { GROUPS_X = 0, GROUPS_Y = 1, GROUPS_Z = 2, LIST_COUNT = 3, SLOTS = 8 }
 const GRAIN_ROW: Dictionary = {"channel": "silicate", "substance": "silicate",
 	"mode": LATransportRecords.POTENTIAL}
 
-## Below this a cell is empty and does not donate. Declared in docs/MODEL_PARAMETERS.md.
-const MIN_AMOUNT: float = 0.0001
+## Below this fraction of a row's full amount a cell is empty and does not donate. Declared in
+## docs/MODEL_PARAMETERS.md. A row carrying no substance (enthalpy, charge) floors at the bare fraction.
+const MIN_FILL_FRAC: float = 0.0001
 
 var _pipe: RID = RID()
 ## Per row: its uniform set. An invalid entry is a row whose buffers the driver has not got.
@@ -328,10 +329,11 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	pc.encode_float(24, cell_m)
 	pc.encode_float(28, dt_s)
 	pc.encode_float(32, float(row.get("repose_tan", 0.0)))
-	pc.encode_float(36, MIN_AMOUNT)
+	var max_fill: float = LATransportRecords.max_fill(substance) if substance != "" else INF
+	pc.encode_float(36, MIN_FILL_FRAC * max_fill if substance != "" else MIN_FILL_FRAC)
 	pc.encode_float(40, float(entry.get("density", 0.0)))
 	# Enthalpy, momentum and a shock front are not matter occupying volume, so no cell is ever full of them.
-	pc.encode_float(44, LATransportRecords.max_fill(substance) if substance != "" else INF)
+	pc.encode_float(44, max_fill)
 	pc.encode_float(48, fluid.x)
 	pc.encode_float(52, fluid.y)
 	# Seed diameter for cells whose own grain field is unset; the cell's value wins wherever it has one.
@@ -350,9 +352,9 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	pc.encode_float(88, LARadiogenicDecay.heat_production_w_m3_at("silicate", epoch))
 	pc.encode_float(92, LARadiogenicDecay.heat_production_w_m3_at("carbonate", epoch))
 	pc.encode_float(96, LARadiogenicDecay.heat_production_w_m3_at("silica", epoch))
-	# J/m^3/K one unit of fill contributes to the sensible entry; 0 for a substance on a phase ladder,
-	# whose entry is the channel itself.
-	pc.encode_float(100, float(entry.get("density", 0.0)) * LAMatterChannels.specific_heat(substance))
+	# J/m^3/K one mol/m^3 of the substance contributes to the sensible entry (molar mass times specific
+	# heat); 0 for a substance on a phase ladder, whose entry is the channel itself.
+	pc.encode_float(100, float(entry.get("molar_mass", 0.0)) * LAMatterChannels.specific_heat(substance))
 	pc.encode_u32(104, cc + ghost_count)
 	return pc
 

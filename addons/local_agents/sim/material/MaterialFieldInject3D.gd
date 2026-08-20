@@ -12,7 +12,7 @@ var queue: LAMaterialFieldHeatQueue3D = QueueScript.new()
 # EVAPORATION SOURCING (add_vapor). A storm lifts water that is THERE: the liquid in its footprint and the
 # water table under it. These bound how hard one injection may pull, so a cell is thinned rather than punched
 # empty — a storm sitting on the sea must not open a hole in it.
-const EVAP_KEEP_LIQUID: float = 0.1      # liquid below this is not available to a storm (film left behind)
+const EVAP_KEEP_LIQUID: float = 0.1 * LAMaterialField3D.MAX_MASS  # film a storm leaves behind, mol/m^3
 const EVAP_TAKE_FRAC: float = 0.5        # fraction of a source cell's AVAILABLE contents one injection may lift
 const SOIL_SEARCH_SHELLS: int = LAMaterialFieldRegolith3D.REGOLITH_CELLS   # the permeable band is the aquifer
 

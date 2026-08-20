@@ -7,8 +7,8 @@ const PC = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd"
 const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionBalance.gd")
 
 
-## Standard dH (J per mole of `q_slot`'s substance) and dS (J/mol/K) for `rec`, plus the partial pressure one
-## channel unit of `q_slot` exerts per kelvin. Empty when a participant has no standard-state data.
+## Standard dH (J per mole of `q_slot`'s substance) and dS (J/mol/K) for `rec`, plus the partial pressure
+## one mol/m^3 of `q_slot` exerts per kelvin. Empty when a participant has no standard-state data.
 static func equilibrium_terms(rec: Dictionary, q_slot: int) -> Dictionary:
 	var tbl: Dictionary = LASubstances.table()
 	var subs: Dictionary = BalanceScript.slot_substance()
@@ -30,16 +30,12 @@ static func equilibrium_terms(rec: Dictionary, q_slot: int) -> Dictionary:
 				q_mol += sgn * moles
 	if absf(q_mol) <= 0.0:
 		return {}
-	var q_sub: Dictionary = tbl.get(String(subs.get(q_slot, "")), {})
-	var molar_mass: float = float(q_sub.get("molar_mass", 0.0))
-	var density: float = float(q_sub.get("density", 0.0))
-	if molar_mass <= 0.0 or density <= 0.0:
-		return {}
 	return {
 		"dg_h_j_mol": dh / absf(q_mol),
 		"dg_s_j_molk": ds / absf(q_mol),
 		"q_slot": q_slot,
-		"q_pa_per_unit_k": (density / molar_mass) * PC.GAS_CONSTANT_J_MOL_K,
+		# A channel amount is mol/m^3, so p = amount * R * T: the per-unit-per-kelvin pressure is R itself.
+		"q_pa_per_unit_k": PC.GAS_CONSTANT_J_MOL_K,
 		# Heat per unit extent, J/m3, positive exothermic.
 		"enthalpy_j_m3": -dh,
 	}
@@ -87,7 +83,7 @@ static func quotient_sign(rec: Dictionary) -> float:
 	return 0.0
 
 
-## Activity of `q_slot`: partial pressure over standard pressure, p = (rho/M) * ch * R * T.
+## Activity of `q_slot`: partial pressure over standard pressure, p = ch * R * T (ch in mol/m^3).
 static func activity_of(terms: Dictionary, channel_amount: float, t_k: float) -> float:
 	return float(terms["q_pa_per_unit_k"]) * channel_amount * maxf(t_k, 1.0) / PC.STANDARD_PRESSURE_PA
 

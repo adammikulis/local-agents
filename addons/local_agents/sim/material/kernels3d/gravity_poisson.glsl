@@ -9,8 +9,8 @@
 
 layout(local_size_x = 64) in;
 
-// kg/m^3 one unit of fill carries, per channel. The mass every other pass weighs.
-layout(set = 0, binding = 14, std430) restrict readonly buffer Props { float rho_unit[]; };
+// kg/mol per channel: amounts are mol/m^3, so amount times this is kg/m^3. The mass every other pass weighs.
+layout(set = 0, binding = 14, std430) restrict readonly buffer Props { float mol_mass[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
 layout(set = 0, binding = 16, std430) restrict readonly buffer Pos { float pos[]; };
 // bit 0 = the cell touches the outside of the box, bit 1 = its red-black colour.
@@ -128,7 +128,7 @@ void mode_density(uint gidx, bool live) {
 	float rho = 0.0;
 	if (live) {
 		for (int i = 0; i < LA_CHANNEL_SLOTS; ++i) {
-			rho += max(channel_at(i, gidx), 0.0) * rho_unit[i];
+			rho += max(channel_at(i, gidx), 0.0) * mol_mass[i];
 		}
 		density[gidx] = rho;
 	}

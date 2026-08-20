@@ -43,6 +43,10 @@ the kernel's per-dispatch booking closed on the same capture, so the work is beh
   few coarse global cells.
 - `MaterialFieldMomentumLedger3D` accumulates its `_cum_*` books only across report samples, and a
   measurement run reports once, so `momentum_book_bnd` cannot fold in that mode.
+## 6. The h2o book does not close on a shut box
+
+With every wall shut, `scripts/agent_harness.sh sim --frames 20` ends with `h2o_total` below its sealed
+baseline while the element and mineral books close. Same symptom on the pre-conversion tree.
 
 ## 4. Reduce the rest on the device
 
