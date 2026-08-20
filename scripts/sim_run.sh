@@ -65,11 +65,17 @@ command -v python3 >/dev/null 2>&1 || { echo "sim_run: python3 is not on PATH (n
 # would load the OLD kernel and print a normal-looking report built on it. The wrapper refuses to launch a
 # stale tree (exit 3), so this turns that refusal into a non-event instead of a thing to remember.
 # Only import when a .glsl is newer than its compiled .res — a full import costs ~2.3s and most runs need none.
+# An edited INCLUDE recompiles nothing on its own, so a .glsli newer than a sibling kernel's .res is a
+# changed kernel too — the importer follows include dependencies once it runs.
 NEED_IMPORT=0
 while IFS= read -r g; do
   base="$(basename "$g")"
   newest_res="$(ls -t "$PROJ/.godot/imported/${base}-"*.res 2>/dev/null | head -1)"
   if [ -z "$newest_res" ] || [ "$g" -nt "$newest_res" ]; then NEED_IMPORT=1; break; fi
+  for inc in "$(dirname "$g")"/*.glsli; do
+    [ -f "$inc" ] || continue
+    if [ "$inc" -nt "$newest_res" ]; then NEED_IMPORT=1; break 2; fi
+  done
 done < <(find "$PROJ/addons" -name '*.glsl' 2>/dev/null)
 if [ "$NEED_IMPORT" -eq 1 ]; then
   echo "sim_run: a kernel changed — importing." >&2
@@ -183,6 +189,10 @@ if grep -qiE "get_spirv|on a null value|errored bytecode|Parameter \"shader\" is
   echo "sim_run: SHADER OR SCRIPT FAILURE in this run — every number below is fiction." >&2
   grep -iE "get_spirv|on a null value|errored bytecode|Parameter \"shader\" is null|SCRIPT ERROR" "$LOG" | head -5 >&2
 fi
+
+# The probe prints through godot's stdout, which the exit path can truncate; the --log-file tap flushes
+# live, so the tap is the record and this forwards it, deduplicated against the lines that got through.
+grep '^PASS_PROBE=' "$LOG" 2>/dev/null | awk '!seen[$0]++' || true
 
 REPORT_KEYS="$REPORT_KEYS" RAW="$RAW" python3 - "$LOG" <<'PY'
 import json, os, sys

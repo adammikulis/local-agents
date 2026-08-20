@@ -32,6 +32,7 @@ var _cc: int = 0
 var _ng: int = 0                    # ghost tail cells appended past _cc; 0 = every wall shut
 var _bnd_keys: PackedStringArray = PackedStringArray()   # per-step boundary books, cleared before each step
 var _step_index: int = 0            # monotonic field-step counter, published to kernels as ctx["step_index"]
+var _seed_totals: Dictionary = {}   # per channel: the total the last whole-mirror seed declared
 var _groups: int = 0
 var _bufs: Dictionary = {}          # channel/buffer name → its one RID
 var _passes: Array = []
@@ -208,10 +209,11 @@ func set_sun_dir(v: Vector3) -> void:
 
 
 ## The drained maxima the substep budget reads; before any drain there are none, so no extra substeps.
-func set_cfl_inputs(speed_max: float, temp_max_k: float, mean_g: float) -> void:
+func set_cfl_inputs(speed_max: float, temp_max_k: float, mean_g: float, celerity_max: float) -> void:
 	_ctx["cfl_speed_max"] = speed_max if is_finite(speed_max) else 0.0
 	_ctx["cfl_temp_max_k"] = temp_max_k if is_finite(temp_max_k) else 0.0
 	_ctx["cfl_mean_g"] = mean_g if is_finite(mean_g) else 0.0
+	_ctx["cfl_celerity_max"] = celerity_max if is_finite(celerity_max) else 0.0
 
 
 
@@ -473,8 +475,10 @@ func seed_field(name: String, arr, seal) -> void:
 	if arr is PackedFloat32Array:
 		for v in arr:
 			total += float(v)
-	if not seal.note_creation("seed_" + name, total):
+	# A re-upload REPLACES the buffer, so the manifest takes the difference.
+	if not seal.note_creation("seed_" + name, total - float(_seed_totals.get(name, 0.0))):
 		return
+	_seed_totals[name] = total
 	if _audit_mirror and arr is PackedFloat32Array:
 		_audit_mirror_upload(name, arr)
 	if name == "h_j_m3":

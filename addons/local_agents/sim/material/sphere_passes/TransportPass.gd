@@ -7,12 +7,11 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/tr
 const BandsScript: GDScript = preload("res://addons/local_agents/sim/material/AbsorptionBands.gd")
 const BoundaryRowsScript: GDScript = preload("res://addons/local_agents/sim/material/reduce/BoundaryRows.gd")
 
-## Which half of the gather a dispatch is, the grain prologue, and the three compaction dispatches that
-## build each LATransportRecords.lists() list; tags, not quantities.
-enum { PASS_OUTFLOW, PASS_GATHER, PASS_GRAIN, PASS_LIST_RESET, PASS_LIST_APPEND, PASS_LIST_ARGS }
+## Dispatch tags: the gather halves, the grain prologue, the list compaction, the acoustic pair.
+enum { PASS_OUTFLOW, PASS_GATHER, PASS_GRAIN, PASS_LIST_RESET, PASS_LIST_APPEND, PASS_LIST_ARGS,
+	PASS_ACOUSTIC, PASS_ACOUSTIC_APPLY }
 
-## List-args buffer layout, shared with the kernel: 0-2 are the uvec3 an indirect dispatch reads, 3 is the
-## atomic list length. SLOTS is the buffer's element count.
+## List-args layout: 0-2 the indirect uvec3, 3 the atomic list length, SLOTS the element count.
 enum Arg { GROUPS_X = 0, GROUPS_Y = 1, GROUPS_Z = 2, LIST_COUNT = 3, SLOTS = 8 }
 
 ## The grain prologue carries mineral grains, so the Stokes law reads silicate's density off `substance`.
@@ -24,9 +23,11 @@ const MIN_AMOUNT: float = 0.0001
 
 ## Substeps one row may take inside a field step. Declared in docs/MODEL_PARAMETERS.md.
 ## LA_APPROX: cfl_substep_budget
-const SUBSTEP_MAX: int = 128
+const SUBSTEP_MAX: int = 256
 
 var _pipe: RID = RID()
+## The stiffest declared substance's celerity sqrt(K/rho), m/s: the budget's a-priori acoustic bound.
+var _c_static: float = 0.0
 ## Per row: its uniform set. An invalid entry is a row whose buffers the driver has not got.
 var _sets: Array = []
 var _rows: Array = []
@@ -39,13 +40,11 @@ var _send_m: Array = []
 ## resist 0 and aux 1 for a row that names neither.
 var _zero: RID = RID()
 var _one: RID = RID()
-## Enthalpy of transported enthalpy: there is none, so a row moving `h_j_m3` carries this instead of
-## aliasing its own amount buffer.
+## Enthalpy of transported enthalpy: none, so a row moving `h_j_m3` carries this zero buffer.
 var _no_h: RID = RID()
 ## Band edges, absorption coefficients and the Planck CDF the RADIATE row reads.
 var _rad_table: RID = RID()
-## Per cell: the broadband longwave emissivity and the solar-beam share, stamped by the RADIATE row's pass 0
-## and marched by its pass 1. Scratch of one dispatch pair, like _send — never read outside the step.
+## Broadband longwave emissivity and solar-beam share, the RADIATE row's own within-step scratch.
 var _lw_emis: RID = RID()
 var _sw_abs: RID = RID()
 var _band_count: int = 0
@@ -53,17 +52,15 @@ var _band_count: int = 0
 var _grain_set: RID = RID()
 ## Per row: the dispatch-indirect args RID of the cell list it runs over, invalid for a full-grid row.
 var _list_args: Array = []
-## Per LATransportRecords.lists() entry: the synthetic row its compaction dispatches carry, its uniform
-## set, and its args/idx buffer RIDs.
+## Per LATransportRecords.lists() entry: its synthetic row, uniform set, and args/idx RIDs.
 var _list_rows: Array = []
 var _list_sets: Array = []
 var _list_args_rid: Array = []
 var _list_idx_rid: Array = []
 
 
-## What the TF_EFIELD row's outflow pass publishes about the electric field (driver-owned so ReducePass can
-## read them, not a derived channel, which would be read back with no CPU consumer), plus each list's
-## compacted-index, membership-flag and indirect-args buffers.
+## The TF_EFIELD row's electric-field outputs (driver-owned so ReducePass can read them), the boundary
+## books, and each list's compacted-index, membership-flag and indirect-args buffers.
 func _buffers(cc: int) -> Dictionary:
 	var out: Dictionary = {"col_e": cc, "strike": cc, "radiogenic": cc,
 		"bnd_void": cc, "bnd_h_void": cc, "rim_ghost": cc, "rim_w": cc}
@@ -83,6 +80,12 @@ func _buffers(cc: int) -> Dictionary:
 func _setup(bufs: Dictionary, cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
 	_rows = LATransportRecords.rows()
+	for s: Dictionary in LASubstances.table().values():
+		for pair: Array in [["bulk_modulus_pa", "density"], ["bulk_modulus_solid_pa", "density_solid"]]:
+			var k_pa: float = float(s.get(String(pair[0]), 0.0))
+			var rho: float = float(s.get(String(pair[1]), float(s.get("density", 0.0))))
+			if k_pa > 0.0 and rho > 0.0:
+				_c_static = maxf(_c_static, sqrt(k_pa / rho))
 
 	# Ghost tail cells run pass 0, so every buffer the kernel indexes by cell carries the tail.
 	var tc: int = cc + ghost_count
@@ -120,8 +123,7 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	var cell_m: float = _ctx_cell_size(ctx)
 	var dt_s: float = _ctx_num(ctx, "dt_s")
 	var sun: Vector3 = ctx.get("sun_dir", Vector3.ZERO)
-	# THE LISTS, rebuilt before any listed row dispatches over one: RESET the counter, APPEND the interior
-	# cells the predicate keeps, publish the indirect ARGS.
+	# THE LISTS, rebuilt before any listed row dispatches over one.
 	for r in _list_rows.size():
 		var lset: RID = _list_sets[r]
 		if not lset.is_valid():
@@ -133,8 +135,7 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 			rd.compute_list_set_push_constant(cl, lpc, lpc.size())
 			rd.compute_list_dispatch(cl, int(spec[1]), 1, 1)
 			rd.compute_list_add_barrier(cl)
-	# PROLOGUE. The three suspension shares are the `frac` of three silicate rows, so they must be complete
-	# before those rows donate, and it reads `cement` before the dilute rows rescale it.
+	# PROLOGUE: the suspension shares three silicate rows read as `frac`, before anything donates.
 	if _grain_set.is_valid():
 		rd.compute_list_bind_compute_pipeline(cl, _pipe)
 		rd.compute_list_bind_uniform_set(cl, _grain_set, 0)
@@ -142,28 +143,33 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 		rd.compute_list_set_push_constant(cl, gpc, gpc.size())
 		rd.compute_list_dispatch(cl, groups, 1, 1)
 		rd.compute_list_add_barrier(cl)
-	# The signed momentum rows substep as ONE group: their gathers refresh velocity, so each substep
-	# advects and diffuses the field the previous substep made — the exact law, integrated finer.
+	# THE ACOUSTIC GROUP substeps as one unit: matter advects, the gathers refresh velocity, and the
+	# acoustic half-step advances the pressure — the coupled pair on its own time axis.
 	var r: int = 0
 	while r < _rows.size():
 		var group: PackedInt32Array = PackedInt32Array([r])
-		if _vel_row(_rows[r]):
-			while r + 1 < _rows.size() and _vel_row(_rows[r + 1]):
+		if _group_row(_rows[r]):
+			while r + 1 < _rows.size() and _group_row(_rows[r + 1]):
 				r += 1
 				group.append(r)
 		var n: int = 1
+		var acoustic: bool = false
 		for gi in group:
 			n = maxi(n, _substeps(_rows[gi], cell_m, dt_s, ctx))
-		for _k in n:
+			acoustic = acoustic or _vel_row(_rows[gi])
+		for k in n:
 			for gi in group:
-				_run_row(rd, cl, gi, cc, cell_m, dt_s / float(n), sun, groups)
+				_run_row(rd, cl, gi, cc, cell_m, dt_s / float(n), sun, groups, k == n - 1)
+			if acoustic:
+				_run_acoustic(rd, cl, group[group.size() - 1], cc, cell_m, dt_s / float(n), sun,
+					groups, 1.0 / float(n))
 		r += 1
 
 
-## One row's outflow+gather pair. Pass 0 writes what leaves each face; pass 1 gathers — a receiver
-## reading a donor inside one dispatch reads a value another thread is still writing.
+## One row's outflow+gather pair. The rim's nudge is a per-STEP fraction, so only the last substep
+## carries the RELAX flag.
 func _run_row(rd: RenderingDevice, cl: int, r: int, cc: int, cell_m: float, dt_s: float,
-		sun: Vector3, groups: int) -> void:
+		sun: Vector3, groups: int, last: bool = true) -> void:
 	var uset: RID = _sets[r]
 	if not uset.is_valid():
 		return
@@ -171,7 +177,7 @@ func _run_row(rd: RenderingDevice, cl: int, r: int, cc: int, cell_m: float, dt_s
 	for pass_id in [PASS_OUTFLOW, PASS_GATHER]:
 		rd.compute_list_bind_compute_pipeline(cl, _pipe)
 		rd.compute_list_bind_uniform_set(cl, uset, 0)
-		var pc: PackedByteArray = _pc(_rows[r], cc, pass_id, cell_m, dt_s, sun)
+		var pc: PackedByteArray = _pc(_rows[r], cc, pass_id, cell_m, dt_s, sun, last)
 		rd.compute_list_set_push_constant(cl, pc, pc.size())
 		# A listed row walks the compacted cells, so its cost is O(active), not O(grid).
 		if args.is_valid():
@@ -185,26 +191,47 @@ func _run_row(rd: RenderingDevice, cl: int, r: int, cc: int, cell_m: float, dt_s
 		rd.compute_list_add_barrier(cl)
 
 
+## One acoustic half-step: compute dp into the face scratch, then apply it.
+func _run_acoustic(rd: RenderingDevice, cl: int, r: int, cc: int, cell_m: float, dt_s: float,
+		sun: Vector3, groups: int, frac: float) -> void:
+	var uset: RID = _sets[r]
+	if not uset.is_valid():
+		return
+	for pass_id in [PASS_ACOUSTIC, PASS_ACOUSTIC_APPLY]:
+		rd.compute_list_bind_compute_pipeline(cl, _pipe)
+		rd.compute_list_bind_uniform_set(cl, uset, 0)
+		var pc: PackedByteArray = _pc(_rows[r], cc, pass_id, cell_m, dt_s, sun, true, frac)
+		rd.compute_list_set_push_constant(cl, pc, pc.size())
+		rd.compute_list_dispatch(cl, groups, 1, 1)
+		rd.compute_list_add_barrier(cl)
+
+
 ## A signed per-axis momentum row, whose gather refreshes its velocity component.
 func _vel_row(row: Dictionary) -> bool:
 	return row.has("axis") and bool(row.get("signed", false))
 
 
-## Substeps the row's stability needs: an explicit per-face share holds at <= 1/6 (six faces) and a donor
-## empties no faster than v dt <= L, so N = ceil(courant + 6 nu dt / L^2) off the LAST drained maxima.
+## A row of the acoustic substep group: a momentum row, or compressible matter flagged into it.
+func _group_row(row: Dictionary) -> bool:
+	return _vel_row(row) or bool(row.get("acoustic", false))
+
+
+## Substeps the row's stability needs, off the LAST drained maxima: per-face share <= 1/6, donor
+## courant v dt <= L, acoustic c dt sqrt(3)/L <= 1, gravity adjustment g h (dt/n)^2/L^2 <= 1/6.
 func _substeps(row: Dictionary, cell_m: float, dt_s: float, ctx: Dictionary) -> int:
 	var mode: int = int(row["mode"])
 	var law: int = int(row.get("law", LATransportRecords.Law.NONE))
 	var vmax: float = maxf(float(ctx.get("cfl_speed_max", 0.0)), 0.0)
 	var tk_max: float = maxf(float(ctx.get("cfl_temp_max_k", 0.0)), 0.0)
-	# The drained peak lags one step. Within THIS step the momentum rows can add at most the
-	# free-expansion speed 2c/(gamma-1) — the fastest gas ever leaves a pressure front — plus g dt.
-	if _vel_row(row):
-		if tk_max > 0.0:
-			vmax += 2.0 * sqrt(LAPhysical.AIR_ADIABATIC_INDEX
-				* LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * tk_max) / (LAPhysical.AIR_ADIABATIC_INDEX - 1.0)
-		vmax += maxf(float(ctx.get("cfl_mean_g", 0.0)), 0.0) * dt_s
 	var need: float = 0.0
+	# The peak celerity, floored a-priori: no mixture outruns its stiffest pure constituent, and a
+	# one-step drain lag at the water sound speed is all a runaway needs.
+	if _vel_row(row):
+		var c_max: float = maxf(float(ctx.get("cfl_celerity_max", 0.0)), _c_static)
+		if tk_max > 0.0:
+			c_max = maxf(c_max, sqrt(LAPhysical.AIR_ADIABATIC_INDEX
+				* LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * tk_max))
+		need = sqrt(3.0) * c_max * dt_s / cell_m
 	if mode == LATransportRecords.ADVECT or mode == LATransportRecords.BOTH:
 		var v: float = vmax
 		if bool(row.get("settle", false)):
@@ -216,6 +243,10 @@ func _substeps(row: Dictionary, cell_m: float, dt_s: float, ctx: Dictionary) -> 
 			v += maxf(rho_s - fl.x, 0.0) * maxf(float(ctx.get("cfl_mean_g", 0.0)), 0.0) \
 				* LAPhysical.GRAIN_D_UPLAND_M * LAPhysical.GRAIN_D_UPLAND_M / (18.0 * maxf(fl.y, 1.0e-30))
 		need += v * dt_s / cell_m
+	# Gravity adjustment, at a full cell of head.
+	if law == LATransportRecords.Law.SHALLOW or law == LATransportRecords.Law.FILM:
+		var g0: float = maxf(float(ctx.get("cfl_mean_g", 0.0)), 0.0)
+		need = maxf(need, sqrt(6.0 * g0 * cell_m) * dt_s / cell_m)
 	# A signed EDDY row is the pair-exact viscous relaxation: no diffusion CFL applies to it.
 	if law == LATransportRecords.Law.EDDY and not _vel_row(row):
 		var fl2: Vector2 = LATransportRecords.fluid_properties(
@@ -281,7 +312,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 			"silicate_susp_water", "silicate_susp_air", "silicate_bed",
 			"rad_absorbed", "rad_emitted", "col_e", "strike",
 			"carbonate", "silica", "radiogenic", "ghost", "bnd_void", "bnd_h_void", "rho_bulk",
-			"mom_x", "mom_y", "mom_z"]:
+			"mom_x", "mom_y", "mom_z", "celerity", "speed", "bodyf_x", "bodyf_y", "bodyf_z"]:
 		if not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row has no law." % [key, channel])
 			return RID()
@@ -348,6 +379,11 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[54, _single(bufs, "mom_y")],
 		[55, _single(bufs, "mom_z")],
 		[56, _send_m[0]], [57, _send_m[1]], [58, _send_m[2]],
+		[59, _single(bufs, "celerity")],
+		[60, _single(bufs, "speed")],
+		[61, _single(bufs, "bodyf_x")],
+		[62, _single(bufs, "bodyf_y")],
+		[63, _single(bufs, "bodyf_z")],
 	]
 	return _uset(_pipe, entries)
 
@@ -364,9 +400,9 @@ func _carried_key(substance: String) -> String:
 
 # --- push constant ----------------------------------------------------------------------------------------
 
-## transport.glsl's Params block, in its declared order — 112 bytes.
+## transport.glsl's Params block, in its declared order — 116 bytes.
 func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
-		sun: Vector3) -> PackedByteArray:
+		sun: Vector3, relax_ok: bool = true, substep_frac: float = 1.0) -> PackedByteArray:
 	var substance: String = String(row["substance"])
 	var entry: Dictionary = LASubstances.table().get(substance, {})
 	var fluid: Vector2 = LATransportRecords.fluid_properties(
@@ -388,7 +424,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 		flags |= LATransportRecords.Flag.LISTED
 	if bool(row.get("halo", false)):
 		flags |= LATransportRecords.Flag.LIST_HALO
-	if bool(row.get("relax", false)):
+	if relax_ok and bool(row.get("relax", false)):
 		flags |= LATransportRecords.Flag.RELAX
 	if bool(row.get("radiogenic", false)):
 		flags |= LATransportRecords.Flag.RADIOGENIC
@@ -398,7 +434,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	if String(row["channel"]) == "h_j_m3":
 		flags |= LATransportRecords.Flag.ENTHALPY
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(112)
+	pc.resize(116)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
@@ -410,31 +446,32 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	pc.encode_float(32, float(row.get("repose_tan", 0.0)))
 	pc.encode_float(36, MIN_AMOUNT)
 	pc.encode_float(40, float(entry.get("density", 0.0)))
-	# Enthalpy, momentum and a shock front are not matter occupying volume, so no cell is ever full of them.
-	pc.encode_float(44, LATransportRecords.max_fill(substance) if substance != "" else INF)
-	pc.encode_float(48, fluid.x)
-	pc.encode_float(52, fluid.y)
+	pc.encode_float(44, fluid.x)
+	pc.encode_float(48, fluid.y)
 	# Seed diameter for cells whose own grain field is unset; the cell's value wins wherever it has one.
-	pc.encode_float(56, LAPhysical.GRAIN_D_UPLAND_M)
-	pc.encode_float(60, sun.x)
-	pc.encode_float(64, sun.y)
-	pc.encode_float(68, sun.z)
+	pc.encode_float(52, LAPhysical.GRAIN_D_UPLAND_M)
+	pc.encode_float(56, sun.x)
+	pc.encode_float(60, sun.y)
+	pc.encode_float(64, sun.z)
 	var water: Vector2 = LATransportRecords.fluid_properties(LATransportRecords.Fluid.WATER)
 	var air: Vector2 = LATransportRecords.fluid_properties(LATransportRecords.Fluid.AIR)
-	pc.encode_float(72, water.x)
-	pc.encode_float(76, water.y)
-	pc.encode_float(80, air.x)
-	pc.encode_float(84, air.y)
+	pc.encode_float(68, water.x)
+	pc.encode_float(72, water.y)
+	pc.encode_float(76, air.x)
+	pc.encode_float(80, air.y)
 	# The nuclide store is finite, so the rate FALLS: this is what each rock has left at the run's epoch.
 	var epoch: float = LARadiogenicDecay.epoch_years()
-	pc.encode_float(88, LARadiogenicDecay.heat_production_w_m3_at("silicate", epoch))
-	pc.encode_float(92, LARadiogenicDecay.heat_production_w_m3_at("carbonate", epoch))
-	pc.encode_float(96, LARadiogenicDecay.heat_production_w_m3_at("silica", epoch))
+	pc.encode_float(84, LARadiogenicDecay.heat_production_w_m3_at("silicate", epoch))
+	pc.encode_float(88, LARadiogenicDecay.heat_production_w_m3_at("carbonate", epoch))
+	pc.encode_float(92, LARadiogenicDecay.heat_production_w_m3_at("silica", epoch))
 	# J/m^3/K one unit of fill contributes to the sensible entry; 0 for a substance on a phase ladder,
 	# whose entry is the channel itself.
-	pc.encode_float(100, float(entry.get("density", 0.0)) * LAMatterChannels.specific_heat(substance))
-	pc.encode_u32(104, cc + ghost_count)
-	pc.encode_u32(108, int(row.get("axis", 0)))
+	pc.encode_float(96, float(entry.get("density", 0.0)) * LAMatterChannels.specific_heat(substance))
+	pc.encode_u32(100, cc + ghost_count)
+	pc.encode_u32(104, int(row.get("axis", 0)))
+	pc.encode_float(108, substep_frac)
+	# The donation floor as mass: MIN_AMOUNT of the lightest bulk matter, air.
+	pc.encode_float(112, MIN_AMOUNT * LAPhysical.AIR_DENSITY_KG_M3)
 	return pc
 
 

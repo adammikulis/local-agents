@@ -27,6 +27,8 @@ layout(set = 0, binding = 49, std430) restrict readonly buffer Grav { float g_fi
 layout(set = 0, binding = 50, std430) restrict writeonly buffer BodyFX { float bodyf_x[]; };
 layout(set = 0, binding = 51, std430) restrict writeonly buffer BodyFY { float bodyf_y[]; };
 layout(set = 0, binding = 52, std430) restrict writeonly buffer BodyFZ { float bodyf_z[]; };
+// The mixture's sound speed, m/s: Wood's one-pressure compressibility sum over the cell's own matter.
+layout(set = 0, binding = 53, std430) restrict writeonly buffer Celerity { float cel_m_s[]; };
 
 // MOMENTUM is the state, kg m/s per m^3. Velocity is what you read off it once you know the mass.
 layout(set = 0, binding = 25, std430) restrict buffer MomX { float mom_x[]; };
@@ -91,6 +93,7 @@ layout(push_constant, std430) uniform Params {
 	float org_min_pool_m3;  // m^3 of dead organic carbon below which a cell's C:H:O is fp32 noise
 	float fresh_h_per_c;    // LASubstances.fresh_litter_per_carbon("H")
 	float fresh_o_per_c;    // LASubstances.fresh_litter_per_carbon("O")
+	float min_fill;         // TransportPass.MIN_AMOUNT: below this total fill a cell is EMPTY
 } params;
 
 const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
@@ -222,6 +225,7 @@ void main() {
 
 	float mass[LA_MIX_MAX] = float[LA_MIX_MAX](0.0, 0.0, 0.0, 0.0);
 	float mc = 0.0;          // sum of m*c over the sensible-heat substances, J/K
+	float cp_gas = 0.0;      // sum of m*cp over the non-condensable gases, J/K: the mixture gamma's cp
 	float n_gas_mol = 0.0;   // moles of non-condensable gas: the Dalton denominator of the vapour split
 	float v_lambda = 0.0;    // volume-weighted conductivity, W/m/K
 	float v_used = 0.0;
@@ -247,6 +251,9 @@ void main() {
 		v_lambda += f * props[base + PROP_LAMBDA];
 		v_used += f;
 		n_gas_mol += m * props[base + PROP_MOL_PER_KG];
+		if (props[base + PROP_MOL_PER_KG] > 0.0) {
+			cp_gas += m * props[base + PROP_C];
+		}
 		// v0(T) is linear in T, so its mass sum splits into three T-independent pieces gathered here
 		// and combined once the solve has a temperature. h2o is kept apart: its vapour share is gas.
 		float rho_i = props[base + PROP_RHO];
@@ -285,7 +292,9 @@ void main() {
 	rho_bulk[g] = rho;
 	float f_melt = 0.0;
 	vec3 v = vec3(0.0);
-	if (total <= 0.0) {
+	// Below the donation floor the cell is EMPTY by the declared model: trace matter keeps its mass
+	// and enthalpy and holds no bulk state — a momentum residue over vanishing mass is any velocity.
+	if (v_used < params.min_fill) {
 		temp[g] = -LA_KELVIN_OFFSET;   // no matter, so no temperature
 		if (solid[g] == 0.0) {
 			pressure[g] = 0.0;
@@ -310,6 +319,7 @@ void main() {
 		bodyf_x[g] = 0.0;
 		bodyf_y[g] = 0.0;
 		bodyf_z[g] = 0.0;
+		cel_m_s[g] = 0.0;
 		lithify(g, f_melt);
 		return;   // no mass, so the frame terms deliver no momentum either
 	}
@@ -388,6 +398,30 @@ void main() {
 		pressure[g] = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD);
 	}
 
+	// THE MIXTURE'S SOUND SPEED (Wood 1930): one pressure, so compressibilities add by volume — the
+	// gas at gamma*p, each condensed phase at its bulk modulus, an undeclared modulus contributing
+	// none, exactly as in the EOS.
+	float cel = 0.0;
+	if (solid[g] == 0.0) {
+		float comp = c_comp;
+		float v_gas = max(vol - b_vol, 0.0);
+		bool defined = true;
+		if (v_gas > 0.0) {
+			float cp_tot = cp_gas + f_vapour * m_h2o * subs[E_H2O].c_gas;
+			float p_now = max(pressure[g], 0.0);
+			float cv_tot = cp_tot - n_gas * LA_R_J_MOL_K;
+			if (p_now > 0.0 && cp_tot > 0.0 && cv_tot > 0.0) {
+				comp += v_gas * cv_tot / (cp_tot * p_now);
+			} else {
+				defined = false;
+			}
+		}
+		if (defined && comp > 0.0) {
+			cel = sqrt(vol / (comp * rho));
+		}
+	}
+	cel_m_s[g] = cel;
+
 	// THE MELT SHARE OF THIS CELL'S SILICATE, off the SAME ladder. Rock has a melting INTERVAL, so the
 	// lever rule the enthalpy curve already integrates over reads back as a linear share of the interval —
 	// no plateau, no `pinned` branch, and the latent heat is what put t_c where it is.
@@ -418,15 +452,13 @@ void main() {
 		bodyf_z[g] = 0.0;
 		return;
 	}
-	// BODY FORCES per volume: weight rho*g, which -grad(p) stands against, then the rotating-frame pair.
+	// BODY FORCES per volume: weight rho*g and the rotating-frame pair, computed and booked here;
+	// transport deposits them a substep at a time beside the pressure gradient they stand against.
 	vec3 acc = vec3(g_field[g * 3u], g_field[g * 3u + 1u], g_field[g * 3u + 2u]);
 	if (w_len > 0.0) {
 		acc += -2.0 * cross(omega, v) - cross(omega, cross(omega, r_vec));
 	}
 	vec3 dp = acc * rho * params.dt_s;
-	mom_x[g] += dp.x;
-	mom_y[g] += dp.y;
-	mom_z[g] += dp.z;
 	bodyf_x[g] = dp.x;
 	bodyf_y[g] = dp.y;
 	bodyf_z[g] = dp.z;

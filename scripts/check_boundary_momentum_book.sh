@@ -91,7 +91,8 @@ func _run(p_ghost: float) -> Dictionary:
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible"]:
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "speed",
+			"bodyf_x", "bodyf_y", "bodyf_z"]:
 		bufs[name] = _f32(_filled(tc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(tc * 3, 0.0), owned)
 	bufs["nbr"] = _i32(grid.neighbours, owned)
@@ -113,9 +114,12 @@ func _run(p_ghost: float) -> Dictionary:
 		owned.append(r)
 		bufs[String(key)] = r
 
-	# Air of that pressure holds this mass: a cell at P with zero density is not a state matter has.
+	# Air of that pressure holds this mass and this sound speed: a cell at P with zero density, or with
+	# no celerity, is not a state matter has.
 	var rho_air: float = P_IN / (LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * (T_C + LAPhysical.KELVIN_OFFSET))
-	for pair: Array in [["pressure", P_IN], ["temp", T_C], ["rho_bulk", rho_air]]:
+	var c_air: float = sqrt(LAPhysical.AIR_ADIABATIC_INDEX * LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK
+		* (T_C + LAPhysical.KELVIN_OFFSET))
+	for pair: Array in [["pressure", P_IN], ["temp", T_C], ["rho_bulk", rho_air], ["celerity", c_air]]:
 		var vals: PackedByteArray = _filled(tc, float(pair[1])).to_byte_array()
 		_rd.buffer_update(bufs[String(pair[0])], 0, vals.size(), vals)
 
@@ -234,8 +238,10 @@ if [ "$rc" -ne 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------------------------------
-# ARM TWO — the world the SIM seeds. Every wall is shut there, so the momentum ledger's boundary book
-# must read exactly zero on every axis; an absent reading is the fold unwired, not a zero.
+# ARM TWO — the world the SIM seeds. bnd_mom_* books the whole exchange with everything outside the
+# fluid, WALLS INCLUDED (the ground's normal force holds the ocean up), so the book is not zero there;
+# the rig's shut sub-arm above owns the exact-zero case. Here the fold must be PRESENT and FINITE —
+# an absent reading is the fold unwired, a non-finite one is the ledger poisoned.
 # ---------------------------------------------------------------------------------------------------
 SIM_FRAMES="${LA_BND_MOM_FRAMES:-20}"
 sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "$SIM_FRAMES" \
@@ -249,12 +255,9 @@ if [ -z "$reading" ] || printf '%s' "$reading" | grep -q '<ABSENT>'; then
   printf '%s\n' "$sim_out" | tail -20 >&2
   exit 2
 fi
-nonzero="$(printf '%s' "$reading" | tr -d '[] ' | tr ',' '\n' \
-  | grep -Evc '^(-?0(\.0+)?|0)$' || true)"
-if [ "${nonzero:-0}" -ne 0 ]; then
+if printf '%s' "$reading" | grep -qiE 'nan|inf|null|None'; then
   echo
-  echo "Every wall of the seeded world is shut, yet its momentum boundary book reads $reading —"
-  echo "momentum is being booked across a boundary that does not exist."
+  echo "The seeded world's momentum boundary book reads $reading — the fold is poisoned."
   exit 1
 fi
 echo "check_boundary_momentum_book: OK"

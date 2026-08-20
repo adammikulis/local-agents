@@ -436,6 +436,7 @@ func _seed_sea() -> void:
 			continue
 		if (_grid.cell_world_pos(c) - pivot).length_squared() <= sea_sq:
 			_h2o[c] = 1.0
+	LAFieldLithostaticSeed.displace_gas_from_water(self)
 
 # Athy pore fraction per cell (0 outside regolith), GPU-written and read back on the slow cadence.
 var _porosity: PackedFloat32Array = PackedFloat32Array()

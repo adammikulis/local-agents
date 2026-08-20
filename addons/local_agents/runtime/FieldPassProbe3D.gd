@@ -1,4 +1,4 @@
-class_name LAMaterialFieldPassProbe3D
+class_name LAFieldPassProbe3D
 extends RefCounted
 
 const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
@@ -47,7 +47,38 @@ func _on_pass(pass_index: int, pass_name: String) -> void:
 	# A NaN total is the reading, not a reason to stay silent.
 	print("PASS_PROBE=", JSON.stringify({
 		"step": _step, "pass": pass_name if pass_index >= 0 else "start",
-		"channel": _channel, "amount": amount if is_finite(amount) else String.num(amount)}))
+		"channel": _channel, "amount": amount if is_finite(amount) else String.num(amount),
+		"peak": _peak()}))
+
+
+## The cell where |channel| peaks, with the state that decides its dynamics.
+func _peak() -> Dictionary:
+	var one: PackedFloat32Array = _f._gpu.read_raw(_channel)
+	if one.size() != _f._cell_count:
+		return {}
+	var at: int = 0
+	var top: float = 0.0
+	for i in one.size():
+		var a: float = absf(one[i])
+		if a > top or (is_nan(one[i]) and not is_nan(top)):
+			top = a if is_finite(a) else NAN
+			at = i
+	var out: Dictionary = {"idx": at, "v": String.num(one[at])}
+	var nans: Dictionary = {}
+	for name in ["rho_bulk", "mom_x", "mom_y", "mom_z", "vel_y", "pressure", "celerity", "h2o",
+			"h_j_m3", "solid", "temp", "o2", "n2", "co2", "silicate", "h_sensible", "cap_sensible"]:
+		var b: PackedFloat32Array = _f._gpu.read_raw(String(name))
+		if b.size() != _f._cell_count:
+			continue
+		out[name] = String.num(b[at])
+		var n: int = 0
+		for x in b:
+			if not is_finite(x):
+				n += 1
+		if n > 0:
+			nans[name] = n
+	out["nans"] = nans
+	return out
 
 
 ## Mask-free matter in the channel, right now.

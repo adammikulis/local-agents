@@ -21,27 +21,18 @@ consume it with `--slice --slice-state FILE`, series-feed with `LA_SLICE_REPLAY=
 book exists (`BoundaryRows.BOOKED_SIGNED`), so the rim's reason for skipping the mom rows is gone: mark
 them `relax` in `TransportRecords`, and verify the rim's nudge lands in `bnd_mom_*` on the REPLAY arm.
 
-## 0. MOMENTUM RUNS AWAY TO NON-FINITE. THE SLICE IS THE TEST DOMAIN.
+## 0. MOMENTUM LANE — WHAT IS LEFT
 
-Same lane, second symptom: **identical-seed runs diverge on a clean tree.** Reproduce:
-`scripts/agent_harness.sh sim --frames 5 --report h2o_total` twice and diff — one key differs at 5
-frames and the whole report by 20. Transport, gravity, pressure and the reduce fold are
-order-independent by construction.
+`check_finite_channels` is green and wired into `lint`. Two symptoms remain:
 
-**Reproduce:** `LA_FINITE_FRAMES=20 scripts/check_finite_channels.sh` on `feature/momentum-advection`.
-The `nonfinite_solid`/`nonfinite_ground`/`nonfinite_air` rows place the non-finite population in OPEN
-cells; `mom_*` go first and `h_j_m3` follows. `LA_PASS_PROBE=mom_y LA_PASS_PROBE_STEPS=k` prints only
-its final sampled step's last two passes — the probe drops its other prints, which is its own bug.
+**Identical-seed runs diverge on a clean tree.** Reproduce:
+`scripts/agent_harness.sh sim --frames 5 --report h2o_total` twice and diff — `h2o_total` differs in
+the ninth digit and `pressure_audited` by a few cells, with the field finite throughout.
 
-`scripts/sim_run.sh --frames 10` also exits 122 with `PRESSURE_BROKEN`: while the field is finite the
-counters read 0 rock-on-rock, 0 open-standing-on-rock, 0 rock-over-void and 0 dry — only wet open-on-open
-remain; once the momentum NaN spreads, every class reads polluted.
-
-**Hunt it on a slice whose cells resolve the scale height, not on the planet box:**
-`scripts/agent_harness.sh sim --slice --slice-box "0,2439700,0,24,32,24,2500" --frames 20`.
-
-The gate is mutation-tested three ways and is **NOT wired into `lint`**. Wire it the moment it passes.
-`feature/momentum-advection` carries the work, declared in `docs/OPEN_BRANCHES.md`.
+**`scripts/sim_run.sh --frames 10` exits 122 with `PRESSURE_BROKEN`**, the DRY open-pair class
+carrying nearly the whole count and wet/rock/surface near zero. On the slice
+(`scripts/agent_harness.sh sim --slice --slice-box "0,2439700,0,24,32,24,2500" --frames 20`, finite)
+the cells flanking the wrap seam accumulate multiple fills of h2o.
 
 ## 4. Reduce the rest on the device
 

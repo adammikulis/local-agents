@@ -28,13 +28,15 @@ layout(set = 0, binding = 13, std430) restrict buffer Charge { float charge[]; }
 layout(set = 0, binding = 14, std430) restrict buffer SendQ  { float send_q[]; };
 // Flow resistance 0..1 per cell.
 layout(set = 0, binding = 10, std430) restrict readonly buffer Resist { float resist[]; };
-// What the flux runs down. Bound to `amount` when a record has no separate potential.
-layout(set = 0, binding = 11, std430) restrict readonly buffer Drive { float drive[]; };
+// What the flux runs down; `amount` when a record has no separate potential. No `restrict`: the PGF
+// rows bind the pressure buffer here, which PASS_ACOUSTIC writes through binding 16.
+layout(set = 0, binding = 11, std430) readonly buffer Drive { float drive[]; };
 // Whatever else the row's law reads per cell: conductivity for MODE_CONDUCT, cloud water for LAW_OHMIC.
 layout(set = 0, binding = 12, std430) restrict readonly buffer Aux { float aux[]; };
 
 layout(set = 0, binding = 15, std430) restrict readonly buffer TempBuf     { float temp[]; };
-layout(set = 0, binding = 16, std430) restrict readonly buffer PressureBuf { float pressure[]; };
+// Writable: PASS_ACOUSTIC advances it between substeps. Aliases Drive on the PGF rows.
+layout(set = 0, binding = 16, std430) buffer PressureBuf { float pressure[]; };
 layout(set = 0, binding = 17, std430) restrict readonly buffer PorosityBuf { float porosity[]; };
 layout(set = 0, binding = 18, std430) restrict readonly buffer GrainBuf    { float grain[]; };
 layout(set = 0, binding = 19, std430) restrict readonly buffer CO2Buf      { float co2[]; };
@@ -79,16 +81,18 @@ layout(set = 0, binding = 43, std430) restrict writeonly buffer Radiogenic { flo
 layout(set = 0, binding = 44, std430) restrict buffer LwEmis { float lw_emis[]; };
 layout(set = 0, binding = 45, std430) restrict buffer SwAbs { float sw_absorbed[]; };
 // Heat of the entry this row's substance sits in, and that entry's capacity, J/m^3 and J/m^3/K.
-layout(set = 0, binding = 46, std430) restrict readonly buffer HCarried { float h_carried[]; };
-layout(set = 0, binding = 47, std430) restrict readonly buffer CapSensible { float cap_sensible[]; };
+// Writable: a gather moves them with the matter, so the next row divides by the cell as it now is.
+layout(set = 0, binding = 46, std430) restrict buffer HCarried { float h_carried[]; };
+layout(set = 0, binding = 47, std430) restrict buffer CapSensible { float cap_sensible[]; };
 // What crossed an OPEN box edge this step, per interior cell: amount units in, and the joules riding along.
 layout(set = 0, binding = 48, std430) restrict buffer BndAmt { float bnd_amt[]; };
 layout(set = 0, binding = 49, std430) restrict buffer BndH { float bnd_h[]; };
 // The REPLAY relaxation rim: the driving ghost cell and the per-step nudge fraction; 0 = outside the rim.
 layout(set = 0, binding = 50, std430) restrict readonly buffer RimGhost { int rim_ghost[]; };
 layout(set = 0, binding = 51, std430) restrict readonly buffer RimW { float rim_w[]; };
-// Mass density per cell, kg/m^3: what a TF_VEL gather divides its momentum by.
-layout(set = 0, binding = 52, std430) restrict readonly buffer RhoBulk { float rho_bulk[]; };
+// Mass density per cell, kg/m^3. Writable: each mass row's gather moves its substance's mass out of
+// it, or momentum strands in a cell that empties.
+layout(set = 0, binding = 52, std430) restrict buffer RhoBulk { float rho_bulk[]; };
 // MASS MOVES WITH ITS MOMENTUM, exactly as with its heat: bulk momentum advection emerges from the
 // mass fluxes. No `restrict`: a momentum row's own channel is one of these three buffers.
 layout(set = 0, binding = 53, std430) buffer MomX { float mom_x[]; };
@@ -97,6 +101,15 @@ layout(set = 0, binding = 55, std430) buffer MomZ { float mom_z[]; };
 layout(set = 0, binding = 56, std430) restrict buffer SendMX { float send_mx[]; };
 layout(set = 0, binding = 57, std430) restrict buffer SendMY { float send_my[]; };
 layout(set = 0, binding = 58, std430) restrict buffer SendMZ { float send_mz[]; };
+// The mixture's own sound speed, m/s, off state_derive's EOS compressibility sum.
+layout(set = 0, binding = 59, std430) restrict readonly buffer CelerityBuf { float cel_m_s[]; };
+// |v| refreshed by the last momentum gather, so the drained CFL peak is next step's read.
+layout(set = 0, binding = 60, std430) restrict buffer SpeedBuf { float speed[]; };
+// The step's body impulse per cell, kg/(m^2 s), booked by state_derive; PASS_ACOUSTIC_APPLY deposits
+// it a substep's share at a time, beside the pressure gradient it stands against.
+layout(set = 0, binding = 61, std430) restrict readonly buffer BodyFX { float bodyf_x[]; };
+layout(set = 0, binding = 62, std430) restrict readonly buffer BodyFY { float bodyf_y[]; };
+layout(set = 0, binding = 63, std430) restrict readonly buffer BodyFZ { float bodyf_z[]; };
 
 #include "march.glsli"
 
@@ -112,7 +125,6 @@ layout(push_constant, std430) uniform Params {
 	float repose_tan;     // 0 = a fluid, which levels freely
 	float min_amount;     // below this a cell is empty and does not donate
 	float density;        // kg/m^3 of the substance this record carries
-	float max_fill;       // the amount at which a cell is full
 	float fluid_rho;      // kg/m^3 of the fluid the row moves THROUGH
 	float fluid_visc;     // Pa s of that fluid
 	float grain_d;        // m, the row's own grain diameter where the cell declares none
@@ -132,6 +144,8 @@ layout(push_constant, std430) uniform Params {
 	float sub_cap_j_m3k;
 	uint total_count;     // interior cells plus ghost tail cells; pass 0 runs the ghosts too
 	uint axis;            // which momentum component a signed PGF row carries: 0=x 1=y 2=z
+	float substep_frac;   // this substep's share of the field step, 1/n
+	float rho_floor;      // kg/m^3 of MIN_AMOUNT of air: below it a cell is empty and at rest
 } params;
 
 // TransportPass's PASS_* tags past outflow (0) and gather (1).
@@ -139,6 +153,8 @@ const uint PASS_GRAIN = 2u;
 const uint PASS_LIST_RESET = 3u;
 const uint PASS_LIST_APPEND = 4u;
 const uint PASS_LIST_ARGS = 5u;
+const uint PASS_ACOUSTIC = 6u;
+const uint PASS_ACOUSTIC_APPLY = 7u;
 
 const float KELVIN = 273.15;                        // LAPhysical.KELVIN_OFFSET
 const float STEFAN = 5.670374419e-8;                // LAPhysical.STEFAN_BOLTZMANN
@@ -208,10 +224,17 @@ float air_rho(uint c) {
 	return max(pressure[c], 0.0) / (DRY_AIR_R * t_k(c));
 }
 
-// Acoustic impedance rho*c, kg/(m^2 s) — the linearized Riemann face pressure's weight (Toro ch. 9).
+// Acoustic impedance rho*c, kg/(m^2 s) — the linearized Riemann face pressure's weight (Toro ch. 9),
+// with each cell's own mixture celerity; a vacuum's is nothing.
 // LA_APPROX: acoustic_face_pressure
 float impedance(uint c) {
-	return max(rho_bulk[c], 0.0) * sqrt(AIR_GAMMA * DRY_AIR_R * t_k(c));
+	return max(rho_bulk[c], 0.0) * max(cel_m_s[c], 0.0);
+}
+
+// The cell's pressure extrapolated to face d along its own hydrostatic gradient, so an equilibrium
+// column presents ONE pressure to the shared face (hydrostatic reconstruction, Audusse 2004).
+float face_p(uint c, uint d) {
+	return pressure[c] + 0.5 * params.cell_m * max(rho_bulk[c], 0.0) * dot(g_at(c), face_normal(d));
 }
 
 // The cell's h2o split by the shares the enthalpy ladder derived, as volume fractions of the cell.
@@ -344,10 +367,13 @@ float mobility_at(uint c, float amt) {
 		return g * (amt * L) * dt * dt / (L * L);
 	}
 	if (params.law == LAW_FILM) {
-		// Nusselt falling film: K = rho g h^2 / (3 mu), and mu climbs as the melt crystallises.
+		// Nusselt falling film: K = rho g h^2 / (3 mu), and mu climbs as the melt crystallises. The
+		// laminar form holds only while drag beats inertia; past that the flow is its own gravity wave.
 		float hh = amt * L;
 		float mu = max(melt_viscosity(c), 1.0e-12);
-		return params.density * g * hh * hh * dt / (3.0 * mu * L);
+		float film = params.density * g * hh * hh * dt / (3.0 * mu * L);
+		float wave = g * hh * dt * dt / (L * L);
+		return min(film, wave);
 	}
 	if (params.law == LAW_DARCY) {
 		return 0.0;   // a bond property, not a cell property — see darcy_mobility
@@ -585,8 +611,7 @@ float solar_incident(uint c) {
 	return beam;
 }
 
-// Longwave arriving at `c` through face `d`, J/m^3: every cell on that grid line, attenuated by the cells
-// between; what the far end does not take leaves the box for space.
+// Longwave arriving at `c` through face `d`, J/m^3: the grid line behind it, attenuated in between.
 // LA_APPROX: band_averaged_transmittance
 float longwave_incident(uint c, uint d) {
 	uint back = d ^ 1u;
@@ -606,17 +631,18 @@ float longwave_incident(uint c, uint d) {
 
 // --- THE GATHER ---------------------------------------------------------------------------------------
 
-// Driving potential across face d, metres of head. A diffusing quantity does not fall, and a row that
-// names its own drive already has gravity inside it, so both drop the elevation term.
+// Piezometric head at face d, metres — drive head plus, for the HYDRAULIC laws only, the elevation of
+// the crossing and the pressure head p/(rho g) (Bear 1972); diffusion mixes down the drive alone.
 float potential(uint c, uint d) {
 	vec3 gv = g_at(c);
 	float gmag = length(gv);
-	bool level = params.mode == MODE_DIFFUSE || params.mode == MODE_CONDUCT
-		|| params.mode == MODE_RADIATE || (params.flags & TF_DRIVEN) != 0u;
-	if (level || gmag <= 0.0) {
+	bool hydraulic = params.law == LAW_SHALLOW || params.law == LAW_FILM || params.law == LAW_DARCY;
+	if (!hydraulic || (params.flags & TF_DRIVEN) != 0u || gmag <= 0.0) {
 		return drive[c] * params.cell_m;
 	}
-	return drive[c] * params.cell_m + params.cell_m * dot(-gv / gmag, face_normal(d));
+	float z = 0.5 * params.cell_m * dot(gv / gmag, face_normal(d));
+	float p_head = params.density > 0.0 ? max(pressure[c], 0.0) / (params.density * gmag) : 0.0;
+	return drive[c] * params.cell_m + z + p_head;
 }
 
 // PASS_GRAIN: where a cell's loose mineral grains are — carried by water, carried by air, or on the bed.
@@ -713,6 +739,56 @@ void main() {
 		}
 		return;
 	}
+	// The split-explicit acoustic half-step, once per momentum substep: dp = -rho c^2 div(u*) dt, u*
+	// the Riemann face velocity. Two passes, or a cell reads a pressure another is writing.
+	// LA_APPROX: split_explicit_acoustics
+	if (params.pass_id == PASS_ACOUSTIC) {
+		if (gidx >= params.cell_count) {
+			return;
+		}
+		uint abase = gidx * N_SLOTS;
+		send[abase] = 0.0;
+		if (solid[gidx] != 0.0) {
+			return;
+		}
+		float ks = max(rho_bulk[gidx], 0.0) * cel_m_s[gidx] * cel_m_s[gidx];
+		if (ks <= 0.0) {
+			return;
+		}
+		float za = impedance(gidx);
+		float div_u = 0.0;
+		for (uint d = 0u; d < N_SLOTS; ++d) {
+			int inb = nbr[abase + d];
+			if (inb < 0) { inb = ghost[abase + d]; }
+			if (inb < 0 || solid[inb] != 0.0) {
+				continue;
+			}
+			uint nb = uint(inb);
+			float zb = impedance(nb);
+			float zs = za + zb;
+			if (zs <= 0.0) {
+				continue;
+			}
+			vec3 nrm = face_normal(d);
+			float ua = dot(vel_at(gidx), nrm);
+			float ub = dot(vel_at(nb), nrm);
+			div_u += (za * ua + zb * ub + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / zs;
+		}
+		send[abase] = -ks * div_u * params.dt_s / params.cell_m;
+		return;
+	}
+	if (params.pass_id == PASS_ACOUSTIC_APPLY) {
+		if (gidx < params.cell_count) {
+			// The exact dp/dt = -rho c^2 div(u) decays toward zero and never crosses it; the linear
+			// step can, and la_eos_p's own domain is p >= 0, so the predictor keeps to it.
+			pressure[gidx] = max(pressure[gidx] + send[gidx * N_SLOTS], 0.0);
+			// This substep's share of the body impulse, beside the pressure gradient it stands against.
+			mom_x[gidx] += bodyf_x[gidx] * params.substep_frac;
+			mom_y[gidx] += bodyf_y[gidx] * params.substep_frac;
+			mom_z[gidx] += bodyf_z[gidx] * params.substep_frac;
+		}
+		return;
+	}
 	bool listed = (params.flags & TF_LISTED) != 0u;
 	if (listed) {
 		// The dispatch is indirect over ceil(count/64) groups, so the tail of the last group is past the end.
@@ -747,8 +823,7 @@ void main() {
 			send_my[base + d] = 0.0;
 			send_mz[base + d] = 0.0;
 		}
-		// DETECTORS ONLY, stamped in pass 0: nothing writes `charge` in this dispatch, so every march
-		// reads the one pre-drain state the OHMIC mobility below acts on.
+		// DETECTORS ONLY, stamped in pass 0 off the one pre-drain state the OHMIC mobility acts on.
 		if ((params.flags & TF_EFIELD) != 0u && gidx < params.cell_count) {
 			float e_here = column_field(gidx);
 			float thr = rrea_threshold(gidx);
@@ -758,8 +833,7 @@ void main() {
 		if (solid[gidx] != 0.0 && blocks_solid) {
 			return;
 		}
-		// MODE_RADIATE emits through every face it has, including the box edge, where nobody gathers it
-		// and the emission leaves for space.
+		// MODE_RADIATE emits through every face; at the box edge nobody gathers and it leaves for space.
 		if (params.mode == MODE_RADIATE) {
 			float eps = longwave_emissivity(gidx);
 			lw_emis[gidx] = eps;
@@ -771,8 +845,7 @@ void main() {
 			}
 			return;
 		}
-		// SEPARATION is a transfer between this cell and the one below it, not a flux down a gradient: the
-		// donor keeps the light phase's charge and sends the heavy phase's down, so the ledger closes.
+		// SEPARATION: the donor keeps the light phase's charge and sends the heavy phase's down.
 		if (params.mode == MODE_SEPARATE) {
 			vec3 gv = g_at(gidx);
 			if (length(gv) <= 0.0) {
@@ -798,8 +871,7 @@ void main() {
 		// A TF_FRACTION row moves only the phase share `frac` names; the rest of the channel stays put.
 		float share = (params.flags & TF_FRACTION) != 0u ? clamp(frac[gidx], 0.0, 1.0) : 1.0;
 		float remaining = amount[gidx] * share;
-		// No floor on a SIGNED row. Momentum is made by a pressure gradient in a cell that has none, so a
-		// donor floor there is a cell that can never start moving.
+		// No floor on a SIGNED row: a donor floor there is a cell that can never start moving.
 		if (!is_signed && remaining < params.min_amount) {
 			return;
 		}
@@ -816,14 +888,15 @@ void main() {
 			}
 		}
 		float q_per_unit = carries ? charge[gidx] / amount[gidx] : 0.0;
-		// kg of this substance one unit of fill carries, over the cell's whole mass: its momentum share.
-		float m_share = (carries && rho_bulk[gidx] > 0.0) ? params.density / rho_bulk[gidx] : 0.0;
+		// The flux's momentum share: its mass over the cell's, floored by the substance's own mass so
+		// a stale denominator cannot export more momentum than the cell holds.
+		float denom_m = max(max(rho_bulk[gidx], 0.0), params.density * amount[gidx]);
+		float m_share = (carries && denom_m > 0.0) ? params.density / denom_m : 0.0;
 		float open = 1.0 - clamp(resist[gidx], 0.0, 1.0);
 		if (open <= 0.0) {
 			return;
 		}
 		float mob = mobility_at(gidx, abs(remaining));
-		vec3 v_here = transport_velocity(gidx);
 
 		for (uint d = 0u; d < N_SLOTS; ++d) {
 			if (!is_signed && remaining < params.min_amount) {
@@ -845,17 +918,27 @@ void main() {
 					continue;
 				}
 				vec3 nrm = face_normal(d);
+				float ni_axis = params.axis == 0u ? nrm.x : (params.axis == 1u ? nrm.y : nrm.z);
+				// This component's pressure flux through an off-axis face is zero by construction.
+				if (params.law == LAW_PGF && ni_axis == 0.0) {
+					continue;
+				}
 				float sflux = 0.0;
 				if (params.law == LAW_PGF) {
-					// Pressure's momentum flux; over six faces, -dp/dx_i. A wall: no penetration. An open
-					// face takes the impedance-weighted acoustic p*, which tends to a vacuum side's zero:
-					// free expansion accelerates the donor and momentum travels with the mass.
-					float p_face = drive[gidx];
+					// Pressure's momentum flux. A wall meets the cell's own reconstructed face pressure;
+					// an open face the linearized Riemann p*, whose velocity-jump term dissipates.
+					float p_face = face_p(gidx, d);
 					if (!wall) {
 						float za = impedance(gidx);
 						float zb = impedance(nb);
 						float zs = za + zb;
-						p_face = zs > 0.0 ? (zb * drive[gidx] + za * drive[nb]) / zs : 0.0;
+						if (zs > 0.0) {
+							float ua = dot(vel_at(gidx), nrm);
+							float ub = dot(vel_at(nb), nrm);
+							p_face = (zb * p_face + za * face_p(nb, d ^ 1u) + za * zb * (ua - ub)) / zs;
+						} else {
+							p_face = 0.0;
+						}
 					}
 					float ni = params.axis == 0u ? nrm.x : (params.axis == 1u ? nrm.y : nrm.z);
 					sflux = p_face * ni * params.dt_s / params.cell_m;
@@ -880,20 +963,21 @@ void main() {
 				send[base + d] = sflux;
 				continue;
 			}
+			bool advective = params.mode == MODE_ADVECT || params.mode == MODE_BOTH;
 			float drop = potential(gidx, d) - potential(nb, d ^ 1u);
-			if (drop <= 0.0) {
-				continue;
-			}
 			// A THRESHOLD GRADIENT. Granular material holds a slope up to its angle of repose; a column of
 			// gas holds a temperature gradient up to its adiabat. Same construct, one cell of run either way.
 			if (params.repose_tan > 0.0) {
 				drop -= params.repose_tan * params.cell_m;
-				if (drop <= 0.0) {
-					continue;
-				}
 			}
-			float mob_face = through_pores ? darcy_mobility(gidx, nb) : mob;
-			float flow = drop * mob_face * open / params.cell_m;
+			if (drop <= 0.0 && !advective && params.mode != MODE_CONDUCT) {
+				continue;
+			}
+			float flow = 0.0;
+			if (drop > 0.0) {
+				float mob_face = through_pores ? darcy_mobility(gidx, nb) : mob;
+				flow = drop * mob_face * open / params.cell_m;
+			}
 			if (params.mode == MODE_CONDUCT) {
 				// Series half-cells, so the interface conductivity is the harmonic mean, and
 				// dh = lambda_i * (T_here - T_nb) * dt / dx^2 off `drive`: `drop` carries a spare cell_m.
@@ -903,18 +987,24 @@ void main() {
 				flow = lam * (drive[gidx] - drive[nb]) * params.dt_s
 					/ (params.cell_m * params.cell_m);
 			}
-
-			if (params.mode == MODE_ADVECT || params.mode == MODE_BOTH) {
-				// Outgoing advective flux; the neighbour's pass handles the other direction.
-				float vn = dot(v_here, face_normal(d));
+			if (advective) {
+				// Outgoing advective flux at the FACE velocity, the linearized Riemann u*: air falling
+				// onto water compresses against it rather than entering it. Settling slip rides on top.
+				vec3 nrm_a = face_normal(d);
+				float ua = dot(vel_at(gidx), nrm_a);
+				float ub = dot(vel_at(nb), nrm_a);
+				float za = impedance(gidx);
+				float zb = impedance(nb);
+				float zs = za + zb;
+				float vn = zs > 0.0
+					? (za * ua + zb * ub + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / zs
+					: ua;
+				vn += dot(transport_velocity(gidx) - vel_at(gidx), nrm_a);
 				if (vn > 0.0) {
 					flow += remaining * vn * params.dt_s / params.cell_m;
-				} else if (params.mode == MODE_ADVECT) {
-					continue;
 				}
 			}
-			float room = max(params.max_fill - amount[nb], 0.0);
-			flow = clamp(flow, 0.0, min(remaining, room));
+			flow = clamp(flow, 0.0, remaining);
 			if (flow <= 0.0) {
 				continue;
 			}
@@ -953,8 +1043,7 @@ void main() {
 		if (edge) {
 			inb = ghost[base + d];
 		}
-		// A wall is a boundary of the fluid: the normal push a signed row sent into it is booked, so the
-		// bnd book is the whole exchange with everything outside the fluid.
+		// A wall bounds the fluid: the signed push into it is booked as boundary exchange.
 		if (inb < 0) {
 			if (is_signed) {
 				bnd_amt[gidx] -= send[base + d];
@@ -1004,12 +1093,10 @@ void main() {
 		rad_absorbed[gidx] = gained;
 		rad_emitted[gidx] = lost;
 	}
-	// No floor. Pass 0 clamps every outflow to what the cell holds, so a negative here is a defect
-	// and clamping it up would create the mass it is short of.
+	// No floor: clamping a negative up here would create the mass it is short of.
 	float was = amount[gidx];
 	amount[gidx] = was - lost + gained;
-	// The cemented AMOUNT cannot change by transport — rock does not flow, and what arrives is loose — so
-	// the cemented SHARE falls by exactly the ratio the total grew.
+	// What arrives is loose, so the cemented SHARE falls by exactly the ratio the total grew.
 	if ((params.flags & TF_DILUTE) != 0u && amount[gidx] > was && was > 0.0) {
 		cement[gidx] = clamp(cement[gidx] * was / amount[gidx], 0.0, 1.0);
 	}
@@ -1019,6 +1106,21 @@ void main() {
 		mom_x[gidx] = mom_x[gidx] - lost_m.x + gained_m.x;
 		mom_y[gidx] = mom_y[gidx] - lost_m.y + gained_m.y;
 		mom_z[gidx] = mom_z[gidx] - lost_m.z + gained_m.z;
+		// The derived sums follow their inputs: moved matter takes its mass, entry heat and sensible
+		// capacity with it, and the pressure answers the arrived mass at once (dp = K_s da).
+		if (params.density > 0.0) {
+			float da = gained - lost;
+			rho_bulk[gidx] = max(rho_bulk[gidx] + da * params.density, 0.0);
+			h_carried[gidx] += gained_h - lost_h;
+			if (params.sub_cap_j_m3k > 0.0) {
+				cap_sensible[gidx] = max(cap_sensible[gidx] + da * params.sub_cap_j_m3k, 0.0);
+			}
+			if (solid[gidx] == 0.0) {
+				// dp = K_s da: the MIXTURE's bulk modulus rho c^2 times the volume share that arrived.
+				pressure[gidx] = max(pressure[gidx]
+					+ rho_bulk[gidx] * cel_m_s[gidx] * cel_m_s[gidx] * da, 0.0);
+			}
+		}
 	}
 	// LA_APPROX: boundary_relaxation_zone
 	if ((params.flags & TF_RELAX) != 0u && rim_w[gidx] > 0.0
@@ -1048,6 +1150,13 @@ void main() {
 				if ((params.flags & TF_DILUTE) != 0u && dq > 0.0 && held > 0.0) {
 					cement[gidx] = clamp(cement[gidx] * held / amount[gidx], 0.0, 1.0);
 				}
+				if (params.density > 0.0) {
+					rho_bulk[gidx] = max(rho_bulk[gidx] + dq * params.density, 0.0);
+					h_carried[gidx] += dh;
+					if (params.sub_cap_j_m3k > 0.0) {
+						cap_sensible[gidx] = max(cap_sensible[gidx] + dq * params.sub_cap_j_m3k, 0.0);
+					}
+				}
 				bnd_amt[gidx] += dq;
 				bnd_h[gidx] += dh;
 			}
@@ -1056,14 +1165,19 @@ void main() {
 	// v = p/rho off the momentum this gather settled, rim nudge included, so the next substep advects
 	// the new field.
 	if ((params.flags & TF_VEL) != 0u) {
+		// Below the donation floor the cell is empty and at rest: a momentum residue over vanishing
+		// mass is any velocity at all.
 		float rb = rho_bulk[gidx];
-		float vc = rb > 0.0 ? amount[gidx] / rb : 0.0;
+		float vc = rb > params.rho_floor ? amount[gidx] / rb : 0.0;
 		if (params.axis == 0u) {
 			vel_x[gidx] = vc;
 		} else if (params.axis == 1u) {
 			vel_y[gidx] = vc;
 		} else {
 			vel_z[gidx] = vc;
+			// The z gather runs last, so the drained CFL peak reads the step's final speed, not a
+			// one-step-stale one.
+			speed[gidx] = length(vel_at(gidx));
 		}
 	}
 	if ((params.flags & TF_RADIOGENIC) != 0u) {

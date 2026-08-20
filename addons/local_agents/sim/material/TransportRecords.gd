@@ -30,9 +30,6 @@ static func rows() -> Array:
 		{"channel": "h2o", "substance": "h2o", "mode": POTENTIAL, "law": Law.DARCY,
 			"fluid": Fluid.WATER, "frac": "h2o_liquid"},
 
-		{"channel": "h2o", "substance": "h2o", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"frac": "h2o_vapour", "relax": true},
-
 		# One silicate channel, four laws. Cemented rock has no row: that is what being rock means.
 		# `list` dispatches this row over the compacted melt list — O(molten) rather than O(grid).
 		{"channel": "silicate", "substance": "silicate", "mode": POTENTIAL, "law": Law.FILM,
@@ -47,13 +44,6 @@ static func rows() -> Array:
 		{"channel": "silicate", "substance": "silicate", "mode": POTENTIAL, "law": Law.SHALLOW,
 			"repose_tan": LAPhysical.REPOSE_TAN_DRY_GRANULAR,
 			"frac": "silicate_bed", "dilute": true},
-
-		{"channel": "o2", "substance": "o2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"relax": true},
-		{"channel": "co2", "substance": "co2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"relax": true},
-		{"channel": "n2", "substance": "n2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"relax": true},
 
 		{"channel": "fungus", "substance": "cellulose", "mode": ADVECT, "fluid": Fluid.AIR,
 			"relax": true},
@@ -72,6 +62,21 @@ static func rows() -> Array:
 			"drive": "temp", "aux": "conductivity", "radiogenic": true, "relax": true},
 
 		{"channel": "h_j_m3", "substance": "", "mode": RADIATE},
+
+		# THE ACOUSTIC GROUP: compressible matter and its momentum advance together on the acoustic
+		# substep — a mass flux at frame cadence against a stiff equation of state has loop gain c dt/L.
+		{"channel": "h2o", "substance": "h2o", "mode": ADVECT, "fluid": Fluid.WATER,
+			"frac": "h2o_liquid", "acoustic": true},
+
+		{"channel": "h2o", "substance": "h2o", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"frac": "h2o_vapour", "relax": true, "acoustic": true},
+
+		{"channel": "o2", "substance": "o2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"relax": true, "acoustic": true},
+		{"channel": "co2", "substance": "co2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"relax": true, "acoustic": true},
+		{"channel": "n2", "substance": "n2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"relax": true, "acoustic": true},
 
 		# -grad(p) alone: bulk momentum advection EMERGES from the mass fluxes, each of which carries
 		# the donor's momentum share exactly as it carries heat and charge.
@@ -101,6 +106,8 @@ static func lists() -> Array:
 		# STRIKE gives a bolt its position without anything walking the grid. No halo: a flash is where it
 		# struck. Built before the rows run, so the list carries the previous step's strikes.
 		{"label": "strike", "prim": "strike", "halo": false, "emit_idx": true},
+		# WHERE the non-finite conserved values sit, as indices: the finite gate's localizer.
+		{"label": "nonfinite", "prim": "nonfinite", "halo": false, "emit_idx": true},
 	]
 
 
@@ -130,9 +137,3 @@ static func channels() -> PackedStringArray:
 	return out
 
 
-## Amount at which a cell is full: mol/m^3 of the pure substance.
-static func max_fill(substance: String) -> float:
-	var s: Dictionary = LASubstances.table().get(substance, {})
-	var rho: float = float(s.get("density", 0.0))
-	var m: float = float(s.get("molar_mass", 0.0))
-	return (rho / m) if (rho > 0.0 and m > 0.0) else 0.0

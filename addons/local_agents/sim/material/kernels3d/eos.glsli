@@ -13,9 +13,11 @@ float la_eos_p(float vol, float a_gas_rt, float b_vol, float c_comp, float p_std
 		float room = vol - b_vol;
 		return room > 0.0 ? a_gas_rt / room : 0.0;
 	}
-	// No gas: the condensed phases alone are squeezed into the cell.
+	// No gas: the condensed phases alone are squeezed into the cell. A cell they underfill holds them
+	// beside void at zero stress — liquid under tension cavitates rather than stretching to fill.
 	if (a_gas_rt <= 0.0) {
-		return p_std + (b_vol - vol) / c_comp;
+		float squeezed = p_std + (b_vol - vol) / c_comp;
+		return squeezed > 0.0 ? squeezed : 0.0;
 	}
 	float k = vol - b_vol - c_comp * p_std;
 	return (sqrt(k * k + 4.0 * c_comp * a_gas_rt) - k) / (2.0 * c_comp);

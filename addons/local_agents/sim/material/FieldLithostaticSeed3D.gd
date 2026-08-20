@@ -85,3 +85,16 @@ static func clear_gas_in_rock(field) -> void:
 		field._o2[c] = 0.0
 		field._co2[c] = 0.0
 		field._n2[c] = 0.0
+
+
+## POURED WATER DISPLACES THE GAS: liquid holding an atmosphere's worth of gas in no free volume is
+## a pressure bomb, not a sea.
+static func displace_gas_from_water(field) -> void:
+	if field == null or field._h2o.size() != field._cell_count:
+		return
+	for c in field._cell_count:
+		var room: float = clampf(1.0 - field._h2o[c], 0.0, 1.0)
+		if room < 1.0:
+			field._o2[c] *= room
+			field._co2[c] *= room
+			field._n2[c] *= room
