@@ -62,7 +62,6 @@ The gate is mutation-tested three ways and is **NOT wired into `lint`**. Wire it
 `ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and the report sweeps
 already use it. Left:
 
-- `MaterialFieldPhotoStats3D`.
 - `FieldPressureAudit3D`, `MaterialFieldMomentumLedger3D`.
 - `clim_alt_min` (per-altitude-band minima above the sea shell) needs `sea_radius` on the device: a static
   row cannot carry an instance value, so give `MaterialSphereGPU3D._ctx` a setter like `set_sun_dir` and
