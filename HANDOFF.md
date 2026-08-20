@@ -14,23 +14,14 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 1. FEED THE OPEN BOUNDARY A REAL EXTERIOR, AND A SLICE BECOMES TESTABLE. TAKE THIS FIRST.
+## 1. The REPLAY rim skips the momentum rows
 
-The seam is `LAFieldBoundary3D` (SHUT/WRAP/CONSTANT/REPLAY per face; node meta -> project setting ->
-`LA_BOUNDARY_FACES`); CONSTANT and REPLAY refuse to run without a supplied state. What is left:
+The slice runs (`scripts/sim_run.sh --slice`; record a global run's exterior with `--slice-capture FILE`,
+consume it with `--slice --slice-state FILE`, series-feed with `LA_SLICE_REPLAY=1`). Momentum's boundary
+book exists (`BoundaryRows.BOOKED_SIGNED`), so the rim's reason for skipping the mom rows is gone: mark
+them `relax` in `TransportRecords`, and verify the rim's nudge lands in `bnd_mom_*` on the REPLAY arm.
 
-- **The capture pipeline.** Store a global run's drain as per-face states plus a time series, and feed
-  `LAFieldBoundary3D.replay(face, state)` per step. One stored global run drives many slice runs.
-- **One-way nesting reflects waves inward near the edge.** A relaxation zone is the standard answer and is
-  an approximation, so it takes a row and an `LA_APPROX` marker.
-- **Leave global, each cheap and none local:** the deep heat flux on the bottom face, without which no magma
-  arrives from below; the solved potential sampled in, nearly uniform over a thin patch.
-
-**Why it unblocks testing:** not speed at equal cells, but a SMALL SUFFICIENT domain. At the cell size a
-whole planet forces, rain and eruptions may not be reachable at all. A slice with a declared boundary makes
-"moist convection precipitates" and "overpressure erupts" assertions a gate can make.
-
-## 0. MOMENTUM RUNS AWAY TO NON-FINITE. DOWNSTREAM OF ITEM 1; DO NOT START IT FIRST.
+## 0. MOMENTUM RUNS AWAY TO NON-FINITE. THE SLICE IS THE TEST DOMAIN.
 
 Same lane, second symptom: **identical-seed runs diverge on a clean tree.** Reproduce:
 `scripts/agent_harness.sh sim --frames 5 --report h2o_total` twice and diff — one key differs at 5

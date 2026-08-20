@@ -30,6 +30,7 @@ const uint MODE_RELAX = 4u;
 const uint MODE_GRADIENT = 5u;
 const uint MODE_RESIDUAL = 6u;
 const uint MODE_FIELD_STATS = 7u;
+const uint MODE_MONOPOLE = 8u;
 
 const uint FLAG_BOUNDARY = 1u;
 const uint FLAG_COLOUR = 2u;
@@ -45,6 +46,13 @@ layout(push_constant, std430) uniform Params {
 	float g_si;       // LAPhysical.GRAVITATIONAL_CONSTANT
 	uint nx;          // cells along x
 	uint nxny;        // cells per z layer
+	// MODE_MONOPOLE only: the DECLARED body's centre, radius and mass. A slice is a partial slab, so its
+	// own mass is not the field's source and Poisson is never relaxed over it.
+	float mono_cx;
+	float mono_cy;
+	float mono_cz;
+	float mono_r;     // declared body radius, m
+	float mono_m;     // declared body mass, kg
 } params;
 
 shared float s_red[64];
@@ -234,6 +242,35 @@ void mode_residual(uint gidx, bool live) {
 	}
 }
 
+// The declared body's analytic field: g = -G M(<r) r_hat / r^2, M(<r) the shell theorem inside a uniform
+// body. Writes the same g_field and the same mean-|g| partials the Poisson gradient writes.
+// LA_APPROX: slice_monopole_gravity
+void mode_monopole(uint gidx, bool live) {
+	float mag = 0.0;
+	if (live) {
+		vec3 rv = pos_at(gidx) - vec3(params.mono_cx, params.mono_cy, params.mono_cz);
+		float r = length(rv);
+		vec3 g = vec3(0.0);
+		if (r > 0.0 && params.mono_r > 0.0) {
+			float frac = min(r / params.mono_r, 1.0);
+			float m_eff = params.mono_m * frac * frac * frac;
+			mag = params.g_si * m_eff / (r * r);
+			g = rv * (-mag / r);
+		}
+		g_field[gidx * 3u] = g.x;
+		g_field[gidx * 3u + 1u] = g.y;
+		g_field[gidx * 3u + 2u] = g.z;
+	}
+	float acc = wg_sum(mag);
+	float hits = wg_sum(mag > 0.0 ? 1.0 : 0.0);
+	if (gl_LocalInvocationID.x == 0u) {
+		uint b = gl_WorkGroupID.x * PART_STRIDE;
+		partials[b + 4u] = acc;
+		partials[b + 5u] = hits;
+		partials[b + 8u] = 0.0;
+	}
+}
+
 // One workgroup: the field readings the drain publishes.
 void mode_field_stats() {
 	uint t = gl_LocalInvocationID.x;
@@ -292,6 +329,9 @@ void main() {
 			return;
 		case MODE_FIELD_STATS:
 			mode_field_stats();
+			return;
+		case MODE_MONOPOLE:
+			mode_monopole(gidx, live);
 			return;
 	}
 }

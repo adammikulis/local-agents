@@ -17,7 +17,7 @@ const PART_STRIDE: int = 9
 ## gravity_poisson.glsl `moments`: 0 mass · 1..3 centre of mass · 4 mean |g| · 5 residual · 6 Gauss ratio.
 const MOMENT_SLOTS: int = 7
 const GROUP: int = 64
-const PC_BYTES: int = 32
+const PC_BYTES: int = 52
 
 const MODE_FLAGS: int = 0
 const MODE_DENSITY: int = 1
@@ -27,6 +27,7 @@ const MODE_RELAX: int = 4
 const MODE_GRADIENT: int = 5
 const MODE_RESIDUAL: int = 6
 const MODE_FIELD_STATS: int = 7
+const MODE_MONOPOLE: int = 8
 
 const PHI: String = "grav_phi"
 const DENSITY: String = "grav_density"
@@ -48,6 +49,8 @@ var _mirror: PackedFloat32Array = PackedFloat32Array()
 var _mean_g: float = 0.0
 var _residual_rel: float = INF          # until a solve has been drained, the field is not answerable
 var _failed_announced: bool = false
+## SLICE: centre xyz, radius, mass of the declared body. Empty = solve Poisson from the grid's own mass.
+var _mono: PackedFloat32Array = PackedFloat32Array()
 
 
 func _buffers(cc: int) -> Dictionary:
@@ -126,6 +129,9 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 				+ "`above`/`below` read in the tree points nowhere. Usual cause: gravity_poisson.glsl was "
 				+ "never imported — run `godot --headless --path . --import` in this worktree.")
 		return
+	# The declared-monopole field is static: written once at the seed, never re-solved.
+	if not _mono.is_empty():
+		return
 	var step: int = int(_ctx_num(ctx, "step_index"))
 	if step % SOLVE_EVERY != 0:
 		return
@@ -143,6 +149,23 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 			_run(rd, cl, MODE_RELAX, colour, cc, cell_m, groups)
 	_run(rd, cl, MODE_GRADIENT, 0, cc, cell_m, groups)
 	_run(rd, cl, MODE_RESIDUAL, 0, cc, cell_m, groups)
+	_run(rd, cl, MODE_FIELD_STATS, 0, cc, cell_m, 1)
+	_solves += 1
+	_read_due = true
+
+
+## SLICE ONLY: the declared body the analytic field points at, set before the seed dispatch.
+func set_monopole(centre: Vector3, r_body: float, m_kg: float) -> void:
+	_mono = PackedFloat32Array([centre.x, centre.y, centre.z, r_body, m_kg])
+
+
+## SLICE ONLY, once at the seed: write the declared body's monopole and its mean-|g| stats.
+func dispatch_monopole(rd: RenderingDevice, cl: int, cc: int, cell_m: float, groups: int) -> void:
+	if not _dispatchable() or not _set.is_valid() or _mono.is_empty():
+		return
+	rd.compute_list_bind_compute_pipeline(cl, _pipe)
+	rd.compute_list_bind_uniform_set(cl, _set, 0)
+	_run(rd, cl, MODE_MONOPOLE, 0, cc, cell_m, groups)
 	_run(rd, cl, MODE_FIELD_STATS, 0, cc, cell_m, 1)
 	_solves += 1
 	_read_due = true
@@ -167,6 +190,8 @@ func _push(mode: int, colour: int, cc: int, cell_m: float) -> PackedByteArray:
 	pc.encode_float(20, LAPhysical.GRAVITATIONAL_CONSTANT)
 	pc.encode_u32(24, _nx)
 	pc.encode_u32(28, _nxny)
+	for i in 5:
+		pc.encode_float(32 + i * 4, _mono[i] if i < _mono.size() else 0.0)
 	return pc
 
 

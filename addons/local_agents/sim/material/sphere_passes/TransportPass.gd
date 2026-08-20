@@ -60,7 +60,7 @@ var _list_idx_rid: Array = []
 ## compacted-index, membership-flag and indirect-args buffers.
 func _buffers(cc: int) -> Dictionary:
 	var out: Dictionary = {"col_e": cc, "strike": cc, "radiogenic": cc,
-		"bnd_void": cc, "bnd_h_void": cc}
+		"bnd_void": cc, "bnd_h_void": cc, "rim_ghost": cc, "rim_w": cc}
 	for ch in BoundaryRowsScript.BOOKED:
 		out["bnd_" + String(ch)] = cc
 		out["bnd_h_" + String(ch)] = cc
@@ -267,6 +267,9 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[48, _single(bufs, ("bnd_" + channel) if (BoundaryRowsScript.BOOKED.has(channel)
 			or BoundaryRowsScript.BOOKED_SIGNED.has(channel)) else "bnd_void")],
 		[49, _single(bufs, ("bnd_h_" + channel) if BoundaryRowsScript.BOOKED.has(channel) else "bnd_h_void")],
+		# The REPLAY relaxation rim, filled by LAFieldBoundary3D.attach; all-zero weights without one.
+		[50, _single(bufs, "rim_ghost")],
+		[51, _single(bufs, "rim_w")],
 	]
 	return _uset(_pipe, entries)
 
@@ -307,6 +310,8 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 		flags |= LATransportRecords.Flag.LISTED
 	if bool(row.get("halo", false)):
 		flags |= LATransportRecords.Flag.LIST_HALO
+	if bool(row.get("relax", false)):
+		flags |= LATransportRecords.Flag.RELAX
 	if bool(row.get("radiogenic", false)):
 		flags |= LATransportRecords.Flag.RADIOGENIC
 	# The row whose amount IS enthalpy books joules on both boundary legs.

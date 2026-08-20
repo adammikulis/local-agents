@@ -6,16 +6,17 @@
 
 # USAGE
 #   scripts/sim_run.sh [--frames N] [--seed N] [--path DIR] [--fauna] [--full] [--keep]
+#                      [--slice] [--slice-box SPEC] [--slice-state FILE] [--slice-capture FILE]
 #                      [--report k1,k2,...] [--raw] [-- <extra scene args>]
 
 #   --frames N     run length in SIMULATED STEPS (default 200; the conservation gate needs 600+)
 #   --seed N       sim seed (default 4242)
 #   --path DIR     project dir (default .) — point it at a worktree
-#   --fauna        keep animals (default --no-fauna: vegetation stays, animals do not)
-#   --full         drop --planet-only (default is pure geophysics)
+#   --fauna | --full  keep animals (needs --full) / drop --planet-only (default is pure geophysics)
+#   --slice [--slice-box "ox,oy,oz,nx,ny,nz,cell_m"]  run a SLICE (default: surface at +Y, 24x32x24 of 4 km)
+#   --slice-state F | --slice-capture F  consume a face-state capture in a slice / record one in a GLOBAL run
 #   --report LIST  comma-separated SIM_REPORT keys to print (default: the conservation set)
-#   --raw          print the whole SIM_REPORT as formatted JSON instead of a key list
-#   --keep         keep the log file and print its path
+#   --raw | --keep  print the whole SIM_REPORT as formatted JSON / keep the log file and print its path
 
 # EXIT 0 clean · 3 stale shaders · 4 the run logged engine errors, numbers withheld · 5 a UI node was
 # built without --ui · 124 never reported · 125 hung after reporting · 126 CONSERVATION_VIOLATION.
@@ -29,6 +30,10 @@ FAUNA=0
 FULL=0
 RAW=0
 KEEP=0
+SLICE=0
+SLICE_BOX=""
+SLICE_STATE=""
+SLICE_CAPTURE=""
 REPORT_KEYS="conservation,conservation_failed,conservation_audited,energy_run_drift,energy_stock_first,energy_residual,energy_booked,o2_first,o2_total,mineral_first,mineral_total,h2o_first,h2o_total,element_C_total_first,element_C_total,temp_ground_p50,phenomena_kinds"
 EXTRA=()
 
@@ -40,6 +45,10 @@ while [ $# -gt 0 ]; do
     --fauna) FAUNA=1; shift ;;
     --full) FULL=1; shift ;;
     --with-ui) WITH_UI=1; shift ;;
+    --slice) SLICE=1; shift ;;
+    --slice-box) SLICE=1; SLICE_BOX="$2"; shift 2 ;;
+    --slice-state) SLICE_STATE="$2"; shift 2 ;;
+    --slice-capture) SLICE_CAPTURE="$2"; shift 2 ;;
     --raw) RAW=1; shift ;;
     --keep) KEEP=1; shift ;;
     --report) REPORT_KEYS="$2"; shift 2 ;;
@@ -77,6 +86,31 @@ if [ "$FAUNA" -eq 1 ] && [ "$FULL" -eq 0 ]; then
 	echo "         so --fauna would change nothing and the run would not be the arm you asked for." >&2
 	exit 2
 fi
+# --- SLICE / CAPTURE ENV. The default box stands on the surface at +Y: the planet radius is read off
+# VoxelWorld.gd so the number is declared exactly once.
+if [ "$SLICE" -eq 1 ] || [ -n "$SLICE_CAPTURE" ]; then
+  if [ -z "$SLICE_BOX" ]; then
+    R="$(sed -n 's/^const PLANET_RADIUS: float = \(.*\)$/\1/p' "$PROJ/addons/local_agents/game/VoxelWorld.gd")"
+    [ -n "$R" ] || { echo "sim_run: could not read PLANET_RADIUS off VoxelWorld.gd for the default slice box." >&2; exit 2; }
+    SLICE_BOX="0,${R},0,24,32,24,4000"
+  fi
+fi
+if [ "$SLICE" -eq 1 ]; then
+  export LA_SLICE_BOX="$SLICE_BOX"
+  [ -n "$SLICE_STATE" ] && export LA_SLICE_STATE="$SLICE_STATE"
+elif [ -n "$SLICE_STATE" ]; then
+  echo "sim_run: --slice-state without --slice names a boundary no run consumes." >&2
+  exit 2
+fi
+if [ -n "$SLICE_CAPTURE" ]; then
+  if [ "$SLICE" -eq 1 ]; then
+    echo "sim_run: --slice-capture is a GLOBAL run's flag; a slice cannot record its own exterior." >&2
+    exit 2
+  fi
+  export LA_SLICE_CAPTURE="$SLICE_CAPTURE"
+  export LA_SLICE_CAPTURE_BOX="$SLICE_BOX"
+fi
+
 ARGS=(--sandbox "--run-frames=${FRAMES}" "--seed=${SEED}")
 [ "${WITH_UI:-0}" -eq 0 ] && ARGS+=(--bare)
 [ "$FULL" -eq 0 ] && ARGS+=(--planet-only)
