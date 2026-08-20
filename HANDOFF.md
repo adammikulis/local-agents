@@ -14,37 +14,24 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 1. THE BOX EDGE IS A CLOSED WALL. OPEN IT, AND A SLICE BECOMES TESTABLE. TAKE THIS FIRST.
+## 1. FEED THE OPEN BOUNDARY A REAL EXTERIOR, AND A SLICE BECOMES TESTABLE. TAKE THIS FIRST.
 
-**Nothing in the momentum equation can be finished before this.** `LAVoxelGrid.cell_size` is one number
-for the whole box, and a cell edge is far larger than the dry-air scale height this body's solved gravity
-gives, so two vertically adjacent air cells do not sample a column. `docs/PHYSICS_TODO.md` D is the same
-limit stated of the grid, and the other way out of it.
+The seam is `LAFieldBoundary3D` (SHUT/WRAP/CONSTANT/REPLAY per face; node meta -> project setting ->
+`LA_BOUNDARY_FACES`); CONSTANT and REPLAY refuse to run without a supplied state. What is left:
 
-`transport.glsl`'s gather SKIPS a face whose neighbour index is negative, so no matter crosses the box edge,
-while `MODE_RADIATE` already emits through it. Give that face a STATE instead of an absence: a ghost cell
-carrying an amount, an enthalpy and a momentum, with the ordinary flux law running against it. Wind blows in
-because there is more air outside than in, which the pressure-gradient row already expresses. Do not inject
-a phenomenon at the edge.
-
-**One seam, three records, not three code paths** — a boundary-state provider per face, sourced by a
-periodic wrap (free, exact, but no large-scale gradient so no fronts arrive), a declared constant, or a
-coarse GLOBAL run replayed as the driver. That last is one-way nesting and the reason for this item: the
-coarse run is the sim as it stands, and one stored global run can drive many slice runs.
-
-**Leave global, each cheap and none local:** sun direction and insolation (already a push constant);
-Coriolis, linear in v off the momentum sum; the solved potential sampled in, nearly uniform over a thin
-patch; and the deep heat flux on the bottom face, without which no magma arrives from below.
-
-**BOOK THE EXCHANGE OR THE CONSERVATION GATE IS RIGHT TO FIRE.** Matter and energy crossing an open
-boundary read as creation unless booked; `turnover` is the shape, and matter needs its per-substance twin.
+- **The capture pipeline.** Store a global run's drain as per-face states plus a time series, and feed
+  `LAFieldBoundary3D.replay(face, state)` per step. One stored global run drives many slice runs.
+- **Momentum crossing an open face is unbooked** — the mom rows bind `bnd_void` in `TransportPass._row_set`,
+  so an open-boundary slice's momentum ledger residual carries the crossings. Give momentum its boundary
+  book, the per-substance `bnd_*` shape.
+- **One-way nesting reflects waves inward near the edge.** A relaxation zone is the standard answer and is
+  an approximation, so it takes a row and an `LA_APPROX` marker.
+- **Leave global, each cheap and none local:** the deep heat flux on the bottom face, without which no magma
+  arrives from below; the solved potential sampled in, nearly uniform over a thin patch.
 
 **Why it unblocks testing:** not speed at equal cells, but a SMALL SUFFICIENT domain. At the cell size a
 whole planet forces, rain and eruptions may not be reachable at all. A slice with a declared boundary makes
 "moist convection precipitates" and "overpressure erupts" assertions a gate can make.
-
-One-way nesting reflects waves inward near the edge; a relaxation zone is the standard answer and is an
-approximation, so it takes a row and an `LA_APPROX` marker.
 
 ## 0. MOMENTUM RUNS AWAY TO NON-FINITE. DOWNSTREAM OF ITEM 1; DO NOT START IT FIRST.
 

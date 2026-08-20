@@ -74,7 +74,6 @@ PRESENTATION_ALLOW = {
     f"{SIM}/actors/LightningStrike.gd": "flash fade and node lifetime; it writes no world state",
     f"{SIM}/ecology/BandChronicle.gd": "historian: writes dated records to the backstory store, not the field",
     f"{SIM}/events/LAEventTracker.gd": "instrument: samples the report and emits events, mutates nothing",
-    f"{SIM}/material/MaterialFieldRender3D.gd": "renderer: rebuilds the near-cap surface mesh for the camera",
     f"{GAME_WORLD}/VoxelViewControls.gd": "on-screen control bar: button state and layout, writes no world state",
 }
 

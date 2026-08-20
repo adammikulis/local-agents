@@ -7,21 +7,24 @@ extends RefCounted
 const PC: GDScript = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
 
 
-## Kilograms of each substance in cell `c`, keyed by LASubstances id.
+## Kilograms of each substance in cell `c`, keyed by LASubstances id. Gas is matter with heat capacity
+## like any other: state_derive.glsl weighs it, so a seed that skips it hands the air zero joules.
 static func masses_at(f, c: int, cell_m3: float) -> Dictionary:
 	var out: Dictionary = {}
 	var tbl: Dictionary = LASubstances.table()
-	for name in LAChannels.mixture_channels():
+	var rows: Dictionary = LAChannels.rows()
+	for name in rows:
+		var sub: String = String(rows[name].get("substance", ""))
+		if sub == "" or String(rows[name].get("unit", "")) != "vf":
+			continue
 		var arr = f.get("_" + String(name))
 		if not (arr is PackedFloat32Array) or c >= arr.size():
 			continue
-		var row: Dictionary = LAChannels.mixture_channels()[name]
 		var vf: float = maxf(arr[c], 0.0)
 		if vf <= 0.0:
 			continue
-		var id: String = String(row["substance"])
-		var rho: float = float(tbl.get(id, {}).get("density", 0.0))
-		out[id] = float(out.get(id, 0.0)) + vf * rho * cell_m3
+		var rho: float = float(tbl.get(sub, {}).get("density", 0.0))
+		out[sub] = float(out.get(sub, 0.0)) + vf * rho * cell_m3
 	return out
 
 
@@ -48,6 +51,27 @@ static func gas_moles_at(f, c: int, cell_m3: float) -> float:
 	return n
 
 
+## The cell's enthalpy at (t, p) decomposed the way state_derive.glsl carries it: the two ladder entries
+## off their own curves, everything else lumped sensible at LAMatterChannels' capacities. Joules and J/K.
+static func entry_enthalpies(masses: Dictionary, n_gas_mol: float, t_c: float, p_pa: float) -> Dictionary:
+	var h_h2o: float = 0.0
+	var h_sil: float = 0.0
+	var mc: float = 0.0
+	for id in masses:
+		var m: float = float(masses[id])
+		if m <= 0.0:
+			continue
+		match LAMatterChannels.entry_of(String(id)):
+			LAMatterChannels.Entry.H2O:
+				h_h2o += m * LAMixtureEnthalpy.specific_enthalpy(String(id), t_c, p_pa, m, n_gas_mol)
+			LAMatterChannels.Entry.SILICATE:
+				h_sil += m * LAMixtureEnthalpy.specific_enthalpy(String(id), t_c, p_pa, m, n_gas_mol)
+			_:
+				mc += m * LAMatterChannels.specific_heat(String(id))
+	return {"h_h2o": h_h2o, "h_silicate": h_sil,
+		"h_sensible": mc * (t_c + PC.KELVIN_OFFSET), "cap_sensible": mc}
+
+
 ## Seed `_h` so every cell starts at `t_c`. Pressure is the reference: the column has not been solved yet,
 ## so this declares the ENERGY a cell holds and lets the ladder say what temperature that is in situ.
 static func seed(f, t_c: float) -> void:
@@ -63,8 +87,9 @@ static func seed(f, t_c: float) -> void:
 		var cell_m3: float = vol[c]
 		if cell_m3 <= 0.0:
 			continue
-		var h_j: float = LAMixtureEnthalpy.enthalpy_at(
+		var e: Dictionary = entry_enthalpies(
 			masses_at(f, c, cell_m3), gas_moles_at(f, c, cell_m3), t_c, PC.STANDARD_PRESSURE_PA)
+		var h_j: float = float(e["h_h2o"]) + float(e["h_silicate"]) + float(e["h_sensible"])
 		f._h[c] = h_j / cell_m3
 		total_j += h_j
 	if f._seal != null:
