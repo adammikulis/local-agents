@@ -898,13 +898,21 @@ void main() {
 		uint nb = uint(inb);
 		// Exterior crossings book inflow-positive; a wrap partner is interior motion and books nothing.
 		bool exterior = edge && nb >= params.cell_count;
-		if (exterior && !is_signed && params.mode != MODE_RADIATE) {
+		// SEPARATE moves charge down its own column, never across the box edge, and its ghost tail never
+		// ran pass 0, so its face scratch there is another row's.
+		if (exterior && params.mode == MODE_SEPARATE) {
+			continue;
+		}
+		if (exterior && params.mode != MODE_RADIATE) {
 			float in_a = listed ? 0.0 : send[nb * N_SLOTS + (d ^ 1u)];
-			float in_h = listed ? 0.0 : send_h[nb * N_SLOTS + (d ^ 1u)];
 			bnd_amt[gidx] += in_a - send[base + d];
-			bnd_h[gidx] += (params.flags & TF_ENTHALPY) != 0u
-				? in_a - send[base + d]
-				: in_h - send_h[base + d];
+			// A signed row (momentum) is not matter and carries no heat leg.
+			if (!is_signed) {
+				float in_h = listed ? 0.0 : send_h[nb * N_SLOTS + (d ^ 1u)];
+				bnd_h[gidx] += (params.flags & TF_ENTHALPY) != 0u
+					? in_a - send[base + d]
+					: in_h - send_h[base + d];
+			}
 		}
 		// A cell outside the list never ran pass 0 this row, so its face scratch still holds another row's.
 		if (listed && (nb >= params.cell_count || active_flag[nb] == 0u)) {

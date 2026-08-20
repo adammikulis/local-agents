@@ -31,9 +31,12 @@ static func declared() -> PackedStringArray:
 			names.append(key.substr(AMOUNT.length()))
 	# A name is a heat leg, not a channel, exactly when it is "h_" + another declared name — so a channel
 	# itself named "h_*" (h_j_m3) still declares.
+	# A BOOKED_SIGNED channel (momentum) is not matter: no heat leg, and the momentum ledger folds it.
 	for n in names:
 		var s: String = String(n)
 		if s.begins_with("h_") and names.has(s.substr(2)):
+			continue
+		if LAReduceBoundaryRows.BOOKED_SIGNED.has(s):
 			continue
 		_declared.append(s)
 	return _declared

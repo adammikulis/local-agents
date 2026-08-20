@@ -110,16 +110,3 @@ static func lithosphere_channels() -> PackedStringArray:
 		if sub == "silicate" or sub == "carbonate" or sub == "silica":
 			out.append(String(name))
 	return out
-
-
-## Channels entering the cell mixture by mass: name -> {"substance": id, "unit": "vf"}. Gas is excluded:
-## it is the non-condensable denominator of the saturation split, counted in moles.
-static func mixture_channels() -> Dictionary:
-	var out: Dictionary = {}
-	var tbl: Dictionary = rows()
-	for name in tbl:
-		var sub: String = String(tbl[name].get("substance", ""))
-		if sub == "" or String(tbl[name].get("phase", "")) == "gas":
-			continue
-		out[String(name)] = {"substance": sub, "unit": String(tbl[name].get("unit", "vf"))}
-	return out

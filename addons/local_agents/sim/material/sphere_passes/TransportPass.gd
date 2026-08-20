@@ -64,6 +64,8 @@ func _buffers(cc: int) -> Dictionary:
 	for ch in BoundaryRowsScript.BOOKED:
 		out["bnd_" + String(ch)] = cc
 		out["bnd_h_" + String(ch)] = cc
+	for ch in BoundaryRowsScript.BOOKED_SIGNED:
+		out["bnd_" + String(ch)] = cc
 	for lrow: Dictionary in LATransportRecords.lists():
 		var keys: Dictionary = LATransportRecords.list_buffers(String(lrow["label"]))
 		out[String(keys["idx"])] = cc
@@ -261,7 +263,9 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[46, _single(bufs, _carried_key(String(row["substance"])))],
 		[47, _single(bufs, "cap_sensible")],
 		# A booked channel's boundary crossings; an unbooked row writes a void pair nothing reads.
-		[48, _single(bufs, ("bnd_" + channel) if BoundaryRowsScript.BOOKED.has(channel) else "bnd_void")],
+		# A signed channel books its amount leg only; the kernel never writes its heat leg.
+		[48, _single(bufs, ("bnd_" + channel) if (BoundaryRowsScript.BOOKED.has(channel)
+			or BoundaryRowsScript.BOOKED_SIGNED.has(channel)) else "bnd_void")],
 		[49, _single(bufs, ("bnd_h_" + channel) if BoundaryRowsScript.BOOKED.has(channel) else "bnd_h_void")],
 	]
 	return _uset(_pipe, entries)
