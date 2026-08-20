@@ -113,13 +113,6 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
 
 <!-- claim: nofile addons/local_agents/sim/material/Bindings.gd -->
 
-## 9. An undeclared seed
-
-- `MaterialSphereGPU3D._seed_silicate()` writes the whole `silicate` and `cement` buffers with
-  `buffer_update` and never calls `note_creation`, so the planet's entire rock mass is absent from the seed
-  manifest that is meant to be the scoreboard of what the substrate was told. `MaterialField3D` declares the
-  same fact a second time.
-
 ## 12. `LAFieldGeometry.above` and `below` are not inverses, and `PRESSURE_BROKEN` still fires on it
 
 `slot_toward` snaps the local vertical to one of six axes, so across the diagonal where the snap flips,
