@@ -28,9 +28,13 @@ diff — `h2o_total` differs in the ninth digit and `pressure_audited` by a few 
 finite throughout (`check_finite_channels` in `lint` holds it so).
 
 **Reproduce the inversions:** `scripts/sim_run.sh --frames 10` exits 122 with `PRESSURE_BROKEN`, the
-DRY open-pair class carrying nearly the whole count and wet/rock/surface near zero. On the slice
-(`scripts/agent_harness.sh sim --slice --slice-box "0,2439700,0,24,32,24,2500" --frames 20`, finite)
-the cells flanking the wrap seam accumulate multiple fills of h2o.
+DRY open-pair class carrying nearly the whole count and wet/rock/surface near zero.
+
+**The 2.5 km slice still reaches non-finite momentum past ~10 frames** while the default box stays
+finite: `scripts/agent_harness.sh sim --slice --slice-box "0,2439700,0,24,32,24,2500" --frames 20 --report nonfinite_cells`.
+The cells flanking the wrap seam accumulate multiple fills of h2o first, and `celerity_max` leaves the
+physical range before the momentum does. `LA_PASS_PROBE=nonfinite LA_PASS_PROBE_STEPS=12` prints each
+pass's peak-cell state and per-channel non-finite counts.
 
 ## 4. Reduce the rest on the device
 
