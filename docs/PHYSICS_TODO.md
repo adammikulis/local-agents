@@ -37,6 +37,12 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
 <!-- claim: absent PLANET_SCALE addons/local_agents/sim addons/local_agents/game -->
 <!-- claim: absent SURFACE_G addons/local_agents/sim addons/local_agents/game -->
 
+The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fuel refill:
+
+<!-- claim: nofile addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd -->
+<!-- claim: absent BASELINE_DETRITUS addons/local_agents/sim -->
+<!-- claim: absent LITTER_FROM_BIOMASS addons/local_agents/sim -->
+
 ## A. The phase curve
 
 - [ ] **The GPU cannot evaluate the high rungs.** `kernels3d/enthalpy.glsli` stops at gas because inverting
@@ -75,11 +81,6 @@ The grid is metres and gravity is solved — no fitted model unit, no held surfa
 
 ## B. The substrate's state
 
-- [ ] **The seed lays organic matter on a lifeless planet.** `MaterialSurfaceSeed3D` writes a baseline of
-      `fuel` and `detritus` onto every surface cell, and refills fuel from biomass on a cadence. A
-      just-formed Earth has no litter and no dead plant pool: this is carbon created for a biosphere that
-      does not exist, and it is what a fire then burns. Delete the seed; the pools become products or they
-      stay empty.
 - [ ] **Free O2 is zero and must stay zero, and no gauge proves it.** `O2_AMBIENT` is 0.0 and the only
       source in the reaction table is photosynthesis, which is 0.5 work — so on this planet any non-zero
       `o2` is matter created from nothing. The gauge that decides it is a per-element oxygen attribution,

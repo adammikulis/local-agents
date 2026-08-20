@@ -76,7 +76,6 @@ func seed_tick() -> bool:
 			+ "water table is unprimed and darcy_resistance() makes the groundwater row inert. The walk "
 			+ "reads `below` from solved gravity: it ran before the solve was dispatched and drained.")
 	LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins
-	_f._surface_seed.seed_initial()                    # litter on the open cells standing on rock
 	if _f._gpu != null:                                # hand the device what those three walks produced
 		_f._gpu._seed_regolith()                       # permeability mask + grain size
 		_f._gpu._seed("porosity", _f._porosity)        # Athy pore fraction
@@ -101,18 +100,6 @@ func step() -> void:
 		# The MAGNITUDE of sun_dir carries INSOLATION (orbit-distance² × atmospheric transmission).
 		var insol: float = float(_f._sun_light.get_meta("insolation", 1.0))
 		_f._gpu.set_sun_dir(_f.dir_to_field(_f._sun_light.global_transform.basis.z * insol))
-	# The world-gen seeds, declared through the seal.
-	if _f._fuel_dirty and _f._gpu.has_method("seed_field"):
-		_f._gpu.seed_field("fuel", _f._fuel, _f._seal)
-		_f._fuel_dirty = false
-	if _f._detritus_seed_dirty and _f._gpu.has_method("seed_field"):
-		_f._gpu.seed_field("detritus", _f._detritus, _f._seal)
-		_f._detritus_seed_dirty = false
-	# The seeded litter's bound H and O, in the same one-shot as its carbon.
-	if _f._organic_seed_dirty and _f._gpu.has_method("seed_field"):
-		_f._gpu.seed_field("org_h", _f._org_h, _f._seal)
-		_f._gpu.seed_field("org_o", _f._org_o, _f._seal)
-		_f._organic_seed_dirty = false
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		if OS.has_environment("LA_INJECT_AUDIT"):
 			# Diagnostic.
@@ -132,9 +119,6 @@ func step() -> void:
 	# Seal on the field clock, never the report clock.
 	if _f._seal != null and _f._gpu.has_method("take_probe"):
 		_f._seal.poll(_f._gpu.take_probe())
-	# Surface seed module: coarse-cadence biomass -> fuel litter transfer, queued sparse.
-	if _f._surface_seed != null:
-		_f._surface_seed.post_readback()
 	# Charge module reads the strike list the breakdown kernel published and fires the bolt visuals.
 	if _f._charge_mod != null:
 		_f._charge_mod.post_step()

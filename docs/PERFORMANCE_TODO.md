@@ -58,7 +58,7 @@ cheap instead.
 ## 1c. One surface-cell list would empty six full-grid walks
 
 `MaterialFieldEnergyBudget3D`'s surface compaction is gone with that file, but `WaterSurfaceMesh.build`,
-`sea_surface_stats`, `rock_radial_profile` and `MaterialSurfaceSeed3D` each still walk every
+`sea_surface_stats` and `rock_radial_profile` each still walk every
 cell to find the same thing: the skin. It is a stream compaction, so no reduce `Op` expresses it — it is
 the active-cell list again. Build it once per step and all of them become O(surface cells), about N^(2/3).
 
