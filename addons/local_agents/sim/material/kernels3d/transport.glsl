@@ -505,15 +505,19 @@ vec4 absorber_paths(uint c, float len) {
 	float rho_v = h2o_gas(c) * M_H2O;
 	float rho_c = max(co2[c], 0.0) * M_CO2;
 	float p_tot = max(pressure[c], 0.0) / KAPPA_REF_PA;
-	return vec4(p_tot * rho_c * len,
+	// A path holding no absorber is zero at any broadening pressure; rho times inf pressure is NaN.
+	return vec4(rho_c <= 0.0 ? 0.0 : p_tot * rho_c * len,
 		(rho_c * R_CO2 * tk / KAPPA_REF_PA) * rho_c * len,
-		p_tot * rho_v * len,
+		rho_v <= 0.0 ? 0.0 : p_tot * rho_v * len,
 		(rho_v * R_VAPOUR * tk / KAPPA_REF_PA) * rho_v * len);
 }
 
 // The O3 legs: air-broadened lines scale with total pressure; the electronic cross-section does not.
 vec2 o3_paths(uint c, float len) {
 	float rho_o3 = max(o3[c], 0.0);
+	if (rho_o3 <= 0.0) {
+		return vec2(0.0);
+	}
 	float p_tot = max(pressure[c], 0.0) / KAPPA_REF_PA;
 	return vec2(p_tot * rho_o3 * len, rho_o3 * len);
 }
