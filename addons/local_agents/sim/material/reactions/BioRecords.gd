@@ -1,8 +1,6 @@
 class_name LABioRecords
 extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
-const PHOTO_LUE_KG_C_PER_J: float = 1.0e-9        # 1.0 g C / MJ absorbed PAR (MODIS MOD17 eps_max)
-const PAR_FRACTION_OF_SHORTWAVE: float = 0.45     # 400-700 nm share of shortwave (Monteith & Unsworth)
 const TRANSPIRATION_MOL_H2O_PER_MOL_C: float = 400.0
 const GLOBAL_GPP_PG_C_PER_YEAR: float = 123.0       # Beer et al. 2010, Science
 const GLOBAL_NPP_PG_C_PER_YEAR: float = 56.4        # Field et al. 1998, Science
@@ -20,15 +18,16 @@ const PHOTO_T_WIDTH: float = (LAPhysical.PROTEIN_DENATURE_C - LAPhysical.WATER_F
 ## Ambient O2, mol/m3 — the concentration the cited fluxes were measured at.
 const O2_AMBIENT_MOL_M3: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.AIR_MOLE_FRAC_O2
 
+# Planetary mean of the LIGHT driver: sun-facing cross-section over surface, piR^2 / 4piR^2.
+const LIGHT_SPHERE_MEAN: float = 0.25
 
-## Photosynthesis rate coefficient, mol C m^-3 s^-1 per unit insolation: (eps / M_C) * f_PAR * S0 / H.
+
+## Photosynthesis per second per unit LIGHT AT UNIT BIOMASS: GPP / plant carbon, referenced to the
+## mean insolation the cited flux was measured under.
+# LA_APPROX: optically_thin_canopy
 static func _photo_k() -> float:
-	var mol_c: float = LAPhysical.MOLAR_MASS_CARBON_KG_MOL
-	var h: float = cell_height_m()
-	if mol_c <= 0.0 or h <= 0.0:
-		return 0.0
-	return (PHOTO_LUE_KG_C_PER_J / mol_c) * PAR_FRACTION_OF_SHORTWAVE \
-		* LAPhysical.SOLAR_CONSTANT_W_M2 / h
+	var per_year: float = GLOBAL_GPP_PG_C_PER_YEAR / GLOBAL_PLANT_CARBON_PG_C
+	return per_year / (LAPhysical.SECONDS_PER_YEAR * LIGHT_SPHERE_MEAN)
 
 
 ## Autotrophic respiration per second AT AMBIENT O2: (GPP - NPP) / plant carbon.
@@ -94,11 +93,12 @@ static func records() -> Array:
 			[[DETRITUS, 1.0], [ORG_H, 2.0], [ORG_O, 1.0]], 0),
 
 		# Fixing carbon stores the bond energy burning it releases, debited from the absorbed sunlight.
-		rec(TB_PER_SECOND, "mol m^-3 driver^-1 s^-1", RM_OPTIMUM_BAND, _photo_k(), LIGHT,
+		# BIOMASS is the catalyst: no photosynthetic tissue, no carbon fixed.
+		rec(TB_PER_SECOND, "mol m^-3 driver^-1 driver2^-1 s^-1", RM_OPTIMUM_BAND, _photo_k(), LIGHT,
 			[[CO2, 1.0], [SOIL_ROOT, 1.0 + transpired], [FERT, organic_n]],
 			[[O2, 1.0], [BIOMASS, 1.0],
 				[H2O, transpired]],
-			GATE_NEAR_GROUND, PHOTO_T_OPT, TEMP, PHOTO_T_WIDTH,
+			GATE_NEAR_GROUND, PHOTO_T_OPT, BIOMASS, PHOTO_T_WIDTH,
 			-1, 0.0, 0.0, -lumped),
 
 		rec(TB_PER_SECOND, "mol m^-3 driver^-1 driver2^-1 s^-1", RM_BILINEAR, _resp_k(), BIOMASS, [[BIOMASS, 1.0], [O2, 1.0]],
