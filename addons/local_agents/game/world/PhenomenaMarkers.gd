@@ -15,11 +15,16 @@ const SPIRAL_INNER_CELLS: float = 1.0
 const SPIRAL_OUTER_CELLS: float = 4.0
 const SPIRAL_ALOFT_CELLS: float = 6.0
 
+## Bolts drawn at once. A renderer budget: each carries an OmniLight3D and Godot's element limit is
+## reached long before a storm's strike count is.
+const MAX_DRAWN_BOLTS: int = 24
+
 var _field = null
 var _audio = null
 var _detector: LAFieldPhenomena = null
 var _cd: float = 0.0
 var _marks: Dictionary = {}                # snapped cell key -> marker Node3D
+var _live_bolts: Array = []                # bolt nodes still on screen
 
 
 func setup(field) -> void:
@@ -36,8 +41,15 @@ func set_presentation(audio) -> void:
 ## The bolt the charge-breakdown kernel published. Nothing else may call this: a bolt with no discharge
 ## behind it is a picture of an event that did not happen.
 func show_bolt(point: Vector3) -> void:
+	# A drawing budget, not a cap on the phenomenon: every strike stays counted in LAMaterialCharge3D,
+	# and each bolt node carries a light, which the renderer runs out of before a storm does.
+	# Untyped: a freed node fails a typed parameter's check before is_instance_valid can answer.
+	_live_bolts = _live_bolts.filter(func(n) -> bool: return is_instance_valid(n))
+	if _live_bolts.size() >= MAX_DRAWN_BOLTS:
+		return
 	var b: Node = LightningScript.new()
 	add_child(b)
+	_live_bolts.append(b)
 	b.strike(point)
 	if _audio != null:
 		_audio.play_sfx("thunder", point)

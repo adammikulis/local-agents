@@ -15,7 +15,8 @@ KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
 [ -f "$REPO_ROOT/scripts/sim_run.sh" ] || { echo "ERROR: sim_run.sh missing." >&2; exit 2; }
 
 # --- the capture: a short GLOBAL run records the slice box's exterior --------------------------------
-CAP="$(mktemp "${TMPDIR:-/tmp}/la_bnd_cap.XXXXXX.json")"
+# BSD mktemp only accepts XXXXXX at the END of the template, so the .json arrives by rename.
+CAP="$(mktemp "${TMPDIR:-/tmp}/la_bnd_cap.XXXXXX")" && mv "$CAP" "$CAP.json" && CAP="$CAP.json"
 cap_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "${LA_BND_CAP_FRAMES:-20}" \
   --slice-capture "$CAP" --report h2o_total 2>&1)"
 if ! python3 -c "
