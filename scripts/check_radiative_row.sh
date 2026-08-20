@@ -22,8 +22,9 @@
 # ARM TWO IS THE SIM'S OWN FIELD, because everything above builds its own grid and cannot see whether
 # the row ran in the world at all — a uniform set the driver cannot build makes the dispatch a no-op arm
 # one still reads as clean. Both books are positive in a box holding condensed matter, with solid_cells
-# as the positive control. Stefan-Boltzmann in the seeded world needs a per-cell residual computed in
-# the RADIATE path itself; off the reduced books the law is checkable only as a sign.
+# as the positive control. Stefan-Boltzmann in the seeded world is the per-cell residual the gather
+# writes beside rad_emitted, reduced to a MAX (rad_sb_rel_max); and a lit planet whose surfaces all
+# carry a nonzero albedo must send reflected shortwave back to space (sw_reflected).
 
 # A compute kernel needs a real device, so this runs through run_sim_offscreen.sh and its GPU lock.
 # EXIT 0 within tolerance · 1 the row is wrong · 2 could not run.
@@ -331,10 +332,12 @@ fi
 # ARM TWO — the field the SIM seeds, not one this script built.
 # ---------------------------------------------------------------------------------------------------
 SIM_FRAMES="${LA_RADIATIVE_FRAMES:-20}"
+# float32 rounding between the send stamp and the gather's independent recomputation; not a fit.
+SB_REL_TOL="0.001"
 sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "$SIM_FRAMES" \
-  --report rad_emitted,rad_absorbed,solid_cells 2>&1)"
+  --report rad_emitted,rad_absorbed,solid_cells,rad_sb_rel_max,sw_reflected 2>&1)"
 sim_rc=$?
-printf '%s\n' "$sim_out" | grep -E '^(rad_emitted|rad_absorbed|solid_cells)' || true
+printf '%s\n' "$sim_out" | grep -E '^(rad_emitted|rad_absorbed|solid_cells|rad_sb_rel_max|sw_reflected)' || true
 # A reduce row arrives as a gauge, so the value is behind a 'cur' key; a plain scalar has none.
 reading() { printf '%s\n' "$sim_out" | sed -n "s/^$1  *= *//p" | head -1 \
   | sed -e "s/.*'cur': *//" -e 's/[,}].*//' -e "s/[^0-9eE.+-]//g"; }
@@ -342,7 +345,10 @@ numeric() { printf '%s' "$1" | grep -Eq '^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+
 emitted="$(reading rad_emitted)"
 absorbed="$(reading rad_absorbed)"
 solid="$(reading solid_cells)"
-for pair in "rad_emitted $emitted" "rad_absorbed $absorbed" "solid_cells $solid"; do
+sb_rel="$(reading rad_sb_rel_max)"
+reflected="$(reading sw_reflected)"
+for pair in "rad_emitted $emitted" "rad_absorbed $absorbed" "solid_cells $solid" \
+  "rad_sb_rel_max $sb_rel" "sw_reflected $reflected"; do
   if ! numeric "${pair#* }"; then
     echo "ERROR: the run published no numeric ${pair%% *} (sim_run exit $sim_rc), so the row went" >&2
     echo "       unmeasured in the world the sim seeds. Refusing to report a pass." >&2
@@ -367,6 +373,20 @@ if ! awk -v a="$absorbed" 'BEGIN{exit !(a > 0)}'; then
   echo "In the world the sim seeds the RADIATE row absorbed NOTHING. A cell inside an opaque planet is"
   echo "surrounded by six emitters and the lit surface also takes sunlight, so the gather half of the row"
   echo "is not running even though the emit half is."
+  exit 1
+fi
+if ! awk -v r="$sb_rel" -v t="$SB_REL_TOL" 'BEGIN{exit !(r <= t && r >= 0)}'; then
+  echo
+  echo "In the world the sim seeds, some cell's rad_emitted disagrees with 6*e*sigma*T^4*dt/L by"
+  echo "rad_sb_rel_max = $sb_rel (tolerance $SB_REL_TOL). The gather recomputes the law beside the field:"
+  echo "the emission stamp in transport.glsl's pass 0 and the residual in its gather no longer agree."
+  exit 1
+fi
+if ! awk -v w="$reflected" 'BEGIN{exit !(w > 0)}'; then
+  echo
+  echo "In the world the sim seeds, NO reflected shortwave reached space, while the box holds lit"
+  echo "condensed matter and every surface albedo in the table is nonzero. The PASS_SW march is not"
+  echo "running, or sw_src was never stamped by the gather."
   exit 1
 fi
 echo "check_radiative_row: OK"

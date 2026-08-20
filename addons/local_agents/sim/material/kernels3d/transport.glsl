@@ -89,10 +89,11 @@ layout(set = 0, binding = 49, std430) restrict buffer BndH { float bnd_h[]; };
 layout(set = 0, binding = 50, std430) restrict readonly buffer RimGhost { int rim_ghost[]; };
 layout(set = 0, binding = 51, std430) restrict readonly buffer RimW { float rim_w[]; };
 // The reflected-shortwave field: the share of upwelling flux a cell keeps as heat, each cell's reflected
-// source W/m^2, and what escapes to space J/m^3 per step.
+// source W/m^2, what escapes to space J/m^3 per step, and the Stefan-Boltzmann residual of rad_emitted.
 layout(set = 0, binding = 52, std430) restrict buffer SwKeep { float sw_keep[]; };
 layout(set = 0, binding = 53, std430) restrict buffer SwSrc { float sw_src[]; };
 layout(set = 0, binding = 54, std430) restrict writeonly buffer SwSpace { float sw_space[]; };
+layout(set = 0, binding = 55, std430) restrict writeonly buffer RadResid { float rad_residual[]; };
 
 #include "march.glsli"
 
@@ -992,6 +993,11 @@ void main() {
 		rad_emitted[gidx] = lost;
 		// What the beam march removed and this cell did not keep: PASS_SW carries it back out.
 		sw_src[gidx] = intercepted * albedo;
+		// Stefan-Boltzmann, recomputed against the published emission: six faces of e*sigma*T^4.
+		float tk_sb = t_k(gidx);
+		float sb = 6.0 * lw_emis[gidx] * STEFAN * tk_sb * tk_sb * tk_sb * tk_sb
+			* params.dt_s / params.cell_m;
+		rad_residual[gidx] = abs(lost - sb) / max(sb, 1.0e-30);
 	}
 	// No floor. Pass 0 clamps every outflow to what the cell holds, so a negative here is a defect
 	// and clamping it up would create the mass it is short of.

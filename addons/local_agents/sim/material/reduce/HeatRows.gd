@@ -27,6 +27,7 @@ static func rows() -> Array:
 			"weight": true, "energy_book": true},
 		{"key": "sw_reflected", "source": "sw_space", "op": Rec.Op.SUM, "mask": Rec.Mask.ALL,
 			"weight": true},
+		{"key": "rad_sb_rel_max", "source": "rad_residual", "op": Rec.Op.MAX, "mask": Rec.Mask.ALL},
 		# THE GEOTHERM DETECTOR. Temperature across one cell against the cell one step out of gravity, K,
 		# over the solid interior. An imposed geotherm would read the seeded profile; an emergent one reads
 		# whatever the source, the conduction and the surface left.

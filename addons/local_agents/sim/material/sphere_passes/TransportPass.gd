@@ -65,7 +65,7 @@ var _list_idx_rid: Array = []
 ## compacted-index, membership-flag and indirect-args buffers.
 func _buffers(cc: int) -> Dictionary:
 	var out: Dictionary = {"col_e": cc, "strike": cc, "radiogenic": cc,
-		"sw_space": cc,
+		"sw_space": cc, "rad_residual": cc,
 		"bnd_void": cc, "bnd_h_void": cc, "rim_ghost": cc, "rim_w": cc}
 	for ch in BoundaryRowsScript.BOOKED:
 		out["bnd_" + String(ch)] = cc
@@ -220,7 +220,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement",
 			"silicate_susp_water", "silicate_susp_air", "silicate_bed",
 			"rad_absorbed", "rad_emitted", "col_e", "strike",
-			"carbonate", "silica", "radiogenic", "sw_space",
+			"carbonate", "silica", "radiogenic", "sw_space", "rad_residual",
 			"ghost", "bnd_void", "bnd_h_void"]:
 		if not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row has no law." % [key, channel])
@@ -283,11 +283,12 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		# The REPLAY relaxation rim, filled by LAFieldBoundary3D.attach; all-zero weights without one.
 		[50, _single(bufs, "rim_ghost")],
 		[51, _single(bufs, "rim_w")],
-		# The reflected-shortwave field: pass-owned scratch pair, then the escape book the reduce
-		# row reads.
+		# The reflected-shortwave field: pass-owned scratch pair, then the escape book and the
+		# Stefan-Boltzmann residual the reduce rows read.
 		[52, _sw_keep],
 		[53, _sw_src],
 		[54, _single(bufs, "sw_space")],
+		[55, _single(bufs, "rad_residual")],
 	]
 	return _uset(_pipe, entries)
 
