@@ -18,7 +18,7 @@ CELL_LIST_PASS = os.path.join(SIM, "material", "sphere_passes", "CellListPass.gd
 TRANSPORT_RECORDS = os.path.join(ROOT, "addons/local_agents/sim/material/TransportRecords.gd")
 REDUCE_RECORDS = os.path.join(ROOT, "addons/local_agents/sim/material/ReduceRecords.gd")
 REGOLITH = os.path.join(SIM, "material", "MaterialFieldRegolith3D.gd")
-RENDER = os.path.join(SIM, "material", "MaterialFieldRender3D.gd")
+RENDER = os.path.join(ROOT, "addons/local_agents/game/render/MaterialFieldRender3D.gd")
 
 # Outward normal and the two in-plane axes of each face of an axis-aligned cube, order [+X,-X,+Y,-Y,+Z,-Z].
 # Pure cube geometry, declared once here and emitted into the shader include; no GDScript reads it.
@@ -220,7 +220,7 @@ def fmt(value):
 
 
 def shaderinc_text():
-    lines = [BANNER, "", "// cube-face frames; material/MaterialFieldRender3D.gd"]
+    lines = [BANNER, "", "// cube-face frames; game/render/MaterialFieldRender3D.gd"]
     for name, vecs in face_frames():
         cells = ", ".join("vec3(%s)" % ", ".join(fmt(float(c)) for c in v) for v in vecs)
         lines.append("const vec3 %s[6] = vec3[6](%s);" % (name, cells))

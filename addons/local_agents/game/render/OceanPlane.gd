@@ -32,15 +32,6 @@ func setup_sphere(center: Vector3, sea_radius: float, transparent: bool = true) 
 	global_position = center
 
 
-## Bind the sea-ice coverage texture (6 cube-face layers, one texel per surface column) to the shader.
-func set_sea_ice_texture(tex: Texture2DArray) -> void:
-	var mat: ShaderMaterial = material_override as ShaderMaterial
-	if mat == null:
-		return
-	mat.set_shader_parameter("sea_ice_tex", tex)
-	mat.set_shader_parameter("sea_ice_enabled", 1.0)
-
-
 func apply_tide(offset: float) -> void:
 	if _sea_base_radius <= 0.0:
 		return
