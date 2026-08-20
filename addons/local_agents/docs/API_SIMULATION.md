@@ -353,20 +353,18 @@ func cell_dims() -> Vector3i
 func demo_report() -> Dictionary
 ```
 
-`field()` returns the material field this node owns, so you can drive the volume yourself. The three calls you want first do not
-share a coordinate convention, so read the signatures before you pass anything:
+`field()` returns the material field this node owns, so you can drive the volume yourself:
 
 ```gdscript
 func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float
 func temp_at(pos: Vector3) -> float
-func add_water_cell(ix: int, iy: int, iz: int, amount: float) -> void
 ```
 
-`add_heat_energy()` and `temp_at()` take a position in the field's frame, which is this node's local space, with the floor of the box at
-y = 0 and the box centred on X and Z unless Origin Offset moves it. `add_water_cell()` takes integer cell indices instead, and does
-nothing for an out-of-bounds or solid cell. To go between the two, `cell_world_pos(ix, iy, iz) -> Vector3` gives the position of a
-cell and `world_to_cell(pos) -> int` gives the linear index of a position, so a point from `cell_world_pos()` handed to `temp_at()`
-lands on exactly the cell it came from.
+Both take a position in the field's frame, which is this node's local space, with the floor of the box at
+y = 0 and the box centred on X and Z unless Origin Offset moves it. To go between positions and cells,
+`cell_world_pos(ix, iy, iz) -> Vector3` gives the position of a cell and `world_to_cell(pos) -> int` gives
+the linear index of a position, so a point from `cell_world_pos()` handed to `temp_at()` lands on exactly
+the cell it came from.
 
 `add_heat_energy()`'s `radius` argument does nothing in box mode. The radius walk needs the cubed-sphere neighbour table, so a box field
 heats the single cell at `world_pos` whatever radius you pass. Loop over the cells you want instead.
