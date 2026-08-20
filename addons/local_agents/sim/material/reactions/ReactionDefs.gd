@@ -50,7 +50,6 @@ const GATE_BURIED: int = GATE_AIR_ABOVE * 2   # ALSO runs in SOLID cells; everyt
 
 # --- Product targets
 const TGT_SELF: int = 0               # add into the live/back cell channel
-const TGT_SCRATCH: int = 3            # add into the per-cell scratch buffer
 
 # --- Record layout
 const RECORD_BYTES: int = 240         # std430 size of one Reaction

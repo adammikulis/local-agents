@@ -39,7 +39,7 @@ layout(set = 0, binding = 35, std430) restrict readonly buffer H2OLiquid { float
 layout(set = 0, binding = 36, std430) restrict readonly buffer H2OVapour { float h2o_vapour[]; };
 // Cell pressure, Pa — the saturation curve and the enthalpy ladder both need it.
 layout(set = 0, binding = 37, std430) restrict readonly buffer PressureBuf { float pressure[]; };
-// --- Gate inputs + scratch product target + the record table ----------------------------------------------
+// --- Gate inputs + the record table -----------------------------------------------------------------------
 layout(set = 0, binding = 10, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };        // idx*6 + slot
 #include "march.glsli"
@@ -54,7 +54,6 @@ int la_above(uint c) {
 	vec3 gv = vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
 	return (length(gv) > 0.0) ? la_step(c, -normalize(gv)) : -1;
 }
-layout(set = 0, binding = 20, std430) restrict buffer Scratch { float scratch[]; };         // SCRATCH product target (fungus_fert)
 // AQUIFER PERMEABILITY MASK (1 = groundwater-bearing regolith). The mask root_soil() walks — soil lives
 // here, not "wherever the rock is solid": an eroded or carved regolith cell is open AND still an aquifer.
 layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float regolith[]; };
@@ -395,7 +394,6 @@ void main() {
 	if (i >= params.cell_count) {
 		return;
 	}
-	scratch[i] = 0.0;                       // reset the per-cell SCRATCH product target each step
 	fire[i] = 0.0;                          // the burning INSTRUMENT — assigned from this step's fuel loss below
 	// The stroke's store: the field energy the strike is relaxing this step. Transport drains the charge
 	// at channel conductivity; this reads what that debit released. J/m^3, driver only.
@@ -477,9 +475,6 @@ void main() {
 		} else {
 			// Running BACKWARDS: the products are what gets debited, so they are what bounds the extent.
 			for (int k = 0; k < rc.n_prod; k++) {
-				if (rc.prod_target[k] == TGT_SCRATCH) {
-					continue;
-				}
 				x = max(x, -read_ch(rc.prod_slot[k], i) / max(prod_coeff_at(rc, k, comp_h, comp_o), 1e-6));
 			}
 		}
@@ -495,11 +490,7 @@ void main() {
 		}
 
 		for (int k = 0; k < rc.n_prod; k++) {
-			if (rc.prod_target[k] == TGT_SCRATCH) {
-				scratch[i] += prod_coeff_at(rc, k, comp_h, comp_o) * x;
-			} else {
-				add_ch(rc.prod_slot[k], i, prod_coeff_at(rc, k, comp_h, comp_o) * x);
-			}
+			add_ch(rc.prod_slot[k], i, prod_coeff_at(rc, k, comp_h, comp_o) * x);
 		}
 
 		if (is_combustion) {

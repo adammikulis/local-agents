@@ -215,8 +215,6 @@ static func check_kernel(recs: Array, labels: PackedStringArray = PackedStringAr
 				out.append("%s: reactant %s has no add_ch branch — the kernel cannot debit it, so this "
 					% [label, s] + "record would consume nothing while still crediting its products.")
 		for entry in rec.get("products", []):
-			if entry.size() > 2 and int(entry[2]) == DefsScript.TGT_SCRATCH:
-				continue                    # SCRATCH is a per-cell accumulator, not a channel slot
 			var sp: String = _name_of(int(entry[0]), names)
 			if not writable.has(sp):
 				out.append("%s: product %s has no add_ch branch — the kernel drops this write silently." % [

@@ -43,7 +43,6 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	var biomass: RID = _single(bufs, "biomass")
 	var solid: RID = _single(bufs, "solid")
 	var nbr: RID = _single(bufs, "nbr")
-	var scratch: RID = _scratch(cc)         # reaction product target, consumed in the same step
 	var vel_x: RID = _single(bufs, "vel_x")
 	var vel_y: RID = _single(bufs, "vel_y")
 	var vel_z: RID = _single(bufs, "vel_z")
@@ -87,7 +86,6 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		[17, vel_x],            # WINDSPEED reads the flow tangential to the local vertical
 		[18, vel_z],
 		[26, vel_y],
-		[20, scratch],          # fungus-fert SCRATCH product target
 		[21, defs_ssbo],
 		[22, silicate],         # ONE mineral amount — weathering debits it, nothing else writes it
 		[27, regolith],         # aquifer permeability mask — root_soil() walks THIS, not `solid`

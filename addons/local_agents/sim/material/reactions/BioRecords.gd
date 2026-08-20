@@ -96,7 +96,7 @@ static func records() -> Array:
 			[[FUNGUS, cue, TGT_SELF],
 				[CO2, 1.0 - cue, TGT_SELF],
 				[H2O, -cue, TGT_SELF, 0.5, 0.0],
-				[FERT, organic_n * (1.0 - cue), TGT_SCRATCH]],
+				[FERT, organic_n * (1.0 - cue), TGT_SELF]],
 			0, 0.0, DETRITUS, 0.0, -1, 0.0, 0.0, dh.x * ox, -1, 0.0, dh.y * ox, dh.z * ox),
 
 		# Die-back: dead mycelium is CH2O, re-entering the dead pool at H:C 2, O:C 1.

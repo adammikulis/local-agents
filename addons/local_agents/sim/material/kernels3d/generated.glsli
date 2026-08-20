@@ -41,7 +41,6 @@
 #define GATE_AIR_ABOVE 128
 #define GATE_BURIED 256
 #define TGT_SELF 0
-#define TGT_SCRATCH 3
 
 // TransportRecords.gd mode enum
 #define MODE_POTENTIAL 0u

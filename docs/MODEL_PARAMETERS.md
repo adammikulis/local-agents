@@ -294,7 +294,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_NEAR_GROUND` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_AIR_ABOVE` | 128 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TGT_SELF` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TGT_SCRATCH` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RECORD_BYTES` | 144 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `PHOTO_LUE_KG_C_PER_J` | 1.0e-9 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `PAR_FRACTION_OF_SHORTWAVE` | 0.45 | inherited, unreviewed | Stage 2 substrate rewrite |
