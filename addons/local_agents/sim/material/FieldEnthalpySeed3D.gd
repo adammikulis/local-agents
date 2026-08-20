@@ -7,47 +7,41 @@ extends RefCounted
 const PC: GDScript = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
 
 
-## Kilograms of each substance in cell `c`, keyed by LASubstances id. Gas is matter with heat capacity
-## like any other: state_derive.glsl weighs it, so a seed that skips it hands the air zero joules.
+## Kilograms of each substance in cell `c`, keyed by LASubstances id: amount (mol/m^3) times molar mass
+## times the cell volume. Gas is matter with heat capacity like any other: state_derive.glsl weighs it,
+## so a seed that skips it hands the air zero joules.
 static func masses_at(f, c: int, cell_m3: float) -> Dictionary:
 	var out: Dictionary = {}
 	var tbl: Dictionary = LASubstances.table()
 	var rows: Dictionary = LAChannels.rows()
 	for name in rows:
 		var sub: String = String(rows[name].get("substance", ""))
-		if sub == "" or String(rows[name].get("unit", "")) != "vf":
+		if sub == "" or String(rows[name].get("unit", "")) != "mol_m3":
 			continue
 		var arr = f.get("_" + String(name))
 		if not (arr is PackedFloat32Array) or c >= arr.size():
 			continue
-		var vf: float = maxf(arr[c], 0.0)
-		if vf <= 0.0:
+		var amount: float = maxf(arr[c], 0.0)
+		if amount <= 0.0:
 			continue
-		var rho: float = float(tbl.get(sub, {}).get("density", 0.0))
-		out[sub] = float(out.get(sub, 0.0)) + vf * rho * cell_m3
+		var mm: float = float(tbl.get(sub, {}).get("molar_mass", 0.0))
+		out[sub] = float(out.get(sub, 0.0)) + amount * mm * cell_m3
 	return out
 
 
-## Moles of gas in cell `c`. The gas channels carry kilograms per channel unit, not a material density.
+## Moles of gas in cell `c`: amount times volume, since a channel amount is mol/m^3.
 static func gas_moles_at(f, c: int, cell_m3: float) -> float:
-	var tbl: Dictionary = LASubstances.table()
 	var n: float = 0.0
 	var rows: Dictionary = LAChannels.rows()
 	for name in rows:
 		if String(rows[name].get("phase", "")) != "gas":
 			continue
-		var id: String = String(rows[name].get("substance", ""))
-		if id == "":
+		if String(rows[name].get("substance", "")) == "":
 			continue
 		var arr = f.get("_" + String(name))
 		if not (arr is PackedFloat32Array) or c >= arr.size():
 			continue
-		var entry: Dictionary = tbl.get(id, {})
-		var mm: float = float(entry.get("molar_mass", 0.0))
-		if mm <= 0.0:
-			continue
-		var kg: float = maxf(arr[c], 0.0) * float(entry.get("density", 0.0)) * cell_m3
-		n += kg / mm
+		n += maxf(arr[c], 0.0) * cell_m3
 	return n
 
 

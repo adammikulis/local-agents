@@ -3,8 +3,8 @@ extends RefCounted
 
 const PC = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
 
-## Moles of ELEMENT in one channel unit of any organic stock — one number for organic_c, organic_h and
-## organic_o, so organic_h/organic_c is the molar H:C ratio with no conversion. mol/m3.
+## Moles of CH2O units in a cubic metre of dry wood — the volume one mole of any organic element occupies
+## comes from this packing, so the three organic density rows below derive from it.
 const ORGANIC_MOL_PER_M3: float = PC.DRY_WOOD_DENSITY_KG_M3 / PC.MOLAR_MASS_CH2O_UNIT_KG_MOL
 
 ## HIGHER heating value per kg of each element in a solid fuel — Channiwala & Parikh 2002, Fuel 81:1051-1063,
@@ -73,7 +73,7 @@ static func _build_table() -> Dictionary:
 			"molar_mass": PC.MOLAR_MASS_N2_KG_MOL,
 			"atomisation_j_mol": PC.ATOMISATION_N2_J_MOL,
 			"entropy_gas_j_molk": PC.ENTROPY_N2_GAS_J_MOLK,
-			"density": PC.AMBIENT_O2_DENSITY_KG_M3 * (PC.MOLAR_MASS_N2_KG_MOL / PC.MOLAR_MASS_O2_KG_MOL),
+			"density": PC.MOLAR_MASS_N2_KG_MOL * PC.STP_MOLAR_DENSITY_MOL_M3,
 			"specific_heat": PC.N2_LIQUID_SPECIFIC_HEAT_J_KGK,
 			"specific_heat_gas": PC.N2_GAS_SPECIFIC_HEAT_J_KGK,
 			"melt_c": PC.N2_TRIPLE_T_C,
@@ -93,7 +93,7 @@ static func _build_table() -> Dictionary:
 			"molar_mass": PC.MOLAR_MASS_O2_KG_MOL,
 			"atomisation_j_mol": PC.ATOMISATION_O2_J_MOL,
 			"entropy_gas_j_molk": ENTROPY_O2_GAS_J_MOLK,
-			"density": PC.AMBIENT_O2_DENSITY_KG_M3,
+			"density": PC.MOLAR_MASS_O2_KG_MOL * PC.STP_MOLAR_DENSITY_MOL_M3,
 			"specific_heat": PC.AIR_SPECIFIC_HEAT_J_KGK,
 			"conductivity": PC.THERMAL_CONDUCT_O2_GAS_W_MK,
 		},
@@ -103,7 +103,7 @@ static func _build_table() -> Dictionary:
 			"atomisation_j_mol": PC.ATOMISATION_CO2_J_MOL,
 			"entropy_gas_j_molk": ENTROPY_CO2_GAS_J_MOLK,
 			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_CO2_J_MOL,
-			"density": PC.AMBIENT_O2_DENSITY_KG_M3 * (PC.MOLAR_MASS_CO2_KG_MOL / PC.MOLAR_MASS_O2_KG_MOL),
+			"density": PC.MOLAR_MASS_CO2_KG_MOL * PC.STP_MOLAR_DENSITY_MOL_M3,
 			"specific_heat": PC.AIR_SPECIFIC_HEAT_J_KGK,
 			"conductivity": PC.THERMAL_CONDUCT_CO2_GAS_W_MK,
 		},
@@ -239,11 +239,10 @@ static func organic_energy_j_mol(element: String) -> float:
 	return 0.0
 
 
-## Heat of oxidising one unit of organic matter, J/m3 of extent, as (C, H, O) parts.
+## Heat of oxidising one mole of organic matter, J/mol of extent, as (C, H, O) parts. Extents are
+## mol/m^3, so a record's heat lands as J/m^3.
 static func organic_oxidation_parts() -> Vector3:
-	var n: float = ORGANIC_MOL_PER_M3
-	return Vector3(n * organic_energy_j_mol("C"), n * organic_energy_j_mol("H"),
-		n * organic_energy_j_mol("O"))
+	return Vector3(organic_energy_j_mol("C"), organic_energy_j_mol("H"), organic_energy_j_mol("O"))
 ## SOLID / LIQUID / GAS, derived — never stored.
 const SOLID: int = 0
 const LIQUID: int = 1
@@ -325,11 +324,16 @@ static func _is_gas_at(s: Dictionary, id: String, t_c: float, p_pa: float) -> bo
 	return t_c > boil_c_at(id, p_pa)
 
 
-## Moles of substance in one kilogram — the ONLY bridge between what the field stores (mass) and what
-## chemistry counts (atoms).
-static func mol_per_kg(id: String) -> float:
-	var m: float = float(table().get(id, {}).get("molar_mass", 0.0))
-	return 1.0 / m if m > 0.0 else 0.0
+## mol/m^3 at which a cell is FULL of this substance: density over molar mass (for a gas, the pure gas
+## at STP). 0 and a named error when the table lacks a datum.
+static func full_mol_m3(id: String) -> float:
+	var s: Dictionary = table().get(id, {})
+	var rho: float = float(s.get("density", 0.0))
+	var m: float = float(s.get("molar_mass", 0.0))
+	if rho <= 0.0 or m <= 0.0:
+		push_error("LASubstances.full_mol_m3(\"%s\"): the table gives no density or molar mass." % id)
+		return 0.0
+	return rho / m
 
 
 ## SPECIFIC ENTHALPY (J/kg) at a temperature, referenced to the solid at 0 K. The inverse of

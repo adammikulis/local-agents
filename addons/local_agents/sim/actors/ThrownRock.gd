@@ -143,8 +143,9 @@ func _deposit_stone() -> void:
 		var side: float = maxf(float(_water._cell_size), 0.001) if ("_cell_size" in _water) else 0.0
 		if side <= 0.0:
 			return
-		# One full cell of rock is MAX_MASS, so this stone is its own volume against a cell's.
-		mineral_mass = float(_water.MAX_MASS) * (STONE_SIDE * STONE_SIDE * STONE_SIDE) / (side * side * side)
+		# The stone's own volume against a cell's, at rock's full amount (mol/m^3 of a cell of rock).
+		mineral_mass = LASubstances.full_mol_m3("silicate") \
+			* (STONE_SIDE * STONE_SIDE * STONE_SIDE) / (side * side * side)
 	inject.deposit_sediment(global_position, mineral_mass)
 
 

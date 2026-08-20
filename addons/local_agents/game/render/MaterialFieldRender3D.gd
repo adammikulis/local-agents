@@ -11,7 +11,7 @@ const FAR_ALT: float = 130.0               # above this altitude (world units ov
                                            # skipped and the cheap ocean sphere shows. The flat/Y-up patch only reads
                                            # right when you're DOWN near the water (small, ~flat cap); from any pulled-
                                            # back view the curved cap looks blocky/weird, so hand those to the sphere.
-const MAX_MASS: float = 1.0                # water kernel's MAX_MASS (a full cell) — for the sub-cell height fraction
+const MAX_MASS: float = LAMaterialField3D.MAX_MASS  # a full cell of water — for the sub-cell height fraction
 const REBUILD_PERIOD: float = 0.22         # ~4.5 Hz geometry rebuild (stale a couple frames is imperceptible)
 const RECENTER_DOT: float = 0.999          # rebuild early if the camera radial rotates past this (recentre the cap)
 const RIPPLE_MAX: int = 16                 # ring-buffer length; the shader's copy is generated

@@ -152,11 +152,11 @@ func _valid_state(st: Dictionary, d: int) -> bool:
 	if float(st["pressure_pa"]) <= 0.0:
 		return _fail("face %d state pressure must be positive" % d)
 	if not (st["amounts"] is Dictionary):
-		return _fail("face %d state \"amounts\" is not channel -> volume fraction" % d)
+		return _fail("face %d state \"amounts\" is not channel -> mol/m^3" % d)
 	var rows: Dictionary = LAChannels.rows()
 	for name in st["amounts"]:
 		var row: Dictionary = rows.get(String(name), {})
-		if String(row.get("unit", "")) != "vf":
+		if String(row.get("unit", "")) != "mol_m3":
 			return _fail("face %d state names \"%s\", which is not a matter channel" % [d, name])
 	return true
 
@@ -309,21 +309,23 @@ func _derive(st: Dictionary, d: int) -> Dictionary:
 	var v_used: float = 0.0
 	var m_by_id: Dictionary = {}
 	for name in amounts:
-		var vf: float = maxf(float(amounts[name]), 0.0)
-		out[String(name)] = vf
-		if vf <= 0.0:
+		var amount: float = maxf(float(amounts[name]), 0.0)
+		out[String(name)] = amount
+		if amount <= 0.0:
 			continue
 		var id: String = String(rows[name]["substance"])
 		var entry: Dictionary = table.get(id, {})
-		var rho: float = float(entry.get("density", 0.0))
-		if rho <= 0.0:
-			_fail("face %d: LASubstances has no density for \"%s\"" % [d, id])
+		var mm: float = float(entry.get("molar_mass", 0.0))
+		var full: float = LASubstances.full_mol_m3(id)
+		if mm <= 0.0 or full <= 0.0:
+			_fail("face %d: LASubstances has no molar mass or density for \"%s\"" % [d, id])
 			return {}
-		var m: float = vf * rho * vol
+		var m: float = amount * mm * vol
 		m_by_id[id] = float(m_by_id.get(id, 0.0)) + m
 		mass_total += m
 		if LAMatterChannels.GASES.has(id):
-			n_gas += m / float(entry.get("molar_mass", 1.0))
+			n_gas += amount * vol
+		var vf: float = amount / full
 		v_lambda += vf * float(entry.get("conductivity", 0.0))
 		v_used += vf
 	var m_h2o: float = float(m_by_id.get("h2o", 0.0))

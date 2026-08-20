@@ -82,25 +82,27 @@ layout(set = 0, binding = 33, std430) restrict buffer OrgO { float org_o[]; };
 // --- THE PHASE RULE ----------------------------------------------------------------------------------------
 const float WATER_FREEZE_C = 0.0;        // LAPhysical.WATER_FREEZE_C — GATE_FREEZING's boundary
 const float KELVIN_0 = 273.15;           // LAPhysical.KELVIN_OFFSET
+const float M_H2O = 0.018015;            // LASubstances.h2o.molar_mass
 const float RHO_WATER = 997.0;           // LAPhysical.WATER_DENSITY_KG_M3
+const float FULL_H2O = RHO_WATER / M_H2O;  // mol/m^3 of a cell full of liquid water
 const float R_GAS = 8.314462618;         // LAPhysical.GAS_CONSTANT_J_MOL_K
 const float P_STD = 101325.0;            // LAPhysical.STANDARD_PRESSURE_PA
 const float EPS0 = 8.8541878128e-12;     // LAPhysical.VACUUM_PERMITTIVITY_F_M
 
-// The cell's h2o split by the shares the ladder derived, in the channel's own unit (volume fraction).
+// The cell's h2o split by the shares the ladder derived, in the channel's own unit (mol/m^3).
 float h2o_liq(uint i) { return max(h2o[i], 0.0) * clamp(h2o_liquid[i], 0.0, 1.0); }
 float h2o_ice(uint i) { return max(h2o[i], 0.0) * clamp(h2o_solid[i], 0.0, 1.0); }
 float h2o_vap(uint i) { return max(h2o[i], 0.0) * clamp(h2o_vapour[i], 0.0, 1.0); }
 
-// SATURATION AMOUNT in the channel's unit, off the SAME curve the ladder inverts: sublimation pressure
-// while the condensate is ice, saturation pressure once it is liquid.
-float sat_vapour_vf(float t_c, float p_pa) {
+// SATURATION AMOUNT in the channel's unit (mol/m^3 = e_sat / RT), off the SAME curve the ladder inverts:
+// sublimation pressure while the condensate is ice, saturation pressure once it is liquid.
+float sat_vapour_mol_m3(float t_c, float p_pa) {
 	SubstanceTh w = la_h2o();
 	float e_sat = la_mix_vapour_p_at(w, t_c, p_pa, 0.0);
 	if (e_sat <= 0.0) {
 		return 0.0;
 	}
-	return e_sat * w.molar_mass / (R_GAS * max(t_c + KELVIN_0, 1.0) * RHO_WATER);
+	return e_sat / (R_GAS * max(t_c + KELVIN_0, 1.0));
 }
 
 // Specific enthalpy of the h2o sitting in cell `c`, J/kg, read straight off the ladder at its own state.
@@ -118,13 +120,13 @@ float wind_speed(uint i) {
 	vec3 up = normalize(-gv);
 	return length(v - up * dot(v, up));
 }
-// Flammability limit as a fraction of ambient air: the limiting oxygen concentration over air's own mole
-// fraction of O2.
+// Flammability limit: the limiting oxygen mole fraction times ambient air's molar density, mol/m^3.
 const float LOC_MOLE_FRAC = 0.15;          // LAPhysical.LIMITING_OXYGEN_CONCENTRATION_FRAC
-const float AIR_O2_MOLE_FRAC_K = 0.20946;  // LAPhysical.AIR_MOLE_FRAC_O2
-const float O2_FLAMMABILITY_LIMIT = LOC_MOLE_FRAC / AIR_O2_MOLE_FRAC_K;
+const float AIR_MOL_M3 = 42.28803292;      // LAPhysical.AIR_MOLAR_DENSITY_MOL_M3
+const float O2_FLAMMABILITY_LIMIT = LOC_MOLE_FRAC * AIR_MOL_M3;
 
-#define DROWNED_WATER 0.5     // half a cell of standing water in the neighbour above = no free surface here
+// Half a cell of standing water in the neighbour above = no free surface here. mol/m^3.
+const float DROWNED_WATER = 0.5 * FULL_H2O;
 
 struct Reaction {
 	int   rate_model;
@@ -222,7 +224,7 @@ void h2o_carry(uint c, uint i, float v_c) {
 	if (v_c == 0.0) {
 		return;
 	}
-	float j = v_c * RHO_WATER * h2o_specific_j_kg(c);
+	float j = v_c * M_H2O * h2o_specific_j_kg(c);
 	h[c] += j;
 	h[i] -= j * vol_ratio(c, i);
 }
@@ -285,7 +287,7 @@ float read_ch(int slot, uint i) {
 	if (slot == SILICATE) return silicate[i];
 	if (slot == LIGHT)     return light_at(i);
 	if (slot == SOIL_ROOT) return root_soil(i);
-	if (slot == VAPOUR_DEFICIT) return sat_vapour_vf(temp[i], max(pressure[i], 0.0)) - h2o_vap(i);
+	if (slot == VAPOUR_DEFICIT) return sat_vapour_mol_m3(temp[i], max(pressure[i], 0.0)) - h2o_vap(i);
 	if (slot == SOIL_TOP) { int c = top_regolith(i); return (c < 0) ? 0.0 : h2o_liq(uint(c)) * vol_ratio(uint(c), i); }
 	if (slot == BEDROCK_BELOW) return bedrock_below(i);
 	if (slot == CARBONATE) return carbonate[i];

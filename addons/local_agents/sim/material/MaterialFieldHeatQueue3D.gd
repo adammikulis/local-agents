@@ -12,9 +12,6 @@ var heat_energy_j: float = 0.0     # ENERGY handed to add_heat_energy, in joules
                                    # to come from somewhere: a bolt's electrostatic store, an impactor's
                                    # kinetic energy, a landing parcel's. It is booked here so a source that
                                    # stops being debited shows up as a rising figure with no matching debit.
-var heat_unsourced_dc: float = 0.0 # always 0: sourceless heat is refused by the seal now, and what it refused
-                                   # is counted in `creation_after_seal`. LAMaterialFieldEnergyLedger3D still
-                                   # reads this; the term is dead and that file's owner should drop it.
 var heat_applied_j_m3: float = 0.0 # ENTHALPY DENSITY the device actually applied, summed over cells.
 var heat_cells: int = 0            # per-cell temperature edits that reached the device.
 

@@ -17,7 +17,6 @@ const AMBIENT_TEMP_C: float = -60.0        # what it starts at and relaxes towar
 const ENTRY_HEAT_GAIN: float = 4.23e-6     # scales rho * v^3 into °C/s; ~1600 °C at MAX_SPEED in thick air
 const RADIATIVE_COOL: float = 0.55         # per second, fraction of the excess over ambient shed again
 const MAX_SURFACE_TEMP_C: float = 3000.0   # cap, so a runaway entry cannot inject absurd heat
-const AIR_REFERENCE_O2: float = 0.21       # the o2 level treated as full thickness, so rho is a ratio
 const FX_LINGER: float = 1.8               # seconds of FX after impact before free
 
 enum State { IDLE, FALLING, IMPACTED }
@@ -170,15 +169,21 @@ func _step_fall(delta: float) -> void:
 		queue_free()
 
 
-## How much air there is to ram, as a fraction of a full atmosphere, read straight out of the field's
-## oxygen channel. 0 when there is no field or no air, so a meteor in vacuum never heats.
+## How much air there is to ram, as a fraction of sea-level air: the cell's own mass density from its
+## pressure and temperature (ideal gas). 0 when there is no field or no air, so a meteor in vacuum
+## never heats.
 func _air_density_at(pos: Vector3) -> float:
 	if _ecology == null or not _ecology.has_method("material_field"):
 		return 0.0
 	var field: Object = _ecology.material_field()
-	if field == null or not field.has_method("o2_at"):
+	if field == null or not field.has_method("pressure_at") or not field.has_method("temp_at"):
 		return 0.0
-	return clampf(float(field.o2_at(pos.x, pos.y, pos.z)) / AIR_REFERENCE_O2, 0.0, 1.0)
+	var p: float = float(field.pressure_at(pos))
+	if is_nan(p) or p <= 0.0:
+		return 0.0
+	var t_k: float = maxf(float(field.temp_at(pos)) + LAPhysical.KELVIN_OFFSET, 1.0)
+	var rho: float = p / (LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * t_k)
+	return clampf(rho / LAPhysical.AIR_DENSITY_KG_M3, 0.0, 1.0)
 
 
 ## Entry heating goes as air density times the cube of speed, cooling as the excess over ambient. Nothing

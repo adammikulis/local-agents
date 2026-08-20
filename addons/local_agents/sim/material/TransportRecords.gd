@@ -130,7 +130,4 @@ static func channels() -> PackedStringArray:
 
 ## Amount at which a cell is full: mol/m^3 of the pure substance.
 static func max_fill(substance: String) -> float:
-	var s: Dictionary = LASubstances.table().get(substance, {})
-	var rho: float = float(s.get("density", 0.0))
-	var m: float = float(s.get("molar_mass", 0.0))
-	return (rho / m) if (rho > 0.0 and m > 0.0) else 0.0
+	return LASubstances.full_mol_m3(substance)

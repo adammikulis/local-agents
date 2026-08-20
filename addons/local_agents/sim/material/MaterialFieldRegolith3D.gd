@@ -62,4 +62,4 @@ func compute() -> void:
 		_f._grain[c] = LAPhysical.GRAIN_D_LOWLAND_M * pow(
 			LAPhysical.GRAIN_D_UPLAND_M / LAPhysical.GRAIN_D_LOWLAND_M, height)
 		_f._porosity[c] = phi
-		_f._h2o[c] = phi * INITIAL_TABLE_FRAC                    # prime the water table
+		_f._h2o[c] = phi * INITIAL_TABLE_FRAC * LAMaterialField3D.MAX_MASS  # prime the water table, mol/m^3

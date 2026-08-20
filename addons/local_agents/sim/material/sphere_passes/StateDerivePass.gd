@@ -17,16 +17,17 @@ const BOUND: Dictionary = {
 	"h2o_vapour": 36, "silicate_melt": 37, "org_fresh": 38, "cell_vol": 40, "speed": 41, "lat": 42,
 	"alt": 43, "nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48}
 
-## One mole of organic carbon per cell, m^3 — the pool below which a cell's C:H:O ratio is fp32 noise.
-const ORG_MIN_POOL_M3: float = 1.0 / LASubstances.ORGANIC_MOL_PER_M3
+## One mole of organic carbon per cell — the pool below which a cell's C:H:O ratio is fp32 noise.
+const ORG_MIN_POOL_MOL: float = 1.0
 
 ## props row layout — state_derive.glsl PROP_*.
-const PROP_STRIDE: int = 5
-const PROP_RHO: int = 0
+const PROP_STRIDE: int = 6
+const PROP_M: int = 0
 const PROP_C: int = 1
 const PROP_MOL_PER_KG: int = 2
 const PROP_ENTRY: int = 3
 const PROP_LAMBDA: int = 4
+const PROP_FULL: int = 5
 
 var _pipe: RID = RID()
 var _set: RID = RID()
@@ -96,7 +97,7 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	pc.encode_float(32, LAPhysical.GRAIN_D_LOWLAND_M)
 	pc.encode_float(36, LAPhysical.LITHIFICATION_RATE_PER_PA)
 	pc.encode_float(40, LAPhysical.LITHIFICATION_PRESSURE_PA)
-	pc.encode_float(44, ORG_MIN_POOL_M3)
+	pc.encode_float(44, ORG_MIN_POOL_MOL)
 	pc.encode_float(48, _fresh_h_per_c)
 	pc.encode_float(52, _fresh_o_per_c)
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
@@ -109,8 +110,9 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 ## LAMatterChannels publishes, so gravity and heat capacity weigh the same cell.
 func _props() -> PackedFloat32Array:
 	var channels: PackedStringArray = LAMatterChannels.CHANNELS
-	var rho_units: PackedFloat32Array = LAMatterChannels.rho_units()
-	if rho_units.size() != channels.size():
+	var molar: PackedFloat32Array = LAMatterChannels.molar_masses()
+	var full: PackedFloat32Array = LAMatterChannels.full_amounts()
+	if molar.size() != channels.size() or full.size() != channels.size():
 		return PackedFloat32Array()
 	var out: PackedFloat32Array = PackedFloat32Array()
 	out.resize(channels.size() * PROP_STRIDE)
@@ -121,23 +123,16 @@ func _props() -> PackedFloat32Array:
 		var row: Dictionary = rows[name]
 		var id: String = String(row.get("substance", ""))
 		var s: Dictionary = table.get(id, {})
-		var rho: float = rho_units[i]
 		var unit: String = String(row.get("unit", ""))
-		if unit != "vf":
-			push_error("StateDerivePass: LAChannels row \"%s\" declares unit \"%s\", not \"vf\". " % [name, unit]
-				+ "Matter is a volume fraction of the cell; without it the channel's mass is a guess.")
+		if unit != "mol_m3":
+			push_error("StateDerivePass: LAChannels row \"%s\" declares unit \"%s\", not \"mol_m3\". "
+				% [name, unit] + "A channel amount is moles per m^3; without it the channel's mass is a guess.")
 			return PackedFloat32Array()
 		var entry: int = LAMatterChannels.entry_of(id)
 		var c: float = LAMatterChannels.specific_heat(id)
 		if entry == LAMatterChannels.Entry.SENSIBLE and c <= 0.0:
 			return PackedFloat32Array()
-		var mol_per_kg: float = 0.0
-		if LAMatterChannels.GASES.has(id):
-			var m: float = float(s.get("molar_mass", 0.0))
-			if m <= 0.0:
-				push_error("StateDerivePass: LASubstances has no molar mass for the gas \"%s\"." % id)
-				return PackedFloat32Array()
-			mol_per_kg = 1.0 / m
+		var mol_per_kg: float = 1.0 / molar[i] if LAMatterChannels.GASES.has(id) else 0.0
 		var lambda_w_mk: float = float(s.get("conductivity", 0.0))
 		if lambda_w_mk <= 0.0:
 			push_error("StateDerivePass: LASubstances gives \"%s\" no conductivity, so channel %s "
@@ -145,8 +140,9 @@ func _props() -> PackedFloat32Array:
 			return PackedFloat32Array()
 		var base: int = i * PROP_STRIDE
 		out[base + PROP_LAMBDA] = lambda_w_mk
-		out[base + PROP_RHO] = rho
+		out[base + PROP_M] = molar[i]
 		out[base + PROP_C] = c
 		out[base + PROP_MOL_PER_KG] = mol_per_kg
 		out[base + PROP_ENTRY] = float(entry)
+		out[base + PROP_FULL] = full[i]
 	return out

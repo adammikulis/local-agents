@@ -74,7 +74,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			% channels.size() + "on %d, so a substance would gravitate with no mass."
 			% LAMatterChannels.KERNEL_SLOTS)
 		return
-	var props: PackedFloat32Array = LAMatterChannels.rho_units()
+	var props: PackedFloat32Array = LAMatterChannels.molar_masses()
 	if props.size() != channels.size():
 		return
 	var props_ssbo: RID = _storage_buffer(props.to_byte_array())

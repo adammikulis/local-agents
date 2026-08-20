@@ -7,8 +7,9 @@ const SolidCacheScript: GDScript = preload("res://addons/local_agents/sim/materi
 const GravityScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldGravity3D.gd")
 const MineralStampScript: GDScript = preload("res://addons/local_agents/sim/material/MineralStamp3D.gd")
 
-const MAX_MASS: float = 1.0               # a cell is "full" at this water mass
-const MIN_MASS: float = 0.0001            # below this a cell is considered dry
+# A cell is "full" of water at this amount, mol/m^3: liquid water's density over its molar mass.
+const MAX_MASS: float = LAPhysical.WATER_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
+const MIN_MASS: float = 0.0001 * MAX_MASS # below this a cell is considered dry
 
 var _terrain = null
 ## The terrain definition PlanetBody.setup() was given; the solid-mask cache's key.
@@ -21,7 +22,7 @@ var _dim_z: int = 0
 var _cell_count: int = 0
 
 var _solid: PackedByteArray = PackedByteArray()          # 1 = rock (holds no fluid), 0 = void (air/water)
-# One h2o channel, every phase; volume fraction of the cell. Phase is derived per cell.
+# One h2o channel, every phase; mol/m^3 of the cell. Phase is derived per cell.
 var _h2o: PackedFloat32Array = PackedFloat32Array()
 var _h2o_solid: PackedFloat32Array = PackedFloat32Array()    # share of _h2o that is ice
 var _h2o_liquid: PackedFloat32Array = PackedFloat32Array()   # share that is liquid, free or in pores
@@ -32,14 +33,14 @@ const INITIAL_TEMP: float = 15.0
 const O2_AMBIENT: float = 0.0
 const CO2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_CO2
 const N2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_N2
-const SNOW_PRESENT: float = 1.9e-4
-const ICE_DEPTH: float = 0.5
+const SNOW_PRESENT: float = 1.9e-4 * MAX_MASS
+const ICE_DEPTH: float = 0.5 * MAX_MASS
 const FOG_MAX_TEMP: float = 12.0
 # Condensate at which a cell counts as covered, mol/m^3.
 const CONDENSE_COVER_MIN: float = 5.0e-5 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
 var _h: PackedFloat32Array = PackedFloat32Array()        # THE STATE: enthalpy J/m^3 per cell
 var _temp: PackedFloat32Array = PackedFloat32Array()     # DERIVED °C, rewritten by StateDerivePass each step
-# ONE MINERAL AMOUNT, volume fraction of the cell. Melt and suspended shares are derived on the GPU; how
+# ONE MINERAL AMOUNT, mol/m^3 of the cell. Melt and suspended shares are derived on the GPU; how
 # much of it is consolidated is `_cement`.
 var _silicate: PackedFloat32Array = PackedFloat32Array()
 var _cement: PackedFloat32Array = PackedFloat32Array()   # consolidated share of this cell's silicate, 0..1
@@ -168,7 +169,7 @@ func sea_radius() -> float:
 	return 0.0
 
 
-const RENDER_MIN: float = 0.08            # min water mass in a cell for its top face to render
+const RENDER_MIN: float = 0.08 * MAX_MASS # min water amount in a cell for its top face to render
 const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of the sea shell are left to the ocean plane
 var _ready_sim: bool = false
 var _seal = null
@@ -323,20 +324,6 @@ func is_cell_solid(ix: int, iy: int, iz: int) -> bool:
 	return _solid[_idx(ix, iy, iz)] != 0
 
 
-func add_water_cell(ix: int, iy: int, iz: int, amount: float) -> void:
-	if not _in_bounds(ix, iy, iz):
-		return
-	var i: int = _idx(ix, iy, iz)
-	if _solid[i] != 0:
-		return
-	_h2o[i] = maxf(0.0, _h2o[i] + amount)
-	if _gpu != null: _gpu.mark_water_dirty()   # CPU h2o edit → re-upload it next begin_frame
-
-
-func water_at_cell(ix: int, iy: int, iz: int) -> float:
-	return _queries.water_at_cell(ix, iy, iz)
-
-
 func total_water() -> float:
 	return _queries.total_water()
 
@@ -413,8 +400,9 @@ func _seed_silicate() -> void:
 	if _silicate.size() != _cell_count or _cement.size() != _cell_count \
 			or _solid.size() != _cell_count:
 		return
+	var full: float = LASubstances.full_mol_m3("silicate")
 	for c in _cell_count:
-		_silicate[c] = 1.0 if _solid[c] != 0 else 0.0
+		_silicate[c] = full if _solid[c] != 0 else 0.0
 		_cement[c] = 1.0 if _solid[c] != 0 else 0.0
 
 
@@ -430,7 +418,7 @@ func _seed_sea() -> void:
 		if _solid[c] != 0:
 			continue
 		if (_grid.cell_world_pos(c) - pivot).length_squared() <= sea_sq:
-			_h2o[c] = 1.0
+			_h2o[c] = MAX_MASS
 
 const REGOLITH_CELLS: int = LAMaterialFieldRegolith3D.REGOLITH_CELLS
 # Athy pore fraction per cell (0 outside regolith), GPU-written and read back on the slow cadence.
@@ -458,15 +446,15 @@ func temp_at(pos: Vector3) -> float:
 	return _queries.temp_at(pos)
 
 
+## Pressure Pa at a true-3D world point; NAN outside the box or before the first readback.
+func pressure_at(pos: Vector3) -> float:
+	return _queries.pressure_at(pos)
+
+
 
 ## True where the ground beneath a world point is below the sea shell (open salt ocean / a sea basin).
 func is_ocean_at(pos: Vector3) -> bool:
 	return _queries.is_ocean_at(pos)
-
-
-## Salinity 0 (fresh inland water) .. brackish shallows .. 1 (deep salt ocean); NAN if dry.
-func salinity_at(pos: Vector3) -> float:
-	return _queries.salinity_at(pos)
 
 
 var _atmos_dirty: bool = true

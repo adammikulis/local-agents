@@ -18,22 +18,18 @@ func setup(field) -> void:
 	_f = field
 
 
-## The autoconversion threshold in the field's own unit: a fraction of a cell full of liquid water.
+## The autoconversion threshold in the field's own unit, mol/m^3: the critical mixing ratio times air's
+## density gives kg of cloud water per m^3, over water's molar mass.
 static func rain_threshold() -> float:
-	return CLOUD_WATER_CRIT_KG_KG * LAPhysical.AIR_DENSITY_KG_M3 / LAPhysical.WATER_DENSITY_KG_M3
+	return CLOUD_WATER_CRIT_KG_KG * LAPhysical.AIR_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
 
 
-## SATURATION AMOUNT at `t` °C and `p` Pa, in the h2o channel's own unit.
+## SATURATION AMOUNT at `t` °C and `p` Pa, in the h2o channel's own unit: e_sat / RT, mol/m^3.
 func _sat(t: float, p_pa: float) -> float:
 	var e: float = LAMixtureEnthalpy.vapour_p_at("h2o", t, p_pa)
 	if e <= 0.0:
 		return 0.0
-	var entry: Dictionary = LASubstances.table().get("h2o", {})
-	var mm: float = float(entry.get("molar_mass", 0.0))
-	var rho: float = float(entry.get("density", 0.0))
-	if mm <= 0.0 or rho <= 0.0:
-		return 0.0
-	return e * mm / (LAPhysical.GAS_CONSTANT_J_MOL_K * maxf(t + LAPhysical.KELVIN_OFFSET, 1.0) * rho)
+	return e / (LAPhysical.GAS_CONSTANT_J_MOL_K * maxf(t + LAPhysical.KELVIN_OFFSET, 1.0))
 
 
 ## Suspended condensate (liquid + ice) at a linear cell, from the shares the ladder derived. 0 in rock.
@@ -160,13 +156,8 @@ func dewpoint_at(x: float, z: float) -> float:
 	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
 	if c < 0 or _f._solid[c] != 0 or _f._queries.vapour_at(c) <= 0.0:
 		return NAN
-	var entry: Dictionary = LASubstances.table().get("h2o", {})
-	var mm: float = float(entry.get("molar_mass", 0.0))
-	var rho: float = float(entry.get("density", 0.0))
-	if mm <= 0.0 or rho <= 0.0:
-		return NAN
-	# Partial pressure of the vapour the cell holds: n/V = vf * rho / M, then e = (n/V) R T.
-	var e: float = _f._queries.vapour_at(c) * rho / mm * LAPhysical.GAS_CONSTANT_J_MOL_K \
+	# Partial pressure of the vapour the cell holds: e = (n/V) R T, the amount already mol/m^3.
+	var e: float = _f._queries.vapour_at(c) * LAPhysical.GAS_CONSTANT_J_MOL_K \
 		* (_f._temp[c] + LAPhysical.KELVIN_OFFSET)
 	# The dewpoint is the boiling point at the vapour's own partial pressure: one curve, inverted.
 	return LASubstances.boil_c_at("h2o", e)

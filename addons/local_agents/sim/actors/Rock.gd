@@ -58,16 +58,15 @@ func get_inspector_payload() -> Dictionary:
 		"lines": ["A loose rock.", "Villagers throw these to hunt."],
 	}
 
-## The boulder's mineral mass in substrate units, for a field whose cell geometry sets the conversion. A
-## sphere of basalt of this rock's radius, against one full cell of rock = MAX_MASS. Returns 0 with no field
-## (headless tests), which is honest: there is no ledger there to be consistent with.
+## The boulder's mineral amount in the channel unit (mol/m^3 of its cell): a sphere of basalt of this
+## rock's radius, against the cell volume, at rock's full amount. Returns 0 with no field (headless
+## tests), which is honest: there is no ledger there to be consistent with.
 func mineral_mass_for(field) -> float:
 	if field == null or not ("_cell_size" in field):
 		return 0.0
 	var side: float = maxf(float(field._cell_size), 0.001)
-	var cell_kg: float = LAPhysical.ROCK_DENSITY_KG_M3 * side * side * side
-	var rock_kg: float = LAPhysical.ROCK_DENSITY_KG_M3 * (4.0 / 3.0) * PI * _radius * _radius * _radius
-	return float(field.MAX_MASS) * rock_kg / maxf(cell_kg, 0.0001)
+	var rock_m3: float = (4.0 / 3.0) * PI * _radius * _radius * _radius
+	return LASubstances.full_mol_m3("silicate") * rock_m3 / (side * side * side)
 
 
 ## Called when a villager picks this rock up. The node goes, the MATTER does not: the caller is handed the

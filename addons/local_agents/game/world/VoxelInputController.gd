@@ -486,7 +486,7 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 			if not is_nan(hsurf.x):
 				var cs: float = hfield.cell_size()
 				# DIFFUSE recharge only. Whether anything warm seeps back out is the rock's answer, not ours.
-				hfield.add_water_pooled(hsurf, 0.5, cs * 3.5)
+				hfield.add_water_pooled(hsurf, 0.5 * LAMaterialField3D.MAX_MASS, cs * 3.5)
 
 	# Rock Stage C proof: deposit rock into a VOID cell ~3 units above the top surface, then confirm the
 	# rock_fill 0.5-crossing GROWS terrain (is_solid flips false->true at the stamp point).

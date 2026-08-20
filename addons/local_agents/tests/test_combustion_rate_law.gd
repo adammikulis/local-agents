@@ -5,11 +5,11 @@ extends RefCounted
 const CombustionScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/CombustionRecords.gd")
 const DefsScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 
-# The condition the sweep is evaluated at: a cell holding litter, in ambient air.
-const FUEL_AT_CELL: float = 0.02          # the ground-surface fuel seed's order of magnitude
+# The condition the sweep is evaluated at: a cell holding litter, in ambient air. mol/m^3.
+var FUEL_AT_CELL: float = 0.02 * LASubstances.full_mol_m3("organic_c")
 ## The rate law is tested in AIR. The planet no longer seeds free oxygen — it is a product of life — so
 ## this cannot borrow the world's seed without testing combustion in a vacuum.
-const O2_IN_AIR: float = 1.0             # one unit of `o2` IS a cell of ambient air, by definition
+var O2_IN_AIR: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.AIR_MOLE_FRAC_O2
 
 
 ## The extent, evaluated exactly as reactions_sphere3d.glsl does: the RM_ARRHENIUS rate, then the reactant caps
@@ -45,10 +45,10 @@ func _coeff(rec: Dictionary, side: String, slot: int, hc: float = 2.0, oc: float
 	return 0.0
 
 
-## kg/m3 in one unit of the dead organic pool at a molar H:C and O:C. Divides J/m3 into J/kg of fuel.
-func _organic_kg_m3(hc: float, oc: float) -> float:
-	return LASubstances.ORGANIC_MOL_PER_M3 * (LAPhysical.MOLAR_MASS_CARBON_KG_MOL
-		+ hc * LAPhysical.MOLAR_MASS_HYDROGEN_KG_MOL + oc * LAPhysical.MOLAR_MASS_OXYGEN_KG_MOL)
+## kg per mole of the dead organic pool at a molar H:C and O:C. Divides J/mol into J/kg of fuel.
+func _organic_kg_mol(hc: float, oc: float) -> float:
+	return LAPhysical.MOLAR_MASS_CARBON_KG_MOL \
+		+ hc * LAPhysical.MOLAR_MASS_HYDROGEN_KG_MOL + oc * LAPhysical.MOLAR_MASS_OXYGEN_KG_MOL
 
 
 ## A channel amount IS moles, so a record's coefficient is already the stoichiometry a chemist writes.
@@ -72,7 +72,7 @@ func run_test(_tree: SceneTree) -> bool:
 	var ok: bool = true
 	var o2_per_fuel: float = _coeff(burn, "reactants", DefsScript.O2)
 	var co2_per_fuel: float = _coeff(burn, "products", DefsScript.CO2)
-	var w_per_fuel: float = _coeff(burn, "products", DefsScript.MOISTURE)
+	var w_per_fuel: float = _coeff(burn, "products", DefsScript.H2O)
 	var n_per_fuel: float = _coeff(burn, "products", DefsScript.FERT)
 	# The heat of combustion, dotted with fresh CH2O litter's composition.
 	var enthalpy: float = float(burn.get("enthalpy_j_m3", 0.0)) \
@@ -137,7 +137,7 @@ func run_test(_tree: SceneTree) -> bool:
 	var checks: Array = [
 		["O2 per carbon", o2_per_fuel * _mol(DefsScript.O2) / mol_fuel, 1.0],
 		["CO2 per carbon", co2_per_fuel * _mol(DefsScript.CO2) / mol_fuel, 1.0],
-		["H2O per carbon", w_per_fuel * _mol(DefsScript.MOISTURE) / mol_fuel, 1.0],
+		["H2O per carbon", w_per_fuel * _mol(DefsScript.H2O) / mol_fuel, 1.0],
 		["N per carbon", n_per_fuel * _mol(DefsScript.FERT) / mol_fuel,
 			float(LAReactionBalance.composition()[DefsScript.FUEL]["N"])],
 	]
@@ -151,11 +151,13 @@ func run_test(_tree: SceneTree) -> bool:
 			ok = false
 
 	# --- 4. THE OXYGEN QUENCH: a flame goes out before the oxygen does ---------------------------------------
-	# A mole fraction, converted here to the channel's ambient-air unit.
-	var want_quench: float = LAPhysical.LIMITING_OXYGEN_CONCENTRATION_FRAC / LAPhysical.AIR_MOLE_FRAC_O2
-	if absf(quench - want_quench) > 1.0e-6:
-		push_error("the oxygen quench is %.4f, expected %.4f = LIMITING_OXYGEN_CONCENTRATION_FRAC / "
-			% [quench, want_quench] + "AIR_MOLE_FRAC_O2. It is a measured property of the flame, not a knob.")
+	# A mole fraction, converted here to mol/m^3 of ambient air.
+	var want_quench: float = LAPhysical.LIMITING_OXYGEN_CONCENTRATION_FRAC \
+		* LAPhysical.AIR_MOLAR_DENSITY_MOL_M3
+	if absf(quench - want_quench) > 1.0e-6 * want_quench:
+		push_error("the oxygen quench is %.4f, expected %.4f = LIMITING_OXYGEN_CONCENTRATION_FRAC * "
+			% [quench, want_quench] + "AIR_MOLAR_DENSITY_MOL_M3. It is a measured property of the flame, "
+			+ "not a knob.")
 		ok = false
 	if _extent(burn, 800.0, FUEL_AT_CELL, want_quench * 0.99) != 0.0:
 		push_error("combustion still proceeds below the limiting oxygen concentration at 800 C. A flame in a "
@@ -194,18 +196,18 @@ func run_test(_tree: SceneTree) -> bool:
 			+ "is the reason wet fuel does not light.")
 		ok = false
 	# Channiwala & Parikh's per-element heating values dotted with CH2O, read through LASubstances.
-	var want_enthalpy: float = LASubstances.ORGANIC_MOL_PER_M3 * (LASubstances.organic_energy_j_mol("C")
-		+ 2.0 * LASubstances.organic_energy_j_mol("H") + 1.0 * LASubstances.organic_energy_j_mol("O"))
+	var want_enthalpy: float = LASubstances.organic_energy_j_mol("C") \
+		+ 2.0 * LASubstances.organic_energy_j_mol("H") + 1.0 * LASubstances.organic_energy_j_mol("O")
 	if absf(enthalpy - want_enthalpy) > 1.0e-6 * absf(want_enthalpy):
-		push_error("combustion's enthalpy at fresh CH2O is %s J/m3 per unit, expected %s = the cell's C:H:O "
+		push_error("combustion's enthalpy at fresh CH2O is %s J/mol of extent, expected %s = the cell's C:H:O "
 			% [String.num_scientific(enthalpy), String.num_scientific(want_enthalpy)]
 			+ "dotted with LASubstances.organic_energy_j_mol.")
 		ok = false
 	# Energy density must rise with rank. Anthracite is H:C 0.3, O:C 0.02.
 	var coal_enthalpy: float = float(burn.get("enthalpy_j_m3", 0.0)) \
 		+ 0.3 * float(burn.get("enthalpy_h_j_m3", 0.0)) + 0.02 * float(burn.get("enthalpy_o_j_m3", 0.0))
-	var fresh_mjkg: float = enthalpy / _organic_kg_m3(2.0, 1.0) / 1.0e6
-	var coal_mjkg: float = coal_enthalpy / _organic_kg_m3(0.3, 0.02) / 1.0e6
+	var fresh_mjkg: float = enthalpy / _organic_kg_mol(2.0, 1.0) / 1.0e6
+	var coal_mjkg: float = coal_enthalpy / _organic_kg_mol(0.3, 0.02) / 1.0e6
 	print("  heat of combustion: fresh CH2O litter %.2f MJ/kg, anthracite %.2f MJ/kg" % [fresh_mjkg, coal_mjkg])
 	if coal_mjkg <= fresh_mjkg:
 		push_error("coalified organic matter releases %.2f MJ/kg against fresh litter's %.2f. Driving out H "

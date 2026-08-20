@@ -22,7 +22,7 @@ layout(set = 0, binding = 11, std430) restrict readonly buffer OrgH { float org_
 layout(set = 0, binding = 12, std430) restrict readonly buffer OrgO { float org_o[]; };
 layout(set = 0, binding = 13, std430) restrict readonly buffer Fert { float fert[]; };
 
-// Volume fraction of channel `i` at cell `c`.
+// Amount of channel `i` at cell `c`, mol/m^3.
 float channel_at(int i, uint c) {
 	switch (i) {
 		case 0:  return h2o[c];

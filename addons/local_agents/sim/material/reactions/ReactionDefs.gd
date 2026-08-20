@@ -19,7 +19,7 @@ const BIOMASS: int = 11
 const WINDSPEED: int = 16             # DERIVED driver only: speed TANGENTIAL to the local vertical, m/s
 const LIGHT: int = 18                 # DERIVED driver only; never a product/reactant target
 const SOIL_ROOT: int = 19
-# Derived driver only: sat(T) minus the vapour held, volume fraction. Positive = unsaturated.
+# Derived driver only: sat(T) minus the vapour held, mol/m^3. Positive = unsaturated.
 const VAPOUR_DEFICIT: int = 20
 # Drying front: pore water of the first regolith cell under an open one. Derived, writable.
 const SOIL_TOP: int = 21

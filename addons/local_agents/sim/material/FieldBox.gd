@@ -74,7 +74,7 @@ func _ready() -> void:
 	_top_start = _sample(_dx / 2, _dy - 1, _dz / 2)
 
 
-## The LAMaterialField3D this node owns. Call add_heat_energy(), temp_at(), add_water_cell() and friends on it
+## The LAMaterialField3D this node owns. Call add_heat_energy(), temp_at() and friends on it
 ## to drive the volume yourself.
 func field() -> Node:
 	return _field

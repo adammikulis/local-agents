@@ -39,8 +39,10 @@ func setup(world: Node) -> void:
 ## richer logic would subclass LAEventDetector and drop its instance in the same list.
 func _build_registry() -> void:
 	_detectors = [
-		# Eruption: molten-rock (lava) total ramps up from ~0 as a vent supplies it, and stays up. Escalates
-		_threshold("eruption", "melt_total", "cross_up", 0.5, 0.1, 12.0, 0.02,
+		# Eruption: molten-rock (lava) total in moles ramps up from ~0 as a vent supplies it, and stays up.
+		_threshold("eruption", "melt_total", "cross_up",
+			0.5 * LASubstances.full_mol_m3("silicate"), 0.1 * LASubstances.full_mol_m3("silicate"),
+			12.0, 0.02 / LASubstances.full_mol_m3("silicate"),
 			"a volcano is erupting — molten lava is pouring out"),
 		# Wildfire: the ecology fire count rising off zero (fire ignited and is spreading).
 		_threshold("wildfire", "fires", "cross_up", 0.5, 0.5, 7.0, 1.5,
