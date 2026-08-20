@@ -14,7 +14,6 @@ SIM = os.path.join(ROOT, "addons", "local_agents", "sim")
 
 REACTION_DEFS = os.path.join(SIM, "material", "reactions", "ReactionDefs.gd")
 REACTION_THERMO = os.path.join(SIM, "material", "reactions", "ReactionThermo.gd")
-CELL_LIST_PASS = os.path.join(SIM, "material", "sphere_passes", "CellListPass.gd")
 TRANSPORT_RECORDS = os.path.join(ROOT, "addons/local_agents/sim/material/TransportRecords.gd")
 REDUCE_RECORDS = os.path.join(ROOT, "addons/local_agents/sim/material/ReduceRecords.gd")
 REGOLITH = os.path.join(SIM, "material", "MaterialFieldRegolith3D.gd")
@@ -114,16 +113,6 @@ def reaction_sections():
     return found
 
 
-def cell_list_flags():
-    m = re.search(r"^enum Flag \{(.+?)\}", read(CELL_LIST_PASS), re.M | re.S)
-    if not m:
-        raise Missing("CellListPass.gd declares no `enum Flag`")
-    out = [(n, int(v)) for n, v in re.findall(r"([A-Z][A-Z0-9_]*)\s*=\s*(\d+)", m.group(1))]
-    if not out:
-        raise Missing("CellListPass.gd's `enum Flag` is empty")
-    return out
-
-
 def transport_modes():
     """LATransportRecords' mode enum, which transport.glsl must not restate."""
     m = re.search(r"^enum \{ ([A-Z, ]+) \}", read(TRANSPORT_RECORDS), re.M)
@@ -179,10 +168,6 @@ def glsli_text():
     for want in SECTIONS:
         for name, value in sections[want]:
             lines.append("#define %s %d" % (name, value))
-    lines.append("")
-    lines.append("// sphere_passes/CellListPass.gd Flag")
-    for name, value in cell_list_flags():
-        lines.append("#define F_%s %du" % (name, value))
     lines.append("")
     lines.append("// TransportRecords.gd mode enum")
     for value, name in transport_modes():

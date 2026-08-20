@@ -14,7 +14,7 @@ enum Fluid { VACUUM, WATER, AIR }
 
 ## Per-row switches, packed into the kernel's `flags`. Matches the TF_* constants in transport.glsl.
 enum Flag { SIGNED = 1, SETTLE = 2, EFIELD = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32, LISTED = 64,
-	RADIOGENIC = 128, ENTHALPY = 256 }
+	RADIOGENIC = 128, ENTHALPY = 256, LIST_HALO = 512 }
 
 
 ## `settle` adds the grain's terminal velocity to the advecting fluid; `frac` is the derived share moved.
@@ -33,7 +33,7 @@ static func rows() -> Array:
 			"frac": "h2o_vapour"},
 
 		# One silicate channel, four laws. Cemented rock has no row: that is what being rock means.
-		# `list` dispatches this row over CellListPass's compacted melt list — O(molten) rather than O(grid).
+		# `list` dispatches this row over the compacted melt list — O(molten) rather than O(grid).
 		{"channel": "silicate", "substance": "silicate", "mode": POTENTIAL, "law": Law.FILM,
 			"frac": "silicate_melt", "dilute": true, "list": "melt"},
 
@@ -82,6 +82,28 @@ static func rows() -> Array:
 		{"channel": "mom_z", "substance": "", "mode": DIFFUSE, "law": Law.EDDY,
 			"fluid": Fluid.AIR, "signed": true},
 	]
+
+
+## Compacted cell lists, built by transport.glsl's PASS_LIST_* dispatches before any listed row runs.
+## `prim` is the channel the append's predicate reads; `halo` adds the receivers of a listed cell's
+## outflow; `emit_idx` reads the indices back at the drain.
+static func lists() -> Array:
+	return [
+		# MELT reproduces the FILM row's own no-op: no melt share, or cemented into rock, and it moves nothing.
+		{"label": "melt", "prim": "silicate_melt", "halo": true},
+		# STRIKE gives a bolt its position without anything walking the grid. No halo: a flash is where it
+		# struck. Built before the rows run, so the list carries the previous step's strikes.
+		{"label": "strike", "prim": "strike", "halo": false, "emit_idx": true},
+	]
+
+
+## The compacted-index / dispatch-args / membership-flag buffer keys of one list; empty for no such label.
+static func list_buffers(label: String) -> Dictionary:
+	for row: Dictionary in lists():
+		if String(row["label"]) == label:
+			return {"idx": label + "_list_idx", "args": label + "_list_args",
+				"flag": label + "_list_flag"}
+	return {}
 
 
 ## Density and dynamic viscosity of one Fluid, kg/m^3 and Pa s.

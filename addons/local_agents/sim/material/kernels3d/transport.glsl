@@ -61,11 +61,12 @@ layout(set = 0, binding = 30, std430) restrict buffer CementBuf { float cement[]
 layout(set = 0, binding = 31, std430) writeonly buffer SuspWater { float silicate_susp_water[]; };
 layout(set = 0, binding = 32, std430) writeonly buffer SuspAir { float silicate_susp_air[]; };
 layout(set = 0, binding = 33, std430) writeonly buffer Bed { float silicate_bed[]; };
-// A TF_LISTED row runs over CellListPass's compacted cell list instead of the grid. Slot 3 of the args is
-// the list length; the flag is 1 for every cell in the list.
-layout(set = 0, binding = 34, std430) restrict readonly buffer ActiveIdx { uint active_idx[]; };
-layout(set = 0, binding = 35, std430) restrict readonly buffer ActiveArgs { uint active_args[]; };
-layout(set = 0, binding = 36, std430) restrict readonly buffer ActiveFlag { uint active_flag[]; };
+// A TF_LISTED row runs over the compacted cell list the PASS_LIST_* dispatches build, instead of the
+// grid. Slot 3 of the args is the list length; the flag is 1 for every cell in the list. No `restrict`:
+// a full-grid row binds one already-bound buffer into all three slots.
+layout(set = 0, binding = 34, std430) buffer ActiveIdx { uint active_idx[]; };
+layout(set = 0, binding = 35, std430) buffer ActiveArgs { uint active_args[]; };
+layout(set = 0, binding = 36, std430) buffer ActiveFlag { uint active_flag[]; };
 // MODE_RADIATE's own books, J/m^3, assigned in the gather so each is a per-step rate needing no clear.
 layout(set = 0, binding = 37, std430) restrict writeonly buffer RadAbs { float rad_absorbed[]; };
 layout(set = 0, binding = 38, std430) restrict writeonly buffer RadEmit { float rad_emitted[]; };
@@ -120,7 +121,11 @@ layout(push_constant, std430) uniform Params {
 	uint total_count;     // interior cells plus ghost tail cells; pass 0 runs the ghosts too
 } params;
 
-const uint PASS_GRAIN = 2u;   // TransportPass.PASS_GRAIN
+// TransportPass's PASS_* tags past outflow (0) and gather (1).
+const uint PASS_GRAIN = 2u;
+const uint PASS_LIST_RESET = 3u;
+const uint PASS_LIST_APPEND = 4u;
+const uint PASS_LIST_ARGS = 5u;
 
 const float KELVIN = 273.15;                        // LAPhysical.KELVIN_OFFSET
 const float STEFAN = 5.670374419e-8;                // LAPhysical.STEFAN_BOLTZMANN
@@ -625,8 +630,74 @@ void grain_state(uint g) {
 }
 
 
+// PASS_LIST_APPEND: compact the interior cells whose `drive` is positive — plus, under TF_LIST_HALO, the
+// receivers one face away — into active_idx, and stamp membership into active_flag.
+shared uint s_list_n;
+shared uint s_list_base;
+
+void list_append(uint g) {
+	if (gl_LocalInvocationID.x == 0u) {
+		s_list_n = 0u;
+	}
+	memoryBarrierShared();
+	barrier();
+	bool keep = false;
+	if (g < params.cell_count) {
+		bool hit = drive[g] > 0.0;
+		if (!hit && (params.flags & TF_LIST_HALO) != 0u) {
+			uint nbase = g * N_SLOTS;
+			for (uint d = 0u; d < N_SLOTS; ++d) {
+				int nb = nbr[nbase + d];
+				if (nb >= 0 && drive[uint(nb)] > 0.0) {
+					hit = true;
+				}
+			}
+		}
+		keep = hit && solid[g] == 0.0;
+		active_flag[g] = keep ? 1u : 0u;
+	}
+	uint slot_local = 0u;
+	if (keep) {
+		slot_local = atomicAdd(s_list_n, 1u);
+	}
+	memoryBarrierShared();
+	barrier();
+	if (gl_LocalInvocationID.x == 0u) {
+		s_list_base = atomicAdd(active_args[3], s_list_n);
+	}
+	memoryBarrierShared();
+	barrier();
+	if (keep) {
+		uint slot = s_list_base + slot_local;
+		if (slot < params.cell_count) {
+			active_idx[slot] = g;
+		}
+	}
+}
+
+
 void main() {
 	uint gidx = gl_GlobalInvocationID.x;
+	// pass_id is a push constant, so each branch here is uniform and APPEND's barriers are legal.
+	if (params.pass_id == PASS_LIST_RESET) {
+		if (gidx == 0u) {
+			active_args[1] = 1u;
+			active_args[2] = 1u;
+			active_args[3] = 0u;
+		}
+		return;
+	}
+	if (params.pass_id == PASS_LIST_APPEND) {
+		list_append(gidx);
+		return;
+	}
+	if (params.pass_id == PASS_LIST_ARGS) {
+		if (gidx == 0u) {
+			// One workgroup minimum: a zero-group indirect dispatch is not uniformly safe across backends.
+			active_args[0] = max(1u, (active_args[3] + 63u) / 64u);
+		}
+		return;
+	}
 	bool listed = (params.flags & TF_LISTED) != 0u;
 	if (listed) {
 		// The dispatch is indirect over ceil(count/64) groups, so the tail of the last group is past the end.

@@ -43,12 +43,6 @@
 #define TGT_SELF 0
 #define TGT_SCRATCH 3
 
-// sphere_passes/CellListPass.gd Flag
-#define F_OPEN_ONLY 1u
-#define F_INCLUSIVE 2u
-#define F_HALO 4u
-#define F_AUX 8u
-
 // TransportRecords.gd mode enum
 #define MODE_POTENTIAL 0u
 #define MODE_ADVECT 1u
@@ -78,6 +72,7 @@
 #define TF_LISTED 64u
 #define TF_RADIOGENIC 128u
 #define TF_ENTHALPY 256u
+#define TF_LIST_HALO 512u
 
 // ReduceRecords.gd Op enum
 #define OP_SUM 0u

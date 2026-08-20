@@ -5,7 +5,7 @@ extends RefCounted
 
 ## Passes that bind no writable enthalpy buffer, keyed as FieldStepSample3D.leg_key names them: a heat leg
 ## on one of these falsifies the instrument, not the planet. Only transport and reactions may move heat.
-const SILENT_HEAT_PASSES: PackedStringArray = ["gravity", "state_derive", "pressure", "cell_list", "reduce"]
+const SILENT_HEAT_PASSES: PackedStringArray = ["gravity", "state_derive", "pressure", "reduce"]
 
 ## One report row per tracked scalar. `scalar` names the sampled quantity; the rest name the published keys.
 ## `residual_of` lists the scalars whose leg sums are subtracted from this row's step delta; it defaults to

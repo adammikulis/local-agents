@@ -5,11 +5,15 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/transport.glsl"
 
 const BandsScript: GDScript = preload("res://addons/local_agents/sim/material/AbsorptionBands.gd")
-const CellListScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/CellListPass.gd")
 const BoundaryRowsScript: GDScript = preload("res://addons/local_agents/sim/material/reduce/BoundaryRows.gd")
 
-## Which half of the gather a dispatch is, plus the prologue that runs before any row; tags, not quantities.
-enum { PASS_OUTFLOW, PASS_GATHER, PASS_GRAIN }
+## Which half of the gather a dispatch is, the grain prologue, and the three compaction dispatches that
+## build each LATransportRecords.lists() list; tags, not quantities.
+enum { PASS_OUTFLOW, PASS_GATHER, PASS_GRAIN, PASS_LIST_RESET, PASS_LIST_APPEND, PASS_LIST_ARGS }
+
+## List-args buffer layout, shared with the kernel: 0-2 are the uvec3 an indirect dispatch reads, 3 is the
+## atomic list length. SLOTS is the buffer's element count.
+enum Arg { GROUPS_X = 0, GROUPS_Y = 1, GROUPS_Z = 2, LIST_COUNT = 3, SLOTS = 8 }
 
 ## The grain prologue carries mineral grains, so the Stokes law reads silicate's density off `substance`.
 const GRAIN_ROW: Dictionary = {"channel": "silicate", "substance": "silicate",
@@ -43,16 +47,28 @@ var _band_count: int = 0
 var _grain_set: RID = RID()
 ## Per row: the dispatch-indirect args RID of the cell list it runs over, invalid for a full-grid row.
 var _list_args: Array = []
+## Per LATransportRecords.lists() entry: the synthetic row its compaction dispatches carry, its uniform
+## set, and its args/idx buffer RIDs.
+var _list_rows: Array = []
+var _list_sets: Array = []
+var _list_args_rid: Array = []
+var _list_idx_rid: Array = []
 
 
-## What the TF_STAMP gather publishes about the electric field: driver-owned so ReducePass and
-## CellListPass can read them, and not a derived channel, which would be read back with no CPU consumer.
+## What the TF_STAMP gather publishes about the electric field (driver-owned so ReducePass can read them,
+## not a derived channel, which would be read back with no CPU consumer), plus each list's compacted-index,
+## membership-flag and indirect-args buffers.
 func _buffers(cc: int) -> Dictionary:
 	var out: Dictionary = {"col_e": cc, "strike": cc, "radiogenic": cc,
 		"bnd_void": cc, "bnd_h_void": cc}
 	for ch in BoundaryRowsScript.BOOKED:
 		out["bnd_" + String(ch)] = cc
 		out["bnd_h_" + String(ch)] = cc
+	for lrow: Dictionary in LATransportRecords.lists():
+		var keys: Dictionary = LATransportRecords.list_buffers(String(lrow["label"]))
+		out[String(keys["idx"])] = cc
+		out[String(keys["flag"])] = cc
+		out[String(keys["args"])] = {"n": int(Arg.SLOTS), "indirect": true}
 	return out
 
 
@@ -77,6 +93,16 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		_sets.append(_row_set(bufs, row))
 		_list_args.append(_single(bufs, String(_list_keys(row).get("args", ""))))
 	_grain_set = _row_set(bufs, GRAIN_ROW)
+	# The append's predicate reads `drive`, which binds the list's prim channel through `channel`.
+	for lrow: Dictionary in LATransportRecords.lists():
+		var label: String = String(lrow["label"])
+		var keys: Dictionary = LATransportRecords.list_buffers(label)
+		_list_rows.append({"label": label, "channel": String(lrow["prim"]), "substance": "",
+			"mode": LATransportRecords.POTENTIAL, "halo": bool(lrow.get("halo", false)),
+			"emit_idx": bool(lrow.get("emit_idx", false)), "list": label})
+		_list_sets.append(_row_set(bufs, _list_rows.back()))
+		_list_args_rid.append(_single(bufs, String(keys["args"])))
+		_list_idx_rid.append(_single(bufs, String(keys["idx"])))
 
 
 func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
@@ -85,6 +111,19 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	var cell_m: float = _ctx_cell_size(ctx)
 	var dt_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
 	var sun: Vector3 = ctx.get("sun_dir", Vector3.ZERO)
+	# THE LISTS, rebuilt before any listed row dispatches over one: RESET the counter, APPEND the interior
+	# cells the predicate keeps, publish the indirect ARGS.
+	for r in _list_rows.size():
+		var lset: RID = _list_sets[r]
+		if not lset.is_valid():
+			continue
+		rd.compute_list_bind_compute_pipeline(cl, _pipe)
+		rd.compute_list_bind_uniform_set(cl, lset, 0)
+		for spec: Array in [[PASS_LIST_RESET, 1], [PASS_LIST_APPEND, groups], [PASS_LIST_ARGS, 1]]:
+			var lpc: PackedByteArray = _pc(_list_rows[r], cc, int(spec[0]), cell_m, dt_s, sun)
+			rd.compute_list_set_push_constant(cl, lpc, lpc.size())
+			rd.compute_list_dispatch(cl, int(spec[1]), 1, 1)
+			rd.compute_list_add_barrier(cl)
 	# PROLOGUE. The three suspension shares are the `frac` of three silicate rows, so they must be complete
 	# before those rows donate, and it reads `cement` before the dilute rows rescale it.
 	if _grain_set.is_valid():
@@ -106,7 +145,7 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 			rd.compute_list_bind_uniform_set(cl, uset, 0)
 			var pc: PackedByteArray = _pc(_rows[r], cc, pass_id, cell_m, dt_s, sun)
 			rd.compute_list_set_push_constant(cl, pc, pc.size())
-			# A listed row walks the cells CellListPass compacted, so its cost is O(active), not O(grid).
+			# A listed row walks the compacted cells, so its cost is O(active), not O(grid).
 			if args.is_valid():
 				rd.compute_list_dispatch_indirect(cl, args, 0)
 			else:
@@ -120,10 +159,26 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 
 # --- bindings ---------------------------------------------------------------------------------------------
 
+## Cells each list holds after the last step, and for an `emit_idx` list the indices themselves, reading
+## only the occupied prefix.
+func _drain(rd: RenderingDevice) -> Dictionary:
+	var out: Dictionary = {}
+	for r in _list_rows.size():
+		var raw: PackedByteArray = rd.buffer_get_data(_list_args_rid[r])
+		if raw.size() < int(Arg.SLOTS) * 4:
+			continue
+		var label: String = String(_list_rows[r]["label"])
+		var n: int = raw.to_int32_array()[int(Arg.LIST_COUNT)]
+		out[label + "_list_cells"] = float(n)
+		if n > 0 and bool(_list_rows[r].get("emit_idx", false)):
+			out[label + "_list_idx"] = rd.buffer_get_data(_list_idx_rid[r], 0, n * 4).to_int32_array()
+	return out
+
+
 ## The cell-list buffer keys a row runs over; empty for a row that sweeps the whole grid.
 func _list_keys(row: Dictionary) -> Dictionary:
 	var label: String = String(row.get("list", ""))
-	return {} if label == "" else CellListScript.list_buffers(label)
+	return {} if label == "" else LATransportRecords.list_buffers(label)
 
 ## The uniform set for one row, or RID() when a buffer it names does not exist.
 func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
@@ -135,6 +190,10 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 	var moves_enthalpy: bool = channel == "h_j_m3"
 	# Mass does not move without its heat, so the enthalpy field is required of every row that carries mass.
 	var list: Dictionary = _list_keys(row)
+	if String(row.get("list", "")) != "" and list.is_empty():
+		push_error("TransportPass: no \"%s\" list, so the %s row does not move."
+			% [String(row["list"]), channel])
+		return RID()
 	var needed: Array = [channel, drive, resist, aux, frac, "" if moves_enthalpy else "h_j_m3",
 		String(list.get("idx", "")), String(list.get("args", "")), String(list.get("flag", ""))]
 	for key in needed:
@@ -242,6 +301,8 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 		flags |= LATransportRecords.Flag.DILUTE
 	if String(row.get("list", "")) != "":
 		flags |= LATransportRecords.Flag.LISTED
+	if bool(row.get("halo", false)):
+		flags |= LATransportRecords.Flag.LIST_HALO
 	if bool(row.get("radiogenic", false)):
 		flags |= LATransportRecords.Flag.RADIOGENIC
 	# The row whose amount IS enthalpy books joules on both boundary legs.

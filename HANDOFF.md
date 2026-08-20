@@ -81,15 +81,6 @@ Free today, no new op: `momentum_vec` is three `SUM` rows on `vel_*` with `aux: 
 `momentum_mass_kg` is one. **Coriolis then costs nothing** — it is linear in v, so it is
 `spin × momentum_vec × -2Ω` on the CPU, and the per-cell accumulation is pure waste.
 
-## 2. Collapse the per-cell kernels into one dispatch
-
-`CellListPass` is the seventh, and it stays a pass until the compaction becomes a mode of `transport.glsl`:
-`check_binding_collisions.sh` fails any pass naming two kernel paths, so it cannot simply be folded into
-`TransportPass`. The compaction needs workgroup-shared memory and barriers in uniform control flow, which
-`PASS_GRAIN` shows a transport mode can carry.
-
-The target is six: gravity, derive, pressure, transport, reactions, reduce.
-
 ## 3. Sunlight reflected off the ground goes nowhere
 
 `transport.glsl`'s gather takes `sun_w * sw_absorbed * (1 - shortwave_albedo)` and the beam march removes

@@ -87,16 +87,15 @@ For the nine rows with `density == 0` the `_h`/`_q` two thirds of that are prova
 `shock` is identically zero except for a few steps after an impact and costs two full-grid sweeps every
 step forever. Same shape: `fungus`, `fert`, the three loose-silicate rows, both liquid `h2o` rows, and both
 charge rows. **Six of them need no new machinery at all** — `shock`, `fungus`, `fert` and the three
-silicate rows key on a single buffer, exactly like the `melt` row that already works: add a row to
-`CellListPass.rows()` and a `"list"` key in `LATransportRecords.rows()`, no kernel change. One label can
-serve all three silicate rows and pay the append once.
+silicate rows key on a single buffer, exactly like the `melt` row that already works: add an entry to
+`LATransportRecords.lists()` and a `"list"` key in `LATransportRecords.rows()`, no kernel change. One label
+can serve all three silicate rows and pay the append once.
 
-What genuinely blocks the rest is the PREDICATE LANGUAGE, not the plumbing: `cell_list_sphere3d.glsl` can
-express a scalar comparison and a 1-ring halo, but not a product (`amount × frac`, which is what a
-`TF_FRACTION` row donates on), not a temperature band, not a face difference (PGF/CONDUCT/DIFFUSE are
-gradient-driven so a per-cell amount predicate is simply wrong for them), and not a column closure. Note
-`check_binding_collisions.sh`'s one-kernel-path rule blocks MERGING the passes, not adding rows — that path
-is open today.
+What genuinely blocks the rest is the PREDICATE LANGUAGE, not the plumbing: `transport.glsl`'s
+`PASS_LIST_APPEND` can express a positive-`prim` test and a 1-ring halo, but not a product (`amount ×
+frac`, which is what a `TF_FRACTION` row donates on), not a temperature band, not a face difference
+(PGF/CONDUCT/DIFFUSE are gradient-driven so a per-cell amount predicate is simply wrong for them), and not
+a column closure.
 
 **Correctness rule for any new listed row:** a cell outside the list never ran pass 0, so its `send` slots
 hold another row's values. `TF_LISTED` already guards this with `active_flag`; keep that invariant, and make
@@ -118,13 +117,13 @@ three marches rather than three times.
 
 ## 2e. Nothing sleeps, and nothing wakes its neighbour
 
-Every cell is stepped at the same rate forever. The only wake mechanism is `CellListPass`'s `F_HALO`, a
-stateless 1-ring dilation rebuilt each step — a spatial superset, not a temporal one, so a front does not
-grow a bubble. There is no tick rate, no activity channel, no demotion, no sleep.
+Every cell is stepped at the same rate forever. The only wake mechanism is `TF_LIST_HALO`, a stateless
+1-ring dilation rebuilt each step — a spatial superset, not a temporal one, so a front does not grow a
+bubble. There is no tick rate, no activity channel, no demotion, no sleep.
 
 Smallest honest implementation: one `activity_ttl` buffer written where the kernels ALREADY write the cell
 (`transport.glsl`'s gather when `amount != was`, `reactions_sphere3d.glsl` when a record fires), plus a
-propagation term in `cell_list_sphere3d.glsl`'s append that reads `ttl` instead of `prim` and decrements
+propagation term in `transport.glsl`'s `PASS_LIST_APPEND` that reads `ttl` instead of `prim` and decrements
 rather than recomputing.
 
 **A previous attempt was reverted and the reason is on file: it gated INSIDE full-grid dispatches, so it
