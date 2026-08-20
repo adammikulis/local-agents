@@ -651,7 +651,9 @@ void list_append(uint g) {
 			uint nbase = g * N_SLOTS;
 			for (uint d = 0u; d < N_SLOTS; ++d) {
 				int nb = nbr[nbase + d];
-				if (nb >= 0 && drive[uint(nb)] > 0.0) {
+				// A wrap partner is a receiver too; a ghost tail is not (a listed row's exterior inflow is 0).
+				if (nb < 0) { nb = ghost[nbase + d]; }
+				if (nb >= 0 && nb < int(params.cell_count) && drive[uint(nb)] > 0.0) {
 					hit = true;
 				}
 			}

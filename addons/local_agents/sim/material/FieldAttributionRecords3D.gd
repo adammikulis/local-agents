@@ -36,7 +36,7 @@ static func of(env_name: String) -> Dictionary:
 		"LA_MINERAL_BUDGET":
 			return {
 				"marker": "MINERAL_BUDGET",
-				"channels": LAFieldLedgerRecords.MINERAL_SUM,
+				"channels": LAFieldLedgerRecords.MINERAL,
 				"energy": false,
 				"rows": MASS_ROWS,
 				"parts": {"open": "open_parts", "all": "all_parts"},

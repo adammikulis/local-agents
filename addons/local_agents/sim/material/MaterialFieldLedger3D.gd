@@ -87,13 +87,12 @@ func _publish_mineral(out: Dictionary, f: Dictionary, step: int) -> void:
 	if _absent(f, LAFieldLedgerRecords.MINERAL):
 		out["mineral_total"] = null
 		return
-	var all: Dictionary = f["all"]
-	var total: float = LAFieldLedgerRecords.sum_of(all, LAFieldLedgerRecords.MINERAL_SUM)
+	var lith: Dictionary = LAFieldLedgerRecords.lith_elements(f["all"])
+	var total: float = float(lith.get("Si", 0.0))
 	out["mineral_total"] = snappedf(total, 0.01)
 	out["carbonate_cells"] = f.get("carbonate_cells", 0)
 	if f.has("crust_moved"):
 		out["crust_moved"] = snappedf(float(f["crust_moved"]), 0.01)
-	var lith: Dictionary = LAFieldLedgerRecords.lith_elements(all)
 	for el in lith:
 		out["lith_element_" + String(el)] = snappedf(float(lith[el]), 0.01)
 	# erupt_source injects mantle lava with no debit in the field, so the queue books it.
@@ -102,14 +101,16 @@ func _publish_mineral(out: Dictionary, f: Dictionary, step: int) -> void:
 		src = float(_f._inject.queue.mineral_minted)
 	out["mineral_src_total"] = snappedf(src, 0.01)
 	_run_pair(out, "mineral", "mineral", "mineral", total, step,
-		_bnd.of(LAFieldLedgerRecords.MINERAL_SUM))
+		_bnd.of(LAFieldLedgerRecords.MINERAL, "Si"))
 
 
-## A residual over the quantity it is a residual OF, dimensionless. Null when the denominator is absent or
-## zero: a ratio with no scale is not a measurement, and a bare-SI difference is a gauge no gate can fail on.
+## A residual over the quantity it is a residual OF, dimensionless. Anything appearing in an empty stock
+## that saw no crossing is wholly unaccounted.
 static func _rel(numerator: float, denominator: float):
-	if not is_finite(numerator) or not is_finite(denominator) or denominator == 0.0:
+	if not is_finite(numerator) or not is_finite(denominator):
 		return null
+	if denominator == 0.0:
+		return float(numerator != 0.0)
 	return snappedf(numerator / absf(denominator), 1.0e-12)
 
 
