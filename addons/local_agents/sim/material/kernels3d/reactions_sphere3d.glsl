@@ -81,9 +81,8 @@ layout(set = 0, binding = 33, std430) restrict buffer OrgO { float org_o[]; };
 // --- THE PHASE RULE ----------------------------------------------------------------------------------------
 const float WATER_FREEZE_C = 0.0;        // LAPhysical.WATER_FREEZE_C — GATE_FREEZING's boundary
 const float KELVIN_0 = 273.15;           // LAPhysical.KELVIN_OFFSET
-const float M_H2O = 0.018015;            // LASubstances.h2o.molar_mass
 const float RHO_WATER = 997.0;           // LAPhysical.WATER_DENSITY_KG_M3
-const float FULL_H2O = RHO_WATER / M_H2O;  // mol/m^3 of a cell full of liquid water
+const float M_H2O = 0.018015;            // LAPhysical.MOLAR_MASS_WATER_KG_MOL
 const float R_GAS = 8.314462618;         // LAPhysical.GAS_CONSTANT_J_MOL_K
 const float P_STD = 101325.0;            // LAPhysical.STANDARD_PRESSURE_PA
 const float EPS0 = 8.8541878128e-12;     // LAPhysical.VACUUM_PERMITTIVITY_F_M
@@ -93,8 +92,8 @@ float h2o_liq(uint i) { return max(h2o[i], 0.0) * clamp(h2o_liquid[i], 0.0, 1.0)
 float h2o_ice(uint i) { return max(h2o[i], 0.0) * clamp(h2o_solid[i], 0.0, 1.0); }
 float h2o_vap(uint i) { return max(h2o[i], 0.0) * clamp(h2o_vapour[i], 0.0, 1.0); }
 
-// SATURATION AMOUNT in the channel's unit (mol/m^3 = e_sat / RT), off the SAME curve the ladder inverts:
-// sublimation pressure while the condensate is ice, saturation pressure once it is liquid.
+// SATURATION AMOUNT, mol/m^3, off the SAME curve the ladder inverts: sublimation pressure while the
+// condensate is ice, saturation pressure once it is liquid. c = p / (R T).
 float sat_vapour_mol_m3(float t_c, float p_pa) {
 	SubstanceTh w = la_h2o();
 	float e_sat = la_mix_vapour_p_at(w, t_c, p_pa, 0.0);
@@ -119,13 +118,16 @@ float wind_speed(uint i) {
 	vec3 up = normalize(-gv);
 	return length(v - up * dot(v, up));
 }
-// Flammability limit: the limiting oxygen mole fraction times ambient air's molar density, mol/m^3.
+// Flammability limit: a MOLE FRACTION of the cell's gas, converted per cell against p / (R T).
 const float LOC_MOLE_FRAC = 0.15;          // LAPhysical.LIMITING_OXYGEN_CONCENTRATION_FRAC
-const float AIR_MOL_M3 = 42.28803292;      // LAPhysical.AIR_MOLAR_DENSITY_MOL_M3
-const float O2_FLAMMABILITY_LIMIT = LOC_MOLE_FRAC * AIR_MOL_M3;
 
-// Half a cell of standing water in the neighbour above = no free surface here. mol/m^3.
-const float DROWNED_WATER = 0.5 * FULL_H2O;
+// mol/m^3 a mole fraction of this cell's gas stands for.
+float mole_frac_to_mol_m3(uint i, float frac) {
+	return frac * max(pressure[i], 0.0) / (R_GAS * max(temp[i] + KELVIN_0, 1.0));
+}
+
+// Half a cell of standing liquid water in the neighbour above = no free surface here. mol/m^3.
+#define DROWNED_WATER (0.5 * RHO_WATER / M_H2O)
 
 struct Reaction {
 	int   rate_model;
@@ -145,22 +147,22 @@ struct Reaction {
 	int   prod_slot[4];
 	float prod_coeff[4];
 	// --- see LAReactionDefs.serialize ---
-	float enthalpy_j_m3;  // heat RELEASED (>0) or absorbed (<0) per mole of extent
+	float enthalpy_j_mol; // heat RELEASED (>0) or absorbed (<0) per mole of extent
 	int   quench_slot;    // a REACTANT this reaction goes out before exhausting; -1 = none
-	float quench_min;     // ...the amount of it the reaction may not draw below (flammability limit)
+	float quench_min;     // ...the MOLE FRACTION of the cell's gas it may not draw below
 	int   pad2;
 	// --- DIRECTION FROM dG (LAReactionThermo). q_slot < 0 = one-way record, no equilibrium.
 	float dg_h_j_mol;      // standard dH per mole of q_slot's substance
 	float dg_s_j_molk;     // standard dS, same basis
 	int   q_slot;          // the one participant whose activity varies; the rest are pure phases
-	float q_pa_per_unit_k; // partial pressure (Pa) one channel unit of q_slot exerts per kelvin
+	float pad5;
 	// --- COMPOSITION-SCALED COEFFICIENTS. coeff = base + h*(org_h/org_c) + o*(org_o/org_c), per cell.
 	float react_h[4];
 	float react_o[4];
 	float prod_h[4];
 	float prod_o[4];
-	float enthalpy_h_j_m3;
-	float enthalpy_o_j_m3;
+	float enthalpy_h_j_mol;
+	float enthalpy_o_j_mol;
 	int   pad3;
 	int   pad4;
 };
@@ -373,11 +375,18 @@ float direction_scale(Reaction rc, uint i, out float x_eq) {
 	}
 	float t_k = max(temp[i] + KELVIN_0, 1.0);
 	float rt = R_GAS * t_k;
-	float pa_per_unit = max(rc.q_pa_per_unit_k * t_k, 1e-30);
+	// A channel amount is moles, so p = c R T. Only the VAPOUR share of a condensable exerts pressure:
+	// with liquid present the vapour sits at saturation, so the amount is capped there.
 	float ch = read_ch(rc.q_slot, i);
-	float dg = rc.dg_h_j_mol - t_k * rc.dg_s_j_molk + sigma * rt * log(max(pa_per_unit * ch / P_STD, 1e-30));
+	if (rc.q_slot == H2O) {
+		float c_sat = sat_vapour_mol_m3(temp[i], max(pressure[i], 0.0));
+		if (c_sat > 0.0) {
+			ch = min(ch, c_sat);
+		}
+	}
+	float dg = rc.dg_h_j_mol - t_k * rc.dg_s_j_molk + sigma * rt * log(max(rt * ch / P_STD, 1e-30));
 	float a_eq = exp(clamp(sigma * (t_k * rc.dg_s_j_molk - rc.dg_h_j_mol) / rt, -EXP_LIMIT, EXP_LIMIT));
-	x_eq = (a_eq * P_STD / pa_per_unit - ch) / (sigma * max(q_coeff, 1e-6));
+	x_eq = (a_eq * P_STD / rt - ch) / (sigma * max(q_coeff, 1e-6));
 	return 1.0 - exp(clamp(dg / rt, -EXP_LIMIT, EXP_LIMIT));
 }
 
@@ -390,6 +399,9 @@ float prod_coeff_at(Reaction rc, int k, float ch, float co) {
 	return rc.prod_coeff[k] + rc.prod_h[k] * ch + rc.prod_o[k] * co;
 }
 
+// Slots a record may debit or credit, one demand/scale bin each.
+#define LA_REACT_SLOTS (H2O_LIQUID + 1)
+
 void main() {
 	uint i = gl_GlobalInvocationID.x;
 	if (i >= params.cell_count) {
@@ -399,7 +411,7 @@ void main() {
 	// The stroke's store: the field energy the strike is relaxing this step. Transport drains the charge
 	// at channel conductivity; this reads what that debit released. J/m^3, driver only.
 	discharge[i] = (strike[i] > 0.0) ? 0.5 * EPS0 * col_e[i] * col_e[i] : 0.0;
-	bool buried = (solid[i] != 0.0);        // only GATE_BURIED records run in rock; everything else is open-cell
+	bool buried = (solid[i] != 0.0);        // only GATE_BURIED records run in rock; everything else is open-cell only
 	// THE CELL'S OWN ORGANIC COMPOSITION: molar H:C and O:C of the dead pool. Every stoichiometric coefficient
 	// and every enthalpy below is a polynomial in these two, so one channel carries peat through to anthracite.
 	float org_c = detritus[i] + fuel[i];
@@ -409,8 +421,16 @@ void main() {
 	float o2_before = o2[i];                // the cell's USABLE-oxygen denominator for the fire instrument
 	float o2_burn = 0.0;                    // ...and its NUMERATOR: oxygen drawn by COMBUSTION alone, summed below
 
-	for (uint r = 0u; r < params.n_records; r++) {
+	// --- PHASE 1: every record's extent against the SAME starting state, plus each slot's total debit.
+	uint n = min(params.n_records, uint(MAX_RECORDS));
+	float xs[MAX_RECORDS];
+	float dem[LA_REACT_SLOTS];
+	for (int s = 0; s < LA_REACT_SLOTS; s++) {
+		dem[s] = 0.0;
+	}
+	for (uint r = 0u; r < n; r++) {
 		Reaction rc = recs[r];
+		xs[r] = 0.0;
 		if (buried && (rc.gate_mask & GATE_BURIED) == 0) {
 			continue;
 		}
@@ -459,47 +479,100 @@ void main() {
 			x *= direction_scale(rc, i, x_eq);
 			x = (x > 0.0) ? min(x, max(x_eq, 0.0)) : max(x, min(x_eq, 0.0));
 		}
-		// CAPS ARE UNCONDITIONAL IN BOTH DIRECTIONS: whichever side is being debited bounds the extent, so no
-		// path runs a credit without its matching debit. `quench_min` is a FLOOR on one reactant — the amount
-		if (x > 0.0) {
-			for (int k = 0; k < rc.n_react; k++) {
-				float coeff = max(react_coeff_at(rc, k, comp_h, comp_o), 1e-6);
-				float avail = read_ch(rc.react_slot[k], i);
-				if (rc.react_slot[k] == rc.quench_slot) {
-					avail = max(0.0, avail - rc.quench_min);
-				}
-				x = min(x, avail / coeff);
+		// CAPS ARE UNCONDITIONAL IN BOTH DIRECTIONS: whichever side is being debited bounds the extent, so
+		// no path runs a credit without its matching debit — a composition-scaled coefficient can put a
+		// participant on either side. `quench_min` is a FLOOR on one reactant, a mole fraction of the gas.
+		for (int k = 0; k < rc.n_react; k++) {
+			float coeff = react_coeff_at(rc, k, comp_h, comp_o);
+			if (coeff * x <= 0.0) {
+				continue;                                    // this side is credited, not debited
 			}
-			if (rc.cap_slot >= 0) {
-				x = min(x, read_ch(rc.cap_slot, i) / max(rc.cap_coeff, 1e-6));
+			float avail = read_ch(rc.react_slot[k], i);
+			if (rc.react_slot[k] == rc.quench_slot) {
+				avail = max(0.0, avail - mole_frac_to_mol_m3(i, rc.quench_min));
 			}
-		} else {
-			// Running BACKWARDS: the products are what gets debited, so they are what bounds the extent.
-			for (int k = 0; k < rc.n_prod; k++) {
-				x = max(x, -read_ch(rc.prod_slot[k], i) / max(prod_coeff_at(rc, k, comp_h, comp_o), 1e-6));
-			}
+			float bound = avail / max(abs(coeff), 1e-12);
+			x = (x > 0.0) ? min(x, bound) : max(x, -bound);
 		}
+		for (int k = 0; k < rc.n_prod; k++) {
+			float coeff = prod_coeff_at(rc, k, comp_h, comp_o);
+			if (coeff * x >= 0.0) {
+				continue;
+			}
+			float bound = read_ch(rc.prod_slot[k], i) / max(abs(coeff), 1e-12);
+			x = (x > 0.0) ? min(x, bound) : max(x, -bound);
+		}
+		if (x > 0.0 && rc.cap_slot >= 0) {
+			x = min(x, read_ch(rc.cap_slot, i) / max(rc.cap_coeff, 1e-12));
+		}
+		xs[r] = x;
 		if (x == 0.0) {
 			continue;
 		}
-		// ATTRIBUTION FOR THE BURNING INSTRUMENT, and it has to happen HERE, inside the loop, against THIS
-		bool is_combustion = (rc.driver_slot == FUEL);
-		float o2_pre_rec = is_combustion ? o2[i] : 0.0;
-
 		for (int k = 0; k < rc.n_react; k++) {
-			add_ch(rc.react_slot[k], i, -react_coeff_at(rc, k, comp_h, comp_o) * x);
+			float d = react_coeff_at(rc, k, comp_h, comp_o) * x;
+			if (d > 0.0 && rc.react_slot[k] >= 0 && rc.react_slot[k] < LA_REACT_SLOTS) {
+				dem[rc.react_slot[k]] += d;
+			}
 		}
+		for (int k = 0; k < rc.n_prod; k++) {
+			float d = -prod_coeff_at(rc, k, comp_h, comp_o) * x;
+			if (d > 0.0 && rc.prod_slot[k] >= 0 && rc.prod_slot[k] < LA_REACT_SLOTS) {
+				dem[rc.prod_slot[k]] += d;
+			}
+		}
+	}
 
+	// --- PHASE 2: one proportional scaling per over-drawn slot, so records compete by share of the same
+	// starting amount, never by table order.
+	float scl[LA_REACT_SLOTS];
+	for (int s = 0; s < LA_REACT_SLOTS; s++) {
+		scl[s] = 1.0;
+		if (dem[s] > 0.0) {
+			float avail = max(read_ch(s, i), 0.0);
+			if (dem[s] > avail) {
+				scl[s] = avail / dem[s];
+			}
+		}
+	}
+
+	// --- PHASE 3: apply the scaled extents.
+	for (uint r = 0u; r < n; r++) {
+		if (xs[r] == 0.0) {
+			continue;
+		}
+		Reaction rc = recs[r];
+		float x = xs[r];
+		float s_r = 1.0;
+		for (int k = 0; k < rc.n_react; k++) {
+			if (react_coeff_at(rc, k, comp_h, comp_o) * x > 0.0 && rc.react_slot[k] >= 0
+					&& rc.react_slot[k] < LA_REACT_SLOTS) {
+				s_r = min(s_r, scl[rc.react_slot[k]]);
+			}
+		}
+		for (int k = 0; k < rc.n_prod; k++) {
+			if (prod_coeff_at(rc, k, comp_h, comp_o) * x < 0.0 && rc.prod_slot[k] >= 0
+					&& rc.prod_slot[k] < LA_REACT_SLOTS) {
+				s_r = min(s_r, scl[rc.prod_slot[k]]);
+			}
+		}
+		x *= s_r;
+		if (x == 0.0) {
+			continue;
+		}
+		bool is_combustion = (rc.driver_slot == FUEL);
+		for (int k = 0; k < rc.n_react; k++) {
+			float coeff = react_coeff_at(rc, k, comp_h, comp_o);
+			add_ch(rc.react_slot[k], i, -coeff * x);
+			if (is_combustion && rc.react_slot[k] == O2 && coeff * x > 0.0) {
+				o2_burn += coeff * x;
+			}
+		}
 		for (int k = 0; k < rc.n_prod; k++) {
 			add_ch(rc.prod_slot[k], i, prod_coeff_at(rc, k, comp_h, comp_o) * x);
 		}
-
-		if (is_combustion) {
-			o2_burn += max(0.0, o2_pre_rec - o2[i]);
-		}
-
-		// Enthalpy is the state, so a reaction's heat is added straight to it. J/m^3.
-		float dh = rc.enthalpy_j_m3 + rc.enthalpy_h_j_m3 * comp_h + rc.enthalpy_o_j_m3 * comp_o;
+		// Enthalpy is the state, so a reaction's heat is added straight to it. J/mol times mol/m^3.
+		float dh = rc.enthalpy_j_mol + rc.enthalpy_h_j_mol * comp_h + rc.enthalpy_o_j_mol * comp_o;
 		if (dh != 0.0) {
 			h[i] += dh * x;
 		}
@@ -508,7 +581,7 @@ void main() {
 	// THE BURNING INSTRUMENT. `fire` is derived, not a state: the fraction of this cell's USABLE oxygen that
 	// combustion consumed this step, where usable means above the flammability limit. Read by the gauges
 	if (fuel_before > 0.0) {
-		float o2_usable = max(0.0, o2_before - O2_FLAMMABILITY_LIMIT);
+		float o2_usable = max(0.0, o2_before - mole_frac_to_mol_m3(i, LOC_MOLE_FRAC));
 		fire[i] = (o2_usable > 0.0) ? clamp(o2_burn / o2_usable, 0.0, 1.0) : 0.0;
 	}
 }

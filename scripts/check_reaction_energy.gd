@@ -41,7 +41,7 @@ func _phase_edge(rec: Dictionary) -> Array:
 	var p: Array = products[0]
 	if absf(float(r[1]) - 1.0) > 1.0e-6 or absf(float(p[1]) - 1.0) > 1.0e-6:
 		return []
-	return [int(r[0]), int(p[0]), float(rec.get("enthalpy_j_m3", 0.0))]
+	return [int(r[0]), int(p[0]), float(rec.get("enthalpy_j_mol", 0.0))]
 
 
 ## A flux-derived rate spreads a per-square-metre flux through a cell, so the table cannot be built without
@@ -63,11 +63,11 @@ func _coeff(rec: Dictionary, side: String, slot: int) -> float:
 	return 0.0
 
 
-## Heat this record books per unit extent at the reference organic composition, J/m3.
+## Heat this record books per mole of extent at the reference organic composition, J/mol.
 func _heat_at_reference(rec: Dictionary) -> float:
-	return float(rec.get("enthalpy_j_m3", 0.0)) \
-		+ float(rec.get("enthalpy_h_j_m3", 0.0)) * LASubstances.fresh_litter_per_carbon("H") \
-		+ float(rec.get("enthalpy_o_j_m3", 0.0)) * LASubstances.fresh_litter_per_carbon("O")
+	return float(rec.get("enthalpy_j_mol", 0.0)) \
+		+ float(rec.get("enthalpy_h_j_mol", 0.0)) * LASubstances.fresh_litter_per_carbon("H") \
+		+ float(rec.get("enthalpy_o_j_mol", 0.0)) * LASubstances.fresh_litter_per_carbon("O")
 
 
 func _init() -> void:
@@ -113,7 +113,7 @@ func _init() -> void:
 			if scale <= 0.0:
 				continue
 			if absf(sum) / scale > CYCLE_REL_TOL:
-				print("REACTION_ENERGY_FAIL={\"kind\":\"irreversible\",\"a\":%s,\"b\":%s,\"sum_j_m3\":%f,\"rel\":%f}"
+				print("REACTION_ENERGY_FAIL={\"kind\":\"irreversible\",\"a\":%s,\"b\":%s,\"sum_j_mol\":%f,\"rel\":%f}"
 					% [JSON.stringify(String(edges[i][3])), JSON.stringify(String(edges[j][3])), sum,
 						absf(sum) / scale])
 				violations += 1
@@ -143,7 +143,7 @@ func _init() -> void:
 							if String(edges[t][3]) in trail:
 								scale2 = maxf(scale2, absf(float(edges[t][2])))
 						if scale2 > 0.0 and absf(running) / scale2 > CYCLE_REL_TOL:
-							print("REACTION_ENERGY_FAIL={\"kind\":\"hess\",\"cycle\":%s,\"sum_j_m3\":%f,\"rel\":%f}"
+							print("REACTION_ENERGY_FAIL={\"kind\":\"hess\",\"cycle\":%s,\"sum_j_mol\":%f,\"rel\":%f}"
 								% [JSON.stringify(trail), running, absf(running) / scale2])
 							violations += 1
 				continue
@@ -206,7 +206,7 @@ func _init() -> void:
 		if rel > ORGANIC_REL_TOL:
 			print("REACTION_ENERGY_FAIL={\"kind\":\"organic_price\",\"record\":%s,\"against\":%s,"
 				% [JSON.stringify(String(entry[1])), JSON.stringify(want_from)]
-				+ "\"booked_j_m3\":%f,\"want_j_m3\":%f,\"rel\":%f}" % [float(entry[0]), want, rel])
+				+ "\"booked_j_mol\":%f,\"want_j_mol\":%f,\"rel\":%f}" % [float(entry[0]), want, rel])
 			violations += 1
 
 	print("REACTION_ENERGY={\"edges\":%d,\"cycles\":%d,\"redox\":%d,\"violations\":%d}"

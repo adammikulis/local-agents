@@ -248,6 +248,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_generated_constants
     gate check_seed_phase
     gate check_reaction_balance
+    gate check_reaction_rate_units
     gate check_framerate_independence
     gate check_parse_all
     gate check_library_only

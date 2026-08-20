@@ -40,6 +40,8 @@
 #define GATE_FREEZING 32
 #define GATE_AIR_ABOVE 128
 #define GATE_BURIED 256
+#define RECORD_BYTES 224
+#define MAX_RECORDS 24
 
 // TransportRecords.gd mode enum
 #define MODE_POTENTIAL 0u
