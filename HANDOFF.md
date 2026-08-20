@@ -37,6 +37,11 @@ rock-on-rock and 0 for open-standing-on-rock; the remainder are open-on-open.
 The gate is mutation-tested three ways and is **NOT wired into `lint`**. Wire it the moment it passes.
 `feature/momentum-advection` carries the work, declared in `docs/OPEN_BRANCHES.md`.
 
+## 2. The h2o book does not close on a shut box
+
+With every wall shut, `scripts/agent_harness.sh sim --frames 20` ends with `h2o_total` below its sealed
+baseline while the element and mineral books close. Same symptom on the pre-conversion tree.
+
 ## 4. Reduce the rest on the device
 
 `ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and the report sweeps
