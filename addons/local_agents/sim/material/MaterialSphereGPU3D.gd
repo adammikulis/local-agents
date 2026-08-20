@@ -106,9 +106,9 @@ func setup(field) -> void:
 	_bufs["cell_vol"] = _rd.storage_buffer_create(vol_bytes.size(), vol_bytes)
 
 	_seed("h_j_m3", field._h)
-	_seed("o2", field._o2)
-	_seed("co2", field._co2)            # the atmosphere's carbon — finite, at Earth's measured mole fraction
-	_seed("n2", field._n2)              # the atmosphere's nitrogen — finite, at Earth's measured mole fraction
+	seed_field("o2", field._o2, field._seal)
+	seed_field("co2", field._co2, field._seal)   # the atmosphere's carbon — finite, at Earth's mole fraction
+	seed_field("n2", field._n2, field._seal)     # the atmosphere's nitrogen — finite, at Earth's mole fraction
 	_seed("h2o", field._h2o)            # the ocean basin + the primed water table
 	_seed("porosity", field._porosity)  # Athy pore fraction: the ONE phi permeability and capacity both read
 	_seed_solid()
@@ -443,7 +443,7 @@ func _audit_mirror_upload(name: String, arr) -> void:
 
 
 ## SEEDING ONLY: hands the device a whole channel while the world is being built. The amount is declared to
-## LAMaterialFieldSeal3D, which refuses it once the world is SEALED, and a whole-mirror upload past step 0 is
+## LAMaterialFieldSeal3D, which refuses it once the world is SEALED.
 func seed_field(name: String, arr, seal) -> void:
 	if _rd == null or not _bufs.has(name):
 		return
@@ -451,13 +451,16 @@ func seed_field(name: String, arr, seal) -> void:
 		push_error(("seed_field('%s') after %d steps: a whole-mirror upload past step 0 rewinds live GPU state " +
 			"by an amount that depends on channel residency. Queue a sparse edit instead.") % [name, _step_index])
 		return
-	if seal != null and seal.has_method("note_creation"):
-		var total: float = 0.0
-		if arr is PackedFloat32Array:
-			for v in arr:
-				total += float(v)
-		if not seal.note_creation("seed_" + name, total):
-			return
+	if seal == null:
+		push_error(("seed_field('%s'): no seal to declare to. Handing the device a whole channel CREATES what " +
+			"it holds, and an undeclared creation is a violation — pass LAMaterialField3D._seal.") % name)
+		return
+	var total: float = 0.0
+	if arr is PackedFloat32Array:
+		for v in arr:
+			total += float(v)
+	if not seal.note_creation("seed_" + name, total):
+		return
 	if _audit_mirror and arr is PackedFloat32Array:
 		_audit_mirror_upload(name, arr)
 	if name == "h_j_m3":
@@ -683,11 +686,10 @@ func _seed_regolith() -> void:
 		_rd.buffer_update(_bufs["grain"], 0, gb.size(), gb)
 
 
-## Seeded rock is bedrock, so it is both present and fully consolidated.
-## The field derived and declared these; this hands the device that array rather than deriving it twice.
+## Seeded rock is bedrock, so it is both present and fully consolidated. Declared where it lands.
 func _seed_silicate() -> void:
-	_seed("silicate", _field._silicate)
-	_seed("cement", _field._cement)
+	seed_field("silicate", _field._silicate, _field._seal)
+	seed_field("cement", _field._cement, _field._seal)
 
 func _upload_f(buf: RID, arr: PackedFloat32Array) -> void:
 	if arr.size() == _cc:
