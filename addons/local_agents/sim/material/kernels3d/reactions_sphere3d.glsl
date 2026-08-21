@@ -448,10 +448,10 @@ void main() {
 		} else if (rc.rate_model == RM_DEFICIT_BELOW_THRESHOLD) {
 			x = max(0.0, rc.threshold - drv) * rc.rate_k;   // mirror of EXCESS: fires when driver < threshold
 		} else if (rc.rate_model == RM_OPTIMUM_BAND) {
-			// A rate that PEAKS in the middle and falls off BOTH ways: proportional to `driver`, modulated by a
-			float v = read_ch(rc.driver2_slot, i);
-			float t = (v - rc.threshold) / max(rc.param2, 1e-6);
-			x = rc.rate_k * drv * max(0.0, 1.0 - t * t);
+			// Catalytic with a temperature optimum: first order in `driver` and in the `driver2` catalyst,
+			// modulated by a band peaking at `threshold` (C), zero `param2` either side.
+			float t = (temp[i] - rc.threshold) / max(rc.param2, 1e-6);
+			x = rc.rate_k * drv * read_ch(rc.driver2_slot, i) * max(0.0, 1.0 - t * t);
 		} else if (rc.rate_model == RM_ARRHENIUS) {
 			// The temperature law of chemistry: activation energy in `threshold` (Ea/R, kelvin), referenced
 			// to `param2` (the temperature k is quoted at). First order in `driver`, and in `driver2` when it

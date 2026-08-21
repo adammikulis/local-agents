@@ -38,7 +38,7 @@ const RM_CONST_FRAC: int = 0             # x = k * driver
 const RM_BILINEAR: int = 1               # x = k * driver * driver2
 const RM_EXCESS_OVER_THRESHOLD: int = 2  # x = max(0, driver - threshold) * k
 const RM_DEFICIT_BELOW_THRESHOLD: int = 4  # x = max(0, threshold - driver) * k
-const RM_OPTIMUM_BAND: int = 5           # x = k * driver * max(0, 1 - ((driver2 - threshold) / param2)^2)
+const RM_OPTIMUM_BAND: int = 5           # x = k * driver * driver2 * max(0, 1 - ((T_c - threshold) / param2)^2)
 const RM_ARRHENIUS: int = 6              # x = k * driver * driver2 * exp(-(Ea/R) * (1/T_K - 1/T_ref_K))
 const RM_RESISTANCE_SERIES: int = 7      # x = k * driver * driver2 / (1 + param2 * driver2)
 
@@ -49,7 +49,7 @@ const TB_PER_STEP: String = "per_step"
 const RATE_K_UNITS: Dictionary = {
 	RM_CONST_FRAC: "mol m^-3 driver^-1", RM_BILINEAR: "mol m^-3 driver^-1 driver2^-1",
 	RM_EXCESS_OVER_THRESHOLD: "mol m^-3 driver^-1", RM_DEFICIT_BELOW_THRESHOLD: "mol m^-3 driver^-1",
-	RM_OPTIMUM_BAND: "mol m^-3 driver^-1", RM_ARRHENIUS: "mol m^-3 driver^-1",
+	RM_OPTIMUM_BAND: "mol m^-3 driver^-1 driver2^-1", RM_ARRHENIUS: "mol m^-3 driver^-1",
 	RM_RESISTANCE_SERIES: "mol m^-3 driver^-1 driver2^-1",
 }
 

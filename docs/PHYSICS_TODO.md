@@ -81,14 +81,6 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 
 ## B. The substrate's state
 
-- [ ] **A lifeless planet grows a biosphere and oxygenates itself.** `O2_AMBIENT` is 0.0 and nothing
-      seeds biomass, yet `scripts/agent_harness.sh sim --frames 20 --report o2_total,biomass_total`
-      reads both far above zero. Photosynthesis is the only oxygen source and its reactants are CO2,
-      root water and fertility — no living catalyst — so the record manufactures the organism it needs.
-      Decomposition and respiration already take their catalyst as an `RM_BILINEAR` driver
-      (`FUNGUS`, `BIOMASS`); light absorption is proportional to the leaf area doing it, so a cell
-      holding no biomass fixes no carbon. **Decide it:** photosynthesis carries its catalyst the same
-      way, and the gate is that free O2 and biomass stay at zero on the seeded world.
 - [ ] **Conserve elements, derive species.** The runtime state is channel amounts, so the inventory
       RECONSTRUCTS moles (`mol_per_unit`). If the conserved state were moles of element per cell, no kernel
       could change total carbon, because no kernel would write it.
