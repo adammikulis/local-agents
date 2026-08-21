@@ -8,12 +8,10 @@ const SPIN_AXIS: Vector3 = Vector3(0.40, 0.92, 0.0)   # world space, 23.5 deg ob
 var _terrain: RefCounted = null            # LAVoxelTerrainService (owns the VoxelLodTerrain child)
 var actors_root: Node3D = null
 var _mass: float = 1.0e6
-var _atmosphere_height: float = 60.0       # shell thickness above the surface (frame-handoff boundary)
 
 
 func setup(opts: Dictionary = {}) -> void:
 	_mass = float(opts.get("mass", 1.0e6))
-	_atmosphere_height = float(opts.get("atmosphere_height", 60.0))
 
 	_terrain = TerrainServiceScript.new()
 	var t_opts: Dictionary = opts.duplicate()
@@ -49,9 +47,6 @@ func radius() -> float:
 
 func sea_radius() -> float:
 	return _terrain.sea_radius() if _terrain != null else 0.0
-
-func atmosphere_radius() -> float:
-	return radius() + _atmosphere_height
 
 ## Local "up" at a world point: radial from the body centre.
 func up_at(world_pos: Vector3) -> Vector3:

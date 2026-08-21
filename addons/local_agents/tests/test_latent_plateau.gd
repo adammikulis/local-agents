@@ -3,7 +3,6 @@ extends RefCounted
 ## THE ACCEPTANCE TEST FOR ENTHALPY AS THE STATE. Remove heat from liquid water at a constant rate and the
 ## temperature must PIN at the melting point for exactly the span `m * L_fus / rate` pays for.
 
-const Mix: GDScript = preload("res://addons/local_agents/sim/material/MixtureEnthalpy.gd")
 
 const WATER_KG: float = 10.0
 const START_C: float = 2.0
@@ -29,14 +28,14 @@ func run_test(_tree: SceneTree) -> bool:
 	var masses: Dictionary = {"h2o": WATER_KG}
 	var melt: float = LANativeTables.subs().melt_c_at("h2o", p)
 
-	var h: float = Mix.enthalpy_at(masses, 0.0, START_C, p)
+	var h: float = LANativeTables.mixture().enthalpy_at(masses, 0.0, START_C, p)
 	var pinned: int = 0
 	var seen_liquid: bool = false
 	var seen_below: bool = false
 	var last_t: float = START_C
 
 	for _i in range(int(_expected_steps() * 3.0) + 200):
-		var st: Dictionary = Mix.state(masses, 0.0, h, p)
+		var st: Dictionary = LANativeTables.mixture().state(masses, 0.0, h, p)
 		var t: float = float(st.get("t_c", NAN))
 		if not is_finite(t):
 			return _fail("state() returned a non-finite temperature")
@@ -65,12 +64,12 @@ func run_test(_tree: SceneTree) -> bool:
 
 	# A substance with no fusion enthalpy crossed must not pin.
 	var dry: Dictionary = {"silicate": 1.0}
-	var h_dry: float = Mix.enthalpy_at(dry, 0.0, 1500.0, p)
+	var h_dry: float = LANativeTables.mixture().enthalpy_at(dry, 0.0, 1500.0, p)
 	var t_prev: float = 1500.0
 	var flat: int = 0
 	for _j in range(50):
 		h_dry -= 1.0e5
-		var t2: float = float(Mix.state(dry, 0.0, h_dry, p).get("t_c", NAN))
+		var t2: float = float(LANativeTables.mixture().state(dry, 0.0, h_dry, p).get("t_c", NAN))
 		if absf(t2 - t_prev) <= PIN_TOL_C:
 			flat += 1
 		t_prev = t2

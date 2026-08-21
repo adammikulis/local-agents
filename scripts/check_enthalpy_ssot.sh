@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
-# Phase-from-energy has one definition per side of the GPU boundary: kernels3d/enthalpy.glsli and
-# LASubstances.enthalpy_to_state. This holds them equal on VALUES and on the FORMULA.
-#
-# Every value in the GLSL carries a trailing `// CONST_NAME` naming its authority in LAPhysical.
-# Every boundary of the phase ladder must be built from the same expression on both sides: a gate that
-# only checked the constants passed while the two sides put them in incompatible expressions.
-#
+# Phase-from-energy has one definition per side of the GPU boundary: kernels3d/enthalpy.glsli against
+# LASubstances::enthalpy_to_state, and mixture_enthalpy.glsli against LAMixtureEnthalpy::state. This holds
+# each pair equal on VALUES and on the FORMULA. Every value in the GLSL carries a trailing `// CONST_NAME`
+# naming its authority; every boundary of the ladder must be built from the same expression on both sides.
 # EXIT CODES. 0 pass · 1 the two sides diverged · 2 the gate could not run, never a silent pass.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,7 +11,7 @@ P="$ROOT/addons/local_agents/sim/material/PhysicalConstants.gd"
 S="$ROOT/addons/local_agents/gdextensions/localagents/src/LASubstances.cpp"
 SH="$ROOT/addons/local_agents/gdextensions/localagents/include/LASubstances.hpp"
 GM="$ROOT/addons/local_agents/sim/material/kernels3d/mixture_enthalpy.glsli"
-SM="$ROOT/addons/local_agents/sim/material/MixtureEnthalpy.gd"
+SM="$ROOT/addons/local_agents/gdextensions/localagents/src/LAMixtureEnthalpy.cpp"
 for f in "$G" "$P" "$S" "$SH" "$GM" "$SM"; do
   [ -f "$f" ] || { echo "check_enthalpy_ssot: MISSING $f" >&2; exit 2; }
 done
@@ -87,7 +84,7 @@ STEPS = ["h_melt_start", "h_melt_end", "h_boil_start", "h_boil_end"]
 SUB_STEPS = ["h_sub_start", "h_sub_end"]
 
 # A rung the expression check cannot reach, because deleting it deletes the expression too. Each entry is
-# (what it models, the GLSL symbol, the GDScript symbol, where it must be REACHABLE from). "ladder" means it
+# (what it models, the GLSL symbol, the native symbol, where it must be REACHABLE from). "ladder" means it
 # must appear inside the phase-from-energy function itself, not merely be defined somewhere in the file.
 RUNGS = [
     ("no liquid below the triple point", "la_sublimes_at",         "sublimes_at",             "ladder"),
@@ -203,9 +200,9 @@ def reachable(root, funcs):
 
 
 g_funcs, d_funcs = bodies_of(glsl, "glsl"), bodies_of(sub, "cpp")
-gm_funcs, sm_funcs = bodies_of(glsl_mix, "glsl"), bodies_of(sub_mix, "gd")
+gm_funcs, sm_funcs = bodies_of(glsl_mix, "glsl"), bodies_of(sub_mix, "cpp")
 if "la_mix_state" not in gm_funcs or "state" not in sm_funcs:
-    print("check_enthalpy_ssot: could not find la_mix_state / LAMixtureEnthalpy.state — the mixture "
+    print("check_enthalpy_ssot: could not find la_mix_state / LAMixtureEnthalpy::state — the mixture "
           "inverter has no subject.", file=sys.stderr)
     sys.exit(2)
 g_reach = reachable("la_enthalpy_to_state", g_funcs)
@@ -223,7 +220,7 @@ for label, gsym, dsym, where in RUNGS:
             missing.append((label, fname, "%s never reached from the phase ladder" % sym))
 for label, gsym, dsym in MIX_RUNGS:
     for sym, funcs, reach, fname in ((gsym, gm_funcs, gm_reach, "mixture_enthalpy.glsli"),
-                                     (dsym, sm_funcs, sm_reach, "MixtureEnthalpy.gd")):
+                                     (dsym, sm_funcs, sm_reach, "LAMixtureEnthalpy.cpp")):
         if sym not in funcs:
             missing.append((label, fname, "%s is not defined" % sym))
         elif sym not in reach and sym not in ("la_mix_state", "state"):

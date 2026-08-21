@@ -1,0 +1,253 @@
+// The radiative marches: band emissivity and albedo off the cell's own absorbers, the solar beam,
+// the longwave line-of-sight gather, and the reflected-shortwave march. transport.glsl includes this
+// after its buffers and constants; only MODE_RADIATE's passes call in.
+
+#ifndef LA_TRANSPORT_RADIATE_GLSLI
+#define LA_TRANSPORT_RADIATE_GLSLI
+
+// DECISION, not a law: hops a march may take. SimWorld.grid_res caps at 64, so a ray can cross the box.
+const uint MARCH_HOPS = 64u;
+
+uint temp_count() { return uint(rad_table[3]); }
+uint edge_off() { return 4u; }
+uint temp_off() { return edge_off() + params.band_count + 1u; }
+uint wsun_off() { return temp_off() + temp_count(); }
+uint kappa_off() { return wsun_off() + params.band_count; }
+uint cdf_off() { return kappa_off() + temp_count() * params.band_count * 11u; }
+float band_edge(uint b) { return rad_table[edge_off() + b]; }
+float solar_weight(uint b) { return rad_table[wsun_off() + b]; }
+
+float kappa_at(uint b, uint k, uint ti, float tf) {
+	uint o = kappa_off() + b * 11u + k;
+	uint stride = params.band_count * 11u;
+	return mix(rad_table[o + ti * stride], rad_table[o + (ti + 1u) * stride], tf);
+}
+
+// Temperature slice index and interpolation fraction, held flat outside the tabulated range.
+uint slice_of(float tk, out float frac) {
+	uint n = temp_count();
+	frac = 0.0;
+	if (tk <= rad_table[temp_off()]) {
+		return 0u;
+	}
+	if (tk >= rad_table[temp_off() + n - 1u]) {
+		return n - 2u;
+	}
+	uint i = 0u;
+	while (i < n - 2u && tk > rad_table[temp_off() + i + 1u]) {
+		i += 1u;
+	}
+	float lo = rad_table[temp_off() + i];
+	frac = (tk - lo) / (rad_table[temp_off() + i + 1u] - lo);
+	return i;
+}
+
+// Fraction of a blackbody's sigma*T^4 emitted above dimensionless frequency x = C2*nu/T.
+float planck_above(float x) {
+	float xmax = rad_table[2];
+	float n = rad_table[1];
+	if (x <= 0.0) {
+		return 1.0;
+	}
+	if (x >= xmax) {
+		return 0.0;
+	}
+	float t = x / xmax * (n - 1.0);
+	uint i = uint(t);
+	return mix(rad_table[cdf_off() + i], rad_table[cdf_off() + i + 1u], t - float(i));
+}
+
+// Share of sigma*T^4 in band b. The outermost band keeps everything above its lower edge, so the weights
+// sum to 1 and no emission falls off the end of the table.
+float band_weight(uint b, float tk) {
+	float lo = planck_above(C2_CM_K * band_edge(b) / tk);
+	if (b + 1u >= params.band_count) {
+		return lo;
+	}
+	return max(lo - planck_above(C2_CM_K * band_edge(b + 1u) / tk), 0.0);
+}
+
+// The four gas-pair paths this cell presents over `len` metres, kg/m^2 scaled by the broadening pressure:
+// CO2 line, CO2 collision-induced, H2O line, H2O self-continuum; line and continuum broaden with p_total.
+vec4 absorber_paths(uint c, float len) {
+	float tk = t_k(c);
+	float rho_v = h2o_gas(c) * M_H2O;
+	float rho_c = max(co2[c], 0.0) * M_CO2;
+	float p_tot = max(pressure[c], 0.0) / KAPPA_REF_PA;
+	// A path holding no absorber is zero at any broadening pressure; rho times inf pressure is NaN.
+	return vec4(rho_c <= 0.0 ? 0.0 : p_tot * rho_c * len,
+		(rho_c * R_CO2 * tk / KAPPA_REF_PA) * rho_c * len,
+		rho_v <= 0.0 ? 0.0 : p_tot * rho_v * len,
+		(rho_v * R_VAPOUR * tk / KAPPA_REF_PA) * rho_v * len);
+}
+
+// The minor greenhouse gases' line paths, kg/m^2 scaled by the broadening pressure: CH4, CO, SO2, H2S,
+// all air-broadened lines. H2 has no dipole and carries no band column.
+vec4 minor_paths(uint c, float len) {
+	float p_tot = max(pressure[c], 0.0) / KAPPA_REF_PA;
+	return p_tot * len * vec4(
+		max(ch4[c], 0.0) * M_CH4,
+		max(co_gas[c], 0.0) * M_CO,
+		max(so2[c], 0.0) * M_SO2,
+		max(h2s[c], 0.0) * M_H2S);
+}
+
+// The O3 legs: air-broadened lines scale with total pressure; the electronic cross-section does not.
+vec2 o3_paths(uint c, float len) {
+	float rho_o3 = max(o3[c], 0.0);
+	if (rho_o3 <= 0.0) {
+		return vec2(0.0);
+	}
+	float p_tot = max(pressure[c], 0.0) / KAPPA_REF_PA;
+	return vec2(p_tot * rho_o3 * len, rho_o3 * len);
+}
+
+float band_tau(vec4 a, vec2 z, vec4 m, uint b, uint ti, float tf) {
+	return (kappa_at(b, 0u, ti, tf) + kappa_at(b, 1u, ti, tf)) * a.x
+		+ kappa_at(b, 2u, ti, tf) * a.y
+		+ kappa_at(b, 3u, ti, tf) * a.z
+		+ kappa_at(b, 4u, ti, tf) * a.w
+		+ kappa_at(b, 5u, ti, tf) * z.x
+		+ kappa_at(b, 6u, ti, tf) * z.y
+		+ kappa_at(b, 7u, ti, tf) * m.x
+		+ kappa_at(b, 8u, ti, tf) * m.y
+		+ kappa_at(b, 9u, ti, tf) * m.z
+		+ kappa_at(b, 10u, ti, tf) * m.w;
+}
+
+// The cell's thermal-infrared emissivity: band-resolved optical depth over its own absorber paths,
+// Planck-weighted at its own temperature, blended into the emissivity of whatever it holds condensed.
+float longwave_emissivity(uint c) {
+	float tk = t_k(c);
+	vec4 a = absorber_paths(c, params.cell_m);
+	vec2 z = o3_paths(c, params.cell_m);
+	vec4 m = minor_paths(c, params.cell_m);
+	float tf = 0.0;
+	uint ti = slice_of(tk, tf);
+	float eps = 0.0;
+	for (uint b = 0u; b < params.band_count; ++b) {
+		eps += band_weight(b, tk) * (1.0 - exp(-DIFFUSIVITY * band_tau(a, z, m, b, ti, tf)));
+	}
+	float wet = h2o_water(c) / FULL_H2O;
+	float icy = h2o_ice(c) / FULL_H2O;
+	float dry = max(silicate[c], 0.0) / FULL_SILICATE + (solid[c] != 0.0 ? 1.0 : 0.0);
+	float mass = wet + icy + dry;
+	if (mass <= 0.0) {
+		return clamp(eps, 0.0, 1.0);
+	}
+	float material = (wet * EMIS_WATER + icy * EMIS_SNOW + dry * EMIS_ROCK) / mass;
+	return clamp(mix(eps, material, condensed_frac(c)), 0.0, 1.0);
+}
+
+// Shortwave reflectivity: the cited albedo of each thing the cell holds, weighted by how much of it there
+// is. A cell holding nothing condensed reflects nothing and the beam goes on through it.
+float shortwave_albedo(uint c) {
+	float wet = h2o_water(c) / FULL_H2O;
+	float icy = h2o_ice(c) / FULL_H2O;
+	float veg = max(biomass[c], 0.0) / FULL_CELLULOSE;
+	float dry = max(silicate[c], 0.0) / FULL_SILICATE + (solid[c] != 0.0 ? 1.0 : 0.0);
+	float mass = wet + icy + veg + dry;
+	if (mass <= 0.0) {
+		return 0.0;
+	}
+	return (wet * ALBEDO_WATER + icy * ALBEDO_ICE + veg * ALBEDO_VEG + dry * ALBEDO_GROUND) / mass;
+}
+
+// Share of the DIRECT solar beam a cell takes over `len` m of slant path: the CO2, H2O and O3 bands the
+// longwave side reads, weighted by the sun's spectrum. N2 and O2 have no dipole. No diffusivity factor.
+float shortwave_absorbed_frac(uint c, float len) {
+	vec4 a = absorber_paths(c, len);
+	vec2 z = o3_paths(c, len);
+	vec4 m = minor_paths(c, len);
+	float tf = 0.0;
+	uint ti = slice_of(t_k(c), tf);
+	float gas = 0.0;
+	for (uint b = 0u; b < params.band_count; ++b) {
+		gas += solar_weight(b) * (1.0 - exp(-band_tau(a, z, m, b, ti, tf)));
+	}
+	float f_c = condensed_frac(c);
+	return clamp(f_c + (1.0 - f_c) * gas, 0.0, 1.0);
+}
+
+float solar_step_m() {
+	return la_step_len(vec3(params.sun_x, params.sun_y, params.sun_z), params.cell_m);
+}
+
+// What reaches this cell of the solar beam, W/m^2, marched along the real slant path to the top of the
+// grid. Zero on the night side, where the sun is below this cell's own horizon. Each hop reads a stamp.
+float solar_incident(uint c) {
+	vec3 sun = vec3(params.sun_x, params.sun_y, params.sun_z);
+	float sun_len = length(sun);
+	vec3 gv = g_at(c);
+	if (sun_len <= 1.0e-6 || length(gv) <= 0.0) {
+		return 0.0;
+	}
+	vec3 dir = sun / sun_len;
+	float mu = dot(-normalize(gv), dir);
+	if (mu <= 0.0) {
+		return 0.0;
+	}
+	float beam = SOLAR_CONSTANT * sun_len * mu;
+	int at = la_step(c, dir);
+	for (uint i = 0u; i < MARCH_HOPS && at >= 0 && beam > 0.0; ++i) {
+		beam *= 1.0 - sw_absorbed[uint(at)];
+		at = la_step(uint(at), dir);
+	}
+	return beam;
+}
+
+// Longwave arriving at `c` through face `d`, J/m^3: the grid line behind it, attenuated in between.
+// LA_APPROX: band_averaged_transmittance
+float longwave_incident(uint c, uint d) {
+	uint back = d ^ 1u;
+	float through = 1.0;
+	float arriving = 0.0;
+	int at = nbr[c * N_SLOTS + d];
+	if (at < 0) { at = ghost[c * N_SLOTS + d]; }
+	for (uint i = 0u; i < MARCH_HOPS && at >= 0 && through > 0.0; ++i) {
+		uint a = uint(at);
+		arriving += through * send[a * N_SLOTS + back];
+		through *= 1.0 - lw_emis[a];
+		at = nbr[a * N_SLOTS + d];
+		if (at < 0) { at = ghost[a * N_SLOTS + d]; }
+	}
+	return arriving;
+}
+
+// PASS_SW: a cell gathers the upwelling flux below it, keeps its share, books what escapes.
+// LA_APPROX: single_bounce_shortwave
+void sw_scatter(uint c) {
+	sw_space[c] = 0.0;
+	vec3 gv = g_at(c);
+	if (length(gv) <= 0.0) {
+		return;
+	}
+	vec3 up = -normalize(gv);
+	float through = 1.0;
+	float arriving = 0.0;
+	int at = la_step(c, -up);
+	for (uint i = 0u; i < MARCH_HOPS && at >= 0 && through > 0.0; ++i) {
+		uint a = uint(at);
+		arriving += through * sw_src[a];
+		through *= 1.0 - sw_keep[a];
+		at = la_step(a, -up);
+	}
+	float dep = arriving * sw_keep[c] * params.dt_s / params.cell_m;
+	if (dep > 0.0) {
+		amount[c] += dep;
+		rad_absorbed[c] += dep;
+	}
+	float src = sw_src[c];
+	if (src <= 0.0) {
+		return;
+	}
+	float esc = 1.0;
+	int above = la_step(c, up);
+	for (uint i = 0u; i < MARCH_HOPS && above >= 0 && esc > 0.0; ++i) {
+		esc *= 1.0 - sw_keep[uint(above)];
+		above = la_step(uint(above), up);
+	}
+	sw_space[c] = src * esc * params.dt_s / params.cell_m;
+}
+
+#endif

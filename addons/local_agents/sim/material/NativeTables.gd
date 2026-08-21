@@ -17,6 +17,11 @@ static func subs() -> Object:
 	return _handle(&"LASubstances")
 
 
+## A cell's temperature from its enthalpy, over the substances it holds.
+static func mixture() -> Object:
+	return _handle(&"LAMixtureEnthalpy")
+
+
 ## One of LASubstances' phase tags. A native class constant is on ClassDB, not on the instance.
 static func phase(name: StringName) -> int:
 	return ClassDB.class_get_integer_constant(&"LASubstances", name)

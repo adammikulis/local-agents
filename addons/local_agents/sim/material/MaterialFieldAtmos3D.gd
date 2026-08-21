@@ -26,7 +26,7 @@ static func rain_threshold() -> float:
 
 ## SATURATION AMOUNT at `t` °C and `p` Pa, in the h2o channel's own unit: e_sat / RT, mol/m^3.
 func _sat(t: float, p_pa: float) -> float:
-	var e: float = LAMixtureEnthalpy.vapour_p_at("h2o", t, p_pa)
+	var e: float = LANativeTables.mixture().vapour_p_at("h2o", t, p_pa)
 	if e <= 0.0:
 		return 0.0
 	return e / (LAPhysical.GAS_CONSTANT_J_MOL_K * maxf(t + LAPhysical.KELVIN_OFFSET, 1.0))

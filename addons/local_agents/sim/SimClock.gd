@@ -68,10 +68,6 @@ func days_elapsed() -> float:
 	return elapsed() / DAY_LENGTH
 
 
-func day_fraction() -> float:
-	return fposmod(elapsed() / DAY_LENGTH, 1.0)
-
-
 func season() -> String:
 	return SEASONS[(_day / DAYS_PER_SEASON) % SEASONS.size()]
 

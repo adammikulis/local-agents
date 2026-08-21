@@ -183,6 +183,12 @@ func _publish_element(out: Dictionary, f: Dictionary, step: int) -> void:
 		_bnd.of(LAFieldLedgerRecords.CARBON_CLOSED))
 	_run_pair(out, "nitrogen", "nitrogen", "", nitrogen_all, step,
 		_bnd.of(LAFieldLedgerRecords.ELEMENT, "N"))
+	# Elemental H over every pool water included: what Jeans escape drains, closed by its bnd legs.
+	var h_pool: PackedStringArray = LAFieldLedgerRecords.ELEMENT.duplicate()
+	h_pool.append_array(LAFieldLedgerRecords.H2O)
+	_run_pair(out, "hydrogen", "hydrogen", "",
+		float(LAFieldLedgerRecords.elements_of(_subset(all, h_pool)).get("H", 0.0)), step,
+		_bnd.of(h_pool, "H"))
 
 
 ## `<name>_first`, the drift since it, the crossing booked against that drift, and the RESIDUAL as a

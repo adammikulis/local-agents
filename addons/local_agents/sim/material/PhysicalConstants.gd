@@ -101,6 +101,17 @@ const PRESENT_SOLAR_CONSTANT_W_M2: float = 1361.0
 ## Gough 1981 (Solar Phys. 74:21): L(t)/L0 = 1 / (1 + (2/5)(1 - t/t0)); 1 - t/t0 = epoch/solar age.
 const SOLAR_CONSTANT_W_M2: float = PRESENT_SOLAR_CONSTANT_W_M2 \
 	/ (1.0 + 0.4 * (PLANET_EPOCH_YEARS_BEFORE_PRESENT / SOLAR_SYSTEM_AGE_YEARS))
+## The young sun's XUV (1-1200 A) at 1 au: F = 29.7 tau^-1.23 erg cm^-2 s^-1, tau the sun's age in Gyr,
+## valid past 0.1 Gyr (Ribas et al. 2005, ApJ 622:680). Same epoch constant as the luminosity.
+const SUN_AGE_AT_EPOCH_GYR: float = (SOLAR_SYSTEM_AGE_YEARS - PLANET_EPOCH_YEARS_BEFORE_PRESENT) / 1.0e9
+const XUV_1AU_1GYR_W_M2: float = 0.0297
+const XUV_AGE_EXPONENT: float = 1.23
+const XUV_EPOCH_W_M2: float = XUV_1AU_1GYR_W_M2 * SUN_AGE_AT_EPOCH_GYR ** (-XUV_AGE_EXPONENT)
+## Share of absorbed XUV that powers escape (Erkaev et al. 2013, Astrobiology 13:1011; bounded near
+## 0.2 by Shematovich, Ionov & Lammer 2014, A&A 571:A94).
+const XUV_HEATING_EFFICIENCY: float = 0.15
+## Escape parameter below which thermal escape turns hydrodynamic (Volkov et al. 2011, ApJL 729:L24).
+const ESCAPE_PARAM_HYDRODYNAMIC: float = 3.0
 const STEFAN_BOLTZMANN: float = 5.670374419e-8
 ## Newton's constant, m^3 kg^-1 s^-2 (CODATA 2018).
 const GRAVITATIONAL_CONSTANT: float = 6.67430e-11
