@@ -24,6 +24,8 @@ if (NOT EXISTS "${LLAMA_CPP_DIR}/CMakeLists.txt")
     message(FATAL_ERROR "llama.cpp not found. Run scripts/fetch_dependencies.py")
 endif()
 
+# The engine API the bindings target; godot-cpp needs it declared by the consuming project.
+set(GODOTCPP_API_VERSION "4.7" CACHE STRING "Godot API version; must match the godot on PATH")
 add_subdirectory(${GODOT_CPP_DIR} "${CMAKE_BINARY_DIR}/godot-cpp" EXCLUDE_FROM_ALL)
 add_subdirectory(${LLAMA_CPP_DIR} "${CMAKE_BINARY_DIR}/llama.cpp" EXCLUDE_FROM_ALL)
 

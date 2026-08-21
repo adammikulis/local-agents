@@ -14,6 +14,7 @@ WHISPER_CPP_REPO="https://github.com/ggerganov/whisper.cpp.git"
 SQLITE_AMALGAMATION_URL="https://www.sqlite.org/2024/sqlite-autoconf-3450200.tar.gz"
 # Full 40-char SHA: `git fetch origin <sha>` only works with the FULL commit id (a short sha is read as a ref
 # name → "couldn't find remote ref"). Same commit as the old short `4b385bf`; fixes the native/CI build fetch.
+GODOT_CPP_REF="${GODOT_CPP_REF:-9c8aeff0f58ad030f3d1030e8262de1322cd0ccd}"
 LLAMA_CPP_REF="${LLAMA_CPP_REF:-4b385bfcf8fed51f12194629641fe8cbf1a58a0f}"
 
 DEFAULT_MODEL_NAME="Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
@@ -38,6 +39,7 @@ Options:
   -h, --help           Show this help.
 
 Environment:
+  GODOT_CPP_REF        Git ref/commit for thirdparty/godot-cpp (default: ${GODOT_CPP_REF}).
   LLAMA_CPP_REF        Git ref/commit for thirdparty/llama.cpp (default: ${LLAMA_CPP_REF}).
 USAGE
 }
@@ -136,6 +138,7 @@ main() {
     clone_if_missing "$GODOT_CPP_REPO" "$THIRDPARTY_DIR/godot-cpp"
     clone_if_missing "$LLAMA_CPP_REPO" "$THIRDPARTY_DIR/llama.cpp"
     clone_if_missing "$WHISPER_CPP_REPO" "$THIRDPARTY_DIR/whisper.cpp"
+    sync_repo_ref "$THIRDPARTY_DIR/godot-cpp" "$GODOT_CPP_REF"
     sync_repo_ref "$THIRDPARTY_DIR/llama.cpp" "$LLAMA_CPP_REF"
     extract_sqlite
 
