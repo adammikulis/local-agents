@@ -29,17 +29,14 @@ The cells flanking the wrap seam accumulate multiple fills of h2o first, and `ce
 physical range before the momentum does. `LA_PASS_PROBE=nonfinite LA_PASS_PROBE_STEPS=12` prints each
 pass's peak-cell state and per-channel non-finite counts.
 
-## 2. The open-boundary books do not close at run level, and a capture's six faces read identical
+## 2. The open-boundary books do not close at run level
 
 `scripts/sim_run.sh --frames 20 --slice-capture C` then `scripts/sim_run.sh --slice --slice-state C
---frames 650` fires CONSERVATION_VIOLATION on h2o and mineral, and C carries one state on every face —
-the box bottom, deep underground, reads the same temperature as the sky. `check_boundary_books.sh` holds
-the kernel's per-dispatch booking closed on the same capture, so the work is behind it:
+--frames 650` fires CONSERVATION_VIOLATION on h2o and mineral. `check_boundary_books.sh` holds the
+kernel's per-dispatch booking closed on the same capture, so the work is behind it:
 
 - `MaterialSphereGPU3D.gd` clears `bnd_*` every step and `LABoundaryBooks.sample` multiplies one drained
   rate by the elapsed steps; the crossing integral belongs on the device.
-- `LAFieldBoundaryCapture3D._exterior_face_cells` lands every face plane of the default box in the same
-  few coarse global cells.
 
 ## 6. The h2o book does not close on a shut box
 

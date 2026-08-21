@@ -22,19 +22,14 @@ var dims: Vector3i = Vector3i.ZERO
 var cell_size: float = 0.0
 ## Face slot -> Array of per-sample states, fed through replay(); empty outside replay mode.
 var replay_series: Dictionary = {}
-## Field steps one replay sample spans, from the capture file.
+## Field steps one replay sample spans.
 var replay_cadence: int = 0
 
 
 ## The configured slice, or null when none is configured anywhere.
 static func of(node) -> LAFieldSlice3D:
-	var spec: String = ""
-	if node != null and node.has_meta(META_BOX):
-		spec = String(node.get_meta(META_BOX))
-	elif ProjectSettings.has_setting(SETTING):
-		spec = String(ProjectSettings.get_setting(SETTING))
-	elif OS.has_environment(ENV_VAR):
-		spec = OS.get_environment(ENV_VAR)
+	var spec: String = String(node.get_meta(META_BOX)) if node != null and node.has_meta(META_BOX) \
+		else CaptureScript.configured(SETTING, ENV_VAR)
 	if spec.strip_edges() == "":
 		return null
 	return parse(spec)
@@ -93,7 +88,7 @@ func _configure_boundary(field) -> void:
 	# LA_APPROX: periodic_slice_geometry
 	modes.fill("wrap")
 	var states: Dictionary = {}
-	var path: String = _state_path()
+	var path: String = CaptureScript.configured(STATE_SETTING, STATE_ENV)
 	if path == "":
 		modes[d_down] = "shut"
 		modes[d_up] = "shut"
@@ -113,7 +108,7 @@ func _configure_boundary(field) -> void:
 			for d in [d_down, d_up]:
 				var arr: Array = series.get("faces", {}).get(d, [])
 				if arr.is_empty() or replay_cadence <= 0:
-					_fail("capture file \"%s\" carries no series for face %d" % [path, d])
+					_fail(_absent(path, data, d))
 					return
 				replay_series[d] = arr
 				states[d] = arr[0]
@@ -121,7 +116,7 @@ func _configure_boundary(field) -> void:
 			var means: Dictionary = CaptureScript.constant_states(data)
 			for d in [d_down, d_up]:
 				if not means.has(d):
-					_fail("capture file \"%s\" carries no state for face %d" % [path, d])
+					_fail(_absent(path, data, d))
 					return
 				states[d] = means[d]
 		print("SLICE_BOUNDARY={\"faces\":\"%s\",\"state\":\"%s\"}" % [",".join(modes), path])
@@ -130,12 +125,9 @@ func _configure_boundary(field) -> void:
 		field.set_meta(LAFieldBoundary3D.META_STATES, states)
 
 
-func _state_path() -> String:
-	if ProjectSettings.has_setting(STATE_SETTING):
-		return String(ProjectSettings.get_setting(STATE_SETTING))
-	if OS.has_environment(STATE_ENV):
-		return OS.get_environment(STATE_ENV)
-	return ""
+## A face the capture supplies nothing for is refused by name, never given another face's reading.
+func _absent(path: String, data: Dictionary, d: int) -> String:
+	return "capture file \"%s\" supplies no exterior for face %d: %s. Record it from a global run whose cells are smaller than the slice box." % [path, d, CaptureScript.unresolved_note(data, d)]
 
 
 func _fail(msg: String) -> bool:
