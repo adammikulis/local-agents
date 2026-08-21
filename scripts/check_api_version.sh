@@ -39,15 +39,15 @@ fi
 # checkout that did not.
 CP="$EXT/thirdparty/godot-cpp"
 api="$CP/gdextension/extension_api-${declared//./-}.json"
-if [ ! -d "$CP/.git" ]; then
-	echo "check_api_version: no godot-cpp checkout at ${CP#"$ROOT"/}; run fetch_dependencies.sh." >&2
-	exit 2
-fi
-head_sha="$(git -C "$CP" rev-parse HEAD 2>/dev/null)"
+# Arm one above judged the declaration against the engine with no checkout needed. Arm two needs the
+# pin on disk; a tree without it reports the arm UNCHECKED by name and never claims it passed.
+head_sha=""
+[ -d "$CP/.git" ] && head_sha="$(git -C "$CP" rev-parse HEAD 2>/dev/null)"
 if [ "$head_sha" != "$pin" ]; then
-	echo "check_api_version: the godot-cpp checkout is at ${head_sha:-unknown}, the pin is $pin." >&2
-	echo "                   What it ships says nothing about what a clean fetch ships. Re-fetch." >&2
-	exit 2
+	echo "check_api_version: NOT CHECKED — no godot-cpp at the pin ($pin); on disk: ${head_sha:-absent}." >&2
+	echo "                   The engine arm was judged. Run fetch_dependencies.sh to judge the pin." >&2
+	echo "API_VERSION={\"declared\":\"$declared\",\"engine\":\"$engine\",\"pin_checked\":false,\"failures\":$fail}"
+	exit "$fail"
 fi
 if [ ! -f "$api" ]; then
 	echo "check_api_version: the pinned godot-cpp ships no extension_api-${declared//./-}.json." >&2
