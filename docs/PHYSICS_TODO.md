@@ -13,7 +13,17 @@ order is the order.
 
 ## The referent
 
-**A post-Theia Earth, just formed, ~4.5 Ga.** Read every item against that world.
+**Earth at ~4.4 Ga: the magma ocean has crystallised, the Moon-forming impact has settled, there is crust
+and there is liquid water.** Read every item against that world. The anchor is real evidence rather than a
+model — the Jack Hills detrital zircons date to 4.404 Ga and their oxygen isotopes record liquid water and
+low-temperature alteration of a crust that already existed.
+
+**Why not the moment of formation:** core formation ran in about 30 Myr (Hf-W chronometry), which is
+~10^13 steps at this timebase, so differentiation cannot be a thing the substrate produces at any
+plausible compute. A differentiated planet is therefore SEEDED either way, and seeding one at an epoch the
+rock record can confirm beats seeding one at an epoch only models describe. Iron is still a third of the
+planet's mass; it starts in a core instead of forming one. A magma ocean also gives the built substrate —
+rivers, weathering, sediment, aquifers — nothing to act on.
 
 Free O2 at zero is correct. There is no photosynthesis, no biological nitrogen fixation, no litter and no
 biosphere — LIVING THINGS AND THEIR BEHAVIOUR are 0.5 work, and nothing else is. Radiogenic abundances
@@ -87,6 +97,19 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 
 ## B. The substrate's state
 
+- [ ] **The epoch is a sentence in a document, and the constants are present-day.** `SOLAR_CONSTANT_W_M2`
+      is 1361, today's value, so this planet gets about 40% more sunlight than the real one did — which is
+      how a missing greenhouse currently passes unnoticed. `PLANET_ANGULAR_VELOCITY_RAD_S` is the modern
+      sidereal day against roughly six hours at 4.4 Ga, and Coriolis is linear in it, so the circulation is
+      in the wrong regime. `PREBIOTIC_MOLE_FRAC_CO2` is correctly Hadean (Kasting 1993), which is what makes
+      the mismatch invisible. **Decide it:** one declared epoch that luminosity, rotation and lunar distance
+      are all derived from, so moving the world in time is one edit and the physics follows.
+- [ ] **The interesting geology is slower than the clock by ten orders of magnitude.** Mantle convection,
+      ore concentration and atmospheric evolution run over 10^6–10^9 years against a 43.2 s step. Real Earth
+      system models split the timescales — atmosphere and ocean on a short step, ice and geology on a long
+      one, coupled asynchronously — which keeps every equation and dependency intact and changes only the
+      cadence. That is the same seam as "the field's `dt` is the presentation clock" in F, and it is what
+      makes any slow process observable at all.
 - [ ] **Conserve elements, derive species.** The runtime state is channel amounts, so the inventory
       RECONSTRUCTS moles (`mol_per_unit`). If the conserved state were moles of element per cell, no kernel
       could change total carbon, because no kernel would write it.
