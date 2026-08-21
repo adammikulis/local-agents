@@ -77,6 +77,16 @@ static func rows() -> Array:
 			"relax": true, "acoustic": true},
 		{"channel": "n2", "substance": "n2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
 			"relax": true, "acoustic": true},
+		{"channel": "h2", "substance": "h2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"relax": true, "acoustic": true},
+		{"channel": "co", "substance": "co", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"relax": true, "acoustic": true},
+		{"channel": "so2", "substance": "so2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"relax": true, "acoustic": true},
+		{"channel": "h2s", "substance": "h2s", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"relax": true, "acoustic": true},
+		{"channel": "ch4", "substance": "ch4", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
+			"relax": true, "acoustic": true},
 
 		# -grad(p) alone: bulk momentum advection EMERGES from the mass fluxes, each of which carries
 		# the donor's momentum share exactly as it carries heat and charge.

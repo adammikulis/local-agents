@@ -21,7 +21,7 @@ public:
 	// Upper limit of x = c2*nu/T in that table.
 	static inline const float CDF_XMAX = 50.0f;
 
-	// The GPU upload: header, band edges, temperature slices, solar weights, seven coefficients per
+	// The GPU upload: header, band edges, temperature slices, solar weights, eleven coefficients per
 	// (temperature, band), then the Planck cumulative table. transport.glsl's RADIATE row reads it.
 	static PackedFloat32Array packed();
 

@@ -110,6 +110,9 @@ func setup(field) -> void:
 	seed_field("o2", field._o2, field._seal)
 	seed_field("co2", field._co2, field._seal)   # the atmosphere's carbon — finite, at Earth's mole fraction
 	seed_field("n2", field._n2, field._seal)     # the atmosphere's nitrogen — finite, at Earth's mole fraction
+	# The Hadean minor gases: volcanic H2/CO/SO2/H2S, abiotic CH4, at their cited mole fractions.
+	for gas in ["h2", "co", "so2", "h2s", "ch4"]:
+		seed_field(String(gas), field.get("_" + String(gas)), field._seal)
 	_seed("h2o", field._h2o)            # the ocean basin + the primed water table
 	_seed("porosity", field._porosity)  # Athy pore fraction: the ONE phi permeability and capacity both read
 	_seed_solid()
@@ -707,7 +710,7 @@ func _seed_regolith() -> void:
 func _seed_silicate() -> void:
 	seed_field("silicate", _field._silicate, _field._seal)
 	seed_field("cement", _field._cement, _field._seal)
-	for name in LAPlanetComposition.SHELL_CHANNELS:
+	for name in ClassDB.instantiate(&"LAPlanetComposition").shell_channels():
 		if String(name) != "silicate":
 			seed_field(String(name), _field.get("_" + String(name)), _field._seal)
 	seed_field("metal", _field._metal, _field._seal)

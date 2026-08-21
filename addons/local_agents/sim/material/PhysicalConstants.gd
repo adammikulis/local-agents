@@ -91,7 +91,16 @@ const K40_EC_FRAC: float = 0.1072
 const EARTH_CORE_MASS_FRACTION: float = 0.323
 const MEV_J: float = 1.602176634e-13            # CODATA 2018, exact from the elementary charge
 
-const SOLAR_CONSTANT_W_M2: float = 1361.0
+## THE ONE EPOCH — the Jack Hills zircon age (Wilde et al. 2001, Nature 409:175). Luminosity and
+## rotation derive from it, so moving the world in time is this one edit.
+const PLANET_EPOCH_YEARS_BEFORE_PRESENT: float = 4.404e9
+## Age of the solar system, years (Connelly et al. 2012, Science 338:651, CAI Pb-Pb).
+const SOLAR_SYSTEM_AGE_YEARS: float = 4.567e9
+## Present-day total solar irradiance at 1 au, W/m^2 (Kopp & Lean 2011, GRL 38:L01706).
+const PRESENT_SOLAR_CONSTANT_W_M2: float = 1361.0
+## Gough 1981 (Solar Phys. 74:21): L(t)/L0 = 1 / (1 + (2/5)(1 - t/t0)); 1 - t/t0 = epoch/solar age.
+const SOLAR_CONSTANT_W_M2: float = PRESENT_SOLAR_CONSTANT_W_M2 \
+	/ (1.0 + 0.4 * (PLANET_EPOCH_YEARS_BEFORE_PRESENT / SOLAR_SYSTEM_AGE_YEARS))
 const STEFAN_BOLTZMANN: float = 5.670374419e-8
 ## Newton's constant, m^3 kg^-1 s^-2 (CODATA 2018).
 const GRAVITATIONAL_CONSTANT: float = 6.67430e-11
@@ -118,7 +127,9 @@ const ANIMAL_TISSUE_DENSITY_KG_M3: float = 1000.0
 
 const PROTEIN_DENATURE_C: float = 45.0
 
-const PLANET_ANGULAR_VELOCITY_RAD_S: float = 7.2921159e-5   # Earth sidereal rotation, 2*pi/86164.1 s
+## The epoch's rotation: a 5.5 h day, mid-range of the post-impact 5-6 h and genuinely uncertain
+## (Zahnle & Walker 1987, Rev. Geophys. 25:1; Zahnle et al. 2007, Space Sci. Rev. 129:35).
+const PLANET_ANGULAR_VELOCITY_RAD_S: float = TAU / (5.5 * 3600.0)
 ## Coriolis parameter is f = CORIOLIS_TWO_OMEGA_RAD_S * sin(latitude).
 const CORIOLIS_TWO_OMEGA_RAD_S: float = PLANET_ANGULAR_VELOCITY_RAD_S * 2.0
 const GAS_CONSTANT_J_MOL_K: float = 8.314462618     # CODATA molar gas constant R
@@ -241,6 +252,7 @@ const IONISATION_EV_H: float = 13.598
 const IONISATION_EV_O: float = 13.618
 const IONISATION_EV_C: float = 11.260
 const IONISATION_EV_N: float = 14.534
+const IONISATION_EV_S: float = 10.360
 const IONISATION_EV_SI: float = 8.152
 const IONISATION_EV_CA: float = 6.113
 const IONISATION_EV_FE: float = 7.902
@@ -261,12 +273,15 @@ const DEGEN_C_0: float = 9.0     # C  3P(0)
 const DEGEN_C_1: float = 6.0     # C+ 2P(1/2)
 const DEGEN_N_0: float = 4.0     # N  4S(3/2)
 const DEGEN_N_1: float = 9.0     # N+ 3P(0)
+const DEGEN_S_0: float = 5.0     # S  3P(2)
+const DEGEN_S_1: float = 4.0     # S+ 4S(3/2)
 
 # Standard molar entropies at 298.15 K, 1 bar, J/(mol K) (NIST-JANAF).
 const ENTROPY_H_ATOM_J_MOLK: float = 114.717
 const ENTROPY_O_ATOM_J_MOLK: float = 161.058
 const ENTROPY_C_ATOM_J_MOLK: float = 158.100
 const ENTROPY_N_ATOM_J_MOLK: float = 153.301
+const ENTROPY_S_ATOM_J_MOLK: float = 167.829
 
 ## Thermal-infrared emissivity of a water surface.
 const EMISSIVITY_WATER: float = 0.96
@@ -297,6 +312,132 @@ const N2_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_N2_GAS_J_MOLK / MOLAR_M
 const N2_LIQUID_SPECIFIC_HEAT_J_KGK: float = 2042.0  # cp of the saturated liquid at 77.355 K
 const THERMAL_CONDUCT_N2_GAS_W_MK: float = 0.02583   # gas at 300 K, 1 bar
 const ENTROPY_N2_GAS_J_MOLK: float = 191.609         # standard molar entropy, CODATA Key Values
+
+# Dioxygen, NIST Chemistry WebBook (CAS 7782-44-7) unless another source is named.
+const O2_BOIL_C: float = -182.962                    # normal boiling point 90.188 K
+const O2_TRIPLE_T_C: float = -218.789                # triple point 54.361 K
+const O2_TRIPLE_P_PA: float = 146.3                  # triple-point pressure
+const O2_CRITICAL_T_C: float = -118.569              # critical point 154.581 K
+const O2_CRITICAL_P_PA: float = 5.043e6
+const VAP_ENTHALPY_O2_J_MOL: float = 6820.0          # dHvap at 90.188 K
+const FUS_ENTHALPY_O2_J_MOL: float = 444.0           # dHfus at the triple point (CRC 97th ed.)
+const LATENT_HEAT_VAPORISATION_O2_J_KG: float = VAP_ENTHALPY_O2_J_MOL / MOLAR_MASS_O2_KG_MOL
+const LATENT_HEAT_FUSION_O2_J_KG: float = FUS_ENTHALPY_O2_J_MOL / MOLAR_MASS_O2_KG_MOL
+const MOLAR_HEAT_CAP_O2_GAS_J_MOLK: float = 29.378   # cp of the gas at 298.15 K, 1 bar
+const O2_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_O2_GAS_J_MOLK / MOLAR_MASS_O2_KG_MOL
+const O2_LIQUID_SPECIFIC_HEAT_J_KGK: float = 1699.0  # saturated liquid at 90.188 K (Lemmon et al.)
+
+# Carbon dioxide, Span & Wagner 1996, J. Phys. Chem. Ref. Data 25:1509, unless another source is named.
+const CO2_TRIPLE_T_C: float = -56.558                # triple point 216.592 K
+const CO2_TRIPLE_P_PA: float = 5.1795e5              # 0.51795 MPa: above 1 atm, so dry ice sublimes
+const CO2_CRITICAL_T_C: float = 30.978               # critical point 304.128 K
+const CO2_CRITICAL_P_PA: float = 7.3773e6
+# CO2 has no 1-atm boiling point; the vapour curve's second measured anchor is saturation at 0 C.
+const CO2_SAT_REF_T_C: float = 0.0
+const CO2_SAT_REF_P_PA: float = 3.4851e6
+const FUS_ENTHALPY_CO2_J_MOL: float = 9020.0         # dHfus at the triple point (CRC 97th ed.)
+const LATENT_HEAT_FUSION_CO2_J_KG: float = FUS_ENTHALPY_CO2_J_MOL / MOLAR_MASS_CO2_KG_MOL
+const CO2_LATENT_VAPORISATION_J_KG: float = 3.481e5  # saturated liquid at the triple point
+const MOLAR_HEAT_CAP_CO2_GAS_J_MOLK: float = 37.129  # cp of the gas at 298.15 K, 1 bar
+const CO2_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_CO2_GAS_J_MOLK / MOLAR_MASS_CO2_KG_MOL
+const CO2_LIQUID_SPECIFIC_HEAT_J_KGK: float = 1962.0 # saturated liquid at 220 K
+const DRY_ICE_DENSITY_KG_M3: float = 1562.0          # solid CO2 at 194.7 K (CRC 97th ed.)
+
+# Dihydrogen, NIST Chemistry WebBook (CAS 1333-74-0); liquid cp from Leachman et al. 2009,
+# J. Phys. Chem. Ref. Data 38:721.
+const MOLAR_MASS_H2_KG_MOL: float = 2.0 * MOLAR_MASS_HYDROGEN_KG_MOL
+const H2_BOIL_C: float = -252.879                    # normal boiling point 20.271 K
+const H2_TRIPLE_T_C: float = -259.347                # triple point 13.803 K
+const H2_TRIPLE_P_PA: float = 7041.0
+const H2_CRITICAL_T_C: float = -240.005              # critical point 33.145 K
+const H2_CRITICAL_P_PA: float = 1.2964e6
+const VAP_ENTHALPY_H2_J_MOL: float = 898.8           # dHvap at 20.271 K
+const FUS_ENTHALPY_H2_J_MOL: float = 117.0           # dHfus at the triple point (CRC 97th ed.)
+const LATENT_HEAT_VAPORISATION_H2_J_KG: float = VAP_ENTHALPY_H2_J_MOL / MOLAR_MASS_H2_KG_MOL
+const LATENT_HEAT_FUSION_H2_J_KG: float = FUS_ENTHALPY_H2_J_MOL / MOLAR_MASS_H2_KG_MOL
+const MOLAR_HEAT_CAP_H2_GAS_J_MOLK: float = 28.836   # cp of the gas at 298.15 K, 1 bar
+const H2_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_H2_GAS_J_MOLK / MOLAR_MASS_H2_KG_MOL
+const H2_LIQUID_SPECIFIC_HEAT_J_KGK: float = 9770.0  # saturated liquid at 20.3 K
+const THERMAL_CONDUCT_H2_GAS_W_MK: float = 0.1805    # gas at 300 K, 1 bar (CRC 97th ed.)
+const ENTROPY_H2_GAS_J_MOLK: float = 130.680         # CODATA Key Values
+const ATOMISATION_H2_J_MOL: float = 4.35996e5        # 2 x dfH(H, g), CODATA
+
+# Carbon monoxide, NIST Chemistry WebBook (CAS 630-08-0).
+const MOLAR_MASS_CO_KG_MOL: float = MOLAR_MASS_CARBON_KG_MOL + MOLAR_MASS_OXYGEN_KG_MOL
+const CO_BOIL_C: float = -191.51                     # normal boiling point 81.64 K
+const CO_TRIPLE_T_C: float = -205.02                 # triple point 68.13 K
+const CO_TRIPLE_P_PA: float = 15400.0
+const CO_CRITICAL_T_C: float = -140.29               # critical point 132.86 K
+const CO_CRITICAL_P_PA: float = 3.494e6
+const VAP_ENTHALPY_CO_J_MOL: float = 6040.0          # dHvap at 81.64 K
+const FUS_ENTHALPY_CO_J_MOL: float = 833.0           # dHfus at the triple point (CRC 97th ed.)
+const LATENT_HEAT_VAPORISATION_CO_J_KG: float = VAP_ENTHALPY_CO_J_MOL / MOLAR_MASS_CO_KG_MOL
+const LATENT_HEAT_FUSION_CO_J_KG: float = FUS_ENTHALPY_CO_J_MOL / MOLAR_MASS_CO_KG_MOL
+const MOLAR_HEAT_CAP_CO_GAS_J_MOLK: float = 29.141   # cp of the gas at 298.15 K, 1 bar
+const CO_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_CO_GAS_J_MOLK / MOLAR_MASS_CO_KG_MOL
+const CO_LIQUID_SPECIFIC_HEAT_J_KGK: float = 2151.0  # saturated liquid at 81 K
+const THERMAL_CONDUCT_CO_GAS_W_MK: float = 0.025     # gas at 300 K, 1 bar (CRC 97th ed.)
+const ENTROPY_CO_GAS_J_MOLK: float = 197.660         # CODATA Key Values
+const FORMATION_ENTHALPY_CO_J_MOL: float = -110530.0 # CODATA Key Values
+const ATOMISATION_CO_J_MOL: float = 1.07639e6        # dfH(C,g) + dfH(O,g) - dfH(CO), CODATA
+
+# Sulfur dioxide, NIST Chemistry WebBook (CAS 7446-09-5).
+const MOLAR_MASS_SO2_KG_MOL: float = MOLAR_MASS_S_KG_MOL + 2.0 * MOLAR_MASS_OXYGEN_KG_MOL
+const SO2_BOIL_C: float = -10.05                     # normal boiling point 263.10 K
+const SO2_TRIPLE_T_C: float = -75.51                 # triple point 197.64 K
+const SO2_TRIPLE_P_PA: float = 1670.0
+const SO2_CRITICAL_T_C: float = 157.49               # critical point 430.64 K
+const SO2_CRITICAL_P_PA: float = 7.884e6
+const VAP_ENTHALPY_SO2_J_MOL: float = 24940.0        # dHvap at 263.10 K
+const FUS_ENTHALPY_SO2_J_MOL: float = 7400.0         # dHfus at the triple point (CRC 97th ed.)
+const LATENT_HEAT_VAPORISATION_SO2_J_KG: float = VAP_ENTHALPY_SO2_J_MOL / MOLAR_MASS_SO2_KG_MOL
+const LATENT_HEAT_FUSION_SO2_J_KG: float = FUS_ENTHALPY_SO2_J_MOL / MOLAR_MASS_SO2_KG_MOL
+const MOLAR_HEAT_CAP_SO2_GAS_J_MOLK: float = 39.87   # cp of the gas at 298.15 K, 1 bar
+const SO2_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_SO2_GAS_J_MOLK / MOLAR_MASS_SO2_KG_MOL
+const SO2_LIQUID_SPECIFIC_HEAT_J_KGK: float = 1360.0 # saturated liquid at 263 K
+const THERMAL_CONDUCT_SO2_GAS_W_MK: float = 0.0096   # gas at 300 K, 1 bar (CRC 97th ed.)
+const ENTROPY_SO2_GAS_J_MOLK: float = 248.223        # CODATA Key Values
+const FORMATION_ENTHALPY_SO2_J_MOL: float = -296810.0  # CODATA Key Values
+const ATOMISATION_SO2_J_MOL: float = 1.07234e6       # dfH(S,g) + 2 dfH(O,g) - dfH(SO2), CODATA
+
+# Hydrogen sulfide, NIST Chemistry WebBook (CAS 7783-06-4); critical point Goodwin 1983, NBSIR 83-1694.
+const MOLAR_MASS_H2S_KG_MOL: float = MOLAR_MASS_S_KG_MOL + 2.0 * MOLAR_MASS_HYDROGEN_KG_MOL
+const H2S_BOIL_C: float = -60.28                     # normal boiling point 212.87 K
+const H2S_TRIPLE_T_C: float = -85.49                 # triple point 187.66 K
+const H2S_TRIPLE_P_PA: float = 23200.0
+const H2S_CRITICAL_T_C: float = 100.25               # critical point 373.4 K
+const H2S_CRITICAL_P_PA: float = 8.963e6
+const VAP_ENTHALPY_H2S_J_MOL: float = 18670.0        # dHvap at 212.87 K
+const FUS_ENTHALPY_H2S_J_MOL: float = 2377.0         # dHfus at the triple point (CRC 97th ed.)
+const LATENT_HEAT_VAPORISATION_H2S_J_KG: float = VAP_ENTHALPY_H2S_J_MOL / MOLAR_MASS_H2S_KG_MOL
+const LATENT_HEAT_FUSION_H2S_J_KG: float = FUS_ENTHALPY_H2S_J_MOL / MOLAR_MASS_H2S_KG_MOL
+const MOLAR_HEAT_CAP_H2S_GAS_J_MOLK: float = 34.19   # cp of the gas at 298.15 K, 1 bar (NIST-JANAF)
+const H2S_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_H2S_GAS_J_MOLK / MOLAR_MASS_H2S_KG_MOL
+const H2S_LIQUID_SPECIFIC_HEAT_J_KGK: float = 2000.0 # saturated liquid at 212.9 K (Goodwin 1983)
+const THERMAL_CONDUCT_H2S_GAS_W_MK: float = 0.01453  # gas at 300 K, 1 bar (CRC 97th ed.)
+const ENTROPY_H2S_GAS_J_MOLK: float = 205.81         # CODATA Key Values
+const FORMATION_ENTHALPY_H2S_J_MOL: float = -20600.0 # CODATA Key Values
+const ATOMISATION_H2S_J_MOL: float = 7.3377e5        # dfH(S,g) + 2 dfH(H,g) - dfH(H2S), CODATA
+
+# Methane, NIST Chemistry WebBook (CAS 74-82-8); EOS anchors Setzmann & Wagner 1991,
+# J. Phys. Chem. Ref. Data 20:1061.
+const MOLAR_MASS_CH4_KG_MOL: float = MOLAR_MASS_CARBON_KG_MOL + 4.0 * MOLAR_MASS_HYDROGEN_KG_MOL
+const CH4_BOIL_C: float = -161.48                    # normal boiling point 111.667 K
+const CH4_TRIPLE_T_C: float = -182.456               # triple point 90.694 K
+const CH4_TRIPLE_P_PA: float = 11696.0
+const CH4_CRITICAL_T_C: float = -82.586              # critical point 190.564 K
+const CH4_CRITICAL_P_PA: float = 4.5992e6
+const VAP_ENTHALPY_CH4_J_MOL: float = 8190.0         # dHvap at 111.667 K
+const FUS_ENTHALPY_CH4_J_MOL: float = 940.0          # dHfus at the triple point (CRC 97th ed.)
+const LATENT_HEAT_VAPORISATION_CH4_J_KG: float = VAP_ENTHALPY_CH4_J_MOL / MOLAR_MASS_CH4_KG_MOL
+const LATENT_HEAT_FUSION_CH4_J_KG: float = FUS_ENTHALPY_CH4_J_MOL / MOLAR_MASS_CH4_KG_MOL
+const MOLAR_HEAT_CAP_CH4_GAS_J_MOLK: float = 35.69   # cp of the gas at 298.15 K, 1 bar
+const CH4_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_CH4_GAS_J_MOLK / MOLAR_MASS_CH4_KG_MOL
+const CH4_LIQUID_SPECIFIC_HEAT_J_KGK: float = 3480.0 # saturated liquid at 111.7 K (Setzmann & Wagner)
+const THERMAL_CONDUCT_CH4_GAS_W_MK: float = 0.03427  # gas at 300 K, 1 bar (CRC 97th ed.)
+const ENTROPY_CH4_GAS_J_MOLK: float = 186.25         # NIST-JANAF (Chase 1998)
+const FORMATION_ENTHALPY_CH4_J_MOL: float = -74870.0 # NIST-JANAF (Chase 1998)
+const ATOMISATION_CH4_J_MOL: float = 1.66354e6       # dfH(C,g) + 4 dfH(H,g) - dfH(CH4), CODATA/JANAF
 
 ## Moles of N fixed per flash (Schumann & Huntrieser 2007, Atmos. Chem. Phys. 7:3823).
 const LIGHTNING_N_FIXED_MOL_PER_FLASH: float = 250.0
@@ -373,4 +514,17 @@ const THERMAL_CONDUCT_ORGANIC_W_MK: float = 0.25
 
 # Atmosphere BEFORE life: CO2-N2 in roughly equal parts, mid-range Hadean (Kasting 1993, Science 259:920).
 const PREBIOTIC_MOLE_FRAC_CO2: float = 0.5
-const PREBIOTIC_MOLE_FRAC_N2: float = 0.5
+## Outgassing vs. escape (Kasting 1993); contested — Tian et al. 2005 (Science 308:1014) argue ~0.3.
+const PREBIOTIC_MOLE_FRAC_H2: float = 1.0e-3
+## CO2-photolysis steady state (Kasting 1990, Orig. Life Evol. Biosph. 20:199).
+const PREBIOTIC_MOLE_FRAC_CO: float = 1.0e-4
+## Abiotic only (serpentinization; no methanogens): ~10 ppmv, uncertain by an order of magnitude
+## either way (Kasting 2005, Precambrian Res. 137:119).
+const PREBIOTIC_MOLE_FRAC_CH4: float = 1.0e-5
+## Volcanic supply vs. photolysis + rainout, ppb steady state (Zahnle et al. 2006, Geobiology 4:271).
+const PREBIOTIC_MOLE_FRAC_SO2: float = 1.0e-9
+const PREBIOTIC_MOLE_FRAC_H2S: float = 1.0e-9
+## N2 carries the remainder, so the mole fractions sum to exactly 1.
+const PREBIOTIC_MOLE_FRAC_N2: float = 1.0 - PREBIOTIC_MOLE_FRAC_CO2 - PREBIOTIC_MOLE_FRAC_H2 \
+	- PREBIOTIC_MOLE_FRAC_CO - PREBIOTIC_MOLE_FRAC_CH4 - PREBIOTIC_MOLE_FRAC_SO2 \
+	- PREBIOTIC_MOLE_FRAC_H2S

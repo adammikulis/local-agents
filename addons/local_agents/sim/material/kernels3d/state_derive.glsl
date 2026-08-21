@@ -31,7 +31,7 @@ layout(set = 0, binding = 52, std430) restrict writeonly buffer BodyFZ { float b
 layout(set = 0, binding = 53, std430) restrict writeonly buffer Celerity { float cel_m_s[]; };
 // Radiogenic power of this cell's own matter, W/m^3: sum over channels of amount * M * W/kg(mix, epoch).
 // transport.glsl's RADIOGENIC leg deposits it into the enthalpy.
-layout(set = 0, binding = 60, std430) restrict writeonly buffer RadW { float rad_w_m3[]; };
+layout(set = 0, binding = 65, std430) restrict writeonly buffer RadW { float rad_w_m3[]; };
 
 // MOMENTUM is the state, kg m/s per m^3. Velocity is what you read off it once you know the mass.
 layout(set = 0, binding = 25, std430) restrict buffer MomX { float mom_x[]; };

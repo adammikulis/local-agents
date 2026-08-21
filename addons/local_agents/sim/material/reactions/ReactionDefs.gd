@@ -39,6 +39,12 @@ const PYROXENE: int = OLIVINE + 1
 const PLAGIOCLASE: int = PYROXENE + 1
 const HALITE: int = PLAGIOCLASE + 1
 const APATITE: int = HALITE + 1
+# The 4.4 Ga atmosphere's minor gases: volcanic outgassing and abiotic CH4. No record consumes them yet.
+const H2: int = APATITE + 1
+const CO: int = H2 + 1
+const SO2: int = CO + 1
+const H2S: int = SO2 + 1
+const CH4: int = H2S + 1
 
 # --- Rate models
 const RM_CONST_FRAC: int = 0             # x = k * driver

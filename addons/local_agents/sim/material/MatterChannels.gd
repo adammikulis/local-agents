@@ -9,8 +9,8 @@ enum Entry { H2O, SILICATE, SENSIBLE }
 
 const LADDER: Dictionary = {"h2o": Entry.H2O, "silicate": Entry.SILICATE}
 
-## No melt and no boil in this planet's range, so their moles are the Dalton vapour split's denominator.
-const GASES: PackedStringArray = ["o2", "co2", "n2"]
+## Gaseous through this planet's whole surface range; their moles are the Dalton split's denominator.
+const GASES: PackedStringArray = ["o2", "co2", "n2", "h2", "co", "so2", "h2s", "ch4"]
 
 
 ## Which mixture entry a substance's enthalpy sits in.
@@ -43,11 +43,12 @@ const CHANNELS: PackedStringArray = [
 	"o2", "co2", "n2",
 	"biomass", "fungus", "detritus", "fuel", "org_h", "org_o",
 	"fert",
-	"metal", "olivine", "pyroxene", "plagioclase", "halite", "apatite"]
+	"metal", "olivine", "pyroxene", "plagioclase", "halite", "apatite",
+	"h2", "co", "so2", "h2s", "ch4"]
 
 ## Cases in the include's `channel_at` switch. A mismatch drops a substance out of every kernel that
 ## weighs a cell.
-const KERNEL_SLOTS: int = 20
+const KERNEL_SLOTS: int = 25
 
 ## Channels past the first 14 bind from 54 up: 14-53 were already taken by the two kernels' own buffers.
 const HIGH_BINDING_BASE: int = 54

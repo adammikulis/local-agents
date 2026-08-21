@@ -54,18 +54,18 @@ func _init() -> void:
 		return
 	# The core as the SUBSTANCE TABLE carries it — formula and trace map both — against the core model.
 	var core: Dictionary = _reconstruct({"metal": 1.0})
-	_check("core", core, LAElementAbundances.CORE)
+	_check("core", core, LAElementAbundances.core())
 
 	var shell_got: Dictionary = _reconstruct(shell)
-	_check("silicate_earth", shell_got, LAElementAbundances.SILICATE_EARTH)
+	_check("silicate_earth", shell_got, LAElementAbundances.silicate_earth())
 
-	var f_core: float = LAElementAbundances.CORE_MASS_FRACTION
+	var f_core: float = LAElementAbundances.core_mass_fraction()
 	var bulk: Dictionary = {}
 	for el4 in core:
 		bulk[el4] = f_core * float(core[el4])
 	for el5 in shell_got:
 		bulk[el5] = float(bulk.get(el5, 0.0)) + (1.0 - f_core) * float(shell_got[el5])
-	_check("bulk_earth", bulk, LAElementAbundances.BULK_EARTH)
+	_check("bulk_earth", bulk, LAElementAbundances.bulk_earth())
 
 	print("ELEMENT_COMPOSITION=" + JSON.stringify({"elements": _elements,
 		"violations": _violations}))

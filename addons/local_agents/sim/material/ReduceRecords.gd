@@ -17,7 +17,8 @@ enum Nbr { NONE, SOLID_COUNT, BELOW, ABOVE, GRAD_X, GRAD_Y, GRAD_Z }
 
 ## Channels whose stock the conservation ledger books, mask-free and open-only.
 const AMOUNTS: PackedStringArray = ["h2o", "silicate", "carbonate", "silica",
-	"co2", "o2", "n2", "detritus", "biomass", "fert", "fungus", "fuel", "org_h", "org_o",
+	"co2", "o2", "n2", "h2", "co", "so2", "h2s", "ch4",
+	"detritus", "biomass", "fert", "fungus", "fuel", "org_h", "org_o",
 	"metal", "olivine", "pyroxene", "plagioclase", "halite", "apatite"]
 
 ## One domain's rows per file, so a lane owns a file instead of queueing on this one. Loaded by path

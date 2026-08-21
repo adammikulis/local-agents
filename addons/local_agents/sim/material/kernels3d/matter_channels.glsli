@@ -5,7 +5,7 @@
 #ifndef LA_MATTER_CHANNELS_GLSLI
 #define LA_MATTER_CHANNELS_GLSLI
 
-const int LA_CHANNEL_SLOTS = 20;   // LAMatterChannels.KERNEL_SLOTS
+const int LA_CHANNEL_SLOTS = 25;   // LAMatterChannels.KERNEL_SLOTS
 
 layout(set = 0, binding = 0,  std430) restrict readonly buffer H2O { float h2o[]; };
 layout(set = 0, binding = 1,  std430) restrict readonly buffer Silicate { float silicate[]; };
@@ -29,6 +29,11 @@ layout(set = 0, binding = 56, std430) restrict readonly buffer Pyroxene { float 
 layout(set = 0, binding = 57, std430) restrict readonly buffer Plagioclase { float plagioclase[]; };
 layout(set = 0, binding = 58, std430) restrict readonly buffer Halite { float halite[]; };
 layout(set = 0, binding = 59, std430) restrict readonly buffer Apatite { float apatite[]; };
+layout(set = 0, binding = 60, std430) restrict readonly buffer H2 { float h2[]; };
+layout(set = 0, binding = 61, std430) restrict readonly buffer Co { float co[]; };
+layout(set = 0, binding = 62, std430) restrict readonly buffer So2 { float so2[]; };
+layout(set = 0, binding = 63, std430) restrict readonly buffer H2s { float h2s[]; };
+layout(set = 0, binding = 64, std430) restrict readonly buffer Ch4 { float ch4[]; };
 
 // Amount of channel `i` at cell `c`, mol/m^3.
 float channel_at(int i, uint c) {
@@ -53,6 +58,11 @@ float channel_at(int i, uint c) {
 		case 17: return plagioclase[c];
 		case 18: return halite[c];
 		case 19: return apatite[c];
+		case 20: return h2[c];
+		case 21: return co[c];
+		case 22: return so2[c];
+		case 23: return h2s[c];
+		case 24: return ch4[c];
 	}
 	return 0.0;
 }
