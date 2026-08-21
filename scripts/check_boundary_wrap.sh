@@ -12,7 +12,9 @@ command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a ga
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
 [ -f "$REPO_ROOT/scripts/sim_run.sh" ] || { echo "ERROR: sim_run.sh missing." >&2; exit 2; }
 
-FRAMES="${LA_BND_WRAP_FRAMES:-650}"
+# The torus claim — no edge, so no book — holds from the first step, and the books and conservation rows
+# publish every step. The 600-step audited verdict belongs to check_conservation.sh, a declared soak.
+FRAMES="${LA_BND_WRAP_FRAMES:-40}"
 ERRLOG="$(mktemp "${TMPDIR:-/tmp}/la_bnd_wrap.XXXXXX")"
 out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --slice --frames "$FRAMES" --raw 2>"$ERRLOG")"
 rc=$?
@@ -84,6 +86,10 @@ viol = find("conservation_violations") or []
 if viol:
     print("FAIL: the run's own gate fired on %s." % viol, file=sys.stderr)
     fails += 1
+if len(rows) < 5:
+    print("ERROR: only %d conservation rows published — this arm judged almost nothing." % len(rows),
+          file=sys.stderr)
+    raise SystemExit(2)
 
 print("BOUNDARY_WRAP={\"books\":%d,\"rows\":%d,\"failures\":%d}" % (len(books), len(rows), fails))
 raise SystemExit(1 if fails else 0)
