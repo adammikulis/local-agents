@@ -60,7 +60,6 @@ baseline while the element and mineral books close. Same symptom on the pre-conv
 `ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and the report sweeps
 already use it. Left:
 
-- `FieldPressureAudit3D` still walks the grid on the CPU to count inversions.
 - `clim_alt_min` (per-altitude-band minima above the sea shell) needs `sea_radius` on the device: a static
   row cannot carry an instance value, so give `MaterialSphereGPU3D._ctx` a setter like `set_sun_dir` and
   let `state_derive.glsl` write `alt` relative to the shell; the open-air `air_grad_*` rows measure the

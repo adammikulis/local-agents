@@ -99,6 +99,7 @@
 #define MASK_SOLID 2u
 #define MASK_GROUND 3u
 #define MASK_AIR 4u
+#define MASK_BEDDED 5u
 
 // ReduceRecords.gd Nbr enum
 #define NBR_NONE 0u
