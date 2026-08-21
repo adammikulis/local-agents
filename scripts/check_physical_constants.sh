@@ -33,7 +33,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
 # shellcheck source=lib_require.sh
 source "$SCRIPT_DIR/lib_require.sh"
+# shellcheck source=lib_godot.sh
+source "$SCRIPT_DIR/lib_godot.sh"
 require_tool awk   # every comparison below is an awk numeric compare; without it the gate is vacuous
+require_tool godot # the substance half of the authority is dumped out of the BUILT table
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 AUTHORITY="${LA_PHYSICAL_AUTHORITY:-$REPO_ROOT/addons/local_agents/sim/material/PhysicalConstants.gd}"
@@ -66,30 +69,27 @@ fi
 # --- 1. parse the authority into NAME<TAB>VALUE ------------------------------------------------------
 AUTH_MAP="$(mktemp -t la_physical_auth.XXXXXX)"
 trap 'rm -f "$AUTH_MAP"' EXIT
-# DERIVED CONSTANTS ARE FIRST-CLASS HERE, and they have to be. A constant defined as an expression over
-# other constants is how a RELATIONSHIP between measured quantities is made structural instead of asserted —
-# LATENT_HEAT_SUBLIMATION_J_KG = LATENT_HEAT_VAPORISATION_0C_J_KG + LATENT_HEAT_FUSION_J_KG is Hess's law,
-# and stating it as a literal is what let that law be broken by 2.433e5 J/kg in shipped code. But this parser
-# accepted ONLY plain numeric literals, so deriving a constant silently dropped it from the authority map and
-# every kernel copy of it became unbindable. That is the gate quietly getting weaker as the code gets better,
-# which is the worst possible direction. So: literals first, then resolve expressions over already-known
-# names, iterating until nothing new resolves. Supports the forms that actually occur — a chain of `+`, `-`,
-# `*` and `/` over names and numbers, no parentheses, evaluated left to right. Anything it cannot resolve is
-# simply absent from the map, exactly as before, and a kernel referencing it fails loudly rather than passing.
+# A DERIVED constant is a relationship made structural, so lib_parse_authority.py resolves expressions
+# and line continuations, not just literals; a name it cannot read is absent from the map and every
+# kernel copy of it fails loudly.
 #
-# LINE CONTINUATIONS ARE JOINED FIRST, and that is not cosmetic. This awk reads a line at a time, so a
-# constant declared as `const NAME: float = \` with its expression on the following lines parsed as an empty
-# value and fell out of the map entirely. That silently hid MOLAR_MASS_DRY_AIR_KG_MOL — a weighted mean over
-# four mole fractions, written across five lines — and with it DRY_AIR_GAS_CONSTANT_J_KGK, which depends on
-# it. THE SPECIFIC GAS CONSTANT OF DRY AIR, the most important structural parameter of an atmosphere, was
-# invisible to the gate on the day it was added: the gate gets quietly weaker as the authority gets
-# better unless every declaration syntax is parsed.
-SUBSTANCES="${LA_SUBSTANCE_AUTHORITY:-$REPO_ROOT/addons/local_agents/sim/material/Substances.gd}"
-if [[ ! -f "$SUBSTANCES" ]]; then
-  echo "ERROR: check_physical_constants.sh cannot find the substance table:" >&2
-  echo "       $SUBSTANCES" >&2
+# THE SUBSTANCE TABLE IS ASKED, NOT PARSED: LASubstances is native, so its rows come out of the table
+# the simulation runs on.
+DUMPER="${LA_SUBSTANCE_DUMPER:-$SCRIPT_DIR/dump_substances.gd}"
+if [[ ! -f "$DUMPER" ]]; then
+  echo "ERROR: check_physical_constants.sh cannot find its substance dumper at $DUMPER." >&2
   echo "       It is the authority for every property of matter, so a kernel copy of one is" >&2
   echo "       unverifiable without it." >&2
+  exit 2
+fi
+SUBSTANCES="$(mktemp -t la_substances.XXXXXX)"
+trap 'rm -f "$AUTH_MAP" "$SUBSTANCES"' EXIT
+la_godot --headless --path "$REPO_ROOT" -s "$DUMPER" > "$SUBSTANCES" 2>/dev/null || true
+sub_rows="$(awk -F= '/^SUBSTANCE_DUMP_ROWS=/ { print $2; exit }' "$SUBSTANCES")"
+if [[ -z "${sub_rows:-}" || "$sub_rows" -le 0 ]]; then
+  echo "ERROR: the substance dump produced no rows. LASubstances is in the GDExtension, so either it" >&2
+  echo "       is not built or the table is empty. Either way every kernel copy of a material property" >&2
+  echo "       is unverifiable, so this is a hard failure, not a skip." >&2
   exit 2
 fi
 if ! python3 "$SCRIPT_DIR/lib_parse_authority.py" "$AUTHORITY" "$SUBSTANCES" > "$AUTH_MAP"; then

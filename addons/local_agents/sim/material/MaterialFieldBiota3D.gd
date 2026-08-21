@@ -17,7 +17,7 @@ static var _resp_j_per_unit: float = -1.0   # cached: J released per channel uni
 static func _respiration_j_per_o2_unit() -> float:
 	if _resp_j_per_unit >= 0.0:
 		return _resp_j_per_unit
-	var tbl: Dictionary = LASubstances.table()
+	var tbl: Dictionary = LANativeTables.subs().table()
 	var c_h: float = float(tbl.get("organic_c", {}).get("formation_enthalpy_j_mol", 0.0))
 	var o2_h: float = float(tbl.get("o2", {}).get("formation_enthalpy_j_mol", 0.0))
 	var co2_h: float = float(tbl.get("co2", {}).get("formation_enthalpy_j_mol", 0.0))

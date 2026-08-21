@@ -24,8 +24,9 @@ if (NOT EXISTS "${LLAMA_CPP_DIR}/CMakeLists.txt")
     message(FATAL_ERROR "llama.cpp not found. Run scripts/fetch_dependencies.py")
 endif()
 
-# The engine API the bindings target; godot-cpp needs it declared by the consuming project.
-set(GODOTCPP_API_VERSION "4.7" CACHE STRING "Godot API version; must match the godot on PATH")
+# The engine API the bindings target. It must name a version the PINNED godot-cpp actually ships an
+# extension_api for; "4.7" named one it does not, and a clean configure died in the binding generator.
+set(GODOTCPP_API_VERSION "4.6" CACHE STRING "Godot API version; must be one the pinned godot-cpp carries")
 add_subdirectory(${GODOT_CPP_DIR} "${CMAKE_BINARY_DIR}/godot-cpp" EXCLUDE_FROM_ALL)
 add_subdirectory(${LLAMA_CPP_DIR} "${CMAKE_BINARY_DIR}/llama.cpp" EXCLUDE_FROM_ALL)
 
@@ -36,6 +37,7 @@ set(SRC
     src/AgentRuntime.cpp
     src/LAAbsorptionBands.cpp
     src/LAPlanetTables.cpp
+    src/LASubstances.cpp
     src/ModelDownloadManager.cpp
     src/NetworkGraph.cpp
     src/LAProcess.cpp

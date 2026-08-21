@@ -61,7 +61,7 @@ func _solve_slice() -> void:
 			+ "Declare the body (set_body) before the seed.")
 		return
 	var r_body: float = float(body.radius())
-	var rho: float = float(LASubstances.table()["silicate"].get("density", 0.0))
+	var rho: float = float(LANativeTables.subs().table()["silicate"].get("density", 0.0))
 	if r_body <= 0.0 or rho <= 0.0:
 		push_error("SLICE_NO_BODY: the declared body states radius %f and LASubstances states rock density %f; the monopole needs both." % [r_body, rho])
 		return

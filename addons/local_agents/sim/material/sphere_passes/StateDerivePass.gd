@@ -47,7 +47,7 @@ var _set: RID = RID()
 var _fresh_h_per_c: float = 0.0
 var _fresh_o_per_c: float = 0.0
 var _rad_mixes: Array = []
-var _decay: Object = ClassDB.instantiate(&"LARadiogenicDecay")
+var _decay: Object = LANativeTables.decay()
 
 
 ## Device-read only, so this pass's own rather than drained LAChannels.derived_buffers() entries.
@@ -71,8 +71,8 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	var props: PackedFloat32Array = _props()
 	if props.is_empty():
 		return
-	_fresh_h_per_c = LASubstances.fresh_litter_per_carbon("H")
-	_fresh_o_per_c = LASubstances.fresh_litter_per_carbon("O")
+	_fresh_h_per_c = LANativeTables.subs().fresh_litter_per_carbon("H")
+	_fresh_o_per_c = LANativeTables.subs().fresh_litter_per_carbon("O")
 	if _fresh_h_per_c <= 0.0 or _fresh_o_per_c <= 0.0:
 		push_error("StateDerivePass: LASubstances gives fresh litter no H or O per carbon, so the organic "
 			+ "ratio buffers would divide by nothing.")
@@ -145,7 +145,7 @@ func _props() -> PackedFloat32Array:
 	var out: PackedFloat32Array = PackedFloat32Array()
 	out.resize(channels.size() * PROP_STRIDE)
 	var rows: Dictionary = LAChannels.rows()
-	var table: Dictionary = LASubstances.table()
+	var table: Dictionary = LANativeTables.subs().table()
 	for i in channels.size():
 		var name: String = channels[i]
 		var row: Dictionary = rows[name]

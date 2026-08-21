@@ -5,32 +5,31 @@ extends RefCounted
 ## per substance and in J/kg. This sums their curves by mass and inverts. `n_gas_mol` is the cell's moles
 ## of gas that cannot condense here.
 
-const S: GDScript = preload("res://addons/local_agents/sim/material/Substances.gd")
 const PC: GDScript = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
 
 ## Where this substance's last condensed phase leaves: the frost point below the triple-point pressure,
 ## the boiling point above it.
 static func vapour_boundary_c(id: String, p_pa: float) -> float:
-	if S.sublimes_at(id, p_pa):
-		return S.sublimation_c_at(id, p_pa)
-	return S.boil_c_at(id, p_pa)
+	if LANativeTables.subs().sublimes_at(id, p_pa):
+		return LANativeTables.subs().sublimation_c_at(id, p_pa)
+	return LANativeTables.subs().boil_c_at(id, p_pa)
 
 
 ## The vapour pressure of the phase actually present: sublimation while the condensate is solid, saturation
 ## once it is liquid. ONE owner per boundary, both read off this table — the Magnus fit is not consulted.
 static func vapour_p_at(id: String, t_c: float, p_pa: float) -> float:
-	var melt: float = S.melt_c_at(id, p_pa)
-	if S.sublimes_at(id, p_pa) or (is_finite(melt) and t_c < melt):
-		return S.sublimation_p_at(id, t_c)
-	return S.saturation_p_at(id, t_c)
+	var melt: float = LANativeTables.subs().melt_c_at(id, p_pa)
+	if LANativeTables.subs().sublimes_at(id, p_pa) or (is_finite(melt) and t_c < melt):
+		return LANativeTables.subs().sublimation_p_at(id, t_c)
+	return LANativeTables.subs().saturation_p_at(id, t_c)
 
 
 ## Latent heat to take the condensed phase present at this temperature into the vapour, J/kg.
 static func latent_out_of_condensed(id: String, t_c: float, p_pa: float) -> float:
-	var melt: float = S.melt_c_at(id, p_pa)
-	if S.sublimes_at(id, p_pa) or (is_finite(melt) and t_c < melt):
-		return S.latent_sublimation_j_kg(id)
-	return S.latent_vaporisation_at(id, t_c)
+	var melt: float = LANativeTables.subs().melt_c_at(id, p_pa)
+	if LANativeTables.subs().sublimes_at(id, p_pa) or (is_finite(melt) and t_c < melt):
+		return LANativeTables.subs().latent_sublimation_j_kg(id)
+	return LANativeTables.subs().latent_vaporisation_at(id, t_c)
 
 
 ## THE SATURATION SPLIT, by Dalton at the cell's TOTAL pressure: n_v / n_gas = p_v / (p - p_v). When p_v
@@ -53,7 +52,7 @@ static func vapour_fraction(id: String, t_c: float, p_pa: float, m_kg: float,
 		return 0.0
 	if p_v >= p_pa:
 		return 1.0
-	var mm: float = float(S.table().get(id, {}).get("molar_mass", 0.0))
+	var mm: float = float(LANativeTables.subs().table().get(id, {}).get("molar_mass", 0.0))
 	if mm <= 0.0:
 		return 0.0
 	return minf(n_gas_mol * p_v / (p_pa - p_v) * mm / m_kg, 1.0)
@@ -63,7 +62,7 @@ static func vapour_fraction(id: String, t_c: float, p_pa: float, m_kg: float,
 ## share held as vapour. Above the vapour boundary the curve already carries it.
 static func specific_enthalpy(id: String, t_c: float, p_pa: float, m_kg: float,
 		n_gas_mol: float) -> float:
-	var h: float = S.enthalpy_at(id, t_c, p_pa)
+	var h: float = LANativeTables.subs().enthalpy_at(id, t_c, p_pa)
 	var vap_t: float = vapour_boundary_c(id, p_pa)
 	if not is_finite(vap_t) or t_c > vap_t:
 		return h
@@ -89,8 +88,8 @@ static func breakpoints(masses: Dictionary, p_pa: float) -> Array[float]:
 	for id in masses:
 		if float(masses[id]) <= 0.0:
 			continue
-		for t in [S.melt_c_at(id, p_pa), S.liquidus_c_at(id, p_pa), vapour_boundary_c(id, p_pa),
-				float(S.table().get(id, {}).get("critical_t_c", INF))]:
+		for t in [LANativeTables.subs().melt_c_at(id, p_pa), LANativeTables.subs().liquidus_c_at(id, p_pa), vapour_boundary_c(id, p_pa),
+				float(LANativeTables.subs().table().get(id, {}).get("critical_t_c", INF))]:
 			if is_finite(t) and not out.has(t):
 				out.append(float(t))
 	out.sort()
@@ -107,10 +106,10 @@ static func jump_at(masses: Dictionary, n_gas_mol: float, t_b: float, p_pa: floa
 		if m <= 0.0:
 			continue
 		var j: float = 0.0
-		var solidus: float = S.melt_c_at(id, p_pa)
-		var liquidus: float = S.liquidus_c_at(id, p_pa)
+		var solidus: float = LANativeTables.subs().melt_c_at(id, p_pa)
+		var liquidus: float = LANativeTables.subs().liquidus_c_at(id, p_pa)
 		if is_finite(solidus) and is_equal_approx(solidus, t_b) and is_equal_approx(liquidus, t_b):
-			var l_fus: float = float(S.table().get(id, {}).get("latent_fusion_j_kg", 0.0))
+			var l_fus: float = float(LANativeTables.subs().table().get(id, {}).get("latent_fusion_j_kg", 0.0))
 			j += m * (1.0 - vapour_fraction(id, t_b, p_pa, m, n_gas_mol)) * l_fus
 		var vap_t: float = vapour_boundary_c(id, p_pa)
 		if is_finite(vap_t) and is_equal_approx(vap_t, t_b) and n_gas_mol <= 0.0:
@@ -205,8 +204,8 @@ static func _report(masses: Dictionary, n_gas_mol: float, t_c: float, p_pa: floa
 		var m: float = float(masses[id])
 		if m <= 0.0:
 			continue
-		var solidus: float = S.melt_c_at(id, p_pa)
-		var liquidus: float = S.liquidus_c_at(id, p_pa)
+		var solidus: float = LANativeTables.subs().melt_c_at(id, p_pa)
+		var liquidus: float = LANativeTables.subs().liquidus_c_at(id, p_pa)
 		var f_m: float = 1.0
 		if is_finite(solidus):
 			if t_c <= solidus:

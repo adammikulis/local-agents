@@ -112,9 +112,9 @@ func _publish_mineral(out: Dictionary, f: Dictionary, step: int) -> void:
 ## Radiogenic daughters accumulated in the rock since the planet formed, moles: the parents' traces
 ## decay in closed form, so the He and Ar the rock holds are computed, never seeded.
 func _publish_daughters(out: Dictionary, f: Dictionary) -> void:
-	var decay: Object = ClassDB.instantiate(&"LARadiogenicDecay")
+	var decay: Object = LANativeTables.decay()
 	var epoch: float = decay.epoch_years()
-	var table: Dictionary = LASubstances.table()
+	var table: Dictionary = LANativeTables.subs().table()
 	var rows: Dictionary = LAChannels.rows()
 	var all: Dictionary = f["all"]
 	var acc: Dictionary = {}

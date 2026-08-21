@@ -9,7 +9,7 @@ const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/
 ## Standard dH (J per mole of `q_slot`'s substance) and dS (J/mol/K) for `rec`. Empty when a participant
 ## has no standard-state data. A channel amount is moles, so Q needs no per-record unit bridge.
 static func equilibrium_terms(rec: Dictionary, q_slot: int) -> Dictionary:
-	var tbl: Dictionary = LASubstances.table()
+	var tbl: Dictionary = LANativeTables.subs().table()
 	var subs: Dictionary = BalanceScript.slot_substance()
 	var dh: float = 0.0
 	var ds: float = 0.0

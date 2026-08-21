@@ -12,7 +12,7 @@ const PC: GDScript = preload("res://addons/local_agents/sim/material/PhysicalCon
 ## so a seed that skips it hands the air zero joules.
 static func masses_at(f, c: int, cell_m3: float) -> Dictionary:
 	var out: Dictionary = {}
-	var tbl: Dictionary = LASubstances.table()
+	var tbl: Dictionary = LANativeTables.subs().table()
 	var rows: Dictionary = LAChannels.rows()
 	for name in rows:
 		var sub: String = String(rows[name].get("substance", ""))

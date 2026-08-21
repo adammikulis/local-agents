@@ -66,10 +66,10 @@ latitude and altitude band is an ordinary row on the existing `gate_lo`/`gate_hi
 GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is a `.cpp`/`.hpp` pair, one
 `SRC` line and one `register_class`.
 
-- The tables still in GDScript: `Substances.gd` and `PhysicalConstants.gd` (`AbsorptionBands`,
-  `ElementAbundances`, `PlanetComposition` and `RadiogenicDecay` are native now). Move
-  `check_physical_constants.sh`, `check_model_parameters.sh` and `gen_shared_constants.py` in the same
-  commit — a gate left parsing a deleted file is a gate that cannot fail.
+- `PhysicalConstants.gd` stays in GDScript and cannot move as it stands: godot-cpp binds only INTEGER
+  class constants (`ClassDB::bind_integer_constant`), so `LAPhysical.WATER_FREEZE_C` and its ~300 float
+  siblings have no native form a GDScript `const` can fold. Moving it means every one of those reads
+  becomes a runtime call. Native code already reads it through `include/LAPhysicalRead.hpp`.
 - The seed-time serial work: `MaterialFieldLakes3D`'s priority flood, `MaterialFieldSolidCache3D`'s SDF
   spot check and file hashing, `MaterialFieldRegolith3D.compute`'s burial march, `FieldEnthalpySeed3D`'s
   per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.

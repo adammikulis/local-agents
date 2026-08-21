@@ -32,12 +32,12 @@ android/
 .vs
 .vscode/
 .releases
-addons/local_agents/gdextensions/localagents/thirdparty/
-addons/local_agents/gdextensions/localagents/build/
-addons/local_agents/gdextensions/localagents/build_native/
-addons/local_agents/gdextensions/localagents/bin/
+addons/local_agents/gdextensions/localagents/thirdparty
+addons/local_agents/gdextensions/localagents/build
+addons/local_agents/gdextensions/localagents/build_native
+addons/local_agents/gdextensions/localagents/bin
 addons/local_agents/gdextensions/localagents/cmake_trace.txt
-addons/local_agents/gdextensions/localagents/.cache/
+addons/local_agents/gdextensions/localagents/.cache
 .cache/clangd/
 addons/local_agents/models/
 addons/local_agents/voices/
@@ -53,7 +53,6 @@ tools/
 # generated FunctionGemma finetune artifacts
 addons/local_agents/models/functiongemma/train_examples.jsonl
 addons/local_agents/models/functiongemma/*.gguf
-addons/local_agents/gdextensions/localagents/bin
 volcano_shot_*.png
 /trailers/
 .DS_Store

@@ -27,7 +27,7 @@ func _expected_steps() -> float:
 func run_test(_tree: SceneTree) -> bool:
 	var p: float = LAPhysical.STANDARD_PRESSURE_PA
 	var masses: Dictionary = {"h2o": WATER_KG}
-	var melt: float = LASubstances.melt_c_at("h2o", p)
+	var melt: float = LANativeTables.subs().melt_c_at("h2o", p)
 
 	var h: float = Mix.enthalpy_at(masses, 0.0, START_C, p)
 	var pinned: int = 0

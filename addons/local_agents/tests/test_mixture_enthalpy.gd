@@ -4,7 +4,6 @@ extends RefCounted
 ## One temperature for a cell of rock, water and air: T -> H -> T, fusion jump, and the saturation split.
 
 const M: GDScript = preload("res://addons/local_agents/sim/material/MixtureEnthalpy.gd")
-const S: GDScript = preload("res://addons/local_agents/sim/material/Substances.gd")
 const PC: GDScript = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
 
 const TOL_K: float = 1.0e-6
@@ -42,10 +41,10 @@ func run_test(_tree: SceneTree) -> bool:
 		ok = _round_trip(dry_rock, AIR_MOL, float(t), "dry rock at %.1f C" % t) and ok
 
 	# The fusion jump pins the temperature; half the latent heat is half melted.
-	var melt: float = S.melt_c_at("h2o", P_ATM)
+	var melt: float = LANativeTables.subs().melt_c_at("h2o", P_ATM)
 	var h_bottom: float = M.enthalpy_at(puddle, 0.0, melt, P_ATM)
 	var jump: float = float(M.jump_at(puddle, 0.0, melt, P_ATM)["total"])
-	var want_jump: float = 10.0 * float(S.table()["h2o"]["latent_fusion_j_kg"])
+	var want_jump: float = 10.0 * float(LANativeTables.subs().table()["h2o"]["latent_fusion_j_kg"])
 	if absf(jump - want_jump) > 1.0e-6 * want_jump:
 		push_error("ten kilos of ice cost %s J to melt, not the %s the latent heat says."
 			% [String.num_scientific(jump), String.num_scientific(want_jump)])
@@ -70,10 +69,10 @@ func run_test(_tree: SceneTree) -> bool:
 		ok = false
 
 	# Non-condensable gas removes the boiling plateau.
-	var boil: float = S.boil_c_at("h2o", P_ATM)
+	var boil: float = LANativeTables.subs().boil_c_at("h2o", P_ATM)
 	var jump_air: float = float(M.jump_at(puddle, AIR_MOL, boil, P_ATM)["total"])
 	var jump_vac: float = float(M.jump_at(puddle, 0.0, boil, P_ATM)["total"])
-	var want_vac: float = 10.0 * S.latent_vaporisation_at("h2o", boil)
+	var want_vac: float = 10.0 * LANativeTables.subs().latent_vaporisation_at("h2o", boil)
 	if jump_air != 0.0:
 		push_error("water in air still has a %s J boiling plateau. With a non-condensable gas present it "
 			% String.num_scientific(jump_air) + "evaporates across a range instead.")
