@@ -139,6 +139,9 @@ func step() -> void:
 	# Seal on the field clock, never the report clock. The seal takes only its own legs.
 	if _f._seal != null and _f._gpu.has_method("take_probe"):
 		_f._seal.poll(_f._gpu.take_probe(LAMaterialFieldSeal3D.required_channels()))
+	# The ledgers fold this step's drained books here, never on the report clock.
+	if _f._report_mod != null:
+		_f._report_mod.sample_ledgers()
 	# Charge module reads the strike list the breakdown kernel published and fires the bolt visuals.
 	if _f._charge_mod != null:
 		_f._charge_mod.post_step()
