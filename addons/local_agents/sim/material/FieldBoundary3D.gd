@@ -1,10 +1,9 @@
 class_name LAFieldBoundary3D
 extends RefCounted
 
-## Box-face boundary-state provider. Per face: SHUT (wall, books exactly zero), WRAP (torus partner,
-## exact, no ghost state), CONSTANT (one supplied exterior state, filled into the ghost buffer tails at
-## attach), REPLAY (the same tails re-filled per step from a supplied series), SPACE (vacuum exterior:
-## nothing comes in, and only the escape law crosses out). The redirect table is transport.glsl binding 27.
+## Box-face boundary-state provider. Per face: SHUT (wall, books zero), WRAP (torus partner, no ghost
+## state), CONSTANT (one supplied exterior state, filled into the ghost tails at attach), REPLAY (those
+## tails re-filled per step from a series), SPACE (vacuum: nothing in, only the escape law out).
 
 enum { SHUT, WRAP, CONSTANT, REPLAY, SPACE }
 
