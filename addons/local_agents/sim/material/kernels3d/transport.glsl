@@ -42,7 +42,7 @@ layout(set = 0, binding = 18, std430) restrict readonly buffer GrainBuf    { flo
 layout(set = 0, binding = 19, std430) restrict readonly buffer CO2Buf      { float co2[]; };
 // ONE H2O CHANNEL plus the three DERIVED shares state_derive.glsl publishes; they differ optically.
 layout(set = 0, binding = 20, std430) restrict readonly buffer H2OBuf       { float h2o[]; };
-// LAAbsorptionBands.packed(): header, band edges, temperature slices, solar weights, seven coefficients
+// LAAbsorptionBands.packed(): header, band edges, temperature slices, solar weights, eleven coefficients
 // per (temperature, band), Planck CDF.
 layout(set = 0, binding = 21, std430) restrict readonly buffer RadTable { float rad_table[]; };
 layout(set = 0, binding = 22, std430) restrict readonly buffer H2OSolidBuf  { float h2o_solid[]; };
@@ -76,6 +76,8 @@ layout(set = 0, binding = 39, std430) restrict writeonly buffer ColE { float col
 layout(set = 0, binding = 40, std430) restrict writeonly buffer Strike { float strike[]; };
 // Rock channels two and three, the TF_RADIOGENIC deposit (J/m^3), and the RADIATE march's scratch.
 layout(set = 0, binding = 41, std430) restrict readonly buffer RadW { float rad_w_m3[]; };  // W/m^3, from state_derive.glsl
+// The greenhouse trace gases the band table resolves, mol/m^3.
+layout(set = 0, binding = 42, std430) restrict readonly buffer Ch4Buf { float ch4[]; };
 layout(set = 0, binding = 43, std430) restrict writeonly buffer Radiogenic { float radiogenic[]; };
 layout(set = 0, binding = 44, std430) restrict buffer LwEmis { float lw_emis[]; };
 layout(set = 0, binding = 45, std430) restrict buffer SwAbs { float sw_absorbed[]; };
@@ -123,6 +125,9 @@ layout(set = 0, binding = 68, std430) restrict readonly buffer BodyFZ { float bo
 layout(set = 0, binding = 69, std430) buffer BndMomX { float bnd_mom_x[]; };
 layout(set = 0, binding = 70, std430) buffer BndMomY { float bnd_mom_y[]; };
 layout(set = 0, binding = 71, std430) buffer BndMomZ { float bnd_mom_z[]; };
+layout(set = 0, binding = 72, std430) restrict readonly buffer CoBuf { float co_gas[]; };
+layout(set = 0, binding = 73, std430) restrict readonly buffer So2Buf { float so2[]; };
+layout(set = 0, binding = 74, std430) restrict readonly buffer H2sBuf { float h2s[]; };
 
 #include "march.glsli"
 
@@ -169,7 +174,7 @@ const uint PASS_ACOUSTIC_APPLY = 8u;
 
 const float KELVIN = 273.15;                        // LAPhysical.KELVIN_OFFSET
 const float STEFAN = 5.670374419e-8;                // LAPhysical.STEFAN_BOLTZMANN
-const float SOLAR_CONSTANT = 1361.0;                // LAPhysical.SOLAR_CONSTANT_W_M2
+const float SOLAR_CONSTANT = 982.1582972537;        // LAPhysical.SOLAR_CONSTANT_W_M2
 const float KOZENY_CARMAN_C = 180.0;                // LAPhysical.KOZENY_CARMAN_C
 const float SMAGORINSKY_COEFF = 0.1650789493;             // LAPhysical.SMAGORINSKY_COEFF
 const float DRY_AIR_R = 287.0222603;                // LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK
@@ -198,6 +203,10 @@ const float RHO_WATER = 997.0;                      // LAPhysical.WATER_DENSITY_
 const float R_VAPOUR = 461.52;                      // LAPhysical.VAPOUR_GAS_CONST_J_KGK
 const float M_H2O = 0.018015;                       // LASubstances.h2o.molar_mass
 const float M_CO2 = 0.0440095;                      // LASubstances.co2.molar_mass
+const float M_CH4 = 0.01604276;                     // LASubstances.ch4.molar_mass
+const float M_CO = 0.0280104;                       // LASubstances.co.molar_mass
+const float M_SO2 = 0.0640588;                      // LASubstances.so2.molar_mass
+const float M_H2S = 0.03407588;                     // LASubstances.h2s.molar_mass
 const float RHO_SILICATE = 2900.0;                  // LASubstances.silicate.density
 const float M_SILICATE = 0.1161612;                 // LASubstances.silicate.molar_mass
 const float RHO_CELLULOSE = 500.0;                  // LASubstances.cellulose.density
@@ -485,13 +494,13 @@ uint edge_off() { return 4u; }
 uint temp_off() { return edge_off() + params.band_count + 1u; }
 uint wsun_off() { return temp_off() + temp_count(); }
 uint kappa_off() { return wsun_off() + params.band_count; }
-uint cdf_off() { return kappa_off() + temp_count() * params.band_count * 7u; }
+uint cdf_off() { return kappa_off() + temp_count() * params.band_count * 11u; }
 float band_edge(uint b) { return rad_table[edge_off() + b]; }
 float solar_weight(uint b) { return rad_table[wsun_off() + b]; }
 
 float kappa_at(uint b, uint k, uint ti, float tf) {
-	uint o = kappa_off() + b * 7u + k;
-	uint stride = params.band_count * 7u;
+	uint o = kappa_off() + b * 11u + k;
+	uint stride = params.band_count * 11u;
 	return mix(rad_table[o + ti * stride], rad_table[o + (ti + 1u) * stride], tf);
 }
 
@@ -553,6 +562,17 @@ vec4 absorber_paths(uint c, float len) {
 		(rho_v * R_VAPOUR * tk / KAPPA_REF_PA) * rho_v * len);
 }
 
+// The minor greenhouse gases' line paths, kg/m^2 scaled by the broadening pressure: CH4, CO, SO2, H2S,
+// all air-broadened lines. H2 has no dipole and carries no band column.
+vec4 minor_paths(uint c, float len) {
+	float p_tot = max(pressure[c], 0.0) / KAPPA_REF_PA;
+	return p_tot * len * vec4(
+		max(ch4[c], 0.0) * M_CH4,
+		max(co_gas[c], 0.0) * M_CO,
+		max(so2[c], 0.0) * M_SO2,
+		max(h2s[c], 0.0) * M_H2S);
+}
+
 // The O3 legs: air-broadened lines scale with total pressure; the electronic cross-section does not.
 vec2 o3_paths(uint c, float len) {
 	float rho_o3 = max(o3[c], 0.0);
@@ -563,13 +583,17 @@ vec2 o3_paths(uint c, float len) {
 	return vec2(p_tot * rho_o3 * len, rho_o3 * len);
 }
 
-float band_tau(vec4 a, vec2 z, uint b, uint ti, float tf) {
+float band_tau(vec4 a, vec2 z, vec4 m, uint b, uint ti, float tf) {
 	return (kappa_at(b, 0u, ti, tf) + kappa_at(b, 1u, ti, tf)) * a.x
 		+ kappa_at(b, 2u, ti, tf) * a.y
 		+ kappa_at(b, 3u, ti, tf) * a.z
 		+ kappa_at(b, 4u, ti, tf) * a.w
 		+ kappa_at(b, 5u, ti, tf) * z.x
-		+ kappa_at(b, 6u, ti, tf) * z.y;
+		+ kappa_at(b, 6u, ti, tf) * z.y
+		+ kappa_at(b, 7u, ti, tf) * m.x
+		+ kappa_at(b, 8u, ti, tf) * m.y
+		+ kappa_at(b, 9u, ti, tf) * m.z
+		+ kappa_at(b, 10u, ti, tf) * m.w;
 }
 
 // The cell's thermal-infrared emissivity: band-resolved optical depth over its own absorber paths,
@@ -578,11 +602,12 @@ float longwave_emissivity(uint c) {
 	float tk = t_k(c);
 	vec4 a = absorber_paths(c, params.cell_m);
 	vec2 z = o3_paths(c, params.cell_m);
+	vec4 m = minor_paths(c, params.cell_m);
 	float tf = 0.0;
 	uint ti = slice_of(tk, tf);
 	float eps = 0.0;
 	for (uint b = 0u; b < params.band_count; ++b) {
-		eps += band_weight(b, tk) * (1.0 - exp(-DIFFUSIVITY * band_tau(a, z, b, ti, tf)));
+		eps += band_weight(b, tk) * (1.0 - exp(-DIFFUSIVITY * band_tau(a, z, m, b, ti, tf)));
 	}
 	float wet = h2o_water(c) / FULL_H2O;
 	float icy = h2o_ice(c) / FULL_H2O;
@@ -614,11 +639,12 @@ float shortwave_albedo(uint c) {
 float shortwave_absorbed_frac(uint c, float len) {
 	vec4 a = absorber_paths(c, len);
 	vec2 z = o3_paths(c, len);
+	vec4 m = minor_paths(c, len);
 	float tf = 0.0;
 	uint ti = slice_of(t_k(c), tf);
 	float gas = 0.0;
 	for (uint b = 0u; b < params.band_count; ++b) {
-		gas += solar_weight(b) * (1.0 - exp(-band_tau(a, z, b, ti, tf)));
+		gas += solar_weight(b) * (1.0 - exp(-band_tau(a, z, m, b, ti, tf)));
 	}
 	float f_c = condensed_frac(c);
 	return clamp(f_c + (1.0 - f_c) * gas, 0.0, 1.0);

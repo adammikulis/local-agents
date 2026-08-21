@@ -82,10 +82,6 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       carries `density_solid`, so silicate's fusion volume change — the larger half of why a melt rises — is
       absent. Adding it also moves `melt_c_at`'s Clapeyron slope off zero, which is real (decompression
       melting) and which `enthalpy.glsli` must move with, or the two phase curves are no longer one curve.
-- [ ] **`o2` and `co2` carry no phase boundaries, so nothing can say they are gases.** `density()` falls
-      back to their declared reference for want of a boiling point, triple point and critical point, all of
-      which `n2` and `h2o` already carry. Adding them changes those substances' phase ladder, so the GLSL
-      twin moves at the same time.
 - [ ] **The momentum ledger's atmosphere weighs the same at every altitude.** `LAMaterialFieldMomentumLedger3D`
       makes cell mass `air * AIR_DENSITY_KG_M3 * V`, a fixed ISA sea-level conversion, and its buoyancy leg is
       the ideal-gas Boussinesq `a = g dT/T` gated on `d_t > 0.0`, so cold air never sinks.
@@ -98,13 +94,6 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 
 ## B. The substrate's state
 
-- [ ] **The epoch is a sentence in a document, and the constants are present-day.** `SOLAR_CONSTANT_W_M2`
-      is 1361, today's value, so this planet gets about 40% more sunlight than the real one did — which is
-      how a missing greenhouse currently passes unnoticed. `PLANET_ANGULAR_VELOCITY_RAD_S` is the modern
-      sidereal day against roughly six hours at 4.4 Ga, and Coriolis is linear in it, so the circulation is
-      in the wrong regime. `PREBIOTIC_MOLE_FRAC_CO2` is correctly Hadean (Kasting 1993), which is what makes
-      the mismatch invisible. **Decide it:** one declared epoch that luminosity, rotation and lunar distance
-      are all derived from, so moving the world in time is one edit and the physics follows.
 - [ ] **The interesting geology is slower than the clock by ten orders of magnitude.** Mantle convection,
       ore concentration and atmospheric evolution run over 10^6–10^9 years against a 43.2 s step. Real Earth
       system models split the timescales — atmosphere and ocean on a short step, ice and geology on a long
@@ -130,10 +119,12 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 - [ ] **The ocean has no chemistry.** No pH, no alkalinity, no carbonate saturation state — `rg` finds none
       of them. Carbonate precipitates and dissolves according to saturation, which is what decides whether
       the Urey cycle's CaCO₃ stays put, and it is pure inorganic equilibrium.
-- [ ] **No abiotic organic synthesis.** Serpentinization of ultramafic rock makes H₂ and CH₄, and
-      Fischer-Tropsch chemistry makes hydrocarbons from CO and H₂; carbonaceous infall carries organics
-      ready-made. `rg serpentin|fischer|tropsch` finds nothing, so on this planet every organic molecule
-      implies life. It does not: this is the carbon chemistry a lifeless Hadean Earth actually runs.
+- [ ] **No abiotic organic synthesis.** The atmosphere now SEEDS the steady-state H₂, CO, CH₄, SO₂ and
+      H₂S at cited abundances, but no reaction produces them: serpentinization of ultramafic rock makes
+      H₂ and CH₄, Fischer-Tropsch chemistry makes hydrocarbons from CO and H₂, and carbonaceous infall
+      carries organics ready-made. The reaction table holds none of these, so the seeded abundances
+      cannot be replenished and every organic molecule still implies life. It does not: this is the
+      carbon chemistry a lifeless Hadean Earth actually runs.
 
 ## C. The reaction engine
 
@@ -235,10 +226,6 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 
 ## G. The radiation and the solver
 
-- [ ] **The shortwave side is one grey number for the whole spectrum.** `transport.glsl` attenuates
-      sunlight with a single `SW_OPTICAL_DEPTH` on total air mass, asserting that N₂ and O₂ absorb
-      sunlight and that CO₂ does nothing, while the longwave half already integrates per band over each
-      absorber's own path. Give the shortwave the same band treatment.
 - [ ] **A buffer allocated and never WRITTEN passes the gate.** `check_declared_and_dispatched.sh`
       fails a kernel with no pass and a buffer nothing allocates, and does not fail a buffer no kernel
       or pass ever writes — the read-never-written channel it was built for still slips through.

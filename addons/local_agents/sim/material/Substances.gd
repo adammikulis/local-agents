@@ -2,7 +2,6 @@ class_name LASubstances
 extends RefCounted
 
 const PC = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
-const AB = preload("res://addons/local_agents/sim/material/ElementAbundances.gd")
 
 # --- The differentiated planet's mineral data ------------------------------------------------------------
 ## Liquid iron at its melting point 1811 K (Assael et al. 2006, J. Phys. Chem. Ref. Data 35:285).
@@ -105,11 +104,13 @@ static func table() -> Dictionary:
 ## The differentiated planet's phases. Formulas and solid-solution fractions are DERIVED from
 ## LAElementAbundances by LAPlanetComposition, so the table cannot disagree with the registry.
 static func _add_planet_minerals() -> void:
-	var shell_tr: Dictionary = AB.shell_traces()
+	var ab: Object = _native(&"LAElementAbundances")
+	var pcomp: Object = _native(&"LAPlanetComposition")
+	var shell_tr: Dictionary = ab.shell_traces()
 	var rock: Dictionary = {"emissivity": PC.BASALT_EMISSIVITY, "albedo": PC.ALBEDO_BARE_GROUND,
 		"density_ref_t_c": PC.LAB_REFERENCE_TEMP_C, "traces": shell_tr}
 
-	var f_metal: Dictionary = LAPlanetComposition.metal_formula()
+	var f_metal: Dictionary = pcomp.metal_formula()
 	# LA_APPROX: pure_iron_core_alloy
 	_table_cache["metal"] = _entry(f_metal, IRON_LIQUID_DENSITY_KG_M3,
 		IRON_LIQUID_SPECIFIC_HEAT_J_KGK, IRON_CONDUCTIVITY_W_MK, {
@@ -121,12 +122,12 @@ static func _add_planet_minerals() -> void:
 			"melt_c": IRON_MELT_C, "latent_fusion_j_kg": IRON_LATENT_FUSION_J_KG,
 			"boil_c": IRON_BOIL_C, "boil_ref_p_pa": PC.STANDARD_PRESSURE_PA,
 			"latent_vaporisation_j_kg": IRON_LATENT_VAPORISATION_J_KG,
-			"latent_vaporisation_ref_t_c": IRON_BOIL_C, "traces": AB.core_traces()})
+			"latent_vaporisation_ref_t_c": IRON_BOIL_C, "traces": ab.core_traces()})
 
-	var m: float = LAPlanetComposition.mg_number()
+	var m: float = pcomp.mg_number()
 	# LA_APPROX: ideal_solid_solution
-	var f_ol: Dictionary = LAPlanetComposition.olivine_formula()
-	var mm_ol: float = AB.molar_mass(f_ol)
+	var f_ol: Dictionary = pcomp.olivine_formula()
+	var mm_ol: float = ab.molar_mass(f_ol)
 	_table_cache["olivine"] = _entry(f_ol, OLIVINE_DENSITY_KG_M3,
 		(m * FORSTERITE_CP_J_MOLK + (1.0 - m) * FAYALITE_CP_J_MOLK) / mm_ol,
 		OLIVINE_CONDUCTIVITY_W_MK, rock.merged({
@@ -135,14 +136,14 @@ static func _add_planet_minerals() -> void:
 			"melt_c": FORSTERITE_MELT_C,
 			"latent_fusion_j_kg": FORSTERITE_FUSION_J_MOL / mm_ol}))
 
-	var f_px: Dictionary = LAPlanetComposition.pyroxene_formula()
+	var f_px: Dictionary = pcomp.pyroxene_formula()
 	_table_cache["pyroxene"] = _entry(f_px, ENSTATITE_DENSITY_KG_M3,
 		ENSTATITE_CP_J_MOLK / ENSTATITE_MOLAR_MASS_KG_MOL, ENSTATITE_CONDUCTIVITY_W_MK,
 		rock.merged({"bulk_modulus_pa": ENSTATITE_BULK_MODULUS_PA, "melt_c": ENSTATITE_MELT_C}))
 
-	var x: float = LAPlanetComposition.an_fraction()
-	var f_pl: Dictionary = LAPlanetComposition.plagioclase_formula()
-	var mm_pl: float = AB.molar_mass(f_pl)
+	var x: float = pcomp.an_fraction()
+	var f_pl: Dictionary = pcomp.plagioclase_formula()
+	var mm_pl: float = ab.molar_mass(f_pl)
 	# Endmember data mixed ideally at the derived An fraction; the melting interval is the endmember loop.
 	_table_cache["plagioclase"] = _entry(f_pl,
 		x * ANORTHITE_DENSITY_KG_M3 + (1.0 - x) * ALBITE_DENSITY_KG_M3,
@@ -155,7 +156,7 @@ static func _add_planet_minerals() -> void:
 				(x * ANORTHITE_FUSION_J_MOL + (1.0 - x) * ALBITE_FUSION_J_MOL) / mm_pl}))
 
 	var f_hal: Dictionary = {"Na": 1.0, "Cl": 1.0}
-	var mm_hal: float = AB.molar_mass(f_hal)
+	var mm_hal: float = ab.molar_mass(f_hal)
 	_table_cache["halite"] = _entry(f_hal, HALITE_DENSITY_KG_M3, HALITE_CP_J_MOLK / mm_hal,
 		HALITE_CONDUCTIVITY_W_MK, {
 			"density_ref_t_c": PC.LAB_REFERENCE_TEMP_C,
@@ -165,15 +166,21 @@ static func _add_planet_minerals() -> void:
 			"latent_fusion_j_kg": HALITE_FUSION_J_MOL / mm_hal,
 			"traces": shell_tr})
 
-	var f_ap: Dictionary = LAPlanetComposition.apatite_formula()
+	var f_ap: Dictionary = pcomp.apatite_formula()
 	_table_cache["apatite"] = _entry(f_ap, APATITE_DENSITY_KG_M3,
-		APATITE_CP_J_MOLK / AB.molar_mass(f_ap), APATITE_CONDUCTIVITY_W_MK, rock)
+		APATITE_CP_J_MOLK / ab.molar_mass(f_ap), APATITE_CONDUCTIVITY_W_MK, rock)
+
+
+## The native planet tables, reached by name so a library-only install (no built extension) still parses.
+static func _native(cls: StringName) -> Object:
+	return ClassDB.instantiate(cls)
 
 
 ## One mineral entry: the fields every phase carries, plus what this one measures beyond them.
 static func _entry(formula: Dictionary, density: float, cp_j_kgk: float, lambda_w_mk: float,
 		extra: Dictionary) -> Dictionary:
-	return {"formula": formula, "molar_mass": AB.molar_mass(formula), "density": density,
+	return {"formula": formula, "molar_mass": _native(&"LAElementAbundances").molar_mass(formula),
+		"density": density,
 		"specific_heat": cp_j_kgk, "conductivity": lambda_w_mk}.merged(extra, true)
 
 
@@ -248,7 +255,18 @@ static func _build_table() -> Dictionary:
 			"entropy_gas_j_molk": ENTROPY_O2_GAS_J_MOLK,
 			"formation_enthalpy_j_mol": 0.0,   # reference state of the element, by definition
 			"density": PC.MOLAR_MASS_O2_KG_MOL * PC.STP_MOLAR_DENSITY_MOL_M3,
-			"specific_heat": PC.AIR_SPECIFIC_HEAT_J_KGK,
+			"specific_heat": PC.O2_LIQUID_SPECIFIC_HEAT_J_KGK,
+			"specific_heat_gas": PC.O2_GAS_SPECIFIC_HEAT_J_KGK,
+			"melt_c": PC.O2_TRIPLE_T_C,
+			"boil_c": PC.O2_BOIL_C,
+			"boil_ref_p_pa": PC.STANDARD_PRESSURE_PA,
+			"triple_t_c": PC.O2_TRIPLE_T_C,
+			"triple_p_pa": PC.O2_TRIPLE_P_PA,
+			"critical_t_c": PC.O2_CRITICAL_T_C,
+			"critical_p_pa": PC.O2_CRITICAL_P_PA,
+			"latent_fusion_j_kg": PC.LATENT_HEAT_FUSION_O2_J_KG,
+			"latent_vaporisation_j_kg": PC.LATENT_HEAT_VAPORISATION_O2_J_KG,
+			"latent_vaporisation_ref_t_c": PC.O2_BOIL_C,
 			"conductivity": PC.THERMAL_CONDUCT_O2_GAS_W_MK,
 		},
 		"co2": {
@@ -258,8 +276,127 @@ static func _build_table() -> Dictionary:
 			"entropy_gas_j_molk": ENTROPY_CO2_GAS_J_MOLK,
 			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_CO2_J_MOL,
 			"density": PC.MOLAR_MASS_CO2_KG_MOL * PC.STP_MOLAR_DENSITY_MOL_M3,
-			"specific_heat": PC.AIR_SPECIFIC_HEAT_J_KGK,
+			"density_solid": PC.DRY_ICE_DENSITY_KG_M3,
+			"density_solid_ref_t_c": PC.CO2_TRIPLE_T_C,
+			"specific_heat": PC.CO2_LIQUID_SPECIFIC_HEAT_J_KGK,
+			"specific_heat_gas": PC.CO2_GAS_SPECIFIC_HEAT_J_KGK,
+			"melt_c": PC.CO2_TRIPLE_T_C,
+			# No 1-atm boiling point (triple P > 1 atm): the vapour curve's second anchor is 0 C saturation.
+			"boil_c": PC.CO2_SAT_REF_T_C,
+			"boil_ref_p_pa": PC.CO2_SAT_REF_P_PA,
+			"triple_t_c": PC.CO2_TRIPLE_T_C,
+			"triple_p_pa": PC.CO2_TRIPLE_P_PA,
+			"critical_t_c": PC.CO2_CRITICAL_T_C,
+			"critical_p_pa": PC.CO2_CRITICAL_P_PA,
+			"latent_fusion_j_kg": PC.LATENT_HEAT_FUSION_CO2_J_KG,
+			"latent_vaporisation_j_kg": PC.CO2_LATENT_VAPORISATION_J_KG,
+			"latent_vaporisation_ref_t_c": PC.CO2_TRIPLE_T_C,
 			"conductivity": PC.THERMAL_CONDUCT_CO2_GAS_W_MK,
+		},
+		"h2": {
+			"formula": {"H": 2.0},
+			"molar_mass": PC.MOLAR_MASS_H2_KG_MOL,
+			"atomisation_j_mol": PC.ATOMISATION_H2_J_MOL,
+			"entropy_gas_j_molk": PC.ENTROPY_H2_GAS_J_MOLK,
+			"formation_enthalpy_j_mol": 0.0,   # reference state of the element, by definition
+			"density": PC.MOLAR_MASS_H2_KG_MOL * PC.STP_MOLAR_DENSITY_MOL_M3,
+			"specific_heat": PC.H2_LIQUID_SPECIFIC_HEAT_J_KGK,
+			"specific_heat_gas": PC.H2_GAS_SPECIFIC_HEAT_J_KGK,
+			"melt_c": PC.H2_TRIPLE_T_C,
+			"boil_c": PC.H2_BOIL_C,
+			"boil_ref_p_pa": PC.STANDARD_PRESSURE_PA,
+			"triple_t_c": PC.H2_TRIPLE_T_C,
+			"triple_p_pa": PC.H2_TRIPLE_P_PA,
+			"critical_t_c": PC.H2_CRITICAL_T_C,
+			"critical_p_pa": PC.H2_CRITICAL_P_PA,
+			"latent_fusion_j_kg": PC.LATENT_HEAT_FUSION_H2_J_KG,
+			"latent_vaporisation_j_kg": PC.LATENT_HEAT_VAPORISATION_H2_J_KG,
+			"latent_vaporisation_ref_t_c": PC.H2_BOIL_C,
+			"conductivity": PC.THERMAL_CONDUCT_H2_GAS_W_MK,
+		},
+		"co": {
+			"formula": {"C": 1.0, "O": 1.0},
+			"molar_mass": PC.MOLAR_MASS_CO_KG_MOL,
+			"atomisation_j_mol": PC.ATOMISATION_CO_J_MOL,
+			"entropy_gas_j_molk": PC.ENTROPY_CO_GAS_J_MOLK,
+			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_CO_J_MOL,
+			"density": PC.MOLAR_MASS_CO_KG_MOL * PC.STP_MOLAR_DENSITY_MOL_M3,
+			"specific_heat": PC.CO_LIQUID_SPECIFIC_HEAT_J_KGK,
+			"specific_heat_gas": PC.CO_GAS_SPECIFIC_HEAT_J_KGK,
+			"melt_c": PC.CO_TRIPLE_T_C,
+			"boil_c": PC.CO_BOIL_C,
+			"boil_ref_p_pa": PC.STANDARD_PRESSURE_PA,
+			"triple_t_c": PC.CO_TRIPLE_T_C,
+			"triple_p_pa": PC.CO_TRIPLE_P_PA,
+			"critical_t_c": PC.CO_CRITICAL_T_C,
+			"critical_p_pa": PC.CO_CRITICAL_P_PA,
+			"latent_fusion_j_kg": PC.LATENT_HEAT_FUSION_CO_J_KG,
+			"latent_vaporisation_j_kg": PC.LATENT_HEAT_VAPORISATION_CO_J_KG,
+			"latent_vaporisation_ref_t_c": PC.CO_BOIL_C,
+			"conductivity": PC.THERMAL_CONDUCT_CO_GAS_W_MK,
+		},
+		"so2": {
+			"formula": {"S": 1.0, "O": 2.0},
+			"molar_mass": PC.MOLAR_MASS_SO2_KG_MOL,
+			"atomisation_j_mol": PC.ATOMISATION_SO2_J_MOL,
+			"entropy_gas_j_molk": PC.ENTROPY_SO2_GAS_J_MOLK,
+			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_SO2_J_MOL,
+			"density": PC.MOLAR_MASS_SO2_KG_MOL * PC.STP_MOLAR_DENSITY_MOL_M3,
+			"specific_heat": PC.SO2_LIQUID_SPECIFIC_HEAT_J_KGK,
+			"specific_heat_gas": PC.SO2_GAS_SPECIFIC_HEAT_J_KGK,
+			"melt_c": PC.SO2_TRIPLE_T_C,
+			"boil_c": PC.SO2_BOIL_C,
+			"boil_ref_p_pa": PC.STANDARD_PRESSURE_PA,
+			"triple_t_c": PC.SO2_TRIPLE_T_C,
+			"triple_p_pa": PC.SO2_TRIPLE_P_PA,
+			"critical_t_c": PC.SO2_CRITICAL_T_C,
+			"critical_p_pa": PC.SO2_CRITICAL_P_PA,
+			"latent_fusion_j_kg": PC.LATENT_HEAT_FUSION_SO2_J_KG,
+			"latent_vaporisation_j_kg": PC.LATENT_HEAT_VAPORISATION_SO2_J_KG,
+			"latent_vaporisation_ref_t_c": PC.SO2_BOIL_C,
+			"conductivity": PC.THERMAL_CONDUCT_SO2_GAS_W_MK,
+		},
+		"h2s": {
+			"formula": {"H": 2.0, "S": 1.0},
+			"molar_mass": PC.MOLAR_MASS_H2S_KG_MOL,
+			"atomisation_j_mol": PC.ATOMISATION_H2S_J_MOL,
+			"entropy_gas_j_molk": PC.ENTROPY_H2S_GAS_J_MOLK,
+			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_H2S_J_MOL,
+			"density": PC.MOLAR_MASS_H2S_KG_MOL * PC.STP_MOLAR_DENSITY_MOL_M3,
+			"specific_heat": PC.H2S_LIQUID_SPECIFIC_HEAT_J_KGK,
+			"specific_heat_gas": PC.H2S_GAS_SPECIFIC_HEAT_J_KGK,
+			"melt_c": PC.H2S_TRIPLE_T_C,
+			"boil_c": PC.H2S_BOIL_C,
+			"boil_ref_p_pa": PC.STANDARD_PRESSURE_PA,
+			"triple_t_c": PC.H2S_TRIPLE_T_C,
+			"triple_p_pa": PC.H2S_TRIPLE_P_PA,
+			"critical_t_c": PC.H2S_CRITICAL_T_C,
+			"critical_p_pa": PC.H2S_CRITICAL_P_PA,
+			"latent_fusion_j_kg": PC.LATENT_HEAT_FUSION_H2S_J_KG,
+			"latent_vaporisation_j_kg": PC.LATENT_HEAT_VAPORISATION_H2S_J_KG,
+			"latent_vaporisation_ref_t_c": PC.H2S_BOIL_C,
+			"conductivity": PC.THERMAL_CONDUCT_H2S_GAS_W_MK,
+		},
+		"ch4": {
+			"formula": {"C": 1.0, "H": 4.0},
+			"molar_mass": PC.MOLAR_MASS_CH4_KG_MOL,
+			"atomisation_j_mol": PC.ATOMISATION_CH4_J_MOL,
+			"entropy_gas_j_molk": PC.ENTROPY_CH4_GAS_J_MOLK,
+			"formation_enthalpy_j_mol": PC.FORMATION_ENTHALPY_CH4_J_MOL,
+			"density": PC.MOLAR_MASS_CH4_KG_MOL * PC.STP_MOLAR_DENSITY_MOL_M3,
+			"specific_heat": PC.CH4_LIQUID_SPECIFIC_HEAT_J_KGK,
+			"specific_heat_gas": PC.CH4_GAS_SPECIFIC_HEAT_J_KGK,
+			"melt_c": PC.CH4_TRIPLE_T_C,
+			"boil_c": PC.CH4_BOIL_C,
+			"boil_ref_p_pa": PC.STANDARD_PRESSURE_PA,
+			"triple_t_c": PC.CH4_TRIPLE_T_C,
+			"triple_p_pa": PC.CH4_TRIPLE_P_PA,
+			"critical_t_c": PC.CH4_CRITICAL_T_C,
+			"critical_p_pa": PC.CH4_CRITICAL_P_PA,
+			"latent_fusion_j_kg": PC.LATENT_HEAT_FUSION_CH4_J_KG,
+			"latent_vaporisation_j_kg": PC.LATENT_HEAT_VAPORISATION_CH4_J_KG,
+			"latent_vaporisation_ref_t_c": PC.CH4_BOIL_C,
+			"conductivity": PC.THERMAL_CONDUCT_CH4_GAS_W_MK,
 		},
 
 		# --- ORGANIC MATTER ---------------------------------------------------------------------------------
@@ -319,7 +456,7 @@ static func _build_table() -> Dictionary:
 			"emissivity": PC.BASALT_EMISSIVITY,
 			"albedo": PC.ALBEDO_BARE_GROUND,
 			# One shell mineral of the undifferentiated-silicate mix, so it hosts the registry's traces.
-			"traces": AB.shell_traces(),
+			"traces": _native(&"LAElementAbundances").shell_traces(),
 		},
 		"silica": {
 			"formula": {"Si": 1.0, "O": 2.0},
@@ -583,7 +720,7 @@ static func element_ionisation_ev() -> Dictionary:
 	return {
 		"H": PC.IONISATION_EV_H, "O": PC.IONISATION_EV_O, "C": PC.IONISATION_EV_C, "N": PC.IONISATION_EV_N,
 		"Si": PC.IONISATION_EV_SI, "Ca": PC.IONISATION_EV_CA, "Fe": PC.IONISATION_EV_FE,
-		"Mg": PC.IONISATION_EV_MG, "Al": PC.IONISATION_EV_AL,
+		"Mg": PC.IONISATION_EV_MG, "Al": PC.IONISATION_EV_AL, "S": PC.IONISATION_EV_S,
 	}
 
 
@@ -591,6 +728,7 @@ static func element_degen() -> Dictionary:
 	return {
 		"H": [PC.DEGEN_H_0, PC.DEGEN_H_1], "O": [PC.DEGEN_O_0, PC.DEGEN_O_1],
 		"C": [PC.DEGEN_C_0, PC.DEGEN_C_1], "N": [PC.DEGEN_N_0, PC.DEGEN_N_1],
+		"S": [PC.DEGEN_S_0, PC.DEGEN_S_1],
 	}
 
 
@@ -598,6 +736,7 @@ static func element_entropy_j_molk() -> Dictionary:
 	return {
 		"H": PC.ENTROPY_H_ATOM_J_MOLK, "O": PC.ENTROPY_O_ATOM_J_MOLK,
 		"C": PC.ENTROPY_C_ATOM_J_MOLK, "N": PC.ENTROPY_N_ATOM_J_MOLK,
+		"S": PC.ENTROPY_S_ATOM_J_MOLK,
 	}
 
 
@@ -745,6 +884,12 @@ static func saturation_p_at(id: String, t_c: float) -> float:
 	return p_ref * exp(-b * (1.0 / t_k - 1.0 / t_ref_k))
 
 
+## THIS substance's specific gas constant, J/kg/K — R over its molar mass, never water's.
+static func _r_specific(id: String) -> float:
+	var mm: float = float(table().get(id, {}).get("molar_mass", 0.0))
+	return PC.GAS_CONSTANT_J_MOL_K / mm if mm > 0.0 else 0.0
+
+
 ## Sublimation pressure at temperature — the solid-vapour boundary, Clausius-Clapeyron anchored on the
 ## triple point with the SUBLIMATION enthalpy (fusion + vaporisation, derived, so Hess still closes).
 static func sublimation_p_at(id: String, t_c: float) -> float:
@@ -754,11 +899,12 @@ static func sublimation_p_at(id: String, t_c: float) -> float:
 	if not is_finite(t3) or p3 <= 0.0:
 		return 0.0
 	var l_sub: float = latent_sublimation_j_kg(id)
-	if l_sub <= 0.0:
+	var r_v: float = _r_specific(id)
+	if l_sub <= 0.0 or r_v <= 0.0:
 		return 0.0
 	var t3_k: float = t3 + PC.KELVIN_OFFSET
 	var t_k: float = maxf(t_c + PC.KELVIN_OFFSET, 1.0)
-	return p3 * exp(-(l_sub / PC.VAPOUR_GAS_CONST_J_KGK) * (1.0 / t_k - 1.0 / t3_k))
+	return p3 * exp(-(l_sub / r_v) * (1.0 / t_k - 1.0 / t3_k))
 
 
 ## THE FROST POINT AT A GIVEN PRESSURE, C — sublimation_p_at() inverted, so the solid-vapour boundary is one
@@ -771,10 +917,11 @@ static func sublimation_c_at(id: String, p_pa: float) -> float:
 	if not is_finite(t3) or p3 <= 0.0:
 		return INF
 	var l_sub: float = latent_sublimation_j_kg(id)
-	if l_sub <= 0.0:
+	var r_v: float = _r_specific(id)
+	if l_sub <= 0.0 or r_v <= 0.0:
 		return t3
 	var inv_t: float = 1.0 / (t3 + PC.KELVIN_OFFSET) \
-		- (PC.VAPOUR_GAS_CONST_J_KGK / l_sub) * log(maxf(p_pa, 1.0e-12) / p3)
+		- (r_v / l_sub) * log(maxf(p_pa, 1.0e-12) / p3)
 	if inv_t <= 0.0:
 		return t3
 	return 1.0 / inv_t - PC.KELVIN_OFFSET

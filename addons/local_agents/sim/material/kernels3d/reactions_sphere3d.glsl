@@ -62,7 +62,7 @@ layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float 
 layout(set = 0, binding = 28, std430) restrict buffer Carbonate { float carbonate[]; };  // CaCO3 — the carbon sink
 layout(set = 0, binding = 29, std430) restrict buffer Silica { float silica[]; };        // SiO2 — the residue
 // BINDINGS 30-33 IN THIS KERNEL ARE NOT THE 30-33 OF EVERY OTHER KERNEL.
-layout(set = 0, binding = 30, std430) restrict buffer N2Buf { float n2[]; };              // dinitrogen, 78% of the air
+layout(set = 0, binding = 30, std430) restrict buffer N2Buf { float n2[]; };              // dinitrogen, mol/m^3
 // Lightning energy released this step, J/m^3. DERIVED here from the field the strike is relaxing.
 layout(set = 0, binding = 31, std430) restrict buffer Discharge { float discharge[]; };
 // The column electrostatic field (V/m) and breakdown flag transport's EFIELD row publishes.

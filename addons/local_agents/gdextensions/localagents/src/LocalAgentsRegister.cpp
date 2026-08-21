@@ -6,6 +6,7 @@
 #include "AgentNode.hpp"
 #include "AgentRuntime.hpp"
 #include "LAAbsorptionBands.hpp"
+#include "LAPlanetTables.hpp"
 #include "NetworkGraph.hpp"
 #include "LAProcess.hpp"
 
@@ -24,6 +25,9 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<NetworkGraph>();
     ClassDB::register_class<LAProcess>();
     ClassDB::register_class<LAAbsorptionBands>();
+    ClassDB::register_class<LAElementAbundances>();
+    ClassDB::register_class<LAPlanetComposition>();
+    ClassDB::register_class<LARadiogenicDecay>();
 
     if (!g_agent_runtime_singleton) {
         g_agent_runtime_singleton = memnew(AgentRuntime);

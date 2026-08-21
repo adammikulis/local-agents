@@ -33,6 +33,11 @@ const INITIAL_TEMP: float = 15.0
 const O2_AMBIENT: float = 0.0
 const CO2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_CO2
 const N2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_N2
+const H2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_H2
+const CO_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_CO
+const SO2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_SO2
+const H2S_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_H2S
+const CH4_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_CH4
 const SNOW_PRESENT: float = 1.9e-4 * MAX_MASS
 const ICE_DEPTH: float = 0.5 * MAX_MASS
 const FOG_MAX_TEMP: float = 12.0
@@ -63,6 +68,12 @@ var _fire: PackedFloat32Array = PackedFloat32Array()     # burning intensity per
 var _o2: PackedFloat32Array = PackedFloat32Array()       # atmospheric O₂ per cell, mol/m^3
 var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ per cell, mol/m^3
 var _n2: PackedFloat32Array = PackedFloat32Array()       # atmospheric N₂ per cell, mol/m^3
+# The 4.4 Ga atmosphere's minor gases, mol/m^3: volcanic H2/CO/SO2/H2S, abiotic (serpentinization) CH4.
+var _h2: PackedFloat32Array = PackedFloat32Array()
+var _co: PackedFloat32Array = PackedFloat32Array()
+var _so2: PackedFloat32Array = PackedFloat32Array()
+var _h2s: PackedFloat32Array = PackedFloat32Array()
+var _ch4: PackedFloat32Array = PackedFloat32Array()
 var _detritus: PackedFloat32Array = PackedFloat32Array() # dead decomposable organic matter per cell (0 = none)
 # Hydrogen and oxygen bound in the dead organic pool (detritus + fuel).
 var _org_h: PackedFloat32Array = PackedFloat32Array()
@@ -228,69 +239,47 @@ func centre() -> Vector3:
 func _alloc_channels() -> void:
 	_solid = PackedByteArray()
 	_solid.resize(_cell_count)
-	_h2o = PackedFloat32Array()
-	_h2o.resize(_cell_count)
-	_h2o_solid = PackedFloat32Array()
-	_h2o_solid.resize(_cell_count)
-	_h2o_liquid = PackedFloat32Array()
-	_h2o_liquid.resize(_cell_count)
-	_h2o_vapour = PackedFloat32Array()
-	_h2o_vapour.resize(_cell_count)
-	_h = PackedFloat32Array()
-	_h.resize(_cell_count)
-	_temp = PackedFloat32Array()
-	_temp.resize(_cell_count)
-	_temp.fill(INITIAL_TEMP)
+	_h2o = _cells_filled(0.0)
+	_h2o_solid = _cells_filled(0.0)
+	_h2o_liquid = _cells_filled(0.0)
+	_h2o_vapour = _cells_filled(0.0)
+	_h = _cells_filled(0.0)
+	_temp = _cells_filled(INITIAL_TEMP)
 	# Mineral amounts: seeded from the solid mask on activate; the silicate is GPU-owned thereafter.
-	_silicate = PackedFloat32Array()
-	_silicate.resize(_cell_count)
-	_cement = PackedFloat32Array()
-	_cement.resize(_cell_count)
-	for arr_name in ["_metal", "_olivine", "_pyroxene", "_plagioclase", "_halite", "_apatite"]:
-		var a: PackedFloat32Array = PackedFloat32Array()
-		a.resize(_cell_count)
-		set(arr_name, a)
-	_fuel = PackedFloat32Array()
-	_fuel.resize(_cell_count)
-	_fire = PackedFloat32Array()
-	_fire.resize(_cell_count)
+	_silicate = _cells_filled(0.0)
+	_cement = _cells_filled(0.0)
+	_metal = _cells_filled(0.0)
+	_olivine = _cells_filled(0.0)
+	_pyroxene = _cells_filled(0.0)
+	_plagioclase = _cells_filled(0.0)
+	_halite = _cells_filled(0.0)
+	_apatite = _cells_filled(0.0)
+	_fuel = _cells_filled(0.0)
+	_fire = _cells_filled(0.0)
 	# THE AIR, seeded once and finite thereafter, in mol/m^3.
-	_o2 = PackedFloat32Array()
-	_o2.resize(_cell_count)
-	_o2.fill(O2_AMBIENT)
-	_co2 = PackedFloat32Array()
-	_co2.resize(_cell_count)
-	_co2.fill(CO2_AMBIENT)
-	_n2 = PackedFloat32Array()
-	_n2.resize(_cell_count)
-	_n2.fill(N2_AMBIENT)
+	_o2 = _cells_filled(O2_AMBIENT)
+	_co2 = _cells_filled(CO2_AMBIENT)
+	_n2 = _cells_filled(N2_AMBIENT)
+	_h2 = _cells_filled(H2_AMBIENT)
+	_co = _cells_filled(CO_AMBIENT)
+	_so2 = _cells_filled(SO2_AMBIENT)
+	_h2s = _cells_filled(H2S_AMBIENT)
+	_ch4 = _cells_filled(CH4_AMBIENT)
 	# Detritus + fungus start empty; carcasses/ash deposit detritus, fungus grows on it (decomposer loop).
-	_detritus = PackedFloat32Array()
-	_detritus.resize(_cell_count)
-	_org_h = PackedFloat32Array()
-	_org_h.resize(_cell_count)
-	_org_o = PackedFloat32Array()
-	_org_o.resize(_cell_count)
-	_fungus = PackedFloat32Array()
-	_fungus.resize(_cell_count)
+	_detritus = _cells_filled(0.0)
+	_org_h = _cells_filled(0.0)
+	_org_o = _cells_filled(0.0)
+	_fungus = _cells_filled(0.0)
 	# Soil fertility (decomposer output) starts barren; the GPU decomposer grows it where detritus rots.
-	_fert = PackedFloat32Array()
-	_fert.resize(_cell_count)
+	_fert = _cells_filled(0.0)
 	# Biomass starts empty; photosynthesis grows it on the GPU where CO₂ + warmth + sky-exposed surface meet.
-	_biomass = PackedFloat32Array()
-	_biomass.resize(_cell_count)
-	_pressure = PackedFloat32Array()
-	_pressure.resize(_cell_count)
-	_vel_x = PackedFloat32Array()
-	_vel_x.resize(_cell_count)
-	_vel_y = PackedFloat32Array()
-	_vel_y.resize(_cell_count)
-	_vel_z = PackedFloat32Array()
-	_vel_z.resize(_cell_count)
-	_charge = PackedFloat32Array()
-	_charge.resize(_cell_count)
-	_shock = PackedFloat32Array()
-	_shock.resize(_cell_count)
+	_biomass = _cells_filled(0.0)
+	_pressure = _cells_filled(0.0)
+	_vel_x = _cells_filled(0.0)
+	_vel_y = _cells_filled(0.0)
+	_vel_z = _cells_filled(0.0)
+	_charge = _cells_filled(0.0)
+	_shock = _cells_filled(0.0)
 	# Read-only query accessors bind to this field now; the arrays they read exist from here on.
 	_queries = QueriesScript.new()
 	_queries.setup(self)
@@ -355,6 +344,14 @@ func water_force_at(pos: Vector3) -> Vector3:
 
 
 
+## One channel mirror, `_cell_count` long, at a uniform value.
+func _cells_filled(v: float) -> PackedFloat32Array:
+	var a: PackedFloat32Array = PackedFloat32Array()
+	a.resize(_cell_count)
+	a.fill(v)
+	return a
+
+
 ## Begin simulating + rendering (called after setup + sample_solidity + seed_sea).
 func activate() -> void:
 	# The state the device is seeded FROM, so it is filled before the driver reads it.
@@ -413,7 +410,7 @@ func _seed_silicate() -> void:
 	if _silicate.size() != _cell_count or _cement.size() != _cell_count \
 			or _solid.size() != _cell_count:
 		return
-	LAPlanetComposition.seed(self, INITIAL_TEMP)
+	ClassDB.instantiate(&"LAPlanetComposition").seed(self, INITIAL_TEMP)
 	# Shape the CPU arrays BEFORE the driver's seed_field reads them, so the declared upload is the
 	# compressed rock and the shell atmosphere, not the flat fill.
 	LAFieldLithostaticSeed.compress(self)

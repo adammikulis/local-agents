@@ -319,7 +319,8 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 			return RID()
 	# The material state every law and the band model read. A missing one is a dead row, not a default.
 	for key in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible",
-			"temp", "pressure", "porosity", "grain", "co2", "h2o", "h2o_solid", "h2o_liquid",
+			"temp", "pressure", "porosity", "grain", "co2", "ch4", "co", "so2", "h2s",
+			"h2o", "h2o_solid", "h2o_liquid",
 			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement",
 			"silicate_susp_water", "silicate_susp_air", "silicate_bed",
 			"rad_absorbed", "rad_emitted", "col_e", "strike",
@@ -372,6 +373,8 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[40, _single(bufs, "strike")],
 		# The composition-derived radiogenic power, and where its tail books what it deposited.
 		[41, _single(bufs, "rad_w_m3")],
+		# The minor greenhouse gases the band table resolves.
+		[42, _single(bufs, "ch4")],
 		[43, _single(bufs, "radiogenic")],
 		[44, _lw_emis],
 		[45, _sw_abs],
@@ -409,6 +412,9 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[69, _single(bufs, "bnd_void" if bool(row.get("signed", false)) else "bnd_mom_x")],
 		[70, _single(bufs, "bnd_void" if bool(row.get("signed", false)) else "bnd_mom_y")],
 		[71, _single(bufs, "bnd_void" if bool(row.get("signed", false)) else "bnd_mom_z")],
+		[72, _single(bufs, "co")],
+		[73, _single(bufs, "so2")],
+		[74, _single(bufs, "h2s")],
 	]
 	return _uset(_pipe, entries)
 

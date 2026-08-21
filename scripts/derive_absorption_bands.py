@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Regenerate the LAAbsorptionBands GDExtension table from HITRAN.
 
-Usage, from the repo root:
-    scripts/fetch_hitran.sh    # writes co2/h2o/o3_lines.csv, CO2-CO2_2024.cia, o3_uv_serdyuchenko.dat
+Usage, from scripts/:
+    scripts/fetch_hitran.sh    # writes the line CSVs, CO2-CO2_2024.cia, o3_uv_serdyuchenko.dat
     python3 scripts/derive_absorption_bands.py addons/local_agents/gdextensions/localagents/src/LAAbsorptionBands.cpp
 
 Needs numpy. The band table is DATA, not a modelling choice: every number here comes out of HITRAN
@@ -191,19 +191,36 @@ def band_table(data, cont, t, cia=None):
     return np.array(line), np.array(con), np.array(sci)
 
 
+def no_continuum(nu, t=0.0):
+    return np.zeros_like(nu)
+
+
+# The minor greenhouse gases, line absorption only. H2 carries no column: its dipole-forbidden lines are
+# orders weaker, and its real channel — H2-N2/H2-H2 collision-induced absorption — only matters at H2
+# mole fractions of order 0.1 (Wordsworth & Pierrehumbert 2013, Science 339:64), 100x the outgassed 1e-3.
+# q_exp is the rotational partition exponent: 1.0 linear, 1.5 nonlinear (Pierrehumbert ch. 4).
+MINOR = [("ch4", "ch4_lines.csv", 16.04276, 1.5), ("co", "co_lines.csv", 28.0104, 1.0),
+         ("so2", "so2_lines.csv", 64.0588, 1.5), ("h2s", "h2s_lines.csv", 34.07588, 1.5)]
+
 if __name__ == "__main__":
     co2 = load("co2_lines.csv", 44.0095, 1.0)
     h2o = load("h2o_lines.csv", 18.01528, 1.5)
     o3 = load("o3_lines.csv", O3_M_GMOL, 1.5)
     print("CO2 lines", len(co2[0]), " H2O lines", len(h2o[0]), " O3 lines", len(o3[0]))
+    minor = {name: load(path, m, q) for name, path, m, q in MINOR}
+    for name, _p, _m, _q in MINOR:
+        print("%s lines %d" % (name.upper(), len(minor[name][0])))
     cia = load_cia("CO2-CO2_2024.cia")
     uv = load_o3_uv("o3_uv_serdyuchenko.dat")
     print("CO2-CO2 CIA blocks", len(cia), " O3 UV points", len(uv[0]))
     kc = []; cc = []; ci = []; kw = []; cw = []; ko = []; xo = []
+    km = {name: [] for name, _p, _m, _q in MINOR}
     for t in TEMPS:
         a, b, g = band_table(co2, co2_continuum, t, cia)
         c, e, _z = band_table(h2o, h2o_continuum, t)
         kc.append(a); cc.append(b); ci.append(g); kw.append(c); cw.append(e)
+        for name, _p, _m, _q in MINOR:
+            km[name].append(band_table(minor[name], no_continuum, t)[0])
         line_o3 = []; xsc_o3 = []
         for i in range(len(EDGES) - 1):
             grid = np.linspace(EDGES[i], EDGES[i + 1], SAMPLES, endpoint=False)
@@ -215,7 +232,9 @@ if __name__ == "__main__":
     kw = np.array(kw); cw = np.array(cw); ko = np.array(ko); xo = np.array(xo)
     wsun = planck_above(C2 * EDGES[:-1] / T_SUN) - planck_above(C2 * EDGES[1:] / T_SUN)
     np.savez("bands.npz", edges=EDGES, temps=np.array(TEMPS), co2_line=kc, co2_cont=cc,
-             co2_cia=ci, h2o_line=kw, h2o_cont=cw, o3_line=ko, o3_xsc=xo, w_sun=wsun)
+             co2_cia=ci, h2o_line=kw, h2o_cont=cw, o3_line=ko, o3_xsc=xo, w_sun=wsun,
+             ch4_line=np.array(km["ch4"]), co_line=np.array(km["co"]),
+             so2_line=np.array(km["so2"]), h2s_line=np.array(km["h2s"]))
     print(f"solar fraction below {EDGES[-1]:.0f} cm^-1: {wsun.sum():.4f}")
     print(f"{'band':>12} {'CO2 line':>11} {'CO2 cont':>11} {'CO2 cia':>11} {'H2O line':>11} {'H2O cont':>11} {'O3 line':>11} {'O3 xsc':>11} {'w_sun':>9}")
     ti = TEMPS.index(260.0)
@@ -323,6 +342,25 @@ const double O3_XSC[] = {
 %s
 };
 
+// The minor greenhouse gases, HITRAN lbl, same reduction; all scale with total pressure. H2 is absent:
+// no dipole, and its collision-induced channel only matters at H2 mole fractions of order 0.1
+// (Wordsworth & Pierrehumbert 2013, Science 339:64).
+const double CH4_LINE[] = {
+%s
+};
+
+const double CO_LINE[] = {
+%s
+};
+
+const double SO2_LINE[] = {
+%s
+};
+
+const double H2S_LINE[] = {
+%s
+};
+
 constexpr size_t NB = size_t(LAAbsorptionBands::BAND_COUNT);
 constexpr size_t NT = size_t(LAAbsorptionBands::TEMP_COUNT);
 static_assert(sizeof(EDGES_CM1) / sizeof(double) == NB + 1, "edges disagree with LAAbsorptionBands.hpp");
@@ -334,6 +372,10 @@ static_assert(sizeof(H2O_LINE) / sizeof(double) == NB * NT, "H2O_LINE disagrees 
 static_assert(sizeof(H2O_CONT) / sizeof(double) == NB * NT, "H2O_CONT disagrees with LAAbsorptionBands.hpp");
 static_assert(sizeof(O3_LINE) / sizeof(double) == NB * NT, "O3_LINE disagrees with LAAbsorptionBands.hpp");
 static_assert(sizeof(O3_XSC) / sizeof(double) == NB * NT, "O3_XSC disagrees with LAAbsorptionBands.hpp");
+static_assert(sizeof(CH4_LINE) / sizeof(double) == NB * NT, "CH4_LINE disagrees with LAAbsorptionBands.hpp");
+static_assert(sizeof(CO_LINE) / sizeof(double) == NB * NT, "CO_LINE disagrees with LAAbsorptionBands.hpp");
+static_assert(sizeof(SO2_LINE) / sizeof(double) == NB * NT, "SO2_LINE disagrees with LAAbsorptionBands.hpp");
+static_assert(sizeof(H2S_LINE) / sizeof(double) == NB * NT, "H2S_LINE disagrees with LAAbsorptionBands.hpp");
 
 // Fraction of blackbody power emitted above dimensionless frequency x = c2*nu/T. Siegel & Howell
 // series; planck_above(0) == 1.
@@ -376,7 +418,7 @@ PackedFloat32Array LAAbsorptionBands::packed() {
 	const double c2 = la_physical("PLANCK_C2_CM_K");
 	ERR_FAIL_COND_V(std::isnan(solar_t_k) || std::isnan(c2), PackedFloat32Array());
 	PackedFloat32Array out;
-	out.resize(4 + (BAND_COUNT + 1) + TEMP_COUNT + BAND_COUNT + TEMP_COUNT * BAND_COUNT * 7 + CDF_COUNT);
+	out.resize(4 + (BAND_COUNT + 1) + TEMP_COUNT + BAND_COUNT + TEMP_COUNT * BAND_COUNT * 11 + CDF_COUNT);
 	float *w = out.ptrw();
 	w[0] = float(BAND_COUNT);
 	w[1] = float(CDF_COUNT);
@@ -404,7 +446,7 @@ PackedFloat32Array LAAbsorptionBands::packed() {
 	for (int t = 0; t < TEMP_COUNT; t++) {
 		for (int b = 0; b < BAND_COUNT; b++) {
 			const int i = t * BAND_COUNT + b;
-			const int k = o + i * 7;
+			const int k = o + i * 11;
 			w[k + 0] = float(CO2_LINE[i]);
 			w[k + 1] = float(CO2_CONT[i]);
 			w[k + 2] = float(CO2_CIA[i]);
@@ -412,9 +454,13 @@ PackedFloat32Array LAAbsorptionBands::packed() {
 			w[k + 4] = float(H2O_CONT[i]);
 			w[k + 5] = float(O3_LINE[i]);
 			w[k + 6] = float(O3_XSC[i]);
+			w[k + 7] = float(CH4_LINE[i]);
+			w[k + 8] = float(CO_LINE[i]);
+			w[k + 9] = float(SO2_LINE[i]);
+			w[k + 10] = float(H2S_LINE[i]);
 		}
 	}
-	o += TEMP_COUNT * BAND_COUNT * 7;
+	o += TEMP_COUNT * BAND_COUNT * 11;
 	// Planck cumulative table handed to the GPU: G(x) for x = c2*nu/T over [0, CDF_XMAX].
 	for (int i = 0; i < CDF_COUNT; i++) {
 		w[o + i] = float(planck_above(double(CDF_XMAX) * double(i) / double(CDF_COUNT - 1)));
@@ -435,6 +481,8 @@ txt = TPL % (nb, rows(edges, 10, "%.1f"),
              nt, rows(temps, 10, "%.1f"),
              rows(d["co2_line"], 20), rows(d["co2_cont"], 20), rows(d["co2_cia"], 20),
              rows(d["h2o_line"], 20), rows(d["h2o_cont"], 20),
-             rows(d["o3_line"], 20), rows(d["o3_xsc"], 20))
+             rows(d["o3_line"], 20), rows(d["o3_xsc"], 20),
+             rows(d["ch4_line"], 20), rows(d["co_line"], 20),
+             rows(d["so2_line"], 20), rows(d["h2s_line"], 20))
 open(sys.argv[1], "w").write(txt)
 print("wrote", sys.argv[1], nb, "bands", nt, "temps", len(txt.splitlines()), "lines")

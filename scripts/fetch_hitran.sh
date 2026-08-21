@@ -15,8 +15,13 @@ fetch() {  # $1 out  $2 isos  $3 lo  $4 hi  $5 step   (appends; truncate before 
       sleep 5
     done
     [ "$ok" -eq 1 ] || { echo "FETCH_FAILED $1 $lo-$hi"; return 1; }
-    cat chunk.tmp >> "$1"
-    echo "  $1 $lo-$hi $(wc -l < "$1")"
+    # A window holding zero lines comes back as an HTML 404 page, not an empty body; keep CSV only.
+    if head -c 1 chunk.tmp | grep -q '<'; then
+      echo "  $1 $lo-$hi empty window"
+    else
+      cat chunk.tmp >> "$1"
+      echo "  $1 $lo-$hi $(wc -l < "$1")"
+    fi
   done
   return 0
 }
@@ -29,6 +34,16 @@ fetch h2o_lines.csv "1,2,3,4" 0 10000 250 || exit 1
 fetch h2o_lines.csv "1,2,3,4" 10000 26000 500 || exit 1
 : > o3_lines.csv
 fetch o3_lines.csv "16,17,18,19,20" 0 7000 250 || exit 1
+# The minor greenhouse gases (HITRAN global isotopologue ids). H2 has no dipole and no line list here.
+: > ch4_lines.csv
+fetch ch4_lines.csv "32,33,34,35" 0 10000 250 || exit 1
+fetch ch4_lines.csv "32,33,34,35" 10000 11500 500 || exit 1
+: > co_lines.csv
+fetch co_lines.csv "26,27,28,29,30,31" 0 9000 500 || exit 1
+: > so2_lines.csv
+fetch so2_lines.csv "42,43" 0 4500 250 || exit 1
+: > h2s_lines.csv
+fetch h2s_lines.csv "81,82,83" 0 11500 500 || exit 1
 echo FETCH_ALL_DONE
 curl -sSL -m 300 --ignore-content-length -o CO2-CO2_2024.cia \
   "https://hitran.org/data/CIA/main/CO2-CO2_2024.cia" || exit 1

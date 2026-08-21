@@ -14,11 +14,12 @@ const MINERAL: PackedStringArray = ["silicate", "carbonate", "silica", "olivine"
 	"plagioclase", "metal", "halite", "apatite"]
 ## The atmosphere/biosphere element book.
 const ELEMENT: PackedStringArray = ["co2", "o2", "detritus", "biomass", "fert", "fungus", "fuel", "n2",
-	"org_h", "org_o"]
+	"org_h", "org_o", "h2", "co", "so2", "h2s", "ch4"]
 ## The reaction table's closed carbon triangle.
 const CARBON: PackedStringArray = ["co2", "biomass", "detritus"]
 ## Carbon over every pool that carries it, not only the three the reaction table moves between.
-const CARBON_CLOSED: PackedStringArray = ["co2", "biomass", "detritus", "fungus", "fuel", "carbonate"]
+const CARBON_CLOSED: PackedStringArray = ["co2", "biomass", "detritus", "fungus", "fuel", "carbonate",
+	"co", "ch4"]
 ## O2-equivalent sum the reaction table holds.
 const OXIDANT: PackedStringArray = ["o2", "co2"]
 

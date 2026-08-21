@@ -17,7 +17,7 @@ const BOUND: Dictionary = {
 	"org_oc": 31, "rho_bulk": 32, "conductivity": 33, "h2o_solid": 34, "h2o_liquid": 35,
 	"h2o_vapour": 36, "silicate_melt": 37, "org_fresh": 38, "cell_vol": 40, "speed": 41, "lat": 42,
 	"alt": 43, "nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48,
-	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52, "celerity": 53, "rad_w_m3": 60}
+	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52, "celerity": 53, "rad_w_m3": 65}
 
 ## One mole of organic carbon per cell — the pool below which a cell's C:H:O ratio is fp32 noise.
 const ORG_MIN_POOL_MOL: float = 1.0
@@ -47,6 +47,7 @@ var _set: RID = RID()
 var _fresh_h_per_c: float = 0.0
 var _fresh_o_per_c: float = 0.0
 var _rad_mixes: Array = []
+var _decay: Object = ClassDB.instantiate(&"LARadiogenicDecay")
 
 
 ## Device-read only, so this pass's own rather than drained LAChannels.derived_buffers() entries.
@@ -119,12 +120,12 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	# Below TransportPass.MIN_FILL_FRAC of occupied volume a cell donates nothing and holds no bulk state.
 	pc.encode_float(56, TransportPassScript.MIN_FILL_FRAC)
 	# W/kg of each distinct radiogenic trace mix at the run's epoch: the store is finite, so the rate falls.
-	var epoch: float = LARadiogenicDecay.epoch_years()
+	var epoch: float = _decay.epoch_years()
 	for i in RAD_GROUPS:
 		var w_kg: float = 0.0
 		if i < _rad_mixes.size():
 			var mix: Array = _rad_mixes[i]
-			w_kg = LARadiogenicDecay.heat_w_kg_of({"U": mix[0], "Th": mix[1], "K": mix[2]}, epoch)
+			w_kg = _decay.heat_w_kg_of({"U": mix[0], "Th": mix[1], "K": mix[2]}, epoch)
 		pc.encode_float(60 + i * 4, w_kg)
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, _set, 0)
