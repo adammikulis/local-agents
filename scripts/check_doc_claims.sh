@@ -91,7 +91,7 @@ PATH_EXT='gd|glsl|glsli|gdshader|sh|py|md|tscn|cfg|gdextension|cpp|hpp|yml|json|
 PATH_RE="^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_.-]+)*\.($PATH_EXT)(:[0-9]+(,[0-9]+)*)?$"
 
 # rg skips hidden directories by default, and .github/workflows is cited by name.
-INDEX="$(rg --files --hidden --glob '!.git/**' "$ROOT" 2>/dev/null | sed "s|^$ROOT/||")"
+INDEX="$(git -C "$ROOT" ls-files 2>/dev/null)"
 [ -n "$INDEX" ] || { echo "check_doc_claims: could not list the tree." >&2; exit 2; }
 EXEMPT="$(rg -o --no-filename -e '<!--[[:space:]]*claim:[[:space:]]*nofile[[:space:]]+[^[:space:]]+' \
 	"${DOCS[@]}" 2>/dev/null | awk '{print $NF}')"
