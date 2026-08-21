@@ -110,6 +110,12 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       one, coupled asynchronously — which keeps every equation and dependency intact and changes only the
       cadence. That is the same seam as "the field's `dt` is the presentation clock" in F, and it is what
       makes any slow process observable at all.
+      **STEPPING A SLOW PROCESS WITH A LONGER dt IS THE FIX; SKIPPING ITS STEP IS NOT, AND THE DIFFERENCE
+      IS THE WHOLE ITEM.** `docs/PERFORMANCE_TODO.md` records the attempt that gated inside full-grid
+      dispatches and moved a reservoir total by 18%: a skipped step of an integrating quantity is a
+      permanent offset, not a transient. A band that runs every N steps must integrate `N * dt` and book
+      what it moved over that interval, so the conservation rows read the same as they would unsplit —
+      which is also the gate. A row's band is a declared property of the row, never a global switch.
 - [ ] **Conserve elements, derive species.** The runtime state is channel amounts, so the inventory
       RECONSTRUCTS moles (`mol_per_unit`). If the conserved state were moles of element per cell, no kernel
       could change total carbon, because no kernel would write it.
