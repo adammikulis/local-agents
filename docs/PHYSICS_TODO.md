@@ -15,9 +15,15 @@ order is the order.
 
 **A post-Theia Earth, just formed, ~4.5 Ga.** Read every item against that world.
 
-Free O2 at zero is correct. There is no photosynthesis, no biological nitrogen fixation, no soil, no litter
-and no biosphere — a biosphere is 0.5 work. Radiogenic abundances belong at formation, not today. An item is
-open here only if it is wrong for a lifeless planet of that age.
+Free O2 at zero is correct. There is no photosynthesis, no biological nitrogen fixation, no litter and no
+biosphere — LIVING THINGS AND THEIR BEHAVIOUR are 0.5 work, and nothing else is. Radiogenic abundances
+belong at formation, not today. An item is open here only if it is wrong for a lifeless planet of that age.
+
+**ALL OF THE PLANET'S MASS IS SEEDED IN 0.4, AND ITS ELEMENTAL COMPOSITION MUST BE THE REAL ONE.** No
+element waits for a later version. The tell that this was misread: "a biosphere is 0.5" was taken to mean
+"carbon is 0.5", and the planet ended up made of one mineral. Chemistry is not biology — a process runs in
+0.4 unless it needs a living organism to catalyse it. Weathering, clay formation, serpentinization,
+outgassing, ore concentration and abiotic organic synthesis are all 0.4.
 
 ## Regressions the build watches for
 
@@ -87,6 +93,17 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 - [ ] **Organic matter is one lumped CH₂O.** Which is why ignition is a single number and a planet that
       demonstrably buries organics cannot have peat, coal or oil. Make it a C:H:O ratio plus a recalcitrance
       so burial → coalification is a continuous drift, not a new channel per fuel.
+- [ ] **Weathering produces no clay, so there is no mineral soil.** Feldspar and silicate hydrolysis makes
+      clay minerals — kaolinite, smectite — and `rg clay addons/local_agents/sim` finds none. Clay is the
+      abiotic half of soil and it is what holds water and cations in regolith; only humus needs life.
+      It is also a product the weathering records already have the reactants for.
+- [ ] **The ocean has no chemistry.** No pH, no alkalinity, no carbonate saturation state — `rg` finds none
+      of them. Carbonate precipitates and dissolves according to saturation, which is what decides whether
+      the Urey cycle's CaCO₃ stays put, and it is pure inorganic equilibrium.
+- [ ] **No abiotic organic synthesis.** Serpentinization of ultramafic rock makes H₂ and CH₄, and
+      Fischer-Tropsch chemistry makes hydrocarbons from CO and H₂; carbonaceous infall carries organics
+      ready-made. `rg serpentin|fischer|tropsch` finds nothing, so on this planet every organic molecule
+      implies life. It does not: this is the carbon chemistry a lifeless Hadean Earth actually runs.
 
 ## C. The reaction engine
 

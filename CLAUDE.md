@@ -322,6 +322,14 @@ requires it or is only conventionally bundled with it. Say so and do the planet 
 a field measurement, or `--planet-only`/`--no-fauna` needs a seam. BUILDING OUT creature features — new
 behaviours, new cognition, new lifecycle systems — is what waits for 0.5.
 
+**0.5 IS LIVING THINGS AND THEIR BEHAVIOUR. NOTHING ELSE IS, AND THE PLANET'S WHOLE MASS IS SEEDED NOW.**
+Every element the real 4.5 Ga Earth has, this one has, at its real abundance — including the ore and
+technology metals a civilisation will later want. **CHEMISTRY IS NOT BIOLOGY:** a process is 0.4 unless it
+needs a living organism to catalyse it, so weathering, clay, serpentinization, outgassing, ore
+concentration and abiotic organic synthesis all belong here. The tell that this gets misread: "a biosphere
+is 0.5" was once taken to mean "carbon is 0.5", and the planet ended up made of a single mineral with no
+iron in it.
+
 **BUT A DEFECT YOU FIND IS FIXED, NOT FILED. THIS SCOPE RULE NEVER LICENSES "RECORD IT AND MOVE ON."**
 
 If it is broken and you found it, fix it. That includes physics that is merely WRONG as well as physics that
