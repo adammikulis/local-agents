@@ -151,11 +151,6 @@ func _ctx_num(ctx: Dictionary, key: String) -> float:
 	return float(ctx[key])
 
 
-## Cells along the longest span of the grid, at least 1.
-func _ctx_depth(ctx: Dictionary) -> int:
-	return maxi(int(_ctx_num(ctx, "depth")), 1)
-
-
 ## Cell edge, model units.
 func _ctx_cell_size(ctx: Dictionary) -> float:
 	return _ctx_num(ctx, "cell_size")

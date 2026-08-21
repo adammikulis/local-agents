@@ -102,7 +102,7 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	var w: Vector3 = ctx.get("spin", Vector3.ZERO) * LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S
 	var centre: Vector3 = ctx.get("centre", Vector3.ZERO)
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(76)
+	pc.resize(80)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, LAMaterialFieldSphereStep3D.real_seconds_per_step())
 	pc.encode_float(8, w.x)
@@ -127,6 +127,7 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 			var mix: Array = _rad_mixes[i]
 			w_kg = _decay.heat_w_kg_of({"U": mix[0], "Th": mix[1], "K": mix[2]}, epoch)
 		pc.encode_float(60 + i * 4, w_kg)
+	pc.encode_float(76, float(ctx.get("sea_radius", 0.0)))
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, _set, 0)
 	rd.compute_list_set_push_constant(cl, pc, pc.size())

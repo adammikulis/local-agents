@@ -93,6 +93,11 @@ func surface_climate() -> Dictionary:
 		"clim_water_cells": q.row_v("clim_water_cells", true),
 		"clim_water_frozen": q.row_v("clim_water_frozen", true),
 	}
+	for ab in LAReduceHeatRows.ALT_BAND_FLOORS_M.size():
+		out["clim_alt%d_n" % ab] = q.row_v("clim_alt%d_n" % ab, true)
+		var alt_min: float = q.row_f("clim_alt%d_min" % ab)
+		if not is_nan(alt_min):
+			out["clim_alt%d_min" % ab] = snappedf(alt_min, 0.1)
 	var water_coldest: float = q.row_f("clim_water_coldest")
 	if not is_nan(water_coldest):
 		out["clim_water_coldest"] = snappedf(water_coldest, 0.1)

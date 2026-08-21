@@ -319,12 +319,6 @@ func set_solid(ix: int, iy: int, iz: int, solid: bool) -> void:
 		_solid[_idx(ix, iy, iz)] = 1 if solid else 0
 
 
-func is_cell_solid(ix: int, iy: int, iz: int) -> bool:
-	if not _in_bounds(ix, iy, iz):
-		return true                                     # out of bounds reads as wall
-	return _solid[_idx(ix, iy, iz)] != 0
-
-
 func total_water() -> float:
 	return _queries.total_water()
 

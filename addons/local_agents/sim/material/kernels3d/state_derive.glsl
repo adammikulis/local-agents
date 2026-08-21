@@ -65,8 +65,8 @@ layout(set = 0, binding = 31, std430) restrict writeonly buffer OrgOC { float or
 layout(set = 0, binding = 38, std430) restrict writeonly buffer OrgFresh { float org_fresh[]; };
 
 // WHERE AND HOW FAST, so a band of latitude or altitude is an ordinary reduce gate rather than a CPU walk.
-// speed is |v|, m/s; alt is the distance from the body centre, m; lat is the angle of that radius out of
-// the equatorial plane, degrees.
+// speed is |v|, m/s; alt is the height of the cell above the sea shell, m; lat is the angle of its radius
+// out of the equatorial plane, degrees.
 layout(set = 0, binding = 41, std430) restrict writeonly buffer Speed { float speed[]; };
 layout(set = 0, binding = 42, std430) restrict writeonly buffer Lat { float lat[]; };
 layout(set = 0, binding = 43, std430) restrict writeonly buffer Alt { float alt[]; };
@@ -101,6 +101,7 @@ layout(push_constant, std430) uniform Params {
 	float rad_w_kg_2;
 	float rad_w_kg_3;
 	float rad_w_kg_4;
+	float sea_radius_m;     // the sea shell's radius from the body centre; 0 = the body carries no shell
 } params;
 
 const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
@@ -202,14 +203,14 @@ void main() {
 
 	float vol = cell_volume(g);
 
-	// GEOMETRY, which does not depend on what the cell holds. No spin axis is no pole and no latitude, so
-	// lat is NaN there rather than a fabricated equator, and every gate then admits the cell nowhere.
+	// GEOMETRY, which does not depend on what the cell holds. No spin axis is no latitude and no sea shell
+	// is no altitude, so both read NaN there and every gate then admits the cell nowhere.
 	vec3 omega = vec3(params.omega_x, params.omega_y, params.omega_z);
 	vec3 r_vec = vec3(pos[g * 3u], pos[g * 3u + 1u], pos[g * 3u + 2u])
 		- vec3(params.centre_x, params.centre_y, params.centre_z);
 	float r_len = length(r_vec);
 	float w_len = length(omega);
-	alt[g] = r_len;
+	alt[g] = (params.sea_radius_m > 0.0) ? r_len - params.sea_radius_m : uintBitsToFloat(0x7FC00000u);
 	lat[g] = (w_len > 0.0 && r_len > 0.0)
 		? degrees(asin(clamp(dot(r_vec / r_len, omega / w_len), -1.0, 1.0)))
 		: uintBitsToFloat(0x7FC00000u);
