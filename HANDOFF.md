@@ -14,13 +14,6 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 1. Nothing holds the REPLAY rim's momentum nudge
-
-`scripts/check_boundary_momentum_book.sh` names no rim and no `relax` row, so the mom rows' nudge toward
-a REPLAY face's driving state can stop being booked and every gate stays green. Give it an arm on the
-REPLAY path (`scripts/sim_run.sh --slice --slice-state FILE` with `LA_SLICE_REPLAY=1`), asserting the
-per-cell nudge reaches `bnd_mom_*`, and mutation-test it both ways.
-
 ## 0. IDENTICAL-SEED RUNS DIVERGE, AND PRESSURE_BROKEN STILL EXITS 122
 
 **Reproduce the divergence:** `scripts/agent_harness.sh sim --frames 5 --report h2o_total` twice and
@@ -47,8 +40,6 @@ the kernel's per-dispatch booking closed on the same capture, so the work is beh
   rate by the elapsed steps; the crossing integral belongs on the device.
 - `LAFieldBoundaryCapture3D._exterior_face_cells` lands every face plane of the default box in the same
   few coarse global cells.
-- `MaterialFieldMomentumLedger3D` accumulates its `_cum_*` books only across report samples, and a
-  measurement run reports once, so `momentum_book_bnd` cannot fold in that mode.
 
 ## 6. The h2o book does not close on a shut box
 
