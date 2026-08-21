@@ -107,7 +107,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 
 	var entries: Array = []
 	for i in channels.size():
-		entries.append([i, _single(bufs, channels[i])])
+		entries.append([LAMatterChannels.binding_of(i), _single(bufs, channels[i])])
 	entries.append([14, props_ssbo])
 	entries.append([15, _single(bufs, "nbr")])
 	entries.append([16, _single(bufs, "pos")])

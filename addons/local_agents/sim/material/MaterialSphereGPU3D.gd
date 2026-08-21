@@ -708,6 +708,10 @@ func _seed_regolith() -> void:
 func _seed_silicate() -> void:
 	seed_field("silicate", _field._silicate, _field._seal)
 	seed_field("cement", _field._cement, _field._seal)
+	for name in LAPlanetComposition.SHELL_CHANNELS:
+		if String(name) != "silicate":
+			seed_field(String(name), _field.get("_" + String(name)), _field._seal)
+	seed_field("metal", _field._metal, _field._seal)
 
 func _upload_f(buf: RID, arr: PackedFloat32Array) -> void:
 	if arr.size() == _cc:

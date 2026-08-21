@@ -102,6 +102,32 @@ func _publish_mineral(out: Dictionary, f: Dictionary, step: int) -> void:
 	out["mineral_src_total"] = snappedf(src, 0.01)
 	_run_pair(out, "mineral", "mineral", "mineral", total, step,
 		_bnd.of(LAFieldLedgerRecords.MINERAL, "Si"))
+	# Every conserved element of the seeded rock gets its own drift book, keyed on its lith moles.
+	for el in ["Fe", "Mg", "Al", "Na", "Cl", "P"]:
+		_run_pair(out, "lith_" + el, "lith_" + el, "", float(lith.get(el, 0.0)), step,
+			_bnd.of(LAFieldLedgerRecords.MINERAL, el))
+	_publish_daughters(out, f)
+
+
+## Radiogenic daughters accumulated in the rock since the planet formed, moles: the parents' traces
+## decay in closed form, so the He and Ar the rock holds are computed, never seeded.
+func _publish_daughters(out: Dictionary, f: Dictionary) -> void:
+	var epoch: float = LARadiogenicDecay.epoch_years()
+	var table: Dictionary = LASubstances.table()
+	var rows: Dictionary = LAChannels.rows()
+	var all: Dictionary = f["all"]
+	var acc: Dictionary = {}
+	for ch in LAFieldLedgerRecords.MINERAL:
+		var amount = all.get(ch)
+		if amount == null:
+			continue
+		var s: Dictionary = table.get(String(rows[ch].get("substance", "")), {})
+		var kg: float = float(amount) * float(s.get("molar_mass", 0.0))
+		var d: Dictionary = LARadiogenicDecay.daughters_mol_per_kg(s.get("traces", {}), epoch)
+		for el in d:
+			acc[el] = float(acc.get(el, 0.0)) + kg * float(d[el])
+	for el in acc:
+		out["radiogenic_" + String(el) + "_mol"] = snappedf(float(acc[el]), 1e-6)
 
 
 ## A residual over the quantity it is a residual OF, dimensionless. Anything appearing in an empty stock

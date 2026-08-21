@@ -2,6 +2,64 @@ class_name LASubstances
 extends RefCounted
 
 const PC = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
+const AB = preload("res://addons/local_agents/sim/material/ElementAbundances.gd")
+
+# --- The differentiated planet's mineral data ------------------------------------------------------------
+## Liquid iron at its melting point 1811 K (Assael et al. 2006, J. Phys. Chem. Ref. Data 35:285).
+const IRON_LIQUID_DENSITY_KG_M3: float = 7030.0
+const IRON_LIQUID_EXPANSION_PER_K: float = 1.22e-4
+## delta-Fe at the melting point (Abdullaev et al. 2020, JPCS 1675:012087).
+const IRON_SOLID_DENSITY_AT_MELT_KG_M3: float = 7265.0
+const IRON_MELT_C: float = 1538.0
+const IRON_SOLID_EXPANSION_PER_K: float = 3.54e-5     # alpha-Fe at 25 C, CRC 97th ed., linear x3
+const IRON_SOLID_BULK_MODULUS_PA: float = 1.662e11    # Guinan & Beshers 1968, JPCS 29:541
+const IRON_LIQUID_SPECIFIC_HEAT_J_KGK: float = 824.0  # Desai 1986, J. Phys. Chem. Ref. Data 15:967
+const IRON_SOLID_SPECIFIC_HEAT_J_KGK: float = 449.0   # alpha-Fe at 25 C, CRC 97th ed.
+const IRON_LATENT_FUSION_J_KG: float = 2.473e5        # Desai 1986, dHfus 13.81 kJ/mol
+const IRON_BOIL_C: float = 2861.0                     # CRC 97th ed.
+const IRON_LATENT_VAPORISATION_J_KG: float = 6.09e6   # CRC, dHvap 340 kJ/mol
+const IRON_CONDUCTIVITY_W_MK: float = 80.4            # Fe at 300 K, CRC 97th ed.
+
+const OLIVINE_DENSITY_KG_M3: float = 3355.0           # San Carlos Fo90, Abramson et al. 1997, JGR 102:12253
+const OLIVINE_BULK_MODULUS_PA: float = 1.294e11       # adiabatic K_S, Abramson et al. 1997
+const OLIVINE_EXPANSION_PER_K: float = 2.7e-5         # forsterite, Bouhifd et al. 1996, GRL 23:1143
+const FORSTERITE_CP_J_MOLK: float = 117.9             # Robie & Hemingway 1995
+const FAYALITE_CP_J_MOLK: float = 132.9               # Robie & Hemingway 1995
+const FORSTERITE_MELT_C: float = 1890.0               # 2163 K, Bowen & Andersen 1914; Richet et al. 1993
+const FORSTERITE_FUSION_J_MOL: float = 1.42e5         # Richet et al. 1993, GRL 20:1675
+const OLIVINE_CONDUCTIVITY_W_MK: float = 4.7          # Fo90, Horai 1971, JGR 76:1278
+
+const ENSTATITE_DENSITY_KG_M3: float = 3204.0         # Smyth & McCormick 1995, AGU Handbook
+const ENSTATITE_BULK_MODULUS_PA: float = 1.078e11     # Bass 1995, AGU Handbook
+const ENSTATITE_CP_J_MOLK: float = 82.1               # Krupka et al. 1985, Am. Min. 70:249
+const ENSTATITE_MOLAR_MASS_KG_MOL: float = 0.1003875  # MgSiO3 endmember
+const ENSTATITE_MELT_C: float = 1557.0                # incongruent point, Bowen & Andersen 1914
+const ENSTATITE_CONDUCTIVITY_W_MK: float = 4.5        # Horai 1971
+
+const ANORTHITE_DENSITY_KG_M3: float = 2760.0         # Smyth & McCormick 1995
+const ALBITE_DENSITY_KG_M3: float = 2620.0
+const ANORTHITE_CP_J_MOLK: float = 211.4              # Robie & Hemingway 1995
+const ALBITE_CP_J_MOLK: float = 205.1
+const ANORTHITE_MELT_C: float = 1553.0                # Bowen 1913 plagioclase loop endmembers
+const ALBITE_MELT_C: float = 1118.0
+const ANORTHITE_FUSION_J_MOL: float = 1.33e5          # Richet & Bottinga 1984
+const ALBITE_FUSION_J_MOL: float = 6.45e4
+const ANORTHITE_BULK_MODULUS_PA: float = 8.4e10       # Bass 1995
+const ALBITE_BULK_MODULUS_PA: float = 5.7e10
+const ANORTHITE_CONDUCTIVITY_W_MK: float = 1.88       # Horai 1971
+const ALBITE_CONDUCTIVITY_W_MK: float = 2.08
+
+const HALITE_DENSITY_KG_M3: float = 2163.0            # CRC 97th ed.
+const HALITE_MELT_C: float = 800.7                    # CRC 97th ed.
+const HALITE_FUSION_J_MOL: float = 2.816e4            # CRC 97th ed.
+const HALITE_CP_J_MOLK: float = 50.5                  # CRC 97th ed., 298 K
+const HALITE_EXPANSION_PER_K: float = 1.19e-4         # CRC linear 39.6e-6 x3
+const HALITE_BULK_MODULUS_PA: float = 2.44e10         # Spetzler et al. 1972
+const HALITE_CONDUCTIVITY_W_MK: float = 6.5           # single crystal, Urquhart & Bauer 2015
+
+const APATITE_DENSITY_KG_M3: float = 3190.0           # fluorapatite, Handbook of Mineralogy
+const APATITE_CP_J_MOLK: float = 370.0                # 298 K, Dachs, Harlov & Benisek 2010
+const APATITE_CONDUCTIVITY_W_MK: float = 1.38         # Horai 1971
 
 ## Moles of CH2O units in a cubic metre of dry wood — the volume one mole of any organic element occupies
 ## comes from this packing, so the three organic density rows below derive from it.
@@ -40,7 +98,83 @@ static func table() -> Dictionary:
 	if _table_cache.is_empty():
 		_table_cache = _build_table()
 		_add_organic_formation()
+		_add_planet_minerals()
 	return _table_cache
+
+
+## The differentiated planet's phases. Formulas and solid-solution fractions are DERIVED from
+## LAElementAbundances by LAPlanetComposition, so the table cannot disagree with the registry.
+static func _add_planet_minerals() -> void:
+	var shell_tr: Dictionary = AB.shell_traces()
+	var rock: Dictionary = {"emissivity": PC.BASALT_EMISSIVITY, "albedo": PC.ALBEDO_BARE_GROUND,
+		"density_ref_t_c": PC.LAB_REFERENCE_TEMP_C, "traces": shell_tr}
+
+	var f_metal: Dictionary = LAPlanetComposition.metal_formula()
+	# LA_APPROX: pure_iron_core_alloy
+	_table_cache["metal"] = _entry(f_metal, IRON_LIQUID_DENSITY_KG_M3,
+		IRON_LIQUID_SPECIFIC_HEAT_J_KGK, IRON_CONDUCTIVITY_W_MK, {
+			"density_ref_t_c": IRON_MELT_C, "expansion_per_k": IRON_LIQUID_EXPANSION_PER_K,
+			"density_solid": IRON_SOLID_DENSITY_AT_MELT_KG_M3, "density_solid_ref_t_c": IRON_MELT_C,
+			"expansion_solid_per_k": IRON_SOLID_EXPANSION_PER_K,
+			"bulk_modulus_solid_pa": IRON_SOLID_BULK_MODULUS_PA,
+			"specific_heat_solid": IRON_SOLID_SPECIFIC_HEAT_J_KGK,
+			"melt_c": IRON_MELT_C, "latent_fusion_j_kg": IRON_LATENT_FUSION_J_KG,
+			"boil_c": IRON_BOIL_C, "boil_ref_p_pa": PC.STANDARD_PRESSURE_PA,
+			"latent_vaporisation_j_kg": IRON_LATENT_VAPORISATION_J_KG,
+			"latent_vaporisation_ref_t_c": IRON_BOIL_C, "traces": AB.core_traces()})
+
+	var m: float = LAPlanetComposition.mg_number()
+	# LA_APPROX: ideal_solid_solution
+	var f_ol: Dictionary = LAPlanetComposition.olivine_formula()
+	var mm_ol: float = AB.molar_mass(f_ol)
+	_table_cache["olivine"] = _entry(f_ol, OLIVINE_DENSITY_KG_M3,
+		(m * FORSTERITE_CP_J_MOLK + (1.0 - m) * FAYALITE_CP_J_MOLK) / mm_ol,
+		OLIVINE_CONDUCTIVITY_W_MK, rock.merged({
+			"expansion_per_k": OLIVINE_EXPANSION_PER_K,
+			"bulk_modulus_pa": OLIVINE_BULK_MODULUS_PA,
+			"melt_c": FORSTERITE_MELT_C,
+			"latent_fusion_j_kg": FORSTERITE_FUSION_J_MOL / mm_ol}))
+
+	var f_px: Dictionary = LAPlanetComposition.pyroxene_formula()
+	_table_cache["pyroxene"] = _entry(f_px, ENSTATITE_DENSITY_KG_M3,
+		ENSTATITE_CP_J_MOLK / ENSTATITE_MOLAR_MASS_KG_MOL, ENSTATITE_CONDUCTIVITY_W_MK,
+		rock.merged({"bulk_modulus_pa": ENSTATITE_BULK_MODULUS_PA, "melt_c": ENSTATITE_MELT_C}))
+
+	var x: float = LAPlanetComposition.an_fraction()
+	var f_pl: Dictionary = LAPlanetComposition.plagioclase_formula()
+	var mm_pl: float = AB.molar_mass(f_pl)
+	# Endmember data mixed ideally at the derived An fraction; the melting interval is the endmember loop.
+	_table_cache["plagioclase"] = _entry(f_pl,
+		x * ANORTHITE_DENSITY_KG_M3 + (1.0 - x) * ALBITE_DENSITY_KG_M3,
+		(x * ANORTHITE_CP_J_MOLK + (1.0 - x) * ALBITE_CP_J_MOLK) / mm_pl,
+		x * ANORTHITE_CONDUCTIVITY_W_MK + (1.0 - x) * ALBITE_CONDUCTIVITY_W_MK, rock.merged({
+			"bulk_modulus_pa": x * ANORTHITE_BULK_MODULUS_PA + (1.0 - x) * ALBITE_BULK_MODULUS_PA,
+			"melt_c": ALBITE_MELT_C,
+			"liquidus_c": ANORTHITE_MELT_C,
+			"latent_fusion_j_kg":
+				(x * ANORTHITE_FUSION_J_MOL + (1.0 - x) * ALBITE_FUSION_J_MOL) / mm_pl}))
+
+	var f_hal: Dictionary = {"Na": 1.0, "Cl": 1.0}
+	var mm_hal: float = AB.molar_mass(f_hal)
+	_table_cache["halite"] = _entry(f_hal, HALITE_DENSITY_KG_M3, HALITE_CP_J_MOLK / mm_hal,
+		HALITE_CONDUCTIVITY_W_MK, {
+			"density_ref_t_c": PC.LAB_REFERENCE_TEMP_C,
+			"expansion_per_k": HALITE_EXPANSION_PER_K,
+			"bulk_modulus_pa": HALITE_BULK_MODULUS_PA,
+			"melt_c": HALITE_MELT_C,
+			"latent_fusion_j_kg": HALITE_FUSION_J_MOL / mm_hal,
+			"traces": shell_tr})
+
+	var f_ap: Dictionary = LAPlanetComposition.apatite_formula()
+	_table_cache["apatite"] = _entry(f_ap, APATITE_DENSITY_KG_M3,
+		APATITE_CP_J_MOLK / AB.molar_mass(f_ap), APATITE_CONDUCTIVITY_W_MK, rock)
+
+
+## One mineral entry: the fields every phase carries, plus what this one measures beyond them.
+static func _entry(formula: Dictionary, density: float, cp_j_kgk: float, lambda_w_mk: float,
+		extra: Dictionary) -> Dictionary:
+	return {"formula": formula, "molar_mass": AB.molar_mass(formula), "density": density,
+		"specific_heat": cp_j_kgk, "conductivity": lambda_w_mk}.merged(extra, true)
 
 
 ## Formation enthalpies of the dead organic pool's elements, J/mol, by Hess from the oxidation heats.
@@ -184,10 +318,8 @@ static func _build_table() -> Dictionary:
 			"conductivity": PC.THERMAL_CONDUCT_ROCK_W_MK,
 			"emissivity": PC.BASALT_EMISSIVITY,
 			"albedo": PC.ALBEDO_BARE_GROUND,
-			# The silicate Earth entire, crust and mantle, so bulk silicate Earth is its abundance.
-			"u_kg_per_kg": PC.BSE_U_KG_PER_KG,
-			"th_kg_per_kg": PC.BSE_TH_KG_PER_KG,
-			"k_kg_per_kg": PC.BSE_K_KG_PER_KG,
+			# One shell mineral of the undifferentiated-silicate mix, so it hosts the registry's traces.
+			"traces": AB.shell_traces(),
 		},
 		"silica": {
 			"formula": {"Si": 1.0, "O": 2.0},
@@ -203,9 +335,8 @@ static func _build_table() -> Dictionary:
 			"emissivity": PC.BASALT_EMISSIVITY,
 			"albedo": PC.ALBEDO_BARE_GROUND,
 			# The quartz sand the weathering rows leave behind: sandstone's abundance, not the mantle's.
-			"u_kg_per_kg": PC.SANDSTONE_U_KG_PER_KG,
-			"th_kg_per_kg": PC.SANDSTONE_TH_KG_PER_KG,
-			"k_kg_per_kg": PC.SANDSTONE_K_KG_PER_KG,
+			"traces": {"U": PC.SANDSTONE_U_KG_PER_KG, "Th": PC.SANDSTONE_TH_KG_PER_KG,
+				"K": PC.SANDSTONE_K_KG_PER_KG},
 		},
 		"carbonate": {
 			"formula": {"Ca": 1.0, "C": 1.0, "O": 3.0},
@@ -220,9 +351,8 @@ static func _build_table() -> Dictionary:
 			"emissivity": PC.BASALT_EMISSIVITY,
 			"albedo": PC.ALBEDO_BARE_GROUND,
 			# Precipitated calcite: uranium substitutes for calcium, thorium and potassium barely do.
-			"u_kg_per_kg": PC.LIMESTONE_U_KG_PER_KG,
-			"th_kg_per_kg": PC.LIMESTONE_TH_KG_PER_KG,
-			"k_kg_per_kg": PC.LIMESTONE_K_KG_PER_KG,
+			"traces": {"U": PC.LIMESTONE_U_KG_PER_KG, "Th": PC.LIMESTONE_TH_KG_PER_KG,
+				"K": PC.LIMESTONE_K_KG_PER_KG},
 		},
 
 		# --- MINERAL NITROGEN -------------------------------------------------------------------------------
@@ -418,7 +548,11 @@ static func _clapeyron_b(id: String) -> float:
 		var inv: float = 1.0 / (t1_c + PC.KELVIN_OFFSET) - 1.0 / (t2_c + PC.KELVIN_OFFSET)
 		if absf(inv) > 0.0:
 			return log(p2 / p1) / inv
-	return latent_vaporisation_at(id, t2_c) / PC.VAPOUR_GAS_CONST_J_KGK
+	# THIS substance's specific gas constant, R over its molar mass — not water's.
+	var mm: float = float(s.get("molar_mass", 0.0))
+	if mm <= 0.0:
+		return 0.0
+	return latent_vaporisation_at(id, t2_c) * mm / PC.GAS_CONSTANT_J_MOL_K
 
 
 ## THE BOILING POINT AT A GIVEN PRESSURE — the boundary curve solved for temperature.

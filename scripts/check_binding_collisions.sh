@@ -225,6 +225,16 @@ def resolve(src, expr, ranges):
         return const_dict_values(src, m.group(1))
     if expr in ranges:
         return sorted(ranges[expr])
+    # OWNER.binding_of(i): the channel-index -> binding map, its two constants read from the one
+    # declaration in the owning class rather than copied here.
+    m = re.match(r"^(\w+)\.binding_of\(\s*(\w+)\s*\)$", expr)
+    if m and m.group(2) in ranges:
+        owner = CLASSES.get(m.group(1), "")
+        low = re.search(r"^const\s+LOW_SLOTS\s*(?::[^=]+)?=\s*(\d+)", owner, re.M)
+        base = re.search(r"^const\s+HIGH_BINDING_BASE\s*(?::[^=]+)?=\s*(\d+)", owner, re.M)
+        if low and base:
+            lo, hb = int(low.group(1)), int(base.group(1))
+            return sorted(i if i < lo else hb + (i - lo) for i in ranges[m.group(2)])
     return None
 
 

@@ -27,7 +27,9 @@ static func specific_heat(id: String) -> float:
 	var s: Dictionary = LASubstances.table().get(id, {})
 	var c: float = float(s.get("specific_heat_gas", 0.0)) if GASES.has(id) else 0.0
 	if c <= 0.0:
-		c = float(s.get("specific_heat", 0.0))
+		# A sensible-entry substance has no ladder, so it holds heat at the capacity of the phase it is
+		# seeded in — the solid one where the table declares it.
+		c = float(s.get("specific_heat_solid", s.get("specific_heat", 0.0)))
 	if c <= 0.0:
 		push_error("LAMatterChannels: LASubstances gives \"%s\" no specific heat, so matter of it would "
 			% id + "carry mass with no heat capacity.")
@@ -40,11 +42,21 @@ const CHANNELS: PackedStringArray = [
 	"silicate", "carbonate", "silica",
 	"o2", "co2", "n2",
 	"biomass", "fungus", "detritus", "fuel", "org_h", "org_o",
-	"fert"]
+	"fert",
+	"metal", "olivine", "pyroxene", "plagioclase", "halite", "apatite"]
 
 ## Cases in the include's `channel_at` switch. A mismatch drops a substance out of every kernel that
 ## weighs a cell.
-const KERNEL_SLOTS: int = 14
+const KERNEL_SLOTS: int = 20
+
+## Channels past the first 14 bind from 54 up: 14-53 were already taken by the two kernels' own buffers.
+const HIGH_BINDING_BASE: int = 54
+const LOW_SLOTS: int = 14
+
+
+## The GPU binding a channel index occupies, in both kernels that include matter_channels.glsli.
+static func binding_of(i: int) -> int:
+	return i if i < LOW_SLOTS else HIGH_BINDING_BASE + (i - LOW_SLOTS)
 
 
 ## kg one mole of a channel's substance carries, in CHANNELS order: a channel amount is mol/m^3, so mass

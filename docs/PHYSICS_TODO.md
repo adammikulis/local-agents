@@ -67,10 +67,11 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       uploaded, with a gate that the table reproduces the functions to tolerance. This is what real EOS
       codes do; it keeps the GPU cost O(1) per cell.
 - [ ] **Freezing-point depression is implemented and cannot be wired, because there is no dissolved phase.**
-      `LASubstances.melt_c_at` takes a molality; every call site passes 0 and no salt substance
-      exists. **Decide it:** add a salinity channel with
-      a real dissolved mass, and either accept the ideal van 't Hoff law or carry an osmotic coefficient —
-      ideal gives −2.16 °C for sea water against the measured −1.86.
+      `LASubstances.melt_c_at` takes a molality; every call site passes 0. Halite now exists as a seeded
+      substance in the rock, but no per-cell dissolved salt reaches the ocean's water. **Decide it:** a
+      dissolution leg from the halite channel into a dissolved amount the enthalpy ladder's molality reads
+      (CPU and `enthalpy.glsli` twin together), and either accept the ideal van 't Hoff law or carry an
+      osmotic coefficient — ideal gives −2.16 °C for sea water against the measured −1.86.
 - [ ] **Density is rho(T, p) on the CPU only, and water has no 4 °C maximum.** `LASubstances.density` gives
       a gas the ideal gas law and a condensed phase a linear expansivity with a bulk modulus, all cited.
       Three gaps: `kernels3d/enthalpy.glsli` has no twin, so every kernel still multiplies by a scalar; a
@@ -182,28 +183,28 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 
 ## F. Prescribed where it should emerge
 
-- [ ] **There is no core, because nothing differentiates.** `Substances.gd` carries no iron at all, so the
-      planet is silicate all the way down. A just-formed post-Theia Earth is mid-differentiation: metal
-      segregating from silicate under gravity, which is one of the largest heat sources of that epoch and
-      the reason the interior is layered. Without it there is no metallic core, no compositional contrast
-      for the mantle to convect against, and no seat for a dynamo. **The route:** iron as a substance with
-      its measured density, melting curve, conductivity and latent heat; it sinks through silicate under the
-      solved potential using the transport the substrate already has for a dense phase; the gravitational
-      energy released is BOOKED as heat rather than discarded; a liquid outer core is then whatever the
-      geotherm crossing iron's melting curve produces, not a declared region.
-      Three things block it, all established by reading. **`melt_c_at` gives iron a melting slope of about
-      119 K/GPa against a measured ~33** (Williams 1987, Science 236:181), because `dv` is taken from the two
-      REFERENCE densities and iron's sit 1518 K apart — alpha-Fe at 20 C against the liquid at its melting
-      point — so the slope carries 1518 K of thermal expansion. It wants `density_solid` quoted AT the
-      melting point with its own `density_solid_ref_t_c`, which needs a cited value for solid iron at 1811 K.
-      **A fifteenth matter channel must take binding 14, which is `Solid` in `state_derive.glsl` and
-      `Props` in `gravity_poisson.glsl`**, because `StateDerivePass` and `GravityPass` build uniform sets as
-      `entries.append([i, channels[i]])` — the entry index IS the channel index, so a high free binding is
-      not available. And **a dense phase descending under the solved potential releases NOTHING today**:
+- [ ] **The core is seeded, and the seeded phases cannot yet move or melt on the GPU.** The planet now
+      seeds differentiated — a metal core whose radius follows from the core mass fraction, one silicate
+      shell of the registry's own mineral mix (maintainer's decision: differentiation at ~10^13 steps is
+      not computable). What remains for the core to LIVE rather than sit: **the six new phases are
+      sensible-heat entries**, so metal, olivine, pyroxene, plagioclase, halite and apatite never melt in
+      `state_derive.glsl` — no liquid outer core, no mantle melt beyond the wollastonite share — and
+      **none has a transport row**, so none of them erodes, slumps or percolates. The residual-descent
+      physics is still open: **a dense phase descending under the solved potential releases NOTHING** —
       pass 0 carries enthalpy unchanged as `send_h[base+d] = flow * h_per_unit`, no term adds m·g·dz, and
-      `MODE_POTENTIAL` is a relaxation rather than a momentum equation, so the work is discarded. The
-      mechanism is viscous dissipation — metal percolating at terminal velocity heats what it passes through
-      — deposited on the row and debited against a potential store.
+      `MODE_POTENTIAL` is a relaxation rather than a momentum equation. The mechanism is viscous
+      dissipation — metal percolating at terminal velocity heats what it passes through — deposited on the
+      row and debited against a potential store.
+- [ ] **The interior is seeded at the surface temperature.** `LAFieldEnthalpySeed.seed` hands every cell
+      `INITIAL_TEMP`, so the core starts at 15 C against a real ~4,000-5,000 K and the geotherm must build
+      from radiogenic decay alone. **Reproduce:** `scripts/agent_harness.sh sim --frames 20`, read `temp`
+      at depth. Blocked in honesty by the phase ladders above: a hot interior needs the seeded phases to
+      hold molten states.
+- [ ] **Trace elements ride their host phase uniformly, and nothing can ever concentrate them.** Each
+      shell mineral carries the registry's traces as fixed kg/kg. Real ore bodies form when partition
+      coefficients move trace mass between silicate melt, sulfide melt and aqueous brine; that needs the
+      traces to become per-cell state THE MOMENT a concentrating process exists, and the seam is the
+      melt/brine partitioning step of whichever hydrothermal or magmatic lane lands first.
 - [ ] **No magnetic field, and it is downstream of the core rather than a subsystem to add.** A geodynamo is
       a convecting, electrically conducting, rotating fluid shell; the rotation and the conducting-fluid
       machinery exist and the shell does not. Note two things before scheduling it. A cell edge of this size
@@ -215,9 +216,6 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 - [ ] **No mantle convection.** Radiogenic decay is the only interior heat source and the geotherm is
       whatever it, conduction and the surface produce — but nothing carries that heat by MOVING rock, so
       the plates above are kinematic rather than driven.
-- [ ] **The radiogenic source is deposited from GDScript.** A volumetric source term belongs in the kernel
-      beside `∇·(k∇T)`; `LAMaterialFieldGeotherm3D` hands it to the sparse heat queue instead, on the
-      gravity solve's cadence.
 - [ ] **There are no plates.** The maintainer's standing OK to FAKE plate kinematics only ever covered
       kinematics that DRIVE the substrate; nothing does. Melt must come from crustal thinning and the
       geotherm.

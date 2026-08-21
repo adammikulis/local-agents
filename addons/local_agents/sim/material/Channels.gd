@@ -8,10 +8,16 @@ static func rows() -> Dictionary:
 	return {
 		"h_j_m3":      {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
 		"h2o":         {"residency": "hot",         "slot": D.H2O,       "substance": "h2o",        "phase": "",       "unit": "mol_m3", "kind": "state"},
-		"silicate":    {"residency": "slow",        "slot": D.SILICATE,  "substance": "silicate",   "phase": "",       "unit": "mol_m3", "kind": "state"},
+		"silicate":    {"residency": "slow",        "slot": D.SILICATE,  "substance": "silicate",   "phase": "",       "unit": "mol_m3", "kind": "state", "lithic": true},
+		"metal":       {"residency": "static",      "slot": D.METAL,       "substance": "metal",       "phase": "solid", "unit": "mol_m3", "kind": "state", "lithic": true},
+		"olivine":     {"residency": "static",      "slot": D.OLIVINE,     "substance": "olivine",     "phase": "solid", "unit": "mol_m3", "kind": "state", "lithic": true},
+		"pyroxene":    {"residency": "static",      "slot": D.PYROXENE,    "substance": "pyroxene",    "phase": "solid", "unit": "mol_m3", "kind": "state", "lithic": true},
+		"plagioclase": {"residency": "static",      "slot": D.PLAGIOCLASE, "substance": "plagioclase", "phase": "solid", "unit": "mol_m3", "kind": "state", "lithic": true},
+		"halite":      {"residency": "static",      "slot": D.HALITE,      "substance": "halite",      "phase": "solid", "unit": "mol_m3", "kind": "state", "lithic": true},
+		"apatite":     {"residency": "static",      "slot": D.APATITE,     "substance": "apatite",     "phase": "solid", "unit": "mol_m3", "kind": "state", "lithic": true},
 		"cement":      {"residency": "slow",        "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
-		"carbonate":   {"residency": "hot",         "slot": D.CARBONATE, "substance": "carbonate",  "phase": "solid",  "unit": "mol_m3", "kind": "state"},
-		"silica":      {"residency": "hot",         "slot": D.SILICA,    "substance": "silica",     "phase": "solid",  "unit": "mol_m3", "kind": "state"},
+		"carbonate":   {"residency": "hot",         "slot": D.CARBONATE, "substance": "carbonate",  "phase": "solid",  "unit": "mol_m3", "kind": "state", "lithic": true},
+		"silica":      {"residency": "hot",         "slot": D.SILICA,    "substance": "silica",     "phase": "solid",  "unit": "mol_m3", "kind": "state", "lithic": true},
 		"o2":          {"residency": "hot",         "slot": D.O2,        "substance": "o2",         "phase": "gas",    "unit": "mol_m3", "kind": "state"},
 		"co2":         {"residency": "situational", "slot": D.CO2,       "substance": "co2",        "phase": "gas",    "unit": "mol_m3", "kind": "state"},
 		"n2":          {"residency": "hot",         "slot": D.N2,        "substance": "n2",         "phase": "gas",    "unit": "mol_m3", "kind": "state"},
@@ -101,12 +107,11 @@ static func slot_substance() -> Dictionary:
 	return out
 
 
-## Channels holding the one mineral substance, in any phase.
+## Channels holding a mineral or metal phase: every row declared lithic.
 static func lithosphere_channels() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
 	var tbl: Dictionary = rows()
 	for name in tbl:
-		var sub: String = String(tbl[name].get("substance", ""))
-		if sub == "silicate" or sub == "carbonate" or sub == "silica":
+		if bool(tbl[name].get("lithic", false)):
 			out.append(String(name))
 	return out

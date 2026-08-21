@@ -75,8 +75,7 @@ layout(set = 0, binding = 38, std430) restrict writeonly buffer RadEmit { float 
 layout(set = 0, binding = 39, std430) restrict writeonly buffer ColE { float col_e[]; };
 layout(set = 0, binding = 40, std430) restrict writeonly buffer Strike { float strike[]; };
 // Rock channels two and three, the TF_RADIOGENIC deposit (J/m^3), and the RADIATE march's scratch.
-layout(set = 0, binding = 41, std430) restrict readonly buffer CarbonateBuf { float carbonate[]; };
-layout(set = 0, binding = 42, std430) restrict readonly buffer SilicaBuf { float silica[]; };
+layout(set = 0, binding = 41, std430) restrict readonly buffer RadW { float rad_w_m3[]; };  // W/m^3, from state_derive.glsl
 layout(set = 0, binding = 43, std430) restrict writeonly buffer Radiogenic { float radiogenic[]; };
 layout(set = 0, binding = 44, std430) restrict buffer LwEmis { float lw_emis[]; };
 layout(set = 0, binding = 45, std430) restrict buffer SwAbs { float sw_absorbed[]; };
@@ -151,10 +150,6 @@ layout(push_constant, std430) uniform Params {
 	float mu_water;       // LAPhysical.WATER_DYNAMIC_VISCOSITY_PA_S
 	float rho_air;        // LAPhysical.AIR_DENSITY_KG_M3
 	float mu_air;         // LAPhysical.AIR_DYNAMIC_VISCOSITY_PA_S
-	// Radiogenic power of one cubic metre of each pure rock at this epoch, W/m^3.
-	float w_silicate;
-	float w_carbonate;
-	float w_silica;
 	// J/m^3/K a unit of fill adds to the sensible entry; 0 for a substance on its own phase ladder.
 	float sub_cap_j_m3k;
 	uint total_count;     // interior cells plus ghost tail cells; pass 0 runs the ghosts too
@@ -1292,9 +1287,7 @@ void main() {
 	}
 	if ((params.flags & TF_RADIOGENIC) != 0u) {
 		// The rock warms itself, at this epoch's rate. This row carries h_j_m3, so `amount` IS enthalpy.
-		float dq = (max(silicate[gidx], 0.0) * params.w_silicate
-			+ max(carbonate[gidx], 0.0) * params.w_carbonate
-			+ max(silica[gidx], 0.0) * params.w_silica) * params.dt_s;
+		float dq = max(rad_w_m3[gidx], 0.0) * params.dt_s;
 		amount[gidx] += dq;
 		radiogenic[gidx] = dq;
 	}

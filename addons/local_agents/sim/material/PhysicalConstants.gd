@@ -55,10 +55,6 @@ const ROCK_SPECIFIC_HEAT_J_KGK: float = 840.0
 const VOL_HEAT_CAP_AIR_J_M3K: float = AIR_DENSITY_KG_M3 * AIR_SPECIFIC_HEAT_J_KGK
 const VOL_HEAT_CAP_WATER_J_M3K: float = WATER_DENSITY_KG_M3 * WATER_SPECIFIC_HEAT_J_KGK
 
-## Bulk silicate Earth abundance, kg of element per kg of rock (McDonough & Sun 1995, Chem. Geol. 120:223).
-const BSE_U_KG_PER_KG: float = 20.3e-9
-const BSE_TH_KG_PER_KG: float = 79.5e-9
-const BSE_K_KG_PER_KG: float = 240.0e-6
 ## Limestone and sandstone, kg of element per kg of rock (Turekian & Wedepohl 1961, GSA Bull. 72:175).
 const LIMESTONE_U_KG_PER_KG: float = 2.2e-6
 const LIMESTONE_TH_KG_PER_KG: float = 1.7e-6
@@ -88,6 +84,11 @@ const MOLAR_MASS_U238_KG_MOL: float = 0.238051
 const MOLAR_MASS_U235_KG_MOL: float = 0.235044
 const MOLAR_MASS_TH232_KG_MOL: float = 0.232038
 const MOLAR_MASS_K40_KG_MOL: float = 0.0399640
+## K40 branching: beta-minus to Ca40, electron capture to Ar40 (Renne et al. 2010, GCA 74:5349).
+const K40_BETA_FRAC: float = 0.8928
+const K40_EC_FRAC: float = 0.1072
+## Core / Earth mass fraction (McDonough 2003, Treatise on Geochemistry 2.15, Table 1).
+const EARTH_CORE_MASS_FRACTION: float = 0.323
 const MEV_J: float = 1.602176634e-13            # CODATA 2018, exact from the elementary charge
 
 const SOLAR_CONSTANT_W_M2: float = 1361.0
@@ -303,6 +304,19 @@ const LIGHTNING_N_FIXED_MOL_PER_J: float = LIGHTNING_N_FIXED_MOL_PER_FLASH / LIG
 
 const MOLAR_MASS_HYDROGEN_KG_MOL: float = 0.00100794   # H
 const MOLAR_MASS_OXYGEN_KG_MOL: float = 0.0159994      # O
+# Standard atomic weights, kg/mol (IUPAC 2021).
+const MOLAR_MASS_F_KG_MOL: float = 0.0189984    # F
+const MOLAR_MASS_NA_KG_MOL: float = 0.0229898   # Na
+const MOLAR_MASS_MG_KG_MOL: float = 0.0243050   # Mg
+const MOLAR_MASS_AL_KG_MOL: float = 0.0269815   # Al
+const MOLAR_MASS_SI_KG_MOL: float = 0.0280855   # Si
+const MOLAR_MASS_P_KG_MOL: float = 0.0309738    # P
+const MOLAR_MASS_S_KG_MOL: float = 0.0320600    # S
+const MOLAR_MASS_CL_KG_MOL: float = 0.0354500   # Cl
+const MOLAR_MASS_K_KG_MOL: float = 0.0390983    # K
+const MOLAR_MASS_CA_KG_MOL: float = 0.0400780   # Ca
+const MOLAR_MASS_FE_KG_MOL: float = 0.0558450   # Fe
+const MOLAR_MASS_NI_KG_MOL: float = 0.0586934   # Ni
 
 ## Vitrinite-maturation frequency factor, per second (Sweeney & Burnham).
 const VITRINITE_FREQUENCY_FACTOR_PER_S: float = 1.0e13

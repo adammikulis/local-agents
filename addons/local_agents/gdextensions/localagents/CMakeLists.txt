@@ -32,6 +32,7 @@ add_subdirectory(${LLAMA_CPP_DIR} "${CMAKE_BINARY_DIR}/llama.cpp" EXCLUDE_FROM_A
 set(SRC
     src/AgentNode.cpp
     src/AgentRuntime.cpp
+    src/LAAbsorptionBands.cpp
     src/ModelDownloadManager.cpp
     src/NetworkGraph.cpp
     src/LAProcess.cpp
