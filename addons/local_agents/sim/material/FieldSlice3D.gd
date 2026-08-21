@@ -88,6 +88,9 @@ func apply(field, body, terrain) -> bool:
 func _configure_boundary(field) -> void:
 	var d_down: int = LAFieldGeometry.slot_toward(-offset)
 	var d_up: int = LAVoxelGrid.opposite_slot(d_down)
+	if LAFieldBoundary3D.explicit_spec() != "":
+		print("SLICE_BOUNDARY={\"faces\":\"%s\",\"note\":\"explicit\"}" % LAFieldBoundary3D.explicit_spec())
+		return
 	var modes: PackedStringArray = PackedStringArray()
 	modes.resize(LAVoxelGrid.SLOTS)
 	# LA_APPROX: periodic_slice_geometry
@@ -96,8 +99,8 @@ func _configure_boundary(field) -> void:
 	var path: String = _state_path()
 	if path == "":
 		modes[d_down] = "shut"
-		modes[d_up] = "shut"
-		print("SLICE_BOUNDARY={\"faces\":\"%s\",\"note\":\"no capture supplied (%s): top and bottom SHUT — a torus column exchanging nothing with the exterior\"}"
+		modes[d_up] = "space"
+		print("SLICE_BOUNDARY={\"faces\":\"%s\",\"note\":\"no capture supplied (%s): bottom SHUT, top SPACE\"}"
 			% [",".join(modes), STATE_ENV])
 	else:
 		var data: Dictionary = CaptureScript.load_file(path)

@@ -265,15 +265,21 @@ void mode_monopole(uint gidx, bool live) {
 		vec3 rv = pos_at(gidx) - vec3(params.mono_cx, params.mono_cy, params.mono_cz);
 		float r = length(rv);
 		vec3 g = vec3(0.0);
+		float ph = 0.0;
 		if (r > 0.0 && params.mono_r > 0.0) {
 			float frac = min(r / params.mono_r, 1.0);
 			float m_eff = params.mono_m * frac * frac * frac;
 			mag = params.g_si * m_eff / (r * r);
 			g = rv * (-mag / r);
+			// The same body's potential, zero at infinity: -GM/r outside, the uniform-sphere form inside.
+			float rb = params.mono_r;
+			ph = r >= rb ? -params.g_si * params.mono_m / r
+				: -params.g_si * params.mono_m * (3.0 * rb * rb - r * r) / (2.0 * rb * rb * rb);
 		}
 		g_field[gidx * 3u] = g.x;
 		g_field[gidx * 3u + 1u] = g.y;
 		g_field[gidx * 3u + 2u] = g.z;
+		phi[gidx] = ph;
 	}
 	float acc = wg_sum(mag);
 	float hits = wg_sum(mag > 0.0 ? 1.0 : 0.0);

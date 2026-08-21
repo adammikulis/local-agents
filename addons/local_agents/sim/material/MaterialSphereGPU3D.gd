@@ -444,11 +444,6 @@ func mark_solid_dirty() -> void:
 	_solid_dirty = true
 
 
-## The CPU water channel was edited (add_water injection, lake seed) — re-upload it on the next begin_frame.
-func mark_water_dirty() -> void:
-	_water_dirty = true
-
-
 func _audit_mirror_upload(name: String, arr) -> void:
 	var live: PackedFloat32Array = _rd.buffer_get_data(_bufs[name]).to_float32_array()
 	var lt: float = 0.0
@@ -633,9 +628,6 @@ func restore_channels(data: Dictionary) -> void:
 			continue
 		var bytes: PackedByteArray = arr.to_byte_array()
 		_rd.buffer_update(_bufs[key], 0, bytes.size(), bytes)
-
-func set_precip(v: float) -> void:
-	_ctx["precip"] = v
 
 
 func dispose() -> void:

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# A TORUS HAS NO EDGE. The capture-less slice — sides WRAP, vertical SHUT, the expressible torus — must
-# book exactly zero on every boundary row and hold every gated stock to round-off. energy_stock may read
+# A TORUS HAS NO EDGE. A fully sealed slice — sides WRAP, vertical SHUT, requested explicitly, since the
+# capture-less default now opens its top to SPACE — must book exactly zero on every boundary row and hold
+# every gated stock to round-off. energy_stock may read
 # unmeasured only while HANDOFF item 0's momentum runaway poisons the enthalpy sum; any other unmeasured
 # stock is red.
 # EXIT 0 clean · 1 a violation · 2 could not run.
@@ -14,7 +15,8 @@ command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not on PATH — a g
 
 FRAMES="${LA_BND_WRAP_FRAMES:-650}"
 ERRLOG="$(mktemp "${TMPDIR:-/tmp}/la_bnd_wrap.XXXXXX")"
-out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --slice --frames "$FRAMES" --raw 2>"$ERRLOG")"
+out="$(LA_BOUNDARY_FACES="wrap,wrap,shut,shut,wrap,wrap" \
+  "$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --slice --frames "$FRAMES" --raw 2>"$ERRLOG")"
 rc=$?
 case "$rc" in
   0|122|123) ;;

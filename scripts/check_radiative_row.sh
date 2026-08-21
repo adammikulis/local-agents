@@ -128,6 +128,7 @@ func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Arra
 	_owned.append(gh)
 	bufs["ghost"] = gh
 	bufs["gravity"] = _f32(cc * 3)
+	bufs["grav_phi"] = _f32(cc)
 	bufs["pos"] = _f32(cc * 3)
 
 	_upload(bufs["solid"], solid_v)

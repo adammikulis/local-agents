@@ -7,7 +7,7 @@ extends RefCounted
 enum { POTENTIAL, ADVECT, BOTH, DIFFUSE, CONDUCT, RADIATE, SEPARATE }
 
 ## The transport law that sets a row's mobility from the cell's own state. Matches LAW_* in transport.glsl.
-enum Law { NONE, SHALLOW, FILM, DARCY, EDDY, SOUND, OHMIC, PGF }
+enum Law { NONE, SHALLOW, FILM, DARCY, EDDY, SOUND, OHMIC, PGF, ESCAPE }
 
 ## The fluid a row moves THROUGH, whose density and viscosity its law reads.
 enum Fluid { VACUUM, WATER, AIR }
@@ -103,7 +103,17 @@ static func rows() -> Array:
 			"fluid": Fluid.AIR, "signed": true, "relax": true},
 		{"channel": "mom_z", "substance": "", "mode": DIFFUSE, "law": Law.EDDY, "axis": 2,
 			"fluid": Fluid.AIR, "signed": true, "relax": true},
-	]
+	] + escape_rows()
+
+
+## LAST: the SPACE faces. Every gas carries the one law; the computed parameter keeps the heavy ones in.
+static func escape_rows() -> Array:
+	var out: Array = []
+	for gas: String in LAMatterChannels.GASES:
+		out.append({"channel": gas, "substance": gas, "mode": POTENTIAL, "law": Law.ESCAPE})
+	out.append({"channel": "h2o", "substance": "h2o", "mode": POTENTIAL, "law": Law.ESCAPE,
+		"frac": "h2o_vapour"})
+	return out
 
 
 ## Compacted cell lists, built by transport.glsl's PASS_LIST_* dispatches before any listed row runs.
@@ -137,14 +147,6 @@ static func fluid_properties(fluid: int) -> Vector2:
 	if fluid == Fluid.AIR:
 		return Vector2(LAPhysical.AIR_DENSITY_KG_M3, LAPhysical.AIR_DYNAMIC_VISCOSITY_PA_S)
 	return Vector2.ZERO
-
-
-## Channels this table moves; absent means it does not travel.
-static func channels() -> PackedStringArray:
-	var out: PackedStringArray = PackedStringArray()
-	for r in rows():
-		out.append(String(r["channel"]))
-	return out
 
 
 ## Amount at which a cell is full: mol/m^3 of the pure substance.

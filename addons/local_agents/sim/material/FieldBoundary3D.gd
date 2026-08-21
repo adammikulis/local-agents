@@ -1,13 +1,17 @@
 class_name LAFieldBoundary3D
 extends RefCounted
 
-## Box-face boundary-state provider. Per face: SHUT (wall), WRAP (torus partner, exact, no ghost state),
-## CONSTANT (one supplied exterior state, filled into the ghost buffer tails at attach), REPLAY (the same
-## tails re-filled per step from a supplied series). The redirect table is transport.glsl binding 27.
+## Box-face boundary-state provider. Per face: SHUT (wall, books exactly zero), WRAP (torus partner,
+## exact, no ghost state), CONSTANT (one supplied exterior state, filled into the ghost buffer tails at
+## attach), REPLAY (the same tails re-filled per step from a supplied series), SPACE (vacuum exterior:
+## nothing comes in, and only the escape law crosses out). The redirect table is transport.glsl binding 27.
 
-enum { SHUT, WRAP, CONSTANT, REPLAY }
+enum { SHUT, WRAP, CONSTANT, REPLAY, SPACE }
 
-const MODE_NAMES: Dictionary = {"shut": SHUT, "wrap": WRAP, "constant": CONSTANT, "replay": REPLAY}
+const MODE_NAMES: Dictionary = {"shut": SHUT, "wrap": WRAP, "constant": CONSTANT, "replay": REPLAY,
+	"space": SPACE}
+## Redirect value marking a SPACE face — transport.glsl GHOST_SPACE. A wall stays -1.
+const SPACE_REDIRECT: int = -2
 const SETTING: String = "local_agents/sim/boundary_faces"
 const ENV_VAR: String = "LA_BOUNDARY_FACES"
 const META_FACES: StringName = &"boundary_faces"
@@ -34,15 +38,20 @@ var _rim_w: PackedFloat32Array = PackedFloat32Array()
 var _gpu = null
 
 
+## The face spec a setting or the environment supplies; "" when neither does.
+static func explicit_spec() -> String:
+	if ProjectSettings.has_setting(SETTING):
+		return String(ProjectSettings.get_setting(SETTING))
+	if OS.has_environment(ENV_VAR):
+		return OS.get_environment(ENV_VAR)
+	return ""
+
+
 ## Read the face configuration off the owning field. Node meta -> project setting -> env -> all SHUT.
 func setup(field) -> void:
-	var spec: String = ""
+	var spec: String = explicit_spec()
 	if field.has_meta(META_FACES):
 		spec = String(field.get_meta(META_FACES))
-	elif ProjectSettings.has_setting(SETTING):
-		spec = String(ProjectSettings.get_setting(SETTING))
-	elif OS.has_environment(ENV_VAR):
-		spec = OS.get_environment(ENV_VAR)
 	var states: Array = [null, null, null, null, null, null]
 	if field.has_meta(META_STATES):
 		var sup: Dictionary = field.get_meta(META_STATES)
@@ -66,7 +75,7 @@ func _parse_modes(spec: String) -> PackedInt32Array:
 	for d in LAVoxelGrid.SLOTS:
 		var name: String = toks[d].strip_edges().to_lower()
 		if not MODE_NAMES.has(name):
-			_fail("face %d mode \"%s\" is not shut|wrap|constant|replay" % [d, name])
+			_fail("face %d mode \"%s\" is not shut|wrap|constant|replay|space" % [d, name])
 			return out
 		out[d] = int(MODE_NAMES[name])
 	return out
@@ -103,7 +112,10 @@ func configure(grid: LAVoxelGrid, modes: PackedInt32Array, states: Array) -> boo
 	var nbr: PackedInt32Array = grid.neighbours
 	var next: int = _cc
 	for d in LAVoxelGrid.SLOTS:
-		if _modes[d] == WRAP:
+		if _modes[d] == SPACE:
+			for c in _cells_on_face(d):
+				_ghost[c * LAVoxelGrid.SLOTS + d] = SPACE_REDIRECT
+		elif _modes[d] == WRAP:
 			for c in _cells_on_face(d):
 				_ghost[c * LAVoxelGrid.SLOTS + d] = _wrap_partner(c, d)
 		elif _modes[d] == CONSTANT or _modes[d] == REPLAY:
@@ -197,7 +209,7 @@ func replay(d: int, state: Dictionary) -> void:
 		_fill_face(d)
 
 
-## The redirect for an interior cell's face: -1 shut, < cc wrap partner, >= cc ghost tail cell.
+## The redirect for an interior cell's face: -1 shut, -2 space, < cc wrap partner, >= cc ghost tail.
 func redirect(c: int, d: int) -> int:
 	var i: int = c * LAVoxelGrid.SLOTS + d
 	return _ghost[i] if i >= 0 and i < _ghost.size() else -1

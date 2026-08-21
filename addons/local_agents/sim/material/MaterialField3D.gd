@@ -205,6 +205,9 @@ func setup_body(centre_pos: Vector3, radius: float, cell_size: float, terrain = 
 		_terrain = terrain
 		if terrain.has_method("generator_options"):
 			_terrain_opts = terrain.generator_options()   # the solid-mask cache's key
+	# The box holds the whole body, so every face's exterior is vacuum unless a spec says otherwise.
+	if not has_meta(LAFieldBoundary3D.META_FACES) and LAFieldBoundary3D.explicit_spec() == "":
+		set_meta(LAFieldBoundary3D.META_FACES, "space,space,space,space,space,space")
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	grid.build_centred(centre_pos, radius, maxf(0.5, cell_size))
 	_adopt(grid)
@@ -317,12 +320,6 @@ func world_to_cell(world_pos: Vector3) -> int:
 func set_solid(ix: int, iy: int, iz: int, solid: bool) -> void:
 	if _in_bounds(ix, iy, iz):
 		_solid[_idx(ix, iy, iz)] = 1 if solid else 0
-
-
-func is_cell_solid(ix: int, iy: int, iz: int) -> bool:
-	if not _in_bounds(ix, iy, iz):
-		return true                                     # out of bounds reads as wall
-	return _solid[_idx(ix, iy, iz)] != 0
 
 
 func total_water() -> float:
