@@ -89,11 +89,6 @@ func cell_volume(_c: int = 0) -> float:
 	return cell_size * cell_size * cell_size
 
 
-## Area of one face, model units squared. Every face of every cell is the same.
-func face_area(_c: int = 0, _d: int = 0) -> float:
-	return cell_size * cell_size
-
-
 func build(p_nx: int, p_ny: int, p_nz: int, p_cell_size: float, p_origin: Vector3) -> void:
 	nx = maxi(p_nx, 1)
 	ny = maxi(p_ny, 1)

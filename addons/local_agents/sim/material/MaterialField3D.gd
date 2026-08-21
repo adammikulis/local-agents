@@ -205,6 +205,9 @@ func setup_body(centre_pos: Vector3, radius: float, cell_size: float, terrain = 
 		_terrain = terrain
 		if terrain.has_method("generator_options"):
 			_terrain_opts = terrain.generator_options()   # the solid-mask cache's key
+	# The box holds the whole body, so every face's exterior is vacuum unless a spec says otherwise.
+	if not has_meta(LAFieldBoundary3D.META_FACES) and LAFieldBoundary3D.explicit_spec() == "":
+		set_meta(LAFieldBoundary3D.META_FACES, "space,space,space,space,space,space")
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	grid.build_centred(centre_pos, radius, maxf(0.5, cell_size))
 	_adopt(grid)

@@ -72,6 +72,7 @@
 #define LAW_SOUND 5u
 #define LAW_OHMIC 6u
 #define LAW_PGF 7u
+#define LAW_ESCAPE 8u
 
 // TransportRecords.gd Flag enum
 #define TF_SIGNED 1u

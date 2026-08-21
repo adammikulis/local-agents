@@ -80,11 +80,6 @@ func field() -> Node:
 	return _field
 
 
-## Cell counts per axis, as chosen by extent / cell_size.
-func cell_dims() -> Vector3i:
-	return Vector3i(_dx, _dy, _dz)
-
-
 func _build_field() -> void:
 	_field = MaterialFieldScript.new()
 	_field.name = "MaterialField"

@@ -125,6 +125,16 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       carries organics ready-made. The reaction table holds none of these, so the seeded abundances
       cannot be replenished and every organic molecule still implies life. It does not: this is the
       carbon chemistry a lifeless Hadean Earth actually runs.
+- [ ] **Radiogenic He never degasses, so escape has nothing to act on.** The ledger computes the rock's
+      accumulated He in closed form (`radiogenic_He_mol`) and it stays lattice-held forever: no He
+      substance entry, no channel, no diffusion out of the mineral into the pore space and atmosphere.
+      Real helium leaves its host crystal over Myr and Earth's atmospheric He residence is ~1 Myr; the
+      escape law (`LAW_ESCAPE`) will remove it the step an atmospheric He channel exists. `bnd_he`
+      does not exist yet BY DESIGN — its absence is this missing channel, not a missing book.
+- [ ] **The thermosphere never feels the XUV.** `LAAbsorptionBands` (GDExtension) carries no XUV band,
+      so the epoch sun's ~60x XUV (`LAPhysical.XUV_EPOCH_W_M2`) heats no cell and an exosphere can only
+      go hydrodynamic through the energy-limited bound, never through its own temperature. Adding the
+      band is C++ work; the escape parameter then responds to the heating on its own.
 
 ## C. The reaction engine
 

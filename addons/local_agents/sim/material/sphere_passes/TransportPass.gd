@@ -320,6 +320,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 	# The material state every law and the band model read. A missing one is a dead row, not a default.
 	for key in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible",
 			"temp", "pressure", "porosity", "grain", "co2", "ch4", "co", "so2", "h2s",
+			"o2", "n2", "h2", "grav_phi",
 			"h2o", "h2o_solid", "h2o_liquid",
 			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement",
 			"silicate_susp_water", "silicate_susp_air", "silicate_bed",
@@ -415,6 +416,11 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[72, _single(bufs, "co")],
 		[73, _single(bufs, "so2")],
 		[74, _single(bufs, "h2s")],
+		[75, _single(bufs, "o2")],
+		[76, _single(bufs, "n2")],
+		[77, _single(bufs, "h2")],
+		# The solved potential, J/kg: -phi is the escape energy LAW_ESCAPE lifts against.
+		[78, _single(bufs, "grav_phi")],
 	]
 	return _uset(_pipe, entries)
 
@@ -431,7 +437,7 @@ func _carried_key(substance: String) -> String:
 
 # --- push constant ----------------------------------------------------------------------------------------
 
-## transport.glsl's Params block, in its declared order — 120 bytes.
+## transport.glsl's Params block, in its declared order — 112 bytes.
 func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 		sun: Vector3, relax_ok: bool = true, substep_frac: float = 1.0) -> PackedByteArray:
 	var substance: String = String(row["substance"])
@@ -465,7 +471,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	if String(row["channel"]) == "h_j_m3":
 		flags |= LATransportRecords.Flag.ENTHALPY
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(108)
+	pc.resize(112)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
@@ -501,6 +507,8 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	pc.encode_float(100, substep_frac)
 	# The donation floor as mass: MIN_FILL_FRAC of a cell of the lightest bulk matter, air.
 	pc.encode_float(104, MIN_FILL_FRAC * LAPhysical.AIR_DENSITY_KG_M3)
+	# The epoch sun's XUV at 1 au; the sun vector's own length and zenith cosine scale it in-kernel.
+	pc.encode_float(108, LAPhysical.XUV_EPOCH_W_M2)
 	return pc
 
 
