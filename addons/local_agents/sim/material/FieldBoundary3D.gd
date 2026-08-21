@@ -360,7 +360,7 @@ func _derive(st: Dictionary, d: int) -> Dictionary:
 	var f_v: float = 0.0
 	var molten: float = _melt_share("h2o", t_c, p_pa)
 	if m_h2o > 0.0:
-		f_v = LAMixtureEnthalpy.vapour_fraction("h2o", t_c, p_pa, m_h2o, n_gas)
+		f_v = LANativeTables.mixture().vapour_fraction("h2o", t_c, p_pa, m_h2o, n_gas)
 	out["h2o_vapour"] = f_v
 	out["h2o_liquid"] = (1.0 - f_v) * molten
 	out["h2o_solid"] = (1.0 - f_v) * (1.0 - molten)

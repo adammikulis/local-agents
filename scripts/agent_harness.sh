@@ -217,6 +217,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_no_inferred_typing
     gate check_tool_safety
     gate check_godot_launcher
+    gate check_api_version
     gate check_gpu_gate_list
     gpu_gate check_quiet_window
     gate check_demo_catalog

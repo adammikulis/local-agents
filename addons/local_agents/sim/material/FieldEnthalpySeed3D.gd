@@ -57,9 +57,9 @@ static func entry_enthalpies(masses: Dictionary, n_gas_mol: float, t_c: float, p
 			continue
 		match LAMatterChannels.entry_of(String(id)):
 			LAMatterChannels.Entry.H2O:
-				h_h2o += m * LAMixtureEnthalpy.specific_enthalpy(String(id), t_c, p_pa, m, n_gas_mol)
+				h_h2o += m * LANativeTables.mixture().specific_enthalpy(String(id), t_c, p_pa, m, n_gas_mol)
 			LAMatterChannels.Entry.SILICATE:
-				h_sil += m * LAMixtureEnthalpy.specific_enthalpy(String(id), t_c, p_pa, m, n_gas_mol)
+				h_sil += m * LANativeTables.mixture().specific_enthalpy(String(id), t_c, p_pa, m, n_gas_mol)
 			_:
 				mc += m * LAMatterChannels.specific_heat(String(id))
 	return {"h_h2o": h_h2o, "h_silicate": h_sil,

@@ -3,7 +3,6 @@ extends RefCounted
 
 ## One temperature for a cell of rock, water and air: T -> H -> T, fusion jump, and the saturation split.
 
-const M: GDScript = preload("res://addons/local_agents/sim/material/MixtureEnthalpy.gd")
 const PC: GDScript = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
 
 const TOL_K: float = 1.0e-6
@@ -14,11 +13,11 @@ const AIR_MOL: float = PC.STANDARD_PRESSURE_PA / (PC.GAS_CONSTANT_J_MOL_K * (15.
 
 
 func _round_trip(masses: Dictionary, n_gas_mol: float, t_c: float, label: String) -> bool:
-	var h: float = M.enthalpy_at(masses, n_gas_mol, t_c, P_ATM)
+	var h: float = LANativeTables.mixture().enthalpy_at(masses, n_gas_mol, t_c, P_ATM)
 	if not is_finite(h):
 		push_error("mixture enthalpy at %.3f C (%s) is not finite." % [t_c, label])
 		return false
-	var st: Dictionary = M.state(masses, n_gas_mol, h, P_ATM)
+	var st: Dictionary = LANativeTables.mixture().state(masses, n_gas_mol, h, P_ATM)
 	var back: float = float(st["t_c"])
 	if absf(back - t_c) > TOL_K:
 		push_error("%s: %.4f C goes in as %s J and comes back %.4f C. The cell's enthalpy curve and its "
@@ -42,14 +41,14 @@ func run_test(_tree: SceneTree) -> bool:
 
 	# The fusion jump pins the temperature; half the latent heat is half melted.
 	var melt: float = LANativeTables.subs().melt_c_at("h2o", P_ATM)
-	var h_bottom: float = M.enthalpy_at(puddle, 0.0, melt, P_ATM)
-	var jump: float = float(M.jump_at(puddle, 0.0, melt, P_ATM)["total"])
+	var h_bottom: float = LANativeTables.mixture().enthalpy_at(puddle, 0.0, melt, P_ATM)
+	var jump: float = float(LANativeTables.mixture().jump_at(puddle, 0.0, melt, P_ATM)["total"])
 	var want_jump: float = 10.0 * float(LANativeTables.subs().table()["h2o"]["latent_fusion_j_kg"])
 	if absf(jump - want_jump) > 1.0e-6 * want_jump:
 		push_error("ten kilos of ice cost %s J to melt, not the %s the latent heat says."
 			% [String.num_scientific(jump), String.num_scientific(want_jump)])
 		ok = false
-	var mid: Dictionary = M.state(puddle, 0.0, h_bottom + 0.5 * jump, P_ATM)
+	var mid: Dictionary = LANativeTables.mixture().state(puddle, 0.0, h_bottom + 0.5 * jump, P_ATM)
 	if not bool(mid["pinned"]) or absf(float(mid["t_c"]) - melt) > TOL_K:
 		push_error("half-melted ice reads %.4f C (pinned=%s), not the %.4f C the boundary sits at."
 			% [float(mid["t_c"]), str(mid["pinned"]), melt])
@@ -61,8 +60,8 @@ func run_test(_tree: SceneTree) -> bool:
 
 	# Wet rock on dry rock's energy comes out colder.
 	var t_probe: float = 300.0
-	var h_dry: float = M.enthalpy_at(dry_rock, AIR_MOL, t_probe, P_ATM)
-	var t_wet: float = float(M.state(wet_rock, AIR_MOL, h_dry, P_ATM)["t_c"])
+	var h_dry: float = LANativeTables.mixture().enthalpy_at(dry_rock, AIR_MOL, t_probe, P_ATM)
+	var t_wet: float = float(LANativeTables.mixture().state(wet_rock, AIR_MOL, h_dry, P_ATM)["t_c"])
 	if t_wet >= t_probe:
 		push_error("adding 50 kg of water to the cell left it at %.2f C on the same energy that put dry "
 			% t_wet + "rock at %.2f C. The water absorbed nothing." % t_probe)
@@ -70,8 +69,8 @@ func run_test(_tree: SceneTree) -> bool:
 
 	# Non-condensable gas removes the boiling plateau.
 	var boil: float = LANativeTables.subs().boil_c_at("h2o", P_ATM)
-	var jump_air: float = float(M.jump_at(puddle, AIR_MOL, boil, P_ATM)["total"])
-	var jump_vac: float = float(M.jump_at(puddle, 0.0, boil, P_ATM)["total"])
+	var jump_air: float = float(LANativeTables.mixture().jump_at(puddle, AIR_MOL, boil, P_ATM)["total"])
+	var jump_vac: float = float(LANativeTables.mixture().jump_at(puddle, 0.0, boil, P_ATM)["total"])
 	var want_vac: float = 10.0 * LANativeTables.subs().latent_vaporisation_at("h2o", boil)
 	if jump_air != 0.0:
 		push_error("water in air still has a %s J boiling plateau. With a non-condensable gas present it "
@@ -83,7 +82,8 @@ func run_test(_tree: SceneTree) -> bool:
 		ok = false
 
 	# A puddle in air at 20 C is not entirely liquid.
-	var warm: Dictionary = M.state(puddle, AIR_MOL, M.enthalpy_at(puddle, AIR_MOL, 20.0, P_ATM), P_ATM)
+	var h_warm: float = LANativeTables.mixture().enthalpy_at(puddle, AIR_MOL, 20.0, P_ATM)
+	var warm: Dictionary = LANativeTables.mixture().state(puddle, AIR_MOL, h_warm, P_ATM)
 	var f_v: float = float(warm["vaporised"]["h2o"])
 	print("MIXTURE_SPLIT={\"t_c\":%.3f,\"vapour_frac\":%s}" % [float(warm["t_c"]),
 		String.num_scientific(f_v)])
