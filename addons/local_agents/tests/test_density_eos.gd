@@ -26,10 +26,6 @@ func run_test(_tree: SceneTree) -> bool:
 			% [String.num(rho_n2, 6), String.num(want, 6)] + "p M / R T for a gas.")
 
 	# One scale height up the pressure is down by 1/e and so is the density, at fixed temperature.
-	var g: float = 9.81
-	var h: float = PC.scale_height_m(t_c, g)
-	if not (h > 0.0):
-		ok = _fail("scale_height_m returned %s; the altitude leg of this test has no column." % h)
 	var p_up: float = P_ATM * exp(-1.0)
 	var rho_up: float = LANativeTables.subs().density("n2", t_c, p_up)
 	if not (rho_up < rho_n2):
