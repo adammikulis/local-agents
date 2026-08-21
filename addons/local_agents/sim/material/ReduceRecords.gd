@@ -7,8 +7,9 @@ extends RefCounted
 enum Op { SUM, COUNT_GT, COUNT_GE, COUNT_LT, SUM_ABS_DIFF, LATCH, MIN, MAX, COUNT }
 
 ## Which cells a row counts. GROUND is an open cell resting on solid, AIR every other open cell; together
-## they partition OPEN. Generated into reduce.glsl as MASK_*.
-enum Mask { ALL, OPEN, SOLID, GROUND, AIR }
+## they partition OPEN. BEDDED is a solid cell resting on solid, so a cave roof is in no resting class.
+## Generated into reduce.glsl as MASK_*.
+enum Mask { ALL, OPEN, SOLID, GROUND, AIR, BEDDED }
 
 ## What a cell's value is read against: its solid neighbours, the cell one step along or against gravity,
 ## or the two faces of one grid axis. Generated into reduce.glsl as NBR_*.
@@ -24,7 +25,7 @@ const AMOUNTS: PackedStringArray = ["h2o", "silicate", "carbonate", "silica",
 ## because a domain file names the enums above, and a class_name in both directions is a cycle.
 const ROW_DIR: String = "res://addons/local_agents/sim/material/reduce/"
 const ROW_SCRIPTS: PackedStringArray = ["WaterRows.gd", "HeatRows.gd", "MineralRows.gd",
-	"AirRows.gd", "LifeRows.gd", "BoundaryRows.gd", "MomentumRows.gd"]
+	"AirRows.gd", "LifeRows.gd", "BoundaryRows.gd", "MomentumRows.gd", "PressureRows.gd"]
 
 static var _by_key: Dictionary = {}
 
@@ -38,9 +39,9 @@ static func row(key: String) -> Dictionary:
 	return _by_key.get(key, {})
 
 
-## Value per cell is `source` * (`aux` + `aux2`), read against `nbr`, and `weight` multiplies it by the
-## cell's volume in m^3. `ref` is the field a diff is taken from, and `gate`(* `gate_aux`) admits only
-## cells inside [`gate_lo`, `gate_hi`).
+## Value per cell is `source` * (`aux` + `aux2`), read against `nbr`; `weight` = cell volume, m^3; `ref` is
+## the diff base. `gate`(* `gate_aux`) admits cells inside [`gate_lo`, `gate_hi`), strict at the low end
+## under `gate_strict_lo`, and a BELOW/ABOVE row gates on the PAIR's larger value.
 static func rows() -> Array:
 	var out: Array = []
 	for name in AMOUNTS:

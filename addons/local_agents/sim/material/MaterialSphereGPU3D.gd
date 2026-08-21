@@ -313,13 +313,13 @@ func _drain_pending() -> void:
 	_cached = _read_channels(read_slow)
 	# Read-only instrument sample, taken HERE because the device was just synced (see request_probe). It is
 	# written to its own dictionary, never to `_cached`, so no simulation consumer's view changes.
-	if not _probe_want.is_empty():
-		_probe = {}
-		for pname in _probe_want:
-			if not _bufs.has(pname):
-				continue
-			_probe[pname] = _read_cells(pname)
-		_probe_want = PackedStringArray()
+	# A sample belongs to the drain that produced it: wiped here every drain, never by a reader.
+	_probe = {}
+	for pname in _probe_want:
+		if not _bufs.has(pname):
+			continue
+		_probe[pname] = _read_cells(pname)
+	_probe_want = PackedStringArray()
 	# Direct sub-timings (noise-immune, unlike fps): how long the GPU sync stall vs the channel copy/convert
 	# actually cost this drain. The readback (buffer_get_data + to_float32_array over ~17 full-grid channels) is
 	# the suspected field bottleneck; measuring it directly is how we know what gating it can win.
@@ -429,13 +429,12 @@ func request_probe(names: PackedStringArray) -> void:
 
 ## The most recent read-only sample, taken at the drain into a dictionary no simulation consumer sees. Empty
 ## until the first drain after `request_probe`; a leg that is absent is ABSENT, never substituted.
-## Each consumer takes ONLY the legs it named, so two instruments never steal each other's sample.
+## Reading does not consume: every instrument that named a leg reads the same drain's measurement.
 func take_probe(names: PackedStringArray) -> Dictionary:
 	var out: Dictionary = {}
 	for name in names:
 		if _probe.has(name):
 			out[name] = _probe[name]
-			_probe.erase(name)
 	return out
 
 
