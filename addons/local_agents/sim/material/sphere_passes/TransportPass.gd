@@ -4,7 +4,6 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/transport.glsl"
 
-const BandsScript: GDScript = preload("res://addons/local_agents/sim/material/AbsorptionBands.gd")
 const BoundaryRowsScript: GDScript = preload("res://addons/local_agents/sim/material/reduce/BoundaryRows.gd")
 
 ## Dispatch tags: the gather halves, the grain prologue, the list compaction, the RADIATE row's
@@ -102,8 +101,12 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_zero = _scratch(tc)
 	_no_h = _scratch(tc)
 	_one = _storage_buffer(_filled(tc, 1.0))
-	_band_count = BandsScript.BAND_COUNT
-	_rad_table = _storage_buffer(BandsScript.packed().to_byte_array())
+	# By name through ClassDB: the library must parse with the extension unbuilt, and a missing
+	# extension still fails hard here on the null call.
+	var bands: Variant = ClassDB.instantiate(&"LAAbsorptionBands")
+	var rad_table: PackedFloat32Array = bands.packed()
+	_band_count = int(rad_table[0])
+	_rad_table = _storage_buffer(rad_table.to_byte_array())
 	_lw_emis = _scratch(tc)
 	_sw_abs = _scratch(tc)
 	_sw_keep = _scratch(tc)

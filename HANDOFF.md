@@ -80,11 +80,10 @@ latitude and altitude band is an ordinary row on the existing `gate_lo`/`gate_hi
 GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is a `.cpp`/`.hpp` pair, one
 `SRC` line and one `register_class`.
 
-- The tables: `Substances.gd`, `AbsorptionBands.gd`, `PhysicalConstants.gd`, `ElementAbundances.gd`,
-  `PlanetComposition.gd`. Move `check_physical_constants.sh`, `check_model_parameters.sh` and
-  `gen_shared_constants.py` in the same commit — a gate left parsing a deleted file is a gate that cannot
-  fail. `scripts/check_gdscript_budget.sh` reproduces the pressure: the sim's GDScript stands above its
-  ceiling by the size of the composition registry, and this migration is the route that lowers it.
+- The tables still in GDScript: `Substances.gd`, `PhysicalConstants.gd`, `ElementAbundances.gd`,
+  `PlanetComposition.gd` (`AbsorptionBands` is native now). Move `check_physical_constants.sh`,
+  `check_model_parameters.sh` and `gen_shared_constants.py` in the same commit — a gate left parsing a
+  deleted file is a gate that cannot fail.
 - The seed-time serial work: `MaterialFieldLakes3D`'s priority flood, `MaterialFieldSolidCache3D`'s SDF
   spot check and file hashing, `MaterialFieldRegolith3D.compute`'s burial march, `FieldEnthalpySeed3D`'s
   per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
