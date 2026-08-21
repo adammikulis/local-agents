@@ -40,10 +40,18 @@ const FOG_MAX_TEMP: float = 12.0
 const CONDENSE_COVER_MIN: float = 5.0e-5 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
 var _h: PackedFloat32Array = PackedFloat32Array()        # THE STATE: enthalpy J/m^3 per cell
 var _temp: PackedFloat32Array = PackedFloat32Array()     # DERIVED °C, rewritten by StateDerivePass each step
-# ONE MINERAL AMOUNT, mol/m^3 of the cell. Melt and suspended shares are derived on the GPU; how
-# much of it is consolidated is `_cement`.
+# The mineral amounts, mol/m^3 of the cell. Silicate melt and suspended shares are derived on the GPU;
+# how much of a cell's rock is consolidated is `_cement`.
 var _silicate: PackedFloat32Array = PackedFloat32Array()
-var _cement: PackedFloat32Array = PackedFloat32Array()   # consolidated share of this cell's silicate, 0..1
+var _cement: PackedFloat32Array = PackedFloat32Array()   # consolidated share of this cell's rock, 0..1
+# The differentiated planet's other phases, seeded by LAPlanetComposition and static until their
+# transport exists.
+var _metal: PackedFloat32Array = PackedFloat32Array()
+var _olivine: PackedFloat32Array = PackedFloat32Array()
+var _pyroxene: PackedFloat32Array = PackedFloat32Array()
+var _plagioclase: PackedFloat32Array = PackedFloat32Array()
+var _halite: PackedFloat32Array = PackedFloat32Array()
+var _apatite: PackedFloat32Array = PackedFloat32Array()
 # DERIVED shares of `_silicate`, rewritten every step by the GPU. Never seeded, never conserved.
 var _silicate_melt: PackedFloat32Array = PackedFloat32Array()
 var _silicate_susp_water: PackedFloat32Array = PackedFloat32Array()
@@ -233,11 +241,15 @@ func _alloc_channels() -> void:
 	_temp = PackedFloat32Array()
 	_temp.resize(_cell_count)
 	_temp.fill(INITIAL_TEMP)
-	# Mineral amount: seeded from the solid mask on activate, GPU-owned thereafter.
+	# Mineral amounts: seeded from the solid mask on activate; the silicate is GPU-owned thereafter.
 	_silicate = PackedFloat32Array()
 	_silicate.resize(_cell_count)
 	_cement = PackedFloat32Array()
 	_cement.resize(_cell_count)
+	for arr_name in ["_metal", "_olivine", "_pyroxene", "_plagioclase", "_halite", "_apatite"]:
+		var a: PackedFloat32Array = PackedFloat32Array()
+		a.resize(_cell_count)
+		set(arr_name, a)
 	_fuel = PackedFloat32Array()
 	_fuel.resize(_cell_count)
 	_fire = PackedFloat32Array()
@@ -394,16 +406,14 @@ func sample_solidity() -> void:
 		SolidCacheScript.save_mask(k, _solid)
 	_seed_silicate()
 
-## Mineral amount mirrors the sampled mask, so the gravity solve has mass to read before the first step.
-## Seeded rock is fully consolidated: it is bedrock, not a heap of grains.
+## Mineral amounts mirror the sampled mask, so the gravity solve has mass to read before the first step.
+## Seeded rock is fully consolidated bedrock, layered as the differentiated planet LAPlanetComposition
+## derives from the element registry.
 func _seed_silicate() -> void:
 	if _silicate.size() != _cell_count or _cement.size() != _cell_count \
 			or _solid.size() != _cell_count:
 		return
-	var full: float = LASubstances.full_mol_m3("silicate")
-	for c in _cell_count:
-		_silicate[c] = full if _solid[c] != 0 else 0.0
-		_cement[c] = 1.0 if _solid[c] != 0 else 0.0
+	LAPlanetComposition.seed(self, INITIAL_TEMP)
 	# Shape the CPU arrays BEFORE the driver's seed_field reads them, so the declared upload is the
 	# compressed rock and the shell atmosphere, not the flat fill.
 	LAFieldLithostaticSeed.compress(self)

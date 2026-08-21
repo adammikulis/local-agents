@@ -29,6 +29,9 @@ layout(set = 0, binding = 51, std430) restrict writeonly buffer BodyFY { float b
 layout(set = 0, binding = 52, std430) restrict writeonly buffer BodyFZ { float bodyf_z[]; };
 // The mixture's sound speed, m/s: Wood's one-pressure compressibility sum over the cell's own matter.
 layout(set = 0, binding = 53, std430) restrict writeonly buffer Celerity { float cel_m_s[]; };
+// Radiogenic power of this cell's own matter, W/m^3: sum over channels of amount * M * W/kg(mix, epoch).
+// transport.glsl's RADIOGENIC leg deposits it into the enthalpy.
+layout(set = 0, binding = 60, std430) restrict writeonly buffer RadW { float rad_w_m3[]; };
 
 // MOMENTUM is the state, kg m/s per m^3. Velocity is what you read off it once you know the mass.
 layout(set = 0, binding = 25, std430) restrict buffer MomX { float mom_x[]; };
@@ -94,13 +97,17 @@ layout(push_constant, std430) uniform Params {
 	float fresh_h_per_c;    // LASubstances.fresh_litter_per_carbon("H")
 	float fresh_o_per_c;    // LASubstances.fresh_litter_per_carbon("O")
 	float min_fill;         // TransportPass.MIN_AMOUNT: below this total fill a cell is EMPTY
+	float rad_w_kg_1;       // W/kg of radiogenic trace mix 1 at this epoch (PROP_RAD_GROUP indexes)
+	float rad_w_kg_2;
+	float rad_w_kg_3;
+	float rad_w_kg_4;
 } params;
 
 const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
 const float SOLID_OUT = 0.4;   // LAPhysical.RHEOLOGICAL_MOBILE_CRYSTAL_FRAC
 
 // One row of `props` per channel, built from LASubstances by StateDerivePass. A channel amount is mol/m^3.
-const int PROP_STRIDE = 9;         // StateDerivePass.PROP_STRIDE
+const int PROP_STRIDE = 11;        // StateDerivePass.PROP_STRIDE
 const int PROP_M = 0;              // kg/mol
 const int PROP_C = 1;              // J/kg/K, sensible-heat entry only
 const int PROP_MOL_PER_KG = 2;     // mol/kg, non-condensable gases only
@@ -110,6 +117,16 @@ const int PROP_FULL = 5;           // mol/m^3 at which a cell is full — amount
 const int PROP_ALPHA = 6;          // 1/K volumetric expansivity
 const int PROP_BULK = 7;           // Pa bulk modulus; 0 = declared incompressible
 const int PROP_TREF = 8;           // C the reference density is quoted at
+const int PROP_LITHIC = 9;         // 1 = a rock or metal phase; the solid flag reads their summed volume
+const int PROP_RAD_GROUP = 10;     // 1-based index into params.rad_w_kg_*; 0 = no U/Th/K
+
+float rad_w_kg(int group) {
+	if (group == 1) { return params.rad_w_kg_1; }
+	if (group == 2) { return params.rad_w_kg_2; }
+	if (group == 3) { return params.rad_w_kg_3; }
+	if (group == 4) { return params.rad_w_kg_4; }
+	return 0.0;
+}
 
 // Mixture entries. Two substances carry a phase ladder; everything else is linear in T, so one entry with
 // the summed mass and c = sum(m*c)/sum(m) reproduces sum(m_i*c_i*T) exactly.
@@ -152,15 +169,16 @@ float la_entry_h(SubstanceTh s, float m_kg, float t_c, float p_pa, float n_gas_m
 
 // Cementation and the solid flag, from the melt share this cell just derived. No mass moves here, and the
 // pressure it reads is the one the enthalpy solve above read: the column solved at the end of the last step.
-void lithify(uint g, float melt) {
+// `v_lithic` is the summed volume fraction of the cell's rock and metal phases.
+void lithify(uint g, float melt, float v_lithic) {
 	// A melt carries no cement.
 	float cem = min(clamp(cement[g], 0.0, 1.0), 1.0 - melt);
 	float excess = max(pressure[g] - params.lith_pressure_pa, 0.0);
 	cem = clamp(cem + params.lith_rate_per_pa * excess * (1.0 - melt - cem), 0.0, 1.0 - melt);
 	cement[g] = cem;
 
-	// Rock volume fraction: silicate over its full amount (channel slot 1), times the cemented share.
-	float rock = max(silicate[g], 0.0) / props[1 * PROP_STRIDE + PROP_FULL] * cem;
+	// Rock volume fraction: the lithic phases over their full amounts, times the cemented share.
+	float rock = v_lithic * cem;
 	bool was = solid[g] != 0.0;
 	bool now = was ? (rock >= SOLID_OUT) : (rock >= SOLID_IN);
 	if (now) {
@@ -230,6 +248,8 @@ void main() {
 	float n_gas_mol = 0.0;   // moles of non-condensable gas: the Dalton denominator of the vapour split
 	float v_lambda = 0.0;    // volume-weighted conductivity, W/m/K
 	float v_used = 0.0;
+	float v_lithic = 0.0;    // volume fraction of rock and metal phases: what the solid flag reads
+	float rad_w = 0.0;       // radiogenic power of the cell's matter, W/m^3
 	// EOS sums: b* the unstressed condensed volume, c* its compressibility, h* the same for h2o alone.
 	float b0 = 0.0; float b1 = 0.0; float b2 = 0.0;
 	float c0 = 0.0; float c1 = 0.0; float c2 = 0.0;
@@ -252,6 +272,8 @@ void main() {
 		float vf = f / props[base + PROP_FULL];
 		v_lambda += vf * props[base + PROP_LAMBDA];
 		v_used += vf;
+		v_lithic += props[base + PROP_LITHIC] > 0.0 ? vf : 0.0;
+		rad_w += f * props[base + PROP_M] * rad_w_kg(int(props[base + PROP_RAD_GROUP]));
 		n_gas_mol += m * props[base + PROP_MOL_PER_KG];
 		if (props[base + PROP_MOL_PER_KG] > 0.0) {
 			cp_gas += m * props[base + PROP_C];
@@ -286,6 +308,7 @@ void main() {
 		}
 	}
 
+	rad_w_m3[g] = rad_w;
 	float total = mass[E_H2O] + mass[E_SILICATE] + mass[E_SENSIBLE];
 	float inv_vol = (vol > 0.0) ? 1.0 / vol : 0.0;
 	// Parallel mixing rule: the fluxes through each constituent add. An empty cell conducts nothing.
@@ -322,7 +345,7 @@ void main() {
 		bodyf_y[g] = 0.0;
 		bodyf_z[g] = 0.0;
 		cel_m_s[g] = 0.0;
-		lithify(g, f_melt);
+		lithify(g, f_melt, v_lithic);
 		return;   // no mass, so the frame terms deliver no momentum either
 	}
 	// v = p/rho, momentum density over mass density. Dividing by the density rather than multiplying by
@@ -437,7 +460,7 @@ void main() {
 	}
 	silicate_melt[g] = f_melt;
 
-	lithify(g, f_melt);
+	lithify(g, f_melt, v_lithic);
 
 	// QUASI-STATIC ROCK: the lattice carries its weight (LA_APPROX quasi_static_solid_pressure), so
 	// locked matter holds no bulk momentum and a cell that unlocks starts from rest.

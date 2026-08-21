@@ -10,7 +10,8 @@ const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/
 const H2O: PackedStringArray = ["h2o"]
 
 ## The lithosphere. Reactions move matter between these channels, so the conserved stock is elemental Si.
-const MINERAL: PackedStringArray = ["silicate", "carbonate", "silica"]
+const MINERAL: PackedStringArray = ["silicate", "carbonate", "silica", "olivine", "pyroxene",
+	"plagioclase", "metal", "halite", "apatite"]
 ## The atmosphere/biosphere element book.
 const ELEMENT: PackedStringArray = ["co2", "o2", "detritus", "biomass", "fert", "fungus", "fuel", "n2",
 	"org_h", "org_o"]

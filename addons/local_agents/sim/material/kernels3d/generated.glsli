@@ -29,6 +29,12 @@
 #define ORG_O 29
 #define ORG_C 30
 #define H2O_LIQUID 31
+#define METAL 32
+#define OLIVINE 33
+#define PYROXENE 34
+#define PLAGIOCLASE 35
+#define HALITE 36
+#define APATITE 37
 #define RM_CONST_FRAC 0
 #define RM_BILINEAR 1
 #define RM_EXCESS_OVER_THRESHOLD 2

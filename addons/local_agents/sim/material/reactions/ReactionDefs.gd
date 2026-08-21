@@ -32,6 +32,13 @@ const ORG_H: int = DISCHARGE + 1      # hydrogen bound in the dead organic pool
 const ORG_O: int = ORG_H + 1          # oxygen bound in the dead organic pool
 const ORG_C: int = ORG_O + 1          # derived driver only: DETRITUS + FUEL
 const H2O_LIQUID: int = ORG_C + 1     # derived driver only: liquid share of the cell's h2o
+# The differentiated planet's phases. No record consumes them yet; the slots carry their composition.
+const METAL: int = H2O_LIQUID + 1
+const OLIVINE: int = METAL + 1
+const PYROXENE: int = OLIVINE + 1
+const PLAGIOCLASE: int = PYROXENE + 1
+const HALITE: int = PLAGIOCLASE + 1
+const APATITE: int = HALITE + 1
 
 # --- Rate models
 const RM_CONST_FRAC: int = 0             # x = k * driver

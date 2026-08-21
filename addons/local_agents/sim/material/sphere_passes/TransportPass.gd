@@ -320,7 +320,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 			"h2o_vapour", "silicate", "biomass", "silicate_melt", "cement",
 			"silicate_susp_water", "silicate_susp_air", "silicate_bed",
 			"rad_absorbed", "rad_emitted", "col_e", "strike",
-			"carbonate", "silica", "radiogenic", "sw_space", "rad_residual",
+			"rad_w_m3", "radiogenic", "sw_space", "rad_residual",
 			"ghost", "bnd_void", "bnd_h_void", "rho_bulk",
 			"mom_x", "mom_y", "mom_z", "celerity", "speed", "bodyf_x", "bodyf_y", "bodyf_z"]:
 		if not bufs.has(key):
@@ -367,9 +367,8 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[38, _single(bufs, "rad_emitted")],
 		[39, _single(bufs, "col_e")],
 		[40, _single(bufs, "strike")],
-		# The other two rock channels and where the radiogenic tail books what it deposited.
-		[41, _single(bufs, "carbonate")],
-		[42, _single(bufs, "silica")],
+		# The composition-derived radiogenic power, and where its tail books what it deposited.
+		[41, _single(bufs, "rad_w_m3")],
 		[43, _single(bufs, "radiogenic")],
 		[44, _lw_emis],
 		[45, _sw_abs],
@@ -457,7 +456,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	if String(row["channel"]) == "h_j_m3":
 		flags |= LATransportRecords.Flag.ENTHALPY
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(120)
+	pc.resize(108)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
@@ -485,19 +484,14 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	pc.encode_float(76, water.y)
 	pc.encode_float(80, air.x)
 	pc.encode_float(84, air.y)
-	# The nuclide store is finite, so the rate FALLS: this is what each rock has left at the run's epoch.
-	var epoch: float = LARadiogenicDecay.epoch_years()
-	pc.encode_float(88, LARadiogenicDecay.heat_production_w_m3_at("silicate", epoch))
-	pc.encode_float(92, LARadiogenicDecay.heat_production_w_m3_at("carbonate", epoch))
-	pc.encode_float(96, LARadiogenicDecay.heat_production_w_m3_at("silica", epoch))
 	# J/m^3/K one mol/m^3 of the substance contributes to the sensible entry (molar mass times specific
 	# heat); 0 for a substance on a phase ladder, whose entry is the channel itself.
-	pc.encode_float(100, float(entry.get("molar_mass", 0.0)) * LAMatterChannels.specific_heat(substance))
-	pc.encode_u32(104, cc + ghost_count)
-	pc.encode_u32(108, int(row.get("axis", 0)))
-	pc.encode_float(112, substep_frac)
+	pc.encode_float(88, float(entry.get("molar_mass", 0.0)) * LAMatterChannels.specific_heat(substance))
+	pc.encode_u32(92, cc + ghost_count)
+	pc.encode_u32(96, int(row.get("axis", 0)))
+	pc.encode_float(100, substep_frac)
 	# The donation floor as mass: MIN_FILL_FRAC of a cell of the lightest bulk matter, air.
-	pc.encode_float(116, MIN_FILL_FRAC * LAPhysical.AIR_DENSITY_KG_M3)
+	pc.encode_float(104, MIN_FILL_FRAC * LAPhysical.AIR_DENSITY_KG_M3)
 	return pc
 
 

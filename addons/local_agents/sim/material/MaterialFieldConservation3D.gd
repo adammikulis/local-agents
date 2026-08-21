@@ -23,6 +23,12 @@ const GATED: Dictionary = {
 	"h2o_closed_total": {"rel": "h2o_rel_drift"},
 	"nitrogen_all": {"rel": "nitrogen_rel_drift"},
 	"mineral_total": {"rel": "mineral_rel_drift"},
+	"lith_Fe_total": {"rel": "lith_Fe_rel_drift"},
+	"lith_Mg_total": {"rel": "lith_Mg_rel_drift"},
+	"lith_Al_total": {"rel": "lith_Al_rel_drift"},
+	"lith_Na_total": {"rel": "lith_Na_rel_drift"},
+	"lith_Cl_total": {"rel": "lith_Cl_rel_drift"},
+	"lith_P_total": {"rel": "lith_P_rel_drift"},
 	"energy_stock": {"rel": "energy_residual_rel", "turnover": "energy_turnover_j", "stock": "energy_stock"},
 }
 

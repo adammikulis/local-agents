@@ -17,13 +17,13 @@ const BOUND: Dictionary = {
 	"org_oc": 31, "rho_bulk": 32, "conductivity": 33, "h2o_solid": 34, "h2o_liquid": 35,
 	"h2o_vapour": 36, "silicate_melt": 37, "org_fresh": 38, "cell_vol": 40, "speed": 41, "lat": 42,
 	"alt": 43, "nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48,
-	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52, "celerity": 53}
+	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52, "celerity": 53, "rad_w_m3": 60}
 
 ## One mole of organic carbon per cell — the pool below which a cell's C:H:O ratio is fp32 noise.
 const ORG_MIN_POOL_MOL: float = 1.0
 
 ## props row layout — state_derive.glsl PROP_*.
-const PROP_STRIDE: int = 9
+const PROP_STRIDE: int = 11
 const PROP_M: int = 0
 const PROP_C: int = 1
 const PROP_MOL_PER_KG: int = 2
@@ -34,11 +34,19 @@ const PROP_FULL: int = 5
 const PROP_ALPHA: int = 6
 const PROP_BULK: int = 7
 const PROP_TREF: int = 8
+## 1 where the channel is a rock or metal phase, so the solid flag reads the whole lithic volume.
+const PROP_LITHIC: int = 9
+## 1-based index into the push constant's radiogenic W/kg slots; 0 for a substance with no U/Th/K.
+const PROP_RAD_GROUP: int = 10
+
+## Push-constant slots for distinct radiogenic trace mixes, re-evaluated at the run's epoch per step.
+const RAD_GROUPS: int = 4
 
 var _pipe: RID = RID()
 var _set: RID = RID()
 var _fresh_h_per_c: float = 0.0
 var _fresh_o_per_c: float = 0.0
+var _rad_mixes: Array = []
 
 
 ## Device-read only, so this pass's own rather than drained LAChannels.derived_buffers() entries.
@@ -49,7 +57,8 @@ func _buffers(cc: int) -> Dictionary:
 		"h_sensible": {"n": cc, "ghosts": true}, "cap_sensible": {"n": cc, "ghosts": true},
 		"org_hc": cc, "org_oc": cc, "org_fresh": cc,
 		"bodyf_x": cc, "bodyf_y": cc, "bodyf_z": cc,
-		"celerity": {"n": cc, "ghosts": true}}
+		"celerity": {"n": cc, "ghosts": true},
+		"rad_w_m3": {"n": cc, "ghosts": true}}
 
 
 func _setup(bufs: Dictionary, _cc: int) -> void:
@@ -79,7 +88,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	var channels: PackedStringArray = LAMatterChannels.CHANNELS
 	var entries: Array = []
 	for i in channels.size():
-		entries.append([i, _single(bufs, channels[i])])
+		entries.append([LAMatterChannels.binding_of(i), _single(bufs, channels[i])])
 	entries.append([24, props_ssbo])
 	for name in BOUND:
 		entries.append([int(BOUND[name]), _single(bufs, String(name))])
@@ -92,7 +101,7 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	var w: Vector3 = ctx.get("spin", Vector3.ZERO) * LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S
 	var centre: Vector3 = ctx.get("centre", Vector3.ZERO)
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(60)
+	pc.resize(76)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, LAMaterialFieldSphereStep3D.real_seconds_per_step())
 	pc.encode_float(8, w.x)
@@ -109,6 +118,14 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	pc.encode_float(52, _fresh_o_per_c)
 	# Below TransportPass.MIN_FILL_FRAC of occupied volume a cell donates nothing and holds no bulk state.
 	pc.encode_float(56, TransportPassScript.MIN_FILL_FRAC)
+	# W/kg of each distinct radiogenic trace mix at the run's epoch: the store is finite, so the rate falls.
+	var epoch: float = LARadiogenicDecay.epoch_years()
+	for i in RAD_GROUPS:
+		var w_kg: float = 0.0
+		if i < _rad_mixes.size():
+			var mix: Array = _rad_mixes[i]
+			w_kg = LARadiogenicDecay.heat_w_kg_of({"U": mix[0], "Th": mix[1], "K": mix[2]}, epoch)
+		pc.encode_float(60 + i * 4, w_kg)
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, _set, 0)
 	rd.compute_list_set_push_constant(cl, pc, pc.size())
@@ -159,4 +176,24 @@ func _props() -> PackedFloat32Array:
 		# unstressed volume and takes no part in the compressibility sum.
 		out[base + PROP_BULK] = float(s.get("bulk_modulus_pa", 0.0))
 		out[base + PROP_TREF] = float(s.get("density_ref_t_c", 0.0))
+		out[base + PROP_LITHIC] = 1.0 if bool(row.get("lithic", false)) else 0.0
+		out[base + PROP_RAD_GROUP] = float(_rad_group(s.get("traces", {})))
 	return out
+
+
+## 1-based index of this trace mix among the distinct radiogenic mixes; 0 for one with no U/Th/K.
+func _rad_group(traces: Dictionary) -> int:
+	if float(traces.get("U", 0.0)) <= 0.0 and float(traces.get("Th", 0.0)) <= 0.0 \
+			and float(traces.get("K", 0.0)) <= 0.0:
+		return 0
+	var key: Array = [float(traces.get("U", 0.0)), float(traces.get("Th", 0.0)),
+		float(traces.get("K", 0.0))]
+	for i in _rad_mixes.size():
+		if _rad_mixes[i] == key:
+			return i + 1
+	if _rad_mixes.size() >= RAD_GROUPS:
+		push_error("StateDerivePass: more than %d distinct radiogenic trace mixes; the push constant "
+			% RAD_GROUPS + "cannot carry another epoch rate.")
+		return 0
+	_rad_mixes.append(key)
+	return _rad_mixes.size()
