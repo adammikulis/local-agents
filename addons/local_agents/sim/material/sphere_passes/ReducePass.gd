@@ -37,10 +37,11 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		return
 	var solid: RID = _single(bufs, "solid")
 	var nbr: RID = _single(bufs, "nbr")
-	var grav: RID = _single(bufs, "gravity")
-	if not nbr.is_valid() or not grav.is_valid():
-		push_error("ReducePass: the driver allocated no \"nbr\"/\"gravity\"; no row can ask what is "
-			+ "beside a cell, and none can ask what is below it.")
+	var vert_up: RID = _single(bufs, "vert_up")
+	var vert_down: RID = _single(bufs, "vert_down")
+	if not nbr.is_valid() or not vert_up.is_valid() or not vert_down.is_valid():
+		push_error("ReducePass: the driver allocated no \"nbr\"/\"vert_up\"/\"vert_down\"; no row can ask "
+			+ "what is beside a cell, and none can ask what is below it.")
 		return
 	for row: Dictionary in LAReduceRecords.rows():
 		var src: String = String(row["source"])
@@ -67,7 +68,8 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			[7, _single(bufs, gate_aux) if gate_aux != "" else solid],
 			[8, _single(bufs, aux2) if aux2 != "" else solid],
 			[9, nbr],
-			[10, grav]]))
+			[10, vert_up],
+			[11, vert_down]]))
 		_rows.append(row)
 
 
@@ -171,6 +173,7 @@ func _pc(cc: int, row: Dictionary, base: int, cell_m: float) -> PackedByteArray:
 	var has_gate: int = 0
 	if gate != "":
 		has_gate = 2 if String(row.get("gate_aux", "")) != "" else 1
+		has_gate += 4 if bool(row.get("gate_strict_lo", false)) else 0
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(PC_BYTES)
 	pc.encode_u32(0, cc)

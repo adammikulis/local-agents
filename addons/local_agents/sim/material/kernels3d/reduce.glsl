@@ -15,9 +15,9 @@ layout(set = 0, binding = 6, std430) readonly buffer Gate { float gatev[]; };
 layout(set = 0, binding = 7, std430) readonly buffer GateAux { float gate_aux[]; };
 layout(set = 0, binding = 8, std430) readonly buffer Aux2 { float aux2[]; };
 layout(set = 0, binding = 9, std430) readonly buffer Nbr { int nbr[]; };
-// Solved gravity per cell, flat cell*3, m/s^2. Which cell is BELOW another is a question only gravity
-// answers on a uniform Cartesian box.
-layout(set = 0, binding = 10, std430) readonly buffer Grav { float g_field[]; };
+// GravityPass's one vertical relation: vert_down is vert_up's scattered inverse, -1 where none exists.
+layout(set = 0, binding = 10, std430) readonly buffer VertUp { int vert_up[]; };
+layout(set = 0, binding = 11, std430) readonly buffer VertDown { int vert_down[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -27,7 +27,7 @@ layout(push_constant, std430) uniform Params {
 	float threshold;
 	float weight;      // cell volume, m^3, or 1 for an unweighted row
 	uint has_aux;      // 0 none, 1 src*aux, 2 src*(aux + aux2)
-	uint has_gate;     // 0 none, 1 gate, 2 gate*gate_aux
+	uint has_gate;     // low bits: 0 none, 1 gate, 2 gate*gate_aux; bit 2: gate_lo is strict
 	float gate_lo;     // gated cells are those inside [gate_lo, gate_hi)
 	float gate_hi;
 	uint nbr;          // NBR_*: what the cell's value is read against
@@ -73,16 +73,9 @@ float la_raw(uint i) {
 	return v;
 }
 
-vec3 la_g(uint i) {
-	return vec3(g_field[i * 3u], g_field[i * 3u + 1u], g_field[i * 3u + 2u]);
-}
-
 // The cell one step along gravity, or against it; -1 outside the box or where gravity vanishes.
 int la_vertical(uint i) {
-	if (params.nbr == NBR_BELOW) {
-		return la_step(i, la_g(i));
-	}
-	return la_step(i, -la_g(i));
+	return (params.nbr == NBR_BELOW) ? vert_down[i] : vert_up[i];
 }
 
 // Central difference of the row's value across one grid axis, per metre. The two faces are walked along
@@ -130,13 +123,17 @@ bool la_mask(uint i) {
 	if (params.mask == MASK_SOLID) {
 		return !open;
 	}
-	// GROUND is an open cell whose gravity-below neighbour is solid; AIR is every other open cell.
+	int b = vert_down[i];
+	bool solid_below = (b >= 0) && (solid[uint(b)] != 0.0);
+	// BEDDED is a solid cell resting on solid; GROUND an open cell resting on solid; AIR every other
+	// open cell.
+	if (params.mask == MASK_BEDDED) {
+		return !open && solid_below;
+	}
 	if (!open) {
 		return false;
 	}
-	int b = la_step(i, la_g(i));
-	bool grounded = (b >= 0) && (solid[uint(b)] != 0.0);
-	return (params.mask == MASK_GROUND) ? grounded : !grounded;
+	return (params.mask == MASK_GROUND) ? solid_below : !solid_below;
 }
 
 bool la_keep(uint i) {
@@ -147,14 +144,26 @@ bool la_keep(uint i) {
 	if ((params.nbr == NBR_BELOW || params.nbr == NBR_ABOVE) && la_vertical(i) < 0) {
 		return false;
 	}
-	if (params.has_gate == 0u) {
+	uint mode = params.has_gate & 3u;
+	if (mode == 0u) {
 		return true;
 	}
 	float g = gatev[i];
-	if (params.has_gate == 2u) {
+	if (mode == 2u) {
 		g *= gate_aux[i];
 	}
-	return g >= params.gate_lo && g < params.gate_hi;
+	// A vertical row's gate reads the PAIR: its larger value, so gate_lo asks "either end" and gate_hi
+	// asks "both ends".
+	if (params.nbr == NBR_BELOW || params.nbr == NBR_ABOVE) {
+		uint j = uint(la_vertical(i));
+		float gj = gatev[j];
+		if (mode == 2u) {
+			gj *= gate_aux[j];
+		}
+		g = max(g, gj);
+	}
+	bool lo_ok = ((params.has_gate & 4u) != 0u) ? (g > params.gate_lo) : (g >= params.gate_lo);
+	return lo_ok && g < params.gate_hi;
 }
 
 void main() {
