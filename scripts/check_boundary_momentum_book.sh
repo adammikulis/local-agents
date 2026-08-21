@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # MOMENTUM CROSSING AN OPEN BOUNDARY IS BOOKED, judged by the REAL evaluator: TransportPass dispatching
-# transport.glsl over a two-cell rig with one CONSTANT face from the real LAFieldBoundary3D. The PGF is a
-# face FLUX (p n dt/L crosses every face, cancelling pairwise inside) and bnd_mom_* books the whole
-# exchange with everything outside the fluid, walls included: a balanced box books net zero while its
-# cells' momentum stays exactly zero; a gap books a net inflow and accelerates the edge cell inward.
+# transport.glsl over a two-cell rig with CONSTANT and REPLAY faces from the real LAFieldBoundary3D.
+# bnd_mom_* books the whole exchange with everything outside the fluid, walls and the REPLAY rim's
+# nudge included — applied and booked once, no heat leg, held by differencing against the relax-off arm.
 # LABoundaryBooks promises no heat leg for a signed channel and still names a matter channel's absent one.
 set -uo pipefail
 
@@ -64,9 +63,11 @@ func _i32(vals: PackedInt32Array, owned: Array[RID]) -> RID:
 	return r
 
 
-## One dispatch of the real TransportPass over a 2x1x1 rig at rest at `P_IN`. Face 0 is CONSTANT at
-## `p_ghost` Pa with still air outside; NAN shuts every wall. Returns the boundary books off the device.
-func _run(p_ghost: float) -> Dictionary:
+## One dispatch of the real TransportPass over a 2x1x1 rig at rest at `P_IN`. Face 0 holds `mode` at
+## `p_ghost` Pa of real air (n = p/RT) moving at `vel`; NAN shuts every wall. `relax_on` false strips
+## the momentum rows' rim flag — the disabled arm the rim assertions difference against.
+func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 = Vector3.ZERO,
+		relax_on: bool = true) -> Dictionary:
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	grid.build(2, 1, 1, CELL, Vector3(-1.0, -0.5, -0.5))
 	var cc: int = grid.cell_count
@@ -74,11 +75,12 @@ func _run(p_ghost: float) -> Dictionary:
 	var ng: int = 0
 	if is_finite(p_ghost):
 		bnd = LAFieldBoundary3D.new()
-		var modes: PackedInt32Array = PackedInt32Array([LAFieldBoundary3D.CONSTANT,
+		var modes: PackedInt32Array = PackedInt32Array([mode,
 			LAFieldBoundary3D.SHUT, LAFieldBoundary3D.SHUT, LAFieldBoundary3D.SHUT,
 			LAFieldBoundary3D.SHUT, LAFieldBoundary3D.SHUT])
+		var n_air: float = p_ghost / (LAPhysical.GAS_CONSTANT_J_MOL_K * (T_C + LAPhysical.KELVIN_OFFSET))
 		var st: Dictionary = {"temp_c": T_C, "pressure_pa": p_ghost, "gravity": Vector3.ZERO,
-			"velocity": Vector3.ZERO, "amounts": {"n2": 0.78, "o2": 0.21}}
+			"velocity": vel, "amounts": {"n2": 0.78 * n_air, "o2": 0.21 * n_air}}
 		if not bnd.configure(grid, modes, [st, null, null, null, null, null]):
 			_expect(false, "boundary configure failed: " + bnd.error)
 			return {}
@@ -124,6 +126,10 @@ func _run(p_ghost: float) -> Dictionary:
 		_rd.buffer_update(bufs[String(pair[0])], 0, vals.size(), vals)
 
 	p.setup(_rd, bufs, cc)
+	if not relax_on:
+		for row: Dictionary in p._rows:
+			if String(row["channel"]).begins_with("mom_"):
+				row.erase("relax")
 	if bnd != null:
 		var stub: StubGpu = StubGpu.new()
 		stub._rd = _rd
@@ -139,9 +145,9 @@ func _run(p_ghost: float) -> Dictionary:
 	_rd.submit()
 	_rd.sync()
 	var out: Dictionary = {}
-	for key in ["bnd_mom_x", "bnd_mom_y", "bnd_mom_z", "bnd_n2"]:
+	for key in ["bnd_mom_x", "bnd_mom_y", "bnd_mom_z", "bnd_n2",
+			"mom_x", "mom_y", "mom_z", "h_j_m3"]:
 		out[key] = _rd.buffer_get_data(bufs[String(key)]).to_float32_array()
-	out["mom_x"] = _rd.buffer_get_data(bufs["mom_x"]).to_float32_array()
 	p.dispose(_rd)
 	for r in owned:
 		if r.is_valid():
@@ -193,6 +199,32 @@ func _init() -> void:
 		_expect(_sum(shut[key]) == 0.0, "every wall is shut yet %s reads %s."
 			% [key, String.num_scientific(_sum(shut[key]))])
 
+	# THE REPLAY RIM. Face 0 REPLAY at the same pressure, exterior air moving on all three axes; the
+	# relax-off run is the disabled arm, so the difference IS the rim's momentum nudge.
+	var drive: Vector3 = Vector3(10.0, 6.0, -4.0)
+	var rim_on: Dictionary = _run(P_IN, LAFieldBoundary3D.REPLAY, drive)
+	var rim_off: Dictionary = _run(P_IN, LAFieldBoundary3D.REPLAY, drive, false)
+	if rim_on.is_empty() or rim_off.is_empty():
+		quit(2)
+		return
+	var rim_dx: float = 0.0
+	for i in 3:
+		var a: String = ["x", "y", "z"][i]
+		var db: float = _sum(rim_on["bnd_mom_" + a]) - _sum(rim_off["bnd_mom_" + a])
+		var dm: float = _sum(rim_on["mom_" + a]) - _sum(rim_off["mom_" + a])
+		if i == 0:
+			rim_dx = db
+		_expect(db * drive[i] > 0.0, "the rim nudged the field toward the driving state and bnd_mom_%s "
+			% a + "booked none of it (booked %s against exterior drive %s)."
+			% [String.num_scientific(db), String.num_scientific(drive[i])])
+		_expect(absf(db - dm) <= 1.0e-3 * maxf(maxf(absf(db), absf(dm)), 1.0e-6),
+			"the rim's %s nudge and its booking disagree: applied %s, booked %s — double-counted "
+			% [a, String.num_scientific(dm), String.num_scientific(db)] + "or part-unbooked.")
+	_expect(float(rim_on["bnd_mom_x"][1]) - float(rim_off["bnd_mom_x"][1]) > 0.0,
+		"the rim reaches inward of the face, yet the second rim cell's nudge never reached bnd_mom_x.")
+	_expect(_sum(rim_on["h_j_m3"]) == _sum(rim_off["h_j_m3"]),
+		"the momentum rim moved enthalpy — momentum is not matter and carries no heat leg.")
+
 	# The matter/energy books never promise a heat leg for a signed channel, and still name a matter
 	# channel's absent heat leg.
 	var declared: PackedStringArray = LABoundaryBooks.declared()
@@ -210,9 +242,9 @@ func _init() -> void:
 		+ "named it — the missing-leg detection is dead.")
 	_expect(not books.missing.has("bnd_h2o"), "a leg that was present got named missing.")
 
-	print('BOUNDARY_MOMENTUM_BOOK={"gap_x":%s,"balanced":%s,"shut":%s,"failures":%d}'
+	print('BOUNDARY_MOMENTUM_BOOK={"gap_x":%s,"balanced":%s,"shut":%s,"rim_x":%s,"failures":%d}'
 		% [String.num_scientific(gap_x), String.num_scientific(_sum(balanced["bnd_mom_x"])),
-			String.num_scientific(_sum(shut["bnd_mom_x"])), _fails])
+			String.num_scientific(_sum(shut["bnd_mom_x"])), String.num_scientific(rim_dx), _fails])
 	_rd.free()
 	quit(1 if _fails > 0 else 0)
 GD
@@ -242,10 +274,12 @@ fi
 # fluid, WALLS INCLUDED (the ground's normal force holds the ocean up), so the book is not zero there;
 # the rig's shut sub-arm above owns the exact-zero case. Here the fold must be PRESENT and FINITE —
 # an absent reading is the fold unwired, a non-finite one is the ledger poisoned.
+# The same run records the face-state capture ARM THREE replays.
 # ---------------------------------------------------------------------------------------------------
 SIM_FRAMES="${LA_BND_MOM_FRAMES:-20}"
+CAP="${LA_BND_MOM_CAP:-$(mktemp "${TMPDIR:-/tmp}/bnd_mom_cap.XXXXXX")}"
 sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "$SIM_FRAMES" \
-  --report momentum_book_bnd 2>&1)"
+  --slice-capture "$CAP" --report momentum_book_bnd 2>&1)"
 sim_rc=$?
 reading="$(printf '%s\n' "$sim_out" | sed -n 's/^momentum_book_bnd  *= *//p' | head -1)"
 printf 'momentum_book_bnd = %s\n' "${reading:-<none>}"
@@ -253,11 +287,58 @@ if [ -z "$reading" ] || printf '%s' "$reading" | grep -q '<ABSENT>'; then
   echo "ERROR: the run published no momentum_book_bnd (sim_run exit $sim_rc) — the boundary fold is" >&2
   echo "       unwired or the report is dead. Refusing to report a pass." >&2
   printf '%s\n' "$sim_out" | tail -20 >&2
+  rm -f "$CAP"
   exit 2
 fi
 if printf '%s' "$reading" | grep -qiE 'nan|inf|null|None'; then
   echo
   echo "The seeded world's momentum boundary book reads $reading — the fold is poisoned."
+  rm -f "$CAP"
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------------------------------
+# ARM THREE — the REPLAY slice. The capture ARM TWO recorded drives a slice's vertical faces in REPLAY
+# mode, standing the relaxation rim up on the real seeded path; the fold must engage REPLAY (not fall
+# back to CONSTANT) and publish a present, finite momentum_book_bnd.
+# ---------------------------------------------------------------------------------------------------
+if [ ! -s "$CAP" ] || ! grep -q '"samples"' "$CAP"; then
+  echo "ERROR: the global run recorded no face-state capture at $CAP — the REPLAY arm cannot run." >&2
+  rm -f "$CAP"
+  exit 2
+fi
+REPLAY_FRAMES="${LA_BND_MOM_REPLAY_FRAMES:-15}"
+replay_out="$(LA_SLICE_REPLAY=1 "$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --slice --keep \
+  --slice-state "$CAP" --frames "$REPLAY_FRAMES" --report momentum_book_bnd 2>&1)"
+replay_rc=$?
+rm -f "$CAP"
+# SLICE_BOUNDARY prints inside the engine log, which sim_run does not forward; --keep names it.
+replay_log="$(printf '%s\n' "$replay_out" | sed -n 's/^sim_run: log kept at //p' | head -1)"
+faces="$(grep -m1 '^SLICE_BOUNDARY=' "$replay_log" 2>/dev/null)"
+rm -f "$replay_log"
+if [ -z "$faces" ]; then
+  echo "ERROR: the slice run printed no SLICE_BOUNDARY (sim_run exit $replay_rc) — no boundary stood up." >&2
+  printf '%s\n' "$replay_out" | tail -20 >&2
+  exit 2
+fi
+if ! printf '%s' "$faces" | grep -q 'replay'; then
+  echo
+  echo "LA_SLICE_REPLAY was set and the slice still stood up: $faces"
+  echo "The REPLAY rim path is dead."
+  exit 1
+fi
+rreading="$(printf '%s\n' "$replay_out" | sed -n 's/^momentum_book_bnd  *= *//p' | head -1)"
+printf 'replay momentum_book_bnd = %s\n' "${rreading:-<none>}"
+if [ -z "$rreading" ] || printf '%s' "$rreading" | grep -q '<ABSENT>'; then
+  echo
+  echo "The REPLAY slice published no momentum_book_bnd (sim_run exit $replay_rc): the rim's nudge is"
+  echo "booked on the device but the fold never reaches the report, so nothing holds the booking."
+  printf '%s\n' "$replay_out" | tail -20 >&2
+  exit 1
+fi
+if printf '%s' "$rreading" | grep -qiE 'nan|inf|null|None'; then
+  echo
+  echo "The REPLAY slice's momentum boundary book reads $rreading — the fold is poisoned."
   exit 1
 fi
 echo "check_boundary_momentum_book: OK"

@@ -124,6 +124,11 @@ func _open_temp_stats() -> Dictionary:
 			if gn != null and int(gn) > 0 and gsum != null else null}
 
 
+## Per-step ledger folds on the field clock; report() only publishes what these accumulated.
+func sample_ledgers() -> void:
+	_momentum.sample(int(_f._gpu._step_index) if _f._gpu != null else 0)
+
+
 func report() -> Dictionary:
 	# LAMaterialFieldSphereStep3D polls the seal on the field step; this only announces the transition once.
 	if _seal != null and _seal.sealed() and not _seal_announced:
