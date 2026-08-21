@@ -12,3 +12,5 @@ merge, or has not moved inside the age limit.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
+| `worktree-agent-a4346c6d2fa3279b7` | 1 | Hydrogen/helium escape: Jeans + energy-limited regimes, SPACE face record, escape booked to bnd_*. | the sim/ GDScript budget has headroom (item 5 migration). |
+| `worktree-agent-a2a1933a02d7722fe` | 1 | Slice capture resolves each face to the global cells beyond it; unresolvable faces are named and refused. | the sim/ GDScript budget has headroom (item 5 migration). |
