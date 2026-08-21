@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
-# Phase-from-energy has one definition per side of the GPU boundary: kernels3d/enthalpy.glsli and
-# LASubstances.enthalpy_to_state. This holds them equal on VALUES and on the FORMULA.
-#
-# Every value in the GLSL carries a trailing `// CONST_NAME` naming its authority in LAPhysical.
-# Every boundary of the phase ladder must be built from the same expression on both sides: a gate that
-# only checked the constants passed while the two sides put them in incompatible expressions.
-#
+# Phase-from-energy has one definition per side of the GPU boundary: kernels3d/enthalpy.glsli against
+# LASubstances::enthalpy_to_state, and mixture_enthalpy.glsli against LAMixtureEnthalpy::state. This holds
+# each pair equal on VALUES and on the FORMULA. Every value in the GLSL carries a trailing `// CONST_NAME`
+# naming its authority; every boundary of the ladder must be built from the same expression on both sides.
 # EXIT CODES. 0 pass · 1 the two sides diverged · 2 the gate could not run, never a silent pass.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

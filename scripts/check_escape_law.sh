@@ -2,9 +2,8 @@
 # THE ESCAPE LAW, judged by the real evaluator: TransportPass dispatching transport.glsl over a rig whose
 # box edge faces space. (a) closure — what left the top equals the bnd book; (b) physics — cold top or no
 # XUV escapes nothing, a bound gas escapes thermally, an unbound gas escapes only under the epoch's XUV;
-# (c) selectivity — the computed escape parameter keeps every heavy species in. Arm two runs the seeded
-# world and holds the hydrogen pair's crossing to reaching the ledger.
-# EXIT 0 clean · 1 a violation · 2 could not run.
+# (c) selectivity — the escape parameter keeps every heavy species in. Arm two runs the seeded world and
+# holds the hydrogen pair's crossing to reaching the ledger. EXIT 0 clean · 1 a violation · 2 could not run.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

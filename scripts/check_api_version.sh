@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-# The GDExtension binds against ONE engine API, declared as GODOTCPP_API_VERSION in CMakeLists.txt. It must
-# equal the engine that loads the library, and the PINNED godot-cpp must ship that extension_api.
-#
-# A version validated against whatever godot-cpp happened to be on disk is not validated: the pin decides
-# what a clean fetch produces, so the pin is what this asks.
+# GODOTCPP_API_VERSION must equal the engine on PATH, and the PINNED godot-cpp must ship that
+# extension_api. The pin decides what a clean fetch produces, so the pin is what this asks.
 #
 # EXIT 0 pass · 1 the declaration diverged · 2 the gate could not run, never a silent pass.
 set -uo pipefail

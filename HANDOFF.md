@@ -66,8 +66,6 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
 - **Do not move `PhysicalConstants.gd`.** godot-cpp binds only INTEGER class constants, so its floats
   have no native form a GDScript `const` can fold; native code reads it through
   `include/LAPhysicalRead.hpp`.
-- `MixtureEnthalpy.gd` walks a cell's substances and calls native `LASubstances` on every rung, so it
-  pays a GDScript-to-native hop per boundary. It is the next class to move.
 - The seed-time serial work: `MaterialFieldLakes3D`'s priority flood, `MaterialFieldSolidCache3D`'s SDF
   spot check and file hashing, `MaterialFieldRegolith3D.compute`'s burial march, `FieldEnthalpySeed3D`'s
   per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
