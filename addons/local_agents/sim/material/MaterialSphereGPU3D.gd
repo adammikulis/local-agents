@@ -211,6 +211,12 @@ func set_sun_dir(v: Vector3) -> void:
 	_ctx["sun_dir"] = v
 
 
+## Radius of the sea shell from the body centre, metres — the datum the derived `alt` is measured from.
+## Absent or zero = the body carries no shell, which is no altitude, not an altitude of zero.
+func set_sea_radius(m: float) -> void:
+	_ctx["sea_radius"] = m
+
+
 ## The drained maxima the substep budget reads; before any drain there are none, so no extra substeps.
 func set_cfl_inputs(speed_max: float, temp_max_k: float, mean_g: float, celerity_max: float) -> void:
 	_ctx["cfl_speed_max"] = speed_max if is_finite(speed_max) else 0.0
@@ -444,11 +450,6 @@ func mark_solid_dirty() -> void:
 	_solid_dirty = true
 
 
-## The CPU water channel was edited (add_water injection, lake seed) — re-upload it on the next begin_frame.
-func mark_water_dirty() -> void:
-	_water_dirty = true
-
-
 func _audit_mirror_upload(name: String, arr) -> void:
 	var live: PackedFloat32Array = _rd.buffer_get_data(_bufs[name]).to_float32_array()
 	var lt: float = 0.0
@@ -633,10 +634,6 @@ func restore_channels(data: Dictionary) -> void:
 			continue
 		var bytes: PackedByteArray = arr.to_byte_array()
 		_rd.buffer_update(_bufs[key], 0, bytes.size(), bytes)
-
-func set_precip(v: float) -> void:
-	_ctx["precip"] = v
-
 
 func dispose() -> void:
 	if _rd == null:

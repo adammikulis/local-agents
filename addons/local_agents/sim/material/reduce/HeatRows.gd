@@ -51,7 +51,7 @@ static func rows() -> Array:
 			"nbr": Rec.Nbr.ABOVE},
 		{"key": "air_grad_pairs", "source": "temp", "op": Rec.Op.COUNT, "mask": Rec.Mask.OPEN,
 			"nbr": Rec.Nbr.ABOVE},
-	] + _lat_band_rows()
+	] + _lat_band_rows() + _alt_band_rows()
 
 
 ## Ground temperature per |lat| band: `lat` is signed, so each band is a north gate plus a south gate.
@@ -76,4 +76,22 @@ static func _lat_band_rows() -> Array:
 				"op": Rec.Op.COUNT, "mask": Rec.Mask.GROUND}, true))
 			out.append(gate.merged({"key": "clim_lat%d%s_min" % [b, tag], "source": "temp",
 				"op": Rec.Op.MIN, "mask": Rec.Mask.GROUND}, true))
+	return out
+
+
+## Floor of each altitude band above the sea shell, metres, the last open-ended above. The edges are the
+## tropopause, stratopause and mesopause of the US Standard Atmosphere 1976.
+const ALT_BAND_FLOORS_M: Array = [0.0, 1.2e4, 5.0e4, 8.5e4]
+
+
+## Coldest open cell per altitude band. `alt` is metres above the shell, NaN where the body carries none.
+static func _alt_band_rows() -> Array:
+	var out: Array = []
+	for b in ALT_BAND_FLOORS_M.size():
+		var g: Dictionary = {"gate": "alt", "gate_lo": float(ALT_BAND_FLOORS_M[b]),
+			"source": "temp", "mask": Rec.Mask.OPEN}
+		if b < ALT_BAND_FLOORS_M.size() - 1:
+			g["gate_hi"] = float(ALT_BAND_FLOORS_M[b + 1])
+		out.append(g.merged({"key": "clim_alt%d_min" % b, "op": Rec.Op.MIN}, true))
+		out.append(g.merged({"key": "clim_alt%d_n" % b, "op": Rec.Op.COUNT}, true))
 	return out

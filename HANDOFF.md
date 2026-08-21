@@ -51,10 +51,6 @@ baseline while the element and mineral books close. Same symptom on the pre-conv
 `ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and the report sweeps
 already use it. Left:
 
-- `clim_alt_min` (per-altitude-band minima above the sea shell) needs `sea_radius` on the device: a static
-  row cannot carry an instance value, so give `MaterialSphereGPU3D._ctx` a setter like `set_sun_dir` and
-  let `state_derive.glsl` write `alt` relative to the shell; the open-air `air_grad_*` rows measure the
-  lapse until then.
 - `FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint. ReducePass runs last, so
   it cannot answer "which pass moved it": that wants a reduce dispatch per checkpoint, not a row.
 - Three shapes refused a row and say why: `sea_surface_stats` (a median needs a declared range nothing
