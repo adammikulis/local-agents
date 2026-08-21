@@ -11,20 +11,22 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 G="$ROOT/addons/local_agents/sim/material/kernels3d/enthalpy.glsli"
 P="$ROOT/addons/local_agents/sim/material/PhysicalConstants.gd"
-S="$ROOT/addons/local_agents/sim/material/Substances.gd"
+S="$ROOT/addons/local_agents/gdextensions/localagents/src/LASubstances.cpp"
+SH="$ROOT/addons/local_agents/gdextensions/localagents/include/LASubstances.hpp"
 GM="$ROOT/addons/local_agents/sim/material/kernels3d/mixture_enthalpy.glsli"
 SM="$ROOT/addons/local_agents/sim/material/MixtureEnthalpy.gd"
-for f in "$G" "$P" "$S" "$GM" "$SM"; do
+for f in "$G" "$P" "$S" "$SH" "$GM" "$SM"; do
   [ -f "$f" ] || { echo "check_enthalpy_ssot: MISSING $f" >&2; exit 2; }
 done
 
-python3 - "$G" "$P" "$S" "$GM" "$SM" <<'PY'
+python3 - "$G" "$P" "$S" "$SH" "$GM" "$SM" <<'PY'
 import re, sys
 glsl = open(sys.argv[1]).read()
 gd = open(sys.argv[2]).read()
 sub = open(sys.argv[3]).read()
-glsl_mix = open(sys.argv[4]).read()
-sub_mix = open(sys.argv[5]).read()
+sub_hdr = open(sys.argv[4]).read()
+glsl_mix = open(sys.argv[5]).read()
+sub_mix = open(sys.argv[6]).read()
 
 # --- the authority ----------------------------------------------------------------------------------------
 # A literal `const X: float = 4184.0` is comparable. A const whose value is an EXPRESSION is not, and a GLSL
@@ -33,10 +35,16 @@ sub_mix = open(sys.argv[5]).read()
 # the leading `E` and killing the gate with a ValueError before it checked anything.
 LITERAL = r'[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?'
 auth, expr_only = {}, set()
-# Both authority files: LAPhysical carries what is not a property of a substance, LASubstances the rest.
-for src in (gd, sub):
-    for m in re.finditer(r'^const\s+([A-Z0-9_]+)\s*:\s*(?:float|int)\s*=\s*(.+?)\s*$', src, re.M):
-        name, rhs = m.group(1), re.sub(r'\s*#.*$', '', m.group(2)).strip()
+# Both authorities: LAPhysical carries what is not a property of a substance, LASubstances the rest.
+# LASubstances is native, so its flat constants are `constexpr double NAME = <lit>;` and its phase tags
+# are enum members in the header. A form left unparsed drops the name out of the map and every GLSL copy
+# of it becomes unbindable, which is the gate getting weaker as the code gets better.
+DECLS = ((gd, r'^const\s+([A-Z0-9_]+)\s*:\s*(?:float|int)\s*=\s*(.+?)\s*$', r'\s*#.*$'),
+         (sub, r'^\s*constexpr\s+double\s+([A-Z0-9_]+)\s*=\s*(.+?);\s*$', r'\s*//.*$'),
+         (sub_hdr, r'^\s*([A-Z0-9_]+)\s*=\s*(-?\d+)\s*,\s*$', r'\s*//.*$'))
+for src, pat, cmt in DECLS:
+    for m in re.finditer(pat, src, re.M):
+        name, rhs = m.group(1), re.sub(cmt, '', m.group(2)).strip()
         if re.fullmatch(LITERAL, rhs):
             auth[name] = float(rhs)
         else:
@@ -86,7 +94,7 @@ RUNGS = [
     ("the frost point",                  "la_sublimation_c_at",    "sublimation_c_at",        "ladder"),
     ("the sublimation latent heat",      "la_latent_sublimation",  "latent_sublimation_j_kg", "ladder"),
     ("the melting INTERVAL",             "la_liquidus_c_at",       "liquidus_c_at",           "ladder"),
-    ("the gas tail",                     "la_gas_state",           "_gas_state",              "ladder"),
+    ("the gas tail",                     "la_gas_state",           "gas_state",               "ladder"),
     ("dissociation",                     "la_dissociated_fraction", "dissociated_fraction",   "file"),
     ("ionisation",                       "la_ionised_fraction",    "ionised_fraction",        "file"),
 ]
@@ -122,7 +130,7 @@ def boundaries(txt, label, steps):
     got, order = {}, []
     for line in txt.split("\n"):
         code = re.sub(r'(//|#).*$', '', line).strip()
-        m = re.match(r'^(?:var\s+|float\s+)?(' + "|".join(steps) + r')\s*(?::\s*float\s*)?=\s*(.+?);?$', code)
+        m = re.match(r'^(?:var\s+|float\s+|const\s+double\s+)?(' + "|".join(steps) + r')\s*(?::\s*float\s*)?=\s*(.+?);?$', code)
         if not m or m.group(1) in got:
             continue
         rhs = m.group(2)
@@ -139,22 +147,22 @@ def boundaries(txt, label, steps):
 
 
 g_body = body(glsl, "vec4 la_enthalpy_to_state(")
-d_body = body(sub, "static func enthalpy_to_state(")
+d_body = body(sub, "Dictionary LASubstances::enthalpy_to_state(")
 if not g_body or not d_body:
-    print("check_enthalpy_ssot: could not find la_enthalpy_to_state / enthalpy_to_state — the gate has no "
-          "subject.", file=sys.stderr)
+    print("check_enthalpy_ssot: could not find la_enthalpy_to_state / LASubstances::enthalpy_to_state — "
+          "the gate has no subject.", file=sys.stderr)
     sys.exit(2)
 
 for steps in (STEPS, SUB_STEPS):
     gb = boundaries(g_body, "enthalpy.glsli", steps)
-    db = boundaries(d_body, "Substances.gd", steps)
+    db = boundaries(d_body, "LASubstances.cpp", steps)
     diff = [(k, gb[k], db[k]) for k in steps if gb[k] != db[k]]
     if diff:
         print("check_enthalpy_ssot: FAILED — the two definitions build the ladder from different "
               "expressions:", file=sys.stderr)
         for k, g, d in diff:
             print("  %-14s glsl= %s" % (k, g), file=sys.stderr)
-            print("  %-14s gd:   %s" % ("", d), file=sys.stderr)
+            print("  %-14s cpp:  %s" % ("", d), file=sys.stderr)
         sys.exit(1)
 
 # --- the rungs --------------------------------------------------------------------------------------------
@@ -162,6 +170,8 @@ for steps in (STEPS, SUB_STEPS):
 # red. Name each rung and require it on BOTH sides — defined, and reached from the function that matters.
 DEF_RE = {"glsl": re.compile(r'^(?:[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\s+)+([a-z_][A-Za-z0-9_]*)\s*\(',
                              re.M),
+          "cpp": re.compile(r'^(?:[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?[\s*&]+)+'
+                            r'(?:[A-Za-z_]\w*::)?([a-z_][A-Za-z0-9_]*)\s*\(', re.M),
           "gd": re.compile(r'^(?:static\s+)?func\s+([A-Za-z_]\w*)\s*\(', re.M)}
 
 
@@ -192,7 +202,7 @@ def reachable(root, funcs):
     return seen
 
 
-g_funcs, d_funcs = bodies_of(glsl, "glsl"), bodies_of(sub, "gd")
+g_funcs, d_funcs = bodies_of(glsl, "glsl"), bodies_of(sub, "cpp")
 gm_funcs, sm_funcs = bodies_of(glsl_mix, "glsl"), bodies_of(sub_mix, "gd")
 if "la_mix_state" not in gm_funcs or "state" not in sm_funcs:
     print("check_enthalpy_ssot: could not find la_mix_state / LAMixtureEnthalpy.state — the mixture "
@@ -206,7 +216,7 @@ sm_reach = reachable("state", sm_funcs)
 missing = []
 for label, gsym, dsym, where in RUNGS:
     for sym, funcs, reach, fname in ((gsym, g_funcs, g_reach, "enthalpy.glsli"),
-                                     (dsym, d_funcs, d_reach, "Substances.gd")):
+                                     (dsym, d_funcs, d_reach, "LASubstances.cpp")):
         if sym not in funcs:
             missing.append((label, fname, "%s is not defined" % sym))
         elif where == "ladder" and sym not in reach:

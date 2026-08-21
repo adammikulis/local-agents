@@ -301,7 +301,7 @@ func _derive(st: Dictionary, d: int) -> Dictionary:
 	var amounts: Dictionary = st["amounts"]
 	var vol: float = _grid.cell_volume()
 	var rows: Dictionary = LAChannels.rows()
-	var table: Dictionary = LASubstances.table()
+	var table: Dictionary = LANativeTables.subs().table()
 	var out: Dictionary = {}
 	var mass_total: float = 0.0
 	var n_gas: float = 0.0
@@ -316,7 +316,7 @@ func _derive(st: Dictionary, d: int) -> Dictionary:
 		var id: String = String(rows[name]["substance"])
 		var entry: Dictionary = table.get(id, {})
 		var mm: float = float(entry.get("molar_mass", 0.0))
-		var full: float = LASubstances.full_mol_m3(id)
+		var full: float = LANativeTables.subs().full_mol_m3(id)
 		if mm <= 0.0 or full <= 0.0:
 			_fail("face %d: LASubstances has no molar mass or density for \"%s\"" % [d, id])
 			return {}
@@ -364,10 +364,10 @@ func _derive(st: Dictionary, d: int) -> Dictionary:
 
 ## Melted share of a ladder substance at (t, p): the lever rule over its melting interval.
 static func _melt_share(id: String, t_c: float, p_pa: float) -> float:
-	var solidus: float = LASubstances.melt_c_at(id, p_pa)
+	var solidus: float = LANativeTables.subs().melt_c_at(id, p_pa)
 	if not is_finite(solidus) or t_c <= solidus:
 		return 0.0
-	var liquidus: float = LASubstances.liquidus_c_at(id, p_pa)
+	var liquidus: float = LANativeTables.subs().liquidus_c_at(id, p_pa)
 	if t_c >= liquidus:
 		return 1.0
 	return (t_c - solidus) / (liquidus - solidus)

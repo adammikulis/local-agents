@@ -149,4 +149,4 @@ static func channels() -> PackedStringArray:
 
 ## Amount at which a cell is full: mol/m^3 of the pure substance.
 static func max_fill(substance: String) -> float:
-	return LASubstances.full_mol_m3(substance)
+	return LANativeTables.subs().full_mol_m3(substance)

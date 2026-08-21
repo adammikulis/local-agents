@@ -160,7 +160,7 @@ func dewpoint_at(x: float, z: float) -> float:
 	var e: float = _f._queries.vapour_at(c) * LAPhysical.GAS_CONSTANT_J_MOL_K \
 		* (_f._temp[c] + LAPhysical.KELVIN_OFFSET)
 	# The dewpoint is the boiling point at the vapour's own partial pressure: one curve, inverted.
-	return LASubstances.boil_c_at("h2o", e)
+	return LANativeTables.subs().boil_c_at("h2o", e)
 
 
 ## The cell's own air pressure, Pa. Missing means unresolved, and the caller gets zero rather than a guess.

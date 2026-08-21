@@ -360,8 +360,8 @@ things you already have your hands on.
     edits (docs)" and "when you have confirmed you are the sole writer". Launching concurrent writers is the
     precise inverse of the second one, so a fan-out can never qualify.
   - **What it costs, measured 2026-08-12 when nine lanes were run in ONE shared tree.** Every lane reported
-    it independently and none of them could fix it: the planning agent found `Substances.gd` had grown 38
-    lines between two of its own commands and three of its `file:line` citations had rotted before it
+    it independently and none of them could fix it: the planning agent found the substance table had grown
+    38 lines between two of its own commands and three of its `file:line` citations had rotted before it
     finished; the wind lane lost BOTH acceptance runs to another lane's missing preload; the element-probe
     lane lost three runs to a 36-byte push constant meeting a 32-byte kernel and watched `check_parse_all`
     flip red and green repeatedly; the erosion lane's clean 200-frame runs were invalidated the same way.
@@ -549,8 +549,9 @@ When removing files:
   state-function pressure hypersensitive to fill noise. They are legitimate only while they never meet:
   rock pressure must never reach the momentum equation, and a wall face takes the FLUID cell's own
   pressure. `scripts/check_pressure_split.sh` holds all of that. Do not unify them without the maintainer.
-- **THE SUBSTANCE TABLE IS THE SSOT FOR MATTER — `material/Substances.gd`.** Every material declares its own
-  measured properties in ONE entry. `PhysicalConstants.gd` keeps only what is not a property of a substance.
+- **THE SUBSTANCE TABLE IS THE SSOT FOR MATTER — `LASubstances`, in the GDExtension.** Every material
+  declares its own measured properties in ONE entry, reached from GDScript through `LANativeTables.subs()`.
+  `PhysicalConstants.gd` keeps only what is not a property of a substance.
   Do not add a flat constant for something a material owns, and check the fact is not already there under
   another name. Phase and temperature are DERIVED from energy and mass, never stored, so latent heat is
   structural and no kernel can skip a phase boundary.

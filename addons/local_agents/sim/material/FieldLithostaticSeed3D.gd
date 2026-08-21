@@ -11,7 +11,7 @@ static func compress(field) -> float:
 	var dr: float = field._grid.cell_size
 	var cell_vol: float = pow(dr, 3.0)
 	var rows: Dictionary = LAChannels.rows()
-	var table: Dictionary = LASubstances.table()
+	var table: Dictionary = LANativeTables.subs().table()
 	var mirrors: Array = []
 	var lithic: Array = []
 	for name in rows:
@@ -84,7 +84,7 @@ static func shape_atmosphere(field, temp_c: float) -> void:
 	var centre: Vector3 = LAFieldGeometry.centre(field)
 	var cell_vol: float = pow(field._grid.cell_size, 3.0)
 	var rows: Dictionary = LAChannels.rows()
-	var table: Dictionary = LASubstances.table()
+	var table: Dictionary = LANativeTables.subs().table()
 	var mirrors: Array = []
 	for name in rows:
 		if String(rows[name].get("unit", "")) != "mol_m3":
@@ -143,7 +143,7 @@ static func clear_gas_in_rock(field) -> void:
 static func displace_gas_from_water(field) -> void:
 	if field == null or field._h2o.size() != field._cell_count:
 		return
-	var full: float = LASubstances.full_mol_m3("h2o")
+	var full: float = LANativeTables.subs().full_mol_m3("h2o")
 	for c in field._cell_count:
 		var room: float = clampf(1.0 - field._h2o[c] / full, 0.0, 1.0)
 		if room < 1.0:

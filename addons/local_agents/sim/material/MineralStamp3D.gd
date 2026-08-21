@@ -58,7 +58,7 @@ func _scan() -> void:
 	if sil.size() != n or cem.size() != n or solid.size() != n:
 		return
 	var t0: int = Time.get_ticks_usec()
-	var full_sil: float = LASubstances.full_mol_m3("silicate")
+	var full_sil: float = LANativeTables.subs().full_mol_m3("silicate")
 	if full_sil <= 0.0:
 		return
 	var size: float = _f._cell_size * 0.7          # SDF edit extent ~ one cell (fill_rock scales by this)
@@ -156,7 +156,7 @@ func debug_deposit(world_pos: Vector3, amount: float) -> void:
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0 or c >= _f._cell_count or _f._silicate.size() != _f._cell_count:
 		return
-	var want: float = clampf(amount, 0.0, 1.0) * LASubstances.full_mol_m3("silicate")
+	var want: float = clampf(amount, 0.0, 1.0) * LANativeTables.subs().full_mol_m3("silicate")
 	var gain: float = want - _f._silicate[c]
 	_f._silicate[c] = maxf(_f._silicate[c], want)
 	if gain > 0.0 and _f._inject != null:

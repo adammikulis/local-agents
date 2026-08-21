@@ -33,8 +33,9 @@ SIM_DIR="$REPO_ROOT/addons/local_agents/sim"
 REGISTRY="$REPO_ROOT/docs/MODEL_PARAMETERS.md"
 
 # The authorities describe matter. They are the thing everything else is measured against, so they are not
-# themselves subject to this gate.
-AUTHORITY_FILES="PhysicalConstants.gd Substances.gd"
+# themselves subject to this gate. LASubstances is native and so falls outside this gate's scan roots
+# already; it is named here so a registry row against it is not read as a ghost.
+AUTHORITY_FILES="PhysicalConstants.gd LASubstances.cpp LASubstances.hpp"
 
 EMIT=0
 [[ "${1:-}" == "--emit" ]] && EMIT=1

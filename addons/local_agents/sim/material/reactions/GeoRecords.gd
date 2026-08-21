@@ -8,7 +8,7 @@ const DISSOLUTION_K_PER_VF: float = 2.0e-5
 
 ## The quoted k is per liquid VOLUME SHARE; the H2O_LIQUID driver is mol/m^3, so divide by a full cell's.
 static func _dissolution_k() -> float:
-	return DISSOLUTION_K_PER_VF / LASubstances.full_mol_m3("h2o")
+	return DISSOLUTION_K_PER_VF / LANativeTables.subs().full_mol_m3("h2o")
 
 
 static func _rate_k_per_s(ea_over_r_k: float) -> float:
@@ -18,17 +18,17 @@ static func _rate_k_per_s(ea_over_r_k: float) -> float:
 
 ## Heat released when the pool loses these moles of C, H and O, J/mol of extent.
 static func _coal_enthalpy_j_mol(mol_c: float, mol_h: float, mol_o: float) -> float:
-	return mol_c * LASubstances.organic_energy_j_mol("C") + mol_h * LASubstances.organic_energy_j_mol("H") \
-		+ mol_o * LASubstances.organic_energy_j_mol("O")
+	return mol_c * LANativeTables.subs().organic_energy_j_mol("C") + mol_h * LANativeTables.subs().organic_energy_j_mol("H") \
+		+ mol_o * LANativeTables.subs().organic_energy_j_mol("O")
 
 
 ## Temperature at which segregation-ice pressure passes the rock's tensile strength, C.
 static func _frost_threshold_c() -> float:
-	var pa_per_k: float = LASubstances.fusion_pa_per_k("h2o")
+	var pa_per_k: float = LANativeTables.subs().fusion_pa_per_k("h2o")
 	if pa_per_k <= 0.0:
 		return -INF
 	return LAPhysical.WATER_FREEZE_C \
-		- float(LASubstances.table()["silicate"].get("tensile_strength_pa", 0.0)) / pa_per_k
+		- float(LANativeTables.subs().table()["silicate"].get("tensile_strength_pa", 0.0)) / pa_per_k
 
 
 ## Moles of rock detached per second per kelvin of excess undercooling: Darcy delivery of pore water
@@ -41,9 +41,9 @@ static func _frost_k_per_k() -> float:
 	var phi: float = LAPhysical.REGOLITH_SURFACE_POROSITY
 	var kappa_m2: float = phi * phi * phi * LAPhysical.GRAIN_D_UPLAND_M * LAPhysical.GRAIN_D_UPLAND_M \
 		/ (LAPhysical.KOZENY_CARMAN_C * (1.0 - phi) * (1.0 - phi))
-	var q_m_s_per_k: float = kappa_m2 * LASubstances.fusion_pa_per_k("h2o") \
+	var q_m_s_per_k: float = kappa_m2 * LANativeTables.subs().fusion_pa_per_k("h2o") \
 		/ (LAPhysical.WATER_DYNAMIC_VISCOSITY_PA_S * dz)
-	return q_m_s_per_k * LASubstances.full_mol_m3("silicate") \
+	return q_m_s_per_k * LANativeTables.subs().full_mol_m3("silicate") \
 		/ (dz * LAPhysical.ROCK_POROSITY_NEAR_SURFACE)
 
 
@@ -51,8 +51,8 @@ static func _frost_k_per_k() -> float:
 static func records() -> Array:
 	var organic_n: float = float(LAReactionBalance.composition()[DETRITUS]["N"])
 	# Moles of pore water riding with one mole of detached rock: porosity times the full amounts' ratio.
-	var pore: float = LAPhysical.ROCK_POROSITY_NEAR_SURFACE * LASubstances.full_mol_m3("h2o") \
-		/ LASubstances.full_mol_m3("silicate")
+	var pore: float = LAPhysical.ROCK_POROSITY_NEAR_SURFACE * LANativeTables.subs().full_mol_m3("h2o") \
+		/ LANativeTables.subs().full_mol_m3("silicate")
 	return [
 		# Reversible: direction is dG(T, p_H2O) — water re-enters low-rank organic matter wet, leaves hot.
 		LAReactionThermo.reversible(rec(TB_PER_SECOND, "mol m^-3 driver^-1 s^-1", RM_ARRHENIUS,

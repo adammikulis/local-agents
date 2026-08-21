@@ -66,7 +66,7 @@ func mineral_mass_for(field) -> float:
 		return 0.0
 	var side: float = maxf(float(field._cell_size), 0.001)
 	var rock_m3: float = (4.0 / 3.0) * PI * _radius * _radius * _radius
-	return LASubstances.full_mol_m3("silicate") * rock_m3 / (side * side * side)
+	return LANativeTables.subs().full_mol_m3("silicate") * rock_m3 / (side * side * side)
 
 
 ## Called when a villager picks this rock up. The node goes, the MATTER does not: the caller is handed the

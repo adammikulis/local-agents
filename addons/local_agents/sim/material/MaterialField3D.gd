@@ -404,7 +404,7 @@ func _seed_silicate() -> void:
 	if _silicate.size() != _cell_count or _cement.size() != _cell_count \
 			or _solid.size() != _cell_count:
 		return
-	ClassDB.instantiate(&"LAPlanetComposition").seed(self, INITIAL_TEMP)
+	LANativeTables.composition().seed(self, INITIAL_TEMP)
 	# Shape the CPU arrays BEFORE the driver's seed_field reads them, so the declared upload is the
 	# compressed rock and the shell atmosphere, not the flat fill.
 	LAFieldLithostaticSeed.compress(self)

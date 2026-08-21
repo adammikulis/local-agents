@@ -1,5 +1,8 @@
 #include "LAPlanetTables.hpp"
 
+#include "LAPhysicalRead.hpp"
+#include "LASubstances.hpp"
+
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -14,20 +17,6 @@
 using namespace godot;
 
 namespace {
-
-// PhysicalConstants.gd stays the one declaration of every physical constant; this reads it, never copies it.
-double la_physical(const char *p_name) {
-	static Dictionary constants;
-	if (constants.is_empty()) {
-		const Ref<Script> pc = ResourceLoader::get_singleton()->load(
-				"res://addons/local_agents/sim/material/PhysicalConstants.gd");
-		ERR_FAIL_COND_V_MSG(pc.is_null(), NAN, "LAPlanetTables: PhysicalConstants.gd failed to load.");
-		constants = pc->get_script_constant_map();
-	}
-	ERR_FAIL_COND_V_MSG(!constants.has(p_name), NAN,
-			String("LAPlanetTables: LAPhysical carries no ") + p_name + ".");
-	return double(constants[p_name]);
-}
 
 // Static GDScript entry points this table still consults — the substance table and the sim clock.
 Variant call_gd(const char *p_path, const StringName &p_method, const Array &p_args) {
@@ -116,19 +105,12 @@ Dictionary traces_of(const Dictionary &p_reservoir, const PackedStringArray &p_f
 	return out;
 }
 
-const char *SUBSTANCES_GD = "res://addons/local_agents/sim/material/Substances.gd";
-
 double substance_density(const String &p_id, double p_t_c, double p_p_pa) {
-	Array args;
-	args.push_back(p_id);
-	args.push_back(p_t_c);
-	args.push_back(p_p_pa);
-	return double(call_gd(SUBSTANCES_GD, "density", args));
+	return LASubstances::density(p_id, p_t_c, p_p_pa);
 }
 
 double substance_molar_mass(const String &p_id) {
-	const Dictionary table = Dictionary(call_gd(SUBSTANCES_GD, "table", Array()));
-	return double(Dictionary(table[p_id])["molar_mass"]);
+	return double(Dictionary(LASubstances::table()[p_id])["molar_mass"]);
 }
 
 // Moles of one element per kg of silicate shell.

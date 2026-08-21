@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Parse a GDScript constants file into NAME<TAB>VALUE on stdout.
 
-With a second argument, also emits the substance table's scalar properties as
-LASubstances.<id>.<property><TAB>VALUE, so a kernel copy of a material property binds to the SSOT for
-matter rather than to a second declaration of the same fact in LAPhysical.
+With a second argument -- a substance dump written by scripts/dump_substances.gd -- also emits the
+substance table's scalar properties as LASubstances.<id>.<property><TAB>VALUE, so a kernel copy of a
+material property binds to the SSOT for matter rather than to a second declaration of the same fact in
+LAPhysical. The dump comes from the BUILT table, so no text parse of it can drift.
 
 Evaluates each `const NAME: float = <expr>` over the constants already known, iterating until nothing
 new resolves. The grammar is real: parentheses, unary minus, + - * / and ** , plus PI, TAU, INF and the
@@ -78,30 +79,18 @@ def _consts(src):
     return out
 
 
-def substances(path, known):
-    # The substance table is the SSOT for matter, so a kernel copy of a material property binds to it the
-    # same way one binds to LAPhysical. Emitted as LASubstances.<id>.<property>.
-    src = re.sub(r"\\\n", " ", open(path, encoding="utf-8").read()).replace("PC.", "")
-    local = dict(known)
-    for name, expr in _consts(src):
-        try:
-            local[name] = _eval(ast.parse(expr, mode="eval").body, local)
-        except (SyntaxError, Unresolved):
-            continue
-    out, sid = [], None
-    for line in src.split("\n"):
-        m = re.match(r'^\t\t"(\w+)"\s*:\s*\{', line)
-        if m:
-            sid = m.group(1)
-            continue
-        m = re.match(r'^\t\t\t"(\w+)"\s*:\s*(.+?),?\s*$', line)
-        if sid is None or not m:
-            continue
-        try:
-            out.append(("LASubstances.%s.%s" % (sid, m.group(1)),
-                        _eval(ast.parse(m.group(2), mode="eval").body, local)))
-        except (SyntaxError, Unresolved, TypeError, ValueError):
-            continue      # a formula dict, a string, an array: not a scalar property
+def substances(path):
+    # Rows the engine printed out of the built table: LASUB<TAB>LASubstances.<id>.<prop><TAB>value.
+    out = []
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) != 3 or parts[0] != "LASUB":
+                continue
+            try:
+                out.append((parts[1], float(parts[2])))
+            except ValueError:
+                continue
     return out
 
 
@@ -145,7 +134,7 @@ def main() -> int:
     for name in order:
         print("%s\t%.10g" % (name, known[name]))
     if len(sys.argv) > 2:
-        rows = substances(sys.argv[2], known)
+        rows = substances(sys.argv[2])
         if not rows:
             print("lib_parse_authority: %s yielded no substance properties." % sys.argv[2], file=sys.stderr)
             return 3
