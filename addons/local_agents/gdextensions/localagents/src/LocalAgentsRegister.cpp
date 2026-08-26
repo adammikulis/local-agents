@@ -1,6 +1,8 @@
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/os.hpp>
+#include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/variant/string_name.hpp>
 
 #include "AgentNode.hpp"
@@ -18,6 +20,15 @@ namespace {
 AgentRuntime *g_agent_runtime_singleton = nullptr;
 
 void initialize_local_agents(ModuleInitializationLevel p_level) {
+    // CORE runs before the DisplayServer exists, which is the only point where this can be decided: the
+    // engine has no command-line override for a project setting, and _ready is long after macOS has made
+    // the window key and dragged the user out of whatever Space they were in.
+    if (p_level == MODULE_INITIALIZATION_LEVEL_CORE) {
+        if (OS::get_singleton()->get_environment("LA_OFFSCREEN") != String()) {
+            ProjectSettings::get_singleton()->set_setting("display/window/size/no_focus", true);
+        }
+        return;
+    }
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
         return;
     }
@@ -63,7 +74,7 @@ GDExtensionBool GDE_EXPORT localagents_library_init(GDExtensionInterfaceGetProcA
     init_obj.register_initializer(initialize_local_agents);
     init_obj.register_terminator(terminate_local_agents);
 
-    init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_SCENE);
+    init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_CORE);
 
     return init_obj.init();
 }
