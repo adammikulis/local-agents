@@ -38,6 +38,9 @@ loops="$(rg -c --no-heading -g '*.gd' -e "$LOOP_RE" "$SIM" 2>/dev/null | awk -F:
 lower GDSCRIPT_LINES_CEILING "$lines"
 lower CELL_LOOP_CEILING "$loops"
 
+shims="$("$TREE/scripts/check_no_shim.sh" 2>&1 | rg -c 'forwards to|wraps' || echo 0)"
+lower SHIM_CEILING "$shims"
+
 # Every remaining count comes from its own gate, which is the only thing that knows how it counts.
 #
 # READ THE UNCONDITIONAL MACHINE LINE, NEVER A PROSE FAILURE MESSAGE. This read `^COPIES: <n>` — a line

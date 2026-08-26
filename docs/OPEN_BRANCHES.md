@@ -12,3 +12,4 @@ merge, or has not moved inside the age limit.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
+| `feature/boundary-integral-on-device` | 3 | the boundary crossing folds on the field step; the harness window is created unfocusable; a shim gate | its gates are green and the fold is verified |
