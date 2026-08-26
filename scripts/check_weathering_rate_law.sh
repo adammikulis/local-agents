@@ -78,6 +78,24 @@ func _run(cond: Dictionary, recs: Array = []) -> Dictionary:
 	var nbr: RID = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	owned.append(nbr)
 	bufs["nbr"] = nbr
+	# The vertical relation GravityPass publishes on the real world: up is the slot along -g, and below is
+	# that map's scattered inverse. The reaction kernel reads these two, so a rig declaring g builds them.
+	var vup: PackedInt32Array = PackedInt32Array()
+	var vdn: PackedInt32Array = PackedInt32Array()
+	vup.resize(cc)
+	vdn.resize(cc)
+	vdn.fill(-1)
+	for c in cc:
+		vup[c] = _grid.neighbours[c * LAVoxelGrid.SLOTS + LAVoxelGrid.S_POS_Y]
+	for c in cc:
+		var u: int = vup[c]
+		if u >= 0 and (vdn[u] < 0 or c < vdn[u]):
+			vdn[u] = c
+	for pair in [["vert_up", vup], ["vert_down", vdn]]:
+		var by: PackedByteArray = (pair[1] as PackedInt32Array).to_byte_array()
+		var rid: RID = _rd.storage_buffer_create(by.size(), by)
+		owned.append(rid)
+		bufs[String(pair[0])] = rid
 
 	for key in cond:
 		var vals: PackedFloat32Array = _filled(cc, 0.0)
