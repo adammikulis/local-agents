@@ -49,6 +49,7 @@ la_godot() {
 			return $?
 		fi
 	done
-	command ${pre[@]+"${pre[@]}"} "$binary" \
+	# This branch creates a WINDOW, and the extension reads LA_OFFSCREEN at CORE to make it unfocusable.
+	LA_OFFSCREEN="${LA_OFFSCREEN:-1}" command ${pre[@]+"${pre[@]}"} "$binary" \
 		--position "$LA_OFFSCREEN_POS" --resolution "$LA_OFFSCREEN_RES" "$@"
 }
