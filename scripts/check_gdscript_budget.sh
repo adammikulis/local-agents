@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # GDSCRIPT IS THE BUDGET: the substrate runs on the GPU, what cannot goes to C++, and what is left is
-# bindings. Two ratchets over addons/local_agents/sim -- total lines, and loops bounded by a cell count.
+# bindings. Two ratchets over addons/local_agents/sim -- lines of code, and loops bounded by a cell count.
 #
 # EXIT 0 clean · 1 a ceiling breached, or a ceiling left standing above the real count · 2 could not run.
 set -uo pipefail
@@ -8,7 +8,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh" 2>/dev/null || true
 . "$ROOT/scripts/lib_ceiling.sh" 2>/dev/null || true
 require_tool rg
-require_tool wc
 
 SIM="$ROOT/addons/local_agents/sim"
 [ -d "$SIM" ] || { echo "check_gdscript_budget: MISSING $SIM" >&2; exit 2; }
@@ -36,7 +35,7 @@ read_ceiling() {  # read_ceiling <file>
 files="$(rg --files -g '*.gd' "$SIM" 2>/dev/null)"
 [ -n "$files" ] || { echo "check_gdscript_budget: no .gd under $SIM. A gate that examines nothing is not a gate." >&2; exit 2; }
 
-lines="$(printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 wc -l | tail -1 | awk '{print $1}')"
+lines="$(gdscript_code_lines "$SIM")"
 loops="$(rg -c --no-heading -g '*.gd' -e "$LOOP_RE" "$SIM" 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')"
 
 STRICT="$(ceiling_strict "$ROOT")"

@@ -32,7 +32,7 @@ lower() {  # lower <ceiling file> <measured>
 
 SIM="$TREE/addons/local_agents/sim"
 [ -d "$SIM" ] || { echo "write_ceilings: no $SIM" >&2; exit 2; }
-lines="$(rg --files -g '*.gd' "$SIM" | tr '\n' '\0' | xargs -0 wc -l | tail -1 | awk '{print $1}')"
+lines="$(gdscript_code_lines "$SIM")"
 LOOP_RE="$(cell_loop_re)"
 loops="$(rg -c --no-heading -g '*.gd' -e "$LOOP_RE" "$SIM" 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')"
 lower GDSCRIPT_LINES_CEILING "$lines"
