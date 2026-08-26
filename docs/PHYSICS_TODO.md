@@ -113,11 +113,16 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       (CPU and `enthalpy.glsli` twin together), and either accept the ideal van 't Hoff law or carry an
       osmotic coefficient — ideal gives −2.16 °C for sea water against the measured −1.86.
 - [ ] **Density is rho(T, p) on the CPU only, and water has no 4 °C maximum.** `LASubstances.density` gives
-      a gas the ideal gas law and a condensed phase a linear expansivity with a bulk modulus, all cited.
-      Three gaps: `kernels3d/enthalpy.glsli` has no twin, so every kernel still multiplies by a scalar; a
-      LINEAR expansivity cannot produce the density maximum near 4 °C, which is why deep water sits at 4 °C
-      and a lake freezes from the top (Kell 1975, J. Chem. Eng. Data 20:97); `carbonate` has an expansivity
-      and no bulk modulus, and `cellulose` has neither.
+      a gas the ideal gas law and a condensed phase a thermal expansivity over a Birch-Murnaghan
+      compression. Three gaps: `kernels3d/enthalpy.glsli` has no twin, so every kernel still multiplies by
+      a scalar; a LINEAR expansivity cannot produce the density maximum near 4 °C, which is why deep water
+      sits at 4 °C and a lake freezes from the top (Kell 1975, J. Chem. Eng. Data 20:97); `carbonate` has
+      an expansivity and no bulk modulus, and `cellulose` has neither.
+- [ ] **No phase carries a measured `bulk_modulus_deriv`,** so every one of them compresses on `K0' = 4` —
+      the value at which third-order Birch-Murnaghan collapses to second order. That is the standard
+      treatment where `K0'` is unmeasured rather than an invented number, and it is declared as
+      `second_order_birch_murnaghan`, but a phase whose real `K0'` is larger stiffens faster than the
+      table says. The field is read already; only the cited data per phase is missing.
 - [ ] **Molten silicate weighs the same as solid silicate, so magma buoyancy is only thermal.** Only `h2o`
       carries `density_solid`, so silicate's fusion volume change — the larger half of why a melt rises — is
       absent. Adding it also moves `melt_c_at`'s Clapeyron slope off zero, which is real (decompression
@@ -286,13 +291,6 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       (`LASimClock.REAL_SECONDS_PER_SIM_SECOND`), but `real_seconds_per_step()` is still
       `STEP_DT * compression`, so how fast the player watches sets every transport kernel's timestep. A
       substep budget separates them.
-- [ ] **The planet has two masses, and the field's is the one that lives.** `PlanetBody.mass()` is a
-      typed literal; the field's gravity — the Poisson total and the slice monopole alike — carries the
-      mass the seeded rock derives. `LAGravity` computes a real `G*M/r^2` from the literal, so
-      `MaterialEjecta3D` decides where thrown rock lands and `Meteor` decides its infall speed, and
-      therefore its impact energy, off a mass the field does not have. Delete the literal; `mass()`
-      returns the derived mass, and `SystemOrbits` re-derives the moon and star orbits from the real mu
-      rather than from the value it was fitted to.
 - [ ] **The planet is pinned at the world origin** and the star orbits it. A deliberate moving-frame choice;
       making it literal is the 0.6 headline.
 

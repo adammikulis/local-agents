@@ -116,6 +116,8 @@ func _body_block() -> Dictionary:
 		return {"body_measured": false}
 	return {
 		"body_measured": m.measured(),
+		"body_seed_mass_kg": float(LABodySeeds.of("planet").get("mass_kg", 0.0)),
+		"body_seed_spin_l": LABodySeeds.spin_l_of("planet"),
 		"body_mass_kg": m.mass_kg,
 		"body_radius_m": m.surface_r_m,
 		"body_inertia_kg_m2": m.inertia_kg_m2,
