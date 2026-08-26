@@ -42,9 +42,9 @@ static func declared() -> PackedStringArray:
 	return _declared
 
 
-## Integrate one drain's crossings over `steps`, rectangle rule at the window's right-hand end — the shape
-## and the window the energy books already use. A leg a row promised and the drain did not carry is NAMED.
-func sample(f: Dictionary, steps: float) -> void:
+## Accumulate ONE step's crossings. Called on the field step, so the sum IS the integral and no window is
+## extrapolated over. A leg a row promised and the drain did not carry is NAMED.
+func sample(f: Dictionary) -> void:
 	missing = PackedStringArray()
 	for ch in declared():
 		var a: String = AMOUNT + String(ch)
@@ -55,8 +55,8 @@ func sample(f: Dictionary, steps: float) -> void:
 			missing.append(h)
 		if not f.has(a) or not f.has(h):
 			continue
-		var d: float = float(f[a]) * steps
-		var dh: float = float(f[h]) * steps
+		var d: float = float(f[a])
+		var dh: float = float(f[h])
 		_net[ch] = float(_net.get(ch, 0.0)) + d
 		_gross[ch] = float(_gross.get(ch, 0.0)) + absf(d)
 		heat_net += dh

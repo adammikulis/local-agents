@@ -261,6 +261,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_comment_claims
     gate check_no_silent_fallback
     gate check_no_invented_fallback
+    gate check_no_shim
     gate check_duplicate_logic
     gate check_never_assigned
     gate check_voxel_grid

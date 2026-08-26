@@ -132,6 +132,8 @@ func _open_temp_stats() -> Dictionary:
 ## Per-step ledger folds on the field clock; report() only publishes what these accumulated.
 func sample_ledgers() -> void:
 	_momentum.sample(int(_f._gpu._step_index) if _f._gpu != null else 0)
+	if _f._ledger != null:
+		_f._ledger.sample()
 
 
 func report() -> Dictionary:

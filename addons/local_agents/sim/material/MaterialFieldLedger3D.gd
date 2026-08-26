@@ -21,6 +21,8 @@ var _first_inject_j: float = 0.0
 var _bnd = null
 # Last published block, for the consumers that ask the field for one scalar outside the report path.
 var _last: Dictionary = {}
+# The last drain this ledger folded. The publishers read it; nothing else may fold.
+var _latest: Dictionary = {}
 
 
 func setup(field) -> void:
@@ -32,21 +34,27 @@ func setup(field) -> void:
 	_bnd = BndScript.new()
 
 
-## Every conserved substance, sampled together. `step_index` is the field's own step counter; drift is
-## reported per field step, never per frame.
-func report(step_index: int) -> Dictionary:
-	var out: Dictionary = {}
-	if _f == null or _f._cell_count <= 0:
-		return out
+## ONE drain, folded on the field step. take_pass_results CONSUMES, so a drain nobody folds is a step's
+## crossings thrown away — and a crossing is a flux, which only integrates if every step is counted.
+func sample() -> void:
 	var f: Dictionary = _fold.fold()
 	if f.is_empty():
+		return
+	_latest = f
+	if _books.sealed(): _bnd.sample(f)
+
+
+## Every conserved substance, published together from the last fold. A stock may be read on any cadence;
+## `step_index` is the field's own step counter, never a frame.
+func report(step_index: int) -> Dictionary:
+	var out: Dictionary = {}
+	if _f == null or _f._cell_count <= 0 or _latest.is_empty():
 		return out
+	var f: Dictionary = _latest
 	# The step the reduction ran at, which is not the step the report is being written at.
 	var step: int = int(f["step"])
 	if step < 0:
 		step = step_index
-	# Nothing accrues before the seal, so the crossings and the drift baselines span one window.
-	_bnd.sample(f, float(_books.elapsed("bnd", step)) if _books.sealed() else 0.0)
 	out["bnd_declared"] = f.get("bnd_declared", PackedStringArray())
 	_publish_h2o(out, f, step)
 	_publish_mineral(out, f, step)

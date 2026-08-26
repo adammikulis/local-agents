@@ -289,14 +289,6 @@ func _alloc_channels() -> void:
 
 
 
-func _idx(ix: int, iy: int, iz: int) -> int:
-	return _grid.index(ix, iy, iz)
-
-
-func _in_bounds(ix: int, iy: int, iz: int) -> bool:
-	return _grid.in_bounds(ix, iy, iz)
-
-
 func cell_world_pos(ix: int, iy: int, iz: int) -> Vector3:
 	return _grid.cell_world_pos(_grid.index(ix, iy, iz))
 
@@ -315,11 +307,6 @@ func cell_size() -> float:
 func world_to_cell(world_pos: Vector3) -> int:
 	return _grid.cell_at(point_to_field(world_pos)) if _grid != null else -1
 
-
-
-func set_solid(ix: int, iy: int, iz: int, solid: bool) -> void:
-	if _in_bounds(ix, iy, iz):
-		_solid[_idx(ix, iy, iz)] = 1 if solid else 0
 
 
 func total_water() -> float:

@@ -237,7 +237,7 @@ func _init() -> void:
 		drain["bnd_h_" + String(ch)] = 0.0
 	drain.erase("bnd_h_h2o")
 	var books: LABoundaryBooks = LABoundaryBooks.new()
-	books.sample(drain, 1.0)
+	books.sample(drain)
 	_expect(books.missing.has("bnd_h_h2o"), "h2o's heat leg vanished from the drain and nothing "
 		+ "named it — the missing-leg detection is dead.")
 	_expect(not books.missing.has("bnd_h2o"), "a leg that was present got named missing.")
