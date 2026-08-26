@@ -29,14 +29,28 @@ The cells flanking the wrap seam accumulate multiple fills of h2o first, and `ce
 physical range before the momentum does. `LA_PASS_PROBE=nonfinite LA_PASS_PROBE_STEPS=12` prints each
 pass's peak-cell state and per-channel non-finite counts.
 
+## 1. THE GRID CANNOT HOLD AN ATMOSPHERE, AND WHICH GRID REPLACES IT IS THE MAINTAINER'S
+
+`LAFieldLithostaticSeed.shape_atmosphere` seeds the whole atmosphere into one cell shell with vacuum above
+whenever the scale height is under a cell edge, and that holds at every resolution: the box is
+`2 * (PLANET_RADIUS + MODELLED_ATMOSPHERE_HEIGHT_M) / N` per cell with `N` capped at `GRID_EDGE_MAX`, so
+the finest cell available is larger than any scale height this planet can have. No lapse rate, no vertical
+structure, and the open cells the pressure audit compares are mostly the cube's corners.
+
+`docs/PHYSICS_TODO.md` D asks for `cell_size` to become per-shell, while the uniform Cartesian box is the
+only grid and its claims still hold (`nofile addons/local_agents/sim/sphere`, `absent link_partner`).
+Graded radial bands, axis-aligned refinement, or something else is a change to the trunk — decide it
+before building it. Item 0 waits on it: an audit over vacuum corners cannot be read either way.
+
 ## 2. The open-boundary books do not close at run level
 
-`scripts/sim_run.sh --frames 20 --slice-capture C` then `scripts/sim_run.sh --slice --slice-state C
---frames 650` fires CONSERVATION_VIOLATION on h2o and mineral. `check_boundary_books.sh` holds the
-kernel's per-dispatch booking closed on the same capture, so the work is behind it:
+`scripts/sim_run.sh --frames 20 --slice-capture C` then
+`LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice --slice-state C --frames 650` fires
+CONSERVATION_VIOLATION on h2o, nitrogen, mineral, element_C and element_O.
 
-- `MaterialSphereGPU3D.gd` clears `bnd_*` every step and `LABoundaryBooks.sample` multiplies one drained
-  rate by the elapsed steps; the crossing integral belongs on the device.
+Two things already hold, so the leak is in neither: `check_boundary_books.sh` holds the kernel's
+per-dispatch booking closed on that same capture, and the ledger folds the drain on every field step, so
+no step's crossings are dropped and nothing is extrapolated over a window.
 
 ## 6. The h2o book does not close on a shut box
 
@@ -92,6 +106,11 @@ codes are listed at the top of `scripts/run_sim_offscreen.sh`.
 
 `scripts/agent_harness.sh lint` is what CI runs. `scripts/editor_scan.sh`, never a bare
 `godot --headless --editor`: two concurrent scans segfault.
+
+ONE run at a time — the GPU lock is machine-wide, and concurrent runs fail each other with
+`timeout waiting for fence`. Finish the whole change set, then commit once: the pre-commit hook runs the
+full lint, so a commit per step is a lint per step. A run past `docs/RUN_TIMEOUT_CEILING` needs an explicit
+`LA_RUN_TIMEOUT` and is a declared soak.
 
 Make every worktree with `scripts/new_worktree.sh`, which symlinks the compiled `bin/`, imports the `.glsl`
 kernels and editor-scans. Without the import the GPU field is dead and the report still looks fine.
