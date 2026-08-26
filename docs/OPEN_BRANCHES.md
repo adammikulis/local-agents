@@ -12,3 +12,4 @@ merge, or has not moved inside the age limit.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
+| `feature/vertical-relation-ssot` | 2 | the reaction kernel reads GravityPass's vert_up/vert_down instead of its own snap, and the two reaction rigs build those tables | its determinism arm and the two rig gates are green |

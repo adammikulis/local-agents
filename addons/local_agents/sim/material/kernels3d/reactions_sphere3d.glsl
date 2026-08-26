@@ -1,8 +1,6 @@
 #[compute]
 #version 450
 
-#include "neighbours.glsli"
-
 layout(set = 0, binding = 48, std430) restrict readonly buffer Grav { float g_field[]; };
 #include "cellvol.glsli"
 
@@ -41,18 +39,19 @@ layout(set = 0, binding = 36, std430) restrict readonly buffer H2OVapour { float
 layout(set = 0, binding = 37, std430) restrict readonly buffer PressureBuf { float pressure[]; };
 // --- Gate inputs + the record table -----------------------------------------------------------------------
 layout(set = 0, binding = 10, std430) restrict readonly buffer Solid { float solid[]; };
-layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };        // idx*6 + slot
-#include "march.glsli"
 
-// The neighbour below / above this cell: down is -normalize(g), never a slot index.
+// GravityPass owns the vertical relation; this kernel reads it. vert_down is vert_up's scattered
+// inverse, so at most one cell names any given cell as its below - which is what makes the
+// cross-cell writes below race-free. An unset entry is -1.
+layout(set = 0, binding = 23, std430) restrict readonly buffer VertUp { int vert_up[]; };
+layout(set = 0, binding = 24, std430) restrict readonly buffer VertDown { int vert_down[]; };
+
 int la_below(uint c) {
-	vec3 gv = vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
-	return (length(gv) > 0.0) ? la_step(c, normalize(gv)) : -1;
+	return vert_down[c];
 }
 
 int la_above(uint c) {
-	vec3 gv = vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
-	return (length(gv) > 0.0) ? la_step(c, -normalize(gv)) : -1;
+	return vert_up[c];
 }
 // AQUIFER PERMEABILITY MASK (1 = groundwater-bearing regolith). The mask root_soil() walks — soil lives
 // here, not "wherever the rock is solid": an eroded or carved regolith cell is open AND still an aquifer.
@@ -190,8 +189,7 @@ float light_at(uint i) {
 	return max(0.0, dot(normalize(-gv), vec3(params.sun_x, params.sun_y, params.sun_z)));
 }
 
-// The FIRST regolith cell beneath an open cell, or -1. The inward-neighbour mapping is injective, so no two
-// reacting cells share one.
+// The FIRST regolith cell beneath an open cell, or -1.
 int top_regolith(uint i) {
 	int c = la_below(i);
 	if (c < 0 || regolith[c] == 0.0) {

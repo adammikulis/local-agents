@@ -47,7 +47,6 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	var detritus: RID = _single(bufs, "detritus")
 	var biomass: RID = _single(bufs, "biomass")
 	var solid: RID = _single(bufs, "solid")
-	var nbr: RID = _single(bufs, "nbr")
 	var vel_x: RID = _single(bufs, "vel_x")
 	var vel_y: RID = _single(bufs, "vel_y")
 	var vel_z: RID = _single(bufs, "vel_z")
@@ -87,7 +86,6 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		[9, fert],              # nutrient-uptake reactant, debited in place
 		[10, solid],
 		[11, biomass],          # photosynthesis grows it, respiration/decay oxidises it
-		[15, nbr],
 		[17, vel_x],            # WINDSPEED reads the flow tangential to the local vertical
 		[18, vel_z],
 		[26, vel_y],
@@ -107,7 +105,9 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		[36, h2o_vapour],       # DERIVED share — vapour
 		[37, pressure],         # Pa — the saturation curve and the ladder both read it
 		[40, cell_vol],         # per-cell volume (kernels3d/cellvol.glsli)
-		[48, gravity],          # the SOLVED g: every "above"/"below" and the light angle read it
+		[48, gravity],          # the SOLVED g: the light angle reads it
+		[23, _single(bufs, "vert_up")],    # GravityPass owns the vertical relation; this reads it
+		[24, _single(bufs, "vert_down")],
 	])
 
 

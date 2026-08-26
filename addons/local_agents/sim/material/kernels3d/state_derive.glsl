@@ -226,7 +226,6 @@ void main() {
 	nf += (isnan(pv.x) || isinf(pv.x)) ? 1.0 : 0.0;
 	nf += (isnan(pv.y) || isinf(pv.y)) ? 1.0 : 0.0;
 	nf += (isnan(pv.z) || isinf(pv.z)) ? 1.0 : 0.0;
-	nonfinite[g] = nf;
 
 	// The dead pool's molar ratios, from the same channels the reduce rows sum.
 	float org_pool = max(detritus[g], 0.0) + max(fuel[g], 0.0);
@@ -462,6 +461,13 @@ void main() {
 	silicate_melt[g] = f_melt;
 
 	lithify(g, f_melt, v_lithic);
+
+	// The derived state, which breaks before the momentum does.
+	float dv[3] = float[3](pressure[g], cel, rho);
+	for (int i = 0; i < 3; ++i) {
+		nf += (isnan(dv[i]) || isinf(dv[i])) ? 1.0 : 0.0;
+	}
+	nonfinite[g] = nf;
 
 	// QUASI-STATIC ROCK: the lattice carries its weight (LA_APPROX quasi_static_solid_pressure), so
 	// locked matter holds no bulk momentum and a cell that unlocks starts from rest.
