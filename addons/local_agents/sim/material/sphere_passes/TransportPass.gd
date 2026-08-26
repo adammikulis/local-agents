@@ -427,6 +427,8 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[77, _single(bufs, "h2")],
 		# The solved potential, J/kg: -phi is the escape energy LAW_ESCAPE lifts against.
 		[78, _single(bufs, "grav_phi")],
+		# The charge riding a mass row's crossing; a signed channel books its own through binding 48.
+		[79, _single(bufs, "bnd_void" if BoundaryRowsScript.BOOKED_SIGNED.has(channel) else "bnd_charge")],
 	]
 	return _uset(_pipe, entries)
 

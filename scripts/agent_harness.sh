@@ -238,6 +238,7 @@ if [[ "$cmd" == "lint" ]]; then
     gpu_gate check_alt_bands
     gate check_sim_determinism
     gate check_binding_collisions
+    gate check_transport_alias
     gate check_declared_and_dispatched
     gate check_gate_fixtures
     gate check_branch_integration

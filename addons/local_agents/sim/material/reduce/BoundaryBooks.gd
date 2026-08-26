@@ -31,7 +31,7 @@ static func declared() -> PackedStringArray:
 			names.append(key.substr(AMOUNT.length()))
 	# A name is a heat leg, not a channel, exactly when it is "h_" + another declared name — so a channel
 	# itself named "h_*" (h_j_m3) still declares.
-	# A BOOKED_SIGNED channel (momentum) is not matter: no heat leg, and the momentum ledger folds it.
+	# A BOOKED_SIGNED channel is not matter: it declares no heat leg, so `sample` folds it amount-only.
 	for n in names:
 		var s: String = String(n)
 		if s.begins_with("h_") and names.has(s.substr(2)):
@@ -61,6 +61,14 @@ func sample(f: Dictionary) -> void:
 		_gross[ch] = float(_gross.get(ch, 0.0)) + absf(d)
 		heat_net += dh
 		heat_gross += absf(dh)
+	for sch in LAReduceBoundaryRows.BOOKED_SIGNED:
+		var sa: String = AMOUNT + String(sch)
+		if not f.has(sa):
+			missing.append(sa)
+			continue
+		var sd: float = float(f[sa])
+		_net[sch] = float(_net.get(sch, 0.0)) + sd
+		_gross[sch] = float(_gross.get(sch, 0.0)) + absf(sd)
 
 
 ## [net in, magnitude crossed, a promised leg is absent] for a channel group. With an element symbol the two
