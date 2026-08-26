@@ -14,17 +14,17 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 0. IDENTICAL-SEED RUNS DIVERGE, AND PRESSURE_BROKEN STILL EXITS 122
+## 0. PRESSURE_BROKEN EXITS 122, AND THE COUNT GROWS WHILE THE RUN STEPS
 
-**Reproduce the divergence:** `scripts/agent_harness.sh sim --frames 5 --report h2o_total` twice and
-diff — `h2o_total` differs in the ninth digit and `pressure_audited` by a few cells, with the field
-finite throughout (`check_finite_channels` in `lint` holds it so).
+`scripts/sim_run.sh --frames 10` exits 122. The DRY open-pair class carries the whole count, rock and
+surface read zero, and the count RISES across the run's own reports while `pressure_audited` barely moves.
 
-**Reproduce the inversions:** `scripts/sim_run.sh --frames 10` exits 122 with `PRESSURE_BROKEN`, the
-DRY open-pair class carrying nearly the whole count and wet/rock/surface near zero.
+The audit cannot say how big an inversion is: `LAReducePressureRows` counts `Op.COUNT_GT` on the raw pair
+difference against a bare `0.0`, and its numerator gates on `h2o` while its denominator gates on
+`pressure`, so the two span different cells.
 
-**The 2.5 km slice still reaches non-finite momentum past ~10 frames** while the default box stays
-finite: `scripts/agent_harness.sh sim --slice --slice-box "0,2439700,0,24,32,24,2500" --frames 20 --report nonfinite_cells`.
+**The 2.5 km slice reaches non-finite momentum past ~10 frames** while the default box stays finite:
+`scripts/agent_harness.sh sim --slice --slice-box "0,2439700,0,24,32,24,2500" --frames 20 --report nonfinite_cells`.
 The cells flanking the wrap seam accumulate multiple fills of h2o first, and `celerity_max` leaves the
 physical range before the momentum does. `LA_PASS_PROBE=nonfinite LA_PASS_PROBE_STEPS=12` prints each
 pass's peak-cell state and per-channel non-finite counts.
