@@ -55,7 +55,7 @@ SIM_LOOP = f"{SIM}/SimLoop.gd"
 # R1: writes to the material field, the ecology's world state, or the orbital state. Names come from
 # MaterialField3D's public write API, LAEcologyService.set_sun and LASystemOrbits.
 MUTATORS = [
-    "set_wind(", "set_sun(", "set_sun_dir(", "set_solid(", "set_plate_motion(",
+    "set_wind(", "set_sun(", "set_sun_dir(", "set_plate_motion(",
     "add_heat_energy(", "add_lava(", "add_vapor(", "add_charge(",
     "add_water_pooled(", "add_magma_source(", "seed_field(", "apply_impulse(",
     "fire_barrage(", "force_erupt(",
