@@ -9,7 +9,7 @@
 
 layout(local_size_x = 64) in;
 
-layout(set = 0, binding = 0, std430) restrict buffer Amount   { float amount[]; };
+layout(set = 0, binding = 0, std430) buffer Amount   { float amount[]; };
 layout(set = 0, binding = 1, std430) restrict buffer Enthalpy { float h[]; };
 layout(set = 0, binding = 2, std430) restrict readonly buffer Neigh { int nbr[]; };
 layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float solid[]; };
@@ -24,7 +24,7 @@ layout(set = 0, binding = 7, std430) restrict buffer VelZ { float vel_z[]; };
 layout(set = 0, binding = 8, std430) restrict buffer Send   { float send[]; };
 layout(set = 0, binding = 9, std430) restrict buffer SendH  { float send_h[]; };
 // Charge rides the mass, exactly as enthalpy does: it is carried, never created by a move.
-layout(set = 0, binding = 13, std430) restrict buffer Charge { float charge[]; };
+layout(set = 0, binding = 13, std430) buffer Charge { float charge[]; };
 layout(set = 0, binding = 14, std430) restrict buffer SendQ  { float send_q[]; };
 // Flow resistance 0..1 per cell.
 layout(set = 0, binding = 10, std430) restrict readonly buffer Resist { float resist[]; };
@@ -39,15 +39,15 @@ layout(set = 0, binding = 15, std430) restrict readonly buffer TempBuf     { flo
 layout(set = 0, binding = 16, std430) buffer PressureBuf { float pressure[]; };
 layout(set = 0, binding = 17, std430) restrict readonly buffer PorosityBuf { float porosity[]; };
 layout(set = 0, binding = 18, std430) restrict readonly buffer GrainBuf    { float grain[]; };
-layout(set = 0, binding = 19, std430) restrict readonly buffer CO2Buf      { float co2[]; };
+layout(set = 0, binding = 19, std430) readonly buffer CO2Buf      { float co2[]; };
 // ONE H2O CHANNEL plus the three DERIVED shares state_derive.glsl publishes; they differ optically.
-layout(set = 0, binding = 20, std430) restrict readonly buffer H2OBuf       { float h2o[]; };
+layout(set = 0, binding = 20, std430) readonly buffer H2OBuf       { float h2o[]; };
 // LAAbsorptionBands.packed(): header, band edges, temperature slices, solar weights, eleven coefficients
 // per (temperature, band), Planck CDF.
 layout(set = 0, binding = 21, std430) restrict readonly buffer RadTable { float rad_table[]; };
 layout(set = 0, binding = 22, std430) restrict readonly buffer H2OSolidBuf  { float h2o_solid[]; };
 layout(set = 0, binding = 23, std430) restrict readonly buffer H2OLiquidBuf { float h2o_liquid[]; };
-layout(set = 0, binding = 24, std430) restrict readonly buffer SilicateBuf { float silicate[]; };
+layout(set = 0, binding = 24, std430) readonly buffer SilicateBuf { float silicate[]; };
 layout(set = 0, binding = 25, std430) restrict readonly buffer BiomassBuf  { float biomass[]; };
 layout(set = 0, binding = 26, std430) restrict readonly buffer SilicateMeltBuf { float silicate_melt[]; };
 // Boundary redirect per face: a wrapped interior cell, a prescribed ghost tail cell, or -1 = shut wall.
@@ -77,7 +77,7 @@ layout(set = 0, binding = 40, std430) restrict writeonly buffer Strike { float s
 // Rock channels two and three, the TF_RADIOGENIC deposit (J/m^3), and the RADIATE march's scratch.
 layout(set = 0, binding = 41, std430) restrict readonly buffer RadW { float rad_w_m3[]; };  // W/m^3, from state_derive.glsl
 // The greenhouse trace gases the band table resolves, mol/m^3.
-layout(set = 0, binding = 42, std430) restrict readonly buffer Ch4Buf { float ch4[]; };
+layout(set = 0, binding = 42, std430) readonly buffer Ch4Buf { float ch4[]; };
 layout(set = 0, binding = 43, std430) restrict writeonly buffer Radiogenic { float radiogenic[]; };
 layout(set = 0, binding = 44, std430) restrict buffer LwEmis { float lw_emis[]; };
 layout(set = 0, binding = 45, std430) restrict buffer SwAbs { float sw_absorbed[]; };
@@ -125,13 +125,15 @@ layout(set = 0, binding = 68, std430) restrict readonly buffer BodyFZ { float bo
 layout(set = 0, binding = 69, std430) buffer BndMomX { float bnd_mom_x[]; };
 layout(set = 0, binding = 70, std430) buffer BndMomY { float bnd_mom_y[]; };
 layout(set = 0, binding = 71, std430) buffer BndMomZ { float bnd_mom_z[]; };
-layout(set = 0, binding = 72, std430) restrict readonly buffer CoBuf { float co_gas[]; };
-layout(set = 0, binding = 73, std430) restrict readonly buffer So2Buf { float so2[]; };
-layout(set = 0, binding = 74, std430) restrict readonly buffer H2sBuf { float h2s[]; };
-layout(set = 0, binding = 75, std430) restrict readonly buffer O2Buf { float o2_gas[]; };
-layout(set = 0, binding = 76, std430) restrict readonly buffer N2Buf { float n2_gas[]; };
-layout(set = 0, binding = 77, std430) restrict readonly buffer H2Buf { float h2_gas[]; };
+layout(set = 0, binding = 72, std430) readonly buffer CoBuf { float co_gas[]; };
+layout(set = 0, binding = 73, std430) readonly buffer So2Buf { float so2[]; };
+layout(set = 0, binding = 74, std430) readonly buffer H2sBuf { float h2s[]; };
+layout(set = 0, binding = 75, std430) readonly buffer O2Buf { float o2_gas[]; };
+layout(set = 0, binding = 76, std430) readonly buffer N2Buf { float n2_gas[]; };
+layout(set = 0, binding = 77, std430) readonly buffer H2Buf { float h2_gas[]; };
 layout(set = 0, binding = 78, std430) restrict readonly buffer GravPhi { float grav_phi[]; };  // J/kg, zero at infinity
+// The charge riding a mass row's exterior crossing, C/m^3 per step.
+layout(set = 0, binding = 79, std430) buffer BndQ { float bnd_q[]; };
 
 #include "march.glsli"
 
@@ -819,9 +821,7 @@ void main() {
 				h_per_unit = h_carried[gidx] / amount[gidx];
 			}
 		}
-		float q_per_unit = carries ? charge[gidx] / amount[gidx] : 0.0;
-		// The flux's momentum share: its mass over the cell's, floored by the substance's own mass so
-		// a stale denominator cannot export more momentum than the cell holds.
+		// The flux's mass share of the cell, floored by the substance's own mass. Momentum and charge ride it.
 		float kg_mol = sub_kg_mol();
 		float denom_m = max(max(rho_bulk[gidx], 0.0), kg_mol * amount[gidx]);
 		float m_share = (carries && denom_m > 0.0) ? kg_mol / denom_m : 0.0;
@@ -850,7 +850,7 @@ void main() {
 				}
 				send[base + d] = flow_e;
 				send_h[base + d] = flow_e * (h_per_unit + tail);
-				send_q[base + d] = flow_e * q_per_unit;
+				send_q[base + d] = flow_e * m_share * charge[gidx];
 				send_mx[base + d] = flow_e * m_share * mom_x[gidx];
 				send_my[base + d] = flow_e * m_share * mom_y[gidx];
 				send_mz[base + d] = flow_e * m_share * mom_z[gidx];
@@ -964,7 +964,7 @@ void main() {
 			}
 			send[base + d] = flow;
 			send_h[base + d] = flow * h_per_unit;
-			send_q[base + d] = flow * q_per_unit;
+			send_q[base + d] = flow * m_share * charge[gidx];
 			send_mx[base + d] = flow * m_share * mom_x[gidx];
 			send_my[base + d] = flow * m_share * mom_y[gidx];
 			send_mz[base + d] = flow * m_share * mom_z[gidx];
@@ -997,13 +997,14 @@ void main() {
 		if (edge) {
 			inb = ghost[base + d];
 		}
-		// A wall books the signed push; the space edge books the escape law's matter, heat and momentum.
+		// A wall books the signed push; the space edge books the escape law's matter, heat, charge, momentum.
 		if (inb < 0) {
 			if (is_signed) {
 				bnd_amt[gidx] -= send[base + d];
 			} else if (params.law == LAW_ESCAPE) {
 				bnd_amt[gidx] -= send[base + d];
 				bnd_h[gidx] -= send_h[base + d];
+				bnd_q[gidx] -= send_q[base + d];
 				bnd_mom_x[gidx] -= send_mx[base + d];
 				bnd_mom_y[gidx] -= send_my[base + d];
 				bnd_mom_z[gidx] -= send_mz[base + d];
@@ -1032,6 +1033,8 @@ void main() {
 				bnd_h[gidx] += (params.flags & TF_ENTHALPY) != 0u
 					? in_a - send[base + d]
 					: in_h - send_h[base + d];
+				float in_q = listed ? 0.0 : send_q[nbo];
+				bnd_q[gidx] += in_q - send_q[base + d];
 				// The momentum the crossing mass carries, booked on its own signed legs.
 				vec3 in_m = listed ? vec3(0.0)
 					: vec3(send_mx[nbo], send_my[nbo], send_mz[nbo]);

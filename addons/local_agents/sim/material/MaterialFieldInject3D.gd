@@ -74,35 +74,6 @@ func _inject_energy(cells: PackedInt32Array, joules: float) -> float:
 	return dh
 
 
-## Add PER-CELL joules: `cells[i]` gets `joules[i]`, as that cell's own enthalpy density. A source spread
-## over cells that differ has to be booked cell by cell. Returns the joules that landed.
-func add_heat_per_cell(cells: PackedInt32Array, joules: PackedFloat32Array) -> float:
-	if cells.size() == 0 or cells.size() != joules.size():
-		return 0.0
-	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
-	if vol.size() != _f._cell_count:
-		return 0.0
-	var hit: PackedInt32Array = PackedInt32Array()
-	var deltas: PackedFloat32Array = PackedFloat32Array()
-	var total: float = 0.0
-	for i in cells.size():
-		var c: int = cells[i]
-		if c < 0 or c >= _f._cell_count or vol[c] <= 0.0:
-			continue
-		hit.append(c)
-		deltas.append(joules[i] / vol[c])
-		total += joules[i]
-	if hit.size() == 0:
-		return 0.0
-	queue.note_energy(total)
-	if not _device_ready():
-		for i in hit.size():
-			_f._h[hit[i]] = _f._h[hit[i]] + deltas[i]
-		return total
-	queue.queue_h(hit, deltas)
-	return total
-
-
 func _apply_h(cells: PackedInt32Array, dh: float) -> void:
 	if not _device_ready():
 		# The box/CPU reference field has no device and nothing flushes the queue there, so the mirror IS the

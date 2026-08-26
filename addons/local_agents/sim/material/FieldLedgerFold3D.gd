@@ -50,6 +50,9 @@ func fold() -> Dictionary:
 		out["energy_stock"] = float(r["energy_stock"])
 	else:
 		out["energy_missing"] = PackedStringArray(["h_j_m3"])
+	if r.has("charge_stock") and r.has("charge_gross"):
+		out["charge_stock"] = float(r["charge_stock"])
+		out["charge_gross"] = float(r["charge_gross"])
 	# Joules over one step, volume-weighted. A book the device did not deliver is NAMED, never skipped:
 	# skipping one nulls the whole radiative block and the conservation row reads UNMEASURED instead of red.
 	var absent: PackedStringArray = out.get("energy_missing", PackedStringArray())

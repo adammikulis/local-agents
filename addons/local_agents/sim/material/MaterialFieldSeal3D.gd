@@ -37,11 +37,6 @@ func sealed() -> bool:
 	return _phase == Phase.SEALED
 
 
-## THE TWO PHASES OF THE WORLD, and the only place the boundary is decided.
-func creation_allowed() -> bool:
-	return _phase == Phase.SEEDING
-
-
 ## Declare an act that CREATES matter or energy.
 func note_creation(what: String, amount: float) -> bool:
 	if _phase == Phase.SEEDING:
