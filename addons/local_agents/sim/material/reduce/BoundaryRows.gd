@@ -8,9 +8,8 @@ const Rec: GDScript = preload("res://addons/local_agents/sim/material/ReduceReco
 const BOOKED: PackedStringArray = ["h2o", "silicate", "o2", "co2", "n2", "h2", "co", "so2", "h2s",
 	"ch4", "fungus", "fert", "h_j_m3"]
 
-## Signed per-axis channels booked amount-only: momentum is not matter and carries no heat leg. The
-## momentum ledger folds these, not LABoundaryBooks.
-const BOOKED_SIGNED: PackedStringArray = ["mom_x", "mom_y", "mom_z"]
+## Channels booked amount-only: neither momentum nor charge is matter, so neither carries a heat leg.
+const BOOKED_SIGNED: PackedStringArray = ["mom_x", "mom_y", "mom_z", "charge"]
 
 
 ## `bnd_<ch>` is the channel's units crossing the domain edge per step, `bnd_h_<ch>` the joules riding

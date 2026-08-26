@@ -30,7 +30,7 @@ var _face_base: PackedInt32Array = PackedInt32Array()
 ## (cell_count + ghost_rows) * 6 redirect: -1 shut, < cc wrap partner, >= cc ghost tail cell.
 var _ghost: PackedInt32Array = PackedInt32Array()
 ## Per ghost tail cell: the prescribed pressure, Pa — the momentum ledger's CPU mirror.
-var _mirror_p: PackedFloat32Array = PackedFloat32Array()
+var _ng: int = 0
 ## Per interior cell: the REPLAY face's driving ghost cell and the per-step nudge fraction; 0 = no rim.
 var _rim_ghost: PackedInt32Array = PackedInt32Array()
 var _rim_w: PackedFloat32Array = PackedFloat32Array()
@@ -106,8 +106,7 @@ func configure(grid: LAVoxelGrid, modes: PackedInt32Array, states: Array) -> boo
 	grid.add_ghost_rows(ng)
 	_ghost.resize((_cc + ng) * LAVoxelGrid.SLOTS)
 	_ghost.fill(-1)
-	_mirror_p.resize(ng)
-	_mirror_p.fill(NAN)
+	_ng = ng
 	var nbr: PackedInt32Array = grid.neighbours
 	var next: int = _cc
 	for d in LAVoxelGrid.SLOTS:
@@ -214,18 +213,12 @@ func redirect(c: int, d: int) -> int:
 	return _ghost[i] if i >= 0 and i < _ghost.size() else -1
 
 
-## The prescribed pressure at a ghost tail cell, Pa; NAN when it holds none.
-func ghost_pressure(gc: int) -> float:
-	var i: int = gc - _cc
-	return _mirror_p[i] if i >= 0 and i < _mirror_p.size() else NAN
-
-
 func mode(d: int) -> int:
 	return _modes[d] if d >= 0 and d < _modes.size() else SHUT
 
 
 func ghost_count() -> int:
-	return _mirror_p.size()
+	return _ng
 
 
 ## Every WRAP face entry re-derived by modulo stepping and compared against the table. Can FAIL.
@@ -299,9 +292,6 @@ func _fill_face(d: int) -> void:
 		gv[i * 3 + 1] = g.y
 		gv[i * 3 + 2] = g.z
 	_upload_at(_gpu._bufs["gravity"], base * 3, gv)
-	var p_pa: float = float(st["pressure_pa"])
-	for i in count:
-		_mirror_p[base - _cc + i] = p_pa
 
 
 ## Buffer name -> the one value every ghost cell of this face holds.

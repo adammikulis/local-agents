@@ -19,6 +19,8 @@ var _cum_emitted: float = 0.0
 var _cum_radiogenic: float = 0.0
 var _first_inject_j: float = 0.0
 var _bnd = null
+## The stock baselines have latched, so the crossing integral may open.
+var _latched: bool = false
 # Last published block, for the consumers that ask the field for one scalar outside the report path.
 var _last: Dictionary = {}
 # The last drain this ledger folded. The publishers read it; nothing else may fold.
@@ -41,7 +43,15 @@ func sample() -> void:
 	if f.is_empty():
 		return
 	_latest = f
-	if _books.sealed(): _bnd.sample(f)
+	if not _books.sealed():
+		return
+	# The baselines latch on the fold the crossing integral opens on, so drift and crossings span the same
+	# steps; this fold's own crossings are already inside the stock it latched.
+	if not _latched:
+		_latched = true
+		report(int(f["step"]))
+		return
+	_bnd.sample(f)
 
 
 ## Every conserved substance, published together from the last fold. A stock may be read on any cadence;
@@ -60,6 +70,7 @@ func report(step_index: int) -> Dictionary:
 	_publish_mineral(out, f, step)
 	_publish_element(out, f, step)
 	_publish_energy(out, f, step)
+	_publish_charge(out, f, step)
 	_last = out
 	return out
 
@@ -199,11 +210,11 @@ func _publish_element(out: Dictionary, f: Dictionary, step: int) -> void:
 		_bnd.of(h_pool, "H"))
 
 
-## `<name>_first`, the drift since it, the crossing booked against that drift, and the RESIDUAL as a
-## fraction of the baseline plus what crossed. A stock that changed by exactly what came IN is conserved, so
-## the numerator is drift MINUS net crossing; on a shut wall both terms are zero. Returns the run length.
+## `<name>_first`, the drift since it, the crossing booked against it, and the residual `drift - net in`
+## over the baseline plus what crossed. A non-negative `scale` replaces that denominator, for a quantity
+## whose conserved value is ZERO and whose baseline is therefore residue. Returns the run length.
 func _run_pair(out: Dictionary, name: String, book: String, seed_key: String, value: float, step: int,
-		bnd: Array) -> int:
+		bnd: Array, scale: float = -1.0) -> int:
 	var r: Array = _books.run(book, seed_key, value, step)
 	if r.is_empty():
 		return 0
@@ -211,8 +222,8 @@ func _run_pair(out: Dictionary, name: String, book: String, seed_key: String, va
 	out[name + "_run_drift"] = snappedf(float(r[1]), 0.01)
 	out[name + "_bnd_in"] = float(bnd[0])
 	out[name + "_bnd_crossed"] = float(bnd[1])
-	out[name + "_rel_drift"] = null if bool(bnd[2]) \
-		else _rel(float(r[1]) - float(bnd[0]), absf(float(r[0])) + float(bnd[1]))
+	var denom: float = scale if scale >= 0.0 else absf(float(r[0])) + float(bnd[1])
+	out[name + "_rel_drift"] = null if bool(bnd[2]) else _rel(float(r[1]) - float(bnd[0]), denom)
 	return int(r[3])
 
 
@@ -284,6 +295,22 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	out["energy_bnd_crossed"] = _bnd.heat_gross
 	out["energy_residual_rel"] = null if not _bnd.missing.is_empty() \
 		else _rel(run_drift - booked, turnover)
+
+
+# --- CHARGE ------------------------------------------------------------------------------------------
+
+## Net charge over the box, coulombs: no heat leg, so the edge crossing books amount-only. Riming separates
+## it in ZERO-SUM pairs, so the net is a residual whose scale is the charge that EXISTS.
+func _publish_charge(out: Dictionary, f: Dictionary, step: int) -> void:
+	if not f.has("charge_stock"):
+		out["charge_stock"] = null
+		out["charge_gross"] = null
+		return
+	var gross: float = float(f["charge_gross"])
+	out["charge_stock"] = float(f["charge_stock"])
+	out["charge_gross"] = gross
+	_run_pair(out, "charge", "charge", "charge_c", float(f["charge_stock"]), step,
+		_bnd.of(PackedStringArray(["charge"])), gross)
 
 
 # --- shared ------------------------------------------------------------------------------------------

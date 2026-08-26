@@ -189,6 +189,9 @@ void main() {
 		if (params.op == OP_SUM_ABS_DIFF) {
 			v = abs(v - refv[i]);
 		}
+		if (params.op == OP_SUM_ABS) {
+			v = abs(v);
+		}
 		if (params.op == OP_COUNT_GT) {
 			acc += (v > params.threshold) ? 1.0 : 0.0;
 		} else if (params.op == OP_COUNT_GE) {
