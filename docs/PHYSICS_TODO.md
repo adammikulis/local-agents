@@ -153,10 +153,20 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 
 ## D. Transport and geometry
 
+- [ ] **The modelled atmosphere is one cell thick, at every resolution the project offers.**
+      `LAFieldLithostaticSeed.shape_atmosphere` branches on `scale_h < cell_size`; when it holds, the whole
+      atmosphere is seeded into the first open shell and everything above it is vacuum. It always holds:
+      the field box is `2 * (PLANET_RADIUS + MODELLED_ATMOSPHERE_HEIGHT_M) / N` per cell with `N` clamped
+      to `[GRID_EDGE_MIN, GRID_EDGE_MAX]`, so the finest cell available is tens of kilometres larger than
+      any scale height this planet can have, and `MODELLED_ATMOSPHERE_HEIGHT_M` is itself under one cell.
+      There is no lapse rate, no vertical structure and no honest pressure gradient for the momentum
+      equation to work against, and the open cells that remain are mostly the cube's corners.
+      **Reproduce:** `scripts/sim_run.sh --frames 10` — the DRY open-pair class carries the whole
+      `PRESSURE_BROKEN` count while rock and surface read zero.
 - [ ] **The grid cannot resolve its own aquifer.** `LAVoxelGrid.cell_size` is one number for all three axes,
       so the few cells of regolith between the surface and the water table are as coarse as the sky.
-      Non-uniform radial spacing is the physically correct fix — fine near the surface, coarse aloft and at
-      depth — and `cell_size` becomes per-shell.
+      Non-uniform radial spacing is the physically correct fix for both this and the atmosphere above —
+      fine near the surface, coarse aloft and at depth — and `cell_size` becomes per-shell.
 
 ## E. Conservation, open
 
@@ -227,10 +237,13 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       (`LASimClock.REAL_SECONDS_PER_SIM_SECOND`), but `real_seconds_per_step()` is still
       `STEP_DT * compression`, so how fast the player watches sets every transport kernel's timestep. A
       substep budget separates them.
-- [ ] **The planet has two masses.** `PlanetBody.mass()` is a toy value the parked orbit lane reads,
-      while the field's gravity — the Poisson total and the slice monopole alike — carries the mass the
-      seeded rock derives. One fact, two declarations; unifying them changes the 0.5 orbit integrator's
-      regime, so which one dies is the maintainer's system decision.
+- [ ] **The planet has two masses, and the field's is the one that lives.** `PlanetBody.mass()` is a
+      typed literal; the field's gravity — the Poisson total and the slice monopole alike — carries the
+      mass the seeded rock derives. `LAGravity` computes a real `G*M/r^2` from the literal, so
+      `MaterialEjecta3D` decides where thrown rock lands and `Meteor` decides its infall speed, and
+      therefore its impact energy, off a mass the field does not have. Delete the literal; `mass()`
+      returns the derived mass, and `SystemOrbits` re-derives the moon and star orbits from the real mu
+      rather than from the value it was fitted to.
 - [ ] **The planet is pinned at the world origin** and the star orbits it. A deliberate moving-frame choice;
       making it literal is the 0.6 headline.
 

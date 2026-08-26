@@ -71,18 +71,34 @@ remove it, and fix whatever breaks. Every example below is real and was removed 
 - **A quality or presentation dial that reaches physics** — an effects scale that changed where ejecta
   landed, a camera position that decided which ground existed and therefore the RNG.
 
-# RULE 1b — NO NUMBER FROM THIS SUBSTRATE IS EVIDENCE, AND A CRUTCH IS DELETED RATHER THAN MEASURED.
+# RULE 1b — NOTHING THIS SUBSTRATE PRINTS IS EVIDENCE, AND GREEN IS NOT A REASON.
 
 Nothing here has ever worked, so a figure is the interaction of whichever defects were live that day, and
 two such figures differenced is a difference between fictions.
 
 **Report no number — total, drift, percentage, mean, count, absolute reading — until `HANDOFF.md` and
-`docs/PHYSICS_TODO.md` are empty.** Never a before/after table, never "beating a baseline". "This got
-worse, should we revert?" is not a real question about a correct fix, and fitting the model to its output
-is how water came to freeze at 12.5 °C.
+`docs/PHYSICS_TODO.md` are empty.** Never a before/after table, never "beating a baseline"; fitting the
+model to its output is how water came to freeze at 12.5 °C. A gate's reading is the same error — "down to
+55 errors", "the residual is small", "drift improved" are readings off broken instruments. **THE ONLY
+MEASURE OF PROGRESS IS WHAT WAS RIPPED OUT:** report the file, the constant, the switch, the duplicate.
 
-If a thing stands in for physics that was never built, delete it. Do not test it, compare it, or report
-what it reads: reporting a crutch's value invites a conversation about the value instead of the deletion.
+**A crutch is DELETED, never measured.** Do not test it, compare it, or report what it reads — reporting
+its value invites a conversation about the value instead of the deletion.
+
+**"So that it compiles", "so the call sites still read the same", "so we have a baseline", "so the gate
+goes green" are not reasons.** Green is the only signal cheap to read, so every plan bends toward
+producing one — that is how a deleted crutch comes back behind a forwarder. Justify a change by what is
+true of the WORLD. **Red is the working state of a branch mid-conversion:** a status with a named cause,
+not damage. A step is DONE when something is GONE or a physical claim is TRUE, never when a command
+exited 0.
+
+**A gate you cannot make fail on purpose is not a gate.** Mutation-test both ways or you have not written
+one.
+
+**NEVER SHAPE THE PHYSICS TO SUIT THE DISPLAY.** Not the rate, the threshold, the unit, or which cells are
+stepped. A quantity that exists because something needed a 0..1 dial, a cadence chosen so a frame looks
+smooth, a channel scaled so a texture packs — each is the simulation lying to make a picture easier, and
+the picture is then evidence of nothing. If a thing is hard to render, fix the RENDERER.
 
 Evidence is reading the code against reality, plus binary events: a gate fires on purpose, a demo exits 0,
 a marker appears, a deletion compiles, a referrer breaks and names the next fix.
@@ -100,52 +116,21 @@ violation, and no flag, mode or environment variable may re-enable it.
 `scripts/check_seed_phase.sh` fails the build on a creation-class write that never asks and on any
 whole-mirror upload — an upload that cannot say what it changed creates matter with no ledger noticing.
 
-# RULE 1d — "A CAN'T HAPPEN BECAUSE B" IS ONLY ALLOWED WHEN B IS AN UPSTREAM BUG YOU CANNOT FIX.
+# RULE 1d — NOTHING HERE CONSTRAINS YOU: NOT OUR OWN CODE, AND NEVER PERMISSION.
 
-If B is our code the sentence is unfinished. It must continue: "and this is how I am fixing it."
+**"A can't happen because B" is only allowed when B is an upstream bug you cannot fix.** If B is our code
+the sentence is unfinished and must continue: "and this is how I am fixing it." Every constraint here is a
+past decision, not physics, and there are no downstream consumers — you wrote every line. "Parity",
+"feel", "familiar", "so the existing tuning still sees familiar numbers" are the reason the defect is
+still here. The subtle form is preserving a SHAPE rather than a value: adding the right relation beside
+the scalar it replaces, with every consumer still on the scalar.
 
-Every constraint here is a past decision, not physics, and there are no downstream consumers. Nothing is
-"choosing the architecture" for you — you wrote every line. Never keep something because it matches what was
-there: "parity", "feel", "familiar", "so the existing tuning still sees familiar numbers" are the reason the
-defect is still here.
-
-The subtle form is preserving a SHAPE rather than a value — adding the right relation beside the scalar it
-replaces, with every consumer still on the scalar.
-
-# RULE 1f — "SO THAT IT COMPILES" AND "SO WE HAVE A BASELINE" ARE NOT REASONS. THEY ARE THE DISEASE.
-
-Green is the only signal cheap to read, so every plan bends toward producing one. That is how a deleted
-crutch comes back behind a forwarder, and how a step gets invented whose only purpose is that something
-passes.
-
-**Justify a change by what is true of the WORLD.** If the sentence you would write is "so that X compiles",
-"so the call sites still read the same", "so we have a baseline to compare against", or "so the gate goes
-green", stop — you have written the cost of being honest, not a reason.
-
-**Red is the working state of a branch mid-conversion.** It is a status with a named cause, not damage, and
-clearing it is not a goal. A step is DONE when something is GONE or a physical claim is TRUE — never when a
-command exited 0.
-
-**A gate you cannot make fail on purpose is not a gate**, and green from a tree full of those means nothing,
-which is what makes chasing it so cheap. Mutation-test both ways or you have not written one.
-
-**NEVER SHAPE THE PHYSICS TO SUIT THE DISPLAY.** Not the rate, not the threshold, not the unit, not which
-cells are stepped. If a thing is hard to render, fix the RENDERER. A quantity that exists because something
-needed a 0..1 dial, a cadence chosen so a frame looks smooth, a channel scaled so a texture packs — each is
-the simulation lying to make a picture easier, and the picture is then evidence of nothing.
-
-**AND DO NOT REPORT A GATE'S READING AS PROGRESS.** "Down to 55 errors", "the residual is small", "drift
-improved" are readings off broken instruments, and quoting one is the same error as quoting a figure from
-the sim. **THE ONLY MEASURE OF PROGRESS IS WHAT WAS RIPPED OUT.** Report the deletion — the file, the
-constant, the switch, the duplicate — and nothing else.
-
-# RULE 1g — NEVER ASK PERMISSION TO DO THE CORRECT THING.
-
-**Before `AskUserQuestion`, check whether this file, `HANDOFF.md` or `docs/PHYSICS_TODO.md` already
-decides it. If they do, ACT.** The tool is for what only the maintainer knows — what he wants the world
-to BE like. Never for permission, never for a choice between correct and cheap, never for reassurance,
-never to ask whether a broken sim may stay broken. Asking anyway proves the rules were not read, and it
-costs DAYS.
+**NEVER ASK PERMISSION TO DO THE CORRECT THING.** Before `AskUserQuestion`, check whether this file,
+`HANDOFF.md` or `docs/PHYSICS_TODO.md` already decides it. If they do, ACT. The tool is for what only the
+maintainer knows — what he wants the world to BE like. Never for permission, never for a choice between
+correct and cheap, never for reassurance, never to ask whether a broken sim may stay broken. A tracker
+note reserving a call does not un-decide a question reality already answers, and a plus/minus write-up is
+the same failure wearing prose. Asking anyway costs DAYS.
 
 # RULE 2 — YOU PRESERVE NUMBERS, NOT CODE. THAT IS WHAT KEEPS GETTING PAST RULE 1.
 
@@ -428,22 +413,15 @@ things you already have your hands on.
   **glTF**. **Do not** rely on Godot's ufbx FBX importer for skinned/animated meshes at runtime.
 - **Non-skinned FBX (caps, hair, props):** Godot itself is the converter — `GLTFDocument.append_from_scene`
   + `write_to_filesystem`, headless. Fine for static/rigid meshes.
-- **Skinned/animated characters: convert with headless Blender** — Godot's own FBX→glTF path left the
-  skinned Kenney character **invisible** (a ufbx/skin quirk), so use Blender's exporter, which produces a
-  clean, upright, Godot-friendly `.glb`. Worked example: **`blender_convert_female.py`**
-  (`/Applications/Blender.app/Contents/MacOS/Blender --background --python <script>`). It:
-  - imports the character mesh FBX + the separate idle-animation FBX (Kenney ships animations as their
-    own files);
-  - picks the real **Idle** action (idle.fbx also carries a "0_Targeting Pose" that raises the arms —
-    grab the one whose name has `idle` and not `target`);
-  - **re-binds the mesh to the idle armature** (re-point the Armature modifier + reparent) instead of
-    cross-assigning the action — cross-assigning across two armatures breaks when their rest poses
-    differ (symptom: body **bobs but arms stay in a T-pose**);
-  - paints the skin as a Principled BSDF base-color texture and exports one `.glb` (`export_yup=True`).
-- **Runtime gotchas seen:** the Blender clip imports as a compound name like `Root_001|Root|Idle` (match
-  by substring, don't hardcode `"Idle"`); set the clip `loop_mode = LOOP_LINEAR` or it one-shots; the
-  character may face +Z (add a 180° yaw). **Attach head accessories with `BoneAttachment3D`** bound to
-  the `Head` bone so they track the skeletal idle + gaze through the node tree — no per-frame sync.
+- **Skinned/animated characters: convert with headless Blender.** Godot's own FBX→glTF path left a skinned
+  character invisible, so use Blender's exporter. Where the mesh and the animation ship as separate FBX
+  files, RE-BIND the mesh to the animation's armature — re-point the Armature modifier and reparent —
+  rather than cross-assigning the action, which breaks when the two rest poses differ (the body bobs and
+  the arms stay in a T-pose).
+- **Runtime gotchas seen:** a Blender clip imports under a compound name like `Root_001|Root|Idle`, so match
+  by substring; set `loop_mode = LOOP_LINEAR` or the clip one-shots; the character may face +Z. **Attach
+  head accessories with `BoneAttachment3D`** bound to the `Head` bone so they track the skeletal animation
+  through the node tree — no per-frame sync.
 
 ## Destructive-command safety (bulk delete/find)
 
