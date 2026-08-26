@@ -65,6 +65,25 @@ func _parse(spec: String) -> bool:
 	return true
 
 
+## The box-centre offset with `surface` filled in from the body's own radius. ONE declaration: apply() and
+## the capture path both read the offset through here, or one of them places the box somewhere else.
+func resolved_offset(body) -> Vector3:
+	return offset if _resolve_offset(body) else Vector3.ZERO
+
+
+func _resolve_offset(body) -> bool:
+	if surface_axis < 0:
+		return true
+	if body == null or not body.has_method("radius"):
+		return _fail("the box asks for the body's surface and no body was supplied to resolve it")
+	var r: float = float(body.radius())
+	if not is_finite(r) or r <= 0.0:
+		return _fail("the box asks for the body's surface and the body has not measured a radius yet")
+	offset[surface_axis] = r
+	surface_axis = -1
+	return true
+
+
 ## Lay the field over the slice box against the real terrain, and configure its face boundary.
 func apply(field, body, terrain) -> bool:
 	if error != "":
@@ -73,11 +92,8 @@ func apply(field, body, terrain) -> bool:
 		return _fail("a slice needs a declared body: its centre and radius locate the box and the monopole gravity")
 	if terrain == null or not terrain.has_method("is_solid"):
 		return _fail("a slice seeds from the real terrain, and none was supplied")
-	if surface_axis >= 0:
-		var r: float = float(body.radius())
-		if not is_finite(r) or r <= 0.0:
-			return _fail("the box asks for the body's surface and the body has not measured a radius yet")
-		offset[surface_axis] = r
+	if not _resolve_offset(body):
+		return false
 	field._slice = self
 	field._pivot = body.center()
 	field.set_body(body)

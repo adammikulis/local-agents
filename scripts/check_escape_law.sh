@@ -87,7 +87,7 @@ func _sum(name: String) -> float:
 
 ## One dispatch of the full pass against a fresh gas load, a set potential depth and a sun. Returns
 ## per-gas [stock change, bnd book] sums.
-func _arm(p: RefCounted, depth: float, sun: Vector3) -> Dictionary:
+func _arm(p: RefCounted, depth: float, sun: Vector3, xuv_w_m2: float = 0.0) -> Dictionary:
 	for gas: String in ["h2", "n2", "o2", "co2"]:
 		_upload(gas, _filled(_cc, N_GAS))
 	_upload("grav_phi", _filled(_cc, -depth))
@@ -97,7 +97,7 @@ func _arm(p: RefCounted, depth: float, sun: Vector3) -> Dictionary:
 		if String(key).begins_with("bnd_"):
 			_rd.buffer_clear(_bufs[key], 0, _cc * 4)
 	var cl: int = _rd.compute_list_begin()
-	p.dispatch(_rd, cl, {"cell_size": CELL, "sun_dir": sun, "dt_s": DT},
+	p.dispatch(_rd, cl, {"cell_size": CELL, "sun_dir": sun, "dt_s": DT, "xuv_w_m2": xuv_w_m2},
 		_cc, int(ceil(float(_cc) / 64.0)))
 	_rd.compute_list_end()
 	_rd.submit()
@@ -170,10 +170,13 @@ func _init() -> void:
 	# The arm's potential depth, J/kg, off the h2 escape parameter it targets.
 	var per_lam: float = LAPhysical.GAS_CONSTANT_J_MOL_K * T_K / LAPhysical.MOLAR_MASS_H2_KG_MOL
 	var up: Vector3 = Vector3(1.0, 0.0, 0.0)
+	# The epoch star's XUV at this planet's own separation; the sun vector carries direction only.
+	var XUV: float = LABodySeeds.irradiance_w_m2(
+		LABodySeeds.xuv_luminosity_at_epoch_w(), LABodySeeds.ASTRONOMICAL_UNIT_M)
 	var stock: float = N_GAS * float(_cc)
 
 	# (b) COLD: bound hard, the epoch's XUV shining — nothing may leave.
-	var cold: Dictionary = _arm(p, LAM_COLD * per_lam, up)
+	var cold: Dictionary = _arm(p, LAM_COLD * per_lam, up, XUV)
 	_expect(absf(float(cold["h2"][1])) <= ZERO_TOL * stock,
 		"a cold bound cell lost h2 under XUV: bnd_h2 = %s" % String.num_scientific(float(cold["h2"][1])))
 
@@ -200,7 +203,7 @@ func _init() -> void:
 	_expect(absf(float(dark["h2"][1])) <= ZERO_TOL * stock,
 		"an unbound cell escaped with the XUV driver at zero: bnd_h2 = %s"
 		% String.num_scientific(float(dark["h2"][1])))
-	var lit: Dictionary = _arm(p, LAM_HYDRO * per_lam, up)
+	var lit: Dictionary = _arm(p, LAM_HYDRO * per_lam, up, XUV)
 	_expect(float(lit["h2"][1]) < -1.0e-13,
 		"the epoch's XUV drove no wind: bnd_h2 = %s" % String.num_scientific(float(lit["h2"][1])))
 	for gas: String in ["n2", "o2", "co2"]:

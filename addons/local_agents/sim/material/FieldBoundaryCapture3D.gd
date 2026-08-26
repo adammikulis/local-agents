@@ -57,7 +57,7 @@ static func maybe_make(field):
 	cap._amount_names = _matter_channels()
 	cap._names = PackedStringArray(["temp", "pressure", "vel_x", "vel_y", "vel_z"])
 	cap._names.append_array(cap._amount_names)
-	cap._faces = exterior_faces(field._grid, field.centre() + box.offset, box)
+	cap._faces = exterior_faces(field._grid, field.centre() + box.resolved_offset(field._body), box)
 	for d in LAVoxelGrid.SLOTS:
 		if (cap._faces[d] as Dictionary).has("unresolved"):
 			cap._unresolved[str(d)] = String(cap._faces[d]["unresolved"])

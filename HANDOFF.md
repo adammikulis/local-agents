@@ -23,11 +23,14 @@ The audit cannot say how big an inversion is: `LAReducePressureRows` counts `Op.
 difference against a bare `0.0`, and its numerator gates on `h2o` while its denominator gates on
 `pressure`, so the two span different cells.
 
-**The 2.5 km slice reaches non-finite momentum past ~10 frames** while the default box stays finite:
-`scripts/agent_harness.sh sim --slice --slice-box "0,2439700,0,24,32,24,2500" --frames 20 --report nonfinite_cells`.
+**A slice goes non-finite while the default box stays finite,** and the momentum run never starts, so
+`momentum_book_bnd` is absent and `check_boundary_momentum_book.sh`'s replay arm fails on it. Reproduce:
+`scripts/sim_run.sh --frames 20 --slice-capture C`, then
+`scripts/sim_run.sh --slice --slice-state C --frames 20 --report nonfinite_cells,momentum_live`.
 The cells flanking the wrap seam accumulate multiple fills of h2o first, and `celerity_max` leaves the
 physical range before the momentum does. `LA_PASS_PROBE=nonfinite LA_PASS_PROBE_STEPS=12` prints each
-pass's peak-cell state and per-channel non-finite counts.
+pass's peak-cell state and per-channel non-finite counts. An offset component of `surface` puts a box on
+the body without naming a radius.
 
 ## 1. BUILD THE GRADED GRID. IT IS THE TRUNK AND ITEM 0 WAITS ON IT
 
@@ -56,6 +59,10 @@ corners. Item 0 cannot be read either way until this lands.
 in the stratified direction. Its gate is the only test that matters: an atmosphere at rest, in balance,
 stays at rest. Build that gate first and watch it fail.
 
+`check_alt_bands.sh` already fails on this: every populated altitude band reads the same minimum
+temperature, because the bands hold one isothermal population and mostly the cube's corners. It goes
+green when the atmosphere has vertical structure, so treat it as this item's acceptance test.
+
 `shape_atmosphere`'s `flat` branch is DELETED when this lands. If it cannot come out, the root is not
 fixed.
 
@@ -76,12 +83,11 @@ baseline while the element and mineral books close. Same symptom on the pre-conv
 
 ## 3. Three GPU gates are red and none is triaged
 
-`scripts/agent_harness.sh lint` reports `check_escape_law` (`the epoch's XUV drove no wind: bnd_h2 = 0`),
-`check_finite_channels` (`energy_stock did not arrive as a finite number`) and `check_slice_exterior`
-(`the exterior under the box is not under more pressure than the exterior over it`).
+`check_slice_exterior.sh` reports `the exterior under the box is not under more pressure than the
+exterior over it` and `SLICE_EXTERIOR_CAPTURE={"faces":6,"named":0}`. `check_alt_bands.sh` and
+`check_boundary_momentum_book.sh` are red for the reasons items 1 and 0 carry.
 
-Reproduce each on its own: `bash scripts/check_escape_law.sh`, `bash scripts/check_finite_channels.sh`,
-`bash scripts/check_slice_exterior.sh`.
+Reproduce: `bash scripts/check_slice_exterior.sh`.
 
 ## 4. Reduce the rest on the device
 
