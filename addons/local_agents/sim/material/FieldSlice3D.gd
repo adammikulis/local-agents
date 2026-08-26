@@ -2,10 +2,8 @@ class_name LAFieldSlice3D
 extends RefCounted
 
 ## A SLICE of the declared body: a small box on the planet, seeded from the real terrain, fed at its faces
-## by LAFieldBoundary3D instead of by the rest of the grid. Spec "ox,oy,oz,nx,ny,nz,cell_m": box-centre
-## offset from the body centre (m, body frame), cells per axis, cell edge (m). An offset component may be
-## the word `surface`, which the body resolves to its own radius — nothing outside the world has to know how
-## big it is. Node meta -> setting -> env.
+## by LAFieldBoundary3D. Spec "ox,oy,oz,nx,ny,nz,cell_m" — box-centre offset (m, body frame), cells per
+## axis, cell edge; an offset component may be `surface`. Node meta -> setting -> env.
 
 const CaptureScript: GDScript = preload("res://addons/local_agents/sim/material/FieldBoundaryCapture3D.gd")
 

@@ -20,8 +20,9 @@ static func compress(field) -> float:
 		var arr = field.get("_" + String(name))
 		if not (arr is PackedFloat32Array) or arr.size() != field._cell_count:
 			continue
-		var s: Dictionary = table.get(String(rows[name].get("substance", "")), {})
-		lithic.append([arr, float(s.get("bulk_modulus_solid_pa", s.get("bulk_modulus_pa", 0.0)))])
+		var id: String = String(rows[name].get("substance", ""))
+		if id != "" and table.has(id):
+			lithic.append([arr, id])
 	var bins: int = int(ceil(field._grid.max_span() / dr)) + 2
 	var mass_kg: PackedFloat64Array = PackedFloat64Array()
 	mass_kg.resize(bins)
@@ -49,21 +50,30 @@ static func compress(field) -> float:
 		var rho: float = float(mass_kg[b]) / (float(maxi(cells_in[b], 1)) * cell_vol)
 		p += rho * g_at[b] * dr
 		p_at[b] = p
+	# COMPRESSION IS THE SUBSTANCE TABLE'S ANSWER, NOT THIS FILE'S. The ratio is rho(p)/rho(p_std) from
+	# LASubstances, whose EOS is Birch-Murnaghan; the pressure is one per radial bin, so the table is asked
+	# once per bin per phase rather than once per cell.
+	var subs: Object = LANativeTables.subs()
+	var t_c: float = LAMaterialField3D.INITIAL_TEMP
+	var ratio: Array = []
+	for pair in lithic:
+		var per_bin: PackedFloat64Array = PackedFloat64Array()
+		per_bin.resize(bins)
+		var rho0: float = float(subs.density(String(pair[1]), t_c, LAPhysical.STANDARD_PRESSURE_PA))
+		for b in bins:
+			var r_b: float = 1.0
+			if rho0 > 0.0:
+				r_b = float(subs.density(String(pair[1]), t_c, float(p_at[b]))) / rho0
+			per_bin[b] = r_b if is_finite(r_b) and r_b > 0.0 else 1.0
+		ratio.append(per_bin)
 	var added: float = 0.0
 	for c in field._cell_count:
 		if field._solid[c] == 0:
 			continue
-		var strain_p: float = float(p_at[bin_of[c]]) - LAPhysical.STANDARD_PRESSURE_PA
-		for pair in lithic:
-			var k_pa: float = float(pair[1])
-			if k_pa <= 0.0:
-				continue
-			var strain: float = strain_p / k_pa
-			# A linear EOS has no answer past its own modulus; that is the model's limit, not a symptom.
-			if strain >= 1.0 or strain <= 0.0:
-				continue
-			var arr: PackedFloat32Array = pair[0]
-			var amt: float = arr[c] / (1.0 - strain)
+		var b_c: int = bin_of[c]
+		for i in lithic.size():
+			var arr: PackedFloat32Array = lithic[i][0]
+			var amt: float = arr[c] * float(ratio[i][b_c])
 			added += amt - arr[c]
 			arr[c] = amt
 	return added

@@ -1,12 +1,9 @@
 class_name LABodyMeasure
 extends RefCounted
 
-## THE BODY'S BULK PROPERTIES, MEASURED. One walk of the field produces all of them, because none is
-## given: mass is the matter present, radius is where it ends, inertia is how it is distributed, and the
-## gas constant is R over the molar mass of the air actually there.
-##
-## A field with nothing in it measures nothing, and every reader takes the negative as "unmeasured" and
-## refuses what it was sizing rather than substituting a plausible planet.
+## THE BODY'S BULK PROPERTIES, MEASURED in one walk of the field: mass is the matter present, radius is
+## where it ends, inertia is how it is distributed, gas constant is R over the molar mass of the air.
+## Negative is UNMEASURED, and a reader refuses what it was sizing rather than assuming a planet.
 
 var mass_kg: float = -1.0
 var surface_r_m: float = -1.0
@@ -23,6 +20,7 @@ func measured() -> bool:
 
 ## ONE pass. `spin_axis` is the direction the seeded angular momentum points, so the inertia is about the
 ## axis the body actually turns on.
+## LA_APPROX: seal_time_inertia
 func measure(field, spin_axis: Vector3) -> void:
 	mass_kg = -1.0
 	surface_r_m = -1.0

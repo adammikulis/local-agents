@@ -1,15 +1,10 @@
 class_name LABodySeeds
 extends RefCounted
 
-## WHAT A BODY IS GIVEN. Everything else about it — radius, surface gravity, day length, luminosity,
-## insolation, orbital elements — is MEASURED off the substrate or derived from these.
-##
-## `mass_kg` is the matter budget. For a body the field seeds cell by cell it is the budget the seeder
-## spends and the field's own sum is what lives afterwards; for a body with no grid of its own it is all
-## there is to say.
+## WHAT A BODY IS GIVEN. Radius, surface gravity, day length, luminosity, insolation and orbital elements
+## are not here: they are measured off the substrate or derived from these. `mass_kg` is the matter budget.
 
-## Reference values the seeds below are built from. Each is a cited measurement of OUR system, which is
-## why none of them belongs in LAPhysical.
+## Cited measurements of OUR system, which is why none of them belongs in LAPhysical.
 const SOLAR_MASS_KG: float = 1.98847e30                 # IAU 2015 B3 nominal solar mass
 const SOLAR_LUMINOSITY_W: float = 3.828e26              # IAU 2015 B3 nominal solar luminosity
 const SOLAR_RADIUS_M: float = 6.957e8                   # IAU 2015 B3 nominal solar radius
@@ -135,27 +130,13 @@ static func spin_l_of(key: String) -> float:
 	return float(of(key).get("spin_l_kg_m2_s", 0.0))
 
 
-## Radius the seeded matter FILLS BEFORE it is laid down, metres: the mass over the bulk density of the
-## composition it is made of. Only the terrain generator needs this — it has to cut a shape before there is
-## any matter to measure — and every reader after the seal takes LABodyMeasure.surface_r_m instead.
+## THE RADIUS A BODY OF THIS MASS SETTLES AT, metres. Not a property it is given: how far the matter
+## spreads once its own weight has squeezed it, solved from the composition's own equation of state.
+## Negative when the tables cannot answer, which a caller reads as unmeasured.
 static func seed_radius_m(key: String) -> float:
 	var m: float = float(of(key).get("mass_kg", 0.0))
-	var rho: float = bulk_density_kg_m3()
-	if m <= 0.0 or rho <= 0.0:
-		return -1.0
-	return pow(3.0 * m / (4.0 * PI * rho), 1.0 / 3.0)
-
-
-## Bulk density of a differentiated body, kg/m^3. Volumes add: the shell's own mineral mix fills all but
-## the core's volume fraction, and the core carries the registry's core mass fraction.
-static func bulk_density_kg_m3() -> float:
 	var comp: Object = LANativeTables.composition()
-	if comp == null:
+	if m <= 0.0 or comp == null:
 		return -1.0
-	var t_c: float = LAMaterialField3D.INITIAL_TEMP
-	var rho_shell: float = float(comp.shell_density(t_c, LAPhysical.STANDARD_PRESSURE_PA))
-	var x: float = float(comp.core_radius_frac(t_c, LAPhysical.STANDARD_PRESSURE_PA))
-	var f_core: float = LAPhysical.EARTH_CORE_MASS_FRACTION
-	if rho_shell <= 0.0 or x < 0.0 or x >= 1.0 or f_core <= 0.0 or f_core >= 1.0:
-		return -1.0
-	return rho_shell * (1.0 - x * x * x) / (1.0 - f_core)
+	var r: float = float(comp.radius_for_mass(m, LAMaterialField3D.INITIAL_TEMP))
+	return r if is_finite(r) and r > 0.0 else -1.0
