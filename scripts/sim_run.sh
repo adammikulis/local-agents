@@ -92,14 +92,10 @@ if [ "$FAUNA" -eq 1 ] && [ "$FULL" -eq 0 ]; then
 	echo "         so --fauna would change nothing and the run would not be the arm you asked for." >&2
 	exit 2
 fi
-# --- SLICE / CAPTURE ENV. The default box stands on the surface at +Y: the planet radius is read off
-# VoxelWorld.gd so the number is declared exactly once.
+# --- SLICE / CAPTURE ENV. The default box stands on the surface at +Y. `surface` is resolved by the world
+# against the body's own radius: nothing out here has to know how big the planet is.
 if [ "$SLICE" -eq 1 ] || [ -n "$SLICE_CAPTURE" ]; then
-  if [ -z "$SLICE_BOX" ]; then
-    R="$(sed -n 's/^const PLANET_RADIUS: float = \(.*\)$/\1/p' "$PROJ/addons/local_agents/game/VoxelWorld.gd")"
-    [ -n "$R" ] || { echo "sim_run: could not read PLANET_RADIUS off VoxelWorld.gd for the default slice box." >&2; exit 2; }
-    SLICE_BOX="0,${R},0,24,32,24,4000"
-  fi
+  [ -n "$SLICE_BOX" ] || SLICE_BOX="0,surface,0,24,32,24,4000"
 fi
 if [ "$SLICE" -eq 1 ]; then
   export LA_SLICE_BOX="$SLICE_BOX"

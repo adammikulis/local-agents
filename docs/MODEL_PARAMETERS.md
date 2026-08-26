@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 292**   <!-- the grid's slot and face tags went with it; SimWorld's ten terrain lengths were
+**MAX_DECLARED: 277**   <!-- the grid's slot and face tags went with it; SimWorld's ten terrain lengths were
 inline literals scaled by a Node3D transform and are now named metre constants the registry can see. -->
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
@@ -101,20 +101,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_SDF_SPHERE` | 32 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_FAST_NOISE_3D` | 40 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/SimReportSources.gd` | `METAB_FIT_MIN_N` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/system/Gravity.gd` | `SOFTENING` | 4.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/system/Moon.gd` | `RADIUS` | 42.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/system/Moon.gd` | `MASS` | 8.0e4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/system/SystemOrbits.gd` | `ORBIT_RADIUS` | 12000.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/system/SystemOrbits.gd` | `INSOLATION_MIN` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/system/SystemOrbits.gd` | `INSOLATION_MAX` | 4.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/system/SystemOrbits.gd` | `DUST_OPACITY` | 3.5 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/system/SystemOrbits.gd` | `CLOUD_OPACITY_K` | 0.35 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/system/SystemOrbits.gd` | `KNOCK_GAIN` | 5.9 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/system/SystemOrbits.gd` | `MOON_RADIUS_MULT` | 3.2 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/system/SystemOrbits.gd` | `MOON_INCLINATION` | 0.28 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/system/SystemOrbits.gd` | `TIDE_AMP` | 4.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/system/Star.gd` | `DEFAULT_MASS` | 1.0e7 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/system/Star.gd` | `DEFAULT_RADIUS` | 250.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `WINDOW_MAX` | 4 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `RESET_EVERY` | 12 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `SAMPLE_INTERVAL` | 0.5 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |

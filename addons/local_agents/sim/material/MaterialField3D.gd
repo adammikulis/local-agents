@@ -153,6 +153,9 @@ func set_sun(light) -> void:
 
 
 var _body = null                                         # LAPlanetBody
+## Which row of LABodySeeds this field's matter was seeded from. One field, one body.
+var _body_key: String = "planet"
+var _body_measure: LABodyMeasure = null
 var _body_basis: Basis = Basis.IDENTITY                  # body->world rotation, refreshed once per step
 var _body_basis_inv: Basis = Basis.IDENTITY
 
@@ -160,6 +163,12 @@ var _body_basis_inv: Basis = Basis.IDENTITY
 ## Wire the planet body whose rotation this grid rides.
 func set_body(body) -> void:
 	_body = body
+
+
+## Bulk properties measured off the seeded matter: mass, surface radius, inertia, the air's gas
+## constant. Null until the field is seeded, and every reader takes that as unmeasured.
+func body_measure() -> LABodyMeasure:
+	return _body_measure
 
 
 ## Refresh the cached body rotation. Called once per field step, before anything converts a position.
@@ -399,7 +408,9 @@ func _seed_silicate() -> void:
 	# compressed rock and the shell atmosphere, not the flat fill.
 	LAFieldLithostaticSeed.compress(self)
 	LAFieldLithostaticSeed.clear_gas_in_rock(self)
-	LAFieldLithostaticSeed.shape_atmosphere(self, INITIAL_TEMP)
+	_body_measure = LABodyMeasure.new()
+	_body_measure.measure(self, LABodySeeds.spin_axis_of(_body_key))
+	LAFieldLithostaticSeed.shape_atmosphere(self, INITIAL_TEMP, _body_measure)
 
 
 func _seed_sea() -> void:

@@ -94,19 +94,6 @@ const MEV_J: float = 1.602176634e-13            # CODATA 2018, exact from the el
 ## THE ONE EPOCH — the Jack Hills zircon age (Wilde et al. 2001, Nature 409:175). Luminosity and
 ## rotation derive from it, so moving the world in time is this one edit.
 const PLANET_EPOCH_YEARS_BEFORE_PRESENT: float = 4.404e9
-## Age of the solar system, years (Connelly et al. 2012, Science 338:651, CAI Pb-Pb).
-const SOLAR_SYSTEM_AGE_YEARS: float = 4.567e9
-## Present-day total solar irradiance at 1 au, W/m^2 (Kopp & Lean 2011, GRL 38:L01706).
-const PRESENT_SOLAR_CONSTANT_W_M2: float = 1361.0
-## Gough 1981 (Solar Phys. 74:21): L(t)/L0 = 1 / (1 + (2/5)(1 - t/t0)); 1 - t/t0 = epoch/solar age.
-const SOLAR_CONSTANT_W_M2: float = PRESENT_SOLAR_CONSTANT_W_M2 \
-	/ (1.0 + 0.4 * (PLANET_EPOCH_YEARS_BEFORE_PRESENT / SOLAR_SYSTEM_AGE_YEARS))
-## The young sun's XUV (1-1200 A) at 1 au: F = 29.7 tau^-1.23 erg cm^-2 s^-1, tau the sun's age in Gyr,
-## valid past 0.1 Gyr (Ribas et al. 2005, ApJ 622:680). Same epoch constant as the luminosity.
-const SUN_AGE_AT_EPOCH_GYR: float = (SOLAR_SYSTEM_AGE_YEARS - PLANET_EPOCH_YEARS_BEFORE_PRESENT) / 1.0e9
-const XUV_1AU_1GYR_W_M2: float = 0.0297
-const XUV_AGE_EXPONENT: float = 1.23
-const XUV_EPOCH_W_M2: float = XUV_1AU_1GYR_W_M2 * SUN_AGE_AT_EPOCH_GYR ** (-XUV_AGE_EXPONENT)
 ## Share of absorbed XUV that powers escape (Erkaev et al. 2013, Astrobiology 13:1011; bounded near
 ## 0.2 by Shematovich, Ionov & Lammer 2014, A&A 571:A94).
 const XUV_HEATING_EFFICIENCY: float = 0.15
@@ -138,11 +125,6 @@ const ANIMAL_TISSUE_DENSITY_KG_M3: float = 1000.0
 
 const PROTEIN_DENATURE_C: float = 45.0
 
-## The epoch's rotation: a 5.5 h day, mid-range of the post-impact 5-6 h and genuinely uncertain
-## (Zahnle & Walker 1987, Rev. Geophys. 25:1; Zahnle et al. 2007, Space Sci. Rev. 129:35).
-const PLANET_ANGULAR_VELOCITY_RAD_S: float = TAU / (5.5 * 3600.0)
-## Coriolis parameter is f = CORIOLIS_TWO_OMEGA_RAD_S * sin(latitude).
-const CORIOLIS_TWO_OMEGA_RAD_S: float = PLANET_ANGULAR_VELOCITY_RAD_S * 2.0
 const GAS_CONSTANT_J_MOL_K: float = 8.314462618     # CODATA molar gas constant R
 const SECONDS_PER_YEAR: float = 3.15576e7           # Julian year, 365.25 days
 

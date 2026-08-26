@@ -1,0 +1,4 @@
+# A number in an authority file is claimed to be a MEASUREMENT, and a measurement with no source is a
+# value somebody chose. These two files are exempt from check_model_parameters.sh, so this is what holds
+# them instead. May fall, may not rise.
+119

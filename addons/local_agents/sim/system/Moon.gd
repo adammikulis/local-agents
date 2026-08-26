@@ -2,10 +2,8 @@ class_name LAMoon
 extends Node3D
 
 
-const RADIUS: float = 42.0
-const MASS: float = 8.0e4          # model units: enough to bend a passing meteor, never enough to dominate
-
 var _mesh: MeshInstance3D = null
+var _seed_key: String = "moon"
 
 
 func _ready() -> void:
@@ -14,23 +12,32 @@ func _ready() -> void:
 	_build()
 
 
+func seed_row() -> Dictionary:
+	return LABodySeeds.of(_seed_key)
+
+
 func center() -> Vector3:
 	return global_position
 
 
 func mass() -> float:
-	return MASS
+	return float(seed_row().get("mass_kg", 0.0))
 
 
+## The moon is not on a grid of its own, so its size comes from its seeded mass and the density of the rock
+## it is made of rather than from a measurement it has no way to take.
 func radius() -> float:
-	return RADIUS
+	var rho: float = LANativeTables.subs().table().get("silicate", {}).get("density_solid", 0.0)
+	if rho <= 0.0:
+		return -1.0
+	return pow(3.0 * mass() / (4.0 * PI * rho), 1.0 / 3.0)
 
 
 func _build() -> void:
 	_mesh = MeshInstance3D.new()
 	var s: SphereMesh = SphereMesh.new()
-	s.radius = RADIUS
-	s.height = RADIUS * 2.0
+	s.radius = radius()
+	s.height = radius() * 2.0
 	s.radial_segments = 28
 	s.rings = 18
 	_mesh.mesh = s

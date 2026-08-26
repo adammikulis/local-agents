@@ -165,7 +165,7 @@ layout(push_constant, std430) uniform Params {
 	uint axis;            // which momentum component a signed PGF row carries: 0=x 1=y 2=z
 	float substep_frac;   // this substep's share of the field step, 1/n
 	float rho_floor;      // kg/m^3 of MIN_FILL_FRAC of a cell of air: below it a cell is empty and at rest
-	float xuv_w_m2;       // the epoch sun's XUV irradiance at 1 au, W/m^2 — LAW_ESCAPE's driver
+	float xuv_w_m2;       // XUV irradiance AT THIS BODY, W/m^2 — LAW_ESCAPE's driver
 } params;
 
 // TransportPass's PASS_* tags past outflow (0) and gather (1).
@@ -179,7 +179,6 @@ const uint PASS_ACOUSTIC_APPLY = 8u;
 
 const float KELVIN = 273.15;                        // LAPhysical.KELVIN_OFFSET
 const float STEFAN = 5.670374419e-8;                // LAPhysical.STEFAN_BOLTZMANN
-const float SOLAR_CONSTANT = 982.1582972537;        // LAPhysical.SOLAR_CONSTANT_W_M2
 const float KOZENY_CARMAN_C = 180.0;                // LAPhysical.KOZENY_CARMAN_C
 const float SMAGORINSKY_COEFF = 0.1650789493;             // LAPhysical.SMAGORINSKY_COEFF
 const float DRY_AIR_R = 287.0222603;                // LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK
@@ -545,7 +544,7 @@ float escape_fraction(uint c, uint d, out float tail_j_mol) {
 		if (rho_wind <= 0.0) {
 			return 0.0;
 		}
-		v_eff = XUV_EFF * params.xuv_w_m2 * sl * mu / (depth * rho_wind);
+		v_eff = XUV_EFF * params.xuv_w_m2 * mu / (depth * rho_wind);
 	}
 	return min(v_eff * params.dt_s / params.cell_m, 1.0) * cosf;
 }

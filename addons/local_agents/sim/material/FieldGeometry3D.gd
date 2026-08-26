@@ -142,6 +142,14 @@ static func velocity(field, c: int) -> Vector3:
 
 
 ## The body's spin axis in the field frame.
+## The body's spin RATE, rad/s, or zero when it has not been measured. Never a guessed rotation.
+static func spin_rate(field) -> float:
+	if field._body == null or not field._body.has_method("angular_velocity_rad_s"):
+		return 0.0
+	var w: float = float(field._body.angular_velocity_rad_s())
+	return w if is_finite(w) and w > 0.0 else 0.0
+
+
 static func spin_axis(field) -> Vector3:
 	if field._body != null and field._body.has_method("spin_axis"):
 		var v: Vector3 = field.dir_to_field(field._body.spin_axis())

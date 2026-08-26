@@ -123,7 +123,7 @@ awk -v AUTH="$AUTH_MAP" -v ROOT="$REPO_ROOT/" '
     # RADIATION. Each maps to exactly one authority constant, so an unannotated copy can be named outright
     # rather than asked about. These were the two the v1 scope left out while the kernel disagreed with the
     # authority; it no longer does.
-    WATCH_RADIATION = "(SOLAR_CONSTANT|STEFAN)"
+    WATCH_RADIATION = "(STEFAN)"
     MODEL_TOKENS = "(RATE|FRAC|GAIN|SCALE|COEFF|COEF|MIN|MAX|THRESH|STEP|COUNT|DAMP|LEAK|SPAN|MASS|FLOW|DEPTH)"
     # Rock is not water, so a rock phase point must not be checked against WATER_*. It is REDIRECTED to
     # BASALT_* below, not exempted: an exemption here is how a rock phase point survives unchecked.
@@ -207,7 +207,7 @@ awk -v AUTH="$AUTH_MAP" -v ROOT="$REPO_ROOT/" '
       next
     }
     if (u ~ WATCH_RADIATION && u !~ MODEL_TOKENS) {
-      rtarget = (u ~ /STEFAN/) ? "STEFAN_BOLTZMANN" : "SOLAR_CONSTANT_W_M2"
+      rtarget = "STEFAN_BOLTZMANN"
       if (!have[rtarget]) {
         fail(FILENAME, FNR, name " names a radiation constant but the authority defines no " rtarget ".")
         next

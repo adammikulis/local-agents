@@ -8,12 +8,14 @@ const RenderLayerScene: PackedScene = preload("res://addons/local_agents/game/Re
 const UiLayerScene: PackedScene = preload("res://addons/local_agents/game/UiLayer.tscn")
 const StreamerHostScript: GDScript = preload("res://addons/local_agents/streamer/StreamerHost.gd")
 
-# THE BODY THIS WORLD IS SEEDED WITH. Every length below is METRES, because the grid is metres.
-const PLANET_RADIUS: float = 2.4397e6
+# THE BODY THIS WORLD IS SEEDED WITH. Every length below is METRES, because the grid is metres. The
+# RADIUS is not among them: it is the mass over the density of what the body is made of, and after the
+# seal it is whatever LABodyMeasure reads off the matter that ended up there.
 const PLANET_RELIEF: float = 9.4e3                # peak-to-trough continental relief; LA_RELIEF overrides
 const PLANET_FEATURE: float = 5.2e4               # continental wavelength
 # OCEAN-heavy world: sea shell at the mean radius.
-const PLANET_SEA_RADIUS: float = PLANET_RADIUS
+static func planet_radius() -> float:
+	return LABodySeeds.seed_radius_m("planet")
 const PLANET_OCEAN_BIAS: float = 1.0e3
 # BASIN relief.
 const PLANET_BASIN_RELIEF: float = 4.0e3
@@ -88,13 +90,13 @@ func _caves_enabled() -> bool:
 
 
 func _planet_opts() -> Dictionary:
-	return {"radius": PLANET_RADIUS, "relief": _relief(), "feature_size": PLANET_FEATURE,
+	return {"radius": planet_radius(), "relief": _relief(), "feature_size": PLANET_FEATURE,
 		"basin_relief": PLANET_BASIN_RELIEF, "basin_size": PLANET_BASIN_SIZE,
 		"ridge_relief": _ridge_relief(), "ridge_size": PLANET_RIDGE_SIZE,
 		"ridge_octaves": PLANET_RIDGE_OCTAVES, "detail_relief": _detail_relief(),
 		"caves_enabled": _caves_enabled(), "cave_size": PLANET_CAVE_SIZE,
 		"cave_threshold": PLANET_CAVE_THRESHOLD, "cave_strength": PLANET_CAVE_STRENGTH,
-		"cave_depth_fade": PLANET_CAVE_DEPTH_FADE, "sea_radius": PLANET_SEA_RADIUS,
+		"cave_depth_fade": PLANET_CAVE_DEPTH_FADE, "sea_radius": planet_radius(),
 		"ocean_bias": _ocean_bias(), "view_distance": 2000, "seed": 1337}
 
 

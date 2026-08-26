@@ -99,7 +99,9 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable() or not _set.is_valid():
 		return
-	var w: Vector3 = ctx.get("spin", Vector3.ZERO) * LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S
+	# The body's spin vector, rad/s: direction from its seeded angular momentum, rate from its measured
+	# inertia. Zero while unmeasured, which is no rotating frame rather than a guessed one.
+	var w: Vector3 = ctx.get("spin", Vector3.ZERO) * float(ctx.get("spin_rate_rad_s", 0.0))
 	var centre: Vector3 = ctx.get("centre", Vector3.ZERO)
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(80)

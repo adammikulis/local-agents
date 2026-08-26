@@ -48,7 +48,7 @@ func run_test(tree: SceneTree) -> bool:
 
 	var clock: LASimClock = ClockScript.new()
 	tree.get_root().add_child(clock)
-	clock.restore({"elapsed": float(DAY_FIRST) * LASimClock.DAY_LENGTH})
+	clock.restore({"elapsed": float(DAY_FIRST) * clock.day_length()})
 
 	var chronicle: LABandChronicle = ChronicleScript.new()
 	chronicle.set_service(svc)
@@ -74,7 +74,7 @@ func run_test(tree: SceneTree) -> bool:
 	var left_faction: String = "band_%d" % home_band
 	var joined_faction: String = "band_%d" % host_band
 
-	clock.restore({"elapsed": float(DAY_SWITCH) * LASimClock.DAY_LENGTH})
+	clock.restore({"elapsed": float(DAY_SWITCH) * clock.day_length()})
 	wanderer.global_position = Vector3(301.0, 0.0, 2.0)
 	_run(herd, chronicle, 40)
 	chronicle.flush()

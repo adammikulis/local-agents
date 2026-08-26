@@ -72,8 +72,6 @@ func _build_world_visuals() -> void:
 	_water_surface.setup(material, _camera, terrain, _sky_ctrl.sun(), body.center(), body.sea_radius())
 
 	_sky_ctrl.bind_scene(material, _water)
-	if _sim.orbits() != null:
-		_sim.orbits().set_tide_targets(_ocean, _water_surface, body.sea_radius())
 
 	# The terrain shader's climate basis: up is radial, altitude is height above the sea shell.
 	terrain.set_shader_param("planet_center", body.center())

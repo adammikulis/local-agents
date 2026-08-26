@@ -2,8 +2,6 @@ class_name LASimulation
 extends Node3D
 
 
-const STAR_POSITION: Vector3 = Vector3(900.0, 320.0, 620.0)
-
 @onready var _settings_applier: LAVoxelSettingsApplier = $SettingsApplier
 @onready var _loop: LASimLoop = $SimLoop
 @onready var _clock: LASimClock = $SimClock
@@ -37,7 +35,7 @@ var _farview: bool = false
 func build(opts: Dictionary) -> void:
 	_settings_applier.read_settings()
 
-	_star.setup({"position": STAR_POSITION, "energy": 1.4})
+	_star.setup({})
 
 	_body.setup(opts.get("planet", {}))
 	_terrain = _body.terrain()
@@ -96,14 +94,36 @@ func _build_field() -> void:
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
 	LASimReport.register(Callable(_material, "report"))
+	LASimReport.register(func() -> Dictionary: return _body_block())
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.population(self))
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.cognition(self))
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.disease(self))
 	# The STAR's light, never the sky cycle's: direction from its basis, intensity from `insolation`.
 	_material.set_sun(_star.light())
 	_material.set_body(_body)
+	# The body IS the field's matter: its mass, inertia and spin are read back off it, never typed.
+	_body.set_field(_material)
+	_clock.set_body(_body)
 	if _ecology.has_method("set_material_field"):
 		_ecology.set_material_field(_material)
+
+
+## WHAT THE BODY TURNED OUT TO BE. Not one of these is an input: the mass is the matter that was seeded,
+## the radius is where it ends, the day is the seeded angular momentum over the inertia it produced.
+func _body_block() -> Dictionary:
+	var m: LABodyMeasure = _material.body_measure() if _material.has_method("body_measure") else null
+	if m == null:
+		return {"body_measured": false}
+	return {
+		"body_measured": m.measured(),
+		"body_mass_kg": m.mass_kg,
+		"body_radius_m": m.surface_r_m,
+		"body_inertia_kg_m2": m.inertia_kg_m2,
+		"body_surface_g_m_s2": m.surface_gravity_m_s2(),
+		"body_air_r_j_kgk": m.gas_constant_j_kgk,
+		"body_day_s": _clock.day_length(),
+		"body_mass_by_channel": m.mass_by_channel,
+	}
 
 
 ## Slot-opposite reciprocity, the contract every gather kernel depends on. Fatal if it fails.
@@ -155,8 +175,9 @@ func _on_step(_step: int) -> void:
 	if _ecology.has_method("set_sun"):
 		var centre: Vector3 = _body.center()
 		_ecology.set_sun((_star.global_position - centre).normalized(), centre)
-	if _spawn.is_spawned() and _terrain.is_planet():
-		_body.rotate(_body.spin_axis(), LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S * dt)
+	var spin: float = _body.angular_velocity_rad_s()
+	if _spawn.is_spawned() and _terrain.is_planet() and is_finite(spin):
+		_body.rotate(_body.spin_axis(), spin * dt)
 	_spawn.try_spawn(_overview, _farview, _auto_meteor, _auto_select)
 
 

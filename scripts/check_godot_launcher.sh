@@ -22,6 +22,23 @@ case "$res_def" in
 	    echo "      user's monitor before any script can shrink it." >&2; launcher_fail=1 ;;
 esac
 
+# ACTIVATION IS NOT FOCUS. `no_focus` governs the window; macOS ACTIVATES the whole app on launch and
+# yanks the user out of their Space regardless. Only a background-only bundle cannot be activated, and
+# LSUIElement alone does not do it — it hides the Dock icon and still permits activation.
+if ! rg -q '<key>LSBackgroundOnly</key><true/>' "$LIB"; then
+	echo "FAIL  scripts/lib_godot.sh's agent bundle does not declare LSBackgroundOnly, so macOS may" >&2
+	echo "      activate the launched Godot and steal the user's keyboard and Space." >&2
+	launcher_fail=1
+fi
+
+# NO FALLBACK TO THE REAL BINARY. Launching the ordinary Godot app is the exact theft the bundle exists
+# to prevent, so a bundle that cannot be built must fail the launch, never quietly take the other path.
+if rg -q 'cp -f "\$real" "\$exe" \|\| \{ echo "\$real"' "$LIB"; then
+	echo "FAIL  scripts/lib_godot.sh falls back to the real godot binary when the non-activating bundle" >&2
+	echo "      cannot be built. That fallback IS the focus theft; a launch that cannot be quiet must fail." >&2
+	launcher_fail=1
+fi
+
 # A COMMIT MAY NOT LAUNCH A SIM. The GPU gates each open a real window and take focus; they belong to
 # integrate.sh and CI, which lint the staged merge before anything lands.
 HOOK="$ROOT/scripts/githooks/pre-commit"

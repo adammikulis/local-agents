@@ -103,10 +103,14 @@ func step() -> void:
 	_f._gpu.begin_frame(_f._h, _f._h2o)      # drains prev step (sync+readback) + uploads
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
-	if _f._sun_light != null and _f._gpu.has_method("set_sun_dir"):
-		# The MAGNITUDE of sun_dir carries INSOLATION (orbit-distance² × atmospheric transmission).
-		var insol: float = float(_f._sun_light.get_meta("insolation", 1.0))
-		_f._gpu.set_sun_dir(_f.dir_to_field(_f._sun_light.global_transform.basis.z * insol))
+	if _f._sun_light != null and _f._gpu.has_method("set_sun_flux") \
+			and _f._sun_light.has_meta("irradiance_w_m2"):
+		# The MAGNITUDE of sun_dir is the irradiance in W/m^2, straight off the star's luminosity and the
+		# separation the integrator produced. A light with no irradiance meta is a light nobody has placed
+		# in a system yet, and an unlit field is dark rather than lit by an assumed sun.
+		var irr: float = float(_f._sun_light.get_meta("irradiance_w_m2"))
+		var xuv: float = float(_f._sun_light.get_meta("xuv_w_m2", 0.0))
+		_f._gpu.set_sun_flux(_f.dir_to_field(_f._sun_light.global_transform.basis.z * irr), xuv)
 	if _f._gpu.has_method("set_sea_radius"):
 		_f._gpu.set_sea_radius(_f.sea_radius())
 	# The transport substep budget reads last step's drained maxima; before the first drain the field

@@ -42,9 +42,9 @@ const CAVE_DEPTH_FADE_M: float = 4.7e3
 
 @export_group("Sphere bounds")
 @export_subgroup("Shape")
-## Mean solid radius of the planet, METRES. Relief and feature size are declared lengths and no longer
-## scale with it, so changing this changes the body's size without silently rescaling its geology.
-@export_range(1.0e5, 1.0e7, 1.0e3, "or_greater", "suffix:m") var radius: float = 2.4397e6
+## Which row of LABodySeeds this world is built from. A body's SIZE is not set here: it follows from the
+## mass and composition that row declares, and after the seal it is measured off the matter itself.
+@export var body_seed: String = "planet"
 @export_range(-1.0e4, 1.0e4, 10.0, "or_less", "or_greater", "suffix:m") var ocean_bias: float = 1.0e3
 ## Carve winding cave tunnels into the crust while the terrain generates.
 @export var caves_enabled: bool = true
@@ -153,9 +153,15 @@ func spawn_world() -> void:
 		_ecology.set_material_field(_material)
 
 
+## The radius the seeded matter fills before it is laid down: its mass over the density of what it is made
+## of. Only the terrain generator needs it — after the seal the body measures its own.
+func seed_radius() -> float:
+	return LABodySeeds.seed_radius_m(body_seed)
+
+
 ## Edge of one field cell, metres: the box spans the body plus its air column, cut grid_res ways.
 func field_cell_size_m() -> float:
-	return 2.0 * (radius + MODELLED_ATMOSPHERE_HEIGHT_M) / float(maxi(grid_res, 1))
+	return 2.0 * (seed_radius() + MODELLED_ATMOSPHERE_HEIGHT_M) / float(maxi(grid_res, 1))
 
 
 func _build_sphere() -> bool:
@@ -167,7 +173,8 @@ func _build_sphere() -> bool:
 	_body.name = "PlanetBody"
 	add_child(_body)
 	_body.setup({
-		"radius": radius, "sea_radius": radius, "ocean_bias": ocean_bias,
+		"radius": seed_radius(), "sea_radius": seed_radius(), "ocean_bias": ocean_bias,
+		"seed_key": body_seed,
 		"relief": RELIEF_M, "feature_size": FEATURE_M,
 		"basin_relief": BASIN_RELIEF_M, "basin_size": BASIN_SIZE_M,
 		"ridge_relief": RIDGE_RELIEF_M, "ridge_size": RIDGE_SIZE_M, "ridge_octaves": 2,
@@ -199,7 +206,8 @@ func _build_sphere() -> bool:
 			push_error("SLICE_INVALID: %s" % slice.error)
 			return false
 	else:
-		_material.setup_body(_body.center(), radius + MODELLED_ATMOSPHERE_HEIGHT_M, field_cell_size_m(), _terrain)
+		_material.setup_body(_body.center(), seed_radius() + MODELLED_ATMOSPHERE_HEIGHT_M,
+			field_cell_size_m(), _terrain)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
 	if _sun != null and _material.has_method("set_sun"):

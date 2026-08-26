@@ -35,6 +35,46 @@ element waits for a later version. The tell that this was misread: "a biosphere 
 0.4 unless it needs a living organism to catalyse it. Weathering, clay formation, serpentinization,
 outgassing, ore concentration and abiotic organic synthesis are all 0.4.
 
+## The grid is Cartesian with axis-aligned refinement, and this is SETTLED
+
+Maintainer's decision. Recorded here because it has been re-opened before and the reasoning, not the
+verdict, is what stops it being re-opened again.
+
+Uniform spacing is dead on the physics: a scale height is ~8.5 km against a 6,371 km radius, so a uniform
+box fine enough for an atmosphere is ~10^10 cells. Resolution must follow position. The choice was radial
+shells or Cartesian-plus-refinement.
+
+**Shells win one real thing.** Their faces align with the two directions a planet distinguishes, so
+hydrostatic balance — which dominates the vertical momentum equation by five orders of magnitude — is
+exactly representable, and columns are contiguous. Every production GCM uses a radial vertical coordinate
+for that reason. It is a physics argument, not a convenience one.
+
+**They lose on four counts, all about what this sim is FOR.** A radial grid encodes "there is one body, it
+is spherical, its centre is there" into the geometry of the substrate, which promotes a named phenomenon to
+a law:
+- Multiple planets have multiple centres, and the space between them has none.
+- Bodies move, approach and get knocked out of orbit; a coordinate frame anchored to one of them has to be
+  re-anchored, and a re-anchoring is a discontinuity in the physics.
+- Tidal distortion, a disrupted body, a rubble pile and a basin the size of the body are all shapes shells
+  describe by assumption, so the sim cannot discover a shape its coordinates forbid.
+- `LAVoxelGrid`'s own header states the target: a grid of SPACE, and a planet is wherever the matter ends up.
+
+Two more, correctness rather than cost. A pole is a coordinate singularity and a cubed sphere has eight
+corner and twelve edge seams; at each the discretization differs, so conservation is a separate claim there,
+and books that close everywhere except at twelve exceptions do not close. And at fixed angular resolution
+shell cells shrink toward the centre without bound, so the acoustic CFL is set by the smallest cell in the
+core — the dead interior would dictate the timestep for the whole planet.
+
+**What settles it: everything shells buy is recoverable inside Cartesian, and the reverse is not.** Vertical
+resolution comes back through refinement; cheap columns as marches along the solved gravity direction; exact
+hydrostatic balance through well-balanced reconstruction, which builds a face's pressure from the cell's own
+hydrostatic profile before differencing and so preserves a balanced state to machine precision at any grid
+orientation. A centre cannot be un-assumed.
+
+The obligation that comes with it, so it is not discovered late: the well-balanced scheme is required work
+and it decides whether the atmosphere is real. Its gate is the only test that matters — an atmosphere at
+rest, in balance, stays at rest.
+
 ## Regressions the build watches for
 
 `scripts/check_doc_claims.sh` evaluates each directive below on every run, so a deletion that comes back
@@ -216,14 +256,23 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       coefficients move trace mass between silicate melt, sulfide melt and aqueous brine; that needs the
       traces to become per-cell state THE MOMENT a concentrating process exists, and the seam is the
       melt/brine partitioning step of whichever hydrothermal or magmatic lane lands first.
-- [ ] **No magnetic field, and it is downstream of the core rather than a subsystem to add.** A geodynamo is
-      a convecting, electrically conducting, rotating fluid shell; the rotation and the conducting-fluid
-      machinery exist and the shell does not. Note two things before scheduling it. A cell edge of this size
-      cannot resolve a dynamo — dedicated geodynamo codes do not reach Earth's parameter regime — so what
-      the field COSTS the atmosphere (solar-wind stripping, and the aurora that is its detector) may be the
-      only honest coupling at this grain. And for this epoch a planet with no field is defensible: the
-      oldest paleomagnetic record postdates formation by a long way. **Decide it** after differentiation
-      exists, never by prescribing a field.
+- [ ] **HALF OF ELECTROMAGNETISM IS ABSENT, and the geodynamo is not the reason.** `rg` for magnet,
+      lorentz, faraday, induction, permeability of free space finds NOTHING in the sim: every hit is
+      hydraulic permeability, Lorentz line broadening in the spectroscopy, or the Faraday constant in
+      electrochemistry. The substrate already runs the electrostatic half — a `charge` channel, a
+      conductivity, `LAW_OHMIC`, breakdown as lightning — and moving charge makes a magnetic field whether
+      or not a dynamo exists, so the missing half is not a subsystem waiting on the core. **Decide it:**
+      B on the same grid as the solved gravity potential, the Lorentz force as a body force on charged
+      moving matter, and induction closing the loop back onto the current. Ohm's law is already written;
+      what is missing is that nothing reads the field it implies.
+- [ ] **No geodynamo, and that part IS downstream of the core.** A dynamo is a convecting, electrically
+      conducting, rotating fluid shell; the rotation and the conducting-fluid machinery exist and the shell
+      does not. Two things before scheduling it. A cell edge of this size cannot resolve a dynamo —
+      dedicated geodynamo codes do not reach Earth's parameter regime — so what the field COSTS the
+      atmosphere (solar-wind stripping, and the aurora that is its detector) may be the only honest coupling
+      at this grain. And for this epoch a planet with no field is defensible: the oldest paleomagnetic
+      record postdates formation by a long way. Decide it after differentiation exists, never by
+      prescribing a field.
 - [ ] **No mantle convection.** Radiogenic decay is the only interior heat source and the geotherm is
       whatever it, conduction and the surface produce — but nothing carries that heat by MOVING rock, so
       the plates above are kinematic rather than driven.

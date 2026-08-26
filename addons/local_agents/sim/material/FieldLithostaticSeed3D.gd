@@ -12,20 +12,16 @@ static func compress(field) -> float:
 	var cell_vol: float = pow(dr, 3.0)
 	var rows: Dictionary = LAChannels.rows()
 	var table: Dictionary = LANativeTables.subs().table()
-	var mirrors: Array = []
+	var mirrors: Array = LAFieldCellMass3D.mirrors(field)
 	var lithic: Array = []
 	for name in rows:
-		if String(rows[name].get("unit", "")) != "mol_m3":
+		if not bool(rows[name].get("lithic", false)):
 			continue
 		var arr = field.get("_" + String(name))
 		if not (arr is PackedFloat32Array) or arr.size() != field._cell_count:
 			continue
 		var s: Dictionary = table.get(String(rows[name].get("substance", "")), {})
-		var mm: float = float(s.get("molar_mass", 0.0))
-		mirrors.append([arr, mm])
-		if bool(rows[name].get("lithic", false)):
-			var k_pa: float = float(s.get("bulk_modulus_solid_pa", s.get("bulk_modulus_pa", 0.0)))
-			lithic.append([arr, k_pa])
+		lithic.append([arr, float(s.get("bulk_modulus_solid_pa", s.get("bulk_modulus_pa", 0.0)))])
 	var bins: int = int(ceil(field._grid.max_span() / dr)) + 2
 	var mass_kg: PackedFloat64Array = PackedFloat64Array()
 	mass_kg.resize(bins)
@@ -37,10 +33,7 @@ static func compress(field) -> float:
 		var b: int = mini(int((field._grid.cell_world_pos(c) - centre).length() / dr), bins - 1)
 		bin_of[c] = b
 		cells_in[b] += 1
-		var m: float = 0.0
-		for pair in mirrors:
-			m += maxf(pair[0][c], 0.0) * float(pair[1])
-		mass_kg[b] += m * cell_vol
+		mass_kg[b] += LAFieldCellMass3D.kg_m3_at(mirrors, c) * cell_vol
 	# g at each bin's outer edge from the mass inside it, then p inward from one atmosphere at the top.
 	var p_at: PackedFloat64Array = PackedFloat64Array()
 	p_at.resize(bins)
@@ -76,38 +69,18 @@ static func compress(field) -> float:
 	return added
 
 
-## AN ATMOSPHERE IS A SHELL ON A SURFACE, not a uniform fill of the box: gas falls off with altitude
-## by the barometric relation about the mean solid radius, scale height from the seeded state.
-static func shape_atmosphere(field, temp_c: float) -> void:
+## AN ATMOSPHERE IS A SHELL ON A SURFACE, not a uniform fill of the box: gas falls off with altitude by
+## the barometric relation about the mean solid radius. Every quantity the profile needs — the surface, the
+## gravity, the mixture's own gas constant — is MEASURED off the seeded matter by LABodyMeasure.
+static func shape_atmosphere(field, temp_c: float, m: LABodyMeasure) -> void:
 	if field == null or field._grid == null or field._solid.size() != field._cell_count:
 		return
+	if m == null or not m.measured():
+		return
+	var scale_h: float = m.scale_height_m(temp_c)
+	if not is_finite(scale_h) or scale_h <= 0.0:
+		return
 	var centre: Vector3 = LAFieldGeometry.centre(field)
-	var cell_vol: float = pow(field._grid.cell_size, 3.0)
-	var rows: Dictionary = LAChannels.rows()
-	var table: Dictionary = LANativeTables.subs().table()
-	var mirrors: Array = []
-	for name in rows:
-		if String(rows[name].get("unit", "")) != "mol_m3":
-			continue
-		var arr = field.get("_" + String(name))
-		if arr is PackedFloat32Array and arr.size() == field._cell_count:
-			mirrors.append([arr,
-				float(table.get(String(rows[name].get("substance", "")), {}).get("molar_mass", 0.0))])
-	var surface_r: float = 0.0
-	var mass_kg: float = 0.0
-	for c in field._cell_count:
-		if field._solid[c] == 0:
-			continue
-		surface_r = maxf(surface_r, (field._grid.cell_world_pos(c) - centre).length())
-		for pair in mirrors:
-			mass_kg += maxf(pair[0][c], 0.0) * float(pair[1]) * cell_vol
-	if surface_r <= 0.0 or mass_kg <= 0.0:
-		return
-	# g is SOLVED here, never held: it comes from the mass this seed just laid down.
-	var g: float = LAPhysical.GRAVITATIONAL_CONSTANT * mass_kg / (surface_r * surface_r)
-	var scale_h: float = LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * (temp_c + LAPhysical.KELVIN_OFFSET) / g
-	if scale_h <= 0.0:
-		return
 	# A CELL CANNOT HOLD A PROFILE SHORTER THAN ITSELF. Where the scale height is under a cell edge the
 	# whole atmosphere sits inside the first open shell, and a per-cell exponential is a shape the grid
 	# cannot carry; the honest seed is gas in that shell and vacuum beyond it. docs/PHYSICS_TODO.md D.
@@ -115,8 +88,7 @@ static func shape_atmosphere(field, temp_c: float) -> void:
 	for c in field._cell_count:
 		if field._solid[c] != 0:
 			continue
-		var r: float = (field._grid.cell_world_pos(c) - centre).length()
-		var above: float = maxf(r - surface_r, 0.0)
+		var above: float = maxf((field._grid.cell_world_pos(c) - centre).length() - m.surface_r_m, 0.0)
 		var f: float = (1.0 if above <= field._grid.cell_size else 0.0) if flat \
 			else exp(-above / scale_h)
 		field._o2[c] *= f

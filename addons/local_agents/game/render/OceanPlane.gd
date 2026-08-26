@@ -7,15 +7,10 @@ const SPHERE_RADIAL_SEGMENTS: int = 96
 const SPHERE_RINGS: int = 64
 const SphereWaterShader: Shader = preload("res://addons/local_agents/sim/shaders/VoxelWaterSphere.gdshader")
 
-var _sea_base_radius: float = 0.0   # un-tided shell radius, m
-
-
 ## Build the shell at `center` with radius `sea_radius`.
 func setup_sphere(center: Vector3, sea_radius: float, transparent: bool = true) -> void:
 	name = "OceanPlane"
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-
-	_sea_base_radius = sea_radius
 
 	var sphere: SphereMesh = SphereMesh.new()
 	sphere.radius = sea_radius
@@ -30,10 +25,3 @@ func setup_sphere(center: Vector3, sea_radius: float, transparent: bool = true) 
 	material_override = mat
 
 	global_position = center
-
-
-func apply_tide(offset: float) -> void:
-	if _sea_base_radius <= 0.0:
-		return
-	var factor: float = (_sea_base_radius + offset) / _sea_base_radius
-	scale = Vector3.ONE * factor

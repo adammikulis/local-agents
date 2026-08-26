@@ -2,9 +2,6 @@ class_name LASimClock
 extends Node
 
 
-# The planet's rotation period, simulated seconds. A day is the body's spin, not a pacing knob.
-const DAY_LENGTH: float = TAU / LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S
-
 const DAYS_PER_SEASON: int = 4
 const SEASONS: Array[String] = ["spring", "summer", "autumn", "winter"]
 const CALENDAR: String = "sim"
@@ -14,7 +11,23 @@ signal day_advanced(day: int)
 static var _active: LASimClock = null
 
 var _step: int = 0            # THE counter. Every time reading below derives from it.
-var _day: int = 0             # cached int(elapsed() / DAY_LENGTH), so the rollover is one compare per step
+var _day: int = 0             # cached int(elapsed() / day_length()), so a rollover is one compare per step
+var _body = null              # LAPlanetBody: a day is ITS rotation period, measured
+
+
+## The body whose spin this clock is counting. Until one is set the day length is unmeasured, and the
+## calendar refuses to advance rather than counting days of a length nobody established.
+func set_body(body) -> void:
+	_body = body
+
+
+## The planet's rotation period, simulated seconds: a turn over the spin rate its own inertia produced.
+## NAN while unmeasured — a day is the body's spin, never a pacing knob.
+func day_length() -> float:
+	if _body == null or not is_instance_valid(_body) or not _body.has_method("angular_velocity_rad_s"):
+		return NAN
+	var w: float = float(_body.angular_velocity_rad_s())
+	return NAN if not is_finite(w) or w <= 0.0 else TAU / w
 
 
 ## The live clock, or null when no world has one (a bare demo scene, a unit test). Callers null-guard;
@@ -45,7 +58,10 @@ func _exit_tree() -> void:
 ## One simulated step. Driven by LASimLoop and by nothing else.
 func advance() -> void:
 	_step += 1
-	var d: int = int(elapsed() / DAY_LENGTH)
+	var len_s: float = day_length()
+	if not is_finite(len_s):
+		return
+	var d: int = int(elapsed() / len_s)
 	if d != _day:
 		_day = d
 		day_advanced.emit(d)
@@ -65,7 +81,7 @@ func day() -> int:
 
 
 func days_elapsed() -> float:
-	return elapsed() / DAY_LENGTH
+	return elapsed() / day_length()
 
 
 func season() -> String:
@@ -80,7 +96,8 @@ func serialize() -> Dictionary:
 
 func restore(data: Dictionary) -> void:
 	_step = int(maxf(0.0, float(data.get("elapsed", 0.0))) / LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP)
-	_day = int(elapsed() / DAY_LENGTH)
+	var len_s: float = day_length()
+	_day = 0 if not is_finite(len_s) else int(elapsed() / len_s)
 	var loop: LASimLoop = LASimLoop.active()
 	if loop != null:
 		loop.restore_elapsed_s(elapsed())

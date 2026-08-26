@@ -204,11 +204,16 @@ func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	_ctx["depth"] = _grid.max_span()
 	_ctx["centre"] = _field.centre()     # the body centre — the spin axis passes through it
 	_ctx["spin"] = LAFieldGeometry.spin_axis(_field)
+	# Rate as well as axis: seeded angular momentum over measured inertia. Zero while unmeasured,
+	# which is no rotating frame rather than a guessed one.
+	_ctx["spin_rate_rad_s"] = LAFieldGeometry.spin_rate(_field)
 
-## World-space vector toward the sun; its LENGTH is the relative insolation. Absent = no sun, which is
-## dark, not a default direction: an axis chosen here would decide where noon is.
-func set_sun_dir(v: Vector3) -> void:
+## World-space vector toward the sun; its LENGTH is the IRRADIANCE in W/m^2, so the beam a cell sees is
+## that magnitude and no kernel multiplies by a solar constant. Absent = no sun, which is dark, not a
+## default direction: an axis chosen here would decide where noon is.
+func set_sun_flux(v: Vector3, xuv_w_m2: float) -> void:
 	_ctx["sun_dir"] = v
+	_ctx["xuv_w_m2"] = xuv_w_m2 if is_finite(xuv_w_m2) else 0.0
 
 
 ## Radius of the sea shell from the body centre, metres — the datum the derived `alt` is measured from.
