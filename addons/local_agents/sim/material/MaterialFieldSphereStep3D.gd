@@ -120,7 +120,7 @@ func step() -> void:
 			_f._gravity.mean_g() if _f._gravity != null else 0.0,
 			_f._queries.row_f("celerity_max"))
 	if _f._inject != null and not _f._inject.queue.is_empty():
-		if OS.has_environment("LA_INJECT_AUDIT"):
+		if _armed("LA_INJECT_AUDIT"):
 			# Diagnostic.
 			_f._inject.queue.audit_rewind(_f._gpu, "h2o", _f._h2o)
 		_f._inject.queue.flush(_f._gpu)
