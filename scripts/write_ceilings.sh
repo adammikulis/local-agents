@@ -38,7 +38,8 @@ loops="$(rg -c --no-heading -g '*.gd' -e "$LOOP_RE" "$SIM" 2>/dev/null | awk -F:
 lower GDSCRIPT_LINES_CEILING "$lines"
 lower CELL_LOOP_CEILING "$loops"
 
-shims="$("$TREE/scripts/check_no_shim.sh" 2>&1 | rg -c 'forwards to|wraps' || echo 0)"
+shims="$("$TREE/scripts/check_no_shim.sh" 2>&1 | rg -N -o '"count":[0-9]+' | rg -N -o '[0-9]+' | head -1)"
+[ -n "$shims" ] || { echo "write_ceilings: check_no_shim reported no count." >&2; exit 2; }
 lower SHIM_CEILING "$shims"
 
 # Every remaining count comes from its own gate, which is the only thing that knows how it counts.

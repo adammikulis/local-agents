@@ -60,6 +60,8 @@ ceil="$(rg -N -e '^[0-9]+$' "$CEIL_FILE" 2>/dev/null | head -1)"
 case "$ceil" in "" | *[!0-9]*) echo "check_no_shim: docs/SHIM_CEILING carries no number." >&2; exit 2 ;; esac
 n=0
 [ -n "$fwd" ] && n="$(printf '%s\n' "$fwd" | rg -c . || echo 0)"
+# Always, pass or fail: write_ceilings.sh must read the count without parsing a failure listing.
+echo "SHIM={\"count\":$n,\"ceiling\":$ceil}"
 if [ "$n" -gt "$ceil" ]; then
   echo "check_no_shim: PRIVATE FORWARDERS rose to $n against a ceiling of $ceil." >&2
   echo "               A forwarder is a second name for one thing. Call the owner directly." >&2
