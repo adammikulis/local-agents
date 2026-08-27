@@ -126,8 +126,9 @@ func setup(field) -> void:
 	for key in _bufs:
 		if not _buf_owner.has(key):
 			_buf_owner[key] = "the driver"
-	# Load the pass modules (skip any that fail to load — WIP-tolerant).
-	for path in PASS_SCRIPTS:
+	# The passes THIS WORLD runs: LAProcessSet resolved the rung before the driver was built, and a pass
+	# outside it is never loaded, so nothing it declares is ever allocated.
+	for path in LAProcessSet.pass_paths(PASS_SCRIPTS):
 		var scr: GDScript = load(path)
 		if scr == null:
 			push_warning("sphere pass missing: " + path)

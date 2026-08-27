@@ -5,12 +5,12 @@
 # against; skip the re-import and the compiled kernels are stale. It parses SIM_REPORT afterwards too.
 
 # USAGE
-#   scripts/sim_run.sh [--frames N] [--seed N] [--path DIR] [--fauna] [--full] [--keep]
+#   scripts/sim_run.sh [--frames N] [--seed N] [--rung N] [--path DIR] [--fauna] [--full] [--keep]
 #                      [--slice] [--slice-box SPEC] [--slice-state FILE] [--slice-capture FILE]
 #                      [--report k1,k2,...] [--raw] [-- <extra scene args>]
 
 #   --frames N     run length in SIMULATED STEPS (default 200; the conservation gate needs 600+)
-#   --seed N       sim seed (default 4242)
+#   --rung N | --seed N   the processes the world contains (LAProcessSet, default docs/PLAYABLE_RUNG) / sim seed
 #   --path DIR     project dir (default .) — point it at a worktree
 #   --fauna | --full  keep animals (needs --full) / drop --planet-only (default is pure geophysics)
 #   --slice [--slice-box "ox,oy,oz,nx,ny,nz,cell_m"]  run a SLICE (default: surface at +Y, 24x32x24 of 4 km)
@@ -25,6 +25,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FRAMES=200
 SEED=4242
+RUNG=""
 PROJ="."
 FAUNA=0
 FULL=0
@@ -41,6 +42,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --frames) FRAMES="$2"; shift 2 ;;
     --seed) SEED="$2"; shift 2 ;;
+    --rung) RUNG="$2"; shift 2 ;;
+    --rung=*) RUNG="${1#--rung=}"; shift ;;
     --path) PROJ="$2"; shift 2 ;;
     --fauna) FAUNA=1; shift ;;
     --full) FULL=1; shift ;;
@@ -114,6 +117,7 @@ if [ -n "$SLICE_CAPTURE" ]; then
 fi
 
 ARGS=(--sandbox "--run-frames=${FRAMES}" "--seed=${SEED}")
+[ -n "$RUNG" ] && ARGS+=("--rung=${RUNG}")
 [ "${WITH_UI:-0}" -eq 0 ] && ARGS+=(--bare)
 [ "$FULL" -eq 0 ] && ARGS+=(--planet-only)
 [ "$FAUNA" -eq 0 ] && ARGS+=(--no-fauna)

@@ -22,8 +22,8 @@ var _last: Dictionary = {}              # the last drain, for the query modules 
 ## One partial per workgroup per row, plus one reference buffer per `ref` the rows name.
 func _buffers(cc: int) -> Dictionary:
 	var g: int = maxi(int(ceil(float(cc) / float(GROUP))), 1)
-	var out: Dictionary = {PARTIALS: g * LAReduceRecords.rows().size()}
-	for row: Dictionary in LAReduceRecords.rows():
+	var out: Dictionary = {PARTIALS: g * LAProcessSet.reduce_rows().size()}
+	for row: Dictionary in LAProcessSet.reduce_rows():
 		if String(row.get("ref", "")) != "":
 			out[String(row["ref"])] = maxi(cc, 1)
 	return out
@@ -46,7 +46,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		push_error("ReducePass: the driver allocated no \"nbr\"/\"vert_up\"/\"vert_down\"; no row can ask "
 			+ "what is beside a cell, and none can ask what is below it.")
 		return
-	for row: Dictionary in LAReduceRecords.rows():
+	for row: Dictionary in LAProcessSet.reduce_rows():
 		var src: String = String(row["source"])
 		var aux: String = String(row.get("aux", ""))
 		var aux2: String = String(row.get("aux2", ""))

@@ -44,6 +44,7 @@ set(SRC
     src/LASubstances.cpp
     src/NetworkGraph.cpp
     src/LAProcess.cpp
+    src/LAProcessSet.cpp
     src/LANoActivation.cpp
     src/LocalAgentsRegister.cpp
 )

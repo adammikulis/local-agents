@@ -209,6 +209,18 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       equation to work against, and the open cells that remain are mostly the cube's corners.
       **Reproduce:** `scripts/sim_run.sh --frames 10` — the DRY open-pair class carries the whole
       `PRESSURE_BROKEN` count while rock and surface read zero.
+- [ ] **The hydrostatic rung does not stay in the balance it is seeded into, on the sphere.** The pressure
+      audit counts open-cell inversions on the default box while the rock and surface classes read zero,
+      and the sealed one-cell-wide column on the body axis is the arm that does not show it.
+      **Reproduce:** `bash scripts/check_process_ladder.sh` stops at rung `hydrostatic`, and
+      `scripts/agent_harness.sh sim --rung=2 --frames 8` prints the `PRESSURE_BROKEN` line directly.
+- [ ] **The hydrosphere is seeded by fill, not by the planet's water mass.** Every open cell below sea
+      level and every flooded basin cell is written brim-full of liquid, so the seeded H2O mass is set by
+      how many cells the grid puts under sea level rather than by how much water the body has.
+      **Reproduce:** `rg -n MAX_MASS addons/local_agents/sim/material/MaterialField3D.gd
+      addons/local_agents/sim/material/MaterialFieldLakes3D.gd`, then compare `h2o_total` from
+      `scripts/agent_harness.sh sim --frames 6 --rung=1 --report h2o_total` against the body's own
+      hydrosphere.
 - [ ] **The grid cannot resolve its own aquifer.** `LAVoxelGrid.cell_size` is one number for all three axes
       and for every cell, so the few cells of regolith between the surface and the water table are as coarse
       as the sky. The same axis-aligned refinement the atmosphere above needs answers this one: resolution
@@ -242,8 +254,9 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       `LA_PASS_PROBE=n2 scripts/sim_run.sh --slice --slice-box "0,surface,0,1,20,1,2000" --frames 2`.
       And it GROWS with run
       length rather than relaxing, so it is not a seed transient settling — something adds energy.
-      **Reproduce:** `scripts/check_wind_subsonic.sh` — a world driven only by pressure and gravity, which
-      cancel at balance, may not blow itself past its own sound speed.
+      **Reproduce:** `scripts/check_rung_acoustic.sh`, or `scripts/agent_harness.sh sim --rung=3
+      --frames 8` — the smallest world that shows it, driven only by pressure and gravity, which cancel
+      at balance and so may not blow it past its own sound speed.
 - [ ] **`mineral_total` still trips the conservation gate**, and the pass its per-pass probe once named no
       longer exists. Re-localise it against the surviving passes before theorising.
 - [ ] **No per-pass attribution for ELEMENTS.** Mineral and energy each have a probe, and each named its

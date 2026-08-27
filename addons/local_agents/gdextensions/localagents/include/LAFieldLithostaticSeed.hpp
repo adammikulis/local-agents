@@ -17,6 +17,9 @@ public:
 	// of state states the marched pressure, a solid cell's lithic phases are squeezed by the substance
 	// table at the pressure standing over them. Returns the pressure it marched, per cell.
 	static PackedFloat32Array compress(Object *p_field, const PackedFloat32Array &p_gravity);
+	// THE VERTICAL A COLUMN STANDS ALONG. Only the hydrostatic rung stands one; below it there is no
+	// vertical at all, and none is zero.
+	static PackedFloat32Array vertical(Object *p_field, const PackedFloat32Array &p_gravity);
 	// FREE GAS DOES NOT SIT INSIDE STONE. The channels are filled before solidity is sampled, so every
 	// solid cell is handed a full atmosphere's worth of gas: matter in cells that have no room for it.
 	static void clear_gas_in_rock(Object *p_field);

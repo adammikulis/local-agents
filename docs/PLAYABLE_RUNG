@@ -1,0 +1,5 @@
+# The rung the demo world runs at when nothing else declares one: which processes VoxelWorld.tscn
+# contains. Names are in addons/local_agents/gdextensions/localagents/src/LAProcessSet.cpp.
+# scripts/check_process_ladder.sh RAISES this as a rung goes green and never lowers it; lowering the
+# world's declaration is the maintainer's call.
+1

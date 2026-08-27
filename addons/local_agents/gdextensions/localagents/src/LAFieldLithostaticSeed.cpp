@@ -3,6 +3,7 @@
 #include "LABodySystem.hpp"
 #include "LAFieldCellMass.hpp"
 #include "LAPhysicalRead.hpp"
+#include "LAProcessSet.hpp"
 #include "LAScriptCall.hpp"
 #include "LASubstances.hpp"
 
@@ -182,6 +183,19 @@ PackedFloat32Array unit_factor(int p_cc) {
 
 } // namespace
 
+PackedFloat32Array LAFieldLithostaticSeed::vertical(Object *p_field,
+		const PackedFloat32Array &p_gravity) {
+	const int cc = p_field ? int(p_field->get("_cell_count")) : 0;
+	if (LAProcessSet::has_record("pass", "PressurePass.gd", LAProcessSet::ANY)
+			&& p_gravity.size() == cc * 3) {
+		return p_gravity;
+	}
+	PackedFloat32Array z;
+	z.resize(MAX(cc, 0) * 3);
+	z.fill(0.0f);
+	return z;
+}
+
 PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 		const PackedFloat32Array &p_gravity) {
 	PackedFloat32Array out;
@@ -203,10 +217,9 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 	const Vector3 centre = field_centre(p_field);
 	const double dr = double(grid->get("cell_size"));
 	const double vol = dr * dr * dr;
+	// A neighbour table the march cannot walk costs it its COLUMN, not the pressure each cell states.
 	const PackedInt32Array nbr = grid->get("neighbours");
-	if (nbr.size() != cc * 6) {
-		return out;
-	}
+	const bool walkable = nbr.size() == cc * 6;
 	const Dictionary table = LASubstances::table();
 	const Dictionary rows = la_call_gd(CHANNELS_GD, "rows", Array());
 	const double t_c = double(la_gd_const(FIELD_GD, "INITIAL_TEMP"));
@@ -284,14 +297,24 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 	// p_below - p_above = 0.5 * dx * (rho_above * g_above.n + rho_below * g_below.n), and there its
 	// reconstruction cancels the bodyf_* impulse exactly. scripts/check_atmosphere_at_rest.sh is what
 	// holds this expression to the kernel's.
+	// NOTHING OVER IT IS THE STARTING TRUTH: a cell stands at the pressure its own amounts state, and
+	// the march overwrites that only where it reaches a cell with a column above it.
 	std::vector<double> p_at(cc, 0.0);
+	for (int c = 0; c < cc; c++) {
+		if (rho[c] > 0.0) {
+			p_at[c] = eos_rest_p(vol, a_rt[c], b_vol[c], c_comp[c], p_std);
+		}
+	}
 	std::vector<char> done(cc, 0);
 	std::vector<double> scale(cc, 1.0);
 	for (int c : order) {
+		if (!walkable) {
+			break;
+		}
 		done[c] = 1;
 		f_cond[c] = solid[c] != 0 ? 1.0 : MIN(f_cond[c], 1.0);
 		if (up_slot[c] < 0) {
-			continue;
+			continue;      // no vertical, so no column: the cell keeps what its own amounts state
 		}
 		const int d = up_slot[c];
 		const Vector3 g_c(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
@@ -304,8 +327,7 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 		// BOTTOM. Over the outermost cell holding matter stands nothing, so its own amounts state it.
 		const double gm_c = double(g_c.length());
 		if (!from_above) {
-			p_at[c] = eos_rest_p(vol, a_rt[c], b_vol[c], c_comp[c], p_std);
-			continue;
+			continue;      // nothing stands over it, which is what it already states
 		}
 		const Vector3 g_u(p_gravity[u * 3], p_gravity[u * 3 + 1], p_gravity[u * 3 + 2]);
 		const double z_c = face_z(dr, d, g_c);
@@ -348,10 +370,7 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 		}
 		const double s = eos_scale(p, vol, a_rt[c], b_vol[c], c_comp[c], p_std);
 		if (!std::isfinite(s) || !(s > 0.0)) {
-			// No finite amount of what it holds states that pressure. A cell holding matter is not a
-			// vacuum: it keeps its amounts and stands at the pressure they state.
-			p_at[c] = eos_rest_p(vol, a_rt[c], b_vol[c], c_comp[c], p_std);
-			continue;
+			continue;      // no finite amount states that pressure, so it keeps the one its own amounts do
 		}
 		p_at[c] = p;
 		scale[c] = s;
@@ -464,6 +483,8 @@ void LAFieldLithostaticSeed::displace_gas_from_water(Object *p_field) {
 }
 
 void LAFieldLithostaticSeed::_bind_methods() {
+	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("vertical", "field", "gravity"),
+			&LAFieldLithostaticSeed::vertical);
 	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("compress", "field", "gravity"),
 			&LAFieldLithostaticSeed::compress);
 	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("clear_gas_in_rock", "field"),

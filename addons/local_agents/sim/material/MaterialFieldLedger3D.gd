@@ -243,26 +243,30 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	var dt_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
 	var has_rad: bool = f.has("rad_absorbed") and f.has("rad_emitted") and f.has("radiogenic") \
 		and dt_s > 0.0
-	if not has_rad:
-		# A missing measurement is missing: with no radiative pair there is nothing to book against.
-		for key in ["energy_net_w", "energy_booked", "energy_residual", "energy_residual_rel",
-				"energy_turnover_j"]:
-			out[key] = null
-		return
-	var absorbed_w: float = float(f["rad_absorbed"]) / dt_s
-	var emitted_w: float = float(f["rad_emitted"]) / dt_s
-	var radiogenic_w: float = float(f["radiogenic"]) / dt_s
-	out["energy_net_w"] = absorbed_w - emitted_w
+	var absorbed_w: float = float(f.get("rad_absorbed", 0.0)) / dt_s if has_rad else 0.0
+	var emitted_w: float = float(f.get("rad_emitted", 0.0)) / dt_s if has_rad else 0.0
+	var radiogenic_w: float = float(f.get("radiogenic", 0.0)) / dt_s if has_rad else 0.0
+	out["energy_net_w"] = (absorbed_w - emitted_w) if has_rad else null
 	var inject_j: float = 0.0
 	if _f._inject != null and _f._inject.queue != null:
 		inject_j = float(_f._inject.queue.heat_energy_j)
 
+	# THE STOCK AND ITS DRIFT STAND WITHOUT THE RADIATIVE PAIR. A world whose processes do not include
+	# radiation exchanges no energy with anything, so what it holds must not move; only the RESIDUAL —
+	# the drift net of what was booked — needs terms to book against.
 	var steps: int = _books.elapsed("energy_stock", step)
 	var was_latched: bool = _books.first_step_of("energy_stock") >= 0
 	var r: Array = _books.run("energy_stock", "energy_j", stock, step)
 	if r.is_empty():
 		return
 	out["energy_stock_first"] = float(r[0])
+	out["energy_run_drift"] = float(r[1])
+	out["energy_run_drift_rel"] = _rel(float(r[1]), absf(float(r[0])))
+	if not has_rad:
+		# A missing measurement is missing: with no radiative pair there is nothing to book against.
+		for key in ["energy_booked", "energy_residual", "energy_residual_rel", "energy_turnover_j"]:
+			out[key] = null
+		return
 	if not was_latched:
 		_cum_absorbed = 0.0
 		_cum_emitted = 0.0
@@ -286,7 +290,6 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	# residual: read as a fraction of the STOCK, a wholly unaccounted window reports as round-off.
 	var turnover: float = _cum_absorbed + _cum_emitted + absf(cum_inject) + absf(_cum_radiogenic) \
 		+ _bnd.heat_gross
-	out["energy_run_drift"] = run_drift
 	out["energy_booked"] = booked
 	out["energy_residual"] = run_drift - booked
 	out["energy_turnover_j"] = turnover

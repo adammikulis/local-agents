@@ -14,6 +14,7 @@ var _invert_y_option: OptionButton = null
 
 var _graphics: LAGraphicsSettingsSection = null
 var _sim: LASimSettingsSection = null
+var _processes: LAProcessSetPanel = null
 
 var _suppress: bool = false
 
@@ -60,6 +61,13 @@ func _build_sections() -> void:
 	_sim = LASimSettingsSection.new()
 	_sim.setup(_settings, Callable(self, "_on_section_changed"))
 	_sim.build(_sections)
+
+	# The world's process set. A launcher has no world yet, so it offers no restart button.
+	LASettingsWidgets.add_header(_sections, "Physics")
+	_processes = LAProcessSetPanel.new()
+	_sections.add_child(_processes)
+	_processes.build(_settings, false)
+	_processes.changed.connect(Callable(self, "_on_section_changed"))
 
 	LASettingsWidgets.add_header(_sections, "Audio")
 	var mv: Dictionary = LASettingsWidgets.add_slider(_sections, "Master volume",

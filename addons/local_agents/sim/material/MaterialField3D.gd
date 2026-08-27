@@ -349,7 +349,7 @@ func _cells_filled(v: float) -> PackedFloat32Array:
 func activate() -> void:
 	_boundary = BoundaryScript.new()
 	_boundary.setup(self)                 # appends ghost rows before the driver reads grid.ghost_rows
-	if _grid != null and SphereGPUScript.available() and not OS.has_environment("LA_FORCE_CPU"):
+	if _grid != null and SphereGPUScript.available():
 		# The GPU driver runs the kernels over the grid's neighbour SSBO.
 		_gpu = SphereGPUScript.new()
 		_gpu.setup(self)

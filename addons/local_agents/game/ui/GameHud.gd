@@ -20,6 +20,9 @@ const NOTABLE_CAP_LABELS: Dictionary = {
 @onready var _summary_gen: Label = $GameHudRoot/Summary/Margin/Col/BloodlineRow/Value
 @onready var _toast_column: VBoxContainer = $GameHudRoot/Toasts
 @onready var _refresh_timer: Timer = $RefreshTimer
+@onready var _summary_col: VBoxContainer = $GameHudRoot/Summary/Margin/Col
+
+var _rung_readout: LAProcessRungReadout = null
 
 var _progression: LAGameProgression = null
 var _connected: bool = false
@@ -132,6 +135,10 @@ func _refresh_objective() -> void:
 
 
 func _refresh_summary() -> void:
+	if _rung_readout == null:
+		_rung_readout = LAProcessRungReadout.new()
+		_summary_col.add_child(_rung_readout)
+	_rung_readout.refresh()
 	var snap: Dictionary = LASimReport.snapshot()
 	var creatures: int = int(snap.get("creatures", 0))
 	var biomass: float = float(snap.get("biomass_total", 0.0))
