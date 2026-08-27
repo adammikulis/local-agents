@@ -79,6 +79,13 @@ if [[ -z "$cmd" || "$cmd" == "-h" || "$cmd" == "--help" ]]; then
 fi
 shift || true
 
+# EVERY ENGINE LAUNCH THIS LINT MAKES, one line each: lib_godot.sh appends, check_launch_count.sh counts.
+if [[ "$cmd" == "lint" && -z "${LA_LAUNCH_LOG:-}" ]]; then
+  mkdir -p "$LOG_DIR" 2>/dev/null || true
+  export LA_LAUNCH_LOG="$LOG_DIR/launches_$$.log"
+  : > "$LA_LAUNCH_LOG"
+fi
+
 # --- A LINKED WORKTREE REPAIRS ITSELF HERE, BEFORE ANY COMMAND RUNS ----------------------------------
 # `git worktree add` gives you the source and none of the build state: no `bin/` symlink, no imported
 # kernels, no `.godot/`. Each degrades QUIETLY — an unimported `.glsl` loads as null, the GPU field is
@@ -212,6 +219,15 @@ if [[ "$cmd" == "lint" ]]; then
       gate "$1"
     }
 
+    # ONE RUN PER LINT. Every gate below reads this capture instead of starting its own engine.
+    if LA_CAPTURE_DIR="$("$SCRIPT_DIR/lint_capture.sh")"; then
+      export LA_LINT_CAPTURE="$LA_CAPTURE_DIR"
+      echo "LINT_CAPTURE=$LA_LINT_CAPTURE"
+    else
+      echo "LINT_UNRUNNABLE: lint_capture.sh (2)"
+      lint_unrunnable=$((lint_unrunnable + 1))
+    fi
+
     gate check_max_file_length
     gate check_no_direct_refcounted_invocation
     gate check_no_inferred_typing
@@ -282,6 +298,7 @@ if [[ "$cmd" == "lint" ]]; then
     gpu_gate check_slice_exterior
     gate check_shaders_compile
     gate check_reaction_energy
+    gate check_launch_count
     # EVERY GATE RUNS. Fail-fast meant one red gate hid every gate after it.
     if [[ $lint_unrunnable -gt 0 ]]; then
       echo "LINT_SUMMARY: $lint_unrunnable gate(s) COULD NOT RUN, $lint_failed violation(s). Every gate ran;"

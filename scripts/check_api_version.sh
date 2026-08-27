@@ -7,6 +7,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh" 2>/dev/null || true
 . "$ROOT/scripts/lib_godot.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 require_tool rg
 
 EXT="$ROOT/addons/local_agents/gdextensions/localagents"
@@ -24,7 +25,11 @@ pin="$(rg -N -o -r '$1' '^GODOT_CPP_REF="\$\{GODOT_CPP_REF:-([0-9a-f]{40})\}"' "
 
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "check_api_version: no '$GODOT' on PATH." >&2; exit 2; }
-engine="$(la_godot --version 2>/dev/null | rg -N -o -r '$1' '^([0-9]+\.[0-9]+)' | head -1)"
+if la_cap_dir >/dev/null; then
+	engine="$(la_headless engine_version | rg -N -o -r '$1' '^ENGINE_VERSION=([0-9]+\.[0-9]+)' | head -1)"
+else
+	engine="$(la_godot --version 2>/dev/null | rg -N -o -r '$1' '^([0-9]+\.[0-9]+)' | head -1)"
+fi
 [ -n "$engine" ] || { echo "check_api_version: could not read the engine version." >&2; exit 2; }
 
 fail=0

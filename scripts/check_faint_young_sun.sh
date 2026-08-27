@@ -5,6 +5,7 @@
 # EXIT 0 liquid water persists · 1 frozen, or the bare arm fails to freeze · 2 could not run.
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 
 SCRIPT_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
 # shellcheck source=lib_require.sh
@@ -15,7 +16,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUNNER="$SCRIPT_DIR/check_faint_young_sun.gd"
 [[ -f "$RUNNER" ]] || { echo "ERROR: no runner at $RUNNER." >&2; exit 2; }
 
-OUT="$(la_godot --headless --path "$REPO_ROOT" -s "$RUNNER" 2>&1)"
+if la_cap_dir >/dev/null; then
+  OUT="$(la_headless faint_young_sun)" || exit 2
+else
+  OUT="$(la_godot --headless --path "$REPO_ROOT" -s "$RUNNER" 2>&1)"
+fi
 RC=$?
 SUMMARY="$(printf '%s\n' "$OUT" | grep -o 'FAINT_YOUNG_SUN=.*' | tail -n 1)"
 if [[ -z "$SUMMARY" ]]; then

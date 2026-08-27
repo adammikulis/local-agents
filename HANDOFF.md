@@ -139,12 +139,6 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
 
 <!-- claim: nofile addons/local_agents/sim/material/Bindings.gd -->
 
-## 8. Lint launches the engine about thirty times, and every launch is a window
-
-`rg -c 'la_godot|run_sim_offscreen|sim_run' scripts/*.sh | rg -v ':0$' | wc -l` counts the scripts that
-each start their own Godot; `GPU_GATES` in `scripts/agent_harness.sh` names the ones that each run a full
-sim. One run per lint, one state capture, every GPU gate reading the capture, is the shape.
-
 ---
 
 ## How to run

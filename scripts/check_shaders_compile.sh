@@ -18,6 +18,7 @@
 # =====================================================================================================
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib_require.sh
@@ -29,91 +30,24 @@ elif ! command -v godot >/dev/null 2>&1; then
   exit 2
 fi
 
-PROBE_REL="addons/local_agents/tests/tmp_check_shaders_compile.gd"
-PROBE="$REPO_ROOT/$PROBE_REL"
-cleanup() { rm -f "$PROBE" "$PROBE.uid"; }
-trap cleanup EXIT
+PROBE_REL="addons/local_agents/tests/gate_shaders_compile.gd"
+[ -f "$REPO_ROOT/$PROBE_REL" ] || { echo "ERROR: MISSING $PROBE_REL." >&2; exit 2; }
 
-cat > "$PROBE" <<'GD'
-extends SceneTree
-
-const ROOT: String = "res://addons/local_agents"
-
-# Every stage a .glsl in this tree could declare. A kernel is compute; the others are here so a future
-# raster shader cannot slip through unchecked.
-const STAGES: Array = [
-	RenderingDevice.SHADER_STAGE_COMPUTE,
-	RenderingDevice.SHADER_STAGE_VERTEX,
-	RenderingDevice.SHADER_STAGE_FRAGMENT,
-]
-
-func _find(dir_path: String, out: Array) -> void:
-	var d: DirAccess = DirAccess.open(dir_path)
-	if d == null:
-		return
-	d.list_dir_begin()
-	var name: String = d.get_next()
-	while name != "":
-		if name.begins_with("."):
-			name = d.get_next()
-			continue
-		var full: String = dir_path.path_join(name)
-		if d.current_is_dir():
-			# Vendored GLSL is not ours and is not a Godot kernel: whisper.cpp ships ggml-vulkan
-			# sources Godot never imports, so get_spirv() is null for all of them by construction.
-			if name != "thirdparty":
-				_find(full, out)
-		elif name.ends_with(".glsl"):
-			out.append(full)
-		name = d.get_next()
-	d.list_dir_end()
-
-func _init() -> void:
-	var files: Array = []
-	_find(ROOT, files)
-	files.sort()
-	var failed: int = 0
-	for path in files:
-		var sf = load(path)
-		if sf == null:
-			# Almost always an UNIMPORTED kernel — the fresh-worktree trap. load() returns null, the pass
-			# silently never runs, and the report still looks normal.
-			print("SHADER_FAIL={\"file\":\"%s\",\"why\":\"load() returned null (unimported?)\"}" % path)
-			failed += 1
-			continue
-		if not sf.has_method("get_spirv"):
-			print("SHADER_FAIL={\"file\":\"%s\",\"why\":\"not an RDShaderFile\"}" % path)
-			failed += 1
-			continue
-		var spirv = sf.get_spirv()
-		if spirv == null:
-			print("SHADER_FAIL={\"file\":\"%s\",\"why\":\"get_spirv() returned null\"}" % path)
-			failed += 1
-			continue
-		var bad: bool = false
-		for stage in STAGES:
-			var err: String = spirv.get_stage_compile_error(stage)
-			if err != "":
-				var first: String = err.split("\n")[0]
-				print("SHADER_FAIL={\"file\":\"%s\",\"stage\":%d,\"why\":%s}" % [path, stage, JSON.stringify(first)])
-				bad = true
-		if bad:
-			failed += 1
-	print("SHADER_GATE={\"checked\":%d,\"failed\":%d}" % [files.size(), failed])
-	quit(1 if failed > 0 else 0)
-GD
 
 # THE CACHE IS NOT INVALIDATED BY AN INCLUDE. Editing a .glsli leaves every .glsl that includes it holding
 # its old SPIR-V in .godot/imported, and `--import` does not notice — not even after touching the .glsl.
 # `load()` then returns the STALE kernel and this gate reads green against code that no longer exists.
 # Verified by zeroing a latent heat in enthalpy.glsli: the GPU kept the old value until the cache was
 # deleted. Drop the kernels' cache entries and re-import so every probe below compiles from source.
-if [ -d "$REPO_ROOT/.godot/imported" ]; then
-  find "$REPO_ROOT/.godot/imported" -maxdepth 1 -name '*.glsl-*' -delete
-  "$REPO_ROOT/scripts/godot_import.sh" "$REPO_ROOT" || true
+if la_cap_dir >/dev/null; then
+  out="$(la_headless shaders_compile)" || exit 2
+else
+  if [ -d "$REPO_ROOT/.godot/imported" ]; then
+    find "$REPO_ROOT/.godot/imported" -maxdepth 1 -name '*.glsl-*' -delete
+    "$REPO_ROOT/scripts/godot_import.sh" "$REPO_ROOT" || true
+  fi
+  out="$(cd "$REPO_ROOT" && LA_GODOT_TIMEOUT=120 la_godot --headless --path . -s "res://$PROBE_REL" 2>&1)"
 fi
-
-out="$(cd "$REPO_ROOT" && LA_GODOT_TIMEOUT=300 la_godot --headless --path . -s "res://$PROBE_REL" 2>&1)"
 echo "$out" | grep -E '^SHADER_FAIL=|^SHADER_GATE=' || true
 
 if ! echo "$out" | grep -q '^SHADER_GATE='; then

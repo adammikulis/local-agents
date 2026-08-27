@@ -14,6 +14,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 require_tool rg
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 
 ROWS="$ROOT/addons/local_agents/sim/material/reduce/HeatRows.gd"
 [ -f "$ROWS" ] || { echo "check_alt_bands: MISSING $ROWS" >&2; exit 2; }
@@ -28,8 +29,7 @@ while [ "$b" -lt "$BANDS" ]; do
 	keys="${keys}clim_alt${b}_min,clim_alt${b}_n,"
 	b=$((b + 1))
 done
-out="$("$ROOT/scripts/sim_run.sh" --path "$ROOT" --frames "${LA_ALT_BAND_FRAMES:-20}" \
-	--report "${keys%,}" 2>&1)"
+out="$(la_report "${keys%,}" --path "$ROOT" --frames "${LA_ALT_BAND_FRAMES:-20}" 2>&1)"
 reading() { printf '%s\n' "$out" | sed -n "s/^$1  *= *//p" | head -1 | tr -d ' '; }
 numeric() { printf '%s' "$1" | grep -Eq '^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$'; }
 

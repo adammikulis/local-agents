@@ -15,16 +15,33 @@ case "$CEIL" in "" | *[!0-9]*) echo "check_run_budget: the ceiling carries no nu
 
 [ -d "$ROOT/scripts" ] || { echo "check_run_budget: MISSING $ROOT/scripts" >&2; exit 2; }
 
-# Every declared default, as file:line:seconds.
-hits="$(rg -n --no-heading -o -e 'LA_RUN_TIMEOUT:-[0-9]+' "$ROOT/scripts" 2>/dev/null || true)"
-[ -n "$hits" ] || { echo "check_run_budget: no LA_RUN_TIMEOUT default anywhere. The runner lost its budget." >&2; exit 2; }
+# EVERY WAY A SCRIPT SETS THE TIME IT WILL WAIT FOR AN ENGINE RUN. Scanning only the `:-N` default form
+# left an explicit LA_GODOT_TIMEOUT=300 unread, so the gate could not fail on the two longest waits in the
+# tree. Lock waits are a different quantity — how long another lane's run may hold the machine — and are
+# not run budgets, so they stay out.
+BUDGET_RE='(LA_RUN_TIMEOUT|LA_GODOT_TIMEOUT)(:-[0-9]+|=[0-9]+|="?\$\{[A-Z_]+:-[0-9]+)'
+hits="$(rg -n --no-heading -o -e "$BUDGET_RE" "$ROOT/scripts" 2>/dev/null || true)"
+[ -n "$hits" ] || { echo "check_run_budget: no run budget anywhere. The runner lost its budget." >&2; exit 2; }
+
+# file:line:match -> seconds, or nothing when the line is a comment showing how to raise it.
+budget() {
+	local file="${1%%:*}" rest="${1#*:}" lno m src
+	lno="${rest%%:*}"
+	m="${rest#*:}"
+	src="$(sed -n "${lno}p" "$file" 2>/dev/null)"
+	case "$src" in [[:space:]]*\#* | \#*) return 1 ;; esac
+	printf '%s' "$m" | sed -E 's/.*[^0-9]([0-9]+)$/\1/'
+	printf '%s\n' "$file:$lno" > /dev/null
+}
 
 fail=0
 worst=0
 while IFS= read -r line; do
 	[ -n "$line" ] || continue
 	file="${line%%:*}"; rest="${line#*:}"
-	lno="${rest%%:*}"; val="${rest##*-}"
+	lno="${rest%%:*}"
+	val="$(budget "$line")" || continue
+	[ -n "$val" ] || continue
 	[ "$val" -gt "$worst" ] && worst="$val"
 	[ "$val" -le "$CEIL" ] && continue
 	# A soak declares itself on the line above.
@@ -43,7 +60,9 @@ if [ "$fail" -eq 0 ]; then
 	while IFS= read -r line; do
 		[ -n "$line" ] || continue
 		file="${line%%:*}"; rest="${line#*:}"
-		lno="${rest%%:*}"; val="${rest##*-}"
+		lno="${rest%%:*}"
+		val="$(budget "$line")" || continue
+		[ -n "$val" ] || continue
 		prev="$(sed -n "$((lno - 1))p" "$file" 2>/dev/null)"
 		case "$prev" in *"# SOAK:"*) continue ;; esac
 		[ "$val" -gt "$declared_max" ] && declared_max="$val"
