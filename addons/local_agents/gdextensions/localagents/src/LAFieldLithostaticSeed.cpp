@@ -106,6 +106,16 @@ int slot_toward(const Vector3 &p_dir) {
 	return best;
 }
 
+// kernels3d/transport.glsl's face_p: the face's depth below the cell's top, along the LOCAL vertical.
+// Fully down only where gravity lies on the slot's own axis.
+double face_z(double edge, int p_d, const Vector3 &p_g) {
+	const double gm = double(p_g.length());
+	if (!(gm > 0.0)) {
+		return 0.5 * edge;
+	}
+	return 0.5 * edge * (1.0 + slot_normal(p_d).dot(p_g) / gm);
+}
+
 // kernels3d/stack.glsli's own body. Held equal to it by scripts/check_stack_ssot.sh.
 double stack_p(double z, double edge, double g, double f_cond, double m_cond, double m_total, double p_mean) {
 	if (!(m_total > 0.0) || !(g > 0.0) || !(p_mean > 0.0)) {
@@ -118,8 +128,16 @@ double stack_p(double z, double edge, double g, double f_cond, double m_cond, do
 	double decay = h > 0.0 ? exp(-z_gas / h) : 1.0;
 	double rho_l = fc > 0.0 ? m_cond / fc : 0.0;
 	double tail = edge - z_gas;
-	double p_gas_bot = (p_mean * edge - 0.5 * rho_l * g * tail * tail)
-		/ ((h > 0.0 ? h * (1.0 - decay) : 0.0) + tail);
+	// Thickness the cell's pressure integral is spread over. A layer whose own weight is nothing
+	// against its pressure does not stratify, and every level in it reads the cell's own mean.
+	double thick = (h > 0.0 ? h * (1.0 - decay) : 0.0) + tail;
+	if (!(thick > 0.0)) {
+		return p_mean;
+	}
+	// What stands OVER the condensed layer: the cell's integral less the layer's own weight.
+	// Nothing stands over a layer that weighs the whole of it, and vacuum is zero, never tension.
+	double over = p_mean * edge - 0.5 * rho_l * g * tail * tail;
+	double p_gas_bot = over > 0.0 ? over / thick : 0.0;
 	double s = CLAMP(z, 0.0, edge);
 	if (s <= z_gas && h > 0.0) {
 		return p_gas_bot * exp((s - z_gas) / h);
@@ -290,24 +308,26 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 			continue;
 		}
 		const Vector3 g_u(p_gravity[u * 3], p_gravity[u * 3 + 1], p_gravity[u * 3 + 2]);
-		const double target = stack_p(dr, dr, double(g_u.length()), f_cond[u], m_cond[u], rho[u], p_at[u]);
+		const double z_c = face_z(dr, d, g_c);
+		const double target = stack_p(face_z(dr, d ^ 1, g_u), dr, double(g_u.length()), f_cond[u],
+				m_cond[u], rho[u], p_at[u]);
 		if (solid[c] != 0) {
 			// Rock is quasi-static and kernels3d/pressure.glsl owns its pressure; what the seed owes it is
 			// the DENSITY that pressure implies, through the substance table's own equation of state.
-			p_at[c] = target + 0.5 * dr * rho[c] * gm_c;
+			p_at[c] = target + (0.5 * dr - z_c) * rho[c] * gm_c;
 			continue;
 		}
 		// An open cell's pressure IS its matter. At a fixed amount its top face is AFFINE in the cell
 		// mean, so a secant lands on it and its slope is measured rather than invented.
 		double p0 = MAX(target, p_sat[c]);
-		double t0 = stack_p(0.0, dr, gm_c, f_cond[c], m_cond[c], rho[c], p0);
+		double t0 = stack_p(z_c, dr, gm_c, f_cond[c], m_cond[c], rho[c], p0);
 		double p = p0 + (target - t0);
 		for (int it = 0; it < 200; it++) {
 			if (!(p > 0.0) || !std::isfinite(p)) {
 				break;
 			}
 			const double sc = eos_scale(p, vol, a_rt[c], b_vol[c], c_comp[c], p_std);
-			const double t1 = stack_p(0.0, dr, gm_c, f_cond[c], sc * m_cond[c], sc * rho[c], p);
+			const double t1 = stack_p(z_c, dr, gm_c, f_cond[c], sc * m_cond[c], sc * rho[c], p);
 			if (!std::isfinite(t1)) {
 				break;
 			}
@@ -328,7 +348,10 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 		}
 		const double s = eos_scale(p, vol, a_rt[c], b_vol[c], c_comp[c], p_std);
 		if (!std::isfinite(s) || !(s > 0.0)) {
-			continue;      // no finite amount states that pressure, so this cell keeps what it was given
+			// No finite amount of what it holds states that pressure. A cell holding matter is not a
+			// vacuum: it keeps its amounts and stands at the pressure they state.
+			p_at[c] = eos_rest_p(vol, a_rt[c], b_vol[c], c_comp[c], p_std);
+			continue;
 		}
 		p_at[c] = p;
 		scale[c] = s;
