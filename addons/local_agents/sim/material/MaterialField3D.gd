@@ -404,13 +404,11 @@ func _seed_silicate() -> void:
 			or _solid.size() != _cell_count:
 		return
 	LANativeTables.composition().seed(self, INITIAL_TEMP)
-	# Shape the CPU arrays BEFORE the driver's seed_field reads them, so the declared upload is the
-	# compressed rock and the shell atmosphere, not the flat fill.
-	LANativeTables.lithostatic().compress(self)
+	# Shape the CPU arrays BEFORE the driver's seed_field reads them. The hydrostatic balance waits for
+	# the gravity solve; LAMaterialFieldSphereStep3D.seed_tick marches it once g exists.
 	LANativeTables.lithostatic().clear_gas_in_rock(self)
 	_body_measure = ClassDB.instantiate(&"LABodyMeasure")
 	_body_measure.measure(self, LANativeTables.body_seeds().spin_axis_of(_body_key))
-	LANativeTables.lithostatic().shape_atmosphere(self, INITIAL_TEMP, _body_measure)
 
 
 func _seed_sea() -> void:

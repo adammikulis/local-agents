@@ -56,8 +56,8 @@ func _parse(spec: String) -> bool:
 			offset[i] = t[i].to_float()
 	dims = Vector3i(t[3].to_int(), t[4].to_int(), t[5].to_int())
 	cell_size = t[6].to_float()
-	if dims.x < MIN_CELLS or dims.y < MIN_CELLS or dims.z < MIN_CELLS:
-		return _fail("the box is %s cells; every axis needs at least %d" % [str(dims), MIN_CELLS])
+	if dims.x < 1 or dims.y < 1 or dims.z < 1:
+		return _fail("the box is %s cells; every axis needs at least one" % str(dims))
 	if cell_size <= 0.0:
 		return _fail("cell_m must be positive, got %f" % cell_size)
 	if offset.length() <= 0.0 and surface_axis < 0:
@@ -107,6 +107,19 @@ func apply(field, body, terrain) -> bool:
 	return error == ""
 
 
+## A wrapped axis is a torus and a replayed one carries a rim: both need width. An axis whose faces are
+## shut or open carries neither, so it may be one cell.
+func _rim_fits(modes: PackedStringArray) -> bool:
+	for axis in 3:
+		var rim: bool = false
+		for h in 2:
+			rim = rim or modes[axis * 2 + h] == "wrap" or modes[axis * 2 + h] == "replay"
+		if rim and dims[axis] < MIN_CELLS:
+			return _fail("axis %d is %d cells and carries a rim, which needs at least %d"
+				% [axis, dims[axis], MIN_CELLS])
+	return true
+
+
 ## Sides WRAP; the vertical pair takes the captured exterior, or stays SHUT when no capture is supplied.
 func _configure_boundary(field) -> void:
 	var d_down: int = LAFieldGeometry.slot_toward(-offset)
@@ -151,6 +164,8 @@ func _configure_boundary(field) -> void:
 					return
 				states[d] = means[d]
 		print("SLICE_BOUNDARY={\"faces\":\"%s\",\"state\":\"%s\"}" % [",".join(modes), path])
+	if not _rim_fits(modes):
+		return
 	field.set_meta(LAFieldBoundary3D.META_FACES, ",".join(modes))
 	if not states.is_empty():
 		field.set_meta(LAFieldBoundary3D.META_STATES, states)

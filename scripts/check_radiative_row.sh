@@ -47,7 +47,10 @@ extends SceneTree
 const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
 
 const N: int = 6
-const CELL: float = 1.0
+const CELL: float = 0.5
+## Emission is W per m^2 of FACE, carried as J per m^3 of CELL: the ratio is what converts it.
+const FACE_AREA: float = CELL * CELL
+const CELL_VOL: float = CELL * CELL * CELL
 const ORIGIN: Vector3 = Vector3(-0.5 * N * CELL, -0.5 * N * CELL, -0.5 * N * CELL)
 const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
 ## Transport binds the enthalpy decomposition this pass declares, so the harness must allocate it too.
@@ -207,7 +210,8 @@ func _transmission(grid) -> Array:
 	var t_hot: float = HOT_C + LAPhysical.KELVIN_OFFSET
 	var dt: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
 	# One face of the emitter, crossing the clear cell untouched, and the absorber keeps its own share.
-	var want: float = emis * emis * LAPhysical.STEFAN_BOLTZMANN * pow(t_hot, 4.0) * dt / CELL
+	var want: float = emis * emis * LAPhysical.STEFAN_BOLTZMANN * pow(t_hot, 4.0) * dt \
+			* FACE_AREA / CELL_VOL
 	var got: float = float(out[0][absorber])
 	return [absf(got - want) / want, absf(float(out[0][clear]))]
 
@@ -249,8 +253,8 @@ func _init() -> void:
 	var t_cool: float = COOL_C + LAPhysical.KELVIN_OFFSET
 	var t_hot: float = HOT_C + LAPhysical.KELVIN_OFFSET
 	# Six faces of a cube of side CELL, carried as J/m^3 over one step.
-	var want_cool: float = 6.0 * emis * sigma * pow(t_cool, 4.0) * dt / CELL
-	var want_hot: float = 6.0 * emis * sigma * pow(t_hot, 4.0) * dt / CELL
+	var want_cool: float = 6.0 * FACE_AREA / CELL_VOL * emis * sigma * pow(t_cool, 4.0) * dt
+	var want_hot: float = 6.0 * FACE_AREA / CELL_VOL * emis * sigma * pow(t_hot, 4.0) * dt
 	var sb_cool: float = _worst_rel(cool[1], want_cool, inside)
 	var sb_hot: float = _worst_rel(hot[1], want_hot, inside)
 

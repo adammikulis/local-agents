@@ -199,9 +199,10 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 ## D. Transport and geometry
 
 - [ ] **The modelled atmosphere is one cell thick, at every resolution the project offers.**
-      `LAFieldLithostaticSeed.shape_atmosphere` branches on `scale_h < cell_size`; when it holds, the whole
-      atmosphere is seeded into the first open shell and everything above it is vacuum. It always holds:
-      the field box is `2 * (PLANET_RADIUS + MODELLED_ATMOSPHERE_HEIGHT_M) / N` per cell with `N` clamped
+      `LAFieldLithostaticSeed.shape_atmosphere` falls off over the scale height the solved gravity states,
+      and no open cell centre is within one of them of the surface, so the whole atmosphere lands in the
+      first open shell and everything above it is vacuum. The field box is
+      `2 * (PLANET_RADIUS + MODELLED_ATMOSPHERE_HEIGHT_M) / N` per cell with `N` clamped
       to `[GRID_EDGE_MIN, GRID_EDGE_MAX]`, so the finest cell available is tens of kilometres larger than
       any scale height this planet can have, and `MODELLED_ATMOSPHERE_HEIGHT_M` is itself under one cell.
       There is no lapse rate, no vertical structure and no honest pressure gradient for the momentum

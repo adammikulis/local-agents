@@ -18,4 +18,8 @@ static func rows() -> Array:
 		out.append(base.merged({"key": "pressure_aud_" + name, "op": Rec.Op.COUNT}, true))
 		# How big, in pascals: a count cannot tell a float-noise sign flip from a real inversion.
 		out.append(base.merged({"key": "pressure_worst_" + name, "op": Rec.Op.MAX}, true))
+	# The WORST open cell's relative departure from the pressure it was seeded with, latched once.
+	var rest: Dictionary = {"source": "pressure", "ref": "pressure_ref", "mask": Rec.Mask.OPEN}
+	out.append(rest.merged({"key": "pressure_seed_latch", "op": Rec.Op.LATCH}, true))
+	out.append(rest.merged({"key": "pressure_rest_rel", "op": Rec.Op.MAX_REL_DIFF}, true))
 	return out

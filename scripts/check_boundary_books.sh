@@ -40,7 +40,7 @@ extends SceneTree
 const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
 
 const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
-const CELL: float = 1.0
+const CELL: float = 0.5
 const P_IN: float = 101325.0
 const T_C: float = 15.0
 const TOL: float = 1.0e-5
@@ -99,7 +99,7 @@ func _init() -> void:
 	var st: Dictionary = means[0]
 
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
-	grid.build(2, 1, 1, CELL, Vector3(-1.0, -0.5, -0.5))
+	grid.build(2, 1, 1, CELL, Vector3(-CELL, -0.5 * CELL, -0.5 * CELL))
 	var cc: int = grid.cell_count
 	var bnd: LAFieldBoundary3D = LAFieldBoundary3D.new()
 	var modes: PackedInt32Array = PackedInt32Array([LAFieldBoundary3D.CONSTANT,
@@ -152,7 +152,7 @@ func _init() -> void:
 	if bnd.error != "":
 		_expect(false, "boundary attach failed: " + bnd.error)
 	var cl: int = _rd.compute_list_begin()
-	# One acoustic crossing is ~3 ms at this cell size; the rig's step stays inside the explicit regime.
+	# The step is a small fraction of CELL over the sound speed: inside the explicit acoustic regime.
 	p.dispatch(_rd, cl, {"cell_size": CELL, "sun_dir": Vector3.ZERO, "dt_s": 1.0e-4},
 		cc, int(ceil(float(cc) / 64.0)))
 	_rd.compute_list_end()

@@ -44,6 +44,10 @@ static func body_seeds() -> Object: return _handle(&"LABodySeeds")
 static func lithostatic() -> Object: return _handle(&"LAFieldLithostaticSeed")
 
 
+## The one walk from channel amounts to kilograms.
+static func cell_mass() -> Object: return _handle(&"LAFieldCellMass3D")
+
+
 ## Radiogenic heat and daughter accumulation.
 static func decay() -> Object:
 	return _handle(&"LARadiogenicDecay")

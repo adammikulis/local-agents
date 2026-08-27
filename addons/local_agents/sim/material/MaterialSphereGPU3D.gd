@@ -135,6 +135,7 @@ func setup(field) -> void:
 		var p: RefCounted = scr.new()
 		if p.has_method("setup"):
 			p.ghost_count = _ng
+			p.grid_dims = Vector3i(_grid.nx, _grid.ny, _grid.nz)
 			_passes.append(p)
 			_pass_names.append(path.get_file().get_basename())   # e.g. "TransportPass" — timestamp label
 	# A pass declares the buffers it needs and the DRIVER allocates them, so they are driver-owned and can be

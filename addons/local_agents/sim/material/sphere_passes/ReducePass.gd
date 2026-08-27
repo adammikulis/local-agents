@@ -5,7 +5,6 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reduce.glsl"
 const PARTIALS: String = "reduce_partials"
-const CRUST_REF: String = "crust_ref"
 const GROUP: int = 64
 const PC_BYTES: int = 48
 
@@ -15,15 +14,19 @@ var _sets: Array = []                   # per row: its uniform set
 var _partials: RID = RID()
 var _groups: int = 0
 var _step: int = -1                     # field step the last dispatch reduced
-var _latch_step: int = -1               # field step the crust reference was taken at
+var _latch_step: Dictionary = {}        # ref buffer -> field step that reference was taken at
 var _failed_announced: bool = false
 var _last: Dictionary = {}              # the last drain, for the query modules that read rows directly
 
 
-## One partial per workgroup per row, plus the crust reference the diff row is taken from.
+## One partial per workgroup per row, plus one reference buffer per `ref` the rows name.
 func _buffers(cc: int) -> Dictionary:
 	var g: int = maxi(int(ceil(float(cc) / float(GROUP))), 1)
-	return {PARTIALS: g * LAReduceRecords.rows().size(), CRUST_REF: maxi(cc, 1)}
+	var out: Dictionary = {PARTIALS: g * LAReduceRecords.rows().size()}
+	for row: Dictionary in LAReduceRecords.rows():
+		if String(row.get("ref", "")) != "":
+			out[String(row["ref"])] = maxi(cc, 1)
+	return out
 
 
 func _setup(bufs: Dictionary, cc: int) -> void:
@@ -85,27 +88,27 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, _groups_in
 	_run(rd, cl, ctx, cc, true)
 
 
-## Every row. `latch_ok` false leaves the crust reference where it is.
+## Every row. `latch_ok` false leaves every reference where it is.
 func _run(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, latch_ok: bool) -> void:
 	var cell_m: float = _ctx_cell_size(ctx)
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	for r in _rows.size():
 		var row: Dictionary = _rows[r]
+		var ref: String = String(row.get("ref", ""))
 		var latch: bool = int(row["op"]) == LAReduceRecords.Op.LATCH
-		if latch and (_latch_step >= 0 or not latch_ok):
-			continue      # the reference is the crust the world was built with, taken once
+		if latch and (_latch_step.has(ref) or not latch_ok):
+			continue      # a reference is the state the world was built with, taken once per row
 		rd.compute_list_bind_uniform_set(cl, _sets[r], 0)
 		var pc: PackedByteArray = _pc(cc, row, r * _groups, cell_m)
 		rd.compute_list_set_push_constant(cl, pc, pc.size())
 		rd.compute_list_dispatch(cl, _groups, 1, 1)
 		rd.compute_list_add_barrier(cl)
 		if latch:
-			_latch_step = _step
+			_latch_step[ref] = _step
 
 
-## A reduce taken BETWEEN passes, for the instruments no row can serve: this pass runs last, so a row
-## cannot say WHICH pass moved a total. Submits and syncs on the spot; leaves the crust reference and
-## `latest()` alone, because arming a probe may not move what an instrument reads.
+## A reduce taken BETWEEN passes: this pass runs last, so a row cannot say WHICH pass moved a total.
+## Leaves every reference and `latest()` alone — arming a probe may not move what an instrument reads.
 func checkpoint(rd: RenderingDevice, ctx: Dictionary, cc: int) -> Dictionary:
 	if not _dispatchable() or _sets.is_empty():
 		return {}
@@ -117,8 +120,7 @@ func checkpoint(rd: RenderingDevice, ctx: Dictionary, cc: int) -> Dictionary:
 	return _fold_rows(rd)
 
 
-## The last drained rows, for the query modules. Reading it does not clear it: several instruments read the
-## same reduction, and a reading that vanished when the first of them looked would be a different defect.
+## The last drained rows. Reading does not clear it: several instruments read the same reduction.
 func latest() -> Dictionary:
 	return _last
 
@@ -143,21 +145,28 @@ func _fold_rows(rd: RenderingDevice) -> Dictionary:
 		if base + _groups > raw.size():
 			continue
 		var acc: float = _fold(raw, base, op)
-		# A MIN/MAX lane that kept no cell returns the identity, and no cell anywhere means no measurement.
-		if is_inf(acc):
+		# A MIN/MAX lane that kept no cell returns its IDENTITY, and no cell anywhere means no measurement.
+		# An infinity at the other end is a reading: the field went non-finite and the row is how you see it.
+		if acc == _identity(op):
 			continue
 		out[String(row["key"])] = acc
 	out["reduce_step"] = float(_step)
-	out["crust_ref_step"] = float(_latch_step)
+	for key in _latch_step:
+		out[String(key) + "_step"] = float(_latch_step[key])
 	return out
 
 
-## The workgroup partials of one row, combined the way that row's op combines cells — reduce.glsl's own
-## la_identity/la_fold pair, over the partials the kernel could not combine across workgroups.
+## reduce.glsl's la_identity, so a lane that kept no cell is told apart from one that read an infinity.
+func _identity(op: int) -> float:
+	if op == LAReduceRecords.Op.MIN: return INF
+	return -INF if op == LAReduceRecords.Op.MAX or op == LAReduceRecords.Op.MAX_REL_DIFF else 0.0
+
+
+## The workgroup partials of one row, combined the way that row's op combines cells.
 func _fold(raw: PackedFloat32Array, base: int, op: int) -> float:
 	var mn: bool = op == LAReduceRecords.Op.MIN
-	var mx: bool = op == LAReduceRecords.Op.MAX
-	var acc: float = INF if mn else (-INF if mx else 0.0)
+	var mx: bool = _identity(op) == -INF
+	var acc: float = _identity(op)
 	for g in _groups:
 		acc = minf(acc, raw[base + g]) if mn else (maxf(acc, raw[base + g]) if mx else acc + raw[base + g])
 	return acc

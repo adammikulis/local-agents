@@ -45,7 +45,7 @@ float la_identity() {
 	if (params.op == OP_MIN) {
 		return uintBitsToFloat(0x7F800000u);
 	}
-	if (params.op == OP_MAX) {
+	if (params.op == OP_MAX || params.op == OP_MAX_REL_DIFF) {
 		return uintBitsToFloat(0xFF800000u);
 	}
 	return 0.0;
@@ -55,7 +55,7 @@ float la_fold(float a, float b) {
 	if (params.op == OP_MIN) {
 		return min(a, b);
 	}
-	if (params.op == OP_MAX) {
+	if (params.op == OP_MAX || params.op == OP_MAX_REL_DIFF) {
 		return max(a, b);
 	}
 	return a + b;
@@ -175,7 +175,9 @@ void main() {
 	// dispatch reaches the barriers below, which is what keeps them legal.
 	if (params.op == OP_LATCH) {
 		if (g < params.cell_count) {
-			refv[g] = la_value(g);
+			// A cell outside the row's mask gets NO reference: it was never the thing being watched, and
+			// a cell that later joins the mask would otherwise be differenced against another class.
+			refv[g] = la_keep(g) ? la_value(g) : 0.0;
 		}
 		return;
 	}
@@ -190,6 +192,13 @@ void main() {
 		if (params.op == OP_SUM_ABS_DIFF) {
 			v = abs(v - refv[i]);
 		}
+		if (params.op == OP_MAX_REL_DIFF) {
+			// A cell with no reference has no relative deviation to take, so it is not a reading.
+			if (!(refv[i] > 0.0)) {
+				continue;
+			}
+			v = abs(v - refv[i]) / refv[i];
+		}
 		if (params.op == OP_SUM_ABS) {
 			v = abs(v);
 		}
@@ -201,7 +210,7 @@ void main() {
 			acc += (v < params.threshold) ? 1.0 : 0.0;
 		} else if (params.op == OP_COUNT) {
 			acc += 1.0;
-		} else if (params.op == OP_MIN || params.op == OP_MAX) {
+		} else if (params.op == OP_MIN || params.op == OP_MAX || params.op == OP_MAX_REL_DIFF) {
 			acc = la_fold(acc, v);
 		} else {
 			acc += v * params.weight;

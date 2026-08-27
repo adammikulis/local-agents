@@ -1,15 +1,14 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 ## GRAVITY SOLVED FROM THE MASS THAT IS THERE, on the device. Poisson relaxed red-black, one dispatch per
-## colour, then g = -grad(phi) into the buffer every kernel already reads to know which way is down.
-## First in the chain: everything below it asks where down is.
+## colour, then g = -grad(phi). First in the chain: everything below it asks where down is.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/gravity_poisson.glsl"
 
 ## Field steps between solves. The solve warm-starts from the previous potential.
 const SOLVE_EVERY: int = 2
-## Red-black sweeps per dispatch. Poisson is elliptic, so a fixed count is not a solve: the SEEDING solve
-## relaxes until `residual_rel` falls, and the per-step solves track a warm-started field from there.
+## Red-black sweeps per dispatch. Poisson is elliptic, so the seeding solve relaxes until `residual_rel`
+## falls and the per-step solves track a warm-started field.
 const SWEEPS: int = 128   # LA_APPROX: fixed_sweep_relaxation
 
 ## Floats each workgroup writes into the partials buffer — gravity_poisson.glsl PART_STRIDE.
@@ -98,7 +97,12 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		push_error("GravityPass: no buffer for %s, so no cell would get a gravity."
 			% String(", ").join(missing))
 		return
-	if not _read_strides(bufs):
+	# The index layout is the GRID's, so the red-black colouring is (x + y + z) & 1 on its own dims.
+	_nx = grid_dims.x
+	_nxny = grid_dims.x * grid_dims.y
+	if _nx <= 0 or grid_dims.y <= 0 or grid_dims.z <= 0:
+		push_error(("GravityPass: the driver states a grid of %s cells, so the red-black colouring cannot "
+			+ "be derived and the solve would relax adjacent cells together.") % str(grid_dims))
 		return
 	_moments = _single(bufs, MOMENTS)
 	_gravity = _single(bufs, "gravity")
@@ -120,21 +124,6 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	entries.append([23, _single(bufs, VERT_UP)])
 	entries.append([24, _single(bufs, VERT_DOWN)])
 	_set = _uset(_pipe, entries)
-
-
-## The grid's index layout, read off cell 0's own neighbour row: +Y lands nx away, +Z lands nx*ny away.
-func _read_strides(bufs: Dictionary) -> bool:
-	var head: PackedInt32Array = _rd.buffer_get_data(_single(bufs, "nbr"), 0, 6 * 4).to_int32_array()
-	if head.size() < 6:
-		return false
-	_nx = head[LAVoxelGrid.S_POS_Y]
-	_nxny = head[LAVoxelGrid.S_POS_Z]
-	if _nx <= 0 or _nxny <= _nx or _nxny % _nx != 0:
-		push_error(("GravityPass: cell 0's neighbour row gives nx=%d and nx*ny=%d, so the red-black "
-			+ "colouring cannot be derived and the solve would relax adjacent cells together.")
-			% [_nx, _nxny])
-		return false
-	return true
 
 
 func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
@@ -243,8 +232,7 @@ func mirror() -> PackedFloat32Array:
 
 
 ## THE ONE VERTICAL RELATION. `up_table` is the neighbour against gravity, `down_table` its scattered
-## inverse, so up_table[down_table[c]] == c wherever c has a cell below it. -1 where the march leaves the
-## box. Empty until the first drain after the first solve.
+## inverse; -1 where the march leaves the box, empty until the first drain.
 func up_table() -> PackedInt32Array:
 	return _up
 
@@ -258,7 +246,6 @@ func mean_g() -> float:
 	return _mean_g
 
 
-## Worst |laplacian(phi) - 4 pi G rho| as a fraction of the source term. Dimensionless, so a small value
-## means the discrete Poisson equation is satisfied rather than that G is small. INF before the first drain.
+## Worst |laplacian(phi) - 4 pi G rho| over the source term: dimensionless, INF before the first drain.
 func residual_rel() -> float:
 	return _residual_rel

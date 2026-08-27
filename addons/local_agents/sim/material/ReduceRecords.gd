@@ -4,7 +4,7 @@ extends RefCounted
 ## What the field reduces itself over. reduce.glsl runs every row through one shared-memory tree reduce.
 
 ## How a row folds its cells. Generated into reduce.glsl as OP_*.
-enum Op { SUM, COUNT_GT, COUNT_GE, COUNT_LT, SUM_ABS_DIFF, LATCH, MIN, MAX, COUNT, SUM_ABS }
+enum Op { SUM, COUNT_GT, COUNT_GE, COUNT_LT, SUM_ABS_DIFF, LATCH, MIN, MAX, COUNT, SUM_ABS, MAX_REL_DIFF }
 
 ## Which cells a row counts. GROUND is an open cell resting on solid, AIR every other open cell; together
 ## they partition OPEN. BEDDED is a solid cell resting on solid, so a cave roof is in no resting class.
