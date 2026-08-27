@@ -351,8 +351,7 @@ func derive_seeded() -> void:
 		return
 	_ctx["cell_size"] = _grid.cell_size
 	for i in _passes.size():
-		if _pass_names[i] != "StateDerivePass" and _pass_names[i] != "ReducePass":
-			continue
+		if not (_pass_names[i] in ["StateDerivePass", "ReducePass"]): continue
 		var cl: int = _rd.compute_list_begin()
 		_passes[i].dispatch(_rd, cl, _ctx, _cc, _groups)
 		_rd.compute_list_end()

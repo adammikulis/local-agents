@@ -5,6 +5,7 @@ extends RefCounted
 ## Seeding-phase creation: every joule is declared through the seal.
 
 const PC: GDScript = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
+const TransportPassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd")
 
 
 ## The cell's enthalpy at (t, p) decomposed the way state_derive.glsl carries it: the two ladder entries
@@ -28,23 +29,29 @@ static func entry_enthalpies(masses: Dictionary, n_gas_mol: float, t_c: float, p
 		"h_sensible": mc * (t_c + PC.KELVIN_OFFSET), "cap_sensible": mc}
 
 
-## Seed `_h` so every cell starts at `t_c`. Pressure is the reference: the column has not been solved yet,
-## so this declares the ENERGY a cell holds and lets the ladder say what temperature that is in situ.
-static func seed(f, t_c: float) -> void:
+## Seed `_h` so every cell starts at `t_c` AT THE PRESSURE IT STANDS UNDER. The ladder's rungs move with
+## pressure, so enthalpy taken at one pressure and inverted at another lands on a different rung: a cell
+## seeded liquid at one atmosphere reads superheated once the derive asks it at lithostatic.
+static func seed(f, t_c: float, p_pa: PackedFloat32Array) -> void:
 	if f._cell_count <= 0:
 		return
 	f._h.resize(f._cell_count)
 	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(f)
-	if vol.size() != f._cell_count:
-		push_error("LAFieldEnthalpySeed: no cell volumes, so no enthalpy can be seeded.")
+	if vol.size() != f._cell_count or p_pa.size() != f._cell_count:
+		push_error("LAFieldEnthalpySeed: no cell volumes, or no marched pressure to seed the ladder on.")
 		return
+	var mirrors: Array = LAFieldCellMass3D.mirrors(f)
 	var total_j: float = 0.0
 	for c in f._cell_count:
 		var cell_m3: float = vol[c]
 		if cell_m3 <= 0.0:
 			continue
+		# A cell the substrate calls EMPTY holds no bulk state, so it is handed no joules to hold either.
+		if LAFieldCellMass3D.kg_m3_at(mirrors, c) < TransportPassScript.EMPTY_RHO_KG_M3:
+			f._h[c] = 0.0
+			continue
 		var e: Dictionary = entry_enthalpies(LAFieldCellMass3D.masses_at(f, c, cell_m3),
-			LAFieldCellMass3D.gas_moles_at(f, c, cell_m3), t_c, PC.STANDARD_PRESSURE_PA)
+			LAFieldCellMass3D.gas_moles_at(f, c, cell_m3), t_c, maxf(p_pa[c], 0.0))
 		var h_j: float = float(e["h_h2o"]) + float(e["h_silicate"]) + float(e["h_sensible"])
 		f._h[c] = h_j / cell_m3
 		total_j += h_j

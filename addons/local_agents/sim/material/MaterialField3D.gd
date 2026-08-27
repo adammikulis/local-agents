@@ -347,8 +347,6 @@ func _cells_filled(v: float) -> PackedFloat32Array:
 
 ## Begin simulating + rendering (called after setup + sample_solidity + seed_sea).
 func activate() -> void:
-	# The state the device is seeded FROM, so it is filled before the driver reads it.
-	LAFieldEnthalpySeed.seed(self, INITIAL_TEMP)
 	_boundary = BoundaryScript.new()
 	_boundary.setup(self)                 # appends ghost rows before the driver reads grid.ghost_rows
 	if _grid != null and SphereGPUScript.available() and not OS.has_environment("LA_FORCE_CPU"):

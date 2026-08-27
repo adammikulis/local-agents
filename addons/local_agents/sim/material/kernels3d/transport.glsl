@@ -278,10 +278,9 @@ float impedance(uint c) {
 	return max(rho_bulk[c], 0.0) * max(cel_m_s[c], 0.0);
 }
 
-// A FACE ONTO NOTHING IS A FREE SURFACE: no mass and no sound speed carry no acoustic signal, so the
-// face takes the matter side's own pressure and no difference is divided by an absent impedance.
-bool free_face(uint c) {
-	return impedance(c) <= 0.0;
+// THE ONE EMPTINESS TEST, the floor state_derive.glsl empties a cell on: no bulk state of any kind.
+bool no_matter(uint c) {
+	return !(rho_bulk[c] >= params.rho_floor) || impedance(c) <= 0.0;
 }
 
 // The cell's pressure extrapolated to face d along its own hydrostatic gradient, so an equilibrium
@@ -691,7 +690,8 @@ void main() {
 			uint nb = uint(inb);
 			vec3 nrm = face_normal(d);
 			float ua = dot(vel_at(gidx), nrm);
-			if (free_face(nb)) {
+			// A FACE ONTO NOTHING IS A FREE SURFACE: it carries the matter side's own pressure.
+			if (no_matter(nb)) {
 				div_u += ua;
 				continue;
 			}
@@ -816,15 +816,15 @@ void main() {
 		if (!is_signed && remaining <= donor_floor) {
 			return;
 		}
-		// Mass carries its heat and its charge. A row that carries no matter carries neither.
-		bool carries = params.density > 0.0 && amount[gidx] > 0.0;
+		// Mass carries its heat and its charge; a row or a CELL with no matter carries neither.
+		bool carries = params.density > 0.0 && amount[gidx] > 0.0 && !no_matter(gidx);
 		// Heat per unit fill of THIS substance: its share of the entry its heat sits in.
 		float h_per_unit = 0.0;
 		if (carries) {
 			if (params.sub_cap_j_m3k > 0.0) {
 				float cap = cap_sensible[gidx];
 				h_per_unit = cap > 0.0 ? h_carried[gidx] * params.sub_cap_j_m3k / cap : 0.0;
-			} else if (amount[gidx] > 0.0) {
+			} else {
 				h_per_unit = h_carried[gidx] / amount[gidx];
 			}
 		}
@@ -885,7 +885,7 @@ void main() {
 					// Pressure's momentum flux. A wall meets the cell's own reconstructed face pressure;
 					// an open face the linearized Riemann p*, whose velocity-jump term dissipates.
 					float p_face = face_p(gidx, d);
-					if (!wall && !free_face(nb)) {
+					if (!wall && !no_matter(nb)) {
 						float za = impedance(gidx);
 						float zb = impedance(nb);
 						float ua = dot(vel_at(gidx), nrm);
@@ -950,7 +950,7 @@ void main() {
 				float ub = dot(vel_at(nb), nrm_a);
 				float za = impedance(gidx);
 				float zb = impedance(nb);
-				float vn = free_face(nb)
+				float vn = no_matter(nb)
 					? ua
 					: ua + (zb * (ub - ua) + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / (za + zb);
 				vn += dot(transport_velocity(gidx) - vel_at(gidx), nrm_a);
