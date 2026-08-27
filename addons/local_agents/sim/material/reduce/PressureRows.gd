@@ -2,6 +2,7 @@ class_name LAReducePressureRows
 extends RefCounted
 
 const Rec: GDScript = preload("res://addons/local_agents/sim/material/ReduceRecords.gd")
+const TransportPassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd")
 
 ## Pressure may not fall as you go DOWN. Each pair class carries its own inv, aud and worst rows over the
 ## SAME cells; `gate_both_ends` demands a reading at both ends, so gas over vacuum is a boundary, not an
@@ -18,4 +19,9 @@ static func rows() -> Array:
 		out.append(base.merged({"key": "pressure_aud_" + name, "op": Rec.Op.COUNT}, true))
 		# How big, in pascals: a count cannot tell a float-noise sign flip from a real inversion.
 		out.append(base.merged({"key": "pressure_worst_" + name, "op": Rec.Op.MAX}, true))
+	# The WORST open cell's relative departure from its seeded pressure, gated on holding matter.
+	var rest: Dictionary = {"source": "pressure", "ref": "pressure_ref", "mask": Rec.Mask.OPEN,
+		"gate": "rho_bulk", "gate_lo": TransportPassScript.EMPTY_RHO_KG_M3, "gate_strict_lo": true}
+	out.append(rest.merged({"key": "pressure_seed_latch", "op": Rec.Op.LATCH}, true))
+	out.append(rest.merged({"key": "pressure_rest_rel", "op": Rec.Op.MAX_REL_DIFF}, true))
 	return out

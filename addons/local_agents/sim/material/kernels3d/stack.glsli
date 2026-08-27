@@ -1,0 +1,34 @@
+// Pressure at depth `z` below a cell's top face, Pa: gas over the condensed phases under it, written on
+// the gas layer's BOTTOM face so its exponential only ever decays. Twin: LAFieldLithostaticSeed::stack_p.
+#ifndef LA_STACK_GLSLI
+#define LA_STACK_GLSLI
+
+float la_stack_p(float z, float edge, float g, float f_cond, float m_cond, float m_total, float p_mean) {
+	if (!(m_total > 0.0) || !(g > 0.0) || !(p_mean > 0.0)) {
+		return p_mean;
+	}
+	float fc = clamp(f_cond, 0.0, 1.0);
+	float z_gas = (1.0 - fc) * edge;
+	float m_gas = max(m_total - m_cond, 0.0);
+	float h = (z_gas > 0.0 && m_gas > 0.0) ? p_mean * (1.0 - fc) / (m_gas * g) : 0.0;
+	float decay = h > 0.0 ? exp(-z_gas / h) : 1.0;
+	float rho_l = fc > 0.0 ? m_cond / fc : 0.0;
+	float tail = edge - z_gas;
+	// Thickness the cell's pressure integral is spread over. A layer whose own weight is nothing
+	// against its pressure does not stratify, and every level in it reads the cell's own mean.
+	float thick = (h > 0.0 ? h * (1.0 - decay) : 0.0) + tail;
+	if (!(thick > 0.0)) {
+		return p_mean;
+	}
+	// What stands OVER the condensed layer: the cell's integral less the layer's own weight.
+	// Nothing stands over a layer that weighs the whole of it, and vacuum is zero, never tension.
+	float over = p_mean * edge - 0.5 * rho_l * g * tail * tail;
+	float p_gas_bot = over > 0.0 ? over / thick : 0.0;
+	float s = clamp(z, 0.0, edge);
+	if (s <= z_gas && h > 0.0) {
+		return p_gas_bot * exp((s - z_gas) / h);
+	}
+	return p_gas_bot + rho_l * g * max(s - z_gas, 0.0);
+}
+
+#endif

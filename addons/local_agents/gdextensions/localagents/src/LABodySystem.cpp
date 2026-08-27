@@ -339,11 +339,11 @@ double LABodyMeasure::angular_velocity_rad_s(double p_spin_l_kg_m2_s) const {
 	return inertia_kg_m2 <= 0.0 ? NAN : p_spin_l_kg_m2_s / inertia_kg_m2;
 }
 
-double LABodyMeasure::scale_height_m(double p_temp_c) const {
-	if (gas_constant_j_kgk <= 0.0 || !measured()) {
+double LABodyMeasure::scale_height_at(double p_temp_c, double p_g_m_s2) const {
+	if (gas_constant_j_kgk <= 0.0 || !(p_g_m_s2 > 0.0)) {
 		return NAN;
 	}
-	return gas_constant_j_kgk * (p_temp_c + la_physical("KELVIN_OFFSET")) / surface_gravity_m_s2();
+	return gas_constant_j_kgk * (p_temp_c + la_physical("KELVIN_OFFSET")) / p_g_m_s2;
 }
 
 void LABodyMeasure::_bind_methods() {
@@ -352,7 +352,8 @@ void LABodyMeasure::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("surface_gravity_m_s2"), &LABodyMeasure::surface_gravity_m_s2);
 	ClassDB::bind_method(D_METHOD("angular_velocity_rad_s", "spin_l_kg_m2_s"),
 			&LABodyMeasure::angular_velocity_rad_s);
-	ClassDB::bind_method(D_METHOD("scale_height_m", "temp_c"), &LABodyMeasure::scale_height_m);
+	ClassDB::bind_method(D_METHOD("scale_height_at", "temp_c", "g_m_s2"),
+			&LABodyMeasure::scale_height_at);
 #define LA_MEASURE_READING(m, t)                                              \
 	ClassDB::bind_method(D_METHOD("get_" #m), &LABodyMeasure::get_##m);        \
 	ADD_PROPERTY(PropertyInfo(t, #m), "", "get_" #m)

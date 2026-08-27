@@ -17,15 +17,20 @@ KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
 
 # --- the capture: a short GLOBAL run records the slice box's exterior --------------------------------
 # BSD mktemp only accepts XXXXXX at the END of the template, so the .json arrives by rename.
+# A CROSSING NEEDS A WORLD THAT CAN CROSS: the rows that move matter through a face. Both arms run at
+# the rung the capture was recorded in, or the exterior and the interior are two different worlds.
 OWN_CAP=0
+CAP_RUNG="${LA_BND_RUNG:-8}"
 if la_cap_dir >/dev/null; then
   CAP="$(la_cap_state)" || exit 2
+  CAP_RUNG="$(la_cap_rung)" || {
+    echo "ERROR: the shared capture does not say which rung it was recorded in." >&2; exit 2; }
   cap_out=""
 else
   CAP="$(mktemp "${TMPDIR:-/tmp}/la_bnd_cap.XXXXXX")" && mv "$CAP" "$CAP.json" && CAP="$CAP.json"
   OWN_CAP=1
   cap_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "${LA_BND_CAP_FRAMES:-20}" \
-    --slice-capture "$CAP" --report h2o_total 2>&1)"
+    --rung "$CAP_RUNG" --slice-capture "$CAP" --report h2o_total 2>&1)"
 fi
 drop_cap() { [ "$OWN_CAP" -eq 1 ] && rm -f "$CAP"; return 0; }
 if ! python3 -c "
@@ -49,7 +54,7 @@ extends SceneTree
 const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
 
 const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
-const CELL: float = 1.0
+const CELL: float = 0.5
 const P_IN: float = 101325.0
 const T_C: float = 15.0
 const TOL: float = 1.0e-5
@@ -108,7 +113,7 @@ func _init() -> void:
 	var st: Dictionary = means[0]
 
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
-	grid.build(2, 1, 1, CELL, Vector3(-1.0, -0.5, -0.5))
+	grid.build(2, 1, 1, CELL, Vector3(-CELL, -0.5 * CELL, -0.5 * CELL))
 	var cc: int = grid.cell_count
 	var bnd: LAFieldBoundary3D = LAFieldBoundary3D.new()
 	var modes: PackedInt32Array = PackedInt32Array([LAFieldBoundary3D.CONSTANT,
@@ -161,7 +166,7 @@ func _init() -> void:
 	if bnd.error != "":
 		_expect(false, "boundary attach failed: " + bnd.error)
 	var cl: int = _rd.compute_list_begin()
-	# One acoustic crossing is ~3 ms at this cell size; the rig's step stays inside the explicit regime.
+	# The step is a small fraction of CELL over the sound speed: inside the explicit acoustic regime.
 	p.dispatch(_rd, cl, {"cell_size": CELL, "sun_dir": Vector3.ZERO, "dt_s": 1.0e-4},
 		cc, int(ceil(float(cc) / 64.0)))
 	_rd.compute_list_end()
@@ -248,7 +253,7 @@ fi
 # --- arm two: the real slice consumes the same capture and the crossings reach the ledger -------------
 ERRLOG="$(mktemp "${TMPDIR:-/tmp}/la_bnd_books.XXXXXX")"
 slice_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --slice --slice-state "$CAP" \
-  --frames "${LA_BND_SLICE_FRAMES:-60}" --raw 2>"$ERRLOG")"
+  --rung "$CAP_RUNG" --frames "${LA_BND_SLICE_FRAMES:-60}" --raw 2>"$ERRLOG")"
 slice_rc=$?
 drop_cap
 case "$slice_rc" in

@@ -12,7 +12,8 @@ layout(local_size_x = 64) in;
 
 layout(set = 0, binding = 21, std430) restrict readonly buffer Enthalpy { float h_j_m3[]; };
 layout(set = 0, binding = 22, std430) restrict buffer Pressure { float pressure[]; };
-layout(set = 0, binding = 23, std430) restrict writeonly buffer Temp { float temp[]; };
+// Read as well as written: this pass is the ONE writer, and reads the temperature it replaces.
+layout(set = 0, binding = 23, std430) restrict buffer Temp { float temp[]; };
 layout(set = 0, binding = 24, std430) restrict readonly buffer Props { float props[]; };
 
 // Cementation state and the solid flag. Read-modify-write: the lockup branch is hysteretic.
@@ -317,17 +318,12 @@ void main() {
 	rho_bulk[g] = rho;
 	float f_melt = 0.0;
 	vec3 v = vec3(0.0);
-	// Below the donation floor the cell is EMPTY by the declared model: trace matter keeps its mass
-	// and enthalpy and holds no bulk state — a momentum residue over vanishing mass is any velocity.
+	// Below the donation floor the cell is EMPTY: its stocks stay, its DERIVED bulk state does not.
 	if (rho < params.rho_floor) {
 		temp[g] = -LA_KELVIN_OFFSET;   // no matter, so no temperature
 		if (solid[g] == 0.0) {
 			pressure[g] = 0.0;
 		}
-		// Momentum is rho*v, so with no mass there is none to hold.
-		mom_x[g] = 0.0;
-		mom_y[g] = 0.0;
-		mom_z[g] = 0.0;
 		vel_x[g] = 0.0;
 		vel_y[g] = 0.0;
 		vel_z[g] = 0.0;
@@ -365,7 +361,16 @@ void main() {
 	// No channel carries a dissolved solute, so the freezing point is not depressed.
 	bool pinned = false;
 	float progress = 0.0;
-	float p_pa = max(pressure[g], 0.0);
+	float p_sat = 0.0;
+	if (mol_h2o > 0.0) {
+		float ps = la_saturation_p_at(subs[E_H2O], temp[g]);
+		float tk_last = max(temp[g] + LA_KELVIN_OFFSET, 1.0);
+		if (mol_h2o > ps * vol / (LA_R_J_MOL_K * tk_last)) {
+			p_sat = ps;
+		}
+	}
+	// CONDENSED PHASE IS PRESENT when the cell holds more h2o than saturated vapour would fill it with.
+	float p_pa = max(max(pressure[g], 0.0), p_sat);
 	float t_c = la_mix_state(subs, mass, N_ENTRIES, h_j_m3[g] * vol, p_pa, n_gas_mol, 0.0,
 		pinned, progress);
 	temp[g] = t_c;
@@ -418,9 +423,13 @@ void main() {
 	float c_comp = (c0 + t_c * c1 - c2) + f_cond * (hc0 + t_c * hc1 - hc2);
 	float n_gas = n_gas_mol + f_vapour * mol_h2o;
 	float tk = max(t_c + LA_KELVIN_OFFSET, 1.0);
+	// THE VOID OVER A CONDENSED PHASE IS ITS OWN VAPOUR, at the saturation pressure of the most volatile.
+	if (mass[E_SILICATE] > 0.0) {
+		p_sat = max(p_sat, la_saturation_p_at(subs[E_SILICATE], t_c));
+	}
 	// Rock is quasi-static and PressurePass owns it; an open cell's pressure is its own state.
 	if (solid[g] == 0.0) {
-		pressure[g] = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD);
+		pressure[g] = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD, p_sat);
 	}
 
 	// THE MIXTURE'S SOUND SPEED (Wood 1930): one pressure, so compressibilities add by volume — the

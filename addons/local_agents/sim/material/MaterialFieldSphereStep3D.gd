@@ -74,17 +74,27 @@ func seed_tick() -> bool:
 	_f.activate()                 # builds the GPU driver, which owns the solve the walks below read
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_seed_under_gravity()
-	LAFieldEnthalpySeed.seed(_f, LAMaterialField3D.INITIAL_TEMP)
+	# THE WORLD PUT INTO THE BALANCE THE STEPPER HOLDS. Only the hydrostatic rung stands a column;
+	# below it a cell stands at the pressure its own amounts state.
+	var g_solved: PackedFloat32Array = LAFieldLithostaticSeed.vertical(_f, _f._gravity.mirror())
+	LAFieldLithostaticSeed.shape_atmosphere(_f, LAMaterialField3D.INITIAL_TEMP, _f._body_measure, g_solved)
+	var p_marched: PackedFloat32Array = LAFieldLithostaticSeed.compress(_f, g_solved)
+	LAFieldEnthalpySeed.seed(_f, LAMaterialField3D.INITIAL_TEMP, p_marched)
 	if _f._gpu != null:                                # hand the device what those walks produced
 		_f._gpu._seed_regolith()                       # permeability mask + grain size
 		_f._gpu._seed("porosity", _f._porosity)        # Athy pore fraction
-		_f._gpu.seed_field("h2o", _f._h2o, _f._seal)   # ocean + water table + lakes, declared once
-		_f._gpu.seed_field("o2", _f._o2, _f._seal)     # what the poured water displaced
-		_f._gpu.seed_field("co2", _f._co2, _f._seal)
-		_f._gpu.seed_field("n2", _f._n2, _f._seal)
+		# The march's own pressure, so the first state derive reads the world at it rather than at zero,
+		# where every condensed phase would be asked to boil.
+		_f._gpu._seed("pressure", p_marched)
+		_f._gpu._seed("h_j_m3", _f._h)
+		# Every matter channel, not a hand-written subset: the balance march touched all of them.
+		for name in LAFieldCellMass3D.mirror_names(_f):
+			_f._gpu.seed_field(String(name), _f.get("_" + String(name)), _f._seal)
 		_f._gpu.mark_h_dirty()
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_f._gravity.solve_seed()  # the ocean just landed: relax the potential over the WHOLE seeded mass
+	if _f._gpu != null:
+		_f._gpu.derive_seeded()   # the world's own celerity, before the first step is budgeted against it
 	return true
 
 

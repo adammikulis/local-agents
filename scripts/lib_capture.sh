@@ -69,6 +69,14 @@ la_cap_state() {
 	printf '%s' "$cap/slice_state.json"
 }
 
+# The rung the shared arm ran at, so a replay of its face state runs in the same world.
+la_cap_rung() {
+	local cap
+	cap="$(la_cap_dir)" || return 1
+	[ -s "$cap/rung" ] || return 1
+	tr -d '[:space:]' < "$cap/rung"
+}
+
 # The frontmost-application samples taken for the length of the shared arm.
 la_cap_front() {
 	local cap
