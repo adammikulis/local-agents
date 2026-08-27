@@ -181,7 +181,7 @@ func _build_sphere() -> bool:
 		"detail_relief": DETAIL_RELIEF_M,
 		"caves_enabled": caves_enabled, "cave_size": CAVE_SIZE_M, "cave_threshold": 0.09,
 		"cave_strength": 40.0, "cave_depth_fade": CAVE_DEPTH_FADE_M,
-		"tides_enabled": tides_enabled, "view_distance": 2000, "seed": world_seed,
+		"tides_enabled": tides_enabled, "seed": world_seed,
 	})
 	_terrain = _body.terrain()
 	_actors_root = _body.actors_root

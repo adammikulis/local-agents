@@ -154,3 +154,32 @@ static func sample_night(w) -> void:
 		return
 	LASimReport.gauge("night_frac", float(dark) / float(live))
 	LASimReport.gauge("resting_frac", float(resting) / float(live))
+
+
+const UI_DIR: String = "res://addons/local_agents/game/ui/"
+const MENU_DIR: String = "res://addons/local_agents/game/menu/"
+
+
+## Every presentation node in the tree, by path and by what made it one; a run with no --ui must have
+## none. Prints TREE_PRESENTATION={"scanned":N,"nodes":[...]} for check_presentation_absent.sh.
+static func emit_presentation_census(root: Node) -> int:
+	var found: PackedStringArray = PackedStringArray()
+	var scanned: int = _scan_presentation(root, found)
+	print("TREE_PRESENTATION={\"scanned\":%d,\"nodes\":%s}" % [scanned, JSON.stringify(found)])
+	return found.size()
+
+
+static func _scan_presentation(n: Node, found: PackedStringArray) -> int:
+	var seen: int = 1
+	var why: String = ""
+	if n is Control or n is CanvasLayer:
+		why = n.get_class()
+	else:
+		var scr: Script = n.get_script() as Script
+		if scr != null and (scr.resource_path.begins_with(UI_DIR) or scr.resource_path.begins_with(MENU_DIR)):
+			why = scr.resource_path
+	if why != "":
+		found.append("%s|%s" % [String(n.get_path()), why])
+	for ch in n.get_children():
+		seen += _scan_presentation(ch, found)
+	return seen

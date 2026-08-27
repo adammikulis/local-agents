@@ -134,9 +134,13 @@ func _exit_code() -> int:
 static func save_viewport_png(viewport: Viewport, path: String, extra: String = "") -> void:
 	if viewport == null:
 		return
+	# THE WINDOW IS NOT THE PICTURE. A shot read off a SubViewport leaves the window at its automated
+	# one pixel, and this is the reading that says so.
+	print(LAQuietWindow.state_line())
 	var img: Image = viewport.get_texture().get_image()
 	img.save_png(path)
 	print("SHOT_SAVED=%s size=%dx%d%s" % [path, img.get_width(), img.get_height(), extra])
+	print(_structure_line(img))
 
 
 func _capture(path: String) -> void:
@@ -145,7 +149,45 @@ func _capture(path: String) -> void:
 		var info: String = String(report_source.call("demo_shot_info"))
 		if info != "":
 			extra = " " + info
-	save_viewport_png(get_viewport(), path, extra)
+	save_viewport_png(shot_viewport(), path, extra)
+
+
+## The surface this harness photographs. A host drawing into an off-screen SubViewport names it.
+func shot_viewport() -> Viewport:
+	if report_source != null and report_source.has_method("shot_viewport"):
+		return report_source.call("shot_viewport") as Viewport
+	return get_viewport()
+
+
+## HOW MUCH STRUCTURE THE PICTURE HAS, half by half. A sky or an open sea is a vertical gradient:
+## constant along a row, so its row variance is ~0; anything with shape in it is not.
+const STRUCTURE_SAMPLES: int = 64
+
+static func _structure_line(img: Image) -> String:
+	return 'SHOT_STRUCTURE={"upper":%.6f,"lower":%.6f}' % [
+		_row_variance(img, 0), _row_variance(img, 1)]
+
+
+static func _row_variance(img: Image, half: int) -> float:
+	var w: int = img.get_width()
+	var h: int = img.get_height()
+	if w < 2 or h < 2:
+		return 0.0
+	var y0: int = (h / 2) * half
+	var total: float = 0.0
+	var rows: int = 0
+	for j in range(STRUCTURE_SAMPLES):
+		var y: int = y0 + (h / 2) * j / STRUCTURE_SAMPLES
+		var sum: float = 0.0
+		var sq: float = 0.0
+		for i in range(STRUCTURE_SAMPLES):
+			var v: float = img.get_pixel(w * i / STRUCTURE_SAMPLES, mini(y, h - 1)).get_luminance()
+			sum += v
+			sq += v * v
+		var n: float = float(STRUCTURE_SAMPLES)
+		total += maxf(0.0, sq / n - (sum / n) * (sum / n))
+		rows += 1
+	return total / maxf(1.0, float(rows))
 
 
 func _quit(code: int) -> void:

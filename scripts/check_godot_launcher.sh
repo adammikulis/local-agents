@@ -11,16 +11,28 @@ grep -q '"\$binary"' "$LIB" || { echo "check_godot_launcher: $LIB launches nothi
 
 launcher_fail=0
 # THE WINDOW IS CREATED BEFORE ANY SCRIPT RUNS, so QuietWindow.apply() cannot stop it appearing — only
-# the launch flags can. A default resolution with pixels in it puts a real window on the user's monitor,
-# because macOS clamps the off-screen position back on.
-res_def="$(rg -N -o -e 'LA_OFFSCREEN_RES="\$\{LA_RES:-[^}]*\}"' "$ROOT/scripts/lib_godot.sh" | head -1)"
-case "$res_def" in
-	*:-1x1\}*) ;;
-	"") echo "FAIL  scripts/lib_godot.sh no longer defaults LA_OFFSCREEN_RES; a window can be created" >&2
-	    echo "      at any size." >&2; launcher_fail=1 ;;
-	*)  echo "FAIL  scripts/lib_godot.sh creates the window at ${res_def#*:-} rather than 1x1, so it" >&2
-	    echo "      user's monitor before any script can shrink it." >&2; launcher_fail=1 ;;
-esac
+# the launch flags can. A window with pixels in it lands on the user's monitor, because macOS clamps the
+# off-screen position back on. 1x1 is the only size, with no override: a screenshot is read off a
+# SubViewport, so no run has a reason to ask for a bigger one.
+rg -q -e "printf '1x1'" "$LIB" || {
+	echo "FAIL  scripts/lib_godot.sh no longer creates the window at 1x1, so a run can put a real" >&2
+	echo "      window on the user's monitor before any script can shrink it." >&2
+	launcher_fail=1
+}
+rg -q -e 'la_window_res "\$@"' "$LIB" || {
+	echo "FAIL  scripts/lib_godot.sh does not size the window through la_window_res, so the movie" >&2
+	echo "      exemption is not the only way to a window with pixels in it." >&2
+	launcher_fail=1
+}
+res_over="$(rg -n --no-heading -g '*.sh' -g '!check_godot_launcher.sh' -g '!lib_godot.sh' \
+	-e '\bLA_RES\b' -e '--resolution' "$ROOT/scripts" 2>/dev/null || true)"
+if [ -n "$res_over" ]; then
+	printf '%s\n' "$res_over" >&2
+	echo "" >&2
+	echo "FAIL  the line(s) above size the window from outside lib_godot.sh. A second size is a second" >&2
+	echo "      chance to put a visible window on the user's screen; --shoot draws into a SubViewport." >&2
+	launcher_fail=1
+fi
 
 # ACTIVATION IS NOT FOCUS. `no_focus` governs the window; macOS ACTIVATES the whole app on launch and
 # yanks the user out of their Space regardless. Only a background-only bundle cannot be activated, and

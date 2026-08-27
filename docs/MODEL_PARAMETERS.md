@@ -183,8 +183,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/actors/ThrownRock.gd` | `MAX_LIFETIME` | 4.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/ThrownRock.gd` | `ARC_HEIGHT` | 1.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/ThrownRock.gd` | `STONE_SIDE` | 0.35 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/terrain/VoxelTerrainService.gd` | `ISLAND_RADIUS` | 180.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/terrain/VoxelTerrainService.gd` | `SEA_LEVEL_Y` | 6.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/TrackSystem.gd` | `STEP_DISTANCE` | 1.2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/TrackSystem.gd` | `FADE_SECONDS` | 5.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/TrackSystem.gd` | `SURFACE_OFFSET` | 0.25 | inherited, unreviewed | Stage 2 substrate rewrite |

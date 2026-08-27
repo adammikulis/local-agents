@@ -21,7 +21,8 @@ export LA_NO_AUDIO="${LA_NO_AUDIO:-1}"
 # only moves the first/main window; a secondary window the game pops up (the model-download / model-manager
 # panel — the "DEBUG" banner + Qwen model list) is hidden by the in-code LA_OFFSCREEN guards instead. Setting
 # it here makes those guards fire for agent/test runs so no stray window ever appears in front of the user.
-# (Off-screen, not minimized: a minimized Metal window stops rendering, which would break --shoot capture.)
+# (Off-screen, not minimized: a minimized Metal window stops rendering, which would break --shoot capture,
+# which draws into a SubViewport while the window itself stays one pixel.)
 export LA_OFFSCREEN="${LA_OFFSCREEN:-1}"
 
 # --- watchdog budgets --------------------------------------------------------
@@ -47,9 +48,6 @@ DONE_RE="${LA_DONE_RE:-^LA_RUN_COMPLETE=}"
 # Off-view far enough that no window width puts an edge back on screen. lib_godot.sh applies it.
 DEFAULT_WIN_POS="99999,99999"
 WIN_POS="${LA_WIN_POS:-$DEFAULT_WIN_POS}"
-# A run that is not capturing anything needs no pixels. Created 1x1 it can never appear on a monitor;
-# created 640x400 it does, because macOS clamps the off-screen position back on.
-case " $* " in *--shoot*) DEFAULT_RES="1280x800" ;; *) DEFAULT_RES="1x1" ;; esac
 RENDER_DRIVER="${LA_RENDER_DRIVER:-metal}"
 
 # --- STALE-SHADER GUARD ------------------------------------------------------
@@ -204,7 +202,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-LA_WIN_POS="$WIN_POS" LA_RES="${LA_RES:-$DEFAULT_RES}" la_godot --rendering-driver "$RENDER_DRIVER" \
+LA_WIN_POS="$WIN_POS" la_godot --rendering-driver "$RENDER_DRIVER" \
   "${LOG_ARGS[@]}" "$@" &
 GODOT_PID=$!
 

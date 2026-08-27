@@ -10,7 +10,7 @@
 # Usage:
 #   scripts/perf_bench.sh [suite]         suite = ablation | resolution | population | standard (default)
 #   FRAMES=300 scripts/perf_bench.sh ablation
-#   LA_RES=1280x720 scripts/perf_bench.sh ablation      # hold resolution fixed for an ablation
+#   scripts/perf_bench.sh resolution                    # sweep the off-screen render target size
 #
 # Read the table as: cost of a system ~= (1000/fps_without) - (1000/fps_full) ms/frame.
 #
@@ -39,7 +39,8 @@ run_one() {  # $1=label  $2=extra-env (space-sep KEY=VAL)  $3=extra-sim-args
   local label="$1"; local xenv="$2"; local xargs="$3"
   local out rep
   out=$(env $xenv LA_NO_STREAMER=1 LA_RUN_TIMEOUT=$(( FRAMES / 2 + 200 )) \
-        scripts/run_sim_offscreen.sh --path . "$SCENE" -- --perf-frames="$FRAMES" $xargs 2>&1)
+        scripts/run_sim_offscreen.sh --path . "$SCENE" \
+        -- --sandbox --ui --perf-frames="$FRAMES" $xargs 2>&1)
   rep=$(echo "$out" | grep -oE "PERF=.*" | tail -1)
   if [ -z "$rep" ]; then
     printf '%-22s | %s\n' "$label" "CRASH / no report"
@@ -94,7 +95,7 @@ case "$SUITE" in
     run_one "ALL scripts off"  "LA_ABLATE=$ALL_SYS"        ""
     ;;
   resolution)
-    for r in 640x400 1280x720 1920x1080 2560x1440; do run_one "res $r" "LA_RES=$r" ""; done
+    for r in 640x400 1280x720 1920x1080 2560x1440; do run_one "res $r" "" "--shoot-size=$r"; done
     ;;
   population)
     run_one "full"        "" ""

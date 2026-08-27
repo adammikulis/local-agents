@@ -38,6 +38,7 @@ var _sim: LASimulation = null
 var _render: LARenderLayer = null
 var _ui: LAUiLayer = null
 var _streamer_host: Node = null
+var _shot_viewport: SubViewport = null
 
 # Forwarded sim/presentation refs.
 var _material: Node = null
@@ -97,7 +98,7 @@ func _planet_opts() -> Dictionary:
 		"caves_enabled": _caves_enabled(), "cave_size": PLANET_CAVE_SIZE,
 		"cave_threshold": PLANET_CAVE_THRESHOLD, "cave_strength": PLANET_CAVE_STRENGTH,
 		"cave_depth_fade": PLANET_CAVE_DEPTH_FADE, "sea_radius": planet_radius(),
-		"ocean_bias": _ocean_bias(), "view_distance": 2000, "seed": 1337}
+		"ocean_bias": _ocean_bias(), "seed": 1337}
 
 
 func _ready() -> void:
@@ -121,16 +122,17 @@ func _ready() -> void:
 	_actors_root = _sim.actors_root()
 	_spawn = _sim.spawn_controller()
 
+	var host: Node = _presentation_host()
 	if _input.render() or _input.ui():
 		_render = RenderLayerScene.instantiate()
-		add_child(_render)
+		host.add_child(_render)
 		_render.build(self, _sim, _input)
 		_camera = _render.camera()
 		_sky_ctrl = _render.sky_controller()
 
 	if _input.ui():
 		_ui = UiLayerScene.instantiate()
-		add_child(_ui)
+		host.add_child(_ui)
 		_ui.build(self, _sim, _render, _input)
 		_hud = _ui.hud()
 		_audio = _ui.audio()
@@ -144,7 +146,30 @@ func _ready() -> void:
 
 	# Wire the input controller's auto-demo hooks now that every scene ref exists.
 	_input.bind(_sim.terrain(), _camera, _body, _sim.star(), _material, _sim.meteor_impacts(), _interaction, _ecology)
+	# The perf bench times the surface that actually drew the frame, which is the off-screen target.
+	if _input.perf_frames() > 0:
+		RenderingServer.viewport_set_measure_render_time(shot_viewport().get_viewport_rid(), true)
 	_begin_trailer_shot()
+
+
+# A run that is PHOTOGRAPHED or TIMED draws into an off-screen SubViewport of --shoot-size, so the OS
+# window keeps its one pixel and no picture ever reaches a monitor. Every other run renders into the
+# window, which is where a player watches it.
+func _presentation_host() -> Node:
+	var off_screen: bool = _input.shoot_path() != "" or _input.perf_frames() > 0
+	if not off_screen or not (_input.render() or _input.ui()):
+		return self
+	_shot_viewport = SubViewport.new()
+	_shot_viewport.name = "ShotViewport"
+	_shot_viewport.size = _input.shoot_size()
+	_shot_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(_shot_viewport)
+	return _shot_viewport
+
+
+## The surface a screenshot is read back from. LocalAgentDemoHarness asks for it by name.
+func shot_viewport() -> Viewport:
+	return _shot_viewport if _shot_viewport != null else get_viewport()
 
 
 func _apply_window_mode() -> void:
@@ -152,14 +177,12 @@ func _apply_window_mode() -> void:
 		or _input.shoot_path() != "" or OS.has_environment("LA_OFFSCREEN")
 	if not offscreen or DisplayServer.get_name() == "headless":
 		return
-	# A screenshot run still has to draw, so it defocuses without minimizing.
-	LAQuietWindow.apply(_input.shoot_path() == "")
+	LAQuietWindow.apply()
 	print(LAQuietWindow.state_line())
 	# The perf bench ALWAYS uncaps.
 	if _input.perf_frames() > 0:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		Engine.max_fps = 0
-		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
 	elif _input.run_frames() > 0 and OS.has_environment("LA_UNCAP"):
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		Engine.max_fps = 0
@@ -169,10 +192,6 @@ func _apply_window_mode() -> void:
 func _begin_trailer_shot() -> void:
 	if _input.trailer_shot() == "" or _render == null:
 		return
-	# Clean footage: hide EVERY UI overlay (each is its own CanvasLayer), so only the world renders.
-	for child in (_ui.get_children() if _ui != null else []):
-		if child is CanvasLayer:
-			(child as CanvasLayer).visible = false
 	if _camera is Camera3D:
 		# Real f-stop depth-of-field + exposure; applied only in trailer mode so gameplay exposure is untouched.
 		var cam_attr: CameraAttributesPhysical = CameraAttributesPhysical.new()
@@ -220,7 +239,7 @@ func _perf_probe(delta: float) -> void:
 		return
 	var window: int = mini(FPS_PROBE_FRAMES, maxi(30, pf / 2))
 	if _render_frame > pf - window and _render_frame <= pf:
-		var vp_rid: RID = get_viewport().get_viewport_rid()
+		var vp_rid: RID = shot_viewport().get_viewport_rid()
 		# The _process delta IS the frame period.
 		_frame_dt_accum += delta
 		_fps_accum += Engine.get_frames_per_second()
@@ -248,17 +267,8 @@ func _perf_probe(delta: float) -> void:
 ## The LocalAgentDemoHarness contract.
 func demo_report() -> Dictionary:
 	var report: Dictionary = LAVoxelHarness.build_report(self)
-	report["ui_nodes"] = _count_ui_nodes(get_tree().root)
+	report["ui_nodes"] = LAVoxelHarness.emit_presentation_census(get_tree().root)
 	return report
-
-
-func _count_ui_nodes(node: Node) -> int:
-	var n: int = 0
-	if node is Control or node is CanvasLayer:
-		n += 1
-	for child in node.get_children():
-		n += _count_ui_nodes(child)
-	return n
 
 
 # Sample transient emergent behaviours so a run can prove they occurred (not just at the final frame).
@@ -378,3 +388,4 @@ func _ensure_streamer_host() -> bool:
 	var streamer_client = llm.client() if llm != null and llm.is_available() else null
 	_streamer_host.setup(self, _ecology, _material, _input.streamer_persona(), _input.streamer_avatar_flavor(), streamer_client)
 	return true
+
